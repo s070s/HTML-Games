@@ -2203,7 +2203,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   const list = Hash.out.slice(0, n);
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
-    if (s.destroyed) continue;
+    if (s.destroyed || s === opts.excludeStruct) continue;
     const cx = clamp(x, s.x - s.hx, s.x + s.hx), cz = clamp(z, s.z - s.hz, s.z + s.hz), cy = clamp(y, s.y, s.y + s.h);
     const d = Math.hypot(cx - x, cy - y, cz - z);
     if (d >= radius) continue;
@@ -4516,12 +4516,12 @@ function projectileTargetPos(t, out) {
 const TMP_T = { x: 0, y: 0, z: 0 };
 const STRUCT_SPARK_COLOR = [1, 0.8, 0.5];
 
-function detonate(p, x, y, z, excludePlatform) {
+function detonate(p, x, y, z, excludePlatform, excludeStruct) {
   const d = p.def;
   p.active = false;
   if (d.blast > 0) {
     const dmg = d.blastDmg !== undefined ? d.blastDmg : d.dmg;
-    explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, structMult: d.structMult });
+    explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult });
   } else {
     fxSparks(x, y, z, 5, d.tracer, 10);
   }
@@ -4629,13 +4629,12 @@ function updateProjectiles(dt) {
       if (p.pierceLeft > 0) { p.pierceLeft--; (p.hitSet = p.hitSet || []).push(obj); continue; }
       detonate(p, hx, hy, hz, obj);
     } else if (kind === 'struct') {
-      if (d.blast <= 0) {
-        damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult);
-        if (p.owner === W.player) W.stats.hits++;
-        Snd.play('hitStruct', hx, hy, hz, 0.6);
-      }
+      // the struck structure takes the direct hit; the splash then spares it so it is not counted twice
+      damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult);
+      if (p.owner === W.player) W.stats.hits++;
+      if (d.blast <= 0) Snd.play('hitStruct', hx, hy, hz, 0.6);
       fxSparks(hx, hy, hz, 4, STRUCT_SPARK_COLOR, 12);
-      detonate(p, hx, hy, hz, null);
+      detonate(p, hx, hy, hz, null, obj);
     } else {
       if (d.blast <= 0) {
         for (let k = 0; k < 3; k++) FX.emit(hx, hy + 0.2, hz, rand(-2, 2), rand(1, 4), rand(-2, 2), 0.5, 0.8, 1.8, 0.55, 0.5, 0.42, 0.4, 2, 2, false);
@@ -7244,6 +7243,12 @@ const SelfTest = {
       this.check('raycast hits terrain', raycast(0, 500, 0, 0, -1, 0, 900, null, true).kind === 'terrain');
       this.check('raycast hits structure', (() => { const s2 = addStruct('barrier', 500, 0, {}); return raycast(450, s2.y + 1, 0, 1, 0, 0, 100, null, true).kind === 'struct'; })());
       this.check('groundBlocked sees structures', groundBlocked(300.2, 300.2, 1) === false && groundBlocked(500, 0, 1) === true);
+      // a blast weapon damages the structure it strikes directly, and its splash does not hit it again
+      const bar = addStruct('barrier', 600, 100, {}), bar0 = bar.hp;
+      spawnProjectile(b, w, { x: 593, y: bar.y + 1.5, z: 100 }, 1, 0, 0, 1);
+      for (let i = 0; i < 30; i++) updateProjectiles(1 / 60);
+      const direct = w.def.dmg * MATERIAL.concrete.kinetic * w.def.structMult;
+      this.check('blast weapon hits a structure directly, once', w.def.blast > 0 && this.near(bar0 - bar.hp, direct, 0.01), 'took ' + (bar0 - bar.hp) + ' expected ' + direct);
     });
     t('ai rules', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
