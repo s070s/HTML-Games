@@ -2242,7 +2242,7 @@ function newWorld(cfg) {
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
     stats: { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, score: 0, pickups: 0 },
     hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
-    msg(text) { this.msgL(text); if (Net.host) Net.bcast({ t: 'msg', text }); },
+    msg(text, snd) { this.msgL(text); if (snd) Snd.ui(snd); if (Net.host) Net.bcast(snd ? { t: 'msg', text, snd } : { t: 'msg', text }); },
     msgL(text) {
       const last = this.msgs[this.msgs.length - 1];
       if (last && last.text === text && this.time - last.t < 1.5) return;
@@ -3828,7 +3828,7 @@ class Platform {
   dryFire(w) {
     w.warned = true;
     if (w.reserve > 0 || (W.infiniteAmmo && this.team === 0)) this.startReload(w, false);
-    else if (W.player === this) { Snd.ui('empty'); W.msgL('OUT OF AMMO: ' + w.def.name); }
+    else notify(this, 'OUT OF AMMO: ' + w.def.name, 'empty');
   }
   muzzle(w, out) {
     const m = this.def.mounts[w.slot] || [0, this.height * 0.6, 1];
@@ -3854,7 +3854,7 @@ class Platform {
     if (d.kind !== 'beam') { w.clip--; }
     w.warned = false;
     this.heat += d.heat * (isBurst ? 0.5 : 1);
-    if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; if (W.player === this) { W.msgL('OVERHEAT: WEAPONS LOCKED'); Snd.ui('warn'); } }
+    if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; notify(this, 'OVERHEAT: WEAPONS LOCKED', 'warn'); }
     if (!isBurst || w.burstLeft <= 1) { if (d.fire !== 'burst') w.cd = this.fireCd(d); }
     if (d.fire === 'burst' && !isBurst) w.cd = this.fireCd(d);
     if (w.clip <= 0 && d.kind !== 'beam' && !(W.infiniteAmmo && this.team === 0)) this.startReload(w, false);
@@ -3930,7 +3930,7 @@ class Platform {
     const u = this.util, c = this.cmd;
     if (this.kind === 'air' && c.ejectEdge) {
       if (this.ejectArm > 0) { this.eject(); return; }
-      this.ejectArm = 1.6; if (W.player === this) W.msgL('PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: NO DEATH RECORDED)' : ' (HULL LOW: COUNTS AS A DEATH)'));
+      this.ejectArm = 1.6; notify(this, 'PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: NO DEATH RECORDED)' : ' (HULL LOW: COUNTS AS A DEATH)'));
     }
     if (!u) return;
     const ud = u.def;
@@ -3945,14 +3945,14 @@ class Platform {
         if (this.shieldOn) { this.energy -= ud.drain * dt; if (this.energyLock || this.shieldBroken > 0) this.shieldOn = false; }
         break;
       case 'aps':
-        if (c.defenseEdge) { u.auto = !u.auto; if (W.player === this) W.msgL('ACTIVE PROTECTION ' + (u.auto ? 'ARMED' : 'OFF')); }
+        if (c.defenseEdge) { u.auto = !u.auto; notify(this, 'ACTIVE PROTECTION ' + (u.auto ? 'ARMED' : 'OFF')); }
         if (u.charges < ud.charges) { u.rechargeT += dt; if (u.rechargeT >= ud.recharge) { u.rechargeT = 0; u.charges++; } } else u.rechargeT = 0;
         if (u.auto && u.charges > 0 && u.cd <= 0) this.apsScan(u);
         break;
       case 'repair':
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0 && this.hp < this.maxHp) {
-          u.charges--; u.cd = ud.cd; u.healLeft = this.maxHp * ud.heal; Snd.ui('repair');
-          if (W.player === this) W.msgL('REPAIR NANITES ACTIVE');
+          u.charges--; u.cd = ud.cd; u.healLeft = this.maxHp * ud.heal;
+          notify(this, 'REPAIR NANITES ACTIVE', 'repair');
         }
         if (u.healLeft > 0) {
           const h = Math.min(u.healLeft, this.maxHp * ud.heal / 5 * dt);
@@ -3980,7 +3980,7 @@ class Platform {
       u.charges--; u.cd = u.def.cd; p.active = false;
       explode(p.x, p.y, p.z, 2.2, 0, 'explosive', null);
       Snd.play('shieldHit', p.x, p.y, p.z, 1);
-      if (W.player === this) W.msgL('MISSILE INTERCEPTED');
+      notify(this, 'MISSILE INTERCEPTED');
       return;
     }
   }
@@ -3997,15 +3997,14 @@ class Platform {
       if (p.active && p.target === this && Math.random() < FLARE_SPOOF) p.target = decoy;
     }
     for (let i = 0; i < W.platforms.length; i++) { const e = W.platforms[i]; if (e.lock.target === this && Math.random() < 0.7) { e.lock.progress = 0; e.lock.state = 'none'; } }
-    if (W.player === this) W.msgL('FLARES AWAY (' + u.charges + ' LEFT)');
+    notify(this, 'FLARES AWAY (' + u.charges + ' LEFT)');
   }
   /* Ejecting with enough hull left is a tactical withdrawal: the platform is lost, but no death is recorded. */
   canWithdraw() { return this.hp >= this.maxHp * EJECT_SAFE_HULL; }
   eject() {
     if (this.dead) return;
     this.ejected = true; this.withdrew = this.canWithdraw();
-    notify(this, this.withdrew ? 'TACTICAL WITHDRAWAL: PLATFORM LOST, NO DEATH RECORDED' : 'EJECTED: PLATFORM LOST');
-    Snd.ui('eject');
+    notify(this, this.withdrew ? 'TACTICAL WITHDRAWAL: PLATFORM LOST, NO DEATH RECORDED' : 'EJECTED: PLATFORM LOST', 'eject');
     FX.emit(this.x, this.y + 2, this.z, 0, 14, 0, 1.2, 4, 1, 1, 0.9, 0.5, 0.9, 1, 0, true);
     this.destroy(null, 'eject');
   }
@@ -4051,7 +4050,7 @@ class Platform {
       this.shield -= ab; rem -= ab; this.shieldDelay = this.util ? this.util.def.regenDelay : 3;
       Snd.play('shieldHit', this.x, this.y, this.z, 0.8);
       FX.emit(this.x, this.y + this.height * 0.5, this.z, 0, 0, 0, 0.18, this.radius * 2.4, this.radius * 2.8, 0.3, 0.8, 1, 0.35, 0, 0, true);
-      if (this.shield <= 0) { this.shieldOn = false; this.shieldBroken = 3.5; Snd.play('shieldBreak', this.x, this.y, this.z, 1); if (W.player === this) W.msgL('SHIELD DOWN'); }
+      if (this.shield <= 0) { this.shieldOn = false; this.shieldBroken = 3.5; Snd.play('shieldBreak', this.x, this.y, this.z, 1); notify(this, 'SHIELD DOWN'); }
     }
     if (rem > 0 && this.armor > 0) {
       const eff = dtype === 'energy' ? 0.6 : dtype === 'explosive' ? 0.85 : 1;
@@ -4083,7 +4082,7 @@ class Platform {
     const names = ['weapons', 'mobility', 'sensors'];
     const name = names[Math.floor(Math.random() * 3)];
     this.sub[name] = 10 + Math.random() * 8;
-    if (W.player === this) { W.msgL('SUBSYSTEM FAILURE: ' + name.toUpperCase()); Snd.ui('warn'); }
+    notify(this, 'SUBSYSTEM FAILURE: ' + name.toUpperCase(), 'warn');
   }
   destroy(owner, cause) {
     if (this.dead) return;
@@ -4532,7 +4531,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.guide && owner.lock.state === 'locked' && owner.lock.target) p.target = owner.lock.target;
   else if (d.guide && owner.ai && owner.ai.target && talive(owner.ai.target) && owner.lock.state === 'locked') p.target = owner.lock.target;
   if (d.guide && !p.target) p.noGuide = true; else p.noGuide = false;
-  if (owner === W.player && d.guide && !p.target) W.msgL('NO LOCK: DUMB-FIRE');
+  if (d.guide && !p.target) notify(owner, 'NO LOCK: DUMB-FIRE');
 }
 
 function projectileTargetPos(t, out) {
@@ -4672,9 +4671,11 @@ function updateProjectiles(dt) {
   }
 }
 
-function notify(pl, text) {
-  if (pl === W.player) W.msgL(text);
-  else if (pl.netPeer) Net.sendTo(pl.netPeer, { t: 'msg', text });
+/* A message (and optional UI sound) for one player: shown locally, or relayed to that guest. */
+function notify(pl, text, snd) {
+  if (!pl) return;
+  if (pl === W.player) { W.msgL(text); if (snd) Snd.ui(snd); }
+  else if (pl.netPeer) Net.sendTo(pl.netPeer, snd ? { t: 'msg', text, snd } : { t: 'msg', text });
 }
 function updatePickups(dt) {
   if (!W.pickups.length) return;
@@ -4689,10 +4690,10 @@ function updatePickups(dt) {
       if (pl.kind === 'air' && pl.y - k.y > 28) continue;
       if (k.type === 'ammo') {
         ['primaryA', 'primaryB', 'secondary'].forEach((sl) => { const w = pl.wslots[sl]; if (w && w.def.kind !== 'beam') w.reserve = Math.min(w.def.reserve * 1.5, w.reserve + w.def.clip * 2); });
-        notify(pl, 'AMMUNITION RESUPPLIED');
-      } else if (k.type === 'repair') { pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.3); pl.armor = Math.min(pl.maxArmor, pl.armor + pl.maxArmor * 0.4); notify(pl, 'HULL REPAIRED'); }
-      else { pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false; notify(pl, 'ENERGY AND HEAT RESTORED'); }
-      if (pl === W.player) { W.stats.pickups++; Snd.ui('pickup'); }
+        notify(pl, 'AMMUNITION RESUPPLIED', 'pickup');
+      } else if (k.type === 'repair') { pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.3); pl.armor = Math.min(pl.maxArmor, pl.armor + pl.maxArmor * 0.4); notify(pl, 'HULL REPAIRED', 'pickup'); }
+      else { pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false; notify(pl, 'ENERGY AND HEAT RESTORED', 'pickup'); }
+      if (pl === W.player) W.stats.pickups++;
       W.pickups.splice(i, 1);
     }
   }
@@ -4717,8 +4718,7 @@ function tryResupply(pl) {
   GUN_SLOTS.forEach((sl) => { const w = pl.wslots[sl]; if (w) { w.clip = w.def.clip; w.reserve = Math.max(w.reserve, Math.round(w.def.reserve * ammoMult)); w.reloading = 0; } });
   pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.5); pl.armor = pl.maxArmor; pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false;
   if (pl.util) pl.util.charges = Math.max(pl.util.charges, pl.util.def.charges || 0);
-  if (pl === W.player) Snd.ui('repair');
-  notify(pl, 'RESUPPLIED' + (W.mode !== 'training' ? ' (' + W.resupplies + ' LEFT)' : ''));
+  notify(pl, 'RESUPPLIED' + (W.mode !== 'training' ? ' (' + W.resupplies + ' LEFT)' : ''), 'repair');
 }
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
@@ -5355,7 +5355,7 @@ const Obj = {
       tick(dt) {
         if (this.phase === 'survive') {
           this.elapsed += dt; this.progress = sat(this.elapsed / this.duration) * 0.5;
-          if (this.elapsed >= this.duration) { this.phase = 'extract'; W.msg('EXTRACTION POINT MARKED - MOVE'); Snd.ui('objective'); if (this.onExtract) this.onExtract(); }
+          if (this.elapsed >= this.duration) { this.phase = 'extract'; W.msg('EXTRACTION POINT MARKED - MOVE', 'objective'); if (this.onExtract) this.onExtract(); }
         } else {
           const p = W.player, z = this.zone;
           const inside = p && !p.dead && Math.hypot(p.x - z.x, p.z - z.z) < z.r && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < 120);
@@ -5422,15 +5422,14 @@ class Mission {
     for (const o of this.objectives) {
       if (o.status === 'inactive' && o.deps.every((d) => { const x = this.get(d); return x && x.status === 'complete'; })) {
         o.status = 'active';
-        if (this.time > 1) { W.msg('NEW OBJECTIVE: ' + o.title.toUpperCase()); Snd.ui('objective'); }
+        if (this.time > 1) W.msg('NEW OBJECTIVE: ' + o.title.toUpperCase(), 'objective');
         if (o.onActivate) o.onActivate(this);
       }
       if (o.status === 'active') {
         const before = o.status;
         o.tick(1 / 60);
         if (before !== o.status) {
-          Snd.ui(o.status === 'complete' ? 'objective' : 'warn');
-          W.msg((o.status === 'complete' ? 'OBJECTIVE COMPLETE: ' : 'OBJECTIVE FAILED: ') + o.title.toUpperCase());
+          W.msg((o.status === 'complete' ? 'OBJECTIVE COMPLETE: ' : 'OBJECTIVE FAILED: ') + o.title.toUpperCase(), o.status === 'complete' ? 'objective' : 'warn');
           if (o.onComplete && o.status === 'complete') o.onComplete(this);
         }
       }
@@ -5642,12 +5641,12 @@ const MISSIONS = [
             bomber.leaked = true; bomber.dead = true;
             const d = depots[Math.floor(Math.random() * depots.length)];
             explode(d.x, d.y + 4, d.z, 18, 300, 'explosive', null);
-            W.msg('BOMBER LEAKED: BASE DAMAGED'); Snd.ui('alarm');
+            W.msg('BOMBER LEAKED: BASE DAMAGED', 'alarm');
           };
           bombers.push(b);
         }
         if (escorts) spawnGroup(escorts, edge[0], edge[1] + 120, { y: 140, radius: 5, exact: true });
-        W.msg('BOMBER WAVE ' + (n + 1) + ' DETECTED'); Snd.ui('alarm');
+        W.msg('BOMBER WAVE ' + (n + 1) + ' DETECTED', 'alarm');
         if (n === 2) { ob.spawnedAll = true; m.get('clean').spawnedAll = true; }
       };
       m.at(8, () => mkWave(0, null)); m.at(75, () => mkWave(1, ['jet', 'jet'])); m.at(145, () => mkWave(2, ['jet', 'jet', 'jet']));
@@ -5755,7 +5754,7 @@ function skirmishDef(cfg) {
         const us = spawnGroup(w.list, cx, cz, { radius: 70, minPlayerDist: 220 });
         us.forEach((u) => { ob.units.push(u); if (u.ai && u.kind !== 'air') u.ai.goal = { x: W.player ? W.player.x : 0, z: W.player ? W.player.z : 0 }; });
         idx++; ob.waveNo = idx;
-        W.msg('WAVE ' + idx + ' OF ' + waves.length + ' INBOUND'); Snd.ui('alarm');
+        W.msg('WAVE ' + idx + ' OF ' + waves.length + ' INBOUND', 'alarm');
         if (idx >= waves.length) ob.spawnedAll = true;
       };
       m.at(3, spawnWave);
@@ -7390,6 +7389,19 @@ const SelfTest = {
       tryResupply(pl);
       this.check('resupply never lowers ammunition', w.reserve === w.def.reserve * 1.5 && w.clip === w.def.clip);
     });
+    t('notifications', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const pl = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      const mate = new Platform(PLATFORMS.bulwark, { team: 0, x: 20, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      const sent = [];
+      mate.netPeer = { tx: (s) => sent.push(JSON.parse(s)) };
+      W.platforms.push(pl, mate); W.player = pl;
+      mate.failSubsystem();
+      this.check('a guest gets its own warning and sound', sent.length === 1 && sent[0].t === 'msg' && sent[0].text.indexOf('SUBSYSTEM FAILURE') === 0 && sent[0].snd === 'warn' && W.msgs.length === 0);
+      pl.failSubsystem();
+      this.check('the local player sees its own warning', W.msgs.length === 1 && sent.length === 1);
+    });
     t('missions', () => {
       const lost = new Mission({ id: 'test' }, {});
       lost.add(Obj.noDeaths({ id: 'nd', title: 'No deaths' })); lost.add(Obj.timeBound({ id: 'tb', title: 'Fast', limit: 60 }));
@@ -7655,7 +7667,7 @@ const Net = {
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: String(m.text).substring(0, 60), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
-      case 'msg': if (W) W.msgL(String(m.text).substring(0, 80)); break;
+      case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) W.hitMarker = 0.25; break;
       case 'k': if (W) W.killMarker = 0.6; break;
       case 'd': if (W) { W.dmgDirs.push({ ang: numIn(m.a, -7, 7), t: 1.6 }); W.flash = 0.25; W.shake = Math.min(1, W.shake + Math.min(0.4, numIn(m.v, 0, 1000) * 0.004)); } break;
@@ -7932,7 +7944,9 @@ const Net = {
     SLOT_ORDER.forEach((s, i) => { const w = gp.wslots[s], a = me.w[i]; if (w && a) { w.clip = a[0]; w.reserve = a[1]; w.cd = a[2]; w.reloading = a[3]; w.charge = a[4]; } });
     gp.activeSlot = SLOT_ORDER[me.as] || 'primaryA';
     if (gp.util && me.u) { gp.util.charges = me.u[0]; gp.util.cd = me.u[1]; gp.util.auto = !!me.u[2]; }
-    gp.lock.state = LOCK_STATES[me.lk[0]] || 'none'; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = me.lk[3] ? (this.map[me.lk[3]] || null) : null;
+    const lockState = LOCK_STATES[me.lk[0]] || 'none';
+    if (lockState === 'locked' && gp.lock.state !== 'locked') Snd.ui('lockDone');
+    gp.lock.state = lockState; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = me.lk[3] ? (this.map[me.lk[3]] || null) : null;
     gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl;
     gp.warnIncoming = gp.netInc = { count: me.inc[0], dist: me.inc[1] }; gp.crouch = !!me.cr; gp.radarFocus = !!me.rf; gp.airbrake = !!me.abk;
     W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2];
@@ -7940,6 +7954,7 @@ const Net = {
   applyObjectives(m) {
     const ms = Game.mission;
     if (!ms || !Array.isArray(m.o)) return;
+    if (ms.state === 'running' && (m.st === 'won' || m.st === 'lost')) Snd.ui(m.st === 'won' ? 'success' : 'fail');
     ms.time = m.T; ms.limit = m.L; ms.state = m.st; ms.failReason = m.why || '';
     const byId = {};
     ms.objectives.forEach((o) => { byId[o.id] = o; });
