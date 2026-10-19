@@ -8082,6 +8082,32 @@ const SelfTest = {
       }
       return r;
     });
+    test('Gamepads: P1 keeps a lone pad outside Versus; in Versus it plays P2, two pads split, and rumble reaches only the hurt player', () => {
+      const calls = [];
+      const pad = (id) => ({ id, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: [], vibrationActuator: { playEffect: () => { calls.push(id); return Promise.resolve(); } } });
+      const one = [pad('a')], two = [pad('a'), null, pad('b')];
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), versus = Inputs.versus, reduced = Settings.v.reducedMotion;
+      const devices = Inputs.players.map((p) => p.lastDevice), indexes = Inputs.players.map((p) => p.padIndex);
+      let r;
+      try {
+        Inputs.versus = false;
+        const solo = Inputs.padFor(0, one) === 0 && Inputs.padFor(1, two) === -1;
+        Inputs.versus = true;
+        const lone = Inputs.padFor(0, one) === -1 && Inputs.padFor(1, one) === 0;
+        const split = Inputs.padFor(0, two) === 0 && Inputs.padFor(1, two) === 2;
+        Object.defineProperty(navigator, 'getGamepads', { value: () => two, configurable: true });
+        Input.lastDevice = Input2.lastDevice = 'gamepad'; Input.padIndex = 0; Input2.padIndex = 2; Settings.v.reducedMotion = false;
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; });   // P1 hits P2
+        self.place(m, 1.2); self.run(m, 40);
+        const p2Felt = calls.length >= 1 && calls.every((id) => id === 'b');
+        r = solo && lone && split && p2Felt ? true : JSON.stringify({ solo, lone, split, calls });
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Inputs.versus = versus; Settings.v.reducedMotion = reduced;
+        Inputs.players.forEach((p, i) => { p.lastDevice = devices[i]; p.padIndex = indexes[i]; });
+      }
+      return r;
+    });
     test('A clinch strike that knocks out sends the KO flag with the hit', () => {
       const m = mk({});
       self.place(m, 0.8);
@@ -8133,6 +8159,44 @@ const SelfTest = {
       if (raw === null) Store.remove(KEY_BINDINGS); else Store.set(KEY_BINDINGS, raw);
       Keymap.bindings = JSON.parse(keep); Input.rebuildMap();
       return unique && complete && escape ? true : 'unique ' + unique + ' complete ' + complete + ' escape ' + escape;
+    });
+    test('Versus: P2 keys never move P1, P1 keys never move P2, P1 loses its spare arrows only in Versus', () => {
+      const keep = Settings.v.movement;
+      Settings.v.movement = 'opponent';
+      const key = (code, down) => { const e = { code, repeat: false, preventDefault() {} }; if (down) Inputs.onKeyDown(e); else Inputs.onKeyUp(e); };
+      const f1 = new Fighter(ROSTER_BY_ID.kai, 0), f2 = new Fighter(ROSTER_BY_ID.mara, 1), it1 = makeIntent(), it2 = makeIntent();
+      const read = () => { Inputs.update(); Input.fillIntent(it1, f1, f2); Input2.fillIntent(it2, f2, f1); };
+      Inputs.setVersus(true);
+      key('ArrowUp', true); key('Numpad4', true); read();
+      const p2Only = it2.fwd > 0 && it2.lp && it1.fwd === 0 && !it1.lp;
+      key('ArrowUp', false); key('Numpad4', false); key('KeyW', true); key('KeyJ', true); read();
+      const p1Only = it1.fwd > 0 && it1.lp && it2.fwd === 0 && !it2.lp;
+      key('KeyW', false); key('KeyJ', false);
+      const versusMap = !Input.codeMap.has('ArrowUp') && Input2.codeMap.get('ArrowUp') === 'up';
+      Inputs.setVersus(false);
+      key('ArrowUp', true); read();
+      const soloArrows = it1.fwd > 0 && Input.codeMap.get('ArrowUp') === 'up';
+      key('ArrowUp', false);
+      Inputs.releaseAll(); Inputs.reset(); Settings.v.movement = keep;
+      return p2Only && p1Only && versusMap && soloArrows ? true : JSON.stringify({ p2Only, p1Only, versusMap, soloArrows });
+    });
+    test('P2 key bindings: no key is shared with P1, P2 gives way when P1 takes a key back', () => {
+      const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings));
+      const p1Spares = ACTIONS.filter((a) => a !== 'pause').map((a) => DEFAULT_KEYS[a][1]).filter(Boolean);
+      const p1Keys = ACTIONS.reduce((acc, a) => acc.concat(DEFAULT_KEYS[a]), []).filter((c) => !p1Spares.includes(c));
+      const defaults = ACTIONS.every((a) => DEFAULT_KEYS_P2[a].every((c) => !p1Keys.includes(c)));
+      const a = Keymap2.rebind('lp', 'KeyJ'), b = Keymap.rebind('lp', 'Numpad5'), c = Keymap2.rebind('lp', 'Escape'), d = Keymap2.rebind('lp', 'KeyH');
+      Keymap.rebind('lp', 'KeyN'); Keymap2.rebind('rp', 'KeyJ');       // J is free once P1 moves off it
+      Keymap.resetAll();                                                 // P1 takes J back: P2's right punch moves
+      const gaveWay = Keymap.bindings.lp[0] === 'KeyJ' && Keymap2.bindings.rp[0] !== 'KeyJ';
+      Store.set(KEY_BINDINGS_P2, JSON.stringify({ revision: KEYS_REVISION, lp: ['KeyJ'], rp: ['Numpad5', 'Numpad5'], pause: ['Escape'] }));
+      Keymap2.init();
+      const all = ACTIONS.reduce((acc, x) => acc.concat(Keymap2.bindings[x]), []);
+      const repaired = !all.includes('KeyJ') && !all.includes('Escape') && new Set(all).size === all.length && ACTIONS.every((x) => Keymap2.bindings[x].length >= 1);
+      raw.forEach((value, i) => { const storeKey = KEYMAPS[i].storeKey; if (value === null) Store.remove(storeKey); else Store.set(storeKey, value); });
+      KEYMAPS.forEach((k, i) => { k.bindings = JSON.parse(keep[i]); });
+      Inputs.rebuildMaps();
+      return defaults && !a.ok && !b.ok && !c.ok && d.ok && gaveWay && repaired ? true : JSON.stringify({ defaults, a: a.ok, b: b.ok, c: c.ok, d: d.ok, gaveWay, repaired });
     });
     test('Settings are clamped and corrupted values fall back', () => {
       return Settings.validate('master', 5) === 1 && Settings.validate('master', 'abc') === SETTING_DEFS.master.def && Settings.validate('quality', 'ultra') === 'auto' && Settings.validate('reducedMotion', 'yes') === false ? true : 'validation failed';
@@ -8384,6 +8448,46 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
+    });
+    test('Mirror matches: the second fighter wears distinct colours; Arcade and Survival never mirror', () => {
+      const plain = [];
+      for (const r of ROSTER) {
+        const m = mk({ playerId: r.id, opponentId: r.id });
+        const c0 = m.fighters[0].lk.colors, c1 = m.fighters[1].lk.colors;
+        if (!['shorts', 'glove', 'shoe', 'accent'].every((k) => c0[k] !== c1[k]) || c0.skin !== c1.skin) plain.push(r.id);
+        m.dispose();
+      }
+      const free = Game.opponentChoices('kai', true).some((r) => r.id === 'kai');
+      const ladders = !Game.opponentChoices('kai').some((r) => r.id === 'kai') && !Game.opponentsFor('kai').some((r) => r.id === 'kai');
+      return !plain.length && free && ladders ? true : JSON.stringify({ plain, free, ladders });
+    });
+    test('Versus: two player controllers and no AI, either player pauses, the session score counts wins and survives a rematch', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.chooseMode('versus');
+      const p2Reads = Inputs.versus;
+      Game.selection.player = 'kai'; Game.selection.player2 = 'kai';
+      Game.startFromSelection();
+      const m = Game.match;
+      const humans = m.controllers[0] === PlayerController && m.controllers[1] === Player2Controller && !m.controllers.some((c) => c instanceof AIController || c instanceof DummyController);
+      Input2.press('pause'); Game.pollMatchInput();
+      const p2Pause = Game.state === GS.PAUSED;
+      Game.resume();
+      const endAs = (winner) => { Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = winner; Game.onMatchEnd(); Game.state = GS.RESULTS; };
+      endAs(1);
+      const first = Game.versus.score.join() === '0,1';
+      UI.go('results');
+      const text = UI.dom.screens.textContent;
+      const named = text.includes('P2 wins') && text.includes('Session score') && text.includes('Rematch') && text.includes('Change fighters');
+      Game.resultsAction('again');
+      const rematch = Game.match.versus && Game.match.cfg.opponentId === 'kai' && Game.versus.score.join() === '0,1';
+      endAs(0);
+      const second = Game.versus.score.join() === '1,1';
+      Game.quitToMenu();
+      const cleared = Game.versus === null && !Inputs.versus;
+      restoreProgress(saved);
+      const ok = p2Reads && humans && p2Pause && first && named && rematch && second && cleared;
+      return ok ? true : JSON.stringify({ p2Reads, humans, p2Pause, first, named, rematch, second, cleared });
     });
     test('Survival: every lap meets the whole roster in a new order, later wins keep raising the pressure', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
