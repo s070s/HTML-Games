@@ -5555,6 +5555,8 @@ const Game = {
   restartMatch() {
     if (!this.config) return;
     if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
+    // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
+    if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); this.run.continues++; this.startArcade(this.run.stage, true); return; }
     this.beginMatch(Object.assign({}, this.config));
   },
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
@@ -6700,10 +6702,11 @@ const UI = {
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="selftest">Run self-test</button></div><pre id="selftestOut" style="white-space:pre-wrap;font-size:.8em;max-height:14em;overflow:auto"></pre></div></section>';
   },
   screen_pause() {
-    const m = Game.match;
+    const m = Game.match, mode = Game.run ? Game.run.mode : '';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.55)" aria-label="Paused"><div class="panel"><h2>Paused</h2><nav>' +
       '<button class="mi" data-nav data-default data-act="resume">Resume</button>' +
-      (Game.run && Game.run.mode === 'survival' ? '<button class="mi" data-nav data-act="restart">Abandon run<small>Your record is kept; a new run starts</small></button>' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
+      (mode === 'survival' ? '<button class="mi" data-nav data-act="restart">Abandon run<small>Your record is kept; a new run starts</small></button>' :
+        mode === 'arcade' ? '<button class="mi" data-nav data-act="restart">Retry (uses a continue)<small>Counts as a loss</small></button>' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
     if (m && m.training) {
       h += this.optRow('Dummy', DUMMY_LABEL[m.cfg.dummy], 'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
@@ -8599,6 +8602,21 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return levels && shifted && cleared && fresh ? true : JSON.stringify({ levels, shifted, cleared, fresh });
+    });
+    test('Arcade: a retry from the pause menu uses a continue and counts as a loss', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Progress.d = Progress.fresh();
+      Game.selection.player = 'kai';
+      Game.chooseMode('arcade'); Game.startFromSelection();
+      winAndContinue('next');
+      Game.state = GS.FIGHT; Game.pause();
+      const labelled = UI.dom.screens.textContent.includes('Retry (uses a continue)');
+      Game.restartMatch();
+      const charged = Game.run.stage === 1 && Game.run.continues === 1 && Progress.d.losses === 1 && Progress.d.wins === 1;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return labelled && charged ? true : JSON.stringify({ labelled, charged });
     });
     /* ----- character creator ----- */
     const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), slots: CustomRoster.slots.slice() });
