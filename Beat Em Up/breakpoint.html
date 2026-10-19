@@ -6138,7 +6138,7 @@ const UI = {
   screen_creator() { return CreatorUI.render(); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
   rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
-  listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0,
+  listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null,
 
   init() {
     for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
@@ -6756,10 +6756,12 @@ const UI = {
   /* ----- gamepad menu navigation ----- */
   update() {
     this.frameCount++;
+    const pauseShown = this.lastScreen === 'pause';   // a press that led back to the pause screen (Esc in Controls) must not also close it
+    this.lastScreen = this.current;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
     if (!this.current || Inputs.captureCallback) return;
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
-    if (unpause && this.current === 'pause' && performance.now() > this.guardUntil) { Game.resume(); return; }
+    if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
     const ok = !!(ph.lk), back = !!(ph.rk);
     if (pd.down && !p.down) this.moveFocus(1);
@@ -8500,6 +8502,28 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
+    });
+    test('Pause: Esc or a pause press that leaves Controls or Settings lands on the pause screen; a later press resumes', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.chooseMode('free'); Game.startFromSelection();
+      const render = Game.render; Game.render = () => {};
+      let now = performance.now();
+      const frame = () => { now += 16.7; Game.frame(now); };
+      const key = (code) => { window.dispatchEvent(new KeyboardEvent('keydown', { code })); window.dispatchEvent(new KeyboardEvent('keyup', { code })); };
+      Game.pause(); frame();
+      UI.push('controls'); frame();
+      UI.guardUntil = 0; key('Escape'); frame(); frame();
+      const fromControls = Game.state === GS.PAUSED && UI.current === 'pause';
+      UI.push('settings'); frame();
+      Input.press('pause'); UI.back(); frame(); frame();
+      const fromSettings = Game.state === GS.PAUSED && UI.current === 'pause';
+      Input.press('pause'); frame();
+      const resumed = Game.state === GS.COUNTDOWN;
+      Game.render = render;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return fromControls && fromSettings && resumed ? true : JSON.stringify({ fromControls, fromSettings, resumed });
     });
     test('Mirror matches: the second fighter wears distinct colours; Arcade and Survival never mirror', () => {
       const plain = [];
