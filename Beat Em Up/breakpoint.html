@@ -619,13 +619,13 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, strong: false, height: false,
     jump: false, lp: false, rp: false, lk: false, rk: false, grapple: false, dash: false, stance: false,
-    sidestep: 0, grapDir: 'fwd', pause: false,
+    sidestep: 0, grapDir: 'fwd', pause: false, noParry: false,
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.blockH = false; it.blockL = false;
   it.strong = false; it.height = false; it.jump = false; it.lp = false; it.rp = false; it.lk = false; it.rk = false;
-  it.grapple = false; it.dash = false; it.stance = false; it.sidestep = 0; it.grapDir = 'fwd'; it.pause = false;
+  it.grapple = false; it.dash = false; it.stance = false; it.sidestep = 0; it.grapDir = 'fwd'; it.pause = false; it.noParry = false;
   return it;
 }
 
@@ -3050,6 +3050,7 @@ class Fighter {
     const moving = mag > 0.12;
     if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0) ? S.RUN : S.WALK;
     this.to(target);
+    if (it.noParry) this.blockFresh = false;   // a CPU block it chose not to time as a parry
     let speed = 0, mul = 1;
     if (target === S.CROUCH) mul = CROUCH_FACTOR; else if (isBlockState(target)) mul = BLOCK_FACTOR;
     if (target === S.RUN) {
@@ -4314,13 +4315,18 @@ const CustomRoster = {
    delayed by its reaction time. It never reads the opponent's controller input.
    ===================================================================== */
 const DIFFICULTY = {
-  easy: { id: 'easy', label: 'Easy', react: 26, interval: 22, blockSkill: 0.22, punish: 0.15, counter: 0.1, mistakes: 0.32, aggression: 0.6, heavy: 0.15, grab: 0.05, escape: 0.2, adapt: 0, sidestep: 0, lockout: 18, env: false },
-  normal: { id: 'normal', label: 'Normal', react: 17, interval: 14, blockSkill: 0.5, punish: 0.45, counter: 0.3, mistakes: 0.14, aggression: 0.85, heavy: 0.3, grab: 0.12, escape: 0.4, adapt: 0.1, sidestep: 0.15, lockout: 11, env: false },
-  hard: { id: 'hard', label: 'Hard', react: 11, interval: 9, blockSkill: 0.75, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true },
-  expert: { id: 'expert', label: 'Expert', react: 7, interval: 6, blockSkill: 0.9, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true },
+  easy: { id: 'easy', label: 'Easy', react: 18, interval: 22, blockSkill: 0.22, parry: 0.02, punish: 0.15, counter: 0.1, mistakes: 0.32, aggression: 0.6, heavy: 0.15, grab: 0.05, escape: 0.2, adapt: 0, sidestep: 0, lockout: 18, env: false },
+  normal: { id: 'normal', label: 'Normal', react: 13, interval: 14, blockSkill: 0.5, parry: 0.08, punish: 0.45, counter: 0.3, mistakes: 0.14, aggression: 0.85, heavy: 0.3, grab: 0.12, escape: 0.4, adapt: 0.1, sidestep: 0.15, lockout: 11, env: false },
+  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true },
+  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true },
 };
-const AI_GRAB_APPROACH = 2.1;
-const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape skill x this    // distance from which an AI may walk in for a grab
+/* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
+   parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks. */
+const AI_HEIGHT_READ = 4;        // ticks into a strike before its height (high / mid / low) can be told apart
+const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a grab
+const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
+const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
+const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape skill x this
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
 const AI_MOVES = ALL_MOVES.filter((m) => !m.ctx && m.type === 'strike');
@@ -4336,7 +4342,7 @@ class AIController {
   reset() {
     this.head = 0; this.count = 0; this.plan = null; this.nextDecision = 0; this.lastMoves = [];
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
-    this.threatId = -1; this.threatResp = null; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
+    this.threatId = -1; this.threatResp = null; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.lockout = 0; this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.mode = 'neutral'; this.clinchPlan = null; this.tickNo = 0;
   }
   observe(f, opp) {
@@ -4392,6 +4398,7 @@ class AIController {
     const snap = this.delayed(d.react);
     if (this.lockout > 0) this.lockout--;
     if (!f.alive || TERMINAL_STATES.includes(f.state)) return it;
+    if (f.state !== S.GRAPPLE) this.clinchPlan = null;   // every clinch gets a fresh plan
     // reactions to the clinch and getting up
     if (f.state === S.CLINCH) return this.thinkClinched(f, opp, it, snap);
     if (f.state === S.GRAPPLE) return this.thinkGrapple(f, opp, match, it);
@@ -4402,10 +4409,13 @@ class AIController {
 
     // 1. reactive defence against attacks seen (with delay)
     this.reactToThreat(f, opp, snap, it);
-    if (this.threatResp && this.threatResp.until > this.tickNo && f.state !== S.ATTACK) {
-      it.blockH = this.threatResp.kind === 'block' && this.threatResp.h !== 'L';
-      it.blockL = this.threatResp.kind === 'block' && this.threatResp.h === 'L';
-      if (this.threatResp.kind === 'sidestep' && !this.threatResp.done) { this.threatResp.done = true; it.sidestep = simRng() < 0.5 ? -1 : 1; }
+    const tr = this.threatResp;
+    if (tr && tr.until > this.tickNo && f.state !== S.ATTACK) {
+      if (tr.kind === 'block' && !tr.read && snap.moveId === tr.id && snap.moveTick >= AI_HEIGHT_READ) { tr.read = true; tr.h = snap.mvH; }   // the strike's line is visible now
+      it.blockH = tr.kind === 'block' && tr.h !== 'L';
+      it.blockL = tr.kind === 'block' && tr.h === 'L';
+      it.noParry = tr.kind === 'block' && !tr.parry;
+      if (tr.kind === 'sidestep' && !tr.done) { tr.done = true; it.sidestep = simRng() < 0.5 ? -1 : 1; }
       return it;
     }
     // 2. counter-attack after a successful block
@@ -4433,16 +4443,17 @@ class AIController {
 
   reactToThreat(f, opp, snap, it) {
     const d = this.d;
-    const incoming = snap.state === S.ATTACK && snap.mvType === 'strike' && snap.moveTick <= snap.startup + 1 && snap.dist <= snap.mvReach + 1.0;
+    const incoming = snap.state === S.ATTACK && (snap.mvType === 'strike' || snap.mvType === 'grab') && snap.moveTick <= snap.startup + 1 && snap.dist <= snap.mvReach + 1.0;
     if (!incoming || snap.moveId === this.threatId) return;
     this.threatId = snap.moveId;
     const roll = simRng();
     const hold = snap.startup + snap.active - snap.moveTick + d.react + 8;
     if (this.profile && f.state !== S.ATTACK && f.lock === 0) {
-      if (roll < d.blockSkill) {
-        let h = snap.mvH;
-        if (d.adapt > 0 && simRng() < d.adapt) { const lows = this.oppRecent.filter((x) => x === 'L').length; if (lows > this.oppRecent.length * 0.5 && h !== 'L') h = 'M'; }
-        this.threatResp = { kind: 'block', h, until: this.tickNo + hold, done: false };
+      if (snap.mvType === 'grab') {
+        // too fast to dodge on reaction (startup ~9 vs react >= 8), but a grab seen coming is broken at the first legal tick
+        if (roll < d.blockSkill * 0.5) this.breakGrabId = snap.moveId;
+      } else if (roll < d.blockSkill) {
+        this.threatResp = { kind: 'block', h: this.guessHeight(), id: snap.moveId, read: false, parry: simRng() < d.parry, until: this.tickNo + hold, done: false };
         this.plan = null;
       } else if (roll < d.blockSkill + d.sidestep * 0.5 && snap.mvWidth < 0.5 && f.stam > 10) {
         this.threatResp = { kind: 'sidestep', h: snap.mvH, until: this.tickNo + 6, done: false };
@@ -4450,9 +4461,14 @@ class AIController {
       }
     }
   }
+  /* Too early to see where a strike goes: guard high (covers high and mid), or low once this AI has learned the opponent mostly attacks low. */
+  guessHeight() {
+    const lows = this.oppRecent.filter((h) => h === 'L').length;
+    return lows * 2 > this.oppRecent.length && simRng() < this.d.adapt ? 'L' : 'H';
+  }
   checkPunish(f, opp, snap, dist) {
     const d = this.d;
-    if (!(snap.state === S.ATTACK && snap.mvType === 'strike')) return null;
+    if (!(snap.state === S.ATTACK && (snap.mvType === 'strike' || snap.mvType === 'grab'))) return null;   // a grab still in ATTACK after its active ticks has whiffed
     const remaining = snap.total - snap.moveTick;
     if (snap.moveTick <= snap.startup + snap.active || remaining < 7) return null;
     if (this.punishId !== snap.moveId) { this.punishId = snap.moveId; this.punishYes = simRng() < d.punish; }
@@ -4526,7 +4542,7 @@ class AIController {
     if (dist < pref - 0.25 || low) add((clamp(pref - dist, 0, 2) * 1.2 + (low ? 1.6 : 0.1)) * (1.2 - aggr * 0.4), cornered ? { kind: 'circle', ticks: interval, side: simRng() < 0.5 ? -1 : 1, hold: true } : { kind: 'walk', ticks: interval, away: true, run: false });
     if (Math.abs(dist - pref) < 0.9) add(0.15 + st.circle * 0.9 * (d.id === 'easy' ? 0.4 : 1), { kind: 'circle', ticks: interval + 4, side: simRng() < 0.5 ? -1 : 1, hold: true });
     if (dist < pref + 0.9 && !low) add(0.12 + st.defend * 0.5 * d.blockSkill, { kind: 'guard', ticks: interval + 4, low: simRng() < 0.3 });
-    if (low) add(0.9, { kind: 'guard', ticks: interval + 8, low: false });
+    if (low) add(0.3, { kind: 'guard', ticks: interval + 8, low: false });   // blocking drains stamina too: a tired AI mostly backs off
     // attacks
     if (!low || snap.state === S.STAGGER) {
       const mv = this.pickMove(f, opp, snap, dist, false);
@@ -4534,13 +4550,13 @@ class AIController {
     }
     // grapple (also towards scenery for harder AIs)
     // grapple: close in from mid range, then grab (low grab against a crouching or low-blocking opponent)
-    if (dist < AI_GRAB_APPROACH && snap.y < 0.3 && f.stam > 18) {
+    if (dist < AI_GRAB_APPROACH && snap.y < 0.3 && f.stam > f.maxStam * AI_GRAB_STAMINA) {
       let g = st.grab * d.grab * 6 + (snap.state === S.BLOCK_H || snap.state === S.BLOCK_L ? 1.0 : 0);
       const lowGrab = snap.state === S.CROUCH || snap.state === S.BLOCK_L;
       let dir = 'fwd';
       if (d.env) {
         const target = this.throwTarget(f, opp);
-        if (target) { dir = target.dir; g += 0.8; }
+        if (target) { dir = target.dir; g += AI_THROW_TARGET_BONUS; }
       }
       add(g, { kind: 'grab', ticks: d.lockout + 8 + (dist > 1.3 ? 12 : 0), dir, low: lowGrab });
     }
@@ -4635,6 +4651,7 @@ class AIController {
   thinkClinched(f, opp, it, snap) {
     const d = this.d;
     if (f.clinchTick < escapeStartFor(f) + 1 || f.escapeLock > 0) return it;
+    if (this.breakGrabId === opp.moveId) { this.breakGrabId = -1; it.grapple = true; return it; }
     const tp = opp.throwPending;
     if (tp) {
       // read each throw once: a hit means a timed escape press inside the window, a miss means no press
@@ -7325,6 +7342,36 @@ const SelfTest = {
       let easy = 0, expert = 0;
       for (const s of [3, 4, 5]) { easy += trial('easy', s) / 3; expert += trial('expert', s) / 3; }
       return expert > easy + 0.3 ? true : 'easy ' + easy.toFixed(2) + ' expert ' + expert.toFixed(2);
+    });
+    test('AI reaction blocks are only sometimes perfect blocks', () => {
+      const log = self.capture(['block']);
+      for (const seed of [3, 4, 5]) {
+        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 60 === 20 && f.state === S.IDLE) it.rp = true; });
+        const ai = new AIController(ROSTER_BY_ID.kai, 'expert');
+        ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 0, counter: 0, sidestep: 0 });
+        m.controllers[1] = ai;
+        self.place(m, 1.2);
+        for (let i = 0; i < 1600; i++) { m.step(); if (m.fighters[0].state === S.IDLE) { m.fighters[0].x = m.fighters[1].x - 1.2; m.fighters[0].prevX = m.fighters[0].x; } }
+        m.dispose();
+      }
+      log.stop();
+      const blocks = log.block.filter((b) => b.def.index === 1), perfect = blocks.filter((b) => b.perfect).length;
+      return blocks.length >= 20 && perfect / blocks.length < 0.6 ? true : 'blocks ' + blocks.length + ' perfect ' + perfect;
+    });
+    test('AI adapt guards low only against a mostly-low opponent', () => {
+      const ai = new AIController(ROSTER_BY_ID.kai, 'expert');
+      const guess = (adapt, recent) => { ai.d = Object.assign({}, DIFFICULTY.expert, { adapt }); ai.oppRecent = recent; return ai.guessHeight(); };
+      const lowReader = guess(1, ['L', 'L', 'M', 'L']) === 'L', mixed = guess(1, ['L', 'H', 'M']) === 'H', naive = guess(0, ['L', 'L', 'L']) === 'H', fresh = guess(1, []) === 'H';
+      return lowReader && mixed && naive && fresh ? true : JSON.stringify({ lowReader, mixed, naive, fresh });
+    });
+    test('AI punishes a whiffed grab', () => {
+      const log = self.capture(['hit']);
+      const m = mk({ seed: 7 }, once(2, 'grapple'));
+      const ai = new AIController(ROSTER_BY_ID.kai, 'expert');
+      ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 1 });
+      m.controllers[1] = ai;
+      self.place(m, 1.75); self.run(m, 60); log.stop();
+      return log.hit.some((h) => h.def.index === 0) ? true : 'whiffed grab went unpunished';
     });
     test('AI routes around an obstacle', () => {
       const m = mk({ arenaId: 'warehouse' });
