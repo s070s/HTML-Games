@@ -3519,8 +3519,8 @@ class Platform {
     // target speed
     let tgt;
     if (this.grounded) tgt = this.throttle > 0.08 ? this.throttle * a.max * 0.7 : 0;
-    else tgt = lerp(a.min * 1.2, a.max, this.throttle);
-    if (this.afterburner) tgt = a.ab;
+    else tgt = lerp(a.min * 1.2, a.max * this.speedMult, this.throttle);   // payload weight lowers top and afterburner speed
+    if (this.afterburner) tgt = a.ab * this.speedMult;
     if (this.airbrake) tgt = this.grounded ? 0 : Math.max(stallSpeed * 1.05, tgt * 0.5);
     if (this.gear && !this.grounded) tgt *= 0.92;
     if (!this.grounded) tgt -= Math.sin(this.pitch) * 55;
@@ -5195,7 +5195,7 @@ function spawnUnit(archKey, x, z, opts) {
     ammoMult: 3,
   });
   if (def.kind === 'air' && opts.y === undefined) p.y = Terrain.h(pos.x, pos.z) + 130;
-  p.speedMult = 1;
+  p.speedMult = (a.speedBoost || 1) * Loadout.speedMult(def, lo);   // AI units carry their loadout weight like players
   const ai = attachAI(p, archKey, diff);
   if (opts.goal) ai.goal = opts.goal;
   if (opts.assault) ai.assault = opts.assault;
