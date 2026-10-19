@@ -6838,7 +6838,7 @@ const UI = {
   },
   act_deployMission(d) { this.launch({ mode: 'mission', missionId: d.id }); },
   act_deployTraining() { this.launch({ mode: 'training' }); },
-  act_deploySkirmish() { Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', skirmish: Object.assign({}, this.skirmish) }); },
+  act_deploySkirmish() { Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', difficulty: this.skirmish.difficulty, skirmish: Object.assign({}, this.skirmish) }); },
   launch(partial) {
     const pid = Save.data.platformId, def = PLATFORMS[pid], lo = Loadout.forPlatform(pid);
     const v = Loadout.validate(def, lo);
