@@ -6011,7 +6011,9 @@ const Cam = {
     const introK = 1 + Math.pow(1 - this.intro / 1.8, 2) * 2.2;
     let ex, ey, ez, tx, ty, tz;
     if (!p || p.dead || Game.state === 'results') {
-      if (p) { this.lastX = p.x; this.lastY = p.y; this.lastZ = p.z; }
+      const sp = Game.spectating;
+      if (sp && !sp.dead) { this.lastX = sp.x; this.lastY = sp.y; this.lastZ = sp.z; }
+      else if (p) { this.lastX = p.x; this.lastY = p.y; this.lastZ = p.z; }
       this.orbit += dt * 0.25;
       const r = 42;
       ex = this.lastX + Math.sin(this.orbit) * r; ez = this.lastZ + Math.cos(this.orbit) * r; ey = Math.max(this.lastY + 20, Terrain.h(ex, ez) + 6);
@@ -6078,7 +6080,7 @@ const Cam = {
    ===================================================================== */
 const Game = {
   state: 'boot', cfg: null, mission: null, accum: 0, last: 0, respawnT: 0, protectT: 0, fps: 60, frameMs: 16, lowFpsT: 0, errors: [], errBurst: 0, errBurstT: 0,
-  menuTimer: 0, trainingHelp: false, tutorial: null, resultData: null, frames: 0, fpsAcc: 0, fpsN: 0, started: false, ctxLost: false,
+  menuTimer: 0, trainingHelp: false, tutorial: null, resultData: null, frames: 0, fpsAcc: 0, fpsN: 0, started: false, ctxLost: false, spectating: null,
 
   /* ----- session construction ----- */
   buildDef(cfg) {
@@ -6342,6 +6344,7 @@ const Game = {
     if (this.state === 'playing') {
       const pl = W.player;
       if (pl && !pl.dead) { if (this.netPaused) { const c = pl.cmd; c.moveF = c.moveS = c.turn = c.throttleIn = 0; c.fire1 = c.fire2 = c.boost = c.jump = c.brake = false; } else PC.sample(pl, dt); }
+      this.updateSpectate();
       if (Net.guest) Net.guestTick(dt);
       else {
         this.accum += dt;
@@ -6377,6 +6380,18 @@ const Game = {
     R.beginFrame(Cam, Cam.fov);
     drawWorld(dt);
     HUD.draw(dt);
+  },
+  /* Out of platforms in co-op: watch a living human teammate; fire switches to the next one. */
+  updateSpectate() {
+    const pl = W.player;
+    if (!Net.active || !pl || !pl.dead || W.lives > 0) { this.spectating = null; return; }
+    const mates = W.platforms.filter((q) => q.isPlayer && q !== pl && !q.dead && q.team === pl.team);
+    if (!mates.length) { this.spectating = null; return; }
+    const pad = Input.pad(), padFire = !!(pad && pad.fire1), next = Input.hit('fire1') || (padFire && !PC.padLast);
+    PC.padLast = padFire;
+    let i = mates.indexOf(this.spectating);
+    if (i < 0 || next) i = (i + 1) % mates.length;
+    this.spectating = mates[i];
   },
   updateWarnings(p) {
     const inc = Net.guest ? (p.netInc || { count: 0, dist: 0 }) : incomingMissiles(p);
@@ -6442,6 +6457,7 @@ Cam.menuUpdate = function (dt) {
 /* =====================================================================
    HUD (2D canvas drawn over the WebGL view)
    ===================================================================== */
+const ALLY_ROWS = 5;   // rows in the HUD ally list
 const HUD = {
   cv: null, g: null, w: 800, h: 600, dpr: 1, u: 1, tmp: { sx: 0, sy: 0, w: 0, vis: false }, targetPos: { x: 0, y: 0, z: 0 },
   C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
@@ -6579,6 +6595,11 @@ const HUD = {
         const k = ms[i], d = Math.hypot(k.x - p.x, k.z - p.z);
         this.worldMarker(k.x, k.y, k.z, k.label, k.kind, this.C.obj, Math.round(d) + 'm');
       }
+    }
+    // other human players: name tag and distance, so co-op pilots can find each other
+    for (const q of W.platforms) {
+      if (!q.isPlayer || q === p || q.dead || q.team !== p.team) continue;
+      this.worldMarker(q.x, q.y + q.height + 3, q.z, q.name.toUpperCase(), 'defend', this.C.friend, Math.round(Math.hypot(q.x - p.x, q.z - p.z)) + 'm');
     }
     // supply pad marker
     if (W.pads.length && W.mode !== 'menu') {
@@ -6839,10 +6860,9 @@ const HUD = {
   drawAllies(u) {
     let y = 150 * u;
     const x = 18 * u;
-    let n = 0;
-    for (const a of W.platforms) {
-      if (a.team !== 0 || a === W.player || a.dead || a.model === 'truck' || (!a.arch && !a.isPlayer)) continue;
-      if (n++ >= 4) break;
+    const ally = (a) => a.team === 0 && a !== W.player && !a.dead && a.model !== 'truck' && (a.arch || a.isPlayer);
+    const humans = W.platforms.filter((a) => ally(a) && a.isPlayer), ai = W.platforms.filter((a) => ally(a) && !a.isPlayer);
+    for (const a of humans.concat(ai).slice(0, ALLY_ROWS)) {   // human teammates first
       this.txt(a.name.substring(0, 14), x, y, 10, this.C.friend);
       this.g.fillStyle = this.C.dim; this.g.fillRect(x + 100 * u, y - 3 * u, 60 * u, 5 * u);
       this.g.fillStyle = this.C.friend; this.g.fillRect(x + 100 * u, y - 3 * u, 60 * u * sat(a.hp / a.maxHp), 5 * u);
@@ -6850,7 +6870,12 @@ const HUD = {
     }
   },
   drawDeath(p, u) {
-    const C = this.C;
+    const C = this.C, sp = Game.spectating;
+    if (sp) {
+      this.txt('SPECTATING ' + sp.name.toUpperCase(), this.w / 2, this.h * 0.2, 18, C.friend, 'center', true);
+      this.txt('NO PLATFORMS LEFT  |  ' + keyLabel(Input.code('fire1')) + ' NEXT PILOT', this.w / 2, this.h * 0.2 + 24 * u, 12, C.text, 'center');
+      return;
+    }
     this.txt('PLATFORM DESTROYED', this.w / 2, this.h * 0.4, 26, C.bad, 'center', true);
     if (W.lives > 0 || (Game.cfg && Game.cfg.mode === 'training')) this.txt('REDEPLOYING IN ' + Math.max(0, Math.ceil(Game.respawnT)) + '  |  PLATFORMS LEFT ' + (Game.cfg.mode === 'training' ? 'UNLIMITED' : W.lives), this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
@@ -7593,6 +7618,23 @@ const SelfTest = {
       this.check('a semi-auto weapon needs a fresh trigger pull', pl.wslots.secondary.predCd === 0);
       pl.cmd.fire2Edge = true; Net.predictFire(STEP);
       this.check('a trigger pull fires the predicted shot', pl.wslots.secondary.predCd > 0 && pl.recoil === 1);
+    });
+    t('spectating', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const mk = (x) => { const q = new Platform(PLATFORMS.bulwark, { team: 0, x, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout }); q.isPlayer = true; W.platforms.push(q); return q; };
+      const me = mk(0), a = mk(50), b = mk(100);
+      W.player = me; me.dead = true; W.lives = 0;
+      const savedHost = Net.host, fire = Input.bindings.fire1;
+      try {
+        Net.host = true;
+        Game.updateSpectate();
+        this.check('out of platforms in co-op: watch a teammate', Game.spectating === a);
+        Input.pressed.add(fire); Game.updateSpectate(); Input.pressed.delete(fire);
+        this.check('fire switches to the next teammate', Game.spectating === b);
+        W.lives = 1; Game.updateSpectate();
+        this.check('no spectating while a platform is left', Game.spectating === null);
+      } finally { Net.host = savedHost; Input.pressed.delete(fire); Game.spectating = null; }
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
