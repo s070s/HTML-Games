@@ -5678,7 +5678,8 @@ const MISSIONS = [
       const m = ctx.m;
       const tanks = [[-330, 220], [-290, 220], [-330, 270], [-290, 270]].map((q) => objStruct('fuel', q[0], q[1], 'Fuel Tank', 1, { scale: 1.2 }));
       const tower = objStruct('tower', -400, 60, 'Comms Tower', 1);
-      addStruct('warehouse', -250, 160, { swap: false }); addStruct('warehouse', -360, 330, { swap: true });
+      // the depot's own warehouses are enemy installations, so levelling them scores (STRUCT_SCORE)
+      addStruct('warehouse', -250, 160, { swap: false, team: 1 }); addStruct('warehouse', -360, 330, { swap: true, team: 1 });
       ctx.later(() => {
         spawnGroup(['turret', 'turret', 'turret', 'aaTurret', 'aaTurret'], -300, 245, { radius: 80 });
         spawnGroup(['tank', 'tank', 'buggy', 'buggy', 'lightMech', 'lightMech', 'infantry', 'infantry', 'infantry', 'rpgTrooper'], -300, 245, { radius: 90 });
@@ -7514,6 +7515,15 @@ const SelfTest = {
       for (const m of MISSIONS) this.check('mission ' + m.id, MAPS[m.map] && m.start && m.sites.length > 0 && typeof m.build === 'function');
       this.check('mission ids unique', new Set(MISSIONS.map((m) => m.id)).size === MISSIONS.length);
       this.check('objective types present', ['kill', 'destroy', 'defend', 'escort', 'capture', 'intercept', 'survive'].every((k) => typeof Obj[k] === 'function'));
+    });
+    t('enemy base structures', () => {
+      const def = MISSIONS.find((m) => m.id === 'm2');
+      newWorld({ map: def.map, mode: 'test', sites: def.sites, difficulty: 'veteran', seed: 5, start: def.start });
+      W.mission = new Mission(def, {});
+      def.build(makeCtx(W.mission, {}));
+      const plain = W.structs.filter((s) => !s.objective && s.type === 'warehouse');
+      this.check('the fuel depot warehouses are hostile, so they score', plain.length === 2 && plain.every((s) => s.team === 1));
+      W.mission = null;
     });
     t('baking', () => {
       if (!R.meshCPU || !R.meshCPU.box) { this.check('baking (no mesh data)', true); return; }
