@@ -1038,6 +1038,7 @@ const Inputs = {
     this.versus = on;
     this.releaseAll();
     this.rebuildMaps();
+    for (const p of this.players) if (p.lastDevice === 'gamepad') p.lastDevice = 'keyboard';   // pads may change hands; the next pad press sets it again
   },
   capture(callback) { this.captureCallback = callback; },
 
@@ -6214,7 +6215,7 @@ const UI = {
   /* Versus, first match of a session: which keys and pads each player uses. */
   showVersusCard() {
     this.cardSession = Game.versus;
-    const pause = keyLabel(Keymap.bindings.pause[1] || 'Escape') + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
+    const pause = 'Esc / ' + keyLabel(Keymap.bindings.pause[1]) + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
     this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3>' + this.devicesText() + '<br>Pause: <kbd>' + esc(pause) + '</kbd><small>Click or press any key to close</small>';
     this.dom.onboard.hidden = false;
     clearTimeout(this.onboardTimer);
@@ -7583,7 +7584,7 @@ const SelfTest = {
   snapshot() {
     return {
       raw: SELFTEST_STORE_KEYS.map((key) => Store.get(key)), settings: Object.assign({}, Settings.v), progress: JSON.parse(JSON.stringify(Progress.d)),
-      keys: KEYMAPS.map((keymap) => JSON.stringify(keymap.bindings)), selection: Object.assign({}, Game.selection),
+      keys: KEYMAPS.map((keymap) => JSON.stringify(keymap.bindings)), selection: Object.assign({}, Game.selection), devices: Inputs.players.map((p) => p.lastDevice),
     };
   },
   restore(saved) {
@@ -7594,6 +7595,7 @@ const SelfTest = {
     KEYMAPS.forEach((keymap, i) => { keymap.bindings = JSON.parse(saved.keys[i]); });
     Inputs.rebuildMaps();
     Object.assign(Game.selection, saved.selection);
+    Inputs.players.forEach((p, i) => { p.lastDevice = saved.devices[i]; });   // Versus tests switch pads between players
   },
   make(opts, s1, s2) {
     const m = new MatchSim(Object.assign({ mode: 'free', countdown: false, timer: 0, seed: 11, winsNeeded: 2 }, opts));
