@@ -143,6 +143,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .pips{margin-top:.3em;font-size:.9em;letter-spacing:.2em;min-height:1.2em}
 .hc-center{width:7em;text-align:center;flex:none}
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
+#timer.low{color:var(--warn);border-color:var(--warn)}
 #roundlbl{font-size:.8em;letter-spacing:.12em;margin-top:.2em;text-transform:uppercase}
 #combo{position:absolute;left:1.2em;top:7.5em;font:900 italic 1.6em/1.1 Impact,"Arial Black",sans-serif;color:#ffe066;opacity:0;transition:opacity .15s}
 #combo.on{opacity:1}
@@ -4787,6 +4788,8 @@ const ROUND_END_TICKS = 110;
 const KO_DELAY_TICKS = 45;
 const KO_SLOW_TICKS = 30;             // slow motion starts on the knock-out blow itself
 const SKIP_ARM_TICKS = 30;            // the round-end sequence can be skipped after this long
+const TIMER_LOW_SECONDS = 10;         // the round timer turns to the warning colour
+const TIMER_BEEP_SECONDS = 5;         // and beeps once a second from here
 
 const PlayerController = {
   think(f, opp, match, it) { return Input.fillIntent(it, f, opp); },
@@ -5040,7 +5043,9 @@ class MatchSim {
     }
     if (this.cfg.timer > 0) {
       this.roundTicks--;
-      if (this.roundTicks <= 0) { this.roundTicks = 0; this.endRound('time'); }
+      if (this.roundTicks <= 0) { this.roundTicks = 0; this.endRound('time'); return; }
+      const whole = this.roundTicks % 60 === 0, seconds = this.roundTicks / 60;
+      if (whole && seconds <= TIMER_BEEP_SECONDS) Events.emit('timeWarn', { seconds });
     }
   }
   endRound(reason) {
@@ -5812,6 +5817,7 @@ const Sound = {
     on('debrisImpact', (e) => this.debris(e.kind, e.power, e.x));
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
+    on('timeWarn', () => this.tone('sine', 990, 990, 0.09, 0.16));
     on('matchEnd', (e) => this.fanfare(e.match.matchWinner === 0));
     on('lowStamina', (e) => { if (e.f.index === 0) this.lowStamina(); });
     on('uiSound', (e) => this.ui(e.kind));
@@ -6498,6 +6504,8 @@ const UI = {
     bar(0, a); bar(1, b);
     const tl = m.timeLeft;
     this.setText('timer', this.dom.timer, tl === null ? (m.training ? '' : '∞') : String(tl));
+    const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
+    if (this.cache.lowTime !== lowTime) { this.cache.lowTime = lowTime; this.dom.timer.classList.toggle('low', lowTime); }
     const cfg = m.cfg;
     this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
     if (!m.training) {
@@ -7791,6 +7799,15 @@ const SelfTest = {
       const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it.lp = true; it.strong = true; } }, (it, f, o, mm) => { if (mm.tick === 3) it.sidestep = 1; });
       self.place(m, 1.2); self.run(m, 60); log.stop();
       return log.hit.length === 0 ? true : 'power jab hit a sidestepping fighter';
+    });
+    test('Round timer warns once a second over the last five seconds', () => {
+      const m = mk({ timer: 7 });
+      self.place(m, 4);
+      const log = self.capture(['timeWarn']);
+      self.run(m, 7 * 60 + 5);
+      log.stop();
+      const seconds = log.timeWarn.map((e) => e.seconds).join(',');
+      return seconds === '5,4,3,2,1' ? true : 'warned at ' + seconds;
     });
     test('Training dummy can be set to infinite health', () => {
       const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
