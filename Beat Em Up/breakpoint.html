@@ -4327,6 +4327,7 @@ const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a 
 const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
 const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
 const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape skill x this
+const AI_GRAB_BREAK = 0.3;       // chance to break a grab seen coming = blockSkill x this
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
 const AI_MOVES = ALL_MOVES.filter((m) => !m.ctx && m.type === 'strike');
@@ -4451,7 +4452,7 @@ class AIController {
     if (this.profile && f.state !== S.ATTACK && f.lock === 0) {
       if (snap.mvType === 'grab') {
         // too fast to dodge on reaction (startup ~9 vs react >= 8), but a grab seen coming is broken at the first legal tick
-        if (roll < d.blockSkill * 0.5) this.breakGrabId = snap.moveId;
+        if (roll < d.blockSkill * AI_GRAB_BREAK) this.breakGrabId = snap.moveId;
       } else if (roll < d.blockSkill) {
         this.threatResp = { kind: 'block', h: this.guessHeight(), id: snap.moveId, read: false, parry: simRng() < d.parry, until: this.tickNo + hold, done: false };
         this.plan = null;
@@ -7807,7 +7808,7 @@ const SelfTest = {
       const illegal = Diag.illegalTransitions, errors = Diag.errors;
       const log = self.capture(['throw']);
       let over = 0;
-      for (const seed of [23, 24, 25]) {
+      for (const seed of [23, 24, 25, 26, 27, 28, 29, 30]) {   // expert CPUs break many grabs, so a few matches give few throws
         const m = mk({ seed, timer: 60, winsNeeded: 1, arenaId: 'pit', playerId: 'dmitri', opponentId: 'brutus' });
         m.controllers[0] = new AIController(ROSTER_BY_ID.dmitri, 'expert');
         m.controllers[1] = new AIController(ROSTER_BY_ID.brutus, 'expert');
@@ -7819,7 +7820,7 @@ const SelfTest = {
       log.stop();
       const dirs = new Set(log.throw.map((t) => t.dir));
       const legal = Diag.illegalTransitions === illegal && Diag.errors === errors;
-      return over === 3 && legal && log.throw.length >= 2 && dirs.size >= 2 ? true : 'over ' + over + ' throws ' + log.throw.length + ' dirs ' + [...dirs].join(',') + ' illegal ' + (Diag.illegalTransitions - illegal) + ' errors ' + (Diag.errors - errors);
+      return over === 8 && legal && log.throw.length >= 2 && dirs.size >= 2 ? true : 'over ' + over + ' throws ' + log.throw.length + ' dirs ' + [...dirs].join(',') + ' illegal ' + (Diag.illegalTransitions - illegal) + ' errors ' + (Diag.errors - errors);
     });
     /* ----- motion (visual only) ----- */
     const finitePose = (f) => {
