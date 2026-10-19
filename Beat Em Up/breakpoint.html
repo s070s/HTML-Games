@@ -2800,7 +2800,7 @@ class Fighter {
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
-    this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0;
+    this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0; this.airAttackUsed = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard[0]); this.tp.set(this.motion.guard[0]);
     this.alive = true;
@@ -2889,6 +2889,7 @@ class Fighter {
     const chained = this.state === S.ATTACK;
     if (!this.setState(S.ATTACK)) return false;
     if (mv.ctx === 'counter') this.counterWindow = 0;   // one counter per perfect block
+    if (mv.ctx === 'air') this.airAttackUsed = true;    // one air attack per jump
     this.exhaustedMove = this.stam < mv.stam;
     this.stam = Math.max(0, this.stam - mv.stam);
     this.noRegen = 36;
@@ -2992,7 +2993,7 @@ class Fighter {
       case S.ATTACK: this.updateAttack(it, opp, match); break;
       case S.HIT: case S.STAGGER: case S.STUN:
         this.vx = this.vz = 0;
-        if (this.stateTicks >= this.reactDur) this.setState(S.IDLE);
+        if (this.stateTicks >= this.reactDur && !this.airborne) this.setState(S.IDLE);   // a fighter hit in the air recovers on landing
         break;
       case S.CLINCH: this.updateClinched(it, opp, match); break;
       case S.GRAPPLE: this.updateGrapple(it, opp, match); break;
@@ -3030,7 +3031,7 @@ class Fighter {
     if (this.lock === 0) {
       if (this.tryBufferedAttack(it)) return;
       if (it.grapple) { this.grabDir = it.grapDir || 'fwd'; this.grabLow = !!it.crouch || this.state === S.CROUCH; if (this.startGrab()) return; }
-      if (it.jump && this.stam >= 1 && this.state !== S.CROUCH) { this.startJump(it); return; }
+      if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST * 0.5) { this.startDash(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST * 0.5) { this.startSidestep(it.sidestep); return; }
       if (it.stance) { this.stance ^= 1; this.lock = 8; Events.emit('stance', { f: this }); }
@@ -3082,7 +3083,7 @@ class Fighter {
     const fx = this.fwdX, fz = this.fwdZ, rx = -fz, rz = fx;
     const wantX = (fx * it.fwd + rx * it.side) * 1.4, wantZ = (fz * it.fwd + rz * it.side) * 1.4;
     this.vx += (wantX - this.vx) * 0.04; this.vz += (wantZ - this.vz) * 0.04;
-    if (this.lock === 0) this.tryBufferedAttack(it);
+    if (this.lock === 0 && !this.airAttackUsed) this.tryBufferedAttack(it);
   }
   updateDown(it) {
     this.vx = this.vz = 0;
@@ -3174,6 +3175,7 @@ class Fighter {
   }
   onLand(impact) {
     if (impact > 2) Events.emit('land', { f: this, impact });
+    this.airAttackUsed = false;
     switch (this.state) {
       case S.JUMP: this.setState(S.IDLE); this.lock = 4; this.vx = this.vz = 0; break;
       case S.ATTACK:
@@ -7150,6 +7152,13 @@ const SelfTest = {
       log.stop();
       const d = m.fighters[1].maxHp - m.fighters[1].hp;
       return log.throw.length === 1 && states.has(S.THROWN) && states.has(S.DOWN) && states.has(S.GETUP) && m.fighters[1].state === S.IDLE && d >= 10 ? true : 'throws ' + log.throw.length + ' dmg ' + d + ' ' + [...states].join(',');
+    });
+    test('One air attack per jump', () => {
+      const log = self.capture(['attackStart']);
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.jump = true; if (mm.tick === 4 || mm.tick === 28) it.rk = true; });
+      self.place(m, 4); self.run(m, 90); log.stop();
+      const air = log.attackStart.filter((e) => e.mv.ctx === 'air').length;
+      return air === 1 && m.fighters[0].state === S.IDLE && !m.fighters[0].airAttackUsed ? true : 'air attacks ' + air + ' state ' + m.fighters[0].state;
     });
     test('Grab fails against an airborne target', () => {
       const log = self.capture(['clinch']);
