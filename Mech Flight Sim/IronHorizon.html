@@ -4512,7 +4512,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   const speed = d.arc ? (owner.arcSpeed || d.speed) : d.speed;
   p.active = true; p.def = d; p.owner = owner; p.team = owner.team; p.nid = ++W.nid;
   p.x = mz.x; p.y = mz.y; p.z = mz.z;
-  const inherit = owner.kind === 'air' ? 1 : 0;
+  const inherit = owner.kind === 'air' && !d.arc ? 1 : 0;   // arc shots are solved for a still muzzle; adding aircraft speed overshoots
   if (d.kind === 'bomb') { p.vx = owner.vx * 0.95; p.vy = owner.vy * 0.5 - 2; p.vz = owner.vz * 0.95; }
   else { p.vx = dx * speed + owner.vx * inherit; p.vy = dy * speed + owner.vy * inherit; p.vz = dz * speed + owner.vz * inherit; }
   p.life = d.life; p.age = 0; p.dmg = d.dmg * (d.fire === 'charge' ? 0.5 + 0.5 * (charge || 1) : 1);
