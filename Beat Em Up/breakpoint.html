@@ -5896,6 +5896,7 @@ const MODE_INFO = {
 };
 const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', stance: 'Select (tap)', pause: 'Start' };
 const TOUCH_LABELS = { lp: 'LP', rp: 'RP', lk: 'LK', rk: 'RK', strong: 'STR', height: 'HGT', blockHigh: 'BLK-H', blockLow: 'BLK-L', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STNC', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'SCREEN' };
@@ -6029,7 +6030,7 @@ const UI = {
       case GS.ROUND_END: break;
       case GS.VICTORY: this.banner('VICTORY', Game.resultsData ? Game.resultsData.player + ' wins' : '', 3000); Music.stop(); break;
       case GS.DEFEAT: this.banner('DEFEAT', '', 3000); Music.stop(); break;
-      case GS.RESULTS: this.stack = []; this.go('results'); break;
+      case GS.RESULTS: this.stack = []; this.go('results'); this.guardUntil = performance.now() + RESULTS_GUARD_MS; break;
       case GS.ERROR: this.showFatal(e.error || 'Unknown error'); break;
       default: break;
     }
@@ -6140,7 +6141,7 @@ const UI = {
     }
   },
   onClick(e) {
-    if (performance.now() < this.guardUntil && this.current === 'pause') return;
+    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results')) return;
     const t = e.target.closest('[data-act]');
     if (t) { this.act(t.getAttribute('data-act'), t); return; }
     if (e.target.closest('input,textarea')) return;           // text fields and sliders handle themselves
@@ -7927,6 +7928,20 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return migrated && shown && stored && closed && once ? true : JSON.stringify({ migrated, shown, stored, closed, once });
+    });
+    test('Results: presses in the first moments are ignored', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.chooseMode('free'); Game.startFromSelection();
+      Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 0; Game.onMatchEnd();
+      Game.go(GS.RESULTS);
+      const button = UI.dom.screens.querySelector('[data-act]');
+      UI.onClick({ target: button });
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));
+      const guarded = Game.state === GS.RESULTS && UI.current === 'results';
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return guarded ? true : 'results skipped: ' + Game.state;
     });
     test('Pause: works in the countdown and the knock-out lock, the pause key resumes', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
