@@ -4554,7 +4554,7 @@ const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a 
 const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
 const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
 const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape skill x this
-const AI_GRAB_BREAK = 0.3;       // chance to break a grab seen coming = blockSkill x this
+const AI_GRAB_BREAK = 0.3;       // chance to break a grab at the first legal tick = blockSkill x this, rolled once per grab
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
 const AI_MOVES = ALL_MOVES.filter((m) => !m.ctx && m.type === 'strike');
@@ -4876,6 +4876,11 @@ class AIController {
   }
   thinkClinched(f, opp, it, snap) {
     const d = this.d;
+    if (this.threatId !== opp.moveId) {
+      // a grab that clinched before this AI could react (Hard's delay equals a grab's startup) still gets its one break roll
+      this.threatId = opp.moveId;
+      if (this.profile && simRng() < d.blockSkill * AI_GRAB_BREAK) this.breakGrabId = opp.moveId;
+    }
     if (f.clinchTick < escapeStartFor(f) + 1 || f.escapeLock > 0) return it;
     if (this.breakGrabId === opp.moveId) { this.breakGrabId = -1; it.grapple = true; return it; }
     const tp = opp.throwPending;
@@ -7958,6 +7963,24 @@ const SelfTest = {
       m.controllers[1] = ai;
       self.place(m, 1.75); self.run(m, 60); log.stop();
       return log.hit.some((h) => h.def.index === 0) ? true : 'whiffed grab went unpunished';
+    });
+    test('AI on Hard breaks some grabs that clinch before it can react', () => {
+      const log = self.capture(['escape']);
+      let clinches = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const m = mk({ seed }, once(2, 'grapple'));
+        const ai = new AIController(ROSTER_BY_ID.kai, 'hard');
+        ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { escape: 0 });   // only the break roll can free it
+        m.controllers[1] = ai;
+        self.place(m, 0.9);
+        let held = false;
+        for (let i = 0; i < 40; i++) { m.step(); held = held || m.fighters[1].state === S.CLINCH; }
+        if (held) clinches++;
+        m.dispose();
+      }
+      log.stop();
+      const breaks = log.escape.length;
+      return clinches === 30 && breaks >= 3 && breaks <= 12 ? true : 'clinches ' + clinches + ' breaks ' + breaks;
     });
     test('AI routes around an obstacle', () => {
       const m = mk({ arenaId: 'warehouse' });
