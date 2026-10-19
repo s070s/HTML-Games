@@ -418,7 +418,8 @@ const PLATFORMS = {
 };
 const PLAYABLE = Object.values(PLATFORMS).filter((p) => p.playable).map((p) => p.id);
 
-/* ---------- AI archetypes (enemy and friendly units) ---------- */
+/* ---------- AI archetypes (enemy and friendly units) ----------
+   secondaryGap: extra seconds between AI secondary shots at Veteran (shorter when more aggressive) */
 const ARCH = {
   infantry: { def: 'ranger', ai: 'skirmisher', label: 'Infantry', loadout: { primaryA: 'rifle', secondary: 'grenade' }, score: 60, speedBoost: 1.2 },
   rpgTrooper: { def: 'ranger', ai: 'soldier', label: 'Rocket Trooper', loadout: { primaryA: 'smg', secondary: 'rpg' }, score: 90 },
@@ -433,7 +434,7 @@ const ARCH = {
   gunship: { def: 'behemoth', ai: 'gunship', label: 'Gunship', loadout: { primaryA: 'gatling', primaryB: 'acannon', secondary: 'rockets', utility: 'flares' }, score: 450 },
   bomber: { def: 'bomber', ai: 'bomber', label: 'Bomber', loadout: {}, score: 150 },
   turret: { def: 'turret', ai: 'turret', label: 'Turret', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'missile' }, score: 150 },
-  aaTurret: { def: 'aaTurret', ai: 'turret', label: 'AA Battery', loadout: { primaryA: 'flak', primaryB: 'flak', secondary: 'aam' }, score: 150 },
+  aaTurret: { def: 'aaTurret', ai: 'turret', label: 'AA Battery', loadout: { primaryA: 'flak', primaryB: 'flak', secondary: 'aam' }, secondaryGap: 4, score: 150 },
   truck: { def: 'truck', ai: 'convoy', label: 'Truck', loadout: {}, score: 0 },
   dummy: { def: 'dummy', ai: 'none', label: 'Target', loadout: {}, score: 0 },
   dummyMove: { def: 'dummyMove', ai: 'patrol', label: 'Moving Target', loadout: {}, score: 0 },
@@ -4775,6 +4776,7 @@ class AIController {
     this.home = { x: p.x, z: p.z }; this.retreatUntil = 0; this.retreatUsed = false;
     this.orbitDir = randSign(); this.orbitC = null; this.arrived = false;
     this.breakT = 0; this.breakYaw = 0; this.unstickT = 0; this.jumpT = 0; this.flareT = 0; this.alertT = 0; this.switchT = 0;
+    this.secondaryGap = (p.arch && ARCH[p.arch] && ARCH[p.arch].secondaryGap) || 0; this.secondaryT = 0;
     this.sight = p.def.sensor > 0 ? p.def.sensor * 0.8 : (p.model === 'turret' ? (p.def.style === 'aa' ? 950 : 600) : 0);
     this.airOnly = p.model === 'turret' && p.def.style === 'aa';
     this.enabled = true; this.altBase = 0;
@@ -4972,6 +4974,7 @@ class AIController {
     const p = this.p, c = p.cmd, d = this.d;
     c.fire1 = false;
     const w1 = p.primary, w2 = p.wslots.secondary;
+    this.secondaryT = Math.max(0, this.secondaryT - dt);
     if (!hasTarget || this.reactT > 0 || p.overheated) { this.tele = 0; return; }
     const t = this.target;
     // aimed?
@@ -5006,7 +5009,7 @@ class AIController {
     }
     if (w1 && w1.reloading <= 0 && w1.clip <= 0 && p.primary.def.kind !== 'beam') p.startReload(w1, false);
     // secondary with visible wind-up
-    if (w2 && w2.cd <= 0 && w2.reloading <= 0 && clear && aimed) {
+    if (w2 && w2.cd <= 0 && w2.reloading <= 0 && this.secondaryT <= 0 && clear && aimed) {
       const gd = w2.def.guide;
       const inRange = dist < w2.def.range * 0.9 && dist > (w2.def.arc ? 50 : 30);
       const ready = !gd || p.lock.state === 'locked';
@@ -5016,7 +5019,7 @@ class AIController {
     }
     if (this.tele > 0) {
       this.teleFor -= dt;
-      if (this.teleFor <= 0) { this.tele = 0; if (w2 && w2.cd <= 0) { c.fire2Edge = true; w2.cd = Math.max(w2.cd, 0.01); } }
+      if (this.teleFor <= 0) { this.tele = 0; if (w2 && w2.cd <= 0) { c.fire2Edge = true; w2.cd = Math.max(w2.cd, 0.01); this.secondaryT = this.secondaryGap / Math.max(0.6, d.aggr); } }
     }
   }
   canUseSecondary(t) {
@@ -5226,7 +5229,7 @@ function spawnUnit(archKey, x, z, opts) {
     if (!pos) return null;
   }
   const diff = W.diff;
-  const lo = Object.assign({}, a.loadout);
+  const lo = Object.assign({}, a.loadout, opts.loadout);   // opts.loadout overrides slots (null empties one)
   const p = new Platform(def, {
     team, x: pos.x, z: pos.z, yaw: opts.yaw === undefined ? Math.random() * TAU : opts.yaw, y: opts.y, loadout: lo, arch: archKey,
     name: a.name || a.label, hpMult: (a.hpMult || 1) * (team === 1 ? diff.hp * (a.ai === 'boss' ? (W.bossHpMult || 1) : 1) : 1),
@@ -5624,7 +5627,9 @@ const MISSIONS = [
       m.add(ob);
       m.add(Obj.intercept({ id: 'clean', title: 'Let no bomber through', units: bombers, total: 9, maxLeak: 99, primary: false, status: 'active', spawnedAll: false }));
       ctx.later(() => {
-        const aaA = spawnUnit('aaTurret', -70, -20, { team: 0, radius: 10 }), aaB = spawnUnit('aaTurret', 70, 20, { team: 0, radius: 10 });
+        // flak only: with seekers the base batteries would stop every bomber without the pilot ("ground AA is limited")
+        const flakOnly = { secondary: null };
+        const aaA = spawnUnit('aaTurret', -70, -20, { team: 0, radius: 10, loadout: flakOnly }), aaB = spawnUnit('aaTurret', 70, 20, { team: 0, radius: 10, loadout: flakOnly });
         void aaA; void aaB;
       });
       const mkWave = (n, escorts) => {
