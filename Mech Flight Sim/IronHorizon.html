@@ -4750,6 +4750,8 @@ const AIM_ERR_HOLD = [0.4, 0.8];   // seconds an aim error offset is kept before
 const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the new offset
 const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
 const AI_SWITCH_DELAY = 2;         // minimum seconds between AI primary weapon swaps
+const FOG_SIGHT = 0.55;            // AI sight multiplier in heavy fog
+const NIGHT_SIGHT = 0.75;          // AI sight multiplier at night
 const AI_NOSE = { x: 0, y: 0, z: 0 };
 
 class AIController {
@@ -4805,7 +4807,8 @@ class AIController {
     if (this.follow && this.follow.dead) this.follow = null;   // never trail a wreck
     if (this.sight <= 0) return;
     let best = null, bestScore = 1e9;
-    const range = this.sight * sightMul * (this.alertT > 0 ? 1.4 : 1);
+    const weather = (W.mods.fog ? FOG_SIGHT : 1) * (W.mods.night ? NIGHT_SIGHT : 1);
+    const range = this.sight * sightMul * weather * (this.alertT > 0 ? 1.4 : 1) * (p.sub.sensors > 0 ? 0.5 : 1);
     const ey = p.y + (p.kind === 'air' ? 0 : p.height * 0.8);
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
