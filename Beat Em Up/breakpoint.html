@@ -155,6 +155,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .reduced #warn.on{animation:none}
 @keyframes blink{50%{opacity:.45}}
 #grappleHint{position:absolute;left:50%;transform:translateX(-50%);bottom:5.5em;padding:.4em 1em;border:2px solid #fff;background:rgba(0,0,0,.7);letter-spacing:.08em;font-size:1.05em;text-align:center}
+#grappleHint.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
 #training{position:absolute;right:.9em;top:6.2em;width:15em;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training b{color:var(--a1)}
 #modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--mut)}
@@ -2518,6 +2519,7 @@ const COUNTER_WINDOW_PERFECT = 50;   // only a perfect block opens a counter, an
 const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
+const ESCAPE_GRACE_TICKS = 6;       // an escape press this close before the window opens is kept and used when it opens
 const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees away from the grabber = rear grip
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
@@ -2841,7 +2843,7 @@ class Fighter {
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;
     this.hitKind = 'mid'; this.reactDur = 10; this.hitDirX = 0; this.hitDirZ = 0; this.groundHits = 0; this.quickRise = false;
-    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
+    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
     this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0; this.airAttackUsed = false;
@@ -3194,11 +3196,18 @@ class Fighter {
       else this.setState(S.IDLE);
       return;
     }
+    const opens = escapeStartFor(this);
     if (it.grapple && this.escapeLock === 0) {
-      const pendingOk = !att.throwPending || att.throwPending.tick <= att.throwPending.data.escapeUntil;
-      if (this.clinchTick >= escapeStartFor(this) && this.stam >= 6 && pendingOk) Combat.escapeClinch(this, att, match);
-      else { this.stam = Math.max(0, this.stam - 10); this.escapeLock = 24; Events.emit('escapeFail', { f: this }); }
+      if (this.clinchTick < opens && this.clinchTick >= opens - ESCAPE_GRACE_TICKS) this.escapeQueued = true;
+      else this.tryEscape(att, match);
     }
+    if (this.escapeQueued && this.clinchTick >= opens) { this.escapeQueued = false; this.tryEscape(att, match); }
+  }
+  /* A press outside the window (too early, or after the throw passed its escape point) costs stamina and a lockout. */
+  tryEscape(att, match) {
+    const pendingOk = !att.throwPending || att.throwPending.tick <= att.throwPending.data.escapeUntil;
+    if (this.clinchTick >= escapeStartFor(this) && this.stam >= 6 && pendingOk) Combat.escapeClinch(this, att, match);
+    else { this.stam = Math.max(0, this.stam - 10); this.escapeLock = 24; Events.emit('escapeFail', { f: this }); }
   }
 
   /* ----- physics ----- */
@@ -3817,7 +3826,7 @@ const Combat = {
     if (!att.setState(S.GRAPPLE)) return;
     def.setState(S.CLINCH);
     att.partner = def; def.partner = att;
-    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0; def.counterWindow = 0; att.clinchStrikes = 0;
+    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0; def.escapeQueued = false; def.counterWindow = 0; att.clinchStrikes = 0;
     att.vx = att.vz = def.vx = def.vz = 0; def.kx = def.kz = att.kx = att.kz = 0;
     const grip = this.gripFor(att, def);
     att.grip = grip; def.grip = grip;
@@ -6453,10 +6462,14 @@ const UI = {
     const warn = a.lowStamina && a.alive;
     if (this.cache.warn !== warn) { this.cache.warn = warn; this.dom.warn.classList.toggle('on', warn); }
     let hint = '';
-    if (a.state === S.CLINCH) hint = 'CLINCHED (' + GRIP_LABEL[a.grip] + ')! Press ' + this.keyName('grapple') + ' (Grapple) to escape';
+    if (a.state === S.CLINCH) hint = this.clinchHint(a);
     else if (a.state === S.GRAPPLE) hint = this.throwHint(a);
     else if (b.state === S.CLINCH && b.alive) hint = '';
-    if (this.cache.hint !== hint) { this.cache.hint = hint; this.dom.grappleHint.hidden = !hint; this.dom.grappleHint.textContent = hint; }
+    if (this.cache.hint !== hint) {
+      this.cache.hint = hint;
+      this.dom.grappleHint.hidden = !hint; this.dom.grappleHint.textContent = hint;
+      this.dom.grappleHint.classList.toggle('go', hint.startsWith('ESCAPE'));
+    }
     // name tags + popups
     const out = [0, 0];
     for (let i = 0; i < 2; i++) {
@@ -6482,6 +6495,12 @@ const UI = {
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
+  },
+  /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
+  clinchHint(f) {
+    if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
+    if (f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS) return 'ESCAPE NOW! Press ' + this.keyName('grapple');
+    return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
   /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
   throwHint(f) {
@@ -7312,6 +7331,18 @@ const SelfTest = {
       m = mk({}, once(2, 'grapple'), (it, f) => { if (f.state === S.CLINCH && f.clinchTick === 4) it.grapple = true; }); self.place(m, 1.0); self.run(m, 30); log.stop();
       const failed = log.escapeFail.length === 1 && log.escape.length === 0 && m.fighters[1].state === S.CLINCH;
       return escaped && failed ? true : 'escaped ' + escaped + ' failed ' + failed;
+    });
+    test('Grapple: an escape pressed just before the window is kept, the hint says when to press', () => {
+      const log = self.capture(['escapeFail', 'escape']);
+      let hints = '';
+      const m = mk({}, once(2, 'grapple'), (it, f) => {
+        if (f.state !== S.CLINCH) return;
+        const h = UI.clinchHint(f).split('!')[0].split(' ')[0];
+        if (!hints.endsWith(h)) hints += (hints ? '>' : '') + h;
+        if (f.clinchTick === escapeStartFor(f) - 3) it.grapple = true;
+      });
+      self.place(m, 1.0); self.run(m, 40); log.stop();
+      return log.escape.length === 1 && log.escapeFail.length === 0 && hints === 'CLINCHED>ESCAPE' ? true : 'escapes ' + log.escape.length + ' fails ' + log.escapeFail.length + ' hints ' + hints;
     });
     test('Clinch: at most two strikes per clinch, then it times out', () => {
       const log = self.capture(['hit']);
