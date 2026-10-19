@@ -4768,26 +4768,33 @@ function updatePickups(dt) {
   }
 }
 
-/* Field resupply at a supply pad using the interact action (also used for remote players). */
+const RESUPPLY_CHARGES = 2;   // pad resupplies per player per mission
+const PAD_RANGE = 22, PAD_MAX_ALT = 40;   // how close (and, for aircraft, how low) a player must be to use a pad
+/* The supply pad the player is close enough to use, or null. */
+function padInRange(pl) {
+  for (const pad of W.pads) {
+    if (Math.hypot(pad.x - pl.x, pad.z - pl.z) < PAD_RANGE && (pl.kind !== 'air' || pl.y - Terrain.h(pad.x, pad.z) < PAD_MAX_ALT)) return pad;
+  }
+  return null;
+}
+/* Field resupply at a supply pad using the interact action (also used for remote players).
+   Each player has their own charges: the local player's on W, a co-op guest's on their peer. */
 function tryResupply(pl) {
   if (!pl || pl.dead) return;
   if (Net.guest) { Net.pendEdge |= 2048; return; }
-  let near = null;
-  for (const pad of W.pads) {
-    if (Math.hypot(pad.x - pl.x, pad.z - pl.z) < 22 && (pl.kind !== 'air' || pl.y - Terrain.h(pad.x, pad.z) < 40)) near = pad;
-  }
-  if (!near) { notify(pl, 'NO SUPPLY PAD IN RANGE'); return; }
+  if (!padInRange(pl)) { notify(pl, 'NO SUPPLY PAD IN RANGE'); return; }
+  const pool = pl.netPeer || W, limited = W.mode !== 'training';
   const ammoMult = W.mods.scarce ? SCARCE_AMMO : 1;
   if (!resupplyNeeded(pl, ammoMult)) { notify(pl, 'ALREADY FULLY SUPPLIED'); return; }
-  if (W.mode !== 'training' && W.resupplies <= 0) { notify(pl, 'NO RESUPPLY CHARGES LEFT'); return; }
+  if (limited && !(pool.resupplies > 0)) { notify(pl, 'NO RESUPPLY CHARGES LEFT'); return; }
   if (pl.nextResupply && W.time < pl.nextResupply) { notify(pl, 'RESUPPLY COOLING DOWN'); return; }
-  if (W.mode !== 'training') W.resupplies--;
+  if (limited) pool.resupplies--;
   pl.nextResupply = W.time + 8;
   // top up to the deployment reserve, never below what pickups already gave
   GUN_SLOTS.forEach((sl) => { const w = pl.wslots[sl]; if (w) { w.clip = w.def.clip; w.reserve = Math.max(w.reserve, Math.round(w.def.reserve * ammoMult)); w.reloading = 0; } });
   pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.5); pl.armor = pl.maxArmor; pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false;
   if (pl.util) pl.util.charges = Math.max(pl.util.charges, pl.util.def.charges || 0);
-  notify(pl, 'RESUPPLIED' + (W.mode !== 'training' ? ' (' + W.resupplies + ' LEFT)' : ''), 'repair');
+  notify(pl, 'RESUPPLIED' + (limited ? ' (' + pool.resupplies + ' LEFT)' : ''), 'repair');
 }
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
@@ -6104,7 +6111,7 @@ const Game = {
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
     W.mission.noTimeout = cfg.mode === 'training';
-    W.maxLives = cfg.mode === 'training' ? 999 : 3; W.lives = W.maxLives; W.resupplies = 2;
+    W.maxLives = cfg.mode === 'training' ? 999 : 3; W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
@@ -6843,9 +6850,18 @@ const HUD = {
     else if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve < pw.def.clip * 0.4 && !W.infiniteAmmo) warns.push('LOW AMMO: ' + pw.def.name.toUpperCase());
     if (p.energyLock) warns.push('ENERGY DEPLETED');
     if (Input.lockFailed && !Input.locked) warns.push('CURSOR MODE: MOVE MOUSE TOWARD EDGES TO TURN');
+    this.drawPadPrompt(p, u);
     const blink = Math.floor(W.time * 3) % 2 === 0;
     let wy = this.h * 0.64;
     for (const w of warns) { this.txt(w, cx, wy, 14, blink ? C.bad : C.warn, 'center', true); wy += 19 * u; }
+  },
+  /* what the interact key would do at a supply pad in reach */
+  drawPadPrompt(p, u) {
+    if (W.mode === 'menu' || !padInRange(p)) return;
+    const C = this.C, y = this.h * 0.58, unlimited = W.mode === 'training';
+    if (!resupplyNeeded(p, W.mods.scarce ? SCARCE_AMMO : 1)) this.txt('SUPPLY PAD: FULLY SUPPLIED', this.w / 2, y, 12, C.dim, 'center');
+    else if (!unlimited && W.resupplies <= 0) this.txt('SUPPLY PAD: NO RESUPPLY CHARGES LEFT', this.w / 2, y, 12, C.warn, 'center', true);
+    else this.txt('[' + keyLabel(Input.code('interact')) + '] RESUPPLY (' + (unlimited ? 'UNLIMITED' : W.resupplies + ' LEFT') + ')', this.w / 2, y, 13, C.friend, 'center', true);
   },
   drawFeed(u) {
     let y = this.h - 150 * u;
@@ -7537,6 +7553,12 @@ const SelfTest = {
       w.reserve = w.def.reserve * 1.5; w.clip = 0; pl.nextResupply = 0;
       tryResupply(pl);
       this.check('resupply never lowers ammunition', w.reserve === w.def.reserve * 1.5 && w.clip === w.def.clip);
+      const mate = new Platform(PLATFORMS.bulwark, { team: 0, x: -5, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout, ammoMult: SCARCE_AMMO });
+      const peer = Net.newPeer(); peer.resupplies = RESUPPLY_CHARGES; mate.netPeer = peer; W.platforms.push(mate);
+      const pool0 = W.resupplies;
+      mate.hp -= 50; tryResupply(mate);
+      this.check('a co-op guest spends its own resupply charges', peer.resupplies === RESUPPLY_CHARGES - 1 && W.resupplies === pool0);
+      this.check('the pad is in reach only nearby', padInRange(pl) === W.pads[0] && (() => { mate.x = 200; return padInRange(mate) === null; })());
     });
     t('notifications', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
@@ -7799,7 +7821,7 @@ const Net = {
     const p = {
       id: this.nextPeerId++, name: 'Pilot', pid: 'bulwark', loadout: null, ready: false, open: false, hello: false, rel: null, unr: null, pc: null,
       lastRecv: this.t, known: new Set(), p: null, lives: 3, respawnT: 0, deathHandled: false, protectT: 0, inp: null, edges: 0, lastInT: -1,
-      code: '', replyText: '', slot: 0, stats: null,
+      code: '', replyText: '', slot: 0, stats: null, resupplies: 0,
     };
     p.tx = (str, reliable) => { const ch = reliable ? p.rel : p.unr; if (ch && ch.readyState === 'open') ch.send(str); };
     return p;
@@ -8007,7 +8029,7 @@ const Net = {
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = 3; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats();
+      p.lives = 3; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
@@ -8136,7 +8158,7 @@ const Net = {
       lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked),
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: 0,
-      k: [peer.stats.kills, peer.stats.score, peer.stats.deaths], tp: p.target ? 1 : 0, ej: 0,
+      k: [peer.stats.kills, peer.stats.score, peer.stats.deaths], rc: peer.resupplies, tp: p.target ? 1 : 0, ej: 0,
     };
   },
   sendSnapshots() {
@@ -8273,6 +8295,7 @@ const Net = {
     gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl;
     gp.warnIncoming = gp.netInc = { count: me.inc[0], dist: me.inc[1] }; gp.crouch = !!me.cr; gp.radarFocus = !!me.rf; gp.airbrake = !!me.abk;
     W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2];
+    if (typeof me.rc === 'number') W.resupplies = me.rc;
   },
   applyObjectives(m) {
     const ms = Game.mission;
@@ -8447,7 +8470,7 @@ UI.scr_coopHost = function () {
   return '<h2>Host a co-op game</h2><div class="grid2"><div class="panel">' + this.coopCommon() +
     '<label class="f"><span>Mission</span><select data-coop="mission">' + MISSIONS.map((m) => '<option value="' + m.id + '"' + (Net.missionId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' +
     '<div class="dim">Your platform: ' + esc(this.platLabel(Save.data.platformId)) + '</div><div class="row"><button class="btn small" data-act="hangar" data-ret="1">Change platform / loadout</button></div>' +
-    '<div class="dim">Enemies scale up with player count. Each player has 3 platforms.</div></div>' +
+    '<div class="dim">Enemies scale up with player count. Each player has 3 platforms and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
     '<div class="panel"><h3 style="margin-top:0">Players</h3><table><tr><th>You</th><th colspan="3">' + esc(cleanName(Net.name)) + ' (host)</th></tr>' + rows + '</table>' +
     (Net.peers.length < Net.maxPeers ? '<div class="row"><button class="btn small" data-act="coopAdd">+ Add a player</button></div>' : '') + '</div></div>' +
     '<div class="row"><button class="btn primary" data-act="coopStart"' + (err ? ' disabled' : '') + '>Start mission</button><button class="btn" data-act="coopLeave" data-focus>Close lobby</button></div>' +
