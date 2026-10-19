@@ -776,6 +776,17 @@ const Input = {
     this.lastDevice = 'touch';
   },
 
+  /* Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate. */
+  rumble(strength, ms) {
+    if (this.lastDevice !== 'gamepad' || this.padIndex < 0 || Settings.v.reducedMotion || !navigator.getGamepads) return;
+    const magnitude = clamp(strength * Settings.v.shake, 0, 1);
+    if (magnitude <= 0) return;
+    try {
+      const pad = navigator.getGamepads()[this.padIndex];
+      const motor = pad && pad.vibrationActuator;
+      if (motor && motor.playEffect) Promise.resolve(motor.playEffect('dual-rumble', { duration: ms, strongMagnitude: magnitude, weakMagnitude: magnitude * 0.6 })).catch(() => {});
+    } catch (err) { /* vibration is optional */ }
+  },
   pollPad() {
     if (!navigator.getGamepads) return;
     let pad = null;
@@ -3888,8 +3899,8 @@ const Combat = {
     def.flash = 1;
     def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; att.comboShow = 100;
     match.hitStop = Math.max(match.hitStop, 5);
-    Events.emit('hit', { att, def, mv: { id: cm.id, name: cm.name, tier: 2, cat: cm.cat, h: 'M', kind: 'hit', hitStop: 5 }, dmg, counter: false, x: def.x, y: def.y + 0.9, z: def.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'hit', combo: att.comboHits, ko: false });
-    if (def.hp <= 0) this.knockOut(def, att, null, match);
+    if (def.hp <= 0) this.knockOut(def, att, null, match);   // before the hit event, so the KO blow gets its full feedback
+    Events.emit('hit', { att, def, mv: { id: cm.id, name: cm.name, tier: 2, cat: cm.cat, h: 'M', kind: 'hit', hitStop: 5 }, dmg, counter: false, x: def.x, y: def.y + 0.9, z: def.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'hit', combo: att.comboHits, ko: def.state === S.KO });
   },
   executeThrow(att, def, match) {
     const p = att.throwPending, t = p.data;
@@ -5551,6 +5562,9 @@ const Game = {
    07b EFFECTS - maps combat / environment events to particles and restrained camera impact.
    Intensity is bounded so attacks stay readable; reduced motion lowers it further.
    ===================================================================== */
+const COUNTER_COLOR = '#ffd24a';
+const RUMBLE_HIT_MS = 110;
+const RUMBLE_KO = 0.9, RUMBLE_KO_MS = 400;
 const Effects = {
   wired: false,
   init() {
@@ -5559,12 +5573,13 @@ const Effects = {
     const on = (n, fn) => Events.on(n, fn);
     on('hit', (e) => {
       const tier = e.mv.tier || 1;
-      const col = e.counter ? '#ffd24a' : e.kind === 'ground' ? '#cfcfcf' : '#ffffff';
+      const col = e.counter ? COUNTER_COLOR : e.kind === 'ground' ? '#cfcfcf' : '#ffffff';
       FX.sparks(e.x, e.y, e.z, 5 + tier * 3 + (e.counter ? 4 : 0), 2.2 + tier, col, e.dirx, e.dirz);
       FX.flash(e.x, e.y, e.z, 0.2 + tier * 0.1, '#ffeab5');
       if (tier >= 3 || e.kind === 'knockdown' || e.kind === 'launch') FX.dust(e.def.x, 0.1, e.def.z, 4, 0.4, '#b5ada0');
       Camera.impact(tier >= 3 ? 0.6 : 0.18, tier >= 3 ? 0.5 : 0.15);
       if (e.ko) Camera.impact(1.0, 1.0);
+      if (e.def.index === 0 && !e.ko) Input.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // the local player (fighter 0) feels hits taken
     });
     on('block', (e) => {
       FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);
@@ -5577,9 +5592,9 @@ const Effects = {
     on('step', (e) => { if (e.run) FX.dust(e.f.x, 0.05, e.f.z, 1, 0.2, '#b5ada0'); });
     on('dash', (e) => FX.dust(e.f.x, 0.05, e.f.z, 3, 0.3, '#b5ada0'));
     on('clinch', (e) => FX.ring(e.x, 0.9, e.z, '#ffffff'));
-    on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); });
+    on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); if (e.def.index === 0) Input.rumble(0.7, RUMBLE_HIT_MS * 2); });
     on('escape', (e) => { FX.ring(e.x, 1.0, e.z, '#9cf4ff'); });
-    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); });
+    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); Input.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
     on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && e.obj.mat === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
@@ -5795,6 +5810,7 @@ const Sound = {
       const power = clamp((e.mv.tier || 1) / 3 + (e.counter ? 0.2 : 0) + (e.ko ? 0.4 : 0), 0.15, 1);
       this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x);
       if (e.mv.tier >= 2 || e.ko) this.grunt(e.def.index, e.ko || e.mv.tier === 3);
+      if (e.counter) { this.tone('triangle', 1760, 1760, 0.16, 0.14); this.tone('sine', 2640, 2640, 0.12, 0.07, 0.03); }   // counter "ting"
     });
     on('block', (e) => this.block(e.perfect, e.broke, e.x));
     on('attackActive', (e) => this.whoosh((e.mv.tier || 1) / 3, e.f.x));
@@ -6479,7 +6495,7 @@ const UI = {
   /* ----- HUD ----- */
   onHit(e) {
     const txt = (e.counter ? 'COUNTER ' : '') + Math.round(e.dmg);
-    this.popAt(e.x, e.y + 0.1, e.z, txt, e.def.index === 0 ? '#ff9a9a' : '#ffffff');
+    this.popAt(e.x, e.y + 0.1, e.z, txt, e.counter ? COUNTER_COLOR : e.def.index === 0 ? '#ff9a9a' : '#ffffff');
   },
   onBlock(e) {
     const t = e.broke ? 'GUARD BREAK!' : e.perfect ? 'PERFECT BLOCK!' : 'BLOCK';
@@ -7741,6 +7757,39 @@ const SelfTest = {
         Input.releasePad(); Input.reset(); Input.lastDevice = device;
       }
       return r;
+    });
+    test('Gamepad rumbles on hits taken and on a KO, only while the pad is in use', () => {
+      const calls = [];
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: [], vibrationActuator: { playEffect: (type, p) => { calls.push(p.strongMagnitude); return Promise.resolve(); } } };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, index = Input.padIndex, reduced = Settings.v.reducedMotion;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      let r;
+      try {
+        Input.lastDevice = 'gamepad'; Input.padIndex = 0; Settings.v.reducedMotion = false;
+        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; });
+        self.place(m, 1.2); self.run(m, 40);
+        const onHit = calls.length;
+        Combat.knockOut(m.fighters[0], m.fighters[1], null, m);
+        const onKo = calls.length === onHit + 1 && Math.abs(calls[calls.length - 1] - RUMBLE_KO * Settings.v.shake) < 1e-6;
+        Input.lastDevice = 'keyboard'; Input.rumble(1, 100);
+        const quiet = calls.length === onHit + 1;
+        r = onHit >= 1 && onKo && quiet ? true : JSON.stringify({ calls });
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.lastDevice = device; Input.padIndex = index; Settings.v.reducedMotion = reduced;
+      }
+      return r;
+    });
+    test('A clinch strike that knocks out sends the KO flag with the hit', () => {
+      const m = mk({});
+      self.place(m, 0.8);
+      const [a, b] = m.fighters;
+      b.hp = 1;
+      const log = self.capture(['hit', 'ko']);
+      Combat.clinchStrike(a, b, CLINCH_MOVES.elbow, m);
+      log.stop();
+      const hit = log.hit[0];
+      return hit && hit.ko && log.ko.length === 1 && m.hitStop >= 16 ? true : JSON.stringify({ hit: !!hit, ko: hit && hit.ko, kos: log.ko.length, stop: m.hitStop });
     });
     test('Hints name the control of the device in use', () => {
       const device = Input.lastDevice;
