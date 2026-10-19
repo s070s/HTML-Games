@@ -4286,6 +4286,20 @@ function resolveLook(look) {
   };
 }
 
+/* Mirror matches: the second fighter wears the same outfit with the hues turned, so the two stay easy to tell apart. */
+const ALT_OUTFIT_KEYS = ['top', 'shorts', 'glove', 'shoe', 'accent'];
+const ALT_HUE_SHIFT = 150;          // degrees: far enough round the colour wheel to read as a different team
+const ALT_MIN_SATURATION = 0.5;     // greys, black and white get colour too, so they change as well
+function alternateLook(look) {
+  const alt = Object.assign({}, look);
+  for (const key of ALT_OUTFIT_KEYS) {
+    if (!HEX_COLOR.test(look[key] || '')) continue;   // a bare top (null) stays skin
+    const hsl = hexToHsl(look[key]);
+    alt[key] = hslToHex(hsl.h + ALT_HUE_SHIFT, Math.max(hsl.s, ALT_MIN_SATURATION), clamp(hsl.l, 0.25, 0.7));
+  }
+  return alt;
+}
+
 /* ---------- point-buy rules ---------- */
 function attrCost(value) { return value + Math.max(0, value - ATTR_KNEE); }
 /* Point cost of a build (points above ATTR_KNEE count double). */
@@ -4959,6 +4973,7 @@ class MatchSim {
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
     if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs });   // the Arcade final boss fights at full strength
     this.fighters = [new Fighter(p1, 0), new Fighter(p2, 1)];
+    if (p1.id === p2.id) this.fighters[1].applyLook(alternateLook(p2.look));
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
     this.controllers = [PlayerController, this.rivalController(p2)];
@@ -5275,20 +5290,22 @@ const Showcase = {
   arenaId: null, fighters: [], t: 0, solo: false, orbit: 0,
   creator: false, previewFighter: null, previewPose: 'guard', poseClock: 0, userYaw: 0.5, spinHoldUntil: 0,
   previewFocus: [-0.4, 0], previewFreeHeight: 1,     // screen spot (NDC) and free height fraction left by the creator panel
-  set(arenaId, leftId, rightId, solo) {
+  /* altSolo: the lone fighter wears the alternate colours (P2 picking P1's fighter); a mirror pair always does. */
+  set(arenaId, leftId, rightId, solo, altSolo) {
     if (this.arenaId !== arenaId || !Arena.def || Arena.def.id !== arenaId) { Arena.build(ARENAS[arenaId]); this.arenaId = arenaId; }
     this.solo = !!solo;
     this.creator = false;
-    const mk = (id, idx, x, yaw) => {
+    const mk = (id, idx, x, yaw, alt) => {
       const profile = ROSTER_BY_ID[id] || ROSTER_BY_ID.kai;
       let f = this.fighters[idx];
       if (!f || f.profile !== profile) f = this.fighters[idx] = new Fighter(profile, idx);
+      f.applyLook(alt ? alternateLook(profile.look) : profile.look);
       f.reset(x, 0, yaw);
       f.stance = idx; f.pose.set(f.motion.guard[f.stance]);
       return f;
     };
-    mk(leftId, 0, solo ? 0 : -1.5, solo ? 0 : Math.PI / 2);
-    if (rightId && !solo) mk(rightId, 1, 1.5, -Math.PI / 2);
+    mk(leftId, 0, solo ? 0 : -1.5, solo ? 0 : Math.PI / 2, solo && altSolo);
+    if (rightId && !solo) mk(rightId, 1, 1.5, -Math.PI / 2, rightId === leftId);
   },
   /* Character creator: one live fighter, updated in place on every edit (cosmetic only, never simulated). */
   showPreview(profile) {
@@ -5447,7 +5464,7 @@ const Game = {
   },
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId).sort((x, y) => x.rank - y.rank); },
   /* Free Fight / Training opponents: the roster plus saved custom fighters. */
-  opponentChoices(playerId) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => r.id !== playerId); },
+  opponentChoices(playerId, allowMirror) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => allowMirror || r.id !== playerId); },
   /* keepRun: next stage or a retry of the same run (continues are counted); otherwise a new run starts. */
   startArcade(stage, keepRun) {
     const sel = this.selection;
@@ -5483,9 +5500,8 @@ const Game = {
   },
   startFree() {
     const sel = this.selection;
-    let opp = sel.opponent === sel.player ? this.opponentsFor(sel.player)[0].id : sel.opponent;
     this.run = { mode: 'free', player: sel.player };
-    this.beginMatch({ mode: 'free', playerId: sel.player, opponentId: opp, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer });
+    this.beginMatch({ mode: 'free', playerId: sel.player, opponentId: sel.opponent, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer });
   },
   startVersus() {
     const sel = this.selection;
@@ -6254,7 +6270,7 @@ const UI = {
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
   startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), MUSIC_FIGHT); },
   showcaseOpponent() { const custom = CustomRoster.profiles()[0]; return custom ? custom.id : 'mara'; },
-  menuScene(arenaId, left, right, solo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo); Camera.snapNext = true; },
+  menuScene(arenaId, left, right, solo, altSolo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo, altSolo); Camera.snapNext = true; },
   onMatchCreated(match) {
     const train = match.training;
     const browserKeys = ACTIONS.some((a) => Keymap.bindings[a].some((c) => /^(Control|Alt)/.test(c)));
@@ -6463,14 +6479,14 @@ const UI = {
     this.showPick();
     this.rerender(true);
   },
-  /* The fighter being picked, alone on the stage. */
-  showPick() { const sel = Game.selection; this.menuScene(sel.arena, sel[this.pickKey()], null, true); },
+  /* The fighter being picked, alone on the stage (P2's mirror pick in the alternate colours). */
+  showPick() { const sel = Game.selection, key = this.pickKey(); this.menuScene(sel.arena, sel[key], null, true, key === 'player2' && sel.player2 === sel.player); },
   confirmFighter() {
     const sel = Game.selection;
     if (!Progress.isUnlocked(sel[this.pickKey()])) { Sound.ui('bad'); this.toast('Locked. Win Arcade fights to unlock this fighter.', 'warn'); return; }
     if (sel.mode === 'arcade') Game.startFromSelection();
     else if (sel.mode === 'versus') this.confirmVersusPick();
-    else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
+    else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.mode === 'training' && sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
     else Game.go(GS.ARENASEL);
   },
   /* Versus: P1's confirm hands the fighter cards to P2; P2's confirm opens the rules. */
@@ -6550,7 +6566,7 @@ const UI = {
     if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === picked)).join('') + '</div>';
     const r = ROSTER_BY_ID[picked] || ROSTER_BY_ID.kai;
     if (sel.mode === 'arcade') h += this.optRow('Arcade difficulty', DIFFICULTY[sel.arcadeLevel].label, 'data-local="alevel"', '');
-    h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + '</p>';
+    h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + (p2 && r.id === sel.player ? ' &middot; mirror match: P2 wears alternate colours' : '') + '</p>';
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom && !p2 ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
   },
@@ -6560,7 +6576,7 @@ const UI = {
     if (sel.mode === 'versus') return this.versusSetup(rounds, timer);
     const training = sel.mode === 'training';   // training only picks the sparring partner
     let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Match setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>' + (training ? 'Training setup' : 'Free Fight setup') + '</h2><p class="sub">' + (training ? 'Choose your sparring partner' : 'Choose your opponent and rules') + '</p><div class="cards">';
-    for (const r of Game.opponentChoices(sel.player)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);
+    for (const r of Game.opponentChoices(sel.player, !training)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);   // Free Fight allows mirror matches
     h += '</div>';
     if (!training) h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '');
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
