@@ -2704,6 +2704,7 @@ const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
 const ESCAPE_GRACE_TICKS = 6;       // an escape press this close before the window opens is kept and used when it opens
+const ESCAPE_STAMINA = 6;            // stamina an escape needs; below it the press fails
 const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees away from the grabber = rear grip
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
@@ -3391,7 +3392,7 @@ class Fighter {
   /* A press outside the window (too early, or after the throw passed its escape point) costs stamina and a lockout. */
   tryEscape(att, match) {
     const pendingOk = !att.throwPending || att.throwPending.tick <= att.throwPending.data.escapeUntil;
-    if (this.clinchTick >= escapeStartFor(this) && this.stam >= 6 && pendingOk) Combat.escapeClinch(this, att, match);
+    if (this.clinchTick >= escapeStartFor(this) && this.stam >= ESCAPE_STAMINA && pendingOk) Combat.escapeClinch(this, att, match);
     else { this.stam = Math.max(0, this.stam - 10); this.escapeLock = 24; Events.emit('escapeFail', { f: this }); }
   }
 
@@ -6244,7 +6245,7 @@ const UI = {
       'Hold ' + k('strong') + ' strong or ' + k('height') + ' height, then attack<br>' +
       'Block high ' + k('blockHigh') + ', low ' + k('blockLow') + '<br>' +
       'Grapple / escape ' + k('grapple') + '<br>' +
-      'Move list: pause with ' + k('pause') + '<small>Click or press any key to close</small>';
+      'Move list: pause with ' + k('pause') + ', then Move list<small>Click or press any key to close</small>';
     this.dom.onboard.hidden = false;
     Progress.d.seenControls = true;
     Progress.save();
@@ -6735,7 +6736,7 @@ const UI = {
         '<button class="mi" data-nav data-act="treset">Reset positions &amp; health<small>Tab</small></button><button class="mi" data-nav data-act="tarena">Reset arena objects<small>F2</small></button>' +
         this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-5)</button>';
     }
-    h += '<button class="mi" data-nav data-act="controls">Controls &amp; move list</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + '</button></nav></div></section>';
+    h += '<button class="mi" data-nav data-act="moves">Move list</button><button class="mi" data-nav data-act="controls">Controls</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + '</button></nav></div></section>';
     return h;
   },
   screen_results() {
@@ -6926,14 +6927,17 @@ const UI = {
   /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
   clinchHint(f) {
     if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
-    if (f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
+    const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS;
+    if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · wait for stamina';
+    if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
     return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
   /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
-    const data = throwFor(f.grip, f.throwAim);
-    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws, punch = knee';
+    const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
+    const strikes = strikesLeft > 0 ? ', ' + this.keyName('lp', f.index) + ' knee / ' + this.keyName('rp', f.index) + ' elbow (' + strikesLeft + ' left)' : '';
+    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws' + strikes;
   },
   /* Arrow for a fighter-relative direction as it appears on screen. */
   screenArrow(f, dir) {
@@ -8571,6 +8575,22 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
+    });
+    test('Hints: too tired to escape, the clinch strike keys with strikes left, a Move list entry in the pause menu', () => {
+      const m = mk({});
+      const [a, b] = m.fighters;
+      a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null;
+      b.escapeLock = 0; b.clinchTick = escapeStartFor(b);
+      b.stam = ESCAPE_STAMINA - 1;
+      const tired = UI.clinchHint(b).startsWith('TOO TIRED');
+      b.stam = ESCAPE_STAMINA;
+      const escape = UI.clinchHint(b).startsWith('ESCAPE NOW');
+      a.clinchStrikes = 0;
+      const fresh = UI.throwHint(a), strikes = fresh.includes(UI.keyName('lp', 0) + ' knee / ' + UI.keyName('rp', 0) + ' elbow (' + CLINCH_STRIKE_MAX + ' left)');
+      a.clinchStrikes = CLINCH_STRIKE_MAX;
+      const spent = !UI.throwHint(a).includes('knee');
+      const pauseMoves = UI.screen_pause().includes('data-act="moves"');
+      return tired && escape && strikes && spent && pauseMoves ? true : JSON.stringify({ tired, escape, fresh, spent, pauseMoves });
     });
     test('Pause: Esc or a pause press that leaves Controls or Settings lands on the pause screen; a later press resumes', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
