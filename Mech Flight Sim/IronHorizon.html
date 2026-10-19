@@ -272,7 +272,7 @@ const WEAPONS = {
   rpg: { name: 'Rocket Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 90, dtype: 'explosive', speed: 80, accel: 120, maxSpeed: 170, life: 3.5, cd: 2.5, spread: 0.01, clip: 1, reserve: 6, reload: 3.5, heat: 8, range: 450, blast: 5.5, weight: 6, structMult: 1.4, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, sound: 'rocket', recoil: 0.5, role: 'Anti-armor rocket' },
   grenade: { name: 'Grenade Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 40, life: 5, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 4, reserve: 12, reload: 3, heat: 5, range: 140, blast: 5, weight: 4, structMult: 1.2, tracer: [0.9, 0.9, 0.5], size: 0.6, sound: 'mortar', recoil: 0.3, role: 'Lobbed grenade' },
   /* utilities */
-  shield: { name: 'Energy Shield', slot: 'utility', kind: 'defense', def: 'shield', shield: 170, regen: 24, regenDelay: 3, drain: 14, weight: 6, role: 'Absorbs damage; drains energy while up' },
+  shield: { name: 'Energy Shield', slot: 'utility', kind: 'defense', def: 'shield', shield: 170, regen: 24, regenDelay: 3, drain: 5, weight: 6, role: 'Absorbs damage; halts energy regen and drains energy while up' },
   aps: { name: 'Active Protection', slot: 'utility', kind: 'defense', def: 'aps', charges: 4, cd: 2.2, radius: 30, minDmg: 40, recharge: 15, weight: 7, role: 'Destroys incoming missiles and heavy rockets; recharges' },
   nano: { name: 'Nano Repair', slot: 'utility', kind: 'defense', def: 'repair', charges: 2, cd: 8, heal: 0.3, weight: 3, role: 'Restores hull over 5 s' },
   flares: { name: 'Flares', slot: 'utility', kind: 'defense', def: 'flares', charges: 8, cd: 1.2, weight: 3, role: 'Decoys that pull missiles off you' },
@@ -3427,9 +3427,10 @@ class Platform {
     const coolMult = (this.crouch ? 1.25 : 1) * (this.overheated ? 0.75 : 1);
     this.heat = Math.max(0, this.heat - this.def.cooling * dt * coolMult);
     if (this.overheated && this.heat <= this.maxHeat * 0.45) this.overheated = false;
-    // energy
+    // energy: a raised Energy Shield halts regeneration, so holding it slowly empties the bar
+    const shieldHoldsRegen = this.shieldOn && this.util && this.util.def.def === 'shield';
     if (this.energyDelay > 0) this.energyDelay -= dt;
-    else if (this.maxEnergy > 0) this.energy = Math.min(this.maxEnergy, this.energy + this.def.energyRegen * dt);
+    else if (this.maxEnergy > 0 && !shieldHoldsRegen) this.energy = Math.min(this.maxEnergy, this.energy + this.def.energyRegen * dt);
     if (this.energy <= 0) { this.energy = 0; this.energyLock = true; }
     else if (this.energyLock && this.energy >= this.maxEnergy * 0.25) this.energyLock = false;
     // shield
@@ -3985,7 +3986,8 @@ class Platform {
           if (this.shieldOn) this.shieldOn = false;
           else if (this.shieldBroken <= 0 && this.shield > 1 && this.energy > 5 && !this.energyLock) { this.shieldOn = true; Snd.play('shieldHit', this.x, this.y, this.z, 0.8); }
         }
-        // a steady drain that, unlike boosts and jets, does not pause energy regeneration
+        // regeneration is halted while the shield is up (updateResources), so this is the net cost:
+        // a full bar holds the shield about 35-50 s
         if (this.shieldOn) { this.energy -= ud.drain * dt; if (this.energyLock || this.shieldBroken > 0) this.shieldOn = false; }
         break;
       case 'aps':
@@ -4847,6 +4849,7 @@ const AIM_ERR_HOLD = [0.4, 0.8];   // seconds an aim error offset is kept before
 const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the new offset
 const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
 const AI_SWITCH_DELAY = 2;         // minimum seconds between AI primary weapon swaps
+const AI_SHIELD_RAISE = 0.6;       // energy fraction the AI needs before raising its shield (it drops at the energy lock)
 const FOG_SIGHT = 0.55;            // AI sight multiplier in heavy fog
 const NIGHT_SIGHT = 0.75;          // AI sight multiplier at night
 const AI_NOSE = { x: 0, y: 0, z: 0 };
@@ -5123,7 +5126,7 @@ class AIController {
     this.flareT -= dt;
     switch (u.def.def) {
       case 'shield':
-        if (hasTarget && dist < 280 && !p.shieldOn && p.shieldBroken <= 0 && p.shield > 20 && p.energy > 40 && p.stateless !== true) c.defenseEdge = true;
+        if (hasTarget && dist < 280 && !p.shieldOn && p.shieldBroken <= 0 && p.shield > 20 && p.energy > p.maxEnergy * AI_SHIELD_RAISE && p.stateless !== true) c.defenseEdge = true;
         else if (!hasTarget && p.shieldOn && W.time - this.seen.t > 5) c.defenseEdge = true;
         break;
       case 'repair':
@@ -7531,6 +7534,11 @@ const SelfTest = {
       b.takeDamage(10, 'kinetic', a, 1, 0); // shield absorbs all
       a.takeDamage(10, 'kinetic', b, 0, 0);
       this.check('shield absorbs first', a.shield < sh0 && a.armor === ar0 && a.hp === hp0);
+      const sp = new Platform(def, { team: 0, x: 60, z: 60, yaw: 0, loadout: def.loadout });
+      sp.shieldOn = true; sp.cmd.defenseEdge = false;
+      for (let i = 0; i < 100; i++) { sp.updateResources(0.1); sp.updateDefense(0.1); }
+      const shieldCost = sp.maxEnergy - sp.energy;
+      this.check('holding the shield slowly drains energy', sp.shieldOn && this.near(shieldCost, WEAPONS.shield.drain * 10, 0.5), 'lost ' + shieldCost.toFixed(1) + ' in 10 s');
       a.shield = 0; a.shieldOn = false;
       a.takeDamage(100, 'kinetic', b, 0, 0);
       this.check('armor then hull', a.armor < ar0 && a.hp < hp0 && a.armor >= 0);
