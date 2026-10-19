@@ -529,10 +529,12 @@ const SETTING_SCHEMA = {
   sens: ['num', 0.2, 3, 1], smoothing: ['num', 0, 0.9, 0], invertY: ['bool', false], pointerLock: ['bool', true],
   uiScale: ['num', 0.8, 1.5, 1], reducedMotion: ['bool', false], flightMode: ['enum', ['assisted', 'direct'], 'assisted'],
   flightAssist: ['bool', true], quality: ['enum', ['low', 'medium', 'high'], 'medium'], fov: ['num', 55, 95, 72],
-  showFps: ['bool', false], tutorialSeen: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
+  showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
   highContrast: ['bool', false],
 };
 const S = {};   // live settings
+/* the setting that records the tutorial as seen for one platform kind: mechs, ground vehicles and aircraft each teach different controls */
+const tutorialKey = (kind) => (kind === 'air' ? 'tutorialAir' : kind === 'ground' ? 'tutorialGround' : 'tutorialMech');
 const diffKey = (k) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(DIFFICULTY, k) ? k : undefined);   // a saved difficulty id, if valid
 const Save = {
   storageOk: true,
@@ -6238,8 +6240,8 @@ const Game = {
     W.player = null;
   },
   setTutorial() {
-    if (S.tutorialSeen || this.cfg.mode === 'skirmish' && false) { this.tutorial = null; return; }
     const p = W.player, kind = p.kind;
+    if (S[tutorialKey(kind)]) { this.tutorial = null; return; }
     const k = (a) => keyLabel(Input.code(a));
     PC.usedDefense = false;
     const steps = [];
@@ -6254,7 +6256,7 @@ const Game = {
       steps.push({ text: k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
       steps.push({ text: k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
     }
-    this.tutorial = { steps, i: 0, t: 0, done: false };
+    this.tutorial = { steps, i: 0, t: 0, done: false, key: tutorialKey(kind) };
   },
 
   /* ----- pause / resume ----- */
@@ -6458,7 +6460,7 @@ const Game = {
     if (!t || t.done) return;
     t.t += dt;
     const s = t.steps[t.i];
-    if (t.t > 2 && (s.test() || t.t > 14)) { t.i++; t.t = 0; if (t.i >= t.steps.length) { t.done = true; S.tutorialSeen = true; Save.persist(); } }
+    if (t.t > 2 && (s.test() || t.t > 14)) { t.i++; t.t = 0; if (t.i >= t.steps.length) { t.done = true; S[t.key] = true; Save.persist(); } }
   },
 
   /* ----- robustness ----- */
@@ -7145,7 +7147,7 @@ const UI = {
   },
   act_resetAll() { this.show('confirm', { text: 'Erase ALL saved data (settings, key bindings, loadouts, best scores)? This cannot be undone.', yes: 'resetAllYes' }); },
   act_resetAllYes() { Save.reset(); this.applySettings(); this.skirmish = Object.assign({}, SKIRMISH_DEFAULT); this.stack.pop(); this.render(); this.toast('All saved data erased'); },
-  act_tutorialReset() { S.tutorialSeen = false; Save.persist(); this.toast('Tutorial hints will show next deployment'); },
+  act_tutorialReset() { S.tutorialMech = S.tutorialGround = S.tutorialAir = false; Save.persist(); this.toast('Tutorial hints will show next deployment'); },
   act_rebindAll() { Save.data.bindings = Save.defaults().bindings; Input.setBindings(Save.data.bindings); Save.persist(); this.render(); this.toast('Controls reset to defaults'); },
   act_rebind(d) {
     this.cancelRebind();
@@ -7489,6 +7491,16 @@ const SelfTest = {
       this.check('reserved/duplicate bindings repaired', d.bindings.fire1 !== 'Escape' && (d.bindings.boost === '' || d.bindings.boost !== d.bindings.jump));
       this.check('bad platform id', d.platformId === 'bulwark');
       this.check('null raw', Save.sanitize(null).v === SAVE_VERSION);
+      const tut = Save.sanitize({ v: SAVE_VERSION, settings: { tutorialMech: true, tutorialAir: 'yes' } }).settings;
+      this.check('tutorial hints are tracked per platform kind', tut.tutorialMech === true && tut.tutorialAir === false && tut.tutorialGround === false);
+      const keep = { player: W.player, tutorial: Game.tutorial, mech: S.tutorialMech, air: S.tutorialAir };
+      try {
+        S.tutorialMech = true; S.tutorialAir = false;
+        W.player = { kind: 'mech', cmd: {} }; Game.setTutorial();
+        const mechHints = !!Game.tutorial;
+        W.player = { kind: 'air', cmd: {} }; Game.setTutorial();
+        this.check('a pilot who learned mechs still gets flight hints', !mechHints && !!Game.tutorial && Game.tutorial.key === 'tutorialAir');
+      } finally { W.player = keep.player; Game.tutorial = keep.tutorial; S.tutorialMech = keep.mech; S.tutorialAir = keep.air; }
     });
     // world based checks need a throwaway world; restore the menu world afterwards
     const hadState = Game.state;
