@@ -60,6 +60,7 @@ kbd{display:inline-block;padding:.05em .45em;border:1px solid #6d82b8;border-bot
 .statgrid span:nth-child(odd){color:var(--mut)}
 .statgrid span:nth-child(even){text-align:right;font-weight:800}
 button.mi small.rec{color:var(--a1)}
+.c1{color:var(--a1)}.c2{color:var(--a2)}
 .newbest{font:900 italic 1.6em/1 Impact,"Arial Black",sans-serif;letter-spacing:.06em;color:var(--warn);margin:.4em 0}
 /* ---------- character creator ---------- */
 .screen.creator{justify-content:flex-end;align-items:stretch;padding:1em 1.4em;cursor:grab;touch-action:none}
@@ -4925,8 +4926,15 @@ const SKIP_ARM_TICKS = 30;            // the round-end sequence can be skipped a
 const TIMER_LOW_SECONDS = 10;         // the round timer turns to the warning colour
 const TIMER_BEEP_SECONDS = 5;         // and beeps once a second from here
 
+/* A human player: P1 reads Input, the second Versus player reads Input2. */
 const PlayerController = {
+  input: Input,
   think(f, opp, match, it) { return Input.fillIntent(it, f, opp); },
+  reset() {},
+};
+const Player2Controller = {
+  input: Input2,
+  think(f, opp, match, it) { return Input2.fillIntent(it, f, opp); },
   reset() {},
 };
 const ScriptedController = {
@@ -4944,7 +4952,8 @@ class MatchSim {
     if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs });   // the Arcade final boss fights at full strength
     this.fighters = [new Fighter(p1, 0), new Fighter(p2, 1)];
     this.training = this.cfg.mode === 'training';
-    this.controllers = [PlayerController, this.training ? new DummyController(p2, this.cfg.dummy) : new AIController(p2, this.cfg.difficulty)];
+    this.versus = this.cfg.mode === 'versus';
+    this.controllers = [PlayerController, this.rivalController(p2)];
     this.intents = [makeIntent(), makeIntent()];
     this.tick = 0;
     this.matchTicks = 0;
@@ -4972,6 +4981,11 @@ class MatchSim {
     this.subscribe();
     Match.current = this;
     this.startRound();
+  }
+  /* Fighter 2: the second player in Versus, the dummy in Training, otherwise the CPU. */
+  rivalController(profile) {
+    if (this.versus) return Player2Controller;
+    return this.training ? new DummyController(profile, this.cfg.dummy) : new AIController(profile, this.cfg.difficulty);
   }
   newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0 }; }
 
@@ -5378,7 +5392,8 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'normal', rounds: 2, timer: 60, arcadeLevel: 'normal' },
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'normal', rounds: 2, timer: 60, arcadeLevel: 'normal' },
+  versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   endTimer: 0,
   frameAvg: 16,
   rafId: 0,
@@ -5390,19 +5405,27 @@ const Game = {
     if (!allowed.includes(next)) { Diag.log('warn', 'Rejected game-state transition ' + this.state + ' -> ' + next); return false; }
     const prev = this.state;
     this.state = next;
+    this.syncVersusInput();
     Events.emit('gamestate', { from: prev, to: next });
     return true;
   },
+  /* P2 reads the keyboard and pads from the Versus fighter select until the main menu. */
+  syncVersusInput() { Inputs.setVersus(this.selection.mode === 'versus' && this.state !== GS.MENU && this.state !== GS.LOADING); },
 
   /* ----- menu flow ----- */
-  chooseMode(mode) { this.selection.mode = mode; this.ensureSelection(); this.go(GS.CHARSEL); },
+  chooseMode(mode) {
+    this.selection.mode = mode;
+    if (mode === 'versus') this.versus = { score: [0, 0] };
+    this.ensureSelection();
+    this.go(GS.CHARSEL);
+  },
   /* A deleted custom fighter may still be selected: fall back to built-ins. */
   ensureSelection() {
     const sel = this.selection;
     if (!ROSTER_BY_ID[sel.player]) sel.player = 'kai';
     if (!ROSTER_BY_ID[sel.opponent]) sel.opponent = sel.player === 'mara' ? 'kai' : 'mara';
+    if (!ROSTER_BY_ID[sel.player2]) sel.player2 = 'mara';
   },
-  choosePlayer(id) { this.selection.player = id; },
   chooseArena(id) { this.selection.arena = id; },
 
   startFromSelection() {
@@ -5411,6 +5434,7 @@ const Game = {
     if (sel.mode === 'arcade') this.startArcade(0);
     else if (sel.mode === 'survival') this.startSurvival();
     else if (sel.mode === 'training') this.startTraining();
+    else if (sel.mode === 'versus') this.startVersus();
     else this.startFree();
   },
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId).sort((x, y) => x.rank - y.rank); },
@@ -5454,6 +5478,12 @@ const Game = {
     let opp = sel.opponent === sel.player ? this.opponentsFor(sel.player)[0].id : sel.opponent;
     this.run = { mode: 'free', player: sel.player };
     this.beginMatch({ mode: 'free', playerId: sel.player, opponentId: opp, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer });
+  },
+  startVersus() {
+    const sel = this.selection;
+    if (!this.versus) this.versus = { score: [0, 0] };
+    this.run = { mode: 'versus', player: sel.player };
+    this.beginMatch({ mode: 'versus', playerId: sel.player, opponentId: sel.player2, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer });
   },
 
   beginMatch(cfg) {
@@ -5499,9 +5529,10 @@ const Game = {
     this.saveSurvivalRecord();
     this.endMatch();
     this.run = null;
+    this.versus = null;
     this.pausedFrom = null;
     if (this.state !== GS.MENU) {
-      if (!this.go(GS.MENU)) { this.state = GS.MENU; Events.emit('gamestate', { from: 'FORCED', to: GS.MENU }); }
+      if (!this.go(GS.MENU)) { this.state = GS.MENU; this.syncVersusInput(); Events.emit('gamestate', { from: 'FORCED', to: GS.MENU }); }
     }
   },
 
@@ -5555,10 +5586,14 @@ const Game = {
       }
       data.kills = run.kills; data.survivalSeconds = run.seconds;
       this.saveSurvivalRecord();
+    } else if (run && run.mode === 'versus') {
+      this.versus.score[m.matchWinner]++;
+      data.score = this.versus.score.slice();
+      data.buttons = ['again', 'setup', 'menu'];
     } else data.buttons = ['again', 'setup', 'menu'];
     this.resultsData = data;
     this.endTimer = 0;
-    this.go(playerWon ? GS.VICTORY : GS.DEFEAT);
+    this.go(playerWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
   },
   resultsAction(kind) {
     const run = this.run;
@@ -6047,7 +6082,9 @@ const MODE_INFO = {
   survival: { label: 'Survival', desc: 'Endless opponents, limited recovery between fights. How long can you last?' },
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Pick any opponent, arena, difficulty, round count and timer.' },
+  versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
 };
+const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
 const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', stance: 'Select (tap)', pause: 'Start' };
 const TOUCH_LABELS = { lp: 'LP', rp: 'RP', lk: 'LK', rk: 'RK', strong: 'STR', height: 'HGT', blockHigh: 'BLK-H', blockLow: 'BLK-L', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STNC', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
@@ -6059,7 +6096,7 @@ const UI = {
   screen_creator() { return CreatorUI.render(); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
   rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
-  listeners: [], frameCount: 0, onboardTimer: 0,
+  listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0,
 
   init() {
     for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'banner', 'warn', 'grappleHint', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
@@ -6175,8 +6212,8 @@ const UI = {
         if (CreatorUI.resumeAfterPreview()) break;
         this.menuScene('warehouse', 'kai', this.showcaseOpponent(), false); this.go('main');
         break;
-      case GS.CHARSEL: this.stack = []; this.menuScene(Game.selection.arena, Game.selection.player, null, true); this.go('char'); break;
-      case GS.ARENASEL: this.menuScene(Game.selection.arena, Game.selection.player, Game.selection.opponent, false); this.go('arena'); break;
+      case GS.CHARSEL: this.stack = []; this.pickSide = 0; this.showPick(); this.go('char'); break;
+      case GS.ARENASEL: this.menuScene(Game.selection.arena, Game.selection.player, this.rivalId(), false); this.go('arena'); break;
       case GS.COUNTDOWN: case GS.FIGHT:
         this.hideScreen();
         if (![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(e.from)) this.startMatchMusic();
@@ -6239,9 +6276,10 @@ const UI = {
     if (cur === 'creator') { CreatorUI.back(); return; }
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
+    if (cur === 'char' && this.pickSide === 1) { this.pickSide = 0; this.showPick(); this.go('char'); return; }   // Versus: back to P1's pick
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
-    if (cur === 'setup') { this.go('char'); return; }
-    if (cur === 'arena') { const setup = ['free', 'training'].includes(Game.selection.mode); Game.go(GS.CHARSEL); if (setup) this.go('setup'); return; }
+    if (cur === 'setup') { if (Game.selection.mode === 'versus') { this.pickSide = 1; this.showPick(); } this.go('char'); return; }
+    if (cur === 'arena') { const setup = ['free', 'training', 'versus'].includes(Game.selection.mode); Game.go(GS.CHARSEL); if (setup) this.go('setup'); return; }
     const prev = this.stack.pop();
     this.go(prev || (Game.state === GS.PAUSED ? 'pause' : 'main'));
   },
@@ -6348,12 +6386,11 @@ const UI = {
       case 'moves': this.push('moves'); break;
       case 'back': this.back(); break;
       case 'mode': Game.chooseMode(arg); break;
-      // picking the card that is already selected confirms it, so a double click or a second Enter moves on
-      case 'pick': if (arg === Game.selection.player) { this.confirmFighter(); break; } Game.choosePlayer(arg); this.menuScene(Game.selection.arena, arg, null, true); this.rerender(true); break;
+      case 'pick': this.pickFighter(arg); break;
       case 'confirm': this.confirmFighter(); break;
       case 'opp': if (arg === Game.selection.opponent) { Game.go(GS.ARENASEL); break; } Game.selection.opponent = arg; this.rerender(true); break;
       case 'setupNext': Game.go(GS.ARENASEL); break;
-      case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, Game.selection.opponent, false); this.rerender(true); break;
+      case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, this.rivalId(), false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
       case 'rebind': this.startRebind(arg); break;
       case 'resetKeys': Keymap.resetAll(); this.toast('Keyboard bindings reset'); break;
@@ -6380,12 +6417,34 @@ const UI = {
       default: if (name.startsWith('cr')) CreatorUI.act(name, arg); break;
     }
   },
+  /* Versus: P1 picks first, then P2 on the same screen; this is the selection field the fighter cards change. */
+  pickKey() { return Game.selection.mode === 'versus' && this.pickSide === 1 ? 'player2' : 'player'; },
+  /* The fighter facing P1 in menus: P2's pick in Versus, otherwise the chosen opponent. */
+  rivalId() { const sel = Game.selection; return sel.mode === 'versus' ? sel.player2 : sel.opponent; },
+  /* Picking the card that is already selected confirms it, so a double click or a second Enter moves on. */
+  pickFighter(id) {
+    const key = this.pickKey();
+    if (id === Game.selection[key]) { this.confirmFighter(); return; }
+    Game.selection[key] = id;
+    this.showPick();
+    this.rerender(true);
+  },
+  /* The fighter being picked, alone on the stage. */
+  showPick() { const sel = Game.selection; this.menuScene(sel.arena, sel[this.pickKey()], null, true); },
   confirmFighter() {
     const sel = Game.selection;
-    if (!Progress.isUnlocked(sel.player)) { Sound.ui('bad'); this.toast('Locked. Win Arcade fights to unlock this fighter.', 'warn'); return; }
+    if (!Progress.isUnlocked(sel[this.pickKey()])) { Sound.ui('bad'); this.toast('Locked. Win Arcade fights to unlock this fighter.', 'warn'); return; }
     if (sel.mode === 'arcade') Game.startFromSelection();
+    else if (sel.mode === 'versus') this.confirmVersusPick();
     else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
     else Game.go(GS.ARENASEL);
+  },
+  /* Versus: P1's confirm hands the fighter cards to P2; P2's confirm opens the rules. */
+  confirmVersusPick() {
+    if (this.pickSide === 1) { this.go('setup'); return; }
+    this.pickSide = 1;
+    this.showPick();
+    this.go('char');
   },
   startRebind(action) {
     const btn = this.dom.screens.querySelector('[data-act="rebind:' + action + '"]');
@@ -6413,7 +6472,7 @@ const UI = {
   },
   screen_main() {
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight</small></button>' +
+      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -6422,7 +6481,7 @@ const UI = {
   },
   screen_modes() {
     let h = '<section class="screen on" aria-label="Game modes"><div class="panel"><h2>Select mode</h2><nav>';
-    for (const k of ['arcade', 'survival', 'training', 'free']) {
+    for (const k of MODE_ORDER) {
       const rec = this.modeRecord(k);
       h += '<button class="mi" data-nav ' + (k === 'arcade' ? 'data-default ' : '') + 'data-act="mode:' + k + '">' + MODE_INFO[k].label + '<small>' + MODE_INFO[k].desc + '</small>' + (rec ? '<small class="rec">' + rec + '</small>' : '') + '</button>';
     }
@@ -6446,22 +6505,25 @@ const UI = {
     return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + '</em>' + this.statBars(r.attrs) + '</button>';
   },
   screen_char() {
-    const sel = Game.selection;
-    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Fighter selection"><div class="panel" style="max-width:min(36em,60vw)"><h2>Choose your fighter</h2><p class="sub">' + MODE_INFO[sel.mode].label + '</p><div class="cards">';
+    const sel = Game.selection, picked = sel[this.pickKey()], p2 = this.pickKey() === 'player2';
+    const title = sel.mode === 'versus' ? '<span class="c' + (this.pickSide + 1) + '">Player ' + (this.pickSide + 1) + '</span>: choose your fighter' : 'Choose your fighter';
+    const sub = MODE_INFO[sel.mode].label + (p2 ? ' &middot; P1 fights as ' + esc((ROSTER_BY_ID[sel.player] || ROSTER_BY_ID.kai).name) : '');
+    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Fighter selection"><div class="panel" style="max-width:min(36em,60vw)"><h2>' + title + '</h2><p class="sub">' + sub + '</p><div class="cards">';
     h += '<button class="card create" data-nav data-act="create"><b>+ CREATE</b><em>Design a new fighter</em><span class="stat">Body, outfit, style, points</span></button>';
-    for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === sel.player);
+    for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === picked);
     h += '</div>';
     const customs = CustomRoster.profiles();
-    if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === sel.player)).join('') + '</div>';
-    const r = ROSTER_BY_ID[sel.player] || ROSTER_BY_ID.kai;
+    if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === picked)).join('') + '</div>';
+    const r = ROSTER_BY_ID[picked] || ROSTER_BY_ID.kai;
     if (sel.mode === 'arcade') h += this.optRow('Arcade difficulty', DIFFICULTY[sel.arcadeLevel].label, 'data-local="alevel"', '');
     h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + '</p>';
-    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
+    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom && !p2 ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
   },
   screen_setup() {
     const sel = Game.selection;
     const diff = DIFFICULTY[sel.difficulty].label, rounds = ['', 'Best of 1', 'Best of 3', 'Best of 5'][sel.rounds], timer = sel.timer ? sel.timer + ' s' : 'Off';
+    if (sel.mode === 'versus') return this.versusSetup(rounds, timer);
     const training = sel.mode === 'training';   // training only picks the sparring partner
     let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Match setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>' + (training ? 'Training setup' : 'Free Fight setup') + '</h2><p class="sub">' + (training ? 'Choose your sparring partner' : 'Choose your opponent and rules') + '</p><div class="cards">';
     for (const r of Game.opponentChoices(sel.player)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);
@@ -6469,6 +6531,24 @@ const UI = {
     if (!training) h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '');
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
     return h;
+  },
+  /* Versus rules (rounds, timer) and who plays on which device. */
+  versusSetup(rounds, timer) {
+    const sel = Game.selection, n1 = (ROSTER_BY_ID[sel.player] || ROSTER_BY_ID.kai).name, n2 = (ROSTER_BY_ID[sel.player2] || ROSTER_BY_ID.mara).name;
+    return '<section class="screen on" style="justify-content:flex-end" aria-label="Versus setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>Versus setup</h2><p class="sub"><span class="c1">P1 ' + esc(n1) + '</span> vs <span class="c2">P2 ' + esc(n2) + '</span></p>' +
+      this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '') +
+      '<p class="hint">' + this.devicesText() + '</p>' +
+      '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="setupNext">Choose arena</button></div></div></section>';
+  },
+  /* Versus device split: keyboard halves, then gamepads (a lone pad always plays P2). */
+  devicesText() {
+    return '<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads. <b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad. ' +
+      'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.';
+  },
+  /* "W A S D move, J K U I attack, ..." for one player's keyboard layout. */
+  layoutText(keymap) {
+    const keys = (actions) => actions.map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
+    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['lp', 'rp', 'lk', 'rk']) + ' attack, ' + keys(['blockHigh', 'blockLow']) + ' block, ' + keys(['grapple']) + ' grapple';
   },
   screen_arena() {
     const sel = Game.selection;
@@ -6906,7 +6986,7 @@ const CreatorUI = {
   exit() {
     this.confirm = null;
     Showcase.endPreview();
-    if (this.origin === 'char') { UI.menuScene(Game.selection.arena, Game.selection.player, null, true); UI.go('char'); return; }
+    if (this.origin === 'char') { UI.showPick(); UI.go('char'); return; }
     UI.menuScene('warehouse', 'kai', UI.showcaseOpponent(), false);
     UI.go('main');
   },
@@ -7061,7 +7141,7 @@ const CreatorUI = {
     if (!result.ok) { Sound.ui('bad'); UI.toast('Cannot save: ' + result.error, 'err'); UI.say('Cannot save. ' + result.error); return false; }
     this.draft = cloneCustom(result.value);
     this.savedJson = JSON.stringify(result.value);
-    if (this.origin === 'char') Game.choosePlayer(CUSTOM_IDS[this.slot]);
+    if (this.origin === 'char') Game.selection[UI.pickKey()] = CUSTOM_IDS[this.slot];   // the side being picked (P2 in Versus)
     UI.toast('Saved ' + this.draft.name + ' to slot ' + (this.slot + 1));
     UI.rerender(true);
     return true;
