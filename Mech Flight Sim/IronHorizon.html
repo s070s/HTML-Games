@@ -5830,6 +5830,7 @@ const STEP = 1 / 60;
 
 const PC = {
   sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
+  usedDefense: false,   // set when the defense key is pressed; the tutorial reads it after the tick has consumed the edge
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -5868,7 +5869,7 @@ const PC = {
     if (Input.hit('fire1') || (pad && pad.fire1 && !this.padLast)) c.fire1Edge = true;
     if (Input.hit('fire2') || (pad && pad.fire2 && !this.padF2)) c.fire2Edge = true;
     if (pad) { this.padLast = pad.fire1; this.padF2 = pad.fire2; }
-    if (Input.hit('defense') || (pad && pad.defense && !this.padD)) c.defenseEdge = true;
+    if (Input.hit('defense') || (pad && pad.defense && !this.padD)) { c.defenseEdge = true; this.usedDefense = true; }
     if (pad) this.padD = pad.defense;
     if (Input.hit('melee') || (pad && pad.melee && !this.padM)) c.meleeEdge = true;
     if (pad) this.padM = pad.melee;
@@ -6085,17 +6086,18 @@ const Game = {
     if (S.tutorialSeen || this.cfg.mode === 'skirmish' && false) { this.tutorial = null; return; }
     const p = W.player, kind = p.kind;
     const k = (a) => keyLabel(Input.code(a));
+    PC.usedDefense = false;
     const steps = [];
     if (kind === 'air') {
       steps.push({ text: 'Move the MOUSE to steer; the plane follows your cursor. ' + k('moveForward') + '/' + k('moveBack') + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
       steps.push({ text: 'Hold ' + k('fire1') + ' to fire guns, ' + k('fire2') + ' for missiles/bombs. ' + k('boost') + ' = afterburner', test: () => p.cmd.fire1 || p.cmd.fire2 });
       steps.push({ text: k('cycleTarget') + ' selects a target; keep it in the lock cone to lock missiles', test: () => !!p.target });
-      steps.push({ text: k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => p.cmd.defenseEdge });
+      steps.push({ text: k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => PC.usedDefense });
     } else {
       steps.push({ text: 'Move with ' + k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight') + (kind === 'ground' ? ' (A/D steer the vehicle)' : '') + ', aim with the MOUSE', test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
       steps.push({ text: 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + k('weapon1') + '/' + k('weapon2') + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
       steps.push({ text: k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
-      steps.push({ text: k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => p.cmd.defenseEdge || p.cmd.jump || p.cmd.boost });
+      steps.push({ text: k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
     }
     this.tutorial = { steps, i: 0, t: 0, done: false };
   },
