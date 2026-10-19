@@ -2342,8 +2342,8 @@ defAttack('heavy_body_kick', { name: 'Heavy Body Kick', btn: 'rk', strong: true,
 defAttack('jump_kick', { name: 'Flying Kick', btn: 'rk', limb: 'RL', anim: 'airKick', h: 'M', tier: 2, cat: 'kick', startup: 6, active: 8, recovery: 6, dmg: 8, stam: 6, reach: 1.4, width: 0.5, push: 0.6, hitstun: 18, blockstun: 10, step: 0, ctx: 'air' });
 defAttack('jump_punch', { name: 'Air Strike', btn: 'rp', limb: 'RA', anim: 'airPunch', h: 'H', tier: 2, startup: 5, active: 6, recovery: 6, dmg: 6, stam: 4, reach: 1.25, width: 0.5, push: 0.4, hitstun: 16, blockstun: 9, step: 0, ctx: 'air' });
 defAttack('lunge', { name: 'Running Lunge', btn: 'rp', limb: 'RA', anim: 'straight', h: 'M', tier: 3, cat: 'heavy', startup: 12, active: 4, recovery: 20, dmg: 11, stam: 8, reach: 1.6, width: 0.4, push: 0.8, hitstun: 22, blockstun: 12, kind: 'stagger', step: 1.3, ctx: 'run' });
-defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', anim: 'straight', h: 'M', tier: 2, startup: 4, active: 3, recovery: 8, dmg: 10, stam: 0, reach: 1.5, width: 0.5, push: 0.6, hitstun: 22, blockstun: 10, kind: 'stagger', step: 0.3, ctx: 'counter' });
-defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: 'front', h: 'M', tier: 2, cat: 'kick', startup: 5, active: 3, recovery: 10, dmg: 11, stam: 0, reach: 1.7, width: 0.5, push: 1.1, hitstun: 22, blockstun: 10, kind: 'knockdown', ctx: 'counter' });
+defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', anim: 'straight', h: 'M', tier: 2, startup: 4, active: 3, recovery: 8, dmg: 10, stam: 4, reach: 1.5, width: 0.5, push: 0.6, hitstun: 22, blockstun: 10, kind: 'stagger', step: 0.3, ctx: 'counter' });
+defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: 'front', h: 'M', tier: 2, cat: 'kick', startup: 5, active: 3, recovery: 10, dmg: 11, stam: 6, reach: 1.7, width: 0.5, push: 1.1, hitstun: 22, blockstun: 10, kind: 'knockdown', ctx: 'counter' });
 defAttack('grab', { name: 'Grab', btn: 'grapple', limb: 'LA', anim: 'grab', h: 'M', tier: 2, startup: 9, active: 3, recovery: 24, dmg: 0, stam: 10, reach: 1.15, width: 0.65, push: 0, hitstun: 0, blockstun: 0, type: 'grab', step: 0.1, ctx: 'grab' });
 const CLINCH_MOVES = {
   knee: { id: 'knee', name: 'Clinch Knee', dmg: 6, stam: 6, duration: 20, cat: 'kick' },
@@ -2465,8 +2465,8 @@ const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
 /* Timing constants (ticks unless noted) */
 const BUFFER_TICKS = 12;             // input buffer window (0.2 s)
 const PERFECT_BLOCK_TICKS = 6;       // perfect-block window after pressing block
-const COUNTER_WINDOW_PERFECT = 50;
-const COUNTER_WINDOW_BLOCK = 20;
+const PERFECT_BLOCK_COOLDOWN = 30;   // a block entered sooner than this after the previous one cannot be perfect (no parry mashing)
+const COUNTER_WINDOW_PERFECT = 50;   // only a perfect block opens a counter, and only for one move
 const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 20;  // a rear hold is harder to break
@@ -2789,7 +2789,7 @@ class Fighter {
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
     this.state = S.IDLE; this.stateTicks = 0; this.age = 0;
     this.stance = 0;
-    this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockFresh = false; this.guardPressure = 0;
+    this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
     this.buffer = null;
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
@@ -2833,7 +2833,9 @@ class Fighter {
     const prev = this.state;
     this.state = next;
     this.stateTicks = 0;
-    this.blockFresh = isBlockState(next) && !isBlockState(prev);
+    const blockEntry = isBlockState(next) && !isBlockState(prev);
+    this.blockFresh = blockEntry && this.age - this.lastBlockAt >= PERFECT_BLOCK_COOLDOWN;
+    if (blockEntry) this.lastBlockAt = this.age;
     if (next === S.GETUP) this.invuln = Math.max(this.invuln, 22);
     if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.THROWN) { this.buffer = null; }
     if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
@@ -2857,7 +2859,7 @@ class Fighter {
     const strong = buf.strong || it.strong, height = buf.height || it.height;
     const punch = buf.btn === 'lp' || buf.btn === 'rp';
     if (this.state === S.JUMP || this.airborne) return punch ? ATTACKS.jump_punch : ATTACKS.jump_kick;
-    if (this.counterWindow > 0) return punch ? ATTACKS.counter_strike : ATTACKS.counter_kick;
+    if (this.counterWindow > 0 && !strong && !height) return punch ? ATTACKS.counter_strike : ATTACKS.counter_kick;   // modified presses keep their own move
     if (this.state === S.RUN && buf.btn === 'rp') return ATTACKS.lunge;
     return MOVE_BY_INPUT[buf.btn + (strong ? 'S' : '') + (height ? 'H' : '')] || null;
   }
@@ -2884,6 +2886,7 @@ class Fighter {
   startAttack(mv) {
     const chained = this.state === S.ATTACK;
     if (!this.setState(S.ATTACK)) return false;
+    if (mv.ctx === 'counter') this.counterWindow = 0;   // one counter per perfect block
     this.exhaustedMove = this.stam < mv.stam;
     this.stam = Math.max(0, this.stam - mv.stam);
     this.noRegen = 36;
@@ -3639,6 +3642,7 @@ const Combat = {
     att.comboShow = 100;
     def.flash = 1;
     def.blockStun = 0;
+    def.counterWindow = 0;
     def.hitKind = mv.h === 'H' ? 'high' : mv.h === 'L' ? 'low' : 'mid';
     const dirx = att.fwdX, dirz = att.fwdZ;
     def.hitDirX = dirx; def.hitDirZ = dirz;
@@ -3730,7 +3734,6 @@ const Combat = {
         match.hitStop = Math.max(match.hitStop, 12);
       } else {
         def.blockStun = Math.round(mv.blockstun * def.stats.stun);
-        def.counterWindow = COUNTER_WINDOW_BLOCK;
         def.kx = dirx * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5; def.kz = dirz * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5;
         att.kx = -dirx * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5; att.kz = -dirz * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5;
         match.hitStop = Math.max(match.hitStop, 3);
@@ -3757,7 +3760,7 @@ const Combat = {
     if (!att.setState(S.GRAPPLE)) return;
     def.setState(S.CLINCH);
     att.partner = def; def.partner = att;
-    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0;
+    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0; def.counterWindow = 0;
     att.vx = att.vz = def.vx = def.vz = 0; def.kx = def.kz = att.kx = att.kz = 0;
     const grip = this.gripFor(att, def);
     att.grip = grip; def.grip = grip;
@@ -7090,6 +7093,22 @@ const SelfTest = {
       m = mk({}, once(2, 'lp', { strong: true }), (it) => { it.blockH = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();
       const broke = log.block.some((b) => b.broke) && m.fighters[1].state === S.STUN;
       return perfect && broke ? true : 'perfect ' + perfect + ' broke ' + broke;
+    });
+    test('Perfect block opens one counter, the next press is a normal move', () => {
+      const log = self.capture(['attackStart']);
+      let first = 0, second = false;
+      const m = mk({}, once(2, 'lp'), (it, f, o, mm) => {
+        if (!first && f.counterWindow > 0) { it.lp = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.lp = true; second = true; } else if (!first && mm.tick >= 5) it.blockH = true;
+      });
+      self.place(m, 1.2); self.run(m, 90); log.stop();
+      const moves = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.id).join();
+      return moves === 'counter_strike,jab' ? true : 'moves ' + moves;
+    });
+    test('Mashing block never gives a perfect block', () => {
+      const log = self.capture(['block']);
+      const m = mk({}, once(40, 'lp'), (it, f, o, mm) => { it.blockH = mm.tick % 8 !== 0; });
+      self.place(m, 1.2); self.run(m, 80); log.stop();
+      return log.block.length === 1 && !log.block[0].perfect ? true : 'blocks ' + log.block.length + ' perfect ' + log.block.some((b) => b.perfect);
     });
     test('Combo chain: legal transitions, scaling, count', () => {
       const log = self.capture(['hit']);
