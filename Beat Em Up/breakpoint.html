@@ -436,6 +436,9 @@ const KEY_SETTINGS = 'breakpoint.v1.settings';
 const SETTINGS_REVISION = 2;
 const KEY_PROGRESS = 'breakpoint.v1.progress';
 const KEY_BINDINGS = 'breakpoint.v1.keys';
+// Revision 2 moved Strong / Height / Dash off Shift, Ctrl and Alt (browser shortcuts, Sticky Keys).
+const KEYS_REVISION = 2;
+const OLD_DEFAULT_KEYS = { strong: 'ShiftLeft', height: 'ControlLeft', dash: 'AltLeft' };
 
 function readJson(key) {
   const raw = Store.get(key);
@@ -519,8 +522,8 @@ const ACTION_LABELS = {
 const DEFAULT_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   lp: ['KeyJ'], rp: ['KeyK'], lk: ['KeyU'], rk: ['KeyI'],
-  strong: ['ShiftLeft'], height: ['ControlLeft'], blockHigh: ['KeyQ'], blockLow: ['KeyE'],
-  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['AltLeft'], stance: ['KeyR'], pause: ['Escape', 'KeyP'],
+  strong: ['KeyL'], height: ['KeyO'], blockHigh: ['KeyQ'], blockLow: ['KeyE'],   // modifiers next to the attack keys; arrows / numpad stay free
+  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], stance: ['KeyR'], pause: ['Escape', 'KeyP'],
 };
 const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyL', 'KeyP'];
 const BINDABLE_CODE = /^(Key[A-Z]|Digit\d|Numpad\w+|Arrow(Up|Down|Left|Right)|Space|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Comma|Period|Slash|Semicolon|Quote|Bracket(Left|Right)|Backslash|Minus|Equal|Backquote|Backspace)$/;
@@ -532,6 +535,7 @@ const Keymap = {
     this.reset();
     const stored = readJson(KEY_BINDINGS);
     if (!stored) return;
+    if ((stored.revision || 1) < KEYS_REVISION) this.migrate(stored);
     const used = new Set();
     const next = {};
     for (const a of ACTIONS) {
@@ -552,7 +556,16 @@ const Keymap = {
     if (!next.pause.includes('Escape')) next.pause = ['Escape', next.pause[0]];
     this.bindings = next;
   },
-  save() { Store.set(KEY_BINDINGS, JSON.stringify(this.bindings)); },
+  /* An old save still holding a former default gets the new default, unless the user gave that key to another action. */
+  migrate(stored) {
+    for (const action in OLD_DEFAULT_KEYS) {
+      const list = stored[action], code = DEFAULT_KEYS[action][0];
+      if (!Array.isArray(list) || list.length !== 1 || list[0] !== OLD_DEFAULT_KEYS[action]) continue;
+      const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(code));
+      if (!taken) stored[action] = [code];
+    }
+  },
+  save() { Store.set(KEY_BINDINGS, JSON.stringify(Object.assign({ revision: KEYS_REVISION }, this.bindings))); },
   owner(code) { for (const a of ACTIONS) if (this.bindings[a].includes(code)) return a; return null; },
   rebind(action, code) {
     if (!ACTIONS.includes(action)) return { ok: false, msg: 'Unknown action' };
@@ -617,7 +630,9 @@ const PAD_CROUCH_REARM_MS = 250;
 const PAD_CROUCH_TAP_MS = 200;
 const PAD_FLICK_ON = 0.65;
 const PAD_FLICK_OFF = 0.4;
-const TOUCH_RUN_SECONDS = 0.45;
+const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up to jump (a light tap is a step)
+const PAD_SELECT_HOLD_MS = 500;       // Select: tap = switch stance, hold = reset positions in Training
+const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
 
 function makeIntent() {
   return {
@@ -648,12 +663,16 @@ const Input = {
   padDir: { up: false, down: false, left: false, right: false },
   padDownAt: { up: 0, down: 0 },
   padTapDownRelease: -9999,
+  padUpPeak: 0,
+  padUpDouble: false,
+  padSelectAt: 0,        // 0 = released, > 0 = time pressed, -1 = hold already used
+  padIndex: -1,
   padCrouch: false,
   rightWas: 0,
   flick: null,
   touchStick: { x: 0, y: 0, active: false },
-  touchRunTimer: 0,
-  touchRun: false,
+  touchDir: { up: false, down: false, left: false, right: false },
+  touchRunTicks: 0,
   enabled: false,
   attached: false,
   captureCallback: null,
@@ -709,6 +728,7 @@ const Input = {
     this.touchHeld = {};
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
+    this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
     this.latch = {};
     this.runDir = null;
     this.releasePad();
@@ -720,6 +740,8 @@ const Input = {
     this.padAxis.active = false;
     this.padDir.up = this.padDir.down = this.padDir.left = this.padDir.right = false;
     this.padCrouch = false;
+    this.padSelectAt = 0;
+    this.padIndex = -1;
     this.padInfo.connected = false;
     this.flick = null;
   },
@@ -752,7 +774,7 @@ const Input = {
     if (!navigator.getGamepads) return;
     let pad = null;
     const pads = navigator.getGamepads();
-    for (let i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { pad = pads[i]; break; }
+    for (let i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { pad = pads[i]; this.padIndex = i; break; }
     if (!pad) { if (this.padInfo.connected) this.releasePad(); return; }
     if (!this.padInfo.connected) {
       this.padInfo.connected = true;
@@ -761,7 +783,7 @@ const Input = {
       if (!this.padInfo.standard) Events.emit('toast', { msg: 'Non-standard controller layout: using best-guess mapping', kind: 'warn' });
     }
     const down = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
-    const map = { lp: 2, rp: 3, lk: 0, rk: 1, strong: 4, blockHigh: 5, height: 6, blockLow: 7, dash: 10, stance: 11, pause: 9 };
+    const map = { lp: 2, rp: 3, lk: 0, rk: 1, strong: 4, blockHigh: 5, height: 6, blockLow: 7, dash: 10, grapple: 11, pause: 9 };
     let anyButton = false;
     for (const action in map) {
       const isDown = down(map[action]);
@@ -769,6 +791,12 @@ const Input = {
       this.padHeld[action] = isDown;
       anyButton = anyButton || isDown;
     }
+    const now = performance.now();
+    const select = down(8);
+    if (select && !this.padSelectAt) this.padSelectAt = now;
+    if (select && this.padSelectAt > 0 && now - this.padSelectAt >= PAD_SELECT_HOLD_MS) { this.press('reset'); this.padSelectAt = -1; }
+    if (!select && this.padSelectAt) { if (this.padSelectAt > 0) this.press('stance'); this.padSelectAt = 0; }
+    anyButton = anyButton || select;
     // left stick / d-pad with radial dead zone
     let ax = finite(pad.axes[0], 0), ay = finite(pad.axes[1], 0);
     const mag = Math.hypot(ax, ay);
@@ -778,16 +806,18 @@ const Input = {
     this.padAxis.fwd = -ay;
     this.padAxis.side = ax;
     this.padAxis.active = ax !== 0 || ay !== 0;
-    const now = performance.now();
     const dirs = { up: ay < -PAD_DIGITAL, down: ay > PAD_DIGITAL, left: ax < -PAD_DIGITAL, right: ax > PAD_DIGITAL };
+    if (dirs.up) this.padUpPeak = Math.max(this.padUpPeak, -ay);
     for (const name in dirs) {
       const was = this.padDir[name], is = dirs[name];
       if (is && !was) {
+        if (name === 'up') { this.padUpPeak = -ay; this.padUpDouble = now / 1000 - (this.lastPress.up || -10) < DOUBLE_TAP_SECONDS; }
         this.press(name);
         this.padDownAt[name] = now;
         if (name === 'down' && now - this.padTapDownRelease < PAD_CROUCH_REARM_MS) this.padCrouch = true;
       } else if (!is && was) {
-        if (name === 'up' && now - this.padDownAt.up < PAD_JUMP_TAP_MS) this.press('jump');
+        // a quick, firm tap jumps; the second tap of a double tap (run / dash / sidestep) never does
+        if (name === 'up' && now - this.padDownAt.up < PAD_JUMP_TAP_MS && this.padUpPeak >= PAD_JUMP_TAP_STRENGTH && !this.padUpDouble) this.press('jump');
         if (name === 'down') {
           if (now - this.padDownAt.down < PAD_CROUCH_TAP_MS) this.padTapDownRelease = now;
           this.padCrouch = false;
@@ -805,10 +835,11 @@ const Input = {
   },
 
   /* Called once per rendered frame, before any simulation steps. */
-  update(dt) {
+  update() {
     this.pollPad();
+    this.touchDirections();
     for (const a of ACTIONS) {
-      let h = !!(this.padHeld[a] || this.touchHeld[a]);
+      let h = !!(this.padHeld[a] || this.touchHeld[a] || this.padDir[a] || this.touchDir[a]);   // stick directions hold a double-tap run
       if (!h) { const codes = Keymap.bindings[a]; for (let i = 0; i < codes.length; i++) if (this.kb.has(codes[i])) { h = true; break; } }
       this.held[a] = h;
     }
@@ -820,9 +851,16 @@ const Input = {
     else if (this.touchStick.active) { fwd = -this.touchStick.y; side = this.touchStick.x; }
     this.analog.fwd = clamp(fwd, -1, 1);
     this.analog.side = clamp(side, -1, 1);
-    // touch run: stick pushed fully forward for a short time
-    if (this.touchStick.active && fwd > 0.92) { this.touchRunTimer += dt; this.touchRun = this.touchRunTimer > TOUCH_RUN_SECONDS; }
-    else { this.touchRunTimer = 0; this.touchRun = false; }
+  },
+  /* Touch stick direction edges (screen directions, like keys): double flicks run, back-dash and sidestep. */
+  touchDirections() {
+    const ts = this.touchStick, dirs = this.touchDir;
+    for (const name in dirs) {
+      const push = name === 'up' ? -ts.y : name === 'down' ? ts.y : name === 'left' ? -ts.x : ts.x;
+      const is = ts.active && push > PAD_DIGITAL;
+      if (is && !dirs[name]) this.press(name);
+      dirs[name] = is;
+    }
   },
 
   /* Fill an intent for the player-controlled fighter. self/opp are used only to express the
@@ -857,7 +895,9 @@ const Input = {
       else if (rel === 'back') { it.dash = true; it.fwd = Math.min(it.fwd, -1); }
       else it.sidestep = rel === 'left' ? -1 : 1;
     }
-    it.run = (this.runDir !== null && !!h[this.runDir]) || this.touchRun;
+    // touch run: stick held fully toward the opponent (after the screen-direction conversion) for a moment
+    if (this.touchStick.active && it.fwd > 0.92) this.touchRunTicks++; else this.touchRunTicks = 0;
+    it.run = (this.runDir !== null && !!h[this.runDir]) || this.touchRunTicks > TOUCH_RUN_TICKS;
     // modifiers never fire on their own; strong/height edges are discarded
     this.latch.strong = false; this.latch.height = false; this.latch.blockHigh = false; this.latch.blockLow = false;
     this.latch.crouch = false; this.latch.up = false; this.latch.down = false; this.latch.left = false; this.latch.right = false;
@@ -5400,7 +5440,7 @@ const Game = {
     if (dt < 0.1) this.frameAvg += (dt * 1000 - this.frameAvg) * 0.05; // ignore stalls (hidden tab, breakpoints)
     Diag.frameMs = this.frameAvg; Diag.fps = dt > 0 ? 1 / dt : Diag.fps;
     if (Math.abs((window.devicePixelRatio || 1) - R.lastDpr) > 0.01) Quality.apply();
-    Input.update(dt);
+    Input.update();
     this.pollMatchInput();
     Quality.adapt(this.frameAvg, dt);
     Events.emit('frame', { dt });
@@ -5435,7 +5475,9 @@ const Game = {
      round-end and victory sequences. Presses that arrive too early are dropped so a mashed button cannot skip. */
   pollMatchInput() {
     const st = this.state;
+    const reset = Input.take('reset');   // gamepad: hold Select
     if (!this.match) return;
+    if (reset && st === GS.FIGHT && this.match.training) this.match.resetFighters();
     if ((st === GS.FIGHT || st === GS.COUNTDOWN) && Input.take('pause')) { this.pause(); return; }
     if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
     if (!Input.takeAny(SKIP_ACTIONS)) return;
@@ -5813,7 +5855,7 @@ const MODE_INFO = {
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Pick any opponent, arena, difficulty, round count and timer.' },
 };
-const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Quick tap up', crouch: 'Tap down, then hold down', grapple: 'Right-stick flick', dash: 'L3 (press stick)', stance: 'R3', pause: 'Start' };
+const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', stance: 'Select (tap)', pause: 'Start' };
 const TOUCH_LABELS = { lp: 'LP', rp: 'RP', lk: 'LK', rk: 'RK', strong: 'STR', height: 'HGT', blockHigh: 'BLK-H', blockLow: 'BLK-L', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STNC', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'SCREEN' };
@@ -5888,7 +5930,12 @@ const UI = {
   setText(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.textContent = value; } },
   setHtml(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.innerHTML = value; } },
   setTransform(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.style.transform = value; } },
-  keyName(action) { return keyLabel(Keymap.bindings[action][0]); },
+  /* The control for an action on the device the player used last. */
+  keyName(action) {
+    if (Input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
+    if (Input.lastDevice === 'touch') return TOUCH_LABELS[action];
+    return keyLabel(Keymap.bindings[action][0]);
+  },
   fade(fn) {
     const f = this.dom.fade;
     f.classList.add('on');
@@ -5932,7 +5979,8 @@ const UI = {
   menuScene(arenaId, left, right, solo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo); Camera.snapNext = true; },
   onMatchCreated(match) {
     const train = match.training;
-    if (!this.tipShown) { this.tipShown = true; this.toast('Tip: Ctrl+W closes a browser tab. Use Fullscreen (Settings) or remap the Height key.', 'warn'); }
+    const browserKeys = ACTIONS.some((a) => Keymap.bindings[a].some((c) => /^(Control|Alt)/.test(c)));
+    if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. Use Fullscreen (Settings) or remap those keys.', 'warn'); }
     if (window.innerHeight > window.innerWidth && (Settings.v.touch === 'on' || ('ontouchstart' in window))) this.toast('Rotate your device to landscape for the best view', 'warn');
     this.cache = {};
     this.dom.hn1.textContent = 'P1 ' + match.fighters[0].name;
@@ -6222,7 +6270,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + Keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td><td><button class="mi" style="margin:0;min-height:2.2em;padding:.2em .6em" data-nav data-act="rebind:' + a + '">Rebind</button></td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th>Gamepad</th><th>Touch</th><th></th></tr>' + rows + '</table>' +
-      '<p class="hint">Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Left Ctrl + W closes a browser tab; use fullscreen (Settings) or remap Height/Up.</p>' +
+      '<p class="hint">Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: tap Select to switch stance, hold it in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
   screen_moves() {
@@ -6395,7 +6443,7 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
-    else info = m.def.name.toUpperCase() + ' · Tab reset · F2 reset arena · 1-5 scenarios';
+    else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
     // combo
     const showCombo = a.comboShow > 0 && a.comboHits >= 2;
@@ -7528,6 +7576,79 @@ const SelfTest = {
       const side = it.sidestep === -1;
       Settings.v.movement = keep; Input.reset();
       return run && back && side ? true : JSON.stringify({ run, back, side });
+    });
+    test('Touch: double flicks sidestep, holding toward the opponent runs (screen movement)', () => {
+      const keep = Settings.v.movement, kr = Camera.dirRight.slice(), kf = Camera.dirFwd.slice(), device = Input.lastDevice;
+      Settings.v.movement = 'screen';
+      Camera.dirRight[0] = 1; Camera.dirRight[1] = 0; Camera.dirFwd[0] = 0; Camera.dirFwd[1] = -1;
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), it = makeIntent();
+      f.yaw = Math.PI / 2;                              // opponent to the screen right, screen up = the fighter's left
+      Input.reset();
+      const flick = (x, y) => { Input.touchStickSet(x, y, true); Input.update(); Input.touchStickSet(0, 0, false); Input.update(); };
+      flick(0, -1); flick(0, -1);
+      Input.fillIntent(it, f, null);
+      const side = it.sidestep === -1;
+      Input.reset();
+      Input.touchStickSet(1, 0, true); Input.update();
+      for (let i = 0; i <= TOUCH_RUN_TICKS; i++) Input.fillIntent(it, f, null);
+      const run = it.run;
+      Input.touchStickSet(0, 1, true); Input.update(); Input.fillIntent(it, f, null);
+      const stop = !it.run;
+      Input.touchStickSet(0, 0, false); Input.update(); Input.reset();
+      Settings.v.movement = keep; Input.lastDevice = device;
+      Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
+      return side && run && stop ? true : JSON.stringify({ side, run, stop });
+    });
+    test('Gamepad: firm taps jump but double taps do not, R3 grapples, Select taps stance and holds reset', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const poll = (ay) => { pad.axes[1] = ay; Input.pollPad(); };
+      const tap = (ay) => { poll(ay); poll(0); };
+      let r;
+      try {
+        Input.reset(); tap(-1);
+        const firm = Input.take('jump');
+        Input.reset(); tap(-0.75);
+        const light = !Input.take('jump');
+        Input.reset(); tap(-1); Input.take('jump'); tap(-1);
+        const double = !Input.take('jump') && Input.latch.dtap === 'up';
+        Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
+        const grab = Input.take('grapple');
+        Input.reset(); buttons[8].pressed = true; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
+        const stance = Input.take('stance') && !Input.take('reset');
+        buttons[8].pressed = true; Input.pollPad(); Input.padSelectAt -= PAD_SELECT_HOLD_MS; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
+        const reset = Input.take('reset') && !Input.take('stance');
+        r = firm && light && double && grab && stance && reset ? true : JSON.stringify({ firm, light, double, grab, stance, reset });
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.reset(); Input.lastDevice = device;
+      }
+      return r;
+    });
+    test('Hints name the control of the device in use', () => {
+      const device = Input.lastDevice;
+      Input.lastDevice = 'keyboard'; const kb = UI.keyName('grapple') === keyLabel(Keymap.bindings.grapple[0]);
+      Input.lastDevice = 'gamepad'; const pad = UI.keyName('grapple') === GAMEPAD_LABELS.grapple;
+      Input.lastDevice = 'touch'; const touch = UI.keyName('grapple') === TOUCH_LABELS.grapple;
+      Input.lastDevice = device;
+      return kb && pad && touch ? true : JSON.stringify({ kb, pad, touch });
+    });
+    test('Old saved key bindings move off Shift / Ctrl / Alt, customised keys stay', () => {
+      const raw = Store.get(KEY_BINDINGS), keep = JSON.stringify(Keymap.bindings);
+      Store.set(KEY_BINDINGS, JSON.stringify({ lp: ['KeyH'], strong: ['ShiftLeft'], height: ['ControlLeft'], dash: ['KeyV'], rp: ['KeyO'] }));
+      Keymap.init();
+      const b = Keymap.bindings;
+      const moved = b.strong[0] === 'KeyL' && b.lp[0] === 'KeyH' && b.dash[0] === 'KeyV';
+      const clash = b.height[0] === 'ControlLeft' && b.rp[0] === 'KeyO';          // O already taken by the user: keep the old key
+      Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, strong: ['ShiftLeft'] }));
+      Keymap.init();
+      const current = Keymap.bindings.strong[0] === 'ShiftLeft';                  // chosen after the change: never migrated
+      const defaults = ['strong', 'height', 'dash'].every((a) => !/^(Shift|Control|Alt)/.test(DEFAULT_KEYS[a][0]));
+      if (raw === null) Store.remove(KEY_BINDINGS); else Store.set(KEY_BINDINGS, raw);
+      Keymap.bindings = JSON.parse(keep); Input.rebuildMap();
+      return moved && clash && current && defaults ? true : JSON.stringify({ moved, clash, current, defaults, b });
     });
     test('Key remapping rejects conflicts and invalid keys', () => {
       const keep = JSON.stringify(Keymap.bindings);
