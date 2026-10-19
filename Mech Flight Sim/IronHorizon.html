@@ -266,7 +266,7 @@ const WEAPONS = {
   rpg: { name: 'Rocket Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 90, dtype: 'explosive', speed: 80, accel: 120, maxSpeed: 170, life: 3.5, cd: 2.5, spread: 0.01, clip: 1, reserve: 6, reload: 3.5, heat: 8, range: 450, blast: 5.5, weight: 6, structMult: 1.4, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, sound: 'rocket', recoil: 0.5, role: 'Anti-armor rocket' },
   grenade: { name: 'Grenade Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 40, life: 5, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 4, reserve: 12, reload: 3, heat: 5, range: 140, blast: 5, weight: 4, structMult: 1.2, tracer: [0.9, 0.9, 0.5], size: 0.6, sound: 'mortar', recoil: 0.3, role: 'Lobbed grenade' },
   /* utilities */
-  shield: { name: 'Energy Shield', slot: 'utility', kind: 'defense', def: 'shield', shield: 170, regen: 24, regenDelay: 3, drain: 7, weight: 6, role: 'Absorbs damage; drains energy while up' },
+  shield: { name: 'Energy Shield', slot: 'utility', kind: 'defense', def: 'shield', shield: 170, regen: 24, regenDelay: 3, drain: 14, weight: 6, role: 'Absorbs damage; drains energy while up' },
   aps: { name: 'Active Protection', slot: 'utility', kind: 'defense', def: 'aps', charges: 4, cd: 2.2, radius: 30, weight: 7, role: 'Destroys incoming missiles and rockets' },
   nano: { name: 'Nano Repair', slot: 'utility', kind: 'defense', def: 'repair', charges: 2, cd: 8, heal: 0.3, weight: 3, role: 'Restores hull over 5 s' },
   flares: { name: 'Flares', slot: 'utility', kind: 'defense', def: 'flares', charges: 8, cd: 1.2, weight: 3, role: 'Decoys that pull missiles off you' },
@@ -3928,7 +3928,8 @@ class Platform {
           if (this.shieldOn) this.shieldOn = false;
           else if (this.shieldBroken <= 0 && this.shield > 1 && this.energy > 5 && !this.energyLock) { this.shieldOn = true; Snd.play('shieldHit', this.x, this.y, this.z, 0.8); }
         }
-        if (this.shieldOn) { this.useEnergy(ud.drain * dt); if (this.energyLock || this.shieldBroken > 0) this.shieldOn = false; }
+        // a steady drain that, unlike boosts and jets, does not pause energy regeneration
+        if (this.shieldOn) { this.energy -= ud.drain * dt; if (this.energyLock || this.shieldBroken > 0) this.shieldOn = false; }
         break;
       case 'aps':
         if (c.defenseEdge) { u.auto = !u.auto; if (W.player === this) W.msgL('ACTIVE PROTECTION ' + (u.auto ? 'ARMED' : 'OFF')); }
