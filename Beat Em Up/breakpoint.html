@@ -6578,7 +6578,8 @@ const UI = {
   /* Saved records shown under a mode on the mode list ('' when there is nothing yet). */
   modeRecord(mode) {
     const p = Progress.d;
-    if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; fewest continues ' + p.arcadeFewestContinues + ' &middot; record ' + p.wins + '-' + p.losses;
+    const fewest = p.arcadeFewestContinues >= 0 ? 'fewest continues ' + p.arcadeFewestContinues + ' &middot; ' : '';   // saves from before the record have none
+    if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; ' + fewest + 'record ' + p.wins + '-' + p.losses;
     if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + ARCADE_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
     if (mode === 'survival' && (p.survivalKills || p.survivalSeconds)) return 'Best: ' + p.survivalKills + ' wins &middot; longest run ' + clockText(p.survivalSeconds);
     return '';
@@ -8642,6 +8643,17 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return levels && shifted && cleared && fresh ? true : JSON.stringify({ levels, shifted, cleared, fresh });
+    });
+    test('Arcade: a save from before the fewest-continues record shows no record instead of -1', () => {
+      const saved = keepProgress();
+      Store.set(KEY_PROGRESS, JSON.stringify({ arcadeClears: 2, arcadeBest: 5, wins: 12, losses: 3 }));
+      Progress.init();
+      const old = UI.modeRecord('arcade');
+      Progress.d.arcadeFewestContinues = 0;
+      const fresh = UI.modeRecord('arcade');
+      restoreProgress(saved);
+      const ok = !old.includes('-1') && !old.includes('fewest') && old.includes('Cleared 2') && fresh.includes('fewest continues 0');
+      return ok ? true : JSON.stringify({ old, fresh });
     });
     test('Arcade: a retry from the pause menu uses a continue and counts as a loss', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
