@@ -5158,7 +5158,7 @@ function attachAI(p, archKey, diff) {
    MISSIONS: objectives, director (spawning), skirmish, training range
    ===================================================================== */
 const COOP_BOSS_HP = 0.4;   // extra boss hull per additional co-op player
-function unitCost(k) { return { infantry: 1, rpgTrooper: 2, sniper: 2, buggy: 1, tank: 2, lightMech: 2, medMech: 3, heavyMech: 5, jet: 3, gunship: 5 }[k] || 1; }
+function unitCost(k) { return { infantry: 1, rpgTrooper: 1, sniper: 2, buggy: 1, tank: 3, lightMech: 2, medMech: 3, heavyMech: 5, jet: 3, gunship: 5 }[k] || 1; }
 
 /* ---------- spawning helpers ---------- */
 function findSpawn(x, z, radius, clearR, minPlayerDist) {
@@ -5657,13 +5657,15 @@ function skirmishDef(cfg) {
   const types = ['infantry', 'buggy', 'rpgTrooper', 'tank', 'lightMech', 'medMech', 'heavyMech', 'jet', 'gunship'];
   const waves = [];
   for (let w = 0; w < sz.waves; w++) {
-    let budget = sz.budget + w * 1.8, list = [];
-    while (budget > 0) {
-      const maxTier = Math.min(types.length, 2 + Math.floor(w * 0.9) + (cfg.size === 'large' ? 1 : 0));
-      const k = types[Math.floor(rng() * maxTier)];
-      const c = unitCost(k);
-      if (c > budget && list.length > 0) break;
-      list.push(k); budget -= c;
+    let budget = sz.budget + w * 1.8;
+    const list = [];
+    const maxTier = Math.min(types.length, 2 + Math.floor(w * 0.9) + (cfg.size === 'large' ? 1 : 0));
+    const unlocked = types.slice(0, maxTier);
+    while (budget > 0) { // draw only from what the budget still affords, so one expensive roll does not end the wave early
+      const affordable = unlocked.filter((t) => unitCost(t) <= budget);
+      if (affordable.length === 0) break;
+      const k = affordable[Math.floor(rng() * affordable.length)];
+      list.push(k); budget -= unitCost(k);
     }
     waves.push({ list, ang: rng() * TAU });
   }
