@@ -2489,26 +2489,32 @@ function deriveStats(raw) {
 /* Tuned with hard CPU round robins (6 fighters, 48 matches per pairing): KAI .45, MARA .57, BRUTUS .53, YUKI .44,
    DMITRI .52, ZERO .50; with KAI's CPU style for everyone (attributes only) .45-.57. Speed below 5 is avoided: -2 speed
    wins only ~11% (other attributes ~30-38%). CPU styles were tuned too: KAI's was the strongest, YUKI's wide circling
-   and DMITRI's grab-heavy 1.0 range the weakest. */
+   and DMITRI's grab-heavy 1.0 range the weakest. rank is the Arcade ladder order, weakest first by the same measurements
+   (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss. */
 const ROSTER = [
   { id: 'kai', moveStyle: 'kickboxer', name: 'KAI', title: 'The Balanced', rank: 0, attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
     style: { aggr: 0.9, punch: 0.45, kick: 0.45, heavy: 0.5, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', top: '#2f6fdd', shorts: '#18274d', glove: '#f1f1f5', shoe: '#202228', scale: 1, build: 1 } },
-  { id: 'mara', moveStyle: 'capoeira', name: 'MARA', title: 'The Viper', rank: 1, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
+  { id: 'mara', moveStyle: 'capoeira', name: 'MARA', title: 'The Viper', rank: 4, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
     style: { aggr: 1.1, punch: 0.45, kick: 0.55, heavy: 0.25, grab: 0.05, defend: 0.4, circle: 0.5, low: 0.35 },
     look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'ponytail', top: '#e5304b', shorts: '#2a0f18', glove: '#2a2a30', shoe: '#f0f0f0', scale: 0.96, build: 0.9 } },
   { id: 'brutus', moveStyle: 'brawler', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
     style: { aggr: 0.9, punch: 0.7, kick: 0.3, heavy: 0.6, grab: 0.2, defend: 0.5, circle: 0.1, low: 0.1 },
     look: { skin: '#a8704c', hair: '#000000', hairStyle: 'bald', top: null, shorts: '#2f5d2a', glove: '#c9a22b', shoe: '#3a2a1a', scale: 1.1, build: 1.28 } },
-  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 3, attrs: { health: 5, stamina: 6, strength: 4, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
+  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 4, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
     style: { aggr: 1.0, punch: 0.45, kick: 0.55, heavy: 0.2, grab: 0.05, defend: 0.5, circle: 0.3, low: 0.3 },
     look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'long', top: '#7d4fd6', shorts: '#e9e9f5', glove: '#7d4fd6', shoe: '#e9e9f5', scale: 0.98, build: 0.86 } },
-  { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 4, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
+  { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 3, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
     style: { aggr: 1.0, punch: 0.5, kick: 0.35, heavy: 0.5, grab: 0.3, defend: 0.5, circle: 0.1, low: 0.15 },
     look: { skin: '#c98c68', hair: '#c46a1a', hairStyle: 'mohawk', top: null, shorts: '#d86a12', glove: '#2a1a10', shoe: '#2a1a10', scale: 1.08, build: 1.2 } },
-  // ZERO's playable build costs 46 points like the rest of the roster; the boss build (66) is only used for the Arcade final (see MatchSim)
+  // ZERO's playable build costs 46 points like the rest of the roster; the boss builds are only used for the Arcade final (see MatchSim).
+  // They scale with the Arcade difficulty option: a hard CPU KAI beats them ~40% (easy, hard CPU), ~20-30% (normal, expert CPU), ~8% (hard, expert CPU).
   { id: 'zero', moveStyle: 'karateka', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
-    bossAttrs: { health: 8, stamina: 8, strength: 8, speed: 8, reach: 7, defense: 7, balance: 7, recovery: 8 },
+    bossAttrs: {
+      easy: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },     // 47 points
+      normal: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },   // 47 points
+      hard: { health: 7, stamina: 7, strength: 6, speed: 6, reach: 6, defense: 6, balance: 6, recovery: 6 },     // 50 points
+    },
     style: { aggr: 1.0, punch: 0.5, kick: 0.5, heavy: 0.5, grab: 0.2, defend: 0.5, circle: 0.6, low: 0.3 },
     look: { skin: '#3a3340', hair: '#d4af37', hairStyle: 'mask', top: '#16161c', shorts: '#16161c', glove: '#d4af37', shoe: '#111111', scale: 1.04, build: 1.05 } },
 ];
@@ -4512,7 +4518,7 @@ const CustomRoster = {
     }
   },
   save() { Store.set(KEY_CUSTOM, JSON.stringify({ version: CUSTOM_STORE_VERSION, slots: this.slots })); },
-  /* Keep ROSTER_BY_ID in sync with the slots; ROSTER (the ladder order) never changes. */
+  /* Keep ROSTER_BY_ID in sync with the slots; ROSTER (ladder order by rank) never changes. */
   register() {
     for (const id of CUSTOM_IDS) delete ROSTER_BY_ID[id];
     for (let i = 0; i < CUSTOM_SLOTS; i++) if (this.slots[i]) ROSTER_BY_ID[CUSTOM_IDS[i]] = customProfile(this.slots[i], i);
@@ -4976,13 +4982,13 @@ const ScriptedController = {
 
 class MatchSim {
   constructor(cfg) {
-    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand' }, cfg);
+    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand' }, cfg);
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
     Arena.build(this.def);
     const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
-    if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs });   // the Arcade final boss fights at full strength
+    if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs.normal });   // the Arcade final boss, scaled by the difficulty option
     this.fighters = [new Fighter(p1, 0), new Fighter(p2, 1)];
     if (p1.id === p2.id) this.fighters[1].applyLook(alternateLook(p2.look));
     this.training = this.cfg.mode === 'training';
@@ -5485,7 +5491,7 @@ const Game = {
     if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0 };
     Object.assign(this.run, { ladder, stage });
     const opp = ladder[stage];
-    this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, this.run.level), winsNeeded: 2, timer: 60 });
+    this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, this.run.level), arcadeLevel: this.run.level, winsNeeded: 2, timer: 60 });
   },
   startSurvival() {
     const sel = this.selection;
@@ -8637,16 +8643,30 @@ const SelfTest = {
       const baseline = attrTotal(ROSTER_BY_ID.kai.attrs) === POINT_BUDGET;
       return rules && knee && !over && vet48 && trimmedOld && !vet49 && trimOk && presets && baseline ? true : JSON.stringify({ rules, knee, over, vet48, trimmedOld, vet49, trimOk, presets, baseline });
     });
-    test('Roster: costs stay in a narrow band, ZERO fights as a boss only in Arcade', () => {
+    test('Roster: costs stay in a narrow band, ZERO fights as a boss only in Arcade, scaled by the difficulty option', () => {
       const totals = ROSTER.filter((r) => r.id !== 'zero').map((r) => attrTotal(r.attrs));
       const band = Math.min(...totals) === POINT_BUDGET && Math.max(...totals) - Math.min(...totals) <= 2;
       const zero = attrTotal(ROSTER_BY_ID.zero.attrs);
-      const playable = zero >= POINT_BUDGET && zero <= POINT_BUDGET + 2 && attrTotal(ROSTER_BY_ID.zero.bossAttrs) > zero;
-      const arcade = mk({ mode: 'arcade', opponentId: 'zero' }), arcadeHp = arcade.fighters[1].maxHp;
+      const bosses = ARCADE_LEVELS.map((level) => attrTotal(ROSTER_BY_ID.zero.bossAttrs[level]));
+      const playable = zero >= POINT_BUDGET && zero <= POINT_BUDGET + 2 && bosses.every((total, i) => total > zero && (i === 0 || total >= bosses[i - 1]));
+      const arcade = mk({ mode: 'arcade', opponentId: 'zero', arcadeLevel: 'hard' }), arcadeTotal = attrTotal(arcade.fighters[1].stats.attrs);
       arcade.dispose();
       const free = mk({ playerId: 'zero', opponentId: 'zero' });
-      const boss = arcadeHp > free.fighters[1].maxHp && free.fighters[0].maxHp === free.fighters[1].maxHp;
-      return band && playable && boss ? true : JSON.stringify({ totals, zero, band, playable, boss });
+      const boss = arcadeTotal === bosses[bosses.length - 1] && attrTotal(free.fighters[1].stats.attrs) === zero && free.fighters[0].maxHp === free.fighters[1].maxHp;
+      return band && playable && boss ? true : JSON.stringify({ totals, zero, bosses, band, playable, boss });
+    });
+    test('Arcade: a hard CPU stand-in for the player beats the Normal final boss now and then', () => {
+      // ~20-30% over larger seed sets (3 of these 12); the old 66-point boss won all 24 tried. Few seeds keep the suite fast.
+      const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 12, maxTicks = 40000;
+      let wins = 0;
+      for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
+        const m = new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed });
+        m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
+        for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
+        if (m.matchWinner === 0) wins++;
+        m.dispose();
+      }
+      return wins >= 2 ? true : 'won ' + wins + ' of ' + matches;
     });
     test('Creator: every hair, face and outfit option renders', () => {
       const push = R.push;
@@ -8732,7 +8752,7 @@ const SelfTest = {
       CustomRoster.put(0, defaultCustom(0));
       const ladder = Game.opponentsFor('c1').slice(-ARCADE_STAGES);
       const ladderOk = ladder.length === ARCADE_STAGES && ladder[ladder.length - 1].id === 'zero' && ladder.every((r) => !r.custom);
-      const builtinLadder = Game.opponentsFor('kai').map((r) => r.id).join() === 'mara,brutus,yuki,dmitri,zero';
+      const builtinLadder = Game.opponentsFor('kai').map((r) => r.id).join() === 'yuki,brutus,dmitri,mara,zero';
       const choices = Game.opponentChoices('kai').some((r) => r.id === 'c1');
       const unlocked = Progress.isUnlocked('c1');
       Game.selection.player = 'c1'; Game.selection.opponent = 'c1';
