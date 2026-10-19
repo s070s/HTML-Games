@@ -1800,7 +1800,8 @@ const Arena = {
   },
 
   /* ----- damage ----- */
-  damageObject(o, raw, cat, srcId, dirx, dirz, px, py, pz) {
+  /* by: index of the fighter credited with the damage (undefined = nobody). */
+  damageObject(o, raw, cat, srcId, dirx, dirz, px, py, pz, by) {
     if (o.destroyed) return false;
     if (srcId !== undefined && o.lastSrc === srcId) return false;
     o.lastSrc = srcId;
@@ -1812,12 +1813,12 @@ const Arena = {
     o.hp = Math.max(0, o.hp - dmg);
     const before = o.stage;
     o.stage = stageFor(o);
-    if (o.hp <= 0) this.breakObject(o, dirx, dirz);
+    if (o.hp <= 0) this.breakObject(o, dirx, dirz, by);
     else if (o.stage > before) Events.emit('objStage', { obj: o, stage: o.stage, x: o.x, y: o.h * 0.5, z: o.z });
     return true;
   },
 
-  breakObject(o, dirx, dirz) {
+  breakObject(o, dirx, dirz, by) {
     if (o.destroyed) return;
     o.destroyed = true;
     o.stage = 4;
@@ -1866,7 +1867,7 @@ const Arena = {
     FX.dust(cx, 0.4, cz, mat === 'concrete' ? 14 : 8, o.hx + 0.3, mat === 'glass' || mat === 'metal' ? '#c9d3e0' : '#a89a86');
     FX.sparks(cx, o.h * 0.5, cz, 10, 4, mat === 'metal' ? '#ffd78a' : '#ffffff');
     Camera.impact(0.9, 0.8);
-    Events.emit('objBreak', { obj: o, mat, x: cx, y: o.h * 0.5, z: cz });
+    Events.emit('objBreak', { obj: o, mat, x: cx, y: o.h * 0.5, z: cz, by });
   },
 
   addRubble(o, top, half, timer) {
@@ -1877,7 +1878,7 @@ const Arena = {
 
   /* ----- queries ----- */
   /* Sphere (attack hitbox) against every live object; damages each object at most once per source id. */
-  hitSphere(x, y, z, r, srcId, raw, cat, dirx, dirz) {
+  hitSphere(x, y, z, r, srcId, raw, cat, dirx, dirz, by) {
     let hits = 0;
     for (const o of this.objects) {
       if (o.destroyed) continue;
@@ -1886,7 +1887,7 @@ const Arena = {
       const nx = clamp(x, c.x - c.hx, c.x + c.hx), nz = clamp(z, c.z - c.hz, c.z + c.hz);
       const dx = x - nx, dz = z - nz;
       if (dx * dx + dz * dz > r * r) continue;
-      if (this.damageObject(o, raw, cat, srcId, dirx, dirz, nx, clamp(y, 0, c.top), nz)) hits++;
+      if (this.damageObject(o, raw, cat, srcId, dirx, dirz, nx, clamp(y, 0, c.top), nz, by)) hits++;
     }
     return hits;
   },
@@ -3823,7 +3824,7 @@ const Combat = {
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
     const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
     const raw = mv.dmg * att.damageMult(mv);
-    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ);
+    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ, att.index);
     if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
     return n;
   },
@@ -3965,7 +3966,7 @@ const Combat = {
       const obj = f.obstacleHit;
       const nx = f.kx / speed, nz = f.kz / speed;
       f.lastImpactTick = match.tick;
-      Arena.damageObject(obj, speed * 6, 'impact', 100000 + f.flightId * 10 + (match.tick & 7), nx, nz, f.x, 1.0, f.z);
+      Arena.damageObject(obj, speed * 6, 'impact', 100000 + f.flightId * 10 + (match.tick & 7), nx, nz, f.x, 1.0, f.z, f.index ^ 1);   // credit whoever sent them flying
       const broke = obj.destroyed;
       const dmg = broke ? 1.5 : 2 + speed * 0.35;
       this.envDamage(f, dmg, match);
@@ -4863,7 +4864,7 @@ class MatchSim {
       }
     });
     on('throw', (e) => { this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg; });
-    on('objBreak', () => { this.stats[0].objects++; });
+    on('objBreak', (e) => { if (e.by === 0 || e.by === 1) this.stats[e.by].objects++; });
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
     on('attackStart', (e) => {
       if (e.f.index === 0) this.lastMove = { mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, result: '-', adv: null, dmg: 0 };
@@ -7808,6 +7809,15 @@ const SelfTest = {
       log.stop();
       const seconds = log.timeWarn.map((e) => e.seconds).join(',');
       return seconds === '5,4,3,2,1' ? true : 'warned at ' + seconds;
+    });
+    test('Objects destroyed are credited to the fighter who broke them', () => {
+      const m = mk({ arenaId: 'warehouse' });
+      const [first, second, third] = Arena.objects;
+      Arena.damageObject(first, 999, 'heavy', 1, 1, 0, first.x, 0.5, first.z, 1);
+      Arena.damageObject(second, 999, 'heavy', 2, 1, 0, second.x, 0.5, second.z);
+      Arena.damageObject(third, 999, 'heavy', 3, 1, 0, third.x, 0.5, third.z, 0);
+      const counts = m.stats.map((st) => st.objects).join(',');
+      return counts === '1,1' ? true : 'objects credited ' + counts;
     });
     test('Training dummy can be set to infinite health', () => {
       const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
