@@ -6926,9 +6926,10 @@ const UI = {
   },
   /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
   clinchHint(f) {
-    if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
     const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS;
-    if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · wait for stamina';
+    // stamina does not regenerate while held, so a tired fighter cannot escape this clinch at all
+    if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw';
+    if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
     if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
     return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
