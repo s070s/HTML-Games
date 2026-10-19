@@ -904,7 +904,7 @@ const Snd = {
     s.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
   },
 };
-Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25 };
+Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07 };
 /* sound recipes: (volume, pan) */
 Snd.R = {
   mg() { this.noise({ dur: 0.07, vol: 0.12 * arguments[0], lp: 3200, lp2: 900, pan: arguments[1] }); this.tone({ freq: 160, freq2: 70, dur: 0.06, vol: 0.06 * arguments[0], type: 'square', pan: arguments[1] }); },
@@ -944,6 +944,8 @@ Snd.R = {
   flare() { this.noise({ dur: 0.3, vol: 0.12, hp: 3000 }); },
   repair() { this.tone({ freq: 400, freq2: 900, dur: 0.4, vol: 0.12, type: 'sine', bus: 'ui' }); },
   eject() { this.noise({ dur: 0.6, vol: 0.3, lp: 2500, lp2: 400 }); },
+  hitTick() { this.tone({ freq: 1900, dur: 0.035, vol: 0.07, type: 'square', bus: 'ui' }); },
+  killConfirm() { this.tone({ freq: 1200, dur: 0.06, vol: 0.1, type: 'square', bus: 'ui' }); this.tone({ freq: 1800, dur: 0.12, vol: 0.1, type: 'square', bus: 'ui', delay: 0.07 }); },
 };
 
 
@@ -1872,6 +1874,9 @@ const STRUCT = {
   factory: { w: 42, h: 14, d: 28, hp: 2000, mat: 'concrete', debris: 22 },
 };
 const DEBRIS_CAP = 170;
+const OBJECTIVE_STRUCT_SCORE = 300;   // score for destroying a mission objective structure
+const STRUCT_SCORE = 10;              // score for any other structure a player brings down
+const SHIELDED_MSG_GAP = 4;           // seconds between "target shielded" reminders to one player
 
 function addStruct(type, x, z, opts) {
   opts = opts || {};
@@ -1897,6 +1902,7 @@ function addStruct(type, x, z, opts) {
 }
 function damageStruct(s, amount, dtype, owner, structMult) {
   if (Net.guest) return 0;
+  if (s.invuln && s.objective && !s.destroyed && owner && owner.team !== s.team) warnShielded(owner);
   if (s.destroyed || s.indestructible || s.invuln || amount <= 0) return 0;
   if (s.objective && owner && owner.team === s.team && !W.friendlyFire) return 0;   // a side never wears down its own objectives
   const mm = MATERIAL[s.mat];
@@ -1907,6 +1913,7 @@ function damageStruct(s, amount, dtype, owner, structMult) {
   if (!s.bld && s.flash <= 0) W.flashing.push(s);
   s.hp -= eff; s.flash = 0.12; s.scorch = Math.min(1, s.scorch + eff / s.maxHp * 0.8);
   if (W.onStructHit) W.onStructHit(s, eff, owner);
+  if (s.objective) markHit(owner);
   const frac = s.hp / s.maxHp;
   s.state = s.hp <= 0 ? 3 : frac < 0.35 ? 2 : frac < 0.7 ? 1 : 0;
   if (s.state === 3) { destroyStruct(s, owner); return eff; }
@@ -1923,6 +1930,7 @@ function destroyStruct(s, owner) {
   if (s.destroyed) return;            // one break event only
   s.destroyed = true; s.state = 3; s.hp = 0; s.destroyedAt = W.time;
   if (Net.host) Net.dirty.add(s.idx);
+  creditStruct(s, owner);
   if (s.bld) { Bld.pieceDestroyed(s, owner); return; }
   Chunks.mark(s);
   spawnDebris(s.x, s.y + s.h * 0.5, s.z, s.debris, s, 18);
@@ -1933,6 +1941,22 @@ function destroyStruct(s, owner) {
   if (s.explosive) W.queue.push({ x: s.x, y: s.y + s.h * 0.5, z: s.z, radius: 15, dmg: 150, owner, delay: 0.1 + Math.random() * 0.12 });
   else if (s.h * s.hx > 40) shakeFrom(s.x, s.y, s.z, 0.18, 120);
   if (W.onStructDestroyed) W.onStructDestroyed(s, owner);
+}
+/* Score and record for a human player who brings a structure down; objectives also confirm the kill and reach the feed.
+   Single building pieces and trees are scenery wear, not targets, so they earn nothing. */
+function creditStruct(s, owner) {
+  if (s.objective && owner) addFeed(owner, s, s.team);
+  const st = statsOf(owner);
+  if (!st || s.bld || s.type === 'tree') return;
+  const score = s.objective ? OBJECTIVE_STRUCT_SCORE : STRUCT_SCORE;
+  st.structures++; st.score += score;
+  if (s.objective) markKill(owner, score, s.name);
+}
+/* A shielded objective takes no damage; tell the shooter why, at most every few seconds. */
+function warnShielded(owner) {
+  if (W.time < owner.shieldMsgT) return;
+  owner.shieldMsgT = W.time + SHIELDED_MSG_GAP;
+  notify(owner, 'TARGET SHIELDED: DESTROY THE POWER NODES', 'warn');
 }
 function structContains(s, x, z, margin) { return Math.abs(x - s.x) <= s.hx + margin && Math.abs(z - s.z) <= s.hz + margin; }
 
@@ -3316,7 +3340,7 @@ class Platform {
     this.flightMode = 'assisted'; this.invalidTimer = 0;
     // Fields that other systems set later are declared here, so every platform keeps one hidden shape (fast property access).
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
-    this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false;
+    this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.isPlayer = false; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.loadout = opts.loadout || def.loadout;
@@ -4076,7 +4100,8 @@ class Platform {
       owner.stats.damage += total;
       const st = statsOf(owner);
       if (st) st.damageDealt += total;
-      if (owner === W.player) { W.hitMarker = 0.25; W.lastHit = { dmg: Math.round(total), target: this.name }; (W.dmgLog || (W.dmgLog = [])).push({ t: W.time, a: total }); } else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'h' });
+      markHit(owner);
+      if (owner === W.player) { W.lastHit = { dmg: Math.round(total), target: this.name }; (W.dmgLog || (W.dmgLog = [])).push({ t: W.time, a: total }); }
     }
     const vs = statsOf(this);
     if (vs) vs.damageTaken += total;
@@ -4116,8 +4141,7 @@ class Platform {
       if (owner.team === 0) W.stats.teamKills++;   // objectives count every friendly kill
       const st = statsOf(owner);
       if (st) { st.kills++; st.score += this.score; }   // personal record: own kills only
-      if (owner === W.player) W.killMarker = 0.6;
-      else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' });
+      markKill(owner, this.score, this.name);
     }
     if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.arch) {
       const types = W.mods.scarce ? ['repair', 'energy'] : ['ammo', 'repair', 'energy'];   // scarce ammunition: no ammo drops
@@ -4695,6 +4719,20 @@ function notify(pl, text, snd) {
   if (!pl) return;
   if (pl === W.player) { W.msgL(text); if (snd) Snd.ui(snd); }
   else if (pl.netPeer) Net.sendTo(pl.netPeer, snd ? { t: 'msg', text, snd } : { t: 'msg', text });
+}
+const HIT_MARK_TIME = 0.25, KILL_MARK_TIME = 0.6;   // seconds the reticle hit and kill markers show
+/* Hit confirmation (marker and tick) for whoever fired: the local HUD, or a message to that guest. */
+function markHit(owner) {
+  if (!owner) return;
+  if (owner === W.player) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); }
+  else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'h' });
+}
+/* Kill confirmation plus a "+score NAME" line for the player who made the kill. */
+function markKill(owner, score, name) {
+  if (!owner) return;
+  if (owner === W.player) { W.killMarker = KILL_MARK_TIME; Snd.ui('killConfirm'); }
+  else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' });
+  if (score > 0) notify(owner, '+' + score + ' ' + String(name).toUpperCase());
 }
 /* Kill feed line "killer  >  victim" (either may be a plain label). The local player reads as YOU;
    guests get each platform's name and id so they can do the same for themselves. */
@@ -6548,12 +6586,12 @@ const HUD = {
     }
     // hit and kill markers
     if (W.hitMarker > 0) {
-      const a = W.hitMarker / 0.25, r = 10 * u;
+      const a = W.hitMarker / HIT_MARK_TIME, r = 10 * u;
       g.strokeStyle = 'rgba(255,255,255,' + a + ')'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(cx - r, cy - r); g.lineTo(cx - r * 0.45, cy - r * 0.45); g.moveTo(cx + r, cy - r); g.lineTo(cx + r * 0.45, cy - r * 0.45); g.moveTo(cx - r, cy + r); g.lineTo(cx - r * 0.45, cy + r * 0.45); g.moveTo(cx + r, cy + r); g.lineTo(cx + r * 0.45, cy + r * 0.45); g.stroke();
     }
     if (W.killMarker > 0) {
-      const r = 18 * u; g.strokeStyle = 'rgba(255,90,77,' + W.killMarker / 0.6 + ')'; g.lineWidth = 3;
+      const r = 18 * u; g.strokeStyle = 'rgba(255,90,77,' + W.killMarker / KILL_MARK_TIME + ')'; g.lineWidth = 3;
       g.beginPath(); g.moveTo(cx - r, cy - r); g.lineTo(cx + r, cy + r); g.moveTo(cx + r, cy - r); g.lineTo(cx - r, cy + r); g.stroke();
     }
     // charge ring for the railgun
@@ -7190,7 +7228,7 @@ const UI = {
     return '<div style="text-align:center"><div class="big ' + (r.won ? 'good' : 'bad') + '">' + (r.won ? 'MISSION COMPLETE' : 'MISSION FAILED') + '</div><div class="sub">' + esc(r.name) + (r.reason ? ' - ' + esc(r.reason) : '') + '</div>' +
       '<div class="big rank' + r.rank + '" style="margin-bottom:.4em">RANK ' + r.rank + '</div></div>' +
       '<div class="grid2"><div class="panel"><h3 style="margin-top:0">Objectives</h3><table>' + objs + '</table></div><div class="panel"><h3 style="margin-top:0">Combat report</h3><table>' +
-      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
+      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Structures destroyed</td><td>' + (s.structures || 0) + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
       '<div class="row" style="justify-content:center">' + (Net.guest ? '<span class="dim">Waiting for the host...</span>' : '<button class="btn primary" data-act="retry" data-focus>Retry</button>') + '' + (next && !Net.active ? '<button class="btn" data-act="next" data-id="' + r.id + '">Next mission</button>' : '') + '<button class="btn" data-act="menu">Main menu</button></div>';
   },
 };
@@ -7446,6 +7484,25 @@ const SelfTest = {
       this.check('a guest gets its own warning and sound', sent.length === 1 && sent[0].t === 'msg' && sent[0].text.indexOf('SUBSYSTEM FAILURE') === 0 && sent[0].snd === 'warn' && W.msgs.length === 0);
       pl.failSubsystem();
       this.check('the local player sees its own warning', W.msgs.length === 1 && sent.length === 1);
+    });
+    t('hit feedback', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const pl = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      W.platforms.push(pl); W.player = pl;
+      const shed = addStruct('warehouse', 300, 0, {});
+      damageStruct(shed, 1e5, 'explosive', pl, 1);
+      this.check('a destroyed structure is counted and scored', W.stats.structures === 1 && W.stats.score === STRUCT_SCORE && W.hitMarker === 0);
+      const radar = objStruct('tower', 300, 200, 'Radar Tower', 1);
+      damageStruct(radar, 1, 'explosive', pl, 1);
+      this.check('hitting an objective shows a hit marker', W.hitMarker > 0);
+      damageStruct(radar, 1e5, 'explosive', pl, 1);
+      this.check('an objective kill scores, confirms and reaches the feed', W.stats.structures === 2 && W.stats.score === STRUCT_SCORE + OBJECTIVE_STRUCT_SCORE && W.killMarker > 0 && W.feed[W.feed.length - 1].text === 'YOU  >  Radar Tower');
+      this.check('an objective kill shows a score line', W.msgs.some((m) => m.text === '+' + OBJECTIVE_STRUCT_SCORE + ' RADAR TOWER'));
+      const core = objStruct('factory', -300, 200, 'Factory Core', 1);
+      core.invuln = true;
+      damageStruct(core, 50, 'explosive', pl, 1); damageStruct(core, 50, 'explosive', pl, 1);
+      this.check('a shielded objective explains itself once', W.msgs.filter((m) => m.text.indexOf('TARGET SHIELDED') === 0).length === 1 && pl.shieldMsgT > W.time && core.hp === core.maxHp);
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
@@ -7740,8 +7797,8 @@ const Net = {
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
-      case 'h': if (W) W.hitMarker = 0.25; break;
-      case 'k': if (W) W.killMarker = 0.6; break;
+      case 'h': if (W) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); } break;
+      case 'k': if (W) { W.killMarker = KILL_MARK_TIME; Snd.ui('killConfirm'); } break;
       case 'd': if (W) { W.dmgDirs.push({ ang: numIn(m.a, -7, 7), t: 1.6 }); W.flash = 0.25; W.shake = Math.min(1, W.shake + Math.min(0.4, numIn(m.v, 0, 1000) * 0.004)); } break;
       case 'end': Game.showResultsGuest(m.r); break;
       default: break;
