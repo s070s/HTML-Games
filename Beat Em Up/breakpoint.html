@@ -7575,8 +7575,26 @@ const CreatorUI = {
 /* =====================================================================
    09c SELF-TEST + BOOT - headless acceptance checks (Menu > About > Run self-test) and startup.
    ===================================================================== */
+const SELFTEST_STORE_KEYS = [KEY_SETTINGS, KEY_PROGRESS, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM];
 const SelfTest = {
   scripted(fn) { return ScriptedController.make(fn); },
+  /* Saved data and the in-memory copies the tests may change, so a run in a real browser leaves no trace
+     (it would otherwise mark the first-match controls card as seen, for example). */
+  snapshot() {
+    return {
+      raw: SELFTEST_STORE_KEYS.map((key) => Store.get(key)), settings: Object.assign({}, Settings.v), progress: JSON.parse(JSON.stringify(Progress.d)),
+      keys: KEYMAPS.map((keymap) => JSON.stringify(keymap.bindings)), selection: Object.assign({}, Game.selection),
+    };
+  },
+  restore(saved) {
+    SELFTEST_STORE_KEYS.forEach((key, i) => { if (saved.raw[i] === null) Store.remove(key); else Store.set(key, saved.raw[i]); });
+    Settings.v = saved.settings;
+    Settings.apply();
+    Progress.d = saved.progress;
+    KEYMAPS.forEach((keymap, i) => { keymap.bindings = JSON.parse(saved.keys[i]); });
+    Inputs.rebuildMaps();
+    Object.assign(Game.selection, saved.selection);
+  },
   make(opts, s1, s2) {
     const m = new MatchSim(Object.assign({ mode: 'free', countdown: false, timer: 0, seed: 11, winsNeeded: 2 }, opts));
     m.controllers[0] = this.scripted(s1 || (() => {}));
@@ -8840,7 +8858,9 @@ UI.runSelfTest = function runSelfTest() {
   if (Game.state !== GS.MENU || Game.match) { if (out) out.textContent = 'Self-test is available from the main menu only.'; return; }
   const t0 = performance.now();
   const illegalBefore = Diag.illegalTransitions;
+  const saved = SelfTest.snapshot();
   const res = SelfTest.run_all();
+  SelfTest.restore(saved);
   Diag.illegalTransitions = illegalBefore;
   Showcase.arenaId = null;
   this.menuScene('warehouse', 'kai', 'mara', false);
