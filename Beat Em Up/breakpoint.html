@@ -1003,6 +1003,7 @@ const Inputs = {
   players: [Input, Input2],
   solo: [Input],
   versus: false,         // Versus: P2 reads the keyboard and pads too
+  padSlots: [-1, -1],    // pad index held by P1 / P2; a pad stays with its player until it disconnects
   enabled: false,
   attached: false,
   captureCallback: null,
@@ -1021,7 +1022,7 @@ const Inputs = {
     add(window, 'blur', () => this.releaseAll());
     add(document, 'visibilitychange', () => { if (document.hidden) this.releaseAll(); });
     add(window, 'gamepadconnected', (e) => { Events.emit('toast', { msg: 'Controller connected: ' + e.gamepad.id.slice(0, 40) }); });
-    add(window, 'gamepaddisconnected', () => { for (const p of this.players) p.releasePad(); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); });
+    add(window, 'gamepaddisconnected', (e) => { this.freePad(e.gamepad.index); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); });
   },
   dispose() {
     for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
@@ -1036,6 +1037,7 @@ const Inputs = {
   setVersus(on) {
     if (this.versus === on) return;
     this.versus = on;
+    this.resetPads();      // Versus deals the pads afresh (a lone pad plays P2)
     this.releaseAll();
     this.rebuildMaps();
     for (const p of this.players) if (p.lastDevice === 'gamepad') p.lastDevice = 'keyboard';   // pads may change hands; the next pad press sets it again
@@ -1063,16 +1065,29 @@ const Inputs = {
     Events.emit('inputReleased');
   },
   reset() { for (const p of this.players) p.reset(); },
-  /* Pad routing: P1 takes the first pad; in Versus two pads split P1 / P2 and a lone pad plays P2 (P1 keeps the keyboard). */
+  /* Pad routing: a pad stays with the player holding it until it disconnects, and a newly connected pad only fills a free
+     slot. Outside Versus P1 takes the first pad; in Versus a lone pad plays P2 (P1 keeps the keyboard), two new pads split P1 / P2. */
   padFor(slot, pads) {
-    let first = -1, second = -1;
-    for (let i = 0; i < pads.length; i++) {
-      if (!pads[i] || !pads[i].connected) continue;
-      if (first < 0) first = i; else if (second < 0) second = i;
-    }
-    if (!this.versus) return slot === 0 ? first : -1;
-    if (second < 0) return slot === 1 ? first : -1;
-    return slot === 0 ? first : second;
+    this.assignPads(pads);
+    return this.padSlots[slot];
+  },
+  assignPads(pads) {
+    const slots = this.padSlots;
+    const live = (i) => i >= 0 && !!pads[i] && pads[i].connected;
+    for (let s = 0; s < slots.length; s++) if (!live(slots[s]) || (s === 1 && !this.versus)) slots[s] = -1;
+    const free = [];
+    for (let i = 0; i < pads.length; i++) if (live(i) && !slots.includes(i)) free.push(i);
+    if (!this.versus) { if (slots[0] < 0 && free.length) slots[0] = free[0]; return; }
+    if (slots[0] < 0 && slots[1] < 0 && free.length === 1) { slots[1] = free[0]; return; }
+    for (let s = 0; s < slots.length && free.length; s++) if (slots[s] < 0) slots[s] = free.shift();
+  },
+  resetPads() { this.padSlots = [-1, -1]; },
+  /* A disconnected pad frees only its own player's slot. */
+  freePad(index) {
+    this.players.forEach((p, s) => {
+      if (this.padSlots[s] === index) this.padSlots[s] = -1;
+      if (p.padIndex === index) p.releasePad();
+    });
   },
   /* Called once per rendered frame, before any simulation steps. */
   update() {
@@ -8128,13 +8143,14 @@ const SelfTest = {
       const pad = (id) => ({ id, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: [], vibrationActuator: { playEffect: () => { calls.push(id); return Promise.resolve(); } } });
       const one = [pad('a')], two = [pad('a'), null, pad('b')];
       const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), versus = Inputs.versus, reduced = Settings.v.reducedMotion;
-      const devices = Inputs.players.map((p) => p.lastDevice), indexes = Inputs.players.map((p) => p.padIndex);
+      const devices = Inputs.players.map((p) => p.lastDevice), indexes = Inputs.players.map((p) => p.padIndex), slots = Inputs.padSlots;
       let r;
       try {
-        Inputs.versus = false;
+        Inputs.versus = false; Inputs.resetPads();
         const solo = Inputs.padFor(0, one) === 0 && Inputs.padFor(1, two) === -1;
-        Inputs.versus = true;
+        Inputs.versus = true; Inputs.resetPads();
         const lone = Inputs.padFor(0, one) === -1 && Inputs.padFor(1, one) === 0;
+        Inputs.resetPads();
         const split = Inputs.padFor(0, two) === 0 && Inputs.padFor(1, two) === 2;
         Object.defineProperty(navigator, 'getGamepads', { value: () => two, configurable: true });
         Input.lastDevice = Input2.lastDevice = 'gamepad'; Input.padIndex = 0; Input2.padIndex = 2; Settings.v.reducedMotion = false;
@@ -8144,8 +8160,32 @@ const SelfTest = {
         r = solo && lone && split && p2Felt ? true : JSON.stringify({ solo, lone, split, calls });
       } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
-        Inputs.versus = versus; Settings.v.reducedMotion = reduced;
+        Inputs.versus = versus; Settings.v.reducedMotion = reduced; Inputs.padSlots = slots;
         Inputs.players.forEach((p, i) => { p.lastDevice = devices[i]; p.padIndex = indexes[i]; });
+      }
+      return r;
+    });
+    test('Gamepads: in Versus a pad stays with its player; a new pad fills only a free slot, a disconnect frees only its own', () => {
+      const pad = (id) => ({ id, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: [] });
+      const versus = Inputs.versus, slots = Inputs.padSlots, indexes = Inputs.players.map((p) => p.padIndex);
+      let r;
+      try {
+        Inputs.versus = true; Inputs.resetPads();
+        const pads = [pad('a'), null, null];
+        const lone = Inputs.padFor(0, pads) === -1 && Inputs.padFor(1, pads) === 0;
+        pads[1] = pad('b');                                   // a second pad joins: P1 takes it, P2 keeps its own
+        const joined = Inputs.padFor(0, pads) === 1 && Inputs.padFor(1, pads) === 0;
+        pads[0] = null;                                       // P2's pad drops out: P1 keeps playing on pad b
+        const dropped = Inputs.padFor(0, pads) === 1 && Inputs.padFor(1, pads) === -1;
+        pads[2] = pad('c');                                   // a new pad fills P2's free slot
+        const refilled = Inputs.padFor(0, pads) === 1 && Inputs.padFor(1, pads) === 2;
+        Input.padIndex = 1; Input2.padIndex = 2;
+        Inputs.freePad(2);                                    // the disconnect event for pad c
+        const freed = Inputs.padSlots.join() === '1,-1' && Input.padIndex === 1 && Input2.padIndex === -1;
+        r = lone && joined && dropped && refilled && freed ? true : JSON.stringify({ lone, joined, dropped, refilled, freed, slots: Inputs.padSlots });
+      } finally {
+        Inputs.versus = versus; Inputs.padSlots = slots;
+        Inputs.players.forEach((p, i) => { p.padIndex = indexes[i]; });
       }
       return r;
     });
