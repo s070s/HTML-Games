@@ -3812,6 +3812,7 @@ const Combat = {
     return v;
   },
   clinchStrike(att, def, cm, match) {
+    if (!match.live) return;
     att.clinchStrikeCd = 22;
     att.clinchStrikeAnim = 12;
     att.clinchStrikes++;
@@ -3832,7 +3833,7 @@ const Combat = {
     const p = att.throwPending, t = p.data;
     att.throwPending = null;
     let dmg = t.dmg * (p.strong ? 1.5 : 1) * att.stats.damage * def.stats.taken;
-    dmg = Math.max(1, Math.round(dmg * 10) / 10);
+    dmg = match.live ? Math.max(1, Math.round(dmg * 10) / 10) : 0;   // a throw finishing after the round ends still lands, harmlessly
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     const v = this.throwVector(att, p.dir), vx = v[0], vz = v[1];
@@ -3919,7 +3920,7 @@ const Combat = {
     }
   },
   envDamage(f, dmg, match) {
-    if (f.state === S.KO) return;
+    if (f.state === S.KO || !match.live) return;
     f.hp = Math.max(0, f.hp - dmg * f.stats.taken);
     if (match.floorHp(f) > f.hp) f.hp = match.floorHp(f);
     f.flash = 1;
@@ -4765,6 +4766,8 @@ class MatchSim {
   get player() { return this.fighters[0]; }
   get opponent() { return this.fighters[1]; }
   floorHp(f) { return this.training && this.infiniteHp && f.index === 1 ? 1 : 0; }
+  /* Damage only counts while the round is being fought: not after a KO or the bell. */
+  get live() { return this.phase === 'fight' && !this.locked; }
   get timeLeft() { return this.cfg.timer > 0 && !this.training ? Math.ceil(this.roundTicks / 60) : null; }
 
   placeFighters(hpFrac) {
@@ -7734,9 +7737,10 @@ const SelfTest = {
       m.endRound('time');
       for (let i = 0; i < 200; i++) m.step();
       const settled = [m.fighters[0].state, m.fighters[1].state].every((s) => s === S.VICTORY || s === S.DEFEAT);
+      const unhurt = m.fighters[1].hp === m.fighters[1].maxHp;   // the throw finished after the bell: no damage
       m.dispose();
       const legal = Diag.illegalTransitions === illegal && Diag.errors === errors;
-      return oneClinch && ko && lifted && settled && legal ? true : 'one clinch ' + oneClinch + ' ko ' + ko + ' lifted ' + lifted + ' settled ' + settled + ' illegal ' + (Diag.illegalTransitions - illegal);
+      return oneClinch && ko && lifted && settled && unhurt && legal ? true : 'one clinch ' + oneClinch + ' ko ' + ko + ' lifted ' + lifted + ' settled ' + settled + ' unhurt ' + unhurt + ' illegal ' + (Diag.illegalTransitions - illegal);
     });
     test('Throws: AI picks deliberate directions (scenery, corner, style)', () => {
       const m = mk({ arenaId: 'warehouse' });
