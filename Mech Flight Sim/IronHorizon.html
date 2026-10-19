@@ -233,7 +233,8 @@ const GRAVITY = 28;
 const WORLD_HALF = 1000;        // terrain covers +-1000 m
 const GROUND_BOUND = 930;       // ground platforms cannot leave this square
 const AIR_BOUND = 1080;         // aircraft are steered back beyond this
-const AIR_CEILING = 560;
+const AIR_CEILING = 420;        // low enough that flak and AA missiles still reach a high flier
+const AIR_CEILING_MARGIN = 25;  // hard limit above the ceiling: no climbing past it
 const MAX_PROJECTILES = 420;
 /* Damage one armour point stops, by damage type: rounds glance off plating, explosives and energy
    cut through it, so the type changes how much it takes to kill an armoured target. */
@@ -3574,7 +3575,10 @@ class Platform {
     }
     // limits: ceiling and combat area
     this.outOfBounds = false;
-    if (this.y > AIR_CEILING) { this.pitch = approach(this.pitch, -0.5, dt * 0.8); this.warn = 'CEILING'; }
+    if (this.y > AIR_CEILING) {
+      this.pitch = approach(this.pitch, -0.5, dt * 0.8); this.warn = 'CEILING';
+      if (this.y > AIR_CEILING + AIR_CEILING_MARGIN) this.pitch = Math.min(this.pitch, 0);   // a held pull-up cannot out-climb the nudge
+    }
     if (Math.abs(this.x) > AIR_BOUND || Math.abs(this.z) > AIR_BOUND) { this.outOfBounds = true; this.warn = 'RETURN TO COMBAT AREA'; }
     this.x = clamp(this.x, -AIR_BOUND - 450, AIR_BOUND + 450); this.z = clamp(this.z, -AIR_BOUND - 450, AIR_BOUND + 450);
     // integrate
@@ -3582,6 +3586,7 @@ class Platform {
     const fx = Math.sin(this.yaw) * sp, fy = Math.sin(this.pitch), fz = Math.cos(this.yaw) * sp;
     this.vx = fx * this.speed; this.vy = fy * this.speed - (this.stalled ? (stallSpeed - this.speed) * 0.6 : 0); this.vz = fz * this.speed;
     this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
+    this.y = Math.min(this.y, AIR_CEILING + AIR_CEILING_MARGIN);
     // terrain interaction
     const gh = Terrain.h(this.x, this.z);
     const clear = this.grounded ? a.gearH : a.clearance;
@@ -7299,6 +7304,15 @@ const SelfTest = {
       this.check('APS intercepts a missile', !missile.active && u.charges === WEAPONS.aps.charges - 1);
       tank.updateDefense(WEAPONS.aps.recharge + 0.1);
       this.check('APS recharges', u.charges === WEAPONS.aps.charges);
+    });
+    t('flight', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: -400, yaw: 0, y: AIR_CEILING - 10, loadout: PLATFORMS.kestrel.loadout });
+      W.platforms.push(jet);
+      let top = 0;
+      for (let i = 0; i < 60 * 8; i++) { jet.cmd.aimYaw = 0; jet.cmd.aimPitch = 1.2; jet.cmd.throttleSet = 1; jet.update(STEP); top = Math.max(top, jet.y); }
+      this.check('a held pull-up stops at the ceiling', !jet.dead && top <= AIR_CEILING + AIR_CEILING_MARGIN, 'reached ' + Math.round(top));
     });
     t('buildings', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 120, tag: 'city' }], difficulty: 'veteran', seed: 5, start: { x: 500, z: 500, yaw: 0 } });
