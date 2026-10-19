@@ -2345,10 +2345,12 @@ defAttack('lunge', { name: 'Running Lunge', btn: 'rp', limb: 'RA', anim: 'straig
 defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', anim: 'straight', h: 'M', tier: 2, startup: 4, active: 3, recovery: 8, dmg: 10, stam: 4, reach: 1.5, width: 0.5, push: 0.6, hitstun: 22, blockstun: 10, kind: 'stagger', step: 0.3, ctx: 'counter' });
 defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: 'front', h: 'M', tier: 2, cat: 'kick', startup: 5, active: 3, recovery: 10, dmg: 11, stam: 6, reach: 1.7, width: 0.5, push: 1.1, hitstun: 22, blockstun: 10, kind: 'knockdown', ctx: 'counter' });
 defAttack('grab', { name: 'Grab', btn: 'grapple', limb: 'LA', anim: 'grab', h: 'M', tier: 2, startup: 9, active: 3, recovery: 24, dmg: 0, stam: 10, reach: 1.15, width: 0.65, push: 0, hitstun: 0, blockstun: 0, type: 'grab', step: 0.1, ctx: 'grab' });
+/* Knee = cheap body shot that drains the defender's stamina (escapes cost stamina); elbow = the bigger hit. */
 const CLINCH_MOVES = {
-  knee: { id: 'knee', name: 'Clinch Knee', dmg: 6, stam: 6, duration: 20, cat: 'kick' },
-  elbow: { id: 'elbow', name: 'Clinch Elbow', dmg: 7, stam: 6, duration: 20, cat: 'punch' },
+  knee: { id: 'knee', name: 'Clinch Knee', dmg: 5, stam: 4, drain: 10, duration: 20, cat: 'kick' },
+  elbow: { id: 'elbow', name: 'Clinch Elbow', dmg: 7, stam: 6, drain: 0, duration: 20, cat: 'punch' },
 };
+const CLINCH_STRIKE_MAX = 2;         // strikes per clinch, then the thrower must throw or let go
 /* Throws by grip (how the clinch started) and direction relative to the thrower.
    Ticks: startup = wind-up + lift until release, escapeUntil = last tick of the throw the defender can still escape,
    recovery = thrower lock after release. launch / arc = defender flight speed out / up (m/s). down = knockdown time factor.
@@ -2363,10 +2365,10 @@ const THROW_SETS = {
     right: { name: 'Side Throw', anim: 'sideThrow', dmg: 11, startup: 20, escapeUntil: 11, recovery: 22, stam: 7, launch: 6.4, arc: 3.0, down: 0.9, face: 'back' },
   },
   rear: {
-    fwd: { name: 'Rear Takedown', anim: 'rearDrive', dmg: 14, startup: 20, escapeUntil: 9, recovery: 24, stam: 8, launch: 4.6, arc: 2.2, down: 1.1, face: 'front' },
-    back: { name: 'German Suplex', anim: 'germanSuplex', dmg: 21, startup: 30, escapeUntil: 14, recovery: 38, stam: 13, launch: 3.6, arc: 3.6, down: 1.2, face: 'back' },
-    left: { name: 'Rear Spin Throw', anim: 'sideThrow', dmg: 12, startup: 20, escapeUntil: 9, recovery: 22, stam: 7, launch: 6.4, arc: 2.8, down: 0.95, face: 'back' },
-    right: { name: 'Rear Spin Throw', anim: 'sideThrow', dmg: 12, startup: 20, escapeUntil: 9, recovery: 22, stam: 7, launch: 6.4, arc: 2.8, down: 0.95, face: 'back' },
+    fwd: { name: 'Rear Takedown', anim: 'rearDrive', dmg: 14, startup: 20, escapeUntil: 13, recovery: 24, stam: 8, launch: 4.6, arc: 2.2, down: 1.1, face: 'front' },
+    back: { name: 'German Suplex', anim: 'germanSuplex', dmg: 21, startup: 30, escapeUntil: 17, recovery: 38, stam: 13, launch: 3.6, arc: 3.6, down: 1.2, face: 'back' },
+    left: { name: 'Rear Spin Throw', anim: 'sideThrow', dmg: 12, startup: 20, escapeUntil: 12, recovery: 22, stam: 7, launch: 6.4, arc: 2.8, down: 0.95, face: 'back' },
+    right: { name: 'Rear Spin Throw', anim: 'sideThrow', dmg: 12, startup: 20, escapeUntil: 12, recovery: 22, stam: 7, launch: 6.4, arc: 2.8, down: 0.95, face: 'back' },
   },
   low: {
     fwd: { name: 'Double-Leg Takedown', anim: 'doubleLeg', dmg: 12, startup: 22, escapeUntil: 12, recovery: 24, stam: 9, launch: 3.8, arc: 2.4, down: 1.25, face: 'back' },
@@ -2469,7 +2471,7 @@ const PERFECT_BLOCK_COOLDOWN = 30;   // a block entered sooner than this after t
 const COUNTER_WINDOW_PERFECT = 50;   // only a perfect block opens a counter, and only for one move
 const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
-const CLINCH_ESCAPE_FROM_REAR = 20;  // a rear hold is harder to break
+const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
 const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees away from the grabber = rear grip
 const THROW_STARTUP = THROW_SETS.front.fwd.startup;   // reference throw length (forward hip toss)
 const JUGGLE_LIMIT = 3;
@@ -2795,7 +2797,7 @@ class Fighter {
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;
     this.hitKind = 'mid'; this.reactDur = 10; this.hitDirX = 0; this.hitDirZ = 0; this.groundHits = 0; this.quickRise = false;
-    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0;
+    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
     this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0;
@@ -3109,11 +3111,15 @@ class Fighter {
     this.throwAim = aimFromIntent(it) || this.grabDir;
     if (this.clinchTick > 6) {
       const b = this.buffer;
-      if (b) {
+      const punch = !!b && (b.btn === 'lp' || b.btn === 'rp');
+      const strikesLeft = this.clinchStrikes < CLINCH_STRIKE_MAX;
+      const waitForCooldown = punch && strikesLeft && this.clinchStrikeCd > 0;   // keep a strike press buffered until the cooldown ends
+      if (it.grapple) { this.buffer = null; this.startThrow(it, it.strong); }
+      else if (b && !waitForCooldown) {
         this.buffer = null;
-        if ((b.btn === 'lp' || b.btn === 'rp') && this.clinchStrikeCd === 0) Combat.clinchStrike(this, def, b.btn === 'lp' ? CLINCH_MOVES.knee : CLINCH_MOVES.elbow, match);
+        if (punch && strikesLeft) Combat.clinchStrike(this, def, b.btn === 'lp' ? CLINCH_MOVES.knee : CLINCH_MOVES.elbow, match);
         else if (b.btn === 'lk' || b.btn === 'rk') this.startThrow(it, b.strong || it.strong);
-      } else if (it.grapple) this.startThrow(it, it.strong);
+      }
     }
     if (!this.throwPending && this.clinchTick > CLINCH_MAX) Combat.releaseClinch(this, def, 'timeout');
   }
@@ -3760,7 +3766,7 @@ const Combat = {
     if (!att.setState(S.GRAPPLE)) return;
     def.setState(S.CLINCH);
     att.partner = def; def.partner = att;
-    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0; def.counterWindow = 0;
+    att.clinchTick = 0; def.clinchTick = 0; att.throwPending = null; def.escapeLock = 0; def.counterWindow = 0; att.clinchStrikes = 0;
     att.vx = att.vz = def.vx = def.vz = 0; def.kx = def.kz = att.kx = att.kz = 0;
     const grip = this.gripFor(att, def);
     att.grip = grip; def.grip = grip;
@@ -3800,10 +3806,12 @@ const Combat = {
   clinchStrike(att, def, cm, match) {
     att.clinchStrikeCd = 22;
     att.clinchStrikeAnim = 12;
-    att.clinchTick = Math.max(7, att.clinchTick - 12);
+    att.clinchStrikes++;
+    const exhausted = att.stam < cm.stam;   // an empty tank still lands the strike, but weakly (like an exhausted attack)
     att.stam = Math.max(0, att.stam - cm.stam);
     att.noRegen = 30;
-    const dmg = Math.max(1, Math.round(cm.dmg * att.stats.damage * def.stats.taken * 10) / 10);
+    def.stam = Math.max(0, def.stam - cm.drain);
+    const dmg = Math.max(1, Math.round(cm.dmg * att.stats.damage * (exhausted ? 0.6 : 1) * this.comboScale(def.gotHits) * def.stats.taken * 10) / 10);
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     def.flash = 1;
@@ -6106,7 +6114,7 @@ const UI = {
     }).join('');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. Chains: light &rarr; medium &rarr; strong, never the other way round; strong moves end a combo.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
-      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, punch = knee / elbow; kick or Grapple = throw in the direction you hold (the HUD arrow shows it). Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: left punch = knee (drains stamina), right punch = elbow (harder hit); kick or Grapple = throw in the direction you hold (the HUD arrow shows it). Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -7127,6 +7135,13 @@ const SelfTest = {
       const failed = log.escapeFail.length === 1 && log.escape.length === 0 && m.fighters[1].state === S.CLINCH;
       return escaped && failed ? true : 'escaped ' + escaped + ' failed ' + failed;
     });
+    test('Clinch: at most two strikes per clinch, then it times out', () => {
+      const log = self.capture(['hit']);
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && mm.tick % 5 === 0) it.rp = true; });
+      self.place(m, 1.0); self.run(m, 220); log.stop();
+      const elbows = log.hit.filter((h) => h.mv.id === 'elbow').length;
+      return elbows === CLINCH_STRIKE_MAX && m.fighters[1].state !== S.CLINCH ? true : 'elbows ' + elbows + ' defender ' + m.fighters[1].state;
+    });
     test('Throw: damage, thrown flight, knockdown and recovery', () => {
       const states = new Set();
       const log = self.capture(['throw']);
@@ -7632,6 +7647,23 @@ const SelfTest = {
           if (inside ? !escaped : !thrown) problems.push(dir + (inside ? ' inside' : ' outside') + ': escapes ' + log.escape.length + ' throws ' + log.throw.length);
           m.dispose();
         }
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Throws: a rear throw started at once can still be escaped', () => {
+      const problems = [];
+      for (const dir of THROW_DIRS) {
+        const log = self.capture(['escape', 'throw']);
+        const m = mk({}, (it, f, o, mm) => {
+          if (mm.tick === 2) it.grapple = true;
+          if (f.state === S.GRAPPLE && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 6) it.lk = true; }   // the throw starts on clinch tick 7
+        }, (it, f) => { if (f.state === S.CLINCH && f.clinchTick === escapeStartFor(f) - 1) it.grapple = true; });   // first tick an escape can work
+        self.place(m, 0.9);
+        const b = m.fighters[1];
+        m.fighters[0].yaw = Math.PI / 2; b.yaw = Math.PI / 2; b.setState(S.STUN); b.reactDur = 30;
+        self.run(m, 120); log.stop();
+        if (log.escape.length !== 1 || log.throw.length !== 0) problems.push(dir + ': escapes ' + log.escape.length + ' throws ' + log.throw.length);
+        m.dispose();
       }
       return problems.length ? problems.join('; ') : true;
     });
