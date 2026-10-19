@@ -6193,11 +6193,12 @@ const UI = {
       case 'moves': this.push('moves'); break;
       case 'back': this.back(); break;
       case 'mode': Game.chooseMode(arg); break;
-      case 'pick': Game.choosePlayer(arg); this.menuScene(Game.selection.arena, arg, null, true); this.rerender(true); break;
+      // picking the card that is already selected confirms it, so a double click or a second Enter moves on
+      case 'pick': if (arg === Game.selection.player) { this.confirmFighter(); break; } Game.choosePlayer(arg); this.menuScene(Game.selection.arena, arg, null, true); this.rerender(true); break;
       case 'confirm': this.confirmFighter(); break;
-      case 'opp': Game.selection.opponent = arg; this.rerender(true); break;
+      case 'opp': if (arg === Game.selection.opponent) { Game.go(GS.ARENASEL); break; } Game.selection.opponent = arg; this.rerender(true); break;
       case 'setupNext': Game.go(GS.ARENASEL); break;
-      case 'arena': Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, Game.selection.opponent, false); this.rerender(true); break;
+      case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, Game.selection.opponent, false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
       case 'rebind': this.startRebind(arg); break;
       case 'resetKeys': Keymap.resetAll(); this.toast('Keyboard bindings reset'); break;
@@ -7928,6 +7929,20 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return migrated && shown && stored && closed && once ? true : JSON.stringify({ migrated, shown, stored, closed, once });
+    });
+    test('Menus: choosing the selected fighter, opponent or arena again moves on', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.chooseMode('free');
+      UI.act('pick:' + Game.selection.player);
+      const setup = UI.current === 'setup';
+      UI.act('opp:' + Game.selection.opponent);
+      const arena = Game.state === GS.ARENASEL;
+      UI.act('arena:' + Game.selection.arena);
+      const started = !!Game.match && Game.state === GS.COUNTDOWN;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return setup && arena && started ? true : JSON.stringify({ setup, arena, started, state: Game.state });
     });
     test('Results: presses in the first moments are ignored', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
