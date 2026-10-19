@@ -2853,11 +2853,13 @@ class Fighter {
 
   /* ----- input buffering ----- */
   bufferInput(it) {
-    const btn = it.rk ? 'rk' : it.rp ? 'rp' : it.lk ? 'lk' : it.lp ? 'lp' : null; // simultaneous presses: rk > rp > lk > lp
-    if (btn) this.buffer = { btn, strong: it.strong, height: it.height, run: it.run, age: 0 };
+    const grab = it.grapple && this.state !== S.CLINCH && this.state !== S.GRAPPLE;   // in a clinch Grapple throws or escapes directly
+    const btn = it.rk ? 'rk' : it.rp ? 'rp' : it.lk ? 'lk' : it.lp ? 'lp' : grab ? 'grapple' : null; // simultaneous presses: rk > rp > lk > lp > grapple
+    if (btn) this.buffer = { btn, strong: it.strong, height: it.height, run: it.run, grapDir: it.grapDir || 'fwd', low: !!it.crouch, age: 0 };
     else if (this.buffer) { this.buffer.age++; if (this.buffer.age > BUFFER_TICKS) this.buffer = null; }
   }
   resolveMove(buf, it) {
+    if (buf.btn === 'grapple') return null;   // grabs start from tryBufferedAttack, never from a chain
     const strong = buf.strong || it.strong, height = buf.height || it.height;
     const punch = buf.btn === 'lp' || buf.btn === 'rp';
     if (this.state === S.JUMP || this.airborne) return punch ? ATTACKS.jump_punch : ATTACKS.jump_kick;
@@ -2866,9 +2868,12 @@ class Fighter {
     return MOVE_BY_INPUT[buf.btn + (strong ? 'S' : '') + (height ? 'H' : '')] || null;
   }
   tryBufferedAttack(it) {
-    if (!this.buffer) return false;
-    const mv = this.resolveMove(this.buffer, it);
+    const buf = this.buffer;
+    if (!buf) return false;
+    if (buf.btn === 'grapple' && (this.state === S.JUMP || this.airborne)) return false;   // keep a grab press for the landing
     this.buffer = null;
+    if (buf.btn === 'grapple') { this.grabDir = buf.grapDir; this.grabLow = buf.low || this.state === S.CROUCH; return this.startGrab(); }
+    const mv = this.resolveMove(buf, it);
     if (!mv) return false;
     this.startAttack(mv);
     return true;
@@ -3032,7 +3037,6 @@ class Fighter {
     if (this.blockStun > 0) { this.blockStun--; this.vx = this.vz = 0; return; }
     if (this.lock === 0) {
       if (this.tryBufferedAttack(it)) return;
-      if (it.grapple) { this.grabDir = it.grapDir || 'fwd'; this.grabLow = !!it.crouch || this.state === S.CROUCH; if (this.startGrab()) return; }
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST) { this.startDash(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
@@ -7161,6 +7165,18 @@ const SelfTest = {
       self.place(m, 4); self.run(m, 90); log.stop();
       const air = log.attackStart.filter((e) => e.mv.ctx === 'air').length;
       return air === 1 && m.fighters[0].state === S.IDLE && !m.fighters[0].airAttackUsed ? true : 'air attacks ' + air + ' state ' + m.fighters[0].state;
+    });
+    test('Buffered presses: a later grapple wins, a clinch strike waits for its cooldown', () => {
+      let log = self.capture(['attackStart']);
+      let m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; if (mm.tick === 4) it.grapple = true; });
+      self.place(m, 1.0); m.fighters[0].blockStun = 8; self.run(m, 12); log.stop();
+      const grabbed = log.attackStart.map((e) => e.mv.id).join() === 'grab';
+      m.dispose();
+      log = self.capture(['hit']);
+      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && (f.clinchTick === 8 || f.clinchTick === 22)) it.rp = true; });
+      self.place(m, 1.0); self.run(m, 60); log.stop();
+      const elbows = log.hit.filter((h) => h.mv.id === 'elbow').length;
+      return grabbed && elbows === 2 ? true : 'grabbed ' + grabbed + ' elbows ' + elbows;
     });
     test('Grab fails against an airborne target', () => {
       const log = self.capture(['clinch']);
