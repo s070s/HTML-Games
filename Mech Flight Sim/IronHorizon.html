@@ -2231,6 +2231,16 @@ function spawnPickup(type, x, z, life) {
 }
 
 /* ---------- world construction ---------- */
+/* One player's combat record; team totals (teamKills, teamDeaths) are only used on the host's W.stats. */
+function newStats() {
+  return { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, teamDeaths: 0, score: 0, pickups: 0 };
+}
+/* The record a human player's actions count toward: the local player's, or a co-op guest's (kept across respawns). */
+function statsOf(pl) {
+  if (!pl) return null;
+  if (pl === W.player) return W.stats;
+  return pl.netPeer && pl.netPeer.stats ? pl.netPeer.stats : null;
+}
 function newWorld(cfg) {
   const m = MAPS[cfg.map];
   Terrain.build(m, cfg.sites || []);
@@ -2240,7 +2250,7 @@ function newWorld(cfg) {
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [],
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
-    stats: { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, score: 0, pickups: 0 },
+    stats: newStats(),
     hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
     msg(text, snd) { this.msgL(text); if (snd) Snd.ui(snd); if (Net.host) Net.bcast(snd ? { t: 'msg', text, snd } : { t: 'msg', text }); },
     msgL(text) {
@@ -3861,10 +3871,9 @@ class Platform {
     else if (w.clip <= 0 && W.infiniteAmmo && this.team === 0) { w.clip = d.clip; }
     this.recoil = 1;
     if (this.kind === 'mech') this.torsoPitch -= d.recoil * 0.02;
-    if (W.player === this) {
-      W.shake = Math.min(1, W.shake + d.recoil * 0.025 / (this.crouch ? 2 : 1));
-      W.stats.shots += d.pellets || 1;
-    }
+    if (W.player === this) W.shake = Math.min(1, W.shake + d.recoil * 0.025 / (this.crouch ? 2 : 1));
+    const st = statsOf(this);
+    if (st) st.shots += d.pellets || 1;
     Snd.play(d.sound, mz.x, mz.y, mz.z, W.player === this ? 1 : 0.85);
     // aim direction
     const dir = { x: 0, y: 0, z: 0 };
@@ -3921,8 +3930,9 @@ class Platform {
     fxSparks(ex, ey, ez, 5, d.tracer, 12);
     if (kind === 'platform') {
       const dealt = obj.takeDamage(d.dmg, d.dtype, this, dx, dz, { beam: true });
-      if (dealt > 0 && this === W.player) { W.stats.hits++; }
-    } else if (kind === 'struct') { damageStruct(obj, d.dmg, d.dtype, this, d.structMult); if (this === W.player) W.stats.hits++; }
+      const st = statsOf(this);
+      if (dealt > 0 && st) st.hits++;
+    } else if (kind === 'struct') { damageStruct(obj, d.dmg, d.dtype, this, d.structMult); const st = statsOf(this); if (st) st.hits++; }
   }
 
   /* ---------------- defenses ---------------- */
@@ -4062,9 +4072,16 @@ class Platform {
       this.hp -= rem; this.hitFlash = 0.18;
       if (!info.blast && !info.beam) Snd.play('hit', this.x, this.y, this.z, 0.9);
     }
-    if (owner) { owner.stats.damage += total; if (owner === W.player) { W.stats.damageDealt += total; W.hitMarker = 0.25; W.lastHit = { dmg: Math.round(total), target: this.name }; (W.dmgLog || (W.dmgLog = [])).push({ t: W.time, a: total }); } else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'h' }); }
+    if (owner) {
+      owner.stats.damage += total;
+      const st = statsOf(owner);
+      if (st) st.damageDealt += total;
+      if (owner === W.player) { W.hitMarker = 0.25; W.lastHit = { dmg: Math.round(total), target: this.name }; (W.dmgLog || (W.dmgLog = [])).push({ t: W.time, a: total }); } else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'h' });
+    }
+    const vs = statsOf(this);
+    if (vs) vs.damageTaken += total;
     if (this === W.player) {
-      W.stats.damageTaken += total; W.flash = 0.25;
+      W.flash = 0.25;
       if (dx !== undefined && (dx !== 0 || dz !== 0)) W.dmgDirs.push({ ang: Math.atan2(-dx, -dz), t: 1.6 });
       W.shake = Math.min(1, W.shake + Math.min(0.4, total * 0.004));
     } else if (this.netPeer) Net.sendTo(this.netPeer, { t: 'd', a: r2(dx !== undefined ? Math.atan2(-dx, -dz) : 0), v: Math.round(total) });
@@ -4097,17 +4114,17 @@ class Platform {
     if (owner && cause !== 'eject') {
       owner.stats.kills++;
       if (owner.team === 0) W.stats.teamKills++;   // objectives count every friendly kill
-      if (owner === W.player) { W.stats.kills++; W.stats.score += this.score; W.killMarker = 0.6; }   // personal record: own kills only
-      else if (owner.team === 0 && owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' });
+      const st = statsOf(owner);
+      if (st) { st.kills++; st.score += this.score; }   // personal record: own kills only
+      if (owner === W.player) W.killMarker = 0.6;
+      else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' });
     }
     if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.arch) {
       const types = W.mods.scarce ? ['repair', 'energy'] : ['ammo', 'repair', 'energy'];   // scarce ammunition: no ammo drops
       const t = types[Math.floor(Math.random() * types.length)];
       spawnPickup(t, this.x, this.z, 50);
     }
-    W.feed.push({ t: W.time, text: (owner ? owner.name : cause === 'crash' || cause === 'collision' ? 'Collision' : 'Unknown') + '  >  ' + this.name, team: this.team });
-    if (W.feed.length > 5) W.feed.shift();
-    if (Net.host) { const fe = W.feed[W.feed.length - 1]; Net.bcast({ t: 'f', text: fe.text, team: fe.team }); }
+    addFeed(owner || (cause === 'crash' || cause === 'collision' ? 'Collision' : 'Unknown'), this, this.team);
     if (W.onPlatformDestroyed) W.onPlatformDestroyed(this, owner, cause);
   }
 }
@@ -4651,14 +4668,16 @@ function updateProjectiles(dt) {
     p.x = hx; p.y = hy; p.z = hz;
     if (kind === 'platform') {
       const dealt = obj.takeDamage(p.dmg, d.dtype, p.owner, p.vx, p.vz, { proj: p });
-      if (p.owner === W.player && dealt > 0) W.stats.hits++;
+      const st = statsOf(p.owner);
+      if (st && dealt > 0) st.hits++;
       fxSparks(hx, hy, hz, 4, d.tracer, 12);
       if (p.pierceLeft > 0) { p.pierceLeft--; (p.hitSet = p.hitSet || []).push(obj); continue; }
       detonate(p, hx, hy, hz, obj);
     } else if (kind === 'struct') {
       // the struck structure takes the direct hit; the splash then spares it so it is not counted twice
       damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult);
-      if (p.owner === W.player) W.stats.hits++;
+      const st = statsOf(p.owner);
+      if (st) st.hits++;
       if (d.blast <= 0) Snd.play('hitStruct', hx, hy, hz, 0.6);
       fxSparks(hx, hy, hz, 4, STRUCT_SPARK_COLOR, 12);
       detonate(p, hx, hy, hz, null, obj);
@@ -4677,6 +4696,17 @@ function notify(pl, text, snd) {
   if (pl === W.player) { W.msgL(text); if (snd) Snd.ui(snd); }
   else if (pl.netPeer) Net.sendTo(pl.netPeer, snd ? { t: 'msg', text, snd } : { t: 'msg', text });
 }
+/* Kill feed line "killer  >  victim" (either may be a plain label). The local player reads as YOU;
+   guests get each platform's name and id so they can do the same for themselves. */
+function addFeed(killer, victim, team) {
+  const label = (q) => (typeof q === 'string' ? q : q === W.player ? 'YOU' : q.name);
+  W.feed.push({ t: W.time, text: label(killer) + '  >  ' + label(victim), team });
+  if (W.feed.length > 5) W.feed.shift();
+  if (!Net.host) return;
+  const side = (q) => (typeof q === 'string' ? [q, 0] : [q.name, q.isStruct ? 0 : q.id]);
+  const k = side(killer), v = side(victim);
+  Net.bcast({ t: 'f', text: k[0] + '  >  ' + v[0], team, k, v });
+}
 function updatePickups(dt) {
   if (!W.pickups.length) return;
   const list = [];
@@ -4693,7 +4723,8 @@ function updatePickups(dt) {
         notify(pl, 'AMMUNITION RESUPPLIED', 'pickup');
       } else if (k.type === 'repair') { pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.3); pl.armor = Math.min(pl.maxArmor, pl.armor + pl.maxArmor * 0.4); notify(pl, 'HULL REPAIRED', 'pickup'); }
       else { pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false; notify(pl, 'ENERGY AND HEAT RESTORED', 'pickup'); }
-      if (pl === W.player) W.stats.pickups++;
+      const st = statsOf(pl);
+      if (st) st.pickups++;
       W.pickups.splice(i, 1);
     }
   }
@@ -5378,7 +5409,7 @@ const Obj = {
   noDeaths(o) {
     return makeObjective(Object.assign({
       primary: false, status: 'active',
-      tick() { if (W.stats.deaths > 0) this.status = 'failed'; },
+      tick() { if (W.stats.teamDeaths > 0) this.status = 'failed'; },   // in co-op any player's loss counts
       text() { return this.title; },
       finalize() { if (this.status === 'active') this.status = 'complete'; },
     }, o));
@@ -5452,7 +5483,7 @@ class Mission {
     if (this.state !== 'won') return 'F';
     const opt = this.objectives.filter((o) => !o.primary);
     const optDone = opt.length ? opt.filter((o) => o.status === 'complete').length / opt.length : 1;
-    const deathPen = clamp(W.stats.deaths / Math.max(1, W.maxLives), 0, 1);
+    const deathPen = clamp(W.stats.teamDeaths / Math.max(1, W.maxLives * (this.cfg.nPlayers || 1)), 0, 1);
     const timeF = this.limit > 0 ? clamp(1 - this.time / this.limit, 0, 1) : 0.5;
     const pi = 50 + optDone * 20 + (1 - deathPen) * 15 + timeF * 15;
     return pi >= 90 ? 'S' : pi >= 76 ? 'A' : pi >= 62 ? 'B' : 'C';
@@ -6032,7 +6063,8 @@ const Game = {
     const lo = Object.assign({}, cfg.loadout);
     const old = W.player;
     const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z;
-    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: lo, name: 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    // in co-op the host's platform carries the pilot name everyone else sees; it reads as YOU only on screen
+    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
     p.controller = PC; p.cmd.aimYaw = st.yaw; p.flightMode = S.flightMode;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
@@ -6155,7 +6187,7 @@ const Game = {
     if (pl && pl.dead && this.state === 'playing') {
       if (!pl.deathHandled) {
         pl.deathHandled = true; W.lives--;
-        if (!pl.withdrew) W.stats.deaths++;
+        if (!pl.withdrew) { W.stats.deaths++; W.stats.teamDeaths++; }
         this.respawnT = pl.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
         if (cfg.mode === 'training') this.respawnT = 1.5;
         if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
@@ -6181,21 +6213,31 @@ const Game = {
     this.state = 'results';
     Input.playing = false; Input.releaseLock(); Snd.engineStop();
     const st = W.stats;
-    const shots = Math.max(1, st.shots);
     this.resultData = {
       won: m.state === 'won', reason: m.failReason, rank: m.rank(), time: m.time, name: m.def.name, type: m.def.type, id: m.def.id, mode: this.cfg.mode,
       objectives: m.objectives.map((o) => ({ title: o.title, primary: o.primary, status: o.status })),
-      stats: { kills: st.kills, accuracy: Math.min(100, Math.round(st.hits / shots * 100)), dealt: Math.round(st.damageDealt), taken: Math.round(st.damageTaken), deaths: st.deaths, structures: st.structures, score: st.score },
+      stats: this.statSummary(st),
     };
+    if (Net.host) this.resultData.team = Net.teamTable();
     if (this.cfg.mode === 'mission' && m.state === 'won') {
       const prev = Save.data.best[m.def.id];
-      const score = Math.round(st.score + (m.limit ? Math.max(0, m.limit - m.time) : 0) + st.kills * 10);
+      const score = this.finalScore(st);
       const rec = betterRecord(prev, score, this.resultData.rank, Math.round(m.time));
       if (rec) { Save.data.best[m.def.id] = rec; Save.persist(); }
       this.resultData.score = score;
     }
     UI.show('results');
     if (Net.host) Net.sendEnd(this.resultData);
+  },
+  /* the combat report for one player's record */
+  statSummary(st) {
+    const shots = Math.max(1, st.shots);
+    return { kills: st.kills, accuracy: Math.min(100, Math.round(st.hits / shots * 100)), dealt: Math.round(st.damageDealt), taken: Math.round(st.damageTaken), deaths: st.deaths, structures: st.structures, score: st.score };
+  },
+  /* mission score: kill score and kills, plus the seconds left on the clock */
+  finalScore(st) {
+    const m = this.mission;
+    return Math.round(st.score + (m.limit ? Math.max(0, m.limit - m.time) : 0) + st.kills * 10);
   },
   showResultsGuest(r) {
     this.state = 'results'; this.netPaused = false; this.resultData = r;
@@ -7142,10 +7184,13 @@ const UI = {
     const r = Game.resultData;
     const objs = r.objectives.map((o) => '<tr><td>' + (o.status === 'complete' ? '[X]' : o.status === 'failed' ? '[!]' : '[ ]') + '</td><td>' + esc(o.title) + (o.primary ? '' : ' <span class="tag">optional</span>') + '</td><td class="' + (o.status === 'complete' ? 'good' : o.status === 'failed' ? 'bad' : 'dim') + '">' + o.status + '</td></tr>').join('');
     const s = r.stats, next = r.mode === 'mission' && r.won ? MISSIONS[MISSIONS.findIndex((m) => m.id === r.id) + 1] : null;
+    const num = (v) => Math.round(Number(v) || 0);
+    const team = Array.isArray(r.team) ? '<div class="panel"><h3 style="margin-top:0">Team</h3><table><tr><th>Pilot</th><th>Kills</th><th>Platforms lost</th><th>Score</th></tr>' +
+      r.team.map((t) => '<tr><td>' + esc(String(t.name).substring(0, 16)) + '</td><td>' + num(t.kills) + '</td><td>' + num(t.deaths) + '</td><td>' + num(t.score) + '</td></tr>').join('') + '</table></div>' : '';
     return '<div style="text-align:center"><div class="big ' + (r.won ? 'good' : 'bad') + '">' + (r.won ? 'MISSION COMPLETE' : 'MISSION FAILED') + '</div><div class="sub">' + esc(r.name) + (r.reason ? ' - ' + esc(r.reason) : '') + '</div>' +
       '<div class="big rank' + r.rank + '" style="margin-bottom:.4em">RANK ' + r.rank + '</div></div>' +
       '<div class="grid2"><div class="panel"><h3 style="margin-top:0">Objectives</h3><table>' + objs + '</table></div><div class="panel"><h3 style="margin-top:0">Combat report</h3><table>' +
-      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' +
+      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
       '<div class="row" style="justify-content:center">' + (Net.guest ? '<span class="dim">Waiting for the host...</span>' : '<button class="btn primary" data-act="retry" data-focus>Retry</button>') + '' + (next && !Net.active ? '<button class="btn" data-act="next" data-id="' + r.id + '">Next mission</button>' : '') + '<button class="btn" data-act="menu">Main menu</button></div>';
   },
 };
@@ -7402,6 +7447,33 @@ const SelfTest = {
       pl.failSubsystem();
       this.check('the local player sees its own warning', W.msgs.length === 1 && sent.length === 1);
     });
+    t('co-op records', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const host = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout, name: 'Host' });
+      const mate = new Platform(PLATFORMS.bulwark, { team: 0, x: 30, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout, name: 'Mate' });
+      const peer = Net.newPeer();
+      peer.hello = true; peer.stats = newStats(); peer.p = mate; peer.lives = 3;
+      mate.netPeer = peer; mate.isPlayer = true;
+      W.platforms.push(host, mate); W.player = host;
+      const foe1 = spawnUnit('infantry', 200, 200, { force: true }), foe2 = spawnUnit('infantry', 220, 200, { force: true });
+      foe1.destroy(mate, 'kinetic');
+      this.check('a guest kill counts on the guest record', peer.stats.kills === 1 && peer.stats.score === foe1.score && W.stats.kills === 0 && W.stats.teamKills === 1);
+      this.check('the guest kill feed names the guest', W.feed[W.feed.length - 1].text === 'Mate  >  ' + foe1.name);
+      foe2.destroy(host, 'kinetic');
+      this.check('the local kill feed shows YOU', W.feed[W.feed.length - 1].text === 'YOU  >  ' + foe2.name);
+      this.check('a guest sees itself as YOU in the feed', Net.feedText({ text: 'x', k: ['Ann', 99999], v: ['Bob', host.id] }) === 'Ann  >  YOU');
+      const saved = { host: Net.host, peers: Net.peers, t: Net.t };
+      try {
+        Net.host = true; Net.peers = [peer]; peer.lastRecv = Net.t;
+        mate.destroy(null, 'crash');
+        Net.hostTick(STEP);
+        this.check('a guest loss counts on its record and the team total', peer.stats.deaths === 1 && W.stats.teamDeaths === 1 && W.stats.deaths === 0 && peer.lives === 2);
+      } finally { Net.host = saved.host; Net.peers = saved.peers; Net.t = saved.t; }
+      const nd = Obj.noDeaths({ id: 'nd', title: 'No deaths' });
+      nd.tick();
+      this.check('no-deaths fails when a teammate is lost', nd.status === 'failed');
+    });
     t('missions', () => {
       const lost = new Mission({ id: 'test' }, {});
       lost.add(Obj.noDeaths({ id: 'nd', title: 'No deaths' })); lost.add(Obj.timeBound({ id: 'tb', title: 'Fast', limit: 60 }));
@@ -7527,7 +7599,7 @@ const Net = {
     const p = {
       id: this.nextPeerId++, name: 'Pilot', pid: 'bulwark', loadout: null, ready: false, open: false, hello: false, rel: null, unr: null, pc: null,
       lastRecv: this.t, known: new Set(), p: null, lives: 3, respawnT: 0, deathHandled: false, protectT: 0, inp: null, edges: 0, lastInT: -1,
-      code: '', replyText: '', slot: 0,
+      code: '', replyText: '', slot: 0, stats: null,
     };
     p.tx = (str, reliable) => { const ch = reliable ? p.rel : p.unr; if (ch && ch.readyState === 'open') ch.send(str); };
     return p;
@@ -7666,7 +7738,7 @@ const Net = {
       case 'st': this.applyStructs(m); break;
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
-      case 'f': if (W) { W.feed.push({ t: W.time, text: String(m.text).substring(0, 60), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
+      case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) W.hitMarker = 0.25; break;
       case 'k': if (W) W.killMarker = 0.6; break;
@@ -7733,7 +7805,7 @@ const Net = {
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = 3; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0;
+      p.lives = 3; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats();
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
@@ -7805,7 +7877,11 @@ const Net = {
       if (!peer.hello || !peer.p) continue;
       const p = peer.p;
       if (p.dead) {
-        if (!peer.deathHandled) { peer.deathHandled = true; peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME; if (peer.lives <= 0) peer.respawnT = 1e9; }
+        if (!peer.deathHandled) {
+          peer.deathHandled = true; peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
+          if (!p.withdrew) { peer.stats.deaths++; W.stats.teamDeaths++; }
+          if (peer.lives <= 0) peer.respawnT = 1e9;
+        }
         peer.respawnT -= dt;
         if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer);
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
@@ -7843,7 +7919,7 @@ const Net = {
       lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked),
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: 0,
-      k: [p.stats.kills, W.stats.score, peer.deaths || 0], tp: p.target ? 1 : 0, ej: 0,
+      k: [peer.stats.kills, peer.stats.score, peer.stats.deaths], tp: p.target ? 1 : 0, ej: 0,
     };
   },
   sendSnapshots() {
@@ -7870,8 +7946,22 @@ const Net = {
     const o = m.objectives.map((x) => [x.id, x.title, x.primary ? 1 : 0, x.status, r2(x.progress), x.text(), x.status === 'active' ? x.markers().slice(0, 8).map((k) => [r1(k.x), r1(k.y), r1(k.z), k.label, k.kind]) : []]);
     this.bcast({ t: 'ob', T: r1(m.time), L: m.limit, st: m.state, why: m.failReason, o });
   },
-  /* the host announces the end so guests show the same result screen */
-  sendEnd(result) { this.bcast({ t: 'end', r: result }); },
+  /* the host announces the end so guests show the same result screen, each with their own combat report */
+  sendEnd(result) {
+    for (const peer of this.peers) {
+      if (!peer.open || !peer.hello || !peer.stats) continue;
+      const own = { stats: Game.statSummary(peer.stats) };
+      if (result.score !== undefined) own.score = Game.finalScore(peer.stats);
+      this.send(peer, { t: 'end', r: Object.assign({}, result, own) });
+    }
+  },
+  /* everyone's kills, losses and score for the co-op result screen */
+  teamTable() {
+    const row = (name, st) => ({ name, kills: st.kills, deaths: st.deaths, score: st.score });
+    const rows = [row(cleanName(this.name), W.stats)];
+    for (const peer of this.peers) if (peer.hello && peer.stats) rows.push(row(peer.name, peer.stats));
+    return rows;
+  },
 
   /* ---------- guest: building the mirrored world and applying updates ---------- */
   guestStart(m) {
@@ -7896,6 +7986,13 @@ const Net = {
       p.name = 'YOU'; p.controller = PC; p.cmd.aimYaw = m.yaw; p.flightMode = S.flightMode;
       W.player = p; Cam.reset(p);
     }
+  },
+  /* kill feed text with this guest's own platform shown as YOU (older hosts send only the text) */
+  feedText(m) {
+    if (!Array.isArray(m.k) || !Array.isArray(m.v)) return String(m.text).substring(0, 60);
+    const myId = W.player ? W.player.id : -1;
+    const label = (e) => (e[1] && e[1] === myId ? 'YOU' : String(e[0]).substring(0, 16));
+    return label(m.k) + '  >  ' + label(m.v);
   },
   applySnapshot(m) {
     if (!W || !Array.isArray(m.p) || m.q <= this.lastSnapSeq) return;
