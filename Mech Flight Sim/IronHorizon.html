@@ -5391,6 +5391,16 @@ const Obj = {
 };
 
 /* ---------- mission runtime ---------- */
+const RANK_ORDER = 'FCBAS';   // mission ranks, worst to best
+function rankValue(r) { return RANK_ORDER.indexOf(r); }
+/* Merged best record, or null when nothing improved. Best score (with its time) and best rank
+   are kept separately, so a higher score never erases a better rank. */
+function betterRecord(prev, score, rank, time) {
+  const scoreBest = !prev || score > prev.score, rankBest = !prev || rankValue(rank) > rankValue(prev.rank);
+  if (!scoreBest && !rankBest) return null;
+  return { score: scoreBest ? score : prev.score, rank: rankBest ? rank : prev.rank, time: scoreBest ? time : prev.time };
+}
+
 class Mission {
   constructor(def, cfg) {
     this.def = def; this.cfg = cfg; this.objectives = []; this.events = []; this.time = 0; this.state = 'running'; this.endDelay = 0;
@@ -5431,7 +5441,8 @@ class Mission {
   }
   end(won, reason) {
     if (this.state !== 'running') return;
-    this.objectives.forEach((o) => { if (!o.primary || o.status === 'active') o.finalize(); if (!o.primary && (o.status === 'active' || o.status === 'inactive')) o.status = 'missed'; });
+    // optional objectives can only be earned by winning; on a loss the open ones are missed
+    this.objectives.forEach((o) => { if (won && (!o.primary || o.status === 'active')) o.finalize(); if (!o.primary && (o.status === 'active' || o.status === 'inactive')) o.status = 'missed'; });
     this.state = won ? 'won' : 'lost'; this.failReason = reason; this.endDelay = 2.2;
     Snd.ui(won ? 'success' : 'fail');
   }
@@ -6173,7 +6184,8 @@ const Game = {
     if (this.cfg.mode === 'mission' && m.state === 'won') {
       const prev = Save.data.best[m.def.id];
       const score = Math.round(st.score + (m.limit ? Math.max(0, m.limit - m.time) : 0) + st.kills * 10);
-      if (!prev || score > prev.score) { Save.data.best[m.def.id] = { score, rank: this.resultData.rank, time: Math.round(m.time) }; Save.persist(); }
+      const rec = betterRecord(prev, score, this.resultData.rank, Math.round(m.time));
+      if (rec) { Save.data.best[m.def.id] = rec; Save.persist(); }
       this.resultData.score = score;
     }
     UI.show('results');
@@ -7370,6 +7382,21 @@ const SelfTest = {
       w.reserve = w.def.reserve * 1.5; w.clip = 0; pl.nextResupply = 0;
       tryResupply(pl);
       this.check('resupply never lowers ammunition', w.reserve === w.def.reserve * 1.5 && w.clip === w.def.clip);
+    });
+    t('missions', () => {
+      const lost = new Mission({ id: 'test' }, {});
+      lost.add(Obj.noDeaths({ id: 'nd', title: 'No deaths' })); lost.add(Obj.timeBound({ id: 'tb', title: 'Fast', limit: 60 }));
+      lost.end(false, 'test');
+      this.check('a lost mission misses its optional objectives', lost.objectives.every((o) => o.status === 'missed'));
+      const won = new Mission({ id: 'test' }, {});
+      won.add(Obj.noDeaths({ id: 'nd', title: 'No deaths' }));
+      won.end(true, '');
+      this.check('a won mission completes open optional objectives', won.objectives[0].status === 'complete');
+      const rec = betterRecord({ score: 900, rank: 'S', time: 300 }, 1200, 'B', 400);
+      this.check('a higher score keeps the better saved rank', rec && rec.score === 1200 && rec.rank === 'S' && rec.time === 400);
+      const rec2 = betterRecord({ score: 900, rank: 'B', time: 300 }, 800, 'A', 200);
+      this.check('a better rank keeps the higher saved score', rec2 && rec2.score === 900 && rec2.rank === 'A' && rec2.time === 300);
+      this.check('no record when nothing improved', betterRecord({ score: 900, rank: 'A', time: 300 }, 800, 'B', 200) === null);
     });
     t('flight', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
