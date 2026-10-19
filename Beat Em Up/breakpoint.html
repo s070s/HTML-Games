@@ -620,11 +620,17 @@ class KeyBindings {
     const owner = this.owner(code);
     if (owner && owner !== action) return { ok: false, msg: 'Already used by "' + ACTION_LABELS[owner] + '"' };
     const rivalOwner = this.rivalOwner(code);
-    if (rivalOwner) return { ok: false, msg: 'Already used by ' + this.rival.label + ' "' + ACTION_LABELS[rivalOwner] + '"' };
+    // outside Versus P1 may take a P2 key and P2 gives way; during Versus (and for P2) a key belongs to one player only
+    if (rivalOwner && (this.player === 2 || Inputs.versus)) return { ok: false, msg: 'Already used by ' + this.rival.label + ' "' + ACTION_LABELS[rivalOwner] + '"' };
     this.bindings[action] = action === 'pause' && this.player === 1 ? ['Escape', code] : [code];
     this.save();
+    let moved = '';
+    if (rivalOwner) {
+      this.rival.giveWay();
+      moved = this.rival.label + ' "' + ACTION_LABELS[rivalOwner] + '" moved to ' + keyLabel(this.rival.bindings[rivalOwner][0]);
+    }
     Events.emit('bindings');
-    return { ok: true, msg: 'Bound' };
+    return { ok: true, msg: 'Bound', moved };
   }
   resetAll() {
     this.reset();
@@ -6539,7 +6545,7 @@ const UI = {
     Inputs.capture((code) => {
       if (code === 'Escape') { this.rerender(true); return; }
       const r = keymap.rebind(action, code);
-      this.toast(r.ok ? (p2 ? 'P2 ' : '') + ACTION_LABELS[action] + ' = ' + keyLabel(code) : r.msg, r.ok ? '' : 'warn');
+      this.toast(r.ok ? (p2 ? 'P2 ' : '') + ACTION_LABELS[action] + ' = ' + keyLabel(code) + (r.moved ? '. ' + r.moved : '') : r.msg, r.ok && !r.moved ? '' : 'warn');
       if (!r.ok) Sound.ui('bad');
       this.rerender(true);
     });
@@ -8283,7 +8289,10 @@ const SelfTest = {
       const p1Spares = ACTIONS.filter((a) => a !== 'pause').map((a) => DEFAULT_KEYS[a][1]).filter(Boolean);
       const p1Keys = ACTIONS.reduce((acc, a) => acc.concat(DEFAULT_KEYS[a]), []).filter((c) => !p1Spares.includes(c));
       const defaults = ACTIONS.every((a) => DEFAULT_KEYS_P2[a].every((c) => !p1Keys.includes(c)));
+      const versus = Inputs.versus;
+      Inputs.versus = true;                                              // in Versus P1 cannot take a P2 key either
       const a = Keymap2.rebind('lp', 'KeyJ'), b = Keymap.rebind('lp', 'Numpad5'), c = Keymap2.rebind('lp', 'Escape'), d = Keymap2.rebind('lp', 'KeyH');
+      Inputs.versus = versus;
       Keymap.rebind('lp', 'KeyN'); Keymap2.rebind('rp', 'KeyJ');       // J is free once P1 moves off it
       Keymap.resetAll();                                                 // P1 takes J back: P2's right punch moves
       const gaveWay = Keymap.bindings.lp[0] === 'KeyJ' && Keymap2.bindings.rp[0] !== 'KeyJ';
@@ -8295,6 +8304,22 @@ const SelfTest = {
       KEYMAPS.forEach((k, i) => { k.bindings = JSON.parse(keep[i]); });
       Inputs.rebuildMaps();
       return defaults && !a.ok && !b.ok && !c.ok && d.ok && gaveWay && repaired ? true : JSON.stringify({ defaults, a: a.ok, b: b.ok, c: c.ok, d: d.ok, gaveWay, repaired });
+    });
+    test('Key bindings: outside Versus P1 can take a P2 key (P2 gives way, with a warning) and get the arrows back', () => {
+      const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings)), versus = Inputs.versus;
+      Inputs.versus = false;
+      const p2Up = Keymap2.bindings.up[0];
+      Keymap.rebind('up', 'KeyT');
+      const back = Keymap.rebind('up', p2Up);                            // e.g. the arrow P1 lost by rebinding
+      const moved = back.ok && back.moved.includes('P2') && Keymap.bindings.up[0] === p2Up && !Keymap2.bindings.up.includes(p2Up) && Keymap2.bindings.up.length >= 1;
+      const numpad = Keymap.rebind('lp', Keymap2.bindings.lp[0]).ok;
+      const p1Main = Keymap.mainCodes();
+      const separate = ACTIONS.every((x) => Keymap2.bindings[x].every((c) => !p1Main.includes(c)));   // still no shared main key when Versus starts
+      raw.forEach((value, i) => { const storeKey = KEYMAPS[i].storeKey; if (value === null) Store.remove(storeKey); else Store.set(storeKey, value); });
+      KEYMAPS.forEach((k, i) => { k.bindings = JSON.parse(keep[i]); });
+      Inputs.versus = versus;
+      Inputs.rebuildMaps();
+      return moved && numpad && separate ? true : JSON.stringify({ back, moved, numpad, separate });
     });
     test('Settings are clamped and corrupted values fall back', () => {
       return Settings.validate('master', 5) === 1 && Settings.validate('master', 'abc') === SETTING_DEFS.master.def && Settings.validate('quality', 'ultra') === 'auto' && Settings.validate('reducedMotion', 'yes') === false ? true : 'validation failed';
