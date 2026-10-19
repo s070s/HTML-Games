@@ -8182,6 +8182,22 @@ const SelfTest = {
       Inputs.releaseAll(); Inputs.reset(); Settings.v.movement = keep;
       return p2Only && p1Only && versusMap && soloArrows ? true : JSON.stringify({ p2Only, p1Only, versusMap, soloArrows });
     });
+    test('Versus: screen-relative movement works from P2\'s side (screen left walks P2 toward P1)', () => {
+      const keep = Settings.v.movement, kr = Camera.dirRight.slice(), kf = Camera.dirFwd.slice();
+      Settings.v.movement = 'screen';
+      Camera.dirRight[0] = 1; Camera.dirRight[1] = 0; Camera.dirFwd[0] = 0; Camera.dirFwd[1] = -1;
+      const f = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      f.yaw = -Math.PI / 2;                             // P2 on the right, facing P1 on the screen left
+      Input2.reset();
+      Input2.analog.fwd = 0; Input2.analog.side = -1; Input2.fillIntent(it, f, null);
+      const toward = it.fwd > 0.99;
+      Input2.reset(); Input2.press('right'); Input2.press('right'); Input2.fillIntent(it, f, null);
+      const backDash = it.dash && it.fwd < 0;
+      Input2.analog.side = 0; Input2.reset();
+      Settings.v.movement = keep;
+      Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
+      return toward && backDash ? true : JSON.stringify({ toward, backDash });
+    });
     test('P2 key bindings: no key is shared with P1, P2 gives way when P1 takes a key back', () => {
       const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings));
       const p1Spares = ACTIONS.filter((a) => a !== 'pause').map((a) => DEFAULT_KEYS[a][1]).filter(Boolean);
