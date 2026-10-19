@@ -5826,6 +5826,9 @@ const Sound = {
 };
 
 /* ---------- procedural music: bass + drums + arpeggio, tempo and scale come from the arena ---------- */
+const MUSIC_FIGHT = 1;            // music intensity tiers: 0 menu, 1 fight, 2 tense fight
+const MUSIC_TENSE = 2;
+const TENSE_HP_FRACTION = 0.25;   // a fighter below this share of health makes the music tense
 const Music = {
   active: false, track: null, nextTime: 0, step: 0, intensity: 0,
   start(track, intensity) {
@@ -5886,6 +5889,11 @@ const Music = {
     if (s % 2 === 0) { const deg = bassDeg[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.2, 380); }
     // arpeggio lead
     if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.045, 1800);
+    // tense layer: off-beat hats and a driving octave bass
+    if (this.intensity >= MUSIC_TENSE) {
+      if (s % 2 === 1) hit('hat', 0.05, 0.03);
+      if (s % 4 === 3) voice('square', this.note(tr.root, scale, bassDeg[((s >> 1) + bar * 2) % 8], 1), stepDur * 0.9, 0.06, 900);
+    }
   },
 };
 
@@ -6043,7 +6051,7 @@ const UI = {
     }
   },
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
-  startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), 1); },
+  startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), MUSIC_FIGHT); },
   showcaseOpponent() { const custom = CustomRoster.profiles()[0]; return custom ? custom.id : 'mara'; },
   menuScene(arenaId, left, right, solo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo); Camera.snapNext = true; },
   onMatchCreated(match) {
@@ -6489,6 +6497,14 @@ const UI = {
     if (m && !d.hud.hidden) this.hudUpdate(m);
     this.diagTick();
   },
+  /* Final round, match point or a fighter close to a knock-out. */
+  tenseMoment(m) {
+    if (m.training) return false;
+    const [a, b] = m.fighters;
+    const matchPoint = m.round > 1 && (m.wins[0] === m.winsNeeded - 1 || m.wins[1] === m.winsNeeded - 1);
+    const lowHp = Math.min(a.hp / a.maxHp, b.hp / b.maxHp) < TENSE_HP_FRACTION;
+    return m.decider || matchPoint || lowHp;
+  },
   hudUpdate(m) {
     const [a, b] = m.fighters;
     const dt = 1 / 60;
@@ -6503,6 +6519,7 @@ const UI = {
       if (this.cache['low' + i] !== low) { this.cache['low' + i] = low; this.dom['stb' + (i + 1)].classList.toggle('low', low); }
     };
     bar(0, a); bar(1, b);
+    Music.setIntensity(this.tenseMoment(m) ? MUSIC_TENSE : MUSIC_FIGHT);
     const tl = m.timeLeft;
     this.setText('timer', this.dom.timer, tl === null ? (m.training ? '' : '∞') : String(tl));
     const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
@@ -7818,6 +7835,15 @@ const SelfTest = {
       Arena.damageObject(third, 999, 'heavy', 3, 1, 0, third.x, 0.5, third.z, 0);
       const counts = m.stats.map((st) => st.objects).join(',');
       return counts === '1,1' ? true : 'objects credited ' + counts;
+    });
+    test('Music turns tense on low health and match point', () => {
+      const m = mk({});
+      const calm = !UI.tenseMoment(m);
+      m.fighters[1].hp = m.fighters[1].maxHp * 0.2;
+      const lowHp = UI.tenseMoment(m);
+      m.fighters[1].hp = m.fighters[1].maxHp; m.round = 2; m.wins = [1, 0];
+      const matchPoint = UI.tenseMoment(m);
+      return calm && lowHp && matchPoint ? true : JSON.stringify({ calm, lowHp, matchPoint });
     });
     test('Training dummy can be set to infinite health', () => {
       const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
