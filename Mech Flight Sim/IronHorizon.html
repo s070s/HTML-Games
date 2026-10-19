@@ -242,6 +242,9 @@ const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
 const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
 const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain before it comes back up
 const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
+const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a withdrawal, not a death
+const RESPAWN_TIME = 6;          // seconds before a lost platform is replaced
+const EJECT_RESPAWN = 2;         // seconds before replacement after a tactical withdrawal
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
@@ -3302,7 +3305,7 @@ class Platform {
     this.flightMode = 'assisted'; this.invalidTimer = 0;
     // Fields that other systems set later are declared here, so every platform keeps one hidden shape (fast property access).
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
-    this.training = false; this.spawnInfo = null;
+    this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false;
     this.isPlayer = false; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.loadout = opts.loadout || def.loadout;
@@ -3926,7 +3929,7 @@ class Platform {
     const u = this.util, c = this.cmd;
     if (this.kind === 'air' && c.ejectEdge) {
       if (this.ejectArm > 0) { this.eject(); return; }
-      this.ejectArm = 1.6; if (W.player === this) W.msgL('PRESS EJECT AGAIN TO CONFIRM');
+      this.ejectArm = 1.6; if (W.player === this) W.msgL('PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: NO DEATH RECORDED)' : ' (HULL LOW: COUNTS AS A DEATH)'));
     }
     if (!u) return;
     const ud = u.def;
@@ -3995,9 +3998,12 @@ class Platform {
     for (let i = 0; i < W.platforms.length; i++) { const e = W.platforms[i]; if (e.lock.target === this && Math.random() < 0.7) { e.lock.progress = 0; e.lock.state = 'none'; } }
     if (W.player === this) W.msgL('FLARES AWAY (' + u.charges + ' LEFT)');
   }
+  /* Ejecting with enough hull left is a tactical withdrawal: the platform is lost, but no death is recorded. */
+  canWithdraw() { return this.hp >= this.maxHp * EJECT_SAFE_HULL; }
   eject() {
     if (this.dead) return;
-    this.ejected = true;
+    this.ejected = true; this.withdrew = this.canWithdraw();
+    notify(this, this.withdrew ? 'TACTICAL WITHDRAWAL: PLATFORM LOST, NO DEATH RECORDED' : 'EJECTED: PLATFORM LOST');
     Snd.ui('eject');
     FX.emit(this.x, this.y + 2, this.z, 0, 14, 0, 1.2, 4, 1, 1, 0.9, 0.5, 0.9, 1, 0, true);
     this.destroy(null, 'eject');
@@ -6131,8 +6137,9 @@ const Game = {
     // player lifecycle
     if (pl && pl.dead && this.state === 'playing') {
       if (!pl.deathHandled) {
-        pl.deathHandled = true; W.stats.deaths++; W.lives--;
-        this.respawnT = pl.ejected ? 4 : 6;
+        pl.deathHandled = true; W.lives--;
+        if (!pl.withdrew) W.stats.deaths++;
+        this.respawnT = pl.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
         if (cfg.mode === 'training') this.respawnT = 1.5;
         if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
       }
@@ -7413,6 +7420,13 @@ const SelfTest = {
       Game.startSession(cfg);
       this.check('session starts', Game.state === 'playing' && !!W.player);
       for (let i = 0; i < 30; i++) Game.tick(STEP);
+      const d0 = W.stats.deaths;
+      W.player.eject(); Game.tick(STEP);
+      this.check('ejecting with a healthy hull records no death', W.stats.deaths === d0 && W.player.dead);
+      for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
+      W.player.hp = W.player.maxHp * 0.1; W.player.eject(); Game.tick(STEP);
+      this.check('ejecting on a wrecked hull counts as a death', W.stats.deaths === d0 + 1);
+      for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
       Game.pause(); this.check('pause', Game.state === 'paused');
       Game.resume(); this.check('resume', Game.state === 'playing');
       const id = W.player.id; Game.restart(); this.check('restart builds a fresh world', W.player && W.player.id !== undefined && Game.state === 'playing' && W.time < 1 && id !== undefined);
@@ -7745,7 +7759,7 @@ const Net = {
       if (!peer.hello || !peer.p) continue;
       const p = peer.p;
       if (p.dead) {
-        if (!peer.deathHandled) { peer.deathHandled = true; peer.lives--; peer.respawnT = p.ejected ? 4 : 6; if (peer.lives <= 0) peer.respawnT = 1e9; }
+        if (!peer.deathHandled) { peer.deathHandled = true; peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME; if (peer.lives <= 0) peer.respawnT = 1e9; }
         peer.respawnT -= dt;
         if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer);
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
