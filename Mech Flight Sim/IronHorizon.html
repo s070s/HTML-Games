@@ -530,7 +530,7 @@ const SETTING_SCHEMA = {
   uiScale: ['num', 0.8, 1.5, 1], reducedMotion: ['bool', false], flightMode: ['enum', ['assisted', 'direct'], 'assisted'],
   flightAssist: ['bool', true], quality: ['enum', ['low', 'medium', 'high'], 'medium'], fov: ['num', 55, 95, 72],
   showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
-  highContrast: ['bool', false],
+  highContrast: ['bool', false], autoTarget: ['bool', true],
 };
 const S = {};   // live settings
 /* the setting that records the tutorial as seen for one platform kind: mechs, ground vehicles and aircraft each teach different controls */
@@ -5985,6 +5985,7 @@ const STEP = 1 / 60;
 const PC = {
   sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
   usedDefense: false,   // set when the defense key is pressed; the tutorial reads it after the tick has consumed the edge
+  hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -6036,8 +6037,17 @@ const PC = {
     if (Input.wheel !== 0) c.selNext = true;
     if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) p.cycleTarget();
     if (pad) this.padC = pad.cycle;
+    if (S.autoTarget) this.autoTarget(p);
     if (Input.hit('interact')) tryResupply(p);
     if (Input.hit('switchPlatform') && W.mode === 'training') Game.trainingSwitch();
+  },
+  /* Auto-target: take the hostile under the reticle, or after a kill the next one in view, so missiles never wait on the target key. */
+  autoTarget(p) {
+    if (p.target && p.validTarget(p.target)) { this.hadTarget = true; return; }
+    const ai = W.aimInfo;
+    if (ai && ai.hostile && p.validTarget(ai.obj)) p.target = ai.obj;
+    else if (this.hadTarget) p.cycleTarget();
+    this.hadTarget = !!p.target;
   },
   /* Gamepad Start toggles the pause menu; polled every frame because sample() stops while paused. */
   pollPause() {
@@ -7322,7 +7332,7 @@ const UI = {
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
-      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) +
+      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') +
       '<div class="row"><button class="btn small" data-act="tutorialReset">Replay tutorial hints</button></div>' +
       '<h3>Saved data</h3><div class="dim">Stored in this browser only: ' + (Save.storageOk ? 'available' : '<span class="bad">unavailable (settings will not persist)</span>') + '</div>' +
       '<div class="row"><button class="btn small" data-act="resetSettings">Reset settings</button><button class="btn small" data-act="resetAll">Erase all saved data</button></div></div></div>' +
@@ -7718,6 +7728,23 @@ const SelfTest = {
         W.lives = 1; Game.updateSpectate();
         this.check('no spectating while a platform is left', Game.spectating === null);
       } finally { Net.host = savedHost; Input.pressed.delete(fire); Game.spectating = null; }
+    });
+    t('auto-target', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const me = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      W.platforms.push(me); W.player = me;
+      const near = spawnUnit('infantry', 0, 100, { force: true }), next = spawnUnit('infantry', 30, 130, { force: true });
+      PC.hadTarget = false; W.aimInfo = { hostile: true, obj: near };
+      PC.autoTarget(me);
+      this.check('the hostile under the reticle becomes the target', me.target === near);
+      W.aimInfo = { hostile: true, obj: next }; PC.autoTarget(me);
+      this.check('a held target is not stolen by the reticle', me.target === near);
+      near.destroy(me, 'kinetic'); W.aimInfo = null; PC.autoTarget(me);
+      this.check('after a kill the next hostile is targeted', me.target === next);
+      me.target = null; PC.hadTarget = false; PC.autoTarget(me);
+      this.check('no target is picked without a reason', me.target === null);
+      W.aimInfo = null; PC.hadTarget = false;
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
