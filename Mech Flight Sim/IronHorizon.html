@@ -5157,6 +5157,7 @@ function attachAI(p, archKey, diff) {
 /* =====================================================================
    MISSIONS: objectives, director (spawning), skirmish, training range
    ===================================================================== */
+const COOP_BOSS_HP = 0.4;   // extra boss hull per additional co-op player
 function unitCost(k) { return { infantry: 1, rpgTrooper: 2, sniper: 2, buggy: 1, tank: 2, lightMech: 2, medMech: 3, heavyMech: 5, jet: 3, gunship: 5 }[k] || 1; }
 
 /* ---------- spawning helpers ---------- */
@@ -5185,7 +5186,8 @@ function spawnUnit(archKey, x, z, opts) {
   const lo = Object.assign({}, a.loadout);
   const p = new Platform(def, {
     team, x: pos.x, z: pos.z, yaw: opts.yaw === undefined ? Math.random() * TAU : opts.yaw, y: opts.y, loadout: lo, arch: archKey,
-    name: a.name || a.label, hpMult: (a.hpMult || 1) * (team === 1 ? diff.hp : 1), armorMult: a.armorMult, extraShield: a.extraShield,
+    name: a.name || a.label, hpMult: (a.hpMult || 1) * (team === 1 ? diff.hp * (a.ai === 'boss' ? (W.bossHpMult || 1) : 1) : 1),
+    armorMult: (a.armorMult || 1) * (team === 1 ? diff.hp : 1), extraShield: a.extraShield,
     ammoMult: 3,
   });
   if (def.kind === 'air' && opts.y === undefined) p.y = Terrain.h(pos.x, pos.z) + 130;
@@ -5204,14 +5206,15 @@ function spawnUnit(archKey, x, z, opts) {
 function spawnGroup(list, x, z, opts) {
   opts = opts || {};
   const out = [];
-  const cnt = W.diff.count * (W.coopMult || 1);
+  // difficulty and co-op scale enemy numbers only; allied lists are spawned as written
+  const cnt = opts.team === 0 ? 1 : W.diff.count * (W.coopMult || 1);
   for (const k of list) {
-    if (!opts.exact) {
-      if (cnt < 1 && Math.random() > cnt) continue;
-      if (cnt > 1 && Math.random() < cnt - 1) { const e = spawnUnit(k, x, z, opts); if (e) out.push(e); }
+    // whole copies plus one more by chance for the fraction (2.6 -> 2 or 3)
+    const copies = opts.exact ? 1 : Math.floor(cnt) + (Math.random() < cnt % 1 ? 1 : 0);
+    for (let i = 0; i < copies; i++) {
+      const u = spawnUnit(k, x, z, opts);
+      if (u) out.push(u);
     }
-    const u = spawnUnit(k, x, z, opts);
-    if (u) out.push(u);
   }
   return out;
 }
@@ -5928,6 +5931,7 @@ const Game = {
     def.build(ctx);
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(def.map, seed), sceneryKeep: Scenery.keepOutFor(def.map), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
     W.coopMult = cfg.coop ? 1 + 0.5 * ((cfg.nPlayers || 1) - 1) : 1;
+    W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
     else {
       this.spawnPlayer();
