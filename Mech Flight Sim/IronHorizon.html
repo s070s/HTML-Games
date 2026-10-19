@@ -235,6 +235,7 @@ const GROUND_BOUND = 930;       // ground platforms cannot leave this square
 const AIR_BOUND = 1080;         // aircraft are steered back beyond this
 const AIR_CEILING = 560;
 const MAX_PROJECTILES = 420;
+const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
    slot: which loadout group it fits (primary|secondary|utility)
@@ -3760,8 +3761,8 @@ class Platform {
     if (c.sel2 && this.wslots.primaryB) this.activeSlot = 'primaryB';
     if (c.selNext && this.wslots.primaryA && this.wslots.primaryB) this.activeSlot = this.activeSlot === 'primaryA' ? 'primaryB' : 'primaryA';
     if (c.reloadEdge) { const p = this.primary; if (p) this.startReload(p, true); if (this.wslots.secondary) this.startReload(this.wslots.secondary, true); }
-    const blocked = this.sub.weapons > 0 || this.overheated;
-    if (this.sub.weapons > 0) this.warn = this.warn || 'WEAPONS OFFLINE';
+    const blocked = this.overheated;
+    if (this.sub.weapons > 0) this.warn = this.warn || 'WEAPONS DAMAGED';
     this.handleFire(this.primary, c.fire1, c.fire1Edge, dt, blocked);
     this.handleFire(this.wslots.secondary, c.fire2, c.fire2Edge, dt, blocked);
     // the non-active primary still finishes its reload; nothing else to do
@@ -3778,6 +3779,7 @@ class Platform {
     w.clip += take; if (!(W.infiniteAmmo && this.team === 0)) w.reserve -= take;
   }
   hasAmmo(w) { return w.def.kind === 'beam' || w.clip > 0; }
+  fireCd(d) { return d.cd * (this.sub.weapons > 0 ? DAMAGED_WEAPON_CD : 1); }
   handleFire(w, held, edge, dt, blocked) {
     if (!w) return;
     const d = w.def;
@@ -3787,7 +3789,7 @@ class Platform {
       w.burstT -= dt;
       if (w.burstT <= 0) {
         if (this.hasAmmo(w)) { this.shoot(w, 1, true); w.burstLeft--; w.burstT = d.burst.interval; } else w.burstLeft = 0;
-        if (w.burstLeft <= 0) w.cd = d.cd;
+        if (w.burstLeft <= 0) w.cd = this.fireCd(d);
       }
       return;
     }
@@ -3836,8 +3838,8 @@ class Platform {
     w.warned = false;
     this.heat += d.heat * (isBurst ? 0.5 : 1);
     if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; if (W.player === this) { W.msgL('OVERHEAT: WEAPONS LOCKED'); Snd.ui('warn'); } }
-    if (!isBurst || w.burstLeft <= 1) { if (d.fire !== 'burst') w.cd = d.cd * (this.sub.weapons > 0 ? 1.5 : 1); }
-    if (d.fire === 'burst' && !isBurst) w.cd = d.cd;
+    if (!isBurst || w.burstLeft <= 1) { if (d.fire !== 'burst') w.cd = this.fireCd(d); }
+    if (d.fire === 'burst' && !isBurst) w.cd = this.fireCd(d);
     if (w.clip <= 0 && d.kind !== 'beam' && !(W.infiniteAmmo && this.team === 0)) this.startReload(w, false);
     else if (w.clip <= 0 && W.infiniteAmmo && this.team === 0) { w.clip = d.clip; }
     this.recoil = 1;
@@ -3926,7 +3928,7 @@ class Platform {
         break;
       case 'aps':
         if (c.defenseEdge) { u.auto = !u.auto; if (W.player === this) W.msgL('ACTIVE PROTECTION ' + (u.auto ? 'ARMED' : 'OFF')); }
-        if (u.auto && u.charges > 0 && u.cd <= 0 && this.sub.weapons <= 0) this.apsScan(u);
+        if (u.auto && u.charges > 0 && u.cd <= 0) this.apsScan(u);
         break;
       case 'repair':
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0 && this.hp < this.maxHp) {
