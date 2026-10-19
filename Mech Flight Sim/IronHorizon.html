@@ -6169,9 +6169,9 @@ const Game = {
     this.startSession(this.cfg);
     Input.requestLock();
   },
-  quitToMenu() {
+  quitToMenu(keepNet) {
     this.netPaused = false;
-    if (Net.active) Net.leave();
+    if (Net.active && !keepNet) Net.leave();
     Input.playing = false; Input.releaseLock(); Snd.engineStop(); Snd.musicStart('menu');
     this.enterMenuWorld();
     this.state = 'menu';
@@ -6358,6 +6358,7 @@ const Game = {
       } else Snd.engineStop();
       this.tutorialUpdate(dt);
     } else if (this.state === 'results' || this.state === 'menu' || this.state === 'paused') {
+      if (Net.host && this.state === 'results') Net.beat(dt);   // guests wait on their result screen for the host's choice
       if (Net.guest && this.state === 'results') Net.guestTick(dt);
       else if (this.state !== 'paused') {
         // keep the background alive
@@ -7034,7 +7035,12 @@ const UI = {
   act_quit() { this.show('confirm', { text: 'Return to the main menu? Current mission progress will be lost.', yes: 'quitYes' }); },
   act_quitYes() { Snd.resume(); Game.quitToMenu(); },
   act_retry() { this.hideAll(); Game.state = 'playing'; Input.playing = true; Game.restart(); },
-  act_next(d) { const i = MISSIONS.findIndex((m) => m.id === d.id); const n = MISSIONS[i + 1]; if (n) this.launch({ mode: 'mission', missionId: n.id }); },
+  act_next(d) {
+    const i = MISSIONS.findIndex((m) => m.id === d.id), n = MISSIONS[i + 1];
+    if (!n) return;
+    if (Net.host) { Net.missionId = n.id; Game.netPaused = false; if (Net.startCoop()) Input.requestLock(); return; }   // the whole co-op team moves on
+    this.launch({ mode: 'mission', missionId: n.id });
+  },
   act_menu() { Game.quitToMenu(); },
   act_cancel() { this.back(); },
   act_yes(d) { const f = this['act_' + d.what]; if (f) f.call(this, d); },
@@ -7264,7 +7270,7 @@ const UI = {
       '<div class="big rank' + r.rank + '" style="margin-bottom:.4em">RANK ' + r.rank + '</div></div>' +
       '<div class="grid2"><div class="panel"><h3 style="margin-top:0">Objectives</h3><table>' + objs + '</table></div><div class="panel"><h3 style="margin-top:0">Combat report</h3><table>' +
       '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Structures destroyed</td><td>' + (s.structures || 0) + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
-      '<div class="row" style="justify-content:center">' + (Net.guest ? '<span class="dim">Waiting for the host...</span>' : '<button class="btn primary" data-act="retry" data-focus>Retry</button>') + '' + (next && !Net.active ? '<button class="btn" data-act="next" data-id="' + r.id + '">Next mission</button>' : '') + '<button class="btn" data-act="menu">Main menu</button></div>';
+      '<div class="row" style="justify-content:center">' + (Net.guest ? '<span class="dim">Waiting for the host...</span>' : '<button class="btn primary" data-act="retry" data-focus>Retry</button>') + '' + (next && !Net.guest ? '<button class="btn" data-act="next" data-id="' + r.id + '">Next mission</button>' : '') + (Net.host ? '<button class="btn" data-act="coopLobby">Back to lobby</button>' : '') + '<button class="btn" data-act="menu">Main menu</button></div>';
   },
 };
 
@@ -7675,6 +7681,17 @@ const SelfTest = {
       this.check('no stale projectiles after restart', W.projs.every((p) => !p.active));
       Game.quitToMenu(); this.check('quit to menu', Game.state === 'menu');
     });
+    t('co-op lobby return', () => {
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, lobbyView: Net.lobbyView }, ui = { cur: UI.cur, stack: UI.stack.slice() };
+      const sent = [], peer = Net.newPeer();
+      peer.hello = true; peer.open = true; peer.tx = (s) => sent.push(JSON.parse(s));
+      try {
+        Net.host = true; Net.guest = false; Net.inSession = true; Net.peers = [peer];
+        Net.backToLobby();
+        this.check('back to lobby tells the guests and keeps them', sent.some((m) => m.t === 'lobbyReturn') && sent.some((m) => m.t === 'lobby') && Net.peers[0] === peer && Net.host && !Net.inSession);
+        this.check('back to lobby shows the host lobby', Game.state === 'menu' && UI.cur && UI.cur.name === 'coopHost');
+      } finally { Object.assign(Net, saved); UI.cur = ui.cur; UI.stack = ui.stack; }
+    });
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
   },
@@ -7700,7 +7717,7 @@ UI.scr_selftest = function (r) {
    The host simulates everything. Guests send inputs and render snapshots.
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
-const NET_VERSION = 1;
+const NET_VERSION = 2;   // 2: lobby return, per-guest results, feed ids, sound relays
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -7868,6 +7885,7 @@ const Net = {
       case 'k': if (W) { W.killMarker = KILL_MARK_TIME; Snd.ui('killConfirm'); } break;
       case 'd': if (W) { W.dmgDirs.push({ ang: numIn(m.a, -7, 7), t: 1.6 }); W.flash = 0.25; W.shake = Math.min(1, W.shake + Math.min(0.4, numIn(m.v, 0, 1000) * 0.004)); } break;
       case 'end': Game.showResultsGuest(m.r); break;
+      case 'lobbyReturn': this.guestLobby(); break;
       default: break;
     }
   },
@@ -8013,8 +8031,7 @@ const Net = {
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
-    this.beatAcc += dt;
-    if (this.beatAcc >= 1) { this.beatAcc = 0; for (const p of this.peers) this.send(p, { t: 'p' }, false); }
+    this.beat(dt);
     this.snapAcc += dt;
     if (this.snapAcc >= 1 / 15) { this.snapAcc = 0; this.sendSnapshots(); }
     this.obAcc += dt;
@@ -8027,6 +8044,21 @@ const Net = {
       this.dirty.clear();
       for (let k = 0; k < l.length; k += 250) this.bcast({ t: 'st', l: l.slice(k, k + 250) });
     }
+  },
+  /* host keep-alive to every guest once a second */
+  beat(dt) {
+    this.beatAcc += dt;
+    if (this.beatAcc >= 1) { this.beatAcc = 0; for (const p of this.peers) this.send(p, { t: 'p' }, false); }
+  },
+  /* host: end the session but keep every connection, and bring everyone back to the lobby */
+  backToLobby() {
+    this.bcast({ t: 'lobbyReturn' });
+    this.inSession = false; this.dirty.clear();
+    for (const p of this.peers) { p.p = null; p.inp = null; p.known = new Set(); }
+    Game.quitToMenu(true);
+    UI.stack = [{ name: 'main', data: {} }, { name: 'coop', data: {} }];
+    UI.show('coopHost', {}, true);
+    this.sendLobby();
   },
   platEntry(p) {
     const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0);
@@ -8112,6 +8144,13 @@ const Net = {
       p.name = 'YOU'; p.controller = PC; p.cmd.aimYaw = m.yaw; p.flightMode = S.flightMode;
       W.player = p; Cam.reset(p);
     }
+  },
+  /* the host went back to the lobby: drop the mirrored world, keep the connection */
+  guestLobby() {
+    this.inSession = false; this.map = {}; this.projMap = {};
+    Game.quitToMenu(true);
+    UI.stack = [{ name: 'main', data: {} }, { name: 'coop', data: {} }];
+    UI.show('coopJoin', {}, true);
   },
   /* kill feed text with this guest's own platform shown as YOU (older hosts send only the text) */
   feedText(m) {
@@ -8295,6 +8334,7 @@ UI.act_coopReply = async function () {
   try { await Net.guestJoin(Net.inviteText); this.render(); } catch (e) { this.toast(e.message || 'Could not use that invite'); }
 };
 UI.act_coopReady = function () { Net.toggleReady(); };
+UI.act_coopLobby = function () { Net.backToLobby(); };
 UI.act_coopSync = function () { Net.sendLobbyState(); Net.changed(); };
 UI.onCoopInput = function (t, commit) {
   if (t.dataset.coop === 'name') Net.name = cleanName(t.value);
