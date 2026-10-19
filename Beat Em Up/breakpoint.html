@@ -6442,8 +6442,10 @@ const UI = {
       case 'setupNext': Game.go(GS.ARENASEL); break;
       case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, this.rivalId(), false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
-      case 'rebind': this.startRebind(arg); break;
+      case 'rebind': this.startRebind(Keymap, arg); break;
+      case 'rebind2': this.startRebind(Keymap2, arg); break;
       case 'resetKeys': Keymap.resetAll(); this.toast('Keyboard bindings reset'); break;
+      case 'resetKeys2': Keymap2.resetAll(); this.toast('P2 keyboard bindings reset'); break;
       case 'resetSettings': Settings.reset(); Sound.applyVolumes(); Quality.apply(); this.rerender(true); break;
       case 'fullscreen': this.toggleFullscreen(); break;
       case 'resume': Game.resume(); break;
@@ -6496,13 +6498,14 @@ const UI = {
     this.showPick();
     this.go('char');
   },
-  startRebind(action) {
-    const btn = this.dom.screens.querySelector('[data-act="rebind:' + action + '"]');
+  startRebind(keymap, action) {
+    const p2 = keymap === Keymap2;
+    const btn = this.dom.screens.querySelector('[data-act="' + (p2 ? 'rebind2:' : 'rebind:') + action + '"]');
     if (btn) btn.textContent = 'Press a key... (Esc cancels)';
     Inputs.capture((code) => {
       if (code === 'Escape') { this.rerender(true); return; }
-      const r = Keymap.rebind(action, code);
-      this.toast(r.ok ? ACTION_LABELS[action] + ' = ' + keyLabel(code) : r.msg, r.ok ? '' : 'warn');
+      const r = keymap.rebind(action, code);
+      this.toast(r.ok ? (p2 ? 'P2 ' : '') + ACTION_LABELS[action] + ' = ' + keyLabel(code) : r.msg, r.ok ? '' : 'warn');
       if (!r.ok) Sound.ui('bad');
       this.rerender(true);
     });
@@ -6618,11 +6621,14 @@ const UI = {
     const moveText = screenMode
       ? 'Movement follows the screen: up = away from the camera, down = toward it, left / right = screen left / right. Double-tap the direction that points at your opponent and hold to run; double-tap away from them to back-dash, sideways to sidestep.'
       : 'Movement is relative to your opponent: up = toward, down = away, left / right = circle. Double-tap left / right to sidestep, double-tap up and hold to run, double-tap down to back-dash.';
-    const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + Keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td><td><button class="mi" style="margin:0;min-height:2.2em;padding:.2em .6em" data-nav data-act="rebind:' + a + '">Rebind</button></td></tr>').join('');
+    const keys = (keymap, a) => keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ');
+    const rebind = (act, a, who) => '<button class="mi" style="margin:0;min-height:2.2em;padding:.2em .6em" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + who + ' ' + esc(label(a)) + '">Rebind</button>';
+    const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
-      '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th>Gamepad</th><th>Touch</th><th></th></tr>' + rows + '</table>' +
+      '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
       '<p class="hint">Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: tap Select to switch stance, hold it in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
-      '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
+      '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
+      '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
   screen_moves() {
     const BTN = { lp: 'Left punch', rp: 'Right punch', lk: 'Left kick', rk: 'Right kick', grapple: 'Grapple' };
