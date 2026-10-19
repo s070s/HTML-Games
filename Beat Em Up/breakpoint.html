@@ -3034,8 +3034,8 @@ class Fighter {
       if (this.tryBufferedAttack(it)) return;
       if (it.grapple) { this.grabDir = it.grapDir || 'fwd'; this.grabLow = !!it.crouch || this.state === S.CROUCH; if (this.startGrab()) return; }
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
-      if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST * 0.5) { this.startDash(it); return; }
-      if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST * 0.5) { this.startSidestep(it.sidestep); return; }
+      if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST) { this.startDash(it); return; }
+      if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
       if (it.stance) { this.stance ^= 1; this.lock = 8; Events.emit('stance', { f: this }); }
     }
     let target = S.IDLE;
@@ -3068,7 +3068,7 @@ class Fighter {
     const t = this.stateTicks;
     const v = this.dashSpeed * (t < 12 ? 1 - 0.55 * (t / 12) : 0.25);
     this.vx = this.dashDx * v; this.vz = this.dashDz * v;
-    if (t === 3) this.invuln = Math.max(this.invuln, 6);
+    if (t === 3 && this.dashKind !== 1) this.invuln = Math.max(this.invuln, 6);   // back and side dashes slip through; a forward dash commits
     if (t >= 8 && this.tryBufferedAttack(it)) return;
     if (t >= 16) { this.vx = this.vz = 0; this.setState(S.IDLE); }
   }
@@ -7395,6 +7395,18 @@ const SelfTest = {
       const before = Events.count();
       for (let i = 0; i < 6; i++) { const m = mk({}); self.run(m, 5); m.dispose(); }
       return Events.count() === before ? true : before + ' -> ' + Events.count();
+    });
+    test('Dashes need full stamina, a forward dash has no invulnerability', () => {
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.dash = true; if (mm.tick === 3) it.sidestep = 1; });
+      self.place(m, 4); m.fighters[0].stam = SIDESTEP_COST / 2;   // half the cost used to be enough
+      let tired = true;
+      for (let i = 0; i < 30; i++) { m.step(); if (m.fighters[0].state === S.DASH || m.fighters[0].state === S.SIDESTEP) tired = false; }
+      m.dispose();
+      const m2 = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it.dash = true; it.fwd = 1; } });
+      self.place(m2, 4);
+      let invulnerable = false;
+      for (let i = 0; i < 20; i++) { m2.step(); if (m2.fighters[0].invuln > 0) invulnerable = true; }
+      return tired && !invulnerable ? true : 'tired ' + tired + ' forward dash invulnerable ' + invulnerable;
     });
     test('Sidestep evades a slow linear attack', () => {
       const log = self.capture(['hit']);
