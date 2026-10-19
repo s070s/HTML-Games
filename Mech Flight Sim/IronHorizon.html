@@ -5785,7 +5785,7 @@ function respawnTrainingTargets() {
 const STEP = 1 / 60;
 
 const PC = {
-  sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false,
+  sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -5822,8 +5822,8 @@ const PC = {
     c.fire1 = Input.held('fire1') || !!(pad && pad.fire1);
     c.fire2 = Input.held('fire2') || !!(pad && pad.fire2);
     if (Input.hit('fire1') || (pad && pad.fire1 && !this.padLast)) c.fire1Edge = true;
-    if (Input.hit('fire2')) c.fire2Edge = true;
-    if (pad) this.padLast = pad.fire1;
+    if (Input.hit('fire2') || (pad && pad.fire2 && !this.padF2)) c.fire2Edge = true;
+    if (pad) { this.padLast = pad.fire1; this.padF2 = pad.fire2; }
     if (Input.hit('defense') || (pad && pad.defense && !this.padD)) c.defenseEdge = true;
     if (pad) this.padD = pad.defense;
     if (Input.hit('melee') || (pad && pad.melee && !this.padM)) c.meleeEdge = true;
@@ -5839,6 +5839,15 @@ const PC = {
     if (pad) this.padC = pad.cycle;
     if (Input.hit('interact')) tryResupply(p);
     if (Input.hit('switchPlatform') && W.mode === 'training') Game.trainingSwitch();
+  },
+  /* Gamepad Start toggles the pause menu; polled every frame because sample() stops while paused. */
+  pollPause() {
+    const pad = Input.pad(), start = !!(pad && pad.start), edge = start && !this.padStart;
+    this.padStart = start;
+    if (!edge) return;
+    if (Game.state === 'playing' && !Game.netPaused) { Game.pause(); return; }
+    const paused = Game.state === 'paused' || Game.netPaused;
+    if (paused && UI.cur && UI.cur.name === 'pause') Game.resume();
   },
 };
 
@@ -6164,6 +6173,7 @@ const Game = {
     if (this.fpsAcc >= 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; this.adaptQuality(); this.updateDiag(); }
     if (R.lost || !R.ok) return;
     UI.resizeIfNeeded();
+    PC.pollPause();
     if (this.state === 'playing') {
       const pl = W.player;
       if (pl && !pl.dead) { if (this.netPaused) { const c = pl.cmd; c.moveF = c.moveS = c.turn = c.throttleIn = 0; c.fire1 = c.fire2 = c.boost = c.jump = c.brake = false; } else PC.sample(pl, dt); }
