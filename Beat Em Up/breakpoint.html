@@ -2479,9 +2479,9 @@ function canTransition(from, to) {
 }
 
 /* ---------- attributes -> gameplay (documented formulas, attribute scale 1..10, 5 = baseline 1.0) ----------
-   Slopes are tuned so +2 in any one attribute (7 vs 5, hard CPU mirrors of KAI, MARA and DMITRI, 288 matches each)
-   wins 61-64%: health .64, stamina .64, strength .64, speed .61, reach .63, defense .63, balance .63, recovery .63.
-   Reach and the heavy-hit impact of balance were flattened again (they won .69 and .74). */
+   Slopes are tuned so +2 in any one attribute (7 vs 5, hard CPU mirrors of KAI, MARA and DMITRI, 432 matches each)
+   wins 61-69%: health .65, stamina .69, strength .62, speed .65, reach .61, defense .63, balance .68, recovery .62.
+   Reach, the heavy-hit impact of balance and recovery's stamina regen were flattened again (they won .69, .74 and .74). */
 const ATTR_KEYS = ['health', 'stamina', 'strength', 'speed', 'reach', 'defense', 'balance', 'recovery'];
 function normalizeAttrs(a) {
   const out = {};
@@ -2502,19 +2502,19 @@ function deriveStats(raw) {
     stun: 1.25 - a.balance * 0.05,                   // 1.20..0.75  hit-stun and block-stun duration
     guard: 1.25 - a.balance * 0.05,                  // 1.20..0.75  guard (block stamina) cost
     impact: 1.15 - a.balance * 0.03,                 // 1.12..0.85  damage from heavy hits, counters, throws and scenery
-    regen: 8 + a.recovery * 2.4,                     // 10.4..32 stamina per second
+    regen: 12.5 + a.recovery * 1.5,                  // 14..27.5 stamina per second
     getup: 1.2 - a.recovery * 0.04,                  // 1.16..0.80  knockdown duration
   };
 }
 
-/* Tuned with hard CPU round robins (6 fighters, 48 matches per pairing): KAI .45, MARA .57, BRUTUS .53, YUKI .44,
+/* Tuned with hard CPU round robins (6 fighters, 48 matches per pairing): KAI .48, MARA .55, BRUTUS .50, YUKI .45,
    DMITRI .52, ZERO .50; with KAI's CPU style for everyone (attributes only) .45-.57. Speed below 5 is avoided: -2 speed
    wins only ~11% (other attributes ~30-38%). CPU styles were tuned too: KAI's was the strongest, YUKI's wide circling
    and DMITRI's grab-heavy 1.0 range the weakest. rank is the Arcade ladder order, weakest first by the same measurements
    (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss. */
 const ROSTER = [
   { id: 'kai', moveStyle: 'kickboxer', name: 'KAI', title: 'The Balanced', rank: 0, attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
-    style: { aggr: 0.9, punch: 0.45, kick: 0.45, heavy: 0.5, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
+    style: { aggr: 0.9, punch: 0.5, kick: 0.45, heavy: 0.4, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', top: '#2f6fdd', shorts: '#18274d', glove: '#f1f1f5', shoe: '#202228', scale: 1, build: 1 } },
   { id: 'mara', moveStyle: 'capoeira', name: 'MARA', title: 'The Viper', rank: 4, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
     style: { aggr: 1.1, punch: 0.45, kick: 0.55, heavy: 0.25, grab: 0.05, defend: 0.4, circle: 0.5, low: 0.35 },
@@ -2522,14 +2522,14 @@ const ROSTER = [
   { id: 'brutus', moveStyle: 'brawler', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
     style: { aggr: 0.9, punch: 0.7, kick: 0.3, heavy: 0.6, grab: 0.2, defend: 0.5, circle: 0.1, low: 0.1 },
     look: { skin: '#a8704c', hair: '#000000', hairStyle: 'bald', top: null, shorts: '#2f5d2a', glove: '#c9a22b', shoe: '#3a2a1a', scale: 1.1, build: 1.28 } },
-  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 4, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
+  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 5, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
     style: { aggr: 1.0, punch: 0.45, kick: 0.55, heavy: 0.2, grab: 0.05, defend: 0.5, circle: 0.3, low: 0.3 },
     look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'long', top: '#7d4fd6', shorts: '#e9e9f5', glove: '#7d4fd6', shoe: '#e9e9f5', scale: 0.98, build: 0.86 } },
   { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 3, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
     style: { aggr: 1.0, punch: 0.5, kick: 0.35, heavy: 0.5, grab: 0.3, defend: 0.5, circle: 0.1, low: 0.15 },
     look: { skin: '#c98c68', hair: '#c46a1a', hairStyle: 'mohawk', top: null, shorts: '#d86a12', glove: '#2a1a10', shoe: '#2a1a10', scale: 1.08, build: 1.2 } },
   // ZERO's playable build costs 46 points like the rest of the roster; the boss builds are only used for the Arcade final (see MatchSim).
-  // They scale with the Arcade difficulty option: a hard CPU KAI beats them ~40% (easy, hard CPU), ~20-30% (normal, expert CPU), ~8% (hard, expert CPU).
+  // They scale with the Arcade difficulty option: a hard CPU KAI beats them ~55% (easy, hard CPU), ~20-30% (normal, expert CPU), ~8% (hard, expert CPU).
   { id: 'zero', moveStyle: 'karateka', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
     bossAttrs: {
       easy: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },     // 47 points
@@ -8795,8 +8795,8 @@ const SelfTest = {
       return band && playable && boss ? true : JSON.stringify({ totals, zero, bosses, band, playable, boss });
     });
     test('Arcade: a hard CPU stand-in for the player beats the Normal final boss now and then', () => {
-      // ~20-30% over larger seed sets (3 of these 12); the old 66-point boss won all 24 tried. Few seeds keep the suite fast.
-      const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 12, maxTicks = 40000;
+      // ~20-30% over 64-seed sets (3 of these 16); the old 66-point boss won all 24 tried. Few seeds keep the suite fast.
+      const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
         const m = new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed });
@@ -9030,19 +9030,20 @@ const SelfTest = {
       const illegal = Diag.illegalTransitions, errors = Diag.errors;
       const log = self.capture(['throw']);
       let over = 0;
-      for (const seed of [23, 24, 25, 26, 27, 28, 29, 30]) {   // expert CPUs break many grabs, so a few matches give few throws
+      const seeds = [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52];   // expert CPUs break many grabs: ~0.4 throws a match
+      for (const seed of seeds) {
         const m = mk({ seed, timer: 60, winsNeeded: 1, arenaId: 'pit', playerId: 'dmitri', opponentId: 'brutus' });
         m.controllers[0] = new AIController(ROSTER_BY_ID.dmitri, 'expert');
         m.controllers[1] = new AIController(ROSTER_BY_ID.brutus, 'expert');
         let ticks = 0;
-        while (!m.matchOver && ticks < 6000) { m.step(); ticks++; }
+        while (!m.matchOver && ticks < 12000) { m.step(); ticks++; if (m.phase === 'waiting') m.startRound(); }   // a drawn round is replayed
         if (m.matchOver) over++;
         m.dispose();
       }
       log.stop();
       const dirs = new Set(log.throw.map((t) => t.dir));
       const legal = Diag.illegalTransitions === illegal && Diag.errors === errors;
-      return over === 8 && legal && log.throw.length >= 2 && dirs.size >= 2 ? true : 'over ' + over + ' throws ' + log.throw.length + ' dirs ' + [...dirs].join(',') + ' illegal ' + (Diag.illegalTransitions - illegal) + ' errors ' + (Diag.errors - errors);
+      return over === seeds.length && legal && log.throw.length >= 2 && dirs.size >= 2 ? true : 'over ' + over + ' throws ' + log.throw.length + ' dirs ' + [...dirs].join(',') + ' illegal ' + (Diag.illegalTransitions - illegal) + ' errors ' + (Diag.errors - errors);
     });
     /* ----- motion (visual only) ----- */
     const finitePose = (f) => {
