@@ -127,6 +127,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .hs{flex:1;min-width:0}
 .hs.r{text-align:right}
 .hname{font-size:1.05em;letter-spacing:.12em;margin-bottom:.15em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hname b{color:var(--a1)}.hs.r .hname b{color:var(--a2)}
 .bar{position:relative;height:1.55em;border:2px solid #fff;background:rgba(0,0,0,.65);overflow:hidden;transform:skewX(-14deg)}
 .hs.r .bar{transform:skewX(14deg)}
 .bar i,.bar u{position:absolute;inset:0;transform-origin:left;display:block;text-decoration:none}
@@ -146,20 +147,24 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
 #timer.low{color:var(--warn);border-color:var(--warn)}
 #roundlbl{font-size:.8em;letter-spacing:.12em;margin-top:.2em;text-transform:uppercase}
-#combo{position:absolute;left:1.2em;top:7.5em;font:900 italic 1.6em/1.1 Impact,"Arial Black",sans-serif;color:#ffe066;opacity:0;transition:opacity .15s}
-#combo.on{opacity:1}
-#combo small{display:block;font-size:.55em;font-family:inherit;color:#fff;letter-spacing:.1em}
+#combo,#combo2{position:absolute;left:1.2em;top:7.5em;font:900 italic 1.6em/1.1 Impact,"Arial Black",sans-serif;color:#ffe066;opacity:0;transition:opacity .15s}
+#combo2{left:auto;right:1.2em;text-align:right}
+#combo.on,#combo2.on{opacity:1}
+#combo small,#combo2 small{display:block;font-size:.55em;font-family:inherit;color:#fff;letter-spacing:.1em}
 #banner{position:absolute;left:0;right:0;top:36%;text-align:center;font:900 italic clamp(2.2em,12vmin,7em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.05em;text-transform:uppercase;text-shadow:0 .05em .1em #000,0 0 .3em #000;opacity:0}
 #banner.on{opacity:1}
 #banner small{display:block;font-size:.3em;letter-spacing:.2em;margin-top:.3em;font-style:normal;font-family:"Segoe UI",system-ui,sans-serif}
-#warn{position:absolute;left:1.2em;bottom:1.2em;font-size:1em;letter-spacing:.1em;color:#ffb347;border:2px dashed #ffb347;padding:.2em .7em;background:rgba(0,0,0,.6);opacity:0}
-#warn.on{opacity:1;animation:blink 1s steps(2) infinite}
-.reduced #warn.on{animation:none}
+#warn,#warn2{position:absolute;left:1.2em;bottom:1.2em;font-size:1em;letter-spacing:.1em;color:#ffb347;border:2px dashed #ffb347;padding:.2em .7em;background:rgba(0,0,0,.6);opacity:0}
+#warn2{left:auto;right:1.2em;bottom:4.4em}
+#warn.on,#warn2.on{opacity:1;animation:blink 1s steps(2) infinite}
+.reduced #warn.on,.reduced #warn2.on{animation:none}
 @keyframes blink{50%{opacity:.45}}
-#grappleHint{position:absolute;left:50%;transform:translateX(-50%);bottom:5.5em;padding:.4em 1em;border:2px solid #fff;background:rgba(0,0,0,.7);letter-spacing:.08em;font-size:1.05em;text-align:center}
+#grappleHint,#grappleHint2{position:absolute;left:50%;transform:translateX(-50%);bottom:5.5em;padding:.4em 1em;border:2px solid #fff;background:rgba(0,0,0,.7);letter-spacing:.08em;font-size:1.05em;text-align:center}
+.vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
+#grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
 #onboard{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.82);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
 #onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em}
-#grappleHint.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
+#grappleHint.go,#grappleHint2.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
 #training{position:absolute;right:.9em;top:6.2em;width:15em;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training b{color:var(--a1)}
 #modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--mut)}
@@ -171,7 +176,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
 .pop{position:absolute;left:0;top:0;white-space:nowrap;font:900 italic 1.3em/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;will-change:transform,opacity;text-shadow:0 2px 3px #000,0 0 4px #000}
 .hc .bar{border-width:3px;background:#000}
-.hc .tag,.hc #timer,.hc #grappleHint,.hc #training,.hc #warn{background:#000;border-width:3px}
+.hc .tag,.hc #timer,.hc #grappleHint,.hc #grappleHint2,.hc #training,.hc #warn,.hc #warn2{background:#000;border-width:3px}
 .hc .pop{-webkit-text-stroke:2px #000}
 /* ---------- touch ---------- */
 #touch{position:absolute;inset:0;pointer-events:none;touch-action:none}
@@ -207,7 +212,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .25s;z-index:25}
 #fade.on{opacity:1}
 .reduced *{transition:none!important;animation:none!important}
-.reduced #combo{transition:none}
+.reduced #combo,.reduced #combo2{transition:none}
 @media (max-width:700px){.screen{padding:1em}.panel{padding:.8em .9em}}
 @media (max-height:520px){.screen{padding:.6em 1em}h1.logo{font-size:2.2em}button.mi{padding:.4em .9em;min-height:2.3em;margin:.2em 0}}
 </style>
@@ -223,9 +228,12 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
     </div>
     <div id="modeinfo"></div>
     <div id="combo"></div>
+    <div id="combo2"></div>
     <div id="banner"></div>
     <div id="warn" role="status">LOW STAMINA</div>
+    <div id="warn2" role="status">P2 LOW STAMINA</div>
     <div id="grappleHint" hidden></div>
+    <div id="grappleHint2" hidden></div>
     <div id="onboard" role="dialog" aria-label="Controls" hidden></div>
     <div id="training" hidden></div>
     <div id="tags"></div>
@@ -5993,8 +6001,8 @@ const Sound = {
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
     on('timeWarn', () => this.tone('sine', 990, 990, 0.09, 0.16));
-    on('matchEnd', (e) => this.fanfare(e.match.matchWinner === 0));
-    on('lowStamina', (e) => { if (e.f.index === 0) this.lowStamina(); });
+    on('matchEnd', (e) => this.fanfare(e.match.matchWinner === 0 || e.match.versus));
+    on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
     on('uiSound', (e) => this.ui(e.kind));
   },
 };
@@ -6089,6 +6097,7 @@ const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Cir
 const TOUCH_LABELS = { lp: 'LP', rp: 'RP', lk: 'LK', rk: 'RK', strong: 'STR', height: 'HGT', blockHigh: 'BLK-H', blockLow: 'BLK-L', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STNC', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
+const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'SCREEN' };
 
@@ -6099,7 +6108,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0,
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'banner', 'warn', 'grappleHint', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -6132,8 +6141,8 @@ const UI = {
     Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say('Round ' + e.round); });
     Events.on('ko', () => this.banner('K.O.!', '', 1600));
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
-    Events.on('lowStamina', (e) => { if (e.f.index === 0) this.say('Low stamina'); });
-    Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && e.att.index === 0) this.say(e.hits + ' hit combo'); });
+    Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
+    Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
     Events.on('glLost', () => { Game.pause(); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
     Events.on('glRestored', () => this.toast('Graphics restored'));
     Events.on('bindings', () => { if (this.current === 'controls') this.rerender(true); });
@@ -6152,6 +6161,7 @@ const UI = {
     while (this.dom.toast.children.length > 3) this.dom.toast.removeChild(this.dom.toast.firstChild);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3200);
   },
+  speaker(index) { return Inputs.versus ? 'P' + (index + 1) + ': ' : ''; },   // Versus announcements say whose they are
   say(text) { this.dom.announce.textContent = ''; setTimeout(() => { this.dom.announce.textContent = text; }, 30); },
   banner(text, sub, ms) {
     const b = this.dom.banner, id = ++this.banners;
@@ -6184,6 +6194,15 @@ const UI = {
     Progress.save();
     clearTimeout(this.onboardTimer);
     this.onboardTimer = setTimeout(() => this.hideOnboarding(), ONBOARD_MS);
+  },
+  /* Versus, first match of a session: which keys and pads each player uses. */
+  showVersusCard() {
+    this.cardSession = Game.versus;
+    const pause = keyLabel(Keymap.bindings.pause[1] || 'Escape') + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
+    this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3>' + this.devicesText() + '<br>Pause: <kbd>' + esc(pause) + '</kbd><small>Click or press any key to close</small>';
+    this.dom.onboard.hidden = false;
+    clearTimeout(this.onboardTimer);
+    this.onboardTimer = setTimeout(() => this.hideOnboarding(), VERSUS_CARD_MS);
   },
   hideOnboarding() {
     clearTimeout(this.onboardTimer);
@@ -6220,12 +6239,17 @@ const UI = {
         break;
       case GS.PAUSED: this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; break;
       case GS.ROUND_END: break;
-      case GS.VICTORY: this.banner('VICTORY', Game.resultsData ? Game.resultsData.player + ' wins' : '', 3000); Music.stop(); break;
+      case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
       case GS.DEFEAT: this.banner('DEFEAT', '', 3000); Music.stop(); break;
       case GS.RESULTS: this.stack = []; this.go('results'); this.guardUntil = performance.now() + RESULTS_GUARD_MS; break;
       case GS.ERROR: this.showFatal(e.error || 'Unknown error'); break;
       default: break;
     }
+  },
+  victoryBanner() {
+    const d = Game.resultsData;
+    if (d && d.mode === 'versus') this.banner('P' + (d.winner + 1) + ' WINS', d.winner === 0 ? d.player : d.opponent, 3000);
+    else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
   startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), MUSIC_FIGHT); },
@@ -6237,21 +6261,31 @@ const UI = {
     if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. Use Fullscreen (Settings) or remap those keys.', 'warn'); }
     if (window.innerHeight > window.innerWidth && (Settings.v.touch === 'on' || ('ontouchstart' in window))) this.toast('Rotate your device to landscape for the best view', 'warn');
     this.cache = {};
-    this.dom.hn1.textContent = 'P1 ' + match.fighters[0].name;
-    this.dom.hn2.textContent = (train ? 'DUMMY ' : 'CPU ') + match.fighters[1].name;
+    this.dom.hn1.innerHTML = '<b>P1</b> ' + esc(match.fighters[0].name);
+    this.dom.hn2.innerHTML = '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);
+    this.dom.hud.classList.toggle('vs', match.versus);
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
     this.dom.timer.hidden = train;
     this.dom.roundlbl.hidden = false;
-    if (!Progress.d.seenControls) this.showOnboarding();
+    if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
+    else if (!Progress.d.seenControls) this.showOnboarding();
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
+  },
+  /* "P1", "P2", "CPU" or "DUMMY": who controls a fighter. */
+  sideLabel(m, i) { return i === 0 ? 'P1' : m.versus ? 'P2' : m.training ? 'DUMMY' : 'CPU'; },
+  /* A fighter's name, with the side when the two could be confused (Versus, mirror matches). */
+  fighterName(m, i) {
+    const name = m.fighters[i].name;
+    return m.versus || m.fighters[0].id === m.fighters[1].id ? this.sideLabel(m, i) + ' ' + name : name;
   },
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
     if (m.round !== 1) return '';
+    if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
     if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
     if (m.cfg.mode === 'survival' && run) return 'OPPONENT ' + (run.kills + 1) + ' · ' + vs;
@@ -6260,7 +6294,7 @@ const UI = {
   onRoundEnd(e) {
     const m = e.match;
     let t = e.reason === 'time' ? 'TIME UP' : 'K.O.';
-    let sub = e.winner < 0 ? 'DRAW' : m.fighters[e.winner].name + ' WINS THE ROUND';
+    let sub = e.winner < 0 ? 'DRAW' : this.fighterName(m, e.winner) + ' WINS THE ROUND';
     if (e.reason === 'time' && e.winner < 0) t = 'DRAW';
     this.banner(t, sub, 2200);
   },
@@ -6643,6 +6677,7 @@ const UI = {
   screen_results() {
     const d = Game.resultsData;
     if (!d) return '';
+    if (d.mode === 'versus') return this.versusResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : 'Free Fight';
@@ -6653,9 +6688,22 @@ const UI = {
     if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
     if (d.unlocked) h += '<p><b>Unlocked: ' + d.unlocked + '</b></p>';
     void s1;
+    return h + this.resultsNav(d);
+  },
+  resultsNav(d) {
     const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
-    h += '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
-    return h;
+    return '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
+  },
+  /* Versus: the winner, the session score and both players' stats side by side. */
+  versusResults(d) {
+    const w = d.winner, names = [d.player, d.opponent], s = d.stats;
+    const rows = [['Rounds won', d.wins[0], d.wins[1]], ['Damage dealt', Math.round(s[0].damage), Math.round(s[1].damage)], ['Hits landed', s[0].hits, s[1].hits],
+      ['Best combo', s[0].maxCombo + ' hits', s[1].maxCombo + ' hits'], ['Blocks (perfect)', s[0].blocks + ' (' + s[0].perfect + ')', s[1].blocks + ' (' + s[1].perfect + ')'],
+      ['Throws', s[0].throws, s[1].throws], ['Objects destroyed', s[0].objects, s[1].objects]];
+    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt c' + (w + 1) + '">P' + (w + 1) + ' wins</div><p class="sub">Versus &middot; ' + esc(names[w]) + ' takes the match &middot; ' + clockText(d.seconds) + '</p>';
+    h += '<p>Session score: <b class="c1">P1 ' + d.score[0] + '</b> - <b class="c2">' + d.score[1] + ' P2</b></p>';
+    h += '<table class="ctl"><tr><th></th><th><span class="c1">P1 ' + esc(names[0]) + '</span></th><th><span class="c2">P2 ' + esc(names[1]) + '</span></th></tr>' + rows.map((r) => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>').join('') + '</table>';
+    return h + this.resultsNav(d);
   },
   showFatal(msg) {
     const f = this.dom.fatal;
@@ -6755,24 +6803,16 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
-    // combo
-    const showCombo = a.comboShow > 0 && a.comboHits >= 2;
-    if (this.cache.combo !== showCombo) { this.cache.combo = showCombo; this.dom.combo.classList.toggle('on', showCombo); }
-    if (showCombo) this.setHtml('combotxt', this.dom.combo, a.comboHits + ' HITS<small>' + Math.round(a.comboDamage) + ' DAMAGE</small>');
-    // warnings and hints
-    const warn = a.lowStamina && a.alive;
-    if (this.cache.warn !== warn) { this.cache.warn = warn; this.dom.warn.classList.toggle('on', warn); }
-    let hint = '';
-    if (a.state === S.CLINCH) hint = this.clinchHint(a);
-    else if (a.state === S.GRAPPLE) hint = this.throwHint(a);
-    else if (b.state === S.CLINCH && b.alive) hint = '';
-    if (this.cache.hint !== hint) {
-      this.cache.hint = hint;
-      this.dom.grappleHint.hidden = !hint; this.dom.grappleHint.textContent = hint;
-      this.dom.grappleHint.classList.toggle('go', hint.startsWith('ESCAPE'));
-    }
+    // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus (on the right, with P2's controls)
+    this.comboBox('combo', this.dom.combo, a, true);
+    this.comboBox('combo2', this.dom.combo2, b, m.versus);
+    this.toggleOn('warn', this.dom.warn, a.lowStamina && a.alive);
+    this.toggleOn('warn2', this.dom.warn2, m.versus && b.lowStamina && b.alive);
+    this.showHint('hint', this.dom.grappleHint, this.grappleHint(a));
+    this.showHint('hint2', this.dom.grappleHint2, m.versus ? this.grappleHint(b) : '');
     // name tags + popups
     const out = [0, 0];
     for (let i = 0; i < 2; i++) {
@@ -6785,7 +6825,7 @@ const UI = {
       else if (f.state === S.DOWN) status = 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.lowStamina) status = 'TIRED';
-      this.setHtml('tag' + i, el, (i === 0 ? '1P' : (m.training ? 'DUMMY' : 'CPU')) + (status ? '<i>' + status + '</i>' : ''));
+      this.setHtml('tag' + i, el, (i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU') + (status ? '<i>' + status + '</i>' : ''));
       el.style.display = ok ? '' : 'none';
       if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
     }
@@ -6799,17 +6839,35 @@ const UI = {
     }
     if (m.training) this.trainingPanel(m);
   },
+  comboBox(key, el, f, allowed) {
+    const show = allowed && f.comboShow > 0 && f.comboHits >= 2;
+    this.toggleOn(key, el, show);
+    if (show) this.setHtml(key + 'txt', el, f.comboHits + ' HITS<small>' + Math.round(f.comboDamage) + ' DAMAGE</small>');
+  },
+  toggleOn(key, el, on) { if (this.cache[key] !== on) { this.cache[key] = on; el.classList.toggle('on', on); } },
+  showHint(key, el, hint) {
+    if (this.cache[key] === hint) return;
+    this.cache[key] = hint;
+    el.hidden = !hint; el.textContent = hint;
+    el.classList.toggle('go', hint.startsWith('ESCAPE'));
+  },
+  /* Clinch hint for a human player's fighter: escape timing while held, throw aim while holding. */
+  grappleHint(f) {
+    if (f.state === S.CLINCH) return this.clinchHint(f);
+    if (f.state === S.GRAPPLE) return this.throwHint(f);
+    return '';
+  },
   /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
   clinchHint(f) {
     if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
-    if (f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS) return 'ESCAPE NOW! Press ' + this.keyName('grapple');
+    if (f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
     return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
   /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim);
-    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple') + ' throws, punch = knee';
+    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws, punch = knee';
   },
   /* Arrow for a fighter-relative direction as it appears on screen. */
   screenArrow(f, dir) {
@@ -6898,7 +6956,7 @@ const UI = {
       'draws ' + st.draws + ' inst ' + st.instances + ' culled ' + st.culled + ' res ' + R.width + 'x' + R.height + ' q ' + Quality.level + ' s' + R.scale.toFixed(2) + ' gpu ' + GPU.tier + ' msaa ' + (R.antialias ? 'on' : 'off') + '\n' +
       'particles ' + FX.active + ' debris ' + Debris.active + ' voices ' + Sound.voices + ' audio ' + (Sound.ctx ? Sound.ctx.state : 'none') + '\n' +
       'illegal transitions ' + Diag.illegalTransitions + ' errors ' + Diag.errors + ' listeners ' + Events.count() + ' storage ' + (Store.ok ? 'ok' : 'memory') + '\n' +
-      'pad ' + (Input.padInfo.connected ? Input.padInfo.name.slice(0, 30) : 'none') + ' startup ' + Diag.startupMs.toFixed(0) + 'ms\n' +
+      'pad ' + Inputs.players.map((p) => (p.padInfo.connected ? p.padInfo.name.slice(0, 30) : 'none')).join(' / ') + ' startup ' + Diag.startupMs.toFixed(0) + 'ms\n' +
       (m ? 'tick ' + m.tick + ' hitstop ' + m.hitStop + ' P1 ' + m.fighters[0].state + ' P2 ' + m.fighters[1].state + '\n' : '') +
       Diag.logs.slice(-5).join('\n');
   },
