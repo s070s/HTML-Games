@@ -59,6 +59,8 @@ kbd{display:inline-block;padding:.05em .45em;border:1px solid #6d82b8;border-bot
 .statgrid{display:grid;grid-template-columns:1fr auto;gap:.2em 1.5em;margin:.6em 0;font-size:1.05em}
 .statgrid span:nth-child(odd){color:var(--mut)}
 .statgrid span:nth-child(even){text-align:right;font-weight:800}
+button.mi small.rec{color:var(--a1)}
+.newbest{font:900 italic 1.6em/1 Impact,"Arial Black",sans-serif;letter-spacing:.06em;color:var(--warn);margin:.4em 0}
 /* ---------- character creator ---------- */
 .screen.creator{justify-content:flex-end;align-items:stretch;padding:1em 1.4em;cursor:grab;touch-action:none}
 .panel.cr{width:min(34em,56vw);min-width:min(22em,96vw);max-width:none;max-height:none;display:flex;flex-direction:column;padding:.8em 1em;cursor:auto;touch-action:auto}
@@ -576,13 +578,15 @@ function keyLabel(code) {
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0 }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0 }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
     const num = (v, max) => clamp(Math.floor(finite(Number(v), 0)), 0, max);
     base.arcadeClears = num(s.arcadeClears, 999);
     base.arcadeBest = num(s.arcadeBest, 5);
+    // -1 = no clear yet (older saves have no such field)
+    base.arcadeFewestContinues = base.arcadeClears > 0 && typeof s.arcadeFewestContinues === 'number' && s.arcadeFewestContinues >= 0 ? num(s.arcadeFewestContinues, 999) : -1;
     base.wins = num(s.wins, 999999);
     base.losses = num(s.losses, 999999);
     base.survivalKills = num(s.survivalKills, 9999);
@@ -5114,9 +5118,24 @@ const GS_TRANSITIONS = {
   ERROR: ['MENU'],
 };
 const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];
-const ARCADE_DIFFS = ['easy', 'normal', 'normal', 'hard', 'expert'];
+const ARCADE_DIFFS = ['easy', 'normal', 'hard', 'hard', 'expert'];
 const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
+const ARCADE_LEVELS = ['easy', 'normal', 'hard'];
+const ARCADE_LEVEL_SHIFT = { easy: -1, normal: 0, hard: 1 };   // the Arcade difficulty option moves every stage one step
+const SURVIVAL_TIMER = 50, SURVIVAL_TIMER_MIN = 30;
+const SURVIVAL_HEAL = 0.25, SURVIVAL_HEAL_MIN = 0.1;          // share of max health regained after each win
+const SURVIVAL_PEAK = 7;              // wins until the CPU reaches Expert; after that heal and timer keep shrinking
+function arcadeDifficulty(stage, level) {
+  const i = DIFFICULTY_ORDER.indexOf(ARCADE_DIFFS[stage]) + (ARCADE_LEVEL_SHIFT[level] || 0);
+  return DIFFICULTY_ORDER[clamp(i, 0, DIFFICULTY_ORDER.length - 1)];
+}
+/* Fisher-Yates with the given generator; returns a new array. */
+function shuffled(list, rng) {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = out[i]; out[i] = out[j]; out[j] = t; }
+  return out;
+}
 
 const Game = {
   state: GS.LOADING,
@@ -5126,7 +5145,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'normal', rounds: 2, timer: 60 },
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'normal', rounds: 2, timer: 60, arcadeLevel: 'normal' },
   endTimer: 0,
   frameAvg: 16,
   rafId: 0,
@@ -5164,25 +5183,32 @@ const Game = {
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId).sort((x, y) => x.rank - y.rank); },
   /* Free Fight / Training opponents: the roster plus saved custom fighters. */
   opponentChoices(playerId) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => r.id !== playerId); },
-  startArcade(stage) {
+  /* keepRun: next stage or a retry of the same run (continues are counted); otherwise a new run starts. */
+  startArcade(stage, keepRun) {
     const sel = this.selection;
     const opponents = this.opponentsFor(sel.player);
     const ladder = opponents.slice(Math.max(0, opponents.length - ARCADE_STAGES)); // custom players still end on ZERO
-    this.run = Object.assign(this.run && this.run.mode === 'arcade' && this.run.player === sel.player ? this.run : {}, { mode: 'arcade', player: sel.player, ladder, stage, continues: 0 });
+    const same = keepRun && this.run && this.run.mode === 'arcade' && this.run.player === sel.player;
+    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0 };
+    Object.assign(this.run, { ladder, stage });
     const opp = ladder[stage];
-    this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: ARCADE_DIFFS[stage], winsNeeded: 2, timer: 60 });
+    this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, this.run.level), winsNeeded: 2, timer: 60 });
   },
   startSurvival() {
     const sel = this.selection;
-    this.run = { mode: 'survival', player: sel.player, kills: 0, seconds: 0, carryHp: 1, list: this.opponentsFor(sel.player), arenaStart: ARENA_ORDER.indexOf(sel.arena) };
+    this.run = { mode: 'survival', player: sel.player, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: Progress.d.survivalKills };
     this.nextSurvivalMatch();
   },
+  /* Wins past the point where the CPU tops out at Expert. */
+  survivalExtra(kills) { return Math.max(0, kills - SURVIVAL_PEAK); },
   nextSurvivalMatch() {
     const r = this.run;
-    const opp = r.list[r.kills % r.list.length];
-    const diff = r.kills < 2 ? 'easy' : r.kills < 4 ? 'normal' : r.kills < 7 ? 'hard' : 'expert';
+    if (!r.order.length) r.order = shuffled(r.pool, r.rng);   // every lap meets the whole roster (customs too) in a new order
+    const opp = r.order.shift();
+    const diff = r.kills < 2 ? 'easy' : r.kills < 4 ? 'normal' : r.kills < SURVIVAL_PEAK ? 'hard' : 'expert';
     const arena = ARENA_ORDER[(r.arenaStart + r.kills) % ARENA_ORDER.length];
-    this.beginMatch({ mode: 'survival', playerId: r.player, opponentId: opp.id, arenaId: arena, difficulty: diff, winsNeeded: 1, timer: 50, playerHp: r.carryHp });
+    const timer = Math.max(SURVIVAL_TIMER_MIN, SURVIVAL_TIMER - 2 * this.survivalExtra(r.kills));
+    this.beginMatch({ mode: 'survival', playerId: r.player, opponentId: opp.id, arenaId: arena, difficulty: diff, winsNeeded: 1, timer, playerHp: r.carryHp });
   },
   startTraining() {
     const sel = this.selection;
@@ -5267,21 +5293,29 @@ const Game = {
     data.playerWon = playerWon;
     data.buttons = [];
     if (run && run.mode === 'arcade') {
-      data.stage = run.stage + 1; data.stages = run.ladder.length;
+      data.stage = run.stage + 1; data.stages = run.ladder.length; data.continues = run.continues;
       if (playerWon) {
         Progress.d.wins++;
         const defeated = run.ladder[run.stage];
         if (defeated.id === 'dmitri' || run.stage >= 2) if (Progress.unlock('dmitri')) data.unlocked = 'DMITRI';
+        data.newBest = run.stage + 1 > Progress.d.arcadeBest;
         Progress.d.arcadeBest = Math.max(Progress.d.arcadeBest, run.stage + 1);
-        if (run.stage + 1 >= run.ladder.length) { data.cleared = true; Progress.d.arcadeClears++; if (Progress.unlock('zero')) data.unlocked = (data.unlocked ? data.unlocked + ' and ' : '') + 'ZERO'; }
+        if (run.stage + 1 >= run.ladder.length) {
+          data.cleared = true; Progress.d.arcadeClears++;
+          if (Progress.unlock('zero')) data.unlocked = (data.unlocked ? data.unlocked + ' and ' : '') + 'ZERO';
+          const fewest = Progress.d.arcadeFewestContinues;
+          if (fewest < 0 || run.continues < fewest) { data.newBest = fewest >= 0 || data.newBest; Progress.d.arcadeFewestContinues = run.continues; }
+        }
         Progress.save();
-        data.buttons = data.cleared ? ['menu'] : ['next', 'menu'];
+        data.buttons = data.cleared ? ['again', 'menu'] : ['next', 'menu'];
       } else { Progress.d.losses++; Progress.save(); data.buttons = ['retry', 'menu']; }
     } else if (run && run.mode === 'survival') {
       run.seconds += data.seconds;
       if (playerWon) {
         run.kills++;
-        run.carryHp = clamp(m.fighters[0].hp / m.fighters[0].maxHp + 0.25, 0.3, 1);
+        const heal = Math.max(SURVIVAL_HEAL_MIN, SURVIVAL_HEAL - 0.02 * this.survivalExtra(run.kills));
+        run.carryHp = clamp(m.fighters[0].hp / m.fighters[0].maxHp + heal, 0.3, 1);
+        data.newBest = run.kills > run.bestBefore;
         data.buttons = ['next', 'menu'];
       } else {
         data.ended = true;
@@ -5299,13 +5333,15 @@ const Game = {
     if (kind === 'menu') { this.quitToMenu(); return; }
     if (kind === 'setup') { this.endMatch(); this.go(GS.CHARSEL); return; }
     if (kind === 'next') {
-      if (run.mode === 'arcade') this.startArcade(run.stage + 1);
+      if (run.mode === 'arcade') this.startArcade(run.stage + 1, true);
       else if (run.mode === 'survival') this.nextSurvivalMatch();
       return;
     }
-    if (kind === 'retry') { this.startArcade(run.stage); return; }
+    if (kind === 'retry') { run.continues++; this.startArcade(run.stage, true); return; }
     if (kind === 'again') {
-      if (run && run.mode === 'survival') { this.selection.mode = 'survival'; this.startSurvival(); } else this.restartMatch();
+      if (run && run.mode === 'survival') { this.selection.mode = 'survival'; this.startSurvival(); }
+      else if (run && run.mode === 'arcade') this.startArcade(0);   // "Play again" after clearing the ladder
+      else this.restartMatch();
     }
   },
 
@@ -5743,6 +5779,7 @@ const Music = {
    09a UI - menus (keyboard / gamepad / mouse / touch), HUD, popups, touch controls, diagnostics.
    ===================================================================== */
 const $ = (id) => document.getElementById(id);
+const clockText = (seconds) => String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MODE_INFO = {
   arcade: { label: 'Arcade', desc: 'Fight five opponents of rising difficulty. Beat the ladder to unlock fighters.' },
@@ -5993,6 +6030,7 @@ const UI = {
     if (name === 'diff') { const i = DIFFICULTY_ORDER.indexOf(sel.difficulty); sel.difficulty = DIFFICULTY_ORDER[(i + dir + 4) % 4]; }
     else if (name === 'rounds') { const list = [1, 2, 3]; sel.rounds = list[(list.indexOf(sel.rounds) + dir + 3) % 3]; }
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
+    else if (name === 'alevel') { const i = ARCADE_LEVELS.indexOf(sel.arcadeLevel); sel.arcadeLevel = ARCADE_LEVELS[(i + dir + ARCADE_LEVELS.length) % ARCADE_LEVELS.length]; }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     this.rerender(true);
@@ -6082,9 +6120,20 @@ const UI = {
   },
   screen_modes() {
     let h = '<section class="screen on" aria-label="Game modes"><div class="panel"><h2>Select mode</h2><nav>';
-    for (const k of ['arcade', 'survival', 'training', 'free']) h += '<button class="mi" data-nav ' + (k === 'arcade' ? 'data-default ' : '') + 'data-act="mode:' + k + '">' + MODE_INFO[k].label + '<small>' + MODE_INFO[k].desc + '</small></button>';
+    for (const k of ['arcade', 'survival', 'training', 'free']) {
+      const rec = this.modeRecord(k);
+      h += '<button class="mi" data-nav ' + (k === 'arcade' ? 'data-default ' : '') + 'data-act="mode:' + k + '">' + MODE_INFO[k].label + '<small>' + MODE_INFO[k].desc + '</small>' + (rec ? '<small class="rec">' + rec + '</small>' : '') + '</button>';
+    }
     h += '<button class="mi" data-nav data-act="back">Back</button></nav></div></section>';
     return h;
+  },
+  /* Saved records shown under a mode on the mode list ('' when there is nothing yet). */
+  modeRecord(mode) {
+    const p = Progress.d;
+    if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; fewest continues ' + p.arcadeFewestContinues + ' &middot; record ' + p.wins + '-' + p.losses;
+    if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + ARCADE_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
+    if (mode === 'survival' && (p.survivalKills || p.survivalSeconds)) return 'Best: ' + p.survivalKills + ' wins &middot; longest run ' + clockText(p.survivalSeconds);
+    return '';
   },
   statBars(attrs) {
     const rows = [['Power', attrs.strength], ['Speed', attrs.speed], ['Defense', attrs.defense], ['Stamina', attrs.stamina]];
@@ -6103,6 +6152,7 @@ const UI = {
     const customs = CustomRoster.profiles();
     if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === sel.player)).join('') + '</div>';
     const r = ROSTER_BY_ID[sel.player] || ROSTER_BY_ID.kai;
+    if (sel.mode === 'arcade') h += this.optRow('Arcade difficulty', DIFFICULTY[sel.arcadeLevel].label, 'data-local="alevel"', '');
     h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + '</p>';
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
@@ -6211,15 +6261,16 @@ const UI = {
     const d = Game.resultsData;
     if (!d) return '';
     const s0 = d.stats[0], s1 = d.stats[1];
-    const mm = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
-    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : 'Free Fight';
+    const mm = clockText;
+    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : 'Free Fight';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
     h += '<div class="statgrid"><span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span><span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
-    if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + '</p>';
+    if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
+    if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
     if (d.unlocked) h += '<p><b>Unlocked: ' + d.unlocked + '</b></p>';
     void s1;
-    const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
+    const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
     h += '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
     return h;
   },
@@ -7567,6 +7618,41 @@ const SelfTest = {
       m.endRound('time'); m.startRound();
       const replay = m.round === 2 && m.fighters[0].hp === m.fighters[0].maxHp * 0.5;
       return stored && abandoned && quit && replay ? true : JSON.stringify({ stored, abandoned, quit, replay });
+    });
+    test('Survival: every lap meets the whole roster in a new order, later wins keep raising the pressure', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.selection.player = 'kai';
+      Game.chooseMode('survival'); Game.startFromSelection();
+      const pool = Game.opponentChoices('kai').map((r) => r.id);
+      const seen = [Game.match.cfg.opponentId];
+      for (let i = 0; i < SURVIVAL_PEAK + 2; i++) { winAndContinue('next'); seen.push(Game.match.cfg.opponentId); }
+      const lap = seen.slice(0, pool.length).sort().join() === pool.slice().sort().join();
+      const late = Game.match.cfg.timer < SURVIVAL_TIMER && Game.match.cfg.difficulty === 'expert';
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return lap && late ? true : JSON.stringify({ seen, lap, late });
+    });
+    test('Arcade: difficulty option shifts the ladder, retries count continues, a clear offers Play again', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Progress.d = Progress.fresh();
+      const ladder = (level) => [0, 1, 2, 3, 4].map((stage) => arcadeDifficulty(stage, level)).join();
+      const levels = ladder('normal') === 'easy,normal,hard,hard,expert' && ladder('easy') === 'easy,easy,normal,normal,hard' && ladder('hard') === 'normal,hard,expert,expert,expert';
+      Game.selection.player = 'kai'; Game.selection.arcadeLevel = 'hard';
+      Game.chooseMode('arcade'); Game.startFromSelection();
+      const shifted = Game.match.cfg.difficulty === 'normal';
+      Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 1; Game.onMatchEnd();
+      Game.state = GS.RESULTS; Game.resultsAction('retry');
+      for (let i = 0; i < ARCADE_STAGES - 1; i++) winAndContinue('next');
+      Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 0; Game.onMatchEnd();
+      const d = Game.resultsData;
+      const cleared = d.cleared && d.continues === 1 && d.newBest && d.buttons[0] === 'again' && Progress.d.arcadeFewestContinues === 1;
+      Game.state = GS.RESULTS; Game.resultsAction('again');
+      const fresh = Game.run.stage === 0 && Game.run.continues === 0;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return levels && shifted && cleared && fresh ? true : JSON.stringify({ levels, shifted, cleared, fresh });
     });
     /* ----- character creator ----- */
     const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), slots: CustomRoster.slots.slice() });
