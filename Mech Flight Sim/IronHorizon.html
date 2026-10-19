@@ -235,6 +235,9 @@ const GROUND_BOUND = 930;       // ground platforms cannot leave this square
 const AIR_BOUND = 1080;         // aircraft are steered back beyond this
 const AIR_CEILING = 560;
 const MAX_PROJECTILES = 420;
+/* Damage one armour point stops, by damage type: rounds glance off plating, explosives and energy
+   cut through it, so the type changes how much it takes to kill an armoured target. */
+const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
@@ -4031,8 +4034,9 @@ class Platform {
     }
     if (rem > 0 && this.armor > 0) {
       const eff = dtype === 'energy' ? 0.6 : dtype === 'explosive' ? 0.85 : 1;
-      const toArmor = Math.min(this.armor, rem * this.def.armorRatio * eff);
-      this.armor -= toArmor; rem -= toArmor;
+      const soak = ARMOR_SOAK[dtype] || 1;   // damage one armour point stops
+      const toArmor = Math.min(this.armor * soak, rem * this.def.armorRatio * eff);
+      this.armor = Math.max(0, this.armor - toArmor / soak); rem -= toArmor;
     }
     if (rem > 0) {
       this.hp -= rem; this.hitFlash = 0.18;
@@ -7204,6 +7208,9 @@ const SelfTest = {
       a.shield = 0; a.shieldOn = false;
       a.takeDamage(100, 'kinetic', b, 0, 0);
       this.check('armor then hull', a.armor < ar0 && a.hp < hp0 && a.armor >= 0);
+      const ka = new Platform(def, { team: 1, x: 120, z: 0, yaw: 0, loadout: def.loadout }), xa = new Platform(def, { team: 1, x: 140, z: 0, yaw: 0, loadout: def.loadout });
+      ka.takeDamage(100, 'kinetic', null, 0, 0); xa.takeDamage(100, 'explosive', null, 0, 0);
+      this.check('explosives strip more armour than kinetic rounds', xa.maxArmor - xa.armor > ka.maxArmor - ka.armor);
       const hpMid = a.hp;
       a.takeDamage(10, 'kinetic', a, 0, 0);
       this.check('no self damage without friendly fire', a.hp === hpMid);
