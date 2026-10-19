@@ -4895,7 +4895,7 @@ class AIController {
       if (e.hideFromAI) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
       if (d > range) continue;
-      let score = d * (e === W.player ? 0.8 : 1) * (e.model === 'truck' ? 0.7 : 1);
+      let score = d * (e.isPlayer ? 0.8 : 1) * (e.model === 'truck' ? 0.7 : 1);   // human players (host and guests) draw fire first
       if (e === this.target) score *= 0.7;
       if (score >= bestScore) continue;
       tpos(e, AI_V);
@@ -5273,6 +5273,8 @@ function attachAI(p, archKey, diff) {
    MISSIONS: objectives, director (spawning), skirmish, training range
    ===================================================================== */
 const COOP_BOSS_HP = 0.4;   // extra boss hull per additional co-op player
+const COOP_UNITS = 0.5;     // extra enemy units per additional co-op player
+function coopUnitScale(nPlayers) { return 1 + COOP_UNITS * (nPlayers - 1); }
 function unitCost(k) { return { infantry: 1, rpgTrooper: 1, sniper: 2, buggy: 1, tank: 3, lightMech: 2, medMech: 3, heavyMech: 5, jet: 3, gunship: 5 }[k] || 1; }
 
 /* ---------- spawning helpers ---------- */
@@ -5457,8 +5459,8 @@ const Obj = {
           this.elapsed += dt; this.progress = sat(this.elapsed / this.duration) * 0.5;
           if (this.elapsed >= this.duration) { this.phase = 'extract'; W.msg('EXTRACTION POINT MARKED - MOVE', 'objective'); if (this.onExtract) this.onExtract(); }
         } else {
-          const p = W.player, z = this.zone;
-          const inside = p && !p.dead && Math.hypot(p.x - z.x, p.z - z.z) < z.r && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < 120);
+          const z = this.zone;   // any living human player (host or guest) in the zone holds it
+          const inside = W.platforms.some((p) => p.isPlayer && p.team === 0 && !p.dead && Math.hypot(p.x - z.x, p.z - z.z) < z.r && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < 120));
           if (inside) this.hold += dt; else this.hold = Math.max(0, this.hold - dt * 0.5);
           this.progress = 0.5 + sat(this.hold / this.holdTime) * 0.5;
           if (this.hold >= this.holdTime) this.status = 'complete';
@@ -6105,7 +6107,7 @@ const Game = {
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(def.map, seed), sceneryKeep: Scenery.keepOutFor(def.map), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
-    W.coopMult = cfg.coop ? 1 + 0.5 * ((cfg.nPlayers || 1) - 1) : 1;
+    W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
     else {
@@ -7006,6 +7008,8 @@ const UI = {
     const def = PLATFORMS[this.hg.platformId], v = Loadout.validate(def, this.hg.loadout);
     if (!v.ok) { this.toast(v.errors[0]); Snd.ui('warn'); return; }
     Save.data.platformId = def.id; Loadout.store(def.id, this.hg.loadout); Save.persist();
+    if (Net.host && !Net.inSession) Net.sendLobby();                    // the lobby shows the new platform at once
+    else if (Net.guest && Net.joined && !Net.inSession) Net.sendLobbyState();
     this.toast(def.name + ' selected');
     this.back();
   },
@@ -7533,6 +7537,21 @@ const SelfTest = {
       const sp2 = forwardSpawn(start, 3);
       this.check('respawn keeps clear of hostiles', !hostileNear(sp2.x, sp2.z, SPAWN_SAFE_DIST) && Math.hypot(sp2.x - tower.x, sp2.z - tower.z) > toGoal);
     });
+    t('extraction', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const host = new Platform(PLATFORMS.bulwark, { team: 0, x: -400, z: -400, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      const mate = new Platform(PLATFORMS.bulwark, { team: 0, x: 300, z: 300, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      const ally = new Platform(PLATFORMS.bulwark, { team: 0, x: 305, z: 300, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      host.isPlayer = true; W.platforms.push(host, mate, ally); W.player = host;
+      const sv = Obj.survive({ id: 's', title: 'Survive', duration: 0, holdTime: 2, zone: { x: 300, z: 300, r: 40 }, status: 'active' });
+      sv.phase = 'extract';
+      for (let i = 0; i < 60 * 3; i++) sv.tick(1 / 60);
+      this.check('an AI ally alone does not hold extraction', sv.status === 'active' && sv.hold === 0);
+      mate.isPlayer = true;
+      for (let i = 0; i < 60 * 3; i++) sv.tick(1 / 60);
+      this.check('a guest in the zone holds extraction for the team', sv.status === 'complete');
+    });
     t('hit feedback', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
       W.mission = null;
@@ -7876,6 +7895,7 @@ const Net = {
     this.peers.splice(i, 1);
     try { if (peer.rel) peer.rel.close(); if (peer.unr) peer.unr.close(); if (peer.pc) peer.pc.close(); } catch (e) { /* ignore */ }
     if (peer.p && W) { peer.p.dead = true; W.platforms = W.platforms.filter((q) => q !== peer.p); }
+    if (W && this.inSession) W.coopMult = coopUnitScale(1 + this.peers.filter((p) => p.hello).length);   // later waves shrink to the players left
     if (peer.hello) { UI.toast(peer.name + ' left (' + why + ')'); if (W && this.inSession) W.msgL(peer.name.toUpperCase() + ' DISCONNECTED'); }
     this.sendLobby();
   },
