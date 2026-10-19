@@ -519,7 +519,10 @@ function keyLabel(code) {
   return code;
 }
 /* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
-const PAD_LABELS = { interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT' };
+const PAD_LABELS = {
+  fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB',
+  interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT', pause: 'START',
+};
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
 function actionLabel(action) {
   if (Input.usingPad && PAD_LABELS[action]) return PAD_LABELS[action];
@@ -736,7 +739,8 @@ const Input = {
         const dz = (v) => (Math.abs(v) < 0.18 ? 0 : v);
         const b = (n) => !!(p.buttons[n] && p.buttons[n].pressed);
         const snap = {
-          lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7) || b(5), fire2: b(6) || b(4), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9),
+          lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7) || b(5), fire2: b(6), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9),
+          stance: b(4),   // LB: every other button is taken, and LT still fires the secondary
           interact: b(8), reload: b(11), up: b(12), down: b(13), left: b(14), right: b(15),   // Back, R3 and the d-pad
         };
         if (snap.lx || snap.ly || snap.rx || snap.ry || p.buttons.some((x) => x && x.pressed)) this.usingPad = true;
@@ -6096,8 +6100,8 @@ const PC = {
     if (pad) this.padD = pad.defense;
     if (Input.hit('melee') || (pad && pad.melee && !this.padM)) c.meleeEdge = true;
     if (pad) this.padM = pad.melee;
-    if (Input.hit('stance')) { c.stanceEdge = true; }
     // pad edges are read first so their last-frame state updates every frame
+    if (this.padEdge(pad, 'stance') || Input.hit('stance')) c.stanceEdge = true;
     if (this.padEdge(pad, 'reload') || Input.hit('reload')) c.reloadEdge = true;
     if (this.padEdge(pad, 'up') || Input.hit('gear')) c.gearEdge = true;
     if (this.padEdge(pad, 'down') || Input.hit('eject')) c.ejectEdge = true;   // a second press still confirms the eject
@@ -6343,19 +6347,22 @@ const Game = {
   setTutorial() {
     const p = W.player, kind = p.kind;
     if (S[tutorialKey(kind)]) { this.tutorial = null; return; }
-    const k = (a) => keyLabel(Input.code(a));
+    // hint texts are functions read when drawn, so they name pad buttons or keys for the device used last
+    const k = actionLabel, pad = () => Input.usingPad;
+    const aimWith = () => (pad() ? 'the RIGHT STICK' : 'the MOUSE');
     PC.usedDefense = false;
     const steps = [];
     if (kind === 'air') {
-      steps.push({ text: 'Move the MOUSE to steer; the plane follows your cursor. ' + k('moveForward') + '/' + k('moveBack') + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
-      steps.push({ text: 'Hold ' + k('fire1') + ' to fire guns, ' + k('fire2') + ' for missiles/bombs. ' + k('boost') + ' = afterburner', test: () => p.cmd.fire1 || p.cmd.fire2 });
-      steps.push({ text: k('cycleTarget') + ' selects a target; keep it in the lock cone to lock missiles', test: () => !!p.target });
-      steps.push({ text: k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => PC.usedDefense });
+      steps.push({ text: () => 'Move ' + aimWith() + ' to steer; the plane follows your aim. ' + (pad() ? 'LEFT STICK up/down' : k('moveForward') + '/' + k('moveBack')) + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
+      steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire guns, ' + k('fire2') + ' for missiles/bombs. ' + k('boost') + ' = afterburner', test: () => p.cmd.fire1 || p.cmd.fire2 });
+      steps.push({ text: () => k('cycleTarget') + ' selects a target; keep it in the lock cone to lock missiles', test: () => !!p.target });
+      steps.push({ text: () => k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => PC.usedDefense });
     } else {
-      steps.push({ text: 'Move with ' + k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight') + (kind === 'ground' ? ' (A/D steer the vehicle)' : '') + ', aim with the MOUSE', test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
-      steps.push({ text: 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + k('weapon1') + '/' + k('weapon2') + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
-      steps.push({ text: k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
-      steps.push({ text: k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
+      const moveWith = () => (pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
+      steps.push({ text: () => 'Move with ' + moveWith() + (kind === 'ground' ? ' (left/right steers the vehicle)' : '') + ', aim with ' + aimWith(), test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
+      steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + k('weapon1') + '/' + k('weapon2') + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
+      steps.push({ text: () => k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
+      steps.push({ text: () => k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
     }
     this.tutorial = { steps, i: 0, t: 0, done: false, key: tutorialKey(kind) };
   },
@@ -6499,6 +6506,7 @@ const Game = {
     if (R.lost || !R.ok) return;
     UI.resizeIfNeeded();
     PC.pollPause();
+    UI.pollPad();
     if (this.state === 'playing') {
       const pl = W.player;
       if (pl && !pl.dead) { if (this.netPaused) { const c = pl.cmd; c.moveF = c.moveS = c.turn = c.throttleIn = 0; c.fire1 = c.fire2 = c.boost = c.jump = c.brake = false; } else PC.sample(pl, dt); }
@@ -6890,7 +6898,7 @@ const HUD = {
       if (ud.def === 'shield') st = p.shieldOn ? 'ACTIVE' : p.shieldBroken > 0 ? 'BROKEN' : 'READY';
       else if (ud.def === 'aps') st = (p.util.auto ? 'ARMED ' : 'OFF ') + p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
       else st = p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
-      this.txt('[' + keyLabel(Input.code('defense')) + '] ' + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
+      this.txt('[' + actionLabel('defense') + '] ' + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
       this.txt(st, x + w - 6 * u, y + 13 * u, 12, C.main, 'right');
     }
   },
@@ -7040,7 +7048,7 @@ const HUD = {
     const C = this.C, sp = Game.spectating;
     if (sp) {
       this.txt('SPECTATING ' + sp.name.toUpperCase(), this.w / 2, this.h * 0.2, 18, C.friend, 'center', true);
-      this.txt('NO PLATFORMS LEFT  |  ' + keyLabel(Input.code('fire1')) + ' NEXT PILOT', this.w / 2, this.h * 0.2 + 24 * u, 12, C.text, 'center');
+      this.txt('NO PLATFORMS LEFT  |  ' + actionLabel('fire1') + ' NEXT PILOT', this.w / 2, this.h * 0.2 + 24 * u, 12, C.text, 'center');
       return;
     }
     this.txt('PLATFORM DESTROYED', this.w / 2, this.h * 0.4, 26, C.bad, 'center', true);
@@ -7083,7 +7091,7 @@ const HUD = {
     const g = this.g, w = Math.min(this.w - 40, 640 * u), x = this.w / 2 - w / 2, y = this.h - 118 * u;
     g.fillStyle = 'rgba(4,12,16,0.78)'; g.fillRect(x, y, w, 30 * u);
     g.strokeStyle = this.C.warn; g.strokeRect(x + 0.5, y + 0.5, w, 30 * u);
-    this.txt('TIP ' + (t.i + 1) + '/' + t.steps.length + ': ' + s.text, this.w / 2, y + 15 * u, 11, this.C.text, 'center');
+    this.txt('TIP ' + (t.i + 1) + '/' + t.steps.length + ': ' + s.text(), this.w / 2, y + 15 * u, 11, this.C.text, 'center');
   },
 };
 
@@ -7093,8 +7101,10 @@ const HUD = {
    Screens are rendered as HTML strings; one delegated listener handles
    every [data-act] button so restarts can never duplicate handlers.
    ===================================================================== */
+const MENU_STICK = 0.5;   // left-stick deflection that moves the menu focus
 const UI = {
   root: null, stack: [], cur: null, diagOn: false, needResize: true, toastT: 0, hg: null, rebind: null, lastW: 0, lastH: 0, skirmish: null, justCaptured: false,
+  padPrev: {},   // menu gamepad buttons held last frame, for edge detection
 
   init() {
     this.root = el('overlay');
@@ -7172,13 +7182,30 @@ const UI = {
     const f = this.root.querySelector('[data-focus]') || this.root.querySelector('.btn');
     if (f && !this.rebind) { try { f.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
   },
-  navKey(code) {
+  navKey(code, fromPad) {
     const items = Array.from(this.root.querySelectorAll('.btn:not([disabled]),.card,select,input[type=range]'));
     if (!items.length) return;
     const a = document.activeElement, i = items.indexOf(a);
-    if (a && (a.tagName === 'SELECT' || a.tagName === 'INPUT') && i >= 0) return; // let controls use arrows natively
+    if (!fromPad && a && (a.tagName === 'SELECT' || a.tagName === 'INPUT') && i >= 0) return; // let controls use arrows natively
     const n = code === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
     items[n].focus();
+  },
+  /* Gamepad on menu screens: d-pad or left stick moves the focus (down/right next, up/left previous), A presses
+     the focused control, B backs out like Esc. Polled every frame; edges only, so a button held from gameplay does nothing. */
+  pollPad() {
+    const pad = Input.pad(), stick = MENU_STICK;
+    const held = {
+      next: !!pad && (pad.down || pad.right || pad.ly > stick || pad.lx > stick),
+      prev: !!pad && (pad.up || pad.left || pad.ly < -stick || pad.lx < -stick),
+      ok: !!pad && pad.jump, back: !!pad && pad.defense,
+    };
+    const edge = {};
+    for (const k in held) edge[k] = held[k] && !this.padPrev[k];
+    this.padPrev = held;
+    if (!pad || !this.visible() || this.rebind || (Game.state === 'playing' && !Game.netPaused)) return;
+    if (edge.next || edge.prev) this.navKey(edge.next ? 'ArrowDown' : 'ArrowUp', true);
+    else if (edge.ok) { const a = document.activeElement; if (a && a !== document.body && this.root.contains(a)) a.click(); }
+    else if (edge.back) this.escape();
   },
 
   /* ---- actions ---- */
@@ -7416,7 +7443,7 @@ const UI = {
     return '<h2>Controls</h2>' + (this.rebind ? '<div class="panel warn" role="status">' + esc(this.rebind.msg) + '</div>' : '<div class="hint" style="margin:0 0 .6em">Click a binding, then press the new key or mouse button. Esc and F-keys are reserved.</div>') +
       '<div class="grid2"><div class="panel"><table><tr><th>Action</th><th>Binding</th></tr>' + rows + '</table></div>' +
       '<div class="panel"><h3 style="margin-top:0">Per-platform behaviour</h3><table><tr><th></th><th>Mech</th><th>Ground</th><th>Aircraft</th></tr>' + per.map((r) => '<tr><td>' + r.map(esc).join('</td><td>') + '</td></tr>').join('') + '</table>' +
-      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, triggers fire, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause.</div></div></div>' +
+      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, RT/RB primary, LT secondary, LB crouch / radar mode, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
       '<div class="row"><button class="btn" data-act="rebindAll">Reset to defaults</button><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_settings() {
@@ -7615,7 +7642,11 @@ const SelfTest = {
         const mechHints = !!Game.tutorial;
         W.player = { kind: 'air', cmd: {} }; Game.setTutorial();
         this.check('a pilot who learned mechs still gets flight hints', !mechHints && !!Game.tutorial && Game.tutorial.key === 'tutorialAir');
-      } finally { W.player = keep.player; Game.tutorial = keep.tutorial; S.tutorialMech = keep.mech; S.tutorialAir = keep.air; }
+        const tip = Game.tutorial.steps[1];
+        Input.usingPad = true; const padTip = tip.text();
+        Input.usingPad = false; const keyTip = tip.text();
+        this.check('hints name the pad buttons or keys last used', padTip.indexOf('Hold RT') === 0 && keyTip.indexOf('Hold ' + keyLabel(Input.code('fire1'))) === 0, padTip + ' / ' + keyTip);
+      } finally { W.player = keep.player; Game.tutorial = keep.tutorial; S.tutorialMech = keep.mech; S.tutorialAir = keep.air; Input.usingPad = false; }
     });
     // world based checks need a throwaway world; restore the menu world afterwards
     const hadState = Game.state;
@@ -7914,22 +7945,45 @@ const SelfTest = {
       W.platforms.push(jet); W.player = jet;
       const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev, padC: PC.padC };
       try {
-        const buttons = { right: true, up: true, down: true, reload: true, interact: true, cycle: true };
+        const buttons = { right: true, up: true, down: true, reload: true, interact: true, cycle: true, stance: true };
         Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
         PC.padPrev = {}; PC.padC = false; PC.manualHold = 0;
         PC.sample(jet, STEP);
         const c = jet.cmd;
-        this.check('the pad selects weapon 2, lowers the gear, arms the eject and reloads', c.sel2 && c.gearEdge && c.ejectEdge && c.reloadEdge);
+        this.check('the pad selects weapon 2, lowers the gear, arms the eject, reloads and changes stance', c.sel2 && c.gearEdge && c.ejectEdge && c.reloadEdge && c.stanceEdge);
         this.check('a manual Cycle Target holds off auto-target', PC.manualHold === AUTO_RETARGET_HOLD);
         this.check('Back uses the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
-        c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = false;
+        c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = c.stanceEdge = false;
         PC.sample(jet, STEP);
-        this.check('a held pad button acts once', !c.sel2 && !c.gearEdge && !c.ejectEdge && !c.reloadEdge);
+        this.check('a held pad button acts once', !c.sel2 && !c.gearEdge && !c.ejectEdge && !c.reloadEdge && !c.stanceEdge);
         Input.usingPad = true;
-        this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK');
+        this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK' && actionLabel('defense') === 'B' && actionLabel('stance') === 'LB');
         Input.usingPad = false;
         this.check('prompts show the key after keyboard input', actionLabel('interact') === keyLabel(Input.code('interact')));
       } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; }
+    });
+    t('gamepad menus', () => {
+      const keep = { pad: Input.pad, cur: UI.cur, stack: UI.stack.slice(), state: Game.state, prev: UI.padPrev };
+      try {
+        let buttons = {};
+        Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
+        const press = (b) => { buttons = {}; UI.pollPad(); buttons = b; UI.pollPad(); };
+        const focused = () => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.act;
+        Game.state = 'menu'; UI.padPrev = {};
+        UI.show('controls'); UI.show('confirm', { text: 'Pad test', yes: 'cancel' });
+        press({ down: true });
+        this.check('the d-pad moves the menu focus', focused() === 'cancel', focused());
+        UI.pollPad();
+        this.check('a held d-pad moves the focus once', focused() === 'cancel');
+        press({ jump: true });
+        this.check('A presses the focused button', UI.cur.name === 'controls');
+        press({ defense: true });
+        this.check('B backs out of a menu', UI.cur.name !== 'controls');
+      } finally {
+        Input.pad = keep.pad; UI.padPrev = keep.prev; Game.state = keep.state;
+        UI.stack = keep.stack; UI.cur = keep.cur;
+        if (keep.cur) UI.render(); else UI.hideAll();
+      }
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
