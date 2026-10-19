@@ -5340,14 +5340,20 @@ const FORWARD_SPAWN_DIST = 250;   // players respawn this far short of the neare
 const FORWARD_SPAWN_STEP = 100;   // and step back toward the start while that spot is unsafe
 const SPAWN_SAFE_DIST = 150;      // no hostile may be this close to a respawn point
 const SPAWN_SIGHT_CAP = 800;      // sight counted against a respawn point at most (aircraft sensors reach 1500 m)
-/* True when a living hostile could spot a platform here at once: within its current sight (capped), or
-   within SPAWN_SAFE_DIST of anything hostile. AA batteries only count against aircraft. */
+const SPAWN_EYE_H = 3;            // height above ground checked for line of sight to a ground respawn point
+/* True when a living hostile could spot a platform here at once: within SPAWN_SAFE_DIST of anything hostile,
+   or within its current sight (capped) with line of sight, as AI perception needs. Aircraft respawn airborne,
+   where perception skips the sight line, so for them range alone counts. AA batteries only count against aircraft. */
 function hostileSees(x, z, air) {
+  const groundY = Terrain.h(x, z);
   for (const e of W.platforms) {
     if (e.team !== 1 || e.dead) continue;
     if (e.ai && e.ai.airOnly && !air) continue;
+    const d = Math.hypot(e.x - x, e.z - z);
+    if (d < SPAWN_SAFE_DIST) return true;
     const sight = e.ai ? Math.min(SPAWN_SIGHT_CAP, e.ai.sightRange()) : 0;
-    if (Math.hypot(e.x - x, e.z - z) < Math.max(SPAWN_SAFE_DIST, sight)) return true;
+    if (d >= sight) continue;
+    if (air || hasLOS(e.x, e.y + (e.kind === 'air' ? 0 : e.height * 0.8), e.z, x, groundY + SPAWN_EYE_H, z)) return true;
   }
   return false;
 }
@@ -7756,9 +7762,15 @@ const SelfTest = {
       this.check('respawn keeps clear of hostiles', !hostileSees(sp2.x, sp2.z, false) && Math.hypot(sp2.x - tower.x, sp2.z - tower.z) > toGoal);
       const gun = spawnUnit('turret', 100, 100, { force: true });
       const sp3 = forwardSpawn(start, 3), toGun = Math.hypot(sp3.x - gun.x, sp3.z - gun.z);
-      this.check('respawn stays out of a turret sight range', toGun >= gun.ai.sightRange(), Math.round(toGun) + ' m, sight ' + Math.round(gun.ai.sightRange()));
+      const gunSees = hasLOS(gun.x, gun.y + gun.height * 0.8, gun.z, sp3.x, Terrain.h(sp3.x, sp3.z) + SPAWN_EYE_H, sp3.z);
+      this.check('respawn stays out of a turret sight', toGun >= gun.ai.sightRange() || !gunSees, Math.round(toGun) + ' m, sight ' + Math.round(gun.ai.sightRange()));
       spawnUnit('aaTurret', -800, 800, { force: true });
       this.check('an AA battery only guards against aircraft respawns', !hostileSees(-800, 500, false) && hostileSees(-800, 500, true));
+      const post = spawnUnit('turret', 800, -800, { force: true });
+      addStruct('rock', 800, -700, { dims: { w: 80, h: 60, d: 6 } });   // a ridge between the turret and one point at the same range
+      const openSeen = hostileSees(500, -800, false), hiddenSeen = hostileSees(800, -500, false);
+      this.check('a hostile only blocks a respawn point it can see', openSeen && !hiddenSeen && hostileSees(800, -500, true), 'open ' + openSeen + ', hidden ' + hiddenSeen);
+      post.dead = true;
       W.mission = new Mission({ id: 'test', start }, {});
       const truck = spawnUnit('truck', -600, 300, { force: true });   // sightless, so only the hunted-unit rule keeps the spawn back
       W.mission.add(Obj.kill({ id: 'k', title: 'Kill', units: [truck], status: 'active' }));
