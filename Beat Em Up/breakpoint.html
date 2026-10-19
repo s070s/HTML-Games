@@ -4803,7 +4803,7 @@ class MatchSim {
   }
   startRound() {
     this.round++;
-    this.placeFighters(this.round === 1 ? this.cfg.playerHp : 1);
+    this.placeFighters(this.round === 1 || this.cfg.mode === 'survival' ? this.cfg.playerHp : 1);   // survival health carries into a drawn round's replay
     this.roundTicks = this.cfg.timer * 60;
     this.hitStop = 0;
     this.endTimer = 0;
@@ -5222,13 +5222,23 @@ const Game = {
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
   },
+  /* In Survival a restart abandons the run (no free retries): the record is kept and a new run starts. */
   restartMatch() {
     if (!this.config) return;
-    const cfg = Object.assign({}, this.config);
-    if (this.run && this.run.mode === 'survival') cfg.playerHp = this.run.carryHp;
-    this.beginMatch(cfg);
+    if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
+    this.beginMatch(Object.assign({}, this.config));
+  },
+  /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
+  saveSurvivalRecord() {
+    const run = this.run;
+    if (!run || run.mode !== 'survival') return;
+    const unfinished = this.match && !this.match.matchOver ? Math.round(this.match.matchTicks / 60) : 0;
+    Progress.d.survivalKills = Math.max(Progress.d.survivalKills, run.kills);
+    Progress.d.survivalSeconds = Math.max(Progress.d.survivalSeconds, run.seconds + unfinished);
+    Progress.save();
   },
   quitToMenu() {
+    this.saveSurvivalRecord();
     this.endMatch();
     this.run = null;
     this.pausedFrom = null;
@@ -5272,15 +5282,13 @@ const Game = {
       if (playerWon) {
         run.kills++;
         run.carryHp = clamp(m.fighters[0].hp / m.fighters[0].maxHp + 0.25, 0.3, 1);
-        data.kills = run.kills; data.survivalSeconds = run.seconds;
         data.buttons = ['next', 'menu'];
       } else {
-        data.kills = run.kills; data.survivalSeconds = run.seconds; data.ended = true;
-        Progress.d.survivalKills = Math.max(Progress.d.survivalKills, run.kills);
-        Progress.d.survivalSeconds = Math.max(Progress.d.survivalSeconds, run.seconds);
-        Progress.save();
+        data.ended = true;
         data.buttons = ['again', 'menu'];
       }
+      data.kills = run.kills; data.survivalSeconds = run.seconds;
+      this.saveSurvivalRecord();
     } else data.buttons = ['again', 'setup', 'menu'];
     this.resultsData = data;
     this.endTimer = 0;
@@ -6188,7 +6196,8 @@ const UI = {
   screen_pause() {
     const m = Game.match;
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.55)" aria-label="Paused"><div class="panel"><h2>Paused</h2><nav>' +
-      '<button class="mi" data-nav data-default data-act="resume">Resume</button><button class="mi" data-nav data-act="restart">Restart match</button>';
+      '<button class="mi" data-nav data-default data-act="resume">Resume</button>' +
+      (Game.run && Game.run.mode === 'survival' ? '<button class="mi" data-nav data-act="restart">Abandon run<small>Your record is kept; a new run starts</small></button>' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
     if (m && m.training) {
       h += this.optRow('Dummy', DUMMY_LABEL[m.cfg.dummy], 'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
@@ -7527,6 +7536,37 @@ const SelfTest = {
       const ok = m.fighters.every((f) => R.project(f.x, f.y + 1, f.z, out) && out[0] > 0 && out[0] < R.cssW && out[1] > 0 && out[1] < R.cssH);
       R.cssW = keepW; R.cssH = keepH;
       return ok ? true : 'a fighter left the frame';
+    });
+    /* ----- modes and match flow ----- */
+    const keepProgress = () => ({ raw: Store.get(KEY_PROGRESS), d: JSON.parse(JSON.stringify(Progress.d)), sel: Object.assign({}, Game.selection) });
+    const restoreProgress = (saved) => {
+      if (saved.raw === null) Store.remove(KEY_PROGRESS); else Store.set(KEY_PROGRESS, saved.raw);
+      Progress.d = saved.d;
+      Object.assign(Game.selection, saved.sel);
+    };
+    /* End the current Game match as a player win and continue from the results screen. */
+    const winAndContinue = (action) => {
+      Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 0; Game.onMatchEnd();
+      Game.state = GS.RESULTS; Game.resultsAction(action);
+    };
+    test('Survival: record saved on every win and on quit, restart abandons the run, health carries into a replayed round', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Progress.d.survivalKills = 0; Progress.d.survivalSeconds = 0;
+      Game.chooseMode('survival'); Game.startFromSelection();
+      winAndContinue('next'); winAndContinue('next');
+      const stored = JSON.parse(Store.get(KEY_PROGRESS) || '{}').survivalKills === 2;
+      Game.state = GS.FIGHT; Game.pause(); Game.restartMatch();
+      const abandoned = Game.run.kills === 0 && Game.match.cfg.playerHp === 1 && Progress.d.survivalKills === 2;
+      Game.match.matchTicks = 60 * 900;                 // 15 minutes into an unfinished fight
+      Game.quitToMenu();
+      const quit = Progress.d.survivalSeconds >= 900 && Game.state === GS.MENU;
+      restoreProgress(saved);
+      const m = mk({ mode: 'survival', playerHp: 0.5, winsNeeded: 1, timer: 2 });
+      m.fighters[1].hp = m.fighters[1].maxHp * 0.5;
+      m.endRound('time'); m.startRound();
+      const replay = m.round === 2 && m.fighters[0].hp === m.fighters[0].maxHp * 0.5;
+      return stored && abandoned && quit && replay ? true : JSON.stringify({ stored, abandoned, quit, replay });
     });
     /* ----- character creator ----- */
     const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), slots: CustomRoster.slots.slice() });
