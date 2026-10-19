@@ -238,6 +238,7 @@ const MAX_PROJECTILES = 420;
 /* Damage one armour point stops, by damage type: rounds glance off plating, explosives and energy
    cut through it, so the type changes how much it takes to kill an armoured target. */
 const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
+const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
@@ -405,7 +406,7 @@ const PLATFORMS = {
   dummyMove: { id: 'dummyMove', name: 'Moving Target', kind: 'ground', cls: 'Moving Target', model: 'dummy', hp: 420, armor: 0, armorRatio: 0, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 3, weightCap: 99, radius: 2.4, height: 5, speed: 16, sensor: 0, stability: 9, ground: { type: 'wheeled', accel: 18, brake: 30, drag: 6, reverse: 0.3, steerRate: 1.6, steerMin: 2, grip: 8, turretRate: 0, boostMult: 1, climb: 0.7, ride: 0.8, pitchLim: [0, 0] }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.85, 0.5, 0.15], dark: [0.3, 0.2, 0.1] } },
   dummyAir: { id: 'dummyAir', name: 'Aerial Target', kind: 'air', cls: 'Aerial Target', model: 'jet', style: 'drone', hp: 260, armor: 0, armorRatio: 0, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 1, weightCap: 99, radius: 4, height: 3, speed: 90, sensor: 0, stability: 9, air: { min: 40, cruise: 90, max: 110, ab: 110, accel: 30, decel: 30, yawMax: 0.9, pitchMax: 0.8, yawGain: 2, pitchGain: 2, maxBank: 0.9, rollResp: 3, rollMax: 2, clearance: 3, landMax: 0, takeoff: 40, groundTurn: 0, gearH: 1.5 }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.85, 0.5, 0.15], dark: [0.3, 0.2, 0.1] } },
   truck: { id: 'truck', name: 'Supply Truck', kind: 'ground', cls: 'Convoy Truck', model: 'truck', hp: 520, armor: 120, armorRatio: 0.5, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 3, weightCap: 99, radius: 3, height: 3.4, speed: 15, sensor: 0, stability: 3, ground: { type: 'wheeled', accel: 10, brake: 30, drag: 6, reverse: 0.3, steerRate: 1.2, steerMin: 2, grip: 8, turretRate: 0, boostMult: 1, climb: 0.6, ride: 1.1, pitchLim: [0, 0] }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.45, 0.5, 0.35], dark: [0.2, 0.22, 0.15] } },
-  bomber: { id: 'bomber', name: 'Bomber', kind: 'air', cls: 'Bomber', model: 'bomber', hp: 300, armor: 60, armorRatio: 0.5, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 3, weightCap: 99, radius: 6, height: 3.5, speed: 85, sensor: 0, stability: 4, air: { min: 40, cruise: 85, max: 100, ab: 100, accel: 20, decel: 20, yawMax: 0.55, pitchMax: 0.5, yawGain: 2, pitchGain: 2, maxBank: 0.6, rollResp: 2, rollMax: 1, clearance: 3, landMax: 0, takeoff: 40, groundTurn: 0, gearH: 1.5 }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.4, 0.38, 0.36], dark: [0.15, 0.14, 0.13] } },
+  bomber: { id: 'bomber', name: 'Bomber', kind: 'air', cls: 'Bomber', model: 'bomber', hp: 200, armor: 60, armorRatio: 0.5, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 3, weightCap: 99, radius: 6, height: 3.5, speed: 85, sensor: 0, stability: 4, air: { min: 40, cruise: 85, max: 100, ab: 100, accel: 20, decel: 20, yawMax: 0.55, pitchMax: 0.5, yawGain: 2, pitchGain: 2, maxBank: 0.6, rollResp: 2, rollMax: 1, clearance: 3, landMax: 0, takeoff: 40, groundTurn: 0, gearH: 1.5 }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.4, 0.38, 0.36], dark: [0.15, 0.14, 0.13] } },
   turret: { id: 'turret', name: 'Gun Emplacement', kind: 'ground', cls: 'Turret', model: 'turret', hp: 520, armor: 180, armorRatio: 0.65, energy: 0, energyRegen: 0, heatCap: 160, cooling: 18, mass: 8, weightCap: 99, radius: 3, height: 4.2, speed: 0, sensor: 0, stability: 9, ground: { type: 'static', accel: 0, brake: 0, drag: 0, reverse: 0, steerRate: 0, steerMin: 0, grip: 20, turretRate: 2.4, boostMult: 1, climb: 0, ride: 0, pitchLim: [-0.1, 0.9] }, mounts: { primaryA: [0.9, 3.4, 2.4], primaryB: [-0.9, 3.4, 2.4], secondary: [0, 4.6, 0] }, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.4, 0.4, 0.36], dark: [0.17, 0.17, 0.15] } },
   aaTurret: { id: 'aaTurret', name: 'AA Battery', kind: 'ground', cls: 'AA Turret', model: 'turret', style: 'aa', hp: 420, armor: 120, armorRatio: 0.6, energy: 0, energyRegen: 0, heatCap: 160, cooling: 18, mass: 8, weightCap: 99, radius: 3, height: 4.4, speed: 0, sensor: 0, stability: 9, ground: { type: 'static', accel: 0, brake: 0, drag: 0, reverse: 0, steerRate: 0, steerMin: 0, grip: 20, turretRate: 3.2, boostMult: 1, climb: 0, ride: 0, pitchLim: [0.05, 1.45] }, mounts: { primaryA: [0.9, 3.4, 2.4], primaryB: [-0.9, 3.4, 2.4], secondary: [0, 4.6, 0] }, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.36, 0.4, 0.34], dark: [0.15, 0.17, 0.14] } },
 };
@@ -3977,7 +3978,7 @@ class Platform {
     const decoy = W.decoys[W.decoys.length - 1];
     for (let i = 0; i < W.projs.length; i++) {
       const p = W.projs[i];
-      if (p.active && p.target === this && Math.random() < 0.72) p.target = decoy;
+      if (p.active && p.target === this && Math.random() < FLARE_SPOOF) p.target = decoy;
     }
     for (let i = 0; i < W.platforms.length; i++) { const e = W.platforms[i]; if (e.lock.target === this && Math.random() < 0.7) { e.lock.progress = 0; e.lock.state = 'none'; } }
     if (W.player === this) W.msgL('FLARES AWAY (' + u.charges + ' LEFT)');
@@ -4720,6 +4721,7 @@ const AI_PROFILE = {
 const AI_V = { x: 0, y: 0, z: 0 };
 const AIM_ERR_HOLD = [0.4, 0.8];   // seconds an aim error offset is kept before a new one is picked
 const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the new offset
+const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
 const AI_NOSE = { x: 0, y: 0, z: 0 };
 
 class AIController {
@@ -4996,7 +4998,7 @@ class AIController {
       case 'flares': {
         if (this.flareT <= 0 && u.charges > 0 && u.cd <= 0) {
           const inc = incomingMissiles(p);
-          if (inc.count > 0 && inc.dist < 700) { c.defenseEdge = true; this.flareT = 1.0; }
+          if (inc.count > 0 && inc.dist < 700) { c.defenseEdge = true; this.flareT = AI_FLARE_INTERVAL; }
         }
         break;
       }
