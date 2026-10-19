@@ -2258,7 +2258,7 @@ function canTransition(from, to) {
   if (TERMINAL_STATES.includes(from)) return false;
   if (to === S.KO) return true;
   if (to === S.VICTORY || to === S.DEFEAT) return true;
-  if (REACTION_STATES.includes(to)) return to !== S.DOWN || from === S.THROWN || from === S.HIT || from === S.STAGGER || from === S.KO;
+  if (REACTION_STATES.includes(to)) return to !== S.DOWN || from === S.THROWN || from === S.HIT || from === S.STAGGER;
   if (from === to) return true;
   return TRANSITIONS[from].includes(to);
 }
@@ -2475,7 +2475,6 @@ const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
 const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees away from the grabber = rear grip
-const THROW_STARTUP = THROW_SETS.front.fwd.startup;   // reference throw length (forward hip toss)
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
@@ -2780,7 +2779,6 @@ class Fighter {
     this.pose = new Float32Array(NP);
     this.tp = new Float32Array(NP);
     this.pts = new Float32Array(24);
-    this.intent = makeIntent();
     this.reset(0, 0, 0);
   }
 
@@ -2806,7 +2804,6 @@ class Fighter {
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard[0]); this.tp.set(this.motion.guard[0]);
     this.alive = true;
-    this.stats_ = { dealt: 0, taken: 0 };
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
   }
 
@@ -2851,13 +2848,12 @@ class Fighter {
     const want = Math.atan2(opp.x - this.x, opp.z - this.z);
     this.yaw = wrapAngle(this.yaw + clamp(wrapAngle(want - this.yaw), -maxTurn, maxTurn));
   }
-  isActionable() { return this.lock === 0 && (FREE_SET.includes(this.state) || this.state === S.JUMP); }
 
   /* ----- input buffering ----- */
   bufferInput(it) {
     const grab = it.grapple && this.state !== S.CLINCH && this.state !== S.GRAPPLE;   // in a clinch Grapple throws or escapes directly
     const btn = it.rk ? 'rk' : it.rp ? 'rp' : it.lk ? 'lk' : it.lp ? 'lp' : grab ? 'grapple' : null; // simultaneous presses: rk > rp > lk > lp > grapple
-    if (btn) this.buffer = { btn, strong: it.strong, height: it.height, run: it.run, grapDir: it.grapDir || 'fwd', low: !!it.crouch, age: 0 };
+    if (btn) this.buffer = { btn, strong: it.strong, height: it.height, grapDir: it.grapDir || 'fwd', low: !!it.crouch, age: 0 };
     else if (this.buffer) { this.buffer.age++; if (this.buffer.age > BUFFER_TICKS) this.buffer = null; }
   }
   resolveMove(buf, it) {
@@ -4354,7 +4350,7 @@ class AIController {
     this.head = 0; this.count = 0; this.plan = null; this.nextDecision = 0; this.lastMoves = [];
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
     this.threatId = -1; this.threatResp = null; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
-    this.lockout = 0; this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.mode = 'neutral'; this.clinchPlan = null; this.tickNo = 0;
+    this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
   }
   observe(f, opp) {
     const s = this.hist[this.head];
@@ -4407,7 +4403,6 @@ class AIController {
     this.observe(f, opp);
     const d = this.d;
     const snap = this.delayed(d.react);
-    if (this.lockout > 0) this.lockout--;
     if (!f.alive || TERMINAL_STATES.includes(f.state)) return it;
     if (f.state !== S.GRAPPLE) this.clinchPlan = null;   // every clinch gets a fresh plan
     // reactions to the clinch and getting up
@@ -4530,7 +4525,6 @@ class AIController {
       if (blockingL) sc *= mv.h === 'L' ? 0.3 : 1.4;
       if (oppCrouch && mv.h === 'H') sc *= 0.1;
       if (snap.y > 0.4 && mv.h === 'L') sc *= 0.1;
-      if (mv.width < 0.5 && Math.abs(snap.dist - dist) > 0.01) sc *= 1;
       if (this.lastMoves.includes(mv.id)) sc *= 0.6;
       sc *= 1 + (simRng() - 0.5) * (0.3 + d.mistakes * 3);
       if (sc > bestScore) { bestScore = sc; best = mv; }
@@ -4824,7 +4818,6 @@ class MatchSim {
     Events.emit('roundStart', { round: this.round, match: this });
     if (this.phase === 'fight') Events.emit('fightStart', {});
   }
-  restartRound() { this.round--; this.startRound(); }
 
   /* ----- one fixed simulation tick ----- */
   step() {
@@ -4929,7 +4922,6 @@ class MatchSim {
   }
   resetFighters() {
     this.placeFighters(1);
-    this.fighters[0].intent = makeIntent();
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
   }
