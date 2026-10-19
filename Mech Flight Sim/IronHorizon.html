@@ -518,6 +518,13 @@ function keyLabel(code) {
   if (code.indexOf('Arrow') === 0) return code.slice(5) + ' Arrow';
   return code;
 }
+/* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
+const PAD_LABELS = { interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT' };
+/* The control to show for an action: its gamepad button when the pad was used last, else its key. */
+function actionLabel(action) {
+  if (Input.usingPad && PAD_LABELS[action]) return PAD_LABELS[action];
+  return keyLabel(Input.code(action));
+}
 
 
 /* =====================================================================
@@ -658,6 +665,7 @@ const Input = {
   down: new Set(), pressed: new Set(), released: new Set(),
   mdx: 0, mdy: 0, wheel: 0, locked: false, lockSupported: true, lockFailed: false,
   curX: 0.5, curY: 0.5, bindings: {}, inited: false, capture: null,
+  usingPad: false,   // the last button or stick input came from a gamepad (prompts show pad buttons)
   onKeyDown: null, onLockChange: null, playing: false,
   setBindings(b) { this.bindings = Object.assign({}, b); },
   init(canvas) {
@@ -689,7 +697,7 @@ const Input = {
     const code = e.code;
     if (isDown && this.capture) { e.preventDefault(); e.stopPropagation(); this.capture(code); return; }
     if (isDown) {
-      if (!e.repeat) { this.pressed.add(code); this.down.add(code); if (this.onKeyDown) this.onKeyDown(code, e); }
+      if (!e.repeat) { this.pressed.add(code); this.down.add(code); this.usingPad = false; if (this.onKeyDown) this.onKeyDown(code, e); }
     } else { this.down.delete(code); this.released.add(code); }
     if (this.playing) {
       // keep browser shortcuts from firing during combat (Tab focus, F-keys, space scrolling)
@@ -700,7 +708,7 @@ const Input = {
     const code = 'Mouse' + e.button;
     if (isDown && this.capture) { if (e.target === this.canvas || (e.target.closest && e.target.closest('[data-capture]'))) { e.preventDefault(); this.capture(code); } return; }
     if (!this.playing) return;
-    if (isDown) { this.down.add(code); this.pressed.add(code); } else { this.down.delete(code); this.released.add(code); }
+    if (isDown) { this.down.add(code); this.pressed.add(code); this.usingPad = false; } else { this.down.delete(code); this.released.add(code); }
     if (e.target === this.canvas) e.preventDefault();
   },
   code(action) { return this.bindings[action]; },
@@ -727,7 +735,12 @@ const Input = {
       if (p && p.connected && p.axes && p.axes.length >= 4) {
         const dz = (v) => (Math.abs(v) < 0.18 ? 0 : v);
         const b = (n) => !!(p.buttons[n] && p.buttons[n].pressed);
-        return { lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7) || b(5), fire2: b(6) || b(4), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9) };
+        const snap = {
+          lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7) || b(5), fire2: b(6) || b(4), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9),
+          interact: b(8), reload: b(11), up: b(12), down: b(13), left: b(14), right: b(15),   // Back, R3 and the d-pad
+        };
+        if (snap.lx || snap.ly || snap.rx || snap.ry || p.buttons.some((x) => x && x.pressed)) this.usingPad = true;
+        return snap;
       }
     }
     return null;
@@ -6025,6 +6038,7 @@ const PC = {
   sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
   usedDefense: false,   // set when the defense key is pressed; the tutorial reads it after the tick has consumed the edge
   hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact; reset per platform
+  padPrev: {},          // gamepad buttons held last frame, for padEdge
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -6068,16 +6082,17 @@ const PC = {
     if (Input.hit('melee') || (pad && pad.melee && !this.padM)) c.meleeEdge = true;
     if (pad) this.padM = pad.melee;
     if (Input.hit('stance')) { c.stanceEdge = true; }
-    if (Input.hit('reload')) c.reloadEdge = true;
-    if (Input.hit('gear')) c.gearEdge = true;
-    if (Input.hit('eject')) c.ejectEdge = true;
-    if (Input.hit('weapon1')) c.sel1 = true;
-    if (Input.hit('weapon2')) c.sel2 = true;
+    // pad edges are read first so their last-frame state updates every frame
+    if (this.padEdge(pad, 'reload') || Input.hit('reload')) c.reloadEdge = true;
+    if (this.padEdge(pad, 'up') || Input.hit('gear')) c.gearEdge = true;
+    if (this.padEdge(pad, 'down') || Input.hit('eject')) c.ejectEdge = true;   // a second press still confirms the eject
+    if (this.padEdge(pad, 'left') || Input.hit('weapon1')) c.sel1 = true;
+    if (this.padEdge(pad, 'right') || Input.hit('weapon2')) c.sel2 = true;
     if (Input.wheel !== 0) c.selNext = true;
     if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) p.cycleTarget();
     if (pad) this.padC = pad.cycle;
     if (S.autoTarget) this.autoTarget(p);
-    if (Input.hit('interact')) tryResupply(p);
+    if (this.padEdge(pad, 'interact') || Input.hit('interact')) tryResupply(p);
     if (Input.hit('switchPlatform') && W.mode === 'training') Game.trainingSwitch();
   },
   /* Auto-target: take the hostile under the reticle, or after a kill the next one in view, so missiles never wait on the target key. */
@@ -6092,6 +6107,12 @@ const PC = {
     if (ai && ai.hostile && p.validTarget(ai.obj)) p.target = ai.obj;
     else if (this.hadTarget) p.cycleTarget();
     this.hadTarget = !!p.target;
+  },
+  /* True on the frame a gamepad button goes down (pad may be null: then every button reads as released). */
+  padEdge(pad, button) {
+    const held = !!(pad && pad[button]), edge = held && !this.padPrev[button];
+    this.padPrev[button] = held;
+    return edge;
   },
   /* Gamepad Start toggles the pause menu; polled every frame because sample() stops while paused. */
   pollPause() {
@@ -6966,7 +6987,7 @@ const HUD = {
     const C = this.C, y = this.h * 0.58, unlimited = W.mode === 'training';
     if (!resupplyNeeded(p, W.mods.scarce ? SCARCE_AMMO : 1)) this.txt('SUPPLY PAD: FULLY SUPPLIED', this.w / 2, y, 12, C.dim, 'center');
     else if (!unlimited && W.resupplies <= 0) this.txt('SUPPLY PAD: NO RESUPPLY CHARGES LEFT', this.w / 2, y, 12, C.warn, 'center', true);
-    else this.txt('[' + keyLabel(Input.code('interact')) + '] RESUPPLY (' + (unlimited ? 'UNLIMITED' : W.resupplies + ' LEFT') + ')', this.w / 2, y, 13, C.friend, 'center', true);
+    else this.txt('[' + actionLabel('interact') + '] RESUPPLY (' + (unlimited ? 'UNLIMITED' : W.resupplies + ' LEFT') + ')', this.w / 2, y, 13, C.friend, 'center', true);
   },
   drawFeed(u) {
     let y = this.h - 150 * u;
@@ -7370,7 +7391,7 @@ const UI = {
     return '<h2>Controls</h2>' + (this.rebind ? '<div class="panel warn" role="status">' + esc(this.rebind.msg) + '</div>' : '<div class="hint" style="margin:0 0 .6em">Click a binding, then press the new key or mouse button. Esc and F-keys are reserved.</div>') +
       '<div class="grid2"><div class="panel"><table><tr><th>Action</th><th>Binding</th></tr>' + rows + '</table></div>' +
       '<div class="panel"><h3 style="margin-top:0">Per-platform behaviour</h3><table><tr><th></th><th>Mech</th><th>Ground</th><th>Aircraft</th></tr>' + per.map((r) => '<tr><td>' + r.map(esc).join('</td><td>') + '</td></tr>').join('') + '</table>' +
-      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, triggers fire.</div></div></div>' +
+      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, triggers fire, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause.</div></div></div>' +
       '<div class="row"><button class="btn" data-act="rebindAll">Reset to defaults</button><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_settings() {
@@ -7835,6 +7856,29 @@ const SelfTest = {
       me.target = null; PC.hadTarget = false; PC.autoTarget(me);
       this.check('no target is picked without a reason', me.target === null);
       W.aimInfo = null; PC.hadTarget = false;
+    });
+    t('gamepad', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null; W.pads = [];
+      const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: 0, yaw: 0, y: 200, loadout: PLATFORMS.kestrel.loadout });
+      W.platforms.push(jet); W.player = jet;
+      const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev };
+      try {
+        const buttons = { right: true, up: true, down: true, reload: true, interact: true };
+        Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
+        PC.padPrev = {};
+        PC.sample(jet, STEP);
+        const c = jet.cmd;
+        this.check('the pad selects weapon 2, lowers the gear, arms the eject and reloads', c.sel2 && c.gearEdge && c.ejectEdge && c.reloadEdge);
+        this.check('Back uses the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
+        c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = false;
+        PC.sample(jet, STEP);
+        this.check('a held pad button acts once', !c.sel2 && !c.gearEdge && !c.ejectEdge && !c.reloadEdge);
+        Input.usingPad = true;
+        this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK');
+        Input.usingPad = false;
+        this.check('prompts show the key after keyboard input', actionLabel('interact') === keyLabel(Input.code('interact')));
+      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; }
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
