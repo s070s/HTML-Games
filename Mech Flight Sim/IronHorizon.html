@@ -4903,13 +4903,17 @@ class AIController {
   }
 
   /* ---------- perception ---------- */
+  /* How far this unit spots targets right now: base sight, difficulty, weather, alert and sensor damage. */
+  sightRange() {
+    const weather = (W.mods.fog ? FOG_SIGHT : 1) * (W.mods.night ? NIGHT_SIGHT : 1);
+    return this.sight * this.d.sight * weather * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
+  }
   perceive() {
-    const p = this.p, sightMul = this.d.sight;
+    const p = this.p;
     if (this.follow && this.follow.dead) this.follow = null;   // never trail a wreck
     if (this.sight <= 0) return;
     let best = null, bestScore = 1e9;
-    const weather = (W.mods.fog ? FOG_SIGHT : 1) * (W.mods.night ? NIGHT_SIGHT : 1);
-    const range = this.sight * sightMul * weather * (this.alertT > 0 ? 1.4 : 1) * (p.sub.sensors > 0 ? 0.5 : 1);
+    const range = this.sightRange();
     const ey = p.y + (p.kind === 'air' ? 0 : p.height * 0.8);
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
@@ -5314,17 +5318,27 @@ function findSpawn(x, z, radius, clearR, minPlayerDist) {
 const FORWARD_SPAWN_DIST = 250;   // players respawn this far short of the nearest objective
 const FORWARD_SPAWN_STEP = 100;   // and step back toward the start while that spot is unsafe
 const SPAWN_SAFE_DIST = 150;      // no hostile may be this close to a respawn point
-function hostileNear(x, z, r) {
-  for (const e of W.platforms) if (e.team === 1 && !e.dead && Math.hypot(e.x - x, e.z - z) < r) return true;
+const SPAWN_SIGHT_CAP = 800;      // sight counted against a respawn point at most (aircraft sensors reach 1500 m)
+/* True when a living hostile could spot a platform here at once: within its current sight (capped), or
+   within SPAWN_SAFE_DIST of anything hostile. AA batteries only count against aircraft. */
+function hostileSees(x, z, air) {
+  for (const e of W.platforms) {
+    if (e.team !== 1 || e.dead) continue;
+    if (e.ai && e.ai.airOnly && !air) continue;
+    const sight = e.ai ? Math.min(SPAWN_SIGHT_CAP, e.ai.sightRange()) : 0;
+    if (Math.hypot(e.x - x, e.z - z) < Math.max(SPAWN_SAFE_DIST, sight)) return true;
+  }
   return false;
 }
 /* Respawn point for a player: short of the nearest active primary objective on the start side, else beside
-   a living human teammate, else the mission start. Returns { x, z, yaw } facing the fight. */
-function forwardSpawn(start, clearR) {
+   a living human teammate, else the mission start; never where a hostile would see it.
+   Returns { x, z, yaw } facing the fight. air: the platform is an aircraft (AA batteries count). */
+function forwardSpawn(start, clearR, air) {
   let goal = null, goalD = 0;
   const m = W.mission;
   if (m) for (const o of m.objectives) {
-    if (!o.primary || o.status !== 'active') continue;
+    // objectives that hunt hostile units (skirmish waves, bombers) mark live, moving enemies: never advance toward them
+    if (!o.primary || o.status !== 'active' || (o.units && o.units.some((u) => u.team === 1))) continue;
     for (const k of o.markers()) { const d = Math.hypot(k.x - start.x, k.z - start.z); if (!goal || d < goalD) { goal = k; goalD = d; } }
   }
   if (goal) {
@@ -5332,13 +5346,13 @@ function forwardSpawn(start, clearR) {
     for (let back = FORWARD_SPAWN_DIST; back < goalD; back += FORWARD_SPAWN_STEP) {
       const k = 1 - back / goalD;
       const sp = findSpawn(start.x + (goal.x - start.x) * k, start.z + (goal.z - start.z) * k, 30, clearR, 0);
-      if (sp && !hostileNear(sp.x, sp.z, SPAWN_SAFE_DIST)) return { x: sp.x, z: sp.z, yaw };
+      if (sp && !hostileSees(sp.x, sp.z, air)) return { x: sp.x, z: sp.z, yaw };
     }
   }
   for (const q of W.platforms) {
     if (!q.isPlayer || q.dead || q.team !== 0 || q.kind === 'air') continue;
     const sp = findSpawn(q.x, q.z, 30, clearR, 0);
-    if (sp && !hostileNear(sp.x, sp.z, SPAWN_SAFE_DIST)) return { x: sp.x, z: sp.z, yaw: q.yaw };
+    if (sp && !hostileSees(sp.x, sp.z, air)) return { x: sp.x, z: sp.z, yaw: q.yaw };
   }
   return { x: start.x, z: start.z, yaw: start.yaw };
 }
@@ -6330,7 +6344,7 @@ const Game = {
         if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
       }
       this.respawnT -= dt;
-      if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer(forwardSpawn(this.mission.def.start, PLATFORMS[cfg.platformId].radius));
+      if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer(forwardSpawn(this.mission.def.start, PLATFORMS[cfg.platformId].radius, PLATFORMS[cfg.platformId].kind === 'air'));
     }
     if (this.protectT > 0) { this.protectT -= dt; if (this.protectT <= 0 && W.player) W.player.invuln = false; }
     if (m && m.state !== 'running' && m.endDelay <= 0 && this.state === 'playing') this.showResults();
@@ -7672,7 +7686,17 @@ const SelfTest = {
       this.check('respawn short of the nearest objective', toGoal > FORWARD_SPAWN_DIST - 60 && toGoal < FORWARD_SPAWN_DIST + 60 && this.near(sp.yaw, Math.atan2(1000, 1000)), 'distance ' + Math.round(toGoal));
       spawnUnit('infantry', sp.x, sp.z, { force: true });
       const sp2 = forwardSpawn(start, 3);
-      this.check('respawn keeps clear of hostiles', !hostileNear(sp2.x, sp2.z, SPAWN_SAFE_DIST) && Math.hypot(sp2.x - tower.x, sp2.z - tower.z) > toGoal);
+      this.check('respawn keeps clear of hostiles', !hostileSees(sp2.x, sp2.z, false) && Math.hypot(sp2.x - tower.x, sp2.z - tower.z) > toGoal);
+      const gun = spawnUnit('turret', 100, 100, { force: true });
+      const sp3 = forwardSpawn(start, 3), toGun = Math.hypot(sp3.x - gun.x, sp3.z - gun.z);
+      this.check('respawn stays out of a turret sight range', toGun >= gun.ai.sightRange(), Math.round(toGun) + ' m, sight ' + Math.round(gun.ai.sightRange()));
+      spawnUnit('aaTurret', -800, 800, { force: true });
+      this.check('an AA battery only guards against aircraft respawns', !hostileSees(-800, 500, false) && hostileSees(-800, 500, true));
+      W.mission = new Mission({ id: 'test', start }, {});
+      const truck = spawnUnit('truck', -600, 300, { force: true });   // sightless, so only the hunted-unit rule keeps the spawn back
+      W.mission.add(Obj.kill({ id: 'k', title: 'Kill', units: [truck], status: 'active' }));
+      const sp4 = forwardSpawn(start, 3), toTruck = Math.hypot(sp4.x - truck.x, sp4.z - truck.z);
+      this.check('respawn never heads toward hunted enemy units', toTruck > FORWARD_SPAWN_DIST + FORWARD_SPAWN_STEP, Math.round(toTruck) + ' m');
     });
     t('extraction', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
@@ -8256,7 +8280,7 @@ const Net = {
           if (peer.lives <= 0) peer.respawnT = 1e9;
         }
         peer.respawnT -= dt;
-        if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, forwardSpawn(Game.mission.def.start, PLATFORMS[peer.pid].radius));
+        if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, forwardSpawn(Game.mission.def.start, PLATFORMS[peer.pid].radius, PLATFORMS[peer.pid].kind === 'air'));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
