@@ -242,7 +242,8 @@ const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
 const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
 const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain before it comes back up
 const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
-const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a withdrawal, not a death
+const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a tactical withdrawal
+const WITHDRAW_RANK_WEIGHT = 0.5; // a withdrawal still loses the platform, but counts as half a loss in the rank
 const RESPAWN_TIME = 6;          // seconds before a lost platform is replaced
 const EJECT_RESPAWN = 2;         // seconds before replacement after a tactical withdrawal
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
@@ -2266,7 +2267,7 @@ function spawnPickup(type, x, z, life) {
 /* ---------- world construction ---------- */
 /* One player's combat record; team totals (teamKills, teamDeaths) are only used on the host's W.stats. */
 function newStats() {
-  return { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, teamDeaths: 0, score: 0, pickups: 0 };
+  return { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, teamDeaths: 0, withdrawals: 0, teamWithdrawals: 0, score: 0, pickups: 0 };
 }
 /* The record a human player's actions count toward: the local player's, or a co-op guest's (kept across respawns). */
 function statsOf(pl) {
@@ -3975,7 +3976,7 @@ class Platform {
     const u = this.util, c = this.cmd;
     if (this.kind === 'air' && c.ejectEdge) {
       if (this.ejectArm > 0) { this.eject(); return; }
-      this.ejectArm = 1.6; notify(this, 'PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: NO DEATH RECORDED)' : ' (HULL LOW: COUNTS AS A DEATH)'));
+      this.ejectArm = 1.6; notify(this, 'PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: FAST REDEPLOY, HALF RANK PENALTY)' : ' (HULL LOW: COUNTS AS A FULL LOSS)'));
     }
     if (!u) return;
     const ud = u.def;
@@ -4045,12 +4046,13 @@ class Platform {
     for (let i = 0; i < W.platforms.length; i++) { const e = W.platforms[i]; if (e.lock.target === this && Math.random() < 0.7) { e.lock.progress = 0; e.lock.state = 'none'; } }
     notify(this, 'FLARES AWAY (' + u.charges + ' LEFT)');
   }
-  /* Ejecting with enough hull left is a tactical withdrawal: the platform is lost, but no death is recorded. */
+  /* Ejecting with enough hull left is a tactical withdrawal: the platform (and a life) is still lost, but the
+     replacement comes sooner and the loss weighs half in the rank. */
   canWithdraw() { return this.hp >= this.maxHp * EJECT_SAFE_HULL; }
   eject() {
     if (this.dead) return;
     this.ejected = true; this.withdrew = this.canWithdraw();
-    notify(this, this.withdrew ? 'TACTICAL WITHDRAWAL: PLATFORM LOST, NO DEATH RECORDED' : 'EJECTED: PLATFORM LOST', 'eject');
+    notify(this, this.withdrew ? 'TACTICAL WITHDRAWAL: PLATFORM LOST, FAST REDEPLOY' : 'EJECTED: PLATFORM LOST', 'eject');
     FX.emit(this.x, this.y + 2, this.z, 0, 14, 0, 1.2, 4, 1, 1, 0.9, 0.5, 0.9, 1, 0, true);
     this.destroy(null, 'eject');
   }
@@ -5590,7 +5592,8 @@ class Mission {
     if (this.state !== 'won') return 'F';
     const opt = this.objectives.filter((o) => !o.primary);
     const optDone = opt.length ? opt.filter((o) => o.status === 'complete').length / opt.length : 1;
-    const deathPen = clamp(W.stats.teamDeaths / Math.max(1, W.maxLives * (this.cfg.nPlayers || 1)), 0, 1);
+    const losses = W.stats.teamDeaths - W.stats.teamWithdrawals * (1 - WITHDRAW_RANK_WEIGHT);
+    const deathPen = clamp(losses / Math.max(1, W.maxLives * (this.cfg.nPlayers || 1)), 0, 1);
     const timeF = this.def.rankProgress ? this.def.rankProgress(this) : this.limit > 0 ? clamp(1 - this.time / this.limit, 0, 1) : 0.5;
     const pi = 50 + optDone * 20 + (1 - deathPen) * 15 + timeF * 15;
     const grade = pi >= 90 ? 'S' : pi >= 76 ? 'A' : pi >= 62 ? 'B' : 'C';
@@ -5658,7 +5661,7 @@ const MISSIONS = [
       });
       m.add(Obj.destroy({ id: 'tanks', title: 'Destroy fuel tanks', structs: tanks, status: 'active', label: 'FUEL' }));
       m.add(Obj.destroy({ id: 'comms', title: 'Destroy comms tower', primary: false, structs: [tower], label: 'COMMS' }));
-      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing your platform' }));
+      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
     },
   },
   {
@@ -5671,7 +5674,7 @@ const MISSIONS = [
       const gen = objStruct('generator', 0, 0, 'Generator', 0, { hpMult: 1.6 });
       const def = m.add(Obj.defend({ id: 'def', title: 'Defend the generator', struct: gen, duration: 300, status: 'active' }));
       m.add(Obj.defend({ id: 'integ', title: 'End with generator above 60% integrity', struct: gen, duration: 300, primary: false, optionalIntegrity: 0.6, status: 'active', tick() { this.progress = this.struct.hp / this.struct.maxHp; if (this.struct.destroyed) this.status = 'failed'; }, text() { return this.title; } }));
-      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing your platform' }));
+      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
       void def;
       ctx.later(() => {
         spawnGroup(['allyMech', 'allyMech', 'allyTank'], 0, -30, { team: 0, radius: 40, follow: null });
@@ -5951,7 +5954,7 @@ function skirmishDef(cfg) {
         const alive = ob.units.filter((u) => !u.dead).length;
         if (alive <= 1 && idx < waves.length && m.time > 20) spawnWave();
       }, 15);
-      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing your platform' }));
+      m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
     },
   };
 }
@@ -6352,7 +6355,8 @@ const Game = {
     if (pl && pl.dead && this.state === 'playing') {
       if (!pl.deathHandled) {
         pl.deathHandled = true; W.lives--;
-        if (!pl.withdrew) { W.stats.deaths++; W.stats.teamDeaths++; }
+        W.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
+        if (pl.withdrew) { W.stats.withdrawals++; W.stats.teamWithdrawals++; }
         this.respawnT = pl.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
         if (cfg.mode === 'training') this.respawnT = 1.5;
         if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
@@ -7959,12 +7963,23 @@ const SelfTest = {
       Game.startSession(cfg);
       this.check('session starts', Game.state === 'playing' && !!W.player);
       for (let i = 0; i < 30; i++) Game.tick(STEP);
-      const d0 = W.stats.deaths;
+      const d0 = W.stats.deaths, w0 = W.stats.withdrawals;
       W.player.eject(); Game.tick(STEP);
-      this.check('ejecting with a healthy hull records no death', W.stats.deaths === d0 && W.player.dead);
+      this.check('ejecting with a healthy hull is a withdrawal that still loses the platform', W.stats.deaths === d0 + 1 && W.stats.withdrawals === w0 + 1 && W.player.dead);
       for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
       W.player.hp = W.player.maxHp * 0.1; W.player.eject(); Game.tick(STEP);
-      this.check('ejecting on a wrecked hull counts as a death', W.stats.deaths === d0 + 1);
+      this.check('ejecting on a wrecked hull is a full loss', W.stats.deaths === d0 + 2 && W.stats.withdrawals === w0 + 1);
+      const keep = { lives: W.maxLives, deaths: W.stats.teamDeaths, withdrawals: W.stats.teamWithdrawals };
+      try {
+        const ranked = new Mission({ id: 'test' }, {});   // with 4 lives, one full loss drops rank S to A
+        ranked.state = 'won'; W.maxLives = 4; W.stats.teamDeaths = 1; W.stats.teamWithdrawals = 1;
+        const withdrawnRank = ranked.rank();
+        W.stats.teamWithdrawals = 0;
+        this.check('a withdrawal weighs half a loss in the rank', withdrawnRank === 'S' && ranked.rank() === 'A', withdrawnRank + ' vs ' + ranked.rank());
+        const nd = Obj.noDeaths({ id: 'nd', title: 'No losses' });
+        W.stats.teamWithdrawals = 1; nd.tick();
+        this.check('no-losses fails on a withdrawal', nd.status === 'failed');
+      } finally { W.maxLives = keep.lives; W.stats.teamDeaths = keep.deaths; W.stats.teamWithdrawals = keep.withdrawals; }
       for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
       Game.pause(); this.check('pause', Game.state === 'paused');
       Game.resume(); this.check('resume', Game.state === 'playing');
@@ -8314,7 +8329,8 @@ const Net = {
       if (p.dead) {
         if (!peer.deathHandled) {
           peer.deathHandled = true; peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
-          if (!p.withdrew) { peer.stats.deaths++; W.stats.teamDeaths++; }
+          peer.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
+          if (p.withdrew) { peer.stats.withdrawals++; W.stats.teamWithdrawals++; }
           if (peer.lives <= 0) peer.respawnT = 1e9;
         }
         peer.respawnT -= dt;
