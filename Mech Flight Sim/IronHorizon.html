@@ -267,7 +267,7 @@ const WEAPONS = {
   grenade: { name: 'Grenade Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 40, life: 5, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 4, reserve: 12, reload: 3, heat: 5, range: 140, blast: 5, weight: 4, structMult: 1.2, tracer: [0.9, 0.9, 0.5], size: 0.6, sound: 'mortar', recoil: 0.3, role: 'Lobbed grenade' },
   /* utilities */
   shield: { name: 'Energy Shield', slot: 'utility', kind: 'defense', def: 'shield', shield: 170, regen: 24, regenDelay: 3, drain: 14, weight: 6, role: 'Absorbs damage; drains energy while up' },
-  aps: { name: 'Active Protection', slot: 'utility', kind: 'defense', def: 'aps', charges: 4, cd: 2.2, radius: 30, weight: 7, role: 'Destroys incoming missiles and rockets' },
+  aps: { name: 'Active Protection', slot: 'utility', kind: 'defense', def: 'aps', charges: 4, cd: 2.2, radius: 30, minDmg: 40, recharge: 15, weight: 7, role: 'Destroys incoming missiles and heavy rockets; recharges' },
   nano: { name: 'Nano Repair', slot: 'utility', kind: 'defense', def: 'repair', charges: 2, cd: 8, heal: 0.3, weight: 3, role: 'Restores hull over 5 s' },
   flares: { name: 'Flares', slot: 'utility', kind: 'defense', def: 'flares', charges: 8, cd: 1.2, weight: 3, role: 'Decoys that pull missiles off you' },
 };
@@ -3319,7 +3319,7 @@ class Platform {
     });
     const uid = this.loadout.utility, ud = uid && WEAPONS[uid];
     if (ud) {
-      this.util = { id: uid, def: ud, charges: ud.charges || 0, cd: 0, healLeft: 0, auto: true };
+      this.util = { id: uid, def: ud, charges: ud.charges || 0, cd: 0, healLeft: 0, auto: true, rechargeT: 0 };
       if (ud.def === 'shield') { this.maxShield = ud.shield; this.shield = ud.shield; this.shieldOn = false; }
     }
     if (!this.wslots[this.activeSlot]) this.activeSlot = 'primaryB';
@@ -3933,6 +3933,7 @@ class Platform {
         break;
       case 'aps':
         if (c.defenseEdge) { u.auto = !u.auto; if (W.player === this) W.msgL('ACTIVE PROTECTION ' + (u.auto ? 'ARMED' : 'OFF')); }
+        if (u.charges < ud.charges) { u.rechargeT += dt; if (u.rechargeT >= ud.recharge) { u.rechargeT = 0; u.charges++; } } else u.rechargeT = 0;
         if (u.auto && u.charges > 0 && u.cd <= 0) this.apsScan(u);
         break;
       case 'repair':
@@ -3957,6 +3958,7 @@ class Platform {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
       if (!p.active || p.team === this.team || !(p.def.rocket || p.def.arc)) continue;
+      if (p.dmg < u.def.minDmg) continue;   // light rockets are not worth a charge
       const d = Math.hypot(p.x - this.x, p.y - (this.y + this.height * 0.5), p.z - this.z);
       if (d > R2) continue;
       // only things heading roughly at us
@@ -7279,6 +7281,21 @@ const SelfTest = {
       W.platforms.push(jet);
       for (let i = 0; i < 60 * 4 && aa.lock.state !== 'locked'; i++) { W.time += STEP; aa.ai.update(STEP); aa.update(STEP); }
       this.check('AA battery locks an air target', aa.lock.state === 'locked', 'lock ' + aa.lock.state + ' ' + aa.lock.reason);
+      // active protection ignores light rockets, stops missiles and recharges
+      const tank = new Platform(PLATFORMS.bastion, { team: 0, x: -300, z: 0, yaw: 0, loadout: { primaryA: 'acannon', utility: 'aps' } });
+      W.platforms.push(tank);
+      const u = tank.util, from = { x: -300, y: tank.y + 2, z: 20 };
+      spawnProjectile(aa, { def: WEAPONS.rockets }, from, 0, 0, -1, 1);
+      const rocket = W.projs.find((q) => q.active && q.def === WEAPONS.rockets);
+      tank.apsScan(u);
+      this.check('APS ignores light rockets', rocket.active && u.charges === WEAPONS.aps.charges);
+      rocket.active = false;
+      spawnProjectile(aa, { def: WEAPONS.missile }, from, 0, 0, -1, 1);
+      const missile = W.projs.find((q) => q.active && q.def === WEAPONS.missile);
+      tank.apsScan(u);
+      this.check('APS intercepts a missile', !missile.active && u.charges === WEAPONS.aps.charges - 1);
+      tank.updateDefense(WEAPONS.aps.recharge + 0.1);
+      this.check('APS recharges', u.charges === WEAPONS.aps.charges);
     });
     t('buildings', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 120, tag: 'city' }], difficulty: 'veteran', seed: 5, start: { x: 500, z: 500, yaw: 0 } });
