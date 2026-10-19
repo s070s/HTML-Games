@@ -531,36 +531,57 @@ const DEFAULT_KEYS = {
   jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], stance: ['KeyR'], pause: ['Escape', 'KeyP'],
 };
 const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyL', 'KeyP'];
+// Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (kicks above punches, modifiers to the right).
+const KEY_BINDINGS_P2 = 'breakpoint.v1.keys2';
+const DEFAULT_KEYS_P2 = {
+  up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
+  lp: ['Numpad4'], rp: ['Numpad5'], lk: ['Numpad7'], rk: ['Numpad8'],
+  strong: ['Numpad6'], height: ['Numpad9'], blockHigh: ['Numpad1'], blockLow: ['Numpad2'],
+  jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], stance: ['NumpadSubtract'], pause: ['NumpadEnter'],
+};
+const FALLBACK_KEYS_P2 = ['NumpadMultiply', 'NumpadDivide', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Minus', 'Equal'];
 const BINDABLE_CODE = /^(Key[A-Z]|Digit\d|Numpad\w+|Arrow(Up|Down|Left|Right)|Space|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Comma|Period|Slash|Semicolon|Quote|Bracket(Left|Right)|Backslash|Minus|Equal|Backquote|Backspace)$/;
-const Keymap = {
-  bindings: {},
-  reset() { for (const a of ACTIONS) this.bindings[a] = DEFAULT_KEYS[a].slice(); },
-  /* Load saved bindings: keep only valid, unique codes; give every action at least one key. */
+/* One player's keyboard layout. A key belongs to one player: P1 keeps its main keys, P2 gives way.
+   P1's spare second keys (the arrows) are only switched off in Versus, where P2 owns them. */
+class KeyBindings {
+  constructor(player, storeKey, defaults, fallbacks) {
+    this.player = player;
+    this.storeKey = storeKey;
+    this.defaults = defaults;
+    this.fallbacks = fallbacks;
+    this.bindings = {};
+  }
+  get label() { return 'P' + this.player; }
+  get rival() { return KEYMAPS[2 - this.player]; }
+  reset() { for (const a of ACTIONS) this.bindings[a] = this.defaults[a].slice(); }
   init() {
     this.reset();
-    const stored = readJson(KEY_BINDINGS);
-    if (!stored) return;
-    if ((stored.revision || 1) < KEYS_REVISION) this.migrate(stored);
-    const used = new Set();
+    const stored = readJson(this.storeKey);
+    if (stored && this.player === 1 && (stored.revision || 1) < KEYS_REVISION) this.migrate(stored);
+    if (stored || this.player === 2) this.load(stored || this.bindings);   // P2's defaults may clash with keys P1 chose
+  }
+  /* Load saved bindings: keep only valid, unique codes (P2 never takes P1's main keys); give every action at least one key. */
+  load(stored) {
+    const used = new Set(this.player === 2 ? this.rival.mainCodes() : []);
     const next = {};
     for (const a of ACTIONS) {
       const list = Array.isArray(stored[a]) ? stored[a] : [];
       const clean = [];
       for (const c of list) {
-        const ok = typeof c === 'string' && (BINDABLE_CODE.test(c) || (a === 'pause' && c === 'Escape'));
+        const ok = typeof c === 'string' && (BINDABLE_CODE.test(c) || (a === 'pause' && c === 'Escape' && this.player === 1));
         if (ok && !used.has(c) && clean.length < 2) { clean.push(c); used.add(c); }
       }
       next[a] = clean;
     }
     for (const a of ACTIONS) {
       if (next[a].length) continue;
-      const code = DEFAULT_KEYS[a].find((c) => !used.has(c)) || FALLBACK_KEYS.find((c) => !used.has(c));
+      const code = this.defaults[a].find((c) => !used.has(c)) || this.fallbacks.find((c) => !used.has(c));
       next[a] = [code];
       used.add(code);
     }
-    if (!next.pause.includes('Escape')) next.pause = ['Escape', next.pause[0]];
+    if (this.player === 1 && !next.pause.includes('Escape')) next.pause = ['Escape', next.pause[0]];
     this.bindings = next;
-  },
+  }
   /* An old save still holding a former default gets the new default, unless the user gave that key to another action. */
   migrate(stored) {
     for (const action in OLD_DEFAULT_KEYS) {
@@ -569,25 +590,54 @@ const Keymap = {
       const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(code));
       if (!taken) stored[action] = [code];
     }
-  },
-  save() { Store.set(KEY_BINDINGS, JSON.stringify(Object.assign({ revision: KEYS_REVISION }, this.bindings))); },
-  owner(code) { for (const a of ACTIONS) if (this.bindings[a].includes(code)) return a; return null; },
+  }
+  save() { Store.set(this.storeKey, JSON.stringify(Object.assign({ revision: KEYS_REVISION }, this.bindings))); }
+  owner(code) { for (const a of ACTIONS) if (this.bindings[a].includes(code)) return a; return null; }
+  /* Keys kept in Versus: every key except the spare second keys of non-pause actions. */
+  mainCodes() {
+    const codes = [];
+    for (const a of ACTIONS) this.bindings[a].forEach((c, i) => { if (i === 0 || a === 'pause') codes.push(c); });
+    return codes;
+  }
+  /* The other player's action on this key; P2 may take a P1 spare key (P1 loses it in Versus only). */
+  rivalOwner(code) {
+    if (this.player === 2 && !this.rival.mainCodes().includes(code)) return null;
+    return this.rival.owner(code);
+  }
   rebind(action, code) {
     if (!ACTIONS.includes(action)) return { ok: false, msg: 'Unknown action' };
     if (code === 'Escape') return { ok: false, msg: 'Escape is reserved for pause / back' };
     if (!BINDABLE_CODE.test(code)) return { ok: false, msg: 'That key cannot be used' };
     const owner = this.owner(code);
     if (owner && owner !== action) return { ok: false, msg: 'Already used by "' + ACTION_LABELS[owner] + '"' };
-    this.bindings[action] = action === 'pause' ? ['Escape', code] : [code];
+    const rivalOwner = this.rivalOwner(code);
+    if (rivalOwner) return { ok: false, msg: 'Already used by ' + this.rival.label + ' "' + ACTION_LABELS[rivalOwner] + '"' };
+    this.bindings[action] = action === 'pause' && this.player === 1 ? ['Escape', code] : [code];
     this.save();
     Events.emit('bindings');
     return { ok: true, msg: 'Bound' };
-  },
-  resetAll() { this.reset(); Store.remove(KEY_BINDINGS); Events.emit('bindings'); },
-};
+  }
+  resetAll() {
+    this.reset();
+    Store.remove(this.storeKey);
+    if (this.player === 2) this.load(this.bindings);
+    else Keymap2.giveWay();
+    Events.emit('bindings');
+  }
+  /* P2 only: after P1's keys change, any P2 key P1 now uses moves to a free key (saved when something moved). */
+  giveWay() {
+    const before = JSON.stringify(this.bindings);
+    this.load(this.bindings);
+    if (JSON.stringify(this.bindings) !== before) this.save();
+  }
+}
+const Keymap = new KeyBindings(1, KEY_BINDINGS, DEFAULT_KEYS, FALLBACK_KEYS);
+const Keymap2 = new KeyBindings(2, KEY_BINDINGS_P2, DEFAULT_KEYS_P2, FALLBACK_KEYS_P2);
+const KEYMAPS = [Keymap, Keymap2];
+const NUMPAD_SIGNS = { Add: '+', Subtract: '-', Multiply: '*', Divide: '/', Decimal: '.' };
 function keyLabel(code) {
   if (!code) return '-';
-  return code.replace(/^Key/, '').replace(/^Digit/, '').replace('ArrowUp', '↑').replace('ArrowDown', '↓')
+  return code.replace(/^Numpad(\w+)$/, (all, key) => 'Num ' + (NUMPAD_SIGNS[key] || key)).replace(/^Key/, '').replace(/^Digit/, '').replace('ArrowUp', '↑').replace('ArrowDown', '↓')
     .replace('ArrowLeft', '←').replace('ArrowRight', '→').replace('ShiftLeft', 'L-Shift').replace('ControlLeft', 'L-Ctrl')
     .replace('AltLeft', 'L-Alt').replace('ShiftRight', 'R-Shift').replace('ControlRight', 'R-Ctrl').replace('AltRight', 'R-Alt');
 }
@@ -626,7 +676,8 @@ const Progress = {
 /* =====================================================================
    02 INPUT - keyboard / gamepad / touch are normalised into the same logical actions.
    Edges (presses) are latched until a simulation tick consumes them, so a press
-   between two ticks is never lost and never repeats while held.
+   between two ticks is never lost and never repeats while held. Each human player has
+   their own state (PlayerInput); Inputs routes shared keyboard keys and pads to them.
    ===================================================================== */
 const DOUBLE_TAP_SECONDS = 0.28;
 const PAD_DEADZONE = 0.22;
@@ -654,81 +705,58 @@ function clearIntent(it) {
   return it;
 }
 
-const Input = {
-  kb: new Set(),
-  codeMap: new Map(),
-  padHeld: {},
-  touchHeld: {},
-  held: {},
-  latch: {},
-  lastPress: {},
-  runDir: null,          // direction key that armed running (double-tap toward the opponent, then hold)
-  tmpRel: { fwd: 0, side: 0 },
-  padInfo: { connected: false, name: '', standard: true },
-  padAxis: { fwd: 0, side: 0, active: false },
-  padDir: { up: false, down: false, left: false, right: false },
-  padDownAt: { up: 0, down: 0 },
-  padTapDownRelease: -9999,
-  padUpPeak: 0,
-  padUpDouble: false,
-  padSelectAt: 0,        // 0 = released, > 0 = time pressed, -1 = hold already used
-  padIndex: -1,
-  padCrouch: false,
-  rightWas: 0,
-  flick: null,
-  touchStick: { x: 0, y: 0, active: false },
-  touchDir: { up: false, down: false, left: false, right: false },
-  touchRunTicks: 0,
-  enabled: false,
-  attached: false,
-  captureCallback: null,
-  lastDevice: 'keyboard',
-  analog: { fwd: 0, side: 0 },
-  listeners: [],
+/* One human player's input state: keyboard keys from that player's bindings, one gamepad, touch (P1 only).
+   P1 is `Input` (every singleplayer mode); P2 (`Input2`) only reads devices in Versus. */
+class PlayerInput {
+  constructor(slot, keymap) {
+    this.slot = slot;                // 0 = P1, 1 = P2
+    this.keymap = keymap;
+    this.kb = new Set();
+    this.codeMap = new Map();
+    this.codes = {};                 // action -> keys this player uses right now (P1 loses its spare arrows in Versus)
+    for (const a of ACTIONS) this.codes[a] = [];
+    this.padHeld = {};
+    this.touchHeld = {};
+    this.held = {};
+    this.latch = {};
+    this.lastPress = {};
+    this.runDir = null;              // direction key that armed running (double-tap toward the opponent, then hold)
+    this.tmpRel = { fwd: 0, side: 0 };
+    this.padInfo = { connected: false, name: '', standard: true };
+    this.padAxis = { fwd: 0, side: 0, active: false };
+    this.padDir = { up: false, down: false, left: false, right: false };
+    this.padDownAt = { up: 0, down: 0 };
+    this.padTapDownRelease = -9999;
+    this.padUpPeak = 0;
+    this.padUpDouble = false;
+    this.padSelectAt = 0;            // 0 = released, > 0 = time pressed, -1 = hold already used
+    this.padIndex = -1;
+    this.padCrouch = false;
+    this.rightWas = 0;
+    this.flick = null;
+    this.touchStick = { x: 0, y: 0, active: false };
+    this.touchDir = { up: false, down: false, left: false, right: false };
+    this.touchRunTicks = 0;
+    this.lastDevice = 'keyboard';
+    this.analog = { fwd: 0, side: 0 };
+  }
 
-  init() {
-    this.rebuildMap();
-    Events.on('bindings', () => this.rebuildMap());
-    if (this.attached) return;
-    this.attached = true;
-    const add = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); this.listeners.push([target, type, fn, opts]); };
-    add(window, 'keydown', (e) => this.onKeyDown(e));
-    add(window, 'keyup', (e) => this.onKeyUp(e));
-    add(window, 'blur', () => this.releaseAll());
-    add(document, 'visibilitychange', () => { if (document.hidden) this.releaseAll(); });
-    add(window, 'gamepadconnected', (e) => { Events.emit('toast', { msg: 'Controller connected: ' + e.gamepad.id.slice(0, 40) }); });
-    add(window, 'gamepaddisconnected', () => { this.releasePad(); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); });
-  },
-  dispose() {
-    for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
-    this.listeners.length = 0;
-    this.attached = false;
-  },
   rebuildMap() {
     this.codeMap.clear();
-    for (const a of ACTIONS) for (const c of Keymap.bindings[a]) this.codeMap.set(c, a);
-  },
-  capture(callback) { this.captureCallback = callback; },
-
-  onKeyDown(e) {
-    if (this.captureCallback) {
-      e.preventDefault();
-      const cb = this.captureCallback;
-      this.captureCallback = null;
-      cb(e.code);
-      return;
+    const taken = this.slot === 0 && Inputs.versus ? Keymap2 : null;   // in Versus a key P2 uses never moves P1
+    for (const a of ACTIONS) {
+      this.codes[a] = this.keymap.bindings[a].filter((c) => !taken || !taken.owner(c));
+      for (const c of this.codes[a]) this.codeMap.set(c, a);
     }
-    const action = this.codeMap.get(e.code);
-    if (this.enabled && (action || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'Tab' || e.code === 'ControlLeft')) e.preventDefault();
+  }
+  /* A key that reached this player (Inputs decides whose key it is). */
+  onKey(e) {
     if (e.repeat || this.kb.has(e.code)) return;
     this.kb.add(e.code);
     this.lastDevice = 'keyboard';
+    const action = this.codeMap.get(e.code);
     if (action) this.press(action);
-  },
-  onKeyUp(e) {
-    if (this.enabled && (e.code === 'AltLeft' || e.code === 'AltRight')) e.preventDefault();
-    this.kb.delete(e.code);
-  },
+  }
   releaseAll() {
     this.kb.clear();
     this.touchHeld = {};
@@ -738,8 +766,7 @@ const Input = {
     this.latch = {};
     this.runDir = null;
     this.releasePad();
-    Events.emit('inputReleased');
-  },
+  }
   releasePad() {
     this.padHeld = {};
     this.padAxis.fwd = this.padAxis.side = 0;
@@ -750,8 +777,8 @@ const Input = {
     this.padIndex = -1;
     this.padInfo.connected = false;
     this.flick = null;
-  },
-  reset() { this.latch = {}; this.lastPress = {}; this.runDir = null; this.flick = null; },
+  }
+  reset() { this.latch = {}; this.lastPress = {}; this.runDir = null; this.flick = null; }
 
   /* A press edge from any device. A double tap on a direction is latched and resolved in fillIntent
      (run / back-dash / sidestep), because its meaning depends on the movement mode and facing. */
@@ -762,19 +789,19 @@ const Input = {
     this.lastPress[action] = now;
     const isDirection = action === 'up' || action === 'down' || action === 'left' || action === 'right';
     if (isDirection && now - last < DOUBLE_TAP_SECONDS) this.latch.dtap = action;
-  },
-  take(action) { const v = !!this.latch[action]; this.latch[action] = false; return v; },
-  takeAny(actions) { let any = false; for (const a of actions) any = this.take(a) || any; return any; },
+  }
+  take(action) { const v = !!this.latch[action]; this.latch[action] = false; return v; }
+  takeAny(actions) { let any = false; for (const a of actions) any = this.take(a) || any; return any; }
 
   touchSet(action, down) {
     if (down && !this.touchHeld[action]) this.press(action);
     this.touchHeld[action] = down;
     this.lastDevice = 'touch';
-  },
+  }
   touchStickSet(x, y, active) {
     this.touchStick.x = x; this.touchStick.y = y; this.touchStick.active = active;
     this.lastDevice = 'touch';
-  },
+  }
 
   /* Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate. */
   rumble(strength, ms) {
@@ -786,13 +813,15 @@ const Input = {
       const motor = pad && pad.vibrationActuator;
       if (motor && motor.playEffect) Promise.resolve(motor.playEffect('dual-rumble', { duration: ms, strongMagnitude: magnitude, weakMagnitude: magnitude * 0.6 })).catch(() => {});
     } catch (err) { /* vibration is optional */ }
-  },
+  }
   pollPad() {
     if (!navigator.getGamepads) return;
-    let pad = null;
     const pads = navigator.getGamepads();
-    for (let i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { pad = pads[i]; this.padIndex = i; break; }
-    if (!pad) { if (this.padInfo.connected) this.releasePad(); return; }
+    const index = Inputs.padFor(this.slot, pads);
+    const pad = index >= 0 ? pads[index] : null;
+    if (this.padInfo.connected && (!pad || index !== this.padIndex)) this.releasePad();   // pad gone or handed to the other player
+    if (!pad) return;
+    this.padIndex = index;
     if (!this.padInfo.connected) {
       this.padInfo.connected = true;
       this.padInfo.name = pad.id;
@@ -849,7 +878,7 @@ const Input = {
     if (rmag > PAD_FLICK_ON && this.rightWas < PAD_FLICK_OFF) { this.press('grapple'); this.flick = { x: rx, y: ry }; }
     this.rightWas = rmag;
     if (anyButton || this.padAxis.active) this.lastDevice = 'gamepad';
-  },
+  }
 
   /* Called once per rendered frame, before any simulation steps. */
   update() {
@@ -857,7 +886,7 @@ const Input = {
     this.touchDirections();
     for (const a of ACTIONS) {
       let h = !!(this.padHeld[a] || this.touchHeld[a] || this.padDir[a] || this.touchDir[a]);   // stick directions hold a double-tap run
-      if (!h) { const codes = Keymap.bindings[a]; for (let i = 0; i < codes.length; i++) if (this.kb.has(codes[i])) { h = true; break; } }
+      if (!h) { const codes = this.codes[a]; for (let i = 0; i < codes.length; i++) if (this.kb.has(codes[i])) { h = true; break; } }
       this.held[a] = h;
     }
     if (this.runDir && !this.held[this.runDir]) this.runDir = null;
@@ -868,7 +897,7 @@ const Input = {
     else if (this.touchStick.active) { fwd = -this.touchStick.y; side = this.touchStick.x; }
     this.analog.fwd = clamp(fwd, -1, 1);
     this.analog.side = clamp(side, -1, 1);
-  },
+  }
   /* Touch stick direction edges (screen directions, like keys): double flicks run, back-dash and sidestep. */
   touchDirections() {
     const ts = this.touchStick, dirs = this.touchDir;
@@ -878,7 +907,7 @@ const Input = {
       if (is && !dirs[name]) this.press(name);
       dirs[name] = is;
     }
-  },
+  }
 
   /* Fill an intent for the player-controlled fighter. self/opp are used only to express the
      right-stick flick direction relative to the opponent. */
@@ -921,7 +950,7 @@ const Input = {
     if (it.grapple) it.grapDir = this.grappleDirection(it, self, opp);
     if (!it.grapple && this.flick) this.flick = null;
     return it;
-  },
+  }
   /* Screen-relative mode: input describes a direction on screen (x = screen right, up = away from the camera).
      Convert it into the fighter's frame (fwd = toward the opponent, side = fighter's right). */
   toFighterFrame(screenX, screenUp, self, out) {
@@ -931,7 +960,7 @@ const Input = {
     out.fwd = wx * fx + wz * fz;
     out.side = wx * -fz + wz * fx;
     return out;
-  },
+  }
   /* Where a tapped direction key points relative to the fighter: 'fwd' | 'back' | 'left' | 'right'. */
   relativeDirection(action, self) {
     if (Settings.v.movement !== 'screen' || !self) return { up: 'fwd', down: 'back', left: 'left', right: 'right' }[action];
@@ -940,7 +969,7 @@ const Input = {
     const r = this.toFighterFrame(sx, su, self, this.tmpRel);
     if (Math.abs(r.fwd) >= Math.abs(r.side)) return r.fwd > 0 ? 'fwd' : 'back';
     return r.side > 0 ? 'right' : 'left';
-  },
+  }
   grappleDirection(it, self, opp) {
     let ff, rr;
     if (this.flick && self) {
@@ -955,6 +984,99 @@ const Input = {
     if (Math.abs(ff) < 0.35 && Math.abs(rr) < 0.35) return 'fwd';
     if (Math.abs(ff) >= Math.abs(rr)) return ff > 0 ? 'fwd' : 'back';
     return rr > 0 ? 'right' : 'left';
+  }
+}
+const Input = new PlayerInput(0, Keymap);
+const Input2 = new PlayerInput(1, Keymap2);
+const MENU_PAD_BUTTONS = ['lk', 'rk', 'strong', 'blockHigh', 'height', 'blockLow'];   // menu confirm / back, creator tabs and turning
+/* Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to. */
+const Inputs = {
+  players: [Input, Input2],
+  solo: [Input],
+  versus: false,         // Versus: P2 reads the keyboard and pads too
+  enabled: false,
+  attached: false,
+  captureCallback: null,
+  listeners: [],
+  menuDir: { up: false, down: false, left: false, right: false },
+  menuHeld: {},
+
+  init() {
+    this.rebuildMaps();
+    Events.on('bindings', () => this.rebuildMaps());
+    if (this.attached) return;
+    this.attached = true;
+    const add = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); this.listeners.push([target, type, fn, opts]); };
+    add(window, 'keydown', (e) => this.onKeyDown(e));
+    add(window, 'keyup', (e) => this.onKeyUp(e));
+    add(window, 'blur', () => this.releaseAll());
+    add(document, 'visibilitychange', () => { if (document.hidden) this.releaseAll(); });
+    add(window, 'gamepadconnected', (e) => { Events.emit('toast', { msg: 'Controller connected: ' + e.gamepad.id.slice(0, 40) }); });
+    add(window, 'gamepaddisconnected', () => { for (const p of this.players) p.releasePad(); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); });
+  },
+  dispose() {
+    for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
+    this.listeners.length = 0;
+    this.attached = false;
+  },
+  rebuildMaps() { for (const p of this.players) p.rebuildMap(); },
+  /* Players reading devices right now: P1 alone, both in Versus. */
+  active() { return this.versus ? this.players : this.solo; },
+  /* The human player steering a fighter, or null for the CPU / dummy. */
+  forFighter(index) { return index === 0 ? Input : this.versus && index === 1 ? Input2 : null; },
+  setVersus(on) {
+    if (this.versus === on) return;
+    this.versus = on;
+    this.releaseAll();
+    this.rebuildMaps();
+  },
+  capture(callback) { this.captureCallback = callback; },
+
+  onKeyDown(e) {
+    if (this.captureCallback) {
+      e.preventDefault();
+      const cb = this.captureCallback;
+      this.captureCallback = null;
+      cb(e.code);
+      return;
+    }
+    const owner = this.active().find((p) => p.codeMap.has(e.code)) || Input;   // unbound keys (menus, shortcuts) count as P1's
+    if (this.enabled && (owner.codeMap.has(e.code) || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'Tab' || e.code === 'ControlLeft')) e.preventDefault();
+    owner.onKey(e);
+  },
+  onKeyUp(e) {
+    if (this.enabled && (e.code === 'AltLeft' || e.code === 'AltRight')) e.preventDefault();
+    for (const p of this.players) p.kb.delete(e.code);
+  },
+  releaseAll() {
+    for (const p of this.players) p.releaseAll();
+    Events.emit('inputReleased');
+  },
+  reset() { for (const p of this.players) p.reset(); },
+  /* Pad routing: P1 takes the first pad; in Versus two pads split P1 / P2 and a lone pad plays P2 (P1 keeps the keyboard). */
+  padFor(slot, pads) {
+    let first = -1, second = -1;
+    for (let i = 0; i < pads.length; i++) {
+      if (!pads[i] || !pads[i].connected) continue;
+      if (first < 0) first = i; else if (second < 0) second = i;
+    }
+    if (!this.versus) return slot === 0 ? first : -1;
+    if (second < 0) return slot === 1 ? first : -1;
+    return slot === 0 ? first : second;
+  },
+  /* Called once per rendered frame, before any simulation steps. */
+  update() {
+    for (const p of this.active()) p.update();
+    this.mergeMenuPads();
+  },
+  /* Either player can pause, skip or confirm: every active player's latch is consumed. */
+  take(action) { let any = false; for (const p of this.active()) any = p.take(action) || any; return any; },
+  takeAny(actions) { let any = false; for (const p of this.active()) any = p.takeAny(actions) || any; return any; },
+  /* Menus answer to every active player's pad. */
+  mergeMenuPads() {
+    const players = this.active();
+    for (const k in this.menuDir) this.menuDir[k] = players.some((p) => p.padDir[k]);
+    for (const k of MENU_PAD_BUTTONS) this.menuHeld[k] = players.some((p) => !!p.padHeld[k]);
   },
 };
 
@@ -4915,7 +5037,7 @@ class MatchSim {
     this.phaseTicks = 0;
     this.lastCountdown = -1;
     Camera.snapNext = true;
-    Input.reset();
+    Inputs.reset();
     this.phase = this.cfg.countdown ? 'countdown' : 'fight';
     Events.emit('roundStart', { round: this.round, match: this });
     if (this.phase === 'fight') Events.emit('fightStart', {});
@@ -4943,7 +5065,7 @@ class MatchSim {
     if (counting >= this.countFrom * COUNT_STEP_TICKS) {
       this.phase = 'fight';
       this.phaseTicks = 0;
-      Input.reset();
+      Inputs.reset();
       Events.emit('fightStart', {});
     }
   }
@@ -5464,7 +5586,7 @@ const Game = {
   resume() {
     if (this.state !== GS.PAUSED) return false;
     const to = this.pausedFrom || GS.FIGHT;
-    Input.reset();
+    Inputs.reset();
     this.pausedFrom = null;
     return this.go(to);
   },
@@ -5496,7 +5618,7 @@ const Game = {
     if (dt < 0.1) this.frameAvg += (dt * 1000 - this.frameAvg) * 0.05; // ignore stalls (hidden tab, breakpoints)
     Diag.frameMs = this.frameAvg; Diag.fps = dt > 0 ? 1 / dt : Diag.fps;
     if (Math.abs((window.devicePixelRatio || 1) - R.lastDpr) > 0.01) Quality.apply();
-    Input.update();
+    Inputs.update();
     this.pollMatchInput();
     Quality.adapt(this.frameAvg, dt);
     Events.emit('frame', { dt });
@@ -5531,12 +5653,12 @@ const Game = {
      round-end and victory sequences. Presses that arrive too early are dropped so a mashed button cannot skip. */
   pollMatchInput() {
     const st = this.state;
-    const reset = Input.take('reset');   // gamepad: hold Select
+    const reset = Inputs.take('reset');   // gamepad: hold Select
     if (!this.match) return;
     if (reset && st === GS.FIGHT && this.match.training) this.match.resetFighters();
-    if ((st === GS.FIGHT || st === GS.COUNTDOWN) && Input.take('pause')) { this.pause(); return; }
+    if ((st === GS.FIGHT || st === GS.COUNTDOWN) && Inputs.take('pause')) { this.pause(); return; }
     if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
-    if (!Input.takeAny(SKIP_ACTIONS)) return;
+    if (!Inputs.takeAny(SKIP_ACTIONS)) return;
     if (st === GS.ROUND_END) this.match.skipRoundEnd();
     else if (this.endTimer >= SKIP_ARM_SECONDS) this.endTimer = RESULTS_DELAY;
   },
@@ -5579,7 +5701,8 @@ const Effects = {
       if (tier >= 3 || e.kind === 'knockdown' || e.kind === 'launch') FX.dust(e.def.x, 0.1, e.def.z, 4, 0.4, '#b5ada0');
       Camera.impact(tier >= 3 ? 0.6 : 0.18, tier >= 3 ? 0.5 : 0.15);
       if (e.ko) Camera.impact(1.0, 1.0);
-      if (e.def.index === 0 && !e.ko) Input.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // the local player (fighter 0) feels hits taken
+      const hurt = Inputs.forFighter(e.def.index);
+      if (hurt && !e.ko) hurt.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // each human player feels the hits they take on their own pad
     });
     on('block', (e) => {
       FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);
@@ -5592,9 +5715,9 @@ const Effects = {
     on('step', (e) => { if (e.run) FX.dust(e.f.x, 0.05, e.f.z, 1, 0.2, '#b5ada0'); });
     on('dash', (e) => FX.dust(e.f.x, 0.05, e.f.z, 3, 0.3, '#b5ada0'));
     on('clinch', (e) => FX.ring(e.x, 0.9, e.z, '#ffffff'));
-    on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); if (e.def.index === 0) Input.rumble(0.7, RUMBLE_HIT_MS * 2); });
+    on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); const thrown = Inputs.forFighter(e.def.index); if (thrown) thrown.rumble(0.7, RUMBLE_HIT_MS * 2); });
     on('escape', (e) => { FX.ring(e.x, 1.0, e.z, '#9cf4ff'); });
-    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); Input.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
+    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
     on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && e.obj.mat === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
@@ -6003,11 +6126,12 @@ const UI = {
   setText(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.textContent = value; } },
   setHtml(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.innerHTML = value; } },
   setTransform(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.style.transform = value; } },
-  /* The control for an action on the device the player used last. */
-  keyName(action) {
-    if (Input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
-    if (Input.lastDevice === 'touch') return TOUCH_LABELS[action];
-    return keyLabel(Keymap.bindings[action][0]);
+  /* The control for an action on the device the player (0 = P1, 1 = P2) used last. */
+  keyName(action, slot) {
+    const input = Inputs.players[slot || 0];
+    if (input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
+    if (input.lastDevice === 'touch') return TOUCH_LABELS[action];
+    return keyLabel(input.keymap.bindings[action][0]);
   },
   /* First match only: a short card with the main controls for the device in use. */
   showOnboarding() {
@@ -6037,7 +6161,7 @@ const UI = {
   /* ----- game state -> screens ----- */
   onGameState(e) {
     const to = e.to;
-    Input.enabled = to === GS.FIGHT || to === GS.COUNTDOWN;
+    Inputs.enabled = to === GS.FIGHT || to === GS.COUNTDOWN;
     window.onbeforeunload = (to === GS.FIGHT || to === GS.COUNTDOWN || to === GS.PAUSED) ? (ev) => { ev.preventDefault(); ev.returnValue = ''; return ''; } : null;
     const inMatch = [GS.COUNTDOWN, GS.FIGHT, GS.PAUSED, GS.ROUND_END, GS.VICTORY, GS.DEFEAT].includes(to);
     this.dom.hud.hidden = !inMatch || !Game.match;
@@ -6086,7 +6210,7 @@ const UI = {
     this.dom.roundlbl.hidden = false;
     if (!Progress.d.seenControls) this.showOnboarding();
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
-    Input.reset();
+    Inputs.reset();
   },
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
@@ -6142,7 +6266,7 @@ const UI = {
     Sound.ui('move');
   },
   onKey(e) {
-    if (Input.captureCallback) return;
+    if (Inputs.captureCallback) return;
     if (!this.dom.onboard.hidden) this.hideOnboarding();
     if (Game.state === GS.FIGHT && Game.match && Game.match.training) {
       const m = Game.match;
@@ -6266,7 +6390,7 @@ const UI = {
   startRebind(action) {
     const btn = this.dom.screens.querySelector('[data-act="rebind:' + action + '"]');
     if (btn) btn.textContent = 'Press a key... (Esc cancels)';
-    Input.capture((code) => {
+    Inputs.capture((code) => {
       if (code === 'Escape') { this.rerender(true); return; }
       const r = Keymap.rebind(action, code);
       this.toast(r.ok ? ACTION_LABELS[action] + ' = ' + keyLabel(code) : r.msg, r.ok ? '' : 'warn');
@@ -6466,10 +6590,10 @@ const UI = {
   update() {
     this.frameCount++;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
-    if (!this.current || Input.captureCallback) return;
-    const unpause = Input.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
+    if (!this.current || Inputs.captureCallback) return;
+    const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
     if (unpause && this.current === 'pause' && performance.now() > this.guardUntil) { Game.resume(); return; }
-    const pd = Input.padDir, ph = Input.padHeld, p = this.padPrev;
+    const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
     const ok = !!(ph.lk), back = !!(ph.rk);
     if (pd.down && !p.down) this.moveFocus(1);
     if (pd.up && !p.up) this.moveFocus(-1);
@@ -8604,14 +8728,14 @@ async function boot() {
     status('Checking browser features...', 0.05); await nextFrame();
     checkFeatures();
     status('Loading settings...', 0.2); await nextFrame();
-    Store.init(); Settings.init(); Keymap.init(); Progress.init(); CustomRoster.init();
+    Store.init(); Settings.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init();
     status('Creating renderer...', 0.4); await nextFrame();
     if (!R.init($('view'))) { UI.dom.fatal = $('fatal'); fatalStartup(R.error + ' BREAKPOINT needs WebGL 2 (current Chrome, Edge, Firefox or Safari 15+) with hardware acceleration enabled.'); return; }
     R.resize(); Quality.apply();
     status('Preparing effects and physics pools...', 0.6); await nextFrame();
     Debris.init(); FX.init();
     status('Initialising input and audio...', 0.8); await nextFrame();
-    Input.init(); Sound.wire(); Effects.init(); UI.init(); installGlobalHandlers();
+    Inputs.init(); Sound.wire(); Effects.init(); UI.init(); installGlobalHandlers();
     status('Ready', 1); await nextFrame();
     Showcase.set('warehouse', 'kai', 'mara', false);
     Diag.startupMs = performance.now() - t0;
