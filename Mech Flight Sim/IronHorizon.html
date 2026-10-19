@@ -447,9 +447,9 @@ const ARCH = {
 
 /* ---------- difficulty ---------- */
 const DIFFICULTY = {
-  recruit: { name: 'Recruit', react: 0.9, aimErr: 0.04, dmg: 0.7, sight: 0.8, count: 0.75, aggr: 0.6, tactical: 0, hp: 0.9, burst: 0.7 },
-  veteran: { name: 'Veteran', react: 0.5, aimErr: 0.016, dmg: 1.0, sight: 1.0, count: 1.0, aggr: 1.0, tactical: 0.5, hp: 1.0, burst: 1.0 },
-  elite: { name: 'Elite', react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3 },
+  recruit: { name: 'Recruit', scoreMult: 0.8, react: 0.9, aimErr: 0.04, dmg: 0.7, sight: 0.8, count: 0.75, aggr: 0.6, tactical: 0, hp: 0.9, burst: 0.7 },
+  veteran: { name: 'Veteran', scoreMult: 1, react: 0.5, aimErr: 0.016, dmg: 1.0, sight: 1.0, count: 1.0, aggr: 1.0, tactical: 0.5, hp: 1.0, burst: 1.0 },
+  elite: { name: 'Elite', scoreMult: 1.35, react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3 },
 };
 
 const QUALITY = {
@@ -533,6 +533,7 @@ const SETTING_SCHEMA = {
   highContrast: ['bool', false],
 };
 const S = {};   // live settings
+const diffKey = (k) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(DIFFICULTY, k) ? k : undefined);   // a saved difficulty id, if valid
 const Save = {
   storageOk: true,
   data: null,
@@ -541,7 +542,7 @@ const Save = {
     for (const k in SETTING_SCHEMA) { const sc = SETTING_SCHEMA[k]; settings[k] = sc[0] === 'enum' ? sc[2] : sc[0] === 'bool' ? sc[1] : sc[3]; }
     const bindings = {};
     ACTIONS.forEach((a) => { bindings[a[0]] = a[2]; });
-    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmish: null };
+    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null };
   },
   sanitize(raw) {
     const out = this.defaults();
@@ -575,7 +576,13 @@ const Save = {
     if (raw.best && typeof raw.best === 'object') {
       for (const id in raw.best) {
         const b = raw.best[id];
-        if (b && typeof b.score === 'number' && typeof b.rank === 'string' && b.rank.length === 1) out.best[id] = { score: Math.floor(b.score), rank: b.rank, time: finite(b.time, 0) };
+        if (b && typeof b.score === 'number' && typeof b.rank === 'string' && b.rank.length === 1) out.best[id] = { score: Math.floor(b.score), rank: b.rank, time: finite(b.time, 0), diff: diffKey(b.diff) };
+      }
+    }
+    if (raw.skirmishBest && typeof raw.skirmishBest === 'object') {   // keyed by battlefield and size, e.g. ashfall-small
+      for (const key in raw.skirmishBest) {
+        const b = raw.skirmishBest[key];
+        if (/^[a-z]+-[a-z]+$/.test(key) && b && Number.isFinite(b.waves) && Number.isFinite(b.score)) out.skirmishBest[key] = { waves: Math.floor(b.waves), score: Math.floor(b.score), diff: diffKey(b.diff) };
       }
     }
     if (raw.skirmish && typeof raw.skirmish === 'object') out.skirmish = raw.skirmish;
@@ -5505,12 +5512,12 @@ const Obj = {
 /* ---------- mission runtime ---------- */
 const RANK_ORDER = 'FCBAS';   // mission ranks, worst to best
 function rankValue(r) { return RANK_ORDER.indexOf(r); }
-/* Merged best record, or null when nothing improved. Best score (with its time) and best rank
+/* Merged best record, or null when nothing improved. Best score (with its time and difficulty) and best rank
    are kept separately, so a higher score never erases a better rank. */
-function betterRecord(prev, score, rank, time) {
+function betterRecord(prev, score, rank, time, diff) {
   const scoreBest = !prev || score > prev.score, rankBest = !prev || rankValue(rank) > rankValue(prev.rank);
   if (!scoreBest && !rankBest) return null;
-  return { score: scoreBest ? score : prev.score, rank: rankBest ? rank : prev.rank, time: scoreBest ? time : prev.time };
+  return { score: scoreBest ? score : prev.score, rank: rankBest ? rank : prev.rank, time: scoreBest ? time : prev.time, diff: scoreBest ? diff : prev.diff };
 }
 
 class Mission {
@@ -5547,7 +5554,7 @@ class Mission {
     const prim = this.objectives.filter((o) => o.primary);
     if (prim.some((o) => o.status === 'failed')) return this.end(false, prim.find((o) => o.status === 'failed').title + ' failed');
     if (prim.length && prim.every((o) => o.status === 'complete')) return this.end(true, '');
-    if (this.limit > 0 && this.time >= this.limit && !this.noTimeout) return this.end(false, 'Time expired');
+    if (this.limit > 0 && this.time >= this.limit && !this.noTimeout) return this.def.timeUpWins ? this.end(true, 'Time up: battlefield held') : this.end(false, 'Time expired');
     if (W.mode !== 'training' && Net.allDown()) return this.end(false, 'Platform lost with no reserves');
   }
   end(won, reason) {
@@ -5562,7 +5569,7 @@ class Mission {
     const opt = this.objectives.filter((o) => !o.primary);
     const optDone = opt.length ? opt.filter((o) => o.status === 'complete').length / opt.length : 1;
     const deathPen = clamp(W.stats.teamDeaths / Math.max(1, W.maxLives * (this.cfg.nPlayers || 1)), 0, 1);
-    const timeF = this.limit > 0 ? clamp(1 - this.time / this.limit, 0, 1) : 0.5;
+    const timeF = this.def.rankProgress ? this.def.rankProgress() : this.limit > 0 ? clamp(1 - this.time / this.limit, 0, 1) : 0.5;
     const pi = 50 + optDone * 20 + (1 - deathPen) * 15 + timeF * 15;
     return pi >= 90 ? 'S' : pi >= 76 ? 'A' : pi >= 62 ? 'B' : 'C';
   }
@@ -5822,7 +5829,33 @@ const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
 
 /* ---------- skirmish ---------- */
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
-const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', fog: false, night: false, scarce: false, seed: 12345 };
+const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', fog: false, night: false, scarce: false, seed: 12345, random: true };
+const SKIRMISH_SEEDS = 999999;           // random battles draw a seed from 1..this
+const SKIRMISH_FIRST_WAVE = 3;           // seconds before the first wave
+const SKIRMISH_LAST_WAVE = 0.7;          // with a time limit, the last wave arrives by this share of it
+const SKIRMISH_WAVE_DIST = [380, 480];   // waves arrive this far (min, max) from the player
+const SKIRMISH_WAVE_MARGIN = 70;         // keep a wave's spawn circle inside the ground bounds
+/* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
+function rollSkirmishSeed(sk) {
+  if (sk.random) sk.seed = 1 + Math.floor(Math.random() * SKIRMISH_SEEDS);
+  return sk.seed;
+}
+/* Where a wave arrives: about 400 m from the player along the wave's bearing, turned a quarter at a time
+   until it fits inside the battlefield (else toward the centre), so waves never appear on top of the player at the map edge. */
+function skirmishWavePos(ref, ang, frac) {
+  const r = SKIRMISH_WAVE_DIST[0] + frac * (SKIRMISH_WAVE_DIST[1] - SKIRMISH_WAVE_DIST[0]), lim = GROUND_BOUND - SKIRMISH_WAVE_MARGIN;
+  for (let k = 0; k < 4; k++) {
+    const a = ang + k * PI / 2, x = ref.x + Math.cos(a) * r, z = ref.z + Math.sin(a) * r;
+    if (Math.abs(x) <= lim && Math.abs(z) <= lim) return { x, z };
+  }
+  const inward = Math.atan2(-ref.z, -ref.x);   // in a corner every quarter turn can leave the map
+  return { x: clamp(ref.x + Math.cos(inward) * r, -lim, lim), z: clamp(ref.z + Math.sin(inward) * r, -lim, lim) };
+}
+/* Merged skirmish best for one battlefield and size, or null when not better: more waves cleared, then a higher score. */
+function betterSkirmish(prev, waves, score, diff) {
+  if (prev && (waves < prev.waves || waves === prev.waves && score <= prev.score)) return null;
+  return { waves, score, diff };
+}
 function skirmishDef(cfg) {
   const sz = SKIRMISH_SIZES[cfg.size], rng = makeRng(cfg.seed);
   const start = { x: -560, z: -620, yaw: 0.8 };
@@ -5839,16 +5872,23 @@ function skirmishDef(cfg) {
       const k = affordable[Math.floor(rng() * affordable.length)];
       list.push(k); budget -= unitCost(k);
     }
-    waves.push({ list, ang: rng() * TAU });
+    waves.push({ list, ang: rng() * TAU, dist: rng() });
   }
-  const interval = { low: 80, normal: 55, high: 36 }[cfg.reinforce];
+  const limit = cfg.duration > 0 ? cfg.duration * 60 : 0;
+  let interval = { low: 80, normal: 55, high: 36 }[cfg.reinforce];
+  // squeeze the schedule so every wave arrives with time left to fight it
+  if (limit && waves.length > 1) interval = Math.min(interval, (limit * SKIRMISH_LAST_WAVE - SKIRMISH_FIRST_WAVE) / (waves.length - 1));
+  let ob = null;
+  const cleared = () => (ob ? ob.waves.filter((l) => l.every((u) => u.dead)).length : 0);
   return {
-    id: 'skirmish', name: 'Skirmish', type: 'Skirmish', map: cfg.map, timeLimit: cfg.duration > 0 ? cfg.duration * 60 : 0, start,
+    id: 'skirmish', name: 'Skirmish', type: 'Skirmish', map: cfg.map, timeLimit: limit, start, waveInterval: interval, waveCount: waves.length,
+    timeUpWins: true,                                   // holding out until the clock runs out is a victory
+    wavesCleared: cleared, rankProgress: () => cleared() / waves.length,   // ranked by waves cleared, not speed
     sites: [{ x: start.x, z: start.z, r: 34, tag: 'pad' }, { x: 80, z: 60, r: 70, tag: 'obj' }, { x: 400, z: -200, r: 60, tag: 'obj' }, { x: -300, z: 380, r: 60, tag: 'obj' }],
     build(ctx) {
       const m = ctx.m;
       const total = waves.reduce((a, w) => a + w.list.length, 0);
-      const ob = m.add(Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], status: 'active',
+      ob = m.add(Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], waves: [], status: 'active',
         tick() { const alive = this.units.filter((u) => !u.dead).length; this.progress = this.spawnedAll ? 1 - alive / Math.max(1, this.units.length) : 0; if (this.spawnedAll && alive === 0) this.status = 'complete'; },
         text() { return this.title + ' (wave ' + Math.min(this.waveNo, waves.length) + '/' + waves.length + ', ' + this.units.filter((u) => !u.dead).length + ' hostile)'; }, waveNo: 0, spawnedAll: false }));
       void total;
@@ -5857,17 +5897,16 @@ function skirmishDef(cfg) {
       let idx = 0;
       const spawnWave = () => {
         if (idx >= waves.length) return;
-        const w = waves[idx], r = 700;
-        const ang = w.ang;
-        const cx = clamp(Math.cos(ang) * r + 100, -860, 860), cz = clamp(Math.sin(ang) * r + 100, -860, 860);
-        const us = spawnGroup(w.list, cx, cz, { radius: 70, minPlayerDist: 220 });
+        const w = waves[idx], pos = skirmishWavePos(W.player || start, w.ang, w.dist);
+        const us = spawnGroup(w.list, pos.x, pos.z, { radius: 70, minPlayerDist: 220 });
+        ob.waves.push(us);
         us.forEach((u) => { ob.units.push(u); if (u.ai && u.kind !== 'air') u.ai.goal = { x: W.player ? W.player.x : 0, z: W.player ? W.player.z : 0 }; });
         idx++; ob.waveNo = idx;
         W.msg('WAVE ' + idx + ' OF ' + waves.length + ' INBOUND', 'alarm');
         if (idx >= waves.length) ob.spawnedAll = true;
       };
-      m.at(3, spawnWave);
-      m.every(interval, () => spawnWave(), interval + 3);
+      m.at(SKIRMISH_FIRST_WAVE, spawnWave);
+      m.every(interval, () => spawnWave(), interval + SKIRMISH_FIRST_WAVE);
       m.every(4, () => { // enemies without a target head for the player
         if (!W.player || W.player.dead) return;
         for (const p of W.platforms) if (p.team === 1 && p.ai && p.arch && p.ai.goal !== undefined && !p.ai.target && p.kind !== 'air') p.ai.goal = { x: W.player.x, z: W.player.z };
@@ -6299,12 +6338,18 @@ const Game = {
       stats: this.statSummary(st),
     };
     if (Net.host) this.resultData.team = Net.teamTable();
-    if (this.cfg.mode === 'mission' && m.state === 'won') {
-      const prev = Save.data.best[m.def.id];
+    const cfg = this.cfg, diff = cfg.difficulty || 'veteran';
+    this.resultData.diff = W.diff.name;
+    if (cfg.mode === 'mission' && m.state === 'won') {
       const score = this.finalScore(st);
-      const rec = betterRecord(prev, score, this.resultData.rank, Math.round(m.time));
-      if (rec) { Save.data.best[m.def.id] = rec; Save.persist(); }
+      const rec = betterRecord(Save.data.best[m.def.id], score, this.resultData.rank, Math.round(m.time), diff);
+      if (rec) { Save.data.best[m.def.id] = rec; Save.persist(); this.resultData.newBest = true; }
       this.resultData.score = score;
+    } else if (cfg.mode === 'skirmish') {   // win or lose, a skirmish is measured by the waves cleared
+      const key = cfg.skirmish.map + '-' + cfg.skirmish.size, waves = m.def.wavesCleared(), score = this.finalScore(st);
+      const rec = betterSkirmish(Save.data.skirmishBest[key], waves, score, diff);
+      if (rec) { Save.data.skirmishBest[key] = rec; Save.persist(); this.resultData.newBest = true; }
+      Object.assign(this.resultData, { score, waves: waves + '/' + m.def.waveCount, seed: cfg.skirmish.seed });
     }
     UI.show('results');
     if (Net.host) Net.sendEnd(this.resultData);
@@ -6314,10 +6359,10 @@ const Game = {
     const shots = Math.max(1, st.shots);
     return { kills: st.kills, accuracy: Math.min(100, Math.round(st.hits / shots * 100)), dealt: Math.round(st.damageDealt), taken: Math.round(st.damageTaken), deaths: st.deaths, structures: st.structures, score: st.score };
   },
-  /* mission score: kill score and kills, plus the seconds left on the clock */
+  /* mission score: kill score and kills, plus the seconds left on the clock, scaled by difficulty */
   finalScore(st) {
     const m = this.mission;
-    return Math.round(st.score + (m.limit ? Math.max(0, m.limit - m.time) : 0) + st.kills * 10);
+    return Math.round((st.score + (m.limit ? Math.max(0, m.limit - m.time) : 0) + st.kills * 10) * W.diff.scoreMult);
   },
   showResultsGuest(r) {
     this.state = 'results'; this.netPaused = false; this.resultData = r;
@@ -6953,7 +6998,8 @@ const UI = {
     this.root.addEventListener('input', (e) => this.onInput(e, false));
     this.root.addEventListener('change', (e) => this.onInput(e, true));
     this.skirmish = Object.assign({}, SKIRMISH_DEFAULT, Save.data.skirmish || {});
-    this.skirmish.seed = SKIRMISH_DEFAULT.seed;
+    if (!Number.isFinite(this.skirmish.seed)) this.skirmish.seed = SKIRMISH_DEFAULT.seed;   // kept so the last battle can be replayed
+    this.skirmish.random = this.skirmish.random !== false;
   },
   fade(v) { el('fade').style.opacity = v; },
   fadeNow(v) { const f = el('fade'); f.style.transition = 'none'; f.style.opacity = v; void f.offsetWidth; f.style.transition = 'opacity .6s'; },
@@ -7057,7 +7103,7 @@ const UI = {
   },
   act_deployMission(d) { this.launch({ mode: 'mission', missionId: d.id }); },
   act_deployTraining() { this.launch({ mode: 'training' }); },
-  act_deploySkirmish() { Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', difficulty: this.skirmish.difficulty, skirmish: Object.assign({}, this.skirmish) }); },
+  act_deploySkirmish() { rollSkirmishSeed(this.skirmish); Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', difficulty: this.skirmish.difficulty, skirmish: Object.assign({}, this.skirmish) }); },
   launch(partial) {
     const pid = Save.data.platformId, def = PLATFORMS[pid], lo = Loadout.forPlatform(pid);
     const v = Loadout.validate(def, lo);
@@ -7184,7 +7230,7 @@ const UI = {
   scr_missions() {
     const cards = MISSIONS.map((m) => {
       const b = Save.data.best[m.id];
-      return '<button class="card" data-act="brief" data-id="' + m.id + '"><b>' + esc(m.name) + '</b> <span class="tag">' + esc(m.type) + '</span><br><small>' + esc(MAPS[m.map].name) + ' &middot; Difficulty ' + '*'.repeat(m.stars) + ' &middot; Best: ' + (b ? '<span class="rank' + b.rank + '">' + b.rank + '</span> ' + b.score : 'not cleared') + '</small></button>';
+      return '<button class="card" data-act="brief" data-id="' + m.id + '"><b>' + esc(m.name) + '</b> <span class="tag">' + esc(m.type) + '</span><br><small>' + esc(MAPS[m.map].name) + ' &middot; Difficulty ' + '*'.repeat(m.stars) + ' &middot; Best: ' + (b ? '<span class="rank' + b.rank + '">' + b.rank + '</span> ' + b.score + (b.diff ? ' (' + DIFFICULTY[b.diff].name + ')' : '') : 'not cleared') + '</small></button>';
     }).join('');
     return '<h2>Objective Missions</h2><div class="grid2">' + cards + '</div><div class="row"><button class="btn" data-act="back">Back</button></div>';
   },
@@ -7203,7 +7249,9 @@ const UI = {
     const s = this.skirmish;
     const sel = (key, label, opts) => '<label class="f"><span>' + label + '</span><select data-skirm="' + key + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (String(s[key]) === String(o[0]) ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
     const chk = (key, label) => '<label class="f"><span>' + label + '</span><input type="checkbox" data-skirm="' + key + '"' + (s[key] ? ' checked' : '') + '></label>';
-    return '<h2>Skirmish</h2><div class="panel">Fight scheduled enemy waves on a battlefield of your choice. Every configuration uses a fixed seed, so the same settings give the same match.</div>' +
+    const best = Save.data.skirmishBest[s.map + '-' + s.size];
+    return '<h2>Skirmish</h2><div class="panel">Fight scheduled enemy waves on a battlefield of your choice. Hold out until the time limit to win. A random battle draws new waves each time; untick it to replay the last one.' +
+      '<div class="dim">Best here: ' + (best ? best.waves + ' waves cleared, score ' + best.score + (best.diff ? ' (' + DIFFICULTY[best.diff].name + ')' : '') : 'none yet') + '</div></div>' +
       '<div class="grid2"><div class="panel">' +
       sel('map', 'Battlefield', Object.keys(MAPS).map((k) => [k, MAPS[k].name])) +
       sel('size', 'Encounter size', [['small', 'Small (4 waves)'], ['medium', 'Medium (6 waves)'], ['large', 'Large (9 waves)']]) +
@@ -7213,7 +7261,7 @@ const UI = {
       '</div><div class="panel">' +
       sel('support', 'Friendly support', [['none', 'None'], ['light', 'Light (2 units)'], ['heavy', 'Heavy (4 units)']]) +
       sel('reinforce', 'Reinforcement frequency', [['low', 'Low'], ['normal', 'Normal'], ['high', 'High']]) +
-      '<h3>Modifiers</h3>' + chk('fog', 'Heavy fog (short sight lines)') + chk('night', 'Night operations') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
+      '<h3>Modifiers</h3>' + chk('random', 'Random battle (off: replay battle ' + s.seed + ')') + chk('fog', 'Heavy fog (short sight lines)') + chk('night', 'Night operations') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
       '</div></div>' + this.platSummary() +
       '<div class="row"><button class="btn primary" data-act="deploySkirmish" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
   },
@@ -7308,9 +7356,10 @@ const UI = {
     const team = Array.isArray(r.team) ? '<div class="panel"><h3 style="margin-top:0">Team</h3><table><tr><th>Pilot</th><th>Kills</th><th>Platforms lost</th><th>Score</th></tr>' +
       r.team.map((t) => '<tr><td>' + esc(String(t.name).substring(0, 16)) + '</td><td>' + num(t.kills) + '</td><td>' + num(t.deaths) + '</td><td>' + num(t.score) + '</td></tr>').join('') + '</table></div>' : '';
     return '<div style="text-align:center"><div class="big ' + (r.won ? 'good' : 'bad') + '">' + (r.won ? 'MISSION COMPLETE' : 'MISSION FAILED') + '</div><div class="sub">' + esc(r.name) + (r.reason ? ' - ' + esc(r.reason) : '') + '</div>' +
-      '<div class="big rank' + r.rank + '" style="margin-bottom:.4em">RANK ' + r.rank + '</div></div>' +
+      '<div class="big rank' + r.rank + '" style="margin-bottom:.4em">RANK ' + r.rank + '</div>' + (r.newBest ? '<div class="good"><b>NEW BEST</b></div>' : '') + '</div>' +
       '<div class="grid2"><div class="panel"><h3 style="margin-top:0">Objectives</h3><table>' + objs + '</table></div><div class="panel"><h3 style="margin-top:0">Combat report</h3><table>' +
-      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr><tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Structures destroyed</td><td>' + (s.structures || 0) + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
+      '<tr><td>Time</td><td>' + fmtTime(r.time) + '</td></tr>' + (r.diff ? '<tr><td>Difficulty</td><td>' + esc(r.diff) + '</td></tr>' : '') +
+      (r.waves ? '<tr><td>Waves cleared</td><td>' + esc(r.waves) + '</td></tr><tr><td>Battle seed</td><td>' + num(r.seed) + '</td></tr>' : '') + '<tr><td>Kills</td><td>' + s.kills + '</td></tr><tr><td>Accuracy</td><td>' + s.accuracy + '%</td></tr><tr><td>Damage dealt</td><td>' + s.dealt + '</td></tr><tr><td>Damage taken</td><td>' + s.taken + '</td></tr><tr><td>Platforms lost</td><td>' + s.deaths + '</td></tr><tr><td>Structures destroyed</td><td>' + (s.structures || 0) + '</td></tr><tr><td>Score</td><td>' + (r.score !== undefined ? r.score : s.score) + '</td></tr></table></div></div>' + team +
       '<div class="row" style="justify-content:center">' + (Net.guest ? '<span class="dim">Waiting for the host...</span>' : '<button class="btn primary" data-act="retry" data-focus>Retry</button>') + '' + (next && !Net.guest ? '<button class="btn" data-act="next" data-id="' + r.id + '">Next mission</button>' : '') + (Net.host ? '<button class="btn" data-act="coopLobby">Back to lobby</button>' : '') + '<button class="btn" data-act="menu">Main menu</button></div>';
   },
 };
@@ -7699,6 +7748,34 @@ const SelfTest = {
       const rec2 = betterRecord({ score: 900, rank: 'B', time: 300 }, 800, 'A', 200);
       this.check('a better rank keeps the higher saved score', rec2 && rec2.score === 900 && rec2.rank === 'A' && rec2.time === 300);
       this.check('no record when nothing improved', betterRecord({ score: 900, rank: 'A', time: 300 }, 800, 'B', 200) === null);
+      this.check('a best score keeps its difficulty', betterRecord({ score: 900, rank: 'A', time: 300, diff: 'recruit' }, 1000, 'B', 200, 'elite').diff === 'elite');
+      this.check('harder difficulties score more', DIFFICULTY.recruit.scoreMult < DIFFICULTY.veteran.scoreMult && DIFFICULTY.veteran.scoreMult < DIFFICULTY.elite.scoreMult);
+    });
+    t('skirmish', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const fixed = { random: false, seed: 77 }, rolled = { random: true, seed: 77 };
+      rollSkirmishSeed(fixed); rollSkirmishSeed(rolled);
+      this.check('a replayed battle keeps its seed', fixed.seed === 77);
+      this.check('a random battle draws a seed in range', rolled.seed >= 1 && rolled.seed <= SKIRMISH_SEEDS && Number.isInteger(rolled.seed));
+      const corner = { x: GROUND_BOUND - 40, z: GROUND_BOUND - 40 }, lim = GROUND_BOUND - SKIRMISH_WAVE_MARGIN;
+      const pos = skirmishWavePos(corner, 0, 0.5), d = Math.hypot(pos.x - corner.x, pos.z - corner.z);
+      this.check('a wave at the map edge turns inside the battlefield', Math.abs(pos.x) <= lim && Math.abs(pos.z) <= lim, pos.x.toFixed(0) + ',' + pos.z.toFixed(0));
+      this.check('a wave never arrives on top of the player', d >= SKIRMISH_WAVE_DIST[0], Math.round(d) + ' m');
+      const def = skirmishDef(Object.assign({}, SKIRMISH_DEFAULT, { size: 'large', reinforce: 'low', duration: 5 }));
+      const lastWave = SKIRMISH_FIRST_WAVE + (def.waveCount - 1) * def.waveInterval;
+      this.check('every wave arrives before the time limit', lastWave <= def.timeLimit * SKIRMISH_LAST_WAVE + 1e-6, Math.round(lastWave) + ' s of ' + def.timeLimit);
+      const held = new Mission({ id: 'test', timeLimit: 10, timeUpWins: true }, {}), expired = new Mission({ id: 'test', timeLimit: 10 }, {});
+      held.time = expired.time = 9.99; held.update(0.02); expired.update(0.02);
+      this.check('a skirmish held until time up is won', held.state === 'won', held.state);
+      this.check('a mission whose time runs out is lost', expired.state === 'lost', expired.state);
+      this.check('more waves cleared is a new best', !!betterSkirmish({ waves: 3, score: 900 }, 4, 100, 'veteran'));
+      this.check('same waves needs a higher score', betterSkirmish({ waves: 3, score: 900 }, 3, 800, 'veteran') === null && !!betterSkirmish({ waves: 3, score: 900 }, 3, 950, 'veteran'));
+      const sv = Save.sanitize({ v: SAVE_VERSION, skirmishBest: { 'ashfall-small': { waves: 2.6, score: 300, diff: 'elite' }, 'bad key!': { waves: 1, score: 1 }, 'ridge-large': { waves: 'x', score: 1 } }, best: { m1: { score: 5, rank: 'A', time: 1, diff: 'godlike' } } });
+      const kept = sv.skirmishBest['ashfall-small'];
+      this.check('a saved skirmish best is kept', kept && kept.waves === 2 && kept.score === 300 && kept.diff === 'elite');
+      this.check('broken skirmish bests are dropped', Object.keys(sv.skirmishBest).length === 1);
+      this.check('an unknown saved difficulty is dropped', sv.best.m1 && sv.best.m1.diff === undefined);
     });
     t('flight', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
@@ -8191,7 +8268,7 @@ const Net = {
       if (!peer.open || !peer.hello || !peer.stats) continue;
       const own = { stats: Game.statSummary(peer.stats) };
       if (result.score !== undefined) own.score = Game.finalScore(peer.stats);
-      this.send(peer, { t: 'end', r: Object.assign({}, result, own) });
+      this.send(peer, { t: 'end', r: Object.assign({}, result, own, { newBest: false }) });   // the best record is the host's own
     }
   },
   /* everyone's kills, losses and score for the co-op result screen */
