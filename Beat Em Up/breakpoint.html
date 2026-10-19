@@ -2838,7 +2838,7 @@ class Fighter {
     const blockEntry = isBlockState(next) && !isBlockState(prev);
     this.blockFresh = blockEntry && this.age - this.lastBlockAt >= PERFECT_BLOCK_COOLDOWN;
     if (blockEntry) this.lastBlockAt = this.age;
-    if (next === S.GETUP) this.invuln = Math.max(this.invuln, 22);
+    if (next === S.GETUP) this.invuln = Math.max(this.invuln, this.getupTicks() + 2);   // covers the whole get-up, cleared once standing
     if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.THROWN) { this.buffer = null; }
     if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
     return true;
@@ -3001,13 +3001,15 @@ class Fighter {
       case S.DOWN: this.updateDown(it); break;
       case S.GETUP:
         this.vx = this.vz = 0;
-        if (this.stateTicks >= Math.round(30 * this.stats.getup * (this.quickRise ? 0.6 : 1))) { this.setState(S.IDLE); this.downMult = 1; }
+        if (this.stateTicks >= this.getupTicks()) { this.setState(S.IDLE); this.downMult = 1; this.invuln = 0; }
         break;
       default: this.vx = this.vz = 0; break;
     }
     if (!this.lowWarned && this.lowStamina && this.alive) { this.lowWarned = true; Events.emit('lowStamina', { f: this }); }
     if (this.stam > this.maxStam * 0.4) this.lowWarned = false;
   }
+
+  getupTicks() { return Math.round(30 * this.stats.getup * (this.quickRise ? 0.6 : 1)); }
 
   regenerate() {
     if (!this.alive || this.noRegen > 0) return;
@@ -7170,6 +7172,19 @@ const SelfTest = {
       let rose = -1;
       for (let i = 0; i < 200; i++) { m.step(); if (rose < 0 && m.fighters[1].state === S.GETUP) rose = i; }
       return rose > 0 && rose < 80 && m.fighters[1].quickRise ? true : 'getup at ' + rose;
+    });
+    test('Wake-up invulnerability lasts the whole get-up and ends when standing', () => {
+      const problems = [];
+      for (const id of ['brutus', 'yuki']) {
+        const m = mk({ opponentId: id }, once(2, 'lk', { strong: true, height: true }));
+        self.place(m, 1.2);
+        const b = m.fighters[1];
+        let exposed = 0, rose = false;
+        for (let i = 0; i < 260; i++) { m.step(); if (b.state === S.GETUP) { rose = true; if (b.invuln === 0) exposed++; } }
+        if (!rose || exposed || b.state !== S.IDLE || b.invuln !== 0) problems.push(id + ' rose ' + rose + ' exposed ' + exposed + ' state ' + b.state + ' invuln ' + b.invuln);
+        m.dispose();
+      }
+      return problems.length ? problems.join('; ') : true;
     });
     test('Knock-out stops all further combat', () => {
       const log = self.capture(['hit', 'ko', 'roundEnd']);
