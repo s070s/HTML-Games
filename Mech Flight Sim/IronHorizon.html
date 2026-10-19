@@ -3356,7 +3356,7 @@ class Platform {
     ['primaryA', 'primaryB', 'secondary'].forEach((slot) => {
       const id = this.loadout[slot], wd = id && WEAPONS[id];
       if (!wd) return;
-      this.wslots[slot] = { id, def: wd, slot, clip: wd.clip, reserve: Math.round(wd.reserve * ammoMult), cd: 0, reloading: 0, charge: 0, burstLeft: 0, burstT: 0, side: 1, warned: false };
+      this.wslots[slot] = { id, def: wd, slot, clip: wd.clip, reserve: Math.round(wd.reserve * ammoMult), cd: 0, reloading: 0, charge: 0, burstLeft: 0, burstT: 0, side: 1, warned: false, predCd: 0 };
     });
     const uid = this.loadout.utility, ud = uid && WEAPONS[uid];
     if (ud) {
@@ -7577,6 +7577,23 @@ const SelfTest = {
       damageStruct(core, 50, 'explosive', pl, 1); damageStruct(core, 50, 'explosive', pl, 1);
       this.check('a shielded objective explains itself once', W.msgs.filter((m) => m.text.indexOf('TARGET SHIELDED') === 0).length === 1 && pl.shieldMsgT > W.time && core.hp === core.maxHp);
     });
+    t('guest fire prediction', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const pl = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: { primaryA: 'mg', secondary: 'missile' } });
+      W.platforms.push(pl); W.player = pl;
+      const mg = pl.wslots.primaryA, clip0 = mg.clip;
+      pl.cmd.fire1 = true;
+      Net.predictFire(STEP);
+      this.check('a guest shot gives instant recoil and shake', pl.recoil === 1 && W.shake > 0 && mg.predCd > 0 && mg.clip === clip0);
+      pl.recoil = 0; Net.predictFire(STEP);
+      this.check('predicted fire keeps the weapon rate', pl.recoil === 0);
+      pl.cmd.fire1 = false; pl.cmd.fire2 = true;
+      Net.predictFire(STEP);
+      this.check('a semi-auto weapon needs a fresh trigger pull', pl.wslots.secondary.predCd === 0);
+      pl.cmd.fire2Edge = true; Net.predictFire(STEP);
+      this.check('a trigger pull fires the predicted shot', pl.wslots.secondary.predCd > 0 && pl.recoil === 1);
+    });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
       W.mission = null;
@@ -8185,8 +8202,10 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
-        Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
-        if (pr.owner) pr.owner.recoil = 1;
+        if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
+          Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
+          if (pr.owner) pr.owner.recoil = 1;
+        }
       }
       pr.x = e[2]; pr.y = e[3]; pr.z = e[4]; pr.vx = e[5]; pr.vy = e[6]; pr.vz = e[7]; pr.seen = this.t;
       next[e[0]] = pr;
@@ -8281,8 +8300,29 @@ const Net = {
     for (let i = W.dmgDirs.length - 1; i >= 0; i--) { W.dmgDirs[i].t -= dt; if (W.dmgDirs[i].t <= 0) W.dmgDirs.splice(i, 1); }
     this.beatAcc += dt;
     if (this.beatAcc >= 1) { this.beatAcc = 0; this.send(this.hostPeer, { t: 'p' }, false); }
+    if (Game.state === 'playing' && !Game.netPaused) this.predictFire(dt);
     this.inAcc += dt;
     if (this.inAcc >= 1 / 30) { this.inAcc = 0; this.sendInput(); }
+  },
+  /* Guest: play our own shots at once (sound, recoil, shake) rather than a snapshot later.
+     Purely cosmetic; the host still decides what is fired. Charge and burst weapons are left to the host. */
+  predicts(d) { return d.fire === 'auto' || d.fire === 'semi'; },
+  predictFire(dt) {
+    const p = W.player;
+    if (!p || p.dead || p.overheated) return;
+    this.predictSlot(p, p.primary, p.cmd.fire1, p.cmd.fire1Edge, dt);
+    this.predictSlot(p, p.wslots.secondary, p.cmd.fire2, p.cmd.fire2Edge, dt);
+  },
+  predictSlot(p, w, held, edge, dt) {
+    if (!w) return;
+    w.predCd = Math.max(0, w.predCd - dt);
+    const d = w.def;
+    if (!this.predicts(d) || w.predCd > 0 || w.reloading > 0 || !p.hasAmmo(w)) return;
+    if (!(d.fire === 'auto' ? held : edge)) return;
+    w.predCd = p.fireCd(d);
+    Snd.play(d.sound, p.x, p.y + p.height * 0.6, p.z, 1);
+    p.recoil = 1;
+    W.shake = Math.min(1, W.shake + d.recoil * 0.025 / (p.crouch ? 2 : 1));
   },
   sendInput() {
     const p = W.player;
