@@ -241,6 +241,7 @@ const MAX_PROJECTILES = 420;
 const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
 const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
 const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain before it comes back up
+const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
@@ -4091,7 +4092,8 @@ class Platform {
       if (owner.team === 0) { W.stats.kills++; W.stats.score += this.score; if (owner === W.player) W.killMarker = 0.6; else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' }); }
     }
     if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.arch) {
-      const t = ['ammo', 'repair', 'energy'][Math.floor(Math.random() * 3)];
+      const types = W.mods.scarce ? ['repair', 'energy'] : ['ammo', 'repair', 'energy'];   // scarce ammunition: no ammo drops
+      const t = types[Math.floor(Math.random() * types.length)];
       spawnPickup(t, this.x, this.z, 50);
     }
     W.feed.push({ t: W.time, text: (owner ? owner.name : cause === 'crash' || cause === 'collision' ? 'Collision' : 'Unknown') + '  >  ' + this.name, team: this.team });
@@ -4695,15 +4697,28 @@ function tryResupply(pl) {
     if (Math.hypot(pad.x - pl.x, pad.z - pl.z) < 22 && (pl.kind !== 'air' || pl.y - Terrain.h(pad.x, pad.z) < 40)) near = pad;
   }
   if (!near) { notify(pl, 'NO SUPPLY PAD IN RANGE'); return; }
+  const ammoMult = W.mods.scarce ? SCARCE_AMMO : 1;
+  if (!resupplyNeeded(pl, ammoMult)) { notify(pl, 'ALREADY FULLY SUPPLIED'); return; }
   if (W.mode !== 'training' && W.resupplies <= 0) { notify(pl, 'NO RESUPPLY CHARGES LEFT'); return; }
   if (pl.nextResupply && W.time < pl.nextResupply) { notify(pl, 'RESUPPLY COOLING DOWN'); return; }
   if (W.mode !== 'training') W.resupplies--;
   pl.nextResupply = W.time + 8;
-  ['primaryA', 'primaryB', 'secondary'].forEach((sl) => { const w = pl.wslots[sl]; if (w) { w.clip = w.def.clip; w.reserve = w.def.reserve; w.reloading = 0; } });
+  // top up to the deployment reserve, never below what pickups already gave
+  GUN_SLOTS.forEach((sl) => { const w = pl.wslots[sl]; if (w) { w.clip = w.def.clip; w.reserve = Math.max(w.reserve, Math.round(w.def.reserve * ammoMult)); w.reloading = 0; } });
   pl.hp = Math.min(pl.maxHp, pl.hp + pl.maxHp * 0.5); pl.armor = pl.maxArmor; pl.energy = pl.maxEnergy; pl.heat = 0; pl.overheated = false;
   if (pl.util) pl.util.charges = Math.max(pl.util.charges, pl.util.def.charges || 0);
   if (pl === W.player) Snd.ui('repair');
   notify(pl, 'RESUPPLIED' + (W.mode !== 'training' ? ' (' + W.resupplies + ' LEFT)' : ''));
+}
+
+/* True when a pad visit would restore something (energy and heat recover on their own). */
+function resupplyNeeded(pl, ammoMult) {
+  for (const sl of GUN_SLOTS) {
+    const w = pl.wslots[sl];
+    if (w && w.def.kind !== 'beam' && (w.clip < w.def.clip || w.reserve < Math.round(w.def.reserve * ammoMult))) return true;
+  }
+  if (pl.util && pl.util.charges < (pl.util.def.charges || 0)) return true;
+  return pl.hp < pl.maxHp || pl.armor < pl.maxArmor;
 }
 
 /* Player-facing alert about guided weapons chasing the platform. */
@@ -5983,7 +5998,7 @@ const Game = {
     const lo = Object.assign({}, cfg.loadout);
     const old = W.player;
     const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z;
-    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: lo, name: 'YOU', ammoMult: W.mods.scarce ? 0.5 : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: lo, name: 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
     p.controller = PC; p.cmd.aimYaw = st.yaw; p.flightMode = S.flightMode;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
@@ -7314,6 +7329,21 @@ const SelfTest = {
       this.check('APS intercepts a missile', !missile.active && u.charges === WEAPONS.aps.charges - 1);
       tank.updateDefense(WEAPONS.aps.recharge + 0.1);
       this.check('APS recharges', u.charges === WEAPONS.aps.charges);
+    });
+    t('resupply', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 }, mods: { scarce: true } });
+      W.mission = null; W.pads = [{ x: 0, z: 0 }]; W.resupplies = 2;
+      const pl = new Platform(PLATFORMS.bulwark, { team: 0, x: 5, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout, ammoMult: SCARCE_AMMO });
+      W.platforms.push(pl); W.player = pl;
+      const w = pl.wslots.primaryA, scarceReserve = Math.round(w.def.reserve * SCARCE_AMMO);
+      tryResupply(pl);
+      this.check('resupply uses no charge when nothing is missing', W.resupplies === 2);
+      w.reserve = 0; pl.hp -= 50;
+      tryResupply(pl);
+      this.check('scarce resupply refills to the scarce reserve', W.resupplies === 1 && w.reserve === scarceReserve, 'reserve ' + w.reserve);
+      w.reserve = w.def.reserve * 1.5; w.clip = 0; pl.nextResupply = 0;
+      tryResupply(pl);
+      this.check('resupply never lowers ammunition', w.reserve === w.def.reserve * 1.5 && w.clip === w.def.clip);
     });
     t('flight', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
