@@ -623,13 +623,13 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, strong: false, height: false,
     jump: false, lp: false, rp: false, lk: false, rk: false, grapple: false, dash: false, stance: false,
-    sidestep: 0, grapDir: 'fwd', pause: false, noParry: false,
+    sidestep: 0, grapDir: 'fwd', noParry: false,
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.blockH = false; it.blockL = false;
   it.strong = false; it.height = false; it.jump = false; it.lp = false; it.rp = false; it.lk = false; it.rk = false;
-  it.grapple = false; it.dash = false; it.stance = false; it.sidestep = 0; it.grapDir = 'fwd'; it.pause = false; it.noParry = false;
+  it.grapple = false; it.dash = false; it.stance = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
   return it;
 }
 
@@ -736,6 +736,7 @@ const Input = {
     if (isDirection && now - last < DOUBLE_TAP_SECONDS) this.latch.dtap = action;
   },
   take(action) { const v = !!this.latch[action]; this.latch[action] = false; return v; },
+  takeAny(actions) { let any = false; for (const a of actions) any = this.take(a) || any; return any; },
 
   touchSet(action, down) {
     if (down && !this.touchHeld[action]) this.press(action);
@@ -847,7 +848,6 @@ const Input = {
     it.lp = this.take('lp'); it.rp = this.take('rp'); it.lk = this.take('lk'); it.rk = this.take('rk');
     it.dash = this.take('dash');
     it.stance = this.take('stance');
-    it.pause = this.take('pause');
     it.grapple = this.take('grapple');
     const dtap = this.latch.dtap;
     this.latch.dtap = null;
@@ -4710,9 +4710,12 @@ class DummyController {
    ===================================================================== */
 const Match = { current: null };
 const DT = FIXED_DT;
-const COUNTDOWN_TICKS = 190;
-const ROUND_END_TICKS = 170;
+const ROUND_BANNER_TICKS = 48;        // "ROUND n" stays readable this long before the count starts
+const COUNT_STEP_TICKS = 45;          // one countdown number; round 1 counts from 3, later rounds from 2
+const ROUND_END_TICKS = 110;
 const KO_DELAY_TICKS = 45;
+const KO_SLOW_TICKS = 30;             // slow motion starts on the knock-out blow itself
+const SKIP_ARM_TICKS = 30;            // the round-end sequence can be skipped after this long
 
 const PlayerController = {
   think(f, opp, match, it) { return Input.fillIntent(it, f, opp); },
@@ -4797,6 +4800,7 @@ class MatchSim {
   /* Damage only counts while the round is being fought: not after a KO or the bell. */
   get live() { return this.phase === 'fight' && !this.locked; }
   get timeLeft() { return this.cfg.timer > 0 && !this.training ? Math.ceil(this.roundTicks / 60) : null; }
+  get countFrom() { return this.round === 1 ? 3 : 2; }
 
   placeFighters(hpFrac) {
     const s = this.def.spawn;
@@ -4838,10 +4842,11 @@ class MatchSim {
     FX.update(DT);
   }
   stepCountdown() {
-    const n = 3 - Math.floor(this.phaseTicks / 60);
-    if (n !== this.lastCountdown && n >= 1) { this.lastCountdown = n; Events.emit('countdown', { n }); }
+    const counting = this.phaseTicks - ROUND_BANNER_TICKS;
+    const n = this.countFrom - Math.floor(counting / COUNT_STEP_TICKS);
+    if (counting >= 0 && n !== this.lastCountdown && n >= 1) { this.lastCountdown = n; Events.emit('countdown', { n }); }
     for (const f of this.fighters) f.animate(DT);
-    if (this.phaseTicks >= COUNTDOWN_TICKS - 40) {
+    if (counting >= this.countFrom * COUNT_STEP_TICKS) {
       this.phase = 'fight';
       this.phaseTicks = 0;
       Input.reset();
@@ -4855,7 +4860,6 @@ class MatchSim {
       if (this.locked || !f.alive) clearIntent(this.intents[i]);
       else this.controllers[i].think(f, opp, this, this.intents[i]);
     }
-    if (this.intents[0].pause) Events.emit('pauseRequest', {});
     if (this.training) {
       if (this.infiniteStam) { b.stam = b.maxStam; }
       if (this.infiniteHp && b.alive && b.hp < b.maxHp && !REACTION_STATES.includes(b.state) && this.tick % 120 === 0) b.hp = b.maxHp;
@@ -4948,8 +4952,10 @@ class MatchSim {
   checkRoundEnd() {
     const [a, b] = this.fighters;
     if (!a.alive || !b.alive) {
+      if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
       this.locked = true;
       this.endTimer++;
+      if (this.slowTicks > 0) this.slowTicks--;
       if (this.endTimer >= KO_DELAY_TICKS) this.endRound('ko');
       return;
     }
@@ -4975,7 +4981,6 @@ class MatchSim {
     if (this.matchOver) this.matchWinner = this.wins[0] >= this.winsNeeded ? 0 : 1;
     this.phase = 'roundEnd';
     this.phaseTicks = 0;
-    this.slowTicks = reason === 'ko' ? 80 : 0;
     this.locked = true;
     Events.emit('roundEnd', { winner, reason, round: this.round, wins: this.wins.slice(), matchOver: this.matchOver, match: this });
   }
@@ -4985,21 +4990,28 @@ class MatchSim {
     for (let i = 0; i < 2; i++) this.fighters[i].update(this.intents[i], this.fighters[i ^ 1], this);
     this.physics();
     for (const f of this.fighters) f.animate(DT);
-    if (this.phaseTicks === 60) {
-      this.fighters.forEach((f, i) => {
-        if (!f.alive || TERMINAL_STATES.includes(f.state)) return;
-        if (f.state === S.THROWN || f.airborne) return;
-        f.setState(this.roundWinner === i ? S.VICTORY : S.DEFEAT);
-      });
-    }
-    if (this.phaseTicks === 90) {
-      this.fighters.forEach((f, i) => { if (f.alive && !TERMINAL_STATES.includes(f.state) && !f.airborne) f.setState(this.roundWinner === i ? S.VICTORY : S.DEFEAT); });
-    }
+    if (this.phaseTicks === 60) this.settlePoses(false);
+    if (this.phaseTicks === 90) this.settlePoses(true);
     if (this.slowTicks > 0) this.slowTicks--;
     if (this.phaseTicks >= ROUND_END_TICKS) {
       if (this.matchOver) { this.phase = 'matchEnd'; this.phaseTicks = 0; Events.emit('matchEnd', { match: this }); }
       else { this.phase = 'waiting'; Events.emit('nextRound', { match: this }); }
     }
+  }
+  /* Winner / loser poses for standing fighters; late (true) also catches a thrown fighter that has landed. */
+  settlePoses(late) {
+    this.fighters.forEach((f, i) => {
+      if (!f.alive || TERMINAL_STATES.includes(f.state) || f.airborne || (f.state === S.THROWN && !late)) return;
+      f.setState(this.roundWinner === i ? S.VICTORY : S.DEFEAT);
+    });
+  }
+  /* A button press fast-forwards the round-end sequence once it has played for a moment. */
+  skipRoundEnd() {
+    if (this.phase !== 'roundEnd' || this.phaseTicks < SKIP_ARM_TICKS) return false;
+    this.slowTicks = 0;
+    this.settlePoses(true);
+    this.phaseTicks = Math.max(this.phaseTicks, ROUND_END_TICKS - 1);
+    return true;
   }
   hitStopTick() { if (this.hitStop > 0) this.hitStop = 0; }
   stepIdle() {
@@ -5118,6 +5130,9 @@ const GS_TRANSITIONS = {
   ERROR: ['MENU'],
 };
 const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];
+const RESULTS_DELAY = 2.6;            // seconds of victory / defeat pose before the results screen
+const SKIP_ARM_SECONDS = 0.5;         // presses this soon after a victory / defeat are ignored
+const SKIP_ACTIONS = ['lp', 'rp', 'lk', 'rk', 'grapple', 'jump'];
 const ARCADE_DIFFS = ['easy', 'normal', 'hard', 'hard', 'expert'];
 const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
@@ -5235,7 +5250,6 @@ const Game = {
       Events.on('roundEnd', (e) => this.onRoundEnd(e)),
       Events.on('nextRound', () => this.onNextRound()),
       Events.on('matchEnd', () => this.onMatchEnd()),
-      Events.on('pauseRequest', () => this.pause()),
       Events.on('fightStart', () => { if (this.state === GS.COUNTDOWN) this.go(GS.FIGHT); }),
     ];
     Events.emit('matchCreated', { match: this.match });
@@ -5387,6 +5401,7 @@ const Game = {
     Diag.frameMs = this.frameAvg; Diag.fps = dt > 0 ? 1 / dt : Diag.fps;
     if (Math.abs((window.devicePixelRatio || 1) - R.lastDpr) > 0.01) Quality.apply();
     Input.update(dt);
+    this.pollMatchInput();
     Quality.adapt(this.frameAvg, dt);
     Events.emit('frame', { dt });
     const t0 = performance.now();
@@ -5406,7 +5421,7 @@ const Game = {
       this.alpha = clamp(this.acc / DT, 0, 1);
       if ((st === GS.VICTORY || st === GS.DEFEAT) && this.match) {
         this.endTimer += dt;
-        if (this.endTimer > 3.2 && this.state === st) { this.go(GS.RESULTS); }
+        if (this.endTimer > RESULTS_DELAY && this.state === st) { this.go(GS.RESULTS); }
       }
     } else if (st === GS.PAUSED && this.match) {
       this.alpha = clamp(this.acc / DT, 0, 1);
@@ -5415,6 +5430,17 @@ const Game = {
     }
     Diag.simMs += (performance.now() - t0 - Diag.simMs) * 0.1;
     this.render(dt);
+  },
+  /* Pause works in every live phase (countdown and the knock-out lock too); an attack or jump press skips the
+     round-end and victory sequences. Presses that arrive too early are dropped so a mashed button cannot skip. */
+  pollMatchInput() {
+    const st = this.state;
+    if (!this.match) return;
+    if ((st === GS.FIGHT || st === GS.COUNTDOWN) && Input.take('pause')) { this.pause(); return; }
+    if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
+    if (!Input.takeAny(SKIP_ACTIONS)) return;
+    if (st === GS.ROUND_END) this.match.skipRoundEnd();
+    else if (this.endTimer >= SKIP_ARM_SECONDS) this.endTimer = RESULTS_DELAY;
   },
   render(dt) {
     const m = this.match;
@@ -5828,7 +5854,7 @@ const UI = {
     Events.on('envImpact', (e) => this.popAt(e.x, 1.5, e.z, 'CRASH', '#ffb27a'));
     Events.on('countdown', (e) => this.banner(String(e.n), '', 700));
     Events.on('fightStart', () => this.banner('FIGHT!', '', 900));
-    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner('ROUND ' + e.round, e.match.decider ? 'FINAL ROUND' : '', 900); this.say('Round ' + e.round); });
+    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say('Round ' + e.round); });
     Events.on('ko', () => this.banner('K.O.!', '', 1600));
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
     Events.on('lowStamina', (e) => { if (e.f.index === 0) this.say('Low stamina'); });
@@ -5919,6 +5945,14 @@ const UI = {
     this.dom.roundlbl.hidden = false;
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Input.reset();
+  },
+  /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
+  roundSub(m) {
+    if (m.round !== 1) return '';
+    const run = Game.run, vs = 'VS ' + m.fighters[1].name;
+    if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
+    if (m.cfg.mode === 'survival' && run) return 'OPPONENT ' + (run.kills + 1) + ' · ' + vs;
+    return vs;
   },
   onRoundEnd(e) {
     const m = e.match;
@@ -6288,6 +6322,8 @@ const UI = {
     this.frameCount++;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
     if (!this.current || Input.captureCallback) return;
+    const unpause = Input.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
+    if (unpause && this.current === 'pause' && performance.now() > this.guardUntil) { Game.resume(); return; }
     const pd = Input.padDir, ph = Input.padHeld, p = this.padPrev;
     const ok = !!(ph.lk), back = !!(ph.rk);
     if (pd.down && !p.down) this.moveFocus(1);
@@ -7618,6 +7654,54 @@ const SelfTest = {
       m.endRound('time'); m.startRound();
       const replay = m.round === 2 && m.fighters[0].hp === m.fighters[0].maxHp * 0.5;
       return stored && abandoned && quit && replay ? true : JSON.stringify({ stored, abandoned, quit, replay });
+    });
+    test('Round flow: banner before the count, shorter count later, KO slow motion on the blow, skippable round end', () => {
+      const log = self.capture(['countdown']);
+      const m = mk({ countdown: true, timer: 60 });
+      let first = -1, ticks = 0;
+      while (m.phase === 'countdown' && ticks < 400) { m.step(); ticks++; if (first < 0 && log.countdown.length) first = ticks; }
+      const round1 = log.countdown.map((e) => e.n).join();
+      m.endRound('time');
+      const early = m.skipRoundEnd();
+      self.run(m, SKIP_ARM_TICKS);
+      const skipped = m.skipRoundEnd();
+      m.step();
+      const next = m.phase === 'waiting';
+      log.countdown.length = 0;
+      m.startRound();
+      let ticks2 = 0;
+      while (m.phase === 'countdown' && ticks2 < 400) { m.step(); ticks2++; }
+      log.stop();
+      const round2 = log.countdown.map((e) => e.n).join();
+      m.dispose();
+      const k = mk({}, once(2, 'lp')); self.place(k, 1.2); k.fighters[1].hp = 1;
+      let slowAtKo = false;
+      for (let i = 0; i < 30 && !slowAtKo; i++) { k.step(); if (!k.fighters[1].alive) slowAtKo = k.slowTicks > 0 && k.phase === 'fight'; }
+      const ok = first >= ROUND_BANNER_TICKS && round1 === '3,2,1' && round2 === '2,1' && ticks2 < ticks && !early && skipped && next && slowAtKo;
+      return ok ? true : JSON.stringify({ first, round1, round2, ticks, ticks2, early, skipped, next, slowAtKo });
+    });
+    test('Pause: works in the countdown and the knock-out lock, the pause key resumes', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.chooseMode('free'); Game.startFromSelection();
+      const render = Game.render; Game.render = () => {};
+      let now = performance.now();
+      const frame = () => { now += 16.7; Game.frame(now); };
+      frame();
+      Input.press('pause'); frame();
+      const countdown = Game.state === GS.PAUSED && Game.pausedFrom === GS.COUNTDOWN;
+      UI.guardUntil = 0; Input.press('pause'); frame();
+      const resumed = Game.state === GS.COUNTDOWN;
+      for (let i = 0; i < 400 && Game.state !== GS.FIGHT; i++) frame();
+      Combat.knockOut(Game.match.fighters[1], Game.match.fighters[0], null, Game.match);
+      for (let i = 0; i < 30 && !Game.match.locked; i++) frame();
+      const locked = Game.match.locked;
+      Input.press('pause'); frame();
+      const koLock = Game.state === GS.PAUSED;
+      Game.render = render;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
     });
     test('Survival: every lap meets the whole roster in a new order, later wins keep raising the pressure', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
