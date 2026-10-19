@@ -2595,10 +2595,11 @@ function rootHeight(p) {
   const yr = (THIGH * Math.cos(p[J.hipRx]) + SHIN * Math.cos(p[J.hipRx] - p[J.knR])) * Math.cos(p[J.hipRz]);
   return Math.max(yl, yr) + FOOT_H + HIP_DROP;
 }
-/* Mean of two moves' relevant data for frame-data display. */
-function frameAdvantage(mv) {
-  const afterContact = mv.active - 1 + mv.recovery;
-  return { onHit: mv.hitstun - afterContact, onBlock: mv.blockstun - afterContact };
+/* Frame advantage on hit / block. `applied` (optional) holds the timings a real exchange used, after speed and balance. */
+function frameAdvantage(mv, applied) {
+  const v = Object.assign({ active: mv.active, recovery: mv.recovery, hitstun: mv.hitstun, blockstun: mv.blockstun }, applied);
+  const afterContact = v.active - 1 + v.recovery;
+  return { onHit: v.hitstun - afterContact, onBlock: v.blockstun - afterContact };
 }
 
 /* =====================================================================
@@ -4734,19 +4735,24 @@ class AIController {
 }
 
 /* Training dummy: scripted behaviours for practice. */
-const DUMMY_MODES = ['stand', 'block', 'blockLow', 'crouch', 'jump', 'walk', 'easy', 'normal', 'hard'];
-const DUMMY_LABEL = { stand: 'Stand still', block: 'Block high', blockLow: 'Block low', crouch: 'Crouch', jump: 'Jump', walk: 'Walk back and forth', easy: 'CPU Easy', normal: 'CPU Normal', hard: 'CPU Hard' };
+const DUMMY_MODES = ['stand', 'block', 'blockLow', 'crouch', 'jump', 'walk', 'attackHigh', 'attackLow', 'attackMix', 'blockAfterHit', 'easy', 'normal', 'hard', 'expert'];
+const DUMMY_LABEL = { stand: 'Stand still', block: 'Block high', blockLow: 'Block low', crouch: 'Crouch', jump: 'Jump', walk: 'Walk back and forth', attackHigh: 'Attack high', attackLow: 'Attack low', attackMix: 'Attack high or low', blockAfterHit: 'Block after the first hit', easy: 'CPU Easy', normal: 'CPU Normal', hard: 'CPU Hard', expert: 'CPU Expert' };
+const DUMMY_AI_MODES = ['easy', 'normal', 'hard', 'expert'];
+const DUMMY_ATTACK_EVERY = 75;       // ticks between dummy attacks: time to practise blocking and punishing
+const DUMMY_ATTACK_RANGE = 1.3;      // the attacking dummy walks in until it is this close
+const DUMMY_GUARD_TICKS = 40;        // 'block after hit' keeps blocking this long after a hit: only true combos land
 class DummyController {
-  constructor(profile, mode) { this.profile = profile; this.mode = mode; this.ai = null; this.t = 0; this.setMode(mode); }
+  constructor(profile, mode) { this.profile = profile; this.mode = mode; this.ai = null; this.t = 0; this.guardTicks = 0; this.setMode(mode); }
   setMode(mode) {
     this.mode = mode;
-    this.ai = ['easy', 'normal', 'hard'].includes(mode) ? new AIController(this.profile, mode) : null;
+    this.ai = DUMMY_AI_MODES.includes(mode) ? new AIController(this.profile, mode) : null;
   }
-  reset() { if (this.ai) this.ai.reset(); this.t = 0; }
+  reset() { if (this.ai) this.ai.reset(); this.t = 0; this.guardTicks = 0; }
   think(f, opp, match, it) {
     clearIntent(it);
     this.t++;
     if (this.ai) return this.ai.think(f, opp, match, it);
+    if (REACTION_STATES.includes(f.state)) this.guardTicks = DUMMY_GUARD_TICKS;
     if (!f.alive || REACTION_STATES.includes(f.state)) return it;
     switch (this.mode) {
       case 'block': it.blockH = true; break;
@@ -4754,9 +4760,18 @@ class DummyController {
       case 'crouch': it.crouch = true; break;
       case 'jump': if (this.t % 90 === 1) it.jump = true; break;
       case 'walk': it.side = Math.sin(this.t / 50) > 0 ? 1 : -1; break;
+      case 'attackHigh': case 'attackLow': case 'attackMix': this.attack(f, opp, it); break;
+      case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; it.blockH = true; } break;
       default: break;
     }
     return it;
+  }
+  /* Walk in, then a jab (high) or a low kick on a steady beat. */
+  attack(f, opp, it) {
+    if (Math.hypot(opp.x - f.x, opp.z - f.z) > DUMMY_ATTACK_RANGE) { it.fwd = 1; return; }
+    if (this.t % DUMMY_ATTACK_EVERY !== 0) return;
+    const low = this.mode === 'attackLow' || (this.mode === 'attackMix' && simRng() < 0.5);
+    if (low) { it.lk = true; it.height = true; } else it.lp = true;
   }
 }
 
@@ -4829,12 +4844,20 @@ class MatchSim {
       const s = this.stats[e.att.index];
       s.damage += e.dmg; s.hits++; s.maxCombo = Math.max(s.maxCombo, e.combo || 1);
       this.stats[e.def.index].taken += e.dmg;
-      if (e.att.index === 0 && e.mv && ATTACKS[e.mv.id] && this.lastMove) { this.lastMove.result = 'hit'; this.lastMove.adv = frameAdvantage(ATTACKS[e.mv.id]); this.lastMove.dmg = e.dmg; }
+      if (e.att.index === 0 && e.mv && ATTACKS[e.mv.id] && this.lastMove) {
+        const lm = this.lastMove, base = ATTACKS[e.mv.id], reacting = e.def.state === S.HIT || e.def.state === S.STAGGER;
+        lm.result = 'hit'; lm.dmg = e.dmg;
+        lm.adv = frameAdvantage(base, { active: lm.active, recovery: lm.recovery, hitstun: reacting ? e.def.reactDur : base.hitstun });
+      }
     });
     on('block', (e) => {
       const s = this.stats[e.def.index];
       s.blocks++; if (e.perfect) s.perfect++;
-      if (e.att.index === 0 && this.lastMove) { this.lastMove.result = e.perfect ? 'perfect block' : 'blocked'; this.lastMove.adv = frameAdvantage(e.mv); }
+      if (e.att.index === 0 && this.lastMove) {
+        const lm = this.lastMove;
+        lm.result = e.perfect ? 'perfect block' : 'blocked';
+        lm.adv = frameAdvantage(e.mv, { active: lm.active, recovery: lm.recovery, blockstun: e.def.blockStun || e.mv.blockstun });
+      }
     });
     on('throw', (e) => { this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg; });
     on('objBreak', () => { this.stats[0].objects++; });
@@ -4997,7 +5020,7 @@ class MatchSim {
     if (n === 2) { a.x = -0.55; b.x = 0.55; } else if (n === 3) { b.x = bx - 0.7; a.x = b.x - 1.4; } else if (n === 4) {
       const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel') || Arena.objects[0];
       if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
-    } else if (n === 5) { b.stam = b.maxStam * 0.12; }
+    } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; }   // infinite stamina would refill it at once
     for (const f of this.fighters) { f.prevX = f.x; f.prevZ = f.z; }
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
@@ -6062,7 +6085,7 @@ const UI = {
     if (cur === 'modes') { this.go('main'); return; }
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
     if (cur === 'setup') { this.go('char'); return; }
-    if (cur === 'arena') { const free = Game.selection.mode === 'free'; Game.go(GS.CHARSEL); if (free) this.go('setup'); return; }
+    if (cur === 'arena') { const setup = ['free', 'training'].includes(Game.selection.mode); Game.go(GS.CHARSEL); if (setup) this.go('setup'); return; }
     const prev = this.stack.pop();
     this.go(prev || (Game.state === GS.PAUSED ? 'pause' : 'main'));
   },
@@ -6204,7 +6227,7 @@ const UI = {
     const sel = Game.selection;
     if (!Progress.isUnlocked(sel.player)) { Sound.ui('bad'); this.toast('Locked. Win Arcade fights to unlock this fighter.', 'warn'); return; }
     if (sel.mode === 'arcade') Game.startFromSelection();
-    else if (sel.mode === 'free') { if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
+    else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
     else Game.go(GS.ARENASEL);
   },
   startRebind(action) {
@@ -6282,10 +6305,11 @@ const UI = {
   screen_setup() {
     const sel = Game.selection;
     const diff = DIFFICULTY[sel.difficulty].label, rounds = ['', 'Best of 1', 'Best of 3', 'Best of 5'][sel.rounds], timer = sel.timer ? sel.timer + ' s' : 'Off';
-    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Match setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>Free Fight setup</h2><p class="sub">Choose your opponent and rules</p><div class="cards">';
+    const training = sel.mode === 'training';   // training only picks the sparring partner
+    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Match setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>' + (training ? 'Training setup' : 'Free Fight setup') + '</h2><p class="sub">' + (training ? 'Choose your sparring partner' : 'Choose your opponent and rules') + '</p><div class="cards">';
     for (const r of Game.opponentChoices(sel.player)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);
     h += '</div>';
-    h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '');
+    if (!training) h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '');
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
     return h;
   },
@@ -7770,6 +7794,27 @@ const SelfTest = {
       const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
       m.infiniteHp = true; m.fighters[1].hp = 3; self.place(m, 1.2); self.run(m, 200);
       return m.fighters[1].alive && m.fighters[1].hp >= 1 ? true : 'dummy was knocked out';
+    });
+    test('Training: attacking dummies walk in and attack at their height, block-after-hit blocks the follow-up', () => {
+      const heights = {};
+      for (const mode of ['attackHigh', 'attackLow', 'attackMix']) {
+        const m = mk({ mode: 'training', dummy: mode });
+        m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, mode);
+        self.place(m, 3.5);
+        const log = self.capture(['attackStart']);
+        self.run(m, 1200);   // about 15 attacks, so a random mix shows both heights
+        log.stop();
+        heights[mode] = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.h).join('');
+      }
+      const attacks = /^H{3,}$/.test(heights.attackHigh) && /^L{3,}$/.test(heights.attackLow) && /H/.test(heights.attackMix) && /L/.test(heights.attackMix);
+      const m = mk({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.lp = true; });
+      m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, 'blockAfterHit');
+      self.place(m, 1.2);
+      const log = self.capture(['hit', 'block']);
+      self.run(m, 90);
+      log.stop();
+      const guarded = log.hit.length === 1 && log.block.length === 1;
+      return attacks && guarded ? true : JSON.stringify({ heights, hits: log.hit.length, blocks: log.block.length });
     });
     test('Reduced motion disables camera shake', () => {
       const keep = Settings.v.reducedMotion;
