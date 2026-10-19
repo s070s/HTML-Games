@@ -436,9 +436,9 @@ const ARCH = {
 
 /* ---------- difficulty ---------- */
 const DIFFICULTY = {
-  recruit: { name: 'Recruit', react: 0.9, aimErr: 0.08, dmg: 0.7, sight: 0.8, count: 0.75, aggr: 0.6, tactical: 0, hp: 0.9, burst: 0.7 },
-  veteran: { name: 'Veteran', react: 0.5, aimErr: 0.04, dmg: 1.0, sight: 1.0, count: 1.0, aggr: 1.0, tactical: 0.5, hp: 1.0, burst: 1.0 },
-  elite: { name: 'Elite', react: 0.28, aimErr: 0.02, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3 },
+  recruit: { name: 'Recruit', react: 0.9, aimErr: 0.04, dmg: 0.7, sight: 0.8, count: 0.75, aggr: 0.6, tactical: 0, hp: 0.9, burst: 0.7 },
+  veteran: { name: 'Veteran', react: 0.5, aimErr: 0.016, dmg: 1.0, sight: 1.0, count: 1.0, aggr: 1.0, tactical: 0.5, hp: 1.0, burst: 1.0 },
+  elite: { name: 'Elite', react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3 },
 };
 
 const QUALITY = {
@@ -4715,6 +4715,8 @@ const AI_PROFILE = {
   boss: { min: 90, max: 220, strafe: 0.8, flank: 0.1, retreat: 0, on: [1.4, 2.6], off: [0.4, 0.9] },
 };
 const AI_V = { x: 0, y: 0, z: 0 };
+const AIM_ERR_HOLD = [0.4, 0.8];   // seconds an aim error offset is kept before a new one is picked
+const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the new offset
 const AI_NOSE = { x: 0, y: 0, z: 0 };
 
 class AIController {
@@ -4724,7 +4726,7 @@ class AIController {
     this.target = null; this.seen = { x: 0, y: 0, z: 0, t: -99 };
     this.think = Math.random() * 0.3; this.state = 'idle'; this.stateT = 0; this.strafeDir = randSign(); this.strafeT = 2;
     this.reactT = 0; this.burstOn = false; this.burstT = rand(0.2, 1); this.tele = 0; this.teleFor = 0;
-    this.err = { x: 0, y: 0, z: 0 }; this.aim = { x: 0, y: 0, z: 0 };
+    this.err = { x: 0, y: 0, z: 0 }; this.errGoal = { x: 0, y: 0, z: 0 }; this.errT = 0; this.aim = { x: 0, y: 0, z: 0 };
     this.losTarget = null; this.losClear = false; this.losAt = -1;
     this.goal = null; this.waypoints = null; this.wp = 0; this.assault = null; this.follow = null;
     this.home = { x: p.x, z: p.z }; this.retreatUntil = 0; this.retreatUsed = false;
@@ -4805,10 +4807,13 @@ class AIController {
     const dx = tx - p.x, dy = ty - p.y, dz = tz - p.z, dist = Math.hypot(dx, dy, dz) || 1;
     const lt = leadSpeed > 0 ? dist / leadSpeed : 0;
     const lead = 0.55 + this.d.tactical * 0.4;
-    // slowly wandering error, larger at range
-    const e = this.err, mag = this.d.aimErr * Math.min(dist, 500) * (p.stagger > 0 ? 2 : 1);
-    const k = Math.min(1, dt * 2);
-    e.x += (rand(-1, 1) * mag - e.x) * k; e.y += (rand(-1, 1) * mag * 0.6 - e.y) * k; e.z += (rand(-1, 1) * mag - e.z) * k;
+    // wandering error, larger at range: a new offset is picked every AIM_ERR_HOLD seconds and eased into
+    // (re-rolling every tick would average the error away)
+    const e = this.err, g = this.errGoal, mag = this.d.aimErr * Math.min(dist, 500) * (p.stagger > 0 ? 2 : 1);
+    this.errT -= dt;
+    if (this.errT <= 0) { this.errT = rand(AIM_ERR_HOLD[0], AIM_ERR_HOLD[1]); g.x = rand(-1, 1); g.y = rand(-1, 1) * 0.6; g.z = rand(-1, 1); }
+    const k = Math.min(1, dt * AIM_ERR_EASE);
+    e.x += (g.x * mag - e.x) * k; e.y += (g.y * mag - e.y) * k; e.z += (g.z * mag - e.z) * k;
     this.aim.x = tx + vx * lt * lead + e.x; this.aim.y = ty + vy * lt * lead + e.y; this.aim.z = tz + vz * lt * lead + e.z;
     if (p.wslots.secondary && p.wslots.secondary.def.arc) this.aim.y = ty;
     const ey = p.y + (p.kind === 'air' ? 0 : p.height * 0.7);
