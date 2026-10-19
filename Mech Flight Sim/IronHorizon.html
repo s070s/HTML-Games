@@ -4722,6 +4722,7 @@ const AI_V = { x: 0, y: 0, z: 0 };
 const AIM_ERR_HOLD = [0.4, 0.8];   // seconds an aim error offset is kept before a new one is picked
 const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the new offset
 const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
+const AI_SWITCH_DELAY = 2;         // minimum seconds between AI primary weapon swaps
 const AI_NOSE = { x: 0, y: 0, z: 0 };
 
 class AIController {
@@ -4736,7 +4737,7 @@ class AIController {
     this.goal = null; this.waypoints = null; this.wp = 0; this.assault = null; this.follow = null;
     this.home = { x: p.x, z: p.z }; this.retreatUntil = 0; this.retreatUsed = false;
     this.orbitDir = randSign(); this.orbitC = null; this.arrived = false;
-    this.breakT = 0; this.breakYaw = 0; this.unstickT = 0; this.jumpT = 0; this.flareT = 0; this.alertT = 0;
+    this.breakT = 0; this.breakYaw = 0; this.unstickT = 0; this.jumpT = 0; this.flareT = 0; this.alertT = 0; this.switchT = 0;
     this.sight = p.def.sensor > 0 ? p.def.sensor * 0.8 : (p.model === 'turret' ? (p.def.style === 'aa' ? 950 : 600) : 0);
     this.airOnly = p.model === 'turret' && p.def.style === 'aa';
     this.enabled = true; this.altBase = 0;
@@ -4954,12 +4955,15 @@ class AIController {
         this.burstT = rand(r[0], r[1]) * (this.burstOn ? d.burst : 1 / Math.max(0.6, d.aggr));
       }
       if (w1.def.fire === 'auto') c.fire1 = this.burstOn && p.heat < p.maxHeat * 0.85;
-      else if (w1.cd <= 0 && p.heat < p.maxHeat * 0.8) c.fire1Edge = true;
+      else if (this.burstOn && w1.cd <= 0 && p.heat < p.maxHeat * 0.8) c.fire1Edge = true;   // semi-auto shots follow the same burst pacing
       if (c.fire1 || c.fire1Edge) { /* firing */ }
     }
-    if (p.heat > p.maxHeat * 0.8 && p.wslots.primaryB && p.wslots.primaryA) {
-      const other = p.activeSlot === 'primaryA' ? 'primaryB' : 'primaryA';
-      if (p.wslots[other] && p.wslots[other].reloading <= 0 && p.wslots[other].clip > 0) { c.selNext = true; }
+    if (p.wslots.primaryB && p.wslots.primaryA) {
+      const other = p.wslots[p.activeSlot === 'primaryA' ? 'primaryB' : 'primaryA'];
+      const otherReady = other.reloading <= 0 && p.hasAmmo(other);   // a beam has no clip but is always ready
+      const outOfAmmo = w1 && !p.hasAmmo(w1) && w1.reloading <= 0 && w1.reserve <= 0;
+      this.switchT -= dt;
+      if (otherReady && this.switchT <= 0 && (p.heat > p.maxHeat * 0.8 || outOfAmmo)) { c.selNext = true; this.switchT = AI_SWITCH_DELAY; }
     }
     if (w1 && w1.reloading <= 0 && w1.clip <= 0 && p.primary.def.kind !== 'beam') p.startReload(w1, false);
     // secondary with visible wind-up
