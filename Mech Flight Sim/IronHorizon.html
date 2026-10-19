@@ -2236,7 +2236,7 @@ function newWorld(cfg) {
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [],
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
-    stats: { kills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, score: 0, pickups: 0 },
+    stats: { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, score: 0, pickups: 0 },
     hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
     msg(text) { this.msgL(text); if (Net.host) Net.bcast({ t: 'msg', text }); },
     msgL(text) {
@@ -3917,7 +3917,7 @@ class Platform {
     fxSparks(ex, ey, ez, 5, d.tracer, 12);
     if (kind === 'platform') {
       const dealt = obj.takeDamage(d.dmg, d.dtype, this, dx, dz, { beam: true });
-      if (dealt > 0 && this.team === 0) { W.stats.hits++; }
+      if (dealt > 0 && this === W.player) { W.stats.hits++; }
     } else if (kind === 'struct') { damageStruct(obj, d.dmg, d.dtype, this, d.structMult); if (this === W.player) W.stats.hits++; }
   }
 
@@ -4090,7 +4090,9 @@ class Platform {
     }
     if (owner && cause !== 'eject') {
       owner.stats.kills++;
-      if (owner.team === 0) { W.stats.kills++; W.stats.score += this.score; if (owner === W.player) W.killMarker = 0.6; else if (owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' }); }
+      if (owner.team === 0) W.stats.teamKills++;   // objectives count every friendly kill
+      if (owner === W.player) { W.stats.kills++; W.stats.score += this.score; W.killMarker = 0.6; }   // personal record: own kills only
+      else if (owner.team === 0 && owner.netPeer) Net.sendTo(owner.netPeer, { t: 'k' });
     }
     if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.arch) {
       const types = W.mods.scarce ? ['repair', 'energy'] : ['ammo', 'repair', 'energy'];   // scarce ammunition: no ammo drops
@@ -5360,8 +5362,8 @@ const Obj = {
   count(o) { // optional: destroy N hostiles
     return makeObjective(Object.assign({
       primary: false, base: 0,
-      tick() { const k = W.stats.kills - this.base; this.progress = sat(k / this.need); if (k >= this.need) this.status = 'complete'; },
-      text() { return this.title + ' (' + Math.min(this.need, W.stats.kills - this.base) + '/' + this.need + ')'; },
+      tick() { const k = W.stats.teamKills - this.base; this.progress = sat(k / this.need); if (k >= this.need) this.status = 'complete'; },
+      text() { return this.title + ' (' + Math.min(this.need, W.stats.teamKills - this.base) + '/' + this.need + ')'; },
     }, o));
   },
   noDeaths(o) {
@@ -7339,6 +7341,13 @@ const SelfTest = {
       this.check('APS intercepts a missile', !missile.active && u.charges === WEAPONS.aps.charges - 1);
       tank.updateDefense(WEAPONS.aps.recharge + 0.1);
       this.check('APS recharges', u.charges === WEAPONS.aps.charges);
+      // kill credit: allies feed team progress, only the player's own kills feed the personal record
+      W.player = jet;
+      const foe1 = spawnUnit('infantry', 200, 200, { force: true }), foe2 = spawnUnit('infantry', 220, 200, { force: true });
+      foe1.destroy(tank, 'kinetic');
+      this.check('ally kill counts for the team only', W.stats.teamKills === 1 && W.stats.kills === 0 && W.stats.score === 0);
+      foe2.destroy(jet, 'kinetic');
+      this.check('player kill counts for both', W.stats.teamKills === 2 && W.stats.kills === 1 && W.stats.score === foe2.score);
     });
     t('resupply', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 }, mods: { scarce: true } });
