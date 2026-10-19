@@ -239,6 +239,7 @@ const MAX_PROJECTILES = 420;
    cut through it, so the type changes how much it takes to kill an armoured target. */
 const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
 const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
+const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain before it comes back up
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
 
 /* ---------- weapons ----------
@@ -3295,7 +3296,7 @@ class Platform {
     this.beingLocked = 0; this.targetIdx = -1;
     this.lockLosTarget = null; this.lockLos = false; this.lockLosAt = -1;
     this.activeSlot = 'primaryA'; this.wslots = { primaryA: null, primaryB: null, secondary: null };
-    this.util = null; this.maxShield = 0; this.shield = 0; this.shieldOn = false; this.shieldBroken = 0; this.shieldDelay = 0;
+    this.util = null; this.maxShield = 0; this.shield = 0; this.shieldOn = false; this.shieldBroken = 0; this.shieldDelay = 0; this.autoShield = false;
     this.flightMode = 'assisted'; this.invalidTimer = 0;
     // Fields that other systems set later are declared here, so every platform keeps one hidden shape (fast property access).
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
@@ -3308,7 +3309,7 @@ class Platform {
     if (this.kind === 'air') { this.speed = def.air.cruise * 0.9; this.throttle = 0.55; this.gear = false; }
     this.score = (this.arch && ARCH[this.arch] && ARCH[this.arch].score) || 0;
     this.seed = Math.random() * 100;
-    if (opts.extraShield) { this.maxShield += opts.extraShield; this.shield += opts.extraShield; this.shieldOn = true; }
+    if (opts.extraShield) { this.maxShield += opts.extraShield; this.shield += opts.extraShield; this.shieldOn = true; this.autoShield = true; }
     if (opts.invuln) this.invuln = true;
   }
   buildLoadout(ammoMult) {
@@ -3385,6 +3386,8 @@ class Platform {
     if (this.shieldBroken > 0) this.shieldBroken -= dt;
     if (this.shieldDelay > 0) this.shieldDelay -= dt;
     else if (this.maxShield > 0 && this.shieldBroken <= 0) this.shield = Math.min(this.maxShield, this.shield + (this.util ? this.util.def.regen || 20 : 20) * dt * (this.shieldOn ? 0.6 : 1));
+    // built-in (boss) shields have no toggle: raise them again once half recharged
+    if (this.autoShield && !this.shieldOn && this.shieldBroken <= 0 && this.shield >= this.maxShield * AUTO_SHIELD_RAISE) this.shieldOn = true;
   }
   useEnergy(amount) { this.energy -= amount; this.energyDelay = 0.8; }
 
