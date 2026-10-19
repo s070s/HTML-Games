@@ -5287,6 +5287,37 @@ function findSpawn(x, z, radius, clearR, minPlayerDist) {
   }
   return null;
 }
+const FORWARD_SPAWN_DIST = 250;   // players respawn this far short of the nearest objective
+const FORWARD_SPAWN_STEP = 100;   // and step back toward the start while that spot is unsafe
+const SPAWN_SAFE_DIST = 150;      // no hostile may be this close to a respawn point
+function hostileNear(x, z, r) {
+  for (const e of W.platforms) if (e.team === 1 && !e.dead && Math.hypot(e.x - x, e.z - z) < r) return true;
+  return false;
+}
+/* Respawn point for a player: short of the nearest active primary objective on the start side, else beside
+   a living human teammate, else the mission start. Returns { x, z, yaw } facing the fight. */
+function forwardSpawn(start, clearR) {
+  let goal = null, goalD = 0;
+  const m = W.mission;
+  if (m) for (const o of m.objectives) {
+    if (!o.primary || o.status !== 'active') continue;
+    for (const k of o.markers()) { const d = Math.hypot(k.x - start.x, k.z - start.z); if (!goal || d < goalD) { goal = k; goalD = d; } }
+  }
+  if (goal) {
+    const yaw = Math.atan2(goal.x - start.x, goal.z - start.z);
+    for (let back = FORWARD_SPAWN_DIST; back < goalD; back += FORWARD_SPAWN_STEP) {
+      const k = 1 - back / goalD;
+      const sp = findSpawn(start.x + (goal.x - start.x) * k, start.z + (goal.z - start.z) * k, 30, clearR, 0);
+      if (sp && !hostileNear(sp.x, sp.z, SPAWN_SAFE_DIST)) return { x: sp.x, z: sp.z, yaw };
+    }
+  }
+  for (const q of W.platforms) {
+    if (!q.isPlayer || q.dead || q.team !== 0 || q.kind === 'air') continue;
+    const sp = findSpawn(q.x, q.z, 30, clearR, 0);
+    if (sp && !hostileNear(sp.x, sp.z, SPAWN_SAFE_DIST)) return { x: sp.x, z: sp.z, yaw: q.yaw };
+  }
+  return { x: start.x, z: start.z, yaw: start.yaw };
+}
 function spawnUnit(archKey, x, z, opts) {
   opts = opts || {};
   const a = ARCH[archKey], def = PLATFORMS[a.def];
@@ -6100,10 +6131,10 @@ const Game = {
     const cfg = this.cfg, def = PLATFORMS[cfg.platformId], st = this.mission.def.start;
     const lo = Object.assign({}, cfg.loadout);
     const old = W.player;
-    const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z;
+    const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z, yaw = atPos && atPos.yaw !== undefined ? atPos.yaw : st.yaw;
     // in co-op the host's platform carries the pilot name everyone else sees; it reads as YOU only on screen
-    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
-    p.controller = PC; p.cmd.aimYaw = st.yaw; p.flightMode = S.flightMode;
+    const p = new Platform(def, { team: 0, x, z, yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
     W.player = p;
@@ -6231,7 +6262,7 @@ const Game = {
         if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
       }
       this.respawnT -= dt;
-      if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer({ x: pl.kind === 'air' ? this.mission.def.start.x : this.mission.def.start.x, z: this.mission.def.start.z });
+      if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer(forwardSpawn(this.mission.def.start, PLATFORMS[cfg.platformId].radius));
     }
     if (this.protectT > 0) { this.protectT -= dt; if (this.protectT <= 0 && W.player) W.player.invuln = false; }
     if (m && m.state !== 'running' && m.endDelay <= 0 && this.state === 'playing') this.showResults();
@@ -7485,6 +7516,23 @@ const SelfTest = {
       pl.failSubsystem();
       this.check('the local player sees its own warning', W.msgs.length === 1 && sent.length === 1);
     });
+    t('forward respawn', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      const start = { x: -600, z: -600, yaw: 0.3 };
+      W.mission = new Mission({ id: 'test', start }, {});
+      this.check('no objective and no teammate: respawn at the start', (() => { const sp = forwardSpawn(start, 3); return sp.x === start.x && sp.z === start.z && sp.yaw === start.yaw; })());
+      const mate = new Platform(PLATFORMS.bulwark, { team: 0, x: 200, z: -100, yaw: 1, loadout: PLATFORMS.bulwark.loadout });
+      mate.isPlayer = true; W.platforms.push(mate);
+      const byMate = forwardSpawn(start, 3);
+      this.check('respawn beside a living teammate', Math.hypot(byMate.x - mate.x, byMate.z - mate.z) < 70, 'distance ' + Math.round(Math.hypot(byMate.x - mate.x, byMate.z - mate.z)));
+      const tower = objStruct('tower', 400, 400, 'Tower', 1);
+      W.mission.add(Obj.destroy({ id: 'd', title: 'Destroy', structs: [tower], status: 'active' }));
+      const sp = forwardSpawn(start, 3), toGoal = Math.hypot(sp.x - tower.x, sp.z - tower.z);
+      this.check('respawn short of the nearest objective', toGoal > FORWARD_SPAWN_DIST - 60 && toGoal < FORWARD_SPAWN_DIST + 60 && this.near(sp.yaw, Math.atan2(1000, 1000)), 'distance ' + Math.round(toGoal));
+      spawnUnit('infantry', sp.x, sp.z, { force: true });
+      const sp2 = forwardSpawn(start, 3);
+      this.check('respawn keeps clear of hostiles', !hostileNear(sp2.x, sp2.z, SPAWN_SAFE_DIST) && Math.hypot(sp2.x - tower.x, sp2.z - tower.z) > toGoal);
+    });
     t('hit feedback', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
       W.mission = null;
@@ -7877,15 +7925,16 @@ const Net = {
     let slot = 0;
     for (const peer of this.peers) { if (peer.hello && peer.open) { peer.slot = ++slot; this.spawnFor(peer); } }
   },
-  spawnFor(peer) {
+  /* first deployment beside the host by slot; respawns pass a forward position */
+  spawnFor(peer, pos) {
     const st = Game.mission.def.start, def = PLATFORMS[peer.pid];
-    const x = st.x + peer.slot * 14, z = st.z + (peer.slot % 2 ? 12 : -12);
-    const p = new Platform(def, { team: 0, x, z, yaw: st.yaw, loadout: peer.loadout, name: peer.name, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    const x = pos ? pos.x : st.x + peer.slot * 14, z = pos ? pos.z : st.z + (peer.slot % 2 ? 12 : -12), yaw = pos ? pos.yaw : st.yaw;
+    const p = new Platform(def, { team: 0, x, z, yaw, loadout: peer.loadout, name: peer.name, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
     if (def.kind !== 'air' && groundBlocked(p.x, p.z, p.radius + 1)) {
       const sp = findSpawn(x, z, 40, p.radius, 0);
       if (sp) { p.x = sp.x; p.z = sp.z; p.y = Terrain.h(sp.x, sp.z); }
     }
-    p.netPeer = peer; p.isPlayer = true; p.invuln = true; p.cmd.aimYaw = st.yaw;
+    p.netPeer = peer; p.isPlayer = true; p.invuln = true; p.cmd.aimYaw = yaw;
     peer.protectT = 3; peer.p = p; peer.deathHandled = false;
     W.platforms.push(p);
   },
@@ -7940,7 +7989,7 @@ const Net = {
           if (peer.lives <= 0) peer.respawnT = 1e9;
         }
         peer.respawnT -= dt;
-        if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer);
+        if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, forwardSpawn(Game.mission.def.start, PLATFORMS[peer.pid].radius));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
