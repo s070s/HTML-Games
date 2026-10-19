@@ -1886,6 +1886,7 @@ function addStruct(type, x, z, opts) {
 function damageStruct(s, amount, dtype, owner, structMult) {
   if (Net.guest) return 0;
   if (s.destroyed || s.indestructible || s.invuln || amount <= 0) return 0;
+  if (s.objective && owner && owner.team === s.team && !W.friendlyFire) return 0;   // a side never wears down its own objectives
   const mm = MATERIAL[s.mat];
   const eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
   if (eff <= 0) return 0;
@@ -7227,6 +7228,11 @@ const SelfTest = {
       const s = addStruct('crate', 300, 300, {});
       damageStruct(s, 1e4, 'kinetic', null, 1); damageStruct(s, 1e4, 'kinetic', null, 1);
       this.check('structure breaks once', s.destroyed && broke === 1);
+      const gen = objStruct('generator', 380, 380, 'Generator', 0), gen0 = gen.hp;
+      damageStruct(gen, 50, 'explosive', c, 1);
+      this.check('own side cannot damage its objective', gen.hp === gen0);
+      damageStruct(gen, 50, 'explosive', b, 1);
+      this.check('enemy damages an objective', gen.hp < gen0);
       this.check('rock is indestructible', (() => { const r = addStruct('rock', 340, 340, {}); damageStruct(r, 1e9, 'explosive', null, 1); return !r.destroyed; })());
       this.check('raycast hits terrain', raycast(0, 500, 0, 0, -1, 0, 900, null, true).kind === 'terrain');
       this.check('raycast hits structure', (() => { const s2 = addStruct('barrier', 500, 0, {}); return raycast(450, s2.y + 1, 0, 1, 0, 0, 100, null, true).kind === 'struct'; })());
