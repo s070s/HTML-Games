@@ -2274,8 +2274,8 @@ function deriveStats(raw) {
   const a = normalizeAttrs(raw);
   return {
     attrs: a,
-    maxHp: Math.round(90 + a.health * 4),            // 94..130
-    maxStam: Math.round(80 + a.stamina * 6),         // 86..140
+    maxHp: Math.round(85 + a.health * 5),            // 90..135
+    maxStam: Math.round(60 + a.stamina * 10),        // 70..160
     damage: 0.75 + a.strength * 0.05,                // 0.80..1.25  damage dealt
     walk: 0.85 + a.speed * 0.03,                     // 0.88..1.15  movement speed
     atkSpeed: 1.1 - a.speed * 0.02,                  // 1.08..0.90  startup/recovery multiplier
@@ -2295,16 +2295,18 @@ const ROSTER = [
   { id: 'mara', moveStyle: 'capoeira', name: 'MARA', title: 'The Viper', rank: 1, attrs: { health: 5, stamina: 6, strength: 4, speed: 8, reach: 6, defense: 4, balance: 4, recovery: 7 }, range: 1.65,
     style: { aggr: 1.1, punch: 0.3, kick: 0.7, heavy: 0.25, grab: 0.05, defend: 0.4, circle: 0.5, low: 0.35 },
     look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'ponytail', top: '#e5304b', shorts: '#2a0f18', glove: '#2a2a30', shoe: '#f0f0f0', scale: 0.96, build: 0.9 } },
-  { id: 'brutus', moveStyle: 'brawler', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 9, stamina: 5, strength: 9, speed: 3, reach: 5, defense: 7, balance: 8, recovery: 3 }, range: 1.2,
+  { id: 'brutus', moveStyle: 'brawler', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 8, stamina: 4, strength: 8, speed: 3, reach: 6, defense: 6, balance: 4, recovery: 4 }, range: 1.2,
     style: { aggr: 0.9, punch: 0.7, kick: 0.3, heavy: 0.6, grab: 0.2, defend: 0.5, circle: 0.1, low: 0.1 },
     look: { skin: '#a8704c', hair: '#000000', hairStyle: 'bald', top: null, shorts: '#2f5d2a', glove: '#c9a22b', shoe: '#3a2a1a', scale: 1.1, build: 1.28 } },
-  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 3, attrs: { health: 5, stamina: 7, strength: 4, speed: 9, reach: 6, defense: 5, balance: 3, recovery: 8 }, range: 1.5,
+  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 3, attrs: { health: 5, stamina: 6, strength: 4, speed: 9, reach: 5, defense: 5, balance: 3, recovery: 7 }, range: 1.5,
     style: { aggr: 1.0, punch: 0.45, kick: 0.55, heavy: 0.2, grab: 0.05, defend: 0.6, circle: 0.8, low: 0.3 },
     look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'long', top: '#7d4fd6', shorts: '#e9e9f5', glove: '#7d4fd6', shoe: '#e9e9f5', scale: 0.98, build: 0.86 } },
-  { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 4, attrs: { health: 8, stamina: 6, strength: 8, speed: 4, reach: 4, defense: 6, balance: 8, recovery: 5 }, range: 1.0,
+  { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 4, attrs: { health: 7, stamina: 5, strength: 7, speed: 4, reach: 6, defense: 6, balance: 4, recovery: 6 }, range: 1.0,
     style: { aggr: 1.0, punch: 0.5, kick: 0.2, heavy: 0.5, grab: 0.55, defend: 0.5, circle: 0.1, low: 0.15 },
     look: { skin: '#c98c68', hair: '#c46a1a', hairStyle: 'mohawk', top: null, shorts: '#d86a12', glove: '#2a1a10', shoe: '#2a1a10', scale: 1.08, build: 1.2 } },
-  { id: 'zero', moveStyle: 'karateka', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 8, stamina: 8, strength: 8, speed: 8, reach: 7, defense: 7, balance: 7, recovery: 8 }, range: 1.4,
+  // ZERO's playable build costs 49 points; the boss build (66) is only used for the Arcade final (see MatchSim)
+  { id: 'zero', moveStyle: 'karateka', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 7, reach: 6, defense: 6, balance: 5, recovery: 6 }, range: 1.4,
+    bossAttrs: { health: 8, stamina: 8, strength: 8, speed: 8, reach: 7, defense: 7, balance: 7, recovery: 8 },
     style: { aggr: 1.1, punch: 0.5, kick: 0.5, heavy: 0.4, grab: 0.2, defend: 0.7, circle: 0.4, low: 0.3 },
     look: { skin: '#3a3340', hair: '#d4af37', hairStyle: 'mask', top: '#16161c', shorts: '#16161c', glove: '#d4af37', shoe: '#111111', scale: 1.04, build: 1.05 } },
 ];
@@ -3953,10 +3955,11 @@ const CUSTOM_STORE_VERSION = 1;
 const CUSTOM_SLOTS = 8;
 const CUSTOM_IDS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'];
 const CUSTOM_RANK_BASE = 100;           // after every built-in fighter, so ladders never pick customs
-const POINT_BUDGET = 44;                // KAI and MARA total: the baseline roster
-const VETERAN_BUDGET = 48;              // between YUKI (47) and BRUTUS / DMITRI (49); earned by clearing Arcade
+const POINT_BUDGET = 44;                // KAI's total: the baseline roster (the others cost 45-46)
+const VETERAN_BUDGET = 48;              // above the regular roster (44-46), below ZERO's playable build (49); earned by clearing Arcade
 const ATTR_MIN = 2;
 const ATTR_MAX = 9;
+const ATTR_KNEE = 7;                    // each point above this costs 2, so maxing an attribute has a price
 const NAME_MAX = 10;
 const NAME_PATTERN = /^[A-Z0-9]{1,10}$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -4015,7 +4018,7 @@ const ARCHETYPES = {
     attrs: { health: 5, stamina: 6, strength: 5, speed: 6, reach: 7, defense: 4, balance: 5, recovery: 6 } },
   brawler: { label: 'Brawler', desc: 'Walks through hits to land heavy blows.', range: 1.2,
     style: { aggr: 1.15, punch: 0.6, kick: 0.4, heavy: 0.6, grab: 0.15, defend: 0.3, circle: 0.15, low: 0.15 },
-    attrs: { health: 7, stamina: 5, strength: 8, speed: 4, reach: 4, defense: 6, balance: 6, recovery: 4 } },
+    attrs: { health: 7, stamina: 5, strength: 8, speed: 4, reach: 4, defense: 6, balance: 6, recovery: 3 } },
   grappler: { label: 'Grappler', desc: 'Closes distance to clinch and throw.', range: 1.0,
     style: { aggr: 1.0, punch: 0.45, kick: 0.2, heavy: 0.45, grab: 0.55, defend: 0.5, circle: 0.1, low: 0.15 },
     attrs: { health: 7, stamina: 6, strength: 7, speed: 4, reach: 4, defense: 5, balance: 7, recovery: 4 } },
@@ -4024,7 +4027,7 @@ const ARCHETYPES = {
     attrs: { health: 5, stamina: 6, strength: 5, speed: 5, reach: 5, defense: 7, balance: 5, recovery: 6 } },
   speedster: { label: 'Speedster', desc: 'Circles constantly with quick, light attacks.', range: 1.5,
     style: { aggr: 1.1, punch: 0.5, kick: 0.5, heavy: 0.15, grab: 0.05, defend: 0.45, circle: 0.75, low: 0.3 },
-    attrs: { health: 4, stamina: 7, strength: 4, speed: 9, reach: 5, defense: 4, balance: 4, recovery: 7 } },
+    attrs: { health: 4, stamina: 7, strength: 4, speed: 8, reach: 5, defense: 4, balance: 4, recovery: 7 } },
 };
 const ARCHETYPE_IDS = Object.keys(ARCHETYPES);
 const TITLES = ['The Rookie', 'The Challenger', 'The Hammer', 'The Storm', 'The Shadow', 'The Iron', 'The Phoenix', 'The Tiger',
@@ -4083,9 +4086,11 @@ function resolveLook(look) {
 }
 
 /* ---------- point-buy rules ---------- */
+function attrCost(value) { return value + Math.max(0, value - ATTR_KNEE); }
+/* Point cost of a build (points above ATTR_KNEE count double). */
 function attrTotal(attrs) {
   let sum = 0;
-  for (const key of ATTR_KEYS) sum += attrs[key];
+  for (const key of ATTR_KEYS) sum += attrCost(attrs[key]);
   return sum;
 }
 function veteranUnlocked() { return !!Progress.d && Progress.d.arcadeClears > 0; }
@@ -4094,9 +4099,9 @@ function budgetForTier(tier) { return tier === 'veteran' ? VETERAN_BUDGET : POIN
 function canSetAttr(attrs, key, value, budget) {
   if (!ATTR_KEYS.includes(key)) return false;
   if (!Number.isInteger(value) || value < ATTR_MIN || value > ATTR_MAX) return false;
-  return attrTotal(attrs) - attrs[key] + value <= budget;
+  return attrTotal(attrs) - attrCost(attrs[key]) + attrCost(value) <= budget;
 }
-/* Lower the largest attributes one point at a time until the total fits the budget. */
+/* Lower the largest (priciest) attributes one point at a time until the cost fits the budget. */
 function trimToBudget(attrs, budget) {
   while (attrTotal(attrs) > budget) {
     let biggest = ATTR_KEYS[0];
@@ -4140,7 +4145,11 @@ function validateCustom(raw) {
     if (!Number.isInteger(v) || v < ATTR_MIN || v > ATTR_MAX) return fail('Attribute ' + key + ' must be ' + ATTR_MIN + '-' + ATTR_MAX);
     attrs[key] = v;
   }
-  if (attrTotal(attrs) > budgetForTier(raw.tier)) return fail('Attributes exceed the ' + budgetForTier(raw.tier) + '-point budget');
+  const budget = budgetForTier(raw.tier);
+  let flatTotal = 0;
+  for (const key of ATTR_KEYS) flatTotal += attrs[key];
+  if (flatTotal > budget) return fail('Attributes exceed the ' + budget + '-point budget');
+  trimToBudget(attrs, budget);   // builds saved before points above ATTR_KNEE cost double: lower the priciest points until they fit
   const look = {};
   for (const key of LOOK_CHOICE_KEYS) {
     if (!LOOK_CHOICES[key].options.includes(lookIn[key])) return fail('Invalid ' + LOOK_CHOICES[key].label.toLowerCase());
@@ -4179,6 +4188,7 @@ function randomCustom(seed) {
     const from = pick(ATTR_KEYS), to = pick(ATTR_KEYS);
     if (from === to || attrs[from] <= ATTR_MIN || attrs[to] >= ATTR_MAX) continue;
     attrs[from]--; attrs[to]++;
+    if (attrTotal(attrs) > POINT_BUDGET) { attrs[from]++; attrs[to]--; }   // a move into the double-cost range must fit the budget
   }
   const look = {};
   for (const key of LOOK_CHOICE_KEYS) look[key] = pick(LOOK_CHOICES[key].options);
@@ -4720,7 +4730,9 @@ class MatchSim {
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
     Arena.build(this.def);
-    const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai, p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
+    const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
+    let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
+    if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs });   // the Arcade final boss fights at full strength
     this.fighters = [new Fighter(p1, 0), new Fighter(p2, 1)];
     this.training = this.cfg.mode === 'training';
     this.controllers = [PlayerController, this.training ? new DummyController(p2, this.cfg.dummy) : new AIController(p2, this.cfg.difficulty)];
@@ -6979,6 +6991,7 @@ const CreatorUI = {
     h += this.row('Movement', style.label, 'movestyle') + '<p class="hint">' + esc(style.desc) + ' Looks only: stance, rhythm and how strikes are thrown.</p>';
     h += this.row('Tier', tierText, 'tier');
     h += '<div class="pts' + (left === 0 ? ' zero' : '') + '" role="status" aria-live="polite"><b>' + left + '</b> of ' + budget + ' points remaining</div>';
+    h += '<p class="hint">Each step above ' + ATTR_KNEE + ' costs 2 points.</p>';
     for (const key of ATTR_KEYS) {
       const v = d.attrs[key];
       h += this.row(ATTR_LABELS[key], String(v), 'attr:' + key, '<span class="meter" aria-hidden="true"><i style="width:' + (v * 10) + '%"></i></span>');
@@ -7572,18 +7585,34 @@ const SelfTest = {
       const attrs = Object.assign({}, ARCHETYPES.balanced.attrs);
       const rules = !canSetAttr(attrs, 'health', 7, POINT_BUDGET) && canSetAttr(attrs, 'health', 7, VETERAN_BUDGET) && !canSetAttr(attrs, 'speed', 10, VETERAN_BUDGET) &&
         !canSetAttr(attrs, 'speed', 1, POINT_BUDGET) && canSetAttr(attrs, 'speed', 5, POINT_BUDGET) && !canSetAttr(attrs, 'magic', 5, POINT_BUDGET);
+      // points above ATTR_KNEE cost double: 8 costs 9 and 9 costs 11, so 9 health no longer fits a veteran balanced build
+      const knee = attrCost(ATTR_KNEE) === ATTR_KNEE && attrCost(8) === 9 && attrCost(9) === 11 && canSetAttr(attrs, 'health', 8, VETERAN_BUDGET) && !canSetAttr(attrs, 'health', 9, VETERAN_BUDGET);
       const c = defaultCustom(0);
       c.attrs.health = 7;
       const over = validateCustom(c).ok;
-      c.tier = 'veteran'; c.attrs.speed = 8; c.attrs.health = 8;
+      c.tier = 'veteran'; c.attrs.speed = 7; c.attrs.health = 8;
       const vet48 = attrTotal(c.attrs) === VETERAN_BUDGET && validateCustom(c).ok;
-      c.attrs.reach = 6;
+      c.attrs.reach = 6;                                   // costs 49 but only 47 at the old flat price: an old save is trimmed to fit
+      const legacy = validateCustom(c);
+      const trimmedOld = legacy.ok && attrTotal(legacy.value.attrs) <= VETERAN_BUDGET && legacy.value.attrs.health === 7;
+      c.attrs.balance = 7;                                 // over budget even at the flat price: rejected
       const vet49 = validateCustom(c).ok;
       const trimmed = trimToBudget({ health: 9, stamina: 9, strength: 9, speed: 9, reach: 9, defense: 9, balance: 9, recovery: 9 }, POINT_BUDGET);
       const trimOk = attrTotal(trimmed) === POINT_BUDGET && ATTR_KEYS.every((k) => trimmed[k] >= ATTR_MIN && trimmed[k] <= ATTR_MAX);
       const presets = ARCHETYPE_IDS.every((id) => attrTotal(ARCHETYPES[id].attrs) === POINT_BUDGET && ATTR_KEYS.every((k) => ARCHETYPES[id].attrs[k] >= ATTR_MIN && ARCHETYPES[id].attrs[k] <= ATTR_MAX));
       const baseline = attrTotal(ROSTER_BY_ID.kai.attrs) === POINT_BUDGET;
-      return rules && !over && vet48 && !vet49 && trimOk && presets && baseline ? true : JSON.stringify({ rules, over, vet48, vet49, trimOk, presets, baseline });
+      return rules && knee && !over && vet48 && trimmedOld && !vet49 && trimOk && presets && baseline ? true : JSON.stringify({ rules, knee, over, vet48, trimmedOld, vet49, trimOk, presets, baseline });
+    });
+    test('Roster: costs stay in a narrow band, ZERO fights as a boss only in Arcade', () => {
+      const totals = ROSTER.filter((r) => r.id !== 'zero').map((r) => attrTotal(r.attrs));
+      const band = Math.min(...totals) === POINT_BUDGET && Math.max(...totals) - Math.min(...totals) <= 2;
+      const zero = attrTotal(ROSTER_BY_ID.zero.attrs);
+      const playable = zero > Math.max(...totals) && zero <= VETERAN_BUDGET + 1 && attrTotal(ROSTER_BY_ID.zero.bossAttrs) > zero;
+      const arcade = mk({ mode: 'arcade', opponentId: 'zero' }), arcadeHp = arcade.fighters[1].maxHp;
+      arcade.dispose();
+      const free = mk({ playerId: 'zero', opponentId: 'zero' });
+      const boss = arcadeHp > free.fighters[1].maxHp && free.fighters[0].maxHp === free.fighters[1].maxHp;
+      return band && playable && boss ? true : JSON.stringify({ totals, zero, band, playable, boss });
     });
     test('Creator: every hair, face and outfit option renders', () => {
       const push = R.push;
