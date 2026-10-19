@@ -4801,6 +4801,7 @@ class AIController {
   /* ---------- perception ---------- */
   perceive() {
     const p = this.p, sightMul = this.d.sight;
+    if (this.follow && this.follow.dead) this.follow = null;   // never trail a wreck
     if (this.sight <= 0) return;
     let best = null, bestScore = 1e9;
     const range = this.sight * sightMul * (this.alertT > 0 ? 1.4 : 1);
@@ -5534,12 +5535,13 @@ const MISSIONS = [
       const path = [{ x: -300, z: 420 }, { x: 100, z: 280 }, { x: 400, z: -100 }, { x: 650, z: -450 }];
       const dest = path[path.length - 1];
       const trucks = [];
+      let escorts = [];
       ctx.later(() => {
         for (let i = 0; i < 4; i++) {
           const t = spawnUnit('truck', -720 + i * -2, 520 + i * 14, { team: 0, waypoints: path, radius: 12, yaw: 1.3, onArrive: (p) => { p.arrivedFlag = true; p.dead = true; W.msg('TRUCK ARRIVED'); } });
           if (t) { t.convoyIdx = i; t.ai.enabled = false; trucks.push(t); }
         }
-        const escorts = spawnGroup(['allyMech', 'allyTank'], -700, 480, { team: 0, radius: 30 });
+        escorts = spawnGroup(['allyMech', 'allyTank'], -700, 480, { team: 0, radius: 30 });
         escorts.forEach((e) => { e.ai.follow = trucks[0] || null; });
         const esc = m.add(Obj.escort({ id: 'convoy', title: 'Escort the convoy', units: trucks, required: 2, dest, status: 'active' }));
         m.add(Obj.escort({ id: 'perfect', title: 'Deliver every truck', units: trucks, required: 4, perfect: true, primary: false, dest, status: 'active' }));
@@ -5549,6 +5551,10 @@ const MISSIONS = [
         spawnGroup(['heavyMech', 'lightMech', 'lightMech', 'aaTurret'], 560, -330, { radius: 70 });
       });
       m.at(12, () => { W.msg('CONVOY MOVING OUT'); trucks.forEach((t) => { if (t.ai) t.ai.enabled = true; }); });
+      m.every(1, () => { // escorts move on to the lead truck that is still rolling
+        const lead = trucks.find((t) => !t.dead) || null;
+        for (const e of escorts) if (!e.dead && e.ai) e.ai.follow = lead;
+      });
       m.at(200, () => { spawnGroup(['jet', 'jet'], 0, 0, { goal: null }); W.msg('ENEMY AIR PATROL DETECTED'); });
     },
     update(m) { // trucks that have arrived are removed from play but counted
