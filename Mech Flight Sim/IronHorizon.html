@@ -6019,10 +6019,11 @@ function respawnTrainingTargets() {
    ===================================================================== */
 const STEP = 1 / 60;
 
+const AUTO_RETARGET_REASONS = ['OFF BORE', 'NO LINE OF SIGHT', 'OUT OF RANGE', 'AIR TARGETS ONLY'];   // lock failures (updateLock) that let auto-target switch
 const PC = {
   sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
   usedDefense: false,   // set when the defense key is pressed; the tutorial reads it after the tick has consumed the edge
-  hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact
+  hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact; reset per platform
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -6080,8 +6081,13 @@ const PC = {
   },
   /* Auto-target: take the hostile under the reticle, or after a kill the next one in view, so missiles never wait on the target key. */
   autoTarget(p) {
-    if (p.target && p.validTarget(p.target)) { this.hadTarget = true; return; }
     const ai = W.aimInfo;
+    // a held target the missiles can lock is kept; one they cannot (off bore, hidden, too far) yields to the reticle
+    if (p.target && p.validTarget(p.target)) {
+      this.hadTarget = true;
+      if (AUTO_RETARGET_REASONS.includes(p.lock.reason) && ai && ai.hostile && ai.obj !== p.target && p.validTarget(ai.obj)) p.target = ai.obj;
+      return;
+    }
     if (ai && ai.hostile && p.validTarget(ai.obj)) p.target = ai.obj;
     else if (this.hadTarget) p.cycleTarget();
     this.hadTarget = !!p.target;
@@ -6198,6 +6204,7 @@ const Game = {
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
+    PC.hadTarget = false;
     W.mission.noTimeout = cfg.mode === 'training';
     W.maxLives = cfg.mode === 'training' ? 999 : 3; W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
@@ -6236,7 +6243,7 @@ const Game = {
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
-    W.player = p;
+    W.player = p; PC.hadTarget = false;   // a fresh platform must not auto-lock the nearest hostile
     W.platforms = W.platforms.filter((q) => q !== old);
     W.platforms.push(p);
     p.noTarget = false;
@@ -7815,7 +7822,10 @@ const SelfTest = {
       PC.autoTarget(me);
       this.check('the hostile under the reticle becomes the target', me.target === near);
       W.aimInfo = { hostile: true, obj: next }; PC.autoTarget(me);
-      this.check('a held target is not stolen by the reticle', me.target === near);
+      this.check('a held, lockable target is not stolen by the reticle', me.target === near);
+      me.lock.reason = 'OFF BORE'; PC.autoTarget(me);
+      this.check('a target the missiles cannot lock yields to the reticle', me.target === next);
+      me.lock.reason = ''; me.target = near;   // back on the first hostile for the kill check
       near.destroy(me, 'kinetic'); W.aimInfo = null; PC.autoTarget(me);
       this.check('after a kill the next hostile is targeted', me.target === next);
       me.target = null; PC.hadTarget = false; PC.autoTarget(me);
@@ -7969,6 +7979,8 @@ const SelfTest = {
       for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
       W.player.hp = W.player.maxHp * 0.1; W.player.eject(); Game.tick(STEP);
       this.check('ejecting on a wrecked hull is a full loss', W.stats.deaths === d0 + 2 && W.stats.withdrawals === w0 + 1);
+      PC.hadTarget = true; Game.spawnPlayer();
+      this.check('a new platform starts without an auto-target history', PC.hadTarget === false);
       const keep = { lives: W.maxLives, deaths: W.stats.teamDeaths, withdrawals: W.stats.teamWithdrawals };
       try {
         const ranked = new Mission({ id: 'test' }, {});   // with 4 lives, one full loss drops rank S to A
@@ -8449,7 +8461,7 @@ const Net = {
     W.platforms.push(p);
     if (m.self) {
       p.name = 'YOU'; p.controller = PC; p.cmd.aimYaw = m.yaw; p.flightMode = S.flightMode;
-      W.player = p; Cam.reset(p);
+      W.player = p; Cam.reset(p); PC.hadTarget = false;
     }
   },
   /* the host went back to the lobby: drop the mirrored world, keep the connection */
