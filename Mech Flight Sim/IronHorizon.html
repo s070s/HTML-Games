@@ -2200,8 +2200,8 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     if (d >= radius) continue;
     const f = 1 - clamp(d / radius, 0, 1);
     const dmg = damage * (0.15 + 0.85 * f);
-    p.takeDamage(dmg, dtype, owner, dx, dz, { blast: true, srcY: y });
-    if (damage <= 0) continue;
+    const dealt = p.takeDamage(dmg, dtype, owner, dx, dz, { blast: true, srcY: y });
+    if (damage <= 0 || (dealt <= 0 && owner && owner.team === p.team)) continue;   // no push on allies spared by friendly fire rules
     const len = Math.hypot(dx, dy, dz) || 1, force = Math.min(24, (radius * 2.5 * f) / p.def.mass);
     p.vx += dx / len * force; p.vz += dz / len * force; if (p.kind !== 'air') p.vy += Math.max(0, dy / len) * force * 0.5;
     if (f > 0.6 && dmg > 30 * p.def.stability) p.stagger = Math.max(p.stagger, 0.5);
@@ -4013,10 +4013,11 @@ class Platform {
       if (p === this || p.dead || p.kind === 'air') continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
       if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < 0.3) continue;
-      p.takeDamage(d.meleeDmg, 'kinetic', this, fx, fz, { melee: true });
+      const dealt = p.takeDamage(d.meleeDmg, 'kinetic', this, fx, fz, { melee: true });
+      if (dealt <= 0 && p.team === this.team) continue;   // no shoving allies when friendly fire is off
       p.stagger = Math.max(p.stagger, 0.6); p.vx += fx * 10 / p.def.mass; p.vz += fz * 10 / p.def.mass;
     }
-    const n = Hash.query(hx - 6, hz - 6, hx + 6, hz + 6);
+    const n = Hash.query(hx - 6, hz - 6, hx + 6, hz + 6, this.y - 1, this.y + this.height);   // only the floors within reach
     const list = Hash.out.slice(0, n);
     for (const s of list) if (!s.destroyed && structContains(s, hx, hz, 4)) damageStruct(s, d.meleeDmg * 1.8, 'kinetic', this, 1);
     fxSparks(hx, this.y + this.height * 0.4, hz, 10, [1, 0.8, 0.4], 14);
