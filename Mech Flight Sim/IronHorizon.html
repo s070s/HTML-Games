@@ -1885,7 +1885,7 @@ const STRUCT = {
 };
 const DEBRIS_CAP = 170;
 const OBJECTIVE_STRUCT_SCORE = 300;   // score for destroying a mission objective structure
-const STRUCT_SCORE = 10;              // score for any other structure a player brings down
+const STRUCT_SCORE = 10;              // score for any other hostile-owned structure a player brings down
 const SHIELDED_MSG_GAP = 4;           // seconds between "target shielded" reminders to one player
 
 function addStruct(type, x, z, opts) {
@@ -1958,7 +1958,8 @@ function creditStruct(s, owner) {
   if (s.objective && owner) addFeed(owner, s, s.team);
   const st = statsOf(owner);
   if (!st || s.bld || s.type === 'tree') return;
-  const score = s.objective ? OBJECTIVE_STRUCT_SCORE : STRUCT_SCORE;
+  // every structure counts in the record, but only hostile or objective ones score: levelling scenery is no score farm
+  const score = s.objective ? OBJECTIVE_STRUCT_SCORE : s.team === 1 ? STRUCT_SCORE : 0;
   st.structures++; st.score += score;
   if (s.objective) markKill(owner, score, s.name);
 }
@@ -7747,12 +7748,15 @@ const SelfTest = {
       W.platforms.push(pl); W.player = pl;
       const shed = addStruct('warehouse', 300, 0, {});
       damageStruct(shed, 1e5, 'explosive', pl, 1);
-      this.check('a destroyed structure is counted and scored', W.stats.structures === 1 && W.stats.score === STRUCT_SCORE && W.hitMarker === 0);
+      this.check('destroyed scenery is counted but not scored', W.stats.structures === 1 && W.stats.score === 0 && W.hitMarker === 0);
+      const bunker = addStruct('warehouse', 300, -200, { team: 1 });
+      damageStruct(bunker, 1e5, 'explosive', pl, 1);
+      this.check('a destroyed hostile structure is counted and scored', W.stats.structures === 2 && W.stats.score === STRUCT_SCORE);
       const radar = objStruct('tower', 300, 200, 'Radar Tower', 1);
       damageStruct(radar, 1, 'explosive', pl, 1);
       this.check('hitting an objective shows a hit marker', W.hitMarker > 0);
       damageStruct(radar, 1e5, 'explosive', pl, 1);
-      this.check('an objective kill scores, confirms and reaches the feed', W.stats.structures === 2 && W.stats.score === STRUCT_SCORE + OBJECTIVE_STRUCT_SCORE && W.killMarker > 0 && W.feed[W.feed.length - 1].text === 'YOU  >  Radar Tower');
+      this.check('an objective kill scores, confirms and reaches the feed', W.stats.structures === 3 && W.stats.score === STRUCT_SCORE + OBJECTIVE_STRUCT_SCORE && W.killMarker > 0 && W.feed[W.feed.length - 1].text === 'YOU  >  Radar Tower');
       this.check('an objective kill shows a score line', W.msgs.some((m) => m.text === '+' + OBJECTIVE_STRUCT_SCORE + ' RADAR TOWER'));
       const core = objStruct('factory', -300, 200, 'Factory Core', 1);
       core.invuln = true;
