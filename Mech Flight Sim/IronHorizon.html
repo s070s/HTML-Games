@@ -3341,6 +3341,7 @@ class Platform {
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
     this.ejectArm = 0; this.crashCd = 0; this.stuckT = 0; this.lastX = this.x; this.lastZ = this.z; this.warn = '';
     this.stats = { kills: 0, damage: 0 };
+    this.killedBy = null;   // { name, dist } for the death screen; null when unknown or ejected
     this.target = null; this.lock = { target: null, progress: 0, state: 'none', reason: '', grace: 0 };
     this.beingLocked = 0; this.targetIdx = -1;
     this.lockLosTarget = null; this.lockLos = false; this.lockLosAt = -1;
@@ -4138,6 +4139,8 @@ class Platform {
   destroy(owner, cause) {
     if (this.dead) return;
     this.dead = true; this.hp = 0; this.deadAt = W.time; this.shieldOn = false;
+    if (owner && owner !== this) this.killedBy = { name: owner.name, dist: Math.round(Math.hypot(owner.x - this.x, owner.y - this.y, owner.z - this.z)) };
+    else if (cause === 'crash' || cause === 'collision') this.killedBy = { name: 'Collision', dist: 0 };
     const cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.5);
     const rad = 4 + this.def.mass * 1.1 + this.height * 0.3;
     if (cause !== 'eject') {
@@ -6950,6 +6953,8 @@ const HUD = {
       return;
     }
     this.txt('PLATFORM DESTROYED', this.w / 2, this.h * 0.4, 26, C.bad, 'center', true);
+    const kb = p.killedBy;
+    if (kb) this.txt('DESTROYED BY ' + kb.name.toUpperCase() + (kb.dist ? ' (' + kb.dist + ' m)' : ''), this.w / 2, this.h * 0.4 + 56 * u, 13, C.warn, 'center');
     if (W.lives > 0 || (Game.cfg && Game.cfg.mode === 'training')) this.txt('REDEPLOYING IN ' + Math.max(0, Math.ceil(Game.respawnT)) + '  |  PLATFORMS LEFT ' + (Game.cfg.mode === 'training' ? 'UNLIMITED' : W.lives), this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
   },
@@ -7729,6 +7734,25 @@ const SelfTest = {
         this.check('no spectating while a platform is left', Game.spectating === null);
       } finally { Net.host = savedHost; Input.pressed.delete(fire); Game.spectating = null; }
     });
+    t('killed by', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const mk = (x) => { const q = new Platform(PLATFORMS.bulwark, { team: 0, x, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout }); W.platforms.push(q); return q; };
+      const shot = mk(0), crashed = mk(40), foe = spawnUnit('infantry', 0, 120, { force: true });
+      shot.destroy(foe, 'kinetic'); crashed.destroy(null, 'crash');
+      this.check('the death screen names the killer and range', shot.killedBy && shot.killedBy.name === foe.name && Math.abs(shot.killedBy.dist - Math.hypot(foe.x - shot.x, foe.y - shot.y, foe.z - shot.z)) < 1, JSON.stringify(shot.killedBy));
+      this.check('a crash reads as a collision', crashed.killedBy && crashed.killedBy.name === 'Collision');
+      const st = Net.selfState({ p: shot, lives: 1, respawnT: 3 });
+      this.check('a dead guest is told who killed them', Array.isArray(st.kb) && st.kb[0] === foe.name);
+      const keep = { player: W.player, respawnT: Game.respawnT };
+      try {
+        W.player = crashed;
+        Net.applySelf({ dead: 1, lv: 1, rs: 3, kb: ['<Foe>'.repeat(10), 'x'] });
+        this.check('a guest sanitizes the killer it is sent', crashed.killedBy.name.length === 24 && crashed.killedBy.dist === 0);
+        Net.applySelf({ dead: 1, lv: 1, rs: 3 });
+        this.check('an older host without a killer shows none', crashed.killedBy === null);
+      } finally { W.player = keep.player; Game.respawnT = keep.respawnT; }
+    });
     t('auto-target', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
       W.mission = null;
@@ -8263,7 +8287,7 @@ const Net = {
   },
   selfState(peer) {
     const p = peer.p;
-    if (!p || p.dead) return { dead: 1, lv: peer.lives, rs: r1(Math.max(0, peer.respawnT)) };
+    if (!p || p.dead) return { dead: 1, lv: peer.lives, rs: r1(Math.max(0, peer.respawnT)), kb: p && p.killedBy ? [p.killedBy.name, p.killedBy.dist] : 0 };
     const inc = incomingMissiles(p);
     const L = p.lock;
     return {
@@ -8397,7 +8421,12 @@ const Net = {
   applySelf(me) {
     const gp = W.player;
     W.lives = me.lv; Game.respawnT = me.rs || 0;
-    if (me.dead) { if (gp) gp.dead = true; return; }
+    if (me.dead) {
+      if (!gp) return;
+      gp.dead = true;
+      gp.killedBy = Array.isArray(me.kb) ? { name: String(me.kb[0]).substring(0, 24), dist: Math.max(0, Math.round(Number(me.kb[1]) || 0)) } : null;
+      return;
+    }
     if (!gp || gp.id !== me.id) return;
     gp.dead = false;
     gp.hp = me.hp; gp.armor = me.ar; gp.shield = me.sh; gp.shieldOn = !!me.so; gp.shieldBroken = me.sb; gp.energy = me.en; gp.energyLock = !!me.el; gp.heat = me.ht; gp.overheated = !!me.ov;
