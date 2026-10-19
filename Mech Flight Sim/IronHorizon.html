@@ -3791,6 +3791,14 @@ class Platform {
     }
     return this.lockLos;
   }
+  /* Why the guided secondary can never lock t at distance d, however it aims: '' when type and range allow it. */
+  lockFit(t, d) {
+    const w = this.wslots.secondary, gd = w && w.def.guide;
+    if (!gd) return 'NO GUIDED WEAPON';
+    if (gd.lock === 'air' && (t.isStruct || t.kind !== 'air')) return 'AIR TARGETS ONLY';
+    if (d > w.def.range) return 'OUT OF RANGE';
+    return '';
+  }
   updateLock(dt) {
     const L = this.lock;
     if (this.target && (!this.validTarget(this.target))) this.target = null;
@@ -3805,11 +3813,8 @@ class Platform {
     const dx = tp.x - this.x, dy = tp.y - this.y, dz = tp.z - this.z, d = Math.hypot(dx, dy, dz);
     const dir = this.aimDir(LOCK_DIR);
     const ang = Math.acos(clamp((dx * dir.x + dy * dir.y + dz * dir.z) / Math.max(1, d), -1, 1));
-    let reason = '';
-    if (gd.lock === 'air' && (t.isStruct || t.kind !== 'air')) reason = 'AIR TARGETS ONLY';
-    else if (d > w.def.range) reason = 'OUT OF RANGE';
-    else if (ang > gd.cone) reason = 'OFF BORE';
-    else if (!this.lockSight(t, tp)) reason = 'NO LINE OF SIGHT';
+    let reason = this.lockFit(t, d);
+    if (!reason) reason = ang > gd.cone ? 'OFF BORE' : this.lockSight(t, tp) ? '' : 'NO LINE OF SIGHT';
     L.reason = reason;
     if (reason === '') {
       if (L.target !== t) { L.target = t; L.progress = 0; L.state = 'acquiring'; }
@@ -6034,11 +6039,14 @@ function respawnTrainingTargets() {
 const STEP = 1 / 60;
 
 const AUTO_RETARGET_REASONS = ['OFF BORE', 'NO LINE OF SIGHT', 'OUT OF RANGE', 'AIR TARGETS ONLY'];   // lock failures (updateLock) that let auto-target switch
+const AUTO_RETARGET_HOLD = 3;   // seconds after a manual Cycle Target before auto-target may replace the pick
+const AUTO_TP = { x: 0, y: 0, z: 0 };
 const PC = {
   sdx: 0, sdy: 0, axRoll: 0, axPitch: 0, padLast: false, padF2: false, padStart: false,
   usedDefense: false,   // set when the defense key is pressed; the tutorial reads it after the tick has consumed the edge
   hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact; reset per platform
   padPrev: {},          // gamepad buttons held last frame, for padEdge
+  manualHold: 0,        // seconds left in which auto-target keeps a manually cycled target
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -6089,7 +6097,8 @@ const PC = {
     if (this.padEdge(pad, 'left') || Input.hit('weapon1')) c.sel1 = true;
     if (this.padEdge(pad, 'right') || Input.hit('weapon2')) c.sel2 = true;
     if (Input.wheel !== 0) c.selNext = true;
-    if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) p.cycleTarget();
+    this.manualHold = Math.max(0, this.manualHold - dt);
+    if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) { p.cycleTarget(); this.manualHold = AUTO_RETARGET_HOLD; }
     if (pad) this.padC = pad.cycle;
     if (S.autoTarget) this.autoTarget(p);
     if (this.padEdge(pad, 'interact') || Input.hit('interact')) tryResupply(p);
@@ -6101,12 +6110,21 @@ const PC = {
     // a held target the missiles can lock is kept; one they cannot (off bore, hidden, too far) yields to the reticle
     if (p.target && p.validTarget(p.target)) {
       this.hadTarget = true;
-      if (AUTO_RETARGET_REASONS.includes(p.lock.reason) && ai && ai.hostile && ai.obj !== p.target && p.validTarget(ai.obj)) p.target = ai.obj;
+      if (this.shouldRetarget(p, ai)) p.target = ai.obj;
       return;
     }
     if (ai && ai.hostile && p.validTarget(ai.obj)) p.target = ai.obj;
     else if (this.hadTarget) p.cycleTarget();
     this.hadTarget = !!p.target;
+  },
+  /* Switch a held target to the reticle hostile only once its lock has really dropped (a brief sight or bore
+     blip keeps it through the lock grace), never within AUTO_RETARGET_HOLD of a manual pick, and only to a
+     hostile the guided weapon could lock by type and range. */
+  shouldRetarget(p, ai) {
+    if (this.manualHold > 0 || p.lock.state !== 'none' || !AUTO_RETARGET_REASONS.includes(p.lock.reason)) return false;
+    if (!ai || !ai.hostile || ai.obj === p.target || !p.validTarget(ai.obj)) return false;
+    tpos(ai.obj, AUTO_TP);
+    return p.lockFit(ai.obj, Math.hypot(AUTO_TP.x - p.x, AUTO_TP.y - p.y, AUTO_TP.z - p.z)) === '';
   },
   /* True on the frame a gamepad button goes down (pad may be null: then every button reads as released). */
   padEdge(pad, button) {
@@ -6265,7 +6283,7 @@ const Game = {
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
-    W.player = p; PC.hadTarget = false;   // a fresh platform must not auto-lock the nearest hostile
+    W.player = p; PC.hadTarget = false; PC.manualHold = 0;   // a fresh platform must not auto-lock the nearest hostile
     W.platforms = W.platforms.filter((q) => q !== old);
     W.platforms.push(p);
     p.noTarget = false;
@@ -7848,9 +7866,19 @@ const SelfTest = {
       this.check('the hostile under the reticle becomes the target', me.target === near);
       W.aimInfo = { hostile: true, obj: next }; PC.autoTarget(me);
       this.check('a held, lockable target is not stolen by the reticle', me.target === near);
-      me.lock.reason = 'OFF BORE'; PC.autoTarget(me);
+      me.lock.state = 'locked'; me.lock.reason = 'NO LINE OF SIGHT'; PC.autoTarget(me);
+      this.check('a finished lock survives a sight blip during its grace', me.target === near);
+      me.lock.state = 'none'; me.lock.reason = 'OFF BORE'; PC.manualHold = AUTO_RETARGET_HOLD; PC.autoTarget(me);
+      this.check('a manually cycled target is kept for a moment', me.target === near);
+      PC.manualHold = 0; PC.autoTarget(me);
       this.check('a target the missiles cannot lock yields to the reticle', me.target === next);
-      me.lock.reason = ''; me.target = near;   // back on the first hostile for the kill check
+      const far = spawnUnit('infantry', 0, me.wslots.secondary.def.range + 200, { force: true });
+      me.target = near; W.aimInfo = { hostile: true, obj: far }; PC.autoTarget(me);
+      this.check('auto-target never switches to a hostile beyond missile range', me.target === near);
+      const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: 0, yaw: 0, y: 200, loadout: PLATFORMS.kestrel.loadout });
+      jet.target = near; jet.lock.state = 'none'; jet.lock.reason = 'AIR TARGETS ONLY'; W.aimInfo = { hostile: true, obj: next }; PC.autoTarget(jet);
+      this.check('AA missiles never auto-switch to a ground unit', jet.target === near);
+      me.lock.reason = ''; me.target = near; PC.hadTarget = true;   // back on the first hostile for the kill check
       near.destroy(me, 'kinetic'); W.aimInfo = null; PC.autoTarget(me);
       this.check('after a kill the next hostile is targeted', me.target === next);
       me.target = null; PC.hadTarget = false; PC.autoTarget(me);
@@ -7862,14 +7890,15 @@ const SelfTest = {
       W.mission = null; W.pads = [];
       const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: 0, yaw: 0, y: 200, loadout: PLATFORMS.kestrel.loadout });
       W.platforms.push(jet); W.player = jet;
-      const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev };
+      const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev, padC: PC.padC };
       try {
-        const buttons = { right: true, up: true, down: true, reload: true, interact: true };
+        const buttons = { right: true, up: true, down: true, reload: true, interact: true, cycle: true };
         Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
-        PC.padPrev = {};
+        PC.padPrev = {}; PC.padC = false; PC.manualHold = 0;
         PC.sample(jet, STEP);
         const c = jet.cmd;
         this.check('the pad selects weapon 2, lowers the gear, arms the eject and reloads', c.sel2 && c.gearEdge && c.ejectEdge && c.reloadEdge);
+        this.check('a manual Cycle Target holds off auto-target', PC.manualHold === AUTO_RETARGET_HOLD);
         this.check('Back uses the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
         c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = false;
         PC.sample(jet, STEP);
@@ -7878,7 +7907,7 @@ const SelfTest = {
         this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK');
         Input.usingPad = false;
         this.check('prompts show the key after keyboard input', actionLabel('interact') === keyLabel(Input.code('interact')));
-      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; }
+      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; }
     });
     t('co-op records', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
