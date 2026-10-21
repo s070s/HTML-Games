@@ -254,7 +254,8 @@ const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain befor
 const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
 const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a tactical withdrawal
 const WITHDRAW_RANK_WEIGHT = 0.5; // a withdrawal still loses the platform, but counts as half a loss in the rank
-const PLAYER_LIVES = 5;          // platforms (tickets) each player has per mission or skirmish
+const PLAYER_LIVES = 5;          // default platforms (tickets) each player has per mission or skirmish
+const UNLIMITED_LIVES = 999;     // the lives count that stands for unlimited
 const HOSTILE_COUNT = 1.5;       // every hostile group is this much bigger than written (before difficulty and co-op scaling)
 const ALLY_COUNT = 2;            // every allied support group is this much bigger than written
 const RESPAWN_TIME = 6;          // seconds before a lost platform is replaced
@@ -507,6 +508,7 @@ const ACTIONS = [
   ['jump', 'Jump jets / handbrake / airbrake', 'Space'],
   ['defense', 'Defense (shield, APS, repair, flares)', 'KeyQ'],
   ['melee', 'Mech melee strike', 'KeyF'],
+  ['superweapon', 'Fire superweapon (when charged)', 'KeyV'],
   ['interact', 'Interact (resupply at a supply pad)', 'KeyE'],
   ['cycleTarget', 'Cycle target', 'KeyT'],
   ['stance', 'Crouch / radar mode (air)', 'KeyC'],
@@ -534,13 +536,13 @@ function keyLabel(code) {
 }
 /* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
 const PAD_LABELS = {
-  fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB',
+  fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB', superweapon: 'RB',
   interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
 /* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind. */
 const TOUCH_LABELS = {
-  fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', melee: 'MELEE', cycleTarget: 'TGT',
+  fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', melee: 'MELEE', cycleTarget: 'TGT', superweapon: 'SUPER',
   jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'RADAR' : 'CROUCH'),
   interact: 'USE', reload: 'RLD', gear: 'GEAR', eject: 'EJECT', weapon1: 'WPN', weapon2: 'WPN', pause: 'II',
 };
@@ -564,6 +566,7 @@ const SETTING_SCHEMA = {
   flightAssist: ['bool', true], quality: ['enum', ['low', 'medium', 'high'], 'medium'], fov: ['num', 55, 95, 72],
   showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
   highContrast: ['bool', false], autoTarget: ['bool', true], aimAssist: ['bool', true],
+  lives: ['enum', ['1', '3', '5', '10', '20', 'unlimited'], '5'],   // platforms per mission (skirmish sets its own)
 };
 const S = {};   // live settings
 const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
@@ -579,7 +582,7 @@ const Save = {
     const bindings = {};
     ACTIONS.forEach((a) => { bindings[a[0]] = a[2]; });
     if (COARSE_POINTER) settings.quality = 'low';   // phones and tablets: start light, the player can raise it
-    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null };
+    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null, career: Arsenal.blankCareer(), unlocked: [] };
   },
   sanitize(raw) {
     const out = this.defaults();
@@ -623,6 +626,8 @@ const Save = {
       }
     }
     if (raw.skirmish && typeof raw.skirmish === 'object') out.skirmish = raw.skirmish;
+    out.career = Arsenal.sanitizeCareer(raw.career);
+    if (Array.isArray(raw.unlocked)) out.unlocked = raw.unlocked.filter((id, i, a) => typeof id === 'string' && SUPERS[id] && a.indexOf(id) === i);
     return out;
   },
   load() {
@@ -667,6 +672,7 @@ const Loadout = {
       if (!w) { errors.push(slot + ': unknown weapon'); return; }
       if (def.allow[SLOT_GROUP[slot]].indexOf(id) < 0) errors.push(w.name + ' cannot mount on ' + def.name + ' (' + SLOT_LABEL[slot] + ')');
     });
+    if (lo.strategic && !SUPERS[lo.strategic]) errors.push('Unknown superweapon');
     const weight = this.weight(lo);
     if (weight > def.weightCap) errors.push('Overweight by ' + (weight - def.weightCap) + ' (capacity ' + def.weightCap + ')');
     return { ok: errors.length === 0, errors, weight };
@@ -680,7 +686,9 @@ const Loadout = {
   forPlatform(id) {
     const def = PLATFORMS[id];
     const saved = Save.data && Save.data.loadouts[id];
-    return Object.assign({}, saved && Loadout.validate(def, saved).ok ? saved : def.loadout);
+    const lo = Object.assign({}, saved && Loadout.validate(def, saved).ok ? saved : def.loadout);
+    if (!lo.strategic || !Arsenal.isUnlocked(lo.strategic)) lo.strategic = SUPER_START_ID;   // every platform carries an unlocked superweapon
+    return lo;
   },
   store(id, lo) { Save.data.loadouts[id] = Object.assign({}, lo); Save.persist(); },
 };
@@ -768,7 +776,7 @@ const Input = {
         const dz = (v) => (Math.abs(v) < 0.18 ? 0 : v);
         const b = (n) => !!(p.buttons[n] && p.buttons[n].pressed);
         const snap = {
-          lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7) || b(5), fire2: b(6), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9),
+          lx: dz(p.axes[0]), ly: dz(p.axes[1]), rx: dz(p.axes[2]), ry: dz(p.axes[3]), fire1: b(7), fire2: b(6), superweapon: b(5), boost: b(10), jump: b(0), defense: b(1), melee: b(2), cycle: b(3), start: b(9),
           stance: b(4),   // LB: every other button is taken, and LT still fires the secondary
           interact: b(8), reload: b(11), up: b(12), down: b(13), left: b(14), right: b(15),   // Back, R3 and the d-pad
         };
@@ -801,6 +809,7 @@ const TOUCH_BUTTONS = [
   { name: 'reload', label: 'RLD', pos: 'right:178px;bottom:4px' },
   { name: 'next', label: 'WPN', pos: 'right:30px;bottom:184px' },
   { name: 'cycle', label: 'TGT', pos: 'right:92px;bottom:154px' },
+  { name: 'superweapon', label: 'SUPER', pos: 'right:162px;bottom:124px', show: ['super'] },
   { name: 'stance', label: TOUCH_LABELS.stance, pos: 'left:18px;top:42%', show: ['mech', 'air'] },
   { name: 'melee', label: 'MELEE', pos: 'left:18px;top:calc(42% + 60px)', show: ['mech'] },
   { name: 'up', label: 'GEAR', pos: 'left:18px;top:calc(42% + 60px)', show: ['air'] },
@@ -923,12 +932,12 @@ const TouchControls = {
       if (!show) this.reset();
     }
     if (!show) return;
-    const p = W && W.player, kind = p ? p.kind : 'mech', nearPad = !!(p && !p.dead && padInRange(p));
-    const layout = kind + (nearPad ? '+pad' : '');
+    const p = W && W.player, kind = p ? p.kind : 'mech', nearPad = !!(p && !p.dead && padInRange(p)), hasSuper = !!(p && p.sw);
+    const layout = kind + (nearPad ? '+pad' : '') + (hasSuper ? '+super' : '');
     if (layout === this.layout) return;
     this.layout = layout;
     for (const b of this.buttons) {
-      const def = b.def, visible = !def.show || def.show.includes(kind) || (nearPad && def.show.includes('pad'));
+      const def = b.def, visible = !def.show || def.show.includes(kind) || (nearPad && def.show.includes('pad')) || (hasSuper && def.show.includes('super'));
       b.el.classList.toggle('hide', !visible);
       b.el.textContent = typeof def.label === 'function' ? def.label(kind) : def.label;
     }
@@ -2565,7 +2574,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   }
   Snd.play(big ? 'bigExplosion' : 'explosion', x, y, z, clamp(radius / 6, 0.5, 1.6));
   shakeFrom(x, y, z, clamp(radius * 0.045, 0.05, 0.6), 160);
-  if (W.onExplosion) W.onExplosion(x, y, z, radius);
+  if (W.onExplosion && !opts.noNet) W.onExplosion(x, y, z, radius);   // superweapon blasts are replayed by guests instead
   if (Net.guest) return;   // guests only show effects; the host decides damage
   // damage
   const pl = W.platforms;
@@ -2607,7 +2616,8 @@ function spawnPickup(type, x, z, life) {
 /* ---------- world construction ---------- */
 /* One player's combat record; team totals (teamKills, teamDeaths) are only used on the host's W.stats. */
 function newStats() {
-  return { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, teamDeaths: 0, withdrawals: 0, teamWithdrawals: 0, score: 0, pickups: 0 };
+  return { kills: 0, teamKills: 0, shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, structures: 0, deaths: 0, teamDeaths: 0, withdrawals: 0, teamWithdrawals: 0, score: 0, pickups: 0,
+    airKills: 0, groundKills: 0, mechKills: 0, infantryKills: 0, superUses: 0, superKills: 0, streak: 0, bestStreak: 0 };
 }
 /* The record a human player's actions count toward: the local player's, or a co-op guest's (kept across respawns). */
 function statsOf(pl) {
@@ -2635,6 +2645,7 @@ function newWorld(cfg) {
     },
   };
   Chunks.reset();
+  SW.reset();
   for (let i = 0; i < MAX_PROJECTILES; i++) W.projs.push(newProjectileSlot());
   W.projCursor = 0;
   FX.clear();
@@ -2946,6 +2957,7 @@ function drawWorld(dt) {
     st.push().t((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, (b.z1 + b.z2) / 2).ry(yaw).rx(-pitch).s(b.width * f, b.width * f, len);
     R.draw('box', b.col[0], b.col[1], b.col[2], 1, 2.0, 0); st.pop();
   }
+  SW.draw(false);
   R.endBatch('opaque', 0.25, 1);
   // ---- transparent: scorches, shadows, flashes, platform overlays, rings
   R.blend(true, false); R.depthWrite(false); R.polyOffset(true);
@@ -2992,6 +3004,7 @@ function drawWorld(dt) {
     const rr = lerp(rg.r, rg.maxR, Math.sqrt(f));
     st.push().t(rg.x, rg.y, rg.z).s(rr * 2, 0.4, rr * 2); R.draw('cyl', 1, 0.8, 0.5, (1 - f) * 0.35, 0.8, 0); st.pop();
   }
+  SW.draw(true);
   R.blend(false); R.depthWrite(true);
   R.drawPoints(FX, false);
   R.drawPoints(FX, true);
@@ -3024,6 +3037,7 @@ function updateWorldEffects(dt) {
     const q = W.queue[i]; q.delay -= dt;
     if (q.delay <= 0) { W.queue.splice(i, 1); explode(q.x, q.y, q.z, q.radius, q.dmg, 'explosive', q.owner); }
   }
+  SW.update(dt);
   W.shake = Math.max(0, W.shake - dt * 1.4);
   W.hitMarker = Math.max(0, W.hitMarker - dt); W.killMarker = Math.max(0, W.killMarker - dt); W.flash = Math.max(0, W.flash - dt);
   Bld.update(dt);
@@ -3648,6 +3662,12 @@ const TMP_V = { x: 0, y: 0, z: 0 };
 const LOCK_TP = { x: 0, y: 0, z: 0 };
 const LOCK_DIR = { x: 0, y: 0, z: 0 };
 const NOSE_DIR = { x: 0, y: 0, z: 0 };
+// target ranking weights (Platform.targetScore)
+const TARGET_ANGLE_NORM = 0.35;      // radians off the crosshair that cost as much as one unit of score
+const TARGET_DIST_WEIGHT = 0.35;     // score added at full sensor range
+const TARGET_THREAT_BONUS = 0.25;    // enemies attacking or locking us come first
+const TARGET_LOCKABLE_BONUS = 0.15;  // targets the guided secondary can lock (type and range)
+const TARGET_HIDDEN_PENALTY = 0.6;   // targets behind cover go last
 
 function newCmd() {
   return {
@@ -3655,7 +3675,7 @@ function newCmd() {
     aimYaw: 0, aimPitch: 0, aimPoint: null, hasAim: false,
     fire1: false, fire1Edge: false, fire2: false, fire2Edge: false, boost: false, jump: false, brake: false,
     defenseEdge: false, meleeEdge: false, stanceEdge: false, gearEdge: false, reloadEdge: false, radarEdge: false, ejectEdge: false,
-    sel1: false, sel2: false, selNext: false, axisPitch: 0, axisRoll: 0, axisYaw: 0,
+    sel1: false, sel2: false, selNext: false, axisPitch: 0, axisRoll: 0, axisYaw: 0, superEdge: false,
   };
 }
 function tpos(t, out) {
@@ -3709,6 +3729,7 @@ class Platform {
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
+    this.sw = null; this.status = newStatus(); this.scale = 1;   // superweapon slot, superweapon status effects, size (Shrink Ray)
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
     this.speedMult = this.kind === 'air' || def.playable ? Loadout.speedMult(def, this.loadout) : 1;
@@ -3730,6 +3751,8 @@ class Platform {
       if (ud.def === 'shield') { this.maxShield = ud.shield; this.shield = ud.shield; this.shieldOn = false; }
     }
     if (!this.wslots[this.activeSlot]) this.activeSlot = 'primaryB';
+    const sid = this.loadout.strategic;
+    if (sid && SUPERS[sid]) this.sw = { id: sid, def: SUPERS[sid], charge: 0, ready: false };
   }
   get primary() { return this.wslots[this.activeSlot]; }
   get hpFrac() { return this.hp / this.maxHp; }
@@ -3747,6 +3770,11 @@ class Platform {
     this.ejectArm = Math.max(0, this.ejectArm - dt);
     for (const k in this.sub) if (this.sub[k] > 0) { this.sub[k] -= dt; if (this.sub[k] <= 0) this.sub[k] = 0; }
     this.warn = '';
+    const fxs = this.status;   // superweapon effects: blinded and EMP-struck platforms cannot fire; EMP also drops shields and slows
+    if (fxs.emp > 0 || fxs.blind > 0) {
+      c.fire1 = c.fire2 = c.fire1Edge = c.fire2Edge = false;
+      if (fxs.emp > 0) { this.shieldOn = false; c.moveF *= 0.3; c.moveS *= 0.3; c.turn *= 0.5; c.boost = c.jump = false; }
+    }
     // stance
     if (c.stanceEdge) {
       if (this.kind === 'mech') this.crouch = !this.crouch;
@@ -3763,9 +3791,10 @@ class Platform {
     this.updateLock(dt);
     this.updateWeapons(dt);
     this.updateDefense(dt);
+    this.updateSuper(dt);
     if (c.meleeEdge && this.kind === 'mech') this.doMelee();
     // consume edges
-    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.radarEdge = c.ejectEdge = false;
+    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.radarEdge = c.ejectEdge = c.superEdge = false;
     c.sel1 = c.sel2 = c.selNext = false;
     if (this.hp < this.maxHp * 0.3 && Math.random() < dt * 8) {
       FX.emit(this.x + rand(-1, 1) * this.radius * 0.5, this.y + this.height * 0.7, this.z + rand(-1, 1) * this.radius * 0.5, rand(-1, 1), rand(2, 5), rand(-1, 1), 1.2, 1.2, 2.6, 0.12, 0.12, 0.12, 0.6, 0.4, -1, false);
@@ -3827,7 +3856,7 @@ class Platform {
       this.useEnergy(m.jetCost * dt); this.jetting = true;
       if (Math.random() < 0.7) FX.emit(this.x + rand(-1, 1), this.y + 0.5, this.z + rand(-1, 1), rand(-2, 2), -rand(10, 18), rand(-2, 2), 0.35, 2, 0.5, 1, 0.7, 0.3, 0.8, 1, 0, true);
     }
-    if (!this.grounded) this.vy -= GRAVITY * dt;
+    if (!this.grounded) this.vy -= GRAVITY * this.gravMult() * dt;
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
     if (this.grounded && Terrain.slope(this.x, this.z) > 1.25) { this.x = px; this.z = pz; this.vx = this.vz = 0; }
@@ -4107,6 +4136,17 @@ class Platform {
     if (t.isStruct) return !!t.objective && t.team !== this.team;
     return t.team !== this.team && t.team !== 2 && !t.noTarget;
   }
+  /* Target ranking for Cycle Target and auto-target after a kill (lower first): closeness to the crosshair
+     dominates, then distance; enemies attacking or locking us and ones the guided weapon can lock rank
+     higher, ones behind cover lower. */
+  targetScore(t, ang, d, tp) {
+    let s = ang / TARGET_ANGLE_NORM + TARGET_DIST_WEIGHT * d / Math.max(1, this.sensorRange());
+    if (!t.isStruct && (t.target === this || t.lock.target === this || (t.ai && t.ai.target === this))) s -= TARGET_THREAT_BONUS;
+    const w = this.wslots.secondary;
+    if (w && w.def.guide && !this.lockFit(t, d)) s -= TARGET_LOCKABLE_BONUS;
+    if (!hasLOS(this.x, this.y + this.height * 0.6, this.z, tp.x, tp.y, tp.z)) s += TARGET_HIDDEN_PENALTY;
+    return s;
+  }
   cycleTarget() {
     const cands = [], dir = { x: 0, y: 0, z: 0 }, tp = { x: 0, y: 0, z: 0 };
     this.aimDir(dir);
@@ -4118,7 +4158,7 @@ class Platform {
       if (d > range || d < 1) return;
       const ang = Math.acos(clamp((dx * dir.x + dy * dir.y + dz * dir.z) / d, -1, 1));
       if (this.kind === 'air' && this.radarFocus && ang > 0.7) return;
-      cands.push({ t, ang: ang + d * 0.0004 });
+      cands.push({ t, ang: this.targetScore(t, ang, d, tp) });
     };
     W.platforms.forEach(consider); W.structs.forEach((s) => { if (s.objective) consider(s); });
     if (cands.length === 0) { this.target = null; return; }
@@ -4169,6 +4209,59 @@ class Platform {
       L.grace -= dt;
       if (L.grace <= 0) { L.progress = Math.max(0, L.progress - dt * 2); if (L.progress === 0) { L.state = 'none'; L.target = null; } else L.state = 'acquiring'; }
     }
+  }
+
+  /* ---------------- superweapon and superweapon status effects ---------------- */
+  updateSuper(dt) {
+    const s = this.sw;
+    if (!s) return;
+    const was = s.charge >= 1;
+    if (!Net.guest) s.charge = Math.min(1, s.charge + dt * (W.mode === 'training' ? SUPER_TRAINING_RATE : 1) / superCharge(s.def));
+    s.ready = s.charge >= 1;
+    if (s.ready && !was) notify(this, 'SUPERWEAPON READY: ' + s.def.name.toUpperCase() + (this === W.player ? ' [' + actionLabel('superweapon') + ']' : ''), 'lockDone');
+    if (this.cmd.superEdge && !Net.guest) SW.trigger(this);
+  }
+  /* status timers run in real seconds, whatever the platform's own clock does */
+  tickStatus(dt) {
+    const s = this.status;
+    for (let i = 0; i < STATUS_TIMERS.length; i++) { const k = STATUS_TIMERS[i]; if (s[k] > 0) s[k] = Math.max(0, s[k] - dt); }
+    if (s.convertTeam >= 0 && s.convert <= 0) { const t = s.convertTeam; s.convertTeam = -1; this.setTeam(t); }
+    if (s.summoned && s.expire <= 0 && !this.dead) {   // a summoned ally's time is up: it withdraws without a wreck
+      fxSparks(this.x, this.y + this.height * 0.5, this.z, 20, [0.6, 0.8, 1], 20);
+      this.dead = true; this.hp = 0; this.deadAt = W.time;
+    }
+  }
+  timeMult() { const s = this.status; return s.freeze > 0 ? 0 : (s.slow > 0 ? s.slowMult : 1) * (s.haste > 0 ? 2 : 1); }
+  gravMult() { return this.status.grav > 0 ? this.status.gravMult : 1; }
+  /* lifted by a superweapon (after the platform's own update): rise to floatH, hang, fall, take the slam on landing */
+  stepFloat(dt) {
+    const s = this.status, g = groundLevel(this.x, this.z, this.y, this.radius);
+    if (s.float > 0) { s.floatCur = approach(s.floatCur, s.floatH, dt * Math.max(10, s.floatH * 1.5)); s.fallV = 0; }
+    else { s.fallV += GRAVITY * dt; s.floatCur -= s.fallV * dt; }
+    if (s.floatCur <= 0) {
+      s.floatCur = 0; s.floatH = 0;
+      if (s.slam > 0) {
+        const dmg = s.slam; s.slam = 0;
+        SW.dealing = true;
+        try { this.takeDamage(dmg, 'kinetic', s.slamOwner, 0, 0, { blast: true }); } finally { SW.dealing = false; }
+        fxSmokePuff(this.x, g + 1, this.z, this.radius * 1.5, 4);
+      }
+      return;
+    }
+    this.y = Math.max(this.y, g + s.floatCur); this.vy = 0; this.grounded = false;
+  }
+  /* switch sides (Mind Hack and its expiry); co-op guests are told */
+  setTeam(team) {
+    this.team = team; this.target = null; this.lock.state = 'none'; this.lock.target = null; this.lock.progress = 0;
+    if (this.ai) this.ai.target = null;
+    if (Net.host) Net.bcast({ t: 'pst', id: this.id, tm: team, sc: r2(this.scale) });
+  }
+  /* resize (Shrink Ray): hull, size and collision shrink with it; co-op guests are told */
+  setScale(k) {
+    const f = k / this.scale;
+    this.scale = k; this.radius = this.def.radius * k; this.height = this.def.height * k;
+    this.maxHp *= f; this.hp = Math.min(this.hp * f, this.maxHp); this.maxArmor *= f; this.armor = Math.min(this.armor * f, this.maxArmor);
+    if (Net.host) Net.bcast({ t: 'pst', id: this.id, tm: this.team, sc: r2(this.scale) });
   }
 
   /* ---------------- weapons ---------------- */
@@ -4446,6 +4539,11 @@ class Platform {
     if (Net.guest) return 0;
     if (this.dead || amount <= 0 || this.invuln) return 0;
     info = info || {};
+    const fxs = this.status;
+    if (fxs.invuln > 0) {   // Aegis-style invulnerability, optionally reflecting half the damage
+      if (fxs.reflect > 0 && owner && owner !== this && owner.team !== this.team && !info.reflected) owner.takeDamage(amount * 0.5, dtype, this, -(dx || 0), -(dz || 0), { reflected: true, blast: true });
+      return 0;
+    }
     if (owner && owner.team === this.team && !W.friendlyFire) return 0;
     if (owner === this && !W.friendlyFire) return 0;
     if (owner && owner.team === 1 && this.team === 0) amount *= W.diff.dmg;
@@ -4519,6 +4617,8 @@ class Platform {
   destroy(owner, cause) {
     if (this.dead) return;
     this.dead = true; this.hp = 0; this.deadAt = W.time; this.shieldOn = false;
+    const ownStats = statsOf(this);
+    if (ownStats) ownStats.streak = 0;
     if (owner && owner !== this) this.killedBy = { name: owner.name, dist: Math.round(Math.hypot(owner.x - this.x, owner.y - this.y, owner.z - this.z)) };
     else if (cause === 'crash' || cause === 'collision') this.killedBy = { name: 'Collision', dist: 0 };
     const cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.5);
@@ -4533,7 +4633,8 @@ class Platform {
       owner.stats.kills++;
       if (owner.team === 0) W.stats.teamKills++;   // objectives count every friendly kill
       const st = statsOf(owner);
-      if (st) { st.kills++; st.score += this.score; }   // personal record: own kills only
+      if (st) { st.kills++; st.score += this.score; if (owner.team !== this.team && !this.status.summoned) Arsenal.creditKill(st, this, SW.dealing); }   // personal record: own kills only
+      if (owner.sw && owner.team !== this.team) owner.sw.charge = Math.min(1, owner.sw.charge + SUPER_TIER[owner.sw.def.tier].kill);
       markKill(owner, this.score, this.name);
     }
     if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.arch) {
@@ -4622,6 +4723,7 @@ function drawPlatformBody(p) {
   const lod = dist > 380;
   const st = R.stack;
   st.top = 0; st.ident();
+  if (p.scale !== 1) st.t(p.x, p.y, p.z).s(p.scale, p.scale, p.scale).t(-p.x, -p.y, -p.z);   // shrunk by a superweapon
   switch (p.model) {
     case 'mech': drawMech(p, main, dark, acc, lod); break;
     case 'infantry': drawInfantry(p, main, dark, acc, lod); break;
@@ -4946,13 +5048,17 @@ function newProjectileSlot() {
     life: 0, age: 0, dmg: 0, pierceLeft: 0, hitSet: null, target: null, curSpeed: 0, noGuide: false,
   };
 }
-function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
-  const d = w.def;
-  let p = null;
+/* the next free projectile slot, or null when all are in flight */
+function allocProjectile() {
   for (let i = 0; i < MAX_PROJECTILES; i++) {
     const c = W.projs[(W.projCursor + i) % MAX_PROJECTILES];
-    if (!c.active) { p = c; W.projCursor = (W.projCursor + i + 1) % MAX_PROJECTILES; break; }
+    if (!c.active) { W.projCursor = (W.projCursor + i + 1) % MAX_PROJECTILES; return c; }
   }
+  return null;
+}
+function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
+  const d = w.def;
+  const p = allocProjectile();
   if (!p) return;
   const speed = d.arc ? (owner.arcSpeed || d.speed) : d.speed;
   p.active = true; p.def = d; p.owner = owner; p.team = owner.team; p.nid = ++W.nid;
@@ -4980,12 +5086,17 @@ const STRUCT_SPARK_COLOR = [1, 0.8, 0.5];
 function detonate(p, x, y, z, excludePlatform, excludeStruct) {
   const d = p.def;
   p.active = false;
-  if (d.blast > 0) {
-    const dmg = d.blastDmg !== undefined ? d.blastDmg : d.dmg;
-    explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult });
-  } else {
-    fxSparks(x, y, z, 5, d.tracer, 10);
-  }
+  const isSuper = d.slot === 'super';   // superweapon ordnance: its kills count as superweapon kills
+  if (isSuper) SW.dealing = true;
+  try {
+    if (d.blast > 0) {
+      const dmg = d.blastDmg !== undefined ? d.blastDmg : d.dmg;
+      explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult });
+    } else {
+      fxSparks(x, y, z, 5, d.tracer, 10);
+    }
+    if (d.onDetonate) d.onDetonate(p, x, y, z);
+  } catch (e) { Game.reportError(e); } finally { if (isSuper) SW.dealing = false; }
 }
 
 function updateProjectiles(dt) {
@@ -5211,6 +5322,571 @@ function incomingMissiles(pl) {
   return { count, dist: best };
 }
 
+
+/* =====================================================================
+   SUPERWEAPONS: strategic slot, charge meter, unlocks (Arsenal), effect toolkit (SW)
+   A superweapon is one defineSuper() entry. Its fire(ctx, sw) runs on the host (or in solo play) and
+   again on every co-op guest from a 'sw' event. Every SW helper that changes the game (damage, pushes,
+   status effects, summons, projectiles) does nothing on a guest, so a guest's replay only draws.
+   Rules for fire() code:
+   - visuals: SW.beam / bolt / ring / light / flash / shake / sound / smoke / fire / sparks / decal / column,
+     or an effect (SW.add) with draw(e, glow);
+   - blasts inside fire() or an effect: SW.blast (both sides draw it, only the host damages);
+   - falling or flying ordnance: SW.shoot with a SW.munition (synced like any projectile; its onDetonate
+     runs on the host only, so explosions there use explode() directly, which guests are sent);
+   - never touch p.hp, p.team, p.x... directly: use SW.hurt, SW.convert, SW.teleport, SW.push, SW.lift.
+   ===================================================================== */
+const SUPER_TIER = {
+  1: { name: 'Tactical', charge: 45, kill: 0.06, col: [0.4, 0.85, 1] },
+  2: { name: 'Strategic', charge: 90, kill: 0.04, col: [1, 0.72, 0.25] },
+  3: { name: 'Apocalyptic', charge: 160, kill: 0.025, col: [1, 0.32, 0.3] },
+};
+const SUPER_TRAINING_RATE = 8;   // the Training Range charges this many times faster
+const SUPER_RANGE = 700;         // default reach (m) of a point-aimed superweapon
+const SUPER_START_ID = 'orbitalLance';
+const SUPER_AIM_LABEL = { point: 'Crosshair', self: 'Around you', target: 'Target', map: 'Battlefield' };
+const SUPERS = {};               // id -> definition
+const SUPER_LIST = [];           // definitions in catalogue order (n = 1..100)
+/* d: { n, name, tier (1-3), aim: 'point' | 'self' | 'target' | 'map', unlock: requirement (see Arsenal.parse),
+   desc, fire(ctx, sw) } plus optional range (m) and charge (s, overrides the tier). */
+function defineSuper(id, d) {
+  d.id = id;
+  if (!d.range) d.range = SUPER_RANGE;
+  d.req = null;   // parsed unlock requirement, filled on first use
+  SUPERS[id] = d;
+  let i = SUPER_LIST.length;
+  while (i > 0 && SUPER_LIST[i - 1].n > d.n) i--;
+  SUPER_LIST.splice(i, 0, d);
+  return d;
+}
+const superCharge = (d) => d.charge || SUPER_TIER[d.tier].charge;
+
+/* ---------- Arsenal: career record and permanent unlocks ---------- */
+const CAREER_KEYS = ['kills', 'structures', 'damage', 'damageTaken', 'deaths', 'playMin', 'airKills', 'groundKills', 'mechKills', 'infantryKills', 'wins', 'skirmishWins', 'waves', 'superUses', 'superKills'];
+const CAREER_LABEL = {
+  kills: 'Destroy {n} enemies', structures: 'Destroy {n} structures', damage: 'Deal {n} damage', damageTaken: 'Take {n} damage', deaths: 'Lose {n} platforms',
+  playMin: 'Fight for {n} minutes', airKills: 'Shoot down {n} aircraft', groundKills: 'Destroy {n} ground vehicles', mechKills: 'Destroy {n} mechs',
+  infantryKills: 'Kill {n} infantry', wins: 'Win {n} missions or skirmishes', skirmishWins: 'Win {n} skirmishes', waves: 'Clear {n} skirmish waves',
+  superUses: 'Fire superweapons {n} times', superKills: 'Destroy {n} enemies with superweapons',
+};
+const MATCH_LABEL = { kills: 'Destroy {n} enemies in one battle', streak: 'Destroy {n} enemies without losing a platform', flawless: 'Destroy {n} enemies in a battle without losing a platform', superKills: 'Destroy {n} enemies with superweapons in one battle' };
+const Arsenal = {
+  blankCareer() {
+    const c = { cleared: {}, skirmish: {} };   // cleared: mission id -> best rank letter; skirmish: size or map -> wins
+    CAREER_KEYS.forEach((k) => { c[k] = 0; });
+    return c;
+  },
+  sanitizeCareer(raw) {
+    const c = this.blankCareer();
+    if (!raw || typeof raw !== 'object') return c;
+    CAREER_KEYS.forEach((k) => { if (Number.isFinite(raw[k]) && raw[k] > 0) c[k] = raw[k]; });
+    if (raw.cleared && typeof raw.cleared === 'object') for (const id in raw.cleared) if (MISSION_BY_ID[id] && RANK_ORDER.indexOf(raw.cleared[id]) >= 0) c.cleared[id] = raw.cleared[id];
+    if (raw.skirmish && typeof raw.skirmish === 'object') for (const k in raw.skirmish) if (/^[a-z]+$/.test(k) && Number.isFinite(raw.skirmish[k])) c.skirmish[k] = Math.max(0, Math.floor(raw.skirmish[k]));
+    return c;
+  },
+  /* 'career:kills:150' -> { kind: 'career', a: 'kills', n: 150 } */
+  parse(text) {
+    const p = String(text || 'start').split(':');
+    const kind = p[0];
+    if (kind === 'start') return { kind };
+    if (kind === 'mission' || kind === 'skirmishWin' || kind === 'skirmishMap') return { kind, a: p[1] };
+    if (kind === 'rank') return { kind, a: p[1], b: p[2] };
+    if (kind === 'missionsDone' || kind === 'unlocked') return { kind, n: Number(p[1]) };
+    if (kind === 'missionsRank') return { kind, b: p[1], n: Number(p[2]) };
+    if (kind === 'career' || kind === 'match') return { kind, a: p[1], n: Number(p[2]) };
+    return { kind: 'invalid' };
+  },
+  reqOf(d) { if (!d.req) d.req = this.parse(d.unlock); return d.req; },
+  /* best rank cleared per mission: the career record (guests too) merged with the host's best records */
+  bestRank(id) {
+    const a = Save.data.career.cleared[id], b = Save.data.best[id] && Save.data.best[id].rank;
+    if (!a) return b || '';
+    if (!b) return a;
+    return rankValue(a) >= rankValue(b) ? a : b;
+  },
+  missionCount(minRank) { return MISSIONS.filter((m) => { const r = this.bestRank(m.id); return r && r !== 'F' && (!minRank || rankValue(r) >= rankValue(minRank)); }).length; },
+  skirmishWins(key) {
+    let n = Save.data.career.skirmish[key] || 0;
+    for (const k in Save.data.skirmishBest) { const [map, size] = k.split('-'); if ((map === key || size === key) && Save.data.skirmishBest[k].won) n = Math.max(n, 1); }
+    return n;
+  },
+  tracking() { return !!W && W.mode !== 'training' && W.mode !== 'test' && W.mode !== 'menu'; },
+  /* a career stat as it stands now: the saved record plus the battle in progress */
+  career(stat) {
+    let v = Save.data.career[stat] || 0;
+    if (this.tracking() && Game.state === 'playing' && W.stats) v += this.matchShare(stat);
+    return v;
+  },
+  matchShare(stat) {
+    const st = W.stats;
+    switch (stat) {
+      case 'kills': return st.kills;
+      case 'structures': return st.structures;
+      case 'damage': return st.damageDealt;
+      case 'damageTaken': return st.damageTaken;
+      case 'deaths': return st.deaths;
+      case 'playMin': return W.time / 60;
+      case 'airKills': case 'groundKills': case 'mechKills': case 'infantryKills': case 'superUses': case 'superKills': return st[stat] || 0;
+      default: return 0;
+    }
+  },
+  matchStat(stat) {
+    if (!this.tracking() || !W.stats) return 0;
+    const st = W.stats;
+    if (stat === 'streak') return st.bestStreak || 0;
+    if (stat === 'flawless') return st.deaths === 0 ? st.kills : 0;
+    return st[stat] || 0;
+  },
+  /* progress toward requirement r: { have, need } (need 1 for yes/no requirements) */
+  progress(r) {
+    switch (r.kind) {
+      case 'start': return { have: 1, need: 1 };
+      case 'mission': return { have: this.bestRank(r.a) && this.bestRank(r.a) !== 'F' ? 1 : 0, need: 1 };
+      case 'rank': { const b = this.bestRank(r.a); return { have: b && rankValue(b) >= rankValue(r.b) ? 1 : 0, need: 1 }; }
+      case 'missionsDone': return { have: this.missionCount(''), need: r.n };
+      case 'missionsRank': return { have: this.missionCount(r.b), need: r.n };
+      case 'skirmishWin': case 'skirmishMap': return { have: Math.min(1, this.skirmishWins(r.a)), need: 1 };
+      case 'career': return { have: Math.floor(this.career(r.a)), need: r.n };
+      case 'match': return { have: Math.floor(this.matchStat(r.a)), need: r.n };
+      case 'unlocked': return { have: Save.data.unlocked.length, need: r.n };
+      default: return { have: 0, need: 1 };
+    }
+  },
+  reqText(d) {
+    const r = this.reqOf(d);
+    switch (r.kind) {
+      case 'start': return 'Available from the start';
+      case 'mission': return 'Complete mission ' + this.missionName(r.a);
+      case 'rank': return 'Earn rank ' + r.b + ' or better in ' + this.missionName(r.a);
+      case 'missionsDone': return 'Complete ' + r.n + ' missions';
+      case 'missionsRank': return 'Earn rank ' + r.b + ' or better in ' + r.n + ' missions';
+      case 'skirmishWin': return 'Win a ' + r.a + ' skirmish';
+      case 'skirmishMap': return 'Win a skirmish on ' + (MAPS[r.a] ? MAPS[r.a].name : r.a);
+      case 'career': return (CAREER_LABEL[r.a] || r.a + ' {n}').replace('{n}', r.n);
+      case 'match': return (MATCH_LABEL[r.a] || r.a + ' {n}').replace('{n}', r.n);
+      case 'unlocked': return 'Unlock ' + r.n + ' other superweapons';
+      default: return 'Unknown requirement';
+    }
+  },
+  missionName(id) { return MISSION_BY_ID[id] ? MISSION_BY_ID[id].name : id; },
+  isUnlocked(id) {
+    const d = SUPERS[id];
+    if (!d) return false;
+    return this.reqOf(d).kind === 'start' || Save.data.unlocked.indexOf(id) >= 0;
+  },
+  unlockedList() { return SUPER_LIST.filter((d) => this.isUnlocked(d.id)); },
+  /* unlock everything whose requirement is now met; announces each new one in battle */
+  check() {
+    if (!Save.data) return 0;
+    let n = 0;
+    for (const d of SUPER_LIST) {
+      if (this.isUnlocked(d.id)) continue;
+      const pr = this.progress(this.reqOf(d));
+      if (pr.have < pr.need) continue;
+      Save.data.unlocked.push(d.id); n++;
+      if (W && Game.state === 'playing') { W.msgL('SUPERWEAPON UNLOCKED: ' + d.name.toUpperCase()); Snd.ui('objective'); } else UI.toast('Superweapon unlocked: ' + d.name);
+    }
+    if (n) Save.persist();
+    return n;
+  },
+  /* fold a finished battle into the career record. r: result data; st: the player's own stats record */
+  commit(r, st) {
+    if (!st || !r || r.mode === 'training' || r.mode === 'test') return;
+    const c = Save.data.career;
+    c.kills += st.kills || 0; c.structures += st.structures || 0; c.damage += Math.round(st.damageDealt || st.dealt || 0); c.damageTaken += Math.round(st.damageTaken || st.taken || 0);
+    c.deaths += st.deaths || 0; c.playMin += (r.time || 0) / 60;
+    ['airKills', 'groundKills', 'mechKills', 'infantryKills', 'superUses', 'superKills'].forEach((k) => { c[k] += st[k] || 0; });
+    if (r.won) c.wins++;
+    if (r.mode === 'mission' && r.won && r.rank && r.id) { const prev = c.cleared[r.id]; if (!prev || rankValue(r.rank) > rankValue(prev)) c.cleared[r.id] = r.rank; }
+    if (r.mode === 'skirmish') {
+      c.waves += r.wavesCleared || 0;
+      if (r.won) { c.skirmishWins++; if (r.size) c.skirmish[r.size] = (c.skirmish[r.size] || 0) + 1; if (r.map) c.skirmish[r.map] = (c.skirmish[r.map] || 0) + 1; }
+    }
+    Save.persist();
+    this.check();
+  },
+  /* record a destroyed enemy against a player's stats record: kind tallies, streak, superweapon kills */
+  creditKill(st, victim, bySuper) {
+    if (!st || !victim) return;
+    if (victim.kind === 'air') st.airKills++;
+    else if (victim.def.style === 'infantry') st.infantryKills++;
+    else if (victim.kind === 'mech') st.mechKills++;
+    else st.groundKills++;
+    if (bySuper) st.superKills++;
+    st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak);
+  },
+};
+
+/* ---------- status effects that superweapons put on platforms ----------
+   Timers count down in real seconds (Platform.tickStatus). freeze stops a platform's clock, slow scales it
+   by slowMult, haste doubles it; grav scales gravity by gravMult; blind and emp stop it firing (emp also
+   drops shields and slows it); float lifts it floatH metres (slam damage when it lands); invuln blocks all
+   damage, reflect sends half back; convert makes it fight for convertTeam's foe until the timer ends;
+   expire removes a summoned unit when it runs out. */
+const STATUS_TIMERS = ['freeze', 'slow', 'haste', 'grav', 'blind', 'emp', 'float', 'invuln', 'reflect', 'convert', 'expire', 'mark'];
+function newStatus() {
+  return { freeze: 0, slow: 0, slowMult: 1, haste: 0, grav: 0, gravMult: 1, blind: 0, emp: 0, float: 0, floatH: 0, floatCur: 0, fallV: 0, slam: 0, slamOwner: null,
+    invuln: 0, reflect: 0, convert: 0, convertTeam: -1, expire: 0, summoned: false, mark: 0, markFn: null };
+}
+
+/* ---------- the effect toolkit ---------- */
+const SW = {
+  fx: [],          // running effects
+  dealing: false,  // true while a superweapon is dealing damage (kills count as superweapon kills)
+  reset() { this.fx.length = 0; this.dealing = false; },
+  /* ----- firing ----- */
+  trigger(p) {
+    const s = p.sw;
+    if (!s || p.dead) return false;
+    if (s.charge < 1) { notify(p, 'SUPERWEAPON CHARGING ' + Math.floor(s.charge * 100) + '%', 'empty'); return false; }
+    const d = s.def, ctx = this.aim(p, d);
+    s.charge = 0; s.ready = false;
+    const st = statsOf(p);
+    if (st) st.superUses++;
+    this.run(d, ctx);
+    if (Net.host) Net.bcast({ t: 'sw', n: d.n, o: p.id, a: [r1(ctx.x), r1(ctx.y), r1(ctx.z)], y: r2(ctx.yaw), tg: ctx.target && !ctx.target.isStruct ? ctx.target.id : 0, s: ctx.seed });
+    W.msgL(d.name.toUpperCase() + (p === W.player ? ' DEPLOYED' : ' DEPLOYED BY ' + p.name.toUpperCase()));
+    if (p.netPeer) Net.sendTo(p.netPeer, { t: 'msg', text: d.name.toUpperCase() + ' DEPLOYED', snd: 'objective' });
+    Snd.play('alarm', ctx.x, ctx.y, ctx.z, 0.7);
+    return true;
+  },
+  /* where the strike lands: the crosshair point (clamped to range), the user, or the target */
+  aim(p, d) {
+    const c = p.cmd, dir = p.aimDir({ x: 0, y: 0, z: 0 });
+    const yaw = Math.atan2(dir.x, dir.z);
+    const seed = Math.floor(Math.random() * 1e9);
+    const ctx = { def: d, owner: p, team: p.team, x: p.x, y: p.y, z: p.z, yaw, dirX: Math.sin(yaw), dirZ: Math.cos(yaw), target: null, seed, rng: makeRng(seed), guest: false };
+    if (d.aim === 'self' || d.aim === 'map') { ctx.y = Terrain.h(p.x, p.z); if (p.kind === 'air') ctx.y = p.y; return ctx; }
+    let ap = c.aimPoint && Math.hypot(c.aimPoint.x - p.x, c.aimPoint.z - p.z) <= d.range ? c.aimPoint : null;
+    if (!ap) {
+      const r = raycast(p.x, p.y + p.height * 0.6, p.z, dir.x, dir.y, dir.z, d.range, p, true, p);
+      if (r.hit) ap = r;
+      else { const fx = p.x + Math.sin(yaw) * Math.min(d.range, 220), fz = p.z + Math.cos(yaw) * Math.min(d.range, 220); ap = { x: fx, y: Terrain.h(fx, fz), z: fz }; }
+    }
+    ctx.x = clamp(ap.x, -GROUND_BOUND, GROUND_BOUND); ctx.z = clamp(ap.z, -GROUND_BOUND, GROUND_BOUND); ctx.y = Math.max(Terrain.h(ctx.x, ctx.z), ap.y);
+    if (d.aim === 'target') {
+      const t = p.target && p.validTarget(p.target) ? p.target : this.nearestEnemy(ctx.x, ctx.z, 120, ctx);
+      if (t) { ctx.target = t; const tp = tpos(t, { x: 0, y: 0, z: 0 }); ctx.x = tp.x; ctx.y = tp.y; ctx.z = tp.z; }
+    }
+    return ctx;
+  },
+  run(d, ctx) {
+    try { d.fire(ctx, this); } catch (e) { Game.reportError(e); }
+  },
+  /* a co-op guest replays a superweapon the host fired, for its visuals */
+  replay(m) {
+    const d = SUPER_LIST.find((x) => x.n === (m.n | 0));
+    if (!d || !Array.isArray(m.a)) return;
+    const yaw = numIn(m.y, -7, 7), seed = m.s | 0;
+    const owner = Net.map[m.o | 0] || null, target = m.tg ? Net.map[m.tg | 0] || null : null;
+    const ctx = { def: d, owner, team: owner ? owner.team : 0, x: numIn(m.a[0], -3000, 3000), y: numIn(m.a[1], -500, 3000), z: numIn(m.a[2], -3000, 3000), yaw, dirX: Math.sin(yaw), dirZ: Math.cos(yaw), target, seed, rng: makeRng(seed), guest: true };
+    this.run(d, ctx);
+  },
+  /* ----- running effects ----- */
+  /* e: { life (s), update(dt, e), draw(e, glow), end(e) }; e.t counts up. Returns e. */
+  add(e) { e.t = 0; if (!(e.life > 0)) e.life = 1; this.fx.push(e); return e; },
+  after(delay, fn) { return this.add({ life: Math.max(0.001, delay), end: fn }); },
+  /* call fn(i) count times, interval seconds apart, starting after the first interval (or at once with first0) */
+  repeat(interval, count, fn, first0) {
+    let i = 0;
+    const e = this.add({ life: interval * count + 0.05, acc: first0 ? interval : 0, update(dt) { this.acc += dt; while (this.acc >= interval && i < count) { this.acc -= interval; fn(i++); } } });
+    return e;
+  },
+  update(dt) {
+    for (let i = this.fx.length - 1; i >= 0; i--) {
+      const e = this.fx[i];
+      e.t += dt;
+      try { if (e.update) e.update(dt, e); } catch (err) { this.fx.splice(i, 1); Game.reportError(err); continue; }
+      if (e.t >= e.life) { this.fx.splice(i, 1); if (e.end) { try { e.end(e); } catch (err) { Game.reportError(err); } } }
+    }
+  },
+  draw(glow) {
+    for (let i = 0; i < this.fx.length; i++) { const e = this.fx[i]; if (e.draw) { try { e.draw(e, glow); } catch (err) { e.draw = null; Game.reportError(err); } } }
+  },
+  /* ----- finding things ----- */
+  /* hostile platforms within r metres (2D) of x,z; opts.air false skips aircraft, opts.ground false skips the rest */
+  enemies(x, z, r, ctx, opts) {
+    const out = [], air = !opts || opts.air !== false, ground = !opts || opts.ground !== false;
+    for (const p of W.platforms) {
+      if (p.dead || p.team === ctx.team || p.team === 2 || p.noTarget && !p.status.summoned) continue;
+      if (p.kind === 'air' ? !air : !ground) continue;
+      if ((p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) <= r * r) out.push(p);
+    }
+    return out;
+  },
+  allies(x, z, r, ctx) { return W.platforms.filter((p) => !p.dead && p.team === ctx.team && Math.hypot(p.x - x, p.z - z) <= r); },
+  nearestEnemy(x, z, r, ctx, opts) {
+    let best = null, bd = r;
+    for (const p of this.enemies(x, z, r, ctx, opts)) { const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; } }
+    return best;
+  },
+  /* enemies within r, most valuable first (score, then hull) */
+  strongest(x, z, r, ctx, n) {
+    return this.enemies(x, z, r, ctx).sort((a, b) => (b.score - a.score) || (b.maxHp - a.maxHp)).slice(0, n || 99);
+  },
+  structs(x, z, r) {
+    const n = Hash.query(x - r, z - r, x + r, z + r);
+    const out = [];
+    for (let i = 0; i < n; i++) { const s = Hash.out[i]; if (!s.destroyed && Math.hypot(s.x - x, s.z - z) <= r + Math.max(s.hx, s.hz)) out.push(s); }
+    return out;
+  },
+  /* buildings (W.buildings) whose centre is within r */
+  buildings(x, z, r) { return W.buildings.filter((b) => b.alive > 0 && Math.hypot(b.x - x, b.z - z) <= r); },
+  /* the user's current position (or the strike point when the user is gone or unknown) */
+  origin(ctx) {
+    const o = ctx.owner;
+    if (o && !o.dead) return { x: o.x, y: o.y + (o.kind === 'air' ? 0 : o.height * 0.5), z: o.z };
+    return { x: ctx.x, y: ctx.y, z: ctx.z };
+  },
+  ground(x, z) { return Terrain.h(x, z); },
+  /* ----- changing the game (host only) ----- */
+  hurt(t, dmg, dtype, ctx, opts) {
+    if (Net.guest || !t || dmg <= 0) return 0;
+    this.dealing = true;
+    let dealt = 0;
+    try {
+      if (t.isStruct) { if (!t.destroyed) damageStruct(t, dmg, dtype || 'explosive', ctx.owner, opts && opts.structMult || 1); }
+      else if (!t.dead) dealt = t.takeDamage(dmg, dtype || 'explosive', ctx.owner, t.x - ctx.x, t.z - ctx.z, { blast: true, noStagger: opts && opts.noStagger });
+    } finally { this.dealing = false; }
+    return dealt;
+  },
+  /* damage every hostile platform (and, with opts.structs, every structure) within r of x,y,z, without an explosion */
+  area(x, y, z, r, dmg, dtype, ctx, opts) {
+    if (Net.guest) return;
+    const falloff = !opts || opts.falloff !== false;
+    for (const p of this.enemies(x, z, r, ctx, opts)) {
+      const py = p.y + (p.kind === 'air' ? 0 : p.height * 0.5);
+      if (opts && opts.height && Math.abs(py - y) > opts.height) continue;
+      const d = Math.hypot(p.x - x, p.z - z);
+      this.hurt(p, dmg * (falloff ? 0.3 + 0.7 * (1 - d / r) : 1), dtype, ctx, opts);
+    }
+    if (opts && opts.structs) for (const s of this.structs(x, z, r)) this.hurt(s, dmg * (opts.structMult || 1), dtype, ctx);
+  },
+  /* an explosion both sides draw; only the host deals its damage. opts: structMult, dtype */
+  blast(x, y, z, r, dmg, ctx, opts) {
+    this.dealing = true;
+    try { explode(x, y, z, r, Net.guest ? 0 : dmg, (opts && opts.dtype) || 'explosive', ctx.owner, { noNet: true, structMult: opts && opts.structMult !== undefined ? opts.structMult : 1.5 }); } finally { this.dealing = false; }
+  },
+  push(p, vx, vy, vz) {
+    if (Net.guest || !p || p.dead || p.def.speed === 0 && p.kind !== 'air') return;
+    const m = 1 / Math.max(0.4, p.def.mass);
+    if (p.kind === 'air') { p.speed = Math.max(p.def.air.min * 0.5, p.speed - Math.hypot(vx, vz) * 0.3 * m); p.pitch = clamp(p.pitch + clamp(vy * 0.004, -0.6, 0.6), -1.2, 1.2); return; }
+    p.vx += vx * m; p.vz += vz * m; if (vy > 0) { p.vy += vy * m; p.grounded = false; }
+  },
+  /* lift a ground platform h metres for t seconds; it falls afterwards and takes slam damage on landing */
+  lift(p, h, t, slam, ctx) {
+    if (Net.guest || !p || p.dead || p.kind === 'air') return;
+    const s = p.status;
+    s.float = Math.max(s.float, t); s.floatH = Math.max(s.floatH, h); s.slam = Math.max(s.slam, slam || 0); s.slamOwner = ctx ? ctx.owner : null;
+  },
+  /* put a timed status on a platform (see STATUS_TIMERS); value sets slowMult / gravMult where it applies */
+  status(p, key, t, value) {
+    if (Net.guest || !p || p.dead) return;
+    const s = p.status;
+    s[key] = Math.max(s[key], t);
+    if (key === 'slow' && value !== undefined) s.slowMult = value;
+    if (key === 'grav' && value !== undefined) s.gravMult = value;
+    if (key === 'emp') { p.shieldOn = false; p.lock.state = 'none'; p.lock.progress = 0; }
+    if (key === 'blind') { p.target = null; p.lock.state = 'none'; p.lock.progress = 0; if (p.ai) p.ai.target = null; }
+  },
+  /* make a hostile fight for ctx's team for t seconds */
+  convert(p, t, ctx) {
+    if (Net.guest || !p || p.dead || p.team === ctx.team || p.isPlayer) return;
+    const s = p.status;
+    if (s.convertTeam < 0) s.convertTeam = p.team;
+    s.convert = Math.max(s.convert, t);
+    p.setTeam(ctx.team);
+  },
+  heal(p, amount) {
+    if (Net.guest || !p || p.dead) return;
+    p.hp = Math.min(p.maxHp, p.hp + amount);
+  },
+  /* move a platform (host only); ground platforms land clear of structures */
+  teleport(p, x, z, y) {
+    if (Net.guest || !p || p.dead) return;
+    x = clamp(x, -GROUND_BOUND, GROUND_BOUND); z = clamp(z, -GROUND_BOUND, GROUND_BOUND);
+    if (p.kind !== 'air') {
+      const sp = groundBlocked(x, z, p.radius + 1) ? findSpawn(x, z, 40, p.radius, 0) : null;
+      if (sp) { x = sp.x; z = sp.z; }
+      p.x = x; p.z = z; p.y = y !== undefined ? y : Terrain.h(x, z); p.vx = p.vz = p.vy = 0;
+    } else { p.x = x; p.z = z; p.y = Math.max(y !== undefined ? y : p.y, Terrain.h(x, z) + 60); }
+    if (p === W.player) Cam.reset(p);
+  },
+  /* an allied unit that fights for life seconds, then withdraws. Returns it (host) or null. */
+  summon(arch, x, z, life, ctx, opts) {
+    if (Net.guest || !ARCH[arch]) return null;
+    const u = spawnUnit(arch, x, z, Object.assign({ team: ctx.team, radius: 12, force: true }, opts || {}));
+    if (!u) return null;
+    u.status.summoned = true; u.status.expire = life;
+    return u;
+  },
+  /* a hidden weapon definition for superweapon ordnance (call at load time, outside fire()). */
+  munition(id, d) {
+    const base = { name: id, slot: 'super', kind: 'proj', fire: 'semi', dmg: 0, dtype: 'explosive', speed: 200, life: 6, cd: 0, spread: 0, clip: 1, reserve: 0, reload: 0, heat: 0, range: 2500, blast: 0, weight: 0,
+      structMult: 1.5, tracer: [1, 0.8, 0.5], size: 1, sound: 'missile', recoil: 0, role: 'Superweapon ordnance', hidden: true };
+    const w = Object.assign(base, d);
+    w.id = id; WEAPONS[id] = w;
+    return w;
+  },
+  /* fire munition id from x,y,z along dx,dy,dz (normalised here) at opts.speed (default the munition's).
+     opts.target homes when the munition has guide. Host only (guests receive it as a projectile). */
+  shoot(id, ctx, x, y, z, dx, dy, dz, opts) {
+    if (Net.guest || !ctx.owner) return null;
+    const d = WEAPONS[id], p = allocProjectile();
+    if (!d || !p) return null;
+    const l = Math.hypot(dx, dy, dz) || 1, sp = (opts && opts.speed) || d.speed;
+    p.active = true; p.def = d; p.owner = ctx.owner; p.team = ctx.team; p.nid = ++W.nid;
+    p.x = x; p.y = y; p.z = z; p.vx = dx / l * sp; p.vy = dy / l * sp; p.vz = dz / l * sp;
+    p.life = (opts && opts.life) || d.life; p.age = 0; p.dmg = (opts && opts.dmg) || d.dmg; p.pierceLeft = d.pierce || 0; p.hitSet = null;
+    p.target = opts && opts.target || null; p.noGuide = !p.target; p.curSpeed = sp;
+    return p;
+  },
+  /* ----- visuals (both sides) ----- */
+  beam(x1, y1, z1, x2, y2, z2, col, width, life) {
+    if (W.beams.length < 120) W.beams.push({ x1, y1, z1, x2, y2, z2, life: life || 0.08, maxLife: life || 0.08, col: col || [1, 1, 1], width: width || 0.6 });
+  },
+  /* a jagged lightning bolt from 1 to 2 */
+  bolt(x1, y1, z1, x2, y2, z2, col, width) {
+    const n = 5, c = col || [0.7, 0.85, 1];
+    let px = x1, py = y1, pz = z1;
+    const len = Math.hypot(x2 - x1, y2 - y1, z2 - z1), j = len * 0.08;
+    for (let i = 1; i <= n; i++) {
+      const f = i / n, jit = i === n ? 0 : j;
+      const nx = lerp(x1, x2, f) + rand(-jit, jit), ny = lerp(y1, y2, f) + rand(-jit, jit), nz = lerp(z1, z2, f) + rand(-jit, jit);
+      this.beam(px, py, pz, nx, ny, nz, c, width || 0.7, 0.12);
+      px = nx; py = ny; pz = nz;
+    }
+    addLight(x2, y2 + 2, z2, 60, c[0], c[1], c[2], 0.15);
+  },
+  ring(x, y, z, maxR, life) { W.rings.push({ x, y, z, r: 0.5, maxR, life: life || 0.6, maxLife: life || 0.6 }); },
+  light(x, y, z, radius, col, life) { addLight(x, y, z, radius, col[0], col[1], col[2], life || 0.3); },
+  /* white-out for the local player when near x,z */
+  flash(x, z, amount, range) {
+    const p = W.player;
+    if (!p || p.dead) return;
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < range) W.flash = Math.max(W.flash, amount * (1 - d / range));
+  },
+  shake(x, y, z, amount, range) { shakeFrom(x, y, z, amount, range); },
+  sound(name, x, y, z, vol) { Snd.play(name, x, y, z, vol === undefined ? 1 : vol); },
+  smoke(x, y, z, size, n) { fxSmokePuff(x, y, z, size, n || 3); },
+  /* flame particles rising from x,y,z */
+  fire(x, y, z, size, n) {
+    for (let i = 0; i < (n || 3); i++) FX.emit(x + rand(-1, 1) * size, y, z + rand(-1, 1) * size, rand(-1, 1), rand(3, 7), rand(-1, 1), rand(0.4, 0.9), size * 1.4, size * 0.4, 1, rand(0.35, 0.65), 0.1, 0.9, 1.2, -1, true);
+  },
+  sparks(x, y, z, n, col, speed) { fxSparks(x, y, z, n, col || [1, 0.85, 0.45], speed || 14); },
+  /* a glowing particle: col, size, life */
+  glow(x, y, z, vx, vy, vz, col, size, life) { FX.emit(x, y, z, vx, vy, vz, life || 0.5, size || 2, (size || 2) * 0.3, col[0], col[1], col[2], 0.9, 0, 0, true); },
+  decal(x, z, r, col, life) { addDecal(x, z, r, col, life || 60); },
+  /* a vertical beam from the sky (height h, default 420 m) down to x,z */
+  column(x, z, width, col, life, h) {
+    const g = Terrain.h(x, z);
+    this.beam(x, g + (h || 420), z, x, g - 1, z, col, width, life || 0.08);
+  },
+  /* draw a shape in an effect's draw(e, glow): name box|cyl|sphere|cone; glow pass draws see-through */
+  shape(name, x, y, z, sx, sy, sz, col, alpha, emis, ry) {
+    const st = R.stack;
+    st.push().t(x, y, z); if (ry) st.ry(ry); st.s(sx, sy, sz);
+    R.draw(name, col[0], col[1], col[2], alpha === undefined ? 1 : alpha, emis === undefined ? 1 : emis, 0);
+    st.pop();
+  },
+};
+
+/* SUPER PART LEAD BEGIN: the six starter superweapons, written by the lead as examples */
+SW.munition('swShell', { name: 'Barrage Shell', dmg: 150, blast: 9, speed: 260, life: 6, structMult: 2.2, tracer: [1, 0.75, 0.35], size: 1.6, sound: 'mortar' });
+SW.munition('swPenetrator', { name: 'Penetrator', dmg: 900, blast: 24, speed: 520, life: 4, structMult: 3, tracer: [1, 0.9, 0.7], size: 2.4, sound: 'rail',
+  onDetonate(p, x, y, z) { addDecal(x, z, 26, [0.08, 0.07, 0.06], 120); shakeFrom(x, y, z, 0.9, 400); for (let i = 0; i < 4; i++) spawnDebris(x, y + 2, z, 6, 1.2, 30); } });
+defineSuper('orbitalLance', {
+  n: 1, name: 'Orbital Lance', tier: 1, aim: 'point', unlock: 'start', desc: 'A satellite laser marks the point, then burns a 15 m column for 3 s.',
+  fire(ctx, sw) {
+    const col = [1, 0.35, 0.25];
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 12, 1.5);
+    sw.add({ life: 4.5, update(dt, e) {
+      if (e.t < 1.5) { if (Math.random() < dt * 20) sw.column(ctx.x, ctx.z, 0.25, col, 0.06); return; }
+      sw.column(ctx.x, ctx.z, 9, col, 0.05); sw.column(ctx.x, ctx.z, 3, [1, 0.95, 0.85], 0.05);
+      sw.fire(ctx.x, ctx.y + 1, ctx.z, 5, 2); sw.light(ctx.x, ctx.y + 4, ctx.z, 90, col, 0.06);
+      if (Math.random() < dt * 6) { sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.2); sw.shake(ctx.x, ctx.y, ctx.z, 0.15, 200); }
+      sw.area(ctx.x, ctx.y, ctx.z, 15, 420 * dt, 'energy', ctx, { falloff: false, structs: true, structMult: 1.6 });
+    }, end() { sw.decal(ctx.x, ctx.z, 9, [0.1, 0.08, 0.07]); } });
+  },
+});
+defineSuper('creepingBarrage', {
+  n: 3, name: 'Creeping Barrage', tier: 1, aim: 'point', unlock: 'start', desc: '24 heavy shells walk forward from the point along your line of sight.',
+  fire(ctx, sw) {
+    sw.repeat(0.12, 24, (i) => {
+      const along = i * 6 - 20, side = (ctx.rng() - 0.5) * 22;
+      const x = ctx.x + ctx.dirX * along + ctx.dirZ * side, z = ctx.z + ctx.dirZ * along - ctx.dirX * side;
+      sw.shoot('swShell', ctx, x - ctx.dirX * 60, Terrain.h(x, z) + 300, z - ctx.dirZ * 60, ctx.dirX * 60, -300, ctx.dirZ * 60);
+    }, true);
+  },
+});
+defineSuper('seismicSlam', {
+  n: 12, name: 'Seismic Slam', tier: 1, aim: 'self', unlock: 'start', desc: 'A ground wave rolls out 90 m, throwing ground enemies into the air.', range: 90,
+  fire(ctx, sw) {
+    const hit = new Set(), R0 = 90, dur = 1.3;
+    sw.shake(ctx.x, ctx.y, ctx.z, 0.8, 250); sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 1.3);
+    sw.add({ life: dur, update(dt, e) {
+      const r = R0 * e.t / dur;
+      for (let k = 0; k < 10; k++) { const a = Math.random() * TAU, x = ctx.x + Math.cos(a) * r, z = ctx.z + Math.sin(a) * r; sw.smoke(x, Terrain.h(x, z) + 1, z, 2.5, 1); }
+      if (Math.random() < dt * 8) sw.ring(ctx.x, ctx.y + 0.5, ctx.z, r + 6, 0.3);
+      for (const p of sw.enemies(ctx.x, ctx.z, r, ctx, { air: false })) {
+        if (hit.has(p)) continue;
+        hit.add(p); sw.hurt(p, 140, 'kinetic', ctx); sw.lift(p, 14, 1.1, 90, ctx); sw.status(p, 'emp', 1.5);
+      }
+      for (const s of sw.structs(ctx.x, ctx.z, r)) if (!hit.has(s) && Math.hypot(s.x - ctx.x, s.z - ctx.z) > r - 8) { hit.add(s); sw.hurt(s, 220, 'kinetic', ctx); }
+    } });
+  },
+});
+defineSuper('craterMaker', {
+  n: 27, name: 'Crater Maker', tier: 1, aim: 'point', unlock: 'start', desc: 'One orbital penetrator: a 24 m blast that leaves a crater.',
+  fire(ctx, sw) {
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 24, 1.2);
+    sw.after(0.8, () => { sw.shoot('swPenetrator', ctx, ctx.x, ctx.y + 500, ctx.z, 0, -1, 0); });
+    sw.add({ life: 1.8, update() { if (Math.random() < 0.3) sw.column(ctx.x, ctx.z, 0.3, [1, 0.9, 0.6], 0.05); } });
+  },
+});
+defineSuper('plasmaHalo', {
+  n: 47, name: 'Plasma Halo', tier: 1, aim: 'self', unlock: 'start', desc: 'A ring of plasma expands from you to 120 m, burning everything it crosses.', range: 120,
+  fire(ctx, sw) {
+    const hit = new Set(), dur = 2, R0 = 120, col = [0.45, 1, 0.65];
+    sw.sound('plasma', ctx.x, ctx.y, ctx.z, 1.5); sw.flash(ctx.x, ctx.z, 0.3, 80);
+    sw.add({ life: dur, update(dt, e) {
+      const o = sw.origin(ctx), r = R0 * e.t / dur;
+      for (let k = 0; k < 14; k++) { const a = Math.random() * TAU, x = o.x + Math.cos(a) * r, z = o.z + Math.sin(a) * r; sw.glow(x, Terrain.h(x, z) + 2, z, 0, 2, 0, col, 4, 0.4); }
+      for (const p of sw.enemies(o.x, o.z, r, ctx)) if (!hit.has(p) && Math.abs(p.y - o.y) < 60) { hit.add(p); sw.hurt(p, 320, 'energy', ctx); sw.sparks(p.x, p.y + 2, p.z, 10, col, 18); }
+      for (const s of sw.structs(o.x, o.z, r)) if (!hit.has(s) && Math.hypot(s.x - o.x, s.z - o.z) > r - 6) { hit.add(s); sw.hurt(s, 160, 'energy', ctx); }
+    }, draw(e, glow) {
+      if (!glow) return;
+      const o = sw.origin(ctx), r = R0 * e.t / dur, f = 1 - e.t / dur;
+      sw.shape('cyl', o.x, Terrain.h(o.x, o.z) + 2, o.z, r * 2, 4, r * 2, col, 0.25 * f, 1.5);
+    } });
+  },
+});
+defineSuper('blinkStrike', {
+  n: 85, name: 'Blink Strike', tier: 1, aim: 'point', unlock: 'start', desc: 'Teleport to the point; your landing shockwave flattens everything within 26 m.', range: 500,
+  fire(ctx, sw) {
+    const o = sw.origin(ctx), col = [0.6, 0.7, 1];
+    sw.beam(o.x, o.y, o.z, ctx.x, ctx.y + 3, ctx.z, col, 2, 0.4);
+    sw.flash(o.x, o.z, 0.5, 60); sw.light(o.x, o.y, o.z, 80, col, 0.3); sw.sparks(o.x, o.y, o.z, 30, col, 30);
+    if (ctx.owner) { sw.teleport(ctx.owner, ctx.x, ctx.z); sw.status(ctx.owner, 'invuln', 1.2); }
+    sw.after(0.05, () => {
+      const p = sw.origin(ctx);
+      sw.blast(p.x, Terrain.h(p.x, p.z) + 1, p.z, 26, 420, ctx, { dtype: 'kinetic', structMult: 2 });
+      for (const e of sw.enemies(p.x, p.z, 40, ctx, { air: false })) { const d = Math.hypot(e.x - p.x, e.z - p.z) || 1; sw.push(e, (e.x - p.x) / d * 30, 8, (e.z - p.z) / d * 30); }
+      sw.ring(p.x, Terrain.h(p.x, p.z) + 0.5, p.z, 40, 0.5);
+    });
+  },
+});
+/* SUPER PART LEAD END */
+
+/* SUPER PART A BEGIN: superweapons 2-34 (helper A) */
+/* SUPER PART A END */
+
+/* SUPER PART B BEGIN: superweapons 35-67 (helper B) */
+/* SUPER PART B END */
+
+/* SUPER PART C BEGIN: superweapons 68-100 (helper C) */
+/* SUPER PART C END */
 
 /* =====================================================================
    AI: perception -> decision (every ~0.3 s) -> execution (every tick).
@@ -5977,7 +6653,7 @@ class Mission {
     const opt = this.objectives.filter((o) => !o.primary);
     const optDone = opt.length ? opt.filter((o) => o.status === 'complete').length / opt.length : 1;
     const losses = W.stats.teamDeaths - W.stats.teamWithdrawals * (1 - WITHDRAW_RANK_WEIGHT);
-    const deathPen = clamp(losses / Math.max(1, W.maxLives * (this.cfg.nPlayers || 1)), 0, 1);
+    const deathPen = clamp(losses / Math.max(1, Math.min(W.maxLives, PLAYER_LIVES) * (this.cfg.nPlayers || 1)), 0, 1);   // extra lives never make a rank easier
     const timeF = this.def.rankProgress ? this.def.rankProgress(this) : this.limit > 0 ? clamp(1 - this.time / this.limit, 0, 1) : 0.5;
     const pi = 50 + optDone * 20 + (1 - deathPen) * 15 + timeF * 15;
     const grade = pi >= 90 ? 'S' : pi >= 76 ? 'A' : pi >= 62 ? 'B' : 'C';
@@ -6242,7 +6918,7 @@ const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
 
 /* ---------- skirmish ---------- */
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
-const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', fog: false, night: false, scarce: false, seed: 12345, random: true };
+const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', fog: false, night: false, scarce: false, seed: 12345, random: true };
 const SKIRMISH_SEEDS = 999999;           // random battles draw a seed from 1..this
 const SKIRMISH_FIRST_WAVE = 3;           // seconds before the first wave
 const SKIRMISH_LAST_WAVE = 0.7;          // with a time limit, the last wave arrives by this share of it
@@ -6463,6 +7139,7 @@ const PC = {
     if (this.padEdge(pad, 'left') || Input.hit('weapon1')) c.sel1 = true;
     if (this.padEdge(pad, 'right') || Input.hit('weapon2')) c.sel2 = true;
     if (this.padEdge(pad, 'next') || Input.wheel !== 0) c.selNext = true;
+    if (this.padEdge(pad, 'superweapon') || Input.hit('superweapon')) c.superEdge = true;
     this.manualHold = Math.max(0, this.manualHold - dt);
     if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) { p.cycleTarget(); this.manualHold = AUTO_RETARGET_HOLD; }
     if (pad) this.padC = pad.cycle;
@@ -6644,7 +7321,7 @@ const Game = {
     W.mission = this.mission = new Mission(def, cfg);
     PC.hadTarget = false;
     W.mission.noTimeout = cfg.mode === 'training';
-    W.maxLives = cfg.mode === 'training' ? 999 : PLAYER_LIVES; W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
+    W.maxLives = cfg.mode === 'training' ? UNLIMITED_LIVES : this.livesFor(cfg); W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
@@ -6681,6 +7358,7 @@ const Game = {
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
+    if (old && old.sw && p.sw && old.sw.id === p.sw.id) p.sw.charge = old.sw.charge;   // the meter survives a lost platform
     W.player = p; PC.hadTarget = false; PC.manualHold = 0;   // a fresh platform must not auto-lock the nearest hostile
     W.platforms = W.platforms.filter((q) => q !== old);
     W.platforms.push(p);
@@ -6786,8 +7464,15 @@ const Game = {
     const cfg = this.cfg;
     const m = this.mission, pl = W.player;
     // controllers (AI) fill commands; the player's were filled per frame
-    for (let i = 0; i < W.platforms.length; i++) { const p = W.platforms[i]; if (p.ai && !p.dead) p.ai.update(dt); }
-    for (let i = 0; i < W.platforms.length; i++) W.platforms[i].update(dt);
+    // a superweapon can stop (freeze), slow or speed up a platform's clock
+    for (let i = 0; i < W.platforms.length; i++) { const p = W.platforms[i]; const k = p.timeMult(); if (p.ai && !p.dead && k > 0) p.ai.update(dt * k); }
+    for (let i = 0; i < W.platforms.length; i++) {
+      const p = W.platforms[i];
+      p.tickStatus(dt);
+      const k = p.timeMult();
+      if (k > 0) p.update(dt * k);
+      if (!p.dead && (p.status.float > 0 || p.status.floatCur > 0)) p.stepFloat(dt);
+    }
     resolvePairs(dt);
     updateProjectiles(dt);
     updatePickups(dt);
@@ -6799,6 +7484,7 @@ const Game = {
     void removed;
     if (m) m.update(dt);
     if (Net.host) Net.hostTick(dt);
+    this.arsenalTick(dt);
     if (cfg && cfg.mode === 'training' && this.frames % 20 === 0) respawnTrainingTargets();
     // player lifecycle
     if (pl && pl.dead && this.state === 'playing') {
@@ -6826,6 +7512,20 @@ const Game = {
       Snd.intensity = Math.min(1, near / 6);
     }
   },
+  /* every 2 s in battle: unlock superweapons whose requirement the battle in progress has met */
+  arsenalTick(dt) {
+    this.arsenalT = (this.arsenalT || 0) + dt;
+    if (this.arsenalT < 2) return;
+    this.arsenalT = 0;
+    if (Arsenal.tracking()) Arsenal.check();
+  },
+  /* platforms per player for this session: the skirmish setting, else Settings > Gameplay */
+  livesFor(cfg) {
+    const v = String(cfg.mode === 'skirmish' && cfg.skirmish && cfg.skirmish.lives !== undefined ? cfg.skirmish.lives : S.lives);
+    if (v === 'unlimited' || v === '0') return UNLIMITED_LIVES;
+    return clamp(parseInt(v, 10) || PLAYER_LIVES, 1, 20);
+  },
+  livesText() { return W.maxLives >= UNLIMITED_LIVES || W.lives >= UNLIMITED_LIVES ? 'UNLIMITED' : String(Math.max(0, W.lives)); },
   showResults() {
     const m = this.mission;
     this.state = 'results';
@@ -6848,15 +7548,17 @@ const Game = {
       const key = cfg.skirmish.map + '-' + cfg.skirmish.size, waves = m.def.wavesCleared(), score = this.finalScore(st);
       const rec = betterSkirmish(Save.data.skirmishBest[key], waves, score, diff, m.state === 'won');
       if (rec) { Save.data.skirmishBest[key] = rec; Save.persist(); this.resultData.newBest = true; }
-      Object.assign(this.resultData, { score, waves: waves + '/' + m.def.waveCount, seed: cfg.skirmish.seed });
+      Object.assign(this.resultData, { score, waves: waves + '/' + m.def.waveCount, seed: cfg.skirmish.seed, wavesCleared: waves, size: cfg.skirmish.size, map: cfg.skirmish.map });
     }
+    Arsenal.commit(this.resultData, st);
     UI.show('results');
     if (Net.host) Net.sendEnd(this.resultData);
   },
   /* the combat report for one player's record */
   statSummary(st) {
     const shots = Math.max(1, st.shots);
-    return { kills: st.kills, accuracy: Math.min(100, Math.round(st.hits / shots * 100)), dealt: Math.round(st.damageDealt), taken: Math.round(st.damageTaken), deaths: st.deaths, structures: st.structures, score: st.score };
+    return { kills: st.kills, accuracy: Math.min(100, Math.round(st.hits / shots * 100)), dealt: Math.round(st.damageDealt), taken: Math.round(st.damageTaken), deaths: st.deaths, structures: st.structures, score: st.score,
+      airKills: st.airKills, groundKills: st.groundKills, mechKills: st.mechKills, infantryKills: st.infantryKills, superUses: st.superUses, superKills: st.superKills, bestStreak: st.bestStreak };
   },
   /* mission score: kill score and kills, plus the seconds left on the clock for beating a time limit
      (not for a loss, nor for holding out until time up), scaled by difficulty */
@@ -6867,6 +7569,7 @@ const Game = {
   },
   showResultsGuest(r) {
     this.state = 'results'; this.netPaused = false; this.resultData = r;
+    Arsenal.commit(r, r.stats);
     Input.playing = false; Input.releaseLock(); Snd.engineStop();
     UI.show('results');
   },
@@ -7299,7 +8002,19 @@ const HUD = {
       else st = p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
       this.txt('[' + actionLabel('defense') + '] ' + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
       this.txt(st, x + w - 6 * u, y + 13 * u, 12, C.main, 'right');
+      y -= 30 * u;
     }
+    if (p.sw) this.drawSuper(p, x, y, w, u);
+  },
+  /* the superweapon charge meter, glowing in its tier colour when ready */
+  drawSuper(p, x, y, w, u) {
+    const s = p.sw, C = this.C, g = this.g, ready = s.charge >= 1;
+    const tc = SUPER_TIER[s.def.tier].col, col = 'rgb(' + Math.round(tc[0] * 255) + ',' + Math.round(tc[1] * 255) + ',' + Math.round(tc[2] * 255) + ')';
+    g.fillStyle = C.bg; g.fillRect(x, y, w, 26 * u);
+    g.globalAlpha = ready ? 0.45 + 0.25 * Math.sin(W.time * 8) : 0.35; g.fillStyle = col; g.fillRect(x + 1, y + 1, (w - 2) * sat(s.charge), 26 * u - 2); g.globalAlpha = 1;
+    g.strokeStyle = ready ? col : C.dim; g.lineWidth = ready ? 2 : 1; g.strokeRect(x + 0.5, y + 0.5, w, 26 * u);
+    this.txt('[' + actionLabel('superweapon') + '] ' + s.def.name, x + 6 * u, y + 13 * u, 12, ready ? C.text : C.dim, 'left', ready);
+    this.txt(ready ? 'READY' : Math.floor(s.charge * 100) + '%', x + w - 6 * u, y + 13 * u, 12, ready ? C.text : C.dim, 'right', ready);
   },
   drawTarget(p, u) {
     const t = p.target, C = this.C;
@@ -7379,7 +8094,7 @@ const HUD = {
   },
   drawStatusTop(p, u) {
     const st = W.stats, m = Game.cfg;
-    const lives = m && m.mode === 'training' ? 'UNLIMITED' : Math.max(0, W.lives);
+    const lives = m && m.mode === 'training' ? 'UNLIMITED' : Game.livesText();
     this.txt('PLATFORMS ' + lives + '   KILLS ' + st.kills + '   SCORE ' + st.score, this.w / 2, 22 * u, 12, this.C.text, 'center');
   },
   drawAlerts(p, u) {
@@ -7453,7 +8168,7 @@ const HUD = {
     this.txt('PLATFORM DESTROYED', this.w / 2, this.h * 0.4, 26, C.bad, 'center', true);
     const kb = p.killedBy;
     if (kb) this.txt('DESTROYED BY ' + kb.name.toUpperCase() + (kb.dist ? ' (' + kb.dist + ' m)' : ''), this.w / 2, this.h * 0.4 + 56 * u, 13, C.warn, 'center');
-    if (W.lives > 0 || (Game.cfg && Game.cfg.mode === 'training')) this.txt('REDEPLOYING IN ' + Math.max(0, Math.ceil(Game.respawnT)) + '  |  PLATFORMS LEFT ' + (Game.cfg.mode === 'training' ? 'UNLIMITED' : W.lives), this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
+    if (W.lives > 0 || (Game.cfg && Game.cfg.mode === 'training')) this.txt('REDEPLOYING IN ' + Math.max(0, Math.ceil(Game.respawnT)) + '  |  PLATFORMS LEFT ' + (Game.cfg.mode === 'training' ? 'UNLIMITED' : Game.livesText()), this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
   },
   drawTraining(p, u) {
@@ -7747,6 +8462,7 @@ const UI = {
       (Net.supported ? '<button class="btn" data-act="coop">Co-op (2-4 players)</button>' : '') +
       '<button class="btn" data-act="training">Training Range</button>' +
       '<button class="btn" data-act="hangar">Platform &amp; Loadout</button>' +
+      '<button class="btn" data-act="nav" data-to="arsenal">Arsenal (' + Arsenal.unlockedList().length + '/' + SUPER_LIST.length + ' superweapons)</button>' +
       '<button class="btn" data-act="nav" data-to="controls">Controls</button>' +
       '<button class="btn" data-act="nav" data-to="settings">Settings</button>' +
       '<button class="btn" data-act="nav" data-to="help">Help &amp; Release Notes</button>' +
@@ -7754,7 +8470,7 @@ const UI = {
   },
   platSummary() {
     const id = Save.data.platformId, def = PLATFORMS[id], lo = Loadout.forPlatform(id), v = Loadout.validate(def, lo);
-    const names = WEAPON_SLOTS.map((s) => lo[s] ? WEAPONS[lo[s]].name : '-').join(' / ');
+    const names = WEAPON_SLOTS.map((s) => lo[s] ? WEAPONS[lo[s]].name : '-').join(' / ') + (lo.strategic && SUPERS[lo.strategic] ? ' + ' + SUPERS[lo.strategic].name : '');
     return '<div class="panel"><div class="lbl"><span>Selected platform</span><span class="' + (v.ok ? 'good' : 'bad') + '">' + (v.ok ? 'Loadout valid' : 'INVALID') + '</span></div><h3 style="margin-top:.3em">' + esc(def.name) + ' <span class="dim">- ' + esc(def.cls) + '</span></h3><div class="dim">' + esc(names) + '</div><div class="dim">Weight ' + v.weight + ' / ' + def.weightCap + '</div>' +
       '<div class="row"><button class="btn small" data-act="hangar" data-ret="1">Change platform / loadout</button></div></div>';
   },
@@ -7791,6 +8507,7 @@ const UI = {
       sel('size', 'Encounter size', [['small', 'Small (4 waves)'], ['medium', 'Medium (6 waves)'], ['large', 'Large (9 waves)']]) +
       sel('difficulty', 'Difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) +
       sel('duration', 'Mission duration', [[0, 'Unlimited'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes']]) +
+      sel('lives', 'Platforms (lives)', [[1, '1'], [3, '3'], [5, '5'], [10, '10'], [20, '20'], [0, 'Unlimited']]) +
       sel('destruction', 'Destruction level', [['low', 'Low'], ['normal', 'Normal'], ['high', 'High']]) +
       '</div><div class="panel">' +
       sel('support', 'Friendly support', [['none', 'None'], ['light', 'Light (2 units)'], ['heavy', 'Heavy (4 units)']]) +
@@ -7815,16 +8532,33 @@ const UI = {
       const w = lo[s] && WEAPONS[lo[s]];
       return '<label class="f"><span>' + SLOT_LABEL[s] + '</span><select data-slot="' + s + '">' + options + '</select></label>' + (w ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(w.role) + '</div>' : '');
     }).join('');
+    const sd = lo.strategic && SUPERS[lo.strategic], open = Arsenal.unlockedList();
+    const tierOpts = [1, 2, 3].map((t) => {
+      const l = open.filter((x) => x.tier === t);
+      return l.length ? '<optgroup label="' + SUPER_TIER[t].name + '">' + l.map((x) => '<option value="' + x.id + '"' + (lo.strategic === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</optgroup>' : '';
+    }).join('');
+    const strategic = '<label class="f"><span>Superweapon</span><select data-slot="strategic">' + tierOpts + '</select></label>' +
+      (sd ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(SUPER_TIER[sd.tier].name) + ', charges in ' + superCharge(sd) + ' s (faster with kills): ' + esc(sd.desc) + '</div>' : '') +
+      '<div class="lbl"><span class="dim">' + open.length + ' of ' + SUPER_LIST.length + ' superweapons unlocked</span><button class="btn small" data-act="nav" data-to="arsenal">Arsenal</button></div>';
     const heat = Loadout.heatLoad(lo), spd = Loadout.speedMult(def, lo);
     return '<h2>Platform &amp; Loadout</h2><div class="grid2"><div>' + list + '</div><div><div class="panel"><h3 style="margin-top:0">' + esc(def.name) + '</h3><div class="dim">' + esc(def.cls) + ' - ' + esc(def.role) + '</div>' +
       '<div class="good">+ ' + esc(def.pros) + '</div><div class="bad">- ' + esc(def.cons) + '</div>' +
       nb('Hull', def.hp, 1000, def.hp) + nb('Armor', def.armor, 450, def.armor) + nb('Speed', def.kind === 'air' ? def.air.max : def.speed, spdMax, Math.round((def.kind === 'air' ? def.air.max : def.speed) * 3.6) + ' km/h') +
       nb('Energy', def.energy, 250, def.energy) + nb('Heat capacity', def.heatCap, 180, def.heatCap) + nb('Weight capacity', def.weightCap, 65, def.weightCap) + '</div>' +
-      '<div class="panel"><h3 style="margin-top:0">Loadout</h3>' + slots +
+      '<div class="panel"><h3 style="margin-top:0">Loadout</h3>' + slots + strategic +
       '<div class="lbl"><span>Weight</span><span class="' + (v.weight > def.weightCap ? 'bad' : 'good') + '">' + v.weight + ' / ' + def.weightCap + '</span></div><div class="bar"><i style="width:' + clamp(v.weight / def.weightCap * 100, 2, 100) + '%;background:' + (v.weight > def.weightCap ? '#ff5a4d' : '') + '"></i></div>' +
       '<div class="dim">Mobility with this load: ' + Math.round(spd * 100) + '%. Heat load ' + heat.toFixed(0) + ' per second vs cooling ' + def.cooling + '. ' + (heat > def.cooling * 4 ? '<span class="warn">Sustained fire will overheat.</span>' : '') + '</div>' +
       (v.ok ? '<div class="good">Loadout valid</div>' : v.errors.map((e) => '<div class="bad">' + esc(e) + '</div>').join('')) +
       '</div><div class="row"><button class="btn primary" data-act="hgSave" data-focus>' + (d.ret ? 'Use and return' : 'Save selection') + '</button><button class="btn" data-act="hgReset">Default loadout</button><button class="btn" data-act="back">Back</button></div></div></div>';
+  },
+  scr_arsenal() {
+    const rows = [1, 2, 3].map((t) => '<h3>' + SUPER_TIER[t].name + ' <span class="dim">(charges in ' + SUPER_TIER[t].charge + ' s, faster with kills)</span></h3>' + SUPER_LIST.filter((d) => d.tier === t).map((d) => {
+      const open = Arsenal.isUnlocked(d.id), pr = Arsenal.progress(Arsenal.reqOf(d));
+      const prog = open ? '<span class="good">Unlocked</span>' : '<span class="dim">' + esc(Arsenal.reqText(d)) + (pr.need > 1 ? ' (' + Math.min(pr.have, pr.need) + '/' + pr.need + ')' : '') + '</span>';
+      return '<div class="lbl"><span><b>' + d.n + '. ' + esc(d.name) + '</b> <span class="tag">' + esc(SUPER_AIM_LABEL[d.aim]) + '</span></span>' + prog + '</div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(d.desc) + '</div>';
+    }).join('')).join('');
+    return '<h2>Arsenal</h2><div class="panel">' + Arsenal.unlockedList().length + ' of ' + SUPER_LIST.length + ' superweapons unlocked. Give each platform one in Platform &amp; Loadout. It charges during battle (faster with kills) and fires with ' + esc(actionLabel('superweapon')) + '. Unlocks are permanent; progress counts every battle you finish, and some feats must happen within one battle.</div>' +
+      '<div class="panel">' + rows + '</div><div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_controls() {
     const b = Save.data.bindings;
@@ -7842,7 +8576,7 @@ const UI = {
     return '<h2>Controls</h2>' + (this.rebind ? '<div class="panel warn" role="status">' + esc(this.rebind.msg) + '</div>' : '<div class="hint" style="margin:0 0 .6em">Click a binding, then press the new key or mouse button. Esc and F-keys are reserved.</div>') +
       '<div class="grid2"><div class="panel"><table><tr><th>Action</th><th>Binding</th></tr>' + rows + '</table></div>' +
       '<div class="panel"><h3 style="margin-top:0">Per-platform behaviour</h3><table><tr><th></th><th>Mech</th><th>Ground</th><th>Aircraft</th></tr>' + per.map((r) => '<tr><td>' + r.map(esc).join('</td><td>') + '</td></tr>').join('') + '</table>' +
-      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, RT/RB primary, LT secondary, LB crouch / radar mode, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
+      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, RT primary, LT secondary, RB superweapon, LB crouch / radar mode, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
       '<div class="row"><button class="btn" data-act="rebindAll">Reset to defaults</button><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_settings() {
@@ -7854,7 +8588,7 @@ const UI = {
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
-      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') +
+      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
       '<div class="row"><button class="btn small" data-act="tutorialReset">Replay tutorial hints</button></div>' +
       '<h3>Saved data</h3><div class="dim">Stored in this browser only: ' + (Save.storageOk ? 'available' : '<span class="bad">unavailable (settings will not persist)</span>') + '</div>' +
       '<div class="row"><button class="btn small" data-act="resetSettings">Reset settings</button><button class="btn small" data-act="resetAll">Erase all saved data</button></div></div></div>' +
@@ -7864,7 +8598,7 @@ const UI = {
     return '<h2>Help &amp; Release Notes</h2><div class="grid2"><div class="panel"><h3 style="margin-top:0">How to play</h3>' +
       '<p>Pick a platform in <b>Platform &amp; Loadout</b>, then deploy to a mission, a skirmish, or the Training Range. Aim with the mouse (on a touch screen: drag on the right side, move with the stick that appears under your left thumb), fire with the buttons, watch heat and ammunition. Destroy everything: buildings, trees and fuel tanks break and change the battlefield.</p>' +
       '<p><b>Damage order:</b> shield, then armor (absorbs a share of each hit), then hull. At 66% and 33% hull a random subsystem fails for a while. Rear hits do extra damage.</p>' +
-      '<p><b>Aim assist</b> (on by default, Settings &gt; Aiming): shots bend toward an enemy near the reticle (a small red ring marks it) and enemies are slightly easier to hit. You have ' + PLAYER_LIVES + ' platforms per mission; Recruit difficulty is the gentlest start.</p>' +
+      '<p><b>Aim assist</b> (on by default, Settings &gt; Aiming): shots bend toward an enemy near the reticle (a small red ring marks it) and enemies are slightly easier to hit. You have ' + PLAYER_LIVES + ' platforms per mission by default (Settings &gt; Gameplay; skirmish has its own setting); a charged superweapon fires with ' + actionLabel('superweapon') + '; Recruit difficulty is the gentlest start.</p>' +
       '<p><b>Aircraft:</b> in assisted mode the plane chases your cursor. Land by lowering gear (G), slowing under the landing speed and flying level. Eject by pressing the eject key twice.</p>' +
       '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you choose one platform per mission. Switching between platforms in the field is available only in the Training Range.</p><p><b>Supply:</b> stand near the supply pad and press Interact to refill ammunition and repair (2 uses per mission).</p></div>' +
       '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>8 objective missions covering every objective type, skirmish mode and a training range.</li><li>Fully offline, single file, no external assets.</li></ul>' +
@@ -7906,6 +8640,123 @@ const UI = {
    ===================================================================== */
 const SelfTest = {
   results: [],
+  /* superweapon data, unlock rules, charging, firing and the co-op guest replay */
+  superChecks() {
+    const ns = new Set();
+    for (const d of SUPER_LIST) {
+      const r = Arsenal.reqOf(d);
+      this.check('superweapon ' + d.id + ' valid', d.name && SUPER_TIER[d.tier] && SUPER_AIM_LABEL[d.aim] && typeof d.fire === 'function' && d.desc && d.n >= 1 && d.n <= 100 && r.kind !== 'invalid', 'bad field or unlock');
+      this.check('superweapon number ' + d.n + ' unique', !ns.has(d.n)); ns.add(d.n);
+      let refOk = true;
+      if (r.kind === 'mission' || r.kind === 'rank') refOk = !!MISSION_BY_ID[r.a] && (r.kind === 'mission' || RANK_ORDER.indexOf(r.b) >= 0);
+      else if (r.kind === 'career') refOk = CAREER_KEYS.indexOf(r.a) >= 0 && r.n > 0;
+      else if (r.kind === 'match') refOk = !!MATCH_LABEL[r.a] && r.n > 0;
+      else if (r.kind === 'skirmishMap') refOk = !!MAPS[r.a];
+      else if (r.kind === 'skirmishWin') refOk = !!SKIRMISH_SIZES[r.a];
+      else if (r.kind === 'missionsRank') refOk = RANK_ORDER.indexOf(r.b) >= 0 && r.n > 0 && r.n <= MISSIONS.length;
+      else if (r.kind === 'missionsDone') refOk = r.n > 0 && r.n <= MISSIONS.length;
+      this.check('superweapon ' + d.id + ' unlock refers to real content', refOk, d.unlock);
+    }
+    this.check('superweapons in catalogue order', SUPER_LIST.every((d, i) => i === 0 || SUPER_LIST[i - 1].n < d.n));
+    this.check('starter superweapon unlocked', Arsenal.isUnlocked(SUPER_START_ID));
+    const saved = { career: Save.data.career, unlocked: Save.data.unlocked, persist: Save.persist };
+    Save.persist = () => {};
+    try {
+      Save.data.career = Arsenal.blankCareer(); Save.data.unlocked = [];
+      const k150 = SUPER_LIST.find((d) => d.unlock === 'career:kills:150');
+      Save.data.career.kills = 149;
+      if (k150) {
+        this.check('career requirement locked below its count', !Arsenal.isUnlocked(k150.id) && Arsenal.check() >= 0 && !Arsenal.isUnlocked(k150.id));
+        Save.data.career.kills = 150; Arsenal.check();
+        this.check('career requirement unlocks at its count', Arsenal.isUnlocked(k150.id));
+      }
+      Save.data.career.kills = 150;
+      Arsenal.commit({ mode: 'skirmish', won: true, time: 120, size: 'small', map: 'frost', wavesCleared: 4 }, Object.assign(newStats(), { kills: 3, airKills: 1 }));
+      this.check('a finished battle folds into the career', Save.data.career.kills === 153 && Save.data.career.skirmishWins === 1 && Save.data.career.skirmish.frost === 1 && Save.data.career.airKills === 1 && Save.data.career.waves === 4);
+      Arsenal.commit({ mode: 'training', won: true, time: 600 }, Object.assign(newStats(), { kills: 50 }));
+      this.check('training battles never count', Save.data.career.kills === 153);
+      this.check('requirement text reads plainly', Arsenal.reqText({ unlock: 'career:kills:150' }) === 'Destroy 150 enemies');
+    } finally { Save.data.career = saved.career; Save.data.unlocked = saved.unlocked; Save.persist = saved.persist; }
+    // charging and firing in a test world
+    newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 200, tag: 'open' }], difficulty: 'veteran', seed: 3, start: { x: 0, z: -150, yaw: 0 } });
+    const def = PLATFORMS.bulwark;
+    const me = new Platform(def, { team: 0, x: 0, z: -120, yaw: 0, loadout: Object.assign({}, def.loadout, { strategic: 'craterMaker' }) });
+    W.platforms.push(me);
+    this.check('the strategic slot builds a meter', me.sw && me.sw.def === SUPERS.craterMaker && me.sw.charge === 0);
+    for (let i = 0; i < 60; i++) me.update(STEP);
+    this.check('the meter charges over time', this.near(me.sw.charge, 1 / superCharge(SUPERS.craterMaker), 0.002));
+    this.check('an uncharged superweapon does not fire', !SW.trigger(me) && SW.fx.length === 0);
+    const foe = spawnUnit('tank', 0, 0, { force: true }); foe.ai = null;
+    foe.destroy(me, 'explosive');
+    this.check('a kill adds charge', me.sw.charge > SUPER_TIER[1].kill);
+    me.sw.charge = 1; me.cmd.aimPoint = { x: 0, y: Terrain.h(0, 0), z: 0 };
+    this.check('a charged superweapon fires and empties the meter', SW.trigger(me) && me.sw.charge === 0 && SW.fx.length > 0);
+    const target = spawnUnit('tank', 0, 0, { force: true }); target.ai = null;
+    const hp0 = target.hp + target.armor;
+    for (let i = 0; i < 60 * 3 && !target.dead; i++) { updateProjectiles(STEP); updateWorldEffects(STEP); }
+    this.check('the strike damages an enemy at the point', target.dead || target.hp + target.armor < hp0);
+    this.check('the strike spares its user', me.hp === me.maxHp);
+    // status effects
+    const f2 = spawnUnit('medMech', 40, 40, { force: true }); f2.ai = null;
+    SW.status(f2, 'freeze', 1);
+    this.check('frozen platforms stop their clock', f2.timeMult() === 0);
+    f2.tickStatus(1.01);
+    this.check('status timers run out', f2.timeMult() === 1);
+    SW.convert(f2, 2, { team: 0, owner: me });
+    this.check('a converted enemy fights for us', f2.team === 0);
+    f2.tickStatus(2.1);
+    this.check('conversion wears off', f2.team === 1);
+    // co-op guest replay draws but never damages
+    const g0 = Net.guest; Net.guest = true;
+    try {
+      const f3 = spawnUnit('tank', 300, 300, { force: true }); f3.ai = null;
+      const before = f3.hp;
+      SW.replay({ n: SUPERS.plasmaHalo.n, o: 0, a: [300, Terrain.h(300, 300), 300], y: 0, tg: 0, s: 5 });
+      for (let i = 0; i < 60 * 2; i++) updateWorldEffects(STEP);
+      this.check('a guest replay deals no damage', f3.hp === before);
+    } finally { Net.guest = g0; }
+    SW.reset();
+  },
+  /* Fire every superweapon (or the ids given) at a cluster of passive enemies in a test world.
+     Returns one row per superweapon: { id, fired, errors, selfHurt, dealt, kills }. Run with __IH.superSweep(). */
+  superSweep(ids) {
+    const list = ids ? ids.map((i) => SUPERS[i]).filter(Boolean) : SUPER_LIST, out = [];
+    const keepReport = Game.reportError;
+    let errs = [];
+    Game.reportError = (e) => errs.push((e && e.stack) ? String(e.stack).split('\n').slice(0, 3).join(' | ') : String(e));
+    try {
+      for (const d of list) {
+        errs = [];
+        newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 260, tag: 'open' }], difficulty: 'veteran', seed: 3, start: { x: 0, z: -150, yaw: 0 } });
+        W.mission = null;
+        const def = PLATFORMS.bulwark;
+        const me = new Platform(def, { team: 0, x: 0, z: -60, yaw: 0, loadout: Object.assign({}, def.loadout, { strategic: d.id }) });
+        W.platforms.push(me); W.player = me; me.isPlayer = true;
+        // passive enemies around the aim point (60 m ahead) and around the user; one unarmed jet circling overhead
+        const kinds = ['medMech', 'tank', 'infantry', 'lightMech', 'buggy', 'heavyMech'], foes = [];
+        kinds.forEach((k, i) => { const u = spawnUnit(k, Math.cos(i) * 12, Math.sin(i) * 12, { force: true }); if (u) foes.push(u); });
+        ['tank', 'infantry', 'medMech'].forEach((k, i) => { const u = spawnUnit(k, (i - 1) * 25, -35, { force: true }); if (u) foes.push(u); });
+        foes.forEach((f) => { f.ai = null; });
+        const jet = spawnUnit('jet', 0, 30, { y: Terrain.h(0, 30) + 80, loadout: { primaryA: null, primaryB: null, secondary: null } }); if (jet) foes.push(jet);
+        me.target = foes[0]; me.cmd.aimPoint = { x: 0, y: Terrain.h(0, 0), z: 0 }; me.cmd.aimYaw = 0; me.cmd.aimPitch = -0.12;
+        me.sw.charge = 1;
+        const total = () => foes.reduce((a, f) => a + (f.dead ? 0 : f.hp + f.armor + f.shield), 0);
+        const hp0 = me.hp, foe0 = total();
+        let fired = false;
+        try { fired = SW.trigger(me); } catch (e) { errs.push(String(e)); }
+        for (let i = 0; i < 60 * 14; i++) {
+          W.time += 0;   // updateWorldEffects advances the clock
+          for (const p of W.platforms) { p.tickStatus(STEP); const k = p.timeMult(); if (k > 0) p.update(STEP * k); if (!p.dead && (p.status.float > 0 || p.status.floatCur > 0)) p.stepFloat(STEP); }
+          resolvePairs(STEP); updateProjectiles(STEP); updateWorldEffects(STEP);
+          if (i % 20 === 0) { try { SW.draw(false); SW.draw(true); } catch (e) { errs.push('draw: ' + e); } }
+          W.platforms = W.platforms.filter((p) => !p.dead || p === me);
+        }
+        out.push({ id: d.id, n: d.n, fired, errors: errs.slice(0, 3), selfHurt: me.dead || me.hp < hp0, dealt: Math.round(foe0 - total()), kills: foes.filter((f) => f.dead).length, left: SW.fx.length });
+      }
+    } finally { Game.reportError = keepReport; SW.reset(); }
+    Game.enterMenuWorld();
+    return out;
+  },
   check(name, cond, detail) { this.results.push({ name, ok: !!cond, detail: cond ? '' : (detail || '') }); },
   near(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-6); },
   run() {
@@ -7926,6 +8777,7 @@ const SelfTest = {
       for (const id in WEAPONS) {
         const w = WEAPONS[id];
         if (w.kind === 'defense') { this.check('weapon ' + id, w.name && w.weight > 0); continue; }
+        if (w.hidden) { this.check('munition ' + id + ' valid', w.slot === 'super' && w.name && w.speed > 0 && w.life > 0 && Array.isArray(w.tracer) && Snd.R[w.sound], 'missing or invalid field'); continue; }
         const ok = w.name && w.dmg > 0 && w.cd > 0 && w.range > 0 && w.weight > 0 && Array.isArray(w.tracer) && w.sound && Snd.R[w.sound] && (w.kind === 'beam' || w.clip > 0);
         this.check('weapon ' + id + ' valid', ok, 'missing or invalid field');
       }
@@ -8610,6 +9462,17 @@ const SelfTest = {
         this.check('back to lobby shows the host lobby', Game.state === 'menu' && UI.cur && UI.cur.name === 'coopHost');
       } finally { Object.assign(Net, saved); UI.cur = ui.cur; UI.stack = ui.stack; }
     });
+    t('superweapons', () => this.superChecks());
+    /* SELFTEST PART W BEGIN */
+    /* SELFTEST PART W END */
+    /* SELFTEST PART A BEGIN */
+    /* SELFTEST PART A END */
+    /* SELFTEST PART B BEGIN */
+    /* SELFTEST PART B END */
+    /* SELFTEST PART C BEGIN */
+    /* SELFTEST PART C END */
+    /* SELFTEST PART X BEGIN */
+    /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
   },
@@ -8773,6 +9636,7 @@ const Net = {
         if (m.lo && typeof m.lo === 'object') {
           const lo = {};
           WEAPON_SLOTS.forEach((s) => { lo[s] = typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
+          lo.strategic = typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic] ? m.lo.strategic : null;   // unlocks are the guest's own
           peer.loadout = lo;
         }
         peer.ready = !!m.ready;
@@ -8797,6 +9661,8 @@ const Net = {
       case 'st': this.applyStructs(m); break;
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
       case 'g': if (W) this.applyGib(m); break;
+      case 'sw': if (W) SW.replay(m); break;
+      case 'pst': if (W) this.applyPlatState(m); break;
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
@@ -8867,7 +9733,7 @@ const Net = {
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = PLAYER_LIVES; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
+      p.lives = W.maxLives; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
@@ -8885,7 +9751,7 @@ const Net = {
   },
   /* first deployment beside the host by slot; respawns pass a forward position */
   spawnFor(peer, pos) {
-    const st = Game.mission.def.start, def = PLATFORMS[peer.pid];
+    const st = Game.mission.def.start, def = PLATFORMS[peer.pid], old = peer.p;
     const x = pos ? pos.x : st.x + peer.slot * 14, z = pos ? pos.z : st.z + (peer.slot % 2 ? 12 : -12), yaw = pos ? pos.yaw : st.yaw;
     const p = new Platform(def, { team: 0, x, z, yaw, loadout: peer.loadout, name: peer.name, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
     if (def.kind !== 'air' && groundBlocked(p.x, p.z, p.radius + 1)) {
@@ -8893,6 +9759,7 @@ const Net = {
       if (sp) { p.x = sp.x; p.z = sp.z; p.y = Terrain.h(sp.x, sp.z); }
     }
     p.netPeer = peer; p.isPlayer = true; p.invuln = true; p.cmd.aimYaw = yaw;
+    if (old && old.sw && p.sw && old.sw.id === p.sw.id) p.sw.charge = old.sw.charge;   // the meter survives a lost platform
     peer.protectT = 3; peer.p = p; peer.deathHandled = false;
     W.platforms.push(p);
   },
@@ -8932,7 +9799,7 @@ const Net = {
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
     if (e & 16) c.stanceEdge = true; if (e & 32) c.gearEdge = true; if (e & 64) c.reloadEdge = true; if (e & 128) c.ejectEdge = true;
-    if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true;
+    if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true; if (e & 2048) c.superEdge = true;
     if (e & 2048) tryResupply(p);
   },
   hostTick(dt) {
@@ -8999,7 +9866,7 @@ const Net = {
       lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked),
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: 0,
-      k: [peer.stats.kills, peer.stats.score, peer.stats.deaths], rc: peer.resupplies, tp: p.target ? 1 : 0, ej: 0,
+      k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
     };
   },
   sendSnapshots() {
@@ -9129,6 +9996,14 @@ const Net = {
     W.pickups = (m.pk || []).map((k) => ({ type: PICKUP_TYPES[k[0]] ? k[0] : 'ammo', x: k[1], z: k[2], y: Terrain.h(k[1], k[2]) + 1.5, life: 3, t: this.t }));
     if (m.me) this.applySelf(m.me);
   },
+  /* a platform changed side or size on the host (superweapon effects) */
+  applyPlatState(m) {
+    const p = this.map[m.id | 0];
+    if (!p) return;
+    if (m.tm === 0 || m.tm === 1) p.team = m.tm;
+    const sc = numIn(m.sc, 0.1, 3, 1);
+    if (sc !== p.scale) { p.scale = sc; p.radius = p.def.radius * sc; p.height = p.def.height * sc; }
+  },
   applySelf(me) {
     const gp = W.player;
     W.lives = me.lv; Game.respawnT = me.rs || 0;
@@ -9150,7 +10025,8 @@ const Net = {
     gp.lock.state = lockState; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = me.lk[3] ? (this.map[me.lk[3]] || null) : null;
     gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl;
     gp.warnIncoming = gp.netInc = { count: me.inc[0], dist: me.inc[1] }; gp.crouch = !!me.cr; gp.radarFocus = !!me.rf; gp.airbrake = !!me.abk;
-    W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2];
+    W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2]; W.stats.bestStreak = me.k[3] | 0;
+    if (gp && gp.sw && Number.isFinite(me.sw) && me.sw >= 0) { gp.sw.charge = clamp(me.sw, 0, 1); gp.sw.ready = gp.sw.charge >= 1; }
     if (typeof me.rc === 'number') W.resupplies = me.rc;
   },
   applyObjectives(m) {
@@ -9251,8 +10127,8 @@ const Net = {
     if (!p || p.dead) { this.send(this.hostPeer, { t: 'in', q: ++this.inSeq, mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, e: 0 }, false); return; }
     const c = p.cmd;
     const b = (c.fire1 ? 1 : 0) | (c.fire2 ? 2 : 0) | (c.boost ? 4 : 0) | (c.jump ? 8 : 0) | (c.brake ? 16 : 0);
-    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.gearEdge ? 32 : 0) | (c.reloadEdge ? 64 : 0) | (c.ejectEdge ? 128 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | this.pendEdge;
-    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.ejectEdge = false; c.sel1 = c.sel2 = c.selNext = false; this.pendEdge = 0;
+    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.gearEdge ? 32 : 0) | (c.reloadEdge ? 64 : 0) | (c.ejectEdge ? 128 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | (c.superEdge ? 2048 : 0) | this.pendEdge;
+    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.ejectEdge = false; c.sel1 = c.sel2 = c.selNext = c.superEdge = false; this.pendEdge = 0;
     const ap = c.aimPoint;
     const t = p.target;
     this.send(this.hostPeer, {
@@ -9326,7 +10202,7 @@ UI.scr_coopHost = function () {
   return '<h2>Host a co-op game</h2><div class="grid2"><div class="panel">' + this.coopCommon() +
     '<label class="f"><span>Mission</span><select data-coop="mission">' + MISSIONS.map((m) => '<option value="' + m.id + '"' + (Net.missionId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' +
     '<div class="dim">Your platform: ' + esc(this.platLabel(Save.data.platformId)) + '</div><div class="row"><button class="btn small" data-act="hangar" data-ret="1">Change platform / loadout</button></div>' +
-    '<div class="dim">Enemies scale up with player count. Each player has ' + PLAYER_LIVES + ' platforms and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
+    '<div class="dim">Enemies scale up with player count. Each player has the host\'s platforms setting (Settings or skirmish setup) and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
     '<div class="panel"><h3 style="margin-top:0">Players</h3><table><tr><th>You</th><th colspan="3">' + esc(cleanName(Net.name)) + ' (host)</th></tr>' + rows + '</table>' +
     (Net.peers.length < Net.maxPeers ? '<div class="row"><button class="btn small" data-act="coopAdd">+ Add a player</button></div>' : '') + '</div></div>' +
     '<div class="row"><button class="btn primary" data-act="coopStart"' + (err ? ' disabled' : '') + '>Start mission</button><button class="btn" data-act="coopLeave" data-focus>Close lobby</button></div>' +
@@ -9415,7 +10291,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
