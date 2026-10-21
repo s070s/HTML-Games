@@ -2781,7 +2781,7 @@ function drawStruct(s, bake) {
       st.pop();
       break;
     }
-    case 'house': case 'warehouse': case 'depot': case 'factory': case 'barrier': case 'crate': {
+    case 'house': case 'warehouse': case 'depot': case 'factory': case 'command': case 'barrier': case 'crate': {
       const tint = s.type === 'depot' || s.type === 'factory' ? [0.5, 0.52, 0.5] : mc;
       const c = [tint[0] * burnt + flash, tint[1] * burnt + flash, tint[2] * burnt + flash];
       st.push().t(s.x, s.y, s.z).rz(tilt);
@@ -2802,6 +2802,7 @@ function drawStruct(s, bake) {
           st.push().t(0, h * 1.12, 0).s(s.w * 0.4, 0.5, 1.2); R.draw('box', 1, 0.5, 0.15, 1, s.invuln ? 0.2 : 0.9, 0); st.pop();
         }
         if (s.type === 'depot') { st.push().t(0, h * 0.5, s.d * 0.51).s(s.w * 0.3, h * 0.5, 0.2); R.draw('box', 0.9, 0.7, 0.15, 1, 0.1, 0); st.pop(); }
+        if (s.type === 'command') drawCommandTop(s, h, c);
       }
       st.pop();
       break;
@@ -2819,6 +2820,14 @@ function drawStruct(s, bake) {
   }
 }
 
+/* roof works of a skirmish command center: a raised block, a radar mast and a beacon in its team's colour (blue ours, red theirs) */
+function drawCommandTop(s, h, c) {
+  const st = R.stack, bc = s.team === 0 ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
+  st.push().t(s.w * 0.2, h * 1.15, 0).s(s.w * 0.35, h * 0.25, s.d * 0.5); R.draw('box', c[0] * 0.85, c[1] * 0.85, c[2] * 0.85); st.pop();
+  st.push().t(-s.w * 0.3, h * 1.5, 0).s(0.6, h, 0.6); R.draw('box', 0.5, 0.52, 0.55, 1, 0, 0.5); st.pop();
+  st.push().t(-s.w * 0.3, h * 1.75, 0).s(4, 0.3, 4); R.draw('cyl', 0.45, 0.47, 0.5, 1, 0, 0.5); st.pop();
+  st.push().t(-s.w * 0.3, h * 2.02, 0).s(1.6, 1.6, 1.6); R.draw('sphere', bc[0], bc[1], bc[2], 1, 1.3, 0); st.pop();
+}
 /* ---------- static structure chunks (one merged mesh per 160 m square) ---------- */
 const Chunks = {
   SIZE: 160, N: Math.ceil(2 * WORLD_HALF / 160),
@@ -3082,7 +3091,18 @@ const TPL = {
   hangar: { name: 'Hangar', tiers: [[0, 0, 3, 5, 0, 1]], fh: 8, win: 0, doors: 3, hp: 1.8, wallT: 0.6, pillars: false, stairs: false, col: [0.52, 0.54, 0.52], roof: [0.36, 0.38, 0.36] },
   bunker: { name: 'Bunker', tiers: [[0, 0, 3, 3, 0, 1]], win: 0, doors: 1, hp: 4.5, wallT: 1.1, stairs: false, col: [0.5, 0.5, 0.46], roof: [0.38, 0.38, 0.35] },
   guard: { name: 'Guard Tower', tiers: [[0, 0, 3, 2, 0, 3]], win: 0.3, doors: 1, hp: 1.8, wallT: 0.6, col: [0.44, 0.46, 0.4], roof: [0.3, 0.32, 0.28] },
+  // landmarks for the districts: a 25-floor tower, two towers joined by a sky bridge, a stepped mega-block, a works hall
+  megaTower: { name: 'Mega Tower', tiers: [[0, 0, 6, 5, 0, 3], [1, 1, 4, 3, 3, 17], [1, 1, 3, 3, 17, 25]], win: 0.85, doors: 3, hp: 1.3, col: [0.46, 0.55, 0.66], roof: [0.36, 0.38, 0.42] },
+  twinTowers: { name: 'Twin Towers', tiers: [[0, 0, 7, 3, 0, 2], [0, 0, 3, 3, 2, 16], [4, 0, 3, 3, 2, 16], [3, 1, 1, 1, 10, 11]], win: 0.8, doors: 3, col: [0.56, 0.6, 0.68], roof: [0.38, 0.4, 0.44] },
+  arcology: { name: 'Arcology', tiers: [[0, 0, 8, 6, 0, 3], [1, 1, 6, 4, 3, 7], [2, 1, 4, 4, 7, 11], [3, 2, 2, 2, 11, 15]], win: 0.7, doors: 4, col: [0.68, 0.66, 0.6], roof: [0.4, 0.42, 0.36] },
+  factoryComplex: { name: 'Factory Complex', tiers: [[0, 0, 7, 4, 0, 1], [0, 0, 3, 4, 1, 2]], fh: 7, win: 0.25, doors: 4, hp: 1.4, wallT: 0.6, col: [0.5, 0.5, 0.47], roof: [0.34, 0.35, 0.34] },
 };
+/* footprint of a template in metres: [x size, z size] */
+function tplSize(id) {
+  let nx = 0, nz = 0;
+  for (const r of TPL[id].tiers) { nx = Math.max(nx, r[0] + r[2]); nz = Math.max(nz, r[1] + r[3]); }
+  return [nx * CELL, nz * CELL];
+}
 const DIR_AXIS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const CHUNK_FLOORS = 3;       // floors per mesh chunk: damage re-writes only the chunk it is in
 const CHUNK_SLACK = 1.3;      // spare vertex room per chunk, so faces revealed by damage usually fit without a re-layout
@@ -3573,30 +3593,112 @@ const Bld = {
 };
 
 /* ---------------------------------------------------------------------
-   Scenery: one city and one military base per battlefield
+   Scenery: cities, districts and military bases for one battle
+   A layout lists cities { x, z, r, kind: 'city' | 'district' | 'mega' } and bases { x, z, r, style: 'outpost' | 'fort', team }.
+   A story mission gets its map's city and outpost plus one district near its start; a skirmish brings its own layout.
    --------------------------------------------------------------------- */
 const SCENERY = {
   ashfall: { city: { x: -120, z: 690, r: 150 }, base: { x: 680, z: 650, r: 125 } },
   verdant: { city: { x: -560, z: 560, r: 150 }, base: { x: 650, z: -250, r: 125 } },
   frost: { city: { x: -600, z: 600, r: 150 }, base: { x: 650, z: -450, r: 125 } },
 };
+const SCENERY_DISTRICT_R = 100, SCENERY_MEGA_R = 190;   // district and mega-district radius (m)
+const SCENERY_DISTRICT_DIST = [200, 250, 300, 360];    // a mission's start district is tried this far from the start (m)
+const SCENERY_DISTRICT_BEARINGS = 12;                  // at this many bearings each
+const SCENERY_GAP = 25;            // clearance between a district and corridors and other scenery (m)
+const SCENERY_SITE_GAP = 85;       // clearance from objective sites and pads: the district's ground levelling fades out over this
+const SCENERY_EDGE = 740;          // districts stay inside +-this; the ground rises steeply past 760 m
+const SCENERY_STEP = 56, SCENERY_MEGA_STEP = 62;       // lot spacing in a district and in the mega-district (m)
+const SCENERY_STREET = 12;         // narrowest street between two lots (m), so ground vehicles can drive through
+const SCENERY_LOT_EDGE = 20;       // lot centres stay this far inside the district edge (m)
+const SCENERY_PIECES = { district: 2600, mega: 7000 };   // building pieces a district may use at normal destruction
+const SCENERY_LANDMARKS = { district: 1, mega: 3 };     // landmark towers per district; further big lots get mid-rise blocks
+const SCENERY_OVERRUN = 1.15;      // past its budget a district only adds small buildings, and stops at this share of it
+const SCENERY_PARK = 0.1;          // share of outer lots left as a small park
+const LANDMARK_TPL = ['megaTower', 'twinTowers', 'arcology'];
+const SCENERY_FURNITURE = 6;       // crate and barrier clusters at street corners per district
+/* what each kind of lot builds: [template, weight] */
+const SCENERY_LOTS = {
+  megaCore: [['arcology', 1]],
+  megaInner: [['megaTower', 0.25], ['twinTowers', 0.25], ['skyscraper', 0.3], ['office', 0.1], ['terraced', 0.1]],
+  core: [['megaTower', 0.35], ['twinTowers', 0.3], ['skyscraper', 0.35]],
+  inner: [['office', 0.3], ['terraced', 0.2], ['apartmentL', 0.15], ['mall', 0.15], ['factoryComplex', 0.2]],
+  outer: [['apartment', 0.25], ['apartmentL', 0.2], ['shop', 0.2], ['office', 0.15], ['factoryComplex', 0.1], ['terraced', 0.1]],
+  small: [['shop', 0.5], ['apartment', 0.5]],
+};
+/* Skirmish base compound: slots in metres from the centre, +z toward the other base (see Scenery.fortAt).
+   The compound turns a quarter turn at a time and footprints stay axis-aligned, so slots are spaced for any turn. */
+const FORT = {
+  r: 110, wall: 100, gate: 14, corner: 78,   // compound radius; perimeter wall half-size, gate half-width, corners kept for towers
+  hq: [0, -20], start: [0, 52], rally: [0, 140],   // command center, player start (ours) or garrison yard, wave assembly point
+  blds: [['barracks', -62, -60], ['barracks', 62, -60], ['hangar', -66, 8], ['hangar', 66, 8], ['bunker', -50, 64], ['bunker', 50, 64],
+    ['guard', -88, -88], ['guard', 88, -88], ['guard', -88, 88], ['guard', 88, 88]],
+  guns: [[-35, 86], [35, 86], [-86, -20], [86, -20], [-30, -86], [30, -86]],
+  aa: [[-25, -55], [25, -55], [0, -76]],
+  fuel: [[-30, 22], [30, 22], [0, -48]], generator: [-45, -30], mast: [45, -30], crates: [-40, 40],
+};
+STRUCT.command = { w: 30, h: 16, d: 22, hp: 5000, mat: 'concrete', debris: 24 };   // a base's command center (objective)
+ARCH.allyTurret = Object.assign({}, ARCH.turret, { label: 'Allied Turret', score: 0 });
+ARCH.allyAA = Object.assign({}, ARCH.aaTurret, { label: 'Allied AA', score: 0 });
+function pickWeighted(list, roll) {
+  let sum = 0;
+  for (const e of list) sum += e[1];
+  let acc = 0;
+  for (const e of list) { acc += e[1] / sum; if (roll < acc) return e[0]; }
+  return list[list.length - 1][0];
+}
+/* distance from (x, z) to corridor segment c { x1, z1, x2, z2 } */
+function segDist(x, z, c) {
+  const vx = c.x2 - c.x1, vz = c.z2 - c.z1, l2 = vx * vx + vz * vz || 1;
+  const t = clamp(((x - c.x1) * vx + (z - c.z1) * vz) / l2, 0, 1);
+  return Math.hypot(x - (c.x1 + vx * t), z - (c.z1 + vz * t));
+}
 const Scenery = {
-  sitesFor(map) {
-    const s = SCENERY[map];
-    return s ? [{ x: s.city.x, z: s.city.z, r: s.city.r + 15, tag: 'city' }, { x: s.base.x, z: s.base.z, r: s.base.r + 15, tag: 'base' }] : [];
+  /* the layout of one battle; withDistrict adds the start district (story missions) */
+  layoutFor(def, withDistrict) {
+    if (def.layout) return def.layout;
+    const s = SCENERY[def.map];
+    if (!s) return { cities: [], bases: [] };
+    const lay = { cities: [Object.assign({ kind: 'city' }, s.city)], bases: [Object.assign({ style: 'outpost', team: 1 }, s.base)] };
+    const d = withDistrict && def.start ? this.startDistrict(def, lay) : null;
+    if (d) lay.cities.push(d);
+    return lay;
   },
-  keepOutFor(map) {
-    const s = SCENERY[map];
-    return s ? [{ x: s.city.x, z: s.city.z, r: s.city.r + 10 }, { x: s.base.x, z: s.base.z, r: s.base.r + 10 }] : [];
+  /* the nearest spot to a mission's start, tried at a few distances and bearings, that keeps clear of everything */
+  startDistrict(def, lay) {
+    let h = 7;
+    for (let i = 0; i < def.id.length; i++) h = (h * 31 + def.id.charCodeAt(i)) >>> 0;
+    const a0 = (h % 360) * DEG, st = def.start;   // each mission tries its bearings in its own order
+    for (const dist of SCENERY_DISTRICT_DIST) {
+      for (let k = 0; k < SCENERY_DISTRICT_BEARINGS; k++) {
+        const a = a0 + k * TAU / SCENERY_DISTRICT_BEARINGS;
+        const c = { x: st.x + Math.sin(a) * dist, z: st.z + Math.cos(a) * dist, r: SCENERY_DISTRICT_R, kind: 'district' };
+        if (this.clearSpot(c, def.sites, def.corridors, lay)) return c;
+      }
+    }
+    return null;
   },
-  build(map, seed) {
-    const s = SCENERY[map];
-    if (!s) return;
+  /* c keeps clear of the battlefield edge, the sites (objectives, pads, open ground), corridors and the layout so far */
+  clearSpot(c, sites, corridors, lay) {
+    if (Math.abs(c.x) > SCENERY_EDGE - c.r || Math.abs(c.z) > SCENERY_EDGE - c.r) return false;
+    for (const s of sites) if (Math.hypot(c.x - s.x, c.z - s.z) < s.r + c.r + SCENERY_SITE_GAP) return false;
+    for (const k of lay.cities.concat(lay.bases)) if (Math.hypot(c.x - k.x, c.z - k.z) < k.r + c.r + SCENERY_GAP) return false;
+    for (const q of corridors || []) if (segDist(c.x, c.z, q) < q.w + c.r + SCENERY_GAP) return false;
+    return true;
+  },
+  sitesFor(lay) {
+    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 15, tag: c.style ? 'base' : 'city' }));
+  },
+  keepOutFor(lay) {
+    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 10 }));
+  },
+  /* builds every city and base of the layout; dens is the destruction level's density (districts use it for their budget) */
+  build(lay, seed, mapId, dens) {
     let h = seed >>> 0;
-    for (let i = 0; i < map.length; i++) h = (h * 31 + map.charCodeAt(i)) >>> 0;
+    for (let i = 0; i < mapId.length; i++) h = (h * 31 + mapId.charCodeAt(i)) >>> 0;
     const rng = makeRng(h);
-    this.city(s.city, rng);
-    this.base(s.base, rng);
+    for (const c of lay.cities) { if (c.kind === 'city') this.city(c, rng); else this.district(c, rng, dens === undefined ? 1 : dens); }
+    for (const c of lay.bases) { if (c.style === 'fort') this.fort(c, rng); else this.base(c, rng); }
   },
   city(c, rng) {
     const step = 52;
@@ -3639,13 +3741,88 @@ const Scenery = {
     for (const q of [[-30, 20], [30, -20], [-20, -20]]) if (W.place) W.place('fuel', c.x + q[0], c.z + q[1], {});
     if (W.place) { W.place('generator', c.x + 70, c.z + 60, {}); W.place('tower', c.x - 80, c.z + 40, {}); for (let n = 0; n < 6; n++) W.place('crate', c.x - 20 + n * 4, c.z + 28, {}); }
   },
-  /* hostile defenders for the base, spawned on the host only */
-  garrison(map) {
-    const s = SCENERY[map];
-    if (!s) return;
-    const c = s.base;
-    spawnGroup(['turret', 'turret', 'turret', 'aaTurret', 'sniper', 'sniper'], c.x, c.z, { radius: 95 });
-    spawnGroup(['infantry', 'infantry', 'infantry', 'infantry', 'rpgTrooper', 'rpgTrooper', 'tank'], c.x, c.z, { radius: 60 });
+  /* A district: a landmark on the centre lot (the arcology in the mega-district), big blocks around it and mixed low
+     buildings further out, on a street grid. Once it has used its piece budget it only adds small buildings. */
+  district(c, rng, dens) {
+    const mega = c.kind === 'mega', step = mega ? SCENERY_MEGA_STEP : SCENERY_STEP, budget = SCENERY_PIECES[mega ? 'mega' : 'district'] * dens;
+    const span = Math.ceil(c.r / step), lots = [];
+    for (let gi = -span; gi <= span; gi++) for (let gj = -span; gj <= span; gj++) {
+      if (Math.hypot(gi, gj) * step <= c.r - SCENERY_LOT_EDGE) lots.push({ gi, gj, ring: Math.max(Math.abs(gi), Math.abs(gj)), k: rng() });
+    }
+    lots.sort((a, b) => a.ring - b.ring || a.k - b.k);   // centre first, so the landmarks get the budget; random order within a ring
+    let used = 0, landmarks = 0;
+    for (const lot of lots) {
+      if (used >= budget * SCENERY_OVERRUN) break;
+      const x = c.x + lot.gi * step, z = c.z + lot.gj * step, roll = rng();
+      if (lot.ring >= 2 && roll < SCENERY_PARK) { this.park(x, z, step, rng); continue; }
+      const list = used >= budget ? SCENERY_LOTS.small : lot.ring === 0 ? SCENERY_LOTS[mega ? 'megaCore' : 'core'] : lot.ring === 1 ? SCENERY_LOTS[mega ? 'megaInner' : 'inner'] : SCENERY_LOTS.outer;
+      let id = pickWeighted(list, rng());
+      if (LANDMARK_TPL.indexOf(id) >= 0 && landmarks++ >= SCENERY_LANDMARKS[mega ? 'mega' : 'district']) id = pickWeighted(SCENERY_LOTS.inner, rng());
+      const size = tplSize(id);
+      // shift inside the lot only as far as keeps the street open
+      const bx = x + (rng() - 0.5) * Math.max(0, step - size[0] - SCENERY_STREET), bz = z + (rng() - 0.5) * Math.max(0, step - size[1] - SCENERY_STREET);
+      if (!this.lotFree(bx, bz, size[0] / 2, size[1] / 2)) continue;
+      used += Bld.make(id, bx, bz, rng).total;
+    }
+    // cover at street corners (the corners are never inside a lot's building)
+    for (let n = 0; n < SCENERY_FURNITURE; n++) {
+      const lot = lots[Math.floor(rng() * lots.length)], x = c.x + (lot.gi + 0.5) * step, z = c.z + (lot.gj + 0.5) * step;
+      if (rng() < 0.5) this.put('barrier', x, z, { swap: rng() < 0.5 });
+      else for (let k = 0; k < 3; k++) this.put('crate', x + (k - 1) * 3, z + (rng() - 0.5) * 2, {});
+    }
+  },
+  park(x, z, step, rng) {
+    for (let n = 0; n < 5; n++) this.put('tree', x + (rng() - 0.5) * (step - SCENERY_STREET), z + (rng() - 0.5) * (step - SCENERY_STREET), { scale: 0.8 + rng() * 0.5 });
+  },
+  /* no plain structure (objectives, mission props) or building inside the footprint plus a street's width */
+  lotFree(x, z, hw, hd) {
+    const m = SCENERY_STREET / 2, n = Hash.query(x - hw - m, z - hd - m, x + hw + m, z + hd + m);
+    for (let i = 0; i < n; i++) { const s = Hash.out[i]; if (!s.destroyed && Math.abs(x - s.x) < s.hx + hw + m && Math.abs(z - s.z) < s.hz + hd + m) return false; }
+    for (const b of W.buildings) if (x + hw + m > b.ox && x - hw - m < b.bx1 && z + hd + m > b.oz && z - hd - m < b.bz1) return false;
+    return true;
+  },
+  /* small props go through populateWorld's place(), which keeps them off other structures and steep ground */
+  put(type, x, z, opts) { return W.place ? W.place(type, x, z, opts) : null; },
+  /* world position of fort slot (lx, lz): the compound's front faces c.face (a yaw), rounded to a quarter turn */
+  fortAt(c, lx, lz) {
+    const q = Math.round(c.face / (PI / 2)), fx = Math.round(Math.sin(q * PI / 2)), fz = Math.round(Math.cos(q * PI / 2));
+    return { x: c.x + lx * fz + lz * fx, z: c.z - lx * fx + lz * fz };
+  },
+  /* A skirmish base compound: buildings on the FORT slots, a perimeter wall with a gate on every side, fuel, a generator,
+     a radar mast and crates. The command center is the skirmish's objective, added by skirmishDef. */
+  fort(c, rng) {
+    for (const q of FORT.blds) { const p = this.fortAt(c, q[1], q[2]); Bld.make(q[0], p.x, p.z, rng); }
+    for (let k = -FORT.wall + 5; k <= FORT.wall - 5; k += 10) {
+      if (Math.abs(k) < FORT.gate || Math.abs(k) > FORT.corner) continue;
+      for (const side of [-1, 1]) { this.put('barrier', c.x + k, c.z + side * FORT.wall, {}); this.put('barrier', c.x + side * FORT.wall, c.z + k, { swap: true }); }
+    }
+    for (const q of FORT.fuel) { const p = this.fortAt(c, q[0], q[1]); this.put('fuel', p.x, p.z, {}); }
+    const g = this.fortAt(c, FORT.generator[0], FORT.generator[1]), t = this.fortAt(c, FORT.mast[0], FORT.mast[1]);
+    this.put('generator', g.x, g.z, { team: c.team }); this.put('tower', t.x, t.z, { team: c.team });
+    for (let n = 0; n < 4; n++) { const p = this.fortAt(c, FORT.crates[0] + n * 3.2, FORT.crates[1] + (n % 2) * 3.2); this.put('crate', p.x, p.z, {}); }
+  },
+  /* defenders for every base of the layout, spawned on the host only */
+  garrison(lay) {
+    for (const c of lay.bases) {
+      if (c.style === 'fort') { this.fortDefenders(c); continue; }
+      spawnGroup(['turret', 'turret', 'turret', 'aaTurret', 'sniper', 'sniper'], c.x, c.z, { radius: 95 });
+      spawnGroup(['infantry', 'infantry', 'infantry', 'infantry', 'rpgTrooper', 'rpgTrooper', 'tank'], c.x, c.z, { radius: 60 });
+    }
+  },
+  /* a fort's turrets on their slots (allied ones for our base) and its garrison in the yard; garrison units hold the base */
+  fortDefenders(c) {
+    const ours = c.team === 0, out = [];
+    const emplace = (arch, q) => {
+      const p = this.fortAt(c, q[0], q[1]), u = spawnUnit(arch, p.x, p.z, { team: c.team, radius: 3, force: true, yaw: c.face });
+      if (u) { u.garrison = true; out.push(u); }
+    };
+    FORT.guns.slice(0, c.guns).forEach((q) => emplace(ours ? 'allyTurret' : 'turret', q));
+    FORT.aa.slice(0, c.aa).forEach((q) => emplace(ours ? 'allyAA' : 'aaTurret', q));
+    if (c.garrison && c.garrison.length) {
+      const y = this.fortAt(c, FORT.start[0], FORT.start[1]);
+      spawnGroup(c.garrison, y.x, y.z, { team: c.team, radius: 24 }).forEach((u) => { u.garrison = true; out.push(u); });
+    }
+    return out;
   },
 };
 
@@ -6598,6 +6775,13 @@ const Obj = {
       text() { return this.title + ' (' + Math.min(this.need, W.stats.teamKills - this.base) + '/' + this.need + ')'; },
     }, o));
   },
+  guard(o) { // keep a structure standing for the whole battle; losing it fails the objective
+    return makeObjective(Object.assign({
+      tick() { this.progress = sat(this.struct.hp / this.struct.maxHp); if (this.struct.destroyed) this.status = 'failed'; },
+      text() { return this.title + ' | integrity ' + Math.round(sat(this.struct.hp / this.struct.maxHp) * 100) + '%'; },
+      markers() { const s = this.struct; return [{ x: s.x, y: s.y + s.h + 3, z: s.z, label: this.label || s.name, kind: 'defend' }]; },
+    }, o));
+  },
   noDeaths(o) {
     return makeObjective(Object.assign({
       primary: false, status: 'active',
@@ -6949,6 +7133,55 @@ const SKIRMISH_WAVE_DIST = [380, 480];   // waves arrive this far (min, max) fro
 const SKIRMISH_WAVE_MARGIN = 70;         // keep a wave's spawn circle inside the ground bounds
 const SKIRMISH_TOP_RANK_WAVES = 0.75;    // share of the waves that must be cleared for rank A or S
 const SKIRMISH_KILL_SHARE = 0.4;         // share of the hostile kills the player must make for full rank credit
+const SKIRMISH_BASE_GAP = 900;           // our base and the enemy base are at least this far apart (m)
+const SKIRMISH_BASE_RING = [500, 600];   // base centres sit this far from the map centre (m)
+const SKIRMISH_BASE_SWING = 0.45;        // the enemy base swings up to this far (rad) off the bearing opposite ours
+const SKIRMISH_FIELD = 640;              // base centres stay inside +-this; the ground rises steeply past 760 m
+const SKIRMISH_LAYOUT_TRIES = 16;        // seeded attempts at a base pair before the fixed fallback
+const SKIRMISH_LAYOUT_SALT = 0x5bd1e995; // the layout draws from its own stream, so a seed's waves stay as they were
+const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far to one side of it (m), nearer if the edge is close
+const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
+const SKIRMISH_FORT = { recruit: { guns: 4, aa: 2 }, veteran: { guns: 5, aa: 2 }, elite: { guns: 6, aa: 3 } };   // enemy base defences
+const SKIRMISH_OWN_FORT = { guns: 4, aa: 2 };   // our base's allied turrets
+const SKIRMISH_GARRISON = { recruit: ['infantry', 'infantry', 'rpgTrooper', 'tank'], veteran: ['infantry', 'infantry', 'rpgTrooper', 'sniper', 'tank'], elite: ['infantry', 'rpgTrooper', 'rpgTrooper', 'sniper', 'tank', 'medMech'] };
+const SKIRMISH_WAVE_CLEAR = 300;         // a wave forms at the enemy gate unless a human is this close to it (then it arrives near the player)
+const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, else push on to our command center (m)
+/* Seeded battle layout: our base and the enemy base on roughly opposite sides of the map, a district beside each and a
+   mega-district off the line between them. Bases face each other; the player starts in the yard of ours. */
+function skirmishLayout(cfg) {
+  const rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
+  const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
+  let own = null, foe = null;
+  for (let k = 0; k < SKIRMISH_LAYOUT_TRIES && !foe; k++) {
+    const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
+    const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
+    const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1 }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2 };
+    if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP) { own = o; foe = e; }
+  }
+  if (!foe) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }   // never needed with the constants above
+  const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
+  const ownBase = { x: own.x, z: own.z, r: FORT.r, style: 'fort', team: 0, face, guns: SKIRMISH_OWN_FORT.guns, aa: SKIRMISH_OWN_FORT.aa, garrison: [] };
+  const foeBase = { x: foe.x, z: foe.z, r: FORT.r, style: 'fort', team: 1, face: face + PI, guns: diff.guns, aa: diff.aa, garrison: SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran };
+  const lay = { cities: [], bases: [ownBase, foeBase] };
+  const st = Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]);
+  const start = { x: st.x, z: st.z, yaw: face };
+  const sites = [{ x: start.x, z: start.z, r: 34, tag: 'pad' }];
+  // the mega-district first (it needs the most room), then one district beside each base
+  const mx = (own.x + foe.x) / 2, mz = (own.z + foe.z) / 2, px = Math.cos(face), pz = -Math.sin(face);   // (px, pz) is square to the line
+  const side = rng() < 0.5 ? 1 : -1, shift = lerp(SKIRMISH_MEGA_SHIFT[0], SKIRMISH_MEGA_SHIFT[1], rng());
+  for (const k of [shift * side, -shift * side, 0]) {
+    const c = { x: mx + px * k, z: mz + pz * k, r: SCENERY_MEGA_R, kind: 'mega' };
+    if (Scenery.clearSpot(c, sites, null, lay)) { lay.cities.push(c); break; }
+  }
+  for (const b of [ownBase, foeBase]) {
+    const bs = rng() < 0.5 ? 1 : -1;
+    for (const k of [SKIRMISH_DISTRICT_SIDE[0] * bs, -SKIRMISH_DISTRICT_SIDE[0] * bs, SKIRMISH_DISTRICT_SIDE[1] * bs, -SKIRMISH_DISTRICT_SIDE[1] * bs]) {
+      const c = { x: b.x + px * k, z: b.z + pz * k, r: SCENERY_DISTRICT_R, kind: 'district' };
+      if (Scenery.clearSpot(c, sites, null, lay)) { lay.cities.push(c); break; }
+    }
+  }
+  return { lay, start, sites, own: ownBase, foe: foeBase };
+}
 /* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
 function rollSkirmishSeed(sk) {
   if (sk.random) sk.seed = 1 + Math.floor(Math.random() * SKIRMISH_SEEDS);
@@ -6978,7 +7211,7 @@ function betterSkirmish(prev, waves, score, diff, won) {
 }
 function skirmishDef(cfg) {
   const sz = SKIRMISH_SIZES[cfg.size], rng = makeRng(cfg.seed);
-  const start = { x: -560, z: -620, yaw: 0.8 };
+  const layout = skirmishLayout(cfg), start = layout.start, own = layout.own, foe = layout.foe;
   const types = ['infantry', 'buggy', 'rpgTrooper', 'tank', 'lightMech', 'medMech', 'heavyMech', 'jet', 'gunship'];
   const waves = [];
   for (let w = 0; w < sz.waves; w++) {
@@ -6998,8 +7231,9 @@ function skirmishDef(cfg) {
   let interval = { low: 80, normal: 55, high: 36 }[cfg.reinforce];
   // squeeze the schedule so every wave arrives with time left to fight it
   if (limit && waves.length > 1) interval = Math.min(interval, (limit * SKIRMISH_LAST_WAVE - SKIRMISH_FIRST_WAVE) / (waves.length - 1));
-  let ob = null;
-  const cleared = () => (ob ? ob.waves.filter((l) => l.every((u) => u.dead)).length : 0);
+  let ob = null, ownHq = null, foeHq = null;
+  // waves cleared; once the enemy command center falls, the waves it never sent count as cleared too
+  const cleared = () => (ob ? ob.waves.filter((l) => l.every((u) => u.dead)).length + (foeHq && foeHq.destroyed ? waves.length - ob.waves.length : 0) : 0);
   // the player's own part in the fight: their kills against a fair share of every hostile destroyed
   const ownShare = () => (ob ? clamp(W.stats.kills / Math.max(1, ob.units.filter((u) => u.dead).length * SKIRMISH_KILL_SHARE), 0, 1) : 0);
   return {
@@ -7007,32 +7241,46 @@ function skirmishDef(cfg) {
     timeUpWins: true,                                   // holding out until the clock runs out is a victory
     wavesCleared: cleared, rankProgress: () => cleared() / waves.length * ownShare(),   // ranked by waves cleared and own kills, not speed
     rankCap: () => (W.stats.kills === 0 ? 'C' : cleared() / waves.length < SKIRMISH_TOP_RANK_WAVES ? 'B' : 'S'),   // no hiding behind allies or the clock
-    sites: [{ x: start.x, z: start.z, r: 34, tag: 'pad' }, { x: 80, z: 60, r: 70, tag: 'obj' }, { x: 400, z: -200, r: 60, tag: 'obj' }, { x: -300, z: 380, r: 60, tag: 'obj' }],
+    sites: layout.sites, layout: layout.lay,             // the bases and districts come in through Scenery.layoutFor
     build(ctx) {
       const m = ctx.m;
-      const total = waves.reduce((a, w) => a + w.list.length, 0);
+      W.bases = { own: { x: own.x, z: own.z }, enemy: { x: foe.x, z: foe.z } };   // read by superweapons (SW.home); built on co-op guests too
+      const oh = Scenery.fortAt(own, FORT.hq[0], FORT.hq[1]), fh = Scenery.fortAt(foe, FORT.hq[0], FORT.hq[1]);
+      ownHq = objStruct('command', oh.x, oh.z, 'Command Center', 0);
+      foeHq = objStruct('command', fh.x, fh.z, 'Enemy Command', 1, { hpMult: W.diff.hp });
+      // any of three ways wins: every wave beaten, the enemy command center down, or the clock run out (timeUpWins)
       ob = m.add(Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], waves: [], status: 'active',
         tick() { const alive = this.units.filter((u) => !u.dead).length; this.progress = this.spawnedAll ? 1 - alive / Math.max(1, this.units.length) : 0; if (this.spawnedAll && alive === 0) this.status = 'complete'; },
-        text() { return this.title + ' (wave ' + Math.min(this.waveNo, waves.length) + '/' + waves.length + ', ' + this.units.filter((u) => !u.dead).length + ' hostile)'; }, waveNo: 0, spawnedAll: false }));
-      void total;
+        text() { return this.title + ' (wave ' + Math.min(this.waveNo, waves.length) + '/' + waves.length + ', ' + this.units.filter((u) => !u.dead).length + ' hostile)'; }, waveNo: 0, spawnedAll: false,
+        onComplete(mm) { mm.end(true, 'Every wave defeated'); } }));
+      m.add(Obj.destroy({ id: 'hq', title: 'Destroy the enemy command center', structs: [foeHq], status: 'active', label: 'ENEMY HQ', onComplete(mm) { mm.end(true, 'Enemy command center destroyed'); } }));
+      m.add(Obj.guard({ id: 'base', title: 'Protect your command center', struct: ownHq, status: 'active', label: 'HQ' }));
       const supportList = { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
+      const humans = () => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
+      // where a wave unit heads: a human close by, else our command center
+      const waveGoal = (u) => {
+        let best = null, bestD = SKIRMISH_WAVE_HUNT;
+        for (const h of humans()) { const d = Math.hypot(h.x - u.x, h.z - u.z); if (d < bestD) { best = h; bestD = d; } }
+        return best ? { x: best.x, z: best.z } : { x: ownHq.x, z: ownHq.z };
+      };
       let idx = 0;
       const spawnWave = () => {
         if (idx >= waves.length) return;
-        const w = waves[idx], pos = skirmishWavePos(W.player || start, w.ang, w.dist);
-        const us = spawnGroup(w.list, pos.x, pos.z, { radius: 70, minPlayerDist: 220 });
+        // a wave forms at the enemy gate and marches on our base; with a human at the gate it arrives the old way instead
+        const w = waves[idx], gate = Scenery.fortAt(foe, FORT.rally[0], FORT.rally[1]);
+        const pos = humans().some((h) => Math.hypot(h.x - gate.x, h.z - gate.z) < SKIRMISH_WAVE_CLEAR) ? skirmishWavePos(W.player || start, w.ang, w.dist) : gate;
+        const us = spawnGroup(w.list, pos.x, pos.z, { radius: 50, minPlayerDist: 220 });
         ob.waves.push(us);
-        us.forEach((u) => { ob.units.push(u); if (u.ai && u.kind !== 'air') u.ai.goal = { x: W.player ? W.player.x : 0, z: W.player ? W.player.z : 0 }; });
+        us.forEach((u) => { ob.units.push(u); if (u.ai) { u.ai.assault = ownHq; if (u.kind !== 'air') u.ai.goal = waveGoal(u); } });
         idx++; ob.waveNo = idx;
         W.msg('WAVE ' + idx + ' OF ' + waves.length + ' INBOUND', 'alarm');
         if (idx >= waves.length) ob.spawnedAll = true;
       };
       m.at(SKIRMISH_FIRST_WAVE, spawnWave);
       m.every(interval, () => spawnWave(), interval + SKIRMISH_FIRST_WAVE);
-      m.every(4, () => { // enemies without a target head for the player
-        if (!W.player || W.player.dead) return;
-        for (const p of W.platforms) if (p.team === 1 && p.ai && p.arch && p.ai.goal !== undefined && !p.ai.target && p.kind !== 'air') p.ai.goal = { x: W.player.x, z: W.player.z };
+      m.every(4, () => { // attackers without a target push on (base garrisons and turrets hold their ground)
+        for (const p of W.platforms) if (p.team === 1 && p.ai && p.arch && !p.garrison && !p.dead && !p.ai.target && p.kind !== 'air') p.ai.goal = waveGoal(p);
       }, 8);
       m.every(2, () => { // next wave early if the field is nearly clear
         const alive = ob.units.filter((u) => !u.dead).length;
@@ -7338,7 +7586,8 @@ const Game = {
     let seed = 7;
     for (let i = 0; i < def.id.length; i++) seed = (seed * 31 + def.id.charCodeAt(i)) >>> 0;
     if (sk) seed = sk.seed;
-    newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(def.map)), difficulty: cfg.difficulty || S.difficulty, mods, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
+    const lay = Scenery.layoutFor(def, cfg.mode === 'mission');   // the same on co-op guests: it depends on the mission only
+    newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(lay)), difficulty: cfg.difficulty || S.difficulty, mods, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
@@ -7348,14 +7597,14 @@ const Game = {
     W.mods = mods;
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
-    populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(def.map, seed), sceneryKeep: Scenery.keepOutFor(def.map), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
+    populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(lay, seed, def.map, destr[0]), sceneryKeep: Scenery.keepOutFor(lay), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
     W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
     else {
       this.spawnPlayer();
       if (cfg.coop && Net.host) Net.sessionBegin();
-      if (cfg.mode !== 'training') this.mission.later.push(() => Scenery.garrison(def.map));
+      if (cfg.mode !== 'training') this.mission.later.push(() => Scenery.garrison(lay));
       this.mission.later.forEach((fn) => fn());
     }
     W.stats.score = 0;
@@ -8523,7 +8772,7 @@ const UI = {
     const sel = (key, label, opts) => '<label class="f"><span>' + label + '</span><select data-skirm="' + key + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (String(s[key]) === String(o[0]) ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
     const chk = (key, label) => '<label class="f"><span>' + label + '</span><input type="checkbox" data-skirm="' + key + '"' + (s[key] ? ' checked' : '') + '></label>';
     const best = Save.data.skirmishBest[s.map + '-' + s.size];
-    return '<h2>Skirmish</h2><div class="panel">Fight scheduled enemy waves on a battlefield of your choice. Hold out until the time limit to win. A random battle draws new waves each time; untick it to replay the last one.' +
+    return '<h2>Skirmish</h2><div class="panel">Your base and the enemy base stand on opposite sides of a battlefield of your choice, each with a command center and turrets. Enemy waves march out of their base toward yours. Win by destroying the enemy command center, beating every wave or holding out until the time limit; lose your own command center and the battle is lost. A random battle draws new bases and waves each time; untick it to replay the last one.' +
       '<div class="dim">Best here: ' + (best ? best.waves + ' waves cleared, score ' + best.score + (best.diff ? ' (' + DIFFICULTY[best.diff].name + ')' : '') + (best.won ? '' : ', battle lost') : 'none yet') + '</div></div>' +
       '<div class="grid2"><div class="panel">' +
       sel('map', 'Battlefield', Object.keys(MAPS).map((k) => [k, MAPS[k].name])) +
@@ -9495,6 +9744,85 @@ const SelfTest = {
     /* SELFTEST PART C BEGIN */
     /* SELFTEST PART C END */
     /* SELFTEST PART X BEGIN */
+    t('skirmish bases and districts', () => {
+      // seeded layouts: bases far apart and inside the field, districts clear of the bases and the edge
+      let farOk = true, fieldOk = true, cityOk = true, startOk = true, full = 0, worst = '';
+      const n = 300, sep = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+      for (let seed = 1; seed <= n; seed++) {
+        const cfg = Object.assign({}, SKIRMISH_DEFAULT, { seed, map: Object.keys(MAPS)[seed % 3], difficulty: Object.keys(DIFFICULTY)[seed % 3] });
+        const L = skirmishLayout(cfg), o = L.own, e = L.foe;
+        if (sep(o, e) < SKIRMISH_BASE_GAP) { farOk = false; worst = seed + ': ' + Math.round(sep(o, e)) + ' m'; }
+        if ([o, e].some((b) => Math.abs(b.x) > SKIRMISH_FIELD || Math.abs(b.z) > SKIRMISH_FIELD)) fieldOk = false;
+        if (sep(L.start, o) > FORT.r) startOk = false;
+        if (L.lay.cities.some((c) => Math.abs(c.x) > SCENERY_EDGE - c.r || Math.abs(c.z) > SCENERY_EDGE - c.r || [o, e].some((b) => sep(c, b) < c.r + b.r) || sep(c, L.start) < c.r + 34)) cityOk = false;
+        if (L.lay.cities.length === 3) full++;
+      }
+      this.check('skirmish bases are at least ' + SKIRMISH_BASE_GAP + ' m apart for every seed', farOk, worst);
+      this.check('skirmish bases stay inside the battlefield', fieldOk);
+      this.check('the player starts inside our base', startOk);
+      this.check('skirmish districts keep clear of the bases, the pad and the edge', cityOk);
+      this.check('almost every battle gets its mega-district and both base districts', full >= n * 0.95, full + ' of ' + n);
+      // story missions: a district near the start that keeps clear of objective sites, pads and corridors
+      for (const def of MISSIONS) {
+        const lay = Scenery.layoutFor(def, true), d = lay.cities.find((c) => c.kind === 'district');
+        this.check('mission ' + def.id + ' has a district near its start', !!d && sep(d, def.start) <= SCENERY_DISTRICT_DIST[SCENERY_DISTRICT_DIST.length - 1] + 1);
+        if (d) this.check('mission ' + def.id + ' district keeps clear of sites and corridors', def.sites.every((s) => sep(d, s) >= s.r + d.r + SCENERY_SITE_GAP) && (def.corridors || []).every((c) => segDist(d.x, d.z, c) >= c.w + d.r));
+      }
+      // a real battle: both command centers, turrets on both sides, nothing built on top of anything else
+      const keepDiff = S.difficulty;
+      const skCfg = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'elite', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { seed, random: false, difficulty: 'elite', size: 'small', support: 'none' }) });
+      try {
+        for (const seed of [11, 5150]) {
+          Game.startSession(skCfg(seed));
+          const L = skirmishLayout(skCfg(seed).skirmish), m = W.mission;
+          this.check('battle ' + seed + ': W.bases holds both bases', !!W.bases && sep(W.bases.own, L.own) < 1e-6 && sep(W.bases.enemy, L.foe) < 1e-6);
+          const hqs = W.structs.filter((s) => s.type === 'command');
+          const ownHq = hqs.find((s) => s.team === 0), foeHq = hqs.find((s) => s.team === 1);
+          this.check('battle ' + seed + ': both command centers exist as objectives', hqs.length === 2 && !!ownHq && !!foeHq && hqs.every((s) => s.objective) && sep(ownHq, L.own) < FORT.r && sep(foeHq, L.foe) < FORT.r);
+          this.check('battle ' + seed + ': the objectives name both command centers', m.get('hq').structs[0] === foeHq && m.get('base').struct === ownHq && m.get('hq').markers().length === 1 && m.get('base').markers().length === 1);
+          this.check('battle ' + seed + ': the player and the pad are at our base', sep(W.player, L.own) < FORT.r && sep(W.pads[0], L.own) < FORT.r);
+          const near = (b, arch) => W.platforms.filter((p) => p.arch === arch && !p.dead && sep(p, b) < FORT.r);
+          const ownT = near(L.own, 'allyTurret').concat(near(L.own, 'allyAA')), foeGuns = near(L.foe, 'turret'), foeAA = near(L.foe, 'aaTurret');
+          this.check('battle ' + seed + ': our base has 4 friendly gun turrets and 2 AA, all team 0', near(L.own, 'allyTurret').length === 4 && near(L.own, 'allyAA').length === 2 && ownT.every((p) => p.team === 0));
+          this.check('battle ' + seed + ': the enemy base has its turrets and garrison (elite)', foeGuns.length === SKIRMISH_FORT.elite.guns && foeAA.length === SKIRMISH_FORT.elite.aa && foeGuns.concat(foeAA).every((p) => p.team === 1) && W.platforms.some((p) => p.garrison && p.team === 1 && p.def.speed > 0));
+          // footprints: buildings, command centers and the start yard never overlap
+          const boxes = W.buildings.map((b) => ({ x0: b.ox, z0: b.oz, x1: b.bx1, z1: b.bz1, n: b.name })).concat(hqs.map((s) => ({ x0: s.x - s.hx, z0: s.z - s.hz, x1: s.x + s.hx, z1: s.z + s.hz, n: s.name })));
+          let clash = '';
+          for (let i = 0; i < boxes.length && !clash; i++) {
+            const a = boxes[i];
+            if (Math.max(a.x0 - W.player.x, 0, W.player.x - a.x1) < 1 && Math.max(a.z0 - W.player.z, 0, W.player.z - a.z1) < 1) clash = a.n + ' on the start';
+            for (let k = i + 1; k < boxes.length && !clash; k++) { const b = boxes[k]; if (a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1) clash = a.n + ' / ' + b.n; }
+          }
+          this.check('battle ' + seed + ': no building stands on another, a command center or the start', !clash, clash);
+          const pieces = W.structs.filter((s) => s.bld).length;
+          this.check('battle ' + seed + ': building pieces stay within budget', pieces < 20000, pieces + ' pieces');
+        }
+        // the first wave forms at the enemy gate and marches on our command center
+        Game.startSession(skCfg(11));
+        const L = skirmishLayout(skCfg(11).skirmish), m = W.mission;
+        for (let i = 0; i < 60 * (SKIRMISH_FIRST_WAVE + 0.5); i++) Game.tick(STEP);
+        const wave = m.get('all').units, ownHq = m.get('base').struct;
+        this.check('the first wave leaves the enemy base', wave.length > 0 && wave.every((u) => sep(u, L.foe) < sep(u, L.own)), wave.length + ' units');
+        this.check('wave units push on to our command center', wave.every((u) => u.ai.assault === ownHq) && wave.filter((u) => u.kind !== 'air').every((u) => !!u.ai.goal));
+        // co-op guests build the same world from the same seed
+        const structsHost = W.structs.length, bldHost = W.buildings.map((b) => b.tpl + Math.round(b.cx) + ',' + Math.round(b.cz)).join('|');
+        Game.startSession(skCfg(11), true);
+        this.check('a co-op guest builds the same battlefield', W.structs.length === structsHost && W.buildings.map((b) => b.tpl + Math.round(b.cx) + ',' + Math.round(b.cz)).join('|') === bldHost && !!W.bases);
+        // destroying the enemy command center wins; losing ours loses
+        Game.startSession(skCfg(11));
+        destroyStruct(W.mission.get('hq').structs[0], W.player);
+        for (let i = 0; i < 5; i++) Game.tick(STEP);
+        this.check('destroying the enemy command center wins the battle', W.mission.state === 'won', W.mission.state + ' ' + W.mission.failReason);
+        this.check('waves the fallen base never sent count as cleared', W.mission.def.wavesCleared() === W.mission.def.waveCount);
+        Game.startSession(skCfg(11));
+        destroyStruct(W.mission.get('base').struct, null);
+        for (let i = 0; i < 5; i++) Game.tick(STEP);
+        this.check('losing our command center loses the battle', W.mission.state === 'lost', W.mission.state);
+        Game.startSession(skCfg(11));
+        damageStruct(W.mission.get('base').struct, 1e6, 'explosive', W.player, 1);
+        this.check('our own fire never wears down our command center', !W.mission.get('base').struct.destroyed);
+      } finally { S.difficulty = keepDiff; Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
