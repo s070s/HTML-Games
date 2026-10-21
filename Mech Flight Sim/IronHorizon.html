@@ -5996,7 +5996,7 @@ const SW = {
 /* SUPER PART LEAD BEGIN: the six starter superweapons, written by the lead as examples */
 SW.munition('swShell', { name: 'Barrage Shell', dmg: 150, blast: 9, speed: 260, life: 6, structMult: 2.2, tracer: [1, 0.75, 0.35], size: 1.6, sound: 'mortar' });
 SW.munition('swPenetrator', { name: 'Penetrator', dmg: 900, blast: 24, speed: 520, life: 4, structMult: 3, tracer: [1, 0.9, 0.7], size: 2.4, sound: 'rail',
-  onDetonate(p, x, y, z) { addDecal(x, z, 26, [0.08, 0.07, 0.06], 120); shakeFrom(x, y, z, 0.9, 400); for (let i = 0; i < 4; i++) spawnDebris(x, y + 2, z, 6, 1.2, 30); } });
+  onDetonate(p, x, y, z) { addDecal(x, z, 26, [0.08, 0.07, 0.06], 120); shakeFrom(x, y, z, 0.9, 400); for (let i = 0; i < 4; i++) spawnDebris(x, y + 2, z, 6, null, 30); } });
 defineSuper('orbitalLance', {
   n: 1, name: 'Orbital Lance', tier: 1, aim: 'point', unlock: 'start', desc: 'A satellite laser marks the point, then burns a 15 m column for 3 s.',
   fire(ctx, sw) {
