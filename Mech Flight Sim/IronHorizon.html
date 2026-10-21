@@ -60,12 +60,22 @@ kbd{background:#0d1620;border:1px solid var(--line);border-bottom-width:2px;padd
 .big{font-size:2.4em;letter-spacing:.2em;font-weight:800}
 .rankS{color:#ffd24d}.rankA{color:#8fe388}.rankB{color:#7fd0ff}.rankC{color:#c9c9c9}.rankF{color:var(--bad)}
 .hint{color:var(--dim);font-size:.85em;margin-top:1em;letter-spacing:.08em}
+#touch{position:absolute;inset:0;display:none;touch-action:none;-webkit-touch-callout:none}
+#touch.on{display:block}
+.tb{position:absolute;width:50px;height:50px;border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(16,26,36,.26);color:rgba(255,255,255,.72);font:600 10px/47px "Segoe UI",Roboto,sans-serif;text-align:center;letter-spacing:.05em;text-transform:uppercase}
+.tb.big{width:68px;height:68px;line-height:65px;font-size:12px}
+.tb.held{background:rgba(255,176,0,.34);border-color:var(--accent);color:#fff}
+.tb.hide{display:none}
+#tstick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.22);display:none;pointer-events:none}
+#tstick i{position:absolute;left:34px;top:34px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.2)}
+@media (max-height:520px){.screen{padding:.6em .6em}h1{font-size:1.9em}.sub{margin:.2em 0 .7em}#overlay{font-size:calc(13px * var(--ui))}.menu{gap:.35em}.btn{padding:.5em .9em}}
 </style>
 </head>
 <body>
 <div id="app">
   <canvas id="gl"></canvas>
   <canvas id="hud"></canvas>
+  <div id="touch"></div>
   <div id="fade"></div>
   <div id="overlay"></div>
   <div id="toast"></div>
@@ -244,6 +254,9 @@ const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain befor
 const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
 const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a tactical withdrawal
 const WITHDRAW_RANK_WEIGHT = 0.5; // a withdrawal still loses the platform, but counts as half a loss in the rank
+const PLAYER_LIVES = 5;          // platforms (tickets) each player has per mission or skirmish
+const HOSTILE_COUNT = 1.5;       // every hostile group is this much bigger than written (before difficulty and co-op scaling)
+const ALLY_COUNT = 2;            // every allied support group is this much bigger than written
 const RESPAWN_TIME = 6;          // seconds before a lost platform is replaced
 const EJECT_RESPAWN = 2;         // seconds before replacement after a tactical withdrawal
 const DAMAGED_WEAPON_CD = 1.5;   // cooldown multiplier while the weapons subsystem is damaged
@@ -293,7 +306,7 @@ const PLATFORMS = {
     pros: 'Highest mech speed, strong jump jets, quick turning', cons: 'Low armor, small weapon capacity',
     hp: 320, armor: 90, armorRatio: 0.6, energy: 170, energyRegen: 20, heatCap: 100, cooling: 15, mass: 1, weightCap: 30,
     radius: 2.2, height: 8, speed: 26, sensor: 650, stability: 0.6,
-    mech: { accel: 70, decel: 90, turn: 7, torsoRate: 6.5, boostMult: 1.65, boostCost: 22, jetThrust: 72, jetMax: 17, jetCost: 26, meleeDmg: 55 },
+    mech: { accel: 70, decel: 90, turn: 7, torsoRate: 6.5, boostMult: 1.65, boostCost: 22, jetThrust: 74, jetMax: 17, jetCost: 19, meleeDmg: 55 },
     mounts: { primaryA: [2.2, 5.6, 1.5], primaryB: [-2.2, 5.6, 1.5], secondary: [0, 8.2, 0.6] },
     allow: { primary: ['mg', 'laser', 'shotgun', 'acannon'], secondary: ['rockets', 'missile', 'mortar'], utility: ['shield', 'nano'] },
     loadout: { primaryA: 'laser', primaryB: 'shotgun', secondary: 'rockets', utility: 'shield' },
@@ -305,7 +318,7 @@ const PLATFORMS = {
     pros: 'Balanced armor, speed and firepower', cons: 'Master of none; moderate jump range',
     hp: 560, armor: 220, armorRatio: 0.65, energy: 200, energyRegen: 18, heatCap: 130, cooling: 15, mass: 2, weightCap: 44,
     radius: 2.8, height: 10, speed: 18, sensor: 600, stability: 1,
-    mech: { accel: 50, decel: 70, turn: 5, torsoRate: 5, boostMult: 1.55, boostCost: 24, jetThrust: 60, jetMax: 13, jetCost: 30, meleeDmg: 80 },
+    mech: { accel: 50, decel: 70, turn: 5, torsoRate: 5, boostMult: 1.55, boostCost: 24, jetThrust: 64, jetMax: 14, jetCost: 22, meleeDmg: 80 },
     mounts: { primaryA: [3.2, 6.4, 1.8], primaryB: [-3.2, 6.4, 1.8], secondary: [0, 9.8, 0.4] },
     allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling'], secondary: ['rockets', 'missile', 'mortar'], utility: ['shield', 'aps', 'nano'] },
     loadout: { primaryA: 'acannon', primaryB: 'laser', secondary: 'missile', utility: 'shield' },
@@ -317,7 +330,7 @@ const PLATFORMS = {
     pros: 'Massive armor, largest weapon capacity', cons: 'Slow, large target, weak jump jets',
     hp: 950, armor: 420, armorRatio: 0.7, energy: 240, energyRegen: 16, heatCap: 170, cooling: 16, mass: 4, weightCap: 62,
     radius: 3.7, height: 13, speed: 12.5, sensor: 560, stability: 2,
-    mech: { accel: 34, decel: 50, turn: 3.2, torsoRate: 3.6, boostMult: 1.4, boostCost: 26, jetThrust: 44, jetMax: 9, jetCost: 34, meleeDmg: 130 },
+    mech: { accel: 34, decel: 50, turn: 3.2, torsoRate: 3.6, boostMult: 1.4, boostCost: 26, jetThrust: 54, jetMax: 11, jetCost: 25, meleeDmg: 130 },
     mounts: { primaryA: [4.2, 8, 2.2], primaryB: [-4.2, 8, 2.2], secondary: [0, 12.6, 0.3] },
     allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak'], secondary: ['missile', 'rockets', 'mortar', 'aam'], utility: ['shield', 'aps', 'nano'] },
     loadout: { primaryA: 'gatling', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
@@ -329,7 +342,7 @@ const PLATFORMS = {
     pros: 'Tiny target, slips between buildings, sniper and rocket options', cons: 'Very low hull, no armor to speak of, slow',
     hp: 170, armor: 30, armorRatio: 0.5, energy: 100, energyRegen: 14, heatCap: 90, cooling: 12, mass: 0.4, weightCap: 15,
     radius: 0.7, height: 1.8, speed: 10, sensor: 450, stability: 0.4,
-    mech: { accel: 40, decel: 60, turn: 9, torsoRate: 9, boostMult: 1.7, boostCost: 18, jetThrust: 0, jetMax: 6, jetCost: 8, meleeDmg: 35 },
+    mech: { accel: 40, decel: 60, turn: 9, torsoRate: 9, boostMult: 1.7, boostCost: 18, jetThrust: 56, jetMax: 10, jetCost: 11, meleeDmg: 35 },
     mounts: { primaryA: [0.2, 1.4, 0.5], primaryB: [-0.2, 1.4, 0.5], secondary: [-0.3, 1.65, 0.2] },
     allow: { primary: ['rifle', 'smg', 'sniper', 'mg'], secondary: ['rpg', 'grenade'], utility: ['nano'] },
     loadout: { primaryA: 'rifle', primaryB: 'smg', secondary: 'grenade', utility: 'nano' },
@@ -446,17 +459,18 @@ const ARCH = {
   allyJet: { def: 'shrike', ai: 'fighter', label: 'Ally Jet', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'aam', utility: 'flares' }, score: 0 },
 };
 
-/* ---------- difficulty ---------- */
+/* ---------- difficulty ----------
+   focus: AI target preference for human players (distance factor; below 1 draws fire to them, above 1 spreads it to allies) */
 const DIFFICULTY = {
-  recruit: { name: 'Recruit', scoreMult: 0.8, react: 0.9, aimErr: 0.04, dmg: 0.7, sight: 0.8, count: 0.75, aggr: 0.6, tactical: 0, hp: 0.9, burst: 0.7 },
-  veteran: { name: 'Veteran', scoreMult: 1, react: 0.5, aimErr: 0.016, dmg: 1.0, sight: 1.0, count: 1.0, aggr: 1.0, tactical: 0.5, hp: 1.0, burst: 1.0 },
-  elite: { name: 'Elite', scoreMult: 1.35, react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3 },
+  recruit: { name: 'Recruit', scoreMult: 0.8, react: 1.3, aimErr: 0.075, dmg: 0.4, sight: 0.65, count: 0.75, aggr: 0.45, tactical: 0, hp: 0.7, burst: 0.55, focus: 1.25 },
+  veteran: { name: 'Veteran', scoreMult: 1, react: 0.7, aimErr: 0.028, dmg: 0.75, sight: 0.9, count: 1.0, aggr: 0.85, tactical: 0.5, hp: 0.9, burst: 0.85, focus: 1 },
+  elite: { name: 'Elite', scoreMult: 1.35, react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3, focus: 0.8 },
 };
 
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 70, shadows: false },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 110, shadows: true },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 170, shadows: true },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -524,7 +538,15 @@ const PAD_LABELS = {
   interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
+/* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind. */
+const TOUCH_LABELS = {
+  fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', melee: 'MELEE', cycleTarget: 'TGT',
+  jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'RADAR' : 'CROUCH'),
+  interact: 'USE', reload: 'RLD', gear: 'GEAR', eject: 'EJECT', weapon1: 'WPN', weapon2: 'WPN', pause: 'II',
+};
 function actionLabel(action) {
+  const touch = TouchControls.enabled && TOUCH_LABELS[action];
+  if (touch) return typeof touch === 'function' ? touch(W && W.player ? W.player.kind : 'mech') : touch;
   if (Input.usingPad && PAD_LABELS[action]) return PAD_LABELS[action];
   return keyLabel(Input.code(action));
 }
@@ -541,9 +563,10 @@ const SETTING_SCHEMA = {
   uiScale: ['num', 0.8, 1.5, 1], reducedMotion: ['bool', false], flightMode: ['enum', ['assisted', 'direct'], 'assisted'],
   flightAssist: ['bool', true], quality: ['enum', ['low', 'medium', 'high'], 'medium'], fov: ['num', 55, 95, 72],
   showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
-  highContrast: ['bool', false], autoTarget: ['bool', true],
+  highContrast: ['bool', false], autoTarget: ['bool', true], aimAssist: ['bool', true],
 };
 const S = {};   // live settings
+const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
 /* the setting that records the tutorial as seen for one platform kind: mechs, ground vehicles and aircraft each teach different controls */
 const tutorialKey = (kind) => (kind === 'air' ? 'tutorialAir' : kind === 'ground' ? 'tutorialGround' : 'tutorialMech');
 const diffKey = (k) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(DIFFICULTY, k) ? k : undefined);   // a saved difficulty id, if valid
@@ -555,6 +578,7 @@ const Save = {
     for (const k in SETTING_SCHEMA) { const sc = SETTING_SCHEMA[k]; settings[k] = sc[0] === 'enum' ? sc[2] : sc[0] === 'bool' ? sc[1] : sc[3]; }
     const bindings = {};
     ACTIONS.forEach((a) => { bindings[a[0]] = a[2]; });
+    if (COARSE_POINTER) settings.quality = 'low';   // phones and tablets: start light, the player can raise it
     return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null };
   },
   sanitize(raw) {
@@ -720,6 +744,7 @@ const Input = {
   up(action) { const c = this.bindings[action]; return !!c && this.released.has(c); },
   endFrame() { this.pressed.clear(); this.released.clear(); this.mdx = 0; this.mdy = 0; this.wheel = 0; },
   requestLock() {
+    if (TouchControls.enabled) { TouchControls.fullscreen(); return; }   // fingers aim on screen: no pointer lock, but the whole screen
     if (!S.pointerLock || !this.lockSupported || this.locked) return;
     this.lockFailed = false;
     try {
@@ -728,8 +753,12 @@ const Input = {
     } catch (e) { this.lockFailed = true; }
   },
   releaseLock() { try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) { /* ignore */ } },
-  /* gamepad: returns a normalised snapshot or null */
+  /* gamepad and on-screen touch controls: returns a normalised snapshot or null */
   pad() {
+    const snap = this.gamepad();
+    return TouchControls.shown ? TouchControls.merge(snap) : snap;
+  },
+  gamepad() {
     let pads = null;
     try { pads = navigator.getGamepads ? navigator.getGamepads() : null; } catch (e) { return null; }
     if (!pads) return null;
@@ -748,6 +777,169 @@ const Input = {
       }
     }
     return null;
+  },
+};
+
+/* Touch controls for phones and tablets, shown only while playing on a touch screen.
+   The left thumb drags a floating move stick wherever it lands on the left side; the right thumb drags
+   anywhere else on the right side to aim (dragging from FIRE or ALT also aims). Buttons hold like gamepad
+   buttons and are merged into Input.pad(), so every control path stays the same. BOOST latches on until
+   the stick is let go. Touching with a mouse again hides them. */
+const TOUCH_STICK_RADIUS = 56;     // px the stick knob travels for full speed
+const TOUCH_STICK_DEAD = 0.12;     // stick share ignored around the centre
+const TOUCH_LOOK_GAIN = 2.4;       // a finger drag turns this many times faster than the same mouse move
+const TOUCH_STICK_SIDE = 0.42;     // left share of the screen where a touch becomes the move stick
+const TOUCH_HUD_RESERVE = 236;     // CSS px on the right that the button cluster covers; HUD panels move left of it
+/* name: snapshot field; label: text (a function of the platform kind when it changes); pos: CSS placement;
+   look: dragging from it also aims; latch: tap toggles; show: platform kinds or 'pad' (near a supply pad) */
+const TOUCH_BUTTONS = [
+  { name: 'fire1', label: 'FIRE', pos: 'right:24px;bottom:34px', big: true, look: true },
+  { name: 'fire2', label: 'ALT', pos: 'right:104px;bottom:22px', look: true },
+  { name: 'jump', label: TOUCH_LABELS.jump, pos: 'right:30px;bottom:118px' },
+  { name: 'defense', label: 'DEF', pos: 'right:92px;bottom:88px' },
+  { name: 'boost', label: 'BOOST', pos: 'right:162px;bottom:56px', latch: true },
+  { name: 'reload', label: 'RLD', pos: 'right:178px;bottom:4px' },
+  { name: 'next', label: 'WPN', pos: 'right:30px;bottom:184px' },
+  { name: 'cycle', label: 'TGT', pos: 'right:92px;bottom:154px' },
+  { name: 'stance', label: TOUCH_LABELS.stance, pos: 'left:18px;top:42%', show: ['mech', 'air'] },
+  { name: 'melee', label: 'MELEE', pos: 'left:18px;top:calc(42% + 60px)', show: ['mech'] },
+  { name: 'up', label: 'GEAR', pos: 'left:18px;top:calc(42% + 60px)', show: ['air'] },
+  { name: 'down', label: 'EJECT', pos: 'left:18px;top:calc(42% + 120px)', show: ['air'] },
+  { name: 'interact', label: 'USE', pos: 'right:30px;bottom:250px', show: ['pad'] },
+];
+const TouchControls = {
+  enabled: false,    // the last pointer was a finger
+  shown: false,      // the overlay is on screen (playing on a touch screen)
+  root: null, stickEl: null, knobEl: null, buttons: [],
+  held: {}, latched: {}, fingers: new Map(),   // finger id -> { kind: 'stick' | 'look' | 'button', button, x, y, ox, oy }
+  lx: 0, ly: 0, layout: '',
+  init() {
+    this.root = el('touch');
+    if (!this.root) return;
+    this.stickEl = document.createElement('div'); this.stickEl.id = 'tstick';
+    this.knobEl = document.createElement('i'); this.stickEl.appendChild(this.knobEl);
+    this.root.appendChild(this.stickEl);
+    for (const def of TOUCH_BUTTONS) {
+      const b = document.createElement('div');
+      b.className = 'tb' + (def.big ? ' big' : ''); b.style.cssText = def.pos; b.dataset.tb = def.name;
+      this.root.appendChild(b);
+      this.buttons.push({ def, el: b });
+    }
+    const pause = document.createElement('div');
+    pause.className = 'tb'; pause.style.cssText = 'left:calc(50% - 25px);top:6px;width:44px;height:44px;line-height:41px'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
+    this.root.appendChild(pause);
+    // the device kind is decided by the last pointer used: a finger shows the controls, a mouse hides them
+    window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType === 'touch'; }, true);
+    if (COARSE_POINTER) this.enabled = true;
+    const opts = { passive: false };
+    this.root.addEventListener('touchstart', (e) => this.onStart(e), opts);
+    this.root.addEventListener('touchmove', (e) => this.onMove(e), opts);
+    this.root.addEventListener('touchend', (e) => this.onEnd(e), opts);
+    this.root.addEventListener('touchcancel', (e) => this.onEnd(e), opts);
+  },
+  onStart(e) {
+    e.preventDefault();   // no emulated mouse clicks, scrolling or zoom
+    for (const t of e.changedTouches) {
+      const target = document.elementFromPoint(t.clientX, t.clientY), name = target && target.dataset ? target.dataset.tb : undefined;
+      if (name === 'pause') { if (Game.state === 'playing' && !Game.netPaused) Game.pause(); continue; }
+      const f = { kind: 'look', button: null, x: t.clientX, y: t.clientY, ox: t.clientX, oy: t.clientY };
+      if (name) {
+        f.kind = 'button'; f.button = TOUCH_BUTTONS.find((d) => d.name === name);
+        if (f.button.latch) this.latched[name] = !this.latched[name];
+        else this.held[name] = true;
+      } else if (t.clientX < window.innerWidth * TOUCH_STICK_SIDE) {
+        f.kind = 'stick';
+        this.stickEl.style.display = 'block'; this.stickEl.style.left = t.clientX + 'px'; this.stickEl.style.top = t.clientY + 'px';
+        this.knobEl.style.transform = '';
+      }
+      this.fingers.set(t.identifier, f);
+    }
+    this.paint();
+  },
+  onMove(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const f = this.fingers.get(t.identifier);
+      if (!f) continue;
+      const dx = t.clientX - f.x, dy = t.clientY - f.y;
+      f.x = t.clientX; f.y = t.clientY;
+      if (f.kind === 'stick') { this.moveStick(f); continue; }
+      if (f.kind === 'look' || f.button.look) { Input.mdx += dx * TOUCH_LOOK_GAIN; Input.mdy += dy * TOUCH_LOOK_GAIN; }
+    }
+  },
+  onEnd(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const f = this.fingers.get(t.identifier);
+      if (!f) continue;
+      this.fingers.delete(t.identifier);
+      if (f.kind === 'stick') this.releaseStick();
+      else if (f.kind === 'button' && !f.button.latch) this.held[f.button.name] = this.fingerHolds(f.button.name);
+    }
+    this.paint();
+  },
+  /* another finger may still hold the same button */
+  fingerHolds(name) {
+    for (const f of this.fingers.values()) if (f.kind === 'button' && f.button.name === name) return true;
+    return false;
+  },
+  moveStick(f) {
+    let x = (f.x - f.ox) / TOUCH_STICK_RADIUS, y = (f.y - f.oy) / TOUCH_STICK_RADIUS;
+    const len = Math.hypot(x, y);
+    if (len > 1) { x /= len; y /= len; }
+    this.knobEl.style.transform = 'translate(' + Math.round(x * TOUCH_STICK_RADIUS) + 'px,' + Math.round(y * TOUCH_STICK_RADIUS) + 'px)';
+    const dead = (v) => (Math.abs(v) < TOUCH_STICK_DEAD ? 0 : v);
+    this.lx = dead(x); this.ly = dead(y);
+  },
+  releaseStick() {
+    this.lx = this.ly = 0;
+    this.stickEl.style.display = 'none';
+    if (this.latched.boost) { this.latched.boost = false; this.paint(); }   // boost ends when the player stops moving
+  },
+  /* forget every finger, e.g. when the game pauses and touch-ends may never arrive */
+  reset() {
+    this.fingers.clear(); this.held = {}; this.latched = {};
+    this.lx = this.ly = 0;
+    if (this.stickEl) this.stickEl.style.display = 'none';
+    this.paint();
+  },
+  paint() {
+    for (const b of this.buttons) b.el.classList.toggle('held', !!(this.held[b.def.name] || this.latched[b.def.name]));
+  },
+  /* gamepad snapshot fields from the touch controls, combined with a real pad if one is connected */
+  merge(pad) {
+    const out = pad ? Object.assign({}, pad) : { lx: 0, ly: 0, rx: 0, ry: 0 };
+    if (this.lx || this.ly) { out.lx = this.lx; out.ly = this.ly; }
+    for (const def of TOUCH_BUTTONS) out[def.name] = !!(out[def.name] || this.held[def.name] || this.latched[def.name]);
+    return out;
+  },
+  /* once per frame: show the controls only while playing on a touch screen, with buttons for the current platform */
+  frame() {
+    if (!this.root) return;
+    const show = this.enabled && Game.state === 'playing' && !Game.netPaused;
+    if (show !== this.shown) {
+      this.shown = show;
+      this.root.classList.toggle('on', show);
+      if (!show) this.reset();
+    }
+    if (!show) return;
+    const p = W && W.player, kind = p ? p.kind : 'mech', nearPad = !!(p && !p.dead && padInRange(p));
+    const layout = kind + (nearPad ? '+pad' : '');
+    if (layout === this.layout) return;
+    this.layout = layout;
+    for (const b of this.buttons) {
+      const def = b.def, visible = !def.show || def.show.includes(kind) || (nearPad && def.show.includes('pad'));
+      b.el.classList.toggle('hide', !visible);
+      b.el.textContent = typeof def.label === 'function' ? def.label(kind) : def.label;
+    }
+  },
+  /* fill the screen and keep it landscape where the browser allows (needs a user gesture) */
+  fullscreen() {
+    const doc = document.documentElement;
+    if (document.fullscreenElement || !doc.requestFullscreen) return;
+    doc.requestFullscreen().then(() => {
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    }).catch(() => {});
   },
 };
 
@@ -931,7 +1123,7 @@ const Snd = {
     s.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
   },
 };
-Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07 };
+Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, footstep: 0.09, gib: 0.08, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07 };
 /* sound recipes: (volume, pan) */
 Snd.R = {
   mg() { this.noise({ dur: 0.07, vol: 0.12 * arguments[0], lp: 3200, lp2: 900, pan: arguments[1] }); this.tone({ freq: 160, freq2: 70, dur: 0.06, vol: 0.06 * arguments[0], type: 'square', pan: arguments[1] }); },
@@ -956,6 +1148,8 @@ Snd.R = {
   jump() { this.noise({ dur: 0.4, vol: 0.2 * arguments[0], lp: 2000, lp2: 600, pan: arguments[1] }); },
   land() { this.noise({ dur: 0.25, vol: 0.3 * arguments[0], lp: 700, lp2: 120, pan: arguments[1] }); },
   step() { this.noise({ dur: 0.12, vol: 0.22 * arguments[0], lp: 400, lp2: 100, pan: arguments[1] }); },
+  gib() { this.noise({ dur: 0.35, vol: 0.4 * arguments[0], lp: 900, lp2: 110, pan: arguments[1] }); this.noise({ dur: 0.18, vol: 0.22 * arguments[0], lp: 2600, lp2: 400, pan: arguments[1], delay: 0.04 }); },
+  footstep() { this.noise({ dur: 0.06, vol: 0.16 * arguments[0], hp: 1100, pan: arguments[1] }); this.noise({ dur: 0.08, vol: 0.12 * arguments[0], lp: 700, lp2: 160, pan: arguments[1] }); },
   melee() { this.noise({ dur: 0.25, vol: 0.35 * arguments[0], lp: 1500, lp2: 200, pan: arguments[1] }); this.tone({ freq: 120, freq2: 50, dur: 0.2, vol: 0.2 * arguments[0], type: 'square', pan: arguments[1] }); },
   alarm() { this.tone({ freq: 880, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui' }); this.tone({ freq: 660, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui', delay: 0.18 }); },
   lock() { this.tone({ freq: 1500, dur: 0.07, vol: 0.1, type: 'square', bus: 'ui' }); },
@@ -1883,6 +2077,7 @@ const Hash = {
 /* ---------- structures ---------- */
 const MATERIAL = {
   concrete: { kinetic: 0.5, explosive: 1.0, energy: 0.7, col: [0.62, 0.61, 0.58] },
+  masonry: { kinetic: 0.45, explosive: 1.6, energy: 0.8, col: [0.6, 0.59, 0.56] },   // building panels: shrug off bullets, crack under blasts
   wood: { kinetic: 1.4, explosive: 1.3, energy: 1.6, col: [0.45, 0.33, 0.2] },
   metal: { kinetic: 0.7, explosive: 1.1, energy: 0.9, col: [0.5, 0.52, 0.55] },
   rock: { kinetic: 0, explosive: 0, energy: 0, col: [0.5, 0.46, 0.4] },
@@ -2071,8 +2266,15 @@ function rayBuildingCells(b, ox, oy, oz, dx, dy, dz, tIn, best) {
   }
   return best;
 }
-/* Casts against terrain, structures and (optionally) platforms. Unit direction expected. */
-function raycast(ox, oy, oz, dx, dy, dz, maxT, ignore, skipPlatforms) {
+/* Hitbox growth (m) for a player's shot at platform e: aim assist makes hostiles easier to hit. */
+function hitPad(owner, e) {
+  if (!owner || !owner.aimAssist || e.team === owner.team || e.team === 2) return 0;
+  return clamp(e.radius * HIT_PAD_SHARE, HIT_PAD_MIN, HIT_PAD_MAX);
+}
+const HIT_PAD_SHARE = 0.35, HIT_PAD_MIN = 0.5, HIT_PAD_MAX = 1.5;
+/* Casts against terrain, structures and (optionally) platforms. Unit direction expected.
+   padOwner: the player whose shot this is, so aim assist grows hostile hitboxes (hitPad). */
+function raycast(ox, oy, oz, dx, dy, dz, maxT, ignore, skipPlatforms, padOwner) {
   let best = maxT, kind = '', obj = null;
   // terrain march
   let t = 0, prevT = 0, prevAbove = oy > Terrain.h(ox, oz);
@@ -2127,8 +2329,9 @@ function raycast(ox, oy, oz, dx, dy, dz, maxT, ignore, skipPlatforms) {
     for (let i = 0; i < pl.length; i++) {
       const p = pl[i];
       if (p === ignore || p.dead) continue;
-      const ry = p.kind === 'air' ? p.radius : p.height * 0.5 + 0.4;
-      const ht = segEllipsoid(ox, oy, oz, dx, dy, dz, best, p.x, p.y + (p.kind === 'air' ? 0 : p.height * 0.5), p.z, p.radius, ry);
+      const pad = padOwner ? hitPad(padOwner, p) : 0;
+      const ry = (p.kind === 'air' ? p.radius : p.height * 0.5 + 0.4) + pad;
+      const ht = segEllipsoid(ox, oy, oz, dx, dy, dz, best, p.x, p.y + (p.kind === 'air' ? 0 : p.height * 0.5), p.z, p.radius + pad, ry);
       if (ht >= 0 && ht < best) { best = ht; kind = 'platform'; obj = p; }
     }
   }
@@ -2178,14 +2381,19 @@ function shakeFrom(x, y, z, amount, range) {
   const f = 1 - clamp(d / range, 0, 1);
   if (f > 0) W.shake = Math.min(1, W.shake + amount * f);
 }
-function spawnDebris(x, y, z, count, s, speed) {
+/* A debris slot: a new one while under the quality cap, else the oldest is recycled. The caller sets every field. */
+function debrisSlot() {
   const cap = (QUALITY[S.quality] || QUALITY.medium).debris;
+  if (W.debris.length < cap) { const d = {}; W.debris.push(d); return d; }
+  const d = W.debris[W.debrisHead % W.debris.length]; W.debrisHead++;
+  return d;
+}
+function spawnDebris(x, y, z, count, s, speed) {
   const col = s && s.mat ? (s.mat === 'wood' && s.type === 'tree' ? Terrain.map.tree : MATERIAL[s.mat].col) : [0.4, 0.4, 0.4];
   const sz = s ? Math.max(0.5, Math.min(s.hx, s.hz) * 0.5) : 0.8;
   for (let i = 0; i < count; i++) {
-    let d;
-    if (W.debris.length >= cap) { d = W.debris[W.debrisHead % cap]; W.debrisHead++; }
-    else { d = {}; W.debris.push(d); }
+    const d = debrisSlot();
+    d.shape = 'box'; d.trail = 0; d.trailT = 0; d.bled = false;
     const a = Math.random() * TAU;
     d.x = x + rand(-1, 1) * (s ? s.hx * 0.5 : 1); d.y = y + rand(-1, 1); d.z = z + rand(-1, 1) * (s ? s.hz * 0.5 : 1);
     const sp = speed * (0.4 + Math.random() * 0.8);
@@ -2208,8 +2416,10 @@ function updateDebris(dt) {
     d.vy -= GRAVITY * dt;
     d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
     d.rx += d.wx * dt; d.ry += d.wy * dt; d.rz += d.wz * dt;
+    if (d.trail) gibTrail(d, dt);
     const gh = Terrain.h(d.x, d.z) + d.sy * 0.4;
     if (d.y < gh) {
+      if (d.trail === GIB_BLOOD && !d.bled) { d.bled = true; addDecal(d.x, d.z, rand(0.5, 0.9), GIB_BLOOD_DECAL, BLOOD_DECAL_LIFE); }
       d.y = gh;
       if (d.vy < -2) { d.vy = -d.vy * 0.3; d.vx *= 0.6; d.vz *= 0.6; d.wx *= 0.5; d.wy *= 0.5; d.wz *= 0.5; } else d.vy = 0;
       d.vx *= 0.85; d.vz *= 0.85;
@@ -2219,6 +2429,119 @@ function updateDebris(dt) {
   // bounded rubble: oldest sleeping pieces are removed first when over cap
   const cap = (QUALITY[S.quality] || QUALITY.medium).debris;
   if (list.length > cap) list.splice(0, list.length - cap);
+}
+
+/* ---------- gibs: platforms shed parts when damaged and break apart when destroyed ----------
+   Gibs are debris pieces (one instanced draw for all of them, bounded by the quality cap), shaped and
+   coloured like the platform's parts. Burning parts trail smoke; soldiers' parts trail blood and leave
+   blood marks where they land. */
+const GIB_SMOKE = 1, GIB_BLOOD = 2;          // debris trail kinds
+const GIB_WEAR_SHARE = 0.18;                 // a machine sheds plates each time it loses this share of its hull
+const GIB_FLESH_SHARE = 0.3;                 // a soldier sheds a chunk each time they lose this share of their hull
+const GIB_BLOOD_COL = [0.42, 0.02, 0.02], GIB_GORE_COL = [0.55, 0.08, 0.07], GIB_SKIN_COL = [0.72, 0.58, 0.48];
+const GIB_WHEEL_COL = [0.1, 0.1, 0.11], GIB_SPARK_COL = [1, 0.75, 0.35];
+const GIB_BLOOD_DECAL = [0.22, 0.01, 0.01], BLOOD_DECAL_LIFE = 30;
+const MAX_DECALS = 48, SCORCH_COL = 0.03;   // ground marks (scorches and blood) alive at once; scorch grey
+/* a ground mark that fades out; the oldest goes when there are too many (col undefined = scorch) */
+function addDecal(x, z, r, col, life) {
+  if (W.scorches.length >= MAX_DECALS) W.scorches.shift();
+  W.scorches.push({ x, y: Terrain.h(x, z) + 0.12, z, r, life, col });
+}
+function gibTrail(d, dt) {
+  d.trailT -= dt;
+  if (d.trailT > 0) return;
+  if (d.trail === GIB_SMOKE) {
+    d.trailT = 0.08;
+    FX.emit(d.x, d.y, d.z, rand(-0.5, 0.5), rand(1, 2), rand(-0.5, 0.5), 1.1, 0.8, 2.6, 0.16, 0.15, 0.14, 0.55, 0.6, -1, false);
+    return;
+  }
+  d.trailT = 0.05;
+  FX.emit(d.x, d.y, d.z, d.vx * 0.2, d.vy * 0.2, d.vz * 0.2, 0.45, 0.22, 0.12, GIB_BLOOD_COL[0], GIB_BLOOD_COL[1], GIB_BLOOD_COL[2], 0.9, 0.5, 14, false);
+}
+/* one gib part at local offset (ox, oy, oz) from src, turned by its yaw, thrown outward at speed sp */
+function gibPart(src, ox, oy, oz, sx, sy, sz, col, shape, trail, sp) {
+  const d = debrisSlot(), c = Math.cos(src.yaw), sn = Math.sin(src.yaw);
+  const wx = ox * c + oz * sn, wz = -ox * sn + oz * c, len = Math.hypot(wx, wz) || 1, a = Math.random() * TAU;
+  d.x = src.x + wx; d.y = src.y + oy; d.z = src.z + wz;
+  d.vx = src.vx * 0.6 + (wx / len * 0.7 + Math.cos(a) * 0.5) * sp;
+  d.vz = src.vz * 0.6 + (wz / len * 0.7 + Math.sin(a) * 0.5) * sp;
+  d.vy = src.vy * 0.4 + sp * rand(0.5, 1.1);
+  d.rx = Math.random() * TAU; d.ry = src.yaw; d.rz = Math.random() * TAU;
+  d.wx = rand(-7, 7); d.wy = rand(-5, 5); d.wz = rand(-7, 7);
+  d.sx = sx; d.sy = sy; d.sz = sz;
+  const sh = rand(0.8, 1.05);
+  d.r = col[0] * sh; d.g = col[1] * sh; d.b = col[2] * sh;
+  d.shape = shape; d.trail = trail; d.trailT = Math.random() * 0.1; d.bled = false;
+  d.life = 12 + Math.random() * 6; d.sleep = false;
+}
+/* blood spray from a hit soldier: particles only */
+function bloodSpray(x, y, z, n, speed) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, e = rand(-0.2, 1), sp = speed * rand(0.3, 1);
+    FX.emit(x, y, z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 1, Math.sin(a) * Math.cos(e) * sp, rand(0.35, 0.7), rand(0.15, 0.3), rand(0.4, 0.8), GIB_BLOOD_COL[0] * rand(0.8, 1.3), GIB_BLOOD_COL[1], GIB_BLOOD_COL[2], 0.95, 1.2, 16, false);
+  }
+}
+/* Gibs for src (a platform, or the plain copy a co-op guest builds): kind 'wear' sheds a few parts of a
+   damaged platform, 'death' breaks it apart. Parts follow the platform's model, scaled by its size. */
+function spawnGibs(src, kind) {
+  const death = kind === 'death';
+  if (src.def.style === 'infantry') { gibSoldier(src, death); return; }
+  if (!death) { gibPlates(src, 2, 8 + src.radius * 2); return; }
+  const sp = 10 + src.radius * 2.5;
+  if (src.kind === 'air') gibAircraft(src, sp);
+  else if (src.model === 'mech') gibMech(src, sp);
+  else gibVehicle(src, sp);
+  gibPlates(src, src.kind === 'air' ? 4 : 6, sp);
+}
+/* loose hull plates in the platform's colours and team accent, with sparks */
+function gibPlates(src, n, sp) {
+  const r = src.radius, col = src.def.col, cy = src.kind === 'air' ? 0 : src.height * rand(0.3, 0.8);
+  const team = TEAM_ACCENT[src.team] || TEAM_ACCENT[2];
+  for (let i = 0; i < n; i++) {
+    const c = i % 3 === 2 ? team : i % 2 ? col.dark : col.main;
+    gibPart(src, rand(-1, 1) * r * 0.6, cy, rand(-1, 1) * r * 0.6, r * rand(0.2, 0.4), 0.12 + r * 0.03, r * rand(0.15, 0.35), c, 'box', 0, sp);
+  }
+  fxSparks(src.x, src.y + cy, src.z, 6, GIB_SPARK_COL, 12);
+}
+function gibAircraft(src, sp) {
+  const r = src.radius, col = src.def.col, team = TEAM_ACCENT[src.team] || TEAM_ACCENT[2];
+  gibPart(src, r * 0.6, 0, 0, r * 0.9, 0.18, r * 0.4, col.main, 'box', GIB_SMOKE, sp);           // wings
+  gibPart(src, -r * 0.6, 0, 0, r * 0.9, 0.18, r * 0.4, col.main, 'box', 0, sp);
+  gibPart(src, 0, 0.3, -r * 0.7, 0.2, r * 0.4, r * 0.35, team, 'wedge', 0, sp);                  // tail fin
+  gibPart(src, 0, 0, r * 0.4, r * 0.35, r * 0.35, r * 0.8, col.dark, 'cyl', GIB_SMOKE, sp * 0.6); // fuselage halves
+  gibPart(src, 0, 0, -r * 0.4, r * 0.3, r * 0.3, r * 0.7, col.main, 'cyl', 0, sp * 0.6);
+  gibPart(src, 0, -0.3, -r * 0.8, r * 0.25, r * 0.25, r * 0.35, col.dark, 'cyl', GIB_SMOKE, sp); // engine
+}
+function gibMech(src, sp) {
+  const h = src.height, k = h / 10, col = src.def.col;
+  gibPart(src, 0, h * 0.62, 0, 2.6 * k, 2.2 * k, 2 * k, col.main, 'box', GIB_SMOKE, sp * 0.5);   // torso
+  gibPart(src, 0, h * 0.85, 0.4 * k, 1.1 * k, 0.8 * k, 1.1 * k, col.dark, 'box', 0, sp);        // cockpit
+  for (let side = -1; side <= 1; side += 2) {
+    gibPart(src, side * 1.9 * k, h * 0.6, 0, 0.9 * k, 2.2 * k, 0.9 * k, col.dark, 'box', 0, sp);                         // arms
+    gibPart(src, side * 0.9 * k, h * 0.25, 0, 0.8 * k, 3.2 * k, 0.8 * k, col.dark, 'cyl', side > 0 ? GIB_SMOKE : 0, sp * 0.6);   // legs
+  }
+}
+/* ground vehicles and emplacements: turret, barrel, running gear */
+function gibVehicle(src, sp) {
+  const r = src.radius, h = src.height, k = r / 3, col = src.def.col;
+  gibPart(src, 0, h * 0.8, 0, 2.2 * k, 0.9 * k, 2.2 * k, col.main, 'box', GIB_SMOKE, sp * 0.9);
+  gibPart(src, 0, h * 0.8, 2 * k, 0.3 * k, 0.3 * k, 2.8 * k, col.dark, 'cyl', 0, sp);
+  for (let i = 0; i < 4; i++) gibPart(src, (i % 2 ? 1 : -1) * r * 0.7, 0.6, (i < 2 ? 1 : -1) * r * 0.6, 0.9 * k, 0.35 * k, 0.9 * k, GIB_WHEEL_COL, 'cyl', 0, sp * 0.7);
+}
+/* soldiers: blood spray and a chunk when hurt; head, limbs and gore with blood trails when killed */
+function gibSoldier(src, death) {
+  const col = src.def.col;
+  bloodSpray(src.x, src.y + 1.2, src.z, death ? 26 : 8, death ? 9 : 5);
+  if (!death) { gibPart(src, rand(-0.2, 0.2), 1.1, rand(-0.2, 0.2), 0.16, 0.12, 0.14, GIB_GORE_COL, 'box', GIB_BLOOD, 6); return; }
+  gibPart(src, 0, 1.72, 0, 0.28, 0.3, 0.28, GIB_SKIN_COL, 'sphere', GIB_BLOOD, 9);   // head
+  gibPart(src, 0, 1.2, 0, 0.5, 0.6, 0.3, col.main, 'box', GIB_BLOOD, 5);             // torso
+  for (let side = -1; side <= 1; side += 2) {
+    gibPart(src, side * 0.35, 1.25, 0, 0.13, 0.55, 0.13, col.main, 'cyl', GIB_BLOOD, 9);   // arms
+    gibPart(src, side * 0.17, 0.5, 0, 0.2, 0.8, 0.24, col.dark, 'box', GIB_BLOOD, 7);      // legs
+  }
+  for (let i = 0; i < 5; i++) gibPart(src, rand(-0.3, 0.3), rand(0.6, 1.5), rand(-0.3, 0.3), rand(0.1, 0.22), rand(0.08, 0.18), rand(0.1, 0.2), i % 2 ? GIB_GORE_COL : GIB_BLOOD_COL, 'box', GIB_BLOOD, 10);
+  addDecal(src.x, src.z, rand(1.1, 1.6), GIB_BLOOD_DECAL, BLOOD_DECAL_LIFE);
+  Snd.play('gib', src.x, src.y, src.z, 1);
 }
 
 /* ---------- explosions ---------- */
@@ -2238,8 +2561,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   addLight(x, y + 2, z, clamp(radius * 9, 30, 150), 1, 0.65, 0.3, big ? 0.55 : 0.35);
   const gh = Terrain.h(x, z);
   if (radius >= 3 && y - gh < radius * 0.8) {
-    if (W.scorches.length >= 36) W.scorches.shift();
-    W.scorches.push({ x, y: gh + 0.12, z, r: radius * 0.8, life: 40 });
+    addDecal(x, z, radius * 0.8, undefined, 40);
   }
   Snd.play(big ? 'bigExplosion' : 'explosion', x, y, z, clamp(radius / 6, 0.5, 1.6));
   shakeFrom(x, y, z, clamp(radius * 0.045, 0.05, 0.6), 160);
@@ -2574,7 +2896,7 @@ function drawWorld(dt) {
     const d = W.debris[i];
     if (!R.visible(d.x, d.y, d.z, 3)) continue;
     st.push().t(d.x, d.y, d.z).ry(d.ry).rx(d.rx).rz(d.rz).s(d.sx, d.sy, d.sz);
-    R.draw('box', d.r, d.g, d.b); st.pop();
+    R.draw(d.shape || 'box', d.r, d.g, d.b); st.pop();
   }
   // pickups
   for (let i = 0; i < W.pickups.length; i++) {
@@ -2632,13 +2954,15 @@ function drawWorld(dt) {
   for (let i = 0; i < W.scorches.length; i++) {
     const sc = W.scorches[i];
     if (sc.life < 5.5 || !R.visible(sc.x, sc.y, sc.z, sc.r)) continue;
-    st.push().t(sc.x, sc.y, sc.z).s(sc.r * 2, 0.05, sc.r * 2); R.draw('cyl', 0.03, 0.03, 0.03); st.pop();
+    const c = sc.col;
+    st.push().t(sc.x, sc.y, sc.z).s(sc.r * 2, 0.05, sc.r * 2); R.draw('cyl', c ? c[0] : SCORCH_COL, c ? c[1] : SCORCH_COL, c ? c[2] : SCORCH_COL); st.pop();
   }
   R.endBatch('scorch', 0, 0.55);
   for (let i = 0; i < W.scorches.length; i++) {
     const sc = W.scorches[i];
     if (sc.life >= 5.5 || !R.visible(sc.x, sc.y, sc.z, sc.r)) continue;
-    st.push().t(sc.x, sc.y, sc.z).s(sc.r * 2, 0.05, sc.r * 2); R.draw('cyl', 0.03, 0.03, 0.03, clamp(sc.life / 10, 0, 0.55)); st.pop();
+    const c = sc.col;
+    st.push().t(sc.x, sc.y, sc.z).s(sc.r * 2, 0.05, sc.r * 2); R.draw('cyl', c ? c[0] : SCORCH_COL, c ? c[1] : SCORCH_COL, c ? c[2] : SCORCH_COL, clamp(sc.life / 10, 0, 0.55)); st.pop();
   }
   if ((QUALITY[S.quality] || QUALITY.medium).shadows) {
     // contact shadows in two strength groups: on or near the ground, and high above it
@@ -2719,10 +3043,15 @@ function updateWorldEffects(dt) {
    unsupported floors and walls fall; heavy damage collapses the upper floors.
    ===================================================================== */
 const CELL = 6, SLAB_T = 0.3, STEPS_PER_FLIGHT = 8;
-STRUCT.bwall = { w: 1, h: 1, d: 1, hp: 150, mat: 'concrete', debris: 2 };
-STRUCT.bslab = { w: 1, h: 1, d: 1, hp: 240, mat: 'concrete', debris: 2 };
-STRUCT.bpillar = { w: 1, h: 1, d: 1, hp: 260, mat: 'concrete', debris: 2 };
-STRUCT.bstep = { w: 1, h: 1, d: 1, hp: 200, mat: 'concrete', debris: 2 };
+STRUCT.bwall = { w: 1, h: 1, d: 1, hp: 150, mat: 'masonry', debris: 2 };
+STRUCT.bslab = { w: 1, h: 1, d: 1, hp: 240, mat: 'masonry', debris: 2 };
+STRUCT.bpillar = { w: 1, h: 1, d: 1, hp: 260, mat: 'masonry', debris: 2 };
+STRUCT.bstep = { w: 1, h: 1, d: 1, hp: 200, mat: 'masonry', debris: 2 };
+/* A floor carries what is above it while this share of its wall pieces and pillars stands: more floors above need more
+   support (tall towers are top-heavy), up to SUPPORT_SHARE_MAX (a tower falls once a third of its ground floor is gone).
+   Below BLD_INTEGRITY of all its pieces a building gives way. */
+const SUPPORT_SHARE_BASE = 0.38, SUPPORT_SHARE_PER_FLOOR = 0.025, SUPPORT_SHARE_MAX = 0.68;
+const BLD_INTEGRITY = 0.55, BLD_INTEGRITY_MIN_FLOORS = 4;
 const PIECE_TYPE = { wall: 'bwall', header: 'bwall', sill: 'bwall', slab: 'bslab', roof: 'bslab', found: 'bslab', pillar: 'bpillar', step: 'bstep' };
 
 /* building templates: tiers are [cellX, cellZ, sizeX, sizeZ, firstFloor, endFloor] */
@@ -3159,12 +3488,19 @@ const Bld = {
     }
     // 3. stair flights rest on the flight below
     for (const fl of b.flights) for (const s of fl) if (s.supportSlab && (s.supportSlab.destroyed || s.supportSlab.fallAt !== undefined)) mark(s, 0.4 + Math.random() * 0.4);
-    // 4. a floor that has lost most of its walls and pillars cannot carry what is above it: pancake collapse
+    // 4. a floor that has lost too many of its walls and pillars cannot carry what is above it: pancake collapse
+    //    (5.) a building that has lost most of its pieces gives way from the ground floor up
+    const wrecked = nf >= BLD_INTEGRITY_MIN_FLOORS && b.alive / b.total < BLD_INTEGRITY;
     for (let f = 0; f < nf; f++) {
-      const groups = b.walls[f], total = groups.length + b.pillars[f].length;
-      if (total < 4) continue;
-      const aliveN = groups.filter((g) => this.groupAlive(g) && g.pieces.some((p) => p.fallAt === undefined)).length + b.pillars[f].filter((p) => !p.destroyed && p.fallAt === undefined).length;
-      if (aliveN / total < 0.38) {
+      const groups = b.walls[f];
+      if (groups.length + b.pillars[f].length < 4) continue;
+      // counted piece by piece, so every wall section a rocket knocks out weakens the floor
+      let total = 0, aliveN = 0;
+      const count = (p) => { total++; if (!p.destroyed && p.fallAt === undefined) aliveN++; };
+      for (const g of groups) g.pieces.forEach(count);
+      b.pillars[f].forEach(count);
+      const need = Math.min(SUPPORT_SHARE_MAX, SUPPORT_SHARE_BASE + (nf - f - 1) * SUPPORT_SHARE_PER_FLOOR);
+      if (aliveN / total < need || wrecked) {
         let n = 0;
         for (const p of b.pieces) {
           if (p.destroyed || p.fallAt !== undefined || p.kind === 'found') continue;
@@ -3305,6 +3641,7 @@ const Scenery = {
    A platform is driven by a command struct (cmd) filled by a controller:
    the player controller or the AI. Edge flags (xxxEdge) are consumed once.
    ===================================================================== */
+const INFANTRY_STRIDE = 1.4;   // leg swings per walk phase radian for soldiers (animation and footsteps)
 const TMP_BASIS = { fx: 0, fy: 0, fz: 0, lx: 0, ly: 0, lz: 0, ux: 0, uy: 0, uz: 0 };
 const TMP_V = { x: 0, y: 0, z: 0 };
 // reused by updateLock every tick, so it allocates nothing
@@ -3370,7 +3707,7 @@ class Platform {
     // Fields that other systems set later are declared here, so every platform keeps one hidden shape (fast property access).
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
-    this.isPlayer = false; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
+    this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
@@ -3521,7 +3858,10 @@ class Platform {
     this.speed = spd;
     if (this.grounded) {
       this.walkPhase += spd * dt * 0.42;
-      if (spd > 3 && Math.floor(this.walkPhase / PI) !== Math.floor(this.lastPhase / PI)) {
+      if (d.style === 'infantry') {
+        // boots land twice per leg swing of the soldier model (drawInfantry swings at walkPhase * INFANTRY_STRIDE)
+        if (spd > 1.5 && Math.floor(this.walkPhase * INFANTRY_STRIDE / PI) !== Math.floor(this.lastPhase * INFANTRY_STRIDE / PI)) Snd.play('footstep', this.x, this.y, this.z, this.boosting ? 0.85 : 0.6);
+      } else if (spd > 3 && Math.floor(this.walkPhase / PI) !== Math.floor(this.lastPhase / PI)) {
         Snd.play('step', this.x, this.y, this.z, 0.5 + this.def.mass * 0.15);
         if (this.def.mass >= 2) shakeFrom(this.x, this.y, this.z, 0.02 * this.def.mass, 60);
       }
@@ -3980,7 +4320,7 @@ class Platform {
   }
   fireBeam(w, mz, dx, dy, dz) {
     const d = w.def;
-    const r = raycast(mz.x, mz.y, mz.z, dx, dy, dz, d.range, this, false);
+    const r = raycast(mz.x, mz.y, mz.z, dx, dy, dz, d.range, this, false, this);
     const ex = r.hit ? r.x : mz.x + dx * d.range, ey = r.hit ? r.y : mz.y + dy * d.range, ez = r.hit ? r.z : mz.z + dz * d.range;
     if (Net.host) Net.bcast({ t: 'b', a: [r1(mz.x), r1(mz.y), r1(mz.z), r1(ex), r1(ey), r1(ez)], c: WEAPON_IDS.indexOf(w.id) });
     if (W.beams.length < 28) W.beams.push({ x1: mz.x, y1: mz.y, z1: mz.z, x2: ex, y2: ey, z2: ez, life: 0.07, maxLife: 0.07, col: d.tracer, width: 0.35 });
@@ -4131,6 +4471,7 @@ class Platform {
     }
     if (rem > 0) {
       this.hp -= rem; this.hitFlash = 0.18;
+      this.gibWear(rem);
       if (!info.blast && !info.beam) Snd.play('hit', this.x, this.y, this.z, 0.9);
     }
     if (owner) {
@@ -4157,6 +4498,18 @@ class Platform {
     if (this.hp <= 0) this.destroy(owner, dtype);
     return total;
   }
+  /* hull damage knocks parts off: soldiers bleed on every hit, and every machine sheds plates (a soldier a chunk)
+     each time it loses a share of its hull; the killing hit leaves the parts to destroy() */
+  gibWear(amount) {
+    const infantry = this.def.style === 'infantry';
+    const share = (infantry ? GIB_FLESH_SHARE : GIB_WEAR_SHARE) * this.maxHp;
+    this.wear += amount;
+    if (this.hp <= 0) return;
+    if (this.wear < share) { if (infantry) bloodSpray(this.x, this.y + 1.2, this.z, 5, 4); return; }
+    this.wear = 0;
+    spawnGibs(this, 'wear');
+    if (W.onGib) W.onGib(this, 'wear');
+  }
   failSubsystem() {
     const names = ['weapons', 'mobility', 'sensors'];
     const name = names[Math.floor(Math.random() * 3)];
@@ -4172,7 +4525,8 @@ class Platform {
     const rad = 4 + this.def.mass * 1.1 + this.height * 0.3;
     if (cause !== 'eject') {
       explode(this.x, cy, this.z, rad, 30, 'explosive', null, { exclude: this });
-      spawnDebris(this.x, cy, this.z, 10, { mat: 'metal', hx: this.radius * 0.5, hz: this.radius * 0.5, type: 'wreck' }, 18);
+      spawnGibs(this, 'death');
+      if (W.onGib) W.onGib(this, 'death');
       for (let i = 0; i < 8; i++) FX.emit(this.x, cy, this.z, rand(-8, 8), rand(2, 12), rand(-8, 8), rand(1.5, 3), 2, 5, 0.12, 0.12, 0.12, 0.7, 0.5, -1.5, false);
     }
     if (owner && cause !== 'eject') {
@@ -4373,7 +4727,7 @@ function drawMech(p, main, dark, acc, lod) {
 
 function drawInfantry(p, main, dark, acc, lod) {
   const st = R.stack;
-  const swing = Math.sin(p.walkPhase * 1.4) * 0.7 * clamp(p.speed / 4, 0, 1) * (p.grounded ? 1 : 0.2);
+  const swing = Math.sin(p.walkPhase * INFANTRY_STRIDE) * 0.7 * clamp(p.speed / 4, 0, 1) * (p.grounded ? 1 : 0.2);
   const crouch = p.crouch ? 0.5 : 0;
   const skin = [0.72, 0.58, 0.48];
   st.push().t(p.x, p.y - crouch * 0.5, p.z).ry(p.torsoYaw);
@@ -4718,12 +5072,13 @@ function updateProjectiles(dt) {
       const e = pl[k];
       if (e.dead || e === p.owner || e.team === 2 && p.team !== 2) continue;
       if (e.team === p.team && !W.friendlyFire) continue;
-      const ry = e.kind === 'air' ? e.radius : e.height * 0.5 + 0.4;
-      const ecy = e.y + (e.kind === 'air' ? 0 : e.height * 0.5), er = (e.radius + 0.3 > ry ? e.radius + 0.3 : ry) + half;
+      const pad = hitPad(p.owner, e);
+      const ry = (e.kind === 'air' ? e.radius : e.height * 0.5 + 0.4) + pad, rx = e.radius + 0.3 + pad;
+      const ecy = e.y + (e.kind === 'air' ? 0 : e.height * 0.5), er = (rx > ry ? rx : ry) + half;
       const ddx = e.x - midX, ddy = ecy - midY, ddz = e.z - midZ;
       if (ddx * ddx + ddy * ddy + ddz * ddz > er * er) continue;
       if (p.hitSet && p.hitSet.indexOf(e) >= 0) continue;
-      const ht = segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, e.radius + 0.3, ry);
+      const ht = segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
       if (ht >= 0 && ht < bestT) { bestT = ht; kind = 'platform'; obj = e; }
     }
     if (kind === '') { p.x = x0 + mx; p.y = y0 + my; p.z = z0 + mz; continue; }
@@ -4946,7 +5301,7 @@ class AIController {
       if (e.hideFromAI) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
       if (d > range) continue;
-      let score = d * (e.isPlayer ? 0.8 : 1) * (e.model === 'truck' ? 0.7 : 1);   // human players (host and guests) draw fire first
+      let score = d * (e.isPlayer ? this.d.focus : 1) * (e.model === 'truck' ? 0.7 : 1);   // how much human players (host and guests) draw fire depends on difficulty
       if (e === this.target) score *= 0.7;
       if (score >= bestScore) continue;
       tpos(e, AI_V);
@@ -5421,8 +5776,8 @@ function spawnUnit(archKey, x, z, opts) {
 function spawnGroup(list, x, z, opts) {
   opts = opts || {};
   const out = [];
-  // difficulty and co-op scale enemy numbers only; allied lists are spawned as written
-  const cnt = opts.team === 0 ? 1 : W.diff.count * (W.coopMult || 1);
+  // allied lists get ALLY_COUNT copies; hostile lists HOSTILE_COUNT scaled by difficulty and co-op
+  const cnt = opts.team === 0 ? ALLY_COUNT : HOSTILE_COUNT * W.diff.count * (W.coopMult || 1);
   for (const k of list) {
     // whole copies plus one more by chance for the fraction (2.6 -> 2 or 3)
     const copies = opts.exact ? 1 : Math.floor(cnt) + (Math.random() < cnt % 1 ? 1 : 0);
@@ -5875,7 +6230,7 @@ const MISSIONS = [
       m.every(35, () => {
         if (fac.destroyed) return;
         const alive = W.platforms.filter((p) => p.team === 1 && !p.dead).length;
-        if (alive > 14) return;
+        if (alive > 14 * HOSTILE_COUNT) return;   // the foundry pauses while the field is crowded
         const grid = m.get('nodes').status === 'complete';
         spawnGroup(grid ? ['tank'] : ['tank', 'tank'], 350, 420, { radius: 40, goal: { x: -520, z: -420 } });
         W.msg('FOUNDRY PRODUCING ARMOR');
@@ -5962,7 +6317,7 @@ function skirmishDef(cfg) {
         text() { return this.title + ' (wave ' + Math.min(this.waveNo, waves.length) + '/' + waves.length + ', ' + this.units.filter((u) => !u.dead).length + ' hostile)'; }, waveNo: 0, spawnedAll: false }));
       void total;
       const supportList = { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
-      ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40, exact: true }); });
+      ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
       let idx = 0;
       const spawnWave = () => {
         if (idx >= waves.length) return;
@@ -6062,7 +6417,7 @@ const PC = {
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
     let dx = Input.mdx, dy = Input.mdy;
-    if (!Input.locked) {                       // cursor-offset aiming when pointer lock is off or unavailable
+    if (!Input.locked && !TouchControls.shown) {       // cursor-offset aiming when pointer lock is off or unavailable
       const f = (v) => (Math.abs(v) < 0.12 ? 0 : Math.sign(v) * (Math.abs(v) - 0.12) / 0.88);
       dx = f((Input.curX - 0.5) * 2) * 900 * dt * S.sens; dy = f((Input.curY - 0.5) * 2) * 600 * dt * S.sens;
     }
@@ -6070,7 +6425,7 @@ const PC = {
     this.sdx = lerp(dx, this.sdx, S.smoothing); this.sdy = lerp(dy, this.sdy, S.smoothing);
     const k = 0.0022 * S.sens, inv = S.invertY ? -1 : 1;
     const air = p.kind === 'air', direct = air && S.flightMode === 'direct';
-    p.flightMode = S.flightMode;
+    p.flightMode = S.flightMode; p.aimAssist = S.aimAssist;
     if (direct) {
       this.axRoll = clamp(this.axRoll * Math.exp(-3 * dt) + this.sdx * 0.011, -1, 1);
       this.axPitch = clamp(this.axPitch * Math.exp(-3 * dt) - this.sdy * 0.011 * inv, -1, 1);
@@ -6107,7 +6462,7 @@ const PC = {
     if (this.padEdge(pad, 'down') || Input.hit('eject')) c.ejectEdge = true;   // a second press still confirms the eject
     if (this.padEdge(pad, 'left') || Input.hit('weapon1')) c.sel1 = true;
     if (this.padEdge(pad, 'right') || Input.hit('weapon2')) c.sel2 = true;
-    if (Input.wheel !== 0) c.selNext = true;
+    if (this.padEdge(pad, 'next') || Input.wheel !== 0) c.selNext = true;
     this.manualHold = Math.max(0, this.manualHold - dt);
     if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) { p.cycleTarget(); this.manualHold = AUTO_RETARGET_HOLD; }
     if (pad) this.padC = pad.cycle;
@@ -6219,13 +6574,45 @@ const Cam = {
     if (!p || p.dead) return;
     const l = Math.hypot(this.dx, this.dy, this.dz) || 1;
     const dx = this.dx / l, dy = this.dy / l, dz = this.dz / l;
-    const r = raycast(this.x, this.y, this.z, dx, dy, dz, 900, p, false);
+    const r = raycast(this.x, this.y, this.z, dx, dy, dz, 900, p, false, p);
     const ap = W.aimPoint || (W.aimPoint = { x: 0, y: 0, z: 0 });
     if (r.hit) { ap.x = r.x; ap.y = r.y; ap.z = r.z; } else { ap.x = this.x + dx * 800; ap.y = this.y + dy * 800; ap.z = this.z + dz * 800; }
-    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj };
+    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj, assist: false };
+    if (S.aimAssist && !W.aimInfo.hostile && !W.aimInfo.friendly) this.assist(p, dx, dy, dz, r.hit ? r.t : 900, ap);
     p.cmd.aimPoint = ap; p.cmd.hasAim = true;
   },
+  /* Aim assist (bullet magnetism): the hostile nearest the reticle within its reach becomes the aim point, led for
+     the active weapon's projectile speed. Reach is about the target's size plus a margin, ASSIST_CONE at most. */
+  assist(p, dx, dy, dz, hitT, ap) {
+    const w = p.primary, range = Math.min(ASSIST_RANGE, Math.max(ASSIST_MIN_RANGE, w ? w.def.range * 1.15 : 400));
+    let best = null, bestScore = 1;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const e = W.platforms[i];
+      if (e.dead || e.team === p.team || e.team === 2 || e.noTarget) continue;
+      tpos(e, ASSIST_TP);
+      const vx = ASSIST_TP.x - this.x, vy = ASSIST_TP.y - this.y, vz = ASSIST_TP.z - this.z, d = Math.hypot(vx, vy, vz);
+      if (d > range || d < 2 || d > hitT + e.radius * 2) continue;   // out of reach, or behind whatever the reticle is on
+      const along = (vx * dx + vy * dy + vz * dz) / d;
+      if (along <= 0) continue;
+      const ang = Math.acos(Math.min(1, along)), reach = clamp((e.radius * 1.5 + ASSIST_MARGIN) / d, ASSIST_MIN_CONE, ASSIST_CONE);
+      const score = ang / reach;
+      if (score < bestScore) { best = e; bestScore = score; }
+    }
+    if (!best) return;
+    tpos(best, ASSIST_TP);
+    if (!hasLOS(this.x, this.y, this.z, ASSIST_TP.x, ASSIST_TP.y, ASSIST_TP.z)) return;
+    const d = Math.hypot(ASSIST_TP.x - p.x, ASSIST_TP.y - p.y, ASSIST_TP.z - p.z);
+    const lead = w && w.def.speed > 0 && !w.def.arc ? d / w.def.speed : 0;
+    ap.x = ASSIST_TP.x + best.vx * lead; ap.y = ASSIST_TP.y + best.vy * lead; ap.z = ASSIST_TP.z + best.vz * lead;
+    const ai = W.aimInfo;
+    ai.hit = true; ai.kind = 'platform'; ai.dist = d; ai.hostile = true; ai.obj = best; ai.assist = true;
+  },
 };
+const ASSIST_CONE = 0.07;        // widest aim assist reach off the reticle (rad, about 4 degrees)
+const ASSIST_MIN_CONE = 0.025;   // reach never shrinks below this at long range (rad)
+const ASSIST_MARGIN = 2;         // m added to a target's size when working out its reach
+const ASSIST_RANGE = 900, ASSIST_MIN_RANGE = 150;   // m: assist reaches the active weapon's range plus a bit, within these
+const ASSIST_TP = { x: 0, y: 0, z: 0 };
 
 /* =====================================================================
    GAME
@@ -6257,7 +6644,7 @@ const Game = {
     W.mission = this.mission = new Mission(def, cfg);
     PC.hadTarget = false;
     W.mission.noTimeout = cfg.mode === 'training';
-    W.maxLives = cfg.mode === 'training' ? 999 : 3; W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
+    W.maxLives = cfg.mode === 'training' ? 999 : PLAYER_LIVES; W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
@@ -6348,19 +6735,20 @@ const Game = {
     const p = W.player, kind = p.kind;
     if (S[tutorialKey(kind)]) { this.tutorial = null; return; }
     // hint texts are functions read when drawn, so they name pad buttons or keys for the device used last
-    const k = actionLabel, pad = () => Input.usingPad;
-    const aimWith = () => (pad() ? 'the RIGHT STICK' : 'the MOUSE');
+    const k = actionLabel, pad = () => Input.usingPad, touch = () => TouchControls.enabled;
+    const aimWith = () => (touch() ? 'a RIGHT-SIDE DRAG' : pad() ? 'the RIGHT STICK' : 'the MOUSE');
+    const switchWith = () => (touch() ? k('weapon1') : k('weapon1') + '/' + k('weapon2'));
     PC.usedDefense = false;
     const steps = [];
     if (kind === 'air') {
-      steps.push({ text: () => 'Move ' + aimWith() + ' to steer; the plane follows your aim. ' + (pad() ? 'LEFT STICK up/down' : k('moveForward') + '/' + k('moveBack')) + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
+      steps.push({ text: () => 'Move ' + aimWith() + ' to steer; the plane follows your aim. ' + (touch() ? 'LEFT-SIDE STICK up/down' : pad() ? 'LEFT STICK up/down' : k('moveForward') + '/' + k('moveBack')) + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
       steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire guns, ' + k('fire2') + ' for missiles/bombs. ' + k('boost') + ' = afterburner', test: () => p.cmd.fire1 || p.cmd.fire2 });
       steps.push({ text: () => k('cycleTarget') + ' selects a target; keep it in the lock cone to lock missiles', test: () => !!p.target });
       steps.push({ text: () => k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => PC.usedDefense });
     } else {
-      const moveWith = () => (pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
+      const moveWith = () => (touch() ? 'the LEFT-SIDE STICK' : pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
       steps.push({ text: () => 'Move with ' + moveWith() + (kind === 'ground' ? ' (left/right steers the vehicle)' : '') + ', aim with ' + aimWith(), test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
-      steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + k('weapon1') + '/' + k('weapon2') + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
+      steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + switchWith() + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
       steps.push({ text: () => k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
       steps.push({ text: () => k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
     }
@@ -6503,6 +6891,7 @@ const Game = {
     this.frameMs = lerp(this.frameMs, dt * 1000, 0.05);
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; this.adaptQuality(); this.updateDiag(); }
+    TouchControls.frame();
     if (R.lost || !R.ok) return;
     UI.resizeIfNeeded();
     PC.pollPause();
@@ -6522,7 +6911,8 @@ const Game = {
       Cam.aimRay();
       const p = W.player;
       if (p && !p.dead) {
-        Snd.engineUpdate(p.kind, p.kind === 'air' ? p.throttle : clamp(p.speed / Math.max(1, p.def.speed), 0, 1.4), p.boosting || p.afterburner);
+        if (p.def.style === 'infantry') Snd.engineStop();   // a soldier on foot has no engine: footsteps only
+        else Snd.engineUpdate(p.kind, p.kind === 'air' ? p.throttle : clamp(p.speed / Math.max(1, p.def.speed), 0, 1.4), p.boosting || p.afterburner);
         this.updateWarnings(p);
       } else Snd.engineStop();
       this.tutorialUpdate(dt);
@@ -6805,6 +7195,11 @@ const HUD = {
       if (w && ai && ai.hit && ai.dist > w.def.range) this.txt('OUT OF RANGE', cx, cy + 34 * u, 11, C.warn, 'center', true);
       if (p.kind === 'mech' && Math.abs(angleDiff(p.torsoYaw, p.cmd.aimYaw)) > 0.6) this.txt('TORSO TRAVERSING', cx, cy + 48 * u, 10, C.dim, 'center');
     }
+    // aim assist: a small ring on the led point the shots are bending toward
+    if (ai && ai.assist && W.aimPoint) {
+      const t = R.project(W.aimPoint.x, W.aimPoint.y, W.aimPoint.z, this.w, this.h, this.tmp);
+      if (t.vis) { g.strokeStyle = C.bad; g.lineWidth = 1.5; g.beginPath(); g.arc(t.sx, t.sy, 6 * u, 0, TAU); g.stroke(); }
+    }
     // hit and kill markers
     if (W.hitMarker > 0) {
       const a = W.hitMarker / HIT_MARK_TIME, r = 10 * u;
@@ -6863,8 +7258,12 @@ const HUD = {
     let sy = y - bh - 8 * u;
     for (const k in p.sub) if (p.sub[k] > 0) { this.txt('X ' + k.toUpperCase() + ' OFFLINE ' + Math.ceil(p.sub[k]) + 's', x, sy, 11, C.bad, 'left', true); sy -= 14 * u; }
   },
+  /* canvas pixels kept free on the right for the touch buttons while they show */
+  touchReserve() {
+    return TouchControls.shown ? TOUCH_HUD_RESERVE * this.w / Math.max(1, window.innerWidth) : 0;
+  },
   drawWeapons(p, u) {
-    const C = this.C, w = 250 * u, x = this.w - 20 * u - w;
+    const C = this.C, w = 250 * u, x = this.w - 20 * u - w - this.touchReserve();
     let y = this.h - 20 * u - 34 * u;
     const rows = [];
     ['primaryA', 'primaryB', 'secondary'].forEach((s) => { if (p.wslots[s]) rows.push(p.wslots[s]); });
@@ -7008,7 +7407,7 @@ const HUD = {
     if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve === 0 && !W.infiniteAmmo) warns.push('NO AMMO: ' + pw.def.name.toUpperCase());
     else if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve < pw.def.clip * 0.4 && !W.infiniteAmmo) warns.push('LOW AMMO: ' + pw.def.name.toUpperCase());
     if (p.energyLock) warns.push('ENERGY DEPLETED');
-    if (Input.lockFailed && !Input.locked) warns.push('CURSOR MODE: MOVE MOUSE TOWARD EDGES TO TURN');
+    if (Input.lockFailed && !Input.locked && !TouchControls.enabled) warns.push('CURSOR MODE: MOVE MOUSE TOWARD EDGES TO TURN');
     this.drawPadPrompt(p, u);
     const blink = Math.floor(W.time * 3) % 2 === 0;
     let wy = this.h * 0.64;
@@ -7058,7 +7457,7 @@ const HUD = {
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
   },
   drawTraining(p, u) {
-    const g = this.g, x = this.w - 330 * u, y = 190 * u, C = this.C;
+    const g = this.g, x = this.w - 330 * u - this.touchReserve(), y = 190 * u, C = this.C;
     const log = W.dmgLog || [];
     while (log.length && W.time - log[0].t > 3) log.shift();
     let dps = 0; for (const e of log) dps += e.a; dps /= 3;
@@ -7451,7 +7850,7 @@ const UI = {
     const ck = (k, label) => '<label class="f"><span>' + label + '</span><input type="checkbox" data-set="' + k + '"' + (S[k] ? ' checked' : '') + '></label>';
     const se = (k, label, opts) => '<label class="f"><span>' + label + '</span><select data-set="' + k + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (S[k] === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
     return '<h2>Settings</h2><div class="grid2"><div class="panel"><h3 style="margin-top:0">Audio</h3>' + sl('master', 'Master volume', 0, 1, 0.05) + sl('music', 'Music', 0, 1, 0.05) + sl('sfx', 'Effects', 0, 1, 0.05) + sl('ui', 'Interface &amp; alerts', 0, 1, 0.05) +
-      '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + ck('pointerLock', 'Capture cursor (pointer lock)') +
+      '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + ck('pointerLock', 'Capture cursor (pointer lock)') + ck('aimAssist', 'Aim assist (shots bend toward enemies near the reticle)') +
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
@@ -7463,8 +7862,9 @@ const UI = {
   },
   scr_help() {
     return '<h2>Help &amp; Release Notes</h2><div class="grid2"><div class="panel"><h3 style="margin-top:0">How to play</h3>' +
-      '<p>Pick a platform in <b>Platform &amp; Loadout</b>, then deploy to a mission, a skirmish, or the Training Range. Aim with the mouse, fire with the buttons, watch heat and ammunition. Destroy everything: buildings, trees and fuel tanks break and change the battlefield.</p>' +
+      '<p>Pick a platform in <b>Platform &amp; Loadout</b>, then deploy to a mission, a skirmish, or the Training Range. Aim with the mouse (on a touch screen: drag on the right side, move with the stick that appears under your left thumb), fire with the buttons, watch heat and ammunition. Destroy everything: buildings, trees and fuel tanks break and change the battlefield.</p>' +
       '<p><b>Damage order:</b> shield, then armor (absorbs a share of each hit), then hull. At 66% and 33% hull a random subsystem fails for a while. Rear hits do extra damage.</p>' +
+      '<p><b>Aim assist</b> (on by default, Settings &gt; Aiming): shots bend toward an enemy near the reticle (a small red ring marks it) and enemies are slightly easier to hit. You have ' + PLAYER_LIVES + ' platforms per mission; Recruit difficulty is the gentlest start.</p>' +
       '<p><b>Aircraft:</b> in assisted mode the plane chases your cursor. Land by lowering gear (G), slowing under the landing speed and flying level. Eject by pressing the eject key twice.</p>' +
       '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you choose one platform per mission. Switching between platforms in the field is available only in the Training Range.</p><p><b>Supply:</b> stand near the supply pad and press Interact to refill ammunition and repair (2 uses per mission).</p></div>' +
       '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>8 objective missions covering every objective type, skirmish mode and a training range.</li><li>Fully offline, single file, no external assets.</li></ul>' +
@@ -8086,6 +8486,46 @@ const SelfTest = {
       for (let i = 0; i < 60 * 8; i++) { jet.cmd.aimYaw = 0; jet.cmd.aimPitch = 1.2; jet.cmd.throttleSet = 1; jet.update(STEP); top = Math.max(top, jet.y); }
       this.check('a held pull-up stops at the ceiling', !jet.dead && top <= AIR_CEILING + AIR_CEILING_MARGIN, 'reached ' + Math.round(top));
     });
+    t('playability', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const soldier = new Platform(PLATFORMS.ranger, { team: 0, x: 300, z: 300, yaw: 0, loadout: PLATFORMS.ranger.loadout });
+      W.platforms.push(soldier);
+      const ground = Terrain.h(soldier.x, soldier.z);
+      let rise = 0;
+      for (let i = 0; i < 90; i++) { soldier.cmd.jump = true; soldier.update(STEP); rise = Math.max(rise, soldier.y - ground); }
+      this.check('the infantry jetpack lifts a soldier', rise > 4, 'rose ' + rise.toFixed(1) + ' m');
+      this.check('masonry breaks faster to explosives than concrete', MATERIAL.masonry.explosive > MATERIAL.concrete.explosive);
+      this.check('recruit is the gentlest difficulty', DIFFICULTY.recruit.dmg < DIFFICULTY.veteran.dmg && DIFFICULTY.recruit.aimErr > DIFFICULTY.veteran.aimErr);
+      // aim assist: a hostile just off the reticle becomes the aim point, and only while the setting is on
+      const me = new Platform(PLATFORMS.wraith, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.wraith.loadout });
+      const foe = new Platform(PLATFORMS.bulwark, { team: 1, x: 0, z: 150, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+      W.platforms.push(me, foe); W.player = me;
+      tpos(foe, ASSIST_TP);
+      Cam.x = 0; Cam.y = Terrain.h(0, 0) + 12; Cam.z = -10;
+      Cam.dx = ASSIST_TP.x + 6 - Cam.x; Cam.dy = ASSIST_TP.y - Cam.y; Cam.dz = ASSIST_TP.z - Cam.z;
+      const keepAssist = S.aimAssist;
+      try {
+        S.aimAssist = true; Cam.aimRay();
+        this.check('aim assist picks a hostile beside the reticle', W.aimInfo.assist && W.aimInfo.obj === foe);
+        S.aimAssist = false; Cam.aimRay();
+        this.check('aim assist is off when the setting is off', !W.aimInfo.assist);
+      } finally { S.aimAssist = keepAssist; }
+      me.aimAssist = true;
+      this.check('assisted shots get a wider hitbox', hitPad(me, foe) > 0 && hitPad(me, me) === 0);
+      for (let i = 0; i < 40; i++) spawnGibs(foe, 'death');
+      this.check('gibs stay within the debris budget', W.debris.length <= QUALITY[S.quality].debris);
+      spawnGibs(soldier, 'death');
+      this.check('a killed soldier leaves blood', W.scorches.some((s) => s.col === GIB_BLOOD_DECAL));
+      // touch controls feed the gamepad snapshot and name their buttons in prompts
+      const keepTouch = TouchControls.enabled;
+      try {
+        TouchControls.enabled = true; TouchControls.held.fire1 = true; TouchControls.lx = 0.5;
+        const snap = TouchControls.merge(null);
+        this.check('touch buttons and stick reach the controls', snap.fire1 && snap.lx === 0.5 && !snap.fire2);
+        this.check('prompts name touch buttons on a touch screen', actionLabel('fire1') === 'FIRE');
+      } finally { TouchControls.enabled = keepTouch; TouchControls.reset(); }
+    });
     t('buildings', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 120, tag: 'city' }], difficulty: 'veteran', seed: 5, start: { x: 500, z: 500, yaw: 0 } });
       W.mission = null;
@@ -8101,6 +8541,13 @@ const SelfTest = {
       for (const g of b.walls[0]) for (const p of g.pieces) damageStruct(p, 1e5, 'explosive', null, 1);
       for (let i = 0; i < 60 * 12; i++) updateWorldEffects(1 / 60);
       this.check('upper floors collapse when the ground floor fails', b.alive < b.total * 0.3, 'alive ' + b.alive + '/' + b.total);
+      // the tallest tower falls once a third of its ground-floor walls and pillars are gone
+      let tower = null;
+      for (const id of Object.keys(TPL)) { const c = Bld.make(id, -60, -60, makeRng(3), 'tower' + id); if (!tower || c.nf > tower.nf) tower = c; }
+      const base = tower.walls[0].flatMap((g) => g.pieces).concat(tower.pillars[0]), lost = Math.ceil(base.length * 0.34);
+      for (let k = 0; k < lost; k++) damageStruct(base[Math.floor(k * base.length / lost)], 1e5, 'explosive', null, 1);
+      for (let i = 0; i < 60 * 12; i++) updateWorldEffects(1 / 60);
+      this.check('a tall tower falls after losing a third of its ground floor', tower.alive < tower.total * 0.3, 'alive ' + tower.alive + '/' + tower.total);
       this.check('piece destruction raises no duplicate break events', b.pieces.filter((s) => s.destroyed).length === b.total - b.alive);
       this.check('building top is tracked', Bld.topAt(60, 60, 5) > -1e8);
       // mesh chunks and hidden faces
@@ -8349,6 +8796,7 @@ const Net = {
       case 'ob': this.applyObjectives(m); break;
       case 'st': this.applyStructs(m); break;
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
+      case 'g': if (W) this.applyGib(m); break;
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
@@ -8419,7 +8867,7 @@ const Net = {
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = 3; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
+      p.lives = PLAYER_LIVES; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
@@ -8430,6 +8878,7 @@ const Net = {
   sessionBegin() {
     this.dirty.clear();
     W.onExplosion = (x, y, z, r) => this.bcast({ t: 'x', x: r1(x), y: r1(y), z: r1(z), r: r1(r) });
+    W.onGib = (p, kind) => this.bcast({ t: 'g', p: p.def.id, tm: p.team, k: kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
     if (W.player) W.player.isPlayer = true;
     let slot = 0;
     for (const peer of this.peers) { if (peer.hello && peer.open) { peer.slot = ++slot; this.spawnFor(peer); } }
@@ -8472,6 +8921,7 @@ const Net = {
       const b = m.b | 0;
       c.fire1 = !!(b & 1); c.fire2 = !!(b & 2); c.boost = !!(b & 4); c.jump = !!(b & 8); c.brake = !!(b & 16);
       p.flightMode = m.fm === 'direct' ? 'direct' : 'assisted';
+      p.aimAssist = m.aa === 1;
       // aim point must stay near the platform; targets must be valid hostiles
       const pt = m.pt;
       if (Array.isArray(pt) && pt.length === 3 && pt.every(Number.isFinite) && Math.hypot(pt[0] - p.x, pt[2] - p.z) < 1400) c.aimPoint = { x: pt[0], y: pt[1], z: pt[2] };
@@ -8630,6 +9080,16 @@ const Net = {
     const myId = W.player ? W.player.id : -1;
     const label = (e) => (e[1] && e[1] === myId ? 'YOU' : String(e[0]).substring(0, 16));
     return label(m.k) + '  >  ' + label(m.v);
+  },
+  /* gibs the host announced: a plain stand-in with the platform type's look and the sent position */
+  applyGib(m) {
+    if (typeof m.p !== 'string' || !Object.prototype.hasOwnProperty.call(PLATFORMS, m.p)) return;
+    const def = PLATFORMS[m.p];
+    spawnGibs({
+      def, team: m.tm === 0 || m.tm === 1 ? m.tm : 2, kind: def.kind, model: def.model, radius: def.radius, height: def.height,
+      x: numIn(m.x, -3000, 3000), y: numIn(m.y, -500, 3000), z: numIn(m.z, -3000, 3000),
+      vx: numIn(m.vx, -400, 400), vy: numIn(m.vy, -400, 400), vz: numIn(m.vz, -400, 400), yaw: numIn(m.yw, -100, 100),
+    }, m.k === 1 ? 'death' : 'wear');
   },
   applySnapshot(m) {
     if (!W || !Array.isArray(m.p) || m.q <= this.lastSnapSeq) return;
@@ -8798,7 +9258,7 @@ const Net = {
     this.send(this.hostPeer, {
       t: 'in', q: ++this.inSeq, mf: r2(c.moveF), ms: r2(c.moveS), tn: r2(c.turn), ti: r2(c.throttleIn), ay: r2(c.aimYaw), ap: r2(c.aimPitch),
       ax: [r2(c.axisPitch), r2(c.axisRoll), r2(c.axisYaw)], b, e, pt: ap ? [r1(ap.x), r1(ap.y), r1(ap.z)] : null,
-      tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.id) : 0, fm: S.flightMode,
+      tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.id) : 0, fm: S.flightMode, aa: S.aimAssist ? 1 : 0,
     }, e !== 0);
   },
 };
@@ -8866,7 +9326,7 @@ UI.scr_coopHost = function () {
   return '<h2>Host a co-op game</h2><div class="grid2"><div class="panel">' + this.coopCommon() +
     '<label class="f"><span>Mission</span><select data-coop="mission">' + MISSIONS.map((m) => '<option value="' + m.id + '"' + (Net.missionId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' +
     '<div class="dim">Your platform: ' + esc(this.platLabel(Save.data.platformId)) + '</div><div class="row"><button class="btn small" data-act="hangar" data-ret="1">Change platform / loadout</button></div>' +
-    '<div class="dim">Enemies scale up with player count. Each player has 3 platforms and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
+    '<div class="dim">Enemies scale up with player count. Each player has ' + PLAYER_LIVES + ' platforms and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
     '<div class="panel"><h3 style="margin-top:0">Players</h3><table><tr><th>You</th><th colspan="3">' + esc(cleanName(Net.name)) + ' (host)</th></tr>' + rows + '</table>' +
     (Net.peers.length < Net.maxPeers ? '<div class="row"><button class="btn small" data-act="coopAdd">+ Add a player</button></div>' : '') + '</div></div>' +
     '<div class="row"><button class="btn primary" data-act="coopStart"' + (err ? ' disabled' : '') + '>Start mission</button><button class="btn" data-act="coopLeave" data-focus>Close lobby</button></div>' +
@@ -8911,6 +9371,7 @@ function showFatal(title, text) {
     }
     HUD.init(el('hud'));
     Input.init(glCanvas);
+    TouchControls.init();
     UI.init();
     R.onLost = () => { if (Game.state === 'playing') Game.pause(); UI.toast('Graphics context lost - waiting for the browser to restore it'); };
     R.onRestored = () => {
