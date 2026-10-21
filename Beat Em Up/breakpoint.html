@@ -188,14 +188,15 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tb.sm{width:calc(var(--tbs)*.8);height:calc(var(--tbs)*.8);font-size:calc(var(--tbs)*.17)}
 #stickBase{left:4vmin;bottom:5vmin;width:30vmin;height:30vmin;min-width:130px;min-height:130px;border-radius:50%;background:rgba(18,28,50,.4);border:3px solid rgba(255,255,255,.5)}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff}
-/* right thumb: KICK in the corner, PUNCH beside it, BLOCK above it, GRAB on the inside; left thumb: stick with JUMP / DUCK / DASH next to it */
+/* right thumb: KICK in the corner, PUNCH beside it, BLOCK above it, GRAB on the inside, JUMP over PUNCH, DASH over GRAB;
+   left thumb: stick with DUCK next to it */
 .tb[data-a=kick]{right:3vmin;bottom:4vmin}
 .tb[data-a=punch]{right:calc(5vmin + var(--tbs)*1.3);bottom:calc(4vmin + var(--tbs)*.35)}
 .tb[data-a=block]{right:3vmin;bottom:calc(6vmin + var(--tbs)*1.3)}
 .tb[data-a=grapple]{right:calc(7vmin + var(--tbs)*2.6);bottom:4vmin}
-.tb[data-a=jump]{left:calc(6vmin + max(30vmin,130px));bottom:calc(5vmin + var(--tbs)*.95)}
+.tb[data-a=jump]{right:calc(5vmin + var(--tbs)*1.5);bottom:calc(8vmin + var(--tbs)*1.7)}
+.tb[data-a=dash]{right:calc(7vmin + var(--tbs)*2.8);bottom:calc(6vmin + var(--tbs)*1.35)}
 .tb[data-a=crouch]{left:calc(6vmin + max(30vmin,130px));bottom:5vmin}
-.tb[data-a=dash]{left:calc(8vmin + max(30vmin,130px) + var(--tbs)*.8);bottom:5vmin}
 .tb[data-a=stance]{right:2vmin;top:calc(21vmin + var(--tbs)*.95)}.tb[data-a=pause]{right:2vmin;top:21vmin}
 @media (orientation:portrait){
  :root{--tbs:max(50px,15vw)}
@@ -204,8 +205,8 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
  .tb[data-a=punch]{right:calc(5vw + var(--tbs)*1.3);bottom:calc(4vh + var(--tbs)*.35)}
  .tb[data-a=block]{right:3vw;bottom:calc(6vh + var(--tbs)*1.3)}
  .tb[data-a=grapple]{right:calc(5vw + var(--tbs)*1.45);bottom:calc(8vh + var(--tbs)*1.6)}
- .tb[data-a=jump]{left:3vw;bottom:calc(6vh + 36vw)}.tb[data-a=crouch]{left:calc(5vw + var(--tbs)*.8);bottom:calc(6vh + 36vw)}
- .tb[data-a=dash]{left:calc(7vw + var(--tbs)*1.6);bottom:calc(6vh + 36vw)}
+ .tb[data-a=jump]{right:calc(5vw + var(--tbs)*1.6);bottom:calc(10vh + var(--tbs)*2.6)}.tb[data-a=crouch]{left:3vw;bottom:calc(6vh + 36vw)}
+ .tb[data-a=dash]{right:calc(3vw + var(--tbs)*.22);bottom:calc(8vh + var(--tbs)*2.5)}
  .tb[data-a=stance]{right:2vw;top:calc(26vw + var(--tbs)*.95)}.tb[data-a=pause]{right:2vw;top:26vw}
 }
 /* ---------- overlays ---------- */
