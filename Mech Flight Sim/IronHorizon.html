@@ -2673,7 +2673,7 @@ function newStats() {
 /* The record a human player's actions count toward: the local player's, or a co-op guest's (kept across respawns). */
 function statsOf(pl) {
   if (!pl) return null;
-  if (pl === W.player) return W.stats;
+  if (pl === W.player || pl.localPlayer) return W.stats;   // ordnance from a platform since replaced still counts
   return pl.netPeer && pl.netPeer.stats ? pl.netPeer.stats : null;
 }
 function newWorld(cfg) {
@@ -2696,7 +2696,7 @@ function newWorld(cfg) {
     },
   };
   Chunks.reset();
-  SW.reset();
+  SW.reset(); WPN.smokeUntil = -1;
   for (let i = 0; i < MAX_PROJECTILES; i++) W.projs.push(newProjectileSlot());
   W.projCursor = 0;
   FX.clear();
@@ -6422,9 +6422,9 @@ const SW = {
   /* put a timed status on a platform (see STATUS_TIMERS); value sets slowMult / gravMult where it applies */
   status(p, key, t, value) {
     if (Net.guest || !p || p.dead) return;
-    const s = p.status;
+    const s = p.status, slowed = s.slow > 0;
     s[key] = Math.max(s[key], t);
-    if (key === 'slow' && value !== undefined) s.slowMult = value;
+    if (key === 'slow' && value !== undefined) s.slowMult = slowed ? Math.min(s.slowMult, value) : value;
     if (key === 'grav' && value !== undefined) s.gravMult = value;
     if (key === 'emp') { p.shieldOn = false; p.lock.state = 'none'; p.lock.progress = 0; }
     if (key === 'blind') { p.target = null; p.lock.state = 'none'; p.lock.progress = 0; if (p.ai) p.ai.target = null; }
@@ -8366,7 +8366,8 @@ defineSuper('auroraVeil', {
     sw.sound('repair', o.x, o.y, o.z, 1.3); sw.light(o.x, o.y + 30, o.z, 160, [0.4, 1, 0.7], 0.6);
     if (!Net.guest) {
       for (const p of sw.allies(o.x, o.z, R0, ctx)) {
-        buffed.set(p, { max: p.maxShield, auto: p.autoShield });
+        if (!p.veilN) p.veilAuto = p.autoShield;   // count overlapping casts so each removes only its own shield
+        p.veilN = (p.veilN || 0) + 1; buffed.set(p, true);
         p.maxShield += SHIELD; p.shield += SHIELD; p.shieldOn = true; p.autoShield = true; p.shieldBroken = 0;
       }
     }
@@ -8379,7 +8380,11 @@ defineSuper('auroraVeil', {
       }
     }, {
       end() {
-        for (const [p, was] of buffed) { p.maxShield = was.max; p.shield = Math.min(p.shield, p.maxShield); p.autoShield = was.auto; if (p.maxShield <= 0) p.shieldOn = false; }
+        for (const p of buffed.keys()) {
+          p.maxShield -= SHIELD; p.shield = Math.min(p.shield, p.maxShield); p.veilN--;
+          if (!p.veilN) p.autoShield = p.veilAuto;
+          if (p.maxShield <= 0) p.shieldOn = false;
+        }
       },
       draw(e, glow) {
         if (!glow) return;
@@ -11444,7 +11449,7 @@ const Game = {
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
     if (old && old.sw && p.sw && old.sw.id === p.sw.id) p.sw.charge = old.sw.charge;   // the meter survives a lost platform
-    W.player = p; PC.hadTarget = false; PC.manualHold = 0;   // a fresh platform must not auto-lock the nearest hostile
+    W.player = p; p.localPlayer = true; PC.hadTarget = false; PC.manualHold = 0;   // a fresh platform must not auto-lock the nearest hostile
     W.platforms = W.platforms.filter((q) => q !== old);
     W.platforms.push(p);
     p.noTarget = false;
@@ -11606,7 +11611,7 @@ const Game = {
   },
   /* platforms per player for this session: the skirmish setting, else Settings > Gameplay */
   livesFor(cfg) {
-    const v = String(cfg.mode === 'skirmish' && cfg.skirmish && cfg.skirmish.lives !== undefined ? cfg.skirmish.lives : S.lives);
+    const v = String(cfg.lives !== undefined ? cfg.lives : cfg.mode === 'skirmish' && cfg.skirmish && cfg.skirmish.lives !== undefined ? cfg.skirmish.lives : S.lives);   // co-op guests get the host's value
     if (v === 'unlimited' || v === '0') return UNLIMITED_LIVES;
     return clamp(parseInt(v, 10) || PLAYER_LIVES, 1, 20);
   },
@@ -14068,7 +14073,8 @@ UI.scr_selftest = function (r) {
    The host simulates everything. Guests send inputs and render snapshots.
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
-const NET_VERSION = 2;   // 2: lobby return, per-guest results, feed ids, sound relays
+const SNAP_PLATS = 44;    // platforms per snapshot (message size)
+const NET_VERSION = 3;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -14300,15 +14306,15 @@ const Net = {
     if (err) { UI.toast(err); return false; }
     const live = this.peers.filter((p) => p.hello && p.open);
     const hostPid = Save.data.platformId;
-    const cfg = { mode: 'mission', missionId: this.missionId, platformId: hostPid, loadout: Loadout.forPlatform(hostPid), difficulty: S.difficulty, coop: true, nPlayers: live.length + 1 };
+    const cfg = { mode: 'mission', missionId: this.missionId, platformId: hostPid, loadout: Loadout.forPlatform(hostPid), difficulty: S.difficulty, coop: true, nPlayers: live.length + 1, lives: S.lives };
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = W.maxLives; p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
+      p.lives = Game.livesFor(cfg); p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
-    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, platformId: p.pid, loadout: p.loadout }, ns: W.structs.length });
+    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, lives: cfg.lives, platformId: p.pid, loadout: p.loadout }, ns: W.structs.length });
     return true;
   },
   /* called by Game.startSession on the host once the world and the local player exist */
@@ -14344,7 +14350,7 @@ const Net = {
     if (!this.inSession || !peer.hello) return;
     if (this.t - peer.lastInT < 0.01) { peer.edges |= (m.e | 0); return; }
     peer.lastInT = this.t;
-    peer.inp = m; peer.inpT = this.t; peer.edges |= (m.e | 0) & 0xfff;
+    peer.inp = m; peer.inpT = this.t; peer.edges |= (m.e | 0) & 0x1fff;
   },
   applyCmd(peer) {
     const p = peer.p, m = peer.inp;
@@ -14370,7 +14376,7 @@ const Net = {
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
     if (e & 16) c.stanceEdge = true; if (e & 32) c.gearEdge = true; if (e & 64) c.reloadEdge = true; if (e & 128) c.ejectEdge = true;
-    if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true; if (e & 2048) c.superEdge = true;
+    if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true; if (e & 4096) c.superEdge = true;
     if (e & 2048) tryResupply(p);
   },
   hostTick(dt) {
@@ -14442,7 +14448,9 @@ const Net = {
   },
   sendSnapshots() {
     const plats = [];
-    for (const p of W.platforms) if (!p.dead && plats.length < 44) plats.push(this.platEntry(p));
+    const human = (p) => p.isPlayer || !!p.netPeer;   // players first: summons can push the count past the cap
+    for (const p of W.platforms) if (!p.dead && human(p) && plats.length < SNAP_PLATS) plats.push(this.platEntry(p));
+    for (const p of W.platforms) if (!p.dead && !human(p) && plats.length < SNAP_PLATS) plats.push(this.platEntry(p));
     const prs = [];
     for (const q of W.projs) if (q.active && prs.length < 70) prs.push([q.nid, WEAPON_IDS.indexOf(q.def.id || ''), r1(q.x), r1(q.y), r1(q.z), r1(q.vx), r1(q.vy), r1(q.vz), q.owner ? q.owner.id : 0]);
     const pk = W.pickups.map((k) => [k.type, r1(k.x), r1(k.z)]);
@@ -14452,7 +14460,7 @@ const Net = {
       for (const p of W.platforms) {
         if (p.dead || peer.known.has(p.id)) continue;
         peer.known.add(p.id);
-        this.send(peer, { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0 });
+        this.send(peer, { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale) });
       }
       base.me = this.selfState(peer);
       this.send(peer, base, false);
@@ -14495,9 +14503,12 @@ const Net = {
     const def = PLATFORMS[m.d];
     const lo = {};
     WEAPON_SLOTS.forEach((s) => { lo[s] = m.lo && typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
+    if (m.lo && typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic]) lo.strategic = m.lo.strategic;
     const p = new Platform(def, { team: numIn(m.team, 0, 2), x: m.x, z: m.z, yaw: m.yaw, y: m.y, loadout: lo, name: String(m.name).substring(0, 16), arch: m.arch || null });
     p.id = m.id; p.isPlayer = !!m.pl; p.y = m.y; p.nx = m.x; p.ny = m.y; p.nz = m.z; p.nyaw = m.yaw; p.npitch = 0; p.nroll = 0; p.nty = m.yaw; p.ntp = 0;
     p.netInit = true; p.seen = this.t; p.speedMult = 1;
+    const sc = numIn(m.sc, 0.1, 3, 1);
+    if (sc !== 1) { p.scale = sc; p.radius = def.radius * sc; p.height = def.height * sc; }
     this.map[m.id] = p;
     W.platforms.push(p);
     if (m.self) {
@@ -14698,7 +14709,7 @@ const Net = {
     if (!p || p.dead) { this.send(this.hostPeer, { t: 'in', q: ++this.inSeq, mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, e: 0 }, false); return; }
     const c = p.cmd;
     const b = (c.fire1 ? 1 : 0) | (c.fire2 ? 2 : 0) | (c.boost ? 4 : 0) | (c.jump ? 8 : 0) | (c.brake ? 16 : 0);
-    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.gearEdge ? 32 : 0) | (c.reloadEdge ? 64 : 0) | (c.ejectEdge ? 128 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | (c.superEdge ? 2048 : 0) | this.pendEdge;
+    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.gearEdge ? 32 : 0) | (c.reloadEdge ? 64 : 0) | (c.ejectEdge ? 128 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | (c.superEdge ? 4096 : 0) | this.pendEdge;
     c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.ejectEdge = false; c.sel1 = c.sel2 = c.selNext = c.superEdge = false; this.pendEdge = 0;
     const ap = c.aimPoint;
     const t = p.target;
