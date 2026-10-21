@@ -1700,6 +1700,7 @@ const R = {
       return;
     }
     const gl = this.gl, u = this.uni.lit;
+    this.use('lit');   // an instanced batch before this leaves its own program bound
     this.stack.copyTo(this.modelTmp);
     const m = this.meshes[name];
     this.bindMesh(m);
@@ -5823,7 +5824,7 @@ const SW = {
     return out;
   },
   /* buildings (W.buildings) whose centre is within r */
-  buildings(x, z, r) { return W.buildings.filter((b) => b.alive > 0 && Math.hypot(b.x - x, b.z - z) <= r); },
+  buildings(x, z, r) { return W.buildings.filter((b) => b.alive > 0 && Math.hypot(b.cx - x, b.cz - z) <= r); },
   /* the user's current position (or the strike point when the user is gone or unknown) */
   origin(ctx) {
     const o = ctx.owner;
