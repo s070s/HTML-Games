@@ -5906,6 +5906,1099 @@ defineSuper('blinkStrike', {
 /* SUPER PART A END */
 
 /* SUPER PART B BEGIN: superweapons 35-67 (helper B) */
+/* SW_B: small helpers shared by the Part B superweapons */
+const SW_B = {
+  mid(p) { return p.y + (p.kind === 'air' ? 0 : p.height * 0.5); },
+  /* an effect that calls fn(e, k) every gap seconds for life seconds; extra may add frame(dt, e), draw(e, glow), end(e) */
+  tick(sw, life, gap, fn, extra) {
+    let acc = 0, k = 0;
+    const ex = extra || {};
+    return sw.add({ life, draw: ex.draw, end: ex.end, update(dt, e) { if (ex.frame) ex.frame(dt, e); acc += dt; while (acc >= gap) { acc -= gap; fn(e, k++); } } });
+  },
+  /* red-green-blue of a hue 0..1 at full strength */
+  hue(h) { const f = (n) => { const k = (n + h * 6) % 6; return 1 - Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)]; },
+  /* distance from x,z to the segment a-b (both {x, z}) */
+  segDist(x, z, a, b) {
+    const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1, t = clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
+    return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+  },
+  /* draw calls (inside an effect's draw): a bar between two points, a disc, a cone */
+  seg(x1, y1, z1, x2, y2, z2, w, col, alpha, emis) {
+    const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1, len = Math.hypot(dx, dy, dz) || 1, st = R.stack;
+    st.push().t((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2).ry(Math.atan2(dx, dz)).rx(-Math.asin(clamp(dy / len, -1, 1))).s(w, w, len);
+    R.draw('box', col[0], col[1], col[2], alpha, emis, 0); st.pop();
+  },
+  disc(x, y, z, ry, rx, d, th, col, alpha, emis) {
+    const st = R.stack;
+    st.push().t(x, y, z).ry(ry).rx(rx).s(d, th, d); R.draw('cyl', col[0], col[1], col[2], alpha, emis, 0); st.pop();
+  },
+  cone(x, y, z, ry, rx, sx, sy, sz, col, alpha, emis) {
+    const st = R.stack;
+    st.push().t(x, y, z).ry(ry).rx(rx).s(sx, sy, sz); R.draw('cone', col[0], col[1], col[2], alpha, emis, 0); st.pop();
+  },
+  /* lumpy cloud blobs around x,y,z for the solid pass; hole leaves the middle empty */
+  cloud(sw, x, y, z, r, tint, t, n, hole) {
+    const h0 = hole || 0.1;
+    for (let i = 0; i < n; i++) {
+      const a = i * 2.4 + t * 0.25, d = r * (h0 + (1 - h0) * ((i * 0.618) % 1)), s = r * (0.26 + 0.16 * ((i * 0.37) % 1));
+      sw.shape('sphere', x + Math.cos(a) * d, y + Math.sin(i * 1.7 + t * 0.7) * r * 0.04, z + Math.sin(a) * d, s * 1.7, s * 0.65, s * 1.7, tint, 1, 0.1);
+    }
+  },
+  /* lightning from the sky into (x, y, z) */
+  sky(sw, x, y, z, col, width) { sw.bolt(x + rand(-14, 14), y + 150, z + rand(-14, 14), x, y, z, col, width || 1.1); },
+  /* a sky strike on platform p: bolt, sparks, damage and an optional stun */
+  strike(sw, ctx, p, dmg, col, stun) {
+    const y = this.mid(p);
+    this.sky(sw, p.x, y, p.z, col, 1.4); sw.sparks(p.x, y, p.z, 8, col, 16);
+    sw.hurt(p, dmg, 'energy', ctx);
+    if (stun) sw.status(p, 'emp', stun);
+  },
+  /* a bolt from (sx, sy, sz) into first, then up to `jumps` more hops to the nearest unhit foe in range; every hop is weaker */
+  chain(sw, ctx, first, sx, sy, sz, jumps, range, dmg, col, foes) {
+    const hit = new Set();
+    let cur = first, px = sx, py = sy, pz = sz;
+    for (let j = 0; cur && j <= jumps; j++) {
+      hit.add(cur);
+      const y = this.mid(cur);
+      sw.bolt(px, py, pz, cur.x, y, cur.z, col, j ? 0.8 : 1.3); sw.sparks(cur.x, y, cur.z, 6, col, 14);
+      sw.hurt(cur, dmg, 'energy', ctx, { noStagger: true });
+      dmg *= 0.8; px = cur.x; py = y; pz = cur.z;
+      let best = null, bd = range;
+      for (const f of foes) { if (hit.has(f) || f.dead) continue; const d = Math.hypot(f.x - px, f.z - pz); if (d < bd) { bd = d; best = f; } }
+      cur = best;
+    }
+  },
+  /* burning ground: flames and damage over time to enemies standing on it */
+  fireZone(sw, ctx, x, z, r, life, dps, col) {
+    const y = Terrain.h(x, z), gap = 0.25;
+    return this.tick(sw, life, gap, () => {
+      const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r * 0.8;
+      sw.fire(x + Math.cos(a) * d, y, z + Math.sin(a) * d, r * 0.2, 2);
+      sw.area(x, y, z, r, dps * gap, 'explosive', ctx, { falloff: false, height: 16, noStagger: true });
+    }, { draw(e, glow) { if (glow) sw.shape('cyl', x, y + 0.4, z, r * 2, 0.5, r * 2, col, 0.22 * Math.min(1, (life - e.t) / 1.5) * (0.8 + 0.2 * Math.sin(e.t * 11)), 1.5); } });
+  },
+  /* glowing trails behind every live munition `id` (guests see the projectiles too) */
+  trails(sw, life, id, col, size, rate, smoke) {
+    return sw.add({ life, update() {
+      const d = WEAPONS[id];
+      for (const q of W.projs) {
+        if (!q.active || q.def !== d || Math.random() > rate) continue;
+        FX.emit(q.x, q.y, q.z, rand(-1, 1), rand(-1, 1), rand(-1, 1), 0.5, size, size * 0.2, col[0], col[1], col[2], 0.8, 1, 0, true);
+        if (smoke) FX.emit(q.x, q.y, q.z, rand(-2, 2), rand(0, 2), rand(-2, 2), 1.4, size * 0.8, size * 2, 0.22, 0.2, 0.2, 0.5, 0.8, -0.5, false);
+      }
+    } });
+  },
+};
+
+SW.munition('swMeteor', { name: 'Meteor', dmg: 260, blast: 15, speed: 280, life: 6, structMult: 2.5, tracer: [1, 0.55, 0.15], size: 3.2, sound: 'bigExplosion',
+  onDetonate(p, x, y, z) { shakeFrom(x, y, z, 0.35, 350); spawnDebris(x, y + 1, z, 5, 1.1, 24); SW_B.fireZone(SW, { owner: p.owner, team: p.team }, x, z, 7, 5, 55, [1, 0.4, 0.1]); } });
+SW.munition('swLavaBomb', { name: 'Lava Bomb', dmg: 240, blast: 11, speed: 120, life: 9, grav: 40, structMult: 2, tracer: [1, 0.42, 0.08], size: 2.8, sound: 'mortar',
+  onDetonate(p, x, y, z) { SW_B.fireZone(SW, { owner: p.owner, team: p.team }, x, z, 6, 7, 55, [1, 0.4, 0.08]); } });
+SW.munition('swPhoton', { name: 'Photon Orb', dmg: 120, dtype: 'energy', blast: 6, speed: 50, life: 14, prox: 6, guide: { turn: 4.5 }, structMult: 1, tracer: [1, 0.96, 0.7], size: 2, sound: 'laser' });
+SW.munition('swPlasmaDrop', { name: 'Plasma Droplet', dmg: 80, dtype: 'energy', blast: 5.5, speed: 170, life: 4, structMult: 1.5, tracer: [0.95, 0.35, 1], size: 1.3, sound: 'plasma',
+  onDetonate(p, x, y, z) { fxSparks(x, y + 0.5, z, 8, [0.95, 0.4, 1], 14); FX.emit(x, y + 1, z, 0, 3, 0, 0.5, 3, 5, 0.9, 0.35, 1, 0.5, 1, 0, true); } });
+
+/* PLATFORMS.iceBlock: the Glacier Wall's static ice blocks (a Target Dummy body, hidden inside the drawn ice) */
+PLATFORMS.iceBlock = Object.assign({}, PLATFORMS.dummy, { id: 'iceBlock', name: 'Ice Block', cls: 'Glacier', hp: 480, col: { main: [0.7, 0.88, 1], dark: [0.45, 0.65, 0.85] } });
+ARCH.iceBlock = { def: 'iceBlock', ai: 'none', label: 'Ice Block', loadout: {}, score: 0 };
+
+defineSuper('teslaStorm', {
+  n: 35, name: 'Tesla Storm', tier: 2, aim: 'point', unlock: 'rank:m3:A', desc: 'A storm cloud hangs over the point for 15 s; every 0.3 s lightning strikes an enemy below (95 damage) and chains through 3 more.',
+  fire(ctx, sw) {
+    const R0 = 80, DUR = 15, GAP = 0.3, CLOUD_H = 85, col = [0.55, 0.78, 1], cy = ctx.y + CLOUD_H;
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0, 1.2); sw.sound('flak', ctx.x, ctx.y, ctx.z, 1);
+    SW_B.tick(sw, DUR, GAP, (e) => {
+      const foes = sw.enemies(ctx.x, ctx.z, R0, ctx);
+      e.flash = 1;
+      if (!foes.length) { const a = Math.random() * TAU, d = Math.random() * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d; sw.bolt(x, cy, z, x, Terrain.h(x, z), z, col, 0.9); return; }
+      const first = foes[Math.floor(Math.random() * foes.length)];
+      SW_B.chain(sw, ctx, first, first.x + rand(-6, 6), cy, first.z + rand(-6, 6), 3, 35, 95, col, foes);
+    }, {
+      frame(dt, e) { e.flash = Math.max(0, (e.flash || 0) - dt * 5); if (Math.random() < dt * 20) sw.light(ctx.x, cy - 10, ctx.z, 140, col, 0.12); },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 1.2) * Math.min(1, (DUR - e.t) / 1.2);
+        if (!glow) { SW_B.cloud(sw, ctx.x, cy, ctx.z, R0 * 0.9 * f, [0.2, 0.22, 0.3], e.t, 14); return; }
+        sw.shape('sphere', ctx.x, cy - 6, ctx.z, R0 * 1.3 * f, 18, R0 * 1.3 * f, col, 0.05 + 0.3 * (e.flash || 0), 2);
+      },
+    });
+  },
+});
+defineSuper('empBurst', {
+  n: 36, name: 'EMP Burst', tier: 1, aim: 'self', unlock: 'career:deaths:10', desc: 'A 150 m pulse disables enemy weapons and mobility for 8 s, drops shields, drains energy and stalls aircraft.', range: 150,
+  fire(ctx, sw) {
+    const R0 = 150, WAVE = 0.9, STUN = 8, o = sw.origin(ctx), col = [0.35, 0.65, 1], hit = [];
+    let drainT = 0;
+    sw.sound('shieldBreak', o.x, o.y, o.z, 1.4); sw.flash(o.x, o.z, 0.5, 90); sw.shake(o.x, o.y, o.z, 0.4, 250);
+    sw.add({ life: WAVE + STUN, update(dt, e) {
+      if (e.t < WAVE) {
+        const r = R0 * e.t / WAVE;
+        for (let k = 0; k < 8; k++) { const a = Math.random() * TAU, x = o.x + Math.cos(a) * r, z = o.z + Math.sin(a) * r; sw.glow(x, Terrain.h(x, z) + rand(1, 8), z, 0, 3, 0, col, 2.5, 0.35); }
+        for (const p of sw.enemies(o.x, o.z, r, ctx)) {
+          if (hit.indexOf(p) >= 0) continue;
+          hit.push(p); sw.status(p, 'emp', STUN); sw.status(p, 'slow', STUN, 0.35); sw.hurt(p, 70, 'energy', ctx, { noStagger: true });
+          sw.bolt(p.x, SW_B.mid(p) + 30, p.z, p.x, SW_B.mid(p), p.z, col, 0.8);
+        }
+      }
+      drainT += dt;
+      if (drainT < 0.25 || Net.guest) return;
+      drainT = 0;   // keep the struck dry: no energy, no shield, aircraft stalled and nose down
+      for (const p of hit) {
+        if (p.dead) continue;
+        p.energy = 0; p.shield = 0;
+        if (p.kind === 'air') { p.speed = Math.min(p.speed, p.def.air.min * 0.6); sw.push(p, 0, -250, 0); }
+      }
+    }, draw(e, glow) {
+      if (!glow || e.t > WAVE + 0.3) return;
+      const f = Math.min(1, e.t / WAVE), r = R0 * f, a = 1 - f;
+      sw.shape('cyl', o.x, o.y + 2, o.z, r * 2, 4, r * 2, col, 0.3 * a, 2); sw.shape('sphere', o.x, o.y, o.z, r * 2, r * 1.2, r * 2, col, 0.07 * a, 1.5);
+    } });
+  },
+});
+defineSuper('ionCannon', {
+  n: 37, name: 'Ion Cannon', tier: 2, aim: 'point', unlock: 'rank:m4:A', desc: 'A 3 s charging ring, then a 40 m wide ion column crashes down: a 1100 damage blast and 480 damage per second for 2.4 s.',
+  fire(ctx, sw) {
+    const CHARGE = 3, BURN = 2.4, HALF = 20, col = [0.45, 0.9, 1];
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 40, 1.4);
+    sw.add({ life: CHARGE + BURN, update(dt, e) {
+      if (e.t < CHARGE) {
+        const f = e.t / CHARGE, r = 34 * (1 - f * 0.8);
+        for (let k = 0; k < 3; k++) { const a = Math.random() * TAU, x = ctx.x + Math.cos(a) * r, z = ctx.z + Math.sin(a) * r; sw.glow(x, Terrain.h(x, z) + 1, z, -Math.cos(a) * 8, 6 + f * 20, -Math.sin(a) * 8, col, 2, 0.5); }
+        if (Math.random() < dt * (3 + 20 * f)) sw.column(ctx.x, ctx.z, 0.2 + f * 1.2, col, 0.05);
+        sw.shake(ctx.x, ctx.y, ctx.z, 0.015 + f * 0.02, 200);
+        return;
+      }
+      if (!e.fired) {
+        e.fired = true;
+        sw.flash(ctx.x, ctx.z, 1, 350); sw.shake(ctx.x, ctx.y, ctx.z, 1, 600); sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 1.6); sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.6);
+        sw.blast(ctx.x, ctx.y + 1, ctx.z, 32, 1100, ctx, { dtype: 'energy', structMult: 3 });
+        sw.decal(ctx.x, ctx.z, 22, [0.05, 0.12, 0.16], 90); sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 80, 1);
+      }
+      const k = 1 - (e.t - CHARGE) / BURN;
+      sw.column(ctx.x, ctx.z, 14 * (0.5 + 0.5 * k), col, 0.05); sw.column(ctx.x, ctx.z, 6 * (0.5 + 0.5 * k), [1, 1, 1], 0.05);
+      sw.light(ctx.x, ctx.y + 6, ctx.z, 160, col, 0.08);
+      for (let q = 0; q < 2; q++) { const a = Math.random() * TAU; sw.glow(ctx.x + Math.cos(a) * HALF, ctx.y + 1, ctx.z + Math.sin(a) * HALF, Math.cos(a) * 12, 18, Math.sin(a) * 12, col, 3, 0.6); }
+      sw.area(ctx.x, ctx.y, ctx.z, HALF, 480 * dt, 'energy', ctx, { falloff: false, structs: true, structMult: 2.5 });
+    }, draw(e, glow) {
+      if (!glow) return;
+      if (e.t < CHARGE) {
+        const f = e.t / CHARGE, r2 = 68 * (1 - f * 0.8);
+        sw.shape('cyl', ctx.x, ctx.y + 0.6, ctx.z, HALF * 2, 0.3, HALF * 2, col, 0.12 + 0.3 * f, 1.5); sw.shape('cyl', ctx.x, ctx.y + 0.8, ctx.z, r2, 0.5, r2, col, 0.4, 2);
+        return;
+      }
+      const k = 1 - (e.t - CHARGE) / BURN;
+      sw.shape('cyl', ctx.x, ctx.y + 200, ctx.z, HALF * 2 * (0.8 + 0.2 * k), 420, HALF * 2 * (0.8 + 0.2 * k), col, 0.08 + 0.3 * k, 2);
+      sw.shape('cyl', ctx.x, ctx.y + 200, ctx.z, 12, 420, 12, [1, 1, 1], 0.7 * k, 3);
+    } });
+  },
+});
+defineSuper('solarMirrorArray', {
+  n: 38, name: 'Solar Mirror Array', tier: 3, aim: 'target', unlock: 'rank:m7:S', desc: 'Twelve orbital mirrors focus sunlight on the target and follow it for 8 s (330 damage per second), leaving fire zones behind.',
+  fire(ctx, sw) {
+    const DUR = 8, MIRRORS = 12, RING = 120, ALT = 170, col = [1, 0.92, 0.6], tail = 0.6;
+    let tgt = ctx.target, tx = ctx.x, tz = ctx.z, zoneT = 0;
+    sw.flash(ctx.x, ctx.z, 0.4, 200); sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.2); sw.shake(ctx.x, ctx.y, ctx.z, 0.4, 400);
+    sw.add({ life: DUR + tail, update(dt, e) {
+      if (e.t > DUR) return;
+      if (!talive(tgt)) tgt = sw.nearestEnemy(tx, tz, 160, ctx);
+      if (tgt) { const k = Math.min(1, dt * 5); tx += (tgt.x - tx) * k; tz += (tgt.z - tz) * k; }
+      const gy = Terrain.h(tx, tz);
+      for (let i = 0; i < MIRRORS; i++) { const a = i / MIRRORS * TAU + e.t * 0.35; sw.beam(tx + Math.cos(a) * RING, gy + ALT, tz + Math.sin(a) * RING, tx, gy + 2, tz, col, 0.9, 0.05); }
+      sw.fire(tx, gy, tz, 4, 3); sw.light(tx, gy + 6, tz, 120, col, 0.08);
+      if (Math.random() < dt * 8) sw.shake(tx, gy, tz, 0.05, 150);
+      sw.area(tx, gy, tz, 8, 330 * dt, 'energy', ctx, { falloff: false, structs: true, structMult: 1.5 });
+      zoneT -= dt;
+      if (zoneT <= 0) { zoneT = 0.7; SW_B.fireZone(sw, ctx, tx, tz, 9, 9, 70, [1, 0.45, 0.1]); }
+    }, draw(e, glow) {
+      const f = Math.min(1, e.t / 0.8) * Math.min(1, (DUR + tail - e.t) / tail), gy = Terrain.h(tx, tz);
+      for (let i = 0; i < MIRRORS; i++) {
+        const a = i / MIRRORS * TAU + e.t * 0.35, x = tx + Math.cos(a) * RING, z = tz + Math.sin(a) * RING;
+        if (!glow) { sw.shape('cyl', x, gy + ALT, z, 15 * f, 1.5, 15 * f, [0.85, 0.9, 1], 1, 0.9); sw.shape('box', x, gy + ALT - 6, z, 1, 12, 1, [0.4, 0.4, 0.45], 1, 0.1); } else sw.shape('sphere', x, gy + ALT + 1, z, 18 * f, 18 * f, 18 * f, col, 0.35, 2);
+      }
+      if (!glow) return;
+      const s = 14 + 3 * Math.sin(e.t * 30);
+      sw.shape('sphere', tx, gy + 3, tz, s * f, s * f, s * f, col, 0.6, 3); sw.shape('sphere', tx, gy + 3, tz, 5 * f, 5 * f, 5 * f, [1, 1, 1], 0.9, 3);
+    } });
+  },
+});
+defineSuper('plasmaTornado', {
+  n: 39, name: 'Plasma Tornado', tier: 2, aim: 'point', unlock: 'career:kills:200', desc: 'A 14 s tornado of plasma wanders from the point, lifting and spinning enemies within 36 m and burning them for 85 damage every 0.25 s.',
+  fire(ctx, sw) {
+    const DUR = 14, R0 = 24, REACH = 36, H = 80, SPEED = 12, LIFT = 32, SPIN = 1.8, col = [0.5, 1, 0.75], col2 = [0.95, 0.4, 1];
+    const phase = ctx.rng() * TAU;
+    let x = ctx.x, z = ctx.z, heading = ctx.rng() * TAU, burn = 0;
+    sw.sound('plasma', x, ctx.y, z, 1.5); sw.shake(x, ctx.y, z, 0.4, 300);
+    const grow = (e) => Math.min(1, e.t / 1.5) * Math.min(1, (DUR - e.t) / 1.5);
+    sw.add({ life: DUR, update(dt, e) {
+      heading += Math.sin(e.t * 0.8 + phase) * 1.4 * dt;
+      x = clamp(x + Math.sin(heading) * SPEED * dt, -GROUND_BOUND, GROUND_BOUND); z = clamp(z + Math.cos(heading) * SPEED * dt, -GROUND_BOUND, GROUND_BOUND);
+      const gy = Terrain.h(x, z), g = grow(e);
+      for (let k = 0; k < 4; k++) { const h = Math.random() * H, r = (3 + R0 * h / H) * g, a = e.t * 5 + h * 0.12 + k; sw.glow(x + Math.cos(a) * r, gy + h, z + Math.sin(a) * r, -Math.sin(a) * 18, 4, Math.cos(a) * 18, k % 2 ? col : col2, 2.6, 0.45); }
+      if (Math.random() < dt * 4) sw.shake(x, gy, z, 0.08, 200);
+      burn += dt;
+      const strike = burn >= 0.25;
+      if (strike) burn = 0;
+      for (const p of sw.enemies(x, z, REACH, ctx)) {
+        if (p.kind === 'air') { if (strike) sw.push(p, 80, -200, 80); continue; }
+        sw.lift(p, LIFT, 1.2, 140, ctx);
+        if (Net.guest) continue;
+        const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz) || 1, s = Math.sin(SPIN * dt), c = Math.cos(SPIN * dt), k = Math.max(0, d - 6 * dt) / d;   // spin round the core and creep inward
+        p.x = x + (dx * c - dz * s) * k; p.z = z + (dx * s + dz * c) * k;
+      }
+      if (strike) sw.area(x, gy, z, REACH, 85, 'energy', ctx, { falloff: false, noStagger: true });
+    }, draw(e, glow) {
+      const gy = Terrain.h(x, z), g = grow(e);
+      if (!glow) {
+        for (let i = 0; i < 14; i++) { const h = ((i * 0.37 + e.t * 0.25) % 1) * H, r = (3 + R0 * h / H) * g * 0.9, a = e.t * (3 + i % 3) + i * 1.9; sw.shape('box', x + Math.cos(a) * r, gy + h, z + Math.sin(a) * r, 2.2, 1.2, 2.2, [0.28, 0.3, 0.26], 1, 0.1, a); }
+        return;
+      }
+      for (let L = 0; L < 8; L++) { const h = L * H / 8 + 5, r = (3 + R0 * h / H) * g; sw.shape('cyl', x, gy + h, z, r * 2, H / 8 + 1, r * 2, L % 2 ? col : col2, 0.14, 1.6); }
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 12; j++) {
+        const h = j * H / 12, r = (3 + R0 * h / H) * g * 1.05, a = e.t * 4.5 - h * 0.1 + k * TAU / 3;
+        sw.shape('box', x + Math.cos(a) * r, gy + h + 3, z + Math.sin(a) * r, 2.5, 7, 0.9, col, 0.5, 2.5, -a);
+      }
+      sw.shape('cyl', x, gy + 0.6, z, 14 * g, 0.5, 14 * g, col2, 0.4, 2);
+    } });
+  },
+});
+defineSuper('cryoBlizzard', {
+  n: 40, name: 'Cryo Blizzard', tier: 2, aim: 'point', unlock: 'skirmishMap:frost', desc: 'A 14 s blizzard over 85 m slows enemies 80%, freezes them after 3 s and shatters them at 5 s for 560 bonus damage.',
+  fire(ctx, sw) {
+    const R0 = 85, DUR = 14, CHILL = 3, SHATTER = 5, GAP = 0.25, col = [0.72, 0.93, 1];
+    const chill = new Map(), spikes = [];
+    for (let i = 0; i < 16; i++) spikes.push({ a: i / 16 * TAU + ctx.rng() * 0.3, h: 9 + ctx.rng() * 12 });
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0, 1.2); sw.sound('shieldHit', ctx.x, ctx.y, ctx.z, 1.2);
+    SW_B.tick(sw, DUR, GAP, () => {
+      const inside = sw.enemies(ctx.x, ctx.z, R0, ctx);
+      for (const p of inside) {
+        const c = (chill.get(p) || 0) + GAP, mid = SW_B.mid(p);
+        if (c >= SHATTER) {   // frozen solid long enough: it shatters
+          chill.set(p, 0); sw.hurt(p, 560, 'kinetic', ctx);
+          sw.sparks(p.x, mid, p.z, 24, col, 26); sw.ring(p.x, mid, p.z, 10, 0.4); sw.sound('shieldBreak', p.x, p.y, p.z, 0.7);
+          continue;
+        }
+        chill.set(p, c);
+        sw.status(p, 'slow', 0.6, 0.2);
+        if (c >= CHILL) sw.status(p, 'freeze', 0.5);
+        sw.hurt(p, 8, 'kinetic', ctx, { noStagger: true });
+      }
+      for (const p of chill.keys()) if (p.dead || inside.indexOf(p) < 0) chill.delete(p);
+    }, {
+      frame(dt, e) {
+        for (let k = 0; k < 2; k++) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0; FX.emit(ctx.x + Math.cos(a) * d, ctx.y + rand(20, 55), ctx.z + Math.sin(a) * d, rand(8, 16), rand(-16, -10), rand(-3, 3), 2, 0.7, 0.5, 0.95, 0.98, 1, 0.8, 0, 0, false); }
+      },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 1.5), fade = Math.min(1, (DUR - e.t) / 1.5);
+        if (!glow) {
+          for (const s of spikes) { const h = s.h * f * fade, x = ctx.x + Math.cos(s.a) * R0 * 0.92, z = ctx.z + Math.sin(s.a) * R0 * 0.92; sw.shape('cone', x, Terrain.h(x, z) + h * 0.5, z, 7, h, 7, [0.75, 0.9, 1], 1, 0.4); }
+          return;
+        }
+        sw.shape('cyl', ctx.x, ctx.y + 0.5, ctx.z, R0 * 2 * f, 0.5, R0 * 2 * f, col, 0.16 * fade, 1);
+        for (const p of sw.enemies(ctx.x, ctx.z, R0, ctx)) if (p.status.freeze > 0) sw.shape('box', p.x, p.y + p.height * 0.5, p.z, p.radius * 2.3, p.height * 1.15 + 1, p.radius * 2.3, col, 0.5, 1.2);
+      },
+    });
+  },
+});
+defineSuper('meteorShower', {
+  n: 41, name: 'Meteor Shower', tier: 2, aim: 'point', unlock: 'skirmishMap:ashfall', desc: '30 meteors fall over 10 s across a 150 m circle (260 damage, 15 m blast each) and leave burning ground.',
+  fire(ctx, sw) {
+    const COUNT = 30, SPAN = 10, R0 = 75, DROP = 330, SLANT = 0.5;
+    const sx = ctx.dirX * SLANT, sz = ctx.dirZ * SLANT;
+    sw.sound('alarm', ctx.x, ctx.y, ctx.z, 1);
+    SW_B.trails(sw, SPAN + 4, 'swMeteor', [1, 0.5, 0.15], 4.5, 0.9, true);
+    sw.repeat(SPAN / COUNT, COUNT, () => {
+      const a = ctx.rng() * TAU, d = Math.sqrt(ctx.rng()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, y = Terrain.h(x, z);
+      sw.shoot('swMeteor', ctx, x - sx * DROP, y + DROP, z - sz * DROP, sx, -1, sz);
+      sw.sound('mortar', x, y + 120, z, 0.7);
+    }, true);
+  },
+});
+defineSuper('volcanicEruption', {
+  n: 42, name: 'Volcanic Eruption', tier: 3, aim: 'point', unlock: 'career:playMin:120', desc: 'The ground rumbles, then a vent erupts for 7 s, hurling lava bombs (240 damage) and leaving a lava pool of up to 55 m that burns for 25 s.',
+  fire(ctx, sw) {
+    const RUMBLE = 1.8, ERUPT = 7, TOTAL = 25, POOL = 55, MOUND = 16, col = [1, 0.4, 0.08];
+    let bombT = 0, poolT = 0;
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 30, 1.5);
+    const pool = (e) => POOL * smoothstep(RUMBLE, RUMBLE + ERUPT + 2, e.t) * (e.t > TOTAL - 5 ? (TOTAL - e.t) / 5 : 1);
+    const mound = (e) => MOUND * smoothstep(0, RUMBLE + 1, e.t);
+    sw.add({ life: TOTAL, update(dt, e) {
+      const gy = ctx.y;
+      if (e.t < RUMBLE) {   // the ground cracks and glows
+        sw.shake(ctx.x, gy, ctx.z, 0.03 + 0.03 * e.t, 400);
+        for (let k = 0; k < 3; k++) { const a = Math.random() * TAU, r = Math.random() * 14; sw.glow(ctx.x + Math.cos(a) * r, gy + 0.5, ctx.z + Math.sin(a) * r, 0, 6, 0, col, 2, 0.5); }
+        if (Math.random() < dt * 6) sw.smoke(ctx.x, gy, ctx.z, 4, 2);
+        return;
+      }
+      if (!e.erupted) {
+        e.erupted = true;
+        sw.flash(ctx.x, ctx.z, 0.8, 500); sw.shake(ctx.x, gy, ctx.z, 1, 700); sw.sound('bigExplosion', ctx.x, gy, ctx.z, 1.8);
+        sw.blast(ctx.x, gy + 2, ctx.z, 22, 700, ctx, { structMult: 2.5 }); sw.decal(ctx.x, ctx.z, 26, [0.3, 0.07, 0.03], 120);
+      }
+      const top = gy + mound(e);
+      if (e.t < RUMBLE + ERUPT) {
+        for (let k = 0; k < 2; k++) FX.emit(ctx.x + rand(-3, 3), top, ctx.z + rand(-3, 3), rand(-16, 16), rand(45, 85), rand(-16, 16), 1.8, 4.5, 1.5, 1, rand(0.3, 0.55), 0.06, 0.95, 0, 32, true);
+        if (Math.random() < dt * 5) fxSmokePuff(ctx.x, top + 25, ctx.z, 7, 1);
+        sw.shake(ctx.x, gy, ctx.z, 0.03, 500);
+        bombT -= dt;
+        if (bombT <= 0) {
+          bombT = 0.28;
+          const a = ctx.rng() * TAU, k = 0.3 + ctx.rng() * 0.7;
+          sw.shoot('swLavaBomb', ctx, ctx.x, top + 2, ctx.z, Math.cos(a) * k, 1.6, Math.sin(a) * k);
+        }
+      }
+      poolT -= dt;
+      if (poolT <= 0) {
+        poolT = 0.25;
+        const r = pool(e), a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r * 0.85;
+        sw.area(ctx.x, gy, ctx.z, r, 24, 'explosive', ctx, { falloff: false, height: 20, noStagger: true });
+        sw.fire(ctx.x + Math.cos(a) * d, gy, ctx.z + Math.sin(a) * d, 4, 2); sw.light(ctx.x, gy + 8, ctx.z, 120, col, 0.3);
+      }
+    }, draw(e, glow) {
+      const gy = ctx.y, mh = mound(e), r = pool(e), erupting = e.t > RUMBLE && e.t < RUMBLE + ERUPT, flick = 0.85 + 0.15 * Math.sin(e.t * 13);
+      if (!glow) { if (mh > 0.2) sw.shape('cone', ctx.x, gy + mh * 0.5, ctx.z, 22, mh, 22, [0.2, 0.14, 0.11], 1, 0.15); return; }
+      if (r > 1) { sw.shape('cyl', ctx.x, gy + 0.5, ctx.z, r * 2, 0.6, r * 2, [1, 0.38, 0.07], 0.35 * flick, 2); sw.shape('cyl', ctx.x, gy + 0.7, ctx.z, r * 1.2, 0.6, r * 1.2, [1, 0.7, 0.2], 0.3 * flick, 2.5); }
+      if (mh > 0.2) sw.shape('cone', ctx.x, gy + mh * 0.85, ctx.z, 10, mh * 0.4, 10, col, 0.9, 3);
+      if (erupting) sw.shape('cyl', ctx.x, gy + mh + 50, ctx.z, 7, 100, 7, col, 0.3 * flick, 3);
+    } });
+  },
+});
+defineSuper('arcFence', {
+  n: 43, name: 'Arc Fence', tier: 1, aim: 'point', unlock: 'mission:m3', desc: 'Four pylons form a 50 m electrified square for 20 s; anything crossing the arcs is stunned and takes 75 damage.',
+  fire(ctx, sw) {
+    const HALF = 25, DUR = 20, TOP = 16, WIDTH = 3.5, col = [0.6, 0.85, 1];
+    const rx = ctx.dirZ, rz = -ctx.dirX, lastZap = new Map();
+    const corners = [[-1, -1], [-1, 1], [1, 1], [1, -1]].map((c) => {
+      const x = ctx.x + (ctx.dirX * c[0] + rx * c[1]) * HALF, z = ctx.z + (ctx.dirZ * c[0] + rz * c[1]) * HALF;
+      return { x, z, y: Terrain.h(x, z) };
+    });
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, HALF * 1.6, 1); sw.sound('shieldHit', ctx.x, ctx.y, ctx.z, 1.2);
+    SW_B.tick(sw, DUR, 0.12, () => {
+      for (let i = 0; i < 4; i++) { const a = corners[i], b = corners[(i + 1) % 4]; sw.bolt(a.x, a.y + TOP, a.z, b.x, b.y + TOP, b.z, col, 0.6); }
+    }, {
+      frame(dt, e) {
+        for (const p of sw.enemies(ctx.x, ctx.z, HALF * 1.6, ctx)) {
+          if ((lastZap.get(p) || 0) > e.t) continue;
+          for (let i = 0; i < 4; i++) {
+            if (SW_B.segDist(p.x, p.z, corners[i], corners[(i + 1) % 4]) > WIDTH + p.radius * 0.5) continue;
+            lastZap.set(p, e.t + 0.8);
+            sw.hurt(p, 75, 'energy', ctx); sw.status(p, 'emp', 1.5); sw.status(p, 'slow', 2, 0.4);
+            sw.sparks(p.x, SW_B.mid(p), p.z, 14, col, 18); sw.fire(p.x, p.y, p.z, 2, 3); sw.sound('shieldHit', p.x, p.y, p.z, 0.8);
+            break;
+          }
+        }
+      },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 0.6) * Math.min(1, (DUR - e.t) / 0.6);
+        for (let i = 0; i < 4; i++) {
+          const a = corners[i], b = corners[(i + 1) % 4];
+          if (!glow) {
+            sw.shape('cyl', a.x, a.y + 0.6, a.z, 4.4, 1.2, 4.4, [0.3, 0.32, 0.36], 1, 0.1); sw.shape('cyl', a.x, a.y + TOP * 0.5 * f, a.z, 1.8, TOP * f, 1.8, [0.4, 0.45, 0.52], 1, 0.3);
+            sw.shape('sphere', a.x, a.y + TOP * f + 1, a.z, 3.4, 3.4, 3.4, col, 1, 2);
+          } else {
+            sw.shape('box', (a.x + b.x) / 2, (a.y + b.y) / 2 + TOP * 0.5, (a.z + b.z) / 2, Math.hypot(b.x - a.x, b.z - a.z), TOP, 0.4, col, (0.1 + 0.08 * Math.sin(e.t * 25 + i)) * f, 2, Math.atan2(-(b.z - a.z), b.x - a.x));
+            sw.shape('sphere', a.x, a.y + TOP * f + 1, a.z, 8, 8, 8, col, 0.4 * f, 2);
+          }
+        }
+      },
+    });
+  },
+});
+defineSuper('solarFlare', {
+  n: 44, name: 'Solar Flare', tier: 1, aim: 'self', unlock: 'career:airKills:10', desc: 'A blinding flash blinds every enemy within 300 m for 10 s: locks are broken, they cannot fire and their aim is ruined.', range: 300,
+  fire(ctx, sw) {
+    const R0 = 300, BLIND = 10, o = sw.origin(ctx), col = [1, 0.95, 0.7], blinded = [];
+    sw.flash(o.x, o.z, 0.55, 120); sw.light(o.x, o.y + 4, o.z, 200, col, 0.6); sw.sound('flare', o.x, o.y, o.z, 1.4); sw.sound('laser', o.x, o.y, o.z, 1);
+    sw.after(0.15, () => {
+      for (const p of sw.enemies(o.x, o.z, R0, ctx)) { sw.status(p, 'blind', BLIND); blinded.push(p); }
+    });
+    sw.add({ life: BLIND, update(dt, e) {
+      if (e.t < 1.2) for (let i = 0; i < 12; i++) { const a = i / 12 * TAU + e.t * 2; sw.beam(o.x, o.y + 3, o.z, o.x + Math.cos(a) * 90, o.y + 3 + Math.sin(e.t * 7 + i) * 30, o.z + Math.sin(a) * 90, col, 1.6, 0.05); }
+      if (!Net.guest && e.t > 0.2) for (const p of blinded) if (!p.dead && p.status.blind > 0 && p.ai && p.ai.target) p.ai.target = null;   // they keep losing whatever they find
+    }, draw(e, glow) {
+      if (!glow) return;
+      const f = Math.min(1, e.t / 1.2);
+      if (e.t < 1.2) sw.shape('sphere', o.x, o.y, o.z, 40 + 260 * f, 40 + 260 * f, 40 + 260 * f, col, 0.45 * (1 - f), 3);
+      for (const p of blinded) if (!p.dead) sw.shape('sphere', p.x, SW_B.mid(p) + p.height * 0.6 + 3, p.z, 5 + Math.sin(e.t * 9), 5 + Math.sin(e.t * 9), 5 + Math.sin(e.t * 9), col, 0.5 * Math.min(1, (BLIND - e.t) / 2), 3);
+    } });
+  },
+});
+defineSuper('microwaveEmitter', {
+  n: 45, name: 'Microwave Emitter', tier: 1, aim: 'self', unlock: 'career:infantryKills:30', desc: 'For 6 s a forward cone out to 150 m overheats enemy weapons within 2 s and cooks infantry at 275 damage per second.', range: 150,
+  fire(ctx, sw) {
+    const DUR = 6, RANGE = 150, CONE = 0.88, GAP = 0.2, col = [1, 0.6, 0.2];
+    const dirOf = () => {   // the cone follows where you aim
+      const o = ctx.owner;
+      if (o && !o.dead) { const d = o.aimDir({ x: 0, y: 0, z: 0 }), l = Math.hypot(d.x, d.z) || 1; return { x: d.x / l, z: d.z / l }; }
+      return { x: ctx.dirX, z: ctx.dirZ };
+    };
+    sw.sound('plasma', ctx.x, ctx.y, ctx.z, 1.2);
+    SW_B.tick(sw, DUR, GAP, () => {
+      const o = sw.origin(ctx), d = dirOf();
+      for (const p of sw.enemies(o.x, o.z, RANGE, ctx)) {
+        const dx = p.x - o.x, dz = p.z - o.z, len = Math.hypot(dx, dz) || 1;
+        if ((dx * d.x + dz * d.z) / len < CONE) continue;
+        const mid = SW_B.mid(p);
+        if (p.def.style === 'infantry') sw.hurt(p, 55, 'energy', ctx); else sw.hurt(p, 9, 'energy', ctx, { noStagger: true });
+        if (!Net.guest) { p.heat = Math.min(p.maxHeat, p.heat + p.maxHeat * 0.12); if (p.heat >= p.maxHeat) p.overheated = true; }
+        sw.smoke(p.x, mid + 2, p.z, 2, 1); sw.glow(p.x + rand(-1, 1), mid, p.z + rand(-1, 1), 0, 5, 0, col, 2, 0.4);
+      }
+    }, { draw(e, glow) {
+      if (!glow) return;
+      const o = sw.origin(ctx), d = dirOf(), yaw = Math.atan2(d.x, d.z), f = Math.min(1, e.t * 3, (DUR - e.t) * 3);
+      for (let i = 0; i < 8; i++) {
+        const dist = (e.t * 70 + i * 19) % RANGE;
+        SW_B.disc(o.x + d.x * dist, o.y + 4, o.z + d.z * dist, yaw, PI / 2, dist * 1.05 + 2, 0.5, col, 0.22 * f * (1 - dist / RANGE), 2);
+      }
+    } });
+  },
+});
+defineSuper('photonSwarm', {
+  n: 46, name: 'Photon Swarm', tier: 2, aim: 'map', unlock: 'match:kills:30', desc: '50 seeking light orbs rise from you over 3 s and drift onto enemies anywhere on the map (120 damage, 6 m blast each).',
+  fire(ctx, sw) {
+    const COUNT = 50, SPAN = 3.2, o = sw.origin(ctx), col = [1, 0.97, 0.7];
+    sw.sound('laser', o.x, o.y, o.z, 1.2); sw.light(o.x, o.y + 30, o.z, 120, col, 0.5);
+    SW_B.trails(sw, SPAN + 15, 'swPhoton', col, 3.4, 0.5);
+    sw.repeat(SPAN / COUNT, COUNT, (i) => {
+      const a = ctx.rng() * TAU, up = 0.5 + ctx.rng() * 0.8, x = o.x + Math.cos(a) * 8, z = o.z + Math.sin(a) * 8, foes = sw.enemies(o.x, o.z, 4000, ctx);
+      sw.shoot('swPhoton', ctx, x, o.y + 25, z, Math.cos(a), up, Math.sin(a), { target: foes.length ? foes[i % foes.length] : null });
+      sw.glow(x, o.y + 25, z, Math.cos(a) * 12, 10, Math.sin(a) * 12, col, 3, 0.5);
+    }, true);
+  },
+});
+defineSuper('ballLightning', {
+  n: 48, name: 'Ball Lightning', tier: 1, aim: 'point', unlock: 'career:kills:100', desc: 'Five slow orbs roll forward from the point for 11 s, steering at enemies and zapping anything within 30 m for 80 damage every 0.3 s.',
+  fire(ctx, sw) {
+    const ORBS = 5, DUR = 11, SPEED = 14, ZAP = 30, STEER = 70, col = [0.55, 0.9, 1];
+    const orbs = [];
+    for (let i = 0; i < ORBS; i++) orbs.push({ x: ctx.x + ctx.dirZ * (i - 2) * 6, z: ctx.z - ctx.dirX * (i - 2) * 6, h: ctx.yaw + (i - 2) * 0.3, w: ctx.rng() * TAU, y: ctx.y + 3.5 });
+    sw.sound('shieldHit', ctx.x, ctx.y, ctx.z, 1.2);
+    SW_B.tick(sw, DUR, 0.3, () => {
+      for (const o of orbs) {
+        const t = sw.nearestEnemy(o.x, o.z, ZAP, ctx);
+        if (!t) continue;
+        sw.bolt(o.x, o.y, o.z, t.x, SW_B.mid(t), t.z, col, 0.9); sw.sparks(t.x, SW_B.mid(t), t.z, 6, col, 12);
+        sw.hurt(t, 80, 'energy', ctx, { noStagger: true }); sw.status(t, 'slow', 0.8, 0.6);
+      }
+    }, {
+      frame(dt) {
+        for (const o of orbs) {
+          const t = sw.nearestEnemy(o.x, o.z, STEER, ctx);
+          if (t) o.h = turnToward(o.h, Math.atan2(t.x - o.x, t.z - o.z), 0.9 * dt);
+          o.w += dt * 3;
+          const lat = Math.cos(o.w) * 5;   // weave sideways while rolling
+          o.x = clamp(o.x + (Math.sin(o.h) * SPEED + Math.cos(o.h) * lat) * dt, -GROUND_BOUND, GROUND_BOUND); o.z = clamp(o.z + (Math.cos(o.h) * SPEED - Math.sin(o.h) * lat) * dt, -GROUND_BOUND, GROUND_BOUND);
+          o.y = Terrain.h(o.x, o.z) + 3.5;
+          sw.glow(o.x + rand(-2, 2), o.y + rand(-2, 2), o.z + rand(-2, 2), rand(-6, 6), rand(-6, 6), rand(-6, 6), col, 1.4, 0.3);
+          if (Math.random() < dt * 8) sw.bolt(o.x, o.y, o.z, o.x + rand(-6, 6), o.y + rand(-3, 5), o.z + rand(-6, 6), col, 0.5);
+        }
+      },
+      draw(e, glow) {
+        if (!glow) return;
+        const f = Math.min(1, e.t / 0.5, (DUR - e.t) / 0.8), pulse = 1 + 0.12 * Math.sin(e.t * 20);
+        for (const o of orbs) {
+          sw.shape('sphere', o.x, o.y, o.z, 3 * f, 3 * f, 3 * f, [1, 1, 1], 0.95, 3); sw.shape('sphere', o.x, o.y, o.z, 8 * f * pulse, 8 * f * pulse, 8 * f * pulse, col, 0.45, 2);
+          sw.shape('sphere', o.x, o.y, o.z, 16 * f, 16 * f, 16 * f, col, 0.14, 1.5); sw.shape('cyl', o.x, Terrain.h(o.x, o.z) + 0.4, o.z, 12 * f, 0.4, 12 * f, col, 0.2, 1.5);
+        }
+      },
+    });
+  },
+});
+defineSuper('firestorm', {
+  n: 49, name: 'Firestorm', tier: 3, aim: 'point', unlock: 'rank:m2:S', desc: 'An inferno grows from 40 m to 200 m across 9 s and rages for 26 s: 120 damage per second to enemies, while buildings burn and collapse.',
+  fire(ctx, sw) {
+    const DUR = 26, R_START = 40, R_MAX = 200, GROW = 9, WHIRLS = 6, STRUCT_HITS = 30, col = [1, 0.4, 0.08];
+    const whirls = [];
+    for (let i = 0; i < WHIRLS; i++) whirls.push({ a: i / WHIRLS * TAU + ctx.rng() * 0.5, s: (i % 2 ? 0.35 : -0.28) * (0.8 + ctx.rng() * 0.4), f: 0.3 + ctx.rng() * 0.6 });
+    const radius = (t) => R_START + (R_MAX - R_START) * smoothstep(0, GROW, t);
+    sw.flash(ctx.x, ctx.z, 0.9, 400); sw.shake(ctx.x, ctx.y, ctx.z, 1, 600); sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 1.8);
+    sw.blast(ctx.x, ctx.y + 3, ctx.z, 30, 500, ctx, { structMult: 2 }); sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R_START * 1.5, 1.2);
+    SW_B.tick(sw, DUR, 0.5, (e) => {
+      const r = radius(e.t);
+      sw.area(ctx.x, ctx.y, ctx.z, r, 60, 'explosive', ctx, { falloff: false, noStagger: true });
+      if (Net.guest) return;
+      const ss = sw.structs(ctx.x, ctx.z, r);   // the fire eats a random handful of structures each tick
+      for (let i = 0; i < STRUCT_HITS && ss.length; i++) sw.hurt(ss[Math.floor(Math.random() * ss.length)], 75, 'explosive', ctx);
+    }, {
+      frame(dt, e) {
+        const r = radius(e.t);
+        for (let k = 0; k < 3; k++) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d; sw.fire(x, Terrain.h(x, z), z, 3 + Math.random() * 2, 1); }
+        if (Math.random() < dt * 5) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d; sw.smoke(x, Terrain.h(x, z) + 10, z, 8, 1); }
+        if (Math.random() < dt * 1.5) sw.shake(ctx.x, ctx.y, ctx.z, 0.12, 400);
+        sw.light(ctx.x, ctx.y + 20, ctx.z, 220, col, 0.08);
+      },
+      draw(e, glow) {
+        const r = radius(e.t), fade = Math.min(1, (DUR - e.t) / 3), flick = 0.8 + 0.2 * Math.sin(e.t * 9);
+        if (!glow) { SW_B.cloud(sw, ctx.x, ctx.y + 130, ctx.z, r * 0.75, [0.13, 0.09, 0.09], e.t * 0.6, 14, 0.05); return; }
+        sw.shape('cyl', ctx.x, ctx.y + 0.8, ctx.z, r * 2, 1, r * 2, col, 0.22 * fade * flick, 1.5); sw.shape('sphere', ctx.x, ctx.y, ctx.z, r * 2, r * 0.9, r * 2, col, 0.05 * fade, 1.5);
+        for (const w of whirls) {
+          const a = w.a + e.t * w.s, d = r * w.f, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, h = (45 + 25 * Math.sin(e.t * 3 + w.a)) * fade;
+          sw.shape('cone', x, Terrain.h(x, z) + h * 0.5, z, 12, h, 12, col, 0.35, 2.5); sw.shape('cone', x, Terrain.h(x, z) + h * 0.35, z, 6, h * 0.7, 6, [1, 0.85, 0.4], 0.4, 3);
+        }
+      },
+    });
+  },
+});
+defineSuper('acidRain', {
+  n: 50, name: 'Acid Rain', tier: 2, aim: 'point', unlock: 'career:damage:100000', desc: 'Corrosive rain falls on 90 m for 20 s: armour is stripped to zero in 2 s, enemies take 88 damage per second and structures dissolve.',
+  fire(ctx, sw) {
+    const R0 = 90, DUR = 20, GAP = 0.25, CLOUD_H = 95, STRUCT_HITS = 25, col = [0.55, 1, 0.25];
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0, 1.2); sw.sound('warn', ctx.x, ctx.y, ctx.z, 1);
+    SW_B.tick(sw, DUR, GAP, (e, k) => {
+      for (const p of sw.enemies(ctx.x, ctx.z, R0, ctx)) {
+        sw.hurt(p, 22, 'energy', ctx, { noStagger: true });
+        if (!Net.guest) p.armor = Math.max(0, p.armor - p.maxArmor * 0.14);
+        sw.glow(p.x, SW_B.mid(p) + 2, p.z, 0, 3, 0, col, 2, 0.4);
+      }
+      if (k % 2 === 1) {
+        const ss = Net.guest ? [] : sw.structs(ctx.x, ctx.z, R0);
+        for (let i = 0; i < STRUCT_HITS && ss.length; i++) sw.hurt(ss[Math.floor(Math.random() * ss.length)], 55, 'energy', ctx, { structMult: 2 });
+      }
+      if (k % 4 === 0) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d; sw.decal(x, z, rand(3, 6), [0.12, 0.35, 0.05], 18); }
+    }, {
+      frame(dt, e) {
+        for (let k = 0; k < 3; k++) {
+          const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, gy = Terrain.h(x, z);
+          FX.emit(x, gy + 55 + rand(0, 40), z, 0, -75, 0, 1, 0.35, 0.25, col[0], col[1], col[2], 0.8, 0, 0, true);
+          if (k === 0) sw.glow(x, gy + 0.6, z, rand(-3, 3), rand(2, 5), rand(-3, 3), col, 1.2, 0.25);
+        }
+      },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 1.5) * Math.min(1, (DUR - e.t) / 1.5);
+        if (!glow) { SW_B.cloud(sw, ctx.x, ctx.y + CLOUD_H, ctx.z, R0 * 0.95 * f, [0.17, 0.26, 0.14], e.t * 0.8, 14); return; }
+        sw.shape('cyl', ctx.x, ctx.y + 0.5, ctx.z, R0 * 2 * f, 0.5, R0 * 2 * f, col, 0.08 + 0.04 * Math.sin(e.t * 4), 1);
+      },
+    });
+  },
+});
+defineSuper('laserGrid', {
+  n: 51, name: 'Laser Grid', tier: 2, aim: 'point', unlock: 'mission:m7', desc: 'A 6x6 lattice of lasers sweeps 100 m along your line of sight in 8 s; anything touching a beam takes 190 damage every 0.4 s.',
+  fire(ctx, sw) {
+    const DUR = 8, N = 6, GAP = 18, HALF = 54, TRAVEL = 100, WIDTH = 2.6, SEGS = 6, col = [1, 0.15, 0.2];
+    const off0 = (N - 1) * GAP / 2, hitAt = new Map();
+    const center = (t) => { const s = -TRAVEL / 2 + TRAVEL * Math.min(t, DUR) / DUR; return { x: ctx.x + ctx.dirX * s, z: ctx.z + ctx.dirZ * s }; };
+    const onLine = (v, reach) => { const k = Math.round((v + off0) / GAP); return k >= 0 && k < N && Math.abs(v - (k * GAP - off0)) < reach; };
+    sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.2);
+    sw.add({ life: DUR + 0.4, update(dt, e) {
+      if (e.t > DUR) return;
+      const c = center(e.t);
+      for (const p of sw.enemies(c.x, c.z, HALF * 1.45, ctx)) {
+        if (p.y - Terrain.h(p.x, p.z) > 14) continue;
+        const rx = p.x - c.x, rz = p.z - c.z, u = rx * ctx.dirX + rz * ctx.dirZ, v = rx * ctx.dirZ - rz * ctx.dirX, reach = WIDTH + p.radius * 0.6;
+        if (Math.abs(u) > HALF || Math.abs(v) > HALF || !(onLine(u, reach) || onLine(v, reach)) || (hitAt.get(p) || 0) > e.t) continue;
+        hitAt.set(p, e.t + 0.4);
+        sw.hurt(p, 190, 'energy', ctx, { noStagger: true }); sw.sparks(p.x, SW_B.mid(p), p.z, 10, col, 18); sw.sound('laser', p.x, p.y, p.z, 0.6);
+      }
+      if (Math.random() < dt * 20) {   // scorch sparks where the beams cross the ground
+        const i = Math.floor(Math.random() * N), j = Math.floor(Math.random() * N), u = i * GAP - off0, v = j * GAP - off0, x = c.x + ctx.dirX * u + ctx.dirZ * v, z = c.z + ctx.dirZ * u - ctx.dirX * v;
+        sw.sparks(x, Terrain.h(x, z) + 1, z, 5, col, 14);
+      }
+    }, draw(e, glow) {
+      if (!glow || e.t > DUR) return;
+      const c = center(e.t), f = Math.min(1, e.t / 0.5, (DUR - e.t) / 0.5), flick = 0.85 + 0.15 * Math.sin(e.t * 40);
+      for (let line = 0; line < N * 2; line++) {
+        const across = line >= N, off = (across ? line - N : line) * GAP - off0;
+        let px = 0, py = 0, pz = 0;
+        for (let s = 0; s <= SEGS; s++) {
+          const along = -HALF + 2 * HALF * s / SEGS;
+          const u = across ? off : along, v = across ? along : off, x = c.x + ctx.dirX * u + ctx.dirZ * v, z = c.z + ctx.dirZ * u - ctx.dirX * v, y = Terrain.h(x, z) + 2.5;
+          if (s > 0) { SW_B.seg(px, py, pz, x, y, z, 0.9, [1, 0.6, 0.6], 0.9 * f * flick, 3); SW_B.seg(px, py, pz, x, y, z, 3, col, 0.18 * f, 2); }
+          px = x; py = y; pz = z;
+        }
+      }
+    } });
+  },
+});
+defineSuper('hurricane', {
+  n: 52, name: 'Hurricane', tier: 3, aim: 'map', unlock: 'rank:m6:S', desc: 'A 20 s storm sweeps the whole map: enemy aircraft are forced down, ground enemies are shoved by a rotating gale and pelted for 55 damage per second.',
+  fire(ctx, sw) {
+    const DUR = 20, PUSH = 5, SINK = 0.8, o = sw.origin(ctx);
+    sw.flash(o.x, o.z, 0.3, 100); sw.sound('alarm', o.x, o.y, o.z, 1.2);
+    SW_B.tick(sw, DUR, 0.1, (e, k) => {
+      const ang = ctx.yaw + e.t * 0.4, wx = Math.sin(ang), wz = Math.cos(ang), ramp = Math.min(1, e.t / 2);
+      for (const p of sw.enemies(0, 0, 4000, ctx)) {
+        if (p.kind === 'air') {
+          sw.push(p, wx * 60, -300, wz * 60);
+          if (!Net.guest) p.y = Math.max(Terrain.h(p.x, p.z) + 2, p.y - SINK * ramp);   // blown down toward the ground
+        } else sw.push(p, wx * PUSH * ramp, 0, wz * PUSH * ramp);
+        if (k % 5 === 4) sw.hurt(p, 55, 'kinetic', ctx, { noStagger: true });
+      }
+      if (k % 3 === 0) { const a = Math.random() * TAU, d = rand(80, 320), x = o.x + Math.cos(a) * d, z = o.z + Math.sin(a) * d; sw.bolt(x, o.y + 220, z, x, Terrain.h(x, z), z, [0.8, 0.85, 1], 1.5); sw.sound('rail', x, o.y, z, 0.6); }
+    }, {
+      frame(dt, e) {
+        const c = W.camPos || o, ang = ctx.yaw + e.t * 0.4;
+        for (let k = 0; k < 4; k++) FX.emit(c.x + rand(-60, 60), c.y + rand(5, 40), c.z + rand(-60, 60), Math.sin(ang) * 35, -60, Math.cos(ang) * 35, 0.5, 0.5, 0.3, 0.7, 0.78, 0.9, 0.5, 0, 0, false);
+        sw.shake(o.x, o.y, o.z, 0.02, 600);
+      },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 3) * Math.min(1, (DUR - e.t) / 3);
+        if (!glow) { SW_B.cloud(sw, o.x, o.y + 170, o.z, 290 * f, [0.16, 0.18, 0.22], e.t * 2, 18, 0.45); SW_B.cloud(sw, o.x, o.y + 230, o.z, 340 * f, [0.1, 0.11, 0.14], -e.t * 1.5, 14, 0.5); }
+      },
+    });
+  },
+});
+defineSuper('thunderGod', {
+  n: 53, name: 'Thunder God', tier: 2, aim: 'self', unlock: 'career:deaths:25', desc: 'For 12 s every enemy that fires at you is struck by 260 damage lightning and its shot is destroyed; an opening thunderclap hits the 3 nearest foes.',
+  fire(ctx, sw) {
+    const DUR = 12, REACH = 800, HEAD = 0.92, col = [1, 0.95, 0.6], seen = new Set(), next = new Map();
+    const smite = (e, foe) => {
+      if ((next.get(foe) || 0) > e.t) return;
+      next.set(foe, e.t + 1);
+      SW_B.strike(sw, ctx, foe, 260, col, 1.2); sw.sound('rail', foe.x, foe.y, foe.z, 1); sw.shake(foe.x, foe.y, foe.z, 0.25, 200);
+    };
+    sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 1);
+    sw.after(0.3, () => {
+      const o = sw.origin(ctx);
+      sw.enemies(o.x, o.z, 220, ctx).sort((a, b) => Math.hypot(a.x - o.x, a.z - o.z) - Math.hypot(b.x - o.x, b.z - o.z)).slice(0, 3).forEach((foe) => SW_B.strike(sw, ctx, foe, 200, col, 1.5));
+    });
+    sw.add({ life: DUR, update(dt, e) {
+      const o = sw.origin(ctx);
+      for (const q of W.projs) {   // a shot heading at you brings the thunder down on whoever fired it
+        if (!q.active || q.team === ctx.team || !q.owner || q.owner.dead || seen.has(q.nid)) continue;
+        const dx = o.x - q.x, dy = o.y - q.y, dz = o.z - q.z, dist = Math.hypot(dx, dy, dz), sp = Math.hypot(q.vx, q.vy, q.vz);
+        if (dist > REACH || dist < 3 || sp < 1 || (q.vx * dx + q.vy * dy + q.vz * dz) / (sp * dist) < HEAD) continue;
+        seen.add(q.nid); smite(e, q.owner);
+        sw.sparks(q.x, q.y, q.z, 10, col, 16);
+        if (!Net.guest) q.active = false;
+      }
+      if (ctx.owner) for (const p of W.platforms) {   // beams and other hitscan fire: anyone shooting at you
+        if (p.dead || p.team === ctx.team || p.team === 2 || !(p.cmd.fire1 || p.cmd.fire2)) continue;
+        if ((p.target === ctx.owner || (p.ai && p.ai.target === ctx.owner)) && Math.hypot(p.x - o.x, p.z - o.z) < REACH) smite(e, p);
+      }
+      if (Math.random() < dt * 6) sw.bolt(o.x + rand(-4, 4), o.y + 40, o.z + rand(-4, 4), o.x + rand(-26, 26), o.y + rand(0, 14), o.z + rand(-26, 26), col, 0.6);
+      sw.light(o.x, o.y + 40, o.z, 90, col, 0.08);
+    }, draw(e, glow) {
+      const o = sw.origin(ctx), f = Math.min(1, e.t / 0.8) * Math.min(1, (DUR - e.t) / 0.8);
+      if (!glow) { SW_B.cloud(sw, o.x, o.y + 48, o.z, 26 * f, [0.22, 0.22, 0.28], e.t * 2, 9); return; }
+      for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 6 + i) * 2, o.z + Math.sin(a) * 9, 2.4, 2.4, 2.4, col, 0.9 * f, 3); }
+      sw.shape('cyl', o.x, o.y + 0.6, o.z, 20 * f, 0.4, 20 * f, col, 0.3, 2); sw.shape('cyl', o.x, o.y + 22, o.z, 3, 44, 3, col, 0.12 + 0.1 * Math.sin(e.t * 30), 2);
+    } });
+  },
+});
+defineSuper('prismArray', {
+  n: 54, name: 'Prism Array', tier: 2, aim: 'point', unlock: 'career:mechKills:100', desc: 'One orbital beam hits a giant prism that splits it into 8 beams on the 8 nearest enemies for 4 s, 200 damage per second each.',
+  fire(ctx, sw) {
+    const PREP = 1.1, BURN = 4, BEAMS = 8, ALT = 230, GAP = 0.25, col = [1, 1, 1];
+    const py = ctx.y + ALT, targets = [];
+    const pick = () => {   // the nearest enemies to the point that no other beam already has
+      const taken = new Set(targets);
+      return sw.enemies(ctx.x, ctx.z, 400, ctx).filter((p) => !taken.has(p)).sort((a, b) => Math.hypot(a.x - ctx.x, a.z - ctx.z) - Math.hypot(b.x - ctx.x, b.z - ctx.z))[0] || null;
+    };
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 30, 1); sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.2);
+    let dmgT = 0;
+    sw.add({ life: PREP + BURN + 0.5, update(dt, e) {
+      sw.beam(ctx.x, py + 500, ctx.z, ctx.x, py, ctx.z, col, 3 + 2 * Math.min(1, e.t / PREP), 0.05);
+      if (e.t < PREP || e.t > PREP + BURN) return;
+      for (let i = 0; i < BEAMS; i++) { if (!targets[i] || targets[i].dead) targets[i] = null; if (!targets[i]) targets[i] = pick(); }
+      for (let i = 0; i < BEAMS; i++) if (targets[i]) { const t = targets[i]; sw.beam(ctx.x, py, ctx.z, t.x, SW_B.mid(t), t.z, SW_B.hue(i / BEAMS), 1.8, 0.05); sw.sparks(t.x, SW_B.mid(t), t.z, 1, SW_B.hue(i / BEAMS), 12); }
+      dmgT += dt;
+      if (dmgT >= GAP) { dmgT = 0; for (const t of targets) if (t) sw.hurt(t, 200 * GAP, 'energy', ctx, { noStagger: true }); }
+    }, draw(e, glow) {
+      const f = Math.min(1, e.t / 0.6), spin = e.t * 2;
+      if (!glow) {
+        SW_B.cone(ctx.x, py + 7, ctx.z, spin, 0, 12 * f, 14 * f, 12 * f, [0.88, 0.95, 1], 1, 1.4); SW_B.cone(ctx.x, py - 7, ctx.z, spin, PI, 12 * f, 14 * f, 12 * f, [0.88, 0.95, 1], 1, 1.4);
+        return;
+      }
+      const s = (30 + 6 * Math.sin(e.t * 12)) * f;
+      sw.shape('sphere', ctx.x, py, ctx.z, s, s, s, col, 0.4, 3);
+      if (e.t > PREP && e.t < PREP + BURN) for (let i = 0; i < BEAMS; i++) { const c = SW_B.hue(i / BEAMS); sw.shape('sphere', ctx.x + Math.cos(spin + i) * 7, py, ctx.z + Math.sin(spin + i) * 7, 4, 4, 4, c, 0.9, 3); }
+    } });
+  },
+});
+defineSuper('neutronBomb', {
+  n: 55, name: 'Neutron Bomb', tier: 3, aim: 'point', unlock: 'career:kills:750', desc: 'A warhead falls for 2.6 s, then a radiation burst kills enemy units within 150 m and leaves them irradiated; structures are untouched.',
+  fire(ctx, sw) {
+    const FALL = 2.6, R0 = 150, WAVE = 1.3, LINGER = 8, ALT = 700, col = [0.65, 0.9, 1];
+    let doseT = 0;
+    sw.sound('alarm', ctx.x, ctx.y, ctx.z, 1);
+    sw.add({ life: FALL + WAVE + LINGER, update(dt, e) {
+      if (e.t < FALL) {
+        const y = ctx.y + ALT * (1 - Math.pow(e.t / FALL, 2));
+        sw.glow(ctx.x + rand(-1, 1), y + rand(0, 8), ctx.z + rand(-1, 1), 0, 20, 0, col, 4, 0.8); sw.beam(ctx.x, y + 50, ctx.z, ctx.x, y, ctx.z, col, 1.4, 0.05);
+        if (Math.random() < dt * 4) sw.column(ctx.x, ctx.z, 0.3, col, 0.06);
+        return;
+      }
+      if (!e.fired) {
+        e.fired = true;
+        sw.flash(ctx.x, ctx.z, 1, 800); sw.shake(ctx.x, ctx.y, ctx.z, 1, 800); sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 2); sw.light(ctx.x, ctx.y + 40, ctx.z, 400, col, 1.2);
+        sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0, 1.3); sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0 * 0.6, 1);
+        for (const p of sw.enemies(ctx.x, ctx.z, R0, ctx)) { sw.hurt(p, 6000, 'energy', ctx, { noStagger: true }); sw.sparks(p.x, SW_B.mid(p), p.z, 12, col, 20); }
+      }
+      if (e.t < FALL + WAVE) for (let k = 0; k < 6; k++) { const a = Math.random() * TAU, r = R0 * (e.t - FALL) / WAVE; sw.glow(ctx.x + Math.cos(a) * r, ctx.y + rand(1, 30), ctx.z + Math.sin(a) * r, 0, 2, 0, col, 4, 0.5); }
+      doseT += dt;
+      if (doseT >= 0.5 && e.t < FALL + WAVE + LINGER - 1) { doseT = 0; sw.area(ctx.x, ctx.y, ctx.z, R0, 40, 'energy', ctx, { falloff: false, noStagger: true }); }
+    }, draw(e, glow) {
+      if (!glow) return;
+      if (e.t < FALL) {
+        const y = ctx.y + ALT * (1 - Math.pow(e.t / FALL, 2));
+        sw.shape('sphere', ctx.x, y, ctx.z, 14, 26, 14, col, 0.8, 3); sw.shape('sphere', ctx.x, y, ctx.z, 30, 30, 30, col, 0.2, 2);
+        return;
+      }
+      const t = e.t - FALL, f = Math.min(1, t / WAVE), fade = Math.max(0, 1 - t / (WAVE + 2));
+      sw.shape('sphere', ctx.x, ctx.y + 10, ctx.z, R0 * 1.5 * f + 20, R0 * 1.5 * f + 20, R0 * 1.5 * f + 20, [1, 1, 1], 0.5 * fade, 3);
+      sw.shape('sphere', ctx.x, ctx.y + 10, ctx.z, R0 * 2 * f + 30, R0 * 2 * f + 30, R0 * 2 * f + 30, col, 0.18 * fade, 2);
+      sw.shape('cyl', ctx.x, ctx.y + 1, ctx.z, R0 * 2 * f, 3, R0 * 2 * f, col, 0.25 * Math.max(0, 1 - t / (WAVE + LINGER)), 2);
+    } });
+  },
+});
+defineSuper('sandstorm', {
+  n: 56, name: 'Sandstorm', tier: 1, aim: 'point', unlock: 'skirmishMap:verdant', desc: 'A 70 m sandstorm lasts 25 s: enemies inside are blinded and cannot target or fire, and you see them outlined through the dust.',
+  fire(ctx, sw) {
+    const R0 = 70, DUR = 25, col = [0.85, 0.68, 0.38];
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0, 1.2); sw.sound('plasma', ctx.x, ctx.y, ctx.z, 0.6);
+    SW_B.tick(sw, DUR, 0.3, () => {
+      for (const p of sw.enemies(ctx.x, ctx.z, R0, ctx)) { sw.status(p, 'blind', 0.7); sw.hurt(p, 6, 'kinetic', ctx, { noStagger: true }); }
+    }, {
+      frame() {
+        for (let k = 0; k < 3; k++) {
+          const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d;
+          FX.emit(x, Terrain.h(x, z) + rand(0, 30), z, -Math.sin(a) * 28, rand(-1, 3), Math.cos(a) * 28, 1.2, 4, 9, col[0], col[1] * 0.9, col[2] * 0.8, 0.5, 0.3, 0, false);
+        }
+      },
+      draw(e, glow) {
+        const f = Math.min(1, e.t / 2) * Math.min(1, (DUR - e.t) / 2);
+        if (!glow) {
+          for (let i = 0; i < 16; i++) { const a = i / 16 * TAU + e.t * 0.5, x = ctx.x + Math.cos(a) * R0 * 0.95, z = ctx.z + Math.sin(a) * R0 * 0.95; sw.shape('sphere', x, Terrain.h(x, z) + 10 * f, z, 32, 22 * f, 32, [0.72, 0.58, 0.36], 1, 0.15); }
+          return;
+        }
+        for (const p of sw.enemies(ctx.x, ctx.z, R0, ctx)) sw.shape('box', p.x, SW_B.mid(p), p.z, p.radius * 2.4, p.height * 1.3 + 2, p.radius * 2.4, [1, 0.85, 0.35], (0.3 + 0.12 * Math.sin(e.t * 8)) * f, 2.5, p.yaw);
+      },
+    });
+  },
+});
+defineSuper('frostNova', {
+  n: 57, name: 'Frost Nova', tier: 1, aim: 'self', unlock: 'mission:m8', desc: 'A freezing ring expands to 60 m, freezing every enemy it crosses for 4 s and leaving ice spikes behind.', range: 60,
+  fire(ctx, sw) {
+    const R0 = 60, WAVE = 0.7, FREEZE = 4, SPIKE_LIFE = 4.5, o = sw.origin(ctx), col = [0.72, 0.93, 1], hit = [], spikes = [];
+    const gy = Terrain.h(o.x, o.z);
+    sw.sound('shieldBreak', o.x, o.y, o.z, 1.2); sw.flash(o.x, o.z, 0.25, 60); sw.ring(o.x, gy + 0.5, o.z, R0, 0.7);
+    sw.add({ life: WAVE + SPIKE_LIFE, update(dt, e) {
+      if (e.t < WAVE) {
+        const r = R0 * e.t / WAVE;
+        for (let k = 0; k < 2; k++) { const a = Math.random() * TAU; spikes.push({ x: o.x + Math.cos(a) * r, z: o.z + Math.sin(a) * r, h: rand(5, 14), born: e.t }); }
+        for (let k = 0; k < 8; k++) { const a = Math.random() * TAU, x = o.x + Math.cos(a) * r, z = o.z + Math.sin(a) * r; sw.glow(x, Terrain.h(x, z) + rand(1, 5), z, 0, 4, 0, col, 2.2, 0.4); }
+        for (const p of sw.enemies(o.x, o.z, r, ctx)) {
+          if (hit.indexOf(p) >= 0) continue;
+          hit.push(p); sw.status(p, 'freeze', FREEZE); sw.hurt(p, 60, 'kinetic', ctx, { noStagger: true }); sw.sparks(p.x, SW_B.mid(p), p.z, 12, col, 14);
+        }
+      }
+      if (!e.shattered && e.t > WAVE + SPIKE_LIFE - 0.3) { e.shattered = true; for (const s of spikes) if (Math.random() < 0.3) sw.sparks(s.x, Terrain.h(s.x, s.z) + 3, s.z, 4, col, 14); }
+    }, draw(e, glow) {
+      const shrink = Math.min(1, (WAVE + SPIKE_LIFE - e.t) / 0.5);
+      if (!glow) {
+        for (const s of spikes) { const h = s.h * Math.min(1, (e.t - s.born) / 0.25) * shrink; sw.shape('cone', s.x, Terrain.h(s.x, s.z) + h * 0.5, s.z, 3.2, h, 3.2, [0.75, 0.92, 1], 1, 0.5); }
+        return;
+      }
+      const f = Math.min(1, e.t / WAVE), r = R0 * f;
+      sw.shape('cyl', o.x, gy + 0.5, o.z, r * 2, 0.5, r * 2, col, 0.2 * shrink, 1.2);
+      if (e.t < WAVE + 0.3) sw.shape('cyl', o.x, gy + 3, o.z, r * 2, 6, r * 2, col, 0.25 * (1 - f), 2);
+      for (const p of hit) if (!p.dead && p.status.freeze > 0) sw.shape('box', p.x, p.y + p.height * 0.5, p.z, p.radius * 2.3, p.height * 1.15 + 1, p.radius * 2.3, col, 0.5, 1.2);
+    } });
+  },
+});
+defineSuper('plasmaRain', {
+  n: 58, name: 'Plasma Rain', tier: 2, aim: 'point', unlock: 'rank:m6:A', desc: 'Roughly 120 plasma droplets fall over an 80 m circle for 12 s (80 damage, 5.5 m blast each) from a glowing plasma cloud.',
+  fire(ctx, sw) {
+    const COUNT = 120, SPAN = 12, R0 = 40, DROP = 220, col = [0.95, 0.35, 1];
+    sw.sound('plasma', ctx.x, ctx.y, ctx.z, 1.2); sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0 * 2, 1.2);
+    sw.repeat(SPAN / COUNT, COUNT, () => {
+      const a = ctx.rng() * TAU, d = Math.sqrt(ctx.rng()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, y = Terrain.h(x, z);
+      sw.shoot('swPlasmaDrop', ctx, x - 10, y + DROP, z - 6, 10, -DROP, 6);
+    }, true);
+    sw.add({ life: SPAN + 1, update() { if (Math.random() < 0.5) sw.light(ctx.x, ctx.y + 100, ctx.z, 160, col, 0.15); }, draw(e, glow) {
+      if (!glow) return;
+      const f = Math.min(1, e.t / 1.5) * Math.min(1, (SPAN + 1 - e.t) / 1);
+      for (let i = 0; i < 10; i++) { const a = i * 2.4 + e.t * 0.3, d = R0 * (0.15 + 0.85 * ((i * 0.618) % 1)), s = R0 * 0.45; sw.shape('sphere', ctx.x + Math.cos(a) * d, ctx.y + DROP * 0.7, ctx.z + Math.sin(a) * d, s * 1.6, s * 0.6, s * 1.6, col, 0.12 * f, 2); }
+      sw.shape('cyl', ctx.x, ctx.y + 0.6, ctx.z, R0 * 2 * f, 0.4, R0 * 2 * f, col, 0.1 + 0.05 * Math.sin(e.t * 9), 1.5);
+    } });
+  },
+});
+defineSuper('auroraVeil', {
+  n: 59, name: 'Aurora Veil', tier: 1, aim: 'self', unlock: 'career:skirmishWins:3', desc: 'Allies within 120 m, you included, gain a 300 shield for 15 s and regenerate 50 hull and 120 shield per second.', range: 120,
+  fire(ctx, sw) {
+    const R0 = 120, DUR = 15, SHIELD = 300, GAP = 0.5, o = sw.origin(ctx), buffed = new Map();
+    sw.sound('repair', o.x, o.y, o.z, 1.3); sw.light(o.x, o.y + 30, o.z, 160, [0.4, 1, 0.7], 0.6);
+    if (!Net.guest) {
+      for (const p of sw.allies(o.x, o.z, R0, ctx)) {
+        buffed.set(p, { max: p.maxShield, auto: p.autoShield });
+        p.maxShield += SHIELD; p.shield += SHIELD; p.shieldOn = true; p.autoShield = true; p.shieldBroken = 0;
+      }
+    }
+    SW_B.tick(sw, DUR, GAP, () => {
+      if (Net.guest) return;
+      for (const p of buffed.keys()) {
+        if (p.dead) continue;
+        sw.heal(p, 25); p.shield = Math.min(p.maxShield, p.shield + 60); p.armor = Math.min(p.maxArmor, p.armor + 10);
+        if (p.shield > 0 && !p.shieldOn && p.shieldBroken <= 0) p.shieldOn = true;
+      }
+    }, {
+      end() {
+        for (const [p, was] of buffed) { p.maxShield = was.max; p.shield = Math.min(p.shield, p.maxShield); p.autoShield = was.auto; if (p.maxShield <= 0) p.shieldOn = false; }
+      },
+      draw(e, glow) {
+        if (!glow) return;
+        const f = Math.min(1, e.t / 1.5) * Math.min(1, (DUR - e.t) / 1.5);
+        for (let i = 0; i < 16; i++) {   // drifting curtains of green and violet light
+          const a = i / 16 * TAU + Math.sin(e.t * 0.4 + i) * 0.08, x = o.x + Math.cos(a) * 75, z = o.z + Math.sin(a) * 75, h = 70 + 25 * Math.sin(e.t * 1.3 + i * 1.7), c = SW_B.hue(0.33 + 0.35 * ((i % 4) / 3 + 0.3 * Math.sin(e.t * 0.5)));
+          sw.shape('box', x, Terrain.h(x, z) + h * 0.5 + 10, z, 26, h, 1.2, c, (0.14 + 0.07 * Math.sin(e.t * 2 + i)) * f, 2, -a + PI / 2);
+        }
+        for (const p of sw.allies(o.x, o.z, R0 * 1.2, ctx)) {
+          sw.shape('cyl', p.x, Terrain.h(p.x, p.z) + 0.6, p.z, p.radius * 4, 0.4, p.radius * 4, [0.4, 1, 0.7], 0.4 * f, 2);
+          sw.shape('sphere', p.x, SW_B.mid(p), p.z, p.radius * 3, p.height * 1.4 + 2, p.radius * 3, [0.4, 1, 0.8], 0.14 * f, 2);
+        }
+      },
+    });
+  },
+});
+defineSuper('magmaLance', {
+  n: 60, name: 'Magma Lance', tier: 2, aim: 'point', unlock: 'career:groundKills:100', desc: 'A lava fissure races 300 m along the ground toward the point at 150 m per second, hurling up enemies it crosses and burning them for 8 s.',
+  fire(ctx, sw) {
+    const LEN = 300, SPEED = 150, WIDTH = 6, STEP = 10, TOTAL = 12, col = [1, 0.42, 0.08];
+    const o = sw.origin(ctx), dx = ctx.x - o.x, dz = ctx.z - o.z, d = Math.hypot(dx, dz);
+    const ux = d > 1 ? dx / d : ctx.dirX, uz = d > 1 ? dz / d : ctx.dirZ;
+    const sx = d > LEN ? ctx.x - ux * LEN : o.x, sz = d > LEN ? ctx.z - uz * LEN : o.z;
+    const hit = new Set(), pts = [];
+    for (let s = 0; s <= LEN; s += STEP) { const x = clamp(sx + ux * s, -GROUND_BOUND, GROUND_BOUND), z = clamp(sz + uz * s, -GROUND_BOUND, GROUND_BOUND); pts.push({ x, z, y: Terrain.h(x, z) + 0.4 }); }
+    let burnT = 0, nextGeyser = 0;
+    sw.sound('bigExplosion', sx, ctx.y, sz, 1.2);
+    sw.add({ life: TOTAL, update(dt, e) {
+      const front = Math.min(LEN, SPEED * e.t);
+      sw.shake(sx + ux * front, ctx.y, sz + uz * front, 0.05, 300);
+      while (nextGeyser <= front && nextGeyser <= LEN) {   // a geyser bursts every 15 m as the front passes
+        const x = sx + ux * nextGeyser, z = sz + uz * nextGeyser, y = Terrain.h(x, z);
+        sw.blast(x, y + 1, z, 7, 140, ctx, { structMult: 1.5 }); SW_B.fireZone(sw, ctx, x, z, 7, 7, 70, col);
+        for (let k = 0; k < 3; k++) FX.emit(x + rand(-2, 2), y + 1, z + rand(-2, 2), rand(-5, 5), rand(25, 45), rand(-5, 5), 1.2, 3.5, 1.2, 1, rand(0.3, 0.55), 0.06, 0.95, 0, 30, true);
+        nextGeyser += 15;
+      }
+      burnT += dt;
+      const burn = burnT >= 0.25;
+      if (burn) burnT = 0;
+      for (const p of sw.enemies(sx + ux * LEN / 2, sz + uz * LEN / 2, LEN * 0.55, ctx)) {
+        const rx = p.x - sx, rz = p.z - sz, s = rx * ux + rz * uz, l = rx * -uz + rz * ux;
+        if (s < 0 || s > front || Math.abs(l) > WIDTH + p.radius) continue;
+        if (!hit.has(p)) { hit.add(p); sw.hurt(p, 380, 'explosive', ctx); sw.lift(p, 12, 0.9, 120, ctx); sw.sparks(p.x, SW_B.mid(p), p.z, 12, col, 20); }
+        else if (burn) sw.hurt(p, 30, 'explosive', ctx, { noStagger: true });
+      }
+    }, draw(e, glow) {
+      const front = Math.min(LEN, SPEED * e.t), fade = Math.min(1, (TOTAL - e.t) / 3), flick = 0.85 + 0.15 * Math.sin(e.t * 14);
+      if (!glow) { for (let i = 1; i < pts.length; i += 2) if (i * STEP <= front) sw.shape('cone', pts[i].x + uz * 4.5, pts[i].y + 1.2, pts[i].z - ux * 4.5, 3.5, 2.8, 3.5, [0.16, 0.1, 0.08], 1, 0.2); return; }
+      for (let i = 1; i < pts.length; i++) {
+        if ((i - 1) * STEP > front) break;
+        const a = pts[i - 1], b = pts[i];
+        SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.9, col, 0.85 * fade * flick, 2.5); SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.35, [1, 0.85, 0.4], 0.9 * fade, 3);
+      }
+    } });
+  },
+});
+defineSuper('stormSurge', {
+  n: 61, name: 'Storm Surge', tier: 2, aim: 'self', unlock: 'match:streak:8', desc: 'For 20 s you crackle with charge: every 0.3 s lightning arcs from you into the 3 nearest enemies within 120 m for 55 damage each.', range: 120,
+  fire(ctx, sw) {
+    const DUR = 20, R0 = 120, ARCS = 3, col = [0.8, 0.6, 1];
+    sw.sound('shieldHit', ctx.x, ctx.y, ctx.z, 1.4); sw.flash(ctx.x, ctx.z, 0.2, 60);
+    SW_B.tick(sw, DUR, 0.3, () => {
+      const o = sw.origin(ctx);
+      const foes = sw.enemies(o.x, o.z, R0, ctx).sort((a, b) => Math.hypot(a.x - o.x, a.z - o.z) - Math.hypot(b.x - o.x, b.z - o.z)).slice(0, ARCS);
+      for (const p of foes) {
+        sw.bolt(o.x, o.y + 8, o.z, p.x, SW_B.mid(p), p.z, col, 1); sw.sparks(p.x, SW_B.mid(p), p.z, 6, col, 14);
+        sw.hurt(p, 55, 'energy', ctx, { noStagger: true });
+      }
+      if (foes.length) sw.sound('rail', o.x, o.y, o.z, 0.4);
+    }, {
+      frame(dt) {
+        const o = sw.origin(ctx);
+        if (Math.random() < dt * 10) sw.bolt(o.x, o.y + 4, o.z, o.x + rand(-10, 10), o.y + rand(0, 10), o.z + rand(-10, 10), col, 0.5);
+        sw.light(o.x, o.y + 5, o.z, 60, col, 0.08);
+      },
+      draw(e, glow) {
+        if (!glow) return;
+        const o = sw.origin(ctx), f = Math.min(1, e.t / 0.6) * Math.min(1, (DUR - e.t) / 0.8), pulse = 1 + 0.1 * Math.sin(e.t * 18);
+        sw.shape('sphere', o.x, o.y + 4, o.z, 16 * pulse * f, 16 * pulse * f, 16 * pulse * f, col, 0.12, 2);
+        for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 5 + i) * 2, o.z + Math.sin(a) * 9, 2.2 * f, 2.2 * f, 2.2 * f, [1, 1, 1], 0.9, 3); }
+        sw.shape('cyl', o.x, Terrain.h(o.x, o.z) + 0.5, o.z, 24 * f * pulse, 0.4, 24 * f * pulse, col, 0.3, 2);
+      },
+    });
+  },
+});
+defineSuper('satelliteNet', {
+  n: 62, name: 'Satellite Net', tier: 3, aim: 'map', unlock: 'missionsRank:A:8', desc: 'Every 3 s for 15 s, five satellites mark and then hit the five most valuable enemies on the map (480 blast plus 260 direct damage each).',
+  fire(ctx, sw) {
+    const WAVES = 5, GAP = 3, SATS = 5, DELAY = 1.1, ORBIT = 200, ALT = 330, col = [0.7, 0.9, 1];
+    const o = sw.origin(ctx), cy = Math.max(o.y, Terrain.h(o.x, o.z)) + ALT, clock = { t: 0 };
+    const satAt = (k, t) => { const a = k / SATS * TAU + t * 0.4; return { x: o.x + Math.cos(a) * ORBIT, y: cy + Math.sin(a * 2) * 20, z: o.z + Math.sin(a) * ORBIT }; };
+    sw.sound('alarm', o.x, o.y, o.z, 1.2);
+    sw.add({ life: WAVES * GAP + DELAY + 0.5, update(dt, e) { clock.t = e.t; }, draw(e, glow) {
+      for (let k = 0; k < SATS; k++) {
+        const s = satAt(k, e.t), f = Math.min(1, e.t / 0.8);
+        if (!glow) {
+          sw.shape('box', s.x, s.y, s.z, 12 * f, 6 * f, 6 * f, [0.75, 0.78, 0.85], 1, 0.3, e.t * 0.2);
+          sw.shape('box', s.x, s.y, s.z, 34 * f, 0.5, 10 * f, [0.12, 0.22, 0.6], 1, 0.5, e.t * 0.2 + 0.4);
+        } else sw.shape('sphere', s.x, s.y - 3, s.z, 6 * f, 6 * f, 6 * f, col, 0.7, 3);
+      }
+    } });
+    sw.repeat(GAP, WAVES, () => {
+      sw.strongest(0, 0, 4000, ctx, SATS).forEach((p, k) => {
+        sw.add({ life: DELAY, update() { const s = satAt(k, clock.t); sw.beam(s.x, s.y, s.z, p.x, Terrain.h(p.x, p.z) + 1, p.z, [1, 0.3, 0.3], 0.25, 0.05); },
+          draw(e, glow) { if (glow) { const r = 34 * (1 - e.t / DELAY) + 6; sw.shape('cyl', p.x, Terrain.h(p.x, p.z) + 0.5, p.z, r, 0.5, r, [1, 0.3, 0.3], 0.5, 2); } },
+          end() {
+            const s = satAt(k, clock.t), x = p.x, z = p.z, y = Terrain.h(x, z);
+            sw.beam(s.x, s.y, s.z, x, y, z, col, 5, 0.35); sw.column(x, z, 12, [1, 1, 1], 0.3, 600);
+            sw.blast(x, y + 1, z, 16, 480, ctx, { dtype: 'energy', structMult: 2 }); sw.hurt(p, 260, 'energy', ctx);
+            sw.flash(x, z, 0.4, 150); sw.shake(x, y, z, 0.5, 400); sw.sound('bigExplosion', x, y, z, 1.2);
+          } });
+      });
+    }, true);
+  },
+});
+defineSuper('phoenixStrike', {
+  n: 63, name: 'Phoenix Strike', tier: 2, aim: 'point', unlock: 'career:superUses:25', desc: 'A firebird sweeps 420 m along your line of sight through the point at 140 m per second, striking enemies for 240 damage and leaving burning ground for 8 s.',
+  fire(ctx, sw) {
+    const LEN = 420, SPEED = 140, ALT = 24, SPACING = 18, col = [1, 0.5, 0.1], DUR = LEN / SPEED + 1;
+    const sx = ctx.x - ctx.dirX * LEN / 2, sz = ctx.z - ctx.dirZ * LEN / 2, hit = new Set();
+    let dropAt = 0;
+    const pos = (t) => { const s = Math.min(LEN, SPEED * t), x = sx + ctx.dirX * s, z = sz + ctx.dirZ * s; return { x, z, s, y: Terrain.h(x, z) + ALT + Math.sin(t * 3) * 3 }; };
+    sw.sound('flare', ctx.x, ctx.y, ctx.z, 1.4); sw.sound('bigExplosion', ctx.x, ctx.y, ctx.z, 0.8);
+    sw.add({ life: DUR, update(dt, e) {
+      const b = pos(e.t);
+      if (b.s >= LEN) return;
+      for (let k = 0; k < 6; k++) sw.glow(b.x - ctx.dirX * rand(0, 22) + rand(-4, 4), b.y + rand(-4, 4), b.z - ctx.dirZ * rand(0, 22) + rand(-4, 4), 0, -3, 0, col, 3.4, 0.7);
+      sw.shake(b.x, b.y, b.z, 0.04, 250); sw.light(b.x, b.y - 6, b.z, 120, col, 0.08);
+      while (dropAt <= b.s) {   // a patch of fire on the ground every 18 m
+        const x = sx + ctx.dirX * dropAt, z = sz + ctx.dirZ * dropAt;
+        SW_B.fireZone(sw, ctx, x, z, 11, 8, 85, col); sw.fire(x, Terrain.h(x, z), z, 5, 4);
+        dropAt += SPACING;
+      }
+      for (const p of sw.enemies(b.x, b.z, 18, ctx)) if (!hit.has(p)) { hit.add(p); sw.hurt(p, 240, 'explosive', ctx); sw.sparks(p.x, SW_B.mid(p), p.z, 10, col, 18); }
+    }, draw(e, glow) {
+      const b = pos(e.t), yaw = Math.atan2(ctx.dirX, ctx.dirZ), flap = Math.sin(e.t * 9) * 0.6, st = R.stack;
+      if (b.s >= LEN) return;
+      if (!glow) {
+        sw.shape('sphere', b.x, b.y, b.z, 5, 4, 14, [1, 0.6, 0.12], 1, 1.2, yaw);
+        sw.shape('sphere', b.x + ctx.dirX * 9, b.y + 1.5, b.z + ctx.dirZ * 9, 3, 3, 3.6, [1, 0.8, 0.25], 1, 1.4, yaw);
+        SW_B.cone(b.x + ctx.dirX * 11.5, b.y + 1.2, b.z + ctx.dirZ * 11.5, yaw, PI / 2, 1, 2.4, 1, [1, 0.9, 0.3], 1, 1.5);
+        for (let side = -1; side <= 1; side += 2) { st.push().t(b.x, b.y + 0.5, b.z).ry(yaw).rz(side * flap).t(side * 11, 0, 0).s(20, 0.8, 8); R.draw('box', 1, 0.5, 0.1, 1, 1.4, 0); st.pop(); }
+        for (let i = -1; i <= 1; i++) { st.push().t(b.x, b.y, b.z).ry(yaw + i * 0.2).t(0, 0, -15).s(1.4, 0.5, 18); R.draw('box', 1, 0.3 + 0.2 * i * i, 0.1, 1, 1.4, 0); st.pop(); }
+        return;
+      }
+      for (let side = -1; side <= 1; side += 2) { st.push().t(b.x, b.y + 0.5, b.z).ry(yaw).rz(side * flap).t(side * 14, 0, 0).s(30, 1.2, 12); R.draw('box', 1, 0.55, 0.12, 0.3, 2, 0); st.pop(); }
+      sw.shape('sphere', b.x, b.y, b.z, 22, 14, 34, col, 0.28, 2.5);
+    } });
+  },
+});
+defineSuper('ozoneHole', {
+  n: 64, name: 'Ozone Hole', tier: 2, aim: 'point', unlock: 'career:playMin:60', desc: 'A 50 m column of ultraviolet burns for 14 s; damage starts at 40 per second and climbs by 60 for every second an enemy stays inside.',
+  fire(ctx, sw) {
+    const R0 = 25, DUR = 14, GAP = 0.2, MAX_EXPOSURE = 8, col = [0.75, 0.55, 1];
+    const exposure = new Map();
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0 * 1.5, 1.2); sw.sound('laser', ctx.x, ctx.y, ctx.z, 1.2);
+    SW_B.tick(sw, DUR, GAP, () => {
+      const inside = sw.enemies(ctx.x, ctx.z, R0, ctx);
+      for (const p of inside) {
+        const x = Math.min(MAX_EXPOSURE, (exposure.get(p) || 0) + GAP);
+        exposure.set(p, x);
+        sw.hurt(p, (40 + 60 * x) * GAP, 'energy', ctx, { noStagger: true });
+        sw.sparks(p.x, SW_B.mid(p), p.z, 2, col, 10);
+      }
+      for (const p of exposure.keys()) if (p.dead || inside.indexOf(p) < 0) { const x = exposure.get(p) - GAP * 1.5; if (p.dead || x <= 0) exposure.delete(p); else exposure.set(p, x); }
+    }, {
+      frame(dt, e) {
+        for (let k = 0; k < 2; k++) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0; sw.glow(ctx.x + Math.cos(a) * d, ctx.y + 1, ctx.z + Math.sin(a) * d, 0, rand(15, 30), 0, col, 2.5, 1); }
+        sw.light(ctx.x, ctx.y + 10, ctx.z, 100, col, 0.08);
+      },
+      draw(e, glow) {
+        if (!glow) return;
+        const f = Math.min(1, e.t / 1) * Math.min(1, (DUR - e.t) / 1), pulse = 0.8 + 0.2 * Math.sin(e.t * 6);
+        sw.shape('cyl', ctx.x, ctx.y + 250, ctx.z, R0 * 2 * f, 500, R0 * 2 * f, col, 0.12 * pulse, 2); sw.shape('cyl', ctx.x, ctx.y + 250, ctx.z, R0 * 1.1 * f, 500, R0 * 1.1 * f, [1, 0.95, 1], 0.14 * pulse, 3);
+        sw.shape('cyl', ctx.x, ctx.y + 0.6, ctx.z, R0 * 2.2 * f, 0.5, R0 * 2.2 * f, col, 0.35, 2);
+        for (const [p, x] of exposure) if (!p.dead) { const s = (p.radius * 3 + x) * f; sw.shape('sphere', p.x, SW_B.mid(p), p.z, s, p.height * 1.4 + 2, s, [1, 0.8, 1], 0.12 + 0.4 * x / MAX_EXPOSURE, 2.5); }
+      },
+    });
+  },
+});
+defineSuper('voltaicDome', {
+  n: 65, name: 'Voltaic Dome', tier: 2, aim: 'self', unlock: 'mission:m4', desc: 'A 40 m dome around you lasts 12 s and deletes every enemy projectile that enters; when it collapses it discharges stored lightning (90 plus 45 per shot absorbed, up to 700) into enemies within 60 m.', range: 40,
+  fire(ctx, sw) {
+    const R0 = 40, DUR = 12, DISCHARGE = 60, col = [1, 0.85, 0.35], seen = new Set();
+    let absorbed = 0;
+    sw.sound('shieldHit', ctx.x, ctx.y, ctx.z, 1.4); sw.flash(ctx.x, ctx.z, 0.2, 60);
+    sw.add({ life: DUR, update(dt, e) {
+      const o = sw.origin(ctx);
+      for (const q of W.projs) {
+        if (!q.active || q.team === ctx.team || seen.has(q.nid)) continue;
+        const dx = q.x - o.x, dy = q.y - o.y, dz = q.z - o.z, d = Math.hypot(dx, dy, dz);
+        if (d > R0) continue;
+        seen.add(q.nid); absorbed++;
+        if (!Net.guest) q.active = false;   // the host deletes the shot; guests only see the zap
+        sw.bolt(o.x + dx / (d || 1) * R0, o.y + dy / (d || 1) * R0, o.z + dz / (d || 1) * R0, q.x, q.y, q.z, col, 0.8); sw.sparks(q.x, q.y, q.z, 10, col, 16); sw.sound('shieldHit', q.x, q.y, q.z, 0.6);
+      }
+      if (Math.random() < dt * 5) { const a = Math.random() * TAU, e2 = rand(-0.2, 1.2); sw.bolt(o.x + Math.cos(a) * R0 * Math.cos(e2), o.y + Math.sin(e2) * R0, o.z + Math.sin(a) * R0 * Math.cos(e2), o.x + Math.cos(a + 0.3) * R0 * Math.cos(e2), o.y + Math.sin(e2 + 0.2) * R0, o.z + Math.sin(a + 0.3) * R0 * Math.cos(e2), col, 0.5); }
+    }, end() {
+      const o = sw.origin(ctx), dmg = Math.min(700, 90 + 45 * absorbed);
+      sw.flash(o.x, o.z, 0.3, 80); sw.ring(o.x, o.y + 1, o.z, DISCHARGE, 0.6); sw.sound('bigExplosion', o.x, o.y, o.z, 0.9);
+      for (const p of sw.enemies(o.x, o.z, DISCHARGE, ctx)) { sw.bolt(o.x, o.y + R0 * 0.8, o.z, p.x, SW_B.mid(p), p.z, col, 1.3); sw.hurt(p, dmg, 'energy', ctx); sw.status(p, 'emp', 2); }
+    }, draw(e, glow) {
+      if (!glow) return;
+      const o = sw.origin(ctx), f = Math.min(1, e.t / 0.5) * Math.min(1, (DUR - e.t) / 0.8), s = R0 * 2 * f, flick = 0.8 + 0.2 * Math.sin(e.t * 22);
+      sw.shape('sphere', o.x, o.y, o.z, s, s, s, col, 0.1 * flick, 2); sw.shape('sphere', o.x, o.y, o.z, s * 1.02, s * 1.02, s * 1.02, [1, 1, 0.8], 0.05, 3);
+      for (let k = -3; k <= 3; k++) { const y = k * R0 * 0.25, r = Math.sqrt(Math.max(0, R0 * R0 - y * y)) * 2 * f; SW_B.disc(o.x, o.y + y * f, o.z, 0, 0, r, 0.4, col, 0.3 * flick, 2.5); }
+      for (let k = 0; k < 4; k++) SW_B.disc(o.x, o.y, o.z, k * PI / 4 + e.t * 0.5, PI / 2, s, 0.4, col, 0.07 * flick, 2.5);
+    } });
+  },
+});
+defineSuper('glacierWall', {
+  n: 66, name: 'Glacier Wall', tier: 1, aim: 'point', unlock: 'career:structures:50', desc: 'Eight ice blocks (about 1000 hull each) rise across an 80 m line for 22 s, blocking shots and shoving enemies aside for 160 damage.',
+  fire(ctx, sw) {
+    const BLOCKS = 8, SPACING = 10.4, LIFE = 22, SCALE = 2.1, RISE = 0.4, col = [0.7, 0.88, 1];
+    const spots = [], blocks = [];
+    for (let i = 0; i < BLOCKS; i++) { const off = (i - (BLOCKS - 1) / 2) * SPACING, x = ctx.x + ctx.dirZ * off, z = ctx.z - ctx.dirX * off; spots.push({ x, z, y: Terrain.h(x, z), at: i * 0.06, gone: false }); }
+    sw.ring(ctx.x, ctx.y + 0.5, ctx.z, 45, 0.8); sw.sound('shieldBreak', ctx.x, ctx.y, ctx.z, 1.2); sw.shake(ctx.x, ctx.y, ctx.z, 0.4, 250);
+    spots.forEach((s) => sw.after(s.at, () => {
+      for (const p of sw.enemies(s.x, s.z, 9, ctx)) {   // the rising ice throws aside whatever stands there, along the line of sight
+        const side = (p.x - s.x) * ctx.dirX + (p.z - s.z) * ctx.dirZ >= 0 ? 1 : -1;
+        sw.hurt(p, 160, 'kinetic', ctx); sw.push(p, ctx.dirX * 45 * side, 10, ctx.dirZ * 45 * side);
+      }
+      const u = sw.summon('iceBlock', s.x, s.z, LIFE, ctx, { radius: 1, yaw: ctx.yaw });
+      if (u) { u.setScale(SCALE); blocks.push(u); }
+      sw.sparks(s.x, s.y + 3, s.z, 14, col, 16);
+    }));
+    const live = (s) => W.platforms.some((p) => p.def.id === 'iceBlock' && !p.dead && Math.hypot(p.x - s.x, p.z - s.z) < 3);
+    sw.add({ life: LIFE + 0.5, update(dt, e) {
+      for (const s of spots) {
+        if (s.gone || e.t < s.at + 1.2) continue;
+        if (live(s)) { s.seen = true; continue; }
+        if (!s.seen) continue;   // a guest may not have the block yet
+        s.gone = true; sw.sparks(s.x, s.y + 5, s.z, 30, col, 22); sw.smoke(s.x, s.y + 3, s.z, 4, 3); sw.sound('shieldBreak', s.x, s.y, s.z, 0.8);
+      }
+    }, draw(e, glow) {
+      const h = PLATFORMS.iceBlock.height * SCALE, w = PLATFORMS.iceBlock.radius * SCALE * 2.3;
+      for (const s of spots) {
+        if (s.gone || e.t < s.at) continue;
+        const rise = smoothstep(0, RISE, e.t - s.at);
+        if (!glow) { sw.shape('box', s.x, s.y + h * rise * 0.5, s.z, w, h * rise, w, [0.62, 0.84, 1], 1, 0.5, ctx.yaw); sw.shape('cone', s.x, s.y + h * rise + 2, s.z, 4.5, 6 * rise, 4.5, [0.8, 0.94, 1], 1, 0.7); } else sw.shape('box', s.x, s.y + h * rise * 0.5, s.z, w * 1.08, h * rise * 1.04, w * 1.08, col, 0.25 + 0.1 * Math.sin(e.t * 4 + s.x), 1.5, ctx.yaw);
+      }
+    } });
+  },
+});
+defineSuper('skyfireFlakField', {
+  n: 67, name: 'Skyfire Flak Field', tier: 1, aim: 'point', unlock: 'mission:m6', desc: 'Flak bursts fill the sky above 200 m for 10 s, ten per second: 150 damage to aircraft and 55 to ground units in each 13 m burst.',
+  fire(ctx, sw) {
+    const R0 = 100, DUR = 10, BURST_R = 13, col = [1, 0.8, 0.4];
+    sw.sound('flak', ctx.x, ctx.y, ctx.z, 1.2); sw.ring(ctx.x, ctx.y + 0.5, ctx.z, R0 * 2, 1);
+    SW_B.tick(sw, DUR, 0.1, (e, k) => {
+      let x, y, z;
+      const air = sw.enemies(ctx.x, ctx.z, R0 * 1.6, ctx, { ground: false });
+      if (air.length && Math.random() < 0.5) { const p = air[Math.floor(Math.random() * air.length)]; x = p.x + rand(-8, 8); y = p.y + rand(-8, 8); z = p.z + rand(-8, 8); } else {   // half the bursts seek aircraft
+        const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0; x = ctx.x + Math.cos(a) * d; z = ctx.z + Math.sin(a) * d; y = Terrain.h(x, z) + rand(10, 130);
+      }
+      FX.emit(x, y, z, 0, 0, 0, 0.14, 12, 16, 1, 0.85, 0.5, 0.9, 0, 0, true);
+      for (let i = 0; i < 2; i++) FX.emit(x + rand(-2, 2), y, z + rand(-2, 2), rand(-2, 2), rand(0, 2), rand(-2, 2), 2.2, 5, 11, 0.13, 0.13, 0.14, 0.7, 0.6, 0, false);
+      fxSparks(x, y, z, 6, col, 22); sw.light(x, y, z, 50, col, 0.1);
+      sw.beam(x + rand(-20, 20), Terrain.h(x, z) + 1, z + rand(-20, 20), x, y, z, [1, 0.7, 0.3], 0.25, 0.1);
+      if (k % 2 === 0) sw.sound('flak', x, y, z, 0.5);
+      sw.area(x, y, z, BURST_R, 150, 'explosive', ctx, { height: BURST_R, ground: false, noStagger: true });
+      sw.area(x, y, z, BURST_R, 55, 'explosive', ctx, { height: BURST_R * 0.8, air: false, noStagger: true });
+    }, { draw(e, glow) {
+      if (glow) sw.shape('cyl', ctx.x, ctx.y + 0.6, ctx.z, R0 * 2, 0.4, R0 * 2, col, 0.06 * Math.min(1, e.t, DUR - e.t), 1.5);
+    } });
+  },
+});
 /* SUPER PART B END */
 
 /* SUPER PART C BEGIN: superweapons 68-100 (helper C) */
@@ -9491,6 +10584,116 @@ const SelfTest = {
     /* SELFTEST PART A BEGIN */
     /* SELFTEST PART A END */
     /* SELFTEST PART B BEGIN */
+    t('superweapons part B', () => {
+      const LIST = [['teslaStorm', 35, 2, 'point', 'rank:m3:A'], ['empBurst', 36, 1, 'self', 'career:deaths:10'], ['ionCannon', 37, 2, 'point', 'rank:m4:A'], ['solarMirrorArray', 38, 3, 'target', 'rank:m7:S'],
+        ['plasmaTornado', 39, 2, 'point', 'career:kills:200'], ['cryoBlizzard', 40, 2, 'point', 'skirmishMap:frost'], ['meteorShower', 41, 2, 'point', 'skirmishMap:ashfall'], ['volcanicEruption', 42, 3, 'point', 'career:playMin:120'],
+        ['arcFence', 43, 1, 'point', 'mission:m3'], ['solarFlare', 44, 1, 'self', 'career:airKills:10'], ['microwaveEmitter', 45, 1, 'self', 'career:infantryKills:30'], ['photonSwarm', 46, 2, 'map', 'match:kills:30'],
+        ['ballLightning', 48, 1, 'point', 'career:kills:100'], ['firestorm', 49, 3, 'point', 'rank:m2:S'], ['acidRain', 50, 2, 'point', 'career:damage:100000'], ['laserGrid', 51, 2, 'point', 'mission:m7'],
+        ['hurricane', 52, 3, 'map', 'rank:m6:S'], ['thunderGod', 53, 2, 'self', 'career:deaths:25'], ['prismArray', 54, 2, 'point', 'career:mechKills:100'], ['neutronBomb', 55, 3, 'point', 'career:kills:750'],
+        ['sandstorm', 56, 1, 'point', 'skirmishMap:verdant'], ['frostNova', 57, 1, 'self', 'mission:m8'], ['plasmaRain', 58, 2, 'point', 'rank:m6:A'], ['auroraVeil', 59, 1, 'self', 'career:skirmishWins:3'],
+        ['magmaLance', 60, 2, 'point', 'career:groundKills:100'], ['stormSurge', 61, 2, 'self', 'match:streak:8'], ['satelliteNet', 62, 3, 'map', 'missionsRank:A:8'], ['phoenixStrike', 63, 2, 'point', 'career:superUses:25'],
+        ['ozoneHole', 64, 2, 'point', 'career:playMin:60'], ['voltaicDome', 65, 2, 'self', 'mission:m4'], ['glacierWall', 66, 1, 'point', 'career:structures:50'], ['skyfireFlakField', 67, 1, 'point', 'mission:m6']];
+      for (const [id, n, tier, aim, unlock] of LIST) {
+        const d = SUPERS[id];
+        this.check('part B superweapon ' + id + ' matches the plan', d && d.n === n && d.tier === tier && d.aim === aim && d.unlock === unlock && d.desc.length > 30 && typeof d.fire === 'function' && Arsenal.reqOf(d).kind !== 'invalid', id);
+      }
+      this.check('superweapons 35-67 are all present', SUPER_LIST.filter((d) => d.n >= 35 && d.n <= 67).length === 33);
+      const def = PLATFORMS.bulwark, keepReport = Game.reportError;
+      let errs = [];
+      Game.reportError = (e) => errs.push(String(e && e.stack ? e.stack.split('\n')[0] : e));
+      const arena = (id) => {
+        SW.reset();
+        newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 260, tag: 'open' }], difficulty: 'veteran', seed: 3, start: { x: 0, z: -150, yaw: 0 } });
+        W.mission = null;
+        const me = new Platform(def, { team: 0, x: 0, z: -60, yaw: 0, loadout: Object.assign({}, def.loadout, { strategic: id }) });
+        W.platforms.push(me); W.player = me; me.isPlayer = true;
+        me.cmd.aimPoint = { x: 0, y: Terrain.h(0, 0), z: 0 }; me.cmd.aimYaw = 0; me.cmd.aimPitch = -0.12; me.sw.charge = 1;
+        return me;
+      };
+      const run = (secs) => {
+        for (let i = 0; i < 60 * secs; i++) {
+          for (const p of W.platforms) { p.tickStatus(STEP); const k = p.timeMult(); if (k > 0) p.update(STEP * k); }
+          resolvePairs(STEP); updateProjectiles(STEP); updateWorldEffects(STEP);
+        }
+      };
+      const dummy = (kind, x, z) => { const u = spawnUnit(kind, x, z, { force: true }); u.ai = null; return u; };
+      try {
+        // Voltaic Dome deletes an enemy shot that is inside it
+        let me = arena('voltaicDome');
+        const gunner = dummy('tank', 0, 20);
+        SW.trigger(me);
+        const shot = SW.shoot('swShell', { owner: gunner, team: 1 }, 10, me.y + 5, -60, 0, 0, 1, { speed: 30 });
+        run(0.2);
+        this.check('the Voltaic Dome deletes enemy projectiles', shot && !shot.active);
+        // Glacier Wall raises eight friendly ice blocks
+        me = arena('glacierWall'); SW.trigger(me); run(1.2);
+        const ice = W.platforms.filter((p) => p.def.id === 'iceBlock' && !p.dead);
+        this.check('the Glacier Wall raises eight friendly ice blocks', ice.length === 8 && ice.every((p) => p.team === 0 && p.maxHp > 900), ice.length + ' blocks');
+        // Aurora Veil gives and takes back its shield
+        me = arena('auroraVeil');
+        const shield0 = me.maxShield;
+        SW.trigger(me); run(0.2);
+        this.check('the Aurora Veil adds a 300 shield', me.maxShield === shield0 + 300 && me.shieldOn);
+        run(16);
+        this.check('the Aurora Veil shield is taken back', me.maxShield === shield0);
+        // Cryo Blizzard slows, freezes and shatters
+        me = arena('cryoBlizzard');
+        const tank = dummy('tank', 0, 0), hp0 = tank.hp + tank.armor;
+        SW.trigger(me); run(3.6);
+        this.check('the Cryo Blizzard freezes enemies', tank.status.freeze > 0 || tank.status.slow > 0);
+        run(3);
+        this.check('frozen enemies shatter for bonus damage', tank.dead || tank.hp + tank.armor < hp0 - 400);
+        // EMP Burst disables and drains
+        me = arena('empBurst');
+        const mech = dummy('medMech', 0, -20);
+        SW.trigger(me); run(1.2);
+        this.check('the EMP Burst disables enemies for seconds', mech.status.emp > 5 && mech.energy < mech.maxEnergy * 0.2);
+        // Sandstorm blinds those inside
+        me = arena('sandstorm');
+        const sitter = dummy('tank', 0, 0);
+        SW.trigger(me); run(1);
+        this.check('the Sandstorm blinds enemies inside', sitter.status.blind > 0);
+        // Arc Fence stuns and burns what stands on its line
+        me = arena('arcFence');
+        const crosser = dummy('tank', 0, 25), crossHp = crosser.hp + crosser.armor;
+        SW.trigger(me); run(1);
+        this.check('the Arc Fence stuns and burns a crosser', crosser.status.emp > 0 && crosser.hp + crosser.armor < crossHp);
+        // Solar Flare blinds
+        me = arena('solarFlare');
+        const dazzled = dummy('tank', 0, 150);
+        SW.trigger(me); run(0.5);
+        this.check('the Solar Flare blinds enemies in range', dazzled.status.blind > 5);
+        // Thunder God strikes whoever fires at you and deletes the shot
+        me = arena('thunderGod');
+        const shooter = dummy('tank', 0, 300), shooterHp = shooter.hp + shooter.armor;
+        SW.trigger(me);
+        const bolt = SW.shoot('swShell', { owner: shooter, team: 1 }, 0, Terrain.h(0, 150) + 6, 150, 0, 0, -1, { speed: 100 });
+        run(0.2);
+        this.check('Thunder God strikes the shooter and removes the shot', bolt && !bolt.active && shooter.hp + shooter.armor < shooterHp);
+        // Microwave Emitter cooks infantry and overheats machines
+        me = arena('microwaveEmitter');
+        const trooper = dummy('infantry', 0, 40), cooked = trooper.hp, heated = dummy('tank', 5, 60);
+        SW.trigger(me); run(2.5);
+        this.check('the Microwave Emitter cooks infantry', trooper.dead || trooper.hp < cooked);
+        this.check('the Microwave Emitter overheats machines', heated.overheated || heated.heat > heated.maxHeat * 0.5);
+        // a co-op guest replays every Part B superweapon with no damage and no errors
+        const g0 = Net.guest;
+        try {
+          me = arena('teslaStorm');
+          const sitting = dummy('tank', 300, 300), hp1 = sitting.hp;
+          Net.guest = true;
+          errs = [];
+          for (const [id] of LIST) {
+            SW.reset();
+            SW.replay({ n: SUPERS[id].n, o: 0, a: [300, Terrain.h(300, 300), 300], y: 0, tg: 0, s: 5 });
+            for (let i = 0; i < 90; i++) updateWorldEffects(STEP);
+            SW.draw(false); SW.draw(true);
+          }
+          this.check('guest replays of Part B deal no damage', sitting.hp === hp1);
+          this.check('guest replays of Part B raise no errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+        } finally { Net.guest = g0; }
+      } finally { Game.reportError = keepReport; SW.reset(); }
+    });
     /* SELFTEST PART B END */
     /* SELFTEST PART C BEGIN */
     /* SELFTEST PART C END */
