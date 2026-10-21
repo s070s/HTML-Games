@@ -3729,7 +3729,7 @@ class Platform {
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
-    this.sw = null; this.status = newStatus(); this.scale = 1;   // superweapon slot, superweapon status effects, size (Shrink Ray)
+    this.sw = null; this.status = newStatus(); this.scale = 1; this.swHistory = null;   // superweapon slot, superweapon status effects, size (Shrink Ray)
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
     this.speedMult = this.kind === 'air' || def.playable ? Loadout.speedMult(def, this.loadout) : 1;
@@ -5344,6 +5344,7 @@ const SUPER_TIER = {
 const SUPER_TRAINING_RATE = 8;   // the Training Range charges this many times faster
 const SUPER_RANGE = 700;         // default reach (m) of a point-aimed superweapon
 const SUPER_START_ID = 'orbitalLance';
+const SUPER_HISTORY_STEP = 0.5, SUPER_HISTORY_LEN = 30;   // human platforms remember 15 s of state (Rewind)
 const SUPER_AIM_LABEL = { point: 'Crosshair', self: 'Around you', target: 'Target', map: 'Battlefield' };
 const SUPERS = {};               // id -> definition
 const SUPER_LIST = [];           // definitions in catalogue order (n = 1..100)
@@ -5533,7 +5534,20 @@ function newStatus() {
 const SW = {
   fx: [],          // running effects
   dealing: false,  // true while a superweapon is dealing damage (kills count as superweapon kills)
-  reset() { this.fx.length = 0; this.dealing = false; },
+  histT: 0,        // seconds since human platforms last recorded their state (p.swHistory, for Rewind)
+  reset() { this.fx.length = 0; this.dealing = false; this.histT = 0; },
+  /* host: every 0.5 s each human platform records { t, x, y, z, yaw, hp, armor, heat, energy }, the last 15 s */
+  track(dt) {
+    this.histT += dt;
+    if (this.histT < SUPER_HISTORY_STEP || Net.guest) return;
+    this.histT = 0;
+    for (const p of W.platforms) {
+      if (!p.isPlayer || p.dead) continue;
+      const h = p.swHistory || (p.swHistory = []);
+      h.push({ t: W.time, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, armor: p.armor, heat: p.heat, energy: p.energy });
+      if (h.length > SUPER_HISTORY_LEN) h.shift();
+    }
+  },
   /* ----- firing ----- */
   trigger(p) {
     const s = p.sw;
@@ -5593,6 +5607,7 @@ const SW = {
     return e;
   },
   update(dt) {
+    this.track(dt);
     for (let i = this.fx.length - 1; i >= 0; i--) {
       const e = this.fx[i];
       e.t += dt;
@@ -5639,6 +5654,14 @@ const SW = {
     return { x: ctx.x, y: ctx.y, z: ctx.z };
   },
   ground(x, z) { return Terrain.h(x, z); },
+  /* ctx's side's base (skirmish W.bases), else the mission start: where 'launched from your base' ordnance comes from */
+  home(ctx) {
+    const b = W.bases && (ctx.team === 0 ? W.bases.own : W.bases.enemy);
+    if (b) return { x: b.x, y: Terrain.h(b.x, b.z), z: b.z };
+    const st = Game.mission && Game.mission.def.start;
+    if (st && ctx.team === 0) return { x: st.x, y: Terrain.h(st.x, st.z), z: st.z };
+    return this.origin(ctx);
+  },
   /* ----- changing the game (host only) ----- */
   hurt(t, dmg, dtype, ctx, opts) {
     if (Net.guest || !t || dmg <= 0) return 0;
