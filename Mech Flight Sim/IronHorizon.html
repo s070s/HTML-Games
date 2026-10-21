@@ -6081,6 +6081,934 @@ defineSuper('blinkStrike', {
 /* SUPER PART LEAD END */
 
 /* SUPER PART A BEGIN: superweapons 2-34 (helper A) */
+const SW_A = {
+  SKY: 600,                                   // drop height (m) of orbital ordnance
+  FIRE: [1, 0.55, 0.18], WHITE: [1, 0.96, 0.85],
+  alive(t) { return !!t && !t.dead && !t.destroyed; },
+  /* a ring (a disc with a hole) made of n boxes: centre x,y,z, radius, thickness, height */
+  ringShape(sw, x, y, z, r, width, h, col, alpha, emis, n) {
+    const len = TAU * r / n * 1.08;
+    for (let i = 0; i < n; i++) { const a = i / n * TAU; sw.shape('box', x + Math.cos(a) * r, y, z + Math.sin(a) * r, width, h, len, col, alpha, emis, -a); }
+  },
+  /* scorched crater: dark decal, thrown debris and dust */
+  crater(x, z, rad) {
+    const gy = Terrain.h(x, z);
+    addDecal(x, z, rad, [0.07, 0.06, 0.05], 150); fxSmokePuff(x, gy + 1, z, rad * 0.3, 4);
+    for (let i = 0; i < 3; i++) spawnDebris(x, gy + 2, z, 6, null, rad * 0.9);
+  },
+  /* a bright streak behind projectile p (host; guests see the projectile itself), len metres long */
+  trail(sw, p, col, width, len) {
+    if (!p) return;
+    const id = p.nid;
+    sw.add({ life: 8, update(dt, e) {
+      if (!p.active || p.nid !== id) { e.t = e.life; return; }
+      const s = Math.hypot(p.vx, p.vy, p.vz) || 1;
+      sw.beam(p.x - p.vx / s * len, p.y - p.vy / s * len, p.z - p.vz / s * len, p.x, p.y, p.z, col, width, 0.05);
+    } });
+  },
+  /* push a transform at x,y,z whose local +z points along dx,dy,dz (the caller pops it) */
+  aim(x, y, z, dx, dy, dz) {
+    const l = Math.hypot(dx, dy, dz) || 1;
+    return R.stack.push().t(x, y, z).ry(Math.atan2(dx, dz)).rx(-Math.asin(clamp(dy / l, -1, 1)));
+  },
+  /* a missile body flying along dx,dy,dz (solid pass) with its exhaust flame (glow pass); k scales it */
+  rocket(x, y, z, dx, dy, dz, k, glow) {
+    const st = this.aim(x, y, z, dx, dy, dz);
+    if (!glow) {
+      st.push().rx(PI / 2).s(1.8 * k, 9 * k, 1.8 * k); R.draw('cyl', 0.85, 0.85, 0.82, 1, 0, 0.5); st.pop();
+      st.push().t(0, 0, 5.8 * k).rx(PI / 2).s(1.8 * k, 3 * k, 1.8 * k); R.draw('cone', 0.8, 0.12, 0.1, 1, 0.2, 0.3); st.pop();
+      for (let s = -1; s <= 1; s += 2) { st.push().t(s * 1.5 * k, 0, -3.6 * k).s(2 * k, 0.3 * k, 1.8 * k); R.draw('box', 0.3, 0.3, 0.32, 1, 0, 0.3); st.pop(); }
+    } else { st.push().t(0, 0, -8 * k).rx(-PI / 2).s(1.6 * k, 7 * k, 1.6 * k); R.draw('cone', 1, 0.6, 0.2, 0.8, 1.8, 0); st.pop(); }
+    st.pop();
+  },
+  /* a bomber: fuselage, nose, swept wings, engines and tail; k scales it */
+  bomber(x, y, z, yaw, k) {
+    const st = R.stack, main = [0.4, 0.4, 0.38], dark = [0.16, 0.16, 0.15];
+    st.push().t(x, y, z).ry(yaw);
+    part('box', 0, 0, 0, 3.4 * k, 2.6 * k, 15 * k, main, 0, 0.35);
+    st.push().t(0, 0, 8.6 * k).rx(PI / 2).s(3 * k, 3.6 * k, 2.4 * k); R.draw('cone', main[0], main[1], main[2]); st.pop();
+    part('box', 0, 0.9 * k, 5.5 * k, 2 * k, k, 2.4 * k, [0.1, 0.18, 0.26], 0.3, 0.9);
+    for (let s = -1; s <= 1; s += 2) {
+      part('box', s * 7.5 * k, -0.3 * k, -0.5 * k, 12 * k, 0.35 * k, 4.2 * k, dark, 0, 0.3);
+      for (let i = 0; i < 2; i++) { part('cyl', s * (4.5 + i * 5) * k, -0.9 * k, 0.5 * k, 1.5 * k, 3.2 * k, 1.5 * k, dark, 0, 0.4); part('box', s * (4.5 + i * 5) * k, -0.9 * k, -1.7 * k, k, k, 0.9 * k, [1, 0.6, 0.25], 1.8, 0, 1); }
+      part('box', s * 2.4 * k, 0, -7 * k, 5 * k, 0.25 * k, 2.4 * k, dark, 0, 0.3);
+      part('box', s * 1.2 * k, 1.8 * k, -7 * k, 0.3 * k, 3.6 * k, 2.4 * k, main, 0, 0.3);
+    }
+    st.pop();
+  },
+  /* a gunship: boxy hull, wings with twin engines and a side cannon on its right; bank rolls it into the turn */
+  gunship(x, y, z, yaw, bank, k) {
+    const st = R.stack, main = [0.3, 0.33, 0.36], dark = [0.13, 0.14, 0.16];
+    st.push().t(x, y, z).ry(yaw).rz(bank);
+    part('box', 0, 0, 0, 5 * k, 3.4 * k, 13 * k, main, 0, 0.35);
+    part('wedge', 0, 0, 8 * k, 4.6 * k, 3 * k, 4 * k, main, 0, 0.35);
+    part('box', 0, 1.8 * k, 4 * k, 2.6 * k, 1.2 * k, 3.2 * k, [0.1, 0.2, 0.3], 0.4, 0.9);
+    part('box', 0, 0.2 * k, -8 * k, 1.6 * k, 1.6 * k, 6 * k, dark, 0, 0.3);
+    part('box', 0, 2.4 * k, -10.5 * k, 0.4 * k, 4 * k, 2.6 * k, main, 0, 0.3);
+    for (let s = -1; s <= 1; s += 2) {
+      part('box', s * 6.6 * k, 0.4 * k, -0.5 * k, 9 * k, 0.5 * k, 3.8 * k, dark, 0, 0.3);
+      part('cyl', s * 4 * k, 1.4 * k, -2.4 * k, 2.4 * k, 3.6 * k, 2.4 * k, dark, 0, 0.4);
+      part('box', s * 4 * k, 1.4 * k, -4.6 * k, 1.8 * k, 1.8 * k, 1.6 * k, [1, 0.6, 0.25], 2, 0, 1);
+    }
+    st.push().t(-3.4 * k, -0.6 * k, 2 * k).rx(PI / 2).s(0.9 * k, 7 * k, 0.9 * k); R.draw('cyl', 0.16, 0.17, 0.19, 1, 0, 0.6); st.pop();   // the side cannon
+    st.pop();
+  },
+  /* a fireball that swells and fades (glow pass) */
+  fireball(sw, x, y, z, rad, life, col) {
+    sw.add({ life, draw(e, glow) {
+      if (!glow) return;
+      const f = e.t / life, r = rad * (0.25 + 0.75 * Math.sqrt(f)), a = (1 - f) * 0.75;
+      sw.shape('sphere', x, y + r * 0.4, z, r * 2, r * 1.7, r * 2, col, a, 1.6);
+      sw.shape('sphere', x, y + r * 0.4, z, r * 1.2, r, r * 1.2, SW_A.WHITE, a, 2.2);
+    } });
+  },
+  /* a stem and cap of smoke that rises and cools from the fire colour to grey; slim gives a plain column instead of a cap */
+  mushroom(sw, x, z, rad, life, hot, slim) {
+    const gy = Terrain.h(x, z);
+    sw.add({ life, update(dt, e) { if (Math.random() < dt * 6 && e.t < life * 0.7) sw.smoke(x + rand(-1, 1) * rad * 0.3, gy + rad * 1.2 * Math.min(1, e.t / 3), z + rand(-1, 1) * rad * 0.3, rad * 0.2, 2); }, draw(e, glow) {
+      const f = e.t / life, rise = 1 - Math.pow(1 - Math.min(1, e.t / (life * 0.5)), 2), fade = f > 0.8 ? 1 - (f - 0.8) / 0.2 : 1;
+      const h = rad * 1.9 * rise, capR = rad * (slim ? 0.4 : 0.62) * (0.35 + 0.65 * rise) * fade, stemW = rad * 0.16 * fade;
+      const cool = Math.min(1, f * 2.2), heat = 1 - cool;
+      if (!glow) {
+        const g = [lerp(hot[0], 0.3, cool), lerp(hot[1], 0.27, cool), lerp(hot[2], 0.25, cool)];
+        sw.shape('cyl', x, gy + h * 0.5, z, stemW * 2, h, stemW * 2, g, 1, heat * 1.2);
+        sw.shape('sphere', x, gy + h, z, capR * 2, capR * (slim ? 1.4 : 0.9), capR * 2, g, 1, heat * 1.1);
+        if (!slim) sw.shape('sphere', x, gy + h - capR * 0.3, z, capR * 2.6, capR * 0.45, capR * 2.6, [g[0] * 0.75, g[1] * 0.75, g[2] * 0.75], 1, heat * 0.8);
+      } else if (heat > 0) {
+        sw.shape('sphere', x, gy + h, z, capR * 1.6, capR * 0.8, capR * 1.6, hot, heat * 0.5, 1.5);
+        sw.shape('cyl', x, gy + h * 0.5, z, stemW * 2.8, h, stemW * 2.8, hot, heat * 0.25, 1.4);
+      }
+    } });
+  },
+  /* a ring of dust running out from x,z */
+  dustWave(sw, x, z, rad, time) {
+    sw.add({ life: time + 0.2, update(dt, e) {
+      if (e.t > time) return;
+      const r = rad * e.t / time;
+      for (let k = 0; k < 3; k++) { const a = Math.random() * TAU, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; sw.smoke(px, Terrain.h(px, pz) + 1, pz, 4, 1); }
+    } });
+  },
+  /* a blast front that sweeps out over time and hurts each platform and structure once as it passes.
+     o: dmg, structDmg, time (s to full radius), push (m/s), dtype */
+  shockwave(ctx, sw, x, z, rad, o) {
+    const hit = new Set(), dtype = o.dtype || 'explosive';
+    let clock = 0;
+    sw.add({ life: o.time + 0.2, update(dt, e) {
+      clock += dt;
+      if (clock < 0.07) return;
+      clock = 0;
+      const r = rad * Math.min(1, e.t / o.time);
+      for (const p of sw.enemies(x, z, r, ctx)) {
+        if (hit.has(p)) continue;
+        hit.add(p);
+        const d = Math.hypot(p.x - x, p.z - z) || 1;
+        sw.hurt(p, o.dmg * (1 - d / rad * 0.7), dtype, ctx);
+        sw.push(p, (p.x - x) / d * o.push, o.push * 0.3, (p.z - z) / d * o.push);
+      }
+      for (const s of sw.structs(x, z, r)) {
+        if (hit.has(s)) continue;
+        hit.add(s);
+        sw.hurt(s, o.structDmg * (1 - Math.hypot(s.x - x, s.z - z) / rad * 0.7), dtype, ctx);
+      }
+    } });
+  },
+  /* a building falls: its ground-floor walls and pillars go out nearest-first from x,z, then the floors above follow */
+  collapse(sw, ctx, b, x, z, delay) {
+    const list = [];
+    for (const s of b.pieces) if (!s.destroyed && s.fl === 0 && s.kind !== 'found' && s.kind !== 'slab') list.push({ s, at: delay + Math.hypot(s.x - x, s.z - z) * 0.004 });
+    list.sort((a, c) => a.at - c.at);
+    let i = 0;
+    sw.add({ life: delay + 2.5, update(dt, e) { while (i < list.length && list[i].at <= e.t) sw.hurt(list[i++].s, 1e5, 'explosive', ctx); } });
+    sw.after(delay + 0.1, () => { fxSmokePuff(b.cx, b.y0 + 4, b.cz, 7, 4); sw.shake(b.cx, b.y0, b.cz, 0.3, 300); sw.sound('bigExplosion', b.cx, b.y0, b.cz, 1); });
+  },
+  /* one nuclear blast. o: x, z, rad, dmg, structDmg, wait (countdown s), hot (fire colour), zone (radiation radius m),
+     zoneDur (s), zoneDps, grow (fallout ring end radius m, 0 for a plain zone), flash (white-out strength), ring (zone colour) */
+  nuke(ctx, sw, o) {
+    const x = o.x, z = o.z, gy = Terrain.h(x, z), hot = o.hot, rad = o.rad;
+    if (o.wait > 0) {   // countdown: a warning ring at the blast edge, a red beacon and a beep each second
+      sw.add({ life: o.wait, update(dt, e) { if (Math.random() < dt * 16) sw.column(x, z, 0.5 + e.t * 0.5, [1, 0.2, 0.15], 0.06); }, draw(e, glow) {
+        if (glow) SW_A.ringShape(sw, x, gy + 1, z, rad * (0.97 + 0.03 * Math.sin(e.t * 12)), 1.4, 0.8, [1, 0.2, 0.15], 0.7, 1.6, 36);
+      } });
+      for (let i = 0; i < Math.ceil(o.wait); i++) sw.after(i, () => sw.sound('alarm', x, gy, z, 1));
+    }
+    sw.after(Math.max(0.001, o.wait), () => {
+      sw.flash(x, z, o.flash, 2500); sw.shake(x, gy, z, 1, 1800); sw.sound('bigExplosion', x, gy, z, 2); sw.light(x, gy + 40, z, rad * 3, hot, 1.6);
+      sw.blast(x, gy + 3, z, Math.min(rad * 0.3, 45), o.dmg, ctx, { structMult: 1.2 });
+      SW_A.shockwave(ctx, sw, x, z, rad, { dmg: o.dmg * 0.8, structDmg: o.structDmg, time: rad / 160, push: 30 });
+      SW_A.fireball(sw, x, gy, z, rad * 0.55, 1.8, hot);
+      SW_A.mushroom(sw, x, z, rad, 13, hot);
+      SW_A.dustWave(sw, x, z, rad, rad / 160);
+      sw.ring(x, gy + 1, z, rad * 1.1, 1.2); sw.ring(x, gy + 1, z, rad * 0.7, 0.8);
+      addDecal(x, z, rad * 0.3, [0.05, 0.05, 0.04], 200);
+      if (o.zoneDur > 0) SW_A.radiation(ctx, sw, x, z, gy, o);
+    });
+  },
+  /* lingering radiation: a glowing zone that burns enemy platforms (never structures); with o.grow an outward-creeping ring */
+  radiation(ctx, sw, x, z, gy, o) {
+    const green = o.ring || [0.45, 1, 0.35];
+    let acc = 0;
+    const edge = (e) => (o.grow ? o.zone + (o.grow - o.zone) * e.t / o.zoneDur : o.zone);
+    sw.add({ life: o.zoneDur, update(dt, e) {
+      const r = edge(e), inner = o.grow ? Math.max(0, r - 55) : 0;
+      for (let k = 0; k < 2; k++) { const a = Math.random() * TAU, d = o.grow ? lerp(inner, r, Math.random()) : r * Math.sqrt(Math.random()), px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d; sw.glow(px, Terrain.h(px, pz) + 1, pz, 0, rand(2, 5), 0, green, 3, 1.1); }
+      acc += dt;
+      if (acc < 0.25) return;
+      acc = 0;
+      for (const p of sw.enemies(x, z, r, ctx)) { const d = Math.hypot(p.x - x, p.z - z); if (!o.grow || d >= inner || d < o.zone * 0.5) sw.hurt(p, o.zoneDps * 0.25, 'energy', ctx); }
+    }, draw(e, glow) {
+      if (!glow) return;
+      const r = edge(e), a = (0.1 + 0.05 * Math.sin(e.t * 3)) * Math.min(1, (o.zoneDur - e.t) / 3);
+      if (o.grow) { SW_A.ringShape(sw, x, gy + 1.5, z, r - 27, 55, 1.2, green, a * 2, 1.2, 64); sw.shape('cyl', x, gy + 1.2, z, o.zone, 1.2, o.zone, green, a, 1.2); }
+      else sw.shape('cyl', x, gy + 1.2, z, r * 2, 1.2, r * 2, green, a, 1.2);
+    } });
+  },
+};
+
+SW.munition('swRod', { name: 'Tungsten Rod', dmg: 1500, blast: 30, speed: 950, life: 3, structMult: 4.5, tracer: [1, 0.9, 0.7], size: 3, sound: 'rail',
+  onDetonate(p, x, y, z) { SW_A.crater(x, z, 24); shakeFrom(x, y, z, 0.9, 500); W.rings.push({ x, y: Terrain.h(x, z) + 0.5, z, r: 1, maxR: 80, life: 0.9, maxLife: 0.9 }); } });
+SW.munition('swCarpetBomb', { name: 'Carpet Bomb', kind: 'bomb', dmg: 170, blast: 12, speed: 15, life: 4, grav: 55, structMult: 2, tracer: [0.9, 0.9, 0.85], size: 1.4, sound: 'bomb' });
+SW.munition('swBomblet', { name: 'Bomblet', kind: 'bomb', dmg: 160, blast: 8.5, speed: 12, life: 6, grav: 28, structMult: 1.6, tracer: [1, 0.8, 0.4], size: 1.5, sound: 'bomb' });
+SW.munition('swSlug', { name: 'Mass Driver Slug', dmg: 780, blast: 7, speed: 1700, life: 2, pierce: 3, structMult: 2.5, tracer: [0.7, 0.9, 1], size: 1.6, sound: 'rail' });
+SW.munition('swSkyMissile', { name: 'Rain Missile', rocket: true, dmg: 240, blast: 10.5, speed: 200, accel: 100, maxSpeed: 330, life: 6, guide: { turn: 3 }, structMult: 1.6, tracer: [1, 0.85, 0.5], size: 1.1, sound: 'missile' });
+SW.munition('swRingShell', { name: 'Ring Shell', dmg: 150, blast: 11, speed: 280, life: 5, structMult: 2, tracer: [1, 0.6, 0.2], size: 1.7, sound: 'mortar' });
+SW.munition('swFlechette', { name: 'Tungsten Flechette', dmg: 110, blast: 0, speed: 520, life: 1.5, structMult: 1.4, tracer: [0.85, 0.9, 1], size: 0.5, sound: 'rail' });
+SW.munition('swMicro', { name: 'Micro-missile', rocket: true, dmg: 100, blast: 5.5, speed: 160, accel: 220, maxSpeed: 300, life: 5, guide: { turn: 5.5 }, structMult: 1.4, tracer: [1, 0.5, 0.3], size: 0.7, sound: 'rocket' });
+SW.munition('swShrapnel', { name: 'Shrapnel', dmg: 130, blast: 0, speed: 420, life: 0.5, pierce: 6, structMult: 1, tracer: [1, 0.95, 0.7], size: 0.55, sound: 'rail' });
+SW.munition('swCruise', { name: 'Cruise Missile', rocket: true, dmg: 850, blast: 17, speed: 240, accel: 80, maxSpeed: 360, life: 14, guide: { turn: 3.2 }, structMult: 2.2, tracer: [0.9, 0.95, 1], size: 1.3, sound: 'missile' });
+/* the drop pod's allied heavy mech: a copy of the heavy mech archetype that scores nothing and has a tougher hull */
+ARCH.dropMech = Object.assign({}, ARCH.heavyMech, { label: 'Drop Mech', name: 'DROP MECH', score: 0, hpMult: 1.5 });
+
+SW_A.buildingsIn = (x, z, r) => W.buildings.filter((b) => b.alive > 0 && Math.hypot(b.cx - x, b.cz - z) <= r);   // SW.buildings reads b.x/b.z, which buildings lack
+
+defineSuper('rodsFromGod', {
+  n: 2, name: 'Rods from God', tier: 2, aim: 'point', unlock: 'mission:m1', desc: 'Three tungsten rods strike 45 m apart along your line of sight: 30 m blasts, deep craters, huge structure damage.',
+  fire(ctx, sw) {
+    const col = [1, 0.35, 0.25];
+    for (let k = 0; k < 3; k++) {
+      const x = ctx.x + ctx.dirX * k * 45, z = ctx.z + ctx.dirZ * k * 45, gy = Terrain.h(x, z), start = k * 0.9;
+      sw.after(start, () => {   // warning: a ring closes on the impact point
+        sw.sound('laser', x, gy, z, 1);
+        sw.add({ life: 0.8, update(dt) { if (Math.random() < dt * 25) sw.column(x, z, 0.3, col, 0.05); }, draw(e, glow) { if (glow) SW_A.ringShape(sw, x, gy + 1, z, 45 - 36 * e.t / 0.8, 1.2, 0.6, col, 0.8, 1.6, 20); } });
+      });
+      sw.after(start + 0.8, () => {
+        const rod = sw.shoot('swRod', ctx, x + 10, gy + SW_A.SKY, z + 10, -10, -SW_A.SKY, -10);
+        SW_A.trail(sw, rod, [1, 0.8, 0.55], 3, 160);
+        sw.after(0.75, () => sw.add({ life: 7, draw(e, glow) { if (glow) sw.shape('cyl', x, gy + 0.3, z, 30, 0.4, 30, [1, 0.4, 0.1], 0.35 * (1 - e.t / 7), 1.3); } }));   // molten crater
+      });
+    }
+  },
+});
+defineSuper('carpetBombing', {
+  n: 4, name: 'Carpet Bombing', tier: 2, aim: 'point', unlock: 'career:kills:150', desc: 'Three bombers sweep across the point and drop a 300 m wide carpet of 170 damage bombs.',
+  fire(ctx, sw) {
+    const sideX = ctx.dirZ, sideZ = -ctx.dirX, yaw = Math.atan2(sideX, sideZ), WIDTH = 300, RUN = 280, SPEED = 220, ALT = 130, SPACING = 17, gy0 = ctx.y;
+    sw.sound('alarm', ctx.x, ctx.y, ctx.z, 0.8);
+    for (let lane = -1; lane <= 1; lane++) {
+      const lag = lane === 0 ? 0 : -30, off = lane * 38;   // the wingmen trail the leader
+      let next = 0;                                         // index of the next bomb to drop
+      sw.add({ life: (WIDTH + RUN * 2) / SPEED + 0.1, x: 0, y: 0, z: 0, update(dt, e) {
+        const s = -WIDTH / 2 - RUN + SPEED * e.t + lag;
+        e.x = ctx.x + sideX * s + ctx.dirX * off; e.z = ctx.z + sideZ * s + ctx.dirZ * off; e.y = Math.max(gy0, Terrain.h(e.x, e.z)) + ALT;
+        if (Math.random() < dt * 30) sw.smoke(e.x - sideX * 9, e.y, e.z - sideZ * 9, 2.5, 1);
+        while (next * SPACING <= WIDTH && s >= -WIDTH / 2 + next * SPACING) { sw.shoot('swCarpetBomb', ctx, e.x, e.y - 2, e.z, 0, -1, 0); next++; }
+      }, draw(e, glow) { if (!glow) SW_A.bomber(e.x, e.y, e.z, yaw, 2.2); } });
+    }
+  },
+});
+defineSuper('tacticalNuke', {
+  n: 5, name: 'Tactical Nuke', tier: 3, aim: 'point', unlock: 'missionsDone:8', desc: 'After a 3 s countdown, a 140 m nuclear blast with a mushroom cloud leaves a 20 s radiation zone.',
+  fire(ctx, sw) { SW_A.nuke(ctx, sw, { x: ctx.x, z: ctx.z, rad: 140, dmg: 2600, structDmg: 2200, wait: 3, hot: SW_A.FIRE, flash: 1.6, zone: 95, zoneDur: 20, zoneDps: 38 }); },
+});
+defineSuper('orbitalCluster', {
+  n: 6, name: 'Orbital Cluster', tier: 2, aim: 'point', unlock: 'mission:m2', desc: 'One canister falls and bursts at 200 m into 40 bomblets that blanket a 60 m circle.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), top = gy + SW_A.SKY, burst = gy + 200, fall = (top - burst) / 480, col = [1, 0.7, 0.3];
+    sw.ring(x, gy + 0.5, z, 62, fall + 0.4);
+    sw.add({ life: fall, draw(e, glow) {
+      const y = lerp(top, burst, e.t / fall);
+      if (glow) { sw.shape('cyl', x, y + 60, z, 2.5, 120, 2.5, col, 0.5, 2); return; }
+      R.stack.push().t(x, y, z);
+      part('cyl', 0, 0, 0, 3, 9, 3, [0.5, 0.5, 0.52], 0, 0.5);
+      R.stack.push().t(0, -5.5, 0).rx(PI).s(3, 3, 3); R.draw('cone', 0.7, 0.2, 0.1, 1, 0.2, 0.3); R.stack.pop();
+      R.stack.pop();
+    }, end() {
+      sw.flash(x, z, 0.3, 300); sw.light(x, burst, z, 160, col, 0.6); sw.sound('explosion', x, burst, z, 1.4); sw.ring(x, burst, z, 40, 0.6);
+      sw.sparks(x, burst, z, 40, col, 40); sw.smoke(x, burst, z, 6, 4);
+      for (let i = 0; i < 40; i++) {   // bomblets fly out flat and fall in an even spread
+        const a = ctx.rng() * TAU, reach = 17 * Math.sqrt(ctx.rng());
+        sw.shoot('swBomblet', ctx, x, burst, z, Math.cos(a), -0.1, Math.sin(a), { speed: Math.max(1, reach) });
+      }
+    } });
+  },
+});
+defineSuper('massDriverSalvo', {
+  n: 7, name: 'Mass Driver Salvo', tier: 2, aim: 'target', unlock: 'rank:m1:A', desc: 'Six hypersonic slugs fall from orbit one after another, each piercing through the target for 780 damage.',
+  fire(ctx, sw) {
+    const col = [0.6, 0.85, 1], tgt = ctx.target, out = { x: 0, y: 0, z: 0 };
+    sw.add({ life: 2.3, draw(e, glow) {   // a spinning lock-on ring that follows the target
+      if (!glow) return;
+      const t = SW_A.alive(tgt) ? tpos(tgt, out) : { x: ctx.x, y: ctx.y, z: ctx.z };
+      SW_A.ringShape(sw, t.x, Terrain.h(t.x, t.z) + 1, t.z, 14 - 6 * Math.min(1, e.t / 1.5), 0.8, 0.6, col, 0.8, 1.8, 16);
+    } });
+    sw.repeat(0.28, 6, () => {
+      const t = SW_A.alive(tgt) ? tpos(tgt, out) : { x: ctx.x, y: ctx.y, z: ctx.z };
+      const lead = SW_A.alive(tgt) && !tgt.isStruct ? 0.5 : 0, px = t.x + (tgt && tgt.vx || 0) * lead, pz = t.z + (tgt && tgt.vz || 0) * lead;
+      const ox = (ctx.rng() - 0.5) * 8, oz = (ctx.rng() - 0.5) * 8, sy = Terrain.h(px, pz) + 900;
+      const slug = sw.shoot('swSlug', ctx, px + ox, sy, pz + oz, -ox, -(sy - t.y), -oz);
+      SW_A.trail(sw, slug, col, 2.2, 260);
+      sw.sound('rail', px, t.y, pz, 1.2); sw.ring(px, Terrain.h(px, pz) + 0.5, pz, 12, 0.4);
+    }, true);
+  },
+});
+defineSuper('bunkerNova', {
+  n: 8, name: 'Bunker Nova', tier: 2, aim: 'point', unlock: 'career:structures:100', desc: 'A ground-penetrating charge sinks in, swells the ground, then blasts underground and collapses every building within 60 m.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), RAD = 60, FALL = 0.75, BLAST = 2.2, col = [1, 0.55, 0.2], rot = [];
+    for (let k = 0; k < 10; k++) rot.push(k / 10 * TAU + ctx.rng() * 0.4);
+    sw.ring(x, gy + 0.5, z, RAD, BLAST);
+    sw.add({ life: BLAST + 0.1, update(dt, e) { if (e.t < FALL && Math.random() < dt * 20) sw.column(x, z, 0.4, [1, 0.9, 0.7], 0.06, 300); }, draw(e, glow) {
+      if (e.t < FALL) {   // the penetrator falls nose first
+        if (glow) return;
+        R.stack.push().t(x, gy + 400 * (1 - e.t / FALL), z);
+        part('cyl', 0, 6, 0, 1.6, 14, 1.6, [0.35, 0.35, 0.37], 0, 0.6);
+        R.stack.push().t(0, -2, 0).rx(PI).s(1.6, 4, 1.6); R.draw('cone', 0.25, 0.25, 0.27, 1, 0, 0.5); R.stack.pop();
+        R.stack.pop();
+        return;
+      }
+      const m = sat((e.t - FALL) / (BLAST - FALL)), r = 30 * m;   // the ground bulges and splits
+      if (!glow) { sw.shape('sphere', x, gy - 5, z, r * 2, r * 1.1, r * 2, [0.45, 0.35, 0.25], 1, 0.3 * m); return; }
+      for (let k = 0; k < rot.length; k++) { const len = RAD * m * (0.7 + 0.3 * Math.sin(k * 2.1)); sw.shape('box', x + Math.cos(rot[k]) * len / 2, gy + 0.8, z + Math.sin(rot[k]) * len / 2, 1.4, 0.6, len, col, 0.8, 1.8, PI / 2 - rot[k]); }
+    } });
+    sw.after(FALL, () => { sw.sound('bigExplosion', x, gy, z, 0.8); sw.shake(x, gy, z, 0.4, 500); for (let i = 0; i < 4; i++) spawnDebris(x, gy + 1, z, 6, null, 20); });
+    sw.after(BLAST, () => {
+      sw.flash(x, z, 0.7, 500); sw.shake(x, gy, z, 1, 900); sw.sound('bigExplosion', x, gy, z, 1.8); sw.light(x, gy + 6, z, 220, col, 1);
+      sw.blast(x, gy - 2, z, 42, 620, ctx, { structMult: 2.5 });
+      SW_A.shockwave(ctx, sw, x, z, RAD, { dmg: 380, structDmg: 900, time: 0.5, push: 12 });
+      for (const p of sw.enemies(x, z, RAD, ctx, { air: false })) sw.lift(p, 9, 0.9, 140, ctx);
+      for (const b of SW_A.buildingsIn(x, z, RAD + 25)) SW_A.collapse(sw, ctx, b, x, z, 0.15 + Math.hypot(b.cx - x, b.cz - z) / RAD * 0.5);
+      for (let k = 0; k < 14; k++) { const a = k / 14 * TAU, d = RAD * 0.7 * Math.sqrt(Math.random()); sw.column(x + Math.cos(a) * d, z + Math.sin(a) * d, 2, col, 0.5, 60); }   // geysers of fire along the cracks
+      SW_A.dustWave(sw, x, z, RAD, 0.6); SW_A.crater(x, z, 30);
+    });
+  },
+});
+defineSuper('airburstCanopy', {
+  n: 9, name: 'Airburst Canopy', tier: 1, aim: 'point', unlock: 'career:airKills:25', desc: 'Twelve flak airbursts at 40-90 m altitude, steered onto nearby aircraft, throw fragments down in an anti-air umbrella.',
+  fire(ctx, sw) {
+    const col = [1, 0.8, 0.45], gy = ctx.y;
+    sw.add({ life: 2.6, draw(e, glow) {   // the faint dome of the umbrella
+      if (glow) sw.shape('sphere', ctx.x, gy, ctx.z, 100, 100, 100, col, 0.07 * (1 - e.t / 2.6), 1.2);
+    } });
+    sw.repeat(0.14, 12, (i) => {
+      const air = sw.enemies(ctx.x, ctx.z, 160, ctx, { ground: false });
+      let x, y, z;
+      const a = ctx.rng() * TAU, r = 38 * Math.sqrt(ctx.rng()), alt = 40 + ctx.rng() * 50;
+      if (air.length && i % 2 === 0) { const t = air[(i >> 1) % air.length]; x = t.x + (ctx.rng() - 0.5) * 14; y = t.y + (ctx.rng() - 0.5) * 8; z = t.z + (ctx.rng() - 0.5) * 14; }
+      else { x = ctx.x + Math.cos(a) * r; z = ctx.z + Math.sin(a) * r; y = Terrain.h(x, z) + alt; }
+      sw.blast(x, y, z, 16, 240, ctx, { structMult: 0.3 });
+      sw.smoke(x, y, z, 6, 3); sw.sparks(x, y, z, 14, col, 26); sw.ring(x, y, z, 14, 0.4);
+      sw.area(x, Terrain.h(x, z), z, 22, 130, 'kinetic', ctx, { falloff: false });
+      sw.add({ life: 0.35, draw(e, g) { if (g) sw.shape('cone', x, y - 15, z, 44 * (0.4 + e.t * 2), 30, 44 * (0.4 + e.t * 2), col, 0.22 * (1 - e.t / 0.35), 1.3); } });   // the fragment cone
+    }, true);
+  },
+});
+defineSuper('missileRain', {
+  n: 10, name: 'Missile Rain', tier: 2, aim: 'map', unlock: 'match:kills:20', desc: '30 homing missiles fall from the sky, one on each enemy within 400 m (the extras go to the strongest).',
+  fire(ctx, sw) {
+    const list = sw.strongest(ctx.x, ctx.z, 400, ctx, 30);
+    sw.sound('missile', ctx.x, ctx.y, ctx.z, 1.2);
+    sw.add({ life: 1.2, draw(e, glow) { if (glow) sw.shape('cyl', ctx.x, ctx.y + 330, ctx.z, 380, 3, 380, [1, 0.85, 0.5], 0.08 * (1 - e.t / 1.2), 1.4); } });   // the sky lights up
+    sw.repeat(0.07, 30, (i) => {
+      const t = list[i % Math.max(1, list.length)], ox = (ctx.rng() - 0.5) * 120, oz = (ctx.rng() - 0.5) * 120, oy = 330 + ctx.rng() * 80;
+      if (!t) return;
+      sw.shoot('swSkyMissile', ctx, t.x + ox, t.y + oy, t.z + oz, -ox, -oy, -oz, { target: t });
+    }, true);
+  },
+});
+defineSuper('thermobaricBomb', {
+  n: 11, name: 'Thermobaric Bomb', tier: 2, aim: 'point', unlock: 'mission:m5', desc: 'A fuel cloud spreads to 48 m for 3 s, then ignites: a 55 m blast that ignores cover, followed by a vacuum pull.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), FALL = 0.7, SPREAD = 3, RAD = 55, mist = [0.85, 0.9, 0.35];
+    sw.after(FALL + SPREAD, () => {   // ignition
+      sw.flash(x, z, 1, 700); sw.shake(x, gy, z, 1, 900); sw.sound('bigExplosion', x, gy, z, 2); sw.light(x, gy + 15, z, 260, SW_A.FIRE, 1.2);
+      sw.blast(x, gy + 8, z, RAD, 1100, ctx, { structMult: 2.2 });
+      SW_A.fireball(sw, x, gy, z, RAD * 0.9, 1.6, SW_A.FIRE); sw.ring(x, gy + 1, z, RAD * 1.3, 0.9); SW_A.dustWave(sw, x, z, RAD * 1.2, 0.5);
+      sw.after(0.35, () => {   // the burnt air rushes back in
+        sw.sound('explosion', x, gy, z, 1.5); sw.shake(x, gy, z, 0.6, 600);
+        for (const p of sw.enemies(x, z, RAD * 1.2, ctx)) { const d = Math.hypot(p.x - x, p.z - z) || 1; sw.push(p, -(p.x - x) / d * 26, 4, -(p.z - z) / d * 26); }
+        sw.area(x, gy, z, RAD, 320, 'explosive', ctx, { structs: true, structMult: 0.6 });
+      });
+    });
+    sw.add({ life: FALL + SPREAD, update(dt, e) { if (e.t > FALL && Math.random() < dt * 40) { const a = Math.random() * TAU, d = 48 * Math.random(); sw.glow(x + Math.cos(a) * d, gy + rand(2, 14), z + Math.sin(a) * d, 0, 1, 0, [1, 0.95, 0.5], 1.4, 0.5); } }, draw(e, glow) {
+      if (e.t < FALL) {   // the bomb falls
+        if (!glow) { R.stack.push().t(x, gy + 14 + 280 * (1 - e.t / FALL), z); part('cyl', 0, 0, 0, 2.6, 8, 2.6, [0.4, 0.42, 0.3], 0, 0.5); R.stack.pop(); }
+        return;
+      }
+      if (!glow) return;
+      const m = sat((e.t - FALL) / 1.2), r = 48 * (0.2 + 0.8 * m), a = 0.28 * Math.min(1, (e.t - FALL) / 0.4);
+      sw.shape('sphere', x, gy + 12, z, r * 2, r * 0.6, r * 2, mist, a * (0.8 + 0.2 * Math.sin(e.t * 9)), 1.2);   // the cloud hugs the ground
+      sw.shape('cyl', x, gy + 1.5, z, r * 2, 2.5, r * 2, mist, a * 0.8, 1.1);
+    } });
+  },
+});
+defineSuper('orbitalDropPod', {
+  n: 13, name: 'Orbital Drop Pod', tier: 2, aim: 'point', unlock: 'mission:m3', desc: 'A pod crushes the point (22 m blast, 700 damage), then opens to release 3 allied heavy mechs for 60 s.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), FALL = 1.1, top = gy + SW_A.SKY, steel = [0.3, 0.33, 0.38], flame = [1, 0.6, 0.25];
+    sw.ring(x, gy + 0.5, z, 22, FALL);
+    sw.add({ life: FALL, update(dt) { if (Math.random() < dt * 25) sw.column(x, z, 0.3, [0.4, 0.85, 1], 0.05); }, draw(e, glow) {
+      const y = lerp(top, gy + 8, Math.pow(e.t / FALL, 1.5));
+      if (glow) { sw.shape('cone', x, y + 25, z, 14, 36, 14, flame, 0.6, 2); return; }
+      R.stack.push().t(x, y, z);
+      part('cyl', 0, 0, 0, 9, 14, 9, steel, 0, 0.5);
+      R.stack.push().t(0, -9, 0).rx(PI).s(9, 6, 9); R.draw('cone', 0.5, 0.2, 0.12, 1, 0.3, 0.4); R.stack.pop();
+      R.stack.pop();
+    }, end() {
+      sw.flash(x, z, 0.4, 250); sw.shake(x, gy, z, 0.8, 600); sw.sound('bigExplosion', x, gy, z, 1.5);
+      sw.blast(x, gy + 2, z, 22, 700, ctx, { structMult: 3 });
+      sw.ring(x, gy + 0.5, z, 45, 0.7); SW_A.crater(x, z, 16); SW_A.dustWave(sw, x, z, 40, 0.5);
+      sw.add({ life: 9, draw(e, glow) {   // the pod stays, its four petals open
+        if (glow) return;
+        const open = sat(e.t / 1), fade = e.t > 8 ? 1 - (e.t - 8) : 1;
+        R.stack.push().t(x, gy, z).s(fade, fade, fade);
+        part('cyl', 0, 3, 0, 9, 8, 9, steel, 0, 0.5);
+        for (let k = 0; k < 4; k++) { R.stack.push().ry(k * PI / 2).t(0, 1, 4).rx(0.2 + 0.8 * open).t(0, 5, 0).s(5.5, 10, 0.8); R.draw('box', steel[0], steel[1], steel[2], 1, 0, 0.5); R.stack.pop(); }
+        R.stack.pop();
+      } });
+      sw.after(0.7, () => {
+        sw.sound('alarm', x, gy, z, 0.6);
+        for (let i = 0; i < 3; i++) {
+          const a = i / 3 * TAU + ctx.rng(), mx = x + Math.cos(a) * 14, mz = z + Math.sin(a) * 14;
+          sw.summon('dropMech', mx, mz, 60, ctx, { yaw: a });
+          sw.sparks(mx, Terrain.h(mx, mz) + 6, mz, 20, [0.5, 0.8, 1], 24); sw.ring(mx, Terrain.h(mx, mz) + 0.5, mz, 10, 0.5);
+        }
+      });
+    } });
+  },
+});
+defineSuper('planetCracker', {
+  n: 14, name: 'Planet Cracker', tier: 3, aim: 'point', unlock: 'rank:m8:S', desc: 'A 26 m orbital beam burns for 8 s and follows your crosshair, melting everything under it.',
+  fire(ctx, sw) {
+    const DUR = 8, WARM = 1, o = ctx.owner, col = [0.8, 0.5, 1];
+    let cx = ctx.x, cz = ctx.z, tick = 0, scar = 0;
+    sw.flash(cx, cz, 0.8, 800); sw.sound('plasma', cx, ctx.y, cz, 2); sw.shake(cx, ctx.y, cz, 0.6, 900);
+    sw.add({ life: DUR + WARM, update(dt, e) {
+      const ap = o && !o.dead && o.cmd && o.cmd.aimPoint, ok = ap && Math.hypot(ap.x - o.x, ap.z - o.z) < 800;   // steer by the crosshair; guests drift along the view line
+      const tx = ok ? ap.x : ctx.x + ctx.dirX * Math.min(e.t, DUR) * 12, tz = ok ? ap.z : ctx.z + ctx.dirZ * Math.min(e.t, DUR) * 12;
+      const d = Math.hypot(tx - cx, tz - cz), step = Math.min(d, 55 * dt);
+      if (d > 0.01) { cx += (tx - cx) / d * step; cz += (tz - cz) / d * step; }
+      const gy = Terrain.h(cx, cz);
+      if (e.t < WARM) { if (Math.random() < dt * 30) sw.column(cx, cz, 0.6 + e.t * 3, col, 0.05, 900); return; }
+      sw.column(cx, cz, 16, col, 0.05, 900); sw.column(cx, cz, 6, SW_A.WHITE, 0.05, 900);
+      sw.fire(cx, gy + 1, cz, 7, 2); sw.smoke(cx, gy + 3, cz, 8, 1); sw.sparks(cx, gy + 2, cz, 3, col, 40); sw.light(cx, gy + 10, cz, 200, col, 0.06);
+      sw.shake(cx, gy, cz, 0.012, 600);
+      tick += dt; scar += dt;
+      if (tick >= 0.1) { tick = 0; sw.area(cx, gy, cz, 26, 150, 'energy', ctx, { falloff: false, structs: true, structMult: 2.2 }); }
+      if (scar >= 0.35) { scar = 0; sw.decal(cx, cz, 12, [0.06, 0.04, 0.05], 90); sw.sound('laser', cx, gy, cz, 1.2); }
+    }, draw(e, glow) {
+      if (!glow || e.t < WARM) return;
+      const gy = Terrain.h(cx, cz), fade = Math.min(1, (DUR + WARM - e.t) / 0.8);
+      sw.shape('cyl', cx, gy + 300, cz, 40, 600, 40, col, 0.14 * fade, 1.3);
+      sw.shape('cyl', cx, gy + 1.5, cz, 60, 2, 60, col, 0.3 * fade, 1.5);
+      SW_A.ringShape(sw, cx, gy + 2 + (e.t * 14) % 30, cz, 22, 1.5, 1, SW_A.WHITE, 0.5 * fade, 2, 16);
+    } });
+  },
+});
+defineSuper('daisyCutter', {
+  n: 15, name: 'Daisy Cutter', tier: 2, aim: 'point', unlock: 'career:kills:300', desc: 'One parachuted bomb fuses 6 m up and levels every tree and building within 90 m with a 1500 damage blast.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), FALL = 3.6, RAD = 90, top = gy + 240;
+    sw.ring(x, gy + 0.5, z, RAD, FALL);
+    sw.add({ life: FALL, draw(e, glow) {
+      if (glow) return;
+      const y = lerp(top, gy + 6, e.t / FALL);
+      R.stack.push().t(x, y, z);
+      part('cyl', 0, 0, 0, 2.6, 7, 2.6, [0.38, 0.4, 0.3], 0, 0.5);
+      R.stack.push().t(0, 4, 0).s(24, 11, 24); R.draw('sphere', 0.85, 0.85, 0.72, 1, 0.1, 0.1); R.stack.pop();   // the parachute canopy
+      R.stack.pop();
+    }, update() { for (let k = 0; k < 6; k++) { const a = k / 6 * TAU, y = lerp(top, gy + 6, Math.min(1, this.t / FALL)); sw.beam(x + Math.cos(a) * 10, y + 7, z + Math.sin(a) * 10, x, y + 2, z, [0.8, 0.8, 0.7], 0.12, 0.05); } },
+    end() {
+      sw.flash(x, z, 1.1, 900); sw.shake(x, gy, z, 1, 1000); sw.sound('bigExplosion', x, gy, z, 2); sw.light(x, gy + 10, z, 300, SW_A.FIRE, 1);
+      sw.blast(x, gy + 6, z, RAD, 1500, ctx, { structMult: 3.5 });
+      for (const s of sw.structs(x, z, RAD)) if (s.type === 'tree') sw.hurt(s, 999, 'explosive', ctx);
+      SW_A.shockwave(ctx, sw, x, z, RAD, { dmg: 300, structDmg: 0, time: 0.7, push: 26 });
+      sw.add({ life: 0.9, draw(e2, glow) { if (glow) { const r = RAD * Math.sqrt(e2.t / 0.9); sw.shape('sphere', x, gy, z, r * 2, r * 0.9, r * 2, [1, 0.85, 0.55], 0.5 * (1 - e2.t / 0.9), 1.5); } } });
+      SW_A.mushroom(sw, x, z, 55, 7, SW_A.FIRE); SW_A.dustWave(sw, x, z, RAD, 0.7); sw.ring(x, gy + 1, z, RAD * 1.2, 0.8); sw.ring(x, gy + 1, z, RAD * 0.6, 0.5);
+      addDecal(x, z, RAD * 0.8, [0.3, 0.28, 0.25], 200);
+    } });
+  },
+});
+defineSuper('chainReaction', {
+  n: 16, name: 'Chain Reaction', tier: 1, aim: 'target', unlock: 'match:streak:5', desc: 'Marks the target; when it blows, a 17 m death blast jumps to the nearest enemy within 85 m, up to 8 jumps.',
+  fire(ctx, sw) {
+    const col = [1, 0.75, 0.2], chain = [], used = new Set();
+    let cur = ctx.target && !ctx.target.isStruct ? ctx.target : sw.nearestEnemy(ctx.x, ctx.z, 200, ctx);
+    for (let i = 0; i < 9 && cur; i++) {   // the whole chain is worked out up front: nearest unmarked enemy at each step
+      chain.push(cur); used.add(cur);
+      let best = null, bd = 85;
+      for (const p of sw.enemies(cur.x, cur.z, 85, ctx)) if (!used.has(p)) { const d = Math.hypot(p.x - cur.x, p.z - cur.z); if (d < bd) { bd = d; best = p; } }
+      cur = best;
+    }
+    if (!chain.length) return;
+    const marked = chain.map(() => false), done = chain.map(() => false);
+    marked[0] = true; sw.status(chain[0], 'mark', 3);
+    const centre = (p) => p.y + (p.kind === 'air' ? 0 : p.height * 0.5);
+    sw.add({ life: chain.length * 0.4 + 0.6, draw(e, glow) {   // pulsing amber halos on the marked
+      if (!glow) return;
+      chain.forEach((p, i) => { if (marked[i] && !done[i]) { const r = p.radius * (2.2 + 0.5 * Math.sin(e.t * 16 + i)); sw.shape('sphere', p.x, centre(p), p.z, r, r, r, col, 0.4, 1.8); } });
+    } });
+    sw.repeat(0.4, chain.length, (i) => {
+      const p = chain[i], y = centre(p), next = chain[i + 1];
+      sw.hurt(p, p.hp + p.armor + p.shield + 60, 'explosive', ctx);   // the marked unit overloads
+      sw.blast(p.x, y, p.z, 17, 480, ctx, { structMult: 1.2 });
+      sw.ring(p.x, y, p.z, 20, 0.4); sw.sparks(p.x, y, p.z, 16, col, 26);
+      done[i] = true;
+      if (next) { marked[i + 1] = true; sw.status(next, 'mark', 2); sw.bolt(p.x, y, p.z, next.x, centre(next), next.z, col, 1.4); }
+    });
+  },
+});
+defineSuper('icbmStrike', {
+  n: 17, name: 'ICBM Strike', tier: 3, aim: 'point', unlock: 'skirmishWin:large', desc: 'A missile climbs from your base and arcs for 12 s, then a 200 m city-killer blast.',
+  fire(ctx, sw) {
+    const h = sw.home(ctx), tx = ctx.x, tz = ctx.z, gyT = Terrain.h(tx, tz), FLIGHT = 12, PEAK = 900, RAD = 200, red = [1, 0.2, 0.15];
+    const at = (u) => ({ x: lerp(h.x, tx, u), z: lerp(h.z, tz, u), y: lerp(h.y, gyT, u) + 15 + PEAK * Math.sin(PI * Math.pow(u, 0.7)) });
+    sw.sound('missile', h.x, h.y, h.z, 1.6); sw.ring(h.x, h.y + 1, h.z, 30, 1); sw.smoke(h.x, h.y + 3, h.z, 14, 6); sw.light(h.x, h.y + 10, h.z, 160, SW_A.FIRE, 1.5); sw.sound('alarm', tx, gyT, tz, 1);
+    sw.add({ life: FLIGHT, mx: h.x, my: h.y, mz: h.z, dx: 0, dy: 1, dz: 0, update(dt, e) {
+      const u = e.t / FLIGHT, p = at(u), a = at(Math.min(1, u + 0.004)), b = at(Math.max(0, u - 0.004));
+      e.mx = p.x; e.my = p.y; e.mz = p.z; e.dx = a.x - b.x; e.dy = a.y - b.y; e.dz = a.z - b.z;
+      if (Math.random() < dt * 40) { sw.fire(p.x, p.y, p.z, 2.5, 1); sw.smoke(p.x - e.dx * 0.5, p.y - e.dy * 0.5, p.z - e.dz * 0.5, 4, 1); }
+      if (Math.random() < dt * 4) sw.column(tx, tz, 0.5, red, 0.08);   // the target beacon
+    }, draw(e, glow) {
+      SW_A.rocket(e.mx, e.my, e.mz, e.dx, e.dy, e.dz, 4, glow);
+      if (glow) SW_A.ringShape(sw, tx, gyT + 1, tz, RAD * (0.96 + 0.04 * Math.sin(e.t * 8)), 1.6, 0.8, red, 0.5, 1.6, 40);
+    }, end() {
+      sw.flash(tx, tz, 1.3, 2000); sw.shake(tx, gyT, tz, 1, 1500); sw.sound('bigExplosion', tx, gyT, tz, 2); sw.light(tx, gyT + 30, tz, 400, SW_A.FIRE, 1.4);
+      sw.blast(tx, gyT + 3, tz, 45, 2400, ctx, { structMult: 2 });
+      SW_A.shockwave(ctx, sw, tx, tz, RAD, { dmg: 1900, structDmg: 3200, time: 1, push: 34 });
+      SW_A.fireball(sw, tx, gyT, tz, 120, 2.2, [1, 0.5, 0.15]); SW_A.mushroom(sw, tx, tz, 150, 11, [1, 0.5, 0.15], true); SW_A.dustWave(sw, tx, tz, RAD, 1);
+      sw.ring(tx, gyT + 1, tz, RAD * 1.1, 1.2); sw.ring(tx, gyT + 1, tz, RAD * 0.6, 0.8); addDecal(tx, tz, 60, [0.06, 0.05, 0.04], 200);
+    } });
+  },
+});
+defineSuper('overwatchSatellite', {
+  n: 18, name: 'Overwatch Satellite', tier: 1, aim: 'map', unlock: 'career:mechKills:50', desc: 'For 20 s a satellite fires a precise 420 damage orbital shot every 2 s at the strongest enemy within 500 m.',
+  fire(ctx, sw) {
+    const col = [0.65, 0.9, 1], hits = new Map(), out = { x: 0, y: 0, z: 0 };
+    sw.add({ life: 21, draw(e, glow) {   // the satellite hangs above the user
+      const o = sw.origin(ctx), y = o.y + 380;
+      if (glow) { sw.shape('sphere', o.x, y, o.z, 6, 6, 6, col, 0.5 + 0.2 * Math.sin(e.t * 6), 2); return; }
+      R.stack.push().t(o.x, y, o.z).ry(e.t * 0.3);
+      part('box', 0, 0, 0, 6, 3, 3, [0.62, 0.64, 0.7], 0, 0.6);
+      part('box', 11, 0, 0, 16, 0.3, 5, [0.1, 0.2, 0.5], 0.2, 0.8); part('box', -11, 0, 0, 16, 0.3, 5, [0.1, 0.2, 0.5], 0.2, 0.8);
+      part('cyl', 0, -2.2, 0, 1.4, 1.6, 1.4, [0.2, 0.2, 0.22], 0, 0.5);
+      R.stack.pop();
+    } });
+    sw.repeat(2, 10, () => {
+      const o = sw.origin(ctx), list = sw.strongest(o.x, o.z, 500, ctx, 8);
+      const t = list.find((p) => (hits.get(p) || 0) < 3) || list[0];
+      if (!t) return;
+      hits.set(t, (hits.get(t) || 0) + 1);
+      sw.sound('laser', t.x, t.y, t.z, 0.8);
+      sw.add({ life: 0.55, draw(e, glow) {   // lock-on ring closes on the target, then the shot lands
+        if (glow) SW_A.ringShape(sw, t.x, Terrain.h(t.x, t.z) + 1, t.z, 14 - 9 * e.t / 0.55, 0.7, 0.5, col, 0.9, 1.8, 14);
+      }, end() {
+        const p = SW_A.alive(t) ? tpos(t, out) : { x: t.x, y: t.y, z: t.z };
+        sw.column(p.x, p.z, 1.8, col, 0.2, 700); sw.column(p.x, p.z, 0.6, SW_A.WHITE, 0.2, 700);
+        sw.hurt(t, 420, 'energy', ctx);
+        sw.blast(p.x, p.y, p.z, 6, 120, ctx, { dtype: 'energy' }); sw.sparks(p.x, p.y, p.z, 14, col, 26); sw.light(p.x, p.y + 4, p.z, 70, col, 0.3);
+      } });
+    }, true);
+  },
+});
+defineSuper('ringOfFire', {
+  n: 19, name: 'Ring of Fire', tier: 1, aim: 'self', unlock: 'mission:m4', desc: '16 shells land in a ring 32 m around you, then 16 more at 62 m; both rings burn for 5 s.', range: 62,
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = ctx.y;
+    const ring = (R0, start) => {
+      for (let i = 0; i < 16; i++) {
+        const a = i / 16 * TAU + (R0 > 40 ? 0.2 : 0), ca = Math.cos(a), sa = Math.sin(a), px = x + ca * R0, pz = z + sa * R0;
+        sw.after(start + i * 0.045, () => sw.shoot('swRingShell', ctx, px + ca * 12, Terrain.h(px, pz) + 260, pz + sa * 12, -ca * 12, -260, -sa * 12));
+      }
+      sw.after(start + 0.9, () => {   // each ring keeps burning where its shells landed
+        let acc = 0;
+        sw.add({ life: 5, update(dt, e) {
+          for (let k = 0; k < 2; k++) { const a = Math.random() * TAU, px = x + Math.cos(a) * R0, pz = z + Math.sin(a) * R0; sw.fire(px, Terrain.h(px, pz) + 0.5, pz, 2.5, 1); }
+          acc += dt;
+          if (acc < 0.25) return;
+          acc = 0;
+          for (const p of sw.enemies(x, z, R0 + 8, ctx, { air: false })) if (Math.abs(Math.hypot(p.x - x, p.z - z) - R0) < 7) sw.hurt(p, 55, 'explosive', ctx);
+        }, draw(e, glow) { if (glow) SW_A.ringShape(sw, x, gy + 1, z, R0, 9, 0.8, SW_A.FIRE, 0.4 * (1 - e.t / 5), 1.5, 40); } });
+      });
+    };
+    ring(32, 0); ring(62, 1.5);
+    sw.ring(x, gy + 0.5, z, 62, 1.5); sw.sound('mortar', x, gy, z, 1.2);
+  },
+});
+defineSuper('tungstenHail', {
+  n: 20, name: 'Tungsten Hail', tier: 1, aim: 'point', unlock: 'career:kills:50', desc: '200 tungsten flechettes (110 damage each) rain over a 50 m circle for 4 s, many aimed at enemies below.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = ctx.y, col = [0.85, 0.9, 1];
+    let carry = 0;
+    sw.ring(x, gy + 0.5, z, 50, 1);
+    sw.add({ life: 4, update(dt) {
+      carry += dt * 50;
+      while (carry >= 1) {
+        carry--;
+        const foes = sw.enemies(x, z, 70, ctx), a = ctx.rng() * TAU, r = 50 * Math.sqrt(ctx.rng()), pick = ctx.rng();
+        let px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r, py = Terrain.h(px, pz);
+        if (foes.length && pick < 0.4) { const t = foes[Math.floor(ctx.rng() * foes.length)]; px = t.x; pz = t.z; py = t.y + (t.kind === 'air' ? 0 : t.height * 0.5); }
+        sw.shoot('swFlechette', ctx, px - ctx.dirX * 35, py + 220, pz - ctx.dirZ * 35, ctx.dirX * 35, -220, ctx.dirZ * 35);
+      }
+    }, draw(e, glow) { if (glow) sw.shape('cyl', x, gy + 210, z, 100, 3, 100, col, 0.05 * Math.min(1, (4 - e.t) * 2), 1.4); } });   // the hail cloud
+  },
+});
+defineSuper('firewall', {
+  n: 21, name: 'Firewall', tier: 1, aim: 'point', unlock: 'rank:m2:A', desc: 'A 120 m wall of napalm runs across your view and burns for 15 s (150 damage a second to ground enemies in it).',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = ctx.y, sideX = ctx.dirZ, sideZ = -ctx.dirX, yaw = Math.atan2(sideX, sideZ), HALF = 60, N = 24, DUR = 15;
+    let acc = 0;
+    sw.sound('rocket', x, gy, z, 1.4); sw.light(x, gy + 6, z, 160, SW_A.FIRE, 1);
+    const reach = (t) => Math.min(1, t / 0.9) * HALF * 2;   // the flames run along the line, left to right
+    sw.add({ life: DUR, update(dt, e) {
+      const r = reach(e.t) - HALF;
+      for (let k = 0; k < 3; k++) { const s = -HALF + Math.random() * (r + HALF), px = x + sideX * s, pz = z + sideZ * s; sw.fire(px, Terrain.h(px, pz) + 1, pz, 3, 1); }
+      acc += dt;
+      if (acc < 0.25) return;
+      acc = 0;
+      for (const p of sw.enemies(x, z, 100, ctx, { air: false })) {
+        const rx = p.x - x, rz = p.z - z, along = rx * sideX + rz * sideZ, across = rx * ctx.dirX + rz * ctx.dirZ;
+        if (Math.abs(across) < 8 + p.radius && along > -HALF - 4 && along < r + 4) sw.hurt(p, 37.5, 'explosive', ctx);
+      }
+      for (const s of sw.structs(x, z, 75)) { const rx = s.x - x, rz = s.z - z, along = rx * sideX + rz * sideZ, across = rx * ctx.dirX + rz * ctx.dirZ; if (Math.abs(across) < 8 && along > -HALF && along < r) sw.hurt(s, 25, 'explosive', ctx); }
+    }, draw(e, glow) {
+      if (!glow) return;
+      const span = reach(e.t), fade = Math.min(1, (DUR - e.t) / 1.5);
+      sw.shape('box', x + sideX * (span / 2 - HALF), gy + 0.8, z + sideZ * (span / 2 - HALF), 14, 0.6, span, SW_A.FIRE, 0.3 * fade, 1.4, yaw);
+      for (let i = 0; i < N; i++) {   // flame tongues
+        const s = -HALF + (i + 0.5) * HALF * 2 / N;
+        if (s + HALF > span) break;
+        const px = x + sideX * s, pz = z + sideZ * s, h = 8 + 4 * Math.sin(e.t * 9 + i * 1.7);
+        sw.shape('cone', px, Terrain.h(px, pz) + h / 2, pz, 6.5, h, 6.5, [1, 0.5 + 0.2 * Math.sin(e.t * 7 + i), 0.12], 0.45 * fade, 1.8);
+      }
+    } });
+  },
+});
+defineSuper('earthquake', {
+  n: 22, name: 'Earthquake', tier: 2, aim: 'point', unlock: 'career:structures:300', desc: 'A 10 s quake across 250 m: ground units stagger and take 100 damage a second, buildings crack each second and finally collapse.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = ctx.y, RAD = 250, DUR = 10, cracks = [];
+    for (let k = 0; k < 10; k++) cracks.push(k / 10 * TAU + ctx.rng() * 0.5);
+    let sec = 0;
+    sw.sound('bigExplosion', x, gy, z, 1.8);
+    const quake = (last) => {
+      for (const p of sw.enemies(x, z, RAD, ctx, { air: false })) {
+        sw.hurt(p, 100 * (1 - Math.hypot(p.x - x, p.z - z) / RAD * 0.5), 'kinetic', ctx, { noStagger: true });
+        if (!Net.guest) p.stagger = Math.max(p.stagger, 0.9);
+      }
+      for (const s of sw.structs(x, z, RAD)) {
+        if (s.type === 'tree') continue;
+        const f = s.bld ? (Math.random() < 0.14 ? 0.6 : 0) : 0.15;   // building pieces crack at random, other structures wear down
+        if (f > 0) sw.hurt(s, s.maxHp * f, 'kinetic', ctx);
+      }
+      if (last) for (const b of SW_A.buildingsIn(x, z, RAD)) SW_A.collapse(sw, ctx, b, b.cx, b.cz, Math.random() * 1.4);
+      sw.shake(x, gy, z, 0.3, 500);
+    };
+    sw.add({ life: DUR + 0.2, update(dt, e) {
+      sw.shake(x, gy, z, 0.014, 500);
+      for (let k = 0; k < 2; k++) { const a = Math.random() * TAU, d = RAD * 0.9 * Math.sqrt(Math.random()), px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d; sw.smoke(px, Terrain.h(px, pz) + 1, pz, 5, 1); }
+      if (e.t >= sec + 1 && sec < DUR) { sec++; quake(sec === DUR); }
+    }, draw(e, glow) {
+      if (glow) {   // thin ripples roll out from the centre
+        const fade = Math.min(1, (DUR - e.t) / 1.5);
+        for (let k = 0; k < 3; k++) { const ph = ((e.t * 0.7 + k / 3) % 1); SW_A.ringShape(sw, x, gy + 1, z, RAD * ph, 2.5, 0.6, [1, 0.85, 0.6], 0.5 * (1 - ph) * fade, 1.4, 56); }
+        return;
+      }
+      // glowing fissures creep out along the ground
+      const reach = Math.min(1, e.t / 6) * RAD * 0.9, fade = Math.min(1, (DUR - e.t) / 1.5);
+      for (let k = 0; k < cracks.length; k++) {
+        for (let j = 0; j < 16; j++) {
+          const dist = 14 * (j + 0.5);
+          if (dist > reach) break;
+          const a = cracks[k] + Math.sin(j * 0.8 + k) * 0.06, px = x + Math.cos(a) * dist, pz = z + Math.sin(a) * dist;
+          sw.shape('box', px, Terrain.h(px, pz) + 0.35, pz, 1.8 * fade, 0.5, 15, [0.9, 0.35, 0.1], 1, 0.8, PI / 2 - a);
+        }
+      }
+    } });
+  },
+});
+defineSuper('gunshipOrbit', {
+  n: 23, name: 'Gunship Orbit', tier: 2, aim: 'point', unlock: 'career:airKills:75', desc: 'A gunship circles the point for 25 s at 120 m, firing cannon at 6 enemies a second (95 damage each) and a heavy shell every sixth shot (330).',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, RAD = 120, SPEED = 0.5, LIFE = 25, a0 = Math.atan2(-ctx.dirZ, -ctx.dirX), col = [1, 0.8, 0.4], out = { x: 0, y: 0, z: 0 };
+    let acc = 0, shots = 0;
+    sw.sound('alarm', x, ctx.y, z, 0.8);
+    sw.add({ life: LIFE, gx: x + Math.cos(a0) * RAD, gy: ctx.y + 85, gz: z + Math.sin(a0) * RAD, yaw: 0, update(dt, e) {
+      const th = a0 + e.t * SPEED;
+      e.gx = x + Math.cos(th) * RAD; e.gz = z + Math.sin(th) * RAD; e.gy = Math.max(Terrain.h(e.gx, e.gz), Terrain.h(x, z)) + 85; e.yaw = -th;
+      if (Math.random() < dt * 20) sw.smoke(e.gx + Math.sin(th) * 12, e.gy, e.gz - Math.cos(th) * 12, 2, 1);
+      acc += dt;
+      if (acc < 0.16) return;
+      acc = 0;
+      const foes = sw.enemies(x, z, 230, ctx).sort((p, q) => Math.hypot(p.x - x, p.z - z) - Math.hypot(q.x - x, q.z - z));
+      if (!foes.length) return;
+      const t = foes[shots % Math.min(3, foes.length)], tp = tpos(t, out), heavy = ++shots % 6 === 0;
+      const mx = e.gx - Math.cos(e.yaw) * 5, my = e.gy - 2, mz = e.gz + Math.sin(e.yaw) * 5;   // the cannon sits on the side facing the circle
+      sw.beam(mx, my, mz, tp.x, tp.y, tp.z, col, heavy ? 1.2 : 0.5, 0.07);
+      sw.sparks(mx, my, mz, heavy ? 6 : 2, col, 12);
+      if (heavy) { sw.light(mx, my, mz, 80, col, 0.15); sw.sound('cannon', mx, my, mz, 1.1); sw.blast(tp.x, tp.y, tp.z, 12, 330, ctx, { dtype: 'kinetic', structMult: 1.5 }); }
+      else sw.blast(tp.x, tp.y, tp.z, 5.5, 95, ctx, { dtype: 'kinetic' });
+    }, draw(e, glow) { if (!glow) SW_A.gunship(e.gx, e.gy, e.gz, e.yaw, 0.3, 1.4); } });
+  },
+});
+defineSuper('cobaltBomb', {
+  n: 24, name: 'Cobalt Bomb', tier: 3, aim: 'point', unlock: 'rank:m8:A', desc: 'A 170 m nuclear blast after a 2 s countdown, then a fallout ring that creeps out to 300 m over 60 s.',
+  fire(ctx, sw) { SW_A.nuke(ctx, sw, { x: ctx.x, z: ctx.z, rad: 170, dmg: 3200, structDmg: 2600, wait: 2, hot: [0.55, 0.8, 1], flash: 1.8, zone: 110, zoneDur: 60, zoneDps: 48, grow: 300, ring: [0.35, 0.65, 1] }); },
+});
+defineSuper('hellfireSwarm', {
+  n: 25, name: 'Hellfire Swarm', tier: 1, aim: 'target', unlock: 'match:kills:10', desc: '12 micro-missiles spiral out of the sky and dive onto the enemies nearest the point, 100 damage each.',
+  fire(ctx, sw) {
+    const list = sw.enemies(ctx.x, ctx.z, 260, ctx).sort((p, q) => Math.hypot(p.x - ctx.x, p.z - ctx.z) - Math.hypot(q.x - ctx.x, q.z - ctx.z));
+    sw.sound('rocket', ctx.x, ctx.y, ctx.z, 1.2);
+    sw.repeat(0.06, 12, (i) => {
+      const a = i / 12 * TAU, t = list[i % Math.max(1, list.length)];
+      if (!t) return;
+      const sx = t.x + Math.cos(a) * 24, sz = t.z + Math.sin(a) * 24, sy = Terrain.h(sx, sz) + 150;
+      sw.shoot('swMicro', ctx, sx, sy, sz, -Math.sin(a), 0.1, Math.cos(a), { target: t });   // they leave sideways and the seeker pulls them down
+      sw.sparks(sx, sy, sz, 3, [1, 0.6, 0.3], 12);
+    }, true);
+  },
+});
+defineSuper('demolitionRain', {
+  n: 26, name: 'Demolition Rain', tier: 2, aim: 'point', unlock: 'rank:m5:A', desc: 'Charges rain onto every building and tall structure within 120 m (and scatter over the ground), then blow in a staged collapse.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, RAD = 120, FALL = 0.9, near = (o) => Math.hypot((o.cx === undefined ? o.x : o.cx) - x, (o.cz === undefined ? o.z : o.cz) - z);
+    const targets = SW_A.buildingsIn(x, z, RAD).concat(W.plain.filter((s) => !s.destroyed && s.type !== 'tree' && s.h >= 4 && near(s) <= RAD).slice(0, 16)).sort((a, b) => near(a) - near(b));
+    const charges = targets.map((o, i) => ({ o, x: o.cx === undefined ? o.x : o.cx, z: o.cz === undefined ? o.z : o.cz, top: o.topY !== undefined ? o.topY : o.y + o.h, fall: i * 0.04, boom: 2.4 + i * 0.22, done: false }));
+    const armour = sw.enemies(x, z, RAD, ctx, { air: false });
+    for (let i = 0; i < 20; i++) {   // a scatter of shaped charges: half seek out vehicles, half fall on open ground
+      const a = ctx.rng() * TAU, r = RAD * Math.sqrt(ctx.rng()), seek = armour.length && i % 2 === 0 ? armour[(i >> 1) % armour.length] : null;
+      const px = seek ? seek.x + (ctx.rng() - 0.5) * 8 : x + Math.cos(a) * r, pz = seek ? seek.z + (ctx.rng() - 0.5) * 8 : z + Math.sin(a) * r;
+      charges.push({ o: null, x: px, z: pz, y: 0, top: Terrain.h(px, pz), fall: ctx.rng() * 1.2, boom: 0, done: false });
+    }
+    charges.forEach((c) => { if (!c.o) c.boom = c.fall + FALL + 0.6; });
+    sw.ring(x, ctx.y + 0.5, z, RAD, 2.4); sw.sound('missile', x, ctx.y, z, 1);
+    sw.add({ life: 2.4 + targets.length * 0.22 + 2.2, update(dt, e) {
+      for (const c of charges) {
+        if (c.done || e.t < c.boom) continue;
+        c.done = true;
+        const gy = Terrain.h(c.x, c.z);
+        if (!c.o) { sw.blast(c.x, gy + 1, c.z, 10, 340, ctx); continue; }
+        sw.sparks(c.x, c.top, c.z, 24, [1, 0.8, 0.4], 26); sw.light(c.x, c.top, c.z, 100, [1, 0.6, 0.3], 0.4);
+        if (c.o.pieces) { SW_A.collapse(sw, ctx, c.o, c.x, c.z, 0); sw.blast(c.x, c.o.y0 + 2, c.z, 16, 320, ctx, { structMult: 1.5 }); }
+        else { sw.hurt(c.o, c.o.maxHp * 3, 'explosive', ctx); sw.blast(c.x, c.o.y + 2, c.z, 10, 200, ctx); }
+      }
+    }, draw(e, glow) {
+      for (const c of charges) {
+        const k = e.t - c.fall;
+        if (k < 0 || c.done) continue;
+        const gy = Terrain.h(c.x, c.z), y = k < FALL ? lerp(gy + 150, c.top, k / FALL) : c.top, blink = Math.sin(e.t * 18 + c.x) > 0;
+        if (!glow) { R.stack.push().t(c.x, y + 0.8, c.z); part('box', 0, 0, 0, 1.6, 1.6, 1.6, [0.25, 0.25, 0.22], 0, 0.4); R.stack.pop(); }
+        else if (blink) sw.shape('sphere', c.x, y + 2, c.z, 2.4, 2.4, 2.4, [1, 0.15, 0.1], 0.9, 2);
+      }
+    } });
+  },
+});
+defineSuper('shrapnelStar', {
+  n: 28, name: 'Shrapnel Star', tier: 1, aim: 'self', unlock: 'career:infantryKills:100', desc: '120 piercing flechettes (130 damage each) burst out in a star around you in three rings, 0.12 s apart.', range: 150,
+  fire(ctx, sw) {
+    const col = [1, 0.95, 0.7], EL = [-0.02, 0, 0.04], o0 = sw.origin(ctx), spokes = 12;
+    sw.sound('shotgun', o0.x, o0.y, o0.z, 1.5); sw.sparks(o0.x, o0.y, o0.z, 40, col, 40); sw.ring(o0.x, ctx.y + 0.5, o0.z, 40, 0.5); sw.light(o0.x, o0.y, o0.z, 90, col, 0.3);
+    sw.add({ life: 0.5, draw(e, glow) {   // the glowing star
+      if (!glow) return;
+      const o = sw.origin(ctx), len = 150 * Math.min(1, e.t / 0.3), f = 1 - e.t / 0.5;
+      for (let k = 0; k < spokes; k++) { const a = k / spokes * TAU; sw.shape('box', o.x + Math.cos(a) * len / 2, o.y, o.z + Math.sin(a) * len / 2, 1.2, 1.2, len, col, 0.7 * f, 2, PI / 2 - a); }
+    } });
+    for (let w = 0; w < 3; w++) {
+      sw.after(w * 0.12, () => {
+        const o = sw.origin(ctx);
+        for (let i = 0; i < 40; i++) {
+          const a = (i + w / 3) / 40 * TAU, ce = Math.cos(EL[w]), dx = Math.cos(a) * ce, dz = Math.sin(a) * ce;
+          sw.shoot('swShrapnel', ctx, o.x + dx * 3, o.y, o.z + dz * 3, dx, Math.sin(EL[w]), dz);
+        }
+      });
+    }
+  },
+});
+defineSuper('orbitalShotgun', {
+  n: 29, name: 'Orbital Shotgun', tier: 2, aim: 'point', unlock: 'mission:m6', desc: 'Nine orbital lances pump down one after another in a fan around the point, each an 11 m blast of 360 energy damage.',
+  fire(ctx, sw) {
+    const sideX = ctx.dirZ, sideZ = -ctx.dirX, col = [1, 0.4, 0.9];
+    for (let i = 0; i < 9; i++) {
+      const a = (i - 4) * 0.19, along = 95 * Math.cos(a) - 95, side = 95 * Math.sin(a);   // an arc through the point, bending back toward you
+      const x = ctx.x + ctx.dirX * along + sideX * side, z = ctx.z + ctx.dirZ * along + sideZ * side, gy = Terrain.h(x, z), start = i * 0.16;
+      sw.after(start, () => {
+        sw.sound('laser', x, gy, z, 1);
+        sw.add({ life: 0.5, update(dt) { if (Math.random() < dt * 25) sw.column(x, z, 0.3, col, 0.05); }, draw(e, glow) { if (glow) SW_A.ringShape(sw, x, gy + 1, z, 13 - 8 * e.t / 0.5, 0.8, 0.5, col, 0.9, 1.8, 14); } });
+      });
+      sw.after(start + 0.5, () => {
+        sw.column(x, z, 4.5, col, 0.35, 700); sw.column(x, z, 1.5, SW_A.WHITE, 0.35, 700);
+        sw.blast(x, gy + 1, z, 11, 360, ctx, { dtype: 'energy', structMult: 1.5 });
+        sw.sparks(x, gy + 1, z, 20, col, 30); sw.light(x, gy + 8, z, 100, col, 0.35); sw.shake(x, gy, z, 0.25, 400);
+      });
+    }
+  },
+});
+defineSuper('mirv', {
+  n: 30, name: 'MIRV', tier: 3, aim: 'point', unlock: 'rank:m5:S', desc: 'A warhead bus splits at 520 m into six small nukes, 85 m blasts, landing in a hexagon 65 m around the point.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), HEX = 65, FROM = gy + 1000, SPLIT = gy + 520, T1 = 1.4, FLY = 1.7, steel = [0.55, 0.55, 0.6];
+    sw.sound('alarm', x, gy, z, 1.2);
+    sw.add({ life: T1, draw(e, glow) {   // the bus falls
+      const y = lerp(FROM, SPLIT, e.t / T1);
+      if (glow) { sw.shape('cone', x, y + 28, z, 12, 50, 12, SW_A.FIRE, 0.5, 2); return; }
+      R.stack.push().t(x, y, z);
+      part('cyl', 0, 0, 0, 7, 12, 7, steel, 0, 0.5);
+      for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; part('cyl', Math.cos(a) * 3.6, -1, Math.sin(a) * 3.6, 1.6, 8, 1.6, [0.3, 0.3, 0.33], 0, 0.5); }
+      R.stack.pop();
+    } });
+    sw.after(T1, () => {
+      sw.flash(x, z, 0.3, 400); sw.light(x, SPLIT, z, 200, [1, 0.8, 0.5], 0.5); sw.sparks(x, SPLIT, z, 40, [1, 0.8, 0.5], 40);
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * TAU, tx = x + Math.cos(a) * HEX, tz = z + Math.sin(a) * HEX, gT = Terrain.h(tx, tz), arrive = FLY + i * 0.18;
+        sw.add({ life: arrive, px: x, py: SPLIT, pz: z, update(dt, e) {
+          const u = e.t / arrive;
+          e.px = lerp(x, tx, u); e.pz = lerp(z, tz, u); e.py = lerp(SPLIT, gT, Math.pow(u, 1.3));
+          if (Math.random() < dt * 40) sw.fire(e.px, e.py, e.pz, 1.8, 1);
+        }, draw(e, glow) { SW_A.rocket(e.px, e.py, e.pz, tx - x, gT - SPLIT, tz - z, 1, glow); }, end() {
+          SW_A.nuke(ctx, sw, { x: tx, z: tz, rad: 85, dmg: 1500, structDmg: 1400, wait: 0, hot: SW_A.FIRE, flash: 0.6, zoneDur: 0 });
+        } });
+      }
+    });
+  },
+});
+defineSuper('skyHammer', {
+  n: 31, name: 'Sky Hammer', tier: 2, aim: 'target', unlock: 'career:kills:500', desc: 'A steel pillar falls on the target, tracking it all the way down: 7000 damage to it and a 22 m blast around.',
+  fire(ctx, sw) {
+    const tgt = ctx.target, out = { x: 0, y: 0, z: 0 }, FALL = 3, LEN = 160, WID = 9, SINK = 6, steel = [0.5, 0.55, 0.62], red = [1, 0.25, 0.2];
+    let px = ctx.x, pz = ctx.z, landed = false;
+    sw.sound('alarm', px, ctx.y, pz, 1);
+    sw.add({ life: FALL + SINK, update(dt, e) {
+      if (!landed && SW_A.alive(tgt)) { const t = tpos(tgt, out); px = t.x; pz = t.z; }   // it tracks the target
+      const gy = Terrain.h(px, pz);
+      if (e.t < FALL) { if (Math.random() < dt * 20) sw.column(px, pz, 0.4, red, 0.05, 400); return; }
+      if (landed) return;
+      landed = true;
+      sw.flash(px, pz, 0.8, 600); sw.shake(px, gy, pz, 1, 900); sw.sound('bigExplosion', px, gy, pz, 2); sw.light(px, gy + 8, pz, 200, steel, 0.8);
+      if (SW_A.alive(tgt)) sw.hurt(tgt, 7000, 'kinetic', ctx);
+      sw.blast(px, gy + 2, pz, 22, 700, ctx, { dtype: 'kinetic', structMult: 3 });
+      sw.ring(px, gy + 0.5, pz, 60, 0.8); sw.sparks(px, gy + 2, pz, 40, [1, 0.8, 0.5], 40); SW_A.crater(px, pz, 14); SW_A.dustWave(sw, px, pz, 50, 0.5);
+    }, draw(e, glow) {
+      const gy = Terrain.h(px, pz);
+      if (e.t < FALL) {
+        const bottom = gy + (SW_A.SKY + 100) * (1 - Math.pow(e.t / FALL, 2));
+        if (glow) { SW_A.ringShape(sw, px, gy + 1, pz, 16 - 8 * e.t / FALL, 0.8, 0.5, red, 0.8, 1.8, 14); sw.shape('box', px, bottom + LEN / 2, pz, WID * 1.8, LEN, WID * 1.8, [0.7, 0.85, 1], 0.15, 2); }
+        else sw.shape('box', px, bottom + LEN / 2, pz, WID, LEN, WID, steel, 1, 0.1);
+        return;
+      }
+      const k = e.t - FALL, sink = k > SINK - 1.5 ? (SINK - k) / 1.5 : 1, h = 70 * Math.max(0, sink);   // it stands in the crater, then sinks
+      if (glow) { sw.shape('cyl', px, gy + 1, pz, 40, 1, 40, [1, 0.5, 0.2], 0.3 * (1 - k / SINK), 1.4); sw.shape('box', px, gy + h / 2, pz, WID * 1.4, h, WID * 1.4, [1, 0.6, 0.3], 0.18 * (1 - k / SINK), 1.6); }
+      else sw.shape('box', px, gy - 8 + h / 2 + 4, pz, WID, h + 8, WID, steel, 1, 0.1);
+    } });
+  },
+});
+defineSuper('minefieldAirDrop', {
+  n: 32, name: 'Minefield Air-Drop', tier: 1, aim: 'point', unlock: 'career:skirmishWins:1', desc: '40 smart mines drop over 70 m; each creeps toward enemies and blows (380 damage, 11 m) when one comes within 7 m.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = ctx.y, mines = [], LIFE = 26;
+    for (let i = 0; i < 40; i++) { const a = ctx.rng() * TAU, r = 70 * Math.sqrt(ctx.rng()); mines.push({ x: x + Math.cos(a) * r, z: z + Math.sin(a) * r, y: gy + 160 + ctx.rng() * 60, vy: 0, drop: i * 0.04, state: 0, arm: 0, tx: 0, tz: 0, has: false }); }
+    let acc = 0;
+    sw.ring(x, gy + 0.5, z, 70, 1.5); sw.sound('bomb', x, gy, z, 1.2);
+    sw.add({ life: LIFE, update(dt, e) {
+      acc += dt;
+      const scan = acc >= 0.1;
+      if (scan) acc = 0;
+      for (const m of mines) {
+        if (m.state === 2 || e.t < m.drop) continue;
+        const g = Terrain.h(m.x, m.z);
+        if (m.state === 0) {   // falling
+          m.vy -= 40 * dt; m.y += m.vy * dt;
+          if (m.y <= g + 0.3) { m.y = g + 0.3; m.state = 1; m.arm = 0.8; sw.smoke(m.x, g + 1, m.z, 1.4, 1); sw.sparks(m.x, g + 0.5, m.z, 4, [1, 0.5, 0.3], 8); }
+          continue;
+        }
+        m.arm -= dt; m.y = g + 0.3;
+        if (scan) { const t = sw.nearestEnemy(m.x, m.z, 32, ctx, { air: false }); m.has = !!t; if (t) { m.tx = t.x; m.tz = t.z; } }
+        if (!m.has || m.arm > 0) continue;
+        const d = Math.hypot(m.tx - m.x, m.tz - m.z);
+        if (d < 7) { m.state = 2; sw.blast(m.x, g + 1, m.z, 11, 380, ctx); sw.ring(m.x, g + 0.5, m.z, 14, 0.4); continue; }
+        m.x += (m.tx - m.x) / d * 7 * dt; m.z += (m.tz - m.z) / d * 7 * dt;   // armed mines creep toward their prey
+      }
+    }, draw(e, glow) {
+      for (const m of mines) {
+        if (m.state === 2 || e.t < m.drop) continue;
+        if (!glow) { R.stack.push().t(m.x, m.y, m.z); part('cyl', 0, 0, 0, 1.9, 0.5, 1.9, [0.22, 0.24, 0.2], 0, 0.4); R.stack.pop(); }
+        else if (m.state === 1 && (e.t * 2 + m.x) % 1 < 0.2) sw.shape('sphere', m.x, m.y + 0.5, m.z, 1.6, 1.6, 1.6, [1, 0.15, 0.1], 0.9, 2);
+      }
+    } });
+  },
+});
+defineSuper('cruiseSalvo', {
+  n: 33, name: 'Cruise Salvo', tier: 2, aim: 'map', unlock: 'skirmishWin:medium', desc: '8 cruise missiles leave your base 0.35 s apart and home in on the 8 strongest enemies: 850 damage, 17 m blasts.',
+  fire(ctx, sw) {
+    const h = sw.home(ctx), list = sw.strongest(ctx.x, ctx.z, 2500, ctx, 8), col = [0.9, 0.95, 1];
+    sw.sound('missile', h.x, h.y, h.z, 1.5); sw.light(h.x, h.y + 6, h.z, 120, SW_A.FIRE, 3);
+    sw.add({ life: 3.2, draw(e, glow) { if (glow) sw.shape('cyl', h.x, h.y + 20, h.z, 12, 40, 12, SW_A.FIRE, 0.12 * (1 - e.t / 3.2), 1.3); } });   // the launch flare
+    sw.repeat(0.35, 8, (i) => {
+      const t = list[i % Math.max(1, list.length)];
+      if (!t) return;
+      const dx = t.x - h.x, dz = t.z - h.z, d = Math.hypot(dx, dz) || 1, back = Math.max(0, 320 - d);   // a target too close is engaged from farther back, so the seeker has room to turn
+      const lx = h.x - dx / d * back + (i - 3.5) * 5, lz = h.z - dz / d * back;
+      const m = sw.shoot('swCruise', ctx, lx, Math.max(h.y, Terrain.h(lx, lz)) + 14, lz, dx / d, clamp((d + back) / 500, 0.3, 1), dz / d, { target: t });   // they climb (steeper from farther away), then the seeker takes over
+      SW_A.trail(sw, m, col, 0.7, 40);
+      sw.smoke(h.x + (i - 3.5) * 5, h.y + 8, h.z, 6, 3); sw.sound('missile', h.x, h.y, h.z, 0.8);
+    }, true);
+  },
+});
+defineSuper('antimatterCharge', {
+  n: 34, name: 'Antimatter Charge', tier: 3, aim: 'point', unlock: 'career:kills:1000', desc: 'A charge hangs 30 m up for 2 s, then implodes: everything within 80 m is deleted as the sphere collapses.',
+  fire(ctx, sw) {
+    const x = ctx.x, z = ctx.z, gy = Terrain.h(x, z), RAD = 80, DESCEND = 2, IMPLODE = 0.8, violet = [0.75, 0.5, 1], deleted = new Set();
+    let acc = 0, boomed = false;
+    sw.sound('alarm', x, gy, z, 1.4);
+    sw.add({ life: DESCEND, update(dt, e) {   // light streams into the charge
+      for (let k = 0; k < 3; k++) { const a = Math.random() * TAU, b = Math.random() * PI - PI / 2, cy = gy + lerp(160, 30, e.t / DESCEND); sw.glow(x + Math.cos(a) * Math.cos(b) * 26, cy + Math.sin(b) * 26, z + Math.sin(a) * Math.cos(b) * 26, -Math.cos(a) * Math.cos(b) * 26, -Math.sin(b) * 26, -Math.sin(a) * Math.cos(b) * 26, violet, 1.6, 1); }
+      sw.shake(x, gy, z, 0.01 + e.t * 0.01, 500);
+    }, draw(e, glow) {
+      const y = gy + lerp(160, 30, e.t / DESCEND), pulse = 1 + 0.15 * Math.sin(e.t * 20);
+      if (!glow) sw.shape('sphere', x, y, z, 7, 7, 7, [0.02, 0, 0.05], 1, 0.2);
+      else { sw.shape('sphere', x, y, z, 13 * pulse, 13 * pulse, 13 * pulse, violet, 0.35, 2); SW_A.ringShape(sw, x, y, z, 11, 0.8, 0.6, violet, 0.9, 2, 16); }
+    } });
+    sw.after(DESCEND, () => {
+      const cy = gy + 30;
+      sw.flash(x, z, 1.8, 1500); sw.shake(x, gy, z, 1, 1500); sw.sound('bigExplosion', x, gy, z, 2.2); sw.light(x, cy, z, 400, violet, 1.2);
+      sw.add({ life: IMPLODE + 3.2, update(dt, e) {
+        const r = e.t < IMPLODE ? RAD * (1 - e.t / IMPLODE) : 0;
+        acc += dt;
+        if (acc >= 0.05) {   // everything the collapsing sphere has passed is deleted, outermost first
+          acc = 0;
+          for (const p of sw.enemies(x, z, RAD, ctx)) if (!deleted.has(p) && Math.hypot(p.x - x, p.z - z) >= r) { deleted.add(p); sw.hurt(p, 1e6, 'energy', ctx); sw.sparks(p.x, p.y + 2, p.z, 10, violet, 22); }
+          for (const s of sw.structs(x, z, RAD)) if (!deleted.has(s) && Math.hypot(s.x - x, s.z - z) >= r) { deleted.add(s); sw.hurt(s, 1e6, 'explosive', ctx, { structMult: 50 }); }
+          if (e.t < IMPLODE) for (const p of sw.enemies(x, z, RAD * 1.9, ctx, { air: false })) { const d = Math.hypot(p.x - x, p.z - z) || 1; if (d > RAD) sw.push(p, -(p.x - x) / d * 16, 2, -(p.z - z) / d * 16); }
+        }
+        if (e.t < IMPLODE) { for (let k = 0; k < 4; k++) { const a = Math.random() * TAU, b = Math.random() * PI - PI / 2; sw.glow(x + Math.cos(a) * Math.cos(b) * r, cy + Math.sin(b) * r * 0.6, z + Math.sin(a) * Math.cos(b) * r, -Math.cos(a) * 60, 0, -Math.sin(a) * 60, violet, 3, 0.4); } }
+        else if (!boomed) {
+          boomed = true;
+          sw.flash(x, z, 1.4, 1500); sw.sound('bigExplosion', x, gy, z, 2.2); sw.shake(x, gy, z, 1, 1500);
+          sw.blast(x, gy + 3, z, 30, 0, ctx); sw.ring(x, gy + 1, z, 200, 1.4); sw.ring(x, gy + 1, z, 120, 1); SW_A.dustWave(sw, x, z, 180, 1);
+          addDecal(x, z, RAD, [0.02, 0, 0.04], 300);
+        }
+      }, draw(e, glow) {
+        if (e.t < IMPLODE) {
+          const r = RAD * (1 - e.t / IMPLODE);
+          if (glow) { sw.shape('sphere', x, cy, z, r * 2, r * 2, r * 2, violet, 0.3, 2); sw.shape('sphere', x, cy, z, r * 1.9, r * 1.9, r * 1.9, SW_A.WHITE, 0.18, 2); }
+          else sw.shape('sphere', x, cy, z, r * 0.5, r * 0.5, r * 0.5, [0.02, 0, 0.04], 1, 0);
+          return;
+        }
+        const k = e.t - IMPLODE, f = Math.min(1, (e.life - e.t) / 1.2);   // the dying remnant: a black dot with a violet disc
+        if (glow) { SW_A.ringShape(sw, x, cy, z, 9 + Math.sin(k * 5), 1.2, 0.6, violet, 0.8 * f, 2, 20); sw.shape('sphere', x, cy, z, 14, 14, 14, violet, 0.2 * f, 2); }
+        else sw.shape('sphere', x, cy, z, 8 * f, 8 * f, 8 * f, [0.02, 0, 0.04], 1, 0);
+      } });
+    });
+  },
+});
 /* SUPER PART A END */
 
 /* SUPER PART B BEGIN: superweapons 35-67 (helper B) */
@@ -12066,6 +12994,42 @@ const SelfTest = {
     /* SELFTEST PART W BEGIN */
     /* SELFTEST PART W END */
     /* SELFTEST PART A BEGIN */
+    t('superweapons part A', () => {
+      const plan = [[2, 'rodsFromGod', 'Rods from God', 2, 'point', 'mission:m1'], [4, 'carpetBombing', 'Carpet Bombing', 2, 'point', 'career:kills:150'], [5, 'tacticalNuke', 'Tactical Nuke', 3, 'point', 'missionsDone:8'],
+        [6, 'orbitalCluster', 'Orbital Cluster', 2, 'point', 'mission:m2'], [7, 'massDriverSalvo', 'Mass Driver Salvo', 2, 'target', 'rank:m1:A'], [8, 'bunkerNova', 'Bunker Nova', 2, 'point', 'career:structures:100'],
+        [9, 'airburstCanopy', 'Airburst Canopy', 1, 'point', 'career:airKills:25'], [10, 'missileRain', 'Missile Rain', 2, 'map', 'match:kills:20'], [11, 'thermobaricBomb', 'Thermobaric Bomb', 2, 'point', 'mission:m5'],
+        [13, 'orbitalDropPod', 'Orbital Drop Pod', 2, 'point', 'mission:m3'], [14, 'planetCracker', 'Planet Cracker', 3, 'point', 'rank:m8:S'], [15, 'daisyCutter', 'Daisy Cutter', 2, 'point', 'career:kills:300'],
+        [16, 'chainReaction', 'Chain Reaction', 1, 'target', 'match:streak:5'], [17, 'icbmStrike', 'ICBM Strike', 3, 'point', 'skirmishWin:large'], [18, 'overwatchSatellite', 'Overwatch Satellite', 1, 'map', 'career:mechKills:50'],
+        [19, 'ringOfFire', 'Ring of Fire', 1, 'self', 'mission:m4'], [20, 'tungstenHail', 'Tungsten Hail', 1, 'point', 'career:kills:50'], [21, 'firewall', 'Firewall', 1, 'point', 'rank:m2:A'],
+        [22, 'earthquake', 'Earthquake', 2, 'point', 'career:structures:300'], [23, 'gunshipOrbit', 'Gunship Orbit', 2, 'point', 'career:airKills:75'], [24, 'cobaltBomb', 'Cobalt Bomb', 3, 'point', 'rank:m8:A'],
+        [25, 'hellfireSwarm', 'Hellfire Swarm', 1, 'target', 'match:kills:10'], [26, 'demolitionRain', 'Demolition Rain', 2, 'point', 'rank:m5:A'], [28, 'shrapnelStar', 'Shrapnel Star', 1, 'self', 'career:infantryKills:100'],
+        [29, 'orbitalShotgun', 'Orbital Shotgun', 2, 'point', 'mission:m6'], [30, 'mirv', 'MIRV', 3, 'point', 'rank:m5:S'], [31, 'skyHammer', 'Sky Hammer', 2, 'target', 'career:kills:500'],
+        [32, 'minefieldAirDrop', 'Minefield Air-Drop', 1, 'point', 'career:skirmishWins:1'], [33, 'cruiseSalvo', 'Cruise Salvo', 2, 'map', 'skirmishWin:medium'], [34, 'antimatterCharge', 'Antimatter Charge', 3, 'point', 'career:kills:1000']];
+      for (const [n, id, name, tier, aim, unlock] of plan) {
+        const d = SUPERS[id];
+        this.check('superweapon ' + n + ' ' + name + ' matches the plan', !!d && d.n === n && d.name === name && d.tier === tier && d.aim === aim && d.unlock === unlock && typeof d.fire === 'function' && String(d.desc).length > 20, 'missing or different from the plan');
+        this.check('superweapon ' + n + ' unlock parses', !!d && Arsenal.reqOf(d).kind !== 'invalid', 'unknown unlock kind');
+      }
+      this.check('the drop pod mech is a toughened heavy mech ally', ARCH.dropMech && PLATFORMS[ARCH.dropMech.def] && ARCH.dropMech.hpMult > 1 && ARCH.dropMech.score === 0);
+      // a co-op guest replays every part A superweapon without errors and without dealing damage
+      const keepReport = Game.reportError, errs = [], g0 = Net.guest;
+      Game.reportError = (e) => errs.push(String(e && e.stack ? e.stack : e).split('\n').slice(0, 2).join(' | '));
+      try {
+        for (const [n, id] of plan) {
+          newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 200, tag: 'open' }], difficulty: 'veteran', seed: 3, start: { x: 0, z: -150, yaw: 0 } });
+          const foe = spawnUnit('tank', 20, 20, { force: true }); foe.ai = null;
+          const hp0 = foe.hp + foe.armor;
+          Net.guest = true;
+          SW.replay({ n, o: 0, a: [0, Terrain.h(0, 0), 0], y: 0, tg: 0, s: 7 });
+          for (let i = 0; i < 60 * 5; i++) { updateProjectiles(STEP); updateWorldEffects(STEP); if (i % 30 === 0) { SW.draw(false); SW.draw(true); } }
+          Net.guest = g0;
+          this.check('guest replay of ' + id + ' deals no damage', foe.hp + foe.armor === hp0);
+          SW.reset();
+        }
+      } finally { Net.guest = g0; Game.reportError = keepReport; Game.enterMenuWorld(); }
+      this.check('guest replays of part A run without errors', errs.length === 0, errs.slice(0, 2).join(' || '));
+      this.check('part A ordnance exists', ['swRod', 'swCarpetBomb', 'swBomblet', 'swSlug', 'swSkyMissile', 'swRingShell', 'swFlechette', 'swMicro', 'swShrapnel', 'swCruise'].every((m) => WEAPONS[m] && WEAPONS[m].hidden));
+    });
     /* SELFTEST PART A END */
     /* SELFTEST PART B BEGIN */
     t('superweapons part B', () => {
