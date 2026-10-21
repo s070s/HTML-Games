@@ -5975,7 +5975,7 @@ const SW_B = {
       const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r * 0.8;
       sw.fire(x + Math.cos(a) * d, y, z + Math.sin(a) * d, r * 0.2, 2);
       sw.area(x, y, z, r, dps * gap, 'explosive', ctx, { falloff: false, height: 16, noStagger: true });
-    }, { draw(e, glow) { if (glow) sw.shape('cyl', x, y + 0.4, z, r * 2, 0.5, r * 2, col, 0.22 * Math.min(1, (life - e.t) / 1.5) * (0.8 + 0.2 * Math.sin(e.t * 11)), 1.5); } });
+    }, { draw(e, glow) { if (glow) sw.shape('cyl', x, y + 0.4, z, r * 2, 0.5, r * 2, col, 0.1 * Math.min(1, (life - e.t) / 1.5) * (0.8 + 0.2 * Math.sin(e.t * 11)), 1); } });
   },
   /* glowing trails behind every live munition `id` (guests see the projectiles too) */
   trails(sw, life, id, col, size, rate, smoke) {
@@ -6151,7 +6151,7 @@ defineSuper('plasmaTornado', {
         for (let i = 0; i < 14; i++) { const h = ((i * 0.37 + e.t * 0.25) % 1) * H, r = (3 + R0 * h / H) * g * 0.9, a = e.t * (3 + i % 3) + i * 1.9; sw.shape('box', x + Math.cos(a) * r, gy + h, z + Math.sin(a) * r, 2.2, 1.2, 2.2, [0.28, 0.3, 0.26], 1, 0.1, a); }
         return;
       }
-      for (let L = 0; L < 8; L++) { const h = L * H / 8 + 5, r = (3 + R0 * h / H) * g; sw.shape('cyl', x, gy + h, z, r * 2, H / 8 + 1, r * 2, L % 2 ? col : col2, 0.14, 1.6); }
+      for (let L = 0; L < 8; L++) { const h = L * H / 8 + 5, r = (3 + R0 * h / H) * g; sw.shape('cyl', x, gy + h, z, r * 2, H / 8 + 1, r * 2, L % 2 ? col : col2, 0.1, 1.4); }
       for (let k = 0; k < 3; k++) for (let j = 0; j < 12; j++) {
         const h = j * H / 12, r = (3 + R0 * h / H) * g * 1.05, a = e.t * 4.5 - h * 0.1 + k * TAU / 3;
         sw.shape('box', x + Math.cos(a) * r, gy + h + 3, z + Math.sin(a) * r, 2.5, 7, 0.9, col, 0.5, 2.5, -a);
@@ -6311,7 +6311,7 @@ defineSuper('solarFlare', {
       for (const p of sw.enemies(o.x, o.z, R0, ctx)) { sw.status(p, 'blind', BLIND); blinded.push(p); }
     });
     sw.add({ life: BLIND, update(dt, e) {
-      if (e.t < 1.2) for (let i = 0; i < 12; i++) { const a = i / 12 * TAU + e.t * 2; sw.beam(o.x, o.y + 3, o.z, o.x + Math.cos(a) * 90, o.y + 3 + Math.sin(e.t * 7 + i) * 30, o.z + Math.sin(a) * 90, col, 1.6, 0.05); }
+      if (e.t < 1.2) for (let i = 0; i < 12; i++) { const a = i / 12 * TAU + e.t * 2; sw.beam(o.x + Math.cos(a) * 14, o.y + 3, o.z + Math.sin(a) * 14, o.x + Math.cos(a) * 90, o.y + 3 + Math.sin(e.t * 7 + i) * 30, o.z + Math.sin(a) * 90, col, 1, 0.05); }
       if (!Net.guest && e.t > 0.2) for (const p of blinded) if (!p.dead && p.status.blind > 0 && p.ai && p.ai.target) p.ai.target = null;   // they keep losing whatever they find
     }, draw(e, glow) {
       if (!glow) return;
@@ -6341,12 +6341,15 @@ defineSuper('microwaveEmitter', {
         if (!Net.guest) { p.heat = Math.min(p.maxHeat, p.heat + p.maxHeat * 0.12); if (p.heat >= p.maxHeat) p.overheated = true; }
         sw.smoke(p.x, mid + 2, p.z, 2, 1); sw.glow(p.x + rand(-1, 1), mid, p.z + rand(-1, 1), 0, 5, 0, col, 2, 0.4);
       }
-    }, { draw(e, glow) {
+    }, { frame(dt) {
+      const o = sw.origin(ctx), d = dirOf();
+      for (let k = 0; k < 3; k++) { const dist = rand(15, RANGE), side = rand(-0.4, 0.4) * dist; sw.glow(o.x + d.x * dist + d.z * side, o.y + rand(0, 8), o.z + d.z * dist - d.x * side, d.x * 25, rand(0, 3), d.z * 25, col, 1.8, 0.4); }
+    }, draw(e, glow) {
       if (!glow) return;
       const o = sw.origin(ctx), d = dirOf(), yaw = Math.atan2(d.x, d.z), f = Math.min(1, e.t * 3, (DUR - e.t) * 3);
       for (let i = 0; i < 8; i++) {
-        const dist = (e.t * 70 + i * 19) % RANGE;
-        SW_B.disc(o.x + d.x * dist, o.y + 4, o.z + d.z * dist, yaw, PI / 2, dist * 1.05 + 2, 0.5, col, 0.22 * f * (1 - dist / RANGE), 2);
+        const dist = 12 + (e.t * 70 + i * 19) % (RANGE - 12);
+        SW_B.disc(o.x + d.x * dist, o.y + 4, o.z + d.z * dist, yaw, PI / 2, dist * 1.05 + 2, 0.5, col, 0.04 * f * (1 - dist / RANGE), 1.5);
       }
     } });
   },
@@ -6428,7 +6431,7 @@ defineSuper('firestorm', {
       draw(e, glow) {
         const r = radius(e.t), fade = Math.min(1, (DUR - e.t) / 3), flick = 0.8 + 0.2 * Math.sin(e.t * 9);
         if (!glow) { SW_B.cloud(sw, ctx.x, ctx.y + 130, ctx.z, r * 0.75, [0.13, 0.09, 0.09], e.t * 0.6, 14, 0.05); return; }
-        sw.shape('cyl', ctx.x, ctx.y + 0.8, ctx.z, r * 2, 1, r * 2, col, 0.22 * fade * flick, 1.5); sw.shape('sphere', ctx.x, ctx.y, ctx.z, r * 2, r * 0.9, r * 2, col, 0.05 * fade, 1.5);
+        sw.shape('cyl', ctx.x, ctx.y + 0.8, ctx.z, r * 2, 1, r * 2, col, 0.1 * fade * flick, 1); sw.shape('sphere', ctx.x, ctx.y, ctx.z, r * 2, r * 0.9, r * 2, col, 0.02 * fade, 1);
         for (const w of whirls) {
           const a = w.a + e.t * w.s, d = r * w.f, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, h = (45 + 25 * Math.sin(e.t * 3 + w.a)) * fade;
           sw.shape('cone', x, Terrain.h(x, z) + h * 0.5, z, 12, h, 12, col, 0.35, 2.5); sw.shape('cone', x, Terrain.h(x, z) + h * 0.35, z, 6, h * 0.7, 6, [1, 0.85, 0.4], 0.4, 3);
@@ -6457,7 +6460,7 @@ defineSuper('acidRain', {
       frame(dt, e) {
         for (let k = 0; k < 3; k++) {
           const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * R0, x = ctx.x + Math.cos(a) * d, z = ctx.z + Math.sin(a) * d, gy = Terrain.h(x, z);
-          FX.emit(x, gy + 55 + rand(0, 40), z, 0, -75, 0, 1, 0.35, 0.25, col[0], col[1], col[2], 0.8, 0, 0, true);
+          FX.emit(x, gy + 55 + rand(0, 40), z, 0, -75, 0, 1, 0.35, 0.25, col[0], col[1], col[2], 1, 0, 0, true);
           if (k === 0) sw.glow(x, gy + 0.6, z, rand(-3, 3), rand(2, 5), rand(-3, 3), col, 1.2, 0.25);
         }
       },
@@ -6499,8 +6502,8 @@ defineSuper('laserGrid', {
         let px = 0, py = 0, pz = 0;
         for (let s = 0; s <= SEGS; s++) {
           const along = -HALF + 2 * HALF * s / SEGS;
-          const u = across ? off : along, v = across ? along : off, x = c.x + ctx.dirX * u + ctx.dirZ * v, z = c.z + ctx.dirZ * u - ctx.dirX * v, y = Terrain.h(x, z) + 2.5;
-          if (s > 0) { SW_B.seg(px, py, pz, x, y, z, 0.9, [1, 0.6, 0.6], 0.9 * f * flick, 3); SW_B.seg(px, py, pz, x, y, z, 3, col, 0.18 * f, 2); }
+          const u = across ? off : along, v = across ? along : off, x = c.x + ctx.dirX * u + ctx.dirZ * v, z = c.z + ctx.dirZ * u - ctx.dirX * v, y = Terrain.h(x, z) + 3.5;
+          if (s > 0) { SW_B.seg(px, py, pz, x, y, z, 0.6, [1, 0.6, 0.6], 0.9 * f * flick, 3); SW_B.seg(px, py, pz, x, y, z, 2, col, 0.1 * f, 1.5); }
           px = x; py = y; pz = z;
         }
       }
@@ -6567,9 +6570,9 @@ defineSuper('thunderGod', {
       sw.light(o.x, o.y + 40, o.z, 90, col, 0.08);
     }, draw(e, glow) {
       const o = sw.origin(ctx), f = Math.min(1, e.t / 0.8) * Math.min(1, (DUR - e.t) / 0.8);
-      if (!glow) { SW_B.cloud(sw, o.x, o.y + 48, o.z, 26 * f, [0.22, 0.22, 0.28], e.t * 2, 9); return; }
-      for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 6 + i) * 2, o.z + Math.sin(a) * 9, 2.4, 2.4, 2.4, col, 0.9 * f, 3); }
-      sw.shape('cyl', o.x, o.y + 0.6, o.z, 20 * f, 0.4, 20 * f, col, 0.3, 2); sw.shape('cyl', o.x, o.y + 22, o.z, 3, 44, 3, col, 0.12 + 0.1 * Math.sin(e.t * 30), 2);
+      if (!glow) { SW_B.cloud(sw, o.x, o.y + 32, o.z, 22 * f, [0.22, 0.22, 0.28], e.t * 2, 9); return; }
+      for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 6 + i) * 2, o.z + Math.sin(a) * 9, 1.4, 1.4, 1.4, col, 0.8 * f, 2); }
+      sw.shape('cyl', o.x, o.y + 0.6, o.z, 20 * f, 0.4, 20 * f, col, 0.05, 1); sw.shape('cyl', o.x, o.y + 15, o.z, 1.5, 30, 1.5, col, 0.1 + 0.1 * Math.sin(e.t * 30), 2);
     } });
   },
 });
@@ -6632,7 +6635,7 @@ defineSuper('neutronBomb', {
         sw.shape('sphere', ctx.x, y, ctx.z, 14, 26, 14, col, 0.8, 3); sw.shape('sphere', ctx.x, y, ctx.z, 30, 30, 30, col, 0.2, 2);
         return;
       }
-      const t = e.t - FALL, f = Math.min(1, t / WAVE), fade = Math.max(0, 1 - t / (WAVE + 2));
+      const t = e.t - FALL, f = Math.min(1, t / WAVE), fade = Math.pow(Math.max(0, 1 - t / (WAVE + 1.2)), 2);
       sw.shape('sphere', ctx.x, ctx.y + 10, ctx.z, R0 * 1.5 * f + 20, R0 * 1.5 * f + 20, R0 * 1.5 * f + 20, [1, 1, 1], 0.5 * fade, 3);
       sw.shape('sphere', ctx.x, ctx.y + 10, ctx.z, R0 * 2 * f + 30, R0 * 2 * f + 30, R0 * 2 * f + 30, col, 0.18 * fade, 2);
       sw.shape('cyl', ctx.x, ctx.y + 1, ctx.z, R0 * 2 * f, 3, R0 * 2 * f, col, 0.25 * Math.max(0, 1 - t / (WAVE + LINGER)), 2);
@@ -6736,9 +6739,9 @@ defineSuper('auroraVeil', {
       draw(e, glow) {
         if (!glow) return;
         const f = Math.min(1, e.t / 1.5) * Math.min(1, (DUR - e.t) / 1.5);
-        for (let i = 0; i < 16; i++) {   // drifting curtains of green and violet light
-          const a = i / 16 * TAU + Math.sin(e.t * 0.4 + i) * 0.08, x = o.x + Math.cos(a) * 75, z = o.z + Math.sin(a) * 75, h = 70 + 25 * Math.sin(e.t * 1.3 + i * 1.7), c = SW_B.hue(0.33 + 0.35 * ((i % 4) / 3 + 0.3 * Math.sin(e.t * 0.5)));
-          sw.shape('box', x, Terrain.h(x, z) + h * 0.5 + 10, z, 26, h, 1.2, c, (0.14 + 0.07 * Math.sin(e.t * 2 + i)) * f, 2, -a + PI / 2);
+        for (let i = 0; i < 24; i++) {   // drifting curtains of green and violet light
+          const a = i / 24 * TAU + Math.sin(e.t * 0.4 + i) * 0.08, x = o.x + Math.cos(a) * 75, z = o.z + Math.sin(a) * 75, h = 70 + 25 * Math.sin(e.t * 1.3 + i * 1.7), c = SW_B.hue(0.33 + 0.35 * ((i % 4) / 3 + 0.3 * Math.sin(e.t * 0.5)));
+          sw.shape('box', x, Terrain.h(x, z) + h * 0.5 + 10, z, 11, h, 1.2, c, (0.1 + 0.05 * Math.sin(e.t * 2 + i)) * f, 2, -a + PI / 2);
         }
         for (const p of sw.allies(o.x, o.z, R0 * 1.2, ctx)) {
           sw.shape('cyl', p.x, Terrain.h(p.x, p.z) + 0.6, p.z, p.radius * 4, 0.4, p.radius * 4, [0.4, 1, 0.7], 0.4 * f, 2);
@@ -6754,7 +6757,7 @@ defineSuper('magmaLance', {
     const LEN = 300, SPEED = 150, WIDTH = 6, STEP = 10, TOTAL = 12, col = [1, 0.42, 0.08];
     const o = sw.origin(ctx), dx = ctx.x - o.x, dz = ctx.z - o.z, d = Math.hypot(dx, dz);
     const ux = d > 1 ? dx / d : ctx.dirX, uz = d > 1 ? dz / d : ctx.dirZ;
-    const sx = d > LEN ? ctx.x - ux * LEN : o.x, sz = d > LEN ? ctx.z - uz * LEN : o.z;
+    const sx = d > LEN ? ctx.x - ux * LEN : o.x + ux * 12, sz = d > LEN ? ctx.z - uz * LEN : o.z + uz * 12;
     const hit = new Set(), pts = [];
     for (let s = 0; s <= LEN; s += STEP) { const x = clamp(sx + ux * s, -GROUND_BOUND, GROUND_BOUND), z = clamp(sz + uz * s, -GROUND_BOUND, GROUND_BOUND); pts.push({ x, z, y: Terrain.h(x, z) + 0.4 }); }
     let burnT = 0, nextGeyser = 0;
@@ -6783,7 +6786,7 @@ defineSuper('magmaLance', {
       for (let i = 1; i < pts.length; i++) {
         if ((i - 1) * STEP > front) break;
         const a = pts[i - 1], b = pts[i];
-        SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.9, col, 0.85 * fade * flick, 2.5); SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.35, [1, 0.85, 0.4], 0.9 * fade, 3);
+        SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.9, col, 0.85 * fade * flick, 2.5); SW_B.seg(a.x, a.y, a.z, b.x, b.y, b.z, WIDTH * 0.3, [1, 0.8, 0.35], 0.6 * fade, 2.5);
       }
     } });
   },
@@ -6810,9 +6813,9 @@ defineSuper('stormSurge', {
       draw(e, glow) {
         if (!glow) return;
         const o = sw.origin(ctx), f = Math.min(1, e.t / 0.6) * Math.min(1, (DUR - e.t) / 0.8), pulse = 1 + 0.1 * Math.sin(e.t * 18);
-        sw.shape('sphere', o.x, o.y + 4, o.z, 16 * pulse * f, 16 * pulse * f, 16 * pulse * f, col, 0.12, 2);
-        for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 5 + i) * 2, o.z + Math.sin(a) * 9, 2.2 * f, 2.2 * f, 2.2 * f, [1, 1, 1], 0.9, 3); }
-        sw.shape('cyl', o.x, Terrain.h(o.x, o.z) + 0.5, o.z, 24 * f * pulse, 0.4, 24 * f * pulse, col, 0.3, 2);
+        sw.shape('sphere', o.x, o.y + 4, o.z, 16 * pulse * f, 16 * pulse * f, 16 * pulse * f, col, 0.05, 1.5);
+        for (let i = 0; i < 3; i++) { const a = e.t * 4 + i * TAU / 3; sw.shape('sphere', o.x + Math.cos(a) * 9, o.y + 5 + Math.sin(e.t * 5 + i) * 2, o.z + Math.sin(a) * 9, 1.4 * f, 1.4 * f, 1.4 * f, col, 0.8, 2); }
+        sw.shape('cyl', o.x, Terrain.h(o.x, o.z) + 0.5, o.z, 24 * f * pulse, 0.4, 24 * f * pulse, col, 0.05, 1);
       },
     });
   },
@@ -6936,9 +6939,9 @@ defineSuper('voltaicDome', {
     }, draw(e, glow) {
       if (!glow) return;
       const o = sw.origin(ctx), f = Math.min(1, e.t / 0.5) * Math.min(1, (DUR - e.t) / 0.8), s = R0 * 2 * f, flick = 0.8 + 0.2 * Math.sin(e.t * 22);
-      sw.shape('sphere', o.x, o.y, o.z, s, s, s, col, 0.1 * flick, 2); sw.shape('sphere', o.x, o.y, o.z, s * 1.02, s * 1.02, s * 1.02, [1, 1, 0.8], 0.05, 3);
-      for (let k = -3; k <= 3; k++) { const y = k * R0 * 0.25, r = Math.sqrt(Math.max(0, R0 * R0 - y * y)) * 2 * f; SW_B.disc(o.x, o.y + y * f, o.z, 0, 0, r, 0.4, col, 0.3 * flick, 2.5); }
-      for (let k = 0; k < 4; k++) SW_B.disc(o.x, o.y, o.z, k * PI / 4 + e.t * 0.5, PI / 2, s, 0.4, col, 0.07 * flick, 2.5);
+      sw.shape('sphere', o.x, o.y, o.z, s, s, s, col, 0.04 * flick, 1.5);
+      for (let k = -3; k <= 3; k++) { const y = k * R0 * 0.25, r = Math.sqrt(Math.max(0, R0 * R0 - y * y)) * 2 * f; SW_B.disc(o.x, o.y + y * f, o.z, 0, 0, r, 0.4, col, 0.07 * flick, 2); }
+      for (let k = 0; k < 4; k++) SW_B.disc(o.x, o.y, o.z, k * PI / 4 + e.t * 0.5, PI / 2, s, 0.4, col, 0.025 * flick, 2);
     } });
   },
 });
