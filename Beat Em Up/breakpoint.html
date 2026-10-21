@@ -9,7 +9,7 @@
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
-:root{--ui:1;--panel:rgba(8,12,22,.9);--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;--tbs:max(54px,12vmin)}
+:root{--ui:1;--panel:rgba(8,12,22,.9);--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;--tbs:max(58px,14vmin)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#000;color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
 body{user-select:none;-webkit-user-select:none}
@@ -183,23 +183,29 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #touch .tb,#touch #stickBase{position:absolute;pointer-events:auto;touch-action:none;user-select:none}
 .tb{width:var(--tbs);height:var(--tbs);border-radius:50%;background:rgba(18,28,50,.55);border:3px solid rgba(255,255,255,.6);color:#fff;font:800 calc(var(--tbs)*.26)/1 "Segoe UI",system-ui,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.02em}
 .tb.on{background:rgba(52,220,255,.55)}
-.tb.sm{width:calc(var(--tbs)*.82);height:calc(var(--tbs)*.82);font-size:calc(var(--tbs)*.2)}
+.tb.charged{background:rgba(255,92,147,.7);border-color:#fff;box-shadow:0 0 0 4px var(--a2)}
+.tb.lg{width:calc(var(--tbs)*1.25);height:calc(var(--tbs)*1.25);font-size:calc(var(--tbs)*.24)}
+.tb.sm{width:calc(var(--tbs)*.8);height:calc(var(--tbs)*.8);font-size:calc(var(--tbs)*.17)}
 #stickBase{left:4vmin;bottom:5vmin;width:30vmin;height:30vmin;min-width:130px;min-height:130px;border-radius:50%;background:rgba(18,28,50,.4);border:3px solid rgba(255,255,255,.5)}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff}
-.tb[data-a=lp]{right:30vmin;bottom:18vmin}.tb[data-a=rp]{right:17vmin;bottom:31vmin}.tb[data-a=lk]{right:17vmin;bottom:5vmin}.tb[data-a=rk]{right:4vmin;bottom:18vmin}
-.tb[data-a=strong]{right:45vmin;bottom:8vmin}.tb[data-a=height]{right:45vmin;bottom:21vmin}
-.tb[data-a=blockHigh]{right:3vmin;bottom:35vmin}.tb[data-a=blockLow]{right:3vmin;bottom:3vmin}
-.tb[data-a=jump]{left:38vmin;bottom:23vmin}.tb[data-a=crouch]{left:38vmin;bottom:6vmin}
-.tb[data-a=grapple]{left:52vmin;bottom:6vmin}.tb[data-a=dash]{left:52vmin;bottom:23vmin}
-.tb[data-a=stance]{right:2vmin;top:36vmin}.tb[data-a=pause]{right:2vmin;top:21vmin}
+/* right thumb: KICK in the corner, PUNCH beside it, BLOCK above it, GRAB on the inside; left thumb: stick with JUMP / DUCK / DASH next to it */
+.tb[data-a=kick]{right:3vmin;bottom:4vmin}
+.tb[data-a=punch]{right:calc(5vmin + var(--tbs)*1.3);bottom:calc(4vmin + var(--tbs)*.35)}
+.tb[data-a=block]{right:3vmin;bottom:calc(6vmin + var(--tbs)*1.3)}
+.tb[data-a=grapple]{right:calc(7vmin + var(--tbs)*2.6);bottom:4vmin}
+.tb[data-a=jump]{left:calc(6vmin + max(30vmin,130px));bottom:calc(5vmin + var(--tbs)*.95)}
+.tb[data-a=crouch]{left:calc(6vmin + max(30vmin,130px));bottom:5vmin}
+.tb[data-a=dash]{left:calc(8vmin + max(30vmin,130px) + var(--tbs)*.8);bottom:5vmin}
+.tb[data-a=stance]{right:2vmin;top:calc(21vmin + var(--tbs)*.95)}.tb[data-a=pause]{right:2vmin;top:21vmin}
 @media (orientation:portrait){
  :root{--tbs:max(50px,15vw)}
  #stickBase{left:3vw;bottom:4vh;width:36vw;height:36vw}
- .tb[data-a=lp]{right:33vw;bottom:15vh}.tb[data-a=rp]{right:18vw;bottom:23vh}.tb[data-a=lk]{right:18vw;bottom:7vh}.tb[data-a=rk]{right:3vw;bottom:15vh}
- .tb[data-a=strong]{left:3vw;bottom:calc(4vh + 40vw)}.tb[data-a=height]{left:calc(3vw + var(--tbs)*.9);bottom:calc(4vh + 40vw)}
- .tb[data-a=blockHigh]{right:3vw;bottom:calc(23vh + var(--tbs)*1.1)}.tb[data-a=blockLow]{right:3vw;bottom:3vh}
- .tb[data-a=jump]{left:calc(3vw + var(--tbs)*1.8);bottom:calc(4vh + 40vw)}.tb[data-a=crouch]{left:calc(3vw + var(--tbs)*2.7);bottom:calc(4vh + 40vw)}
- .tb[data-a=grapple]{left:calc(3vw + var(--tbs)*3.6);bottom:calc(4vh + 40vw)}.tb[data-a=dash]{left:calc(3vw + var(--tbs)*4.5);bottom:calc(4vh + 40vw)}
+ .tb[data-a=kick]{right:3vw;bottom:4vh}
+ .tb[data-a=punch]{right:calc(5vw + var(--tbs)*1.3);bottom:calc(4vh + var(--tbs)*.35)}
+ .tb[data-a=block]{right:3vw;bottom:calc(6vh + var(--tbs)*1.3)}
+ .tb[data-a=grapple]{right:calc(5vw + var(--tbs)*1.45);bottom:calc(8vh + var(--tbs)*1.6)}
+ .tb[data-a=jump]{left:3vw;bottom:calc(6vh + 36vw)}.tb[data-a=crouch]{left:calc(5vw + var(--tbs)*.8);bottom:calc(6vh + 36vw)}
+ .tb[data-a=dash]{left:calc(7vw + var(--tbs)*1.6);bottom:calc(6vh + 36vw)}
  .tb[data-a=stance]{right:2vw;top:calc(26vw + var(--tbs)*.95)}.tb[data-a=pause]{right:2vw;top:26vw}
 }
 /* ---------- overlays ---------- */
@@ -705,6 +711,24 @@ const PAD_FLICK_OFF = 0.4;
 const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up to jump (a light tap is a step)
 const PAD_SELECT_HOLD_MS = 500;       // Select: tap = switch stance, hold = reset positions in Training
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
+const TOUCH_CHARGE_MS = 220;          // touch PUNCH / KICK held at least this long, then released = strong attack
+const TOUCH_STRING_SECONDS = 0.8;     // a second PUNCH / KICK within this time uses the other hand / foot
+
+/* Touch has one PUNCH and one KICK button: this picks the hand or foot and the line, without the stick.
+   Hands and feet alternate within a string; the attack goes where it can land: body shots against a crouching
+   or low-guarding opponent (high attacks pass over them), low kicks under a high guard. */
+function touchAttackChoice(kind, alternate, strong, self, opp) {
+  const os = opp ? opp.state : S.IDLE;
+  const crouched = os === S.CROUCH || os === S.BLOCK_L;
+  const counter = !!self && self.counterWindow > 0;   // a plain press after a perfect block is the counter attack
+  if (self && self.state === S.GRAPPLE && kind === 'punch') return { btn: strong ? 'rp' : 'lp', height: false };   // clinch: tap = knee, hold = elbow
+  if (kind === 'punch') {
+    const running = !!self && self.state === S.RUN;   // the running lunge is the right punch
+    return { btn: alternate || running ? 'rp' : 'lp', height: crouched && !counter && !running };
+  }
+  if (os === S.BLOCK_H && !counter) return { btn: 'lk', height: true };
+  return { btn: alternate ? 'rk' : 'lk', height: crouched && alternate && !counter };   // the left kick is a mid already
+}
 
 function makeIntent() {
   return {
@@ -752,6 +776,9 @@ class PlayerInput {
     this.touchStick = { x: 0, y: 0, active: false };
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
+    this.touchDownAt = {};           // PUNCH / KICK press times (hold length decides strong)
+    this.touchAttack = null;         // released PUNCH / KICK waiting for the next tick: { kind, strong }
+    this.touchString = { punch: { at: -10, alt: false }, kick: { at: -10, alt: false } };
     this.lastDevice = 'keyboard';
     this.analog = { fwd: 0, side: 0 };
   }
@@ -775,6 +802,8 @@ class PlayerInput {
   releaseAll() {
     this.kb.clear();
     this.touchHeld = {};
+    this.touchDownAt = {};
+    this.touchAttack = null;
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
     this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
@@ -809,9 +838,31 @@ class PlayerInput {
   takeAny(actions) { let any = false; for (const a of actions) any = this.take(a) || any; return any; }
 
   touchSet(action, down) {
+    this.lastDevice = 'touch';
+    if (action === 'punch' || action === 'kick') { this.touchStrike(action, down); return; }
     if (down && !this.touchHeld[action]) this.press(action);
     this.touchHeld[action] = down;
-    this.lastDevice = 'touch';
+  }
+  /* PUNCH / KICK fire on release: a tap is the quick attack, a hold is the strong one. */
+  touchStrike(kind, down) {
+    const now = performance.now();
+    if (down) { if (!this.touchHeld[kind]) this.touchDownAt[kind] = now; this.touchHeld[kind] = true; return; }
+    if (!this.touchHeld[kind]) return;
+    this.touchHeld[kind] = false;
+    this.touchAttack = { kind, strong: now - (this.touchDownAt[kind] || now) >= TOUCH_CHARGE_MS };
+  }
+  /* The queued touch attack as a button press (see touchAttackChoice). */
+  applyTouchAttack(it, self, opp) {
+    const ta = this.touchAttack;
+    this.touchAttack = null;
+    const string = this.touchString[ta.kind];
+    const now = performance.now() / 1000;
+    string.alt = now - string.at < TOUCH_STRING_SECONDS ? !string.alt : false;
+    string.at = now;
+    const pick = touchAttackChoice(ta.kind, string.alt, ta.strong, self, opp);
+    it[pick.btn] = true;
+    it.strong = ta.strong;
+    it.height = pick.height;
   }
   touchStickSet(x, y, active) {
     this.touchStick.x = x; this.touchStick.y = y; this.touchStick.active = active;
@@ -945,6 +996,8 @@ class PlayerInput {
     it.jump = this.take('jump');
     if (it.jump && it.crouch) { it.jump = false; it.crouch = false; } // conflicting vertical inputs cancel
     it.lp = this.take('lp'); it.rp = this.take('rp'); it.lk = this.take('lk'); it.rk = this.take('rk');
+    if (this.touchAttack) this.applyTouchAttack(it, self, opp);
+    if (this.touchHeld.block) { if (it.crouch) it.blockL = true; else it.blockH = true; }   // touch BLOCK: with DUCK held it guards low
     it.dash = this.take('dash');
     it.stance = this.take('stance');
     it.grapple = this.take('grapple');
@@ -6172,7 +6225,7 @@ const MODE_INFO = {
 };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
 const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', stance: 'Select (tap)', pause: 'Start' };
-const TOUCH_LABELS = { lp: 'LP', rp: 'RP', lk: 'LK', rk: 'RK', strong: 'STR', height: 'HGT', blockHigh: 'BLK-H', blockLow: 'BLK-L', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STNC', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+const TOUCH_LABELS = { lp: 'PUNCH', rp: 'PUNCH (2nd in a row)', lk: 'KICK', rk: 'KICK (2nd in a row)', strong: 'Hold PUNCH / KICK, release', height: 'Automatic', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STANCE', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
@@ -6261,7 +6314,14 @@ const UI = {
   /* First match only: a short card with the main controls for the device in use. */
   showOnboarding() {
     const k = (a) => '<kbd>' + esc(this.keyName(a)) + '</kbd>';
-    this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
+    const touch = Input.lastDevice === 'touch' || (this.touchWanted() && Input.lastDevice === 'keyboard' && !Input.kb.size);
+    if (touch) this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
+      '<kbd>PUNCH</kbd> <kbd>KICK</kbd> tap for a quick attack, hold and release for a strong one<br>' +
+      'Repeated taps switch hands and feet; body and low shots are picked for you<br>' +
+      '<kbd>BLOCK</kbd> to guard, with <kbd>DUCK</kbd> to guard low<br>' +
+      '<kbd>GRAB</kbd> near the opponent, again to escape a grab<br>' +
+      'Stick: move, flick twice to dash or sidestep<small>Tap to close</small>';
+    else this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
       'Attacks: ' + ['lp', 'rp', 'lk', 'rk'].map(k).join(' ') + '<br>' +
       'Hold ' + k('strong') + ' strong or ' + k('height') + ' height, then attack<br>' +
       'Block high ' + k('blockHigh') + ', low ' + k('blockLow') + '<br>' +
@@ -6958,7 +7018,9 @@ const UI = {
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    const strikes = strikesLeft > 0 ? ', ' + this.keyName('lp', f.index) + ' knee / ' + this.keyName('rp', f.index) + ' elbow (' + strikesLeft + ' left)' : '';
+    const touch = Inputs.players[f.index].lastDevice === 'touch';
+    const strikeKeys = touch ? 'tap PUNCH knee / hold PUNCH elbow' : this.keyName('lp', f.index) + ' knee / ' + this.keyName('rp', f.index) + ' elbow';
+    const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
     return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws' + strikes;
   },
   /* Arrow for a fighter-relative direction as it appears on screen. */
@@ -7006,29 +7068,48 @@ const UI = {
     stick.addEventListener('pointerup', (e) => { if (e.pointerId === activeId) end(); });
     stick.addEventListener('pointercancel', end);
     stick.addEventListener('lostpointercapture', end);
-    const defs = [['lp', 'LP'], ['rp', 'RP'], ['lk', 'LK'], ['rk', 'RK'], ['strong', 'STR'], ['height', 'HGT'], ['blockHigh', 'BLK H'], ['blockLow', 'BLK L'], ['jump', 'JUMP'], ['crouch', 'DUCK'], ['grapple', 'GRAB'], ['dash', 'DASH'], ['stance', 'STNC'], ['pause', 'II']];
-    for (const [action, label] of defs) {
+    // [action, label, size]: lg = main fight buttons under the right thumb, sm = movement extras next to the stick
+    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['block', 'BLOCK', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['dash', 'DASH', 'sm'], ['stance', 'STANCE', 'sm'], ['pause', 'II', 'sm']];
+    const ariaLabels = { punch: 'Punch (hold for a strong punch)', kick: 'Kick (hold for a strong kick)', block: 'Block (with Duck: low block)' };
+    for (const [action, label, size] of defs) {
       const b = document.createElement('div');
-      b.className = 'tb' + (['stance', 'strong', 'height', 'blockHigh', 'blockLow', 'grapple', 'dash', 'jump', 'crouch'].includes(action) ? ' sm' : '');
+      b.className = 'tb' + (size ? ' ' + size : '');
       b.setAttribute('data-a', action);
       b.setAttribute('role', 'button');
-      b.setAttribute('aria-label', ACTION_LABELS[action]);
+      b.setAttribute('aria-label', ariaLabels[action] || ACTION_LABELS[action]);
       b.textContent = label;
       const ids = new Set();
-      const set = (down, id) => { if (down) ids.add(id); else ids.delete(id); const on = ids.size > 0; b.classList.toggle('on', on); Input.touchSet(action, on); };
+      const chargeable = action === 'punch' || action === 'kick';
+      let chargeTimer = 0;
+      const set = (down, id) => {
+        if (down) ids.add(id); else ids.delete(id);
+        const on = ids.size > 0;
+        b.classList.toggle('on', on);
+        if (chargeable) {
+          // the button lights up once a release would be the strong attack
+          clearTimeout(chargeTimer);
+          b.classList.remove('charged');
+          if (on) chargeTimer = setTimeout(() => b.classList.add('charged'), TOUCH_CHARGE_MS);
+        }
+        Input.touchSet(action, on);
+      };
       b.addEventListener('pointerdown', (e) => { b.setPointerCapture(e.pointerId); set(true, e.pointerId); e.preventDefault(); });
       const up = (e) => set(false, e.pointerId);
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
       root.appendChild(b);
     }
   },
-  applyTouchVisibility() {
+  touchWanted() {
     const mode = Settings.v.touch;
     const touchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
-    const want = mode === 'on' || (mode === 'auto' && touchDevice);
+    return mode === 'on' || (mode === 'auto' && touchDevice);
+  },
+  applyTouchVisibility() {
+    const want = this.touchWanted();
     const inMatch = [GS.COUNTDOWN, GS.FIGHT].includes(Game.state);
     this.dom.touch.hidden = !(want && inMatch);
     if (this.dom.pauseBtn) this.dom.pauseBtn.hidden = want;
+    if (want && inMatch && Input.lastDevice === 'keyboard' && !Input.kb.size) Input.lastDevice = 'touch';   // hints name the on-screen buttons from the first fight
   },
 
   /* ----- diagnostics ----- */
@@ -8120,6 +8201,44 @@ const SelfTest = {
       Settings.v.movement = keep; Input.lastDevice = device;
       Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
       return side && run && stop ? true : JSON.stringify({ side, run, stop });
+    });
+    test('Touch: PUNCH / KICK alternate limbs, hold for strong, aim where the attack lands; BLOCK + DUCK guards low', () => {
+      const device = Input.lastDevice;
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      Input.reset(); Input.releaseAll();
+      Input.touchString.punch.at = Input.touchString.kick.at = -10;
+      const strike = (kind, hold) => {
+        Input.touchSet(kind, true);
+        if (hold) Input.touchDownAt[kind] -= TOUCH_CHARGE_MS + 10;
+        Input.touchSet(kind, false);
+        return Input.fillIntent(it, f, o);
+      };
+      strike('punch');
+      const jab = it.lp && !it.strong && !it.height;
+      strike('punch');
+      const cross = it.rp && !it.lp;
+      Input.touchString.punch.at = -10;
+      strike('punch', true);
+      const power = it.lp && it.strong;
+      o.state = S.CROUCH; Input.touchString.punch.at = -10;
+      strike('punch');
+      const body = it.lp && it.height;
+      o.state = S.BLOCK_H;
+      strike('kick');
+      const low = it.lk && it.height;
+      o.state = S.IDLE; f.state = S.GRAPPLE; Input.touchString.punch.at = -10;
+      strike('punch');
+      const knee = it.lp;
+      strike('punch', true);
+      const elbow = it.rp;
+      f.state = S.IDLE;
+      Input.touchSet('block', true); Input.update(); Input.fillIntent(it, f, o);
+      const high = it.blockH && !it.blockL;
+      Input.touchSet('crouch', true); Input.update(); Input.fillIntent(it, f, o);
+      const lowGuard = it.blockL;
+      Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      const r = { jab, cross, power, body, low, knee, elbow, high, lowGuard };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
     });
     test('Gamepad: firm taps jump but double taps do not, R3 grapples, Select taps stance and holds reset', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
