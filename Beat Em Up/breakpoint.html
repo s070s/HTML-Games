@@ -3023,7 +3023,7 @@ class Fighter {
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
     this.state = S.IDLE; this.stateTicks = 0; this.age = 0;
     this.stance = 0;
-    this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
+    this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockRead = null; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
     this.buffer = null;
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
@@ -3986,6 +3986,8 @@ const Combat = {
         match.hitStop = Math.max(match.hitStop, 12);
       } else {
         def.blockStun = Math.round(mv.blockstun * def.stats.stun);
+        // ticks the attacker is still recovering once the guard drops (> 0: the blocker can punish)
+        def.blockRead = { id: att.moveId, edge: att.mStartup + att.mActive + att.mRecovery - att.moveTick - def.blockStun };
         def.kx = dirx * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5; def.kz = dirz * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5;
         att.kx = -dirx * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5; att.kz = -dirz * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5;
         match.hitStop = Math.max(match.hitStop, 3);
@@ -4574,19 +4576,22 @@ const CustomRoster = {
    delayed by its reaction time. It never reads the opponent's controller input.
    ===================================================================== */
 const DIFFICULTY = {
-  easy: { id: 'easy', label: 'Easy', react: 18, interval: 22, blockSkill: 0.22, parry: 0.02, punish: 0.15, counter: 0.1, mistakes: 0.32, aggression: 0.6, heavy: 0.15, grab: 0.05, escape: 0.2, adapt: 0, sidestep: 0, lockout: 18, env: false },
-  normal: { id: 'normal', label: 'Normal', react: 13, interval: 14, blockSkill: 0.5, parry: 0.08, punish: 0.45, counter: 0.3, mistakes: 0.14, aggression: 0.85, heavy: 0.3, grab: 0.12, escape: 0.4, adapt: 0.1, sidestep: 0.15, lockout: 11, env: false },
-  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true },
-  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true },
+  easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75 },
+  normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
+  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
+  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
 };
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
-   parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks. */
+   parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks;
+   dmg = the CPU's damage dealt (Easy and Normal hit softer, so a beginner who trades blows still wins). */
 const AI_HEIGHT_READ = 4;        // ticks into a strike before its height (high / mid / low) can be told apart
 const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a grab
 const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
 const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
 const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape skill x this
 const AI_GRAB_BREAK = 0.3;       // chance to break a grab at the first legal tick = blockSkill x this, rolled once per grab
+const AI_BLOCK_PUNISH = 0.8;     // chance to punish a blocked, unsafe attack = difficulty punish skill x this
+const AI_BLOCK_PUNISH_EDGE = 4;  // the attacker must still be recovering this many ticks after the guard drops
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
 const AI_MOVES = ALL_MOVES.filter((m) => !m.ctx && m.type === 'strike');
@@ -4666,6 +4671,8 @@ class AIController {
     // facing: nothing to do, fighter auto-faces
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
 
+    // 0. punish a blocked attack that leaves the attacker recovering (the AI knows the move it just blocked)
+    if (this.punishBlocked(f, opp, snap, dist, it)) return it;
     // 1. reactive defence against attacks seen (with delay)
     this.reactToThreat(f, opp, snap, it);
     const tr = this.threatResp;
@@ -4725,6 +4732,18 @@ class AIController {
     const lows = this.oppRecent.filter((h) => h === 'L').length;
     return lows * 2 > this.oppRecent.length && simRng() < this.d.adapt ? 'L' : 'H';
   }
+  punishBlocked(f, opp, snap, dist, it) {
+    const br = f.blockRead;
+    if (!br || f.blockStun > 0) return false;
+    f.blockRead = null;
+    if (br.edge < AI_BLOCK_PUNISH_EDGE || f.state === S.ATTACK || f.lowStamina || simRng() >= this.d.punish * AI_BLOCK_PUNISH) return false;
+    const mv = this.pickMove(f, opp, snap, dist, true, br.edge);
+    if (!mv) return false;
+    this.threatResp = null;
+    this.plan = this.attackPlan(mv);
+    this.runPlan(f, opp, it);
+    return true;
+  }
   checkPunish(f, opp, snap, dist) {
     const d = this.d;
     if (!(snap.state === S.ATTACK && (snap.mvType === 'strike' || snap.mvType === 'grab'))) return null;   // a grab still in ATTACK after its active ticks has whiffed
@@ -4759,7 +4778,7 @@ class AIController {
   }
 
   inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 && dist >= 0.45; }
-  pickMove(f, opp, snap, dist, fastOnly) {
+  pickMove(f, opp, snap, dist, fastOnly, maxStartup = 99) {
     const d = this.d, st = this.profile.style;
     let best = null, bestScore = 0;
     const oppState = snap.state;
@@ -4768,6 +4787,7 @@ class AIController {
     for (const mv of AI_MOVES) {
       if (!this.inRange(f, mv, dist)) continue;
       if (fastOnly && mv.startup > 11) continue;
+      if (mv.startup > maxStartup) continue;
       let sc = 0.5;
       sc *= mv.cat === 'punch' ? 0.4 + st.punch : mv.cat === 'kick' ? 0.4 + st.kick : 0.3 + st.heavy * d.heavy * 2.2;
       if (mv.h === 'L') sc *= 0.5 + st.low;
@@ -5016,6 +5036,7 @@ class MatchSim {
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
     this.controllers = [PlayerController, this.rivalController(p2)];
+    if (!this.versus && !this.training) this.fighters[1].stats.damage *= (DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
     this.intents = [makeIntent(), makeIntent()];
     this.tick = 0;
     this.matchTicks = 0;
@@ -5456,7 +5477,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'normal', rounds: 2, timer: 60, arcadeLevel: 'normal' },
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy' },   // new players start on the easiest settings
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   endTimer: 0,
   frameAvg: 16,
