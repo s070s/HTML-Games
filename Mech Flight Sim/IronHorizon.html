@@ -519,9 +519,9 @@ const DIFFICULTY = {
 };
 
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -531,18 +531,21 @@ const MAPS = {
     ground: [0.62, 0.52, 0.37], dark: [0.4, 0.33, 0.25], high: [0.74, 0.68, 0.55],
     zenith: [0.18, 0.36, 0.62], horizon: [0.8, 0.74, 0.64], fog: 0.00085,
     sun: [-0.5, 0.72, -0.35], sunCol: [1.12, 1.0, 0.84], skyAmb: [0.5, 0.56, 0.66], gndAmb: [0.34, 0.29, 0.22], tree: [0.36, 0.36, 0.2],
+    weather: { weights: { clear: 5, overcast: 2, storm: 1, sandstorm: 2 }, time: 'day' },
   },
   verdant: {
     name: 'Verdant Ridge', desc: 'Forested hills with fuel depots in the valleys.', seed: 4.1, hill: 1.25,
     ground: [0.28, 0.44, 0.22], dark: [0.17, 0.3, 0.14], high: [0.5, 0.52, 0.38],
     zenith: [0.2, 0.42, 0.7], horizon: [0.7, 0.8, 0.82], fog: 0.001,
     sun: [0.4, 0.75, -0.45], sunCol: [1.05, 1.0, 0.9], skyAmb: [0.5, 0.6, 0.72], gndAmb: [0.22, 0.3, 0.2], tree: [0.14, 0.34, 0.14],
+    weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
   },
   frost: {
     name: 'Frost Salient', desc: 'Snow-covered flats under a low winter sun.', seed: 8.3, hill: 0.85,
     ground: [0.8, 0.84, 0.9], dark: [0.55, 0.6, 0.68], high: [0.92, 0.94, 0.98],
     zenith: [0.28, 0.42, 0.66], horizon: [0.82, 0.86, 0.92], fog: 0.0011,
     sun: [0.7, 0.45, 0.3], sunCol: [1.0, 0.92, 0.85], skyAmb: [0.58, 0.66, 0.8], gndAmb: [0.42, 0.46, 0.56], tree: [0.2, 0.34, 0.26],
+    weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 1 }, time: 'day' },
   },
 };
 const MAP_DEFAULT_ID = 'ashfall';   // an unknown battlefield id falls back to this one
@@ -562,12 +565,16 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      floor: lowest ground height in m (sea bed), rock / snow: ground colours [r, g, b] or null, snowLine: m }
      Ridges and plateaus are added to the rolling base heights; rock and snow colour the ground only when set.
    maxSlope: steepest ground (deg) a ground vehicle or mech can climb on this map (infantry: INFANTRY_MAX_SLOPE)
-   flora, fauna, weather, hazards, lanes: lists filled by later updates, [] for none
+   weather: { weights: { <state>: weight, ... }, time } the weather states (WEATHER) this battlefield draws its changing
+     weather from, each as likely as its weight (missing or 0: never drawn), and the time of day (TIME_PRESETS key) used
+     when a mission turns weather on without naming a time. A row's weights replace the default list as a whole.
+   flora, fauna, hazards, lanes: lists filled by later updates, [] for none
    airport: { x, z, yaw } of a runway, or null
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
-  biome: 'temperate', water: [], roads: [], flora: [], fauna: [], weather: [], hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
+  biome: 'temperate', water: [], roads: [], flora: [], fauna: [], weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
 };
+const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
 const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity };
 const WATER_BODY = {   // defaults of each water body type (m)
   sea: { side: 'east', shore: 500, level: 0, depth: 24, beach: 140 },
@@ -582,6 +589,8 @@ function mapDef(id) {
   if (def) return def;
   def = Object.assign({ id: MAPS[id] ? id : MAP_DEFAULT_ID }, JSON.parse(JSON.stringify(MAP_FIELDS)), row);
   def.mountains = Object.assign({}, MAP_MOUNTAINS, row.mountains);
+  def.weather = Object.assign({}, MAP_WEATHER, row.weather);
+  def.weather.weights = Object.assign({}, def.weather.weights);
   def.water = def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
   MAP_DEFS.set(row, def);
   return def;
@@ -1048,8 +1057,10 @@ const TouchControls = {
 /* =====================================================================
    AUDIO (all synthesised with Web Audio, started after a user gesture)
    ===================================================================== */
+const AMB_RAIN_VOL = 0.16, AMB_WIND_VOL = 0.12;   // weather ambience loudness at full rain and full wind (sfx bus)
+const AMB_STEP = 0.01;                            // ambience levels closer than this to the last sent ones are not re-sent
 const Snd = {
-  ctx: null, master: null, bus: {}, noiseBuf: null, voices: 0, ok: false, last: {},
+  ctx: null, master: null, bus: {}, noiseBuf: null, voices: 0, ok: false, last: {}, amb: null, ambRain: 0, ambWind: 0,
   lx: 0, ly: 0, lz: 0, lyaw: 0, MAXV: 26, engine: null, musicTimer: null, musicMode: 'off', step: 0, nextT: 0, intensity: 0,
   init() {
     if (this.ctx) return;
@@ -1166,6 +1177,26 @@ const Snd = {
   engineStop() {
     if (this.engine) { try { this.engine.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); } catch (e) { /* ignore */ } }
   },
+  /* weather ambience: a rain hiss and a wind roar, two looping filtered noises on the sfx bus (rain and wind 0..1) */
+  ambienceUpdate(rain, wind) {
+    if (!this.ok || (Math.abs(rain - this.ambRain) < AMB_STEP && Math.abs(wind - this.ambWind) < AMB_STEP)) return;
+    this.ambRain = rain; this.ambWind = wind;
+    try {
+      const c = this.ctx, t = c.currentTime;
+      if (!this.amb) this.amb = { rain: this.loopNoise('bandpass', 2600, 0.6), wind: this.loopNoise('lowpass', 420, 0.9) };
+      this.amb.rain.g.gain.setTargetAtTime(rain * AMB_RAIN_VOL, t, 0.4);
+      this.amb.wind.g.gain.setTargetAtTime(wind * AMB_WIND_VOL, t, 0.6);
+      this.amb.wind.f.frequency.setTargetAtTime(260 + wind * 520, t, 0.6);
+    } catch (err) { /* ignore */ }
+  },
+  ambienceStop() { this.ambienceUpdate(0, 0); },
+  /* a silent looping noise through one filter into the sfx bus: { src, f, g } (raise g.gain to hear it) */
+  loopNoise(type, freq, q) {
+    const c = this.ctx, src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = this.noiseBuf; src.loop = true; f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.value = 0;
+    src.connect(f); f.connect(g); g.connect(this.bus.sfx); src.start(0, Math.random() * 0.5);
+    return { src, f, g };
+  },
   /* simple procedural music: bass pulse + pad, intensity-driven */
   musicStart(mode) {
     if (!this.ok) return;
@@ -1225,7 +1256,7 @@ const Snd = {
     s.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
   },
 };
-Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, footstep: 0.09, gib: 0.08, splash: 0.06, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07 };
+Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, footstep: 0.09, gib: 0.08, splash: 0.06, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07, thunder: 0.5 };
 /* sound recipes: (volume, pan) */
 Snd.R = {
   mg() { this.noise({ dur: 0.07, vol: 0.12 * arguments[0], lp: 3200, lp2: 900, pan: arguments[1] }); this.tone({ freq: 160, freq2: 70, dur: 0.06, vol: 0.06 * arguments[0], type: 'square', pan: arguments[1] }); },
@@ -1252,6 +1283,7 @@ Snd.R = {
   step() { this.noise({ dur: 0.12, vol: 0.22 * arguments[0], lp: 400, lp2: 100, pan: arguments[1] }); },
   gib() { this.noise({ dur: 0.35, vol: 0.4 * arguments[0], lp: 900, lp2: 110, pan: arguments[1] }); this.noise({ dur: 0.18, vol: 0.22 * arguments[0], lp: 2600, lp2: 400, pan: arguments[1], delay: 0.04 }); },
   footstep() { this.noise({ dur: 0.06, vol: 0.16 * arguments[0], hp: 1100, pan: arguments[1] }); this.noise({ dur: 0.08, vol: 0.12 * arguments[0], lp: 700, lp2: 160, pan: arguments[1] }); },
+  thunder() { this.noise({ dur: 2.6, vol: 0.5 * arguments[0], lp: 420, lp2: 50, att: 0.08 }); this.noise({ dur: 0.5, vol: 0.18 * arguments[0], lp: 1600, lp2: 300 }); },
   splash() { this.noise({ dur: 0.45, vol: 0.32 * arguments[0], lp: 2400, lp2: 260, pan: arguments[1] }); this.noise({ dur: 0.3, vol: 0.14 * arguments[0], hp: 2800, pan: arguments[1], delay: 0.03 }); },
   melee() { this.noise({ dur: 0.25, vol: 0.35 * arguments[0], lp: 1500, lp2: 200, pan: arguments[1] }); this.tone({ freq: 120, freq2: 50, dur: 0.2, vol: 0.2 * arguments[0], type: 'square', pan: arguments[1] }); },
   alarm() { this.tone({ freq: 880, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui' }); this.tone({ freq: 660, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui', delay: 0.18 }); },
@@ -1356,7 +1388,14 @@ precision highp float;
 precision mediump float;
 #endif
 varying vec3 vD; uniform vec3 uZen; uniform vec3 uHor; uniform vec3 uSun; uniform vec3 uSunCol; uniform float uNight;
+uniform float uCloud; uniform vec3 uCloudCol; uniform vec2 uDrift; uniform float uFlash;
 float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash(vec3(i, 0.0)), b = hash(vec3(i + vec2(1.0, 0.0), 0.0)), c = hash(vec3(i + vec2(0.0, 1.0), 0.0)), e = hash(vec3(i + vec2(1.0, 1.0), 0.0));
+  return mix(mix(a, b, f.x), mix(c, e, f.x), f.y);
+}
 void main(){
   vec3 d = normalize(vD);
   float t = pow(clamp(d.y, 0.0, 1.0), 0.5);
@@ -1369,6 +1408,13 @@ void main(){
     float st = step(0.9965, hash(c));
     col += vec3(st) * uNight * 0.9 * clamp(d.y * 2.0, 0.0, 1.0);
   }
+  if (uCloud > 0.0 && d.y > -0.05) {   // a cloud layer: three noise octaves on a plane above, drifting with the wind
+    vec2 p = d.xz / max(d.y + 0.15, 0.05) * 1.3 + uDrift;
+    float n = vnoise(p) * 0.55 + vnoise(p * 2.3 + 4.1) * 0.3 + vnoise(p * 5.1 - 2.7) * 0.15;
+    float c = smoothstep(0.75 - 0.7 * uCloud, 1.05 - 0.6 * uCloud, n) * clamp((d.y + 0.05) * 5.0, 0.0, 1.0);
+    col = mix(col, uCloudCol * (0.85 + 0.3 * n), c);
+  }
+  col += uFlash * vec3(0.75, 0.8, 1.0) * (0.4 + 0.6 * clamp(d.y * 2.0, 0.0, 1.0));
   gl_FragColor = vec4(col, 1.0);
 }`;
 const PTS_VS = `
@@ -1388,6 +1434,17 @@ void main(){
   if (r > 1.0) discard;
   float a = (1.0 - r * r);
   gl_FragColor = vec4(vCol.rgb, vCol.a * a);
+}`;
+/* precipitation: rain streaks as lines (uLine 1), snowflakes and sand as soft points; vertices as PTS_VS takes them */
+const PRECIP_FS = `
+precision mediump float;
+varying vec4 vCol; uniform float uLine;
+void main(){
+  if (uLine > 0.5) { gl_FragColor = vCol; return; }
+  vec2 c = gl_PointCoord - vec2(0.5);
+  float r = length(c) * 2.0;
+  if (r > 1.0) discard;
+  gl_FragColor = vec4(vCol.rgb, vCol.a * (1.0 - r * r));
 }`;
 /* Water surface: aInfo holds the water depth at the vertex and the river current (x, z). uWave 0 (Low quality)
    leaves the surface flat and still; uFoam 0 leaves out the shore foam. */
@@ -1509,6 +1566,11 @@ function meshWedge() {
   return buildConvex(t);
 }
 
+/* in place: colour c turned share g of the way to its own grey, then times tint (blended toward 1 by keep) */
+function greyTint(c, g, tint, keep) {
+  const grey = (c[0] + c[1] + c[2]) / 3;
+  for (let k = 0; k < 3; k++) c[k] = lerp(c[k], grey, g) * lerp(tint[k], 1, keep);
+}
 const R = {
   gl: null, canvas: null, ok: false, lost: false, meshes: {}, prog: {}, uni: {},
   stack: new MatStack(32), view: new Float32Array(16), proj: new Float32Array(16), vp: new Float32Array(16),
@@ -1519,6 +1581,7 @@ const R = {
   ptsBuf: null, ptsData: null, terrain: null, terrainDirty: true, onResourcesRestored: null,
   pxScale: 1, bake: null, meshCPU: {}, matCache: [NaN, NaN, NaN, NaN, NaN, NaN], batches: {},
   water: null, waterSrc: null, under: false, waterDraws: 0,   // water surface buffer, its source data, camera under water, draws last frame
+  precipBuf: null, precipDraws: 0,                            // precipitation vertex buffer, its draws last frame
 
   init(canvas) {
     this.canvas = canvas;
@@ -1566,8 +1629,9 @@ const R = {
     const ext = gl.getExtension('ANGLE_instanced_arrays');
     this.inst = ext && typeof ext.drawArraysInstancedANGLE === 'function' ? ext : null;
     if (this.inst) this.program('inst', INST_VS, LIT_FS, ['aPos', 'aNrm', 'aCol', 'iA', 'iB', 'iC', 'iD'], litUniforms);
-    this.program('sky', SKY_VS, SKY_FS, ['aPos'], ['uMVP', 'uZen', 'uHor', 'uSun', 'uSunCol', 'uNight']);
+    this.program('sky', SKY_VS, SKY_FS, ['aPos'], ['uMVP', 'uZen', 'uHor', 'uSun', 'uSunCol', 'uNight', 'uCloud', 'uCloudCol', 'uDrift', 'uFlash']);
     this.program('pts', PTS_VS, PTS_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale']);
+    this.program('precip', PTS_VS, PRECIP_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale', 'uLine']);
     this.program('water', WATER_VS, WATER_FS, ['aPos', 'aInfo'], ['uVP', 'uTime', 'uWave', 'uSun', 'uSunCol', 'uSky', 'uFog', 'uFogD', 'uCam', 'uFoam', 'uShallow', 'uDeep']);
     const defs = { box: meshBox(), cyl: meshCylinder(10), cone: meshCone(8), sphere: meshSphere(6, 9), wedge: meshWedge(), sky: meshSphere(10, 14) };
     this.meshes = {}; this.meshCPU = {}; this.matCache = [NaN, NaN, NaN, NaN, NaN, NaN];
@@ -1582,6 +1646,9 @@ const R = {
     this.ptsBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ptsBuf);
     gl.bufferData(gl.ARRAY_BUFFER, this.ptsData.byteLength, gl.DYNAMIC_DRAW);
+    this.precipBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.precipBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, Precip.data.byteLength, gl.DYNAMIC_DRAW);
     for (let i = 0; i < 3; i++) gl.enableVertexAttribArray(i);
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
@@ -1771,18 +1838,27 @@ const R = {
     if (this.gl) this.gl.viewport(0, 0, w, h);
   },
 
-  setEnv(map, mods) {
-    const m = map;
-    const night = mods && mods.night ? 1 : 0, fog = mods && mods.fog ? 2.6 : 1;
-    this.night = night;
-    const k = night ? 0.18 : 1;
-    this.env = {
-      sun: m.sun.slice(), sunCol: m.sunCol.map((v) => v * (night ? 0.28 : 1)), skyAmb: m.skyAmb.map((v) => v * (night ? 0.3 : 1)),
-      gndAmb: m.gndAmb.map((v) => v * (night ? 0.4 : 1)), zen: m.zenith.map((v) => v * k), hor: m.horizon.map((v) => v * (night ? 0.12 : (mods && mods.fog ? 0.9 : 1))),
-      fogD: m.fog * fog * (night ? 1.3 : 1),
-    };
-    const l = Math.hypot(m.sun[0], m.sun[1], m.sun[2]);
-    this.env.sun = [m.sun[0] / l, m.sun[1] / l, m.sun[2] / l];
+  /* Light, sky and fog from map m's palette and look L (Weather.look): L.t the time-of-day factors (Clock.look), L.w the
+     weather row blend, L.dir the light direction, L.night 0..1, L.flash a sky flash 0..1, L.drift the cloud drift.
+     All factors 1, no night and no flash give the map's palette exactly. Written in place every tick. */
+  setEnv(m, L) {
+    let e = this.env;
+    if (!e || e.map !== m) e = this.env = { map: m, sun: [0, 1, 0], sunCol: [0, 0, 0], skyAmb: [0, 0, 0], gndAmb: [0, 0, 0], zen: [0, 0, 0], hor: [0, 0, 0], fogD: 0, cloud: 0, cloudCol: [0, 0, 0], drift: [0, 0], flash: 0 };
+    const t = L.t, w = L.w, f = L.flash * FLASH_AMB;
+    for (let c = 0; c < 3; c++) {
+      e.sunCol[c] = m.sunCol[c] * t.sunCol[c] * w.sun;
+      e.skyAmb[c] = m.skyAmb[c] * t.skyAmb[c] * w.skyAmb[c] + f;
+      e.gndAmb[c] = m.gndAmb[c] * t.gndAmb * w.gndAmb[c] + f * 0.6;
+      e.zen[c] = m.zenith[c] * t.zen[c];
+      e.hor[c] = m.horizon[c] * t.hor[c];
+      e.sun[c] = L.dir[c];
+    }
+    greyTint(e.zen, w.grey, w.zen, 0);
+    greyTint(e.hor, w.grey, w.hor, L.night);   // night skies keep their own horizon whatever the weather
+    for (let c = 0; c < 3; c++) e.cloudCol[c] = e.hor[c] * w.cloudShade[c];
+    e.fogD = m.fog * w.fog * t.fog;
+    e.cloud = w.cloud; e.flash = L.flash; e.drift[0] = L.drift[0]; e.drift[1] = L.drift[1];
+    this.night = L.night;
   },
 
   beginFrame(cam, fovDeg) {
@@ -1818,6 +1894,7 @@ const R = {
     const u = this.uni.sky;
     gl.uniformMatrix4fv(u.uMVP, false, this.skyMvp);
     gl.uniform3fv(u.uZen, e.zen); gl.uniform3fv(u.uHor, e.hor); gl.uniform3fv(u.uSun, e.sun); gl.uniform3fv(u.uSunCol, e.sunCol); gl.uniform1f(u.uNight, this.night);
+    gl.uniform1f(u.uCloud, e.cloud); gl.uniform3fv(u.uCloudCol, e.cloudCol); gl.uniform2fv(u.uDrift, e.drift); gl.uniform1f(u.uFlash, e.flash);
     this.bindMesh(this.meshes.sky);
     gl.drawArrays(gl.TRIANGLES, 0, this.meshes.sky.count);
     gl.depthMask(true);
@@ -1956,6 +2033,29 @@ const R = {
     this.drawCalls++;
     this.use('lit');
   },
+  /* precipitation (Precip): rain lines and flake points, one draw each at most */
+  drawPrecip(P) {
+    this.precipDraws = 0;
+    if (P.nLine === 0 && P.nFlake === 0) return;
+    const gl = this.gl, u = this.uni.precip, F = PRECIP_FLOATS;
+    this.use('precip');
+    this.curMesh = null;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.precipBuf);
+    if (P.nLine) gl.bufferSubData(gl.ARRAY_BUFFER, 0, P.data.subarray(0, P.nLine * 2 * F));
+    if (P.nFlake) gl.bufferSubData(gl.ARRAY_BUFFER, P.flakeAt * F * 4, P.data.subarray(P.flakeAt * F, (P.flakeAt + P.nFlake) * F));
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, F * 4, 0);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, F * 4, 12);
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, F * 4, 28);
+    gl.uniformMatrix4fv(u.uVP, false, this.vp);
+    gl.uniform1f(u.uScale, this.pxScale);
+    gl.depthMask(false);
+    this.blend(true, false);
+    if (P.nLine) { gl.uniform1f(u.uLine, 1); gl.drawArrays(gl.LINES, 0, P.nLine * 2); this.drawCalls++; this.precipDraws++; }
+    if (P.nFlake) { gl.uniform1f(u.uLine, 0); gl.drawArrays(gl.POINTS, P.flakeAt, P.nFlake); this.drawCalls++; this.precipDraws++; }
+    this.blend(false);
+    gl.depthMask(true);
+    this.use('lit');
+  },
   /* world -> screen (in CSS pixel units of the HUD) */
   project(x, y, z, w, h, out) {
     const m = this.vp;
@@ -2002,12 +2102,14 @@ const FX = {
   },
   update(dt) {
     let i = 0;
+    const wx = Weather.windX * WIND_FX * dt, wz = Weather.windZ * WIND_FX * dt;   // smoke drifts with the wind; glows do not
     while (i < this.n) {
       this.life[i] -= dt;
       if (this.life[i] <= 0) { this._remove(i); continue; }
       const d = Math.exp(-this.drag[i] * dt);
       this.vx[i] *= d; this.vy[i] = this.vy[i] * d - this.grav[i] * dt; this.vz[i] *= d;
       this.x[i] += this.vx[i] * dt; this.y[i] += this.vy[i] * dt; this.z[i] += this.vz[i] * dt;
+      if (!this.add[i]) { this.x[i] += wx; this.z[i] += wz; }
       i++;
     }
   },
@@ -3215,8 +3317,23 @@ function newWorld(cfg) {
   R.setTerrain(...(function () { const md = Terrain.meshData(m); return [md.data, md.idx]; })());
   const wm = Water.meshData();
   R.setWater(wm ? wm.data : null);
-  R.setEnv(m, W.mods);
+  Weather.begin(m, cfg.env);
   return W;
+}
+/* FNV-1a over every stride-th value of a float array (rounded to mm), continuing from hash h */
+const FNV_BASIS = 2166136261, FNV_PRIME = 16777619;
+function hashFloats(arr, stride, h) {
+  for (let k = 0; k < arr.length; k += stride) { h ^= Math.round(arr[k] * 1000) & 0xffffffff; h = Math.imul(h, FNV_PRIME) >>> 0; }
+  return h;
+}
+const WORLD_HASH_STRIDE = 37;   // fingerprint every 37th ground and water height
+/* fingerprint of the world in use: the levelled ground heights, the water surface and the structure count. Co-op guests
+   compare theirs with the host's at the start (D18). */
+function worldHash() {
+  let h = hashFloats(Terrain.heights, WORLD_HASH_STRIDE, FNV_BASIS);
+  if (Water.any) h = hashFloats(Water.levels, WORLD_HASH_STRIDE, h);
+  h ^= W.structs.length;
+  return Math.imul(h, FNV_PRIME) >>> 0;
 }
 /* ---------- roads and bridges (P1.3) ----------
    A map def's roads are strips laid on the ground; where one crosses water it runs over a bridge of deck sections,
@@ -3684,10 +3801,13 @@ function drawWorld(dt) {
   R.blend(false); R.depthWrite(true);
   R.drawPoints(FX, false);
   R.drawPoints(FX, true);
+  Precip.update(dt, R.cam);
+  R.drawPrecip(Precip);
 }
 
 function updateWorldEffects(dt) {
   W.time += dt;
+  Weather.update(dt);
   updateDebris(dt);
   Civ.update(dt);
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
@@ -3721,6 +3841,317 @@ function updateWorldEffects(dt) {
   FX.update(dt);
 }
 
+
+/* =====================================================================
+   WEATHER AND TIME OF DAY (P1.4, P1.5): sky, light and fog every tick, rain, snow and sand, wind, traction, AI sight
+   Every session carries an env config in cfg.env: { weather, time, seed } (Weather.envOf). The look at any moment
+   follows from it and the world clock (mission time, which guests get from the host in 'ob'), so co-op sends
+   nothing per tick. A mission keeps the plain look of its map unless its def opts in with env: { weather, time }.
+   ===================================================================== */
+const FOG_SIGHT = 0.55;            // AI sight multiplier in heavy fog
+const NIGHT_SIGHT = 0.75;          // AI sight multiplier at night
+/* Weather states (D21), one row each:
+   fog: fog density factor; zen, hor: sky colour factors (zenith, horizon); grey: share of the sky colour turned grey
+   sun: direct sunlight factor; skyAmb, gndAmb: ambient light factors (sky and ground side)
+   cloud: cloud cover 0..1, cloudShade: cloud colour as a factor of the horizon colour
+   particle: PRECIP kind falling around the camera (null: none), density: its share of the quality cap
+   sight: AI sight factor; traction: ground vehicle braking and steering grip; wind: wind speed (m/s)
+   flash: sky flashes per second (storm lightning; strikes on the ground come with the hazards update, P3.3) */
+const WEATHER = {
+  clear: { name: 'Clear', fog: 1, zen: [1, 1, 1], hor: [1, 1, 1], grey: 0, sun: 1, skyAmb: [1, 1, 1], gndAmb: [1, 1, 1], cloud: 0, cloudShade: [1, 1, 1], particle: null, density: 0, sight: 1, traction: 1, wind: 0, flash: 0 },
+  overcast: { name: 'Overcast', fog: 1.35, zen: [0.82, 0.84, 0.88], hor: [0.9, 0.92, 0.95], grey: 0.55, sun: 0.5, skyAmb: [1.1, 1.1, 1.1], gndAmb: [1.1, 1.1, 1.1], cloud: 0.75, cloudShade: [0.92, 0.93, 0.96], particle: null, density: 0, sight: 0.9, traction: 1, wind: 4, flash: 0 },
+  rain: { name: 'Rain', fog: 1.8, zen: [0.62, 0.65, 0.7], hor: [0.74, 0.77, 0.82], grey: 0.7, sun: 0.38, skyAmb: [0.95, 0.95, 1], gndAmb: [0.95, 0.95, 1], cloud: 0.92, cloudShade: [0.7, 0.72, 0.76], particle: 'rain', density: 0.75, sight: 0.8, traction: 0.85, wind: 5, flash: 0 },
+  storm: { name: 'Storm', fog: 2.2, zen: [0.36, 0.38, 0.45], hor: [0.5, 0.53, 0.6], grey: 0.8, sun: 0.22, skyAmb: [0.7, 0.72, 0.8], gndAmb: [0.7, 0.72, 0.8], cloud: 1, cloudShade: [0.42, 0.44, 0.5], particle: 'rain', density: 1, sight: 0.7, traction: 0.8, wind: 11, flash: 0.12 },
+  snow: { name: 'Snow', fog: 2, zen: [0.86, 0.88, 0.94], hor: [1, 1.02, 1.06], grey: 0.6, sun: 0.45, skyAmb: [1.05, 1.05, 1.1], gndAmb: [1.1, 1.1, 1.15], cloud: 0.85, cloudShade: [0.9, 0.92, 0.96], particle: 'snow', density: 0.85, sight: 0.75, traction: 0.75, wind: 3, flash: 0 },
+  fog: { name: 'Fog', fog: 2.6, zen: [1, 1, 1], hor: [0.9, 0.9, 0.9], grey: 0, sun: 1, skyAmb: [1, 1, 1], gndAmb: [1, 1, 1], cloud: 0, cloudShade: [1, 1, 1], particle: null, density: 0, sight: FOG_SIGHT, traction: 1, wind: 0, flash: 0 },
+  sandstorm: { name: 'Sandstorm', fog: 4.5, zen: [1, 0.8, 0.56], hor: [1.08, 0.88, 0.62], grey: 0.45, sun: 0.5, skyAmb: [1.1, 0.95, 0.78], gndAmb: [1.1, 0.95, 0.75], cloud: 0.25, cloudShade: [0.92, 0.82, 0.66], particle: 'sand', density: 0.9, sight: 0.5, traction: 0.95, wind: 14, flash: 0 },
+};
+const WEATHER_IDS = Object.keys(WEATHER);
+const WEATHER_NUM = ['fog', 'grey', 'sun', 'cloud', 'sight', 'traction', 'wind', 'flash'];   // row fields blended as numbers
+const WEATHER_RGB = ['zen', 'hor', 'skyAmb', 'gndAmb', 'cloudShade'];                       // and as colours
+const WEATHER_CHANGING = 'changing';   // the weather setting that draws a schedule from the map's weights
+const WEATHER_BLEND = 45;              // seconds one state takes to turn into the next
+const WEATHER_HOLD = [150, 330];       // seconds a drawn state lasts, blend included
+const WEATHER_SEGMENTS = 48;           // states drawn per schedule (at least 2 h); it then repeats
+const WIND_VEER = 0.6, WIND_VEER_TIME = 180;   // the wind swings this many radians either way, over about this many s
+const WIND_GUST = 0.25;                // gusts add or take this share of the wind speed
+const WIND_FX = 0.6;                   // smoke drifts with this share of the wind
+const WIND_AIR = 0.3;                  // aircraft in flight drift with this share of the wind
+const CLOUD_DRIFT = 0.004;             // cloud pattern drift per m of wind
+const CLOUD_DRIFT_MIN = 0.5;           // the clouds drift this fast (m/s) even in still air
+const FLASH_FADE = 3.5;                // a sky flash fades at this rate per second
+const FLASH_AMB = 0.55;                // ambient light a full flash adds
+const FLASH_SALT = 7;                  // second hash coordinate of the flash draw
+/* Time of day: the hour of each preset; 'cycle' runs a day in TIME_CYCLE_SECONDS from TIME_CYCLE_START */
+const TIME_PRESETS = {
+  dawn: { name: 'Dawn', hour: 6.5 }, day: { name: 'Day', hour: 12 }, dusk: { name: 'Dusk', hour: 17.5 }, night: { name: 'Night', hour: 0 },
+  cycle: { name: 'Cycle (24 min day)', hour: 9 },
+};
+const TIME_CYCLE = 'cycle';
+const TIME_CYCLE_SECONDS = 24 * 60;    // 24 game minutes per day (D21)
+const SUN_RISE = 6, SUN_SET = 18;      // hours the sun crosses the horizon
+const SUN_SWING = 0.15;                // the sun moves this many radians of bearing per hour around the map's noon bearing
+const SUN_DAY = [-0.08, 0.06];         // light comes from the sun once its height (sine) passes this range, from the moon below it
+/* Light factors through the day against the map's own palette: sunCol, skyAmb, zen, hor are colour factors; gndAmb and
+   fog numbers; night 0..1 drives the stars, the dim sun disc and the AI night sight, and lights windows above 0.5.
+   The day look is the map's palette exactly; the night look is the one night operations always had. */
+const DAY_LOOK = { sunCol: [1, 1, 1], skyAmb: [1, 1, 1], gndAmb: 1, zen: [1, 1, 1], hor: [1, 1, 1], fog: 1, night: 0 };
+const NIGHT_LOOK = { sunCol: [0.28, 0.28, 0.28], skyAmb: [0.3, 0.3, 0.3], gndAmb: 0.4, zen: [0.18, 0.18, 0.18], hor: [0.12, 0.12, 0.12], fog: 1.3, night: 1 };
+const DAWN_LOOK = { sunCol: [1.1, 0.72, 0.48], skyAmb: [0.72, 0.66, 0.7], gndAmb: 0.7, zen: [0.55, 0.52, 0.66], hor: [1.12, 0.8, 0.62], fog: 1.1, night: 0.05 };
+const DUSK_LOOK = { sunCol: [1.15, 0.58, 0.36], skyAmb: [0.7, 0.58, 0.62], gndAmb: 0.65, zen: [0.48, 0.4, 0.62], hor: [1.15, 0.66, 0.5], fog: 1.1, night: 0.08 };
+const TIME_KEYS = [[0, NIGHT_LOOK], [4.6, NIGHT_LOOK], [6.5, DAWN_LOOK], [9, DAY_LOOK], [15.5, DAY_LOOK], [17.5, DUSK_LOOK], [19.4, NIGHT_LOOK], [24, NIGHT_LOOK]];
+const TIME_RELIGHT_SPREAD = 40;        // windows light up over this many 0.05 s steps, a few buildings at a time
+/* falling particles around the camera: fall speed (m/s), colour (rgba), streak length (s of fall, rain) or flake size (m),
+   sideways sway (m/s), and how strongly the wind carries them */
+const PRECIP = {
+  rain: { fall: 15, col: [0.74, 0.78, 0.86, 0.45], streak: 0.07, size: 0, sway: 0, wind: 1 },
+  snow: { fall: 1.5, col: [0.95, 0.96, 1, 0.9], streak: 0, size: 0.17, sway: 0.5, wind: 1 },
+  sand: { fall: 0.4, col: [0.86, 0.7, 0.48, 0.6], streak: 0, size: 0.13, sway: 0.3, wind: 1.3 },
+};
+const PRECIP_KINDS = ['rain', 'snow', 'sand'];   // index stored per particle; rain draws as lines, the others as points
+const PRECIP_ROWS = PRECIP_KINDS.map((k) => PRECIP[k]);
+const PRECIP_MAX = 2000;                // particles at most (the High quality cap)
+const PRECIP_HALF = 22;                 // the particle box reaches this far either side of the camera (m)
+const PRECIP_ABOVE = 20, PRECIP_BELOW = 10;   // and this far above and below it (m)
+const PRECIP_FLOORS = 120;              // cover look-ups per frame; particles past it fall to the bottom of the box
+const PRECIP_FLOATS = 8;                // floats per vertex (position, colour, size), as the point sprites use
+const PRECIP_LIGHT = [0.15, 0.55];      // particles darken with the sky light (ambient brightness) below the second value, to the first share
+const WEATHER_LEGACY = { weather: 'clear', time: 'day', seed: 0 };   // the env of a session that names none
+const isWeather = (k) => typeof k === 'string' && (k === WEATHER_CHANGING || Object.prototype.hasOwnProperty.call(WEATHER, k));   // a valid weather setting
+const isTimeOfDay = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(TIME_PRESETS, k);                    // a valid time setting
+
+/* ---------- the world clock and the time of day ---------- */
+const Clock = {
+  hour: 12, start: 12, cycle: false, lit: false, map: null,
+  look: { sunCol: [1, 1, 1], skyAmb: [1, 1, 1], gndAmb: 1, zen: [1, 1, 1], hor: [1, 1, 1], fog: 1, night: 0 },
+  dir: [0, 1, 0], moon: [0, 1, 0],
+  /* start the clock of a new world (env from Weather.envOf); no relighting, the buildings are not made yet */
+  begin(m, env) {
+    this.map = m; this.cycle = env.time === TIME_CYCLE; this.start = TIME_PRESETS[env.time].hour;
+    const l = Math.hypot(m.sun[0], m.sun[1], m.sun[2]);
+    this.moon[0] = m.sun[0] / l; this.moon[1] = m.sun[1] / l; this.moon[2] = m.sun[2] / l;   // night light comes from where the map's sun stands
+    this.update(0);
+    this.lit = this.look.night > 0.5;
+  },
+  /* the hour at world time t: fixed, or running round the clock */
+  hourAt(t) { return this.cycle ? (this.start + t * 24 / TIME_CYCLE_SECONDS) % 24 : this.start; },
+  /* height of the sun at an hour as a sine: 1 at noon, 0 at sunrise and sunset, below 0 at night */
+  sunHeight(h) { return Math.sin(PI * (h - SUN_RISE) / (SUN_SET - SUN_RISE)); },
+  update(t) {
+    const h = this.hour = this.hourAt(t);
+    this.lookAt(h);
+    this.sunAt(h);
+    const lit = this.look.night > 0.5;
+    if (lit !== this.lit) { this.lit = lit; this.relight(); }
+  },
+  /* the light factors at hour h: a smooth blend between the two TIME_KEYS around it */
+  lookAt(h) {
+    let k = 1;
+    while (k < TIME_KEYS.length - 1 && TIME_KEYS[k][0] <= h) k++;
+    const a = TIME_KEYS[k - 1], b = TIME_KEYS[k], f = smoothstep(a[0], b[0], h), A = a[1], B = b[1], o = this.look;
+    for (let c = 0; c < 3; c++) {
+      o.sunCol[c] = lerp(A.sunCol[c], B.sunCol[c], f); o.skyAmb[c] = lerp(A.skyAmb[c], B.skyAmb[c], f);
+      o.zen[c] = lerp(A.zen[c], B.zen[c], f); o.hor[c] = lerp(A.hor[c], B.hor[c], f);
+    }
+    o.gndAmb = lerp(A.gndAmb, B.gndAmb, f); o.fog = lerp(A.fog, B.fog, f); o.night = lerp(A.night, B.night, f);
+  },
+  /* light direction at hour h: the sun on the map's noon bearing and height at 12, lower and swung east or west away
+     from noon; once the sun is down, the moon where the map's sun stands */
+  sunAt(h) {
+    const d = this.dir, mo = this.moon, e = this.sunHeight(h), day = smoothstep(SUN_DAY[0], SUN_DAY[1], e);
+    if (day <= 0) { d[0] = mo[0]; d[1] = mo[1]; d[2] = mo[2]; return; }
+    const az0 = Math.atan2(mo[0], mo[2]), el = Math.asin(mo[1]) * e;
+    const az = az0 + (12 - h) * SUN_SWING * (Math.cos(az0) >= 0 ? 1 : -1);   // east (+x) in the morning, west in the evening
+    const sx = Math.cos(el) * Math.sin(az), sy = Math.sin(el), sz = Math.cos(el) * Math.cos(az);
+    if (day >= 1) { d[0] = sx; d[1] = sy; d[2] = sz; return; }
+    const x = lerp(mo[0], sx, day), y = lerp(mo[1], sy, day), z = lerp(mo[2], sz, day), l = Math.hypot(x, y, z) || 1;
+    d[0] = x / l; d[1] = y / l; d[2] = z / l;
+  },
+  /* lit windows are baked into building meshes: re-write them, a few buildings per frame */
+  relight() {
+    if (!W) return;
+    for (let i = 0; i < W.buildings.length; i++) {
+      const b = W.buildings[i];
+      for (const c of b.chunks) c.dirty = true;
+      b.dirtyMesh = true; b.nextRebuild = W.time + (i % TIME_RELIGHT_SPREAD) * 0.05;
+    }
+  },
+  /* the clock as HH:MM */
+  text() { const m = Math.floor(this.hour * 60) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); },
+};
+
+/* ---------- weather: states, schedule, wind, flashes ---------- */
+const Weather = {
+  map: null, env: WEATHER_LEGACY, starts: [], states: [], total: 0, seg: 0, from: WEATHER.clear, to: WEATHER.clear, k: 1, t: 0,
+  cur: { zen: [1, 1, 1], hor: [1, 1, 1], skyAmb: [1, 1, 1], gndAmb: [1, 1, 1], cloudShade: [1, 1, 1], fog: 1, grey: 0, sun: 1, cloud: 0, sight: 1, traction: 1, wind: 0, flash: 0 },
+  rain: 0, snow: 0, sand: 0, sightK: 1, windX: 0, windZ: 0, windBase: 0, flash: 0, flashes: 0, drift: [0, 0],
+  look: { dir: null, night: 0, t: null, w: null, flash: 0, drift: null },
+  onLightning: null,   // hook for the hazards update (P3.3): fn(time) on the host at every sky flash, to strike the ground
+  /* a clean env config from anything (a cfg, a saved setting, a host message): unknown values fall back to clear, day */
+  envOf(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    return {
+      weather: isWeather(r.weather) ? r.weather : WEATHER_LEGACY.weather,
+      time: isTimeOfDay(r.time) ? r.time : WEATHER_LEGACY.time,
+      seed: Number.isFinite(r.seed) ? r.seed >>> 0 : 0,
+    };
+  },
+  /* the env of a session: the host's (co-op guests), the skirmish settings, a mission's opt-in, or the plain look */
+  envFor(cfg, def, guest) {
+    if (guest && cfg.env) return this.envOf(cfg.env);
+    const sk = cfg.skirmish;
+    if (sk) return this.envOf({ weather: sk.weather, time: sk.time, seed: sk.seed });
+    if (def.env) return this.envOf({ weather: def.env.weather, time: def.env.time || mapDef(def.map).weather.time, seed: def.env.seed || 1 });
+    return this.envOf(WEATHER_LEGACY);
+  },
+  /* set up a new world's weather and clock (newWorld); env null: the plain look */
+  begin(m, env) {
+    this.map = m; this.env = this.envOf(env || WEATHER_LEGACY);
+    this.buildSchedule(m, this.env);
+    const ang = latticeHash(this.env.seed, 3, 11) * TAU;   // the prevailing wind bearing
+    this.windBase = ang; this.flash = 0; this.flashes = 0; this.drift[0] = this.drift[1] = 0;
+    this.t = this.clock();
+    Clock.begin(m, this.env);
+    Precip.reset();
+    this.update(0);
+  },
+  /* world time the weather and clock follow: the mission's (the host's on co-op guests), else the world's */
+  clock() { return W && W.mission ? W.mission.time : W ? W.time : 0; },
+  /* the states the weather goes through: one fixed state, or WEATHER_SEGMENTS drawn from the map's weights */
+  buildSchedule(m, env) {
+    this.starts.length = 0; this.states.length = 0; this.seg = 0;
+    if (env.weather !== WEATHER_CHANGING) { this.starts.push(0); this.states.push(WEATHER[env.weather]); this.total = Infinity; return; }
+    const ids = WEATHER_IDS.filter((id) => m.weather.weights[id] > 0);
+    if (!ids.length) ids.push('clear');
+    const sum = ids.reduce((a, id) => a + (m.weather.weights[id] || 1), 0), rng = makeRng(env.seed ^ 0x5eed);
+    let t = 0, last = '';
+    for (let i = 0; i < WEATHER_SEGMENTS; i++) {
+      let id = ids[0];
+      for (let tries = 0; tries < 4 && (id === last || tries === 0); tries++) {   // a new state each time when the map allows more than one
+        let r = rng() * sum;
+        for (const k of ids) { r -= m.weather.weights[k] || 1; if (r <= 0) { id = k; break; } }
+      }
+      this.starts.push(t); this.states.push(WEATHER[id]); last = id;
+      t += lerp(WEATHER_HOLD[0], WEATHER_HOLD[1], rng());
+    }
+    this.total = t;
+  },
+  /* the two states around time t and how far the blend between them is (from, to, k) */
+  blendAt(t) {
+    const n = this.starts.length;
+    if (n === 1) { this.from = this.to = this.states[0]; this.k = 1; return; }
+    const tt = ((t % this.total) + this.total) % this.total;
+    let s = this.seg;
+    while (s > 0 && this.starts[s] > tt) s--;                        // the clock may step back a little (guest correction)
+    while (s < n - 1 && this.starts[s + 1] <= tt) s++;
+    this.seg = s;
+    this.to = this.states[s]; this.from = this.states[(s + n - 1) % n];
+    this.k = s === 0 && t < this.total ? 1 : smoothstep(0, WEATHER_BLEND, tt - this.starts[s]);   // the first state is there from the start
+  },
+  /* one tick: blend the states, move the wind and the clock, draw flashes, and hand the look to the renderer */
+  update(dt) {
+    const t = this.clock(), prev = this.t;
+    this.t = t;
+    this.blendAt(t);
+    const a = this.from, b = this.to, k = this.k, c = this.cur;
+    for (const f of WEATHER_NUM) c[f] = lerp(a[f], b[f], k);
+    for (const f of WEATHER_RGB) for (let i = 0; i < 3; i++) c[f][i] = lerp(a[f][i], b[f][i], k);
+    this.rain = this.share(a, b, k, 'rain'); this.snow = this.share(a, b, k, 'snow'); this.sand = this.share(a, b, k, 'sand');
+    const ang = this.windBase + WIND_VEER * Math.sin(t / WIND_VEER_TIME), gust = 1 + WIND_GUST * Math.sin(t * 0.37) * Math.sin(t * 0.11 + 1);
+    this.windX = Math.sin(ang) * c.wind * gust; this.windZ = Math.cos(ang) * c.wind * gust;
+    this.drift[0] += (this.windX + CLOUD_DRIFT_MIN) * dt * CLOUD_DRIFT; this.drift[1] += (this.windZ + CLOUD_DRIFT_MIN) * dt * CLOUD_DRIFT;
+    this.flash = Math.max(0, this.flash - dt * FLASH_FADE);
+    if (c.flash > 0 && t > prev && t - prev < 1) this.flashCheck(prev, t, c.flash);
+    Clock.update(t);
+    this.sightK = c.sight * lerp(1, NIGHT_SIGHT, Clock.look.night);
+    const L = this.look;
+    L.dir = Clock.dir; L.night = Clock.look.night; L.t = Clock.look; L.w = c; L.flash = this.flash; L.drift = this.drift;
+    R.setEnv(this.map, L);
+  },
+  /* density share of particle kind p in the blend of rows a and b */
+  share(a, b, k, p) { return (a.particle === p ? a.density * (1 - k) : 0) + (b.particle === p ? b.density * k : 0); },
+  /* a flash when a whole second passed whose seeded draw falls under the flash rate (the same on host and guests) */
+  flashCheck(prev, t, rate) {
+    for (let s = Math.floor(prev) + 1; s <= t; s++) {
+      if (latticeHash(s, FLASH_SALT, this.env.seed) >= rate) continue;
+      this.flash = 1; this.flashes++;
+      Snd.ui('thunder');
+      if (this.onLightning && !Net.guest) this.onLightning(s);
+    }
+  },
+  /* ground vehicle grip now (1: dry) */
+  traction() { return this.cur.traction; },
+};
+
+/* ---------- precipitation: rain streaks, snowflakes, sand around the camera ---------- */
+const Precip = {
+  n: 0, nLine: 0, nFlake: 0, flakeAt: PRECIP_MAX * 2, seedState: 1, floorsLeft: 0, shade: 1,
+  x: new Float32Array(PRECIP_MAX), y: new Float32Array(PRECIP_MAX), z: new Float32Array(PRECIP_MAX), floor: new Float32Array(PRECIP_MAX),
+  speed: new Float32Array(PRECIP_MAX), kind: new Uint8Array(PRECIP_MAX),
+  data: new Float32Array(PRECIP_MAX * 3 * PRECIP_FLOATS),   // rain lines first (2 vertices each), flakes from vertex flakeAt
+  reset() { this.n = 0; this.nLine = 0; this.nFlake = 0; },
+  /* cheap repeatable random in [0, 1): the look only, nothing in the world depends on it */
+  rnd() { let a = this.seedState = (this.seedState * 1664525 + 1013904223) >>> 0; a ^= a >>> 15; return (a >>> 0) / 4294967296; },
+  /* the highest thing a drop falling at (x, z) lands on: ground, water, a bridge deck, a building or a structure top */
+  floorAt(x, z) {
+    let f = Water.top(x, z);
+    if (Water.any) { const d = Water.deckTop(x, z, Infinity); if (d > f) f = d; }
+    const list = W.buildings;
+    for (let i = 0; i < list.length; i++) { const b = list[i]; if (b.alive > 0 && b.topY > f && x >= b.ox && x <= b.bx1 && z >= b.oz && z <= b.bz1) f = b.topY; }
+    const cell = Hash.cells[Hash.cellOf(x) * Hash.NC + Hash.cellOf(z)];
+    if (cell) for (let i = 0; i < cell.length; i++) { const s = cell[i]; if (!s.destroyed && s.top > f && structContains(s, x, z, 0)) f = s.top; }
+    return f;
+  },
+  /* a new floor for particle i, within this frame's look-up budget (past it: the bottom of the box) */
+  refloor(i) {
+    if (this.floorsLeft > 0) { this.floorsLeft--; this.floor[i] = this.floorAt(this.x[i], this.z[i]); } else this.floor[i] = -Infinity;
+  },
+  /* (re)place particle i in the box around the camera: anywhere in it (fill), or at its top (respawn) */
+  spawn(i, cam, fill) {
+    const w = Weather, sum = w.rain + w.snow + w.sand, r = this.rnd() * sum;
+    this.kind[i] = r < w.rain ? 0 : r < w.rain + w.snow ? 1 : 2;
+    this.x[i] = cam.x + (this.rnd() * 2 - 1) * PRECIP_HALF; this.z[i] = cam.z + (this.rnd() * 2 - 1) * PRECIP_HALF;
+    this.y[i] = fill ? cam.y - PRECIP_BELOW + this.rnd() * (PRECIP_ABOVE + PRECIP_BELOW) : cam.y + PRECIP_ABOVE - this.rnd() * 2;
+    this.speed[i] = 0.8 + this.rnd() * 0.4;
+    this.refloor(i);
+  },
+  /* move the particles with the camera, the fall and the wind, and write this frame's vertices */
+  update(dt, cam) {
+    const w = Weather, want = Math.round(Math.min(PRECIP_MAX, (QUALITY[S.quality] || QUALITY.medium).precip) * Math.min(1, w.rain + w.snow + w.sand));
+    this.nLine = 0; this.nFlake = 0; this.floorsLeft = PRECIP_FLOORS;
+    const amb = R.env.skyAmb;
+    this.shade = clamp((amb[0] + amb[1] + amb[2]) / 3 / PRECIP_LIGHT[1], PRECIP_LIGHT[0], 1);   // dark rain at night
+    if (want === 0 || R.under) { this.n = Math.min(this.n, want); return; }
+    for (let i = this.n; i < want; i++) this.spawn(i, cam, true);
+    this.n = want;
+    const top = cam.y + PRECIP_ABOVE, bottom = cam.y - PRECIP_BELOW, span = PRECIP_ABOVE + PRECIP_BELOW, sway = W.time * 1.3;
+    for (let i = 0; i < this.n; i++) {
+      const P = PRECIP_ROWS[this.kind[i]], fall = P.fall * this.speed[i];
+      const sx = P.sway ? Math.sin(sway + i * 1.7) * P.sway : 0, sz = P.sway ? Math.cos(sway * 0.8 + i * 2.3) * P.sway : 0;
+      this.x[i] += (w.windX * P.wind + sx) * dt; this.z[i] += (w.windZ * P.wind + sz) * dt; this.y[i] -= fall * dt;
+      const dx = this.x[i] - cam.x, dz = this.z[i] - cam.z;
+      if (dx > PRECIP_HALF || dx < -PRECIP_HALF) { this.x[i] -= Math.sign(dx) * PRECIP_HALF * 2; this.refloor(i); }
+      if (dz > PRECIP_HALF || dz < -PRECIP_HALF) { this.z[i] -= Math.sign(dz) * PRECIP_HALF * 2; this.refloor(i); }
+      if (this.y[i] > top) this.y[i] -= span;
+      if (this.y[i] < this.floor[i] || this.y[i] < bottom) { this.spawn(i, cam, false); continue; }
+      this.write(i, P, fall);
+    }
+  },
+  /* the vertices of particle i: a streak from it up its fall line (rain), or one point */
+  write(i, P, fall) {
+    const d = this.data, c = P.col, F = PRECIP_FLOATS, x = this.x[i], y = this.y[i], z = this.z[i], k = this.shade;
+    const r = c[0] * k, g = c[1] * k, b = c[2] * k;
+    if (!P.streak) {
+      const o = (this.flakeAt + this.nFlake++) * F;
+      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = r; d[o + 4] = g; d[o + 5] = b; d[o + 6] = c[3]; d[o + 7] = P.size;
+      return;
+    }
+    const o = this.nLine++ * 2 * F, s = P.streak;
+    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = r; d[o + 4] = g; d[o + 5] = b; d[o + 6] = c[3]; d[o + 7] = 0;
+    d[o + 8] = x - Weather.windX * s; d[o + 9] = y + fall * s; d[o + 10] = z - Weather.windZ * s;
+    d[o + 11] = r; d[o + 12] = g; d[o + 13] = b; d[o + 14] = 0; d[o + 15] = 0;
+  },
+};
 
 /* =====================================================================
    ENTERABLE BUILDINGS, CITIES AND MILITARY BASES
@@ -4007,7 +4438,7 @@ const Bld = {
     else if (s.kind === 'pillar') shade = 0.7;
     else if (s.kind === 'step') c = STEP_COL;
     const v = 0.9 + s.vr * 0.16, dmg = 0.62 + 0.38 * sat(s.hp / s.maxHp), burn = 1 - s.scorch * 0.4;
-    const night = W.mods && W.mods.night ? 1 : 0;
+    const night = Clock.lit;
     const k = v * dmg * burn;
     out[0] = c[0] * shade * k; out[1] = c[1] * shade * k; out[2] = c[2] * shade * k;
     // lit windows at night: window gap faces get no pieces, so tint headers/sills warmly
@@ -5246,21 +5677,23 @@ class Platform {
     if (g.type === 'static') { this.y = Terrain.h(this.x, this.z); return; }
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw);
     let vf = this.vx * fx + this.vz * fz, vl = this.vx * rx + this.vz * rz;
+    const grip = g.type === 'hover' ? 1 : Weather.traction();   // wet or snowy ground: longer braking, wider turns
     this.boosting = !!(c.boost && c.moveF > 0 && this.energy > 4 && !this.energyLock && !this.overheated);
     if (this.boosting) this.useEnergy(18 * dt);
     let maxV = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.boosting ? g.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.5 : 1) * this.waterSlow;
     const along = (this.restH(this.x + fx * 3, this.z + fz * 3) - this.restH(this.x - fx * 3, this.z - fz * 3)) / 6;
     if (along > g.climb * 0.6 && vf > 0) maxV *= clamp(1 - (along - g.climb * 0.6) * 2.2, 0.2, 1);
     if (c.moveF > 0.05) vf = approach(vf, maxV * c.moveF, g.accel * (this.boosting ? 1.5 : 1) * dt);
-    else if (c.moveF < -0.05) { if (vf > 1) vf = approach(vf, 0, g.brake * dt); else vf = approach(vf, -maxV * g.reverse, g.accel * 0.8 * dt); }
+    else if (c.moveF < -0.05) { if (vf > 1) vf = approach(vf, 0, g.brake * grip * dt); else vf = approach(vf, -maxV * g.reverse, g.accel * 0.8 * dt); }
     else vf = approach(vf, 0, g.drag * dt);
-    if (c.brake) { vf = approach(vf, 0, g.brake * 1.4 * dt); vl = approach(vl, 0, (g.grip * 4 * Math.abs(vl) + 3) * dt); }
-    vl *= Math.exp(-g.grip * dt);
+    if (c.brake) { vf = approach(vf, 0, g.brake * 1.4 * grip * dt); vl = approach(vl, 0, (g.grip * grip * 4 * Math.abs(vl) + 3) * dt); }
+    vl *= Math.exp(-g.grip * grip * dt);
     const sp = Math.abs(vf);
     let auth;
     if (g.type === 'tracked') auth = g.steerRate * (0.7 + 0.3 * Math.min(1, sp / Math.max(1, maxV)));
     else if (g.type === 'hover') auth = g.steerRate * (0.6 + 0.4 * Math.min(1, sp / Math.max(1, maxV * 0.5)));
     else auth = g.steerRate * Math.min(1, sp / Math.max(1, g.steerMin));
+    auth *= grip;
     this.yaw -= c.turn * auth * dt * (vf < -1 ? -1 : 1) * (this.stagger > 0 ? 0.5 : 1);
     this.vx = fx * vf + rx * vl; this.vz = fz * vf + rz * vl;
     const px = this.x, pz = this.z;
@@ -5384,6 +5817,7 @@ class Platform {
     const fx = Math.sin(this.yaw) * sp, fy = Math.sin(this.pitch), fz = Math.cos(this.yaw) * sp;
     this.vx = fx * this.speed; this.vy = fy * this.speed - (this.stalled ? (stallSpeed - this.speed) * 0.6 : 0); this.vz = fz * this.speed;
     this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
+    if (!this.grounded) { this.x += Weather.windX * WIND_AIR * dt; this.z += Weather.windZ * WIND_AIR * dt; }
     this.y = Math.min(this.y, AIR_CEILING + AIR_CEILING_MARGIN);
     // terrain interaction (water first: nothing lands on it)
     const gh = Terrain.h(this.x, this.z);
@@ -11114,8 +11548,6 @@ const AIM_ERR_EASE = 5;            // how fast (1/s) the aim slides toward the n
 const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
 const AI_SWITCH_DELAY = 2;         // minimum seconds between AI primary weapon swaps
 const AI_SHIELD_RAISE = 0.6;       // energy fraction the AI needs before raising its shield (it drops at the energy lock)
-const FOG_SIGHT = 0.55;            // AI sight multiplier in heavy fog
-const NIGHT_SIGHT = 0.75;          // AI sight multiplier at night
 const AI_NOSE = { x: 0, y: 0, z: 0 };
 
 class AIController {
@@ -11169,8 +11601,7 @@ class AIController {
   /* ---------- perception ---------- */
   /* How far this unit spots targets right now: base sight, difficulty, weather, alert and sensor damage. */
   sightRange() {
-    const weather = (W.mods.fog ? FOG_SIGHT : 1) * (W.mods.night ? NIGHT_SIGHT : 1);
-    return this.sight * this.d.sight * weather * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
+    return this.sight * this.d.sight * Weather.sightK * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
   }
   perceive() {
     const p = this.p;
@@ -11920,6 +12351,8 @@ function objStruct(type, x, z, name, team, opts) {
 }
 /* a hostile or friendly structure becomes targetable via isStruct/team; all structures get isStruct */
 
+/* A mission may add env: { weather, time, seed } to turn on weather (a WEATHER id or 'changing') and the time of day (a
+   TIME_PRESETS id, else the map's weather.time); without it the mission keeps its map's plain clear daylight. */
 const MISSIONS = [
   {
     id: 'm1', name: 'Heavy Hunter', type: 'Eliminate Target', map: 'ashfall', stars: 2, timeLimit: 900, recommended: 'Any ground platform',
@@ -12156,7 +12589,20 @@ const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
 
 /* ---------- skirmish ---------- */
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
-const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', fog: false, night: false, scarce: false, seed: 12345, random: true };
+const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', scarce: false, seed: 12345, random: true };
+/* the skirmish setup from a saved one (Save.data.skirmish, kept as saved): defaults for missing keys, and the fog and
+   night checkboxes of setups saved before weather and time of day became the Weather and Time selects */
+function skirmishSetup(saved) {
+  const raw = saved && typeof saved === 'object' ? saved : {};
+  const s = Object.assign({}, SKIRMISH_DEFAULT, raw);
+  if (!MAPS[s.map]) s.map = SKIRMISH_DEFAULT.map;   // a battlefield that no longer exists
+  if (!Number.isFinite(s.seed)) s.seed = SKIRMISH_DEFAULT.seed;   // kept so the last battle can be replayed
+  s.random = s.random !== false;
+  if (!isWeather(raw.weather)) s.weather = raw.fog === true ? 'fog' : SKIRMISH_DEFAULT.weather;
+  if (!isTimeOfDay(raw.time)) s.time = raw.night === true ? 'night' : SKIRMISH_DEFAULT.time;
+  delete s.fog; delete s.night;
+  return s;
+}
 const SKIRMISH_SEEDS = 999999;           // random battles draw a seed from 1..this
 const SKIRMISH_FIRST_WAVE = 3;           // seconds before the first wave
 const SKIRMISH_LAST_WAVE = 0.7;          // with a time limit, the last wave arrives by this share of it
@@ -12616,13 +13062,14 @@ const Game = {
     this.cfg = cfg;
     Snd.engineStop();
     const sk = cfg.skirmish;
-    const mods = sk ? { fog: sk.fog, night: sk.night, scarce: sk.scarce } : {};
+    const mods = sk ? { scarce: sk.scarce } : {};
+    cfg.env = Weather.envFor(cfg, def, guest);   // weather and time of day; co-op guests get the host's in 'start'
     const destr = sk ? { low: [0.5, 1.5, 1.2], normal: [1, 1, 1], high: [1.5, 0.8, 1.3] }[sk.destruction] : [1, 1, 1];
     let seed = 7;
     for (let i = 0; i < def.id.length; i++) seed = (seed * 31 + def.id.charCodeAt(i)) >>> 0;
     if (sk) seed = sk.seed;
     const lay = Scenery.layoutFor(def, cfg.mode === 'mission');   // the same on co-op guests: it depends on the mission only
-    newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(lay)), difficulty: cfg.difficulty || S.difficulty, mods, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
+    newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(lay)), difficulty: cfg.difficulty || S.difficulty, mods, env: cfg.env, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
@@ -12700,7 +13147,7 @@ const Game = {
   quitToMenu(keepNet) {
     this.netPaused = false;
     if (Net.active && !keepNet) Net.leave();
-    Input.playing = false; Input.releaseLock(); Snd.engineStop(); Snd.musicStart('menu');
+    Input.playing = false; Input.releaseLock(); Snd.engineStop(); Snd.ambienceStop(); Snd.musicStart('menu');
     this.enterMenuWorld();
     this.state = 'menu';
     UI.stack = []; UI.cur = null; Input.capture = null; UI.rebind = null;
@@ -12926,6 +13373,7 @@ const Game = {
         else Snd.engineUpdate(p.kind, p.kind === 'air' ? p.throttle : clamp(p.speed / Math.max(1, p.def.speed), 0, 1.4), p.boosting || p.afterburner);
         this.updateWarnings(p);
       } else Snd.engineStop();
+      Snd.ambienceUpdate(Math.min(1, Weather.rain), Math.min(1, Weather.cur.wind / WEATHER.sandstorm.wind));
       this.tutorialUpdate(dt);
     } else if (this.state === 'results' || this.state === 'menu' || this.state === 'paused') {
       if (Net.host && this.state === 'results') Net.beat(dt);   // guests wait on their result screen for the host's choice
@@ -13153,6 +13601,7 @@ const HUD = {
     let y = 26 * u;
     const x = 18 * u;
     this.txt(m.def.name.toUpperCase(), x, y, 14, this.C.main, 'left', true); y += 18 * u;
+    if (Clock.cycle && (m.limit > 0 || W.mode !== 'training')) this.txt(Clock.text(), x + 118 * u, y, 11, this.C.text);   // the hour of the day and night cycle
     if (m.limit > 0) { const left = m.limit - m.time; this.txt('TIME ' + fmtTime(Math.max(0, left)), x, y, 12, left < 60 ? this.C.bad : this.C.text, 'left', left < 60); y += 16 * u; }
     else if (W.mode !== 'training') { this.txt('ELAPSED ' + fmtTime(m.time), x, y, 12, this.C.text); y += 16 * u; }
     for (const o of m.objectives) {
@@ -13551,10 +14000,7 @@ const UI = {
     });
     this.root.addEventListener('input', (e) => this.onInput(e, false));
     this.root.addEventListener('change', (e) => this.onInput(e, true));
-    this.skirmish = Object.assign({}, SKIRMISH_DEFAULT, Save.data.skirmish || {});
-    if (!MAPS[this.skirmish.map]) this.skirmish.map = SKIRMISH_DEFAULT.map;   // a battlefield that no longer exists
-    if (!Number.isFinite(this.skirmish.seed)) this.skirmish.seed = SKIRMISH_DEFAULT.seed;   // kept so the last battle can be replayed
-    this.skirmish.random = this.skirmish.random !== false;
+    this.skirmish = skirmishSetup(Save.data.skirmish);
   },
   fade(v) { el('fade').style.opacity = v; },
   fadeNow(v) { const f = el('fade'); f.style.transition = 'none'; f.style.opacity = v; void f.offsetWidth; f.style.transition = 'opacity .6s'; },
@@ -13835,7 +14281,9 @@ const UI = {
       '</div><div class="panel">' +
       sel('support', 'Friendly support', [['none', 'None'], ['light', 'Light (2 units)'], ['heavy', 'Heavy (4 units)']]) +
       sel('reinforce', 'Reinforcement frequency', [['low', 'Low'], ['normal', 'Normal'], ['high', 'High']]) +
-      '<h3>Modifiers</h3>' + chk('random', 'Random battle (off: replay battle ' + s.seed + ')') + chk('fog', 'Heavy fog (short sight lines)') + chk('night', 'Night operations') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
+      sel('weather', 'Weather', WEATHER_IDS.map((k) => [k, WEATHER[k].name]).concat([[WEATHER_CHANGING, 'Changing']])) +
+      sel('time', 'Time of day', Object.keys(TIME_PRESETS).map((k) => [k, TIME_PRESETS[k].name])) +
+      '<h3>Modifiers</h3>' + chk('random', 'Random battle (off: replay battle ' + s.seed + ')') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
       '</div></div>' + this.platSummary() +
       '<div class="row"><button class="btn primary" data-act="deploySkirmish" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
   },
@@ -13968,6 +14416,11 @@ const TERRAIN_HASH_STRIDE = 37;   // fingerprint every 37th grid height
 const TERRAIN_MESH_GOLDEN = { ashfall: 1263172816, verdant: 559064534, frost: 3612008292 };
 const MESH_HASH_SITES = [{ x: 0, z: 0, r: 120, tag: 'city' }, { x: 400, z: -300, r: 100, tag: 'base' }];
 const MESH_HASH_STRIDE = 7;
+/* light and sky fingerprints (SelfTest.envHash) of each original battlefield's plain look, recorded from the code before
+   weather and time of day: missions m1-m8 must keep it */
+const ENV_GOLDEN = { ashfall: 812752968, verdant: 692631475, frost: 1019776467 };
+/* and of the old skirmish fog and night checkboxes on Verdant Ridge, which became weather fog and time night */
+const ENV_GOLDEN_OLD_MODS = { fog: 1493184147, night: 3992931435, fogNight: 3648191979 };
 /* A mountain battlefield for self-test and for looking at mountains live; it is not in MAPS.
    Register it from the console with __IH.MAPS.peaks = __IH.TEST_PEAKS_MAP, then pick it in skirmish. */
 const TEST_PEAKS_MAP = {
@@ -14025,20 +14478,19 @@ const BENCH_REPEAT = 3;     // runs per scene; the median is reported
 const SelfTest = {
   results: [],
   /* fingerprint of a battlefield's unflattened terrain */
-  terrainHash(mapId) {
-    const g = Terrain.baseGrid(mapDef(mapId));
-    let h = 2166136261;
-    for (let k = 0; k < g.length; k += TERRAIN_HASH_STRIDE) { h ^= Math.round(g[k] * 1000) & 0xffffffff; h = Math.imul(h, 16777619) >>> 0; }
+  terrainHash(mapId) { return hashFloats(Terrain.baseGrid(mapDef(mapId)), TERRAIN_HASH_STRIDE, FNV_BASIS); },
+  /* fingerprint of the renderer's light and sky (R.env and R.night, to 1e-5) */
+  envHash() {
+    const e = R.env, vals = [e.fogD * 1000].concat(e.zen, e.hor, e.sun, e.sunCol, e.skyAmb, e.gndAmb, [R.night]);
+    let h = FNV_BASIS;
+    for (const v of vals) { h ^= Math.round(v * 100000) & 0xffffffff; h = Math.imul(h, FNV_PRIME) >>> 0; }
     return h;
   },
   /* fingerprint of a battlefield's ground mesh with MESH_HASH_SITES (leaves that terrain built) */
   meshHash(mapId) {
     const m = mapDef(mapId);
     Terrain.build(m, MESH_HASH_SITES);
-    const d = Terrain.buildMesh(m).data;
-    let h = 2166136261;
-    for (let k = 0; k < d.length; k += MESH_HASH_STRIDE) { h ^= Math.round(d[k] * 1000) & 0xffffffff; h = Math.imul(h, 16777619) >>> 0; }
-    return h;
+    return hashFloats(Terrain.buildMesh(m).data, MESH_HASH_STRIDE, FNV_BASIS);
   },
   /* lays a straight ramp of angleDeg rising toward +z from z = 0 for run m (then flat) over the whole terrain grid (undone by the next Terrain.build) */
   rampTerrain(angleDeg, run) {
@@ -14050,7 +14502,8 @@ const SelfTest = {
     Terrain.tileMax.fill(top);
   },
   /* Time whole frames (simulation, camera, render, and a 1-pixel read that waits for the GPU) on each bench scene.
-     Returns one row per scene: { id, avg, p95, max } in ms. Run with __IH.bench(); pass ids to time only some scenes. */
+     Returns one row per scene: { id, avg, p95, max } in ms. Run with __IH.bench(); pass ids to time only some scenes,
+     and opts { weather, time } to time them in that weather (clear) or at that time of day (day). */
   bench(ids, opts) {
     const o = Object.assign({ warm: BENCH_WARM, frames: BENCH_FRAMES, repeat: BENCH_REPEAT }, opts), out = [];
     const scenes = ids ? BENCH_SCENES.filter((s) => ids.indexOf(s.id) >= 0) : BENCH_SCENES;
@@ -14062,7 +14515,7 @@ const SelfTest = {
       try {
         for (let k = 0; k < o.repeat; k++) rows.push(this.benchScene(sc, o));
       } finally { if (sc.testMap) delete MAPS[sc.map]; }
-      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality });
+      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality, weather: o.weather || 'clear' });
     }
     Game.quitToMenu();
     return out;
@@ -14070,7 +14523,7 @@ const SelfTest = {
   /* one timed run of a bench scene: { avg, p95, max } in ms */
   benchScene(sc, o) {
     const gl = R.gl, px = new Uint8Array(4), pid = sc.platformId;
-    const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid });
+    const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid, weather: o.weather || 'clear', time: o.time || 'day' });
     Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish });
     UI.needResize = true; UI.resizeIfNeeded();
     for (let i = 0; i < o.warm; i++) Game.tick(STEP);
@@ -15776,6 +16229,127 @@ const SelfTest = {
         }
       } finally { delete MAPS.testwater; S.difficulty = keepDiff; Game.quitToMenu(); }
     });
+    t('weather and time of day', () => {
+      const md = mapDef('verdant'), keepTime = W.time, keepMission = W.mission, keepEnv = W.cfg.env;
+      try {
+        W.mission = null;
+        for (const id of WEATHER_IDS) {
+          const row = WEATHER[id];
+          Weather.begin(md, { weather: id, time: 'day', seed: 3 });
+          this.check('weather ' + id + ' sets its fog, AI sight and traction', Math.abs(R.env.fogD - md.fog * row.fog) < 1e-12 && Weather.sightK === row.sight && Weather.traction() === row.traction, R.env.fogD + ' ' + Weather.sightK + ' ' + Weather.traction());
+          this.check('weather ' + id + ' AI sight drops further at night', (Weather.begin(md, { weather: id, time: 'night', seed: 3 }), Math.abs(Weather.sightK - row.sight * NIGHT_SIGHT) < 1e-12));
+        }
+        const L = Clock.look;
+        this.check('the night look is the old night operations look', L.night === 1 && L.fog === NIGHT_LOOK.fog && L.zen[0] === NIGHT_LOOK.zen[0] && Clock.lit);
+        // a changing schedule: same seed, same weather; a state change blends with no jump in fog density
+        const sched = (seed) => { Weather.begin(md, { weather: WEATHER_CHANGING, time: 'day', seed }); return Weather.states.map((r) => r.name).join(',') + Weather.starts.join(','); };
+        this.check('a weather schedule is the same for the same seed', sched(41) === sched(41) && sched(41) !== sched(42));
+        Weather.begin(md, { weather: WEATHER_CHANGING, time: 'day', seed: 41 });
+        let b = 1;
+        while (b < Weather.states.length - 1 && Weather.states[b].fog === Weather.states[b - 1].fog) b++;
+        const fa = md.fog * Weather.states[b - 1].fog, fb = md.fog * Weather.states[b].fog, allowed = Math.abs(fb - fa) * 1.5 / (WEATHER_BLEND / STEP) * 1.05 + 1e-12;
+        this.check('a weather schedule only draws the map\'s states', Weather.states.every((r) => md.weather.weights[WEATHER_IDS.find((k) => WEATHER[k] === r)] > 0));
+        let worst = 0, prev = NaN;
+        for (W.time = Weather.starts[b] - 1; W.time < Weather.starts[b] + WEATHER_BLEND + 1; W.time += STEP) {
+          Weather.update(STEP);
+          if (prev === prev) worst = Math.max(worst, Math.abs(R.env.fogD - prev));
+          prev = R.env.fogD;
+        }
+        this.check('a weather change has no jump in fog density between ticks', fa !== fb && worst <= allowed && Math.abs(prev - fb) < 1e-12, 'step ' + worst + ' of ' + allowed);
+        W.time = Weather.starts[b] + WEATHER_BLEND * 0.5; Weather.update(STEP);
+        this.check('half way through a change both states show', Weather.k > 0.3 && Weather.k < 0.7 && Weather.from !== Weather.to);
+        // rain turning into snow: both fall at once, in two draws at most, within the quality cap
+        const mix = { rain: WEATHER.rain, snow: WEATHER.snow };
+        Weather.begin(md, { weather: 'rain', time: 'day', seed: 1 });
+        Weather.from = mix.rain; Weather.to = mix.snow;
+        Weather.rain = Weather.share(mix.rain, mix.snow, 0.5, 'rain'); Weather.snow = Weather.share(mix.rain, mix.snow, 0.5, 'snow');
+        Precip.reset(); R.under = false;
+        for (let i = 0; i < 40; i++) Precip.update(STEP, { x: 0, y: Terrain.h(0, 0) + 4, z: 0 });
+        R.drawPrecip(Precip);
+        const cap = (QUALITY[S.quality] || QUALITY.medium).precip;
+        this.check('rain and snow together take two draws and stay under the cap', R.precipDraws === 2 && Precip.nLine > 0 && Precip.nFlake > 0 && Precip.n <= cap, Precip.nLine + ' lines, ' + Precip.nFlake + ' flakes');
+        Weather.begin(md, { weather: 'clear', time: 'day', seed: 1 });
+        Precip.update(STEP, { x: 0, y: 10, z: 0 }); R.drawPrecip(Precip);
+        this.check('clear weather draws no particles', Precip.n === 0 && R.precipDraws === 0);
+        // storm flashes come from the seed and the clock (the same on host and guests), and reach the lightning hook
+        let hooked = 0;
+        const flashes = (id) => { Weather.begin(md, { weather: id, time: 'day', seed: 9 }); for (W.time = 0; W.time < 120; W.time += 0.25) Weather.update(0.25); return Weather.flashes; };
+        Weather.onLightning = () => { hooked++; };
+        const f1 = flashes('storm'), f2 = flashes('storm');
+        Weather.onLightning = null;
+        this.check('a storm flashes the sky the same way twice, and calls the lightning hook', f1 > 0 && f1 === f2 && hooked === f1 * 2 && flashes('clear') === 0, f1 + ' flashes');
+        this.check('wind blows in a storm and not in clear weather', (Weather.begin(md, { weather: 'storm', time: 'day', seed: 2 }), Math.hypot(Weather.windX, Weather.windZ) > 5) && (Weather.begin(md, { weather: 'clear', time: 'day', seed: 2 }), Weather.windX === 0 && Weather.windZ === 0));
+        // the clock: the sun is higher at noon than at dusk and dawn, the cycle wraps from 24 to 0, and night lights windows
+        const sunY = (time) => { Weather.begin(md, { weather: 'clear', time, seed: 1 }); return Clock.dir[1]; };
+        this.check('the sun is higher at noon than at dusk and dawn', sunY('day') > sunY('dusk') + 0.2 && sunY('day') > sunY('dawn') + 0.2 && sunY('dusk') > 0 && sunY('dawn') > 0);
+        Weather.begin(md, { weather: 'clear', time: TIME_CYCLE, seed: 1 });
+        const tEnd = (24 - TIME_PRESETS.cycle.hour) * TIME_CYCLE_SECONDS / 24;   // world time at midnight
+        const before = Clock.hourAt(tEnd - 1), after = Clock.hourAt(tEnd + 1);
+        this.check('the day and night cycle wraps from 24 to 0', before > 23.9 && before < 24 && after >= 0 && after < 0.1 && Clock.hourAt(tEnd + TIME_CYCLE_SECONDS) === Clock.hourAt(tEnd), before + ' -> ' + after);
+        this.check('the cycle runs 24 game minutes per day', Math.abs(Clock.hourAt(60) - Clock.hourAt(0) - 1) < 1e-9);
+        let lit = 0, dark = 0;
+        for (let h = 0; h < 24; h += 0.5) { W.time = ((h - TIME_PRESETS.cycle.hour + 24) % 24) * TIME_CYCLE_SECONDS / 24; Weather.update(STEP); if (Clock.lit) lit++; else dark++; }
+        this.check('a day of the cycle has lit nights and dark days', lit > 10 && dark > 20 && /^\d\d:\d\d$/.test(Clock.text()), lit + ' lit, ' + dark + ' unlit half hours');
+        // old skirmish setups: the v1 fixture's fog and night checkboxes load as weather fog and time night
+        const sk = skirmishSetup(Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1))).skirmish);
+        this.check('an old skirmish setup with fog and night loads as weather fog and time night', sk.weather === 'fog' && sk.time === 'night' && sk.fog === undefined && sk.map === 'frost' && sk.seed === 777);
+        const sk2 = skirmishSetup(Object.assign({}, sk, { weather: 'rain', time: 'dusk', fog: true, night: true }));
+        this.check('a new skirmish setup keeps its weather and time', sk2.weather === 'rain' && sk2.time === 'dusk' && skirmishSetup({ weather: 'hail', time: 'noon' }).weather === 'clear' && skirmishSetup({ weather: 'hail', time: 'noon' }).time === 'day');
+        this.check('the skirmish setup offers Weather and Time selects', UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: sk2 })).indexOf('data-skirm="weather"') >= 0 && UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: sk2 })).indexOf('data-skirm="time"') >= 0);
+        // the plain look of missions m1-m8 and of the old checkboxes is unchanged
+        for (const m of MISSIONS) {
+          Weather.begin(mapDef(m.map), Weather.envFor({ mode: 'mission', missionId: m.id }, m, false));
+          this.check('mission ' + m.id + ' keeps its light and sky', !m.env && this.envHash() === ENV_GOLDEN[m.map], 'env ' + this.envHash());
+        }
+        const old = (weather, time) => { Weather.begin(md, Weather.envFor({ skirmish: { weather, time, seed: 5 } }, {}, false)); return this.envHash(); };
+        this.check('weather fog looks like the old fog checkbox', old('fog', 'day') === ENV_GOLDEN_OLD_MODS.fog, 'env ' + old('fog', 'day'));
+        this.check('time night looks like the old night checkbox', old('clear', 'night') === ENV_GOLDEN_OLD_MODS.night && old('fog', 'night') === ENV_GOLDEN_OLD_MODS.fogNight);
+        this.check('a co-op guest takes the host\'s env as sent', JSON.stringify(Weather.envFor({ env: { weather: 'snow', time: 'cycle', seed: 77 }, skirmish: { weather: 'rain' } }, MISSIONS[0], true)) === JSON.stringify({ weather: 'snow', time: 'cycle', seed: 77 }) && Weather.envOf({ weather: 'x', time: 5, seed: 'y' }).weather === 'clear');
+      } finally { W.time = keepTime; W.mission = keepMission; Weather.begin(W.map, keepEnv); }
+      // ground grip: wet ground brakes later and turns wider; AI pilots see less in fog
+      const tankId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'ground' && PLATFORMS[id].ground.type !== 'hover');
+      const drive = (weather, turn) => {
+        Weather.begin(W.map, { weather, time: 'day', seed: 1 });
+        const p = new Platform(PLATFORMS[tankId], { team: 0, x: -600, z: -600, yaw: 0, loadout: PLATFORMS[tankId].loadout });
+        p.vz = 9; p.cmd.brake = !turn; p.cmd.moveF = turn ? 1 : 0; p.cmd.turn = turn ? 1 : 0;
+        for (let i = 0; i < 90; i++) p.stepGround(STEP);
+        return turn ? Math.abs(p.yaw) : Math.hypot(p.x + 600, p.z + 600);
+      };
+      try {
+        this.check('rain and snow lengthen braking', drive('rain') > drive('clear') && drive('snow') > drive('rain'), drive('clear').toFixed(2) + ' / ' + drive('rain').toFixed(2) + ' / ' + drive('snow').toFixed(2) + ' m');
+        this.check('rain widens the turn', drive('rain', true) < drive('clear', true));
+        const ai = W.platforms.find((q) => q.ai).ai;
+        Weather.begin(W.map, { weather: 'clear', time: 'day', seed: 1 });
+        const clearSight = ai.sightRange();
+        Weather.begin(W.map, { weather: 'fog', time: 'day', seed: 1 });
+        this.check('AI sight follows the weather', Math.abs(ai.sightRange() / clearSight - FOG_SIGHT) < 1e-9);
+      } finally { Weather.begin(W.map, keepEnv); }
+    });
+    t('co-op start and world hash', () => {
+      this.check('the net version is 4 (weather, time of day and the world hash in start)', NET_VERSION === 4);
+      const keepDiff = S.difficulty;
+      const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
+      try {
+        Game.startSession(sk(5)); const h1 = worldHash();
+        Game.startSession(sk(5)); const h2 = worldHash();
+        Game.startSession(sk(6)); const h3 = worldHash();
+        this.check('two builds of the same battle have the same world hash, another seed a different one', h1 === h2 && h1 !== h3, h1 + ' ' + h2 + ' ' + h3);
+        // loopback: the host's start carries the env and the hash; a guest whose world differs leaves with a message
+        const sent = [], peer = Net.newPeer();
+        Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', tx: (str) => sent.push(JSON.parse(str)) });
+        Net.host = true; Net.guest = false; Net.peers = [peer]; Net.missionId = 'm2';
+        Net.startCoop();
+        const st = sent.find((m) => m.t === 'start');
+        this.check('the co-op start carries the env and the world hash', st && st.wh === worldHash() && st.cfg.env && st.cfg.env.weather === 'clear' && st.cfg.env.time === 'day', st && JSON.stringify(st.cfg.env));
+        let left = '';
+        Net.host = false; Net.guest = true; Net.peers = []; Net.hostPeer = { tx() {} }; Net.leave = (why) => { left = why || 'left'; };
+        if (st) Net.guestStart(st);
+        this.check('a guest with the same world stays', st && left === '' && W.structs.length === st.ns, left);
+        if (st) Net.guestStart(Object.assign({}, st, { wh: (st.wh + 1) >>> 0 }));
+        this.check('a guest whose ground or water differs leaves with a message', /World mismatch/.test(left), left);
+      } finally { Object.assign(Net, saved); S.difficulty = keepDiff; Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -15803,7 +16377,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 3;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases
+const NET_VERSION = 4;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -16043,7 +16617,8 @@ const Net = {
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
-    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, lives: cfg.lives, platformId: p.pid, loadout: p.loadout }, ns: W.structs.length });
+    const wh = worldHash();
+    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, lives: cfg.lives, platformId: p.pid, loadout: p.loadout, env: cfg.env }, ns: W.structs.length, wh });
     return true;
   },
   /* called by Game.startSession on the host once the world and the local player exist */
@@ -16225,6 +16800,7 @@ const Net = {
     Game.cfg = null;
     if (!Game.startSession(m.cfg, true)) { this.leave('Could not start the mission'); return; }
     if (W.structs.length !== m.ns) this.leave('World mismatch with host (' + W.structs.length + ' vs ' + m.ns + ')');
+    else if (worldHash() !== m.wh) this.leave('World mismatch with host (the ground or water differs)');
   },
   applySpawn(m) {
     if (!W || !PLATFORMS[m.d]) return;
@@ -16606,7 +17182,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, Water, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
