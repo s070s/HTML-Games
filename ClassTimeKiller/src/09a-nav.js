@@ -7,6 +7,8 @@
 //   3. links: walk / crouch / swim (raster walk + chest-height line), jump (flagged with the height it needs),
 //      drop (flagged with its height), ladder, jump pad (S08 target arc), teleporter; all tested against the brushes.
 //   4. strongly connected components, cover points, node lookup grid.
+// A match load (not in headless tests) runs the build in slices of NAV_SLICE_MS per frame (the first one inside 'world.load'),
+// so a big map never freezes the load frame; until it is ready the graph reads empty (no nodes) and bots wait for it.
 // Pathfinding, cache, per-tick budget and smoothing live in 09b-nav-path.js. Public API: docs/api/nav.md.
 
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
@@ -60,6 +62,11 @@ const NAV_COVER_LOW_HEIGHT = 0.9;      // blocked at this height but open at hea
 const NAV_COVER = { NONE: 0, LOW: 1, FULL: 2 };
 const NAV_REACH_MAX_COMPONENTS = 1024;  // reachability bit table up to this many components (128 KB); beyond: breadth-first search
 const NAV_GRAPH_CACHE_SIZE = 4;        // graphs kept for maps that load again (rematch): BOT-010 "cached per map"
+const NAV_SLICE_MS = 6;                // build work per frame while a match loads (a 60 Hz frame keeps room to draw)
+const NAV_PASSAGE_SLICE = 4096;        // build steps between two slice checks: raster samples...
+const NAV_NODE_SLICE = 256;            // ...nodes...
+const NAV_TARJAN_SLICE = 16384;        // ...and component search moves
+const NAV_HIDDEN_FIELDS = ['nodeCount', 'linkCount', 'teleportCount', 'componentCount', 'coverCount', 'mainComponent'];
 // Every build output that queries read; a cached graph restores exactly these Nav fields.
 const NAV_GRAPH_FIELDS = ['nodeCount', 'nodeX', 'nodeY', 'nodeZ', 'nodeFlags', 'nodeSample', 'linkCount', 'linkStart', 'linkFrom',
   'linkTarget', 'linkType', 'linkCost', 'linkHeight', 'linkReach', 'heuristicSpeed', 'teleportCount', 'teleportEntry', 'teleportExit',
@@ -95,6 +102,9 @@ const navVolumes = { water: [], trigger: [], props: [] };   // water volumes, ju
 const navTarjan = { index: null, low: null, onStack: null, stack: null, stackSize: 0, callNode: null, callEdge: null, depth: -1, counter: 0 };
 const navNeighbours = { items: null, count: 0, node: -1, radiusSquared: 0 };
 const navGraphCache = [];   // { key, nav, raster, nodeGrid } of recent builds, most recently used last
+// The running build: its step generator (null = nothing left to build), cache key, work time of finished slices and
+// the graph counts it hides between slices (so nobody reads a half-built graph).
+const navJob = { steps: null, key: '', workMs: 0, sliceStarted: 0, hidden: {}, inMatchLoad: false };
 
 const Nav = {
   // Build limits. Later sections may raise them before the map loads (e.g. from the jumpiest movement preset).
@@ -109,6 +119,7 @@ const Nav = {
   },
   map: null, version: 0, buildMs: 0, buildPhases: {},   // build time in ms, total and per phase (ARC-034)
   lastBuildCached: false,                               // the last build reused a cached graph of the same map
+  ready: true, buildSlices: 0, longestSliceMs: 0,       // false while a sliced build runs; slices it took, the longest one
   nodeCount: 0, nodeX: null, nodeY: null, nodeZ: null, nodeFlags: null, nodeSample: null,
   linkCount: 0, linkStart: null, linkFrom: null, linkTarget: null, linkType: null, linkCost: null, linkHeight: null, linkReach: null,
   heuristicSpeed: 6,
@@ -118,19 +129,39 @@ const Nav = {
   coverCount: 0, coverNode: null, coverDirX: null, coverDirZ: null, coverLow: null,
 
   build(map) {
-    const started = performance.now(), triggers = map.triggers || [];
+    this.startBuild(map);
+    this.pump(Infinity);
+    return this.buildMs;
+  },
+  // Starts the graph of map (a cached graph is restored at once); pump finishes it.
+  startBuild(map) {
+    const started = performance.now(), triggers = map.triggers || [], props = map.props || [];
     this.map = map;
     this.clearGraph();
-    const props = map.props || [], key = navGraphKey(map.brushes || [], triggers, props);
-    this.lastBuildCached = World.brushes.length > 0 && navRestoreGraph(key);
-    if (World.brushes.length && !this.lastBuildCached) {
-      navBuildGraph(triggers, props);
-      navStoreGraph(key);
+    navJob.key = navGraphKey(map.brushes || [], triggers, props);
+    this.lastBuildCached = World.brushes.length > 0 && navRestoreGraph(navJob.key);
+    navJob.steps = World.brushes.length && !this.lastBuildCached ? navBuildSteps(triggers, props) : null;
+    NAV_HIDDEN_FIELDS.forEach((field) => { navJob.hidden[field] = this[field]; });
+    this.ready = false; this.buildSlices = 0; this.longestSliceMs = 0;
+    navJob.workMs = performance.now() - started;
+  },
+  // Runs build steps for about budgetMs; true once the graph is ready. The first unfinished slice drops every path.
+  pump(budgetMs) {
+    if (this.ready) return true;
+    navJob.sliceStarted = performance.now();
+    NAV_HIDDEN_FIELDS.forEach((field) => { this[field] = navJob.hidden[field]; });
+    let done = navJob.steps === null;
+    try {
+      while (!done && performance.now() - navJob.sliceStarted < budgetMs) done = navJob.steps.next().done;
+    } catch (error) {
+      navJob.steps = null;   // a failed build is never cached; the next pump finishes with what was built
+      throw error;
     }
-    this.version++;
-    this.resetPaths();
-    this.buildMs = performance.now() - started;
-    return this.buildMs;
+    const sliceMs = performance.now() - navJob.sliceStarted;
+    navJob.workMs += sliceMs; this.buildSlices++; this.longestSliceMs = Math.max(this.longestSliceMs, sliceMs);
+    if (done) navFinishBuild();
+    else navHideGraph(this.buildSlices === 1);
+    return done;
   },
   clearCache() { navGraphCache.length = 0; },
   clearGraph() {
@@ -175,7 +206,34 @@ const Nav = {
   },
 };
 
-Bus.on('world.load', (map) => Nav.build(map));
+// A match being loaded for play builds in frame slices (the loop is a later section: it exists by 'boot'); headless tests
+// and worlds loaded outside a match start (editor, tests) build at once.
+Bus.on('match.setup', () => { navJob.inMatchLoad = true; });
+Bus.on('match.start', () => { navJob.inMatchLoad = false; });
+Bus.on('world.load', (map) => { Nav.startBuild(map); Nav.pump(Game.headless || !navJob.inMatchLoad ? Infinity : NAV_SLICE_MS); });
+Bus.on('boot', () => Loop.onFrame('input', () => { if (!Nav.ready) Nav.pump(NAV_SLICE_MS); }));
+
+// ---- Sliced build ----
+function navFinishBuild() {
+  if (navJob.steps) navStoreGraph(navJob.key);
+  navJob.steps = null;
+  Nav.ready = true;
+  Nav.version++;
+  Nav.resetPaths();
+  Nav.buildMs = navJob.workMs;
+}
+
+// Between slices the graph reads empty; the first time, bots drop their paths of the old map.
+function navHideGraph(first) {
+  NAV_HIDDEN_FIELDS.forEach((field) => { navJob.hidden[field] = Nav[field]; Nav[field] = 0; });
+  Nav.mainComponent = -1;
+  if (!first) return;
+  Nav.version++;
+  Nav.resetPaths();
+}
+
+// Build time so far: finished slices plus the running one (phase laps count work, not the frames between slices).
+const navWorkMs = () => navJob.workMs + performance.now() - navJob.sliceStarted;
 
 // ---- Graph cache: same brushes, triggers and limits give the same graph ----
 function navGraphKey(brushes, triggers, props) {
@@ -202,30 +260,33 @@ function navStoreGraph(key) {
   if (navGraphCache.length > NAV_GRAPH_CACHE_SIZE) navGraphCache.shift();
 }
 
-// ---- Build pipeline ----
-function navBuildGraph(triggers, props) {
+// ---- Build pipeline: a generator that yields between small steps (Nav.pump decides when a slice ends) ----
+function* navBuildSteps(triggers, props) {
   navVolumes.props = props.map(navPropVolume);
   navVolumes.water = triggers.filter((trigger) => trigger.kind === 'water').map(navVolume);
   navVolumes.trigger = triggers.filter((trigger) => trigger.kind === 'jumppad' || trigger.kind === 'teleporter').map(navVolume);
   const phases = Nav.buildPhases;
-  let mark = performance.now();
-  const lap = (name) => { const now = performance.now(); phases[name] = now - mark; mark = now; };
+  let mark = navWorkMs();
+  const lap = (name) => { const now = navWorkMs(); phases[name] = now - mark; mark = now; };
   navBuildBrushGrid();
-  navBuildRaster();
+  yield* navBuildRaster();
   lap('raster');
   const builder = { x: [], y: [], z: [], sample: [], flags: [], cells: new Map(), from: [], to: [], type: [], height: [], reach: [], seconds: [] };
-  navPickCellNodes(builder);
+  yield* navPickCellNodes(builder);
   triggers.forEach((trigger) => navAddTriggerNode(builder, trigger));
-  navAddPassageNodes(builder, 1, 0);
-  navAddPassageNodes(builder, 0, 1);
+  yield* navAddPassageNodes(builder, 1, 0);
+  yield* navAddPassageNodes(builder, 0, 1);
   navFinishNodes(builder);
   lap('nodes');
-  navLinkNeighbours(builder);
+  yield* navLinkNeighbours(builder);
   triggers.forEach((trigger) => { if (NAV_TRIGGER_LINKS[trigger.kind]) NAV_TRIGGER_LINKS[trigger.kind](builder, trigger); });
-  navFinishLinks(builder);
+  yield;
+  yield* navFinishLinks(builder);
   lap('links');
-  navLabelComponents();
-  navFindCover();
+  yield;
+  yield* navLabelComponents();
+  yield;
+  yield* navFindCover();
   lap('components and cover');
 }
 
@@ -362,7 +423,7 @@ function navHighestTopGathered(x, z, limit, wallBelow) {
 }
 
 // ---- Raster of standable samples ----
-function navBuildRaster() {
+function* navBuildRaster() {
   const raster = navRaster;
   raster.originX = World.boundsMin.x; raster.originZ = World.boundsMin.z;
   raster.columnsX = Math.max(1, Math.ceil((World.boundsMax.x - raster.originX) / NAV_FINE));
@@ -373,6 +434,7 @@ function navBuildRaster() {
     navRasterColumn(column, heights, flags);
     for (let sample = columns.length; sample < heights.length; sample++) columns.push(column);
     raster.columnStart[column + 1] = heights.length;
+    if ((column + 1) % raster.columnsX === 0) yield;   // one raster row per step
   }
   raster.sampleY = Float32Array.from(heights);
   raster.sampleFlags = Uint8Array.from(flags);
@@ -519,11 +581,12 @@ function navAddNode(builder, sample, extraFlags) {
   builder.cells.get(cell).push(index);
 }
 
-function navPickCellNodes(builder) {
+function* navPickCellNodes(builder) {
   const cellsX = navCellCountX(), cellsZ = Math.ceil(navRaster.columnsZ / NAV_CELL_SAMPLES), samples = [];
   for (let cell = 0; cell < cellsX * cellsZ; cell++) {
     navCollectCellSamples(cell % cellsX, Math.floor(cell / cellsX), samples);
     if (samples.length) navAddClusterNodes(builder, samples, cell % cellsX, Math.floor(cell / cellsX));
+    if ((cell + 1) % cellsX === 0) yield;   // one row of cells per step
   }
 }
 
@@ -601,9 +664,10 @@ function navAddTriggerNode(builder, trigger) {
 }
 
 // A run of at most NAV_PASSAGE_MAX_SAMPLES standable columns along one axis is a doorway or a gap: its middle becomes a node.
-function navAddPassageNodes(builder, stepI, stepJ) {
+function* navAddPassageNodes(builder, stepI, stepJ) {
   const run = [];
   for (let sample = 0; sample < navRaster.sampleY.length; sample++) {
+    if ((sample + 1) % NAV_PASSAGE_SLICE === 0) yield;
     if (navNeighbourSample(sample, -stepI, -stepJ) >= 0) continue; // not the start of a run
     run.length = 0;
     for (let current = sample; current >= 0 && run.length <= NAV_PASSAGE_MAX_SAMPLES; current = navNeighbourSample(current, stepI, stepJ)) run.push(current);
@@ -714,11 +778,18 @@ const navWalkType = (flags) => (flags & NAV_NODE.WATER ? NAV_LINK.SWIM : flags &
 const navChestHeight = (type) => (type === NAV_LINK.CROUCH ? NAV_CROUCH_CHEST : NAV_CHEST);
 
 // Walk links first; then jump/drop/swim-exit links only between nodes that walking does not already join.
-function navLinkNeighbours(builder) {
-  for (let node = 0; node < Nav.nodeCount; node++) navLinkWalks(builder, node);
-  const walks = bucketByCell(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+function* navLinkNeighbours(builder) {
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    navLinkWalks(builder, node);
+    if ((node + 1) % NAV_NODE_SLICE === 0) yield;
+  }
+  const walks = navBucketByKey(builder.from, builder.from.length, Nav.nodeCount);
   const marks = new Int32Array(Nav.nodeCount).fill(-1);
-  for (let node = 0; node < Nav.nodeCount; node++) navLinkAirs(builder, node, walks, marks);
+  yield;
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    navLinkAirs(builder, node, walks, marks);
+    if ((node + 1) % NAV_NODE_SLICE === 0) yield;
+  }
 }
 
 function navLinkWalks(builder, node) {
@@ -905,15 +976,30 @@ function navLinkTeleporter(builder, trigger) {
   navAddLink(builder, entry, target, NAV_LINK.TELEPORT, 0, NAV_LINK_ROWS[NAV_LINK.TELEPORT].extraSeconds);
 }
 
-function navFinishLinks(builder) {
+// Counting sort of item indices by one key each (keys[item] in 0..cellCount-1): { start, items } in the order of
+// bucketByCell, without its two closures per item (Ring Isle links: 9 ms of garbage in one build step).
+function navBucketByKey(keys, itemCount, cellCount) {
+  const start = new Int32Array(cellCount + 1);
+  for (let item = 0; item < itemCount; item++) start[keys[item] + 1]++;
+  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
+  const fill = start.slice(0, cellCount), items = new Int32Array(itemCount);
+  for (let item = 0; item < itemCount; item++) items[fill[keys[item]]++] = item;
+  return { start, items };
+}
+
+function* navFinishLinks(builder) {
   const count = builder.from.length;
-  const bucket = bucketByCell(count, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const bucket = navBucketByKey(builder.from, count, Nav.nodeCount);
+  yield;
   const order = bucket.items;
   const pick = (list, Type) => { const sorted = new Type(count); for (let k = 0; k < count; k++) sorted[k] = list[order[k]]; return sorted; };
   Nav.linkCount = count; Nav.linkStart = bucket.start;
   Nav.linkFrom = pick(builder.from, Int32Array); Nav.linkTarget = pick(builder.to, Int32Array);
-  Nav.linkType = pick(builder.type, Uint8Array); Nav.linkHeight = pick(builder.height, Float32Array); Nav.linkCost = pick(builder.seconds, Float32Array);
-  Nav.linkReach = pick(builder.reach, Float32Array);
+  yield;
+  Nav.linkType = pick(builder.type, Uint8Array); Nav.linkHeight = pick(builder.height, Float32Array);
+  yield;
+  Nav.linkCost = pick(builder.seconds, Float32Array); Nav.linkReach = pick(builder.reach, Float32Array);
+  yield;
   const teleports = [];
   Nav.heuristicSpeed = Nav.limits.referenceSpeed;
   for (let link = 0; link < count; link++) {
@@ -926,17 +1012,19 @@ function navFinishLinks(builder) {
 }
 
 // ---- Strongly connected components (iterative Tarjan): same component = reachable both ways ----
-function navLabelComponents() {
+function* navLabelComponents() {
   const count = Nav.nodeCount, t = navTarjan;
   t.index = new Int32Array(count).fill(-1); t.low = new Int32Array(count); t.onStack = new Uint8Array(count);
   t.stack = new Int32Array(count); t.callNode = new Int32Array(count); t.callEdge = new Int32Array(count);
   t.stackSize = 0; t.depth = -1; t.counter = 0;
   Nav.component = new Int32Array(count);
-  for (let root = 0; root < count; root++) if (t.index[root] < 0) navStrongConnect(root);
-  const bucket = bucketByCell(count, Nav.componentCount, (node, visit) => visit(Nav.component[node]));
+  for (let root = 0; root < count; root++) if (t.index[root] < 0) yield* navStrongConnect(root);
+  yield;
+  const bucket = navBucketByKey(Nav.component, count, Nav.componentCount);
   Nav.componentStart = bucket.start; Nav.componentNodes = bucket.items;
   Nav.mainComponent = 0;
   for (let id = 1; id < Nav.componentCount; id++) if (navComponentSize(id) > navComponentSize(Nav.mainComponent)) Nav.mainComponent = id;
+  yield;
   navComponentReach();
 }
 
@@ -965,10 +1053,11 @@ function navMergeReach(reach, words, id, node) {
 
 const navComponentSize = (id) => Nav.componentStart[id + 1] - Nav.componentStart[id];
 
-function navStrongConnect(root) {
+function* navStrongConnect(root) {
   const t = navTarjan;
   navTarjanVisit(root);
-  while (t.depth >= 0) {
+  for (let step = 1; t.depth >= 0; step++) {
+    if (step % NAV_TARJAN_SLICE === 0) yield;
     const node = t.callNode[t.depth], edge = t.callEdge[t.depth];
     if (edge < Nav.linkStart[node + 1]) navTarjanFollow(node, edge);
     else navTarjanFinish(node);
@@ -1009,9 +1098,10 @@ function navTarjanPop(node) {
 // ---- Cover points (BOT-032): a wall close on one side, open space on the other ----
 const NAV_COVER_DIRECTIONS = [0, 1, 2, 3, 4, 5, 6, 7].map((step) => [Math.sin(step * Math.PI / 4), Math.cos(step * Math.PI / 4)]); // 8 compass rays
 
-function navFindCover() {
+function* navFindCover() {
   const nodes = [], dirX = [], dirZ = [], low = [], best = { kind: NAV_COVER.NONE, direction: 0 };
   for (let node = 0; node < Nav.nodeCount; node++) {
+    if ((node + 1) % NAV_NODE_SLICE === 0) yield;
     if (Nav.nodeFlags[node] & (NAV_NODE.CROUCH | NAV_NODE.WATER | NAV_NODE.TRIGGER) || !navNearWall(node)) continue;
     navBestCover(node, best);
     if (best.kind === NAV_COVER.NONE) continue;

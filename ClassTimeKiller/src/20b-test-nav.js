@@ -629,7 +629,7 @@ function navTestWallLine(brushes, line, half) {
 
 DebugApi.nav = Nav;
 // ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 120 x 120 m test map.
-DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); return Nav.buildMs; };
+DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); Nav.pump(Infinity); return Nav.buildMs; };
 
 function navTestPhases() {
   return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
@@ -659,3 +659,59 @@ Test.add('nav', (check) => {
   check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < NAV_TEST_QUERY_BUDGET_MS * factor, perQuery);
 });
 
+// F66: Ring Isle builds in frame slices (the loop's input phase pumps it): the graph reads empty and bot requests fail
+// until it is ready, no slice runs long, the result equals the build at once, and a bot path request after it is served.
+// Timings are the best of NAV_TEST_SLICED_RUNS builds each way (a busy machine or a garbage collection slows one run).
+const NAV_TEST_SLICE_LIMIT_MS = 16;     // one 60 Hz frame
+const NAV_TEST_ISLE_BUDGET_MS = 400;    // whole Ring Isle build, desktop Chromium milliseconds of work
+const NAV_TEST_SLICED_OVERHEAD = 1.5;   // sliced work may cost this much more than the same build at once
+const NAV_TEST_SLICED_RUNS = 2;
+const NAV_TEST_MAX_FRAMES = 2000;
+
+// One sliced build of the loaded map, one frame at a time, asking for a path from a to b after every unfinished frame.
+function navTestSlicedBuild(a, b, run) {
+  Nav.clearCache();
+  Nav.startBuild(World.map);
+  let frames = 0;
+  while (!Nav.ready && frames < NAV_TEST_MAX_FRAMES) {
+    Loop.runPhase('input', TICK_SECONDS);
+    frames++;
+    if (Nav.ready) break;
+    if (Nav.nodeCount || Nav.linkCount || Nav.coverCount || Nav.nearestNode(a.x, a.y, a.z) >= 0) run.empty = false;
+    Nav.request(6, Nav.nearestNode(a.x, a.y, a.z), Nav.nearestNode(b.x, b.y, b.z));
+    navTestServeAll();
+    if (Nav.result(6) !== NAV_STATUS.FAILED) run.failed = false;
+  }
+  run.sliced = run.sliced && Nav.ready && Nav.buildSlices > 1 && frames === Nav.buildSlices;
+  run.workMs = Math.min(run.workMs, Nav.buildMs);
+  run.longestMs = Math.min(run.longestMs, Nav.longestSliceMs);
+}
+
+Test.add('nav', (check) => {
+  const factor = navTestSpeedFactor();
+  World.load(Maps.get('isle'));   // warms the build code up: a first big build runs 2-4 x slower on Firefox and Safari
+  let atOnceMs = Infinity;
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) atOnceMs = Math.min(atOnceMs, DebugApi.perf.navBuild(World.map));
+  const nodes = Nav.nodeCount, links = Nav.linkCount, covers = Nav.coverCount, version = Nav.version, spawns = World.map.spawns;
+  const from = spawns[0], to = spawns[spawns.length - 1], run = { empty: true, failed: true, sliced: true, workMs: Infinity, longestMs: Infinity };
+  const wasHeadless = Game.headless;
+  Nav.clearCache();
+  navJob.inMatchLoad = true; Game.headless = false;   // as between 'match.setup' and 'match.start' in a game
+  try { World.load(World.map); } finally { navJob.inMatchLoad = false; Game.headless = wasHeadless; }
+  check('match load: a game leaves Ring Isle to frame slices after the first one', !Nav.ready && Nav.buildSlices === 1 && Nav.nodeCount === 0, Nav.buildSlices);
+  Nav.pump(Infinity);
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) navTestSlicedBuild(from, to, run);
+  check('sliced build: Ring Isle finishes over ' + Nav.buildSlices + ' frames', run.sliced);
+  check('sliced build: the graph reads empty and path requests fail until it is ready', run.empty && run.failed);
+  check('sliced build: longest slice ' + run.longestMs.toFixed(1) + ' ms under ' + NAV_TEST_SLICE_LIMIT_MS + ' ms x speed factor ' + factor.toFixed(2),
+    run.longestMs < NAV_TEST_SLICE_LIMIT_MS * factor);
+  check('sliced build: ' + run.workMs.toFixed(0) + ' ms of work, at most ' + NAV_TEST_SLICED_OVERHEAD + ' x the build at once (' + atOnceMs.toFixed(0) + ' ms)',
+    run.workMs <= atOnceMs * NAV_TEST_SLICED_OVERHEAD, navTestPhases());
+  check('sliced build: the build at once takes under ' + NAV_TEST_ISLE_BUDGET_MS + ' ms x speed factor', atOnceMs < NAV_TEST_ISLE_BUDGET_MS * factor, atOnceMs);
+  check('sliced build: same graph as the build at once', Nav.nodeCount === nodes && Nav.linkCount === links && Nav.coverCount === covers,
+    Nav.nodeCount + '/' + nodes + ' nodes, ' + Nav.linkCount + '/' + links + ' links');
+  check('sliced build: bots repath (version moved on)', Nav.version > version);
+  Nav.request(6, Nav.nearestNode(from.x, from.y, from.z), Nav.nearestNode(to.x, to.y, to.z));
+  navTestServeAll();
+  check('sliced build: a path request after it is ready is served', Nav.result(6) === NAV_STATUS.DONE, Nav.result(6));
+});
