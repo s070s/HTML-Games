@@ -56,7 +56,8 @@ const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that di
 const SQUAD_FIGHT_KEEP = 24;            // ...but a bot with a target stays in its fight up to this far (objectives outrank chases)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
-const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
+const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view...
+const HOLD_LOOK_ARC = 60 * DEG;         // ...back and forth this far either side of where it faced on arrival (BOT-040: no 360 vision)
 const SAFE_AREA_MARGIN = 0.7;
 const GOAL_DISTANCE_SCALE = 60;         // m: an objective's urgency halves at this distance (goal hints)
 const GOAL_TOUCH_RADIUS = 0.8;          // m: touch a carriable or stand on a spot
@@ -87,6 +88,8 @@ const BotDecide = {
   noGoalTime: new Float32Array(MAX_ACTORS), longestNoGoal: new Float32Array(MAX_ACTORS),
   campUntil: new Float64Array(MAX_ACTORS), campCooldown: new Float64Array(MAX_ACTORS),
   roamNode: new Int32Array(MAX_ACTORS).fill(-1),
+  // Hold sweep: the yaw the view swings around (set at the first arrival of a goal, NaN = not yet), its offset and direction.
+  holdYaw: new Float32Array(MAX_ACTORS).fill(NaN), holdOffset: new Float32Array(MAX_ACTORS), holdTurn: new Int8Array(MAX_ACTORS).fill(1),
   items: [], itemNode: new Int32Array(MAX_BOT_ITEMS), itemReadyAt: new Float64Array(MAX_BOT_ITEMS),
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
@@ -204,7 +207,8 @@ const BotDecide = {
   apply(id, now) {
     const plan = bestPlan;
     if (plan.goal === GOAL.CHASE && this.goal[id] !== GOAL.CHASE) this.searchLeft[id] = SEARCH_SPOTS;
-    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
+    const changed = plan.goal !== this.goal[id];
+    if (changed) { this.goalSince[id] = now; this.holdYaw[id] = NaN; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
@@ -243,7 +247,22 @@ const BotDecide = {
     if (goal === GOAL.CHASE) this.searched(id);
     if (goal === GOAL.ROAM) this.roamNode[id] = -1;
     if (goal === GOAL.COLLECT || goal === GOAL.CHASE || goal === GOAL.ROAM || goal === GOAL.INVESTIGATE) { this.hurry(id, now); return; }
-    if (BotCombat.target[id] < 0) Bots.lookYaw[id] = wrapAngle(Actors.aimYaw[id] + HOLD_LOOK_SPEED * dt * 10);   // hold: sweep the view
+    if (BotCombat.target[id] >= 0) return;
+    // A hit from out of sight turns the view to the attacker (14d lookAtThreat); the sweep then swings around that way.
+    if (now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) { this.holdYaw[id] = NaN; return; }
+    // Hold: the view swings at HOLD_LOOK_SPEED over HOLD_LOOK_ARC either side of the way the bot faced (a retreat: of the
+    // threat) when it first got there. Bots.turn wraps the look error, so the sum needs no wrap here.
+    if (Number.isNaN(this.holdYaw[id])) { this.holdYaw[id] = this.holdCentre(id); this.holdOffset[id] = 0; }
+    const offset = this.holdOffset[id] + this.holdTurn[id] * HOLD_LOOK_SPEED * dt;
+    if (Math.abs(offset) >= HOLD_LOOK_ARC) this.holdTurn[id] = -this.holdTurn[id];
+    this.holdOffset[id] = Math.max(-HOLD_LOOK_ARC, Math.min(HOLD_LOOK_ARC, offset));
+    Bots.lookYaw[id] = this.holdYaw[id] + this.holdOffset[id];
+  },
+  holdCentre(id) {
+    const threat = this.goal[id] === GOAL.RETREAT ? this.goalTarget[id] : -1;
+    if (threat < 0) return Actors.aimYaw[id];
+    BotSense.perceivedPosition(id, threat, threatPoint);
+    return Math.atan2(threatPoint.x - Actors.x[id], threatPoint.z - Actors.z[id]);
   },
   markVisited(id, item, now) {
     if (item >= 0 && item < this.items.length) this.itemVisited[id * MAX_BOT_ITEMS + item] = now;

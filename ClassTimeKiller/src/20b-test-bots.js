@@ -1496,3 +1496,31 @@ Test.add('bots', (check) => {
   DebugApi.bots.lastPerf = stats;
 });
 DebugApi.bots.kits = { play: playKitMatch, abilityBatches, gadgetBatches };   // __CTK.bots.kits: kit matches from the console
+
+// ---- Holding bots sweep their view slowly over an arc (BOT-040: no spinning, no 360 degree vision) ----
+const HOLD_SWEEP_SETTLE = 40, HOLD_SWEEP_SECONDS = 6, HOLD_SWEEP_RATE_LIMIT = 60, HOLD_SWEEP_RANGE_LIMIT = 130;   // s, s, deg/s, deg
+Test.add('bots', (check) => {
+  const settleTicks = HOLD_SWEEP_SETTLE * TICK_RATE, turned = new Float64Array(MAX_ACTORS), held = new Uint32Array(MAX_ACTORS);
+  const yaw = new Float64Array(MAX_ACTORS), low = new Float64Array(MAX_ACTORS), high = new Float64Array(MAX_ACTORS), last = new Float64Array(MAX_ACTORS);
+  const onTick = (tick) => {
+    for (let id = 0; id < Actors.count; id++) {
+      const step = wrapAngle(Actors.aimYaw[id] - last[id]);
+      last[id] = Actors.aimYaw[id];
+      if (tick < settleTicks || !Bots.isBot(id) || !BotDecide.holding(id) || BotCombat.target[id] >= 0) continue;
+      turned[id] += Math.abs(step); held[id]++;
+      yaw[id] += step; low[id] = Math.min(low[id], yaw[id]); high[id] = Math.max(high[id], yaw[id]);
+    }
+  };
+  playMatch({ mode: 'dom', map: 'twinkeeps', minutes: (HOLD_SWEEP_SETTLE + HOLD_SWEEP_SECONDS) / 60, seed: 1, balance: false, onTick,
+    bots: [{ team: 0, tier: 0 }, { team: 0, tier: 3 }, { team: 0, tier: 7 }, { team: 0, tier: 5 }] });
+  let fastest = 0, widest = 0, holders = 0;
+  for (let id = 0; id < MAX_ACTORS; id++) {
+    if (held[id] < TICK_RATE) continue;
+    holders++;
+    fastest = Math.max(fastest, turned[id] / DEG / (held[id] * TICK_SECONDS));
+    widest = Math.max(widest, (high[id] - low[id]) / DEG);
+  }
+  check('holding bots sweep their view slowly (no spin)', holders > 0 && fastest < HOLD_SWEEP_RATE_LIMIT, holders + ' holders, fastest ' + fastest.toFixed(0) + ' deg/s');
+  check('and only over an arc (no 360 degree vision)', holders > 0 && widest <= HOLD_SWEEP_RANGE_LIMIT, 'widest ' + widest.toFixed(0) + ' deg');
+});
+
