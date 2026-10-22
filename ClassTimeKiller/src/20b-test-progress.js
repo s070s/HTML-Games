@@ -887,3 +887,21 @@ Test.add('progress', (check) => {
   check('cards: an explosion the player caused (grenade, gadget) counts as explosive use', RunLog.explosiveShots === 1, RunLog.explosiveShots);
   Game.stop();
 });
+
+// ---- Statistics: catalogue maps by id, every generated or custom map in one bounded group ----
+Test.add('progress', (check) => {
+  const maps = Progress.stats().maps, kept = JSON.stringify(maps);
+  try {
+    for (const key of Object.keys(maps)) delete maps[key];
+    progressWithPlayer(() => {
+      const results = progressTestResults({});
+      for (const map of [{ id: 'gen101', gen: true }, { id: 'gen102', gen: true }, { id: 'gen103', gen: true }, { id: 'user2' }, { id: 'draft' }, CAT.maps[0]]) Progress.recordStats({ map, results });
+    });
+    check('stats: generated, custom and catalogue maps get bounded keys', Object.keys(maps).sort().join() === ['custom', 'generated', CAT.maps[0].id].sort().join(), Object.keys(maps).join());
+    check('stats: the groups count every match', maps.generated.played === 3 && maps.custom.played === 2);
+    check('stats: groups and maps are listed by name', careerMapName('generated') === 'Generated maps' && careerMapName('custom') === 'Custom maps' && careerMapName(CAT.maps[0].id) === CAT.maps[0].name);
+  } finally {
+    for (const key of Object.keys(maps)) delete maps[key];
+    Object.assign(maps, JSON.parse(kept));
+  }
+});

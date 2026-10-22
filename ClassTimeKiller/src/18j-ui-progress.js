@@ -40,7 +40,7 @@ function careerRow(label, detail, buttons) {
 }
 function careerDisabled(text) { const button = Ui.button(text, () => {}); button.disabled = true; return button; }
 function careerModeName(modeId) { const row = CAT.modes.byId(modeId); return row ? row.name : modeId; }
-function careerMapName(mapId) { const row = CAT.maps.byId(mapId); return row ? row.name : mapId; }
+function careerMapName(mapId) { const row = CAT.maps.byId(mapId); return row ? row.name : STAT_MAP_GROUP_NAMES[mapId] || mapId; }
 function careerLevelText() {
   const level = Progress.level(), title = Progress.title();
   const next = level >= PROGRESS_LEVELS.max ? 'max level' : Math.round(Progress.levelProgress() * 100) + '% to level ' + (level + 1);

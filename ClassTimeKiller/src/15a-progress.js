@@ -292,7 +292,7 @@ const Progress = {
   },
   recordStats(match) {
     const stats = this.stats(), results = match.results, mine = this.playerResult(results), won = Progress.outcome(results) === 'win' ? 1 : 0;
-    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, match.map ? match.map.id || 'custom' : 'none', MAP_STAT_FIELDS);
+    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, statMapKey(match.map), MAP_STAT_FIELDS);
     mode.played++; mode.wins += won; mode.kills += mine.kills; mode.deaths += mine.deaths; mode.bestScore = Math.max(mode.bestScore, mine.score);
     map.played++; map.wins += won;
     stats.totals.matches++; stats.totals.wins += won; stats.totals.kills += mine.kills; stats.totals.deaths += mine.deaths;
@@ -381,6 +381,12 @@ const matchXpScratch = { score: 0, objective: 0, medals: 0, finish: 0, podium: 0
 const MODE_STAT_FIELDS = { played: 0, wins: 0, kills: 0, deaths: 0, bestScore: 0 };
 const MAP_STAT_FIELDS = { played: 0, wins: 0 };
 const WEAPON_STAT_FIELDS = { shots: 0, hits: 0, kills: 0, headshots: 0 };
+// Map statistics: a catalogue map by its id; generated and custom maps (a new id per seed or save) share one row each, so the list stays short.
+const STAT_MAP_GROUP_NAMES = { generated: 'Generated maps', custom: 'Custom maps', none: 'No map' };
+function statMapKey(map) {
+  if (!map) return 'none';
+  return CAT.maps.byId(map.id) ? map.id : map.gen ? 'generated' : 'custom';
+}
 
 function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
