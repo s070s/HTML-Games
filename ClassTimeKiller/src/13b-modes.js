@@ -498,10 +498,14 @@ const Modes = {
     this.warningIndex = 0;
     while (this.warningIndex < TIME_WARNINGS.length && TIME_WARNINGS[this.warningIndex] >= this.rules.timeLimit) this.warningIndex++;
   },
+  // The warnings count the time the behaviour added (timeBonus); a bonus re-arms the warnings it pushed back.
   stepWarnings(now) {
-    if (this.rules.timeLimit <= 0 || this.rules.rounds || this.warningIndex >= TIME_WARNINGS.length) return;
+    if (this.rules.timeLimit <= 0 || this.rules.rounds) return;
+    const left = this.rules.timeLimit + this.timeBonus - (now - this.startTime);
+    while (this.warningIndex > 0 && TIME_WARNINGS[this.warningIndex - 1] < left - TIME_EPSILON) this.warningIndex--;
+    if (this.warningIndex >= TIME_WARNINGS.length) return;
     const threshold = TIME_WARNINGS[this.warningIndex];
-    if (this.rules.timeLimit - (now - this.startTime) > threshold + TIME_EPSILON) return;
+    if (left > threshold + TIME_EPSILON) return;
     this.warningIndex++;
     this.announce(formatTimeWarning(threshold), 'time', 2);
   },

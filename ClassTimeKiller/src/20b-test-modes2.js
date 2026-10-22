@@ -229,6 +229,19 @@ Test.add('modes2', (check) => {
   check('payload: the clock runs out without the cart: defenders win', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'time');
   endModeTest();
 
+  // Time warnings count the checkpoint time too (R-131): 90 s + 60 s from checkpoint 1.
+  const warnings = startEventLog('announce');
+  startModeTest('payload', modesTestMap(CONVOY_MAP), [0, 0, 1], { modeOptions: { timeLimit: 90, params: { checkpointTime: 60 } } });
+  followFor(15, [0, 1], Modes.objectives[0]);
+  for (const id of [0, 1]) placeActor(id, -45, 20);
+  const minuteWarnings = () => warnings.filter((event) => event.text === '1 minute remaining').length;
+  runSeconds(40 - Sim.time);
+  check('payload: no "1 minute" warning while 110 s are left', Modes.hud.payloadCheckpoint === 1 && minuteWarnings() === 0 && Modes.timeLeft(Sim.time) > 100, Modes.timeLeft(Sim.time));
+  runSeconds(91 - Sim.time);
+  check('payload: the warning comes with 1 minute really left', minuteWarnings() === 1 && Test.near(Modes.timeLeft(Sim.time), 59, 0.1), Modes.timeLeft(Sim.time));
+  warnings.stop();
+  endModeTest();
+
   startModeTest('payload', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1]);
   check('payload: a map without a path keeps nothing from the last convoy', Modes.behaviour.reached === 0 && Modes.behaviour.total === 0 && Modes.behaviour.score(0) === 0);
   endModeTest();
