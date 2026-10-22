@@ -728,6 +728,14 @@ Test.add('weapons', (check) => {
   Weapons.viewModel(out);
   Game.playerId = -1;
   check('W19 slug: holding ALT aims down sights at 1.2x zoom', Weapons.ads[id] > 0 && out.zoom > 1 && out.zoom <= 1.2, Weapons.ads[id] + ' ' + out.zoom);
+  Weapons.setLoadout(id, ['warden', 'heron']);   // the last key is drawn
+  Actors.buttons[id] = BTN.ALT;
+  Sim.run(TICK_RATE / 2);
+  Actors.buttons[id] = BTN.ALT | BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = BTN.ALT; Sim.step();
+  Game.playerId = id; Weapons.viewModel(out); Game.playerId = -1;
+  check('W24 scoped: next weapon flips the scope to 8x instead of switching', out.zoom === 8 && Weapons.currentWeapon(id).id === 'heron', out.zoom + ' ' + Weapons.currentWeapon(id).id);
+  Actors.buttons[id] = 0; Sim.run(TICK_RATE / 2);
+  check('W24: lowering the sights returns the scope to 4x', Weapons.zoomed[id] === 0);
   giveFull(id, 'kindler');
   const rocket = Projectiles.spawn(CAT.projectiles.byId('rocket'), enemy, CAT.weapons.byId('ramjet').index, 0, 0, 1.6, 3, 0, 0, -10, 50);
   const friendly = Projectiles.spawn(CAT.projectiles.byId('rocket'), id, CAT.weapons.byId('ramjet').index, 0, 0.5, 1.6, 3, 0, 0, 10, 50);

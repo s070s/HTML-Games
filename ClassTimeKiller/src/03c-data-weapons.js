@@ -101,6 +101,7 @@ Data.define('projectiles', {
 // speedMult, frontResist, status, needsLedge}, block {pool, regen, parryWindow, arcDeg}, launch {height, selfDamage},
 // combo {damage, radius, ammo}, stickCombo {count, damage, radius}, split {projectile, count, damage}, puddle {radius, damage, seconds, status},
 // aura {radius, damage, interval}, laser {damage, interval}. repair: HP/s a shot gives a friendly device instead of damage (W30 beam).
+// zoomMax: a second scope step; next/previous weapon flips to it while fully scoped (W24 4x/8x).
 const FIRE_MODE_SCHEMA = {
   id: REQUIRED, type: REQUIRED, trigger: 'auto', damage: 0, rate: 1, pellets: 1, spreadDeg: 0, moveSpread: 1, adsSpreadMult: 0.4,
   recoil: 'none', falloff: null, headMult: 2, legMult: 0.75, armorPen: 0.75, pierce: 0, penetration: '', range: 200,
@@ -108,7 +109,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, noise: -1, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, noise: -1, weapon: '', family: null,
 };
 
 const WEAPON_SCHEMA = {
@@ -189,7 +190,7 @@ const WEAPON_ROWS = [
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
-    alt: { type: 'zoom', zoom: 4 } },
+    alt: { type: 'zoom', zoom: 4, zoomMax: 8 } },
   { id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 10, reserve: 40, price: 1800, botPref: { range: [10, 80], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 3 } },

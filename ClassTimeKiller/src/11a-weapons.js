@@ -121,6 +121,7 @@ const Weapons = {
   charge: new Float32Array(MAX_ACTORS), chargeMode: new Int8Array(MAX_ACTORS).fill(-1),
   spin: new Float32Array(MAX_ACTORS),
   ads: new Float32Array(MAX_ACTORS),
+  zoomed: new Uint8Array(MAX_ACTORS),               // 1 = the scope's second step (FireMode.zoomMax) is chosen
   toggled: new Uint8Array(MAX_ACTORS),
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
@@ -217,7 +218,7 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
@@ -340,8 +341,16 @@ const Weapons = {
     const pressed = Actors.pressed[id], slot = Actors.slotRequest[id];
     if (slot && slot !== this.lastSlot[id]) this.requestSwitch(id, this.inSlot(id, slot));
     this.lastSlot[id] = slot;
+    if (this.stepScopeZoom(id, pressed)) return;
     if (pressed & BTN.NEXT_WEAPON) this.requestSwitch(id, this.cycle(id, 1));
     if (pressed & BTN.PREV_WEAPON) this.requestSwitch(id, this.cycle(id, -1));
+  },
+  // A full scope with a second zoom step (W24 4x/8x, FireMode.zoomMax) takes next/previous weapon to flip between the steps.
+  stepScopeZoom(id, pressed) {
+    const weapon = this.currentWeapon(id);
+    if (!weapon || this.ads[id] < 1 || !(weapon.alt.zoomMax > weapon.alt.zoom)) return false;
+    if (pressed & (BTN.NEXT_WEAPON | BTN.PREV_WEAPON)) this.zoomed[id] ^= 1;
+    return true;
   },
   stepSwap(id, dt) {
     this.stateTime[id] += dt;
@@ -435,6 +444,7 @@ const Weapons = {
   updateAds(id, weapon, dt) {
     const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
+    if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
   },
   coolDown(id, dt) {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
@@ -648,7 +658,7 @@ const Weapons = {
     out.shape = shown.class; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
-    out.zoom = lerp(1, shown.alt.zoom, this.ads[id]);
+    out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
     out.recoilPitch = this.recoilPitch[id]; out.recoilYaw = this.recoilYaw[id];   // degrees the spray punches away from the view
     out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
