@@ -51,6 +51,10 @@ const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cook
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
 const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
+const CHOKE_SMOKE_EFFECT = 'smoke';     // BOT-034: an attacking bot throws this effect at a choke hint on its way to the target...
+const CHOKE_SMOKE_CORRIDOR = 4;         // ...m at most beside the straight line there...
+const CHOKE_SMOKE_SHORT = 3;            // ...and at least this many m short of the target (nearer it, the 'between' screen covers it)
+const CHOKE_SMOKE_REST = 15;            // s between two choke smokes of one bot
 const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
 const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
 const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
@@ -117,6 +121,7 @@ const BotCombat = {
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
   jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
+  chokeSmokedAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // the bot's last smoke at a choke hint
   uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },   // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
@@ -129,7 +134,7 @@ const BotCombat = {
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
-    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9;
+    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9; this.chokeSmokedAt[id] = -1e9;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
@@ -520,18 +525,26 @@ const BotCombat = {
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
     if (now >= this.gadgetAt[id]) this.tryGadget(id, now);
   },
-  // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen.
+  // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen; a smoke also goes at
+  // a choke hint on an attacking bot's way to its target (chokeToSmoke).
   tryGrenade(id, now) {
     const pace = kitPace(id);
     this.grenadeAt[id] = now + KIT_CHECK_INTERVAL / pace;
     const target = this.target[id], row = carriedRow(id, Gadgets.grenade[id]);
     const use = row ? BOT_GADGET_USE[row.effect] : null;
-    if (target < 0 || !use || !botUseWanted(id, use) || !BotTeam.takeGrenadeToken(id, now)) return;
+    if (target < 0 || !use) return;
+    const choke = row.effect === CHOKE_SMOKE_EFFECT ? chokeToSmoke(id, target, now) : null;
+    if ((!choke && !botUseWanted(id, use)) || !BotTeam.takeGrenadeToken(id, now)) return;
     this.grenadeAt[id] = now + GRENADE_INTERVAL / pace;
+    if (choke) { this.chokeSmokedAt[id] = now; this.planThrow(id, row, choke.x - Actors.x[id], choke.z - Actors.z[id], choke.y, now); return; }
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
     const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
+    this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
+  },
+  // The solved arc to a landing (dx, dz) away at height y, and the cook time; aimThrow then turns the view onto it.
+  planThrow(id, row, dx, dz, y, now) {
     this.throwYaw[id] = Math.atan2(dx, dz);
-    this.throwPitch[id] = solveThrowPitch(length2(dx, dz) - THROW_FORWARD, BotSense.knownY[pair] - Actors.eyeY(id));
+    this.throwPitch[id] = solveThrowPitch(length2(dx, dz) - THROW_FORWARD, y - Actors.eyeY(id));
     this.throwCook[id] = row.cook ? Math.max(0, row.fuse - throwFlight - GRENADE_COOK_MARGIN) : 0;
     this.throwUntil[id] = now + GRENADE_AIM_SECONDS;
   },
@@ -764,6 +777,25 @@ function ultimateWanted(id, use) {
 
 // Kit checks run faster with the abilityUse trait: 0.5x .. 1.5x the base pace.
 function kitPace(id) { return 0.5 + Bots.trait(id, TRAIT.abilityUse); }
+
+// BOT-034 smoke at chokes: a bot attacking or chasing its target smokes the nearest choke hint (BotDecide.chokeSpots) on
+// its way to where it believes the target is: within CHOKE_SMOKE_CORRIDOR m of that line, past the smoke row's minimum
+// range, inside its maximum and CHOKE_SMOKE_SHORT m short of the target; one per CHOKE_SMOKE_REST s. null = none.
+function chokeToSmoke(id, target, now) {
+  const goal = BotDecide.goal[id], spots = BotDecide.chokeSpots;
+  if ((goal !== GOAL.ATTACK && goal !== GOAL.CHASE) || !spots.length || now - BotCombat.chokeSmokedAt[id] < CHOKE_SMOKE_REST) return null;
+  const pair = BotSense.pair(id, target), x = Actors.x[id], z = Actors.z[id];
+  const dx = BotSense.knownX[pair] - x, dz = BotSense.knownZ[pair] - z, length = Math.max(length2(dx, dz), 1e-6);
+  const range = BOT_GADGET_USE[CHOKE_SMOKE_EFFECT].range, farthest = Math.min(range[1], length - CHOKE_SMOKE_SHORT);
+  let best = null, bestAlong = Infinity;
+  for (let i = 0; i < spots.length; i++) {
+    const offsetX = spots[i].x - x, offsetZ = spots[i].z - z;
+    const along = (offsetX * dx + offsetZ * dz) / length, beside = Math.abs(offsetX * dz - offsetZ * dx) / length;
+    if (along < range[0] || along > farthest || beside > CHOKE_SMOKE_CORRIDOR || along >= bestAlong) continue;
+    best = spots[i]; bestAlong = along;
+  }
+  return best;
+}
 
 // The gadget row an actor carries at least one of (Gadgets.grenade / Gadgets.gadget index), else null.
 function carriedRow(id, index) {
