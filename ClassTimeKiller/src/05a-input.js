@@ -68,6 +68,7 @@ const ACTION_ROWS = [
   { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
+  { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
 ];
