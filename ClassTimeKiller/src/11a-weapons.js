@@ -601,7 +601,8 @@ const Weapons = {
 
   // ---- Spread (WPN-003, MOV-025) and recoil (WPN-004) ----
   spreadDegrees(id, weapon, mode) {
-    const movement = Move.inaccuracy(id) * mode.moveSpread;   // MOV-025 belongs to the movement preset (S10)
+    // MOV-025 belongs to the movement preset (S10); its WPN-003 default covers hitscan guns only (arena rockets stay exact).
+    const movement = Move.inaccuracy(id, mode.type !== 'hitscan') * mode.moveSpread;
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);

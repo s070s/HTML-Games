@@ -70,10 +70,11 @@ const Move = {
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
   horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
-  // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air.
-  inaccuracy(id) {
+  // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
+  // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
+  inaccuracy(id, tableOnly) {
     const table = this.preset(id).inaccuracy;
-    if (!table) return defaultInaccuracy(id);
+    if (!table) return tableOnly ? 0 : defaultInaccuracy(id);
     const sinceLanding = Motion.sinceLanding[id];
     const landing = sinceLanding < table.landTime ? table.land * (1 - sinceLanding / table.landTime) : 0;
     return movingInaccuracy(id, table) + landing;

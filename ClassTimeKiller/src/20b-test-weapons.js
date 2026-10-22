@@ -237,6 +237,9 @@ Test.add('weapons', (check) => {
   check('WPN-003 running adds moveSpread x f', Test.near(running, mode.spreadDeg + mode.moveSpread * MOVE_SPREAD_DEGREES, 1e-4), running);
   Motion.grounded[shooter] = 0;
   check('WPN-003 airborne adds the air term', Test.near(spread(), running + mode.moveSpread * AIR_SPREAD_DEGREES, 1e-4), spread());
+  const ramjet = giveFull(shooter, 'ramjet'), lancet = giveFull(shooter, 'lancet');
+  check('WPN-003 the default term spares projectile modes and the W23 rail (arena rockets stay exact)', Weapons.spreadDegrees(shooter, ramjet, ramjet.primary) === ramjet.primary.spreadDeg
+    && Weapons.spreadDegrees(shooter, lancet, lancet.primary) === 0, Weapons.spreadDegrees(shooter, ramjet, ramjet.primary));
   Actors.vx[shooter] = 0; Motion.grounded[shooter] = 1;
   TestArena.finish();
 });

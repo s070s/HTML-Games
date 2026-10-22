@@ -187,7 +187,7 @@ const WEAPON_ROWS = [
     primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 8, rate: 1.2, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.4] },
     alt: { type: 'hitscan', trigger: 'semi', damage: 4, pellets: 6, rate: 1, spreadDeg: 7, ammo: 'alt', ammoPerShot: 5, range: 12, status: { id: 'chill', stacks: 3 }, element: 'cryo' } },
   { id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, pierce: 4, recoil: 'marksman', element: 'arc' },
+    primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
