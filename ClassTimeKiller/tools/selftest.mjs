@@ -1,8 +1,8 @@
 // Runs ClassTimeKiller's built-in self-test in headless Chrome (software WebGL), no dependencies.
-// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--eval "<js, may be async>"] [--timeout 240] [--no-selftest]
+// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
 const group = option('--group', '');
 const extra = option('--eval', '');
 const skipSelfTest = args.includes('--no-selftest');
+const screenshot = option('--screenshot', ''); // PNG path: captured after --eval (use the eval to set up the scene)
 const timeoutSeconds = Number(option('--timeout', '240'));
 const CHROME_PATHS = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome'];
 const chromePath = CHROME_PATHS.find((p) => existsSync(p));
@@ -72,6 +73,12 @@ async function main() {
   if (extra) {
     const value = await evaluate(extra);
     console.log('EVAL ' + (typeof value === 'string' ? value : JSON.stringify(value, null, 1)));
+  }
+  if (screenshot) {
+    await sleep(500);
+    const shot = await send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(resolve(screenshot), Buffer.from(shot.result.data, 'base64'));
+    console.log('SCREENSHOT ' + resolve(screenshot));
   }
   const gameErrors = await evaluate('__CTK.log.errors()');
   gameErrors.forEach((line) => errors.push('GAME: ' + line));

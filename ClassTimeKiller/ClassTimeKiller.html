@@ -544,6 +544,44 @@ const Settings = {
   applyAll() { for (const key of this.definitions.keys()) Bus.emit('setting', key); },
 };
 
+// ==== 05a-input.js ====
+// ==== S05 INPUT ====
+// STUB until the input helper lands: the hook surface later sections may already use (docs/ARCHITECTURE.md).
+
+const Input = {
+  aimAssistTarget: null,   // fn(id, out) -> bool, filled by later sections (INP-008)
+  actions: [],
+};
+
+// ==== 06-audio.js ====
+// ==== S06 AUDIO ====
+// STUB until the audio helper lands.
+
+const Sound = {
+  enabled: false,
+};
+
+// ==== 07a-render.js ====
+// ==== S07 RENDERER ====
+// STUB until the renderer helper lands: the hook surface later sections may already use (docs/ARCHITECTURE.md).
+
+const Render = {
+  sources: [],
+  camera: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: 90 },
+  cameraOverride: null,    // fn(camera)
+  viewModel: null,         // fn(out) -> out
+  actorStyle: null,        // fn(id, out)
+  addSource(name, draw) { this.sources.push({ name, draw }); },
+};
+
+const Fx = {
+  burst() {}, tracer() {}, decal() {}, light() {},
+};
+
+const HudBatch = {
+  rect() {}, text() {}, ring() {}, line() {},
+};
+
 // ==== 08a-world.js ====
 // ==== S08 WORLD / COLLISION ====
 // The static world is a list of convex brushes, each stored as planes (normal + offset) plus its bounding box.
@@ -656,6 +694,16 @@ function pointInBrush(x, y, z, brush, margin) {
   for (let i = 0; i < brush.planeCount; i++) if (p[i * 4] * x + p[i * 4 + 1] * y + p[i * 4 + 2] * z - p[i * 4 + 3] > margin) return false;
   return true;
 }
+
+// ==== 18a-ui.js ====
+// ==== S18 UI ====
+// STUB until the UI helper lands.
+
+const Ui = {
+  screens: new Map(),
+  register(name, screen) { this.screens.set(name, screen); },
+  open() {}, back() {}, toast() {},
+};
 
 // ==== 19-loop.js ====
 // ==== S19 GAME LOOP ====
