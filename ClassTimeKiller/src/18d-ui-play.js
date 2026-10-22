@@ -13,6 +13,7 @@ const PLAY_AUTO_TEAM = -1;
 const PLAY_SEED_RANGE = 0x7fffffff;
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
 const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out' };
+const PlayResultsExtras = [];   // fn(body) panels later files add to the results screen (18j: XP and progress)
 const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .pl-win { color: var(--ui-good, #58d66b); } .pl-loss { color: var(--ui-bad); }'
   + '.pl-stats { color: var(--ui-dim); margin: 4px 0 12px; } .pl-form { max-width: 640px; }';
 
@@ -82,15 +83,15 @@ const PlayFlow = {
     const bots = clamp(PLAY_SHUFFLE_MIN_BOTS + Math.floor(random() * (top - PLAY_SHUFFLE_MIN_BOTS + 1)), 0, this.defaultBots(mode.id));
     return this.normalize({ mode: mode.id, map: map.id, bots, difficulty: pick(this.difficulties()).id });
   },
-  // Same setup, fresh seed (results screen: play again).
+  // Same setup, fresh seed (results screen: play again); a career match (setup.progress) is rebuilt by its structure (S15).
   playAgain(random) {
     if (!Game.match) return null;
-    const setup = Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
     return Game.start(setup);
   },
-  // Same mode and rules on the next map that lists the mode.
+  // Same mode and rules on the next map that lists the mode (not for career matches: they belong to their map).
   nextMap(random) {
-    if (!Game.match) return null;
+    if (!Game.match || Game.match.setup.progress) return null;
     const setup = Game.match.setup, maps = this.mapsFor(setup.mode), current = maps.findIndex((map) => map.id === (Game.match.map ? Game.match.map.id : setup.map));
     const next = maps.length ? maps[(current + 1) % maps.length] : null;
     return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) }));
@@ -181,11 +182,12 @@ Ui.register('results', {
     const body = makeElement('div', 'ui-scroll');
     root.appendChild(body);
     Scoreboard.renderInto(body);
+    for (const addExtra of PlayResultsExtras) addExtra(body);
     const foot = makeElement('div', 'ui-foot');
     const again = Ui.button('Play again', () => PlayFlow.playAgain(), 'primary');
     again.dataset.autofocus = '1';
     foot.appendChild(again);
-    foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+    if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
     foot.appendChild(Ui.button('Main menu', () => Game.stop()));
     root.appendChild(foot);
   },

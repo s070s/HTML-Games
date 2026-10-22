@@ -257,9 +257,9 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
-  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Ladder,Play,Custom,Range,Map editor,Settings,Help');
+  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Custom,Range,Map editor,Settings,Help');
   check('main menu: Quick Match is first, focused and primary', buttons[0].classList.contains('primary') && document.activeElement === buttons[0]);
-  check('main menu: screens that do not exist yet are disabled, not broken', buttons[1].disabled && buttons[5].disabled === false && buttons[6].disabled === false && buttons[7].disabled === false);
+  check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && !buttons[5].disabled && !buttons[6].disabled && !buttons[7].disabled);
   let quick = 0;
   const listener = Bus.on('ui.quickMatch', () => { quick++; });
   const realQuickMatch = PlayFlow.quickMatch;
@@ -269,12 +269,16 @@ Test.add('ui', (check) => uiWith(() => {
   Bus.off('ui.quickMatch', listener);
   check('main menu: Quick Match emits ui.quickMatch (one action to start)', quick === 1);
   check('main menu: back does nothing here', !Ui.back() && Ui.current() === 'main');
-  Ui.register('ladder', { build(root2) { root2.appendChild(Ui.button('Later', () => {})); } });
+  const realCareer = Ui.screens.get('career');
+  Ui.screens.delete('career');
+  Ui.closeAll(); Ui.open('main');
+  check('main menu: an entry without its screen is disabled', Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[1].disabled);
+  Ui.register('career', { build(root2) { root2.appendChild(Ui.button('Later', () => {})); } });
   Ui.closeAll(); Ui.open('main');
   check('main menu: a screen registered later turns its entry on', !Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[1].disabled);
-  uiClickButton(Ui.top().element, 'Ladder');
-  check('main menu: the entry opens its screen', Ui.current() === 'ladder');
-  Ui.screens.delete('ladder');
+  uiClickButton(Ui.top().element, 'Career');
+  check('main menu: the entry opens its screen', Ui.current() === 'career');
+  Ui.register('career', realCareer);
   Ui.closeAll(); Ui.open('main');
   uiClickButton(Ui.top().element, 'Settings');
   check('main menu: Settings opens the settings screen', Ui.current() === 'settings');
@@ -304,7 +308,8 @@ Test.add('ui', (check) => uiWith(() => {
   Game.pause('menu');
   check('pause: pausing opens the pause menu (UI-002)', Game.paused && Ui.current() === 'pause');
   const labels = Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
-  check('pause: resume, restart, settings and quit are there', labels.join() === 'Resume,Restart,Settings,Quit to menu', labels.join());
+  const core = ['Resume', 'Restart', 'Settings', 'Quit to menu'];   // later sections may add rows (Ui.pauseEntries) between them
+  check('pause: resume, restart, settings and quit are there', labels.filter((label) => core.includes(label)).join() === core.join(), labels.join());
   Ui.pauseEntries.push({ label: 'Rules', screen: 'testRules' });
   Ui.register('testRules', { build(root) { root.appendChild(Ui.button('R', () => {})); } });
   Game.resume(); Game.pause('menu');

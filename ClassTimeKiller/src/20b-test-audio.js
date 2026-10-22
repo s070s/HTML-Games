@@ -346,9 +346,10 @@ Test.add('audio', (check) => {
   check('menu clicks pick a UI recipe and fall back to a click', audioTestCount('uiBack') === 1 && audioTestCount('uiClick') === 1);
   audioTestEmit('announce', { text: 'Round start', kind: 'warning', priority: 1 });
   check('announcements play a sting by kind', audioTestCount('announceWarn') === 1);
+  const medalStings = audioTestCount('medal');   // the kill above may already have paid a real medal (S15 First Strike)
   audioTestEmit('medal', { id: bot, medal: 'double' });
   audioTestEmit('medal', { id: player, medal: 'double' });
-  check('only your own medals play a sting', audioTestCount('medal') === 1);
+  check('only your own medals play a sting', audioTestCount('medal') - medalStings === 1);
 
   audioTestEmit('weapon.reload', { id: bot, weapon: 'x' });
   audioTestEmit('weapon.switch', { id: player, weapon: 'x' });
