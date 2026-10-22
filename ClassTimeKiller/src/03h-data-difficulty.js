@@ -6,7 +6,8 @@
 // One reader per field: the bots (14a..14e) tierMin/tierMax, attackers, aggression, reactionScale, aimErrorScale and
 // gameSpeed (x rules.fx.timeScale); the PvE section (14h..14j) playerDamage / enemyDamage (Pve.attackerScale), attackers
 // (enemy tokens), parry (PvE blows and projectiles), projectileSpeed, resourceYield (drop chance), lives, checkpoints and
-// checkpointHeal; the weapons (11a) aimAssist and (11d) parry for the W03 block weapon (window x parry / DIFFICULTY_PARRY_BASE).
+// checkpointHeal; the items (12a) resourceYield (spot respawn time); the weapons (11a) aimAssist and (11d) parry for the W03
+// block weapon (window x parry / DIFFICULTY_PARRY_BASE).
 
 const DIFFICULTY_PARRY_BASE = 0.3;      // s: the parry window of the default preset (W03 parryWindow is tuned for it)
 
