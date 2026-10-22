@@ -550,6 +550,41 @@ Test.add('render', (check) => withRenderer(async () => {
   Bus.off('toast', listener);
 }));
 
+// No restore within the wait: the save is written and the fatal screen offers Reload. A quit during the loss forgets the
+// loss pause, a match started during it waits, and a restore never lifts the player's own pause.
+Test.add('render', (check) => withRenderer(async () => {
+  const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
+  if (!extension) { check('no WEBGL_lose_context: context-loss fallback checks skipped', true); return; }
+  const fatal = document.getElementById('fatal'), waitMs = Render.restoreWaitMs, saveNow = Save.saveNow;
+  let writes = 0;
+  Save.saveNow = function () { writes++; return saveNow.call(this); };
+  Render.restoreWaitMs = 200;
+  try {
+    Game.state = 'playing';
+    extension.loseContext();
+    await waitUntil(() => Render.lost, 3000);
+    Game.headless = true;   // quit without the menu screens
+    Bus.emit('match.stop', null);
+    Game.state = 'menu'; Game.paused = false; writes = 0;
+    check('a quit during the loss forgets the loss pause', !Render.pausedForLoss);
+    check('no restore within the wait: the save is written and the fatal screen offers Reload', await waitUntil(() => fatal.classList.contains('show'), 3000)
+      && writes > 0 && /reload/i.test(document.getElementById('fatal-text').textContent) && !!fatal.querySelector('button'), writes);
+    Game.state = 'playing';
+    renderFrameHook(1 / 60, 1);
+    check('a match started during the loss waits for the graphics', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
+    Game.paused = false; Game.pause('menu');   // the player's own pause
+    extension.restoreContext();
+    check('a restore keeps the player\'s own pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'menu');
+  } finally {
+    Save.saveNow = saveNow; Render.restoreWaitMs = waitMs;
+    fatal.classList.remove('show'); fatalShown = false;
+  }
+}));
+
+Test.add('render', (check) => {
+  check('the WebGL2 message has an iPhone line (iOS update, Lockdown Mode)', /iOS/.test(WEBGL_FATAL_TEXT) && /Lockdown Mode/.test(WEBGL_FATAL_TEXT));
+});
+
 // ---- Frame-time dynamic resolution without a GPU timer (PERF-007 hysteresis on GPU-bound phones) ----
 // Simulated device: vsync holds at scale <= 0.7, every higher scale misses it (33 ms frames).
 Test.add('render', (check) => withRenderer(() => {
