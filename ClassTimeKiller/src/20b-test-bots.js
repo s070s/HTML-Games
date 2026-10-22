@@ -321,7 +321,8 @@ Test.add('bots', (check) => {
 });
 
 // ---- Headless matches (BOT-080): 120 s per mode with its score limit; the match ends and the objectives score ----
-const MATCH_SECONDS = 120, MATCH_RUN_MINUTES = 2.1;   // the run is a little longer than the time limit
+// A tie at the time limit goes to sudden death, so the run covers the overtime too (it stops when the match ends).
+const MATCH_SECONDS = 120, MATCH_RUN_MINUTES = (MATCH_SECONDS + OVERTIME_SECONDS) / 60 + 0.1;
 
 function playMode(mode, map, botCount) { return DebugApi.soak(mode, map, MATCH_RUN_MINUTES, botCount, 1, { timeLimit: MATCH_SECONDS }); }
 

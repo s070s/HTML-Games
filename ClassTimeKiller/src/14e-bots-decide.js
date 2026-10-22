@@ -43,6 +43,7 @@ const FALLBACK_FAVORITE = 'lancet';
 const goalPlan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
 const bestPlan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1, goal: GOAL.NONE };
 const decideScratch = Vec.make();
+const threatPoint = Vec.make();
 const powerupList = [];
 const timerList = [];
 const objectiveList = [], baseList = [];
@@ -86,7 +87,7 @@ const BotDecide = {
     this.itemReadyAt.fill(0);
     const map = World.map, mode = match.rules ? match.rules.mode : '';
     if (!map) return;
-    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && servesMode(entry, mode)) this.addItem(entry);
+    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
   },
   addItem(entry) {
@@ -98,7 +99,7 @@ const BotDecide = {
   makeCampSpot(hint, map, mode) {
     const spot = { x: hint.x, y: hint.y, z: hint.z, safe: [true, true, true] };
     for (const spawn of map.spawns || []) {
-      if (!servesMode(spawn, mode) || Math.hypot(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
+      if (!mapServesMode(spawn, mode) || Math.hypot(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
       if (!World.lineClear(hint.x, hint.y + SPAWN_EYE_HEIGHT, hint.z, spawn.x, spawn.y + SPAWN_EYE_HEIGHT, spawn.z)) continue;
       const side = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
       spot.safe[2] = false;                  // free-for-all: every spawn is an enemy spawn
@@ -214,9 +215,10 @@ const BotDecide = {
   },
 
   // ---- BOT-021 aggression: 0 when hurt or far below the enemy, 0.7 with a powerup, else the weapon value x trait x difficulty ----
+  // The enemy's height is where the bot believes it is (BOT-040).
   aggression(id, target) {
     const lowHealth = Actors.health[id] < Actors.maxHealth[id] * AGGRESSION_HEALTH && Actors.armor[id] < AGGRESSION_ARMOR;
-    if (lowHealth || (target >= 0 && Actors.y[target] - Actors.y[id] >= AGGRESSION_HEIGHT)) return 0;
+    if (lowHealth || (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT)) return 0;
     if (Items.activePowerups(id, powerupList) > 0) return AGGRESSION_POWERUP;
     const weapon = Weapons.currentWeapon(id), value = weapon ? Math.max(AGGRESSION_WEAPON_FLOOR, weapon.botPref.value) : 0;
     return clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression), 0, 1);
@@ -236,9 +238,6 @@ function copyPlan(out, plan, goal, score) {
 function setPlan(plan, x, y, z, radius, action, target) {
   plan.x = x; plan.y = y; plan.z = z; plan.radius = radius; plan.action = action; plan.target = target;
 }
-
-// Map entries without a modes list serve every mode (same rule as the map catalogue).
-function servesMode(entry, mode) { return !entry.modes || !entry.modes.length || entry.modes.includes(mode); }
 
 // ---- Goal scorers: each returns 0..1 and fills the plan (destination, radius, action, target) ----
 const GOAL_SCORERS = [];
@@ -269,12 +268,11 @@ GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   return CHASE_BASE + CHASE_GAIN * aggression * freshness;
 };
 GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {
-  const target = BotCombat.target[id];
-  const threatened = target >= 0 && (BotSense.sees(id, target) || now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS);
-  if (!threatened) return 0;
-  const aggression = BotDecide.aggression(id, target);
+  const threat = retreatThreat(id, now);
+  if (threat < 0) return 0;
+  const aggression = BotDecide.aggression(id, threat);
   if (aggression >= RETREAT_THRESHOLD) return 0;
-  retreatSpot(id, target, plan);
+  retreatSpot(id, threat, plan);
   return Math.min(0.95, RETREAT_BASE + RETREAT_GAIN * (RETREAT_THRESHOLD - aggression) * 2 * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
 };
 GOAL_SCORERS[GOAL.COLLECT] = (id, plan, now) => {
@@ -311,13 +309,23 @@ GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
   return ORDER_BASE + ORDER_GAIN * Bots.trait(id, TRAIT.teamwork);
 };
 
-// Health item when hurt and one is reachable, else cover from the threat, else a node away from it.
+// What a bot retreats from: its target while in sight, else the enemy that hit it in the last 3 s; -1 = nothing.
+function retreatThreat(id, now) {
+  const target = BotCombat.target[id];
+  if (target >= 0 && BotSense.sees(id, target)) return target;
+  const attacker = BotSense.attacker[id];
+  return attacker >= 0 && now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS ? attacker : -1;
+}
+
+// Health item when hurt and one is reachable, else cover from the threat, else a node away from it. The threat is
+// where the bot believes it is (in sight: there; else its remembered place, from the hit's direction).
 function retreatSpot(id, threat, plan) {
   const hurt = Actors.health[id] < Actors.maxHealth[id] * AGGRESSION_HEALTH;
   const health = hurt ? bestItem(id, Sim.time, 'health') : -1;
   if (health >= 0) { const item = BotDecide.items[health]; setPlan(plan, item.x, item.y, item.z, ITEM_TOUCH * 0.6, ACTION.MOVE, health); return; }
-  const tx = threat >= 0 ? Actors.x[threat] : Actors.x[id], tz = threat >= 0 ? Actors.z[threat] : Actors.z[id];
-  const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], tx, threat >= 0 ? Actors.eyeY(threat) : Actors.y[id], tz, RETREAT_COVER_RANGE);
+  BotSense.perceivedPosition(id, threat, threatPoint);
+  const tx = threatPoint.x, tz = threatPoint.z;
+  const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], tx, threatPoint.y + SPAWN_EYE_HEIGHT, tz, RETREAT_COVER_RANGE);
   if (cover >= 0) { const node = Nav.coverNode[cover]; setPlan(plan, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], 0.8, ACTION.HOLD, threat); return; }
   const dx = Actors.x[id] - tx, dz = Actors.z[id] - tz, length = Math.hypot(dx, dz) || 1;
   setPlan(plan, Actors.x[id] + dx / length * RETREAT_AWAY, Actors.y[id], Actors.z[id] + dz / length * RETREAT_AWAY, 2, ACTION.MOVE, threat);
@@ -404,20 +412,15 @@ function planZones(id, plan, kind, now) {
   return true;
 }
 
-function teamFlag(list, team) {
-  for (let i = 0; i < list.length; i++) if (list[i].team === team) return list[i];
-  return null;
-}
-
 function planFlags(id, plan) {
   const team = Actors.team[id];
   if (team < 0) return false;
   Modes.findObjectives('flag', objectiveList);
   Modes.findObjectives('flagBase', baseList);
-  const neutral = Modes.rules.params.neutral, own = neutral ? null : teamFlag(objectiveList, team);
-  const enemy = neutral ? teamFlag(objectiveList, NO_TEAM) : teamFlag(objectiveList, 1 - team);
+  const neutral = Modes.rules.params.neutral, own = neutral ? null : teamObjective(objectiveList, team);
+  const enemy = neutral ? teamObjective(objectiveList, NO_TEAM) : teamObjective(objectiveList, 1 - team);
   if (!enemy) return false;
-  if (enemy.carrier === id) return planCapture(id, plan, own, neutral ? teamFlag(baseList, 1 - team) : own);
+  if (enemy.carrier === id) return planCapture(id, plan, own, neutral ? teamObjective(baseList, 1 - team) : own);
   const role = BotTeam.role[id];
   if (own && own.state === 'carried') return planTarget(plan, own, role === ROLE.ATTACK ? 0.75 : 0.95, 1.2, ACTION.MOVE);
   if (own && own.state === 'dropped') return planTarget(plan, own, 0.9, 0.8, ACTION.MOVE);
