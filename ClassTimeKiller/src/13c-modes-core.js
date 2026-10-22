@@ -24,8 +24,7 @@ Modes.register('lms', {
 });
 function giveWholeSet(id, fullReserve) {
   Weapons.setLoadout(id, currentWeaponSet().weapons);
-  if (!fullReserve) return;
-  for (let w = 0; w < WEAPON_COUNT; w++) if (Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.addWeaponAmmo(id, CAT.weapons[w], Weapons.maxReserve(id, CAT.weapons[w]));
+  if (fullReserve) addAmmoShare(id, 1);
 }
 
 // ---- M04 Flag Raid and M05 Lone Flag: params.neutral picks the one-flag rules ----
