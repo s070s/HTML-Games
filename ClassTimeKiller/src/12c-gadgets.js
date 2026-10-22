@@ -57,13 +57,6 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
-// Accumulates clock[index]; true once per interval (gadget areas and placed devices tick on it).
-function intervalDue(clock, index, dt, interval) {
-  clock[index] += dt;
-  if (clock[index] < interval - 1e-6) return false;
-  clock[index] -= interval;
-  return true;
-}
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;

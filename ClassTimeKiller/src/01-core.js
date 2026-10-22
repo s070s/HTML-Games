@@ -117,6 +117,14 @@ const Bus = {
   },
 };
 
+// Accumulates clock[index]; true once per interval (gadget areas, placed devices, mode timers, PU17 ammo regen).
+function intervalDue(clock, index, dt, interval) {
+  clock[index] += dt;
+  if (clock[index] < interval - 1e-6) return false;
+  clock[index] -= interval;
+  return true;
+}
+
 // ---- The emitters every section shares (one reused payload each: listeners copy what they keep) ----
 const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1, effect: '' };   // effect: the gadget row's, for grenade bounces
 const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
