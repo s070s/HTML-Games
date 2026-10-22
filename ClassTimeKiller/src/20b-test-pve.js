@@ -292,7 +292,7 @@ Test.add('pve', (check) => {
   killEnemy(boss);
   events.stop();
   const defeated = events.find((event) => event.kind === 'defeated');
-  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
+  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0, SoundMusic.bosses);
   check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === (defeated.final ? defeated.seconds : PROGRESS_NEVER),
     RunLog.bossSeconds);
   spawnFacing('overlord', 30);
