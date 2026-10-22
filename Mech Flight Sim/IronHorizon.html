@@ -2593,7 +2593,7 @@ function gibSoldier(src, death) {
   const col = src.def.col;
   bloodSpray(src.x, src.y + 1.2, src.z, death ? 26 : 8, death ? 9 : 5);
   if (!death) { gibPart(src, rand(-0.2, 0.2), 1.1, rand(-0.2, 0.2), 0.16, 0.12, 0.14, GIB_GORE_COL, 'box', GIB_BLOOD, 6); return; }
-  gibPart(src, 0, 1.72, 0, 0.28, 0.3, 0.28, GIB_SKIN_COL, 'sphere', GIB_BLOOD, 9);   // head
+  gibPart(src, 0, 1.72, 0, 0.28, 0.3, 0.28, src.skin || GIB_SKIN_COL, 'sphere', GIB_BLOOD, 9);   // head (a civilian has its own skin colour)
   gibPart(src, 0, 1.2, 0, 0.5, 0.6, 0.3, col.main, 'box', GIB_BLOOD, 5);             // torso
   for (let side = -1; side <= 1; side += 2) {
     gibPart(src, side * 0.35, 1.25, 0, 0.13, 0.55, 0.13, col.main, 'cyl', GIB_BLOOD, 9);   // arms
@@ -2626,6 +2626,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   Snd.play(big ? 'bigExplosion' : 'explosion', x, y, z, clamp(radius / 6, 0.5, 1.6));
   shakeFrom(x, y, z, clamp(radius * 0.045, 0.05, 0.6), 160);
   if (W.onExplosion && !opts.noNet) W.onExplosion(x, y, z, radius);   // superweapon blasts are replayed by guests instead
+  Civ.blast(x, y, z, radius, damage);   // every game runs its own civilians, guests too
   if (Net.guest) return;   // guests only show effects; the host decides damage
   // damage
   const pl = W.platforms;
@@ -2681,7 +2682,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: cfg.map, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [],
+    cfg, map: m, mapId: cfg.map, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [],
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
@@ -2986,6 +2987,7 @@ function drawWorld(dt) {
   }
   // platforms
   for (let i = 0; i < W.platforms.length; i++) drawPlatformBody(W.platforms[i]);
+  Civ.draw();
   // projectiles
   for (let i = 0; i < W.projs.length; i++) {
     const p = W.projs[i];
@@ -3050,6 +3052,7 @@ function drawWorld(dt) {
         const rr = (p.kind === 'air' ? p.radius * 1.3 : p.radius * 1.35) * (1 + hgt * 0.01);
         st.push().t(p.x, gh + 0.13, p.z).s(rr * 2, 0.05, rr * 2); R.draw('cyl', 0, 0, 0); st.pop();
       }
+      if (!high) Civ.drawShadows();
       R.endBatch(high ? 'shadowHigh' : 'shadowLow', 0, high ? 0.2 : 0.46);
     }
   }
@@ -3073,6 +3076,7 @@ function drawWorld(dt) {
 function updateWorldEffects(dt) {
   W.time += dt;
   updateDebris(dt);
+  Civ.update(dt);
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
   for (let i = W.rings.length - 1; i >= 0; i--) { W.rings[i].life -= dt; if (W.rings[i].life <= 0) W.rings.splice(i, 1); }
   for (let i = W.scorches.length - 1; i >= 0; i--) { W.scorches[i].life -= dt; if (W.scorches[i].life <= 0) W.scorches.splice(i, 1); }
@@ -3249,6 +3253,7 @@ const Bld = {
       dirtyMesh: true, gpuDirty: false, nextRebuild: 0, needCheck: false, checkAt: 0, slab: [], walls: [], pillars: [], flights: [], topY: y0 + nf * fh, radius: Math.hypot(nx, nz) * CELL / 2 + nf * fh * 0.5,
       cy: y0 + nf * fh / 2, t, rubbleAt: 0, collapsedAny: false, chunks: [], vertexCount: 0, relayout: false,
       bx1: ox + nx * CELL, bz1: oz + nz * CELL, grid: Array.from({ length: nx * nz * (nf + 1) }, () => []),
+      doors: [],   // ground-floor doors { i, j, d }: cell and the side (DIR_AXIS) the doorway faces
     };
     // choose a stair cell: tallest column that has an occupied neighbour on both sides along one axis
     const colTop = (i, j) => { let f = 0; while (isOcc(f, i, j)) f++; return f; };
@@ -3306,7 +3311,7 @@ const Bld = {
           const door = f === 0 && doorKeys.has(i + ',' + j + ',' + d);
           const windowed = !door && rng() < t.win;
           const vr = rb(f, i, j, d + 2);
-          if (door) grp.pieces.push(mk('header', wx, e + wh * 0.75, wz, hx, wh * 0.25, hz, { fl: f, i, j, vr }));
+          if (door) { grp.pieces.push(mk('header', wx, e + wh * 0.75, wz, hx, wh * 0.25, hz, { fl: f, i, j, vr })); b.doors.push({ i, j, d }); }
           else if (windowed) {
             grp.pieces.push(mk('sill', wx, e, wz, hx, 1.0, hz, { fl: f, i, j, hp: 0.5, vr }));
             grp.pieces.push(mk('header', wx, e + wh - 1.2, wz, hx, 1.2, hz, { fl: f, i, j, hp: 0.6, vr }));
@@ -3874,6 +3879,459 @@ const Scenery = {
       spawnGroup(c.garrison, y.x, y.z, { team: c.team, radius: 24 }).forEach((u) => { u.garrison = true; out.push(u); });
     }
     return out;
+  },
+};
+
+/* ---------------------------------------------------------------------
+   Civilians: the people of the cities and districts
+   They walk the pavements of the street grid, stop to look around or chat, and go in and out of building doors to
+   stay inside a while. Gunfire, blasts, deaths and moving machines close by scare them: some freeze in a crouch
+   first, then they run away from the danger or into a nearby standing building. They are scenery, not platforms:
+   no AI targets them and they change no score. Shots and beams hit them and fly on, blasts kill them, ground
+   machines crush them, and they gib like soldiers. Every game runs its own civilians (co-op guests too): a guest's
+   die to the host's blasts, shots and beams as those are replayed there. One zone per city holds its street
+   corners (nodes joined along clear streets), its doors and its civilians; W.civZones lists the zones.
+   --------------------------------------------------------------------- */
+const CIV_COUNT = { city: 40, district: 40, mega: 90 };   // civilians per city kind
+const CIV_LOW_SHARE = 0.5;               // share of them on Low quality
+const CIV_INSIDE_SHARE = 0.35;           // share that start inside a building
+const CIV_HP = 15;                       // three rifle rounds; anything heavier kills at once
+const CIV_RADIUS = 0.35, CIV_HEIGHT = 1.75;
+const CIV_CITY_STEP = 52;                // lot spacing of a plain city (Scenery.city)
+const CIV_ZONE_PAD = 10;                 // a zone's box reaches this far past its city (m)
+const CIV_LANE = [1.6, 3.2];             // how far from a street's centre line a civilian walks (m)
+const CIV_WALK = [1.1, 1.6], CIV_RUN = [4, 5.4];   // walking and running speed (m/s)
+const CIV_LIMP = 0.55;                   // speed share of a wounded civilian
+const CIV_STRIDE = 4.5;                  // leg swing phase (radians) per metre covered
+const CIV_INSIDE = [8, 35], CIV_IDLE = [2, 6], CIV_CHAT = [5, 12], CIV_COWER = [1.2, 2.8], CIV_PANIC = [8, 14];   // seconds
+const CIV_DOOR_OUT = 0.9;                // a door's street-side point is this far outside its wall (m)
+const CIV_DOOR_IN = 1.5;                 // and a civilian vanishes this far inside it
+const CIV_IDLE_CHANCE = 0.18, CIV_DOOR_CHANCE = 0.4;   // at a corner: stop for a while, or go into a building there
+const CIV_CHAT_RANGE = 4;                // an idle civilian chats with another this close (m)
+const CIV_HIDE_RANGE = 26;               // a panicking civilian runs into a standing building whose door is this close (m)
+const CIV_HIDE_SAFE = 0.8;               // a building shelters civilians while it keeps this share of its pieces
+const CIV_CRUSHED_INSIDE = 0.5;          // below this share the civilians still inside are lost
+const CIV_GUNFIRE_HEAR = 55;             // gunfire scares civilians this close (m)
+const CIV_BLAST_HEAR = 6, CIV_BLAST_HEAR_MIN = 30;   // a blast scares civilians within this many of its radii, at least the second (m)
+const CIV_DEATH_SCARE = 25;              // a civilian's death scares those this close (m)
+const CIV_MACHINE_SCARE = 22;            // a moving machine (not a soldier) this close sends civilians running (m)
+const CIV_CRUSH_SPEED = 1.5;             // a ground machine faster than this crushes a civilian it runs over (m/s)
+const CIV_COWER_RANGE = 12, CIV_COWER_CHANCE = 0.3;   // danger this close may freeze a calm civilian in a crouch first
+const CIV_THREAT_MOVE = 15;              // a scared civilian re-plans its escape when the danger moves this far (m)
+const CIV_REPLAN = 1.5;                  // and at most this often (s)
+const CIV_FLEE_HOPS = 3;                 // street corners planned ahead when running away
+const CIV_GUEST_BLAST = 4;               // a replayed blast (no damage is sent) deals this many civilian hulls at its centre
+const CIV_LOOK = 0.25;                   // seconds between a civilian's checks for obstacles ahead
+const CIV_DODGE = [0.6, -0.6, 1.2, -1.2, 1.9, -1.9];   // turns (radians) tried around an obstacle
+const CIV_STUCK = 6;                     // a civilian that gets no closer to its next point for this many seconds heads for the nearest corner
+const CIV_DRAW_DIST = 420, CIV_LOD_DIST = 150, CIV_SHADOW_DIST = 120;   // drawn up to; simple model past; contact shadow up to (m)
+const CIV_SHIRTS = [[0.7, 0.2, 0.18], [0.2, 0.36, 0.62], [0.85, 0.78, 0.6], [0.3, 0.52, 0.3], [0.9, 0.9, 0.88], [0.55, 0.3, 0.55], [0.85, 0.55, 0.15], [0.25, 0.25, 0.28], [0.15, 0.55, 0.6]];
+const CIV_PANTS = [[0.15, 0.17, 0.25], [0.3, 0.28, 0.25], [0.12, 0.12, 0.13], [0.45, 0.4, 0.32], [0.22, 0.3, 0.45]];
+const CIV_SKINS = [[0.95, 0.8, 0.68], [0.82, 0.64, 0.5], [0.62, 0.45, 0.32], [0.42, 0.29, 0.2], [0.3, 0.2, 0.14]];
+const CIV_HAIR = [[0.08, 0.06, 0.05], [0.3, 0.18, 0.08], [0.6, 0.45, 0.2], [0.5, 0.5, 0.5], [0.55, 0.22, 0.08]];
+const CIV_SHOE = [0.1, 0.1, 0.11];
+const Civ = {
+  /* ---------- construction ---------- */
+  /* a zone and its civilians for every city of the layout (call after the scenery is built) */
+  populate(lay, seed) {
+    W.civZones = [];
+    const rng = makeRng((seed ^ 0x5eed) >>> 0), share = S.quality === 'low' ? CIV_LOW_SHARE : 1;
+    for (const c of lay.cities) {
+      const zone = this.buildZone(c);
+      if (!zone) continue;
+      W.civZones.push(zone);
+      const n = Math.round((CIV_COUNT[c.kind] || CIV_COUNT.district) * share);
+      for (let i = 0; i < n; i++) this.spawn(zone, rng);
+    }
+  },
+  /* the street corners of city c (the grid lines between its lots), joined where the street between them is clear */
+  buildZone(c) {
+    const step = c.kind === 'city' ? CIV_CITY_STEP : c.kind === 'mega' ? SCENERY_MEGA_STEP : SCENERY_STEP;
+    const pad = c.r + CIV_ZONE_PAD, x0 = c.x - pad, x1 = c.x + pad, z0 = c.z - pad, z1 = c.z + pad;
+    const zone = { cx: c.x, cz: c.z, rad: pad, x0, x1, z0, z1, yTop: Terrain.maxIn(x0, z0, x1, z1) + CIV_HEIGHT + 1, nodes: [], edgeNodes: [], doors: [], civs: [], near: [],
+      blds: W.buildings.filter((b) => b.bx1 > x0 && b.ox < x1 && b.bz1 > z0 && b.oz < z1) };
+    const span = Math.ceil(c.r / step), at = new Map(), nodes = zone.nodes;
+    for (let gi = -span - 1; gi <= span; gi++) for (let gj = -span - 1; gj <= span; gj++) {
+      const x = c.x + (gi + 0.5) * step, z = c.z + (gj + 0.5) * step;
+      if (Math.hypot(x - c.x, z - c.z) > c.r || this.blocked(x, z, 1, zone.blds)) continue;
+      at.set(gi + ',' + gj, nodes.length);
+      nodes.push({ x, z, nb: [], doors: [] });
+    }
+    for (let gi = -span - 1; gi <= span; gi++) for (let gj = -span - 1; gj <= span; gj++) {
+      const a = at.get(gi + ',' + gj);
+      if (a === undefined) continue;
+      for (const key of [(gi + 1) + ',' + gj, gi + ',' + (gj + 1)]) {
+        const b = at.get(key);
+        if (b === undefined || !this.clearLine(nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z, zone.blds)) continue;
+        nodes[a].nb.push(b); nodes[b].nb.push(a);
+      }
+    }
+    nodes.forEach((n, i) => { if (n.nb.length) zone.edgeNodes.push(i); });
+    if (!zone.edgeNodes.length) return null;
+    for (const b of zone.blds) for (const dr of b.doors) {
+      const door = this.makeDoor(zone, b, dr, c, step);
+      if (door) { zone.doors.push(door); nodes[door.node].doors.push(door); }
+    }
+    return zone;
+  },
+  /* a ground-floor door linked to the streets: its outside and inside points, the point where its path meets the
+     street it faces, and the corner on that street it is reached from; null when the way out is blocked */
+  makeDoor(zone, b, dr, c, step) {
+    const ax = DIR_AXIS[dr.d][0], az = DIR_AXIS[dr.d][1];
+    const px = b.ox + (dr.i + 0.5) * CELL, pz = b.oz + (dr.j + 0.5) * CELL;
+    const out = { x: px + ax * (CELL / 2 + CIV_DOOR_OUT), z: pz + az * (CELL / 2 + CIV_DOOR_OUT) };
+    const inn = { x: px + ax * (CELL / 2 - CIV_DOOR_IN), z: pz + az * (CELL / 2 - CIV_DOOR_IN) };
+    // the next street line beyond the door in the direction it faces
+    const lineAt = (v, o, dir) => o + ((dir > 0 ? Math.ceil((v - o) / step - 0.5) : Math.floor((v - o) / step - 0.5)) + 0.5) * step;
+    const st = ax !== 0 ? { x: lineAt(out.x, c.x, ax), z: out.z } : { x: out.x, z: lineAt(out.z, c.z, az) };
+    if (this.blocked(out.x, out.z, CIV_RADIUS, zone.blds) || !this.clearLine(out.x, out.z, st.x, st.z, zone.blds)) return null;
+    let node = -1, best = Infinity;
+    for (const i of zone.edgeNodes) {
+      const n = zone.nodes[i], onLine = ax !== 0 ? Math.abs(n.x - st.x) < 1 : Math.abs(n.z - st.z) < 1, d = Math.hypot(n.x - st.x, n.z - st.z);
+      if (onLine && d < best && this.clearLine(st.x, st.z, n.x, n.z, zone.blds)) { best = d; node = i; }
+    }
+    return node < 0 ? null : { b, out, inn, st, node };
+  },
+  /* true when a civilian of radius r cannot stand at (x, z): a structure at body height or a building's ground floor */
+  blocked(x, z, r, blds) {
+    if (groundBlocked(x, z, r, Terrain.h(x, z) + 0.1, CIV_HEIGHT)) return true;
+    for (let i = 0; i < blds.length; i++) {
+      const b = blds[i];
+      if (x < b.ox || x >= b.bx1 || z < b.oz || z >= b.bz1) continue;
+      if (b.occ[0][Math.floor((x - b.ox) / CELL)][Math.floor((z - b.oz) / CELL)]) return true;
+    }
+    return false;
+  },
+  /* a civilian can walk straight from (ax, az) to (bx, bz): tested every metre, so no wall slips between samples */
+  clearLine(ax, az, bx, bz, blds) {
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
+    for (let k = 0; k <= n; k++) if (this.blocked(ax + (bx - ax) * k / n, az + (bz - az) * k / n, CIV_RADIUS + 0.15, blds)) return false;
+    return true;
+  },
+  spawn(zone, rng) {
+    const pick = (list) => list[Math.floor(rng() * list.length)];
+    const c = this.make(zone, rng);
+    zone.civs.push(c);
+    if (zone.doors.length && rng() < CIV_INSIDE_SHARE) { this.goInside(c, pick(zone.doors)); c.t = rng() * CIV_INSIDE[1]; return; }
+    // on a random street, somewhere along it, on its own side
+    const a = pick(zone.edgeNodes), b = pick(zone.nodes[a].nb), na = zone.nodes[a], nb = zone.nodes[b], f = rng();
+    const len = Math.hypot(nb.x - na.x, nb.z - na.z) || 1, rx = -(nb.z - na.z) / len, rz = (nb.x - na.x) / len;
+    c.x = lerp(na.x, nb.x, f) + rx * c.lane; c.z = lerp(na.z, nb.z, f) + rz * c.lane;
+    if (this.blocked(c.x, c.z, CIV_RADIUS, zone.blds)) { c.x = lerp(na.x, nb.x, f); c.z = lerp(na.z, nb.z, f); }
+    c.y = Terrain.h(c.x, c.z); c.yaw = Math.atan2(nb.x - na.x, nb.z - na.z); c.from = a;
+    c.path.push(this.edgePoint(c, a, b));
+  },
+  /* one civilian with its own look and pace; every civilian has the same fields */
+  make(zone, rng) {
+    const pick = (list) => list[Math.floor(rng() * list.length)];
+    const shirt = pick(CIV_SHIRTS), pants = pick(CIV_PANTS);
+    return {
+      zone, x: 0, y: 0, z: 0, yaw: rng() * TAU, vx: 0, vy: 0, vz: 0, speed: 0, hp: CIV_HP, dead: false, limp: false,
+      state: 'walk', t: 0, panic: 0, threatX: 0, threatZ: 0, replanT: 0, path: [], from: -1, prev: -1, door: null, chat: null,
+      walk: lerp(CIV_WALK[0], CIV_WALK[1], rng()), run: lerp(CIV_RUN[0], CIV_RUN[1], rng()), lane: (rng() < 0.5 ? -1 : 1) * lerp(CIV_LANE[0], CIV_LANE[1], rng()),
+      lookT: rng() * CIV_LOOK, avoidYaw: 0, avoidT: 0, stuckT: 0, bestFor: null, bestD: 0, walkPhase: rng() * TAU,
+      scale: lerp(0.9, 1.08, rng()), shirt, pants, skin: pick(CIV_SKINS), hair: pick(CIV_HAIR), def: { col: { main: shirt, dark: pants } },   // def.col: gib colours
+    };
+  },
+
+  /* ---------- routines ---------- */
+  /* a path point: n is the street corner it stands for (-1 for none), free skips obstacle checks (doorways), enter is the door to go in by */
+  point(x, z, n, free, enter) { return { x, z, n, free, enter }; },
+  /* the point at corner `to` on the walk from corner `from`, on the civilian's side of the street (nearer the
+     middle when crates or a barrier stand on the corner; the corner itself is always clear) */
+  edgePoint(c, from, to) {
+    const ns = c.zone.nodes, a = ns[from], b = ns[to], len = Math.hypot(b.x - a.x, b.z - a.z) || 1, rx = -(b.z - a.z) / len, rz = (b.x - a.x) / len;
+    let lane = c.lane;
+    while (Math.abs(lane) > 0.4 && this.blocked(b.x + rx * lane, b.z + rz * lane, CIV_RADIUS + 0.15, c.zone.blds)) lane *= 0.5;
+    if (Math.abs(lane) <= 0.4) lane = 0;
+    return this.point(b.x + rx * lane, b.z + rz * lane, to, false, null);
+  },
+  /* the path ran out at a corner: stop a while, go into a building there, or walk on (rarely straight back) */
+  next(c) {
+    if (c.panic > 0) { this.flee(c); return; }
+    const z = c.zone, node = z.nodes[c.from];
+    if (!node) { this.toNearest(c); return; }
+    const roll = Math.random();
+    if (roll < CIV_IDLE_CHANCE) { this.idle(c); return; }
+    if (roll < CIV_IDLE_CHANCE + CIV_DOOR_CHANCE && node.doors.length) {
+      const d = node.doors[Math.floor(Math.random() * node.doors.length)];
+      if (this.shelters(d.b)) { this.toDoor(c, d); return; }
+    }
+    const ahead = node.nb.filter((k) => k !== c.prev), list = ahead.length ? ahead : node.nb;
+    c.path.push(this.edgePoint(c, c.from, list[Math.floor(Math.random() * list.length)]));
+  },
+  toDoor(c, d) {
+    c.path.length = 0;
+    c.path.push(this.point(d.st.x, d.st.z, -1, false, null), this.point(d.out.x, d.out.z, -1, false, null), this.point(d.inn.x, d.inn.z, -1, true, d));
+  },
+  /* lost or stuck: straight to the nearest street corner, through whatever is in the way */
+  toNearest(c) {
+    const z = c.zone;
+    let best = -1, bd = Infinity;
+    for (const i of z.edgeNodes) { const n = z.nodes[i], d = Math.hypot(n.x - c.x, n.z - c.z); if (d < bd) { bd = d; best = i; } }
+    c.path.length = 0;
+    c.path.push(this.point(z.nodes[best].x, z.nodes[best].z, best, true, null));
+  },
+  goInside(c, d) {
+    c.state = 'inside'; c.door = d; c.t = rand(CIV_INSIDE[0], CIV_INSIDE[1]); c.path.length = 0; c.speed = 0; c.x = d.inn.x; c.z = d.inn.z;
+    this.endChat(c);
+  },
+  /* out through one of the building's doors and back to the street */
+  leave(c) {
+    const own = c.zone.doors.filter((d) => d.b === c.door.b), d = own[Math.floor(Math.random() * own.length)] || c.door, n = c.zone.nodes[d.node];
+    c.state = 'walk'; c.door = null; c.stuckT = 0;
+    c.x = d.inn.x; c.z = d.inn.z; c.y = Terrain.h(c.x, c.z); c.yaw = Math.atan2(d.out.x - d.inn.x, d.out.z - d.inn.z);
+    c.path.push(this.point(d.out.x, d.out.z, -1, true, null), this.point(d.st.x, d.st.z, -1, false, null), this.point(n.x, n.z, d.node, false, null));
+  },
+  shelters(b) { return b.alive >= b.total * CIV_HIDE_SAFE; },
+  idle(c) {
+    c.state = 'idle'; c.t = rand(CIV_IDLE[0], CIV_IDLE[1]); c.speed = 0;
+    for (const o of c.zone.civs) {   // someone close by to chat with
+      if (o === c || o.dead || o.chat || o.panic > 0 || (o.state !== 'idle' && o.state !== 'walk') || Math.hypot(o.x - c.x, o.z - c.z) > CIV_CHAT_RANGE) continue;
+      c.chat = o; o.chat = c; o.state = 'idle'; o.speed = 0;
+      c.t = o.t = rand(CIV_CHAT[0], CIV_CHAT[1]);
+      return;
+    }
+  },
+  endChat(c) {
+    const o = c.chat;
+    c.chat = null;
+    if (o && o.chat === c) o.chat = null;
+  },
+  /* danger at (x, z): panic for a while, maybe freeze first, and plan an escape (not every time the danger repeats) */
+  scare(c, x, z) {
+    if (c.dead || c.state === 'inside') return;
+    const calm = c.panic <= 0, moved = Math.hypot(x - c.threatX, z - c.threatZ) > CIV_THREAT_MOVE;
+    c.panic = rand(CIV_PANIC[0], CIV_PANIC[1]);
+    if (!calm && !moved) return;
+    c.threatX = x; c.threatZ = z;
+    this.endChat(c);
+    if (calm && Math.hypot(x - c.x, z - c.z) < CIV_COWER_RANGE && Math.random() < CIV_COWER_CHANCE) { c.state = 'cower'; c.t = rand(CIV_COWER[0], CIV_COWER[1]); c.speed = 0; return; }
+    if (c.state === 'cower' || c.replanT > 0) return;
+    const last = c.path[c.path.length - 1];
+    if (c.state === 'walk' && last && last.enter) return;   // already on the way into a building
+    c.state = 'walk'; c.replanT = CIV_REPLAN;
+    this.flee(c);
+  },
+  /* into the nearest standing building whose door is not toward the danger, else along the streets, taking at
+     each corner the way that leads furthest from it */
+  flee(c) {
+    const z = c.zone, tx = c.threatX, tz = c.threatZ, mine = Math.hypot(c.x - tx, c.z - tz);
+    let best = null, bd = CIV_HIDE_RANGE;
+    for (const d of z.doors) {
+      const dd = Math.hypot(d.st.x - c.x, d.st.z - c.z);
+      if (dd < bd && Math.hypot(d.out.x - tx, d.out.z - tz) > mine * 0.8 && this.shelters(d.b)) { best = d; bd = dd; }
+    }
+    if (best && this.clearLine(c.x, c.z, best.st.x, best.st.z, z.blds)) { this.toDoor(c, best); return; }
+    // start from whichever end of the current street is further from the danger
+    const ahead = c.path.find((p) => p.n >= 0), a = c.from, b = ahead ? ahead.n : -1;
+    const far = (i) => (i < 0 ? -1 : Math.hypot(z.nodes[i].x - tx, z.nodes[i].z - tz));
+    let cur = far(a) >= far(b) ? a : b, back = cur === a ? b : a;
+    if (cur < 0) { this.toNearest(c); return; }
+    c.path.length = 0;
+    c.path.push(this.point(z.nodes[cur].x, z.nodes[cur].z, cur, false, null));
+    for (let k = 0; k < CIV_FLEE_HOPS; k++) {
+      let pick = -1, top = -1;
+      for (const nb of z.nodes[cur].nb) {
+        if (nb === back) continue;
+        const d = Math.hypot(z.nodes[nb].x - tx, z.nodes[nb].z - tz) + Math.random() * 8;
+        if (d > top) { top = d; pick = nb; }
+      }
+      if (pick < 0) break;
+      c.path.push(this.edgePoint(c, cur, pick));
+      back = cur; cur = pick;
+    }
+  },
+  /* any danger near (x, z) within r: gunfire, a death */
+  alarm(x, z, r) {
+    const zones = W.civZones;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (!this.zoneNear(zn, x, z, r)) continue;
+      for (const c of zn.civs) if (!c.dead && c.state !== 'inside' && Math.abs(c.x - x) < r && Math.abs(c.z - z) < r && Math.hypot(c.x - x, c.z - z) < r) this.scare(c, x, z);
+    }
+  },
+  zoneNear(zn, x, z, r) { return x > zn.x0 - r && x < zn.x1 + r && z > zn.z0 - r && z < zn.z1 + r; },
+
+  /* ---------- per tick ---------- */
+  update(dt) {
+    const zones = W.civZones;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      this.collectMachines(zn);
+      let dead = 0;
+      for (let k = 0; k < zn.civs.length; k++) { const c = zn.civs[k]; if (c.dead) dead++; else this.step(c, dt); }
+      if (dead) zn.civs = zn.civs.filter((c) => !c.dead);
+    }
+  },
+  /* the ground platforms in or near the zone this tick (holograms, which lure fire, are only light) */
+  collectMachines(zn) {
+    zn.near.length = 0;
+    for (const p of W.platforms) {
+      if (p.dead || p.kind === 'air' || p.def.lure || p.x < zn.x0 - CIV_MACHINE_SCARE || p.x > zn.x1 + CIV_MACHINE_SCARE || p.z < zn.z0 - CIV_MACHINE_SCARE || p.z > zn.z1 + CIV_MACHINE_SCARE) continue;
+      zn.near.push(p);
+    }
+  },
+  step(c, dt) {
+    if (c.panic > 0) c.panic -= dt;
+    if (c.replanT > 0) c.replanT -= dt;
+    if (c.state === 'inside') { this.stepInside(c, dt); return; }
+    this.touchMachines(c);
+    if (c.dead) return;
+    if (c.state === 'cower') { c.t -= dt; if (c.t <= 0) { c.state = 'walk'; this.flee(c); } return; }
+    if (c.state === 'idle') { this.stepIdle(c, dt); return; }
+    this.stepWalk(c, dt);
+  },
+  /* inside: come out when the time is up or the building starts to give way; lost if it comes down */
+  stepInside(c, dt) {
+    c.t -= dt;
+    const b = c.door.b, share = b.alive / b.total;
+    if (share < CIV_CRUSHED_INSIDE) { c.dead = true; return; }
+    if (share >= CIV_HIDE_SAFE && c.t > 0) return;
+    const shaken = share < CIV_HIDE_SAFE;
+    this.leave(c);
+    if (shaken) { c.panic = rand(CIV_PANIC[0], CIV_PANIC[1]); c.threatX = b.cx; c.threatZ = b.cz; }
+  },
+  stepIdle(c, dt) {
+    c.t -= dt;
+    const o = c.chat;
+    if (o && (o.dead || o.chat !== c)) c.chat = null;
+    if (c.chat) c.yaw = turnToward(c.yaw, Math.atan2(o.x - c.x, o.z - c.z), 3 * dt);
+    else c.yaw += Math.sin(W.time * 0.7 + c.walkPhase) * 0.6 * dt;   // looks around
+    if (c.t <= 0) { this.endChat(c); c.state = 'walk'; }
+  },
+  stepWalk(c, dt) {
+    if (!c.path.length) { this.next(c); if (c.state !== 'walk' || !c.path.length) return; }
+    const p = c.path[0], dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz);
+    if (d < 0.5) { this.reach(c, p); return; }
+    const sp = (c.panic > 0 ? c.run : c.walk) * (c.limp ? CIV_LIMP : 1);
+    let yaw = Math.atan2(dx, dz);
+    if (!p.free) yaw = this.avoid(c, yaw, Math.min(d, 0.6 + sp * CIV_LOOK * 1.2), dt);
+    const mv = Math.min(d, sp * dt), fx = Math.sin(yaw), fz = Math.cos(yaw);
+    c.x += fx * mv; c.z += fz * mv; c.y = Terrain.h(c.x, c.z);
+    c.vx = fx * sp; c.vz = fz * sp; c.speed = sp;
+    c.yaw = turnToward(c.yaw, yaw, (c.panic > 0 ? 10 : 5) * dt);
+    c.walkPhase += mv * CIV_STRIDE;
+    // stuck: no metre of progress toward the point in CIV_STUCK seconds
+    if (c.bestFor !== p || d < c.bestD - 1) { c.bestFor = p; c.bestD = d; c.stuckT = 0; }
+    else if ((c.stuckT += dt) > CIV_STUCK) { c.stuckT = 0; this.toNearest(c); }
+  },
+  reach(c, p) {
+    c.path.shift(); c.stuckT = 0;
+    if (p.n >= 0) { if (p.n !== c.from) c.prev = c.from; c.from = p.n; }
+    if (p.enter) this.goInside(c, p.enter);
+  },
+  /* the heading to walk: straight on unless something stands within `look` metres ahead (no further than the next
+     point, which may be by a wall), then the first clear turn, held a moment */
+  avoid(c, yaw, look, dt) {
+    if (c.avoidT > 0) { c.avoidT -= dt; return c.avoidYaw; }
+    c.lookT -= dt;
+    if (c.lookT > 0) return yaw;
+    c.lookT = CIV_LOOK;
+    const blds = c.zone.blds;
+    const clear = (a) => !this.blocked(c.x + Math.sin(a) * look, c.z + Math.cos(a) * look, CIV_RADIUS, blds);
+    if (clear(yaw)) return yaw;
+    for (const turn of CIV_DODGE) {
+      const a = yaw + (c.lane < 0 ? -turn : turn);
+      if (clear(a)) { c.avoidYaw = a; c.avoidT = 0.5; return a; }
+    }
+    return yaw;   // boxed in: the stuck timer sends it to the nearest corner
+  },
+  /* ground machines: soldiers shove civilians aside, others run them over when moving and scare them when near */
+  touchMachines(c) {
+    const near = c.zone.near;
+    for (let i = 0; i < near.length; i++) {
+      const q = near[i], dx = c.x - q.x, dz = c.z - q.z, d = Math.hypot(dx, dz) || 1e-3, reach = q.radius + CIV_RADIUS;
+      const machine = q.def.style !== 'infantry', moving = Math.abs(q.speed) > 1;
+      if (d < reach && c.y + CIV_HEIGHT > q.y && c.y < q.y + q.height) {
+        if (machine && Math.abs(q.speed) > CIV_CRUSH_SPEED) { this.kill(c, q.vx + dx / d * 3, 2, q.vz + dz / d * 3); return; }
+        c.x = q.x + dx / d * reach; c.z = q.z + dz / d * reach; c.y = Terrain.h(c.x, c.z);
+      }
+      if (machine && moving && d < CIV_MACHINE_SCARE) this.scare(c, q.x, q.z);
+    }
+  },
+
+  /* ---------- harm ---------- */
+  kill(c, vx, vy, vz) {
+    if (c.dead) return;
+    c.dead = true; c.hp = 0; c.vx = vx; c.vy = vy; c.vz = vz; c.speed = 0;
+    this.endChat(c);
+    gibSoldier(c, true);
+    this.alarm(c.x, c.z, CIV_DEATH_SCARE);
+  },
+  /* (vx, vy, vz): the push of the hit, which throws the gibs */
+  hurt(c, dmg, vx, vy, vz) {
+    if (c.dead || c.state === 'inside') return;
+    if (dmg >= c.hp) { this.kill(c, vx, vy, vz); return; }
+    c.hp -= dmg; c.limp = true; c.vx = vx * 0.2; c.vy = 0; c.vz = vz * 0.2;
+    gibSoldier(c, false);
+    this.scare(c, c.x - vx, c.z - vz);
+  },
+  /* a blast at (x, y, z); a co-op guest's replayed blasts carry no damage, so there its size decides */
+  blast(x, y, z, radius, damage) {
+    const zones = W.civZones, hear = Math.max(CIV_BLAST_HEAR_MIN, radius * CIV_BLAST_HEAR);
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (!this.zoneNear(zn, x, z, hear)) continue;
+      for (const c of zn.civs) {
+        if (c.dead || c.state === 'inside') continue;
+        const dx = c.x - x, dy = c.y + CIV_HEIGHT * 0.5 - y, dz = c.z - z, len = Math.hypot(dx, dy, dz), d = len - CIV_RADIUS;
+        if (d < radius) {
+          const f = 1 - clamp(d / radius, 0, 1);
+          const dmg = damage > 0 ? damage * (0.15 + 0.85 * f) : Net.guest ? CIV_HP * CIV_GUEST_BLAST * f : 0;
+          const k = (radius * 2 + 4) * f / (len || 1);
+          if (dmg > 0) this.hurt(c, dmg, dx * k, 3 + 8 * f, dz * k);
+          if (c.dead) continue;
+        }
+        if (Math.hypot(dx, dz) < hear) this.scare(c, x, z);
+      }
+    }
+  },
+  /* a shot moving len metres from (x0, y0, z0) along unit (ux, uy, uz) hits every civilian in its way and flies on */
+  sweep(x0, y0, z0, ux, uy, uz, len, dmg) {
+    const zones = W.civZones;
+    if (!zones.length || !(len > 0)) return;
+    const x1 = x0 + ux * len, z1 = z0 + uz * len, lo = Math.min(y0, y0 + uy * len);
+    const bx0 = Math.min(x0, x1) - 1, bx1 = Math.max(x0, x1) + 1, bz0 = Math.min(z0, z1) - 1, bz1 = Math.max(z0, z1) + 1;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (bx1 < zn.x0 || bx0 > zn.x1 || bz1 < zn.z0 || bz0 > zn.z1 || lo > zn.yTop) continue;
+      for (const c of zn.civs) {
+        if (c.dead || c.state === 'inside' || c.x < bx0 || c.x > bx1 || c.z < bz0 || c.z > bz1) continue;
+        const ry = CIV_HEIGHT * 0.5 * c.scale;
+        if (segEllipsoid(x0, y0, z0, ux, uy, uz, len, c.x, c.y + ry, c.z, CIV_RADIUS + 0.1, ry) >= 0) this.hurt(c, dmg, ux * 6, 2, uz * 6);
+      }
+    }
+  },
+  /* a beam from (x1, y1, z1) to (x2, y2, z2) */
+  ray(x1, y1, z1, x2, y2, z2, dmg) {
+    const len = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
+    if (len > 0) this.sweep(x1, y1, z1, (x2 - x1) / len, (y2 - y1) / len, (z2 - z1) / len, len, dmg);
+  },
+
+  /* ---------- drawing ---------- */
+  draw() {
+    const zones = W.civZones, st = R.stack;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (!R.visible(zn.cx, zn.yTop, zn.cz, zn.rad + 4)) continue;
+      for (const c of zn.civs) {
+        if (c.dead || c.state === 'inside') continue;
+        const d = Math.hypot(c.x - R.cam.x, c.z - R.cam.z);
+        if (d > CIV_DRAW_DIST || !R.visible(c.x, c.y + 1, c.z, 1.2)) continue;
+        st.top = 0; st.ident();
+        drawCivilian(c, d > CIV_LOD_DIST);
+      }
+    }
+    st.top = 0; st.ident();
+  },
+  /* contact shadows of the near ones (inside the low shadow batch) */
+  drawShadows() {
+    const zones = W.civZones, st = R.stack;
+    for (let i = 0; i < zones.length; i++) for (const c of zones[i].civs) {
+      if (c.dead || c.state === 'inside' || Math.hypot(c.x - R.cam.x, c.z - R.cam.z) > CIV_SHADOW_DIST || !R.visible(c.x, c.y, c.z, 1)) continue;
+      st.push().t(c.x, c.y + 0.13, c.z).s(0.8, 0.05, 0.8); R.draw('cyl', 0, 0, 0); st.pop();
+    }
   },
 };
 
@@ -4651,6 +5109,7 @@ class Platform {
     let dmg = d.dmg, width = d.beamWidth || 0.35;
     if (d.ramp) { dmg *= 1 + this.rampBeam(w, r.hit && r.kind === 'platform' ? r.obj : null); width *= 1 + w.ramp * 0.4; }
     WPN.beam(mz.x, mz.y, mz.z, ex, ey, ez, w.id, width);
+    Civ.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Civ.alarm(this.x, this.z, CIV_GUNFIRE_HEAR);
     if (!r.hit) return;
     const kind = r.kind, obj = r.obj;
     fxSparks(ex, ey, ez, 5, d.tracer, 12);
@@ -5182,6 +5641,37 @@ function drawInfantry(p, main, dark, acc, lod) {
   }
   st.pop();
 }
+/* a civilian: everyday clothes and hair, arms swinging (pumping when running); a cowering one crouches with hands up */
+function drawCivilian(c, lod) {
+  const st = R.stack, cower = c.state === 'cower', running = c.speed > CIV_WALK[1] + 0.5;
+  const swing = Math.sin(c.walkPhase) * (running ? 0.85 : 0.45) * clamp(c.speed / CIV_WALK[0], 0, 1);
+  st.push().t(c.x, c.y, c.z).ry(c.yaw).s(c.scale, c.scale, c.scale);
+  if (cower) st.t(0, -0.45, 0);
+  if (lod) {
+    part('box', 0, 0.45, 0, 0.34, 0.9, 0.2, c.pants, 0, 0);
+    part('box', 0, 1.17, 0, 0.46, 0.62, 0.26, c.shirt, 0, 0);
+    part('sphere', 0, 1.64, 0, 0.24, 0.27, 0.24, c.skin, 0, 0);
+    st.pop();
+    return;
+  }
+  for (let side = -1; side <= 1; side += 2) {
+    st.push().t(side * 0.12, 0.88, 0).rx(cower ? -1.2 : swing * side);
+    part('box', 0, -0.42, 0, 0.17, 0.84, 0.2, c.pants, 0, 0.1);
+    part('box', 0, -0.86, 0.06, 0.18, 0.1, 0.3, CIV_SHOE, 0, 0);
+    st.pop();
+  }
+  part('box', 0, 1.17, 0, 0.46, 0.62, 0.26, c.shirt, 0, 0.1);
+  for (let side = -1; side <= 1; side += 2) {
+    st.push().t(side * 0.3, 1.44, 0).rx(cower ? 2.6 : -swing * side * 1.2);
+    if (cower) st.rz(side * 0.45);
+    part('box', 0, -0.27, 0, 0.12, 0.5, 0.13, c.shirt, 0, 0.1);
+    part('box', 0, -0.57, 0, 0.1, 0.12, 0.1, c.skin, 0, 0);
+    st.pop();
+  }
+  part('sphere', 0, 1.64, 0.01, 0.22, 0.25, 0.22, c.skin, 0, 0);
+  part('sphere', 0, 1.7, -0.02, 0.24, 0.16, 0.24, c.hair, 0, 0.1);
+  st.pop();
+}
 
 function drawWheeled(p, main, dark, acc, lod) {
   const st = R.stack;
@@ -5403,6 +5893,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.guide && !p.target) p.noGuide = true; else p.noGuide = false;
   if (d.guide && !p.target) notify(owner, 'NO LOCK: DUMB-FIRE');
   p.stuck = null;
+  Civ.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR);
   if (d.mine) WPN.placeMine(p, owner);
   if (d.guide && d.guide.top && p.target) WPN.loft(p);
 }
@@ -5541,6 +6032,7 @@ function updateProjectiles(dt) {
       const ht = segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
       if (ht >= 0 && ht < bestT) { bestT = ht; kind = 'platform'; obj = e; }
     }
+    Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians on the way are hit, and the shot flies on
     if (kind === '') { p.x = x0 + mx; p.y = y0 + my; p.z = z0 + mz; continue; }
     const hx = x0 + ux * bestT, hy = y0 + uy * bestT, hz = z0 + uz * bestT;
     p.x = hx; p.y = hy; p.z = hz;
@@ -11416,6 +11908,7 @@ const Game = {
     const ctx = makeCtx(this.mission, cfg);
     def.build(ctx);
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(lay, seed, def.map, destr[0]), sceneryKeep: Scenery.keepOutFor(lay), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
+    Civ.populate(lay, seed);   // guests too: every game runs its own civilians
     W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
@@ -14047,6 +14540,99 @@ const SelfTest = {
         this.check('our own fire never wears down our command center', !W.mission.get('base').struct.destroyed);
       } finally { S.difficulty = keepDiff; Game.quitToMenu(); }
     });
+    t('civilians', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 500, z: 500, yaw: 0 } });
+      W.mission = null;
+      this.check('a new world has no civilians', W.civZones.length === 0);
+      const lay = { cities: [{ x: 0, z: 0, r: SCENERY_DISTRICT_R, kind: 'district' }], bases: [] };
+      populateWorld({ seed: 5, destruction: 1, start: { x: 500, z: 500, yaw: 0 }, scenery: () => Scenery.build(lay, 5, 'ashfall', 1), sceneryKeep: Scenery.keepOutFor(lay) });
+      Civ.populate(lay, 5);
+      const zone = W.civZones[0], want = Math.round(CIV_COUNT.district * (S.quality === 'low' ? CIV_LOW_SHARE : 1));
+      this.check('a district gets its civilians', !!zone && zone.civs.length === want, zone ? zone.civs.length + ' of ' + want : 'no zone');
+      if (!zone) return;
+      const out = () => zone.civs.filter((c) => !c.dead && c.state !== 'inside');
+      this.check('civilians have streets and doors to use', zone.edgeNodes.length >= 9 && zone.doors.length >= 4, zone.edgeNodes.length + ' corners, ' + zone.doors.length + ' doors');
+      this.check('street corners are clear of buildings and props', zone.edgeNodes.every((i) => !Civ.blocked(zone.nodes[i].x, zone.nodes[i].z, CIV_RADIUS, zone.blds)));
+      this.check('outdoor civilians start on clear ground', out().every((c) => !Civ.blocked(c.x, c.z, 0.1, zone.blds)));
+      // a few minutes of routines (a street takes about 40 s to walk): they walk, go in and come out, and never stand inside a building's walls
+      const start = new Map(zone.civs.map((c) => [c, { x: c.x, z: c.z }]));
+      let entered = 0, left = 0, walledIn = 0;
+      const wasIn = new Map(zone.civs.map((c) => [c, c.state === 'inside']));
+      for (let i = 0; i < 60 * 150; i++) {
+        W.time += STEP; Civ.update(STEP);
+        for (const c of zone.civs) {
+          const inNow = c.state === 'inside';
+          if (inNow !== wasIn.get(c)) { if (inNow) entered++; else left++; wasIn.set(c, inNow); }
+        }
+        if (i % 30 === 0) for (const c of out()) if (Civ.blocked(c.x, c.z, 0.05, zone.blds) && !(c.path[0] && c.path[0].free)) walledIn++;
+      }
+      const moved = zone.civs.filter((c) => Math.hypot(c.x - start.get(c).x, c.z - start.get(c).z) > 5).length;
+      this.check('civilians walk about', moved > zone.civs.length * 0.5, moved + ' of ' + zone.civs.length + ' moved');
+      this.check('civilians go into buildings and come out again', entered > 0 && left > 0, entered + ' in, ' + left + ' out');
+      this.check('civilians never walk through walls or props', walledIn === 0, walledIn + ' samples inside');
+      const [talker, listener] = out().filter((c) => c.panic <= 0 && !c.chat);
+      listener.x = talker.x + 1; listener.z = talker.z;
+      Civ.idle(talker);
+      const partner = talker.chat;
+      this.check('an idle civilian chats with one close by', !!partner && partner.chat === talker && partner.state === 'idle' && talker.state === 'idle');
+      Civ.endChat(talker); talker.state = 'walk'; if (partner) partner.state = 'walk';
+      // a blast kills and gibs a civilian; those nearby panic
+      W.debris.length = 0; W.scorches.length = 0;
+      const victim = out()[0];
+      explode(victim.x, victim.y + 1, victim.z, 5, 200, 'explosive', null);
+      this.check('a blast kills a civilian', victim.dead);
+      this.check('a killed civilian gibs and bleeds', W.debris.some((d) => d.trail === GIB_BLOOD) && W.scorches.some((s) => s.col === GIB_BLOOD_DECAL));
+      const nearby = out().filter((c) => Math.hypot(c.x - victim.x, c.z - victim.z) < CIV_BLAST_HEAR_MIN);
+      this.check('civilians near a blast panic', nearby.length === 0 || nearby.every((c) => c.panic > 0), nearby.length + ' near');
+      for (let i = 0; i < 60; i++) { W.time += STEP; Civ.update(STEP); }
+      const runners = nearby.filter((c) => !c.dead && c.state === 'walk');
+      this.check('panicking civilians run', runners.length === 0 || runners.some((c) => c.speed >= CIV_RUN[0] * CIV_LIMP), runners.length + ' running');
+      // a shot passes through a civilian and flies on (down the middle of a clear street); a beam kills too
+      const na = zone.nodes[zone.edgeNodes[0]], nb = zone.nodes[na.nb[0]], el = Math.hypot(nb.x - na.x, nb.z - na.z), ux = (nb.x - na.x) / el, uz = (nb.z - na.z) / el;
+      const shotAt = out()[0], pr = allocProjectile();
+      shotAt.x = (na.x + nb.x) / 2; shotAt.z = (na.z + nb.z) / 2; shotAt.y = Terrain.h(shotAt.x, shotAt.z);
+      launchProjectile(pr, WEAPONS.rifle, null, 0, shotAt.x - ux * 3, shotAt.y + 1, shotAt.z - uz * 3, ux * 400, 0, uz * 400);
+      pr.dmg = CIV_HP * 2;
+      updateProjectiles(STEP);
+      this.check('a shot kills a civilian and flies on', shotAt.dead && pr.active);
+      pr.active = false;
+      const beamed = out()[0];
+      Civ.ray(beamed.x - 5, beamed.y + 1, beamed.z, beamed.x + 5, beamed.y + 1, beamed.z, CIV_HP);
+      this.check('a beam kills a civilian', beamed.dead);
+      // a small hit only wounds
+      const hurt = out()[0];
+      Civ.sweep(hurt.x - 3, hurt.y + 1, hurt.z, 1, 0, 0, 6, CIV_HP / 3);
+      this.check('a light hit wounds a civilian, who limps away', !hurt.dead && hurt.limp && hurt.hp < CIV_HP && hurt.panic > 0);
+      // ground machines crush; soldiers shove
+      const crushed = out()[0], tank = new Platform(PLATFORMS[ARCH.tank.def], { team: 1, x: crushed.x, z: crushed.z, yaw: 0, loadout: ARCH.tank.loadout });
+      tank.speed = 6; W.platforms.push(tank);
+      Civ.update(STEP);
+      this.check('a moving tank crushes a civilian', crushed.dead);
+      W.platforms.length = 0;
+      const shoved = out()[0], soldier = new Platform(PLATFORMS.ranger, { team: 1, x: shoved.x + 0.2, z: shoved.z, yaw: 0, loadout: ARCH.infantry.loadout });
+      soldier.speed = 4; W.platforms.push(soldier);
+      Civ.update(STEP);
+      this.check('a soldier shoves a civilian aside', !shoved.dead && Math.hypot(shoved.x - soldier.x, shoved.z - soldier.z) >= soldier.radius + CIV_RADIUS - 0.01);
+      W.platforms.length = 0;
+      // a co-op guest's replayed blast carries no damage but still kills its civilians
+      const g = out()[0];
+      Net.guest = true;
+      try { explode(g.x, g.y + 1, g.z, 4, 0, 'explosive', null); } finally { Net.guest = false; }
+      this.check('a replayed blast kills a guest civilian', g.dead);
+      // civilians inside a building are lost when it comes down
+      const inside = zone.civs.find((c) => !c.dead && c.state === 'inside');
+      if (inside) {
+        for (const s of inside.door.b.pieces) if (!s.indestructible) damageStruct(s, 1e7, 'explosive', null, 1);
+        Civ.update(STEP);
+        this.check('civilians inside a fallen building are lost', inside.dead);
+      } else this.check('someone is inside a building', false);
+      // dead civilians leave the zone; drawing runs
+      Civ.update(STEP);
+      this.check('dead civilians are removed', zone.civs.every((c) => !c.dead));
+      R.beginBatch('selftest');
+      Civ.draw(); Civ.drawShadows();
+      R.endBatch('selftest', 0, 1);
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -14240,7 +14826,7 @@ const Net = {
       case 'sw': if (W) SW.replay(m); break;
       case 'wz': if (W) WPN.replay(m); break;
       case 'pst': if (W) this.applyPlatState(m); break;
-      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); } break;
+      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); } break;
@@ -14566,6 +15152,7 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
+        Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians
         if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
           Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
           if (pr.owner) pr.owner.recoil = 1;
@@ -14670,6 +15257,8 @@ const Net = {
     }
     for (const q of W.projs) {
       if (!q.active) continue;
+      const len = Math.hypot(q.vx, q.vy, q.vz) * dt;
+      if (len > 0) Civ.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg);   // our own civilians
       q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
       if (this.t - q.seen > 0.35) q.active = false;
     }
