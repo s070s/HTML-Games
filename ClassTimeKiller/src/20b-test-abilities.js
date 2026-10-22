@@ -542,6 +542,88 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// HP-005 floor surfaces (12h): a wet patch + Shock stuns everyone standing in it, A29 aimed at the patch floor too, and a
+// thawed Freeze leaves a wet patch.
+function surfaceSlots(key) {
+  const row = CAT.surfaces.byId(key), slots = [];
+  for (let slot = 0; slot < SURFACE_CAP; slot++) if (FloorSurfaces.active[slot] && FloorSurfaces.row[slot] === row.index) slots.push(slot);
+  return slots;
+}
+function aimAtFloor(id, x, z) {
+  const dx = x - Actors.x[id], dz = z - Actors.z[id];
+  Actors.yaw[id] = Actors.aimYaw[id] = Math.atan2(dx, dz);
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(-Actors.eyeY(id), length2(dx, dz));
+}
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start(), 'arcbolt');
+  const refill = () => { Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0; };
+  TestArena.place(t.ally, -1, ENEMY_DISTANCE);   // beside the target: the chain never picks an ally
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  const dryAlly = Damage.hasStatus(t.ally, 'shock');
+  for (const id of [t.enemy, t.second, t.ally]) Damage.clearAllStatuses(id);
+  FloorSurfaces.spill(CAT.surfaces.byId('wet'), -1, 0, 1, ENEMY_DISTANCE);
+  refill();
+  AbilityTest.cast(t);
+  check('A29 on dry floor: the ally beside the target is not shocked', !dryAlly);
+  check('wet floor + Shock: everyone standing in the patch is stunned, the caster on dry floor is not (HP-005)',
+    Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  Damage.clearAllStatuses(t.ally);
+  AbilityTest.clearPath(t);
+  refill();
+  aimAtFloor(t.caster, 0, ENEMY_DISTANCE + 1.5);
+  const floorCast = AbilityTest.cast(t);
+  check('A29 aimed at the wet floor with no enemy in the cone shocks everyone in the patch', floorCast && Damage.hasStatus(t.ally, 'shock'), floorCast);
+  refill();
+  aimAtFloor(t.caster, 0, -ENEMY_DISTANCE);
+  check('A29 aimed at dry floor with no enemy is refused (nothing paid)', !AbilityTest.cast(t) && Meters.energy[t.caster] === Meters.energyMax());
+  FloorSurfaces.clear();
+  TestArena.place(t.enemy, 0, ENEMY_DISTANCE);
+  Damage.clearAllStatuses(t.enemy);
+  Damage.addStatus(t.enemy, 'freeze', t.caster);
+  Damage.addStatus(t.enemy, 'burn', t.caster);
+  const puddle = surfaceSlots('wet');
+  check('Burn thawing a Freeze leaves a wet patch under the target', puddle.length === 1 && FloorSurfaces.stands(puddle[0], t.enemy), puddle.length);
+  TestArena.finish();
+  check('a world load or clear removes every patch', surfaceSlots('wet').length === 0);
+});
+
+// HP-005 oil: an oil drum prop spills a slick; Burn on someone in it (A30) lights a 6 s fire area that burns whoever stands
+// in it and lights touching oil; a thermal explosion over oil lights it, a kinetic one does not.
+Test.add('abilities', (check) => {
+  const badRows = CAT.surfaces.filter((row) => [row.spreads, row.igniteStatus, row.status].some((key) => key && !CAT.statusEffects.byId(key))
+    || (row.becomes && !CAT.surfaces.byId(row.becomes)) || (row.spillFrom && !CAT.materials.byId(row.spillFrom)) || (row.fx && !CAT.fxKinds.byId(row.fx))
+    || !CAT.elements.byId(row.element) || (row.igniteElement && !CAT.elements.byId(row.igniteElement)));
+  check('surface rows name real statuses, surfaces, materials, elements and fx kinds', badRows.length === 0, badRows.map((row) => row.id).join());
+  const t = AbilityTest.give(AbilityTest.start(), 'ignite');
+  Props.load({ props: [{ min: [-0.4, 0, 2.6], max: [0.4, 1.2, 3.4], health: 10, material: 'oil' }, { min: [3, 0, 3], max: [4, 1, 4], health: 10, material: 'wood' }] });
+  Props.damage(1, 50, t.caster);
+  check('a wooden prop spills nothing', surfaceSlots('oil').length === 0);
+  Props.damage(0, 50, t.caster);
+  const slick = surfaceSlots('oil');
+  check('a broken oil drum spills an oil slick on the floor under it', slick.length === 1 && Test.near(FloorSurfaces.y[slick[0]], 0, 1e-3) && Test.near(FloorSurfaces.z[slick[0]], 3, 1e-3), slick.length);
+  const fireRow = CAT.surfaces.byId('fire');
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 0, 0, 7);   // touches the first slick: it lights with it
+  TestArena.place(t.enemy, 0, 3.5);
+  TestArena.place(t.second, 1, 7);
+  TestArena.place(t.ally, -1, 7);
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  check('A30 Ignite on a target standing in oil lights it: a 6 s fire area (HP-005 oil floor + Burn)',
+    surfaceSlots('oil').length === 0 && surfaceSlots('fire').length === 2 && Test.near(FloorSurfaces.endTick[slick[0]] - Sim.tick, fireRow.seconds * TICK_RATE, 1));
+  runSeconds(0.3);
+  check('burning oil hurts and burns an enemy standing in it, not an ally (friendly fire off)',
+    Damage.hasStatus(t.second, 'burn') && Actors.health[t.second] < Actors.maxHealth[t.second] && !Damage.hasStatus(t.ally, 'burn') && Actors.health[t.ally] === Actors.maxHealth[t.ally]);
+  runSeconds(fireRow.seconds);
+  check('the fire area goes out after its seconds', surfaceSlots('fire').length === 0);
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 10, 0, 10);
+  Bus.emit('explosion', { x: 11, y: 0.3, z: 10, radius: 3, owner: t.caster, source: 'frag', element: 'kinetic' });
+  const afterKinetic = surfaceSlots('oil').length;
+  Bus.emit('explosion', { x: 11, y: 0.3, z: 10, radius: 0, owner: t.caster, source: 'incendiary', element: 'thermal' });
+  check('a thermal explosion over oil lights it, a kinetic one does not', afterKinetic === 1 && surfaceSlots('fire').length === 1, afterKinetic);
+  TestArena.finish();
+});
+
 // A32 panics fodder (ability.panic -> S14 PvE broken morale); A03 throws the enemy in front on a melee swing.
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({ family: 'pve' }), 'swarm');

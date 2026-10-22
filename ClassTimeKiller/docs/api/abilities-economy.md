@@ -6,6 +6,7 @@ Files:
 - `src/12e-abilities.js`: `Abilities`, the framework.
 - `src/12f-abilities-effects.js`: effect kinds, `Buffs`, `AbilityZones`, hero passives.
 - `src/12g-abilities-meters.js`: `Meters`, the energy bar and match meters (souls are PU18 pickups, 12a/12b).
+- `src/12h-surfaces.js`: `FloorSurfaces`, the HP-005 floor patches (wet floor, oil, burning oil; catalogue `surfaces` in 03d).
 - `src/13d-economy.js`: `Economy` and `Loadouts`.
 - `src/18f-ui-buy.js`: the `buy`, `loadout` and `classEditor` screens.
 
@@ -30,7 +31,7 @@ Tests: groups `abilities` and `economy`. Debug: `__CTK.abilities` `{ abilities, 
 | `counter`, `botUse` | | counterplay text; bot hint `{ when, range, chance }` for S14 |
 | `color`, `index` | | HUD colour; position in `CAT.abilities` (set at load) |
 
-Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength` (A03: `params.throwReach/throwSpeed/throwLift`: a paid melee swing throws the enemy in front along the view; there are no physics props), `cloak`. HP-005 combos (12f `statusCombo` on `Damage.statusHooks`): a Shock on a wading target stuns everyone wading within 8 m (A29 in water), every Shock chains once to the source's nearest enemy within 4 m, and Burn (A30 Ignite) thaws Chill and Freeze. A `swarm` on a fodder enemy emits `ability.panic` (A32). A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
+Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength` (A03: `params.throwReach/throwSpeed/throwLift`: a paid melee swing throws the enemy in front along the view; there are no physics props), `cloak`. HP-005 combos (12f `statusCombo` on `Damage.statusHooks`): a Shock on a wading target stuns everyone wading within 8 m (A29 in water), every Shock chains once to the source's nearest enemy within 4 m, and Burn (A30 Ignite) thaws Chill and Freeze (a thawed Freeze leaves a wet patch). Floor patches react in 12h (see Floor surfaces below); a `bolt` with no enemy in the aim cone reaches the patch at the aimed floor point (A29 shocks everyone in a wet patch, A30 lights oil) and is refused when no patch reacts. A `swarm` on a fodder enemy emits `ability.panic` (A32). A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
 
 ## Catalogues `heroes` (H01..H08) and `abilityKits`
 
@@ -94,6 +95,14 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - Event `ability.teleport` `{ id, x, y, z }`: only rows with `balance.dropsObjective` (A12 relocator). Dashes, rewinds and rifts keep a carried objective.
 - `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x RATE_SLOW x powerup rate; `BUFF.RATE_SLOW` is lowest-wins, neutral 1: ABL-004 time slow and C02 Slowtide, so a rate boost never cancels a slow) and `Move.gravityScale`; 12b calls it when powerups change.
 - Domes (A26) stop hitscan at their surface from either side (`Weapons.rayBlockers`); ability shields do not regenerate while `Damage.shieldRegenBlocked(id)`. Smoke zones are laid with `Smoke.add` (not drawn as a box).
+
+## Floor surfaces (`src/12h-surfaces.js`, HP-005)
+
+- Catalogue `surfaces` (03d): `wet` (spreads Shock), `oil` (lit by Burn or a thermal explosion, becomes `fire`), `fire` (6 s, 20 HP/s thermal `dot` plus Burn to whoever stands in it). Fields: `seconds`, `radius`, `spillFrom` (prop material), `spreads`, `igniteStatus`, `igniteElement`, `becomes`, `dps`, `element`, `status`, `statusSeconds`, `fx`, `glow`, `color`.
+- `FloorSurfaces`: a pool of 16 patches as a struct of arrays (`active`, `row`, `owner`, `x/y/z`, `radius`, `endTick`); a full pool replaces the patch that ends first. `spill(row, owner, x, y, z)` drops a patch on the floor below the point (up to 4 m), `spillUnder(id, key, owner)`, `stands(slot, id)` (feet within 0.6 m of the patch height, inside its radius), `clear()` (every world load and clear).
+- Sources: a breakable prop whose material a row names breaks (`world.break`: material `oil` = an oil drum, `water` = a water tank), and Burn thawing a Freeze (12f) spills a wet patch under the target.
+- Reactions: a `Damage.statusHooks` entry after the 12f combos. A status a patch `spreads` landing on someone in it lands on everyone standing in it; its `igniteStatus` on someone in it, or an `explosion` of its `igniteElement` within its radius plus the blast radius, turns it into `becomes` and lights every touching patch that can burn. Statuses a combo hands out (`ComboState.spreading`) never react again.
+- Burning patches hurt every 0.25 s through `Damage.apply` (kind `dot`, credited to the igniter, team rules apply) and add their status only on a real hit. Sim system `surfaces` at order 57; render source `surfaces` draws each patch as a flat disc (`meshFrom`, no allocation).
 
 ## Meters (`src/12g-abilities-meters.js`)
 

@@ -685,9 +685,10 @@ function castRevive(id, row) {
   return ally >= 0 && Damage.revive(ally);
 }
 // bolt: the aimed enemy takes params.damage of params.element and the status (stacks; seconds 0 = the status default).
+// With no enemy in the cone the status reaches the floor patch aimed at (12h: A29 shocks a wet patch, A30 lights oil).
 function castBolt(id, row) {
   const target = aimTarget(id, row.range);
-  if (target < 0) return false;
+  if (target < 0) return FloorSurfaces.boltFloor(id, row);
   const p = row.params, info = Damage.info();
   info.amount = p.damage; info.kind = 'hit'; info.weapon = row.id; info.element = p.element; info.zone = 'body';
   info.x = Actors.x[target]; info.y = Actors.y[target] + 1; info.z = Actors.z[target];
@@ -795,6 +796,7 @@ function strengthThrow(id, params) {
 }
 
 // ---- HP-005 status combos (Damage.statusHooks): wet + Shock stuns everyone in that water, Shock chains once, Burn melts ice ----
+// (floor patches of wet floor and oil react in 12h FloorSurfaces)
 const WET_SHOCK_RADIUS = 8;              // wading actors this close to a shocked wet target share its water
 const SHOCK_CHAIN_RADIUS = 4;            // a Shock jumps once to the source's nearest enemy this close to the target
 const ComboState = { spreading: false, freeze: CAT.statusEffects.byId('freeze').index, chill: CAT.statusEffects.byId('chill').index };
@@ -804,7 +806,7 @@ function statusCombo(id, row, source, seconds) {
   ComboState.spreading = true;
   try {
     if (row.id === 'shock') { shockWater(id, source, seconds); chainShock(id, source, seconds); }
-    if (row.id === 'burn') meltIce(id);
+    if (row.id === 'burn') meltIce(id, source);
   } finally { ComboState.spreading = false; }
 }
 function shockWater(id, source, seconds) {
@@ -819,9 +821,10 @@ function chainShock(id, source, seconds) {
   const next = nearestChainTarget(source, id, SHOCK_CHAIN_RADIUS, id < 32 ? 1 << id : 0, id >= 32 ? 1 << (id - 32) : 0);
   if (next >= 0) Damage.addStatus(next, 'shock', source, seconds, 1);
 }
-// A30 Ignite (and any Burn) thaws a chilled or frozen target.
-function meltIce(id) {
-  if (Damage.hasStatus(id, 'freeze')) Damage.clearStatus(id, ComboState.freeze);
+// A30 Ignite (and any Burn) thaws a chilled or frozen target; a thawed Freeze leaves its ice as a wet patch (12h).
+const THAW_SURFACE = 'wet';
+function meltIce(id, source) {
+  if (Damage.hasStatus(id, 'freeze')) { Damage.clearStatus(id, ComboState.freeze); FloorSurfaces.spillUnder(id, THAW_SURFACE, source); }
   if (Damage.hasStatus(id, 'chill')) Damage.clearStatus(id, ComboState.chill);
 }
 Damage.statusHooks.push(statusCombo);
