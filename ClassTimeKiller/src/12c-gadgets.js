@@ -776,10 +776,12 @@ const Gadgets = {
     for (let i = 0; i < this.deployers.length && !placed; i++) placed = this.deployers[i](id, row);
     if (!placed) return false;
     this.spend(id, row);
-    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown / Abilities.rechargeScale[id]);   // ECP04 Tune Up
+    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + this.rechargeTicks(id, row);
     this.emitUse(id, row);
     return true;
   },
+  // A field upgrade's recharge for this actor, sped up by ECP04 Tune Up (Abilities.rechargeScale).
+  rechargeTicks(id, row) { return itemTicks(row.cooldown / Abilities.rechargeScale[id]); },
   // Field-upgrade rows (cooldown > 0) regain their single use when the recharge is over.
   rechargeGadget(id) {
     const row = gadgetRow(this.gadget[id]);
@@ -801,7 +803,7 @@ const Gadgets = {
     const grenade = id >= 0 ? gadgetRow(this.grenade[id]) : null, gadget = id >= 0 ? gadgetRow(this.gadget[id]) : null;
     out.grenade = grenade ? grenade.name : ''; out.grenadeCount = grenade ? this.count[id * GADGET_COUNT + grenade.index] : 0;
     out.gadget = gadget ? gadget.name : ''; out.gadgetCount = gadget ? this.count[id * GADGET_COUNT + gadget.index] : 0;
-    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / itemTicks(gadget.cooldown), 0, 1) : 0;
+    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / this.rechargeTicks(id, gadget), 0, 1) : 0;
     const held = id >= 0 && this.holdStart[id] >= 0 ? CAT.gadgets[this.holdRow[id]] : null;
     out.cook = held && held.cook ? clamp(this.heldTicks(id) / itemTicks(held.fuse), 0, 1) : 0;
     return out;

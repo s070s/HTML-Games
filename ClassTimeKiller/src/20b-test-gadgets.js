@@ -226,7 +226,8 @@ Test.add('gadgets', (check) => {
   const owner = GadgetArena.actor(1, 0, 0, 'cover', 1), cooldown = CAT.gadgets.byId('cover').cooldown;
   Abilities.rechargeScale[owner] = 2;
   GadgetArena.press(owner, BTN.GADGET);
-  const spent = Gadgets.countOf(owner, 'cover') === 0;
+  const spent = Gadgets.countOf(owner, 'cover') === 0, ring = Gadgets.hudState(owner, {}).gadgetCooldown;
+  check('ECP04 Tune Up: the HUD recharge ring starts full', ring > 0.95, ring);
   Sim.run(itemTicks(cooldown / 2) + 1);
   check('ECP04 Tune Up halves the field upgrade recharge at scale 2', spent && Gadgets.countOf(owner, 'cover') === 1);
   TestArena.finish();
