@@ -107,6 +107,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `medal` | `{ id, medal }` | S13/S18 |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
+| `bark` | `{ id, team, category, text }` | S14 |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
