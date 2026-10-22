@@ -600,9 +600,10 @@ const Weapons = {
     LockOn.clear(id);
   },
   // A shot fired by letting go of the trigger (charge, lock-on, W32 mine tap): short of ammo it clicks empty instead.
+  // A charge passed ready() when the hold began, so its release fires even if the actor started sprinting meanwhile.
   releaseShot(id, weapon, mode, modeIndex, fraction) {
     if (!this.hasAmmo(id, weapon, mode, fraction)) { this.reportEmpty(id, weapon, mode); return; }
-    if (this.ready(id, weapon, mode, modeIndex, 0, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
+    if (mode.trigger === 'charge' || this.ready(id, weapon, mode, modeIndex, 0, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
   },
   startBurst(id, mode, modeIndex) {
     this.burstLeft[id] = mode.burst - 1;
