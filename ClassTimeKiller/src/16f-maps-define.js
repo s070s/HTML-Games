@@ -6,7 +6,7 @@ Maps.rows.sort((a, b) => (a.code < b.code ? -1 : 1));          // catalogue orde
 Data.define('maps', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, size: REQUIRED, theme: REQUIRED, modes: REQUIRED, sky: REQUIRED,
   brushes: REQUIRED, spawns: REQUIRED, items: [], objectives: [], zones: REQUIRED, triggers: [], lights: [], navHints: [],
-  seed: 0, category: 'arena', version: MapRules.version, placeholder: false, blurb: '',
+  seed: 0, category: 'arena', version: MapRules.version, placeholder: false, blurb: '', props: [],
 }, Maps.rows);
 
 // The match record gets its map row as soon as the setup is announced, so every match.load / match.start listener can read Game.match.map.

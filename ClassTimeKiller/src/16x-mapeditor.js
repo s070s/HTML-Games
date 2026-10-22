@@ -479,6 +479,7 @@ const MapEditor = {
     def.triggers = map.triggers;
     def.lights = map.lights.map((l) => [l.x, l.y, l.z, l.color, l.radius]);
     def.hints = map.navHints.map((h) => [h.kind, h.x, h.y, h.z]);
+    def.props = map.props || [];
     return mapEditClone(def);
   },
   // def (parsed JSON, possibly hostile) -> { map } or { error }.
@@ -651,15 +652,22 @@ function mapEditProblemWith(def) {
     || (def.sky.fog !== undefined && !mapEditColor(def.sky.fog)) || (def.sky.fogFar !== undefined && !mapEditFinite(def.sky.fogFar))) return 'The sky is invalid.';
   if (!Array.isArray(def.modes) || !def.modes.every((mode) => mapEditOwn(MapRules.modes, mode))) return 'The mode list is invalid.';
   for (const key of ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints']) if (!Array.isArray(def[key])) return 'The ' + key + ' list is missing.';
-  const total = def.brushes.length + def.spawns.length + def.items.length + def.objectives.length + def.zones.length + def.triggers.length + def.lights.length + def.hints.length;
+  if (def.props !== undefined && !Array.isArray(def.props)) return 'The props list is invalid.';   // codes made before props have none
+  const props = def.props || [];
+  const total = def.brushes.length + def.spawns.length + def.items.length + def.objectives.length + def.zones.length + def.triggers.length + def.lights.length + def.hints.length + props.length;
   if (total > MAPEDIT_BUDGET) return 'The map holds ' + total + ' objects, more than the budget of ' + MAPEDIT_BUDGET + '.';
   for (const [key, check] of Object.entries(MAPEDIT_ROW_CHECKS)) if (!def[key].every(check)) return 'A row of the ' + key + ' list is invalid.';
+  if (!props.every(mapEditPropIs)) return 'A row of the props list is invalid.';
   return '';
 }
 const mapEditRowIs = (row, length, texts, numbers) => Array.isArray(row) && row.length >= length && texts.every((i) => typeof row[i] === 'string') && numbers.every((i) => mapEditFinite(row[i]));
 const MAPEDIT_OBJECTIVE_KEYS = ['team', 'radius', 'path', 'modes', 'id', 'kind', 'x', 'y', 'z', 'stage', 'checkpoints'];
 const MAPEDIT_TRIGGER_KEYS = ['kind', 'min', 'max', 'target', 'peak', 'exit', 'yaw', 'damage', 'element'];
 const MAPEDIT_SKY_KEYS = ['top', 'horizon', 'fog', 'fogFar', 'sun'];
+const MAPEDIT_PROP_KEYS = ['min', 'max', 'health', 'material', 'mass', 'debris', 'color'];   // the S08 prop row (PROP_FIELDS)
+// A breakable prop box: min and max corners, the optional numbers finite, the material a known one.
+const mapEditPropIs = (prop) => isPlainObject(prop) && mapEditTriple(prop.min) && mapEditTriple(prop.max)
+  && [prop.health, prop.mass, prop.debris, prop.color].every(mapEditOptionalNumber) && (prop.material === undefined || MapRules.materials.includes(prop.material));
 const MAPEDIT_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
 const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || MAPEDIT_NAME_MAX) : fallback);
 const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= MAPEDIT_NAME_MAX);
@@ -678,6 +686,7 @@ function mapEditCleanDef(def) {
   for (const key of MAPEDIT_DEF_LISTS) clean[key] = def[key];
   clean.objectives = def.objectives.map((objective) => mapEditKeep(objective, MAPEDIT_OBJECTIVE_KEYS));
   clean.triggers = def.triggers.map((trigger) => mapEditKeep(trigger, MAPEDIT_TRIGGER_KEYS));
+  clean.props = (def.props || []).map((prop) => mapEditKeep(prop, MAPEDIT_PROP_KEYS));
   return clean;
 }
 const MAPEDIT_ROW_CHECKS = {

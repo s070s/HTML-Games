@@ -294,6 +294,7 @@ const Projectiles = {
     if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
     if (this.onHitKind(i, row) === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
     emitImpact(hit, this.modeOf(i).weapon, this.owner[i]);
+    damagePropAt(hit, this.damage[i], this.owner[i]);
     this.remove(i);
   },
   bounceOff(i, row, hit) {

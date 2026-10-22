@@ -179,7 +179,7 @@ Test.add('pve', (check) => withShortShop(() => {
     if (behaviour.run.state === PVE_WAVE_STATE.FIGHT && (Pve.queue.count === 0 || Pve.aliveCount() >= cap / 2)) killAllEnemies(ids[0]);
   });
   waves.stop();
-  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results;
+  const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results;
   check('10 horde waves cleared headless, then victory', cleared === 10 && results && results.reason === PVE_WIN && results.winnerId === ids[0],
     cleared + ' ' + (results && results.reason));
   check('the director stays within the quality enemy cap', overCap === 0 && Pve.stats.maxAlive <= cap, Pve.stats.maxAlive + ' / ' + cap);

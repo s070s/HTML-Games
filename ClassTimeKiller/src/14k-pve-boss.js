@@ -8,14 +8,22 @@
 
 const BOSS_TRANSITION_SECONDS = 2;
 const BOSS_FLOOR_SLACK = 1e-3;          // health within this of the threshold counts as reaching it (float rounding)
-const bossEventPayload = { id: -1, phase: 0, phases: 0, kind: '' };
+// 'pve.boss' { id, phase, phases, kind: 'phase' | 'weak' | 'defeated', seconds (since the boss spawned), final }.
+const bossEventPayload = { id: -1, phase: 0, phases: 0, kind: '', seconds: 0, final: false };
 
 const PveBoss = {
   phase: new Int8Array(MAX_ACTORS),
   transitionUntil: new Float64Array(MAX_ACTORS),
+  spawnedAt: new Float64Array(MAX_ACTORS),
   hud: { active: false, id: -1, name: '', health: 0, phase: 0, phases: 0, weakDisabled: false },
 
-  onSpawn(id) { this.phase[id] = 0; this.transitionUntil[id] = 0; },
+  onSpawn(id) { this.phase[id] = 0; this.transitionUntil[id] = 0; this.spawnedAt[id] = Sim.time; },
+  // A boss killed: its fight time and whether it was the level's final boss (the mode's own rule, pveFinalBoss in 14j).
+  onKill(event) {
+    const id = event.victim;
+    if (!Pve.isEnemy(id) || !Pve.rowOf(id).boss) return;
+    this.announce(id, Pve.rowOf(id), 'defeated');
+  },
   // Health a hit may not take the boss below: the threshold that ends its current phase (0 in the last phase).
   floorHealth(id, row) { return row.phases[this.phase[id]].until * Actors.maxHealth[id]; },
   // Every tick (also while frozen or staggered): health down to the phase threshold starts the next phase (one at a time).
@@ -31,6 +39,8 @@ const PveBoss = {
   announce(id, row, kind) {
     const event = bossEventPayload;
     event.id = id; event.phase = this.phase[id] + 1; event.phases = row.phases.length; event.kind = kind;
+    event.seconds = Sim.time - this.spawnedAt[id];
+    event.final = kind === 'defeated' && pveFinalBoss(id);
     Bus.emit('pve.boss', event);
   },
   inTransition(id) { return Sim.time < this.transitionUntil[id]; },
@@ -79,4 +89,5 @@ PveBrains.boss = {
 
 PVE_HUD.boss = PveBoss.hud;
 Bus.on('actor.spawn', (payload) => PveBoss.onSpawn(payload.id));
+Bus.on('kill', (event) => PveBoss.onKill(event));
 Sim.addSystem('pveBoss', 81, () => PveBoss.updateHud());

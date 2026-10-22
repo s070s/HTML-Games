@@ -13,7 +13,7 @@ const MapRules = {
   elements: ['kinetic', 'thermal', 'cryo', 'arc', 'toxin', 'void'],                            // HP-006 damage elements (hazard triggers name one)
   triggerKinds: ['jumppad', 'teleporter', 'ladder', 'water', 'hazard', 'killzone'],
   objectiveKinds: ['flag', 'flagBase', 'point', 'hill', 'bombsite', 'payloadPath', 'relic', 'core', 'bank', 'extract'],
-  hintKinds: ['cover', 'sniper', 'choke', 'flank', 'dummy', 'guard'],
+  hintKinds: ['cover', 'sniper', 'choke', 'flank', 'dummy', 'guard', 'secret'],     // secret: a PvE level secret (14j PveLevel)
   itemGroups: ['power', 'armor', 'health', 'weapon', 'ammo'],
   // Spec backtick keys (PWR, WPN). Plain pickups (I01..I10) have no spec key: these keys are the map contract for S12.
   itemKeys: {
@@ -167,6 +167,7 @@ const MapKit = {
     row.triggers = def.triggers || [];
     row.lights = (def.lights || []).map((r) => this.light(r));
     row.navHints = (def.hints || []).map((r) => this.hint(r));
+    row.props = def.props || [];        // breakable boxes (S08 Props); every map has the list
     delete row.hints;
     return row;
   },

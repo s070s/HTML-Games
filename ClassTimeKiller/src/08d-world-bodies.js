@@ -108,21 +108,21 @@ const Props = {
     Bodies.clear();
   },
   isStanding(index) { return this.health[index] > 0; },
-  // Damage from a weapon hit (S11 calls this when a ray hit returns hit.brush.prop >= 0). Breaks the prop at 0 health;
-  // props past the quality budget ignore damage and stay standing.
-  damage(index, amount) {
+  // Damage from a weapon hit (S11 calls this when a ray hit returns hit.brush.prop >= 0) or a blast; source = the actor
+  // (-1 none). Breaks the prop at 0 health; props past the quality budget ignore damage and stay standing.
+  damage(index, amount, source) {
     if (!(this.health[index] > 0) || !this.breakable[index]) return;
     this.health[index] -= amount;
-    if (this.health[index] <= 0) this.breakProp(index);
+    if (this.health[index] <= 0) this.breakProp(index, source === undefined ? -1 : source);
   },
-  breakProp(index) {
+  breakProp(index, source) {
     const brush = this.brushes[index];
     const listIndex = World.dynamic.indexOf(brush);
     if (listIndex >= 0) World.dynamic.splice(listIndex, 1);
     this.health[index] = 0;
     Bodies.debrisLimit = Math.min(BODY_CAPACITY, Quality.current().props); // read now: quality can change mid-match
     spawnDebris(brush, clamp(this.debris[index], DEBRIS_MIN_PIECES, DEBRIS_MAX_PIECES), this.mass[index], this.color[index]);
-    breakEvent.prop = index; breakEvent.material = brush.material;
+    breakEvent.prop = index; breakEvent.material = brush.material; breakEvent.source = source;
     breakEvent.x = (brush.minX + brush.maxX) / 2; breakEvent.y = (brush.minY + brush.maxY) / 2; breakEvent.z = (brush.minZ + brush.maxZ) / 2;
     Bus.emit('world.break', breakEvent);
     breakSound.x = breakEvent.x; breakSound.y = breakEvent.y; breakSound.z = breakEvent.z;
@@ -130,7 +130,7 @@ const Props = {
   },
 };
 
-const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
+const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0, source: -1 };
 const breakSound = { x: 0, y: 0, z: 0, radius: BREAK_NOISE_RADIUS, kind: 'break', source: -1 };
 const bodyMover = makeMover();
 
@@ -266,7 +266,7 @@ function onExplosion(event) {
     if (!Props.isStanding(i)) continue;
     const dx = clamp(event.x, brush.minX, brush.maxX) - event.x, dy = clamp(event.y, brush.minY, brush.maxY) - event.y, dz = clamp(event.z, brush.minZ, brush.maxZ) - event.z;
     const distance = Math.hypot(dx, dy, dz);
-    if (distance < event.radius) Props.damage(i, EXPLOSION_PROP_DAMAGE * (1 - distance / event.radius));
+    if (distance < event.radius) Props.damage(i, EXPLOSION_PROP_DAMAGE * (1 - distance / event.radius), event.owner);
   }
 }
 
