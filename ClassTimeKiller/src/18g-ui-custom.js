@@ -139,7 +139,7 @@ const oneOfList = (list) => (value) => (list.includes(value) ? value : undefined
 const integerBetween = (low, high) => (value) => (Number.isInteger(value) && value >= low && value <= high ? value : undefined);
 
 const EDITOR_FIELD_CHECKS = {
-  name: (value) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, EDITOR_NAME_MAX) : undefined),
+  name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
   map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),

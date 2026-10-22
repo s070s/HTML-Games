@@ -8,7 +8,16 @@ const FORGE_PANEL_MIN_HEIGHT = 440;
 const FORGE_STATUS_SECONDS = 0.2;           // how often the cursor text is refreshed
 const FORGE_BUDGET_WARNING = 0.9;           // the budget counter turns amber past this share
 const FORGE_LIGHT_COLORS = [[0xffd9a0, 'Warm'], [0xffffff, 'White'], [0x9fc8ff, 'Cool'], [0xff9060, 'Red']];
-const FORGE_ELEMENT_NAMES = ['thermal', 'kinetic', 'cryo', 'arc', 'toxin', 'void'];
+const FORGE_CODE_PREFIX = 'CTKMAP';
+const FORGE_CODE_PATTERN = new RegExp(String.raw`^${FORGE_CODE_PREFIX}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+const FORGE_CODE_MAX_CHARS = 60000;        // a longer text is refused before anything is decoded
+const FORGE_CODE_MAX_BYTES = 262144;       // the unpacked JSON may not be larger than this
+const FORGE_PLAY_SEED_RANGE = 99999;
+const FORGE_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
+// Parts of the editor screen a change of the model has to redraw (see ForgeUi.mark).
+const FORGE_PART_TOP = 1, FORGE_PART_PALETTE = 2, FORGE_PART_PROPERTIES = 4, FORGE_PART_DIALOG = 8;
+const FORGE_PARTS_BY_CHANGE = { map: 15, edit: FORGE_PART_TOP | FORGE_PART_PROPERTIES | FORGE_PART_DIALOG, selection: FORGE_PART_PROPERTIES | FORGE_PART_DIALOG,
+  tool: FORGE_PART_TOP | FORGE_PART_PALETTE | FORGE_PART_DIALOG, saved: FORGE_PART_TOP, problems: 0 };
 const FORGE_HELP = {
   kbm: 'WASD fly, E / Q up and down, hold right mouse to look, click to place, wheel to turn, G grab, Del delete, F snap, Ctrl+Z / Ctrl+Y undo and redo.',
   gamepad: 'Sticks fly and look, RT / LT up and down, A place, B delete, X turn, Y grab, LB / RB option, D-pad up / down tool, D-pad left snap, View undo, Start menu.',
@@ -56,10 +65,10 @@ const FORGE_FIELDS = {
   ],
   zones: [{ label: 'Name', kind: 'text', get: (o) => o.name, set: (o, v) => { o.name = forgeNameOf(v) || o.name; } }],
   triggers: [
-    { label: 'Kind', kind: 'cycle', values: () => MapRules.triggerKinds, get: (o) => o.kind, set: forgeSetTriggerKind },
+    { label: 'Kind', kind: 'cycle', values: () => MapRules.triggerKinds, get: (o) => o.kind, set: (o, v) => forgeTriggerDefaults(o, v, FORGE_KIND_CHANGE_TURNS) },
     { label: 'Peak', kind: 'step', step: 0.5, get: (o) => o.peak, apply: (o, d) => { o.peak = Math.max(0.5, o.peak + d); }, show: (o) => o.kind === 'jumppad' },
     { label: 'Damage', kind: 'step', step: 5, get: (o) => o.damage, apply: (o, d) => { o.damage = Math.max(5, o.damage + d); }, show: (o) => o.kind === 'hazard' },
-    { label: 'Element', kind: 'cycle', values: () => FORGE_ELEMENT_NAMES, get: (o) => o.element, set: (o, v) => { o.element = v; }, show: (o) => o.kind === 'hazard' },
+    { label: 'Element', kind: 'cycle', values: () => MapRules.elements, get: (o) => o.element, set: (o, v) => { o.element = v; }, show: (o) => o.kind === 'hazard' },
     { label: 'Exit yaw', kind: 'step', step: 45, get: (o) => o.yaw, apply: (o, d) => { o.yaw = forgeWrapDegrees(o.yaw + d); }, show: (o) => o.kind === 'teleporter' },
   ].concat(['X', 'Y', 'Z'].map((name, axis) => ({ label: 'Far end ' + name, kind: 'step', step: 0.5, get: (o) => (o.target || o.exit)[axis],
     apply: (o, d) => { (o.target || o.exit)[axis] += d; }, show: (o) => !!(o.target || o.exit) }))),
@@ -70,19 +79,13 @@ function forgeSetObjectiveKind(objective, kind) {
   objective.kind = kind;
   if (kind === 'payloadPath' && !(objective.path && objective.path.length)) objective.path = [[objective.x, objective.y, objective.z]];
 }
-// Jump pads and teleporters carry their far end; the other kinds carry none of it.
-function forgeSetTriggerKind(trigger, kind) {
-  for (const key of ['target', 'peak', 'exit', 'yaw', 'damage', 'element']) delete trigger[key];
-  trigger.kind = kind;
-  const far = [(trigger.min[0] + trigger.max[0]) / 2 + 6, trigger.min[1], (trigger.min[2] + trigger.max[2]) / 2];
-  if (kind === 'jumppad') { trigger.target = far; trigger.peak = 3; }
-  if (kind === 'teleporter') { trigger.exit = far; trigger.yaw = 90; }
-  if (kind === 'hazard') { trigger.damage = 15; trigger.element = 'thermal'; }
-}
 
 const ForgeUi = {
-  root: null, top: null, left: null, right: null, status: null, touch: null, budget: null, cursorText: null,
+  root: null, top: null, left: null, right: null, status: null, touch: null, cursorText: null,
+  undoButton: null, redoButton: null, snapButton: null, panelsButton: null, touchButton: null, budget: null, nameTag: null,   // the top bar, built once and updated in place
   dialogRefresh: null,                  // fn() of the open dialog that mirrors the panels (the tool and object dialog)
+  pending: 0,                           // FORGE_PART_* bits waiting for the next frame
+  shownSnap: -1,                        // the snap step the properties panel was built for (its buttons move by it)
   touchShown: false, panelsShown: true, statusTimer: 0, shownX: NaN, shownY: NaN, shownZ: NaN, shownValid: false,
 
   // ---- small builders ----
@@ -100,6 +103,15 @@ const ForgeUi = {
     return input;
   },
   fixed(value) { return (Math.round(value * 100) / 100).toString(); },
+  // Empties a panel and fills it again; the control that had the keyboard focus gets it back (by its place in the panel).
+  rebuild(panel, fill) {
+    const controls = () => Array.from(panel.querySelectorAll('button, input, textarea'));
+    const focused = controls().indexOf(document.activeElement);
+    panel.replaceChildren();
+    fill(panel);
+    const next = focused >= 0 ? controls()[focused] : null;
+    if (next) next.focus();
+  },
 
   // Leaves the editor from the menu (asks first when the map has unsaved changes).
   exit() {
@@ -120,50 +132,72 @@ const ForgeUi = {
     for (const part of [this.top, this.left, this.right, this.status, this.touch]) root.appendChild(part);
     this.touchShown = Input.device === 'touch' || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
     this.panelsShown = window.innerWidth >= FORGE_PANEL_MIN_WIDTH && window.innerHeight >= FORGE_PANEL_MIN_HEIGHT;   // a phone starts with the view free
-    this.refresh();
-  },
-  refresh() {
-    if (!this.root || !this.root.isConnected) return;
     this.buildTop();
-    this.buildPalette();
-    this.buildProperties();
+    this.pending = 0;
+    this.redraw(FORGE_PARTS_BY_CHANGE.map);
     this.buildStatus();
+  },
+  // A change of the model (Bus 'forge.changed') marks the parts of the screen it touches; flush redraws them once per frame.
+  mark(what) {
+    if (!this.root) return;
+    this.pending |= FORGE_PARTS_BY_CHANGE[what] || 0;
+    if (what === 'tool' && ForgeTools.snapIndex !== this.shownSnap) this.pending |= FORGE_PART_PROPERTIES;
+  },
+  flush() {
+    const parts = this.pending;
+    this.pending = 0;
+    if (parts && this.root && this.root.isConnected) this.redraw(parts);
+  },
+  redraw(parts) {
+    if (parts & FORGE_PART_TOP) this.updateTop();
+    if (parts & FORGE_PART_PALETTE) this.rebuild(this.left, (panel) => this.fillPalette(panel));
+    if (parts & FORGE_PART_PROPERTIES) this.rebuild(this.right, (panel) => this.fillProperties(panel));
+    if ((parts & FORGE_PART_DIALOG) && this.dialogRefresh) this.dialogRefresh();
+  },
+  // The top bar keeps its buttons: only their texts and states change.
+  buildTop() {
+    const top = this.top, tools = ForgeTools;
+    top.appendChild(Ui.button('Menu', () => Ui.open('forgeMenu'), 'primary'));
+    this.undoButton = Ui.button('Undo', () => tools.command('undo'));
+    this.redoButton = Ui.button('Redo', () => tools.command('redo'));
+    this.snapButton = Ui.button('', () => tools.command('snap'));
+    this.panelsButton = Ui.button('', () => { this.panelsShown = !this.panelsShown; this.updateTop(); });
+    this.touchButton = Ui.button('', () => { this.touchShown = !this.touchShown; this.updateTop(); });
+    for (const button of [this.undoButton, this.redoButton, this.snapButton]) top.appendChild(button);
+    top.appendChild(Ui.button('Check', () => Ui.open('forgeCheck')));
+    top.appendChild(Ui.button('Test play', () => Ui.open('forgePlay')));
+    top.appendChild(this.panelsButton); top.appendChild(this.touchButton);
+    this.budget = makeElement('span', 'fg-budget');
+    this.nameTag = makeElement('span', 'fg-budget');
+    top.appendChild(this.budget); top.appendChild(this.nameTag);
+  },
+  updateTop() {
+    this.undoButton.disabled = !Forge.canUndo();
+    this.redoButton.disabled = !Forge.canRedo();
+    this.snapButton.textContent = 'Snap ' + ForgeTools.snap() + ' m';
+    this.panelsButton.textContent = this.panelsShown ? 'Hide panels' : 'Panels';
+    this.touchButton.textContent = this.touchShown ? 'Hide buttons' : 'Touch buttons';
+    const share = Forge.count() / FORGE_BUDGET;
+    this.budget.className = 'fg-budget' + (share >= 1 ? ' full' : share >= FORGE_BUDGET_WARNING ? ' warn' : '');
+    this.budget.textContent = 'Objects ' + Forge.count() + ' / ' + FORGE_BUDGET;
+    this.nameTag.textContent = Forge.map.name + (Forge.dirty ? ' *' : '');
     this.touch.classList.toggle('show', this.touchShown);
     this.root.classList.toggle('fg-nopanels', !this.panelsShown);
   },
-  buildTop() {
-    const top = this.top, tools = ForgeTools;
-    top.replaceChildren();
-    top.appendChild(Ui.button('Menu', () => Ui.open('forgeMenu'), 'primary'));
-    const undo = Ui.button('Undo', () => tools.command('undo')), redo = Ui.button('Redo', () => tools.command('redo'));
-    undo.disabled = !Forge.canUndo(); redo.disabled = !Forge.canRedo();
-    top.appendChild(undo); top.appendChild(redo);
-    top.appendChild(Ui.button('Snap ' + tools.snap() + ' m', () => tools.command('snap')));
-    top.appendChild(Ui.button('Check', () => Ui.open('forgeCheck')));
-    top.appendChild(Ui.button('Test play', () => Ui.open('forgePlay')));
-    top.appendChild(Ui.button(this.panelsShown ? 'Hide panels' : 'Panels', () => { this.panelsShown = !this.panelsShown; this.refresh(); }));
-    top.appendChild(Ui.button(this.touchShown ? 'Hide buttons' : 'Touch buttons', () => { this.touchShown = !this.touchShown; this.refresh(); }));
-    const share = Forge.count() / FORGE_BUDGET;
-    this.budget = makeElement('span', 'fg-budget' + (share >= 1 ? ' full' : share >= FORGE_BUDGET_WARNING ? ' warn' : ''), 'Objects ' + Forge.count() + ' / ' + FORGE_BUDGET);
-    top.appendChild(this.budget);
-    top.appendChild(makeElement('span', 'fg-budget', Forge.map.name + (Forge.dirty ? ' *' : '')));
-  },
-  buildPalette() {
-    const panel = this.left;
-    panel.replaceChildren();
+  fillPalette(panel) {
     panel.appendChild(makeElement('div', 'ui-group', 'Tools'));
     for (const tool of FORGE_TOOLS) {
       const button = Ui.button(tool.label, () => ForgeTools.setTool(tool.id), ForgeTools.tool === tool.id ? 'primary' : '');
       panel.appendChild(button);
     }
-    this.buildToolOptions(panel);
+    this.fillToolOptions(panel);
     panel.appendChild(makeElement('div', 'ui-group', 'View'));
     const level = this.stepper('Level', this.fixed(ForgeTools.elevation) + ' m', () => ForgeTools.command('levelDown'), () => ForgeTools.command('levelUp'));
     panel.appendChild(level);
     panel.appendChild(Ui.row('Zones', Ui.toggle(ForgeTools.view.zones, (on) => { ForgeTools.view.zones = on; Forge.announce('tool'); })));
     panel.appendChild(Ui.row('Triggers', Ui.toggle(ForgeTools.view.triggers, (on) => { ForgeTools.view.triggers = on; Forge.announce('tool'); })));
   },
-  buildToolOptions(panel) {
+  fillToolOptions(panel) {
     const tools = ForgeTools, tool = tools.toolRow();
     if (tool.id === 'select') { panel.appendChild(makeElement('p', 'ui-note', 'Click an object to select it. Grab moves it, then place drops it.')); return; }
     panel.appendChild(makeElement('div', 'ui-group', tool.label));
@@ -177,9 +211,9 @@ const ForgeUi = {
     const turn = tool.id === 'spawn' || tool.size ? 'Turn: ' + tools.turns * 90 + ' deg' : '';
     if (turn) panel.appendChild(Ui.button(turn, () => tools.command('rotate')));
   },
-  buildProperties(target) {
-    const panel = target || this.right, object = Forge.selected(), list = Forge.selection.list;
-    if (!target) panel.replaceChildren();
+  fillProperties(panel) {
+    const object = Forge.selected(), list = Forge.selection.list;
+    this.shownSnap = ForgeTools.snapIndex;
     if (!object) {
       panel.appendChild(makeElement('div', 'ui-group', 'Nothing selected'));
       panel.appendChild(makeElement('p', 'ui-note', Forge.countsText()));
@@ -289,11 +323,72 @@ Ui.register('forge', {
   // The pad drives the editor itself (ForgeTools.readPad): the menu commands it also produces are not for the panels.
   onCommand() { return true; },
 });
-Bus.on('forge.changed', () => { ForgeUi.refresh(); if (ForgeUi.dialogRefresh) ForgeUi.dialogRefresh(); });
+Bus.on('forge.changed', (change) => ForgeUi.mark(change.what));
 Bus.on('input.device', () => { if (Ui.isOpen('forge')) ForgeUi.buildStatus(); });
-Bus.on('boot', () => Loop.onFrame('ui', (seconds) => { if (ForgeUi.root) ForgeUi.updateStatus(seconds); }));
-// After a test match the editor comes back (this listener runs after the main menu opened, so the editor is on top).
-Bus.on('match.stop', () => ForgeTools.afterPlay());
+Bus.on('boot', () => Loop.onFrame('ui', (seconds) => { if (ForgeUi.root) { ForgeUi.flush(); ForgeUi.updateStatus(seconds); } }));
+// The editing keys, mouse and pad act only while the editor itself is on top, not while a dialog (menu, list, confirm) is open over it.
+ForgeTools.dialogOpen = () => { const top = Ui.current(); return top !== '' && top !== 'forge'; };
+
+// ---- Test-play (MAP-014): a match on the edited map; the editor comes back when it stops ----
+const ForgePlay = {
+  returning: false,                     // a test match is running: the editor comes back when it stops
+  returnDue: false,                     // a match stopped while returning: settle decides whether it was the last one
+  testPlay(modeId) {
+    if (!ForgeTools.playableModes().includes(modeId)) return Forge.refuse('This map has no objectives or spawns for that mode.') >= 0;
+    const setup = CustomMatch.setup(CustomMatch.validate({ mode: modeId }).draft, Math.floor(performance.now()) % FORGE_PLAY_SEED_RANGE);
+    setup.map = Forge.toMap();
+    this.returning = true;
+    ForgeTools.detach();
+    CustomMatch.start(setup);
+    return true;
+  },
+  // 'match.stop': a restart from the pause menu stops the match and starts the next one inside Game.start, so the decision waits until that call is over.
+  onMatchStop() {
+    if (!this.returning) return;
+    this.returnDue = true;
+    queueMicrotask(() => this.settle());
+  },
+  // The editor comes back with its state as it was (the model never left memory), unless a new match is already running.
+  settle() {
+    if (!this.returnDue) return;
+    this.returnDue = false;
+    if (Game.match) return;
+    this.returning = false;
+    if (Game.headless) ForgeTools.attach(); else Ui.open('forge');
+  },
+};
+// This listener runs after the main menu opened, so the editor ends up on top.
+Bus.on('match.stop', () => ForgePlay.onMatchStop());
+
+// ---- Share codes: the whole map as one line of text (copy and paste only) ----
+const ForgeShare = {
+  exportCode(map) {
+    const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(Forge.compact(map || Forge.map)))));
+    return FORGE_CODE_PREFIX + FORGE_CODE_VERSION + '-' + CustomCodec.checksum(payload) + '-' + payload;
+  },
+  // text -> { map } or { error } with a message for the player. Nothing is changed.
+  decodeCode(text) {
+    const clean = String(text || '').replace(/\s+/g, '');
+    if (clean.length > FORGE_CODE_MAX_CHARS) return { error: 'The code is too long to be a map code.' };
+    const parts = FORGE_CODE_PATTERN.exec(clean);
+    if (!parts) return { error: 'This is not a ClassTimeKiller map code.' };
+    if (Number(parts[1]) > FORGE_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
+    if (CustomCodec.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
+    try {
+      const bytes = CustomCodec.expand(CustomCodec.fromBase64Url(parts[3]), FORGE_CODE_MAX_BYTES);
+      return Forge.expand(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+    } catch (error) {
+      return { error: 'The code could not be read.' };
+    }
+  },
+  importCode(text) {
+    const result = this.decodeCode(text);
+    if (result.error) return result;
+    result.map.id = FORGE_DRAFT_ID;
+    Forge.reset(result.map, '');
+    return result;
+  },
+};
 
 // ---- Dialog builders ----
 function forgeDialog(root, title, backTo) {
@@ -312,12 +407,17 @@ const forgeKilobytes = (bytes) => (bytes / 1024).toFixed(1) + ' KB';
 // Closes dialogs until the editor screen is on top again.
 function forgeBackToEditor() { while (Ui.current() && Ui.current() !== 'forge') Ui.pop(); }
 
-// Saves the map; one that offers no mode yet gets the modes it is ready for, and the player is told when none is.
+// Saves the map; one that offers no mode yet gets the modes it is ready for, and the player is told which modes matches will not offer yet.
 function forgeSave(asNew) {
   if (!Forge.map.modes.length) Forge.setModes(Forge.suggestModes());
   if (!(asNew ? Forge.saveAsNew() : Forge.saveCurrent())) return false;
-  Ui.toast(Forge.map.modes.length ? 'Saved' : 'Saved. No mode is complete yet: add spawns and objectives to play it in matches.');
+  Ui.toast(forgeSavedText());
   return true;
+}
+function forgeSavedText() {
+  const ready = Forge.readyModes(Forge.map).length;
+  if (!ready) return 'Saved. No mode is complete yet: add spawns and objectives to play it in matches.';
+  return ready < Forge.map.modes.length ? 'Saved. Some modes still lack spawns or objectives, so matches do not offer this map for them.' : 'Saved';
 }
 
 // ---- Menu ----
@@ -346,14 +446,7 @@ Ui.register('forgeMenu', {
 Ui.register('forgeObject', {
   build(root) {
     const body = forgeDialog(root, 'Tool and selection');
-    const render = () => {
-      const focused = Array.from(body.querySelectorAll('button, input')).indexOf(document.activeElement);
-      body.replaceChildren();
-      ForgeUi.buildToolOptions(body);
-      ForgeUi.buildProperties(body);
-      const controls = body.querySelectorAll('button, input');
-      if (focused >= 0 && controls[focused]) controls[focused].focus();
-    };
+    const render = () => ForgeUi.rebuild(body, (panel) => { ForgeUi.fillToolOptions(panel); ForgeUi.fillProperties(panel); });
     ForgeUi.dialogRefresh = render;
     render();
   },
@@ -445,10 +538,10 @@ Ui.register('forgeCode', {
     area.spellcheck = false;
     const message = makeElement('p', 'ui-note', '');
     const foot = makeElement('div', 'ui-foot');
-    foot.appendChild(Ui.button('Make code', () => { area.value = Forge.exportCode(); message.textContent = area.value.length + ' characters. Select all and copy.'; area.select(); }));
+    foot.appendChild(Ui.button('Make code', () => { area.value = ForgeShare.exportCode(); message.textContent = area.value.length + ' characters. Select all and copy.'; area.select(); }));
     foot.appendChild(Ui.button('Import', () => {
       const run = () => {
-        const result = Forge.importCode(area.value);
+        const result = ForgeShare.importCode(area.value);
         message.textContent = result.error || '';
         message.className = result.error ? 'ui-note fg-error' : 'ui-note';
         if (!result.error) forgeBackToEditor();
@@ -466,19 +559,30 @@ Ui.register('forgePlay', {
     const modes = ForgeTools.playableModes();
     body.appendChild(makeElement('p', 'ui-note', modes.length ? 'Pick a mode. You play against bots on this map and come back here when you quit.'
       : 'This map needs spawns first (and the objectives of the mode: flags, points, bomb sites...).'));
-    for (const mode of modes) body.appendChild(Ui.button(CAT.modes.byId(mode).name, () => ForgeTools.testPlay(mode)));
+    for (const mode of modes) body.appendChild(Ui.button(CAT.modes.byId(mode).name, () => ForgePlay.testPlay(mode)));
   },
 });
 
 // ---- Map settings ----
+// The usual sizes, plus the map's own when it is another one (a copy of a built-in map), so a row never shows a size the map does not have.
+const forgeChoices = (list, current) => (list.includes(current) ? list : list.concat(current).sort((a, b) => a - b));
+function forgeSizeRow(label, axis, usual) {
+  const values = forgeChoices(usual, Forge.map.size[axis]);
+  return Ui.row(label, Ui.cycle(values, values.map((n) => n + ' m'), Forge.map.size[axis], (value) => {
+    const size = Forge.map.size.slice();
+    size[axis] = value;
+    Forge.setSize(size[0], size[1], size[2]);
+  }));
+}
 Ui.register('forgeSettings', {
   build(root) {
     const body = forgeDialog(root, 'Map settings');
     const map = Forge.map, themes = MapRules.themes.map((id) => CAT.themes.byId(id).name);
     body.appendChild(Ui.row('Name', ForgeUi.nameInput(map.name, (value) => Forge.rename(value))));
     body.appendChild(Ui.row('Theme', Ui.cycle(MapRules.themes, themes, map.theme, (value) => Forge.setTheme(value))));
-    body.appendChild(Ui.row('Width and depth', Ui.cycle(FORGE_SIZES, FORGE_SIZES.map((n) => n + ' m'), map.size[0], (value) => Forge.setSize(value, Forge.map.size[1]))));
-    body.appendChild(Ui.row('Height', Ui.cycle(FORGE_HEIGHTS, FORGE_HEIGHTS.map((n) => n + ' m'), map.size[1], (value) => Forge.setSize(Forge.map.size[0], value))));
+    body.appendChild(forgeSizeRow('Width', 0, FORGE_SIZES));
+    body.appendChild(forgeSizeRow('Depth', 2, FORGE_SIZES));
+    body.appendChild(forgeSizeRow('Height', 1, FORGE_HEIGHTS));
     const categories = Object.keys(MapRules.sightLimits);
     body.appendChild(Ui.row('Sightline class', Ui.cycle(categories, categories, map.category, (value) => Forge.setCategory(value))));
     body.appendChild(Ui.row('Modes', Ui.button(map.modes.length + ' chosen', () => Ui.open('forgeModes'))));

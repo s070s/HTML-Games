@@ -38,15 +38,21 @@ const WorldMesh = {
 CAT.materials.forEach((row, index) => WorldMesh.materialIndex.set(row.id, index));
 
 // ---- Theme: palette, sun, ambient, fog (MAP-022) ----
+// The unit vector towards the sun of a theme row, written into out (3 numbers).
+function writeSunDirection(theme, out) {
+  const elevation = theme.sunElevation * DEG, azimuth = theme.sunAzimuth * DEG;
+  out[0] = Math.sin(azimuth) * Math.cos(elevation);
+  out[1] = Math.sin(elevation);
+  out[2] = Math.cos(azimuth) * Math.cos(elevation);
+  return out;
+}
+
 function applyTheme(themeId) {
   const theme = CAT.themes.byId(themeId) || CAT.themes[0];
   const frame = Render.frame;
   WorldMesh.theme = theme;
   WorldMesh.fogScale = theme.fogDensity;
-  const elevation = theme.sunElevation * DEG, azimuth = theme.sunAzimuth * DEG;
-  frame.sunDirection[0] = Math.sin(azimuth) * Math.cos(elevation);
-  frame.sunDirection[1] = Math.sin(elevation);
-  frame.sunDirection[2] = Math.cos(azimuth) * Math.cos(elevation);
+  writeSunDirection(theme, frame.sunDirection);
   writeColor(frame.sunColor, 0, theme.sunColor);
   for (let i = 0; i < 3; i++) frame.sunColor[i] *= theme.sunIntensity;
   writeColor(frame.ambientSky, 0, theme.ambientSky);

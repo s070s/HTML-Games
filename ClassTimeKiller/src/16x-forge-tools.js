@@ -1,8 +1,9 @@
 // ==== S16 MAPS: FORGE TOOLS ====
 // The editor's hands (MAP-014): a fly camera, a snapped 3D cursor under the mouse / touch point / screen centre, the placement tools with
 // their options, grab-and-drop moving, one command table that keyboard + mouse, gamepad and the touch buttons all call, the render source
-// that draws the map and the ghost of what would be placed, and test-play. Nothing here allocates per frame: scratch numbers and typed arrays.
-// The model (budget, undo, save) is Forge in 16x-forge.js; the screens are in 18i-ui-forge.js. Contract: docs/api/forge.md.
+// that draws the map and the ghost of what would be placed. Nothing here allocates per frame: scratch numbers and typed arrays.
+// The model (budget, undo, save) is Forge in 16x-forge.js; the screens, test-play and the share codes are in 18i-ui-forge.js, which also fills
+// the hooks this file exposes (menuRequest, dialogOpen). Contract: docs/api/forge.md.
 
 const FORGE_FLY_SPEED = 14;                 // m/s
 const FORGE_FAST_FACTOR = 3;
@@ -17,9 +18,16 @@ const FORGE_FOCUS_BACK = 9;                 // metres the camera stands back whe
 const FORGE_GRID_RADIUS = 10;               // grid lines are drawn this far around the cursor
 const FORGE_TURN_STEPS = 4;
 const FORGE_PAD_BUTTONS = 16;
+const FORGE_NO_TOUCH = -1;                  // an empty slot of drag.slots
 const FORGE_LINE = 0.03;                    // thickness of grid lines
 const FORGE_EDGE_SELECTED = 0.12, FORGE_EDGE_HOVER = 0.06, FORGE_EDGE_ZONE = 0.08;
-const FORGE_PLAY_SEED_RANGE = 99999;
+const FORGE_TRIGGER_EXTRAS = ['target', 'peak', 'exit', 'yaw', 'damage', 'element'];   // the fields only some trigger kinds carry
+const FORGE_TURN_AHEAD = [[0, 1], [1, 0], [0, -1], [-1, 0]];   // x and z step of a stamp turned 0..3 quarter turns (0 faces +z)
+const FORGE_FAR_END = 6;                    // metres from a jump pad / teleporter box to its far end
+const FORGE_EDGE_LEVEL_RESERVE = 140;       // instances of one shape kept free for the grid, the cursor and the highlights when volumes are outlined
+const FORGE_EDGES_PER_BOX = 12, FORGE_FOOT_BARS = 4;
+const FORGE_OUTLINE_FULL = 2, FORGE_OUTLINE_FOOT = 1, FORGE_OUTLINE_PLATE = 0;   // all 12 edges of a volume, the 4 bars of its foot, one flat plate
+const FORGE_BATCH_SHAPE_CAPACITY = 1024;    // the render source batch holds this many instances of each shape (propBatch)
 
 // The placement tools. size = default [width, height, depth] of the stamp for box-like tools. A tool's options are rows of FORGE_OPTIONS.
 const FORGE_TOOLS = [
@@ -90,6 +98,19 @@ const FORGE_CAPTURE_EVENTS = ['keydown', 'keyup'];
 const FORGE_RAMP_YAW = { '+z': 0, '+x': Math.PI / 2, '-z': Math.PI, '-x': -Math.PI / 2 };
 const FORGE_RAMP_DIRS = ['+z', '+x', '-z', '-x'];
 
+// Sets the kind of a trigger and the fields that kind carries, dropping the rest: a jump pad's target and peak, a teleporter's exit and yaw, a hazard's
+// damage and element. The far end lies FORGE_FAR_END metres from the box in the direction of `turns` quarter turns (0 = +z).
+function forgeTriggerDefaults(trigger, kind, turns) {
+  for (const key of FORGE_TRIGGER_EXTRAS) delete trigger[key];
+  trigger.kind = kind;
+  const ahead = FORGE_TURN_AHEAD[turns % FORGE_TURN_STEPS];
+  const far = [(trigger.min[0] + trigger.max[0]) / 2 + ahead[0] * FORGE_FAR_END, trigger.min[1], (trigger.min[2] + trigger.max[2]) / 2 + ahead[1] * FORGE_FAR_END];
+  if (kind === 'jumppad') { trigger.target = far; trigger.peak = 3; }
+  if (kind === 'teleporter') { trigger.exit = far; trigger.yaw = turns * 90; }
+  if (kind === 'hazard') { trigger.damage = 15; trigger.element = 'thermal'; }
+  return trigger;
+}
+
 // Keys: held ones fly the camera; the others run a command. A modifier prefix is ctrl+ and shift+ in that order.
 const FORGE_HOLD_KEYS = { KeyW: 'forward', KeyS: 'back', KeyA: 'left', KeyD: 'right', KeyE: 'up', KeyQ: 'down', ShiftLeft: 'fast', ShiftRight: 'fast' };
 const FORGE_COMMAND_KEYS = {
@@ -117,7 +138,6 @@ function forgeFaceNormal(box, px, py, pz, out) {
 
 const ForgeTools = {
   active: false,
-  returning: false,                           // a test match is running: the editor comes back when it stops
   camera: { x: 0, y: 20, z: -20, yaw: 0, pitch: -0.6 },
   cursor: { x: 0, y: 0, z: 0, valid: false },
   pointer: { ndcX: 0, ndcY: 0, centre: false },
@@ -134,7 +154,7 @@ const ForgeTools = {
   stamp: { material: 'concrete', team: -1, itemKey: 'healthpack', objectiveKind: 'point', objectiveTeam: -1, triggerKind: 'killzone', hintKind: 'cover', sizes: {} },
   view: { zones: false, triggers: true },
   held: {},
-  drag: { look: false, id: 0, x: 0, y: 0, touches: 0 },     // id: the pointer whose movement turns the view
+  drag: { look: false, id: 0, x: 0, y: 0, touches: 0, slots: [-1, -1], skip: false },   // id: the pointer whose movement turns the view; slots: the touch ids on the view
   grab: { active: false, list: '', index: -1, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0 },
   pad: { forward: 0, strafe: 0, rise: 0, turn: 0, look: 0, previous: new Uint8Array(FORGE_PAD_BUTTONS) },
   move: { forward: 0, strafe: 0, rise: 0, turn: 0, lookUp: 0 },
@@ -143,6 +163,7 @@ const ForgeTools = {
   listeners: null,
   cameraHook: null,
   menuRequest: null,                          // fn() set by the screens: open the editor menu
+  dialogOpen: () => false,                    // fn() set by the screens: true while a dialog covers the editor (it then takes all input)
   rampScratch: { shape: 'ramp', min: [0, 0, 0], max: [0, 0, 0], dir: '+z' },
   pointScratch: { x: 0, y: 0, z: 0, yaw: 0, group: '', radius: 3, color: 0, kind: '', path: null },
   cameraPlaced: false,
@@ -167,8 +188,7 @@ const ForgeTools = {
     this.active = false;
     this.unlisten();
     this.grab.active = false;
-    for (const name in this.held) this.held[name] = false;
-    this.drag.look = false;
+    this.releaseAll();
     if (Render.cameraOverride === this.cameraHook) Render.cameraOverride = this.savedOverride;
   },
   // The renderer shows the theme and sky of the loaded world: an empty one carries them (the objects are drawn by the render source).
@@ -209,10 +229,7 @@ const ForgeTools = {
     this.updateCursor();
   },
   // The editing keys, mouse and pad act only while the editor itself is on top, not while a dialog (menu, list, confirm) is open over it.
-  inputLive() {
-    const top = Ui.current();
-    return top === '' || top === 'forge';
-  },
+  inputLive() { return !this.dialogOpen(); },
   moveCamera(seconds) {
     const camera = this.camera, held = this.held, pad = this.pad, move = this.move, size = Forge.map.size;
     move.forward = forgeAxis(held.forward, held.back, pad.forward);
@@ -235,7 +252,8 @@ const ForgeTools = {
   onModelChange(what) {
     this.hover.list = ''; this.hover.index = -1;      // the map changed under the pointer: the next frame picks again
     if (!this.active) return;
-    if (what === 'map') { this.homeCamera(); this.grab.active = false; this.elevation = 0; }
+    if (what === 'map') { this.homeCamera(); this.elevation = 0; }
+    if (what === 'map' || what === 'edit') this.grab.active = false;   // an undo or a new map can move the grabbed object's place in its list
     if (this.shellTheme !== Forge.map.theme || what === 'map') this.loadShell();
   },
   setHold(name, down) { this.held[name] = down; },
@@ -342,12 +360,12 @@ const ForgeTools = {
     return MapKit.hint([stamp.hintKind, cursor.x, cursor.y, cursor.z]);
   },
   makeVolume(tool) {
-    const box = this.layout(tool), stamp = this.stamp, center = [(box[0] + box[3]) / 2, (box[2] + box[5]) / 2];
+    const box = this.layout(tool), stamp = this.stamp;
     const min = [box[0], box[1], box[2]], max = [box[3], box[4], box[5]];
     if (tool.id === 'box') return MapKit.brush([stamp.material, ...min, ...max]);
     if (tool.id === 'ramp') return MapKit.brush([stamp.material, ...min, ...max, FORGE_RAMP_DIRS[this.turns]]);
     if (tool.id === 'zone') return { name: Forge.uniqueZoneName('Zone'), min: [min[0], min[1] - 1, min[2]], max };   // starts a metre below the floor it is placed on
-    return this.makeTrigger(min, max, center);
+    return this.makeTrigger(min, max);
   },
   makeObjective() {
     const cursor = this.cursor, stamp = this.stamp, kind = stamp.objectiveKind;
@@ -356,16 +374,8 @@ const ForgeTools = {
     if (kind === 'payloadPath') objective.path = [[cursor.x, cursor.y, cursor.z]];
     return objective;
   },
-  // Jump pads and teleporters get their far end six metres ahead of the box in the stamp's direction.
-  makeTrigger(min, max, center) {
-    const kind = this.stamp.triggerKind, trigger = { kind, min, max };
-    const ahead = [Math.sin(this.turns * Math.PI / 2) * 6, Math.cos(this.turns * Math.PI / 2) * 6];
-    const point = [center[0] + ahead[0], min[1], center[1] + ahead[1]];
-    if (kind === 'jumppad') { trigger.target = point; trigger.peak = 3; }
-    if (kind === 'teleporter') { trigger.exit = point; trigger.yaw = this.turns * 90; }
-    if (kind === 'hazard') { trigger.damage = 15; trigger.element = 'thermal'; }
-    return trigger;
-  },
+  // Jump pads and teleporters get their far end ahead of the box in the stamp's direction.
+  makeTrigger(min, max) { return forgeTriggerDefaults({ min, max }, this.stamp.triggerKind, this.turns); },
   place() {
     const tool = this.toolRow();
     if (!tool.list || !this.cursor.valid) return -1;
@@ -377,11 +387,14 @@ const ForgeTools = {
   },
 
   // ---- Grab and drop: the selected object follows the cursor until it is dropped ----
+  // The anchor is the cursor with the grabbed brush out of the way, so a pillar grabbed by its top is not sunk by its own height when it is dropped.
   startGrab() {
-    const selection = Forge.selection, grab = this.grab;
-    if (!Forge.selected() || !this.cursor.valid) return false;
+    const selection = Forge.selection, grab = this.grab, cursor = this.cursor;
+    if (!Forge.selected() || !cursor.valid) return false;
     grab.active = true; grab.list = selection.list; grab.index = selection.index;
-    grab.ax = this.cursor.x; grab.ay = this.cursor.y; grab.az = this.cursor.z;
+    this.updateCursor();
+    if (!cursor.valid) { grab.active = false; return false; }
+    grab.ax = cursor.x; grab.ay = cursor.y; grab.az = cursor.z;
     grab.dx = grab.dy = grab.dz = 0;
     return true;
   },
@@ -476,7 +489,9 @@ const ForgeTools = {
   },
   releaseAll() {
     for (const name in this.held) this.held[name] = false;
-    this.drag.look = false; this.drag.touches = 0;
+    const drag = this.drag;
+    drag.look = false; drag.touches = 0; drag.skip = false;
+    drag.slots[0] = drag.slots[1] = FORGE_NO_TOUCH;
   },
   keyId(event) { return (event.ctrlKey || event.metaKey ? 'ctrl+' : '') + (event.shiftKey ? 'shift+' : '') + event.code; },
   onKeyDown(event) {
@@ -487,7 +502,7 @@ const ForgeTools = {
     const hold = FORGE_HOLD_KEYS[event.code], command = FORGE_COMMAND_KEYS[this.keyId(event)];
     if (hold && !event.ctrlKey && !event.metaKey) { this.held[hold] = true; event.preventDefault(); return; }
     if (!command || (event.repeat && !FORGE_REPEATING.includes(command))) return;
-    if (command.startsWith('nudge') && document.activeElement && document.activeElement !== document.body) return;   // with a panel control focused the arrows move the focus
+    if (FORGE_FOCUS_KEYS.includes(command) && document.activeElement && document.activeElement !== document.body) return;   // with a panel control focused these keys belong to it
     event.preventDefault();
     this.command(command);
   },
@@ -506,16 +521,37 @@ const ForgeTools = {
     const drag = this.drag;
     this.setPointer(event);
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // a focused panel button must not catch the next key
-    if (event.pointerType !== 'touch' || drag.touches === 0) { drag.id = event.pointerId; drag.x = event.clientX; drag.y = event.clientY; }
-    if (event.pointerType === 'touch') { Input.setDevice('touch'); drag.touches++; drag.look = drag.touches >= 2; return; }
+    if (event.pointerType === 'touch') { this.touchDown(event); return; }
+    drag.id = event.pointerId; drag.x = event.clientX; drag.y = event.clientY; drag.skip = false;
     Input.setDevice('kbm');
     if (event.button === 2) { drag.look = true; return; }
     if (event.button === 0) { this.updateCursor(); this.command('primary'); }
+  },
+  // Only fingers that start on the view are counted: a finger on a hold button never changes the look.
+  touchDown(event) {
+    const drag = this.drag, slot = drag.slots.indexOf(FORGE_NO_TOUCH);
+    Input.setDevice('touch');
+    if (slot < 0) return;
+    if (drag.touches === 0) { drag.id = event.pointerId; drag.x = event.clientX; drag.y = event.clientY; drag.skip = false; }
+    drag.slots[slot] = event.pointerId;
+    drag.touches++;
+    drag.look = drag.touches >= 2;
+  },
+  touchUp(event) {
+    const drag = this.drag, slot = drag.slots.indexOf(event.pointerId);
+    if (slot < 0) return;
+    drag.slots[slot] = FORGE_NO_TOUCH;
+    drag.touches--;
+    drag.look = drag.touches >= 2;
+    if (drag.id !== event.pointerId) return;
+    drag.id = drag.slots[1 - slot];       // the finger that is left drives the next look; its first move only sets its start point
+    drag.skip = true;
   },
   onPointerMove(event) {
     const drag = this.drag;
     if (this.onCanvas(event) || drag.look) this.setPointer(event);
     if (event.pointerId !== drag.id) return;
+    if (drag.skip) { drag.skip = false; drag.x = event.clientX; drag.y = event.clientY; return; }
     if (drag.look) {
       this.camera.yaw -= (event.clientX - drag.x) * FORGE_MOUSE_LOOK;
       this.camera.pitch = clamp(this.camera.pitch - (event.clientY - drag.y) * FORGE_MOUSE_LOOK, -FORGE_PITCH_LIMIT, FORGE_PITCH_LIMIT);
@@ -524,7 +560,7 @@ const ForgeTools = {
   },
   onPointerUp(event) {
     const drag = this.drag;
-    if (event.pointerType === 'touch') { drag.touches = Math.max(0, drag.touches - 1); drag.look = drag.touches >= 2; return; }
+    if (event.pointerType === 'touch') { this.touchUp(event); return; }
     if (event.button === 2) drag.look = false;
   },
   onWheel(event) {
@@ -561,9 +597,9 @@ const ForgeTools = {
   draw(batch) {
     if (!this.active) return;
     this.drawGrid(batch);
-    this.drawMap(batch);
-    this.drawHighlights(batch);
+    this.drawHighlights(batch);      // what the player works on is drawn first: when a shape's batch is full the far, bulk objects are the ones left out
     this.drawGhost(batch);
+    this.drawMap(batch);
   },
   drawBox(batch, box, rgb, emissive) {
     batch.mesh('box', (box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2, 0, 0, box[3] - box[0], box[4] - box[1], box[5] - box[2], rgb[0], rgb[1], rgb[2], emissive);
@@ -573,11 +609,19 @@ const ForgeTools = {
     const cx = (box[0] + box[3]) / 2, cy = (box[1] + box[4]) / 2, cz = (box[2] + box[5]) / 2, sx = box[3] - box[0], sy = box[4] - box[1], sz = box[5] - box[2];
     for (let i = 0; i < 2; i++) {
       for (let j = 0; j < 2; j++) {
-        const x = i ? box[3] : box[0], y = i ? box[4] : box[1], z = j ? box[5] : box[2], other = j ? box[4] : box[1], side = j ? box[3] : box[0];
+        const x = i ? box[3] : box[0], y = i ? box[4] : box[1], z = j ? box[5] : box[2], other = j ? box[4] : box[1];
         batch.mesh('box', cx, y, z, 0, 0, sx, thickness, thickness, rgb[0], rgb[1], rgb[2], emissive);
         batch.mesh('box', x, cy, z, 0, 0, thickness, sy, thickness, rgb[0], rgb[1], rgb[2], emissive);
-        batch.mesh('box', side, other, cz, 0, 0, thickness, thickness, sz, rgb[0], rgb[1], rgb[2], emissive);
+        batch.mesh('box', x, other, cz, 0, 0, thickness, thickness, sz, rgb[0], rgb[1], rgb[2], emissive);
       }
+    }
+  },
+  // The 4 bars round the foot of a box: the cheaper outline of a map with many volumes.
+  drawFootprint(batch, box, thickness, rgb, emissive) {
+    const cx = (box[0] + box[3]) / 2, cz = (box[2] + box[5]) / 2, sx = box[3] - box[0], sz = box[5] - box[2];
+    for (let side = 0; side < 2; side++) {
+      batch.mesh('box', cx, box[1], side ? box[5] : box[2], 0, 0, sx, thickness, thickness, rgb[0], rgb[1], rgb[2], emissive);
+      batch.mesh('box', side ? box[3] : box[0], box[1], cz, 0, 0, thickness, thickness, sz, rgb[0], rgb[1], rgb[2], emissive);
     }
   },
   drawGrid(batch) {
@@ -602,8 +646,21 @@ const ForgeTools = {
     for (let i = 0; i < map.objectives.length; i++) this.drawObjective(batch, map.objectives[i], 0, 0, 0, 0);
     for (let i = 0; i < map.lights.length; i++) this.drawLight(batch, map.lights[i], 0, 0, 0);
     for (let i = 0; i < map.navHints.length; i++) this.drawHint(batch, map.navHints[i], 0, 0, 0);
-    if (this.view.triggers) for (let i = 0; i < map.triggers.length; i++) this.drawTrigger(batch, map.triggers[i], box);
-    if (this.view.zones) for (let i = 0; i < map.zones.length; i++) this.drawEdges(batch, Forge.bounds('zones', map.zones[i], box), FORGE_EDGE_ZONE, forgeRgb(FORGE_PALETTE.zone), 0.4);
+    const shownTriggers = this.view.triggers ? map.triggers.length : 0, shownZones = this.view.zones ? map.zones.length : 0;
+    const level = this.outlineLevel(shownTriggers + shownZones, map.brushes.length);
+    for (let i = 0; i < shownTriggers; i++) this.drawTrigger(batch, map.triggers[i], box, level);
+    for (let i = 0; i < shownZones; i++) this.drawVolume(batch, Forge.bounds('zones', map.zones[i], box), forgeRgb(FORGE_PALETTE.zone), 0.4, Math.max(level, FORGE_OUTLINE_FOOT));
+  },
+  // How detailed the outlines of the shown volumes (triggers, zones) can be so the 'box' instances of the frame stay inside the batch (1024 per shape).
+  outlineLevel(volumes, brushes) {
+    const room = FORGE_BATCH_SHAPE_CAPACITY - FORGE_EDGE_LEVEL_RESERVE - brushes;
+    if (volumes * FORGE_EDGES_PER_BOX <= room) return FORGE_OUTLINE_FULL;
+    return volumes * FORGE_FOOT_BARS <= room ? FORGE_OUTLINE_FOOT : FORGE_OUTLINE_PLATE;
+  },
+  drawVolume(batch, box, rgb, emissive, level) {
+    if (level === FORGE_OUTLINE_FULL) this.drawEdges(batch, box, FORGE_EDGE_ZONE, rgb, emissive);
+    else if (level === FORGE_OUTLINE_FOOT) this.drawFootprint(batch, box, FORGE_EDGE_ZONE, rgb, emissive);
+    else batch.mesh('box', (box[0] + box[3]) / 2, box[1] + FORGE_EDGE_ZONE / 2, (box[2] + box[5]) / 2, 0, 0, box[3] - box[0], FORGE_EDGE_ZONE, box[5] - box[2], rgb[0], rgb[1], rgb[2], emissive);
   },
   drawBrush(batch, brush, dx, dy, dz, rgb, emissive) {
     const min = brush.min, max = brush.max, sx = max[0] - min[0], sy = max[1] - min[1], sz = max[2] - min[2];
@@ -637,9 +694,9 @@ const ForgeTools = {
     const rgb = forgeRgb(FORGE_PALETTE.hint[hint.kind] || FORGE_PALETTE.ghost);
     batch.mesh('cone', hint.x + dx, hint.y + dy + 0.3, hint.z + dz, 0, 0, 0.4, 0.6, 0.4, rgb[0], rgb[1], rgb[2], 0.5);
   },
-  drawTrigger(batch, trigger, box) {
+  drawTrigger(batch, trigger, box, level) {
     const rgb = forgeRgb(FORGE_PALETTE.trigger[trigger.kind] || FORGE_PALETTE.ghost);
-    this.drawEdges(batch, Forge.bounds('triggers', trigger, box), FORGE_EDGE_ZONE, rgb, 0.7);
+    this.drawVolume(batch, Forge.bounds('triggers', trigger, box), rgb, 0.7, level);
     const far = trigger.target || trigger.exit;
     if (far) batch.mesh('sphere', far[0], far[1] + 0.4, far[2], 0, 0, 0.7, 0.7, 0.7, rgb[0], rgb[1], rgb[2], 0.9);
   },
@@ -694,32 +751,13 @@ const ForgeTools = {
     this.drawHint(batch, scratch, 0, 0, 0);
   },
 
-  // ---- Test-play (MAP-014): start a match on the edited map; the editor returns when it stops ----
-  // Modes the match can be played in: the objectives they need exist on the map and a spawn per side.
+  // Modes a test match can be played in: the objectives they need exist on the map and a spawn per side (test-play itself is ForgePlay in 18i-ui-forge.js).
   playableModes() {
     return Forge.feasibleModes(Forge.toMap(), false).filter((mode) => Modes.isPlayable(mode));
   },
-  testPlay(modeId) {
-    const map = Forge.toMap();
-    if (!this.playableModes().includes(modeId)) return Forge.refuse('This map has no objectives or spawns for that mode.') >= 0;
-    const draft = CustomMatch.validate({ mode: modeId }).draft;
-    const setup = CustomMatch.setup(draft, Math.floor(performance.now()) % FORGE_PLAY_SEED_RANGE);
-    setup.map = map;
-    this.returning = true;
-    Ui.closeAll();
-    this.detach();
-    Game.start(setup);
-    return true;
-  },
-  // 'match.stop': the editor comes back with its state as it was (the model never left memory).
-  afterPlay() {
-    if (!this.returning) return;
-    this.returning = false;
-    if (Game.headless) { this.attach(); return; }
-    Ui.open('forge');
-  },
 };
 const FORGE_REPEATING = ['undo', 'redo', 'levelUp', 'levelDown', 'nudgeForward', 'nudgeBack', 'nudgeLeft', 'nudgeRight'];
+const FORGE_FOCUS_KEYS = ['primary', 'nudgeForward', 'nudgeBack', 'nudgeLeft', 'nudgeRight'];   // Enter presses a focused button, the arrows move the focus
 
 const FORGE_COMMANDS = {
   primary(tools) {

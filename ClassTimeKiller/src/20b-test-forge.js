@@ -2,7 +2,6 @@
 // Group 'forge': budget, undo / redo, serialising and validation, saves and codes, tools (cursor, placing, grab), the three input devices,
 // the screens, runtime maps and test-play. A longer randomised sweep is behind __CTK.forgeSweep(seeds).
 
-const FORGE_LIST_KEYS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'navHints'];
 // Two maps are the same when every field is (the order of the top-level keys does not matter).
 function forgeSameMap(a, b) {
   const keys = new Set(Object.keys(a).concat(Object.keys(b)));
@@ -40,14 +39,14 @@ function forgeRestoreEditor() {
 }
 function forgeEditorOff() {
   ForgeTools.detach();
-  ForgeTools.returning = false;
+  ForgePlay.returning = false; ForgePlay.returnDue = false;
   Ui.closeAll();
   Maps.runtime.length = 0;
 }
 // One random edit (placing, moving, turning, resizing, deleting, recolouring, renaming, theme); returns true when it changed the map.
 function forgeRandomEdit(random) {
   const before = forgeMapJson(), pick = Math.floor(random() * 11), x = forgeSnapped((random() - 0.5) * 30), z = forgeSnapped((random() - 0.5) * 30);
-  const lists = FORGE_LIST_KEYS.filter((list) => Forge.map[list].length);
+  const lists = MAP_REQUIRED_LISTS.filter((list) => Forge.map[list].length);
   const list = lists[Math.floor(random() * lists.length)];
   if (list) Forge.select(list, Math.floor(random() * Forge.map[list].length));
   if (pick === 0) Forge.add('brushes', MapKit.brush(['metal', x, 0, z, x + 2, 2, z + 2]));
@@ -87,6 +86,19 @@ function forgeWithPad(pad, run) {
   try { run(); } finally { PadInput.connected = connected; PadInput.activePad = activePad; }
 }
 const forgeFakeBatch = () => ({ count: 0, shapes: {}, mesh(shape) { this.count++; this.shapes[shape] = (this.shapes[shape] || 0) + 1; return 0; } });
+// A batch like the renderer's: FORGE_BATCH_SHAPE_CAPACITY instances of each shape, the rest is dropped and counted. selected: meshes in the selection colour.
+function forgeCappedBatch() {
+  const mark = forgeRgb(FORGE_PALETTE.selected);
+  return { shapes: {}, dropped: 0, selected: 0, bars: new Set(),
+    mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive) {
+      const count = this.shapes[shape] || 0;
+      if (count >= FORGE_BATCH_SHAPE_CAPACITY) { this.dropped++; return -1; }
+      this.shapes[shape] = count + 1;
+      this.bars.add([shape, x, y, z, sx, sy, sz].join());
+      if (shape === 'box' && r === mark[0] && g === mark[1] && b === mark[2] && emissive === 1) this.selected++;
+      return 0;
+    } };
+}
 // Points the editor camera straight down at the middle of the map and reads the cursor under the screen centre.
 function forgeLookDown(height) {
   Object.assign(ForgeTools.camera, { x: 0, y: height, z: 0, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
@@ -215,10 +227,51 @@ Test.add('forge', (check) => {
     return target && target.list === 'items' && target.index === 0;
   })());
   check('a problem with no place gives null', Forge.locate('structure: id and name are required') === null);
+  Forge.newFrom({ kind: 'template', id: 'arena' });
+  Forge.add('triggers', { kind: 'jumppad', min: [0, 0, 0], max: [2, 2, 2] });
+  const triggerProblem = Forge.validate().find((text) => text.startsWith('triggers: trigger #0'));
+  check('a problem about a trigger jumps to it', !!triggerProblem && (Forge.locate(triggerProblem) || {}).list === 'triggers' && Forge.locate(triggerProblem).index === 0, String(triggerProblem));
+  Forge.deleteObject('triggers', 0);
+  Forge.map.zones[1].name = Forge.map.zones[0].name;
+  Forge.map.zones[2].max = [Forge.map.zones[2].min[0], 5, 5];
+  const duplicateProblem = Forge.validate().find((text) => text.includes('duplicate zone name'));
+  check('a problem about a zone name jumps to the zone', !!duplicateProblem && (Forge.locate(duplicateProblem) || {}).list === 'zones' && Forge.locate(duplicateProblem).index === 0, String(duplicateProblem));
+  const zoneName = Forge.map.zones[3].name;
+  check('zone problems in every wording find the zone by its name', ['zones: ' + zoneName + ' has an invalid box', 'lights: indoor zone ' + zoneName + ' has no light (no dark campable corners)',
+    'items: zone ' + zoneName + ' holds two top items: a and b'].every((text) => (Forge.locate(text) || {}).index === 3), zoneName);
+  check('a name that is only part of a zone name does not match', Forge.locate('zones: duplicate zone name Nor') === null);
+  Forge.map.objectives.push(MapKit.objective({ id: 'odd', kind: 'point', x: 0, y: 0, z: 0, radius: 3 }));
+  check('numbered objective and hint problems find their object', (Forge.locate('objectives: #' + (Forge.map.objectives.length - 1) + ' has no valid id or kind') || {}).list === 'objectives'
+    && (Forge.locate('hints: #1 has unknown kind x') || {}).list === 'navHints');
+  for (const kind of MapRules.triggerKinds) {
+    ForgeTools.stamp.triggerKind = kind;
+    ForgeTools.turns = 1;
+    const placed = ForgeTools.makeTrigger([0, 0, 0], [2, 2, 2]);
+    const changed = { kind: 'killzone', min: [0, 0, 0], max: [2, 2, 2], damage: 9 };
+    FORGE_FIELDS.triggers[0].set(changed, kind);
+    check('placing a ' + kind + ' and changing a trigger to it give the same fields', forgeSameMap(placed, changed) === '', JSON.stringify(placed) + ' vs ' + JSON.stringify(changed));
+  }
+  ForgeTools.turns = 0; ForgeTools.stamp.triggerKind = 'killzone';
+  check('the far end of a trigger is exactly six metres from its box (no rounding noise)', forgeTriggerDefaults({ min: [0, 0, 0], max: [2, 2, 2] }, 'jumppad', 0).target.join() === '1,0,7'
+    && forgeTriggerDefaults({ min: [0, 0, 0], max: [2, 2, 2] }, 'teleporter', 3).exit.join() === '-5,0,1');
+  check('the editor shares the hazard elements, the name cleaning and the sun direction with the rest of the game', FORGE_FIELDS.triggers[3].values() === MapRules.elements
+    && forgeNameOf(' a<b>\u0001c ') === 'abc' && cleanLabel('abcdef', 3) === 'abc' && CustomMatch.validate({ name: ' x<y> ' }).draft.name === 'xy'
+    && forgeSkyFor('foundry').sun.every((n, i) => Math.abs(n - writeSunDirection(CAT.themes.byId('foundry'), [0, 0, 0])[i]) < 0.001));
   Forge.newFrom({ kind: 'empty' });
   Forge.setModes(['ffa']);
   check('modes the map lacks things for are listed by Forge.modeNeeds', /spawn/.test(Forge.modeNeeds(Forge.toMap(), 'ffa')) && Forge.modeNeeds(Forge.toMap(), 'ctf') !== '');
   check('suggested modes are only strictly ready ones', Forge.suggestModes().length === 0);
+  Forge.newFrom({ kind: 'template', id: 'yard' });
+  Forge.setSize(80, 30);
+  check('changing the height keeps the width and the depth of a non-square map', Forge.map.size.join() === '80,30,50', Forge.map.size.join());
+  Forge.setSize(60, 30, 90);
+  check('width, height and depth can be set apart', Forge.map.size.join() === '60,30,90');
+  check('a copy of a built-in map of another size keeps its own size among the choices', (() => {
+    const odd = CAT.maps.find((row) => !FORGE_SIZES.includes(row.size[0]) || !FORGE_SIZES.includes(row.size[2]) || !FORGE_HEIGHTS.includes(row.size[1]));
+    if (!odd) return true;
+    Forge.newFrom({ kind: 'builtin', id: odd.id });
+    return [0, 1, 2].every((axis) => forgeChoices(axis === 1 ? FORGE_HEIGHTS : FORGE_SIZES, Forge.map.size[axis]).includes(Forge.map.size[axis]));
+  })());
   Forge.newFrom({ kind: 'template', id: 'yard' });
   check('the yard template suggests team modes and capture the flag', ['tdm', 'ctf'].every((mode) => Forge.suggestModes().includes(mode)), Forge.suggestModes().join());
   Forge.newFrom({ kind: 'empty' });
@@ -260,6 +313,19 @@ Test.add('forge', (check) => {
   check('a full list still lets a saved map be saved again', Forge.loadSaved('user5') && Forge.saveCurrent() && Forge.saved().length === FORGE_MAX_MAPS);
   for (let i = 0; i < FORGE_MAX_MAPS; i++) Forge.deleteSaved('user' + (i + 1));
   check('deleting all leaves an empty list', Forge.saved().length === 0 && Maps.runtime.length === 0);
+  Forge.newFrom({ kind: 'template', id: 'arena' });
+  Forge.setModes(['ffa', 'duel', 'dom', 'ctf']);
+  Forge.saveCurrent('Too many modes');
+  const toggledId = Forge.slotId;
+  check('a saved map is registered only for the modes it has the spawns and objectives for', Maps.forMode('ffa').some((map) => map.id === toggledId) && Maps.forMode('duel').some((map) => map.id === toggledId)
+    && !Maps.forMode('dom').some((map) => map.id === toggledId) && !Maps.forMode('ctf').some((map) => map.id === toggledId) && Maps.get(toggledId).modes.join() === 'ffa,duel', Maps.get(toggledId).modes.join());
+  check('the save keeps the modes the player chose, and a random custom map never picks it for a mode it cannot serve', Forge.saved()[0].modes.join() === 'ffa,duel,dom,ctf'
+    && [1, 2, 3, 4, 5, 6, 7].every((seed) => CustomMatch.mapFor({ mode: 'dom', map: '' }, seed) !== toggledId));
+  check('readyModes keeps the modes the validator counts allow', Forge.readyModes(Forge.map).join() === 'ffa,duel');
+  Forge.setModes(['dom']);
+  Forge.saveCurrent();
+  check('a map that serves none of its listed modes is not offered for matches at all', !Maps.get(toggledId) && Forge.saved().length === 1);
+  Forge.deleteSaved(toggledId);
 
   // storage cap
   Forge.newFrom({ kind: 'template', id: 'yard' });
@@ -284,11 +350,11 @@ Test.add('forge', (check) => {
   // codes
   Forge.newFrom({ kind: 'template', id: 'yard' });
   const original = Forge.toMap();
-  const code = Forge.exportCode();
+  const code = ForgeShare.exportCode();
   check('a code has the prefix, a check value and fits a text box', /^CTKMAP1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code) && code.length < FORGE_CODE_MAX_CHARS, code.length);
   check('the code is much shorter than the plain JSON', code.length < JSON.stringify(original).length / 2, code.length + ' vs ' + JSON.stringify(original).length);
   Forge.newFrom({ kind: 'empty' });
-  const imported = Forge.importCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + '  ');
+  const imported = ForgeShare.importCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + '  ');
   check('import accepts the code (white space is ignored)', !imported.error && Forge.dirty && Forge.slotId === '');
   check('export then import gives back the same map', forgeSameMap(Object.assign(original, { id: FORGE_DRAFT_ID }), Forge.toMap()) === '', forgeSameMap(original, Forge.toMap()));
   check('an imported map validates like the original', Maps.validate(Forge.toMap()).length === 0);
@@ -296,10 +362,10 @@ Test.add('forge', (check) => {
   const bad = [['an empty code', ''], ['a foreign text', 'hello world'], ['a custom match code', 'CTK1-00000000-AAAA'], ['a changed character', mutate(code, code.length - 5)],
     ['a changed check value', mutate(code, 10)], ['a cut code', code.slice(0, code.length - 30)], ['a newer version', code.replace('CTKMAP1', 'CTKMAP9')], ['an oversize code', code + 'A'.repeat(FORGE_CODE_MAX_CHARS)]];
   for (const [name, text] of bad) {
-    const result = Forge.decodeCode(text);
+    const result = ForgeShare.decodeCode(text);
     check('corrupt code rejected: ' + name, !!result.error && !result.map, result.error);
   }
-  check('a rejected import leaves the editor map alone', (() => { const json = forgeMapJson(); Forge.importCode('CTKMAP1-00000000-AAAA'); return json === forgeMapJson(); })());
+  check('a rejected import leaves the editor map alone', (() => { const json = forgeMapJson(); ForgeShare.importCode('CTKMAP1-00000000-AAAA'); return json === forgeMapJson(); })());
   // a code with a correct check value but hostile content
   const forge = (object) => { const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(object)))); return 'CTKMAP1-' + CustomCodec.checksum(payload) + '-' + payload; };
   const good = Forge.compact(original);
@@ -313,12 +379,12 @@ Test.add('forge', (check) => {
     ['a bad objective team', Object.assign({}, good, { objectives: [{ id: 'a', kind: 'point', x: 0, y: 0, z: 0, radius: 3, team: 'red' }] })],
     ['a bad hazard element', Object.assign({}, good, { triggers: [{ kind: 'hazard', min: [0, 0, 0], max: [1, 1, 1], damage: 5, element: 'lava' }] })]];
   for (const [name, object] of hostile) {
-    const result = Forge.decodeCode(forge(object));
+    const result = ForgeShare.decodeCode(forge(object));
     check('hostile content rejected: ' + name, !!result.error && !result.map, JSON.stringify(result).slice(0, 80));
   }
-  check('a harmless code still imports', !Forge.decodeCode(forge(good)).error);
+  check('a harmless code still imports', !ForgeShare.decodeCode(forge(good)).error);
   const sneaky = JSON.parse('{"id":"a","kind":"point","x":0,"y":0,"z":0,"radius":3,"__proto__":{"evil":1},"extra":[1,2,3]}');
-  const sneakyMap = Forge.decodeCode(forge(Object.assign({}, good, { objectives: [sneaky], __proto__x: 1 }))).map;
+  const sneakyMap = ForgeShare.decodeCode(forge(Object.assign({}, good, { objectives: [sneaky], __proto__x: 1 }))).map;
   check('unknown keys in a code are dropped, __proto__ never changes a prototype', !!sneakyMap && sneakyMap.objectives[0].evil === undefined && sneakyMap.objectives[0].extra === undefined
     && Object.getPrototypeOf(sneakyMap.objectives[0]) === Object.prototype && sneakyMap.__proto__x === undefined);
   forgeEditorOff();
@@ -427,12 +493,47 @@ Test.add('forge', (check) => {
   check('undo puts the dropped object back', JSON.stringify(Forge.map[picked.list][picked.index]) === firstPosition);
   ForgeTools.command('grab'); ForgeTools.camera.x += 2; ForgeTools.updateCursor(); ForgeTools.command('secondary');
   check('delete while grabbing cancels the grab instead of deleting', !ForgeTools.grab.active && JSON.stringify(Forge.map[picked.list][picked.index]) === firstPosition);
+  // a box grabbed by its top and dropped on a flat floor keeps its height
+  Forge.newFrom({ kind: 'template', id: 'arena' });
+  ForgeTools.setTool('select');
+  ForgeTools.snapIndex = 0;
+  const pillarIndex = Forge.map.brushes.findIndex((brush) => brush.min[0] === 9 && brush.min[2] === 9 && brush.max[1] === 1.8);
+  const pillarBefore = JSON.stringify(Forge.map.brushes[pillarIndex]);
+  Forge.select('brushes', pillarIndex);
+  forgeLookDown(30);
+  ForgeTools.camera.x = 10; ForgeTools.camera.z = 10; ForgeTools.updateCursor();
+  check('the cursor is on the pillar top before the grab', ForgeTools.cursor.y === 1.8, ForgeTools.cursor.y);
+  ForgeTools.command('grab');
+  check('the grab anchor is taken with the grabbed brush out of the way (the floor below it)', ForgeTools.grab.active && ForgeTools.grab.ay === 0, JSON.stringify(ForgeTools.grab));
+  ForgeTools.camera.x = 14; ForgeTools.updateCursor();
+  ForgeTools.command('primary');
+  const dropped = Forge.map.brushes[pillarIndex];
+  check('dropping a grabbed box on the flat floor moves it sideways only', dropped.min.join() === '13,0,9' && dropped.max.join() === '15,1.8,11', JSON.stringify(dropped));
+  Forge.undo();
+  check('and undo puts it back', JSON.stringify(Forge.map.brushes[pillarIndex]) === pillarBefore);
+  // an undo during a grab cancels it: the list may have shifted under the grab
+  const beforeShift = forgeMapJson();
+  Forge.deleteObject('items', 0);
+  Forge.select('items', Forge.map.items.length - 1);
+  forgeLookDown(30); ForgeTools.camera.x = -14; ForgeTools.camera.z = 12; ForgeTools.updateCursor();
+  ForgeTools.command('grab');
+  ForgeTools.camera.x += 3; ForgeTools.updateCursor();
+  Forge.undo();
+  check('an undo during a grab cancels the grab', !ForgeTools.grab.active && forgeMapJson() === beforeShift);
+  check('dropping after that moves nothing', ForgeTools.dropGrab() === false && forgeMapJson() === beforeShift);
+  ForgeTools.command('grab'); ForgeTools.camera.x += 3; ForgeTools.updateCursor();
+  Forge.redo();
+  check('a redo during a grab cancels it too', !ForgeTools.grab.active);
+  Forge.undo();
+  Forge.clearSelection();
+  Forge.select('brushes', 0);
   const objects = Forge.count();
   ForgeTools.command('secondary');
   check('delete removes the selection', Forge.count() === objects - 1);
   Forge.clearSelection();
   forgeLookDown(14);
-  ForgeTools.camera.x = Forge.map.items[0].x; ForgeTools.camera.z = Forge.map.items[0].z; ForgeTools.updateCursor();
+  const bare = Forge.map.items.find((item) => !Forge.map.lights.some((light) => Math.hypot(light.x - item.x, light.z - item.z) < 2));   // no light above it to pick instead
+  ForgeTools.camera.x = bare.x; ForgeTools.camera.z = bare.z; ForgeTools.updateCursor();
   const itemsBefore = Forge.map.items.length;
   ForgeTools.command('secondary');
   check('with nothing selected delete removes the object under the pointer', ForgeTools.hover.list === '' && Forge.map.items.length === itemsBefore - 1, itemsBefore + ' -> ' + Forge.map.items.length);
@@ -493,6 +594,10 @@ Test.add('forge', (check) => {
   const spawnX = Forge.map.spawns[0].x, spawnZ = Forge.map.spawns[0].z;
   ForgeTools.onKeyDown(arrow);
   check('arrows leave the focus alone while a panel control has it', !arrow.prevented && Forge.map.spawns[0].x === spawnX && Forge.map.spawns[0].z === spawnZ);
+  const enterCount = Forge.count();
+  const enterKey = key('Enter');
+  ForgeTools.onKeyDown(enterKey);
+  check('Enter leaves a focused panel button alone and places nothing', !enterKey.prevented && Forge.count() === enterCount);
   arrowTarget.remove();
   const arrowFree = key('ArrowLeft');
   ForgeTools.onKeyDown(arrowFree);
@@ -627,12 +732,44 @@ Test.add('forge', (check) => {
   const root = document.querySelector('.ui-forge');
   check('the screen shows the budget, the tools and the properties', /Objects \d+ \/ 400/.test(root.textContent) && root.textContent.includes('Nav hint') && root.textContent.includes('Nothing selected'));
   Forge.select('spawns', 0);
+  ForgeUi.flush();
   check('selecting an object shows its properties', document.querySelector('.fg-right').textContent.includes('Spawn #0') && document.querySelector('.fg-right').textContent.includes('Team'));
-  for (const list of FORGE_LIST_KEYS) {
+  for (const list of MAP_REQUIRED_LISTS) {
     if (Forge.map[list].length === 0) Forge.add(list, list === 'triggers' ? { kind: 'killzone', min: [0, 0, 0], max: [2, 2, 2] } : list === 'zones' ? { name: 'Z', min: [0, 0, 0], max: [2, 2, 2] } : MapKit.hint(['cover', 0, 0, 0]));
     Forge.select(list, 0);
+    ForgeUi.flush();
     check('properties of ' + list + ' build without errors', document.querySelector('.fg-right').children.length > 3);
   }
+  ForgeUi.flush();
+  const calls = [], rebuildPanel = ForgeUi.rebuild, palettePanel = ForgeUi.left;
+  ForgeUi.rebuild = function (panel, fill) { calls.push(panel === palettePanel ? 'palette' : 'properties'); return rebuildPanel.call(this, panel, fill); };
+  const undoButton = ForgeUi.undoButton, budgetText = ForgeUi.budget.textContent;
+  Forge.add('navHints', MapKit.hint(['cover', 1, 0, 1]));
+  Forge.add('navHints', MapKit.hint(['cover', 2, 0, 1]));
+  check('nothing is redrawn before the frame', calls.length === 0 && ForgeUi.budget.textContent === budgetText);
+  ForgeUi.flush();
+  check('two edits in a frame redraw the properties once and the palette not at all', calls.join() === 'properties', calls.join());
+  check('the top bar keeps its buttons and shows the new count and undo state', ForgeUi.undoButton === undoButton && !undoButton.disabled && ForgeUi.budget.textContent !== budgetText && ForgeUi.budget.textContent === 'Objects ' + Forge.count() + ' / 400');
+  calls.length = 0;
+  Forge.select('navHints', 0); ForgeUi.flush();
+  check('a new selection redraws only the properties', calls.join() === 'properties', calls.join());
+  calls.length = 0;
+  ForgeTools.setTool('box'); ForgeUi.flush();
+  check('choosing a tool redraws only the palette', calls.join() === 'palette', calls.join());
+  calls.length = 0;
+  ForgeTools.command('snap'); ForgeUi.flush();
+  check('a new snap step redraws the palette and the properties (their buttons move by it)', calls.join() === 'palette,properties' && /Snap 1 m/.test(ForgeUi.snapButton.textContent), calls.join());
+  ForgeTools.command('snap'); ForgeTools.command('snap'); ForgeUi.flush();
+  calls.length = 0;
+  Forge.validate(); ForgeUi.flush();
+  check('checking the map redraws nothing', calls.length === 0);
+  const toolButtons = () => Array.from(ForgeUi.left.querySelectorAll('button'));
+  const rampButton = toolButtons()[2];
+  rampButton.focus();
+  rampButton.click();
+  ForgeUi.flush();
+  check('a panel control that had the focus gets it back after the redraw', document.activeElement === toolButtons()[2] && document.activeElement !== rampButton && ForgeUi.left.contains(document.activeElement) && ForgeTools.tool === 'ramp');
+  ForgeUi.rebuild = rebuildPanel;
   const holdButton = Array.from(document.querySelectorAll('.fg-touch .ui-button')).find((button) => button.textContent === 'Fwd');
   check('the touch layer has the fly buttons and the place button', !!holdButton && Array.from(document.querySelectorAll('.fg-touch .ui-button')).some((button) => button.textContent === 'Place'));
   holdButton.dispatchEvent(new Event('pointerdown', { cancelable: true }));
@@ -656,6 +793,22 @@ Test.add('forge', (check) => {
   check('only the first finger drives the look (no jump when the other moves)', ForgeTools.camera.yaw === steadyYaw);
   touch('onPointerUp', 2, 560, 300); touch('onPointerUp', 1, 300, 300);
   check('lifting the fingers ends the look', !ForgeTools.drag.look && ForgeTools.drag.touches === 0);
+  touch('onPointerDown', 5, 300, 300);
+  touch('onPointerUp', 77, 0, 0);
+  check('a finger lifted from a hold button (never on the view) leaves the count alone', ForgeTools.drag.touches === 1);
+  touch('onPointerDown', 6, 500, 300);
+  check('the second finger on the view starts the look', ForgeTools.drag.look && ForgeTools.drag.touches === 2);
+  touch('onPointerUp', 5, 300, 300);
+  touch('onPointerDown', 7, 520, 320);
+  const lookYaw = ForgeTools.camera.yaw;
+  touch('onPointerMove', 6, 540, 300);
+  check('after the first finger left, its start point is not used (no jump)', ForgeTools.camera.yaw === lookYaw);
+  touch('onPointerMove', 6, 580, 300);
+  check('the finger that stayed drives the look', ForgeTools.drag.look && ForgeTools.camera.yaw < lookYaw);
+  touch('onPointerDown', 8, 100, 100);
+  check('a third finger is not counted', ForgeTools.drag.touches === 2);
+  touch('onPointerUp', 6, 580, 300); touch('onPointerUp', 7, 520, 320); touch('onPointerUp', 8, 100, 100);
+  check('all fingers up leaves no count', ForgeTools.drag.touches === 0 && !ForgeTools.drag.look && ForgeTools.drag.slots.join() === '-1,-1');
   ForgeTools.setTool('item');
   Forge.select('spawns', 0);
   Ui.open('forgeObject');
@@ -664,6 +817,7 @@ Test.add('forge', (check) => {
   const teamCycle = Array.from(objectDialog.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Team')).querySelector('.ui-cycle');
   teamCycle.focus();
   teamCycle.click();
+  ForgeUi.flush();
   check('changing a property in the dialog edits the object and keeps the dialog and the focus', Forge.selected().team === 0 && Ui.current() === 'forgeObject' && document.activeElement.classList.contains('ui-cycle'));
   Ui.pop();
   check('closing the dialog stops its refresh', ForgeUi.dialogRefresh === null);
@@ -686,7 +840,7 @@ Test.add('forge', async (check) => {
   Ui.open('forge');
   Ui.open('forgeSettings');
   const labels = () => Array.from(document.querySelectorAll('.ui-forgeSettings .ui-row')).map((row) => row.textContent);
-  check('map settings list name, theme, size, height, class and modes', ['Name', 'Theme', 'Width and depth', 'Height', 'Sightline class', 'Modes'].every((label) => labels().some((text) => text.startsWith(label))));
+  check('map settings list name, theme, width, depth, height, class and modes', ['Name', 'Theme', 'Width', 'Depth', 'Height', 'Sightline class', 'Modes'].every((label) => labels().some((text) => text.startsWith(label))));
   const themeButton = Array.from(document.querySelectorAll('.ui-forgeSettings .ui-cycle')).find((button) => button.textContent === 'Foundry');
   themeButton.click();
   check('changing the theme changes the sky too and reloads the editor world', Forge.map.theme === 'ruins' && Forge.map.sky.top !== forgeSkyFor('foundry').top && World.map.theme === 'ruins', Forge.map.theme);
@@ -696,6 +850,20 @@ Test.add('forge', async (check) => {
   check('renaming goes through the model', Forge.map.name === 'Fresh name');
   Forge.undo(); Forge.undo();
   check('settings are undoable', Forge.map.theme === 'foundry' && Forge.map.name === 'Untitled map');
+  Ui.pop();
+  Forge.newFrom({ kind: 'template', id: 'yard' });
+  Ui.open('forgeSettings');
+  const sizeCycle = (label) => Array.from(document.querySelectorAll('.ui-forgeSettings .ui-row')).find((row) => row.textContent.startsWith(label)).querySelector('.ui-cycle');
+  sizeCycle('Height').click();
+  check('the height row changes the height and keeps width and depth', Forge.map.size.join() === '80,30,50', Forge.map.size.join());
+  sizeCycle('Depth').click();
+  check('the depth row changes the depth only', Forge.map.size.join() === '80,30,60', Forge.map.size.join());
+  Ui.pop();
+  Forge.setSize(70, 14, 55);
+  Ui.open('forgeSettings');
+  check('sizes that are not in the usual lists are shown as they are', sizeCycle('Width').textContent === '70 m' && sizeCycle('Depth').textContent === '55 m' && sizeCycle('Height').textContent === '14 m');
+  sizeCycle('Width').click();
+  check('the next click goes to the next size above the map\'s own', Forge.map.size.join() === '80,14,55', Forge.map.size.join());
   Ui.pop();
   Forge.newFrom({ kind: 'template', id: 'yard' });
   Ui.open('forgeModes');
@@ -730,6 +898,9 @@ Test.add('forge', async (check) => {
   Forge.newFrom({ kind: 'template', id: 'arena' });
   Forge.setModes([]);
   check('saving a map without modes picks the ones it is ready for', forgeSave(false) && Forge.map.modes.includes('ffa') && Ui.lastToast === 'Saved' && Maps.forMode('ffa').some((map) => map.id === 'user1'));
+  Forge.setModes(['ffa', 'duel', 'dom']);
+  check('saving tells which modes matches will not offer yet', forgeSave(false) && /still lack/i.test(Ui.lastToast), Ui.lastToast);
+  Forge.setModes(['ffa', 'duel']);
   check('save as a new map keeps the first slot', forgeSave(true) && Forge.saved().length === 2 && Forge.slotId === 'user2');
   Forge.deleteSaved('user2');
   Forge.loadSaved('user1');
@@ -745,7 +916,7 @@ Test.add('forge', async (check) => {
   forgeEditorOff();
 });
 
-Test.add('forge', (check) => {
+Test.add('forge', async (check) => {
   // ---- Test-play and drawing ----
   forgeEditorOff();
   Forge.newFrom({ kind: 'template', id: 'arena' });
@@ -757,29 +928,54 @@ Test.add('forge', (check) => {
   check('an empty map offers no mode', ForgeTools.playableModes().length === 0);
   Forge.add('spawns', MapKit.spawns([[-1, [], [[0, 0, 0, 0]]]])[0]);
   check('a map with one spawn offers free-for-all modes but none that need objectives', ForgeTools.playableModes().includes('ffa') && !ForgeTools.playableModes().includes('dom'));
-  check('test-play refuses a mode the map cannot serve', ForgeTools.testPlay('ctf') === false && !Game.match && /objectives/.test(Forge.message));
+  check('test-play refuses a mode the map cannot serve', ForgePlay.testPlay('ctf') === false && !Game.match && /objectives/.test(Forge.message));
   Forge.newFrom({ kind: 'template', id: 'arena' });
   ForgeTools.attach();
   const before = forgeMapJson();
-  check('test-play starts a match on the edited map', ForgeTools.testPlay('ffa') === true && Game.state === 'playing' && !!Game.match, Game.state);
+  check('test-play starts a match on the edited map', ForgePlay.testPlay('ffa') === true && Game.state === 'playing' && !!Game.match, Game.state);
   const played = Game.match.map;
   check('the match plays the edited map itself', played && forgeSameMap(played, Forge.toMap()) === '' && played.brushes.length === Forge.map.brushes.length && Game.match.setup.mode === 'ffa');
-  check('the editor is off during the match', !ForgeTools.active && ForgeTools.returning && Render.cameraOverride !== ForgeTools.cameraHook);
+  check('the editor is off during the match', !ForgeTools.active && ForgePlay.returning && Render.cameraOverride !== ForgeTools.cameraHook);
   check('the match world is the edited map', World.brushes.length === Forge.map.brushes.length);
   Sim.run(240);
   check('the match runs on the edited map', Actors.alive[Game.playerId] === 1 || Game.playerId >= 0);
   Game.stop();
-  check('stopping the match brings the editor back', ForgeTools.active && !ForgeTools.returning && Game.state === 'menu');
+  ForgePlay.settle();
+  check('stopping the match brings the editor back', ForgeTools.active && !ForgePlay.returning && Game.state === 'menu');
   check('the editor state is intact after the match', forgeMapJson() === before && Forge.canUndo() === false && World.brushes.length === 0 && World.map.id === 'forge');
   Forge.add('navHints', MapKit.hint(['cover', 0, 0, 0]));
   check('editing continues after the match', Forge.canUndo() && Forge.dirty);
+  ForgeTools.detach();
+  // Restart in the pause menu: Game.start stops the match and starts the next one, the editor must not flash up in between
+  ForgePlay.testPlay('ffa');
+  const firstSetup = Game.match.setup;
+  Game.start(firstSetup);
+  ForgePlay.settle();
+  check('a restart during test-play keeps the match and does not open the editor', !ForgeTools.active && ForgePlay.returning && !!Game.match && Game.match.setup === firstSetup && Game.state === 'playing');
+  Game.stop();
+  ForgePlay.settle();
+  check('quitting after a restart returns to the editor', ForgeTools.active && !ForgePlay.returning && !Game.match);
+  ForgeTools.detach();
+  ForgePlay.testPlay('ffa');
+  Game.stop();
+  await new Promise((done) => setTimeout(done, 0));
+  check('the editor comes back by itself once the stop call is over', ForgeTools.active && !ForgePlay.returning);
+  ForgeTools.detach();
+  ForgePlay.testPlay('ffa');
+  Game.start(Game.match.setup);
+  await new Promise((done) => setTimeout(done, 0));
+  check('a restart is also recognised without an explicit settle', !ForgeTools.active && ForgePlay.returning && !!Game.match);
+  Game.stop();
+  await new Promise((done) => setTimeout(done, 0));
+  check('and the later quit brings the editor back', ForgeTools.active && !ForgePlay.returning);
   ForgeTools.detach();
 
   // a team mode from the yard
   Forge.newFrom({ kind: 'template', id: 'yard' });
   ForgeTools.attach();
-  check('test-play starts capture the flag on the yard', ForgeTools.testPlay('ctf') === true && Game.match.map.objectives.length === 4);
+  check('test-play starts capture the flag on the yard', ForgePlay.testPlay('ctf') === true && Game.match.map.objectives.length === 4);
   Game.stop();
+  ForgePlay.settle();
   check('and returns again', ForgeTools.active);
   ForgeTools.detach();
   Game.stop();
@@ -815,9 +1011,29 @@ Test.add('forge', (check) => {
   ForgeTools.view.zones = false;
   Forge.newFrom({ kind: 'empty' });
   while (Forge.count() < FORGE_BUDGET) Forge.add('navHints', MapKit.hint(['cover', 0, 0, 0]));
-  const full = forgeFakeBatch();
+  const full = forgeCappedBatch();
   ForgeTools.draw(full);
-  check('a full map stays inside one frame of instances', full.count < 1024 * 2, full.count);
+  check('a full map of nav hints stays inside the batch of every shape', full.dropped === 0, JSON.stringify(full.shapes));
+  const bars = forgeCappedBatch(), box = new Float64Array([0, 0, 0, 4, 2, 6]);
+  ForgeTools.drawEdges(bars, box, 0.1, [1, 1, 1], 0);
+  const foot = forgeCappedBatch();
+  ForgeTools.drawFootprint(foot, box, 0.1, [1, 1, 1], 0);
+  check('a volume outline is 12 distinct bars, its foot 4', bars.bars.size === 12 && bars.shapes.box === 12 && foot.bars.size === 4 && foot.shapes.box === 4, bars.bars.size + ' / ' + foot.bars.size);
+  check('the outline gets plainer as volumes multiply', ForgeTools.outlineLevel(5, 10) === FORGE_OUTLINE_FULL && ForgeTools.outlineLevel(80, 17) === FORGE_OUTLINE_FOOT && ForgeTools.outlineLevel(399, 1) === FORGE_OUTLINE_PLATE);
+  ForgeTools.view.zones = true; ForgeTools.view.triggers = true;
+  for (const volumes of [60, 120, 250, FORGE_BUDGET - 10]) {
+    Forge.newFrom({ kind: 'template', id: 'arena' });
+    Forge.addZoneGrid();
+    for (let i = 0; Forge.count() < Math.min(FORGE_BUDGET, volumes + Forge.map.brushes.length + 9 + 4); i++) Forge.add('triggers', { kind: 'killzone', min: [i % 20 - 10, 0, 0], max: [i % 20 - 9, 2, 1] });
+    const worst = forgeCappedBatch();
+    ForgeTools.draw(worst);
+    check('a map with ' + Forge.map.triggers.length + ' trigger volumes and ' + Forge.map.zones.length + ' zones shown draws every box of it', worst.dropped === 0 && worst.shapes.box <= FORGE_BATCH_SHAPE_CAPACITY, worst.dropped + ' dropped, ' + worst.shapes.box + ' boxes');
+  }
+  Forge.select('triggers', 3);
+  const marked = forgeCappedBatch();
+  ForgeTools.draw(marked);
+  check('the selection outline is drawn however many volumes there are', marked.selected === 12, marked.selected);
+  ForgeTools.view.zones = false;
   ForgeTools.detach();
   const none = forgeFakeBatch();
   ForgeTools.draw(none);
@@ -837,8 +1053,8 @@ DebugApi.forgeSweep = (seeds) => {
   for (let seed = 1; seed <= (seeds || 100); seed++) {
     const problem = forgeRoundTrip(seed, 80);
     if (problem) { failures.push('seed ' + seed + ': ' + problem); continue; }
-    const code = Forge.exportCode();
-    const back = Forge.decodeCode(code);
+    const code = ForgeShare.exportCode();
+    const back = ForgeShare.decodeCode(code);
     if (back.error || forgeSameMap(Forge.toMap(), back.map)) failures.push('seed ' + seed + ': code round trip ' + (back.error || forgeSameMap(Forge.toMap(), back.map)));
   }
   return { seeds: seeds || 100, failures };

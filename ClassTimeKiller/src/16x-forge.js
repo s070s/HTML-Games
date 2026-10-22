@@ -12,10 +12,7 @@ const FORGE_NAME_MAX = 40;
 const FORGE_BLURB_MAX = 200;
 const FORGE_ID_PREFIX = 'user';
 const FORGE_DRAFT_ID = 'draft';
-const FORGE_CODE_PREFIX = 'CTKMAP';
-const FORGE_CODE_VERSION = 1;
-const FORGE_CODE_MAX_CHARS = 60000;
-const FORGE_CODE_MAX_BYTES = 262144;
+const FORGE_CODE_VERSION = 1;                          // version of the compact rows (saved maps and share codes)
 const FORGE_COORD_LIMIT = 1000;                        // no coordinate of an imported map may be larger than this
 const FORGE_SIZE_RANGE = [10, 400];
 const FORGE_MIN_EXTENT = 0.5;                          // a resized box never gets thinner than this
@@ -45,12 +42,17 @@ const FORGE_KINDS = {
   navHints: { label: 'Nav hint', halfWidth: 0.3, height: 0.6 },
 };
 
+// How a validator message names a list: the word before the number.
+const FORGE_PROBLEM_LISTS = { brush: 'brushes', light: 'lights', spawn: 'spawns', item: 'items', hint: 'navHints', hints: 'navHints', objectives: 'objectives', trigger: 'triggers' };
+// Does a validator message talk about the zone with this name? ("duplicate zone name X", "indoor zone X has no light", "zones: X has an invalid box")
+const forgeNamesZone = (text, name) => text.includes('zone ' + name + ' ') || text.endsWith('zone name ' + name) || text.includes(': ' + name + ' has an invalid box');
+
 const forgeClone = (value) => JSON.parse(JSON.stringify(value));
 const forgeFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= FORGE_COORD_LIMIT;
 const forgeTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(forgeFinite);
 const forgeOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);   // never an inherited name such as __proto__
 const forgeColor = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffff;
-const forgeNameOf = (text) => String(text || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, FORGE_NAME_MAX);
+const forgeNameOf = (text) => cleanLabel(text || '', FORGE_NAME_MAX);
 const forgeAdd3 = (point, dx, dy, dz) => { point[0] += dx; point[1] += dy; point[2] += dz; };
 
 // A quarter turn of a point around (cx, cz): the same direction as '+z' -> '+x' and spawn yaw + 90.
@@ -353,7 +355,7 @@ const Forge = {
     this.group(() => { this.setMeta('theme', theme); this.setMeta('sky', forgeSkyFor(theme)); });
     return true;
   },
-  setSize(width, height) { return this.setMeta('size', [width, height, width]); },
+  setSize(width, height, depth) { return this.setMeta('size', [width, height, depth === undefined ? this.map.size[2] : depth]); },
   setCategory(category) { return forgeOwn(MapRules.sightLimits, category) && this.setMeta('category', category); },
   setModes(modes) { return this.setMeta('modes', modes.slice()); },
 
@@ -408,15 +410,13 @@ const Forge = {
     if (!named && target.found) this.objectNear(target.x, target.y, target.z, FORGE_PROBLEM_REACH, target);
     return target.list || target.found ? target : null;
   },
+  // The validator names an object by list and number ("brush: #3 ...", "item #2 ..."), an objective by id and a zone by name.
   locateNamed(text, target) {
-    const numbered = /^(brush|light|spawn): #(\d+)/.exec(text) || /\b(item|hint) #(\d+)/.exec(text);
-    if (numbered) {
-      const list = { brush: 'brushes', light: 'lights', spawn: 'spawns', item: 'items', hint: 'navHints' }[numbered[1]];
-      return this.targetIn(target, list, +numbered[2]);
-    }
+    const numbered = /^(brush|light|spawn|objectives|hints): #(\d+)/.exec(text) || /\b(item|hint|trigger) #(\d+)/.exec(text);
+    if (numbered) return this.targetIn(target, FORGE_PROBLEM_LISTS[numbered[1]], +numbered[2]);
     const objective = /objective (\S+) \(/.exec(text);
-    if (!objective) return false;
-    return this.targetIn(target, 'objectives', this.map.objectives.findIndex((entry) => entry.id === objective[1]));
+    if (objective) return this.targetIn(target, 'objectives', this.map.objectives.findIndex((entry) => entry.id === objective[1]));
+    return this.targetIn(target, 'zones', this.map.zones.findIndex((zone) => forgeNamesZone(text, zone.name)));
   },
   targetIn(target, list, index) {
     if (!this.map[list][index]) return false;
@@ -491,33 +491,7 @@ const Forge = {
     for (const zone of map.zones) zone.name = forgeNameOf(zone.name) || 'Zone';
     return { map };
   },
-  exportCode(map) {
-    const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(this.compact(map || this.map)))));
-    return FORGE_CODE_PREFIX + FORGE_CODE_VERSION + '-' + CustomCodec.checksum(payload) + '-' + payload;
-  },
-  // text -> { map } or { error } with a message for the player. Nothing is changed.
-  decodeCode(text) {
-    const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > FORGE_CODE_MAX_CHARS) return { error: 'The code is too long to be a map code.' };
-    const parts = /^CTKMAP(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$/.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller map code.' };
-    if (Number(parts[1]) > FORGE_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (CustomCodec.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
-    try {
-      const bytes = CustomCodec.expand(CustomCodec.fromBase64Url(parts[3]), FORGE_CODE_MAX_BYTES);
-      const def = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-      return this.expand(def);
-    } catch (error) {
-      return { error: 'The code could not be read.' };
-    }
-  },
-  importCode(text) {
-    const result = this.decodeCode(text);
-    if (result.error) return result;
-    result.map.id = FORGE_DRAFT_ID;
-    this.reset(result.map, '');
-    return result;
-  },
+  // The text codes (export, import) are ForgeShare in 18i-ui-forge.js: they use the custom match codec of the UI section.
 
   // ---- Start points: empty, a template or a copy of a built-in map ----
   newFrom(source) {
@@ -651,8 +625,18 @@ const Forge = {
     for (const row of Maps.runtime.slice()) if (row.id.startsWith(FORGE_ID_PREFIX)) Maps.unregisterRuntime(row.id);
     for (const entry of this.saved()) {
       const result = this.expand(entry.data);
-      if (!result.error && result.map.modes.length) Maps.registerRuntime(result.map);
+      if (!result.error) this.registerPlayable(result.map);
     }
+  },
+  // A map is offered only for the modes it can serve (the validator's counts): a ctf match never starts on a map without flags.
+  registerPlayable(map) {
+    map.modes = this.readyModes(map);
+    if (map.modes.length) Maps.registerRuntime(map);
+  },
+  // The modes the map lists that it also has the spawns and objectives for.
+  readyModes(map) {
+    const ready = this.feasibleModes(map, true);
+    return map.modes.filter((mode) => ready.includes(mode));
   },
 };
 
@@ -716,8 +700,7 @@ const FORGE_ROW_CHECKS = {
 function forgeSkyFor(themeId) {
   const theme = CAT.themes.byId(themeId) || CAT.themes[0];
   const color = (text) => parseInt(text.slice(1), 16);
-  const elevation = theme.sunElevation * DEG, azimuth = theme.sunAzimuth * DEG;
-  const sun = [Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), Math.cos(azimuth) * Math.cos(elevation)].map((n) => Math.round(n * 1000) / 1000);
+  const sun = writeSunDirection(theme, [0, 0, 0]).map((n) => Math.round(n * 1000) / 1000);
   return { top: color(theme.skyTop), horizon: color(theme.skyHorizon), fog: color(theme.fog), fogFar: 140, sun };
 }
 
