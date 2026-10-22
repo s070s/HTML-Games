@@ -50,7 +50,7 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | Key | Card | Meaning | Read by |
 |---|---|---|---|
 | `soulLife` | C03 Soulkeep | multiplier: PU18 souls stay `soulLife` x 30 s | `Items.dropSoul` (12a) |
-| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18 and Wrath souls) | `soulHomingRange` (12a), `Meters.stepSoul` (12g) |
+| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18, the only souls) | `soulHomingRange` (12a) |
 | `wrathAt` | C09 Dark Pact | souls Wrath Form costs instead of its row's 66 | `Abilities.canAfford` (12e) |
 | `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | 15d on `pickup` with `item: 'soul'` |
 
@@ -60,7 +60,7 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 |---|---|---|
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
 | `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
-| `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
+| `pve.wrath` | `{ id, active }` | the PvE report of a Wrath Form (S15 14j sends it on the A34 `ability.cast` / `ability.end`, which also count wrath forms and wrath kills; a report of the same form is not counted twice) |
 | `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
 | `pve.crate` | `{ id }` | Marks per crate |
 

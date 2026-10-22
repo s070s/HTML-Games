@@ -814,6 +814,16 @@ function drawBox(batch, x, y, z, size, color, glow) {
 }
 Render.addSource('pveChambers', drawChambers);
 
+// ---- A34 Wrath Form (the soul modes' automatic ultimate, S12): its start and end go out as pve.wrath ----
+const wrathEventPayload = { id: -1, active: false };
+function reportWrath(event, active) {
+  if (event.ability !== SOUL_ULTIMATE) return;
+  wrathEventPayload.id = event.id; wrathEventPayload.active = active;
+  Bus.emit('pve.wrath', wrathEventPayload);
+}
+Bus.on('ability.cast', (event) => reportWrath(event, true));
+Bus.on('ability.end', (event) => reportWrath(event, false));
+
 // ---- Lifecycle ----
 function resetPveModes() {
   resetPveHud();

@@ -821,3 +821,31 @@ Test.add('pve', (check) => {
   announces.stop();
   endModeTest();
 });
+
+// One soul counter (Powerups.souls, fed by PU18 pickups) and A34 Wrath Form as the soul modes' automatic ultimate (ABL-005).
+function soulPickupSlot() {
+  for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === 'soul') return slot;
+  }
+  return -1;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const player = startPveMode('horde', [0])[0], ultimate = Abilities.row(player, SLOT.ULTIMATE);
+  check('a soul mode gives A34 Wrath Form as the ultimate', ultimate && ultimate.id === SOUL_ULTIMATE, ultimate && ultimate.id);
+  check('one soul counter: the meters keep no souls or orbs of their own', Meters.souls === undefined && Meters.dropSoul === undefined);
+  const enemy = Pve.spawnEnemy('husk', Actors.x[player], Actors.y[player], Actors.z[player] + 3, Math.PI);
+  killEnemy(enemy, player);
+  const slot = soulPickupSlot(), before = Powerups.souls[player];
+  check('a PvE kill in a soul mode drops a PU18 soul', slot >= 0);
+  if (slot >= 0) Items.take(player, slot);
+  check('the soul counts in Powerups.souls', Powerups.souls[player] === before + 1, Powerups.souls[player]);
+  const reports = startEventLog('pve.wrath');
+  Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
+  Sim.step();
+  check('Wrath Form casts itself once the souls pay for it and spends them', Abilities.isActive(player, SOUL_ULTIMATE) && Powerups.souls[player] === 0);
+  Sim.run((CAT.abilities.byId(SOUL_ULTIMATE).duration + 0.5) * TICK_RATE);
+  reports.stop();
+  check('pve.wrath reports its start and its end', reports.length === 2 && reports[0].id === player && reports[0].active === true && reports[1].active === false,
+    reports.map((event) => event.active).join(' '));
+  endModeTest();
+}));

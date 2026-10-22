@@ -102,14 +102,15 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `energyMax()` is the suit preset `energy.max` or the energy meter row `max` (100).
   - A kill orb gives +25.
   - `spendEnergy(id, amount)` returns false and empties the bar when there is not enough; `addEnergy(id, amount)`.
-  - `actor.spawn` refills the bar and clears half-typed combo taps (`resetLife`). The match meter points, reward progress and souls stay across lives; streak meters restart on death (`resetOnDeath`).
+  - `actor.spawn` refills the bar and clears half-typed combo taps (`resetLife`). The match meter points, reward progress and souls (`Powerups.souls`) stay across lives; streak meters restart on death (`resetOnDeath`).
 - Match meter `rules.meter` (catalogue `meters`):
   - `streak` (rewards at 300/500/800 meter points, 100 per scoreboard point, resets on death).
   - `boost` (0.5/s + 4 per point; rewards at 50/80, then it starts over).
   - `adrenaline` (5 per kill, +10 every 5th kill in a life, +25 per capture; four direction taps with a full meter: FFFF BBBB LLRR FFBB).
   - `ultimate` (5/s + 1 per HP of damage or healing dealt; the ultimate slot pays `ultimateCost(row)`).
   - `energy`.
-- `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `souls[id]` (A34), `hudState(id, out)`.
+- `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `hudState(id, out)` (its `souls` = `Powerups.souls[id]`).
+- Souls (A34 Wrath Form): one counter, `Powerups.souls[id]` (S12 12b), fed only by PU18 Soul Shard pickups that PvE kills drop in soul modes (`rules.params.souls` or the `souls` mutator; 12a `Items.dropSoul`, homing in 12a). A soul mode puts Wrath Form in an ultimate slot its kit leaves empty (`assignKitSlot`); it casts itself once the souls pay for it and spends them all.
 - Sim system `meters` at order 22.
 
 ## Economy (`src/13d-economy.js`)

@@ -113,7 +113,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
-| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` | see docs/api/pve.md | S14 PvE |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` / `pve.wrath` | see docs/api/pve.md | S14 PvE |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
