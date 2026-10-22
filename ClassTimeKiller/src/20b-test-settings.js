@@ -295,4 +295,10 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
   check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
   SaveTransfer.reload = reload;
+  const anchorClick = HTMLAnchorElement.prototype.click;
+  let clicked = null, connected = false;
+  HTMLAnchorElement.prototype.click = function recordClick() { clicked = this; connected = this.isConnected; };
+  SaveTransfer.download();
+  HTMLAnchorElement.prototype.click = anchorClick;
+  check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));
