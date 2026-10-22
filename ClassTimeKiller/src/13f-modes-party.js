@@ -19,6 +19,7 @@ function roleDamageScale(source) {
 // ---- M16 Arms Ladder: one weapon per tier (params.ladder, the last tier is the melee weapon); a kill climbs one tier,
 // a melee kill also drops the victim one tier (meleeDemotes), and a melee kill on the last tier wins. Score = tier ----
 Modes.register('gungame', {
+  limits: ['time'],
   ladder: null, loadouts: null, winner: -1,
   start() {
     this.ladder = ladderTiers(Modes.rules.params);
@@ -69,6 +70,7 @@ function ladderLoadouts(ladder, melee) {
 // infectedHealth HP, melee only, a jump is a leap). One infected hit turns a human; a human who dies comes back infected.
 // The infected win when no human is left; humans win at the time limit ----
 Modes.register('infection', {
+  limits: ['time'],
   outbreak: false, meleeLoadout: null,
   start() {
     this.outbreak = false;

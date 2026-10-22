@@ -43,6 +43,7 @@ const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD 
 const MARKER_GLOW = 0.6;
 
 const DEFAULT_BEHAVIOUR = {
+  limits: ['score', 'time'],
   start() {},
   step() { if (Modes.rules.rounds) Modes.checkTeamWipe(); },
   onKill() {},
@@ -89,8 +90,17 @@ const Modes = {
     leader: -1, leaderScore: 0, playerId: -1, playerScore: 0, playerRank: 0, playerLives: LIVES_UNLIMITED, respawnIn: 0,
     attackers: 0, teamScores: null, teamRounds: null, teamMeter: null, objectives: null, zoneX: 0, zoneZ: 0, zoneRadius: 0 },
 
-  register(id, behaviour) { this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, behaviour)); },
+  // behaviour.limits: the limits its isOver honours ('score', 'time'); a behaviour with its own isOver honours none unless it lists them.
+  register(id, behaviour) {
+    const limits = behaviour.isOver ? [] : DEFAULT_BEHAVIOUR.limits;
+    this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, { limits }, behaviour));
+  },
   isPlayable(id) { return this.behaviours.has(id); },
+  // Whether a score or time limit (custom match editor) ends this mode: round modes end by rounds only.
+  honoursLimit(modeId, limit) {
+    const mode = CAT.modes.byId(modeId), behaviour = this.behaviours.get(modeId);
+    return !!mode && !!behaviour && !mode.rounds && behaviour.limits.includes(limit);
+  },
   // MODE-002: the bot list that fills every slot of a mode (the UI passes it as setup.bots).
   defaultBots(modeId, withPlayer) {
     const mode = CAT.modes.byId(modeId);

@@ -112,6 +112,7 @@ function setCloak(id, cloaked) {
 // destroyed opens the next stage; the last stage destroyed wins. Each attacker death costs a ticket; at 0 tickets with no
 // relay armed the defenders win. Defenders have unlimited tickets ----
 Modes.register('rush', {
+  limits: ['time'],
   relays: [], stage: 0, lastStage: 0, destroyed: 0,
   start() {
     const params = Modes.rules.params;
@@ -254,6 +255,7 @@ Modes.register('oddball', makePrizeBehaviour('relic', ACTOR_ROLE.CARRIER, 'carri
 // indices (else params.checkpoints evenly spaced; the last is the end). Each checkpoint before the end adds
 // checkpointTime s to the clock (Modes.timeBonus). At the time limit an attacker at the cart means overtime (max 180 s) ----
 Modes.register('payload', {
+  limits: ['time'],
   cart: null, lengths: null, marks: null, total: 0, distance: 0, reached: 0, lastPushed: 0,
   start() {
     this.distance = 0; this.reached = 0; this.total = 0; this.marks = null; this.lengths = null; this.lastPushed = Sim.time;

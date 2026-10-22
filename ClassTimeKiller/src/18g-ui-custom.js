@@ -306,7 +306,11 @@ const CustomMatch = {
     const options = {};
     if (draft.scoreLimit >= 0) options.scoreLimit = draft.scoreLimit;
     if (draft.timeLimit >= 0) options.timeLimit = draft.timeLimit;
-    if (draft.roundWins >= 0 && mode.rounds) options.rounds = { winsNeeded: draft.roundWins, limit: Math.max(mode.rounds.limit, draft.roundWins * 2 - 1) };
+    // At most 2w - 1 rounds; a mode with a side switch (bomb, ghostops) switches after w - 1 of them, so both sides attack.
+    if (draft.roundWins >= 0 && mode.rounds) {
+      const wins = draft.roundWins;
+      options.rounds = { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 };
+    }
     return options;
   },
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
@@ -397,8 +401,8 @@ function editorPersonalityOptions() {
 // One row per simple field: which tab, the draft key, how to list its values, when to show it, what else changes with it.
 const EDITOR_FIELDS = [
   { tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, changed: 'modeChanged' },
-  { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)) },
-  { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)) },
+  { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)), show: (draft) => Modes.honoursLimit(draft.mode, 'score') },
+  { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)), show: (draft) => Modes.honoursLimit(draft.mode, 'time') },
   { tab: 'mode', key: 'roundWins', label: 'Rounds to win', options: () => editorList(EDITOR_ROUND_WINS, editorLimitLabel('None', editorPlain)), show: (draft) => !!CAT.modes.byId(draft.mode).rounds },
   { tab: 'mode', key: 'lives', label: 'Lives', options: () => editorList(EDITOR_LIVES, editorLimitLabel('Unlimited', editorPlain)) },
   { tab: 'rules', key: 'bundle', label: 'Rule bundle', options: () => editorCatalogue(RULESET_ROWS, 'Mode default') },
