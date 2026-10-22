@@ -71,6 +71,7 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 `Game.start(setup)` emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
 `setup = { mode: 'ffa', map: 'mp01', ruleset: 'rs01' | {…}, mutators: [], bots: [{ profile, team, tier }], seed, difficulty, player: { team, loadout } }`.
 `Game.match = { setup, rules, map, ended, winner, startTick, … }`. `rules` is the frozen built ruleset (Ruleset schema in spec §4, built by S13 `Rules.build`); every section reads its own fields from it (`CAT.movement.byId(Game.match.rules.move)`). Tests may assign a hand-made `rules` object.
+Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 loads it with `World.load` on `match.load` (no map = the loaded world stays, e.g. a test world), so spawns, nav and the renderer follow `world.load` before `match.start`.
 `Game.playerId` = the local player's actor id (-1 when spectating / headless).
 
 ## Event bus (ARC-015)
@@ -123,7 +124,7 @@ Coordinates in metres, floor usually at y = 0, yaw in degrees in data (radians i
 
 ## Spawning contract
 
-S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive = 1`, clears velocity, then emits `actor.spawn { id }`. Every section resets its own per-actor state on `actor.spawn`: S11 sets health/armor/shield from the health preset and gives the loadout from `rules.weaponSet` / the player's loadout; S10 resets movement state; S12 resets cooldowns. Death: S11 sets `alive = 0` and emits `kill`; S13 schedules the respawn from `rules.respawn`.
+S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive = 1`, clears velocity, then emits `actor.spawn { id }`. Every section resets its own per-actor state on `actor.spawn`: S11 sets health/armor/shield from the health preset and gives the loadout from `rules.weaponSet` / the player's loadout; S10 resets movement state and clears its own flags (ON_GROUND, CROUCHED, PRONE, SPRINTING ...); S08 resets trigger state; S12 resets cooldowns. S13 itself clears only `PROTECTED`/`FROZEN` (its own flags); every other flag belongs to the section that sets it. Death: S11 sets `alive = 0` and emits `kill`; S13 schedules the respawn from `rules.respawn`.
 
 ## Renderer hooks (S07)
 
@@ -142,6 +143,8 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008). `Input.actions` is the single action table.
 - Audio: `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz)` (filled by S08 with `World.lineClear`) muffles sounds behind walls; `null` = no occlusion.
 - Hooks are filled once at load and never reset by the section that owns them; the self-test restores them before every block.
+- Movement hooks (S10 owns MOV-021/025, MV08): S11 asks `Move.canFire(id)` before a shot, writes `Move.weaponSpeedScale[id]` every step, adds `Move.inaccuracy(id)` to spread (the only MOV-025 table) and multiplies incoming damage by `Move.damageScale(id)`.
+- Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.
 - World media: `World.touchTriggers(id, gravity)` (called by S10 every step) returns `TRIGGER_MEDIUM` bits `WATER` (swim depth), `WADING` (touching water), `LADDER`, `HEAD_UNDER`, `MOVED` (docs/api/world-move.md).
 - UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`.
 - Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops.
