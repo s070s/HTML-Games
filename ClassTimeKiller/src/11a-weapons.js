@@ -974,6 +974,7 @@ Bus.on('actor.create', (id) => {
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
 Bus.on('match.stop', () => TouchInput.setFlag('breath', false));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
+Input.autoFireTrigger = (id) => { const weapon = Weapons.currentWeapon(id); return weapon ? weapon.primary.trigger : 'auto'; };   // INP-006: touch auto-fire pulses semi and burst
 // The difficulty preset's aimAssist (rules.botSkill, D01 Stroll 100) replaces the player's setting; -1 keeps it.
 Input.aimAssistOverride = () => {
   const skill = currentRules().botSkill;

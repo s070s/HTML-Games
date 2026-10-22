@@ -176,8 +176,8 @@ Test.add('hudui', (check) => uiWith(() => {
   Game.start({ mode: 'horde', seed: 1, bots: [], player: { name: 'Me', team: 0 }, cards: ['stoneskin'] });
   check('cards: an active card enables the touch button and the pause row', CardRun.slots.length === 1 && TouchInput.flags.cards === true && Ui.pauseEntries.includes(CARDS_PAUSE_ENTRY) && CARDS_PAUSE_ENTRY.when());
   Bus.emit('input.action', { action: 'cards', down: true });
-  check('cards: the action opens the card screen and pauses (Y / Home / touch)', Ui.top() && Ui.top().name === 'cardUse' && Game.paused);
-  check('cards: keyboard and gamepad defaults exist', Input.bound[Input.actionIndex.cards].includes('Key:KeyY') && Input.bound[Input.actionIndex.cards].includes('Pad:16'));
+  check('cards: the action opens the card screen and pauses (Y / View + RB / touch)', Ui.top() && Ui.top().name === 'cardUse' && Game.paused);
+  check('cards: keyboard and gamepad defaults exist', Input.bound[Input.actionIndex.cards].includes('Key:KeyY') && Input.bound[Input.actionIndex.cards].includes('Pad:8+5'));
   Ui.closeAll(); Game.resume();
   Game.stop();
   check('cards: the touch button goes away with the match', TouchInput.flags.cards === false);
