@@ -319,6 +319,14 @@ Test.add('perf', (check) => {
   const draw = (random, count) => { let value = 0; for (let i = 0; i < count; i++) value = random.next(); return Math.round(value * 4294967296); };
   check('typed-array RNG state gives the same numbers as the closure words (seed 12345)', draw(first, 1) === 773969981 && draw(first, 999) === 940126096);
   check('typed-array RNG state gives the same numbers as the closure words (seed 2^32 - 1)', draw(last, 1) === 3199221271 && draw(last, 999) === 3695540032);
+  check('slab test from typed arrays: entry distance, inside = 0, miss = -1', rayBoundsDistance(0, 0, -5, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === 4
+    && rayBoundsDistance(0, 0, 0, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === 0 && rayBoundsDistance(0, 3, -5, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === -1);
+  check('hit volumes from the scratch ray: sphere and capped cylinder', raySphere(0, 0, -5, 0, 0, 1, 0, 0, 0, 1) === 4
+    && rayCylinder(0, 5, 0, 0, -1, 0, 0, 0, 0, 2, 0.5) === 3 && rayCylinder(2, 1, -5, 0, 0, 1, 0, 0, 0, 2, 0.5) === -1);
+  const system = Sim.systems[0], before = system.totalMs;
+  system.ms = 0.25; system.totalMs = before + 1;
+  check('Sim.timing / timingTotal read the system records (no float writes into a dictionary object)', Sim.timing[system.name] === 0.25 && Sim.timingTotal[system.name] === before + 1);
+  system.totalMs = before;
 });
 
 Test.add('perf', (check) => {

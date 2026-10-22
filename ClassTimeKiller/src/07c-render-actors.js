@@ -354,14 +354,25 @@ const HEAD_PART_IDS = ['head', 'visor'];
 const HEAD_PARTS = new Set(CAT.actorParts.filter((part) => HEAD_PART_IDS.includes(part.id)));
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
 const tintColor = new Float32Array(3);
-const rotated = { x: 0, y: 0, z: 0 };
+const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // emitActorPart's point: filled in place, then rotateInPlace
 const ActorFrame = { count: 0 };
 
-// CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)).
-function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
+// CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)). In place on
+// { x y z yaw pitch }: the per-part hot path passes no float arguments (they would be boxed on the heap, PERF-006).
+function rotateInPlace(point) {
+  const pitch = point.pitch, yaw = point.yaw, x = point.x, y = point.y, z = point.z;
   const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
   const ry = y * cp + z * sp, rz = -y * sp + z * cp;
-  out.x = x * cy + rz * sy; out.y = ry; out.z = -x * sy + rz * cy;
+  point.x = x * cy + rz * sy; point.y = ry; point.z = -x * sy + rz * cy;
+  return point;
+}
+
+const rotationScratch = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
+  const point = rotationScratch;
+  point.x = x; point.y = y; point.z = z; point.yaw = yaw; point.pitch = pitch;
+  rotateInPlace(point);
+  out.x = point.x; out.y = point.y; out.z = point.z;
   return out;
 }
 
@@ -424,10 +435,13 @@ function emitActorPart(part, pose, style) {
   // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
   const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
-  rotateYawPitchInto(rotated, part.offset[0] * head, part.offset[1] * squash * head, part.offset[2] * head, 0, pitch);
-  const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + rotated.y + pose.lift;
-  const localX = part.pivot[0] + rotated.x, localZ = part.pivot[2] + rotated.z;
-  rotateYawPitchInto(rotated, localX * scale, localY * scale, localZ * scale, pose.yaw, 0);
+  const point = rotated;
+  point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
+  rotateInPlace(point);
+  const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
+  const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
+  point.x = localX * scale; point.y = localY * scale; point.z = localZ * scale; point.yaw = pose.yaw; point.pitch = 0;
+  rotateInPlace(point);
   const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
   if (o < 0) return;
   d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;

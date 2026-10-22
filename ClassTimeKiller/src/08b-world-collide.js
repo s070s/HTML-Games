@@ -305,34 +305,63 @@ const makeActorHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0
 // ---- Actor hit volumes (DATA-003, ARC-014): head sphere, torso and legs as upright cylinders that never overlap, scaled when crouched ----
 const ACTOR_REJECT_RADIUS = 1.2;         // every hit volume lies within this distance of the actor's middle
 
-function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
-  const px = ox - cx, py = oy - cy, pz = oz - cz;
-  const b = px * dx + py * dy + pz * dz, c = px * px + py * py + pz * pz - radius * radius;
-  if (c <= 0) return 0;
+// The hit-volume tests read the ray and the volume from these scratch objects and leave the entry distance in
+// hitVolume.distance (-1 = miss, 0 = the origin is inside): a float passed to or returned from a call that is not
+// inlined is boxed on the heap, and every hitscan ray tests every actor (PERF-006).
+const hitRay = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 0, limit: 0, inflate: 0 };
+const hitVolume = { cx: 0, cy: 0, cz: 0, y0: 0, y1: 0, radius: 0, distance: -1 };
+
+function setHitRay(ox, oy, oz, dx, dy, dz, limit, inflate) {
+  const ray = hitRay;
+  ray.ox = ox; ray.oy = oy; ray.oz = oz; ray.dx = dx; ray.dy = dy; ray.dz = dz; ray.limit = limit; ray.inflate = inflate;
+}
+
+// Sphere at (cx, cy, cz) with radius.
+function rayHitSphere() {
+  const ray = hitRay, volume = hitVolume;
+  const px = ray.ox - volume.cx, py = ray.oy - volume.cy, pz = ray.oz - volume.cz;
+  const b = px * ray.dx + py * ray.dy + pz * ray.dz, c = px * px + py * py + pz * pz - volume.radius * volume.radius;
   const disc = b * b - c;
-  if (b > 0 || disc < 0) return -1;
-  return -b - Math.sqrt(disc);
+  if (c <= 0) volume.distance = 0;
+  else volume.distance = b > 0 || disc < 0 ? -1 : -b - Math.sqrt(disc);
 }
-function rayCap(ox, oy, oz, dx, dy, dz, cx, cz, capY, radius) {
-  const t = (capY - oy) / dy;
-  if (t < 0) return -1;
-  const hx = ox + dx * t - cx, hz = oz + dz * t - cz;
-  return hx * hx + hz * hz <= radius * radius ? t : -1;
-}
-function nearestHit(a, b) { return a < 0 ? b : b < 0 ? a : Math.min(a, b); }
-// Upright cylinder from y0 to y1: side wall plus the two caps. Returns the entry distance or -1.
-function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
-  const px = ox - cx, pz = oz - cz;
-  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radius * radius;
-  if (c <= 0 && oy >= y0 && oy <= y1) return 0;
+
+// Upright cylinder around (cx, cz) from y0 to y1: side wall plus the two caps.
+function rayHitCylinder() {
+  const ray = hitRay, volume = hitVolume, dx = ray.dx, dy = ray.dy, dz = ray.dz, oy = ray.oy, y0 = volume.y0, y1 = volume.y1;
+  const px = ray.ox - volume.cx, pz = ray.oz - volume.cz, radiusSquared = volume.radius * volume.radius;
+  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radiusSquared;
+  volume.distance = 0;
+  if (c <= 0 && oy >= y0 && oy <= y1) return;
   let best = -1;
   const disc = b * b - a * c;
   if (a > 1e-9 && disc >= 0) {
     const t = (-b - Math.sqrt(disc)) / a, y = oy + dy * t;
     if (t >= 0 && y >= y0 && y <= y1) best = t;
   }
-  if (Math.abs(dy) < 1e-9) return best;
-  return nearestHit(best, nearestHit(rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y0, radius), rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y1, radius)));
+  volume.distance = best;
+  if (Math.abs(dy) < 1e-9) return;
+  for (let cap = 0; cap < 2; cap++) {
+    const t = ((cap ? y1 : y0) - oy) / dy, hx = px + dx * t, hz = pz + dz * t;
+    if (t >= 0 && hx * hx + hz * hz <= radiusSquared && (best < 0 || t < best)) best = t;
+  }
+  volume.distance = best;
+}
+
+// Argument forms (bodies, projectiles, items, gadgets, abilities): entry distance or -1.
+function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cy = cy; volume.cz = cz; volume.radius = radius;
+  rayHitSphere();
+  return volume.distance;
+}
+function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
+  rayHitCylinder();
+  return volume.distance;
 }
 
 const Hitbox = {
@@ -343,22 +372,34 @@ const Hitbox = {
   // Nearest hit volume of actor id along a normalized ray; inflate grows every volume (melee, projectile radius).
   // Returns the distance or -1 and leaves the zone in Hitbox.zone.
   ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate) {
+    setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, inflate);
+    return this.rayOf(id) ? this.distance : -1;
+  },
+  distance: 0,   // entry distance of the last rayOf hit
+  // Hot form of ray(): the ray (limit = maxDistance, inflate) is in hitRay (setHitRay). Returns true on a hit and
+  // leaves the distance in Hitbox.distance and the zone in Hitbox.zone.
+  rayOf(id) {
+    const ray = hitRay, volume = hitVolume, inflate = ray.inflate;
     const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], size = this.sizeScale[id], scale = Actors.height[id] / STAND_HEIGHT * size;
-    const mx = x - ox, my = y + 0.9 * scale - oy, mz = z - oz, along = mx * dx + my * dy + mz * dz;
-    const reject = ACTOR_REJECT_RADIUS * Math.max(1, this.sizeScale[id]) + inflate;
-    if (along < -reject || along > maxDistance + reject) return -1;
-    if (mx * mx + my * my + mz * mz - along * along > reject * reject) return -1;
-    let best = -1;
+    const mx = x - ray.ox, my = y + 0.9 * scale - ray.oy, mz = z - ray.oz, along = mx * ray.dx + my * ray.dy + mz * ray.dz;
+    const reject = ACTOR_REJECT_RADIUS * Math.max(1, size) + inflate;
     this.zone = ZONE.NONE;
-    const head = raySphere(ox, oy, oz, dx, dy, dz, x, y + (Actors.eye[id] + HEAD_ABOVE_EYE) * size, z, HEAD_RADIUS * this.headScale[id] * size + inflate);
-    if (head >= 0) { best = head; this.zone = ZONE.HEAD; }
-    const torso = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, TORSO_RADIUS * size + inflate);
-    if (torso >= 0 && (best < 0 || torso < best)) { best = torso; this.zone = ZONE.BODY; }
-    const legs = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, LEGS_RADIUS * size + inflate);
-    if (legs >= 0 && (best < 0 || legs < best)) { best = legs; this.zone = ZONE.LEGS; }
-    if (best > maxDistance) { this.zone = ZONE.NONE; return -1; }
-    this.stomach = this.zone === ZONE.BODY && oy + dy * best < y + STOMACH_HIGH * scale;
-    return best;
+    if (along < -reject || along > ray.limit + reject) return false;
+    if (mx * mx + my * my + mz * mz - along * along > reject * reject) return false;
+    let best = -1;
+    volume.cx = x; volume.cy = y + (Actors.eye[id] + HEAD_ABOVE_EYE) * size; volume.cz = z; volume.radius = HEAD_RADIUS * this.headScale[id] * size + inflate;
+    rayHitSphere();
+    if (volume.distance >= 0) { best = volume.distance; this.zone = ZONE.HEAD; }
+    volume.y0 = y + TORSO_LOW * scale; volume.y1 = y + TORSO_HIGH * scale; volume.radius = TORSO_RADIUS * size + inflate;
+    rayHitCylinder();
+    if (volume.distance >= 0 && (best < 0 || volume.distance < best)) { best = volume.distance; this.zone = ZONE.BODY; }
+    volume.y0 = y + LEGS_LOW * scale; volume.y1 = y + LEGS_HIGH * scale; volume.radius = LEGS_RADIUS * size + inflate;
+    rayHitCylinder();
+    if (volume.distance >= 0 && (best < 0 || volume.distance < best)) { best = volume.distance; this.zone = ZONE.LEGS; }
+    if (best < 0 || best > ray.limit) { this.zone = ZONE.NONE; return false; }
+    this.distance = best;
+    this.stomach = this.zone === ZONE.BODY && ray.oy + ray.dy * best < y + STOMACH_HIGH * scale;
+    return true;
   },
   // Centre of a zone (bots, aim assist, lock-on, homing).
   point(id, zone, out) {
@@ -375,11 +416,12 @@ const Hitbox = {
 // Walls are not checked: compare with World.raycast (hitscan order ARC-014: world first, then actors).
 World.raycastActors = function raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit) {
   let best = maxDistance, found = -1, zone = ZONE.NONE;
+  setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, 0);
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || id === ignoreId) continue;
-    const distance = Hitbox.ray(id, ox, oy, oz, dx, dy, dz, best, 0);
-    if (distance < 0 || distance >= best) continue;
-    best = distance; found = id; zone = Hitbox.zone;
+    hitRay.limit = best;
+    if (!Hitbox.rayOf(id) || Hitbox.distance >= best) continue;
+    best = Hitbox.distance; found = id; zone = Hitbox.zone;
   }
   if (found < 0) return -1;
   hit.distance = best; hit.x = ox + dx * best; hit.y = oy + dy * best; hit.z = oz + dz * best;

@@ -40,11 +40,11 @@ const RayHits = {
   count: 0,
   collect(shooter, ox, oy, oz, dx, dy, dz, maxDistance, limit, inflate, includeAllies) {
     this.count = 0;
+    setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, inflate);   // Hitbox.rayOf: no float arguments per actor (PERF-006)
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || id === shooter) continue;
       if (!includeAllies && !Actors.isEnemy(shooter, id)) continue;
-      const distance = Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate);
-      if (distance >= 0) this.insert(id, distance, limit);
+      if (Hitbox.rayOf(id)) this.insert(id, Hitbox.distance, limit);
     }
     return this.count;
   },

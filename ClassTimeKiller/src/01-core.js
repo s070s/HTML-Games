@@ -208,11 +208,17 @@ const Sim = {
   tick: 0,          // steps since match start; the sim's only clock (ARC-010: never read wall-clock)
   timeScale: 1,     // game speed: the loop feeds real seconds x timeScale to the 120 Hz steps (mutators X02/X27, difficulty)
   time: 0,          // tick * TICK_SECONDS
-  timing: {},       // last step cost per system in ms (perf HUD)
-  timingTotal: {},  // summed cost per system in ms since load (tools/perf.mjs: per-system ms per step over a recording)
+  // Read-only views by system name: last step cost in ms (perf HUD) and the summed cost since load (tools/perf.mjs). The
+  // numbers live in each system's record (ms, totalMs): an object with ~30 names added by key falls back to dictionary
+  // mode, where every write of a float would allocate a heap number (twice per system per step, PERF-006).
+  timing: {},
+  timingTotal: {},
   addSystem(name, order, step) {
-    this.systems.push({ name, order, step });
+    const system = { name, order, step, ms: 0, totalMs: 0 };
+    this.systems.push(system);
     this.systems.sort((a, b) => a.order - b.order);
+    Object.defineProperty(this.timing, name, { get: () => system.ms, enumerable: true, configurable: true });
+    Object.defineProperty(this.timingTotal, name, { get: () => system.totalMs, enumerable: true, configurable: true });
   },
   step() {
     for (let id = 0; id < Actors.count; id++) {
@@ -227,8 +233,8 @@ const Sim = {
       const started = performance.now();
       try { system.step(TICK_SECONDS); } catch (error) { ErrorLog.add('system ' + system.name, error); }
       const spent = performance.now() - started;
-      this.timing[system.name] = spent;
-      this.timingTotal[system.name] = (this.timingTotal[system.name] || 0) + spent;
+      system.ms = spent;
+      system.totalMs += spent;
     }
     this.tick++;
     this.time = this.tick * TICK_SECONDS;

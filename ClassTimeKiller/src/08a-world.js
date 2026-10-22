@@ -185,14 +185,22 @@ function clipBrush(brush, segment, hull, skin) {
 // Slab test of a ray (origin, direction, length) against a box given as six numbers: entry distance (0 when the
 // origin is inside), or -1 when the ray misses within maxDistance.
 function rayBoundsDistance(ox, oy, oz, dx, dy, dz, maxDistance, minX, minY, minZ, maxX, maxY, maxZ) {
-  slab.near = 0; slab.far = maxDistance;
-  if (!clipSlab(ox, dx, minX, maxX) || !clipSlab(oy, dy, minY, maxY) || !clipSlab(oz, dz, minZ, maxZ)) return -1;
-  return slab.near;
+  const ray = slabRay, box = slabBox;
+  ray[0] = ox; ray[1] = oy; ray[2] = oz; ray[3] = dx; ray[4] = dy; ray[5] = dz;
+  box[0] = minX; box[1] = minY; box[2] = minZ; box[3] = maxX; box[4] = maxY; box[5] = maxZ;
+  slab.far = maxDistance;
+  return slabHits() ? slab.near : -1;
 }
 
+// The slab test reads its ray (origin xyz, direction xyz) and box (min xyz, max xyz) from these typed arrays and takes
+// only the axis: a float passed to a call that is not inlined is boxed on the heap, and World.raycast runs this for
+// every tree node and brush it reaches (PERF-006).
 const slab = { near: 0, far: 0 };
+const slabRay = new Float64Array(6);
+const slabBox = new Float64Array(6);
 
-function clipSlab(origin, direction, low, high) {
+function clipSlab(axis) {
+  const origin = slabRay[axis], direction = slabRay[axis + 3], low = slabBox[axis], high = slabBox[axis + 3];
   if (Math.abs(direction) < 1e-9) return origin >= low && origin <= high;
   const t1 = (low - origin) / direction, t2 = (high - origin) / direction;
   slab.near = Math.max(slab.near, Math.min(t1, t2));
@@ -200,16 +208,31 @@ function clipSlab(origin, direction, low, high) {
   return slab.near <= slab.far;
 }
 
-// The slab tests of World.raycast read the ray from its query object (no float arguments, PERF-006).
+// The ray against slabBox from distance 0 to slab.far (set by the caller).
+function slabHits() {
+  slab.near = 0;
+  return clipSlab(0) && clipSlab(1) && clipSlab(2);
+}
+
+function setSlabRay(ray) {
+  const line = slabRay;
+  line[0] = ray.sx; line[1] = ray.sy; line[2] = ray.sz; line[3] = ray.dx; line[4] = ray.dy; line[5] = ray.dz;
+}
+
 function rayTestNode(query, bounds, base) {
-  slab.near = 0; slab.far = query.fraction * query.length;
-  return clipSlab(query.sx, query.dx, bounds[base], bounds[base + 3]) && clipSlab(query.sy, query.dy, bounds[base + 1], bounds[base + 4])
-    && clipSlab(query.sz, query.dz, bounds[base + 2], bounds[base + 5]);
+  const box = slabBox;
+  for (let i = 0; i < 6; i++) box[i] = bounds[base + i];
+  setSlabRay(query);
+  slab.far = query.fraction * query.length;
+  return slabHits();
 }
 
 function rayHitsBrushBox(ray, brush) {
-  slab.near = 0; slab.far = ray.limit;
-  return clipSlab(ray.sx, ray.dx, brush.minX, brush.maxX) && clipSlab(ray.sy, ray.dy, brush.minY, brush.maxY) && clipSlab(ray.sz, ray.dz, brush.minZ, brush.maxZ);
+  const box = slabBox;
+  box[0] = brush.minX; box[1] = brush.minY; box[2] = brush.minZ; box[3] = brush.maxX; box[4] = brush.maxY; box[5] = brush.maxZ;
+  setSlabRay(ray);
+  slab.far = ray.limit;
+  return slabHits();
 }
 
 // The ray travels in the query object (sx..dz, limit), not as float arguments: a float passed to a call that is
