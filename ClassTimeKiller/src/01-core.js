@@ -88,9 +88,9 @@ const Mat4 = {
 };
 
 // ---- Error ring (ARC-041): every caught error lands here; the perf HUD and __CTK.log.errors() read it ----
-const ERROR_STACK_FRAMES = 2;   // stack frames kept after the 'Name: message' line
-// 'Name: message | frame | frame'. Chromium stacks start with the 'Name: message' line, WebKit (iOS) and Firefox stacks hold
-// frames only, so the message is always written first and a stack line that repeats it is skipped (R-007).
+// Stack frames kept after the 'Name: message' line.
+const ERROR_STACK_FRAMES = 2;
+// 'Name: message | frame | frame': WebKit (iOS) and Firefox stacks lack the message line Chromium starts with (R-007).
 function errorText(error) {
   if (!error || typeof error.message !== 'string') return String(error);
   const head = (error.name || 'Error') + ': ' + error.message;
@@ -102,16 +102,19 @@ function errorText(error) {
 const ErrorLog = {
   size: 50,
   entries: [],
-  total: 0,               // errors ever added, repeats included (the list keeps only the last `size`)
-  first: '',              // the first error of the session: the root cause stays readable after the ring has moved on
-  lastText: '',           // the newest entry before its repeat count, and the list length when it was added
+  // Errors ever added, repeats included (the list keeps only the last `size`)
+  total: 0,
+  // The session's first error: the root cause outlives the ring.
+  first: '',
+  // The newest entry's text and the list length then.
+  lastText: '',
   lastLength: 0,
   repeats: 1,
   add(where, error) {
     const text = where + ': ' + errorText(error);
     this.total++;
     if (!this.first) this.first = text;
-    // The same error again (a system that throws every step): count it on the newest entry instead of flooding the ring (R-164).
+    // An error repeated every step is counted on the newest entry, not flooding the ring (R-164).
     if (text === this.lastText && this.entries.length === this.lastLength) {
       this.repeats++;
       this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';

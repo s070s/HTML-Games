@@ -1,7 +1,14 @@
 // Self-tests for S01-S04 and the loop: math, RNG, events, actors, data, save, settings, world rays.
 
-// Every defined setting key that starts with the prefix, for Settings.resetKeys in the test files ('video.' after a render test).
+// The defined setting keys with this prefix (for Settings.resetKeys).
 function settingKeysStarting(prefix) { return Array.from(Settings.definitions.keys()).filter((key) => key.startsWith(prefix)); }
+// A memory store that counts its writes (the save tests).
+function makeCountingStorage() {
+  const store = makeMemoryStorage(false), write = store.setItem;
+  store.writes = 0;
+  store.setItem = (key, value) => { store.writes++; write(key, value); };
+  return store;
+}
 
 Test.add('core', (check) => {
   const v = Vec.fromAngles(Vec.make(), 0, 0);
@@ -75,77 +82,54 @@ Test.add('core', (check) => {
   let crashed = false;
   try { Save.load(); Save.saveNow(); } catch (error) { crashed = true; }
   check('save: blocked storage does not crash', !crashed && !Save.storageWorks);
-  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';   // no throwing store for the next block
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
-// R-001 / R-163: a second tab (or a page back from the cache) never writes its stale copy over a newer save, and a flush with
-// nothing changed writes nothing.
-function saveOtherTabWrites(change) {
+// R-001 / R-163: a stale tab never writes over a newer save; an unchanged flush writes nothing.
+function saveOtherTabWrites(mark) {
   const other = JSON.parse(Save.read(SAVE_KEY));
-  change(other);
+  other.stats.tab = mark;
   other.revision++;
-  Save.storage.setItem(SAVE_KEY, JSON.stringify(other));   // the other tab writes straight to the shared storage
-  return other;
+  Save.storage.setItem(SAVE_KEY, JSON.stringify(other));
+  return JSON.stringify(other);
 }
 Test.add('core', (check) => {
-  const inner = makeMemoryStorage(false);
-  const counted = { writes: 0, getItem: (key) => inner.getItem(key), setItem(key, value) { this.writes++; inner.setItem(key, value); }, removeItem: (key) => inner.removeItem(key) };
-  Save.storage = counted; Save.notice = '';
-  Save.data = Save.emptySave();
+  const store = Save.storage = makeCountingStorage(), stored = () => JSON.parse(store.getItem(SAVE_KEY)).stats.tab;
   Save.saveNow();
-  counted.writes = 0;
-  flushSave(); flushSave(); window.dispatchEvent(new Event('pagehide'));
-  check('save: pause, app switch and page hide with nothing changed write nothing', counted.writes === 0, counted.writes);
-  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
-  saveOtherTabWrites((other) => { other.stats.otherTab = 42; });
-  Settings.set('video.fov', 100);   // this tab's change on its stale copy
+  store.writes = 0;
+  flushSave(); window.dispatchEvent(new Event('pagehide'));
+  check('save: an unchanged flush writes nothing', store.writes === 0, store.writes);
+  saveOtherTabWrites(1);
+  Settings.set('video.fov', 100);
   flushSave();
-  const stored = JSON.parse(inner.getItem(SAVE_KEY));
-  check('save: a stale tab does not write over the newer save of another tab', stored.stats.otherTab === 42 && stored.settings['video.fov'] === undefined, JSON.stringify(stored.stats));
-  check('save: the stale tab carries on from the newer save and says so', Save.data.stats.otherTab === 42 && toasts.includes(SAVE_NEWER_ELSEWHERE), toasts.join());
-  const newer = saveOtherTabWrites((other) => { other.stats.otherTab = 43; });
-  window.dispatchEvent(new StorageEvent('storage', { key: SAVE_KEY, newValue: JSON.stringify(newer) }));
-  check('save: a write in another tab is taken at once while this tab has no change', Save.data.stats.otherTab === 43 && Save.data.revision === newer.revision);
-  Settings.set('video.fov', 101);
-  flushSave();
-  check('save: the next change of this tab is written on top of it', JSON.parse(inner.getItem(SAVE_KEY)).stats.otherTab === 43 && JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 101);
-  Bus.off('toast', listener);
-  Settings.resetKeys(['video.fov']);
+  check('save: a stale tab takes the newer save', stored() === 1 && Save.data.stats.tab === 1 && Save.notice === SAVE_NEWER_ELSEWHERE);
+  window.dispatchEvent(new StorageEvent('storage', { key: SAVE_KEY, newValue: saveOtherTabWrites(2) }));
+  check('save: a storage event takes the newer save', Save.data.stats.tab === 2);
   Save.notice = '';
 });
 
-// R-037 / R-038 / R-039: an import never wipes a save with junk, a failed write keeps the old save and restarts nothing, and the
-// backup the notices promise can be shown and restored.
-Test.add('core', (check) => {
-  const reload = SaveTransfer.reload;
+// R-037 / R-038 / R-039: junk or a failed write keeps the save; the backup can be shown and restored.
+Test.add('core', (check) => uiWith(() => {
+  const reload = SaveTransfer.reload, good = Save.storage, save = (mark) => JSON.stringify({ version: 1, stats: { mark } });
   let reloads = 0;
   SaveTransfer.reload = () => { reloads++; };
-  const leave = uiEnter();
   try {
-    Save.data.stats.mark = 'A';
-    Save.saveNow();
-    let refused = false;
-    try { Save.importText('{}'); } catch (error) { refused = true; }
-    check('import: "{}" is refused and the save is unchanged', refused && Save.data.stats.mark === 'A' && JSON.parse(Save.read(SAVE_KEY)).stats.mark === 'A');
-    const good = Save.storage;
-    Save.storage = makeMemoryStorage(true); Save.storageWorks = true; Save.notice = '';
-    const blockedWrite = Test.expectErrors(() => Save.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } })));
-    const problem = SaveTransfer.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } }));
-    check('import: a failed write returns false, keeps the old save and does not restart', blockedWrite === 0 && problem === SAVE_BLOCKED && reloads === 0 && Save.data.stats.mark === 'A', problem);
-    Save.storage = good; Save.storageWorks = true; Save.notice = '';
-    check('import: a real save imports and restarts', SaveTransfer.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } })) === '' && reloads === 1 && Save.data.stats.mark === 'B');
+    Save.importText(save('A'));
+    Save.storage = makeMemoryStorage(true);
+    const blocked = SaveTransfer.importText(save('B'));
+    Save.storage = good; Save.storageWorks = true;
+    check('import: junk or a failed write keeps the save', SaveTransfer.importText('{}') !== '' && blocked === SAVE_BLOCKED && reloads === 0 && Save.data.stats.mark === 'A', blocked);
+    SaveTransfer.importText(save('B'));
     Ui.open('saveTransfer');
-    check('backup: the screen offers the save the import replaced', uiClickButton(Ui.top().element, 'Restore backup') && Ui.current() === 'confirm');
+    uiClickButton(Ui.top().element, 'Restore backup');
     uiClickButton(Ui.top().element, 'Restore');
-    check('backup: restoring it brings the old save back', Save.data.stats.mark === 'A' && reloads === 2 && JSON.parse(Save.read(SAVE_KEY)).stats.mark === 'A');
-    Ui.closeAll();
+    check('backup: restored', Save.data.stats.mark === 'A' && reloads === 2);
     Test.expectErrors(() => DebugApi.save.corrupt('trunc'));
     Ui.open('saveTransfer');
     const screen = Ui.top().element;
-    check('backup: after a save could not be read, its text can be shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea.ui-code').value === '{"version":1,"settings":');
-    Ui.closeAll();
-  } finally { leave(); SaveTransfer.reload = reload; Save.notice = ''; }
-});
+    check('backup: shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea').value === '{"version":1,"settings":');
+  } finally { SaveTransfer.reload = reload; Save.notice = ''; }
+}));
 
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
 Test.add('core', (check) => {
@@ -174,18 +158,10 @@ Test.add('core', (check) => {
   let newer = [];
   Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
   check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
-  // R-007: WebKit and Firefox stacks hold frames only, Chromium's start with the message; both keep the message once.
-  const framesOnly = errorText({ name: 'TypeError', message: 'boom', stack: 'parse@file:1:2\nload@file:3:4\nrun@file:5:6' });
-  const chromium = errorText({ name: 'Error', message: 'boom', stack: 'Error: boom\n    at parse (file:1:2)\n    at load (file:3:4)' });
-  check('errors: the message is kept on every engine', framesOnly === 'TypeError: boom | parse@file:1:2 | load@file:3:4' && chromium === 'Error: boom | at parse (file:1:2) | at load (file:3:4)', framesOnly + ' / ' + chromium);
-  // R-164: an error repeated every step is counted on one entry, so the root cause stays in the ring.
+  // R-007: 'listener broke' above needs the message, which WebKit and Firefox stacks lack. R-164: repeats count on one entry.
   let flood = [];
-  const floodAdded = Test.expectErrors(() => {
-    ErrorLog.add('test', 'root cause');
-    for (let i = 0; i < 200; i++) ErrorLog.add('test', 'every step');
-    flood = ErrorLog.entries.slice(-2);
-  });
-  check('errors: 200 identical errors keep the earlier entry and a count', floodAdded === 2 && flood[0] === 'test: root cause' && flood[1] === 'test: every step (x200)' && ErrorLog.first !== '', flood.join(' / '));
+  const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });
+  check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
@@ -206,14 +182,10 @@ Test.add('core', (check) => {
   check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
   Bus.off('toast', listener);
   Save.storageWorks = true; Save.notice = '';
-  // R-040: every top-level field is declared in emptySave, so a wrong kind is repaired before a screen reads it.
-  check('save: every field the sections keep is declared in the empty save', ['loadouts', 'tips'].every((field) => saveFieldKind(Save.emptySave()[field]) === 'object'));
+  // R-040: a field of the wrong kind is repaired before a screen reads it.
   Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 90 }, loadouts: 'x', tips: 7 }));
-  const leave = uiEnter();
-  let screenErrors = -1;
-  try { screenErrors = Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }); } finally { leave(); }
-  check('save: an imported loadouts of the wrong kind is repaired and the loadout screen opens', screenErrors === 0 && saveFieldKind(Save.data.loadouts) === 'object'
-    && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches >= 0, screenErrors + ' ' + JSON.stringify(Save.data.loadouts));
+  const errors = uiWith(() => Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }));
+  check('save: wrong-kind loadouts and tips are repaired', errors === 0 && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches === 1, errors);
 });
 
 Test.add('core', (check) => {

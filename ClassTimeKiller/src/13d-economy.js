@@ -325,7 +325,8 @@ function scavengeAmmo(id) {
 
 // ---- Loadouts (Save.data.loadouts): classes, the hero, ability kit choices; applied to the local player ----
 const Loadouts = {
-  store() { return Save.data.loadouts; },   // declared in Save.emptySave, so migrate repairs a field of the wrong kind
+  // Declared in Save.emptySave, so migrate repairs a field of the wrong kind.
+  store() { return Save.data.loadouts; },
   lastError: '',
   classes() { return CAT.classes.concat(this.store().classes.custom); },
   classById(id) { return this.classes().find((row) => row.id === id) || null; },

@@ -613,7 +613,8 @@ const Input = {
     on(window, 'pointercancel', (event) => this.onPointerUp(event), true);
     on(window, 'mousemove', (event) => this.onMouseMove(event));
     on(window, 'wheel', (event) => this.onWheel(event), { passive: false });
-    on(window, 'contextmenu', (event) => { if (!isTextField(event.target)) event.preventDefault(); });   // a field keeps its paste menu
+    // A field keeps its paste menu.
+    on(window, 'contextmenu', (event) => { if (!isTextField(event.target)) event.preventDefault(); });
     on(window, 'blur', () => this.autoPause('blur'));
     on(document, 'visibilitychange', () => { if (document.hidden) this.autoPause('hidden'); });
     on(document, 'pointerlockchange', () => this.setLocked(document.pointerLockElement === this.canvas));

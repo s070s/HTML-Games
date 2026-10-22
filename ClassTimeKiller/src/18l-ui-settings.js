@@ -3,22 +3,19 @@
 // page hides (a debounced save alone can lose the last change), and the assist sliders: the DIF-002 difficulty fields as the player's own
 // settings (the Gameplay tab) and as a reusable row builder for custom matches (Ui.difficultyRows).
 
-// Heading of a settings row: the first prefix that matches wins, so specific keys come before their family. '' = no heading.
+// [heading, key prefixes...]: the first match wins, so specific keys come before their family. '' = no heading.
 const SETTING_GROUPS = [
-  ['video.fov', 'View'], ['video.viewmodel', 'View'], ['video.headBob', 'View'], ['video.shake', 'View'], ['video.fovKick', 'View'],
-  ['video.', 'Picture and speed'],
-  ['controls.mouse', 'Mouse'], ['controls.rawMouse', 'Mouse'], ['controls.invertY', 'Mouse'], ['controls.adsMultiplier', 'Mouse'],
-  ['controls.pad.', 'Gamepad'], ['controls.touch.', 'Touch'], ['controls.toggle.', 'Hold or toggle'], ['controls.', 'Feedback'],
-  ['audio.mono', 'Sound'], ['audio.hrtf', 'Sound'], ['audio.speech', 'Sound'], ['audio.', 'Volume'],
-  ['assist.', 'Assist sliders (used when switched on)'], ['difficulty.', 'Bots'], ['gameplay.chatter', 'Bots'], ['gameplay.taunts', 'Bots'], ['gameplay.', 'Movement and aiming aids'],
-  ['hud.element.captions', 'Captions and sound cues'], ['hud.element.soundRing', 'Captions and sound cues'], ['hud.element.barks', 'Captions and sound cues'], ['hud.caption', 'Captions and sound cues'],
-  ['hud.crosshair.', 'Crosshair'], ['hud.scopeOverlay', 'Crosshair'], ['hud.element.', 'Show or hide parts of the HUD'], ['hud.teamShapes', 'Vision and interface'], ['hud.', 'Layout and look'],
-  ['accessibility.colorBlind', 'Vision and interface'], ['accessibility.highContrast', 'Vision and interface'], ['ui.scale', 'Vision and interface'],
-  ['accessibility.', 'Motion and flashes'], ['progress.', 'Progress'],
+  ['View', 'video.fov', 'video.viewmodel', 'video.headBob', 'video.shake'], ['Picture and speed', 'video.'],
+  ['Mouse', 'controls.mouse', 'controls.rawMouse', 'controls.invertY', 'controls.adsMultiplier'], ['Gamepad', 'controls.pad.'], ['Touch', 'controls.touch.'],
+  ['Hold or toggle', 'controls.toggle.'], ['Feedback', 'controls.'], ['Sound', 'audio.mono', 'audio.hrtf', 'audio.speech'], ['Volume', 'audio.'],
+  ['Assist sliders (used when switched on)', 'assist.'], ['Bots', 'difficulty.', 'gameplay.chatter', 'gameplay.taunts'], ['Movement and aiming aids', 'gameplay.'],
+  ['Captions and sound cues', 'hud.element.captions', 'hud.element.soundRing', 'hud.element.barks', 'hud.caption'], ['Crosshair', 'hud.crosshair.', 'hud.scopeOverlay'],
+  ['Show or hide parts of the HUD', 'hud.element.'], ['Vision and interface', 'hud.teamShapes', 'accessibility.colorBlind', 'accessibility.highContrast', 'ui.scale'],
+  ['Layout and look', 'hud.'], ['Motion and flashes', 'accessibility.'], ['Progress', 'progress.'],
 ];
 Ui.settingGroup = function settingGroup(key) {
-  const found = SETTING_GROUPS.find((entry) => key.startsWith(entry[0]));
-  return found ? found[1] : '';
+  const found = SETTING_GROUPS.find((group) => group.some((prefix, index) => index > 0 && key.startsWith(prefix)));
+  return found ? found[0] : '';
 };
 
 // ---- Reset all, and saving before the page goes away ----
@@ -71,7 +68,8 @@ Ui.register('saveTransfer', {
     picker.type = 'file'; picker.accept = '.json,application/json,text/plain'; picker.hidden = true;
     picker.addEventListener('change', () => { if (picker.files[0]) SaveTransfer.readFile(picker.files[0], area); });
     const foot = makeElement('div', 'ui-foot');
-    const exportToBox = () => { area.value = Save.exportText(); area.select(); area.setSelectionRange(0, area.value.length); };   // iOS selects only this way
+    // iOS selects only this way.
+    const exportToBox = () => { area.value = Save.exportText(); area.select(); area.setSelectionRange(0, area.value.length); };
     foot.appendChild(Ui.button('Export', exportToBox));
     foot.appendChild(Ui.button('Copy', () => { if (!area.value) exportToBox(); copyText(area.value, area); }));
     foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
@@ -84,32 +82,32 @@ Ui.register('saveTransfer', {
     root.appendChild(area);
     root.appendChild(picker);
     root.appendChild(foot);
-    // R-039: the save an import replaced, or one that could not be read at start, can be shown and put back.
+    // R-039: the replaced or unreadable save can be shown and put back.
     const backup = Save.backupText();
     if (backup === null) return;
-    root.appendChild(makeElement('p', 'ui-note', 'Backup: the save the last import replaced, or a save that could not be read.'));
     const backupFoot = makeElement('div', 'ui-foot');
     backupFoot.appendChild(Ui.button('Export backup', () => { area.value = backup; }));
     backupFoot.appendChild(Ui.button('Restore backup', () => Ui.confirm({
-      title: 'Restore the backup?', text: 'Your current save is replaced by the backup and becomes the new backup.', yes: 'Restore',
+      title: 'Restore the backup?', text: 'Your current save becomes the backup.', yes: 'Restore',
       onYes: () => importConfirmed(backup),
     }), 'danger'));
     root.appendChild(backupFoot);
   },
 });
-// Under every settings tab, not only Developer: on iPhone a backup is the safe way to keep progress (R-008).
+// Under every tab: on iPhone a backup is the safe way to keep progress (R-008).
 Ui.settingsFooter.push(() => Ui.button('Back up or restore save', () => Ui.open('saveTransfer')));
 
-// Pause, page hide and app switch write only a change that waits (one app switch fires all three, R-163).
+// Pause, hide and app switch write only a waiting change (one switch fires all three, R-163).
 function flushSave() { if (Save.data && Save.dirty) Save.saveNow(); }
-// Another tab wrote a newer save (R-001): this tab takes it while it has no change of its own (else its next write takes it).
+// Takes another tab's newer save while this one has no change (else its next write does, R-001).
 function adoptOtherTabSave() { if (Save.data && !Save.dirty) Save.adoptNewer(); }
 Bus.on('boot', () => {
   if (Game.headless) return;
   window.addEventListener('pagehide', flushSave);
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); else adoptOtherTabSave(); });
-  window.addEventListener('storage', (event) => { if (event.key === SAVE_KEY && event.newValue !== null) adoptOtherTabSave(); });
-  window.addEventListener('pageshow', (event) => { if (event.persisted) adoptOtherTabSave(); });   // back from the page cache
+  window.addEventListener('storage', (event) => { if (event.key === SAVE_KEY) adoptOtherTabSave(); });
+  // Back from the page cache.
+  window.addEventListener('pageshow', (event) => { if (event.persisted) adoptOtherTabSave(); });
 });
 Bus.on('game.pause', flushSave);
 

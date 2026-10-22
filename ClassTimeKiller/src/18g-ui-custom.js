@@ -655,8 +655,7 @@ Ui.register('customPresets', {
 // ---- Share screen: show and copy the code, paste and import one ----
 const COPY_DONE_TEXT = 'Code copied.';
 const COPY_MANUAL_TEXT = 'Select the code and copy it.';
-// Copies a code field (the share, map and save codes). The clipboard API needs https; the fallback selects the field the way iOS
-// accepts (focused, editable, setSelectionRange) and says "copied" only when execCommand reports it copied (R-046).
+// Copies a code field. Without the clipboard API (http) it selects the way iOS accepts and says "copied" only on success (R-046).
 function copyText(text, field) {
   const fallback = () => {
     const wasReadOnly = field.readOnly;

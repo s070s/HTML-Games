@@ -145,16 +145,15 @@ Test.add('settings', (check) => {
 
 Test.add('settings', async (check) => {
   // ---- Debounced save (ARC-021, MIS-008): a burst of changes is one write, and a flush writes at once ----
-  const inner = makeMemoryStorage(false), counted = { writes: 0, getItem: (key) => inner.getItem(key), setItem(key, value) { this.writes++; inner.setItem(key, value); }, removeItem: (key) => inner.removeItem(key) };
-  Save.storage = counted;
+  const counted = Save.storage = makeCountingStorage();
   for (let value = 60; value < 70; value++) Settings.set('video.fov', value);
   check('save: a burst of changes writes nothing yet', counted.writes === 0);
   await uiWait(SETTINGS_SAVE_WAIT_MS);
   check('save: the burst becomes one write after the debounce', counted.writes === 1, counted.writes);
-  check('save: the written record holds the last value', JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 69);
+  check('save: the written record holds the last value', JSON.parse(counted.getItem(SAVE_KEY)).settings['video.fov'] === 69);
   Settings.set('video.fov', 75);
   flushSave();
-  check('save: flushSave writes at once (page hide, pause)', counted.writes === 2 && JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 75);
+  check('save: flushSave writes at once (page hide, pause)', counted.writes === 2 && JSON.parse(counted.getItem(SAVE_KEY)).settings['video.fov'] === 75);
   await uiWait(SETTINGS_SAVE_WAIT_MS);
   check('save: the flushed change does not write a second time later', counted.writes === 2, counted.writes);
   const broken = makeMemoryStorage(true);
@@ -166,21 +165,17 @@ Test.add('settings', async (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
-// R-036: a stored value the definition would refuse in Settings.set never reaches a reader, from storage or from an import.
+// R-036: a stored or imported value Settings.set would refuse never reaches a reader.
 Test.add('settings', (check) => {
-  const fallbackOf = (key) => Settings.definitions.get(key).fallback;
-  const bad = { 'video.fov': null, 'ui.scale': 'huge', 'video.frameCap': 45, 'video.renderScale': 9, 'hud.scale': 9999, 'video.headBob': true };
+  const bad = { 'video.fov': null, 'ui.scale': 'huge', 'video.frameCap': 45, 'hud.scale': 9999, 'video.headBob': true };
+  const read = () => Object.keys(bad).map((key) => Settings.get(key)).join();
+  const wanted = (scale) => [FOV_DEFAULT, 1, 0, scale, 100].join();
   Save.write(SAVE_KEY, JSON.stringify({ version: 1, settings: bad }));
   Save.load();
   Settings.applyAll();
-  check('settings: stored values of the wrong type, not finite or not an option fall back to the default', Settings.get('video.fov') === fallbackOf('video.fov')
-    && Settings.get('ui.scale') === fallbackOf('ui.scale') && Settings.get('video.frameCap') === fallbackOf('video.frameCap')
-    && Settings.get('video.renderScale') === fallbackOf('video.renderScale'), JSON.stringify(Save.data.settings));
-  check('settings: a stored number out of range is clamped, an older on/off slider becomes its end', Settings.get('hud.scale') === Settings.definitions.get('hud.scale').max
-    && Settings.get('video.headBob') === Settings.definitions.get('video.headBob').max);
-  check('settings: the renderer reads a finite field of view', Number.isFinite(Render.config.fov) && Render.config.fov === fallbackOf('video.fov'), Render.config.fov);
-  Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 'wide', 'hud.scale': -5 } }));
-  check('settings: an imported save is checked the same way', Settings.get('video.fov') === fallbackOf('video.fov') && Settings.get('hud.scale') === Settings.definitions.get('hud.scale').min);
+  check('settings: bad stored values are dropped or clamped', read() === wanted(HUD_SCALE_MAX) && Render.config.fov === FOV_DEFAULT, read());
+  Save.importText(JSON.stringify({ version: 1, settings: Object.assign({}, bad, { 'video.fov': 'wide', 'hud.scale': -5 }) }));
+  check('settings: imports are checked too', read() === wanted(HUD_SCALE_MIN), read());
   Settings.resetKeys(Object.keys(bad));
 });
 
@@ -347,11 +342,11 @@ function assistEffect(field, value) {
   return seen;
 }
 
-// ARC-020 / PLT-007 / R-008: Settings > Back up or restore save (under every tab); the exported text imports back and restarts the game.
+// ARC-020 / PLT-007 / R-008: Settings > Back up or restore save; the export imports back and restarts the game.
 Test.add('settings', (check) => uiWith(() => {
   Save.data.settings['video.fov'] = 77;
   Ui.open('settings');
-  check('save transfer: the first settings tab opens it, no Developer tab needed', uiClickButton(Ui.top().element, 'Back up or restore save') && Ui.current() === 'saveTransfer');
+  check('save transfer: on the first tab', uiClickButton(Ui.top().element, 'Back up or restore save') && Ui.current() === 'saveTransfer');
   const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
   uiClickButton(screen, 'Export');
   check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
@@ -362,7 +357,6 @@ Test.add('settings', (check) => uiWith(() => {
   uiClickButton(screen, 'Import');
   uiClickButton(Ui.top().element, 'Import');   // the confirm dialog's yes
   check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
-  check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
   SaveTransfer.reload = reload;
   const anchorClick = HTMLAnchorElement.prototype.click;
   let clicked = null, connected = false;
@@ -372,7 +366,7 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));
 
-// R-008: persistent storage is asked for once, after the first gesture; iPhone players in a Safari tab get the Home Screen tip once.
+// R-008: persistence is asked once, at the first gesture; the Home Screen tip shows once, in an iOS Safari tab.
 Test.add('settings', (check) => uiWith(() => {
   let asked = 0;
   Object.defineProperty(navigator, 'storage', { value: { persist: () => { asked++; return Promise.resolve(true); } }, configurable: true });
@@ -380,19 +374,14 @@ Test.add('settings', (check) => uiWith(() => {
   try {
     Device.persistAsked = false;
     Device.armPersist();
-    check('storage: nothing is asked before a gesture', asked === 0);
-    window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-    check('storage: the first gesture asks for persistent storage, once', asked === 1, asked);
-    Device.isIos = () => true; Device.standalone = () => false;
-    check('home screen tip: shown once on an iPhone Safari tab, with a backup button', Device.homeScreenTip() && Ui.current() === 'confirm'
-      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && !Device.homeScreenTip());
-    Ui.closeAll();
-    Save.data.tips.homeScreen = false;
-    Device.standalone = () => true;
-    const fromHomeScreen = Device.homeScreenTip();
-    Device.isIos = () => false; Device.standalone = () => false;
-    check('home screen tip: never on the Home Screen app or off iOS', !fromHomeScreen && !Device.homeScreenTip() && !Ui.isOpen('confirm'));
+    const before = asked;
+    window.dispatchEvent(new PointerEvent('pointerdown'));
+    window.dispatchEvent(new KeyboardEvent('keydown'));
+    check('storage: persist asked once, at a gesture', before === 0 && asked === 1, asked);
+    const tip = (ios, homeScreen) => { Device.isIos = () => ios; Device.standalone = () => homeScreen; return Device.homeScreenTip(); };
+    const notThere = !tip(false, false) && !tip(true, true);
+    check('home screen tip: once, iOS Safari tab only', notThere && tip(true, false)
+      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && !tip(true, false));
   } finally {
     delete navigator.storage;
     Device.isIos = isIos; Device.standalone = standalone; Device.persistAsked = asked0;

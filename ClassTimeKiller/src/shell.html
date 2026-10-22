@@ -5,12 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <meta name="theme-color" content="#0b0f14">
-<!-- R-009: Add to Home Screen opens full screen (standalone; its storage is not cleared after 7 days like a Safari tab's) -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ClassTimeKiller">
-<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAD60lEQVR42u3dS5LUQAwFQO1ZsOFOnJjzwQUIAmi76knKCC1hXP2cU+5x/erL129K/bZKBAoOBYeCQ8Gh4FBwKDgUHAqO2fXzx/c/FBxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQccESYoWYTjXyngMhzHGyC2QSkmKBmO466JqUoKC0QG4khmMYNIYYHIEBwdWfQlUlgg0hvHJBmNfBQWiLTEceDGfP5vBvuoPTKeGpXd46Nms3h7yH42kRop4/x8jpE+apiMu5N9hvmoMTJyZoKN8VEDZGROExzgo1rLyJ9D2tpHbZZxZoJxXx/VUUbH2ecdfdRmGYeXJrTzUY1kzFi30shHGxyTFjXB0SOdzOuG+KjNMu4uh8z3UZtlXF8rG+4jGseGhdRw5AaR34aLPmqzjJwtGDLDScSxc3+OvThie86OOI41rDZ3G2k7+2zEkfynfK/2HG4bHHDcwxH+hrhdk042LwVH5vhf+Khkbxz5A4+tcbzdwtrcbSTvQzocR4vJTt1xvNrI2txthO9gDMf2LaQ34iBjQIxwwBGJw70PT7J0GzoPOODog8Ndz88TDjgO4vBMGRMpHHCE4XC/W6QKBxxwwAEHHLk4mn4b7djCA8HW8m5jTFPh+Ka1QTgGH19y/cfmJwYHHHB89rnggAMOOOCAAw444IADDjj8KQsHHP1xeCHt9bmBNwNvhuwN2ZvsY7IPHHDAoeBQcPBhURMccHiyWEgNBxyeLJ4pcMBxDYcny4wkbTWp24ADjhwcfAwI0Mb4NsYPxuFIjdj0HMbjMJ5sHI7xyszNAYAOAIzH4ejQwMQcOuzQYTjgyMSR7KNRY843LA7H4VvSpSWTccR2Hh1xHGtSbf7NyMGRGU4t7znz23CxM6vY71xngghvwN0vyNE4DsSRfPV1ONISib10wkuXCziicsm8bsiL/Ds4ctIJvGjO+F8bHC9llHZFOP4/pseTyrlW4ISjmzgS8gq5UOYk1ss4PtmbsQuOux+wN4678d39+eErNiJwfLi3ayaOW59oII7P9/7NwXHlgwzH8cje0HdxnG//IhxP7R1+Hsf5vds34nh2b/m3cdza1X8vjsdz/0P6j/+XGSzScbx9PMXf48g5BgSOcz56HRADxxYiLWLvgWOYjy6Zt8Exg0ivtJvh6EukY84tcfQi0jfhxjjyiXTPtj2OTCIzUh2CI0TJsDCn4biiZGqGY3G8DWVDbitw9F05AkeukuXhwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccCg4FBwKDgWHgkMpOBQcCg4FhzpavwBu1x1Nuc+FLwAAAABJRU5ErkJggg==">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0AQMAAAAHA5RxAAAABlBMVEULDxT/tUddGaQ2AAABx0lEQVR42u2XMW7DMAxFI2jQ6CPoKDqacjQdxVvXjBkMsSBlV6SjX9dAixRIvCR5iKVPmiK/L5eXvUJ982fyRGWEJyIacSKi22B15nW0Ol9luMxgId/4MlJDA0Vp5WW4/MMGbuP3gfpBBLztR80PG0eiJVQWezU8E5VQWdW8k1M5/2EnyLGQUNunzcIszyvbTATej3m0Qif+yTxYoZFvZ+6t0MQypB5s5jLLFp5NAHK38GgCkN2ET5o7USc86MC8RCPc68Dan4Q7HViQRVvdaj6JuMYz6XDLF08q4CjfG4+KJ8OL4v28TIrn2nlQCUK8xdi4VwlqOWncde4sv3d+U+e3c2/50vmseN7zTfTS06xrINVjrmsp1v5YDKdjbmv4iMcdvx7xas/Ob/M1I+6+y1ZadL/1e74GtPG0NSquTNXNDjn37f/Ef6gf5eGbvIE8//XzPVtvZ+v57HlB5+7s+UV9APeNcZ9BfQn1MdT3YJ88229R30Z9Hs0FNEfQ3EFzCs01NAfR3ERzFs5lNMfR3Ec+AfkK5EOQb0E+B/ki6KOQ70I+Dfk65AORb4Q+E/lS5GOR74U+Gflq5MOhb0c+//0e9GT+EtcnG4wI1Eky9BYAAAAASUVORK5CYII=">
 <title>ClassTimeKiller</title>
 <style>
 /* ==== S00 STYLE + DOM SHELLS ==== */
@@ -23,7 +22,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; color: var(--ui-text); font-family: var(--ui-font);
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
-/* Text fields and code boxes stay selectable, with the copy and paste menu (Safari before 18 reads only the -webkit- names). */
+/* Selectable, with the paste menu (older Safari: -webkit- only). */
 input, textarea, .ui-code { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #overlay { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
@@ -47,7 +46,7 @@ input, textarea, .ui-code { -webkit-user-select: text; user-select: text; -webki
 window.onerror = function (message, source, line, column, error) {
   if (window.__CTK) return false;
   document.getElementById('fatal-text').textContent = 'The game failed to load. Reload the page; if it keeps happening, update your browser.';
-  /* The message first: WebKit (iOS) and Firefox stacks hold frames only. */
+  /* WebKit and Firefox stacks lack the message. */
   document.getElementById('fatal-detail').textContent = String(message) + (error && error.stack ? '\n' + error.stack : '');
   document.getElementById('fatal').classList.add('show');
   return false;

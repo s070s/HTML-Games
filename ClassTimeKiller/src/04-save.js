@@ -9,8 +9,8 @@ const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
 const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
-const SAVE_NEWER_ELSEWHERE = 'The game was saved in another tab. This tab now uses that save; its own last change was not kept.';
-// A written record starts with the version and its write counter, so another tab's revision is read without parsing the whole save.
+const SAVE_NEWER_ELSEWHERE = 'Another tab saved: this tab now uses its save.';
+// A record starts with version and revision: another tab's revision is read without parsing.
 const SAVE_REVISION_HEAD = /^\{"version":\d+,"revision":(\d+)[,}]/;
 
 // 'null' | 'array' | typeof: a loaded field must have the kind of its empty-save default (a null default also takes an object).
@@ -19,17 +19,13 @@ function saveFieldFits(freshValue, value) {
   const want = saveFieldKind(freshValue), have = saveFieldKind(value);
   return have === want || (want === 'null' && have === 'object');
 }
-// A text to import is a save: a version this game can read and at least one known field of the right kind that holds something.
+// An import needs a version this game reads and one known, non-empty field of the right kind.
 function saveLooksReal(loaded, fresh) {
-  if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) return false;
-  if (!Number.isInteger(loaded.version) || loaded.version < 1 || loaded.version > SAVE_VERSION) return false;
-  return Object.keys(fresh).some((field) => {
-    const value = loaded[field];
-    if (field === 'version' || field === 'revision' || value === null || !saveFieldFits(fresh[field], value)) return false;
-    return typeof value !== 'object' || Object.keys(value).length > 0;   // a non-empty object or list
-  });
+  if (!loaded || !Number.isInteger(loaded.version) || loaded.version < 1 || loaded.version > SAVE_VERSION) return false;
+  return Object.keys(fresh).some((field) => field !== 'version' && field !== 'revision' && !!loaded[field] && saveFieldFits(fresh[field], loaded[field])
+    && Object.keys(loaded[field]).length > 0);
 }
-// The write counter of a stored record; 0 for a record from before the counter (or one that cannot be read).
+// A stored record's revision (0: none, or unreadable).
 function saveRevisionOf(raw) {
   const head = SAVE_REVISION_HEAD.exec(raw || '');
   return head ? Number(head[1]) : 0;
@@ -40,13 +36,13 @@ const Save = {
   storageWorks: true,
   notice: '',             // one-line message for the UI (storage blocked, save was reset)
   timer: 0,
-  dirty: false,           // a change waits to be written: a flush on pause or page hide writes only then (R-163)
+  // An unwritten change: a flush writes only then (R-163)
+  dirty: false,
   storage: null,          // replaced by a memory stub in headless tests
 
   emptySave() {
-    // Every top-level field is declared here, so migrate repairs each one (ARC-020). revision: counts the writes, so a stale tab never
-    // writes over a newer save (R-001); play: the last play-screen setup (18d, null = none yet); crosshairs: per-weapon crosshair overrides
-    // (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n), the iPhone Home Screen tip shown (18p).
+    // Every field is declared here, so migrate repairs it (ARC-020). revision: write count (R-001); play: last setup (18d, null = none);
+    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p.
     return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
       ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
@@ -65,14 +61,13 @@ const Save = {
     }
     return this.data;
   },
-  // Brings any older save up to SAVE_VERSION; fills missing top-level fields and replaces ones of the wrong kind ("settings": null),
-  // then checks every stored setting against its definition (load and import both come through here).
+  // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null), checks every setting (load and import).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     const fresh = this.emptySave();
     for (const field in fresh) if (!saveFieldFits(fresh[field], loaded[field])) loaded[field] = fresh[field];
     Settings.sanitize(loaded.settings);
-    // A copy that starts with version and revision (SAVE_REVISION_HEAD); the other fields keep their order.
+    // Version and revision first (SAVE_REVISION_HEAD).
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);
     ordered.version = SAVE_VERSION;
     return ordered;
@@ -82,27 +77,25 @@ const Save = {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.saveNow(), SAVE_DEBOUNCE_MS);
   },
-  // Writes at once (callers that changed the save call it directly). Another tab wrote a newer save since this one was read: this tab
-  // carries on from that save instead of writing its stale copy over it (R-001).
+  // Writes at once; when another tab wrote a newer save, takes it instead of writing over it (R-001).
   saveNow() {
     clearTimeout(this.timer);
     if (this.adoptNewer()) return this.fail(SAVE_NEWER_ELSEWHERE);
     this.data.revision++;
     const text = JSON.stringify(this.data);
-    if (text.length > SAVE_MAX_BYTES) { this.data.revision--; return this.fail(SAVE_TOO_BIG); }
-    if (!this.write(SAVE_KEY, text)) { this.data.revision--; return false; }
-    this.dirty = false;
-    return true;
+    const written = text.length > SAVE_MAX_BYTES ? this.fail(SAVE_TOO_BIG) : this.write(SAVE_KEY, text);
+    if (written) this.dirty = false; else this.data.revision--;
+    return written;
   },
-  // Takes the stored save when another tab wrote a newer one (a 'storage' event, a page back from the cache, or before a write).
-  // Returns true when it did; the settings readers hear every key again.
+  // Takes a newer stored save (another tab's); true when it did.
   adoptNewer() {
     const raw = this.read(SAVE_KEY);
     if (saveRevisionOf(raw) <= this.data.revision) return false;
     try {
       this.data = this.migrate(JSON.parse(raw));
     } catch (error) {
-      return false;   // an unreadable newer record: keep this tab's save; the next load backs it up
+      // Unreadable: this tab's save stays.
+      return false;
     }
     this.dirty = false;
     Settings.applyAll();
@@ -116,22 +109,25 @@ const Save = {
     return false;
   },
   exportText() { return JSON.stringify(this.data); },
-  // Replaces the save with an exported one; throws on text that is not a save (the UI shows the message). The replaced save goes to
-  // BACKUP_KEY first (Restore backup undoes the import). Returns the write result: on a failed write the old save stays (R-037).
+  // Replaces the save; throws on a non-save. The old save goes to BACKUP_KEY, and stays on a failed write (R-037).
   importText(text) {
     const loaded = JSON.parse(text);
-    if (!saveLooksReal(loaded, this.emptySave())) throw new Error('no save version or progress in it');   // '{}' never wipes a save (R-038)
+    // '{}' never wipes a save (R-038)
+    if (!saveLooksReal(loaded, this.emptySave())) throw new Error('no save version or progress in it');
     const parsed = this.migrate(loaded);
-    parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));   // an older export still replaces the stored save
+    // An older export still replaces the stored save.
+    parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));
     const previous = this.data;
-    this.write(BACKUP_KEY, JSON.stringify(previous));
+    this.write(BACKUP_KEY, this.exportText());
     this.data = parsed;
     const written = this.saveNow();
-    if (!written && this.data === parsed) this.data = previous;   // (a newer save from another tab, adopted by saveNow, stays)
+    // Unless saveNow took another tab's save.
+    if (!written && this.data === parsed) this.data = previous;
     Settings.applyAll();
     return written;
   },
-  backupText() { return this.read(BACKUP_KEY); },   // the save replaced by the last import, or a save that could not be read (null = none)
+  // The save an import replaced, or an unreadable one (null = none)
+  backupText() { return this.read(BACKUP_KEY); },
   read(key) {
     try { return (this.storage || window.localStorage).getItem(key); } catch (error) { this.markBroken(); return null; }
   },
@@ -177,20 +173,17 @@ const Settings = {
     Save.scheduleSave();
     Bus.emit('setting', key);
   },
-  // The value as the definition allows it (numbers clamped to min..max), or undefined when it cannot be one: not one of the options,
-  // another type than the default, not a finite number. The one check for set and for every loaded or imported save (R-036).
+  // The value the definition allows (numbers clamped), or undefined; the one check for set and loaded saves (R-036).
   validValue(definition, value) {
-    if (definition.options) return definition.options.includes(value) ? value : undefined;   // options may mix 'auto' and numbers
+    // Options may mix 'auto' and numbers.
+    if (definition.options) return definition.options.includes(value) ? value : undefined;
     const fallback = definition.fallback;
-    // Older saves stored a plain on/off for what is a slider now (head bob): on = the slider's top, off = its bottom.
+    // An old on/off for what is now a slider (head bob): on = max, off = min.
     if (typeof value === 'boolean' && typeof fallback === 'number' && definition.min !== undefined) value = value ? definition.max : definition.min;
-    if (value === null || typeof value !== typeof fallback) return undefined;
-    if (typeof value !== 'number') return value;
-    if (!Number.isFinite(value)) return undefined;
+    if (value === null || typeof value !== typeof fallback || (typeof value === 'number' && !Number.isFinite(value))) return undefined;
     return definition.min === undefined ? value : clamp(value, definition.min, definition.max);
   },
-  // A loaded or imported save's settings: values a reader could not use are dropped (the default applies), numbers are clamped.
-  // Keys this version does not define are kept untouched.
+  // Drops loaded values no reader could use (the default applies), clamps numbers; unknown keys stay.
   sanitize(stored) {
     for (const [key, definition] of this.definitions) {
       if (!(key in stored)) continue;
@@ -198,7 +191,7 @@ const Settings = {
       if (value === undefined) delete stored[key]; else stored[key] = value;
     }
   },
-  // The one reset path (a Reset button, the tests): drop the saved values of exactly these keys, then announce each key once.
+  // Drops the saved values of these keys, then announces each once.
   resetKeys(keys) {
     for (const key of keys) delete Save.data.settings[key];
     Save.scheduleSave();
