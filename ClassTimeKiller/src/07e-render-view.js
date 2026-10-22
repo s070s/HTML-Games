@@ -18,7 +18,7 @@ const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirr
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
   skyRight: new Float32Array(3), skyUp: new Float32Array(3),
-  frustum: new Float32Array(24), overridden: false, eye: 1.62, bobPhase: 0,
+  frustum: new Float32Array(24), overridden: false, eye: 1.62, bobPhase: 0, alpha: 1,   // alpha: this frame's sim interpolation, for camera overrides
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
@@ -65,6 +65,7 @@ function headBob(id, seconds) {
 function updateCamera(seconds, alpha) {
   const camera = Render.camera;
   camera.fov = Render.config.fov;
+  ViewState.alpha = alpha;
   ViewState.overridden = !!Render.cameraOverride && Render.cameraOverride(camera) === true;
   readViewModel();
   if (!ViewState.overridden) {

@@ -405,14 +405,20 @@ const PuppetState = {
   zone: new Int8Array(MAX_ACTORS).fill(-1),     // caster -> its puppet zone
   moveX: new Float32Array(MAX_ACTORS), moveZ: new Float32Array(MAX_ACTORS), aimYaw: new Float32Array(MAX_ACTORS), aimPitch: new Float32Array(MAX_ACTORS),
   buttons: new Uint32Array(MAX_ACTORS),
+  drivenTick: new Int32Array(MAX_ACTORS).fill(-1),   // caster -> the Sim.tick its input last went to the puppet
   count: 0,                                     // puppets driven now: both systems skip their loop at 0
+  // Only a player drives: a bot's brain aims and walks from its own body, so its puppet keeps its own PvE brain (a plain swap).
+  canDrive(id) { return Actors.kind[id] === ACTOR_KIND.PLAYER; },
   link(caster, puppet, zone) {
-    this.puppet[caster] = puppet; this.master[puppet] = caster; this.zone[caster] = zone;
+    this.puppet[caster] = puppet; this.master[puppet] = caster; this.zone[caster] = zone; this.drivenTick[caster] = -1;
     this.count++;
   },
+  // Control that ends after 'puppet' ran this step gives the caster's input back now: 'puppetRestore' skips an unlinked caster,
+  // and a zeroed FIRE would count as a fresh press on the next step.
   unlink(caster, zone) {
     if (caster < 0 || this.zone[caster] !== zone) return;
-    this.master[this.puppet[caster]] = -1; this.puppet[caster] = -1; this.zone[caster] = -1;
+    if (this.drivenTick[caster] === Sim.tick) this.giveBack(caster);
+    this.master[this.puppet[caster]] = -1; this.puppet[caster] = -1; this.zone[caster] = -1; this.drivenTick[caster] = -1;
     this.count--;
   },
   // Ends the caster's puppet early (the ability's end: a hit on the caster, a stun, death, match end).
@@ -429,20 +435,25 @@ const PuppetState = {
     Actors.buttons[puppet] = Actors.buttons[caster]; Actors.pressed[puppet] = Actors.pressed[caster];
     Actors.moveX[caster] = Actors.moveZ[caster] = 0; Actors.buttons[caster] = Actors.pressed[caster] = 0;
     Actors.aimYaw[caster] = Actors.yaw[caster]; Actors.aimPitch[caster] = Actors.pitch[caster];
+    this.drivenTick[caster] = Sim.tick;
   },
   restore() {
     if (!this.count) return;
-    for (let caster = 0; caster < Actors.count; caster++) {
-      if (this.puppet[caster] < 0) continue;
-      Actors.moveX[caster] = this.moveX[caster]; Actors.moveZ[caster] = this.moveZ[caster]; Actors.buttons[caster] = this.buttons[caster];
-      Actors.aimYaw[caster] = this.aimYaw[caster]; Actors.aimPitch[caster] = this.aimPitch[caster];
-    }
+    for (let caster = 0; caster < Actors.count; caster++) if (this.puppet[caster] >= 0) this.giveBack(caster);
   },
-  // Render.cameraOverride: the local player's camera rides the eyes of the puppet it drives, looking along the player's aim.
+  giveBack(caster) {
+    Actors.moveX[caster] = this.moveX[caster]; Actors.moveZ[caster] = this.moveZ[caster]; Actors.buttons[caster] = this.buttons[caster];
+    Actors.aimYaw[caster] = this.aimYaw[caster]; Actors.aimPitch[caster] = this.aimPitch[caster];
+  },
+  // Render.cameraOverride: the local player's camera rides the interpolated eyes of the puppet it drives (the frame alpha in
+  // Render.view, as followPlayer), looking along the player's aim.
   placeCamera(camera) {
     const player = Game.playerId, puppet = player >= 0 ? this.puppet[player] : -1;
     if (puppet < 0) return false;
-    camera.x = Actors.x[puppet]; camera.y = Actors.eyeY(puppet); camera.z = Actors.z[puppet];
+    const alpha = Render.view.alpha;
+    camera.x = lerp(Actors.prevX[puppet], Actors.x[puppet], alpha);
+    camera.y = lerp(Actors.prevY[puppet], Actors.y[puppet], alpha) + Actors.eye[puppet];
+    camera.z = lerp(Actors.prevZ[puppet], Actors.z[puppet], alpha);
     camera.yaw = Actors.aimYaw[player]; camera.pitch = Actors.aimPitch[player]; camera.roll = 0;
     return true;
   },
@@ -729,14 +740,14 @@ function castMesmer(id, row) {
   return taken > 0;
 }
 // possess (A23, fodder and beasts) and frenzy (A24): the target changes side for the duration (frenzy: hostile to all).
-// A23 also gives the caster the puppet's controls and view (PuppetState) until the zone goes.
+// A23 from a player also gives the caster the puppet's controls and view (PuppetState) until the zone goes.
 function castTeamSwap(id, row, newTeam) {
-  const target = aimTarget(id, row.range), possess = row.effect === 'possess';
+  const target = aimTarget(id, row.range), possess = row.effect === 'possess', drive = possess && PuppetState.canDrive(id);
   if (target < 0 || (possess && (!isFodderOrBeast(target) || PuppetState.master[target] >= 0))) return false;
-  const zone = AbilityZones.add(possess ? ZONE_KIND.PUPPET : ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
+  const zone = AbilityZones.add(drive ? ZONE_KIND.PUPPET : ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
   AbilityZones.target[zone] = target; AbilityZones.value[zone] = Actors.team[target];
   Actors.team[target] = newTeam;
-  if (possess) PuppetState.link(id, target, zone);
+  if (drive) PuppetState.link(id, target, zone);
   return true;
 }
 function isFodderOrBeast(id) {
@@ -911,7 +922,7 @@ Object.assign(Abilities.effects, {
   push: { cast: castPush },
   link: { cast: castLink },
   mesmer: { cast: castMesmer },
-  possess: { cast: (id, row) => castTeamSwap(id, row, Actors.team[id]), step: (id) => PuppetState.puppet[id] >= 0, end: (id) => PuppetState.release(id) },
+  possess: { cast: (id, row) => castTeamSwap(id, row, Actors.team[id]), step: (id) => !PuppetState.canDrive(id) || PuppetState.puppet[id] >= 0, end: (id) => PuppetState.release(id) },
   frenzy: { cast: (id, row) => castTeamSwap(id, row, HOSTILE_TO_ALL) },
   revive: { cast: castRevive },
   bolt: { cast: castBolt },
