@@ -750,7 +750,11 @@ Test.add('progress', (check) => {
 
   ids = progressCardMatch(['slowtide', 'onehp', 'discord', 'endless']);
   CardRun.activate(progressSlot('slowtide'));
-  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE_SLOW) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  Buffs.add(ids.other, BUFF.RATE, 1.5, 5);
+  Buffs.applyScales(ids.other);
+  check('a fire-rate boost does not cancel a slow: they multiply', Test.near(Weapons.rateScale[ids.other], 0.75 * Powerups.rateScale[ids.other], 1e-6), Weapons.rateScale[ids.other]);
+  Buffs.cancel(ids.other, BUFF.RATE);
   const enemy = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   Actors.alive[enemy] = 1;
   CardRun.activate(progressSlot('discord'));

@@ -91,7 +91,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - A zone starts working on the step after it was placed. The A38 strike lands exactly `params.delay` after the cast.
 - Damage hooks: attacker scale (DAMAGE and MELEE buffs, touch kill), reducer (decoy, invulnerable, dome and amp wall, knockback resist, the bulwark weave), linked damage sharing (A21).
 - Event `ability.teleport` `{ id, x, y, z }`: only rows with `balance.dropsObjective` (A12 relocator). Dashes, rewinds and rifts keep a carried objective.
-- `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x powerup rate) and `Move.gravityScale`; 12b calls it when powerups change.
+- `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x RATE_SLOW x powerup rate; `BUFF.RATE_SLOW` is lowest-wins, neutral 1: ABL-004 time slow and C02 Slowtide, so a rate boost never cancels a slow) and `Move.gravityScale`; 12b calls it when powerups change.
 - Domes (A26) stop hitscan at their surface from either side (`Weapons.rayBlockers`); ability shields do not regenerate while `Damage.shieldRegenBlocked(id)`. Smoke zones are laid with `Smoke.add` (not drawn as a box).
 
 ## Meters (`src/12g-abilities-meters.js`)
