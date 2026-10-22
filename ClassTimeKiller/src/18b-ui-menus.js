@@ -8,7 +8,7 @@ const MAIN_MENU_ENTRIES = [
   { label: 'Career', screen: 'career' },   // ladder, challenges, operations, daily, cards, profile (18j)
   { label: 'Play', screen: 'play' },
   { label: 'Custom', screen: 'custom' },
-  { label: 'Range', screen: 'range' },
+  { label: 'Range', event: 'ui.range' },   // starts the Firing Range (18j careerOpenRange)
   { label: 'Map editor', screen: 'mapEditor' },
   { label: 'Settings', screen: 'settings' },
   { label: 'Help', screen: 'help' },

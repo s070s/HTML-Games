@@ -59,6 +59,7 @@ function careerOpenRange() {
   if (Ui.screens.has(CAREER_RANGE_MODE)) { Ui.open(CAREER_RANGE_MODE); return; }
   careerStartMode(CAREER_RANGE_MODE);
 }
+Bus.on('ui.range', careerOpenRange);   // the main menu Range entry (18b)
 
 // ---- Career hub ----
 const CAREER_SCREENS = [
