@@ -3,6 +3,9 @@
 // radius (the world's half-diagonal) while its centre drifts inside the old ring (Rng.rules); everyone outside takes
 // ringDamage[p] HP per second. Loot spots are the map's items: weapons with a rolled rarity (WPN-008, Rng.loot), armor
 // (shield by rarity), heals and ammo. No respawns: the last one standing wins.
+// Squads (params.squadSize > 1 and more participants than one squad): Actors.team = squad index (rules.teams stays 0),
+// squadmates spawn together, go down instead of dying (HPP06 downed, S11) and share params.squadBeacons respawn beacon
+// uses at one beacon per squad; the last squad standing wins. Drop-in: every spawn falls in from ROYALE_DROP_HEIGHT.
 
 const RING_HURT_INTERVAL = 1;          // the ring hurts once per second
 const RING_STATE = { WAIT: 'wait', SHRINK: 'shrink', CLOSED: 'closed' };
@@ -18,6 +21,13 @@ const LOOT_RARITY_COLORS = [[0.7, 0.7, 0.7], [0.3, 0.85, 0.3], [0.3, 0.55, 1], [
 const LOOT_SIZE = 0.5;
 const LOOT_LIFT = 0.4;
 const ROYALE_STANDING_RANK = 1000;     // standing actors rank above everyone out, then by kills
+const ROYALE_DROP_HEIGHT = 30;         // m: drop-in height above the spawn (less under a roof: no drop indoors)
+const DROP_PROBE = 1;                  // m: the roof and spread checks start this high above the feet
+const DROP_SPREAD = 1.5;               // m: squadmates land this far around the squad's drop point
+const BEACON_SECONDS = 4;              // a living squadmate holds Use this long at the beacon to bring the dead back
+const BEACON_COLOR = [0.3, 1, 0.5];
+const BEACON_WIDTH = 0.3;
+const BEACON_HEIGHT = 2;
 
 // Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up.
 const RoyaleLoot = {
@@ -32,8 +42,19 @@ const Ring = {
 };
 const royaleOutOrder = new Uint16Array(MAX_ACTORS);       // 1 = first out; 0 = still standing
 const lootSwapAt = new Float64Array(MAX_ACTORS);
+// Squads, per squad index: the drop point of the current spawn wave (anchorAt = its Sim.time) and how many landed there,
+// the beacon spot, its uses left and hold progress; holder/dead are 10 Hz scratch tallies.
+const Squads = {
+  count: 0,
+  anchorX: new Float32Array(MAX_ACTORS), anchorY: new Float32Array(MAX_ACTORS), anchorZ: new Float32Array(MAX_ACTORS),
+  anchorAt: new Float64Array(MAX_ACTORS), landed: new Uint8Array(MAX_ACTORS),
+  beaconX: new Float32Array(MAX_ACTORS), beaconY: new Float32Array(MAX_ACTORS), beaconZ: new Float32Array(MAX_ACTORS),
+  beaconUses: new Uint8Array(MAX_ACTORS), beaconProgress: new Float32Array(MAX_ACTORS),
+  holder: new Uint8Array(MAX_ACTORS), dead: new Uint8Array(MAX_ACTORS), seen: new Uint8Array(MAX_ACTORS),
+};
 Modes.loot = RoyaleLoot;
 Modes.ring = Ring;
+Modes.squads = Squads;
 
 Modes.register('royale', {
   hurtTimer: 0, lootTimer: 0, outCount: 0,
@@ -41,6 +62,8 @@ Modes.register('royale', {
     this.hurtTimer = 0; this.lootTimer = 0; this.outCount = 0;
     royaleOutOrder.fill(0);
     lootSwapAt.fill(0);
+    assignSquads();
+    placeBeacons();
     startRing(Sim.time);
     buildLoot(World.map);
     updateRingHud(Sim.time);
@@ -49,9 +72,10 @@ Modes.register('royale', {
     stepRing(now);
     this.hurtOutside(dt);
     this.lootTimer += dt;
-    if (this.lootTimer + TIME_EPSILON >= LOOT_CHECK_INTERVAL) { this.lootTimer -= LOOT_CHECK_INTERVAL; touchLoot(now); }
+    if (this.lootTimer + TIME_EPSILON >= LOOT_CHECK_INTERVAL) { this.lootTimer -= LOOT_CHECK_INTERVAL; touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
     updateRingHud(now);
   },
+  onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
     this.hurtTimer += dt;
     if (this.hurtTimer + TIME_EPSILON < RING_HURT_INTERVAL) return;
@@ -63,15 +87,116 @@ Modes.register('royale', {
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
   },
+  // Counts sides standing: each squad once, each solo actor on its own. A won squad names the player when it is theirs.
   isOver(now) {
     if (Modes.competitorsAtStart < 2) return Modes.standardIsOver(now);
-    let standing = 0, last = DRAW;
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.isActive(id)) { standing++; last = id; }
+    let standing = 0, sides = 0, last = DRAW;
+    Squads.seen.fill(0, 0, Squads.count);
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id] || !Modes.isActive(id)) continue;
+      standing++;
+      const squad = Actors.team[id];
+      if (squad >= 0 && Squads.seen[squad]) continue;
+      if (squad >= 0) Squads.seen[squad] = 1;
+      sides++; last = id;
+    }
     Modes.hud.aliveCount = standing;
-    return standing > 1 ? NOT_OVER : Modes.over(standing === 1 ? last : DRAW, 'eliminated');
+    if (sides > 1) return NOT_OVER;
+    return Modes.over(sides === 1 ? squadWinner(last) : DRAW, 'eliminated');
   },
   score(id) { return Actors.alive[id] ? ROYALE_STANDING_RANK + Modes.kills[id] : royaleOutOrder[id]; },
 });
+
+// ---- Squads, drop-in and beacons ----
+// Round-robin squads of at most squadSize; one squad or fewer (a small match) plays solo.
+function assignSquads() {
+  const size = Modes.rules.params.squadSize || 1;
+  let participants = 0;
+  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) participants++;
+  Squads.count = size > 1 && participants > size ? Math.ceil(participants / size) : 0;
+  Squads.anchorAt.fill(-1);
+  let order = 0;
+  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Actors.team[id] = Squads.count ? order++ % Squads.count : NO_TEAM;
+}
+
+// One beacon per squad on distinct spawn points (from a random start), with params.squadBeacons uses.
+function placeBeacons() {
+  const points = Modes.spawnPoints, uses = Modes.rules.params.squadBeacons || 0;
+  const offset = Squads.count && points.length ? Rng.rules.int(0, points.length - 1) : 0;
+  for (let squad = 0; squad < Squads.count; squad++) {
+    const point = points.length ? points[(offset + squad) % points.length] : null;
+    Squads.beaconX[squad] = point ? point.x : 0; Squads.beaconY[squad] = point ? point.y : 0; Squads.beaconZ[squad] = point ? point.z : 0;
+    Squads.beaconUses[squad] = point ? uses : 0;
+    Squads.beaconProgress[squad] = 0;
+  }
+}
+
+// The first squadmate of a spawn wave sets the squad's drop point; the others land around it.
+function dropIn(id) {
+  const squad = Actors.team[id];
+  if (squad >= 0 && Squads.count) joinSquadDrop(id, squad);
+  const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id];
+  if (!World.lineClear(x, y + DROP_PROBE, z, x, y + ROYALE_DROP_HEIGHT + STAND_HEIGHT, z)) return;
+  Actors.y[id] = Actors.prevY[id] = y + ROYALE_DROP_HEIGHT;
+}
+
+function joinSquadDrop(id, squad) {
+  if (Squads.anchorAt[squad] !== Sim.time) { setSquadAnchor(squad, Actors.x[id], Actors.y[id], Actors.z[id]); return; }
+  const slot = Squads.landed[squad]++;
+  const angle = slot * Math.PI * 2 / Math.max(1, Modes.rules.params.squadSize);
+  const anchorX = Squads.anchorX[squad], anchorY = Squads.anchorY[squad], anchorZ = Squads.anchorZ[squad];
+  let x = anchorX, z = anchorZ;
+  if (slot > 0) { x += Math.sin(angle) * DROP_SPREAD; z += Math.cos(angle) * DROP_SPREAD; }
+  if (!World.lineClear(anchorX, anchorY + DROP_PROBE, anchorZ, x, anchorY + DROP_PROBE, z)) { x = anchorX; z = anchorZ; }
+  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = anchorY; Actors.z[id] = Actors.prevZ[id] = z;
+}
+
+function setSquadAnchor(squad, x, y, z) {
+  Squads.anchorX[squad] = x; Squads.anchorY[squad] = y; Squads.anchorZ[squad] = z;
+  Squads.anchorAt[squad] = Sim.time;
+  Squads.landed[squad] = 1;
+}
+
+// 10 Hz: a squad with dead members and a beacon use left charges while a standing squadmate holds Use at its beacon.
+function stepBeacons(interval) {
+  if (!Squads.count) return;
+  Squads.holder.fill(0, 0, Squads.count); Squads.dead.fill(0, 0, Squads.count);
+  for (let id = 0; id < Actors.count; id++) {
+    const squad = Actors.team[id];
+    if (squad < 0 || squad >= Squads.count || !Modes.isActive(id)) continue;
+    if (!Actors.alive[id]) Squads.dead[squad]++;
+    else if (holdsBeacon(id, squad)) Squads.holder[squad] = 1;
+  }
+  for (let squad = 0; squad < Squads.count; squad++) {
+    const charging = Squads.holder[squad] && Squads.dead[squad] > 0 && Squads.beaconUses[squad] > 0;
+    Squads.beaconProgress[squad] = charging ? Squads.beaconProgress[squad] + interval : 0;
+    if (charging && Squads.beaconProgress[squad] + TIME_EPSILON >= BEACON_SECONDS) respawnSquad(squad);
+  }
+}
+
+function holdsBeacon(id, squad) {
+  return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
+    && withinTouch(id, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad], TOUCH_RADIUS);
+}
+
+// The squad's dead drop in over the beacon and count as standing again.
+function respawnSquad(squad) {
+  Squads.beaconUses[squad]--;
+  Squads.beaconProgress[squad] = 0;
+  setSquadAnchor(squad, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad]);
+  Squads.landed[squad] = 0;
+  for (let id = 0; id < Actors.count; id++) {
+    if (Actors.team[id] !== squad || Actors.alive[id] || !Modes.isActive(id)) continue;
+    royaleOutOrder[id] = 0;
+    Modes.spawnActor(id);
+  }
+  Modes.announce('A squad respawned at its beacon', 'objective', 2);
+}
+
+function squadWinner(id) {
+  const player = Game.playerId;
+  return Squads.count && player >= 0 && Actors.team[id] >= 0 && Actors.team[player] === Actors.team[id] ? player : id;
+}
 
 // ---- Ring ----
 function startRing(now) {
@@ -234,7 +359,12 @@ function drawRoyale(batch) {
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
     batch.mesh('box', RoyaleLoot.x[spot], RoyaleLoot.y[spot] + LOOT_LIFT, RoyaleLoot.z[spot], 0, 0, LOOT_SIZE, LOOT_SIZE, LOOT_SIZE, color[0], color[1], color[2], MARKER_GLOW);
   }
+  for (let squad = 0; squad < Squads.count; squad++) {
+    if (!Squads.beaconUses[squad]) continue;
+    batch.mesh('box', Squads.beaconX[squad], Squads.beaconY[squad] + BEACON_HEIGHT / 2, Squads.beaconZ[squad], 0, 0, BEACON_WIDTH, BEACON_HEIGHT, BEACON_WIDTH,
+      BEACON_COLOR[0], BEACON_COLOR[1], BEACON_COLOR[2], MARKER_GLOW);
+  }
 }
 
-Bus.on('match.setup', () => { RoyaleLoot.count = 0; });
+Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);

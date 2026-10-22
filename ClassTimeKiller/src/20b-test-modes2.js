@@ -538,6 +538,43 @@ Test.add('modes2', (check) => {
   endModeTest();
 });
 
+// M20 squads: round-robin squads, a shared drop-in, one respawn beacon per squad, and the last squad standing wins.
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1, -1, -1, -1]);
+  const squads = Modes.squads, params = Game.match.rules.params;
+  check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
+    && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
+  check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
+    && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
+  runSeconds(3);
+  check('royale: the drop lands on the ground', Actors.y[0] < 0.5 && Actors.alive[0] === 1, Actors.y[0]);
+  killActor(2, 1); killActor(4, 1);
+  Actors.alive[2] = 0; Actors.alive[4] = 0;
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  Actors.buttons[0] = 0;
+  runSeconds(0.3);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  check('royale: letting go of Use at the beacon starts over', !Actors.alive[2] && squads.beaconUses[0] === params.squadBeacons);
+  runSeconds(1.2);
+  Actors.buttons[0] = 0;
+  check('royale: holding Use at the squad beacon brings the dead squadmates back', Actors.alive[2] === 1 && Actors.alive[4] === 1 && squads.beaconUses[0] === params.squadBeacons - 1
+    && Math.hypot(Actors.x[2] - squads.beaconX[0], Actors.z[2] - squads.beaconZ[0]) <= DROP_SPREAD + 1e-3 && Modes.behaviour.score(2) >= ROYALE_STANDING_RANK);
+  killActor(1, 0); killActor(3, 0);
+  Sim.step();
+  check('royale: one squad member left keeps the squad in the match', !Game.match.ended && Modes.hud.aliveCount === 4);
+  killActor(5, 0);
+  Sim.step();
+  check('royale: the last squad standing wins', Game.match.ended && Actors.team[Game.match.winner] === 0 && Game.match.results.reason === 'eliminated');
+  endModeTest();
+
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
+  check('royale: a match of one squad or fewer plays solo', Modes.squads.count === 0 && Actors.team[0] === NO_TEAM && Actors.isEnemy(0, 1));
+  endModeTest();
+});
+
 // Royale weapon spots: owned copies and swaps at the carry limit keep the loot's rarity.
 const ROYALE_WEAPON_ITEMS = [
   { x: 10, y: 0, z: 10, item: 'kestrel', group: 'weapon' }, { x: 20, y: 0, z: 10, item: 'kestrel', group: 'weapon' },
