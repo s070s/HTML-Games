@@ -269,6 +269,45 @@ Test.add('hudui', (check) => {
   check('pve hud on a desktop: the side tables stay at the right edge', hudPveSideLeft(layout, width) + width === layout.right && hudPveNoteX(layout, noteWidth) === layout.centerX);
 });
 
+// ---- Phones: the comm wheel (17g) stays on screen and clear of every default touch button, in both hand layouts ----
+const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
+// The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
+function hudUiWheelProblem(layout) {
+  const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) {
+    const label = COMM_CALLOUTS[i].label;
+    commWheelSpotOf(ring, i, true, unit, spot);
+    const labelHalf = HudBatch.measure(label, HUD_TEXT_SMALL * unit) / 2, iconHalf = spot.size / 2;
+    const over = hudPveTouchOverlap(layout, spot.x - labelHalf, spot.labelY - textHalf, spot.x + labelHalf, spot.labelY + textHalf)
+      || hudPveTouchOverlap(layout, spot.x - iconHalf, spot.y - iconHalf, spot.x + iconHalf, spot.y + iconHalf);
+    if (over) return label + ' under ' + over;
+    const reach = Math.max(labelHalf, iconHalf);
+    if (spot.x - reach < 0 || spot.x + reach > layout.width || spot.y - iconHalf < 0 || spot.labelY + textHalf > layout.height) return label + ' off screen';
+  }
+  return '';
+}
+Test.add('hudui', (check) => {
+  const layout = {}, savedDevice = Input.device, savedPreset = TouchInput.currentPreset;
+  try {
+    for (const preset of [TOUCH_PRESETS[0], TOUCH_PRESETS[2]]) {
+      TouchInput.currentPreset = preset;
+      for (const phone of HUD_UI_PHONES) {
+        Input.device = 'touch';
+        updateHudLayout(layout, phone[0], phone[1]);
+        Input.device = savedDevice;
+        const problem = hudUiWheelProblem(layout), radius = commWheelRing.radius;
+        check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + '): every callout on screen, none under a touch button',
+          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit / 2, problem + ' ' + radius);
+      }
+    }
+  } finally { TouchInput.currentPreset = savedPreset; Input.device = savedDevice; }
+  Input.device = 'kbm';
+  updateHudLayout(layout, 1280, 800);
+  Input.device = savedDevice;
+  const ring = commWheelPlaceRing(layout);
+  check('comm wheel on a desktop: the ring stays round the crosshair at full size', ring.x === layout.centerX && ring.y === layout.centerY && ring.radius === COMM_WHEEL_RADIUS * layout.unit);
+});
+
 // ---- Custom match difficulty sliders (DIF-002) ----
 Test.add('hudui', (check) => {
   const draft = CustomMatch.defaults();

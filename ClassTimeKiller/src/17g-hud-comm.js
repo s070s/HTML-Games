@@ -13,6 +13,10 @@ const COMM_WHEEL_REACH = 0.06;         // the pick point stays this close to the
 const COMM_WHEEL_RADIUS = 150, COMM_WHEEL_ICON = 18, COMM_WHEEL_PICKED = 1.35, COMM_WHEEL_BACKDROP = 60;   // design pixels (times the HUD unit)
 const COMM_WHEEL_TO_RISE = 30;         // design pixels: the "orders to" line sits this far below the centre
 const COMM_WHEEL_SQUAD = 'SQUAD', COMM_WHEEL_TO = 'ORDERS TO';
+const COMM_WHEEL_LABEL_GAP = 4, COMM_WHEEL_TOUCH_GAP = 4;   // design pixels: icon to label; ring to the touch buttons on phones
+// On phones the ring fits below the ability row (its top bound) and beside the grenade button (the inner edge of the lower
+// buttons), so no label sits under a default touch button and the whole ring stays on screen at any phone size.
+const COMM_WHEEL_TOUCH_ROOF = 'ability1', COMM_WHEEL_TOUCH_WALL = 'grenade';
 
 const CommWheel = {
   open: false,
@@ -92,17 +96,59 @@ Bus.on('match.stop', () => CommWheel.reset());
 // The callouts on a ring around the crosshair, the picked one larger and brighter.
 function hudDrawCommWheel(pen, layout) {
   if (!CommWheel.open) return;
-  const unit = layout.unit, count = COMM_CALLOUTS.length, radius = COMM_WHEEL_RADIUS * unit;
-  pen.shape('square', layout.centerX, layout.centerY, (radius + COMM_WHEEL_BACKDROP * unit) * 2, HUD_COLOR.black, 0.35);   // keeps the labels readable on bright walls
+  const unit = layout.unit, count = COMM_CALLOUTS.length, ring = commWheelPlaceRing(layout), spot = commWheelSpot;
+  pen.shape('square', ring.x, ring.y, (ring.radius + COMM_WHEEL_BACKDROP * unit) * 2, HUD_COLOR.black, 0.35);   // keeps the labels readable on bright walls
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * 2 * Math.PI, picked = i === CommWheel.selected;
-    const x = layout.centerX + Math.sin(angle) * radius, y = layout.centerY - Math.cos(angle) * radius;
-    const size = COMM_WHEEL_ICON * unit * (picked ? COMM_WHEEL_PICKED : 1);
-    pen.shape('circle', x, y, size, picked ? Hud.colors.good : HUD_COLOR.dim, picked ? 0.95 : 0.6);
-    pen.label(COMM_CALLOUTS[i].label, x, y + size + 4 * unit, HUD_TEXT_SMALL * unit, picked ? Hud.colors.good : HUD_COLOR.text, 'center');
+    const picked = i === CommWheel.selected;
+    commWheelSpotOf(ring, i, picked, unit, spot);
+    pen.shape('circle', spot.x, spot.y, spot.size, picked ? Hud.colors.good : HUD_COLOR.dim, picked ? 0.95 : 0.6);
+    pen.label(COMM_CALLOUTS[i].label, spot.x, spot.labelY, HUD_TEXT_SMALL * unit, picked ? Hud.colors.good : HUD_COLOR.text, 'center');
   }
-  const toY = layout.centerY + COMM_WHEEL_TO_RISE * unit, addressee = CommWheel.addressee;
-  pen.label(COMM_WHEEL_TO, layout.centerX, toY, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
-  pen.label(addressee >= 0 ? Actors.name[addressee] : COMM_WHEEL_SQUAD, layout.centerX, toY + 16 * unit, HUD_TEXT_SMALL * unit, Hud.colors.good, 'center');
+  const toY = ring.y + COMM_WHEEL_TO_RISE * unit, addressee = CommWheel.addressee;
+  pen.label(COMM_WHEEL_TO, ring.x, toY, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
+  pen.label(addressee >= 0 ? Actors.name[addressee] : COMM_WHEEL_SQUAD, ring.x, toY + 16 * unit, HUD_TEXT_SMALL * unit, Hud.colors.good, 'center');
+}
+
+// ---- Where the ring goes: around the crosshair on desktops; on phones in the free area beside the lower touch buttons ----
+// One source for the drawing and the phone layout test (hudui). Reused objects: nothing is allocated per frame.
+const commWheelRing = { x: 0, y: 0, radius: 0 };
+const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
+const commWheelPlace = {};   // TouchInput.layoutOf scratch
+function commWheelLabelHalf(unit) { return HUD_TEXT_SMALL * unit * HUD_CELL_PX / HUD_FONT_PX / 2; }   // half the drawn text row (07f)
+function commWheelWidestLabel(unit) {
+  let widest = 0;
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudBatch.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
+  return widest;
+}
+// Half a touch button's size in pixels, read with its layout into commWheelPlace.
+function commWheelButtonHalf(controlId) {
+  const place = TouchInput.layoutOf(controlId, commWheelPlace);
+  return TouchInput.controlById[controlId].size * place.scale / 2;
+}
+// Phones: the box runs from below the ability row to the HUD bottom, and from the screen margin to the grenade button (the other
+// way round in the left-handed layout); the ring is as large as fits there with its picked icon and labels, never above
+// COMM_WHEEL_RADIUS.
+function commWheelPlaceRing(layout) {
+  const ring = commWheelRing, unit = layout.unit;
+  ring.x = layout.centerX; ring.y = layout.centerY; ring.radius = COMM_WHEEL_RADIUS * unit;
+  if (!layout.touch) return ring;
+  const gap = COMM_WHEEL_TOUCH_GAP * unit;
+  const roofHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_ROOF), top = commWheelPlace.y * layout.height + roofHalf + gap;
+  const wallHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_WALL) + gap, wallX = commWheelPlace.x * layout.width;
+  const mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
+  const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
+  const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
+  const below = icon + COMM_WHEEL_LABEL_GAP * unit + commWheelLabelHalf(unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
+  ring.radius = Math.max(0, Math.min(ring.radius, (layout.bottom - top - above - below) / 2, (right - left) / 2 - side));
+  ring.x = (left + right) / 2; ring.y = (top + above + layout.bottom - below) / 2;
+  return ring;
+}
+// One callout's icon centre and size and its label's centre line; the first at the top, then clockwise.
+function commWheelSpotOf(ring, index, picked, unit, out) {
+  const angle = (index / COMM_CALLOUTS.length) * 2 * Math.PI;
+  out.x = ring.x + Math.sin(angle) * ring.radius; out.y = ring.y - Math.cos(angle) * ring.radius;
+  out.size = COMM_WHEEL_ICON * unit * (picked ? COMM_WHEEL_PICKED : 1);
+  out.labelY = out.y + out.size + COMM_WHEEL_LABEL_GAP * unit;
+  return out;
 }
 Hud.register('front', 'commWheel', '', hudDrawCommWheel, true);
