@@ -1427,7 +1427,7 @@ void main(){
   col = mix(col, uSky, fres * 0.6);
   vec3 h = normalize(uSun + v);
   col += uSunCol * pow(max(dot(n, h), 0.0), 90.0) * 0.9;
-  float foam = uFoam * (1.0 - smoothstep(0.0, 0.9, vInfo.x)) * (0.55 + 0.45 * sin(q.x * 0.9 + q.y * 0.7 + uTime * 2.0));   // foam where shallower than 0.9 m
+  float foam = uFoam * (1.0 - smoothstep(0.0, 0.6, vInfo.x)) * (0.45 + 0.35 * sin(q.x * 0.9 + q.y * 0.7 + uTime * 2.0));   // foam where shallower than 0.6 m
   foam = clamp(foam, 0.0, 1.0);
   col = mix(col, vec3(0.9, 0.94, 0.95), foam);
   float a = mix(0.5, 0.86, deep) + fres * 0.12 + foam * 0.4;
@@ -2465,6 +2465,10 @@ const Water = {
     return d > 0 ? d : 0;
   },
   at(x, z) { return this.depth(x, z) > 0; },
+  /* true when water reaches the middle or a corner of the square of half-size r around (x, z) */
+  wetIn(x, z, r) {
+    return this.any && (this.at(x, z) || this.at(x - r, z - r) || this.at(x + r, z - r) || this.at(x - r, z + r) || this.at(x + r, z + r));
+  },
   /* the ground or the water surface, whichever is higher (what an aircraft must stay above) */
   top(x, z) { const g = Terrain.h(x, z), l = this.level(x, z); return l > g ? l : g; },
   /* where something floating with its feet `sink` below the surface stands: there, or on the ground where shallower */
@@ -3330,7 +3334,7 @@ function populateWorld(cfg) {
     const d = STRUCT[type], sc = (opts && opts.scale) || 1;
     const rad = Math.max(d.w, d.d) * 0.5 * sc;
     if (!free(x, z, rad)) return null;
-    if (Terrain.slope(x, z) > (type === 'tree' || type === 'rock' ? 0.7 : 0.35) || Water.at(x, z)) return null;
+    if (Terrain.slope(x, z) > (type === 'tree' || type === 'rock' ? 0.7 : 0.35) || Water.wetIn(x, z, rad)) return null;
     return addStruct(type, x, z, opts);
   };
   W.place = place;
@@ -15763,6 +15767,8 @@ const SelfTest = {
         } catch (e) { err = e.message; }
         this.check('a skirmish starts on the water map', !err && W.map.id === 'testwater' && !!W.player && !Water.at(W.player.x, W.player.z) && W.bridges.length > 0, err);
         if (!err) {
+          const wetStruct = W.plain.find((s) => s.type !== 'bridge' && Water.wetIn(s.x, s.z, Math.min(s.hx, s.hz)));
+          this.check('nothing but bridges is built in water', !wetStruct, wetStruct && wetStruct.type + ' at ' + Math.round(wetStruct.x) + ',' + Math.round(wetStruct.z));
           Object.assign(W.player, { x: lake.x, z: lake.z, y: Terrain.h(lake.x, lake.z) });
           Cam.update(STEP); Game.render(STEP);
           const chunks = Water.meshData().chunks.length;
