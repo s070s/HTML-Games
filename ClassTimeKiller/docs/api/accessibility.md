@@ -19,7 +19,7 @@ One source per setting. Settings the earlier sections read are filled through ho
 | `hud.element.minimap` `compass` `awareness` `barks` | on, off, on, on | 17f via `hudAddElement` | one toggle per element, like every HUD element. `barks` is in the Accessibility tab |
 | `controls.toggle.<id>` | hold | 05a | one per row with `toggle: true`: `crouch sprint walk prone fire alt use scoreboard` (hold or toggle, ACC-004) |
 | `gameplay.tips` | on | 18n | `Tips.show` at match start |
-| `assist.enabled`, `assist.gameSpeed`, `assist.aimAssist` | off, 1, 0 | 18l | the assist fields that have a reader (range copied from `DIFFICULTY_SLIDERS`); `DifficultyAssist.apply(setup)` |
+| `assist.enabled`, `assist.gameSpeed`, `assist.aimAssist` | off, 1, 0 | 18l | the assist fields that have a reader (range copied from `DIFFICULTY_SLIDERS`); `DifficultyAssist.apply(setup)` (rebuilds `setup.difficulty` from `setup.baseDifficulty`, the choice before any assist, so Restart and Play again drop assists switched off since) |
 
 Existing and unchanged: `ui.scale` (18a, 75-150%), `audio.master/sfx/ui/announcer/music` (separate volumes), `audio.mono`, `hud.captionSize/captionBackground`, `hud.element.captions`, `hud.element.soundRing`, `hud.teamShapes`, `controls.pad.aimAssist`, `controls.touch.aimAssist`, `controls.touch.autoFire`. `hud.colorBlind` and `hud.reduceMotion` no longer exist (replaced by the `accessibility.*` keys; old saves simply ignore them).
 
