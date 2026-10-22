@@ -780,3 +780,16 @@ Test.add('abilities', (check) => {
   check('F43 four quick forward taps cast the combo', Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 0);
   TestArena.finish();
 });
+
+// F44 (R-100): A40 Rally Cry's extra shield is a timed pool inside the surplus cap.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({ meter: 'ultimate' }), 'rally');
+  Damage.surplus[t.ally] = 80;
+  AbilityTest.cast(t);
+  runSeconds(0.1);
+  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+  check('F44 rally shield stops at the surplus cap', Damage.surplus[t.ally] === cap && Damage.surplus[t.caster] === 50, Damage.surplus[t.ally]);
+  runSeconds(CAT.abilities.byId('rally').duration + 0.2);
+  check('F44 rally shield is gone after its 8 s (earlier surplus stays)', Damage.surplus[t.ally] === 80 && Damage.surplus[t.caster] === 0, Damage.surplus[t.ally]);
+  TestArena.finish();
+});

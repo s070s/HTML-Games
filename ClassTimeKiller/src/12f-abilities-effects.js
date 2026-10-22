@@ -97,6 +97,7 @@ const Buffs = {
     // G08: a frozen actor's cloak drops while the freeze lasts (the buff itself keeps running).
     this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1 && !Damage.hasStatus(id, 'freeze'));
     if (!Actors.alive[id] || dt <= 0) return;
+    RallyShield.expire(id);
     if (this.has(id, BUFF.NO_FIRE)) Weapons.nextShot[id] = Math.max(Weapons.nextShot[id], this.remaining(id, BUFF.NO_FIRE));
     if (this.has(id, BUFF.REGEN)) healActor(id, this.get(id, BUFF.REGEN) * dt, -1);
     if (this.has(id, BUFF.TOUCH_KILL)) touchKill(id);
@@ -395,6 +396,15 @@ function lureStep(zone) {
 }
 
 const DecoyState = { zone: new Int8Array(MAX_ACTORS).fill(-1) };   // actor id -> zone of the decoy it is (-1 = a real actor)
+// A40: the surplus a rally gave each actor and when it ends (damage may have eaten into it already).
+const RallyShield = {
+  amount: new Float32Array(MAX_ACTORS), until: new Float64Array(MAX_ACTORS),
+  expire(id) {
+    if (this.amount[id] <= 0 || Sim.time < this.until[id]) return;
+    Damage.surplus[id] = Math.max(0, Damage.surplus[id] - this.amount[id]);
+    this.amount[id] = 0;
+  },
+};
 const LinkState = { partner: new Int8Array(MAX_ACTORS).fill(-1), until: new Float64Array(MAX_ACTORS), sharing: false };
 // A23 Puppet Jump: system 'puppet' (PUPPET_DRIVE_ORDER) hands the caster's input to the puppet and leaves the caster's body
 // still; 'puppetRestore' (PUPPET_RESTORE_ORDER) gives the caster's input fields back, so a step without a fresh input write
@@ -824,11 +834,15 @@ function castRift(id, row) {
   AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   return true;
 }
-// rally: every living ally (the user alone without a team) gains surplus shield and speed for the duration.
+// rally: every living ally (the user alone without a team) gains surplus shield (inside the PU07 cap, lost again with the speed)
+// and speed for the duration.
 function castRally(id, row) {
+  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
   for (let other = 0; other < Actors.count; other++) {
     if (!Actors.alive[other] || !alliesOf(id, other)) continue;
-    Damage.surplus[other] += row.params.surplus;
+    const granted = Math.min(row.params.surplus, Math.max(0, cap - Damage.surplus[other]));
+    Damage.surplus[other] += granted;
+    RallyShield.amount[other] += granted; RallyShield.until[other] = Sim.time + row.duration;
     Buffs.add(other, BUFF.SPEED, row.params.speed, row.duration);
   }
   return true;
@@ -1103,8 +1117,8 @@ Sim.addSystem('puppet', PUPPET_DRIVE_ORDER, () => PuppetState.drive());
 Sim.addSystem('puppetRestore', PUPPET_RESTORE_ORDER, () => PuppetState.restore());
 Render.cameraOverride = (camera) => PuppetState.placeCamera(camera);   // the first owner: 16x and 17e chain after it
 Input.aimAssistFilters.push((id) => PuppetState.puppet[id] < 0);   // no assist from the caster's still body while it drives
-Bus.on('actor.spawn', (event) => { RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
-Bus.on('actor.create', (id) => { RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
+Bus.on('actor.spawn', (event) => { RallyShield.amount[event.id] = 0; RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
+Bus.on('actor.create', (id) => { RallyShield.amount[id] = 0; RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
 Bus.on('actor.remove', (id) => { if (DecoyState.zone[id] >= 0) { AbilityZones.target[DecoyState.zone[id]] = -1; DecoyState.zone[id] = -1; } });
 Bus.on('move.step', (event) => Footprints.add(event.id));
 Bus.on('move.jump', strengthJump);
