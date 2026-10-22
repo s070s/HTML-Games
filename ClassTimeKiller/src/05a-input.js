@@ -16,6 +16,10 @@ const NO_BINDING = '';
 const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
+// INP-007 vibration: damage strength = amount / damageFull; blasts reach blastReach x their radius (fading with distance);
+// own fire with a weapon of a heavy class gives a short fixed buzz.
+const RUMBLE = { damageFull: 100, damageMs: 160, blastReach: 2, blastMs: 240, fireStrength: 0.35, fireMs: 70,
+  heavyClasses: ['heavy', 'explosive', 'power', 'shotgun', 'sniper'] };
 
 // ---- DOM helpers (S05 is the earliest section that builds DOM; touch controls and the UI share them) ----
 function makeElement(tag, className, text) {
@@ -23,6 +27,11 @@ function makeElement(tag, className, text) {
   if (className) element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
+}
+// A typing target: its keys belong to the field, so game bindings and menu navigation leave them alone (INP-010).
+function isTextField(element) {
+  if (!element) return false;
+  return element.tagName === 'TEXTAREA' || (element.tagName === 'INPUT' && element.type === 'text');
 }
 function injectStyle(id, css) {
   let style = document.getElementById(id);
@@ -41,7 +50,7 @@ const ACTION_ROWS = [
   { id: 'jump', label: 'Jump', group: 'Movement', button: BTN.JUMP, buffered: true, kbm: ['Key:Space'], pad: 'Pad:0' },
   { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:ControlLeft'], pad: 'Pad:1' },
   { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
-  { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'] },
+  { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
   { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true },
   { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
@@ -49,7 +58,7 @@ const ACTION_ROWS = [
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
-  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'] },
+  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
   { id: 'ultimate', label: 'Ultimate', group: 'Abilities', button: BTN.ULTIMATE, kbm: ['Key:KeyX'], pad: 'Pad:12' },
@@ -67,7 +76,7 @@ const ACTION_ROWS = [
   { id: 'slot9', label: 'Weapon slot 9', group: 'Weapons', slot: 9, kbm: ['Key:Digit9'] },
   { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, toggle: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
-  { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
+  { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'], pad: 'Pad:8+3' },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
@@ -106,10 +115,11 @@ const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
   aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
   aimAssistOverride: null, // fn() -> 0..100 aim assist floor for this match (the device slider is raised to it), -1 = no floor (S11: difficulty)
+  resumeBlocked: null,     // fn() -> true while the pause menu's Resume must wait (S07: the graphics context is lost, PLT-005)
   actions: ACTION_ROWS,    // the single action table
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
-  autoFireTarget: false,   // set by later sections each frame: crosshair is on a visible enemy
+  autoFireTarget: false,   // set each frame by updateAssist: the crosshair is on the aim assist target (a visible enemy)
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
   locked: false,           // pointer lock held
@@ -226,7 +236,7 @@ const Input = {
     const kind = binding.slice(0, binding.indexOf(':')), name = binding.slice(binding.indexOf(':') + 1);
     if (kind === 'Mouse') return MOUSE_LABELS[+name] || 'Mouse ' + (+name + 1);
     if (kind === 'Wheel') return 'Wheel ' + (name === 'up' ? 'Up' : 'Down');
-    if (kind === 'Pad') return PAD_GLYPHS[this.padStyle][+name] || 'Button ' + name;
+    if (kind === 'Pad') return name.split('+').map((button) => PAD_GLYPHS[this.padStyle][+button] || 'Button ' + button).join(' + ');   // 'Pad:8+2' = View + X
     return KEY_LABELS[name] || name.replace(/^Key|^Digit/, '');
   },
   // The rebinding screen waits for the next press of a device kind ('kbm' or 'pad'); callback(binding) gets it.
@@ -339,7 +349,7 @@ const Input = {
 
   // ---- Keyboard, mouse, wheel ----
   onKeyDown(event) {
-    if (event.target && event.target.tagName === 'INPUT' && event.target.type === 'text') return;
+    if (isTextField(event.target)) return;
     this.setDevice('kbm');
     const binding = 'Key:' + event.code;
     if (event.repeat) { if (this.bindingMap.has(binding) && !this.uiOpen) event.preventDefault(); return; }
@@ -419,8 +429,9 @@ const Input = {
     this.lockRefused = false;
     Game.resume();
   },
-  // The pause menu's Resume: lock first (needs the click), resume once the lock is granted.
+  // The pause menu's Resume: lock first (needs the click), resume once the lock is granted. Refused while a blocker holds (PLT-005).
   requestResume() {
+    if (this.resumeBlocked && this.resumeBlocked()) return;
     if (!this.needsLock()) { this.finishResume(); return; }
     this.resumePending = true;
     this.requestLock();
@@ -446,6 +457,20 @@ const Input = {
     if (this.device === 'gamepad') PadInput.rumble(level, duration);
     else if (this.device === 'touch' && navigator.vibrate) navigator.vibrate(Math.max(1, Math.round(duration * level)));
   },
+  // INP-007 vibration sources: damage to the local player, blasts near them and their own heavy fire.
+  rumbleDamage(event) {
+    if (event.target === Game.playerId && event.amount > 0) this.rumble(event.amount / RUMBLE.damageFull, RUMBLE.damageMs);
+  },
+  rumbleBlast(event) {
+    const id = Game.playerId;
+    if (id < 0 || !Actors.alive[id]) return;
+    const reach = event.radius * RUMBLE.blastReach;
+    const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.eyeY(id), event.z - Actors.z[id]);
+    if (distance < reach) this.rumble(1 - distance / reach, RUMBLE.blastMs);
+  },
+  rumbleFire(event) {
+    if (event.id === Game.playerId && event.mode !== 'melee' && RUMBLE.heavyClasses.includes(event.weaponClass)) this.rumble(RUMBLE.fireStrength, RUMBLE.fireMs);
+  },
 
   // ---- Per-frame sampling (Loop 'input' phase) ----
   frame(seconds) {
@@ -463,6 +488,7 @@ const Input = {
   discardFrame() {
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
     this.pendingButtons = 0; this.pendingSlot = 0; this.queued.fill(0); this.queuedTotal = 0;
+    this.autoFireTarget = false;
   },
   // A new spawn or a new player actor resets the view angles to the actor's facing.
   syncAim(id) {
@@ -495,17 +521,20 @@ const Input = {
     return true;
   },
   // INP-008: slow the look inside a 3 degree cone and pull toward the target (no snap). Returns the look multiplier.
+  // The same single target search sets autoFireTarget (INP-006): the crosshair is within the target's torso width.
   updateAssist(id, seconds) {
-    const assist = this.assist, strength = this.assistStrength();
+    const assist = this.assist, strength = this.assistStrength(), autoFire = this.autoFire && this.device === 'touch';
     assist.active = false; assist.slowdown = 1; assist.error = 0;
-    if (!strength || !this.findAssistTarget(id, this.assistPoint)) return 1;
+    this.autoFireTarget = false;
+    if ((!strength && !autoFire) || !this.findAssistTarget(id, this.assistPoint)) return 1;
     const point = this.assistPoint, aim = this.aim;
     const dx = point.x - Actors.x[id], dy = point.y - Actors.eyeY(id), dz = point.z - Actors.z[id];
     const errorYaw = wrapAngle(Math.atan2(dx, dz) - aim.yaw);
     const errorPitch = Math.atan2(dy, Math.hypot(dx, dz)) - aim.pitch;
     const error = Math.hypot(errorYaw * Math.cos(aim.pitch), errorPitch);
     assist.error = error;
-    if (error > AIM_ASSIST.coneRadians) return 1;
+    if (autoFire) this.autoFireTarget = error < Math.atan2(TORSO_RADIUS, Math.hypot(dx, dy, dz));
+    if (!strength || error > AIM_ASSIST.coneRadians) return 1;
     assist.active = true;
     assist.slowdown = 1 - AIM_ASSIST.slowdown * strength;
     const lookActive = this.look.assistedX !== 0 || this.look.assistedY !== 0;
@@ -597,6 +626,9 @@ Input.addSettings(TOGGLE_SETTINGS);
 
 Bus.on('boot', () => Input.init());
 Bus.on('setting', () => { Input.settingsDirty = true; });
+Bus.on('damage', (event) => Input.rumbleDamage(event));
+Bus.on('explosion', (event) => Input.rumbleBlast(event));
+Bus.on('weapon.fire', (event) => Input.rumbleFire(event));
 Bus.on('game.pause', () => { Input.clearAll(); Input.exitLock(); });
 Bus.on('match.start', () => {
   Input.clearAll();

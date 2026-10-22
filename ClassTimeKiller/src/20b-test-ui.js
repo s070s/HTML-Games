@@ -92,6 +92,28 @@ Test.add('ui', (check) => uiWith(() => {
 }));
 
 Test.add('ui', (check) => uiWith(() => {
+  Ui.register('testTyping', {
+    build(root) {
+      const field = makeElement('input');
+      field.type = 'text';
+      root.appendChild(field);
+      root.appendChild(makeElement('textarea'));
+      root.appendChild(Ui.button('After', () => {}));
+    },
+  });
+  Ui.open('testTyping');
+  const element = Ui.top().element, field = element.querySelector('input'), area = element.querySelector('textarea');
+  const keyIn = (target, code) => target.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  field.focus(); keyIn(field, 'ArrowDown');
+  check('typing: arrows inside a text field move the caret, not the menu focus (INP-010)', document.activeElement === field);
+  area.focus(); keyIn(area, 'ArrowUp');
+  check('typing: the same inside a textarea', document.activeElement === area);
+  check('typing: a textarea can take the menu focus', Array.from(element.querySelectorAll(UI_FOCUSABLE)).includes(area));
+  field.focus(); keyIn(field, 'Escape');
+  check('typing: Esc in a text field still goes back', Ui.current() !== 'testTyping');
+}));
+
+Test.add('ui', (check) => uiWith(() => {
   const clicks = [];
   uiOpenTestScreen('testNav', ['First', 'Second', 'Third'], clicks);
   const buttons = Array.from(Ui.top().element.querySelectorAll('button'));

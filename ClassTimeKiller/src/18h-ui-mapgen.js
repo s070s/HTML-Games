@@ -94,7 +94,6 @@ function mapgenMenuChoices() {
 function mapgenMenuSeedRow(render) {
   const input = makeElement('input', 'mg-field');
   input.type = 'text'; input.inputMode = 'numeric'; input.value = String(MapGenMenu.state.seed);
-  stopTextKeys(input);
   input.addEventListener('change', () => { if (!MapGenMenu.setSeedText(input.value)) Ui.toast('A seed is a whole number.'); render(); });
   const wrap = makeElement('div', 'mg-controls');
   wrap.appendChild(input);
@@ -105,7 +104,6 @@ function mapgenMenuShareRows(render) {
   const mine = makeElement('input', 'mg-field mg-code'), paste = makeElement('input', 'mg-field mg-code');
   mine.type = 'text'; mine.readOnly = true; mine.value = MapGenMenu.shareCode();
   paste.type = 'text'; paste.placeholder = 'Paste a map code';
-  [mine, paste].forEach(stopTextKeys);
   const copyWrap = makeElement('div', 'mg-controls'), pasteWrap = makeElement('div', 'mg-controls');
   copyWrap.appendChild(mine);
   copyWrap.appendChild(Ui.button('Copy', () => copyText(mine.value, mine)));

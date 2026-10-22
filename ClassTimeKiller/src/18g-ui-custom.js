@@ -563,9 +563,6 @@ Ui.register('custom', {
 });
 
 // ---- Presets screen: save the current settings, load, overwrite, delete ----
-function stopTextKeys(input) {
-  input.addEventListener('keydown', (event) => { if (event.code !== 'Tab' && event.code !== 'Escape') event.stopPropagation(); });
-}
 function presetRow(preset, nameInput, renderList) {
   const wrap = makeElement('div', 'cm-controls');
   wrap.appendChild(Ui.button('Load', () => {
@@ -589,7 +586,6 @@ Ui.register('customPresets', {
     const nameInput = makeElement('input', 'cm-name');
     nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
-    stopTextKeys(nameInput);
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {
       list.replaceChildren();
@@ -630,7 +626,6 @@ Ui.register('customShare', {
     mine.value = CustomMatch.encode(editorDraft());
     paste.placeholder = 'Paste a match code here';
     const message = makeElement('p', 'ui-note');
-    [mine, paste].forEach(stopTextKeys);
     const importButton = Ui.button('Import code', () => {
       const result = CustomMatch.decode(paste.value);
       message.className = result.error ? 'ui-note cm-error' : 'ui-note';

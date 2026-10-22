@@ -536,6 +536,7 @@ function handleContextRestored() {
   Render.pausedForLoss = false;
   toastText('Graphics restored');
 }
+Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 
 Bus.on('boot', () => {
   if (Game.headless || !Render.init()) return;

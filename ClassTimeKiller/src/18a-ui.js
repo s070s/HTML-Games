@@ -5,7 +5,7 @@
 
 const UI_TOAST_MS = 2600;
 const UI_MAX_TOASTS = 4;
-const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex="0"]';
+const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
@@ -170,6 +170,7 @@ const Ui = {
   },
   onKeyDown(event) {
     if (!this.stack.length || event.defaultPrevented) return;
+    if (isTextField(event.target) && event.code !== 'Escape' && event.code !== 'Tab') return;   // arrows move the caret while typing
     if (event.code === 'Escape') this.back();
     else if (event.code === 'Tab') this.navigate(event.shiftKey ? 'prev' : 'next');
     else if (UI_KEY_COMMANDS[event.code]) this.navigate(UI_KEY_COMMANDS[event.code]);

@@ -633,19 +633,102 @@ Test.add('input', (check) => {
   check('touch: a drag is not a tap', (Actors.buttons[id] & BTN.FIRE) === 0);
   setInputSetting('controls.touch.tapToFire', false);
 
+  // INP-006: the aim assist search fills autoFireTarget each frame. A target 1 degree off at 10 m is on the torso, 5 degrees is not.
   startInputMatch(); Input.setDevice('touch');
-  Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
-  check('touch: auto-fire presses fire while the crosshair is on an enemy', Input.autoFire && (Actors.buttons[id] & BTN.FIRE) !== 0);
-  Input.autoFireTarget = false; inputStepAndFrame(); inputStepAndFrame();
-  check('touch: auto-fire stops when the crosshair leaves', (Actors.buttons[id] & BTN.FIRE) === 0);
-  setInputSetting('controls.touch.autoFire', false);
-  Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
+  Actors.x[id] = 0; Actors.y[id] = 0; Actors.z[id] = 0; Actors.yaw[id] = 0; Actors.pitch[id] = 0;
+  let offDegrees = 1;
+  Input.aimAssistTarget = (actor, out) => { out.x = Math.sin(offDegrees * DEG) * 10; out.y = Actors.eyeY(actor); out.z = Math.cos(offDegrees * DEG) * 10; return true; };
+  Input.frame(INPUT_TEST_FRAME);
+  check('touch: auto-fire presses fire while the crosshair is on an enemy', Input.autoFire && Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) !== 0);
+  offDegrees = 5; inputStepAndFrame(); inputStepAndFrame();
+  check('touch: auto-fire stops when the crosshair leaves', !Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) === 0);
+  offDegrees = 1;
+  setInputSetting('controls.touch.aimAssist', 0); inputStepAndFrame();
+  check('touch: auto-fire finds the enemy with the aim assist slider at 0', (Actors.buttons[id] & BTN.FIRE) !== 0);
+  setInputSetting('controls.touch.aimAssist', 70);
+  setInputSetting('controls.touch.autoFire', false); inputStepAndFrame(); inputStepAndFrame();
   check('touch: auto-fire can be turned off', !Input.autoFire && (Actors.buttons[id] & BTN.FIRE) === 0);
   setInputSetting('controls.touch.autoFire', true);
-  Input.autoFireTarget = false;
-  Input.setDevice('kbm'); Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
-  check('touch: auto-fire never acts for other devices', (Actors.buttons[id] & BTN.FIRE) === 0);
-  Input.autoFireTarget = false;
+  Input.setDevice('kbm'); inputStepAndFrame(); inputStepAndFrame();
+  check('touch: auto-fire never acts for other devices', !Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) === 0);
+  Input.aimAssistTarget = null;
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+  Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
+  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
+  check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
+  Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
+  check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
+  check('touch: COMM stays hidden until a comm wheel fills its hook', TouchInput.elements.comm.classList.contains('off'));
+  const id = Game.playerId;
+  Input.setDevice('touch'); TouchInput.syncVisible();
+  inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);
+  check('touch: holding USE holds the Use button', (Actors.buttons[id] & BTN.USE) !== 0);
+  inputTouchPointer('pointerup', TouchInput.elements.use, 7, 300, 200); inputStepAndFrame(); inputStepAndFrame();
+  check('touch: releasing USE lets go', (Actors.buttons[id] & BTN.USE) === 0);
+  const stickSprints = TouchInput.stickSprints;
+  TouchInput.stickSprints = () => false; TouchInput.updateSprint(1);
+  check('touch: a full stick push does not sprint where sprint walks (Tactical)', !TouchInput.stick.sprinting);
+  TouchInput.stickSprints = () => true; TouchInput.updateSprint(1);
+  check('touch: a full stick push sprints elsewhere', TouchInput.stick.sprinting);
+  TouchInput.updateSprint(0);
+  TouchInput.stickSprints = stickSprints;
+});
+
+Test.add('input', (check) => {
+  const id = startInputMatch();
+  const effects = [], original = PadInput.activePad;
+  PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });
+  Input.device = 'gamepad';
+  Actors.x[id] = 0; Actors.y[id] = 0; Actors.z[id] = 0;
+  Input.rumbleDamage({ target: id, amount: 50 });
+  Input.rumbleDamage({ target: id + 1, amount: 50 });
+  check('rumble: damage to the player buzzes by amount (INP-007)', effects.length === 1 && Test.near(effects[0].strongMagnitude, 0.5, 1e-9));
+  effects.length = 0;
+  Input.rumbleBlast({ x: 3, y: Actors.eyeY(id), z: 0, radius: 3 });
+  Input.rumbleBlast({ x: 30, y: 0, z: 0, radius: 3 });
+  check('rumble: a near blast buzzes, fading with distance; a far one does not', effects.length === 1 && Test.near(effects[0].strongMagnitude, 0.5, 1e-9));
+  effects.length = 0;
+  Input.rumbleFire({ id, weaponClass: 'heavy', mode: 'primary' });
+  Input.rumbleFire({ id, weaponClass: 'rifle', mode: 'primary' });
+  Input.rumbleFire({ id: id + 1, weaponClass: 'heavy', mode: 'primary' });
+  check('rumble: only the player\'s own heavy fire buzzes', effects.length === 1 && effects[0].strongMagnitude === RUMBLE.fireStrength);
+  check('rumble: the bus wires damage, explosion and weapon.fire', ['damage', 'explosion', 'weapon.fire'].every((type) => Bus.listeners.get(type).some((listener) => String(listener).includes('Input.rumble'))));
+  PadInput.activePad = original;
+});
+
+Test.add('input', (check) => {
+  const id = startInputMatch();
+  const pad = inputFakePad();
+  inputUsePad(pad);
+  check('pad: walk, gadget and comm have View chord defaults (INP-007)', Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
+  check('pad: a chord binding is labelled with both glyphs', Input.bindingLabel('Pad:8+2') === 'View + X');
+  inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: View + X holds gadget, not reload', (Actors.buttons[id] & BTN.GADGET) !== 0 && (Actors.buttons[id] & BTN.RELOAD) === 0);
+  check('pad: the chord lets go of the scoreboard', !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 2, false); inputStepAndFrame(); inputStepAndFrame();
+  check('pad: releasing X releases the gadget', (Actors.buttons[id] & BTN.GADGET) === 0);
+  inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: X alone still reloads', (Actors.buttons[id] & BTN.RELOAD) !== 0 && (Actors.buttons[id] & BTN.GADGET) === 0);
+  inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  Game.pause('graphics');
+  Render.lost = true;
+  Input.requestResume();
+  check('pause: Resume waits while the graphics context is lost (PLT-005)', Game.paused);
+  Render.lost = false;
+  Input.requestResume();
+  check('pause: Resume works again once the graphics are back', !Game.paused);
+  check('pause: the graphics pause has its own reason text', !!PAUSE_REASONS.graphics);
 });
 
 Test.add('input', (check) => {

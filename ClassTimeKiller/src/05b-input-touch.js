@@ -31,7 +31,8 @@ const TOUCH_PRESETS = [
   { id: 'compact', label: 'Compact', mirror: false, scale: 0.8 },
   { id: 'mirrored', label: 'Left-handed', mirror: true, scale: 1 },
 ];
-// Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it.
+// Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
+// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.72, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
@@ -48,6 +49,10 @@ const TOUCH_CONTROLS = [
   { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.07, size: 40 },
   { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.07, size: 40 },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
+  { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
+  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.82, y: 0.22, size: 46 },
+  { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.14, size: 46 },
+  { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.07, size: 40, need: 'comm' },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -71,6 +76,12 @@ function gyroToLook(rotationRate, angle, out) {
   return out;
 }
 
+// INP-004: the USE button shows only while the running mode needs Use held (mode row useButton).
+function useButtonNeeded() {
+  const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
+  return !!mode && mode.useButton;
+}
+
 const TouchInput = {
   layer: null, zone: null, live: null, knob: null,
   elements: {},                    // control id -> DOM node
@@ -83,6 +94,9 @@ const TouchInput = {
   currentPreset: TOUCH_PRESETS[0],
   gyro: { right: 0, down: 0, attached: false },
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
+  // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
+  needs: { use: () => useButtonNeeded(), comm: null },
+  stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
 
   init() {
     this.buildLayer();
@@ -212,7 +226,7 @@ const TouchInput = {
   },
   updateSprint(push) {
     const stick = this.stick, index = Input.actionIndex.sprint;
-    if (!stick.sprinting && push > TOUCH_SPRINT_ON) { stick.sprinting = true; Input.pressAction(index); }
+    if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.pressAction(index); }
     else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.releaseAction(index); }
   },
   endStick() {
@@ -333,9 +347,10 @@ const TouchInput = {
     this.applyAll();
   },
   applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
+  needMet(need) { const check = this.needs[need]; return !!check && !!check(); },
   applyControl(control) {
     const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch);
-    const optionOff = control.setting && !Input.config[control.setting];
+    const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));
     const size = control.size * layout.scale;
     element.style.left = layout.x * 100 + '%';
     element.style.top = layout.y * 100 + '%';
@@ -383,3 +398,4 @@ const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: v
 Input.sources.push(TouchInput);
 Input.addSettings(TOUCH_SETTINGS);
 Bus.on('setting', (key) => { if (key === 'controls.touch.gyro' && TouchInput.layer) TouchInput.requestGyro(); });
+Bus.on('match.start', () => { if (TouchInput.layer) TouchInput.applyAll(); });   // need-gated buttons follow the new mode

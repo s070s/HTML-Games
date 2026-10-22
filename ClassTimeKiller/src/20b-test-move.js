@@ -271,6 +271,23 @@ Test.add('move', (check) => {
   check('walk speed = 0.52 x 6.0', Test.near(testSpeed(id), 3.12, 0.03), testSpeed(id));
 });
 
+// INP-003: Tactical has no sprint, so Shift (the sprint button) walks: walk speed, walk accuracy, no footsteps.
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'tactical' });
+  const id = groundedTester(-40, 0);
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('tactical: sprint walks at 0.52 x 6.0', Test.near(testSpeed(id), 3.12, 0.03), testSpeed(id));
+  check('tactical: walking on sprint keeps the walk accuracy', Move.inaccuracy(id) === Move.preset(id).inaccuracy.walk);
+  check('tactical: walking on sprint is silent', recordEvents(['move.step'], () => stepSeconds(1)).length === 0);
+  check('tactical: the touch stick does not press sprint there', !TouchInput.stickSprints());
+  useTestRules({ move: 'arena' });
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('arena: the sprint button never walks', testSpeed(id) > Move.preset(id).groundSpeed * 0.95 && TouchInput.stickSprints(), testSpeed(id));
+});
+
 Test.add('move', (check) => {
   loadTestWorld();
   useTestRules({ move: 'tactical' });
