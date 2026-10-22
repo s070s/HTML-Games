@@ -732,6 +732,37 @@ Test.add('input', (check) => {
   inputReleasePad();
 });
 
+// A chord never fires View's own action (the scoreboard), held or toggled; View alone still opens it.
+function inputPadFrames(seconds) { for (let time = 0; time < seconds; time += INPUT_TEST_FRAME) Input.frame(INPUT_TEST_FRAME); }
+Test.add('input', (check) => {
+  startInputMatch();
+  const pad = inputFakePad(), events = recordEvents(['input.action'], () => {
+    inputUsePad(pad);
+    inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
+    inputPadButton(pad, 2, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+    inputPadButton(pad, 2, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  });
+  check('pad (hold): a chord sends no scoreboard press at all', !events.some((event) => event.action === 'scoreboard'), JSON.stringify(events));
+  inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  check('pad (hold): View held alone shows the scoreboard', Input.isHeld('scoreboard'));
+  inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad (hold): a chord after that lets go of it', !Input.isHeld('scoreboard') && Input.isHeld('gadget'));
+  inputPadButton(pad, 2, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  setInputSetting('controls.toggle.scoreboard', 'toggle');
+  inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  inputPadButton(pad, 2, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  check('pad (toggle): a chord leaves the scoreboard off', !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  check('pad (toggle): it waits for View to be let go', !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  check('pad (toggle): a View tap turns it on', Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  check('pad (toggle): another tap turns it off', !Input.isHeld('scoreboard'));
+  setInputSetting('controls.toggle.scoreboard', 'hold');
+  inputReleasePad();
+});
+
 Test.add('input', (check) => {
   startInputMatch();
   Game.pause('graphics');

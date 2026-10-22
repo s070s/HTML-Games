@@ -15,6 +15,7 @@ const PAD_BINDINGS = Array.from({ length: PAD_BUTTON_COUNT }, (unused, index) =>
 // INP-007 second layer: while View (Share / Select) is held, a button with a chord binding 'Pad:8+<button>' uses it instead
 // (every one of the 16 standard buttons already has a default action).
 const PAD_MODIFIER = 8;
+const PAD_MODIFIER_HOLD = 0.25;             // s View must be held alone before its own action (the scoreboard) goes down: a chord may follow
 const PAD_CHORD_BINDINGS = PAD_BINDINGS.map((unused, index) => 'Pad:' + PAD_MODIFIER + '+' + index);
 const PAD_DIRECTION_BUTTONS = [12, 13, 14, 15];                 // d-pad up, down, left, right
 const PAD_DIRECTION_NAMES = ['up', 'down', 'left', 'right'];
@@ -39,6 +40,8 @@ const PadInput = {
   index: -1,                          // pad the player last used
   previous: new Uint8Array(PAD_BUTTON_COUNT),
   chorded: new Uint8Array(PAD_BUTTON_COUNT),   // 1 = this held button went down as a chord, so its release lets go of the chord
+  modifierWait: -1,                   // s View has been held while its own action waits for a chord or PAD_MODIFIER_HOLD, -1 = not waiting
+  modifierActed: 0,                   // 1 = View's own action is down (held alone past PAD_MODIFIER_HOLD)
   stick: { x: 0, y: 0, magnitude: 0 },    // scratch output of shapeStick
   menuDirection: '',
   menuTimer: 0,
@@ -67,7 +70,7 @@ const PadInput = {
     emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
+  reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); this.modifierWait = -1; this.modifierActed = 0; },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
     this.padId = pad.id;
@@ -92,6 +95,7 @@ const PadInput = {
     this.detectStyle(pad);
     this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
     for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
+    this.updateModifier(seconds);
     this.readSticks(pad, seconds);
     this.updateMenuRepeat(pad, seconds);
   },
@@ -108,11 +112,41 @@ const PadInput = {
     const binding = this.layerBinding(index);
     if (Input.deliverCapture(binding)) return;
     if (Input.uiOpen && PAD_MENU_ACTIONS[index]) { this.emitMenu(PAD_MENU_ACTIONS[index]); return; }   // the menu may close: the press must not also act in the game
-    if (binding === PAD_CHORD_BINDINGS[index]) {
-      this.chorded[index] = 1;
-      Input.bindingUp(PAD_BINDINGS[PAD_MODIFIER]);   // the chord takes over: the modifier's own action (scoreboard) lets go
-    }
+    if (index === PAD_MODIFIER) { this.modifierWait = 0; return; }   // its own action waits: a chord must never also open the scoreboard
+    if (binding === PAD_CHORD_BINDINGS[index]) this.startChord(index);
     Input.bindingDown(binding);
+  },
+  // The chord takes over: View's own action never fires for this hold (and lets go if it was already down).
+  startChord(index) {
+    this.chorded[index] = 1;
+    this.modifierWait = -1;
+    if (!this.modifierActed) return;
+    this.modifierActed = 0;
+    Input.bindingUp(PAD_BINDINGS[PAD_MODIFIER]);
+  },
+  // View held alone past PAD_MODIFIER_HOLD: its own action goes down (a held scoreboard); a toggled one waits for the release.
+  updateModifier(seconds) {
+    if (this.modifierWait < 0) return;
+    this.modifierWait += seconds;
+    if (this.modifierWait < PAD_MODIFIER_HOLD || this.modifierToggles()) return;
+    this.modifierWait = -1;
+    this.modifierActed = 1;
+    Input.bindingDown(PAD_BINDINGS[PAD_MODIFIER]);
+  },
+  modifierToggles() {
+    const list = Input.bindingMap.get(PAD_BINDINGS[PAD_MODIFIER]);
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) if (Input.toggleMode[list[i]]) return true;
+    return false;
+  },
+  // View let go: with no chord it was a tap, so its own action fires now (a toggled scoreboard flips); else it lets go.
+  releaseModifier() {
+    const modifier = PAD_BINDINGS[PAD_MODIFIER], tapped = this.modifierWait >= 0;
+    this.modifierWait = -1;
+    if (tapped) { Input.bindingDown(modifier); Input.bindingUp(modifier); return; }
+    if (!this.modifierActed) return;
+    this.modifierActed = 0;
+    Input.bindingUp(modifier);
   },
   // With the modifier held, a button that has a chord binding uses it (View + X = gadget); otherwise its own binding.
   layerBinding(index) {
@@ -120,6 +154,7 @@ const PadInput = {
     return Input.bindingMap.has(PAD_CHORD_BINDINGS[index]) ? PAD_CHORD_BINDINGS[index] : PAD_BINDINGS[index];
   },
   releaseButton(index) {
+    if (index === PAD_MODIFIER) { this.releaseModifier(); return; }
     if (!this.chorded[index]) { Input.bindingUp(PAD_BINDINGS[index]); return; }
     this.chorded[index] = 0;
     Input.bindingUp(PAD_CHORD_BINDINGS[index]);

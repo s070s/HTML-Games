@@ -599,7 +599,8 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
-TouchInput.stickSprints = () => !sprintWalks(matchPreset());   // a full touch-stick push in Tactical runs instead of walking
+// A full touch-stick push in Tactical runs instead of walking: the player's own preset (a hero's movement row wins over the match's).
+TouchInput.stickSprints = () => !sprintWalks(Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset());
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
