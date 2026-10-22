@@ -321,13 +321,15 @@ Test.add('progress', (check) => {
   });
   check('medals: no Flawless Wave after taking damage', got.length === 0, got.join());
   Game.stop();
-  const ghostRun = (alarm) => progressMedals(() => {
-    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo' }, player: { name: 'You' }, bots: [{ dummy: true }] });
+  const ghostRun = (alarm, stealth) => progressMedals(() => {
+    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo', params: { stealth } }, player: { name: 'You' }, bots: [{ dummy: true }] });
     if (alarm) Bus.emit('pve.alarm', { id: -1 });
     Modes.finish(Game.playerId);
   });
-  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false).join() === 'ghost' && Progress.profile().medals.ghost === 1);
-  check('medals: no Ghost after an alarm', ghostRun(true).length === 0);
+  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false, true).join() === 'ghost' && Progress.profile().medals.ghost === 1);
+  check('medals: no Ghost after an alarm', ghostRun(true, true).length === 0);
+  check('medals: no Ghost for a won solo level without stealth (Test Chambers, Firing Range)', ghostRun(false, false).length === 0
+    && CAT.modes.filter((mode) => mode.params.stealth).map((mode) => mode.id).join() === 'contract');
   Game.stop();
 });
 

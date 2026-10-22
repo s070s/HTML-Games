@@ -59,7 +59,7 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | Event | Payload | Read by |
 |---|---|---|
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
-| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
+| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm; only in a mode with `params.stealth`, M28) |
 | `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
 | `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
 | `pve.crate` | `{ id }` | Marks per crate |

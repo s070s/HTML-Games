@@ -490,7 +490,7 @@ function attritionPoints(victim) {
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
   start() {
-    pveStart({ stealth: true });
+    pveStart({ stealth: Modes.rules.params.stealth });
     Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });
     ContractRun.relic = addMapObjectives('relic', pveObjectiveList)[0] || null;
     ContractRun.extract = addMapObjectives('extract', pveObjectiveList)[0] || null;
