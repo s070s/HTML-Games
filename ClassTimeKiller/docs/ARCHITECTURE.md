@@ -87,12 +87,17 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 | `actor.create` / `actor.remove` | id | S01 |
 | `actor.spawn` | `{ id }` | S13 |
 | `move.jump` `move.land` `move.step` `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface }` | S10 |
-| `weapon.fire` | `{ id, weapon, mode: 'primary'|'alt', x, y, z, dx, dy, dz }` | S11 |
+| `weapon.fire` | `{ id, weapon, weaponClass, mode: 'primary'|'alt', x, y, z, dx, dy, dz }` | S11 |
 | `weapon.reload` `weapon.switch` `weapon.empty` | `{ id, weapon }` | S11 |
 | `impact` | `{ x, y, z, nx, ny, nz, material, weapon, owner }` | S11 |
 | `explosion` | `{ x, y, z, radius, owner, source, element }` | S11/S12 |
 | `damage` | `{ target, source, amount, absorbed, zone: 'head'|'body'|'legs'|'none', weapon, element, x, y, z, dx, dy, dz }` | S11 `Damage.apply` only |
 | `kill` | `{ victim, killer, assister, weapon, zone, element, x, y, z }` | S11 |
+| `damage.request` | `{ target, source, amount, kind: 'fall'|'hazard'|'telefrag'|'crush'|'drown', element, x, y, z }` (earlier sections ask S11 to apply damage) | S08, S10, S12 |
+| `impulse` | `{ id, x, y, z }` velocity change in m/s (knockback, jump pads); S10 applies it | S08, S11, S12 |
+| `toast` | `{ text }` short UI message | any |
+| `caption` | `{ text, x, y, z, kind }` sound caption / visual sound ring (ACC-002/003) | S06 |
+| `ui.click` | `{ kind }` menu feedback sound | S18 |
 | `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
 | `pickup` | `{ id, item, x, y, z }` | S12 |
 | `ability.cast` / `ability.end` | `{ id, ability }` | S12 |
@@ -116,6 +121,10 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 - Settings: `Settings.define(key, default, { label, category: 'video'|'controls'|'audio'|'gameplay'|'hud'|'accessibility'|'developer', min, max, step, options, optionLabels })`. The settings screen is generated from these definitions; nothing is written that is never read (self-test).
 - Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008). `Input.actions` is the single action table.
 - UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`.
+- Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops.
+- Quality: `Quality.current()` (S04) is the active `CAT.quality` row; `Settings 'video.quality'` ('auto' or a preset id); the renderer's benchmark sets `video.autoQuality`.
+- Input: `Input.device` = last used device `'kbm'|'touch'|'gamepad'`.
+- Each helper documents its public API in `docs/api/<area>.md` (functions, data formats such as map entities, events it emits).
 - Debug: test files add commands to `DebugApi` (e.g. `DebugApi.spawnBot = …`).
 
 ## Data catalogues

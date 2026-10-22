@@ -109,3 +109,15 @@ const Settings = {
   },
   applyAll() { for (const key of this.definitions.keys()) Bus.emit('setting', key); },
 };
+
+// Current quality preset (PERF-008). 'auto' resolves to Quality.autoId, which the renderer's first-run benchmark sets.
+Settings.define('video.quality', 'auto', { label: 'Quality', category: 'video', options: ['auto', 'ultra', 'high', 'medium', 'low', 'potato'] });
+Settings.define('video.autoQuality', '', { label: 'Benchmarked quality', category: 'developer' });
+const Quality = {
+  autoId: 'medium',
+  current() {
+    const chosen = Settings.get('video.quality');
+    const stored = chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen;
+    return CAT.quality.byId(stored) || CAT.quality.byId('medium');
+  },
+};

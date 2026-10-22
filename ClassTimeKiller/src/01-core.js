@@ -217,6 +217,16 @@ const Sim = {
   reset() { this.tick = 0; this.time = 0; },
 };
 
+// ---- Fatal screen (PLT-002, ARC-041): any section may call it when the game cannot continue ----
+let fatalShown = false;
+function showFatal(title, text, detail) {
+  fatalShown = true;
+  document.getElementById('fatal-title').textContent = title;
+  document.getElementById('fatal-text').textContent = text;
+  document.getElementById('fatal-detail').textContent = detail || '';
+  document.getElementById('fatal').classList.add('show');
+}
+
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
 const Game = {
   state: 'menu',          // 'menu' | 'playing' | 'results'

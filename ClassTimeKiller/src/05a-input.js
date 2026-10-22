@@ -4,4 +4,5 @@
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool, filled by later sections (INP-008)
   actions: [],
+  device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
 };

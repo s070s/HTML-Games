@@ -256,6 +256,16 @@ const Sim = {
   reset() { this.tick = 0; this.time = 0; },
 };
 
+// ---- Fatal screen (PLT-002, ARC-041): any section may call it when the game cannot continue ----
+let fatalShown = false;
+function showFatal(title, text, detail) {
+  fatalShown = true;
+  document.getElementById('fatal-title').textContent = title;
+  document.getElementById('fatal-text').textContent = text;
+  document.getElementById('fatal-detail').textContent = detail || '';
+  document.getElementById('fatal').classList.add('show');
+}
+
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
 const Game = {
   state: 'menu',          // 'menu' | 'playing' | 'results'
@@ -544,6 +554,18 @@ const Settings = {
   applyAll() { for (const key of this.definitions.keys()) Bus.emit('setting', key); },
 };
 
+// Current quality preset (PERF-008). 'auto' resolves to Quality.autoId, which the renderer's first-run benchmark sets.
+Settings.define('video.quality', 'auto', { label: 'Quality', category: 'video', options: ['auto', 'ultra', 'high', 'medium', 'low', 'potato'] });
+Settings.define('video.autoQuality', '', { label: 'Benchmarked quality', category: 'developer' });
+const Quality = {
+  autoId: 'medium',
+  current() {
+    const chosen = Settings.get('video.quality');
+    const stored = chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen;
+    return CAT.quality.byId(stored) || CAT.quality.byId('medium');
+  },
+};
+
 // ==== 05a-input.js ====
 // ==== S05 INPUT ====
 // STUB until the input helper lands: the hook surface later sections may already use (docs/ARCHITECTURE.md).
@@ -551,6 +573,7 @@ const Settings = {
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool, filled by later sections (INP-008)
   actions: [],
+  device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
 };
 
 // ==== 06-audio.js ====
@@ -963,17 +986,9 @@ Test.add('core', (check) => {
 // ==== 21-boot.js ====
 // ==== S21 BOOTSTRAP ====
 // Startup order: errors hooked -> save loaded -> 'boot' event (each section initializes itself, the renderer
-// may call Boot.fatal) -> settings applied -> loop started -> 'ready' event (UI shows the main menu).
+// may call showFatal) -> settings applied -> loop started -> 'ready' event (UI shows the main menu).
 
 const Boot = {
-  failed: false,
-  fatal(title, text, detail) {
-    this.failed = true;
-    document.getElementById('fatal-title').textContent = title;
-    document.getElementById('fatal-text').textContent = text;
-    document.getElementById('fatal-detail').textContent = detail || '';
-    document.getElementById('fatal').classList.add('show');
-  },
   start() {
     window.addEventListener('error', (event) => ErrorLog.add('window', event.error || event.message));
     window.addEventListener('unhandledrejection', (event) => ErrorLog.add('promise', event.reason));
@@ -982,13 +997,13 @@ const Boot = {
     try {
       Save.load();
       Bus.emit('boot', null);
-      if (this.failed) return;
+      if (fatalShown) return;
       Settings.applyAll();
       Loop.start();
       Bus.emit('ready', null);
     } catch (error) {
       ErrorLog.add('boot', error);
-      this.fatal('ClassTimeKiller could not start', 'Something went wrong while starting. Reload the page; if it keeps happening, update your browser.', String(error && error.stack || error));
+      showFatal('ClassTimeKiller could not start', 'Something went wrong while starting. Reload the page; if it keeps happening, update your browser.', String(error && error.stack || error));
     }
   },
 };
