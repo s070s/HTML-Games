@@ -24,7 +24,7 @@ const REWIND_SAMPLES = 31;               // 3 s plus the current sample
 const FOOTPRINT_COUNT = 64;
 const FOOTPRINT_SIZE = 0.18;
 const ZONE_CAP = 48;
-const ZONE_KINDS = ['lift', 'smoke', 'heal', 'dome', 'wall', 'strike', 'slow', 'drone', 'swarm', 'beacon', 'fence', 'rift', 'swap', 'decoy', 'lure'];
+const ZONE_KINDS = ['lift', 'smoke', 'heal', 'dome', 'wall', 'strike', 'slow', 'drone', 'swarm', 'beacon', 'fence', 'rift', 'swap', 'decoy', 'lure', 'puppet'];
 const ZONE_KIND = {};
 ZONE_KINDS.forEach((name, index) => { ZONE_KIND[name.toUpperCase()] = index; });
 const DOT_INTERVAL = 0.5;
@@ -35,6 +35,8 @@ const DECOY_HEALTH = 1;
 const STRIKE_COLOR = 0xff3030;
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;             // A24: a team of -1 is everyone's enemy (Actors.isEnemy)
+const PUPPET_DRIVE_ORDER = 19;         // A23: after every brain (10, 11) and nav (15), before abilities (20) and movement (30)
+const PUPPET_RESTORE_ORDER = 89;       // ...and the caster's own input fields come back after every system read them
 
 const effectHit = makeHit();
 const effectActorHit = makeActorHit();
@@ -356,6 +358,13 @@ function restoreTeam(zone) {
   const target = AbilityZones.target[zone];
   if (target >= 0 && Actors.kind[target] !== ACTOR_KIND.NONE) Actors.team[target] = AbilityZones.value[zone];
 }
+// A23: the puppet zone lasts while caster and puppet live; when it goes (timer, a death, a hit on the caster) the puppet
+// returns to its side and to its own brain.
+function puppetZoneStep(zone) { return Actors.alive[AbilityZones.owner[zone]] === 1 && Actors.alive[AbilityZones.target[zone]] === 1; }
+function removePuppet(zone) {
+  restoreTeam(zone);
+  PuppetState.unlink(AbilityZones.owner[zone], zone);
+}
 function droneStep(zone, dt) {
   const owner = AbilityZones.owner[zone], row = zoneRow(zone);
   Vec.fromAngles(effectDirection, Actors.yaw[owner], Actors.pitch[owner]);
@@ -387,6 +396,57 @@ function lureStep(zone) {
 
 const DecoyState = { zone: new Int8Array(MAX_ACTORS).fill(-1) };   // actor id -> zone of the decoy it is (-1 = a real actor)
 const LinkState = { partner: new Int8Array(MAX_ACTORS).fill(-1), until: new Float64Array(MAX_ACTORS), sharing: false };
+// A23 Puppet Jump: system 'puppet' (PUPPET_DRIVE_ORDER) hands the caster's input to the puppet and leaves the caster's body
+// still; 'puppetRestore' (PUPPET_RESTORE_ORDER) gives the caster's input fields back, so a step without a fresh input write
+// (two sim steps in one frame) drives the puppet the same way again. S14 PvE skips the brain of a driven enemy (master >= 0).
+const PuppetState = {
+  puppet: new Int8Array(MAX_ACTORS).fill(-1),   // caster -> the actor it drives
+  master: new Int8Array(MAX_ACTORS).fill(-1),   // driven actor -> its caster
+  zone: new Int8Array(MAX_ACTORS).fill(-1),     // caster -> its puppet zone
+  moveX: new Float32Array(MAX_ACTORS), moveZ: new Float32Array(MAX_ACTORS), aimYaw: new Float32Array(MAX_ACTORS), aimPitch: new Float32Array(MAX_ACTORS),
+  buttons: new Uint32Array(MAX_ACTORS),
+  count: 0,                                     // puppets driven now: both systems skip their loop at 0
+  link(caster, puppet, zone) {
+    this.puppet[caster] = puppet; this.master[puppet] = caster; this.zone[caster] = zone;
+    this.count++;
+  },
+  unlink(caster, zone) {
+    if (caster < 0 || this.zone[caster] !== zone) return;
+    this.master[this.puppet[caster]] = -1; this.puppet[caster] = -1; this.zone[caster] = -1;
+    this.count--;
+  },
+  // Ends the caster's puppet early (the ability's end: a hit on the caster, a stun, death, match end).
+  release(caster) { if (this.zone[caster] >= 0) AbilityZones.remove(this.zone[caster]); },
+  drive() {
+    if (!this.count) return;
+    for (let caster = 0; caster < Actors.count; caster++) if (this.puppet[caster] >= 0) this.driveOne(caster, this.puppet[caster]);
+  },
+  driveOne(caster, puppet) {
+    this.moveX[caster] = Actors.moveX[caster]; this.moveZ[caster] = Actors.moveZ[caster]; this.buttons[caster] = Actors.buttons[caster];
+    this.aimYaw[caster] = Actors.aimYaw[caster]; this.aimPitch[caster] = Actors.aimPitch[caster];
+    Actors.moveX[puppet] = Actors.moveX[caster]; Actors.moveZ[puppet] = Actors.moveZ[caster];
+    Actors.aimYaw[puppet] = Actors.aimYaw[caster]; Actors.aimPitch[puppet] = Actors.aimPitch[caster];
+    Actors.buttons[puppet] = Actors.buttons[caster]; Actors.pressed[puppet] = Actors.pressed[caster];
+    Actors.moveX[caster] = Actors.moveZ[caster] = 0; Actors.buttons[caster] = Actors.pressed[caster] = 0;
+    Actors.aimYaw[caster] = Actors.yaw[caster]; Actors.aimPitch[caster] = Actors.pitch[caster];
+  },
+  restore() {
+    if (!this.count) return;
+    for (let caster = 0; caster < Actors.count; caster++) {
+      if (this.puppet[caster] < 0) continue;
+      Actors.moveX[caster] = this.moveX[caster]; Actors.moveZ[caster] = this.moveZ[caster]; Actors.buttons[caster] = this.buttons[caster];
+      Actors.aimYaw[caster] = this.aimYaw[caster]; Actors.aimPitch[caster] = this.aimPitch[caster];
+    }
+  },
+  // Render.cameraOverride: the local player's camera rides the eyes of the puppet it drives, looking along the player's aim.
+  placeCamera(camera) {
+    const player = Game.playerId, puppet = player >= 0 ? this.puppet[player] : -1;
+    if (puppet < 0) return false;
+    camera.x = Actors.x[puppet]; camera.y = Actors.eyeY(puppet); camera.z = Actors.z[puppet];
+    camera.yaw = Actors.aimYaw[player]; camera.pitch = Actors.aimPitch[player]; camera.roll = 0;
+    return true;
+  },
+};
 const RewindHistory = {
   x: new Float32Array(MAX_ACTORS * REWIND_SAMPLES), y: new Float32Array(MAX_ACTORS * REWIND_SAMPLES), z: new Float32Array(MAX_ACTORS * REWIND_SAMPLES),
   health: new Float32Array(MAX_ACTORS * REWIND_SAMPLES), armor: new Float32Array(MAX_ACTORS * REWIND_SAMPLES), shield: new Float32Array(MAX_ACTORS * REWIND_SAMPLES),
@@ -438,6 +498,7 @@ AbilityZones.behaviours[ZONE_KIND.RIFT] = { step: riftStep };
 AbilityZones.behaviours[ZONE_KIND.SWAP] = { remove: restoreTeam };
 AbilityZones.behaviours[ZONE_KIND.DECOY] = { step: decoyStep, remove: removeDecoy };
 AbilityZones.behaviours[ZONE_KIND.LURE] = { step: lureStep };
+AbilityZones.behaviours[ZONE_KIND.PUPPET] = { step: puppetZoneStep, remove: removePuppet };
 
 // ---- Effect kinds ----
 const placeAt = Vec.make();
@@ -668,12 +729,14 @@ function castMesmer(id, row) {
   return taken > 0;
 }
 // possess (A23, fodder and beasts) and frenzy (A24): the target changes side for the duration (frenzy: hostile to all).
+// A23 also gives the caster the puppet's controls and view (PuppetState) until the zone goes.
 function castTeamSwap(id, row, newTeam) {
-  const target = aimTarget(id, row.range);
-  if (target < 0 || (row.effect === 'possess' && !isFodderOrBeast(target))) return false;
-  const zone = AbilityZones.add(ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
+  const target = aimTarget(id, row.range), possess = row.effect === 'possess';
+  if (target < 0 || (possess && (!isFodderOrBeast(target) || PuppetState.master[target] >= 0))) return false;
+  const zone = AbilityZones.add(possess ? ZONE_KIND.PUPPET : ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
   AbilityZones.target[zone] = target; AbilityZones.value[zone] = Actors.team[target];
   Actors.team[target] = newTeam;
+  if (possess) PuppetState.link(id, target, zone);
   return true;
 }
 function isFodderOrBeast(id) {
@@ -786,12 +849,18 @@ function strengthShot(event) {
   if (event.mode === 'melee' || event.weaponClass === 'melee') { if (Meters.spendEnergy(event.id, row.params.useCost)) strengthThrow(event.id, row.params); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
-// A03 throw: a paid melee swing hurls the enemy in front along the view (there are no physics props to throw).
+// A03 throw: a paid melee swing hurls the enemy in front (a bot, a PvE enemy) along the view; with none in reach it throws
+// the prop or debris piece in front instead (S08 PropLift, the W41 Lifter's mass limit and impact damage).
 function strengthThrow(id, params) {
   Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
-  const target = actorInFront(id, params.throwReach);
-  if (target < 0 || !Actors.isEnemy(id, target)) return;
-  emitImpulse(target, specialScratch.x * params.throwSpeed, specialScratch.y * params.throwSpeed + params.throwLift, specialScratch.z * params.throwSpeed);
+  const target = actorInFront(id, params.throwReach), speed = params.throwSpeed;
+  if (target >= 0 && Actors.isEnemy(id, target)) {
+    emitImpulse(target, specialScratch.x * speed, specialScratch.y * speed + params.throwLift, specialScratch.z * speed);
+    return;
+  }
+  const lift = WeaponSpecialState.propHook;
+  const body = lift ? lift.grab(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], specialScratch.x, specialScratch.y, specialScratch.z, params.throwReach, LIFTER_MAX_MASS) : -1;
+  if (body >= 0) lift.launch(body, specialScratch.x * speed, specialScratch.y * speed + params.throwLift, specialScratch.z * speed, LIFTER_DAMAGE_PER_MASS_SPEED, LIFTER_DAMAGE_CAP);
 }
 
 // ---- HP-005 status combos (Damage.statusHooks): wet + Shock stuns everyone in that water, Shock chains once, Burn melts ice ----
@@ -842,7 +911,7 @@ Object.assign(Abilities.effects, {
   push: { cast: castPush },
   link: { cast: castLink },
   mesmer: { cast: castMesmer },
-  possess: { cast: (id, row) => castTeamSwap(id, row, Actors.team[id]) },
+  possess: { cast: (id, row) => castTeamSwap(id, row, Actors.team[id]), step: (id) => PuppetState.puppet[id] >= 0, end: (id) => PuppetState.release(id) },
   frenzy: { cast: (id, row) => castTeamSwap(id, row, HOSTILE_TO_ALL) },
   revive: { cast: castRevive },
   bolt: { cast: castBolt },
@@ -1004,6 +1073,7 @@ function drawFootprints(batch) {
   }
 }
 function abilityStyle(id, out) {
+  if (Game.playerId >= 0 && PuppetState.master[id] === Game.playerId) out.visible = false;   // A23: the camera is inside it
   if (Buffs.has(id, BUFF.TOUCH_KILL)) { out.r = 1; out.g = 0.15; out.b = 0.1; out.emissive = 0.8; out.scale = 1.15; }
   else if (Buffs.has(id, BUFF.INVULNERABLE)) { out.emissive = Math.max(out.emissive, 0.6); }
   else if (Buffs.has(id, BUFF.DAMAGE)) { out.r = Math.min(1, out.r + 0.3); out.emissive = Math.max(out.emissive, 0.4); }
@@ -1015,6 +1085,10 @@ Render.addSource('abilities', (batch) => {
   drawFootprints(batch);
 });
 Sim.addSystem('abilityHistory', 21, () => { RewindHistory.record(); stepHeroPassives(TICK_SECONDS); });
+Sim.addSystem('puppet', PUPPET_DRIVE_ORDER, () => PuppetState.drive());
+Sim.addSystem('puppetRestore', PUPPET_RESTORE_ORDER, () => PuppetState.restore());
+Render.cameraOverride = (camera) => PuppetState.placeCamera(camera);   // the first owner: 16x and 17e chain after it
+Input.aimAssistFilters.push((id) => PuppetState.puppet[id] < 0);   // no assist from the caster's still body while it drives
 Bus.on('actor.spawn', (event) => { RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
 Bus.on('actor.create', (id) => { RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
 Bus.on('actor.remove', (id) => { if (DecoyState.zone[id] >= 0) { AbilityZones.target[DecoyState.zone[id]] = -1; DecoyState.zone[id] = -1; } });

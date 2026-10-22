@@ -23,6 +23,7 @@ const PVE_UNSEEN_PENALTY = 15;            // metres added to a remembered (not s
 const PVE_ATTACKER_BONUS = 6;             // metres taken off the actor that hurt the enemy last
 const PVE_FACING_COS = 0.3;               // melee hits need the target roughly in front
 const PVE_MELEE_SLACK = 0.5;              // metres of reach past the attack range while the blow lands
+const PUPPET_AIM_CONE_DEG = 30;           // A23: a driven enemy's FIRE picks the foe nearest its crosshair inside this cone
 const PVE_MOVE_BASE = 'modern';           // movement preset the enemy presets start from (speed per row)
 const PVE_TIER_BASE = 'skilled';          // bot tier row the enemy tiers start from (fov / turn / reaction per row)
 const PVE_FLEE_DISTANCE = 10;
@@ -332,6 +333,7 @@ const Pve = {
     Bots.buttonsWanted[id] = 0;
     if (brain.always) brain.always(id, row, now);   // runs even while stunned (boss phase thresholds)
     if (this.stunned(id, now)) { this.cancelAttack(id); Bots.wish(id, 0, 0, 0); Bots.motor(id, dt); return; }
+    if (PuppetState.master[id] >= 0) { this.stepPuppet(id, row, now); return; }   // A23: the caster drives it (S12)
     if (now + TIME_EPSILON >= this.nextThink[id]) this.think(id, row, brain, now);
     this.stepAttack(id, row, now);
     if (brain.step) brain.step(id, row, dt, now);
@@ -339,6 +341,15 @@ const Pve = {
     this.updateCloak(id, row, now);
     PveMove.run(id, row, dt, now, brain);
     Bots.motor(id, dt);
+  },
+  // A23 Puppet Jump (S12 PuppetState writes its input): no brain and no attack tokens; a FIRE press starts the first attack
+  // in reach on the foe nearest the puppet's crosshair (a wide cone: claws reach a foe well below the eyes).
+  stepPuppet(id, row, now) {
+    this.stepAttack(id, row, now);
+    if (this.phase[id] !== ATTACK_PHASE.IDLE || !(Actors.pressed[id] & BTN.FIRE)) return;
+    const target = aimTarget(id, this.attackReach(row), PUPPET_AIM_CONE_DEG);
+    const index = target >= 0 ? this.pickAttack(id, row, this.distanceTo(id, target), now) : -1;
+    if (index >= 0) this.startAttack(id, index, target, now);
   },
   stunned(id, now) { return (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || now < this.staggerUntil[id]; },
   think(id, row, brain, now) {
@@ -552,10 +563,12 @@ const Pve = {
     if (this.core.active && this.core.health > 0 && this.distanceTo(id, PVE_CORE_TARGET) <= this.coreReach(id)) return PVE_CORE_TARGET;
     return -1;
   },
-  coreReach(id) {
+  coreReach(id) { return Math.min(this.attackReach(this.rowOf(id)), PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20); },
+  // The longest reach among the row's damaging attacks.
+  attackReach(row) {
     let reach = 0;
-    for (const attack of this.rowOf(id).attackRows) if (attack.damage > 0) reach = Math.max(reach, attack.range[1]);
-    return Math.min(reach, PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20);
+    for (const attack of row.attackRows) if (attack.damage > 0) reach = Math.max(reach, attack.range[1]);
+    return reach;
   },
   distanceTo(id, target) {
     if (target === PVE_CORE_TARGET) return Math.max(0, length2(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);

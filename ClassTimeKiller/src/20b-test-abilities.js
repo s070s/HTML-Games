@@ -542,6 +542,46 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// A23 Puppet Jump: the caster's input drives the puppet (move, look; FIRE starts its attack) while the caster's body stands
+// still, the camera rides the puppet's eyes, and a hit on the caster or the puppet's death ends it.
+Test.add('abilities', (check) => {
+  startPveTest({ player: { team: 0 } });
+  const player = Game.playerId, row = CAT.abilities.byId('puppet'), camera = {}, style = { visible: true };
+  Modes.endProtection(player);
+  TestArena.place(player, 3, 0);
+  const puppet = Pve.spawnEnemy('husk', 3, 0, 6, Math.PI), enemyTeam = Actors.team[puppet];
+  TestArena.aimAt(player, puppet);
+  Abilities.setSlot(player, SLOT.ABILITY1, row);
+  const cast = Abilities.effects.possess.cast(player, row, SLOT.ABILITY1);
+  Abilities.begin(player, SLOT.ABILITY1, row);
+  check('A23 the caster takes the fodder enemy', cast && PuppetState.puppet[player] === puppet && PuppetState.master[puppet] === player && Actors.team[puppet] === Actors.team[player]);
+  Sim.step();
+  Actors.moveX[player] = 0; Actors.moveZ[player] = 1; Actors.aimYaw[player] = 0; Actors.aimPitch[player] = 0; Actors.buttons[player] = 0;
+  const casterX = Actors.x[player], casterZ = Actors.z[player], puppetZ = Actors.z[puppet];
+  Sim.run(TICK_RATE / 2);
+  check('A23 the caster\'s input walks and turns the puppet', Actors.z[puppet] - puppetZ > 1 && Math.abs(wrapAngle(Actors.yaw[puppet])) < 0.05, Actors.z[puppet] - puppetZ);
+  check('A23 the caster\'s body stands still and keeps its input for the next step', length2(Actors.x[player] - casterX, Actors.z[player] - casterZ) < 0.05 && Actors.moveZ[player] === 1);
+  check('A23 the camera rides the puppet\'s eyes and the puppet is hidden from its driver', Render.cameraOverride(camera) === true
+    && Test.near(camera.z, Actors.z[puppet], 1e-6) && Test.near(camera.y, Actors.eyeY(puppet), 1e-6) && (abilityStyle(puppet, style), style.visible === false));
+  Actors.moveZ[player] = 0;
+  const victim = Pve.spawnEnemy('husk', Actors.x[puppet], 0, Actors.z[puppet] + 1.2, Math.PI);
+  Actors.buttons[player] = BTN.FIRE; Sim.run(2); Actors.buttons[player] = 0;
+  check('A23 FIRE starts the puppet\'s attack on the foe under its crosshair', Pve.phase[puppet] !== ATTACK_PHASE.IDLE && Pve.attackTarget[puppet] === victim, Pve.phase[puppet] + ' ' + Pve.attackTarget[puppet]);
+  TestArena.hit(victim, player, 5);
+  check('A23 a hit on the caster frees the puppet and gives the camera back', PuppetState.puppet[player] === -1 && PuppetState.master[puppet] === -1
+    && Actors.team[puppet] === enemyTeam && !Abilities.active[Abilities.index(player, SLOT.ABILITY1)] && Render.cameraOverride(camera) === false);
+  TestArena.place(victim, 30, 30);
+  TestArena.aimAt(player, puppet);
+  const recast = Abilities.effects.possess.cast(player, row, SLOT.ABILITY1);
+  Abilities.begin(player, SLOT.ABILITY1, row);
+  killEnemy(puppet, player);
+  Sim.run(3);   // the zone goes on its second step, the ability slot one step later
+  check('A23 the puppet\'s death ends the control', PuppetState.puppet[player] === -1 && PuppetState.count === 0 && !Abilities.active[Abilities.index(player, SLOT.ABILITY1)],
+    recast + ' ' + PuppetState.puppet[player]);
+  Game.stop();
+  World.clear();
+});
+
 // A32 panics fodder (ability.panic -> S14 PvE broken morale); A03 throws the enemy in front on a melee swing.
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({ family: 'pve' }), 'swarm');
@@ -563,5 +603,21 @@ Test.add('abilities', (check) => {
   Bus.off('impulse', onImpulse);
   const params = t.row.params;
   check('A03 a melee swing throws the enemy in front along the view', thrown && Test.near(thrown.z, params.throwSpeed, 1e-4) && Test.near(thrown.y, params.throwLift, 1e-4), JSON.stringify(thrown));
+  TestArena.finish();
+});
+
+// A03 with no enemy in reach: the breakable prop in front is thrown along the view with the W41 Lifter's impact damage.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'colossusweave');
+  World.load({ id: 'a03-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }], props: [{ min: [-0.4, 1.2, 1], max: [0.4, 2, 1.8], mass: 20, health: 50 }] });
+  AbilityTest.clearPath(t);
+  AbilityTest.cast(t);
+  Sim.run(1);
+  Actors.yaw[t.caster] = Actors.aimYaw[t.caster] = 0; Actors.pitch[t.caster] = Actors.aimPitch[t.caster] = 0;
+  Bus.emit('weapon.fire', { id: t.caster, weapon: 'maul', weaponClass: 'melee', mode: 'melee', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  let body = -1;
+  for (let i = 0; i < BODY_CAPACITY; i++) if (Bodies.active[i] && Bodies.kind[i] === BODY_KIND.THROWN && Bodies.owner[i] === t.caster) body = i;
+  check('A03 a melee swing throws the prop in front along the view', body >= 0 && !Props.isStanding(0) && Test.near(Bodies.vz[body], t.row.params.throwSpeed, 1e-3)
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
   TestArena.finish();
 });
