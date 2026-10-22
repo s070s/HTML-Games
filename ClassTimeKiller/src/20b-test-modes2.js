@@ -699,3 +699,42 @@ Test.add('modes2', (check) => {
   hazards.stop();
   endModeTest();
 });
+
+// ---- Mode x rules combinations (R-138): every mode under X32 lives, fixed sides ----
+// One map with every objective kind the modes below need.
+const COMBO_MAP = { spawns: TEAM_SPAWNS, objectives: CTF_MAP.objectives.concat(RUSH_MAP.objectives, CONVOY_MAP.objectives, RELIC_MAP.objectives,
+  [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: -30, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5 }, { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }]) };
+const ONE_LIFE = [{ id: 'lives', value: 1 }];
+// Versus modes with respawns and without rounds (Blight needs its outbreak first; it ends by its own head count).
+const LIVES_MODES = CAT.modes.filter((row) => row.family === 'versus' && !row.rounds && row.respawn === 'normal' && row.id !== 'infection').map((row) => row.id);
+
+// Kills every participant on `team` (free-for-all: everyone but actor 0) and reports whether the match ended within 1 s.
+function wipeOut(team) {
+  for (let id = 1; id < Actors.count; id++) if (Modes.participant[id] && (team === NO_TEAM || Actors.team[id] === team)) killActor(id, 0);
+  for (let step = 0; step < TICK_RATE && !Game.match.ended; step++) Sim.step();
+  return Game.match.ended;
+}
+
+Test.add('modes2', (check) => {
+  for (const id of LIVES_MODES) {
+    const teams = CAT.modes.byId(id).teams === TEAM_COUNT ? [0, 1, 0, 1] : [-1, -1, -1];
+    startModeTest(id, modesTestMap(COMBO_MAP), teams, { mutators: ONE_LIFE });
+    runSeconds(1.01);
+    const ended = wipeOut(teams[0] === 0 ? 1 : NO_TEAM);
+    check('lives 1: ' + id + ' ends within 1 s of a wipe-out', ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated', Game.match.results && Game.match.results.reason);
+    endModeTest();
+  }
+  startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+  armRelay(0, Modes.objectives[0]);
+  placeActor(1, -40, 0); placeActor(3, -40, 5);
+  check('lives 1: rush attackers out with a relay armed: the match goes on', !wipeOutAttackers() && Modes.objectives[0].state === 'planted');
+  runSeconds(Modes.rules.params.fuse);
+  check('lives 1: the relay goes off, then the defenders win (out of lives counts like 0 tickets)', Game.match.ended && Game.match.winner === 1, Game.match.results && Game.match.results.reason);
+  endModeTest();
+});
+function wipeOutAttackers() {
+  for (let id = 0; id < Actors.count; id++) if (Actors.team[id] === 0) killActor(id, 1);
+  runSeconds(1);
+  return Game.match.ended;
+}
+

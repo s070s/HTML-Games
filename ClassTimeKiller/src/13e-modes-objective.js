@@ -174,6 +174,8 @@ Modes.register('rush', {
     for (let i = 0; i < this.relays.length; i++) if (this.relays[i].active && this.relays[i].state === 'planted') return true;
     return false;
   },
+  // Attackers out of lives count like 0 tickets: an armed relay still goes off first.
+  livesOver() { return this.anyArmed() ? NOT_OVER : Modes.livesWinner(); },
   isOver(now) {
     const attackers = Modes.attackingTeam();
     if (this.lastStage > 0 && this.stage > this.lastStage) return Modes.over(attackers, 'objective');

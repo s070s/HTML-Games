@@ -2,7 +2,7 @@
 // spawn protection, kill scoring, the match clock with score/time limits and sudden death, the round system,
 // generic objectives (capture zones, carriable objects) and the results record Game.match.results.
 // A mode = its CAT.modes row + a behaviour registered with Modes.register(id, { start, step, onKill, onScore,
-// onRound, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
+// onRound, livesOver, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
 // Winner values: a team index in team modes, an actor id otherwise, DRAW (-1) for a draw.
 
 const NO_TEAM = -1;
@@ -48,6 +48,7 @@ const DEFAULT_BEHAVIOUR = {
   onScore() {},
   // phase: 'start' | 'live' | 'end' | 'timeout'; for 'timeout' the return value is the round winner.
   onRound(phase) { return phase === 'timeout' ? Modes.aliveLeaderTeam() : DRAW; },
+  livesOver() { return Modes.livesWinner(); },
   isOver(now) { return Modes.standardIsOver(now); },
   score(index) { return Modes.competitorScore(index); },
 };
@@ -140,8 +141,13 @@ const Modes = {
     if (!this.active) return;
     this.updateLeader();
     this.stepWarnings(now);
-    const winner = this.behaviour.isOver(now);
+    const winner = this.endResult(now);
     if (winner !== NOT_OVER) this.finish(winner);
+  },
+  // Lives (rules.lives: M15, X32, the editor) end every mode without rounds; a behaviour may hold that end (livesOver).
+  endResult(now) {
+    const survivor = this.rules.lives > 0 && !this.rules.rounds ? this.behaviour.livesOver() : NOT_OVER;
+    return survivor !== NOT_OVER ? survivor : this.behaviour.isOver(now);
   },
   finish(winner) {
     if (!this.active) return;
@@ -443,8 +449,6 @@ const Modes = {
   },
   standardIsOver(now) {
     if (this.rules.rounds) return NOT_OVER;
-    const survivor = this.livesWinner();
-    if (survivor !== NOT_OVER) return survivor;
     const limit = this.rules.scoreLimit;
     if (limit > 0 && this.leader >= 0 && this.leaderScore >= limit) return this.over(this.leader, 'score');
     return this.timeResult(now);
@@ -466,9 +470,9 @@ const Modes = {
     this.announce('Sudden death', 'overtime', 3);
   },
   over(winner, reason) { this.endReason = reason; return winner; },
-  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing.
+  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing. Co-op (teams 1) has no rival.
   livesWinner() {
-    if (this.rules.lives <= 0 || this.competitorsAtStart < 2) return NOT_OVER;
+    if (this.rules.lives <= 0 || this.rules.teams === 1 || this.competitorsAtStart < 2) return NOT_OVER;
     let standing = 0, last = DRAW;
     const count = this.competitorCount();
     for (let index = 0; index < count; index++) {
