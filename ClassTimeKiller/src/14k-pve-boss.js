@@ -1,10 +1,13 @@
 // ==== S14 PVE: BOSS (E13 Overlord) ====
-// Three phases by health share (row.phases: slam; then the green parryable barrage; then summons of E01 / E07). Crossing a
-// threshold starts a short invulnerable transition (announced by 'pve.boss'), so a burst cannot skip a phase. The head
-// is the core weak point (clear hit box at the boss size): head hits deal row.weakPoint.mult and drain a pool; an empty
-// pool disables the phase's signature attack (its first) for weakPoint.seconds and refills.
+// Three phases by health share (row.phases: slam; then the green parryable barrage; then summons of E01 / E07). A hit never
+// takes the boss below the current phase's threshold; reaching it starts a short invulnerable transition (announced by
+// 'pve.boss'), so neither a burst nor a frozen boss skips a phase. The head is the core weak point: the row's glowing
+// 'weak' head part sits exactly on the head hit sphere (row.headScale at the boss size); head hits deal
+// row.weakPoint.mult and drain a pool; an empty pool disables the phase's signature attack (its first) for
+// weakPoint.seconds and refills.
 
 const BOSS_TRANSITION_SECONDS = 2;
+const BOSS_FLOOR_SLACK = 1e-3;          // health within this of the threshold counts as reaching it (float rounding)
 const bossEventPayload = { id: -1, phase: 0, phases: 0, kind: '' };
 
 const PveBoss = {
@@ -12,17 +15,13 @@ const PveBoss = {
   transitionUntil: new Float64Array(MAX_ACTORS),
   hud: { active: false, id: -1, name: '', health: 0, phase: 0, phases: 0, weakDisabled: false },
 
-  phaseFor(row, share) {
-    for (let index = 0; index < row.phases.length; index++) if (share > row.phases[index].until) return index;
-    return row.phases.length - 1;
-  },
   onSpawn(id) { this.phase[id] = 0; this.transitionUntil[id] = 0; },
-  // Phase switches happen here (every tick), not in the 4 Hz think, so the transition starts on the hit that crossed.
+  // Health a hit may not take the boss below: the threshold that ends its current phase (0 in the last phase).
+  floorHealth(id, row) { return row.phases[this.phase[id]].until * Actors.maxHealth[id]; },
+  // Every tick (also while frozen or staggered): health down to the phase threshold starts the next phase (one at a time).
   check(id, row, now) {
-    const share = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
-    const phase = this.phaseFor(row, share);
-    if (phase <= this.phase[id]) return;
-    this.phase[id] = phase;
+    if (this.phase[id] >= row.phases.length - 1 || Actors.health[id] > this.floorHealth(id, row) + BOSS_FLOOR_SLACK) return;
+    this.phase[id]++;
     this.transitionUntil[id] = now + BOSS_TRANSITION_SECONDS;
     Pve.cancelAttack(id);
     Pve.weakPool[id] = row.weakPoint.pool;
@@ -51,18 +50,22 @@ const PveBoss = {
 };
 
 PveBrains.boss = {
-  step(id, row, dt, now) { PveBoss.check(id, row, now); },
+  always(id, row, now) { PveBoss.check(id, row, now); },
   decide(id) { return PveBoss.inTransition(id); },   // no attack while the phase changes
   allows(id, attack, now) {
     const row = Pve.rowOf(id), phase = row.phases[PveBoss.phase[id]];
     if (!phase.attacks.includes(attack.id)) return false;
     return !(now < Pve.disabledUntil[id] && attack.id === PveBoss.signature(id, row));
   },
-  // Transition: no damage. Head (core) hits: x mult, and drain the pool that disables the signature attack.
+  // Transition: no damage. Head (core) hits: x mult, and drain the pool that disables the signature attack. Every hit
+  // stops at the phase threshold.
   reduce(id, amount, info) {
     if (PveBoss.inTransition(id)) return 0;
-    if (info.zone !== 'head') return amount;
-    const row = Pve.rowOf(id), weak = row.weakPoint, scaled = amount * weak.mult;
+    const row = Pve.rowOf(id), room = Math.max(0, Actors.health[id] + Actors.shield[id] + Actors.armor[id] - PveBoss.floorHealth(id, row));
+    return Math.min(room, info.zone === 'head' ? this.weakHit(id, row, amount) : amount);
+  },
+  weakHit(id, row, amount) {
+    const weak = row.weakPoint, scaled = amount * weak.mult;
     Pve.weakPool[id] -= scaled;
     if (Pve.weakPool[id] <= 0) {
       Pve.weakPool[id] = weak.pool;

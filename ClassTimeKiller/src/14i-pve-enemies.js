@@ -224,7 +224,7 @@ const PveAttacks = {
     step(id, attack, now) {
       if (now >= Pve.phaseEndsAt[id]) return true;
       if (now - Pve.tellStart[id] - attack.tell > CHARGE_SETTLE && Move.horizontalSpeed(id) < CHARGE_BLOCKED_SPEED) {
-        Pve.stagger(id, PVE_DIRECTOR.staggerSeconds + attack.knockdown);   // ran into a wall
+        Pve.stagger(id, PVE_DIRECTOR.staggerSeconds + attack.knockdown, STAGGER_CAUSE.WALL);   // ran into a wall
         return true;
       }
       const contact = CHARGE_CONTACT * Pve.rowOf(id).size;
@@ -264,24 +264,23 @@ const PveAttacks = {
     },
     move(id) { BotMove.stop(id); Bots.wish(id, 0, 0, 0); },
   },
-  // Calls the listed enemies around the summoner, up to `limit` of its summons alive.
+  // Calls the listed enemies (a swarm row brings its whole group) around the summoner, up to `limit` of its summons alive.
   summon: {
     lockSeconds: 0,
     track: false,
     begin(id, attack) {
+      const options = pveSummonOptions, radius = SUMMON_RADIUS * Pve.rowOf(id).size;
+      options.team = Actors.team[id]; options.side = Pve.side[id]; options.huntTeam = Pve.huntTeam[id]; options.summoner = id;
       let alive = countSummons(id);
       for (let k = 0; k < attack.summon.length && alive < attack.limit; k++) {
         const angle = (k / attack.summon.length) * Math.PI * 2 + Actors.yaw[id];
-        const x = Actors.x[id] + Math.sin(angle) * SUMMON_RADIUS * Pve.rowOf(id).size, z = Actors.z[id] + Math.cos(angle) * SUMMON_RADIUS * Pve.rowOf(id).size;
-        const options = pveSummonOptions;
-        options.team = Actors.team[id]; options.side = Pve.side[id]; options.huntTeam = Pve.huntTeam[id]; options.summoner = id;
-        alive += CAT.enemies.byId(attack.summon[k]).group * (Pve.spawnEnemy(attack.summon[k], x, Actors.y[id], z, Actors.yaw[id], options) >= 0 ? 1 : 0);
+        alive += Pve.spawnGroup(CAT.enemies.byId(attack.summon[k]), Actors.x[id] + Math.sin(angle) * radius, Actors.y[id], Actors.z[id] + Math.cos(angle) * radius, Actors.yaw[id], options);
       }
     },
     step() { return true; },
   },
 };
-const pveSummonOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, summoner: -1 };
+const pveSummonOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 function inFront(id, target, reach) {
   const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz);
@@ -340,7 +339,7 @@ const PveBrains = {
       if (distance < PVE_CLOSE_DIRECT || distance > blink.range + PVE_CLOSE_DIRECT) return false;
       BLINK.at[id] = now + blink.tell;
       BLINK.readyAt[id] = now + blink.cooldown;
-      Pve.revealedUntil[id] = now + blink.tell;
+      Pve.revealedUntil[id] = now + blink.tell * 2;   // the shimmer before and the landing after the blink
       Bus.emit('pve.tell', pveEvent(id, 'blink', 'blink', blink.tell, PVE_TELL_COLORS.normal, target));
       return true;
     },
@@ -419,8 +418,7 @@ function blinkBeside(id, target) {
   if (node < 0) return;
   Nav.nodePosition(node, pveMoveScratch);
   if (Math.hypot(pveMoveScratch.x - x, pveMoveScratch.z - z) > BLINK_FLANK + BLINK_NODE_SLACK) return;
-  Actors.x[id] = Actors.prevX[id] = pveMoveScratch.x; Actors.y[id] = Actors.prevY[id] = pveMoveScratch.y; Actors.z[id] = Actors.prevZ[id] = pveMoveScratch.z;
-  Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
+  relocateActor(id, pveMoveScratch.x, pveMoveScratch.y, pveMoveScratch.z, Actors.yaw[id]);
   BotMove.reset(id);
   if (!Game.headless) Fx.burst('shock', pveMoveScratch.x, pveMoveScratch.y + 1, pveMoveScratch.z, 0, 1, 0, 12, Pve.rowOf(id).glow);
 }

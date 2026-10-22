@@ -16,6 +16,17 @@ DebugApi.pve = {
     });
     return Pve.aliveCount();
   },
+  // The walked route of every MP11 chamber against its par: 'id seconds/gold-silver-bronze s steps/gold-silver-bronze'.
+  chamberRoutes() {
+    World.load(Maps.get('chambers'));
+    Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
+    const lines = PVE_CHAMBERS.map((row, index) => {
+      const route = chamberRoute(index);
+      return row.id + ' ' + route.seconds.toFixed(1) + '/' + row.par.time.join('-') + ' s ' + route.steps + '/' + row.par.steps.join('-') + ' ' + route.missing.join();
+    });
+    Game.stop();
+    return lines;
+  },
 };
 // Distance each attacking archetype starts from its dummy target (inside one of its attack ranges, outside keepRange[0]).
 const PVE_TEST_START = { husk: 1.2, gunner: 12, brute: 2.5, phalanx: 1.8, stalker: 1.4, longeye: 20, mite: 1, bomber: 1.5, charger: 10,
@@ -38,10 +49,15 @@ function spawnFacing(key, distance) {
   return Pve.spawnEnemy(key, 0, 0, distance, Math.PI);
 }
 
-function killEnemy(id) {
-  const info = Damage.info();
-  info.amount = Actors.health[id] + Actors.shield[id] + Actors.armor[id] + 1; info.kind = 'hit'; info.dx = 0; info.dy = 0; info.dz = -1;
-  Damage.apply(0, id, info);
+// Lethal hits from killer (default the dummy 0); a boss takes one per phase, waiting out each phase transition.
+function killEnemy(id, killer) {
+  const source = killer === undefined ? 0 : killer;
+  for (let blow = 0; blow < 4 && Actors.alive[id]; blow++) {
+    const info = Damage.info();
+    info.amount = Actors.health[id] + Actors.shield[id] + Actors.armor[id] + 1; info.kind = 'hit'; info.dx = 0; info.dy = 0; info.dz = -1;
+    Damage.apply(source, id, info);
+    if (Actors.alive[id] && Pve.rowOf(id).boss) runSeconds(BOSS_TRANSITION_SECONDS + 0.1);
+  }
 }
 
 // Runs until the first damage from `id` reaches the dummy (or `seconds` pass); holds the dummy alive and in place; each() runs per tick.
@@ -116,6 +132,11 @@ function startPveMode(mode, teams, extra, setup) {
 }
 function godMode(ids) { for (const id of ids) Actors.flags[id] |= ACTOR_FLAG.GOD; }
 // Kills every living enemy passing the filter (the killer gets the credit); returns how many died.
+function hitEnemy(source, target, amount, kind, zone) {
+  const info = Damage.info();
+  info.amount = amount; info.kind = kind; info.zone = zone; info.dx = 0; info.dy = 0; info.dz = 1;
+  return Damage.apply(source, target, info);
+}
 function killAllEnemies(killer, filter) {
   let killed = 0;
   for (let id = 0; id < Actors.count; id++) {
@@ -296,7 +317,7 @@ Test.add('pve', (check) => {
   runSeconds(0.1);
   const boss = BankRun.boss[0];
   check('100 banked summons the side boss at a quarter health', boss >= 0 && Pve.rowOf(boss).boss && Test.near(Actors.maxHealth[boss], 6000 * PVE_BANK.bossHealthShare, 1));
-  killAllEnemies(blue, (id) => id === boss);
+  killEnemy(boss, blue);
   runSeconds(0.1);
   check('the first boss kill wins the match', !Modes.active && Game.match.results.winnerTeam === 0, Game.match.results && Game.match.results.winnerTeam);
   endModeTest();
@@ -375,7 +396,7 @@ Test.add('pve', (check) => {
   endModeTest();
 });
 
-// M30: stations from 'dummy' hints, a fire-back dummy shoots back, shots / hits / headshots counted, the drill wins.
+// M30: stations from 'dummy' hints, a fire-back dummy shoots back, shots / hits / headshots counted once per shot, drills repeat.
 Test.add('pve', (check) => {
   const hints = [{ kind: 'dummy', x: 0, y: 0, z: 12 }, { kind: 'dummy', x: 4, y: 0, z: 12 }, { kind: 'dummy', x: -4, y: 0, z: 12 }];
   World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
@@ -388,48 +409,96 @@ Test.add('pve', (check) => {
   const fireback = RangeRun.stations[2].id;
   const hit = runUntilHit(fireback, shooter, 6);
   check('the fire-back dummy shoots back', !!hit);
+  const target = RangeRun.stations[0].id, shotsBefore = RangeRun.shots;
   Bus.emit('weapon.fire', { id: shooter, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
-  const target = RangeRun.stations[0].id, info = Damage.info();
-  info.amount = 30; info.kind = 'hit'; info.zone = 'head'; info.dx = 0; info.dy = 0; info.dz = 1;
-  Damage.apply(shooter, target, info);
-  check('shots, hits and headshots are counted', RangeRun.shots >= 1 && RangeRun.hits === 1 && RangeRun.headshots === 1 && RangeRun.damage > 0, RangeRun.shots + ' ' + RangeRun.hits);
-  runUntil(() => !Modes.active, 120, () => { Actors.health[shooter] = Actors.maxHealth[shooter]; killAllEnemies(shooter); });
-  check('the drill ends after 10 kills with a score', !Modes.active && Game.match.results.reason === 'drill' && RangeRun.kills >= PVE_RANGE.drillTargets && Modes.score[shooter] > 0, Modes.active + ' ' + RangeRun.kills + ' ' + (Game.match.results && Game.match.results.reason) + ' ' + Modes.score[shooter]);
+  hitEnemy(shooter, target, 30, 'hit', 'head');
+  check('shots, hits and headshots are counted', RangeRun.shots === shotsBefore + 1 && RangeRun.hits === 1 && RangeRun.headshots === 1 && RangeRun.damage > 0, RangeRun.shots + ' ' + RangeRun.hits);
+  Bus.emit('weapon.fire', { id: shooter, weapon: 'scattergun', weaponClass: 'shotgun', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  for (let pellet = 0; pellet < 6; pellet++) hitEnemy(shooter, target, 2, 'hit', 'body');
+  hitEnemy(shooter, target, 2, 'splash', 'body');
+  hitEnemy(shooter, target, 2, 'dot', 'body');
+  check('six pellets, a splash and a burn of one shot count one hit', RangeRun.hits === 2 && RangeRun.shots === shotsBefore + 2, RangeRun.hits + ' / ' + RangeRun.shots);
+  runSeconds(0.05);
+  check('accuracy never passes 100%', PVE_HUD.accuracy > 0 && PVE_HUD.accuracy <= 1, PVE_HUD.accuracy);
+  runUntil(() => RangeRun.drills >= 2, 120, () => { Actors.health[shooter] = Actors.maxHealth[shooter]; killAllEnemies(shooter); });
+  check('every 10 kills completes a drill with a score, and the range goes on', Modes.active && RangeRun.drills >= 2 && RangeRun.drillBest > 0 && Modes.score[shooter] > 0,
+    Modes.active + ' ' + RangeRun.drills + ' ' + RangeRun.kills + ' ' + Modes.score[shooter]);
+  check('the drill counter restarts after a drill', RangeRun.drillKills < PVE_RANGE.drillTargets, RangeRun.drillKills);
   endModeTest();
 });
 
-// MP11: every chamber solved by a scripted run (button presses, cube carries, relay shots) earns gold with par from data.
+// MP11: every exit, button, plate, cube and relay firing spot is reachable on the nav graph (pads, ladders, teleporters) from
+// its chamber spawn; the walked route fits the par from data; a scripted run then unlocks and completes every chamber.
 Test.add('pve', (check) => {
   World.load(Maps.get('chambers'));
   Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
   const id = 0, medals = startEventLog('pve.chamber');
   Modes.endProtection(id);
-  check('every button, cube and plate is reachable on foot from its chamber spawn', unreachableElements().length === 0, unreachableElements().join());
+  const routes = PVE_CHAMBERS.map((row, index) => chamberRoute(index));
+  const missing = routes.flatMap((route) => route.missing);
+  check('every exit, button, cube, plate and relay firing spot is reachable from its chamber spawn', missing.length === 0, missing.join());
+  // Gold time leaves room for turns and USE presses; footsteps on foot fit silver (chamber 11's gold needs the twin-gate shortcut).
+  const overPar = [];
+  PVE_CHAMBERS.forEach((row, index) => {
+    const route = routes[index];
+    if (route.seconds > row.par.time[0] || route.steps > row.par.steps[1]) overPar.push(row.id + ' ' + route.seconds.toFixed(1) + ' s ' + route.steps + ' steps');
+  });
+  check('every walked route fits the gold time and silver footstep par from data', overPar.length === 0, overPar.join(', '));
   const failures = [];
   for (let index = 0; index < PVE_CHAMBERS.length && Modes.active; index++) {
     if (!solveChamber(id, PVE_CHAMBERS[index])) failures.push(PVE_CHAMBERS[index].id + (chamberSolved() ? ' exit' : ' lock'));
   }
   medals.stop();
-  const golds = medals.filter((event) => event.kind === 'complete' && event.medal === 'gold').length;
-  check('every chamber is solvable with gold by a scripted run', failures.length === 0 && golds === PVE_CHAMBERS.length, failures.join() + ' golds ' + golds);
-  check('the twelfth exit wins with 36 stars', !Modes.active && Game.match.results.reason === PVE_WIN && ChamberRun.stars === 36, ChamberRun.stars);
+  const completed = medals.filter((event) => event.kind === 'complete').length;
+  check('a scripted run unlocks and completes every chamber', failures.length === 0 && completed === PVE_CHAMBERS.length, failures.join() + ' completed ' + completed);
+  check('the twelfth exit wins', !Modes.active && Game.match.results.reason === PVE_WIN);
   check('medal tiers come from the par data', chamberMedal(PVE_CHAMBERS[0], 1, 1, 0) === 0 && chamberMedal(PVE_CHAMBERS[0], 20, 1, 0) === 2 && chamberMedal(PVE_CHAMBERS[0], 99, 1, 0) === -1);
   endModeTest();
 });
-// Walkable elements (not relays: those are shot) whose nearest nav node is far off or not connected to the chamber spawn.
-function unreachableElements() {
-  const bad = [];
-  PVE_CHAMBERS.forEach((row, index) => {
-    const zone = World.map.zones.find((entry) => entry.name === row.zone), spawn = Modes.spawnPoints[index];
-    const start = Nav.nearestNode(spawn.x, spawn.y, spawn.z);
-    for (const element of row.elements) {
-      if (element.kind === 'relay' || element.kind === 'fizzle') continue;
-      const x = (zone.min[0] + zone.max[0]) / 2 + element.at[0], z = (zone.min[2] + zone.max[2]) / 2 + element.at[2];
-      const node = Nav.nearestNode(x, element.at[1], z);
-      if (node < 0 || Math.hypot(Nav.nodeX[node] - x, Nav.nodeZ[node] - z) > 2 || !Nav.reachable(start, node)) bad.push(row.id + '.' + element.kind);
-    }
-  });
-  return bad;
+// The walked route of a chamber over the nav graph: spawn, then each button, cube, plate and relay firing spot in order,
+// then the exit. seconds = nav travel time, steps = walked metres / stride; missing = legs without a route.
+function chamberRoute(index) {
+  const row = PVE_CHAMBERS[index], spawn = Modes.spawnPoints[index], route = { seconds: 0, metres: 0, steps: 0, missing: [] };
+  const zone = World.map.zones.find((entry) => entry.name === row.zone);
+  const centreX = (zone.min[0] + zone.max[0]) / 2, centreZ = (zone.min[2] + zone.max[2]) / 2;
+  let at = Nav.nearestNode(spawn.x, spawn.y, spawn.z);
+  for (const element of row.elements) {
+    if (element.kind === 'fizzle') continue;
+    const x = centreX + element.at[0], y = element.at[1], z = centreZ + element.at[2];
+    const goal = element.kind === 'relay' ? relaySpot(at, zone, x, y, z) : nodeNear(x, y, z);
+    at = walkLeg(route, at, goal, row.id + '.' + element.kind);
+  }
+  const exit = World.map.objectives.find((objective) => objective.id === 'exit' + (index + 1));
+  walkLeg(route, at, exit ? nodeNear(exit.x, exit.y, exit.z) : -1, row.id + '.exit');
+  route.steps = Math.ceil(route.metres / STRIDE_METRES);
+  return route;
+}
+const CHAMBER_NODE_REACH = 2;            // m: an element counts as on the graph when a node lies this close
+function nodeNear(x, y, z) {
+  const node = Nav.nearestNode(x, y, z);
+  return node >= 0 && Math.hypot(Nav.nodeX[node] - x, Nav.nodeZ[node] - z) <= CHAMBER_NODE_REACH ? node : -1;
+}
+// Adds the path from -> to (nav travel seconds, metres on foot); returns where the route now stands.
+function walkLeg(route, from, to, label) {
+  if (to < 0 || !Nav.reachable(from, to) || Nav.findPath(from, to) === 0) { route.missing.push(label); return from; }
+  route.seconds += Nav.pathCost;
+  for (let k = 0; k + 1 < Nav.pathLength; k++) {
+    const type = Nav.pathTypes[k], a = Nav.pathNodes[k], b = Nav.pathNodes[k + 1];
+    if (type === NAV_LINK.WALK || type === NAV_LINK.CROUCH) route.metres += Math.hypot(Nav.nodeX[b] - Nav.nodeX[a], Nav.nodeZ[b] - Nav.nodeZ[a]);
+  }
+  return to;
+}
+// The reachable node of the chamber nearest to `from` with a clear shot (eye height) at the relay within relay range.
+function relaySpot(from, zone, x, y, z) {
+  let best = -1, bestDistance = Infinity;
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    const nx = Nav.nodeX[node], ny = Nav.nodeY[node], nz = Nav.nodeZ[node];
+    if (nx < zone.min[0] || nx > zone.max[0] || nz < zone.min[2] || nz > zone.max[2] || !Nav.reachable(from, node)) continue;
+    if (Math.hypot(x - nx, y - ny - SPAWN_EYE_HEIGHT, z - nz) > PVE_CHAMBER_RULES.relayRange || !World.lineClear(nx, ny + SPAWN_EYE_HEIGHT, nz, x, y, z)) continue;
+    const distance = Math.hypot(nx - Nav.nodeX[from], nz - Nav.nodeZ[from]);
+    if (distance < bestDistance) { bestDistance = distance; best = node; }
+  }
+  return best;
 }
 // Presses USE at buttons, carries the cube onto its plate, shoots relays, then walks onto the exit; true when the chamber completed.
 function solveChamber(id, row) {
@@ -438,15 +507,15 @@ function solveChamber(id, row) {
     chamberElementAt(element, pveSpot);
     if (element.kind === 'button') useAt(id, pveSpot.x, pveSpot.y, pveSpot.z);
     else if (element.kind === 'cube') useAt(id, pveSpot.x, pveSpot.y, pveSpot.z);
-    else if (element.kind === 'plate') { teleportActor(id, pveSpot.x, pveSpot.y, pveSpot.z - PVE_CHAMBER_RULES.carryAhead, 0); pressUse(id); }
+    else if (element.kind === 'plate') { relocateActor(id, pveSpot.x, pveSpot.y, pveSpot.z - PVE_CHAMBER_RULES.carryAhead, 0); pressUse(id); }
     else if (element.kind === 'relay') shootAt(id, pveSpot);
   }
   const exit = ChamberRun.exits[start];
-  teleportActor(id, exit.x, exit.y, exit.z, 0);
+  relocateActor(id, exit.x, exit.y, exit.z, 0);
   Sim.run(2);
   return ChamberRun.index !== start || !Modes.active;
 }
-function useAt(id, x, y, z) { teleportActor(id, x, y, z - 0.5, 0); pressUse(id); }
+function useAt(id, x, y, z) { relocateActor(id, x, y, z - 0.5, 0); pressUse(id); }
 function pressUse(id) {
   Actors.buttons[id] = BTN.USE;
   Sim.run(1);
@@ -458,6 +527,297 @@ function shootAt(id, point) {
   const towardX = ChamberRun.centreX - point.x, towardZ = ChamberRun.centreZ - point.z, flat = Math.hypot(towardX, towardZ) || 1;
   const x = point.x + towardX / flat * 5, z = point.z + towardZ / flat * 5, y = 1.6;
   const dx = point.x - x, dy = point.y - y, dz = point.z - z, length = Math.hypot(dx, dy, dz);
-  teleportActor(id, x, 0, z, 0);
+  relocateActor(id, x, 0, z, 0);
   Bus.emit('weapon.fire', { id, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x, y, z, dx: dx / length, dy: dy / length, dz: dz / length });
 }
+
+// ---- Review fixes: game speed, readability, hit volumes, parries, champions, chambers, director ----
+// Errors logged since a mark (ErrorLog keeps the last 50 entries).
+function errorMark() { return { length: ErrorLog.entries.length, last: ErrorLog.entries[ErrorLog.entries.length - 1] }; }
+function errorsSince(mark) {
+  const entries = ErrorLog.entries;
+  if (entries.length !== mark.length || entries[entries.length - 1] !== mark.last) return entries.slice(Math.min(mark.length, entries.length - 1));
+  return [];
+}
+// A fake batch recording the meshes drawn (shape, height and colour of each).
+function meshRecorder() {
+  const meshes = [];
+  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); } };
+}
+function colorMatches(mesh, hex) {
+  return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;
+}
+
+// DIF-002 game speed reaches the sim through the ruleset (no write into the frozen rules) in the PvE modes only.
+Test.add('pve', (check) => withShortShop(() => {
+  const mark = errorMark();
+  const ids = startPveMode('horde', [0], {}, { difficulty: { preset: 'regular', gameSpeed: 0.8 } });
+  check('a custom game speed 0.8 starts horde cleanly', !!Modes.behaviour.run && Pve.core.active && errorsSince(mark).length === 0, errorsSince(mark).join(' / '));
+  check('the PvE game speed sets the sim time scale', Test.near(Sim.timeScale, 0.8, 1e-6) && Test.near(Game.match.rules.fx.timeScale, 0.8, 1e-6), Sim.timeScale);
+  runSeconds(2);
+  check('the horde step runs without errors at 0.8 speed', errorsSince(mark).length === 0 && Modes.active && ids.length === 1, errorsSince(mark).join(' / '));
+  endModeTest();
+  World.load(pveTestMap());
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true }], difficulty: { preset: 'regular', gameSpeed: 0.8 } });
+  check('versus modes keep normal speed', Sim.timeScale === 1, Sim.timeScale);
+  Game.stop();
+}));
+
+// NPC-002: the stalker shows for its whole attack (tell, blow, recovery) and its tell is drawn.
+Test.add('pve', (check) => {
+  const dummy = startPveTest();
+  const id = spawnFacing('stalker', 1.4);
+  check('a stalker spawns cloaked', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  let windupVisible = true, sawWindup = false, drawnInWindup = false;
+  runUntilHit(id, dummy, 4, () => {
+    if (Pve.phase[id] !== ATTACK_PHASE.WINDUP || Sim.time <= Pve.tellStart[id]) return;
+    sawWindup = true;
+    if (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) windupVisible = false;
+    const batch = meshRecorder();
+    Pve.draw(batch);
+    if (batch.meshes.some((mesh) => colorMatches(mesh, PVE_TELL_COLORS.parry))) drawnInWindup = true;
+  });
+  check('the stalker is visible during its whole wind-up', sawWindup && windupVisible);
+  check('its green tell is drawn during the wind-up', drawnInWindup);
+  Pve.revealedUntil[id] = 0;
+  BLINK.readyAt[id] = 1e9;
+  Pve.cooldown.fill(1e9, id * PVE_MAX_ATTACKS, (id + 1) * PVE_MAX_ATTACKS);
+  runUntil(() => Pve.phase[id] === ATTACK_PHASE.IDLE, 3);
+  Sim.run(1);
+  check('after the attack it cloaks again', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  Game.stop();
+});
+
+// Clear hit boxes: weak points lie inside an S08 hit volume (the boss core in the head sphere), the silhouette on the volumes.
+const PVE_PART_SLACK = 0.5;              // m at size 1: arms, weapons, horns and eyes may stand this far off a hit volume
+const PVE_BODY_OVERHANG = 0.3;           // m at size 1: a 'body' part may reach this far past the torso radius
+function partOffVolumes(row, part) {
+  const x = part[1], y = part[2], z = part[3], flat = Math.hypot(x, z);
+  const head = Math.max(0, Math.hypot(x, y - (STANCE_EYE[0] + HEAD_ABOVE_EYE), z) - HEAD_RADIUS * row.headScale);
+  const cylinder = (low, high, radius) => Math.hypot(y < low ? low - y : y > high ? y - high : 0, Math.max(0, flat - radius));
+  return Math.min(head, cylinder(TORSO_LOW, TORSO_HIGH, TORSO_RADIUS), cylinder(LEGS_LOW, LEGS_HIGH, LEGS_RADIUS));
+}
+Test.add('pve', (check) => {
+  const loose = [], fat = [];
+  for (const row of CAT.enemies) {
+    for (const part of row.parts) {
+      const off = partOffVolumes(row, part), limit = part[7] === 'weak' || part[7] === 'body' ? 0 : PVE_PART_SLACK;
+      if (off > limit + 1e-6) loose.push(row.id + '.' + part[7] + ' ' + off.toFixed(2));
+      if (part[7] === 'body' && Math.max(part[4], part[6]) / 2 > TORSO_RADIUS + PVE_BODY_OVERHANG + 1e-6) fat.push(row.id);
+    }
+  }
+  check('weak and body part centres lie inside a hit volume, the rest within 0.5 m', loose.length === 0, loose.join(', '));
+  check('no body part sticks out far past the torso volume', fat.length === 0, fat.join());
+  startPveTest();
+  const missed = [];
+  for (const row of CAT.enemies) {
+    const id = Pve.spawnEnemy(row, 0, 0, 30, 0, { team: NO_TEAM });
+    for (const part of row.parts) if (part[7] === 'weak' && !rayHitsPart(id, row, part, row.weakPoint && row.weakPoint.kind === 'core')) missed.push(row.id);
+    Actors.remove(id);
+  }
+  check('a shot at each glowing weak part hits its volume (the boss core: the head)', missed.length === 0, missed.join());
+  const overlord = CAT.enemies.byId('overlord');
+  check('the overlord has a glowing weak head', overlord.parts.some((part) => part[7] === 'weak' && partOffVolumes(overlord, part) === 0));
+  Game.stop();
+});
+// A ray from 5 m outside (beside the part, away from the body axis) toward the part centre enters a volume by the centre.
+function rayHitsPart(id, row, part, wantHead) {
+  const size = row.size, x = Actors.x[id] + part[1] * size, y = Actors.y[id] + part[2] * size, z = Actors.z[id] + part[3] * size;
+  const flat = Math.hypot(part[1], part[3]);
+  const dirX = flat > 0.05 ? -part[1] / flat : 0, dirZ = flat > 0.05 ? -part[3] / flat : -1;
+  const distance = Hitbox.ray(id, x - dirX * 5, y, z - dirZ * 5, dirX, 0, dirZ, 10, 0);
+  return distance >= 0 && distance <= 5 + 1e-3 && (!wantHead || Hitbox.zone === ZONE.HEAD);
+}
+
+// The green barrage is parried by MELEE / ALT inside the difficulty window with any weapon: the bolts fly back.
+function fireBarrage(parry) {
+  const dummy = startPveTest();
+  const boss = spawnFacing('overlord', 14), hits = startEventLog('damage'), parries = startEventLog('pve.parry');
+  Pve.startAttack(boss, Pve.rowOf(boss).attackRows.findIndex((attack) => attack.id === 'barrage'), dummy, Sim.time);
+  let reflected = 0;
+  for (let tick = 0; tick < 3 * TICK_RATE; tick++) {
+    if (parry) Pve.parryAt[dummy] = Sim.time;
+    Actors.health[dummy] = Actors.maxHealth[dummy];
+    for (let i = 0; i < PROJECTILE_CAP; i++) if (Projectiles.state[i] && Projectiles.owner[i] === dummy) reflected++;
+    Sim.run(1);
+  }
+  hits.stop();
+  parries.stop();
+  const result = { hurt: hits.filter((event) => event.source === boss && event.target === dummy && event.amount > 0).length, parries: parries.length, reflected };
+  Game.stop();
+  return result;
+}
+Test.add('pve', (check) => {
+  const open = fireBarrage(false), parried = fireBarrage(true);
+  check('an unparried barrage hits the dummy', open.hurt > 0 && open.parries === 0, JSON.stringify(open));
+  check('MELEE inside the parry window reflects the barrage bolts', parried.hurt === 0 && parried.parries > 0 && parried.reflected > 0, JSON.stringify(parried));
+});
+
+// NPC-004: unstoppable ignores damage staggers and knockback (parries still stagger); champion ring and element shell drawn.
+Test.add('pve', (check) => {
+  startPveTest();
+  const tough = Pve.spawnEnemy('brute', 0, 0, 10, Math.PI, { champion: championIndex('unstoppable') });
+  const plain = Pve.spawnEnemy('brute', 6, 0, 10, Math.PI);
+  hitEnemy(0, tough, Actors.maxHealth[tough] * 0.3, 'hit', 'body');
+  hitEnemy(0, plain, Actors.maxHealth[plain] * 0.3, 'hit', 'body');
+  Sim.run(2);
+  check('a big hit staggers a brute but not an unstoppable one', Sim.time < Pve.staggerUntil[plain] && Sim.time >= Pve.staggerUntil[tough], Pve.staggerUntil[tough]);
+  const pushed = Math.hypot(Actors.vx[plain], Actors.vz[plain]), held = Math.hypot(Actors.vx[tough], Actors.vz[tough]);
+  check('damage pushes a brute but not an unstoppable one (it only walks)', pushed > 3 && held < 1, pushed + ' ' + held);
+  Pve.stagger(tough, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
+  check('a parry still staggers the unstoppable champion', Sim.time < Pve.staggerUntil[tough]);
+  const chance = PVE_CHAMPION_RULES.shieldElementChance;
+  PVE_CHAMPION_RULES.shieldElementChance = 1;
+  const shielded = Pve.spawnEnemy('gunner', -6, 0, 10, Math.PI, { champion: championIndex('barrier') });
+  PVE_CHAMPION_RULES.shieldElementChance = chance;
+  const element = CAT.elements[Damage.shieldElement[shielded] - 1];
+  check('a barrier champion can carry an element shield (x1.5 for its element)', !!element && Actors.shield[shielded] > 0 && shieldElementFactor(shielded, element.id) === ELEMENT_MATCH_FACTOR,
+    Damage.shieldElement[shielded]);
+  const batch = meshRecorder();
+  Pve.draw(batch);
+  const rings = batch.meshes.filter((mesh) => mesh.shape === 'ring');
+  const tagged = (key) => rings.some((mesh) => colorMatches(mesh, PVE_CHAMPIONS[championIndex(key)].glow));
+  check('champions stand on a ring in their tag colour', tagged('unstoppable') && tagged('barrier'));
+  check('a coloured shield is drawn in its element colour', !!element && rings.filter((mesh) => colorMatches(mesh, element.color)).length === PVE_SHELL_HEIGHTS.length);
+  Game.stop();
+});
+
+// Boss phases cannot be skipped: one huge hit stops at the threshold; a frozen boss still switches phase.
+Test.add('pve', (check) => {
+  startPveTest();
+  const boss = spawnFacing('overlord', 30), row = Pve.rowOf(boss);
+  hitEnemy(0, boss, Actors.maxHealth[boss] * 0.9, 'hit', 'body');
+  check('one huge hit stops at the 66% threshold', Test.near(Actors.health[boss], Actors.maxHealth[boss] * row.phases[0].until, 1e-3), Actors.health[boss]);
+  Sim.run(1);
+  check('and the boss enters phase 2, not 3', PveBoss.phase[boss] === 1);
+  runSeconds(BOSS_TRANSITION_SECONDS + 0.1);
+  Actors.flags[boss] |= ACTOR_FLAG.FROZEN;
+  hitEnemy(0, boss, Actors.maxHealth[boss], 'hit', 'body');
+  Sim.run(1);
+  check('a frozen boss still switches phase at the threshold', PveBoss.phase[boss] === 2 && Actors.alive[boss] === 1, PveBoss.phase[boss]);
+  Game.stop();
+});
+
+// Director: a queue entry stays queued when no actor slot is free; summoned swarms come as a whole group.
+Test.add('pve', (check) => {
+  startPveTest();
+  const spawnEnemy = Pve.spawnEnemy;
+  Pve.spawnPoints.push({ x: 30, y: 0, z: 30, yaw: 0, side: NO_TEAM });
+  Pve.enqueue('husk', NO_TEAM, 1, -1, 1);
+  try { Pve.spawnEnemy = () => -1; Pve.serveQueue(Sim.time); } finally { Pve.spawnEnemy = spawnEnemy; }
+  check('a spawn without a free slot keeps its queue entry', Pve.queue.count === 1);
+  Pve.serveQueue(Sim.time);
+  check('it spawns once a slot is free', Pve.queue.count === 0 && Pve.hostileCount() === 1);
+  const boss = spawnFacing('overlord', 30), spawns = startEventLog('actor.spawn');
+  PveAttacks.summon.begin(boss, Pve.rowOf(boss).attackRows.find((attack) => attack.id === 'summon'));
+  spawns.stop();
+  const mites = spawns.filter((event) => Pve.rowOf(event.id) && Pve.rowOf(event.id).id === 'mite').length;
+  check('the summon brings a whole mite swarm', mites === CAT.enemies.byId('mite').group && countSummons(boss) === 2 + mites, mites + ' ' + countSummons(boss));
+  Game.stop();
+});
+
+// A bomber spawned into a slot where another one blew up still blasts when killed early.
+Test.add('pve', (check) => {
+  startPveTest();
+  const first = spawnFacing('bomber', 20);
+  Pve.hitDone[first] = 1;
+  Actors.remove(first);
+  const second = spawnFacing('bomber', 20), blasts = startEventLog('explosion');
+  killEnemy(second);
+  blasts.stop();
+  check('the reused slot starts with no blast done', second === first && blasts.length === 1, second + ' ' + first + ' ' + blasts.length);
+  Game.stop();
+});
+
+// NPC-007 fallback: 75% of the encounter dead with reinforcements queued sends the rest back to their spawn.
+Test.add('pve', (check) => {
+  startPveTest();
+  Pve.beginEncounter();
+  const ids = [];
+  for (let k = 0; k < 8; k++) ids.push(Pve.spawnEnemy('gunner', -14 + k * 4, 0, 20, Math.PI));
+  Pve.enqueue('gunner', NO_TEAM, 1, -1, 1);
+  Pve.peakAt = Sim.time;   // the director relaxes: the reinforcement waits
+  for (let k = 0; k < 6; k++) killEnemy(ids[k]);
+  const survivor = ids[7];
+  Pve.nextThink[survivor] = Sim.time;
+  Sim.run(1);
+  check('survivors of a 75% loss fall back while reinforcements wait', Pve.goal[survivor] === PVE_GOAL.FALLBACK && Pve.goalZ[survivor] === Pve.homeZ[survivor], Pve.goal[survivor]);
+  Pve.queue.count = 0;
+  Pve.nextThink[survivor] = Sim.time;
+  Sim.run(1);
+  check('with nothing queued they make a last stand instead', Pve.goal[survivor] !== PVE_GOAL.FALLBACK, Pve.goal[survivor]);
+  Game.stop();
+});
+
+// DIF-004: three party deaths in one wave offer the Guardian Plate; the next lost wave retries with damage taken halved.
+Test.add('pve', (check) => withShortShop(() => {
+  const ids = startPveMode('horde', [0, 0]);
+  const run = Modes.behaviour.run;
+  runUntil(() => run.state === PVE_WAVE_STATE.FIGHT, 10);
+  for (let death = 0; death < PVE_DIRECTOR.guardianDeaths; death++) {
+    killActor(ids[0], -1);
+    runSeconds(0.1);
+    if (!Actors.alive[ids[0]]) Modes.spawnActor(ids[0]);
+  }
+  runSeconds(0.1);
+  check('three deaths in the wave offer the plate', run.plateOffered && PVE_HUD.guardianOffer, run.deaths);
+  const retries = run.retriesLeft;
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  check('the lost wave retries with the plate (no checkpoint retry spent)', Modes.active && run.plateUsed && run.retriesLeft === retries && Pve.guardian[ids[0]] === 1 && PVE_HUD.guardian, run.retriesLeft);
+  const enemy = Pve.spawnEnemy('husk', 20, 0, 20, 0);
+  check('the plate halves enemy damage', Test.near(Pve.attackerScale(enemy, ids[0]), Pve.skill().playerDamage * PVE_DIRECTOR.guardianTaken, 1e-6), Pve.attackerScale(enemy, ids[0]));
+  godMode(ids);
+  runUntil(() => run.wave >= 1 && run.state === PVE_WAVE_STATE.SHOP, 120, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(ids[1]); });
+  runSeconds(0.1);
+  check('a cleared wave takes the plate off', run.state === PVE_WAVE_STATE.SHOP && Pve.guardian[ids[0]] === 0 && !PVE_HUD.guardian, run.state + ' ' + run.wave);
+  endModeTest();
+}));
+
+// M23 reads its mode params: custom deposit sizes and invasion step change the blockers and invasions.
+function queuedOnSide(side, key) {
+  const queue = Pve.queue;
+  let count = 0;
+  for (let k = 0; k < queue.count; k++) {
+    const slot = (queue.head + k) % queue.row.length;
+    if (queue.side[slot] === side && CAT.enemies[queue.row[slot]].id === key) count++;
+  }
+  return count;
+}
+Test.add('pve', (check) => {
+  const params = { blockerAt: [2, 4, 6], invasionAt: 10, bossAt: 100 };
+  const [blue] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) }, { modeOptions: { params } });
+  godMode([blue]);
+  check('the custom params reach the ruleset', Modes.rules.params.blockerAt[1] === 4 && Modes.rules.params.invasionAt === 10);
+  Pve.queue.count = 0;
+  BankRun.carried[blue] = 4;
+  Modes.behaviour.bankMotes(blue, 0);
+  check('a deposit of 4 sends the second blocker (custom blockerAt)', queuedOnSide(1, PVE_BANK.blockers[1]) === 1, queuedOnSide(1, PVE_BANK.blockers[1]));
+  BankRun.carried[blue] = 6;
+  Modes.behaviour.bankMotes(blue, 0);
+  check('crossing the custom invasion step sends an invader', BankRun.invasions[0] === 1 && queuedOnSide(1, PVE_BANK.invader) === 1, BankRun.banked[0] + ' ' + BankRun.invasions[0]);
+  endModeTest();
+});
+
+// MAP-030 hints are shown on entering a chamber; a fizzle grid with clears 'gates' closes the crosser's twin gates.
+Test.add('pve', (check) => {
+  World.load(Maps.get('chambers'));
+  const announces = startEventLog('announce');
+  Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
+  const id = 0;
+  check('the first chamber hint is in the HUD and announced', PVE_HUD.hint === PVE_CHAMBERS[0].hint && announces.some((event) => event.text === PVE_CHAMBERS[0].hint));
+  const index = PVE_CHAMBERS.findIndex((row) => row.elements.some((element) => element.kind === 'fizzle' && element.clears === 'gates'));
+  enterChamber(index);
+  placeInChamber(id, index);
+  chamberElementAt(PVE_CHAMBERS[index].elements.find((element) => element.kind === 'fizzle'), pveSpot);
+  WeaponSpecialState.gateOpen[id * 2] = WeaponSpecialState.gateOpen[id * 2 + 1] = 1;
+  Sim.run(1);
+  check('gates stay open away from the grid', WeaponSpecialState.gateOpen[id * 2] === 1);
+  relocateActor(id, pveSpot.x, pveSpot.y, pveSpot.z, 0);
+  Sim.run(1);
+  check('crossing the fizzle grid closes both twin gates', WeaponSpecialState.gateOpen[id * 2] === 0 && WeaponSpecialState.gateOpen[id * 2 + 1] === 0);
+  enterChamber(PVE_CHAMBERS.findIndex((row) => !row.hint));
+  check('late chambers have no hint', PVE_HUD.hint === '');
+  announces.stop();
+  endModeTest();
+});

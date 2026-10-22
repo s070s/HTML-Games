@@ -31,11 +31,14 @@ const PVE_NOISE_AWARENESS = 0.35;         // a heard noise makes an unaware guar
 const PVE_DECAY_RATE = 0.5;               // awareness per second once unseen for SENSE_AWARE_DECAY_AFTER
 const PVE_STAGGER_DAMAGE = 1.5;           // a staggered (wall-stunned) enemy takes x1.5
 const PVE_DODGE_PROJECTILES = ['grenade', 'mine', 'rocket'];
-const PVE_GOAL = { IDLE: 0, PURSUE: 1, ATTACK: 2, FLEE: 3, DODGE: 4, COVER: 5, OBJECTIVE: 6, LURE: 7, SEARCH: 8, PATROL: 9 };
-const PVE_GOAL_NAMES = Object.keys(PVE_GOAL).map((name) => name.toLowerCase());
+const PVE_GOAL = { IDLE: 0, PURSUE: 1, ATTACK: 2, FLEE: 3, DODGE: 4, COVER: 5, OBJECTIVE: 6, LURE: 7, SEARCH: 8, PATROL: 9, FALLBACK: 10 };
 const ATTACK_PHASE = { IDLE: 0, WINDUP: 1, ACTIVE: 2, RECOVER: 3 };
 const AWARENESS = { UNAWARE: 0, SUSPICIOUS: 1, SEARCHING: 2, ALERT: 3 };
-const AWARENESS_NAMES = ['unaware', 'suspicious', 'searching', 'alert'];
+const STAGGER_CAUSE = { DAMAGE: 'damage', PARRY: 'parry', WALL: 'wall' };   // unstoppable champions ignore DAMAGE staggers
+const PVE_TELL_SOUNDS = { parry: 'abilityCast', unblockable: 'pingDanger', normal: 'grenadeTick' };
+const PVE_SHIELD_COLOR = 0xa0d0ff;        // shell colour of a shield without an element
+const PVE_CHAMPION_RING = 1.4;            // ring diameter at size 1 under a champion
+const PVE_SHELL_HEIGHTS = [0.45, 1.05, 1.55];   // shield rings around the body at size 1
 const PART_TINTS = { body: 0, dark: 1, glow: 2, weak: 3, eye: 4 };
 const ENEMY_ATTACK_DEFAULTS = {
   id: '', kind: 'melee', damage: 0, range: [0, 2], tell: PVE_MIN_TELL, cooldown: 1, recover: 0.3, parry: false, unblockable: false, shots: 1, gap: 0.1,
@@ -54,7 +57,15 @@ function prepareEnemyRow(row, index) {
   row.colors = new Float32Array(15);
   const darker = ((row.color >> 1) & 0x7f7f7f) | 0x101010;
   [row.color, darker, row.glow, row.glow, 0xfff0c0].forEach((color, slot) => writeColor(row.colors, slot * 3, color));
+  // Weapons whose projectiles a MELEE / ALT press inside the parry window reflects (green projectile tells).
+  row.parryWeapons = row.attackRows.filter((attack) => attack.kind === 'projectile' && attack.parry).map((attack) => CAT.weapons.byId(attack.weapon).index);
 }
+// Champion glow and element shield colours as floats (drawing reads them every frame).
+const PVE_CHAMPION_COLORS = new Float32Array(PVE_CHAMPIONS.length * 3);
+PVE_CHAMPIONS.forEach((champion, index) => writeColor(PVE_CHAMPION_COLORS, index * 3, champion.glow));
+const PVE_SHIELD_COLORS = new Float32Array((CAT.elements.length + 1) * 3);   // slot 0: no element (Damage.shieldElement 0)
+writeColor(PVE_SHIELD_COLORS, 0, PVE_SHIELD_COLOR);
+CAT.elements.forEach((element, index) => writeColor(PVE_SHIELD_COLORS, (index + 1) * 3, element.color));
 
 const pveScratch = Vec.make();
 const pveAim = Vec.make();
@@ -63,6 +74,7 @@ const pveWallHit = makeHit();
 const pveSpawnPayload = { id: -1 };
 const pveEventPayload = { id: -1, attack: '', kind: '', seconds: 0, color: 0, target: -1 };
 const pveRendered = { x: 0, y: 0, z: 0 };
+const pveQueueOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 const Pve = {
   active: false,            // PvE machinery runs (a PvE mode, wildlife, or a test that spawned enemies)
@@ -78,6 +90,7 @@ const Pve = {
   brokenUntil: new Float64Array(MAX_ACTORS), staggerUntil: new Float64Array(MAX_ACTORS), revealedUntil: new Float64Array(MAX_ACTORS),
   coverUntil: new Float64Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
   awareness: new Float32Array(MAX_ACTORS), alarmed: new Uint8Array(MAX_ACTORS), lastThink: new Float64Array(MAX_ACTORS),
+  noKnockback: new Uint8Array(MAX_ACTORS),            // unstoppable champions: damage never pushes them
   damageScale: new Float32Array(MAX_ACTORS).fill(1), champion: new Int8Array(MAX_ACTORS).fill(-1), wave: new Int16Array(MAX_ACTORS),
   homeX: new Float32Array(MAX_ACTORS), homeY: new Float32Array(MAX_ACTORS), homeZ: new Float32Array(MAX_ACTORS), homeYaw: new Float32Array(MAX_ACTORS),
   goalX: new Float32Array(MAX_ACTORS), goalY: new Float32Array(MAX_ACTORS), goalZ: new Float32Array(MAX_ACTORS),   // where cover / objective / lure / patrol lead
@@ -87,6 +100,7 @@ const Pve = {
   guardian: new Uint8Array(MAX_ACTORS),               // DIF-004 Guardian Plate (damage taken x0.5) for a participant
   raysLeft: 0,
   intensity: 0, peakAt: -1e9,
+  encounterSpawned: 0,      // enemies spawned since the mode's last beginEncounter (NPC-007 fallback share)
   spawnPoints: [],          // { x, y, z, yaw, side } director spawn points (filled by the mode)
   queue: { row: new Int16Array(256), champion: new Int8Array(256), side: new Int8Array(256), scale: new Float32Array(256), wave: new Int16Array(256), head: 0, count: 0 },
   core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, destroyedAt: -1 },
@@ -116,7 +130,7 @@ const Pve = {
   // ---- Match lifecycle ----
   reset() {
     this.active = false; this.stealth = false; this.intensity = 0; this.peakAt = -1e9;
-    this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0;
+    this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
     this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
     for (const key in this.stats) this.stats[key] = 0;
@@ -131,6 +145,7 @@ const Pve = {
     this.row[id] = -1; this.target[id] = -1; this.attack[id] = -1; this.phase[id] = ATTACK_PHASE.IDLE; this.goal[id] = PVE_GOAL.IDLE;
     this.huntTeam[id] = NO_TEAM; this.side[id] = NO_TEAM; this.champion[id] = -1; this.summoner[id] = -1; this.damageScale[id] = 1;
     this.awareness[id] = 0; this.alarmed[id] = 0; this.guardian[id] = 0; this.parryAt[id] = -1e9; this.weakPool[id] = 0; this.disabledUntil[id] = 0;
+    this.hitDone[id] = 0; this.noKnockback[id] = 0;
     this.cooldown.fill(0, id * PVE_MAX_ATTACKS, (id + 1) * PVE_MAX_ATTACKS);
     // Timers are absolute sim times and the sim clock restarts per match: clear them all.
     this.brokenUntil[id] = this.staggerUntil[id] = this.revealedUntil[id] = this.coverUntil[id] = this.lureUntil[id] = 0;
@@ -160,14 +175,13 @@ const Pve = {
     Bus.emit('actor.spawn', pveSpawnPayload);
     this.setupBody(id, row);
     this.stats.spawned++;
+    this.encounterSpawned++;
     this.stats.maxAlive = Math.max(this.stats.maxAlive, this.aliveCount());
     return id;
   },
   place(id, x, y, z, yaw) {
-    Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
-    Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
+    relocateActor(id, x, y, z, yaw);
     Actors.pitch[id] = Actors.prevPitch[id] = Actors.aimPitch[id] = 0;
-    Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
     Actors.alive[id] = 1;
     Actors.spawnCount[id]++;
     this.homeX[id] = x; this.homeY[id] = y; this.homeZ[id] = z; this.homeYaw[id] = yaw;
@@ -181,11 +195,13 @@ const Pve = {
     Actors.armor[id] = Actors.maxArmor[id] = 0;
     Actors.shield[id] = Actors.maxShield[id] = row.shield + (champion && champion.shield ? champion.shield : 0);
     const element = CAT.elements.byId(champion && champion.shield ? championElement(row) : row.shieldElement);
-    Damage.shieldElement[id] = element ? element.index + 1 : 0;
+    Damage.shieldElement[id] = element ? CAT.elements.indexOf(element) + 1 : 0;   // element rows carry no index field
     Damage.noRegen[id] = 1;
     Weapons.clear(id);
     Move.presetOverride[id] = row.move;
     Hitbox.sizeScale[id] = row.size;
+    Hitbox.headScale[id] = row.headScale * (Mutators.fx && Mutators.fx.headScale ? Mutators.fx.headScale : 1);   // the row's head (weak point) size, X14 on top
+    this.noKnockback[id] = champion && champion.noKnockback ? 1 : 0;
     if (row.cloaked) Actors.flags[id] |= ACTOR_FLAG.INVISIBLE;
     this.weakPool[id] = row.weakPoint && row.weakPoint.pool ? row.weakPoint.pool : 0;
     this.setupBrain(id, row);
@@ -246,16 +262,24 @@ const Pve = {
       queue.count--;
     }
   },
+  // False (the entry stays queued) when not even the first member found a free actor slot (corpses hold slots 3 s).
   spawnQueued(row, side, scale, champion, wave) {
     const point = this.pickSpawn(side, pveScratch);
     if (!point) return false;
-    const team = this.teamForSide(side);
+    const options = pveQueueOptions;
+    options.team = this.teamForSide(side); options.side = side; options.huntTeam = this.huntFor(side);
+    options.scale = scale; options.champion = champion; options.wave = wave; options.summoner = -1;
+    return this.spawnGroup(row, point.x, point.y, point.z, point.yaw, options) > 0;
+  },
+  // A row's whole group (a swarm) in a spiral around x, z; returns how many members spawned.
+  spawnGroup(row, x, y, z, yaw, options) {
+    let spawned = 0;
     for (let member = 0; member < row.group; member++) {
       const angle = member * 2.4, radius = member === 0 ? 0 : PVE_DIRECTOR.spawnSpacing * Math.sqrt(member);
-      this.spawnEnemy(row, point.x + Math.cos(angle) * radius, point.y, point.z + Math.sin(angle) * radius, point.yaw,
-        { team, side, huntTeam: this.huntFor(side), scale, champion, wave });
+      if (this.spawnEnemy(row, x + Math.cos(angle) * radius, y, z + Math.sin(angle) * radius, yaw, options) >= 0) spawned++;
+      else if (member === 0) return 0;
     }
-    return true;
+    return spawned;
   },
   // Side -1 = the co-op enemy side; sides 0 / 1 = the PvE of that team (bank) or that team's own minions (attrition).
   sideTeam: null,           // fn(side) -> team (14j sets it per mode), else ENEMY_TEAM
@@ -301,11 +325,13 @@ const Pve = {
   stepEnemy(id, dt, now) {
     const row = this.rowOf(id), brain = PveBrains[row.brain];
     Bots.buttonsWanted[id] = 0;
+    if (brain.always) brain.always(id, row, now);   // runs even while stunned (boss phase thresholds)
     if (this.stunned(id, now)) { this.cancelAttack(id); Bots.wish(id, 0, 0, 0); Bots.motor(id, dt); return; }
     if (now + TIME_EPSILON >= this.nextThink[id]) this.think(id, row, brain, now);
     this.stepAttack(id, row, now);
     if (brain.step) brain.step(id, row, dt, now);
     if (!Actors.alive[id]) return;   // an attack can end its own enemy (the bomber)
+    this.updateCloak(id, row, now);
     PveMove.run(id, row, dt, now, brain);
     Bots.motor(id, dt);
   },
@@ -316,15 +342,15 @@ const Pve = {
     this.perceive(id, row, now);
     this.lastThink[id] = now;
     if (Damage.hasStatus(id, 'shock')) this.revealedUntil[id] = now + PVE_DIRECTOR.searchSeconds;
-    this.updateCloak(id, row, now);
     PveMove.updateApproach(id, row, brain, now);
     if (this.phase[id] !== ATTACK_PHASE.IDLE) return;
     if (brain.decide && brain.decide(id, row, now)) return;
     this.decide(id, row, now);
   },
+  // Every tick: a cloaked enemy shows for its whole attack (tell, blow, recovery: NPC-002) and while revealed.
   updateCloak(id, row, now) {
     if (!row.cloaked) return;
-    const hidden = now >= this.revealedUntil[id] && this.phase[id] !== ATTACK_PHASE.ACTIVE;
+    const hidden = now >= this.revealedUntil[id] && this.phase[id] === ATTACK_PHASE.IDLE;
     if (hidden) Actors.flags[id] |= ACTOR_FLAG.INVISIBLE; else Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
   },
 
@@ -432,6 +458,7 @@ const Pve = {
   decide(id, row, now) {
     if (this.shouldFlee(id, row, now)) { this.setGoal(id, PVE_GOAL.FLEE); return; }
     if (this.dodgeThreat(id)) { this.setGoal(id, PVE_GOAL.DODGE, PVE_DIRECTOR.thinkInterval); return; }
+    if (this.shouldFallBack(row)) { this.setGoalPoint(id, this.homeX[id], this.homeY[id], this.homeZ[id]); this.setGoal(id, PVE_GOAL.FALLBACK); return; }
     if (this.goal[id] === PVE_GOAL.COVER && now < this.coverUntil[id]) return;
     if (this.wantsCover(id, row, now)) { this.setGoal(id, PVE_GOAL.COVER); return; }
     if (this.tryAttack(id, row, now)) return;
@@ -452,6 +479,15 @@ const Pve = {
   lastStand() {
     return this.queue.count === 0 && this.hostileCount() <= Math.max(1, Math.round(this.stats.maxAlive * PVE_DIRECTOR.lastStand));
   },
+  // NPC-007 fallback: the encounter lost 75% of what it spawned while reinforcements are still queued - the survivors
+  // pull back to where they spawned and regroup with them (the boss, turrets and range targets hold).
+  shouldFallBack(row) {
+    if (row.boss || row.target || row.speed <= 0 || row.beast || this.queue.count === 0) return false;
+    if (this.encounterSpawned < PVE_DIRECTOR.fallbackMinimum) return false;
+    return this.hostileCount() <= this.encounterSpawned * (1 - PVE_DIRECTOR.fallbackLosses);
+  },
+  // A mode starts an encounter (a wave): the fallback share counts from here.
+  beginEncounter() { this.encounterSpawned = 0; },
   outnumbered(id) {
     let foes = 0, friends = 0;
     for (let other = 0; other < Actors.count; other++) {
@@ -585,16 +621,27 @@ const Pve = {
   // A parryable blow is parried when the target pressed MELEE or ALT within the difficulty's parry window (DIF-002).
   parried(id, target, attack) {
     if (!attack.parry || target < 0 || Sim.time - this.parryAt[target] > this.skill().parry) return false;
-    this.stagger(id, PVE_DIRECTOR.staggerSeconds);
+    this.stagger(id, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
     this.stats.parries++;
     Bus.emit('pve.parry', pveEvent(id, attack.id, attack.kind, 0, PVE_TELL_COLORS.parry, target));
     return true;
   },
-  stagger(id, seconds) {
-    const champion = this.champion[id] >= 0 ? PVE_CHAMPIONS[this.champion[id]] : null;
-    if (this.rowOf(id).boss || (champion && champion.noKnockback && seconds < PVE_DIRECTOR.staggerSeconds)) return;
+  // cause: STAGGER_CAUSE (default PARRY = a forced stagger). Bosses never stagger; unstoppable champions only by parries and walls.
+  stagger(id, seconds, cause) {
+    if (this.rowOf(id).boss || (cause === STAGGER_CAUSE.DAMAGE && this.noKnockback[id])) return;
     this.staggerUntil[id] = Math.max(this.staggerUntil[id], Sim.time + seconds);
     this.cancelAttack(id);
+  },
+  // S11 parry hook (WeaponSpecialState.parryHooks): a projectile of a green (parryable) enemy attack is reflected when its
+  // target pressed MELEE or ALT within the difficulty parry window and faces it - with any weapon, not only a block weapon.
+  parryProjectile(target, projectile) {
+    const owner = Projectiles.owner[projectile];
+    if (owner < 0 || !this.isEnemy(owner) || !this.rowOf(owner).parryWeapons.includes(Projectiles.weapon[projectile])) return false;
+    if (Sim.time - this.parryAt[target] > this.skill().parry) return false;
+    if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
+    this.stats.parries++;
+    Bus.emit('pve.parry', pveEvent(owner, 'projectile', 'projectile', 0, PVE_TELL_COLORS.parry, target));
+    return true;
   },
   // Damage from an enemy attack to an actor or the core (the single path for every attack kind).
   hitTarget(id, target, attack, amount, kind, zone) {
@@ -652,6 +699,7 @@ const Pve = {
   reduceDamage(source, target, amount, info) {
     if (!this.isEnemy(target)) return amount;
     const row = this.rowOf(target);
+    if (this.noKnockback[target]) info.knockback = 0;   // unstoppable: the hit lands, the push does not (Damage.knockback reads it after the reducers)
     let scaled = amount * weakPointFactor(row, target, info);
     if (row.frontShield && info.kind !== 'splash' && this.shieldBlocks(target, row.frontShield, info)) scaled *= row.frontShield.factor;
     if (Sim.time < this.staggerUntil[target] && row.brain === 'charger') scaled *= PVE_STAGGER_DAMAGE;
@@ -674,7 +722,7 @@ const Pve = {
     BotSense.remember(BotSense.pair(target, source), SENSE.HURT, Actors.x[source], Actors.y[source], Actors.z[source], now);
     if (this.stealth) this.awareness[target] = 1;
     this.meleeKill[target] = event.kind === 'melee' ? 1 : 0;
-    if (event.amount >= Actors.maxHealth[target] * PVE_DIRECTOR.staggerHitShare) this.stagger(target, PVE_DIRECTOR.staggerSeconds);
+    if (event.amount >= Actors.maxHealth[target] * PVE_DIRECTOR.staggerHitShare) this.stagger(target, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.DAMAGE);
     this.nextThink[target] = Math.min(this.nextThink[target], now);
   },
   addIntensity(amount) {
@@ -802,6 +850,8 @@ const Pve = {
         part[4] * size, part[5] * size, part[6] * size, glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount), g, b, emissive);
     }
     if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
+    if (this.champion[id] >= 0) drawChampionRing(batch, id, size, this.champion[id]);
+    if (Actors.shield[id] > 0) drawShieldShell(batch, id, size, Damage.shieldElement[id], Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
     const brain = PveBrains[row.brain];
     if (brain.draw) brain.draw(batch, id, row, now);
     const attack = this.phase[id] === ATTACK_PHASE.WINDUP ? row.attackRows[this.attack[id]] : null;
@@ -836,6 +886,13 @@ function tellColor(attack) {
   return attack.unblockable ? PVE_TELL_COLORS.unblockable : PVE_TELL_COLORS.normal;
 }
 
+// Moves an actor to a point with no interpolation from the old one and no velocity (spawns, blinks, chamber moves).
+function relocateActor(id, x, y, z, yaw) {
+  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
+  Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
+}
+
 // One reused payload for the pve.* events (listeners copy what they keep).
 function pveEvent(id, attack, kind, seconds, color, target) {
   const event = pveEventPayload;
@@ -861,7 +918,27 @@ function drawAwareness(batch, id, row, state) {
   batch.mesh('box', Actors.x[id], Actors.y[id] + STAND_HEIGHT * row.size + 0.45, Actors.z[id], Actors.yaw[id], 0, 0.12, 0.35 * fill, 0.12, color[0], color[1], color[2], 0.9);
 }
 
+// NPC-004 champion tag: a ring in the tag's colour under its feet (barrier blue, unstoppable orange, overload yellow).
+function drawChampionRing(batch, id, size, champion) {
+  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * size;
+  batch.mesh('ring', Actors.x[id], Actors.y[id] + 0.06, Actors.z[id], 0, 0, diameter, 0.1, diameter, colors[slot], colors[slot + 1], colors[slot + 2], 1);
+}
+// NPC-004 / HP-006 coloured shield: rings around the body in the element colour, glowing with the shield left.
+function drawShieldShell(batch, id, size, element, share) {
+  const colors = PVE_SHIELD_COLORS, slot = element * 3, diameter = TORSO_RADIUS * 2.6 * size, glow = 0.4 + 0.6 * share;
+  for (const height of PVE_SHELL_HEIGHTS) {
+    batch.mesh('ring', Actors.x[id], Actors.y[id] + height * size, Actors.z[id], 0, 0, diameter, 0.06, diameter, colors[slot], colors[slot + 1], colors[slot + 2], glow);
+  }
+}
+// NPC-002 tells are also heard: a positional cue per tell colour (green, red, orange).
+function playTellSound(event) {
+  if (Game.headless || event.id < 0) return;
+  const kind = event.color === PVE_TELL_COLORS.parry ? 'parry' : event.color === PVE_TELL_COLORS.unblockable ? 'unblockable' : 'normal';
+  Sound.play(PVE_TELL_SOUNDS[kind], Actors.x[event.id], Actors.eyeY(event.id), Actors.z[event.id], event.id);
+}
+
 Damage.addAttackerScale((source, target) => Pve.attackerScale(source, target));
+WeaponSpecialState.parryHooks.push((target, projectile) => Pve.parryProjectile(target, projectile));
 Damage.addReducer((source, target, amount, info) => Pve.reduceDamage(source, target, amount, info));
 Render.addActorStyle((id, style) => { if (Actors.kind[id] === ACTOR_KIND.ENEMY) style.visible = false; });   // drawn by the 'pve' source
 Render.addSource('pve', (batch) => Pve.draw(batch));
@@ -873,5 +950,6 @@ Bus.on('damage', (event) => Pve.onDamage(event));
 Bus.on('kill', (event) => Pve.onKill(event));
 Bus.on('sound', (event) => Pve.hear(event));
 Bus.on('explosion', (event) => Pve.onExplosion(event));
+Bus.on('pve.tell', playTellSound);
 Sim.addSystem('pveBrains', 11, (dt) => Pve.stepBrains(dt));
 Sim.addSystem('pve', 80, () => Pve.stepDirector());

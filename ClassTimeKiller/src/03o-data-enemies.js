@@ -6,19 +6,22 @@
 // Enemy row fields: brain = behaviour kind (14i: one generic function per kind), health / shield / shieldElement (HP-006
 // coloured shield), speed (m/s top speed; cruise = share of it used while not charging), size (hit volumes and body x),
 // fodder (HP-005 shatter, fodderKill weapons), heavy (attrition points), leader (NPC-003 morale), cash (ECP07 kill
-// reward), cost (director budget), sight / fov / turn / reaction (perception), keepRange [min, max] metres, attacks (see
+// reward), cost (director budget), sight / fov / turn / reaction (perception), keepRange [min, max] metres, headScale (head
+// hit sphere radius x this, on top of the size: big weak-point heads), attacks (see
 // ENEMY_ATTACK_DEFAULTS in 14h), weakPoint { kind: 'back'|'air'|'head'|'core', mult }, frontShield { arcDeg, factor },
 // group (spawned as a swarm of N), drop / meleeDrop (pickup keys), answers (NPC-002 / MIS-032: 2+ ways to beat it),
 // parts [[shape, x, y, z, sx, sy, sz, tint, aim]] = the silhouette in metres at size 1 (tint 'body' | 'dark' | 'glow' | 'weak' |
-// 'eye'; aim 1 = pitches with the view), color / glow (0xRRGGBB).
+// 'eye'; aim 1 = pitches with the view), color / glow (0xRRGGBB). The silhouette sits on the S08 hit volumes (an upright
+// stack at size 1: legs cylinder 0.05..0.85 m r 0.22, torso 0.85..1.45 m r 0.3, head sphere at 1.66 m r 0.14 x headScale):
+// every 'weak' part centre lies inside a volume, every other part centre within PVE_PART_SLACK of one (self-test).
 
 Data.define('enemies', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, role: REQUIRED, brain: REQUIRED, health: REQUIRED, speed: REQUIRED,
   shield: 0, shieldElement: '', cruise: 1, size: 1, fodder: false, heavy: false, leader: false, beast: false, boss: false, target: false,
-  cash: 20, cost: 1, sight: 45, fov: 140, turn: 260, reaction: 450, keepRange: [0, 2], massFactor: 1, flees: false, takesCover: false,
+  cash: 20, cost: 1, sight: 45, fov: 140, turn: 260, reaction: 450, keepRange: [0, 2], headScale: 1, massFactor: 1, flees: false, takesCover: false,
   cloaked: false, blink: null, heal: null, weakPoint: null, frontShield: null, group: 1, drop: '', dropChance: 0.15, meleeDrop: '',
   phases: null, endlessFrom: 1, attacks: [], answers: [], parts: [], color: 0x888888, glow: 0xffd040,
-  index: 0, attackRows: null, tier: null, move: null, alertness: 0, colors: null,   // derived once at load by 14h
+  index: 0, attackRows: null, tier: null, move: null, alertness: 0, colors: null, parryWeapons: null,   // derived once at load by 14h
 }, [
   { id: 'husk', code: 'E01', name: 'Husk', role: 'fodder melee', brain: 'melee', health: 60, speed: 5.5, fodder: true, flees: true, cash: 10, cost: 1,
     reaction: 550, meleeDrop: 'ammobox', drop: 'healthvial', color: 0x7d8a5a, glow: 0xc8ff60,
@@ -37,9 +40,9 @@ Data.define('enemies', {
     attacks: [{ id: 'rockets', kind: 'projectile', weapon: 'ramjet', damage: 50, splashScale: 0.4, range: [5, 40], tell: 0.7, cooldown: 3 },
       { id: 'stomp', kind: 'slam', damage: 40, radius: 4, range: [0, 3.5], tell: 0.7, cooldown: 4, unblockable: true }],
     answers: ['back vents x2', 'sustained fire from range', 'splash'],
-    parts: [['box', 0, 0.95, 0, 1.1, 1.2, 0.8, 'body'], ['box', 0, 1.65, 0.05, 0.6, 0.4, 0.55, 'dark'], ['cylinder', 0, 1.35, -0.45, 0.5, 0.35, 0.25, 'weak'],
-      ['box', 0.75, 1.25, 0.2, 0.35, 0.35, 0.9, 'dark', 1], ['box', -0.75, 1.25, 0.2, 0.35, 0.35, 0.9, 'dark', 1], ['box', 0.3, 0.3, 0, 0.35, 0.6, 0.4, 'dark'],
-      ['box', -0.3, 0.3, 0, 0.35, 0.6, 0.4, 'dark']] },
+    parts: [['box', 0, 0.95, 0.05, 1.1, 1.2, 0.6, 'body'], ['box', 0, 1.62, 0.05, 0.5, 0.36, 0.45, 'dark'], ['cylinder', 0, 1.3, -0.27, 0.45, 0.3, 0.2, 'weak'],
+      ['box', 0.65, 1.25, 0.2, 0.3, 0.3, 0.9, 'dark', 1], ['box', -0.65, 1.25, 0.2, 0.3, 0.3, 0.9, 'dark', 1], ['box', 0.2, 0.3, 0, 0.3, 0.6, 0.4, 'dark'],
+      ['box', -0.2, 0.3, 0, 0.3, 0.6, 0.4, 'dark']] },
   { id: 'phalanx', code: 'E04', name: 'Phalanx', role: 'shielded', brain: 'shielded', health: 250, speed: 4, cash: 40, cost: 4, endlessFrom: 2,
     frontShield: { arcDeg: 120, factor: 0.1, lowered: 0.8 }, color: 0x6a5a8c, glow: 0x80c0ff,
     attacks: [{ id: 'spear', kind: 'melee', damage: 30, range: [0, 2.6], tell: 0.6, cooldown: 2, parry: true }],
@@ -57,13 +60,13 @@ Data.define('enemies', {
     attacks: [{ id: 'longshot', kind: 'laser', damage: 70, range: [10, 90], tell: 1.5, cooldown: 4, unblockable: true }],
     answers: ['break line of sight during the laser', 'smoke', 'close in: 100 HP'],
     parts: [['capsule', 0, 0.85, 0, 0.5, 1.5, 0.45, 'body'], ['sphere', 0, 1.62, 0, 0.28, 0.28, 0.28, 'dark'], ['box', 0.15, 1.3, 0.7, 0.08, 0.1, 1.4, 'dark', 1],
-      ['sphere', 0.15, 1.33, 1.4, 0.1, 0.1, 0.1, 'eye', 1]] },
+      ['sphere', 0.15, 1.42, 0.35, 0.1, 0.1, 0.1, 'eye', 1]] },
   { id: 'mite', code: 'E07', name: 'Mite Swarm', role: 'swarmer', brain: 'melee', health: 15, speed: 8, size: 0.45, fodder: true, group: 8, cash: 10, cost: 0.5,
     reaction: 300, endlessFrom: 2, dropChance: 0.03, drop: 'ammobox', color: 0x8c7a3a, glow: 0xffe060,
     attacks: [{ id: 'bite', kind: 'melee', damage: 5, range: [0, 1.3], tell: 0.4, cooldown: 0.8, parry: true }],
     answers: ['splash', 'any weapon (15 HP)', 'melee'],
-    parts: [['sphere', 0, 0.55, 0, 1.1, 0.8, 1.4, 'body'], ['sphere', 0, 0.75, 0.65, 0.5, 0.45, 0.5, 'dark'], ['box', 0, 0.3, 0, 1.6, 0.12, 0.2, 'dark'],
-      ['sphere', 0.12, 0.85, 0.9, 0.12, 0.12, 0.12, 'eye'], ['sphere', -0.12, 0.85, 0.9, 0.12, 0.12, 0.12, 'eye']] },
+    parts: [['sphere', 0, 1.0, 0, 1.1, 1.0, 1.2, 'body'], ['sphere', 0, 1.6, 0.12, 0.45, 0.4, 0.45, 'dark'], ['box', 0, 0.45, 0, 1.3, 0.12, 0.2, 'dark'],
+      ['box', 0, 0.45, 0, 0.2, 0.12, 1.1, 'dark'], ['sphere', 0.12, 1.68, 0.32, 0.12, 0.12, 0.12, 'eye'], ['sphere', -0.12, 1.68, 0.32, 0.12, 0.12, 0.12, 'eye']] },
   { id: 'bomber', code: 'E08', name: 'Volt Bomber', role: 'suicide', brain: 'bomber', health: 40, speed: 7.5, cash: 30, cost: 2, endlessFrom: 3, reaction: 350,
     dropChance: 0, color: 0x3a6a8c, glow: 0x60d0ff,
     attacks: [{ id: 'detonate', kind: 'explode', damage: 60, radius: 3, range: [0, 2.5], tell: 0.5, cooldown: 1, unblockable: true, element: 'arc' }],
@@ -78,8 +81,9 @@ Data.define('enemies', {
     cash: 60, cost: 6, endlessFrom: 5, color: 0x6a3a3a, glow: 0xff4040,
     attacks: [{ id: 'charge', kind: 'charge', damage: 50, range: [5, 25], tell: 0.8, cooldown: 5, unblockable: true, seconds: 1.6, knockdown: 1.2 }],
     answers: ['sidestep the charge', 'stagger it into a wall (x1.5)', 'splash while it recovers'],
-    parts: [['box', 0, 0.85, 0, 0.9, 1.0, 1.3, 'body'], ['box', 0, 1.3, 0.6, 0.6, 0.5, 0.5, 'dark'], ['cone', 0.3, 1.55, 0.8, 0.15, 0.5, 0.15, 'glow', 1],
-      ['cone', -0.3, 1.55, 0.8, 0.15, 0.5, 0.15, 'glow', 1], ['box', 0.3, 0.3, 0.4, 0.25, 0.6, 0.25, 'dark'], ['box', -0.3, 0.3, -0.4, 0.25, 0.6, 0.25, 'dark']] },
+    parts: [['box', 0, 1.12, 0, 0.8, 0.9, 0.6, 'body'], ['box', 0, 1.62, 0.08, 0.42, 0.4, 0.48, 'dark'], ['cone', 0.28, 1.86, 0.2, 0.14, 0.45, 0.14, 'glow', 1],
+      ['cone', -0.28, 1.86, 0.2, 0.14, 0.45, 0.14, 'glow', 1], ['box', 0.18, 0.42, 0, 0.26, 0.8, 0.3, 'dark'], ['box', -0.18, 0.42, 0, 0.26, 0.8, 0.3, 'dark'],
+      ['box', 0.5, 1.15, 0.05, 0.25, 0.6, 0.3, 'dark'], ['box', -0.5, 1.15, 0.05, 0.25, 0.6, 0.3, 'dark']] },
   { id: 'turret', code: 'E11', name: 'Sentinel Turret', role: 'static', brain: 'turret', health: 150, speed: 0, cash: 40, cost: 4, endlessFrom: 3, turn: 120, fov: 120,
     sight: 50, massFactor: 50, dropChance: 0, color: 0xc0c0c8, glow: 0xff3030,
     attacks: [{ id: 'sweep', kind: 'burst', damage: 12, shots: 10, gap: 0.2, range: [0, 45], tell: 0.6, cooldown: 1.2, spreadDeg: 2, searchSeconds: 3 }],
@@ -90,25 +94,27 @@ Data.define('enemies', {
     weakPoint: { kind: 'air', mult: 2 }, color: 0x7a5a2a, glow: 0xffb040,
     attacks: [{ id: 'pounce', kind: 'pounce', damage: 30, range: [4, 12], tell: 0.5, cooldown: 3, radius: 1.8 }],
     answers: ['shoot it mid-air (x2)', 'sidestep the pounce', 'any weapon (120 HP)'],
-    parts: [['sphere', 0, 0.7, 0, 0.9, 0.7, 1.3, 'body'], ['sphere', 0, 0.95, 0.6, 0.45, 0.4, 0.45, 'dark'], ['box', 0.35, 0.3, -0.3, 0.15, 0.6, 0.5, 'dark'],
-      ['box', -0.35, 0.3, -0.3, 0.15, 0.6, 0.5, 'dark'], ['sphere', 0, 1.0, 0.85, 0.2, 0.08, 0.08, 'eye']] },
-  { id: 'overlord', code: 'E13', name: 'Overlord', role: 'boss', brain: 'boss', health: 6000, speed: 3, boss: true, size: 2.2, massFactor: 40, cash: 100, cost: 0,
+    parts: [['sphere', 0, 1.05, 0, 0.85, 0.85, 1.0, 'body'], ['sphere', 0, 1.6, 0.12, 0.45, 0.4, 0.45, 'dark'], ['box', 0.3, 0.45, -0.1, 0.2, 0.8, 0.5, 'dark'],
+      ['box', -0.3, 0.45, -0.1, 0.2, 0.8, 0.5, 'dark'], ['sphere', 0, 1.66, 0.33, 0.2, 0.08, 0.08, 'eye']] },
+  { id: 'overlord', code: 'E13', name: 'Overlord', role: 'boss', brain: 'boss', health: 6000, speed: 3, boss: true, size: 2.2, headScale: 1.6, massFactor: 40, cash: 100, cost: 0,
     sight: 80, fov: 200, reaction: 300, keepRange: [4, 25], weakPoint: { kind: 'core', mult: 2, pool: 600, seconds: 8 }, dropChance: 1, drop: 'healthpack',
     endlessFrom: 999, color: 0x5a2a5a, glow: 0xff60ff,
-    // Phases by health share (NPC-006 / spec E13): slam, then the green parryable barrage, then summons E01 / E07.
+    // Phases by health share (NPC-006 / spec E13): slam, then the green parryable barrage (an odd fan: the middle bolt flies at
+    // the target, the outer ones punish a sidestep into them), then summons E01 / E07.
     phases: [{ until: 0.66, attacks: ['slam'] }, { until: 0.33, attacks: ['barrage', 'slam'] }, { until: 0, attacks: ['summon', 'barrage', 'slam'] }],
     attacks: [{ id: 'slam', kind: 'slam', damage: 50, radius: 6, range: [0, 6], tell: 0.9, cooldown: 3.5, unblockable: true },
-      { id: 'barrage', kind: 'projectile', weapon: 'linker', damage: 15, shots: 8, gap: 0.12, fanDeg: 30, range: [6, 50], tell: 0.6, cooldown: 4, parry: true },
+      { id: 'barrage', kind: 'projectile', weapon: 'linker', damage: 15, shots: 7, gap: 0.12, fanDeg: 30, range: [6, 50], tell: 0.6, cooldown: 4, parry: true },
       { id: 'summon', kind: 'summon', summon: ['husk', 'husk', 'mite'], range: [0, 80], tell: 1.0, cooldown: 12, limit: 12 }],
     answers: ['break the glowing core to disable its attack', 'parry the green barrage', 'kill the summons for health'],
     parts: [['cylinder', 0, 0.95, 0, 0.6, 1.0, 0.6, 'body'], ['cylinder', 0, 0.42, 0, 0.44, 0.84, 0.44, 'dark'], ['box', 0.55, 1.1, 0.1, 0.3, 0.3, 0.8, 'dark', 1],
-      ['box', -0.55, 1.1, 0.1, 0.3, 0.3, 0.8, 'dark', 1], ['cone', 0, 1.82, -0.15, 0.5, 0.3, 0.3, 'dark']] },
-  { id: 'beast', code: 'E14', name: 'Wild Strider', role: 'neutral beast', brain: 'beast', health: 300, speed: 8, beast: true, size: 1.3, massFactor: 3, cash: 50,
+      ['box', -0.55, 1.1, 0.1, 0.3, 0.3, 0.8, 'dark', 1], ['sphere', 0, 1.66, 0, 0.448, 0.448, 0.448, 'weak'], ['cone', 0, 1.98, -0.05, 0.4, 0.25, 0.3, 'dark']] },
+  { id: 'beast', code: 'E14', name: 'Wild Strider', role: 'neutral beast', brain: 'beast', health: 300, speed: 8, beast: true, size: 1.3, headScale: 1.3, massFactor: 3, cash: 50,
     cost: 6, sight: 40, endlessFrom: 999, drop: 'healthpack', dropChance: 0.4, color: 0x6a7a3a, glow: 0xffd040,
     attacks: [{ id: 'bite', kind: 'melee', damage: 40, range: [0, 2.2], tell: 0.5, cooldown: 1.6, parry: true }],
     answers: ['lure it with a flare', 'any weapon (300 HP)', 'let it hunt your enemies'],
-    parts: [['box', 0, 1.0, 0, 0.6, 0.6, 1.5, 'body'], ['box', 0, 1.35, 0.9, 0.4, 0.4, 0.6, 'dark', 1], ['cylinder', 0.2, 0.4, 0.4, 0.15, 0.8, 0.15, 'dark'],
-      ['cylinder', -0.2, 0.4, -0.4, 0.15, 0.8, 0.15, 'dark'], ['box', 0, 1.05, -0.95, 0.12, 0.12, 0.6, 'dark'], ['sphere', 0, 1.42, 1.2, 0.18, 0.08, 0.08, 'eye', 1]] },
+    parts: [['sphere', 0, 1.12, 0, 0.7, 0.6, 1.0, 'body'], ['cylinder', 0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'], ['cylinder', -0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'],
+      ['box', 0, 1.45, 0.22, 0.15, 0.5, 0.15, 'dark'], ['box', 0, 1.66, 0.1, 0.3, 0.25, 0.42, 'dark', 1], ['box', 0, 1.2, -0.55, 0.12, 0.12, 0.5, 'dark'],
+      ['sphere', 0, 1.72, 0.26, 0.18, 0.08, 0.08, 'eye', 1]] },
   // Firing range targets (M30): they stand, strafe or shoot back; stations set their shield level.
   { id: 'target', code: 'R01', name: 'Target Dummy', role: 'range target', brain: 'dummy', health: 150, speed: 0, target: true, cash: 0, cost: 0, dropChance: 0,
     massFactor: 50, color: 0xd8c8a8, glow: 0xffffff, attacks: [], answers: ['any weapon', 'headshots'],
@@ -124,13 +130,16 @@ Data.define('enemies', {
 ]);
 
 // Director (NPC-005..NPC-008): wave spawns out of sight >= 18 m from players, intensity rises with player damage and relaxes
-// 8 s after the peak; with the queue empty and at most lastStand x the peak alive left, nobody flees (last stand). Brains decide at 4 Hz.
+// 8 s after the peak; with the queue empty and at most lastStand x the peak alive left, nobody flees (last stand); with
+// enemies still queued and fallbackLosses of the encounter's spawns dead, the rest fall back to their spawn and regroup.
+// guardianDeaths participant deaths in one wave offer the DIF-004 Guardian Plate (damage taken x guardianTaken). Brains decide at 4 Hz.
 const PVE_DIRECTOR = {
   thinkInterval: 0.25, spawnMinDistance: 18, spawnSpacing: 1.2, spawnPerTick: 2, intensityPerDamage: 0.01, intensityPeak: 1,
   relaxSeconds: 8, intensityDecay: 0.1, lastStand: 0.25, raysPerTick: 24, hearingShare: 0.6,
   budgetScaleBase: 0.6, budgetScaleAggression: 0.8, budgetPerExtraPlayer: 0.25, playersBaseline: 4,
   moraleRadius: 20, brokenSeconds: [3, 6], outnumbered: 2, coverHealth: 0.4, coverSeconds: 3, dodgeRadius: 4,
-  memorySeconds: 10, searchSeconds: 6, staggerSeconds: 1.2, staggerHitShare: 0.25, guardianTaken: 0.5,
+  memorySeconds: 10, searchSeconds: 6, staggerSeconds: 1.2, staggerHitShare: 0.25, guardianTaken: 0.5, guardianDeaths: 3,
+  fallbackLosses: 0.75, fallbackMinimum: 4,
   respawnBeastSeconds: 30, lureSeconds: 6, lureRadius: 30, lureSources: ['flash', 'incendiary'], lureElement: 'thermal',
 };
 
@@ -162,10 +171,11 @@ const PVE_ENDLESS = { baseBudget: 10, budgetPerWave: 4, weights: { husk: 3, gunn
 // Between waves (ECP07 wave shop): shop time, the wave bonus is paid by Economy.awardWave; the core shield bought there.
 const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5 };
 
-// M23 Mote Rush: motes per kill (fodder 1, heavy / leader 3), carried at most 15; deposits of 5 / 10 / 15 send a blocker to the
-// other side; 50 banked opens an invasion (invaderSeconds); 100 summons the side's boss; the first boss kill wins.
-const PVE_BANK = { motesFodder: 1, motesHeavy: 3, carryMax: 15, blockers: [[15, 'brute'], [10, 'phalanx'], [5, 'gunner']], invaderSeconds: 30,
-  invasionEvery: 50, boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2 };
+// M23 Mote Rush: motes per kill (fodder 1, heavy / leader 3), carried at most 15. The deposit sizes, the invasion step and the
+// boss threshold are the mode row's params (blockerAt [5, 10, 15], invasionAt 50, bossAt 100); blockers[k] is the enemy a
+// deposit of blockerAt[k] or more sends to the other side. Each side keeps fodderAlive fodder (topped up every fillSeconds).
+const PVE_BANK = { motesFodder: 1, motesHeavy: 3, carryMax: 15, blockers: ['gunner', 'phalanx', 'brute'], invader: 'charger', invaderChampion: 'barrier',
+  boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fillSeconds: 0.5, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2 };
 // M26 Ravager vs Fiends: each fiend summons fodder every summonEvery s (at most summonAlive alive per fiend).
 const PVE_FIENDS = { summonEvery: 8, summonAlive: 4, summon: ['husk', 'husk', 'gunner'] };
 // M29 Attrition: AI minions per team, heavies by chance.
