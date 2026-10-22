@@ -98,6 +98,7 @@ const BotDecide = {
     this.campSpots.length = 0;
     this.itemVisited.fill(-1e9);
     this.itemReadyAt.fill(0);
+    this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
     const map = World.map, mode = match.rules ? match.rules.mode : '';
     if (!map) return;
     for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);

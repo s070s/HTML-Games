@@ -264,6 +264,12 @@ function spotKind(player, x, z) {
   return 'go';
 }
 
+// A fresh start every match, so the same seed plays the same match: at match setup every typed array of the bot modules
+// (14a..14f: clocks, aim noise, scan order, paths, plans) goes back to its load-time contents. Copies taken once, at load.
+const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam].flatMap((module) =>
+  Object.values(module).filter((value) => ArrayBuffer.isView(value)).map((array) => ({ array, initial: array.slice() })));
+
+Bus.on('match.setup', () => { for (const entry of BOT_FRESH_STATE) entry.array.set(entry.initial); });
 Bus.on('match.start', () => BotTeam.onMatchStart());
 Bus.on('actor.spawn', (event) => BotTeam.onSpawn(event.id));
 Bus.on('ping', (event) => BotTeam.onPing(event));

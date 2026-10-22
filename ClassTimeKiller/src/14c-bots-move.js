@@ -42,6 +42,7 @@ const WATER_RIM_RAY = 3;
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
   destX: new Float32Array(MAX_ACTORS), destY: new Float32Array(MAX_ACTORS), destZ: new Float32Array(MAX_ACTORS),
+  plannedX: new Float32Array(MAX_ACTORS), plannedZ: new Float32Array(MAX_ACTORS),   // the destination of the current path
   destRadius: new Float32Array(MAX_ACTORS), hasDest: new Uint8Array(MAX_ACTORS), requestedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   navVersion: new Int32Array(MAX_ACTORS), pending: new Uint8Array(MAX_ACTORS), pathSerial: new Uint32Array(MAX_ACTORS),
   samplePoint: new Int16Array(MAX_ACTORS), sampleSerial: new Uint32Array(MAX_ACTORS), sampleDistance: new Float32Array(MAX_ACTORS),
@@ -91,8 +92,9 @@ const BotMove = {
     }
   },
   // Destination for the execution layer; a nearby change keeps the current path (moving targets repath at most 1.3 Hz).
+  // The change is measured from where the path was asked for: a destination that creeps (the convoy cart) adds up.
   goTo(id, x, y, z, radius) {
-    const moved = Math.hypot(x - this.destX[id], z - this.destZ[id]);
+    const moved = Math.hypot(x - this.plannedX[id], z - this.plannedZ[id]);
     this.destRadius[id] = radius;
     if (this.hasDest[id] && moved < MOVE_REPATH_DISTANCE && this.state[id] !== PATH.FAILED) {
       this.destX[id] = x; this.destY[id] = y; this.destZ[id] = z;
@@ -116,6 +118,7 @@ const BotMove = {
     this.pathSerial[id]++;
     this.pending[id] = 0;
     this.navVersion[id] = Nav.version;
+    this.plannedX[id] = this.destX[id]; this.plannedZ[id] = this.destZ[id];
     const from = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]);
     const goal = Nav.nearestNode(this.destX[id], this.destY[id], this.destZ[id]);
     const to = this.fromWater[id] && goal >= 0 ? this.dryTarget(id, from, goal) : goal;

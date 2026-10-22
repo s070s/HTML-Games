@@ -6,6 +6,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 - A bot writes only the input fields of `Actors` (`moveX moveZ aimYaw aimPitch buttons slotRequest`), in the Sim system `botThink` (order 10), like the player's input layer. Every other system treats it like a person (BOT-001).
 - A brain runs for an actor of kind `BOT` from its first `actor.spawn` on. Actors made with `Actors.create` and never spawned (tests, dummies) are not driven.
+- Same seed, same match: at `match.setup` every typed array of `Bots BotSense BotMove BotCombat BotDecide BotTeam` goes back to its load-time contents (14f), so nothing an earlier match left behind steers the next one (a `bots` test plays a seed, another match, then the seed again).
 - `Actors.profile` stays what S13 stored (the `CAT.bots` row or `null`); `Bots.profile[id]` holds the row the brain uses.
 - No cheating (ARC-033): targets come only from perception (seen, heard, hurt by, pinged by a team-mate) and its memory. A target out of sight is judged by where the bot last perceived it (`BotSense.perceivedPosition`), for distance, aggression, retreat and cover. `BotCombat.fairness` counts every bot shot: `shots`, `unperceived` (the shot does not come from a trigger decision made with the target in sight and the aim on it; a burst's later rounds and the shot that kills count with their decision) and `unknown` (the target was not even remembered). The soak and the mode matches check both stay 0.
 
@@ -66,7 +67,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 ### Navigation (14c)
 
-- `BotMove.goTo(id, x, y, z, radius)`: follow a path there (new path at most every 0.75 s; a newer destination waits); `stop(id)`, `arrived(id)`, `failed(id)`, `distanceToDestination(id)`.
+- `BotMove.goTo(id, x, y, z, radius)`: follow a path there (a destination more than 2 m from where the current path was asked for gets a new path, at most every 0.75 s; a newer destination waits); `stop(id)`, `arrived(id)`, `failed(id)`, `distanceToDestination(id)`.
 - `BotMove.configure(id)`: path options from the bot's movement preset and tier (jump height with extra jumps only for tiers with `jumps`, speed, gravity).
 - Links: walk, crouch (holds CROUCH), jump (jumps again whenever grounded short of the landing, extra jump near the apex for high links), drop, ladder (walks into the ladder volume, then climbs facing the top), jump pad and teleporter (walk in), swim (rises, mantles out over a rim). Water exits are classified at match start: a land node linked from the water is blocked when a knee-height ray toward it finds no wall to mantle (a thin deck above the water), else open. A path from the water avoids blocked exits (1000 s extra); a swimmer whose goal is a blocked exit swims to the nearest open one first; an exit found blocked in play is marked and another taken. A bot that falls in re-plans from the water.
 - Steering: on walk, crouch and swim segments the bot heads for a point 2 m ahead along the path (no grinding along door frames); a missed landing or a fall off a ramp edge re-plans at once.

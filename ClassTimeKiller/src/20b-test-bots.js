@@ -900,6 +900,23 @@ function checkSoaks(check, maps, minutes) {
 Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
 Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
 
+// ---- Same seed, same match: nothing an earlier match left in the bot modules steers the next one ----
+const REPLAY_SECONDS = 12, REPLAY_SEED = 1, REPLAY_OTHER_SEED = 2;
+
+// Where every actor stands at the end of a short ctf match on twinkeeps.
+function replayPositions(seed) {
+  const positions = [];
+  const probe = () => { for (let id = 0; id < Actors.count; id++) positions.push(Actors.x[id].toFixed(3), Actors.z[id].toFixed(3)); };
+  playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: REPLAY_SECONDS / 60, botCount: 8, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+  return positions.join(',');
+}
+
+Test.add('bots', (check) => {
+  const first = replayPositions(REPLAY_SEED);
+  replayPositions(REPLAY_OTHER_SEED);
+  check('the same seed plays the same match, after another match', replayPositions(REPLAY_SEED) === first);
+});
+
 // ---- Performance: 15 bots, AI p95 <= 1.0 ms per tick ----
 Test.add('bots', (check) => {
   const stats = DebugApi.soak('tdm', 'harbor', 0.5, PERF_BOTS);
