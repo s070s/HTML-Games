@@ -415,6 +415,19 @@ Test.add('modes', (check) => {
   check('dom: the owner undoes enemy progress', Test.near(pointA.progress, 0, 1e-6) && pointA.owner === 0);
   endModeTest();
 
+  // HP-007: a downed actor in a zone neither captures nor contests, and no objective touch finds it.
+  startModeTest('dom', modesTestMap(domMap), [0, 0, 1]);
+  const point = Modes.objectives[0];
+  placeActor(0, 1, 0); placeActor(1, 40, 40); placeActor(2, 0, 1);
+  Damage.goDown(-1, 0);
+  runSeconds(4);
+  check('dom: a downed actor does not contest the point', !point.contested && point.capturingTeam === 1 && point.inside[0] === 0, point.inside.join());
+  placeActor(2, -40, -40);
+  runSeconds(9);
+  check('dom: a downed actor alone does not capture', point.owner === NO_TEAM && point.capturingTeam === NO_TEAM, point.owner + ' ' + point.capturingTeam);
+  check('objectives: findActorNear passes over a downed actor', Modes.findActorNear(1, 0, 0, 2, NO_TEAM, NEAR_ANY) === -1 && Modes.findActorNear(40, 0, 40, 2, NO_TEAM, NEAR_ANY) === 1);
+  endModeTest();
+
   const hillMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'H1', kind: 'hill', x: 0, y: 0, z: 0 }, { id: 'H2', kind: 'hill', x: 0, y: 0, z: 30 }] };
   startModeTest('hardpoint', modesTestMap(hillMap), [0, 1], { modeOptions: { params: { moveInterval: 20 } } });
   const [hillOne, hillTwo] = Modes.objectives;
