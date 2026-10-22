@@ -4,7 +4,7 @@
 const TestArena = {
   // A flat 120 x 120 m floor, a running match with a hand-made ruleset (only the fields S11 reads).
   start(overrides, brushes) {
-    Game.start({ mode: 'test', map: 'test', seed: 1 });
+    Game.start({ mode: 'ffa', map: 'test', seed: 1 });
     Game.match.rules = Object.assign({ id: 'test', health: 'stack', precision: 'standard', weaponSet: 'fullSet', friendlyFire: 0, selfDamage: 0.5, knockback: 1 }, overrides || {});
     World.load({ id: 'weapon-test', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }].concat(brushes || []) });
     Projectiles.clear();
