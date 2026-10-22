@@ -60,10 +60,10 @@ const MapGenMenu = {
     const map = this.state.map || this.generate();
     return map.modes.includes(this.state.mode) ? this.state.mode : map.modes[0];
   },
-  // Game.start setup for the generated map: the default bots of the mode, the player on team 0 in team modes.
+  // Game.start setup for the generated map: the mode's default number of named roster bots (as Quick Match), the player on team 0 in team modes.
   setup() {
-    const mode = this.matchMode(), row = CAT.modes.byId(mode);
-    return { mode, map: this.state.map, seed: this.state.seed, bots: Modes.defaultBots(mode, true), player: row.teams === 2 ? { team: 0 } : {} };
+    const mode = this.matchMode(), row = CAT.modes.byId(mode), bots = PlayFlow.rosterBots(Modes.defaultBots(mode, true).length, PLAY_DEFAULT_DIFFICULTY, this.state.seed);
+    return { mode, map: this.state.map, seed: this.state.seed, bots, player: row.teams === 2 ? { team: 0 } : {} };
   },
   describe() {
     const map = this.state.map, report = this.state.report, notice = this.state.notice ? this.state.notice + '\n' : '';

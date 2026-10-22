@@ -396,7 +396,8 @@ Test.add('mapgen', async (check) => {
       && MapGenMenu.state.seed === 77 && MapGenMenu.state.notice === '');
     check('menu: a broken code changes nothing', !MapGenMenu.usePaste('CTKMAP-GN4') && MapGenMenu.state.generator === 'GN4');
     const setup = MapGenMenu.setup();
-    check('menu: Play starts the mode on the generated map with the player on team 0', setup.mode === 'tdm' && setup.map === MapGenMenu.state.map && setup.player.team === 0 && Array.isArray(setup.bots));
+    check('menu: Play starts the mode on the generated map with the player on team 0 and named roster bots', setup.mode === 'tdm' && setup.map === MapGenMenu.state.map && setup.player.team === 0
+      && setup.bots.length === Modes.defaultBots('tdm', true).length && setup.bots.every((bot) => CAT.bots.byId(bot.profile)));
     check('menu: the status says what was made', MapGenMenu.describe().includes(MapGenMenu.state.map.name));
     check('menu: sizes stop at the tier cap', MapGenMenu.sizes().every((row) => row.index <= MapGen.sizeCap().index));
     const leaveUi = uiEnter();
