@@ -351,7 +351,6 @@ Test.add('abilities', (check) => {
   AbilityTest.cast(t);
   Abilities.tryActivate(t.caster, SLOT.ABILITY2);
   Abilities.tryActivate(t.caster, SLOT.ULTIMATE);
-  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
   killActor(t.caster, t.enemy);
   check('death: active abilities end', !Abilities.active[t.i]);
   check('death: zones end unless they persist', AbilityTest.zoneOf(t, ZONE_KIND.SMOKE) < 0 && AbilityTest.zoneOf(t, ZONE_KIND.DOME) >= 0);
