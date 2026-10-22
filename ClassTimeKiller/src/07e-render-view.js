@@ -415,12 +415,15 @@ function updateBenchmark(seconds) {
 }
 Render.addUpdate(-1, updateBenchmark);
 
+// The grid goes through one instance record (batch.meshFrom): batch.mesh with 13 float arguments boxed them per shape (PERF-006).
+const benchmarkInstance = Object.assign(makeShapeInstance(), { g: 0.5 });
 Render.addSource('benchmark', (batch) => {
   if (!Benchmark.active) return;
-  const half = BENCHMARK_GRID / 2, time = Benchmark.elapsed;
+  const half = BENCHMARK_GRID / 2, time = Benchmark.elapsed, instance = benchmarkInstance;
   for (let i = 0; i < BENCHMARK_GRID * BENCHMARK_GRID; i++) {
-    const gx = (i % BENCHMARK_GRID) - half, gz = Math.floor(i / BENCHMARK_GRID) - half, shape = SHAPES[i % 7];
-    batch.mesh(shape, gx * 2, 0.6 + Math.sin(time * 2 + i) * 0.3, gz * 2, time + i, 0, 1, 1, 1, 0.4 + (i % 5) * 0.12, 0.5, 0.9 - (i % 3) * 0.2, 0);
+    instance.x = ((i % BENCHMARK_GRID) - half) * 2; instance.y = 0.6 + Math.sin(time * 2 + i) * 0.3; instance.z = (Math.floor(i / BENCHMARK_GRID) - half) * 2;
+    instance.yaw = time + i; instance.r = 0.4 + (i % 5) * 0.12; instance.b = 0.9 - (i % 3) * 0.2;
+    batch.meshFrom(SHAPES[i % 7], instance);
   }
 });
 

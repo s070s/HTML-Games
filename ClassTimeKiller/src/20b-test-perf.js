@@ -510,6 +510,15 @@ Test.add('perf', (check) => {
   check('the PvE status rows and boss bar read and move the row y in hudPveAt (no y argument or return)',
     Object.values(HUD_PVE_ROWS).every((row) => row.length === 3) && hudPveBossBar.length === 3 && hudPveStat.length === 5, hudPveBossBar.length);
   check('the crosshair arms read their geometry from the scratch', hudFillArms.length === 1);
+  const benchmark = Render.sources.find((source) => source.name === 'benchmark'), wasActive = Benchmark.active;
+  Benchmark.active = true;
+  propBatch.clear();
+  benchmark.draw(propBatch);
+  const drawn = propBatch.counts.reduce((sum, count) => sum + count, 0);
+  Benchmark.active = wasActive;
+  propBatch.clear();
+  check('the menu benchmark draws its grid through the instance record (no batch.mesh with float arguments)',
+    !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
   const savedQuads = HudBatch.quads, ring = hudRingAt;
   HudBatch.quads = 0;
   ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;
