@@ -75,7 +75,7 @@ Modes.register('royale', {
 
 // ---- Ring ----
 function startRing(now) {
-  worldSafeArea(Ring);
+  mapRingStart(Ring);
   Ring.startRadius = Ring.radius;
   Ring.phases = Modes.rules.params.ringWait.length;
   beginRingPhase(0, now);
@@ -89,6 +89,15 @@ function beginRingPhase(phase, now) {
   Ring.damage = params.ringDamage[phase];
   Ring.fromX = Ring.x; Ring.fromZ = Ring.z; Ring.fromRadius = Ring.radius;
   chooseNextCircle(params.ringScale[phase] * Ring.startRadius);
+}
+
+// The map's own ring centre and start radius (map.ring, e.g. generated islands) when it has a valid one, else the world bounds.
+function mapRingStart(out) {
+  const ring = World.map ? World.map.ring : null;
+  const valid = ring && Number.isFinite(ring.x) && Number.isFinite(ring.z) && ring.radius > 0;
+  if (!valid) return worldSafeArea(out);
+  out.x = ring.x; out.z = ring.z; out.radius = ring.radius;
+  return out;
 }
 
 // The next circle lies inside the current one and its centre on the map.
