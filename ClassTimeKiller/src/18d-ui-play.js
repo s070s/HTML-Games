@@ -95,12 +95,15 @@ const PlayFlow = {
     return Game.start(setup);
   },
   // The setup's bots reordered by the queue names. Bots join in setup order, so the n-th bot actor (by id) is setup bot n.
+  // Unnamed bots are named and tiered by seat (13b, 14a), so each reseated entry keeps its actor's name and tier (plus the adaptive change since).
   queuedBots(bots, results) {
-    const botIds = results.players.filter((row) => row.kind !== ACTOR_KIND.PLAYER).map((row) => row.id).sort((a, b) => a - b);
-    const queued = results.queue.map((name) => results.players.find((row) => row.name === name && row.kind !== ACTOR_KIND.PLAYER))
-      .filter((row) => row).map((row) => botIds.indexOf(row.id));
+    const botRows = results.players.filter((row) => row.kind !== ACTOR_KIND.PLAYER).sort((a, b) => a.id - b.id);
+    const queued = results.queue.map((name) => botRows.findIndex((row) => row.name === name)).filter((index) => index >= 0);
     const waiting = bots.map((bot, index) => index).filter((index) => !queued.includes(index));
-    return queued.concat(waiting).map((index) => bots[index]);
+    const shift = Difficulty.tierShift() - Bots.setupShift;
+    const seated = (index) => !botRows[index] ? bots[index]
+      : Object.assign({}, bots[index], { name: botRows[index].name, tier: clamp(Bots.tier(botRows[index].id).tier + shift, 0, BOT_TIER_COUNT - 1) });
+    return queued.concat(waiting).map(seated);
   },
   // Same mode and rules on the next map that lists the mode (not for career matches: they belong to their map).
   nextMap(random) {

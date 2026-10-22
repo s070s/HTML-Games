@@ -580,15 +580,33 @@ Test.add('progress', (check) => {
     for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id) && id !== Game.playerId) return id;
     return -1;
   };
-  Game.start({ mode: 'duel', map: 'spire', seed: 5, player: { name: 'You' }, bots: [{ name: 'Ash' }, { name: 'Birch' }, { name: 'Cedar' }] });
-  Modes.finish(Game.playerId);
-  PlayFlow.playAgain();
-  check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === 'Birch'
-    && Game.match.setup.bots.map((bot) => bot.name).join() === 'Birch,Cedar,Ash');
-  Modes.finish(opponent());
-  PlayFlow.playAgain();
-  check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === 'Birch' && Game.match.setup.bots.map((bot) => bot.name).join() === 'Birch,Cedar,Ash');
-  Game.stop();
+  const tiers = () => {
+    const byName = {};
+    for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.BOT) byName[Actors.name[id]] = Bots.tier(id).tier;
+    return byName;
+  };
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
+  try {
+    // The Play screen's own setup: unnamed bots, named and tiered by seat.
+    Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
+    Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'duel', bots: 3, difficulty: 'veteran' }), () => 0.5));
+    const before = tiers();
+    Modes.finish(Game.playerId);
+    const queue = Game.match.results.queue.slice(), change = Game.match.results.botTierChange;
+    PlayFlow.playAgain();
+    const after = tiers();
+    check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === queue[1]
+      && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+    check('duel queue: every bot keeps its tier through the reseat, plus the adaptive change', change === 1
+      && Object.keys(before).every((name) => after[name] === clamp(before[name] + change, 0, BOT_TIER_COUNT - 1)));
+    const winner = Actors.name[opponent()];
+    Modes.finish(opponent());
+    PlayFlow.playAgain();
+    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+  } finally {
+    Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+    Game.stop();
+  }
 });
 
 // ---- Cards: equip rules, Marks, unlock conditions ----
