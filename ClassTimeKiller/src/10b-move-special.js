@@ -32,6 +32,7 @@ const AUTO_STRAFE_RATE = 2.5;          // MOV-018: rad/s the air velocity turns 
 const SKIMMER_SPEED = 13;              // MOV-027
 const SKIMMER_KNOCKOFF_SECONDS = 2;
 const SKIMMER_MIN_MAP_SIZE = 150;      // metres: only large maps allow the board
+const SKIMMER_BOARD_RUN = 0.8;         // share of the ground speed an actor must run at to board with Use
 
 const wallHit = makeHit();
 const facing = { x: 0, y: 0, z: 0 };
@@ -412,6 +413,14 @@ Move.setBoard = function setBoard(id, on) {
   return true;
 };
 Move.onBoard = (id) => Motion.board[id] === 1;
+// Boarding (Q5): Use while running on the ground (at least SKIMMER_BOARD_RUN of the preset's ground speed) deploys the board,
+// which keeps it apart from Use on objectives and loot (done standing or walking); Use while riding steps off.
+function toggleBoard(id, preset) {
+  if (!(Actors.pressed[id] & BTN.USE)) return;
+  if (Motion.board[id]) { Move.setBoard(id, false); return; }
+  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  if (running && Motion.grounded[id]) Move.setBoard(id, true);
+}
 
 Bus.on('damage', (event) => {
   if (!Motion.board[event.target]) return;
@@ -426,5 +435,5 @@ Move.states[MOVE_STATE.WALL_RUN] = wallRunState;
 Move.states[MOVE_STATE.LATCH] = latchState;
 Move.states[MOVE_STATE.LADDER] = ladderState;
 Move.states[MOVE_STATE.SWIM] = swimState;
-Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide);
+Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide, toggleBoard);
 Move.landHooks.push(rollOrStagger, slideHopLanding);

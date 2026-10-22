@@ -626,6 +626,33 @@ Test.add('move', (check) => {
   check('can board again after 2 s', Move.setBoard(id, true));
 });
 
+// Q5 boarding: Use while running deploys the Skimmer on a large map (never on a small one, never standing); Use again steps off.
+Test.add('move', (check) => {
+  loadTestWorld([], { size: 100 });
+  useTestRules({ move: 'arena' });
+  const id = groundedTester(0, 0);
+  holdInput(id, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(id, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('no boarding on a small map', !Move.onBoard(id));
+  loadTestWorld([], { size: [200, 180] });
+  const rider = groundedTester(0, 0);
+  holdInput(rider, 0, 0, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while standing does not board (objectives and loot use it)', !Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while running boards on a large map', Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.1);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while riding steps off', !Move.onBoard(rider));
+});
+
 // PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step.
 Test.add('move', (check) => {
   loadTestWorld(randomBrushes(21, 400, 50));
