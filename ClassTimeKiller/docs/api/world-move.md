@@ -38,7 +38,7 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit)` | nearest live actor hit volume along a normalized ray, or -1; `hit = makeActorHit()` gets `distance x y z nx ny nz actor zone` (`'head' 'body' 'legs'`). Walls are not checked: call `World.raycast` first and pass its distance as maxDistance. Uses `Hitbox.rayOf` (also S08); sizes are the S01 body constants |
 | `World.actorsInSphere(x, y, z, radius, out)` | ids of live actors whose capsule touches the sphere written into `out`; returns the count (explosions, melee) |
 | `World.actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle, range, ignoreId, out)` | ids of live actors whose chest (60 % of height) is inside the cone; returns the count (flames, sprays, aim assist) |
-| `World.touchTriggers(id, gravity)` | called by S10 once per actor step; returns `TRIGGER_MEDIUM` bits `WATER` (swim depth) `WADING` (touching water) `LADDER HEAD_UNDER MOVED` |
+| `World.touchTriggers(id)` | called by S10 once per actor step, after it sets `World.triggerStep.gravity` (the actor's m/s^2, jump pad arcs; a scratch field, since a float argument is boxed per step); returns `TRIGGER_MEDIUM` bits `WATER` (swim depth) `WADING` (touching water) `LADDER HEAD_UNDER MOVED` |
 | `World.triggers` | normalized trigger rows (`kind index minX..maxZ` + kind fields) for nav links |
 | `World.airLeft(id)` | seconds of breath left (HUD) |
 | `World.tree`, `World.brushes`, `World.dynamic` | read-only data (dynamic = standing props) |

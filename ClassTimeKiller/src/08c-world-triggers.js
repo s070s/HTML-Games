@@ -5,7 +5,7 @@
 //   water      {}                             swim volume; its top is the surface; head under -> drown timer
 //   hazard     { damage: 10, element: 'thermal' }  damage per second while touching
 //   killzone   {}                             kills on touch (a hazard with lethal damage)
-// S10 calls World.touchTriggers(id, gravity) once per actor step after moving it; the returned bits say which media it is in.
+// S10 calls World.touchTriggers(id) once per actor step after moving it (with World.triggerStep.gravity set); the returned bits say which media it is in.
 // Rows with a bad box (min/max not 3 numbers each, min above max), a bad target/exit or peak <= 0 are logged and skipped.
 
 // WATER: deep enough to swim; WADING: touching any water (the swimmer's water-exit reach applies).
@@ -79,8 +79,12 @@ function rejectTrigger(problem, index) {
 const isPoint = (value) => Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
 const validBox = (min, max) => isPoint(min) && isPoint(max) && min.every((value, axis) => value <= max[axis]);
 
-// Applies every trigger the actor's capsule touches; returns TRIGGER_MEDIUM bits. gravity: the actor's m/s^2 (jump pad arcs).
-World.touchTriggers = function touchTriggers(id, gravity) {
+// The touching actor's gravity in m/s^2 (jump pad arcs), written by S10 before each World.touchTriggers: a float argument would
+// be boxed every actor step (PERF-006).
+World.triggerStep = { gravity: 0 };
+
+// Applies every trigger the actor's capsule touches; returns TRIGGER_MEDIUM bits.
+World.touchTriggers = function touchTriggers(id) {
   const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], top = y + Actors.height[id];
   let medium = 0;
   TriggerState.touchedHazard = false;
@@ -89,10 +93,10 @@ World.touchTriggers = function touchTriggers(id, gravity) {
     const t = World.triggers[i];
     if (x + ACTOR_RADIUS < t.minX || x - ACTOR_RADIUS > t.maxX || z + ACTOR_RADIUS < t.minZ || z - ACTOR_RADIUS > t.maxZ) continue;
     if (top < t.minY || y > t.maxY) continue;
-    medium |= t.handler(id, t, gravity);
+    medium |= t.handler(id, t);
     if (medium & TRIGGER_MEDIUM.MOVED) break; // teleported: the old position's other triggers no longer apply
   }
-  if (Number.isFinite(World.boundsMin.y) && y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger, gravity);
+  if (Number.isFinite(World.boundsMin.y) && y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger);
   if (!TriggerState.touchedHazard) TriggerState.hazardClock[id] = 0;
   updateBreath(id, (medium & TRIGGER_MEDIUM.HEAD_UNDER) !== 0);
   return medium;
@@ -127,9 +131,9 @@ World.padArc = function padArcFor(pad, startY, gravity) {
   return padArc;
 };
 
-function touchJumpPad(id, pad, actorGravity) {
+function touchJumpPad(id, pad) {
   if (TriggerState.padClock[id] > 0) return 0;
-  const target = pad.target, arc = World.padArc(pad, Actors.y[id], actorGravity);
+  const target = pad.target, arc = World.padArc(pad, Actors.y[id], World.triggerStep.gravity);
   Actors.vx[id] = (target[0] - Actors.x[id]) / arc.time;
   Actors.vy[id] = arc.upSpeed;
   Actors.vz[id] = (target[2] - Actors.z[id]) / arc.time;
