@@ -293,12 +293,13 @@ const Powerups = {
     this.ammoClock[id] -= AMMO_REGEN_INTERVAL;
     addAmmoShare(id, this.ammoRegen[id]);
   },
-  // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts.
+  // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts; the Ghost perk (Abilities.hiddenFromPulse) hides.
   reveal(id, dt) {
     this.seerClock[id] -= dt;
     if (this.seerClock[id] > 0) return;
     this.seerClock[id] += SEER_INTERVAL;
     for (let other = 0; other < Actors.count; other++) {
+      if (Abilities.hiddenFromPulse && Abilities.hiddenFromPulse(other)) continue;
       if (Actors.alive[other] && Actors.isEnemy(id, other)) Damage.addStatus(other, 'reveal', id, SEER_REVEAL_SECONDS, 1);
     }
   },

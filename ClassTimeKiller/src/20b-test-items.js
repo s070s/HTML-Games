@@ -334,10 +334,12 @@ Test.add('items', (check) => {
 
 Test.add('items', (check) => {
   ItemArena.start({});
-  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0);
+  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0), ghost = ItemArena.actor(2, 0, -20);
+  Abilities.hiddenFromPulse = (other) => other === ghost;   // the Ghost perk (S13 fills the hook)
   Powerups.give(id, CAT.powerups.byId('seer'), 0);
   Sim.run(2);
   check('PU13 reveals the holder\'s enemies, not friends', Damage.hasStatus(enemy, 'reveal') && !Damage.hasStatus(friend, 'reveal'));
+  check('PU13 does not reveal an enemy with the Ghost perk (ECP04)', !Damage.hasStatus(ghost, 'reveal'));
   Powerups.clearActor(id, false);
   const boots = CAT.powerups.byId('springboots');
   Powerups.give(id, boots, 0);
