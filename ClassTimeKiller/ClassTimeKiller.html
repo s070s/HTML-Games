@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
+<meta name="theme-color" content="#0b0f14">
+<title>ClassTimeKiller</title>
+<style>
+/* ==== S00 STYLE + DOM SHELLS ==== */
+:root {
+  --ui-bg: rgba(10, 14, 20, 0.86); --ui-panel: #141b24; --ui-line: #2a3644; --ui-text: #e8eef5; --ui-dim: #93a3b5;
+  --ui-accent: #ffb547; --ui-good: #5fd38d; --ui-bad: #ff5d5d; --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ui-scale: 1; --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px); --safe-right: env(safe-area-inset-right, 0px);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; color: var(--ui-text); font-family: var(--ui-font);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#overlay { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
+#overlay > * { pointer-events: auto; }
+#fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #0b0f14; z-index: 100; padding: 24px; }
+#fatal.show { display: flex; }
+#fatal .box { max-width: 560px; line-height: 1.5; }
+#fatal h1 { color: var(--ui-accent); font-size: 24px; margin: 0 0 12px; }
+#fatal pre { white-space: pre-wrap; color: var(--ui-dim); font-size: 12px; }
+#version { position: fixed; right: calc(6px + var(--safe-right)); bottom: calc(4px + var(--safe-bottom)); font-size: 11px; color: var(--ui-dim); opacity: 0.6; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="overlay"></div>
+<div id="fatal"><div class="box"><h1 id="fatal-title">ClassTimeKiller could not start</h1><p id="fatal-text"></p><pre id="fatal-detail"></pre></div></div>
+<div id="version"></div>
+<script>
+(() => {
+'use strict';
+// ==== 01-core.js ====
+// ==== S01 UTIL / MATH ====
+// Shared constants, math helpers, event bus, actor store and the simulation system list.
+// Rules for every later section: see docs/ARCHITECTURE.md (contracts, events, actor fields).
+
+const VERSION = '0.1.0';
+const TICK_RATE = 120;                 // simulation steps per second (ARC-010)
+const TICK_SECONDS = 1 / TICK_RATE;
+const MAX_STEPS_PER_FRAME = 4;         // ARC-010: drop the remainder after 4 steps
+const DEG = Math.PI / 180;
+const GRAVITY = 20;                    // m/s^2 before the ruleset gravityScale (arena feel; presets scale it)
+const MAX_ACTORS = 64;                 // ARC-011
+
+// ---- Math (scalar helpers; vectors are plain {x,y,z} objects reused by callers, never created per frame) ----
+const clamp = (value, low, high) => (value < low ? low : value > high ? high : value);
+const lerp = (from, to, t) => from + (to - from) * t;
+const wrapAngle = (radians) => { // into -PI..PI
+  let a = radians % (Math.PI * 2);
+  if (a > Math.PI) a -= Math.PI * 2;
+  if (a < -Math.PI) a += Math.PI * 2;
+  return a;
+};
+const lerpAngle = (from, to, t) => from + wrapAngle(to - from) * t;
+const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 - edge0), 0, 1); return t * t * (3 - 2 * t); };
+const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
+
+const Vec = {
+  make: (x = 0, y = 0, z = 0) => ({ x, y, z }),
+  set: (out, x, y, z) => { out.x = x; out.y = y; out.z = z; return out; },
+  copy: (out, a) => { out.x = a.x; out.y = a.y; out.z = a.z; return out; },
+  length: (a) => Math.hypot(a.x, a.y, a.z),
+  normalize: (out, a) => { const l = Math.hypot(a.x, a.y, a.z) || 1; out.x = a.x / l; out.y = a.y / l; out.z = a.z / l; return out; },
+  dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
+  // Direction a yaw/pitch pair looks at (DATA-002: yaw 0 looks +Z, positive pitch looks up, Y up).
+  fromAngles: (out, yaw, pitch) => {
+    const c = Math.cos(pitch);
+    out.x = Math.sin(yaw) * c; out.y = Math.sin(pitch); out.z = Math.cos(yaw) * c;
+    return out;
+  },
+};
+
+// Column-major 4x4 matrices on Float32Array (WebGL layout).
+const Mat4 = {
+  create: () => { const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; },
+  identity: (out) => { out.fill(0); out[0] = out[5] = out[10] = out[15] = 1; return out; },
+  perspective: (out, fovYRadians, aspect, near, far) => {
+    const f = 1 / Math.tan(fovYRadians / 2), rangeInverse = 1 / (near - far);
+    out.fill(0);
+    out[0] = f / aspect; out[5] = f; out[10] = (near + far) * rangeInverse; out[11] = -1; out[14] = 2 * near * far * rangeInverse;
+    return out;
+  },
+  // View matrix for a first-person camera at (x,y,z) with yaw/pitch (DATA-002).
+  firstPerson: (out, x, y, z, yaw, pitch) => {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    // forward f = (sy*cp, sp, cy*cp); camera looks down -Z so the view Z axis is -f
+    const fx = sy * cp, fy = sp, fz = cy * cp;
+    const rx = -cy, ry = 0, rz = sy;                          // right = cross(forward, worldUp), normalized (yaw 0: right is -X)
+    const ux = ry * fz - rz * fy, uy = rz * fx - rx * fz, uz = rx * fy - ry * fx; // up = cross(right, forward)
+    out[0] = rx; out[1] = ux; out[2] = -fx; out[3] = 0;
+    out[4] = ry; out[5] = uy; out[6] = -fy; out[7] = 0;
+    out[8] = rz; out[9] = uz; out[10] = -fz; out[11] = 0;
+    out[12] = -(rx * x + ry * y + rz * z); out[13] = -(ux * x + uy * y + uz * z); out[14] = fx * x + fy * y + fz * z; out[15] = 1;
+    return out;
+  },
+  multiply: (out, a, b) => {
+    for (let column = 0; column < 4; column++) {
+      const b0 = b[column * 4], b1 = b[column * 4 + 1], b2 = b[column * 4 + 2], b3 = b[column * 4 + 3];
+      out[column * 4] = a[0] * b0 + a[4] * b1 + a[8] * b2 + a[12] * b3;
+      out[column * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9] * b2 + a[13] * b3;
+      out[column * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+      out[column * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+    }
+    return out;
+  },
+};
+
+// ---- Error ring (ARC-041): every caught error lands here; the perf HUD and __CTK.log.errors() read it ----
+const ErrorLog = {
+  size: 50,
+  entries: [],
+  add(where, error) {
+    const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    this.entries.push(text);
+    if (this.entries.length > this.size) this.entries.shift();
+  },
+};
+
+// ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----
+const Bus = {
+  listeners: new Map(),
+  on(type, handler) {
+    if (!this.listeners.has(type)) this.listeners.set(type, []);
+    this.listeners.get(type).push(handler);
+    return handler;
+  },
+  off(type, handler) {
+    const list = this.listeners.get(type);
+    if (!list) return;
+    const index = list.indexOf(handler);
+    if (index >= 0) list.splice(index, 1);
+  },
+  emit(type, payload) {
+    const list = this.listeners.get(type);
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) {
+      try { list[i](payload); } catch (error) { ErrorLog.add('event ' + type, error); }
+    }
+  },
+};
+
+// ---- Fixed-size pool of reusable objects (zero allocation after warm-up, PERF-006) ----
+function makePool(size, create) {
+  const items = [];
+  for (let i = 0; i < size; i++) items.push(create(i));
+  let next = 0;
+  // Ring reuse: the oldest object is recycled when the pool wraps (documented per pool owner).
+  return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
+}
+
+// ---- Input buttons shared by player input, bots (BOT-001: same input struct) and replays ----
+const BTN = {
+  FIRE: 1 << 0, ALT: 1 << 1, JUMP: 1 << 2, CROUCH: 1 << 3, SPRINT: 1 << 4, RELOAD: 1 << 5, USE: 1 << 6,
+  ABILITY1: 1 << 7, ABILITY2: 1 << 8, ULTIMATE: 1 << 9, GRENADE: 1 << 10, MELEE: 1 << 11, GADGET: 1 << 12,
+  PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17,
+};
+
+const ACTOR_KIND = { NONE: 0, PLAYER: 1, BOT: 2, ENEMY: 3, DUMMY: 4 };
+const ACTOR_FLAG = { ON_GROUND: 1 << 0, CROUCHED: 1 << 1, PRONE: 1 << 2, SPRINTING: 1 << 3, SLIDING: 1 << 4, WALL_RUN: 1 << 5,
+  IN_WATER: 1 << 6, ON_LADDER: 1 << 7, PROTECTED: 1 << 8, INVISIBLE: 1 << 9, DOWNED: 1 << 10, GOD: 1 << 11, FROZEN: 1 << 12 };
+
+// ---- Actor store (ARC-011): struct of arrays, index 0..MAX_ACTORS-1. Sections add their own per-actor arrays. ----
+const Actors = {
+  kind: new Uint8Array(MAX_ACTORS),
+  alive: new Uint8Array(MAX_ACTORS),
+  team: new Int8Array(MAX_ACTORS),          // -1 = no team (FFA)
+  flags: new Uint32Array(MAX_ACTORS),
+  x: new Float32Array(MAX_ACTORS), y: new Float32Array(MAX_ACTORS), z: new Float32Array(MAX_ACTORS),  // feet position
+  vx: new Float32Array(MAX_ACTORS), vy: new Float32Array(MAX_ACTORS), vz: new Float32Array(MAX_ACTORS),
+  yaw: new Float32Array(MAX_ACTORS), pitch: new Float32Array(MAX_ACTORS),
+  prevX: new Float32Array(MAX_ACTORS), prevY: new Float32Array(MAX_ACTORS), prevZ: new Float32Array(MAX_ACTORS),
+  prevYaw: new Float32Array(MAX_ACTORS), prevPitch: new Float32Array(MAX_ACTORS),
+  height: new Float32Array(MAX_ACTORS), eye: new Float32Array(MAX_ACTORS),          // current capsule height / eye height
+  health: new Float32Array(MAX_ACTORS), armor: new Float32Array(MAX_ACTORS), shield: new Float32Array(MAX_ACTORS),
+  maxHealth: new Float32Array(MAX_ACTORS), maxArmor: new Float32Array(MAX_ACTORS), maxShield: new Float32Array(MAX_ACTORS),
+  // Input written before each step by the player input layer or a bot brain, read by every system.
+  moveX: new Float32Array(MAX_ACTORS), moveZ: new Float32Array(MAX_ACTORS),           // -1..1 strafe right / forward
+  aimYaw: new Float32Array(MAX_ACTORS), aimPitch: new Float32Array(MAX_ACTORS),       // desired view angles (radians)
+  buttons: new Uint32Array(MAX_ACTORS), pressed: new Uint32Array(MAX_ACTORS),         // held bits / bits that went down this step
+  previousButtons: new Uint32Array(MAX_ACTORS),
+  slotRequest: new Int8Array(MAX_ACTORS),                                             // weapon slot 1-9 wanted, 0 = none
+  name: new Array(MAX_ACTORS).fill(''),
+  profile: new Array(MAX_ACTORS).fill(null),   // bot profile row, enemy row or player profile
+  spawnCount: new Uint32Array(MAX_ACTORS),
+  count: 0,                                     // highest used index + 1 (loops run 0..count-1 and test alive/kind)
+
+  create(kind, team, name, profile) {
+    for (let id = 0; id < MAX_ACTORS; id++) {
+      if (this.kind[id] !== ACTOR_KIND.NONE) continue;
+      this.reset(id);
+      this.kind[id] = kind; this.team[id] = team; this.name[id] = name || ''; this.profile[id] = profile || null;
+      if (id >= this.count) this.count = id + 1;
+      Bus.emit('actor.create', id);
+      return id;
+    }
+    return -1;
+  },
+  remove(id) {
+    if (this.kind[id] === ACTOR_KIND.NONE) return;
+    Bus.emit('actor.remove', id);
+    this.reset(id);
+    while (this.count > 0 && this.kind[this.count - 1] === ACTOR_KIND.NONE) this.count--;
+  },
+  reset(id) {
+    this.kind[id] = 0; this.alive[id] = 0; this.team[id] = -1; this.flags[id] = 0;
+    this.x[id] = this.y[id] = this.z[id] = this.vx[id] = this.vy[id] = this.vz[id] = 0;
+    this.yaw[id] = this.pitch[id] = this.aimYaw[id] = this.aimPitch[id] = 0;
+    this.moveX[id] = this.moveZ[id] = 0; this.buttons[id] = this.pressed[id] = this.previousButtons[id] = 0;
+    this.slotRequest[id] = 0; this.health[id] = this.armor[id] = this.shield[id] = 0; this.spawnCount[id] = 0;
+    this.height[id] = 1.8; this.eye[id] = 1.62; this.name[id] = ''; this.profile[id] = null;
+  },
+  clear() {
+    for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
+    this.count = 0;
+  },
+  isEnemy(a, b) { return a !== b && (this.team[a] < 0 || this.team[a] !== this.team[b]); },
+  eyeY(id) { return this.y[id] + this.eye[id]; },
+};
+
+// ---- Simulation systems: each section registers its fixed-step function with an order number ----
+// Order: 10 input/brains, 20 abilities+status, 30 movement, 40 weapons, 50 projectiles, 60 items, 70 rules/modes, 80 PvE director, 90 effects bookkeeping.
+const Sim = {
+  systems: [],
+  tick: 0,          // steps since match start; the sim's only clock (ARC-010: never read wall-clock)
+  time: 0,          // tick * TICK_SECONDS
+  timing: {},       // last step cost per system in ms (perf HUD)
+  addSystem(name, order, step) {
+    this.systems.push({ name, order, step });
+    this.systems.sort((a, b) => a.order - b.order);
+  },
+  step() {
+    for (let id = 0; id < Actors.count; id++) {
+      const held = Actors.buttons[id];
+      Actors.pressed[id] = held & ~Actors.previousButtons[id];
+      Actors.previousButtons[id] = held;
+      Actors.prevX[id] = Actors.x[id]; Actors.prevY[id] = Actors.y[id]; Actors.prevZ[id] = Actors.z[id];
+      Actors.prevYaw[id] = Actors.yaw[id]; Actors.prevPitch[id] = Actors.pitch[id];
+    }
+    for (let i = 0; i < this.systems.length; i++) {
+      const system = this.systems[i];
+      const started = performance.now();
+      try { system.step(TICK_SECONDS); } catch (error) { ErrorLog.add('system ' + system.name, error); }
+      this.timing[system.name] = performance.now() - started;
+    }
+    this.tick++;
+    this.time = this.tick * TICK_SECONDS;
+  },
+  run(steps) { for (let i = 0; i < steps; i++) this.step(); },
+  reset() { this.tick = 0; this.time = 0; },
+};
+
+// ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
+const Game = {
+  state: 'menu',          // 'menu' | 'playing' | 'results'
+  paused: false,
+  pauseReason: '',
+  match: null,            // { setup, rules, map, ended, winner, ... } filled by the match.* listeners
+  playerId: -1,
+  headless: false,        // true in headless self-tests: no WebGL, no DOM UI, no audio
+
+  isRunning() { return this.state === 'playing' && !this.paused; },
+  // setup: { mode, map, ruleset, mutators, bots, seed, difficulty, player } - each section reads the fields it owns.
+  start(setup) {
+    if (this.match) this.stop();
+    Sim.reset();
+    Actors.clear();
+    this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };
+    this.playerId = -1;
+    Bus.emit('match.setup', this.match);
+    Bus.emit('match.load', this.match);
+    Bus.emit('match.start', this.match);
+    this.state = 'playing';
+    this.paused = false;
+    return this.match;
+  },
+  // Called by the mode when a win condition is met.
+  end(winner) {
+    if (!this.match || this.match.ended) return;
+    this.match.ended = true;
+    this.match.winner = winner;
+    this.state = 'results';
+    Bus.emit('match.end', this.match);
+  },
+  stop() {
+    if (!this.match) return;
+    Bus.emit('match.stop', this.match);
+    Actors.clear();
+    this.match = null;
+    this.state = 'menu';
+    this.paused = false;
+  },
+  pause(reason) {
+    if (this.state !== 'playing' || this.paused) return;
+    this.paused = true;
+    this.pauseReason = reason || 'menu';
+    Bus.emit('game.pause', this.pauseReason);
+  },
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    Bus.emit('game.resume', null);
+  },
+};
+
+// ==== 02-rng.js ====
+// ==== S02 RNG ====
+// Seeded generators (sfc32) with separate streams so one system's draws never shift another's (ARC-012).
+// Sim code must use these streams, never Math.random (cosmetic-only code uses Rng.fx).
+
+function hashString(text) { // 32-bit FNV-1a, used to turn seeds and names into stream seeds
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193); }
+  return hash >>> 0;
+}
+
+function makeRandom(seed) {
+  let a = 0x9e3779b9, b = 0x243f6a88, c = 0xb7e15162, d = seed >>> 0;
+  const next = () => { // sfc32: returns 0..1
+    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    const t = (a + b | 0) + d | 0;
+    d = d + 1 | 0;
+    a = b ^ b >>> 9;
+    b = c + (c << 3) | 0;
+    c = (c << 21 | c >>> 11);
+    c = c + t | 0;
+    return (t >>> 0) / 4294967296;
+  };
+  for (let i = 0; i < 12; i++) next(); // warm up so close seeds diverge
+  return {
+    next,
+    range: (low, high) => low + (high - low) * next(),
+    int: (low, highInclusive) => low + Math.floor(next() * (highInclusive - low + 1)),
+    chance: (probability) => next() < probability,
+    pick: (list) => list[Math.floor(next() * list.length)],
+    sign: () => (next() < 0.5 ? -1 : 1),
+    gauss: () => { // approximate normal (mean 0, sd 1) from 4 uniforms; no allocation
+      return (next() + next() + next() + next() - 2) * 1.7320508;
+    },
+    shuffle: (list) => {
+      for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); const keep = list[i]; list[i] = list[j]; list[j] = keep; }
+      return list;
+    },
+  };
+}
+
+const RNG_STREAMS = ['map', 'loot', 'bots', 'rules', 'fx', 'weapons', 'pve'];
+const Rng = {
+  seed: 1,
+  // Re-seeds every stream from one match seed; called by Game.start and __CTK.seed(n).
+  reseed(seed) {
+    this.seed = seed >>> 0;
+    for (const name of RNG_STREAMS) this[name] = makeRandom(hashString(name + ':' + this.seed));
+  },
+};
+Rng.reseed(1);
+Bus.on('match.setup', (match) => Rng.reseed(match.setup.seed === undefined ? 1 : match.setup.seed));
+
+// ==== 03a-data.js ====
+// ==== S03 DATA CATALOGUES ====
+// Every catalogue is declared once with Data.define(name, schema, rows). Rows are plain object literals;
+// missing optional fields take the schema default (DATA-004). Files 03-data-*.js hold the catalogues.
+
+const REQUIRED = Symbol('required');   // schema marker: field has no default and must be present
+const CAT = {};                        // CAT.<name> = normalized rows, CAT.<name>.byId(id) for lookup
+
+const Data = {
+  schemas: {},
+  // schema: { field: defaultValue | REQUIRED }. A default of null means "any type, optional".
+  define(name, schema, rows) {
+    if (CAT[name]) throw new Error('catalogue defined twice: ' + name);
+    this.schemas[name] = schema;
+    const normalized = rows.map((row) => this.normalize(schema, row));
+    const index = new Map(normalized.map((row) => [row.id, row]));
+    normalized.byId = (id) => index.get(id) || null;
+    CAT[name] = normalized;
+    return normalized;
+  },
+  normalize(schema, row) {
+    const result = {};
+    for (const field in schema) {
+      const fallback = schema[field];
+      if (row[field] !== undefined) result[field] = row[field];
+      else if (fallback !== REQUIRED) result[field] = cloneDefault(fallback);
+    }
+    for (const field in row) if (!(field in schema)) result[field] = row[field]; // validate() reports these
+    return result;
+  },
+  // Returns a list of problem strings for one catalogue (used by the data self-test, ARC-031).
+  validate(name) {
+    const schema = this.schemas[name], rows = CAT[name], problems = [], seen = new Set();
+    rows.forEach((row, index) => {
+      const label = name + '[' + index + '] ' + (row.id || '?');
+      if (seen.has(row.id)) problems.push(label + ': duplicate id');
+      seen.add(row.id);
+      for (const field in schema) {
+        const fallback = schema[field];
+        if (fallback === REQUIRED && row[field] === undefined) problems.push(label + ': missing ' + field);
+        if (fallback !== REQUIRED && fallback !== null && row[field] !== undefined && row[field] !== null && typeof row[field] !== typeof fallback) {
+          problems.push(label + ': ' + field + ' should be ' + typeof fallback + ', got ' + typeof row[field]);
+        }
+      }
+      for (const field in row) if (!(field in schema)) problems.push(label + ': unknown field ' + field);
+    });
+    return problems;
+  },
+};
+
+function cloneDefault(value) {
+  if (Array.isArray(value)) return value.slice();
+  if (value && typeof value === 'object') return Object.assign({}, value);
+  return value;
+}
+
+// Quality presets (PERF-004, PERF-007..PERF-010, REN-008). Every system that scales by quality reads this table.
+Data.define('quality', {
+  id: REQUIRED, name: REQUIRED, renderScaleMin: 0.5, renderScaleMax: 1, drawCalls: 110, triangles: 250000,
+  bots: 15, enemies: 24, particles: 1024, decals: 64, lights: 2, props: 16, shadows: 'blob', msaa: 0, post: true,
+  lodNear: 30, lodFar: 80, viewDistance: 160, voices: 24, music: true,
+}, [
+  { id: 'ultra', name: 'Ultra', drawCalls: 200, triangles: 600000, bots: 23, enemies: 40, particles: 4096, decals: 128, lights: 8, props: 32, shadows: 'sun', msaa: 2, lodNear: 50, lodFar: 140, viewDistance: 260 },
+  { id: 'high', name: 'High', drawCalls: 150, triangles: 400000, bots: 19, enemies: 32, particles: 2048, decals: 96, lights: 4, props: 24, shadows: 'sun', msaa: 2, lodNear: 40, lodFar: 110, viewDistance: 220 },
+  { id: 'medium', name: 'Medium', drawCalls: 110, triangles: 250000, bots: 15, enemies: 24, particles: 1024, decals: 64, lights: 2, props: 16 },
+  { id: 'low', name: 'Low', drawCalls: 80, triangles: 120000, bots: 11, enemies: 18, particles: 512, decals: 32, lights: 0, props: 8, post: false, lodNear: 22, lodFar: 60, viewDistance: 130 },
+  { id: 'potato', name: 'Potato', renderScaleMin: 0.4, renderScaleMax: 0.8, drawCalls: 50, triangles: 60000, bots: 7, enemies: 12, particles: 256, decals: 0, lights: 0, props: 4, post: false, lodNear: 15, lodFar: 40, viewDistance: 100, voices: 12, music: false },
+]);
+
+// ==== 04-save.js ====
+// ==== S04 SETTINGS / SAVE ====
+// One save record in localStorage (ARC-020). Every storage access is wrapped: the game runs without persistence (PLT-003).
+// Settings are declared by the section that reads them: Settings.define('video.fov', 90, {min, max}).
+
+const SAVE_KEY = 'ctk.save.v1';
+const BACKUP_KEY = 'ctk.save.bak';
+const SAVE_VERSION = 1;
+const SAVE_MAX_BYTES = 1024 * 1024;
+const SAVE_DEBOUNCE_MS = 500;           // ARC-021
+
+const Save = {
+  data: null,             // the live save object
+  storageWorks: true,
+  notice: '',             // one-line message for the UI (storage blocked, save was reset)
+  timer: 0,
+  storage: null,          // replaced by a memory stub in headless tests
+
+  emptySave() {
+    return { version: SAVE_VERSION, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [], ladder: {} };
+  },
+  load() {
+    const raw = this.read(SAVE_KEY);
+    if (raw === null) { this.data = this.emptySave(); return this.data; }
+    try {
+      this.data = this.migrate(JSON.parse(raw));
+    } catch (error) {
+      this.write(BACKUP_KEY, raw);
+      this.data = this.emptySave();
+      this.notice = 'Your save could not be read. It was backed up and reset.';
+      ErrorLog.add('save.load', error);
+    }
+    return this.data;
+  },
+  // Brings any older save up to SAVE_VERSION; fills missing top-level fields.
+  migrate(loaded) {
+    if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
+    const fresh = this.emptySave();
+    for (const field in fresh) if (loaded[field] === undefined) loaded[field] = fresh[field];
+    loaded.version = SAVE_VERSION;
+    return loaded;
+  },
+  scheduleSave() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.saveNow(), SAVE_DEBOUNCE_MS);
+  },
+  saveNow() {
+    clearTimeout(this.timer);
+    const text = JSON.stringify(this.data);
+    if (text.length > SAVE_MAX_BYTES) { this.notice = 'Save is over 1 MB and was not written.'; return false; }
+    return this.write(SAVE_KEY, text);
+  },
+  exportText() { return JSON.stringify(this.data); },
+  importText(text) {
+    const parsed = this.migrate(JSON.parse(text)); // throws on bad input; the UI shows the message
+    this.data = parsed;
+    Settings.applyAll();
+    this.saveNow();
+  },
+  read(key) {
+    try { return (this.storage || window.localStorage).getItem(key); } catch (error) { this.markBroken(); return null; }
+  },
+  write(key, text) {
+    try { (this.storage || window.localStorage).setItem(key, text); return true; } catch (error) { this.markBroken(); return false; }
+  },
+  markBroken() {
+    if (!this.storageWorks) return;
+    this.storageWorks = false;
+    this.notice = 'Storage is blocked: settings and progress will not be kept.';
+  },
+};
+
+// In-memory stand-in for localStorage (headless tests, and the "storage broken" test case).
+function makeMemoryStorage(throwOnAccess) {
+  const values = new Map();
+  return {
+    getItem(key) { if (throwOnAccess) throw new Error('storage blocked'); return values.has(key) ? values.get(key) : null; },
+    setItem(key, value) { if (throwOnAccess) throw new Error('storage blocked'); values.set(key, String(value)); },
+    removeItem(key) { values.delete(key); },
+  };
+}
+
+const Settings = {
+  definitions: new Map(),   // key -> { fallback, min, max, options, onChange }
+  readCounts: new Map(),    // key -> times read (self-test: no setting is written but never read, MIS-008)
+  define(key, fallback, extra) {
+    if (this.definitions.has(key)) throw new Error('setting defined twice: ' + key);
+    this.definitions.set(key, Object.assign({ fallback }, extra || {}));
+  },
+  get(key) {
+    const definition = this.definitions.get(key);
+    if (!definition) throw new Error('unknown setting: ' + key);
+    this.readCounts.set(key, (this.readCounts.get(key) || 0) + 1);
+    const stored = Save.data ? Save.data.settings[key] : undefined;
+    return stored === undefined ? definition.fallback : stored;
+  },
+  set(key, value) {
+    const definition = this.definitions.get(key);
+    if (!definition) throw new Error('unknown setting: ' + key);
+    if (typeof value === 'number' && definition.min !== undefined) value = clamp(value, definition.min, definition.max);
+    if (definition.options && !definition.options.includes(value)) value = definition.fallback;
+    Save.data.settings[key] = value;
+    Save.scheduleSave();
+    Bus.emit('setting', key);
+  },
+  reset(prefix) {
+    for (const key of this.definitions.keys()) if (!prefix || key.startsWith(prefix)) delete Save.data.settings[key];
+    Save.scheduleSave();
+    this.applyAll();
+  },
+  applyAll() { for (const key of this.definitions.keys()) Bus.emit('setting', key); },
+};
+
+// ==== 08a-world.js ====
+// ==== S08 WORLD / COLLISION ====
+// The static world is a list of convex brushes, each stored as planes (normal + offset) plus its bounding box.
+// Map brushes: { shape: 'box' | 'ramp', min: [x,y,z], max: [x,y,z], dir: '+x'|'-x'|'+z'|'-z' (ramp rises toward dir), material }.
+
+const World = {
+  brushes: [],            // { shape, material, minX..maxZ, planes: Float32Array [nx,ny,nz,d, ...], planeCount, source }
+  map: null,              // the loaded map row
+  boundsMin: Vec.make(), boundsMax: Vec.make(),
+
+  load(map) {
+    this.map = map;
+    this.brushes = map.brushes.map((source) => makeBrush(source));
+    this.computeBounds();
+    Bus.emit('world.load', map);
+  },
+  clear() { this.map = null; this.brushes = []; },
+  computeBounds() {
+    Vec.set(this.boundsMin, Infinity, Infinity, Infinity);
+    Vec.set(this.boundsMax, -Infinity, -Infinity, -Infinity);
+    for (const b of this.brushes) {
+      this.boundsMin.x = Math.min(this.boundsMin.x, b.minX); this.boundsMin.y = Math.min(this.boundsMin.y, b.minY); this.boundsMin.z = Math.min(this.boundsMin.z, b.minZ);
+      this.boundsMax.x = Math.max(this.boundsMax.x, b.maxX); this.boundsMax.y = Math.max(this.boundsMax.y, b.maxY); this.boundsMax.z = Math.max(this.boundsMax.z, b.maxZ);
+    }
+  },
+  // Ray against all brushes; direction must be normalized. Fills hit {distance, x,y,z, nx,ny,nz, brush}; returns true on a hit.
+  raycast(ox, oy, oz, dx, dy, dz, maxDistance, hit) {
+    let best = maxDistance, found = false;
+    for (let i = 0; i < this.brushes.length; i++) {
+      const brush = this.brushes[i];
+      if (!rayHitsBox(ox, oy, oz, dx, dy, dz, best, brush)) continue;
+      if (rayVersusBrush(ox, oy, oz, dx, dy, dz, best, brush, hit)) { best = hit.distance; found = true; }
+    }
+    if (found) { hit.x = ox + dx * best; hit.y = oy + dy * best; hit.z = oz + dz * best; }
+    return found;
+  },
+  // True when nothing solid lies between the two points (bot line of sight, splash occlusion).
+  lineClear(ax, ay, az, bx, by, bz) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+    if (length < 1e-6) return true;
+    return !this.raycast(ax, ay, az, dx / length, dy / length, dz / length, length, scratchHit);
+  },
+  pointInside(x, y, z) {
+    for (let i = 0; i < this.brushes.length; i++) if (pointInBrush(x, y, z, this.brushes[i], 0)) return true;
+    return false;
+  },
+};
+
+const scratchHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
+const makeHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null });
+
+function makeBrush(source) {
+  const [minX, minY, minZ] = source.min, [maxX, maxY, maxZ] = source.max;
+  const planes = [];
+  const addPlane = (nx, ny, nz, px, py, pz) => { const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l; planes.push(nx, ny, nz, nx * px + ny * py + nz * pz); };
+  addPlane(-1, 0, 0, minX, 0, 0); addPlane(1, 0, 0, maxX, 0, 0);
+  addPlane(0, 0, -1, 0, 0, minZ); addPlane(0, 0, 1, 0, 0, maxZ);
+  addPlane(0, -1, 0, 0, minY, 0);
+  if (source.shape === 'ramp') {
+    // Top plane passes through the low edge (height minY) and the high edge (height maxY).
+    const rise = maxY - minY;
+    if (source.dir === '+x') addPlane(-rise, maxX - minX, 0, minX, minY, 0);
+    else if (source.dir === '-x') addPlane(rise, maxX - minX, 0, maxX, minY, 0);
+    else if (source.dir === '+z') addPlane(0, maxZ - minZ, -rise, 0, minY, minZ);
+    else addPlane(0, maxZ - minZ, rise, 0, minY, maxZ);
+  } else {
+    addPlane(0, 1, 0, 0, maxY, 0);
+  }
+  return { shape: source.shape || 'box', material: source.material || 'concrete', source, minX, minY, minZ, maxX, maxY, maxZ,
+    planes: new Float32Array(planes), planeCount: planes.length / 4 };
+}
+
+function rayHitsBox(ox, oy, oz, dx, dy, dz, maxDistance, box) {
+  let near = 0, far = maxDistance;
+  const axis = (origin, direction, low, high) => {
+    if (Math.abs(direction) < 1e-9) return origin >= low && origin <= high;
+    let t1 = (low - origin) / direction, t2 = (high - origin) / direction;
+    if (t1 > t2) { const keep = t1; t1 = t2; t2 = keep; }
+    if (t1 > near) near = t1;
+    if (t2 < far) far = t2;
+    return near <= far;
+  };
+  return axis(ox, dx, box.minX, box.maxX) && axis(oy, dy, box.minY, box.maxY) && axis(oz, dz, box.minZ, box.maxZ);
+}
+
+// Clips the ray against every plane of a convex brush. A ray starting inside reports a hit at distance 0.
+function rayVersusBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit) {
+  let enter = -Infinity, exit = maxDistance, enterPlane = -1;
+  const p = brush.planes;
+  for (let i = 0; i < brush.planeCount; i++) {
+    const nx = p[i * 4], ny = p[i * 4 + 1], nz = p[i * 4 + 2], offset = p[i * 4 + 3];
+    const outside = nx * ox + ny * oy + nz * oz - offset;   // > 0: origin is in front of this plane
+    const along = nx * dx + ny * dy + nz * dz;
+    if (Math.abs(along) < 1e-9) { if (outside > 0) return false; continue; }
+    const t = -outside / along;
+    if (along < 0) { if (t > enter) { enter = t; enterPlane = i; } } else if (t < exit) exit = t;
+    if (enter > exit) return false;
+  }
+  if (enterPlane < 0 || enter < 0) { // origin inside the brush
+    hit.distance = 0; hit.nx = -dx; hit.ny = -dy; hit.nz = -dz; hit.brush = brush;
+    return true;
+  }
+  if (enter > maxDistance) return false;
+  hit.distance = enter; hit.nx = p[enterPlane * 4]; hit.ny = p[enterPlane * 4 + 1]; hit.nz = p[enterPlane * 4 + 2]; hit.brush = brush;
+  return true;
+}
+
+function pointInBrush(x, y, z, brush, margin) {
+  const p = brush.planes;
+  for (let i = 0; i < brush.planeCount; i++) if (p[i * 4] * x + p[i * 4 + 1] * y + p[i * 4 + 2] * z - p[i * 4 + 3] > margin) return false;
+  return true;
+}
+
+// ==== 19-loop.js ====
+// ==== S19 GAME LOOP ====
+// requestAnimationFrame loop with a fixed 120 Hz simulation (ARC-010), render interpolation (REN-006) and pause (PLT-006).
+// Frame phases run in this order every frame: 'input' -> sim steps -> 'render' -> 'hud' -> 'audio' -> 'ui'.
+// Match lifecycle events (in order): 'match.setup' (build ruleset) -> 'match.load' (world, nav, renderer)
+// -> 'match.start' (mode spawns actors) ... 'match.end' (results) -> 'match.stop' (tear down).
+
+const FRAME_PHASES = ['input', 'render', 'hud', 'audio', 'ui'];
+const FRAME_HISTORY = 240;              // frames kept for p50/p95/p99 (2 s at 120 fps)
+const MAX_FRAME_SECONDS = 0.25;         // a longer gap (tab switch, debugger) is not simulated
+
+const Perf = {
+  frameMs: new Float32Array(FRAME_HISTORY),
+  simMs: new Float32Array(FRAME_HISTORY),
+  index: 0, filled: 0,
+  droppedSteps: 0,
+  sorted: new Float32Array(FRAME_HISTORY),
+  counters: { drawCalls: 0, triangles: 0, renderMs: 0, hudMs: 0, audioMs: 0, gpuMs: 0, renderScale: 1, particles: 0, projectiles: 0 },
+  record(frameMs, simMs) {
+    this.frameMs[this.index] = frameMs; this.simMs[this.index] = simMs;
+    this.index = (this.index + 1) % FRAME_HISTORY;
+    if (this.filled < FRAME_HISTORY) this.filled++;
+  },
+  percentile(source, fraction) {
+    if (!this.filled) return 0;
+    const view = this.sorted.subarray(0, this.filled);
+    view.set(source.subarray(0, this.filled));
+    view.sort();
+    return view[Math.min(this.filled - 1, Math.floor(fraction * this.filled))];
+  },
+  stats() {
+    const p50 = this.percentile(this.frameMs, 0.5);
+    return { fps: p50 > 0 ? 1000 / p50 : 0, p50, p95: this.percentile(this.frameMs, 0.95), p99: this.percentile(this.frameMs, 0.99),
+      simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing };
+  },
+  reset() { this.index = 0; this.filled = 0; this.droppedSteps = 0; },
+};
+
+const Loop = {
+  hooks: { input: [], render: [], hud: [], audio: [], ui: [] },
+  running: false,
+  lastTime: 0,
+  accumulator: 0,
+  alpha: 0,               // interpolation factor between the previous and current sim state
+  frameSeconds: 0,
+  onFrame(phase, handler) {
+    if (!this.hooks[phase]) throw new Error('unknown frame phase ' + phase);
+    this.hooks[phase].push(handler);
+  },
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.lastTime = performance.now();
+    requestAnimationFrame((now) => this.frame(now));
+  },
+  frame(now) {
+    if (!this.running) return;
+    requestAnimationFrame((next) => this.frame(next));
+    const frameStart = performance.now();
+    const seconds = Math.min(MAX_FRAME_SECONDS, Math.max(0, (now - this.lastTime) / 1000));
+    this.lastTime = now;
+    this.frameSeconds = seconds;
+    this.runPhase('input', seconds);
+    const simStart = performance.now();
+    if (Game.isRunning()) this.advance(seconds);
+    const simMs = performance.now() - simStart;
+    for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
+    Perf.record(performance.now() - frameStart, simMs);
+  },
+  // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME, the rest is dropped (spiral-of-death guard).
+  advance(seconds) {
+    this.accumulator += seconds;
+    let steps = 0;
+    while (this.accumulator >= TICK_SECONDS && steps < MAX_STEPS_PER_FRAME) {
+      Sim.step();
+      this.accumulator -= TICK_SECONDS;
+      steps++;
+    }
+    if (this.accumulator >= TICK_SECONDS) {
+      Perf.droppedSteps += Math.floor(this.accumulator / TICK_SECONDS);
+      this.accumulator %= TICK_SECONDS;
+    }
+    this.alpha = this.accumulator / TICK_SECONDS;
+  },
+  runPhase(phase, seconds) {
+    const list = this.hooks[phase];
+    for (let i = 0; i < list.length; i++) {
+      try { list[i](seconds, this.alpha); } catch (error) { ErrorLog.add('frame ' + phase, error); }
+    }
+  },
+};
+
+// The loop restarts its clocks with every match.
+Bus.on('match.setup', () => { Perf.reset(); Loop.accumulator = 0; });
+Bus.on('game.resume', () => { Loop.lastTime = performance.now(); });
+
+// ==== 20a-selftest.js ====
+// ==== S20 SELF-TEST ====
+// Test.add(group, fn) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
+// Blocks run in registration order (file order). Each block gets a clean slate: no match, default seed, memory storage.
+// DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
+
+const Test = {
+  blocks: [],
+  add(group, run) { this.blocks.push({ group, run }); },
+  async run(options) {
+    const settings = options || {};
+    const results = [];
+    const wasHeadless = Game.headless;
+    const savedData = Save.data, savedStorage = Save.storage;
+    const groups = new Set();
+    if (settings.headless) Game.headless = true;
+    for (const block of this.blocks) {
+      if (settings.group && block.group !== settings.group) continue;
+      groups.add(block.group);
+      const check = (name, ok, detail) => { results.push({ group: block.group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
+      Test.isolate();
+      const errorsBefore = ErrorLog.entries.length;
+      try { await block.run(check); } catch (error) { check('block threw', false, error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : error); }
+      const unexpected = ErrorLog.entries.slice(errorsBefore);
+      if (unexpected.length) check('no errors logged during the block', false, unexpected.slice(0, 3).join(' || '));
+    }
+    Game.stop();
+    Save.data = savedData; Save.storage = savedStorage;
+    Game.headless = wasHeadless;
+    const failed = results.filter((r) => !r.ok).length;
+    return { total: results.length, failed, groups: groups.size, results };
+  },
+  // Clean state between blocks: stops any match, memory-only storage, fresh save, default seed.
+  isolate() {
+    Game.stop();
+    Save.storage = makeMemoryStorage(false);
+    Save.data = Save.emptySave();
+    Rng.reseed(1);
+  },
+  near(a, b, tolerance) { return Math.abs(a - b) <= tolerance; },
+  // Runs code that is expected to log errors; returns how many it logged and removes them from the ring.
+  expectErrors(run) {
+    const before = ErrorLog.entries.length;
+    run();
+    const added = ErrorLog.entries.length - before;
+    ErrorLog.entries.length = before;
+    return added;
+  },
+};
+
+const DebugApi = {
+  version: VERSION,
+  selfTest: (options) => Test.run(options),
+  game: Game,
+  actors: Actors,
+  world: World,
+  catalogues: CAT,
+  perf: { stats: () => Perf.stats() },
+  step(steps) { Sim.run(steps || 1); return Sim.tick; },
+  seed(seed) { Rng.reseed(seed); return Rng.seed; },
+  log: { errors: () => ErrorLog.entries.slice() },
+  save: {
+    dump: () => Save.exportText(),
+    corrupt(kind) { // test hook: write a broken save, then reload it
+      const broken = kind === 'empty' ? '' : kind === 'type' ? '[1,2,3]' : '{"version":1,"settings":';
+      Save.write(SAVE_KEY, broken);
+      return Save.load() && Save.notice;
+    },
+  },
+};
+
+// ==== 20b-test-core.js ====
+// Self-tests for S01-S04 and the loop: math, RNG, events, actors, data, save, settings, world rays.
+
+Test.add('core', (check) => {
+  const v = Vec.fromAngles(Vec.make(), 0, 0);
+  check('yaw 0 looks +Z', Test.near(v.z, 1, 1e-6) && Test.near(v.x, 0, 1e-6));
+  Vec.fromAngles(v, 0, 90 * DEG);
+  check('pitch +90 looks up', Test.near(v.y, 1, 1e-6));
+  check('wrapAngle', Test.near(wrapAngle(3 * Math.PI), Math.PI, 1e-6) || Test.near(wrapAngle(3 * Math.PI), -Math.PI, 1e-6));
+  const view = Mat4.firstPerson(Mat4.create(), 0, 0, 0, 0, 0);
+  // A point 5 m ahead (+Z) must land on the view-space -Z axis.
+  const ahead = { x: view[8] * 5 + view[12], y: view[9] * 5 + view[13], z: view[10] * 5 + view[14] };
+  check('view matrix: +Z is in front', Test.near(ahead.z, -5, 1e-5) && Test.near(ahead.x, 0, 1e-5), JSON.stringify(ahead));
+  const right = { x: view[0] * -1, z: view[2] * -1 }; // world -X is the camera's right at yaw 0
+  check('view matrix: world -X is camera right at yaw 0', Test.near(right.x, 1, 1e-5), JSON.stringify(right));
+});
+
+Test.add('core', (check) => {
+  const a = makeRandom(42), b = makeRandom(42), c = makeRandom(43);
+  let same = true, differs = false;
+  for (let i = 0; i < 1000; i++) { const x = a.next(), y = b.next(); if (x !== y) same = false; if (x !== c.next()) differs = true; if (x < 0 || x >= 1) same = false; }
+  check('rng: same seed, same sequence in 0..1', same);
+  check('rng: different seed differs', differs);
+  Rng.reseed(7); const first = Rng.bots.next(); Rng.map.next(); Rng.reseed(7); Rng.map.next(); Rng.map.next();
+  check('rng: streams are independent', Rng.bots.next() === first);
+});
+
+Test.add('core', (check) => {
+  let received = null;
+  const handler = Bus.on('test.ping', (value) => { received = value; });
+  Bus.emit('test.ping', 5);
+  Bus.off('test.ping', handler);
+  Bus.emit('test.ping', 9);
+  check('bus: on/emit/off', received === 5);
+  const thrower = Bus.on('test.throw', () => { throw new Error('listener failure'); });
+  check('bus: a throwing listener is logged, not thrown', Test.expectErrors(() => Bus.emit('test.throw', null)) === 1);
+  Bus.off('test.throw', thrower);
+});
+
+Test.add('core', (check) => {
+  const first = Actors.create(ACTOR_KIND.BOT, 1, 'one');
+  const second = Actors.create(ACTOR_KIND.BOT, 2, 'two');
+  check('actors: create gives distinct ids', first === 0 && second === 1 && Actors.count === 2);
+  Actors.remove(second);
+  check('actors: remove shrinks count', Actors.count === 1);
+  check('actors: enemy test by team', Actors.isEnemy(first, Actors.create(ACTOR_KIND.BOT, 2, 'x')) && !Actors.isEnemy(first, first));
+  Actors.buttons[first] = BTN.FIRE;
+  Sim.step();
+  check('sim: pressed edge on first step', (Actors.pressed[first] & BTN.FIRE) !== 0);
+  Sim.step();
+  check('sim: no edge while held', (Actors.pressed[first] & BTN.FIRE) === 0);
+  Actors.clear();
+  check('actors: clear', Actors.count === 0);
+});
+
+Test.add('core', (check) => {
+  for (const name in Data.schemas) {
+    const problems = Data.validate(name);
+    check('data: ' + name + ' rows follow the schema', problems.length === 0, problems.slice(0, 5).join('; '));
+  }
+  check('data: quality presets', CAT.quality.length === 5 && CAT.quality.byId('potato').bots === 7);
+});
+
+Test.add('core', (check) => {
+  Save.data = Save.emptySave();
+  Save.data.settings.example = 3;
+  check('save: round trip', Save.saveNow() && JSON.parse(Save.read(SAVE_KEY)).settings.example === 3);
+  Save.write(SAVE_KEY, '{"version":1,"settings":');
+  Test.expectErrors(() => Save.load());
+  check('save: corrupt save resets with notice', Save.data.version === SAVE_VERSION && Save.notice.length > 0 && Save.read(BACKUP_KEY) !== null);
+  Save.storage = makeMemoryStorage(true);
+  Save.storageWorks = true;
+  let crashed = false;
+  try { Save.load(); Save.saveNow(); } catch (error) { crashed = true; }
+  check('save: blocked storage does not crash', !crashed && !Save.storageWorks);
+  Save.storageWorks = true;
+});
+
+Test.add('core', (check) => {
+  World.load({ id: 'test', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'ramp', min: [2, 0, -1], max: [6, 2, 1], dir: '+x' }] });
+  const hit = makeHit();
+  check('world: ray down hits the floor', World.raycast(0, 5, 0, 0, -1, 0, 100, hit) && Test.near(hit.y, 0, 1e-4) && hit.ny > 0.99, JSON.stringify(hit.y));
+  check('world: ray down on ramp middle hits at half height', World.raycast(4, 5, 0, 0, -1, 0, 100, hit) && Test.near(hit.y, 1, 1e-3), hit.y);
+  check('world: ray misses beyond max distance', !World.raycast(0, 5, 0, 0, -1, 0, 4, hit));
+  check('world: line of sight', World.lineClear(-5, 1, 0, -5, 3, 0) && !World.lineClear(0, 1, 0, 0, -2, 0));
+  World.clear();
+});
+
+// ==== 21-boot.js ====
+// ==== S21 BOOTSTRAP ====
+// Startup order: errors hooked -> save loaded -> 'boot' event (each section initializes itself, the renderer
+// may call Boot.fatal) -> settings applied -> loop started -> 'ready' event (UI shows the main menu).
+
+const Boot = {
+  failed: false,
+  fatal(title, text, detail) {
+    this.failed = true;
+    document.getElementById('fatal-title').textContent = title;
+    document.getElementById('fatal-text').textContent = text;
+    document.getElementById('fatal-detail').textContent = detail || '';
+    document.getElementById('fatal').classList.add('show');
+  },
+  start() {
+    window.addEventListener('error', (event) => ErrorLog.add('window', event.error || event.message));
+    window.addEventListener('unhandledrejection', (event) => ErrorLog.add('promise', event.reason));
+    document.getElementById('version').textContent = 'v' + VERSION;
+    window.__CTK = DebugApi;
+    try {
+      Save.load();
+      Bus.emit('boot', null);
+      if (this.failed) return;
+      Settings.applyAll();
+      Loop.start();
+      Bus.emit('ready', null);
+    } catch (error) {
+      ErrorLog.add('boot', error);
+      this.fatal('ClassTimeKiller could not start', 'Something went wrong while starting. Reload the page; if it keeps happening, update your browser.', String(error && error.stack || error));
+    }
+  },
+};
+
+Boot.start();
+})();
+
+</script>
+</body>
+</html>

@@ -16,7 +16,7 @@ Status: plan only, no game code. Companion to `docs/SPECIFICATION.md` (requireme
 
 | Rule | What it means |
 |---|---|
-| One file | Everything lives in `ClassTimeKiller.html`: plain JS + WebGL2, no libraries, no build step, no network requests, works from `file://`. |
+| One file | Players get one `ClassTimeKiller.html`: plain JS + WebGL2, no libraries, no network requests, works from `file://`. Developers edit `src/` files joined by `node tools/build.mjs` (D01, `ARCHITECTURE.md`). |
 | Self-test first | Each feature ships with `__CTK` checks that run headless via `__CTK.selfTest({headless})` (render stub, fixed timestep, seeded random) and return `{total, failed, results[]}` (ARC-030). |
 | Data over code | Weapons, presets, modes, mutators, maps, bots are data tables read by generic systems. New content = new rows, not new code paths. |
 | Budget every frame | 8.3 ms per frame at 120 Hz, 16.6 ms hard floor (60 fps). Every phase re-measures on P and L. |
@@ -27,7 +27,7 @@ Status: plan only, no game code. Companion to `docs/SPECIFICATION.md` (requireme
 
 ## Single-file layout (keep the file maintainable)
 
-The HTML file follows ARC-001: `<style>`, DOM shells (canvas, overlay, fatal screen), then one `'use strict'` script with banner-commented sections in this exact order (IronHorizon convention). New code goes into its section. A section may use earlier sections directly; it reaches later sections only through the event bus (ARC-015) or registries.
+The built HTML file follows ARC-001: `<style>`, DOM shells (canvas, overlay, fatal screen), then one `'use strict'` script with banner-commented sections in this exact order. Each section is one or more `src/` files (naming and the dependency rule: `ARCHITECTURE.md`).
 
 | # | Section banner | Contents | Prefix |
 |---|---|---|---|

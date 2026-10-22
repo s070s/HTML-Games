@@ -1,0 +1,69 @@
+// ==== S20 SELF-TEST ====
+// Test.add(group, fn) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
+// Blocks run in registration order (file order). Each block gets a clean slate: no match, default seed, memory storage.
+// DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
+
+const Test = {
+  blocks: [],
+  add(group, run) { this.blocks.push({ group, run }); },
+  async run(options) {
+    const settings = options || {};
+    const results = [];
+    const wasHeadless = Game.headless;
+    const savedData = Save.data, savedStorage = Save.storage;
+    const groups = new Set();
+    if (settings.headless) Game.headless = true;
+    for (const block of this.blocks) {
+      if (settings.group && block.group !== settings.group) continue;
+      groups.add(block.group);
+      const check = (name, ok, detail) => { results.push({ group: block.group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
+      Test.isolate();
+      const errorsBefore = ErrorLog.entries.length;
+      try { await block.run(check); } catch (error) { check('block threw', false, error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : error); }
+      const unexpected = ErrorLog.entries.slice(errorsBefore);
+      if (unexpected.length) check('no errors logged during the block', false, unexpected.slice(0, 3).join(' || '));
+    }
+    Game.stop();
+    Save.data = savedData; Save.storage = savedStorage;
+    Game.headless = wasHeadless;
+    const failed = results.filter((r) => !r.ok).length;
+    return { total: results.length, failed, groups: groups.size, results };
+  },
+  // Clean state between blocks: stops any match, memory-only storage, fresh save, default seed.
+  isolate() {
+    Game.stop();
+    Save.storage = makeMemoryStorage(false);
+    Save.data = Save.emptySave();
+    Rng.reseed(1);
+  },
+  near(a, b, tolerance) { return Math.abs(a - b) <= tolerance; },
+  // Runs code that is expected to log errors; returns how many it logged and removes them from the ring.
+  expectErrors(run) {
+    const before = ErrorLog.entries.length;
+    run();
+    const added = ErrorLog.entries.length - before;
+    ErrorLog.entries.length = before;
+    return added;
+  },
+};
+
+const DebugApi = {
+  version: VERSION,
+  selfTest: (options) => Test.run(options),
+  game: Game,
+  actors: Actors,
+  world: World,
+  catalogues: CAT,
+  perf: { stats: () => Perf.stats() },
+  step(steps) { Sim.run(steps || 1); return Sim.tick; },
+  seed(seed) { Rng.reseed(seed); return Rng.seed; },
+  log: { errors: () => ErrorLog.entries.slice() },
+  save: {
+    dump: () => Save.exportText(),
+    corrupt(kind) { // test hook: write a broken save, then reload it
+      const broken = kind === 'empty' ? '' : kind === 'type' ? '[1,2,3]' : '{"version":1,"settings":';
+      Save.write(SAVE_KEY, broken);
+      return Save.load() && Save.notice;
+    },
+  },
+};

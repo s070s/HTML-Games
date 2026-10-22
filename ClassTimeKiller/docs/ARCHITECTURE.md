@@ -1,0 +1,131 @@
+# ClassTimeKiller - Architecture and contracts
+
+Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION-STEPS.md` (order). When this file and the code disagree, fix one of them in the same change.
+
+## Source layout and build
+
+- Source: `src/shell.html` (style + DOM shells) and `src/*.js`, joined by file name order into **one** script inside one IIFE: `(() => { 'use strict'; ... })()`.
+- Build: `node tools/build.mjs` writes `ClassTimeKiller.html` (the shipped file; players never build). `--check` runs the checks only.
+- Build checks (fail the build): a top-level name declared in two files; a block of 8 meaningful lines duplicated anywhere (DRY); network/eval APIs (`fetch`, XHR, WebSocket, `import()`, `eval`, `new Function`).
+- Test: `node tools/selftest.mjs [--group <name>] [--eval "<js>"]` runs `__CTK.selfTest({headless:true})` in headless Chrome (software WebGL) and fails on any failed check or logged error.
+- File names: `NN-name.js` for a one-file section; `NNa-name.js` = the section's base file, `NNb-…`, `NNc-…` = add-on files of that section (they sort after the base). Data catalogues: `03b-data-<area>.js` and later letters. Tests: `20b-test-<area>.js` and later letters.
+
+| # | Section | Files | Global objects |
+|---|---|---|---|
+| S00 | style + DOM shells | `shell.html` | `#view` canvas, `#overlay` (DOM UI root), `#fatal`, `#version` |
+| S01 | util / math / core | `01-core.js` | constants, `clamp lerp wrapAngle…`, `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim`, `Game` |
+| S02 | RNG | `02-rng.js` | `makeRandom`, `hashString`, `Rng.{map,loot,bots,rules,fx,weapons,pve}` |
+| S03 | data catalogues | `03a-data.js`, `03b…` | `Data.define`, `REQUIRED`, `CAT` |
+| S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |
+| S05 | input | `05*` | `Input` |
+| S06 | audio | `06*` | `Sound` (never `Audio`: that is a browser global) |
+| S07 | renderer | `07*` | `Render`, `Fx`, `HudBatch` |
+| S08 | world / collision | `08*` | `World`, `makeHit` |
+| S09 | nav | `09*` | `Nav` |
+| S10 | movement | `10*` | `Move` |
+| S11 | weapons / projectiles / damage | `11*` | `Weapons`, `Projectiles`, `Damage` |
+| S12 | abilities / items | `12*` | `Items`, `Gadgets`, `Abilities` |
+| S13 | rules / modes | `13*` | `Rules`, `Modes`, `Economy`, `Mutators` |
+| S14 | bots | `14*` | `Bots` |
+| S15 | PvE director | `15*` | `Pve` |
+| S16 | map gen | `16*` | `Maps`, `MapGen` |
+| S17 | HUD | `17*` | `Hud` |
+| S18 | UI | `18*` | `Ui`, `Progress` |
+| S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
+| S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
+| S21 | bootstrap | `21-boot.js` | `Boot` |
+
+## Dependency rule
+
+- Code may call **earlier** sections directly (S11 may call `World.raycast`).
+- An earlier section reaches a later one only through (a) the event bus, (b) a hook or registry the earlier section exposes and the later one fills (`Render.addSource`, `Sim.addSystem`, `Loop.onFrame`, `Settings.define`, `Data.define`), or (c) the `Game.match` record.
+- Never `typeof X !== 'undefined'` checks for other sections: if you need something later, add a hook.
+
+## Code rules
+
+- Beginner-readable: full-word names, early returns, max 2 nesting levels, short single-purpose functions, named constants, why-comments only.
+- DRY: one source per rule, number and formula. Content = data rows read by generic systems; a new row never needs a new code path unless the framework step adds it with its own test.
+- Zero steady-state allocation in sim and render loops (PERF-006): typed arrays, pools, reused payload/scratch objects. No closures or arrays created per step/frame in hot paths.
+- The sim reads no wall-clock and no `Math.random`: only `Sim.tick/Sim.time` and `Rng.<stream>` (cosmetic-only code may use `Rng.fx`).
+- Everything is an original name (spec VIS-002). The spec's `ref` schema fields and "Ref" columns are **not** copied into code or data: reference game names never appear anywhere in `src/` (the self-test scans for them).
+
+## Simulation
+
+- `Sim.step()` runs every registered system in order at 120 Hz: `Sim.addSystem(name, order, fn(dt))`.
+  - 10 player input copy / bot brains, 20 abilities + status effects, 30 movement, 40 weapons, 50 projectiles, 60 items/pickups, 70 rules/modes/scoring, 80 PvE director, 90 bookkeeping.
+- Before the systems run, `Sim.step` stores `prev*` (for render interpolation) and computes `Actors.pressed` (buttons that went down this step).
+- Frame phases (`Loop.onFrame(phase, fn(seconds, alpha))`): `input` (before the sim steps) -> sim steps -> `render` -> `hud` -> `audio` -> `ui`.
+- `Game.headless` is true in headless tests: renderer, DOM UI and audio do nothing. Every system must run without them.
+
+## Actors (S01 `Actors`, ARC-011)
+
+Index `0..MAX_ACTORS-1` (64), loop `for (let id = 0; id < Actors.count; id++)` and test `Actors.kind[id]` / `Actors.alive[id]`.
+Core fields: `kind team flags x y z (feet) vx vy vz yaw pitch prevX/Y/Z prevYaw prevPitch height eye health armor shield maxHealth maxArmor maxShield name profile spawnCount`.
+Input (BOT-001: player and bots write the same struct before each step): `moveX` (+1 = strafe right), `moveZ` (+1 = forward), `aimYaw`, `aimPitch` (desired view angles, radians), `buttons` (BTN bits held), `pressed` (computed), `slotRequest` (1-9, 0 none).
+Sections keep their own per-actor typed arrays (e.g. `Move.stamina`) sized `MAX_ACTORS` and reset them on `actor.create`.
+
+Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. Forward = `(sin yaw, 0, cos yaw)`, **right = `(-cos yaw, 0, sin yaw)`**. Eye position = `(x, y + eye, z)`. DATA-003 capsule: radius 0.40, height 1.80/1.10/0.60, eye 1.62/0.95/0.40, step 0.45, slope 45 deg. Hit volumes: head sphere r 0.14 centred at eye height + 0.04; torso capsule r 0.30 from 0.85 to 1.45 m; legs capsule r 0.22 from 0.05 to 0.85 m (scaled by height/1.8 when crouched).
+
+## Match record and lifecycle
+
+`Game.start(setup)` emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
+`setup = { mode: 'ffa', map: 'mp01', ruleset: 'rs01' | {…}, mutators: [], bots: [{ profile, team, tier }], seed, difficulty, player: { team, loadout } }`.
+`Game.match = { setup, rules, map, ended, winner, startTick, … }`. `rules` is the frozen built ruleset (Ruleset schema in spec §4, built by S13 `Rules.build`); every section reads its own fields from it (`CAT.movement.byId(Game.match.rules.move)`). Tests may assign a hand-made `rules` object.
+`Game.playerId` = the local player's actor id (-1 when spectating / headless).
+
+## Event bus (ARC-015)
+
+`Bus.on(type, fn)`, `Bus.emit(type, payload)`. Emitters reuse one payload object per event type: **listeners copy what they keep**. Listener errors are logged, never thrown.
+
+| Event | Payload | Emitted by |
+|---|---|---|
+| `boot`, `ready` | null | S21 |
+| `setting` | key | S04 |
+| `world.load` | map | S08 |
+| `match.setup/load/start/end/stop` | `Game.match` | S01 |
+| `game.pause` / `game.resume` | reason / null | S01 |
+| `actor.create` / `actor.remove` | id | S01 |
+| `actor.spawn` | `{ id }` | S13 |
+| `move.jump` `move.land` `move.step` `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface }` | S10 |
+| `weapon.fire` | `{ id, weapon, mode: 'primary'|'alt', x, y, z, dx, dy, dz }` | S11 |
+| `weapon.reload` `weapon.switch` `weapon.empty` | `{ id, weapon }` | S11 |
+| `impact` | `{ x, y, z, nx, ny, nz, material, weapon, owner }` | S11 |
+| `explosion` | `{ x, y, z, radius, owner, source, element }` | S11/S12 |
+| `damage` | `{ target, source, amount, absorbed, zone: 'head'|'body'|'legs'|'none', weapon, element, x, y, z, dx, dy, dz }` | S11 `Damage.apply` only |
+| `kill` | `{ victim, killer, assister, weapon, zone, element, x, y, z }` | S11 |
+| `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
+| `pickup` | `{ id, item, x, y, z }` | S12 |
+| `ability.cast` / `ability.end` | `{ id, ability }` | S12 |
+| `score` | `{ id, team, points, reason }` | S13 |
+| `medal` | `{ id, medal }` | S13/S18 |
+| `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
+| `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
+
+## Renderer hooks (S07)
+
+- `Render.addSource(name, fn(batch))`: called inside every rendered frame; `fn` pushes instanced shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`. Shapes are procedural: `box sphere cylinder capsule cone wedge ring`. Later sections draw pickups, projectiles, flags and deployables this way.
+- Actors are drawn by S07 itself from `Actors` (team/profile colour, crouch, alive). `Render.actorStyle = fn(id, out)` hook lets later sections tint/scale actors (powerups, cloak).
+- `Render.camera` `{ x, y, z, yaw, pitch, roll, fov }` follows the player's interpolated eye by default; `Render.cameraOverride = fn(camera)` for spectate/killcam.
+- `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color }`.
+- `Fx`: `burst(kind, x, y, z, nx, ny, nz, count, colorHex)`, `tracer(ax, ay, az, bx, by, bz, colorHex)`, `decal(x, y, z, nx, ny, nz, kind)`, `light(x, y, z, colorHex, radius, seconds)`. Kinds: `spark smoke dust blood muzzle explosion energy water fire frost shock heal`. All capped by quality (PERF-010), pooled.
+- `HudBatch` (used by S17): `rect(x, y, w, h, colorHex, alpha)`, `text(string, x, y, sizePx, colorHex, align)`, `ring(x, y, radius, thickness, colorHex, alpha, start, end)`, `line(...)`; one draw call per layer (REN-005).
+- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale).
+
+## Other hooks
+
+- Settings: `Settings.define(key, default, { label, category: 'video'|'controls'|'audio'|'gameplay'|'hud'|'accessibility'|'developer', min, max, step, options, optionLabels })`. The settings screen is generated from these definitions; nothing is written that is never read (self-test).
+- Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008). `Input.actions` is the single action table.
+- UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`.
+- Debug: test files add commands to `DebugApi` (e.g. `DebugApi.spawnBot = …`).
+
+## Data catalogues
+
+`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals`.
+
+## Self-test
+
+`Test.add(group, (check) => { … check(name, ok, detail) … })`. Each block starts clean (`Test.isolate`: no match, memory storage, seed 1). A block that throws or logs an unexpected error fails; use `Test.expectErrors(fn)` for deliberate ones. Groups: one per area (`core`, `render`, `input`, `ui`, `audio`, `world`, `move`, `weapons`, `damage`, …). Run one group with `--group`.
+
+## Git for helpers
+
+Work only in the files your brief names. Commit with clear messages; never commit `ClassTimeKiller.html` (the lead rebuilds it after merging): stage with `git add src tools docs`. Before every commit: `node tools/build.mjs` and `node tools/selftest.mjs` must pass.
