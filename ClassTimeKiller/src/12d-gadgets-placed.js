@@ -54,7 +54,7 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
-  betweenRounds: false,                   // from a round's end to the next round's start: no beacon pulls the new spawns
+  betweenRounds: false,                   // from a round's end to the next start (no beacon spawns)
   rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 

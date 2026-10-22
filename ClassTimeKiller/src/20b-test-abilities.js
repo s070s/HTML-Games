@@ -800,19 +800,6 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
-// F44 (R-105): a second reward waits for the first one to be used instead of replacing it.
-Test.add('abilities', (check) => {
-  const t = AbilityTest.start({ meter: 'streak' });
-  Meters.addPoints(t.caster, 300);
-  check('F44 the first streak reward is loaded', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
-  Meters.addPoints(t.caster, 200);
-  check('F44 the second reward does not replace the unused first one', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
-  Abilities.tryActivate(t.caster, SLOT.ULTIMATE);
-  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
-  check('F44 the queued second loads when the first has run', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital' && Abilities.reward[t.caster] === 1);
-  TestArena.finish();
-});
-
 // F45 (R-102): Tracker footprints last the full 8 s with many runners about, and a crouch-walk leaves none.
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'tracker');

@@ -30,6 +30,8 @@ const GadgetArena = {
     Actors.buttons[id] = 0;
   },
   press(id, button) { Actors.buttons[id] = button; Sim.run(1); Actors.buttons[id] = 0; Sim.run(1); },
+  // Holds the grenade button 10 ticks, runs block() one tick before letting go.
+  holdThen(id, block) { Actors.buttons[id] = BTN.GRENADE; Sim.run(10); block(); Sim.run(1); Actors.buttons[id] = 0; Sim.run(2); },
   firstThrown() { for (let slot = 0; slot < THROWN_CAP; slot++) if (Thrown.state[slot]) return slot; return -1; },
   // Ticks until the first 'explosion' event of a gadget row (max `limit` seconds), or -1.
   ticksToBlast(key, limit) {
@@ -622,41 +624,20 @@ Test.add('gadgets', (check) => {
   TestArena.finish();
 });
 
-// F44 (R-104): a grenade held when the thrower is frozen, downed or jammed is not thrown.
+// F44 (R-104): a grenade held when the thrower is frozen, downed or jammed is not thrown; Phase Slip puts it away (no risk-free drop).
 Test.add('gadgets', (check) => {
   GadgetArena.start();
-  const id = GadgetArena.actor(1, 0, 0, 'smoke', 1);
-  Actors.buttons[id] = BTN.GRENADE;
-  Sim.run(10);
-  Actors.flags[id] |= ACTOR_FLAG.FROZEN;
-  Sim.run(1);
-  Actors.buttons[id] = 0;
-  Sim.run(2);
+  const id = GadgetArena.actor(1, 0, 0, 'smoke', 1), frag = CAT.gadgets.byId('frag').index;
+  GadgetArena.holdThen(id, () => { Actors.flags[id] |= ACTOR_FLAG.FROZEN; });
   check('F44 a plain grenade held by a frozen actor is cancelled, not thrown', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.thrownTotal(id) === 1);
   Actors.flags[id] &= ~ACTOR_FLAG.FROZEN;
   Gadgets.give(id, 'frag', 1); Gadgets.select(id, 'frag');
-  Actors.buttons[id] = BTN.GRENADE;
-  Sim.run(10);
-  Gadgets.suppress(id, 3);
-  Sim.run(1);
-  Actors.buttons[id] = 0;
-  Sim.run(2);
+  GadgetArena.holdThen(id, () => Buffs.add(id, BUFF.NO_FIRE, 2, 2));
+  check('F44 a cooking grenade under Phase Slip is put away, not dropped', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.count[id * GADGET_COUNT + frag] === 1);
+  Buffs.clear(id);
+  GadgetArena.holdThen(id, () => Gadgets.suppress(id, 3));
   const slot = GadgetArena.firstThrown();
   check('F44 a cooking grenade of a jammed actor falls at the feet', slot >= 0 && Thrown.vx[slot] === 0 && Thrown.vz[slot] === 0 && Gadgets.holdStart[id] < 0);
-  TestArena.finish();
-});
-
-// F44 (R-104): Phase Slip while cooking puts the grenade away (kept, nothing at the feet): no risk-free drop while invulnerable.
-Test.add('gadgets', (check) => {
-  GadgetArena.start();
-  const id = GadgetArena.actor(1, 0, 0, 'frag', 1);
-  Actors.buttons[id] = BTN.GRENADE;
-  Sim.run(10);
-  Buffs.add(id, BUFF.NO_FIRE, 2, 2);
-  Sim.run(1);
-  Actors.buttons[id] = 0;
-  Sim.run(2);
-  check('F44 a cooking grenade under Phase Slip is put away, not dropped', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId('frag').index] === 1);
   TestArena.finish();
 });
 
@@ -671,5 +652,5 @@ Test.add('gadgets', (check) => {
     for (const column of columns) if (!new RegExp('\\.' + column + '\\b').test(code)) unread.push(column);
   }
   check('F46 every gadget and ability column has a reader', unread.length === 0, unread.join(', '));
-  check('F46 the smoke grid keeps no owner or row it never reads', !('owner' in Smoke && Smoke.owner) && !('row' in Smoke && Smoke.row));
+  check('F46 the smoke grid keeps no owner or row it never reads', !Smoke.owner && !Smoke.row);
 });

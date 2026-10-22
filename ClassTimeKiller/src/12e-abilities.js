@@ -260,7 +260,7 @@ const Abilities = {
     const row = CAT.abilities.byId(abilityId);
     if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
     if (!this.rewardLoaded[id]) { this.loadReward(id, row); return true; }
-    if (this.rewardsWaiting[id] >= REWARD_QUEUE_SIZE) return false;   // the one in the slot (or running) is not replaced: the next waits its turn
+    if (this.rewardsWaiting[id] >= REWARD_QUEUE_SIZE) return false;   // never replaces the loaded one
     this.rewardQueue[id * REWARD_QUEUE_SIZE + this.rewardsWaiting[id]++] = row.index;
     return true;
   },
