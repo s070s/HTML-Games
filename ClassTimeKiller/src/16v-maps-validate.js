@@ -9,21 +9,28 @@ const MAP_ZONE_COVERAGE = 0.97;      // share of walkable cells that must lie in
 const MAP_ROOF_HEIGHT = 10;          // a surface with a ceiling closer than this counts as indoors
 const MAP_ROUTE_FREE = 6;            // metres around both route ends that the lane test never blocks
 const MAP_ROUTE_BLOCK = 2.5;         // radius blocked around each found route before looking for the next
+const MAP_ROUTE_BLOCK_HEIGHT = 3;    // only surfaces within this height of the route are blocked (a bridge does not block the floor under it)
 const MAP_EYE = 1.6;                 // eye height used for sightlines
+const MAP_CHEST = 1.2;               // chest height used for spawn facing checks
+const MAP_SPAWN_FACING = 2;          // free distance ahead of a spawn, metres
 const MAP_SIGHT_DIRECTIONS = 16;
 const MAP_SIGHT_LATTICE = 8;         // sightline origins: every 8th cell = 4 m
 const MAP_TEAM_SPAWN_DISTANCE = 25;  // MAP-010: nearest enemy spawn must be at least this far
 const MAP_BALANCE_LIMIT = 0.3;       // team maps: item distance to each team's spawns may differ by this share
 const MAP_FLOOR_TOLERANCE = 0.3;     // a spawn, item or objective sits on its floor within this
-const LOCATE_TEXT = ['', 'has no standing floor (needs 1.4 m wide and 2.4 m high free space)', 'is not on the walkable grid', 'is cut off from the main play space'];
+const MAP_LOCATE_TEXT = ['', 'has no standing floor (needs 1.4 m wide and 2.4 m high free space)', 'is not on the walkable grid', 'is cut off from the main play space'];
 const MAP_MAX_ROUTES = 4;
 const MAP_NO_LANES = ['range', 'puzzle'];   // categories exempt from the three-lane rule (MAP-002)
 const MAP_SPAWN_ZONES = 4;          // free-for-all spawns must cover at least this many callout zones
 const MAP_FALL_MAX = 12;             // a fall this long is survivable in every movement preset; longer needs a kill zone (MOV-015)
 
+const mapGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);                    // distance between two points that carry x, y, z
+const mapPairs = (list) => list.flatMap((a, i) => list.slice(i + 1).map((b) => [a, b])); // every unordered pair
+const mapCross = (listA, listB) => listA.flatMap((a) => listB.map((b) => [a, b]));      // every a-b pair
+
 const MapCheck = {
   run(map) {
-    const ctx = { map, problems: [], counts: {}, stats: {}, scan: null, loop: null, nodes: new Map(), hit: makeHit() };
+    const ctx = { map, problems: [], counts: {}, stats: {}, scan: null, loop: null, hit: makeHit() };
     ctx.add = (rule, text) => {
       ctx.counts[rule] = (ctx.counts[rule] || 0) + 1;
       if (ctx.counts[rule] <= MAP_MAX_REPORTED) ctx.problems.push(rule + ': ' + text);
@@ -65,7 +72,7 @@ const MapCheck = {
   // locate() plus the standard problem message; returns the node or -1.
   place(ctx, rule, label, x, y, z) {
     const node = this.locate(ctx, x, y, z);
-    if (node < 0) ctx.add(rule, label + ' at ' + this.fmt(x, y, z) + ' ' + LOCATE_TEXT[-node]);
+    if (node < 0) ctx.add(rule, label + ' at ' + this.fmt(x, y, z) + ' ' + MAP_LOCATE_TEXT[-node]);
     return node;
   },
   servesMode(spawn, mode) { return spawn.modes.length === 0 || spawn.modes.includes(mode); },
@@ -132,7 +139,7 @@ const MapCheck = {
   stats(ctx) {
     const map = ctx.map, s = ctx.stats;
     s.brushes = map.brushes.length; s.nodes = ctx.scan.nodeCount; s.spawns = map.spawns.length; s.items = map.items.length;
-    s.zones = map.zones.length; s.hash = Maps.hash(map);
+    s.zones = map.zones.length; s.hash = Maps.hash(map); s.hazardCells = ctx.scan.hazardNodes;
     s.loopShare = ctx.stats.loopCells / Math.max(1, ctx.scan.nodeCount);
   },
 
@@ -142,11 +149,17 @@ const MapCheck = {
     map.spawns.forEach((spawn, index) => {
       if (!this.finite([spawn.x, spawn.y, spawn.z, spawn.yaw], 4) || ![-1, 0, 1].includes(spawn.team)) return ctx.add('spawn', '#' + index + ' has bad numbers or team');
       for (const mode of spawn.modes) if (!map.modes.includes(mode)) ctx.add('spawn', '#' + index + ' lists mode ' + mode + ' the map does not offer');
-      this.place(ctx, 'spawn', '#' + index + ' (team ' + spawn.team + ')', spawn.x, spawn.y, spawn.z);
+      if (this.place(ctx, 'spawn', '#' + index + ' (team ' + spawn.team + ')', spawn.x, spawn.y, spawn.z) >= 0) this.facing(ctx, spawn);
     });
     this.spawnCounts(ctx);
     this.spawnSpacing(ctx);
     this.teamSpawnSafety(ctx);
+  },
+  // A spawn must not look straight at a wall: some open space (MAP_SPAWN_FACING) lies ahead at chest height.
+  facing(ctx, spawn) {
+    const yaw = spawn.yaw * DEG;
+    const hit = MapScan.rayLength(ctx.scan, spawn.x, spawn.y + MAP_CHEST, spawn.z, Math.sin(yaw), Math.cos(yaw), MAP_SPAWN_FACING, ctx.hit);
+    if (hit < MAP_SPAWN_FACING) ctx.add('spawn-facing', 'spawn at ' + this.fmt(spawn.x, spawn.y, spawn.z) + ' faces a wall ' + hit.toFixed(1) + ' m away');
   },
   spawnCounts(ctx) {
     for (const mode of ctx.map.modes) {
@@ -159,14 +172,10 @@ const MapCheck = {
   // Free-for-all spawns: no two closer than 5 m, and spread over several callout zones.
   spawnSpacing(ctx) {
     const free = ctx.map.spawns.filter((spawn) => spawn.team === -1);
-    const zones = new Set();
-    free.forEach((a, i) => {
-      for (let j = i + 1; j < free.length; j++) {
-        if (Math.hypot(a.x - free[j].x, a.y - free[j].y, a.z - free[j].z) < MapRules.limits.ffaSpawnSpacing) ctx.add('spawn-spread', 'free spawns ' + i + ' and ' + j + ' are closer than ' + MapRules.limits.ffaSpawnSpacing + ' m');
-      }
-      const zone = Maps.zoneAt(ctx.map, a.x, a.y, a.z);
-      if (zone) zones.add(zone.name);
-    });
+    for (const [a, b] of mapPairs(free)) {
+      if (mapGap(a, b) < MapRules.limits.ffaSpawnSpacing) ctx.add('spawn-spread', 'free spawns at ' + this.fmt(a.x, a.y, a.z) + ' and ' + this.fmt(b.x, b.y, b.z) + ' are closer than ' + MapRules.limits.ffaSpawnSpacing + ' m');
+    }
+    const zones = new Set(free.map((spawn) => Maps.zoneAt(ctx.map, spawn.x, spawn.y, spawn.z)).filter((zone) => zone).map((zone) => zone.name));
     ctx.stats.spawnZones = zones.size;
     if (free.length && zones.size < Math.min(MAP_SPAWN_ZONES, Math.floor(ctx.map.zones.length / 2))) ctx.add('spawn-spread', 'free spawns cover only ' + zones.size + ' callout zones');
   },
@@ -175,10 +184,10 @@ const MapCheck = {
     const teamModes = ctx.map.modes.filter((mode) => MapRules.rule(mode)[0] === 'teams');
     if (!teamModes.length) return;
     const side = [0, 1].map((team) => ctx.map.spawns.filter((s) => s.team === team && teamModes.some((m) => this.servesMode(s, m))));
-    for (const a of side[0]) for (const b of side[1]) this.spawnPair(ctx, a, b);
+    for (const [a, b] of mapCross(side[0], side[1])) this.spawnPair(ctx, a, b);
   },
   spawnPair(ctx, a, b) {
-    const distance = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    const distance = mapGap(a, b);
     if (distance < MAP_TEAM_SPAWN_DISTANCE) ctx.add('spawn-safety', 'enemy spawns ' + this.fmt(a.x, a.y, a.z) + ' and ' + this.fmt(b.x, b.y, b.z) + ' are only ' + distance.toFixed(0) + ' m apart');
     else if (MapScan.clearBetween(ctx.scan, a.x, a.y + 1.5, a.z, b.x, b.y + 1.5, b.z, ctx.hit)) ctx.add('spawn-safety', 'enemy spawns ' + this.fmt(a.x, a.y, a.z) + ' and ' + this.fmt(b.x, b.y, b.z) + ' see each other');
   },
@@ -201,14 +210,12 @@ const MapCheck = {
     return this.place(ctx, 'items', label, item.x, item.y, item.z);
   },
   itemSpacing(ctx) {
-    const items = ctx.map.items, limits = MapRules.limits;
-    items.forEach((a, i) => {
-      for (let j = i + 1; j < items.length; j++) {
-        const b = items[j], distance = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-        if (distance < limits.itemSpacing) ctx.add('items', a.item + ' and ' + b.item + ' are ' + distance.toFixed(1) + ' m apart (minimum ' + limits.itemSpacing + ')');
-        if (a.group === 'power' && b.group === 'power' && distance < limits.powerSpacing) ctx.add('items', 'power items ' + a.item + ' and ' + b.item + ' are ' + distance.toFixed(1) + ' m apart (minimum ' + limits.powerSpacing + ')');
-      }
-    });
+    const limits = MapRules.limits;
+    for (const [a, b] of mapPairs(ctx.map.items)) {
+      const distance = mapGap(a, b);
+      if (distance < limits.itemSpacing) ctx.add('items', a.item + ' and ' + b.item + ' are ' + distance.toFixed(1) + ' m apart (minimum ' + limits.itemSpacing + ')');
+      if (a.group === 'power' && b.group === 'power' && distance < limits.powerSpacing) ctx.add('items', 'power items ' + a.item + ' and ' + b.item + ' are ' + distance.toFixed(1) + ' m apart (minimum ' + limits.powerSpacing + ')');
+    }
   },
   isTopItem(item) { return item.group === 'power' || MapRules.topItemKeys.includes(item.item); },
   // Power items and the top armor / health: one per zone, exposed, away from spawns, balanced between teams, shared out between spawns.
@@ -388,7 +395,7 @@ const MapCheck = {
     if (!this.finite(t.min, 3) || !this.finite(t.max, 3) || t.min.some((v, i) => v >= t.max[i])) return ctx.add('triggers', label + ': min must be below max');
     if (t.kind === 'jumppad' && (!this.finite(t.launch, 3) || t.launch[1] <= 0)) ctx.add('triggers', label + ': launch needs [vx, vy > 0, vz]');
     if (t.kind === 'teleporter' && (!this.finite(t.exit, 3) || typeof t.exitYaw !== 'number')) ctx.add('triggers', label + ': exit [x, y, z] and exitYaw needed');
-    if (t.kind === 'hazard' && !(t.dps > 0 && typeof t.element === 'string')) ctx.add('triggers', label + ': hazard needs dps > 0 and an element');
+    if (t.kind === 'hazard' && !(t.dps > 0 && MapRules.elements.includes(t.element))) ctx.add('triggers', label + ': hazard needs dps > 0 and an element (' + MapRules.elements.join('/') + ')');
   },
   padProblem(ctx, pad) {
     const where = this.fmt(pad.trigger.min[0], pad.trigger.min[1], pad.trigger.min[2]);
@@ -458,12 +465,8 @@ const MapCheck = {
     let pool = map.spawns.filter((s) => s.team === -1);
     const floorY = Math.min(...pool.map((s) => s.y)), ground = pool.filter((s) => s.y <= floorY + 0.5);
     if (ground.length >= 4) pool = ground;
-    let pair = null, far = -1;
-    for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) {
-      const gap = Math.hypot(pool[i].x - pool[j].x, pool[i].z - pool[j].z);
-      if (gap > far) { far = gap; pair = [pool[i], pool[j]]; }
-    }
-    return pair;
+    const flatGap = ([a, b]) => Math.hypot(a.x - b.x, a.z - b.z), pairs = mapPairs(pool);
+    return pairs.length ? pairs.reduce((best, pair) => (flatGap(pair) > flatGap(best) ? pair : best)) : null;
   },
   countRoutes(ctx, from, to) {
     const scan = ctx.scan, blocked = new Uint8Array(scan.nodeCount);
@@ -480,15 +483,7 @@ const MapCheck = {
     for (const node of path) {
       const x = MapScan.nodeX(scan, node), z = MapScan.nodeZ(scan, node);
       if (Math.hypot(x - MapScan.nodeX(scan, from), z - MapScan.nodeZ(scan, from)) < MAP_ROUTE_FREE || Math.hypot(x - MapScan.nodeX(scan, to), z - MapScan.nodeZ(scan, to)) < MAP_ROUTE_FREE) continue;
-      this.blockAround(scan, node, x, z, blocked);
-    }
-  },
-  blockAround(scan, node, x, z, blocked) {
-    const reach = Math.ceil(MAP_ROUTE_BLOCK / MAP_CELL), column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0;
-    for (let j = Math.max(0, cj - reach); j <= Math.min(scan.rows - 1, cj + reach); j++) for (let i = Math.max(0, ci - reach); i <= Math.min(scan.cols - 1, ci + reach); i++) {
-      for (let m = scan.columnStart[j * scan.cols + i]; m < scan.columnStart[j * scan.cols + i + 1]; m++) {
-        if (Math.abs(scan.nodeY[m] - scan.nodeY[node]) < 3 && Math.hypot(MapScan.nodeX(scan, m) - x, MapScan.nodeZ(scan, m) - z) <= MAP_ROUTE_BLOCK) blocked[m] = 1;
-      }
+      for (const near of MapScan.nodesAround(scan, node, MAP_ROUTE_BLOCK, MAP_ROUTE_BLOCK_HEIGHT)) blocked[near] = 1;
     }
   },
 

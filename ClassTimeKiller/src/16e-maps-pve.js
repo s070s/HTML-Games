@@ -3,7 +3,7 @@
 // and the MP09 Ring Isle placeholder (royale). Co-op maps: team 0 = the player side, team 1 = the enemy gates / guard posts.
 // Rows use the compact MapKit lists (see 16a-maps.js).
 
-const PVE_MODES = ['horde', 'endless', 'fiends'];
+const MAP_PVE_MODES = ['horde', 'endless', 'fiends'];
 
 // MP07 Cistern - a square tank: the core room in the middle, four spawn gates (one per side), pump platforms west and east.
 const cisternWest = {                                                                                // west gate and pump platform, mirrored east
@@ -13,7 +13,7 @@ const cisternWest = {                                                           
     ['metal', -28, 0, -8, -22, 3, 8], ['metal', -28, 0, -16, -22, 3, -8, '+z'],                      // pump platform and its ramp
     ['metal', -27, 3, 2, -25, 4.2, 4], ['metal', -27, 3, -4, -25, 4.2, -2],                          // platform cover
   ],
-  spawns: [[1, PVE_MODES, [[-38, 0, -2, 90], [-38, 0, 2, 90], [-36, 0, 0, 90]]]],
+  spawns: [[1, MAP_PVE_MODES, [[-38, 0, -2, 90], [-38, 0, 2, 90], [-36, 0, 0, 90]]]],
   zones: [['West Gate', -40, -5.5, -33, 5.5, -1, 8], ['West Pump', -28, -8, -22, 8, 1, 7], ['West Pump Ramp', -28, -16, -22, -8, -1, 5]],
   lights: [[-37, 4, 0, 0xa8d8ff, 14], [-25, 6, 0, 0xa8d8ff, 16]],
   hints: [['sniper', -24, 3, 0], ['choke', -33, 0, 0]],
@@ -24,7 +24,7 @@ const cisternNorth = {                                                          
     ...MapKit.wall('concrete', 'x', 33, 1.5, -5, 5, 0, 5, [[0, 4, 3.4]]),
     ['concrete', 4.5, 0, 33, 5.5, 5, 40], ['concrete', -5.5, 0, 33, -4.5, 5, 40],
   ],
-  spawns: [[1, PVE_MODES, [[-2, 0, 38, 180], [2, 0, 38, 180], [0, 0, 36, 180]]]],
+  spawns: [[1, MAP_PVE_MODES, [[-2, 0, 38, 180], [2, 0, 38, 180], [0, 0, 36, 180]]]],
   zones: [['North Gate', -5.5, 33, 5.5, 40, -1, 8]],
   lights: [[0, 4, 37, 0xa8d8ff, 14]],
   hints: [['choke', 0, 0, 33]],
@@ -35,13 +35,13 @@ const cisternQuarter = {                                                        
     ['water', -33, 0, 27, -27, 0.05, 33],                                                            // acid pool (hazard trigger below)
   ],
   items: [
-    ['healthpack', -12, 0, 22, PVE_MODES], ['ammobox', -19.5, 0, 17.5, PVE_MODES], ['armorshard', -20, 0, 26, PVE_MODES], ['ammocache', -8, 0, 14, PVE_MODES],
+    ['healthpack', -12, 0, 22, MAP_PVE_MODES], ['ammobox', -19.5, 0, 17.5, MAP_PVE_MODES], ['armorshard', -20, 0, 26, MAP_PVE_MODES], ['ammocache', -8, 0, 14, MAP_PVE_MODES],
   ],
   zones: [['North West Court', -40, 0, 0, 40, -1, 8]],
   lights: [[-20, 6, 20, 0xa8d8ff, 24]],
   hints: [['cover', -15.5, 0, 15], ['cover', -21, 0, 20], ['guard', -10, 0, 20], ['flank', -30, 0, 14]],
   triggers: [
-    { kind: 'hazard', min: [-33, 0, 27], max: [-27, 0.6, 33], dps: 12, element: 'acid' },
+    { kind: 'hazard', min: [-33, 0, 27], max: [-27, 0.6, 33], dps: 12, element: 'toxin' },
     { kind: 'teleporter', min: [-23, 0, 29], max: [-20, 0.3, 32], exit: [22, 0, -26], exitYaw: -35 },
   ],
 };
@@ -53,7 +53,7 @@ const cisternCenter = {
     ...MapKit.wall('concrete', 'z', 8, 1.5, -8, 8, 0, 5, [[0, 5, 3.4]]), ...MapKit.wall('concrete', 'z', -8, 1.5, -8, 8, 0, 5, [[0, 5, 3.4]]),
     ['tile', -8, -1, -8, 8, 0, 8], ['metal', -1.5, 0, -1.5, 1.5, 0.4, 1.5],                          // core room floor, core pedestal
   ],
-  spawns: [[0, PVE_MODES, [[3.5, 0, 3.5, 225], [-3.5, 0, 3.5, 135], [3.5, 0, -3.5, 315], [-3.5, 0, -3.5, 45], [5.5, 0, 0, 270], [-5.5, 0, 0, 90], [0, 0, 5.5, 180], [0, 0, -5.5, 0]]]],
+  spawns: [[0, MAP_PVE_MODES, [[3.5, 0, 3.5, 225], [-3.5, 0, 3.5, 135], [3.5, 0, -3.5, 315], [-3.5, 0, -3.5, 45], [5.5, 0, 0, 270], [-5.5, 0, 0, 90], [0, 0, 5.5, 180], [0, 0, -5.5, 0]]]],
   zones: [['Core Room', -8, -8, 8, 8, -1, 8], ['Core Door North', -2.5, 7, 2.5, 9, -1, 8], ['Core Door South', -2.5, -9, 2.5, -7, -1, 8],
     ['Core Door West', -9, -2.5, -7, 2.5, -1, 8], ['Core Door East', 7, -2.5, 9, 2.5, -1, 8]],
   lights: [[0, 5.5, 0, 0xffe0a0, 14], [0, 3.5, 8, 0xffe0a0, 8], [0, 3.5, -8, 0xffe0a0, 8], [8, 3.5, 0, 0xffe0a0, 8], [-8, 3.5, 0, 0xffe0a0, 8]],
@@ -64,7 +64,7 @@ const cisternCenter = {
   ],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'cistern', code: 'MP07', name: 'Cistern', size: [80, 20, 80], theme: 'canal', category: 'pve', modes: PVE_MODES,
+  id: 'cistern', code: 'MP07', name: 'Cistern', size: [80, 20, 80], theme: 'canal', category: 'pve', modes: MAP_PVE_MODES,
   blurb: 'Defend the core room in a square tank: four spawn gates, pump platforms with ladders, acid pools and teleporters.',
   sky: { top: 0x0b1626, horizon: 0x2c4a63, fog: 0x1a2c3c, fogFar: 120, sun: [0.1, 0.9, 0.1] },
 }, MapKit.join(MapKit.sym(cisternWest, 'x', true), MapKit.sym(cisternNorth, 'z', true), MapKit.sym(cisternQuarter, 'xz', true), cisternCenter))));
@@ -168,7 +168,7 @@ Maps.rows.push(MapKit.make(Object.assign({
 }, manorCenter)));
 
 // MP11 Test Chambers - twelve 20 m rooms in a snake (1 to 12), each teaching one traversal element that the exit pad needs. Plans are
-// written around the room centre (x east, z north); placeChamber() moves them into the grid. Puzzle objects (buttons, cubes) come with step 14.4.
+// written around the room centre (x east, z north); mapPlaceChamber() moves them into the grid. Puzzle objects (buttons, cubes) come with step 14.4.
 const CHAMBER_CENTERS = [[-30, -20], [-10, -20], [10, -20], [30, -20], [30, 0], [10, 0], [-10, 0], [-30, 0], [-30, 20], [-10, 20], [10, 20], [30, 20]];
 const CHAMBER_NAMES = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
 const CHAMBER_PLANS = [
@@ -179,7 +179,7 @@ const CHAMBER_PLANS = [
   { brushes: [['concrete', 2, 0, 3.5, 7, 4, 4], ['concrete', 2, 0, -4, 7, 4, -3.5], ['concrete', 2, 0, -3.5, 2.5, 4, 3.5], ['concrete', 6.5, 0, -3.5, 7, 4, 3.5]], // 5 teleporter alcove
     triggers: [{ kind: 'teleporter', min: [-6, 0, -1], max: [-4, 0.3, 1], exit: [4.5, 0, -2], exitYaw: 90 }, { kind: 'teleporter', min: [5, 0, 1.5], max: [6.3, 0.3, 3], exit: [-3, 0, 3], exitYaw: 270 }], exit: [4, 0, 2] },
   { brushes: [['wood', -4, 0, -1.5, -2, 1.4, 1.5, '+x'], ['wood', -2, 0, -1.5, 2, 1.4, 1.5], ['wood', 2, 0, -1.5, 4, 1.4, 1.5, '-x']],                // 6 acid strip with a bridge
-    triggers: [{ kind: 'hazard', min: [-2, -0.5, -9], max: [2, 0.2, 9], dps: 15, element: 'acid' }], exit: [6, 0, 0] },
+    triggers: [{ kind: 'hazard', min: [-2, -0.5, -9], max: [2, 0.2, 9], dps: 15, element: 'toxin' }], exit: [6, 0, 0] },
   { brushes: [['ice', -8, -1, -8, 8, 0, 8], ['concrete', -3, 0, -6, -1.4, 2.4, -2], ['concrete', 1.4, 0, 2, 3, 2.4, 6]], exit: [6, 0, 0] },       // 7 ice rink with pillars
   { brushes: [['concrete', -8, 0, -7, -2, 2, -3, '+x'], ['concrete', -2, 0, -7, 2, 2, -3], ['concrete', -2, 2, -3, 2, 4, 3, '+z'], ['concrete', -2, 0, 3, 2, 4, 7]], exit: [0, 4, 5] }, // 8 two ramps
   { brushes: [['concrete', -2, 0, -4, 2, 3, 4], ['concrete', 4, 0, -4, 7, 6, 4]],                                                                  // 9 twin pads
@@ -191,7 +191,7 @@ const CHAMBER_PLANS = [
     triggers: [{ kind: 'ladder', min: [0.2, 2.4, -1], max: [1, 5.2, 1] }], exit: [3, 5.2, 0] },
 ];
 // A plan moved to its room: brushes, triggers and exit offset by the room centre.
-function placeChamber(plan, cx, cz) {
+function mapPlaceChamber(plan, cx, cz) {
   const moveBrush = (r) => { const c = r.slice(); c[1] += cx; c[4] += cx; c[3] += cz; c[6] += cz; return c; };
   const moveTrigger = (t) => {
     const c = JSON.parse(JSON.stringify(t));
@@ -201,7 +201,7 @@ function placeChamber(plan, cx, cz) {
   };
   return { brushes: plan.brushes.map(moveBrush), triggers: (plan.triggers || []).map(moveTrigger), exit: [plan.exit[0] + cx, plan.exit[1], plan.exit[2] + cz] };
 }
-const chamberRooms = CHAMBER_PLANS.map((plan, index) => placeChamber(plan, CHAMBER_CENTERS[index][0], CHAMBER_CENTERS[index][1]));
+const chamberRooms = CHAMBER_PLANS.map((plan, index) => mapPlaceChamber(plan, CHAMBER_CENTERS[index][0], CHAMBER_CENTERS[index][1]));
 const chamberCenter = {
   brushes: [
     ['concrete', -40, -1, -30, 40, 0, 30], ['concrete', -43, -1, -33, 43, 8, -30], ['concrete', -43, -1, 30, 43, 8, 33], ['concrete', -43, -1, -30, -40, 8, 30], ['concrete', 40, -1, -30, 43, 8, 30],
@@ -211,7 +211,7 @@ const chamberCenter = {
     ...MapKit.wall('concrete', 'x', -10, 1, -40, 40, 0, 8, [[30, 3, 3]]), ...MapKit.wall('concrete', 'x', 10, 1, -40, 40, 0, 8, [[-30, 3, 3]]),
     ...chamberRooms.flatMap((room) => room.brushes),
   ],
-  spawns: [[-1, ['puzzle'], CHAMBER_CENTERS.map(([cx, cz]) => [cx - 7.5, 0, cz - 7, 90])]],
+  spawns: [[-1, ['puzzle'], CHAMBER_CENTERS.map(([cx, cz], index) => [cx - 7.5, 0, cz - 7, index === 10 ? 0 : 90])]],       // chamber 11 has a wall right ahead of the usual facing
   zones: CHAMBER_NAMES.map((name, index) => ['Chamber ' + name, CHAMBER_CENTERS[index][0] - 10, CHAMBER_CENTERS[index][1] - 10, CHAMBER_CENTERS[index][0] + 10, CHAMBER_CENTERS[index][1] + 10]),
   hints: CHAMBER_CENTERS.map(([cx, cz]) => ['cover', cx - 6, 0, cz + 6]),
   lights: CHAMBER_CENTERS.map(([cx, cz]) => [cx, 4.5, cz, 0xe8f4ff, 16]),

@@ -10,6 +10,7 @@ const MapRules = {
   materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile'],
   themes: ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'],                  // MAP-022 tilesets
   sightLimits: { arena: 60, tactical: 60, pve: 90, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category (pve: enemies approach along lanes)
+  elements: ['kinetic', 'thermal', 'cryo', 'arc', 'toxin', 'void'],                            // HP-006 damage elements (hazard triggers name one)
   triggerKinds: ['jumppad', 'teleporter', 'ladder', 'water', 'hazard', 'killzone'],
   objectiveKinds: ['flag', 'flagBase', 'point', 'hill', 'bombsite', 'payloadPath', 'relic', 'core', 'bank', 'extract'],
   hintKinds: ['cover', 'sniper', 'choke', 'flank', 'dummy', 'guard'],
@@ -44,14 +45,13 @@ const MapRules = {
   },
   limits: {
     brushes: 450, lights: 24, zones: 4, hints: 6, pickupItems: 6, powerSpacing: 20, itemSpacing: 2, ffaSpawnSpacing: 5, topItemShare: 0.5,
-    routes: 3, minExposure: 6, rampMaxDegrees: 40, overhang: 3, shellThickness: 3,   // shell: brushes may extend this far outside size
+    routes: 3, minExposure: 6, rampMaxDegrees: 40, shellThickness: 3,   // shell: brushes may extend this far outside size
   },
   groupOf(key) {
     for (const group in this.itemKeys) if (this.itemKeys[group].includes(key)) return group;
     return '';
   },
   rule(mode) { return this.modes[mode] || null; },
-  teamModes() { return Object.keys(this.modes).filter((mode) => this.modes[mode][0] === 'teams'); },
 };
 
 // Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume).
@@ -69,7 +69,6 @@ const Maps = {
     return list.byId(idOrCode) || list.find((map) => map.code === idOrCode) || null;
   },
   forMode(modeId) { return (CAT.maps || []).filter((map) => map.modes.includes(modeId)); },
-  usesMode(map, modeId) { return map.modes.includes(modeId); },
   // A spawn serves an actor of `team` (-1 = free for all) in `mode` when team matches and its mode list is empty or has the mode.
   spawnMatches(spawn, modeId, team) { return spawn.team === team && (spawn.modes.length === 0 || spawn.modes.includes(modeId)); },
   // Cached list (never modified by callers): spawn rows for a mode and team.
@@ -85,8 +84,8 @@ const Maps = {
   // Smallest callout zone holding the point (MAP-012); null outside every zone.
   zoneAt(map, x, y, z) {
     const entry = mapCacheFor(map);
-    if (!entry.zones) entry.zones = map.zones.slice().sort((a, b) => zoneVolume(a) - zoneVolume(b));
-    return entry.zones.find((zone) => pointInZone(zone, x, y, z)) || null;
+    if (!entry.zones) entry.zones = map.zones.slice().sort((a, b) => mapZoneVolume(a) - mapZoneVolume(b));
+    return entry.zones.find((zone) => mapPointInZone(zone, x, y, z)) || null;
   },
   sightLimit(map) { return MapRules.sightLimits[map.category] || MapRules.sightLimits.arena; },
   // Stable fingerprint of the map content (MAP-020: same seed gives the same hash).
@@ -97,15 +96,15 @@ const Maps = {
   report(map) { return MapCheck.run(map); },                // { problems, stats }
 };
 
-function zoneVolume(zone) { return (zone.max[0] - zone.min[0]) * (zone.max[1] - zone.min[1]) * (zone.max[2] - zone.min[2]); }
-function pointInZone(zone, x, y, z) {
+function mapZoneVolume(zone) { return (zone.max[0] - zone.min[0]) * (zone.max[1] - zone.min[1]) * (zone.max[2] - zone.min[2]); }
+function mapPointInZone(zone, x, y, z) {
   return x >= zone.min[0] && x <= zone.max[0] && y >= zone.min[1] && y <= zone.max[1] && z >= zone.min[2] && z <= zone.max[2];
 }
 
 // ---- MapKit: authoring helpers. Compact rows in, plain map-format objects out (no state, run once at load). ----
 // Compact rows: brush [material, x0,y0,z0, x1,y1,z1 (, rampDir)]; spawn group [team, modes, [[x,y,z,yawDegrees], ...]];
 // item [key, x,y,z (, modes)]; zone [name, x0,z0, x1,z1 (, y0, y1)]; light [x,y,z,color,radius]; hint [kind, x,y,z].
-const ZONE_FLOOR = -10, ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
+const MAP_ZONE_FLOOR = -10, MAP_ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
 const MapKit = {
   brush(row) {
     const brush = { shape: row.length > 7 ? 'ramp' : 'box', min: [row[1], row[2], row[3]], max: [row[4], row[5], row[6]], material: row[0] };
@@ -121,7 +120,7 @@ const MapKit = {
     return { x: row[1], y: row[2], z: row[3], item: row[0], group: MapRules.groupOf(row[0]), modes: row[4] || [] };
   },
   zone(row) {
-    return { name: row[0], min: [row[1], row.length > 6 ? row[5] : ZONE_FLOOR, row[2]], max: [row[3], row.length > 6 ? row[6] : ZONE_CEILING, row[4]] };
+    return { name: row[0], min: [row[1], row.length > 6 ? row[5] : MAP_ZONE_FLOOR, row[2]], max: [row[3], row.length > 6 ? row[6] : MAP_ZONE_CEILING, row[4]] };
   },
   light(row) { return { x: row[0], y: row[1], z: row[2], color: row[3], radius: row[4] }; },
   hint(row) { return { kind: row[0], x: row[1], y: row[2], z: row[3] }; },

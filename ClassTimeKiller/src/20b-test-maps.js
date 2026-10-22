@@ -100,13 +100,10 @@ Test.add('maps', (check) => {
   for (const group of ['power', 'armor', 'health', 'weapon', 'ammo']) {
     check('items: pickups of group ' + group + ' appear on some map', CAT.maps.some((map) => map.items.some((item) => item.group === group)));
   }
-  // The item catalogues belong to later sections: compare the keys only when they exist (never required for this section's tests).
-  const missing = [];
-  for (const name of ['weapons', 'powerups']) for (const key of CAT[name] ? CAT.maps.flatMap((map) => map.items.map((item) => item.item)) : []) {
-    if (MapRules.itemKeys.weapon.includes(key) && name === 'weapons' && !CAT.weapons.byId(key)) missing.push(key);
-    if (MapRules.itemKeys.power.includes(key) && name === 'powerups' && !CAT.powerups.byId(key)) missing.push(key);
-  }
-  check('items: weapon and powerup keys exist in their catalogues when those exist', missing.length === 0, missing.join());
+  // The item catalogues belong to later sections: compare the keys only once all three exist (never required for this section's tests).
+  const catalogues = ['weapons', 'powerups', 'items'].filter((name) => CAT[name]);
+  const missing = catalogues.length < 3 ? [] : CAT.maps.flatMap((map) => map.items.map((item) => item.item)).filter((key) => !catalogues.some((name) => CAT[name].byId(key)));
+  check('items: every item key exists in the weapons, powerups or items catalogue (checked once those exist)', missing.length === 0, missing.join());
   const spire = Maps.get('spire');
   check('items: itemsFor filters by mode', Maps.itemsFor(Maps.get('provinggrounds'), 'range').length > 0 && Maps.itemsFor(Maps.get('provinggrounds'), 'ffa').length === 0 && Maps.itemsFor(spire, 'ffa').length === spire.items.length);
 });
@@ -167,6 +164,12 @@ Test.add('maps', (check) => {
   const thin = mapTestClone('twinkeeps');
   thin.spawns = thin.spawns.slice(0, 5);
   check('validator: too few team spawns are reported', mapTestHas(Maps.validate(thin), 'spawn-count:'));
+  const acid = mapTestClone('cistern');
+  acid.triggers.find((t) => t.kind === 'hazard').element = 'acid';
+  check('validator: a hazard with an unknown element is reported', mapTestHas(Maps.validate(acid), 'triggers:'));
+  const wallFacer = mapTestClone('spire');
+  wallFacer.spawns[0] = { x: -20, y: 0, z: 6, yaw: 270, team: -1, modes: [] };
+  check('validator: a spawn facing a wall is reported', mapTestHas(Maps.validate(wallFacer), 'spawn-facing:'));
   const walled = mapTestClone('provinggrounds');
   walled.brushes.push({ shape: 'box', min: [-40, 0, -22], max: [40, 3, -21], material: 'concrete' });
   check('validator: a wall that cuts spawns from the map is reported', Maps.validate(walled).length > 0);
@@ -218,7 +221,7 @@ Test.add('maps', (check) => {
   check('kit: keepTeams leaves both sides on the same team', MapKit.sym(half, 'x', true).spawns[1][0] === 0 && MapKit.sym(half, 'x', true).objectives[1].team === 0);
   check('kit: join concatenates every list', MapKit.join(half, half).brushes.length === 2 && MapKit.join(half, half).triggers.length === 2);
   const row = MapKit.make({ id: 'kit', brushes: half.brushes, spawns: half.spawns, items: half.items, zones: half.zones, lights: half.lights, hints: half.hints });
-  check('kit: make expands compact rows into the map format', row.brushes[0].dir === '+x' && row.spawns[0].team === 0 && row.items[0].group === 'power' && row.zones[0].min[1] === ZONE_FLOOR && row.navHints[0].kind === 'cover' && !('hints' in row));
+  check('kit: make expands compact rows into the map format', row.brushes[0].dir === '+x' && row.spawns[0].team === 0 && row.items[0].group === 'power' && row.zones[0].min[1] === MAP_ZONE_FLOOR && row.navHints[0].kind === 'cover' && !('hints' in row));
 });
 
 Test.add('maps', (check) => {
@@ -233,6 +236,8 @@ Test.add('maps', (check) => {
   const spire = MapScan.of(Maps.get('spire'));
   const ground = MapScan.nodeNear(spire, 0, 0, 16, 0.5), crown = MapScan.nodeNear(spire, 0, 8, 2.8, 0.5);
   check('scan: the spire top is reachable from the floor and back', MapScan.reach(spire, [ground], false, null)[crown] === 1 && MapScan.reach(spire, [crown], false, null)[ground] === 1);
+  const around = MapScan.nodesAround(spire, ground, 1, 1);
+  check('scan: nodesAround finds the cells within a radius, itself included', around.includes(ground) && around.length >= 8 && around.length <= 16, around.length);
   const pads = MapScan.of(Maps.get('skyyard')).pads;
   check('scan: every skyyard jump pad lands on a walkable surface', pads.length === 8 && pads.every((pad) => pad.landing >= 0));
   const ladder = MapScan.of(Maps.get('cistern')).ladders[0];

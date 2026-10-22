@@ -66,12 +66,11 @@ const MapScan = {
     return [Math.max(0, Math.min(count - 1, Math.floor((low - origin) / MAP_BUCKET))), Math.max(0, Math.min(count - 1, Math.floor((high - origin) / MAP_BUCKET)))];
   },
 
-  fillBuckets(scan) {
-    scan.brushes.forEach((brush, index) => {
-      const [i0, i1] = this.bucketRange(scan, brush.minX, brush.maxX, scan.originX, scan.bucketsX);
-      const [j0, j1] = this.bucketRange(scan, brush.minZ, brush.maxZ, scan.originZ, scan.bucketsZ);
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) scan.buckets[j * scan.bucketsX + i].push(index);
-    });
+  fillBuckets(scan) { scan.brushes.forEach((brush, index) => this.addToBuckets(scan, brush, index)); },
+  addToBuckets(scan, brush, index) {
+    const [i0, i1] = this.bucketRange(scan, brush.minX, brush.maxX, scan.originX, scan.bucketsX);
+    const [j0, j1] = this.bucketRange(scan, brush.minZ, brush.maxZ, scan.originZ, scan.bucketsZ);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) scan.buckets[j * scan.bucketsX + i].push(index);
   },
 
   // Fills scan.near with the indices of brushes whose footprint, grown by radius, contains (x, z); returns the count.
@@ -194,6 +193,20 @@ const MapScan = {
   },
   nodeX(scan, node) { return scan.originX + ((scan.nodeColumn[node] % scan.cols) + 0.5) * MAP_CELL; },
   nodeZ(scan, node) { return scan.originZ + (((scan.nodeColumn[node] / scan.cols) | 0) + 0.5) * MAP_CELL; },
+  // Nodes within `radius` metres (horizontally) and `height` metres (vertically) of a node, itself included.
+  nodesAround(scan, node, radius, height) {
+    const reach = Math.ceil(radius / MAP_CELL), column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0, found = [];
+    for (let j = Math.max(0, cj - reach); j <= Math.min(scan.rows - 1, cj + reach); j++) {
+      for (let i = Math.max(0, ci - reach); i <= Math.min(scan.cols - 1, ci + reach); i++) this.addNear(scan, j * scan.cols + i, node, radius, height, found);
+    }
+    return found;
+  },
+  addNear(scan, column, node, radius, height, found) {
+    const x = this.nodeX(scan, node), z = this.nodeZ(scan, node);
+    for (let m = scan.columnStart[column]; m < scan.columnStart[column + 1]; m++) {
+      if (Math.abs(scan.nodeY[m] - scan.nodeY[node]) < height && Math.hypot(this.nodeX(scan, m) - x, this.nodeZ(scan, m) - z) <= radius) found.push(m);
+    }
+  },
   // Collects the nodes under a trigger box (grown by margins) into a list.
   nodesInBox(scan, box, marginXZ, marginY) {
     const found = [];
@@ -366,9 +379,9 @@ const MapScan = {
     const graph = reverse ? scan.backward : scan.forward;
     const dist = new Float64Array(scan.nodeCount).fill(Infinity), previous = new Int32Array(scan.nodeCount).fill(-1);
     const heap = [];
-    for (const source of sources) if (source >= 0 && !(blocked && blocked[source])) { dist[source] = 0; heapPush(heap, 0, source); }
+    for (const source of sources) if (source >= 0 && !(blocked && blocked[source])) { dist[source] = 0; mapHeapPush(heap, 0, source); }
     while (heap.length) {
-      const [key, node] = heapPop(heap);
+      const [key, node] = mapHeapPop(heap);
       if (key > dist[node]) continue;
       this.relax(graph, node, key, dist, previous, heap, blocked);
     }
@@ -379,7 +392,7 @@ const MapScan = {
       const next = graph.to[e], total = key + graph.cost[e];
       if ((blocked && blocked[next]) || total >= dist[next]) continue;
       dist[next] = total; previous[next] = node;
-      heapPush(heap, total, next);
+      mapHeapPush(heap, total, next);
     }
   },
   pathTo(previous, target) {
@@ -441,7 +454,7 @@ const MapScan = {
 };
 
 // Binary min-heap on parallel [key, node] pairs (arrays only exist while a validation runs).
-function heapPush(heap, key, node) {
+function mapHeapPush(heap, key, node) {
   heap.push([key, node]);
   let child = heap.length - 1;
   while (child > 0) {
@@ -451,7 +464,7 @@ function heapPush(heap, key, node) {
     child = parent;
   }
 }
-function heapPop(heap) {
+function mapHeapPop(heap) {
   const top = heap[0], last = heap.pop();
   if (!heap.length) return top;
   heap[0] = last;
