@@ -5,7 +5,7 @@
 
 const MAIN_MENU_ENTRIES = [
   { label: 'Quick Match', primary: true, event: 'ui.quickMatch' },
-  { label: 'Ladder', screen: 'ladder' },
+  { label: 'Career', screen: 'career' },   // ladder, challenges, operations, daily, cards, profile (18j)
   { label: 'Play', screen: 'play' },
   { label: 'Custom', screen: 'custom' },
   { label: 'Range', screen: 'range' },
