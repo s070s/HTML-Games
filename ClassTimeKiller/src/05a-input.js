@@ -16,6 +16,8 @@ const NO_BINDING = '';
 const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
+// S01 owns BTN; the grenade type cycle (players and bots write it alike) takes the next free bit until S01 lists it.
+if (BTN.CYCLE_GRENADE === undefined) BTN.CYCLE_GRENADE = 1 << 18;
 
 // ---- DOM helpers (S05 is the earliest section that builds DOM; touch controls and the UI share them) ----
 function makeElement(tag, className, text) {
@@ -49,6 +51,7 @@ const ACTION_ROWS = [
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
+  { id: 'grenadeNext', label: 'Next grenade type', group: 'Combat', button: BTN.CYCLE_GRENADE, kbm: ['Key:KeyH'] },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'] },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
@@ -69,6 +72,7 @@ const ACTION_ROWS = [
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
+  { id: 'cards', label: 'Use a card', group: 'Interface', event: true, kbm: ['Key:KeyY'], pad: 'Pad:16' },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
 ];

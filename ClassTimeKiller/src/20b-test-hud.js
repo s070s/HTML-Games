@@ -202,6 +202,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     const matchRules = Game.match.rules;
     // The awareness meter belongs to stealth and PvE matches only (BOT-005): this team scene plays as a stealth mode for the element check.
     if (row.id === 'awareness') Game.match.rules = Object.assign({}, matchRules, { params: Object.assign({}, matchRules.params, { cloakWhenStill: true }) });
+    if (row.id === 'pve') Object.assign(Modes.hud.pve, { active: true, mode: 'horde', wave: 2, waves: 10 });   // the PvE panel belongs to PvE modes
     Settings.set('hud.element.' + row.id, true);
     hudTestFrame();
     const shown = Hud.quadsOf(row.id);
@@ -210,6 +211,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     const hidden = Hud.quadsOf(row.id);
     Settings.set('hud.element.' + row.id, row.fallback === undefined ? true : row.fallback);
     Game.match.rules = matchRules;
+    resetPveHud();
     check('element ' + row.id + ' draws something and can be hidden (UI-015)', shown > 0 && hidden === 0, shown + ' quads shown, ' + hidden + ' hidden');
   }
   Settings.set('hud.show', false);

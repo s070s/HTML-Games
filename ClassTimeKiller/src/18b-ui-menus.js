@@ -3,12 +3,15 @@
 // touch layout editor (INP-005) and Help with the self-test button (ARC-030). Later sections register their own screens by name
 // ('ladder', 'play', 'custom', 'range', 'results', ...): the main menu lists them as soon as they exist.
 
+// UI-001 / PRG-005. The PvE modes (Siege Waves, Endless Hold, Test Chambers) sit under Solo so the list stays short on a phone.
 const MAIN_MENU_ENTRIES = [
   { label: 'Quick Match', primary: true, event: 'ui.quickMatch' },
   { label: 'Career', screen: 'career' },   // ladder, challenges, operations, daily, cards, profile (18j)
   { label: 'Play', screen: 'play' },
+  { label: 'Solo', screen: 'solo' },       // horde, endless, puzzle chambers (18o)
   { label: 'Custom', screen: 'custom' },
-  { label: 'Range', screen: 'range' },
+  { label: 'Range', event: 'ui.range' },   // starts the Firing Range in the click (18j)
+  { label: 'Generated map', screen: 'mapgen' },
   { label: 'Map editor', screen: 'mapEditor' },
   { label: 'Settings', screen: 'settings' },
   { label: 'Help', screen: 'help' },
@@ -26,7 +29,9 @@ const TOUCH_EDITOR_HINT = 'Layout editor: drag a control to move it, tap it to e
 // The editor panel stays small so the controls around it can still be reached; the player docks it left, centre or right.
 const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overflow: hidden auto; padding: 8px; } .ui-editor .ui-row { min-height: 36px; padding: 2px 8px; margin-bottom: 3px; }'
   + '.ui-editor .ui-button { min-height: 36px; } .ui-editor .ui-note { margin-bottom: 6px; } .ui-editor .ui-slider { width: 58%; } .ui-editor .ui-cycle { min-width: 7em; } .ui-editor .ui-label { min-width: 0; } .ui-editor .ui-value { min-width: 3em; }'
-  + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }';
+  + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }'
+  + '.ui-main .ui-menu, .ui-solo .ui-menu { overflow-y: auto; min-height: 0; touch-action: pan-y; padding: 4px; }'
+  + '@media (max-height: 520px) { .ui-main .ui-menu, .ui-solo .ui-menu { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .ui-main .ui-menu .ui-button { font-size: 1em; } }';
 
 function screenHeader(root, title, onBack) {
   const head = makeElement('div', 'ui-head');
@@ -65,13 +70,19 @@ Ui.register('pause', {
     const resume = Ui.button('Resume', () => Input.requestResume(), 'primary');
     resume.dataset.autofocus = '1';
     menu.appendChild(resume);
-    if (Game.match) menu.appendChild(Ui.button('Restart', () => Ui.confirm({ title: 'Restart match?', text: 'The current match is lost.', yes: 'Restart', onYes: () => Game.start(Game.match.setup) })));
-    for (const entry of Ui.pauseEntries) if (Ui.screens.has(entry.screen)) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen)));
+    if (Game.match) menu.appendChild(Ui.button('Restart', () => Ui.confirm({ title: 'Restart match?', text: 'The current match is lost.', yes: 'Restart', onYes: restartMatch })));
+    for (const entry of Ui.pauseEntries) if (Ui.screens.has(entry.screen) && (!entry.when || entry.when())) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen)));
     menu.appendChild(Ui.button('Settings', () => Ui.open('settings')));
     menu.appendChild(Ui.button('Quit to menu', () => Ui.confirm({ title: 'Quit to menu?', text: 'The current match is lost.', yes: 'Quit', onYes: () => Game.stop() }), 'danger'));
     root.appendChild(menu);
   },
 });
+
+// A career match (ladder, challenge, operation, daily) is rebuilt by its structure (S15), like Play again on the results screen.
+function restartMatch() {
+  if (!Game.match) return null;
+  return Game.start(Progress.retrySetup(Game.match.setup) || Game.match.setup);
+}
 
 // ---- Settings: one tab per category, rows generated from Settings.definitions ----
 function formatSettingValue(value, definition) {

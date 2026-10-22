@@ -53,7 +53,7 @@ const Ui = {
   perfVisible: false,
   selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
   lastSelfTest: null,
-  pauseEntries: [],           // { label, screen } rows later sections add to the pause menu (rules panel)
+  pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab
   settingsFooter: [],         // fn(refresh) -> button: extra buttons under the settings tabs (18l: reset all)
   settingGroup: () => '',     // fn(key) -> heading title of a settings row ('' = none); 18l fills it
@@ -232,7 +232,7 @@ const Ui = {
     show();
     return wrap;
   },
-  // Yes / No dialog on top of the current screen. options: { title, text, yes, no, onYes }.
+  // Yes / No dialog on top of the current screen. options: { title, text, yes, no, onYes, onNo } (Esc / Back closes it without either).
   confirm(options) { return this.open('confirm', options); },
 
   // ---- Start-up ----
@@ -259,7 +259,7 @@ Ui.register('confirm', {
     panel.appendChild(makeElement('h2', 'ui-title', options.title));
     panel.appendChild(makeElement('p', 'ui-note', options.text));
     const foot = makeElement('div', 'ui-foot');
-    const no = Ui.button(options.no || 'Cancel', () => Ui.back());
+    const no = Ui.button(options.no || 'Cancel', () => { Ui.back(); if (options.onNo) options.onNo(); });
     no.dataset.autofocus = '1';
     foot.appendChild(no);
     foot.appendChild(Ui.button(options.yes || 'OK', () => { Ui.back(); options.onYes(); }, 'primary'));

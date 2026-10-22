@@ -257,9 +257,9 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
-  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Custom,Range,Map editor,Settings,Help');
+  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Solo,Custom,Range,Generated map,Map editor,Settings,Help');
   check('main menu: Quick Match is first, focused and primary', buttons[0].classList.contains('primary') && document.activeElement === buttons[0]);
-  check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && !buttons[5].disabled && !buttons[6].disabled && !buttons[7].disabled);
+  check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && buttons.every((button) => !button.disabled));
   let quick = 0;
   const listener = Bus.on('ui.quickMatch', () => { quick++; });
   const realQuickMatch = PlayFlow.quickMatch;
