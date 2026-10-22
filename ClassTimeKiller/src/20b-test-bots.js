@@ -1580,6 +1580,21 @@ Test.add('bots', (check) => {
   check('a bot playing the objective revives the downed player next to it', wasDowned && Actors.alive[player] === 1 && !(Actors.flags[player] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
   endModeTest();
 });
+// A downed enemy that cannot shoot neither draws fire from a standing enemy nor keeps a revive away.
+Test.add('bots', (check) => {
+  const [bot, ally, downedEnemy, enemy] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false,
+    bots: [{ team: 0, tier: 3 }, { team: 0, dummy: true }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  placeFacing(bot, 0, 0, 0); placeActor(ally, 0, 3); placeActor(downedEnemy, 3, 8); placeActor(enemy, -8, 12);
+  for (const id of [ally, downedEnemy, enemy]) Actors.flags[id] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, ally, 1000); TestArena.hit(-1, downedEnemy, 1000);
+  runSeconds(1);
+  check('a bot shoots a standing enemy before a downed one nearer it', BotCombat.target[bot] === enemy, BotCombat.target[bot] + ' (enemy ' + enemy + ')');
+  placeActor(enemy, -40, -40);
+  let revived = false;
+  for (let tick = 0; tick < REVIVE_PLAYER_SECONDS * TICK_RATE && !revived; tick++) { Sim.run(1); revived = !(Actors.flags[ally] & ACTOR_FLAG.DOWNED); }
+  check('a bot revives an ally beside a downed enemy that cannot shoot', revived && Actors.alive[ally] === 1, GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
 
 // ---- Ledges: bots stay on the map, and plan with the reach their preset has ----
 const VOID_SOAK_SECONDS = 90, VOID_DEATH_SHARE_MAX = 0.1;

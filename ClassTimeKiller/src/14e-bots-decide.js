@@ -339,7 +339,7 @@ const BotDecide = {
 // BOT-071: no enemy the bot can see within REVIVE_SAFE_DISTANCE of the downed ally (BotSense.sees fails through smoke).
 function reviveSafe(id, ally) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
-    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
+    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy) || BotCombat.harmless(enemy)) continue;
     if (length2(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
   }
   return true;
