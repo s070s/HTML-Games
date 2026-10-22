@@ -146,6 +146,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008). `Input.actions` is the single action table.
 - Audio: `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz)` (filled by S08 with `World.lineClear`) muffles sounds behind walls; `null` = no occlusion.
 - Hooks are filled once at load and never reset by the section that owns them; the self-test restores them before every block.
+- Parry (S11 owns W03): `WeaponSpecialState.parryHooks` (fn(target, projectile) -> true reflects a parryable projectile before the W03 block check); S14 fills it for PvE green projectiles.
 - Movement hooks (S10 owns MOV-021/025, MV08): S11 asks `Move.canFire(id)` before a shot, writes `Move.weaponSpeedScale[id]` every step, adds `Move.inaccuracy(id)` to spread (the only MOV-025 table) and multiplies incoming damage by `Move.damageScale(id)`.
 - Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.
 - World media: `World.touchTriggers(id, gravity)` (called by S10 every step) returns `TRIGGER_MEDIUM` bits `WATER` (swim depth), `WADING` (touching water), `LADDER`, `HEAD_UNDER`, `MOVED` (docs/api/world-move.md).
