@@ -38,7 +38,8 @@ Test.add('world', (check) => {
   const started = performance.now();
   for (let i = 0; i < 5000; i++) World.raycast(random.range(-50, 50), 1.5, random.range(-50, 50), 0.6, -0.1, 0.79, 40, hit);
   const microseconds = (performance.now() - started) * 1000 / 5000;
-  check('ray query < 5 us on average (step 4.3)', microseconds < 5, microseconds.toFixed(2) + ' us');
+  const budget = 5 * testSpeedFactor();
+  check('ray query < ' + budget.toFixed(1) + ' us on average (step 4.3: 5 us x speed factor)', microseconds < budget, microseconds.toFixed(2) + ' us');
 });
 
 const scratchDirection = Vec.make();

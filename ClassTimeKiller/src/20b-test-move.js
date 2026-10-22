@@ -1,17 +1,44 @@
 // Self-tests for S10 movement (group 'move'): MOV-026 per preset, frame-rate independence, every mechanic on test geometry.
 // The helpers here (test worlds, test actors, stepping) are shared with 20b-test-world.js.
 
-// Wall-clock budgets were set on headless desktop Chromium. A slower engine or a busy machine scales them by this factor:
-// the best of TEST_SPEED_RUNS timings of a reference workload of the same kind over its time there (never below 1).
+// Wall-clock budgets were set on headless desktop Chromium. A busy machine or another engine scales them by this factor:
+// the best of TEST_SPEED_RUNS timings of a fixed typed-array loop that shares no code with the game, over its desktop
+// Chromium time, kept within 1..TEST_SPEED_CAP (so a real slowdown of the game code still fails), times the engine's
+// measured pace on the game code against that loop (TEST_ENGINE_PACE: Firefox runs the nav build about 1.9 x Chromium).
 const TEST_SPEED_RUNS = 3;
-function testSpeedFactor(workload, chromiumMs) {
+const TEST_SPEED_CAP = 3;
+const TEST_SPEED_SIZE = 1 << 15;
+const TEST_SPEED_ROUNDS = 12;
+const TEST_SPEED_CHROMIUM_MS = 14;
+const TEST_ENGINE_PACE = { chromium: 1, firefox: 2, webkit: 1.3 };
+const testSpeedValues = new Float64Array(TEST_SPEED_SIZE), testSpeedKeys = new Int32Array(TEST_SPEED_SIZE);
+
+function testSpeedWorkload() {
+  let seed = 1, sum = 0;
+  for (let round = 0; round < TEST_SPEED_ROUNDS; round++) {
+    for (let i = 0; i < TEST_SPEED_SIZE; i++) {
+      seed = (seed * 1103515 + 12345) & 0x7fffffff;
+      testSpeedValues[i] = Math.sqrt(seed) * 0.001; testSpeedKeys[i] = seed & (TEST_SPEED_SIZE - 1);
+    }
+    for (let i = 0; i < TEST_SPEED_SIZE; i++) sum += Math.hypot(testSpeedValues[i], testSpeedValues[testSpeedKeys[i]]);
+  }
+  return sum;
+}
+
+function testEngine() {
+  const agent = navigator.userAgent;
+  if (/Firefox\//.test(agent)) return 'firefox';
+  return /Chrome\//.test(agent) ? 'chromium' : 'webkit';
+}
+
+function testSpeedFactor() {
   let best = Infinity;
   for (let run = 0; run < TEST_SPEED_RUNS; run++) {
     const started = performance.now();
-    workload();
+    testSpeedWorkload();
     best = Math.min(best, performance.now() - started);
   }
-  return Math.max(1, best / chromiumMs);
+  return clamp(best / TEST_SPEED_CHROMIUM_MS, 1, TEST_SPEED_CAP) * TEST_ENGINE_PACE[testEngine()];
 }
 
 function loadTestWorld(brushes, extra) {
@@ -746,18 +773,8 @@ Test.add('move', (check) => {
   check('Use while riding steps off', !Move.onBoard(rider));
 });
 
-// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step (on desktop
-// Chromium; the reference is 3000 world rays on the same field, the queries movement is made of).
+// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step (on desktop Chromium).
 const MOVE_TEST_STEP_BUDGET_MS = 0.5;
-const MOVE_TEST_RAYS = 3000;
-const MOVE_TEST_RAYS_CHROMIUM_MS = 9;
-const moveTestHit = makeHit();
-function moveTestRays() {
-  for (let i = 0; i < MOVE_TEST_RAYS; i++) {
-    const angle = i * 0.618;
-    World.raycast((i % 97) - 48, 0.3 + (i % 7) * 0.4, (i % 89) - 44, Math.cos(angle), -0.05, Math.sin(angle), 20, moveTestHit);
-  }
-}
 
 Test.add('move', (check) => {
   loadTestWorld(randomBrushes(21, 400, 50));
@@ -770,9 +787,19 @@ Test.add('move', (check) => {
     Sim.step();
     if (step >= 100) total += Sim.timing.move;
   }
-  const factor = testSpeedFactor(moveTestRays, MOVE_TEST_RAYS_CHROMIUM_MS), budget = MOVE_TEST_STEP_BUDGET_MS * factor;
+  const factor = testSpeedFactor(), budget = MOVE_TEST_STEP_BUDGET_MS * factor;
   check('24 actors move in < ' + budget.toFixed(2) + ' ms per step on average (0.5 ms x speed factor ' + factor.toFixed(2) + ')',
     total / 500 < budget, (total / 500).toFixed(3) + ' ms');
+});
+
+// F67: the speed factor times code the game does not share, so a slower game function leaves it unchanged; it is capped.
+Test.add('move', (check) => {
+  const raycast = World.raycast, before = testSpeedFactor();
+  World.raycast = function slowRaycast(...args) { const until = performance.now() + 0.01; while (performance.now() < until); return raycast.apply(this, args); };
+  let slowed = 0;
+  try { slowed = testSpeedFactor(); } finally { World.raycast = raycast; }
+  check('speed factor: 10 us slower world rays leave it unchanged (' + before.toFixed(2) + ', then ' + slowed.toFixed(2) + ')', slowed < before * 1.5);
+  check('speed factor: at most ' + TEST_SPEED_CAP + ' x the engine pace', before <= TEST_SPEED_CAP * TEST_ENGINE_PACE[testEngine()], before);
 });
 
 // MOV-023: at most 3 world rays per actor per step, in every preset, during random moves among walls and ledges.

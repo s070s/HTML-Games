@@ -635,13 +635,9 @@ function navTestPhases() {
   return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
 }
 
-// Engine and machine speed for the build budgets: the same build on a 60 x 60 m map, timed in this run.
-const NAV_TEST_REFERENCE_SIZE = 60;
-const NAV_TEST_REFERENCE_CHROMIUM_MS = 10;
-const navTestSpeedFactor = () => testSpeedFactor(() => DebugApi.perf.navBuild(navTestBigMap(NAV_TEST_REFERENCE_SIZE)), NAV_TEST_REFERENCE_CHROMIUM_MS);
 
 Test.add('nav', (check) => {
-  const factor = navTestSpeedFactor(), budget = NAV_TEST_BUILD_BUDGET_MS * factor;
+  const factor = testSpeedFactor(), budget = NAV_TEST_BUILD_BUDGET_MS * factor;
   const first = DebugApi.perf.navBuild(), warm = Math.min(DebugApi.perf.navBuild(), DebugApi.perf.navBuild(), DebugApi.perf.navBuild());
   check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + budget.toFixed(1) + ' ms = BOT-010 300 ms on a '
     + NAV_TEST_PHONE_FACTOR + ' x slower phone x speed factor ' + factor.toFixed(2) + ' (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < budget, navTestPhases());
@@ -688,7 +684,7 @@ function navTestSlicedBuild(a, b, run) {
 }
 
 Test.add('nav', (check) => {
-  const factor = navTestSpeedFactor();
+  const factor = testSpeedFactor();
   World.load(Maps.get('isle'));   // warms the build code up: a first big build runs 2-4 x slower on Firefox and Safari
   let atOnceMs = Infinity;
   for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) atOnceMs = Math.min(atOnceMs, DebugApi.perf.navBuild(World.map));
