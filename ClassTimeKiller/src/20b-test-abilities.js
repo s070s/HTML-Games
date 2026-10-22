@@ -533,6 +533,11 @@ Test.add('abilities', (check) => {
   const cast = AbilityTest.cast(t);
   check('A30 Ignite melts ice: the frozen target thaws and burns', !Damage.hasStatus(t.enemy, 'freeze') && Damage.hasStatus(t.enemy, 'burn'),
     cast + ' ' + Damage.hasStatus(t.enemy, 'freeze') + ' ' + Damage.hasStatus(t.enemy, 'burn'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
+  chargeHit(t.enemy, t.caster, CAT.enemies.byId('charger').attacks[0]);   // a non-electric stun: no chain, no wet spread
+  check('E10 charger knockdown stuns only its target, even in water (no HP-005 Shock combo)',
+    Damage.hasStatus(t.caster, 'stun') && !Damage.hasStatus(t.ally, 'stun') && !Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = 0;
   TestArena.finish();
 });
 

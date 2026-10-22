@@ -171,7 +171,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - A35 telekinesis pulls on press and punts on release. It cannot hold a prop, because S11's lifter needs the weapon drawn.
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
-- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'shock' and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
+- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'stun' (non-electric, so no HP-005 Shock combo) and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
 - A16 footprints are drawn only for the local player's tracker.
 - A17 veil curtain is a visual zone. It does not block bot line of sight until `Smoke.add` exists (items section).
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.

@@ -728,6 +728,8 @@ Test.add('weapons', (check) => {
   Weapons.viewModel(out);
   Game.playerId = -1;
   check('W19 slug: holding ALT aims down sights at 1.2x zoom', Weapons.ads[id] > 0 && out.zoom > 1 && out.zoom <= 1.2, Weapons.ads[id] + ' ' + out.zoom);
+  const scatter = CAT.weapons.byId('scattergun'), pelletSpread = Weapons.spreadDegrees(id, scatter, scatter.primary);
+  check('W19: holding the slug ALT leaves the pellet spread at its hip value', Test.near(pelletSpread, scatter.primary.spreadDeg, 1e-6), pelletSpread);
   Weapons.setLoadout(id, ['warden', 'heron']);   // the last key is drawn
   Actors.buttons[id] = BTN.ALT;
   Sim.run(TICK_RATE / 2);

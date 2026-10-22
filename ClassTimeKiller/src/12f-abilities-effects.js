@@ -587,7 +587,7 @@ function endDrone(id, row) {
   const x = AbilityZones.x[zone], y = AbilityZones.y[zone], z = AbilityZones.z[zone], seconds = row.params.empSeconds;
   const count = enemiesNear(id, x, y, z, row.params.empRadius, true);
   // The one EMP path (G20): shields stop recharging, abilities and gadgets are held, devices in the radius switch off.
-  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
+  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'stun', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
   Gadgets.empDevices(id, x, y, z, row.params.empRadius, seconds);
   AbilityZones.remove(zone);
 }
