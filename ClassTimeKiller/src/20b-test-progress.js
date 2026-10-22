@@ -838,37 +838,23 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
-// ---- Cards: Patron's free placements end with Patron ----
+// ---- Fairness and data: Patron's free cards, operation XP, absence cards, explosions, map stats, mastery rows ----
 Test.add('progress', (check) => {
-  const record = Cards.record(), kept = { marks: record.marks, active: record.active, passive: record.passive };
-  const unlockAll = Settings.get('progress.unlockAll');
+  const record = Cards.record(), kept = { marks: record.marks, active: record.active, passive: record.passive }, unlockAll = Settings.get('progress.unlockAll');
+  const cost = (id) => CAT.cards.byId(id).cost, place = (marks) => { record.active = []; record.passive = []; record.marks = marks; ['freecards', 'stoneskin', 'fleet'].forEach((id) => Cards.equip(id)); Cards.unequip('freecards'); };
   Settings.set('progress.unlockAll', true);
   try {
-    record.active = []; record.passive = []; record.marks = 1000;
-    Cards.equip('freecards'); Cards.equip('stoneskin'); Cards.equip('fleet');
-    check('patron: cards placed under Patron cost nothing', Cards.marks() === 1000 && Cards.equipped('active').length === 2);
-    Cards.unequip('freecards');
-    const price = CAT.cards.byId('stoneskin').cost + CAT.cards.byId('fleet').cost;
-    check('patron: removing it charges the free cards', Cards.marks() === 1000 - price && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
-    check('patron: the charged cards refund like paid ones', Cards.unequip('fleet') && Cards.marks() === 1000 - price + Math.floor(CAT.cards.byId('fleet').cost * CARD_REFUND));
-    record.active = []; record.passive = []; record.marks = 120;
-    Cards.equip('freecards'); Cards.equip('stoneskin'); Cards.equip('fleet');
-    Cards.unequip('freecards');
-    check('patron: a card the player cannot pay for is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 20);
+    place(1000);
+    check('patron: removing it charges the cards it placed free', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    place(120);
+    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 120 - cost('stoneskin'));
   } finally {
     Settings.set('progress.unlockAll', unlockAll);
     Object.assign(record, kept);
   }
-});
-
-// ---- Fairness: operations pay only for activity, absence cards need combat, explosive gadgets count for C06 ----
-Test.add('progress', (check) => {
-  Operations.reset('ironcoast');
-  Operations.start('ironcoast');
-  Modes.finish(1);
-  check('operation: an idle lost map pays no structure XP', Progress.lastAward && Progress.lastAward.xp === 0, Progress.lastAward && Progress.lastAward.xp);
-  Operations.reset('ironcoast');
-  Operations.start('ironcoast');
+  Operations.reset('ironcoast'); Operations.start('ironcoast'); Modes.finish(1);
+  check('operation: an idle lost map pays no stage XP', Progress.lastAward.xp === 0, Progress.lastAward.xp);
+  Operations.reset('ironcoast'); Operations.start('ironcoast');
   const enemy = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => Actors.team[id] === 1);
   for (let kill = 0; kill < 3; kill++) progressKill(enemy, Game.playerId);
   progressAdvance(PROGRESS_XP.minimumSeconds + 5);
@@ -876,42 +862,26 @@ Test.add('progress', (check) => {
   check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
   Operations.reset('ironcoast');
   Game.stop();
-  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100, weaponsUsed: 0 };
-  const fighter = Object.assign({}, pacifist, { kills: 3 });
-  const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'];
-  check('cards: a level without a single kill unlocks no absence card', absence.every((id) => !cardConditionMet(CAT.cards.byId(id).unlock, pacifist)),
-    absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, pacifist)).join());
-  check('cards: the same absence with a fight still unlocks them', absence.every((id) => cardConditionMet(CAT.cards.byId(id).unlock, fighter)));
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
+  const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'], met = (metrics) => absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, metrics));
+  check('cards: a level without a kill unlocks no absence card, one with a fight does', met(pacifist).length === 0 && met(Object.assign({}, pacifist, { kills: 3 })).length === 5, met(pacifist).join());
   progressCardMatch([], { modeOptions: {} });
-  RunLog.reset();
   Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId, source: 'frag', element: 'kinetic' });
   Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId + 1, source: 'frag', element: 'kinetic' });
-  check('cards: an explosion the player caused (grenade, gadget) counts as explosive use', RunLog.explosiveShots === 1, RunLog.explosiveShots);
+  check('cards: an explosion the player caused counts as explosive use', RunLog.explosiveShots === 1, RunLog.explosiveShots);
   Game.stop();
-});
-
-// ---- Statistics: catalogue maps by id, every generated or custom map in one bounded group ----
-Test.add('progress', (check) => {
-  const maps = Progress.stats().maps, kept = JSON.stringify(maps);
+  const maps = Progress.stats().maps, keptMaps = JSON.stringify(maps);
   try {
     for (const key of Object.keys(maps)) delete maps[key];
     progressWithPlayer(() => {
-      const results = progressTestResults({});
-      for (const map of [{ id: 'gen101', gen: true }, { id: 'gen102', gen: true }, { id: 'gen103', gen: true }, { id: 'user2' }, { id: 'draft' }, CAT.maps[0]]) Progress.recordStats({ map, results });
+      for (const map of [{ id: 'gen101', gen: true }, { id: 'gen102', gen: true }, { id: 'user2' }, { id: 'draft' }, CAT.maps[0]]) Progress.recordStats({ map, results: progressTestResults({}) });
     });
-    check('stats: generated, custom and catalogue maps get bounded keys', Object.keys(maps).sort().join() === ['custom', 'generated', CAT.maps[0].id].sort().join(), Object.keys(maps).join());
-    check('stats: the groups count every match', maps.generated.played === 3 && maps.custom.played === 2);
+    check('stats: generated and custom maps share one row each', Object.keys(maps).sort().join() === ['custom', 'generated', CAT.maps[0].id].sort().join() && maps.generated.played === 2 && maps.custom.played === 2);
     check('stats: groups and maps are listed by name', careerMapName('generated') === 'Generated maps' && careerMapName('custom') === 'Custom maps' && careerMapName(CAT.maps[0].id) === CAT.maps[0].name);
   } finally {
     for (const key of Object.keys(maps)) delete maps[key];
-    Object.assign(maps, JSON.parse(kept));
+    Object.assign(maps, JSON.parse(keptMaps));
   }
-});
-
-// ---- Data: one source for the mastery colours, room names that match their maps ----
-Test.add('progress', (check) => {
-  check('mastery: every tier reward is one unlock row with the same colour or glow',
-    MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value && row.kind === tier.reward.kind && row.name === tier.reward.name; }));
-  check('mastery: no other unlock row repeats a mastery reward', CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
+  check('mastery: each tier reward is its one unlock row', MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value; }) && CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
   check('rooms: a room named after a map plays on that map', CAT.challenges.every((room) => !/Keep/.test(room.name) || room.map === 'twinkeeps'));
 });

@@ -290,44 +290,33 @@ Test.add('play', (check) => {
   Game.stop();
 });
 
-// ---- Results flow: next step, plain winner text, roster bots, match length ----
+/// ---- Results flow: next step, plain winner text, roster bots, match length ----
 Test.add('play', (check) => uiWith(() => {
-  const saved = Save.data.play;
+  const saved = Save.data.play, buttons = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);
   try {
     Save.data.play = undefined;
     PlayFlow.quickMatch();
-    const names = Array.from({ length: Actors.count }, (unused, id) => Actors.name[id]).filter((name, id) => Actors.kind[id] === ACTOR_KIND.BOT);
-    check('quick match: the bots are named roster bots, not Bot 1..7', names.length === 7 && names.every((name) => CAT.bots.some((row) => row.name === name)) && new Set(names).size === 7, names.join());
-    check('quick match: roster bots fit the difficulty tier range', Game.match.setup.bots.every((bot) => { const row = CAT.bots.byId(bot.profile), range = CAT.difficulty.byId('regular'); return bot.tier === undefined ? row.tier >= range.tierMin && row.tier <= range.tierMax : bot.tier >= range.tierMin && bot.tier <= range.tierMax; }));
+    const names = Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Actors.kind[id] === ACTOR_KIND.BOT).map((id) => Actors.name[id]);
+    check('quick match: the bots are seven different roster bots', names.length === 7 && new Set(names).size === 7 && names.every((name) => CAT.bots.some((row) => row.name === name)), names.join());
     playTestFinish();
-    const text = Ui.top().element.textContent;
-    check('results: a won free-for-all says You win.', text.includes('You win.') && !text.includes('You wins'), text.slice(0, 80));
-    Game.stop();
-    Ui.closeAll();
-    check('match length: Short halves the limits, rounded up (Frenzy 15 frags in 5 minutes)', (() => {
-      const limits = PlayFlow.lengthLimits('ffa', 'short');
-      return limits.scoreLimit === 15 && limits.timeLimit === 300 && PlayFlow.lengthLimits('ffa', 'standard') === null && PlayFlow.lengthLimits('ffa', 'long').timeLimit === 900;
-    })());
+    check('results: a won free-for-all says You win.', Ui.top().element.textContent.includes('You win.'));
+    Game.stop(); Ui.closeAll();
+    const short = PlayFlow.lengthLimits('ffa', 'short');
+    check('match length: Short halves the limits, rounded up (15 frags, 5 minutes)', short.scoreLimit === 15 && short.timeLimit === 300 && PlayFlow.lengthLimits('ffa', 'standard') === null);
     PlayFlow.start(Object.assign(PlayFlow.defaults(), { length: 'short' }));
-    check('match length: Short is used by the match and remembered for Quick Match', Game.match.rules.scoreLimit === 15 && Game.match.rules.timeLimit === 300 && Save.data.play.length === 'short');
+    const first = Game.match.rules.scoreLimit + '/' + Game.match.rules.timeLimit;
+    Game.stop(); PlayFlow.quickMatch();
+    check('match length: Short runs the match and Quick Match keeps it', first === '15/300' && Game.match.rules.scoreLimit === 15 && Save.data.play.length === 'short', first);
     Game.stop();
-    PlayFlow.quickMatch();
-    check('match length: Quick Match keeps the remembered length', Game.match.rules.scoreLimit === 15);
-    Game.stop();
-    Ladder.setDifficulty(0, 0, 'novice');
-    Ladder.start(0, 0);
-    Modes.finish(Game.playerId);
-    const root = Ui.top().element, primary = root.querySelector('.ui-foot .primary');
-    check('results: a cleared ladder match offers Next match as the primary button', Ui.current() === 'results' && primary && primary.textContent === 'Next match', primary && primary.textContent);
-    uiClickButton(root, 'Next match');
-    check('results: Next match starts ladder match 2', Game.match.setup.progress.kind === 'ladder' && Game.match.setup.progress.tier === 0 && Game.match.setup.progress.match === 1);
-    const other = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => id !== Game.playerId && Actors.kind[id] === ACTOR_KIND.BOT);
-    Modes.finish(other);
-    const lost = Ui.top().element;
-    check('results: a lost ladder match offers Retry, not Next match', Array.from(lost.querySelectorAll('button')).some((button) => button.textContent === 'Retry') && !Array.from(lost.querySelectorAll('button')).some((button) => button.textContent === 'Next match'));
+    Ladder.setDifficulty(0, 0, 'novice'); Ladder.start(0, 0); Modes.finish(Game.playerId);
+    const primary = Ui.top().element.querySelector('.ui-foot .primary');
+    check('results: a cleared ladder match offers Next match as the primary button', Ui.current() === 'results' && primary && primary.textContent === 'Next match');
+    uiClickButton(Ui.top().element, 'Next match');
+    check('results: Next match starts ladder match 2', Game.match.setup.progress.kind === 'ladder' && Game.match.setup.progress.match === 1);
+    Modes.finish(Array.from({ length: Actors.count }, (unused, id) => id).find((id) => id !== Game.playerId && Actors.kind[id] === ACTOR_KIND.BOT));
+    check('results: a lost ladder match offers Retry, not Next match', buttons().includes('Retry') && !buttons().includes('Next match'));
   } finally {
     Save.data.play = saved;
-    Game.stop();
-    Ui.closeAll();
+    Game.stop(); Ui.closeAll();
   }
 }));

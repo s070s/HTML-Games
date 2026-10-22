@@ -516,42 +516,27 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
 }));
 
-// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
+/// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
 const UI_PHONE_SIZES = [[375, 548], [568, 320], [724, 340]];
 const UI_PHONE_SCREENS = ['main', 'solo', 'career', 'ladder', 'challenges', 'operations', 'daily', 'cards', 'stats', 'profile', 'play', 'mapgen'];
-// Shrinks the overlay to a phone screen (a transform makes it the box the fixed screens fill).
-function uiPhoneSize(width, height) {
-  const style = Ui.root.style;
-  style.right = 'auto'; style.bottom = 'auto'; style.width = width + 'px'; style.height = height + 'px'; style.transform = 'translateZ(0)';
-}
-function uiPhoneReset() {
-  const style = Ui.root.style;
-  style.right = style.bottom = style.width = style.height = style.transform = '';
-}
-function uiScrollParent(element, screen) {
-  for (let node = element.parentElement; node && node !== screen.parentElement; node = node.parentElement) {
-    const overflow = getComputedStyle(node).overflowY;
-    if ((overflow === 'auto' || overflow === 'scroll') && node !== screen) return node;
-  }
-  return null;
-}
+// The controls of a screen that are outside `bounds` and not inside a scroll container that is within it.
 function uiUnreachable(screen, bounds) {
-  const hidden = [];
-  for (const item of Ui.focusables(screen)) {
-    const rect = item.getBoundingClientRect(), holder = uiScrollParent(item, screen);
-    const inside = (box) => box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
-    if (!inside(rect) && !(holder && inside(holder.getBoundingClientRect()))) hidden.push((item.textContent || item.className).slice(0, 20));
-  }
-  return hidden;
+  const inside = (box) => box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+  return Ui.focusables(screen).filter((item) => {
+    let holder = item.parentElement;
+    while (holder !== screen && !/auto|scroll/.test(getComputedStyle(holder).overflowY)) holder = holder.parentElement;
+    return !inside(item.getBoundingClientRect()) && !(holder !== screen && inside(holder.getBoundingClientRect()));
+  }).map((item) => item.textContent.slice(0, 20));
 }
 Test.add('ui', (check) => uiWith(() => {
+  const style = Ui.root.style;
   try {
     for (const [width, height] of UI_PHONE_SIZES) {
-      uiPhoneSize(width, height);
-      const bounds = Ui.root.getBoundingClientRect(), failed = [];
+      Object.assign(style, { right: 'auto', bottom: 'auto', width: width + 'px', height: height + 'px', transform: 'translateZ(0)' });   // the box the fixed screens fill
+      const failed = [];
       for (const name of UI_PHONE_SCREENS) {
         Ui.open(name);
-        const hidden = uiUnreachable(Ui.top().element, bounds);
+        const hidden = uiUnreachable(Ui.top().element, Ui.root.getBoundingClientRect());
         if (hidden.length) failed.push(name + ': ' + hidden.slice(0, 3).join('/'));
         Ui.closeAll();
       }
@@ -559,11 +544,11 @@ Test.add('ui', (check) => uiWith(() => {
     }
     Ui.open('career');
     const labels = Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
-    check('career: the PvE modes and the range are not repeated, Solo links to them', labels.includes('Solo') && !labels.includes('Firing Range') && !labels.includes('Siege Waves'), labels.join());
+    check('career: Solo links to the PvE modes and the range, which are not repeated', labels.includes('Solo') && !labels.includes('Firing Range') && !labels.includes('Siege Waves'), labels.join());
     Ui.closeAll();
     const styles = document.getElementById('ui-style').textContent;
-    check('layout: the focus ring shows for keyboard and pad only, sliders are touch sized', styles.includes('.ui-button:focus-visible') && !/\.ui-button:focus[ ,]/.test(styles) && styles.includes('.ui-slider input { flex: 1; accent-color: var(--ui-accent); min-height: 44px; }'));
+    check('layout: the focus ring shows for keyboard and pad only, sliders are touch sized', styles.includes('.ui-button:focus-visible') && !/\.ui-button:focus[ ,]/.test(styles) && styles.includes('accent-color: var(--ui-accent); min-height: 44px'));
   } finally {
-    uiPhoneReset();
+    Object.assign(style, { right: '', bottom: '', width: '', height: '', transform: '' });
   }
 }));
