@@ -196,9 +196,9 @@ const Modes = {
       if (seen > limit) this.queued[id] = 1;
     }
   },
-  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one.
+  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split stays).
   balanceTeams() {
-    if (this.rules.teams !== TEAM_COUNT) return;
+    if (this.rules.teams !== TEAM_COUNT || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
     for (let moves = 0; moves < MAX_ACTORS; moves++) {
       const difference = this.teamSize(0) - this.teamSize(1);
       if (Math.abs(difference) <= 1) return;
