@@ -51,7 +51,7 @@ Low-level movers (`Collide`, used by S10 and bodies; other sections should prefe
 `makeMover()`, `Collide.gatherAround(mover, reach)`, `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
 up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)`, `Collide.probeGround(mover, distance, trace)`,
 `Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`.
-A gather keeps at most 256 brushes (`MAX_CANDIDATES`); more is logged once per map. `mover.planeBrushes[i]` is the brush of
+A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_SIZE`) and grows on a crowded map. `mover.planeBrushes[i]` is the brush of
 `mover.planes[i]` (the walls touched in a slide).
 
 ## Triggers (`map.triggers`)

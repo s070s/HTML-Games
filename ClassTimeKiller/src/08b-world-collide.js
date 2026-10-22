@@ -3,7 +3,7 @@
 // ground probe, overlap tests and depenetration (ARC-013). Every move is swept, so fast movers never tunnel.
 
 const COLLISION_SKIN = 0.005;          // metres kept between a hull and a surface (stops float rounding from sinking in)
-const MAX_CANDIDATES = 256;            // brushes near one mover; a step never needs more (overflow is logged)
+const CANDIDATE_START_SIZE = 256;      // brushes near one mover; a crowded map grows the list once (never skips a brush)
 const MAX_CLIP_PLANES = 5;             // planes remembered during one slide (3 independent ones stop the move)
 const SLIDE_BUMPS = 4;                 // trace / clip rounds per slide
 const OVERCLIP = 1.001;                // push slightly off a clipped plane so the next trace does not touch it again
@@ -18,9 +18,8 @@ const makeMover = () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hull: makeHull
   planeBrushes: new Array(MAX_CLIP_PLANES).fill(null), lastBrush: null });
 
 const Collide = {
-  candidates: new Array(MAX_CANDIDATES).fill(null),
+  candidates: new Array(CANDIDATE_START_SIZE).fill(null),
   candidateCount: 0,
-  overflowReported: false,     // one error log per map when a gather exceeds MAX_CANDIDATES
   trace: makeTrace(),         // scratch result for callers that do not keep their own
 
   // Collects the brushes whose box touches the given box (static tree + dynamic props) for the traces that follow.
@@ -107,8 +106,6 @@ const sweepQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, hull: null, out: 
 const stepSave = makeMover();
 const overlapPush = { nx: 0, ny: 0, nz: 0, depth: 0 };
 
-World.addPart({ load() { Collide.overflowReported = false; }, clear() {} });
-
 function boxTestNode(query, bounds, base) {
   return bounds[base] <= query.maxX && bounds[base + 3] >= query.minX && bounds[base + 1] <= query.maxY
     && bounds[base + 4] >= query.minY && bounds[base + 2] <= query.maxZ && bounds[base + 5] >= query.minZ;
@@ -125,16 +122,10 @@ function visitBox(query, onBrush) {
   for (let i = 0; i < World.dynamic.length; i++) onBrush(query, World.dynamic[i]);
 }
 
+// Past its start size the list simply grows (the array keeps that size afterwards, so steady play allocates nothing).
 function gatherBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
-  if (Collide.candidateCount >= MAX_CANDIDATES) { reportOverflow(); return; }
   Collide.candidates[Collide.candidateCount++] = brush;
-}
-
-function reportOverflow() {
-  if (Collide.overflowReported) return;
-  Collide.overflowReported = true;
-  ErrorLog.add('world.collide', 'more than ' + MAX_CANDIDATES + ' brushes near one mover; the rest are ignored');
 }
 
 // One hull sweep start->end: the swept box limits which brushes get clipped; the nearest entry wins.

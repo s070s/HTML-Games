@@ -64,8 +64,10 @@ Test.add('world', (check) => {
   check('sweepCapsule over 400 brushes stops at the wall behind them', blocked && Test.near(Collide.trace.x, 60 - ACTOR_RADIUS, 0.02), Collide.trace.x);
   const mover = makeMover();
   mover.y = 0.02; setCapsuleHull(mover.hull, ACTOR_RADIUS, 1.8);
-  check('a gather past 256 brushes logs one error per map', Test.expectErrors(() => { Collide.gatherAround(mover, 100); Collide.gatherAround(mover, 100); }) === 1);
-  check('the capped list is full, not overrun', Collide.candidateCount === MAX_CANDIDATES);
+  const logged = Test.expectErrors(() => Collide.gatherAround(mover, 100));
+  const expected = World.brushes.filter((brush) => brush.minX <= 100 + ACTOR_RADIUS + GATHER_MARGIN).length;
+  check('a gather past 256 brushes keeps every brush (never skips collision)', logged === 0 && Collide.candidateCount === expected && expected > CANDIDATE_START_SIZE,
+    Collide.candidateCount + ' of ' + expected);
 });
 
 // ---- Character collision: tunnelling, step height, slopes, ceilings ----
