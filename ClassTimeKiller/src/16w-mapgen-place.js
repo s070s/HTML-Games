@@ -38,6 +38,9 @@ function mapgenTurn(x, z, quarters) {
 const mapgenFlat = (ax, az, bx, bz) => Math.sqrt((ax - bx) * (ax - bx) + (az - bz) * (az - bz));
 const mapgenSpace = (a, b) => Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
 const mapgenItemSet = (id) => CAT.mapItemSets.byId(id).list;
+// A pickup tied to a health preset (PU20 Vital Shard: 12a places it only in Ravager health matches) is never drawn as a plain
+// pickup, so other matches lose no health spot; each such key gets a pair of its own beside the plain pickups.
+const mapgenPresetOnly = (key) => { const row = CAT.powerups.byId(key); return !!(row && row.healthPreset); };
 
 const MapGenPlace = {
   run(ctx) {
@@ -341,6 +344,7 @@ const MapGenPlace = {
     if (pickups) this.topItems(ctx);
     for (const rect of ctx.plan.loot || []) this.lootSite(ctx, rect);
     for (const group of groups) this.itemPair(ctx, group);
+    if (groups.length) for (const key of MapRules.itemKeys.health.filter(mapgenPresetOnly)) this.itemPair(ctx, 'health', key);
   },
   // Power item and the top armor on the centre line (equal walking distance for both teams), open and away from spawns.
   topItems(ctx) {
@@ -353,20 +357,20 @@ const MapGenPlace = {
     const open = MAPGEN_RING.filter(([dx, dz]) => MapScan.rayLength(ctx.scan, spot.x, spot.y + 1, spot.z, dx, dz, MAPGEN_EXPOSURE_REACH, ctx.hit) === Infinity).length;
     return open >= MAPGEN_POWER_EXPOSURE;
   },
-  // A plain pickup at a seeded open spot (mirrored maps: the spot and its mirror).
-  itemPair(ctx, group) {
+  // A plain pickup (or the given key) at a seeded open spot (mirrored maps: the spot and its mirror).
+  itemPair(ctx, group, chosenKey) {
     const spots = ctx.plan.itemSpots;
     for (let tries = 0; tries < spots.length; tries++) {
       const point = spots[ctx.random.int(0, spots.length - 1)];
       const spot = this.spotNear(ctx, point.x + ctx.random.range(-2, 2), point.z + ctx.random.range(-2, 2), 3, MAPGEN_ITEM_GAP);
       if (!spot || (ctx.mirror && (spot.x > -2 || this.roomyNode(ctx, -spot.x, spot.y, spot.z) < 0))) continue;
-      const key = this.plainKey(ctx, group);
+      const key = chosenKey || this.plainKey(ctx, group);
       this.addItem(ctx, key, spot);
       if (ctx.mirror) this.addItem(ctx, key, this.mirrorSpot(spot));
       return;
     }
   },
-  plainKey(ctx, group) { return ctx.random.pick(MapRules.itemKeys[group].filter((item) => !MapRules.topItemKeys.includes(item))); },
+  plainKey(ctx, group) { return ctx.random.pick(MapRules.itemKeys[group].filter((item) => !MapRules.topItemKeys.includes(item) && !mapgenPresetOnly(item))); },
   addItem(ctx, key, spot) {
     ctx.map.items.push(MapKit.item([key, spot.x, spot.y, spot.z]));
     this.take(ctx, spot);

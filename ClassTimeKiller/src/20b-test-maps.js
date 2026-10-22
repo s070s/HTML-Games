@@ -450,3 +450,43 @@ Test.add('maps', (check) => {
   check('match: a map object in the setup is used as it is', Game.match.map === custom);
   Game.stop();
 });
+
+// Audit 32 (MAP-013): the versus maps carry breakable props for W41, shots and blasts. Bots' nav and the validator treat props as solid
+// boxes; this checks that each prop stands on a floor and keeps clear of brushes, triggers, spawns, items and objectives.
+const MAP_TEST_PROP_CLEARANCE = 2.5;   // metres from a prop's edge to any spawn, item or objective on its level
+const MAP_TEST_PROP_LEVEL = 3;         // points more than this far above or below the prop's base are on another level
+const MAP_TEST_PROP_ROUTE = 8;         // metres from a prop's centre to an item, objective or choke/cover hint: a place players pass
+const MAP_TEST_PROPS_ON_ROUTES = 2;    // props per versus map that must stand where players pass (W41 lifts, breaks, G01)
+function mapTestBoxesMeet(a, b, margin) {
+  for (let axis = 0; axis < 3; axis++) if (a.min[axis] >= b.max[axis] + margin || a.max[axis] <= b.min[axis] - margin) return false;
+  return true;
+}
+function mapTestPropProblem(map, prop) {
+  const onFloor = map.brushes.some((brush) => brush.shape === 'box' && Math.abs(brush.max[1] - prop.min[1]) < 0.01 && brush.min[0] <= prop.min[0]
+    && brush.max[0] >= prop.max[0] && brush.min[2] <= prop.min[2] && brush.max[2] >= prop.max[2]);
+  if (!onFloor) return 'stands on no floor';
+  if (map.brushes.some((brush) => mapTestBoxesMeet(brush, prop, -0.001))) return 'overlaps a brush';
+  if (map.triggers.some((trigger) => mapTestBoxesMeet(trigger, prop, 1))) return 'touches a trigger';
+  const gap = (p) => Math.max(prop.min[0] - p.x, p.x - prop.max[0], prop.min[2] - p.z, p.z - prop.max[2]);
+  const near = map.spawns.concat(map.items, map.objectives).find((p) => gap(p) < MAP_TEST_PROP_CLEARANCE && Math.abs(p.y - prop.min[1]) < MAP_TEST_PROP_LEVEL);
+  return near ? 'is too close to ' + (near.item || near.kind || 'a spawn') + ' at ' + near.x + ', ' + near.z : '';
+}
+Test.add('maps', (check) => {
+  const problems = [];
+  for (const map of CAT.maps) map.props.forEach((prop, index) => {
+    const text = mapTestPropProblem(map, Data.normalize(PROP_FIELDS, prop));
+    if (text) problems.push(map.code + ' prop #' + index + ' ' + text);
+  });
+  check('props: every prop stands on a floor, clear of brushes, triggers, spawns, items and objectives', problems.length === 0, problems.slice(0, 4).join('; '));
+  const versus = CAT.maps.filter((map) => !map.placeholder && (map.category === 'arena' || map.category === 'large'));
+  const bare = versus.filter((map) => map.props.length < 3).map((map) => map.code);
+  check('props: every versus map has breakable props', versus.length >= 7 && bare.length === 0, bare.join());
+  const offRoute = versus.filter((map) => {
+    const places = map.items.concat(map.objectives, map.navHints.filter((hint) => hint.kind === 'choke' || hint.kind === 'cover'));
+    const onRoute = map.props.filter((prop) => places.some((place) => Math.abs(place.y - prop.min[1]) < MAP_TEST_PROP_LEVEL
+      && length2(place.x - (prop.min[0] + prop.max[0]) / 2, place.z - (prop.min[2] + prop.max[2]) / 2) < MAP_TEST_PROP_ROUTE));
+    return onRoute.length < MAP_TEST_PROPS_ON_ROUTES;
+  }).map((map) => map.code);
+  check('props: every versus map has crates where players pass (by items, objectives or cover)', offRoute.length === 0, offRoute.join());
+  check('props: the Graviton Lifter can hold every map prop', CAT.maps.every((map) => map.props.every((prop) => Data.normalize(PROP_FIELDS, prop).mass <= LIFTER_MAX_MASS)));
+});

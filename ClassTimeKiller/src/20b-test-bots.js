@@ -346,6 +346,21 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- Decisions: bots list only the item spots Items placed (Items.spotAllowed: PU20 shards need the Ravager health preset) ----
+Test.add('bots', (check) => {
+  const spire = CAT.maps.byId('spire');
+  const shardKeys = (health) => {
+    startBotTest(spire, 'ffa', { map: spire, ruleset: { health } });
+    const keys = BotDecide.items.map((item) => item.key);
+    const placed = Items.spotCount;
+    endBotTest();
+    return { listed: keys.filter((key) => key === 'vitalshard').length, items: keys.length, placed };
+  };
+  const stack = shardKeys('stack'), ravager = shardKeys('ravager');
+  check('MP01 stack health: no bot item is a Vital Shard', stack.listed === 0 && stack.items === stack.placed, JSON.stringify(stack));
+  check('MP01 Ravager health: the bots list the shard spots', ravager.listed === 2 && ravager.items === ravager.placed, JSON.stringify(ravager));
+});
+
 // ---- Team play: a defend ping is answered within 2 s and acknowledged by every taker; an enemy ping gets a reply ----
 Test.add('bots', (check) => {
   const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);

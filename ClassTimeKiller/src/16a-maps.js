@@ -4,10 +4,14 @@
 // authoring helpers the map files use to write brushes, spawns, items and zones compactly. The scan and the validator are in
 // 16s-maps-scan.js and 16v-maps-validate.js; the maps in 16b..16e; Data.define('maps') is in 16f.
 
+// A key the table holds itself (never an inherited name such as __proto__ or constructor): mode, category and other key lookups.
+const mapOwnKey = (table, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key);
+const mapColorIs = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffff;   // a 0xRRGGBB map colour
+
 // One place for every number and key list the map validator and the map files share.
 const MapRules = {
   version: 1,
-  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile'],
+  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile', 'grip'],   // grip: the MV05 climb walls (climbGripOnly)
   themes: ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'],                  // MAP-022 tilesets
   sightLimits: { arena: 60, tactical: 60, pve: 90, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category (pve: enemies approach along lanes)
   elements: ['kinetic', 'thermal', 'cryo', 'arc', 'toxin', 'void'],                            // HP-006 damage elements (hazard triggers name one)
@@ -17,7 +21,7 @@ const MapRules = {
   itemGroups: ['power', 'armor', 'health', 'weapon', 'ammo'],
   // Spec backtick keys (PWR, WPN). Plain pickups (I01..I10) have no spec key: these keys are the map contract for S12.
   itemKeys: {
-    health: ['healthvial', 'healthpack', 'healthcrate', 'megacell'],
+    health: ['healthvial', 'healthpack', 'healthcrate', 'megacell', 'vitalshard'],   // vitalshard (PU20): spots only appear in Ravager health matches (12a)
     armor: ['armorshard', 'lightplate', 'heavyplate'],
     ammo: ['ammobox', 'ammocache'],
     power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'surplus', 'aegisbelt', 'berserk', 'sigil', 'bottomless', 'vampfang',
@@ -51,7 +55,7 @@ const MapRules = {
     for (const group in this.itemKeys) if (this.itemKeys[group].includes(key)) return group;
     return '';
   },
-  rule(mode) { return this.modes[mode] || null; },
+  rule(mode) { return mapOwnKey(this.modes, mode) ? this.modes[mode] : null; },
 };
 
 // Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume). They are keyed by the row object:
@@ -136,6 +140,7 @@ function mapBoxVolume(box) { return (box.max[0] - box.min[0]) * (box.max[1] - bo
 // item [key, x,y,z (, modes)]; zone [name, x0,z0, x1,z1 (, y0, y1)]; light [x,y,z,color,radius]; hint [kind, x,y,z].
 const MAP_STEP = 0.45;                                   // DATA-003 step height: stairs risers and walkable steps never exceed it
 const MAP_ZONE_FLOOR = -10, MAP_ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
+const MAP_CRATE_SIZE = 1.2;                             // a breakable crate's edge, metres (S08 props, W41 lifts it)
 const MapKit = {
   brush(row) {
     const brush = { shape: row.length > 7 ? 'ramp' : 'box', min: [row[1], row[2], row[3]], max: [row[4], row[5], row[6]], material: row[0] };
@@ -156,6 +161,13 @@ const MapKit = {
   light(row) { return { x: row[0], y: row[1], z: row[2], color: row[3], radius: row[4] }; },
   hint(row) { return { kind: row[0], x: row[1], y: row[2], z: row[3] }; },
   objective(row) { return Object.assign({ team: -1, radius: 3, path: [], modes: [] }, row); },
+  // Breakable crates (S08 props with the PROP_FIELDS defaults): one MAP_CRATE_SIZE box per [x, z (, y)] low corner, y = 0 when left out.
+  crates(corners) {
+    return corners.map(([x, z, base]) => {
+      const y = base || 0;
+      return { min: [x, y, z], max: [x + MAP_CRATE_SIZE, y + MAP_CRATE_SIZE, z + MAP_CRATE_SIZE] };
+    });
+  },
   // Expands a map definition (compact lists, see above) into a full map row.
   make(def) {
     const row = Object.assign({}, def);

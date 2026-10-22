@@ -94,6 +94,8 @@ function onlyPickup() {
   return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
+// A powerup row tied to a health preset (PU20 Vital Shard: the Ravager caps) has map spots only in matches with that preset.
+function powerupSpotAllowed(row) { return !row.healthPreset || itemRule('health', '') === row.healthPreset; }
 // A soul card number of the local player (rules.cards.fx, written by the S15 cards), else fallback. One reader per key:
 // soulLife (Items.dropSoul), soulMagnet (soulHomingRange), soulHeal (12b PU18 heal), wrathAt (12e Abilities.canAfford).
 function soulCardFx(id, key, fallback) {
@@ -151,19 +153,24 @@ const Items = {
   load(entries, mode) {
     this.clear();
     this.matchSetCursor = 0;
-    if (!mapItemsAllowed()) return;
-    const only = onlyPickup();
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
-      if (only && entry.item !== only) continue;
-      this.addSpot(entry);
+      if (this.spotAllowed(entry)) this.addSpot(entry);
     }
+  },
+  // One spot rule for Items.load and the bots' item list (14e): the ruleset keeps map pickups, the M15 one-pickup filter
+  // lets this key through, and a powerup is allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
+  spotAllowed(entry) {
+    if (!mapItemsAllowed()) return false;
+    const only = onlyPickup();
+    if (only && entry.item !== only) return false;
+    if (this.resolve(entry.item) !== PICKUP_KIND.POWERUP) return true;
+    return powerupsAllowed() && powerupSpotAllowed(CAT.powerups.byId(entry.item));
   },
   addSpot(entry) {
     const kind = this.resolve(entry.item);
     if (kind < 0) { ErrorLog.add('items', 'unknown item key ' + entry.item); return -1; }
-    if (kind === PICKUP_KIND.POWERUP && !powerupsAllowed()) return -1;
     const key = kind === PICKUP_KIND.WEAPON ? this.spotWeapon(entry.item) : entry.item;
     if (!key) return -1;
     const slot = this.spotCount++;

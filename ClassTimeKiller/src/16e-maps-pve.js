@@ -14,9 +14,11 @@ const cisternWest = {                                                           
     ...MapKit.wall('concrete', 'z', -33, 1.5, -5, 5, 0, 5, [[0, 4, 3.4]]),                           // gate wall with a door
     ['concrete', -40, 0, 4.5, -33, 5, 5.5], ['concrete', -40, 0, -5.5, -33, 5, -4.5],                // gate hall side walls
     ['metal', -28, 0, -8, -22, 3, 8], ['metal', -28, 0, -16, -22, 3, -8, '+z'],                      // pump platform and its ramp
+    ['grip', -22, 0, 2, -21.8, 3, 6], ['grip', -22, 0, -6, -21.8, 3, -2],                           // grip panels beside the ladder (MV05 climb walls)
     ['metal', -27, 3, 2, -25, 4.2, 4], ['metal', -27, 3, -4, -25, 4.2, -2],                          // platform cover
   ],
   spawns: [[1, MAP_PVE_MODES, [[-38, 0, -2, 90], [-38, 0, 2, 90], [-36, 0, 0, 90]]]],
+  items: [['vitalshard', -24, 3, 6, MAP_PVE_MODES]],                                                // PU20 on the pump platform (Ravager vs Fiends)
   zones: [['West Gate', -40, -5.5, -33, 5.5, -1, 8], ['West Pump', -28, -8, -22, 8, 1, 7], ['West Pump Ramp', -28, -16, -22, -8, -1, 5]],
   lights: [[-37, 4, 0, 0xa8d8ff, 14], [-25, 6, 0, 0xa8d8ff, 16]],
   hints: [['sniper', -24, 3, 0], ['choke', -33, 0, 0]],
@@ -135,6 +137,7 @@ const manorCenter = {
     ...MapKit.wall('concrete', 'z', -7, 0.4, -6, 18, 0, 4, [[0, 2, 2.8], [12, 2, 2.8]]), ...MapKit.wall('concrete', 'z', 7, 0.4, -6, 18, 0, 4, [[0, 2, 2.8], [12, 2, 2.8]]), // hall walls
     ...MapKit.wall('concrete', 'x', 6, 0.4, -20, -7, 0, 4, [[-13.5, 2, 2.8]]), ...MapKit.wall('concrete', 'x', 6, 0.4, 7, 20, 0, 4, [[13.5, 2, 2.8]]), // room dividers
     ['wood', -20, 4, -6, 20, 4.4, 18],                                                               // the roof (walkable)
+    ['grip', -16, 0, -6.5, -9, 4.4, -6.3], ['grip', 9, 0, -6.5, 16, 4.4, -6.3],                     // grip panels on the front: MV05 Ravagers climb to the roof
     ['wood', 20, 0, -3, 28, 4.4, 1, '-x'],                                                           // ramp up to the roof
     ['wood', -3, 0, 3, 3, 0.9, 5], ['wood', -4, 0, 12, -2, 0.9, 15], ['wood', 2, 0, 12, 4, 0.9, 15], ['wood', -17, 0, -3, -15, 1.4, 0], ['wood', 15, 0, 1, 18, 0.9, 4], // furniture
     ['wood', -18, 0, 15.5, -16, 0.9, 17.5],
@@ -154,7 +157,7 @@ const manorCenter = {
       [26, 0, 20, 225], [10, 4.4, 6, 270]]],
   ],
   items: [['healthpack', 14, 0, 15.5, MANOR_GUARD_MODES], ['ammobox', 0, 0, 8, MANOR_GUARD_MODES], ['armorshard', -15, 0, -4, MANOR_GUARD_MODES],
-    ['healthvial', 12, 4.4, 14, MANOR_GUARD_MODES]],
+    ['healthvial', 12, 4.4, 14, MANOR_GUARD_MODES], ['vitalshard', -12, 4.4, 0, MANOR_GUARD_MODES]],
   zones: [
     ['Great Hall', -7, -6, 7, 18, -1, 4.2], ['Library', -20, -6, -7, 6, -1, 4.2], ['Study', -20, 6, -7, 18, -1, 4.2], ['Dining Room', 7, -6, 20, 6, -1, 4.2],
     ['Kitchen', 7, 6, 20, 18, -1, 4.2], ['Manor Roof', -20, -6, 29, 18, 3.9, 12], ['Greenhouse', 28, -24, 40, -14, -1, 6], ['Front Gate', -6, -48, 6, -38, -1, 8],

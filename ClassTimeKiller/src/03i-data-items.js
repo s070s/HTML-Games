@@ -36,6 +36,8 @@ Data.define('items', {
 // is active; `instant` applies once on pickup. stacking: 'add' (time adds up to maxDuration), 'refresh' (back to full),
 // 'rune' (one rune at a time: a rune holder cannot take another). drops: carried on death, dropped with the time left (PWR-003).
 // unique: one in the match (its spot waits while someone holds it or a dropped copy lies around). mapItem: placed by maps.
+// healthPreset: the row's map spots appear only in matches with this health preset ('' = every match; PU20: the Ravager HPP07).
+// campaign: never handed out at random (X17).
 //
 // mods: damage (dealt x), melee (melee dealt x), fodderMelee (melee kills fodder), taken (received x), immune [damage kinds],
 // invulnerable, speed, rate (fire rate x), invisible (bots perceive at `perception` of their range), regen [rate, upTo, ...],
@@ -46,7 +48,7 @@ Data.define('items', {
 // pool: 'surplus' | 'belt' | 'jumps' (count `charges`): the powerup ends when the pool is spent.
 Data.define('powerups', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, duration: 0, maxDuration: 0, persistent: false, respawn: 120, stacking: 'add',
-  mods: {}, instant: {}, pool: '', charges: 0, drops: true, unique: false, mapItem: true, announce: true, campaign: false,
+  mods: {}, instant: {}, pool: '', charges: 0, drops: true, unique: false, mapItem: true, announce: true, campaign: false, healthPreset: '',
   color: 0xffffff, shape: 'sphere', size: 0.7, index: 0,
 }, [
   { id: 'fury', code: 'PU01', name: 'Fury Core', duration: 30, maxDuration: 60, mods: { damage: 3 }, color: 0xb040ff },
@@ -68,7 +70,7 @@ Data.define('powerups', {
   { id: 'ammorune', code: 'PU17', name: 'Ammo Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { ammoRegen: 0.05 }, drops: false, shape: 'cone', color: 0xffc040 },
   { id: 'soul', code: 'PU18', name: 'Soul Shard', respawn: 0, instant: { heal: 1, soul: 1 }, drops: false, mapItem: false, announce: false, size: 0.3, color: 0xa0ffd0 },
   { id: 'lightbearer', code: 'PU19', name: 'Bearer Flame', persistent: true, respawn: 30, mods: { damage: 3 }, unique: true, color: 0xfff0a0 },
-  { id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 0, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, mapItem: false, campaign: true, shape: 'box', color: 0xff60c0 },
+  { id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 60, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, campaign: true, healthPreset: 'ravager', shape: 'box', color: 0xff60c0 },
 ]);
 
 // PWR-001 timing rules shared by items and powerups (seconds).

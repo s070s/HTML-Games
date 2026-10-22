@@ -24,6 +24,9 @@ const MAP_LIGHT_REACH = 2;           // a light this close to a zone box lights 
 const MAP_NO_LANES = ['range', 'puzzle'];   // categories exempt from the three-lane rule (MAP-002)
 const MAP_SPAWN_ZONES = 4;          // free-for-all spawns must cover at least this many callout zones
 const MAP_FALL_MAX = 12;             // a fall this long is survivable in every movement preset; longer needs a kill zone (MOV-015)
+const MAP_RAMP_DIRS = ['+x', '-x', '+z', '-z'];
+const MAP_FORM_RULES = [['brushes', 'brushProblem'], ['triggers', 'triggerProblem'], ['lights', 'lightProblem'], ['items', 'itemKeyProblem'],
+  ['objectives', 'objectiveKeyProblem'], ['navHints', 'hintKeyProblem'], ['props', 'propProblem']];   // map list, MapCheck form rule of one row
 
 const mapGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);                    // distance between two points that carry x, y, z
 const mapPairs = (list) => list.flatMap((a, i) => list.slice(i + 1).map((b) => [a, b])); // every unordered pair
@@ -83,41 +86,79 @@ const MapCheck = {
   // ---- structure (MAP-001) ----
   structure(ctx) {
     const map = ctx.map;
-    this.header(ctx);
+    for (const text of this.headerProblems(map)) ctx.add('structure', text);
+    if (!Array.isArray(map.modes) || !map.modes.length) ctx.add('structure', 'no modes listed');
     if (!this.finite(map.size, 3)) return;
     const missing = MAP_REQUIRED_LISTS.filter((key) => !Array.isArray(map[key]));
     for (const key of missing) ctx.add('structure', key + ' list is missing');
     if (missing.length) return;
-    map.triggers.forEach((trigger, index) => this.triggerProblem(ctx, trigger, 'trigger #' + index + ' ' + trigger.kind));
+    map.triggers.forEach((trigger, index) => this.report(ctx, 'triggers', 'trigger #' + index + ' ' + trigger.kind + ': ', this.triggerProblem(trigger)));
     if (map.brushes.length > MapRules.limits.brushes) ctx.add('budget', map.brushes.length + ' brushes, limit ' + MapRules.limits.brushes);
-    map.brushes.forEach((brush, index) => {
-      const text = this.brushProblem(map, brush);
-      if (text) ctx.add('brush', '#' + index + ' ' + text);
-    });
+    map.brushes.forEach((brush, index) => this.report(ctx, 'brush', '#' + index + ' ', this.brushProblem(brush) || this.brushLimitProblem(map, brush)));
     if (map.lights.length > MapRules.limits.lights) ctx.add('budget', map.lights.length + ' lights, limit ' + MapRules.limits.lights);
-    map.lights.forEach((light, index) => {
-      if (!this.finite([light.x, light.y, light.z, light.radius], 4) || light.radius <= 0 || typeof light.color !== 'number') ctx.add('light', '#' + index + ' is invalid');
-    });
+    map.lights.forEach((light, index) => this.report(ctx, 'light', '#' + index + ' ', this.lightProblem(light)));
+    (map.props || []).forEach((prop, index) => this.report(ctx, 'props', '#' + index + ' ', this.propProblem(prop)));
   },
-  header(ctx) {
-    const map = ctx.map;
-    if (typeof map.id !== 'string' || !map.id || typeof map.name !== 'string' || !map.name) ctx.add('structure', 'id and name are required');
-    if (!this.finite(map.size, 3) || map.size.some((n) => n <= 0)) ctx.add('structure', 'size must be [x, y, z] metres');
-    if (!MapRules.themes.includes(map.theme)) ctx.add('structure', 'unknown theme ' + map.theme);
-    if (!(map.category in MapRules.sightLimits)) ctx.add('structure', 'unknown category ' + map.category);
-    if (!map.sky || typeof map.sky.top !== 'number' || typeof map.sky.horizon !== 'number') ctx.add('structure', 'sky needs top and horizon colours');
-    if (!Array.isArray(map.modes) || !map.modes.length) ctx.add('structure', 'no modes listed');
-    for (const mode of map.modes || []) if (!MapRules.rule(mode)) ctx.add('structure', 'unknown mode ' + mode);
+  report(ctx, rule, label, text) { if (text) ctx.add(rule, label + text); },
+
+  // ---- form rules: one checker for every map row (hand-made, generated, and the editor's saved maps and codes, 16x) ----
+  // Each returns '' or the problem text. Design limits (budgets, ramp slopes, map bounds, placement) are not form rules.
+  // The first form problem of a map row ('' = well formed): the editor refuses a code or saved map that has one.
+  formProblem(map) {
+    const header = this.headerProblems(map);
+    if (header.length) return header[0];
+    for (const [list, rule] of MAP_FORM_RULES) {
+      const rows = map[list] || [];
+      for (let i = 0; i < rows.length; i++) {
+        const text = this[rule](rows[i]);
+        if (text) return list + ' #' + i + ' ' + text;
+      }
+    }
+    return '';
   },
-  brushProblem(map, brush) {
+  // The header: id, name, size, theme, category, sky and known modes (an empty mode list is a design problem: unfinished editor maps have one).
+  headerProblems(map) {
+    const problems = [];
+    if (typeof map.id !== 'string' || !map.id || typeof map.name !== 'string' || !map.name) problems.push('id and name are required');
+    if (!this.finite(map.size, 3) || map.size.some((n) => n <= 0)) problems.push('size must be [x, y, z] metres');
+    if (!MapRules.themes.includes(map.theme)) problems.push('unknown theme ' + map.theme);
+    if (!mapOwnKey(MapRules.sightLimits, map.category)) problems.push('unknown category ' + map.category);
+    if (!map.sky || !mapColorIs(map.sky.top) || !mapColorIs(map.sky.horizon)) problems.push('sky needs top and horizon colours');
+    for (const mode of Array.isArray(map.modes) ? map.modes : []) if (!MapRules.rule(mode)) problems.push('unknown mode ' + mode);
+    return problems;
+  },
+  brushProblem(brush) {
     if (brush.shape !== 'box' && brush.shape !== 'ramp') return 'shape must be box or ramp';
     if (!this.finite(brush.min, 3) || !this.finite(brush.max, 3)) return 'min and max must be three numbers';
     for (let axis = 0; axis < 3; axis++) if (brush.max[axis] - brush.min[axis] < 0.05) return 'min must be below max on every axis';
     if (!MapRules.materials.includes(brush.material)) return 'unknown material ' + brush.material;
-    return (brush.shape === 'ramp' && this.rampProblem(brush)) || this.boundsProblem(map, brush);
+    return brush.shape === 'ramp' && !MAP_RAMP_DIRS.includes(brush.dir) ? 'ramp needs dir +x, -x, +z or -z' : '';
   },
+  lightProblem(light) {
+    return this.finite([light.x, light.y, light.z, light.radius], 4) && light.radius > 0 && mapColorIs(light.color) ? '' : 'is invalid';
+  },
+  itemKeyProblem(item) {
+    const group = MapRules.groupOf(item.item);
+    if (!group) return 'is not a map item key';
+    return group === item.group ? '' : 'belongs to group ' + group + ', not ' + item.group;
+  },
+  objectiveKeyProblem(o) { return MapRules.objectiveKinds.includes(o.kind) && typeof o.id === 'string' ? '' : 'has no valid id or kind'; },
+  // A breakable prop (S08 Props): a box with min below max, the material (optional) a map material.
+  propProblem(prop) {
+    const box = this.finite(prop.min, 3) && this.finite(prop.max, 3) && prop.min.every((v, i) => v < prop.max[i]);
+    return box && (prop.material === undefined || MapRules.materials.includes(prop.material)) ? '' : 'is invalid';
+  },
+  hintKeyProblem(hint) { return MapRules.hintKinds.includes(hint.kind) ? '' : 'has unknown kind ' + hint.kind; },
+  triggerProblem(t) {
+    if (!MapRules.triggerKinds.includes(t.kind)) return 'unknown kind';
+    if (!this.finite(t.min, 3) || !this.finite(t.max, 3) || t.min.some((v, i) => v >= t.max[i])) return 'min must be below max';
+    if (t.kind === 'jumppad' && (!this.finite(t.target, 3) || !(t.peak > 0))) return 'target [x, y, z] and peak > 0 needed';
+    if (t.kind === 'teleporter' && (!this.finite(t.exit, 3) || typeof t.yaw !== 'number')) return 'exit [x, y, z] and yaw needed';
+    if (t.kind === 'hazard' && !(t.damage > 0 && MapRules.elements.includes(t.element))) return 'hazard needs damage > 0 and an element (' + MapRules.elements.join('/') + ')';
+    return '';
+  },
+  brushLimitProblem(map, brush) { return (brush.shape === 'ramp' && this.rampProblem(brush)) || this.boundsProblem(map, brush); },
   rampProblem(brush) {
-    if (!['+x', '-x', '+z', '-z'].includes(brush.dir)) return 'ramp needs dir +x, -x, +z or -z';
     const run = brush.dir.endsWith('x') ? brush.max[0] - brush.min[0] : brush.max[2] - brush.min[2];
     const degrees = Math.atan2(brush.max[1] - brush.min[1], run) / DEG;
     return degrees > MapRules.limits.rampMaxDegrees ? 'ramp slope ' + degrees.toFixed(1) + ' deg is steeper than ' + MapRules.limits.rampMaxDegrees : '';
@@ -215,7 +256,7 @@ const MapCheck = {
   itemProblem(ctx, item, index) {
     const label = 'item #' + index + ' ' + item.item;
     if (!this.finite([item.x, item.y, item.z], 3)) { ctx.add('items', label + ' has bad numbers'); return -1; }
-    if (MapRules.groupOf(item.item) !== item.group) ctx.add('items', label + ' belongs to group ' + MapRules.groupOf(item.item) + ', not ' + item.group);
+    this.report(ctx, 'items', label + ' ', this.itemKeyProblem(item));
     for (const mode of mapModesOf(item)) if (!ctx.map.modes.includes(mode)) ctx.add('items', label + ' lists mode ' + mode + ' the map does not offer');
     return this.place(ctx, 'items', label, item.x, item.y, item.z);
   },
@@ -314,7 +355,8 @@ const MapCheck = {
   },
   objectiveProblem(ctx, o, index) {
     const label = 'objective ' + o.id + ' (' + o.kind + ')';
-    if (!MapRules.objectiveKinds.includes(o.kind) || typeof o.id !== 'string') return ctx.add('objectives', '#' + index + ' has no valid id or kind');
+    const formText = this.objectiveKeyProblem(o);
+    if (formText) return ctx.add('objectives', '#' + index + ' ' + formText);
     if (!this.finite([o.x, o.y, o.z, o.radius], 4) || o.radius <= 0) return ctx.add('objectives', label + ' has bad numbers');
     for (const mode of mapModesOf(o)) if (!ctx.map.modes.includes(mode)) ctx.add('objectives', label + ' lists mode ' + mode + ' the map does not offer');
     this.place(ctx, 'objectives', label, o.x, o.y, o.z);
@@ -343,7 +385,8 @@ const MapCheck = {
     const hints = ctx.map.navHints;
     if (hints.length < MapRules.limits.hints) ctx.add('hints', 'only ' + hints.length + ' nav hints (minimum ' + MapRules.limits.hints + ')');
     hints.forEach((hint, index) => {
-      if (!MapRules.hintKinds.includes(hint.kind)) ctx.add('hints', '#' + index + ' has unknown kind ' + hint.kind);
+      const formText = this.hintKeyProblem(hint);
+      if (formText) ctx.add('hints', '#' + index + ' ' + formText);
       else this.place(ctx, 'hints', 'hint #' + index + ' ' + hint.kind, hint.x, hint.y, hint.z);
     });
   },
@@ -409,14 +452,6 @@ const MapCheck = {
   ladderProblem(ctx, ladder) {
     if (ladder.bottoms && ladder.tops) return;
     ctx.add('triggers', 'ladder at ' + this.corner(ladder.trigger) + ' has ' + ladder.bottoms + ' foot cells and ' + ladder.tops + ' top cells');
-  },
-  triggerProblem(ctx, t, label) {
-    if (!MapRules.triggerKinds.includes(t.kind)) return ctx.add('triggers', label + ': unknown kind');
-    if (!this.finite(t.min, 3) || !this.finite(t.max, 3) || t.min.some((v, i) => v >= t.max[i])) return ctx.add('triggers', label + ': min must be below max');
-    if (t.kind === 'jumppad' && (!this.finite(t.target, 3) || !(t.peak > 0))) ctx.add('triggers', label + ': target [x, y, z] and peak > 0 needed');
-    if (t.kind === 'teleporter' && (!this.finite(t.exit, 3) || typeof t.yaw !== 'number')) ctx.add('triggers', label + ': exit [x, y, z] and yaw needed');
-    if (t.kind === 'hazard' && !(t.damage > 0 && MapRules.elements.includes(t.element))) ctx.add('triggers', label + ': hazard needs damage > 0 and an element ('
-        + MapRules.elements.join('/') + ')');
   },
   padProblem(ctx, pad) {
     const where = this.corner(pad.trigger);

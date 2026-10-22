@@ -284,6 +284,37 @@ Test.add('mapgen', (check) => {
     && ['pickups', 'supply', 'loot'].every((id) => mapgenItemSet(id).every((group) => MapRules.itemGroups.includes(group))));
 });
 
+// Kits (audit 28): the bunker module's block is a grip climb wall up to the wall height, so MV05 Ravagers climb it in generated maps.
+Test.add('mapgen', (check) => {
+  check('kits: the bunker block is a climb prop and every tileset climbs on grip', CAT.mapModules.byId('bunker').props[0][0] === 'climb'
+    && CAT.mapTilesets.every((tileset) => tileset.climb === 'grip') && MapRules.materials.includes('grip'));
+  let grip = null;
+  for (let seed = 1; seed <= 12 && !grip; seed++) {
+    const map = MapGen.generate({ generator: 'GN1', seed, size: 'small', theme: 'foundry', trusted: true, uncapped: true });
+    grip = map.brushes.find((brush) => brush.material === 'grip') || null;
+  }
+  const wallHeight = CAT.mapTilesets.byId('foundry').wallHeight;
+  check('kits: a generated bunker room has a grip climb wall as tall as the walls', !!grip && grip.max[1] === wallHeight, grip && grip.max[1]);
+});
+
+// Items (audit 28): generated maps carry their own Vital Shard pair (12a shows it only in Ravager health matches), never one drawn as a plain health pickup.
+Test.add('mapgen', (check) => {
+  const arena = MapGen.generate({ generator: 'GN3', seed: 2, size: 'small', modes: ['ffa'], trusted: true, uncapped: true });
+  const pve = MapGen.generate({ generator: 'GN1', seed: 2, size: 'small', trusted: true, uncapped: true });
+  const shards = (map) => map.items.filter((item) => item.item === 'vitalshard').length;
+  check('items: a generated arena and a fiends map each have a Vital Shard pair of their own', shards(arena) === 2 && shards(pve) >= 1, shards(arena) + ' / ' + shards(pve));
+  const placedShards = (health) => {
+    World.load(arena);
+    Game.start({ mode: 'ffa', seed: 1, map: arena, ruleset: { health }, bots: [{ dummy: true }] });
+    let count = 0;
+    for (let slot = 0; slot < Items.spotCount; slot++) if (Items.keyOf(slot) === 'vitalshard') count++;
+    Game.stop();
+    return count;
+  };
+  const ravager = placedShards('ravager'), stack = placedShards('stack');
+  check('items: a generated map started with Ravager health places its shard spots, other presets none', ravager === 2 && stack === 0, ravager + ' / ' + stack);
+});
+
 // Sightline repair: a seed whose first build has long open lines gets pillars and then validates.
 Test.add('mapgen', (check) => {
   const map = MapGen.generate(MAPGEN_TEST_REPAIRED), report = MapGen.last;

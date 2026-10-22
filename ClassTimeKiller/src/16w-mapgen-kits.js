@@ -193,14 +193,16 @@ function mapgenCellProps(ctx, grid, plan, cell, x, z, wallHeight) {
   for (const prop of cell.module.props) mapgenProp(ctx, plan, prop, cell, x, z, grid.cell / 2 - MAPGEN_INNER_BORDER, wallHeight);
 }
 // A module prop, turned by the cell's quarter turns and mirrored in east cells.
+const MAPGEN_PROP_MATERIAL = { cover: 'cover', pillar: 'pillar', climb: 'climb', platform: 'platform', low: 'trim' };   // prop kind -> tileset material slot
+const MAPGEN_FULL_HEIGHT_PROPS = ['pillar', 'climb'];   // these reach the wall height
 function mapgenProp(ctx, plan, prop, cell, x, z, inner, wallHeight) {
   const [kind, u, v, width, depth, height] = prop;
   const turned = cell.turn % 2 === 1;
   let pu = [u, -v, -u, v][cell.turn] * inner, pv = [v, u, -v, -u][cell.turn] * inner;
   if (cell.east) pu = -pu;
   const w = turned ? depth : width, d = turned ? width : depth, cx = x + pu, cz = z + pv;
-  const top = kind === 'pillar' ? wallHeight : height;
-  const material = kind === 'pillar' ? ctx.tileset.pillar : kind === 'low' ? ctx.tileset.trim : kind === 'platform' ? ctx.tileset.platform : ctx.tileset.cover;
+  const top = MAPGEN_FULL_HEIGHT_PROPS.includes(kind) ? wallHeight : height;
+  const material = ctx.tileset[MAPGEN_PROP_MATERIAL[kind]];
   plan.def.brushes.push([material, cx - w / 2, 0, cz - d / 2, cx + w / 2, top, cz + d / 2]);
   if (kind === 'platform') mapgenRamp(ctx, plan, cx, cz, w, d, top, mapgenWorldSide(cell, cell.turn), 0);
   if (kind === 'platform') plan.hints.push({ kind: 'sniper', x: cx, z: cz });

@@ -426,6 +426,21 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
+// PU20 Vital Shard spots (audit 28): placed by hand-made maps, they appear only in matches with the Ravager health preset (RS07, RS08, M26).
+Test.add('items', (check) => {
+  const shardSpots = [ItemArena.spot('vitalshard', 0, 0), ItemArena.spot('healthpack', 4, 0)];
+  ItemArena.start({ health: 'ravager' }, shardSpots);
+  check('PU20: a Ravager match places the map\'s Vital Shard spots', Items.spotCount === 2 && Items.keyOf(0) === 'vitalshard', Items.spotCount);
+  TestArena.finish();
+  ItemArena.start({ health: 'stack' }, shardSpots);
+  check('PU20: other health presets leave the shard spots out', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
+  TestArena.finish();
+  const shardMaps = CAT.maps.filter((map) => map.items.some((item) => item.item === 'vitalshard'));
+  const rulesetMaps = ['ravager', 'knight'].every((ruleset) => CAT.rulesets.byId(ruleset).health === CAT.powerups.byId('vitalshard').healthPreset);
+  check('PU20: arena and Ravager vs Fiends maps carry shard spots for the Ravager rulesets', rulesetMaps && shardMaps.length >= 5
+    && shardMaps.some((map) => map.modes.includes('fiends')) && shardMaps.some((map) => map.modes.includes('duel')), shardMaps.map((map) => map.code).join());
+});
+
 Test.add('items', (check) => {
   ItemArena.start({});
   const id = ItemArena.actor(1, 0, 0);

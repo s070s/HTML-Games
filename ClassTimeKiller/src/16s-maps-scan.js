@@ -65,7 +65,9 @@ const MapScan = {
   },
 
   makeShell(map) {
-    const brushes = map.brushes.map((source) => makeBrush(source));
+    // Props are solid boxes until they break (S08), so the scan counts them as boxes: the validator checks the map as it starts.
+    const propBoxes = (map.props || []).map((prop) => ({ shape: 'box', min: prop.min, max: prop.max }));
+    const brushes = map.brushes.concat(propBoxes).map((source) => makeBrush(source));
     const coarse = map.size[0] >= MAP_COARSE_SIZE || map.size[2] >= MAP_COARSE_SIZE, cell = coarse ? MAP_CELL_COARSE : MAP_CELL;
     const cols = Math.ceil(map.size[0] / cell), rows = Math.ceil(map.size[2] / cell);
     const need = Math.max(MAP_HALF_DOOR - cell / 2, MAP_BODY_REACH);     // the body may stand half a cell off the cell centre
