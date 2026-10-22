@@ -260,13 +260,9 @@ const PVE_ENDLESS_CORE_HEALTH = 5000;
 function restockBots() {
   for (let id = 0; id < Actors.count; id++) if (Bots.isBot(id) && Modes.participant[id] && botAmmoLow(id)) Economy.buy(id, PVE_BOT_RESTOCK_ITEM);
 }
-// Any gun the bot carries below LOW_AMMO_SHARE of its reserve (melee weapons and endless reserves never run low).
+// Any gun the bot carries that runs low (BotCombat.gunLow).
 function botAmmoLow(id) {
-  for (let index = 0; index < WEAPON_COUNT; index++) {
-    const weapon = CAT.weapons[index], slot = Weapons.slotIndex(id, index);
-    if (!Weapons.owned[slot] || weapon.mag === 0 || Weapons.infiniteReserve(weapon)) continue;
-    if (Weapons.reserve[slot] < Weapons.maxReserve(id, weapon) * LOW_AMMO_SHARE) return true;
-  }
+  for (let index = 0; index < WEAPON_COUNT; index++) if (Weapons.owned[Weapons.slotIndex(id, index)] && BotCombat.gunLow(id, index)) return true;
   return false;
 }
 // DIF-004: the plate halves enemy damage to every participant until the retried wave is cleared.

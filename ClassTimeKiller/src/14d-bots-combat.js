@@ -216,8 +216,14 @@ const BotCombat = {
     return now - BotSense.seenAt[pair] < GRENADE_RECENT;
   },
   lowAmmo(id) {
-    const ammo = Weapons.ammo(id), weapon = Weapons.currentWeapon(id);
-    return !!ammo && !!weapon && !ammo.infinite && weapon.mag > 0 && ammo.reserve < Weapons.maxReserve(id, weapon) * LOW_AMMO_SHARE;
+    const index = Weapons.current[id];
+    return index >= 0 && this.gunLow(id, index);
+  },
+  // A gun (weapon index) below LOW_AMMO_SHARE of its reserve; melee weapons and endless reserves never run low.
+  gunLow(id, index) {
+    const weapon = CAT.weapons[index];
+    if (weapon.mag === 0 || Weapons.infiniteReserve(weapon)) return false;
+    return Weapons.reserve[Weapons.slotIndex(id, index)] < Weapons.maxReserve(id, weapon) * LOW_AMMO_SHARE;
   },
   // Hit but nothing in sight: turn toward where the hit came from.
   lookAtThreat(id, now) {

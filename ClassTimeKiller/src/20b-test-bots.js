@@ -890,6 +890,30 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// BOT-002 Search in play: a bot chasing stale memory (the enemy is behind the wall) walks on to a nearby spot after the
+// last known one, instead of skipping both spots on the ticks after its arrival.
+const SEARCH_TEST_SPOT = [10, -6], SEARCH_TEST_STALE = 3, SEARCH_TEST_REACH = 2.5, SEARCH_TEST_WALK = 3;
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 10);
+  const pair = BotSense.pair(bot, dummy), spots = [];
+  BotSense.knownAt[pair] = Sim.time - SEARCH_TEST_STALE;
+  BotSense.knownX[pair] = SEARCH_TEST_SPOT[0]; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = SEARCH_TEST_SPOT[1];
+  let lastX = SEARCH_TEST_SPOT[0], lastZ = SEARCH_TEST_SPOT[1];
+  for (let tick = 0; tick < SENSE_MEMORY * TICK_RATE && BotSense.knows(bot, dummy, Sim.time); tick++) {
+    holdActor(dummy, 0, 10);
+    Sim.run(1);
+    const x = BotSense.knownX[pair], z = BotSense.knownZ[pair], away = length2(x - Actors.x[bot], z - Actors.z[bot]);
+    if (x !== lastX || z !== lastZ) { spots.push({ x, z, away, nearest: away }); lastX = x; lastZ = z; }
+    for (const spot of spots) spot.nearest = Math.min(spot.nearest, length2(spot.x - Actors.x[bot], spot.z - Actors.z[bot]));
+  }
+  const walked = spots.filter((spot) => spot.away > SEARCH_TEST_WALK && spot.nearest < SEARCH_TEST_REACH);
+  check('BOT-002 a searching bot walks to a nearby spot past the last known position before it gives up', walked.length > 0,
+    spots.map((spot) => spot.away.toFixed(1) + '->' + spot.nearest.toFixed(1)).join(' '));
+  endBotTest();
+});
+
 // A rocket launcher in hand and the weapon jumper trait (T12).
 function giveWeaponJumper(bot) {
   const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');

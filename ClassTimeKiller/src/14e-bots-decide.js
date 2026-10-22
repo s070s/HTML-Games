@@ -197,7 +197,7 @@ const BotDecide = {
   apply(id, now) {
     const plan = bestPlan;
     if (plan.goal === GOAL.CHASE && this.goal[id] !== GOAL.CHASE) this.searchLeft[id] = SEARCH_SPOTS;
-    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP)this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
+    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
@@ -243,7 +243,8 @@ const BotDecide = {
     BotTeam.bark(id, 'itemGrab', now);
   },
   // Reached the last known position and nothing there (BOT-002 Search): the bot's guess moves on to SEARCH_SPOTS nearby
-  // spots in turn, then the memory entry is used up and the bot roams.
+  // spots in turn, then the memory entry is used up and the bot roams. The goal and path move to each spot at once: the
+  // old arrival would otherwise call this again on the next ticks and skip every spot unvisited.
   searched(id) {
     const target = this.goalTarget[id];
     if (target < 0 || BotSense.sees(id, target)) return;
@@ -251,7 +252,11 @@ const BotDecide = {
     const node = this.searchLeft[id] > 0 ? searchWalk(Nav.nearestNode(BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair])) : -1;
     if (node < 0) { BotSense.knownAt[pair] = -1e9; return; }
     this.searchLeft[id]--;
-    BotSense.knownX[pair] = Nav.nodeX[node]; BotSense.knownY[pair] = Nav.nodeY[node]; BotSense.knownZ[pair] = Nav.nodeZ[node];
+    const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node];
+    BotSense.knownX[pair] = x; BotSense.knownY[pair] = y; BotSense.knownZ[pair] = z;
+    this.goalX[id] = x; this.goalY[id] = y; this.goalZ[id] = z;
+    BotMove.stop(id);   // a fresh path now, past the repath throttle (at most SEARCH_SPOTS times a chase)
+    BotMove.goTo(id, x, y, z, this.goalRadius[id]);
   },
   carriesObjective(actor) {
     const list = Modes.objectives;
