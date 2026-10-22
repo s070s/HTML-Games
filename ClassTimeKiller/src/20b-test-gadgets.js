@@ -39,7 +39,7 @@ const GadgetArena = {
     return at;
   },
   device(key, owner, x, z) { return Devices.spawn(CAT.gadgets.byId(key), owner, x, 0, z); },
-  armed(d) { Devices.armTick[d] = Sim.tick; },
+  armed(device) { Devices.armTick[device] = Sim.tick; },
 };
 
 Test.add('gadgets', (check) => {
@@ -225,10 +225,10 @@ Test.add('gadgets', (check) => {
   GadgetArena.press(owner, BTN.GADGET);
   check('GAD-003 one barrier per owner', Devices.count === 1 && Gadgets.countOf(owner, 'cover') === 1);
   const enemy = GadgetArena.actor(2, 10, 10);
-  let d = 0;
-  while (!Devices.active[d]) d++;
-  check('allies cannot break it', !Devices.damage(d, 1000, owner) && Devices.active[d] === 1);
-  check('G13 destroyed by damage, brush gone', Devices.damage(d, 300, enemy) && World.dynamic.length === 0 && Devices.count === 0);
+  let device = 0;
+  while (!Devices.active[device]) device++;
+  check('allies cannot break it', !Devices.damage(device, 1000, owner) && Devices.active[device] === 1);
+  check('G13 destroyed by damage, brush gone', Devices.damage(device, 300, enemy) && World.dynamic.length === 0 && Devices.count === 0);
   TestArena.finish();
 });
 

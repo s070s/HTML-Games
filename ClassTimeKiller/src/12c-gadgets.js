@@ -101,27 +101,27 @@ const Smoke = {
 
   clear() { this.active.fill(0); this.count = 0; },
   spawn(row, owner, x, y, z) {
-    const v = this.freeSlot();
-    this.active[v] = 1; this.owner[v] = owner; this.row[v] = row.index; this.x[v] = x; this.y[v] = y; this.z[v] = z;
-    this.radius[v] = row.radius; this.startTick[v] = Sim.tick; this.endTick[v] = Sim.tick + itemTicks(row.duration);
-    this.punched.fill(0, v * SMOKE_CELLS, (v + 1) * SMOKE_CELLS);
-    this.flood(v);
+    const volume = this.freeSlot();
+    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = row.index; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
+    this.radius[volume] = row.radius; this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(row.duration);
+    this.punched.fill(0, volume * SMOKE_CELLS, (volume + 1) * SMOKE_CELLS);
+    this.flood(volume);
     this.recount();
-    return v;
+    return volume;
   },
   freeSlot() {
     let oldest = 0;
-    for (let v = 0; v < SMOKE_CAP; v++) {
-      if (!this.active[v]) return v;
-      if (this.endTick[v] < this.endTick[oldest]) oldest = v;
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (!this.active[volume]) return volume;
+      if (this.endTick[volume] < this.endTick[oldest]) oldest = volume;
     }
     return oldest;
   },
-  recount() { this.count = 0; for (let v = 0; v < SMOKE_CAP; v++) this.count += this.active[v]; },
+  recount() { this.count = 0; for (let volume = 0; volume < SMOKE_CAP; volume++) this.count += this.active[volume]; },
   cellIndex(ix, iy, iz) { return (ix * SMOKE_DIM + iy) * SMOKE_DIM + iz; },
   // Breadth-first fill from the centre cell inside the radius, skipping cells whose centre is inside a brush (walls stop smoke).
-  flood(v) {
-    const base = v * SMOKE_CELLS, cells = this.depth, queue = this.queue;
+  flood(volume) {
+    const base = volume * SMOKE_CELLS, cells = this.depth, queue = this.queue;
     cells.fill(0, base, base + SMOKE_CELLS);
     const start = this.cellIndex(SMOKE_HALF, SMOKE_HALF, SMOKE_HALF);
     let head = 0, tail = 0;
@@ -129,44 +129,44 @@ const Smoke = {
     queue[tail++] = start;
     while (head < tail) {
       const cell = queue[head++], ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-      tail = this.spread(v, cells[base + cell] + 1, ix, iy, iz, tail);
+      tail = this.spread(volume, cells[base + cell] + 1, ix, iy, iz, tail);
     }
   },
   // Visits the 6 neighbours of a cell; returns the new queue tail.
-  spread(v, depth, ix, iy, iz, tail) {
+  spread(volume, depth, ix, iy, iz, tail) {
     for (let n = 0; n < 6; n++) {
       const jx = ix + SMOKE_STEPS[n * 3], jy = iy + SMOKE_STEPS[n * 3 + 1], jz = iz + SMOKE_STEPS[n * 3 + 2];
       if (jx < 0 || jy < 0 || jz < 0 || jx >= SMOKE_DIM || jy >= SMOKE_DIM || jz >= SMOKE_DIM) continue;
-      const cell = this.cellIndex(jx, jy, jz), slot = v * SMOKE_CELLS + cell;
-      if (this.depth[slot] || !this.cellFits(v, jx, jy, jz)) continue;
+      const cell = this.cellIndex(jx, jy, jz), slot = volume * SMOKE_CELLS + cell;
+      if (this.depth[slot] || !this.cellFits(volume, jx, jy, jz)) continue;
       this.depth[slot] = Math.min(255, depth);
       this.queue[tail++] = cell;
     }
     return tail;
   },
-  cellFits(v, ix, iy, iz) {
+  cellFits(volume, ix, iy, iz) {
     const dx = (ix - SMOKE_HALF) * SMOKE_CELL, dy = (iy - SMOKE_HALF) * SMOKE_CELL, dz = (iz - SMOKE_HALF) * SMOKE_CELL;
-    if (dx * dx + dy * dy + dz * dz > this.radius[v] * this.radius[v]) return false;
-    return !World.pointInside(this.x[v] + dx, this.y[v] + dy, this.z[v] + dz);
+    if (dx * dx + dy * dy + dz * dz > this.radius[volume] * this.radius[volume]) return false;
+    return !World.pointInside(this.x[volume] + dx, this.y[volume] + dy, this.z[volume] + dz);
   },
   // Radius the cloud has grown to (it expands over smokeExpandSeconds).
-  grownRadius(v) { return this.radius[v] * Math.min(1, (Sim.tick - this.startTick[v]) / itemTicks(GADGET_TUNING.smokeExpandSeconds)); },
+  grownRadius(volume) { return this.radius[volume] * Math.min(1, (Sim.tick - this.startTick[volume]) / itemTicks(GADGET_TUNING.smokeExpandSeconds)); },
   // Cell of a world point in volume v, or -1 outside its grid.
-  cellAt(v, x, y, z) {
-    const ix = Math.round((x - this.x[v]) / SMOKE_CELL) + SMOKE_HALF, iy = Math.round((y - this.y[v]) / SMOKE_CELL) + SMOKE_HALF, iz = Math.round((z - this.z[v]) / SMOKE_CELL) + SMOKE_HALF;
+  cellAt(volume, x, y, z) {
+    const ix = Math.round((x - this.x[volume]) / SMOKE_CELL) + SMOKE_HALF, iy = Math.round((y - this.y[volume]) / SMOKE_CELL) + SMOKE_HALF, iz = Math.round((z - this.z[volume]) / SMOKE_CELL) + SMOKE_HALF;
     if (ix < 0 || iy < 0 || iz < 0 || ix >= SMOKE_DIM || iy >= SMOKE_DIM || iz >= SMOKE_DIM) return -1;
     return this.cellIndex(ix, iy, iz);
   },
-  occupied(v, cell, grown) {
-    const slot = v * SMOKE_CELLS + cell, depth = this.depth[slot];
+  occupied(volume, cell, grown) {
+    const slot = volume * SMOKE_CELLS + cell, depth = this.depth[slot];
     return depth > 0 && (depth - 1) * SMOKE_CELL <= grown && this.punched[slot] <= Sim.tick;
   },
   // True when the point is inside smoke (fire areas go out in smoke).
   covers(x, y, z) {
-    for (let v = 0; v < SMOKE_CAP; v++) {
-      if (!this.active[v]) continue;
-      const cell = this.cellAt(v, x, y, z);
-      if (cell >= 0 && this.occupied(v, cell, this.grownRadius(v))) return true;
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (!this.active[volume]) continue;
+      const cell = this.cellAt(volume, x, y, z);
+      if (cell >= 0 && this.occupied(volume, cell, this.grownRadius(volume))) return true;
     }
     return false;
   },
@@ -175,27 +175,27 @@ const Smoke = {
     if (!this.count) return false;
     const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
     if (length < 1e-6) return false;
-    for (let v = 0; v < SMOKE_CAP; v++) {
-      if (this.active[v] && this.smokeAlong(v, ax, ay, az, dx / length, dy / length, dz / length, length) >= SMOKE_BLOCK_METRES) return true;
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (this.active[volume] && this.smokeAlong(volume, ax, ay, az, dx / length, dy / length, dz / length, length) >= SMOKE_BLOCK_METRES) return true;
     }
     return false;
   },
   // Metres of occupied smoke of volume v along a ray segment.
-  smokeAlong(v, ox, oy, oz, dx, dy, dz, length) {
-    const span = this.span(v, ox, oy, oz, dx, dy, dz, length);
+  smokeAlong(volume, ox, oy, oz, dx, dy, dz, length) {
+    const span = this.span(volume, ox, oy, oz, dx, dy, dz, length);
     if (!span) return 0;
-    const grown = this.grownRadius(v);
+    const grown = this.grownRadius(volume);
     let inside = 0;
-    for (let t = spanScratch.from; t <= spanScratch.to; t += SMOKE_SAMPLE) {
-      const cell = this.cellAt(v, ox + dx * t, oy + dy * t, oz + dz * t);
-      if (cell >= 0 && this.occupied(v, cell, grown)) inside += SMOKE_SAMPLE;
+    for (let distance = spanScratch.from; distance <= spanScratch.to; distance += SMOKE_SAMPLE) {
+      const cell = this.cellAt(volume, ox + dx * distance, oy + dy * distance, oz + dz * distance);
+      if (cell >= 0 && this.occupied(volume, cell, grown)) inside += SMOKE_SAMPLE;
     }
     return inside;
   },
   // Part of the segment inside the volume's sphere into spanScratch; false when it misses.
-  span(v, ox, oy, oz, dx, dy, dz, length) {
-    const cx = this.x[v] - ox, cy = this.y[v] - oy, cz = this.z[v] - oz, along = cx * dx + cy * dy + cz * dz;
-    const miss = cx * cx + cy * cy + cz * cz - along * along, radius = this.radius[v] + SMOKE_CELL;
+  span(volume, ox, oy, oz, dx, dy, dz, length) {
+    const cx = this.x[volume] - ox, cy = this.y[volume] - oy, cz = this.z[volume] - oz, along = cx * dx + cy * dy + cz * dz;
+    const miss = cx * cx + cy * cy + cz * cz - along * along, radius = this.radius[volume] + SMOKE_CELL;
     if (miss > radius * radius) return false;
     const half = Math.sqrt(radius * radius - miss);
     spanScratch.from = Math.max(0, along - half); spanScratch.to = Math.min(length, along + half);
@@ -204,24 +204,24 @@ const Smoke = {
   // G02: bullets punch the cells along their path and blasts the cells around them for 2 s.
   punchRay(ox, oy, oz, dx, dy, dz, length) {
     const until = Sim.tick + itemTicks(GADGET_TUNING.smokePunchSeconds);
-    for (let v = 0; v < SMOKE_CAP; v++) {
-      if (!this.active[v] || !this.span(v, ox, oy, oz, dx, dy, dz, length)) continue;
-      for (let t = spanScratch.from; t <= spanScratch.to; t += SMOKE_SAMPLE) {
-        const cell = this.cellAt(v, ox + dx * t, oy + dy * t, oz + dz * t);
-        if (cell >= 0) this.punched[v * SMOKE_CELLS + cell] = until;
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (!this.active[volume] || !this.span(volume, ox, oy, oz, dx, dy, dz, length)) continue;
+      for (let distance = spanScratch.from; distance <= spanScratch.to; distance += SMOKE_SAMPLE) {
+        const cell = this.cellAt(volume, ox + dx * distance, oy + dy * distance, oz + dz * distance);
+        if (cell >= 0) this.punched[volume * SMOKE_CELLS + cell] = until;
       }
     }
   },
   punchSphere(x, y, z, radius) {
     const until = Sim.tick + itemTicks(GADGET_TUNING.smokePunchSeconds);
-    for (let v = 0; v < SMOKE_CAP; v++) {
-      if (!this.active[v] || distanceSquared3(x, y, z, this.x[v], this.y[v], this.z[v]) > (radius + this.radius[v]) ** 2) continue;
-      for (let cell = 0; cell < SMOKE_CELLS; cell++) if (this.cellDistance(v, cell, x, y, z) <= radius) this.punched[v * SMOKE_CELLS + cell] = until;
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (!this.active[volume] || distanceSquared3(x, y, z, this.x[volume], this.y[volume], this.z[volume]) > (radius + this.radius[volume]) ** 2) continue;
+      for (let cell = 0; cell < SMOKE_CELLS; cell++) if (this.cellDistance(volume, cell, x, y, z) <= radius) this.punched[volume * SMOKE_CELLS + cell] = until;
     }
   },
-  cellDistance(v, cell, x, y, z) {
+  cellDistance(volume, cell, x, y, z) {
     const ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-    return Math.hypot(this.x[v] + (ix - SMOKE_HALF) * SMOKE_CELL - x, this.y[v] + (iy - SMOKE_HALF) * SMOKE_CELL - y, this.z[v] + (iz - SMOKE_HALF) * SMOKE_CELL - z);
+    return Math.hypot(this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL - x, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL - y, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL - z);
   },
   onShot(event) {
     if (!this.count) return;
@@ -232,29 +232,29 @@ const Smoke = {
     this.punchRay(event.x, event.y, event.z, event.dx, event.dy, event.dz, wall);
   },
   step() {
-    for (let v = 0; v < SMOKE_CAP; v++) if (this.active[v] && Sim.tick >= this.endTick[v]) { this.active[v] = 0; this.recount(); }
+    for (let volume = 0; volume < SMOKE_CAP; volume++) if (this.active[volume] && Sim.tick >= this.endTick[volume]) { this.active[volume] = 0; this.recount(); }
   },
   // Soft grey blobs on a coarse lattice of occupied cells, plus drifting smoke particles (cosmetic, Rng.fx).
   draw(batch) {
     this.drawn = 0;
-    for (let v = 0; v < SMOKE_CAP; v++) if (this.active[v]) this.drawVolume(batch, v);
+    for (let volume = 0; volume < SMOKE_CAP; volume++) if (this.active[volume]) this.drawVolume(batch, volume);
   },
-  drawVolume(batch, v) {
-    const grown = this.grownRadius(v);
+  drawVolume(batch, volume) {
+    const grown = this.grownRadius(volume);
     for (let ix = SMOKE_DRAW_START; ix < SMOKE_DIM; ix += SMOKE_DRAW_STEP) {
-      for (let iy = SMOKE_DRAW_START; iy < SMOKE_DIM; iy += SMOKE_DRAW_STEP) this.drawColumn(batch, v, ix, iy, grown);
+      for (let iy = SMOKE_DRAW_START; iy < SMOKE_DIM; iy += SMOKE_DRAW_STEP) this.drawColumn(batch, volume, ix, iy, grown);
     }
     const cell = Rng.fx.int(0, SMOKE_CELLS - 1);
-    if (!this.occupied(v, cell, grown)) return;
+    if (!this.occupied(volume, cell, grown)) return;
     const ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-    Fx.burst('smoke', this.x[v] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[v] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[v] + (iz - SMOKE_HALF) * SMOKE_CELL, 0, 1, 0, 2, null);
+    Fx.burst('smoke', this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL, 0, 1, 0, 2, null);
   },
-  drawColumn(batch, v, ix, iy, grown) {
+  drawColumn(batch, volume, ix, iy, grown) {
     for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
-      if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(v, this.cellIndex(ix, iy, iz), grown)) continue;
+      if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(volume, this.cellIndex(ix, iy, iz), grown)) continue;
       this.drawn++;
       const shade = 0.5 + iy / SMOKE_DIM * 0.25;
-      batch.mesh('sphere', this.x[v] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[v] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[v] + (iz - SMOKE_HALF) * SMOKE_CELL,
+      batch.mesh('sphere', this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL,
         0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
     }
   },
@@ -278,74 +278,74 @@ const GadgetAreas = {
     return slot;
   },
   step(dt) {
-    for (let a = 0; a < AREA_CAP; a++) {
-      if (!this.active[a]) continue;
-      const row = CAT.gadgets[this.row[a]];
-      if (Sim.tick >= this.endTick[a]) { this.finish(a, row); continue; }
-      this.steps[row.effect](a, row, dt);
+    for (let area = 0; area < AREA_CAP; area++) {
+      if (!this.active[area]) continue;
+      const row = CAT.gadgets[this.row[area]];
+      if (Sim.tick >= this.endTick[area]) { this.finish(area, row); continue; }
+      this.steps[row.effect](area, row, dt);
     }
   },
   // Accumulates the area clock; true once per interval.
-  due(a, dt, interval) {
-    this.clock[a] += dt;
-    if (this.clock[a] < interval - 1e-6) return false;
-    this.clock[a] -= interval;
+  due(area, dt, interval) {
+    this.clock[area] += dt;
+    if (this.clock[area] < interval - 1e-6) return false;
+    this.clock[area] -= interval;
     return true;
   },
-  finish(a, row) {
-    this.active[a] = 0;
-    if (row.effect === 'singularity') gadgetBlast(row, this.owner[a], this.x[a], this.y[a], this.z[a]);
+  finish(area, row) {
+    this.active[area] = 0;
+    if (row.effect === 'singularity') gadgetBlast(row, this.owner[area], this.x[area], this.y[area], this.z[area]);
   },
   // G04: HP/s ramps from fireRampFrom x peak to the peak; smoke puts it out.
-  stepFire(a, row, dt) {
-    if (!this.due(a, dt, AREA_TICK)) return;
-    if (Smoke.covers(this.x[a], this.y[a] + 0.5, this.z[a])) { this.active[a] = 0; return; }
-    const age = (Sim.tick - this.startTick[a]) / Math.max(1, this.endTick[a] - this.startTick[a]);
+  stepFire(area, row, dt) {
+    if (!this.due(area, dt, AREA_TICK)) return;
+    if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
+    const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
     const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK;
-    for (let id = 0; id < Actors.count; id++) if (this.inFire(a, row, id)) this.burn(a, row, id, amount);
-    if (!Game.headless) Fx.burst('fire', this.x[a], this.y[a] + 0.1, this.z[a], 0, 1, 0, 6, null);
+    for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) this.burn(area, row, id, amount);
+    if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, 6, null);
   },
-  inFire(a, row, id) {
-    if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[a]) > FIRE_AREA_HEIGHT) return false;
-    return (Actors.x[id] - this.x[a]) ** 2 + (Actors.z[id] - this.z[a]) ** 2 <= row.radius * row.radius;
+  inFire(area, row, id) {
+    if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[area]) > FIRE_AREA_HEIGHT) return false;
+    return (Actors.x[id] - this.x[area]) ** 2 + (Actors.z[id] - this.z[area]) ** 2 <= row.radius * row.radius;
   },
-  burn(a, row, id, amount) {
+  burn(area, row, id, amount) {
     const info = Damage.info();
     info.amount = amount; info.kind = 'dot'; info.mode = GADGET_MODES[row.index]; info.weapon = row.id; info.element = row.element;
     info.x = Actors.x[id]; info.y = Actors.y[id] + 0.5; info.z = Actors.z[id];
-    if (Damage.apply(this.owner[a], id, info) > 0 && row.status) Damage.addStatus(id, row.status, this.owner[a], row.statusSeconds, 1);
+    if (Damage.apply(this.owner[area], id, info) > 0 && row.status) Damage.addStatus(id, row.status, this.owner[area], row.statusSeconds, 1);
   },
   // G05: fake shots in the owner's weapon noise that bots hear as the owner (BOT-005).
-  stepDecoy(a, row, dt) {
-    if (!this.due(a, dt, 1 / row.rate)) return;
-    const owner = this.owner[a], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-    emitGadgetSound(this.x[a], this.y[a] + 0.2, this.z[a], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
-    if (!Game.headless) Fx.burst('muzzle', this.x[a], this.y[a] + 0.2, this.z[a], 0, 1, 0, 3, null);
+  stepDecoy(area, row, dt) {
+    if (!this.due(area, dt, 1 / row.rate)) return;
+    const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
+    emitGadgetSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+    if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
   },
   // G09: everyone in reach is pulled to the centre (m/s^2), then the blast.
-  stepPull(a, row, dt) {
+  stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
-      if (!gadgetReaches(this.owner[a], id, this.x[a], this.y[a], this.z[a], row.radius)) continue;
-      const dx = this.x[a] - Actors.x[id], dy = this.y[a] - Actors.y[id], dz = this.z[a] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
+      if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
+      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
       emitGadgetImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
-    if (!Game.headless && this.due(a, dt, AREA_TICK)) Fx.burst('energy', this.x[a], this.y[a], this.z[a], 0, 1, 0, 6, row.color);
+    if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
   // G19: pulses reveal enemies within reach (line of sight) every interval.
-  stepPulse(a, row, dt) {
-    if (!this.due(a, dt, row.interval)) return;
+  stepPulse(area, row, dt) {
+    if (!this.due(area, dt, row.interval)) return;
     for (let id = 0; id < Actors.count; id++) {
-      if (id !== this.owner[a] && gadgetReaches(this.owner[a], id, this.x[a], this.y[a], this.z[a], row.radius)) Damage.addStatus(id, row.status, this.owner[a], row.statusSeconds, 1);
+      if (id !== this.owner[area] && gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) Damage.addStatus(id, row.status, this.owner[area], row.statusSeconds, 1);
     }
-    emitGadgetSound(this.x[a], this.y[a], this.z[a], POP_NOISE, 'pulse', this.owner[a]);
-    if (!Game.headless) Fx.burst('energy', this.x[a], this.y[a], this.z[a], 0, 1, 0, 12, row.color);
-    if (--this.pulses[a] <= 0) this.active[a] = 0;
+    emitGadgetSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
+    if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
+    if (--this.pulses[area] <= 0) this.active[area] = 0;
   },
 };
-GadgetAreas.steps.fire = (a, row, dt) => GadgetAreas.stepFire(a, row, dt);
-GadgetAreas.steps.decoy = (a, row, dt) => GadgetAreas.stepDecoy(a, row, dt);
-GadgetAreas.steps.singularity = (a, row, dt) => GadgetAreas.stepPull(a, row, dt);
-GadgetAreas.steps.dart = (a, row, dt) => GadgetAreas.stepPulse(a, row, dt);
+GadgetAreas.steps.fire = (area, row, dt) => GadgetAreas.stepFire(area, row, dt);
+GadgetAreas.steps.decoy = (area, row, dt) => GadgetAreas.stepDecoy(area, row, dt);
+GadgetAreas.steps.singularity = (area, row, dt) => GadgetAreas.stepPull(area, row, dt);
+GadgetAreas.steps.dart = (area, row, dt) => GadgetAreas.stepPulse(area, row, dt);
 
 // A blast of a gadget row through the single damage path.
 function gadgetBlast(row, owner, x, y, z) {
@@ -517,8 +517,8 @@ const Thrown = {
   draw(batch) {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
-      const row = CAT.gadgets[this.row[slot]], o = row.index * 3, size = row.size;
-      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], GADGET_RGB[o], GADGET_RGB[o + 1], GADGET_RGB[o + 2], 0.3);
+      const row = CAT.gadgets[this.row[slot]], offset = row.index * 3, size = row.size;
+      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], GADGET_RGB[offset], GADGET_RGB[offset + 1], GADGET_RGB[offset + 2], 0.3);
     }
   },
 };
@@ -549,7 +549,7 @@ const Gadgets = {
   },
   thrownTotal(id) {
     let total = 0;
-    for (let g = 0; g < GADGET_COUNT; g++) if (CAT.gadgets[g].kind === 'thrown') total += this.count[id * GADGET_COUNT + g];
+    for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown') total += this.count[id * GADGET_COUNT + rowIndex];
     return total;
   },
   // Adds uses of a row (economy buys, pickups, kits); thrown rows respect the kit limits, others take the gadget slot.
@@ -576,8 +576,8 @@ const Gadgets = {
   // The next carried grenade row after the current one (when a type runs out).
   nextGrenade(id) {
     for (let step = 1; step <= GADGET_COUNT; step++) {
-      const g = (Math.max(0, this.grenade[id]) + step) % GADGET_COUNT;
-      if (CAT.gadgets[g].kind === 'thrown' && this.count[id * GADGET_COUNT + g]) return g;
+      const rowIndex = (Math.max(0, this.grenade[id]) + step) % GADGET_COUNT;
+      if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) return rowIndex;
     }
     return -1;
   },
@@ -620,10 +620,10 @@ const Gadgets = {
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
   startHold(id) {
-    const g = this.grenade[id];
-    if (g < 0 || !this.count[id * GADGET_COUNT + g]) return;
+    const rowIndex = this.grenade[id];
+    if (rowIndex < 0 || !this.count[id * GADGET_COUNT + rowIndex]) return;
     this.holdStart[id] = Sim.tick;
-    this.holdRow[id] = g;
+    this.holdRow[id] = rowIndex;
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
@@ -702,24 +702,24 @@ const Gadgets = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || this.holdStart[id] < 0 || !Settings.get('gameplay.grenadePreview')) return;
     throwVelocity(id, (Actors.buttons[id] & BTN.ALT) !== 0, throwScratch);
-    const p = previewScratch, gravity = bodyGravity();
-    p.x = Actors.x[id]; p.y = Actors.eyeY(id) - 0.2; p.z = Actors.z[id]; p.vx = throwScratch.x; p.vy = throwScratch.y; p.vz = throwScratch.z;
+    const point = previewScratch, gravity = bodyGravity();
+    point.x = Actors.x[id]; point.y = Actors.eyeY(id) - 0.2; point.z = Actors.z[id]; point.vx = throwScratch.x; point.vy = throwScratch.y; point.vz = throwScratch.z;
     for (let k = 0; k < PREVIEW_POINTS; k++) {
-      if (this.previewStep(p, gravity)) { this.drawLanding(batch, p, CAT.gadgets[this.holdRow[id]]); return; }
-      if (k % 2 === 0) batch.mesh('sphere', p.x, p.y, p.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
+      if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, CAT.gadgets[this.holdRow[id]]); return; }
+      if (k % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
     }
   },
   // One preview segment; true (and p on the surface) when it meets the world.
-  previewStep(p, gravity) {
-    const nx = p.vx * PREVIEW_SECONDS, ny = p.vy * PREVIEW_SECONDS - gravity * PREVIEW_SECONDS * PREVIEW_SECONDS / 2, nz = p.vz * PREVIEW_SECONDS, length = Math.hypot(nx, ny, nz);
-    p.vy -= gravity * PREVIEW_SECONDS;
-    if (World.raycast(p.x, p.y, p.z, nx / length, ny / length, nz / length, length, gadgetHit)) { p.x = gadgetHit.x; p.y = gadgetHit.y; p.z = gadgetHit.z; return true; }
-    p.x += nx; p.y += ny; p.z += nz;
+  previewStep(point, gravity) {
+    const nx = point.vx * PREVIEW_SECONDS, ny = point.vy * PREVIEW_SECONDS - gravity * PREVIEW_SECONDS * PREVIEW_SECONDS / 2, nz = point.vz * PREVIEW_SECONDS, length = Math.hypot(nx, ny, nz);
+    point.vy -= gravity * PREVIEW_SECONDS;
+    if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) { point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z; return true; }
+    point.x += nx; point.y += ny; point.z += nz;
     return false;
   },
-  drawLanding(batch, p, row) {
+  drawLanding(batch, point, row) {
     const size = Math.max(0.5, row.radius * 2);
-    batch.mesh('ring', p.x, p.y + 0.05, p.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
+    batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
   },
   clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); },
 };

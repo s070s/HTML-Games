@@ -396,12 +396,12 @@ const Items = {
     }
   },
   drawPickup(batch, slot, spin, bob) {
-    const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], o = index * 3;
+    const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
     const y = this.y[slot] + PICKUP_FLOAT + bob, power = this.isPower(slot);
     if (this.spot[slot]) this.drawBase(batch, slot, power ? 0.9 : 0.5);
-    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, rgb[o], rgb[o + 1], rgb[o + 2], power ? 0.8 : 0.35); return; }
+    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, rgb[offset], rgb[offset + 1], rgb[offset + 2], power ? 0.8 : 0.35); return; }
     const size = row.size, shape = row.shape;
-    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, shape === 'ring' ? size * 0.3 : size, size, rgb[o], rgb[o + 1], rgb[o + 2], power ? 0.9 : 0.45);
+    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, shape === 'ring' ? size * 0.3 : size, size, rgb[offset], rgb[offset + 1], rgb[offset + 2], power ? 0.9 : 0.45);
   },
   drawBase(batch, slot, glow) {
     const color = PICKUP_GROUP_COLORS[this.group[slot]];

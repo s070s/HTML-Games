@@ -50,7 +50,7 @@ const Powerups = {
     return this.endTick[slot] === POWERUP_FOREVER ? POWERUP_FOREVER : Math.max(0, this.endTick[slot] - Sim.tick);
   },
   runeActive(id) {
-    for (let p = 0; p < POWERUP_COUNT; p++) if (this.active[id * POWERUP_COUNT + p] && CAT.powerups[p].stacking === 'rune') return true;
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup] && CAT.powerups[powerup].stacking === 'rune') return true;
     return false;
   },
 
@@ -133,25 +133,25 @@ const Powerups = {
   refresh(id) {
     this.resetAggregates(id);
     let healthScale = 1, armorScale = 1;
-    for (let p = 0; p < POWERUP_COUNT; p++) {
-      if (!this.active[id * POWERUP_COUNT + p]) continue;
-      const mods = CAT.powerups[p].mods;
-      this.addMods(id, p, mods);
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      if (!this.active[id * POWERUP_COUNT + powerup]) continue;
+      const mods = CAT.powerups[powerup].mods;
+      this.addMods(id, powerup, mods);
       healthScale *= mods.maxHealthScale || 1;
       armorScale *= mods.maxArmorScale || 1;
     }
     this.applyMaxScales(id, healthScale, armorScale);
     this.writeHooks(id);
   },
-  addMods(id, p, mods) {
+  addMods(id, powerup, mods) {
     this.damageScale[id] *= mods.damage || 1; this.meleeScale[id] *= mods.melee || 1; this.takenScale[id] *= mods.taken || 1;
     this.speedScale[id] *= mods.speed || 1; this.rateScale[id] *= mods.rate || 1;
     this.lifesteal[id] += mods.lifesteal || 0; this.ammoRegen[id] += mods.ammoRegen || 0;
     this.flight[id] = Math.max(this.flight[id], mods.flight || 0); this.surplusDecay[id] = Math.max(this.surplusDecay[id], mods.surplusDecay || 0);
     this.jumpScale[id] = Math.max(this.jumpScale[id], mods.jumpScale || 1);
     if (mods.invisible) this.perception[id] = Math.min(this.perception[id], mods.perception);
-    if (mods.regen) this.regenRow[id] = p;
-    if (this.glowRow[id] < 0) this.glowRow[id] = p;
+    if (mods.regen) this.regenRow[id] = powerup;
+    if (this.glowRow[id] < 0) this.glowRow[id] = powerup;
     this.flags[id] |= (mods.invulnerable ? POWERUP_FLAG.INVULNERABLE : 0) | (mods.freeAmmo ? POWERUP_FLAG.FREE_AMMO : 0) | (mods.invisible ? POWERUP_FLAG.INVISIBLE : 0)
       | (mods.fodderMelee ? POWERUP_FLAG.FODDER_MELEE : 0) | (mods.reveal ? POWERUP_FLAG.REVEAL : 0) | (mods.noArmor ? POWERUP_FLAG.NO_ARMOR : 0);
     if (mods.noFall) this.immune[id] |= DAMAGE_KIND_BIT.fall;
@@ -198,15 +198,15 @@ const Powerups = {
   // Removes every powerup of an actor; dying drops the droppable ones first (PWR-003: time left, at least 5 s).
   clearActor(id, dropThem) {
     if (dropThem) this.dropAll(id);
-    for (let p = 0; p < POWERUP_COUNT; p++) if (this.active[id * POWERUP_COUNT + p]) this.end(id, CAT.powerups[p], false);
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup]) this.end(id, CAT.powerups[powerup], false);
     this.seerClock[id] = this.ammoClock[id] = 0;
   },
   dropAll(id) {
     let count = 0, k = 0;
-    for (let p = 0; p < POWERUP_COUNT; p++) if (this.active[id * POWERUP_COUNT + p] && CAT.powerups[p].drops) count++;
-    for (let p = 0; p < POWERUP_COUNT; p++) {
-      const row = CAT.powerups[p];
-      if (!this.active[id * POWERUP_COUNT + p] || !row.drops) continue;
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup] && CAT.powerups[powerup].drops) count++;
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      const row = CAT.powerups[powerup];
+      if (!this.active[id * POWERUP_COUNT + powerup] || !row.drops) continue;
       const left = this.isTimed(row) ? Math.max(itemTicks(ITEM_TIMING.droppedPowerupMinimum), this.ticksLeft(id, row)) : 0;
       Items.dropAround(row.id, id, k++, count, left);
     }
@@ -233,9 +233,9 @@ const Powerups = {
     }
   },
   expire(id) {
-    for (let p = 0; p < POWERUP_COUNT; p++) {
-      const slot = id * POWERUP_COUNT + p;
-      if (this.active[slot] && this.spent(id, CAT.powerups[p], slot)) this.end(id, CAT.powerups[p], true);
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      const slot = id * POWERUP_COUNT + powerup;
+      if (this.active[slot] && this.spent(id, CAT.powerups[powerup], slot)) this.end(id, CAT.powerups[powerup], true);
     }
   },
   spent(id, row, slot) {
@@ -319,9 +319,9 @@ const Powerups = {
     const id = event.id;
     if (this.jumpScale[id] <= 1) return;
     Actors.vy[id] *= Math.sqrt(this.jumpScale[id]);
-    for (let p = 0; p < POWERUP_COUNT; p++) {
-      const slot = id * POWERUP_COUNT + p;
-      if (this.active[slot] && CAT.powerups[p].pool === 'jumps') this.charges[slot]--;
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      const slot = id * POWERUP_COUNT + powerup;
+      if (this.active[slot] && CAT.powerups[powerup].pool === 'jumps') this.charges[slot]--;
     }
   },
 
@@ -329,9 +329,9 @@ const Powerups = {
   fillViews(id, out) {
     out.length = 0;
     if (id < 0 || !this.activeCount[id]) return 0;
-    for (let p = 0; p < POWERUP_COUNT; p++) {
-      if (!this.active[id * POWERUP_COUNT + p]) continue;
-      const row = CAT.powerups[p], view = powerupViews.items[out.length], left = this.ticksLeft(id, row);
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      if (!this.active[id * POWERUP_COUNT + powerup]) continue;
+      const row = CAT.powerups[powerup], view = powerupViews.items[out.length], left = this.ticksLeft(id, row);
       view.id = row.id; view.name = row.name; view.color = row.color; view.persistent = left === POWERUP_FOREVER;
       view.remaining = left === POWERUP_FOREVER ? this.poolLeft(id, row) : left / TICK_RATE;
       view.duration = row.duration || row.charges || row.instant.surplus || row.instant.belt || 0;
@@ -346,8 +346,8 @@ const Powerups = {
   // Render.actorStyle: holders glow in their powerup colour; Ghostveil hides the body except for a short shimmer.
   style(id, out) {
     if (!this.activeCount[id] || this.glowRow[id] < 0) return;
-    const o = this.glowRow[id] * 3;
-    out.r = lerp(out.r, POWERUP_RGB[o], POWERUP_TINT); out.g = lerp(out.g, POWERUP_RGB[o + 1], POWERUP_TINT); out.b = lerp(out.b, POWERUP_RGB[o + 2], POWERUP_TINT);
+    const offset = this.glowRow[id] * 3;
+    out.r = lerp(out.r, POWERUP_RGB[offset], POWERUP_TINT); out.g = lerp(out.g, POWERUP_RGB[offset + 1], POWERUP_TINT); out.b = lerp(out.b, POWERUP_RGB[offset + 2], POWERUP_TINT);
     out.emissive = Math.max(out.emissive, POWERUP_GLOW);
     if (this.setInvisible[id]) out.visible = (Sim.time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS;
   },
