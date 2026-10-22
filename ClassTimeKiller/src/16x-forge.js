@@ -557,7 +557,13 @@ const Forge = {
   },
 
   // ---- Saved maps (Save.data.editorMaps, up to 20) ----
-  saved() { return Save.data.editorMaps; },
+  // The list in the save; an entry that is not a saved map (a damaged or edited save) is dropped.
+  saved() {
+    const list = Save.data.editorMaps;
+    if (!Array.isArray(list)) Save.data.editorMaps = [];
+    else if (!list.every(forgeEntryIs)) Save.data.editorMaps = list.filter(forgeEntryIs);
+    return Save.data.editorMaps;
+  },
   savedIndex(id) { return this.saved().findIndex((entry) => entry.id === id); },
   usedBytes() { return JSON.stringify(this.saved()).length; },
   freeBytes() { return FORGE_SAFE_SAVE_BYTES - JSON.stringify(Save.data).length; },
@@ -650,6 +656,8 @@ const Forge = {
     }
   },
 };
+
+const forgeEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
 
 // Why a parsed code is not a map this version can hold, or '' when it is fine. Every number and key is checked: a code is untrusted text.
 function forgeProblemWith(def) {

@@ -15,6 +15,28 @@ function forgeRandomSource(seed) {
   return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
 }
 const forgeSnapped = (value) => Math.round(value * 2) / 2;
+// The self-test can run from Help while the player has a map in the editor and saved maps registered: the first block keeps that state, the last puts it back.
+let forgeKept = null;
+function forgeKeepEditor() {
+  const tools = ForgeTools;
+  forgeKept = { map: Forge.map, slotId: Forge.slotId, dirty: Forge.dirty, history: Forge.history, selection: Object.assign({}, Forge.selection), runtime: Maps.runtime.slice(),
+    tools: { tool: tools.tool, elevation: tools.elevation, snapIndex: tools.snapIndex, turns: tools.turns, cameraPlaced: tools.cameraPlaced, stamp: forgeClone(tools.stamp),
+      view: Object.assign({}, tools.view), camera: Object.assign({}, tools.camera) } };
+  Forge.history = { entries: new Array(FORGE_HISTORY_SIZE).fill(null), start: 0, length: 0, position: 0 };
+}
+function forgeRestoreEditor() {
+  if (!forgeKept) return;
+  const kept = forgeKept, tools = ForgeTools;
+  forgeKept = null;
+  forgeEditorOff();
+  Forge.map = kept.map; Forge.slotId = kept.slotId; Forge.dirty = kept.dirty; Forge.history = kept.history;
+  Object.assign(Forge.selection, kept.selection);
+  Maps.runtime.push(...kept.runtime);
+  Object.assign(tools, { tool: kept.tools.tool, elevation: kept.tools.elevation, snapIndex: kept.tools.snapIndex, turns: kept.tools.turns, cameraPlaced: kept.tools.cameraPlaced });
+  Object.assign(tools.stamp, kept.tools.stamp);
+  Object.assign(tools.view, kept.tools.view);
+  Object.assign(tools.camera, kept.tools.camera);
+}
 function forgeEditorOff() {
   ForgeTools.detach();
   ForgeTools.returning = false;
@@ -73,6 +95,7 @@ function forgeLookDown(height) {
 
 Test.add('forge', (check) => {
   // ---- Start points, templates, built-in copies ----
+  forgeKeepEditor();
   forgeEditorOff();
   const empty = Forge.newFrom({ kind: 'empty' });
   check('empty map starts with one floor brush', !empty.error && Forge.count() === 1 && Forge.map.brushes[0].shape === 'box' && Forge.dirty);
@@ -239,11 +262,15 @@ Test.add('forge', (check) => {
 
   // storage cap
   Forge.newFrom({ kind: 'template', id: 'yard' });
-  Save.data.editorMaps.push({ id: 'filler', name: 'Filler', modes: [], data: { pad: 'x'.repeat(FORGE_SAFE_SAVE_BYTES - 3000) }, bytes: FORGE_SAFE_SAVE_BYTES - 3000 });
+  Save.data.editorMaps.push({ id: 'user99', name: 'Filler', modes: [], data: { pad: 'x'.repeat(FORGE_SAFE_SAVE_BYTES - 3000) }, bytes: FORGE_SAFE_SAVE_BYTES - 3000 });
   check('free space is reported against the safe cap', Forge.freeBytes() < 4000 && Forge.freeBytes() > 0, Forge.freeBytes());
   check('a save that would pass the safe cap is refused with the sizes', !Forge.saveCurrent('Too big') && /not enough room/i.test(Forge.message) && /KB/.test(Forge.message) && Forge.saved().length === 1, Forge.message);
   Save.data.editorMaps.length = 0;
   Forge.syncRuntime();
+  Save.data.editorMaps.push(null, { id: 'x' }, 'text', { id: 'user7', name: 'Damaged', modes: [], bytes: 5, data: 5 });
+  check('damaged entries in the save are dropped, not trusted', Forge.saved().length === 0 && Array.isArray(Save.data.editorMaps));
+  Save.data.editorMaps = 'broken';
+  check('a save whose list is not a list is repaired', Forge.saved().length === 0 && Array.isArray(Save.data.editorMaps));
   check('with room again the same map saves', Forge.saveCurrent('Fits') && Forge.usedBytes() < FORGE_SAFE_SAVE_BYTES);
   Save.storage = makeMemoryStorage(true);
   Forge.dirty = true;
@@ -748,6 +775,11 @@ Test.add('forge', (check) => {
   ForgeTools.draw(none);
   check('the source draws nothing while the editor is closed', none.count === 0);
   forgeEditorOff();
+});
+
+Test.add('forge', (check) => {
+  forgeRestoreEditor();
+  check('the editor state of the player is back after the tests', forgeKept === null);
 });
 
 // A longer randomised sweep: many seeds of random edits with undo / redo, saves and codes. Returns { seeds, failures }.
