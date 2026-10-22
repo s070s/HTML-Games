@@ -157,12 +157,7 @@ const Devices = {
     if (row.effect === 'drones') { this.detonateDrone(device, row); return; }
     this.remove(device, false);
   },
-  due(device, dt, interval) {
-    this.clock[device] += dt;
-    if (this.clock[device] < interval - 1e-6) return false;
-    this.clock[device] -= interval;
-    return true;
-  },
+  due(device, dt, interval) { return intervalDue(this.clock, device, dt, interval); },
   // True for living enemies of the owner (what devices target, trigger on and block).
   enemyOf(device, id) {
     if (!Actors.alive[id] || id === this.owner[device]) return false;
@@ -409,7 +404,7 @@ const Devices = {
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
     if (device < 0) return;
-    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, mode.repair / mode.rate); return; }
+    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, repairPerShot(mode)); return; }
     this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
   },
   // FireMode.repair (W30 beam): a friendly device regains health up to its row's maximum.
