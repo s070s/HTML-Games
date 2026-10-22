@@ -80,6 +80,7 @@ const TouchInput = {
   stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false },
   editing: false, selected: null, onSelect: null,
   shown: false,
+  currentPreset: TOUCH_PRESETS[0],
   gyro: { right: 0, down: 0, attached: false },
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
 
@@ -280,14 +281,15 @@ const TouchInput = {
     this.live.classList.remove('show');
     for (const element of Object.values(this.elements)) element.classList.remove('down');
   },
-  applyConfig() {
+  applyConfig(config) {
+    this.currentPreset = TOUCH_PRESETS.find((preset) => preset.id === config.touchLayout) || TOUCH_PRESETS[0];   // looked up once, not on every touch move
     if (!this.layer) return;
     this.applyAll();
-    if (Input.config.touchGyro !== 'off') this.requestGyro();
+    if (config.touchGyro !== 'off') this.requestGyro();
   },
 
   // ---- Layout (INP-005) ----
-  preset() { return TOUCH_PRESETS.find((preset) => preset.id === Input.config.touchLayout) || TOUCH_PRESETS[0]; },
+  preset() { return this.currentPreset; },
   savedLayout(controlId) {
     const layouts = Save.data.touchLayouts[this.preset().id];
     return layouts && layouts[controlId] ? layouts[controlId] : null;

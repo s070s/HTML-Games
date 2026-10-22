@@ -10,9 +10,9 @@ const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
 const UI_SETTINGS = [
-  { key: 'ui.scale', field: 'uiScale', fallback: 1, label: 'UI scale', category: 'accessibility', min: 0.75, max: 1.5, step: 0.05 },
-  { key: 'developer.perfHud', field: 'perfHud', fallback: false, label: 'Performance overlay (F10)', category: 'developer' },
-  { key: 'developer.botDebug', field: 'botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
+  { key: 'ui.scale', fallback: 1, label: 'UI scale', category: 'accessibility', min: 0.75, max: 1.5, step: 0.05 },
+  { key: 'developer.perfHud', fallback: false, label: 'Performance overlay (F10)', category: 'developer' },
+  { key: 'developer.botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
 ];
 
 const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'

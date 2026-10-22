@@ -6,8 +6,8 @@ Ui.selfTestRunner = (options) => Test.run(options);   // Help > Run self-test
 const UI_OPEN_BUDGET_MS = 1000;   // UI-001: no screen takes longer than 1 s to open
 
 // UI tests need the DOM menus, which are off in headless runs: switch them on for one block and restore afterwards.
-// enterUi() returns the function that undoes it (and drops the screens the tests registered, all named test*).
-function enterUi() {
+// uiEnter() returns the function that undoes it (and drops the screens the tests registered, all named test*).
+function uiEnter() {
   const savedHeadless = Game.headless, savedCanLock = Input.canLock;
   Game.headless = false;
   Input.canLock = () => false;
@@ -22,27 +22,27 @@ function enterUi() {
     Input.clearAll();
   };
 }
-function withUi(run) {
-  const leave = enterUi();
+function uiWith(run) {
+  const leave = uiEnter();
   try { return run(); } finally { leave(); }
 }
-function waitMs(milliseconds) { return new Promise((done) => setTimeout(done, milliseconds)); }
+function uiWait(milliseconds) { return new Promise((done) => setTimeout(done, milliseconds)); }
 function uiKey(code, shift) { window.dispatchEvent(new KeyboardEvent('keydown', { code, shiftKey: !!shift, bubbles: true, cancelable: true })); }
-function menuCommand(command) { Bus.emit('input.menu', { command }); }
-function screenText(name) { return Ui.root.querySelector('.ui-' + name).textContent; }
-function clickButton(root, text) {
+function uiMenuCommand(command) { Bus.emit('input.menu', { command }); }
+function uiScreenText(name) { return Ui.root.querySelector('.ui-' + name).textContent; }
+function uiClickButton(root, text) {
   const button = Array.from(root.querySelectorAll('button')).find((item) => item.textContent.startsWith(text));
   if (button) button.click();
   return !!button;
 }
-function openTestScreen(name, labels, clicks) {
+function uiOpenTestScreen(name, labels, clicks) {
   Ui.register(name, {
     build(root) { labels.forEach((label, index) => root.appendChild(Ui.button(label, () => clicks.push(label + index)))); },
   });
   return Ui.open(name);
 }
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   const log = [];
   Ui.register('testA', { build(root) { root.appendChild(Ui.button('A1', () => {})); }, onOpen() { log.push('openA'); }, onClose() { log.push('closeA'); } });
   Ui.register('testB', { build(root) { root.appendChild(Ui.button('B1', () => {})); }, onOpen() { log.push('openB'); }, onClose() { log.push('closeB'); } });
@@ -76,24 +76,24 @@ Test.add('ui', (check) => withUi(() => {
   Ui.closeAll();
   let confirmed = 0;
   Ui.confirm({ title: 'Sure?', text: 'Really?', yes: 'Do it', onYes: () => { confirmed++; } });
-  check('confirm: the dialog focuses the safe answer', document.activeElement.textContent === 'Cancel' && screenText('confirm').includes('Really?'));
-  clickButton(Ui.top().element, 'Cancel');
+  check('confirm: the dialog focuses the safe answer', document.activeElement.textContent === 'Cancel' && uiScreenText('confirm').includes('Really?'));
+  uiClickButton(Ui.top().element, 'Cancel');
   check('confirm: Cancel closes without acting', confirmed === 0 && Ui.stack.length === 0);
   Ui.confirm({ title: 'Sure?', text: 'Really?', yes: 'Do it', onYes: () => { confirmed++; } });
-  clickButton(Ui.top().element, 'Do it');
+  uiClickButton(Ui.top().element, 'Do it');
   check('confirm: the yes button acts once and closes', confirmed === 1 && Ui.stack.length === 0);
   const clicks = [];
   const listener = Bus.on('ui.click', (payload) => clicks.push(payload.kind));
   Ui.register('testClicker', { build(root) { root.appendChild(Ui.button('C', () => {})); } });
   Ui.open('testClicker');
-  clickButton(Ui.top().element, 'C'); Ui.back();
+  uiClickButton(Ui.top().element, 'C'); Ui.back();
   Bus.off('ui.click', listener);
   check('events: buttons and back emit ui.click for the sound hook', clicks.join() === 'accept,back', clicks.join());
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   const clicks = [];
-  openTestScreen('testNav', ['First', 'Second', 'Third'], clicks);
+  uiOpenTestScreen('testNav', ['First', 'Second', 'Third'], clicks);
   const buttons = Array.from(Ui.top().element.querySelectorAll('button'));
   check('focus: the first control is focused on open (INP-010)', document.activeElement === buttons[0]);
   uiKey('ArrowDown');
@@ -110,13 +110,13 @@ Test.add('ui', (check) => withUi(() => {
   check('keyboard: Shift+Tab goes back and wraps', document.activeElement === buttons[2]);
   const moves = [];
   const listener = Bus.on('ui.click', (payload) => moves.push(payload.kind));
-  menuCommand('up');
+  uiMenuCommand('up');
   check('gamepad: the d-pad moves focus and emits a move sound', document.activeElement === buttons[1] && moves.join() === 'move');
-  menuCommand('next');
-  menuCommand('accept');
+  uiMenuCommand('next');
+  uiMenuCommand('accept');
   Bus.off('ui.click', listener);
   check('gamepad: accept presses the focused button', clicks.join() === 'Third2', clicks.join());
-  menuCommand('back');
+  uiMenuCommand('back');
   check('gamepad: back closes the screen', Ui.stack.length === 0);
   Ui.register('testAdjust', {
     build(root) {
@@ -128,7 +128,7 @@ Test.add('ui', (check) => withUi(() => {
   Ui.open('testAdjust');
   uiKey('ArrowRight'); uiKey('ArrowRight'); uiKey('ArrowLeft');
   check('keyboard: left and right change a cycle value', clicks.join() === 'b,c,b', clicks.join());
-  uiKey('ArrowDown'); menuCommand('right'); menuCommand('right'); menuCommand('left');
+  uiKey('ArrowDown'); uiMenuCommand('right'); uiMenuCommand('right'); uiMenuCommand('left');
   const slider = Ui.top().element.querySelector('input');
   check('gamepad: left and right change a slider', slider.value === '6' && clicks.slice(3).join() === '6,7,6', clicks.join());
   check('slider: the value label follows', Ui.top().element.querySelector('.ui-value').textContent === 'v6');
@@ -136,7 +136,7 @@ Test.add('ui', (check) => withUi(() => {
   check('keyboard: Esc goes back', Ui.stack.length === 0);
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Ui.toast('Hello there');
   check('toast: appears with the text', Ui.toastBox.lastChild.textContent === 'Hello there' && Ui.lastToast === 'Hello there');
   Bus.emit('toast', { text: 'From the bus' });
@@ -147,7 +147,7 @@ Test.add('ui', (check) => withUi(() => {
   Ui.toastBox.replaceChildren();
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   const names = Array.from(Ui.screens.keys()).filter((name) => !name.startsWith('test'));
   const params = { confirm: { title: 'T', text: 'x', onYes: () => {} }, pause: { reason: 'menu' } };
   for (const name of names) {
@@ -158,7 +158,7 @@ Test.add('ui', (check) => withUi(() => {
     const items = Ui.focusables(Ui.top().element);
     check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && Ui.top().element.contains(document.activeElement));
     const reached = new Set();
-    for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); menuCommand('next'); }
+    for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); uiMenuCommand('next'); }
     check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1, reached.size + ' of ' + items.length);
     check('screen ' + name + ': can be left (back, or a top-level screen)', Ui.top().screen.noBack === true || !!Ui.top().screen.onBack || Ui.back());
     Ui.closeAll();
@@ -166,7 +166,7 @@ Test.add('ui', (check) => withUi(() => {
   }
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Ui.open('settings', { tab: 'controls' });
   const root = Ui.top().element;
   const keys = settingKeys('controls');
@@ -175,10 +175,10 @@ Test.add('ui', (check) => withUi(() => {
   check('settings: labels come from the definitions', Array.from(rows).every((row, index) => row.querySelector('.ui-label').textContent === Settings.definitions.get(keys[index]).label));
   for (const [category] of SETTINGS_TABS) {
     if (!settingKeys(category).length) continue;
-    clickButton(root, SETTINGS_TABS.find((tab) => tab[0] === category)[1]);
+    uiClickButton(root, SETTINGS_TABS.find((tab) => tab[0] === category)[1]);
     check('settings: tab ' + category + ' shows all its settings', root.querySelectorAll('.ui-scroll .ui-row').length === settingKeys(category).length);
   }
-  clickButton(root, 'Controls');
+  uiClickButton(root, 'Controls');
   const sensitivityRow = Array.from(root.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Mouse sensitivity'));
   const slider = sensitivityRow.querySelector('input');
   slider.value = 3; slider.dispatchEvent(new Event('input'));
@@ -190,9 +190,9 @@ Test.add('ui', (check) => withUi(() => {
   const cycleRow = Array.from(root.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Crouch'));
   cycleRow.querySelector('button').click();
   check('settings: a select cycles its options', Settings.get('controls.toggle.crouch') === 'toggle' && cycleRow.querySelector('button').textContent === 'Toggle');
-  clickButton(root, 'Reset this tab');
+  uiClickButton(root, 'Reset this tab');
   check('settings: reset asks first', Ui.current() === 'confirm' && Settings.get('controls.invertY') === true);
-  clickButton(Ui.top().element, 'Reset');
+  uiClickButton(Ui.top().element, 'Reset');
   check('settings: reset restores the tab defaults', Settings.get('controls.invertY') === false && Settings.get('controls.mouseSensitivity') === 1 && Settings.get('controls.toggle.crouch') === 'hold');
   check('settings: the tab redraws after a reset', root.querySelector('.ui-scroll input').value === '1');
   Settings.set('ui.scale', 1.25);
@@ -202,7 +202,7 @@ Test.add('ui', (check) => withUi(() => {
   check('settings: developer tab holds the perf and bot overlays', settingKeys('developer').includes('developer.perfHud') && settingKeys('developer').includes('developer.botDebug'));
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Ui.open('bindings');
   const root = Ui.top().element;
   const rows = root.querySelectorAll('.ui-scroll .ui-row');
@@ -243,7 +243,7 @@ Test.add('ui', (check) => withUi(() => {
   Input.resetBindings();
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
@@ -259,14 +259,14 @@ Test.add('ui', (check) => withUi(() => {
   Ui.register('ladder', { build(root2) { root2.appendChild(Ui.button('Later', () => {})); } });
   Ui.closeAll(); Ui.open('main');
   check('main menu: a screen registered later turns its entry on', !Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[1].disabled);
-  clickButton(Ui.top().element, 'Ladder');
+  uiClickButton(Ui.top().element, 'Ladder');
   check('main menu: the entry opens its screen', Ui.current() === 'ladder');
   Ui.screens.delete('ladder');
   Ui.closeAll(); Ui.open('main');
-  clickButton(Ui.top().element, 'Settings');
+  uiClickButton(Ui.top().element, 'Settings');
   check('main menu: Settings opens the settings screen', Ui.current() === 'settings');
   Ui.back();
-  clickButton(Ui.top().element, 'Help');
+  uiClickButton(Ui.top().element, 'Help');
   check('main menu: Help opens the help screen', Ui.current() === 'help');
   Ui.closeAll();
   Save.notice = 'Storage is blocked: settings and progress will not be kept.';
@@ -285,7 +285,7 @@ Test.add('ui', (check) => withUi(() => {
   check('main menu: headless runs open no DOM menu', Ui.stack.length === 0);
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Game.start({ mode: 'ffa' });
   const first = Game.match;
   Game.pause('menu');
@@ -297,28 +297,37 @@ Test.add('ui', (check) => withUi(() => {
   Game.resume(); Game.pause('menu');
   check('pause: later sections add rows through Ui.pauseEntries (rules panel hook)', Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).some((button) => button.textContent === 'Rules'));
   Ui.pauseEntries.length = 0; Ui.screens.delete('testRules');
-  clickButton(Ui.top().element, 'Resume');
+  uiClickButton(Ui.top().element, 'Resume');
   check('pause: Resume resumes and closes the menu', !Game.paused && Ui.stack.length === 0);
   Game.pause('blur');
-  check('pause: the reason is explained', screenText('pause').includes('lost focus'));
+  check('pause: the reason is explained', uiScreenText('pause').includes('lost focus'));
   uiKey('Escape');
   check('pause: Esc resumes (LT-C-039)', !Game.paused && Ui.stack.length === 0);
   Game.pause('menu');
-  menuCommand('back');
+  uiMenuCommand('back');
   check('pause: the gamepad back button resumes', !Game.paused);
   Game.pause('controller');
-  check('pause: a lost controller is explained', screenText('pause').includes('Controller disconnected'));
-  clickButton(Ui.top().element, 'Settings');
+  check('pause: a lost controller is explained', uiScreenText('pause').includes('Controller disconnected'));
+  Game.resume();
+  PadInput.onButton(9, true); PadInput.onButton(9, false);
+  check('pause: the pad Start button pauses a running match', Game.paused && Ui.current() === 'pause');
+  PadInput.onButton(9, true); PadInput.onButton(9, false);
+  check('pause: Start again resumes and does not pause again', !Game.paused && Input.holdCount[Input.actionIndex.pause] === 0);
+  Game.pause('menu');
+  PadInput.onButton(0, true); PadInput.onButton(0, false);
+  check('pause: A presses Resume and does not also jump', !Game.paused && Input.pendingButtons === 0 && Input.holdCount[Input.actionIndex.jump] === 0);
+  Game.pause('controller');
+  uiClickButton(Ui.top().element, 'Settings');
   check('pause: Settings opens on top of the pause menu', Ui.current() === 'settings' && Game.paused);
   Ui.back();
   check('pause: back returns to the pause menu', Ui.current() === 'pause');
-  clickButton(Ui.top().element, 'Restart');
-  clickButton(Ui.top().element, 'Restart');
+  uiClickButton(Ui.top().element, 'Restart');
+  uiClickButton(Ui.top().element, 'Restart');
   check('pause: Restart starts the same setup again', Game.match !== first && Game.match.setup === first.setup && !Game.paused && Ui.stack.length === 0);
   Game.pause('menu');
-  clickButton(Ui.top().element, 'Quit');
+  uiClickButton(Ui.top().element, 'Quit');
   check('pause: Quit asks before leaving', Ui.current() === 'confirm' && Game.state === 'playing');
-  clickButton(Ui.top().element, 'Quit');
+  uiClickButton(Ui.top().element, 'Quit');
   check('pause: Quit returns to the main menu', Game.state === 'menu' && Ui.current() === 'main' && !Game.match);
   Game.start({});
   Game.pause('menu');
@@ -338,7 +347,7 @@ Test.add('ui', (check) => withUi(() => {
 }));
 
 Test.add('ui', async (check) => {
-  const leave = enterUi();
+  const leave = uiEnter();
   const savedRunner = Ui.selfTestRunner, savedResult = Ui.lastSelfTest;
   try {
     Ui.selfTestRunner = null;
@@ -347,10 +356,10 @@ Test.add('ui', async (check) => {
     Ui.closeAll();
     Ui.selfTestRunner = async (options) => ({ total: 5, failed: 1, groups: 2, results: [{ ok: true }, { ok: false, group: 'demo', name: 'broken check', detail: 'was 1' }], headless: options.headless });
     Ui.open('help');
-    const text = screenText('help');
+    const text = uiScreenText('help');
     check('help: shows how to play and the current controls', text.includes('Quick Match') && text.includes('Fire: Left Mouse / RT') && text.includes('Jump: Space / A'));
-    clickButton(Ui.top().element, 'Run self-test');
-    await waitMs(20);
+    uiClickButton(Ui.top().element, 'Run self-test');
+    await uiWait(20);
     const output = Ui.top().element.querySelectorAll('.ui-result')[1];
     check('help: running the self-test shows the result and the failures', output.textContent.startsWith('FAILED 1 of 5 checks') && output.textContent.includes('demo / broken check :: was 1'), output.textContent);
     check('help: the self-test runs headless so the live game is untouched', Ui.lastSelfTest.headless === true);
@@ -361,8 +370,8 @@ Test.add('ui', async (check) => {
     Ui.selfTestRunner = async () => { throw new Error('runner crashed'); };
     Ui.open('help');
     const errorsBefore = ErrorLog.entries.length;
-    const ran = clickButton(Ui.top().element, 'Run self-test');
-    await waitMs(20);
+    const ran = uiClickButton(Ui.top().element, 'Run self-test');
+    await uiWait(20);
     check('help: a crashing self-test is shown as a failure', ran && Ui.lastSelfTest.failed === 1 && ErrorLog.entries.length === errorsBefore + 1);
     ErrorLog.entries.length = errorsBefore;
   } finally {
@@ -372,7 +381,7 @@ Test.add('ui', async (check) => {
   check('help: the real runner is the Test section hook', typeof Ui.selfTestRunner === 'function');
 });
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   Ui.open('settings');
   Ui.open('touchLayout');
   check('layout editor: opening it makes the touch controls editable', TouchInput.editing && TouchInput.layer.classList.contains('editing') && Ui.top().element.classList.contains('passthrough'));
@@ -390,14 +399,14 @@ Test.add('ui', (check) => withUi(() => {
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Panel position')).querySelector('button').click();
   check('layout editor: the panel can be docked away from the controls', Ui.top().element.dataset.dock === 'left');
   Settings.reset('controls.touch.layout'); Input.refreshConfig();
-  clickButton(Ui.top().element, 'Reset layout');
+  uiClickButton(Ui.top().element, 'Reset layout');
   check('layout editor: reset restores the defaults', TouchInput.getProperty('jump', 'scale') === TOUCH_PRESETS[0].scale && !TouchInput.getProperty('jump', 'hidden'));
-  clickButton(Ui.top().element, 'Done');
+  uiClickButton(Ui.top().element, 'Done');
   check('layout editor: Done leaves the editor and returns to settings', !TouchInput.editing && !TouchInput.layer.classList.contains('editing') && Ui.current() === 'settings');
-  check('layout editor: reachable from the controls tab', (() => { Ui.back(); Ui.open('settings', { tab: 'controls' }); return clickButton(Ui.top().element, 'Edit touch layout') && Ui.current() === 'touchLayout'; })());
+  check('layout editor: reachable from the controls tab', (() => { Ui.back(); Ui.open('settings', { tab: 'controls' }); return uiClickButton(Ui.top().element, 'Edit touch layout') && Ui.current() === 'touchLayout'; })());
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   const lines = PerfOverlay.format(Perf.stats());
   const text = lines.join('\n');
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',
@@ -408,7 +417,7 @@ Test.add('ui', (check) => withUi(() => {
   PerfOverlay.shown = false; PerfOverlay.lastUpdate = 0;
   PerfOverlay.frame();
   check('perf HUD: hidden means no work and no DOM', !PerfOverlay.element.classList.contains('show') && PerfOverlay.lastUpdate === 0 && getComputedStyle(PerfOverlay.element).display === 'none');
-  tapKey('F10');
+  inputTapKey('F10');
   check('perf HUD: F10 turns it on and saves the setting', Ui.perfVisible && Settings.get('developer.perfHud') === true && Save.data.settings['developer.perfHud'] === true);
   PerfOverlay.frame();
   check('perf HUD: shows and fills the panel', PerfOverlay.element.classList.contains('show') && PerfOverlay.element.textContent.includes('fps') && getComputedStyle(PerfOverlay.element).display === 'block');
@@ -425,18 +434,18 @@ Test.add('ui', (check) => withUi(() => {
   slow.fps = 120; PerfOverlay.render(slow);
   check('perf HUD: normal colour at 120 fps', !PerfOverlay.element.classList.contains('slow'));
   Ui.open('settings');
-  tapKey('F10');
+  inputTapKey('F10');
   check('perf HUD: F10 works while a menu is open and turns it off', !Ui.perfVisible);
-  tapKey('F9');
+  inputTapKey('F9');
   check('perf HUD: F9 sets Ui.botDebug for later sections', Ui.botDebug === true && Settings.get('developer.botDebug') === true);
-  tapKey('F9');
+  inputTapKey('F9');
   check('perf HUD: F9 again clears it', Ui.botDebug === false);
   PerfOverlay.frame();
   check('perf HUD: hides again', !PerfOverlay.element.classList.contains('show'));
   Ui.toastBox.replaceChildren();
 }));
 
-Test.add('ui', (check) => withUi(() => {
+Test.add('ui', (check) => uiWith(() => {
   const styles = document.getElementById('ui-style').textContent;
   check('layout: screens keep clear of notches with the safe-area insets (UI-015)', styles.includes('var(--safe-top)') && styles.includes('var(--safe-left)') && styles.includes('var(--safe-right)') && styles.includes('var(--safe-bottom)'));
   Ui.open('main');

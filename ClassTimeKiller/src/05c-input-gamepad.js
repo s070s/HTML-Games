@@ -102,7 +102,7 @@ const PadInput = {
     if (!down) { Input.bindingUp(binding); return; }
     Input.setDevice('gamepad');
     if (Input.deliverCapture(binding)) return;
-    if (Input.uiOpen && PAD_MENU_ACTIONS[index]) this.emitMenu(PAD_MENU_ACTIONS[index]);
+    if (Input.uiOpen && PAD_MENU_ACTIONS[index]) { this.emitMenu(PAD_MENU_ACTIONS[index]); return; }   // the menu may close: the press must not also act in the game
     Input.bindingDown(binding);
   },
   emitMenu(command) { this.menuEvent.command = command; Bus.emit('input.menu', this.menuEvent); },
