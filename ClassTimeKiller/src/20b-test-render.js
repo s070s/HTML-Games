@@ -1,0 +1,667 @@
+// Self-tests for S07 (group 'render') and the test-only DebugApi.renderDemo scene.
+// CPU-side rules run everywhere; GPU checks run when the page has a WebGL2 context (headless Chrome: software WebGL).
+
+// Sample arena: floor, walls, ramps, a platform, pillars, cover and light panels (DebugApi.renderDemo, tests).
+function makeDemoArena(theme) {
+  return { id: 'render-demo', theme: theme || 'foundry',
+    lights: [{ pos: [-8, 3.2, 6], color: '#ffb066', radius: 9 }, { pos: [9, 2.5, 10], color: '#7fd8ff', radius: 7 }],
+    brushes: [
+      { shape: 'box', min: [-20, -1, -20], max: [20, 0, 20], material: 'concrete' },
+      { shape: 'box', min: [-6, 0, -6], max: [6, 0.05, 6], material: 'plate' },
+      { shape: 'box', min: [-20, 0, 19], max: [20, 5, 20], material: 'brick' },
+      { shape: 'box', min: [-20, 0, -20], max: [-19, 5, 19], material: 'metal' },
+      { shape: 'box', min: [19, 0, -20], max: [20, 5, 19], material: 'metal' },
+      { shape: 'box', min: [-20, 0, -20], max: [20, 1.2, -19], material: 'concrete' },
+      { shape: 'box', min: [6, 0, 8], max: [14, 3, 16], material: 'wood' },
+      { shape: 'ramp', min: [2, 0, 8], max: [6, 3, 12], dir: '+x', material: 'hazard' },
+      { shape: 'ramp', min: [-14, 0, 12], max: [-8, 2, 16], dir: '+z', material: 'tile' },
+      { shape: 'box', min: [-14, 2, 16], max: [-8, 2.3, 19], material: 'tile' },
+      { shape: 'box', min: [-9, 0, 2], max: [-8, 4.5, 3], material: 'trim' },
+      { shape: 'box', min: [-3, 0, 12], max: [-2, 4.5, 13], material: 'trim' },
+      { shape: 'box', min: [-8.4, 3.2, 2.9], max: [-8.1, 3.6, 3.05], material: 'light' },
+      { shape: 'box', min: [-4, 0, 5], max: [-1, 1, 6], material: 'crate' },
+      { shape: 'box', min: [1, 0, 3], max: [2.2, 1.2, 4.2], material: 'crate' },
+      { shape: 'box', min: [12, 0, -8], max: [16, 0.3, -2], material: 'water' },
+      { shape: 'box', min: [-16, 0, -12], max: [-10, 0.1, -4], material: 'grass' },
+      { shape: 'box', min: [-17, 0, -14], max: [-15, 2.5, -12], material: 'rock' },
+      { shape: 'box', min: [8, 0, 0], max: [9, 3, 5], material: 'glass' },
+      { shape: 'box', min: [-2, 3.8, 11], max: [7, 4.1, 14], material: 'metal' },
+    ] };
+}
+
+// Actors for the demo: two teams, walking / crouched / aiming / airborne, and one far away (far LOD).
+const DEMO_ACTORS = [
+  { team: 0, x: -3, z: 0, yaw: 0.5, speed: 6, flags: ACTOR_FLAG.ON_GROUND },
+  { team: 1, x: 2.5, z: 1.5, yaw: Math.PI + 0.4, speed: 0, height: 1.1, eye: 0.95, flags: ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.CROUCHED },
+  { team: 1, x: 5, z: 6, yaw: Math.PI - 0.3, pitch: 0.4, speed: 3, flags: ACTOR_FLAG.ON_GROUND },
+  { team: 0, x: -6, z: 7, yaw: 0.9, speed: 7, flags: ACTOR_FLAG.ON_GROUND },
+  { team: 1, x: 0, y: 1.6, z: 4, yaw: Math.PI, speed: 4, flags: 0 },
+  { team: 0, x: 9, y: 3, z: 12, yaw: -2.2, pitch: -0.3, speed: 0, flags: ACTOR_FLAG.ON_GROUND },
+  { team: 1, x: -11, y: 2.3, z: 17.5, yaw: 2.6, speed: 2, flags: ACTOR_FLAG.ON_GROUND },
+  { team: 0, x: 3, z: 18, yaw: Math.PI, speed: 0, flags: ACTOR_FLAG.ON_GROUND },
+];
+
+function spawnDemoActors() {
+  const ids = [];
+  for (const row of DEMO_ACTORS) {
+    const id = Actors.create(ACTOR_KIND.BOT, row.team, 'demo');
+    Actors.alive[id] = 1;
+    Actors.x[id] = Actors.prevX[id] = row.x; Actors.y[id] = Actors.prevY[id] = row.y || 0; Actors.z[id] = Actors.prevZ[id] = row.z;
+    Actors.yaw[id] = Actors.prevYaw[id] = row.yaw; Actors.pitch[id] = Actors.prevPitch[id] = row.pitch || 0;
+    Actors.vx[id] = Math.sin(row.yaw) * row.speed; Actors.vz[id] = Math.cos(row.yaw) * row.speed;
+    Actors.height[id] = row.height || 1.8; Actors.eye[id] = row.eye || 1.62; Actors.flags[id] = row.flags;
+    ids.push(id);
+  }
+  return ids;
+}
+
+function spawnDemoPlayer() {
+  const id = Actors.create(ACTOR_KIND.PLAYER, 0, 'player');
+  Actors.alive[id] = 1;
+  Actors.x[id] = Actors.prevX[id] = 0; Actors.z[id] = Actors.prevZ[id] = -12;
+  Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  Actors.aimYaw[id] = 0.08; Actors.aimPitch[id] = -0.06;
+  Game.playerId = id;
+  return id;
+}
+
+function emitDemoEffects() {
+  Fx.burst('smoke', -12, 0.2, -8, 0, 1, 0, 6);
+  Fx.burst('fire', -12, 0.2, -8, 0, 1, 0, 6);
+  Fx.burst('spark', 1.6, 1.2, 3.6, 0, 1, -0.5, 8);
+  Fx.burst('energy', 6, 1.5, 5, -1, 0.5, 0, 6);
+  Fx.burst('heal', -3, 0.4, 0, 0, 1, 0, 4);
+  Fx.tracer(0.15, 1.45, -11.5, 4.9, 1.4, 6);
+  Fx.light(-12, 1, -8, '#ff7a2a', 7, 0.5);
+}
+
+const DEMO_WEAPONS = ['rifle', 'shotgun', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'smg'];
+const demo = { emitter: false, sinceEffects: 0, weapon: 'rifle' };
+// Builds a sample scene with world, 8 actors, effects, a player view model and a HUD layer; returns frame stats.
+DebugApi.renderDemo = (themeId, weapon, qualityId) => {
+  Benchmark.active = false; Benchmark.done = true;
+  if (qualityId) Settings.set('video.quality', qualityId);
+  Game.stop();
+  Actors.clear();
+  Render.worldQuery = Render.worldQuery || World;
+  World.load(makeDemoArena(themeId));
+  spawnDemoActors();
+  spawnDemoPlayer();
+  demo.weapon = weapon || 'rifle';
+  Render.viewModel = (out) => { out.visible = true; out.shape = demo.weapon; out.color = '#56606b'; return out; };
+  emitDemoEffects();
+  if (!demo.emitter) {
+    demo.emitter = true;
+    Render.addUpdate(45, (seconds) => { demo.sinceEffects += seconds; if (demo.sinceEffects > 0.25 && World.map && World.map.id === 'render-demo') { demo.sinceEffects = 0; emitDemoEffects(); } });
+    HudBatch.addLayer('render-demo', 0, (hud) => {
+      if (!World.map || World.map.id !== 'render-demo') return;
+      hud.rect(16, 16, 230, 64, '#0b0f14', 0.6);
+      hud.text('ClassTimeKiller', 28, 36, 20, '#ffb547', 'left');
+      hud.text(Perf.counters.drawCalls + ' draws  ' + Math.round(Perf.counters.triangles / 1000) + 'k tris', 28, 62, 14, '#e8eef5', 'left');
+      hud.ring(hud.width / 2, hud.height / 2, 9, 2, '#ffffff', 0.85);
+      hud.line(hud.width / 2 - 18, hud.height / 2, hud.width / 2 - 12, hud.height / 2, 2, '#ffffff', 0.9);
+      hud.ring(hud.width - 60, hud.height - 60, 30, 6, '#5fd38d', 0.9, 0, Math.PI * 1.3);
+    });
+  }
+  const started = performance.now();
+  Render.drawFrame(1 / 60, 1);
+  return { cpuMs: performance.now() - started, chunks: WorldMesh.chunks.length, worldTriangles: WorldMesh.triangles, bakeMs: WorldMesh.bakeMs,
+    stats: Object.assign({}, Render.stats), scale: Render.size.scale, quality: Render.quality.id, programs: Render.programSpecs.length };
+};
+
+DebugApi.renderState = () => ({ render: Render, worldMesh: WorldMesh, hud: HudBatch });
+
+// ---- Test helpers ----
+// Runs a block with the renderer switched on (headless off, benchmark parked) and restores every hook afterwards.
+async function withRenderer(run) {
+  const wasHeadless = Game.headless, benchmarkActive = Benchmark.active, benchmarkDone = Benchmark.done;
+  const renderScale = Render.size.scale, smoothedMs = ScaleControl.smoothedMs, worldQuery = Render.worldQuery;
+  const timerExtension = GpuTimer.extension, timerMs = GpuTimer.lastMs;
+  Game.headless = false; Benchmark.active = false; Benchmark.done = true; Render.worldQuery = World;
+  try {
+    return await run();
+  } finally {
+    Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone; Render.worldQuery = worldQuery;
+    Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs; resetScaleCeiling(ScaleControl);
+    GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
+    Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
+    Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
+    Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.reset('video.');
+  }
+}
+
+function placeCamera(x, y, z, yaw, pitch) {
+  Render.cameraOverride = (camera) => { camera.x = x; camera.y = y; camera.z = z; camera.yaw = yaw; camera.pitch = pitch; camera.roll = 0; return true; };
+  updateCamera(1 / 60, 1);
+}
+
+function makeTestActor(kind, team, x, z) {
+  const id = Actors.create(kind, team, 'test');
+  Actors.alive[id] = 1;
+  Actors.x[id] = Actors.prevX[id] = x; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  return id;
+}
+
+const batchInstances = (batch) => batch.counts.reduce((sum, count) => sum + count, 0);
+const instanceOffset = (batch, shape, index) => (SHAPE_INDEX[shape] * batch.capacity + index) * INSTANCE_FLOATS;
+const sleepMs = (ms) => new Promise((done) => setTimeout(done, ms));
+async function waitUntil(condition, timeoutMs) {
+  for (let waited = 0; waited < timeoutMs && !condition(); waited += 20) await sleepMs(20);
+  return condition();
+}
+
+// World mesh triangles for a hand-made brush list (CPU only).
+function worldTriangles(brushes, theme) {
+  World.load({ id: 'render-test', theme, brushes });
+  buildWorldMesh(World.map, World.brushes);
+  return WorldMesh.triangles;
+}
+
+// Area of the built world's up-facing triangles at height y (square metres), read back from the packed buffers.
+function worldTopArea(y) {
+  const floats = new Float32Array(WorldMesh.vertexBytes), indices = WorldMesh.indexData;
+  let area = 0;
+  for (let i = 0; i < indices.length; i += 3) area += topTriangleArea(floats, indices[i], indices[i + 1], indices[i + 2], y);
+  return area;
+}
+
+function topTriangleArea(floats, a, b, c, y) {
+  const stride = WORLD_VERTEX_BYTES / 4, pa = a * stride, pb = b * stride, pc = c * stride;
+  const flat = Math.abs(floats[pa + 1] - y) < 1e-3 && Math.abs(floats[pb + 1] - y) < 1e-3 && Math.abs(floats[pc + 1] - y) < 1e-3;
+  if (!flat) return 0;
+  const upward = (floats[pb + 2] - floats[pa + 2]) * (floats[pc] - floats[pa]) - (floats[pb] - floats[pa]) * (floats[pc + 2] - floats[pa + 2]);
+  return Math.max(0, upward) / 2;
+}
+
+function topAreaOf(brushes, y) {
+  worldTriangles(brushes);
+  return worldTopArea(y);
+}
+
+// ---- Data and contracts ----
+Test.add('render', (check) => {
+  const themes = ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'];
+  check('six map themes (MAP-022)', CAT.themes.length === 6 && themes.every((id) => CAT.themes.byId(id)));
+  const classes = ['sidearm', 'shotgun', 'rifle', 'smg', 'lmg', 'dmr', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'melee', 'tool', 'exotic', 'power'];
+  check('view-model parts for all 15 weapon classes', classes.every((id) => CAT.viewModels.byId(id) && CAT.viewModels.byId(id).parts.length > 0));
+  check('view-model parts use known shapes', CAT.viewModels.every((row) => row.parts.every((part) => SHAPE_INDEX[part.shape] !== undefined)));
+  const kinds = ['spark', 'smoke', 'dust', 'blood', 'muzzle', 'explosion', 'energy', 'water', 'fire', 'frost', 'shock', 'heal'];
+  check('a particle row for every Fx kind', kinds.every((id) => CAT.fxKinds.byId(id)));
+  check('far actor LOD = 6 parts, near LOD more (REN-002)', FAR_PARTS.length === 6 && NEAR_PARTS.length > 6);
+  check('actor parts use known shapes', CAT.actorParts.every((part) => SHAPE_INDEX[part.shape] !== undefined));
+  check('all 7 contract shapes have geometry', ['box', 'sphere', 'cylinder', 'capsule', 'cone', 'wedge', 'ring'].every((name) => ShapeMesh.ranges[SHAPE_INDEX[name]].count > 0));
+  check('at most 8 shader programs (REN-003)', Render.programSpecs.length <= MAX_PROGRAMS, Render.programSpecs.length);
+  check('materials fit the uniform table', CAT.materials.length <= MAX_MATERIALS);
+  check('material patterns are known', CAT.materials.every((row) => MATERIAL_PATTERNS.includes(row.pattern)));
+  check('theme palettes name real materials', CAT.themes.every((theme) => Object.keys(theme.palette).every((id) => CAT.materials.byId(id))));
+  const keys = ['video.renderScale', 'video.fov', 'video.viewmodelFov', 'video.fxaa', 'video.outlines', 'video.headBob', 'video.maxDpr', 'video.autoLower'];
+  check('video settings have label and category', keys.every((key) => Settings.definitions.get(key).label && Settings.definitions.get(key).category === 'video'));
+  check('FOV defaults to 90, 80 on touch devices', Settings.get('video.fov') === (TOUCH_DEVICE ? 80 : 90));
+  check('render scale setting: auto or 0.4..1', RENDER_SCALE_OPTIONS[0] === 'auto' && RENDER_SCALE_OPTIONS[1] === 0.4 && RENDER_SCALE_OPTIONS[RENDER_SCALE_OPTIONS.length - 1] === 1);
+});
+
+// ---- Static world build (REN-001) ----
+Test.add('render', (check) => {
+  const map = makeDemoArena('ruins');
+  World.load(map);
+  buildWorldMesh(map, World.brushes);
+  check('demo arena in <= 30 world draw ranges (step 1.3)', WorldMesh.chunks.length > 0 && WorldMesh.chunks.length <= 30, WorldMesh.chunks.length);
+  check('demo arena fits the Potato triangle budget', WorldMesh.triangles < CAT.quality.byId('potato').triangles, WorldMesh.triangles);
+  check('chunks are 16 m cells', WorldMesh.chunks.every((c) => c.maxX - c.minX <= CHUNK_METERS + BAKE_CELL_MAX && c.maxZ - c.minZ <= CHUNK_METERS + BAKE_CELL_MAX));
+  check('a lone box = 5 faces (lowest underside skipped)', worldTriangles([{ shape: 'box', min: [0, 0, 0], max: [1, 1, 1] }]) === 10, WorldMesh.triangles);
+  const covered = topAreaOf([{ shape: 'box', min: [-2, -1, -2], max: [2, 0, 2] }, { shape: 'box', min: [0, 0, 0], max: [2, 1, 2] }], 0);
+  check('floor under a box is culled, the rest kept', Test.near(covered, 12, 1e-3), covered);
+  const thinWall = topAreaOf([{ shape: 'box', min: [-4, -1, -4], max: [4, 0, 4] }, { shape: 'box', min: [0.8, 0, -4], max: [1.2, 3, 4] }], 0);
+  check('a thin wall off the bake grid hides only its own footprint (no holes)', Test.near(thinWall, 60.8, 1e-3), thinWall);
+  const partial = topAreaOf([{ shape: 'box', min: [-2, -1, -2], max: [1.5, 0, 2] }, { shape: 'box', min: [0, -1, -2], max: [4, 0, 2] }], 0);
+  check('partial coplanar overlap: the union drawn exactly once (no hole, no z-fighting)', Test.near(partial, 24, 1e-3), partial);
+  const pillar = topAreaOf([{ shape: 'box', min: [-3, -1, -3], max: [3, 0, 3] }, { shape: 'box', min: [-0.37, 0, 0.21], max: [0.53, 2, 1.13] }], 0);
+  check('an off-grid pillar cuts an exact hole', Test.near(pillar, 36 - 0.9 * 0.92, 1e-3), pillar);
+  const alone = worldTriangles([{ shape: 'box', min: [-3, -1, -3], max: [3, 2, 3] }]);
+  const buried = worldTriangles([{ shape: 'box', min: [-3, -1, -3], max: [3, 2, 3] }, { shape: 'box', min: [-1.3, 0.7, -1.3], max: [1.1, 1.3, 0.9] }]);
+  check('a brush buried inside another adds nothing', buried === alone, buried + ' vs ' + alone);
+  const ramp = worldTriangles([{ shape: 'ramp', min: [0, 0, 0], max: [4, 2, 2], dir: '+x' }]);
+  check('a ramp has no zero-area end face', ramp > 0 && ramp <= 12, ramp);
+  check('world indices fit 16 bits for small maps', WorldMesh.indexData instanceof Uint16Array);
+  World.clear(); clearWorldMesh();
+});
+
+// ---- The world comes through the Render.worldQuery hook (S08 fills it; S07 never calls World) ----
+Test.add('render', (check) => withRenderer(() => {
+  const map = { id: 'render-hook', brushes: [{ shape: 'box', min: [0, 0, 0], max: [1, 1, 1] }] };
+  Render.worldQuery = null;
+  World.load(map);
+  check('world.load builds nothing while the hook is empty', WorldMesh.triangles === 0, WorldMesh.triangles);
+  Render.worldQuery = { brushes: World.brushes };
+  World.load(map);
+  check('world.load builds from Render.worldQuery.brushes', WorldMesh.triangles === 10, WorldMesh.triangles);
+}));
+
+// ---- Baked lighting (REN-004): AO, sun shadow rays, map lights ----
+Test.add('render', (check) => {
+  const brushes = [{ shape: 'box', min: [-20, -1, -20], max: [20, 0, 20] }, { shape: 'box', min: [10, 0, -20], max: [11, 4, 20] },
+    { shape: 'box', min: [-14, 3, -3], max: [-6, 3.3, 3] }];
+  const map = { id: 'light-test', theme: 'ruins', brushes, lights: [{ pos: [0, 2, -12], color: '#ffffff', radius: 6 }] };
+  World.load(map);
+  const bake = makeBake(map, World.brushes);
+  const open = vertexLight(bake, 0, 0, 0, 0, 1, 0), corner = vertexLight(bake, 9.9, 0, 5, 0, 1, 0), roofed = vertexLight(bake, -10, 0, 0, 0, 1, 0);
+  check('open floor sees the sun', open[4] > 0.5, open[4]);
+  check('AO darkens the floor next to a wall', corner[3] < open[3] - 0.05, corner[3] + ' vs ' + open[3]);
+  check('a roof blocks the sun (shadow ray)', roofed[4] === 0, roofed[4]);
+  const lit = vertexLight(bake, 0, 0, -12, 0, 1, 0), unlit = vertexLight(bake, 0, 0, 12, 0, 1, 0);
+  check('map lights add light', lit[0] > unlit[0] + 0.1, lit[0] + ' vs ' + unlit[0]);
+  buildSunGrid(bake);
+  check('sun grid: open air lit, under the roof shaded', sampleSunVisibility(0, 1, 0) === 1 && sampleSunVisibility(-10, 1, 0) === 0);
+  check('bake ray: blocked by the wall', rayBlocked(bake, 0, 1, 0, 1, 0, 0, 30) && !rayBlocked(bake, 0, 1, 0, -1, 0, 0, 30));
+  check('bake ray: stops above the world', !rayBlocked(bake, 0, 1, 0, 0, 1, 0, 300));
+  check('bake ray: crosses grid cells diagonally', rayBlocked(bake, -9, 1, -9, Math.SQRT1_2, 0, Math.SQRT1_2, 40));
+  buildWorldMesh(map, World.brushes);
+  check('ground probe finds the floor and the roof top', Test.near(groundBelow(0, 5, 0, 20), 0, 1e-4) && Test.near(groundBelow(-10, 6, 0, 20), 3.3, 1e-4));
+  check('ground probe misses past its range', groundBelow(0, 50, 0, 20) === -Infinity);
+  World.clear(); clearWorldMesh();
+});
+
+// ---- Camera, culling, FOV (REN-006) ----
+Test.add('render', (check) => withRenderer(() => {
+  placeCamera(0, 2, 0, 0, 0);
+  check('box in front is visible', boxVisible(-1, 0, 9, 1, 2, 11));
+  check('box behind is culled', !boxVisible(-1, 0, -11, 1, 2, -9));
+  check('box beyond the view distance is culled', !boxVisible(-1, 0, 400, 1, 2, 402));
+  check('camera override places the camera', Render.view.overridden && Render.camera.y === 2);
+  Render.cameraOverride = null;
+  const id = makeTestActor(ACTOR_KIND.PLAYER, 0, 2, 4);
+  Actors.prevX[id] = 0; Actors.prevZ[id] = 0; Actors.aimYaw[id] = 0.5; Game.playerId = id;
+  updateCamera(1 / 60, 0.5);
+  check('camera follows the interpolated player eye', Test.near(Render.camera.x, 1, 1e-6) && Test.near(Render.camera.z, 2, 1e-6) && Render.camera.y > 1.5, JSON.stringify(Render.camera));
+  check('camera uses the aim angles', Render.camera.yaw === Actors.aimYaw[id]);
+  Settings.set('video.fov', 100);
+  updateCamera(1 / 60, 1);
+  check('FOV setting applies', Render.camera.fov === 100);
+  check('horizontal 90 at 16:9 = vertical ~58.7', Test.near(verticalFov(90) / DEG, 58.7, 0.1));
+}));
+
+// ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
+Test.add('render', (check) => withRenderer(() => {
+  placeCamera(0, 1.6, 0, 0, 0);
+  const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
+  const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, Render.quality.lodNear + 10);
+  makeTestActor(ACTOR_KIND.BOT, 0, 3, 5);
+  Actors.alive[2] = 0;
+  fillActors(1 / 60, 1);
+  check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
+  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  const behind = makeTestActor(ACTOR_KIND.BOT, 0, 0, -6);
+  fillActors(1 / 60, 1);
+  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  Actors.alive[behind] = 0;
+  writeColor(tintColor, 0, CAT.teamColors[1].color);
+  check('team colour on the torso', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0) + 8], tintColor[0], 1e-6));
+  Actors.prevX[near] = -2; Actors.x[near] = 2;
+  fillActors(1 / 60, 0.5);
+  check('interpolated position (alpha 0.5)', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0)], 0, 1e-4));
+  const standingHead = actorBatch.data[instanceOffset(actorBatch, 'sphere', 0) + 1];
+  Actors.height[near] = 1.1;
+  fillActors(1 / 60, 1);
+  check('crouching lowers the head', actorBatch.data[instanceOffset(actorBatch, 'sphere', 0) + 1] < standingHead - 0.4);
+  Render.actorStyle = (id, out) => { out.scale = id === far ? 1 : 2; out.visible = id !== far; };
+  fillActors(1 / 60, 1);
+  check('actorStyle scales and hides', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0) + 4], CAT.actorParts[0].size[0] * 2, 1e-5) && batchInstances(actorBatch) === NEAR_PARTS.length);
+  Render.actorStyle = null;
+  Render.cameraOverride = null;
+  Game.playerId = near;
+  updateCamera(1 / 60, 1);
+  fillActors(1 / 60, 1);
+  check('first person: no own body but own shadow', batchInstances(actorBatch) === FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+}));
+
+// ---- Render.addSource (props batch) ----
+Test.add('render', (check) => withRenderer(() => {
+  const source = { name: 'test-pickups', draw: (batch) => batch.mesh('cylinder', 0, 1, 0, 0, 0, 1, 0.2, 1, 1, 0.8, 0.2, 0.5) };
+  const broken = { name: 'test-broken', draw: () => { throw new Error('broken source'); } };
+  Render.sources.push(source, broken);
+  const logged = Test.expectErrors(() => { fillSources(); fillSources(); });
+  check('sources fill the props batch every frame', propBatch.counts[SHAPE_INDEX.cylinder] === 1);
+  check('a throwing source is logged once and switched off', logged === 1 && broken.failed === true);
+  propBatch.mesh('no-such-shape', 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0);
+  check('unknown shapes are ignored', batchInstances(propBatch) === 1);
+  Render.sources.splice(Render.sources.indexOf(source), 2);
+}));
+
+// ---- Effects caps (PERF-010) ----
+Test.add('render', (check) => withRenderer(() => {
+  Settings.set('video.quality', 'potato');
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, 1000);
+  check('particles capped by quality (Potato 256)', particlePool.used === 256 && Fx.liveParticles() === 256, particlePool.used);
+  Fx.decal(0, 0, 0, 0, 1, 0, 'bullet');
+  check('Potato keeps no decals', decalPool.used === 0);
+  Fx.light(0, 1, 0, '#ffffff', 5, 1);
+  updateLights();
+  check('Potato has no dynamic lights', Render.frame.lightCount === 0);
+  Settings.set('video.quality', 'medium');
+  for (let i = 0; i < 3; i++) Fx.light(i, 1, 0, '#ffaa00', 5, 1);
+  updateLights();
+  check('Medium applies 2 dynamic lights', Render.frame.lightCount === 2);
+  Fx.decal(0, 0, 0, 0, 1, 0, 'scorch');
+  check('decal ring buffer fills on Medium', decalPool.used === 1);
+  Fx.tracer(0, 1, 0, 0, 1, 10);
+  const tracer = (particlePool.next - 1) * PARTICLE_FLOATS;
+  check('tracer: segment + additive tracer mode', particlePool.data[tracer + 5] === 10 && particlePool.data[tracer + 16] === PARTICLE_MODE.tracer + ADDITIVE_FLAG);
+  Render.frame.time += 10;
+  check('particles expire on the GPU clock', Fx.liveParticles() === 0);
+  updateLights();
+  check('lights fade out', Render.frame.lightCount === 0);
+}));
+
+// ---- Dynamic resolution (PERF-007) ----
+Test.add('render', (check) => {
+  const control = makeScaleControl();
+  let scale = 1;
+  for (let i = 0; i < 4; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('no change before 0.5 s over budget', scale === 1);
+  scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('lowers one 0.05 step after 0.5 s over budget', scale === 0.95, scale);
+  for (let i = 0; i < 19; i++) scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('no raise before 2 s under 80%', scale === 0.95, scale);
+  scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('raises after 2 s under 80% (hysteresis)', scale === 1, scale);
+  for (let i = 0; i < 5; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('a drop right after a raise sets a ceiling', control.ceiling === 0.95 && scale === 0.95, control.ceiling);
+  for (let i = 0; i < 25; i++) scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('no raise above the ceiling before its wait', scale === 0.95);
+  for (let i = 0; i < 300 && scale === 0.95; i++) scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('retries above the ceiling after 30 s', scale === 1 && control.sinceCeiling === 0 && control.retrying, control.sinceCeiling);
+  for (let i = 0; i < 5; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('a failed retry doubles the ceiling wait (no cap)', control.ceilingWait === 60 && scale === 0.95, control.ceilingWait);
+  check('never below the preset minimum', stepRenderScale(control, 99, 6, 4.8, 0.6, 0.5, 0.5, 1) === 0.5);
+  const quality = Quality.current();
+  check('preset scale ranges (Potato 0.4-0.8)', CAT.quality.byId('potato').renderScaleMin === 0.4 && CAT.quality.byId('potato').renderScaleMax === 0.8 && quality.renderScaleMin === 0.5);
+});
+
+// ---- Benchmark (PERF-008) and auto step-down (PERF-013) ----
+Test.add('render', (check) => withRenderer(() => {
+  check('benchmark thresholds', pickBenchmarkQuality(2) === 'ultra' && pickBenchmarkQuality(4) === 'high' && pickBenchmarkQuality(7) === 'medium'
+    && pickBenchmarkQuality(12) === 'low' && pickBenchmarkQuality(40) === 'potato');
+  Benchmark.samples.fill(4, 0, 9); Benchmark.count = 9;
+  finishBenchmark();
+  check('benchmark writes video.autoQuality', Settings.get('video.autoQuality') === 'high' && Render.quality.id === 'high' && Benchmark.done);
+  let toast = '';
+  const listener = Bus.on('toast', (payload) => { toast = payload.text; });
+  Game.state = 'playing';
+  GpuTimer.extension = null;             // frame-time path: the scale floor is used up first
+  ScaleControl.smoothedMs = 40;
+  Render.size.scale = 1;
+  for (let i = 0; i < 6; i++) updateStepDown(1);
+  check('no step-down while dynamic resolution can still lower the scale', Render.quality.id === 'high');
+  Render.size.scale = Render.quality.renderScaleMin;
+  for (let i = 0; i < 4; i++) updateStepDown(1);
+  check('no step-down before 5 s under 60 fps', Render.quality.id === 'high');
+  updateStepDown(1);
+  check('5 s under 60 fps lowers one preset and toasts', Settings.get('video.autoQuality') === 'medium' && toast.includes('Medium'), toast);
+  Settings.set('video.autoLower', false);
+  for (let i = 0; i < 6; i++) updateStepDown(1);
+  check('the option turns the step-down off', Render.quality.id === 'medium');
+  Settings.set('video.quality', 'potato');
+  check('no step below Potato', !lowerQualityStep());
+  Settings.set('video.quality', 'high');
+  check('an explicit preset steps down itself', lowerQualityStep() && Settings.get('video.quality') === 'medium');
+  Bus.off('toast', listener);
+  ScaleControl.smoothedMs = FRAME_BUDGET_MS;
+}));
+
+// ---- View model (step 1.4) ----
+Test.add('render', (check) => withRenderer(() => {
+  const id = makeTestActor(ACTOR_KIND.PLAYER, 0, 0, 0);
+  Game.playerId = id;
+  const state = { shape: 'rifle', ads: 0 };
+  Render.viewModel = (out) => { out.visible = true; out.shape = state.shape; out.ads = state.ads; return out; };
+  const built = CAT.viewModels.every((row) => {
+    state.shape = row.id;
+    updateCamera(1 / 60, 1);
+    fillViewModel();
+    return batchInstances(viewModelBatch) === row.parts.length;
+  });
+  check('every weapon class builds its parts', built);
+  state.shape = 'no-such-class';
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('unknown class falls back to the rifle', batchInstances(viewModelBatch) === CAT.viewModels.byId('rifle').parts.length);
+  state.shape = 'rifle';
+  const hip = Math.abs(poseWeapon(CAT.viewModels.byId('rifle'), viewModelState).x);
+  state.ads = 1;
+  updateCamera(1 / 60, 1);
+  check('aiming moves the weapon to the centre', Math.abs(poseWeapon(CAT.viewModels.byId('rifle'), viewModelState).x) < hip * 0.2);
+  check('aiming zooms the camera', Render.camera.fov < Render.config.fov);
+  state.ads = 0;
+  Render.viewModel = (out) => { out.visible = true; out.shape = 'sidearm'; out.recoilPitch = 2; out.recoilYaw = -1; out.dual = true; return out; };
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('the recoil punch kicks the view (degrees, up = positive pitch)', Test.near(Render.camera.pitch, Actors.aimPitch[id] + 2 * DEG, 1e-6)
+    && Test.near(Render.camera.yaw, Actors.aimYaw[id] - DEG, 1e-6), Render.camera.pitch);
+  check('dual pistols draw two guns', batchInstances(viewModelBatch) === 2 * CAT.viewModels.byId('sidearm').parts.length, batchInstances(viewModelBatch));
+  placeCamera(0, 2, 0, 0, 0);
+  fillViewModel();
+  check('no view model while the camera is overridden', batchInstances(viewModelBatch) === 0);
+}));
+
+// ---- HUD batch (REN-005) ----
+Test.add('render', (check) => {
+  HudBatch.quads = 0;
+  HudBatch.rect(0, 0, 10, 10, '#ffffff', 1);
+  check('rect = 1 quad', HudBatch.quads === 1);
+  HudBatch.line(0, 0, 10, 10, 2, 0xff0000, 1);
+  check('line = 1 quad', HudBatch.quads === 2);
+  HudBatch.ring(50, 50, 10, 2, '#00ff00', 1);
+  check('full ring = 48 segments', HudBatch.quads === 2 + HUD_RING_SEGMENTS);
+  HudBatch.quads = 0;
+  HudBatch.ring(50, 50, 10, 2, '#00ff00', 1, 0, Math.PI);
+  check('half ring = 24 segments', HudBatch.quads === HUD_RING_SEGMENTS / 2);
+  HudBatch.quads = 0;
+  const width = HudBatch.text('A B', 0, 0, 20, '#ffffff', 'left');
+  check('text: one quad per visible glyph', HudBatch.quads === (HudBatch.atlas ? 2 : 0), HudBatch.quads);
+  check('text width scales with size', Test.near(HudBatch.measure('A B', 40), width * 2, 1e-3));
+  check('colour bytes packed', hudColors[16] === 255 && hudColors[19] === 255);
+  HudBatch.quads = HUD_MAX_QUADS;
+  HudBatch.dropped = 0;
+  HudBatch.rect(0, 0, 1, 1, '#ffffff', 1);
+  check('full buffer drops quads instead of overflowing', HudBatch.dropped === 1 && HudBatch.quads === HUD_MAX_QUADS);
+  const order = [];
+  HudBatch.addLayer('test-b', 20, (hud) => { order.push('b'); hud.rect(0, 0, 1, 1, '#fff', 1); });
+  HudBatch.addLayer('test-a', 10, (hud) => { order.push('a'); hud.rect(0, 0, 1, 1, '#fff', 1); hud.rect(0, 0, 1, 1, '#fff', 1); });
+  collectHudLayers(1 / 60);
+  const layerA = HudBatch.layers.find((layer) => layer.name === 'test-a'), layerB = HudBatch.layers.find((layer) => layer.name === 'test-b');
+  check('layers draw in order with their own ranges', order.join('') === 'ab' && layerA.count === 2 && layerB.count === 1 && layerB.start === layerA.start + 2);
+  HudBatch.removeLayer('test-a'); HudBatch.removeLayer('test-b');
+  check('layers can be removed', !HudBatch.layers.some((layer) => layer.name.startsWith('test-')));
+  HudBatch.quads = 0;
+});
+
+// ---- GPU frame: budgets, render scale, direct mode (needs a WebGL2 context) ----
+Test.add('render', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  const gl = Render.gl, result = DebugApi.renderDemo('glacier');
+  const quality = Render.quality;
+  check('demo frame within the draw-call cap', result.stats.drawCalls > 0 && result.stats.drawCalls <= quality.drawCalls, result.stats.drawCalls);
+  check('demo frame within the triangle cap', result.stats.triangles > 0 && result.stats.triangles <= quality.triangles, result.stats.triangles);
+  check('no GL error after a frame', gl.getError() === gl.NO_ERROR);
+  Settings.set('video.renderScale', 0.5);
+  Render.drawFrame(1 / 60, 1);
+  check('render scale sizes the scene target', Render.target.width === Math.max(1, Math.round(Render.size.width * 0.5)) && !Render.target.direct);
+  Settings.set('video.quality', 'low');
+  Settings.set('video.renderScale', 1);
+  Render.drawFrame(1 / 60, 1);
+  check('Low at full scale draws straight to the canvas (no post pass)', Render.target.direct);
+  renderFrameHook(1 / 60, 1);
+  check('Perf counters filled', Perf.counters.drawCalls > 0 && Perf.counters.triangles > 0 && Perf.counters.renderScale === 1);
+  Settings.set('video.quality', 'high');
+  Render.drawFrame(1 / 60, 1);
+  check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
+  check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
+  check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
+}));
+
+// ---- Context loss and restore (PLT-005) ----
+Test.add('render', (check) => withRenderer(async () => {
+  const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
+  if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
+  World.load(makeDemoArena('station'));
+  let toasts = 0;
+  const listener = Bus.on('toast', () => { toasts++; });
+  Game.state = 'playing';
+  extension.loseContext();
+  check('context loss pauses the game and toasts', await waitUntil(() => Render.lost, 3000) && Game.paused && toasts === 1);
+  check('a lost context draws nothing', Render.drawFrame(1 / 60, 1) === false);
+  extension.restoreContext();
+  check('restore rebuilds GPU resources and resumes', await waitUntil(() => !Render.lost, 5000) && !Game.paused && toasts === 2);
+  check('world mesh re-uploaded after restore', WorldMesh.vertexArray !== null && Render.drawFrame(1 / 60, 1) && Render.gl.getError() === Render.gl.NO_ERROR);
+  Bus.off('toast', listener);
+}));
+
+// ---- Frame-time dynamic resolution without a GPU timer (PERF-007 hysteresis on GPU-bound phones) ----
+// Simulated device: vsync holds at scale <= 0.7, every higher scale misses it (33 ms frames).
+Test.add('render', (check) => withRenderer(() => {
+  GpuTimer.extension = null;
+  Settings.set('video.quality', 'medium');
+  Render.size.scale = 0.7;
+  updateRenderScale(1 / 60);
+  let drops = 0, secondsAbove = 0, previous = Render.size.scale;
+  for (let frame = 0; frame < 600 * 60; frame++) {
+    const interval = Render.size.scale > 0.7 + 1e-4 ? 1 / 30 : 1 / 60;
+    if (interval > 1 / 60) secondsAbove += interval;
+    updateRenderScale(interval);
+    if (Render.size.scale < previous) drops++;
+    previous = Render.size.scale;
+  }
+  check('raise/drop oscillation settles (at most 6 stutters in 10 minutes)', drops >= 1 && drops <= 6, drops);
+  check('the scale settles at the highest one that holds vsync', Test.near(Render.size.scale, 0.7, 1e-4), Render.size.scale);
+  check('time spent missing vsync stays small', secondsAbove < 8, secondsAbove);
+  Settings.set('video.quality', 'low');
+  updateRenderScale(1 / 60);
+  check('a preset change forgets the ceiling', ScaleControl.ceiling === 1 && ScaleControl.ceilingWait === SCALE_CEILING_WAIT_SECONDS);
+}));
+
+// ---- Step-down (PERF-013) on a CPU-bound device that has the GPU timer ----
+Test.add('render', (check) => withRenderer(() => {
+  Game.state = 'playing';
+  Settings.set('video.autoQuality', 'high');
+  GpuTimer.extension = GpuTimer.extension || { TIME_ELAPSED_EXT: 0 };
+  GpuTimer.lastMs = 2;                    // GPU well within budget: a lower scale cannot help
+  Render.size.scale = 1;
+  ScaleControl.smoothedMs = 40;
+  for (let i = 0; i < 5; i++) updateStepDown(1);
+  check('CPU-bound with the GPU timer: steps down even above the scale floor', Render.quality.id === 'medium', Render.quality.id);
+  GpuTimer.lastMs = 9;                    // GPU over budget: lowering the resolution comes first
+  Render.size.scale = 1;
+  for (let i = 0; i < 6; i++) updateStepDown(1);
+  check('GPU-bound with the GPU timer: resolution is lowered first', Render.quality.id === 'medium', Render.quality.id);
+  ScaleControl.smoothedMs = FRAME_BUDGET_MS;
+}));
+
+// ---- Actor LOD tiers, low-rate far animation, blob shadows and the sun shadow map split ----
+Test.add('render', (check) => withRenderer(() => {
+  Settings.set('video.quality', 'medium');
+  placeCamera(0, 1.6, 0, 0, 0);
+  const quality = Render.quality;
+  const distant = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodFar + 5);
+  fillActors(1 / 60, 1);
+  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DISTANT_PARTS.length && DISTANT_PARTS.length === 4, batchInstances(actorBatch));
+  Actors.alive[distant] = 0;
+  const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodNear + 5);
+  Actors.vz[far] = 5;
+  let changes = 0;
+  for (let i = 0; i < FAR_ANIMATION_STRIDE * 3; i++) {
+    const before = actorPhase[far];
+    fillActors(1 / 60, 1);
+    if (actorPhase[far] !== before) changes++;
+  }
+  check('far LOD animates at a low rate (every 4th frame)', changes === 3, changes);
+  Actors.alive[far] = 0;
+  const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
+  fillActors(1 / 60, 1);
+  check('Medium: blob shadow, no sun shadow map', shadowBatch.counts[SHAPE_INDEX.disc] === 1 && Render.frame.shadowOn === 0);
+  Settings.set('video.quality', 'high');
+  updateSunShadow();
+  fillActors(1 / 60, 1);
+  check('High: actors inside the sun shadow map drop the blob', SunShadow.active && Render.frame.shadowOn === 1 && shadowBatch.counts[SHAPE_INDEX.disc] === 0);
+  Game.playerId = near;
+  Render.cameraOverride = null;
+  updateCamera(1 / 60, 1);
+  fillActors(1 / 60, 1);
+  check('High: the local player keeps a blob shadow (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 1);
+  shadowBatch.clear();
+  for (let i = 0; i < shadowBatch.capacity; i++) shadowBatch.mesh('disc', 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0);
+  const lastSlot = instanceOffset(shadowBatch, 'disc', shadowBatch.capacity - 1);
+  shadowBatch.data[lastSlot + STRENGTH_SLOT] = 0.5;
+  check('a full batch returns -1', shadowBatch.mesh('disc', 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0) === -1);
+  emitActorShadow(near, readActorPosition(near, 1), 1);
+  check('a dropped blob shadow never overwrites another instance', shadowBatch.data[lastSlot + STRENGTH_SLOT] === 0.5);
+  Actors.flags[near] = 0;
+  Actors.y[near] = Actors.prevY[near] = 50;
+  shadowBatch.clear();
+  emitActorShadow(near, readActorPosition(near, 1), 1);
+  check('no ground below in range: no blob shadow', shadowBatch.counts[SHAPE_INDEX.disc] === 0);
+}));
+
+// ---- Particle pools: dead pools are skipped, live counts drive the stats ----
+Test.add('render', (check) => withRenderer(() => {
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, 10);
+  updateLights();
+  check('live particles counted per frame', particlePool.live === 10 && Render.stats.particles === 10);
+  check('the pool remembers its last death time', particlePool.lastDeath > Render.frame.time);
+  Render.frame.time = particlePool.lastDeath + 1;
+  updateLights();
+  check('after the last death nothing is live', particlePool.live === 0 && particlePool.used === 10);
+}));
+
+// ---- GPU: sun shadow pass only on presets with shadows 'sun', Potato memory, failed restore ----
+Test.add('render', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  const gl = Render.gl;
+  DebugApi.renderDemo('ruins');
+  Settings.set('video.quality', 'high');
+  const before = SunShadow.frames;
+  Render.drawFrame(1 / 60, 1);
+  check('High renders the sun shadow map (REN-004)', SunShadow.frames === before + 1 && SunShadow.size === SHADOW_MAP_SIZE && gl.getError() === gl.NO_ERROR);
+  Settings.set('video.quality', 'medium');
+  Render.drawFrame(1 / 60, 1);
+  check('Medium skips it and frees the map', SunShadow.frames === before + 1 && SunShadow.size === 1 && gl.getError() === gl.NO_ERROR);
+  Settings.set('video.quality', 'potato');
+  Render.drawFrame(1 / 60, 1);
+  check('GPU memory estimate under 32 MB on Potato (PERF-005)', Render.gpuMemoryBytes() < 32 * 1024 * 1024, Render.gpuMemoryBytes());
+  Fx.clear();
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, 10);
+  let draws = Render.stats.drawCalls;
+  drawPool(gl, particlePool);
+  check('a pool with live particles is drawn', Render.stats.drawCalls === draws + 1);
+  Render.frame.time += 100;
+  draws = Render.stats.drawCalls;
+  drawPool(gl, particlePool);
+  check('a pool whose particles are all dead costs no draw call', Render.stats.drawCalls === draws && gl.getError() === gl.NO_ERROR);
+}));
+
+Test.add('render', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
+  Render.gpuParts.push(failing);
+  const logged = Test.expectErrors(() => handleContextRestored());
+  Render.gpuParts.splice(Render.gpuParts.indexOf(failing), 1);
+  const fatal = document.getElementById('fatal');
+  check('a failed restore shows the WebGL2 message instead of a frozen screen (PLT-002)', logged === 1 && fatalShown && fatal.classList.contains('show') && !Render.ready);
+  fatalShown = false;
+  fatal.classList.remove('show');
+  createGpuResources(Render.gl);
+  Render.ready = true;
+}));
+
+// ---- Bake cost on a big map: 200 m, 400 random boxes and ramps (cells are clipped locally, so cost stays linear) ----
+const STRESS_BAKE_MS = 1500;             // about 120 ms on a desktop CPU; the margin covers slow phones and CI
+Test.add('render', (check) => {
+  const random = makeRandom(7), brushes = [{ shape: 'box', min: [-100, -1, -100], max: [100, 0, 100] }];
+  for (let i = 0; i < 400; i++) {
+    const x = random.range(-95, 95), z = random.range(-95, 95);
+    const max = [x + random.range(0.3, 6), random.range(0.5, 6), z + random.range(0.3, 6)];
+    brushes.push({ shape: random.next() < 0.2 ? 'ramp' : 'box', dir: '+z', min: [x, 0, z], max, material: 'metal' });
+  }
+  const triangles = worldTriangles(brushes, 'canal');
+  check('a 400-brush map bakes in bounded time', WorldMesh.bakeMs < STRESS_BAKE_MS, Math.round(WorldMesh.bakeMs) + ' ms, ' + triangles + ' triangles');
+  check('a 400-brush map fits the Low triangle budget', triangles < CAT.quality.byId('low').triangles, triangles);
+  World.clear(); clearWorldMesh();
+});

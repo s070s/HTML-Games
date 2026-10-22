@@ -20,7 +20,7 @@ Conventions: "must" = mandatory, "should" = expected, "may" = optional. Requirem
 
 | ID | Requirement |
 |---|---|
-| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file over the LAN from any local static server (or any static host); the game must behave the same over `http(s)://` and `file://`. |
+| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, player-side build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file over the LAN from any local static server (or any static host); the game must behave the same over `http(s)://` and `file://`. Developers edit `src/` files that `tools/build.mjs` (no dependencies) joins into the shipped HTML (decision D01, see `ARCHITECTURE.md`). |
 | PLT-002 | If WebGL2 is missing or context creation fails, show a full-screen message: "WebGL2 is required", with steps to enable hardware acceleration / update browser. Never a blank page. |
 | PLT-003 | Saves and settings in `localStorage`, every access wrapped in try/catch; game must run (without persistence, with a one-line notice) if storage throws. |
 | PLT-004 | Targets: low-spec phones (Android Chrome, iOS Safari 16+), low-end laptops with integrated graphics (Chrome, Edge, Firefox current). |
