@@ -207,7 +207,7 @@ const REFRESH_MIN_MS = 1000 / 240, REFRESH_MAX_MS = 1000 / 24;
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0 };
 
 function measureDisplayRate(seconds) {
-  if (Game.state !== 'menu' || Benchmark.active || !(seconds > 0)) return;
+  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return;   // capped frames show the cap
   const rate = DisplayRate;
   rate.samples[rate.count++] = seconds * 1000;
   if (rate.count < REFRESH_SAMPLE_FRAMES) return;
@@ -215,8 +215,9 @@ function measureDisplayRate(seconds) {
   rate.intervalMs = clamp(rate.samples.sort()[REFRESH_SAMPLE_FRAMES >> 1], REFRESH_MIN_MS, REFRESH_MAX_MS);
 }
 
-// The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval.
-function slowFrameMs() { return Math.max(FRAME_BUDGET_MS, DisplayRate.intervalMs) * FRAME_BUDGET_TOLERANCE; }
+// The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
+// or the frame cap's slower interval (the 30 fps battery saver).
+function slowFrameMs() { return Math.max(FRAME_BUDGET_MS, DisplayRate.intervalMs, Render.config.frameCapMs) * FRAME_BUDGET_TOLERANCE; }
 
 // Controller state. `ceiling` = the highest scale known to hold the budget for this preset and screen size.
 function makeScaleControl() {

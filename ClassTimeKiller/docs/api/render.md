@@ -70,6 +70,7 @@ On `world.load` the renderer builds the static mesh from `Render.worldQuery.brus
 | `video.maxDpr` | 1.5 | device-pixel-ratio cap, 1-3 |
 | `video.autoLower` | true | PERF-013 step-down |
 | `video.autoQuality` (S04) | `''` | written by the first-run benchmark |
+| `video.frameCap` (S19) | 0 | Off / 30 (battery saver) / 60 / 90 / 120, paced from rAF timestamps with carried-over credit (60 on 144 Hz averages 60). S19 copies the interval to `Render.config.frameCapMs`: a capped frame counts as on time for dynamic resolution and the step-down, and the menu does not measure the display rate while capped |
 
 ## Quality control
 

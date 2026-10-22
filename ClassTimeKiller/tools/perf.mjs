@@ -60,10 +60,10 @@ const ALLOC_TOP = 15;                     // allocation sites printed per run
 const PROFILE_SAMPLE_US = 200;            // CPU profiler sampling interval (--profile)
 // PERF-002 per 120 Hz step / per frame (ms); systems grouped as the spec groups them.
 const PERF_BUDGETS = { sim: 2.0, movement: 0.5, ai: 1.0, projectiles: 0.3, rules: 0.2, render: 1.5, hud: 0.4, frameCpu: 5.5 };
-const STEPS_PER_60_HZ_FRAME = 2;   // the 5.5 ms frame budget is a 60 fps frame: 2 of the 120 Hz sim steps
-// Frame CPU of a 60 fps frame: the frame's own cost without its sim steps, plus two steps. Headless frames run slower than
-// 60 fps (software WebGL), so a raw frame carries 3-4 sim steps and would count the sim twice against the frame budget.
-const frameCpuAt60 = (report) => report.cpuMs.mean - report.simFrameMs.mean + STEPS_PER_60_HZ_FRAME * report.simMs.mean;
+const STEPS_PER_BUDGET_FRAME = 1;   // PERF-002 budgets a 120 fps frame: one 120 Hz sim step
+// Frame CPU of a 120 fps frame: the frame's own cost without its sim steps, plus one step. Headless frames run at about
+// 30 fps (software WebGL), so a raw frame carries about 4 sim steps and would count the sim four times against the budget.
+const frameCpuAt120 = (report) => report.cpuMs.mean - report.simFrameMs.mean + STEPS_PER_BUDGET_FRAME * report.simMs.mean;
 const SYSTEM_GROUPS = { movement: ['move', 'bodies'], ai: ['botThink', 'pveBrains', 'nav'], projectiles: ['weapons', 'projectiles', 'weaponSpecials'],
   rules: ['rules', 'mutators', 'pve', 'pveBoss', 'operationTickets'] };
 
@@ -200,7 +200,7 @@ function printRun(run) {
   console.log([run.scene.padEnd(9), run.preset.padEnd(6), (run.rate + 'x').padEnd(3),
     'actors ' + String(info.alive).padStart(2) + '/' + String(info.actors).padStart(2),
     'frame p50/95/99 ' + fixed(r.frameMs.p50, 1) + '/' + fixed(r.frameMs.p95, 1) + '/' + fixed(r.frameMs.p99, 1),
-    'cpu mean ' + fixed(r.cpuMs.mean) + ' @60 ' + fixed(frameCpuAt60(r)) + ' p50/95/99 ' + fixed(r.cpuMs.p50) + '/' + fixed(r.cpuMs.p95) + '/' + fixed(r.cpuMs.p99),
+    'cpu mean ' + fixed(r.cpuMs.mean) + ' @120 ' + fixed(frameCpuAt120(r)) + ' p50/95/99 ' + fixed(r.cpuMs.p50) + '/' + fixed(r.cpuMs.p95) + '/' + fixed(r.cpuMs.p99),
     'sim/step mean ' + fixed(r.simMs.mean) + ' p95 ' + fixed(r.simMs.p95),
     'move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules),
     'render mean ' + fixed(r.renderMs.mean) + ' p50 ' + fixed(r.renderMs.p50) + ' p95 ' + fixed(r.renderMs.p95), 'hud mean ' + fixed(r.hudMs.mean) + ' p50 ' + fixed(r.hudMs.p50) + ' p95 ' + fixed(r.hudMs.p95),
@@ -219,7 +219,7 @@ function budgetMisses(run) {
   for (const group in SYSTEM_GROUPS) test(group + '/step', g[group], PERF_BUDGETS[group]);
   test('render', r.renderMs.mean, PERF_BUDGETS.render);
   test('hud', r.hudMs.mean, PERF_BUDGETS.hud);
-  test('frame cpu @60', frameCpuAt60(r), PERF_BUDGETS.frameCpu);
+  test('frame cpu @120', frameCpuAt120(r), PERF_BUDGETS.frameCpu);
   return misses;
 }
 

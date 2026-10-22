@@ -9,7 +9,8 @@ const FRAME_HISTORY = 240;              // frames kept for p50/p95/p99 (2 s at 1
 const MAX_FRAME_SECONDS = 0.25;         // a longer gap (tab switch, debugger) is not simulated
 
 const FRAME_CAP_TOLERANCE_MS = 1.5;   // rAF timestamps jitter; skip a frame only when clearly early
-Settings.define('video.frameCap', 0, { label: 'Frame rate cap', category: 'video', options: [0, 60, 90, 120], optionLabels: ['Off', '60', '90', '120'] });
+// 30 is the battery saver (plan 18.5 low-power mode): the renderer takes the cap interval as its frame budget.
+Settings.define('video.frameCap', 0, { label: 'Frame rate cap', category: 'video', options: [0, 30, 60, 90, 120], optionLabels: ['Off', '30 (battery saver)', '60', '90', '120'] });
 
 const Perf = {
   frameMs: new Float32Array(FRAME_HISTORY),   // time between rendered frames (what the player feels)
@@ -126,4 +127,5 @@ Bus.on('setting', (key) => {
   const cap = Settings.get('video.frameCap');
   Loop.frameCapMs = cap > 0 ? 1000 / cap : 0;
   Loop.capCreditMs = 0;
+  Render.config.frameCapMs = Loop.frameCapMs;   // a capped frame is on time: no lower scale or preset for it
 });

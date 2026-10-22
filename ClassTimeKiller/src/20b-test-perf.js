@@ -27,7 +27,7 @@ const PerfScene = {
 Bus.on('toast', () => { PerfScene.toasts++; });
 
 const PerfRecorder = {
-  active: false, skip: 0, count: 0, resolve: null, timer: 0, startTick: 0, startTime: 0, systemStart: {}, lastTick: 0, stepCount: 0,
+  active: false, skip: 0, count: 0, resolve: null, last: null, timer: 0, startTick: 0, startTime: 0, systemStart: {}, lastTick: 0, stepCount: 0,
   stepMs: new Float32Array(PERF_RECORD_FRAMES),   // sim ms per 120 Hz step in each frame (frames that ran no step are left out)
   frameMs: new Float32Array(PERF_RECORD_FRAMES), cpuMs: new Float32Array(PERF_RECORD_FRAMES), simMs: new Float32Array(PERF_RECORD_FRAMES),
   renderMs: new Float32Array(PERF_RECORD_FRAMES), hudMs: new Float32Array(PERF_RECORD_FRAMES), drawCalls: new Uint16Array(PERF_RECORD_FRAMES),
@@ -178,7 +178,8 @@ function perfFinishRecording() {
   if (!recorder.active) return;
   recorder.active = false;
   clearTimeout(recorder.timer);
-  recorder.resolve(perfReport());
+  recorder.last = perfReport();
+  recorder.resolve(recorder.last);
 }
 
 function perfRecord(seconds) {
@@ -228,6 +229,7 @@ Object.assign(DebugApi.perf, {
   scenes: () => Object.keys(PERF_SCENES).map((name) => ({ name, label: PERF_SCENES[name].label })),
   scene: (name, qualityId, options) => perfStartScene(name, qualityId, options),
   record: (seconds) => perfRecord(seconds),
+  report: () => PerfRecorder.last,   // the last finished recording (plan 18.1 report table), or null
   stop: () => { perfStopScene(); return true; },
   info: () => perfSceneInfo(),
   systems: () => Sim.systems,   // the registered sim systems in step order (allocation and cost probes)
@@ -262,7 +264,14 @@ Test.add('perf', (check) => {
   Loop.capCreditMs = 5;
   Settings.set('video.frameCap', 90);
   check('the frame cap setting reaches the loop and resets the pacing credit', near(Loop.frameCapMs, 1000 / 90) && Loop.capCreditMs === 0, Loop.frameCapMs);
+  check('battery saver: cap 30 on a 60 Hz display averages 30 fps', near(perfPacedFps(60, 30), 30), perfPacedFps(60, 30));
+  Settings.set('video.frameCap', 30);
+  const control = makeScaleControl();
+  let scale = 1;
+  for (let i = 0; i < 20; i++) scale = stepRenderScale(control, 1000 / 30, slowFrameMs(), slowFrameMs(), 0.1, scale, 0.5, 1);
+  check('battery saver: capped 30 fps frames keep the render scale (the cap is the frame budget)', Render.config.frameCapMs === Loop.frameCapMs && scale === 1, scale);
   Settings.set('video.frameCap', savedCap);
+  check('the cap budget clears with the cap', Render.config.frameCapMs === Loop.frameCapMs);
 });
 
 Test.add('perf', async (check) => {
@@ -319,7 +328,7 @@ Test.add('perf', (check) => {
   const draw = (random, count) => { let value = 0; for (let i = 0; i < count; i++) value = random.next(); return Math.round(value * 4294967296); };
   check('typed-array RNG state gives the same numbers as the closure words (seed 12345)', draw(first, 1) === 773969981 && draw(first, 999) === 940126096);
   check('typed-array RNG state gives the same numbers as the closure words (seed 2^32 - 1)', draw(last, 1) === 3199221271 && draw(last, 999) === 3695540032);
-  check('slab test from typed arrays: entry distance, inside = 0, miss = -1', rayBoundsDistance(0, 0, -5, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === 4
+  check('slab test: entry distance, inside = 0, miss = -1', rayBoundsDistance(0, 0, -5, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === 4
     && rayBoundsDistance(0, 0, 0, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === 0 && rayBoundsDistance(0, 3, -5, 0, 0, 1, 10, -1, -1, -1, 1, 1, 1) === -1);
   check('hit volumes from the scratch ray: sphere and capped cylinder', raySphere(0, 0, -5, 0, 0, 1, 0, 0, 0, 1) === 4
     && rayCylinder(0, 5, 0, 0, -1, 0, 0, 0, 0, 2, 0.5) === 3 && rayCylinder(2, 1, -5, 0, 0, 1, 0, 0, 0, 2, 0.5) === -1);
@@ -387,6 +396,7 @@ Test.add('perf', async (check) => {
     check('the auto quality step-down is off in a budget run', Settings.get('video.autoLower') === false);
     const report = await perfRecord(0.3);
     check('a recording returns frames, percentiles and per-system times', report.frames > 0 && report.cpuMs.p50 >= 0 && Object.keys(report.systems).length > 0, { frames: report.frames, steps: report.steps });
+    check('__CTK.perf.report() returns the last recording', DebugApi.perf.report() === report);
   } finally {
     perfStopScene();
     Settings.reset('video.');
