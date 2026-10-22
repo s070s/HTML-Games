@@ -49,20 +49,26 @@ const MELEE_DISTANCE = 1.8, MELEE_INTERVAL = 0.5;
 const THROW_PITCH_TOP = 35 * DEG, THROW_SOLVE_STEPS = 16;   // the low arc rises up to here (18 m/s + 5 up: past 40 m)
 const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cooked grenade goes off as it lands)
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
-const GRENADE_CHECK = 0.5;              // ...and between kit checks (grenade, gadget, ability) while none is wanted
+const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
 const ABILITY_KEEP_SECONDS = 4;         // a toggle or channel is pressed off once its trigger ends, at most this long after...
-const ABILITY_MIN_ON = 0.5;             // ...and no sooner than this (one press on, a later press off)
+const ABILITY_MIN_ON = 0.5;             // ...and no sooner than this (one press on, a later press off); an off press that did
+                                        // not take is tried again this long later (the button released in between)
 const ABILITY_TRAVEL = 10;              // m: 'moving' abilities (glide, grapple, sprint) only on longer trips
 const UNDER_FIRE_SECONDS = 1.5;         // hit this recently = under fire
 const LOW_AMMO_SHARE = 0.25;
 const DODGE_CHANCE_CAP = 0.6;           // BOT-033: no dodge is ever surer than 60%
 const ONE_HIT_DODGE_SCALE = 1.5, ONE_HIT_DODGE_FLOOR = 0.2, ONE_HIT_DODGE_TIER = 2;   // MUT-003: one-shot rules raise dodge priority
-const HAZARD_SIDESTEP = 1;              // m beyond a seen mine's trigger radius: steer around it
-const ULTIMATE_TARGETS = 2;              // BOT-035: an ultimate goes when it reaches 2+ enemies (or the objective is contested)
+const HAZARD_LOOKAHEAD = 5;             // m beyond a seen mine's trigger radius: a path that runs into it starts to bend...
+const HAZARD_CLEARANCE = 1.2;           // ...to pass this far outside the trigger radius
+const HAZARD_TANGENT_WEIGHT = 2;        // the sidestep outweighs the path direction (which still runs through the mine)
+const HAZARD_PUSH_WEIGHT = 2;           // inside the clearance ring the bot is also pushed straight out
+const ULTIMATE_TARGETS = 2;              // BOT-035: an ultimate goes when it reaches 2+ enemies (or the objective is contested)...
+const ULTIMATE_ENEMY_TRIGGERS = ['enemyVisible', 'enemyClose', 'groupedEnemies'];   // ...if its botUse aims it at enemies
+const PRESSABLE_SLOTS = SLOT.PASSIVE;   // ability slots a bot presses: ABILITY1, ABILITY2, ULTIMATE (the passive comes after them)
 
 const aimPoint = Vec.make();
 const perceived = Vec.make();
@@ -82,6 +88,7 @@ const BOT_USE_TRIGGERS = {
   groupedEnemies: (id) => BotCombat.visibleEnemies(id) >= ULTIMATE_TARGETS,
   objective: (id) => BotDecide.goal[id] === GOAL.OBJECTIVE && (BotDecide.contested(id) || BotCombat.targetVisible(id)),   // a fight at the point
   cover: (id) => BotCombat.targetInCover(id, Sim.time),
+  coverOrHolding: (id) => BotCombat.targetInCover(id, Sim.time) || (BotCombat.target[id] >= 0 && BotDecide.holding(id)),
   holding: (id) => BotDecide.holding(id),
   lowAmmo: (id) => BotCombat.lowAmmo(id),
 };
@@ -103,8 +110,9 @@ const BotCombat = {
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
-  switchedOnAt: new Float64Array(MAX_ACTORS * SLOT.PASSIVE).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
-  uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot (tests, soak report)
+  switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
+  switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
+  uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
   // others; unknown = the target was not even remembered). Judged at the decision, so a shot that kills is not a breach.
@@ -117,7 +125,8 @@ const BotCombat = {
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
     this.gadgetAt[id] = 0; this.holdSlot[id] = -1;
-    this.switchedOnAt.fill(-1, id * SLOT.PASSIVE, (id + 1) * SLOT.PASSIVE);
+    this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
+    this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
   targetVisible(id) { const target = this.target[id]; return target >= 0 && BotSense.sees(id, target); },
   // Distance to where the bot believes its target is (BOT-040: a remembered target is judged by its last known place).
@@ -456,8 +465,8 @@ const BotCombat = {
   },
   // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen.
   tryGrenade(id, now) {
-    const pace = 0.5 + Bots.trait(id, TRAIT.abilityUse);
-    this.grenadeAt[id] = now + GRENADE_CHECK / pace;
+    const pace = kitPace(id);
+    this.grenadeAt[id] = now + KIT_CHECK_INTERVAL / pace;
     const target = this.target[id], row = carriedRow(id, Gadgets.grenade[id]);
     const use = row ? BOT_GADGET_USE[row.effect] : null;
     if (target < 0 || !use || !botUseWanted(id, use) || !BotTeam.takeGrenadeToken(id, now)) return;
@@ -496,52 +505,53 @@ const BotCombat = {
   },
   // Placed and deployed gadgets (BTN.GADGET) by BOT_GADGET_USE; a gadget that finds no room is simply not placed.
   tryGadget(id, now) {
-    const pace = 0.5 + Bots.trait(id, TRAIT.abilityUse);
-    this.gadgetAt[id] = now + GRENADE_CHECK / pace;
+    const pace = kitPace(id);
+    this.gadgetAt[id] = now + KIT_CHECK_INTERVAL / pace;
     const row = carriedRow(id, Gadgets.gadget[id]);
     if (!row || !botUseWanted(id, BOT_GADGET_USE[row.effect])) return;
     this.gadgetAt[id] = now + GADGET_INTERVAL / pace;
     Bots.press(id, BTN.GADGET);
     this.uses.gadgets++;
   },
-  // Ability slots by their row's botUse { when, range, chance }; the ultimate also by BOT-035 (2+ enemies in sight, or
-  // the objective contested). Passive and self-firing (ult) rows need no press; ready() is false while one runs, so a
-  // toggle or channel is never pressed off by mistake.
+  // Ability slots by their row's botUse { when, range, chance }; an ultimate aimed at enemies also by BOT-035 (2+ enemies
+  // in sight, or the objective contested). Passive and self-firing (ult) rows need no press; ready() is false while one
+  // runs, so a toggle or channel is never pressed off by mistake.
   tryAbilities(id, now) {
-    const pace = 0.5 + Bots.trait(id, TRAIT.abilityUse);
-    this.abilityAt[id] = now + GRENADE_CHECK / pace;
-    for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
+    const pace = kitPace(id);
+    this.abilityAt[id] = now + KIT_CHECK_INTERVAL / pace;
+    for (let slot = 0; slot < PRESSABLE_SLOTS; slot++) {
       const row = Abilities.row(id, slot);
       if (!row || row.activation === 'passive' || row.activation === 'ult' || !Abilities.ready(id, slot)) continue;
       if (row.activation === 'channel' && !BotDecide.holding(id)) continue;   // a channel roots the body: only where the bot stays
-      if (!botUseWanted(id, row.botUse) && !(slot === SLOT.ULTIMATE && ultimateWanted(id))) continue;
+      if (!botUseWanted(id, row.botUse) && !(slot === SLOT.ULTIMATE && ultimateWanted(id, row.botUse))) continue;
       Bots.press(id, SLOT_BUTTONS[slot]);
       this.abilityAt[id] = now + ABILITY_INTERVAL / pace;
       this.uses.abilities++;
       if (row.activation === 'hold') { this.holdSlot[id] = slot; this.holdSlotUntil[id] = now + ABILITY_HOLD_SECONDS; }
-      if (row.activation === 'toggle' || row.activation === 'channel') this.switchedOnAt[id * SLOT.PASSIVE + slot] = now;
+      if (row.activation === 'toggle' || row.activation === 'channel') this.switchedOnAt[id * PRESSABLE_SLOTS + slot] = now;
       return;
     }
   },
   // True while a channel runs (the body is rooted: the bot stands still rather than push against it).
   channeling(id) {
-    for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
+    for (let slot = 0; slot < PRESSABLE_SLOTS; slot++) {
       const row = Abilities.row(id, slot);
       if (row && row.activation === 'channel' && Abilities.active[Abilities.index(id, slot)]) return true;
     }
     return false;
   },
   // Toggles and channels stay on until pressed again: off once their trigger ends, at most 4 s on (a channel roots the
-  // body: a scout drone flown for ever is a bot standing still). A press that did not take is tried again 0.5 s later.
+  // body: a scout drone flown for ever is a bot standing still). An off press is one tick long; one that did not take is
+  // pressed again 0.5 s later, so the button is released in between and every press is a new edge.
   switchOff(id, now) {
-    for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
-      const i = id * SLOT.PASSIVE + slot, since = this.switchedOnAt[i];
-      if (since < 0 || now - since < ABILITY_MIN_ON) continue;
+    for (let slot = 0; slot < PRESSABLE_SLOTS; slot++) {
+      const i = id * PRESSABLE_SLOTS + slot, since = this.switchedOnAt[i];
+      if (since < 0 || now - since < ABILITY_MIN_ON || now < this.switchRetryAt[i]) continue;
       const row = Abilities.row(id, slot);
       if (!row || !Abilities.active[Abilities.index(id, slot)]) { this.switchedOnAt[i] = -1; continue; }
       if (now - since < ABILITY_KEEP_SECONDS && triggerHolds(id, row.botUse)) continue;
       Bots.press(id, SLOT_BUTTONS[slot]);
-      this.switchedOnAt[i] = now - ABILITY_KEEP_SECONDS + ABILITY_MIN_ON;   // checked again in 0.5 s
+      this.switchRetryAt[i] = now + ABILITY_MIN_ON;
     }
   },
   // A 'hold' ability stays on while its button is held: held while the trigger lasts (at most 3 s).
@@ -559,11 +569,25 @@ const BotCombat = {
     if (now < BotSense.dangerUntil[id]) { Bots.wish(id, Actors.x[id] - BotSense.dangerX[id], Actors.z[id] - BotSense.dangerZ[id], 1); return; }
     const device = BotSense.mine[id];
     if (device < 0 || !Devices.active[device]) return;
-    const row = CAT.gadgets[Devices.row[device]], dx = Actors.x[id] - Devices.x[device], dz = Actors.z[id] - Devices.z[device];
-    const distance = Math.max(Math.hypot(dx, dz), 1e-3);
-    if (distance > row.trigger + HAZARD_SIDESTEP) return;
-    if (row.crouchSafe) { Bots.press(id, BTN.CROUCH); return; }
-    Bots.wish(id, Bots.wishX[id] * Bots.wishAmount[id] + dx / distance, Bots.wishZ[id] * Bots.wishAmount[id] + dz / distance, 1);
+    const row = CAT.gadgets[Devices.row[device]], clear = row.trigger + HAZARD_CLEARANCE;
+    const distance = Math.max(Math.hypot(Actors.x[id] - Devices.x[device], Actors.z[id] - Devices.z[device]), 1e-3);
+    if (distance > row.trigger + HAZARD_LOOKAHEAD) return;
+    if (row.crouchSafe) { if (distance <= clear) Bots.press(id, BTN.CROUCH); return; }
+    this.steerAround(id, device, clear, distance);
+  },
+  // Bends a path that runs into the ring of `clear` m around a device: a sidestep along the ring that outweighs the path,
+  // pushed out while inside the ring, until the path direction clears it. The side is the one the bot stands on as seen
+  // from its destination (the path itself swings back to waypoints by the device, which would flip it every tick).
+  steerAround(id, device, clear, distance) {
+    const awayX = (Actors.x[id] - Devices.x[device]) / distance, awayZ = (Actors.z[id] - Devices.z[device]) / distance;
+    const pathX = Bots.wishX[id] * Bots.wishAmount[id], pathZ = Bots.wishZ[id] * Bots.wishAmount[id];
+    const toward = -(pathX * awayX + pathZ * awayZ), across = pathX * awayZ - pathZ * awayX;
+    const inside = distance < clear;
+    if (!inside && (toward <= 0 || Math.abs(across) * distance >= clear)) return;   // moving away, or the path clears the ring
+    const goalX = BotMove.destX[id] - Actors.x[id], goalZ = BotMove.destZ[id] - Actors.z[id];
+    const side = goalX * awayZ - goalZ * awayX >= 0 ? 1 : -1, push = inside ? HAZARD_PUSH_WEIGHT : 0;
+    const tangentX = awayZ * side, tangentZ = -awayX * side;
+    Bots.wish(id, pathX + tangentX * HAZARD_TANGENT_WEIGHT + awayX * push, pathZ + tangentZ * HAZARD_TANGENT_WEIGHT + awayZ * push, 1);
   },
 
   // ---- Bookkeeping from events: hit-rate caps (BOT-093), the fairness record (ARC-033), the player's weapon use ----
@@ -629,8 +653,10 @@ function tapped(mode) { return mode.trigger === 'semi' || mode.trigger === 'burs
 function noiseSample() { return clamp(Rng.bots.gauss() * AIM_NOISE_SPREAD, -AIM_NOISE_LIMIT, AIM_NOISE_LIMIT); }
 
 // BOT-034 throw solver: the low-arc view pitch whose real overhand throw (GADGET_TUNING speed along the view plus lift,
-// from the eye, under bodyGravity) lands `distance` m away and `rise` m higher. Bisection on the rising part of the
-// range curve; out of reach gives the top pitch. throwFlight keeps the flight time (the cook waits out the rest of the fuse).
+// from the eye, under bodyGravity) lands `distance` m away and `rise` m higher. The flight of one pitch is closed-form
+// (throwRange); the pitch is found by bisection, since the fixed upward lift leaves no closed form for it. The range
+// rises with the pitch up to THROW_PITCH_TOP (the low arc); out of reach gives the top pitch. throwFlight keeps the
+// flight time (the cook waits out the rest of the fuse).
 let throwFlight = 0;
 function solveThrowPitch(distance, rise) {
   let low = -THROW_PITCH_TOP, high = THROW_PITCH_TOP;
@@ -654,9 +680,10 @@ function throwRange(pitch, rise) {
 }
 
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
-// and the per-check chance passes.
+// the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
 function botUseWanted(id, use) {
-  if (!use || use.chance <= 0 || !triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
+  if (!use || use.chance <= 0 || (use.tier && Bots.tier(id).tier < use.tier)) return false;
+  if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
   return Rng.bots.chance(use.chance);
 }
 
@@ -671,7 +698,15 @@ function inUseRange(id, range) {
   return distance >= range[0] && distance <= range[1];
 }
 
-function ultimateWanted(id) { return BotCombat.visibleEnemies(id) >= ULTIMATE_TARGETS || BOT_USE_TRIGGERS.objective(id); }
+// BOT-035 for an ultimate whose botUse aims it at enemies (in its own range): 2+ enemies in sight, or the objective is
+// contested. Escape and self-buff ultimates keep their own trigger.
+function ultimateWanted(id, use) {
+  if (!use || !ULTIMATE_ENEMY_TRIGGERS.includes(use.when) || !inUseRange(id, use.range)) return false;
+  return BotCombat.visibleEnemies(id) >= ULTIMATE_TARGETS || BOT_USE_TRIGGERS.objective(id);
+}
+
+// Kit checks run faster with the abilityUse trait: 0.5x .. 1.5x the base pace.
+function kitPace(id) { return 0.5 + Bots.trait(id, TRAIT.abilityUse); }
 
 // The gadget row an actor carries at least one of (Gadgets.grenade / Gadgets.gadget index), else null.
 function carriedRow(id, index) {
@@ -702,4 +737,7 @@ function dodgeChance(id) {
 
 Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
 Bus.on('damage', (event) => BotCombat.onDamage(event));
-Bus.on('match.setup', () => { BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0); });
+Bus.on('match.setup', () => {
+  BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);
+  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0;
+});

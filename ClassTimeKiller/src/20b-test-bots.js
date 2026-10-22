@@ -506,10 +506,22 @@ Test.add('bots', (check) => {
   check('every hunted role is an actor role', badRoles.length === 0, badRoles.join());
 });
 
-// ---- Perception: smoke blocks sight, a cloak shrinks it, an enemy mine is seen and passed crouched, a grenade heard
-// landing close is run from, a decoy's shot is remembered as its owner ----
-const SMOKE_ROW = 'smoke', CLOAK_POWERUP = 'ghostveil', CROUCH_MINE = 'claymore';
-const CLOAK_DISTANCE = 20, MINE_AHEAD = 3, GRENADE_HEARD_AT = 3, DECOY_X = 30, DECOY_ERROR = 5;
+// ---- Perception: smoke blocks sight, a cloak shrinks it, an enemy mine is seen and passed crouched (or walked around),
+// a frag heard landing close is run from (a smoke canister is not), a decoy's shot is remembered as its owner ----
+const SMOKE_ROW = 'smoke', CLOAK_POWERUP = 'ghostveil', CROUCH_MINE = 'claymore', STEER_MINE = 'prox', DECOY_ROW = 'decoy';
+const CLOAK_DISTANCE = 20, MINE_AHEAD = 3, GRENADE_HEARD_AT = 3, DECOY_X = 15, DECOY_ERROR = 5;
+const DROP_HEIGHT = 1.5, DROP_SPEED = -4, DROP_FUSE = 5, HEAR_SECONDS = 1;   // a throwable dropped next to the bot bounces at once
+const MINE_WALK_FROM = -10, MINE_WALK_TO = 12, MINE_WALK_SECONDS = 8, MINE_WALK_ARRIVED = 2, FAR_DUMMY = -50;
+
+// Drops a gadget row owned by `owner` next to the bot (it bounces on the floor: the bounce sound of S12) and runs until
+// the bot runs from it, at most HEAR_SECONDS; returns whether it ran.
+function dropNextTo(bot, owner, rowId) {
+  BotSense.dangerUntil[bot] = 0;
+  Thrown.spawn(CAT.gadgets.byId(rowId), owner, Actors.x[bot] + GRENADE_HEARD_AT, DROP_HEIGHT, Actors.z[bot], 0, DROP_SPEED, 0, itemTicks(DROP_FUSE));
+  const ran = runHeld(HEAR_SECONDS, () => holdActor(owner, 0, 10), () => BotSense.dangerUntil[bot] > Sim.time);
+  if (ran) Sim.run(1);
+  return ran;
+}
 
 // Runs up to `seconds`, calling hold() before every tick, until until() is true; returns whether it became true.
 function runHeld(seconds, hold, until) {
@@ -554,37 +566,127 @@ Test.add('bots', (check) => {
   check('an enemy mine in sight is noticed (Gadgets.visibleTo)', noticed);
   check('and passed crouched (crouch-safe)', crouched);
   Devices.remove(mine, false);
-  const sound = { x: Actors.x[bot] + GRENADE_HEARD_AT, y: 0.2, z: Actors.z[bot], radius: 30, kind: 'grenade', source: dummy };
-  Bus.emit('sound', sound);
-  Sim.run(1);
-  check('a grenade heard landing close is run from', BotSense.dangerUntil[bot] > Sim.time && Bots.wishX[bot] < 0, Bots.wishX[bot]);
+  check('a frag heard landing close is run from', dropNextTo(bot, dummy, THROW_ROW) && Bots.wishX[bot] < 0, Bots.wishX[bot]);
+  Thrown.clear();
+  check('a smoke canister landing close is not (a harmless screen)', !dropNextTo(bot, dummy, SMOKE_ROW));
+  Thrown.clear();
   endBotTest();
 
+  // A real decoy (the row's effect, as when the thrown shell goes off) behind the wall, owned by the dummy.
   [bot, dummy] = startBotTest(botTestMap(true));
   placeFacing(bot, 0, -10, 0);
   holdActor(dummy, 0, 10);
   Sim.run(1);
-  Bus.emit('sound', { x: DECOY_X, y: 1, z: 10, radius: 80, kind: 'shot', source: dummy });
-  const pair = BotSense.pair(bot, dummy);
-  check('a decoy shot is remembered as its owner, where the decoy is', BotSense.knows(bot, dummy, Sim.time) && Math.abs(BotSense.knownX[pair] - DECOY_X) < DECOY_ERROR, BotSense.knownX[pair]);
+  const decoy = CAT.gadgets.byId(DECOY_ROW), pair = BotSense.pair(bot, dummy);
+  GadgetEffects[decoy.effect](decoy, dummy, DECOY_X, 0.1, 10);
+  const heard = runHeld(1 / decoy.rate + 1, () => holdActor(dummy, 0, 10), () => BotSense.knows(bot, dummy, Sim.time));
+  check('a decoy shot is remembered as its owner, where the decoy is', heard && Math.abs(BotSense.knownX[pair] - DECOY_X) < DECOY_ERROR, BotSense.knownX[pair]);
+  endBotTest();
+});
+
+// A prox mine does not spare a crouched body: the bot walks around it (its path runs straight through it).
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  placeFacing(bot, 0, MINE_WALK_FROM, 0);
+  const mine = Devices.spawn(CAT.gadgets.byId(STEER_MINE), dummy, 0, 0, (MINE_WALK_FROM + MINE_WALK_TO) / 2);
+  Devices.armTick[mine] = Sim.tick;    // armed at once
+  Bots.nextDecide[bot] = Infinity;     // the test gives the destination
+  BotMove.goTo(bot, 0, 0, MINE_WALK_TO, 1);
+  let noticed = false;
+  const passed = runHeld(MINE_WALK_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
+    noticed = noticed || BotSense.mine[bot] === mine;
+    return Actors.z[bot] > MINE_WALK_TO - MINE_WALK_ARRIVED;
+  });
+  check('a prox mine on the path is noticed', noticed);
+  check('and walked around: the bot gets past without setting it off', passed && Devices.active[mine] === 1 && Actors.alive[bot],
+    Actors.x[bot].toFixed(2) + ',' + Actors.z[bot].toFixed(2) + ' mine ' + Devices.active[mine]);
   endBotTest();
 });
 
 // ---- Grenades on the solved arc (real Gadgets): two enemies together draw a frag that lands among them ----
 const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
 
+const LONE_SECONDS = 4, ESCAPE_ULTIMATE = 'rift', STRIKE_ULTIMATE = 'orbital';
+
 Test.add('bots', (check) => {
   const [bot, first, second] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
   placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
   Gadgets.give(bot, THROW_ROW, 2);
-  const explosions = startEventLog('explosion'), throwsBefore = BotCombat.uses.grenades;
+  const explosions = startEventLog('explosion');
   const hold = () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); };
-  runHeld(THROW_SECONDS, hold, () => explosions.some((event) => event.owner === bot));
+  let ultimates = null;   // BOT-035 with both enemies in sight: an ultimate aimed at enemies goes, an escape one does not
+  runHeld(THROW_SECONDS, hold, () => {
+    if (!ultimates && BotCombat.visibleEnemies(bot) >= ULTIMATE_TARGETS && BotCombat.target[bot] >= 0) {
+      ultimates = [ultimateWanted(bot, CAT.abilities.byId(STRIKE_ULTIMATE).botUse), ultimateWanted(bot, CAT.abilities.byId(ESCAPE_ULTIMATE).botUse)];
+    }
+    return explosions.some((event) => event.owner === bot);
+  });
   explosions.stop();
   const blast = explosions.find((event) => event.owner === bot), miss = blast ? Math.hypot(blast.x, blast.z - THROW_DISTANCE / 2) : Infinity;
-  check('a bot throws a grenade at two enemies together', BotCombat.uses.grenades > throwsBefore);
+  check('a bot throws a grenade at two enemies together', BotCombat.uses.grenades > 0, BotCombat.uses.grenades);
   check('and it lands among them (within 4 m)', miss < THROW_LANDING, miss.toFixed(2));
+  check('2+ enemies in sight: a strike ultimate is wanted, an escape ultimate is not', !!ultimates && ultimates[0] && !ultimates[1], String(ultimates));
   endBotTest();
+});
+
+// BOT-034: a lone enemy in the open, seen the whole time, draws no frag (no cover, no cluster, no held spot); a flash
+// is thrown only from tier 3. uses counts this match only.
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  Gadgets.give(bot, THROW_ROW, 2);
+  check('kit use counts start at 0 every match', BotCombat.uses.grenades === 0 && BotCombat.uses.gadgets === 0 && BotCombat.uses.abilities === 0);
+  let seen = true;
+  runHeld(LONE_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(dummy, 0, THROW_DISTANCE / 2); }, () => {
+    if (Sim.time > 1) seen = seen && BotSense.sees(bot, dummy);
+    return false;
+  });
+  check('a lone enemy in the open draws no frag', seen && BotCombat.uses.grenades === 0 && Gadgets.countOf(bot, THROW_ROW) === 2, BotCombat.uses.grenades + ' seen ' + seen);
+  const flashAnywhere = Object.assign({}, BOT_GADGET_USE.flash, { when: 'always', range: [0, 0], chance: 1 });
+  const tierSix = botUseWanted(bot, flashAnywhere);
+  Bots.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
+  check('flash before a peek only from tier 3', tierSix && !botUseWanted(bot, flashAnywhere));
+  endBotTest();
+});
+
+// A toggle pressed off that did not take is pressed again 0.5 s later, released in between (every press a new edge).
+const TOGGLE_ROW = 'bulwark', TOGGLE_WATCH_SECONDS = 1.3;
+
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  runSeconds(0.2);
+  Abilities.setSlot(bot, 0, CAT.abilities.byId(TOGGLE_ROW));
+  const index = Abilities.index(bot, 0), presses = [];
+  BotCombat.switchedOnAt[bot * PRESSABLE_SLOTS] = 0;   // switched on at the start; its trigger (under fire) does not hold
+  for (let tick = 0; tick < TOGGLE_WATCH_SECONDS * TICK_RATE; tick++) {
+    Abilities.active[index] = 1;   // every off press "does not take"
+    Sim.run(1);
+    if (Actors.buttons[bot] & BTN.ABILITY1) presses.push(tick);
+  }
+  Abilities.active[index] = 0;
+  const separate = presses.every((tick, i) => i === 0 || tick - presses[i - 1] >= ABILITY_MIN_ON * TICK_RATE - 1);
+  check('an off press that did not take is retried every 0.5 s, released in between', presses.length >= 2 && presses.length <= 3 && separate, presses.join());
+  endBotTest();
+});
+
+// ---- Flag raids: the rally is a meeting place (no held spot), and a raider already past it keeps going ----
+Test.add('bots', (check) => {
+  const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
+  playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
+    let raider = -1;
+    for (let id = 0; id < Actors.count && raider < 0; id++) if (Bots.active[id] && Actors.team[id] === 0) raider = id;
+    const own = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 0), enemy = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
+    BotTeam.role[raider] = ROLE.ATTACK;
+    BotTeam.pushUntil[0] = 0;
+    placeActor(raider, own.homeX, own.homeZ);
+    planFlags(raider, plan);
+    const atRally = plan.target === -1 && Math.hypot(plan.x - BotTeam.rallyX[0], plan.z - BotTeam.rallyZ[0]) <= BOT_FLAG_PUSH.radius;
+    check('a raider at home goes to the rally point', BotTeam.hasRally(0) && atRally, plan.target + ' ' + plan.x.toFixed(1) + ',' + plan.z.toFixed(1));
+    check('the rally is not a held spot (no mines, turrets or channels there)', plan.action === ACTION.MOVE);
+    placeActor(raider, lerp(own.homeX, enemy.homeX, 0.8), lerp(own.homeZ, enemy.homeZ, 0.8));
+    planFlags(raider, plan);
+    check('a raider past the rally keeps going for the enemy flag when no push runs', plan.target === enemy.index, plan.target);
+  } });
 });
 
 // ---- MUT-003: bots adapt to the mutator rules ----

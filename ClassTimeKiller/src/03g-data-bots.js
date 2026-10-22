@@ -152,13 +152,15 @@ const BOT_HUNTED_ROLES = ['carrier', 'colossus', 'cursed', 'bearer'];
 // Grenades and gadgets (BOT-034/035) by the gadget row's effect: the trigger (BOT_USE_TRIGGERS: the words of the ability
 // botUse), the target distance range [min, max] m (max 0 = any distance, or no target needed), the chance per check, and
 // for thrown rows where the throw lands ('enemy' = where the bot believes its target is, 'between' = half way there, a
-// screen). cover = the target hid in the last 3 s or 2+ enemies stand together; holding = the bot holds its spot
-// (defend, camp, objective); lowAmmo = the drawn weapon's reserve is low. An effect missing here is never used by bots.
+// screen); tier: the lowest skill tier that uses it (0 when missing). cover = the target hid in the last 3 s or 2+
+// enemies stand together; coverOrHolding = that, or any target while the bot holds its spot (BOT-034: frags at cover,
+// clusters or from a held point); holding = the bot holds its spot (defend, camp, objective); lowAmmo = the drawn
+// weapon's reserve is low. An effect missing here is never used by bots.
 const BOT_GADGET_USE = {
-  explode: { when: 'enemyVisible', range: [8, 25], chance: 0.35, aim: 'enemy' },
-  fire: { when: 'enemyVisible', range: [8, 25], chance: 0.3, aim: 'enemy' },
+  explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
+  fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
   singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
-  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy' },
+  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tier: 3 },   // BOT-034: flash before a peek from tier 3
   freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
   impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
   dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },
@@ -177,3 +179,5 @@ const BOT_GADGET_USE = {
   drones: { when: 'enemyVisible', range: [10, 40], chance: 0.6 },
   supply: { when: 'lowAmmo', range: [0, 0], chance: 1 },
 };
+// Thrown effects a bot runs from when it hears one bounce close (smoke, flash, decoys and darts do no harm where they land).
+const BOT_FLEE_EFFECTS = ['explode', 'fire', 'singularity', 'impulse', 'freeze'];

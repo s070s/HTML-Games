@@ -38,6 +38,7 @@ const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enem
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
+const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
 const SAFE_AREA_MARGIN = 0.7;
 const GOAL_DISTANCE_SCALE = 60;         // m: an objective's urgency halves at this distance (goal hints)
@@ -462,7 +463,7 @@ function zoneSpot(id, objective, plan, action) { spreadSpot(id, objective, SPREA
 
 // The spot inside `share` of the objective's radius (golden angle spread by id), so a crowd does not jam one point.
 function spreadSpot(id, objective, share, plan, action) {
-  const angle = id * 2.399963, offset = objective.radius * share * ((id % 3) + 1) / 3;
+  const angle = id * GOLDEN_ANGLE, offset = objective.radius * share * ((id % 3) + 1) / 3;
   const radius = Math.max(GOAL_TOUCH_RADIUS, objective.radius * share);
   setPlan(plan, objective.x + Math.sin(angle) * offset, objective.y, objective.z + Math.cos(angle) * offset, radius, action, objective.index);
 }
@@ -500,7 +501,7 @@ function planFlags(id, plan) {
   if (own && own.state === 'dropped') return planTarget(plan, own, 0.9, 0.8, ACTION.MOVE);
   if (enemy.state === 'carried' && !Actors.isEnemy(id, enemy.carrier)) return planTarget(plan, enemy, defender ? 0.3 : 0.85, 4, ACTION.MOVE);
   if (defender && own) return planHome(id, plan, own, 0.7);
-  if (enemy.state === 'home' && !BotTeam.pushing(team) && BotTeam.hasRally(team)) return planRally(id, plan, team);
+  if (enemy.state === 'home' && !BotTeam.pushing(team) && BotTeam.hasRally(team) && !pastRally(id, own, team)) return planRally(id, plan, team);
   return planTarget(plan, enemy, BotTeam.pushing(team) ? PUSH_URGENCY : 0.8, 0.8, ACTION.MOVE);
 }
 
@@ -513,9 +514,18 @@ function planCapture(id, plan, own, destination) {
   return true;
 }
 
+// A raider already farther from its own flag than the rally point (plus the gather radius) keeps going: a push that ran
+// out while it fought at the enemy base does not send it back.
+function pastRally(id, own, team) {
+  if (!own) return false;
+  const rallyDistance = Math.hypot(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
+  return Math.hypot(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
+}
+
+// The rally is a meeting place, not a held spot (ACTION.MOVE: no mines, turrets or channels go down there).
 function planRally(id, plan, team) {
-  const angle = id * 2.399963, spread = BOT_FLAG_PUSH.radius * SPREAD_FRACTION;
-  setPlan(plan, BotTeam.rallyX[team] + Math.sin(angle) * spread, BotTeam.rallyY[team], BotTeam.rallyZ[team] + Math.cos(angle) * spread, 2, ACTION.HOLD, -1);
+  const angle = id * GOLDEN_ANGLE, spread = BOT_FLAG_PUSH.radius * SPREAD_FRACTION;
+  setPlan(plan, BotTeam.rallyX[team] + Math.sin(angle) * spread, BotTeam.rallyY[team], BotTeam.rallyZ[team] + Math.cos(angle) * spread, 2, ACTION.MOVE, -1);
   plan.score = 0.75;
   return true;
 }
@@ -527,7 +537,7 @@ function planTarget(plan, objective, score, radius, action) {
 }
 
 function planHome(id, plan, objective, score) {
-  const angle = id * 2.399963;
+  const angle = id * GOLDEN_ANGLE;
   setPlan(plan, objective.homeX + Math.sin(angle) * 4, objective.homeY, objective.homeZ + Math.cos(angle) * 4, 2, ACTION.HOLD, objective.index);
   plan.score = score;
   return true;

@@ -32,6 +32,7 @@ const SENSE_HURT_ALERT = 1;
 const SENSE_MINE_RANGE = 8;             // m: an enemy placed gadget (mine) is noticed this close, in sight (its glint, GAD-003)
 const SENSE_GRENADE_DANGER = 6;         // m: an enemy grenade heard landing this close is run from...
 const SENSE_GRENADE_FLEE = 1.5;         // ...for this many seconds
+const SENSE_THROWN_MATCH = 0.25;        // m: the Thrown slot whose bounce made a 'grenade' sound sits this close to it
 const PAIR_COUNT = MAX_ACTORS * MAX_ACTORS;
 
 const senseTarget = Vec.make();
@@ -248,7 +249,7 @@ const BotSense = {
     this.heardAt[bot] = now; this.heardX[bot] = x; this.heardY[bot] = y; this.heardZ[bot] = z;
     this.alert[bot] = Math.max(this.alert[bot], SENSE_ALERTED);
     this.stats.heard++;
-    if (event.kind === 'grenade' && distance < SENSE_GRENADE_DANGER) this.noteDanger(bot, x, z, now);
+    if (event.kind === 'grenade' && distance < SENSE_GRENADE_DANGER && harmfulThrowAt(event.x, event.y, event.z)) this.noteDanger(bot, x, z, now);
     const source = event.source;
     if (source < 0 || source >= MAX_ACTORS) return;
     const pair = this.pair(bot, source);
@@ -292,6 +293,17 @@ const BotSense = {
     if (!this.visible[pair]) this.remember(pair, SENSE.PINGED, x, y, z, now);
   },
 };
+
+// The bounce sound names no gadget row (S12), so the throwable is the Thrown slot at the sound's place (the sound goes
+// out during its bounce); only BOT_FLEE_EFFECTS rows are run from: a smoke, flash, decoy or dart lands harmlessly.
+function harmfulThrowAt(x, y, z) {
+  for (let slot = 0; slot < THROWN_CAP; slot++) {
+    if (Thrown.state[slot] === THROWN_STATE.FREE) continue;
+    if (distanceSquared3(Thrown.x[slot], Thrown.y[slot], Thrown.z[slot], x, y, z) > SENSE_THROWN_MATCH * SENSE_THROWN_MATCH) continue;
+    return BOT_FLEE_EFFECTS.includes(CAT.gadgets[Thrown.row[slot]].effect);
+  }
+  return false;
+}
 
 Bus.on('sound', (event) => BotSense.hear(event));
 Bus.on('damage', (event) => BotSense.hurt(event));
