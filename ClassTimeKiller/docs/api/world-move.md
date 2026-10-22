@@ -119,7 +119,7 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 
 Controls (buttons from `BTN`): JUMP jump / double jump / wall jump-out / mantle / bullet jump (crouched or sliding, MV08);
 CROUCH held crouch, slide when pressed at slide speed, roll when held on landing (MV08); PRONE toggles prone (MV03);
-WALK walk; SPRINT sprint, double-tap = tactical sprint (MV03), or dash (MV05) / shield charge (MV06) in presets without sprint;
+WALK walk (SPRINT walks too in a preset without sprint but with silentWalk, MV02 Tactical); SPRINT sprint, double-tap = tactical sprint (MV03), or dash (MV05) / shield charge (MV06) in presets without sprint;
 double-tap a direction = dodge (MV01); ALT in the air = wall latch next to a wall or glide (MV08).
 Walls: walking (facing the wall) or jumping into a ledge up to `mantleHeight` mantles (0.35 s); in or at water every preset
 reaches ledges up to max(`mantleHeight`, 1.6 m) above the feet, so swimmers climb out over a rim at or a little above the

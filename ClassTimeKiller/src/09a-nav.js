@@ -84,10 +84,11 @@ const NAV_LINK_ROWS = [
 ];
 
 const navHit = makeHit(), navScratchHit = makeHit();
-const navBrushGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null,
+// A BrushGrid record (01-core) plus the nav's own per-brush arrays: top plane index and whether that top can be stood on.
+const navBrushGrid = { originX: 0, originZ: 0, cellSize: NAV_BRUSH_CELL, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null,
   stamp: null, stampValue: 0, found: null, foundCount: 0, topPlane: null, walkable: null };
 const navRaster = { originX: 0, originZ: 0, columnsX: 0, columnsZ: 0, columnStart: null, sampleY: null, sampleFlags: null, sampleColumn: null };
-const navNodeGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
+const navNodeGrid = { originX: 0, originZ: 0, cellSize: NAV_NODE_CELL, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
 const navSearchState = { x: 0, y: 0, z: 0, yLow: 0, yHigh: 0, radiusSquared: 0, needSight: false, best: -1, score: 0 };
 const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
 const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
@@ -239,39 +240,10 @@ function navInVolumes(volumes, x, y, z) {
   return false;
 }
 
-// Counting sort of items into grid cells (CSR). eachCell(index, visit) calls visit(cell) for every cell of one item.
-function navBucket(itemCount, cellCount, eachCell) {
-  const start = new Int32Array(cellCount + 1);
-  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { start[cell + 1]++; });
-  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
-  const fill = start.slice(0, cellCount), items = new Int32Array(start[cellCount]);
-  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { items[fill[cell]++] = index; });
-  return { start, items };
-}
-
-const navCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
-
-// Calls visit(cell) for every cell of a lookup grid (navBrushGrid or navNodeGrid) that the xz rectangle overlaps.
-// visit is a top-level function so queries allocate nothing; it may itself query the other grid.
-function navForCells(grid, cellSize, minX, minZ, maxX, maxZ, visit) {
-  const i0 = navCellIndex(minX, grid.originX, cellSize, grid.cellsX), i1 = navCellIndex(maxX, grid.originX, cellSize, grid.cellsX);
-  const j0 = navCellIndex(minZ, grid.originZ, cellSize, grid.cellsZ), j1 = navCellIndex(maxZ, grid.originZ, cellSize, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
-  }
-}
-
 // ---- Brush lookup grid: build and query tests only touch nearby brushes ----
 function navBuildBrushGrid() {
   const grid = navBrushGrid, brushes = World.brushes;
-  grid.originX = World.boundsMin.x; grid.originZ = World.boundsMin.z;
-  grid.cellsX = Math.max(1, Math.ceil((World.boundsMax.x - grid.originX) / NAV_BRUSH_CELL));
-  grid.cellsZ = Math.max(1, Math.ceil((World.boundsMax.z - grid.originZ) / NAV_BRUSH_CELL));
-  const bucket = navBucket(brushes.length, grid.cellsX * grid.cellsZ,
-    (index, visit) => navForCells(grid, NAV_BRUSH_CELL, brushes[index].minX, brushes[index].minZ, brushes[index].maxX, brushes[index].maxZ, visit));
-  grid.cellStart = bucket.start; grid.cellItems = bucket.items;
-  grid.stamp = new Uint32Array(brushes.length); grid.stampValue = 0;
-  grid.found = new Int32Array(brushes.length);
+  BrushGrid.build(grid, brushes, NAV_BRUSH_CELL, World.boundsMin.x, World.boundsMin.z, World.boundsMax.x, World.boundsMax.z);
   grid.topPlane = Int32Array.from(brushes, navTopPlaneIndex);
   grid.walkable = Uint8Array.from(brushes, (brush, index) => (brush.planes[grid.topPlane[index] * 4 + 1] >= NAV_MIN_FLOOR_NORMAL ? 1 : 0));
 }
@@ -284,23 +256,7 @@ function navTopPlaneIndex(brush) {
 }
 
 // Collects the brushes whose grid cells overlap the xz rectangle into navBrushGrid.found (no duplicates); returns the count.
-function navGatherBrushes(minX, minZ, maxX, maxZ) {
-  const grid = navBrushGrid;
-  grid.stampValue++;
-  grid.foundCount = 0;
-  navForCells(grid, NAV_BRUSH_CELL, minX, minZ, maxX, maxZ, navGatherCell);
-  return grid.foundCount;
-}
-
-function navGatherCell(cell) {
-  const grid = navBrushGrid;
-  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
-    const brush = grid.cellItems[k];
-    if (grid.stamp[brush] === grid.stampValue) continue;
-    grid.stamp[brush] = grid.stampValue;
-    grid.found[grid.foundCount++] = brush;
-  }
-}
+function navGatherBrushes(minX, minZ, maxX, maxZ) { return BrushGrid.query(navBrushGrid, minX, minZ, maxX, maxZ); }
 
 // Nearest brush hit on the segment a -> b into hit (S08's per-brush ray test rayBrush, limited to nearby brushes:
 // the build runs tens of thousands). A hit at distance 0 counts only when a really starts inside the brush (not
@@ -665,15 +621,12 @@ function navFinishNodes(builder) {
   grid.originX = navRaster.originX; grid.originZ = navRaster.originZ;
   grid.cellsX = Math.max(1, Math.ceil(navRaster.columnsX * NAV_FINE / NAV_NODE_CELL));
   grid.cellsZ = Math.max(1, Math.ceil(navRaster.columnsZ * NAV_FINE / NAV_NODE_CELL));
-  const bucket = navBucket(Nav.nodeCount, grid.cellsX * grid.cellsZ, (node, visit) => visit(navNodeCell(Nav.nodeX[node], Nav.nodeZ[node])));
+  const bucket = bucketByCell(Nav.nodeCount, grid.cellsX * grid.cellsZ, (node, visit) => visit(navNodeCell(Nav.nodeX[node], Nav.nodeZ[node])));
   grid.cellStart = bucket.start; grid.cellItems = bucket.items;
   navNeighbours.items = new Int32Array(Nav.nodeCount);
 }
 
-function navNodeCell(x, z) {
-  const grid = navNodeGrid;
-  return navCellIndex(z, grid.originZ, NAV_NODE_CELL, grid.cellsZ) * grid.cellsX + navCellIndex(x, grid.originX, NAV_NODE_CELL, grid.cellsX);
-}
+function navNodeCell(x, z) { return BrushGrid.cellAt(navNodeGrid, x, z); }
 
 // ---- Node queries (allocation-free) ----
 // Best node by horizontal distance + weighted height difference inside a height band; needSight: visible from the point.
@@ -681,7 +634,7 @@ function navSearchNodes(x, y, z, yLow, yHigh, radius, needSight) {
   const state = navSearchState;
   state.x = x; state.y = y; state.z = z; state.yLow = yLow; state.yHigh = yHigh; state.radiusSquared = radius * radius;
   state.needSight = needSight; state.best = -1; state.score = Infinity;
-  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navSearchCell);
+  BrushGrid.forCells(navNodeGrid, x - radius, z - radius, x + radius, z + radius, navSearchCell);
   return state.best;
 }
 
@@ -711,7 +664,7 @@ function navNearestAnywhere(x, y, z) {
 function navCollectNeighbours(node, radius) {
   const x = Nav.nodeX[node], z = Nav.nodeZ[node], found = navNeighbours;
   found.count = 0; found.node = node; found.radiusSquared = radius * radius;
-  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navCollectCell);
+  BrushGrid.forCells(navNodeGrid, x - radius, z - radius, x + radius, z + radius, navCollectCell);
   return found.count;
 }
 
@@ -754,7 +707,7 @@ const navChestHeight = (type) => (type === NAV_LINK.CROUCH ? NAV_CROUCH_CHEST : 
 // Walk links first; then jump/drop/swim-exit links only between nodes that walking does not already join.
 function navLinkNeighbours(builder) {
   for (let node = 0; node < Nav.nodeCount; node++) navLinkWalks(builder, node);
-  const walks = navBucket(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const walks = bucketByCell(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
   const marks = new Int32Array(Nav.nodeCount).fill(-1);
   for (let node = 0; node < Nav.nodeCount; node++) navLinkAirs(builder, node, walks, marks);
 }
@@ -945,7 +898,7 @@ function navLinkTeleporter(builder, trigger) {
 
 function navFinishLinks(builder) {
   const count = builder.from.length;
-  const bucket = navBucket(count, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const bucket = bucketByCell(count, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
   const order = bucket.items;
   const pick = (list, Type) => { const sorted = new Type(count); for (let k = 0; k < count; k++) sorted[k] = list[order[k]]; return sorted; };
   Nav.linkCount = count; Nav.linkStart = bucket.start;
@@ -971,7 +924,7 @@ function navLabelComponents() {
   t.stackSize = 0; t.depth = -1; t.counter = 0;
   Nav.component = new Int32Array(count);
   for (let root = 0; root < count; root++) if (t.index[root] < 0) navStrongConnect(root);
-  const bucket = navBucket(count, Nav.componentCount, (node, visit) => visit(Nav.component[node]));
+  const bucket = bucketByCell(count, Nav.componentCount, (node, visit) => visit(Nav.component[node]));
   Nav.componentStart = bucket.start; Nav.componentNodes = bucket.items;
   Nav.mainComponent = 0;
   for (let id = 1; id < Nav.componentCount; id++) if (navComponentSize(id) > navComponentSize(Nav.mainComponent)) Nav.mainComponent = id;

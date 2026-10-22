@@ -265,3 +265,22 @@ function assistEffect(field, value) {
   Settings.set('controls.pad.aimAssist', setting); Input.refreshConfig();
   return seen;
 }
+
+// ARC-020 / PLT-007: Settings > Developer > Export or import save; the exported text imports back and restarts the game.
+Test.add('settings', (check) => uiWith(() => {
+  Save.data.settings['video.fov'] = 77;
+  Ui.open('settings', { tab: 'developer' });
+  check('save transfer: Settings > Developer opens it', uiClickButton(Ui.top().element, 'Export or import save') && Ui.current() === 'saveTransfer');
+  const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
+  uiClickButton(screen, 'Export');
+  check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
+  Save.data.settings['video.fov'] = 60;
+  const reload = SaveTransfer.reload;
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  uiClickButton(screen, 'Import');
+  uiClickButton(Ui.top().element, 'Import');   // the confirm dialog's yes
+  check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
+  check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
+  SaveTransfer.reload = reload;
+}));

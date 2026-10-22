@@ -42,6 +42,7 @@ Ruleset schema (spec section 4) with defaults:
 | `tiebreak` | `suddenDeath` | `suddenDeath` (MODE-001: play on until a lead, max 180 s, then draw) / `draw` |
 | `ruleset` | `classic` | default bundle |
 | `family` | `versus` | `versus` / `pve` / `solo` |
+| `useButton` | false | the mode needs Use held (plant, defuse, arm, loot swap, chamber buttons): the touch USE button shows (INP-004) |
 
 ## Rules (`src/13a-rules.js`)
 

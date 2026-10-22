@@ -161,6 +161,13 @@ function horizontalWish(id) {
   return wish;
 }
 
+// A preset without sprint but with silent walking (MV02 Tactical) walks on the sprint button too: Shift walks (INP-003).
+function sprintWalks(preset) { return preset.sprintSpeed === 0 && preset.silentWalk; }
+function isWalking(id, preset) {
+  const buttons = Actors.buttons[id];
+  return (buttons & BTN.WALK) !== 0 || ((buttons & BTN.SPRINT) !== 0 && sprintWalks(preset));
+}
+
 // Top ground speed for the current stance, sprint, board and speed factors.
 function groundWishSpeed(id, preset) {
   let speed = preset.groundSpeed;
@@ -170,7 +177,7 @@ function groundWishSpeed(id, preset) {
   const stance = Motion.stance[id];
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
-  else if (Actors.buttons[id] & BTN.WALK) speed *= preset.walkMult;
+  else if (isWalking(id, preset)) speed *= preset.walkMult;
   if (getClock(id, CLOCK.LAND_SLOW) > 0) speed *= preset.landingPenalty;
   return speed * Move.weaponSpeedScale[id] * Move.statusSpeedScale[id];
 }
@@ -522,7 +529,7 @@ function countSteps(id, preset, startX, startZ) {
   Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
-  const walking = (Actors.buttons[id] & BTN.WALK) !== 0;
+  const walking = isWalking(id, preset);
   if (walking && preset.silentWalk) return;
   const loudness = (Motion.stance[id] === STANCE.STAND ? 1 : 0.5) * (walking ? 0.5 : 1) * Move.footstepScale[id];
   moveEvents['move.step'].loudness = loudness;
@@ -532,10 +539,10 @@ function countSteps(id, preset, startX, startZ) {
 
 function movingInaccuracy(id, table) {
   if (!Motion.grounded[id] || Motion.state[id] !== MOVE_STATE.WALK) return table.air;
-  const fraction = Move.horizontalSpeed(id) / Move.preset(id).groundSpeed;
+  const preset = Move.preset(id), fraction = Move.horizontalSpeed(id) / preset.groundSpeed;
   if (fraction < STILL_FRACTION) return 0;
   if (Motion.stance[id] !== STANCE.STAND) return table.crouch;
-  if ((Actors.buttons[id] & BTN.WALK) || fraction <= table.walkFraction) return table.walk;
+  if (isWalking(id, preset) || fraction <= table.walkFraction) return table.walk;
   return table.run;
 }
 
@@ -577,6 +584,7 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
+TouchInput.stickSprints = () => !sprintWalks(matchPreset());   // a full touch-stick push in Tactical runs instead of walking
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;

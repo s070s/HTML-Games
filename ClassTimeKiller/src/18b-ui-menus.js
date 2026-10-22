@@ -16,6 +16,7 @@ const MAIN_MENU_ENTRIES = [
 const PAUSE_REASONS = {
   menu: '', pointerlock: '', blur: 'Paused: the window lost focus.', hidden: 'Paused: the tab was hidden.',
   controller: 'Controller disconnected. Reconnect it, or keep playing with keyboard or touch.',
+  graphics: 'Paused: the graphics were reset. The game goes on by itself once they are restored.',
 };
 const SETTINGS_TABS = [
   ['video', 'Video'], ['controls', 'Controls'], ['audio', 'Audio'], ['gameplay', 'Gameplay'],

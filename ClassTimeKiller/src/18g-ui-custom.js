@@ -23,9 +23,9 @@ const EDITOR_LIVES = [-1, 0, 1, 2, 3, 5, 10];
 const EDITOR_RESPAWN = [-1, 0, 1, 2, 3, 5, 8, 10, 15];
 const EDITOR_FRIENDLY_FIRE = [-1, 0, 0.5, 1];
 const EDITOR_TABS = [['mode', 'Mode'], ['rules', 'Rules'], ['weapons', 'Weapons'], ['bots', 'Bots'], ['mutators', 'Mutators'], ['map', 'Map']];
-const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.8em; }'
-  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; } .cm-code { width: 100%; box-sizing: border-box; min-height: 7em; background: var(--ui-panel); color: var(--ui-text);'
-  + ' border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; } .cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
+const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.875em; }'
+  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; }'
+  + '.cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
   + ' color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; } .cm-error { color: var(--ui-bad); } .cm-quick { display: grid;'
   + ' grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 6px 0 12px; } .cm-list .ui-row { flex-wrap: wrap; } .cm-controls .ui-slider { width: auto; flex: 1 1 170px; min-width: 150px; } .cm-controls .ui-value { min-width: 3.6em; }';
 
@@ -102,29 +102,43 @@ const CustomCodec = {
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   },
   checksum(text) { return hashString(text).toString(16).padStart(8, '0'); },
-  // object -> 'CTK1-<checksum>-<payload>'
-  pack(object) {
+  // The one share-code framing (match codes here, map editor codes in 18i): object -> '<prefix><version>-<checksum>-<payload>'.
+  packCode(format, object) {
     const payload = this.toBase64Url(this.compress(new TextEncoder().encode(JSON.stringify(object))));
-    return EDITOR_CODE_PREFIX + EDITOR_CODE_VERSION + '-' + this.checksum(payload) + '-' + payload;
+    return format.prefix + format.version + '-' + this.checksum(payload) + '-' + payload;
   },
-  // text -> { object } or { error } with a message for the player.
-  unpack(text) {
+  // text -> { object } (the parsed JSON) or { error } with a message for the player. Whitespace is ignored.
+  unpackCode(format, text) {
     const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > EDITOR_CODE_MAX_CHARS) return { error: 'The code is too long to be a match code.' };
-    const parts = /^CTK(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$/.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller match code.' };
-    if (Number(parts[1]) > EDITOR_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (Number(parts[1]) < EDITOR_CODE_VERSION) return { error: 'This code is from an old version and cannot be read.' };
+    if (clean.length > format.maxChars) return { error: 'The code is too long to be a ' + format.noun + ' code.' };
+    const parts = format.pattern.exec(clean);
+    if (!parts) return { error: 'This is not a ClassTimeKiller ' + format.noun + ' code.' };
+    if (Number(parts[1]) > format.version) return { error: 'This code was made by a newer version of the game.' };
+    if (Number(parts[1]) < format.oldest) return { error: 'This code is from an old version and cannot be read.' };
     if (this.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
     try {
-      const bytes = this.expand(this.fromBase64Url(parts[3]), EDITOR_PAYLOAD_MAX_BYTES);
-      const object = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-      return isPlainObject(object) ? { object } : { error: 'The code holds no settings.' };
+      const bytes = this.expand(this.fromBase64Url(parts[3]), format.maxBytes);
+      return { object: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) };
     } catch (error) {
-      return { error: 'The code could not be read.' };
+      return { error: SHARE_CODE_UNREADABLE };
     }
   },
+  // object -> 'CTK1-<checksum>-<payload>'
+  pack(object) { return this.packCode(MATCH_CODE_FORMAT, object); },
+  // text -> { object } or { error } with a message for the player.
+  unpack(text) {
+    const unpacked = this.unpackCode(MATCH_CODE_FORMAT, text);
+    if (unpacked.error || isPlainObject(unpacked.object)) return unpacked;
+    return { error: 'The code holds no settings.' };
+  },
 };
+// A share-code format: prefix + version, the oldest version still read, size limits (text, unpacked JSON) and the noun in messages.
+function shareCodeFormat(prefix, version, oldest, maxChars, maxBytes, noun) {
+  const pattern = new RegExp(String.raw`^${prefix}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+  return { prefix, version, oldest, maxChars, maxBytes, noun, pattern };
+}
+const SHARE_CODE_UNREADABLE = 'The code could not be read.';
+const MATCH_CODE_FORMAT = shareCodeFormat(EDITOR_CODE_PREFIX, EDITOR_CODE_VERSION, EDITOR_CODE_VERSION, EDITOR_CODE_MAX_CHARS, EDITOR_PAYLOAD_MAX_BYTES, 'match');
 
 // ---- The draft: every editor field, validation, and the conversion to a match setup ----
 function customDefaults() {
@@ -563,9 +577,6 @@ Ui.register('custom', {
 });
 
 // ---- Presets screen: save the current settings, load, overwrite, delete ----
-function stopTextKeys(input) {
-  input.addEventListener('keydown', (event) => { if (event.code !== 'Tab' && event.code !== 'Escape') event.stopPropagation(); });
-}
 function presetRow(preset, nameInput, renderList) {
   const wrap = makeElement('div', 'cm-controls');
   wrap.appendChild(Ui.button('Load', () => {
@@ -589,7 +600,6 @@ Ui.register('customPresets', {
     const nameInput = makeElement('input', 'cm-name');
     nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
-    stopTextKeys(nameInput);
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {
       list.replaceChildren();
@@ -625,12 +635,11 @@ Ui.register('customShare', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Share Code'));
     const scroll = makeElement('div', 'ui-scroll');
-    const mine = makeElement('textarea', 'cm-code'), paste = makeElement('textarea', 'cm-code');
+    const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
     mine.value = CustomMatch.encode(editorDraft());
     paste.placeholder = 'Paste a match code here';
     const message = makeElement('p', 'ui-note');
-    [mine, paste].forEach(stopTextKeys);
     const importButton = Ui.button('Import code', () => {
       const result = CustomMatch.decode(paste.value);
       message.className = result.error ? 'ui-note cm-error' : 'ui-note';

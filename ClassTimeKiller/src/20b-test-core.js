@@ -75,6 +75,55 @@ Test.add('core', (check) => {
   Save.storageWorks = true;
 });
 
+// ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
+Test.add('core', (check) => {
+  const thrower = Bus.on('test.bootcheck', () => { throw new Error('listener broke'); });
+  let thrown = null;
+  const logged = Test.expectErrors(() => { try { Boot.emitChecked('test.bootcheck'); } catch (error) { thrown = error; } });
+  Bus.off('test.bootcheck', thrower);
+  check('boot: a start-up listener error stops the start', logged === 1 && !!thrown && /listener broke/.test(thrown.message), thrown && thrown.message);
+  let quiet = true;
+  try { Boot.emitChecked('test.bootcheck'); } catch (error) { quiet = false; }
+  check('boot: a clean start-up event goes on', quiet);
+  const run = Boot.run, fatal = document.getElementById('fatal');
+  Boot.run = () => Boot.emitChecked('test.bootcheck');
+  Bus.on('test.bootcheck', thrower);
+  Test.expectErrors(() => Boot.start());
+  Bus.off('test.bootcheck', thrower);
+  Boot.run = run;
+  check('boot: Boot.start shows the fatal screen for it', fatalShown && fatal.classList.contains('show') && document.getElementById('fatal-title').textContent === BOOT_FATAL_TITLE);
+  fatalShown = false; fatal.classList.remove('show');
+  const debugApi = window.__CTK;
+  delete window.__CTK;
+  window.onerror('Uncaught SyntaxError: early', '', 1, 1, null);
+  window.__CTK = debugApi;
+  check('boot: a script error before boot fills the fatal screen (shell.html)', fatal.classList.contains('show') && /early/.test(document.getElementById('fatal-detail').textContent));
+  fatal.classList.remove('show');
+  let newer = [];
+  Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
+  check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+});
+
+// PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
+Test.add('core', (check) => {
+  const migrated = Save.migrate({ version: 1, settings: null, bindings: [], touchLayouts: 'x', rulesets: {}, play: { mode: 'ffa' }, crosshairs: 5 });
+  check('save: fields of the wrong kind are replaced', saveFieldKind(migrated.settings) === 'object' && saveFieldKind(migrated.bindings) === 'object'
+    && saveFieldKind(migrated.touchLayouts) === 'object' && Array.isArray(migrated.rulesets) && saveFieldKind(migrated.crosshairs) === 'object' && migrated.play.mode === 'ffa');
+  Save.data = migrated;
+  let threw = false;
+  try { Settings.get('video.fov'); } catch (error) { threw = true; }
+  check('save: "settings": null no longer breaks Settings.get', !threw);
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  Save.storage = makeMemoryStorage(true); Save.storageWorks = true; Save.notice = '';
+  Save.saveNow(); Save.saveNow();
+  check('save: a failed write shows a toast once', toasts.length === 1 && toasts[0] === SAVE_BLOCKED, toasts.join());
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true;
+  Save.data.oversized = 'x'.repeat(SAVE_MAX_BYTES + 1);
+  check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
+  Bus.off('toast', listener);
+  Save.storageWorks = true; Save.notice = '';
+});
+
 Test.add('core', (check) => {
   World.load({ id: 'test', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'ramp', min: [2, 0, -1], max: [6, 2, 1], dir: '+x' }] });
   const hit = makeHit();
@@ -83,4 +132,22 @@ Test.add('core', (check) => {
   check('world: ray misses beyond max distance', !World.raycast(0, 5, 0, 0, -1, 0, 4, hit));
   check('world: line of sight', World.lineClear(-5, 1, 0, -5, 3, 0) && !World.lineClear(0, 1, 0, 0, -2, 0));
   World.clear();
+});
+
+Test.add('core', (check) => {
+  // Two boxes; the wide one spans four 4 m cells, so a query over all of them must list it once.
+  const boxes = [{ minX: 0, minZ: 0, maxX: 7, maxZ: 7 }, { minX: 9, minZ: 9, maxX: 11, maxZ: 11 }];
+  const grid = BrushGrid.build({}, boxes, 4, 0, 0, 12, 12);
+  check('grid: 3 x 3 cells over a 12 m square of 4 m cells', grid.cellsX === 3 && grid.cellsZ === 3, grid.cellsX + 'x' + grid.cellsZ);
+  const count = BrushGrid.query(grid, 0, 0, 12, 12);
+  check('grid: a query lists each overlapping box once', count === 2 && grid.found[0] === 0 && grid.found[1] === 1, Array.from(grid.found.slice(0, count)).join());
+  check('grid: a query only reaches the cells it overlaps', BrushGrid.query(grid, 9, 9, 10, 10) === 1 && grid.found[0] === 1);
+  check('grid: a point past the edge reads the nearest edge cell', BrushGrid.cellAt(grid, -50, -50) === 0 && BrushGrid.cellAt(grid, 50, 50) === 8);
+  const walk = BrushGrid.startWalk(grid, makeGridWalk(), 1, 1, 1, 0), cells = [];
+  for (let cell = BrushGrid.walkCell(grid, walk); cell >= 0; cell = BrushGrid.walkCell(grid, walk)) { cells.push(cell); BrushGrid.stepWalk(walk); }
+  check('grid: a ray walk crosses the cells in order and ends outside the grid', cells.join() === '0,1,2' && BrushGrid.walkCell(grid, walk) === -1, cells.join());
+  BrushGrid.beginPass(grid);
+  check('grid: a pass counts a box once', BrushGrid.firstVisit(grid, 0) && !BrushGrid.firstVisit(grid, 0));
+  check('grid: nav, map scan and render bake keep no lookup grid of their own', typeof navForCells === 'undefined' && typeof gridKey === 'undefined'
+    && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
 });

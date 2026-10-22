@@ -76,7 +76,7 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 ### Share code (MUT-004)
 
-`CTK1-<8 hex checksum>-<payload>`: payload = base64url of an LZ77-compressed UTF-8 JSON of only the fields that differ from the defaults. The checksum is the FNV-1a hash of the payload text. `CustomMatch.encode(draft)` -> text; `CustomMatch.decode(text)` -> `{ draft }` or `{ error }` with a message for the player (not a code, newer or older version, damaged, too long, unreadable, invalid settings). Whitespace in a pasted code is ignored; every field is validated (unknown ids, ranges, maps that do not serve the mode, weapon keys, mutator values). No network.
+`CTK1-<8 hex checksum>-<payload>`: payload = base64url of an LZ77-compressed UTF-8 JSON of only the fields that differ from the defaults. The checksum is the FNV-1a hash of the payload text. `CustomMatch.encode(draft)` -> text; `CustomMatch.decode(text)` -> `{ draft }` or `{ error }` with a message for the player (not a code, newer or older version, damaged, too long, unreadable, invalid settings). The framing is shared: `CustomCodec.packCode(format, object)` / `unpackCode(format, text)` with a format from `shareCodeFormat(prefix, version, oldest, maxChars, maxBytes, noun)` (match codes `MATCH_CODE_FORMAT`, map editor codes `MAPEDIT_CODE_FORMAT` in 18i). Whitespace in a pasted code is ignored; every field is validated (unknown ids, ranges, maps that do not serve the mode, weapon keys, mutator values). No network.
 
 ## Known limits
 

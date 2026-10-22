@@ -8,10 +8,10 @@ const MAPEDIT_PANEL_MIN_HEIGHT = 440;
 const MAPEDIT_STATUS_SECONDS = 0.2;           // how often the cursor text is refreshed
 const MAPEDIT_BUDGET_WARNING = 0.9;           // the budget counter turns amber past this share
 const MAPEDIT_LIGHT_COLORS = [[0xffd9a0, 'Warm'], [0xffffff, 'White'], [0x9fc8ff, 'Cool'], [0xff9060, 'Red']];
-const MAPEDIT_CODE_PREFIX = 'CTKMAP';
-const MAPEDIT_CODE_PATTERN = new RegExp(String.raw`^${MAPEDIT_CODE_PREFIX}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+const MAPEDIT_CODE_PREFIX = 'CTKEDIT';       // not the generator's CTKMAP settings code (16w): each paste box knows its own codes
 const MAPEDIT_CODE_MAX_CHARS = 60000;        // a longer text is refused before anything is decoded
 const MAPEDIT_CODE_MAX_BYTES = 262144;       // the unpacked JSON may not be larger than this
+const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VERSION, 0, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
 const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 // Parts of the editor screen a change of the model has to redraw (see MapEditorUi.mark).
@@ -36,18 +36,18 @@ const MAPEDIT_CSS = '.ui-mapEditor { padding: 0; background: none; } .ui-mapEdit
   + '.me-panel { position: absolute; top: calc(52px + var(--safe-top)); bottom: calc(46px + var(--safe-bottom)); width: min(210px, 34vw); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
   + ' background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 10px; touch-action: pan-y; }'
   + '.me-panel > * { flex-shrink: 0; } .me-left { left: calc(8px + var(--safe-left)); } .me-right { right: calc(8px + var(--safe-right)); width: min(250px, 38vw); }'
-  + '.me-panel .ui-row { flex-direction: column; align-items: stretch; min-height: 34px; padding: 4px 6px; margin: 0; gap: 2px; } .me-panel .ui-label { min-width: 0; font-size: 0.85em; }'
-  + '.me-panel .ui-cycle { min-width: 6em; } .me-panel .ui-group { margin: 6px 0 2px; font-size: 0.85em; } .me-panel .ui-note { margin: 0; font-size: 0.8em; }'
+  + '.me-panel .ui-row { flex-direction: column; align-items: stretch; min-height: 34px; padding: 4px 6px; margin: 0; gap: 2px; } .me-panel .ui-label { min-width: 0; font-size: 0.875em; }'
+  + '.me-panel .ui-cycle { min-width: 6em; } .me-panel .ui-group { margin: 6px 0 2px; font-size: 0.875em; } .me-panel .ui-note { margin: 0; font-size: 0.875em; }'
   + '.me-step { display: flex; align-items: center; gap: 4px; } .me-step .ui-button { min-width: 36px; padding: 0.25em 0.4em; } .me-step .ui-value { flex: 1; min-width: 3em; text-align: center; } .me-panel .ui-cycle { width: 100%; }'
   + '.me-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; } .me-name { background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 6px; font: inherit; min-width: 0; width: 100%; }'
   + '.me-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px calc(10px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(10px + var(--safe-left)); pointer-events: none;'
-  + ' background: linear-gradient(rgba(5, 8, 12, 0), rgba(5, 8, 12, 0.85)); font-size: 0.8em; color: var(--ui-dim); } .me-status b { color: var(--ui-text); font-weight: 600; }'
+  + ' background: linear-gradient(rgba(5, 8, 12, 0), rgba(5, 8, 12, 0.85)); font-size: 0.875em; color: var(--ui-dim); } .me-status b { color: var(--ui-text); font-weight: 600; }'
   + '.me-touch { position: absolute; left: 0; right: 0; bottom: calc(38px + var(--safe-bottom)); display: none; justify-content: space-between; align-items: flex-end; padding: 0 calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left)); pointer-events: none; }'
   + '.me-touch.show { display: flex; } .me-touch > * { pointer-events: auto; } .me-pad { display: grid; gap: 4px; }'
   + '.me-moves { grid-template-columns: repeat(5, minmax(52px, 1fr)); width: min(330px, 56vw); } .me-acts { grid-template-columns: repeat(3, minmax(52px, 1fr)); width: min(200px, 34vw); }'
-  + '.me-touch .ui-button { min-height: 42px; min-width: 0; padding: 0.2em; font-size: 0.78em; opacity: 0.88; touch-action: none; } .ui-mapEditor.me-nopanels .me-panel { display: none; }'
+  + '.me-touch .ui-button { min-height: 42px; min-width: 0; padding: 0.2em; font-size: 0.875em; opacity: 0.88; touch-action: none; } .ui-mapEditor.me-nopanels .me-panel { display: none; }'
   + '@media (max-width: 600px) { .me-touch { flex-direction: column; align-items: stretch; gap: 6px; } .me-moves, .me-acts { width: auto; } .me-acts { grid-template-columns: repeat(6, 1fr); } }'
-  + '.me-problem { display: block; width: 100%; margin-bottom: 4px; } .me-code { width: 100%; min-height: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; }'
+  + '.me-problem { display: block; width: 100%; margin-bottom: 4px; }'
   + '.me-maprow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .me-maprow .me-name { flex: 1; min-width: 8em; } .me-error { color: var(--ui-bad); }'
   + '@media (pointer: coarse) { .me-top .ui-button, .me-panel .ui-button { min-height: 44px; } } @media (max-width: 720px) { .me-panel { width: min(170px, 36vw); } }';
 
@@ -362,23 +362,15 @@ Bus.on('match.stop', () => MapEditorPlay.onMatchStop());
 
 // ---- Share codes: the whole map as one line of text (copy and paste only) ----
 const MapEditorShare = {
-  exportCode(map) {
-    const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(MapEditor.compact(map || MapEditor.map)))));
-    return MAPEDIT_CODE_PREFIX + MAPEDIT_CODE_VERSION + '-' + CustomCodec.checksum(payload) + '-' + payload;
-  },
+  exportCode(map) { return CustomCodec.packCode(MAPEDIT_CODE_FORMAT, MapEditor.compact(map || MapEditor.map)); },
   // text -> { map } or { error } with a message for the player. Nothing is changed.
   decodeCode(text) {
-    const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > MAPEDIT_CODE_MAX_CHARS) return { error: 'The code is too long to be a map code.' };
-    const parts = MAPEDIT_CODE_PATTERN.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller map code.' };
-    if (Number(parts[1]) > MAPEDIT_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (CustomCodec.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
+    const unpacked = CustomCodec.unpackCode(MAPEDIT_CODE_FORMAT, text);
+    if (unpacked.error) return unpacked;
     try {
-      const bytes = CustomCodec.expand(CustomCodec.fromBase64Url(parts[3]), MAPEDIT_CODE_MAX_BYTES);
-      return MapEditor.expand(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      return MapEditor.expand(unpacked.object);
     } catch (error) {
-      return { error: 'The code could not be read.' };
+      return { error: SHARE_CODE_UNREADABLE };
     }
   },
   importCode(text) {
@@ -534,7 +526,7 @@ Ui.register('mapEditorCode', {
   build(root) {
     const body = mapEditDialog(root, 'Share code');
     body.appendChild(makeElement('p', 'ui-note', 'Make a code to copy and send, or paste a code you received and press Import. The code holds the whole map.'));
-    const area = makeElement('textarea', 'me-code');
+    const area = makeElement('textarea', 'ui-code');
     area.spellcheck = false;
     const message = makeElement('p', 'ui-note', '');
     const foot = makeElement('div', 'ui-foot');

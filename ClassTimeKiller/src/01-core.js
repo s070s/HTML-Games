@@ -79,11 +79,15 @@ const Mat4 = {
 const ErrorLog = {
   size: 50,
   entries: [],
+  total: 0,               // entries ever added (the list keeps only the last `size`)
   add(where, error) {
     const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    this.total++;
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
   },
+  // The entries added after ErrorLog.total was `count` (the kept ones).
+  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 
 // ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----
@@ -117,6 +121,106 @@ function makePool(size, create) {
   // Ring reuse: the oldest object is recycled when the pool wraps (documented per pool owner).
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
 }
+
+// ---- Lookup grids (ARC-013, one source): nav (S09), the render bake (S07) and the map scan (S16) bucket brushes by xz cell ----
+// Lists per cell in compressed form: eachCell(index, visit) calls visit(cell) for every cell of item `index`. Returns { start, items }:
+// the items of cell c are items[start[c]] .. items[start[c + 1] - 1], in item order.
+function bucketByCell(itemCount, cellCount, eachCell) {
+  const start = new Int32Array(cellCount + 1);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { start[cell + 1]++; });
+  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
+  const fill = start.slice(0, cellCount), items = new Int32Array(start[cellCount]);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { items[fill[cell]++] = index; });
+  return { start, items };
+}
+const gridCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
+
+// A grid record: { originX, originZ, cellSize, cellsX, cellsZ, cellStart, cellItems } plus the query state { stamp, stampValue, found, foundCount }.
+// Cell indices clamp to the edge cells, so a box past the rectangle is still found from the nearest edge cell; callers test found boxes exactly.
+const BrushGrid = {
+  // Fills `grid` (callers may keep their own per-box arrays on it) with boxes { minX, minZ, maxX, maxZ } over the xz rectangle.
+  build(grid, boxes, cellSize, minX, minZ, maxX, maxZ) {
+    this.shape(grid, cellSize, minX, minZ, maxX, maxZ);
+    const lists = bucketByCell(boxes.length, grid.cellsX * grid.cellsZ, (index, visit) => {
+      const box = boxes[index];
+      this.forCells(grid, box.minX, box.minZ, box.maxX, box.maxZ, visit);
+    });
+    grid.cellStart = lists.start; grid.cellItems = lists.items;
+    grid.stamp = new Uint32Array(boxes.length); grid.stampValue = 0;
+    grid.found = new Int32Array(boxes.length); grid.foundCount = 0;
+    return grid;
+  },
+  // Origin, cell size and cell counts of a grid over the xz rectangle (at least one cell per axis).
+  shape(grid, cellSize, minX, minZ, maxX, maxZ) {
+    grid.originX = minX; grid.originZ = minZ; grid.cellSize = cellSize;
+    grid.cellsX = Math.max(1, Math.ceil((maxX - minX) / cellSize));
+    grid.cellsZ = Math.max(1, Math.ceil((maxZ - minZ) / cellSize));
+  },
+  cellAt(grid, x, z) {
+    return gridCellIndex(z, grid.originZ, grid.cellSize, grid.cellsZ) * grid.cellsX + gridCellIndex(x, grid.originX, grid.cellSize, grid.cellsX);
+  },
+  // Calls visit(cell) for every cell the xz rectangle overlaps; visit is a top-level function so queries allocate nothing.
+  forCells(grid, minX, minZ, maxX, maxZ, visit) {
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
+    }
+  },
+  // A new pass: from here on every box counts once (a query or a ray walk that meets a box in several cells).
+  beginPass(grid) { grid.stampValue++; grid.foundCount = 0; },
+  firstVisit(grid, index) {
+    if (grid.stamp[index] === grid.stampValue) return false;
+    grid.stamp[index] = grid.stampValue;
+    return true;
+  },
+  // The boxes of the cells the rectangle overlaps into grid.found[0 .. count - 1], each once, in cell then box order; returns count.
+  query(grid, minX, minZ, maxX, maxZ) {
+    this.beginPass(grid);
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) this.gatherCell(grid, j * grid.cellsX + i);
+    }
+    return grid.foundCount;
+  },
+  gatherCell(grid, cell) {
+    const stamp = grid.stamp, stampValue = grid.stampValue;
+    for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+      const index = grid.cellItems[k];
+      if (stamp[index] === stampValue) continue;
+      stamp[index] = stampValue;
+      grid.found[grid.foundCount++] = index;
+    }
+  },
+  // 2D ray walk (Amanatides-Woo) over the cells a horizontal direction (dx, dz) crosses, in a reused record { i, j, stepI, stepJ,
+  // nextI, nextJ, deltaI, deltaJ } (next* = ray distance to the next cell border per axis). Cell coordinates are not clamped.
+  startWalk(grid, walk, ox, oz, dx, dz) {
+    const size = grid.cellSize, movesX = Math.abs(dx) > 1e-9, movesZ = Math.abs(dz) > 1e-9;
+    walk.i = Math.floor((ox - grid.originX) / size); walk.j = Math.floor((oz - grid.originZ) / size);
+    walk.stepI = dx > 0 ? 1 : -1; walk.stepJ = dz > 0 ? 1 : -1;
+    walk.deltaI = movesX ? size / Math.abs(dx) : Infinity;
+    walk.deltaJ = movesZ ? size / Math.abs(dz) : Infinity;
+    walk.nextI = movesX ? (grid.originX + (walk.i + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
+    walk.nextJ = movesZ ? (grid.originZ + (walk.j + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
+    return walk;
+  },
+  // Into the next cell along the ray; returns the ray distance at which the walk entered it.
+  stepWalk(walk) {
+    if (walk.nextI < walk.nextJ) {
+      walk.i += walk.stepI; walk.nextI += walk.deltaI;
+      return walk.nextI - walk.deltaI;
+    }
+    walk.j += walk.stepJ; walk.nextJ += walk.deltaJ;
+    return walk.nextJ - walk.deltaJ;
+  },
+  // The cell the walk is in, or -1 outside the grid.
+  walkCell(grid, walk) {
+    if (walk.i < 0 || walk.j < 0 || walk.i >= grid.cellsX || walk.j >= grid.cellsZ) return -1;
+    return walk.j * grid.cellsX + walk.i;
+  },
+};
+function makeGridWalk() { return { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nextJ: 0, deltaI: 0, deltaJ: 0 }; }
 
 // ---- Input buttons shared by player input, bots (BOT-001: same input struct) and replays ----
 const BTN = {

@@ -4,7 +4,7 @@ Files: `src/07a-render.js` (core, post, context loss, settings), `07b-render-wor
 
 When `Game.headless` is true at boot, or WebGL2 is missing, nothing is created: every hook below stays a cheap no-op (`Fx.*` return at once when `Game.headless`). Missing WebGL2, a shader that fails to build, or a rebuild that fails after a context restore shows the PLT-002 fatal screen ("WebGL2 is required").
 
-S07 never calls `World` (S08 is a later section): the static world arrives through the `Render.worldQuery` hook, and every ray the renderer needs (baked sun shadows, map lights, the blob-shadow ground probe) runs against its own brush grid built at bake time.
+S07 never calls `World` (S08 is a later section): the static world arrives through the `Render.worldQuery` hook, and every ray the renderer needs (baked sun shadows, map lights, the blob-shadow ground probe) runs against a brush grid built at bake time (the shared `BrushGrid` of S01, 8 m cells over the brushes' xz bounds).
 
 ## Hooks for later sections
 
