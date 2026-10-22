@@ -284,3 +284,38 @@ Test.add('custom', (check) => {
     Ui.closeAll();
   });
 });
+
+// R-044 / R-045 / R-046: code fields can be selected, copied and pasted on iOS and Android, and Copy never claims a copy that failed.
+Test.add('custom', (check) => uiWith(() => {
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });   // plain http: no clipboard API
+  let selected = '';
+  document.execCommand = function failedCopy() { selected = document.activeElement && document.activeElement.value; return false; };
+  try {
+    Ui.open('customShare');
+    const share = Ui.root.querySelector('.ui-customShare'), code = share.querySelector('textarea');
+    uiClickButton(share, 'Copy code');
+    check('copy: a copy that copied nothing asks the player to copy by hand', toasts.join() === COPY_MANUAL_TEXT && selected === code.value && code.readOnly, toasts.join());
+    document.execCommand = function goodCopy() { return true; };
+    uiClickButton(share, 'Copy code');
+    check('copy: a copy that worked says so', toasts[1] === COPY_DONE_TEXT, toasts.join());
+    Ui.closeAll();
+    Ui.open('saveTransfer');
+    const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
+    check('copy: the save export has a Copy button that copies the save', uiClickButton(screen, 'Copy') && JSON.parse(area.value).version === SAVE_VERSION && toasts[2] === COPY_DONE_TEXT, toasts.join());
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    area.dispatchEvent(menu);
+    const gameMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    document.getElementById('view').dispatchEvent(gameMenu);
+    check('copy: a long press on a text field keeps its paste menu, the game view does not', !menu.defaultPrevented && gameMenu.defaultPrevented);
+    const field = makeElement('input');
+    screen.appendChild(field);
+    const selectable = (element) => { const style = getComputedStyle(element); return (style.getPropertyValue('-webkit-user-select') || style.getPropertyValue('user-select')) === 'text'; };
+    check('copy: code boxes and text fields can be selected (the page itself cannot)', selectable(area) && selectable(field) && !selectable(document.body));
+    Ui.closeAll();
+  } finally {
+    delete document.execCommand;   // the stubs are own properties over the browser's own methods
+    delete navigator.clipboard;
+    Bus.off('toast', listener);
+  }
+}));

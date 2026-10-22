@@ -653,13 +653,23 @@ Ui.register('customPresets', {
 });
 
 // ---- Share screen: show and copy the code, paste and import one ----
+const COPY_DONE_TEXT = 'Code copied.';
+const COPY_MANUAL_TEXT = 'Select the code and copy it.';
+// Copies a code field (the share, map and save codes). The clipboard API needs https; the fallback selects the field the way iOS
+// accepts (focused, editable, setSelectionRange) and says "copied" only when execCommand reports it copied (R-046).
 function copyText(text, field) {
   const fallback = () => {
-    field.select();
-    try { document.execCommand('copy'); emitToast('Code copied.'); } catch (error) { emitToast('Select the code and copy it.'); }
+    const wasReadOnly = field.readOnly;
+    field.readOnly = false;
+    field.focus();
+    field.setSelectionRange(0, field.value.length);
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+    field.readOnly = wasReadOnly;
+    emitToast(copied ? COPY_DONE_TEXT : COPY_MANUAL_TEXT);
   };
   if (!navigator.clipboard) { fallback(); return; }
-  navigator.clipboard.writeText(text).then(() => emitToast('Code copied.'), fallback);
+  navigator.clipboard.writeText(text).then(() => emitToast(COPY_DONE_TEXT), fallback);
 }
 Ui.register('customShare', {
   build(root) {

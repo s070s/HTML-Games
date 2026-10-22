@@ -17,6 +17,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; color: var(--ui-text); font-family: var(--ui-font);
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+/* Text fields and code boxes stay selectable, with the copy and paste menu (Safari before 18 reads only the -webkit- names). */
+input, textarea, .ui-code { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #overlay { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
 #overlay > * { pointer-events: auto; }

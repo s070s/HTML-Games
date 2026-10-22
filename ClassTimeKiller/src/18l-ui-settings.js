@@ -71,7 +71,9 @@ Ui.register('saveTransfer', {
     picker.type = 'file'; picker.accept = '.json,application/json,text/plain'; picker.hidden = true;
     picker.addEventListener('change', () => { if (picker.files[0]) SaveTransfer.readFile(picker.files[0], area); });
     const foot = makeElement('div', 'ui-foot');
-    foot.appendChild(Ui.button('Export', () => { area.value = Save.exportText(); area.select(); }));
+    const exportToBox = () => { area.value = Save.exportText(); area.select(); area.setSelectionRange(0, area.value.length); };   // iOS selects only this way
+    foot.appendChild(Ui.button('Export', exportToBox));
+    foot.appendChild(Ui.button('Copy', () => { if (!area.value) exportToBox(); copyText(area.value, area); }));
     foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
     foot.appendChild(Ui.button('Load file', () => picker.click()));
     const importConfirmed = (text) => { const problem = SaveTransfer.importText(text); if (problem) Ui.toast(problem); };
