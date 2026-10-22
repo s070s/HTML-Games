@@ -48,7 +48,7 @@ function faceShape(faces, vertices, indices) {
     let nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
     let ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
     let nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    const length = Math.hypot(nx, ny, nz); nx /= length; ny /= length; nz /= length;
+    const length = length3(nx, ny, nz); nx /= length; ny /= length; nz /= length;
     for (const corner of corners) vertices.push(corner[0], corner[1], corner[2], nx, ny, nz);
     for (let i = 1; i < corners.length - 1; i++) indices.push(base, base + i, base + i + 1);
   }
@@ -93,7 +93,7 @@ function ringShape(vertices, indices) {
   for (let s = 0; s <= ROUND_SIDES * 2; s++) {
     const angle = (s / (ROUND_SIDES * 2)) * Math.PI * 2, c = Math.cos(angle), sn = Math.sin(angle);
     for (let t = 0; t <= tube; t++) {
-      const around = (t / tube) * Math.PI * 2, nr = Math.cos(around), ny = Math.sin(around), length = Math.hypot(nr * flatten, ny);
+      const around = (t / tube) * Math.PI * 2, nr = Math.cos(around), ny = Math.sin(around), length = length2(nr * flatten, ny);
       vertices.push((major + minor * nr) * c, H * ny, (major + minor * nr) * sn, (nr * flatten / length) * c, ny / length, (nr * flatten / length) * sn);
     }
   }
@@ -423,7 +423,7 @@ function lodFor(distanceSquared, quality) {
 
 // Walk cycle from speed, crouch from height. The far LOD applies its walk time in steps; distant actors stand still.
 function animateActor(id, pose, seconds, lod) {
-  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const speed = length2(Actors.vx[id], Actors.vz[id]);
   actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
   if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
     actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
@@ -563,7 +563,7 @@ function updateSunShadow() {
   if (!SunShadow.active) return;
   const sun = Render.frame.sunDirection, camera = Render.camera, m = Render.frame.shadowMatrix;
   const fx = -sun[0], fy = -sun[1], fz = -sun[2];             // light travel direction
-  const flat = Math.hypot(fz, fx) || 1;
+  const flat = length2(fz, fx) || 1;
   const rx = -fz / flat, ry = 0, rz = fx / flat;                // right = cross(travel, up), normalized
   const ux = ry * fz - rz * fy, uy = rz * fx - rx * fz, uz = rx * fy - ry * fx;
   const ahead = SHADOW_HALF_METERS * SHADOW_AHEAD_SHARE, texel = (SHADOW_HALF_METERS * 2) / SHADOW_MAP_SIZE;

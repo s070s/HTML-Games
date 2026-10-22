@@ -55,7 +55,7 @@ function followPlayer(seconds, alpha) {
 }
 
 function headBob(id, seconds) {
-  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const speed = length2(Actors.vx[id], Actors.vz[id]);
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
   ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / BOB_STRIDE_METERS)) % (Math.PI * 2);
   if (!Render.config.headBob || !grounded) return 0;
@@ -114,10 +114,18 @@ function extractFrustum(m, out) {
 }
 
 // Frustum test for an axis-aligned box (the corner furthest along each plane normal must be inside).
+const visibleBox = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 function boxVisible(minX, minY, minZ, maxX, maxY, maxZ) {
+  const box = visibleBox;
+  box.minX = minX; box.minY = minY; box.minZ = minZ; box.maxX = maxX; box.maxY = maxY; box.maxZ = maxZ;
+  return boundsVisible(box);
+}
+
+// boxVisible of an object with minX..maxZ (world chunks): six float arguments per chunk and frame would be boxed (PERF-006).
+function boundsVisible(box) {
   const f = ViewState.frustum;
   for (let i = 0; i < 24; i += 4) {
-    const x = f[i] > 0 ? maxX : minX, y = f[i + 1] > 0 ? maxY : minY, z = f[i + 2] > 0 ? maxZ : minZ;
+    const x = f[i] > 0 ? box.maxX : box.minX, y = f[i + 1] > 0 ? box.maxY : box.minY, z = f[i + 2] > 0 ? box.maxZ : box.minZ;
     if (f[i] * x + f[i + 1] * y + f[i + 2] * z + f[i + 3] < 0) return false;
   }
   return true;
@@ -206,20 +214,43 @@ const FRAME_BUDGET_MS = 1000 / 60;       // PERF-001 hard floor, used when no GP
 const FRAME_BUDGET_TOLERANCE = 1.08;     // a missed vsync shows up as > 8% over the interval
 const FRAME_SMOOTHING_SECONDS = 0.1;     // time constant of the smoothed frame interval (the same response at 60, 90, 120 or 144 Hz)
 const REFRESH_SAMPLE_FRAMES = 120;       // menu frames per display-interval measurement
-const REFRESH_MIN_MS = 1000 / 240, REFRESH_MAX_MS = 1000 / 24;
+const REFRESH_PERCENTILE = 0.25;         // the fast cluster of the samples: a few late frames (a GC, a menu build) do not count
+const REFRESH_LIGHT_TRIANGLES = 256;     // more than the menu draws (sky, benchmark off): a world is drawn, as in the map editor
+const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under half its interval: the display set the pace
+const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
+const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
-// ---- Display interval (non-60 Hz screens): the menu is light, so its frames run at the display's own rate. A display
-// slower than 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame
-// budget, so the scale and the preset are not lowered for frames no setting could make faster. ----
+// ---- Display interval (non-60 Hz screens): light menu frames run at the display's own rate. A display slower than
+// 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
+// scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
+// reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
+// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. ----
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0 };
 
+// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU work left it idle.
+function displayPacedFrame(seconds) {
+  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
+  if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
+  return Perf.cpuMs[Perf.lastIndex()] < seconds * 1000 * REFRESH_IDLE_SHARE;
+}
+
+// The standard refresh interval nearest to a measured one, or 0 when none is close (a GPU-bound frame time, not a display).
+function standardRefreshMs(measuredMs) {
+  for (let i = 0; i < STANDARD_REFRESH_HZ.length; i++) {
+    const intervalMs = 1000 / STANDARD_REFRESH_HZ[i];
+    if (Math.abs(measuredMs - intervalMs) <= intervalMs * REFRESH_RATE_TOLERANCE) return intervalMs;
+  }
+  return 0;
+}
+
 function measureDisplayRate(seconds) {
-  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return;   // capped frames show the cap
+  if (!displayPacedFrame(seconds)) return;
   const rate = DisplayRate;
   rate.samples[rate.count++] = seconds * 1000;
   if (rate.count < REFRESH_SAMPLE_FRAMES) return;
   rate.count = 0;
-  rate.intervalMs = clamp(rate.samples.sort()[REFRESH_SAMPLE_FRAMES >> 1], REFRESH_MIN_MS, REFRESH_MAX_MS);
+  const measuredMs = rate.samples.sort()[Math.floor(REFRESH_SAMPLE_FRAMES * REFRESH_PERCENTILE)];
+  rate.intervalMs = standardRefreshMs(measuredMs) || rate.intervalMs;
 }
 
 // The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,

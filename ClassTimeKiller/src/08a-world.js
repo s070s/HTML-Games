@@ -48,20 +48,36 @@ const World = {
     const query = rayQuery;
     query.sx = ox; query.sy = oy; query.sz = oz; query.dx = dx; query.dy = dy; query.dz = dz;
     query.ex = ox + dx * maxDistance; query.ey = oy + dy * maxDistance; query.ez = oz + dz * maxDistance;
-    query.length = maxDistance; query.fraction = 1; query.brush = null;
-    walkTree(this.tree, query, rayTestNode, rayTestBrush);
-    for (let i = 0; i < this.dynamic.length; i++) rayTestBrush(query, this.dynamic[i]);
-    if (!query.brush) return false;
+    query.length = maxDistance;
+    if (!this.castQuery()) return false;
     hit.distance = query.fraction * maxDistance;
     hit.x = ox + dx * hit.distance; hit.y = oy + dy * hit.distance; hit.z = oz + dz * hit.distance;
     hit.nx = query.nx; hit.ny = query.ny; hit.nz = query.nz; hit.brush = query.brush;
     return true;
   },
+  // The ray already in rayQuery (start, end, direction, length) against every brush: true on a hit (rayQuery.brush).
+  castQuery() {
+    const query = rayQuery;
+    query.fraction = 1; query.brush = null;
+    walkTree(this.tree, query, rayTestNode, rayTestBrush);
+    for (let i = 0; i < this.dynamic.length; i++) rayTestBrush(query, this.dynamic[i]);
+    return query.brush !== null;
+  },
   // True when nothing solid lies between the two points (bot line of sight, splash occlusion).
   lineClear(ax, ay, az, bx, by, bz) {
-    const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
+    const line = worldLine;
+    line.ax = ax; line.ay = ay; line.az = az; line.bx = bx; line.by = by; line.bz = bz;
+    return this.lineClearOf(line);
+  },
+  // lineClear of a segment object { ax ay az bx by bz }: per-step callers (bot sight and hearing) fill a scratch segment,
+  // since six float arguments to a call that is not inlined are boxed on the heap on every call (PERF-006).
+  lineClearOf(line) {
+    const dx = line.bx - line.ax, dy = line.by - line.ay, dz = line.bz - line.az, length = length3(dx, dy, dz);
     if (length < 1e-6) return true;
-    return !this.raycast(ax, ay, az, dx / length, dy / length, dz / length, length, scratchHit);
+    const query = rayQuery;
+    query.sx = line.ax; query.sy = line.ay; query.sz = line.az; query.ex = line.bx; query.ey = line.by; query.ez = line.bz;
+    query.dx = dx / length; query.dy = dy / length; query.dz = dz / length; query.length = length;
+    return !this.castQuery();
   },
   pointInside(x, y, z) {
     const query = pointQuery;
@@ -81,6 +97,8 @@ Sound.lineOfSight = (ax, ay, az, bx, by, bz) => World.lineClear(ax, ay, az, bx, 
 Bus.on('match.load', (match) => { if (match.map) World.load(match.map); });
 
 const scratchHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
+const makeLine = () => ({ ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0 });   // a segment for World.lineClearOf
+const worldLine = makeLine();
 const makeHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null });
 const rayQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, dx: 0, dy: 0, dz: 0, length: 0, fraction: 1, limit: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const pointQuery = { x: 0, y: 0, z: 0, found: false };
@@ -154,12 +172,13 @@ const hullSide = (hull) => hull.radius + Math.max(hull.halfX, hull.halfZ);
 const hullBelow = (hull) => hull.radius + hull.bottom;
 const hullAbove = (hull) => hull.radius + hull.top;
 
-const clipResult = { nx: 0, ny: 0, nz: 0, startSolid: false, allSolid: false };
+const clipResult = { fraction: 0, nx: 0, ny: 0, nz: 0, startSolid: false, allSolid: false };
 
 // Clips the move segment { sx, sy, sz, ex, ey, ez } of a hull against one convex brush (the brush grown by the hull).
-// Returns the entry fraction 0..1, or -1 for a miss. A move that starts inside returns 0 with clipResult.startSolid set
-// (allSolid when it also ends inside). skin keeps the hull that far in front of the surface (a small epsilon; 0 for
-// exact rays). The segment is an object, not six float arguments: those would be boxed on the heap on every call (PERF-006).
+// Returns true on a hit and leaves the entry fraction 0..1 in clipResult.fraction, false on a miss. A move that starts
+// inside hits at 0 with clipResult.startSolid set (allSolid when it also ends inside). skin keeps the hull that far in
+// front of the surface (a small epsilon; 0 for exact rays). The segment is an object and the fraction is not returned:
+// a float passed to or returned from a call that is not inlined is boxed on the heap, once per brush tested (PERF-006).
 function clipBrush(brush, segment, hull, skin) {
   const p = brush.planes, sx = segment.sx, sy = segment.sy, sz = segment.sz, ex = segment.ex, ey = segment.ey, ez = segment.ez;
   let enter = -1, leave = 1, plane = -1, startsOutside = false, endsOutside = false;
@@ -168,7 +187,7 @@ function clipBrush(brush, segment, hull, skin) {
     const startDistance = nx * sx + ny * sy + nz * sz - offset, endDistance = nx * ex + ny * ey + nz * ez - offset;
     if (startDistance > 0) startsOutside = true;
     if (endDistance > 0) endsOutside = true;
-    if (startDistance > 0 && (endDistance >= skin || endDistance >= startDistance)) return -1; // wholly in front of this face
+    if (startDistance > 0 && (endDistance >= skin || endDistance >= startDistance)) return false; // wholly in front of this face
     if (startDistance <= 0 && endDistance <= 0) continue;
     if (startDistance <= endDistance) { leave = Math.min(leave, (startDistance + skin) / (startDistance - endDistance)); continue; }
     const fraction = Math.max(0, (startDistance - skin) / (startDistance - endDistance));
@@ -176,10 +195,11 @@ function clipBrush(brush, segment, hull, skin) {
   }
   clipResult.startSolid = !startsOutside;
   clipResult.allSolid = !startsOutside && !endsOutside;
-  if (!startsOutside) return 0;
-  if (enter >= leave || plane < 0) return -1;
+  if (!startsOutside) { clipResult.fraction = 0; return true; }
+  if (enter >= leave || plane < 0) return false;
+  clipResult.fraction = enter;
   clipResult.nx = p[plane * 4]; clipResult.ny = p[plane * 4 + 1]; clipResult.nz = p[plane * 4 + 2];
-  return enter;
+  return true;
 }
 
 // Slab test of a ray (origin, direction, length) against a box given as six numbers: entry distance (0 when the
@@ -240,9 +260,8 @@ function rayBrushOf(ray, brush, hit) {
   const segment = raySegment, maxDistance = ray.limit;
   segment.sx = ray.sx; segment.sy = ray.sy; segment.sz = ray.sz;
   segment.ex = ray.sx + ray.dx * maxDistance; segment.ey = ray.sy + ray.dy * maxDistance; segment.ez = ray.sz + ray.dz * maxDistance;
-  const fraction = clipBrush(brush, segment, POINT_HULL, 0);
-  if (fraction < 0) return false;
-  hit.distance = fraction * maxDistance;
+  if (!clipBrush(brush, segment, POINT_HULL, 0)) return false;
+  hit.distance = clipResult.fraction * maxDistance;
   if (clipResult.startSolid) { hit.nx = -ray.dx; hit.ny = -ray.dy; hit.nz = -ray.dz; return true; }
   hit.nx = clipResult.nx; hit.ny = clipResult.ny; hit.nz = clipResult.nz;
   return true;

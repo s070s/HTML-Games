@@ -602,7 +602,7 @@ const Weapons = {
     const weapon = this.currentWeapon(id);
     const recoil = weapon ? CAT.recoil.byId(weapon.primary.recoil) || CAT.recoil[0] : CAT.recoil[0];
     if (Sim.time - this.lastShot[id] < recoil.recoverDelay) return;
-    const size = Math.hypot(this.recoilPitch[id], this.recoilYaw[id]);
+    const size = length2(this.recoilPitch[id], this.recoilYaw[id]);
     const keep = size > 0 ? Math.max(0, size - recoil.recover * dt) / size : 0;
     this.recoilPitch[id] *= keep; this.recoilYaw[id] *= keep;
     this.bloom[id] = Math.max(0, this.bloom[id] - recoil.recover * dt);
@@ -669,7 +669,7 @@ function chargeDamage(charge, fraction) { return charge.levels ? chargeLevelValu
 function angleToZone(id, eyeY, other, zone, aim, range, maxAngle) {
   Hitbox.point(other, zone, pointScratch);
   const dx = pointScratch.x - Actors.x[id], dy = pointScratch.y - eyeY, dz = pointScratch.z - Actors.z[id];
-  const distance = Math.hypot(dx, dy, dz);
+  const distance = length3(dx, dy, dz);
   if (distance - TORSO_RADIUS > range || distance < 1e-3) return -1;
   const angle = Math.acos(clamp((dx * aim.x + dy * aim.y + dz * aim.z) / distance, -1, 1)) / DEG;
   if (angle > maxAngle) return -1;
@@ -683,7 +683,7 @@ function hasLedgeInFront(id) {
   return World.raycast(probeX, Actors.eyeY(id), probeZ, 0, -1, 0, 0.8, exitHit) && exitHit.ny > 0.7;
 }
 function canStayMounted(id) {
-  if (Math.hypot(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
+  if (length2(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
   return hasLedgeInFront(id);
 }
 
@@ -801,7 +801,7 @@ function meleeMiss(id, mode, hitSurface) {
 }
 // True when the attacker stands behind the target (within 60 deg of the target's back).
 function isBehind(attacker, target) {
-  const dx = Actors.x[target] - Actors.x[attacker], dz = Actors.z[target] - Actors.z[attacker], length = Math.hypot(dx, dz) || 1;
+  const dx = Actors.x[target] - Actors.x[attacker], dz = Actors.z[target] - Actors.z[attacker], length = length2(dx, dz) || 1;
   return (dx * Math.sin(Actors.yaw[target]) + dz * Math.cos(Actors.yaw[target])) / length > 0.5;
 }
 
@@ -814,7 +814,7 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
   for (let target = 0; target < Actors.count; target++) {
     if (!Actors.alive[target] || !Actors.isEnemy(id, target)) continue;
     if (angleToZone(id, eyeY, target, ZONE.BODY, aimScratch, mode.cone.range, halfAngle) < 0) continue;
-    const distance = Math.hypot(pointScratch.x - Actors.x[id], pointScratch.y - eyeY, pointScratch.z - Actors.z[id]) || 1;
+    const distance = length3(pointScratch.x - Actors.x[id], pointScratch.y - eyeY, pointScratch.z - Actors.z[id]) || 1;
     const dirX = (pointScratch.x - Actors.x[id]) / distance, dirY = (pointScratch.y - eyeY) / distance, dirZ = (pointScratch.z - Actors.z[id]) / distance;
     applyShotDamage(id, target, weapon, mode, damage, ZONE.NONE, 0, pointScratch.x, pointScratch.y, pointScratch.z, dirX, dirY, dirZ, distance);
   }

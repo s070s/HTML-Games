@@ -73,7 +73,8 @@ const pveHit = makeActorHit();
 const pveWallHit = makeHit();
 const pveSpawnPayload = { id: -1 };
 const pveEventPayload = { id: -1, attack: '', kind: '', seconds: 0, color: 0, target: -1 };
-const pveRendered = { x: 0, y: 0, z: 0 };
+const pvePartPoint = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // an enemy part offset, rotated in place (drawEnemy)
+const pvePartInstance = makeShapeInstance();
 const pveQueueOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 const Pve = {
@@ -840,14 +841,19 @@ const Pve = {
     const tell = this.tellGlow(id, row, now), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
     const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
+    // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
+    const point = pvePartPoint, instance = pvePartInstance;
     for (const part of row.parts) {
       const tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
-      rotateYawPitchInto(pveRendered, part[1] * size, part[2] * size, part[3] * size, yaw, part[8] ? pitch : 0);
-      const emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
+      point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
+      rotateInPlace(point);
       const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
       const b = tell.amount > 0 ? tell.b : colors[tint * 3 + 2] * (glow ? 1 : shade);
-      batch.mesh(part[0], Actors.x[id] + pveRendered.x, Actors.y[id] + pveRendered.y, Actors.z[id] + pveRendered.z, yaw, part[8] ? pitch : 0,
-        part[4] * size, part[5] * size, part[6] * size, glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount), g, b, emissive);
+      instance.x = Actors.x[id] + point.x; instance.y = Actors.y[id] + point.y; instance.z = Actors.z[id] + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
+      instance.sx = part[4] * size; instance.sy = part[5] * size; instance.sz = part[6] * size;
+      instance.r = glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount); instance.g = g; instance.b = b;
+      instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
+      batch.meshFrom(part[0], instance);
     }
     if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
     if (this.champion[id] >= 0) drawChampionRing(batch, id, size, this.champion[id]);

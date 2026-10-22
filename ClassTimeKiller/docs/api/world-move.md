@@ -28,6 +28,8 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.load(map)` / `World.clear()` | builds brushes, the bounding-volume tree, triggers and props; emits `world.load` |
 | `World.raycast(ox, oy, oz, dx, dy, dz, maxDistance, hit)` | nearest brush or standing prop along a normalized ray; `hit = makeHit()` gets `distance x y z nx ny nz brush`; `hit.brush.prop >= 0` means a destructible prop (index) |
 | `World.lineClear(ax, ay, az, bx, by, bz)` | true when nothing solid is between the points |
+| `World.lineClearOf(line)` | `lineClear` of a segment object from `makeLine()` (`ax ay az bx by bz`): the per-step form (bot sight and hearing), no float arguments (PERF-006) |
+| `World.castQuery()` | the ray already written into `rayQuery` (`sx sy sz ex ey ez dx dy dz length`) against every brush; true on a hit (`rayQuery.fraction nx ny nz brush`). `raycast` and `lineClearOf` fill it and call this |
 | `World.pointInside(x, y, z)` | point inside any brush or prop |
 | `World.capsuleFits(x, y, z, radius, height)` | a capsule with its feet at (x,y,z) touches nothing (spawn checks, nav) |
 | `World.sweepCapsule(ax, ay, az, bx, by, bz, radius, height, trace)` | true when blocked; `trace = makeTrace()` gets `fraction x y z nx ny nz brush startSolid allSolid`; walks the tree directly, so sweeps of any length see every brush (spawn checks, nav links) |
@@ -48,9 +50,9 @@ legs cylinder r 0.22 from 0.05 to 0.85 m. Body and legs heights scale by `height
 caps instead of rounded ends so the zones never overlap; ties go head, then body, then legs.
 
 Low-level movers (`Collide`, used by S10 and bodies; other sections should prefer the World calls):
-`makeMover()`, `Collide.gatherAround(mover, reach)`, `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
+`makeMover()`, `Collide.gatherAround(mover, reach)` (a box inside the one gathered last for the same mover in the same sim step, on the same world and dynamic-brush count, reuses that candidate list: a superset, so traces give the same results; one actor step walks the brush tree once: `sweepActor` gathers at least `SETTLE_REACH` past its travel for the settle and floor probe after it; `GatherCache.walks` counts the walks), `Collide.gather(box...)` (never reused), `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
 up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)`, `Collide.probeGround(mover, distance, trace)`,
-`Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`. Zero-allocation forms (PERF-006: float arguments to a call that is not inlined are boxed on the heap): `setSweepSegment(ax, ay, az, bx, by, bz)` (fills the shared sweep query) + `Collide.sweepSegment(hull, out)`; `clipBrush(brush, segment, hull, skin)` takes a segment object `{ sx sy sz ex ey ez }`; `rayBrushOf(ray, brush, hit)` takes `{ sx sy sz dx dy dz limit }` (`rayBrush(...)` is the argument wrapper). Hot code uses `length2` / `length3` (S01) instead of `Math.hypot`.
+`Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`. Zero-allocation forms (PERF-006: float arguments to a call that is not inlined are boxed on the heap): `setSweepSegment(ax, ay, az, bx, by, bz)` (fills the shared sweep query) + `Collide.sweepSegment(hull, out)`; `clipBrush(brush, segment, hull, skin)` takes a segment object `{ sx sy sz ex ey ez }` and returns true on a hit with the entry fraction in `clipResult.fraction` (a returned float would be boxed); `rayBrushOf(ray, brush, hit)` takes `{ sx sy sz dx dy dz limit }` (`rayBrush(...)` is the argument wrapper). Hot code uses `length2` / `length3` (S01) instead of `Math.hypot`.
 A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_SIZE`) and grows on a crowded map. `mover.planeBrushes[i]` is the brush of
 `mover.planes[i]` (the walls touched in a slide).
 

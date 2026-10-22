@@ -4,7 +4,10 @@
 // per-system ms per step, render and HUD CPU ms, draw calls, instances, GC count and longest GC pause (trace), heap growth
 // after forced GCs, and the boot time to the main menu.
 // Usage: node tools/perf.mjs [--scenes tdm,horde,royale,generated,editor] [--presets potato,low,medium] [--throttle 4,6]
-//        [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction] [--json <file>] [--file <html>] [--timeout 1800]
+//        [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction]
+//        [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800]
+// --soak: the first scene at the first preset, unthrottled, for that many minutes; the heap after a forced GC every minute
+// (PERF-006 step 18.4: the heap must not grow steadily) and the GC pauses of each minute.
 // Exit code: 0 done (a budget miss is reported, not fatal), 3 runner error, 2 timeout. Budgets: PERF_BUDGETS below (PERF-002).
 import { writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -25,12 +28,12 @@ function checkArguments() {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const VALUE_OPTIONS = ['--scenes', '--presets', '--throttle', '--seconds', '--warmup', '--boot-runs', '--json', '--file', '--timeout'];
+const VALUE_OPTIONS = ['--scenes', '--presets', '--throttle', '--seconds', '--warmup', '--boot-runs', '--json', '--file', '--timeout', '--soak'];
 const FLAG_OPTIONS = ['--no-boot', '--no-scenes', '--alloc', '--retained', '--promoted', '--profile', '--reaction'];
 const USAGE = [
   'Usage: node tools/perf.mjs [--scenes tdm,horde,royale,generated,editor] [--presets potato,low,medium] [--throttle 4,6]',
   '       [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction]',
-  '       [--json <file>] [--file <html>] [--timeout 1800]   (docs/PERFORMANCE.md)',
+  '       [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800]   (docs/PERFORMANCE.md)',
 ].join('\n');
 checkArguments();
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
@@ -49,6 +52,8 @@ const allocSites = args.includes('--alloc') || retainedProfile || promotedProfil
 const cpuProfile = args.includes('--profile');   // also print the functions with the most self time (CPU profiler)
 const timeoutSeconds = Number(option('--timeout', '1800'));
 const reactionRun = args.includes('--reaction');   // also check that dynamic resolution and the quality step-down react and recover
+const soakMinutes = Number(option('--soak', '0'));
+const SOAK_SAMPLE_MS = 60000;   // one heap sample (after a forced GC) per minute
 const REACTION_PHASES = [{ rate: 1, seconds: 6 }, { rate: 6, seconds: 14 }, { rate: 1, seconds: 12 }];   // fast, slow, fast again
 const REACTION_SAMPLE_MS = 1000;
 const REACTION_VIEW = { width: 480, height: 270, deviceScaleFactor: 1, mobile: false };   // small: software WebGL can hold 60 fps at 1x
@@ -74,7 +79,12 @@ const fixed = (value, digits) => (Number.isFinite(value) ? value.toFixed(digits 
 
 async function throttle(rate) { await session.send('Emulation.setCPUThrottlingRate', { rate }); }
 
-// Boot: navigation start to the loop start (Perf.bootMs: parse + boot of the whole file), per throttle rate; median of the runs.
+// Waits for the first drawn frame (Perf.bootMs is stamped at its end) and returns both boot stamps.
+const BOOT_STAMPS = 'new Promise((done) => { const wait = () => { const stats = __CTK.perf.stats(); if (stats.bootMs) done({ loopStartMs: stats.loopStartMs, bootMs: stats.bootMs }); else requestAnimationFrame(wait); }; wait(); })';
+const median = (values) => values.slice().sort((a, b) => a - b)[Math.floor(values.length / 2)];
+
+// Boot: navigation start to the main menu's first drawn frame (Perf.bootMs: parse + boot of the whole file, menu build,
+// first frame with its shader compiles) and to the loop start (Perf.loopStartMs), per throttle rate; median of the runs.
 async function measureBoot() {
   const results = {};
   for (const rate of BOOT_THROTTLES) {
@@ -82,12 +92,13 @@ async function measureBoot() {
     for (let run = 0; run < bootRuns; run++) {
       await throttle(rate);
       await session.open(file);
-      runs.push(await session.evaluate('__CTK.perf.stats().bootMs'));
+      runs.push(await session.evaluate(BOOT_STAMPS));
       await throttle(1);
     }
-    runs.sort((a, b) => a - b);
-    results[rate] = { median: runs[Math.floor(runs.length / 2)], first: runs[0], runs };
-    console.log('BOOT ' + rate + 'x: median ' + fixed(results[rate].median, 0) + ' ms (' + runs.map((ms) => fixed(ms, 0)).join(', ') + ')');
+    const menu = runs.map((stamps) => stamps.bootMs), loop = runs.map((stamps) => stamps.loopStartMs);
+    results[rate] = { median: median(menu), loopStartMedian: median(loop), runs };
+    console.log('BOOT ' + rate + 'x: first menu frame median ' + fixed(results[rate].median, 0) + ' ms (' + menu.map((ms) => fixed(ms, 0)).join(', ') + '), loop start median '
+      + fixed(results[rate].loopStartMedian, 0) + ' ms');
   }
   return results;
 }
@@ -207,7 +218,7 @@ function printRun(run) {
     'draws ' + fixed(r.drawCalls.p95, 0), 'inst ' + fixed(r.instances.p95, 0), 'scale ' + fixed(r.renderScale.p50),
     'gc minor ' + run.gc.minor.count + ' max ' + fixed(run.gc.minor.maxMs) + ' major ' + run.gc.major.count + ' max ' + fixed(run.gc.major.maxMs) + ' ms', 'alloc ' + fixed(run.allocations.totalKb / run.report.seconds, 0) + ' KB/s', 'heap ' + fixed(run.heapMb, 1) + ' MB ' + (run.heapGrowthKb >= 0 ? '+' : '') + fixed(run.heapGrowthKb, 0) + ' KB'].join(' | '));
   run.hotspots.forEach((entry) => console.log('    cpu ' + fixed(entry.ms / run.report.frames, 3).padStart(7) + ' ms/frame  ' + entry.site));
-  run.allocations.sites.forEach((entry) => console.log('    alloc ' + fixed(entry.kb / seconds, 1).padStart(8) + ' KB/s  ' + entry.site));
+  run.allocations.sites.forEach((entry) => console.log('    alloc ' + fixed(entry.kb / run.report.seconds, 1).padStart(8) + ' KB/s  ' + entry.site));
   const misses = budgetMisses(run);
   if (misses.length) console.log('    over budget: ' + misses.join(', '));
 }
@@ -244,12 +255,32 @@ async function measureReaction() {
   return timeline;
 }
 
+// Long session (step 18.4): heap after a forced GC once a minute, with the GC pauses of each minute (trace).
+async function measureSoak() {
+  const scene = scenes[0], preset = presets[0], samples = [];
+  await session.evaluate('__CTK.perf.scene(' + JSON.stringify(scene) + ', ' + JSON.stringify(preset) + ')');
+  samples.push({ minute: 0, heapMb: (await heapAfterGc()) / 1048576 });
+  for (let minute = 1; minute <= soakMinutes; minute++) {
+    const trace = await startTrace();
+    await sleep(SOAK_SAMPLE_MS);
+    const gc = await stopTrace(trace);
+    const info = await session.evaluate('__CTK.perf.info()');
+    samples.push({ minute, heapMb: (await heapAfterGc()) / 1048576, gcCount: gc.count, gcMaxMs: gc.maxMs, alive: info.alive });
+    const last = samples[samples.length - 1];
+    console.log('SOAK ' + scene + ' ' + preset + ' minute ' + minute + ': heap ' + fixed(last.heapMb) + ' MB (' + (last.heapMb >= samples[minute - 1].heapMb ? '+' : '')
+      + fixed((last.heapMb - samples[minute - 1].heapMb) * 1024, 0) + ' KB), GCs ' + gc.count + ' longest ' + fixed(gc.maxMs) + ' ms, alive ' + info.alive);
+  }
+  await session.evaluate('__CTK.perf.stop()');
+  return samples;
+}
+
 async function main() {
   session = await openChrome({ flags: ['--enable-precise-memory-info'] });
   const output = { file, date: new Date().toISOString(), seconds, warmupSeconds, boot: null, runs: [] };
   if (!args.includes('--no-boot')) output.boot = await measureBoot();
   else await session.open(file);
   if (reactionRun) output.reaction = await measureReaction();
+  if (soakMinutes > 0) output.soak = await measureSoak();
   if (!args.includes('--no-scenes')) {
     for (const scene of scenes) {
       for (const preset of presets) {

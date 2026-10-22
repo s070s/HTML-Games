@@ -542,7 +542,8 @@ function errorsSince(mark) {
 // A fake batch recording the meshes drawn (shape, height and colour of each).
 function meshRecorder() {
   const meshes = [];
-  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); } };
+  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); },
+    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, r: instance.r, g: instance.g, b: instance.b }); } };
 }
 function colorMatches(mesh, hex) {
   return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;

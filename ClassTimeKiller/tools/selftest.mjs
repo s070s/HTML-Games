@@ -25,7 +25,7 @@ const finish = async (code) => {
 const killer = setTimeout(() => { console.log('TIMEOUT after ' + timeoutSeconds + ' s'); finish(2); }, timeoutSeconds * 1000);
 
 async function main() {
-  session = await openChrome();
+  session = await openChrome({ flags: ['--enable-precise-memory-info'] });   // exact performance.memory: the 'perf' allocation probes
   const { evaluate, send, errors } = session;
   let failed = false;
   await session.open(file);

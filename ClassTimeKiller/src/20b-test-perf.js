@@ -26,13 +26,22 @@ const PerfScene = {
 };
 Bus.on('toast', () => { PerfScene.toasts++; });
 
+// The sample arrays (about 1 MB) are made on the first recording: a player's device never pays for the tool.
 const PerfRecorder = {
   active: false, skip: 0, count: 0, resolve: null, last: null, timer: 0, startTick: 0, startTime: 0, systemStart: {}, lastTick: 0, stepCount: 0,
-  stepMs: new Float32Array(PERF_RECORD_FRAMES),   // sim ms per 120 Hz step in each frame (frames that ran no step are left out)
-  frameMs: new Float32Array(PERF_RECORD_FRAMES), cpuMs: new Float32Array(PERF_RECORD_FRAMES), simMs: new Float32Array(PERF_RECORD_FRAMES),
-  renderMs: new Float32Array(PERF_RECORD_FRAMES), hudMs: new Float32Array(PERF_RECORD_FRAMES), drawCalls: new Uint16Array(PERF_RECORD_FRAMES),
-  instances: new Uint16Array(PERF_RECORD_FRAMES), triangles: new Uint32Array(PERF_RECORD_FRAMES), scale: new Float32Array(PERF_RECORD_FRAMES),
+  stepMs: null,   // sim ms per 120 Hz step in each frame (frames that ran no step are left out)
+  frameMs: null, cpuMs: null, simMs: null, renderMs: null, hudMs: null, drawCalls: null, instances: null, triangles: null, scale: null,
 };
+
+function makeRecorderArrays(recorder) {
+  if (recorder.frameMs) return;
+  Object.assign(recorder, {
+    stepMs: new Float32Array(PERF_RECORD_FRAMES), frameMs: new Float32Array(PERF_RECORD_FRAMES), cpuMs: new Float32Array(PERF_RECORD_FRAMES),
+    simMs: new Float32Array(PERF_RECORD_FRAMES), renderMs: new Float32Array(PERF_RECORD_FRAMES), hudMs: new Float32Array(PERF_RECORD_FRAMES),
+    drawCalls: new Uint16Array(PERF_RECORD_FRAMES), instances: new Uint16Array(PERF_RECORD_FRAMES), triangles: new Uint32Array(PERF_RECORD_FRAMES),
+    scale: new Float32Array(PERF_RECORD_FRAMES),
+  });
+}
 
 function perfGeneratedMap() {
   const started = performance.now();
@@ -161,7 +170,7 @@ function perfRecordFrame() {
   const recorder = PerfRecorder;
   if (!recorder.active) return;
   if (recorder.skip > 0) { recorder.skip--; recorder.lastTick = Sim.tick; return; }   // the first frame after a start belongs to the frame before it
-  const last = (Perf.index + FRAME_HISTORY - 1) % FRAME_HISTORY, slot = recorder.count, stats = Render.stats;
+  const last = Perf.lastIndex(), slot = recorder.count, stats = Render.stats;
   recorder.frameMs[slot] = Perf.frameMs[last]; recorder.cpuMs[slot] = Perf.cpuMs[last]; recorder.simMs[slot] = Perf.simMs[last];
   recorder.renderMs[slot] = Perf.counters.renderMs; recorder.hudMs[slot] = Perf.counters.hudMs;
   recorder.drawCalls[slot] = Perf.counters.drawCalls; recorder.instances[slot] = stats.instances; recorder.triangles[slot] = Perf.counters.triangles;
@@ -185,6 +194,7 @@ function perfFinishRecording() {
 function perfRecord(seconds) {
   const recorder = PerfRecorder;
   if (recorder.active) throw new Error('perf: a recording is already running');
+  makeRecorderArrays(recorder);
   return new Promise((resolve) => {
     Object.assign(recorder, { active: true, skip: 1, count: 0, resolve, startTick: Sim.tick, lastTick: Sim.tick, stepCount: 0, startTime: performance.now(), systemStart: Object.assign({}, Sim.timingTotal) });
     recorder.timer = setTimeout(perfFinishRecording, seconds * 1000);
@@ -233,6 +243,7 @@ Object.assign(DebugApi.perf, {
   stop: () => { perfStopScene(); return true; },
   info: () => perfSceneInfo(),
   systems: () => Sim.systems,   // the registered sim systems in step order (allocation and cost probes)
+  hotPaths: () => withRenderer(perfMeasureHotPaths),   // heap bytes per hot path (the 'perf' allocation probes; perf.mjs --alloc-probes)
 });
 
 // ---- Self-tests (group 'perf'): exact numbers only, no timing budgets (a busy test machine would make those flaky) ----
@@ -278,29 +289,48 @@ Test.add('perf', async (check) => {
   const callback = Loop.callback;
   await new Promise((resolve) => setTimeout(resolve, 100));
   check('the loop keeps one requestAnimationFrame callback across frames (no closure per frame)', typeof callback === 'function' && Loop.callback === callback);
-  check('boot time is recorded at the first loop start and reported', Perf.bootMs > 0 && Perf.bootMs <= performance.now() && Perf.stats().bootMs === Perf.bootMs, Perf.bootMs);
+  check('boot time is recorded at the first drawn frame, after the loop start, and reported', Perf.loopStartMs > 0 && Perf.bootMs > Perf.loopStartMs
+    && Perf.bootMs <= performance.now() && Perf.stats().bootMs === Perf.bootMs && Perf.stats().loopStartMs === Perf.loopStartMs, [Perf.loopStartMs, Perf.bootMs]);
 });
 
+// Display-rate samples: `frames` menu frames of frameMs each, with the previous frame's triangles and CPU work given.
+function perfFeedDisplayRate(frameMs, frames, triangles, cpuMs) {
+  Perf.counters.triangles = triangles;
+  Perf.cpuMs[Perf.lastIndex()] = cpuMs;
+  for (let i = 0; i < frames; i++) measureDisplayRate(frameMs / 1000);
+}
+
 Test.add('perf', (check) => {
-  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active };
+  const last = Perf.lastIndex();
+  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active, triangles: Perf.counters.triangles, cpuMs: Perf.cpuMs[last] };
   Game.state = 'menu'; Benchmark.active = false; DisplayRate.count = 0;
-  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 30);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('the menu measures a 30 Hz display', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
   const slowOn30 = slowFrameMs();
   const control = makeScaleControl();
   let scale = 1;
   for (let i = 0; i < 20; i++) scale = stepRenderScale(control, 1000 / 30, slowOn30, slowOn30, 0.1, scale, 0.5, 1);
   check('on a 30 Hz display frames at its own rate keep the render scale', scale === 1, scale);
-  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 120);
+  perfFeedDisplayRate(1000 / 120, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('a 120 Hz display keeps the 60 fps floor as its budget', Math.abs(slowFrameMs() - FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE) < 1e-6, slowFrameMs());
   scale = 1;
   for (let i = 0; i < 20; i++) scale = stepRenderScale(control, 1000 / 30, slowFrameMs(), slowFrameMs(), 0.1, scale, 0.5, 1);
   check('30 fps against the 60 fps floor lowers the render scale', scale < 1, scale);
+  const budget = slowFrameMs();
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 40000, 4);
+  check('slow map-editor frames (a world drawn in the menu state) are not taken as the display rate', slowFrameMs() === budget && DisplayRate.count === 0, DisplayRate.intervalMs);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 30);
+  check('CPU-bound menu frames are not taken as the display rate', slowFrameMs() === budget && DisplayRate.count === 0, DisplayRate.intervalMs);
+  perfFeedDisplayRate(37, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('a GPU-bound 27 fps menu (no standard refresh rate) keeps the last display rate', slowFrameMs() === budget, DisplayRate.intervalMs);
+  perfFeedDisplayRate(1000 / 60, REFRESH_SAMPLE_FRAMES * 3 / 4, 0, 1);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES / 4, 0, 1);
+  check('a quarter of late menu frames does not halve a 60 Hz display rate', Math.abs(DisplayRate.intervalMs - 1000 / 60) < 0.01, DisplayRate.intervalMs);
   Benchmark.active = true;
-  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 30);
-  check('the benchmark frames are not taken as the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 120) < 0.01, DisplayRate.intervalMs);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('the benchmark frames are not taken as the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 60) < 0.01, DisplayRate.intervalMs);
   Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count });
-  Game.state = saved.state; Benchmark.active = saved.benchmark;
+  Game.state = saved.state; Benchmark.active = saved.benchmark; Perf.counters.triangles = saved.triangles; Perf.cpuMs[last] = saved.cpuMs;
 });
 
 // The smoothed frame interval follows time, not frames: 0.1 s of frames moves it by the same share at 100 or 200 fps.
@@ -402,6 +432,156 @@ Test.add('perf', (check) => withRenderer(() => {
   check('no GL error after the merged world draw', gl.getError() === gl.NO_ERROR);
 }));
 
+// ---- Allocation probes (PERF-006): the heap bytes a hot path allocates over many calls, read from performance.memory, which is
+// exact with Chrome's --enable-precise-memory-info (tools/selftest.mjs starts Chrome with it). One boxed float per call shows
+// as PERF_ALLOC_CALLS x 12 bytes or more; the limit leaves room for stray engine work. A GC inside the window can only hide
+// an allocation, never invent one, so the probe does not fail on a busy machine. ----
+const PERF_ALLOC_CALLS = 20000;
+const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
+const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
+const PERF_ALLOC_ROUNDS = 3;
+const PERF_PROBE_ACTORS = 8;
+const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many small objects must show up
+
+const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
+
+// The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
+// during a round, while a path that really allocates does so in every round.
+function perfAllocatedBytes(run) {
+  for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
+  let fewest = Infinity;
+  for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
+    const before = perfHeapBytes();
+    for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
+    fewest = Math.min(fewest, perfHeapBytes() - before);
+  }
+  return fewest;
+}
+
+// True when the heap counter sees a known allocation (a browser without the precise flag rounds and caches the counter).
+function perfHeapCounterWorks() {
+  const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
+  for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
+  return perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS;
+}
+
+// The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
+// floats are made inside the path, as in a match.
+function perfHotPaths() {
+  const mover = makeMover(), trace = makeTrace(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
+  Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
+  Object.assign(style, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
+  for (let id = 0; id < PERF_PROBE_ACTORS; id++) {   // standing in the probe ray's path: rayOf runs every hit volume and records a hit
+    Actors.x[id] = 0.75 + id * 0.25; Actors.y[id] = 0; Actors.z[id] = id * 1.5; Actors.height[id] = STAND_HEIGHT; Actors.eye[id] = 1.6;
+  }
+  setHitRay(0.5, 1.25, -3.5, 0.1, -0.05, 0.99, 50.5, 0.1);
+  return {
+    'Hitbox.rayOf (hitscan against an actor)': (i) => { Hitbox.rayOf(i % PERF_PROBE_ACTORS); },
+    'Collide.gatherAround + sweepSegment (a mover trace)': (i) => {
+      mover.x = 0.5 + (i & 3); mover.y = 1.5; mover.z = -0.25;
+      Collide.gatherAround(mover, 3);
+      const segment = sweepQuery;
+      segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z; segment.ex = mover.x + 2.5; segment.ey = mover.y - 4.5; segment.ez = mover.z + 0.75;
+      Collide.sweepSegment(mover.hull, trace);
+    },
+    'HudBatch.line (HUD quads)': (i) => { HudBatch.quads = 0; HudBatch.line(i & 255, 7, 300, 211, 3, 0xffffff, 1); },
+    'emitActorPart (actor parts)': (i) => { actorBatch.clear(); emitActorPart(parts[i % parts.length], pose, style); },
+  };
+}
+
+// Heap bytes per hot path over PERF_ALLOC_CALLS calls (on a loaded map: the mover step meets real brushes). Run with the renderer on.
+function perfMeasureHotPaths() {
+  const savedQuads = HudBatch.quads, bytes = {};
+  World.load(Maps.get('isle'));
+  const paths = perfHotPaths();
+  for (const name in paths) bytes[name] = perfAllocatedBytes(paths[name]);
+  HudBatch.quads = savedQuads;
+  actorBatch.clear();
+  return bytes;
+}
+
+Test.add('perf', (check) => withRenderer(() => {
+  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page (Chrome without --enable-precise-memory-info): allocation probes skipped', true); return; }
+  const bytes = perfMeasureHotPaths();
+  check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
+  check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);
+  for (const name in bytes) check('allocation-free hot path: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes[name] / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' calls');
+}));
+
+// ---- Quality caps per tier (PERF-009 bots and PvE enemies, PERF-010 particles, decals, dynamic lights) ----
+const PERF_TIER_CAPS = {
+  ultra: { bots: 23, enemies: 40, particles: 4096, decals: 128, lights: 8 },
+  high: { bots: 19, enemies: 32, particles: 2048, decals: 96, lights: 4 },
+  medium: { bots: 15, enemies: 24, particles: 1024, decals: 64, lights: 2 },
+  low: { bots: 11, enemies: 18, particles: 512, decals: 32, lights: 0 },
+  potato: { bots: 7, enemies: 12, particles: 256, decals: 0, lights: 0 },
+};
+const PERF_CAP_FLOOD = 5000;   // spawns per pool: more than the largest cap
+
+// Floods the effect pools at the active preset and returns what they hold.
+function perfFloodEffects() {
+  Fx.clear();
+  for (let i = 0; i < PERF_CAP_FLOOD / 50; i++) Fx.burst('spark', i, 1, 0, 0, 1, 0, 50);
+  for (let i = 0; i < PERF_CAP_FLOOD; i++) Fx.decal(i, 0, 0, 0, 1, 0, 'bullet');
+  for (let i = 0; i < MAX_DYNAMIC_LIGHTS * 2; i++) Fx.light(i, 1, 0, 0xffffff, 4, 10);
+  updateLights();
+  return { particles: particlePool.used, decals: decalPool.used, lights: Render.frame.lightCount };
+}
+
+Test.add('perf', (check) => withRenderer(() => {
+  const savedScale = Render.config.particleScale;
+  Render.config.particleScale = 1;
+  for (const id in PERF_TIER_CAPS) {
+    const caps = PERF_TIER_CAPS[id];
+    Settings.set('video.quality', id);
+    const row = Quality.current();
+    check(id + ': the preset row carries the PERF-009 / PERF-010 caps', row.id === id && Object.keys(caps).every((field) => row[field] === caps[field]),
+      Object.keys(caps).map((field) => field + ' ' + row[field]).join(', '));
+    const held = perfFloodEffects();
+    check(id + ': flooded particle, decal and light pools stay at the preset caps', held.particles === caps.particles && held.decals === caps.decals
+      && held.lights === Math.min(caps.lights, MAX_DYNAMIC_LIGHTS), held);
+    check(id + ': bot and PvE enemy counts are capped by the preset', Modes.defaultBots('royale', false).length <= caps.bots && Pve.cap() === Math.min(caps.enemies, MAX_ACTORS));
+  }
+  Render.config.particleScale = savedScale;
+}));
+
+Test.add('perf', (check) => {
+  try {
+    Settings.set('video.quality', 'potato');
+    Game.start({ mode: 'tdm', map: 'harbor', seed: 1, bots: Array.from({ length: 16 }, () => ({})), modeOptions: { timeLimit: 0, scoreLimit: 0 } });
+    let bots = 0;
+    for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.BOT) bots++;
+    check('a 16-bot match on Potato fills only the preset\'s 7 bot slots (PERF-009)', bots === PERF_TIER_CAPS.potato.bots, bots);
+  } finally {
+    Game.stop();
+    Settings.reset('video.');
+  }
+});
+
+// One actor step walks the brush tree about once: the settle and floor probe reuse the sweep's gathered list.
+const PERF_GATHER_STEPS = 120;
+const PERF_GATHER_WALKS_PER_ACTOR_STEP = 1.5;   // was 2 or more (sweep, settle) before the reuse
+
+Test.add('perf', (check) => {
+  try {
+    Settings.set('video.quality', 'potato');
+    Game.start({ mode: 'tdm', map: 'harbor', seed: 3, bots: Array.from({ length: 7 }, () => ({})), modeOptions: { timeLimit: 0, scoreLimit: 0 } });
+    Sim.run(PERF_GATHER_STEPS);   // spawn protection and the first decisions out of the way
+    let actorSteps = 0;
+    const walksBefore = GatherCache.walks;
+    for (let step = 0; step < PERF_GATHER_STEPS; step++) {
+      for (let id = 0; id < Actors.count; id++) if (Actors.alive[id]) actorSteps++;
+      Sim.run(1);
+    }
+    const perActorStep = (GatherCache.walks - walksBefore) / Math.max(1, actorSteps);
+    check('an actor step walks the brush tree about once (gathered lists reused within the step)', actorSteps > 0 && perActorStep < PERF_GATHER_WALKS_PER_ACTOR_STEP, perActorStep.toFixed(2));
+  } finally {
+    Game.stop();
+    Settings.reset('video.');
+  }
+});
+
 // The TDM perf scene end to end: bots past the preset cap, kits on every bot, a followed bot, system time totals, a short
 // recording through real frames, and a clean stop.
 Test.add('perf', async (check) => {
@@ -424,7 +604,9 @@ Test.add('perf', async (check) => {
     for (const system of Sim.systems) if (Sim.timingTotal[system.name] !== undefined) named++;
     check('Sim.timingTotal sums the system times of every step', grown > 0 && named === Sim.systems.length, [grown, named]);
     check('the auto quality step-down is off in a budget run', Settings.get('video.autoLower') === false);
+    const lazy = PerfRecorder.frameMs === null || PerfRecorder.last !== null;   // only an earlier recording may have made them
     const report = await perfRecord(0.3);
+    check('the recorder arrays are made on the first recording, not at load', lazy && PerfRecorder.frameMs.length === PERF_RECORD_FRAMES);
     check('a recording returns frames, percentiles and per-system times', report.frames > 0 && report.cpuMs.p50 >= 0 && Object.keys(report.systems).length > 0, { frames: report.frames, steps: report.steps });
     check('__CTK.perf.report() returns the last recording', DebugApi.perf.report() === report);
   } finally {

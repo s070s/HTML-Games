@@ -15,6 +15,7 @@ const HARD_LANDING_SPEED = 15;                   // MOV-014: landing faster lock
 const LANDING_LOCK_SECONDS = 0.25;               // ...for this long
 const LANDING_PENALTY_SECONDS = 0.2;             // MOV-014 landingPenalty window
 const GROUND_PROBE = 0.06;                       // metres looked down for floor while airborne
+const SETTLE_REACH = STEP_HEIGHT + GROUND_PROBE;   // the settle and the floor probe look this far around the feet
 const GROUND_LEAVE_SPEED = 0.25;                 // moving off the floor plane faster than this is airborne (jumps, pads)
 const UNGROUND_SECONDS = 0.05;                   // after a jump or launch the floor probe pauses (no re-sticking)
 const EYE_SPEED = 6;                             // m/s the eye follows stance changes
@@ -289,6 +290,8 @@ function followGround(id, mover) {
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
+// Each piece gathers at least the settle reach past its travel, so the settle and floor probe after it reuse that brush
+// list (Collide.gatherAround) instead of walking the brush tree again.
 function sweepActor(id, mover, dt, stepHeight) {
   const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
@@ -296,7 +299,7 @@ function sweepActor(id, mover, dt, stepHeight) {
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + stepHeight);
+    Collide.gatherAround(mover, travel / pieces + Math.max(stepHeight, SETTLE_REACH));
     const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
     if (hit) recordWall(id, mover);
   }
@@ -314,11 +317,11 @@ function recordWall(id, mover) {
 
 // Leaves geometry if the move ended inside it; when that fails the actor goes back to where the step began.
 function settle(id, mover) {
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
   if (Collide.depenetrate(mover)) return;
   mover.x = Actors.x[id]; mover.y = Actors.y[id]; mover.z = Actors.z[id];
   mover.vx = mover.vy = mover.vz = 0;
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
 }
 
 // Floor under the feet: snaps down stairs (up to the step height) while walking, never right after a launch.

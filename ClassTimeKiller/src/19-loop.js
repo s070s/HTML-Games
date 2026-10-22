@@ -18,7 +18,8 @@ const Perf = {
   simMs: new Float32Array(FRAME_HISTORY),
   index: 0, filled: 0,
   droppedSteps: 0,
-  bootMs: 0,              // page start (navigation) to the loop start at boot: parse + boot of the whole file (load-time checkpoint)
+  loopStartMs: 0,         // page start (navigation) to the loop start at boot: parse + boot of the whole file
+  bootMs: 0,              // page start to the end of the first frame: + main menu built ('ready') and the first frame drawn (shader compile)
   sorted: new Float32Array(FRAME_HISTORY),
   counters: { drawCalls: 0, triangles: 0, renderMs: 0, hudMs: 0, audioMs: 0, gpuMs: 0, renderScale: 1, particles: 0, projectiles: 0 },
   record(frameMs, cpuMs, simMs) {
@@ -26,6 +27,7 @@ const Perf = {
     this.index = (this.index + 1) % FRAME_HISTORY;
     if (this.filled < FRAME_HISTORY) this.filled++;
   },
+  lastIndex() { return (this.index + FRAME_HISTORY - 1) % FRAME_HISTORY; },   // ring slot of the frame recorded last
   percentile(source, fraction) {
     if (!this.filled) return 0;
     const view = this.sorted.subarray(0, this.filled);
@@ -37,7 +39,7 @@ const Perf = {
     const p50 = this.percentile(this.frameMs, 0.5);
     return { fps: p50 > 0 ? 1000 / p50 : 0, p50, p95: this.percentile(this.frameMs, 0.95), p99: this.percentile(this.frameMs, 0.99),
       cpuP95: this.percentile(this.cpuMs, 0.95), simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing,
-      bootMs: this.bootMs };
+      loopStartMs: this.loopStartMs, bootMs: this.bootMs };
   },
   reset() { this.index = 0; this.filled = 0; this.droppedSteps = 0; },
 };
@@ -60,7 +62,7 @@ const Loop = {
     if (this.running) return;
     this.running = true;
     this.lastTime = performance.now();
-    if (!Perf.bootMs) Perf.bootMs = this.lastTime;
+    if (!Perf.loopStartMs) Perf.loopStartMs = this.lastTime;
     if (!this.callback) this.callback = (now) => this.frame(now);
     requestAnimationFrame(this.callback);
   },
@@ -80,6 +82,7 @@ const Loop = {
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
     Perf.counters.audioMs = Sound.updateMs;
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
+    if (!Perf.bootMs) Perf.bootMs = performance.now();   // the first frame: the main menu is on screen
   },
   // Frame cap (18.5): paced from the rAF timestamps. A frame is drawn once the time since the last drawn one plus the
   // carried-over credit reaches the cap interval, so a cap that is no whole fraction of the display rate (60 on 144 Hz)

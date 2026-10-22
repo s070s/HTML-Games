@@ -408,7 +408,9 @@ const BotCombat = {
     const pathX = engaging && along <= 0 ? 0 : Bots.wishX[id] * Bots.wishAmount[id], pathZ = engaging && along <= 0 ? 0 : Bots.wishZ[id] * Bots.wishAmount[id];
     const reloading = Weapons.state[id] === WEAPON_STATE.RELOAD;
     const backX = reloading ? -towardX : engaging ? towardX * along : 0, backZ = reloading ? -towardZ : engaging ? towardZ * along : 0;
-    Bots.wish(id, pathX + backX - towardZ * side, pathZ + backZ + towardX * side, 1);
+    const wanted = botWish;
+    wanted.x = pathX + backX - towardZ * side; wanted.z = pathZ + backZ + towardX * side; wanted.amount = 1;
+    Bots.wishFrom(id);
   },
   strafeCheck(id, tier, now) {
     this.strafeCheckAt[id] = now + STRAFE_CHECK;
@@ -417,7 +419,9 @@ const BotCombat = {
   },
   dodge(id, target) {
     const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz) || 1;
-    Bots.wish(id, -dz / distance * this.dodgeSide[id], dx / distance * this.dodgeSide[id], 1);
+    const wanted = botWish;
+    wanted.x = -dz / distance * this.dodgeSide[id]; wanted.z = dx / distance * this.dodgeSide[id]; wanted.amount = 1;
+    Bots.wishFrom(id);
   },
   // BOT-033: a seen enemy projectile on a near-miss course; after the reaction time, a tier chance (<= 60%) to dodge.
   checkDodge(id, now) {

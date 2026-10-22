@@ -36,6 +36,14 @@ const SENSE_THROWN_MATCH = 0.25;        // m: the Thrown slot whose bounce made 
 const PAIR_COUNT = MAX_ACTORS * MAX_ACTORS;
 
 const senseTarget = Vec.make();
+const senseLine = makeLine();   // eye to target of the sight and hearing rays (World.lineClearOf: no float arguments, PERF-006)
+
+// The sight or hearing segment from the bot's eye to (x, y, z) in senseLine.
+function setSenseLine(bot, x, y, z) {
+  const line = senseLine;
+  line.ax = Actors.x[bot]; line.ay = Actors.y[bot] + Actors.eye[bot]; line.az = Actors.z[bot]; line.bx = x; line.by = y; line.bz = z;
+  return line;
+}
 
 const BotSense = {
   visible: new Uint8Array(PAIR_COUNT),
@@ -161,9 +169,9 @@ const BotSense = {
   lineOpen(bot, other, pair) {
     this.rayPart[pair] ^= 1;
     Hitbox.point(other, this.rayPart[pair] ? ZONE.HEAD : ZONE.BODY, senseTarget);
-    const ex = Actors.x[bot], ey = Actors.eyeY(bot), ez = Actors.z[bot];
-    if (!World.lineClear(ex, ey, ez, senseTarget.x, senseTarget.y, senseTarget.z)) return false;
-    return !Smoke.lineBlocked(ex, ey, ez, senseTarget.x, senseTarget.y, senseTarget.z);
+    const line = setSenseLine(bot, senseTarget.x, senseTarget.y, senseTarget.z);
+    if (!World.lineClearOf(line)) return false;
+    return Smoke.count === 0 || !Smoke.lineBlocked(line.ax, line.ay, line.az, line.bx, line.by, line.bz);   // no smoke: no float call
   },
   // In view with a clear line: central vision sees at once, peripheral vision fills the meter first (BOT-005).
   perceive(bot, other, pair, view, now) {
@@ -243,7 +251,7 @@ const BotSense = {
     const distance = length3(event.x - ex, event.y - ey, event.z - ez);
     const radius = event.radius * (SENSE_HEARING_BASE + Bots.trait(bot, TRAIT.hearing));
     if (distance > radius) return;
-    if (distance > radius * SENSE_WALL_FACTOR && !this.hearingLineOpen(ex, ey, ez, event)) return;
+    if (distance > radius * SENSE_WALL_FACTOR && !this.hearingLineOpen(bot, event)) return;
     const error = distance * SENSE_HEAR_ERROR;
     const x = event.x + Rng.bots.gauss() * error, y = event.y, z = event.z + Rng.bots.gauss() * error;
     this.heardAt[bot] = now; this.heardX[bot] = x; this.heardY[bot] = y; this.heardZ[bot] = z;
@@ -259,11 +267,11 @@ const BotSense = {
     this.dangerX[bot] = x; this.dangerZ[bot] = z;
     this.dangerUntil[bot] = now + SENSE_GRENADE_FLEE;
   },
-  hearingLineOpen(ex, ey, ez, event) {
+  hearingLineOpen(bot, event) {
     if (this.raysLeft <= 0) return false;
     this.spendRay();
     this.stats.hearingRays++;
-    return World.lineClear(ex, ey, ez, event.x, event.y, event.z);
+    return World.lineClearOf(setSenseLine(bot, event.x, event.y, event.z));
   },
 
   // ---- Damage awareness: the hit's direction, the distance roughly (like a damage indicator) ----

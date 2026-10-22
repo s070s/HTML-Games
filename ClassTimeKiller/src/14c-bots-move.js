@@ -204,10 +204,12 @@ const BotMove = {
   // so on those links the movement owns the view and combat footwork waits.
   // A swimmer climbs out by mantling over a rim; a thin deck above the water has none (the ray passes under it). The
   // graph check at match start (findExits) knows most of them; this check near the exit (one ray) catches the rest.
-  waterExitBlocked(id, dx, dz, distance) {
+  // (tx, tz) = the point swum toward, distance = how far it is.
+  waterExitBlocked(id, tx, tz, distance) {
     if (this.exitChecked[id] || !swimming(id, this.segmentType[id]) || distance > WATER_EXIT_CHECK || distance < 1e-3) return false;
     if (this.pointY[id] <= Actors.y[id] + STEP_HEIGHT) return false;
     this.exitChecked[id] = 1;
+    const dx = tx - Actors.x[id], dz = tz - Actors.z[id];
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
   ownsView(id) {
@@ -232,8 +234,10 @@ const BotMove = {
     // Past the last point and the destination is still far: it lies off the graph, the end of the path is as close as it gets.
     if (direct && this.distanceToDestination(id) > MOVE_DIRECT_RADIUS) { this.state[id] = PATH.ARRIVED; Bots.wish(id, 0, 0, 0); return; }
     const amount = direct ? clamp(this.distanceToDestination(id) / MOVE_SLOW_RADIUS, 0.25, 1) : 1;
-    if (!atEnd && this.waterExitBlocked(id, tx - Actors.x[id], tz - Actors.z[id], distance)) { this.takeAnotherExit(id); return; }
-    this.steer(id, dx, dz, amount, now);
+    if (!atEnd && this.waterExitBlocked(id, tx, tz, distance)) { this.takeAnotherExit(id); return; }
+    const wanted = botWish;
+    wanted.x = dx; wanted.z = dz; wanted.amount = amount;
+    this.steer(id, now);
     this.linkMove(id);
     if (BotCombat.target[id] < 0 || this.ownsView(id)) this.lookAlong(id, tx, tz);
   },
@@ -280,20 +284,23 @@ const BotMove = {
     out.x = this.startX[id] + ax * along; out.z = this.startZ[id] + az * along;
     return out;
   },
-  // Wanted direction with local avoidance and, while recovering from a stuck spot, a sideways strafe.
-  steer(id, dx, dz, amount, now) {
-    let x = dx, z = dz;
-    const length = length2(x, z) || 1;
-    x /= length; z /= length;
+  // The wanted move in botWish with local avoidance and, while recovering from a stuck spot, a sideways strafe.
+  steer(id, now) {
+    const wanted = botWish, length = length2(wanted.x, wanted.z) || 1;
+    let x = wanted.x / length, z = wanted.z / length;
     if (now < this.recoverUntil[id]) {
       const angle = this.recoverAngle[id], c = Math.cos(angle), s = Math.sin(angle);
       const rx = x * c - z * s, rz = x * s + z * c;
       x = rx; z = rz;
     }
-    const push = this.avoidance(id, x, z);
-    Bots.wish(id, x + push.x, z + push.z, amount);
+    wanted.x = x; wanted.z = z;
+    const push = this.avoidance(id);
+    wanted.x = x + push.x; wanted.z = z + push.z;
+    Bots.wishFrom(id);
   },
-  avoidance(id, forwardX, forwardZ) {
+  // Sideways push away from actors just ahead along the normalized direction in botWish.
+  avoidance(id) {
+    const forwardX = botWish.x, forwardZ = botWish.z;
     movePoint.x = 0; movePoint.z = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !Actors.alive[other]) continue;

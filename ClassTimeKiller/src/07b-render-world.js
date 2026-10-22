@@ -122,9 +122,9 @@ function brushFace(brush, index) {
   // tangent = normalize(cross(normal, helper)) with helper = +X for floors/ceilings, else +Y; bitangent = cross(normal, tangent)
   const helperX = Math.abs(ny) > 0.9 ? 1 : 0, helperY = 1 - helperX;
   let tx = -nz * helperY, ty = nz * helperX, tz = nx * helperY - ny * helperX;
-  const length = Math.hypot(tx, ty, tz); tx /= length; ty /= length; tz /= length;
+  const length = length3(tx, ty, tz); tx /= length; ty /= length; tz /= length;
   const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
-  const r = Math.hypot(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
+  const r = length3(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
   let polygon = [];
   for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) polygon.push(ox + (tx * su + bx * sv) * r, oy + (ty * su + by * sv) * r, oz + (tz * su + bz * sv) * r);
   for (let j = 0; j < brush.planeCount && polygon.length >= 9; j++) {
@@ -338,7 +338,7 @@ function groundBelow(x, y, z, maxDrop) {
 function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
   // Ten sample points in the hemisphere (straight out and tilted along two tangents b and c, at two distances).
   const [hx, hy, hz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-  const tangentLength = Math.hypot(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
+  const tangentLength = length3(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
   const bx = (ny * hz - nz * hy) / tangentLength, by = (nz * hx - nx * hz) / tangentLength, bz = (nx * hy - ny * hx) / tangentLength;
   const cx = ny * bz - nz * by, cy = nz * bx - nx * bz, cz = nx * by - ny * bx;
   let blocked = 0, samples = 0;
@@ -358,13 +358,13 @@ function sunVisible(bake, x, y, z) {
 }
 
 function lightBlocked(bake, x, y, z, light) {
-  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = Math.hypot(dx, dy, dz);
+  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = length3(dx, dy, dz);
   return length > 1e-6 && rayBlocked(bake, x, y, z, dx / length, dy / length, dz / length, length);
 }
 
 function mapLightContribution(bake, x, y, z, nx, ny, nz, out) {
   for (const light of bake.lights) {
-    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = Math.hypot(dx, dy, dz);
+    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = length3(dx, dy, dz);
     if (distance >= light.radius) continue;
     const facing = (nx * dx + ny * dy + nz * dz) / Math.max(distance, 1e-3);
     if (facing <= 0 || lightBlocked(bake, x + nx * 0.05, y + ny * 0.05, z + nz * 0.05, light)) continue;
@@ -666,7 +666,7 @@ function drawWorld(gl) {
   run.offset = 0; run.count = 0;
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) { drawWorldRun(gl); continue; }
+    if (!boundsVisible(chunk)) { drawWorldRun(gl); continue; }
     const touches = run.count > 0 && run.offset + run.count * WorldMesh.indexBytes === chunk.offset;
     if (!touches) { drawWorldRun(gl); run.offset = chunk.offset; }
     run.count += chunk.count;

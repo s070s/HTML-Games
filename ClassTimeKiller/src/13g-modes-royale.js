@@ -169,9 +169,17 @@ function touchLoot(now) {
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || !Modes.isActive(id)) continue;
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
-      if (!RoyaleLoot.taken[spot] && withinTouch(id, RoyaleLoot.x[spot], RoyaleLoot.y[spot], RoyaleLoot.z[spot], TOUCH_RADIUS)) takeLoot(id, spot, now);
+      if (!RoyaleLoot.taken[spot] && lootInTouch(id, spot)) takeLoot(id, spot, now);
     }
   }
+}
+
+// withinTouch of a loot spot, read from the spot arrays: every actor tests every spot each step, and three float
+// arguments to a call that is not inlined are boxed on the heap (PERF-006).
+function lootInTouch(id, spot) {
+  if (Math.abs(Actors.y[id] - RoyaleLoot.y[spot]) > TOUCH_HEIGHT) return false;
+  const dx = Actors.x[id] - RoyaleLoot.x[spot], dz = Actors.z[id] - RoyaleLoot.z[spot];
+  return dx * dx + dz * dz <= TOUCH_RADIUS * TOUCH_RADIUS;
 }
 
 function takeLoot(id, spot, now) {
@@ -227,13 +235,27 @@ function takeAmmo(id) {
 function drawRoyale(batch) {
   if (!Modes.active || Modes.mode.id !== 'royale') return;
   const ground = Modes.spawnPoints.length ? Modes.spawnPoints[0].y : 0;
-  batch.mesh('ring', Ring.x, ground + RING_LIFT, Ring.z, 0, 0, Ring.radius, 1, Ring.radius, RING_COLOR[0], RING_COLOR[1], RING_COLOR[2], MARKER_GLOW);
-  if (Ring.state !== RING_STATE.CLOSED) batch.mesh('ring', Ring.toX, ground + RING_LIFT, Ring.toZ, 0, 0, Ring.toRadius, 1, Ring.toRadius, RING_NEXT_COLOR[0], RING_NEXT_COLOR[1], RING_NEXT_COLOR[2], MARKER_GLOW);
+  drawRing(batch, Ring.x, ground, Ring.z, Ring.radius, RING_COLOR);
+  if (Ring.state !== RING_STATE.CLOSED) drawRing(batch, Ring.toX, ground, Ring.toZ, Ring.toRadius, RING_NEXT_COLOR);
+  const instance = royaleInstance;
+  instance.sx = LOOT_SIZE; instance.sy = LOOT_SIZE; instance.sz = LOOT_SIZE;
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot]) continue;
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
-    batch.mesh('box', RoyaleLoot.x[spot], RoyaleLoot.y[spot] + LOOT_LIFT, RoyaleLoot.z[spot], 0, 0, LOOT_SIZE, LOOT_SIZE, LOOT_SIZE, color[0], color[1], color[2], MARKER_GLOW);
+    instance.x = RoyaleLoot.x[spot]; instance.y = RoyaleLoot.y[spot] + LOOT_LIFT; instance.z = RoyaleLoot.z[spot];
+    instance.r = color[0]; instance.g = color[1]; instance.b = color[2];
+    batch.meshFrom('box', instance);
   }
+}
+
+// Loot boxes and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
+// loop would box 13 float arguments per box); the rings are two calls a frame.
+const royaleInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });
+function drawRing(batch, x, ground, z, radius, color) {
+  const instance = royaleInstance;
+  instance.x = x; instance.y = ground + RING_LIFT; instance.z = z; instance.sx = radius; instance.sy = 1; instance.sz = radius;
+  instance.r = color[0]; instance.g = color[1]; instance.b = color[2];
+  batch.meshFrom('ring', instance);
 }
 
 Bus.on('match.setup', () => { RoyaleLoot.count = 0; });

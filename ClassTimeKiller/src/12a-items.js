@@ -504,31 +504,45 @@ const Items = {
   activePowerups(id, out) { out.length = 0; return 0; },
 
   // ---- Render source: spinning procedural shapes in group colours; empty spots show a faint base ----
+  // Shapes go through one reused instance record (batch.meshFrom): 13 float arguments per batch.mesh call are boxed (PERF-006).
   draw(batch) {
-    const spin = Sim.time * PICKUP_SPIN, bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
+    pickupInstance.yaw = Sim.time * PICKUP_SPIN;
+    pickupInstance.pitch = 0;
+    const bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
     for (let slot = 0; slot < PICKUP_CAP; slot++) {
       const state = this.state[slot];
-      if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, spin, bob);
-      else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, 0.25);
+      if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, bob);
+      else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, PICKUP_GLOW_WAITING);
     }
   },
-  drawPickup(batch, slot, spin, bob) {
+  drawPickup(batch, slot, bob) {
     const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
-    const y = this.y[slot] + PICKUP_FLOAT + bob, power = this.isPower(slot);
-    if (this.spot[slot]) this.drawBase(batch, slot, power ? 0.9 : 0.5);
-    const red = rgb[offset], green = rgb[offset + 1], blue = rgb[offset + 2];
-    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, red, green, blue, power ? 0.8 : 0.35); return; }
+    const power = this.isPower(slot), instance = pickupInstance;
+    if (this.spot[slot]) this.drawBase(batch, slot, power ? PICKUP_GLOW_POWER_BASE : PICKUP_GLOW_BASE);
+    instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FLOAT + bob; instance.z = this.z[slot];
+    instance.r = rgb[offset]; instance.g = rgb[offset + 1]; instance.b = rgb[offset + 2];
+    if (kind === PICKUP_KIND.WEAPON) {
+      instance.sx = 0.18; instance.sy = 0.2; instance.sz = 0.8; instance.emissive = power ? 0.8 : 0.35;
+      batch.meshFrom('box', instance);
+      return;
+    }
     const size = row.size, shape = row.shape;
-    const height = shape === 'ring' ? size * 0.3 : size;
-    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, height, size, red, green, blue, power ? 0.9 : 0.45);
+    instance.sx = size; instance.sy = shape === 'ring' ? size * 0.3 : size; instance.sz = size; instance.emissive = power ? 0.9 : 0.45;
+    batch.meshFrom(shape, instance);
   },
+  // The flat base disc under a pickup spot (no spin).
   drawBase(batch, slot, glow) {
-    const color = PICKUP_GROUP_COLORS[this.group[slot]];
-    pickupHexColor(pickupBaseColor, 0, color);
-    batch.mesh('cylinder', this.x[slot], this.y[slot] + 0.02, this.z[slot], 0, 0, 1, 0.04, 1, pickupBaseColor[0], pickupBaseColor[1], pickupBaseColor[2], glow);
+    const instance = pickupBaseInstance;
+    pickupHexColor(pickupBaseColor, 0, PICKUP_GROUP_COLORS[this.group[slot]]);
+    instance.x = this.x[slot]; instance.y = this.y[slot] + 0.02; instance.z = this.z[slot];
+    instance.r = pickupBaseColor[0]; instance.g = pickupBaseColor[1]; instance.b = pickupBaseColor[2]; instance.emissive = glow;
+    batch.meshFrom('cylinder', instance);
   },
 };
 const pickupBaseColor = new Float32Array(3);
+const pickupInstance = makeShapeInstance();
+const pickupBaseInstance = Object.assign(makeShapeInstance(), { sx: 1, sy: 0.04, sz: 1 });
+const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // base disc glow: respawning, item, powerup
 const volatileHit = makeHit();
 
 Items.takers[PICKUP_KIND.ITEM] = (id, slot) => Items.takeItem(id, slot);

@@ -26,14 +26,19 @@ const Collide = {
   gather(minX, minY, minZ, maxX, maxY, maxZ) {
     const query = gatherQuery;
     query.minX = minX; query.minY = minY; query.minZ = minZ; query.maxX = maxX; query.maxY = maxY; query.maxZ = maxZ;
-    this.candidateCount = 0;
-    visitBox(query, gatherBrush);
+    gatherBox(query, null);
   },
-  // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands.
+  // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands. A box inside
+  // the one this mover gathered last in the same sim step reuses that list (a superset: the traces give the same
+  // results), so one actor step walks the brush tree once instead of once per sweep, settle and probe.
   gatherAround(mover, reach) {
-    const side = hullSide(mover.hull) + reach + GATHER_MARGIN;
-    this.gather(mover.x - side, mover.y - hullBelow(mover.hull) - reach - GATHER_MARGIN, mover.z - side,
-      mover.x + side, mover.y + hullAbove(mover.hull) + reach + GATHER_MARGIN, mover.z + side);
+    const box = wantedGather, side = hullSide(mover.hull) + reach + GATHER_MARGIN;
+    box.minX = mover.x - side; box.minY = mover.y - hullBelow(mover.hull) - reach - GATHER_MARGIN; box.minZ = mover.z - side;
+    box.maxX = mover.x + side; box.maxY = mover.y + hullAbove(mover.hull) + reach + GATHER_MARGIN; box.maxZ = mover.z + side;
+    if (gatheredCovers(mover, box)) return;
+    const query = gatherQuery;
+    query.minX = box.minX; query.minY = box.minY; query.minZ = box.minZ; query.maxX = box.maxX; query.maxY = box.maxY; query.maxZ = box.maxZ;
+    gatherBox(query, mover);
   },
   // Sweeps the hull from start to end against the gathered brushes. Moves that start inside a brush and leave it
   // ignore that brush (so a stuck mover can walk out); a move that stays inside reports allSolid with fraction 0.
@@ -132,6 +137,25 @@ function visitBox(query, onBrush) {
   for (let i = 0; i < World.dynamic.length; i++) onBrush(query, World.dynamic[i]);
 }
 
+// The gathered list in gatherQuery's box; owner = the mover it was gathered for (null: a plain box, never reused).
+const wantedGather = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+const GatherCache = { owner: null, tick: -1, tree: null, dynamicCount: 0, walks: 0 };   // walks: brush-tree walks so far (perf test)
+
+function gatherBox(query, owner) {
+  Collide.candidateCount = 0;
+  visitBox(query, gatherBrush);
+  const cache = GatherCache;
+  cache.walks++;
+  cache.owner = owner; cache.tick = Sim.tick; cache.tree = World.tree; cache.dynamicCount = World.dynamic.length;
+}
+
+// True when the list gathered last for this mover, this sim step, on this world, still holds every brush the box can touch.
+function gatheredCovers(mover, box) {
+  const cache = GatherCache, held = gatherQuery;
+  if (cache.owner !== mover || cache.tick !== Sim.tick || cache.tree !== World.tree || cache.dynamicCount !== World.dynamic.length) return false;
+  return box.minX >= held.minX && box.minY >= held.minY && box.minZ >= held.minZ && box.maxX <= held.maxX && box.maxY <= held.maxY && box.maxZ <= held.maxZ;
+}
+
 // Past its start size the list simply grows (the array keeps that size afterwards, so steady play allocates nothing).
 function gatherBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
@@ -157,10 +181,9 @@ function startSweep(hull, out) {
 function sweepTestBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
   const out = query.out;
-  const fraction = clipBrush(brush, query, query.hull, COLLISION_SKIN);
-  if (fraction < 0 || fraction >= out.fraction) return;
+  if (!clipBrush(brush, query, query.hull, COLLISION_SKIN) || clipResult.fraction >= out.fraction) return;
   if (clipResult.startSolid) { recordSolid(out, clipResult.allSolid, brush); return; }
-  out.fraction = fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
+  out.fraction = clipResult.fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
 }
 
 function finishSweep(query) {
