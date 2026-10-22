@@ -503,23 +503,25 @@ const Projectiles = {
     this.age[i] = 0;
   },
 
-  // W17 combo: a hitscan ray that meets an energy orb before maxDistance detonates it as a big blast.
-  comboRay(shooter, mode, ox, oy, oz, dx, dy, dz, maxDistance) {
+  // W17 combo: the nearest energy orb a hitscan ray meets before maxDistance (its distance in comboDistance), or -1.
+  comboTarget(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (this.state[i] !== PROJECTILE_STATE.FLYING || !this.row(i).comboTarget) continue;
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.row(i).radius + COMBO_TARGET_PADDING);
       if (distance >= 0 && distance < bestDistance) { best = i; bestDistance = distance; }
     }
-    if (best < 0) return false;
     this.comboDistance = bestDistance;
+    return best;
+  },
+  // The shot reached the orb: it goes off as the big combo blast.
+  detonateCombo(i, shooter, mode) {
     const blast = Damage.blast();
-    blast.x = this.x[best]; blast.y = this.y[best]; blast.z = this.z[best]; blast.owner = shooter; blast.mode = mode;
+    blast.x = this.x[i]; blast.y = this.y[i]; blast.z = this.z[i]; blast.owner = shooter; blast.mode = mode;
     blast.radius = mode.combo.radius; blast.damage = mode.combo.damage;
-    this.remove(best);
+    this.remove(i);
     Weapons.spendExtra(shooter, mode, mode.combo.ammo - mode.ammoPerShot);
     Damage.explode(blast);
-    return true;
   },
 
   // Render source: one instanced sphere per projectile, puddles as flat discs.

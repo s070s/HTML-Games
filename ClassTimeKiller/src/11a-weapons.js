@@ -527,13 +527,18 @@ const Weapons = {
     if (mode.type === 'block') { WeaponSpecialState.stepBlock(id, mode, held, dt); return; }
     if (mode.type === 'toggle') { this.stepStance(id, mode); return; }
     if (mode.type === 'detonate') { if (Actors.pressed[id] & BTN.ALT) Projectiles.detonateOwned(id, weapon.index, mode.projectile); return; }
-    this.trackDetonateHold(id, weapon, mode, held, dt);
+    if (mode.detonateOnRelease) { this.stepDetonateTap(id, weapon, mode, held, dt); return; }
     this.stepMode(id, weapon, mode, MODE_ALT, BTN.ALT, dt);
   },
-  trackDetonateHold(id, weapon, mode, held, dt) {
+  // W32 (detonateOnRelease, R-080): a short tap throws on release; a hold of DETONATE_HOLD_SECONDS detonates every owned
+  // mine and throws nothing, with or without ammo.
+  stepDetonateTap(id, weapon, mode, held, dt) {
     if (held) { this.altHeld[id] += dt; return; }
-    if (mode.detonateOnRelease && this.altHeld[id] >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
+    const heldFor = this.altHeld[id];
     this.altHeld[id] = 0;
+    if (heldFor <= 0) return;
+    if (heldFor >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
+    else this.releaseShot(id, weapon, mode, MODE_ALT, 0);
   },
   // ALT flips the stance; a mount (W29) needs a ledge and drops as soon as the actor moves or the ledge is gone.
   stepStance(id, mode) {
@@ -787,9 +792,12 @@ const Shot = {
       const worldWall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
       const blocker = Weapons.blockDistance(startX, startY, startZ, dx, dy, dz, worldWall);   // devices and domes stop the shot
       const wall = blocker >= 0 ? blocker : worldWall;
-      if (mode.combo && Projectiles.comboRay(id, mode, startX, startY, startZ, dx, dy, dz, wall)) return travelled + Projectiles.comboDistance;
-      const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, wall, travelled);
+      // W17: an orb on the ray ends it there, but actors in front of the orb are hit first and may stop it (R-078).
+      const orb = mode.combo ? Projectiles.comboTarget(startX, startY, startZ, dx, dy, dz, wall) : -1;
+      const reach = orb >= 0 ? Projectiles.comboDistance : wall;
+      const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, reach, travelled);
       if (stopped >= 0) return travelled + stopped;
+      if (orb >= 0) { Projectiles.detonateCombo(orb, id, mode); return travelled + reach; }
       travelled += wall;
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;

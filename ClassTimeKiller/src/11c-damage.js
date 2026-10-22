@@ -91,7 +91,8 @@ const Damage = {
     const relation = this.relationScale(source, target, kind, rules);
     if (relation <= 0) return 0;
     let amount = info.amount * attackerScale * relation;
-    if (amount <= 0) { this.applyHitStatus(source, target, info); return 0; }
+    // A status-only hit (sleep dart, flare) lands on others only: an own 0-damage blast never reveals or sleeps its source (R-079).
+    if (amount <= 0) { if (source !== target) this.applyHitStatus(source, target, info); return 0; }
     // HP-001: zone x precision first; HPP03 applies the head multiplier only to what reaches health (see takeLayers).
     const zoneFactor = zoneMultiplier(rules, info), lateZone = this.preset().shieldIgnoresZone ? zoneFactor : 1;
     amount *= falloffFactor(info) * zoneFactor / lateZone;

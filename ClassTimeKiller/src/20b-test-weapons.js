@@ -338,7 +338,8 @@ function exerciseMode(shooter, target, weapon, mode, button) {
   let fired = 0, effects = 0;
   const onFire = Bus.on('weapon.fire', () => { fired++; });
   const onEffect = Bus.on('impulse', () => { effects++; });
-  TestArena.hold(shooter, button, mode.trigger === 'charge' ? mode.charge.time + 0.05 : 1.5);
+  const holdSeconds = mode.trigger === 'charge' ? mode.charge.time + 0.05 : mode.detonateOnRelease ? 0.05 : 1.5;   // W32 mines throw on a tap
+  TestArena.hold(shooter, button, holdSeconds);
   Sim.run(TICK_RATE * 4);
   Bus.off('weapon.fire', onFire);
   Bus.off('impulse', onEffect);
@@ -1007,6 +1008,40 @@ Test.add('weapons', (check) => {
   Weapons.altAmmo[darts] = 0; Weapons.magazine[darts] = 5;
   const clicks = TestArena.count('weapon.empty', () => TestArena.hold(shooter, BTN.ALT, 0.05));
   check('Hush alt with no darts clicks empty and does not reload the magazine', clicks === 1 && Weapons.state[shooter] === WEAPON_STATE.IDLE, clicks + ' / ' + Weapons.state[shooter]);
+  TestArena.finish();
+});
+
+// R-078 / R-079 / R-080: combo ray hits actors in front of the orb, a flare never reveals its shooter, a mine detonation spends no mine.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), front = TestArena.sponge(2, 0, 4);
+  giveFull(shooter, 'coilcaster');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Actors.y[front] = -10;   // out of the orb's way while it flies
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  Sim.run(TICK_RATE);
+  const orb = Projectiles.state.indexOf(PROJECTILE_STATE.FLYING);
+  Actors.y[front] = 0;
+  Projectiles.vx[orb] = Projectiles.vy[orb] = Projectiles.vz[orb] = 0;
+  Projectiles.x[orb] = 0; Projectiles.y[orb] = Actors.eyeY(shooter); Projectiles.z[orb] = 11.9;
+  Weapons.nextShot[shooter] = 0;
+  const combos = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.FIRE, 0.05));
+  check('W17 primary hits the enemy in front of the orb, the orb stays', Actors.health[front] < 100000 && combos === 0 && Projectiles.state[orb] === PROJECTILE_STATE.FLYING, (100000 - Actors.health[front]) + ' / ' + combos);
+  Projectiles.clear();
+  Actors.alive[front] = 0;
+  const lit = TestArena.actor(2, 0, 3);
+  giveFull(shooter, 'twinsting');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = -1.2;
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  check('W08 flare at the feet reveals the enemy but not the shooter', Damage.hasStatus(lit, 'reveal') && !Damage.hasStatus(shooter, 'reveal'));
+  Actors.alive[lit] = 0;
+  const pitcher = giveFull(shooter, 'pitcher'), mines = Weapons.slotIndex(shooter, pitcher.index);
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = -0.3;
+  Weapons.magazine[mines] = 6;
+  for (let k = 0; k < 2; k++) { TestArena.hold(shooter, BTN.ALT, 0.05); Sim.run(TICK_RATE); }
+  const thrown = Projectiles.countOwned(shooter, pitcher.index);
+  const blasts = TestArena.count('explosion', () => { TestArena.hold(shooter, BTN.ALT, 0.5); Sim.run(2); });
+  check('W32 taps throw mines; a long hold detonates them and throws none', thrown === 2 && blasts === 2 && Weapons.magazine[mines] === 4, thrown + ' / ' + blasts + ' / ' + Weapons.magazine[mines]);
   TestArena.finish();
 });
 
