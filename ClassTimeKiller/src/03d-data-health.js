@@ -65,11 +65,11 @@ Data.define('elements', { id: REQUIRED, name: REQUIRED, color: 0xffffff, fx: 'sp
 ]);
 
 // Damage kinds: weapon hits plus the damage.request kinds (fall/hazard/telefrag/crush/drown) other sections send.
-// selfScale: own damage of this kind is scaled by rules.selfDamage (HP-003 self splash only).
+// selfScale: own damage of this kind is scaled by rules.selfDamage (HP-003 own splash and the burns it leaves).
 Data.define('damageKinds', {
   id: REQUIRED, bypassShield: false, bypassArmor: false, lethal: false, flatArmor: true, selfScale: false, friendly: true,
 }, [
-  { id: 'hit' }, { id: 'melee' }, { id: 'splash', selfScale: true }, { id: 'beam', flatArmor: false }, { id: 'dot', flatArmor: false },
+  { id: 'hit' }, { id: 'melee' }, { id: 'splash', selfScale: true }, { id: 'beam', flatArmor: false }, { id: 'dot', flatArmor: false, selfScale: true },
   { id: 'self', friendly: false }, { id: 'fall', bypassShield: true, bypassArmor: true, flatArmor: false, friendly: false },
   { id: 'hazard', flatArmor: false, friendly: false }, { id: 'drown', bypassArmor: true, flatArmor: false, friendly: false },
   { id: 'telefrag', lethal: true, bypassShield: true, bypassArmor: true, friendly: false },

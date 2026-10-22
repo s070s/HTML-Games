@@ -19,6 +19,8 @@ const GATE_DEPTH = 0.6;                  // an actor's middle this close in fron
 const GATE_EXIT_OFFSET = 0.8;
 const GATE_COOLDOWN = 0.3;               // seconds before the same actor can enter a gate again (no ping-pong)
 const GATE_MIN_EXIT_SPEED = 2;
+const GATE_FLAT_NY = 0.7;                // |normal.y| above this: a floor or ceiling gate
+const GATE_CLEARANCE = 0.02;             // gap between the exiting capsule and the gate's surface
 const ACTOR_MIDDLE = 0.9;
 const GATE_COLORS = [0xffa040, 0x40a0ff];
 
@@ -50,14 +52,22 @@ const WeaponSpecialState = {
     this.blocking[id] = held && this.blockPool[id] > 0 ? 1 : 0;
     if (!held) this.blockPool[id] = Math.min(block.pool, this.blockPool[id] + block.regen * dt);
   },
+  // Swaps, deaths and respawns drop the guard (Weapons.resetFiring calls this).
+  stopBlock(id) { this.blocking[id] = 0; this.parryUntil[id] = 0; },
+  // Block and parry only count while a block weapon is drawn and idle; the block also needs ALT still held.
+  blockDrawn(id) {
+    const weapon = Weapons.currentWeapon(id);
+    return Actors.alive[id] === 1 && !!weapon && weapon.alt.type === 'block' && Weapons.state[id] === WEAPON_STATE.IDLE;
+  },
+  isGuarding(id) { return this.blockDrawn(id) && (Actors.buttons[id] & BTN.ALT) !== 0; },
   blockReducer(source, target, amount, info) {
-    if (!this.blocking[target] || !comesFromFront(target, info.dx, info.dz, PARRY_ARC_COS)) return amount;
+    if (!this.blocking[target] || !this.isGuarding(target) || !comesFromFront(target, info.dx, info.dz, PARRY_ARC_COS)) return amount;
     const absorbed = Math.min(this.blockPool[target], amount);
     this.blockPool[target] -= absorbed;
     return amount - absorbed;
   },
   tryParry(target, projectile) {
-    if (Sim.time > this.parryUntil[target]) return false;
+    if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
     if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
     Projectiles.reflect(projectile, target);
     return true;
@@ -161,11 +171,19 @@ const WeaponSpecialState = {
   teleport(id, exit) {
     const speed = Math.max(GATE_MIN_EXIT_SPEED, Math.hypot(Actors.vx[id], Actors.vy[id], Actors.vz[id]));
     const nx = this.gateNx[exit], ny = this.gateNy[exit], nz = this.gateNz[exit];
-    Actors.x[id] = Actors.prevX[id] = this.gateX[exit] + nx * GATE_EXIT_OFFSET;
-    Actors.y[id] = Actors.prevY[id] = this.gateY[exit] + ny * GATE_EXIT_OFFSET - ACTOR_MIDDLE;
-    Actors.z[id] = Actors.prevZ[id] = this.gateZ[exit] + nz * GATE_EXIT_OFFSET;
+    const lateral = Math.abs(ny) > GATE_FLAT_NY ? 0 : GATE_EXIT_OFFSET;
+    Actors.x[id] = Actors.prevX[id] = this.gateX[exit] + nx * lateral;
+    Actors.y[id] = Actors.prevY[id] = this.exitFeetY(exit, id);
+    Actors.z[id] = Actors.prevZ[id] = this.gateZ[exit] + nz * lateral;
     Actors.vx[id] = nx * speed; Actors.vy[id] = ny * speed; Actors.vz[id] = nz * speed;
     this.gateCooldown[id] = GATE_COOLDOWN;
+  },
+  // Floor gates put the feet just above the floor, ceiling gates the head just below the ceiling, wall gates the middle on the gate.
+  exitFeetY(exit, id) {
+    const gateY = this.gateY[exit], ny = this.gateNy[exit];
+    if (ny > GATE_FLAT_NY) return gateY + GATE_CLEARANCE;
+    if (ny < -GATE_FLAT_NY) return gateY - Actors.height[id] - GATE_CLEARANCE;
+    return gateY - Actors.height[id] * 0.5;
   },
   step(dt) {
     for (let id = 0; id < Actors.count; id++) this.stepHeld(id);
@@ -242,3 +260,5 @@ Damage.addReducer((source, target, amount, info) => WeaponSpecialState.stanceRed
 Sim.addSystem('weaponSpecials', 45, (dt) => WeaponSpecialState.step(dt));
 Render.addSource('gates', (batch) => WeaponSpecialState.drawGates(batch));
 Bus.on('actor.create', (id) => WeaponSpecialState.reset(id));
+Bus.on('actor.spawn', (event) => WeaponSpecialState.reset(event.id));
+Bus.on('kill', (event) => WeaponSpecialState.stopBlock(event.victim));

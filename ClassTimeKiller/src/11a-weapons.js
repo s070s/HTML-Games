@@ -6,6 +6,8 @@ const WEAPON_COUNT = CAT.weapons.length;
 const WEAPON_STATE = { IDLE: 0, SWAP: 1, RELOAD: 2 };
 const MODE_PRIMARY = 0;
 const MODE_ALT = 1;
+const MODE_QUICK_MELEE = 2;             // weapon.fire mode index of the MELEE button bash
+const FIRE_MODE_LABELS = MODE_NAMES.concat(['melee']);
 const ADS_SECONDS = 0.2;                 // time to aim down sights fully
 const KICK_SECONDS = 0.12;               // view model kick decay after a shot
 const MOVE_REFERENCE_SPEED = 6.4;        // m/s run speed for the MOV-025 speed fraction (movement presets may differ slightly)
@@ -22,6 +24,7 @@ const MUZZLE_FORWARD = 0.45;             // projectiles start this far in front 
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
 const TRACER_COLOR = 0xffe0a0;
+const DUAL_FACTOR = 2;                   // W04 dual pistols: magazine and fire rate multiplier
 const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
 const WEAPON_STAT_COUNT = WEAPON_STATS.length;
 const STAT = { DAMAGE: 0, SPREAD: 1, RECOIL: 2, RELOAD: 3, MAG: 4, RESERVE: 5, EQUIP: 6, MOVE: 7 }; // indexes into WEAPON_STATS
@@ -173,6 +176,7 @@ const Weapons = {
   reserve: new Int16Array(MAX_ACTORS * WEAPON_COUNT),
   altAmmo: new Int16Array(MAX_ACTORS * WEAPON_COUNT),
   rarity: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),
+  dual: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),  // W04: a second copy was picked up (two guns, doubled magazine and rate)
   current: new Int16Array(MAX_ACTORS).fill(-1),
   pending: new Int16Array(MAX_ACTORS).fill(-1),
   state: new Uint8Array(MAX_ACTORS),
@@ -206,7 +210,7 @@ const Weapons = {
   has(id, key) { const weapon = CAT.weapons.byId(key); return !!weapon && this.owned[this.slotIndex(id, weapon.index)] === 1; },
   magSize(id, weapon) {
     const extra = weapon.rarityScale ? WEAPON_RARITY_MAG[this.rarity[this.slotIndex(id, weapon.index)]] : 0;
-    return Math.round(weapon.mag * (1 + extra) * this.modifier(id, weapon, STAT.MAG));
+    return Math.round(weapon.mag * (1 + extra) * this.modifier(id, weapon, STAT.MAG)) * this.dualFactor(id, weapon);
   },
   maxReserve(id, weapon) { return Math.round(weapon.maxAmmo * this.modifier(id, weapon, STAT.RESERVE)); },
 
@@ -249,6 +253,7 @@ const Weapons = {
   // ---- Inventory ----
   clear(id) {
     this.owned.fill(0, id * WEAPON_COUNT, (id + 1) * WEAPON_COUNT);
+    this.dual.fill(0, id * WEAPON_COUNT, (id + 1) * WEAPON_COUNT);
     this.current[id] = this.pending[id] = -1;
     this.state[id] = WEAPON_STATE.IDLE;
     this.resetFiring(id);
@@ -260,17 +265,21 @@ const Weapons = {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
     this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
+    WeaponSpecialState.stopBlock(id);
   },
-  // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007).
-  // At the carry limit the held weapon is replaced and its key left in Weapons.dropped for the items section.
+  // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007),
+  // and a dual-wield weapon (W04) picked up a second time becomes a pair. At the carry limit the held weapon is
+  // replaced and its key left in Weapons.dropped for the items section.
   give(id, key, rarity) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
     if (!weapon) return false;
     const slot = this.slotIndex(id, weapon.index);
+    if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
     if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
+    this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
     this.detachAll(id, weapon);
     this.magazine[slot] = this.magSize(id, weapon);
@@ -279,6 +288,15 @@ const Weapons = {
     if (this.current[id] < 0) this.current[id] = weapon.index;
     return true;
   },
+  // W04 second pickup: two guns share one doubled magazine and fire at twice the rate; the new gun arrives loaded.
+  becomeDual(id, weapon) {
+    const slot = this.slotIndex(id, weapon.index), single = this.magSize(id, weapon);
+    this.dual[slot] = 1;
+    this.magazine[slot] = Math.min(this.magSize(id, weapon), this.magazine[slot] + single);
+    this.addWeaponAmmo(id, weapon, weapon.pickupAmmo);
+    return true;
+  },
+  dualFactor(id, weapon) { return this.dual[this.slotIndex(id, weapon.index)] ? DUAL_FACTOR : 1; },
   atCarryLimit(id) {
     const limit = this.carryLimit();
     if (limit <= 0) return false;
@@ -450,11 +468,17 @@ const Weapons = {
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
     if (!weapon) return;
+    this.updateAds(id, weapon, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
     this.stepAltMode(id, weapon, dt);
+  },
+  // Aiming down sights needs a zoom alt held while idle: a reload lowers the sights.
+  updateAds(id, weapon, dt) {
+    const aiming = weapon.alt.type === 'zoom' && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+    this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
   },
   coolDown(id, dt) {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
@@ -475,11 +499,9 @@ const Weapons = {
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;
-    const adsTarget = mode.type === 'zoom' && held ? 1 : 0;
-    this.ads[id] = clamp(this.ads[id] + (adsTarget ? dt : -dt) / ADS_SECONDS, 0, 1);
     if (mode.type === 'zoom') return;
     if (mode.type === 'block') { WeaponSpecialState.stepBlock(id, mode, held, dt); return; }
-    if (mode.type === 'toggle') { if (Actors.pressed[id] & BTN.ALT) this.toggleStance(id, mode); return; }
+    if (mode.type === 'toggle') { this.stepStance(id, mode); return; }
     if (mode.type === 'detonate') { if (Actors.pressed[id] & BTN.ALT) Projectiles.detonateOwned(id, weapon.index, mode.projectile); return; }
     this.trackDetonateHold(id, weapon, mode, held, dt);
     this.stepMode(id, weapon, mode, MODE_ALT, BTN.ALT, dt);
@@ -489,7 +511,11 @@ const Weapons = {
     if (mode.detonateOnRelease && this.altHeld[id] >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
     this.altHeld[id] = 0;
   },
-  toggleStance(id, mode) {
+  // ALT flips the stance; a mount (W29) needs a ledge and drops as soon as the actor moves or the ledge is gone.
+  stepStance(id, mode) {
+    const mounted = this.toggled[id] && mode.toggle.needsLedge;
+    if (mounted && !canStayMounted(id)) this.toggled[id] = 0;
+    if (!(Actors.pressed[id] & BTN.ALT)) return;
     if (!this.toggled[id] && mode.toggle.needsLedge && !hasLedgeInFront(id)) return;
     this.toggled[id] = this.toggled[id] ? 0 : 1;
   },
@@ -549,7 +575,7 @@ const Weapons = {
   ready(id, weapon, mode, modeIndex, button, fraction) {
     if (this.state[id] !== WEAPON_STATE.IDLE || this.burstLeft[id]) return false;
     if (mode.cooldown > 0 ? this.nextAlt[id] > 0 || this.nextShot[id] > 0 : this.nextShot[id] > 0) return false;
-    if (mode.maxActive && mode.activeRule === 'block' && Projectiles.countOwned(id, weapon.index) >= mode.maxActive && !mode.special) return false;
+    if (mode.maxActive && mode.activeRule === 'block' && !mode.special && Projectiles.countOwned(id, weapon.index, CAT.projectiles.byId(mode.projectile).index) >= mode.maxActive) return false;
     if (mode.type === 'lock' && mode.trigger !== 'release' && !LockOn.lockedCount(id, mode)) return false;
     if (this.hasAmmo(id, weapon, mode, fraction)) return true;
     if (button) this.reportEmpty(id, weapon, button);
@@ -557,7 +583,7 @@ const Weapons = {
   },
   shotInterval(id, weapon, mode) {
     const stance = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.rateMult ? weapon.alt.toggle.rateMult : 1;
-    return 1 / (mode.rate * stance);
+    return 1 / (mode.rate * stance * this.dualFactor(id, weapon));
   },
   // One trigger pull: timing, then the shot (a burst's later rounds call fireShot directly).
   fire(id, weapon, mode, modeIndex, fraction) {
@@ -577,23 +603,24 @@ const Weapons = {
   announceShot(id, weapon, mode, modeIndex) {
     const eyeY = Actors.eyeY(id);
     Vec.fromAngles(aimScratch, Actors.yaw[id], Actors.pitch[id]);
-    FIRE_EVENT.id = id; FIRE_EVENT.weapon = weapon.id; FIRE_EVENT.weaponClass = weapon.class; FIRE_EVENT.mode = MODE_NAMES[modeIndex];
+    FIRE_EVENT.id = id; FIRE_EVENT.weapon = weapon.id; FIRE_EVENT.weaponClass = weapon.class; FIRE_EVENT.mode = FIRE_MODE_LABELS[modeIndex];
     FIRE_EVENT.x = Actors.x[id]; FIRE_EVENT.y = eyeY; FIRE_EVENT.z = Actors.z[id];
     FIRE_EVENT.dx = aimScratch.x; FIRE_EVENT.dy = aimScratch.y; FIRE_EVENT.dz = aimScratch.z;
     Bus.emit('weapon.fire', FIRE_EVENT);
     emitSound(Actors.x[id], eyeY, Actors.z[id], mode.noise >= 0 ? mode.noise : weapon.noise, 'shot', id);
     this.kick[id] = 1;
     this.lastShot[id] = Sim.time;
-    if (!Game.headless) Fx.burst('muzzle', Actors.x[id] + aimScratch.x * MUZZLE_FORWARD, eyeY + aimScratch.y * MUZZLE_FORWARD, Actors.z[id] + aimScratch.z * MUZZLE_FORWARD, aimScratch.x, aimScratch.y, aimScratch.z, 3, weapon.family.color);
+    if (!Game.headless && mode.type !== 'melee') Fx.burst('muzzle', Actors.x[id] + aimScratch.x * MUZZLE_FORWARD, eyeY + aimScratch.y * MUZZLE_FORWARD, Actors.z[id] + aimScratch.z * MUZZLE_FORWARD, aimScratch.x, aimScratch.y, aimScratch.z, 3, weapon.family.color);
   },
   quickMelee(id) {
     const weapon = this.currentWeapon(id);
     if (this.state[id] === WEAPON_STATE.RELOAD) this.state[id] = WEAPON_STATE.IDLE;
     if (this.nextShot[id] > 0) return;
     const melee = this.ownedMelee(id);
-    const mode = melee ? melee.primary : QUICK_MELEE;
+    const mode = melee ? melee.primary : QUICK_MELEE, striker = melee || weapon || CAT.weapons[0];
     this.nextShot[id] += 1 / mode.rate;
-    deliverMelee(id, melee || weapon || CAT.weapons[0], mode, MODE_PRIMARY, 0);
+    deliverMelee(id, striker, mode, MODE_PRIMARY, 0);
+    this.announceShot(id, striker, mode, MODE_QUICK_MELEE);
   },
   ownedMelee(id) {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && CAT.weapons[w].class === 'melee') return CAT.weapons[w];
@@ -672,6 +699,8 @@ const Weapons = {
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
     out.zoom = lerp(1, shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
+    out.recoilPitch = this.recoilPitch[id]; out.recoilYaw = this.recoilYaw[id];   // degrees the spray punches away from the view
+    out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
     return out;
   },
 };
@@ -720,6 +749,10 @@ function hasLedgeInFront(id) {
   Vec.fromAngles(aimScratch, Actors.yaw[id], 0);
   const probeX = Actors.x[id] + aimScratch.x * 0.7, probeZ = Actors.z[id] + aimScratch.z * 0.7;
   return World.raycast(probeX, Actors.eyeY(id), probeZ, 0, -1, 0, 0.8, exitHit) && exitHit.ny > 0.7;
+}
+function canStayMounted(id) {
+  if (Math.hypot(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
+  return hasLedgeInFront(id);
 }
 
 // ---- Shot tracing (ARC-014): world first, then actors along the ray, pierce, thin-cover penetration (WPN-005) ----
@@ -860,7 +893,7 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
   for (let pellet = 0; pellet < pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);
-    Projectiles.spawnFromWeapon(id, weapon, mode, modeIndex, aimScratch, damage, multiplier, speed, LockOn.targetFor(id, pellet));
+    Projectiles.spawnFromWeapon(id, weapon, mode, modeIndex, aimScratch, damage, multiplier, speed, LockOn.targetFor(id, mode));
   }
 }
 
@@ -908,8 +941,13 @@ const LockOn = {
     }
     return -1;
   },
-  // Homing target handed to a projectile: the first lock (any progress), else none.
-  targetFor(id) { return Weapons.lockIds[id * MAX_LOCKS]; },
+  // Homing target handed to a projectile: the next full lock (volleys spread over the locks), else any lock in progress.
+  targetFor(id, mode) {
+    const locked = mode.lock ? this.next(id, mode) : -1;
+    if (locked >= 0) return locked;
+    for (let k = 0; k < MAX_LOCKS; k++) if (Weapons.lockIds[id * MAX_LOCKS + k] >= 0) return Weapons.lockIds[id * MAX_LOCKS + k];
+    return -1;
+  },
   clear(id) { Weapons.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS); },
 };
 

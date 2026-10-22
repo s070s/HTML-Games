@@ -14,9 +14,9 @@ const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
 const KNOCKBACK_CAP = 30;
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
-const SPLASH_TARGET_LIFT = 0.3;
+const SPLASH_TARGET_LIFT = 0.3;          // splash measures to the actor's body, at least this far above the feet
 const SPLASH_CENTRE_DISTANCE = 0.05;
-const TICK_EPSILON = 1e-4;               // float32 timers: a tick due within this much counts as due          // splash measures to the actor's body, at least this far above the feet
+const TICK_EPSILON = 1e-4;               // float32 timers: a tick due within this much counts as due
 const LIMB_COUNT = 6;                    // HPP09 pools: head, torso, left arm, right arm, left leg, right leg
 const LIMB = { HEAD: 0, TORSO: 1, ARM_LEFT: 2, ARM_RIGHT: 3, LEG_LEFT: 4, LEG_RIGHT: 5 };
 const LIMB_POOL = 100;
@@ -54,6 +54,7 @@ const Damage = {
   statusTime: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusStacks: new Uint8Array(MAX_ACTORS * STATUS_COUNT),
   statusTick: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusSource: new Int8Array(MAX_ACTORS * STATUS_COUNT).fill(-1),
   stunSet: new Uint8Array(MAX_ACTORS),              // FROZEN was set by a status (so only then is it cleared here)
+  frozenTick: new Int32Array(MAX_ACTORS).fill(-1),  // Sim.tick of the last freeze (no shatter within that same step)
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
@@ -77,12 +78,14 @@ const Damage = {
     if (relation <= 0) return 0;
     let amount = info.amount * attackerScale * relation;
     if (amount <= 0) { this.applyHitStatus(source, target, info); return 0; }
-    amount *= falloffFactor(info);
+    // HP-001: zone x precision first; HPP03 applies the head multiplier only to what reaches health (see takeLayers).
+    const zoneFactor = zoneMultiplier(rules, info), lateZone = this.preset().shieldIgnoresZone ? zoneFactor : 1;
+    amount *= falloffFactor(info) * zoneFactor / lateZone;
     amount = this.shatter(target, amount, kind);
     if (info.mode && info.mode.fodderKill && isFodder(target)) amount = Actors.health[target] + Actors.armor[target] + Actors.shield[target] + 1;
     amount = this.reduce(source, target, amount, info);
     if (amount <= 0) return 0;
-    const dealt = kind.lethal ? this.takeEverything(target) : this.takeLayers(target, amount, zoneMultiplier(rules, info), kind, info);
+    const dealt = kind.lethal ? this.takeEverything(target) : this.takeLayers(target, amount, lateZone, kind, info);
     this.afterDamage(source, target, info, kind, dealt, rules, attackerScale);
     return dealt;
   },
@@ -107,10 +110,11 @@ const Damage = {
     for (let i = 0; i < this.reducers.length; i++) amount = this.reducers[i](source, target, amount, info);
     return amount;
   },
-  // HP-005: a frozen target takes x3 from the next hit and fodder shatters outright.
+  // HP-005: a frozen target takes x3 from the next hit and fodder shatters outright. Hits in the step that froze the
+  // target (the other pellets of the W22 freeze blast) do not count: the shatter needs a follow-up hit.
   shatter(target, amount, kind) {
     const freeze = CAT.statusEffects.byId('freeze'), slot = target * STATUS_COUNT + freeze.index;
-    if (kind.id === 'dot' || this.statusTime[slot] <= 0) return amount;
+    if (kind.id === 'dot' || this.statusTime[slot] <= 0 || this.frozenTick[target] === Sim.tick) return amount;
     this.clearStatus(target, freeze.index);
     return isFodder(target) ? Actors.health[target] + Actors.armor[target] + Actors.shield[target] + 1 : amount * freeze.shatter;
   },
@@ -120,14 +124,14 @@ const Damage = {
     this.overshield[target] = 0; Actors.shield[target] = 0; Actors.armor[target] = 0; Actors.health[target] = 0;
     return LAYERS.overshield + LAYERS.shield + LAYERS.armor + LAYERS.health;
   },
-  // Overshield -> shield -> armor -> health. HPP03 applies the head multiplier only to what reaches health.
-  takeLayers(target, amount, zoneFactor, kind, info) {
+  // Overshield -> shield -> armor -> health. lateZone is the zone multiplier still to apply after the shields (HPP03), else 1.
+  takeLayers(target, amount, lateZone, kind, info) {
     const preset = this.preset();
     LAYERS.overshield = LAYERS.shield = LAYERS.armor = LAYERS.health = 0;
-    if (Actors.flags[target] & ACTOR_FLAG.DOWNED) return this.takeHealth(target, Math.max(MIN_HIT_DAMAGE, amount * zoneFactor));
-    let remaining = Math.max(MIN_HIT_DAMAGE, preset.shieldIgnoresZone ? amount : amount * zoneFactor);
+    if (Actors.flags[target] & ACTOR_FLAG.DOWNED) return this.takeHealth(target, Math.max(MIN_HIT_DAMAGE, amount * lateZone));
+    let remaining = Math.max(MIN_HIT_DAMAGE, amount);
     if (!kind.bypassShield && !info.bypassShield) remaining = this.takeShields(target, remaining, info.element);
-    if (preset.shieldIgnoresZone) remaining *= zoneFactor;
+    remaining *= lateZone;
     if (preset.limbs) return LAYERS.overshield + LAYERS.shield + this.takeLimb(target, remaining, info);
     if (!kind.bypassArmor && !info.bypassArmor) remaining = this.takeArmor(target, remaining, preset, kind, info);
     return LAYERS.overshield + LAYERS.shield + LAYERS.armor + this.takeHealth(target, remaining);
@@ -345,6 +349,7 @@ const Damage = {
     this.statusSource[slot] = source;
     if (row.stacksTo && this.statusStacks[slot] >= row.stacksTo) { this.clearStatus(id, row.index); return this.addStatus(id, row.becomes, source, 0, 1); }
     if (row.stun) this.setStun(id, true);
+    if (row.shatter) this.frozenTick[id] = Sim.tick;
     return true;
   },
   hasStatus(id, key) { const row = CAT.statusEffects.byId(key); return !!row && this.statusTime[id * STATUS_COUNT + row.index] > 0; },

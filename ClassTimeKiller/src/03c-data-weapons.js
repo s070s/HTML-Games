@@ -62,7 +62,7 @@ function recoilYawShape(shape, shot, climbing) {
 }
 CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 
-// Projectiles (spec §8 table P01..P16; P17..P19 added for the drill, blade and dark orb exotics).
+// Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
 // onHit: 'explode' (direct + splash), 'damage', 'pin' (damage, pins ragdoll), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
 Data.define('projectiles', {
@@ -89,6 +89,7 @@ Data.define('projectiles', {
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 180, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
   { id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
   { id: 'darkorb', code: 'P19', name: 'Dark orb', speed: 25, life: 1.5, radius: 0.3, bounce: 1, bounces: -1, pierce: true, onHit: 'damage', poolSize: 4, color: 0x30204a },
+  { id: 'sunorb', code: 'P20', name: 'Daybreak orb', speed: 18, life: 6, radius: 0.5, onHit: 'explode', poolSize: 4, color: 0xffd98a, scale: 0.7 },
 ]);
 
 // FireMode schema (spec §4). type: hitscan | projectile | beam | melee | cone | lock | zoom | toggle | block | detonate | tool.
@@ -111,7 +112,7 @@ const FIRE_MODE_SCHEMA = {
 const WEAPON_SCHEMA = {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, class: REQUIRED, slot: 0, moveMult: 1, adsMoveMult: 0.7, equipTime: 0, readyTime: 0.15,
   reload: 0, reloadShell: false, primary: REQUIRED, alt: REQUIRED, ammoType: '', mag: 0, reserve: 0, maxAmmo: 0, pickupAmmo: 0, altAmmo: 0,
-  price: 0, killReward: 300, rarityScale: true, noise: 60, botPref: { range: [5, 30], value: 0.5 }, index: 0, family: null,
+  price: 0, killReward: 300, rarityScale: true, dualWield: false, noise: 60, botPref: { range: [5, 30], value: 0.5 }, index: 0, family: null,
 };
 
 const WEAPON_ROWS = [
@@ -124,7 +125,7 @@ const WEAPON_ROWS = [
   { id: 'bulwark', code: 'W03', name: 'Bulwark Shield-Saw', class: 'melee', moveMult: 0.9, killReward: 1500, noise: 30, botPref: { range: [0, 3], value: 0.4 },
     primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'shock', seconds: 0.3 } },
     alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
-  { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, noise: 45, botPref: { range: [2, 25], value: 0.35 },
+  { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
     alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.667, burst: 3, spreadDeg: 0.9, recoil: 'burst', falloff: [20, 40, 0.7] } },
   { id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
@@ -248,8 +249,8 @@ const WEAPON_ROWS = [
     primary: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 1.5, ammo: 'none', maxActive: 1, activeRule: 'block' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 2, ammo: 'none', maxActive: 1, activeRule: 'block', special: 'lodgeBlade', laser: { damage: 15, interval: 0.25 } } },
   { id: 'daybreak', code: 'W45', name: 'Daybreak Projector', class: 'power', moveMult: 0.85, mag: 4, reserve: 0, rarityScale: false, noise: 120, botPref: { range: [6, 60], value: 1 },
-    primary: { type: 'projectile', trigger: 'semi', projectile: 'orb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, element: 'void' },
-    alt: { type: 'projectile', trigger: 'charge', projectile: 'orb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, charge: { time: 2, levels: [1, 1.5], target: 'multiplier' }, element: 'void' } },
+    primary: { type: 'projectile', trigger: 'semi', projectile: 'sunorb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, element: 'void' },
+    alt: { type: 'projectile', trigger: 'charge', projectile: 'sunorb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, charge: { time: 2, levels: [1, 1.5], target: 'multiplier' }, element: 'void' } },
   { id: 'halcyon', code: 'W46', name: 'Halcyon Warhead', class: 'power', moveMult: 0.8, mag: 1, reserve: 0, rarityScale: false, noise: 130, botPref: { range: [20, 120], value: 1 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'warhead', damage: 0, rate: 0.3, splash: { r: 12, dmg: 300, minFactor: 0.1 }, element: 'thermal' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'warhead', damage: 0, rate: 0.3, guided: true, splash: { r: 12, dmg: 300, minFactor: 0.1 }, element: 'thermal' } },

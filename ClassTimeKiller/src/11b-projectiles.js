@@ -60,7 +60,7 @@ const Projectiles = {
     this.multiplier[i] = multiplier;
     this.lodge[i] = mode.special === 'lodgeBlade' ? 1 : 0;
     this.target[i] = target >= 0 ? target : this.acquireTarget(owner, row, direction);
-    if (mode.maxActive && mode.activeRule === 'recycle') this.limitOwned(owner, weapon.index, mode.maxActive);
+    if (mode.maxActive && mode.activeRule === 'recycle') this.limitOwned(owner, weapon.index, row.index, mode.maxActive);
     return i;
   },
   spawn(row, owner, weaponIndex, modeIndex, x, y, z, vx, vy, vz, damage) {
@@ -92,19 +92,24 @@ const Projectiles = {
     this.state[i] = PROJECTILE_STATE.FREE;
     this.active--;
   },
-  countOwned(owner, weaponIndex) {
+  // True when projectile i belongs to owner and weapon (and, when typeIndex >= 0, is that projectile row).
+  isOwned(i, owner, weaponIndex, typeIndex) {
+    if (!this.state[i] || this.owner[i] !== owner || this.weapon[i] !== weaponIndex) return false;
+    return typeIndex < 0 || this.type[i] === typeIndex;
+  },
+  countOwned(owner, weaponIndex, typeIndex = -1) {
     let count = 0;
-    for (let i = 0; i < PROJECTILE_CAP; i++) if (this.state[i] && this.owner[i] === owner && this.weapon[i] === weaponIndex) count++;
+    for (let i = 0; i < PROJECTILE_CAP; i++) if (this.isOwned(i, owner, weaponIndex, typeIndex)) count++;
     return count;
   },
-  // maxActive with activeRule 'recycle' (W32 mines): the oldest extra projectile is detonated.
-  limitOwned(owner, weaponIndex, limit) {
-    while (this.countOwned(owner, weaponIndex) > limit) this.detonate(this.oldestOwned(owner, weaponIndex));
+  // maxActive with activeRule 'recycle' (W32 mines): the oldest extra projectile of that row is detonated (grenades are not counted).
+  limitOwned(owner, weaponIndex, typeIndex, limit) {
+    while (this.countOwned(owner, weaponIndex, typeIndex) > limit) this.detonate(this.oldestOwned(owner, weaponIndex, typeIndex));
   },
-  oldestOwned(owner, weaponIndex) {
+  oldestOwned(owner, weaponIndex, typeIndex) {
     let found = -1;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
-      if (!this.state[i] || this.owner[i] !== owner || this.weapon[i] !== weaponIndex) continue;
+      if (!this.isOwned(i, owner, weaponIndex, typeIndex)) continue;
       if (found < 0 || this.serial[i] < this.serial[found]) found = i;
     }
     return found;
@@ -113,7 +118,7 @@ const Projectiles = {
     const row = CAT.projectiles.byId(projectileKey);
     let count = 0;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
-      if (!this.state[i] || this.owner[i] !== owner || this.weapon[i] !== weaponIndex || (row && this.type[i] !== row.index)) continue;
+      if (!this.isOwned(i, owner, weaponIndex, row ? row.index : -1)) continue;
       this.detonate(i);
       count++;
     }
@@ -375,8 +380,9 @@ const Projectiles = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[i]) > AREA_HEIGHT) continue;
       if ((Actors.x[id] - this.x[i]) ** 2 + (Actors.z[id] - this.z[i]) ** 2 > puddle.radius * puddle.radius) continue;
-      this.areaDamage(i, id, puddle.damage, mode, 'splash');
-      if (puddle.status) Damage.addStatus(id, puddle.status.id, this.owner[i], puddle.status.seconds, 1);
+      // The status rides on accepted damage only, so friendly fire and spawn protection rules cover it too.
+      const dealt = this.areaDamage(i, id, puddle.damage, mode, 'splash');
+      if (dealt > 0 && puddle.status) Damage.addStatus(id, puddle.status.id, this.owner[i], puddle.status.seconds, 1);
     }
   },
 

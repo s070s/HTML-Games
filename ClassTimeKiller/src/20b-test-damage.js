@@ -280,6 +280,7 @@ Test.add('damage', (check) => {
   check('HP-005 chill slows 40%', Damage.statusSpeed(target) === 0.6 && !Damage.hasStatus(target, 'freeze'));
   Damage.addStatus(target, 'chill', shooter);
   check('HP-005 3 chill stacks = freeze (FROZEN)', Damage.hasStatus(target, 'freeze') && (Actors.flags[target] & ACTOR_FLAG.FROZEN) !== 0);
+  Sim.step();   // the shatter needs a hit after the step that froze the target
   const before = Actors.health[target];
   TestArena.hit(shooter, target, 10);
   check('HP-005 frozen target shatters: next hit x3', Test.near(before - Actors.health[target], 30, 1e-4) && !Damage.hasStatus(target, 'freeze') && !(Actors.flags[target] & ACTOR_FLAG.FROZEN), before - Actors.health[target]);
@@ -315,6 +316,12 @@ Test.add('damage', (check) => {
   TestArena.finish();
 });
 
+// Ways code could lower a pool without Damage.apply: `-=`, `--`, or `pool[x] = ... pool[x] - ...` (Math.max forms too).
+const DAMAGE_SIDE_PATHS = [
+  /Actors\.(health|armor|shield)\[[^\]]+\]\s*(-=|--)/,
+  /Actors\.(health|armor|shield)\[([^\]]+)\]\s*=[^;\n]*Actors\.\1\[\2\]\s*-(?!=)/,
+];
+
 // HP-004 / 6.2: every damage passes Damage.apply (count check) and no other code lowers health, armor or shields.
 Test.add('damage', (check) => {
   TestArena.start({});
@@ -338,8 +345,28 @@ Test.add('damage', (check) => {
   const offenders = [];
   for (let k = 1; k < sections.length; k += 2) {
     if (sections[k] === '11c-damage.js' || sections[k].startsWith('20')) continue;
-    if (/Actors\.(health|armor|shield)\[[^\]]+\]\s*-=/.test(sections[k + 1])) offenders.push(sections[k]);
+    if (DAMAGE_SIDE_PATHS.some((pattern) => pattern.test(sections[k + 1]))) offenders.push(sections[k]);
   }
   check('no damage side path lowers health outside Damage.apply', sections.length > 10 && offenders.length === 0, offenders.join(', '));
+  const samples = ['Actors.health[id] -= 5;', 'Actors.armor[id]--;', 'Actors.shield[t] = Math.max(0, Actors.shield[t] - 5);'];
+  check('the side path patterns catch every lowering form', samples.every((line) => DAMAGE_SIDE_PATHS.some((pattern) => pattern.test(line))) &&
+    !DAMAGE_SIDE_PATHS.some((pattern) => pattern.test('Actors.health[id] = Math.min(cap, Actors.health[id] + 5);')));
+  TestArena.finish();
+});
+
+// HP-001 order: zone x precision before the victim's reductions (a 30 headshot into a 10-point block pool deals 60 - 10).
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'stack' });
+  const guard = TestArena.actor(1, 0, 0), attacker = TestArena.actor(2, 0, 5, Math.PI);
+  Actors.health[guard] = Actors.maxHealth[guard] = 1000;
+  Weapons.setLoadout(guard, ['bulwark']);
+  Actors.buttons[guard] = BTN.ALT;
+  Sim.run(3);
+  WeaponSpecialState.blockPool[guard] = 10;
+  const mode = CAT.weapons.byId('warden').primary;
+  const head = zoneMultiplier(Game.match.rules, { mode, zone: 'head', stomach: false });
+  const dealt = TestArena.hit(attacker, guard, 30, { mode, zone: 'head', dx: 0, dy: 0, dz: -1 });
+  Actors.buttons[guard] = 0;
+  check('HP-001 zone x precision applies before victim reductions', head > 1 && Test.near(dealt, 30 * head - 10, 1e-4), dealt + ' head x' + head);
   TestArena.finish();
 });

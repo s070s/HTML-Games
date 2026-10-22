@@ -228,9 +228,15 @@ Test.add('weapons', (check) => {
   TestArena.start({}, [{ shape: 'box', min: [-3, 0, 8], max: [3, 3, 8.1], material: 'wood' }]);
   const shooter = TestArena.actor(1, 0, 0), front = TestArena.sponge(2, -0.6, 4), middle = TestArena.sponge(2, -0.6, 6), back = TestArena.sponge(2, 0.6, 11);
   const lancet = giveFull(shooter, 'lancet');
-  TestArena.aimAt(shooter, middle);
+  Actors.x[shooter] = 10;
+  const row = [3, 4, 5, 6, 7, 8].map((z) => TestArena.sponge(2, 10, z));
+  TestArena.aimAt(shooter, row[0], ZONE.HEAD);
+  Actors.pitch[shooter] = 0;
   TestArena.hold(shooter, BTN.FIRE, 0.05);
-  check('W23 rail pierces several targets', Actors.health[front] < 100000 || Actors.health[middle] < 100000, Actors.health[middle]);
+  const pierced = row.map((id) => Actors.health[id] < 100000);
+  check('W23 rail pierces 4 targets and stops in the 5th', pierced.join() === 'true,true,true,true,true,false', pierced.join());
+  row.forEach((id) => { Actors.alive[id] = 0; });
+  Actors.x[shooter] = 0;
   Actors.x[front] = Actors.x[middle] = 0;
   const vanguard = giveFull(shooter, 'vanguard');
   TestArena.aimAt(shooter, back);
@@ -298,22 +304,33 @@ Test.add('weapons', (check) => {
 function checkAlt(shooter, target, weapon) {
   const mode = weapon.alt;
   if (mode.type === 'zoom') { Actors.buttons[shooter] = BTN.ALT; Sim.run(TICK_RATE / 2); Actors.buttons[shooter] = 0; return Weapons.ads[shooter] === 1 ? '' : 'no ADS'; }
-  if (mode.type === 'toggle') { TestArena.hold(shooter, BTN.ALT, 0.05); return Weapons.toggled[shooter] || mode.toggle.needsLedge ? '' : 'not toggled'; }
+  if (mode.type === 'toggle') return checkToggle(shooter, mode);
   if (mode.type === 'block') { Actors.buttons[shooter] = BTN.ALT; Sim.step(); const blocking = WeaponSpecialState.blocking[shooter]; Actors.buttons[shooter] = 0; return blocking ? '' : 'not blocking'; }
-  if (mode.type === 'detonate') return checkDetonate(shooter, weapon);
+  if (mode.type === 'detonate') return checkDetonate(shooter, target, weapon);
   const result = exerciseMode(shooter, target, weapon, mode, BTN.ALT);
   if (!result.fired) return 'never fired';
   if (modeDealsDamage(mode) && result.damage <= 0) return 'no damage';
   return '';
 }
-function checkDetonate(shooter, weapon) {
+// Stances toggle on ALT; a mount (needsLedge) must be refused on open ground (the ledge case has its own test).
+function checkToggle(shooter, mode) {
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  const toggled = Weapons.toggled[shooter] === 1;
+  if (mode.toggle.needsLedge) return toggled ? 'mounted without a ledge' : '';
+  return toggled ? '' : 'not toggled';
+}
+// Explosives are lobbed and detonated; a drill (W43) is fired into the target and its damage must land on detonation.
+function checkDetonate(shooter, target, weapon) {
   Weapons.resetFiring(shooter);
-  Actors.pitch[shooter] = 0.3;
+  const drill = CAT.projectiles.byId(weapon.alt.projectile).onHit === 'drill';
+  if (drill) TestArena.aimAt(shooter, target);
+  else Actors.pitch[shooter] = 0.3;
   TestArena.hold(shooter, BTN.FIRE, 0.05);
-  Sim.run(10);
+  Sim.run(drill ? TICK_RATE / 2 : 10);
+  const before = Actors.health[target];
   const explosions = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.ALT, 0.05));
-  const drills = TestArena.count('damage', () => Sim.run(2));
-  return explosions + drills > 0 || weapon.id === 'auger' ? '' : 'nothing detonated';
+  if (drill) return Test.near(before - Actors.health[target], weapon.primary.damage, 1e-3) ? '' : 'detonation dealt ' + (before - Actors.health[target]);
+  return explosions > 0 ? '' : 'nothing detonated';
 }
 
 Test.add('weapons', (check) => {
@@ -536,6 +553,152 @@ Test.add('weapons', (check) => {
   check('fitting a smaller magazine trims the loaded rounds', Weapons.magazine[Weapons.slotIndex(id, rifle.index)] === Weapons.magSize(id, rifle));
   Weapons.give(id, 'tempest', 0);
   check('picking up an owned weapon again keeps its attachments', Weapons.modifier(id, rifle, STAT.MAG) === CAT.attachments.byId('quickMag').mag);
+  TestArena.finish();
+});
+
+const FRONT_HIT = { dx: 0, dy: 0, dz: -1 };   // a hit travelling toward an actor that faces +z
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const guard = TestArena.actor(1, 0, 0), attacker = TestArena.actor(2, 0, 5, Math.PI);
+  Weapons.setLoadout(guard, ['scattergun', 'bulwark']);
+  Actors.buttons[guard] = BTN.ALT;
+  Sim.run(3);
+  check('W03 block absorbs a frontal hit', TestArena.hit(attacker, guard, 40, FRONT_HIT) === 0 && Actors.health[guard] === 100);
+  Weapons.requestSwitch(guard, CAT.weapons.byId('scattergun').index);
+  Sim.run(TICK_RATE);
+  Actors.buttons[guard] = 0;
+  Sim.step();
+  const dealt = TestArena.hit(attacker, guard, 40, FRONT_HIT);
+  check('W03 swapping away ends the block: full frontal damage', dealt === 40 && WeaponSpecialState.blocking[guard] === 0, dealt);
+  Weapons.setLoadout(guard, ['bulwark']);
+  Actors.buttons[guard] = BTN.ALT;
+  Sim.run(3);
+  const wasBlocking = WeaponSpecialState.blocking[guard] === 1;
+  TestArena.hit(-1, guard, 1, { kind: 'telefrag' });
+  Actors.buttons[guard] = 0;
+  check('W03 death drops the guard', wasBlocking && !Actors.alive[guard] && WeaponSpecialState.blocking[guard] === 0);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), fodder = TestArena.actor(2, 0, 2, Math.PI);
+  Actors.kind[fodder] = ACTOR_KIND.ENEMY; Actors.profile[fodder] = { fodder: true };
+  giveFull(shooter, 'frostbore');
+  TestArena.aimAt(shooter, fodder);
+  const hits = [];
+  const onDamage = Bus.on('damage', (event) => { if (event.target === fodder) hits.push(event.amount); });
+  TestArena.hold(shooter, BTN.ALT, 1 / TICK_RATE);
+  Bus.off('damage', onDamage);
+  const mode = CAT.weapons.byId('frostbore').alt;
+  check('W22 freeze blast deals pellets x damage, no self-shatter', hits.length === mode.pellets && hits.every((amount) => amount === mode.damage), hits.join(' '));
+  check('W22 freeze blast leaves fodder alive and frozen', Actors.alive[fodder] === 1 && Damage.hasStatus(fodder, 'freeze'));
+  Sim.step();
+  TestArena.hit(shooter, fodder, 10);
+  check('HP-005 a follow-up hit shatters frozen fodder', !Actors.alive[fodder]);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  const pitcher = giveFull(shooter, 'pitcher'), up = { x: 0, y: 0.6, z: 0.8 };
+  const grenade = CAT.projectiles.byId('grenade'), mine = CAT.projectiles.byId('mine');
+  const explosions = TestArena.count('explosion', () => {
+    for (let k = 0; k < 3; k++) Projectiles.spawnFromWeapon(shooter, pitcher, pitcher.primary, MODE_PRIMARY, up, 0, 1, 0, -1);
+    for (let k = 0; k < 5; k++) Projectiles.spawnFromWeapon(shooter, pitcher, pitcher.alt, MODE_ALT, up, 0, 1, 0, -1);
+  });
+  const grenades = Projectiles.countOwned(shooter, pitcher.index, grenade.index), mines = Projectiles.countOwned(shooter, pitcher.index, mine.index);
+  check('W32 mine limit 4 recycles the oldest mine, never a grenade', explosions === 1 && grenades === 3 && mines === 4, explosions + ' / ' + grenades + ' / ' + mines);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({ friendlyFire: 0, selfDamage: 0.5 });
+  const owner = TestArena.actor(1, 0, 0), ally = TestArena.actor(1, 1, 0), enemy = TestArena.actor(2, -1, 0);
+  const kindler = giveFull(owner, 'kindler'), down = { x: 0, y: -1, z: 0 };
+  const puddle = Projectiles.spawnFromWeapon(owner, kindler, kindler.alt, MODE_ALT, down, 10, 1, 0, -1);
+  Projectiles.becomeArea(puddle, 0, 0.05, 0);
+  Sim.run(TICK_RATE);
+  check('W35 napalm puddle burns enemies', Damage.hasStatus(enemy, 'burn') && Actors.health[enemy] < 100);
+  check('W35 puddle spares allies with friendly fire off', Actors.health[ally] === 100 && !Damage.hasStatus(ally, 'burn'));
+  Projectiles.clear();
+  Damage.resetHealth(owner);
+  Damage.addStatus(owner, 'burn', owner);
+  Sim.run(TICK_RATE);
+  check('own burn ticks at rules.selfDamage: 10 HP/s x 0.5', Test.near(100 - Actors.health[owner], 5, 1e-3), 100 - Actors.health[owner]);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({}, [{ shape: 'box', min: [-1, 0, 0.4], max: [1, 1.1, 1.2] }]);
+  const id = TestArena.actor(1, 0, 0);
+  const heron = giveFull(id, 'heron'), slot = Weapons.slotIndex(id, heron.index);
+  Actors.buttons[id] = BTN.ALT;
+  Sim.run(TICK_RATE / 2);
+  const scoped = Weapons.ads[id] === 1;
+  Weapons.magazine[slot] = 0;
+  Weapons.beginReload(id, heron);
+  Sim.run(TICK_RATE / 2);
+  Actors.buttons[id] = 0;
+  Sim.step();   // the release must be seen before the next press
+  check('ADS drops during a reload even with ALT held', scoped && Weapons.ads[id] === 0, Weapons.ads[id]);
+  giveFull(id, 'anvil');
+  TestArena.hold(id, BTN.ALT, 0.05);
+  const mounted = Weapons.toggled[id] === 1;
+  Actors.vx[id] = 3;
+  Sim.step();
+  Actors.vx[id] = 0;
+  check('W29 mounts on a ledge and unmounts when the actor moves', mounted && Weapons.toggled[id] === 0, mounted + ' ' + Weapons.toggled[id] + ' ' + hasLedgeInFront(id));
+  TestArena.hold(id, BTN.ALT, 0.05);
+  const remounted = Weapons.toggled[id] === 1;
+  Actors.z[id] = -10;
+  Sim.step();
+  check('W29 mount drops when the ledge is gone', remounted && Weapons.toggled[id] === 0);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 10);
+  const mode = CAT.weapons.byId('kingfisher').alt;
+  Weapons.lockIds[id * MAX_LOCKS + 1] = target; Weapons.lockTime[id * MAX_LOCKS + 1] = mode.lock.time;
+  check('lock-on hands missiles a lock held in any slot', LockOn.targetFor(id, mode) === target);
+  LockOn.clear(id);
+  Weapons.setLoadout(id, ['tempest']);
+  let fire = null, sounds = 0;
+  const onFire = Bus.on('weapon.fire', (event) => { fire = Object.assign({}, event); });
+  const onSound = Bus.on('sound', (event) => { if (event.source === id) sounds++; });
+  TestArena.hold(id, BTN.MELEE, 0.05);
+  Bus.off('weapon.fire', onFire);
+  Bus.off('sound', onSound);
+  check('quick melee emits weapon.fire (mode melee) and a sound', fire && fire.mode === 'melee' && sounds === 1, JSON.stringify(fire));
+  Game.playerId = id;
+  Weapons.nextShot[id] = 0;
+  TestArena.hold(id, BTN.FIRE, 0.3);
+  const model = Render.viewModel({});
+  Game.playerId = -1;
+  check('Render.viewModel carries the recoil punch in degrees', model.recoilPitch !== 0 && typeof model.recoilYaw === 'number', model.recoilPitch);
+  const orb = CAT.projectiles.byId(CAT.weapons.byId('daybreak').primary.projectile);
+  check('W45 orb is its own row: no combo, no parry', orb.id !== 'orb' && !orb.comboTarget && !orb.parryable);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  Weapons.setLoadout(id, ['warden']);
+  const warden = CAT.weapons.byId('warden'), slot = Weapons.slotIndex(id, warden.index);
+  Weapons.magazine[slot] = 5;
+  Weapons.give(id, 'warden');
+  check('W04 second pickup = dual: shared magazine x2, new gun loaded', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2 && Weapons.magazine[slot] === 5 + warden.mag);
+  Weapons.reserve[slot] = 30000; Weapons.magazine[slot] = 30000;
+  const dualShots = countTapped(id, 5);
+  check('W04 dual pistols fire at twice the rate (8 rps; tapping every other step reaches 7.5)', Test.near(Weapons.shotInterval(id, warden, warden.primary), 1 / (warden.primary.rate * 2), 1e-9) && dualShots >= 37, dualShots);
+  Weapons.give(id, 'warden');
+  check('W04 a third pickup only adds ammo', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2);
   TestArena.finish();
 });
 
