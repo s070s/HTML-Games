@@ -356,29 +356,18 @@ Render.addUpdate(2, updateRenderScale);
 // preset holds for this session only (never saved): a slow spell (a hot phone, a power-saving mode) cannot pin a low
 // preset for good, and the next launch retries the chosen or benchmarked one. ----
 const STEP_DOWN_SECONDS = 5;
-const StepDown = { slowSeconds: 0, sessionQuality: null };   // sessionQuality: the preset this session stepped down to
+const StepDown = { slowSeconds: 0 };
 
 function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  StepDown.sessionQuality = next;
-  applySessionQuality();
+  // Quality.current() now returns it, so the renderer and the PERF-009 caps agree.
+  Quality.sessionId = next.id;
+  readVideoSettings();
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
-
-function applySessionQuality() {
-  if (!StepDown.sessionQuality) return;
-  Render.quality = StepDown.sessionQuality;
-  Render.size.dirty = true;
-}
-// Runs after S07's own video settings listener (which reads the saved preset): a chosen or benchmarked preset replaces the
-// session step-down, any other video setting keeps it.
-Bus.on('setting', (key) => {
-  if (key === 'video.quality' || key === 'video.autoQuality') StepDown.sessionQuality = null;
-  else if (key.startsWith('video.')) applySessionQuality();
-});
 
 // With automatic render scale the cheaper fix (lower resolution) is used up before a whole preset drops, but only
 // while it can still help: when the GPU timer shows the GPU within budget the device is CPU-bound.

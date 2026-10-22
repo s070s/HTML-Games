@@ -405,11 +405,12 @@ Test.add('render', (check) => withRenderer(() => {
   check('no step-down before 5 s under 60 fps', Render.quality.id === 'high');
   updateStepDown(1);
   check('5 s under 60 fps lowers one preset for this session and toasts', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high' && toast.includes('Medium'), toast);
+  check('the session step also lowers the PERF-009 caps', Quality.current().id === 'medium' && Pve.cap() === CAT.quality.byId('medium').enemies, Quality.current().id);
   Settings.set('video.autoLower', false);
   for (let i = 0; i < 6; i++) updateStepDown(1);
-  check('the option turns the step-down off; a video setting keeps the session step', Render.quality.id === 'medium');
+  check('the option turns the step-down off; the session step stays', Render.quality.id === 'medium' && Quality.current().id === 'medium');
   Settings.set('video.quality', 'potato');
-  check('a chosen preset ends the session step; no step below Potato', !lowerQualityStep());
+  check('a chosen preset ends the session step; no step below Potato', Quality.current().id === 'potato' && !lowerQualityStep());
   Settings.set('video.quality', 'high');
   check('an explicit preset steps down itself, unsaved', lowerQualityStep() && Render.quality.id === 'medium' && Settings.get('video.quality') === 'high');
   Bus.off('toast', listener);
