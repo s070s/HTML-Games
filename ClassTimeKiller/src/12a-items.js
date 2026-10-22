@@ -307,7 +307,7 @@ const Items = {
   },
   // A dropped copy of the same row lies around (unique powerups wait for it).
   dropExists(spotSlot) {
-    for (let slot = this.spotCount; slot < PICKUP_CAP; slot++) {
+    for (let slot = this.spotCount; slot < this.usedEnd; slot++) {
       if (this.state[slot] === PICKUP_STATE.READY && this.kind[slot] === this.kind[spotSlot] && this.row[slot] === this.row[spotSlot]) return true;
     }
     return false;
