@@ -10,7 +10,9 @@
 const AUDIO_PRIORITY = { ui: 6, own: 5, near: 4, explosion: 3, far: 2, ambient: 1 }; // AUD-002: own weapon > close fire > explosions > far > ambience
 const AUDIO_MAX_SLOTS = 32;                   // array size of the voice pool; Quality.current().voices says how many are used
 const AUDIO_QUEUE_SIZE = 64;                  // sound requests collected per frame
-const AUDIO_NEW_VOICE_DIVISOR = 3;            // at most voices / 3 new voices per frame (8, Potato 4)
+const AUDIO_NEW_VOICE_DIVISOR = 6;            // at most voices / 6 new voices per frame (4, Potato 2): one start is 10 to 40 automation calls
+const AUDIO_MIN_NEW_VOICES = 2;
+const AUDIO_START_BUDGET_MS = 0.2;            // PERF-002 / AUD-007: no further voice starts in a frame once this much time is spent (the first always starts)
 const AUDIO_FLOOR_GAIN = 0.0001;              // exponential ramps cannot reach 0
 const AUDIO_AUDIBLE_GAIN = 0.02;              // quieter sounds are dropped instead of using a voice
 const AUDIO_START_DELAY = 0.004;              // seconds between "now" and the scheduled start (avoids clicks)
@@ -19,7 +21,7 @@ const AUDIO_NOISE_SECONDS = 2;                // length of the shared noise buff
 const AUDIO_PITCH_JITTER = 0.06;              // +-3% random pitch so repeated sounds are not identical
 const AUDIO_CLIP_KNEE = 0.8;                  // output level where the soft clipper starts to bend
 const AUDIO_CLIP_POINTS = 2049;               // resolution of the clipper curve
-const AUDIO_PAN_WIDTH =0.95;                 // strongest pan; keeps a trace of the other ear
+const AUDIO_PAN_WIDTH = 0.95;                 // strongest pan; keeps a trace of the other ear
 const AUDIO_CUTOFF_MAX = 18000;               // low-pass cutoff of a sound next to the listener
 const AUDIO_CUTOFF_DISTANCE = 30;             // metres over which the cutoff halves
 const AUDIO_REAR_CUTOFF = 0.65;               // head shadow: sounds behind the listener are duller (front/back cue on one speaker)
@@ -240,7 +242,9 @@ function createVoiceSlot(context) {
   slot.oscillators[0].connect(slot.toneGain); slot.oscillators[1].connect(slot.partialGain); slot.partialGain.connect(slot.toneGain);
   slot.toneGain.connect(slot.mix);
   slot.noiseSource.start(0); slot.oscillators[0].start(0); slot.oscillators[1].start(0);
-  slot.params = [slot.mix.gain, slot.lowpass.frequency, slot.noiseFilter.frequency, slot.noiseFilter.Q, slot.noiseGain.gain, slot.toneGain.gain, slot.partialGain.gain];
+  // Every parameter a recipe automates: a stolen voice cancels them all, so none of the old voice's pitch or level events survive.
+  slot.params = [slot.mix.gain, slot.lowpass.frequency, slot.noiseFilter.frequency, slot.noiseFilter.Q, slot.noiseGain.gain, slot.toneGain.gain, slot.partialGain.gain,
+    slot.oscillators[0].frequency, slot.oscillators[1].frequency];
   return slot;
 }
 
@@ -300,8 +304,8 @@ function startNoiseLayer(slot, recipe, layer, pitch, start) {
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
     const time = start + recipe.pulses[pulse];
     slot.noiseFilter.frequency.setValueAtTime(layer.from * pitch, time);
-    slot.noiseFilter.frequency.exponentialRampToValueAtTime(layer.to * pitch, time + layer.attack + layer.decay);
-    scheduleEnvelope(slot.noiseGain.gain, time, layer.gain, layer.attack, layer.decay);
+    slot.noiseFilter.frequency.exponentialRampToValueAtTime(layer.to * pitch, time + layer.attack + layer.decays[pulse]);
+    scheduleEnvelope(slot.noiseGain.gain, time, layer.gain, layer.attack, layer.decays[pulse]);
   }
 }
 
@@ -316,11 +320,11 @@ function startToneLayer(slot, recipe, layer, pitch, start) {
       const time = start + recipe.pulses[pulse];
       const scale = pitch * recipe.pitchSteps[pulse] * (k === 0 ? 1 : layer.partial);
       oscillator.frequency.setValueAtTime(layer.from * scale, time);
-      oscillator.frequency.exponentialRampToValueAtTime(layer.to * scale, time + layer.attack + layer.decay);
+      oscillator.frequency.exponentialRampToValueAtTime(layer.to * scale, time + layer.attack + layer.decays[pulse]);
     }
   }
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
-    scheduleEnvelope(slot.toneGain.gain, start + recipe.pulses[pulse], layer.gain, layer.attack, layer.decay);
+    scheduleEnvelope(slot.toneGain.gain, start + recipe.pulses[pulse], layer.gain, layer.attack, layer.decays[pulse]);
   }
 }
 
@@ -353,6 +357,7 @@ function buildNoiseBuffer(context) {
   return buffer;
 }
 
+const audioClockMs = () => performance.now();
 const audioQuietCall = () => {};  // swallows the rejection of resume() when the browser still wants a gesture
 
 const Sound = {
@@ -360,16 +365,18 @@ const Sound = {
   forceActive: false,       // tests: lets handlers and update run although Game.headless is set
   assumeRunning: false,     // tests: an OfflineAudioContext never reports 'running'
   listenerSource: null,     // fn(out {x,y,z,yaw,pitch}) -> bool, set by spectate / killcam code when the listener is not the player
+  lineOfSight: null,        // fn(ax,ay,az,bx,by,bz) -> true when nothing solid lies between; filled by the world section. null = no occlusion
+  nowMs: audioClockMs,      // tests replace it to drive the per-frame time budget
   speechSynth: null,        // tests: replacement for window.speechSynthesis
   contextFactory: null,     // tests: returns the AudioContext to use
   context: null, buses: null, noiseBuffer: null, slots: [],
   allocator: makeVoiceAllocator(AUDIO_MAX_SLOTS),
-  recipes: [], recipeById: new Map(), triggerCounts: new Int32Array(0),   // filled by 06b
+  recipes: [], recipeById: new Map(), triggerCounts: new Int32Array(0), retriggerClock: new Float64Array(0),   // filled by 06b
   frameHooks: [],           // fn(seconds) called each audio frame (music)
   levels: { master: 0.8, sfx: 1, music: 0.5, ui: 0.8, announcer: 0.9 },    // slider positions 0..1
   mono: false, hrtf: false, voiceLimit: 24, musicAllowed: true, hrtfAllowed: false,
   paused: false, pauseSuspended: false, suspendTimer: 0, blockedTimer: 0, blockedShown: false, sessionHint: '',
-  clock: 0, occlusionRays: 0, startedThisFrame: 0, maxStartedPerFrame: 0, updateMs: 0, peakUpdateMs: 0, started: 0,
+  clock: 0, frameStart: 0, occlusionRays: 0, startedThisFrame: 0, maxStartedPerFrame: 0, updateMs: 0, peakUpdateMs: 0, started: 0,
   heartbeatClock: 0, gamepadClock: 0,
   lastShield: new Float32Array(MAX_ACTORS),
   captionClock: new Float64Array((MAX_ACTORS + 1) * AUDIO_CAPTION_KINDS.length),
@@ -502,7 +509,16 @@ const Sound = {
   // The one entry point for sounds: recipe index, optional world position, the actor that makes it, level and pitch factors.
   enqueue(recipeIndex, positional, x, y, z, source, gain, pitch) {
     if (recipeIndex < 0 || !this.live()) return false;
-    return SoundQueue.push(recipeIndex, positional, x, y, z, source, gain, pitch);
+    const retrigger = this.recipes[recipeIndex].retrigger;
+    const key = retrigger > 0 ? this.retriggerKey(recipeIndex, source) : -1;
+    if (key >= 0 && this.clock - this.retriggerClock[key] < retrigger) return false;
+    const queued = SoundQueue.push(recipeIndex, positional, x, y, z, source, gain, pitch);
+    if (queued && key >= 0) this.retriggerClock[key] = this.clock;
+    return queued;
+  },
+  // One slot per (recipe, acting actor): a beam or a very fast weapon asks for a sound every step but starts one per `retrigger` seconds.
+  retriggerKey(recipeIndex, source) {
+    return recipeIndex * (MAX_ACTORS + 1) + (source >= 0 && source < MAX_ACTORS ? source : MAX_ACTORS);
   },
   // Convenience for other sections: Sound.play('uiClick') or Sound.play('powerChime', x, y, z, ownerId).
   play(recipeId, x, y, z, source) {
@@ -524,7 +540,7 @@ const Sound = {
   // ---- Frame update (Loop phase 'audio'): listener, player cues, queue -> voices. Budget 0.3 ms (AUD-007). ----
   update(seconds) {
     if (!this.live()) return;
-    const started = performance.now();
+    this.frameStart = this.nowMs();
     this.clock += seconds;
     this.occlusionRays = 0;
     this.startedThisFrame = 0;
@@ -535,7 +551,7 @@ const Sound = {
     this.processQueue();
     if (this.context) this.releaseIdleSlots();
     this.maxStartedPerFrame = Math.max(this.maxStartedPerFrame, this.startedThisFrame);
-    this.updateMs = performance.now() - started;
+    this.updateMs = this.nowMs() - this.frameStart;
     this.peakUpdateMs = Math.max(this.updateMs, this.peakUpdateMs * 0.99);
   },
   // A button press on a gamepad is a user activation too (until the context runs).
@@ -572,12 +588,14 @@ const Sound = {
   processQueue() {
     const queue = SoundQueue;
     this.rankQueue();
-    const cap = Math.max(2, Math.floor(this.voiceLimit / AUDIO_NEW_VOICE_DIVISOR));
+    const cap = Math.max(AUDIO_MIN_NEW_VOICES, Math.floor(this.voiceLimit / AUDIO_NEW_VOICE_DIVISOR));
     let started = 0;
     for (let row = queue.pickBest(); row >= 0 && started < cap; row = queue.pickBest()) {
       queue.taken[row] = 1;
       if (this.playRow(row)) started++;
+      if (started > 0 && this.nowMs() - this.frameStart > AUDIO_START_BUDGET_MS) break;
     }
+    this.captionLeftovers();
     queue.count = 0;
   },
   // Pass 1: distance and priority of every queued sound, so the cap keeps the most important ones.
@@ -590,29 +608,49 @@ const Sound = {
       queue.priority[row] = audioPriorityFor(recipe, queue.distance[row], isLocalPlayer(queue.source[row]));
     }
   },
-  // Pass 2: spatial values, cull, occlusion, caption, voice. Returns true when a voice was started.
-  playRow(row) {
+  // Fills audioSpatial for one queued sound. Returns its level, or 0 when it is too quiet or too far away to matter.
+  measureRow(row) {
     const queue = SoundQueue, spatial = audioSpatial;
     const recipe = this.recipes[queue.recipe[row]];
     const positional = queue.positional[row] === 1 && audioListener.valid;
     if (positional) computeAudioSpatial(spatial, recipe, queue.x[row], queue.y[row], queue.z[row]);
     else centerAudioSpatial(spatial);
     const level = spatial.gain * recipe.gain * queue.gain[row];
-    if (level < AUDIO_AUDIBLE_GAIN || (positional && spatial.distance > recipe.range)) return false;
+    if (level < AUDIO_AUDIBLE_GAIN || (positional && spatial.distance > recipe.range)) return 0;
+    return level;
+  },
+  // Pass 2: spatial values, cull, occlusion, caption, voice. Returns true when a voice was started.
+  playRow(row) {
+    const queue = SoundQueue, spatial = audioSpatial;
+    if (this.measureRow(row) === 0) return false;
+    const recipe = this.recipes[queue.recipe[row]];
+    const positional = queue.positional[row] === 1 && audioListener.valid;
     if (positional && recipe.occludes && this.isOccluded(spatial, queue.x[row], queue.y[row], queue.z[row])) {
       spatial.occluded = true; spatial.cutoff *= AUDIO_OCCLUDED_CUTOFF; spatial.gain *= AUDIO_OCCLUDED_GAIN;
     }
     this.triggerCounts[recipe.index]++;
-    const source = queue.source[row];
-    if (positional && !isLocalPlayer(source)) this.emitCaption(recipe, spatial, source, queue.x[row], queue.y[row], queue.z[row]);
+    this.captionRow(row);
     if (!this.canPlay()) return false;
     return this.startVoice(recipe, spatial, spatial.gain * recipe.gain * queue.gain[row], queue.pitch[row], queue.priority[row]);
   },
+  // Sounds that got no voice (voice cap, time budget) still get their caption: a deaf player must not lose the warning (ACC-003).
+  captionLeftovers() {
+    const queue = SoundQueue;
+    for (let row = 0; row < queue.count; row++) {
+      if (queue.taken[row] || this.measureRow(row) === 0) continue;
+      this.captionRow(row);
+    }
+  },
+  captionRow(row) {
+    const queue = SoundQueue, source = queue.source[row];
+    if (queue.positional[row] !== 1 || !audioListener.valid || isLocalPlayer(source)) return;
+    this.emitCaption(this.recipes[queue.recipe[row]], audioSpatial, source, queue.x[row], queue.y[row], queue.z[row]);
+  },
   // Line of sight between listener and source; a few rays per frame, further requests count as unoccluded.
   isOccluded(spatial, x, y, z) {
-    if (spatial.distance < AUDIO_OCCLUSION_MIN_DISTANCE || this.occlusionRays >= AUDIO_OCCLUSION_RAYS) return false;
+    if (!this.lineOfSight || spatial.distance < AUDIO_OCCLUSION_MIN_DISTANCE || this.occlusionRays >= AUDIO_OCCLUSION_RAYS) return false;
     this.occlusionRays++;
-    return !World.lineClear(audioListener.x, audioListener.y, audioListener.z, x, y, z);
+    return !this.lineOfSight(audioListener.x, audioListener.y, audioListener.z, x, y, z);
   },
   // ACC-002 / ACC-003: caption text with direction plus the position for the visual sound ring, throttled per actor and kind.
   emitCaption(recipe, spatial, source, x, y, z) {
@@ -682,7 +720,7 @@ const Sound = {
     SoundQueue.count = 0; SoundQueue.dropped = 0;
     this.lastShield.fill(0); this.captionClock.fill(-1000); this.heartbeatClock = 0;
     this.clock = 0; this.started = 0; this.maxStartedPerFrame = 0; this.peakUpdateMs = 0;
-    this.triggerCounts.fill(0);
+    this.triggerCounts.fill(0); this.retriggerClock.fill(-1000);
   },
 };
 
@@ -698,9 +736,6 @@ Bus.on('game.resume', () => Sound.setPaused(false, ''));
 Bus.on('match.start', () => { Sound.resetState(); Sound.refreshQuality(); });
 Bus.on('match.stop', () => Sound.resetState());
 Bus.on('boot', () => {
-  Loop.onFrame('audio', (seconds) => {
-    Sound.update(seconds);
-    Perf.counters.audioMs = Sound.updateMs;
-  });
+  Loop.onFrame('audio', (seconds) => Sound.update(seconds));
   Sound.installGestureListeners();
 });

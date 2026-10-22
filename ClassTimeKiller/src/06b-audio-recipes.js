@@ -5,18 +5,22 @@
 //   tone  { wave, from, to, attack, decay, gain, partial }  oscillator glide (the "body"); partial = ratio of a second oscillator
 //   pulses [seconds] + pitchSteps [factor]               the envelope repeats at each offset with that pitch factor (clicks, chirps, stings)
 // Fields: bus (sfx|voice|ui|music), priority (AUDIO_PRIORITY key), ref/rolloff (distance level), nearRange (metres a near sound
-// keeps its priority), range (metres; farther sounds are dropped), gain, occludes, caption + captionKind + captionGap (ACC-002/003).
+// keeps its priority), range (metres; farther sounds are dropped), gain, occludes, caption + captionKind + captionGap (ACC-002/003),
+// retrigger (seconds; one actor starts this recipe at most that often, so a beam asking every step does not eat the voice pool).
+// Pulses must be in rising order; a pulse's decay is shortened to the room left before the next pulse (see finishSoundLayer).
 
 const SOUND_RECIPE_DEFAULTS = {
   bus: 'sfx', priority: 'near', ref: 6, rolloff: 0.5, nearRange: 20, range: 150, gain: 1, occludes: true, noise: null, tone: null,
-  pulses: [0], caption: null, captionKind: '', captionGap: 0.6,
+  pulses: [0], caption: null, captionKind: '', captionGap: 0.6, retrigger: 0,
 };
+const SOUND_PULSE_GAP = 0.002;                 // seconds between the end of one pulse and the start of the next
+const SOUND_MIN_PULSE_DECAY = 0.01;           // every pulse needs at least this much decay left (checked by the self-test)
 const SOUND_NOISE_DEFAULTS = { filter: 'bandpass', from: 1000, to: 1000, q: 1, attack: 0.002, decay: 0.1, gain: 1 };
 const SOUND_TONE_DEFAULTS = { wave: 'sine', from: 440, to: 440, attack: 0.002, decay: 0.1, gain: 1, partial: 0 };
 
 // Groups share defaults; each row is one sound. Weapon classes differ in crack, body and tail so guns can be told apart by ear (AUD-003).
 const SOUND_RECIPE_GROUPS = [
-  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7 }, rows: [
+  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7, retrigger: 0.07 }, rows: [
     { id: 'sidearm', gain: 2.8, noise: { from: 3200, to: 1400, q: 0.9, decay: 0.07, gain: 0.9 }, tone: { wave: 'triangle', from: 420, to: 140, decay: 0.09, gain: 0.5 } },
     { id: 'shotgun', noise: { filter: 'lowpass', from: 5000, to: 500, q: 0.7, decay: 0.32 }, tone: { from: 110, to: 45, decay: 0.26 } },
     { id: 'rifle', noise: { from: 2400, to: 800, q: 0.8, decay: 0.11 }, tone: { wave: 'triangle', from: 190, to: 75, decay: 0.13, gain: 0.7 } },
@@ -216,13 +220,25 @@ function finishSoundRecipe(row, index) {
   const recipe = Object.assign({}, SOUND_RECIPE_DEFAULTS, row);
   recipe.index = index;
   recipe.pitchSteps = row.pitchSteps || recipe.pulses.map(() => 1);
-  recipe.noise = row.noise ? Object.assign({}, SOUND_NOISE_DEFAULTS, row.noise) : null;
-  recipe.tone = row.tone ? Object.assign({}, SOUND_TONE_DEFAULTS, row.tone) : null;
+  recipe.noise = finishSoundLayer(row.noise, SOUND_NOISE_DEFAULTS, recipe.pulses);
+  recipe.tone = finishSoundLayer(row.tone, SOUND_TONE_DEFAULTS, recipe.pulses);
   recipe.priorityValue = AUDIO_PRIORITY[recipe.priority];
   recipe.duration = soundRecipeDuration(recipe);
   recipe.captionKind = recipe.caption ? AUDIO_CAPTION_KINDS.indexOf(recipe.captionKind) : -1;
   recipe.captionTexts = recipe.caption ? AUDIO_DIRECTIONS.map((direction) => '[' + recipe.caption + ' ' + direction + ']') : null;
   return recipe;
+}
+
+// Layer with its defaults and one decay per pulse. A Web Audio ramp starts from the previous event on the timeline, so a decay that
+// runs into the next pulse would drag that note's pitch and cut its level: every pulse but the last ends before the next one starts.
+function finishSoundLayer(layer, defaults, pulses) {
+  if (!layer) return null;
+  const finished = Object.assign({}, defaults, layer);
+  finished.decays = pulses.map((time, pulse) => {
+    if (pulse === pulses.length - 1) return finished.decay;
+    return Math.min(finished.decay, pulses[pulse + 1] - time - finished.attack - SOUND_PULSE_GAP);
+  });
+  return finished;
 }
 
 // Seconds from the first start to the end of the last pulse's decay (plus a small margin).
@@ -238,9 +254,15 @@ function buildSoundRecipes() {
   const rows = [];
   for (const group of SOUND_RECIPE_GROUPS) for (const row of group.rows) rows.push(Object.assign({}, group.defaults, row));
   rows.push(...expandMaterialRecipes());
-  Sound.recipes = rows.map((row, index) => finishSoundRecipe(row, index));
-  Sound.recipeById = new Map(Sound.recipes.map((recipe) => [recipe.id, recipe]));
-  Sound.triggerCounts = new Int32Array(Sound.recipes.length);
+  registerSoundRecipes(rows.map((row, index) => finishSoundRecipe(row, index)));
+}
+
+// Installs a finished recipe list and the per-recipe state arrays that depend on its length (tests register extra recipes with it).
+function registerSoundRecipes(recipes) {
+  Sound.recipes = recipes;
+  Sound.recipeById = new Map(recipes.map((recipe) => [recipe.id, recipe]));
+  Sound.triggerCounts = new Int32Array(recipes.length);
+  Sound.retriggerClock = new Float64Array(recipes.length * (MAX_ACTORS + 1)).fill(-1000);
 }
 
 // Recipe id for a payload: tries each [field, table] pair, then the last table's default. Unknown values never throw.
@@ -263,9 +285,15 @@ function scaleByField(scale, payload) {
 const soundPoint = { x: 0, y: 0, z: 0 };
 // Where the sound happens: the payload's x/y/z, the acting actor's body, or nowhere. False = skip the event.
 function fillSoundPoint(row, payload, source) {
-  if (row.pos === 'payload') { Vec.set(soundPoint, payload.x, payload.y, payload.z); return true; }
-  if (source < 0 || Actors.kind[source] === ACTOR_KIND.NONE) return false;
-  Vec.set(soundPoint, Actors.x[source], Actors.y[source] + Actors.height[source] * 0.5, Actors.z[source]);
+  if (row.pos === 'payload') return setSoundPoint(payload.x, payload.y, payload.z);
+  if (!(source >= 0 && source < Actors.count) || Actors.kind[source] === ACTOR_KIND.NONE) return false;
+  return setSoundPoint(Actors.x[source], Actors.y[source] + Actors.height[source] * 0.5, Actors.z[source]);
+}
+
+// A point with a missing or NaN coordinate would reach the panner and throw there, so such events are skipped.
+function setSoundPoint(x, y, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  Vec.set(soundPoint, x, y, z);
   return true;
 }
 

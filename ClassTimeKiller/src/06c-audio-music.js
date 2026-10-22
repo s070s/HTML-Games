@@ -21,6 +21,7 @@ const MUSIC_COMBAT_FROM = 0.15;                    // intensity where the combat
 const MUSIC_COMBAT_TO = 0.55;                      // intensity where it is fully in
 const MUSIC_CALM_UNDER_COMBAT = 0.65;              // how much the calm layer drops when combat is fully in
 const MUSIC_MIN_WEIGHT = 0.02;                     // layers quieter than this are not scheduled
+const MUSIC_IDLE_CUT_SECONDS = 4;                  // a layer silent this long (5 fade time constants) is cut from the output
 const MUSIC_NEAR_DAMAGE_SQ = 25 * 25;              // damage this close to the listener excites the music
 const MUSIC_DRONE_DETUNE = 1.007;
 const MUSIC_CHORDS = [[0, 3, 7], [-4, 0, 3], [3, 7, 10], [-2, 2, 5]];   // semitones above A: Am, F, C, G
@@ -111,10 +112,25 @@ const SoundMusic = {
   updateLayers(seconds) {
     this.layerClock += seconds;
     if (this.layerClock < MUSIC_LAYER_UPDATE_SECONDS) return;
+    const elapsed = this.layerClock;
     this.layerClock = 0;
     const weights = this.targetWeights(this.weights);
     const now = Sound.context.currentTime;
-    for (const name in MUSIC_LAYER_LEVELS) this.nodes[name].gain.setTargetAtTime(weights[name] * MUSIC_LAYER_LEVELS[name], now, MUSIC_LAYER_FADE);
+    for (const name in MUSIC_LAYER_LEVELS) {
+      this.nodes[name].gain.setTargetAtTime(weights[name] * MUSIC_LAYER_LEVELS[name], now, MUSIC_LAYER_FADE);
+      this.linkLayer(name, weights[name] >= MUSIC_MIN_WEIGHT, elapsed);
+    }
+  },
+  // A layer that stayed silent long enough is cut from the output (the audio thread then skips its oscillators) and
+  // reconnected the moment it is wanted again; its gain is still near 0 then, so it fades in without a click.
+  linkLayer(name, wanted, seconds) {
+    const nodes = this.nodes;
+    nodes.silentFor[name] = wanted ? 0 : nodes.silentFor[name] + seconds;
+    const shouldLink = nodes.silentFor[name] < MUSIC_IDLE_CUT_SECONDS;
+    if (nodes.linked[name] === shouldLink) return;
+    if (shouldLink) nodes[name].connect(nodes.output);
+    else nodes[name].disconnect();
+    nodes.linked[name] = shouldLink;
   },
 
   build() {
@@ -123,6 +139,8 @@ const SoundMusic = {
     output.connect(Sound.buses.music);
     const layer = () => { const node = context.createGain(); node.gain.value = 0; node.connect(output); return node; };
     const nodes = { output, calm: layer(), combat: layer(), boss: layer() };
+    nodes.linked = { calm: true, combat: true, boss: true };
+    nodes.silentFor = { calm: MUSIC_IDLE_CUT_SECONDS, combat: MUSIC_IDLE_CUT_SECONDS, boss: MUSIC_IDLE_CUT_SECONDS };   // the first update cuts what is not wanted
     nodes.pad = Array.from({ length: 3 }, () => makeMusicVoice(context, 'triangle', 900, 0.12, nodes.calm));
     nodes.bass = makeMusicVoice(context, 'sawtooth', 500, AUDIO_FLOOR_GAIN, nodes.combat);
     nodes.arp = makeMusicVoice(context, 'square', 2200, AUDIO_FLOOR_GAIN, nodes.combat);

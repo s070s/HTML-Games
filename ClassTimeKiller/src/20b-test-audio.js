@@ -25,6 +25,7 @@ function audioTestStart() {
 
 function audioTestFinish() {
   Sound.detach();
+  Sound.nowMs = audioClockMs; Sound.lineOfSight = null;
   Sound.forceActive = false; Sound.assumeRunning = false; Sound.contextFactory = null; Sound.speechSynth = null; Sound.blockedShown = false;
   SoundMusic.nodes = null; SoundMusic.setMood('auto');
   SoundQueue.count = 0;
@@ -172,11 +173,23 @@ Test.add('audio', (check) => {
       if (!numbers.every((value) => Number.isFinite(value) && value > 0)) problems.push(recipe.id + ' has a non-positive layer number');
     }
     if (recipe.pulses.length !== recipe.pitchSteps.length) problems.push(recipe.id + ' pulses and pitchSteps differ');
+    if (!recipe.pulses.every((time, pulse) => pulse === 0 || time > recipe.pulses[pulse - 1])) problems.push(recipe.id + ' pulses are not rising');
+    for (const layer of layers) {
+      const fits = layer.decays.length === recipe.pulses.length && layer.decays.every((decay, pulse) => decay >= SOUND_MIN_PULSE_DECAY
+        && (pulse === layer.decays.length - 1 || recipe.pulses[pulse] + layer.attack + decay < recipe.pulses[pulse + 1]));
+      if (!fits) problems.push(recipe.id + ' has a pulse too close to the next one');
+    }
     if (!Sound.buses && !['sfx', 'voice', 'ui', 'music'].includes(recipe.bus)) problems.push(recipe.id + ' bus');
     if (!(recipe.priorityValue > 0) || !(recipe.duration > 0) || !(recipe.range > 0)) problems.push(recipe.id + ' priority, duration or range');
     if (recipe.caption && recipe.captionKind < 0) problems.push(recipe.id + ' caption kind');
   }
   check('every recipe is valid', problems.length === 0, problems.slice(0, 4).join('; '));
+  const announce = Sound.recipeById.get('announce').tone;
+  check('overlapping pulses are cut to the room before the next pulse, the last one rings out', announce.decays[0] < announce.decay && announce.decays[1] < announce.decay && announce.decays[2] === announce.decay);
+  check('a lone pulse keeps its whole decay', Sound.recipeById.get('rifle').tone.decays.length === 1 && Sound.recipeById.get('rifle').tone.decays[0] === Sound.recipeById.get('rifle').tone.decay);
+  if (CAT.weapons) {
+    for (const key in SOUND_TABLES.weaponOverride) check('sound override ' + key + ' names a weapon in the catalogue', !!CAT.weapons.byId(key), key);
+  }
 
   const missing = [];
   for (const row of SOUND_EVENTS) {
@@ -222,6 +235,8 @@ Test.add('audio', (check) => {
 
   World.load({ id: 'wall', brushes: [{ shape: 'box', min: [-5, 0, 4], max: [5, 3, 5] }] });
   computeAudioSpatial(spatial, step, 0, 1.6, 10);
+  check('without a line-of-sight hook nothing is occluded', !Sound.isOccluded(spatial, 0, 1.6, 10));
+  Sound.lineOfSight = (ax, ay, az, bx, by, bz) => World.lineClear(ax, ay, az, bx, by, bz);
   check('a wall between listener and source occludes', Sound.isOccluded(spatial, 0, 1.6, 10));
   computeAudioSpatial(spatial, step, 10, 1.6, 0);
   check('open air does not occlude', !Sound.isOccluded(spatial, 10, 1.6, 0));
@@ -229,6 +244,7 @@ Test.add('audio', (check) => {
   Sound.occlusionRays = AUDIO_OCCLUSION_RAYS;
   check('occlusion rays are limited per frame', !Sound.isOccluded(spatial, 0, 1.6, 10));
   Sound.occlusionRays = 0;
+  Sound.lineOfSight = null;
   World.clear();
 
   const captions = audioTestCaptions();
@@ -435,13 +451,13 @@ Test.add('audio', (check) => {
     for (let k = 0; k < 4; k++) {
       audioTestPlace(bot, (frame % 7) * 4 - 12, 0, 6 + (k * 7) % 25);
       Bus.emit('move.step', { id: bot, speed: 6, surface: AUDIO_TEST_MATERIALS[(frame + k) % 8] });
-      Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: AUDIO_TEST_WEAPON_CLASSES[(frame + k) % 15], mode: 'primary', x: (k - 2) * 6, y: 1.5, z: 8 + frame % 30, dx: 0, dy: 0, dz: 1 });
+      Bus.emit('weapon.fire', { id: 10 + k, weapon: 'x', weaponClass: AUDIO_TEST_WEAPON_CLASSES[(frame + k) % 15], mode: 'primary', x: (k - 2) * 6, y: 1.5, z: 8 + frame % 30, dx: 0, dy: 0, dz: 1 });
     }
     Sound.update(AUDIO_TEST_FRAME);
   }
   const warm = made.counts.persistent;
   const stats = Sound.stats();
-  check('voices were started and the cap of 8 new voices per frame holds', stats.started > 24 && stats.maxStartedPerFrame <= 8, JSON.stringify(stats));
+  check('voices were started and the cap of 4 new voices per frame holds', stats.started > 24 && stats.maxStartedPerFrame <= 4, JSON.stringify(stats));
   check('the voice cap of 24 holds and stealing happened', stats.voices <= 24 && stats.stolen > 0, JSON.stringify(stats));
   check('no chain beyond the pool was built', Sound.slots.filter(Boolean).length === 24 && warm === persistentBase, warm - persistentBase);
   check('sounds create no source nodes (node creation costs 30 us each)', made.counts.oneShot === sourcesBase, made.counts.oneShot + ' vs ' + sourcesBase);
@@ -457,10 +473,10 @@ Test.add('audio', (check) => {
   Settings.set('video.quality', 'potato');
   const potatoStart = Sound.stats().started;
   for (let frame = 0; frame < 30; frame++) {
-    for (let k = 0; k < 10; k++) Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'smg', mode: 'primary', x: k * 3, y: 1.5, z: 10 + frame, dx: 0, dy: 0, dz: 1 });
+    for (let k = 0; k < 10; k++) Bus.emit('weapon.fire', { id: 10 + k, weapon: 'x', weaponClass: 'smg', mode: 'primary', x: k * 3, y: 1.5, z: 10 + frame, dx: 0, dy: 0, dz: 1 });
     Sound.update(AUDIO_TEST_FRAME);
   }
-  check('Potato starts at most 4 new voices a frame', Sound.stats().started - potatoStart <= 30 * 4);
+  check('Potato starts at most 2 new voices a frame', Sound.stats().started - potatoStart <= 30 * 2);
   Settings.set('video.quality', 'medium');
 
   Sound.resetState();
@@ -470,22 +486,6 @@ Test.add('audio', (check) => {
   Sound.update(AUDIO_TEST_FRAME);
   check('the most important sounds win the per-frame cap: your own click got a voice', Array.from(Sound.allocator.priority.subarray(0, 24)).includes(AUDIO_PRIORITY.own));
 
-  // Cost with a moving clock, so finished voices free their slots and 2 new voices start every frame.
-  const clock = { time: 0 };
-  Object.defineProperty(made.context, 'currentTime', { get: () => clock.time });
-  Sound.resetState();
-  Sound.allocator.reset();
-  let total = 0;
-  const frames = 600;
-  for (let frame = 0; frame < frames; frame++) {
-    for (let k = 0; k < 2; k++) Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: k * 2, y: 1.5, z: 12 + k, dx: 0, dy: 0, dz: 1 });
-    clock.time += AUDIO_TEST_FRAME;
-    const started = performance.now();
-    Sound.update(AUDIO_TEST_FRAME);
-    total += performance.now() - started;
-  }
-  check('2 new voices every frame were really started', Sound.stats().started >= frames * 2 * 0.9, Sound.stats().started);
-  check('audio scheduling stays under 0.3 ms per frame (AUD-007)', total / frames < 0.3, (total / frames).toFixed(3) + ' ms');
   audioTestFinish();
 });
 
@@ -589,11 +589,11 @@ Test.add('audio', (check) => {
 
   const spoken = [];
   Sound.speechSynth = { cancel() {}, speak(utterance) { spoken.push(utterance.text); } };
-  Bus.emit('announce', { text: 'Quad damage', kind: 'power', priority: 1 });
+  Bus.emit('announce', { text: 'Fury Core', kind: 'power', priority: 1 });
   check('announcer speech is off by default', spoken.length === 0 && audioTestCount('announcePower') === 0);
   Settings.set('audio.speech', true);
-  Bus.emit('announce', { text: 'Quad damage', kind: 'power', priority: 1 });
-  check('with the option on, the announcer text is spoken', spoken.length === 1 && spoken[0] === 'Quad damage', spoken.join('|'));
+  Bus.emit('announce', { text: 'Fury Core', kind: 'power', priority: 1 });
+  check('with the option on, the announcer text is spoken', spoken.length === 1 && spoken[0] === 'Fury Core', spoken.join('|'));
   Sound.update(AUDIO_TEST_FRAME);
   check('the sting still plays', audioTestCount('announcePower') === 1);
 
@@ -627,5 +627,210 @@ Test.add('audio', (check) => {
   check('HRTF panning on High and up, equal-power stereo below', spatialKinds.join(',') === 'hrtf,stereo', spatialKinds.join(','));
   void pause;
   Bus.off('toast', handler);
+  audioTestFinish();
+});
+
+// ---- Scheduling cost, stealing, pulses, retrigger, music layers (review fixes) ----
+
+// An OfflineAudioContext does not advance by itself: the test sets the clock by hand.
+function audioTestClock(context) {
+  const clock = { time: 0 };
+  Object.defineProperty(context, 'currentTime', { get: () => clock.time });
+  return clock;
+}
+
+// Registers extra recipes for one test; buildSoundRecipes() puts the real table back.
+function audioTestRegister(rows) {
+  registerSoundRecipes(Sound.recipes.concat(rows.map((row, offset) => finishSoundRecipe(row, Sound.recipes.length + offset))));
+}
+
+// Runs `script(clock)` against a fresh offline context and returns channel 0 of what it rendered.
+async function audioTestRenderScript(seconds, script) {
+  const context = new OfflineAudioContext(2, Math.ceil(seconds * 44100), 44100);
+  Sound.contextFactory = () => context;
+  Sound.assumeRunning = true;
+  Sound.unlock();
+  script(audioTestClock(context));
+  const buffer = await context.startRendering();
+  Sound.detach();
+  return buffer.getChannelData(0);
+}
+
+// Pitch of a steady tone from its zero crossings between two times.
+function audioTestFrequency(samples, fromSeconds, toSeconds) {
+  const first = Math.floor(fromSeconds * 44100), last = Math.floor(toSeconds * 44100);
+  let crossings = 0;
+  for (let i = first + 1; i < last; i++) if ((samples[i - 1] < 0) !== (samples[i] < 0)) crossings++;
+  return crossings / 2 / (toSeconds - fromSeconds);
+}
+
+// Several enemies fire at once, each from its own spot ahead of the listener (distinct sources and places, so nothing is merged).
+function audioTestVolley(count, firstId) {
+  for (let k = 0; k < count; k++) {
+    Bus.emit('weapon.fire', { id: firstId + k, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: k * 3 - 12, y: 1.5, z: 15, dx: 0, dy: 0, dz: -1 });
+  }
+}
+
+Test.add('audio', (check) => {
+  audioTestStart();
+  const made = audioTestAttach();
+  const clock = audioTestClock(made.context);
+  Sound.resetState();
+  Sound.allocator.reset();
+  // A big fight: eight explosions and six distant shooters every frame, a moving clock, a full pool, so nearly every start steals.
+  const frames = 660, warmUp = 60;
+  const costs = new Float64Array(frames - warmUp);
+  for (let frame = 0; frame < frames; frame++) {
+    const begin = performance.now();
+    for (let k = 0; k < 8; k++) {
+      Bus.emit('explosion', { x: ((frame * 7 + k * 13) % 40) - 20, y: 1, z: 8 + ((frame * 5 + k * 11) % 30), radius: 4, owner: 10 + k, source: 'x', element: '' });
+    }
+    for (let k = 0; k < 6; k++) {
+      Bus.emit('weapon.fire', { id: 20 + k, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: k * 4 - 10, y: 1.5, z: 10 + (frame + k) % 25, dx: 0, dy: 0, dz: -1 });
+    }
+    clock.time += AUDIO_TEST_FRAME;
+    Sound.update(AUDIO_TEST_FRAME);
+    if (frame >= warmUp) costs[frame - warmUp] = performance.now() - begin;
+  }
+  const stats = Sound.stats();
+  costs.sort();
+  const average = costs.reduce((sum, value) => sum + value, 0) / costs.length;
+  const p95 = costs[Math.floor(costs.length * 0.95)];
+  check('the heavy fight really saturates the pool: most starts steal a voice', stats.started > frames && stats.stolen > stats.started / 2 && stats.maxStartedPerFrame <= 4, JSON.stringify(stats));
+  check('audio work stays under 0.3 ms per frame on average, steals included (AUD-007)', average < 0.3, average.toFixed(3) + ' ms');
+  check('and the slow frames stay short too (95th percentile)', p95 < 0.6, p95.toFixed(3) + ' ms, worst ' + costs[costs.length - 1].toFixed(2));
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  audioTestStart();
+  audioTestAttach();
+  const captions = audioTestCaptions();
+  Sound.nowMs = () => 0;                              // a frozen clock: only the voice cap limits this part
+  audioTestVolley(8, 10);
+  Sound.update(AUDIO_TEST_FRAME);
+  check('the voice cap lets 4 new voices start in a frame', Sound.startedThisFrame === 4, Sound.startedThisFrame);
+  check('shots that got no voice are still captioned (ACC-003)', captions.length === 8 && captions.every((caption) => caption.kind === 'gunfire'), captions.length);
+
+  Sound.resetState();
+  Sound.allocator.reset();
+  let fake = 0;
+  Sound.nowMs = () => (fake += 0.15);                 // a slow phone: every look at the clock costs 0.15 ms
+  audioTestVolley(8, 10);
+  Sound.update(AUDIO_TEST_FRAME);
+  check('the time budget stops further voice starts in a frame', Sound.startedThisFrame === 2, Sound.startedThisFrame);
+  Sound.resetState();
+  Sound.allocator.reset();
+  fake = 0;
+  Sound.nowMs = () => (fake += 5);
+  audioTestVolley(8, 10);
+  Sound.update(AUDIO_TEST_FRAME);
+  check('but the first voice always starts', Sound.startedThisFrame === 1, Sound.startedThisFrame);
+
+  Settings.set('video.quality', 'potato');
+  Sound.refreshQuality();
+  Sound.resetState();
+  Sound.allocator.reset();
+  Sound.nowMs = () => 0;
+  audioTestVolley(8, 10);
+  Sound.update(AUDIO_TEST_FRAME);
+  check('Potato starts 2 new voices in a frame', Sound.startedThisFrame === 2, Sound.startedThisFrame);
+  Settings.set('video.quality', 'medium');
+  captions.stop();
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  const { bot } = audioTestStart();
+  const lmg = Sound.recipeIndex('lmg');
+  let accepted = 0;
+  for (let frame = 0; frame < 60; frame++) {
+    for (let k = 0; k < 2; k++) if (Sound.enqueue(lmg, true, k * 5, 1, 10, bot, 1, 1)) accepted++;
+    Sound.update(AUDIO_TEST_FRAME);
+  }
+  check('a beam-like source that asks every frame starts a sound about every 0.07 s', accepted >= 12 && accepted <= 16, accepted);
+  check('another actor is not held back by it', Sound.enqueue(lmg, true, 0, 1, 10, bot + 5, 1, 1));
+  Sound.update(AUDIO_TEST_FRAME);
+  check('recipes without a retrigger time are never held back', Sound.recipeById.get('impact.dirt').retrigger === 0 && Sound.enqueue(Sound.recipeIndex('impact.dirt'), true, 0, 1, 10, bot, 1, 1)
+    && Sound.enqueue(Sound.recipeIndex('impact.dirt'), true, 30, 1, 10, bot, 1, 1));
+  Sound.resetState();
+  check('a new match clears the retrigger times', Sound.enqueue(lmg, true, 0, 1, 10, bot, 1, 1));
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  const { player } = audioTestStart();
+  const before = SoundQueue.count;
+  Bus.emit('impact', { x: NaN, y: 1, z: 5, nx: 0, ny: 0, nz: -1, material: 'glass', weapon: 'x', owner: player });
+  Bus.emit('impact', { y: 1, z: 5, material: 'glass', owner: player });
+  Bus.emit('ping', { id: player, kind: 'danger', x: 1, y: Infinity, z: 2 });
+  check('events with a missing or NaN position are skipped', SoundQueue.count === before);
+  Bus.emit('move.step', { id: 9999, speed: 5, surface: 'metal' });
+  Bus.emit('move.step', { id: MAX_ACTORS - 1, speed: 5, surface: 'metal' });
+  Bus.emit('weapon.reload', { id: -4, weapon: 'x' });
+  check('actor events with an unknown id are skipped', SoundQueue.count === before);
+  Bus.emit('impact', { x: 1, y: 1, z: 5, material: 'glass', owner: player });
+  check('a complete position is still accepted', SoundQueue.count === before + 1);
+  audioTestFinish();
+});
+
+Test.add('audio', async (check) => {
+  audioTestStart();
+  audioTestRegister([{ id: 'testOverlap', pulses: [0, 0.1], pitchSteps: [1, 2], tone: { from: 400, to: 400, decay: 0.3, gain: 1 } }]);
+  const samples = await audioTestRenderScript(0.5, () => {
+    Sound.enqueue(Sound.recipeIndex('testOverlap'), false, 0, 0, 0, -1, 1, 1);
+    Sound.update(AUDIO_TEST_FRAME);
+  });
+  const first = audioTestFrequency(samples, 0.012, 0.06), second = audioTestFrequency(samples, 0.13, 0.19);
+  check('the second pulse of a sting lands on its own pitch, an octave above the first', Test.near(second / first, 2, 0.15), first.toFixed(0) + ' Hz then ' + second.toFixed(0) + ' Hz');
+  buildSoundRecipes();
+  audioTestFinish();
+});
+
+Test.add('audio', async (check) => {
+  audioTestStart();
+  audioTestRegister([
+    { id: 'testStung', pulses: [0, 0.15], pitchSteps: [1, 3], tone: { from: 400, to: 400, decay: 0.1, gain: 1 } },
+    { id: 'testSteady', tone: { from: 1000, to: 1000, decay: 0.5, gain: 1 } },
+  ]);
+  let stolen = 0;
+  const samples = await audioTestRenderScript(0.5, (clock) => {
+    Sound.allocator.limit = 1;
+    Sound.enqueue(Sound.recipeIndex('testStung'), false, 0, 0, 0, -1, 1, 1);
+    Sound.update(AUDIO_TEST_FRAME);
+    clock.time = 0.03;                                 // the stung voice is still ringing, its second pulse (3x pitch) is pending
+    Sound.enqueue(Sound.recipeIndex('testSteady'), false, 0, 0, 0, -1, 1, 1);
+    Sound.update(AUDIO_TEST_FRAME);
+    stolen = Sound.allocator.stolen;
+  });
+  const pitch = audioTestFrequency(samples, 0.16, 0.24);
+  check('the second sound stole the voice of the first', stolen === 1, stolen);
+  check('a stolen voice keeps nothing of the old pitch automation', Test.near(pitch, 1000, 90), pitch.toFixed(0) + ' Hz (1200 Hz = the old pulse survived)');
+  buildSoundRecipes();
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  audioTestStart();
+  Game.state = 'playing';
+  audioTestAttach();
+  Sound.setMusicMood('calm');
+  SoundMusic.update(0.3);
+  const nodes = SoundMusic.nodes;
+  for (let i = 0; i < 24; i++) SoundMusic.update(0.25);
+  check('layers that stay silent are cut from the output', !!nodes && !nodes.linked.boss && !nodes.linked.combat && nodes.linked.calm, JSON.stringify(nodes && nodes.linked));
+  Sound.setMusicMood('boss');
+  SoundMusic.update(0.25);
+  check('a layer that is wanted again is reconnected', nodes.linked.boss && nodes.linked.combat && nodes.linked.calm);
+  Sound.setMusicMood('calm');
+  for (let i = 0; i < 12; i++) SoundMusic.update(0.25);
+  check('a layer silent for 3 s is still connected', nodes.linked.boss === true);
+  for (let i = 0; i < 5; i++) SoundMusic.update(0.25);
+  check('and it is cut again after 4 silent seconds', nodes.linked.boss === false);
+  Sound.setMusicMood('boss');
+  SoundMusic.update(0.25);
+  Sound.setMusicMood('calm');
+  for (let i = 0; i < 8; i++) SoundMusic.update(0.25);
+  check('a short break in the music keeps the layer connected', nodes.linked.boss === true);
   audioTestFinish();
 });
