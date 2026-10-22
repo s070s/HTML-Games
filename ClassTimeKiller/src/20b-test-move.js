@@ -1,7 +1,6 @@
 // Self-tests for S10 movement (group 'move'): MOV-026 per preset, frame-rate independence, every mechanic on test geometry.
 // The helpers here (test worlds, test actors, stepping) are shared with 20b-test-world.js.
 
-const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };
 
 function loadTestWorld(brushes, extra) {
   World.load(Object.assign({ id: 'test', brushes: [TEST_FLOOR].concat(brushes || []) }, extra || {}));

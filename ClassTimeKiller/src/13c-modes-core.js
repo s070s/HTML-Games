@@ -3,7 +3,7 @@
 // M13 plants and defuses a charge in rounds; M14 is elimination rounds with a shrinking safe area; M15 counts lives.
 
 const LMS_LIFE_WEIGHT = 1000;        // Last Standing ranks by lives left first, then by score
-const HAZARD_INTERVAL = 1;           // the elimination safe area hurts once per second
+const SAFE_AREA_HURT_INTERVAL = 1;           // the elimination safe area hurts once per second
 const SAFE_AREA_FALLBACK_RADIUS = 50;
 
 const hazardRequest = { target: -1, source: -1, amount: 0, kind: 'hazard', element: 'kinetic', x: 0, y: 0, z: 0 };
@@ -219,10 +219,10 @@ Modes.register('elim', {
     const radius = lerp(this.fullRadius, params.shrinkMinRadius, 1 - clamp(remaining / params.shrinkTime, 0, 1));
     Modes.hud.zoneX = this.centerX; Modes.hud.zoneZ = this.centerZ; Modes.hud.zoneRadius = radius;
     this.hazardTimer += dt;
-    if (this.hazardTimer + TIME_EPSILON < HAZARD_INTERVAL) return;
-    this.hazardTimer -= HAZARD_INTERVAL;
+    if (this.hazardTimer + TIME_EPSILON < SAFE_AREA_HURT_INTERVAL) return;
+    this.hazardTimer -= SAFE_AREA_HURT_INTERVAL;
     for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && Modes.isActive(id) && Math.hypot(Actors.x[id] - this.centerX, Actors.z[id] - this.centerZ) > radius) requestHazard(id, params.zoneDamage * HAZARD_INTERVAL);
+      if (Actors.alive[id] && Modes.isActive(id) && Math.hypot(Actors.x[id] - this.centerX, Actors.z[id] - this.centerZ) > radius) requestHazard(id, params.zoneDamage * SAFE_AREA_HURT_INTERVAL);
     }
   },
 });

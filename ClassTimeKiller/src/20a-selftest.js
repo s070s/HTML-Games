@@ -8,6 +8,8 @@
 const TEST_HOOKS = [[Input, 'aimAssistTarget'], [Render, 'viewModel'], [Render, 'cameraOverride'], [Render, 'actorStyle'],
   [Render, 'worldQuery'], [Sound, 'lineOfSight']];
 
+const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };   // 120 m test floor shared by test files
+
 const Test = {
   blocks: [],
   loadedHooks: [],

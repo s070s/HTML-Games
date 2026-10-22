@@ -3,7 +3,6 @@
 
 DebugApi.modes = Modes;   // __CTK.modes: objectives, hudState(), per-actor stats
 
-const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };
 const testKill = { victim: -1, killer: -1, assister: -1, weapon: '', zone: 'body', element: 'kinetic', x: 0, y: 0, z: 0 };
 
 function modesTestMap(extra) {
@@ -30,7 +29,7 @@ function placeActor(id, x, z) {
 function runSeconds(seconds) { Sim.run(Math.round(seconds * TICK_RATE)); }
 
 // Records every payload of an event type (copied, since emitters reuse payload objects) until stop() is called.
-function recordEvents(type) {
+function startEventLog(type) {
   const log = [];
   const handler = Bus.on(type, (payload) => log.push(Object.assign({ time: Sim.time }, payload)));
   log.stop = () => Bus.off(type, handler);
@@ -86,7 +85,7 @@ Test.add('modes', (check) => {
 });
 
 Test.add('modes', (check) => {
-  const spawns = recordEvents('actor.spawn');
+  const spawns = startEventLog('actor.spawn');
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
   Game.start({ mode: 'ffa', seed: 1, player: { name: 'Tester', handicap: 0.5 }, bots: [{ profile: 'nobody' }, { name: 'Named', handicap: 0.75 }, { dummy: true }] });
   spawns.stop();
@@ -128,7 +127,7 @@ Test.add('modes', (check) => {
 });
 
 Test.add('modes', (check) => {
-  const scores = recordEvents('score');
+  const scores = startEventLog('score');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let i = 0; i < 24; i++) killActor(1, 0);
   Sim.step();
@@ -157,7 +156,7 @@ Test.add('modes', (check) => {
   check('ffa ends at the time limit with the leader', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'time');
   endModeTest();
 
-  const announcements = recordEvents('announce');
+  const announcements = startEventLog('announce');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { timeLimit: 120 } });
   runSeconds(60.01);
   check('time warning at 1 minute', announcements.some((event) => event.text === '1 minute remaining'));
@@ -234,7 +233,7 @@ Test.add('modes', (check) => {
 
 Test.add('modes', (check) => {
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1]);
-  const spawns = recordEvents('actor.spawn');
+  const spawns = startEventLog('actor.spawn');
   runSeconds(1);
   const deathTime = Sim.time;
   killActor(1, 0);
@@ -448,7 +447,7 @@ Test.add('modes', (check) => {
   endModeTest();
 
   const controlMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'U', kind: 'point', x: 0, y: 0, z: 0 }] };
-  const rounds = recordEvents('round');
+  const rounds = startEventLog('round');
   startModeTest('control', modesTestMap(controlMap), [0, 1], { modeOptions: { params: { captureTime: 1, progressTime: 5 }, rounds: { freeze: 1, endDelay: 1 } } });
   check('control: round 1 starts frozen', Modes.phase === PHASE.FREEZE && (Actors.flags[0] & ACTOR_FLAG.FROZEN) !== 0);
   runSeconds(1.01);
@@ -529,7 +528,7 @@ Test.add('modes', (check) => {
   endModeTest();
 
   startBombTest();
-  const blasts = recordEvents('explosion');
+  const blasts = startEventLog('explosion');
   placeActor(0, 20, 0);
   holdUseFor(0, 4);
   runSeconds(40 - 1 / TICK_RATE - 0.01);
@@ -567,7 +566,7 @@ Test.add('modes', (check) => {
 });
 
 Test.add('modes', (check) => {
-  const hazards = recordEvents('damage.request');
+  const hazards = startEventLog('damage.request');
   startModeTest('elim', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 40, winsNeeded: 2 } } });
   runSeconds(1.01);
   placeActor(1, 0, 0); placeActor(2, 59, 59);
