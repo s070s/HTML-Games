@@ -214,6 +214,18 @@ Test.add('settings', (check) => {
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
   Settings.set('assist.gameSpeed', 0.7);
+  // Restart and Play again start the adjusted setup again: assists switched off or moved back since then must come off.
+  const restarted = { mode: 'ffa', seed: 1, difficulty: 'regular' };
+  Game.start(restarted); Game.stop();
+  Settings.set('assist.enabled', false);
+  Game.start(restarted);
+  check('assist: a restart after switching assists off drops them', restarted.difficulty === 'regular' && !Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.enabled', true); Settings.set('assist.gameSpeed', 1);
+  Game.start(restarted);
+  check('assist: a restart after a slider went back to neutral drops it', restarted.difficulty.preset === 'regular' && restarted.difficulty.gameSpeed === undefined, JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };
@@ -332,4 +344,10 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
   check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
   SaveTransfer.reload = reload;
+  const anchorClick = HTMLAnchorElement.prototype.click;
+  let clicked = null, connected = false;
+  HTMLAnchorElement.prototype.click = function recordClick() { clicked = this; connected = this.isConnected; };
+  SaveTransfer.download();
+  HTMLAnchorElement.prototype.click = anchorClick;
+  check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));

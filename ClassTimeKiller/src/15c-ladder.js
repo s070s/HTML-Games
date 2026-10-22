@@ -228,7 +228,8 @@ const Daily = {
   },
   todayKey() { const now = Date.now(); return this.dateKey(now, -new Date(now).getTimezoneOffset()); },
   modes() { return DAILY_RULES.modes.filter((mode) => Modes.isPlayable(mode) && dailyHandMaps(mode).length > 0); },
-  // Mode, bundle, 2 non-conflicting mutators and the map, all from the date's seed.
+  // Mode, bundle, 2 non-conflicting mutators, the hand-made map and the generator id, all from the date's seed.
+  // Only setup() builds the generated map (tens to hundreds of ms), so showing the choice on the Daily screen stays cheap.
   choiceFor(key) {
     const seed = hashString('daily:' + key), random = makeRandom(seed);
     const mode = random.pick(this.modes()), ruleset = random.pick(DAILY_RULES.rulesets);
@@ -238,11 +239,11 @@ const Daily = {
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
     const hand = random.pick(dailyHandMaps(mode)), generator = random.pick(dailyGenerators(mode));
-    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode, generator) };
+    return { key, seed, mode, ruleset, mutators, map: hand.id, generator: Daily.generateMap && generator ? generator.id : '' };
   },
   setup(key) {
-    const choice = this.choiceFor(key);
-    return progressSetup({ mode: choice.mode, map: choice.generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
+    const choice = this.choiceFor(key), generated = dailyGeneratedMap(choice.seed, choice.mode, choice.generator);
+    return progressSetup({ mode: choice.mode, map: generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
       bots: Array.from({ length: DAILY_RULES.bots }, () => ({})), difficulty: DAILY_RULES.difficulty },
     { kind: 'daily', key }, choice.seed);
   },
@@ -270,10 +271,10 @@ function dailyGenerators(mode) { return CAT.generators.filter((row) => row.modes
 // MAP-020: a map the date's generator builds for the mode at DAILY_RULES.mapSize (allowed on every quality tier, so every device
 // builds the same map); null (the hand-made map) without the generator hook or a generator for the mode, or when the map built
 // does not offer the mode (a fallback map for other modes).
-function dailyGeneratedMap(seed, mode, generator) {
-  if (!Daily.generateMap || !generator) return null;
+function dailyGeneratedMap(seed, mode, generatorId) {
+  if (!Daily.generateMap || !generatorId) return null;
   try {
-    const map = Daily.generateMap({ generator: generator.id, seed, mode, size: DAILY_RULES.mapSize });
+    const map = Daily.generateMap({ generator: generatorId, seed, mode, size: DAILY_RULES.mapSize });
     return map && Array.isArray(map.spawns) && map.spawns.length > 0 && map.modes.includes(mode) ? map : null;
   } catch (error) {
     ErrorLog.add('daily map', error);

@@ -34,6 +34,7 @@ Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.con
 
 // ---- Save export and import (ARC-020, PLT-007): the whole save as text to copy or as a file; paste or load one back ----
 const SAVE_FILE_NAME = 'classtimekiller-save.json';
+const SAVE_URL_LIFETIME_MS = 10000;   // Safari / iOS drop a download whose blob URL is revoked right after the click
 const SaveTransfer = {
   reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
   // Imports the text and restarts; returns '' on success, else the reason shown to the player.
@@ -50,8 +51,10 @@ const SaveTransfer = {
     const url = URL.createObjectURL(new Blob([Save.exportText()], { type: 'application/json' }));
     const link = makeElement('a');
     link.href = url; link.download = SAVE_FILE_NAME;
+    document.body.appendChild(link);   // some browsers ignore a click on a detached link
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), SAVE_URL_LIFETIME_MS);
   },
   readFile(file, area) { file.text().then((text) => { area.value = text; }).catch(() => Ui.toast('That file could not be read.')); },
 };
@@ -139,10 +142,14 @@ const DifficultyAssist = {
     return values;
   },
   // setup.difficulty for the setup: the chosen preset plus the player's changed assists when switched on.
+  // Restart and Play again start the same setup again, so the choice before any assist is kept in setup.baseDifficulty
+  // and every run rebuilds from it: assists switched off or moved back to neutral since then come off.
   apply(setup) {
-    if (!this.enabled()) return;
-    const preset = typeof setup.difficulty === 'string' ? setup.difficulty : setup.difficulty && setup.difficulty.preset;
-    const previous = setup.difficulty && typeof setup.difficulty === 'object' ? setup.difficulty : null;
+    if (!('baseDifficulty' in setup)) setup.baseDifficulty = setup.difficulty;
+    const base = setup.baseDifficulty;
+    if (!this.enabled()) { setup.difficulty = base; return; }
+    const preset = typeof base === 'string' ? base : base && base.preset;
+    const previous = base && typeof base === 'object' ? base : null;
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };

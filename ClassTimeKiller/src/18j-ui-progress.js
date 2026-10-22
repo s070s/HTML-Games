@@ -212,7 +212,7 @@ Ui.register('operations', {
 // ---- Daily Seed ----
 function careerDailySummary(choice) {
   const ruleset = CAT.rulesets.byId(choice.ruleset), names = choice.mutators.map((id) => Mutators.row(id).name);
-  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generated ? 'generated map' : careerMapName(choice.map));
+  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generator ? 'generated map' : careerMapName(choice.map));
 }
 Ui.register('daily', {
   build(root) {

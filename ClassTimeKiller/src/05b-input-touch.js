@@ -81,10 +81,14 @@ function gyroToLook(rotationRate, angle, out) {
   return out;
 }
 
-// INP-004: the USE button shows only while the running mode needs Use held (mode row useButton).
+// INP-004: the USE button shows only while Use can act: the running mode needs Use held (mode row useButton),
+// or a later section's fn in TouchInput.useNeeds is true (S11 revive in downed rulesets, S10 skimmer board on large maps).
 function useButtonNeeded() {
-  const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
-  return !!mode && mode.useButton;
+  if (!Game.match || !Game.match.rules) return false;
+  const mode = CAT.modes.byId(Game.match.rules.mode);
+  if (mode && mode.useButton) return true;
+  for (let index = 0; index < TouchInput.useNeeds.length; index++) if (TouchInput.useNeeds[index]()) return true;
+  return false;
 }
 
 const TouchInput = {
@@ -102,6 +106,7 @@ const TouchInput = {
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
   needs: { use: () => useButtonNeeded(), comm: null },
+  useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
 
   init() {

@@ -67,7 +67,6 @@ const PadInput = {
     emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { emitToast(text); },
   reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
@@ -91,15 +90,17 @@ const PadInput = {
   // pad: a Gamepad (or a plain object with buttons[{pressed,value}] and axes[]) - tests feed fake pads here.
   poll(pad, seconds) {
     this.detectStyle(pad);
-    for (let i = 0; i < PAD_BUTTON_COUNT; i++) {
-      const button = pad.buttons[i];
-      const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
-      if (down === (this.previous[i] === 1)) continue;
-      this.previous[i] = down ? 1 : 0;
-      this.onButton(i, down);
-    }
+    this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
+    for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
     this.readSticks(pad, seconds);
     this.updateMenuRepeat(pad, seconds);
+  },
+  pollButton(pad, index) {
+    const button = pad.buttons[index];
+    const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
+    if (down === (this.previous[index] === 1)) return;
+    this.previous[index] = down ? 1 : 0;
+    this.onButton(index, down);
   },
   onButton(index, down) {
     if (!down) { this.releaseButton(index); return; }

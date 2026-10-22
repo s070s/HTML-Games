@@ -153,9 +153,9 @@ Test.add('core', (check) => {
 });
 
 // One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other
-// section builds its own 'sound', 'impulse' or 'toast' payload (18g, the custom match UI, is left to its owner).
+// section builds its own 'sound', 'impulse' or 'toast' payload.
 const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;
-const SHARED_EMIT_EXEMPT = ['01-core.js', '18g-ui-custom.js'];
+const SHARED_EMIT_EXEMPT = ['01-core.js'];
 Test.add('core', (check) => {
   const seen = [];
   const handlers = ['sound', 'impulse', 'toast'].map((type) => [type, Bus.on(type, (payload) => seen.push(type + ':' + JSON.stringify(payload)))]);

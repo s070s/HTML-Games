@@ -664,6 +664,12 @@ Test.add('input', (check) => {
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
   check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
+  Game.match.rules = { mode: 'tdm', teams: 2, downed: true }; TouchInput.applyAll();
+  check('touch: USE shows in a team match with downed and revive (HP-007)', !TouchInput.elements.use.classList.contains('off'));
+  const loadedMap = World.map;
+  Game.match.rules = { mode: 'ffa' }; World.map = { size: SKIMMER_MIN_MAP_SIZE }; TouchInput.applyAll();
+  check('touch: USE shows on a map large enough for the skimmer board (MOV-027)', !TouchInput.elements.use.classList.contains('off'));
+  World.map = loadedMap;
   Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
   check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
   check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
@@ -708,7 +714,7 @@ Test.add('input', (check) => {
   const id = startInputMatch();
   const pad = inputFakePad();
   inputUsePad(pad);
-  check('pad: walk, gadget and comm have View chord defaults (INP-007)', Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
+  check('pad: walk, gadget, comm and heal have View chord defaults (INP-007)', Input.getBinding('heal', 2) === 'Pad:8+0' && Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
   check('pad: a chord binding is labelled with both glyphs', Input.bindingLabel('Pad:8+2') === 'View + X');
   inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
   inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
@@ -719,7 +725,10 @@ Test.add('input', (check) => {
   inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
   inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
   check('pad: X alone still reloads', (Actors.buttons[id] & BTN.RELOAD) !== 0 && (Actors.buttons[id] & BTN.GADGET) === 0);
-  inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, false); inputStepAndFrame(); inputStepAndFrame();
+  inputPadButton(pad, 8, true); inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: View and X going down in one poll still make the chord', (Actors.buttons[id] & BTN.GADGET) !== 0 && (Actors.buttons[id] & BTN.RELOAD) === 0 && !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, false); inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
   inputReleasePad();
 });
 

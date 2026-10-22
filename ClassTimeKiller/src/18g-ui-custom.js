@@ -423,7 +423,6 @@ const EDITOR_CHANGED = {
   },
 };
 
-function editorToast(text) { Bus.emit('toast', { text }); }
 function editorDraft() {
   if (!EDITOR_STATE.draft) EDITOR_STATE.draft = CustomMatch.load();
   return EDITOR_STATE.draft;
@@ -461,7 +460,7 @@ function editorWeaponRows(list) {
   const draft = EDITOR_STATE.draft;
   const limited = Ui.toggle(!!draft.weaponList, (on) => {
     const message = CustomMatch.setWeaponList(draft, on ? CAT.weapons.map((row) => row.id) : null);
-    if (message) editorToast(message);
+    if (message) emitToast(message);
     editorChanged();
   });
   list.appendChild(Ui.row('Limit to chosen weapons', limited));
@@ -475,7 +474,7 @@ function editorWeaponRows(list) {
 function editorToggleWeapon(key, on) {
   const draft = EDITOR_STATE.draft, next = draft.weaponList.filter((item) => item !== key);
   if (on) next.push(key);
-  if (!next.length) { editorToast('At least one weapon is needed.'); editorChanged(); return; }
+  if (!next.length) { emitToast('At least one weapon is needed.'); editorChanged(); return; }
   draft.weaponList = CAT.weapons.map((row) => row.id).filter((id) => next.includes(id));
   CustomMatch.save(draft);
 }
@@ -510,7 +509,7 @@ function editorSwitchMutator(row, on) {
   const draft = EDITOR_STATE.draft;
   if (!on) { draft.mutators = Mutators.remove(draft.mutators, row.id); editorChanged(); return; }
   const message = CustomMatch.turnOnMutator(draft, row.id);
-  if (message) editorToast(message);
+  if (message) emitToast(message);
   editorChanged();
 }
 function editorMutatorRows(list) {
@@ -619,7 +618,7 @@ function presetRow(preset, nameInput, renderList) {
   }));
   wrap.appendChild(Ui.button('Overwrite', () => {
     const saved = CustomMatch.saveAs(editorDraft(), preset.name, preset.id);
-    editorToast(saved ? 'Preset ' + preset.name + ' overwritten.' : Rules.custom.lastError);
+    emitToast(saved ? 'Preset ' + preset.name + ' overwritten.' : Rules.custom.lastError);
   }));
   wrap.appendChild(Ui.button('Delete', () => Ui.confirm({ title: 'Delete preset?', text: preset.name, yes: 'Delete', onYes: () => { Rules.custom.remove(preset.id); renderList(); } }), 'danger'));
   return Ui.row(preset.name, wrap);
@@ -641,7 +640,7 @@ Ui.register('customPresets', {
     };
     const save = Ui.button('Save as new', () => {
       const saved = CustomMatch.saveAs(editorDraft(), nameInput.value);
-      editorToast(saved ? 'Preset ' + saved.name + ' saved.' : Rules.custom.lastError);
+      emitToast(saved ? 'Preset ' + saved.name + ' saved.' : Rules.custom.lastError);
       renderList();
     }, 'primary');
     const form = makeElement('div', 'cm-controls');
@@ -656,10 +655,10 @@ Ui.register('customPresets', {
 function copyText(text, field) {
   const fallback = () => {
     field.select();
-    try { document.execCommand('copy'); editorToast('Code copied.'); } catch (error) { editorToast('Select the code and copy it.'); }
+    try { document.execCommand('copy'); emitToast('Code copied.'); } catch (error) { emitToast('Select the code and copy it.'); }
   };
   if (!navigator.clipboard) { fallback(); return; }
-  navigator.clipboard.writeText(text).then(() => editorToast('Code copied.'), fallback);
+  navigator.clipboard.writeText(text).then(() => emitToast('Code copied.'), fallback);
 }
 Ui.register('customShare', {
   build(root) {
