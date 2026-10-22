@@ -24,13 +24,18 @@ for (const row of ACCESS_SETTINGS) {
   Settings.define(row.key, row.fallback, { label: row.label, category: 'accessibility', min: row.min, max: row.max, step: row.step, options: row.options, optionLabels: row.optionLabels });
 }
 
+// Screens fade in; reduce motion (the setting or the system preference) switches every menu animation off through one class.
+const ACCESS_CSS = '.ui-screen { animation: ui-screen-in 0.16s ease-out; } @keyframes ui-screen-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }'
+  + '.reduce-motion .ui-screen, .reduce-motion .ui-toast { animation: none; }';
+
 const Access = {
-  // Pushes the settings into the fields the renderer reads (Render.config.*, Render.teamPalette).
+  // Pushes the settings into the fields the renderer reads (Render.config.*, Render.teamPalette) and the menu animation class.
   apply() {
     const config = Render.config;
     config.highContrast = Settings.get('accessibility.highContrast');
     config.particleScale = Settings.get('accessibility.particles') / 100;
     Render.teamPalette = Hud.paletteId === 'off' ? null : Hud.colors.teams;
+    document.documentElement.classList.toggle('reduce-motion', Hud.reduceMotion());
   },
   // Rows for a list of existing settings, with a heading: the same settings as their home tab (ACC-004, ACC-006).
   addMirroredRows(container, title, keys) {
@@ -44,7 +49,7 @@ const Access = {
   mirroredCount() { return this.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length; },
 };
 
-Bus.on('boot', () => Access.apply());
+Bus.on('boot', () => { injectStyle('ui-access-style', ACCESS_CSS); Access.apply(); });
 Bus.on('match.start', () => Access.apply());
 Bus.on('setting', (key) => { if (typeof key === 'string' && key.startsWith('accessibility.')) Access.apply(); });
 

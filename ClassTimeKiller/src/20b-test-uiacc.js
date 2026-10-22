@@ -89,7 +89,11 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   // ---- ACC-002 captions, barks and the sound ring ----
   const scene = hudTestMatch();
   Settings.set('hud.element.captions', true);
+  const canPlay = Sound.canPlay;
+  Sound.canPlay = () => false;   // no audio engine delivering captions (an earlier test may have left one running)
+  HudCaptions.reset();
   hudTestEvent('bark', { id: scene.mate, team: 0, category: 'spotted', text: 'Contact!' });
+  check('barks: without an audio engine the speaker shows as a voice disc on the sound ring', HudCaptions.soundKind.some((kind, index) => kind === 'voice' && HudCaptions.soundAt[index] > 0));
   hudTestEvent('bark', { id: scene.enemy, team: 1, category: 'spotted', text: 'Enemy chatter' });
   hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Too slow.' });
   check('barks: a teammate bark becomes a chat line with the speaker', HudExtra.barkText.includes('Contact!') && HudExtra.barkName[HudExtra.barkText.indexOf('Contact!')] === Actors.name[scene.mate]);
@@ -100,8 +104,6 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   HudCaptions.reset();
   hudTestEvent('announce', { text: 'Blue takes the lead', kind: 'lead', priority: 2 });
   check('subtitles: announcer text is also a caption while captions are on', HudCaptions.text.includes('Blue takes the lead'));
-  const canPlay = Sound.canPlay;
-  Sound.canPlay = () => false;   // no audio engine delivering captions (an earlier test may have left one running)
   HudCaptions.reset();
   hudTestEvent('sound', { x: 10, y: 0, z: 0, radius: 40, kind: 'shot', source: scene.enemy });
   check('captions: a shot to the left reads [Gunfire left]', HudCaptions.text.includes('[Gunfire left]'), HudCaptions.text.join());
@@ -204,6 +206,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   ViewFx.apply(camera, 0.016);
   check('motion: with reduce motion the camera stays where it is', camera.roll === 0 && camera.yaw === 0.5 && camera.pitch === 0.1 && camera.fov === 90);
   Settings.set('accessibility.reduceMotion', 'auto');
+  check('motion: reduce motion also switches the menu animations off (one class)', (Settings.set('accessibility.reduceMotion', 'on'), document.documentElement.classList.contains('reduce-motion')) && (Settings.set('accessibility.reduceMotion', 'off'), !document.documentElement.classList.contains('reduce-motion')));
   check('motion: auto follows the system preference', Hud.reduceMotion() === hudSystemReduceMotion);
   Settings.set('accessibility.reduceMotion', 'off');
   ViewFx.reset();

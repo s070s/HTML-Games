@@ -7,6 +7,7 @@ const HELP_LINES = [
   'Win matches against bots in fast first-person arena fights. Quick Match starts one right away.',
   'Keyboard and mouse: click the game to lock the mouse. Gamepad: any pad with the standard layout. Touch: left side moves, right side looks.',
   'Settings apply immediately and are saved. Everything can be rebound under Settings > Controls.',
+  'Captions, the sound ring, colour-blind palettes, reduced motion and hold or toggle for every held action are under Settings > Accessibility.',
 ];
 const HELP_START_STEPS = [
   'Press Quick Match. A match against bots starts at once with your last setup.',

@@ -97,8 +97,15 @@ Bus.on('bark', (event) => {
   const player = Game.playerId;
   if (player < 0) return;
   const mine = Actors.team[player] >= 0 && event.team === Actors.team[player];
-  if (mine || event.category === HUD_BARK_TAUNT) HudExtra.addBark(event);
+  if (!mine && event.category !== HUD_BARK_TAUNT) return;
+  HudExtra.addBark(event);
+  if (!Sound.canPlay()) HudCaptions.addSound(hudVoicePoint(event.id));   // the voice disc of the ring, as the audio engine's radio blip would give
 });
+const hudVoiceCue = { x: 0, z: 0, kind: 'voice' };
+function hudVoicePoint(id) {
+  hudVoiceCue.x = Actors.x[id]; hudVoiceCue.z = Actors.z[id];
+  return hudVoiceCue;
+}
 // Announcer text is also a subtitle when captions are on.
 Bus.on('announce', (event) => { if (Hud.elements.captions && event.text) HudCaptions.addCaption(event.text); });
 
