@@ -43,6 +43,15 @@ const MEDAL_RULES = {
   comebackDeaths: 3, defendRadius: 10, longShotMetres: 50, clutchEnemies: 2, railHits: 2, railWeapons: ['lancet'],
 };
 
+// Weapon mastery (PRG-014): per weapon, kills and headshots reach a tier; each tier unlocks its `reward` (an UNLOCK_ROWS row below,
+// built from here: the one place the mastery colours live).
+const MASTERY_TIERS = [
+  { id: 'bronze', name: 'Bronze', kills: 25, headshots: 0, reward: { id: 'colorBronzeMastery', name: 'Bronze Mastery', kind: 'color', value: 0xb07a4a } },
+  { id: 'silver', name: 'Silver', kills: 75, headshots: 15, reward: { id: 'colorSilverMastery', name: 'Silver Mastery', kind: 'color', value: 0xc4ccd4 } },
+  { id: 'gold', name: 'Gold', kills: 150, headshots: 40, reward: { id: 'colorGoldMastery', name: 'Gold Mastery', kind: 'color', value: 0xe8c250 } },
+  { id: 'master', name: 'Master', kills: 300, headshots: 100, reward: { id: 'finishMasterGlow', name: 'Master Glow', kind: 'finish', value: 0.65 } },
+];
+
 // ---- Unlocks (PRG-010, PRG-011): cosmetics and sidegrades only. kind: 'color' (body colour), 'finish' (body glow),
 // 'title' (profile title), 'challenge' (a Challenge Room opens), 'card' (a card can be placed). Reached by level (<= 30)
 // or by one named challenge: `mastery` (a weapon mastery tier, PRG-014) or `card` (the card's own play-style condition).
@@ -71,21 +80,10 @@ const UNLOCK_ROWS = [
   { id: 'titleElite', name: 'Elite', kind: 'title', level: 26, value: 'Elite' },
   { id: 'colorRoyal', name: 'Royal', kind: 'color', level: 28, value: 0x4b3fb8 },
   { id: 'titleLegend', name: 'Legend', kind: 'title', level: 30, value: 'Legend' },
-  { id: 'colorBronzeMastery', name: 'Bronze Mastery', kind: 'color', mastery: 'bronze', value: 0xb07a4a },
-  { id: 'colorSilverMastery', name: 'Silver Mastery', kind: 'color', mastery: 'silver', value: 0xc4ccd4 },
-  { id: 'colorGoldMastery', name: 'Gold Mastery', kind: 'color', mastery: 'gold', value: 0xe8c250 },
-  { id: 'finishMasterGlow', name: 'Master Glow', kind: 'finish', mastery: 'master', value: 0.65 },
+  ...MASTERY_TIERS.map((tier) => Object.assign({ mastery: tier.id }, tier.reward)),
   { id: 'roomsTier2', name: 'Challenge Rooms 6-10', kind: 'challenge', level: 4, value: 2 },
   { id: 'roomsTier3', name: 'Challenge Rooms 11-15', kind: 'challenge', level: 9, value: 3 },
   { id: 'roomsTier4', name: 'Challenge Rooms 16-20', kind: 'challenge', level: 16, value: 4 },
-];
-
-// Weapon mastery (PRG-014): per weapon, kills and headshots reach a tier; each tier unlocks the mastery colours above.
-const MASTERY_TIERS = [
-  { id: 'bronze', name: 'Bronze', kills: 25, headshots: 0, color: 0xb07a4a },
-  { id: 'silver', name: 'Silver', kills: 75, headshots: 15, color: 0xc4ccd4 },
-  { id: 'gold', name: 'Gold', kills: 150, headshots: 40, color: 0xe8c250 },
-  { id: 'master', name: 'Master', kills: 300, headshots: 100, color: 0x7fe0ff },
 ];
 
 // ---- Cards (spec 15 card table, MIS-035): 3 active slots (each used once per level, 30 s) + 2 passive slots; placing costs
@@ -200,7 +198,7 @@ Data.define('challenges', {
   { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 500 }, text: 'Every miss costs you points.' },
   { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 3500, damageTaken: -30, underPar: 110 }, text: 'Win without getting hit.' },
   { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 2500, underPar: 110 }, text: 'Eight kills against the clock.' },
-  { id: 'chainKeeps', code: 'CR08', name: 'Keep Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
+  { id: 'chainKeeps', code: 'CR08', name: 'Gantry Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
   { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1900, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
   { id: 'lastLight', code: 'CR10', name: 'Last Light', kind: 'waveSurvival', group: 2, mode: 'ffa', map: 'skyyard', bots: 7, tier: 1, options: { scoreLimit: 0, timeLimit: 360 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 35, won: 7000 }, text: 'Last one standing on the yard.' },
   { id: 'skyDuel', code: 'CR11', name: 'Sky Duel', kind: 'dropKill', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['aircontrol', 'multijump'], points: { airKills: 3200, kills: 400 }, text: 'Take the fight to the air.' },

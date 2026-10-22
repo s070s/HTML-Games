@@ -905,3 +905,11 @@ Test.add('progress', (check) => {
     Object.assign(maps, JSON.parse(kept));
   }
 });
+
+// ---- Data: one source for the mastery colours, room names that match their maps ----
+Test.add('progress', (check) => {
+  check('mastery: every tier reward is one unlock row with the same colour or glow',
+    MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value && row.kind === tier.reward.kind && row.name === tier.reward.name; }));
+  check('mastery: no other unlock row repeats a mastery reward', CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
+  check('rooms: a room named after a map plays on that map', CAT.challenges.every((room) => !/Keep/.test(room.name) || room.map === 'twinkeeps'));
+});
