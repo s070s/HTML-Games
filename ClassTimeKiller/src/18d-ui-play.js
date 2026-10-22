@@ -44,12 +44,13 @@ const PlayFlow = {
     const mode = this.playableModes().find((row) => row.id === source.mode) || CAT.modes.byId(base.mode);
     const maps = this.mapsFor(mode.id);
     const map = maps.find((row) => row.id === source.map) || (mode.id === base.mode ? CAT.maps.byId(base.map) : this.smallestMap(mode.id));
-    const difficulty = this.difficulties().find((row) => row.id === source.difficulty);
+    const difficulties = this.difficulties();
+    const difficulty = difficulties.find((row) => row.id === source.difficulty) || difficulties.find((row) => row.id === base.difficulty) || difficulties[0];
     return {
       mode: mode.id, map: map ? map.id : '',
       ruleset: source.ruleset && CAT.rulesets.byId(source.ruleset) ? source.ruleset : '',
       bots: Number.isFinite(source.bots) ? clamp(Math.round(source.bots), 0, this.maxBots()) : (mode.id === base.mode ? base.bots : this.defaultBots(mode.id)),
-      difficulty: difficulty ? difficulty.id : this.difficulties()[0].id,
+      difficulty: difficulty.id,
       team: source.team === 0 || source.team === 1 ? source.team : PLAY_AUTO_TEAM,
     };
   },

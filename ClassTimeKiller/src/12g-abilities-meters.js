@@ -6,7 +6,6 @@
 
 const SOUL_CAP = 32;                     // soul orbs in the world at once (the oldest is recycled)
 const SOUL_PICKUP = 1;                   // metres: a soul this close is collected
-const SOUL_HOMING_SPEED = 8;             // m/s a soul flies toward its collector inside the homing radius
 const SOUL_LIFT = 1;                     // souls float at chest height
 const TAP_CODES = { F: 0, B: 1, L: 2, R: 3 };
 const TAP_BITS = 2;

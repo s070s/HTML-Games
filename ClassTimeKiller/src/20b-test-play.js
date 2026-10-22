@@ -24,7 +24,7 @@ Test.add('play', (check) => {
   check('defaults: Frenzy on the smallest arena with 7 bots and the RS01 bundle', defaults.mode === 'ffa' && defaults.map === 'spire' && defaults.bots === 7
     && CAT.rulesets.byId(CAT.modes.byId('ffa').ruleset).code === 'RS01' && defaults.difficulty === 'regular');
   check('defaults: the smallest ffa map is picked by floor area', PlayFlow.smallestMap('ffa').id === 'spire' && PlayFlow.smallestMap('tdm').id === 'skyyard');
-  check('defaults: a missing difficulty catalogue still gives one choice', PlayFlow.difficulties().length >= 1 && PlayFlow.difficulties()[0].id === 'regular');
+  check('defaults: the default difficulty is one of the choices', PlayFlow.difficulties().some((row) => row.id === 'regular') && PlayFlow.normalize({}).difficulty === 'regular');
   const modes = PlayFlow.playableModes();
   check('modes: every offered mode is playable and has a map (modes without a map are not offered)', modes.length >= 8 && modes.every((mode) => Modes.isPlayable(mode.id) && Maps.forMode(mode.id).length > 0));
 
