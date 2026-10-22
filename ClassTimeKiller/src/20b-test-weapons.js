@@ -71,6 +71,20 @@ Test.add('weapons', (check) => {
   const unknown = CAT.weaponSets.flatMap((set) => set.weapons.concat(set.start)).filter((key) => !CAT.weapons.byId(key));
   check('weapon sets only name existing weapons', unknown.length === 0, unknown.join(', '));
   check('WPN-011 explosive alt fires arm at >= 6 m', CAT.projectiles.byId('contact').arm >= 6);
+  const unarmedAlts = ['shardcaster', 'stakedriver', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
+  check('WPN-011 the W21, W26, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
+});
+
+// WPN-011: an explosive alt that hits closer than its arm distance is a dud.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 3);
+  giveFull(shooter, 'talonbow');
+  TestArena.aimAt(shooter, target);
+  let blasts = -1;
+  const shots = TestArena.count('weapon.fire', () => { blasts = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.ALT, 0.5)); });
+  check('WPN-011 the W27 explosive arrow does not explode at 3 m', shots >= 1 && blasts === 0, blasts + ' / ' + shots);
+  TestArena.finish();
 });
 
 Test.add('weapons', (check) => {

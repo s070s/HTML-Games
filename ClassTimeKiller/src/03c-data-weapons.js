@@ -65,6 +65,8 @@ CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 // Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
 // onHit: 'explode' (direct + splash), 'damage', 'pin' (damage, pins ragdoll), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
+// arm (here or on the fire mode): metres flown before it can explode; a contact sooner is a dud (WPN-011).
+const EXPLOSIVE_ALT_ARM = 6;   // WPN-011: explosive alt fires arm at 6 m
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
   fuse: 0, stick: false, stickActor: false, homing: 0, drag: 0, arm: 0, onHit: 'damage', poolSize: 16, roll: false, ownerSafe: false,
@@ -83,7 +85,7 @@ Data.define('projectiles', {
   { id: 'disc', code: 'P11', name: 'Disc', speed: 35, life: 3, radius: 0.15, bounce: 1, bounces: 2, onHit: 'damage', poolSize: 32, color: 0xc8f0ff },
   { id: 'fusion', code: 'P12', name: 'Fusion orb', speed: 6, gravity: 20, life: 2, fuse: 2, radius: 0.5, roll: true, ownerSafe: true, onHit: 'explode', poolSize: 4, color: 0xffee88, scale: 0.8 },
   { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, color: 0xf0f0f0 },
-  { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: 6, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
+  { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: EXPLOSIVE_ALT_ARM, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
   { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, color: 0xffa060 },
   { id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 180, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
@@ -108,7 +110,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, special: '', tool: '', zoom: 1, noise: -1, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, special: '', tool: '', zoom: 1, noise: -1, arm: 0, weapon: '', family: null,
 };
 
 const WEAPON_SCHEMA = {
@@ -180,7 +182,7 @@ const WEAPON_ROWS = [
     alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
   { id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, recoil: 'launcher' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
   { id: 'frostbore', code: 'W22', name: 'Frostbore', class: 'shotgun', moveMult: 0.93, mag: 8, reserve: 32, altAmmo: 20, price: 1500, killReward: 900, botPref: { range: [0, 10], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 8, rate: 1.2, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.4] },
     alt: { type: 'hitscan', trigger: 'semi', damage: 4, pellets: 6, rate: 1, spreadDeg: 7, ammo: 'alt', ammoPerShot: 5, range: 12, status: { id: 'chill', stacks: 3 }, element: 'cryo' } },
@@ -195,10 +197,10 @@ const WEAPON_ROWS = [
     alt: { type: 'zoom', zoom: 3 } },
   { id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, recoil: 'launcher' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
   { id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
     primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.8, min: 40, max: 110, speed: [40, 70] } },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, noise: 60 } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
   { id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
     primary: { type: 'hitscan', damage: 10, rate: 18, spinUp: 0.5, spreadDeg: 1.6, moveSpread: 1.5, recoil: 'minigun' },
     alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
@@ -231,7 +233,7 @@ const WEAPON_ROWS = [
     alt: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 1.5, ammoPerShot: 5, range: 30, chain: { targets: 3, radius: 6 }, element: 'arc' } },
   { id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 } } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
   { id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
     alt: { type: 'cone', trigger: 'semi', damage: 40, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
