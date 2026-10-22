@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <meta name="theme-color" content="#0b0f14">
+<!-- R-009: Add to Home Screen opens full screen (standalone; its storage is not cleared after 7 days like a Safari tab's) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ClassTimeKiller">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAD60lEQVR42u3dS5LUQAwFQO1ZsOFOnJjzwQUIAmi76knKCC1hXP2cU+5x/erL129K/bZKBAoOBYeCQ8Gh4FBwKDgUHAqO2fXzx/c/FBxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQccESYoWYTjXyngMhzHGyC2QSkmKBmO466JqUoKC0QG4khmMYNIYYHIEBwdWfQlUlgg0hvHJBmNfBQWiLTEceDGfP5vBvuoPTKeGpXd46Nms3h7yH42kRop4/x8jpE+apiMu5N9hvmoMTJyZoKN8VEDZGROExzgo1rLyJ9D2tpHbZZxZoJxXx/VUUbH2ecdfdRmGYeXJrTzUY1kzFi30shHGxyTFjXB0SOdzOuG+KjNMu4uh8z3UZtlXF8rG+4jGseGhdRw5AaR34aLPmqzjJwtGDLDScSxc3+OvThie86OOI41rDZ3G2k7+2zEkfynfK/2HG4bHHDcwxH+hrhdk042LwVH5vhf+Khkbxz5A4+tcbzdwtrcbSTvQzocR4vJTt1xvNrI2txthO9gDMf2LaQ34iBjQIxwwBGJw70PT7J0GzoPOODog8Ndz88TDjgO4vBMGRMpHHCE4XC/W6QKBxxwwAEHHLk4mn4b7djCA8HW8m5jTFPh+Ka1QTgGH19y/cfmJwYHHHB89rnggAMOOOCAAw444IADDjj8KQsHHP1xeCHt9bmBNwNvhuwN2ZvsY7IPHHDAoeBQcPBhURMccHiyWEgNBxyeLJ4pcMBxDYcny4wkbTWp24ADjhwcfAwI0Mb4NsYPxuFIjdj0HMbjMJ5sHI7xyszNAYAOAIzH4ejQwMQcOuzQYTjgyMSR7KNRY843LA7H4VvSpSWTccR2Hh1xHGtSbf7NyMGRGU4t7znz23CxM6vY71xngghvwN0vyNE4DsSRfPV1ONISib10wkuXCziicsm8bsiL/Ds4ctIJvGjO+F8bHC9llHZFOP4/pseTyrlW4ISjmzgS8gq5UOYk1ss4PtmbsQuOux+wN4678d39+eErNiJwfLi3ayaOW59oII7P9/7NwXHlgwzH8cje0HdxnG//IhxP7R1+Hsf5vds34nh2b/m3cdza1X8vjsdz/0P6j/+XGSzScbx9PMXf48g5BgSOcz56HRADxxYiLWLvgWOYjy6Zt8Exg0ivtJvh6EukY84tcfQi0jfhxjjyiXTPtj2OTCIzUh2CI0TJsDCn4biiZGqGY3G8DWVDbitw9F05AkeukuXhwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccMABBxxwwAEHHHDAAQcccCg4FBwKDgWHgkMpOBQcCg4FhzpavwBu1x1Nuc+FLwAAAABJRU5ErkJggg==">
 <title>ClassTimeKiller</title>
 <style>
 /* ==== S00 STYLE + DOM SHELLS ==== */
@@ -22,7 +28,8 @@ input, textarea, .ui-code { -webkit-user-select: text; user-select: text; -webki
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #overlay { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
 #overlay > * { pointer-events: auto; }
-#fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #0b0f14; z-index: 100; padding: 24px; }
+#fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #0b0f14; z-index: 100;
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left)); }
 #fatal.show { display: flex; }
 #fatal .box { max-width: 560px; line-height: 1.5; }
 #fatal h1 { color: var(--ui-accent); font-size: 24px; margin: 0 0 12px; }

@@ -46,9 +46,9 @@ const Save = {
   emptySave() {
     // Every top-level field is declared here, so migrate repairs each one (ARC-020). revision: counts the writes, so a stale tab never
     // writes over a newer save (R-001); play: the last play-screen setup (18d, null = none yet); crosshairs: per-weapon crosshair overrides
-    // (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n).
+    // (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n), the iPhone Home Screen tip shown (18p).
     return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
-      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0 },
+      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
   },
   load() {

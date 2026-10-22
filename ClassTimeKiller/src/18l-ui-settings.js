@@ -97,11 +97,8 @@ Ui.register('saveTransfer', {
     root.appendChild(backupFoot);
   },
 });
-Ui.settingsExtras.developer = [(container) => {
-  const foot = makeElement('div', 'ui-foot');
-  foot.appendChild(Ui.button('Export or import save', () => Ui.open('saveTransfer')));
-  container.appendChild(foot);
-}];
+// Under every settings tab, not only Developer: on iPhone a backup is the safe way to keep progress (R-008).
+Ui.settingsFooter.push(() => Ui.button('Back up or restore save', () => Ui.open('saveTransfer')));
 
 // Pause, page hide and app switch write only a change that waits (one app switch fires all three, R-163).
 function flushSave() { if (Save.data && Save.dirty) Save.saveNow(); }

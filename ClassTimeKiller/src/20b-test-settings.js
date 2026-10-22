@@ -347,11 +347,11 @@ function assistEffect(field, value) {
   return seen;
 }
 
-// ARC-020 / PLT-007: Settings > Developer > Export or import save; the exported text imports back and restarts the game.
+// ARC-020 / PLT-007 / R-008: Settings > Back up or restore save (under every tab); the exported text imports back and restarts the game.
 Test.add('settings', (check) => uiWith(() => {
   Save.data.settings['video.fov'] = 77;
-  Ui.open('settings', { tab: 'developer' });
-  check('save transfer: Settings > Developer opens it', uiClickButton(Ui.top().element, 'Export or import save') && Ui.current() === 'saveTransfer');
+  Ui.open('settings');
+  check('save transfer: the first settings tab opens it, no Developer tab needed', uiClickButton(Ui.top().element, 'Back up or restore save') && Ui.current() === 'saveTransfer');
   const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
   uiClickButton(screen, 'Export');
   check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
@@ -370,4 +370,31 @@ Test.add('settings', (check) => uiWith(() => {
   SaveTransfer.download();
   HTMLAnchorElement.prototype.click = anchorClick;
   check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
+}));
+
+// R-008: persistent storage is asked for once, after the first gesture; iPhone players in a Safari tab get the Home Screen tip once.
+Test.add('settings', (check) => uiWith(() => {
+  let asked = 0;
+  Object.defineProperty(navigator, 'storage', { value: { persist: () => { asked++; return Promise.resolve(true); } }, configurable: true });
+  const isIos = Device.isIos, standalone = Device.standalone, asked0 = Device.persistAsked;
+  try {
+    Device.persistAsked = false;
+    Device.armPersist();
+    check('storage: nothing is asked before a gesture', asked === 0);
+    window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    check('storage: the first gesture asks for persistent storage, once', asked === 1, asked);
+    Device.isIos = () => true; Device.standalone = () => false;
+    check('home screen tip: shown once on an iPhone Safari tab, with a backup button', Device.homeScreenTip() && Ui.current() === 'confirm'
+      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && !Device.homeScreenTip());
+    Ui.closeAll();
+    Save.data.tips.homeScreen = false;
+    Device.standalone = () => true;
+    const fromHomeScreen = Device.homeScreenTip();
+    Device.isIos = () => false; Device.standalone = () => false;
+    check('home screen tip: never on the Home Screen app or off iOS', !fromHomeScreen && !Device.homeScreenTip() && !Ui.isOpen('confirm'));
+  } finally {
+    delete navigator.storage;
+    Device.isIos = isIos; Device.standalone = standalone; Device.persistAsked = asked0;
+  }
 }));

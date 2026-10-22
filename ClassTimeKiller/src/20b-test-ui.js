@@ -515,3 +515,32 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: the overlay root passes taps to the game when empty', getComputedStyle(document.getElementById('overlay')).pointerEvents === 'none');
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
 }));
+
+// R-009 / R-167: the Home Screen web-app setup, a back swipe that pauses instead of leaving, Full screen only where it exists, and the
+// version label out of the way in matches.
+Test.add('ui', (check) => uiWith(() => {
+  const meta = (name) => { const element = document.querySelector('meta[name="' + name + '"]'); return element ? element.content : ''; };
+  const icon = document.querySelector('link[rel="apple-touch-icon"]');
+  const policy = document.querySelector('meta[http-equiv="Content-Security-Policy"]').content;
+  check('home screen: the page is a web app with a title, a status bar style and an icon the policy allows', meta('apple-mobile-web-app-capable') === 'yes'
+    && meta('mobile-web-app-capable') === 'yes' && meta('apple-mobile-web-app-status-bar-style') === 'black-translucent' && meta('apple-mobile-web-app-title') === 'ClassTimeKiller'
+    && !!icon && icon.href.startsWith('data:image/png;base64,') && /img-src[^;]*data:/.test(policy));
+  Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ bots: 1 }), () => 0.5));
+  check('version: hidden during a match', document.getElementById('version').hidden);
+  window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  check('back swipe: the match stays and pauses', Game.state === 'playing' && Game.paused && !!Game.match);
+  Game.stop();
+  check('version: shown again in the menus', !document.getElementById('version').hidden);
+  const fullscreenButton = () => Array.from(Ui.top().element.querySelectorAll('button')).some((button) => button.textContent === 'Full screen on or off');
+  Object.defineProperty(document, 'fullscreenEnabled', { value: false, configurable: true });
+  Object.defineProperty(document, 'webkitFullscreenEnabled', { value: false, configurable: true });
+  Ui.open('settings', { tab: 'video' });
+  const withoutApi = fullscreenButton();
+  Ui.closeAll();
+  Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true });
+  Ui.open('settings', { tab: 'video' });
+  const withApi = fullscreenButton();
+  Ui.closeAll();
+  delete document.fullscreenEnabled; delete document.webkitFullscreenEnabled;
+  check('full screen: the Video tab offers it only where the browser has it (not iPhone)', !withoutApi && withApi);
+}));
