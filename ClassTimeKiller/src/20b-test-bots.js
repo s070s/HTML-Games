@@ -1697,13 +1697,17 @@ Test.add('bots', (check) => {
 
 // ---- BOT-061 / BOT-100: objective barks, item pings and Dibs, takingPoint only when the objective wins ----
 Test.add('bots', (check) => {
-  const barks = startEventLog('bark'), announces = startEventLog('announce');
+  const barks = startEventLog('bark'), announces = startEventLog('announce'), pings = startEventLog('ping');
   let wrongPoint = 0;
   const handler = Bus.on('bark', (event) => { if (event.category === 'takingPoint' && BotDecide.goal[event.id] !== GOAL.OBJECTIVE) wrongPoint++; });
   playMatch({ mode: 'dom', map: 'twinkeeps', minutes: 1, botCount: 8, seed: 1 });
-  Bus.off('bark', handler); barks.stop(); announces.stop();
+  Bus.off('bark', handler); barks.stop(); announces.stop(); pings.stop();
   const captures = announces.filter((event) => event.kind === 'capture').length, objective = barks.filter((event) => event.category === 'objective').length;
   check('bots call out objective events (the objective bark is said)', captures > 0 && objective > 0, objective + ' objective barks, ' + captures + ' captures');
+  // Twin Keeps points: x -32, 0 and 32 on z 0. No player plays, so every attack / defend ping is a bot's.
+  const objectivePings = pings.filter((event) => (event.kind === 'attack' || event.kind === 'defend') && event.z === 0 && [-32, 0, 32].includes(event.x)).length;
+  check('bots ping the objective on objective events, at most one per team every OBJECTIVE_PING_INTERVAL s', objectivePings > 0
+    && objectivePings <= 2 * Math.ceil(60 / OBJECTIVE_PING_INTERVAL), objectivePings + ' objective pings, ' + captures + ' captures');
   check('"Taking the point" only from bots whose chosen goal is the objective', wrongPoint === 0, wrongPoint);
 });
 Test.add('bots', (check) => {

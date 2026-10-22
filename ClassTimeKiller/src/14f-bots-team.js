@@ -13,6 +13,7 @@ const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
 const COMMANDER_INTERVAL = 15;
 const ENEMY_PING_INTERVAL = 4;
 const ITEM_PING_INTERVAL = 4;           // s between a bot's item pings (Dibs on the item it goes for)
+const OBJECTIVE_PING_INTERVAL = 8;      // s between a team's objective pings (a bot marks the objective it plays on a mode call-out)
 const ITEM_PING_RADIUS = 2;             // a move ping this close to an item spot is a ping on the item: the taker calls Dibs
 const OBJECTIVE_ANNOUNCES = new Set(['capture', 'bomb', 'flag', 'objective']);   // announce kinds the objective bark answers
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
@@ -69,7 +70,7 @@ const BotTeam = {
   orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
   ackCategory: new Array(MAX_ACTORS).fill('orderAck'),   // the reply bark due at ackAt
   enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), itemPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
-  teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
+  teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9), objectivePingAt: new Float64Array(TEAM_COUNT).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
   // BOT-053 tokens: BOT_TOKENS.attackers slots per target, one flank slot per team (free-for-all: per bot); holder -1 = free.
   attackHolder: new Int16Array(MAX_ACTORS * BOT_TOKENS.attackers).fill(-1), attackUntil: new Float64Array(MAX_ACTORS * BOT_TOKENS.attackers),
@@ -90,7 +91,7 @@ const BotTeam = {
     this.ackAt.fill(0);
     this.enemyPingAt.fill(-1e9); this.itemPingAt.fill(-1e9);
     this.barkAt.fill(-1e9);
-    this.teamBarkAt.fill(-1e9);
+    this.teamBarkAt.fill(-1e9); this.objectivePingAt.fill(-1e9);
     this.grenadeAt.fill(-1e9);
     this.pushUntil.fill(0); this.waitSince.fill(-1); this.pushCheckAt = 0;
     for (let team = 0; team < TEAM_COUNT; team++) this.placeRally(team);
@@ -226,11 +227,26 @@ const BotTeam = {
     this.itemPingAt[id] = now;
     this.emitPing(id, 'dibs', x, y, z, -1, -1);
   },
-  // Mode call-outs (capture, bomb, flag): the bots playing the objective call it out (the bark limits keep it to one or so).
+  // Mode call-outs (capture, bomb, flag): the bots playing the objective call it out (the bark limits keep it to one or so),
+  // and per team the one nearest its objective pings it (BOT-061).
   onAnnounce(event) {
     if (!OBJECTIVE_ANNOUNCES.has(event.kind)) return;
     const now = Sim.time;
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.OBJECTIVE) this.bark(id, 'objective', now);
+    for (let team = 0; team < TEAM_COUNT; team++) if (now - this.objectivePingAt[team] >= OBJECTIVE_PING_INTERVAL) this.pingObjective(team, now);
+  },
+  // Attack or defend (spotKind) at the objective, never from inside the 'ping' handler (pingPayload is shared).
+  pingObjective(team, now) {
+    let pinger = -1, nearest = Infinity;
+    for (let id = 0; id < Actors.count; id++) {
+      const objective = Bots.active[id] && Actors.team[id] === team && BotDecide.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[BotDecide.goalTarget[id]] : null;
+      const distance = objective ? Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) : Infinity;
+      if (distance < nearest) { nearest = distance; pinger = id; }
+    }
+    if (pinger < 0) return;
+    const objective = Modes.objectives[BotDecide.goalTarget[pinger]];
+    this.objectivePingAt[team] = now;
+    this.emitPing(pinger, spotKind(pinger, objective.x, objective.z), objective.x, objective.y, objective.z, -1, -1);
   },
 
   // ---- Orders (BOT-051): the decision layer asks for the bot's current order as a goal plan ----
