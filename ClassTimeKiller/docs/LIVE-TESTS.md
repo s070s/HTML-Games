@@ -432,7 +432,7 @@ Also for every preset: LT-H-002 (60 Hz vs 120 Hz identical, MOV-010), fall damag
 
 ### 10.3 Rule-preset bundles (§6.1, MOV-001, MOV-002)
 
-Run LT-C-024 smoke play (2 min) with each bundle RS01 to RS12 (Arena Classic, Arena Tournament, Tactical Breach, Modern Ops, Pilot Rush, Shield Wars, Reaper, Iron Bulwark, Hero Squad, Last Ring, Weave Suit, Frame Runner). Pass: the pause menu "Rules" panel lists the movement, health, economy, precision and meter values from the bundle row, and play matches them. Save 50 custom rulesets; the 51st must be refused with a clear message (MOV-002).
+Run LT-C-024 smoke play (2 min) with each bundle RS01 to RS12 (Arena Classic, Arena Tournament, Tactical Breach, Modern Ops, Pilot Rush, Shield Wars, Ravager, Iron Bulwark, Hero Squad, Last Ring, Weave Suit, Frame Runner). Pass: the pause menu "Rules" panel lists the movement, health, economy, precision and meter values from the bundle row, and play matches them. Save 50 custom rulesets; the 51st must be refused with a clear message (MOV-002).
 
 ### 10.4 Weapon fire-mode classes (§8, WPN-001 to WPN-011)
 
