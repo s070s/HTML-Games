@@ -65,10 +65,8 @@ const PlayFlow = {
     const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: Array.from({ length: choice.bots }, () => ({})),
       seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE), difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
-    for (const adjust of this.setupHooks) adjust(setup);
     return setup;
   },
-  setupHooks: [],   // fn(setup) later sections push to adjust a built setup (18l: the player's assist sliders)
   // Starts a match for a choice (normalized and remembered). Runs synchronously so a click can still lock the pointer.
   start(choice, random) {
     const valid = this.normalize(choice);
