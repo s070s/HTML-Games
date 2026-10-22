@@ -606,5 +606,6 @@ Bus.on('item.grant', (event) => Items.giveKey(event.id, event.item));
 Bus.on('weapon.fire', (event) => Items.onShot(event));
 Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Items.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Bus.on('kill', (event) => { Items.dropWeapons(event.victim); Items.dropSoul(event.victim); Items.cancelUse(event.victim); });
+Damage.downHooks.push((id) => Items.cancelUse(id));   // HP-007: a downed actor stops healing (the use must not finish at the revive)
 Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));
