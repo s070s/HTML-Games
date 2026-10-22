@@ -25,6 +25,7 @@ const HUD_PULSE_HZ = 2;                                  // slow pulses only: we
 const HUD_MAX_ABILITY_SLOTS = 4;
 const HUD_MAX_POWERUP_CHIPS = 4;
 const HUD_MAX_WEAPON_SLOTS = 9;
+const HUD_BAR_GAP = 4, HUD_BAR_WIDTH = 50, HUD_BAR_TOUCH_WIDTH = 42, HUD_BAR_TOUCH_HEIGHT = 34;   // design pixels (phones: boxes sized for a thumb)
 const HUD_ABILITY_ACTIONS = ['ability1', 'ability2', 'ultimate', 'ability1'];
 const HUD_MONEY_ECONOMIES = ['roundBuy', 'waveShop'];    // rulesets whose economy is money based (others show money only when non-zero)
 const HUD_TEAM_SHAPES = ['circle', 'triangle', 'square', 'diamond'];
@@ -138,7 +139,7 @@ const Hud = {
   insets: { top: 0, right: 0, bottom: 0, left: 0 },
   colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: [0x3d8bff, 0xff4d4d] },
   layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false,
-    barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
+    barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, ammoHeight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
   drawers: { back: [], world: [], main: [], front: [] },
   stats: { quads: 0 },
   crosshairOverride: null,          // fn(weaponRow, out): per-weapon crosshair fields (17b fills it)
@@ -177,8 +178,7 @@ const Hud = {
     let entry = hudKeyLabels.get(actionId);
     if (entry && this.time - entry.at < HUD_LABEL_REFRESH_SECONDS) return entry.text;
     if (!entry) { entry = { text: '', at: 0 }; hudKeyLabels.set(actionId, entry); }
-    const slot = Input.device === 'gamepad' ? 2 : 0;
-    entry.text = Input.device === 'touch' ? '' : Input.bindingLabel(Input.getBinding(actionId, slot));
+    entry.text = Input.device === 'touch' ? '' : hudBoundLabel(actionId, Input.device);
     entry.at = this.time;
     return entry.text;
   },
@@ -234,6 +234,13 @@ const Hud = {
   },
 };
 
+// The label of an action's first bound key for a device ('Unbound' when none).
+function hudBoundLabel(actionId, device) {
+  const first = device === 'gamepad' ? 2 : 0, last = device === 'gamepad' ? 2 : 1;
+  for (let slot = first; slot <= last; slot++) if (Input.getBinding(actionId, slot)) return Input.bindingLabel(Input.getBinding(actionId, slot));
+  return Input.bindingLabel(Input.getBinding(actionId, first));
+}
+
 // ---- Layout: unit = design scale x the player's HUD scale; anchors for the stacks around the screen ----
 function hudReadSafeInsets() {
   const probe = makeElement('div');
@@ -259,12 +266,13 @@ function updateHudLayout(layout, width, height) {
   layout.vitalsHeight = 3 * (layout.barHeight + layout.barGap);
   layout.abilityY = layout.bottom - layout.vitalsHeight - 28 * unit;
   layout.powerupY = layout.abilityY - 52 * unit;
-  // Phones keep the right side free for the touch buttons: the ammo panel sits bottom centre-left instead.
-  layout.ammoRight = touch ? width * 0.5 - 6 * unit : layout.right;
-  layout.ammoWidth = (compact ? 132 : 176) * unit;
+  // Phones keep the button side free: the ammo panel sits bottom centre-left, centre-right in the left-handed touch preset.
+  layout.ammoWidth = (compact ? 132 : 176) * unit; layout.ammoHeight = (compact ? 58 : 66) * unit;
+  const centreGap = 6 * unit;
+  layout.ammoRight = !touch ? layout.right : TouchInput.preset().mirror ? width * 0.5 + centreGap + layout.ammoWidth : width * 0.5 - centreGap;
   layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
-  layout.moneyY = layout.gadgetY - 34 * unit;
-  layout.weaponBarY = layout.bottom - 12 * unit;
+  layout.moneyY = layout.gadgetY - (touch ? 34 + HUD_BAR_TOUCH_HEIGHT + HUD_BAR_GAP : 34) * unit;   // phones: above the weapon bar
+  layout.weaponBarY = touch ? layout.bottom - layout.ammoHeight - HUD_BAR_GAP * unit : layout.bottom - 12 * unit;   // phones: the bar sits on the ammo panel
 }
 
 // World point -> screen pixels with the render camera (same maths as the renderer: Hor+ FOV at 16:9, yaw/pitch, no roll).
@@ -518,7 +526,7 @@ function hudDrawAmmo(pen, layout) {
   const weapon = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
-  const width = layout.ammoWidth, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
+  const width = layout.ammoWidth, height = layout.ammoHeight, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
   const box = hudBoxAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   box[0] = left; box[1] = top; box[2] = width; box[3] = height;
   pen.panelAt();
@@ -551,19 +559,27 @@ function hudCollectOwnedWeapons(id) {
   return count;
 }
 
+// Fills hudBoxAt with weapon bar entry `index` of `count`: bottom centre, on a phone centred on the ammo panel (slot buttons).
+function hudPlaceWeaponBox(layout, count, index) {
+  const unit = layout.unit, box = hudBoxAt, width = (layout.touch ? HUD_BAR_TOUCH_WIDTH : HUD_BAR_WIDTH) * unit, gap = HUD_BAR_GAP * unit;
+  const centre = layout.touch ? layout.ammoRight - layout.ammoWidth / 2 : layout.centerX;
+  box[2] = width; box[3] = (layout.touch ? HUD_BAR_TOUCH_HEIGHT : 26) * unit;
+  box[0] = centre - (count * (width + gap) - gap) / 2 + index * (width + gap);
+  box[1] = layout.weaponBarY - box[3];
+}
+
 function hudDrawWeaponBar(pen, layout) {
   const id = Game.playerId;
-  if (!hudLocalAlive() || layout.compact) return;
+  if (!hudLocalAlive() || (layout.compact && !layout.touch)) return;
   const count = Math.min(hudCollectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
   if (count < 2) return;
-  const unit = layout.unit, boxWidth = 50 * unit, boxHeight = 26 * unit, gap = 4 * unit;
+  const unit = layout.unit;
   const selected = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
-  let x = layout.centerX - (count * (boxWidth + gap) - gap) / 2;
-  const top = layout.weaponBarY - boxHeight;
   const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   for (let i = 0; i < count; i++) {
     const weapon = CAT.weapons[hudOwned[i]], isSelected = hudOwned[i] === selected;
-    box[0] = x; box[1] = top; box[2] = boxWidth; box[3] = boxHeight;
+    hudPlaceWeaponBox(layout, count, i);
+    const x = box[0], top = box[1], boxWidth = box[2], boxHeight = box[3];
     pen.panelAt(isSelected ? 0.8 : 0.45);
     shape[0] = x + boxWidth / 2; shape[1] = top + boxHeight / 2 + 2 * unit; shape[2] = boxWidth * 0.62 / 2;
     pen.weaponIconAt(weapon.class, isSelected ? HUD_COLOR.text : HUD_COLOR.dim);
@@ -571,9 +587,22 @@ function hudDrawWeaponBar(pen, layout) {
     pen.textAt(hudNumber(weapon.slot), HUD_COLOR.dim, 'left');
     box[1] = top + boxHeight - 3 * unit; box[3] = 3 * unit;
     if (isSelected) pen.rectAt(HUD_COLOR.gold);
-    x += boxWidth + gap;
   }
 }
+
+// The weapon slot (1..9) of the bar box under a touch at (x, y), else 0.
+function hudWeaponSlotAt(x, y) {
+  const layout = Hud.layout, id = Game.playerId, box = hudBoxAt;
+  if (!layout.touch || !Hud.visible() || Hud.noHud || !Hud.elements.weapons || !hudLocalAlive()) return 0;
+  const count = Math.min(hudCollectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
+  if (count < 2) return 0;
+  for (let i = 0; i < count; i++) {
+    hudPlaceWeaponBox(layout, count, i);
+    if (x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3]) return CAT.weapons[hudOwned[i]].slot;
+  }
+  return 0;
+}
+TouchInput.weaponSlotAt = hudWeaponSlotAt;
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {

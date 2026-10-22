@@ -662,7 +662,7 @@ Test.add('input', (check) => {
   startInputMatch();
   check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
-  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
+  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
   Game.match.rules = { mode: 'tdm', teams: 2, downed: true }; TouchInput.applyAll();
   check('touch: USE shows in a team match with downed and revive (HP-007)', !TouchInput.elements.use.classList.contains('off'));

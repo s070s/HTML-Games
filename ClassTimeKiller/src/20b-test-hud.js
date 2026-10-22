@@ -723,3 +723,38 @@ Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
   check('cost: a busy HUD frame costs under 0.4 ms (PERF-002)', cost.ms <= HUD_TEST_COST_BUDGET_MS, cost.ms.toFixed(3) + ' ms with ' + cost.quads + ' quads');
 });
+
+// ---- The Ping button: a press shorter than a frame still pings; the finger on PING also picks on the wheel ----
+Test.add('hud', (check) => {
+  startInputMatch();
+  let pings = 0, callouts = 0;
+  const realPing = BotTeam.playerPing, realCallout = BotTeam.callout, button = TouchInput.elements.ping, frame = (seconds) => { Input.frame(seconds || INPUT_TEST_FRAME); Sim.step(); };
+  BotTeam.playerPing = () => { pings++; };
+  BotTeam.callout = () => { callouts++; };
+  try {
+    frame();
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false);   // down and up between two frames
+    frame(); frame();
+    check('ping: a key press shorter than a frame still pings once', pings === 1, pings);
+    pings = 0;
+    inputKeyEvent('KeyZ', true); Input.frame(INPUT_TEST_FRAME); inputKeyEvent('KeyZ', false); frame(); frame();   // a frame with no sim step (120 Hz screen)
+    check('ping: a tap over a frame with no sim step pings once, not twice', pings === 1, pings);
+    pings = 0;
+    Actors.alive[Game.playerId] = 0;
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false); frame();
+    Actors.alive[Game.playerId] = 1; frame(); frame();
+    check('ping: a Ping pressed while dead does not ping later', pings === 0, pings);
+    Input.setDevice('touch');
+    inputTouchPointer('pointerdown', button, 3, 500, 300);
+    for (let i = 0; i < 4; i++) frame(0.1);
+    inputTouchPointer('pointermove', button, 3, 540, 300); frame();
+    const toRight = CommWheel.selected;
+    inputTouchPointer('pointermove', button, 3, 440, 300); frame();
+    check('comm wheel: the finger holding PING opens it and picks by dragging', CommWheel.open && toRight >= 0 && CommWheel.selected >= 0 && CommWheel.selected !== toRight, toRight + ' then ' + CommWheel.selected);
+    inputTouchPointer('pointerup', button, 3, 440, 300); frame();
+    check('comm wheel: lifting the finger sends the callout', !CommWheel.open && callouts === 1, callouts);
+  } finally {
+    BotTeam.playerPing = realPing; BotTeam.callout = realCallout;
+    CommWheel.reset(); TouchInput.reset(); Input.device = 'kbm';
+  }
+});

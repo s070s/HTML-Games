@@ -41,6 +41,7 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-code { display: block; width: 100%; min-height: 8em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px;'
   + ' font: 0.875em/1.4 ui-monospace, Consolas, monospace; }'
   + '#overlay > .ui-toasts { position: fixed; top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }'
+  + '#overlay > .ui-toasts.ui-toasts-play { top: 58%; }'   // in a match: below the crosshair, clear of the header and the top touch buttons
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
   + '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; } }'
@@ -50,7 +51,7 @@ const Ui = {
   screens: new Map(),
   stack: [],                  // open screens, last = on top: { name, screen, element, params, returnFocus }
   root: null,
-  toastBox: null,
+  toastBox: null, playBox: null,
   botDebug: false,            // F9 / Options > Developer: later sections draw their bot overlay while true
   perfVisible: false,
   selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
@@ -181,12 +182,14 @@ const Ui = {
   },
 
   // ---- Toasts and sound hook ----
-  toast(text) {
+  // placement 'play' = the match toast spot (tips, hints), else the top of the screen.
+  toast(text, placement) {
     this.lastToast = text;
-    if (!this.toastBox) return;
+    const box = placement === 'play' ? this.playBox : this.toastBox;
+    if (!box) return;
     const item = makeElement('div', 'ui-toast', text);
-    this.toastBox.appendChild(item);
-    while (this.toastBox.children.length > UI_MAX_TOASTS) this.toastBox.firstChild.remove();
+    box.appendChild(item);
+    while (box.children.length > UI_MAX_TOASTS) box.firstChild.remove();
     setTimeout(() => item.remove(), UI_TOAST_MS);
   },
   emitClick(kind) { this.clickEvent.kind = kind; Bus.emit('ui.click', this.clickEvent); },
@@ -244,6 +247,8 @@ const Ui = {
     injectStyle('ui-style', UI_CSS);
     this.toastBox = makeElement('div', 'ui-toasts');
     this.root.appendChild(this.toastBox);
+    this.playBox = makeElement('div', 'ui-toasts ui-toasts-play');
+    this.root.appendChild(this.playBox);
     window.addEventListener('keydown', (event) => this.onKeyDown(event));
     this.applySettings();
   },
@@ -276,5 +281,5 @@ for (const row of UI_SETTINGS) {
 }
 Bus.on('boot', () => Ui.init());
 Bus.on('setting', () => { if (Ui.root) Ui.applySettings(); });
-Bus.on('toast', (payload) => Ui.toast(payload.text));
+Bus.on('toast', (payload) => Ui.toast(payload.text, payload.placement));
 Bus.on('input.menu', (payload) => Ui.onMenuCommand(payload.command));

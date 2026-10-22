@@ -285,7 +285,15 @@ async function runSelfTest(output, button) {
   button.disabled = false;
   output.textContent = selfTestSummary(Ui.lastSelfTest);
 }
+function touchControlsSummary() {
+  const lines = [];
+  for (const control of TOUCH_CONTROLS) if (control.face) lines.push(control.face + ': ' + control.label);
+  lines.push('Tap a weapon box above the ammo panel to take that slot.');
+  lines.push('Buttons you cannot use stay hidden. Settings > Controls > Edit touch layout moves them.');
+  return lines.join('\n');
+}
 function controlsSummary() {
+  if (Input.device === 'touch') return touchControlsSummary();
   const lines = [];
   for (const row of ACTION_ROWS) {
     const labels = Input.bound[Input.actionIndex[row.id]].filter(Boolean).map((binding) => Input.bindingLabel(binding));
