@@ -200,6 +200,21 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// WPN-003 in presets without a MOV-025 table: + moveSpread x speed fraction f, + an air term; standing first shots stay exact.
+Test.add('weapons', (check) => {
+  TestArena.start({ move: 'arena' });
+  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest'), mode = tempest.primary;
+  const spread = () => Weapons.spreadDegrees(shooter, tempest, mode);
+  check('WPN-003 standing first shot exact without a table', Move.preset(shooter).inaccuracy === null && spread() === 0);
+  Actors.vx[shooter] = Move.preset(shooter).groundSpeed;
+  const running = spread();
+  check('WPN-003 running adds moveSpread x f', Test.near(running, mode.spreadDeg + mode.moveSpread * MOVE_SPREAD_DEGREES, 1e-4), running);
+  Motion.grounded[shooter] = 0;
+  check('WPN-003 airborne adds the air term', Test.near(spread(), running + mode.moveSpread * AIR_SPREAD_DEGREES, 1e-4), spread());
+  Actors.vx[shooter] = 0; Motion.grounded[shooter] = 1;
+  TestArena.finish();
+});
+
 // Movement hooks: S10 decides when an actor may fire (MOV-021 sprint-to-fire delay) and scales damage during a roll (MV08).
 Test.add('weapons', (check) => {
   TestArena.start();

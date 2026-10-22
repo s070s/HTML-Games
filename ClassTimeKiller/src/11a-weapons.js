@@ -448,6 +448,7 @@ const Weapons = {
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
     Move.weaponSpeedScale[id] = this.speedScale[id];   // S10 scales the actor's move speed by it
+    Move.weaponReadyTime[id] = weapon ? weapon.readyTime : 0;   // S10 adds it to the sprint-to-fire wait
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;

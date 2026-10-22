@@ -250,12 +250,14 @@ Test.add('bots', (check) => {
 const ACCURACY_SECONDS = 15, ACCURACY_SEEDS = [1, 2, 3], ACCURACY_DISTANCE = 15, ACCURACY_STRAFE = 3, ACCURACY_STRAFE_RATE = 0.8;
 const ACCURACY_BAND_LOW = 0.3, ACCURACY_BAND_SLACK = 0.08;   // band: 30% of the tier's hit cap .. the cap + 0.08
 const ACCURACY_ORDER_SLACK = 0.05;
+const ACCURACY_STILL_TABLE = { walkFraction: 0, walk: 0, crouch: 0, run: 0, air: 0, land: 0, landTime: 1 };   // a MOV-025 table that adds nothing
 
 function measureAccuracy(tier) {
   let shots = 0, hits = 0;
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
     Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
+    Move.presetOverride[bot] = Object.assign({}, Move.preset(bot), { inaccuracy: ACCURACY_STILL_TABLE });   // and no WPN-003 movement spread
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
       holdActor(bot, 0, -ACCURACY_DISTANCE / 2);
