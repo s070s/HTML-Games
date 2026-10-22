@@ -249,10 +249,10 @@ const Items = {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.dropsWeapon(victim, w)) this.dropWeaponAround(victim, w, k++, count);
   },
   dropsWeapon(id, weaponIndex) { return Weapons.owned[Weapons.slotIndex(id, weaponIndex)] === 1 && Weapons.countsTowardCarry(CAT.weapons[weaponIndex]); },
-  // PU18: kills of PvE enemies drop souls where the mode asks for them (rules.params.souls or the 'souls' mutator).
+  // PU18: kills of PvE enemies drop souls where the mode asks for them (rules.params.souls).
   dropSoul(victim) {
     const params = itemRule('params', null);
-    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !((params && params.souls) || itemMutatorOn('souls'))) return;
+    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !(params && params.souls)) return;
     const slot = this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
     if (slot >= 0) this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds * soulCardFx(Game.playerId, 'soulLife', 1));   // C03 Soulkeep
   },

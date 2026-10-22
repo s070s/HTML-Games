@@ -64,7 +64,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - Use:
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.
   - `forceCast(id, abilityId)`: adrenaline combos, already paid.
-  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category.
+  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category. In a soul mode (`rules.params.souls`) no reward loads: the slot stays Wrath Form's.
   - `interrupt(id, 'damage'|'fire')`, `suppress(id, seconds)`, `end(id, slot, reason)`, `endAll`, `clearActor`, `clearMatch`.
 - `hudState(id, out)`: fills `out.slots` (up to 3) with `{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }` and `out.meter` with `{ kind, value 0..1, ready, energy 0..1, souls }`. `out` must be `{ slots: [], meter: {} }`. The array and its entries are reused (filled in place every call).
 - Hooks set by S13: `carrierCheck(id)` and `hiddenFromPulse(id)` (the Ghost perk).
@@ -110,7 +110,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `ultimate` (5/s + 1 per HP of damage or healing dealt; the ultimate slot pays `ultimateCost(row)`).
   - `energy`.
 - `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `hudState(id, out)` (its `souls` = `Powerups.souls[id]`).
-- Souls (A34 Wrath Form): one counter, `Powerups.souls[id]` (S12 12b), fed only by PU18 Soul Shard pickups that PvE kills drop in soul modes (`rules.params.souls` or the `souls` mutator; 12a `Items.dropSoul`, homing in 12a). A soul mode puts Wrath Form in an ultimate slot its kit leaves empty (`assignKitSlot`); it casts itself once the souls pay for it and spends them all.
+- Souls (A34 Wrath Form): one counter, `Powerups.souls[id]` (S12 12b), fed only by PU18 Soul Shard pickups that PvE kills drop in soul modes (`rules.params.souls`; 12a `Items.dropSoul`, homing in 12a). A soul mode puts Wrath Form in an ultimate slot its kit leaves empty (`assignKitSlot`); it casts itself once the souls pay for it and spends them all.
 - Sim system `meters` at order 22.
 
 ## Economy (`src/13d-economy.js`)
