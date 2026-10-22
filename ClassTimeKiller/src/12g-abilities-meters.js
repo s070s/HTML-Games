@@ -8,6 +8,7 @@ const TAP_CODES = { F: 0, B: 1, L: 2, R: 3 };
 const TAP_BITS = 2;
 const TAP_MASK = 0xff;                   // the last four taps
 const COMBO_TAPS = 4;
+const TAP_WINDOW = 0.25;                 // seconds between two taps of one combo
 const METER_HUD = { kind: 'none', value: 0, ready: false, energy: 0, souls: 0 };
 
 const Meters = {
@@ -18,6 +19,7 @@ const Meters = {
   streakDiscount: new Float32Array(MAX_ACTORS),    // reward thresholds lowered by this (Hardline perk, S13 writes it)
   lifeKills: new Uint16Array(MAX_ACTORS),
   taps: new Uint8Array(MAX_ACTORS), tapCount: new Uint8Array(MAX_ACTORS), lastTap: new Int8Array(MAX_ACTORS).fill(-1),
+  lastTapTime: new Float64Array(MAX_ACTORS).fill(-1e9),
 
   row() { return CAT.meters.byId(currentRules().meter) || CAT.meters[0]; },
   kind() { return this.row().id; },
@@ -87,6 +89,8 @@ const Meters = {
     if (tap === this.lastTap[id]) return;
     this.lastTap[id] = tap;
     if (tap < 0) return;
+    if (Sim.time - this.lastTapTime[id] > TAP_WINDOW) this.tapCount[id] = 0;   // a slow tap starts a new combo
+    this.lastTapTime[id] = Sim.time;
     this.taps[id] = ((this.taps[id] << TAP_BITS) | tap) & TAP_MASK;
     this.tapCount[id] = Math.min(COMBO_TAPS, this.tapCount[id] + 1);
     if (this.tapCount[id] < COMBO_TAPS || this.points[id] < row.max) return;
@@ -123,7 +127,7 @@ const Meters = {
   },
   resetLife(id) {
     this.energy[id] = this.energyMax(); this.lastEnergySpend[id] = -1e9;
-    this.taps[id] = 0; this.tapCount[id] = 0; this.lastTap[id] = -1;
+    this.taps[id] = 0; this.tapCount[id] = 0; this.lastTap[id] = -1; this.lastTapTime[id] = -1e9;
   },
   // Fills out { kind, value 0..1, ready, energy 0..1, souls } for the HUD (the energy bar shows whenever a slot uses it).
   hudState(id, out) {

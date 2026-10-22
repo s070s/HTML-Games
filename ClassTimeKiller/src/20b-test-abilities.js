@@ -765,3 +765,18 @@ Test.add('abilities', (check) => {
     && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
   TestArena.finish();
 });
+
+// F43: a combo is four taps close together, not four direction changes at any pace.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ meter: 'adrenaline' });
+  const walkForward = (gapSeconds) => {
+    Actors.moveZ[t.caster] = 1; Sim.step();
+    Actors.moveZ[t.caster] = 0; Sim.run(Math.round(gapSeconds * TICK_RATE));
+  };
+  Meters.points[t.caster] = 100;
+  for (let k = 0; k < 4; k++) walkForward(1);
+  check('F43 four forward walks one second apart do not cast the combo', !Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 100);
+  for (let k = 0; k < 4; k++) walkForward(0.15);
+  check('F43 four quick forward taps cast the combo', Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 0);
+  TestArena.finish();
+});
