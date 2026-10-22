@@ -27,7 +27,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S12 | abilities / items | `12*` | `Items`, `Gadgets`, `Abilities` |
 | S13 | rules / modes | `13*` | `Rules`, `Modes`, `Economy`, `Mutators` |
 | S14 | bots | `14*` | `Bots` |
-| S15 | PvE director | `15*` | `Pve` |
+| S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
 | S16 | map gen | `16*` | `Maps`, `MapGen` |
 | S17 | HUD | `17*` | `Hud` |
 | S18 | UI | `18*` | `Ui`, `Progress` |
@@ -109,6 +109,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` | see docs/api/pve.md | S14 PvE |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 

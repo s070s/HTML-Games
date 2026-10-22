@@ -124,13 +124,13 @@ Data.define('enemies', {
 ]);
 
 // Director (NPC-005..NPC-008): wave spawns out of sight >= 18 m from players, intensity rises with player damage and relaxes
-// 8 s after the peak, survivors fall back at 75% losses and make a last stand at 25% of the wave left. Brains decide at 4 Hz.
+// 8 s after the peak; with the queue empty and at most lastStand x the peak alive left, nobody flees (last stand). Brains decide at 4 Hz.
 const PVE_DIRECTOR = {
   thinkInterval: 0.25, spawnMinDistance: 18, spawnSpacing: 1.2, spawnPerTick: 2, intensityPerDamage: 0.01, intensityPeak: 1,
-  relaxSeconds: 8, intensityDecay: 0.1, fallbackLosses: 0.75, lastStand: 0.25, raysPerTick: 24, hearingShare: 0.6,
+  relaxSeconds: 8, intensityDecay: 0.1, lastStand: 0.25, raysPerTick: 24, hearingShare: 0.6,
   budgetScaleBase: 0.6, budgetScaleAggression: 0.8, budgetPerExtraPlayer: 0.25, playersBaseline: 4,
   moraleRadius: 20, brokenSeconds: [3, 6], outnumbered: 2, coverHealth: 0.4, coverSeconds: 3, dodgeRadius: 4,
-  memorySeconds: 10, searchSeconds: 6, staggerSeconds: 1.2, staggerHitShare: 0.25, guardianDeaths: 3, guardianTaken: 0.5,
+  memorySeconds: 10, searchSeconds: 6, staggerSeconds: 1.2, staggerHitShare: 0.25, guardianTaken: 0.5,
   respawnBeastSeconds: 30, lureSeconds: 6, lureRadius: 30, lureSources: ['flash', 'incendiary'], lureElement: 'thermal',
 };
 
@@ -175,7 +175,7 @@ const PVE_CONTRACT = { guard: 'gunner', guardsMax: 10, alertRadius: 15, base: 10
   noKillBonus: 300, patrolSeconds: [6, 12], unaware: 0.3, suspicious: 0.6 };
 
 // M30 Firing Range: station kinds cycle over the map's 'dummy' hints; shield levels by station; respawn after a kill.
-const PVE_RANGE = { kinds: ['target', 'strafer', 'fireback'], shieldLevels: [0, 0, 50, 100], respawnSeconds: 2, laneZone: 'Strafe Lane',
+const PVE_RANGE = { kinds: ['target', 'strafer', 'fireback'], shieldLevels: [0, 0, 50, 100], respawnSeconds: 2,
   strafeSpan: 3, drillTargets: 10, drillSeconds: 30 };
 
 // MP11 Test Chambers (MAP-030): one concept each, heavy hints early, fading later. Element positions are metres from the room

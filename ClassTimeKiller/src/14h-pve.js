@@ -180,7 +180,7 @@ const Pve = {
     Actors.health[id] = Actors.maxHealth[id] = health;
     Actors.armor[id] = Actors.maxArmor[id] = 0;
     Actors.shield[id] = Actors.maxShield[id] = row.shield + (champion && champion.shield ? champion.shield : 0);
-    const element = CAT.elements.byId(row.shieldElement);
+    const element = CAT.elements.byId(champion && champion.shield ? championElement(row) : row.shieldElement);
     Damage.shieldElement[id] = element ? element.index + 1 : 0;
     Damage.noRegen[id] = 1;
     Weapons.clear(id);
@@ -329,14 +329,20 @@ const Pve = {
   },
 
   // ---- Perception: the bot view cone and line-of-sight ray (14b) with the enemy's own ray budget ----
-  // Foes: other teams (a huntTeam narrows it); beasts fight everybody but beasts; other enemies ignore beasts unless hurt by one.
+  // Foes: hostile actors (a huntTeam narrows them to that team); beasts fight everybody but beasts; enemies ignore beasts
+  // unless hurt by one, never fight their own side, and fight other hostile enemies only without a huntTeam (M29 minions).
   isFoe(id, other) {
     if (other === id || !Actors.alive[other] || Actors.kind[other] === ACTOR_KIND.NONE) return false;
     const row = this.rowOf(id), otherRow = this.rowOf(other);
     if (row.beast) return !(otherRow && otherRow.beast);
-    if (otherRow && otherRow.beast) return Damage.lastAttacker[id] === other;
-    if (!Actors.isEnemy(id, other) || (otherRow && otherRow.target)) return false;
-    return this.huntTeam[id] < 0 || Actors.team[other] === this.huntTeam[id] || Actors.kind[other] === ACTOR_KIND.ENEMY;
+    if (otherRow) return this.enemyIsFoe(id, other, otherRow);
+    if (!Actors.isEnemy(id, other)) return false;
+    return this.huntTeam[id] < 0 || Actors.team[other] === this.huntTeam[id];
+  },
+  enemyIsFoe(id, other, otherRow) {
+    if (otherRow.beast) return Damage.lastAttacker[id] === other;
+    if (otherRow.target || (this.side[id] === this.side[other] && Actors.team[id] === Actors.team[other])) return false;
+    return this.huntTeam[id] < 0 && Actors.isEnemy(id, other);
   },
   perceive(id, row, now) {
     let best = -1, bestScore = Infinity;
@@ -438,8 +444,13 @@ const Pve = {
   // NPC-003: broken morale (a leader died nearby) or fodder outnumbered by the foes near it.
   shouldFlee(id, row, now) {
     if (row.boss || row.target) return false;
+    if (this.lastStand()) return false;
     if (now < this.brokenUntil[id]) return row.fodder;
     return row.flees && this.target[id] >= 0 && this.outnumbered(id);
+  },
+  // NPC-008 last stand: nothing left to spawn and only a quarter of the peak alive (at least one) - the rest fight to the end.
+  lastStand() {
+    return this.queue.count === 0 && this.hostileCount() <= Math.max(1, Math.round(this.stats.maxAlive * PVE_DIRECTOR.lastStand));
   },
   outnumbered(id) {
     let foes = 0, friends = 0;
@@ -811,6 +822,12 @@ const Pve = {
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
 const pveTellColor = new Float32Array(3);
+
+// NPC-004: a barrier champion's shield may carry an element (x1.5 for the matching element, x0.75 for others).
+function championElement(row) {
+  const rules = PVE_CHAMPION_RULES;
+  return Rng.pve.next() < rules.shieldElementChance ? Rng.pve.pick(rules.elements) : row.shieldElement;
+}
 
 // Green = parryable, red = unblockable, orange = the rest (NPC-002).
 function tellColor(attack) {

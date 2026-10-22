@@ -1,6 +1,22 @@
 // Self-tests: PvE enemies, director, PvE modes and the boss (S14 14h..14k, group 'pve').
 
 const PVE_TEST_TELL_SLACK = 2 * TICK_SECONDS;
+
+// ARC-040 __CTK.pve: the PvE layers, and a showcase that lines every enemy row up in front of the player (visual checks).
+DebugApi.pve = {
+  pve: Pve, boss: PveBoss, hud: PVE_HUD,
+  showcase(map) {
+    World.load(map ? Maps.get(map) : pveTestMap());
+    Game.start({ mode: 'ffa', seed: 1, player: { name: 'Viewer' }, bots: [] });
+    const player = Game.playerId;
+    Actors.flags[player] |= ACTOR_FLAG.GOD;
+    CAT.enemies.forEach((row, index) => {
+      const id = Pve.spawnEnemy(row, (index - CAT.enemies.length / 2) * 2.6, 0, 12, Math.PI, { team: NO_TEAM });
+      if (id >= 0 && row.attackRows.length) Pve.startAttack(id, 0, player, Sim.time);   // show the tells
+    });
+    return Pve.aliveCount();
+  },
+};
 // Distance each attacking archetype starts from its dummy target (inside one of its attack ranges, outside keepRange[0]).
 const PVE_TEST_START = { husk: 1.2, gunner: 12, brute: 2.5, phalanx: 1.8, stalker: 1.4, longeye: 20, mite: 1, bomber: 1.5, charger: 10,
   turret: 10, leaper: 7, overlord: 3, beast: 1.6, fireback: 10 };
@@ -56,6 +72,12 @@ Test.add('pve', (check) => {
   const badParts = CAT.enemies.filter((row) => row.parts.length === 0 || row.parts.some((part) => PART_TINTS[part[7]] === undefined)).map((row) => row.id);
   check('every enemy has procedural parts with known tints', badParts.length === 0, badParts.join());
   check('parryable tells are green, unblockable red', tellColor({ parry: true }) === 0x40ff60 && tellColor({ unblockable: true }) === 0xff2020);
+  startPveTest();
+  const a = Pve.spawnEnemy('husk', 5, 0, 5, 0, { team: NO_TEAM }), b = Pve.spawnEnemy('gunner', 6, 0, 5, 0, { team: NO_TEAM });
+  const hunter = Pve.spawnEnemy('husk', 7, 0, 5, 0, { team: NO_TEAM, side: 1, huntTeam: 0 });
+  check('enemies of one side never pick each other', !Pve.isFoe(a, b) && !Pve.isFoe(b, a) && Pve.isFoe(a, 0));
+  check('a hunter ignores other sides and other teams', !Pve.isFoe(hunter, a) && Pve.isFoe(hunter, 0) === (Actors.team[0] === 0));
+  Game.stop();
 });
 
 // Each attacking archetype telegraphs, then hurts its target no sooner than its tell; then it dies to damage.
