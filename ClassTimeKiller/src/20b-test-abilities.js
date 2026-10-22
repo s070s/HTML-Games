@@ -6,6 +6,9 @@ DebugApi.abilities = { abilities: Abilities, meters: Meters, zones: AbilityZones
 
 const ENEMY_DISTANCE = 6;
 
+// The slot of the newest footprint an actor left (A16: every actor has its own ring).
+function lastPrint(id) { return id * FOOTPRINT_RING + (Footprints.next[id] + FOOTPRINT_RING - 1) % FOOTPRINT_RING; }
+
 const AbilityTest = {
   // caster (team 0) at the origin facing +z, an enemy 6 m ahead, a second enemy beside it, an ally behind the caster.
   start(rules) {
@@ -95,7 +98,7 @@ const ABILITY_CASES = {
       Footprints.clear();
       Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '' });
       Bus.emit('move.step', { id: t.ally, speed: 4, surface: '' });
-      const enemyPrint = (Footprints.next + FOOTPRINT_COUNT - 2) % FOOTPRINT_COUNT, allyPrint = (Footprints.next + FOOTPRINT_COUNT - 1) % FOOTPRINT_COUNT;
+      const enemyPrint = lastPrint(t.enemy), allyPrint = lastPrint(t.ally);
       const fresh = footprintVisible(t.caster, enemyPrint) && !footprintVisible(t.caster, allyPrint) && !footprintVisible(t.enemy, enemyPrint);
       runSeconds(8.1);
       return Abilities.active[t.i] === 1 && fresh && !footprintVisible(t.caster, enemyPrint);   // enemy prints only, for 8 s
@@ -808,5 +811,39 @@ Test.add('abilities', (check) => {
   Abilities.tryActivate(t.caster, SLOT.ULTIMATE);
   runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
   check('F44 the queued second loads when the first has run', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital' && Abilities.reward[t.caster] === 1);
+  TestArena.finish();
+});
+
+// F45 (R-102): Tracker footprints last the full 8 s with many runners about, and a crouch-walk leaves none.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'tracker');
+  AbilityTest.cast(t);
+  const runners = [t.enemy, t.second];
+  for (let k = 0; k < 6; k++) runners.push(TestArena.actor(1, -10 - k, 10, Math.PI));
+  Footprints.clear();
+  Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '', loudness: 1 });
+  const first = lastPrint(t.enemy);
+  for (let step = 0; step < 29; step++) {
+    runSeconds(0.25);
+    for (const runner of runners) Bus.emit('move.step', { id: runner, speed: 4, surface: '', loudness: 1 });
+  }
+  check('F45 with eight runners about, an enemy print is still shown after 7.25 s', footprintVisible(t.caster, first), Sim.time);
+  const before = Footprints.next[t.enemy];
+  Bus.emit('move.step', { id: t.enemy, speed: 2, surface: '', loudness: 0.25 });
+  Bus.emit('move.step', { id: t.enemy, speed: 0, surface: '', loudness: 0 });
+  check('F45 a crouch-walk or a silent step leaves no print', Footprints.next[t.enemy] === before);
+  TestArena.finish();
+});
+
+// F45 (R-107): targeted abilities use the shared nearest-seen picker: a cloaked enemy or one behind smoke is no target.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'binding');
+  check('F45 an enemy in the cone is a target', aimTarget(t.caster, 30) === t.enemy);
+  Actors.flags[t.enemy] |= ACTOR_FLAG.INVISIBLE;
+  check('F45 a cloaked enemy in the cone is no target and the cast is refused', aimTarget(t.caster, 30) < 0 && !AbilityTest.cast(t));
+  Actors.flags[t.enemy] &= ~ACTOR_FLAG.INVISIBLE;
+  Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 0, 1, 3);
+  runSeconds(2);
+  check('F45 an enemy behind smoke is no target', aimTarget(t.caster, 30) < 0);
   TestArena.finish();
 });

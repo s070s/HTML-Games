@@ -13,7 +13,6 @@ const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false,
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
-const AIM_CONE_DEG = 6;                  // targeted abilities pick the enemy nearest the crosshair inside this cone
 const BLINK_BACKOFF = 0.5;               // blink end points step back this far until the capsule fits
 const BLINK_TRIES = 12;
 const LEDGE_LIFT = 1.2;                  // A05 ledge grab: a blocked arrival may land this much higher
@@ -21,7 +20,9 @@ const FLOOR_SNAP = 3;                    // arrivals settle onto a floor up to t
 const LIFT_OFF_SPEED = 0.5;              // driving a grounded actor upward needs this much vertical speed to leave the floor
 const REWIND_SAMPLE = 0.1;               // A09 history: one sample per 0.1 s
 const REWIND_SAMPLES = 31;               // 3 s plus the current sample
-const FOOTPRINT_COUNT = 64;
+const FOOTPRINT_RING = 40;               // prints kept per actor: 8 s of strides at a sprint
+const FOOTPRINT_COUNT = MAX_ACTORS * FOOTPRINT_RING;
+const FOOTPRINT_MIN_LOUDNESS = 0.5;      // a crouch-walk (0.25) or a Quietstep step (0) leaves no print
 const FOOTPRINT_SIZE = 0.18;
 const ZONE_CAP = 48;
 const ZONE_KINDS = ['lift', 'smoke', 'heal', 'dome', 'wall', 'strike', 'slow', 'drone', 'swarm', 'beacon', 'fence', 'rift', 'swap', 'decoy', 'lure', 'puppet'];
@@ -142,21 +143,20 @@ function aimDistance(id, maxDistance) {
   const blocked = World.raycast(Actors.x[id], Actors.eyeY(id), Actors.z[id], effectDirection.x, effectDirection.y, effectDirection.z, maxDistance, effectHit);
   return blocked ? effectHit.distance : maxDistance;
 }
-// The visible enemy nearest the crosshair within range and the aim cone, or -1.
+// The nearest enemy inside the aim cone (the shared nearestSeenEnemy picker, cone 11a AIM_ASSIST_CONE_DEG): a cloaked enemy or one
+// behind smoke is no target.
+const AIM_DEFAULT_COS = Math.cos(AIM_ASSIST_CONE_DEG * DEG);
+let aimMinCos = AIM_DEFAULT_COS;
+const AIM_TARGET_RULE = {
+  skip(who, id) { return !Actors.alive[id] || !Actors.isEnemy(who, id) || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0; },
+  point(id, out) { Hitbox.point(id, ZONE.BODY, out); },
+  accept(who, id, dx, dy, dz, distance) { return distance >= 1e-3 && (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / distance >= aimMinCos; },
+  blocked(x, y, z, point) { return Smoke.lineBlocked(x, y, z, point.x, point.y, point.z); },
+};
 function aimTarget(id, range, coneDeg) {
   aimRay(id);
-  const eyeY = Actors.eyeY(id), minCos = Math.cos((coneDeg || AIM_CONE_DEG) * DEG);
-  let best = -1, bestCos = minCos;
-  for (let other = 0; other < Actors.count; other++) {
-    if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
-    const dx = Actors.x[other] - Actors.x[id], dy = Actors.eyeY(other) - 0.5 - eyeY, dz = Actors.z[other] - Actors.z[id];
-    const distance = Math.hypot(dx, dy, dz);
-    if (distance > range || distance < 1e-3) continue;
-    const cos = (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / distance;
-    if (cos < bestCos || !World.lineClear(Actors.x[id], eyeY, Actors.z[id], Actors.x[other], eyeY + dy, Actors.z[other])) continue;
-    best = other; bestCos = cos;
-  }
-  return best;
+  aimMinCos = coneDeg ? Math.cos(coneDeg * DEG) : AIM_DEFAULT_COS;
+  return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], range, AIM_TARGET_RULE);
 }
 // Enemies of id within radius of a point (nearest first is not needed by any caller); returns the count in effectIds.
 function enemiesNear(id, x, y, z, radius, includeGhosts) {
@@ -493,15 +493,24 @@ const RewindHistory = {
     return id * REWIND_SAMPLES + (this.head[id] - back + REWIND_SAMPLES) % REWIND_SAMPLES;
   },
 };
+// A16: one ring of prints per actor (actor * FOOTPRINT_RING + k), kept only for enemies of someone who has Tracker Sense.
 const Footprints = {
   x: new Float32Array(FOOTPRINT_COUNT), y: new Float32Array(FOOTPRINT_COUNT), z: new Float32Array(FOOTPRINT_COUNT),
-  owner: new Int8Array(FOOTPRINT_COUNT).fill(-1), time: new Float64Array(FOOTPRINT_COUNT).fill(-1e9), next: 0,
-  add(id) {
-    const i = this.next;
+  owner: new Int8Array(FOOTPRINT_COUNT).fill(-1), time: new Float64Array(FOOTPRINT_COUNT).fill(-1e9), next: new Uint8Array(MAX_ACTORS),
+  add(id, loudness) {
+    if (loudness < FOOTPRINT_MIN_LOUDNESS || !this.tracked(id)) return;
+    const i = id * FOOTPRINT_RING + this.next[id];
     this.x[i] = Actors.x[id]; this.y[i] = Actors.y[id]; this.z[i] = Actors.z[id]; this.owner[i] = id; this.time[i] = Sim.time;
-    this.next = (i + 1) % FOOTPRINT_COUNT;
+    this.next[id] = (this.next[id] + 1) % FOOTPRINT_RING;
   },
-  clear() { this.time.fill(-1e9); this.owner.fill(-1); },
+  // True when a living actor with Tracker Sense has this one as an enemy.
+  tracked(id) {
+    for (let viewer = 0; viewer < Actors.count; viewer++) {
+      if (Actors.alive[viewer] && Abilities.slotOf(viewer, 'tracker') >= 0 && Actors.isEnemy(viewer, id)) return true;
+    }
+    return false;
+  },
+  clear() { this.time.fill(-1e9); this.owner.fill(-1); this.next.fill(0); },
 };
 
 AbilityZones.behaviours[ZONE_KIND.LIFT] = { step(zone) { forZoneActors(zone, true, liftActor); return true; } };
@@ -1120,7 +1129,7 @@ Input.aimAssistFilters.push((id) => PuppetState.puppet[id] < 0);   // no assist 
 Bus.on('actor.spawn', (event) => { RallyShield.amount[event.id] = 0; RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
 Bus.on('actor.create', (id) => { RallyShield.amount[id] = 0; RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
 Bus.on('actor.remove', (id) => { if (DecoyState.zone[id] >= 0) { AbilityZones.target[DecoyState.zone[id]] = -1; DecoyState.zone[id] = -1; } });
-Bus.on('move.step', (event) => Footprints.add(event.id));
+Bus.on('move.step', (event) => Footprints.add(event.id, event.loudness));
 Bus.on('move.jump', strengthJump);
 Bus.on('weapon.fire', strengthShot);
 Bus.on('damage', shareLinkedDamage);
