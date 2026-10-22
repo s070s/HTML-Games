@@ -290,6 +290,25 @@ Test.add('play', (check) => {
   Game.stop();
 });
 
+// ---- Roster bots: every bot (in the difficulty range or held inside it) gets the adaptive tier shift ----
+Test.add('play', (check) => {
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
+  try {
+    Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 1);
+    const difficulty = CAT.difficulty.byId('stroll');
+    Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'ffa', bots: 7, difficulty: 'stroll' }), () => 0.5));
+    const wrong = [];
+    for (let id = 0; id < Actors.count; id++) {
+      const row = Actors.kind[id] === ACTOR_KIND.BOT ? Bots.profile[id] : null;
+      if (row && Bots.tier(id).tier !== clamp(clamp(row.tier, difficulty.tierMin, difficulty.tierMax) + 1, 0, BOT_TIER_COUNT - 1)) wrong.push(row.name + ' ' + row.tier + '->' + Bots.tier(id).tier);
+    }
+    check('roster bots: each tier is the profile tier held in the range, plus the adaptive shift', wrong.length === 0, wrong.join());
+  } finally {
+    Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+    Game.stop();
+  }
+});
+
 // ---- Results flow: next step, plain winner text, roster bots, match length ----
 Test.add('play', (check) => uiWith(() => {
   const saved = Save.data.play, buttons = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);

@@ -78,13 +78,15 @@ const PlayFlow = {
     return setup;
   },
   // Named roster bots (their own names and traits) picked by the seed: first those whose tier the difficulty allows, then the others held
-  // inside its range; a field larger than the roster is filled with unnamed bots.
+  // inside its range (plus the adaptive shift, which Bots.chooseTier adds only to a bot without a set tier); a field larger than the
+  // roster is filled with unnamed bots.
   rosterBots(count, difficultyId, seed) {
     const difficulty = CAT.difficulty.byId(difficultyId) || CAT.difficulty.byId(PLAY_DEFAULT_DIFFICULTY);
     const inRange = (row) => row.tier >= difficulty.tierMin && row.tier <= difficulty.tierMax;
+    const held = (row) => clamp(clamp(row.tier, difficulty.tierMin, difficulty.tierMax) + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
     const shuffled = makeRandom(seed).shuffle(CAT.bots.slice());
     const bots = shuffled.filter(inRange).concat(shuffled.filter((row) => !inRange(row)))
-      .map((row) => (inRange(row) ? { profile: row.id } : { profile: row.id, tier: clamp(row.tier, difficulty.tierMin, difficulty.tierMax) }));
+      .map((row) => (inRange(row) ? { profile: row.id } : { profile: row.id, tier: held(row) }));
     while (bots.length < count) bots.push({});
     return bots.slice(0, count);
   },
