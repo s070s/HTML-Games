@@ -1,9 +1,10 @@
 # Map generator (S16, steps 13.1 to 13.4): seeded maps in the authored map format
 
-Files: `src/03n-data-mapgen.js` (catalogues `mapModules`, `mapTilesets`, `mapSizes`, `mapDensities`, `generators`),
-`src/16w-mapgen-kits.js` (`MapGenKits`: the geometry of GN1..GN5 on a shared cell grid), `src/16w-mapgen.js` (`MapGen`: options, driver,
-validation, sightline repair, fallback, MP09; `MapGenPlace`: spawns, items, objectives and hints), `src/18h-ui-mapgen.js` (`MapGenMenu` and the
-`mapgen` screen), tests in `src/20b-test-mapgen.js` (group `mapgen`). The runtime map list lives in `src/16a-maps.js` (`Maps.runtime`, `Maps.addRuntime`).
+Files: `src/03n-data-mapgen.js` (catalogues `mapModules`, `mapTilesets`, `mapSizes`, `mapDensities`, `mapItemSets`, `generators`),
+`src/16w-mapgen-kits.js` (`MapGenKits`: the geometry of GN1..GN5 on a shared cell grid), `src/16w-mapgen-place.js` (`MapGenPlace`: spawns, items,
+objectives and hints; the fixed direction tables), `src/16w-mapgen.js` (`MapGen`: options, driver, validation, sightline repair, fallback, MP09),
+`src/18h-ui-mapgen.js` (`MapGenMenu` and the `mapgen` screen), tests in `src/20b-test-mapgen.js` (group `mapgen`). The runtime map list lives in
+`src/16a-maps.js` (`Maps.runtime`, `Maps.addRuntime`, `Maps.catalogueForMode`).
 
 A generated map is an ordinary map row (docs/api/maps.md "Map row"): `World.load`, `Nav.build`, `Maps.validate`, the modes and the renderer
 take it as they take a hand-made one.
@@ -13,9 +14,10 @@ take it as they take a hand-made one.
 ```
 MapGen.generate({ generator, seed, size, theme, density, mode, quality, uncapped, trusted }) -> map row
 MapGen.last          -> report of the latest generate() (below)
-MapGen.resolve(options) -> { generator, seed, size, theme, density, mode, modes, trusted } (catalogue rows, the size capped)
+MapGen.resolve(options) -> { generator, seed, size, sizeCut, theme, density, mode, modes, trusted } (catalogue rows, the size capped)
 MapGen.sizeCap(qualityId?) -> the largest mapSizes row the quality tier allows (default: the active preset)
-MapGen.shareCode(options) -> 'CTKMAP-GN3-medium-foundry-normal-ffa-48213'
+MapGen.cappedSize(sizeId, qualityId?, uncapped?) -> the mapSizes row a request gets
+MapGen.shareCode(options) -> 'CTKMAP-GN3-medium-foundry-normal-ffa-48213' (the settings generate() uses: size capped, theme resolved)
 MapGen.parseShare(text) -> options, or null when the text is not a map code
 MapGen.generator(idOrCode) -> generators row or null
 MapGen.ringIsle()    -> MP09 Ring Isle (GN5, seed MAPGEN_TRUSTED_SEED, large, overgrowth, normal, royale), built once and cached
@@ -34,21 +36,30 @@ MapGen.ringIsle()    -> MP09 Ring Isle (GN5, seed MAPGEN_TRUSTED_SEED, large, ov
 | `trusted` | true: skip validation and repair (only for inputs a self-test proves valid, such as MP09) | false |
 
 Determinism (MAP-020): every random draw comes from `makeRandom(hashString(key))` streams keyed by the generator, seed, size, theme, density
-and modes, never from `Rng` or the clock. The same options give a map that is byte-identical under `JSON.stringify`.
+and modes, never from `Rng` or the clock. The same options give a map that is byte-identical under `JSON.stringify`. The same holds across
+browsers (share codes, MP09 built at match start without validation): the kits and the placement never call `Math.hypot`, `sin`, `cos`,
+`atan2` or `tan` (their last bit may differ between engines). Directions come from fixed tables (`MAPGEN_YAWS`: 8 spawn yaws as
+(sin, cos); `MAPGEN_RING`: the validator's 16 directions as (cos, sin), the first quadrant written as literals and turned by swapping and
+negating), distances from `Math.sqrt` (correctly rounded on every engine). A self-test scans the generator's functions for those calls.
 
 ## Generators
 
 | Code | Kit | Category | Cell m | Cells small / medium / large | Modes (default first) | Fallback |
 |---|---|---|---|---|---|---|
 | GN1 Tile Chain | `chain` | pve | 12 | 5x5 / 6x6 / 7x7 | horde, endless, fiends, contract | cistern |
-| GN2 Lanes and Sites | `lanes` | large | 14 | 6x3 / 8x3 / 10x3 | bomb, elim, tdm; ghostops, rush, payload, conquest, dom, hardpoint, attrition, control | dustline |
+| GN2 Lanes and Sites | `lanes` | large | 14 | 6x3 / 10x3 / 12x3 | bomb, elim, tdm; ghostops, rush, payload, conquest, dom, hardpoint, attrition, control | dustline |
 | GN3 Mirror Arena | `mirror` | arena | 12 | 4x4 / 4x5 / 6x5 | ffa, duel, tdm; ctf, oneflag, dom, oddball, hardpoint, lms, gungame, juggernaut, infection, cursetag, roulette, bearer, bank | spire |
 | GN4 Vertical Towers | `towers` | large | 16 | 4x3 / 4x4 / 6x4 | ffa, tdm; dom, hardpoint, oddball, gungame, ctf | gantry |
 | GN5 Island | `island` | island | 34 | 6x6 / 8x8 / 9x9 | royale | isle |
 
 - GN1: a chain of rooms door to door (start room, connectors, the objective room, the exit, dead ends); co-op spawns in the start room and the gate rooms.
-- GN2: three lanes between two bases joined every other cell; bomb sites near the defenders, rush stages, a payload street kept clear.
-- GN3: the west half is generated and mirrored (x to -x, yaw to -yaw), so items, spawns and objectives are fair by construction.
+- GN2: three lanes between two bases joined every other cell; bomb sites in the defenders' half, rush stages, a payload street kept clear.
+  MAP-021 spawn-to-site 20-25 s: of the site columns between the centre and the defender base, placement takes the pair whose two sites miss
+  the generator's `siteWalk` window (20-25 s) by the fewest seconds of running (walking distance on the scan from the attackers' first spawn /
+  the tactical preset's `groundSpeed`, 6 m/s) and writes them to `map.gen.siteSeconds`. Large maps land in the window (about 20 to 22.5 s),
+  medium ones within a second of it (about 19.5 to 20.5 s); small ones are too short (about 10.5 s) and use the farthest column.
+- GN3: the west half is generated and mirrored (x to -x, yaw to -yaw with `MapKit.mirrorPoint` / `MapKit.mirrorSpawn`), so items, spawns
+  and objectives are fair by construction; a spawn is only taken when its mirror image also faces open space.
 - GN4: solid towers with flat roofs over streets; bridges between roofs; each tower is reached by a ramp, a ladder or a jump pad toward an inner street.
 - GN5: fields walled by staggered hedges (70% of each border) with open corner fields; six walled loot compounds (8 loot items each, 48 in all) and `map.ring`.
 
@@ -63,7 +74,9 @@ off the map edge.
   twelve callout modules `[name, pattern]` (the cell names become the map's callout zones).
 - `mapSizes`: `{ id, name, index, tiers }`; a size is offered only on the quality tiers it lists (small: all; medium: low and up; large: medium and up).
 - `mapDensities`: `{ id, name, moduleShare, scatter }`.
-- `generators`: the table above (`cells` per size index, `modes`, `defaultModes`, `fallback`, `blurb`).
+- `mapItemSets`: `{ id, list }`: `power` (the power-up keys put on the centre line), `pickups` / `supply` (one plain pickup per group entry, for
+  modes with and without pickups), `loot` (per royale loot site).
+- `generators`: the table above (`cells` per size index, `modes`, `defaultModes`, `fallback`, `blurb`, `siteWalk` for GN2).
 
 ## Pipeline per seed (MAP-023)
 
@@ -82,18 +95,21 @@ off the map edge.
 
 `id` = `'gn' + generator number + size letter + theme (2 letters) + density letter + seed + (mode or 'all')`, e.g. `gn3sfon48213ffa`;
 `code` = `GN3-48213`; `name` = theme + generator + seed; `seed` = the seed that was accepted; `modes` = `[mode]` or the default modes.
-Extra fields: `gen: { generator, size, theme, density, mode, requestedSeed }` and, for GN5, `ring: { x, z, radius }` (the royale ring centre and
-start radius; see "Contract requests").
+Extra fields (ARCHITECTURE.md map format): `gen: { generator, size, theme, density, mode, requestedSeed, siteSeconds? }` and, for GN5,
+`ring: { x, z, radius }` (the royale ring centre and start radius; read by 13g once its contract request lands, see "Contract requests").
 
 ## Report (`MapGen.last`)
 
-`{ requestedSeed, seed, attempts, fallback, repairs, problems, ms: { build, scan, place, validate, total } }`. `seed` is the seed that was
-accepted (or the last one tried), `problems` the last validator result.
+`{ requestedSeed, seed, attempts, rounds, fallback, repairs, problems, sizeCut, ms: { build, scan, place, validate, repair, total } }`. `seed`
+is the seed that was accepted (or the last one tried), `attempts` the seeds tried, `rounds` the builds (a sightline repair rebuilds the seed),
+`problems` the last validator result, `sizeCut` true when the requested size was cut to the tier cap. `ms` sums each phase over all rounds.
 
 ## Runtime registry (16a)
 
 `Maps.runtime` keeps the latest `MAPS_RUNTIME_KEEP` (8) generated maps, one per id. `Maps.get(id)` and `Maps.forMode(mode)` include them, so
-`Game.start({ map: id })` and `Game.start({ map: mapObject })` both work. Hand-made maps are never replaced.
+`Game.start({ map: id })` and `Game.start({ map: mapObject })` both work. Hand-made maps are never replaced. Pickers and saved setups (the custom
+match Map tab, its random map, its saved draft) use `Maps.catalogueForMode(mode)`, the hand-made maps only: a generated map is gone after a
+reload, so a saved setup must never name one.
 
 ## MP09 Ring Isle
 
@@ -105,20 +121,34 @@ the catalogue id `isle`, code `MP09` and the name Ring Isle. A `match.setup` lis
 ## Size caps (13.4)
 
 `MapGen.sizeCap()` reads the active quality preset: potato small; low medium; medium, high and ultra large. `generate` cuts larger requests to
-the cap unless `uncapped` is set. The screen offers only the allowed sizes.
+the cap unless `uncapped` is set (`MapGen.last.sizeCut`). The share code names the capped size, so a code always rebuilds the map the device made.
+The screen offers only the allowed sizes: it clamps its size to the largest allowed one when it opens, and a pasted code whose size the tier does
+not offer is cut too, with a toast and a line in the status that the map differs from the shared one.
 
 ## Timings
 
-"Generation" is the generator's own work: `ms.build + ms.place`. The scan (`ms.scan`) and the validator (`ms.validate`) are the S16 checker's
-cost and are reported apart. Desktop numbers (i5-9600K, headless Chrome), largest size, one seed:
+Two budgets, per build round (MapGen.last.ms divided by `rounds`), at the largest size on this desktop (i5-9600K, headless Chrome):
+- generation = kit geometry + scan + placement (`ms.build + ms.scan + ms.place`): under 100 ms (a low-end phone is about five times slower:
+  under 500 ms);
+- validation = `Maps.validate` (`ms.validate`): under 300 ms.
 
-| | GN1 | GN2 | GN3 | GN4 | GN5 |
-|---|---|---|---|---|---|
-| build + place | ~35 ms | ~25 ms | ~25 ms | ~25 ms | ~20 ms |
-| scan | ~50 ms | ~45 ms | ~25 ms | ~60 ms | ~100 ms |
-| validate | ~30 ms | ~140 ms | ~40 ms | ~125 ms | ~650 ms |
+A sightline repair adds a round (another build, scan and validation) plus `ms.repair`. Measured on an idle machine, ms per round
+(generation / validation / whole generate()):
 
-Small maps take 25 to 90 ms in all, validation included. The self-test asserts generation under 100 ms per seed (500 ms on a low-end phone).
+| | small | medium | large |
+|---|---|---|---|
+| GN1 | 20 / 5 / 26 | 11 / 5 / 16 | 17 / 8 / 25 |
+| GN2 | 16 / 21 / 37 | 23 / 36 / 138 (2 rounds) | 27 / 40 / 155 (2 rounds) |
+| GN3 | 9 / 10 / 19 | 10 / 12 / 22 | 14 / 25 / 39 |
+| GN4 | 10 / 15 / 25 | 14 / 23 / 38 | 21 / 38 / 141 (2 rounds) |
+| GN5 | 27 / 70 / 97 | 48 / 133 / 182 | 59 / 176 / 235 |
+
+The scan and the validator got faster for this (16s, 16v): horizontal rays walk the 4 m brush buckets front to back instead of testing every
+brush, path searches use a typed-array heap, a column's surfaces are sorted in place, trigger boxes visit only their columns, the main-loop
+search skips spawns already in the loop, and the lane search stops at its target. Results are unchanged (the `maps` group passes as before).
+
+The self-test checks both budgets on the largest size of every generator (strict, best of two runs) and on the 200-seed sweep (each seed over a
+budget is run once more; at most 2% may stay over, for a busy machine).
 
 ## Screen (18h)
 
@@ -130,13 +160,16 @@ with the player on team 0 in team modes. `MapGenMenu` holds the state and has no
 ## Debug
 
 - `__CTK.mapgen.generate(options)`, `__CTK.mapgen.last`, and every other `MapGen` call.
-- `__CTK.mapgen.sweep(count)`: validates `count` seeds (1000, 1001, ...) over GN1..GN5 and every size; returns `{ total, accepted, retried,
-  repaired, fallback, slowestMs, slowest, slowestGenerationMs, slowestScanMs, failures }`. A run of 60 seeds: 60 accepted, 1 retried, 14 repaired,
-  0 fallbacks, slowest generation 27 ms; the slowest total is a GN5 large map at about 2 s (validator runs of the repair rounds).
+- `__CTK.mapgen.sweep(count)`: validates `count` seeds (1000, 1001, ...) over GN1..GN5 and every size; returns `{ total, accepted, fallback,
+  repaired, retried, slowestGeneration, slowestGenerationMap, slowestValidation, slowestValidationMap, slowestTotal, slowestTotalMap, over,
+  unreported }` (ms per round; `over` lists seeds over a budget after one re-run, `unreported` seeds with problems but no fallback). A run of
+  200 seeds: 200 accepted, 0 fallbacks, 7 retried, 38 repaired, 0 unreported, about 25 s.
 - `__CTK.mapgen.parts()`: `{ MapScan, MapCheck, MapGenPlace, MapGenKits }` for console debugging.
 
 ## Contract requests
 
-- 13g royale ring: read `map.ring` (centre and start radius) when present instead of the world bounds.
+- 13g royale ring: read `map.ring` (centre and start radius) when present instead of the world bounds (`worldSafeArea` in `startRing`).
+  Until then the ring starts from the world bounds, which on GN5 maps is the same centre and radius.
 - Ziplines (S08) do not exist yet, so GN4 links roofs with bridges, ladders and jump pads only.
 - Main menu (UI-001): an entry for the generated map screen once UI-001 lists it.
+

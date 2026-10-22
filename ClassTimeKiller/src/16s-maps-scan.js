@@ -301,7 +301,8 @@ const MapScan = {
     return -1;
   },
   // A diagonal step needs both straight steps beside it: the four straight results (scan.steps, by MAP_NEIGHBOUR index) are reused.
-  walkTargets(scan, node, out) {
+  // kinds (optional) gets the edge kind of each target: diagonal for the last four directions, straight for steps and drops.
+  walkTargets(scan, node, out, kinds) {
     const column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0, steps = scan.steps;
     let count = 0;
     for (let d = 0; d < 8; d++) {
@@ -310,6 +311,7 @@ const MapScan = {
       if (target < 0 && d < 4) target = this.dropTarget(scan, node, ci, cj, d);
       if (target < 0) continue;
       if (d >= 4 && (steps[MAP_NEIGHBOUR_I[d] > 0 ? 0 : 1] < 0 || steps[MAP_NEIGHBOUR_J[d] > 0 ? 2 : 3] < 0)) continue;
+      if (kinds) kinds[count] = d >= 4 ? MAP_EDGE.diagonal : MAP_EDGE.straight;
       out[count++] = target;
     }
     return count;
@@ -392,7 +394,7 @@ const MapScan = {
   // Compressed adjacency for the whole graph: forward edges and the reverse graph (for strong-connectivity tests). Edges are an
   // Int32 target and a Uint8 kind (scan.edgeCosts holds the cost of each kind), written straight into pre-sized arrays.
   buildAdjacency(scan) {
-    const count = scan.nodeCount, targets = new Int32Array(MAP_MAX_EDGES_PER_NODE), extras = new Map();
+    const count = scan.nodeCount, targets = new Int32Array(MAP_MAX_EDGES_PER_NODE), kinds = new Uint8Array(MAP_MAX_EDGES_PER_NODE), extras = new Map();
     for (const link of scan.links) {
       if (!extras.has(link.from)) extras.set(link.from, []);
       extras.get(link.from).push(link);
@@ -402,25 +404,21 @@ const MapScan = {
     let edges = 0;
     for (let n = 0; n < count; n++) {
       start[n] = edges;
-      edges = this.collectEdges(scan, n, targets, extras.get(n), to, kind, edges);
+      edges = this.collectEdges(scan, n, targets, kinds, extras.get(n), to, kind, edges);
     }
     start[count] = edges;
-    scan.forward = { start, to: to.slice(0, edges), kind: kind.slice(0, edges) };
+    scan.forward = { start, to: to.subarray(0, edges), kind: kind.subarray(0, edges) };
     scan.backward = this.reverseGraph(scan.forward, count);
   },
-  collectEdges(scan, node, targets, links, to, kind, edges) {
-    const walk = this.walkTargets(scan, node, targets);
+  collectEdges(scan, node, targets, kinds, links, to, kind, edges) {
+    const walk = this.walkTargets(scan, node, targets, kinds);
     for (let k = 0; k < walk; k++, edges++) {
       to[edges] = targets[k];
-      kind[edges] = this.walkKind(scan, node, targets[k]);
+      kind[edges] = kinds[k];
     }
-    for (const link of links || []) { to[edges] = link.to; kind[edges++] = link.kind; }
+    if (!links) return edges;
+    for (const link of links) { to[edges] = link.to; kind[edges++] = link.kind; }
     return edges;
-  },
-  walkKind(scan, a, b) {
-    const columnA = scan.nodeColumn[a], columnB = scan.nodeColumn[b];
-    const diagonal = columnA % scan.cols !== columnB % scan.cols && ((columnA / scan.cols) | 0) !== ((columnB / scan.cols) | 0);
-    return diagonal ? MAP_EDGE.diagonal : MAP_EDGE.straight;
   },
   // The same edges pointing the other way (for "who can reach this node" questions).
   reverseGraph(graph, count) {
@@ -461,8 +459,9 @@ const MapScan = {
     return forward;
   },
   // Path-length distances (metres) from `sources` with predecessors; Infinity where unreachable. reverse = true measures the
-  // way TO the sources (how far each node is from walking to them).
-  distances(scan, sources, blocked, reverse) {
+  // way TO the sources (how far each node is from walking to them). With a target the search stops once the target is settled:
+  // its distance and the path to it are final, the other nodes' values may be partial.
+  distances(scan, sources, blocked, reverse, target) {
     const graph = reverse ? scan.backward : scan.forward;
     const dist = new Float64Array(scan.nodeCount).fill(Infinity), previous = new Int32Array(scan.nodeCount).fill(-1);
     const heap = mapMakeHeap(scan.nodeCount);
@@ -471,6 +470,7 @@ const MapScan = {
       mapHeapPop(heap);
       const key = heap.topKey, node = heap.topNode;
       if (key > dist[node]) continue;
+      if (node === target) break;
       this.relax(scan, graph, node, key, dist, previous, heap, blocked);
     }
     return { dist, previous };

@@ -496,7 +496,7 @@ const MapCheck = {
     const scan = ctx.scan, blocked = new Uint8Array(scan.nodeCount);
     let routes = 0;
     while (routes < MAP_MAX_ROUTES) {
-      const { dist, previous } = MapScan.distances(scan, [from], blocked);
+      const { dist, previous } = MapScan.distances(scan, [from], blocked, false, to);
       if (!isFinite(dist[to])) break;
       routes++;
       this.blockRoute(scan, MapScan.pathTo(previous, to), from, to, blocked);
