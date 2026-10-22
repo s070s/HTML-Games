@@ -234,7 +234,7 @@ const ForgeUi = {
     this.status.replaceChildren();
     this.cursorText = makeElement('b', '', '');
     this.status.appendChild(this.cursorText);
-    this.status.appendChild(document.createTextNode('  ' + FORGE_HELP[Input.device] + (Forge.message ? '  ' + Forge.message : '')));
+    this.status.appendChild(document.createTextNode('  ' + FORGE_HELP[Input.device]));
     this.shownX = NaN;
   },
   // Cursor position, refreshed a few times a second while the screen is open.
@@ -421,7 +421,8 @@ Ui.register('forgeCheck', {
       foot.appendChild(Ui.button('Suggest modes', () => { Forge.setModes(Forge.suggestModes()); Ui.toast('Modes: ' + (Forge.map.modes.join(', ') || 'none')); render(); }));
       body.appendChild(foot);
     };
-    render();
+    body.appendChild(makeElement('p', 'ui-note', 'Checking the map...'));
+    setTimeout(() => { if (body.isConnected) render(); }, 0);    // the screen opens first (UI-001): the check can take a second on a slow phone
   },
   problemButton(problem) {
     const button = Ui.button(problem, () => {

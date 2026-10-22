@@ -677,8 +677,9 @@ Test.add('forge', (check) => {
   forgeEditorOff();
 });
 
-Test.add('forge', (check) => {
+Test.add('forge', async (check) => {
   // ---- Dialogs that change things ----
+  const tick = () => new Promise((done) => setTimeout(done, 20));
   forgeEditorOff();
   Forge.newFrom({ kind: 'empty' });
   Ui.open('forge');
@@ -701,10 +702,13 @@ Test.add('forge', (check) => {
   check('the mode list shows every mode with what it lacks', rows.length > 10 && rows.some((row) => row.textContent.includes('needs')) && rows.some((row) => row.textContent.startsWith(CAT.modes.byId('tdm').name)), rows.map((row) => row.textContent).join(' | ').slice(0, 300));
   Ui.pop();
   Ui.open('forgeCheck');
+  check('the check screen opens at once and says it is checking', document.querySelector('.ui-forgeCheck').textContent.includes('Checking'));
+  await tick();
   check('the check screen reports the template as sound', document.querySelector('.ui-forgeCheck').textContent.includes('No problems'));
   Ui.pop();
   Forge.map.spawns[0].y = 5;
   Ui.open('forgeCheck');
+  await tick();
   const problem = document.querySelector('.ui-forgeCheck .fg-problem');
   check('a problem is a button', !!problem);
   problem.click();
