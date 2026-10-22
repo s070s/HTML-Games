@@ -128,6 +128,7 @@ const BOT_ROLE_SPLITS = {
 };
 const BOT_CAMP_HINTS = ['sniper', 'cover', 'guard'];   // map navHints kinds a camper may hold (BOT-041)
 const BOT_FLANK_HINT = 'flank';                         // map navHints kind a flanking tier (botTiers `flanks`) chases round by
+const BOT_CHOKE_HINT = 'choke';                         // map navHints kind an attacking bot smokes on its way to the target
 
 // Flag raids (BOT-050 attack play): while the enemy flag is home, a team's attackers and escorts gather at a rally point
 // (share of the way from their own base to the enemy flag) and push together once `minimum` of them are within `radius`
