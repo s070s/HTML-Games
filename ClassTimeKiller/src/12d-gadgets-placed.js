@@ -27,7 +27,6 @@ const BEACON_OFFSET = 1;                // spawn this far from the beacon
 const DEVICE_DRAW_GLINT = 0.08;
 const CAPSULE_CHECK_HEIGHTS = [0.3, 0.9, 1.6];
 
-const DEVICE_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
 const DEVICE_EVENT = { index: 0, gadget: '', owner: -1, x: 0, y: 0, z: 0 };
 const deviceHit = makeHit();
 const deviceActorHit = makeActorHit();
@@ -476,12 +475,12 @@ const Devices = {
     }
   },
   drawDevice(batch, device) {
-    const row = this.rowOf(device), offset = row.index * 3, size = row.size, x = this.x[device], y = this.y[device], z = this.z[device];
-    const red = DEVICE_RGB[offset], green = DEVICE_RGB[offset + 1], blue = DEVICE_RGB[offset + 2];
-    const glow = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
-    batch.mesh(row.shape, x, y + size[1] / 2, z, this.yaw[device], 0, size[0], size[1], size[2], red, green, blue, glow);
+    const row = this.rowOf(device), size = row.size, x = this.x[device], y = this.y[device], z = this.z[device], pose = gadgetPose;
+    pose.x = x; pose.y = y; pose.z = z; pose.yaw = this.yaw[device];
+    pose.emissive = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
+    drawGadgetModel(batch, row, pose);
     const hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
-    if (hasArea) batch.mesh('ring', x, y + 0.03, z, 0, 0, row.radius * 2, 0.03, row.radius * 2, red, green, blue, 0.6);
+    if (hasArea) batch.mesh('ring', x, y + 0.03, z, 0, 0, row.radius * 2, 0.03, row.radius * 2, pose.r, pose.g, pose.b, 0.6);
     if (row.kind !== 'placed' || Game.playerId < 0 || this.friendOf(device, Game.playerId)) return;
     const glint = DEVICE_DRAW_GLINT;
     batch.mesh('sphere', x, y + size[1] + 0.05, z, 0, 0, glint, glint, glint, 1, 0.1, 0.1, 1);
