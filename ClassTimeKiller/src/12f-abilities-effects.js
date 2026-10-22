@@ -280,7 +280,11 @@ function liftActor(zone, id) {
   driveActor(id, Actors.vx[id], speed, Actors.vz[id]);
 }
 function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
-function slowInZone(zone, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF); }
+// ABL-004 time slow: movement and fire rate both run at the zone's factor.
+function slowInZone(zone, id) {
+  Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE, AbilityZones.value[zone], TICK_BUFF);
+}
 // The strike lands after its delay: one blast through Damage.explode (no falloff inside the marked circle).
 function strikeStep(zone, dt) {
   if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;
@@ -677,11 +681,8 @@ function isFodderOrBeast(id) {
   return isFodder(id) || (Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.beast === true);
 }
 function castRevive(id, row) {
-  for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !alliesOf(id, other) || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
-    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= row.range * row.range) return Damage.revive(other);
-  }
-  return false;
+  const ally = Damage.nearestDownedAlly(id, row.range);
+  return ally >= 0 && Damage.revive(ally);
 }
 // bolt: the aimed enemy takes params.damage of params.element and the status (stacks; seconds 0 = the status default).
 function castBolt(id, row) {

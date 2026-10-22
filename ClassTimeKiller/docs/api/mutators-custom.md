@@ -37,7 +37,7 @@ Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mu
 | `health` `healthScale` `shields` | X06 X36 X07 | spawn pools, applied after S11 resets them | 13h |
 | `handicap` `handicapPlayer` | X22 | fills `rules.handicap.player` (unless the setup names one). The damage factor `Game.match.handicap[source]` itself is applied to every opponent hit by 13b, with or without X22 | 13h, 13b |
 | `oneHit` `headOnly` `airborneOnly` `noFallDamage` | X08 X28 X38 X20 | damage rules (Damage attacker scale hook) | 13h; bots (MUT-003: oneHit raises dodge priority) |
-| `lifesteal` `regen` `growth` `shrinkHit` `lastGift` `tags` `suppression` `triangle` `slowmoKills` `mirror` | X13 X18 X31 X39 X29 X42 X44 X47 X27 X40 | runtime hooks | 13h |
+| `lifesteal` `regen` `growth` `shrinkHit` `lastGift` `tags` `suppression` `triangle` `slowmoKills` `mirror` | X13 X18 X31 X39 X29 X42 X44 X47 X27 X40 | runtime hooks; `triangle` is also on whenever the health preset has `triangle` (HPP07 in RS07/RS08), and a melee finisher is a kill with a melee-class weapon or `kill.kind === 'melee'` (the quick-melee bash) | 13h |
 | `weaponList` | X08 X09 X10 | with `rules.weaponSet === 'matchSet'`: 13h fills the reserved weapon set row `matchSet` at `match.setup` (melee first, then two guns as the spawn loadout) and empties it on `match.stop` | 13h, S11, S12 (the pickups of the map follow `weaponSet.weapons`) |
 | `infiniteAmmo` | X08 X09 X15 | reserve ammo never runs out | S11 `Weapons.infiniteReserve` |
 | `headScale` | X14 | head hit sphere factor | S08 `Hitbox.headScale`; S07 draws the head and visor larger (`style.headScale`, 13h actor style) |

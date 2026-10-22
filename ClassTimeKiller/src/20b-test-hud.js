@@ -646,6 +646,26 @@ DebugApi.hudHeap = (frames) => hudTestBusy(() => {
   return performance.memory.usedJSHeapSize - before;
 });
 
+// HP-007 downed cues: a marker over a downed teammate, the hold-Use hint near it, the revive ring, the own bleed-out text.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { id, mate } = hudTestMatch(), quads = (layer, drawer) => { hudTestFrame(); return hudTestDrawer(layer, drawer).quads; };
+  check('downed: no downed cues while nobody is down', quads('world', 'downedAllies') === 0 && quads('front', 'downed') === 0);
+  Damage.goDown(-1, mate);
+  Sim.step();
+  check('downed: a downed teammate gets a marker', quads('world', 'downedAllies') > 0);
+  check('downed: no revive hint far from it', quads('front', 'downed') === 0);
+  hudTestPlace(id, 0, 12, 0);
+  check('downed: the hold-Use hint shows near it', quads('front', 'downed') > 0);
+  Damage.reviving[id] = mate; Damage.reviveProgress[id] = REVIVE_SECONDS / 2;
+  check('downed: the revive ring shows while reviving', quads('front', 'downed') > 0);
+  Damage.reviving[id] = -1; Damage.reviveProgress[id] = 0;
+  Damage.revive(mate);
+  Damage.goDown(-1, id);
+  Sim.step();
+  check('downed: the local player sees the bleed-out time', (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0 && quads('front', 'downed') > 0);
+  check('downed: a downed actor lies prone (crawl pose)', Test.near(Actors.height[id], STANCE_HEIGHT[STANCE.PRONE], 1e-4), Actors.height[id]);
+}));
+
 Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
   check('cost: a busy HUD frame costs under 0.4 ms (PERF-002)', cost.ms <= HUD_TEST_COST_BUDGET_MS, cost.ms.toFixed(3) + ' ms with ' + cost.quads + ' quads');

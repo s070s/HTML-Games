@@ -31,6 +31,8 @@ const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
 const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
 const ITEM_COUNT = CAT.items.length;
+const CONSUMABLE_ROWS = CAT.items.filter((row) => row.effect === 'consume');   // I13..I17, catalogue order = the heal button's preference
+const BOT_HEAL_CALM = 3;                 // s without damage before a bot uses a carried consumable
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
 
@@ -66,6 +68,11 @@ function itemRule(field, fallback) {
   const value = currentRules()[field];
   return value === undefined ? fallback : value;
 }
+// DIF-002 Pickups column: more yield = map pickups come back sooner (rules.botSkill is the resolved difficulty preset).
+function pickupYield() {
+  const skill = itemRule('botSkill', null);
+  return skill && skill.resourceYield > 0 ? skill.resourceYield : 1;
+}
 function itemMutatorOn(id) {
   const list = itemRule('mutators', []);
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
@@ -77,10 +84,14 @@ function itemFxOn(key) {
   return !!fx && !!fx[key];
 }
 // Map item spots exist unless the ruleset removes every pickup (rules.items === false, X08 noItems) or the mode places its
-// own (params.pickups === false: roulette, royale loot).
+// own (params.pickups === false: roulette, royale loot). params.pickups = a pickup key keeps only that pickup (M15 boots).
 function mapItemsAllowed() {
   const params = itemRule('params', null);
   return itemRule('items', true) !== false && !itemFxOn('noItems') && !(params && params.pickups === false);
+}
+function onlyPickup() {
+  const params = itemRule('params', null);
+  return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
 // A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
@@ -139,9 +150,11 @@ const Items = {
     this.clear();
     this.matchSetCursor = 0;
     if (!mapItemsAllowed()) return;
+    const only = onlyPickup();
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
+      if (only && entry.item !== only) continue;
       this.addSpot(entry);
     }
   },
@@ -178,12 +191,12 @@ const Items = {
     this.readyTick[slot] = Sim.tick + ticks;
     this.warned[slot] = 0;
   },
-  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale.
+  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale / the difficulty's resourceYield (DIF-002).
   respawnTicks(slot) {
     const row = this.rowOf(slot), pad = CAT.items.byId('weaponpad');
     let seconds = row.respawn;
     if (this.kind[slot] === PICKUP_KIND.WEAPON) seconds = row.class === 'power' ? pad.respawnPower : itemRule('teams', 0) > 0 ? pad.respawnTeams : pad.respawn;
-    return itemTicks(seconds * itemRule('itemRespawnScale', 1));
+    return itemTicks(seconds * itemRule('itemRespawnScale', 1) / pickupYield());
   },
   // Weapon stay (X11, rules.weaponStay): a weapon spot stays for everyone who does not own that weapon; power weapons never stay.
   stays(slot) {
@@ -255,6 +268,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
+      if ((Actors.pressed[id] & BTN.HEAL) || this.botWantsHeal(id)) this.useBest(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
@@ -450,6 +464,22 @@ const Items = {
     this.useStart[id] = Sim.tick;
     this.useEnd[id] = Sim.tick + itemTicks(row.useTime);
     return true;
+  },
+  // The heal button (BTN.HEAL): the first carried consumable, in catalogue order, that would restore something.
+  useBest(id) {
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) if (this.use(id, CONSUMABLE_ROWS[i].id)) return true;
+    return false;
+  },
+  consumableCount(id) {
+    let total = 0;
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
+    return total;
+  },
+  // Bots heal once they are out of the fight for BOT_HEAL_CALM seconds and miss health or shield.
+  botWantsHeal(id) {
+    if (Actors.kind[id] !== ACTOR_KIND.BOT || this.usingItem[id] >= 0 || Sim.time - Damage.lastDamageTime[id] < BOT_HEAL_CALM) return false;
+    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return false;
+    return this.consumableCount(id) > 0;
   },
   // 0..1 progress of the consumable in use, -1 when none (HUD).
   useProgress(id) {

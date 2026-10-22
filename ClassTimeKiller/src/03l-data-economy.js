@@ -46,9 +46,10 @@ Data.define('meters', {
 ]);
 
 // ECP04 perks, one per tier. stats: Weapons.statScale multipliers (S11 STAT names in lower case); dealt / taken: bullet
-// damage factors (hitscan weapon hits); cancels: a perk of the victim this perk switches off; flag: read by other sections.
+// damage factors (hitscan weapon hits); cancels: a perk of the victim this perk switches off; flag: read by other sections;
+// weapon: the weapon key the perk draws (Last Stand: the pistol while downed, S11 Damage.downedWeapon).
 Data.define('perks', {
-  id: REQUIRED, name: REQUIRED, tier: REQUIRED, text: REQUIRED, stats: {}, dealt: 1, taken: 1, cancels: '', flag: '', value: 0,
+  id: REQUIRED, name: REQUIRED, tier: REQUIRED, text: REQUIRED, stats: {}, dealt: 1, taken: 1, cancels: '', flag: '', value: 0, weapon: '',
 }, [
   { id: 'scavenger', name: 'Scavenger', tier: 1, text: 'Ammo from every kill', flag: 'scavenger', value: 0.5 },
   { id: 'bandolier', name: 'Bandolier', tier: 1, text: '+50% reserve ammo', stats: { reserve: 1.5 } },
@@ -61,7 +62,7 @@ Data.define('perks', {
   { id: 'marathon', name: 'Marathon', tier: 3, text: 'Sprint twice as long', flag: 'marathon', value: 2 },
   { id: 'steady', name: 'Steady', tier: 3, text: '-30% hip-fire spread', stats: { spread: 0.7 } },
   { id: 'quietstep', name: 'Quietstep', tier: 3, text: 'Silent footsteps', flag: 'quiet' },
-  { id: 'laststand', name: 'Last Stand', tier: 3, text: 'Pistol while downed (team modes)', flag: 'lastStand' },
+  { id: 'laststand', name: 'Last Stand', tier: 3, text: 'Pistol while downed (team modes)', flag: 'lastStand', weapon: 'warden' },
 ]);
 
 // ECP04: 6 preset classes (custom ones are saved per player, up to 10). lethal / tactical / fieldUpgrade: gadget keys the

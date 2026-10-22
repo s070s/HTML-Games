@@ -71,6 +71,32 @@ Test.add('weapons', (check) => {
   const unknown = CAT.weaponSets.flatMap((set) => set.weapons.concat(set.start)).filter((key) => !CAT.weapons.byId(key));
   check('weapon sets only name existing weapons', unknown.length === 0, unknown.join(', '));
   check('WPN-011 explosive alt fires arm at >= 6 m', CAT.projectiles.byId('contact').arm >= 6);
+  const unarmedAlts = ['shardcaster', 'stakedriver', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
+  check('WPN-011 the W21, W26, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
+});
+
+// WPN-011: an explosive alt that hits closer than its arm distance is a dud.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 3);
+  giveFull(shooter, 'talonbow');
+  TestArena.aimAt(shooter, target);
+  let blasts = -1;
+  const shots = TestArena.count('weapon.fire', () => { blasts = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.ALT, 0.5)); });
+  check('WPN-011 the W27 explosive arrow does not explode at 3 m', shots >= 1 && blasts === 0, blasts + ' / ' + shots);
+  TestArena.finish();
+});
+
+// WPN-011: the W21 alt shards inherit the alt mode but not its arm distance.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 1.5, 20);
+  const grenade = Projectiles.spawn(CAT.projectiles.byId('grenade'), shooter, CAT.weapons.byId('shardcaster').index, 1, 0, 0.1, 20, 0, 0, 0, 100);
+  Projectiles.explodeAt(grenade, 0, 0.1, 20, -1, ZONE.NONE);
+  Sim.run(TICK_RATE / 2);
+  check('WPN-011 W21 alt shards damage a sponge 1.5 m from the burst', Actors.health[target] < 100000, Actors.health[target]);
+  Projectiles.clear();
+  TestArena.finish();
 });
 
 Test.add('weapons', (check) => {
@@ -197,6 +223,24 @@ Test.add('weapons', (check) => {
   check('scoped move speed uses adsMoveMult', Test.near(Weapons.speedScale[shooter], heron.adsMoveMult, 1e-6), Weapons.speedScale[shooter]);
   check('the weapon speed scale reaches S10 (Move.weaponSpeedScale)', Move.weaponSpeedScale[shooter] === Weapons.speedScale[shooter], Move.weaponSpeedScale[shooter]);
   Actors.buttons[shooter] = 0;
+  TestArena.finish();
+});
+
+// WPN-003 in presets without a MOV-025 table: + moveSpread x speed fraction f, + an air term; standing first shots stay exact.
+Test.add('weapons', (check) => {
+  TestArena.start({ move: 'arena' });
+  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest'), mode = tempest.primary;
+  const spread = () => Weapons.spreadDegrees(shooter, tempest, mode);
+  check('WPN-003 standing first shot exact without a table', Move.preset(shooter).inaccuracy === null && spread() === 0);
+  Actors.vx[shooter] = Move.preset(shooter).groundSpeed;
+  const running = spread();
+  check('WPN-003 running adds moveSpread x f', Test.near(running, mode.spreadDeg + mode.moveSpread * MOVE_SPREAD_DEGREES, 1e-4), running);
+  Motion.grounded[shooter] = 0;
+  check('WPN-003 airborne adds the air term', Test.near(spread(), running + mode.moveSpread * AIR_SPREAD_DEGREES, 1e-4), spread());
+  const ramjet = giveFull(shooter, 'ramjet'), lancet = giveFull(shooter, 'lancet');
+  check('WPN-003 the default term spares projectile modes and the W23 rail (arena rockets stay exact)', Weapons.spreadDegrees(shooter, ramjet, ramjet.primary) === ramjet.primary.spreadDeg
+    && Weapons.spreadDegrees(shooter, lancet, lancet.primary) === 0, Weapons.spreadDegrees(shooter, ramjet, ramjet.primary));
+  Actors.vx[shooter] = 0; Motion.grounded[shooter] = 1;
   TestArena.finish();
 });
 
@@ -478,6 +522,44 @@ Test.add('weapons', (check) => {
   Actors.buttons[user] = 0;
   check('W41 catches a projectile and throws it back as its own', caught && Projectiles.owner[grenade] === user && Projectiles.vz[grenade] > 20, caught);
   check('W41 exposes a prop hook for the world section', 'propHook' in WeaponSpecialState);
+  TestArena.finish();
+});
+
+// W41 lifts props (S08 PropLift) and catches hand grenades (S12 Thrown); hitscan shots damage props (MAP-013).
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  World.load({ id: 'lifter-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }],
+    props: [{ min: [-0.4, 0.9, 3], max: [0.4, 1.7, 3.8], mass: 20, health: 50 }, { min: [-0.5, 0, 12], max: [0.5, 3, 13], health: 50 }] });
+  const user = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 20);
+  giveFull(user, 'lifter');
+  Actors.pitch[user] = Actors.aimPitch[user] = 0;
+  Actors.buttons[user] = BTN.ALT;
+  Sim.run(2);
+  const body = WeaponSpecialState.heldProp[user];
+  check('W41 alt lifts a breakable prop off the world as a held body', body >= 0 && Bodies.active[body] === 1 && !Props.isStanding(0), body);
+  Sim.run(10);
+  check('W41 holds the lifted body in front of the holder', body >= 0 && Math.abs(Bodies.z[body] - LIFTER_HOLD_DISTANCE) < 0.2, body >= 0 ? Bodies.z[body] : -1);
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 punt launches the held body with the lifter impact damage', body >= 0 && WeaponSpecialState.heldProp[user] === -1 && Bodies.vz[body] > 20
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  Sim.run(TICK_RATE);
+  const grenade = Thrown.spawn(CAT.gadgets.byId('frag'), enemy, 0, 1.6, 5, 0, 0, -3, itemTicks(10));
+  Actors.buttons[user] = BTN.ALT;
+  Weapons.nextShot[user] = 0;
+  Sim.run(2);
+  const caught = WeaponSpecialState.heldGrenade[user] === grenade;
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 catches a hand grenade and throws it back as its own', caught && Thrown.owner[grenade] === user && Thrown.vz[grenade] > 20, caught);
+  Thrown.clear();
+  giveFull(user, 'tempest');
+  TestArena.hold(user, BTN.FIRE, 0.05);
+  check('MAP-013 a hitscan shot damages the prop it hits', Props.health[1] < 50, Props.health[1]);
   TestArena.finish();
 });
 

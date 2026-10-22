@@ -131,6 +131,8 @@ const Weapons = {
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
+  altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
+  altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
 
   // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -207,14 +209,15 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
   // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007),
   // and a dual-wield weapon (W04) picked up a second time becomes a pair. At the carry limit the held weapon is
-  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section.
-  give(id, key, rarity) {
+  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section; outsideCarry skips that
+  // (the Last Stand pistol is lent on top of the carried weapons).
+  give(id, key, rarity, outsideCarry) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
     this.droppedRarity = 0;
@@ -222,7 +225,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -258,6 +261,11 @@ const Weapons = {
     this.dropped = CAT.weapons[victim].id;
     this.droppedRarity = this.rarity[slot];
     if (this.current[id] === victim) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
+  },
+  // Takes a weapon away without a drop (a lent weapon going back); the held one is put away.
+  takeAway(id, weaponIndex) {
+    this.owned[this.slotIndex(id, weaponIndex)] = 0;
+    if (this.current[id] === weaponIndex) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
   },
   firstCarried(id) {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) return w;
@@ -405,6 +413,11 @@ const Weapons = {
     this.beginReload(id, weapon);
   },
 
+  // Stunned, or downed without the Last Stand pistol (Damage.lastStand): no firing, reloading or switching.
+  lowered(id) {
+    const flags = Actors.flags[id];
+    return (flags & ACTOR_FLAG.FROZEN) !== 0 || ((flags & ACTOR_FLAG.DOWNED) !== 0 && !Damage.lastStand[id]);
+  },
   // ---- The per-step state machine ----
   step(dt) {
     for (let id = 0; id < Actors.count; id++) {
@@ -416,8 +429,8 @@ const Weapons = {
     this.coolDown(id, dt);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
-    if (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
-    this.handleSwitchInput(id);
+    if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+    if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
     if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
@@ -427,7 +440,13 @@ const Weapons = {
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    this.stepAltMode(id, weapon, dt);
+    if (!this.altTaken(id)) this.stepAltMode(id, weapon, dt);
+  },
+  // GAD-002: an ALT hold that an underhand throw claimed never reaches the weapon's alt, not even after the throw.
+  altTaken(id) {
+    if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
+    if (this.altClaim && this.altClaim(id)) this.altClaimed[id] = 1;
+    return this.altClaimed[id] === 1;
   },
   // Aiming down sights needs a zoom alt (or an alt shot with its own zoom, the W19 slug) held while idle: a reload lowers the sights.
   updateAds(id, weapon, dt) {
@@ -447,6 +466,7 @@ const Weapons = {
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
     Move.weaponSpeedScale[id] = this.speedScale[id];   // S10 scales the actor's move speed by it
+    Move.weaponReadyTime[id] = weapon ? weapon.readyTime : 0;   // S10 adds it to the sprint-to-fire wait
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;
@@ -580,7 +600,8 @@ const Weapons = {
 
   // ---- Spread (WPN-003, MOV-025) and recoil (WPN-004) ----
   spreadDegrees(id, weapon, mode) {
-    const movement = Move.inaccuracy(id) * mode.moveSpread;   // MOV-025 belongs to the movement preset (S10)
+    // MOV-025 belongs to the movement preset (S10); its WPN-003 default covers hitscan guns only (arena rockets stay exact).
+    const movement = Move.inaccuracy(id, mode.type !== 'hitscan') * mode.moveSpread;
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);
@@ -703,6 +724,7 @@ const Shot = {
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
+      if (shotHit.brush && shotHit.brush.prop >= 0) Props.damage(shotHit.brush.prop, damage * factor);   // MAP-013 props break under fire
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
       factor *= PENETRATION_FACTOR[mode.penetration];

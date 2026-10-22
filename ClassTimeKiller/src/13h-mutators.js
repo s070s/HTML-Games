@@ -49,6 +49,7 @@ const Mutators = {
   suppressed: new Float32Array(MAX_ACTORS),      // X44 seconds left (HUD blur: Mutators.suppression(id))
   slowmoLeft: 0,
   nextSuperPowerup: 0,
+  superPool: [],                   // X17 powerup rows a grant may pick (filled at match setup)
   tagCount: 0,
   powerNames: [],
   hooks: { spawn: [], kill: [], damage: [], fire: [], step: [] },   // runtime effect hooks, see runHooks
@@ -250,6 +251,8 @@ function applyMutatorStage(rules) {
   rules.mutators = resolved.list;
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
+  const health = CAT.health.byId(rules.health);
+  if (health && health.triangle) rules.fx.triangle = true;   // HPP07 Ravager Triangle
   for (const text of resolved.messages) emitToast(text);
 }
 // X22: the player's handicap, unless the setup names one (the handicap stage runs after the mutators).
@@ -392,7 +395,7 @@ function isOpponentKill(event) { return event.killer >= 0 && event.killer !== ev
 function onKillTriangle(fx, event) {
   if (!fx.triangle || !isOpponentKill(event)) return;
   const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
-  if (weapon && weapon.class === 'melee') {
+  if (event.kind === 'melee' || (weapon && weapon.class === 'melee')) {   // a quick-melee bash with a gun is a melee finisher too
     Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
     const held = Weapons.currentWeapon(killer);
     if (held) Weapons.addAmmo(killer, held.ammoType, TRIANGLE_AMMO);
@@ -462,10 +465,12 @@ function onStepSuppression(fx, dt) {
 }
 function onStepTags(fx, dt) { if (fx.tags) TagPool.step(dt, touchTag); }
 function onStepGifts(fx, dt) { if (fx.lastGift) GiftPool.step(dt, detonateGift); }
+// X17 hands out only powerups a map could place: never the unique flame, campaign shards or PvE souls.
+function superPowerupAllowed(row) { return row.mapItem !== false && !row.campaign && !row.unique; }
 function onStepSuperPowerups(fx) {
-  if (!fx.superPowerups || !CAT.powerups || Sim.time < Mutators.nextSuperPowerup) return;
+  if (!fx.superPowerups || !Mutators.superPool.length || Sim.time < Mutators.nextSuperPowerup) return;
   Mutators.nextSuperPowerup = Sim.time + fx.superPowerups;
-  const item = Rng.rules.pick(CAT.powerups).id;
+  const item = Rng.rules.pick(Mutators.superPool).id;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id]) continue;
     GRANT_EVENT.id = id;
@@ -511,6 +516,7 @@ function startMutators(match) {
   Mutators.fx = rules.fx && Object.keys(rules.fx).length ? rules.fx : null;   // later stages (difficulty) may add fx.timeScale too
   Mutators.slowmoLeft = 0;
   Mutators.nextSuperPowerup = rules.fx && rules.fx.superPowerups ? rules.fx.superPowerups : 0;
+  Mutators.superPool = rules.fx && rules.fx.superPowerups && CAT.powerups ? CAT.powerups.filter(superPowerupAllowed) : [];
   Mutators.powerNames = Mutators.fx && Mutators.fx.powers ? powerNamesOf() : [];
   TagPool.clear();
   GiftPool.clear();

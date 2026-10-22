@@ -417,6 +417,9 @@ Test.add('mutators', (check) => {
   Actors.alive[1] = 1; Actors.health[1] = 10;
   strike(0, 1, 100000, { element: 'thermal' });
   check('resource triangle: a burning kill gives armor', Actors.armor[0] >= 25, Actors.armor[0]);
+  Actors.alive[1] = 1; Actors.health[1] = 10; Actors.health[0] = 50;
+  strike(0, 1, 100000, { weapon: 'warden', kind: 'melee' });
+  check('resource triangle: a quick-melee bash with a gun counts as a melee finisher', Actors.health[0] === 75, Actors.health[0]);
   const halved = startReserves(2);
   stopMutatorMatch();
   startMutatorMatch([]);
@@ -430,6 +433,12 @@ Test.add('mutators', (check) => {
     && Weapons.maxReserve(2, CAT.weapons.byId('warden')) === Math.round(CAT.weapons.byId('warden').maxAmmo * 0.25));
   stopMutatorMatch();
   check('the mutator factors are cleared after the match', Weapons.mutatorScale.every((scale) => scale === 1));
+  startMutatorMatch([], { ruleset: 'ravager' });
+  check('HPP07: the Ravager rulesets always run the resource triangle', Mutators.fx && Mutators.fx.triangle === true && Rules.build({ mode: 'ffa', ruleset: 'knight' }).fx.triangle === true
+    && !Rules.build({ mode: 'ffa', ruleset: 'classic' }).fx.triangle);
+  check('HPP07: spawn with 100 health and 50 armor, caps 100/50 until Vital Shards raise them', Actors.health[2] === 100 && Actors.armor[2] === 50 && Actors.maxArmor[2] === 50
+    && Damage.preset().overhealCap === 100, Actors.armor[2]);
+  stopMutatorMatch();
 
   startMutatorMatch(['mirror']);
   Game.playerId = 0;
@@ -468,9 +477,10 @@ Test.add('mutators', (check) => {
   const hadAbilities = !!CAT.abilities, hadPowerups = !!CAT.powerups;
   if (!hadAbilities) CAT.abilities = [{ id: 'testdash', code: 'A05' }, { id: 'testfar', code: 'A99' }];
   if (!hadPowerups) CAT.powerups = [{ id: 'testboost' }];
-  const picks = [], grants = [];
+  const picks = [], grants = [], grantedItems = [];
+  const SUPER_FORBIDDEN = ['lightbearer', 'vitalshard', 'soul'];   // unique, campaign and PvE-only rows
   const pickListener = Bus.on('power.pick', (payload) => picks.push(payload.ability));
-  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id));
+  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id) && grantedItems.push(payload.item));
   startMutatorMatch([{ id: 'powers', value: true }, { id: 'superpowerups', value: 15 }]);
   Bus.emit('actor.spawn', { id: 1 });
   Sim.run(Math.round(16 * TICK_RATE));
@@ -478,6 +488,8 @@ Test.add('mutators', (check) => {
   const aliveCount = Array.from({ length: Actors.count }, (unused, id) => Actors.alive[id]).filter(Boolean).length;
   check('powers for all announces one ability per spawn (A05..A33 only)', picks.length >= 1 && picks.every((name) => CAT.abilities.byId ? CAT.abilities.byId(name) : true) && !picks.includes('testfar'));
   check('super powerups grant every living actor a powerup each interval', grants.length === aliveCount && aliveCount >= 3, grants.length + ' ' + aliveCount);
+  check('super powerups never hand out unique, campaign or PvE-only rows', Mutators.superPool.length > 0
+    && !Mutators.superPool.some((row) => SUPER_FORBIDDEN.includes(row.id)) && grantedItems.every((item) => !SUPER_FORBIDDEN.includes(item)), grantedItems.join());
   stopMutatorMatch();
   if (!hadAbilities) delete CAT.abilities;
   if (!hadPowerups) delete CAT.powerups;

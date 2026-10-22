@@ -34,6 +34,7 @@ const Bodies = {
   halfX: new Float32Array(BODY_CAPACITY), halfY: new Float32Array(BODY_CAPACITY), halfZ: new Float32Array(BODY_CAPACITY),
   mass: new Float32Array(BODY_CAPACITY), rest: new Float32Array(BODY_CAPACITY), age: new Float32Array(BODY_CAPACITY),
   impactClock: new Float32Array(BODY_CAPACITY), color: new Uint32Array(BODY_CAPACITY),
+  impactFactor: new Float32Array(BODY_CAPACITY), impactCap: new Float32Array(BODY_CAPACITY),   // HP per kg*m/s and its cap (W41 launches raise them)
   debrisLimit: BODY_CAPACITY,
   // Fill this reusable spec and pass it to spawn(); radius = halfX for spheres.
   spec: { shape: BODY_SHAPE.SPHERE, kind: BODY_KIND.THROWN, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, halfX: 0.2, halfY: 0.2, halfZ: 0.2, mass: 1, color: 0xffffff, owner: -1 },
@@ -47,6 +48,7 @@ const Bodies = {
     const sphere = spec.shape === BODY_SHAPE.SPHERE;
     this.halfX[index] = spec.halfX; this.halfY[index] = sphere ? spec.halfX : spec.halfY; this.halfZ[index] = sphere ? spec.halfX : spec.halfZ;
     this.mass[index] = Math.max(0.01, spec.mass); this.rest[index] = 0; this.age[index] = 0; this.impactClock[index] = 0; this.color[index] = spec.color;
+    this.impactFactor[index] = BODY_IMPACT_DAMAGE_PER_MOMENTUM; this.impactCap[index] = BODY_IMPACT_MAX_DAMAGE;
     return index;
   },
   // A free slot, unless new debris would pass debrisLimit or no slot is free: then the oldest debris is recycled.
@@ -115,11 +117,26 @@ const Props = {
     this.health[index] -= amount;
     if (this.health[index] <= 0) this.breakProp(index);
   },
-  breakProp(index) {
-    const brush = this.brushes[index];
-    const listIndex = World.dynamic.indexOf(brush);
+  // W41: a standing breakable prop up to maxMass leaves the world as one thrown box body held by owner (-1: none fits).
+  lift(index, owner, maxMass) {
+    if (!this.isStanding(index) || !this.breakable[index] || this.mass[index] > maxMass) return -1;
+    const brush = this.brushes[index], spec = Bodies.spec;
+    spec.shape = BODY_SHAPE.BOX; spec.kind = BODY_KIND.THROWN; spec.owner = owner; spec.color = this.color[index]; spec.mass = this.mass[index];
+    spec.halfX = (brush.maxX - brush.minX) / 2; spec.halfY = (brush.maxY - brush.minY) / 2; spec.halfZ = (brush.maxZ - brush.minZ) / 2;
+    spec.x = brush.minX + spec.halfX; spec.y = brush.minY + spec.halfY; spec.z = brush.minZ + spec.halfZ;
+    spec.vx = spec.vy = spec.vz = 0;
+    const body = Bodies.spawn(spec);
+    if (body >= 0) this.removeBrush(index);
+    return body;
+  },
+  removeBrush(index) {
+    const listIndex = World.dynamic.indexOf(this.brushes[index]);
     if (listIndex >= 0) World.dynamic.splice(listIndex, 1);
     this.health[index] = 0;
+  },
+  breakProp(index) {
+    const brush = this.brushes[index];
+    this.removeBrush(index);
     Bodies.debrisLimit = Math.min(BODY_CAPACITY, Quality.current().props); // read now: quality can change mid-match
     spawnDebris(brush, clamp(this.debris[index], DEBRIS_MIN_PIECES, DEBRIS_MAX_PIECES), this.mass[index], this.color[index]);
     breakEvent.prop = index; breakEvent.material = brush.material;
@@ -128,6 +145,35 @@ const Props = {
     emitSound(breakEvent.x, breakEvent.y, breakEvent.z, BREAK_NOISE_RADIUS, 'break', -1);
   },
 };
+
+// W41 Graviton Lifter (S11 WeaponSpecialState.propHook): grab the first body or breakable prop along the aim within
+// range (walls stop the search), hold it at a point, launch it with the lifter's impact damage.
+const PropLift = {
+  grab(id, ox, oy, oz, dx, dy, dz, range, maxMass) {
+    const wall = World.raycast(ox, oy, oz, dx, dy, dz, range, liftHit) ? liftHit.distance : range;
+    const prop = wall < range && liftHit.brush && liftHit.brush.prop >= 0 ? liftHit.brush.prop : -1;
+    const body = Bodies.raycast(ox, oy, oz, dx, dy, dz, wall, liftHit);
+    if (body < 0) return prop >= 0 ? Props.lift(prop, id, maxMass) : -1;
+    if (Bodies.mass[body] > maxMass) return -1;
+    Bodies.kind[body] = BODY_KIND.THROWN; Bodies.owner[body] = id;   // held debris no longer expires
+    return body;
+  },
+  // Placed each tick before the bodies step; gravity moves it by one tick at most, and letting go lets it fall.
+  hold(handle, x, y, z) {
+    if (!Bodies.active[handle]) return;
+    Bodies.x[handle] = x; Bodies.y[handle] = y; Bodies.z[handle] = z;
+    Bodies.vx[handle] = Bodies.vy[handle] = Bodies.vz[handle] = 0;
+    Bodies.sleeping[handle] = 0; Bodies.rest[handle] = 0;
+  },
+  launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap) {
+    if (!Bodies.active[handle]) return;
+    Bodies.vx[handle] = vx; Bodies.vy[handle] = vy; Bodies.vz[handle] = vz;
+    Bodies.impactFactor[handle] = damagePerMassSpeed; Bodies.impactCap[handle] = damageCap;
+    Bodies.sleeping[handle] = 0; Bodies.rest[handle] = 0;
+    clampBodySpeed(handle);
+  },
+};
+const liftHit = makeHit();
 
 const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
 const bodyMover = makeMover();
@@ -243,7 +289,7 @@ function hitActors(index) {
     if (!Actors.alive[id] || id === Bodies.owner[index]) continue;
     if ((Actors.x[id] - Bodies.x[index]) ** 2 + (Actors.z[id] - Bodies.z[index]) ** 2 > reach * reach) continue;
     if (Bodies.y[index] + Bodies.halfY[index] < Actors.y[id] || Bodies.y[index] - Bodies.halfY[index] > Actors.y[id] + Actors.height[id]) continue;
-    const amount = clamp(Bodies.mass[index] * speed * BODY_IMPACT_DAMAGE_PER_MOMENTUM, 0, BODY_IMPACT_MAX_DAMAGE);
+    const amount = clamp(Bodies.mass[index] * speed * Bodies.impactFactor[index], 0, Bodies.impactCap[index]);
     requestDamageAt(id, Bodies.owner[index], amount, 'crush', 'kinetic', Bodies.x[index], Bodies.y[index], Bodies.z[index]);
     Bodies.impactClock[index] = BODY_IMPACT_COOLDOWN;
     return;

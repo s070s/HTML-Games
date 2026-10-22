@@ -574,6 +574,29 @@ const Thrown = {
   },
   // G22 and G12 remove enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
+  // W41 Graviton Lifter (WeaponSpecialState.grenadeHook): the nearest flying or resting grenade in the aim cone within range.
+  grab(id, ox, oy, oz, dx, dy, dz, range, minCos) {
+    let best = -1, bestDistance = range;
+    for (let slot = 0; slot < THROWN_CAP; slot++) {
+      if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
+      best = slot; bestDistance = distance;
+    }
+    return best;
+  },
+  hold(slot, x, y, z) {
+    if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) return;
+    this.state[slot] = THROWN_STATE.FLYING;
+    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
+    this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
+  },
+  // Thrown back as the lifter holder's own grenade; the fuse keeps running.
+  launch(slot, owner, vx, vy, vz) {
+    if (this.state[slot] !== THROWN_STATE.FLYING) return;
+    this.owner[slot] = owner;
+    this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
+  },
   draw(batch) {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
@@ -699,11 +722,11 @@ const Gadgets = {
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
+  grenadeReady(id) { return this.grenade[id] >= 0 && this.count[id * GADGET_COUNT + this.grenade[id]] > 0; },
   startHold(id) {
-    const rowIndex = this.grenade[id];
-    if (rowIndex < 0 || !this.count[id * GADGET_COUNT + rowIndex]) return;
+    if (!this.grenadeReady(id)) return;
     this.holdStart[id] = Sim.tick;
-    this.holdRow[id] = rowIndex;
+    this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
@@ -743,10 +766,12 @@ const Gadgets = {
     for (let i = 0; i < this.deployers.length && !placed; i++) placed = this.deployers[i](id, row);
     if (!placed) return false;
     this.spend(id, row);
-    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown);
+    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + this.rechargeTicks(id, row);
     this.emitUse(id, row);
     return true;
   },
+  // A field upgrade's recharge for this actor, sped up by ECP04 Tune Up (Abilities.rechargeScale).
+  rechargeTicks(id, row) { return itemTicks(row.cooldown / Abilities.rechargeScale[id]); },
   // Field-upgrade rows (cooldown > 0) regain their single use when the recharge is over.
   rechargeGadget(id) {
     const row = gadgetRow(this.gadget[id]);
@@ -768,7 +793,7 @@ const Gadgets = {
     const grenade = id >= 0 ? gadgetRow(this.grenade[id]) : null, gadget = id >= 0 ? gadgetRow(this.gadget[id]) : null;
     out.grenade = grenade ? grenade.name : ''; out.grenadeCount = grenade ? this.count[id * GADGET_COUNT + grenade.index] : 0;
     out.gadget = gadget ? gadget.name : ''; out.gadgetCount = gadget ? this.count[id * GADGET_COUNT + gadget.index] : 0;
-    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / itemTicks(gadget.cooldown), 0, 1) : 0;
+    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / this.rechargeTicks(id, gadget), 0, 1) : 0;
     const held = id >= 0 && this.holdStart[id] >= 0 ? CAT.gadgets[this.holdRow[id]] : null;
     out.cook = held && held.cook ? clamp(this.heldTicks(id) / itemTicks(held.fuse), 0, 1) : 0;
     return out;
@@ -815,6 +840,9 @@ const Gadgets = {
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
+// GAD-002: ALT is the underhand throw while a grenade is held (or its button goes down with one ready), not the weapon's alt.
+WeaponSpecialState.grenadeHook = Thrown;
+Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });

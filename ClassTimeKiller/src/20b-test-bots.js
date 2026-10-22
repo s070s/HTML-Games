@@ -172,6 +172,19 @@ function endBotTest() {
   World.clear();
 }
 
+// ---- BOT-071 revive: a bot walks to a downed teammate and holds Use until it stands again ----
+Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 0 }] });
+  placeFacing(bot, 0, -10, 0);
+  holdActor(mate, 6, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0;
+  for (let tick = 0; tick < 15 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) Sim.run(1);
+  check('BOT-071 a bot revives a downed teammate when no enemy is near', downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
 // ---- Catalogues ----
 Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));
@@ -250,12 +263,14 @@ Test.add('bots', (check) => {
 const ACCURACY_SECONDS = 15, ACCURACY_SEEDS = [1, 2, 3], ACCURACY_DISTANCE = 15, ACCURACY_STRAFE = 3, ACCURACY_STRAFE_RATE = 0.8;
 const ACCURACY_BAND_LOW = 0.3, ACCURACY_BAND_SLACK = 0.08;   // band: 30% of the tier's hit cap .. the cap + 0.08
 const ACCURACY_ORDER_SLACK = 0.05;
+const ACCURACY_STILL_TABLE = { walkFraction: 0, walk: 0, crouch: 0, run: 0, air: 0, land: 0, landTime: 1 };   // a MOV-025 table that adds nothing
 
 function measureAccuracy(tier) {
   let shots = 0, hits = 0;
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
     Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
+    Move.presetOverride[bot] = Object.assign({}, Move.preset(bot), { inaccuracy: ACCURACY_STILL_TABLE });   // and no WPN-003 movement spread
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
       holdActor(bot, 0, -ACCURACY_DISTANCE / 2);

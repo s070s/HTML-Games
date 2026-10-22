@@ -69,7 +69,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - `hudState(id, out)`: fills `out.slots` (up to 3) with `{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }` and `out.meter` with `{ kind, value 0..1, ready, energy 0..1, souls }`. `out` must be `{ slots: [], meter: {} }`. The array and its entries are reused (filled in place every call).
 - Hooks set by S13: `carrierCheck(id)` and `hiddenFromPulse(id)` (the Ghost perk).
 - Other fields:
-  - `rechargeScale[id]` is written by the Tune Up perk.
+  - `rechargeScale[id]` is written by the Tune Up perk; it also divides the field-upgrade gadget recharge (12c `useGadget`).
   - `Damage.poolOverride` gives heroes their pools (HPP05).
   - `Damage.roleOf(id)` (12f) gives S11 the role for the HPP05 role regen: the hero role in hero rulesets, else `profile.role`.
 - Sim system `abilities` at order 20 (after `status`). Lifecycle:

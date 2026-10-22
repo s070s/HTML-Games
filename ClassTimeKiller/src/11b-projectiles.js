@@ -284,9 +284,16 @@ const Projectiles = {
     if ((row.onHit === 'damage' || row.onHit === 'pin') && this.modeOf(i).splash) return 'explode';
     return row.onHit;
   },
+  // WPN-011: closer than the arm distance of its row or its fire mode, it cannot explode yet.
+  // The mode arm covers the explosive itself only: split shards inherit the mode but never arm.
+  unarmed(i, row) {
+    const modeArm = this.child[i] || this.onHitKind(i, row) !== 'explode' ? 0 : this.modeOf(i).arm;
+    const arm = Math.max(row.arm, modeArm);
+    return arm > 0 && this.travelled[i] < arm;
+  },
   touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
     if (row.parryable && WeaponSpecialState.tryParry(target, i)) return true;
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, x, y, z); return true; }
+    if (this.unarmed(i, row)) { this.dud(i, x, y, z); return true; }
     const kind = this.onHitKind(i, row);
     if (kind === 'explode') { this.explodeAt(i, x, y, z, target, zone); return true; }
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
@@ -313,10 +320,10 @@ const Projectiles = {
     return Damage.apply(this.owner[i], target, info);
   },
   touchWorld(i, row, hit) {
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, hit.x, hit.y, hit.z); return; }
     if (row.roll) { reflectVelocity(i, hit, 0.6); return; }
     if (this.state[i] === PROJECTILE_STATE.RETURNING) return;
     if (this.bounces[i] !== 0 && this.bounceOff(i, row, hit)) return;
+    if (this.unarmed(i, row)) { this.dud(i, hit.x, hit.y, hit.z); return; }   // bounces still happen before it arms
     if (row.returning && !this.lodge[i]) { this.startReturn(i); return; }
     if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
     if (this.onHitKind(i, row) === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
@@ -444,7 +451,7 @@ const Projectiles = {
   // ---- Endings ----
   expire(i) {
     const row = this.row(i);
-    if (this.onHitKind(i, row) === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
+    if (this.onHitKind(i, row) === 'explode' && !this.unarmed(i, row)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
     if (row.onHit === 'puddle') { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
     this.remove(i);
   },

@@ -310,6 +310,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 Test.add('uiacc', (check) => hudTestWith(() => {
   // ---- UI-003/006 minimap, tracker, compass ----
   const scene = hudTestMatch(), { id, mate, enemy } = scene;
+  Abilities.hiddenFromPulse = () => false;   // the enemy's class may carry the Ghost perk (ECP04): these checks need a plain enemy
   hudTestFrame();
   const minimap = () => { hudTestFrame(); return Hud.quadsOf('minimap'); };
   const withoutEnemy = (() => { Actors.alive[enemy] = 0; const quads = minimap(); Actors.alive[enemy] = 1; return quads; })();
@@ -347,6 +348,10 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   check('tracker: an enemy out of range stays hidden', minimap() === base);
   setRadar({ mode: 'team', range: 20 });
   check('tracker: team mode shares the range of every living teammate (the mate is 17 m away)', minimap() > base);
+  Abilities.hiddenFromPulse = (id) => id === enemy;   // ECP04 Ghost perk
+  hudTestEvent('sound', { x: 5, y: 0, z: 30, radius: ACCESS_TEST_NEXT_SHOT_NOISE, kind: 'shot', source: enemy });
+  check('tracker: the Ghost perk hides a moving enemy and its shot blips', minimap() === base);
+  Abilities.hiddenFromPulse = () => false; Hud.time += HUD_MAP_BLIP_SECONDS + 0.1;
   setRadar({ mode: 'off', range: 40 });
   check('tracker: off shows nothing', minimap() === base);
   setRadar(null);

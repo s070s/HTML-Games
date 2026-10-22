@@ -26,6 +26,8 @@ const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
 const STILL_FRACTION = 0.02;                     // MOV-025: slower than this fraction of ground speed counts as standing
+const MOVE_SPREAD_DEGREES = 1;                   // WPN-003 without a MOV-025 table: + this x speed fraction f (x the mode's moveSpread)
+const AIR_SPREAD_DEGREES = 1.5;                  // WPN-003 air term without a MOV-025 table
 const AIR_ASSIST_ACCEL = 2;                      // MOV-018
 const SPRINT_INPUT = 0.5;                        // forward input needed to sprint
 const MOVE_FLAG_MASK = ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE | ACTOR_FLAG.SPRINTING
@@ -55,10 +57,12 @@ const MatchMove = { rules: undefined, preset: null, gravityScale: 1, knockback: 
 const Move = {
   presetOverride: new Array(MAX_ACTORS).fill(null),   // per-actor preset rows (hero kits); null = the match preset
   weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S11: weapon moveMult x adsMoveMult (MOV-021)
+  weaponReadyTime: new Float32Array(MAX_ACTORS),          // written by S11: the held weapon's readyTime, added to sprintToFire (MOV-021)
   statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12 (Buffs only): slows and hastes
   gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
   footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
+  safeLanding: new Uint8Array(MAX_ACTORS),                // 1 = the next landing deals no fall damage, then cleared (S13: royale drop-in)
   states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
@@ -67,10 +71,11 @@ const Move = {
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
   horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
-  // MOV-025 movement inaccuracy in degrees for weapons (0 in presets without an inaccuracy table).
-  inaccuracy(id) {
+  // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
+  // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
+  inaccuracy(id, tableOnly) {
     const table = this.preset(id).inaccuracy;
-    if (!table) return 0;
+    if (!table) return tableOnly ? 0 : defaultInaccuracy(id);
     const sinceLanding = Motion.sinceLanding[id];
     const landing = sinceLanding < table.landTime ? table.land * (1 - sinceLanding / table.landTime) : 0;
     return movingInaccuracy(id, table) + landing;
@@ -174,7 +179,7 @@ function groundWishSpeed(id, preset) {
   if (Motion.board[id]) speed = SKIMMER_SPEED;
   else if (getClock(id, CLOCK.TAC_SPRINT) > 0) speed = preset.tacSprintSpeed;
   else if (Motion.sprinting[id]) speed = preset.sprintSpeed;
-  const stance = Motion.stance[id];
+  const stance = Actors.flags[id] & ACTOR_FLAG.DOWNED ? STANCE.STAND : Motion.stance[id];   // HP-007: S11's DOWNED_SPEED alone sets the crawl
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
   else if (isWalking(id, preset)) speed *= preset.walkMult;
@@ -355,7 +360,8 @@ function storeMover(id, mover) {
 // ---- Landing (MOV-013..015, MOV-024) ----
 function land(id, impactSpeed) {
   const preset = Move.preset(id);
-  const damage = fallDamage(preset, impactSpeed);
+  const damage = Move.safeLanding[id] ? 0 : fallDamage(preset, impactSpeed);
+  Move.safeLanding[id] = 0;
   if (damage > 0) requestDamage(id, -1, damage, 'fall', 'none');
   if (impactSpeed > HARD_LANDING_SPEED) setClock(id, CLOCK.JUMP_LOCK, LANDING_LOCK_SECONDS);
   if (preset.landingPenalty < 1) setClock(id, CLOCK.LAND_SLOW, LANDING_PENALTY_SECONDS);
@@ -385,7 +391,8 @@ function capHorizontalSpeed(id, cap) {
 function updateStance(id, preset) {
   if ((Actors.pressed[id] & BTN.PRONE) && preset.proneMult > 0) Motion.proneWanted[id] = Motion.proneWanted[id] ? 0 : 1;
   const crouching = (Actors.buttons[id] & BTN.CROUCH) !== 0 || Motion.sliding[id] === 1;
-  let wanted = Motion.proneWanted[id] && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
+  const lying = Motion.proneWanted[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0;   // HP-007: the downed crawl prone
+  let wanted = lying && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
   if (Motion.board[id] || Motion.state[id] === MOVE_STATE.SWIM || Motion.state[id] === MOVE_STATE.LADDER) wanted = STANCE.STAND;
   const current = Motion.stance[id];
   if (wanted === current) return;
@@ -423,7 +430,7 @@ function updateSprint(id, preset, dt) {
     && Motion.stance[id] === STANCE.STAND && !Motion.sliding[id] && Motion.state[id] === MOVE_STATE.WALK && !Motion.board[id];
   Motion.sprinting[id] = sprinting ? 1 : 0;
   if (!sprinting) setClock(id, CLOCK.TAC_SPRINT, 0);
-  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire);
+  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire + Move.weaponReadyTime[id]);
   updateStamina(id, preset, sprinting, dt);
   updateTacticalCharges(id, preset, dt);
 }
@@ -537,6 +544,12 @@ function countSteps(id, preset, startX, startZ) {
   emitNoise(id, FOOTSTEP_NOISE_RADIUS * loudness, 'step');
 }
 
+// WPN-003: MOVE_SPREAD_DEGREES x speed fraction f (capped at 1, 0 standing) + AIR_SPREAD_DEGREES off the ground.
+function defaultInaccuracy(id) {
+  const fraction = Math.min(1, Move.horizontalSpeed(id) / Move.preset(id).groundSpeed);
+  const moving = fraction < STILL_FRACTION ? 0 : MOVE_SPREAD_DEGREES * fraction;
+  return Motion.grounded[id] ? moving : moving + AIR_SPREAD_DEGREES;
+}
 function movingInaccuracy(id, table) {
   if (!Motion.grounded[id] || Motion.state[id] !== MOVE_STATE.WALK) return table.air;
   const preset = Move.preset(id), fraction = Move.horizontalSpeed(id) / preset.groundSpeed;
@@ -584,6 +597,7 @@ Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
   Move.weaponSpeedScale[id] = Move.statusSpeedScale[id] = Move.gravityScale[id] = Move.staminaScale[id] = Move.footstepScale[id] = 1;
+  Move.weaponReadyTime[id] = 0; Move.safeLanding[id] = 0;
   resetMotion(id);
 });
 Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags

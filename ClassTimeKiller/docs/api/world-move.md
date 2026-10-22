@@ -59,7 +59,7 @@ A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_
 | kind | fields | effect |
 |---|---|---|
 | `jumppad` | `target: [x,y,z]`, `peak: 2` | sets the actor's velocity to a ballistic arc that tops out `peak` m above the higher of feet and target and lands on target (for the actor's own gravity) |
-| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
+| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear) and, for the local player, the view (`Input.setAim`); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
 | `ladder` | - | S10 climbs at 3.0 m/s (look down > 30 deg to descend, crouch slides down, jump pushes off) |
 | `water` | - | swim (50% ground speed, 3D) once the water reaches the capsule middle; the top is the surface; head under: 12 s of air, then `drown` requests 2, 4, 6 ... 15 HP every second; breathing refills at once |
 | `hazard` | `damage: 10` (HP/s), `element: 'thermal'` (an HP-006 element id) | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
@@ -77,8 +77,9 @@ time is at least 0.1 s. The fall-out check is off while the world has no brushes
 - `Bodies.raycast(ox, oy, oz, dx, dy, dz, maxDistance, hit)` -> index or -1 (hit.brush = null).
 - `Bodies.remove(index)`, `Bodies.count()`, `Bodies.debrisCount()`, arrays `active sleeping x y z vx vy vz halfX halfY halfZ mass owner`.
 - Bodies step at Sim order 55: gravity `GRAVITY x rules.gravityScale`, restitution 0.3, floor friction, max 40 m/s, sleep after 1 s at rest; debris sleeps 1 s after spawning and disappears 3 s later; bodies never collide with each other or block actors.
-- A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x 0.05` clamped to 40, point = the body's centre.
-- `Props.damage(index, amount)` (S11 calls it when `hit.brush.prop >= 0`); at 0 health the prop disappears, spawns 4-8 debris and emits `world.break` and a `sound` (kind `break`, radius 30).
+- A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x Bodies.impactFactor[i]` clamped to `Bodies.impactCap[i]` (spawn: 0.05 and 40; a W41 launch sets its own), point = the body's centre.
+- `Props.lift(index, owner, maxMass)` -> body index or -1: a standing breakable prop up to `maxMass` leaves the world as one thrown box body of its size, mass and colour. `PropLift` is the W41 Graviton Lifter hook (`WeaponSpecialState.propHook`): `grab(id, ox, oy, oz, dx, dy, dz, range, maxMass)` takes the first body (made thrown, owner = id) or breakable prop along the ray before a wall, `hold(handle, x, y, z)` places it with no speed (letting go lets it fall), `launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap)`.
+- `Props.damage(index, amount)` (S11 hitscan shots call it when `hit.brush.prop >= 0`, with the shot's damage after penetration); at 0 health the prop disappears, spawns 4-8 debris and emits `world.break` and a `sound` (kind `break`, radius 30).
 - Explosions (`explosion` event) push bodies (120 kg*m/s at the centre, falling off) and damage props (100 at the centre, falling to 0 at the radius).
 - Budget (MAP-013, PERF-010): every prop is solid at every quality (collision, cover, sight and nav never depend on video
   settings); only the first `Quality.current().props` props of a map (32/24/16/8/4, read at load) can break, the rest ignore
@@ -103,13 +104,14 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.preset(id)` | the actor's preset row (per-actor override, else the match preset) |
 | `Move.setPreset(id, presetId or null)` | per-actor preset (hero kits) |
 | `Move.gravity(id)` | effective gravity m/s^2 (jump arcs, nav, bots) |
-| `Move.inaccuracy(id)` | MOV-025 degrees of extra spread (tactical: still 0, walk/slow 1.1, crouch-move 0.8, run 5, air 10, landing +3 fading over 0.3 s); 0 in other presets |
+| `Move.inaccuracy(id, tableOnly?)` | MOV-025 degrees of extra spread (tactical: still 0, walk/slow 1.1, crouch-move 0.8, run 5, air 10, landing +3 fading over 0.3 s); other presets (WPN-003): 1 deg x speed fraction f (capped at 1, 0 standing) + 1.5 deg in the air, or 0 with `tableOnly` (S11 passes it for non-hitscan modes) |
 | `Move.canFire(id)` | false while sprinting, during `sprintToFire` after a sprint, mantling, shield charging or on the board (S11 adds weapon readyTime) |
 | `Move.damageScale(id)` | 0.25 while rolling (MV08), else 1 - S11 multiplies incoming damage |
 | `Move.weaponSpeedScale[id]` | written by S11 every step: weapon `moveMult` x `adsMoveMult` when aiming (default 1) |
 | `Move.statusSpeedScale[id]` | written only by S12 `Buffs.applyScales`: statuses x powerup speed (default 1) |
 | `Move.gravityScale[id]` | per-actor gravity factor (default 1), written only by `Buffs.applyScales` (glide = a GRAVITY buff); used by `Move.gravity`, every step and slides |
 | `Move.staminaScale[id]` | sprint drain divisor (default 1; S13 Marathon perk) |
+| `Move.safeLanding[id]` | 1 = the next landing deals no MOV-015 fall damage, then it is cleared (S13: the royale drop-in); 0 on `actor.create` |
 | `Move.footstepScale[id]` | footstep loudness (default 1; S13 Quietstep perk 0): scales the step noise radius and `move.step` `loudness` |
 | `Move.stamina[id]` / `Move.staminaFraction(id)` | seconds of sprint left / 0..1 (1 when unlimited) |
 | `Move.dashCharges(id)` | whole dash charges ready |

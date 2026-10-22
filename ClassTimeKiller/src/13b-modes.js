@@ -220,6 +220,8 @@ const Modes = {
     return -1;
   },
   isActive(id) { return this.participant[id] === 1 && this.queued[id] === 0; },
+  // Living and not downed (HP-007): only such actors capture, contest, push, plant, defuse or take objectives.
+  actsOnObjectives(id) { return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0; },
   countParticipants() {
     let count = 0;
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) count++;
@@ -606,12 +608,12 @@ const Modes = {
       objective.contested = false; objective.timer = 0; objective.holdTime = 0; objective.planter = -1; objective.detonateAt = Infinity;
     }
   },
-  // Capture zones: counts living team participants inside; contested when both teams are in.
+  // Capture zones: counts standing (alive, not downed) team participants inside; contested when both teams are in.
   countInside(objective) {
     objective.inside[0] = 0; objective.inside[1] = 0;
     for (let id = 0; id < Actors.count; id++) {
       const team = Actors.team[id];
-      if (Actors.alive[id] && this.participant[id] && team >= 0 && this.inZone(objective, id)) objective.inside[team]++;
+      if (this.actsOnObjectives(id) && this.participant[id] && team >= 0 && this.inZone(objective, id)) objective.inside[team]++;
     }
     objective.contested = objective.inside[0] > 0 && objective.inside[1] > 0;
   },
@@ -646,16 +648,16 @@ const Modes = {
   captureZone(objective, team) {
     objective.owner = team; objective.progress = 0; objective.capturingTeam = NO_TEAM;
     for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
+      if (this.actsOnObjectives(id) && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
     }
     this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
   },
-  // First living participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
+  // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
   // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
   // (an ACTOR_FLAG mask, e.g. PROTECTED) are passed over, so they never hide an actor behind them.
   findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
     for (let id = 0; id < Actors.count; id++) {
-      if (!Actors.alive[id] || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
+      if (!this.actsOnObjectives(id) || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
       if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
       if (skipFlags && (Actors.flags[id] & skipFlags) !== 0) continue;
       if (withinTouch(id, x, y, z, radius)) return id;
