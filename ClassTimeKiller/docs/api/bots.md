@@ -27,7 +27,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 | `CAT.bots` | B01..B24 | `{ id, code, name, tier, style, traits, favorite, color, chat }`; `favorite: 'player'` = the player's most used weapon |
 | `BOT_BARKS` | 11 categories | `{ minimal, taunt, reply, lines }` per category; `reply` (orderAck, pingReply) = always spoken, chatter permitting |
 | `BOT_CHAT_CHANCE` | quiet / normal / loud | chance a due bark is spoken |
-| `BOT_ROLE_SPLITS` | per objective kind, plus `flagTaken` | share of a team's bots that defend / escort; the rest attack. In flag modes a team whose flag is carried uses `flagTaken` (0.6 defend, 0.3 escort: chase the carrier home), judged at each commander round (`assignRoles`) |
+| `BOT_ROLE_SPLITS` | per objective kind, plus `flagTaken` | share of a team's bots that defend / escort; the rest attack. In flag modes a team uses `flagTaken` while a team-mate carries the enemy flag (0.6 defend, 0.3 escort the carrier), judged at each commander round (`assignRoles`) |
 | `BOT_FLANK_HINT` | `flank` | map `navHints` kind a chasing bot of a tier with `flanks` routes through (BOT-032) |
 | `BOT_CAMP_HINTS` | `sniper cover guard` | map `navHints` kinds a camper holds |
 | `BOT_FLAG_PUSH` | `rallyShare radius minimum wait seconds` | flag raids (two-flag modes): raiders gather at a nav node `rallyShare` of the way from their flag to the enemy's and push together once `minimum` are within `radius` m (or the first waited `wait` s), for `seconds` s or until the flag is taken. A raider farther from its own flag than the rally point (plus `radius`) is not sent back when a push ends; the rally is a meeting place (`ACTION.MOVE`), not a held spot |

@@ -79,7 +79,7 @@ Requested events nobody emits yet (the audio rows exist, the emitters are in oth
 | `item.respawn` | `{ x, y, z, item, group }` | `powerChime` for `group: 'power'`, else `itemRespawn` |
 | `bark` | `{ id, text, kind }` bot radio line | `radioBlip` + voice caption |
 
-Derived without events (frame update): low-health heartbeat (`Actors.health / maxHealth` of the player below 30%, 1.0 s down to 0.5 s between beats), shield break for any actor whose `Actors.shield` drops to 0 while alive.
+Derived without events (frame update): low-health heartbeat (`Actors.health / maxHealth` of the player below `LOW_HEALTH_FRACTION` (35%, S03 03d), 1.0 s down to 0.5 s between beats), shield break for any actor whose `Actors.shield` drops to 0 while alive.
 
 ### Weapon classes
 
