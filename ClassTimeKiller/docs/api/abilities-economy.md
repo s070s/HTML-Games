@@ -38,7 +38,7 @@ Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `bl
   - `weapons` is the loadout; the last key is drawn.
   - `move` is a `CAT.movement` key.
   - `passive.kind` is one of `knockbackResist`, `killHaste`, `shieldRegen` (H02: +`rate`/s shield after `delay` s, on top of the HPP05 recharge), `regen` (H06: the HPP05 support role regen, see `Damage.roleOf`), `ability` (an always-on ability row) or `flag`.
-  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, HUD), `extraGrenade` (H05, items), `smokeVision` (H07, items/smoke). **Pending**: no reader exists yet (contract requests to those sections).
+  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, HUD), `extraGrenade` (H05, items), `smokeVision` (H07, items/smoke). `scopeInfo` is read by the HUD (17f `hudDrawScopeInfo`); the other two wait for their readers.
   - `gadget` is for the items section.
 - `abilityKits`: `{ id, name, match, ability1, ability2, ultimate, passive, choices, cooldowns }`.
   - `match` is `{ ruleset }`, `{ economy }` or `{ mutator }`. The first matching row applies.
@@ -145,7 +145,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - `Economy.hasPerk(id, key)` exposes flags to other sections: `ghost`, `marathon`, `quiet`, `lastStand`.
   - Field upgrades: `CAT.economy.byId('classes').fieldUpgrades` (G13 `cover`, G22 `trophy`, G23 `ammobox`, G24 `beacon`, A13 `echopulse`). Gadget ones are granted through `Economy.grants.gadget`.
 - `Economy.switchHero(id, heroId)` (ECP05) returns `'now'` within 8 m of the last spawn point (in-place kit change), `'next'` otherwise, or `'unknown'`.
-- `Economy.usesLoadouts()`: false when the mode arms everyone itself (params `ladder` or `rotateEvery`: Arms Ladder, Roulette) or the preset has `loadout: 'none'`; class kits apply only when true (the buy screen should ask it too). Perks write `Move.staminaScale` (Marathon) and `Move.footstepScale` (Quietstep 0); `Weapons.statScale` stays the perks' stat slot, `Weapons.mutatorScale` the mutators'.
+- `Economy.usesLoadouts()`: false when the mode arms everyone itself (params `ladder` or `rotateEvery`: Arms Ladder, Roulette) or the preset has `loadout: 'none'`; class kits apply only when true; the loadout screen (18f) asks it too: no class pick (or Classes tab) in a match where it is false, an ability kit stays pickable unless the mode arms everyone. Perks write `Move.staminaScale` (Marathon) and `Move.footstepScale` (Quietstep 0); `Weapons.statScale` stays the perks' stat slot, `Weapons.mutatorScale` the mutators'.
 
 ## Loadouts (`Save.data.loadouts`)
 

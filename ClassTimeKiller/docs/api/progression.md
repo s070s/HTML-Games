@@ -6,7 +6,7 @@ Files:
 - `src/15b-medals.js`: `Medals` (MD01..MD20 detection, emits `medal`).
 - `src/15c-ladder.js`: `Ladder`, `Challenges`, `Operations`, `OperationRun`, `Daily`.
 - `src/15d-cards.js`: `Cards` (equip, Marks, unlocks), `CardRun` (the running match).
-- `src/18j-ui-progress.js`: screens `career`, `profile`, `ladder`, `challenges`, `operations`, `daily`, `cards`, `cardUse` (pause entry "Cards"), `stats`; the award panel on the results screen; the one-time Firing Range offer.
+- `src/18j-ui-progress.js`: screens `career`, `profile`, `ladder`, `challenges`, `operations`, `daily`, `cards`, `cardUse` (pause entry "Cards" while the match has active cards; the `cards` action - Y, pad Home, the touch CARD button - opens it during play), `stats`; the career hub's PvE mode buttons (also on the Solo screen, 18o); Range on the main menu (`ui.range`); the award panel on the results screen; the one-time Firing Range offer.
 
 Tests: group `progress`. Debug: `__CTK.progress` `{ Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun }`.
 

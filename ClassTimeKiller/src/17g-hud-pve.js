@@ -9,6 +9,7 @@ const HUD_PVE_COMPASS_SHIFT = 30;        // the compass strip, when shown, sits 
 const HUD_PVE_WIDTH = 300, HUD_PVE_ROW = 20, HUD_PVE_PAD = 10, HUD_PVE_BAR = 9;
 const HUD_PVE_BOSS_WIDTH = 420;
 const HUD_PVE_SIDE_WIDTH = 220, HUD_PVE_SIDE_TOP = 150, HUD_PVE_SIDE_ROW = 19;   // right-hand tables under the kill feed
+const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
 const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
 const HUD_PVE_LOW_CORE = 0.25;
 const HUD_PVE_STATE_TEXT = { shop: 'NEXT WAVE', fight: 'ENEMIES', extract: 'EXTRACT' };
@@ -170,8 +171,8 @@ function hudPveChamberTable(pen, layout, pve) {
     const y = top + rowHeight * (tier + 1.6), alpha = tier === current ? 1 : 0.55;
     if (tier === current) pen.rect(left, y - rowHeight / 2, 3 * unit, rowHeight, HUD_PVE_MEDAL_COLORS[tier]);
     pen.text(HUD_PVE_MEDAL_STARS[tier], left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_PVE_MEDAL_COLORS[tier], 'left', alpha);
-    pen.text(hudTime(row.par.time[tier]), left + width * 0.52, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
-    pen.text(hudNumber(row.par.steps[tier]), left + width * 0.76, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
+    pen.text(hudTime(row.par.time[tier]), left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
+    pen.text(hudNumber(row.par.steps[tier]), left + width * HUD_PVE_STEPS_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
     pen.text(hudNumber(row.par.portals[tier]), left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
   }
   const footY = top + rowHeight * (tiers + 1.7);
@@ -180,8 +181,8 @@ function hudPveChamberTable(pen, layout, pve) {
 }
 function hudPveTableHeader(pen, left, width, y, unit) {
   pen.text('MEDAL', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  pen.text('TIME', left + width * 0.52, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-  pen.text('STEPS', left + width * 0.76, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
+  pen.text('TIME', left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
+  pen.text('STEPS', left + width * HUD_PVE_STEPS_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
   pen.text('GATES', left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
 }
 
