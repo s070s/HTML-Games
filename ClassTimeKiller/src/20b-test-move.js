@@ -514,6 +514,7 @@ Test.add('move', (check) => {
   tapButtons(id, BTN.JUMP);
   const top = highestPoint(id, 2.5);
   check('ravager climbs a grip wall and mantles over (6 m)', top > 4.9, top);
+  check('the grip material exists for MV05 climb walls', CAT.materials.byId('grip') !== undefined && CAT.materials.byId('grip') !== null);
   const plain = groundedTester(13, 0);
   holdInput(plain, 0, 1, 0, 0);
   tapButtons(plain, BTN.JUMP);

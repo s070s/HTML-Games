@@ -5,11 +5,12 @@
 // armorMode: 'absorb' (armor takes armorAbsorb of each hit, rounded up), 'tactical' (HPP04 armorPen split),
 // 'flat' (HPP05: -armorFlat per hit, at most armorFlatMax of the hit, not on beams/DoT), 'none'.
 // regenSteps > 1: health regenerates only up to the next step (HPP03 thirds). shieldIgnoresZone: head multiplier only on health.
+// triangle: the X47 kill resource triangle is always on (S13 sets rules.fx.triangle).
 Data.define('health', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, health: 100, maxHealth: 100, overhealCap: 100, overhealDecay: 0,
   armor: 0, armorCap: 0, armorDecayAbove: 0, armorDecay: 0, armorMode: 'none', armorAbsorb: 0, armorFlat: 0, armorFlatMax: 0, helmet: false,
   shield: 0, shieldCap: 0, shieldDelay: 0, shieldRate: 0, shieldIgnoresZone: false,
-  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false,
+  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false, triangle: false,
 }, [
   { id: 'stack', code: 'HPP01', name: 'Arena Stack', overhealCap: 200, overhealDecay: 1, armorCap: 200, armorDecayAbove: 100, armorDecay: 1, armorMode: 'absorb', armorAbsorb: 2 / 3 },
   { id: 'regen', code: 'HPP02', name: 'Regenerating', regenDelay: 5, regenRate: 25 },
@@ -17,7 +18,7 @@ Data.define('health', {
   { id: 'tactical', code: 'HPP04', name: 'Tactical One-Life', armorCap: 100, armorMode: 'tactical', helmet: false },
   { id: 'hero', code: 'HPP05', name: 'Hero Pools', health: 200, maxHealth: 200, overhealCap: 200, armorMode: 'flat', armorFlat: 5, armorFlatMax: 0.5, shieldDelay: 3, shieldRate: 30, roleRegen: { role: 'support', delay: 1.5, rate: 15 } },
   { id: 'loot', code: 'HPP06', name: 'Loot Shields', shieldCap: 125, downed: true },
-  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', overhealCap: 200, armorCap: 150, armorMode: 'absorb', armorAbsorb: 0.5 },
+  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', armor: 50, armorCap: 50, armorMode: 'absorb', armorAbsorb: 0.5, triangle: true },   // PU20 shards raise the caps to 200/150
   { id: 'suit', code: 'HPP08', name: 'Weave Suit', regenDelay: 6, regenRate: 20, energy: { max: 100, rate: 25, delay: 2 } },
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);

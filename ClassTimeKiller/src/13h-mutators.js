@@ -252,6 +252,8 @@ function applyMutatorStage(rules) {
   rules.mutators = resolved.list;
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
+  const health = CAT.health.byId(rules.health);
+  if (health && health.triangle) rules.fx.triangle = true;   // HPP07 Ravager Triangle
   for (const text of resolved.messages) { TOAST_EVENT.text = text; Bus.emit('toast', TOAST_EVENT); }
 }
 // X22: the player's handicap, unless the setup names one (the handicap stage runs after the mutators).
@@ -394,7 +396,7 @@ function isOpponentKill(event) { return event.killer >= 0 && event.killer !== ev
 function onKillTriangle(fx, event) {
   if (!fx.triangle || !isOpponentKill(event)) return;
   const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
-  if (weapon && weapon.class === 'melee') {
+  if (event.kind === 'melee' || (weapon && weapon.class === 'melee')) {   // a quick-melee bash with a gun is a melee finisher too
     Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
     const held = Weapons.currentWeapon(killer);
     if (held) Weapons.addAmmo(killer, held.ammoType, TRIANGLE_AMMO);

@@ -37,7 +37,7 @@ function makeBlast() { return { x: 0, y: 0, z: 0, owner: -1, mode: null, radius:
 
 const DAMAGE_EVENT = { target: 0, source: -1, amount: 0, absorbed: 0, zone: 'none', weapon: '', element: 'kinetic', kind: 'hit',
   shieldDamage: 0, armorDamage: 0, healthDamage: 0, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
-const KILL_EVENT = { victim: 0, killer: -1, assister: -1, weapon: '', zone: 'none', element: 'kinetic', x: 0, y: 0, z: 0 };
+const KILL_EVENT = { victim: 0, killer: -1, assister: -1, weapon: '', zone: 'none', element: 'kinetic', kind: 'hit', x: 0, y: 0, z: 0 };
 const EXPLOSION_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
 const LAYERS = { surplus: 0, shield: 0, armor: 0, health: 0 };
 const splashPoint = Vec.make();
@@ -290,7 +290,7 @@ const Damage = {
     this.clearAllStatuses(target);
     const event = KILL_EVENT;
     event.victim = target; event.killer = killer; event.assister = this.recentAttacker(target, killer);
-    event.weapon = info.weapon; event.zone = info.zone; event.element = info.element;
+    event.weapon = info.weapon; event.zone = info.zone; event.element = info.element; event.kind = info.kind;
     event.x = Actors.x[target]; event.y = Actors.y[target]; event.z = Actors.z[target];
     Bus.emit('kill', event);
     if (!Game.headless && Actors.health[target] < GIB_HEALTH) Fx.burst('blood', Actors.x[target], Actors.y[target] + 1, Actors.z[target], 0, 1, 0, 24, 0xa01818);
