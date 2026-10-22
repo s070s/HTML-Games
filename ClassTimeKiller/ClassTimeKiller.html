@@ -15096,7 +15096,7 @@ const Gadgets = {
     const size = Math.max(0.5, row.radius * 2);
     batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
   },
-  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); },
+  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
 };
 
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
@@ -42350,6 +42350,10 @@ Test.add('hudui', (check) => {
   check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
   Gadgets.give(player, 'smoke', 1);
   check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
+  Gadgets.cycleShown = true;
+  Game.stop();
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
+  check('touch: a new match forgets the last TYPE button answer (the next step re-shows it)', !Gadgets.cycleShown);
   Game.stop();
   World.clear();
 });
