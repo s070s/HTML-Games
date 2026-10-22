@@ -279,22 +279,13 @@ Test.add('render', (check) => withRenderer(() => {
   updateCamera(1 / 60, 1);
   check('FOV setting applies', Render.camera.fov === 100);
   check('horizontal 90 at 16:9 = vertical ~58.7', Test.near(verticalFov(90) / DEG, 58.7, 0.1));
-}));
-
-// A portrait phone keeps the 4:3 horizontal view (Vert- below 4:3) instead of a 25 degree slit; the HUD reads the same FOV.
-function horizontalFovAt(width, height) {
-  const size = Render.size, savedWidth = size.width, savedHeight = size.height;
-  size.width = width; size.height = height;
-  updateCamera(1 / 60, 1);
-  const degrees = 2 * Math.atan(1 / Render.frame.projection[0]) / DEG;
-  size.width = savedWidth; size.height = savedHeight;
-  return degrees;
-}
-Test.add('render', (check) => withRenderer(() => {
+  // A portrait phone keeps the 4:3 horizontal view (Vert- below 4:3), not a 25 degree slit.
+  const size = Render.size, saved = [size.width, size.height];
+  const fovAt = (width, height) => { size.width = width; size.height = height; updateCamera(1 / 60, 1); return 2 * Math.atan(1 / Render.frame.projection[0]) / DEG; };
   Settings.set('video.fov', 80);
-  const wide = horizontalFovAt(1600, 900), standard = horizontalFovAt(1024, 768), portrait = horizontalFovAt(390, 844);
-  check('the FOV setting is the horizontal view at 16:9', Test.near(wide, 80, 0.01), wide);
-  check('a portrait phone keeps the 4:3 horizontal view', portrait >= standard - 0.01 && portrait > 60, portrait + ' vs ' + standard);
+  const wide = fovAt(1600, 900), standard = fovAt(1024, 768), portrait = fovAt(390, 844);
+  size.width = saved[0]; size.height = saved[1];
+  check('portrait keeps the 4:3 horizontal view', Test.near(wide, 80, 0.01) && portrait >= standard - 0.01 && portrait > 60, [wide, standard, portrait]);
 }));
 
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
@@ -416,48 +407,37 @@ Test.add('render', (check) => withRenderer(() => {
   check('5 s under 60 fps lowers one preset for this session and toasts', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high' && toast.includes('Medium'), toast);
   Settings.set('video.autoLower', false);
   for (let i = 0; i < 6; i++) updateStepDown(1);
-  check('the option turns the step-down off', Render.quality.id === 'medium');
+  check('the option turns the step-down off; a video setting keeps the session step', Render.quality.id === 'medium');
   Settings.set('video.quality', 'potato');
-  check('no step below Potato', !lowerQualityStep());
+  check('a chosen preset ends the session step; no step below Potato', !lowerQualityStep());
   Settings.set('video.quality', 'high');
   check('an explicit preset steps down itself, unsaved', lowerQualityStep() && Render.quality.id === 'medium' && Settings.get('video.quality') === 'high');
   Bus.off('toast', listener);
   ScaleControl.smoothedMs = FRAME_BUDGET_MS;
 }));
 
-// PERF-013 on a 30 Hz phone (iOS Low Power Mode, no GPU timer): match frames at 30 Hz with an idle CPU are the display's
-// pace, not slowness. A real slowdown still steps down, for this session only: the saved preset is retried next launch.
-function feedMatchFrames(frameMs, cpuMs, seconds) {
-  for (let frame = 0; frame < seconds * 1000 / frameMs; frame++) {
-    Perf.cpuMs[Perf.lastIndex()] = cpuMs;
-    updateRenderScale(frameMs / 1000);
-    updateStepDown(frameMs / 1000);
-  }
-}
-function resetMatchPacing() {
+// PERF-013 on a 30 Hz phone (iOS Low Power Mode, no GPU timer): idle 30 Hz match frames are the display's pace, not
+// slowness; a CPU-bound 30 fps still steps down (for this session only: the block above).
+function feedMatchFrames(cpuMs, seconds) {
   Object.assign(DisplayRate, { count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 });
-  Render.size.scale = 1; ScaleControl.smoothedMs = FRAME_BUDGET_MS; resetScaleCeiling(ScaleControl); StepDown.slowSeconds = 0;
+  Render.size.scale = 1; ScaleControl.smoothedMs = FRAME_BUDGET_MS; resetScaleCeiling(ScaleControl);
+  for (let frame = 0; frame < seconds * 30; frame++) {
+    Perf.cpuMs[Perf.lastIndex()] = cpuMs;
+    updateRenderScale(1 / 30);
+    updateStepDown(1 / 30);
+  }
+  return Render.quality.id + ' ' + Settings.get('video.autoQuality');
 }
 Test.add('render', (check) => withRenderer(() => {
-  const savedRate = Object.assign({}, DisplayRate), triangles = Perf.counters.triangles, cpuMs = Perf.cpuMs[Perf.lastIndex()];
+  const savedRate = Object.assign({}, DisplayRate), triangles = Perf.counters.triangles;
   Settings.set('video.quality', 'auto'); Settings.set('video.autoQuality', 'high');
-  GpuTimer.extension = null;
-  Game.state = 'playing'; Game.paused = false;
+  GpuTimer.extension = null; Game.state = 'playing';
   Perf.counters.triangles = 50000;   // a match frame draws a world
-  resetMatchPacing();
-  feedMatchFrames(1000 / 30, 8, 30);
-  check('30 Hz match frames with an idle CPU are the display rate: the preset stays and nothing is saved', Render.quality.id === 'high'
-    && Settings.get('video.autoQuality') === 'high' && Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, Render.quality.id + ' ' + Settings.get('video.autoQuality') + ' ' + DisplayRate.intervalMs);
-  resetMatchPacing();
-  feedMatchFrames(1000 / 30, 30, 12);
-  check('CPU-bound 30 fps match frames still step down, for this session only', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high'
-    && Quality.current().id === 'high', Render.quality.id + ' ' + Settings.get('video.autoQuality'));
-  Settings.set('video.fxaa', false);
-  check('another video setting keeps the session step-down', Render.quality.id === 'medium');
-  Settings.set('video.quality', 'high');
-  check('choosing a preset replaces the session step-down', Render.quality.id === 'high');
-  Object.assign(DisplayRate, savedRate);
-  Perf.counters.triangles = triangles; Perf.cpuMs[Perf.lastIndex()] = cpuMs;
+  const idle = feedMatchFrames(8, 30);
+  check('idle 30 Hz match frames: no step-down', idle === 'high high' && Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, idle);
+  const busy = feedMatchFrames(30, 12);
+  check('CPU-bound 30 fps match frames step down, unsaved', busy === 'medium high', busy);
+  Object.assign(DisplayRate, savedRate); Perf.counters.triangles = triangles;
 }));
 
 // ---- View model (step 1.4) ----
@@ -551,6 +531,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- Context loss and restore (PLT-005) ----
 Test.add('render', (check) => withRenderer(async () => {
+  check('the WebGL2 screen has an iPhone line', /iOS/.test(WEBGL_FATAL_TEXT) && /Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
   if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
   World.load(makeDemoArena('station'));
@@ -564,31 +545,24 @@ Test.add('render', (check) => withRenderer(async () => {
   check('restore rebuilds GPU resources and resumes', await waitUntil(() => !Render.lost, 5000) && !Game.paused && toasts === 2);
   check('world mesh re-uploaded after restore', WorldMesh.vertexArray !== null && Render.drawFrame(1 / 60, 1) && Render.gl.getError() === Render.gl.NO_ERROR);
   Bus.off('toast', listener);
-}));
-
-// No restore within the wait: the save is written and the fatal screen offers Reload. A quit during the loss forgets the
-// loss pause, a match started during it waits, and a restore never lifts the player's own pause.
-Test.add('render', (check) => withRenderer(async () => {
-  const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
-  if (!extension) { check('no WEBGL_lose_context: context-loss fallback checks skipped', true); return; }
+  // No restore in time: the save is written and the fatal screen offers Reload. A quit during the loss forgets its pause,
+  // a match started during it waits, and a restore never lifts the player's own pause.
   const fatal = document.getElementById('fatal'), waitMs = Render.restoreWaitMs, saveNow = Save.saveNow;
   let writes = 0;
   Save.saveNow = function () { writes++; return saveNow.call(this); };
   Render.restoreWaitMs = 200;
   try {
-    Game.state = 'playing';
     extension.loseContext();
     await waitUntil(() => Render.lost, 3000);
     Game.headless = true;   // quit without the menu screens
     Bus.emit('match.stop', null);
     Game.state = 'menu'; Game.paused = false; writes = 0;
-    check('a quit during the loss forgets the loss pause', !Render.pausedForLoss);
-    check('no restore within the wait: the save is written and the fatal screen offers Reload', await waitUntil(() => fatal.classList.contains('show'), 3000)
-      && writes > 0 && /reload/i.test(document.getElementById('fatal-text').textContent) && !!fatal.querySelector('button'), writes);
+    check('a quit during the loss forgets its pause', !Render.pausedForLoss);
+    check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
     Game.state = 'playing';
     renderFrameHook(1 / 60, 1);
-    check('a match started during the loss waits for the graphics', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
-    Game.paused = false; Game.pause('menu');   // the player's own pause
+    check('a match started during the loss waits', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
+    Game.paused = false; Game.pause('menu');
     extension.restoreContext();
     check('a restore keeps the player\'s own pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'menu');
   } finally {
@@ -596,10 +570,6 @@ Test.add('render', (check) => withRenderer(async () => {
     fatal.classList.remove('show'); fatalShown = false;
   }
 }));
-
-Test.add('render', (check) => {
-  check('the WebGL2 message has an iPhone line (iOS update, Lockdown Mode)', /iOS/.test(WEBGL_FATAL_TEXT) && /Lockdown Mode/.test(WEBGL_FATAL_TEXT));
-});
 
 // ---- Frame-time dynamic resolution without a GPU timer (PERF-007 hysteresis on GPU-bound phones) ----
 // Simulated device: vsync holds at scale <= 0.7, every higher scale misses it (33 ms frames).

@@ -4,7 +4,7 @@
 // and resumes once the screen is landscape again. Menus outside a match stay usable upright; a pause the player chose stays.
 
 const ROTATE_TITLE = 'Turn your phone sideways';
-const ROTATE_TEXT = 'The match is paused. It goes on when the screen is wide.';
+const ROTATE_TEXT = 'The match is paused until then.';
 
 const RotateGuard = {
   touch: TOUCH_DEVICE,
@@ -25,14 +25,10 @@ const RotateGuard = {
     this.element.classList.toggle('show', visible);
   },
   build() {
-    const element = document.createElement('div');
+    const element = makeElement('div');
     element.id = 'rotate';
     element.setAttribute('role', 'alert');
-    const title = document.createElement('h1');
-    title.textContent = ROTATE_TITLE;
-    const text = document.createElement('p');
-    text.textContent = ROTATE_TEXT;
-    element.append(title, text);
+    element.append(makeElement('h1', '', ROTATE_TITLE), makeElement('p', '', ROTATE_TEXT));
     document.body.appendChild(element);
     return element;
   },

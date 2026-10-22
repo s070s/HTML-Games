@@ -21,7 +21,7 @@ const WEBGL_FATAL_TEXT = 'ClassTimeKiller needs WebGL2. Turn on hardware acceler
   + 'Lockdown Mode > Configure Web Browsing.';
 const CONTEXT_RESTORE_WAIT_MS = 5000;   // PLT-005: a lost context not back by then stays lost (GPU blocked, iOS memory pressure)
 const GRAPHICS_LOST_TITLE = 'The graphics stopped';
-const GRAPHICS_LOST_TEXT = 'The browser stopped the graphics and did not bring them back. Your progress is saved: reload the page to play on.';
+const GRAPHICS_LOST_TEXT = 'The graphics did not come back. Your progress is saved: reload the page.';
 
 Settings.define('video.renderScale', 'auto', { label: 'Render scale', category: 'video', options: RENDER_SCALE_OPTIONS,
   optionLabels: ['Auto', '40%', '50%', '60%', '70%', '80%', '90%', '100%'] });
@@ -541,8 +541,8 @@ function giveUpRestore() {
   if (Save.data) Save.saveNow();
   showFatal(GRAPHICS_LOST_TITLE, GRAPHICS_LOST_TEXT, '');
   if (document.getElementById('fatal-reload')) return;
-  const button = document.createElement('button');
-  button.id = 'fatal-reload'; button.className = 'ui-button primary'; button.textContent = 'Reload';
+  const button = makeElement('button', 'ui-button primary', 'Reload');
+  button.id = 'fatal-reload';
   button.addEventListener('click', () => location.reload());
   document.querySelector('#fatal .box').appendChild(button);
 }
