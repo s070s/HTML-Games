@@ -170,7 +170,7 @@ const BOT_GADGET_USE = {
   beacon: { when: 'holding', range: [0, 0], chance: 0.5 },
   jammer: { when: 'objective', range: [0, 0], chance: 1 },
   dome: { when: 'underFire', range: [0, 40], chance: 0.7 },
-  barrier: { when: 'underFire', range: [8, 40], chance: 0.6 },
+  barrier: { when: 'holding', range: [0, 0], chance: 0.5 },   // a wall the nav graph does not know: only where the bot stays
   trophy: { when: 'underFire', range: [0, 40], chance: 0.6 },
   heal: { when: 'lowHealth', range: [0, 0], chance: 0.8 },
   drain: { when: 'enemyClose', range: [0, 8], chance: 0.6 },

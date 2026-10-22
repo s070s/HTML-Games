@@ -133,7 +133,9 @@ function soakModeFor(map) {
 
 // ---- Small test arenas: a floor split in two by a wall (no way around), or open ----
 const BOT_WALL = { shape: 'box', min: [-60, 0, -1], max: [60, 12, 1] };
-const BOT_ARENA = 'bots-arena';   // the walled test arena (botArena below) where a run names a map
+// Walled test arenas a run can name as its map (arenaMap below): half sizes in metres. The room makes fights close.
+const BOT_ARENA = 'bots-arena', BOT_ROOM = 'bots-room';
+const BOT_ARENA_HALF = { [BOT_ARENA]: 60, [BOT_ROOM]: 16 };
 
 function botTestMap(withWall, extra) {
   return Object.assign({ id: 'bots-test', brushes: withWall ? [TEST_FLOOR, BOT_WALL] : [TEST_FLOOR],
@@ -636,8 +638,9 @@ Test.add('bots', (check) => {
 });
 
 // ---- Kit use (abilities, grenades, gadgets) in headless matches: bot k carries kit k every life ----
-// Rounds: dom on twinkeeps (objectives to hold and contest), team deathmatch in the small arena (close fights).
-const KIT_ROUNDS = [{ mode: 'dom', map: 'twinkeeps', seed: 1 }, { mode: 'tdm', map: BOT_ARENA, seed: 2 }, { mode: 'dom', map: 'twinkeeps', seed: 3 }];
+// Rounds: dom on twinkeeps (objectives to hold and contest), team deathmatch in the open arena and in the room (close fights).
+const KIT_ROUNDS = [{ mode: 'dom', map: 'twinkeeps', seed: 1 }, { mode: 'tdm', map: BOT_ARENA, seed: 2 }, { mode: 'tdm', map: BOT_ROOM, seed: 3 },
+  { mode: 'dom', map: 'twinkeeps', seed: 4 }];
 const KIT_QUICK_ROUND = KIT_ROUNDS[1];
 const KIT_BOTS = 8, KIT_TIER = 6, KIT_SLOTS = 2, KIT_GRENADES = 3, KIT_METER_FILL = 1e4;
 const KIT_ROWS = KIT_BOTS, KIT_GADGET_ROWS = KIT_BOTS / 2;   // ability rows / thrown and other gadget rows per match
@@ -750,19 +753,22 @@ Test.add('botsoak', (check) => {
 }, { slow: true });
 
 // ---- Objective play in headless matches (BOT-080): the objective scores; every shot at an enemy in sight ----
-// A run: { mode, map (an id, or BOT_ARENA for the walled test arena), bots, and the sign of objective play: reason (a
+// A run: { mode, map (an id, or a test arena: BOT_ARENA), bots, and the sign of objective play: reason (a
 // 'score' event reason), touched (an objective carried or owned), cart (the payload moved), loot (royale loot taken),
 // hunted (a fair share of the hits land on the hunted role) }; ends: the match must end within the run.
-const BOT_ARENA_WALLS = [[-60, -60, 60, -58], [-60, 58, 60, 60], [-60, -58, -58, 58], [58, -58, 60, 58], [-8, -1, 8, 1], [-1, -8, 1, 8]];
-const BOT_ARENA_SPAWNS = Array.from({ length: 8 }, (_, index) => ({ x: Math.sin(index * Math.PI / 4) * 40, y: 0, z: Math.cos(index * Math.PI / 4) * 40 }))
-  .concat([-40, 40].flatMap((x, team) => [-12, -4, 4, 12].map((z) => ({ x, y: 0, z, team }))));   // a ring for free-for-all, sides for teams
+const ARENA_WALL = 2, ARENA_WALL_HEIGHT = 4, ARENA_COVER = 1 / 7.5, ARENA_SPAWN = 2 / 3, ARENA_SIDE_ROWS = [-0.2, -1 / 15, 1 / 15, 0.2];
 const HUNTED_HIT_FAIR = 1.2;   // the hunted actor gets more hits than its fair share (1 / players): bots go for it
 
-function mapFor(name) { return name === BOT_ARENA ? botArena() : name; }
+function mapFor(name) { return BOT_ARENA_HALF[name] ? arenaMap(name) : name; }
 
-function botArena() {
-  const walls = BOT_ARENA_WALLS.map(([x0, z0, x1, z1]) => ({ shape: 'box', min: [x0, 0, z0], max: [x1, 4, z1] }));
-  return botTestMap(false, { id: BOT_ARENA, brushes: [TEST_FLOOR, ...walls], spawns: BOT_ARENA_SPAWNS });
+// Four walls, a low cross of cover in the middle, a ring of free-for-all spawns and a row of spawns per team side.
+function arenaMap(id) {
+  const half = BOT_ARENA_HALF[id], inner = half - ARENA_WALL, cover = half * ARENA_COVER, spawn = half * ARENA_SPAWN;
+  const boxes = [[-half, -half, half, -inner], [-half, inner, half, half], [-half, -inner, -inner, inner], [inner, -inner, half, inner], [-cover, -1, cover, 1], [-1, -cover, 1, cover]];
+  const walls = boxes.map(([x0, z0, x1, z1]) => ({ shape: 'box', min: [x0, 0, z0], max: [x1, ARENA_WALL_HEIGHT, z1] }));
+  const ring = Array.from({ length: 8 }, (_, index) => ({ x: Math.sin(index * Math.PI / 4) * spawn, y: 0, z: Math.cos(index * Math.PI / 4) * spawn }));
+  const sides = [-spawn, spawn].flatMap((x, team) => ARENA_SIDE_ROWS.map((row) => ({ x, y: 0, z: row * half, team })));
+  return botTestMap(false, { id, brushes: [TEST_FLOOR, ...walls], spawns: ring.concat(sides) });
 }
 
 function playObjective(run, seconds) {
@@ -809,7 +815,7 @@ function matchText(stats) {
 function checkObjectiveRuns(check, runs, seconds) {
   const summary = [];
   for (const run of runs) {
-    const result = playObjective(run, run.seconds || seconds), text = objectiveText(result), name = run.mode + ' on ' + (run.map === BOT_ARENA ? 'the arena' : run.map);
+    const result = playObjective(run, run.seconds || seconds), text = objectiveText(result), name = run.mode + ' on ' + run.map;
     summary.push(text);
     check(name + ': bots play the objective', objectivePlayed(run, result), text);
     check(name + ': every shot at an enemy in sight', result.stats.unperceivedShots === 0 && result.stats.unknownShots === 0, text);
