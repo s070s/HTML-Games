@@ -643,6 +643,11 @@ Test.add('move', (check) => {
   check('Use while standing does not board (objectives and loot use it)', !Move.onBoard(rider));
   holdInput(rider, 0, 1, 0);
   stepSeconds(0.5);
+  holdInput(rider, 0, 0, BTN.USE);
+  Sim.step();
+  check('stop-and-Use in one step does not board (bots at Use goals)', !Move.onBoard(rider) && Move.canFire(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
   holdInput(rider, 0, 1, BTN.USE);
   stepSeconds(0.1);
   check('Use while running boards on a large map', Move.onBoard(rider));

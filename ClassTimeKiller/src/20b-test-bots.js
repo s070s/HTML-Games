@@ -604,6 +604,28 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// Item 37: a bot that runs up to a Use goal (loot, arm, disarm) on a large map stops and presses Use without boarding.
+const USE_GOAL_MAP_SIZE = 200, USE_GOAL_Z = 15, USE_GOAL_RADIUS = 3, USE_GOAL_SECONDS = 6;
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { size: USE_GOAL_MAP_SIZE }), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  placeFacing(bot, 0, -10, 0);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.OBJECTIVE, x: 0, y: 0, z: USE_GOAL_Z, radius: USE_GOAL_RADIUS, action: ACTION.USE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  let speedBefore = 0, pressSpeed = 0, boarded = false;
+  const hold = () => { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); speedBefore = Math.hypot(Actors.vx[bot], Actors.vz[bot]); };
+  const pressed = runHeld(USE_GOAL_SECONDS, hold, () => {
+    boarded = boarded || Move.onBoard(bot);
+    if (Actors.pressed[bot] & BTN.USE) pressSpeed = speedBefore;   // the speed boarding reads in the Use step
+    return pressSpeed > 0;
+  });
+  const runSpeed = Move.preset(bot).groundSpeed * SKIMMER_BOARD_RUN;
+  check('a running bot reaches the Use goal and presses Use', pressed && pressSpeed >= runSpeed, pressSpeed.toFixed(2) + ' vs ' + runSpeed.toFixed(2));
+  check('and stays off the Skimmer (it can still fire)', !boarded && !Move.onBoard(bot) && Move.canFire(bot));
+  endBotTest();
+});
+
 // ---- Grenades on the solved arc (real Gadgets): two enemies together draw a frag that lands among them ----
 const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
 

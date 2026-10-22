@@ -33,6 +33,7 @@ const SKIMMER_SPEED = 13;              // MOV-027
 const SKIMMER_KNOCKOFF_SECONDS = 2;
 const SKIMMER_MIN_MAP_SIZE = 150;      // metres: only large maps allow the board
 const SKIMMER_BOARD_RUN = 0.8;         // share of the ground speed an actor must run at to board with Use
+const SKIMMER_BOARD_INPUT = 0.5;       // move input length that must be held in the Use step to board
 
 const wallHit = makeHit();
 const facing = { x: 0, y: 0, z: 0 };
@@ -415,11 +416,14 @@ Move.setBoard = function setBoard(id, on) {
 Move.onBoard = (id) => Motion.board[id] === 1;
 // Boarding (Q5): Use while running on the ground (at least SKIMMER_BOARD_RUN of the preset's ground speed) deploys the board,
 // which keeps it apart from Use on objectives and loot (done standing or walking); Use while riding steps off.
+// Actions run before the walk state, so the velocity is last step's: the move input must still be held this step,
+// or an actor (a bot at a Use goal, a player releasing W) that stops and presses Use in one step would board.
 function toggleBoard(id, preset) {
   if (!(Actors.pressed[id] & BTN.USE)) return;
   if (Motion.board[id]) { Move.setBoard(id, false); return; }
   const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
-  if (running && Motion.grounded[id]) Move.setBoard(id, true);
+  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
 }
 
 Bus.on('damage', (event) => {
