@@ -861,6 +861,9 @@ Test.add('pve', (check) => withShortShop(() => {
   check('a PvE kill in a soul mode drops a PU18 soul', slot >= 0);
   if (slot >= 0) Items.take(player, slot);
   check('the soul counts in Powerups.souls', Powerups.souls[player] === before + 1, Powerups.souls[player]);
+  Meters.addPoints(player, Meters.row().max);
+  const kept = Abilities.row(player, SLOT.ULTIMATE);
+  check('streak rewards leave Wrath Form in the ultimate slot of a soul mode', kept && kept.id === SOUL_ULTIMATE && !Abilities.rewardLoaded[player], kept && kept.id);
   const reports = startEventLog('pve.wrath');
   Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
   Sim.step();
