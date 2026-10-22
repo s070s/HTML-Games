@@ -71,6 +71,7 @@ const Loop = {
     if (Game.isRunning()) this.advance(seconds);
     const simMs = performance.now() - simStart;
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
+    Perf.counters.audioMs = Sound.updateMs;
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
   },
   // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME, the rest is dropped (spiral-of-death guard).
