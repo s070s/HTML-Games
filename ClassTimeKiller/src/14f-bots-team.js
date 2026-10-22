@@ -12,7 +12,7 @@ const COMMANDER_INTERVAL = 15;
 const ENEMY_PING_INTERVAL = 4;
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
-const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
+const TEAM_SLOTS = MAX_ACTORS + 1;      // index 0 = no team, then the teams (M20 squads use team indices up to the actor count)
 const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-051: an order is acknowledged within 0.5-1.5 s
 const ORDER_SECONDS = { go: 30, attack: 30, defend: 45, follow: 60 };
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order

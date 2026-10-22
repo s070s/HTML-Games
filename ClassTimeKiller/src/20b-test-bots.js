@@ -203,6 +203,11 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// M20 squads put squad indices in Actors.team: every possible squad has its own bark clock and grenade token.
+Test.add('bots', (check) => {
+  check('team bark clocks cover every squad index', BotTeam.teamBarkAt.length >= MAX_ACTORS + 1 && BotTeam.grenadeAt.length >= 2 * MAX_ACTORS + 1, BotTeam.teamBarkAt.length);
+});
+
 // ---- Catalogues ----
 Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));
