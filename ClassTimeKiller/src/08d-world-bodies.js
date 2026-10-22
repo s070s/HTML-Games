@@ -195,7 +195,7 @@ function spawnDebris(brush, pieces, mass, color) {
 }
 
 function clampBodySpeed(index) {
-  const speed = Math.hypot(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
+  const speed = length3(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
   if (speed <= BODY_MAX_SPEED) return;
   const scale = BODY_MAX_SPEED / speed;
   Bodies.vx[index] *= scale; Bodies.vy[index] *= scale; Bodies.vz[index] *= scale;
@@ -206,7 +206,7 @@ function fillBodyHit(index, ox, oy, oz, dx, dy, dz, distance, hit) {
   hit.distance = distance; hit.brush = null;
   hit.x = ox + dx * distance; hit.y = oy + dy * distance; hit.z = oz + dz * distance;
   const rx = (hit.x - Bodies.x[index]) / Bodies.halfX[index], ry = (hit.y - Bodies.y[index]) / Bodies.halfY[index], rz = (hit.z - Bodies.z[index]) / Bodies.halfZ[index];
-  if (Bodies.shape[index] === BODY_SHAPE.SPHERE) { const length = Math.hypot(rx, ry, rz) || 1; hit.nx = rx / length; hit.ny = ry / length; hit.nz = rz / length; return; }
+  if (Bodies.shape[index] === BODY_SHAPE.SPHERE) { const length = length3(rx, ry, rz) || 1; hit.nx = rx / length; hit.ny = ry / length; hit.nz = rz / length; return; }
   const ax = Math.abs(rx), ay = Math.abs(ry), az = Math.abs(rz);
   hit.nx = ax >= ay && ax >= az ? Math.sign(rx) : 0;
   hit.ny = hit.nx === 0 && ay >= az ? Math.sign(ry) : 0;
@@ -233,7 +233,7 @@ function moveBody(index, dt) {
   mover.vx = Bodies.vx[index]; mover.vy = Bodies.vy[index] - bodyGravity() * dt; mover.vz = Bodies.vz[index];
   mover.planeCount = 0;
   const intoX = mover.vx, intoY = mover.vy, intoZ = mover.vz;
-  Collide.gatherAround(mover, Math.hypot(mover.vx, mover.vy, mover.vz) * dt);
+  Collide.gatherAround(mover, length3(mover.vx, mover.vy, mover.vz) * dt);
   const touched = Collide.slide(mover, dt);
   if (touched) bounce(mover, intoX, intoY, intoZ, dt);
   if (!Collide.depenetrate(mover)) { mover.x = Bodies.x[index]; mover.y = Bodies.y[index]; mover.z = Bodies.z[index]; }
@@ -262,7 +262,7 @@ function onFloor(mover) {
 
 // Bodies sleep after BODY_SLEEP_SECONDS at rest; debris sleeps after that long no matter what (MAP-013).
 function updateSleep(index, grounded, dt) {
-  const speed = Math.hypot(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
+  const speed = length3(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
   Bodies.rest[index] = grounded && speed < BODY_SLEEP_SPEED ? Bodies.rest[index] + dt : 0;
   const debrisDone = Bodies.kind[index] === BODY_KIND.DEBRIS && Bodies.age[index] >= BODY_SLEEP_SECONDS;
   if (Bodies.rest[index] < BODY_SLEEP_SECONDS && !debrisDone) return;
@@ -282,7 +282,7 @@ function bodyGravity() {
 // A fast thrown body that overlaps an actor's capsule asks for clamped impact damage (kind 'crush').
 function hitActors(index) {
   if (Bodies.impactClock[index] > 0) return;
-  const speed = Math.hypot(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
+  const speed = length3(Bodies.vx[index], Bodies.vy[index], Bodies.vz[index]);
   if (speed < BODY_IMPACT_MIN_SPEED) return;
   const reach = ACTOR_RADIUS + Math.max(Bodies.halfX[index], Bodies.halfZ[index]);
   for (let id = 0; id < Actors.count; id++) {
@@ -300,7 +300,7 @@ function hitActors(index) {
 function onExplosion(event) {
   for (let i = 0; i < BODY_CAPACITY; i++) {
     if (!Bodies.active[i]) continue;
-    const dx = Bodies.x[i] - event.x, dy = Bodies.y[i] - event.y, dz = Bodies.z[i] - event.z, distance = Math.hypot(dx, dy, dz);
+    const dx = Bodies.x[i] - event.x, dy = Bodies.y[i] - event.y, dz = Bodies.z[i] - event.z, distance = length3(dx, dy, dz);
     if (distance >= event.radius) continue;
     const strength = EXPLOSION_BODY_IMPULSE * (1 - distance / event.radius) / (distance || 1);
     Bodies.applyImpulse(i, dx * strength, dy * strength + EXPLOSION_BODY_IMPULSE * 0.2, dz * strength);
@@ -309,7 +309,7 @@ function onExplosion(event) {
     const brush = Props.brushes[i];
     if (!Props.isStanding(i)) continue;
     const dx = clamp(event.x, brush.minX, brush.maxX) - event.x, dy = clamp(event.y, brush.minY, brush.maxY) - event.y, dz = clamp(event.z, brush.minZ, brush.maxZ) - event.z;
-    const distance = Math.hypot(dx, dy, dz);
+    const distance = length3(dx, dy, dz);
     if (distance < event.radius) Props.damage(i, EXPLOSION_PROP_DAMAGE * (1 - distance / event.radius), event.owner);
   }
 }

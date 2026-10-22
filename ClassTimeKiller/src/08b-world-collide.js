@@ -26,19 +26,30 @@ const Collide = {
   gather(minX, minY, minZ, maxX, maxY, maxZ) {
     const query = gatherQuery;
     query.minX = minX; query.minY = minY; query.minZ = minZ; query.maxX = maxX; query.maxY = maxY; query.maxZ = maxZ;
-    this.candidateCount = 0;
-    visitBox(query, gatherBrush);
+    gatherBox(query, null);
   },
-  // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands.
+  // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands. A box inside
+  // the one this mover gathered last in the same sim step reuses that list (a superset: the traces give the same
+  // results), so one actor step walks the brush tree once instead of once per sweep, settle and probe.
   gatherAround(mover, reach) {
-    const side = hullSide(mover.hull) + reach + GATHER_MARGIN;
-    this.gather(mover.x - side, mover.y - hullBelow(mover.hull) - reach - GATHER_MARGIN, mover.z - side,
-      mover.x + side, mover.y + hullAbove(mover.hull) + reach + GATHER_MARGIN, mover.z + side);
+    const box = wantedGather, side = hullSide(mover.hull) + reach + GATHER_MARGIN;
+    box.minX = mover.x - side; box.minY = mover.y - hullBelow(mover.hull) - reach - GATHER_MARGIN; box.minZ = mover.z - side;
+    box.maxX = mover.x + side; box.maxY = mover.y + hullAbove(mover.hull) + reach + GATHER_MARGIN; box.maxZ = mover.z + side;
+    if (gatheredCovers(mover, box)) return;
+    const query = gatherQuery;
+    query.minX = box.minX; query.minY = box.minY; query.minZ = box.minZ; query.maxX = box.maxX; query.maxY = box.maxY; query.maxZ = box.maxZ;
+    gatherBox(query, mover);
   },
   // Sweeps the hull from start to end against the gathered brushes. Moves that start inside a brush and leave it
   // ignore that brush (so a stuck mover can walk out); a move that stays inside reports allSolid with fraction 0.
   sweep(sx, sy, sz, ex, ey, ez, hull, out) {
-    const query = startSweep(sx, sy, sz, ex, ey, ez, hull, out);
+    setSweepSegment(sx, sy, sz, ex, ey, ez);
+    return this.sweepSegment(hull, out);
+  },
+  // Collide.sweep of the segment already written into sweepQuery (sx..ez). The slide and ground probe below fill it
+  // in place: six float arguments to a call that is not inlined would be boxed on the heap every trace (PERF-006).
+  sweepSegment(hull, out) {
+    const query = startSweep(hull, out);
     for (let i = 0; i < this.candidateCount; i++) sweepTestBrush(query, this.candidates[i]);
     return finishSweep(query);
   },
@@ -53,8 +64,10 @@ const Collide = {
     const primalX = mover.vx, primalY = mover.vy, primalZ = mover.vz;
     let timeLeft = dt, touched = false;
     for (let bump = 0; bump < SLIDE_BUMPS && timeLeft > 0; bump++) {
-      const trace = this.trace;
-      this.sweep(mover.x, mover.y, mover.z, mover.x + mover.vx * timeLeft, mover.y + mover.vy * timeLeft, mover.z + mover.vz * timeLeft, mover.hull, trace);
+      const trace = this.trace, segment = sweepQuery;
+      segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z;
+      segment.ex = mover.x + mover.vx * timeLeft; segment.ey = mover.y + mover.vy * timeLeft; segment.ez = mover.z + mover.vz * timeLeft;
+      this.sweepSegment(mover.hull, trace);
       if (trace.allSolid) { mover.vy = 0; return true; }
       mover.x = trace.x; mover.y = trace.y; mover.z = trace.z;
       if (trace.fraction >= 1) break;
@@ -87,7 +100,9 @@ const Collide = {
   },
   // Looks down from the mover by `distance`; fills out and returns true when it finds walkable floor.
   probeGround(mover, distance, out) {
-    this.sweep(mover.x, mover.y, mover.z, mover.x, mover.y - distance, mover.z, mover.hull, out);
+    const segment = sweepQuery;
+    segment.sx = segment.ex = mover.x; segment.sy = mover.y; segment.ey = mover.y - distance; segment.sz = segment.ez = mover.z;
+    this.sweepSegment(mover.hull, out);
     return out.fraction < 1 && !out.allSolid && out.ny >= WALKABLE_NORMAL_Y;
   },
   // Pushes a mover that ended up inside geometry out along the shallowest face. Returns true when it is free.
@@ -122,17 +137,42 @@ function visitBox(query, onBrush) {
   for (let i = 0; i < World.dynamic.length; i++) onBrush(query, World.dynamic[i]);
 }
 
+// The gathered list in gatherQuery's box; owner = the mover it was gathered for (null: a plain box, never reused).
+const wantedGather = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+const GatherCache = { owner: null, tick: -1, tree: null, dynamicCount: 0, walks: 0 };   // walks: brush-tree walks so far (perf test)
+
+function gatherBox(query, owner) {
+  Collide.candidateCount = 0;
+  visitBox(query, gatherBrush);
+  const cache = GatherCache;
+  cache.walks++;
+  cache.owner = owner; cache.tick = Sim.tick; cache.tree = World.tree; cache.dynamicCount = World.dynamic.length;
+}
+
+// True when the list gathered last for this mover, this sim step, on this world, still holds every brush the box can touch.
+function gatheredCovers(mover, box) {
+  const cache = GatherCache, held = gatherQuery;
+  if (cache.owner !== mover || cache.tick !== Sim.tick || cache.tree !== World.tree || cache.dynamicCount !== World.dynamic.length) return false;
+  return box.minX >= held.minX && box.minY >= held.minY && box.minZ >= held.minZ && box.maxX <= held.maxX && box.maxY <= held.maxY && box.maxZ <= held.maxZ;
+}
+
 // Past its start size the list simply grows (the array keeps that size afterwards, so steady play allocates nothing).
 function gatherBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
   Collide.candidates[Collide.candidateCount++] = brush;
 }
 
-// One hull sweep start->end: the swept box limits which brushes get clipped; the nearest entry wins.
-function startSweep(sx, sy, sz, ex, ey, ez, hull, out) {
+function setSweepSegment(sx, sy, sz, ex, ey, ez) {
+  const query = sweepQuery;
+  query.sx = sx; query.sy = sy; query.sz = sz; query.ex = ex; query.ey = ey; query.ez = ez;
+}
+
+// One hull sweep of the segment in sweepQuery: the swept box limits which brushes get clipped; the nearest entry wins.
+function startSweep(hull, out) {
   const query = sweepQuery, side = hullSide(hull), below = hullBelow(hull), above = hullAbove(hull);
+  const sx = query.sx, sy = query.sy, sz = query.sz, ex = query.ex, ey = query.ey, ez = query.ez;
   out.fraction = 1; out.brush = null; out.startSolid = false; out.allSolid = false;
-  query.sx = sx; query.sy = sy; query.sz = sz; query.ex = ex; query.ey = ey; query.ez = ez; query.hull = hull; query.out = out;
+  query.hull = hull; query.out = out;
   query.minX = Math.min(sx, ex) - side; query.minY = Math.min(sy, ey) - below; query.minZ = Math.min(sz, ez) - side;
   query.maxX = Math.max(sx, ex) + side; query.maxY = Math.max(sy, ey) + above; query.maxZ = Math.max(sz, ez) + side;
   return query;
@@ -141,10 +181,9 @@ function startSweep(sx, sy, sz, ex, ey, ez, hull, out) {
 function sweepTestBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
   const out = query.out;
-  const fraction = clipBrush(brush, query.sx, query.sy, query.sz, query.ex, query.ey, query.ez, query.hull, COLLISION_SKIN);
-  if (fraction < 0 || fraction >= out.fraction) return;
+  if (!clipBrush(brush, query, query.hull, COLLISION_SKIN) || clipResult.fraction >= out.fraction) return;
   if (clipResult.startSolid) { recordSolid(out, clipResult.allSolid, brush); return; }
-  out.fraction = fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
+  out.fraction = clipResult.fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
 }
 
 function finishSweep(query) {
@@ -230,7 +269,7 @@ function resolveVelocity(mover) {
   let cx = planes[a + 1] * planes[b + 2] - planes[a + 2] * planes[b + 1];
   let cy = planes[a + 2] * planes[b] - planes[a] * planes[b + 2];
   let cz = planes[a] * planes[b + 1] - planes[a + 1] * planes[b];
-  const length = Math.hypot(cx, cy, cz);
+  const length = length3(cx, cy, cz);
   if (length < 1e-6) return false;
   cx /= length; cy /= length; cz /= length;
   const along = cx * vx + cy * vy + cz * vz;
@@ -262,7 +301,8 @@ World.capsuleFits = function capsuleFits(x, y, z, radius, height) {
 // Sweeps a capsule from a to b; fills out (a trace) and returns true when something blocks it. It walks the tree
 // directly (no capped candidate list), so a sweep of any length tests every brush along its path.
 World.sweepCapsule = function sweepCapsule(ax, ay, az, bx, by, bz, radius, height, out) {
-  const query = startSweep(ax, ay, az, bx, by, bz, setCapsuleHull(queryMover.hull, radius, height), out);
+  setSweepSegment(ax, ay, az, bx, by, bz);
+  const query = startSweep(setCapsuleHull(queryMover.hull, radius, height), out);
   visitBox(query, sweepTestBrush);
   return finishSweep(query);
 };
@@ -288,34 +328,63 @@ const makeActorHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0
 // ---- Actor hit volumes (DATA-003, ARC-014): head sphere, torso and legs as upright cylinders that never overlap, scaled when crouched ----
 const ACTOR_REJECT_RADIUS = 1.2;         // every hit volume lies within this distance of the actor's middle
 
-function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
-  const px = ox - cx, py = oy - cy, pz = oz - cz;
-  const b = px * dx + py * dy + pz * dz, c = px * px + py * py + pz * pz - radius * radius;
-  if (c <= 0) return 0;
+// The hit-volume tests read the ray and the volume from these scratch objects and leave the entry distance in
+// hitVolume.distance (-1 = miss, 0 = the origin is inside): a float passed to or returned from a call that is not
+// inlined is boxed on the heap, and every hitscan ray tests every actor (PERF-006).
+const hitRay = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 0, limit: 0, inflate: 0 };
+const hitVolume = { cx: 0, cy: 0, cz: 0, y0: 0, y1: 0, radius: 0, distance: -1 };
+
+function setHitRay(ox, oy, oz, dx, dy, dz, limit, inflate) {
+  const ray = hitRay;
+  ray.ox = ox; ray.oy = oy; ray.oz = oz; ray.dx = dx; ray.dy = dy; ray.dz = dz; ray.limit = limit; ray.inflate = inflate;
+}
+
+// Sphere at (cx, cy, cz) with radius.
+function rayHitSphere() {
+  const ray = hitRay, volume = hitVolume;
+  const px = ray.ox - volume.cx, py = ray.oy - volume.cy, pz = ray.oz - volume.cz;
+  const b = px * ray.dx + py * ray.dy + pz * ray.dz, c = px * px + py * py + pz * pz - volume.radius * volume.radius;
   const disc = b * b - c;
-  if (b > 0 || disc < 0) return -1;
-  return -b - Math.sqrt(disc);
+  if (c <= 0) volume.distance = 0;
+  else volume.distance = b > 0 || disc < 0 ? -1 : -b - Math.sqrt(disc);
 }
-function rayCap(ox, oy, oz, dx, dy, dz, cx, cz, capY, radius) {
-  const t = (capY - oy) / dy;
-  if (t < 0) return -1;
-  const hx = ox + dx * t - cx, hz = oz + dz * t - cz;
-  return hx * hx + hz * hz <= radius * radius ? t : -1;
-}
-function nearestHit(a, b) { return a < 0 ? b : b < 0 ? a : Math.min(a, b); }
-// Upright cylinder from y0 to y1: side wall plus the two caps. Returns the entry distance or -1.
-function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
-  const px = ox - cx, pz = oz - cz;
-  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radius * radius;
-  if (c <= 0 && oy >= y0 && oy <= y1) return 0;
+
+// Upright cylinder around (cx, cz) from y0 to y1: side wall plus the two caps.
+function rayHitCylinder() {
+  const ray = hitRay, volume = hitVolume, dx = ray.dx, dy = ray.dy, dz = ray.dz, oy = ray.oy, y0 = volume.y0, y1 = volume.y1;
+  const px = ray.ox - volume.cx, pz = ray.oz - volume.cz, radiusSquared = volume.radius * volume.radius;
+  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radiusSquared;
+  volume.distance = 0;
+  if (c <= 0 && oy >= y0 && oy <= y1) return;
   let best = -1;
   const disc = b * b - a * c;
   if (a > 1e-9 && disc >= 0) {
     const t = (-b - Math.sqrt(disc)) / a, y = oy + dy * t;
     if (t >= 0 && y >= y0 && y <= y1) best = t;
   }
-  if (Math.abs(dy) < 1e-9) return best;
-  return nearestHit(best, nearestHit(rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y0, radius), rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y1, radius)));
+  volume.distance = best;
+  if (Math.abs(dy) < 1e-9) return;
+  for (let cap = 0; cap < 2; cap++) {
+    const t = ((cap ? y1 : y0) - oy) / dy, hx = px + dx * t, hz = pz + dz * t;
+    if (t >= 0 && hx * hx + hz * hz <= radiusSquared && (best < 0 || t < best)) best = t;
+  }
+  volume.distance = best;
+}
+
+// Argument forms (bodies, projectiles, items, gadgets, abilities): entry distance or -1.
+function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cy = cy; volume.cz = cz; volume.radius = radius;
+  rayHitSphere();
+  return volume.distance;
+}
+function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
+  rayHitCylinder();
+  return volume.distance;
 }
 
 const Hitbox = {
@@ -326,22 +395,34 @@ const Hitbox = {
   // Nearest hit volume of actor id along a normalized ray; inflate grows every volume (melee, projectile radius).
   // Returns the distance or -1 and leaves the zone in Hitbox.zone.
   ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate) {
+    setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, inflate);
+    return this.rayOf(id) ? this.distance : -1;
+  },
+  distance: 0,   // entry distance of the last rayOf hit
+  // Hot form of ray(): the ray (limit = maxDistance, inflate) is in hitRay (setHitRay). Returns true on a hit and
+  // leaves the distance in Hitbox.distance and the zone in Hitbox.zone.
+  rayOf(id) {
+    const ray = hitRay, volume = hitVolume, inflate = ray.inflate;
     const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], size = this.sizeScale[id], scale = Actors.height[id] / STAND_HEIGHT * size;
-    const mx = x - ox, my = y + 0.9 * scale - oy, mz = z - oz, along = mx * dx + my * dy + mz * dz;
-    const reject = ACTOR_REJECT_RADIUS * Math.max(1, this.sizeScale[id]) + inflate;
-    if (along < -reject || along > maxDistance + reject) return -1;
-    if (mx * mx + my * my + mz * mz - along * along > reject * reject) return -1;
-    let best = -1;
+    const mx = x - ray.ox, my = y + 0.9 * scale - ray.oy, mz = z - ray.oz, along = mx * ray.dx + my * ray.dy + mz * ray.dz;
+    const reject = ACTOR_REJECT_RADIUS * Math.max(1, size) + inflate;
     this.zone = ZONE.NONE;
-    const head = raySphere(ox, oy, oz, dx, dy, dz, x, y + (Actors.eye[id] + HEAD_ABOVE_EYE) * size, z, HEAD_RADIUS * this.headScale[id] * size + inflate);
-    if (head >= 0) { best = head; this.zone = ZONE.HEAD; }
-    const torso = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, TORSO_RADIUS * size + inflate);
-    if (torso >= 0 && (best < 0 || torso < best)) { best = torso; this.zone = ZONE.BODY; }
-    const legs = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, LEGS_RADIUS * size + inflate);
-    if (legs >= 0 && (best < 0 || legs < best)) { best = legs; this.zone = ZONE.LEGS; }
-    if (best > maxDistance) { this.zone = ZONE.NONE; return -1; }
-    this.stomach = this.zone === ZONE.BODY && oy + dy * best < y + STOMACH_HIGH * scale;
-    return best;
+    if (along < -reject || along > ray.limit + reject) return false;
+    if (mx * mx + my * my + mz * mz - along * along > reject * reject) return false;
+    let best = -1;
+    volume.cx = x; volume.cy = y + (Actors.eye[id] + HEAD_ABOVE_EYE) * size; volume.cz = z; volume.radius = HEAD_RADIUS * this.headScale[id] * size + inflate;
+    rayHitSphere();
+    if (volume.distance >= 0) { best = volume.distance; this.zone = ZONE.HEAD; }
+    volume.y0 = y + TORSO_LOW * scale; volume.y1 = y + TORSO_HIGH * scale; volume.radius = TORSO_RADIUS * size + inflate;
+    rayHitCylinder();
+    if (volume.distance >= 0 && (best < 0 || volume.distance < best)) { best = volume.distance; this.zone = ZONE.BODY; }
+    volume.y0 = y + LEGS_LOW * scale; volume.y1 = y + LEGS_HIGH * scale; volume.radius = LEGS_RADIUS * size + inflate;
+    rayHitCylinder();
+    if (volume.distance >= 0 && (best < 0 || volume.distance < best)) { best = volume.distance; this.zone = ZONE.LEGS; }
+    if (best < 0 || best > ray.limit) { this.zone = ZONE.NONE; return false; }
+    this.distance = best;
+    this.stomach = this.zone === ZONE.BODY && ray.oy + ray.dy * best < y + STOMACH_HIGH * scale;
+    return true;
   },
   // Centre of a zone (bots, aim assist, lock-on, homing).
   point(id, zone, out) {
@@ -358,11 +439,12 @@ const Hitbox = {
 // Walls are not checked: compare with World.raycast (hitscan order ARC-014: world first, then actors).
 World.raycastActors = function raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit) {
   let best = maxDistance, found = -1, zone = ZONE.NONE;
+  setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, 0);
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || id === ignoreId) continue;
-    const distance = Hitbox.ray(id, ox, oy, oz, dx, dy, dz, best, 0);
-    if (distance < 0 || distance >= best) continue;
-    best = distance; found = id; zone = Hitbox.zone;
+    hitRay.limit = best;
+    if (!Hitbox.rayOf(id) || Hitbox.distance >= best) continue;
+    best = Hitbox.distance; found = id; zone = Hitbox.zone;
   }
   if (found < 0) return -1;
   hit.distance = best; hit.x = ox + dx * best; hit.y = oy + dy * best; hit.z = oz + dz * best;
@@ -387,7 +469,7 @@ World.actorsInCone = function actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle,
   let count = 0;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || id === ignoreId) continue;
-    const vx = Actors.x[id] - ox, vy = Actors.y[id] + Actors.height[id] * 0.6 - oy, vz = Actors.z[id] - oz, distance = Math.hypot(vx, vy, vz);
+    const vx = Actors.x[id] - ox, vy = Actors.y[id] + Actors.height[id] * 0.6 - oy, vz = Actors.z[id] - oz, distance = length3(vx, vy, vz);
     if (distance > range || distance < 1e-6) continue;
     if ((vx * dx + vy * dy + vz * dz) / distance >= cosHalfAngle) out[count++] = id;
   }

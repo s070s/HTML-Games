@@ -15,9 +15,9 @@ function randomBrushes(seed, count, spread) {
 // Reference answer: every brush, no tree.
 function bruteRay(ox, oy, oz, dx, dy, dz, maxDistance) {
   let best = 1, found = null;
+  const segment = { sx: ox, sy: oy, sz: oz, ex: ox + dx * maxDistance, ey: oy + dy * maxDistance, ez: oz + dz * maxDistance };
   for (const brush of World.brushes) {
-    const fraction = clipBrush(brush, ox, oy, oz, ox + dx * maxDistance, oy + dy * maxDistance, oz + dz * maxDistance, POINT_HULL, 0);
-    if (fraction >= 0 && fraction < best) { best = fraction; found = brush; }
+    if (clipBrush(brush, segment, POINT_HULL, 0) && clipResult.fraction < best) { best = clipResult.fraction; found = brush; }
   }
   return found ? best * maxDistance : -1;
 }

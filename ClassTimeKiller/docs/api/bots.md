@@ -50,7 +50,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 - `Bots.isBot(id)`, `Bots.tier(id)` (the `CAT.botTiers` row), `Bots.trait(id, TRAIT.<key>)`, `Bots.state[id]` (`BOT_STATE`, names in `BOT_STATE_NAMES`), `Bots.profile[id]`.
 - `Bots.setTier(id, tier)`: change a bot's tier now (number, code or key). Returns false for a non-bot.
-- `Bots.lookAt(id, x, y, z)`, `Bots.wish(id, dx, dz, amount)`, `Bots.press(id, BTN.*)`: what the layers below use; the motor turns them into input.
+- `Bots.lookAt(id, x, y, z)`, `Bots.wish(id, dx, dz, amount)`, `Bots.press(id, BTN.*)`: what the layers below use; the motor turns them into input. Per-step steering (14c `steer(id, now)` / `avoidance(id)`, 14d strafe and dodge) writes the move into the scratch `botWish` (`x z amount`) and calls `Bots.wishFrom(id)` (PERF-006: three float arguments to a call that is not inlined are boxed every step). Sight and hearing rays go through `senseLine` and `World.lineClearOf`; the smoke test runs only while a smoke volume exists.
 - `Bots.reactionScale()`, `Bots.aimErrorScale()`, `Bots.maxAttackers()`, `Bots.inGrace(id, target)` (BOT-042).
 - `Difficulty.resolve(choice)`, `Difficulty.adapt(match)`, `Difficulty.tierShift()`.
 

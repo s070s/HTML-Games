@@ -142,7 +142,7 @@ function swimState(id, preset, gravity, dt) {
   const up = ((Actors.buttons[id] & BTN.JUMP) ? 1 : 0) - ((Actors.buttons[id] & BTN.CROUCH) ? 1 : 0);
   const forward = Motion.inputZ[id], pitch = Actors.pitch[id];
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
-  const y = Math.sin(pitch) * forward + up, length = Math.hypot(axes.x, y, axes.z);
+  const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
   if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
   integrate(id, gravity * WATER_GRAVITY_SCALE, dt);
 }
@@ -196,7 +196,7 @@ function tryDodge(id, preset) {
   const tapZ = doubleTap(id, Motion.inputZ[id], 'tapClockZ', 'tapSignZ', 'lastAxisZ');
   if (preset.dodgeSpeed <= 0 || (tapX === 0 && tapZ === 0) || getClock(id, CLOCK.DODGE_COOLDOWN) > 0 || !inWalkState(id)) return;
   yawToWorld(Actors.yaw[id], tapZ, tapX, axes);
-  const length = Math.hypot(axes.x, axes.z), x = axes.x / length, z = axes.z / length;
+  const length = length2(axes.x, axes.z), x = axes.x / length, z = axes.z / length;
   if (!Motion.grounded[id] && !(preset.wallDodge && findWall(id, -x, -z))) return;
   Actors.vx[id] = x * preset.dodgeSpeed; Actors.vz[id] = z * preset.dodgeSpeed; Actors.vy[id] = preset.dodgeUp;
   setClock(id, CLOCK.DODGE_COOLDOWN, preset.dodgeCooldown);
@@ -246,7 +246,7 @@ function chargeTarget(id, range) {
   let best = -1, bestDistance = range;
   for (let other = 0; other < Actors.count; other++) {
     if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
-    const dx = Actors.x[other] - Actors.x[id], dz = Actors.z[other] - Actors.z[id], distance = Math.hypot(dx, dz);
+    const dx = Actors.x[other] - Actors.x[id], dz = Actors.z[other] - Actors.z[id], distance = length2(dx, dz);
     if (distance >= bestDistance || distance < 1e-3 || (dx * forwardX + dz * forwardZ) / distance < CHARGE_CONE_COS) continue;
     if (!World.lineClear(Actors.x[id], eyeY, Actors.z[id], Actors.x[other], Actors.eyeY(other), Actors.z[other])) continue;
     best = other; bestDistance = distance;
@@ -260,13 +260,13 @@ function chargeState(id, preset, gravity, dt) {
   Actors.vx[id] = Motion.dirX[id] * preset.chargeSpeed; Actors.vz[id] = Motion.dirZ[id] * preset.chargeSpeed;
   integrate(id, Motion.grounded[id] ? 0 : gravity, dt);
   const travelled = (Motion.stateTime[id] + dt) * preset.chargeSpeed;
-  const arrived = target >= 0 && Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
+  const arrived = target >= 0 && length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
   if (travelled < preset.chargeDistance && !arrived && !Motion.blocked[id]) return;
   endBurst(id, preset);
 }
 
 function aimChargeAt(id, target) {
-  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz);
+  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz);
   if (distance < 1e-3) return;
   Motion.dirX[id] = dx / distance; Motion.dirZ[id] = dz / distance;
 }

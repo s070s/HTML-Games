@@ -155,7 +155,7 @@ const Projectiles = {
       if (!Actors.alive[id] || !Actors.isEnemy(owner, id)) continue;
       Hitbox.point(id, ZONE.BODY, projectileScratch);
       const dx = projectileScratch.x - Actors.x[owner], dy = projectileScratch.y - eyeY, dz = projectileScratch.z - Actors.z[owner];
-      const distance = Math.hypot(dx, dy, dz);
+      const distance = length3(dx, dy, dz);
       if (distance >= bestDistance || (dx * direction.x + dy * direction.y + dz * direction.z) / distance < HOMING_CONE_COS) continue;
       if (!World.lineClear(Actors.x[owner], eyeY, Actors.z[owner], projectileScratch.x, projectileScratch.y, projectileScratch.z)) continue;
       best = id; bestDistance = distance;
@@ -227,7 +227,7 @@ const Projectiles = {
     const owner = this.owner[i], speed = this.row(i).speed;
     if (!Actors.alive[owner]) { this.remove(i); return; }
     const dx = Actors.x[owner] - this.x[i], dy = Actors.eyeY(owner) - 0.4 - this.y[i], dz = Actors.z[owner] - this.z[i];
-    const distance = Math.hypot(dx, dy, dz);
+    const distance = length3(dx, dy, dz);
     if (distance < RETURN_CATCH_DISTANCE) { this.remove(i); return; }
     this.vx[i] = dx / distance * speed; this.vy[i] = dy / distance * speed; this.vz[i] = dz / distance * speed;
   },
@@ -235,7 +235,7 @@ const Projectiles = {
   // Moves along the velocity for one step: world ray first, then actor volumes (inflated by the radius) in front of it.
   sweep(i, dt) {
     if (this.state[i] === PROJECTILE_STATE.FREE) return;
-    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    const speed = length3(this.vx[i], this.vy[i], this.vz[i]);
     if (speed < 1e-6) return;
     const length = speed * dt, dx = this.vx[i] / speed, dy = this.vy[i] / speed, dz = this.vz[i] / speed, row = this.row(i);
     const wallHit = World.raycast(this.x[i], this.y[i], this.z[i], dx, dy, dz, length + row.radius, sweepHit);
@@ -334,7 +334,7 @@ const Projectiles = {
   bounceOff(i, row, hit) {
     reflectVelocity(i, hit, row.bounce || 1);
     if (this.bounces[i] > 0) this.bounces[i]--;
-    if (Math.hypot(this.vx[i], this.vy[i], this.vz[i]) >= BOUNCE_MIN_SPEED) return true;
+    if (length3(this.vx[i], this.vy[i], this.vz[i]) >= BOUNCE_MIN_SPEED) return true;
     this.vx[i] = this.vy[i] = this.vz[i] = 0;   // settled: grenades wait for their fuse on the floor
     return true;
   },
@@ -393,7 +393,7 @@ const Projectiles = {
     const owner = this.owner[i];
     if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
     const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
-    const length = Math.hypot(dx, dy, dz);
+    const length = length3(dx, dy, dz);
     if (length < 0.5) return;
     const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
     for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
@@ -493,12 +493,12 @@ const Projectiles = {
   pullOwner(i, target) {
     const owner = this.owner[i];
     this.remove(i);
-    const dx = Actors.x[target] - Actors.x[owner], dz = Actors.z[target] - Actors.z[owner], length = Math.hypot(dx, dz) || 1;
+    const dx = Actors.x[target] - Actors.x[owner], dz = Actors.z[target] - Actors.z[owner], length = length2(dx, dz) || 1;
     emitImpulse(owner, dx / length * HOOK_PULL_SPEED, HOOK_LIFT_SPEED, dz / length * HOOK_PULL_SPEED);
   },
   // Parry (W03): the projectile flies back along the parrying actor's view and now belongs to them.
   reflect(i, newOwner) {
-    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    const speed = length3(this.vx[i], this.vy[i], this.vz[i]);
     Vec.fromAngles(projectileScratch, Actors.yaw[newOwner], Actors.pitch[newOwner]);
     this.vx[i] = projectileScratch.x * speed; this.vy[i] = projectileScratch.y * speed; this.vz[i] = projectileScratch.z * speed;
     this.owner[i] = newOwner;
@@ -539,12 +539,12 @@ const Projectiles = {
 
 // Rotates a projectile's velocity toward a unit direction by at most maxAngle radians, keeping its speed.
 function turnVelocity(i, direction, maxAngle) {
-  const speed = Math.hypot(Projectiles.vx[i], Projectiles.vy[i], Projectiles.vz[i]);
+  const speed = length3(Projectiles.vx[i], Projectiles.vy[i], Projectiles.vz[i]);
   if (speed < 1e-6) return;
   const fx = Projectiles.vx[i] / speed, fy = Projectiles.vy[i] / speed, fz = Projectiles.vz[i] / speed;
   const angle = Math.acos(clamp(fx * direction.x + fy * direction.y + fz * direction.z, -1, 1));
   const t = angle <= maxAngle ? 1 : maxAngle / angle;
-  const nx = lerp(fx, direction.x, t), ny = lerp(fy, direction.y, t), nz = lerp(fz, direction.z, t), length = Math.hypot(nx, ny, nz) || 1;
+  const nx = lerp(fx, direction.x, t), ny = lerp(fy, direction.y, t), nz = lerp(fz, direction.z, t), length = length3(nx, ny, nz) || 1;
   Projectiles.vx[i] = nx / length * speed; Projectiles.vy[i] = ny / length * speed; Projectiles.vz[i] = nz / length * speed;
 }
 function reflectVelocity(i, hit, keep) {

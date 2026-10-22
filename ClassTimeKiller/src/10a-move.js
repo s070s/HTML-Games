@@ -15,6 +15,7 @@ const HARD_LANDING_SPEED = 15;                   // MOV-014: landing faster lock
 const LANDING_LOCK_SECONDS = 0.25;               // ...for this long
 const LANDING_PENALTY_SECONDS = 0.2;             // MOV-014 landingPenalty window
 const GROUND_PROBE = 0.06;                       // metres looked down for floor while airborne
+const SETTLE_REACH = STEP_HEIGHT + GROUND_PROBE;   // the settle and the floor probe look this far around the feet
 const GROUND_LEAVE_SPEED = 0.25;                 // moving off the floor plane faster than this is airborne (jumps, pads)
 const UNGROUND_SECONDS = 0.05;                   // after a jump or launch the floor probe pauses (no re-sticking)
 const EYE_SPEED = 6;                             // m/s the eye follows stance changes
@@ -70,7 +71,7 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
-  horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
+  horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
   // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
   // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
   inaccuracy(id, tableOnly) {
@@ -132,7 +133,7 @@ function resetMotion(id) {
 // ---- Shared physics (MOV-011/012): one friction rule, one acceleration rule ----
 function applyFriction(id, friction, stopSpeed, dt, includeVertical) {
   const vy = includeVertical ? Actors.vy[id] : 0;
-  const speed = Math.hypot(Actors.vx[id], vy, Actors.vz[id]);
+  const speed = length3(Actors.vx[id], vy, Actors.vz[id]);
   if (speed < 1e-6) return;
   const newSpeed = Math.max(0, speed - Math.max(speed, stopSpeed) * friction * dt);
   const scale = newSpeed / speed;
@@ -160,7 +161,7 @@ function yawToWorld(yaw, forward, strafe, out) {
 // Horizontal wish direction (unit) and amount (0..1) from the input axes.
 function horizontalWish(id) {
   yawToWorld(Actors.yaw[id], Motion.inputZ[id], Motion.inputX[id], wish);
-  const length = Math.hypot(wish.x, wish.z);
+  const length = length2(wish.x, wish.z);
   wish.amount = Math.min(1, length);
   wish.x = length > 1e-6 ? wish.x / length : 0; wish.y = 0; wish.z = length > 1e-6 ? wish.z / length : 0;
   return wish;
@@ -293,22 +294,24 @@ function applyEndVelocity(mover, endVY) {
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
-  const speed = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const speed = length3(mover.vx, mover.vy, mover.vz);
   addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
   clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
-  const clipped = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const clipped = length3(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
+// Each piece gathers at least the settle reach past its travel, so the settle and floor probe after it reuse that brush
+// list (Collide.gatherAround) instead of walking the brush tree again.
 function sweepActor(id, mover, dt, stepHeight) {
-  const travel = Math.hypot(mover.vx, mover.vy, mover.vz) * dt;
+  const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
   const firstPlanes = mover.planeCount;
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + stepHeight);
+    Collide.gatherAround(mover, travel / pieces + Math.max(stepHeight, SETTLE_REACH));
     const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
     if (hit) recordWall(id, mover);
   }
@@ -326,11 +329,11 @@ function recordWall(id, mover) {
 
 // Leaves geometry if the move ended inside it; when that fails the actor goes back to where the step began.
 function settle(id, mover) {
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
   if (Collide.depenetrate(mover)) return;
   mover.x = Actors.x[id]; mover.y = Actors.y[id]; mover.z = Actors.z[id];
   mover.vx = mover.vy = mover.vz = 0;
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
 }
 
 // Floor under the feet: snaps down stairs (up to the step height) while walking, never right after a launch.
@@ -533,7 +536,7 @@ function writeFlags(id) {
 // Move.footstepScale scales both the bot noise and the 'move.step' loudness (0 = silent, the event still marks the stride).
 function countSteps(id, preset, startX, startZ) {
   if (!Motion.grounded[id] || Motion.sliding[id]) return;
-  Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
+  Motion.stepDistance[id] += length2(Actors.x[id] - startX, Actors.z[id] - startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
   const walking = isWalking(id, preset);
@@ -583,7 +586,7 @@ function onImpulse(event) {
   if (id < 0 || id >= MAX_ACTORS || !Actors.alive[id]) return;
   matchPreset();
   let x = event.x * MatchMove.knockback, y = event.y * MatchMove.knockback, z = event.z * MatchMove.knockback;
-  const size = Math.hypot(x, y, z);
+  const size = length3(x, y, z);
   if (size > KNOCKBACK_CAP) { x *= KNOCKBACK_CAP / size; y *= KNOCKBACK_CAP / size; z *= KNOCKBACK_CAP / size; }
   Actors.vx[id] += x; Actors.vy[id] += y; Actors.vz[id] += z;
   if (y > GROUND_LEAVE_SPEED) unground(id);

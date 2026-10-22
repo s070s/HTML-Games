@@ -48,7 +48,7 @@ function faceShape(faces, vertices, indices) {
     let nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
     let ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
     let nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    const length = Math.hypot(nx, ny, nz); nx /= length; ny /= length; nz /= length;
+    const length = length3(nx, ny, nz); nx /= length; ny /= length; nz /= length;
     for (const corner of corners) vertices.push(corner[0], corner[1], corner[2], nx, ny, nz);
     for (let i = 1; i < corners.length - 1; i++) indices.push(base, base + i, base + i + 1);
   }
@@ -93,7 +93,7 @@ function ringShape(vertices, indices) {
   for (let s = 0; s <= ROUND_SIDES * 2; s++) {
     const angle = (s / (ROUND_SIDES * 2)) * Math.PI * 2, c = Math.cos(angle), sn = Math.sin(angle);
     for (let t = 0; t <= tube; t++) {
-      const around = (t / tube) * Math.PI * 2, nr = Math.cos(around), ny = Math.sin(around), length = Math.hypot(nr * flatten, ny);
+      const around = (t / tube) * Math.PI * 2, nr = Math.cos(around), ny = Math.sin(around), length = length2(nr * flatten, ny);
       vertices.push((major + minor * nr) * c, H * ny, (major + minor * nr) * sn, (nr * flatten / length) * c, ny / length, (nr * flatten / length) * sn);
     }
   }
@@ -120,6 +120,8 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 
 // ---- Instance batches ----
 const shapeBatches = [];
+// One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
+const makeShapeInstance = () => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, sx: 1, sy: 1, sz: 1, r: 1, g: 1, b: 1, emissive: 0 });
 function makeShapeBatch(name, capacity) {
   const batch = {
     name, capacity, counts: new Uint16Array(SHAPES.length), data: new Float32Array(SHAPES.length * capacity * INSTANCE_FLOATS),
@@ -128,16 +130,40 @@ function makeShapeBatch(name, capacity) {
     // ARCHITECTURE contract: centre (x, y, z), yaw/pitch radians, full sizes in metres, colour 0..1, emissive 0..1.
     // Returns the instance's float offset in `data`, or -1 when the shape is unknown or the region is full.
     mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive) {
+      const o = this.reserve(shape), d = this.data;
+      if (o < 0) return -1;
+      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
+      d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
+      d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
+      this.light(o);
+      return o;
+    },
+    // The hot S07 callers (actor parts) skip mesh(): reserve(shape) returns the instance offset (or -1), they write
+    // data[o..o+11] (x y z yaw | sx sy sz pitch | r g b emissive) themselves and call light(o). Thirteen float
+    // arguments to a call that is not inlined would be boxed on the heap for every part of every actor (PERF-006).
+    reserve(shape) {
       const shapeIndex = SHAPE_INDEX[shape];
       if (shapeIndex === undefined) return -1;
       const count = this.counts[shapeIndex];
       if (count >= this.capacity) { Render.stats.droppedInstances++; return -1; }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
-      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
-      d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
-      d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
-      d[o + 12] = sampleSunVisibility(x, y, z); d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
+      d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;
+      return o;
+    },
+    light(o) {
+      const d = this.data;
+      d[o + 12] = sampleSunVisibility(d[o], d[o + 1], d[o + 2]);
+    },
+    // mesh() from a reused instance record (makeShapeInstance): the zero-allocation form for sources that draw many
+    // parts a frame. Same result and return value as mesh().
+    meshFrom(shape, instance) {
+      const o = this.reserve(shape), d = this.data;
+      if (o < 0) return -1;
+      d[o] = instance.x; d[o + 1] = instance.y; d[o + 2] = instance.z; d[o + 3] = instance.yaw;
+      d[o + 4] = instance.sx; d[o + 5] = instance.sy; d[o + 6] = instance.sz; d[o + 7] = instance.pitch;
+      d[o + 8] = instance.r; d[o + 9] = instance.g; d[o + 10] = instance.b; d[o + 11] = instance.emissive;
+      this.light(o);
       return o;
     },
   };
@@ -341,14 +367,25 @@ const HEAD_PART_IDS = ['head', 'visor'];
 const HEAD_PARTS = new Set(CAT.actorParts.filter((part) => HEAD_PART_IDS.includes(part.id)));
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
 const tintColor = new Float32Array(3);
-const rotated = { x: 0, y: 0, z: 0 };
+const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // emitActorPart's point: filled in place, then rotateInPlace
 const ActorFrame = { count: 0 };
 
-// CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)).
-function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
+// CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)). In place on
+// { x y z yaw pitch }: the per-part hot path passes no float arguments (they would be boxed on the heap, PERF-006).
+function rotateInPlace(point) {
+  const pitch = point.pitch, yaw = point.yaw, x = point.x, y = point.y, z = point.z;
   const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
   const ry = y * cp + z * sp, rz = -y * sp + z * cp;
-  out.x = x * cy + rz * sy; out.y = ry; out.z = -x * sy + rz * cy;
+  point.x = x * cy + rz * sy; point.y = ry; point.z = -x * sy + rz * cy;
+  return point;
+}
+
+const rotationScratch = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
+  const point = rotationScratch;
+  point.x = x; point.y = y; point.z = z; point.yaw = yaw; point.pitch = pitch;
+  rotateInPlace(point);
+  out.x = point.x; out.y = point.y; out.z = point.z;
   return out;
 }
 
@@ -386,7 +423,7 @@ function lodFor(distanceSquared, quality) {
 
 // Walk cycle from speed, crouch from height. The far LOD applies its walk time in steps; distant actors stand still.
 function animateActor(id, pose, seconds, lod) {
-  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const speed = length2(Actors.vx[id], Actors.vz[id]);
   actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
   if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
     actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
@@ -411,14 +448,20 @@ function emitActorPart(part, pose, style) {
   // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
   const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
-  rotateYawPitchInto(rotated, part.offset[0] * head, part.offset[1] * squash * head, part.offset[2] * head, 0, pitch);
-  const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + rotated.y + pose.lift;
-  const localX = part.pivot[0] + rotated.x, localZ = part.pivot[2] + rotated.z;
-  rotateYawPitchInto(rotated, localX * scale, localY * scale, localZ * scale, pose.yaw, 0);
-  const emissive = Math.max(partColor(part, style), style.emissive);
-  const slot = actorBatch.mesh(part.shape, pose.x + rotated.x, pose.y + rotated.y, pose.z + rotated.z, pose.yaw, pitch,
-    part.size[0] * scale * head, part.size[1] * squash * scale * head, part.size[2] * scale * head, tintColor[0], tintColor[1], tintColor[2], emissive);
-  if (slot >= 0) actorBatch.data[slot + HIGHLIGHT_SLOT] = actorHighlight;
+  const point = rotated;
+  point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
+  rotateInPlace(point);
+  const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
+  const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
+  point.x = localX * scale; point.y = localY * scale; point.z = localZ * scale; point.yaw = pose.yaw; point.pitch = 0;
+  rotateInPlace(point);
+  const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
+  if (o < 0) return;
+  d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
+  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch;
+  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(glow, style.emissive);
+  d[o + HIGHLIGHT_SLOT] = actorHighlight;
+  actorBatch.light(o);
 }
 
 // ACC-006: with high-contrast outlines the local player's enemies get a thick bright outline (set per actor before its parts are emitted).
@@ -434,10 +477,12 @@ function emitActorShadow(id, pose, scale) {
   const groundY = airborne ? groundBelow(pose.x, pose.y + 0.1, pose.z, SHADOW_PROBE_METERS) : pose.y;
   const fade = 1 - clamp((pose.y - groundY) / SHADOW_FADE_METERS, 0, 1);
   if (fade <= 0) return;
-  const size = 0.95 * scale * (0.6 + 0.4 * fade);
-  const slot = shadowBatch.mesh('disc', pose.x, groundY + 0.02, pose.z, 0, 0, size, 1, size, 0, 0, 0, 0);
+  const size = 0.95 * scale * (0.6 + 0.4 * fade), instance = shadowInstance;
+  instance.x = pose.x; instance.y = groundY + 0.02; instance.z = pose.z; instance.sx = size; instance.sz = size;
+  const slot = shadowBatch.meshFrom('disc', instance);
   if (slot >= 0) shadowBatch.data[slot + STRENGTH_SLOT] = SHADOW_STRENGTH * fade;
 }
+const shadowInstance = Object.assign(makeShapeInstance(), { r: 0, g: 0, b: 0 });   // flat black disc; position and size per actor
 
 // A loose box around the body and its blob shadow; actors outside the view cost nothing
 function actorInView(pose, scale) {
@@ -518,7 +563,7 @@ function updateSunShadow() {
   if (!SunShadow.active) return;
   const sun = Render.frame.sunDirection, camera = Render.camera, m = Render.frame.shadowMatrix;
   const fx = -sun[0], fy = -sun[1], fz = -sun[2];             // light travel direction
-  const flat = Math.hypot(fz, fx) || 1;
+  const flat = length2(fz, fx) || 1;
   const rx = -fz / flat, ry = 0, rz = fx / flat;                // right = cross(travel, up), normalized
   const ux = ry * fz - rz * fy, uy = rz * fx - rx * fz, uz = rx * fy - ry * fx;
   const ahead = SHADOW_HALF_METERS * SHADOW_AHEAD_SHARE, texel = (SHADOW_HALF_METERS * 2) / SHADOW_MAP_SIZE;

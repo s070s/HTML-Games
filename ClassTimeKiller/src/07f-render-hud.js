@@ -36,23 +36,26 @@ const HudBatch = {
     if (index >= 0) this.layers.splice(index, 1);
   },
   rect(x, y, w, h, colorHex, alpha) {
-    const u = this.white[0], v = this.white[1];
-    pushHudQuad(x, y, x + w, y, x + w, y + h, x, y + h, u, v, u, v, colorHex, alpha);
+    setHudCorners(x, y, x + w, y, x + w, y + h, x, y + h);
+    pushHudSolid(colorHex, alpha);
   },
   line(x1, y1, x2, y2, thickness, colorHex, alpha) {
-    const length = Math.hypot(x2 - x1, y2 - y1) || 1, half = (thickness || 1) / 2;
-    const px = -(y2 - y1) / length * half, py = (x2 - x1) / length * half, u = this.white[0], v = this.white[1];
-    pushHudQuad(x1 + px, y1 + py, x2 + px, y2 + py, x2 - px, y2 - py, x1 - px, y1 - py, u, v, u, v, colorHex, alpha);
+    const dx = x2 - x1, dy = y2 - y1, length = Math.sqrt(dx * dx + dy * dy) || 1, half = (thickness || 1) / 2;
+    const px = -dy / length * half, py = dx / length * half;
+    setHudCorners(x1 + px, y1 + py, x2 + px, y2 + py, x2 - px, y2 - py, x1 - px, y1 - py);
+    pushHudSolid(colorHex, alpha);
   },
   // Angles in radians, 0 = 12 o'clock, clockwise (cooldown sweeps). start/end default to a full circle.
   ring(x, y, radius, thickness, colorHex, alpha, start, end) {
     const from = start === undefined ? 0 : start, to = end === undefined ? Math.PI * 2 : end;
     const segments = Math.max(1, Math.ceil(HUD_RING_SEGMENTS * Math.abs(to - from) / (Math.PI * 2)));
-    const inner = radius - thickness / 2, outer = radius + thickness / 2, u = this.white[0], v = this.white[1];
+    const inner = radius - thickness / 2, outer = radius + thickness / 2, corners = hudCorners;
     for (let i = 0; i < segments; i++) {
       const a = from + (to - from) * (i / segments), b = from + (to - from) * ((i + 1) / segments);
       const sa = Math.sin(a), ca = -Math.cos(a), sb = Math.sin(b), cb = -Math.cos(b);
-      pushHudQuad(x + sa * outer, y + ca * outer, x + sb * outer, y + cb * outer, x + sb * inner, y + cb * inner, x + sa * inner, y + ca * inner, u, v, u, v, colorHex, alpha);
+      corners[0] = x + sa * outer; corners[1] = y + ca * outer; corners[2] = x + sb * outer; corners[3] = y + cb * outer;
+      corners[4] = x + sb * inner; corners[5] = y + cb * inner; corners[6] = x + sa * inner; corners[7] = y + ca * inner;
+      pushHudSolid(colorHex, alpha);
     }
   },
   // y is the middle of the line; align 'left' | 'center' | 'right'. Returns the width in CSS pixels.
@@ -60,12 +63,16 @@ const HudBatch = {
     const text = String(string), scale = sizePx / HUD_FONT_PX, width = this.measure(text, sizePx);
     let penX = align === 'center' ? x - width / 2 : align === 'right' ? x - width : x;
     if (!this.atlas) return width;
-    const top = y - (HUD_CELL_PX / 2) * scale, bottom = y + (HUD_CELL_PX / 2) * scale, g = this.glyphs;
+    const top = y - (HUD_CELL_PX / 2) * scale, bottom = y + (HUD_CELL_PX / 2) * scale, g = this.glyphs, corners = hudCorners;
     for (let i = 0; i < text.length; i++) {
       const slot = this.glyphIndex.get(text.charCodeAt(i));
       if (slot === undefined) { penX += sizePx * HUD_FALLBACK_ADVANCE; continue; }
       const o = slot * 6, right = penX + g[o + 5] * scale;
-      if (text.charCodeAt(i) !== 32) pushHudQuad(penX, top, right, top, right, bottom, penX, bottom, g[o], g[o + 1], g[o + 2], g[o + 3], colorHex, alpha);
+      if (text.charCodeAt(i) !== 32) {
+        corners[0] = corners[6] = penX; corners[1] = corners[3] = top; corners[2] = corners[4] = right; corners[5] = corners[7] = bottom;
+        corners[8] = g[o]; corners[9] = g[o + 1]; corners[10] = g[o + 2]; corners[11] = g[o + 3];
+        pushHudCorners(colorHex, alpha);
+      }
       penX += g[o + 4] * scale;
     }
     return width;
@@ -85,20 +92,44 @@ const hudFloats = new Float32Array(HudBatch.bytes);
 const hudColors = new Uint8Array(HudBatch.bytes);
 
 // Appends one quad (corners clockwise on screen from top-left); full buffers drop the quad and count it.
+// The drawing calls above fill hudCorners and call pushHudCorners: a float passed to a call that is not inlined is
+// boxed on the heap, a float written into a typed array is not (PERF-006: the HUD draws thousands of quads a frame).
 function pushHudQuad(x0, y0, x1, y1, x2, y2, x3, y3, u0, v0, u1, v1, colorHex, alpha) {
+  setHudCorners(x0, y0, x1, y1, x2, y2, x3, y3);
+  hudCorners[8] = u0; hudCorners[9] = v0; hudCorners[10] = u1; hudCorners[11] = v1;
+  pushHudCorners(colorHex, alpha);
+}
+
+// x0 y0 .. x3 y3 (corners), u0 v0 u1 v1 (texture rectangle) of the next quad.
+const hudCorners = new Float32Array(12);
+
+function setHudCorners(x0, y0, x1, y1, x2, y2, x3, y3) {
+  const corners = hudCorners;
+  corners[0] = x0; corners[1] = y0; corners[2] = x1; corners[3] = y1; corners[4] = x2; corners[5] = y2; corners[6] = x3; corners[7] = y3;
+}
+
+// An untextured quad: the corners already set, the texture rectangle on the white block.
+function pushHudSolid(colorHex, alpha) {
+  const corners = hudCorners, white = HudBatch.white;
+  corners[8] = corners[10] = white[0]; corners[9] = corners[11] = white[1];
+  pushHudCorners(colorHex, alpha);
+}
+
+function pushHudCorners(colorHex, alpha) {
   if (HudBatch.quads >= HUD_MAX_QUADS) { HudBatch.dropped++; return; }
   const color = colorNumber(colorHex), a = Math.round(clamp(alpha === undefined ? 1 : alpha, 0, 1) * 255);
   const base = HudBatch.quads * 4;
-  writeHudVertex(base, x0, y0, u0, v0, color, a);
-  writeHudVertex(base + 1, x1, y1, u1, v0, color, a);
-  writeHudVertex(base + 2, x2, y2, u1, v1, color, a);
-  writeHudVertex(base + 3, x3, y3, u0, v1, color, a);
+  writeHudVertex(base, 0, 8, 9, color, a);
+  writeHudVertex(base + 1, 2, 10, 9, color, a);
+  writeHudVertex(base + 2, 4, 10, 11, color, a);
+  writeHudVertex(base + 3, 6, 8, 11, color, a);
   HudBatch.quads++;
 }
 
-function writeHudVertex(vertex, x, y, u, v, color, alpha) {
-  const f = vertex * (HUD_VERTEX_BYTES / 4), b = vertex * HUD_VERTEX_BYTES + 16;
-  hudFloats[f] = x; hudFloats[f + 1] = y; hudFloats[f + 2] = u; hudFloats[f + 3] = v;
+// One vertex from hudCorners: corner = index of its x, u / v = indices of its texture coordinates.
+function writeHudVertex(vertex, corner, u, v, color, alpha) {
+  const f = vertex * (HUD_VERTEX_BYTES / 4), b = vertex * HUD_VERTEX_BYTES + 16, corners = hudCorners;
+  hudFloats[f] = corners[corner]; hudFloats[f + 1] = corners[corner + 1]; hudFloats[f + 2] = corners[u]; hudFloats[f + 3] = corners[v];
   hudColors[b] = (color >> 16) & 255; hudColors[b + 1] = (color >> 8) & 255; hudColors[b + 2] = color & 255; hudColors[b + 3] = alpha;
 }
 

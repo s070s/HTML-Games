@@ -250,7 +250,7 @@ const Bots = {
     const player = Game.playerId;
     if (player < 0 || !Actors.alive[player]) return BotCombat.target[id] >= 0;
     const dx = Actors.x[id] - Actors.x[player], dy = Actors.y[id] - Actors.y[player], dz = Actors.z[id] - Actors.z[player];
-    const distance = Math.hypot(dx, dy, dz);
+    const distance = length3(dx, dy, dz);
     if (distance > BOT_LOD_DISTANCE) return false;
     if (distance < 1) return true;
     const forward = Math.sin(Actors.yaw[player]) * dx + Math.cos(Actors.yaw[player]) * dz;
@@ -303,14 +303,20 @@ const Bots = {
   lookAt(id, x, y, z) {
     const dx = x - Actors.x[id], dy = y - Actors.eyeY(id), dz = z - Actors.z[id];
     this.lookYaw[id] = Math.atan2(dx, dz);
-    this.lookPitch[id] = Math.atan2(dy, Math.hypot(dx, dz));
+    this.lookPitch[id] = Math.atan2(dy, length2(dx, dz));
   },
   press(id, bits) { this.buttonsWanted[id] |= bits; },
   // Wanted world-space move direction (normalized here) and amount 0..1.
   wish(id, dx, dz, amount) {
-    const length = Math.hypot(dx, dz);
-    if (length < 1e-6 || amount <= 0) { this.wishAmount[id] = 0; return; }
-    this.wishX[id] = dx / length; this.wishZ[id] = dz / length; this.wishAmount[id] = Math.min(1, amount);
+    const wanted = botWish;
+    wanted.x = dx; wanted.z = dz; wanted.amount = amount;
+    this.wishFrom(id);
+  },
+  // Bots.wish of the move already written into botWish (the per-step steering of 14c / 14d: no float arguments).
+  wishFrom(id) {
+    const wanted = botWish, length = length2(wanted.x, wanted.z);
+    if (length < 1e-6 || wanted.amount <= 0) { this.wishAmount[id] = 0; return; }
+    this.wishX[id] = wanted.x / length; this.wishZ[id] = wanted.z / length; this.wishAmount[id] = Math.min(1, wanted.amount);
   },
   // The player-facing reaction / aim settings times the match difficulty (DIF-002).
   reactionScale() { return this.currentSkill().reactionScale * this.config.reactionScale; },
@@ -328,6 +334,10 @@ const Bots = {
 
 // Critically damped spring toward the error (BOT-030 "critically damped spring smoothing"), speed capped by the turn rate.
 // The spring works on the speed relative to the moving look point (feed), so a tracked target does not trail behind.
+// The move a bot wants this step (world-space direction, amount 0..1), read by Bots.wishFrom: the steering code writes it
+// here because three float arguments to a call that is not inlined are boxed on the heap every step (PERF-006).
+const botWish = { x: 0, z: 0, amount: 0 };
+
 function springVelocity(velocity, error, feed, limit, dt) {
   const relative = velocity - feed;
   const next = relative + (BOT_AIM_SPRING * BOT_AIM_SPRING * error - 2 * BOT_AIM_SPRING * relative) * dt;

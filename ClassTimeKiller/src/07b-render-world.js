@@ -25,7 +25,7 @@ const BAKE_VALUES_PER_VERTEX = 12;     // x y z nx ny nz material r g b ao sun w
 
 const WorldMesh = {
   chunks: [],              // { minX, minY, minZ, maxX, maxY, maxZ, offset (bytes into the index buffer), count }
-  vertexBytes: null, indexData: null, vertexCount: 0, triangles: 0,
+  vertexBytes: null, indexData: null, indexBytes: 2, vertexCount: 0, triangles: 0,
   vertexBuffer: null, indexBuffer: null, vertexArray: null, indexType: 0,
   theme: null,
   materialIndex: new Map(),
@@ -122,9 +122,9 @@ function brushFace(brush, index) {
   // tangent = normalize(cross(normal, helper)) with helper = +X for floors/ceilings, else +Y; bitangent = cross(normal, tangent)
   const helperX = Math.abs(ny) > 0.9 ? 1 : 0, helperY = 1 - helperX;
   let tx = -nz * helperY, ty = nz * helperX, tz = nx * helperY - ny * helperX;
-  const length = Math.hypot(tx, ty, tz); tx /= length; ty /= length; tz /= length;
+  const length = length3(tx, ty, tz); tx /= length; ty /= length; tz /= length;
   const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
-  const r = Math.hypot(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
+  const r = length3(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
   let polygon = [];
   for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) polygon.push(ox + (tx * su + bx * sv) * r, oy + (ty * su + by * sv) * r, oz + (tz * su + bz * sv) * r);
   for (let j = 0; j < brush.planeCount && polygon.length >= 9; j++) {
@@ -307,7 +307,7 @@ function groundBelow(x, y, z, maxDrop) {
 function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
   // Ten sample points in the hemisphere (straight out and tilted along two tangents b and c, at two distances).
   const [hx, hy, hz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-  const tangentLength = Math.hypot(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
+  const tangentLength = length3(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
   const bx = (ny * hz - nz * hy) / tangentLength, by = (nz * hx - nx * hz) / tangentLength, bz = (nx * hy - ny * hx) / tangentLength;
   const cx = ny * bz - nz * by, cy = nz * bx - nx * bz, cz = nx * by - ny * bx;
   let blocked = 0, samples = 0;
@@ -327,13 +327,13 @@ function sunVisible(bake, x, y, z) {
 }
 
 function lightBlocked(bake, x, y, z, light) {
-  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = Math.hypot(dx, dy, dz);
+  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = length3(dx, dy, dz);
   return length > 1e-6 && rayBlocked(bake, x, y, z, dx / length, dy / length, dz / length, length);
 }
 
 function mapLightContribution(bake, x, y, z, nx, ny, nz, out) {
   for (const light of bake.lights) {
-    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = Math.hypot(dx, dy, dz);
+    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = length3(dx, dy, dz);
     if (distance >= light.radius) continue;
     const facing = (nx * dx + ny * dy + nz * dz) / Math.max(distance, 1e-3);
     if (facing <= 0 || lightBlocked(bake, x + nx * 0.05, y + ny * 0.05, z + nz * 0.05, light)) continue;
@@ -440,16 +440,25 @@ function addPiece(bake, piece, material, nx, ny, nz) {
   for (let i = 1; i < count - 1; i++) chunk.indices.push(base, base + i, base + i + 1);
 }
 
-// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range).
+// Chunk keys are 'cellX,cellZ'; rows of cells (z, then x) so neighbours along x are neighbours in the index buffer.
+function chunkCell(key) { const comma = key.indexOf(','); return { x: Number(key.slice(0, comma)), z: Number(key.slice(comma + 1)) }; }
+function compareChunkKeys(a, b) {
+  const cellA = chunkCell(a[0]), cellB = chunkCell(b[0]);
+  return cellA.z - cellB.z || cellA.x - cellB.x;
+}
+
+// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range), in row order:
+// drawWorld merges runs of visible chunks that touch in the buffer into one draw call (PERF-004 caps).
 function packWorldMesh(chunkMap) {
+  const ordered = [...chunkMap.entries()].sort(compareChunkKeys).map((entry) => entry[1]);
   let vertexCount = 0, indexCount = 0;
-  for (const chunk of chunkMap.values()) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
+  for (const chunk of ordered) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
   const bytes = new ArrayBuffer(Math.max(1, vertexCount) * WORLD_VERTEX_BYTES);
   const views = { floats: new Float32Array(bytes), signed: new Int8Array(bytes), unsigned: new Uint8Array(bytes) };
   const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const chunks = [];
   let vertex = 0, index = 0;
-  for (const chunk of chunkMap.values()) {
+  for (const chunk of ordered) {
     const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity, offset: index * indices.BYTES_PER_ELEMENT, count: chunk.indices.length };
     for (let i = 0; i < chunk.indices.length; i++) indices[index++] = chunk.indices[i] + vertex;
     for (let i = 0; i < chunk.vertices.length; i += BAKE_VALUES_PER_VERTEX) {
@@ -458,7 +467,7 @@ function packWorldMesh(chunkMap) {
     }
     chunks.push(bounds);
   }
-  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, vertexCount, triangles: indexCount / 3 });
+  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, indexBytes: indices.BYTES_PER_ELEMENT, vertexCount, triangles: indexCount / 3 });
 }
 
 function writeWorldVertex(views, vertex, values, i) {
@@ -622,13 +631,26 @@ function drawWorld(gl) {
   gl.uniform3fv(u.uMaterialB, WorldMesh.materialB);
   gl.uniform4fv(u.uMaterialParams, WorldMesh.materialParams);
   gl.bindVertexArray(WorldMesh.vertexArray);
-  const chunks = WorldMesh.chunks;
+  const chunks = WorldMesh.chunks, run = WorldRun;
+  run.offset = 0; run.count = 0;
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) continue;
-    gl.drawElements(gl.TRIANGLES, chunk.count, WorldMesh.indexType, chunk.offset);
-    Render.countDraw(chunk.count / 3);
+    if (!boundsVisible(chunk)) { drawWorldRun(gl); continue; }
+    const touches = run.count > 0 && run.offset + run.count * WorldMesh.indexBytes === chunk.offset;
+    if (!touches) { drawWorldRun(gl); run.offset = chunk.offset; }
+    run.count += chunk.count;
   }
+  drawWorldRun(gl);
+}
+
+// The visible chunks next to each other in the index buffer, drawn as one range.
+const WorldRun = { offset: 0, count: 0 };
+function drawWorldRun(gl) {
+  const run = WorldRun;
+  if (!run.count) return;
+  gl.drawElements(gl.TRIANGLES, run.count, WorldMesh.indexType, run.offset);
+  Render.countDraw(run.count / 3);
+  run.count = 0;
 }
 Render.addPass(20, drawWorld);
 
