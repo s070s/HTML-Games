@@ -32,7 +32,7 @@ The pad is read directly each frame (`ForgeTools.readPad`); the menu commands th
 ## Model: `Forge` (16x-forge.js)
 
 * State: `Forge.map` (a full map row, see `docs/api/maps.md`), `slotId`, `dirty`, `selection { list, index }` (list = `brushes spawns items objectives zones triggers lights navHints`), `message` (last refusal), `problems`.
-* Budget: `count()`, `budgetLeft()`, `add(list, object)` -> index or -1 (refused, with a toast), `insertAt`, `deleteObject`, `replace(list, index, object)`, `setMeta(key, value)`, `group(fn)`.
+* Budget: `count()`, `budgetLeft()`, `add(list, object)` -> index or -1 (refused, with a toast), `deleteObject`, `replace(list, index, object)`, `setMeta(key, value)`, `group(fn)`.
 * History: `undo()`, `redo()`, `canUndo()`, `canRedo()`; entries `{ op: add|del|set|meta, list, index, before, after, group }` in `Forge.history.entries` (fixed length `FORGE_HISTORY_SIZE`).
 * Geometry helpers: `bounds(list, object, out)`, `moved / turned / resized` (return a changed clone, moves are limited to the map plus its 3 m shell), selection shortcuts `nudgeSelected`, `turnSelected`, `resizeSelected`, `deleteSelected`, `duplicateSelected`, `editSelected(mutate)`, `objectNear(x, y, z, reach, out)`.
 * Settings (each one undoable): `rename`, `setTheme` (also sets the sky from `CAT.themes`), `setSize`, `setCategory`, `setModes`; `feasibleModes(map, strict)`, `modeReady`, `modeNeeds`, `suggestModes`.

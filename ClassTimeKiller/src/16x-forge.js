@@ -157,7 +157,6 @@ const Forge = {
     this.commit({ op: 'add', list, index, after: object });
     return index;
   },
-  insertAt(list, index, object) { this.commit({ op: 'add', list, index, after: object }); },
   deleteObject(list, index) {
     if (!this.map[list][index]) return false;
     this.commit({ op: 'del', list, index, before: forgeClone(this.map[list][index]) });
