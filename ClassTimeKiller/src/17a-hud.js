@@ -15,6 +15,8 @@ const HUD_COMPACT_HEIGHT = 520;                          // 'auto' compact layou
 const HUD_MARGIN = 14;
 const HUD_TEXT_SMALL = 14;                               // ACC-008: nothing smaller than 14 px at 100% scale
 const HUD_FLASHES_PER_SECOND = 3;                        // ACC-005 photosensitivity cap
+const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-screen flash in photosensitivity mode
+const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
 const HUD_NUMBER_CACHE = 1000;
 const HUD_LABEL_REFRESH_SECONDS = 1;
 const HUD_LOW_HEALTH = 0.25;
@@ -71,17 +73,22 @@ const HUD_SETTINGS = [
   { key: 'hud.opacity', fallback: 100, label: 'HUD opacity (%)', category: 'hud', min: HUD_OPACITY_MIN, max: 100, step: 5 },
   { key: 'hud.compact', fallback: 'auto', label: 'Compact HUD (phones)', category: 'hud', options: ['auto', 'on', 'off'], optionLabels: ['Auto', 'On', 'Off'] },
   { key: 'hud.teamShapes', fallback: true, label: 'Team shapes next to team colours', category: 'accessibility' },
-  { key: 'hud.colorBlind', fallback: 'off', label: 'Colour-blind HUD colours', category: 'accessibility',
-    options: ['off', 'protanopia', 'deuteranopia', 'tritanopia'], optionLabels: ['Off', 'Protanopia', 'Deuteranopia', 'Tritanopia'] },
-  { key: 'hud.reduceMotion', fallback: 'auto', label: 'Reduce HUD motion', category: 'accessibility', options: ['auto', 'on', 'off'], optionLabels: ['Auto', 'On', 'Off'] },
 ];
 
 for (const row of HUD_SETTINGS) {
   Settings.define(row.key, row.fallback, { label: row.label, category: row.category, min: row.min, max: row.max, step: row.step, options: row.options, optionLabels: row.optionLabels });
 }
-for (const row of HUD_ELEMENTS) {
+function defineHudElementSetting(row) {
   Settings.define('hud.element.' + row.id, row.fallback === undefined ? true : row.fallback, { label: row.label, category: row.category || 'hud' });
 }
+HUD_ELEMENTS.forEach(defineHudElementSetting);
+// Later HUD files (17f) add their own hideable elements here, so the toggle, the cache and the settings screen follow.
+function hudAddElement(row) {
+  HUD_ELEMENTS.push(row);
+  defineHudElementSetting(row);
+}
+// Hardcore HUD (X36, rules.fx.noHud) hides every element except these: aiming, earned feedback and accessibility aids stay.
+const HUD_HARDCORE_KEEP = ['crosshair', 'hitMarkers', 'respawnText', 'captions', 'soundRing'];
 
 // ---- Cached strings: numbers and times are drawn every frame, so their text is built once (zero allocation per frame) ----
 const hudNumberText = Array.from({ length: HUD_NUMBER_CACHE }, (unused, index) => String(index));
@@ -112,6 +119,8 @@ const hudKeyLabels = new Map();
 
 const Hud = {
   shown: true, replaying: false, scale: 1, opacity: 1, compactSetting: 'auto', teamShapes: true, reduceMotionSetting: 'auto', paletteId: 'off',
+  noHud: false,                     // X36 Hardcore HUD in the running match
+  photosensitive: false,            // ACC-005: screen flashes darken instead of brightening
   elements: {},                     // element id -> bool (cache of the hud.element.* settings)
   time: 0,                          // UI clock in seconds: advances every frame except while paused
   frameSeconds: 0,                  // length of the last frame (the killcam clock follows it)
@@ -125,8 +134,9 @@ const Hud = {
   project(x, y, z, out) { return hudProject(x, y, z, out || hudProjection); },
 
   // Registers a drawer. element: a HUD_ELEMENTS id whose toggle hides it, or '' for always on.
-  register(layer, id, element, draw) {
-    this.drawers[layer].push({ id, element, draw, failed: false, quads: 0 });
+  // keepInHardcore: true for effects that are gameplay (flash, suppression) and must stay when the Hardcore HUD hides the rest.
+  register(layer, id, element, draw, keepInHardcore) {
+    this.drawers[layer].push({ id, element, draw, failed: false, quads: 0, hardcoreKeep: keepInHardcore === true || HUD_HARDCORE_KEEP.includes(element) });
   },
   enabled(element) { return this.elements[element] !== false; },
   visible() { return this.shown && Game.state === 'playing' && !!Game.match; },
@@ -143,6 +153,9 @@ const Hud = {
     return true;
   },
   resetFlashes() { hudFlashTimes.fill(-1000); },
+  // How a full-screen flash is drawn (ACC-005): photosensitivity darkens it instead of brightening and caps its strength; reduce motion halves it.
+  flashColor(color) { return this.photosensitive ? HUD_COLOR.black : color; },
+  flashAlpha(alpha) { return this.photosensitive ? Math.min(alpha, HUD_PHOTOSENSITIVE_ALPHA) : this.reduceMotion() ? alpha * HUD_REDUCED_FLASH : alpha; },
   teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[team % this.colors.teams.length]; },
   actorColor(id) { return Actors.team[id] >= 0 ? this.teamColor(Actors.team[id]) : this.colors.teams[id % this.colors.teams.length]; },
   teamShape(team) { return team < 0 ? 'circle' : HUD_TEAM_SHAPES[team % HUD_TEAM_SHAPES.length]; },
@@ -163,8 +176,10 @@ const Hud = {
     this.opacity = Settings.get('hud.opacity') / 100;
     this.compactSetting = Settings.get('hud.compact');
     this.teamShapes = Settings.get('hud.teamShapes');
-    this.reduceMotionSetting = Settings.get('hud.reduceMotion');
-    this.paletteId = Settings.get('hud.colorBlind');
+    this.reduceMotionSetting = Settings.get('accessibility.reduceMotion');
+    this.paletteId = Settings.get('accessibility.colorBlind');
+    this.photosensitive = Settings.get('accessibility.photosensitive');
+    this.noHud = !!(Game.match && Game.match.rules && Game.match.rules.fx && Game.match.rules.fx.noHud);
     for (const row of HUD_ELEMENTS) this.elements[row.id] = Settings.get('hud.element.' + row.id);
     this.refreshColors();
   },
@@ -191,7 +206,7 @@ const Hud = {
     for (let i = 0; i < list.length; i++) {
       const drawer = list[i];
       drawer.quads = 0;
-      if (!active || drawer.failed || (drawer.element && !this.elements[drawer.element])) continue;
+      if (!active || drawer.failed || (drawer.element && !this.elements[drawer.element]) || (this.noHud && !drawer.hardcoreKeep)) continue;
       const before = HudBatch.quads;
       try { drawer.draw(pen, this.layout, seconds); } catch (error) { drawer.failed = true; ErrorLog.add('hud ' + drawer.id, error); }
       drawer.quads = HudBatch.quads - before;
@@ -349,7 +364,7 @@ Bus.on('boot', () => {
   window.addEventListener('resize', hudReadSafeInsets);
   window.addEventListener('orientationchange', hudReadSafeInsets);
 });
-Bus.on('setting', (key) => { if (typeof key === 'string' && key.startsWith('hud.')) Hud.applySettings(); });
+Bus.on('setting', (key) => { if (typeof key === 'string' && (key.startsWith('hud.') || key.startsWith('accessibility.'))) Hud.applySettings(); });
 Bus.on('boot', () => Hud.applySettings());
 Bus.on('match.start', () => { Hud.applySettings(); Hud.resetFlashes(); });
 

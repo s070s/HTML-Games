@@ -24,7 +24,7 @@ Settings.define('video.fov', FOV_DEFAULT, { label: 'Field of view', category: 'v
 Settings.define('video.viewmodelFov', 70, { label: 'Weapon field of view', category: 'video', min: 50, max: 100, step: 1 });
 Settings.define('video.fxaa', true, { label: 'Smooth edges (FXAA)', category: 'video' });
 Settings.define('video.outlines', true, { label: 'Character outlines', category: 'video' });
-Settings.define('video.headBob', false, { label: 'Head bob', category: 'video' });
+Settings.define('video.headBob', 0, { label: 'Head bob (%)', category: 'video', min: 0, max: 100, step: 5 });
 Settings.define('video.maxDpr', 1.5, { label: 'Max pixel density', category: 'video', min: 1, max: 3, step: 0.25 });
 Settings.define('video.autoLower', true, { label: 'Lower quality when slow', category: 'video' });
 
@@ -34,6 +34,9 @@ const Render = {
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
+  teamPalette: null,       // colour-blind team colours (array of 0xRRGGBB by team) instead of CAT.teamColors; null = the normal ones (18m)
+  viewEffect: null,        // fn(camera, seconds) adds camera shake and FOV kick after the camera followed the player (18k)
+  motion: { bob: 1, shake: 1, fovKick: 1 },   // 0..1 scales of view bob, shake and FOV kick: reduce motion and the sliders (ACC-005, 18k)
   actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible }; runs after the addActorStyle list
   actorStyles: [],         // fn(id, out) per section (powerups, abilities, mutators), run in load order
   addActorStyle(style) { this.actorStyles.push(style); },
@@ -51,7 +54,8 @@ const Render = {
   lost: false,
   pausedForLoss: false,
   quality: null,           // the active CAT.quality row
-  config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: false, maxDpr: 1.5, autoLower: true, autoQuality: '' },
+  config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: 0, maxDpr: 1.5, autoLower: true, autoQuality: '',
+    highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0] },   // the last three are filled by the accessibility and view settings (18k, 18m)
   stats: { drawCalls: 0, triangles: 0, renderMs: 0, gpuMs: 0, renderScale: 1, particles: 0, instances: 0, droppedInstances: 0 },
   size: { cssWidth: 1, cssHeight: 1, pixelRatio: 1, width: 1, height: 1, sceneWidth: 1, sceneHeight: 1, scale: 1, dirty: true },
   target: { framebuffer: null, texture: null, depth: null, msaaFramebuffer: null, msaaColor: null, msaaDepth: null, width: 0, height: 0, samples: 0, direct: true },
@@ -136,7 +140,8 @@ function readVideoSettings() {
   config.viewmodelFov = Settings.get('video.viewmodelFov');
   config.fxaa = Settings.get('video.fxaa');
   config.outlines = Settings.get('video.outlines');
-  config.headBob = Settings.get('video.headBob');
+  const bob = Settings.get('video.headBob');
+  config.headBob = typeof bob === 'number' ? bob : bob ? 100 : 0;   // older saves stored a plain on/off
   config.maxDpr = Settings.get('video.maxDpr');
   config.autoLower = Settings.get('video.autoLower');
   config.autoQuality = Settings.get('video.autoQuality');

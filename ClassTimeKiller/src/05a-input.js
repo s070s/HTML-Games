@@ -42,11 +42,11 @@ const ACTION_ROWS = [
   { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:ControlLeft'], pad: 'Pad:1' },
   { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
   { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'] },
-  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE },
-  { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
+  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true },
+  { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
   { id: 'reload', label: 'Reload', group: 'Combat', button: BTN.RELOAD, kbm: ['Key:KeyR'], pad: 'Pad:2' },
-  { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, kbm: ['Key:KeyE'], pad: 'Pad:13' },
+  { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'] },
@@ -65,7 +65,7 @@ const ACTION_ROWS = [
   { id: 'slot7', label: 'Weapon slot 7', group: 'Weapons', slot: 7, kbm: ['Key:Digit7'] },
   { id: 'slot8', label: 'Weapon slot 8', group: 'Weapons', slot: 8, kbm: ['Key:Digit8'] },
   { id: 'slot9', label: 'Weapon slot 9', group: 'Weapons', slot: 9, kbm: ['Key:Digit9'] },
-  { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
+  { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, toggle: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
@@ -263,13 +263,14 @@ const Input = {
     const row = ACTION_ROWS[index];
     this.markPressed(index);
     if (this.toggleMode[index]) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
-    if (!this.effective[index]) return;
+    if (!this.effective[index]) { if (row.event) this.emitAction(row.id, false); return; }   // a toggled-off event row reports its release here
     if (row.button) this.pendingButtons |= row.button;
     if (row.slot) this.pendingSlot = row.slot;
     if (row.event) this.emitAction(row.id, true);
   },
   fallingEdge(index) {
-    if (!this.toggleMode[index]) this.effective[index] = 0;
+    if (this.toggleMode[index]) return;
+    this.effective[index] = 0;
     if (ACTION_ROWS[index].event) this.emitAction(ACTION_ROWS[index].id, false);
   },
   emitAction(id, down) {

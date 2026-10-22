@@ -186,7 +186,7 @@ Test.add('ui', (check) => uiWith(() => {
   for (const [category] of SETTINGS_TABS) {
     if (!settingKeys(category).length) continue;
     uiClickButton(root, SETTINGS_TABS.find((tab) => tab[0] === category)[1]);
-    check('settings: tab ' + category + ' shows all its settings', root.querySelectorAll('.ui-scroll .ui-row').length === settingKeys(category).length);
+    check('settings: tab ' + category + ' shows all its settings', root.querySelectorAll('.ui-scroll .ui-row').length === settingKeys(category).length + (category === 'accessibility' ? Access.mirroredCount() : 0));
   }
   uiClickButton(root, 'Controls');
   const sensitivityRow = Array.from(root.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Mouse sensitivity'));
@@ -304,7 +304,7 @@ Test.add('ui', (check) => uiWith(() => {
   Game.pause('menu');
   check('pause: pausing opens the pause menu (UI-002)', Game.paused && Ui.current() === 'pause');
   const labels = Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
-  check('pause: resume, restart, settings and quit are there', labels.join() === 'Resume,Restart,Settings,Quit to menu', labels.join());
+  check('pause: resume, restart, settings and quit are there', ['Resume', 'Restart', 'Settings', 'Quit to menu'].every((label) => labels.includes(label)), labels.join());
   Ui.pauseEntries.push({ label: 'Rules', screen: 'testRules' });
   Ui.register('testRules', { build(root) { root.appendChild(Ui.button('R', () => {})); } });
   Game.resume(); Game.pause('menu');

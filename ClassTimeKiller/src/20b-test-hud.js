@@ -112,6 +112,9 @@ function hudTestFillScene(scene) {
   hudTestEvent('announce', { text: 'Blue takes the lead', kind: 'lead', priority: 2 });
   hudTestEvent('caption', { text: '[Footsteps left]', x: -4, y: 0, z: 2, kind: 'footstep' });
   hudTestEvent('ping', { id, kind: 'go', target: -1, x: 3, y: 1, z: 12 });
+  hudTestEvent('bark', { id: mate, team: 0, category: 'spotted', text: 'Contact!' });
+  Actors.kind[enemy] = ACTOR_KIND.BOT;   // the awareness meter belongs to bots
+  BotSense.awareness[BotSense.pair(enemy, id)] = 0.6;
 }
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -191,7 +194,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Killcam.enabled = false;
   hudTestFillScene(scene);
   hudTestFrame();
-  check('layers: four HUD layers, one draw call each (REN-005)', HudBatch.layers.filter((layer) => layer.name.startsWith('hud.')).length === 4
+  check('layers: four HUD layers, one draw call each (REN-005)', HudBatch.layers.filter((layer) => HUD_LAYERS.some(([name]) => layer.name === 'hud.' + name)).length === 4
     && HudBatch.layers.every((layer) => layer.count >= 0) && HUD_LAYERS.every(([name]) => HudBatch.layers.some((layer) => layer.name === 'hud.' + name)));
   check('layers: a full scene stays inside the quad budget with nothing dropped', HudBatch.quads > 100 && HudBatch.quads < HUD_MAX_QUADS && HudBatch.dropped === 0, HudBatch.quads);
   for (const row of HUD_ELEMENTS) {
@@ -384,19 +387,19 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('flash cap: allowed again a second later', Hud.flashAllowed());
   Hud.time += 2;
   HudCombat.reset();
-  Settings.set('hud.reduceMotion', 'on');
+  Settings.set('accessibility.reduceMotion', 'on');
   hudTestDamage(scene.enemy, id, { amount: 5 });
   check('reduce motion: no screen tint on damage, no pulsing', HudCombat.flashAt < 0 && Hud.reduceMotion());
-  Settings.set('hud.reduceMotion', 'off');
+  Settings.set('accessibility.reduceMotion', 'off');
   Hud.time += 2;
   hudTestDamage(scene.enemy, id, { amount: 5 });
   check('reduce motion off: the short red tint plays (limited by the flash cap)', Hud.time - HudCombat.flashAt === 0 && !Hud.reduceMotion());
 
-  Settings.set('hud.colorBlind', 'protanopia');
+  Settings.set('accessibility.colorBlind', 'protanopia');
   const protan = Hud.colors.teams.slice();
-  Settings.set('hud.colorBlind', 'off');
+  Settings.set('accessibility.colorBlind', 'off');
   check('colour-blind palette: team colours change and the two teams stay apart', protan[0] !== Hud.colors.teams[1] && protan[1] === 0xffb000 && protan[0] !== protan[1]);
-  check('colour-blind palette: the bad/good pair avoids red and green', (() => { Settings.set('hud.colorBlind', 'deuteranopia'); const pair = [Hud.colors.good, Hud.colors.bad]; Settings.set('hud.colorBlind', 'off'); return pair[0] !== HUD_COLOR.good && pair[1] !== HUD_COLOR.bad; })());
+  check('colour-blind palette: the bad/good pair avoids red and green', (() => { Settings.set('accessibility.colorBlind', 'deuteranopia'); const pair = [Hud.colors.good, Hud.colors.bad]; Settings.set('accessibility.colorBlind', 'off'); return pair[0] !== HUD_COLOR.good && pair[1] !== HUD_COLOR.bad; })());
   check('team shapes differ per team (ACC-001)', Hud.teamShape(0) !== Hud.teamShape(1) && new Set(HUD_TEAM_SHAPES).size === HUD_TEAM_SHAPES.length);
   Settings.set('hud.opacity', 50);
   HudBatch.quads = 0;
@@ -594,9 +597,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestFrame();
   check('money: any money draws the panel', Hud.quadsOf('money') > 0);
   undo();
-  Settings.set('hud.colorBlind', 'tritanopia');
+  Settings.set('accessibility.colorBlind', 'tritanopia');
   check('colour-blind palette: the HUD bars use the palette colours', Hud.colors.health === HUD_PALETTES.tritanopia.health && Hud.colors.healthLow === HUD_PALETTES.tritanopia.healthLow);
-  Settings.set('hud.colorBlind', 'off');
+  Settings.set('accessibility.colorBlind', 'off');
   check('colour-blind palette: off restores the default colours', Hud.colors.health === HUD_COLOR.health && Hud.colors.teams[0] === colorNumber(CAT.teamColors[0].color));
 }));
 

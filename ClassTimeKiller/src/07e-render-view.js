@@ -59,7 +59,7 @@ function headBob(id, seconds) {
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
   ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / BOB_STRIDE_METERS)) % (Math.PI * 2);
   if (!Render.config.headBob || !grounded) return 0;
-  return Math.sin(ViewState.bobPhase * 2) * HEAD_BOB_METERS * Math.min(1, speed / RUN_REFERENCE_SPEED);
+  return Math.sin(ViewState.bobPhase * 2) * HEAD_BOB_METERS * (Render.config.headBob / 100) * Render.motion.bob * Math.min(1, speed / RUN_REFERENCE_SPEED);
 }
 
 function updateCamera(seconds, alpha) {
@@ -67,7 +67,10 @@ function updateCamera(seconds, alpha) {
   camera.fov = Render.config.fov;
   ViewState.overridden = !!Render.cameraOverride && Render.cameraOverride(camera) === true;
   readViewModel();
-  if (!ViewState.overridden) followPlayer(seconds, alpha);
+  if (!ViewState.overridden) {
+    followPlayer(seconds, alpha);
+    if (Render.viewEffect) Render.viewEffect(camera, seconds);
+  }
   computeMatrices(camera);
 }
 Render.addUpdate(0, updateCamera);
@@ -133,10 +136,10 @@ const viewTint = new Float32Array(3);
 function poseWeapon(row, state) {
   const ads = clamp(state.ads, 0, 1), kick = clamp(state.kick, 0, 1) * row.kick;
   const reload = Math.sin(clamp(state.reload, 0, 1) * Math.PI), swap = clamp(state.swap, 0, 1);
-  const sway = 1 - ads * 0.8, phase = ViewState.bobPhase;
-  weaponPose.x = lerp(row.hold[0], row.ads[0], ads) + Math.sin(phase) * 0.006 * sway;
-  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - reload * 0.1 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway;
-  weaponPose.z = lerp(row.hold[2], row.ads[2], ads) - kick * 0.05;
+  const sway = (1 - ads * 0.8) * Render.motion.bob, phase = ViewState.bobPhase, offset = Render.config.viewmodelOffset;
+  weaponPose.x = lerp(row.hold[0], row.ads[0], ads) + Math.sin(phase) * 0.006 * sway - offset[0] * (1 - ads);
+  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - reload * 0.1 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
+  weaponPose.z = lerp(row.hold[2], row.ads[2], ads) - kick * 0.05 + offset[2] * (1 - ads);
   weaponPose.pitch = kick * 6 * DEG - reload * 0.5 - swap * 0.6;
   return weaponPose;
 }
