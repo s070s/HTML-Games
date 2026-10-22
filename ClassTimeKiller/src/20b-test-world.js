@@ -203,6 +203,7 @@ Test.add('world', (check) => {
   loadTestWorld([], { triggers: [{ kind: 'water', min: [-20, -1, -20], max: [20, 3, 20] }] });
   useTestRules({ move: 'arena' });
   const id = groundedTester(-15, 0);
+  Actors.health[id] = Actors.maxHealth[id] = 1000;   // S11 applies the drown requests: 100 HP would drown before the cap is seen
   holdInput(id, 0, 1, 0, 90);
   stepSeconds(2);
   check('water: flag IN_WATER and swim state', (Actors.flags[id] & ACTOR_FLAG.IN_WATER) !== 0 && Motion.state[id] === MOVE_STATE.SWIM);
