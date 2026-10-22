@@ -30,7 +30,7 @@ canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block;outli
 .screen{position:absolute;inset:0;display:none;padding:2.2em 2.5em;align-items:center;pointer-events:none;overflow:auto;overscroll-behavior:contain;border:solid transparent;border-width:var(--sat) var(--sar) var(--sab) var(--sal)}
 .screen.on{display:flex;pointer-events:auto}
 .screen.center{justify-content:center;text-align:center}
-.panel{background:var(--panel);border:2px solid var(--line);border-radius:.7em;padding:1.1em 1.3em;min-width:min(26em,92vw);max-width:min(46em,96vw);max-height:92vh;max-height:92dvh;overflow:auto;overscroll-behavior:contain;box-shadow:0 .5em 2em rgba(0,0,0,.6)}
+.panel{background:var(--panel);border:2px solid var(--line);border-radius:.7em;padding:1.1em 1.3em;min-width:min(26em,92vw);max-width:min(46em,96vw);max-height:calc(92vh - var(--sat) - var(--sab));max-height:calc(92dvh - var(--sat) - var(--sab));overflow:auto;overscroll-behavior:contain;box-shadow:0 .5em 2em rgba(0,0,0,.6)}
 .panel.wide{max-width:min(64em,96vw);width:min(64em,96vw)}
 h1.logo{padding-right:.12em;font:900 italic clamp(2.4em,9vmin,5em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.06em;margin:0 0 .15em;text-transform:uppercase;background:linear-gradient(90deg,var(--a1),#fff 45%,var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 .06em .06em #000)}
 h2{margin:.1em 0 .6em;font:800 1.5em/1.1 Impact,"Arial Black",sans-serif;letter-spacing:.08em;text-transform:uppercase}
@@ -1402,7 +1402,7 @@ const Device = {
   fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; },
   fullscreenHint() {
     if (this.standalone()) return 'Already full screen';
-    return this.ios ? 'For full screen, tap Share, then Add to Home Screen, and start BREAKPOINT from there' : 'Fullscreen is not available in this browser';
+    return this.ios ? 'For full screen, tap Share, then Add to Home Screen, and start BREAKPOINT from there' : 'Fullscreen is not available here';
   },
   /* Landscape lock where the browser has one (Android in fullscreen); iOS has no lock, so failures stay silent. */
   lockLandscape(on) {
@@ -6451,7 +6451,7 @@ const UI = {
   onMatchCreated(match) {
     const train = match.training;
     const browserKeys = ACTIONS.some((a) => Keymap.bindings[a].some((c) => /^(Control|Alt)/.test(c)));
-    if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. Use Fullscreen (Settings) or remap those keys.', 'warn'); }
+    if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. ' + (Device.canFullscreen() ? 'Use Fullscreen (Settings) or remap those keys.' : 'Remap those keys in Settings.'), 'warn'); }
     if (window.innerHeight > window.innerWidth && this.touchWanted()) this.toast('Rotate your device to landscape for the best view', 'warn');
     this.cache = {};
     this.dom.hn1.innerHTML = '<b>P1</b> ' + esc(match.fighters[0].name);
@@ -8748,7 +8748,8 @@ const SelfTest = {
       const card = UI.dom.onboard;
       // a touch device gets the on-screen button card, which has no move list line
       const text = card.textContent;
-      const shown = !card.hidden && (UI.onboardTouch() ? text.includes(TOUCH_LABELS.grapple) : text.includes(UI.keyName('grapple')) && text.includes('Move list'));      const stored = JSON.parse(Store.get(KEY_PROGRESS)).seenControls === true;
+      const shown = !card.hidden && (UI.onboardTouch() ? text.includes(TOUCH_LABELS.grapple) : text.includes(UI.keyName('grapple')) && text.includes('Move list'));
+      const stored =JSON.parse(Store.get(KEY_PROGRESS)).seenControls === true;
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
       const closed = card.hidden;
       Game.quitToMenu();
