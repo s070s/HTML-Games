@@ -244,6 +244,14 @@ const Input = {
 
   // ---- Action state ----
   isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
+  isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
+  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button) starts from off again.
+  resetToggle(actionId) {
+    const index = this.actionIndex[actionId];
+    if (!this.toggleMode[index]) return;
+    this.toggled[index] = 0;
+    this.effective[index] = 0;
+  },
   // True when the action was pressed within the last 0.10 s of simulation time (jump before landing, fire during a cooldown).
   buffered(actionId) { return Sim.tick - this.lastPressTick[this.actionIndex[actionId]] <= INPUT_BUFFER_TICKS; },
   consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = NEVER_PRESSED; },
@@ -472,9 +480,13 @@ const Input = {
     aim.pitch = clamp(aim.pitch - pitch, -MAX_LOOK_PITCH, MAX_LOOK_PITCH);
     look.mouseX = look.mouseY = look.assistedX = look.assistedY = 0;
   },
+  // The device slider, raised to the difficulty's aim assist floor (rules.botSkill.aimAssist 0-100, -1 = no floor). Never for the mouse.
   assistStrength() {
-    if (this.device === 'touch') return this.config.touchAimAssist / 100;
-    return this.device === 'gamepad' ? this.config.padAimAssist / 100 : 0;   // never for the mouse
+    if (this.device !== 'touch' && this.device !== 'gamepad') return 0;
+    const slider = this.device === 'touch' ? this.config.touchAimAssist : this.config.padAimAssist;
+    const rules = Game.match && Game.match.rules;
+    const floor = rules && rules.botSkill ? rules.botSkill.aimAssist : -1;
+    return Math.max(slider, floor) / 100;
   },
   // The aim assist target point into out, when the hook finds one and no filter refuses it.
   findAssistTarget(id, out) {

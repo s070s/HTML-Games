@@ -198,11 +198,17 @@ function drawBatchInstances(gl, batch) {
   }
 }
 
+// The outline shell is 1 for every character when 'Character outlines' is on, else 0: high contrast alone then outlines only the
+// highlighted enemies (ACC-006), not teammates or your own team.
+function baseOutlineAmount() { return Render.config.outlines ? 1 : 0; }
+function outlinePassNeeded() { return Render.config.outlines || Render.config.highContrast; }
+
 function useShapesProgram(gl, viewProjection) {
   const program = Render.programs.shapes;
   gl.useProgram(program.handle);
   applyFrameUniforms(gl, program, viewProjection);
   gl.uniform1f(program.uniforms.uOutline, OUTLINE_METERS);
+  gl.uniform1f(program.uniforms.uBaseOutline, baseOutlineAmount());
   gl.uniform3fv(program.uniforms.uOutlineColor, OUTLINE_COLOR);
   gl.uniform3fv(program.uniforms.uHighlightColor, HIGHLIGHT_COLOR);
 }
@@ -212,6 +218,7 @@ precision highp float;
 uniform mat4 uViewProjection;
 uniform int uMode;
 uniform float uOutline;
+uniform float uBaseOutline;
 in vec3 aPosition;
 in vec3 aNormal;
 in vec4 aOffset;
@@ -228,7 +235,7 @@ ${GLSL_ROTATION}
 void main() {
   vec3 local = aPosition * aScale.xyz;
   vHighlight = aExtra.z;
-  if (uMode == 2) local += aNormal * uOutline * (1.0 + vHighlight * ${HIGHLIGHT_THICKNESS - 1}.0);
+  if (uMode == 2) local += aNormal * uOutline * (uBaseOutline + vHighlight * (${HIGHLIGHT_THICKNESS}.0 - uBaseOutline));
   vPosition = aOffset.xyz + rotateYawPitch(local, aOffset.w, aScale.w);
   vNormal = rotateYawPitch(aNormal / max(aScale.xyz, vec3(0.001)), aOffset.w, aScale.w);
   vColor = aColor;
@@ -289,7 +296,7 @@ function drawShapes(gl) {
   useShapesProgram(gl, Render.frame.viewProjection);
   drawBatch(gl, propBatch, SHAPE_MODE.lit);
   drawBatch(gl, actorBatch, SHAPE_MODE.lit);
-  if (Render.config.outlines || Render.config.highContrast) {
+  if (outlinePassNeeded()) {
     gl.cullFace(gl.FRONT);
     drawBatch(gl, actorBatch, SHAPE_MODE.outline);
     gl.cullFace(gl.BACK);

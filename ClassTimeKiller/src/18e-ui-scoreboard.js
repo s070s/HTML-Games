@@ -172,10 +172,12 @@ const Scoreboard = {
     return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
   },
 
-  // Tab / View button / touch button. Mouse and pad hold to look; touch toggles.
+  // Tab / View button / touch button. Mouse and pad hold to look; touch taps toggle. With the "toggle" setting on (ACC-004) Input
+  // keeps the toggle itself and reports the second press as a release, so the board closes on that release on every device.
+  tapToggles() { return Input.device === 'touch' && !Input.isToggleMode('scoreboard'); },
   onAction(down) {
     if (Game.headless || Game.state !== 'playing') return;
-    const open = Ui.isOpen('scoreboard'), toggle = Input.device === 'touch';
+    const open = Ui.isOpen('scoreboard'), toggle = this.tapToggles();
     this.auto = false;
     if (down && !open && !Ui.current() && !Game.paused) Ui.open('scoreboard');
     else if (down && open && toggle) Ui.back();
@@ -208,7 +210,7 @@ Ui.register('scoreboard', {
     root.appendChild(panel);
     Scoreboard.renderInto(body);
   },
-  onClose() { Scoreboard.auto = false; },
+  onClose() { Scoreboard.auto = false; Input.resetToggle('scoreboard'); },
 });
 
 Bus.on('input.action', (event) => { if (event.action === 'scoreboard') Scoreboard.onAction(event.down); });

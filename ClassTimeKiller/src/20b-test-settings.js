@@ -165,29 +165,95 @@ Test.add('settings', async (check) => {
 
 Test.add('settings', (check) => {
   // ---- Assist sliders (ACC-007, DIF-002) ----
-  check('assist: one setting per DIFFICULTY_SLIDERS field, range from the slider row', DIFFICULTY_SLIDERS.every((slider) => {
-    const definition = Settings.definitions.get('assist.' + slider.field);
+  // A slider that is shown must change something: every live field has a reader here (what the owning section sees), and the fields
+  // nobody reads yet have no slider anywhere.
+  const liveFields = DIFFICULTY_SLIDERS.filter((slider) => ASSIST_ROWS[slider.field].live);
+  check('assist: every slider with a reader has a reader in this test, every other field has no slider', liveFields.every((slider) => ASSIST_EFFECT_READERS[slider.field])
+    && DIFFICULTY_SLIDERS.every((slider) => ASSIST_ROWS[slider.field].live || (!Settings.definitions.get('assist.' + slider.field) && !ASSIST_DEFINITIONS.has(slider.field))));
+  const unchanged = liveFields.filter((slider) => assistEffect(slider.field, slider.min) === assistEffect(slider.field, slider.max)).map((slider) => slider.field);
+  check('assist: moving a live slider from its minimum to its maximum changes what the owning section reads', unchanged.length === 0, unchanged.join());
+  check('assist: the player settings are exactly the live assist fields, range from the slider row', DIFFICULTY_SLIDERS.every((slider) => {
+    const definition = Settings.definitions.get('assist.' + slider.field), wanted = ASSIST_ROWS[slider.field].live && ASSIST_ROWS[slider.field].assist;
+    if (!wanted) return !definition;
     return definition && definition.min === slider.min && definition.max === slider.max && definition.fallback >= slider.min && definition.fallback <= slider.max;
   }));
-  const setup = { difficulty: 'skilled' };
+
+  const setup = { difficulty: 'nightmare' };
   DifficultyAssist.apply(setup);
-  check('assist: switched off, the setup keeps the chosen preset', setup.difficulty === 'skilled');
+  check('assist: switched off, the setup keeps the chosen preset', setup.difficulty === 'nightmare');
   Settings.set('assist.enabled', true);
+  const untouched = { difficulty: 'nightmare' };
+  DifficultyAssist.apply(untouched);
+  check('assist: switched on with every slider neutral, the preset is not overridden', untouched.difficulty.preset === 'nightmare' && Object.keys(untouched.difficulty).length === 1, JSON.stringify(untouched.difficulty));
   Settings.set('assist.gameSpeed', 0.7);
-  Settings.set('assist.playerDamage', 9);
-  const built = PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'skilled', bots: 2 }), () => 0.5);
-  check('assist: switched on, the sliders ride on the preset', built.difficulty.preset === 'skilled' && built.difficulty.gameSpeed === 0.7);
+  const built = PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'nightmare', bots: 2 }), () => 0.5);
+  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   Game.start(built);
-  check('assist: the bots section clamps and carries the values', Game.match.rules.botSkill.gameSpeed === 0.7 && Game.match.rules.botSkill.playerDamage === 4 && Game.match.rules.botSkill.preset === 'skilled');
+  const skill = Game.match.rules.botSkill;
+  check('assist: the preset keeps its bot tiers and behaviour', skill.preset === 'nightmare' && skill.tierMin === 7 && skill.aggression === 1 && skill.attackers === 7 && skill.gameSpeed === 0.7);
   check('assist: game speed scales the simulation clock', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
+  Game.stop();
+  // A mutator makes 13h reset Sim.timeScale every step: the assist speed must survive that, and kill slow-mo must come back to it.
+  built.mutators = ['radar'];
+  Game.start(built);
+  Sim.run(10);
+  check('assist: game speed survives the mutator step hook', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
+  Mutators.slowmoLeft = 0.05;
+  Sim.run(1);
+  check('assist: kill slow-mo halves the assist speed', Test.near(Sim.timeScale, 0.35, 1e-9), Sim.timeScale);
+  Sim.run(10);
+  check('assist: slow-mo ends back at the assist speed', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
   Game.stop();
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
+
+  Settings.set('assist.aimAssist', 80);
+  const floorSetup = { difficulty: 'regular' };
+  DifficultyAssist.apply(floorSetup);
+  check('assist: the aim assist slider joins the setup', floorSetup.difficulty.aimAssist === 80);
+  const device = Input.device;
+  Settings.set('controls.pad.aimAssist', 30); Input.refreshConfig();
+  Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'regular', bots: 2 }), () => 0.5));
+  Input.device = 'gamepad';
+  check('assist: the aim assist floor lifts a weaker device slider', Test.near(Input.assistStrength(), 0.8, 1e-9), Input.assistStrength());
+  Input.device = 'kbm';
+  check('assist: the floor never reaches the mouse (INP-008)', Input.assistStrength() === 0);
+  Input.device = device;
+  Game.stop();
+
   const values = {}, changes = [];
   const container = makeElement('div');
   Ui.difficultyRows(container, values, (field, value) => changes.push(field + '=' + value));
-  check('assist: the custom match builder makes one row per field', container.querySelectorAll('.ui-row').length === DIFFICULTY_SLIDERS.length);
+  check('assist: the custom match builder makes one row per live field', container.querySelectorAll('.ui-row').length === liveFields.length);
   const input = container.querySelector('input');
   input.value = 1.2; input.dispatchEvent(new Event('input'));
-  check('assist: a builder row writes into the given object', values.reactionScale !== undefined && changes.length === 1, changes.join());
+  check('assist: a builder row writes into the given object', Object.keys(values).length === 1 && changes.length === 1, changes.join());
 });
+
+// What the section that owns the field reads for a match started with that slider value (the bots, the loop clock and the input).
+const ASSIST_EFFECT_READERS = {
+  gameSpeed: () => Sim.timeScale,
+  aimAssist: () => {
+    const device = Input.device;
+    Input.device = 'gamepad';
+    const strength = Input.assistStrength();
+    Input.device = device;
+    return strength;
+  },
+  reactionScale: () => Bots.reactionScale(),
+  aimErrorScale: () => Bots.aimErrorScale(),
+  attackers: () => Bots.maxAttackers(),
+  aggression: () => {
+    for (let id = 0; id < Actors.count; id++) if (id !== Game.playerId) return BotDecide.aggression(id, Game.playerId);
+    return -1;
+  },
+};
+function assistEffect(field, value) {
+  const setting = Settings.get('controls.pad.aimAssist');
+  Settings.set('controls.pad.aimAssist', 0); Input.refreshConfig();
+  Game.start({ mode: 'ffa', seed: 1, bots: [{}, {}], difficulty: { preset: 'regular', [field]: value } });
+  const seen = ASSIST_EFFECT_READERS[field]();
+  Game.stop();
+  Settings.set('controls.pad.aimAssist', setting); Input.refreshConfig();
+  return seen;
+}

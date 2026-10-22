@@ -68,6 +68,15 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   actorBatch.clear();
   check('high contrast: a reused instance never keeps an old highlight', reused === slot && actorBatch.data[reused + HIGHLIGHT_SLOT] === 0);
   check('high contrast: the shape shader has the thick bright outline', SHAPES_FRAGMENT.includes('uHighlightColor') && SHAPES_VERTEX.includes('vHighlight'));
+  const outlinesSetting = Settings.get('video.outlines');
+  Settings.set('video.outlines', false);
+  check('high contrast with character outlines off: only highlighted enemies get a shell (the base shell is zero), the pass still runs', baseOutlineAmount() === 0 && outlinePassNeeded() && SHAPES_VERTEX.includes('uBaseOutline'));
+  Settings.set('video.outlines', true);
+  check('high contrast with character outlines on: every character keeps the normal shell', baseOutlineAmount() === 1 && outlinePassNeeded());
+  Settings.set('accessibility.highContrast', false);
+  Settings.set('video.outlines', false);
+  check('outlines and high contrast both off: no outline pass', !outlinePassNeeded());
+  Settings.set('video.outlines', outlinesSetting);
   Settings.set('accessibility.highContrast', false);
   check('high contrast off: nobody is highlighted', highlightFor(scene.enemy) === 0 && Render.config.highContrast === false);
 
@@ -89,11 +98,16 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   // ---- ACC-002 captions, barks and the sound ring ----
   const scene = hudTestMatch();
   Settings.set('hud.element.captions', true);
-  const canPlay = Sound.canPlay;
-  Sound.canPlay = () => false;   // no audio engine delivering captions (an earlier test may have left one running)
+  // The captions and the ring are fed by the sound engine's own 'caption' events (one emitter, S06); the HUD adds none. The engine runs live here.
+  Sound.forceActive = true;
+  Sound.resetState();
+  const sound = (type, payload) => { hudTestEvent(type, payload); Sound.update(1.5); };   // 1.5 s clears every caption throttle
+  const fire = (id, x, z, weaponClass) => { hudTestPlace(id, x, z, 0); sound('weapon.fire', { id, weapon: 'x', weaponClass: weaponClass || 'rifle', mode: 'primary', x, y: 1.5, z, dx: 0, dy: 0, dz: 1 }); };
   HudCaptions.reset();
-  hudTestEvent('bark', { id: scene.mate, team: 0, category: 'spotted', text: 'Contact!' });
-  check('barks: without an audio engine the speaker shows as a voice disc on the sound ring', HudCaptions.soundKind.some((kind, index) => kind === 'voice' && HudCaptions.soundAt[index] > 0));
+  hudTestPlace(scene.mate, 0, 14, 0);
+  sound('bark', { id: scene.mate, team: 0, category: 'spotted', text: 'Contact!' });
+  check('barks: the speaker shows as a voice disc on the sound ring', HudCaptions.soundKind.some((kind, index) => kind === 'voice' && HudCaptions.soundAt[index] > 0));
+  check('barks: the radio blip is captioned once, by the sound engine', HudCaptions.text.filter((text) => text === '[Radio chatter ahead]').length === 1, HudCaptions.text.join());
   hudTestEvent('bark', { id: scene.enemy, team: 1, category: 'spotted', text: 'Enemy chatter' });
   hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Too slow.' });
   check('barks: a teammate bark becomes a chat line with the speaker', HudExtra.barkText.includes('Contact!') && HudExtra.barkName[HudExtra.barkText.indexOf('Contact!')] === Actors.name[scene.mate]);
@@ -105,27 +119,29 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   hudTestEvent('announce', { text: 'Blue takes the lead', kind: 'lead', priority: 2 });
   check('subtitles: announcer text is also a caption while captions are on', HudCaptions.text.includes('Blue takes the lead'));
   HudCaptions.reset();
-  hudTestEvent('sound', { x: 10, y: 0, z: 0, radius: 40, kind: 'shot', source: scene.enemy });
+  fire(scene.enemy, 10, 0);
   check('captions: a shot to the left reads [Gunfire left]', HudCaptions.text.includes('[Gunfire left]'), HudCaptions.text.join());
-  hudTestEvent('sound', { x: -8, y: 0, z: 0, radius: 40, kind: 'step', source: scene.enemy });
-  hudTestEvent('sound', { x: 0, y: 0, z: -9, radius: 40, kind: 'explosion', source: scene.enemy });
+  hudTestPlace(scene.enemy, -8, 0, 0);
+  sound('move.step', { id: scene.enemy, speed: 6, surface: 'metal' });
+  sound('explosion', { x: 0, y: 1, z: -9, radius: 5, owner: scene.enemy, source: 'x', element: '' });
   check('captions: footsteps on the right and an explosion behind have their own words', HudCaptions.text.includes('[Footsteps right]') && HudCaptions.text.includes('[Explosion behind]'), HudCaptions.text.join());
   const ring = HudCaptions.soundKind.filter((kind, index) => HudCaptions.soundAt[index] > 0 && kind);
   check('sound ring: the same cues feed the directional icons', ring.includes('gunfire') && ring.includes('footstep') && ring.includes('explosion'), ring.join());
   HudCaptions.reset();
-  hudTestEvent('sound', { x: 10, y: 0, z: 0, radius: 5, kind: 'shot', source: scene.enemy });
-  hudTestEvent('sound', { x: 1, y: 0, z: 1, radius: 40, kind: 'shot', source: scene.id });
+  fire(scene.enemy, 10, 0);
+  const slotsUsed = HudCaptions.soundAt.filter((at) => at > 0).length;
+  check('captions: one shot is one ring entry (no second emitter)', slotsUsed === 1);
+  HudCaptions.reset();
+  fire(scene.id, 1, 1);
+  fire(scene.enemy, 500, 0);
   check('captions: out of earshot and your own sounds are skipped', HudCaptions.at.every((at) => at < 0) && HudCaptions.soundAt.every((at) => at < 0));
-  Sound.canPlay = () => true;
-  hudTestEvent('sound', { x: 10, y: 0, z: 0, radius: 40, kind: 'shot', source: scene.enemy });
-  Sound.canPlay = () => false;
-  check('captions: with a running audio engine its own captions are used (no double captions)', HudCaptions.at.every((at) => at < 0));
   hudTestEvent('caption', { text: '[Rocket incoming ahead]', x: 0, y: 0, z: 10, kind: 'alert' });
-  check('captions: the audio engine captions still arrive', HudCaptions.text.includes('[Rocket incoming ahead]'));
+  check('captions: a caption event reaches the captions', HudCaptions.text.includes('[Rocket incoming ahead]'));
   Settings.set('hud.element.soundRing', true);
   hudTestFrame();
   check('captions and ring are drawn', Hud.quadsOf('captions') > 0 && Hud.quadsOf('soundRing') > 0);
-  Sound.canPlay = canPlay;
+  Sound.forceActive = false;
+  Sound.resetState();
 }));
 
 Test.add('uiacc', (check) => {
@@ -207,7 +223,15 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   check('motion: with reduce motion the camera stays where it is', camera.roll === 0 && camera.yaw === 0.5 && camera.pitch === 0.1 && camera.fov === 90);
   Settings.set('accessibility.reduceMotion', 'auto');
   check('motion: reduce motion also switches the menu animations off (one class)', (Settings.set('accessibility.reduceMotion', 'on'), document.documentElement.classList.contains('reduce-motion')) && (Settings.set('accessibility.reduceMotion', 'off'), !document.documentElement.classList.contains('reduce-motion')));
+  Settings.set('accessibility.reduceMotion', 'auto');
   check('motion: auto follows the system preference', Hud.reduceMotion() === hudSystemReduceMotion);
+  const systemBefore = hudSystemReduceMotion;
+  hudSetSystemMotion(true);
+  const followedOn = Hud.reduceMotion() && Render.motion.shake === 0 && document.documentElement.classList.contains('reduce-motion');
+  hudSetSystemMotion(false);
+  const followedOff = !Hud.reduceMotion() && Render.motion.shake > 0 && !document.documentElement.classList.contains('reduce-motion');
+  hudSetSystemMotion(systemBefore);
+  check('motion: auto follows a change of the system preference while the game runs (HUD, menus and view effects)', followedOn && followedOff, followedOn + ' ' + followedOff);
   Settings.set('accessibility.reduceMotion', 'off');
   ViewFx.reset();
   Actors.x[id] = Actors.y[id] = Actors.z[id] = 0;
@@ -342,6 +366,14 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   // ---- UI-014 stealth awareness ----
   Actors.kind[enemy] = ACTOR_KIND.BOT;
   const meter = (amount) => { BotSense.awareness[BotSense.pair(enemy, id)] = amount; hudTestFrame(); return Hud.quadsOf('awareness'); };
+  const matchRules = Game.match.rules;
+  const withRules = (changes) => { Game.match.rules = Object.assign({}, matchRules, changes); };
+  check('awareness: a team match (domination) shows no meter although the bot has seen you', meter(0.8) === 0);
+  withRules({ teams: 0 });
+  check('awareness: nor does free-for-all', meter(0.8) === 0);
+  withRules({ teams: 2, params: { cloakWhenStill: true } });
+  check('awareness: a stealth mode (players cloak when still) does', meter(0.8) > 0);
+  withRules({ teams: 1 });                                // PvE: everyone on one side
   check('awareness: an unaware enemy shows nothing, an alerted one a meter, a spotted one a bar and a mark', meter(0) === 0 && meter(0.4) > 0 && meter(1) > meter(0.4));
   check('awareness: the colour runs white, amber, red', hudAwarenessColor(0) === HUD_COLOR.text && hudAwarenessColor(0.5) === HUD_COLOR.warn && hudAwarenessColor(1) === Hud.colors.bad);
   hudTestPlace(enemy, 5, 70, 0);
@@ -355,6 +387,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   Settings.set('hud.element.awareness', false);
   check('awareness: it can be hidden', meter(0.8) === 0);
   Settings.set('hud.element.awareness', true);
+  Game.match.rules = matchRules;
 
   // ---- X36 Hardcore HUD ----
   Settings.set('hud.element.captions', true);
@@ -572,3 +605,30 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   accessTestScreen(check, 'results');
   Game.stop();
 })));
+
+// ---- Scoreboard on a touch device, with and without the ACC-004 toggle setting: one toggle source, no drift ----
+Test.add('uiacc', (check) => uiWith(() => {
+  const device = Input.device, index = Input.actionIndex.scoreboard;
+  const tap = () => Input.pulseAction(index);              // what the touch button does
+  PlayFlow.quickMatch();
+  Input.device = 'touch';
+  Settings.set('controls.toggle.scoreboard', 'hold'); Input.refreshConfig(); Input.clearAll();
+  tap();
+  const openedByTap = Ui.current() === 'scoreboard';
+  tap();
+  check('touch scoreboard, hold setting: a tap opens, the next tap closes', openedByTap && Ui.current() === '');
+
+  Settings.set('controls.toggle.scoreboard', 'toggle'); Input.refreshConfig(); Input.clearAll();
+  const states = [];
+  for (let taps = 0; taps < 4; taps++) { tap(); states.push(Ui.current() === 'scoreboard'); }
+  check('touch scoreboard, toggle setting: every tap flips it (open, closed, open, closed), no double taps', states.join() === 'true,false,true,false', states.join());
+  tap();
+  uiClickButton(Ui.top().element, 'Close');
+  tap();
+  check('touch scoreboard, toggle setting: after the Close button the next tap opens it again', Ui.current() === 'scoreboard' && Input.isHeld('scoreboard'));
+  Ui.closeAll();
+  check('touch scoreboard, toggle setting: closing it any way puts the toggle back to off', !Input.isHeld('scoreboard'));
+
+  Settings.set('controls.toggle.scoreboard', 'hold'); Input.refreshConfig(); Input.clearAll();
+  Input.device = device;
+}));

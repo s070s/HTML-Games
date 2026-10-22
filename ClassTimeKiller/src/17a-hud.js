@@ -350,11 +350,16 @@ registerHudLayers();
 
 // The system's reduce-motion preference is read once and kept current by the media query (no query object per frame).
 let hudSystemReduceMotion = false;
+// A change while the game runs is announced like the setting itself, so every owner (HUD, menus, view effects) re-reads reduce motion.
+function hudSetSystemMotion(reduce) {
+  hudSystemReduceMotion = reduce;
+  Bus.emit('setting', 'accessibility.reduceMotion');
+}
 function hudWatchSystemMotion() {
   if (!window.matchMedia) return;
   const query = window.matchMedia('(prefers-reduced-motion: reduce)');
   hudSystemReduceMotion = query.matches;
-  query.addEventListener('change', (event) => { hudSystemReduceMotion = event.matches; });
+  query.addEventListener('change', (event) => hudSetSystemMotion(event.matches));
 }
 
 Bus.on('boot', () => {

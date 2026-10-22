@@ -19,7 +19,7 @@ One source per setting. Settings the earlier sections read are filled through ho
 | `hud.element.minimap` `compass` `awareness` `barks` | on, off, on, on | 17f via `hudAddElement` | one toggle per element, like every HUD element. `barks` is in the Accessibility tab |
 | `controls.toggle.<id>` | hold | 05a | one per row with `toggle: true`: `crouch sprint walk prone fire alt use scoreboard` (hold or toggle, ACC-004) |
 | `gameplay.tips` | on | 18n | `Tips.show` at match start |
-| `assist.enabled`, `assist.<field>` | off, neutral | 18l | one per `DIFFICULTY_SLIDERS` field (range copied from it); `DifficultyAssist.apply(setup)` |
+| `assist.enabled`, `assist.gameSpeed`, `assist.aimAssist` | off, 1, 0 | 18l | the assist fields that have a reader (range copied from `DIFFICULTY_SLIDERS`); `DifficultyAssist.apply(setup)` |
 
 Existing and unchanged: `ui.scale` (18a, 75-150%), `audio.master/sfx/ui/announcer/music` (separate volumes), `audio.mono`, `hud.captionSize/captionBackground`, `hud.element.captions`, `hud.element.soundRing`, `hud.teamShapes`, `controls.pad.aimAssist`, `controls.touch.aimAssist`, `controls.touch.autoFire`. `hud.colorBlind` and `hud.reduceMotion` no longer exist (replaced by the `accessibility.*` keys; old saves simply ignore them).
 
@@ -34,7 +34,14 @@ Existing and unchanged: `ui.scale` (18a, 75-150%), `audio.master/sfx/ui/announce
 
 ## Assist sliders (ACC-007, DIF-002)
 
-`assist.<field>` for `reactionScale aimErrorScale aggression attackers playerDamage enemyDamage projectileSpeed parry resourceYield gameSpeed aimAssist lives checkpointHeal`. Switched on (`assist.enabled`), `PlayFlow.buildSetup` (through `PlayFlow.setupHooks`) turns `setup.difficulty` into `{ preset, <every field> }`; the bots section clamps it into `rules.botSkill`. `gameSpeed` is applied here (`Sim.timeScale *= botSkill.gameSpeed` at `match.start`); the other fields are carried in `rules.botSkill` for their owners (aim assist floor: input, damage and parry: the PvE section). Using assists costs nothing: nothing stores or checks them for progression. `Ui.difficultyRows(container, values, onChange)` builds one slider row per field for a plain `{ field: value }` object: the custom match editor can mount it.
+`ASSIST_ROWS` (18l) has one row per `DIFFICULTY_SLIDERS` field with two flags. `live`: a section reads `rules.botSkill.<field>` (reactionScale, aimErrorScale, aggression, attackers by the bots section, gameSpeed, aimAssist below); only live fields get a slider anywhere. `assist`: the player may keep it as a personal assist (the Gameplay tab, setting `assist.<field>`). Today `gameSpeed` and `aimAssist` are both; `parry`, `playerDamage` and `enemyDamage` are assists whose reader (weapons, PvE) does not exist yet, so they have no slider; flip their `live` flag to true when the reader lands (projectileSpeed, resourceYield, lives and checkpointHeal likewise).
+
+Switched on (`assist.enabled`), `PlayFlow.buildSetup` (through `PlayFlow.setupHooks`) turns `setup.difficulty` into `{ preset, <the assists the player moved away from neutral> }`: the preset keeps every other field (tiers, aggression, reaction), so picking Nightmare with a slower game still plays like Nightmare. The bots section clamps the object into `rules.botSkill`.
+
+- Game speed rides on `rules.fx.timeScale` (a `difficulty` rule-stage modifier in 18l multiplies it by `botSkill.gameSpeed`), the field of the Game Speed mutator: 13h resets `Sim.timeScale` from it every step, so the speed survives mutators and kill slow-mo comes back to it.
+- Aim assist is a floor for the touch and gamepad strength: `Input.assistStrength()` is `max(device slider, rules.botSkill.aimAssist) / 100` (preset value -1 = no floor); never for the mouse (INP-008).
+- Using assists costs nothing: nothing stores or checks them for progression.
+- `Ui.difficultyRows(container, values, onChange)` builds one slider row per live field for a plain `{ field: value }` object (the custom match editor can mount it; see the contract requests).
 
 ## HUD extras (17f)
 
@@ -43,13 +50,13 @@ All draw through the pen into the existing layers; hideable elements go through 
 - **Minimap** (element `minimap`, top left, 116 design px, 86 compact, range 40 m, player heading up): your triangle, teammates (team shape and colour), active objectives (clamped to the edge), your side's pings. Enemies appear only (UI-006) as a red dot for 2 s after a loud shot (`sound` event `kind: 'shot'` with `radius >= HUD_MAP_SHOT_NOISE` 20 m: suppressed weapons stay off), while a `reveal` status is on them (seer powerup, drone, pulse), or by the motion tracker. A jammer on you (`Gadgets.jammed`) replaces the content by moving bars and the word JAMMED.
 - **Motion tracker** (X35, `rules.fx.radar = { mode, range }`, read at `match.start` by `HudExtra.readRules`): shows enemies that move faster than 1.5 m/s and are not crouched or prone, inside `range` (default 25 m; the map scale grows with it). `team` = within range of you or any living teammate (they share the tracker; in free-for-all only you), `all` = within range of you only, `off` = none.
 - **Compass** (element `compass`, off by default, top centre under the header): N NE E SE S SW W NW and the objective bearings; north is +Z, east is -X.
-- **Awareness meter** (UI-014, element `awareness`): above the head of a bot that is aware of you (`BotSense.awareness[pair(bot, you)]`, >= 0.02, within 45 m, at most 10, never through walls: `World.lineClear`), a bar filled by the meter, white -> amber -> red, and `!` at 100%.
+- **Awareness meter** (UI-014, element `awareness`, only in PvE matches (`rules.teams === 1`) and stealth modes (`rules.params.cloakWhenStill`), never in free-for-all or team arena play): above the head of a bot that is aware of you (`BotSense.awareness[pair(bot, you)]`, >= 0.02, within 45 m, at most 10, never through walls: `World.lineClear`), a bar filled by the meter, white -> amber -> red, and `!` at 100%.
 - **Bark lines** (element `barks`, under the minimap, newest 4, 6 s): `bark` events of your side and enemy kill taunts, with the speaker's name in the team colour. They are the subtitles of the radio blips (ACC-002).
 - **Scope info** (H04, under element `crosshair`): while scoped (the scope overlay is showing) and `Abilities.passiveFlag(you, 'scopeInfo')`, the enemy under the crosshair (not behind a wall) shows its name and health bar.
 - **Flash** (`Gadgets.blindAmount(you)`): a full-screen overlay. A blind starts as a white flash only when the 3-per-second cap (`Hud.flashAllowed`) allows it and photosensitivity is off; otherwise it fades in dark. Strength goes through `Hud.flashAlpha` (reduce motion halves it, photosensitivity caps it at 50%).
 - **Suppression** (X44, `Mutators.suppression(you)`): quads cannot blur, so the screen edges fill with grey haze bands (steady under reduce motion).
 - **Hardcore HUD** (X36, `rules.fx.noHud`): `Hud.noHud` hides every drawer except the elements in `HUD_HARDCORE_KEEP` (crosshair, hit markers, respawn text, captions, sound ring) and drawers registered with `keepInHardcore` (flash, suppression): `Hud.register(layer, id, element, draw, keepInHardcore)`.
-- **Captions and the sound ring** without an audio engine: while `Sound.canPlay()` is false (blocked context, headless) the sim's own `sound` events (`shot explosion pickup step land grenade pulse break` within their radius, never your own) become `caption` events with text such as `[Gunfire left]` and feed the ring. With a running engine S06's captions are used (no doubles). Announcer text (`announce`) is also added as a caption while captions are on.
+- **Captions and the sound ring**: S06 is the only emitter of `caption` events (also while the audio context is blocked, because its queue captions before it starts voices; the radio blip of a `bark` gives the voice disc). The HUD only draws them. Announcer text (`announce`) is also added as a caption while captions are on.
 
 ## View effects (18k)
 
@@ -76,9 +83,9 @@ Screen `crosshair` (passthrough): a panel with the weapon choice ("All weapons" 
 
 ## Events
 
-Consumes `sound bark announce caption explosion damage move.land move.dash impulse match.start match.stop setting boot game.pause`. Emits `caption` (the cue captions above). No new event types.
+Consumes `sound bark announce caption explosion damage move.land move.dash impulse match.start match.stop setting boot game.pause`. Emits nothing new: when the system reduce-motion preference changes, 17a emits `setting` `'accessibility.reduceMotion'` so the HUD, the menus (18m) and the view effects (18k) re-read it.
 
 ## Contract requests
 
-- Custom match editor (18g): mount `Ui.difficultyRows` for the DIF-002 sliders (the editor keeps a preset id string in `draft.difficulty`; `Bots` accepts the `{ preset, field... }` object).
-- PvE section: read `rules.botSkill.playerDamage / enemyDamage / parry / aimAssist / lives / checkpointHeal` (carried, not applied).
+- Custom match editor (18g): mount `Ui.difficultyRows` for the DIF-002 sliders (the editor keeps a preset id string in `draft.difficulty`, validated and shared by code; it needs a `{ preset, field... }` form in the draft, its validators and the share code; `Bots` already accepts the object). Not done: open item.
+- PvE section: read `rules.botSkill.playerDamage / enemyDamage / lives / checkpointHeal / projectileSpeed / resourceYield`, weapons (11d): scale the parry window by `botSkill.parry`; then flip the `live` flag of the row in `ASSIST_ROWS` (18l).

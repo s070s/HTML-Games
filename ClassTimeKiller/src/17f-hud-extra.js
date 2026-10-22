@@ -23,14 +23,6 @@ const HUD_SCOPE_INFO_RANGE = 120;
 const HUD_BLIND_SECONDS_MIN = 0.02;
 const HUD_SUPPRESS_BANDS = 5, HUD_SUPPRESS_COLOR = 0x3a4048;
 const HUD_JAM_BARS = 5;
-const HUD_SOUND_CUES = {                      // 'sound' event kind -> [sound ring kind, caption text]; used while the audio engine delivers no captions
-  shot: ['gunfire', 'Gunfire'], explosion: ['explosion', 'Explosion'], pickup: ['item', 'Pickup'], step: ['footstep', 'Footsteps'],
-  land: ['footstep', 'Landing'], grenade: ['alert', 'Grenade'], pulse: ['alert', 'Pulse'], break: ['alert', 'Breaking'],
-};
-const HUD_DIRECTION_NAMES = ['ahead', 'right', 'behind', 'left'];
-// '[Gunfire left]' for every cue and direction, built once (no strings made while sounds play).
-const HUD_CUE_TEXT = {};
-for (const kind in HUD_SOUND_CUES) HUD_CUE_TEXT[kind] = HUD_DIRECTION_NAMES.map((direction) => '[' + HUD_SOUND_CUES[kind][1] + ' ' + direction + ']');
 
 hudAddElement({ id: 'minimap', label: 'Minimap' });
 hudAddElement({ id: 'compass', label: 'Compass', fallback: false });
@@ -76,21 +68,7 @@ Bus.on('sound', (event) => {
   if (event.kind === 'shot' && source >= 0 && event.radius >= HUD_MAP_SHOT_NOISE && Actors.isEnemy(player, source)) {
     HudExtra.blipAt[source] = Hud.time; HudExtra.blipX[source] = event.x; HudExtra.blipZ[source] = event.z;
   }
-  hudNoteSoundCue(event, player);
 });
-
-// Without an audio engine delivering captions (blocked, muted device, headless) the sim's own sound events feed the ring and the captions.
-const hudCuePayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
-function hudNoteSoundCue(event, player) {
-  const cue = HUD_SOUND_CUES[event.kind];
-  if (!cue || event.source === player || Sound.canPlay()) return;
-  const dx = event.x - Actors.x[player], dz = event.z - Actors.z[player];
-  if (dx * dx + dz * dz > event.radius * event.radius) return;
-  const quarter = Math.round(hudBearingTo(event.x, event.z) / (Math.PI / 2));
-  hudCuePayload.text = HUD_CUE_TEXT[event.kind][(quarter + 4) % 4];
-  hudCuePayload.x = event.x; hudCuePayload.y = event.y; hudCuePayload.z = event.z; hudCuePayload.kind = cue[0];
-  Bus.emit('caption', hudCuePayload);
-}
 
 // Bark chat lines: your side's barks and the enemy kill taunts. The text doubles as the subtitle of the radio blip (ACC-002).
 Bus.on('bark', (event) => {
@@ -99,13 +77,7 @@ Bus.on('bark', (event) => {
   const mine = Actors.team[player] >= 0 && event.team === Actors.team[player];
   if (!mine && event.category !== HUD_BARK_TAUNT) return;
   HudExtra.addBark(event);
-  if (!Sound.canPlay()) HudCaptions.addSound(hudVoicePoint(event.id));   // the voice disc of the ring, as the audio engine's radio blip would give
 });
-const hudVoiceCue = { x: 0, z: 0, kind: 'voice' };
-function hudVoicePoint(id) {
-  hudVoiceCue.x = Actors.x[id]; hudVoiceCue.z = Actors.z[id];
-  return hudVoiceCue;
-}
 // Announcer text is also a subtitle when captions are on.
 Bus.on('announce', (event) => { if (Hud.elements.captions && event.text) HudCaptions.addCaption(event.text); });
 
@@ -245,9 +217,16 @@ function hudAwarenessColor(amount) {
   return amount < 0.5 ? hudMixColor(HUD_COLOR.text, HUD_COLOR.warn, amount * 2) : hudMixColor(HUD_COLOR.warn, Hud.colors.bad, (amount - 0.5) * 2);
 }
 
+// BOT-005 / UI-014: only PvE matches (everyone on one side) and stealth modes (the ruleset's mode cloaks players that stand still) show it.
+function hudAwarenessMatch() {
+  const rules = Game.match && Game.match.rules;
+  if (!rules) return false;
+  return rules.teams === 1 || !!(rules.params && rules.params.cloakWhenStill);
+}
+
 function hudDrawAwareness(pen, layout) {
   const player = Game.playerId;
-  if (player < 0 || !Actors.alive[player]) return;
+  if (player < 0 || !Actors.alive[player] || !hudAwarenessMatch()) return;
   const unit = layout.unit, camera = Render.camera, rangeSquared = HUD_AWARE_RANGE * HUD_AWARE_RANGE;
   let drawn = 0;
   for (let id = 0; id < Actors.count && drawn < HUD_AWARE_MAX; id++) {

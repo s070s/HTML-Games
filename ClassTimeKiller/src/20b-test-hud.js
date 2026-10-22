@@ -199,6 +199,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layers: a full scene stays inside the quad budget with nothing dropped', HudBatch.quads > 100 && HudBatch.quads < HUD_MAX_QUADS && HudBatch.dropped === 0, HudBatch.quads);
   for (const row of HUD_ELEMENTS) {
     if (row.id === 'respawnText') continue;                    // needs a dead player: tested below
+    const matchRules = Game.match.rules;
+    // The awareness meter belongs to stealth and PvE matches only (BOT-005): this team scene plays as a stealth mode for the element check.
+    if (row.id === 'awareness') Game.match.rules = Object.assign({}, matchRules, { params: Object.assign({}, matchRules.params, { cloakWhenStill: true }) });
     Settings.set('hud.element.' + row.id, true);
     hudTestFrame();
     const shown = Hud.quadsOf(row.id);
@@ -206,6 +209,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     hudTestFrame();
     const hidden = Hud.quadsOf(row.id);
     Settings.set('hud.element.' + row.id, row.fallback === undefined ? true : row.fallback);
+    Game.match.rules = matchRules;
     check('element ' + row.id + ' draws something and can be hidden (UI-015)', shown > 0 && hidden === 0, shown + ' quads shown, ' + hidden + ' hidden');
   }
   Settings.set('hud.show', false);

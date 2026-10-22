@@ -41,57 +41,72 @@ Bus.on('boot', () => {
 Bus.on('game.pause', flushSave);
 
 // ---- Assist sliders (ACC-007, DIF-002) ----
-// One row per DIFFICULTY_SLIDERS field: its label, the neutral value ("Regular" preset) and the slider step. Switched on, the values
-// replace the chosen preset's sliders in matches started from Quick Match and the Play screen; nothing else changes (no penalty).
+// One row per DIFFICULTY_SLIDERS field: its label, the neutral value ("Regular" preset) and the slider step.
+//   live  - a section reads rules.botSkill.<field>, so the slider changes the match (custom match rows, Ui.difficultyRows).
+//   assist - the player may set it as a personal assist (the Gameplay tab). Switched on, only the assists the player moved away from
+//            their neutral value replace the chosen preset's field; everything else keeps the preset (no penalty).
+// The fields with live false are carried in rules.botSkill but nobody reads them yet (the PvE section owns damage, lives and checkpoints,
+// the weapons section the parry window): they get no slider until their reader exists, so no slider is shown that does nothing.
 const ASSIST_ROWS = {
-  gameSpeed: { label: 'Game speed (x)', fallback: 1, step: 0.05 },
-  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05 },
-  playerDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25 },
-  enemyDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25 },
-  aimAssist: { label: 'Aim assist floor (%)', fallback: 0, step: 5 },
-  reactionScale: { label: 'Bot reaction time (x)', fallback: 1, step: 0.1 },
-  aimErrorScale: { label: 'Bot aim error (x)', fallback: 1, step: 0.1 },
-  aggression: { label: 'Bot aggression (0 to 1)', fallback: 0.5, step: 0.05 },
-  attackers: { label: 'Bots attacking at once', fallback: 3, step: 1 },
-  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05 },
-  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1 },
-  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1 },
-  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05 },
+  gameSpeed: { label: 'Game speed (x)', fallback: 1, step: 0.05, live: true, assist: true },
+  aimAssist: { label: 'Aim assist floor (%, touch and gamepad)', fallback: 0, step: 5, live: true, assist: true },
+  reactionScale: { label: 'Bot reaction time (x)', fallback: 1, step: 0.1, live: true, assist: false },
+  aimErrorScale: { label: 'Bot aim error (x)', fallback: 1, step: 0.1, live: true, assist: false },
+  aggression: { label: 'Bot aggression (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
+  attackers: { label: 'Bots attacking at once', fallback: 3, step: 1, live: true, assist: false },
+  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: false, assist: true },
+  playerDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: false, assist: true },
+  enemyDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: false, assist: true },
+  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: false, assist: false },
+  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1, live: false, assist: false },
+  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1, live: false, assist: false },
+  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05, live: false, assist: false },
 };
-Settings.define('assist.enabled', false, { label: 'Use my assist sliders in matches', category: 'gameplay' });
+// field -> settings-style definition ({ label, fallback, min, max, step }) of every slider that has a reader.
+const ASSIST_DEFINITIONS = new Map();
 for (const slider of DIFFICULTY_SLIDERS) {
   const row = ASSIST_ROWS[slider.field];
-  Settings.define('assist.' + slider.field, row.fallback, { label: row.label, category: 'gameplay', min: slider.min, max: slider.max, step: row.step });
+  if (row.live) ASSIST_DEFINITIONS.set(slider.field, { label: row.label, fallback: row.fallback, min: slider.min, max: slider.max, step: row.step });
+}
+Settings.define('assist.enabled', false, { label: 'Use my assist sliders in matches', category: 'gameplay' });
+for (const [field, definition] of ASSIST_DEFINITIONS) {
+  if (ASSIST_ROWS[field].assist) Settings.define('assist.' + field, definition.fallback, Object.assign({ category: 'gameplay' }, definition));
 }
 
 const DifficultyAssist = {
   enabled() { return Settings.get('assist.enabled'); },
-  // { field: value } for every DIFFICULTY_SLIDERS field, read from the settings.
+  // { field: value } of every assist the player has set away from its neutral value (reading the settings).
   values() {
     const values = {};
-    for (const slider of DIFFICULTY_SLIDERS) values[slider.field] = Settings.get('assist.' + slider.field);
+    for (const [field, definition] of ASSIST_DEFINITIONS) {
+      if (!ASSIST_ROWS[field].assist) continue;
+      const value = Settings.get('assist.' + field);
+      if (value !== definition.fallback) values[field] = value;
+    }
     return values;
   },
-  // setup.difficulty for the setup: the chosen preset plus the player's sliders when switched on.
+  // setup.difficulty for the setup: the chosen preset plus the player's changed assists when switched on.
   apply(setup) {
     if (!this.enabled()) return;
     const preset = typeof setup.difficulty === 'string' ? setup.difficulty : setup.difficulty && setup.difficulty.preset;
-    setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, this.values());
+    const previous = setup.difficulty && typeof setup.difficulty === 'object' ? setup.difficulty : null;
+    setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
 PlayFlow.setupHooks.push((setup) => DifficultyAssist.apply(setup));
 
 // Slider rows for a plain object of { field: value } (custom matches); onChange(field, value) runs after every change.
 Ui.difficultyRows = function difficultyRows(container, values, onChange) {
-  for (const slider of DIFFICULTY_SLIDERS) {
-    const definition = Settings.definitions.get('assist.' + slider.field);
-    const value = typeof values[slider.field] === 'number' ? values[slider.field] : definition.fallback;
-    container.appendChild(Ui.row(definition.label, valueControl(definition, value, (next) => { values[slider.field] = next; onChange(slider.field, next); })));
+  for (const [field, definition] of ASSIST_DEFINITIONS) {
+    const value = typeof values[field] === 'number' ? values[field] : definition.fallback;
+    container.appendChild(Ui.row(definition.label, valueControl(definition, value, (next) => { values[field] = next; onChange(field, next); })));
   }
 };
 
-// Game speed is the one assist field that has no owner of its own: it scales the simulation clock like the Game Speed mutator.
-Bus.on('match.start', (match) => {
-  const skill = match.rules && match.rules.botSkill;
-  if (skill && skill.gameSpeed && skill.gameSpeed !== 1) Sim.timeScale *= skill.gameSpeed;
+// Game speed is the one assist field that has no owner of its own: it rides on rules.fx.timeScale, the field the Game Speed mutator
+// uses, so the mutators section applies it every step (kill slow-mo comes back to it). 14a builds botSkill before this modifier runs.
+Rules.addModifier('difficulty', (rules) => {
+  const speed = rules.botSkill && rules.botSkill.gameSpeed;
+  if (!speed || speed === 1) return;
+  rules.fx.timeScale = (rules.fx.timeScale || 1) * speed;
 });
