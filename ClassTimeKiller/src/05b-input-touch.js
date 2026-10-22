@@ -15,6 +15,9 @@ const TOUCH_ACCEL_SPEED = 2;            // px per ms that earns the full acceler
 const TOUCH_MIN_EVENT_MS = 4;
 const TOUCH_TAP_MS = 220;               // tap-to-fire: a short, still touch on the look area
 const TOUCH_TAP_SLOP = 12;              // px
+const TOUCH_HOLD_MS = 350;              // a button held this long on release does its holdAction (SWAP: previous weapon)
+const TOUCH_GYRO_WAIT_MS = 1000;        // no devicemotion event this long after the permission: the sensor is unavailable
+const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
 const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down within this time toggle the performance HUD (ARC-040)
 const TOUCH_SCALE_MIN = 0.5, TOUCH_SCALE_MAX = 2;          // INP-005
 const TOUCH_OPACITY_MIN = 0.2, TOUCH_OPACITY_MAX = 1;
@@ -33,34 +36,38 @@ const TOUCH_PRESETS = [
   { id: 'mirrored', label: 'Left-handed', mirror: true, scale: 1 },
 ];
 // Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
-// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists);
+// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists,
+// A1/A2/ULT/GADGET/NADE/HEAL/PRONE only while the player has what they use);
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
 // with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more;
 // 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
+// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action. The default places keep every button off the
+// HUD boxes of a phone in landscape: header and minimap on top, vitals and ammo at the bottom (hudui test).
 const TOUCH_CONTROLS = [
-  { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.72, size: 120 },
+  { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
   { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64 },
   { id: 'crouch', label: 'Crouch', face: 'CROUCH', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
+  { id: 'prone', label: 'Prone', face: 'PRONE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
   { id: 'reload', label: 'Reload', face: 'RELOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
   { id: 'breath', label: 'Hold breath', face: 'BREATH', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
-  { id: 'swap', label: 'Swap weapon', face: 'SWAP', action: 'nextWeapon', x: 0.70, y: 0.20, size: 46 },
-  { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46 },
-  { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42 },
+  { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46 },
+  { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
+  { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal' },
   { id: 'grenadeNext', label: 'Next grenade type', face: 'TYPE', action: 'grenadeNext', x: 0.60, y: 0.74, size: 36, need: 'grenadeCycle' },
-  { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.14, size: 46 },
-  { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.14, size: 46 },
-  { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.14, size: 46 },
-  { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.07, size: 40 },
-  { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.07, size: 40 },
-  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.07, size: 40 },
-  { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.07, size: 40, need: 'cards' },
+  { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
+  { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
+  { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
+  { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40 },
+  { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40 },
+  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40 },
+  { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
-  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.82, y: 0.22, size: 46 },
-  { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.14, size: 46 },
-  { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.07, size: 40, need: 'comm' },
+  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46 },
+  { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
+  { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -69,7 +76,7 @@ const TOUCH_SETTINGS = [
   { key: 'controls.touch.tapToFire', field: 'touchTapFire', fallback: false, label: 'Tap the look area to fire' },
   { key: 'controls.touch.leftFire', field: 'touchLeftFire', fallback: false, label: 'Second fire button on the left' },
   { key: 'controls.touch.aimAssist', field: 'touchAimAssist', fallback: 70, label: 'Touch aim assist', min: 0, max: 100, step: 5 },
-  { key: 'controls.touch.gyro', field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While aiming', 'Always'] },
+  { key: TOUCH_GYRO_KEY, field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While aiming', 'Always'] },
   { key: 'controls.touch.gyroSensitivity', field: 'touchGyroSens', fallback: 1, label: 'Gyro sensitivity', min: 0.2, max: 3, step: 0.05 },
   { key: 'controls.touch.layout', field: 'touchLayout', fallback: 'standard', label: 'Touch layout preset', options: TOUCH_PRESETS.map((preset) => preset.id), optionLabels: TOUCH_PRESETS.map((preset) => preset.label) },
   { key: 'controls.touch.show', field: 'touchShow', fallback: 'auto', label: 'Touch controls', options: ['auto', 'on', 'off'], optionLabels: ['When touching', 'Always', 'Never'] },
@@ -77,7 +84,7 @@ const TOUCH_SETTINGS = [
 
 // Phone gyro to look rates (rad/s): turn right is a negative spin about the screen-up axis, look down a negative spin about screen-right (a top edge tipping toward you looks up).
 function gyroToLook(rotationRate, angle, out) {
-  const axes = GYRO_AXES[angle] || GYRO_AXES[0];
+  const axes = GYRO_AXES[((angle % 360) + 360) % 360] || GYRO_AXES[0];   // old iOS reports -90 for landscape-right
   const spinX = rotationRate.beta || 0, spinY = rotationRate.gamma || 0;
   out.right = -(spinX * axes.upX + spinY * axes.upY) * DEG;
   out.down = -(spinX * axes.rightX + spinY * axes.rightY) * DEG;
@@ -94,6 +101,15 @@ function useButtonNeeded() {
   return false;
 }
 
+// The buttons that show only while the player has what they use. Read by TouchInput.syncNeeds once a frame (pickups, buys, rewards
+// and respawns need no event); these run at play time only, so they may read the later gameplay sections.
+function touchPlayer() { return Game.playerId; }
+function touchHasAbility(slot) { const id = touchPlayer(); return id >= 0 && Abilities.row(id, slot) !== null; }
+function touchHasHeal() {
+  const id = touchPlayer(), economy = CAT.economy.byId(currentRules().economy);
+  return id >= 0 && (Items.consumableCount(id) > 0 || (!!economy && economy.slots > 0));   // loot rulesets carry consumables
+}
+
 const TouchInput = {
   layer: null, zone: null, live: null, knob: null,
   elements: {},                    // control id -> DOM node
@@ -105,14 +121,26 @@ const TouchInput = {
   flags: {},                       // match flags read by the TOUCH_CONTROLS 'need' rows that have no needs fn (setFlag)
   shown: false,
   currentPreset: TOUCH_PRESETS[0],
-  gyro: { right: 0, down: 0, attached: false },
+  gyro: { right: 0, down: 0, attached: false, asked: false, unavailable: false, events: 0 },
+  needed: [],                      // the distinct need keys of the controls, in table order
+  needBits: 0,                     // their last answers (syncNeeds)
+  weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a: the touch weapon bar)
+  buttonLook: null,                // fn(control) -> true: this held button's finger also turns the look (17g: the open comm wheel)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
-  needs: { use: () => useButtonNeeded(), comm: null },
+  needs: {
+    use: () => useButtonNeeded(), comm: null,
+    ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
+    gadget: () => touchPlayer() >= 0 && Gadgets.gadget[touchPlayer()] >= 0,
+    grenade: () => touchPlayer() >= 0 && Gadgets.thrownTotal(touchPlayer()) > 0,
+    heal: touchHasHeal,
+    prone: () => touchPlayer() >= 0 && Move.preset(touchPlayer()).proneMult > 0,
+  },
   useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
 
   init() {
+    this.onMotion = (event) => { this.gyro.events++; if (event.rotationRate) gyroToLook(event.rotationRate, this.screenAngle(), this.gyro); };
     this.buildLayer();
     for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false });
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) Input.setDevice('touch');
@@ -133,6 +161,7 @@ const TouchInput = {
       element.dataset.control = control.id;
       this.elements[control.id] = element;
       this.controlById[control.id] = control;
+      if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
       this.layer.appendChild(element);
     }
     for (const target of [this.zone].concat(Object.values(this.elements))) this.listen(target);
@@ -180,7 +209,9 @@ const TouchInput = {
     this.noteFinger(event);
     const control = target === this.zone ? null : this.controlById[target.dataset.control];
     if (this.editing) { this.beginEdit(slot, control); return; }
-    if (control && control.action) this.beginButton(slot, control);
+    const weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);
+    if (weaponSlot) Input.pulseAction(Input.actionIndex['slot' + weaponSlot]);   // a tap on the HUD weapon bar picks that slot; the finger does nothing else
+    else if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
     else if (event.clientX < window.innerWidth * TOUCH_MOVE_ZONE && !this.stick.slot) this.beginStick(slot, event, null);
     else slot.role = ROLE_LOOK;
@@ -191,6 +222,7 @@ const TouchInput = {
     if (slot.role === ROLE_STICK) this.moveStick(event);
     else if (slot.role === ROLE_LOOK) this.moveLook(slot, event);
     else if (slot.role === ROLE_DRAG) this.dragControl(slot.control, event);
+    else if (slot.role === ROLE_BUTTON && this.buttonLook && this.buttonLook(slot.control)) this.moveLook(slot, event);
     slot.lastX = event.clientX; slot.lastY = event.clientY; slot.lastTime = event.timeStamp;
     if (Math.hypot(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
   },
@@ -198,17 +230,25 @@ const TouchInput = {
     const slot = this.findSlot(event.pointerId);
     if (!slot) return;
     if (slot.role === ROLE_STICK) this.endStick();
-    else if (slot.role === ROLE_BUTTON) this.setButton(slot.control, false);
+    else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
     else if (slot.role === ROLE_LOOK && this.isTap(slot, event)) Input.pulseAction(Input.actionIndex.fire);
     this.freeSlot(slot);
-    if (!this.gyro.attached && Input.config.touchGyro !== 'off') this.requestGyro();
+    if (Input.config.touchGyro !== 'off') this.requestGyro();
   },
   isTap(slot, event) { return Input.config.touchTapFire && !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS; },
 
   // ---- Buttons ----
   beginButton(slot, control) {
     slot.role = ROLE_BUTTON; slot.control = control;
-    this.setButton(control, true);
+    if (control.holdAction) this.elements[control.id].classList.add('down');   // acts on release: a tap or a hold
+    else this.setButton(control, true);
+  },
+  endButton(slot, event) {
+    const control = slot.control;
+    if (!control.holdAction) { this.setButton(control, false); return; }
+    const held = event.timeStamp - slot.startTime >= TOUCH_HOLD_MS;
+    this.elements[control.id].classList.remove('down');
+    Input.pulseAction(Input.actionIndex[held ? control.holdAction : control.action]);
   },
   setButton(control, down) {
     const index = Input.actionIndex[control.action];
@@ -262,16 +302,41 @@ const TouchInput = {
     Input.addLook(dx * scale, dy * scale * (config.invertY ? -1 : 1), true);
   },
 
-  // ---- Gyro aim (INP-006): request permission on iOS, then add the rotation rate while enabled ----
+  // ---- Gyro aim (INP-006): ask once for the motion permission while the setting is on, then add the rotation rate ----
+  // A refused permission, a page that is not https and a sensor that sends nothing for a second all say so once and mark the setting row.
+  syncGyro(mode) {
+    if (mode !== 'off') { this.requestGyro(); return; }
+    window.removeEventListener('devicemotion', this.onMotion);
+    const gyro = this.gyro;
+    gyro.attached = gyro.asked = gyro.unavailable = false;
+    gyro.right = gyro.down = 0;
+    this.markGyroRow('');
+  },
   requestGyro() {
-    const motion = window.DeviceMotionEvent;
-    if (this.gyro.attached || !motion) return;
+    const gyro = this.gyro, motion = window.DeviceMotionEvent;
+    if (gyro.attached || gyro.asked || gyro.unavailable) return;
+    if (!motion || !window.isSecureContext) { this.failGyro(); return; }
+    gyro.asked = true;
     if (typeof motion.requestPermission !== 'function') { this.attachGyro(); return; }
-    motion.requestPermission().then((state) => { if (state === 'granted') this.attachGyro(); }).catch(() => { /* needs a tap: retried on the next touch */ });
+    motion.requestPermission().then((state) => { if (state === 'granted') this.attachGyro(); else this.failGyro(); })
+      .catch(() => { gyro.asked = false; /* needs a tap: retried on the next touch */ });
   },
   attachGyro() {
-    this.gyro.attached = true;
-    window.addEventListener('devicemotion', (event) => { if (event.rotationRate) gyroToLook(event.rotationRate, this.screenAngle(), this.gyro); });
+    const gyro = this.gyro;
+    gyro.attached = true; gyro.events = 0;
+    window.addEventListener('devicemotion', this.onMotion);
+    setTimeout(() => { if (gyro.attached && gyro.events === 0) this.failGyro(); }, TOUCH_GYRO_WAIT_MS);
+  },
+  failGyro() {
+    window.removeEventListener('devicemotion', this.onMotion);
+    this.gyro.attached = false; this.gyro.unavailable = true;
+    this.markGyroRow(TOUCH_GYRO_NOTE);
+    emitToast(TOUCH_GYRO_MESSAGE);
+  },
+  // The settings screen builds its rows from the definitions, so the label carries the state.
+  markGyroRow(note) {
+    const definition = Settings.definitions.get(TOUCH_GYRO_KEY);
+    definition.label = TOUCH_SETTINGS.find((row) => row.key === TOUCH_GYRO_KEY).label + note;
   },
   screenAngle() { return window.screen.orientation ? window.screen.orientation.angle : (window.orientation || 0); },
   gyroEnabled() {
@@ -283,6 +348,7 @@ const TouchInput = {
   frame(seconds) {
     this.syncVisible();
     if (!this.shown) return;
+    this.syncNeeds();
     Input.analog.moveX += this.stick.x;
     Input.analog.moveZ -= this.stick.y;
     if (!this.gyro.attached || !this.gyroEnabled()) return;
@@ -314,7 +380,7 @@ const TouchInput = {
     this.currentPreset = TOUCH_PRESETS.find((preset) => preset.id === config.touchLayout) || TOUCH_PRESETS[0];   // looked up once, not on every touch move
     if (!this.layer) return;
     this.applyAll();
-    if (config.touchGyro !== 'off') this.requestGyro();
+    this.syncGyro(config.touchGyro);
   },
 
   // ---- Layout (INP-005) ----
@@ -364,6 +430,14 @@ const TouchInput = {
   applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
+  // Re-applies the layout when a button's need changed since the last frame (no allocation: a bit mask).
+  syncNeeds() {
+    let bits = 0;
+    for (let i = 0; i < this.needed.length; i++) if (this.needMet(this.needed[i])) bits |= 1 << i;
+    if (bits === this.needBits) return;
+    this.needBits = bits;
+    this.applyAll();
+  },
   // Shows or hides the controls of a match flag (called on a change only, never per frame).
   setFlag(name, on) {
     if (!!this.flags[name] === !!on) return;
@@ -419,5 +493,5 @@ const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: v
 
 Input.sources.push(TouchInput);
 Input.addSettings(TOUCH_SETTINGS);
-Bus.on('setting', (key) => { if (key === 'controls.touch.gyro' && TouchInput.layer) TouchInput.requestGyro(); });
+Bus.on('setting', (key) => { if (key === TOUCH_GYRO_KEY && TouchInput.layer) TouchInput.syncGyro(Settings.get(key)); });   // inside the tap that changed it: iOS asks only then
 Bus.on('match.start', () => { if (TouchInput.layer) TouchInput.applyAll(); });   // need-gated buttons follow the new mode

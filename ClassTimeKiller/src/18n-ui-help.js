@@ -113,8 +113,13 @@ function difficultyLine(rules) {
 function economyPanelLines(rules) {
   const row = CAT.economy.byId(rules.economy) || CAT.economy[0], lines = [];
   for (const [applies, text] of ECONOMY_LINES) if (applies(row)) lines.push(text(row));
-  if (buyKeyAvailable(row)) lines.push('Open the buy menu with ' + Input.bindingLabel(Input.getBinding('buyMenu', 0)) + '.');
+  if (buyKeyAvailable(row)) lines.push(buyMenuText());
   return { name: row.name, lines };
+}
+// Where the buy menu opens for the device in use: a key on a keyboard, the pause menu on a pad or a phone (no control is bound there).
+function buyMenuText() {
+  const keyboard = Input.device !== 'touch' && Input.device !== 'gamepad' && (Input.getBinding('buyMenu', 0) || Input.getBinding('buyMenu', 1));
+  return keyboard ? 'Open the buy menu with ' + hudBoundLabel('buyMenu', Input.device) + '.' : 'Open the buy menu from the pause menu.';
 }
 function buyKeyAvailable(row) { return row.buy !== 'none' || row.loadout !== 'none'; }
 
@@ -157,7 +162,7 @@ const Tips = {
     if (Input.device === 'gamepad') return index === 0 ? TIP_PAD_TEXT : '';
     const tip = TIP_ACTIONS[index];
     if (!tip) return '';
-    const labels = tip.actions.map((action) => Input.bindingLabel(Input.getBinding(action, 0)));   // the first keyboard slot
+    const labels = tip.actions.map((action) => hudBoundLabel(action, 'kbm'));
     return tip.text.replace(/\{(\d)\}/g, (unused, slot) => labels[+slot]);
   },
   matchesSeen() { return Save.data && Save.data.tips ? Save.data.tips.matches : 0; },
@@ -168,7 +173,7 @@ const Tips = {
     Save.data.tips = { matches: seen + 1 };
     Save.scheduleSave();
     const text = this.text(seen);
-    if (text) Ui.toast(text);
+    if (text) Ui.toast(text, 'play');
     return text;
   },
 };
