@@ -280,3 +280,24 @@ Test.add('world', (check) => {
   Bus.emit('explosion', { x: -4.5, y: 0.5, z: 4, radius: 3, owner: -1, source: 'test', element: 'kinetic' });
   check('explosions break props', !Props.isStanding(1));
 });
+
+// ---- Actor hit volumes and area queries (DATA-003, ARC-014) ----
+Test.add('world', (check) => {
+  Actors.clear();
+  loadTestWorld([]);
+  const target = groundedTester(0, 5);
+  const shooter = groundedTester(0, 0);
+  const hit = makeActorHit(), found = [];
+  const headY = Actors.eye[target] + HEAD_ABOVE_EYE;
+  check('head ray hits the head sphere', World.raycastActors(0, headY, 0, 0, 0, 1, 50, shooter, hit) === target && hit.zone === 'head' && Test.near(hit.distance, 5 - HEAD_RADIUS, 1e-3), hit.zone + ' ' + hit.distance);
+  check('chest ray hits the body', World.raycastActors(0, 1.2, 0, 0, 0, 1, 50, shooter, hit) === target && hit.zone === 'body' && Test.near(hit.distance, 5 - TORSO_RADIUS, 1e-3), hit.zone);
+  check('knee ray hits the legs', World.raycastActors(0, 0.4, 0, 0, 0, 1, 50, shooter, hit) === target && hit.zone === 'legs' && Test.near(hit.distance, 5 - LEGS_RADIUS, 1e-3), hit.zone);
+  check('rays beside or too short miss', World.raycastActors(0.5, 1.2, 0, 0, 0, 1, 50, shooter, hit) < 0 && World.raycastActors(0, 1.2, 0, 0, 0, 1, 4, shooter, hit) < 0);
+  check('a vertical ray reaches the head from above', World.raycastActors(0, 5, 5, 0, -1, 0, 10, -1, hit) === target && hit.zone === 'head', hit.zone);
+  check('the ignored actor is skipped', World.raycastActors(0, 1.2, -1, 0, 0, 1, 50, -1, hit) === shooter && World.raycastActors(0, 1.2, -1, 0, 0, 1, 50, shooter, hit) === target);
+  check('sphere query finds touching actors only', World.actorsInSphere(0, 1, 4.5, 0.2, found) === 1 && found[0] === target && World.actorsInSphere(0, 1, 3, 0.5, found) === 0);
+  check('cone query respects angle and range', World.actorsInCone(0, 1, 0, 0, 0, 1, Math.cos(0.2), 10, shooter, found) === 1 && found[0] === target
+    && World.actorsInCone(0, 1, 0, 0, 0, 1, Math.cos(0.2), 3, shooter, found) === 0 && World.actorsInCone(0, 1, 0, 1, 0, 0, Math.cos(0.2), 10, shooter, found) === 0);
+  Actors.alive[target] = 0;
+  check('dead actors are not hit', World.raycastActors(0, 1.2, 0, 0, 0, 1, 50, shooter, hit) < 0 && World.actorsInSphere(0, 1, 4.5, 0.2, found) === 0);
+});

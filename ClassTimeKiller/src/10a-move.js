@@ -7,7 +7,7 @@
 // 10b-move-special.js adds the special states and actions (slide, dodge, dash, charge, mantle, wall-run, water...).
 
 const STANCE = { STAND: 0, CROUCH: 1, PRONE: 2 };
-const STANCE_HEIGHT = [1.80, 1.10, 0.60];        // DATA-003
+const STANCE_HEIGHT = [ACTOR_STAND_HEIGHT, 1.10, 0.60]; // DATA-003
 const STANCE_EYE = [1.62, 0.95, 0.40];
 const MOVE_STATE = { WALK: 0, MANTLE: 1, DASH: 2, CHARGE: 3, WALL_RUN: 4, LATCH: 5, LADDER: 6, SWIM: 7 };
 const JUMP_BUFFER_SECONDS = 0.10;                // MOV-013

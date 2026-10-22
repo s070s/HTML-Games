@@ -13,6 +13,7 @@ const GATHER_MARGIN = 0.25;            // extra metres around a mover's sweep wh
 const WALKABLE_NORMAL_Y = Math.cos(45 * DEG) - 1e-4; // DATA-003: slopes up to 45 deg are floor
 const ACTOR_RADIUS = 0.40;             // DATA-003 capsule radius
 const STEP_HEIGHT = 0.45;              // DATA-003 step-up height
+const ACTOR_STAND_HEIGHT = 1.80;       // DATA-003 standing capsule height; hit volumes scale by height / this
 
 const makeTrace = () => ({ fraction: 1, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null, startSolid: false, allSolid: false });
 const makeMover = () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hull: makeHull(), planes: new Float32Array(MAX_CLIP_PLANES * 3), planeCount: 0,
@@ -256,3 +257,101 @@ World.sphereTouches = function sphereTouches(x, y, z, radius) {
   Collide.gatherAround(mover, 0);
   return Collide.overlaps(x, y, z, mover.hull);
 };
+
+// ---- Actor hit volumes (DATA-003, ARC-014): head sphere on the eye, torso and legs cylinders scaled by height / 1.8 ----
+const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
+const TORSO_RADIUS = 0.30, TORSO_LOW = 0.85, TORSO_HIGH = 1.45;
+const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
+const makeActorHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null, actor: -1, zone: 'none' });
+const zoneResult = { zone: 'none' };
+
+// Nearest live actor hit volume along a normalized ray (ignoring one actor, e.g. the shooter). Fills hit (from
+// makeActorHit) with distance, point, actor and zone 'head' | 'body' | 'legs'; returns the actor id or -1.
+// Walls are not checked: compare with World.raycast (hitscan order ARC-014: world first, then actors).
+World.raycastActors = function raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit) {
+  let best = maxDistance, found = -1, zone = 'none';
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Actors.alive[id] || id === ignoreId) continue;
+    const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], top = y + Math.max(Actors.height[id], Actors.eye[id] + HEAD_ABOVE_EYE + HEAD_RADIUS);
+    if (!rayHitsBounds(ox, oy, oz, dx, dy, dz, best, x - ACTOR_RADIUS, y, z - ACTOR_RADIUS, x + ACTOR_RADIUS, top, z + ACTOR_RADIUS)) continue;
+    const distance = rayActorDistance(id, ox, oy, oz, dx, dy, dz);
+    if (distance < 0 || distance >= best) continue;
+    best = distance; found = id; zone = zoneResult.zone;
+  }
+  if (found < 0) return -1;
+  hit.distance = best; hit.x = ox + dx * best; hit.y = oy + dy * best; hit.z = oz + dz * best;
+  hit.nx = -dx; hit.ny = -dy; hit.nz = -dz; hit.brush = null; hit.actor = found; hit.zone = zone;
+  return found;
+};
+
+// Writes the ids of live actors whose capsule touches the sphere into out (array); returns how many.
+World.actorsInSphere = function actorsInSphere(x, y, z, radius, out) {
+  let count = 0;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Actors.alive[id]) continue;
+    const nearestY = clamp(y, Actors.y[id] + ACTOR_RADIUS, Actors.y[id] + Math.max(ACTOR_RADIUS, Actors.height[id] - ACTOR_RADIUS));
+    const reach = radius + ACTOR_RADIUS;
+    if (distanceSquared3(x, y, z, Actors.x[id], nearestY, Actors.z[id]) <= reach * reach) out[count++] = id;
+  }
+  return count;
+};
+
+// Writes the ids of live actors whose chest lies within range and the cone (cosine of the half angle) into out.
+World.actorsInCone = function actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle, range, ignoreId, out) {
+  let count = 0;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Actors.alive[id] || id === ignoreId) continue;
+    const vx = Actors.x[id] - ox, vy = Actors.y[id] + Actors.height[id] * 0.6 - oy, vz = Actors.z[id] - oz, distance = Math.hypot(vx, vy, vz);
+    if (distance > range || distance < 1e-6) continue;
+    if ((vx * dx + vy * dy + vz * dz) / distance >= cosHalfAngle) out[count++] = id;
+  }
+  return count;
+};
+
+function rayActorDistance(id, ox, oy, oz, dx, dy, dz) {
+  const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], scale = Actors.height[id] / ACTOR_STAND_HEIGHT;
+  const head = raySphereDistance(ox, oy, oz, dx, dy, dz, x, y + Actors.eye[id] + HEAD_ABOVE_EYE, z, HEAD_RADIUS);
+  const torso = rayCylinderDistance(ox, oy, oz, dx, dy, dz, x, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, z, TORSO_RADIUS);
+  const legs = rayCylinderDistance(ox, oy, oz, dx, dy, dz, x, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, z, LEGS_RADIUS);
+  const nearest = nearestDistance(nearestDistance(head, torso), legs);
+  zoneResult.zone = nearest < 0 ? 'none' : nearest === head ? 'head' : nearest === torso ? 'body' : 'legs';
+  return nearest;
+}
+
+const nearestDistance = (a, b) => (a < 0 ? b : b < 0 ? a : Math.min(a, b));
+
+// Ray against a sphere: entry distance (0 when the origin is inside) or -1.
+function raySphereDistance(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
+  const px = cx - ox, py = cy - oy, pz = cz - oz, centerSquared = px * px + py * py + pz * pz;
+  if (centerSquared <= radius * radius) return 0;
+  const along = px * dx + py * dy + pz * dz;
+  if (along < 0) return -1;
+  const closestSquared = centerSquared - along * along;
+  if (closestSquared > radius * radius) return -1;
+  return along - Math.sqrt(radius * radius - closestSquared);
+}
+
+// Ray against a vertical flat-capped cylinder spanning exactly bottomY..topY at x, z: the side wall plus both caps.
+// Flat caps (not rounded ends) keep the head, body and legs zones from overlapping where they meet.
+function rayCylinderDistance(ox, oy, oz, dx, dy, dz, x, bottomY, topY, z, radius) {
+  const side = rayCylinderSide(ox, oy, oz, dx, dy, dz, x, bottomY, topY, z, radius);
+  const low = rayDiscDistance(ox, oy, oz, dx, dy, dz, x, bottomY, z, radius);
+  return nearestDistance(nearestDistance(side, low), rayDiscDistance(ox, oy, oz, dx, dy, dz, x, topY, z, radius));
+}
+
+function rayDiscDistance(ox, oy, oz, dx, dy, dz, x, discY, z, radius) {
+  if (Math.abs(dy) < 1e-12) return -1;
+  const distance = (discY - oy) / dy;
+  if (distance < 0) return -1;
+  const px = ox + dx * distance - x, pz = oz + dz * distance - z;
+  return px * px + pz * pz <= radius * radius ? distance : -1;
+}
+
+function rayCylinderSide(ox, oy, oz, dx, dy, dz, x, bottomY, topY, z, radius) {
+  const px = ox - x, pz = oz - z;
+  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radius * radius;
+  if (a < 1e-12 || b * b - a * c < 0) return -1; // vertical rays reach a cylinder through its caps
+  const distance = c <= 0 ? 0 : (-b - Math.sqrt(b * b - a * c)) / a;
+  const y = oy + dy * distance;
+  return distance >= 0 && y >= bottomY && y <= topY ? distance : -1;
+}

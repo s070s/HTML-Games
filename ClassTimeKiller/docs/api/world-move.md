@@ -33,12 +33,19 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.sweepCapsule(ax, ay, az, bx, by, bz, radius, height, trace)` | true when blocked; `trace = makeTrace()` gets `fraction x y z nx ny nz brush startSolid allSolid` |
 | `World.floorBelow(x, y, z, maxDrop, hit?)` | height of walkable floor within maxDrop, else `NaN` |
 | `World.sphereTouches(x, y, z, radius)` | sphere overlaps geometry |
+| `World.raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit)` | nearest live actor hit volume along a normalized ray, or -1; `hit = makeActorHit()` gets `distance x y z nx ny nz actor zone` (`'head' 'body' 'legs'`). Walls are not checked: call `World.raycast` first and pass its distance as maxDistance |
+| `World.actorsInSphere(x, y, z, radius, out)` | ids of live actors whose capsule touches the sphere written into `out`; returns the count (explosions, melee) |
+| `World.actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle, range, ignoreId, out)` | ids of live actors whose chest (60 % of height) is inside the cone; returns the count (flames, sprays, aim assist) |
 | `World.touchTriggers(id, gravity)` | called by S10 once per actor step; returns `TRIGGER_MEDIUM` bits `WATER LADDER HEAD_UNDER MOVED` |
 | `World.triggers` | normalized trigger rows (`kind index minX..maxZ` + kind fields) for nav links |
 | `World.airLeft(id)` | seconds of breath left (HUD) |
 | `World.tree`, `World.brushes`, `World.dynamic` | read-only data (dynamic = standing props) |
 
-Constants: `ACTOR_RADIUS` 0.40, `STEP_HEIGHT` 0.45, `WALKABLE_NORMAL_Y` (cos 45 deg), `COLLISION_SKIN` 0.005 m.
+Constants: `ACTOR_RADIUS` 0.40, `STEP_HEIGHT` 0.45, `ACTOR_STAND_HEIGHT` 1.80, `WALKABLE_NORMAL_Y` (cos 45 deg), `COLLISION_SKIN` 0.005 m.
+
+Hit volumes (DATA-003): head sphere r 0.14 centred 0.04 m above the eye; body cylinder r 0.30 from 0.85 to 1.45 m;
+legs cylinder r 0.22 from 0.05 to 0.85 m. Body and legs heights scale by `height / 1.8` (crouch, prone). They use flat
+caps instead of rounded ends so the zones never overlap; ties go head, then body, then legs.
 
 Low-level movers (`Collide`, used by S10 and bodies; other sections should prefer the World calls):
 `makeMover()`, `Collide.gatherAround(mover, reach)`, `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,

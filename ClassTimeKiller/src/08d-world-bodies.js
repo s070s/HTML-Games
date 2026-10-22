@@ -74,7 +74,7 @@ const Bodies = {
     let best = maxDistance, found = -1;
     for (let i = 0; i < BODY_CAPACITY; i++) {
       if (!this.active[i]) continue;
-      const distance = this.shape[i] === BODY_SHAPE.SPHERE ? raySphereDistance(ox, oy, oz, dx, dy, dz, i) : rayBoundsDistance(ox, oy, oz, dx, dy, dz, best,
+      const distance = this.shape[i] === BODY_SHAPE.SPHERE ? raySphereDistance(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.halfX[i]) : rayBoundsDistance(ox, oy, oz, dx, dy, dz, best,
         this.x[i] - this.halfX[i], this.y[i] - this.halfY[i], this.z[i] - this.halfZ[i], this.x[i] + this.halfX[i], this.y[i] + this.halfY[i], this.z[i] + this.halfZ[i]);
       if (distance < 0 || distance >= best) continue;
       best = distance; found = i;
@@ -147,14 +147,6 @@ function clampBodySpeed(index) {
   if (speed <= BODY_MAX_SPEED) return;
   const scale = BODY_MAX_SPEED / speed;
   Bodies.vx[index] *= scale; Bodies.vy[index] *= scale; Bodies.vz[index] *= scale;
-}
-
-function raySphereDistance(ox, oy, oz, dx, dy, dz, index) {
-  const cx = Bodies.x[index] - ox, cy = Bodies.y[index] - oy, cz = Bodies.z[index] - oz, radius = Bodies.halfX[index];
-  const along = cx * dx + cy * dy + cz * dz, closestSquared = cx * cx + cy * cy + cz * cz - along * along;
-  if (closestSquared > radius * radius) return -1;
-  const distance = along - Math.sqrt(radius * radius - closestSquared);
-  return distance >= 0 ? distance : (along >= 0 ? 0 : -1);
 }
 
 // Hit point and an outward normal (sphere: radial; box: the dominant axis of the hit point seen from the centre).
