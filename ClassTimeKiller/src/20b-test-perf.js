@@ -372,6 +372,31 @@ Test.add('perf', (check) => {
   batch.counts.set(saved);
 });
 
+// World draw runs (PERF-004 on large maps): visible chunks next to each other in the index buffer share one draw call.
+Test.add('perf', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: world draw runs skipped', true); return; }
+  const gl = Render.gl;
+  Settings.set('video.quality', 'potato');
+  World.load(Maps.get('isle'));
+  placeCamera(0, 30, -140, 0, -0.3);
+  Render.drawFrame(1 / 60, 1);
+  const chunks = WorldMesh.chunks;
+  let visible = 0, triangles = 0, packed = true;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i], previous = chunks[i - 1];
+    if (previous && chunk.offset !== previous.offset + previous.count * WorldMesh.indexBytes) packed = false;
+    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) continue;
+    visible++;
+    triangles += chunk.count / 3;
+  }
+  const drawsBefore = Render.stats.drawCalls, trianglesBefore = Render.stats.triangles;
+  drawWorld(gl);
+  const draws = Render.stats.drawCalls - drawsBefore, drawn = Render.stats.triangles - trianglesBefore;
+  check('world chunks are packed back to back in row order', packed);
+  check('a large map draws its visible chunks in merged runs with the same triangles', visible > 10 && draws * 2 < visible && drawn === triangles, { visible, draws, drawn, triangles });
+  check('no GL error after the merged world draw', gl.getError() === gl.NO_ERROR);
+}));
+
 // The TDM perf scene end to end: bots past the preset cap, kits on every bot, a followed bot, system time totals, a short
 // recording through real frames, and a clean stop.
 Test.add('perf', async (check) => {

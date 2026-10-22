@@ -25,7 +25,7 @@ const BAKE_VALUES_PER_VERTEX = 12;     // x y z nx ny nz material r g b ao sun w
 
 const WorldMesh = {
   chunks: [],              // { minX, minY, minZ, maxX, maxY, maxZ, offset (bytes into the index buffer), count }
-  vertexBytes: null, indexData: null, vertexCount: 0, triangles: 0,
+  vertexBytes: null, indexData: null, indexBytes: 2, vertexCount: 0, triangles: 0,
   vertexBuffer: null, indexBuffer: null, vertexArray: null, indexType: 0,
   theme: null,
   materialIndex: new Map(),
@@ -471,16 +471,25 @@ function addPiece(bake, piece, material, nx, ny, nz) {
   for (let i = 1; i < count - 1; i++) chunk.indices.push(base, base + i, base + i + 1);
 }
 
-// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range).
+// Chunk keys are 'cellX,cellZ'; rows of cells (z, then x) so neighbours along x are neighbours in the index buffer.
+function chunkCell(key) { const comma = key.indexOf(','); return { x: Number(key.slice(0, comma)), z: Number(key.slice(comma + 1)) }; }
+function compareChunkKeys(a, b) {
+  const cellA = chunkCell(a[0]), cellB = chunkCell(b[0]);
+  return cellA.z - cellB.z || cellA.x - cellB.x;
+}
+
+// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range), in row order:
+// drawWorld merges runs of visible chunks that touch in the buffer into one draw call (PERF-004 caps).
 function packWorldMesh(chunkMap) {
+  const ordered = [...chunkMap.entries()].sort(compareChunkKeys).map((entry) => entry[1]);
   let vertexCount = 0, indexCount = 0;
-  for (const chunk of chunkMap.values()) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
+  for (const chunk of ordered) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
   const bytes = new ArrayBuffer(Math.max(1, vertexCount) * WORLD_VERTEX_BYTES);
   const views = { floats: new Float32Array(bytes), signed: new Int8Array(bytes), unsigned: new Uint8Array(bytes) };
   const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const chunks = [];
   let vertex = 0, index = 0;
-  for (const chunk of chunkMap.values()) {
+  for (const chunk of ordered) {
     const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity, offset: index * indices.BYTES_PER_ELEMENT, count: chunk.indices.length };
     for (let i = 0; i < chunk.indices.length; i++) indices[index++] = chunk.indices[i] + vertex;
     for (let i = 0; i < chunk.vertices.length; i += BAKE_VALUES_PER_VERTEX) {
@@ -489,7 +498,7 @@ function packWorldMesh(chunkMap) {
     }
     chunks.push(bounds);
   }
-  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, vertexCount, triangles: indexCount / 3 });
+  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, indexBytes: indices.BYTES_PER_ELEMENT, vertexCount, triangles: indexCount / 3 });
 }
 
 function writeWorldVertex(views, vertex, values, i) {
@@ -653,13 +662,26 @@ function drawWorld(gl) {
   gl.uniform3fv(u.uMaterialB, WorldMesh.materialB);
   gl.uniform4fv(u.uMaterialParams, WorldMesh.materialParams);
   gl.bindVertexArray(WorldMesh.vertexArray);
-  const chunks = WorldMesh.chunks;
+  const chunks = WorldMesh.chunks, run = WorldRun;
+  run.offset = 0; run.count = 0;
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) continue;
-    gl.drawElements(gl.TRIANGLES, chunk.count, WorldMesh.indexType, chunk.offset);
-    Render.countDraw(chunk.count / 3);
+    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) { drawWorldRun(gl); continue; }
+    const touches = run.count > 0 && run.offset + run.count * WorldMesh.indexBytes === chunk.offset;
+    if (!touches) { drawWorldRun(gl); run.offset = chunk.offset; }
+    run.count += chunk.count;
   }
+  drawWorldRun(gl);
+}
+
+// The visible chunks next to each other in the index buffer, drawn as one range.
+const WorldRun = { offset: 0, count: 0 };
+function drawWorldRun(gl) {
+  const run = WorldRun;
+  if (!run.count) return;
+  gl.drawElements(gl.TRIANGLES, run.count, WorldMesh.indexType, run.offset);
+  Render.countDraw(run.count / 3);
+  run.count = 0;
 }
 Render.addPass(20, drawWorld);
 
