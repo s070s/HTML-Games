@@ -37,7 +37,7 @@ Firing is blocked while `ACTOR_FLAG.FROZEN` or `ACTOR_FLAG.DOWNED` is set.
 
 ## Weapons (11a)
 
-- `Weapons.give(id, key, rarity)` -> bool. Owned already: adds `pickupAmmo` (WPN-007); a `dualWield` weapon picked up a second time becomes a pair instead (`Weapons.dual[slot]` = 1: magazine x2, fire rate x2, the new gun arrives loaded). At the carry limit the held (or first carried) weapon is replaced and its key left in `Weapons.dropped` for the items section to drop.
+- `Weapons.give(id, key, rarity)` -> bool. Owned already: adds `pickupAmmo` (WPN-007); a `dualWield` weapon picked up a second time becomes a pair instead (`Weapons.dual[slot]` = 1: magazine x2, fire rate x2, the new gun arrives loaded). At the carry limit the held (or first carried) weapon is replaced and its key left in `Weapons.dropped` (its rarity in `Weapons.droppedRarity`) for the items section to drop.
 - `Weapons.setLoadout(id, keys)`: replaces the inventory; the last key is drawn at once. `Weapons.giveStartLoadout(id)` uses the set's `start` (called on `actor.spawn`).
 - `Weapons.clear(id)`, `Weapons.has(id, key)`, `Weapons.currentWeapon(id)` -> row | null, `Weapons.ammo(id)` -> shared `{ magazine, reserve, alt, infinite }`.
 - `Weapons.addAmmo(id, ammoType, amount)` -> rounds added to every owned weapon of that type (capped at `maxAmmo`).
