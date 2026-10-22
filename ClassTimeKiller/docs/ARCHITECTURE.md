@@ -106,6 +106,24 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 
+## Map data format (catalogue `maps`, generated maps use the same format)
+
+```
+{ id: 'mp01', code: 'MP01', name, size: [x, y, z] metres, theme (one of the 6 MAP-022 tilesets), modes: ['ffa', ...], sky,
+  brushes: [{ shape: 'box' | 'ramp', min: [x,y,z], max: [x,y,z], dir: '+x'|'-x'|'+z'|'-z' (ramps), material }],
+  spawns: [{ x, y, z, yaw (degrees), team: -1 any | 0 | 1, modes: [] (empty = all) }],
+  items: [{ x, y, z, item: <items/powerups/weapons code key>, group: 'power'|'armor'|'health'|'weapon'|'ammo' }],
+  objectives: [{ id, kind: 'flag'|'flagBase'|'point'|'hill'|'bombsite'|'payloadPath'|'relic'|'core'|'bank'|'extract', team, x, y, z, radius, path: [[x,y,z], ...] }],
+  zones: [{ name, min, max }]  (callouts, MAP-012),
+  triggers: [{ kind: 'jumppad'|'teleporter'|'ladder'|'water'|'hazard'|'killzone', min, max, ... }] (fields: docs/api/world-move.md),
+  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }], seed (generated maps only) }
+```
+Coordinates in metres, floor usually at y = 0, yaw in degrees in data (radians in code).
+
+## Spawning contract
+
+S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive = 1`, clears velocity, then emits `actor.spawn { id }`. Every section resets its own per-actor state on `actor.spawn`: S11 sets health/armor/shield from the health preset and gives the loadout from `rules.weaponSet` / the player's loadout; S10 resets movement state; S12 resets cooldowns. Death: S11 sets `alive = 0` and emits `kill`; S13 schedules the respawn from `rules.respawn`.
+
 ## Renderer hooks (S07)
 
 - `Render.addSource(name, fn(batch))`: called inside every rendered frame; `fn` pushes instanced shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`. Shapes are procedural: `box sphere cylinder capsule cone wedge ring`. Later sections draw pickups, projectiles, flags and deployables this way.
