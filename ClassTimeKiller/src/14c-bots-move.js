@@ -223,7 +223,7 @@ const BotMove = {
   // so on those links the movement owns the view and combat footwork waits.
   // A swimmer climbs out by mantling over a rim; a thin deck above the water has none (the ray passes under it). The
   // graph check at match start (findExits) knows most of them; this check near the exit (one ray) catches the rest.
-  // (tx, tz) = the point swum toward, distance = how far it is.
+  // target = { x, z, distance }: the point swum toward and its flat distance (followTarget).
   waterExitBlocked(id, target) {
     const distance = target.distance;
     if (this.exitChecked[id] || !swimming(id, this.segmentType[id]) || distance > WATER_EXIT_CHECK || distance < 1e-3) return false;
