@@ -12,6 +12,7 @@ const NO_ABILITY = -1;
 const KIT_SLOT_EMPTY = 'none';          // a loadout choice that leaves the slot empty (ECP04 gadget field upgrades)
 const OPEN_ENDED = -1;                    // activeTime of toggles and holds: they run until turned off
 const DEFAULT_INTERRUPT = Object.freeze({ damage: false, stun: true, fire: false });
+const REWARD_QUEUE_SIZE = 3;               // a streak or boost meter has three rewards at most
 const ABILITY_STUN_FLAGS = ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED;
 const ATTACK_CATEGORIES = ['offense', 'control'];   // refused while Gadgets.attackLocked (Phase Slip)
 const HUD_SLOT_COUNT = 3;                  // the passive slot is not drawn as a button
@@ -31,6 +32,8 @@ const Abilities = {
   fuel: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),         // 'fuel' resource seconds left
   reward: new Uint8Array(MAX_ACTORS),                              // streak / boost reward loaded into the ultimate slot, not used yet
   rewardLoaded: new Uint8Array(MAX_ACTORS),                        // the ultimate slot holds a reward until it has run
+  rewardQueue: new Int16Array(MAX_ACTORS * REWARD_QUEUE_SIZE),     // rewards earned while one is loaded, in order (row indexes)
+  rewardsWaiting: new Uint8Array(MAX_ACTORS),
   suppressedUntil: new Float64Array(MAX_ACTORS),                   // G20 null pulse: no abilities until this Sim.time
   rechargeScale: new Float32Array(MAX_ACTORS).fill(1),             // cooldown speed (Tune Up perk writes it)
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
@@ -125,7 +128,7 @@ const Abilities = {
   // ---- Life cycle ----
   onSpawn(id) {
     this.endAll(id, 'spawn');
-    this.reward[id] = 0; this.rewardLoaded[id] = 0;
+    this.reward[id] = 0; this.rewardLoaded[id] = 0; this.rewardsWaiting[id] = 0;
     this.suppressedUntil[id] = 0;
     this.hero[id] = this.usesHeroes() ? this.pickHero(id) : null;
     this.applyHero(id);
@@ -256,10 +259,21 @@ const Abilities = {
   grantReward(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
     if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
+    if (!this.rewardLoaded[id]) { this.loadReward(id, row); return true; }
+    if (this.rewardsWaiting[id] >= REWARD_QUEUE_SIZE) return false;   // the one in the slot (or running) is not replaced: the next waits its turn
+    this.rewardQueue[id * REWARD_QUEUE_SIZE + this.rewardsWaiting[id]++] = row.index;
+    return true;
+  },
+  loadReward(id, row) {
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
     this.reward[id] = 1; this.rewardLoaded[id] = 1;
-    return true;
+  },
+  takeQueuedReward(id) {
+    const first = id * REWARD_QUEUE_SIZE, taken = this.rewardQueue[first];
+    this.rewardsWaiting[id]--;
+    for (let i = 0; i < this.rewardsWaiting[id]; i++) this.rewardQueue[first + i] = this.rewardQueue[first + i + 1];
+    return taken;
   },
   usable(id, row) {
     if (Sim.time < this.suppressedUntil[id] || !Actors.alive[id]) return false;
@@ -327,7 +341,8 @@ const Abilities = {
   afterUse(id, slot) {
     if (slot !== SLOT.ULTIMATE || !this.rewardLoaded[id] || this.reward[id]) return;
     this.rewardLoaded[id] = 0;
-    this.assignKitSlot(id, slot);
+    if (this.rewardsWaiting[id] > 0) this.loadReward(id, CAT.abilities[this.takeQueuedReward(id)]);
+    else this.assignKitSlot(id, slot);
   },
   // Ends the abilities the rule names: 'damage' (channels) or 'fire' (cloak).
   interrupt(id, cause) {

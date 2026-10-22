@@ -348,6 +348,7 @@ Test.add('abilities', (check) => {
   AbilityTest.cast(t);
   Abilities.tryActivate(t.caster, SLOT.ABILITY2);
   Abilities.tryActivate(t.caster, SLOT.ULTIMATE);
+  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
   killActor(t.caster, t.enemy);
   check('death: active abilities end', !Abilities.active[t.i]);
   check('death: zones end unless they persist', AbilityTest.zoneOf(t, ZONE_KIND.SMOKE) < 0 && AbilityTest.zoneOf(t, ZONE_KIND.DOME) >= 0);
@@ -462,7 +463,10 @@ Test.add('abilities', (check) => {
 Test.add('abilities', (check) => {
   const t = AbilityTest.start({ meter: 'streak' });
   scorePoints(t.caster, 5);
-  check('streak: 500 points load the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
+  check('streak: 500 points load the 300 reward first and queue the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
+  check('streak: the first reward is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
+  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
+  check('streak: then the orbital lance loads', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
   check('streak: the orbital is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
   check('streak: an instant reward of any category empties the slot', !Abilities.row(t.caster, SLOT.ULTIMATE) && !Abilities.rewardLoaded[t.caster]);
   TestArena.finish();
@@ -791,5 +795,18 @@ Test.add('abilities', (check) => {
   check('F44 rally shield stops at the surplus cap', Damage.surplus[t.ally] === cap && Damage.surplus[t.caster] === 50, Damage.surplus[t.ally]);
   runSeconds(CAT.abilities.byId('rally').duration + 0.2);
   check('F44 rally shield is gone after its 8 s (earlier surplus stays)', Damage.surplus[t.ally] === 80 && Damage.surplus[t.caster] === 0, Damage.surplus[t.ally]);
+  TestArena.finish();
+});
+
+// F44 (R-105): a second reward waits for the first one to be used instead of replacing it.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ meter: 'streak' });
+  Meters.addPoints(t.caster, 300);
+  check('F44 the first streak reward is loaded', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
+  Meters.addPoints(t.caster, 200);
+  check('F44 the second reward does not replace the unused first one', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
+  Abilities.tryActivate(t.caster, SLOT.ULTIMATE);
+  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
+  check('F44 the queued second loads when the first has run', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital' && Abilities.reward[t.caster] === 1);
   TestArena.finish();
 });
