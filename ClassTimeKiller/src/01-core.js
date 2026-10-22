@@ -79,11 +79,15 @@ const Mat4 = {
 const ErrorLog = {
   size: 50,
   entries: [],
+  total: 0,               // entries ever added (the list keeps only the last `size`)
   add(where, error) {
     const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    this.total++;
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
   },
+  // The entries added after ErrorLog.total was `count` (the kept ones).
+  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 
 // ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----

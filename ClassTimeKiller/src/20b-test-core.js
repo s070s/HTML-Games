@@ -75,6 +75,35 @@ Test.add('core', (check) => {
   Save.storageWorks = true;
 });
 
+// ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
+Test.add('core', (check) => {
+  const thrower = Bus.on('test.bootcheck', () => { throw new Error('listener broke'); });
+  let thrown = null;
+  const logged = Test.expectErrors(() => { try { Boot.emitChecked('test.bootcheck'); } catch (error) { thrown = error; } });
+  Bus.off('test.bootcheck', thrower);
+  check('boot: a start-up listener error stops the start', logged === 1 && !!thrown && /listener broke/.test(thrown.message), thrown && thrown.message);
+  let quiet = true;
+  try { Boot.emitChecked('test.bootcheck'); } catch (error) { quiet = false; }
+  check('boot: a clean start-up event goes on', quiet);
+  const run = Boot.run, fatal = document.getElementById('fatal');
+  Boot.run = () => Boot.emitChecked('test.bootcheck');
+  Bus.on('test.bootcheck', thrower);
+  Test.expectErrors(() => Boot.start());
+  Bus.off('test.bootcheck', thrower);
+  Boot.run = run;
+  check('boot: Boot.start shows the fatal screen for it', fatalShown && fatal.classList.contains('show') && document.getElementById('fatal-title').textContent === BOOT_FATAL_TITLE);
+  fatalShown = false; fatal.classList.remove('show');
+  const debugApi = window.__CTK;
+  delete window.__CTK;
+  window.onerror('Uncaught SyntaxError: early', '', 1, 1, null);
+  window.__CTK = debugApi;
+  check('boot: a script error before boot fills the fatal screen (shell.html)', fatal.classList.contains('show') && /early/.test(document.getElementById('fatal-detail').textContent));
+  fatal.classList.remove('show');
+  let newer = [];
+  Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
+  check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+});
+
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
 Test.add('core', (check) => {
   const migrated = Save.migrate({ version: 1, settings: null, bindings: [], touchLayouts: 'x', rulesets: {}, play: { mode: 'ffa' }, crosshairs: 5 });
