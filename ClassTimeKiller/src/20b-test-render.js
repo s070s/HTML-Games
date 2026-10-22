@@ -431,6 +431,12 @@ Test.add('render', (check) => withRenderer(() => {
   updateCamera(1 / 60, 1);
   check('aiming moves the weapon to the centre', Math.abs(poseWeapon(CAT.viewModels.byId('rifle'), viewModelState).x) < hip * 0.2);
   check('aiming zooms the camera', Render.camera.fov < Render.config.fov);
+  state.ads = 0;
+  Render.viewModel = (out) => { out.visible = true; out.shape = 'sidearm'; out.recoilPitch = 2; out.recoilYaw = -1; out.dual = true; return out; };
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('the recoil punch kicks the view (degrees, up = positive pitch)', Test.near(Render.camera.pitch, Actors.aimPitch[id] + 2 * DEG, 1e-6)
+    && Test.near(Render.camera.yaw, Actors.aimYaw[id] - DEG, 1e-6), Render.camera.pitch);
+  check('dual pistols draw two guns', batchInstances(viewModelBatch) === 2 * CAT.viewModels.byId('sidearm').parts.length, batchInstances(viewModelBatch));
   placeCamera(0, 2, 0, 0, 0);
   fillViewModel();
   check('no view model while the camera is overridden', batchInstances(viewModelBatch) === 0);

@@ -13,6 +13,7 @@ const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
 const VIEWMODEL_DARK = '#2b2f35';
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
+const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
@@ -21,7 +22,8 @@ const ViewState = {
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
-const viewModelState = { visible: false, shape: 'rifle', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT };
+const viewModelState = { visible: false, shape: 'rifle', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
+  recoilPitch: 0, recoilYaw: 0, dual: false };
 
 // video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more.
 function verticalFov(horizontalDegrees) {
@@ -31,12 +33,13 @@ function verticalFov(horizontalDegrees) {
 function readViewModel() {
   const state = viewModelState;
   state.visible = false; state.shape = 'rifle'; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
-  state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT;
+  state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT; state.recoilPitch = 0; state.recoilYaw = 0; state.dual = false;
   if (!Render.viewModel || Game.playerId < 0 || ViewState.overridden || !Actors.alive[Game.playerId]) return;
   Render.viewModel(state);
 }
 
 // Places the camera at the local player's interpolated eye; aim angles are the freshest input (lowest latency).
+// The weapon's recoil punch (degrees, positive pitch = up) kicks the view the same way it moves the shots.
 function followPlayer(seconds, alpha) {
   const camera = Render.camera, id = Game.playerId;
   if (id < 0 || Actors.kind[id] === ACTOR_KIND.NONE) return;
@@ -44,8 +47,8 @@ function followPlayer(seconds, alpha) {
   camera.x = lerp(Actors.prevX[id], Actors.x[id], alpha);
   camera.y = lerp(Actors.prevY[id], Actors.y[id], alpha) + ViewState.eye + headBob(id, seconds);
   camera.z = lerp(Actors.prevZ[id], Actors.z[id], alpha);
-  camera.yaw = Actors.aimYaw[id];
-  camera.pitch = Actors.aimPitch[id];
+  camera.yaw = Actors.aimYaw[id] + viewModelState.recoilYaw * DEG;
+  camera.pitch = clamp(Actors.aimPitch[id] + viewModelState.recoilPitch * DEG, -MAX_LOOK_PITCH, MAX_LOOK_PITCH);
   camera.roll = 0;
   const ads = clamp(viewModelState.ads, 0, 1);
   camera.fov = Render.config.fov / lerp(1, Math.max(1, viewModelState.zoom), ads);
@@ -148,12 +151,18 @@ function fillViewModel() {
   viewModelBatch.clear();
   const state = viewModelState;
   if (!state.visible) return;
-  const row = viewModelRows[state.shape] || viewModelRows.rifle, pose = poseWeapon(row, state), camera = Render.camera;
+  const row = viewModelRows[state.shape] || viewModelRows.rifle, pose = poseWeapon(row, state);
+  addWeaponParts(row, pose, state, HAND_RIGHT);
+  if (state.dual) addWeaponParts(row, pose, state, HAND_LEFT);   // W04 second pistol
+}
+
+function addWeaponParts(row, pose, state, hand) {
+  const camera = Render.camera;
   for (let i = 0; i < row.parts.length; i++) {
     const part = row.parts[i];
     // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    rotateYawPitchInto(viewLocal, -part.at[0] * VIEWMODEL_SCALE, part.at[1] * VIEWMODEL_SCALE, part.at[2] * VIEWMODEL_SCALE, 0, pose.pitch);
-    rotateYawPitchInto(viewWorld, viewLocal.x - pose.x, viewLocal.y + pose.y, viewLocal.z + pose.z, camera.yaw, camera.pitch);
+    rotateYawPitchInto(viewLocal, -part.at[0] * VIEWMODEL_SCALE * hand, part.at[1] * VIEWMODEL_SCALE, part.at[2] * VIEWMODEL_SCALE, 0, pose.pitch);
+    rotateYawPitchInto(viewWorld, viewLocal.x - pose.x * hand, viewLocal.y + pose.y, viewLocal.z + pose.z, camera.yaw, camera.pitch);
     const emissive = viewPartColor(part, row, state);
     const pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
     viewModelBatch.mesh(part.shape, camera.x + viewWorld.x, camera.y + viewWorld.y, camera.z + viewWorld.z, camera.yaw, pitch,
