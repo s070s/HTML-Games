@@ -602,3 +602,44 @@ Test.add('gadgets', (check) => {
   check('F44 free-for-all: another player is not moved', Actors.x[other] === -40 && Actors.z[other] === -40);
   TestArena.finish();
 });
+
+// F44 (R-101): Phase Slip ('cannot fire') also stops grenades, gadgets and offensive abilities.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const id = GadgetArena.actor(1, 0, 0, 'frag', 2);
+  Gadgets.give(id, 'claymore', 1);
+  Buffs.add(id, BUFF.NO_FIRE, 2, 2);
+  GadgetArena.throwAfter(id, 0.2);
+  check('F44 no grenade while Phase Slip runs', GadgetArena.firstThrown() < 0 && Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId('frag').index] === 2);
+  Gadgets.select(id, 'claymore');
+  GadgetArena.press(id, BTN.GADGET);
+  check('F44 no gadget while Phase Slip runs', Devices.count === 0);
+  check('F44 an offensive ability is refused while Phase Slip runs', !Abilities.usable(id, CAT.abilities.byId('arcbolt')) && Abilities.usable(id, CAT.abilities.byId('phaseslip')));
+  Buffs.clear(id);
+  check('F44 grenades work again afterwards', Abilities.usable(id, CAT.abilities.byId('arcbolt')));
+  TestArena.finish();
+});
+
+// F44 (R-104): a grenade held when the thrower is frozen, downed or jammed is not thrown.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const id = GadgetArena.actor(1, 0, 0, 'smoke', 1);
+  Actors.buttons[id] = BTN.GRENADE;
+  Sim.run(10);
+  Actors.flags[id] |= ACTOR_FLAG.FROZEN;
+  Sim.run(1);
+  Actors.buttons[id] = 0;
+  Sim.run(2);
+  check('F44 a plain grenade held by a frozen actor is cancelled, not thrown', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.thrownTotal(id) === 1);
+  Actors.flags[id] &= ~ACTOR_FLAG.FROZEN;
+  Gadgets.give(id, 'frag', 1); Gadgets.select(id, 'frag');
+  Actors.buttons[id] = BTN.GRENADE;
+  Sim.run(10);
+  Gadgets.suppress(id, 3);
+  Sim.run(1);
+  Actors.buttons[id] = 0;
+  Sim.run(2);
+  const slot = GadgetArena.firstThrown();
+  check('F44 a cooking grenade of a jammed actor falls at the feet', slot >= 0 && Thrown.vx[slot] === 0 && Thrown.vz[slot] === 0 && Gadgets.holdStart[id] < 0);
+  TestArena.finish();
+});

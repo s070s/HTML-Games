@@ -13,6 +13,7 @@ const KIT_SLOT_EMPTY = 'none';          // a loadout choice that leaves the slot
 const OPEN_ENDED = -1;                    // activeTime of toggles and holds: they run until turned off
 const DEFAULT_INTERRUPT = Object.freeze({ damage: false, stun: true, fire: false });
 const ABILITY_STUN_FLAGS = ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED;
+const ATTACK_CATEGORIES = ['offense', 'control'];   // refused while Gadgets.attackLocked (Phase Slip)
 const HUD_SLOT_COUNT = 3;                  // the passive slot is not drawn as a button
 const ABILITY_CAST_EVENT = { id: 0, ability: '', slot: '' };
 const ABILITY_END_EVENT = { id: 0, ability: '', slot: '', reason: '' };
@@ -263,6 +264,7 @@ const Abilities = {
   usable(id, row) {
     if (Sim.time < this.suppressedUntil[id] || !Actors.alive[id]) return false;
     if (Actors.flags[id] & ABILITY_STUN_FLAGS) return false;
+    if (ATTACK_CATEGORIES.includes(row.category) && Gadgets.attackLocked(id)) return false;
     if (row.modes !== 'any' && !modeAllows(row.modes)) return false;
     return !(row.balance.noCarrier && this.carrierCheck && this.carrierCheck(id));
   },

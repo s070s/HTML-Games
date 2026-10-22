@@ -1126,3 +1126,4 @@ Bus.on('weapon.fire', strengthShot);
 Bus.on('damage', shareLinkedDamage);
 Bus.on('kill', onAbilityKill);
 Bus.on('match.stop', () => Footprints.clear());
+Gadgets.attackLocks.push((id) => Buffs.has(id, BUFF.NO_FIRE));

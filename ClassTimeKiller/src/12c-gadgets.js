@@ -616,6 +616,7 @@ const Gadgets = {
   holdStart: new Int32Array(MAX_ACTORS).fill(-1),    // tick BTN.GRENADE went down with a grenade ready (-1 not holding)
   holdRow: new Int8Array(MAX_ACTORS).fill(-1),
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
+  attackLocks: [],                                   // fn(id) -> true while the actor may not attack (12f: the NO_FIRE buff of A06 Phase Slip)
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
   cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
@@ -735,10 +736,15 @@ const Gadgets = {
     this.cycleShown = canCycle;
     TouchInput.applyAll();
   },
-  blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  // One test for "cannot attack": grenades, gadgets and the offensive abilities (12e usable) all ask it.
+  attackLocked(id) {
+    for (let i = 0; i < this.attackLocks.length; i++) if (this.attackLocks[i](id)) return true;
+    return false;
+  },
+  blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id) || this.attackLocked(id); },
   stepActor(id) {
     this.rechargeGadget(id);
-    if (this.holdStart[id] >= 0) { this.stepHold(id); return; }
+    if (this.holdStart[id] >= 0) { if (this.blocked(id)) this.dropHeld(id); else this.stepHold(id); return; }
     if (this.blocked(id)) return;
     if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
@@ -800,8 +806,8 @@ const Gadgets = {
     if (!row || row.cooldown <= 0 || this.count[id * GADGET_COUNT + row.index] || Sim.tick < this.cooldownEnd[id]) return;
     this.count[id * GADGET_COUNT + row.index] = 1;
   },
-  // A grenade cooking in the hand of someone who dies falls at their feet with the fuse it has left.
-  onDeath(id) {
+  // A grenade cooking in the hand of someone who dies, freezes, goes down or is jammed falls at their feet with the fuse it has left.
+  dropHeld(id) {
     if (this.holdStart[id] < 0) return;
     const row = CAT.gadgets[this.holdRow[id]], fuseLeft = Math.max(1, itemTicks(row.fuse) - this.heldTicks(id));
     this.holdStart[id] = this.holdRow[id] = -1;
@@ -872,7 +878,7 @@ Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
 Bus.on('explosion', (event) => { if (Smoke.count && event.radius > 0) Smoke.punchSphere(event.x, event.y, event.z, event.radius); });
-Bus.on('kill', (event) => Gadgets.onDeath(event.victim));
+Bus.on('kill', (event) => Gadgets.dropHeld(event.victim));
 Bus.on('actor.spawn', (event) => Gadgets.equip(event.id));
 Bus.on('actor.create', (id) => Gadgets.resetActor(id));
 Bus.on('match.start', () => Gadgets.clear());
