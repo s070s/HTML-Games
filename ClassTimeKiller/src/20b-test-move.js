@@ -58,10 +58,17 @@ function highestPoint(id, seconds) {
 
 const testSpeed = (id) => Move.horizontalSpeed(id);
 
+DebugApi.movement = {
+  preset: (id) => Move.preset(id).id,
+  setPreset: (id, presetId) => Move.setPreset(id, presetId),
+  state: (id) => Move.stateName(id),
+  inaccuracy: (id) => Move.inaccuracy(id),
+};
+
 // ---- Presets and MOV-026 ----
 Test.add('move', (check) => {
   check('8 movement presets MV01..MV08', CAT.movement.length === 8 && CAT.movement.map((row) => row.code).join() === 'MV01,MV02,MV03,MV04,MV05,MV06,MV07,MV08');
-  for (const row of CAT.movement) check(row.id + ': table apex = jumpVel^2/2g within 2%', Test.near(row.jumpVel ** 2 / (2 * row.gravity), row.apex, row.apex * 0.02));
+  for (const row of CAT.movement) check(row.id + ': table jumpHeight = jumpVel^2/2g within 2%', Test.near(row.jumpVel ** 2 / (2 * row.gravity), row.jumpHeight, row.jumpHeight * 0.02));
   useTestRules({});
   check('no rules preset falls back to arena', Move.preset(0).id === 'arena');
   useTestRules({ move: 'tactical' });
@@ -75,8 +82,8 @@ Test.add('move', (check) => {
     const id = groundedTester(0, 0);
     const startY = Actors.y[id];
     tapButtons(id, BTN.JUMP);
-    const apex = highestPoint(id, 1.5) - startY, expected = row.jumpVel ** 2 / (2 * row.gravity);
-    check(row.id + ': jump apex within 2% (MOV-026)', Test.near(apex, expected, expected * 0.02), apex.toFixed(3) + ' vs ' + expected.toFixed(3));
+    const height = highestPoint(id, 1.5) - startY, expected = row.jumpVel ** 2 / (2 * row.gravity);
+    check(row.id + ': jump height within 2% (MOV-026)', Test.near(height, expected, expected * 0.02), height.toFixed(3) + ' vs ' + expected.toFixed(3));
     Actors.remove(id);
     const runner = groundedTester(-40, -40);
     holdInput(runner, 0, 1, 0, 45);
@@ -585,4 +592,19 @@ Test.add('move', (check) => {
   check('any hit knocks the rider off for 2 s', !Move.onBoard(id) && !Move.setBoard(id, true));
   stepSeconds(2.05);
   check('can board again after 2 s', Move.setBoard(id, true));
+});
+
+// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step.
+Test.add('move', (check) => {
+  loadTestWorld(randomBrushes(21, 400, 50));
+  useTestRules({ move: 'agile' });
+  const random = makeRandom(4), testers = [];
+  for (let i = 0; i < 24; i++) testers.push(spawnTester(...freeSpot(random)));
+  let total = 0;
+  for (let step = 0; step < 600; step++) {
+    if (step % 40 === 0) testers.forEach((id) => holdInput(id, random.range(-1, 1), 1, random.chance(0.3) ? BTN.JUMP : BTN.SPRINT, random.range(-180, 180)));
+    Sim.step();
+    if (step >= 100) total += Sim.timing.move;
+  }
+  check('24 actors move in < 0.5 ms per step on average', total / 500 < 0.5, (total / 500).toFixed(3) + ' ms');
 });

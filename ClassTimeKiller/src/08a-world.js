@@ -149,7 +149,7 @@ const clipResult = { nx: 0, ny: 0, nz: 0, startSolid: false, allSolid: false };
 
 // Clips the move start->end of a hull against one convex brush (the brush grown by the hull). Returns the entry
 // fraction 0..1, or -1 for a miss. A move that starts inside returns 0 with clipResult.startSolid set (allSolid when it
-// also ends inside). skin keeps the hull that far in front of the surface (Quake-style epsilon; 0 for exact rays).
+// also ends inside). skin keeps the hull that far in front of the surface (a small epsilon; 0 for exact rays).
 function clipBrush(brush, sx, sy, sz, ex, ey, ez, hull, skin) {
   const p = brush.planes;
   let enter = -1, leave = 1, plane = -1, startsOutside = false, endsOutside = false;
@@ -160,12 +160,9 @@ function clipBrush(brush, sx, sy, sz, ex, ey, ez, hull, skin) {
     if (endDistance > 0) endsOutside = true;
     if (startDistance > 0 && (endDistance >= skin || endDistance >= startDistance)) return -1; // wholly in front of this face
     if (startDistance <= 0 && endDistance <= 0) continue;
-    if (startDistance > endDistance) {
-      const fraction = Math.max(0, (startDistance - skin) / (startDistance - endDistance));
-      if (fraction > enter) { enter = fraction; plane = i; }
-    } else {
-      leave = Math.min(leave, (startDistance + skin) / (startDistance - endDistance));
-    }
+    if (startDistance <= endDistance) { leave = Math.min(leave, (startDistance + skin) / (startDistance - endDistance)); continue; }
+    const fraction = Math.max(0, (startDistance - skin) / (startDistance - endDistance));
+    if (fraction > enter) { enter = fraction; plane = i; }
   }
   clipResult.startSolid = !startsOutside;
   clipResult.allSolid = !startsOutside && !endsOutside;

@@ -1,5 +1,5 @@
 // S08 add-on: map trigger volumes (MOV-019, MOV-020). map.triggers = [{ kind, min: [x,y,z], max: [x,y,z], ...fields }]:
-//   jumppad    { target: [x,y,z], apex: 2 }   launch so the arc peaks `apex` m above the higher of feet and target, lands on target
+//   jumppad    { target: [x,y,z], peak: 2 }   launch so the arc tops out `peak` m above the higher of feet and target, lands on target
 //   teleporter { exit: [x,y,z], yaw: 0 }      exit feet position and facing (degrees); speed magnitude kept; telefrags occupants
 //   ladder     {}                             climbing volume (S10 moves at the ladder speed)
 //   water      {}                             swim volume; its top is the surface; head under -> drown timer
@@ -22,7 +22,7 @@ const TELEFRAG_REACH = 0.8;             // two capsules (radius 0.40 each) overl
 const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the capsule's middle
 
 const TRIGGER_KINDS = {
-  jumppad: { fields: { target: REQUIRED, apex: 2 }, touch: touchJumpPad },
+  jumppad: { fields: { target: REQUIRED, peak: 2 }, touch: touchJumpPad },
   teleporter: { fields: { exit: REQUIRED, yaw: 0 }, touch: touchTeleporter },
   ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
   water: { fields: {}, touch: touchWater },
@@ -95,14 +95,14 @@ function requestDamage(target, source, amount, kind, element) {
   Bus.emit('damage.request', damageRequest);
 }
 
-// Ballistic launch: up to the apex, then down onto the target, for this actor's gravity (MOV-019 "designer apex").
+// Ballistic launch: up to the peak, then down onto the target, for this actor's gravity (MOV-019 designer height).
 function touchJumpPad(id, pad, actorGravity) {
   if (TriggerState.padClock[id] > 0) return 0;
   const gravity = Math.max(MIN_PAD_GRAVITY, actorGravity);
   const target = pad.target, startY = Actors.y[id];
-  const apexY = Math.max(startY, target[1]) + pad.apex;
-  const upSpeed = Math.sqrt(2 * gravity * (apexY - startY));
-  const flightTime = upSpeed / gravity + Math.sqrt(2 * (apexY - target[1]) / gravity);
+  const peakY = Math.max(startY, target[1]) + pad.peak;
+  const upSpeed = Math.sqrt(2 * gravity * (peakY - startY));
+  const flightTime = upSpeed / gravity + Math.sqrt(2 * (peakY - target[1]) / gravity);
   Actors.vx[id] = (target[0] - Actors.x[id]) / flightTime;
   Actors.vy[id] = upSpeed;
   Actors.vz[id] = (target[2] - Actors.z[id]) / flightTime;

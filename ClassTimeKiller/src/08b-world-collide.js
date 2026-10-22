@@ -1,5 +1,5 @@
 // S08 add-on: hull sweeps for movers (actors, rigid bodies). A mover gathers nearby brushes once per step, then runs
-// traces against that short list: collide-and-slide with Quake-style velocity clipping (up to 3 planes), step-up,
+// traces against that short list: collide-and-slide with plane-by-plane velocity clipping (up to 3 planes), step-up,
 // ground probe, overlap tests and depenetration (ARC-013). Every move is swept, so fast movers never tunnel.
 
 const COLLISION_SKIN = 0.005;          // metres kept between a hull and a surface (stops float rounding from sinking in)
@@ -80,7 +80,7 @@ const Collide = {
     return touched;
   },
   // Slide with step-up (stairs, kerbs up to stepHeight): when the plain slide was blocked, also try "up, across, down"
-  // and keep whichever went further on the ground plane (Quake PM_StepSlideMove).
+  // and keep whichever went further on the ground plane.
   stepSlide(mover, dt, stepHeight) {
     const startX = mover.x, startY = mover.y, startZ = mover.z, startVX = mover.vx, startVY = mover.vy, startVZ = mover.vz;
     if (!this.slide(mover, dt)) return false;
@@ -190,7 +190,7 @@ function clipVelocity(mover, nx, ny, nz) {
 }
 
 // Velocity that respects every touched plane: clip against one plane if that satisfies the others, else slide
-// along the crease of the last two planes; three planes that disagree stop the mover (Quake SV_FlyMove rule).
+// along the crease of the last two planes; three planes that disagree stop the mover.
 function resolveVelocity(mover) {
   const planes = mover.planes, vx = mover.vx, vy = mover.vy, vz = mover.vz;
   for (let i = 0; i < mover.planeCount; i++) {

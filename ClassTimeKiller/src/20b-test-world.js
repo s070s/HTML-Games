@@ -132,14 +132,14 @@ function randomize(id, random) {
 
 // ---- Trigger volumes (MOV-019, MOV-020) ----
 Test.add('world', (check) => {
-  loadTestWorld([], { triggers: [{ kind: 'jumppad', min: [-1, 0, -1], max: [1, 0.3, 1], target: [20, 0, 0], apex: 3 }] });
+  loadTestWorld([], { triggers: [{ kind: 'jumppad', min: [-1, 0, -1], max: [1, 0.3, 1], target: [20, 0, 0], peak: 3 }] });
   useTestRules({ move: 'arena' });
   const id = spawnTester(0, 0.05, 0);
   const events = recordEvents(['world.trigger'], () => Sim.step());
   check('jump pad fires world.trigger', events.length === 1 && events[0].kind === 'jumppad' && events[0].id === id);
   let top = Actors.y[id];
   for (let i = 0; i < 3 * TICK_RATE && !(Motion.grounded[id] && Actors.x[id] > 5); i++) { Sim.step(); top = Math.max(top, Actors.y[id]); }
-  check('jump pad arc peaks at the designer apex', Test.near(top, 3.05, 0.1), top);
+  check('jump pad arc tops out at the designer height', Test.near(top, 3.05, 0.1), top);
   check('jump pad lands on its target', Test.near(Actors.x[id], 20, 0.3) && Test.near(Actors.z[id], 0, 0.3), Actors.x[id]);
 });
 
@@ -199,10 +199,10 @@ Test.add('world', (check) => {
   const id = spawnTester(0, 0.05, 0);
   const burns = recordEvents(['damage.request'], () => stepSeconds(1.05));
   check('hazard: 10 HP/s as 5 every 0.5 s, the first at once', burns.length === 3 && burns.every((r) => r.kind === 'hazard' && r.amount === 5 && r.element === 'fire'), burns.length);
-  const doomed = spawnTester(12, 0.05, 0);
-  const kills = recordEvents(['damage.request'], () => Sim.step()).filter((r) => r.target === doomed);
+  const victim = spawnTester(12, 0.05, 0);
+  const kills = recordEvents(['damage.request'], () => Sim.step()).filter((r) => r.target === victim);
   check('killzone: lethal hazard', kills.length === 1 && kills[0].amount >= 1000);
-  Actors.remove(doomed); Actors.remove(id);
+  Actors.remove(victim); Actors.remove(id);
   const faller = spawnTester(40, -40, 40);
   check('falling out of the world is lethal', recordEvents(['damage.request'], () => Sim.step()).some((r) => r.target === faller && r.amount >= 1000));
   check('unknown trigger kind is reported', Test.expectErrors(() => loadTestWorld([], { triggers: [{ kind: 'portal', min: [0, 0, 0], max: [1, 1, 1] }] })) === 1 && World.triggers.length === 0);

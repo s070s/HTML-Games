@@ -343,7 +343,7 @@ function land(id, impactSpeed) {
 // MOV-015 curve fallMax*((v-safe)/(lethal-safe))^2 above fallSafe, plus the highest exceeded fallSteps entry.
 function fallDamage(preset, speed) {
   let damage = 0;
-  for (const [threshold, amount] of preset.fallSteps) if (speed > threshold) damage = Math.max(damage, amount);
+  for (let i = 0; i < preset.fallSteps.length; i++) if (speed > preset.fallSteps[i][0]) damage = Math.max(damage, preset.fallSteps[i][1]);
   if (preset.fallLethal > 0 && speed > preset.fallSafe) damage += preset.fallMax * ((speed - preset.fallSafe) / (preset.fallLethal - preset.fallSafe)) ** 2;
   return damage;
 }
