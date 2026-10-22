@@ -873,7 +873,8 @@ Test.add('progress', (check) => {
   progressCardMatch([], { modeOptions: {} });
   Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId, source: 'frag', element: 'kinetic' });
   Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId + 1, source: 'frag', element: 'kinetic' });
-  check('cards: an explosion the player caused counts as explosive use', RunLog.explosiveShots === 1, RunLog.explosiveShots);
+  emitGadgetPop(CAT.gadgets.byId('smoke'), Game.playerId, 0, 0, 0);
+  check('cards: an explosion the player caused counts as explosive use, a smoke pop does not', RunLog.explosiveShots === 1, RunLog.explosiveShots);
   Game.stop();
   const maps = Progress.stats().maps, keptMaps = JSON.stringify(maps);
   try {

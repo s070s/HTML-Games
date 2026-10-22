@@ -74,7 +74,7 @@ const RunLog = {
     if (weapon) this.weaponUsed[weapon.index] = 1;
   },
   // Any explosion the player caused (a grenade, a gadget, a barrel they shot) is explosive use, like a rocket shot.
-  onExplosion(event) { if (this.isPlayer(event.owner)) this.explosiveShots++; },
+  onExplosion(event) { if (event.radius > 0 && this.isPlayer(event.owner)) this.explosiveShots++; },   // a gadget pop (smoke, fire: radius 0) is no blast
   onPickup(event) { if (this.isPlayer(event.id) && event.group === 'armor') this.armorPickups++; },
   weaponsUsed() {
     let count = 0;
