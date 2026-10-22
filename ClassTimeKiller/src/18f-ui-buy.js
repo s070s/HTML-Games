@@ -130,7 +130,7 @@ const LoadoutMenu = {
     this.tabButtons.clear();
     for (const [id, label] of LOADOUT_TABS) {
       const button = Ui.button(label, () => this.show(id), 'ui-tab');
-      button.disabled = id === 'classes' && playerInMatch() && !classesApplyInMatch();   // a class pick would do nothing in this match
+      button.disabled = id === 'classes' && playerInMatch() && !Economy.usesClasses();   // a class pick would do nothing in this match
       this.tabButtons.set(id, button);
       tabs.appendChild(button);
     }
@@ -152,11 +152,8 @@ function defaultLoadoutTab() {
   if (Abilities.usesHeroes()) return 'heroes';
   const kit = Abilities.kitOf(Game.playerId);
   if (kit && kit.id !== 'classes') return 'kits';
-  return classesApplyInMatch() ? 'classes' : 'kits';
+  return Economy.usesClasses() ? 'classes' : 'kits';
 }
-// A class pick is applied at the next spawn only in a class economy whose mode does not arm everyone (13d Economy.onSpawn).
-// Contract request (docs/api/abilities-economy.md): use Economy.usesClasses() once 13d exposes it, then this copy goes.
-function classesApplyInMatch() { return Economy.usesLoadouts() && Economy.preset().loadout === 'classes'; }
 
 function renderClassesTab(body) {
   const classes = Loadouts.classes(), details = makeElement('div', 'ui-note');
@@ -278,14 +275,9 @@ const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, 
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
 // Classes only where the economy hands them out (Economy.usesLoadouts: not in Gun Game or Roulette, whose mode arms everyone);
 // an ability kit can still be picked in a match without classes, unless the mode arms everyone.
-// Contract request (docs/api/abilities-economy.md): call Economy.modeArmsEveryone() once 13d exposes it (usesLoadouts uses it too).
-function modeArmsEveryone() {
-  const params = currentRules().params;
-  return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
-}
 function loadoutAvailable() {
   if (Economy.usesLoadouts()) return true;
-  return playerInMatch() && !modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
+  return playerInMatch() && !Economy.modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
   if (event.action !== 'buyMenu' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;

@@ -190,12 +190,12 @@ Test.add('hudui', (check) => uiWith(() => {
 // ---- Loadouts only where the economy hands them out ----
 Test.add('hudui', (check) => {
   Game.start({ mode: 'gungame', seed: 1, bots: [{ dummy: true }], player: { name: 'Me' } });
-  check('loadout: Gun Game offers no class pick', !Economy.usesLoadouts() && !loadoutAvailable());
+  check('loadout: Gun Game offers no class pick', Economy.modeArmsEveryone() && !Economy.usesLoadouts() && !Economy.usesClasses() && !loadoutAvailable());
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'modern' });
   check('loadout: a class economy offers it', Economy.usesLoadouts() && loadoutAvailable(), Economy.preset().loadout);
-  check('loadout: a class economy opens on the Classes tab', classesApplyInMatch() && defaultLoadoutTab() === 'classes');
+  check('loadout: a class economy opens on the Classes tab', Economy.usesClasses() && defaultLoadoutTab() === 'classes');
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'heroes' });
-  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !classesApplyInMatch());
+  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !Economy.usesClasses());
   Game.stop();
 });
 Test.add('hudui', (check) => uiWith(() => {
