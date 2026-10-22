@@ -8,16 +8,19 @@ const ROTATE_TEXT = 'The match is paused until then.';
 
 const RotateGuard = {
   touch: TOUCH_DEVICE,
-  portrait: window.matchMedia('(orientation: portrait)'),   // live .matches, no layout read per frame
+  // Live .matches: no layout read per frame.
+  portrait: window.matchMedia('(orientation: portrait)'),
   element: null,
   shown: false,
-  // Once per frame: blocks only a running match or its own pause.
+  // Once per frame: blocks only a running match or its own pause. The resume is asked for once, on the turn to landscape:
+  // a held one (a lost context, a pointer lock that needs a click) leaves the pause menu's Resume button.
   update() {
     const blocked = this.touch && !Game.headless && Game.state === 'playing' && this.portrait.matches
       && (!Game.paused || Game.pauseReason === 'rotate');
-    if (blocked !== this.shown) this.show(blocked);
+    const turned = blocked !== this.shown;
+    if (turned) this.show(blocked);
     if (blocked && !Game.paused) Game.pause('rotate');
-    else if (!blocked && Game.paused && Game.pauseReason === 'rotate' && Game.state === 'playing') Input.requestResume();
+    else if (turned && !blocked && Game.paused && Game.pauseReason === 'rotate' && Game.state === 'playing') Input.requestResume();
   },
   show(visible) {
     this.shown = visible;
