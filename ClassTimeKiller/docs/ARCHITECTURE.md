@@ -14,7 +14,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | # | Section | Files | Global objects |
 |---|---|---|---|
 | S00 | style + DOM shells | `shell.html` | `#view` canvas, `#overlay` (DOM UI root), `#fatal`, `#version` |
-| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `length2 length3` (use them, not `Math.hypot`, in hot code: PERF-006), `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim` (`Sim.timing` / `Sim.timingTotal`: read-only ms per system), `Game` |
+| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…` (`wrapAngleAt(values, index)`: the in-place form for per-step code), `length2 length3` (use them, not `Math.hypot`, in hot code: PERF-006), `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim` (`Sim.timing` / `Sim.timingTotal`: read-only ms per system), `Game` |
 | S02 | RNG | `02-rng.js` | `makeRandom`, `hashString`, `Rng.{map,loot,bots,rules,fx,weapons,pve}` |
 | S03 | data catalogues | `03a-data.js`, `03b…` | `Data.define`, `REQUIRED`, `CAT` |
 | S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |

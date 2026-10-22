@@ -34,81 +34,124 @@ const HUD_PVE_PANELS = {
   horde: ['wave'], endless: ['wave'], bank: ['motes'], fiends: ['enemies'], contract: ['stealth'], attrition: ['enemies'], range: [], puzzle: ['chamber'],
 };
 
-// ---- Small text helpers: a dim label and a value next to it ----
-// Left aligned: label at x, value after it. Returns the x after the value.
-function hudPveStat(pen, x, y, unit, label, value, color) {
-  const labelWidth = pen.text(label, x, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  return x + labelWidth + 6 * unit + pen.text(value, x + labelWidth + 6 * unit, y, 17 * unit, color, 'left');
+// ---- Small text helpers: a dim label and a value next to it, from x, y in hudTextAt (17a's scratch forms: the drawer runs
+// once per frame in the middle compiler tier, which boxes every float argument and return of a call it does not inline) ----
+// Left aligned: label at x, value after it. Leaves the x after the value in hudTextAt[0].
+function hudPveStat(pen, layout, label, value, color) {
+  const text = hudTextAt, unit = layout.unit;
+  text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(label, HUD_COLOR.dim, 'left');
+  text[0] = text[0] + text[3] + 6 * unit; text[2] = 17 * unit;
+  pen.textAt(value, color, 'left');
+  text[0] = text[0] + text[3];
 }
-// Right aligned: value ends at right, label before it.
-function hudPveStatRight(pen, right, y, unit, label, value, color) {
-  const valueWidth = pen.text(value, right, y, 17 * unit, color, 'right');
-  pen.text(label, right - valueWidth - 6 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
+// Right aligned: value ends at x, label before it.
+function hudPveStatRight(pen, layout, label, value, color) {
+  const text = hudTextAt, unit = layout.unit;
+  text[2] = 17 * unit;
+  pen.textAt(value, color, 'right');
+  text[0] = text[0] - text[3] - 6 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(label, HUD_COLOR.dim, 'right');
 }
-// "/ total" after a left aligned stat (no string is built per frame).
-function hudPveTotal(pen, x, y, unit, total) {
-  const slashWidth = pen.text('/', x + 4 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  pen.text(hudNumber(total), x + 8 * unit + slashWidth, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
+// "/ total" after a left aligned stat that ends at x (no string is built per frame).
+function hudPveTotal(pen, layout, total) {
+  const text = hudTextAt, x = text[0], unit = layout.unit;
+  text[0] = x + 4 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt('/', HUD_COLOR.dim, 'left');
+  text[0] = x + 8 * unit + text[3];
+  pen.textAt(hudNumber(total), HUD_COLOR.dim, 'left');
 }
-// "a / b" right aligned at right.
-function hudPveFraction(pen, right, y, size, part, whole, color) {
-  const wholeWidth = pen.text(hudNumber(whole), right, y, size, HUD_COLOR.dim, 'right');
-  const slashWidth = pen.text(' / ', right - wholeWidth, y, size, HUD_COLOR.dim, 'right');
-  pen.text(hudNumber(part), right - wholeWidth - slashWidth, y, size, color, 'right');
+// "a / b" right aligned at x, in the size already in hudTextAt[2].
+function hudPveFraction(pen, part, whole, color) {
+  const text = hudTextAt, right = text[0];
+  pen.textAt(hudNumber(whole), HUD_COLOR.dim, 'right');
+  const wholeWidth = text[3];
+  text[0] = right - wholeWidth;
+  pen.textAt(' / ', HUD_COLOR.dim, 'right');
+  text[0] = right - wholeWidth - text[3];
+  pen.textAt(hudNumber(part), color, 'right');
 }
-// One label / value row of a right-hand table.
-function hudPveTableRow(pen, left, width, y, unit, label, value, color) {
-  pen.text(label, left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  pen.text(value, left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, color, 'right');
+// One label / value row at y (hudTextAt[1]) of the right-hand table between the edges in hudPveAt.
+function hudPveTableRow(pen, layout, label, value, color) {
+  const text = hudTextAt, unit = layout.unit, left = hudPveAt[1], width = hudPveAt[2] - left;
+  text[0] = left + 8 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(label, HUD_COLOR.dim, 'left');
+  text[0] = left + width - 8 * unit;
+  pen.textAt(value, color, 'right');
 }
 
-function hudPveTop(layout) {
-  return layout.top + (HUD_PVE_TOP + (Hud.elements.compass ? HUD_PVE_COMPASS_SHIFT : 0)) * layout.unit;
+// The y of the next status row, then the left and right edge of the rows being drawn (the status rows, then a side table):
+// the rows read and advance it instead of taking and returning a float y (PERF-006).
+const hudPveAt = new Float64Array(3);
+// The status rows' first y and edges, into hudPveAt.
+function hudPvePlaceRows(layout) {
+  const at = hudPveAt, half = HUD_PVE_WIDTH * layout.unit / 2;
+  at[0] = layout.top + (HUD_PVE_TOP + (Hud.elements.compass ? HUD_PVE_COMPASS_SHIFT : 0)) * layout.unit;
+  at[1] = layout.centerX - half; at[2] = layout.centerX + half;
 }
-function hudPveLeft(layout) { return layout.centerX - HUD_PVE_WIDTH * layout.unit / 2; }
-function hudPveRight(layout) { return layout.centerX + HUD_PVE_WIDTH * layout.unit / 2; }
+// A status row's panel, `height` pixels from the row's y across the rows' edges (hudBoxAt).
+function hudPveRowPanel(pen, height) {
+  const at = hudPveAt, box = hudBoxAt;
+  box[0] = at[1]; box[1] = at[0]; box[2] = at[2] - at[1]; box[3] = height;
+  pen.panelAt(0.5);
+}
 
-// ---- Status rows; each draws its panel from y and returns the y under it ----
+// ---- Status rows; each draws its panel from the y in hudPveAt[0] and moves it under the panel ----
 // M21 / M22: wave (of the total), the phase on the right, the core bar with its shield, retries and the plate.
-function hudPveWaveRow(pen, layout, pve, y) {
-  const unit = layout.unit, left = hudPveLeft(layout), right = hudPveRight(layout), height = (HUD_PVE_ROW * 3 + 6) * unit;
-  pen.panel(left, y, right - left, height, 0.5);
-  const lineY = y + HUD_PVE_ROW * 0.6 * unit, x = hudPveStat(pen, left + HUD_PVE_PAD * unit, lineY, unit, 'WAVE', hudNumber(pve.wave), HUD_COLOR.text);
-  if (pve.waves > 0) hudPveTotal(pen, x, lineY, unit, pve.waves);
+function hudPveWaveRow(pen, layout, pve) {
+  const at = hudPveAt, text = hudTextAt, unit = layout.unit, y = at[0], left = at[1], right = at[2], height = (HUD_PVE_ROW * 3 + 6) * unit;
+  hudPveRowPanel(pen, height);
+  const lineY = y + HUD_PVE_ROW * 0.6 * unit;
+  text[0] = left + HUD_PVE_PAD * unit; text[1] = lineY;
+  hudPveStat(pen, layout, 'WAVE', hudNumber(pve.wave), HUD_COLOR.text);
+  if (pve.waves > 0) hudPveTotal(pen, layout, pve.waves);
   const counting = pve.state === 'fight';
-  hudPveStatRight(pen, right - HUD_PVE_PAD * unit, lineY, unit, HUD_PVE_STATE_TEXT[pve.state] || '', counting ? hudNumber(pve.enemiesLeft) : hudTime(pve.stateTimeLeft),
+  text[0] = right - HUD_PVE_PAD * unit;
+  hudPveStatRight(pen, layout, HUD_PVE_STATE_TEXT[pve.state] || '', counting ? hudNumber(pve.enemiesLeft) : hudTime(pve.stateTimeLeft),
     counting ? HUD_COLOR.text : pve.state === 'extract' ? Hud.colors.good : HUD_COLOR.warn);
-  hudPveCoreBar(pen, layout, pve, y + HUD_PVE_ROW * 1.5 * unit);
-  const noteY = y + HUD_PVE_ROW * 2.55 * unit;
-  if (pve.retriesLeft > 0) hudPveStat(pen, left + HUD_PVE_PAD * unit, noteY, unit, 'RETRIES', hudNumber(pve.retriesLeft), HUD_COLOR.text);
-  if (pve.guardian) pen.text('GUARDIAN PLATE', right - HUD_PVE_PAD * unit, noteY, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'right');
-  return y + height + 6 * unit;
+  hudPveCoreBar(pen, layout, pve);
+  text[1] = y + HUD_PVE_ROW * 2.55 * unit;
+  text[0] = left + HUD_PVE_PAD * unit;
+  if (pve.retriesLeft > 0) hudPveStat(pen, layout, 'RETRIES', hudNumber(pve.retriesLeft), HUD_COLOR.text);
+  text[0] = right - HUD_PVE_PAD * unit; text[2] = HUD_TEXT_SMALL * unit;
+  if (pve.guardian) pen.textAt('GUARDIAN PLATE', HUD_COLOR.gold, 'right');
+  at[0] = y + height + 6 * unit;
 }
-function hudPveCoreBar(pen, layout, pve, y) {
-  const unit = layout.unit, left = hudPveLeft(layout) + HUD_PVE_PAD * unit, right = hudPveRight(layout) - HUD_PVE_PAD * unit;
+// The core bar, its shield above it and the core health, in the wave row (at 1.5 rows down).
+function hudPveCoreBar(pen, layout, pve) {
+  const at = hudPveAt, box = hudBoxAt, text = hudTextAt, unit = layout.unit, y = at[0] + HUD_PVE_ROW * 1.5 * unit;
+  const left = at[1] + HUD_PVE_PAD * unit, right = at[2] - HUD_PVE_PAD * unit;
   const fraction = pve.coreMax > 0 ? pve.coreHealth / pve.coreMax : 0, barLeft = left + 46 * unit, barRight = right - 52 * unit;
-  pen.text('CORE', left, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  pen.bar(barLeft, y - HUD_PVE_BAR * unit / 2, barRight - barLeft, HUD_PVE_BAR * unit, fraction, fraction < HUD_PVE_LOW_CORE ? Hud.colors.bad : Hud.colors.health);
-  if (pve.coreShield > 0) pen.bar(barLeft, y - HUD_PVE_BAR * unit / 2 - 4 * unit, barRight - barLeft, 3 * unit, pve.coreMax > 0 ? pve.coreShield / pve.coreMax : 1, HUD_COLOR.shield);
-  pen.text(hudNumber(pve.coreHealth), right, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right');
+  text[0] = left; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt('CORE', HUD_COLOR.dim, 'left');
+  box[0] = barLeft; box[1] = y - HUD_PVE_BAR * unit / 2; box[2] = barRight - barLeft; box[3] = HUD_PVE_BAR * unit; box[4] = fraction;
+  pen.barAt(fraction < HUD_PVE_LOW_CORE ? Hud.colors.bad : Hud.colors.health);
+  box[1] = y - HUD_PVE_BAR * unit / 2 - 4 * unit; box[3] = 3 * unit; box[4] = pve.coreMax > 0 ? pve.coreShield / pve.coreMax : 1;
+  if (pve.coreShield > 0) pen.barAt(HUD_COLOR.shield);
+  text[0] = right;
+  pen.textAt(hudNumber(pve.coreHealth), HUD_COLOR.text, 'right');
 }
 
 // M23: carried motes of the most a carrier holds, enemies of your side on the right.
-function hudPveMotesRow(pen, layout, pve, y) {
-  const unit = layout.unit, left = hudPveLeft(layout), right = hudPveRight(layout), height = HUD_PVE_ROW * 1.3 * unit, lineY = y + height / 2;
-  pen.panel(left, y, right - left, height, 0.5);
-  const x = hudPveStat(pen, left + HUD_PVE_PAD * unit, lineY, unit, 'MOTES', hudNumber(pve.carried), pve.carried >= PVE_BANK.carryMax ? HUD_COLOR.gold : HUD_COLOR.text);
-  hudPveTotal(pen, x, lineY, unit, PVE_BANK.carryMax);
-  hudPveStatRight(pen, right - HUD_PVE_PAD * unit, lineY, unit, 'ENEMIES', hudNumber(pve.enemiesLeft), HUD_COLOR.text);
-  return y + height + 6 * unit;
+function hudPveMotesRow(pen, layout, pve) {
+  const at = hudPveAt, text = hudTextAt, unit = layout.unit, y = at[0], height = HUD_PVE_ROW * 1.3 * unit;
+  hudPveRowPanel(pen, height);
+  text[0] = at[1] + HUD_PVE_PAD * unit; text[1] = y + height / 2;
+  hudPveStat(pen, layout, 'MOTES', hudNumber(pve.carried), pve.carried >= PVE_BANK.carryMax ? HUD_COLOR.gold : HUD_COLOR.text);
+  hudPveTotal(pen, layout, PVE_BANK.carryMax);
+  text[0] = at[2] - HUD_PVE_PAD * unit;
+  hudPveStatRight(pen, layout, 'ENEMIES', hudNumber(pve.enemiesLeft), HUD_COLOR.text);
+  at[0] = y + height + 6 * unit;
 }
 
 // NPC-008: the remaining enemy count.
-function hudPveEnemiesRow(pen, layout, pve, y) {
-  const unit = layout.unit, height = HUD_PVE_ROW * 1.3 * unit, width = 150 * unit, left = layout.centerX - width / 2;
-  pen.panel(left, y, width, height, 0.5);
-  hudPveStatRight(pen, left + width - HUD_PVE_PAD * unit, y + height / 2, unit, 'ENEMIES', hudNumber(pve.enemiesLeft), HUD_COLOR.text);
-  return y + height + 6 * unit;
+function hudPveEnemiesRow(pen, layout, pve) {
+  const at = hudPveAt, box = hudBoxAt, text = hudTextAt, unit = layout.unit, y = at[0], height = HUD_PVE_ROW * 1.3 * unit, width = 150 * unit, left = layout.centerX - width / 2;
+  box[0] = left; box[1] = y; box[2] = width; box[3] = height;
+  pen.panelAt(0.5);
+  text[0] = left + width - HUD_PVE_PAD * unit; text[1] = y + height / 2;
+  hudPveStatRight(pen, layout, 'ENEMIES', hudNumber(pve.enemiesLeft), HUD_COLOR.text);
+  at[0] = y + height + 6 * unit;
 }
 
 // M28 stealth contract: the most aware guard's meter and state, alarms, the score so far and the relic.
@@ -121,17 +164,21 @@ function hudPveMostAwareState() {
   }
   return most < 0 ? AWARENESS.UNAWARE : Pve.awarenessState(most);
 }
-function hudPveStealthRow(pen, layout, pve, y) {
-  const unit = layout.unit, left = hudPveLeft(layout), right = hudPveRight(layout), height = (HUD_PVE_ROW * 2 + 6) * unit;
+function hudPveStealthRow(pen, layout, pve) {
+  const at = hudPveAt, box = hudBoxAt, text = hudTextAt, unit = layout.unit, y = at[0], left = at[1], right = at[2], height = (HUD_PVE_ROW * 2 + 6) * unit;
   const color = hudAwarenessColor(pve.awareness), lineY = y + HUD_PVE_ROW * 0.6 * unit;
-  pen.panel(left, y, right - left, height, 0.5);
-  pen.text(HUD_PVE_AWARENESS_TEXT[hudPveMostAwareState()], left + HUD_PVE_PAD * unit, lineY, HUD_TEXT_SMALL * unit, color, 'left');
-  pen.bar(left + 110 * unit, lineY - HUD_PVE_BAR * unit / 2, right - left - 120 * unit, HUD_PVE_BAR * unit, pve.awareness, color);
-  const noteY = y + HUD_PVE_ROW * 1.55 * unit;
-  hudPveStat(pen, left + HUD_PVE_PAD * unit, noteY, unit, 'ALARMS', hudNumber(pve.alarms), pve.alarms > 0 ? Hud.colors.bad : HUD_COLOR.text);
-  hudPveStat(pen, layout.centerX - 40 * unit, noteY, unit, 'SCORE', hudNumber(pve.score), HUD_COLOR.text);
-  pen.text(pve.relic ? 'RELIC TAKEN' : 'FIND THE RELIC', right - HUD_PVE_PAD * unit, noteY, HUD_TEXT_SMALL * unit, pve.relic ? HUD_COLOR.gold : HUD_COLOR.dim, 'right');
-  return y + height + 6 * unit;
+  hudPveRowPanel(pen, height);
+  text[0] = left + HUD_PVE_PAD * unit; text[1] = lineY; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(HUD_PVE_AWARENESS_TEXT[hudPveMostAwareState()], color, 'left');
+  box[0] = left + 110 * unit; box[1] = lineY - HUD_PVE_BAR * unit / 2; box[2] = right - left - 120 * unit; box[3] = HUD_PVE_BAR * unit; box[4] = pve.awareness;
+  pen.barAt(color);
+  text[0] = left + HUD_PVE_PAD * unit; text[1] = y + HUD_PVE_ROW * 1.55 * unit;
+  hudPveStat(pen, layout, 'ALARMS', hudNumber(pve.alarms), pve.alarms > 0 ? Hud.colors.bad : HUD_COLOR.text);
+  text[0] = layout.centerX - 40 * unit;
+  hudPveStat(pen, layout, 'SCORE', hudNumber(pve.score), HUD_COLOR.text);
+  text[0] = right - HUD_PVE_PAD * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(pve.relic ? 'RELIC TAKEN' : 'FIND THE RELIC', pve.relic ? HUD_COLOR.gold : HUD_COLOR.dim, 'right');
+  at[0] = y + height + 6 * unit;
 }
 
 // M31 Test Chambers: chamber of the total, the timer in the colour of the medal it still earns, the exit lock, steps, portals.
@@ -139,32 +186,46 @@ function hudPveChamberTier(pve) {
   const row = PVE_CHAMBERS[pve.chamber - 1];
   return row ? chamberMedal(row, pve.chamberTime, pve.steps, pve.portals) : -1;
 }
-function hudPveChamberRow(pen, layout, pve, y) {
-  const unit = layout.unit, left = hudPveLeft(layout), right = hudPveRight(layout), height = (HUD_PVE_ROW * 2 + 6) * unit, tier = hudPveChamberTier(pve);
-  pen.panel(left, y, right - left, height, 0.5);
-  const lineY = y + HUD_PVE_ROW * 0.6 * unit, x = hudPveStat(pen, left + HUD_PVE_PAD * unit, lineY, unit, 'CHAMBER', hudNumber(pve.chamber), HUD_COLOR.text);
-  hudPveTotal(pen, x, lineY, unit, pve.chambers);
-  pen.text(hudTime(pve.chamberTime), right - HUD_PVE_PAD * unit, lineY, 20 * unit, tier >= 0 ? HUD_PVE_MEDAL_COLORS[tier] : HUD_COLOR.dim, 'right');
-  const noteY = y + HUD_PVE_ROW * 1.55 * unit;
-  pen.text(pve.solved ? 'EXIT OPEN' : 'EXIT LOCKED', left + HUD_PVE_PAD * unit, noteY, HUD_TEXT_SMALL * unit, pve.solved ? Hud.colors.good : Hud.colors.bad, 'left');
-  hudPveStat(pen, layout.centerX - 46 * unit, noteY, unit, 'STEPS', hudNumber(pve.steps), HUD_COLOR.text);
-  hudPveStatRight(pen, right - HUD_PVE_PAD * unit, noteY, unit, 'GATES', hudNumber(pve.portals), HUD_COLOR.text);
-  return y + height + 6 * unit;
+function hudPveChamberRow(pen, layout, pve) {
+  const at = hudPveAt, text = hudTextAt, unit = layout.unit, y = at[0], left = at[1], right = at[2], height = (HUD_PVE_ROW * 2 + 6) * unit, tier = hudPveChamberTier(pve);
+  hudPveRowPanel(pen, height);
+  text[0] = left + HUD_PVE_PAD * unit; text[1] = y + HUD_PVE_ROW * 0.6 * unit;
+  hudPveStat(pen, layout, 'CHAMBER', hudNumber(pve.chamber), HUD_COLOR.text);
+  hudPveTotal(pen, layout, pve.chambers);
+  text[0] = right - HUD_PVE_PAD * unit; text[2] = 20 * unit;
+  pen.textAt(hudTime(pve.chamberTime), tier >= 0 ? HUD_PVE_MEDAL_COLORS[tier] : HUD_COLOR.dim, 'right');
+  text[0] = left + HUD_PVE_PAD * unit; text[1] = y + HUD_PVE_ROW * 1.55 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(pve.solved ? 'EXIT OPEN' : 'EXIT LOCKED', pve.solved ? Hud.colors.good : Hud.colors.bad, 'left');
+  text[0] = layout.centerX - 46 * unit;
+  hudPveStat(pen, layout, 'STEPS', hudNumber(pve.steps), HUD_COLOR.text);
+  text[0] = right - HUD_PVE_PAD * unit;
+  hudPveStatRight(pen, layout, 'GATES', hudNumber(pve.portals), HUD_COLOR.text);
+  at[0] = y + height + 6 * unit;
 }
 
 const HUD_PVE_ROWS = { wave: hudPveWaveRow, motes: hudPveMotesRow, enemies: hudPveEnemiesRow, stealth: hudPveStealthRow, chamber: hudPveChamberRow };
 
 // ---- Boss bar (E13): name, health, phase pips, and the broken weak point ----
-function hudPveBossBar(pen, layout, boss, y) {
-  if (!boss || !boss.active) return y;
-  const unit = layout.unit, width = HUD_PVE_BOSS_WIDTH * unit, left = layout.centerX - width / 2, barY = y + 22 * unit;
-  pen.label(boss.name, left, y + 8 * unit, 16 * unit, HUD_COLOR.text, 'left');
-  hudPveFraction(pen, left + width, y + 8 * unit, HUD_TEXT_SMALL * unit, boss.phase, boss.phases, HUD_COLOR.warn);
-  pen.text('PHASE', left + width - 52 * unit, y + 8 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-  pen.bar(left, barY, width, 12 * unit, boss.health, Hud.colors.bad);
-  for (let phase = 1; phase < boss.phases; phase++) pen.rect(left + width * (1 - phase / boss.phases), barY, 2 * unit, 12 * unit, HUD_COLOR.black, 0.8);
-  if (boss.weakDisabled) pen.label('WEAK POINT BROKEN', layout.centerX, barY + 24 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'center');
-  return barY + 34 * unit;
+function hudPveBossBar(pen, layout, boss) {
+  if (!boss || !boss.active) return;
+  const at = hudPveAt, box = hudBoxAt, text = hudTextAt, unit = layout.unit, width = HUD_PVE_BOSS_WIDTH * unit, left = layout.centerX - width / 2;
+  const y = at[0], barY = y + 22 * unit;
+  text[0] = left; text[1] = y + 8 * unit; text[2] = 16 * unit;
+  pen.labelAt(boss.name, HUD_COLOR.text, 'left');
+  text[0] = left + width; text[2] = HUD_TEXT_SMALL * unit;
+  hudPveFraction(pen, boss.phase, boss.phases, HUD_COLOR.warn);
+  text[0] = left + width - 52 * unit;
+  pen.textAt('PHASE', HUD_COLOR.dim, 'right');
+  box[0] = left; box[1] = barY; box[2] = width; box[3] = 12 * unit; box[4] = boss.health;
+  pen.barAt(Hud.colors.bad);
+  box[2] = 2 * unit;
+  for (let phase = 1; phase < boss.phases; phase++) {
+    box[0] = left + width * (1 - phase / boss.phases);
+    pen.rectAt(HUD_COLOR.black, 0.8);
+  }
+  text[0] = layout.centerX; text[1] = barY + 24 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  if (boss.weakDisabled) pen.labelAt('WEAK POINT BROKEN', HUD_COLOR.gold, 'center');
+  at[0] = barY + 34 * unit;
 }
 
 // ---- Right-hand tables: chamber medal limits and the range drill stats ----
@@ -175,50 +236,76 @@ function hudPveSideTop(layout, statusBottom) { return layout.touch ? statusBotto
 function hudPveSideRow(layout) { return (layout.compact ? HUD_PVE_SIDE_ROW_COMPACT : HUD_PVE_SIDE_ROW) * layout.unit; }
 
 // Par times from the HUD block (PVE_HUD.parTime, set on entering the chamber); steps and gates from the chamber row.
-function hudPveChamberTable(pen, layout, pve, statusBottom) {
+// The side table's edges into hudPveAt[1] and [2], under the status rows that end at hudPveAt[0]; its panel's left, top and
+// width into hudBoxAt (the table sets the height and draws it).
+function hudPvePlaceTable(layout) {
+  const at = hudPveAt, box = hudBoxAt, width = HUD_PVE_SIDE_WIDTH * layout.unit, left = hudPveSideLeft(layout, width);
+  box[0] = left; box[1] = hudPveSideTop(layout, at[0]); box[2] = width;
+  at[1] = left; at[2] = left + width;
+}
+function hudPveChamberTable(pen, layout, pve) {
   const row = PVE_CHAMBERS[pve.chamber - 1];
   if (!row || !pve.parTime) return;
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
   const current = hudPveChamberTier(pve), tiers = HUD_PVE_MEDAL_STARS.length;
-  pen.panel(left, top, width, rowHeight * (tiers + 3.4), 0.5);
-  hudPveTableHeader(pen, left, width, top + rowHeight * 0.6, unit);
+  hudPvePlaceTable(layout);
+  const box = hudBoxAt, text = hudTextAt, unit = layout.unit, left = hudPveAt[1], width = hudPveAt[2] - left, top = box[1], rowHeight = hudPveSideRow(layout);
+  box[3] = rowHeight * (tiers + 3.4);
+  pen.panelAt(0.5);
+  text[1] = top + rowHeight * 0.6;
+  hudPveTableHeader(pen, layout);
   for (let tier = 0; tier < tiers; tier++) {
     const y = top + rowHeight * (tier + 1.6), alpha = tier === current ? 1 : 0.55;
-    if (tier === current) pen.rect(left, y - rowHeight / 2, 3 * unit, rowHeight, HUD_PVE_MEDAL_COLORS[tier]);
-    pen.text(HUD_PVE_MEDAL_STARS[tier], left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_PVE_MEDAL_COLORS[tier], 'left', alpha);
-    pen.text(hudTime(pve.parTime[tier]), left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
-    pen.text(hudNumber(row.par.steps[tier]), left + width * HUD_PVE_STEPS_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
-    pen.text(hudNumber(row.par.portals[tier]), left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
+    box[0] = left; box[1] = y - rowHeight / 2; box[2] = 3 * unit; box[3] = rowHeight;
+    if (tier === current) pen.rectAt(HUD_PVE_MEDAL_COLORS[tier]);
+    text[0] = left + 8 * unit; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
+    pen.textAt(HUD_PVE_MEDAL_STARS[tier], HUD_PVE_MEDAL_COLORS[tier], 'left', alpha);
+    text[0] = left + width * HUD_PVE_TIME_COLUMN;
+    pen.textAt(hudTime(pve.parTime[tier]), HUD_COLOR.text, 'right', alpha);
+    text[0] = left + width * HUD_PVE_STEPS_COLUMN;
+    pen.textAt(hudNumber(row.par.steps[tier]), HUD_COLOR.text, 'right', alpha);
+    text[0] = left + width - 8 * unit;
+    pen.textAt(hudNumber(row.par.portals[tier]), HUD_COLOR.text, 'right', alpha);
   }
-  const footY = top + rowHeight * (tiers + 1.7);
-  hudPveTableRow(pen, left, width, footY, unit, 'STARS', hudNumber(pve.stars), HUD_COLOR.gold);
-  if (pve.chamber > 1) hudPveTableRow(pen, left, width, footY + rowHeight, unit, 'LAST MEDAL', HUD_PVE_MEDAL_NAMES[pve.medal], HUD_COLOR.gold);
+  text[1] = top + rowHeight * (tiers + 1.7);
+  hudPveTableRow(pen, layout, 'STARS', hudNumber(pve.stars), HUD_COLOR.gold);
+  text[1] = text[1] + rowHeight;
+  if (pve.chamber > 1) hudPveTableRow(pen, layout, 'LAST MEDAL', HUD_PVE_MEDAL_NAMES[pve.medal], HUD_COLOR.gold);
 }
-function hudPveTableHeader(pen, left, width, y, unit) {
-  pen.text('MEDAL', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  pen.text('TIME', left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-  pen.text('STEPS', left + width * HUD_PVE_STEPS_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-  pen.text('GATES', left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
+// The medal table's column titles at y (hudTextAt[1]).
+function hudPveTableHeader(pen, layout) {
+  const text = hudTextAt, unit = layout.unit, left = hudPveAt[1], width = hudPveAt[2] - left;
+  text[0] = left + 8 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt('MEDAL', HUD_COLOR.dim, 'left');
+  text[0] = left + width * HUD_PVE_TIME_COLUMN;
+  pen.textAt('TIME', HUD_COLOR.dim, 'right');
+  text[0] = left + width * HUD_PVE_STEPS_COLUMN;
+  pen.textAt('STEPS', HUD_COLOR.dim, 'right');
+  text[0] = left + width - 8 * unit;
+  pen.textAt('GATES', HUD_COLOR.dim, 'right');
 }
 
 // M30: shot statistics, every target down, and the running drill (kills of the drill, its clock, the best time).
-function hudPveRangeTable(pen, layout, pve, statusBottom) {
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
-  pen.panel(left, top, width, rowHeight * 11.4, 0.5);
-  let y = top + rowHeight * 0.6;
-  pen.text('FIRING RANGE', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'left');
-  y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'SHOTS', hudNumber(pve.shots), HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'HITS', hudNumber(pve.hits), HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'ACCURACY %', hudNumber(Math.floor(pve.accuracy * 100)), HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'HEADSHOTS', hudNumber(pve.headshots), HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'DAMAGE', hudNumber(pve.damage), HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'KILLS', hudNumber(pve.kills), HUD_COLOR.text); y += rowHeight;
-  pen.text('DRILL KILLS', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-  hudPveFraction(pen, left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, pve.drillKills, pve.drillTargets, HUD_COLOR.text); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'DRILL TIME', hudTime(pve.stateTimeLeft), HUD_COLOR.warn); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'BEST DRILL', pve.drillBest > 0 ? hudTime(pve.drillBest) : HUD_PVE_NONE, HUD_COLOR.gold); y += rowHeight;
-  hudPveTableRow(pen, left, width, y, unit, 'DRILLS DONE', hudNumber(pve.drills), HUD_COLOR.text);
+function hudPveRangeTable(pen, layout, pve) {
+  hudPvePlaceTable(layout);
+  const box = hudBoxAt, text = hudTextAt, unit = layout.unit, left = hudPveAt[1], width = hudPveAt[2] - left, rowHeight = hudPveSideRow(layout);
+  box[3] = rowHeight * 11.4;
+  pen.panelAt(0.5);
+  text[0] = left + 8 * unit; text[1] = box[1] + rowHeight * 0.6; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt('FIRING RANGE', HUD_COLOR.gold, 'left');
+  text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'SHOTS', hudNumber(pve.shots), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'HITS', hudNumber(pve.hits), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'ACCURACY %', hudNumber(Math.floor(pve.accuracy * 100)), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'HEADSHOTS', hudNumber(pve.headshots), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'DAMAGE', hudNumber(pve.damage), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'KILLS', hudNumber(pve.kills), HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  text[0] = left + 8 * unit;
+  pen.textAt('DRILL KILLS', HUD_COLOR.dim, 'left');
+  text[0] = left + width - 8 * unit;
+  hudPveFraction(pen, pve.drillKills, pve.drillTargets, HUD_COLOR.text); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'DRILL TIME', hudTime(pve.stateTimeLeft), HUD_COLOR.warn); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'BEST DRILL', pve.drillBest > 0 ? hudTime(pve.drillBest) : HUD_PVE_NONE, HUD_COLOR.gold); text[1] = text[1] + rowHeight;
+  hudPveTableRow(pen, layout, 'DRILLS DONE', hudNumber(pve.drills), HUD_COLOR.text);
 }
 
 // ---- Bottom centre: the chamber hint and the Guardian Plate prompt ----
@@ -232,14 +319,18 @@ function hudPveNoteX(layout, width) {
 // The note's panel on screen (centre x, y and width): one source for the drawing and the phone layout test.
 const hudPveNoteBox = { x: 0, y: 0, width: 0 };
 function hudPveNoteRect(layout, text, rise) {
-  const width = HudBatch.measure(text, HUD_PVE_NOTE_SIZE * layout.unit) + HUD_PVE_NOTE_PAD * layout.unit;
+  hudTextAt[2] = HUD_PVE_NOTE_SIZE * layout.unit;
+  HudBatch.measureAt(text);
+  const width = hudTextAt[3] + HUD_PVE_NOTE_PAD * layout.unit;
   hudPveNoteBox.width = width; hudPveNoteBox.x = hudPveNoteX(layout, width); hudPveNoteBox.y = hudPveNoteY(layout, rise);
   return hudPveNoteBox;
 }
-function hudPveCentreNote(pen, layout, text, rise, color) {
-  const unit = layout.unit, box = hudPveNoteRect(layout, text, rise);
-  pen.panel(box.x - box.width / 2, box.y - HUD_PVE_NOTE_HALF * unit, box.width, HUD_PVE_NOTE_HALF * 2 * unit, 0.6);
-  pen.text(text, box.x, box.y, HUD_PVE_NOTE_SIZE * unit, color, 'center');
+function hudPveCentreNote(pen, layout, string, rise, color) {
+  const unit = layout.unit, note = hudPveNoteRect(layout, string, rise), box = hudBoxAt, text = hudTextAt;
+  box[0] = note.x - note.width / 2; box[1] = note.y - HUD_PVE_NOTE_HALF * unit; box[2] = note.width; box[3] = HUD_PVE_NOTE_HALF * 2 * unit;
+  pen.panelAt(0.6);
+  text[0] = note.x; text[1] = note.y; text[2] = HUD_PVE_NOTE_SIZE * unit;
+  pen.textAt(string, color, 'center');
 }
 // DIF-004: the choice is the player's (18o, pause menu row) until they accept the plate. Phones get the short text.
 function hudPveGuardianText(pve, touch) {
@@ -251,11 +342,11 @@ function hudDrawPve(pen, layout) {
   const pve = Modes.hud.pve;
   if (!pve || !pve.active) return;
   const rows = HUD_PVE_PANELS[pve.mode] || [];
-  let y = hudPveTop(layout);
-  for (let i = 0; i < rows.length; i++) y = HUD_PVE_ROWS[rows[i]](pen, layout, pve, y);
-  y = hudPveBossBar(pen, layout, pve.boss, y);
-  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve, y);
-  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve, y);
+  hudPvePlaceRows(layout);
+  for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](pen, layout, pve);
+  hudPveBossBar(pen, layout, pve.boss);
+  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
+  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
   if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve, layout.touch), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }
@@ -263,11 +354,14 @@ function hudDrawPve(pen, layout) {
 // ---- Operations: both teams' tickets under the team scores (low tickets in the warning colour) ----
 function hudDrawTickets(pen, layout) {
   if (!OperationRun.active || !Modes.hudState().active) return;
-  const unit = layout.unit, y = layout.top + 54 * unit, gap = 44 * unit;
-  pen.text('TICKETS', layout.centerX, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
+  const unit = layout.unit, gap = 44 * unit, text = hudTextAt;
+  text[0] = layout.centerX; text[1] = layout.top + 54 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt('TICKETS', HUD_COLOR.dim, 'center');
+  text[2] = 17 * unit;
   for (let team = 0; team < TEAM_COUNT; team++) {
-    const low = OperationRun.tickets[team] <= OPERATION_WARN_TICKETS, x = team === 0 ? layout.centerX - gap : layout.centerX + gap;
-    pen.text(hudNumber(OperationRun.tickets[team]), x, y, 17 * unit, low ? Hud.colors.bad : Hud.teamColor(team), team === 0 ? 'right' : 'left');
+    const low = OperationRun.tickets[team] <= OPERATION_WARN_TICKETS;
+    text[0] = team === 0 ? layout.centerX - gap : layout.centerX + gap;
+    pen.textAt(hudNumber(OperationRun.tickets[team]), low ? Hud.colors.bad : Hud.teamColor(team), team === 0 ? 'right' : 'left');
   }
 }
 

@@ -172,6 +172,33 @@ function endBotTest() {
   World.clear();
 }
 
+// BOT-030 look spring: Bots.turn through the botLookSpring scratch follows the spring formulas step for step, and passes no
+// float to a helper call (PERF-006: about 5 boxed floats per bot step before, with springVelocity, lookRate, wrapAngle, clamp).
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  Bots.lookYaw[bot] = 170 * DEG; Bots.lookPitch[bot] = 2;   // past the pitch limit; later across the -PI..PI seam
+  const dt = TICK_SECONDS, limit = Bots.tier(bot).turn * DEG;
+  const rate = (change) => (Math.abs(change / dt) > limit ? 0 : change / dt);
+  const spring = (velocity, error, feed) => {
+    const relative = velocity - feed, next = relative + (BOT_AIM_SPRING * BOT_AIM_SPRING * error - 2 * BOT_AIM_SPRING * relative) * dt;
+    return clamp(next + feed, -limit, limit);
+  };
+  let worst = 0;
+  for (let step = 0; step < 90; step++) {
+    if (step === 45) Bots.lookYaw[bot] = -170 * DEG;
+    const lookPitch = clamp(Bots.lookPitch[bot], -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
+    const yawVelocity = spring(Bots.yawVelocity[bot], wrapAngle(Bots.lookYaw[bot] - Actors.aimYaw[bot]), rate(wrapAngle(Bots.lookYaw[bot] - Bots.lastLookYaw[bot])));
+    const pitchVelocity = spring(Bots.pitchVelocity[bot], lookPitch - Actors.aimPitch[bot], rate(lookPitch - Bots.lastLookPitch[bot]));
+    const yaw = wrapAngle(Actors.aimYaw[bot] + yawVelocity * dt), pitch = clamp(Actors.aimPitch[bot] + pitchVelocity * dt, -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
+    Bots.turn(bot, dt);
+    worst = Math.max(worst, Math.abs(Actors.aimYaw[bot] - yaw), Math.abs(Actors.aimPitch[bot] - pitch), Math.abs(Bots.yawVelocity[bot] - yawVelocity));
+  }
+  check('the look spring follows the critically damped spring with the turn cap, step for step', worst < 1e-5, worst);
+  check('the look spring passes no float to a helper call (botLookSpring scratch, wrapAngleAt)', !/springVelocity|lookRate|wrapAngle\(|clamp\(/.test(Bots.turn.toString()));
+  endBotTest();
+});
+
 // ---- BOT-071 revive: a bot walks to a downed teammate and holds Use until it stands again ----
 Test.add('bots', (check) => {
   const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 0 }] });

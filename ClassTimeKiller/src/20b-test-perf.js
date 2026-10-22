@@ -501,7 +501,24 @@ Test.add('perf', (check) => {
   const argumentForm = /pen\.(text|label|rect|panel|bar|shape|octagon|ring|weaponIcon|triangle|quad)\(/;
   const offenders = drawers.filter((drawer) => argumentForm.test(drawer.toString())).map((drawer) => drawer.name);
   check('the main layer\'s every-frame drawers pass no float to the pen (scratch arrays and the *At forms)', offenders.length === 0, offenders.join(', '));
+  // The PvE status (17g: about 0.5 KB per horde frame before) and the world markers, name tags, timers and captions (17d).
+  const more = [hudPveStat, hudPveStatRight, hudPveTotal, hudPveFraction, hudPveTableRow, hudPveRowPanel, hudPveCoreBar, hudPveBossBar, hudPveTableHeader,
+    hudPveChamberTable, hudPveRangeTable, hudPveNoteRect, hudPveCentreNote, hudDrawPve, hudDrawTickets, ...Object.values(HUD_PVE_ROWS),
+    hudDrawEdgeArrow, hudDrawMarker, hudDrawPingMarkers, hudDrawNameTags, hudDrawItemTimers, hudDrawCaptions, hudDrawSoundRing];
+  const moreOffenders = more.filter((drawer) => argumentForm.test(drawer.toString()) || /HudBatch\.measure\(|clamp\(/.test(drawer.toString())).map((drawer) => drawer.name);
+  check('the PvE status and world marker drawers pass no float to the pen and measure through the scratch', moreOffenders.length === 0, moreOffenders.join(', '));
+  check('the PvE status rows and boss bar read and move the row y in hudPveAt (no y argument or return)',
+    Object.values(HUD_PVE_ROWS).every((row) => row.length === 3) && hudPveBossBar.length === 3 && hudPveStat.length === 5, hudPveBossBar.length);
   check('the crosshair arms read their geometry from the scratch', hudFillArms.length === 1);
+  const benchmark = Render.sources.find((source) => source.name === 'benchmark'), wasActive = Benchmark.active;
+  Benchmark.active = true;
+  propBatch.clear();
+  benchmark.draw(propBatch);
+  const drawn = propBatch.counts.reduce((sum, count) => sum + count, 0);
+  Benchmark.active = wasActive;
+  propBatch.clear();
+  check('the menu benchmark draws its grid through the instance record (no batch.mesh with float arguments)',
+    !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
   const savedQuads = HudBatch.quads, ring = hudRingAt;
   HudBatch.quads = 0;
   ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;

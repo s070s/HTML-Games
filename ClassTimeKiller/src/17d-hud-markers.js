@@ -50,25 +50,35 @@ function hudEdgeArrowPosition(layout, projection) {
   return hudEdge;
 }
 
-function hudDrawEdgeArrow(pen, layout, projection, color, distance) {
-  const unit = layout.unit, edge = hudEdgeArrowPosition(layout, projection);
+// The arrow and the distance of the projection (hudProjection) off the screen. The arrow's corners go straight into the
+// HUD scratch and the text through the pen's *At forms (17a): no float arguments (PERF-006).
+function hudDrawEdgeArrow(pen, layout, projection, color) {
+  const unit = layout.unit, edge = hudEdgeArrowPosition(layout, projection), corners = hudCorners, text = hudTextAt;
   const tipX = edge.x + edge.dx * HUD_ARROW_TIP * unit, tipY = edge.y + edge.dy * HUD_ARROW_TIP * unit;
   const baseX = edge.x - edge.dx * HUD_ARROW_BASE * unit, baseY = edge.y - edge.dy * HUD_ARROW_BASE * unit;
   const sideX = -edge.dy * HUD_ARROW_WIDTH * unit, sideY = edge.dx * HUD_ARROW_WIDTH * unit;
-  pen.triangle(tipX, tipY, baseX + sideX, baseY + sideY, baseX - sideX, baseY - sideY, color, 1);
-  pen.label(hudNumber(distance), edge.x - edge.dx * 24 * unit, edge.y - edge.dy * 24 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'center');
+  corners[0] = tipX; corners[1] = tipY; corners[2] = baseX + sideX; corners[3] = baseY + sideY;
+  corners[4] = corners[6] = baseX - sideX; corners[5] = corners[7] = baseY - sideY;   // a triangle: a quad with two equal corners
+  setHudPaint(color, 1);
+  pushHudSolid();
+  text[0] = edge.x - edge.dx * 24 * unit; text[1] = edge.y - edge.dy * 24 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.labelAt(hudNumber(projection.distance), HUD_COLOR.text, 'center');
 }
 
 // One marker: on-screen icon with distance below it, or an arrow on the edge. `letter` is -1 for none.
 function hudDrawMarker(pen, layout, x, y, z, shape, color, letter, distanceHint) {
   const unit = layout.unit, onScreen = Hud.project(x, y, z), projection = hudProjection;
-  if (!onScreen) { hudDrawEdgeArrow(pen, layout, projection, color, projection.distance); return; }
-  const margin = HUD_MARKER_MARGIN * unit;
-  const px = clamp(projection.x, margin, layout.width - margin), py = clamp(projection.y, margin, layout.height - margin);
+  if (!onScreen) { hudDrawEdgeArrow(pen, layout, projection, color); return; }
+  const margin = HUD_MARKER_MARGIN * unit, at = hudShapeAt, text = hudTextAt;
+  // Math.min / max instead of clamp: clamp's float result is boxed where the call is not inlined.
+  const px = Math.min(Math.max(projection.x, margin), layout.width - margin), py = Math.min(Math.max(projection.y, margin), layout.height - margin);
   const size = 22 * unit;
-  pen.shape(shape, px, py, size, color, 0.95);
-  if (letter >= 0) pen.text(HUD_LETTERS[letter], px, py, 15 * unit, HUD_COLOR.black, 'center');
-  if (distanceHint !== false) pen.label(hudNumber(projection.distance), px, py + size * 0.95, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'center');
+  at[0] = px; at[1] = py; at[2] = size / 2;
+  pen.shapeAt(shape, color, 0.95);
+  text[0] = px; text[1] = py; text[2] = 15 * unit;
+  if (letter >= 0) pen.textAt(HUD_LETTERS[letter], HUD_COLOR.black, 'center');
+  text[1] = py + size * 0.95; text[2] = HUD_TEXT_SMALL * unit;
+  if (distanceHint !== false) pen.labelAt(hudNumber(projection.distance), HUD_COLOR.text, 'center');
 }
 
 function hudObjectiveColor(objective) {
@@ -166,7 +176,7 @@ function hudPingColor(kind) {
   return kind === 'danger' ? HUD_COLOR.warn : Hud.colors.good;
 }
 function hudDrawPingMarkers(pen, layout) {
-  const p = HudPings, player = Game.playerId;
+  const p = HudPings, player = Game.playerId, text = hudTextAt;
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
     const source = p.source[i];
     if (!p.live(i)) continue;
@@ -174,8 +184,10 @@ function hudDrawPingMarkers(pen, layout) {
     p.follow(i);
     hudDrawMarker(pen, layout, p.x[i], p.y[i] + 0.5, p.z[i], hudPingShape(p.kind[i], p.reply[i]), hudPingColor(p.kind[i]), -1, true);
     if (!Hud.project(p.x[i], p.y[i] + 0.5, p.z[i])) continue;
-    pen.label(Actors.name[source], hudProjection.x, hudProjection.y - 18 * layout.unit, HUD_TEXT_SMALL * layout.unit, HUD_COLOR.dim, 'center');
-    if (p.reply[i]) pen.label(p.reply[i], hudProjection.x, hudProjection.y - 32 * layout.unit, HUD_TEXT_SMALL * layout.unit, Hud.colors.good, 'center');
+    text[0] = hudProjection.x; text[1] = hudProjection.y - 18 * layout.unit; text[2] = HUD_TEXT_SMALL * layout.unit;
+    pen.labelAt(Actors.name[source], HUD_COLOR.dim, 'center');
+    text[1] = hudProjection.y - 32 * layout.unit;
+    if (p.reply[i]) pen.labelAt(p.reply[i], Hud.colors.good, 'center');
   }
 }
 
@@ -194,9 +206,13 @@ function hudDrawNameTags(pen, layout) {
     if (id === player || !Actors.alive[id] || Actors.team[id] !== team) continue;
     if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[player], Actors.y[player], Actors.z[player]) > rangeSquared) continue;
     if (!Hud.project(Actors.x[id], Actors.y[id] + Actors.height[id] + HUD_TAG_HEIGHT_ABOVE, Actors.z[id])) continue;
-    const x = hudProjection.x, y = hudProjection.y, width = HudBatch.measure(Actors.name[id], HUD_TEXT_SMALL * unit);
-    if (Hud.teamShapes) pen.shape(Hud.teamShape(team), x - width / 2 - 9 * unit, y, 11 * unit, Hud.teamColor(team));
-    pen.label(Actors.name[id], x + (Hud.teamShapes ? 4 * unit : 0), y, HUD_TEXT_SMALL * unit, Hud.teamColor(team), 'center');
+    const x = hudProjection.x, y = hudProjection.y, at = hudShapeAt, text = hudTextAt;
+    text[2] = HUD_TEXT_SMALL * unit;
+    HudBatch.measureAt(Actors.name[id]);
+    at[0] = x - text[3] / 2 - 9 * unit; at[1] = y; at[2] = 11 * unit / 2;
+    if (Hud.teamShapes) pen.shapeAt(Hud.teamShape(team), Hud.teamColor(team));
+    text[0] = x + (Hud.teamShapes ? 4 * unit : 0); text[1] = y;
+    pen.labelAt(Actors.name[id], Hud.teamColor(team), 'center');
     drawn++;
   }
 }
@@ -209,8 +225,11 @@ function hudDrawItemTimers(pen, layout) {
     const timer = hudItemTimers[i];
     if (player >= 0 && distanceSquared3(timer.x, timer.y, timer.z, Actors.x[player], Actors.y[player], Actors.z[player]) > HUD_ITEM_TIMER_RANGE * HUD_ITEM_TIMER_RANGE) continue;
     if (!Hud.project(timer.x, timer.y + 0.8, timer.z)) continue;
-    pen.shape('square', hudProjection.x, hudProjection.y, 8 * unit, HUD_COLOR.dim, 0.9);
-    pen.label(hudNumber(timer.remaining), hudProjection.x, hudProjection.y - 14 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'center');
+    const at = hudShapeAt, text = hudTextAt;
+    at[0] = hudProjection.x; at[1] = hudProjection.y; at[2] = 8 * unit / 2;
+    pen.shapeAt('square', HUD_COLOR.dim, 0.9);
+    text[0] = hudProjection.x; text[1] = hudProjection.y - 14 * unit; text[2] = HUD_TEXT_SMALL * unit;
+    pen.labelAt(hudNumber(timer.remaining), HUD_COLOR.text, 'center');
   }
 }
 
@@ -239,17 +258,20 @@ Bus.on('caption', (event) => {
 });
 
 function hudDrawCaptions(pen, layout) {
-  const c = HudCaptions, unit = layout.unit, size = HudAccess.captionSize * unit;
+  const c = HudCaptions, unit = layout.unit, size = HudAccess.captionSize * unit, box = hudBoxAt, text = hudTextAt;
   let shown = 0, y = layout.weaponBarY - (layout.compact ? 40 : 56) * unit;
   for (let k = 1; k <= HUD_CAPTION_SLOTS && shown < HUD_CAPTION_SHOWN; k++) {
     const slot = (c.next - k + HUD_CAPTION_SLOTS) % HUD_CAPTION_SLOTS, age = Hud.time - c.at[slot];
     if (age >= HUD_CAPTION_SECONDS) continue;
     const alpha = Math.min(1, (HUD_CAPTION_SECONDS - age) / HUD_CAPTION_FADE);
+    text[0] = layout.centerX; text[1] = y; text[2] = size;
     if (HudAccess.captionBackground) {
-      const width = HudBatch.measure(c.text[slot], size) + 16 * unit;
-      pen.rect(layout.centerX - width / 2, y - size * 0.75, width, size * 1.5, HUD_COLOR.black, 0.6 * alpha);
+      HudBatch.measureAt(c.text[slot]);
+      const width = text[3] + 16 * unit;
+      box[0] = layout.centerX - width / 2; box[1] = y - size * 0.75; box[2] = width; box[3] = size * 1.5;
+      pen.rectAt(HUD_COLOR.black, 0.6 * alpha);
     }
-    pen.text(c.text[slot], layout.centerX, y, size, HUD_COLOR.text, 'center', alpha);
+    pen.textAt(c.text[slot], HUD_COLOR.text, 'center', alpha);
     y -= size * 1.7;
     shown++;
   }
@@ -262,8 +284,9 @@ function hudDrawSoundRing(pen, layout) {
     if (age >= HUD_SOUND_SECONDS) continue;
     if (player >= 0 && length2(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
     const angle = hudBearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
-    const x = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit, y = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit;
-    pen.shape(icon.shape, x, y, 16 * unit, icon.color, 1 - age / HUD_SOUND_SECONDS);
+    const at = hudShapeAt;
+    at[0] = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit; at[1] = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit; at[2] = 16 * unit / 2;
+    pen.shapeAt(icon.shape, icon.color, 1 - age / HUD_SOUND_SECONDS);
   }
 }
 
