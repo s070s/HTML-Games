@@ -290,16 +290,23 @@ const Bots = {
     Actors.buttons[id] = this.buttonsWanted[id];
     Actors.slotRequest[id] = this.slotWanted[id];
   },
+  // Each axis goes through the botLookSpring scratch; Math.min / max instead of clamp (its float result is boxed).
   turn(id, dt) {
-    const limit = this.tier(id).turn * DEG;
-    const lookPitch = clamp(this.lookPitch[id], -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
-    const yawError = wrapAngle(this.lookYaw[id] - Actors.aimYaw[id]), pitchError = lookPitch - Actors.aimPitch[id];
-    const yawFeed = lookRate(wrapAngle(this.lookYaw[id] - this.lastLookYaw[id]), limit, dt), pitchFeed = lookRate(lookPitch - this.lastLookPitch[id], limit, dt);
+    const spring = botLookSpring;
+    const lookPitch = Math.min(BOT_PITCH_LIMIT, Math.max(-BOT_PITCH_LIMIT, this.lookPitch[id]));
+    spring[2] = this.tier(id).turn * DEG; spring[3] = dt;
+    spring[0] = this.lookYaw[id] - Actors.aimYaw[id]; spring[1] = this.lookYaw[id] - this.lastLookYaw[id]; spring[4] = this.yawVelocity[id];
+    wrapAngleAt(spring, 0); wrapAngleAt(spring, 1);
+    springStep();
+    this.yawVelocity[id] = spring[4];
+    spring[0] = lookPitch - Actors.aimPitch[id]; spring[1] = lookPitch - this.lastLookPitch[id]; spring[4] = this.pitchVelocity[id];
+    springStep();
+    this.pitchVelocity[id] = spring[4];
     this.lastLookYaw[id] = this.lookYaw[id]; this.lastLookPitch[id] = lookPitch;
-    this.yawVelocity[id] = springVelocity(this.yawVelocity[id], yawError, yawFeed, limit, dt);
-    this.pitchVelocity[id] = springVelocity(this.pitchVelocity[id], pitchError, pitchFeed, limit, dt);
-    Actors.aimYaw[id] = wrapAngle(Actors.aimYaw[id] + this.yawVelocity[id] * dt);
-    Actors.aimPitch[id] = clamp(Actors.aimPitch[id] + this.pitchVelocity[id] * dt, -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
+    spring[0] = Actors.aimYaw[id] + this.yawVelocity[id] * dt;
+    wrapAngleAt(spring, 0);
+    Actors.aimYaw[id] = spring[0];
+    Actors.aimPitch[id] = Math.min(BOT_PITCH_LIMIT, Math.max(-BOT_PITCH_LIMIT, Actors.aimPitch[id] + this.pitchVelocity[id] * dt));
   },
   // Look at a world point from the bot's eye (sets the wanted look angles; the motor turns toward them).
   lookAt(id, x, y, z) {
@@ -334,22 +341,23 @@ const Bots = {
   },
 };
 
-// Critically damped spring toward the error (BOT-030 "critically damped spring smoothing"), speed capped by the turn rate.
-// The spring works on the speed relative to the moving look point (feed), so a tracked target does not trail behind.
 // The move a bot wants this step (world-space direction, amount 0..1), read by Bots.wishFrom: the steering code writes it
 // here because three float arguments to a call that is not inlined are boxed on the heap every step (PERF-006).
 const botWish = { x: 0, z: 0, amount: 0 };
 
-function springVelocity(velocity, error, feed, limit, dt) {
-  const relative = velocity - feed;
+// Critically damped spring toward the error (BOT-030 "critically damped spring smoothing"), speed capped by the turn rate.
+// The spring works on the speed relative to the moving look point (feed), so a tracked target does not trail behind.
+// One axis of the look spring (Bots.turn): [0] the error to the look angle, [1] how far the look angle moved this step,
+// [2] the turn-rate cap, [3] dt, [4] the axis speed in and out. Five float arguments and a float return per axis were boxed
+// every bot step where the call was not inlined (PERF-006).
+const botLookSpring = new Float64Array(5);
+function springStep() {
+  const at = botLookSpring, error = at[0], limit = at[2], dt = at[3];
+  // How fast the wanted look angle moves (rad/s); a jump faster than the turn cap (a new target) is no motion to follow.
+  const rate = at[1] / dt, feed = Math.abs(rate) > limit ? 0 : rate;
+  const relative = at[4] - feed;
   const next = relative + (BOT_AIM_SPRING * BOT_AIM_SPRING * error - 2 * BOT_AIM_SPRING * relative) * dt;
-  return clamp(next + feed, -limit, limit);
-}
-
-// How fast the wanted look angle moves (rad/s); a jump faster than the turn cap (a new target) is no motion to follow.
-function lookRate(change, limit, dt) {
-  const rate = change / dt;
-  return Math.abs(rate) > limit ? 0 : rate;
+  at[4] = Math.min(limit, Math.max(-limit, next + feed));
 }
 
 // The roster row behind an actor profile (S13 stores the CAT.bots row of setup.bots[n].profile), else null.
