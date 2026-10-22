@@ -167,6 +167,16 @@ Test.add('ui', (check) => uiWith(() => {
 }));
 
 Test.add('ui', (check) => uiWith(() => {
+  Ui.open('settings', { tab: 'nonsense' });
+  check('settings: an unknown tab falls back to the first one', Ui.current() === 'settings' && !!Ui.top().element.querySelector('.ui-tab.active'));
+  Ui.closeAll();
+  Settings.set('controls.touch.gyro', 'always'); Settings.set('controls.touch.gyroSensitivity', 2);
+  const announced = [];
+  const listener = Bus.on('setting', (key) => announced.push(key));
+  resetSettingKeys(['controls.touch.gyro']);
+  Bus.off('setting', listener);
+  check('settings: a key reset touches only that key and announces it once', Settings.get('controls.touch.gyro') === 'off' && Settings.get('controls.touch.gyroSensitivity') === 2 && announced.join() === 'controls.touch.gyro', announced.join());
+  Settings.reset('controls.touch.gyro');
   Ui.open('settings', { tab: 'controls' });
   const root = Ui.top().element;
   const keys = settingKeys('controls');
@@ -396,6 +406,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout editor: the hide toggle hides the control', TouchInput.getProperty('jump', 'hidden') === true && TouchInput.elements.jump.classList.contains('ghost'));
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Preset')).querySelector('button').click();
   check('layout editor: the preset button switches the layout preset', Settings.get('controls.touch.layout') === 'compact');
+  check('layout editor: switching the preset refreshes the shown values', sliders[0].value === String(TouchInput.getProperty('jump', 'scale')) && sliders[0].value !== '1.5');
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Panel position')).querySelector('button').click();
   check('layout editor: the panel can be docked away from the controls', Ui.top().element.dataset.dock === 'left');
   Settings.reset('controls.touch.layout'); Input.refreshConfig();
@@ -407,10 +418,16 @@ Test.add('ui', (check) => uiWith(() => {
 }));
 
 Test.add('ui', (check) => uiWith(() => {
+  const botId = Actors.create(ACTOR_KIND.BOT, 1, 'counted'), playerId = Actors.create(ACTOR_KIND.PLAYER, 0, 'counted');
+  Actors.alive[botId] = 1; Actors.alive[playerId] = 1;
+  const counts = PerfOverlay.countActors();
+  check('perf HUD: counts bots apart from all actors (PERF-012)', counts.actors === 2 && counts.bots === 1, counts.actors + '/' + counts.bots);
+  Actors.remove(botId); Actors.remove(playerId);
+  check('perf HUD: the AI cost is the sum of the ai and bot systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, render: 9 }), 1.5, 1e-9));
   const lines = PerfOverlay.format(Perf.stats());
   const text = lines.join('\n');
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',
-    ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
+    ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'bots', 'ai ', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
   Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', PerfOverlay.format(Perf.stats()).join('\n').includes('visible in the HUD')); });
   check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = PerfOverlay.format(Perf.stats()).join('\n').includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
   Settings.set('developer.perfHud', false);

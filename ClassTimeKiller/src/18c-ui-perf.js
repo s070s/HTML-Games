@@ -6,6 +6,7 @@ const PERF_REFRESH_MS = 250;
 const PERF_ERROR_LINES = 3;
 const PERF_ERROR_CHARS = 110;
 const PERF_SYSTEMS_SHOWN = 5;
+const AI_SYSTEM_PATTERN = /^(ai|bot)/i;     // PERF-012 wants the bot AI cost always visible, whatever else is slow
 const PERF_FLOOR_FPS = 60;               // PERF-001 hard minimum: the panel turns red below it
 const BYTES_PER_MEGABYTE = 1048576;
 const PERF_CSS = '#overlay > .perf-hud { position: fixed; top: calc(6px + var(--safe-top)); left: calc(6px + var(--safe-left)); z-index: 40; margin: 0; padding: 6px 8px;'
@@ -16,6 +17,7 @@ const PerfOverlay = {
   element: null,
   lastUpdate: 0,
   shown: false,
+  counts: { actors: 0, bots: 0 },   // reused, filled by countActors()
 
   init() {
     injectStyle('perf-style', PERF_CSS);
@@ -38,10 +40,22 @@ const PerfOverlay = {
     this.element.textContent = this.format(stats).join('\n');
     this.element.classList.toggle('slow', stats.fps > 0 && stats.fps < PERF_FLOOR_FPS);
   },
-  activeActors() {
-    let alive = 0;
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id]) alive++;
-    return alive;
+  // Alive actors in total, and how many of them are bots (hostile or friendly).
+  countActors() {
+    const counts = this.counts;
+    counts.actors = 0; counts.bots = 0;
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id]) continue;
+      counts.actors++;
+      const kind = Actors.kind[id];
+      if (kind === ACTOR_KIND.BOT || kind === ACTOR_KIND.ENEMY) counts.bots++;
+    }
+    return counts;
+  },
+  aiMilliseconds(timing) {
+    let total = 0;
+    for (const name in timing) if (AI_SYSTEM_PATTERN.test(name)) total += timing[name];
+    return total;
   },
   heapText() {
     const memory = performance.memory;
@@ -51,12 +65,12 @@ const PerfOverlay = {
     return Object.keys(timing).sort((a, b) => timing[b] - timing[a]).slice(0, PERF_SYSTEMS_SHOWN).map((name) => name + ' ' + timing[name].toFixed(2));
   },
   format(stats) {
-    const counters = stats.counters;
+    const counters = stats.counters, counts = this.countActors();
     const lines = [
       'fps ' + stats.fps.toFixed(1) + '   frame p50 ' + stats.p50.toFixed(2) + '  p95 ' + stats.p95.toFixed(2) + '  p99 ' + stats.p99.toFixed(2) + ' ms',
       'sim p95 ' + stats.simP95.toFixed(2) + ' ms   render ' + counters.renderMs.toFixed(2) + '   hud ' + counters.hudMs.toFixed(2) + '   audio ' + counters.audioMs.toFixed(2) + '   gpu ' + counters.gpuMs.toFixed(2),
       'draw calls ' + counters.drawCalls + '   triangles ' + counters.triangles + '   render scale ' + counters.renderScale.toFixed(2),
-      'actors ' + this.activeActors() + '   projectiles ' + counters.projectiles + '   particles ' + counters.particles + '   dropped steps ' + stats.droppedSteps,
+      'actors ' + counts.actors + '   bots ' + counts.bots + '   ai ' + this.aiMilliseconds(stats.systems).toFixed(2) + ' ms   projectiles ' + counters.projectiles + '   particles ' + counters.particles + '   dropped steps ' + stats.droppedSteps,
       'heap ' + this.heapText() + '   device ' + Input.device + '   bot debug ' + (Ui.botDebug ? 'on' : 'off'),
       'systems ms: ' + (this.slowestSystems(stats.systems).join('  ') || '-'),
     ];

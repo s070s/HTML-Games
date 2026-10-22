@@ -156,7 +156,8 @@ const PadInput = {
     const pad = this.activePad();
     if (!pad || !pad.vibrationActuator) return;
     try {
-      pad.vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: milliseconds, weakMagnitude: strength, strongMagnitude: strength });
+      const played = pad.vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: milliseconds, weakMagnitude: strength, strongMagnitude: strength });
+      if (played && played.catch) played.catch(() => { /* actuator refused: vibration is optional */ });
     } catch (error) { /* actuator refused: vibration is optional */ }
   },
 };

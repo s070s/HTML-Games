@@ -13,6 +13,7 @@ const WHEEL_LINE_UNITS = 33;                // browsers that report lines instea
 const WHEEL_PAGE_UNITS = 800;
 const MAX_QUEUED_PULSES = 8;
 const NO_BINDING = '';
+const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
 
@@ -125,7 +126,7 @@ const Input = {
   effective: new Uint8Array(ACTION_COUNT),
   toggleMode: new Uint8Array(ACTION_COUNT),
   queued: new Uint8Array(ACTION_COUNT),
-  lastPressTick: new Int32Array(ACTION_COUNT).fill(-1000000),
+  lastPressTick: new Int32Array(ACTION_COUNT).fill(NEVER_PRESSED),
   buttonActions: [], axisActions: [], buttonBits: new Uint32Array(ACTION_COUNT),
   queuedTotal: 0,
   pendingButtons: 0, pendingSlot: 0, pendingAge: 0, latchedButtons: 0, latchedSlot: 0,
@@ -243,7 +244,9 @@ const Input = {
   isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
   // True when the action was pressed within the last 0.10 s of simulation time (jump before landing, fire during a cooldown).
   buffered(actionId) { return Sim.tick - this.lastPressTick[this.actionIndex[actionId]] <= INPUT_BUFFER_TICKS; },
-  consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = -1000000; },
+  consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = NEVER_PRESSED; },
+  // Only rows flagged buffered keep a press time, so buffered() is false for every other action.
+  markPressed(index) { if (ACTION_ROWS[index].buffered) this.lastPressTick[index] = Sim.tick; },
   pressAction(index) {
     this.holdCount[index]++;
     if (this.holdCount[index] === 1) this.risingEdge(index);
@@ -256,7 +259,7 @@ const Input = {
   pulseAction(index) { this.pressAction(index); this.releaseAction(index); },
   risingEdge(index) {
     const row = ACTION_ROWS[index];
-    this.lastPressTick[index] = Sim.tick;
+    this.markPressed(index);
     if (this.toggleMode[index]) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
     if (!this.effective[index]) return;
     if (row.button) this.pendingButtons |= row.button;
@@ -296,7 +299,7 @@ const Input = {
     for (let i = 0; i < list.length; i++) {
       const index = list[i];
       if (!ACTION_ROWS[index].button) { this.pulseAction(index); continue; }
-      this.lastPressTick[index] = Sim.tick;
+      this.markPressed(index);
       if (this.queued[index] < MAX_QUEUED_PULSES) { this.queued[index]++; this.queuedTotal++; }
     }
   },
@@ -305,6 +308,7 @@ const Input = {
     this.holdCount.fill(0); this.toggled.fill(0); this.effective.fill(0); this.queued.fill(0);
     this.queuedTotal = 0; this.pendingButtons = 0; this.pendingSlot = 0; this.pendingAge = 0;
     this.latchedButtons = 0; this.latchedSlot = 0; this.wheelAccumulator = 0;
+    this.lastPressTick.fill(NEVER_PRESSED);   // Sim.tick restarts at 0 in a new match; an old press must not look recent
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
     for (const source of this.sources) if (source.reset) source.reset();
   },
@@ -420,10 +424,13 @@ const Input = {
     this.prompt.classList.toggle('show', wanted);
     this.prompt.textContent = this.lockRefused ? 'Click to resume' : 'Click to play';
   },
+  // strength 0..1 (clamped), milliseconds >= 0. The phone motor has no strength, so a weaker rumble is a shorter buzz.
   rumble(strength, milliseconds) {
     if (!this.config.vibration) return;
-    if (this.device === 'gamepad') PadInput.rumble(strength, milliseconds);
-    else if (this.device === 'touch' && navigator.vibrate) navigator.vibrate(milliseconds);
+    const level = clamp(+strength || 0, 0, 1), duration = Math.max(+milliseconds || 0, 0);
+    if (level === 0 || duration === 0) return;
+    if (this.device === 'gamepad') PadInput.rumble(level, duration);
+    else if (this.device === 'touch' && navigator.vibrate) navigator.vibrate(Math.max(1, Math.round(duration * level)));
   },
 
   // ---- Per-frame sampling (Loop 'input' phase) ----

@@ -62,12 +62,12 @@ const TOUCH_SETTINGS = [
   { key: 'controls.touch.show', field: 'touchShow', fallback: 'auto', label: 'Touch controls', options: ['auto', 'on', 'off'], optionLabels: ['When touching', 'Always', 'Never'] },
 ];
 
-// Phone gyro to look rates (rad/s): turn right is a negative spin about the screen-up axis, look down a positive spin about screen-right.
+// Phone gyro to look rates (rad/s): turn right is a negative spin about the screen-up axis, look down a negative spin about screen-right (a top edge tipping toward you looks up).
 function gyroToLook(rotationRate, angle, out) {
   const axes = GYRO_AXES[angle] || GYRO_AXES[0];
   const spinX = rotationRate.beta || 0, spinY = rotationRate.gamma || 0;
   out.right = -(spinX * axes.upX + spinY * axes.upY) * DEG;
-  out.down = (spinX * axes.rightX + spinY * axes.rightY) * DEG;
+  out.down = -(spinX * axes.rightX + spinY * axes.rightY) * DEG;
   return out;
 }
 

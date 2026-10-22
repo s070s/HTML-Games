@@ -140,6 +140,16 @@ Test.add('input', (check) => {
   check('buffer: expired after 0.10 s', !Input.buffered('jump'));
   inputTapKey('Space'); Input.consumeBuffered('jump');
   check('buffer: a consumed press is gone', !Input.buffered('jump'));
+  inputTapKey('KeyR');
+  check('buffer: only rows flagged buffered keep a press time', !Input.buffered('reload'));
+  Sim.run(5000);
+  inputTapKey('Space');
+  Game.start({});
+  check('buffer: a press from the old match does not survive a restart', !Input.buffered('jump') && Sim.tick < INPUT_BUFFER_TICKS);
+  inputTapKey('Space');
+  Game.pause('menu');
+  Game.resume();
+  check('buffer: a press before a pause is dropped (clearAll)', !Input.buffered('jump'));
 
   startInputMatch();
   inputTapKey('Digit3'); Input.frame(INPUT_TEST_FRAME);
@@ -450,9 +460,16 @@ Test.add('input', (check) => {
   Input.rumble(0.5, 120);
   setInputSetting('controls.vibration', false);
   Input.rumble(0.5, 120);
-  PadInput.activePad = original;
   check('rumble: plays on the pad, and the option turns it off (LT-L-026)', effects.length === 1 && effects[0].duration === 120 && effects[0].strongMagnitude === 0.5);
   setInputSetting('controls.vibration', true);
+  effects.length = 0;
+  let caught = 0;
+  PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => { effects.push(options); return { catch: () => { caught++; } }; } } });
+  Input.rumble(3, 50);
+  Input.rumble(-1, 50);
+  Input.rumble(0.5, -20);
+  PadInput.activePad = original;
+  check('rumble: strength is clamped, silent calls are skipped, a rejected effect is caught', effects.length === 1 && effects[0].strongMagnitude === 1 && caught === 1);
 });
 
 Test.add('input', (check) => {
@@ -696,9 +713,9 @@ Test.add('input', (check) => {
   gyroToLook({ beta: 30, gamma: 0 }, 90, out);
   check('gyro: landscape turn about the screen-up axis is a yaw (turn left is negative about up)', Test.near(out.right, -30 * DEG, 1e-9) && Test.near(out.down, 0, 1e-9));
   gyroToLook({ beta: 10, gamma: 20 }, 0, out);
-  check('gyro: portrait maps gamma to yaw and beta to pitch', Test.near(out.right, -20 * DEG, 1e-9) && Test.near(out.down, 10 * DEG, 1e-9));
+  check('gyro: portrait maps gamma to yaw and beta to pitch', Test.near(out.right, -20 * DEG, 1e-9) && Test.near(out.down, -10 * DEG, 1e-9));
   gyroToLook({ beta: 0, gamma: 10 }, 90, out);
-  check('gyro: the screen-right axis flips with orientation', Test.near(out.down, -10 * DEG, 1e-9));
+  check('gyro: the screen-right axis flips with orientation', Test.near(out.down, 10 * DEG, 1e-9));
   gyroToLook({ beta: 5, gamma: 5 }, 45, out);
   check('gyro: an unknown angle falls back to portrait', Test.near(out.right, -5 * DEG, 1e-9));
   setInputSetting('controls.touch.gyro', 'always');

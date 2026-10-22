@@ -20,7 +20,7 @@ View angles resynchronise from `Actors.yaw/pitch` whenever `Actors.spawnCount[id
 ### Latch and buffer (INP-009)
 
 - A press is kept in `buttons` until a sim step has consumed it (`Sim.tick` changed), so a tap shorter than a frame is never lost. A second tap right after a first one waits (at most 0.10 s) for a step that sees the bit low, so every tap makes its own `Actors.pressed` edge.
-- `Input.buffered(actionId)` is true when the action was pressed within 0.10 s of **sim time** (12 ticks); `Input.consumeBuffered(actionId)` clears it. Move (jump before landing) and Weapons (fire during a cooldown) call these for the 0.10 s buffer; `jump` and `fire` have `buffered: true` in the table.
+- `Input.buffered(actionId)` is true when the action was pressed within 0.10 s of **sim time** (12 ticks); `Input.consumeBuffered(actionId)` clears it. Move (jump before landing) and Weapons (fire during a cooldown) call these for the 0.10 s buffer. Only rows with `buffered: true` (`jump`, `fire`) keep a press time; `buffered()` is false for every other action. Press times are cleared by `Input.clearAll()` (new match, pause, rebinding), so a press never outlives a restart.
 - Wheel notches are queued: one weapon switch per notch even when several arrive in one frame.
 
 ## Action table
@@ -28,7 +28,7 @@ View angles resynchronise from `Actors.yaw/pitch` whenever `Actors.spawnCount[id
 `Input.actions` (= `ACTION_ROWS`) is the single table. Row: `{ id, label, group, button | axis+sign | slot | event, toggle?, buffered?, always?, kbm: [binding, binding], pad: binding }`.
 
 - `button`: `BTN` bit written to `Actors.buttons`. `axis`/`sign`: digital move key. `slot`: weapon slot request. `event`: no sim effect; emits `input.action`.
-- `toggle: true` rows (crouch, sprint, alt/aim, walk) have a setting `controls.toggle.<id>` = `hold` | `toggle` (INP-002).
+- `toggle: true` rows (crouch, sprint, alt/aim, walk) have a setting `controls.toggle.<id>` = `hold` | `toggle` (INP-002). Deviation, to be decided by the lead: the setting is one per action, not one per movement preset as INP-002 words it; it can be keyed by preset once S10 exposes the movement preset.
 - `always: true` rows (perfHud, botDebug) also work while a menu is open.
 - Defaults are INP-003 (WASD, Space, Ctrl, Shift, LMB fire, RMB alt/aim, R, E, Q, F, X, G, V, C, Z, 1-9, wheel, Tab, Esc, T, F10, F9) plus pad defaults on the standard mapping (RT fire, LT aim, A jump, B crouch, L3 sprint, X reload, Y next weapon, LB grenade, RB ability 1, d-pad left ability 2, d-pad up ultimate, d-pad right ping, d-pad down use, R3 melee, View scoreboard, Menu pause).
 - Read state: `Input.isHeld(id)` (effective state after hold/toggle), `Input.effective[Input.actionIndex[id]]`.
@@ -53,7 +53,7 @@ Saved in `Save.data.bindings[actionId] = [slot0, slot1, slot2]`, only for action
 - `Input.device`: `'kbm' | 'touch' | 'gamepad'`, last used. Emits `input.device` `{ device }` on change. Aim assist and assists in later sections key off it.
 - Keyboard + mouse: pointer lock on a click while a match runs, `unadjustedMovement` when `controls.rawMouse` and supported (silent fallback to a normal lock), no OS acceleration applied by the game. Sensitivity `controls.mouseSensitivity` (0.05 deg per count at 1.0), `Input.cmPer360(sensitivity, dpi)` for the display, `controls.invertY`, `controls.adsMultiplier` while the aim action is held.
 - Touch: see below. Gamepad: see below.
-- `Input.rumble(strength 0..1, milliseconds)`: pad `vibrationActuator` or `navigator.vibrate`, respects `controls.vibration`.
+- `Input.rumble(strength 0..1, milliseconds)`: strength is clamped to 0..1 and negative durations to 0 (a silent rumble does nothing); pad `vibrationActuator` (a rejected effect is swallowed) or `navigator.vibrate` with the duration scaled by strength; respects `controls.vibration`.
 
 ### Pause rules (PLT-006)
 
@@ -67,7 +67,7 @@ Touch auto-fire: `Input.autoFire` (setting `controls.touch.autoFire`, default on
 
 ## Touch (05b)
 
-`TouchInput` builds a DOM layer in `#overlay`: floating left stick (touch left of 42% of the width, or the dashed hint), look zone on the rest, one round button per row of `TOUCH_CONTROLS` (fire, aim, jump, crouch, reload, swap, grenade, ability 1/2, ultimate, ping, scoreboard, pause, optional left fire). Push past 90% sprints (released under 80%). Look: `controls.touch.sensitivity`, `controls.touch.acceleration`; tap-to-fire `controls.touch.tapToFire`; gyro `controls.touch.gyro` (`off|aiming|always`, iOS permission requested from the setting change or the next touch). Fingers are tracked by pointer id in a pool of 10 slots. Four fingers down within 300 ms toggle the performance overlay. The layer is shown while a match runs on a touch device (`controls.touch.show`: `auto|on|off`).
+`TouchInput` builds a DOM layer in `#overlay`: floating left stick (touch left of 42% of the width, or the dashed hint), look zone on the rest, one round button per row of `TOUCH_CONTROLS` (fire, aim, jump, crouch, reload, swap, grenade, ability 1/2, ultimate, ping, scoreboard, pause, optional left fire). Push past 90% sprints (released under 80%). Look: `controls.touch.sensitivity`, `controls.touch.acceleration`; tap-to-fire `controls.touch.tapToFire`; gyro `controls.touch.gyro` (`off|aiming|always`, iOS permission requested from the setting change or the next touch). Fingers are tracked by pointer id in a pool of 10 slots. Four fingers down within 300 ms toggle the performance overlay. Deviation from ARC-040: the bot debug view has no touch gesture; on touch it is `Options > Developer > Bot debug view`. Gyro: a positive `rotationRate.beta` turns the view up, so pitch is the negated beta (yaw is the negated gamma). The layer is shown while a match runs on a touch device (`controls.touch.show`: `auto|on|off`).
 
 Layout (INP-005): presets `standard`, `compact`, `mirrored` (setting `controls.touch.layout`). `TouchInput.layoutOf/getProperty(id, key)`, `setProperty(id, 'scale' 0.5-2 | 'opacity' 0.2-1 | 'hidden' | 'position' {x,y})`, `resetLayout()`, `setEditing(bool)`, `select(id)`, `onSelect` callback. A control can never leave the screen. Saved in `Save.data.touchLayouts[presetId][controlId] = { x, y, scale, opacity, hidden }`.
 
@@ -105,7 +105,7 @@ Controls category: `controls.mouseSensitivity`, `mouseDpi`, `rawMouse`, `invertY
 
 ### Performance overlay (18c)
 
-`PerfOverlay`: DOM text refreshed 4 times a second while visible (`developer.perfHud`, F10, four-finger tap): fps, frame p50/p95/p99, sim p95, render/hud/audio/gpu ms, draw calls, triangles, render scale, actors, projectiles, particles, dropped steps, JS heap (Chrome), device, bot debug, the five slowest sim systems and the last three `ErrorLog` entries. Turns red under 60 fps. Reads `Perf.stats()` and `Sim.timing` at runtime (S19 loads after S18 but the loop starts after boot).
+`PerfOverlay`: DOM text refreshed 4 times a second while visible (`developer.perfHud`, F10, four-finger tap): fps, frame p50/p95/p99, sim p95, render/hud/audio/gpu ms, draw calls, triangles, render scale, actors, bots (alive hostile or friendly bot actors), the AI system cost (all sim systems named `ai*` or `bot*`), projectiles, particles, dropped steps, JS heap (Chrome), device, bot debug, the five slowest sim systems and the last three `ErrorLog` entries. Turns red under 60 fps. Reads `Perf.stats()` and `Sim.timing` at runtime (S19 loads after S18 but the loop starts after boot).
 
 ## Debug
 

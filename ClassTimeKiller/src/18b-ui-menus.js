@@ -98,6 +98,12 @@ function settingKeys(category) {
   for (const [key, definition] of Settings.definitions) if (definition.category === category && isEditableSetting(definition)) keys.push(key);
   return keys;
 }
+// Exact keys only (Settings.reset takes a prefix and re-applies everything): drop the saved values, then announce each key once.
+function resetSettingKeys(keys) {
+  for (const key of keys) delete Save.data.settings[key];
+  Save.scheduleSave();
+  for (const key of keys) Bus.emit('setting', key);
+}
 function renderSettingsTab(list, category) {
   list.replaceChildren();
   for (const addExtra of Ui.settingsExtras[category] || []) addExtra(list);
@@ -111,7 +117,8 @@ Ui.register('settings', {
     screenHeader(root, 'Settings');
     const categories = SETTINGS_TABS.filter(([id]) => settingKeys(id).length > 0 || Ui.settingsExtras[id]);
     const tabs = makeElement('div', 'ui-tabs'), list = makeElement('div', 'ui-scroll');
-    let active = params && params.tab ? params.tab : categories[0][0];
+    const requested = params && params.tab;
+    let active = categories.some(([id]) => id === requested) ? requested : categories[0][0];   // an unknown tab opens the first one
     const tabButtons = new Map();
     const render = () => {
       for (const [id, button] of tabButtons) button.classList.toggle('active', id === active);
@@ -124,7 +131,7 @@ Ui.register('settings', {
     }
     const reset = Ui.button('Reset this tab', () => Ui.confirm({
       title: 'Reset this tab?', text: 'All settings on this tab return to their defaults.', yes: 'Reset',
-      onYes: () => { for (const key of settingKeys(active)) Settings.reset(key); render(); },
+      onYes: () => { resetSettingKeys(settingKeys(active)); render(); },
     }));
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(reset);
@@ -215,7 +222,7 @@ Ui.register('touchLayout', {
     const scale = Ui.slider({ min: TOUCH_SCALE_MIN, max: TOUCH_SCALE_MAX, step: 0.05, value: 1, format: (value) => Math.round(value * 100) + '%' }, (value) => selected() && TouchInput.setProperty(selected(), 'scale', value));
     const opacity = Ui.slider({ min: TOUCH_OPACITY_MIN, max: TOUCH_OPACITY_MAX, step: 0.05, value: 1, format: (value) => Math.round(value * 100) + '%' }, (value) => selected() && TouchInput.setProperty(selected(), 'opacity', value));
     const hidden = Ui.toggle(false, (value) => selected() && TouchInput.setProperty(selected(), 'hidden', value));
-    const preset = Ui.cycle(TOUCH_PRESETS.map((item) => item.id), TOUCH_PRESETS.map((item) => item.label), Settings.get('controls.touch.layout'), (value) => Settings.set('controls.touch.layout', value));
+    const preset = Ui.cycle(TOUCH_PRESETS.map((item) => item.id), TOUCH_PRESETS.map((item) => item.label), Settings.get('controls.touch.layout'), (value) => { Settings.set('controls.touch.layout', value); Input.refreshConfig(); TouchInput.select(TouchInput.selected); });
     panel.appendChild(info);
     panel.appendChild(Ui.row('Preset', preset));
     panel.appendChild(Ui.row('Panel position', Ui.cycle(['center', 'left', 'right'], ['Center', 'Left', 'Right'], 'center', (side) => { root.dataset.dock = side; })));
