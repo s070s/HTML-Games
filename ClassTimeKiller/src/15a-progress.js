@@ -10,7 +10,6 @@ const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not mea
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
-const RUN_WRATH_ABILITY = 'wrath';          // A34 Wrath Form (S12): its cast and end mark the Wrath Form run metrics
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
 
@@ -120,9 +119,9 @@ const Progress = {
   emptyStats() { return { version: PROGRESS_VERSION, weapons: {}, modes: {}, maps: {}, totals: { matches: 0, wins: 0, kills: 0, deaths: 0, seconds: 0 } }; },
   emptyLadder() { return { version: PROGRESS_VERSION, tier: 0, match: 0, done: false, cleared: {}, difficulty: {} }; },
   migrate(data) {
-    data.progression = fillMissing(isPlainRecord(data.progression) ? data.progression : {}, this.emptyProfile());
-    data.stats = fillMissing(isPlainRecord(data.stats) ? data.stats : {}, this.emptyStats());
-    data.ladder = fillMissing(isPlainRecord(data.ladder) ? data.ladder : {}, this.emptyLadder());
+    data.progression = fillMissing(isPlainObject(data.progression) ? data.progression : {}, this.emptyProfile());
+    data.stats = fillMissing(isPlainObject(data.stats) ? data.stats : {}, this.emptyStats());
+    data.ladder = fillMissing(isPlainObject(data.ladder) ? data.ladder : {}, this.emptyLadder());
     data.progression.xp = Math.max(0, Number(data.progression.xp) || 0);
     data.progression.version = data.stats.version = data.ladder.version = PROGRESS_VERSION;
     return data;
@@ -133,8 +132,8 @@ const Progress = {
   ladder() { return this.ensure().ladder; },
   ensure() {
     const data = Save.data;
-    const current = isPlainRecord(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainRecord(data.stats)
-      && data.stats.version === PROGRESS_VERSION && isPlainRecord(data.ladder) && data.ladder.version === PROGRESS_VERSION;
+    const current = isPlainObject(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainObject(data.stats)
+      && data.stats.version === PROGRESS_VERSION && isPlainObject(data.ladder) && data.ladder.version === PROGRESS_VERSION;
     return current ? data : this.migrate(data);
   },
 
@@ -359,19 +358,18 @@ function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
   return PROGRESS_NOT_REACHED;
 }
-function isPlainRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 // Copies every field of `defaults` that `target` lacks (one level into nested records); returns target.
 function fillMissing(target, defaults) {
   for (const key in defaults) {
     const fallback = defaults[key];
-    if (target[key] === undefined || (isPlainRecord(fallback) && !isPlainRecord(target[key]))) target[key] = fallback;
-    else if (isPlainRecord(fallback) && !Object.keys(fallback).length) continue;
-    else if (isPlainRecord(fallback)) fillMissing(target[key], fallback);
+    if (target[key] === undefined || (isPlainObject(fallback) && !isPlainObject(target[key]))) target[key] = fallback;
+    else if (isPlainObject(fallback) && !Object.keys(fallback).length) continue;
+    else if (isPlainObject(fallback)) fillMissing(target[key], fallback);
   }
   return target;
 }
 function statRecord(table, key, fields) {
-  if (!isPlainRecord(table[key])) table[key] = {};
+  if (!isPlainObject(table[key])) table[key] = {};
   return fillMissing(table[key], Object.assign({}, fields));
 }
 
@@ -399,8 +397,8 @@ Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
 // A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
-Bus.on('ability.cast', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, true); });
-Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, false); });
+Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });
+Bus.on('ability.end', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, false); });
 // PvE reports (PvE section, docs/api/progression.md): an optional second Wrath Form source and boss times.
 Bus.on('pve.wrath', (event) => RunLog.setWrath(event.id, event.active !== false));
 Bus.on('pve.boss', (event) => {
