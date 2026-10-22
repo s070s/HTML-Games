@@ -130,6 +130,7 @@ const LoadoutMenu = {
     this.tabButtons.clear();
     for (const [id, label] of LOADOUT_TABS) {
       const button = Ui.button(label, () => this.show(id), 'ui-tab');
+      button.disabled = id === 'classes' && playerInMatch() && !classesApplyInMatch();   // a class pick would do nothing in this match
       this.tabButtons.set(id, button);
       tabs.appendChild(button);
     }
@@ -150,8 +151,12 @@ function defaultLoadoutTab() {
   if (!playerInMatch()) return 'classes';
   if (Abilities.usesHeroes()) return 'heroes';
   const kit = Abilities.kitOf(Game.playerId);
-  return kit && kit.id !== 'classes' ? 'kits' : 'classes';
+  if (kit && kit.id !== 'classes') return 'kits';
+  return classesApplyInMatch() ? 'classes' : 'kits';
 }
+// A class pick is applied at the next spawn only in a class economy whose mode does not arm everyone (13d Economy.onSpawn).
+// Contract request (docs/api/abilities-economy.md): use Economy.usesClasses() once 13d exposes it, then this copy goes.
+function classesApplyInMatch() { return Economy.usesLoadouts() && Economy.preset().loadout === 'classes'; }
 
 function renderClassesTab(body) {
   const classes = Loadouts.classes(), details = makeElement('div', 'ui-note');
@@ -271,8 +276,16 @@ const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, 
 
 // ---- Opening: the buyMenu action (B), the pause menu rows, B again or Esc closes ----
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
+// Classes only where the economy hands them out (Economy.usesLoadouts: not in Gun Game or Roulette, whose mode arms everyone);
+// an ability kit can still be picked in a match without classes, unless the mode arms everyone.
+// Contract request (docs/api/abilities-economy.md): call Economy.modeArmsEveryone() once 13d exposes it (usesLoadouts uses it too).
+function modeArmsEveryone() {
+  const params = currentRules().params;
+  return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
+}
 function loadoutAvailable() {
-  return Economy.preset().loadout !== 'none' || (playerInMatch() && Abilities.kitOf(Game.playerId) !== null);
+  if (Economy.usesLoadouts()) return true;
+  return playerInMatch() && !modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
   if (event.action !== 'buyMenu' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;
@@ -308,6 +321,9 @@ Ui.register('buy', {
 Ui.register('loadout', { build: (root, params) => LoadoutMenu.build(root, params) });
 Ui.register('classEditor', { build: buildClassEditor });
 Bus.on('input.action', onBuyMenuAction);
-Bus.on('match.start', () => syncPauseEntries(true));
+// The touch TYPE button (grenade type cycle) shows once the gadget section reads BTN.CYCLE_GRENADE through Gadgets.cycleGrenade
+// (contract request, docs/api/input-ui.md); until then a press would do nothing.
+function grenadeCycleLive() { return typeof Gadgets.cycleGrenade === 'function'; }
+Bus.on('match.start', () => { syncPauseEntries(true); TouchInput.setFlag('grenadeCycle', grenadeCycleLive()); });
 Bus.on('match.stop', () => syncPauseEntries(false));
 Bus.on('boot', () => window.addEventListener('keydown', onBuyScreenKey));

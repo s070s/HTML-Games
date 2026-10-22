@@ -32,7 +32,9 @@ const TOUCH_PRESETS = [
   { id: 'mirrored', label: 'Left-handed', mirror: true, scale: 1 },
 ];
 // Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
-// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists).
+// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists);
+// a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
+// with active cards, the grenade type button only once the gadget section reads its button bit).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.72, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
@@ -43,12 +45,14 @@ const TOUCH_CONTROLS = [
   { id: 'swap', label: 'Swap weapon', face: 'SWAP', action: 'nextWeapon', x: 0.70, y: 0.20, size: 46 },
   { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46 },
   { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42 },
+  { id: 'grenadeNext', label: 'Next grenade type', face: 'TYPE', action: 'grenadeNext', x: 0.60, y: 0.74, size: 36, need: 'grenadeCycle' },
   { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.14, size: 46 },
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.14, size: 46 },
   { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.14, size: 46 },
   { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.07, size: 40 },
   { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.07, size: 40 },
   { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.07, size: 40 },
+  { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.07, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
   { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.82, y: 0.22, size: 46 },
@@ -91,6 +95,7 @@ const TouchInput = {
   activeCount: 0, gestureStart: 0, gestureFired: false,
   stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false },
   editing: false, selected: null, onSelect: null,
+  flags: {},                       // match flags read by the TOUCH_CONTROLS 'need' rows that have no needs fn (setFlag)
   shown: false,
   currentPreset: TOUCH_PRESETS[0],
   gyro: { right: 0, down: 0, attached: false },
@@ -349,7 +354,14 @@ const TouchInput = {
     this.applyAll();
   },
   applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
-  needMet(need) { const check = this.needs[need]; return !!check && !!check(); },
+  // A need with a function asks it; one without reads its match flag (setFlag).
+  needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
+  // Shows or hides the controls of a match flag (called on a change only, never per frame).
+  setFlag(name, on) {
+    if (!!this.flags[name] === !!on) return;
+    this.flags[name] = !!on;
+    if (this.layer) this.applyAll();
+  },
   applyControl(control) {
     const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch);
     const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));

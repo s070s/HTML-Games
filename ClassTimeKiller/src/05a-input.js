@@ -58,6 +58,7 @@ const ACTION_ROWS = [
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
+  { id: 'grenadeNext', label: 'Next grenade type', group: 'Combat', button: BTN.CYCLE_GRENADE, kbm: ['Key:KeyN'] },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
   { id: 'heal', label: 'Use heal / shield item', group: 'Combat', button: BTN.HEAL, kbm: ['Key:KeyH'] },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
@@ -79,6 +80,7 @@ const ACTION_ROWS = [
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'], pad: 'Pad:8+3' },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
+  { id: 'cards', label: 'Use a card', group: 'Interface', event: true, kbm: ['Key:KeyY'], pad: 'Pad:16' },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
 ];

@@ -256,6 +256,55 @@ const ASSIST_EFFECT_READERS = {
     return -1;
   },
 };
+// The PvE section (14h-14j) applies these, measured on a spawned brute (rockets, armour drops) and the first participant through
+// the PvE code itself: damage scales, the parry window, the rocket speed, drops, the PvE start's lives and the checkpoint revive.
+const ASSIST_PARRY_ELAPSED = 0.3;   // seconds since the MELEE press: outside the shortest parry window, inside the longest
+const ASSIST_DROP_TRIES = 40;       // brute kills counted for the drop chance (0.5 x yield)
+function assistTestEnemy() { return Pve.spawnEnemy('brute', 0, 0, 6, Math.PI); }
+function assistFirstParticipant() {
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) return id;
+  return -1;
+}
+function assistRocketSpeed() {
+  const brute = assistTestEnemy();
+  launchProjectile(brute, Pve.rowOf(brute).attackRows[0], 0);
+  for (let slot = 0; slot < PROJECTILE_CAP; slot++) {
+    if (Projectiles.state[slot] && Projectiles.owner[slot] === brute) return Math.hypot(Projectiles.vx[slot], Projectiles.vy[slot], Projectiles.vz[slot]);
+  }
+  return -1;
+}
+function assistDropCount() {
+  const brute = assistTestEnemy(), realDrop = Items.drop;
+  let drops = 0;
+  Items.drop = () => { drops++; };
+  try {
+    for (let kill = 0; kill < ASSIST_DROP_TRIES; kill++) Pve.dropLoot(brute, Pve.rowOf(brute), null, Sim.time);
+  } finally { Items.drop = realDrop; }
+  return drops;
+}
+// The wave modes revive at a checkpoint with reviveParticipants(skill.checkpointHeal) (14j).
+function assistCheckpointHealth() {
+  const id = assistFirstParticipant();
+  Actors.health[id] = 1;
+  reviveParticipants(Pve.skill().checkpointHeal);
+  return Actors.health[id];
+}
+Object.assign(ASSIST_EFFECT_READERS, {
+  playerDamage: () => Pve.attackerScale(assistTestEnemy(), assistFirstParticipant()),
+  enemyDamage: () => Pve.attackerScale(assistFirstParticipant(), assistTestEnemy()),
+  parry: () => {
+    const target = assistFirstParticipant();
+    Pve.parryAt[target] = Sim.time - ASSIST_PARRY_ELAPSED;
+    return Pve.parried(assistTestEnemy(), target, { parry: true, id: 'assistTest', kind: 'melee' });
+  },
+  lives: () => {
+    applyDifficultyLives();
+    return Modes.lives[assistFirstParticipant()];
+  },
+  projectileSpeed: assistRocketSpeed,
+  resourceYield: assistDropCount,
+  checkpointHeal: assistCheckpointHealth,
+});
 function assistEffect(field, value) {
   const setting = Settings.get('controls.pad.aimAssist');
   Settings.set('controls.pad.aimAssist', 0); Input.refreshConfig();

@@ -97,8 +97,8 @@ Bus.on('game.pause', flushSave);
 //   live  - a section reads rules.botSkill.<field>, so the slider changes the match (custom match rows, Ui.difficultyRows).
 //   assist - the player may set it as a personal assist (the Gameplay tab). Switched on, only the assists the player moved away from
 //            their neutral value replace the chosen preset's field; everything else keeps the preset (no penalty).
-// The fields with live false are carried in rules.botSkill but nobody reads them yet (the PvE section owns damage, lives and checkpoints,
-// the weapons section the parry window): they get no slider until their reader exists, so no slider is shown that does nothing.
+// Every field has its reader now (bots 14a, the PvE section 14h-14j for damage, parry, projectiles, pickups, lives and checkpoints);
+// a row with live false would get no slider, so a future field without a reader shows nothing that does nothing.
 const ASSIST_ROWS = {
   gameSpeed: { label: 'Game speed (x)', fallback: 1, step: 0.05, live: true, assist: true },
   aimAssist: { label: 'Aim assist floor (%, touch and gamepad)', fallback: 0, step: 5, live: true, assist: true },
@@ -106,13 +106,14 @@ const ASSIST_ROWS = {
   aimErrorScale: { label: 'Bot aim error (x)', fallback: 1, step: 0.1, live: true, assist: false },
   aggression: { label: 'Bot aggression (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
   attackers: { label: 'Bots attacking at once', fallback: 3, step: 1, live: true, assist: false },
-  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: false, assist: true },
-  playerDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: false, assist: true },
-  enemyDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: false, assist: true },
-  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: false, assist: false },
-  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1, live: false, assist: false },
-  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1, live: false, assist: false },
-  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05, live: false, assist: false },
+  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: true, assist: true },
+  // playerDamage scales the hits the player takes from PvE enemies, enemyDamage the hits PvE enemies take (14a, 14h).
+  playerDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: true, assist: true },
+  enemyDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: true, assist: true },
+  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: true, assist: false },
+  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1, live: true, assist: false },
+  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1, live: true, assist: false },
+  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
 };
 // field -> settings-style definition ({ label, fallback, min, max, step }) of every slider that has a reader.
 const ASSIST_DEFINITIONS = new Map();

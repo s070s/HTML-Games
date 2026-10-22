@@ -55,7 +55,7 @@ const Ui = {
   perfVisible: false,
   selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
   lastSelfTest: null,
-  pauseEntries: [],           // { label, screen } rows later sections add to the pause menu (rules panel)
+  pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab
   settingsFooter: [],         // fn(refresh) -> button: extra buttons under the settings tabs (18l: reset all)
   settingGroup: () => '',     // fn(key) -> heading title of a settings row ('' = none); 18l fills it

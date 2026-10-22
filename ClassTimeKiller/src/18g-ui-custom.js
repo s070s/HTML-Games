@@ -144,13 +144,22 @@ const MATCH_CODE_FORMAT = shareCodeFormat(EDITOR_CODE_PREFIX, EDITOR_CODE_VERSIO
 function customDefaults() {
   return { name: '', mode: DEFAULT_MODE, map: '', bundle: '', move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true,
     friendlyFire: EDITOR_DEFAULT, lives: EDITOR_DEFAULT, respawnDelay: EDITOR_DEFAULT, botCount: EDITOR_DEFAULT, allies: EDITOR_DEFAULT,
-    difficulty: DEFAULT_DIFFICULTY, personality: EDITOR_PERSONALITY_MIXED, scoreLimit: EDITOR_DEFAULT, timeLimit: EDITOR_DEFAULT, roundWins: EDITOR_DEFAULT, mutators: [] };
+    difficulty: DEFAULT_DIFFICULTY, difficultySliders: {}, personality: EDITOR_PERSONALITY_MIXED, scoreLimit: EDITOR_DEFAULT, timeLimit: EDITOR_DEFAULT, roundWins: EDITOR_DEFAULT, mutators: [] };
 }
 const isToken = (value) => typeof value === 'string' && /^[a-z][A-Za-z0-9]{0,31}$/.test(value);
 const isBlankOr = (check) => (value) => (value === '' || check(value) ? value : undefined);
 const catalogueHas = (name) => (value) => !!CAT[name] && isToken(value) && value !== MATCH_SET_ID && !!CAT[name].byId(value);
 const oneOfList = (list) => (value) => (list.includes(value) ? value : undefined);
 const integerBetween = (low, high) => (value) => (Number.isInteger(value) && value >= low && value <= high ? value : undefined);
+// DIF-002 slider overrides: { field: value } for fields that have a slider (Ui.difficultyRows, 18l), each inside its range.
+function difficultySlidersCheck(value) {
+  if (!isPlainObject(value)) return undefined;
+  for (const field in value) {
+    const definition = ASSIST_DEFINITIONS.get(field), number = value[field];
+    if (!definition || typeof number !== 'number' || !(number >= definition.min && number <= definition.max)) return undefined;
+  }
+  return Object.assign({}, value);
+}
 
 const EDITOR_FIELD_CHECKS = {
   name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
@@ -169,6 +178,7 @@ const EDITOR_FIELD_CHECKS = {
   botCount: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
   allies: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
   difficulty: (value) => (isToken(value) && (!CAT.difficulty || !!CAT.difficulty.byId(value)) ? value : undefined),
+  difficultySliders: difficultySlidersCheck,
   personality: (value) => (value === EDITOR_PERSONALITY_MIXED || (isToken(value) && !!CAT.bots && !!CAT.bots.byId(value)) ? value : undefined),
   scoreLimit: oneOfList(EDITOR_SCORE_LIMITS),
   timeLimit: oneOfList(EDITOR_TIME_LIMITS),
@@ -301,12 +311,17 @@ const CustomMatch = {
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
   setup(draft, seed, withPlayer) {
     const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? Date.now() % EDITOR_SEED_RANGE : seed;
-    const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: draft.difficulty,
+    const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: this.difficultyOf(draft),
       bots: this.botList(draft, mode), modeOptions: this.modeOptions(draft, mode) };
     setup.ruleset = this.hasOverrides(draft) || draft.name ? Object.assign(this.rulesetFields(draft), { id: 'custom', name: draft.name || 'Custom match' }) : this.bundleOf(draft).id;
     if (draft.allies >= 0 && mode.teams === 2) setup.balance = false;
     if (withPlayer !== false) setup.player = mode.teams === 2 ? { team: 0 } : {};
     return setup;
+  },
+  // setup.difficulty: the preset id, or { preset, <field>: value } when sliders were moved (14a clamps and applies them).
+  difficultyOf(draft) {
+    if (Object.keys(draft.difficultySliders).length === 0) return draft.difficulty;
+    return Object.assign({ preset: draft.difficulty }, draft.difficultySliders);
   },
   // One-click start of a rule bundle (RS01..RS12): the draft's mode, map, bots and limits with the bundle's own presets.
   bundleStart(draft, bundleId, seed, withPlayer) {
@@ -522,7 +537,25 @@ function editorGeneratedMap(list) {
   list.appendChild(Ui.button('Generate a map from a seed', () => Ui.open('mapgen')));
 }
 
-const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, mutators: editorMutatorRows, map: editorGeneratedMap };
+// Bots tab: the DIF-002 sliders on top of the chosen preset. A slider moved back to the preset's value drops its override.
+function editorPresetValue(draft, field) {
+  const preset = CAT.difficulty ? CAT.difficulty.byId(draft.difficulty) : null, definition = ASSIST_DEFINITIONS.get(field);
+  const value = preset ? preset[field] : undefined;
+  return typeof value === 'number' && value >= definition.min && value <= definition.max ? value : definition.fallback;
+}
+function editorDifficultySliders(list) {
+  const draft = EDITOR_STATE.draft, values = {};
+  for (const field of ASSIST_DEFINITIONS.keys()) values[field] = field in draft.difficultySliders ? draft.difficultySliders[field] : editorPresetValue(draft, field);
+  list.appendChild(makeElement('div', 'ui-group', 'Difficulty sliders'));
+  list.appendChild(makeElement('p', 'ui-note', 'Fine-tune the chosen difficulty. Damage, lives and checkpoints change PvE matches only.'));
+  Ui.difficultyRows(list, values, (field, value) => {
+    if (value === editorPresetValue(draft, field)) delete draft.difficultySliders[field]; else draft.difficultySliders[field] = value;
+    CustomMatch.save(draft);   // no re-render: the slider being dragged keeps its place
+  });
+  list.appendChild(Ui.button('Reset sliders to the difficulty', () => { draft.difficultySliders = {}; editorChanged(); }, 'cm-reset'));
+}
+
+const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, bots: editorDifficultySliders, mutators: editorMutatorRows, map: editorGeneratedMap };
 
 function editorSummary(draft) {
   const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);

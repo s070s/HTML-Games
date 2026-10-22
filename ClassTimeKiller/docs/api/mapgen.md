@@ -171,5 +171,5 @@ with the player on team 0 in team modes. `MapGenMenu` holds the state and has no
 
 
 - Ziplines (S08) do not exist yet, so GN4 links roofs with bridges, ladders and jump pads only.
-- Main menu (UI-001): an entry for the generated map screen once UI-001 lists it.
+- Main menu (UI-001): done, the "Generated map" entry opens `mapgen`.
 
