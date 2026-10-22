@@ -1611,7 +1611,6 @@ const R = {
   },
   /* the water surface, one draw per visible chunk (call with blending on and depth writes off) */
   drawWater(chunks, time) {
-    this.waterDraws = 0;
     if (!this.water || !chunks) return;
     const gl = this.gl, e = this.env, u = this.uni.water, waves = (QUALITY[S.quality] || QUALITY.medium).waves;
     this.use('water');
@@ -1794,7 +1793,7 @@ const R = {
     mat4LookAt(this.view, cam.x, cam.y, cam.z, cam.tx, cam.ty, cam.tz);
     mat4Mul(this.vp, this.proj, this.view);
     this.pxScale = this.height / (2 * Math.tan(this.fov / 2));
-    this.drawCalls = 0; this.curProg = null; this.curMesh = null;
+    this.drawCalls = 0; this.waterDraws = 0; this.curProg = null; this.curMesh = null;
     gl.viewport(0, 0, this.width, this.height);
     gl.depthMask(true); gl.disable(gl.BLEND);
     const e = this.env;
