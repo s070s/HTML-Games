@@ -100,10 +100,10 @@ const BotDecide = {
     for (const spawn of map.spawns || []) {
       if (!servesMode(spawn, mode) || Math.hypot(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
       if (!World.lineClear(hint.x, hint.y + SPAWN_EYE_HEIGHT, hint.z, spawn.x, spawn.y + SPAWN_EYE_HEIGHT, spawn.z)) continue;
-      const side = typeof spawn.team === 'number' ? spawn.team : -1;
-      if (side < 0) spot.safe[2] = false;
-      else spot.safe[1 - side] = false;
-      if (side < 0) { spot.safe[0] = false; spot.safe[1] = false; }
+      const side = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
+      spot.safe[2] = false;                  // free-for-all: every spawn is an enemy spawn
+      if (side !== 0) spot.safe[0] = false;  // a spawn of the other team, or of anyone
+      if (side !== 1) spot.safe[1] = false;
     }
     return spot;
   },
@@ -114,18 +114,22 @@ const BotDecide = {
     this.itemReadyAt.fill(0);
     const count = Items.timers(timerList);
     for (let t = 0; t < count; t++) {
-      const timer = timerList[t];
-      for (let i = 0; i < this.items.length; i++) {
-        const item = this.items[i];
-        if (Math.hypot(item.x - timer.x, item.z - timer.z) < ITEM_TOUCH && Math.abs(item.y - timer.y) < ITEM_TOUCH * 2) this.itemReadyAt[i] = now + timer.remaining;
-      }
+      const index = this.itemAt(timerList[t].x, timerList[t].y, timerList[t].z);
+      if (index >= 0) this.itemReadyAt[index] = now + timerList[t].remaining;
     }
+  },
+  // The item spot at a position (pickups and timers report positions), or -1.
+  itemAt(x, y, z) {
+    for (let i = 0; i < this.items.length; i++) {
+      const item = this.items[i];
+      if (Math.hypot(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
+    }
+    return -1;
   },
   onPickup(event) {
     if (event.id < 0 || event.id >= MAX_ACTORS) return;
-    for (let i = 0; i < this.items.length; i++) {
-      if (Math.hypot(this.items[i].x - event.x, this.items[i].z - event.z) < ITEM_TOUCH) this.itemVisited[event.id * MAX_BOT_ITEMS + i] = Sim.time;
-    }
+    const index = this.itemAt(event.x, event.y, event.z);
+    if (index >= 0) this.itemVisited[event.id * MAX_BOT_ITEMS + index] = Sim.time;
   },
 
   // ---- Decision (2 Hz) ----

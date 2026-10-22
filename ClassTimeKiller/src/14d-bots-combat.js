@@ -296,7 +296,7 @@ const BotCombat = {
   overlayMovement(id, dt, now) {
     const target = this.target[id];
     this.overlaid[id] = 0;
-    if (target < 0 || !BotSense.sees(id, target) || BotMove.onLadder(id)) return;
+    if (target < 0 || !BotSense.sees(id, target) || BotMove.ownsView(id)) return;
     const tier = Bots.tier(id);
     if (tier.combatMove === 'walk' && now >= this.dodgeUntil[id]) { Bots.wishAmount[id] *= 0.5; return; }
     this.overlaid[id] = 1;
