@@ -63,7 +63,7 @@ function recoilYawShape(shape, shot, climbing) {
 CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 
 // Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
-// onHit: 'explode' (direct + splash), 'damage', 'pin' (damage, pins ragdoll), 'puddle' (damage area), 'pull' (hook), 'drill'.
+// onHit: 'explode' (direct + splash), 'damage', 'pin' (damage; a wall within 1.5 m behind the victim pins it: status 'pinned'), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
@@ -100,7 +100,8 @@ Data.define('projectiles', {
 // cone {range, angle}, chain {targets, radius}, lock {time, targets, coneDeg, range}, toggle {damageMult, rateMult, recoilMult,
 // speedMult, frontResist, status, needsLedge}, block {pool, regen, parryWindow, arcDeg}, launch {height, selfDamage},
 // combo {damage, radius, ammo}, stickCombo {count, damage, radius}, split {projectile, count, damage}, puddle {radius, damage, seconds, status},
-// aura {radius, damage, interval}, laser {damage, interval}.
+// aura {radius, damage, interval}, laser {damage, interval}. repair: HP/s a shot gives a friendly device instead of damage (W30 beam).
+// zoomMax: a second scope step; next/previous weapon flips to it while fully scoped (W24 4x/8x).
 const FIRE_MODE_SCHEMA = {
   id: REQUIRED, type: REQUIRED, trigger: 'auto', damage: 0, rate: 1, pellets: 1, spreadDeg: 0, moveSpread: 1, adsSpreadMult: 0.4,
   recoil: 'none', falloff: null, headMult: 2, legMult: 0.75, armorPen: 0.75, pierce: 0, penetration: '', range: 200,
@@ -108,7 +109,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, special: '', tool: '', zoom: 1, noise: -1, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, noise: -1, weapon: '', family: null,
 };
 
 const WEAPON_SCHEMA = {
@@ -125,7 +126,7 @@ const WEAPON_ROWS = [
     primary: { type: 'melee', damage: 35, rate: 2.5, reach: 1.2 },
     alt: { type: 'melee', trigger: 'semi', damage: 65, rate: 1, reach: 1.2, backstab: 150 } },
   { id: 'bulwark', code: 'W03', name: 'Bulwark Shield-Saw', class: 'melee', moveMult: 0.9, killReward: 1500, noise: 30, botPref: { range: [0, 3], value: 0.4 },
-    primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'shock', seconds: 0.3 } },
+    primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'stun', seconds: 0.3 } },
     alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
   { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
@@ -173,8 +174,8 @@ const WEAPON_ROWS = [
     primary: { type: 'hitscan', damage: 20, rate: 10, spreadDeg: 0.5, recoil: 'rifle', element: 'void' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'darkorb', damage: 100, rate: 0.5, ammo: 'alt', fodderKill: true, element: 'void' } },
   { id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 9, pellets: 10, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 20, 0.4] },
-    alt: { type: 'hitscan', trigger: 'semi', damage: 70, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6] } },
+    primary: { type: 'hitscan', trigger: 'semi', damage: 9, pellets: 10, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
+    alt: { type: 'hitscan', trigger: 'semi', damage: 70, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
   { id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 7, pellets: 20, rate: 0.9, spreadDeg: 7, moveSpread: 0.3, recoil: 'shotgun', falloff: [6, 16, 0.3], ammoPerShot: 2 },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
@@ -189,7 +190,7 @@ const WEAPON_ROWS = [
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
-    alt: { type: 'zoom', zoom: 4 } },
+    alt: { type: 'zoom', zoom: 4, zoomMax: 8 } },
   { id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 10, reserve: 40, price: 1800, botPref: { range: [10, 80], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 3 } },
@@ -207,7 +208,7 @@ const WEAPON_ROWS = [
     alt: { type: 'toggle', toggle: { recoilMult: 0.3, needsLedge: true } } },
   { id: 'linker', code: 'W30', name: 'Linker', class: 'energy', mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
-    alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, element: 'arc' } },
+    alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
   { id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', moveMult: 0.88, mag: 5, reserve: 25, noise: 90, botPref: { range: [4, 40], value: 0.85 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 100, rate: 1.25, splash: { r: 3.5, dmg: 100 }, recoil: 'launcher', element: 'thermal' },
     alt: { type: 'projectile', trigger: 'charge', projectile: 'rocket', damage: 100, rate: 0.8, spreadDeg: 2.5, splash: { r: 3.5, dmg: 100 }, charge: { time: 1.8, levels: [1, 2, 3], target: 'pellets' }, recoil: 'launcher', element: 'thermal' } },
@@ -222,7 +223,7 @@ const WEAPON_ROWS = [
     alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
   { id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
     primary: { type: 'cone', damage: 6, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
   { id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
     primary: { type: 'projectile', projectile: 'plasma', damage: 20, rate: 10, splash: { r: 0.6, dmg: 15 }, heat: 4, recoil: 'energy', element: 'thermal' },
     alt: { type: 'cone', trigger: 'semi', rate: 1, ammoPerShot: 0, heatDamage: 120, cone: { range: 6, angle: 50 }, element: 'thermal' } },

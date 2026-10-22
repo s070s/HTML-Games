@@ -718,6 +718,65 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// WPN-001 alt fires: W19 slug aims at 1.2x, W35 napalm airblasts enemy projectiles back, W30 beam repairs friendly devices.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 30), out = {};
+  giveFull(id, 'scattergun');
+  TestArena.hold(id, BTN.ALT, 0.5);
+  Game.playerId = id;
+  Weapons.viewModel(out);
+  Game.playerId = -1;
+  check('W19 slug: holding ALT aims down sights at 1.2x zoom', Weapons.ads[id] > 0 && out.zoom > 1 && out.zoom <= 1.2, Weapons.ads[id] + ' ' + out.zoom);
+  const scatter = CAT.weapons.byId('scattergun'), pelletSpread = Weapons.spreadDegrees(id, scatter, scatter.primary);
+  check('W19: holding the slug ALT leaves the pellet spread at its hip value', Test.near(pelletSpread, scatter.primary.spreadDeg, 1e-6), pelletSpread);
+  Weapons.setLoadout(id, ['warden', 'heron']);   // the last key is drawn
+  Actors.buttons[id] = BTN.ALT;
+  Sim.run(TICK_RATE / 2);
+  Actors.buttons[id] = BTN.ALT | BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = BTN.ALT; Sim.step();
+  Game.playerId = id; Weapons.viewModel(out); Game.playerId = -1;
+  check('W24 scoped: next weapon flips the scope to 8x instead of switching', out.zoom === 8 && Weapons.currentWeapon(id).id === 'heron', out.zoom + ' ' + Weapons.currentWeapon(id).id);
+  Actors.buttons[id] = 0; Sim.run(TICK_RATE / 2);
+  check('W24: lowering the sights returns the scope to 4x', Weapons.zoomed[id] === 0);
+  giveFull(id, 'kindler');
+  const rocket = Projectiles.spawn(CAT.projectiles.byId('rocket'), enemy, CAT.weapons.byId('ramjet').index, 0, 0, 1.6, 3, 0, 0, -10, 50);
+  const friendly = Projectiles.spawn(CAT.projectiles.byId('rocket'), id, CAT.weapons.byId('ramjet').index, 0, 0.5, 1.6, 3, 0, 0, 10, 50);
+  TestArena.hold(id, BTN.ALT, 1 / TICK_RATE);
+  check('W35 airblast: an enemy rocket in front now flies away, owned by the shooter', Projectiles.owner[rocket] === id && Projectiles.vz[rocket] > 0, Projectiles.owner[rocket] + ' ' + Projectiles.vz[rocket]);
+  check('W35 airblast: the napalm shot still fires and own projectiles are left alone', Projectiles.countOwned(id, CAT.weapons.byId('kindler').index, CAT.projectiles.byId('goo').index) === 1
+    && Projectiles.owner[friendly] === id && Projectiles.vz[friendly] === 10);
+  Projectiles.clear();
+  const turret = Devices.spawn(CAT.gadgets.byId('sentry'), id, 0, 0, 6), row = CAT.gadgets.byId('sentry');
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Devices.centreY(turret) - Actors.eyeY(id), 6);
+  Devices.health[turret] = row.health / 2;
+  giveFull(id, 'linker');
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs a friendly turret at about 60 HP/s', Devices.health[turret] > row.health / 2 + 40 && Devices.health[turret] <= row.health, Devices.health[turret]);
+  Devices.remove(turret);
+  Pve.setCore(0, 0, 15, 1000);
+  Pve.core.health = 500;
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Pve.core.y + CORE_HIT_LIFT - Actors.eyeY(id), 15);
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs the PvE core at about 60 HP/s', Pve.core.health > 540 && Pve.core.health <= 560, Pve.core.health);
+  Pve.core.active = false;
+  TestArena.finish();
+});
+
+// W26 stake pins a victim standing just in front of a wall ('pinned' status); in the open it only hits.
+Test.add('weapons', (check) => {
+  TestArena.start({}, [{ shape: 'box', min: [-3, 0, 11], max: [3, 3, 12] }]);
+  const id = TestArena.actor(1, 0, 0), walled = TestArena.sponge(2, 0, 10), open = TestArena.sponge(2, 20, 10);
+  giveFull(id, 'stakedriver');
+  TestArena.aimAt(id, walled);
+  TestArena.hold(id, BTN.FIRE, 0.4);
+  check('W26 a stake pins a victim against the wall behind it', Damage.hasStatus(walled, 'pinned') && Actors.health[walled] < 100000);
+  Sim.step();   // the release must be seen before the next press
+  TestArena.aimAt(id, open);
+  TestArena.hold(id, BTN.FIRE, 1);
+  check('W26 a victim in the open is hit but not pinned', Actors.health[open] < 100000 && !Damage.hasStatus(open, 'pinned'), Actors.health[open] + ' ' + Damage.hasStatus(open, 'pinned'));
+  TestArena.finish();
+});
+
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;

@@ -437,8 +437,12 @@ Test.add('ui', (check) => uiWith(() => {
   Actors.alive[botId] = 1; Actors.alive[playerId] = 1;
   const counts = PerfOverlay.countActors();
   check('perf HUD: counts bots apart from all actors (PERF-012)', counts.actors === 2 && counts.bots === 1, counts.actors + '/' + counts.bots);
+  Projectiles.spawn(CAT.projectiles.byId('grenade'), botId, CAT.weapons.byId('pitcher').index, 0, 0, 1.6, 5, 0, 0, 0, 0);
+  Perf.publishCounters();
+  check('perf HUD: the projectiles counter is the live projectile count (PERF-012)', Perf.counters.projectiles === 1 && Projectiles.active === 1, Perf.counters.projectiles);
+  Projectiles.clear(); Perf.publishCounters();
   Actors.remove(botId); Actors.remove(playerId);
-  check('perf HUD: the AI cost is the sum of the ai and bot systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, render: 9 }), 1.5, 1e-9));
+  check('perf HUD: the AI cost is the sum of the ai, bot and PvE brain systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, pveBrains: 0.25, pve: 4, render: 9 }), 1.75, 1e-9));
   const lines = PerfOverlay.format(Perf.stats());
   const text = lines.join('\n');
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',

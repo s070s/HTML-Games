@@ -1,12 +1,12 @@
 // ==== S18 UI: PERFORMANCE OVERLAY (PERF-012, ARC-040, ARC-041) ====
-// DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F10 or a four-finger tap toggles it,
-// F9 toggles Ui.botDebug. Reads Perf (S19) and Sim.timing at runtime only: the loop starts after every section has loaded.
+// DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F10 toggles it, F9 toggles
+// Ui.botDebug, a four-finger tap toggles both (ARC-040). Reads Perf (S19) and Sim.timing at runtime only: the loop starts after every section has loaded.
 
 const PERF_REFRESH_MS = 250;
 const PERF_ERROR_LINES = 3;
 const PERF_ERROR_CHARS = 110;
 const PERF_SYSTEMS_SHOWN = 5;
-const AI_SYSTEM_PATTERN = /^(ai|bot)/i;     // PERF-012 wants the bot AI cost always visible, whatever else is slow
+const AI_SYSTEM_PATTERN = /^(ai|bot|pveBrains)/i;    // PERF-012 wants the bot AI cost always visible, whatever else is slow
 const PERF_FLOOR_FPS = 60;               // PERF-001 hard minimum: the panel turns red below it
 const BYTES_PER_MEGABYTE = 1048576;
 const PERF_CSS = '#overlay > .perf-hud { position: fixed; top: calc(6px + var(--safe-top)); left: calc(6px + var(--safe-left)); z-index: 40; margin: 0; padding: 6px 8px;'

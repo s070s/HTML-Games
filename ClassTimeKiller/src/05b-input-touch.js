@@ -139,6 +139,7 @@ const TouchInput = {
     if (this.activeCount !== 4 || this.gestureFired || event.timeStamp - this.gestureStart > TOUCH_FOUR_FINGER_MS) return;
     this.gestureFired = true;
     Input.emitAction('perfHud', true);
+    Input.emitAction('botDebug', true);   // ARC-040: on touch both debug views toggle from the same tap
   },
 
   // ---- Pointer events: one set of handlers for the look zone and every button ----

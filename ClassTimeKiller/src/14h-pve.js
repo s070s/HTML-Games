@@ -765,6 +765,12 @@ const Pve = {
       this.nextThink[id] = now;
     }
   },
+  // ability.panic (A32 swarm on fodder): the enemy's morale breaks for the swarm's duration.
+  panic(event) {
+    if (!this.isEnemy(event.id) || !Actors.alive[event.id]) return;
+    this.brokenUntil[event.id] = Math.max(this.brokenUntil[event.id], Sim.time + event.seconds);
+    this.nextThink[event.id] = Sim.time;
+  },
   // Lure (X50 flares): thermal or flash blasts pull the beasts within lureRadius for lureSeconds.
   onExplosion(event) {
     if (!this.active || (event.element !== PVE_DIRECTOR.lureElement && !PVE_DIRECTOR.lureSources.includes(event.source))) return;
@@ -959,6 +965,7 @@ Bus.on('damage', (event) => Pve.onDamage(event));
 Bus.on('kill', (event) => Pve.onKill(event));
 Bus.on('sound', (event) => Pve.hear(event));
 Bus.on('explosion', (event) => Pve.onExplosion(event));
+Bus.on('ability.panic', (event) => Pve.panic(event));
 Bus.on('pve.tell', playTellSound);
 Sim.addSystem('pveBrains', 11, (dt) => Pve.stepBrains(dt));
 Sim.addSystem('pve', 80, () => Pve.stepDirector());

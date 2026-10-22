@@ -30,7 +30,7 @@ Tests: groups `abilities` and `economy`. Debug: `__CTK.abilities` `{ abilities, 
 | `counter`, `botUse` | | counterplay text; bot hint `{ when, range, chance }` for S14 |
 | `color`, `index` | | HUD colour; position in `CAT.abilities` (set at load) |
 
-Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength`, `cloak`. A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
+Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength` (A03: `params.throwReach/throwSpeed/throwLift`: a paid melee swing throws the enemy in front along the view; there are no physics props), `cloak`. HP-005 combos (12f `statusCombo` on `Damage.statusHooks`): a Shock on a wading target stuns everyone wading within 8 m (A29 in water), every Shock chains once to the source's nearest enemy within 4 m, and Burn (A30 Ignite) thaws Chill and Freeze. A `swarm` on a fodder enemy emits `ability.panic` (A32). A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
 
 ## Catalogues `heroes` (H01..H08) and `abilityKits`
 
@@ -172,7 +172,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - A35 telekinesis pulls on press and punts on release. It cannot hold a prop, because S11's lifter needs the weapon drawn.
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
-- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'shock' and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
+- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'stun' (non-electric, so no HP-005 Shock combo) and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
 - A16 footprints are drawn only for the local player's tracker.
 - A17 veil curtain is a visual zone. It does not block bot line of sight until `Smoke.add` exists (items section).
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.

@@ -295,7 +295,7 @@ function chargeHit(id, target, attack) {
   info.x = Actors.x[target]; info.y = Actors.y[target] + 1; info.z = Actors.z[target];
   info.dx = Pve.goalX[id]; info.dy = 0; info.dz = Pve.goalZ[id];
   Damage.apply(id, target, info);
-  if (attack.knockdown > 0) Damage.addStatus(target, 'shock', id, attack.knockdown, 1);
+  if (attack.knockdown > 0) Damage.addStatus(target, 'stun', id, attack.knockdown, 1);
 }
 
 // The attack's weapon row decides the projectile (rocket splash, parryable plasma); speed x difficulty projectileSpeed.

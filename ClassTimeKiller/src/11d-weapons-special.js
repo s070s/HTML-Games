@@ -11,6 +11,8 @@ const LIFTER_PULL_SPEED = 10;
 const LIFTER_THROW_SPEED = 30;           // caught projectiles leave at this speed
 const LIFTER_HOLD_DISTANCE = 1.6;
 const LIFTER_CATCH_COS = Math.cos(30 * DEG);
+const AIRBLAST_RANGE = 5;                // W35 airblast reach in metres
+const AIRBLAST_CONE_COS = Math.cos(45 * DEG);
 const LIFTER_MAX_MASS = 150;             // kg a prop may weigh to be held (W41)
 const LIFTER_DAMAGE_PER_MASS_SPEED = 0.5; // punted prop damage = 0.5 x mass x speed, capped (applied by the prop owner on impact)
 const LIFTER_DAMAGE_CAP = 150;
@@ -224,14 +226,19 @@ function actorInFront(id, range) {
 // Nearest flying projectile in front of the holder (W41 catches grenades, rockets, orbs).
 function catchableProjectile(id, range) {
   let best = -1, bestDistance = range;
-  const eyeY = Actors.eyeY(id);
   for (let i = 0; i < PROJECTILE_CAP; i++) {
-    if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) continue;
-    const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - eyeY, dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
-    if (distance >= bestDistance || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < LIFTER_CATCH_COS) continue;
+    const distance = projectileInAim(id, i, bestDistance, LIFTER_CATCH_COS);
+    if (distance < 0) continue;
     best = i; bestDistance = distance;
   }
   return best;
+}
+// Distance from the actor's eye to flying projectile i when it lies closer than `range` inside the aim cone (specialScratch = aim), else -1.
+function projectileInAim(id, i, range, coneCos) {
+  if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) return -1;
+  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  if (distance >= range || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < coneCos) return -1;
+  return distance;
 }
 // The body point that meets the gate first: the feet on a floor gate (standing actors rest on the floor, S10), the head
 // on a ceiling gate, the middle on a wall gate.
@@ -259,6 +266,14 @@ Weapons.specials.lodgeBlade = (id, weapon) => {
     return true;
   }
   return false;
+};
+// W35 alt: the napalm shot also airblasts: enemy projectiles in a short cone in front fly back along the shooter's aim.
+Weapons.specials.airblast = (id) => {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  for (let i = 0; i < PROJECTILE_CAP; i++) {
+    if (projectileInAim(id, i, AIRBLAST_RANGE, AIRBLAST_CONE_COS) >= 0 && Actors.isEnemy(id, Projectiles.owner[i])) Projectiles.reflect(i, id);
+  }
+  return false;   // the napalm shot still fires
 };
 Weapons.tools.lifterPunt = (id, weapon, mode) => WeaponSpecialState.lifterPunt(id, weapon, mode);
 Weapons.tools.lifterPull = (id, weapon, mode) => WeaponSpecialState.lifterPull(id, weapon, mode);

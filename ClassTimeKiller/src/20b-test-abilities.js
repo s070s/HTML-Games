@@ -506,3 +506,61 @@ Test.add('abilities', (check) => {
   check('HUD: emptied slots are trimmed', hud.slots.length === 0);
   TestArena.finish();
 });
+
+// HP-005 combos through Damage.statusHooks: Shock chains once, wet + Shock stuns everyone in that water, Burn melts ice.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start(), 'arcbolt');
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  check('Shock chains to the nearest other enemy (HP-005 +chain)', Damage.hasStatus(t.second, 'shock') && !Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  Damage.clearAllStatuses(t.enemy); Damage.clearAllStatuses(t.second);
+  TestArena.place(t.second, 6, ENEMY_DISTANCE);
+  TestArena.place(t.ally, 0, ENEMY_DISTANCE + 7);
+  Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0;
+  AbilityTest.cast(t);
+  const dryShocked = Damage.hasStatus(t.second, 'shock');
+  Damage.clearAllStatuses(t.enemy);
+  for (const id of [t.enemy, t.second, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
+  Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0;
+  AbilityTest.cast(t);
+  check('A29 on a dry target: nobody 6 m away is shocked', !dryShocked);
+  check('A29 on a wet target: everyone wading in that water is stunned, the caster on dry floor is not (HP-005 wet floor)',
+    Damage.hasStatus(t.second, 'shock') && Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  for (const id of [t.enemy, t.second, t.ally]) { Motion.medium[id] = 0; Damage.clearAllStatuses(id); }
+  Damage.resetHealth(t.enemy);   // three bolts took 90: the shattering ignite hit (x3) must not kill
+  Damage.addStatus(t.enemy, 'freeze', t.caster);
+  AbilityTest.give(t, 'ignite');
+  const cast = AbilityTest.cast(t);
+  check('A30 Ignite melts ice: the frozen target thaws and burns', !Damage.hasStatus(t.enemy, 'freeze') && Damage.hasStatus(t.enemy, 'burn'),
+    cast + ' ' + Damage.hasStatus(t.enemy, 'freeze') + ' ' + Damage.hasStatus(t.enemy, 'burn'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
+  chargeHit(t.enemy, t.caster, CAT.enemies.byId('charger').attacks[0]);   // a non-electric stun: no chain, no wet spread
+  check('E10 charger knockdown stuns only its target, even in water (no HP-005 Shock combo)',
+    Damage.hasStatus(t.caster, 'stun') && !Damage.hasStatus(t.ally, 'stun') && !Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = 0;
+  TestArena.finish();
+});
+
+// A32 panics fodder (ability.panic -> S14 PvE broken morale); A03 throws the enemy in front on a melee swing.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({ family: 'pve' }), 'swarm');
+  Actors.kind[t.enemy] = ACTOR_KIND.ENEMY; Actors.profile[t.enemy] = { fodder: true }; Pve.row[t.enemy] = 0;
+  TestArena.aimAt(t.caster, t.enemy);
+  let panics = 0;
+  const listener = Bus.on('ability.panic', (event) => { if (event.id === t.enemy) panics++; });
+  AbilityTest.cast(t);
+  Bus.off('ability.panic', listener);
+  check('A32 swarm on a fodder enemy panics it for the swarm time', panics === 1 && Test.near(Pve.brokenUntil[t.enemy] - Sim.time, t.row.duration, 1e-6), Pve.brokenUntil[t.enemy] - Sim.time);
+  AbilityTest.give(t, 'colossusweave');
+  AbilityTest.cast(t);
+  Sim.run(1);
+  TestArena.place(t.second, 0, 1.5);
+  Actors.yaw[t.caster] = Actors.aimYaw[t.caster] = 0; Actors.pitch[t.caster] = Actors.aimPitch[t.caster] = 0;
+  let thrown = null;
+  const onImpulse = Bus.on('impulse', (event) => { if (event.id === t.second) thrown = Object.assign({}, event); });
+  Bus.emit('weapon.fire', { id: t.caster, weapon: 'maul', weaponClass: 'melee', mode: 'melee', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  Bus.off('impulse', onImpulse);
+  const params = t.row.params;
+  check('A03 a melee swing throws the enemy in front along the view', thrown && Test.near(thrown.z, params.throwSpeed, 1e-4) && Test.near(thrown.y, params.throwLift, 1e-4), JSON.stringify(thrown));
+  TestArena.finish();
+});
