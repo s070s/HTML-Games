@@ -18,7 +18,9 @@ More elements (minimap, compass, awareness, barks), the Hardcore HUD rule, `hudA
 
 ## The pen (`Hud.pen`)
 
-`rect line ring text label(text with a shadow) panel(dark backing) bar(track + fill) triangle quad shape(kind 'circle' | 'square' | 'triangle' | 'diamond') octagon weaponIcon(class)` - HudBatch calls; `hud.opacity` scales every alpha through `HudBatch.alphaScale` (applied once per call in `setHudPaint`, 07f). Colours are numbers (0xRRGGBB). `HUD_WEAPON_ICONS` draws a silhouette per weapon class from rectangles.
+`rect line ring text label(text with a shadow) panel(dark backing) bar(track + fill) triangle quad shape(kind 'circle' | 'square' | 'triangle' | 'diamond') octagon weaponIcon(class)` - HudBatch calls; `hud.opacity` scales every alpha through `HudBatch.alphaScale` (applied once per call in `setHudPaint`, 07f).
+
+Scratch forms for the every-frame drawers (PERF-006): fill the scratch array, then call the `*At` form with only the colour, align and alpha. `hudBoxAt` (x, y, width, height, bar share) -> `rectAt panelAt barAt`; `hudShapeAt` (x, y, half size) -> `shapeAt(kind) weaponIconAt(class)`; `hudTextAt` (07f: x, y, size; the width lands in `[3]`) -> `textAt labelAt` (and `HudBatch.measureAt(text)`); `hudRingAt` (07f: x, y, radius, thickness, start, end) -> `ringAt`, `hudDrawCooldownRingAt(pen, remaining, color)`. The argument forms set the same scratch and call these. Why: the once-per-frame drawers run in the middle compiler tier for most of a match, which boxes every float argument of a call it does not inline (3-4 per pen call); the drawers of the main layer use the scratch forms only (a `perf` test checks their source). Colours are numbers (0xRRGGBB). `HUD_WEAPON_ICONS` draws a silhouette per weapon class from rectangles.
 
 ## Settings (all in the generated Settings screen)
 
