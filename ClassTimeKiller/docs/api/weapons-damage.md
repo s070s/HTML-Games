@@ -65,6 +65,7 @@ Firing is blocked while `ACTOR_FLAG.FROZEN` or `ACTOR_FLAG.DOWNED` is set.
 ## Damage (11c)
 
 - `Damage.apply(source, target, info)` -> damage dealt. The only damage path. `info = Damage.info()` (pooled; fields `amount zone ('head'|'body'|'legs'|'none') stomach mode weapon kind element distance knockback bypassArmor bypassShield x y z dx dy dz`). Order: friendly fire / self scale -> `Damage.addAttackerScale` hooks -> zone x precision -> falloff -> shatter -> `Damage.addReducer` hooks (subtractive reducers see the zone-scaled amount; HPP03 applies the zone after the shields instead) -> overshield -> shield (element factor) -> armor -> health -> minimum 1 -> downed / death.
+- `Damage.statusHooks`: `fn(id, row, source, seconds)` after `Damage.addStatus` lands a status (filled by S12 12f for the HP-005 combos: wet + Shock, Shock chain, Burn melts ice).
 - `Damage.explode(blast)` with `blast = Damage.blast()`: `{ x, y, z, owner, mode, radius, damage, exclude, ownerSafe, weapon, element }`. Linear falloff to `mode.splash.minFactor` (0.2), line of sight, self damage x `rules.selfDamage`, knockback.
 - `Damage.resetHealth(id)` (on `actor.spawn` / `actor.create`), `Damage.revive(id)`, `Damage.addStatus(id, key, source, seconds, stacks)`, `Damage.hasStatus(id, key)`, `Damage.statusSpeed(id)`, `Damage.limbSpread(id)`.
 - Shield regen pause: `Damage.pauseShieldRegen(id, seconds)` keeps the later of the current block and now + seconds; `Damage.shieldRegenBlocked(id)` -> bool (S12 suppression and EMP; ability shields check it too).

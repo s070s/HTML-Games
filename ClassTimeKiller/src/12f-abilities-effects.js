@@ -707,7 +707,13 @@ function attachSwarm(id, row, target) {
   if (target < 0) return false;
   const zone = AbilityZones.add(ZONE_KIND.SWARM, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
   AbilityZones.target[zone] = target; AbilityZones.value[zone] = row.params.dps; AbilityZones.radius[zone] = 1;
+  if (isFodder(target)) emitPanic(target, id, row.duration);   // A32: a swarmed fodder enemy panics (S14 PvE makes it flee)
   return true;
+}
+const PANIC_EVENT = { id: -1, source: -1, seconds: 0 };
+function emitPanic(target, source, seconds) {
+  PANIC_EVENT.id = target; PANIC_EVENT.source = source; PANIC_EVENT.seconds = seconds;
+  Bus.emit('ability.panic', PANIC_EVENT);
 }
 // decoy: a one-hit double on the user's team keeps the user's last movement input for the duration.
 function castDecoy(id, row) {
@@ -776,9 +782,48 @@ function strengthJump(event) {
 function strengthShot(event) {
   const row = CAT.abilities.byId('colossusweave');
   if (!Abilities.isActive(event.id, row.id)) return;
-  if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.params.useCost); return; }
+  if (event.mode === 'melee' || event.weaponClass === 'melee') { if (Meters.spendEnergy(event.id, row.params.useCost)) strengthThrow(event.id, row.params); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
+// A03 throw: a paid melee swing hurls the enemy in front along the view (there are no physics props to throw).
+function strengthThrow(id, params) {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  const target = actorInFront(id, params.throwReach);
+  if (target < 0 || !Actors.isEnemy(id, target)) return;
+  emitImpulse(target, specialScratch.x * params.throwSpeed, specialScratch.y * params.throwSpeed + params.throwLift, specialScratch.z * params.throwSpeed);
+}
+
+// ---- HP-005 status combos (Damage.statusHooks): wet + Shock stuns everyone in that water, Shock chains once, Burn melts ice ----
+const WET_SHOCK_RADIUS = 8;              // wading actors this close to a shocked wet target share its water
+const SHOCK_CHAIN_RADIUS = 4;            // a Shock jumps once to the source's nearest enemy this close to the target
+const ComboState = { spreading: false, freeze: CAT.statusEffects.byId('freeze').index, chill: CAT.statusEffects.byId('chill').index };
+function isWet(id) { return (Motion.medium[id] & TRIGGER_MEDIUM.WADING) !== 0; }
+function statusCombo(id, row, source, seconds) {
+  if (ComboState.spreading) return;   // statuses a combo hands out never combo again
+  ComboState.spreading = true;
+  try {
+    if (row.id === 'shock') { shockWater(id, source, seconds); chainShock(id, source, seconds); }
+    if (row.id === 'burn') meltIce(id);
+  } finally { ComboState.spreading = false; }
+}
+function shockWater(id, source, seconds) {
+  if (!isWet(id)) return;
+  for (let other = 0; other < Actors.count; other++) {
+    if (other === id || !Actors.alive[other] || !isWet(other)) continue;
+    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= WET_SHOCK_RADIUS * WET_SHOCK_RADIUS) Damage.addStatus(other, 'shock', source, seconds, 1);
+  }
+}
+function chainShock(id, source, seconds) {
+  if (source < 0) return;
+  const next = nearestChainTarget(source, id, SHOCK_CHAIN_RADIUS, id < 32 ? 1 << id : 0, id >= 32 ? 1 << (id - 32) : 0);
+  if (next >= 0) Damage.addStatus(next, 'shock', source, seconds, 1);
+}
+// A30 Ignite (and any Burn) thaws a chilled or frozen target.
+function meltIce(id) {
+  if (Damage.hasStatus(id, 'freeze')) Damage.clearStatus(id, ComboState.freeze);
+  if (Damage.hasStatus(id, 'chill')) Damage.clearStatus(id, ComboState.chill);
+}
+Damage.statusHooks.push(statusCombo);
 Object.assign(Abilities.effects, {
   zone: { cast: castZone },
   blink: { cast: castBlink },

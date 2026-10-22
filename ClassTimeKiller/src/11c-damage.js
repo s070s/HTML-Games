@@ -58,6 +58,7 @@ const Damage = {
   frozenTick: new Int32Array(MAX_ACTORS).fill(-1),  // Sim.tick of the last freeze (no shatter within that same step)
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
+  statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
@@ -359,6 +360,7 @@ const Damage = {
     if (row.stacksTo && this.statusStacks[slot] >= row.stacksTo) { this.clearStatus(id, row.index); return this.addStatus(id, row.becomes, source, 0, 1); }
     if (row.stun) this.setStun(id, true);
     if (row.shatter) this.frozenTick[id] = Sim.tick;
+    for (let k = 0; k < this.statusHooks.length; k++) this.statusHooks[k](id, row, source, seconds || row.seconds);
     return true;
   },
   hasStatus(id, key) { const row = CAT.statusEffects.byId(key); return !!row && this.statusTime[id * STATUS_COUNT + row.index] > 0; },
