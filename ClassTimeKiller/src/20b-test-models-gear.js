@@ -123,6 +123,19 @@ Test.add('models', (check) => {
   Game.playerId = -1;
 });
 
+// Royale armor, heal and ammo loot spots draw the vest, the consumable they give and the held weapon's ammo box.
+Test.add('models', (check) => {
+  const recorder = meshRecorder(), instance = makeShapeInstance(), camera = Render.camera, cameraX = camera.x, cameraY = camera.y, cameraZ = camera.z;
+  camera.x = 0; camera.y = 1.6; camera.z = 0;
+  royaleAmmoModel = ammoModelFor(-1);
+  const groups = [LOOT_GROUP.ARMOR, LOOT_GROUP.HEALTH, LOOT_GROUP.AMMO], medkit = CAT.items.byId('medkit');
+  groups.forEach((group, spot) => { RoyaleLoot.group[spot] = group; RoyaleLoot.rarity[spot] = LOOT_CONSUMABLES.indexOf('medkit'); });
+  groups.forEach((group, spot) => drawLootModel(recorder, spot, instance));
+  camera.x = cameraX; camera.y = cameraY; camera.z = cameraZ;
+  const expected = LOOT_ARMOR_MODEL.count + GEAR_MODELS.byId[medkit.code].count + GEAR_MODELS.byId.I08.count;
+  check('royale loot spots draw their gear models', recorder.meshes.length === expected, recorder.meshes.length + ' / ' + expected);
+});
+
 // PERF-006: drawing models allocates nothing once compiled (integer arguments only, one reused pose).
 Test.add('models', (check) => {
   if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the model allocation probe is skipped', true); return; }
