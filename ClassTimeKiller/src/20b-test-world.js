@@ -223,11 +223,11 @@ Test.add('world', (check) => {
 });
 
 Test.add('world', (check) => {
-  loadTestWorld([], { triggers: [{ kind: 'hazard', min: [-2, 0, -2], max: [2, 1, 2], damage: 10, element: 'fire' }, { kind: 'killzone', min: [10, 0, -2], max: [14, 1, 2] }] });
+  loadTestWorld([], { triggers: [{ kind: 'hazard', min: [-2, 0, -2], max: [2, 1, 2], damage: 10, element: 'thermal' }, { kind: 'killzone', min: [10, 0, -2], max: [14, 1, 2] }] });
   useTestRules({ move: 'arena' });
   const id = spawnTester(0, 0.05, 0);
   const burns = recordEvents(['damage.request'], () => stepSeconds(1.05));
-  check('hazard: 10 HP/s as 5 every 0.5 s, the first at once', burns.length === 3 && burns.every((r) => r.kind === 'hazard' && r.amount === 5 && r.element === 'fire'), burns.length);
+  check('hazard: 10 HP/s as 5 every 0.5 s, the first at once', burns.length === 3 && burns.every((r) => r.kind === 'hazard' && r.amount === 5 && r.element === 'thermal'), burns.length);
   const victim = spawnTester(12, 0.05, 0);
   const kills = recordEvents(['damage.request'], () => Sim.step()).filter((r) => r.target === victim);
   check('killzone: lethal hazard', kills.length === 1 && kills[0].amount >= 1000);

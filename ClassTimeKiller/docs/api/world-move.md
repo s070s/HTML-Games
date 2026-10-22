@@ -62,7 +62,7 @@ A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_
 | `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
 | `ladder` | - | S10 climbs at 3.0 m/s (look down > 30 deg to descend, crouch slides down, jump pushes off) |
 | `water` | - | swim (50% ground speed, 3D) once the water reaches the capsule middle; the top is the surface; head under: 12 s of air, then `drown` requests 2, 4, 6 ... 15 HP every second; breathing refills at once |
-| `hazard` | `damage: 10` (HP/s), `element: 'fire'` | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
+| `hazard` | `damage: 10` (HP/s), `element: 'thermal'` (an HP-006 element id) | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
 | `killzone` | - | lethal `hazard` request; falling 30 m below the lowest brush does the same |
 
 Every volume is `{ kind, min, max }` (axis-aligned). A row is logged and skipped when its kind is unknown, `min`/`max` are not

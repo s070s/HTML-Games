@@ -155,7 +155,7 @@ const SOUND_TABLES = {
     hush: 'suppressed', tanto: 'stab', talonbow: 'bowshot' },
   material: expandAliasTable('impact.'),
   surface: expandAliasTable('step.'),
-  element: { fire: 'explosionFire', frost: 'explosionFrost', shock: 'explosionShock', default: 'explosion' },
+  element: { thermal: 'explosionFire', cryo: 'explosionFrost', arc: 'explosionShock', default: 'explosion' },   // HP-006 element ids
   hitZone: { head: 'headshot', default: 'hitTick' },
   itemGroup: { power: 'powerChime', health: 'pickupHealth', armor: 'pickupArmor', weapon: 'pickupWeapon', ammo: 'pickupAmmo', default: 'pickup' },
   itemRespawn: { power: 'powerChime', default: 'itemRespawn' },

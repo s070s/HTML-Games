@@ -3,7 +3,7 @@
 //   teleporter { exit: [x,y,z], yaw: 0 }      exit feet position and facing (degrees); speed magnitude kept; telefrags occupants
 //   ladder     {}                             climbing volume (S10 moves at the ladder speed)
 //   water      {}                             swim volume; its top is the surface; head under -> drown timer
-//   hazard     { damage: 10, element: 'fire' }  damage per second while touching
+//   hazard     { damage: 10, element: 'thermal' }  damage per second while touching
 //   killzone   {}                             kills on touch (a hazard with lethal damage)
 // S10 calls World.touchTriggers(id, gravity) once per actor step after moving it; the returned bits say which media it is in.
 // Rows with a bad box (min/max not 3 numbers each, min above max), a bad target/exit or peak <= 0 are logged and skipped.
@@ -31,7 +31,7 @@ const TRIGGER_KINDS = {
   teleporter: { fields: { exit: REQUIRED, yaw: 0 }, points: ['exit'], touch: touchTeleporter },
   ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
   water: { fields: {}, touch: touchWater },
-  hazard: { fields: { damage: 10, element: 'fire' }, touch: touchHazard },
+  hazard: { fields: { damage: 10, element: 'thermal' }, touch: touchHazard },
   killzone: { fields: { damage: LETHAL_DAMAGE, element: 'none' }, touch: touchHazard },
 };
 

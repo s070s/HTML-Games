@@ -305,7 +305,7 @@ Test.add('audio', (check) => {
   check('a suppressed weapon plays its own quiet recipe', audioTestCount('suppressed') === 1 && captions[captions.length - 1].text === '[Faint shots ahead]');
 
   captions.length = 0;
-  audioTestEmit('explosion', { x: 0, y: 1, z: 25, radius: 5, owner: bot, source: 'x', element: 'fire' });
+  audioTestEmit('explosion', { x: 0, y: 1, z: 25, radius: 5, owner: bot, source: 'x', element: 'thermal' });
   audioTestEmit('explosion', { x: 0, y: 1, z: 25, radius: 5, owner: bot, source: 'x', element: '' });
   check('explosions are captioned and use the element recipe', captions.length === 2 && captions[0].kind === 'explosion' && audioTestCount('explosionFire') === 1 && audioTestCount('explosion') === 1);
   audioTestEmit('pickup', { id: bot, item: 'unknown', group: 'power', x: 0, y: 1, z: 20 });
