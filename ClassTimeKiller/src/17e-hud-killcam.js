@@ -130,14 +130,10 @@ Sim.addSystem('killcamRecord', KILLCAM_ORDER, () => {
   Killcam.record(-1);
 });
 
-// ---- Hooks: the replay camera, hidden live bodies and the recorded figures (chained: earlier owners keep working) ----
+// ---- Hooks: the replay camera (chained: an earlier owner keeps working), hidden live bodies and the recorded figures ----
 const killcamPreviousOverride = Render.cameraOverride;
-const killcamPreviousStyle = Render.actorStyle;
 Render.cameraOverride = (camera) => (Killcam.playing ? Killcam.place(camera) : killcamPreviousOverride ? killcamPreviousOverride(camera) : false);
-Render.actorStyle = (id, out) => {
-  if (killcamPreviousStyle) killcamPreviousStyle(id, out);
-  if (Killcam.playing) out.visible = false;
-};
+Render.addActorStyle((id, out) => { if (Killcam.playing) out.visible = false; });   // loads after every other style
 
 // Recorded bodies: a capsule per living actor in its team colour, plus a small box on the face that shows where it looks.
 function hudDrawKillcamFigures(batch) {

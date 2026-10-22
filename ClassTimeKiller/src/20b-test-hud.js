@@ -430,7 +430,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('killcam: the camera override puts the camera at the killer\'s eyes', Render.cameraOverride(camera) === true && Test.near(camera.x, expectedX, 1e-3) && Test.near(camera.y, expectedEye, 1e-3)
     && camera.roll === 0 && Test.near(camera.yaw, 0.5, 1e-6), JSON.stringify(camera) + ' expected ' + expectedX + ' ' + expectedEye);
   const style = { visible: true };
-  Render.actorStyle(foe, style);
+  Render.applyActorStyle(foe, style);
   check('killcam: live bodies are hidden while it plays', style.visible === false);
   let figures = 0;
   hudDrawKillcamFigures({ mesh() { figures++; return 0; } });
@@ -443,7 +443,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('killcam: it ends by itself after the replay and a short hold', !Killcam.playing && Render.cameraOverride(camera) === false);
   hudTestFrame();
   style.visible = true;
-  Render.actorStyle(foe, style);
+  Render.applyActorStyle(foe, style);
   check('killcam: afterwards bodies, panel and the normal HUD are back', style.visible === true && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
 
   Actors.alive[player] = 0;

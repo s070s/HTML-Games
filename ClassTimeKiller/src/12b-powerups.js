@@ -381,11 +381,7 @@ Items.soulCount = (id) => Powerups.souls[id];
 // Bots perceive a cloaked actor at this share of their normal range (PU04); 1 = fully visible.
 Items.perceptionScale = (id) => Powerups.cloaked(id) ? Powerups.perception[id] : 1;
 
-const previousActorStyle = Render.actorStyle;
-Render.actorStyle = (id, out) => {
-  if (previousActorStyle) previousActorStyle(id, out);
-  Powerups.style(id, out);
-};
+Render.addActorStyle((id, out) => Powerups.style(id, out));
 Damage.addAttackerScale((source, target, info) => Powerups.attackScale(source, target, info));
 Damage.addReducer((source, target, amount, info) => Powerups.reduce(target, amount, info));
 Sim.addSystem('powerups', 25, (dt) => Powerups.step(dt));
