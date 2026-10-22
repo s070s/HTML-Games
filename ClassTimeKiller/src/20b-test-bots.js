@@ -31,7 +31,7 @@ DebugApi.soak = (mode, map, minutes, botCount, seed, modeOptions) => playMatch({
   seed: seed === undefined ? 1 : seed, modeOptions: modeOptions || SOAK_OPEN_MATCH });
 
 // One headless match at the soak quality, stopped afterwards whatever happens. run: { mode, map (an id, or a map
-// object), ruleset (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
+// object), ruleset, difficulty, balance, player (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
 // probe(stats) at the end while the match still runs }. Returns the soak numbers.
 function playMatch(run) {
   const headless = Game.headless, quality = Settings.get('video.quality'), ownMap = typeof run.map !== 'string';
@@ -47,7 +47,8 @@ function playMatch(run) {
 
 function runSoak(run) {
   const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
-  Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions });
+  Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
+    balance: run.balance, player: run.player });
   const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
@@ -535,9 +536,9 @@ Test.add('bots', (check) => {
   check('a seen enemy is where it really is', point.x === Actors.x[dummy] && point.z === Actors.z[dummy]);
   BotSense.visible[pair] = 0;
   BotSense.knownY[pair] = Actors.y[bot] + AGGRESSION_HEIGHT + 1;
-  check('aggression reads the remembered height (0: the enemy is believed far above)', BotDecide.aggression(bot, dummy) === 0);
+  check('fleeing reads the remembered height (the enemy is believed far above)', BotDecide.flees(bot, dummy));
   BotSense.knownY[pair] = Actors.y[bot];
-  check('and not the real one', BotDecide.aggression(bot, dummy) > 0, BotDecide.aggression(bot, dummy));
+  check('and not the real one', !BotDecide.flees(bot, dummy) && BotDecide.aggression(bot) > 0, BotDecide.aggression(bot));
   BotCombat.target[bot] = -1;
   BotSense.attacker[bot] = dummy; BotSense.attackedAt[bot] = Sim.time;
   check('a bot hit from out of sight retreats from its attacker', retreatThreat(bot, Sim.time) === dummy);
@@ -1522,5 +1523,26 @@ Test.add('bots', (check) => {
   }
   check('holding bots sweep their view slowly (no spin)', holders > 0 && fastest < HOLD_SWEEP_RATE_LIMIT, holders + ' holders, fastest ' + fastest.toFixed(0) + ' deg/s');
   check('and only over an arc (no 360 degree vision)', holders > 0 && widest <= HOLD_SWEEP_RANGE_LIMIT, 'widest ' + widest.toFixed(0) + ' deg');
+});
+
+// ---- BOT-021: easy bots still fight (worse), they do not run from most fights ----
+const FIGHT_MIX_SECONDS = 90, FIGHT_MIX_SAMPLE = 12, FIGHT_ATTACK_MIN = 0.3, FIGHT_RETREAT_MAX = 0.35;
+Test.add('bots', (check) => {
+  for (const difficulty of ['stroll', 'recruit', 'novice']) {
+    let targeted = 0, attacking = 0, retreating = 0;
+    const onTick = (tick) => {
+      if (tick % FIGHT_MIX_SAMPLE) return;
+      for (let id = 0; id < Actors.count; id++) {
+        if (!Bots.isBot(id) || BotCombat.target[id] < 0) continue;
+        targeted++;
+        if (BotDecide.goal[id] === GOAL.ATTACK) attacking++;
+        if (BotDecide.goal[id] === GOAL.RETREAT) retreating++;
+      }
+    };
+    playMatch({ mode: 'ffa', map: 'spire', minutes: FIGHT_MIX_SECONDS / 60, botCount: 6, seed: 3, difficulty, onTick });
+    const attackShare = attacking / Math.max(1, targeted), retreatShare = retreating / Math.max(1, targeted);
+    check(difficulty + ': bots with a target attack at least 30% of the time and retreat at most 35%', targeted > 0 && attackShare >= FIGHT_ATTACK_MIN && retreatShare <= FIGHT_RETREAT_MAX,
+      'attack ' + (attackShare * 100).toFixed(0) + '%, retreat ' + (retreatShare * 100).toFixed(0) + '%');
+  }
 });
 

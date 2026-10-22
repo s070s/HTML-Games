@@ -27,9 +27,11 @@ const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a fl
 const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
 const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
 const FLANK_REST = 20;                  // s between two flanks of one bot
-const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
-const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
+const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_MAX = 0.95;   // BOT-021: a fleeing bot retreats, more urgently by self-preservation
+const AGGRESSION_HEALTH = 0.45, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
+const AGGRESSION_OUTGUNNED = 0.45;      // botPref value the enemy's weapon must beat the bot's by for the bot to flee
 const AGGRESSION_WEAPON_FLOOR = 0.55;   // any armed bot is willing to fight; strong weapons push it higher (BOT-021 table)
+const AGGRESSION_CLOSE_IN = 0.4;        // below this a bot holding an attack token still fights from where it stands
 const RETREAT_COVER_RANGE = 15, RETREAT_AWAY = 10;
 const COLLECT_BASE = 0.2, COLLECT_GAIN = 0.6, COLLECT_MAX = 0.9, COLLECT_DISTANCE = 15;
 const ITEM_VALUES = { health: 1.2, armor: 0.7, weapon: 0.8, ammo: 0.5, power: 0.6 };
@@ -305,14 +307,25 @@ const BotDecide = {
     return BotCombat.mostUsedPlayerWeapon() || FALLBACK_FAVORITE;
   },
 
-  // ---- BOT-021 aggression: 0 when hurt or far below the enemy, 0.7 with a powerup, else the weapon value x trait x difficulty ----
-  // The enemy's height is where the bot believes it is (BOT-040).
-  aggression(id, target) {
-    const lowHealth = Actors.health[id] < Actors.maxHealth[id] * AGGRESSION_HEALTH && Actors.armor[id] < AGGRESSION_ARMOR;
-    if (lowHealth || (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT)) return 0;
-    if (Items.activePowerups(id, powerupList) > 0) return AGGRESSION_POWERUP;
+  // ---- BOT-021 'want to fight' and 'should flee' are kept apart: aggression only scales how hard a bot attacks (attack,
+  // chase, close in or hold its ground); a bot flees only from a disadvantage (flees). ----
+  // Aggression 0..1: at least AGGRESSION_POWERUP with a powerup, else the weapon value x trait x difficulty.
+  aggression(id) {
     const weapon = Weapons.currentWeapon(id), value = weapon ? Math.max(AGGRESSION_WEAPON_FLOOR, weapon.botPref.value) : 0;
-    return clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression) * mutatorRisk(), 0, 1);
+    const will = clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression) * mutatorRisk(), 0, 1);
+    return Items.activePowerups(id, powerupList) > 0 ? Math.max(AGGRESSION_POWERUP, will) : will;
+  },
+  // Hurt (below the health share the self-preservation trait sets, armour low), unarmed, outgunned (the enemy's weapon is
+  // worth AGGRESSION_OUTGUNNED more than the bot's own), or the enemy far above. The enemy is where the bot believes it
+  // is (BOT-040); a powerup holds the ground against all but the height.
+  flees(id, target) {
+    if (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT) return true;
+    if (Items.activePowerups(id, powerupList) > 0) return false;
+    const healthShare = AGGRESSION_HEALTH * (0.5 + Bots.trait(id, TRAIT.selfPreservation));
+    if (Actors.health[id] < Actors.maxHealth[id] * healthShare && Actors.armor[id] < AGGRESSION_ARMOR) return true;
+    const own = Weapons.currentWeapon(id), theirs = target >= 0 && BotSense.sees(id, target) ? Weapons.currentWeapon(target) : null;
+    if (!own) return true;
+    return !!theirs && theirs.botPref.value - own.botPref.value >= AGGRESSION_OUTGUNNED;
   },
 };
 
@@ -388,13 +401,12 @@ GOAL_SCORERS[GOAL.ROAM] = (id, plan) => {
 };
 GOAL_SCORERS[GOAL.ATTACK] = (id, plan, now) => {
   const target = BotCombat.target[id];
-  if (target < 0 || !BotSense.sees(id, target)) return 0;
-  const aggression = BotDecide.aggression(id, target);
-  if (aggression < RETREAT_THRESHOLD) return 0;
-  // BOT-053: only attack token holders close in; the others fight from where they stand, coming no nearer than the
-  // weapon's range (a melee weapon must close in).
+  if (target < 0 || !BotSense.sees(id, target) || BotDecide.flees(id, target)) return 0;
+  const aggression = BotDecide.aggression(id);
+  // BOT-053: only attack token holders close in, and only with the aggression for it (easy bots hold their ground); the
+  // others fight from where they stand, coming no nearer than the weapon's range (a melee weapon must close in).
   const weapon = Weapons.currentWeapon(id), closest = attackRadius(weapon);
-  const closeIn = (weapon && weapon.class === 'melee') || BotTeam.takeAttackToken(id, target, now);
+  const closeIn = (weapon && weapon.class === 'melee') || (aggression >= AGGRESSION_CLOSE_IN && BotTeam.takeAttackToken(id, target, now));
   const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
   const radius = closeIn ? closest : clamp(distance, closest, weapon ? weapon.botPref.range[1] : closest);
   setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], radius, ACTION.MOVE, target);
@@ -407,9 +419,8 @@ function attackRadius(weapon) {
 }
 GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const target = BotCombat.target[id];
-  if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now)) return 0;
-  const aggression = BotDecide.aggression(id, target);
-  if (aggression < RETREAT_THRESHOLD) return 0;
+  if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now) || BotDecide.flees(id, target)) return 0;
+  const aggression = BotDecide.aggression(id);
   const pair = BotSense.pair(id, target), freshness = 1 - (now - BotSense.knownAt[pair]) / SENSE_MEMORY;
   const flank = flankSpot(id, BotSense.knownX[pair], BotSense.knownZ[pair], now), spot = BotDecide.flankSpots[flank];
   BotDecide.flankSpot[id] = flank;
@@ -419,11 +430,9 @@ GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
 };
 GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {
   const threat = retreatThreat(id, now);
-  if (threat < 0) return 0;
-  const aggression = BotDecide.aggression(id, threat);
-  if (aggression >= RETREAT_THRESHOLD) return 0;
+  if (threat < 0 || !BotDecide.flees(id, threat)) return 0;
   retreatSpot(id, threat, plan);
-  return Math.min(0.95, RETREAT_BASE + RETREAT_GAIN * (RETREAT_THRESHOLD - aggression) * 2 * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
+  return Math.min(RETREAT_MAX, RETREAT_BASE + RETREAT_GAIN * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
 };
 GOAL_SCORERS[GOAL.COLLECT] = (id, plan, now) => {
   if (Modes.loot.count > 0) return collectScore(id, bestLoot(id, plan));   // royale: the rolled loot spots instead of map pickups
