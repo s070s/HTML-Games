@@ -470,11 +470,16 @@ const Thrown = {
     const row = CAT.gadgets[this.row[slot]];
     this.x[slot] = gadgetActorHit.x; this.y[slot] = gadgetActorHit.y; this.z[slot] = gadgetActorHit.z;
     if (row.impact && !row.stickActors) { this.detonate(slot); return; }
-    if (!row.stickActors) { this.vx[slot] *= -ACTOR_BOUNCE_KEEP; this.vz[slot] *= -ACTOR_BOUNCE_KEEP; this.vy[slot] = Math.min(0, this.vy[slot]); return; }
+    if (!row.stickActors) { this.bounceOffActor(slot); return; }
     this.state[slot] = THROWN_STATE.ATTACHED;
     this.attached[slot] = target;
     this.offsetX[slot] = this.x[slot] - Actors.x[target]; this.offsetY[slot] = this.y[slot] - Actors.y[target]; this.offsetZ[slot] = this.z[slot] - Actors.z[target];
     if (row.impact) this.detonate(slot);
+  },
+  // Drops off a body: most speed lost, pushed out along the hit normal so the next sweep starts outside the hit volume.
+  bounceOffActor(slot) {
+    this.vx[slot] *= -ACTOR_BOUNCE_KEEP; this.vz[slot] *= -ACTOR_BOUNCE_KEEP; this.vy[slot] = Math.min(0, this.vy[slot]);
+    this.x[slot] += gadgetActorHit.nx * THROWN_RADIUS * 2; this.z[slot] += gadgetActorHit.nz * THROWN_RADIUS * 2;
   },
   touchWorld(slot, speed) {
     const row = CAT.gadgets[this.row[slot]];

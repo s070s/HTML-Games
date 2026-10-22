@@ -62,6 +62,7 @@ const Devices = {
   // 12c deployer: sets the row in front of the owner; false (the use is kept) when there is no room or no floor.
   deploy(owner, row) {
     if (row.kind === 'thrown' || !this.room(owner, row) || !this.findSpot(owner, row)) return false;
+    if (row.effect === 'barrier' && !barrierFits(row, devicePoint.x, devicePoint.z)) return false;
     const total = Math.min(row.count, this.room(owner, row));
     for (let k = 0; k < total; k++) this.spawn(row, owner, devicePoint.x + (k - (total - 1) / 2) * 0.6 * Math.cos(Actors.yaw[owner]), devicePoint.y, devicePoint.z - (k - (total - 1) / 2) * 0.6 * Math.sin(Actors.yaw[owner]));
     return true;
@@ -148,11 +149,15 @@ const Devices = {
     this.clock[d] -= interval;
     return true;
   },
-  // True when the device harms or blocks this actor: an enemy of the owner, or anyone else with friendly fire on.
-  hostileTo(d, id) {
+  // True for living enemies of the owner (what devices target, trigger on and block).
+  enemyOf(d, id) {
     if (!Actors.alive[id] || id === this.owner[d]) return false;
-    if (this.team[d] < 0 || Actors.team[id] !== this.team[d]) return true;
-    return itemRule('friendlyFire', 0) > 0;
+    return this.team[d] < 0 || Actors.team[id] !== this.team[d];
+  },
+  // Enemies can break a device; teammates only with friendly fire on; the owner never.
+  canHurt(d, source) {
+    if (source < 0 || this.enemyOf(d, source)) return true;
+    return source !== this.owner[d] && itemRule('friendlyFire', 0) > 0;
   },
   friendOf(d, id) { return Actors.alive[id] && (id === this.owner[d] || (this.team[d] >= 0 && Actors.team[id] === this.team[d])); },
   inSphere(d, id, radius) {
@@ -163,7 +168,7 @@ const Devices = {
   // G10 / G11: armed mines go off when an enemy body is within trigger range (and the cone); crouching passes crouchSafe rows.
   stepMine(d, row) {
     for (let id = 0; id < Actors.count; id++) {
-      if (!this.hostileTo(d, id) || !this.mineSees(d, row, id)) continue;
+      if (!this.enemyOf(d, id) || !this.mineSees(d, row, id)) continue;
       this.remove(d, false);
       gadgetBlast(row, this.owner[d], this.x[d], this.y[d] + 0.2, this.z[d]);
       return;
@@ -202,7 +207,7 @@ const Devices = {
     return removed;
   },
   blocks(d, row, dt, snatch, owner, x, y, z, vx, vy, vz) {
-    if (owner >= 0 && !this.hostileTo(d, owner)) return false;
+    if (owner >= 0 && !this.enemyOf(d, owner)) return false;
     const radiusSquared = row.radius * row.radius;
     if (distanceSquared3(x, y, z, this.x[d], this.y[d], this.z[d]) > radiusSquared) return false;
     return snatch || distanceSquared3(x - vx * dt, y - vy * dt, z - vz * dt, this.x[d], this.y[d], this.z[d]) > radiusSquared;
@@ -240,7 +245,7 @@ const Devices = {
     let best = -1, bestDistance = row.range * row.range;
     const muzzleY = this.y[d] + TURRET_MUZZLE;
     for (let id = 0; id < Actors.count; id++) {
-      if (!this.hostileTo(d, id)) continue;
+      if (!this.enemyOf(d, id)) continue;
       Hitbox.point(id, ZONE.BODY, devicePoint);
       const distance = distanceSquared3(this.x[d], muzzleY, this.z[d], devicePoint.x, devicePoint.y, devicePoint.z);
       if (distance < bestDistance && this.turretSees(d, row, id, distance)) { best = id; bestDistance = distance; }
@@ -263,7 +268,7 @@ const Devices = {
     const wall = World.raycast(x, y, z, deviceDirection.x, deviceDirection.y, deviceDirection.z, row.range, deviceHit) ? deviceHit.distance : row.range;
     const hit = World.raycastActors(x, y, z, deviceDirection.x, deviceDirection.y, deviceDirection.z, wall, this.owner[d], deviceActorHit);
     const reach = hit >= 0 ? deviceActorHit.distance : wall;
-    if (hit >= 0 && this.hostileTo(d, hit)) deviceDamage(this.owner[d], hit, row, row.damage, 'hit', deviceActorHit);
+    if (hit >= 0 && this.enemyOf(d, hit)) deviceDamage(this.owner[d], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + deviceDirection.x * reach, y + deviceDirection.y * reach, z + deviceDirection.z * reach, null);
     emitGadgetSound(x, y, z, TURRET_NOISE, 'shot', this.owner[d]);
   },
@@ -276,7 +281,7 @@ const Devices = {
     if (!this.due(d, dt, DEVICE_TICK)) return;
     for (let id = 0; id < Actors.count; id++) {
       const amount = Math.min(row.drain * DEVICE_TICK, Actors.shield[id]);
-      if (amount > 0 && this.hostileTo(d, id) && this.inSphere(d, id, row.radius)) deviceDamage(this.owner[d], id, row, amount, 'dot', null);
+      if (amount > 0 && this.enemyOf(d, id) && this.inSphere(d, id, row.radius)) deviceDamage(this.owner[d], id, row, amount, 'dot', null);
     }
   },
   // G21: each drone rolls to the nearest enemy within range and goes off next to it.
@@ -294,7 +299,7 @@ const Devices = {
   droneTarget(d, row) {
     let best = -1, bestDistance = row.range * row.range;
     for (let id = 0; id < Actors.count; id++) {
-      if (!this.hostileTo(d, id)) continue;
+      if (!this.enemyOf(d, id)) continue;
       const distance = distanceSquared3(this.x[d], this.y[d], this.z[d], Actors.x[id], Actors.y[id], Actors.z[id]);
       if (distance < bestDistance && World.lineClear(this.x[d], this.y[d] + DRONE_HOVER, this.z[d], Actors.x[id], Actors.eyeY(id), Actors.z[id])) { best = id; bestDistance = distance; }
     }
@@ -326,14 +331,14 @@ const Devices = {
   jammed(id) {
     if (!this.count) return false;
     for (let d = 0; d < DEVICE_CAP; d++) {
-      if (this.active[d] && this.rowOf(d).effect === 'jammer' && this.working(d) && this.hostileTo(d, id) && this.inSphere(d, id, this.rowOf(d).radius)) return true;
+      if (this.active[d] && this.rowOf(d).effect === 'jammer' && this.working(d) && this.enemyOf(d, id) && this.inSphere(d, id, this.rowOf(d).radius)) return true;
     }
     return false;
   },
   // G20 hook: devices of other teams within the radius stop working for the given seconds.
   onEmp(owner, x, y, z, radius, seconds) {
     for (let d = 0; d < DEVICE_CAP; d++) {
-      if (!this.active[d] || (owner >= 0 && !this.hostileTo(d, owner)) || distanceSquared3(x, y, z, this.x[d], this.y[d], this.z[d]) > radius * radius) continue;
+      if (!this.active[d] || (owner >= 0 && !this.enemyOf(d, owner)) || distanceSquared3(x, y, z, this.x[d], this.y[d], this.z[d]) > radius * radius) continue;
       this.disabledUntil[d] = Math.max(this.disabledUntil[d], Sim.tick + itemTicks(seconds));
     }
   },
@@ -341,7 +346,7 @@ const Devices = {
   // ---- Damage to devices ----
   damage(d, amount, source) {
     if (!this.active[d] || this.rowOf(d).health <= 0 || amount <= 0) return false;
-    if (source >= 0 && !this.hostileTo(d, source)) return false;
+    if (!this.canHurt(d, source)) return false;
     this.health[d] -= amount;
     if (this.health[d] > 0) return false;
     this.remove(d, true);
@@ -410,6 +415,14 @@ const Devices = {
 };
 const DEVICE_FOREVER_SECONDS = 3600;
 
+// G13 is refused where its footprint (the larger side in both directions) would close on a body.
+function barrierFits(row, x, z) {
+  const reach = Math.max(row.size[0], row.size[2]) / 2 + ACTOR_RADIUS;
+  for (let id = 0; id < Actors.count; id++) {
+    if (Actors.alive[id] && Math.abs(Actors.x[id] - x) < reach && Math.abs(Actors.z[id] - z) < reach) return false;
+  }
+  return true;
+}
 // Healing devices: health up to the maximum; the dome also tops up shields once health is full.
 function deviceHeal(id, amount, shields) {
   const room = Math.max(0, Actors.maxHealth[id] - Actors.health[id]);

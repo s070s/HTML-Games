@@ -340,3 +340,16 @@ Test.add('gadgets', (check) => {
   check('match end clears devices, smoke and grenades', Devices.count === 0 && Smoke.count === 0 && GadgetArena.firstThrown() < 0);
   TestArena.finish();
 });
+
+Test.add('gadgets', (check) => {
+  GadgetArena.start({ friendlyFire: 1 });
+  const owner = GadgetArena.actor(1, 0, 0, 'cover', 1), blocker = GadgetArena.actor(1, 0, 2);
+  GadgetArena.press(owner, BTN.GADGET);
+  check('G13 is not set on top of a body', Devices.count === 0 && Gadgets.countOf(owner, 'cover') === 1);
+  const mate = TestArena.sponge(1, 3, 8);
+  const turret = GadgetArena.device('sentry', owner, 3, 3);
+  Sim.run(TICK_RATE);
+  check('turrets never shoot teammates, even with friendly fire', Actors.health[mate] === 100000 && Devices.target[turret] === -1);
+  check('friendly fire lets teammates break devices, never the owner', !Devices.damage(turret, 500, owner) && Devices.damage(turret, 500, blocker));
+  TestArena.finish();
+});
