@@ -123,3 +123,61 @@ const BOT_ROLE_SPLITS = {
   none: { defend: 0.2 },
 };
 const BOT_CAMP_HINTS = ['sniper', 'cover', 'guard'];   // map navHints kinds a camper may hold (BOT-041)
+
+// Flag raids (BOT-050 attack play): while the enemy flag is home, a team's attackers and escorts gather at a rally point
+// (share of the way from their own base to the enemy flag) and push together once `minimum` of them are within `radius`
+// m of it (or the first has waited `wait` s); a push lasts `seconds` s or until the flag is taken.
+const BOT_FLAG_PUSH = { rallyShare: 0.2, radius: 9, minimum: 2, wait: 5, seconds: 22 };
+
+// Mode goal hints (BOT-080): what a bot does at an objective whose Modes.goalFor names the verb. action: 'move' (go
+// there), 'hold' (stay and watch, spread over the zone), 'use' (stand inside and hold USE: arm, disarm), 'keep' (carry a
+// prize and stay away from enemies). share: arrival radius as a share of the objective's radius (0 = touch it).
+// urgency: 0..1 objective urgency; above 1 (reach a beacon, keep a prize) it outranks any fight.
+const BOT_OBJECTIVE_VERBS = {
+  arm: { action: 'use', share: 0.35, urgency: 0.95 },
+  disarm: { action: 'use', share: 0.25, urgency: 1 },
+  defend: { action: 'hold', share: 0.8, urgency: 0.7 },
+  guard: { action: 'hold', share: 0.6, urgency: 0.8 },
+  escort: { action: 'move', share: 0.45, urgency: 0.9 },
+  stop: { action: 'move', share: 0.45, urgency: 0.9 },
+  take: { action: 'move', share: 0, urgency: 0.85 },
+  reach: { action: 'move', share: 0, urgency: 1.15 },
+  hold: { action: 'keep', share: 0, urgency: 1.15 },
+};
+
+// Roles of the add-on modes (Modes.actorRole names) every opponent hunts: their marker or carried prize is drawn for
+// everyone, so bots may know where they are (ARC-033: what a person sees on screen) and value them as targets.
+const BOT_HUNTED_ROLES = ['carrier', 'colossus', 'cursed', 'bearer'];
+
+// Grenades and gadgets (BOT-034/035) by the gadget row's effect: the trigger (BOT_USE_TRIGGERS: the words of the ability
+// botUse), the target distance range [min, max] m (max 0 = any distance, or no target needed), the chance per check, and
+// for thrown rows where the throw lands ('enemy' = where the bot believes its target is, 'between' = half way there, a
+// screen); tier: the lowest skill tier that uses it (0 when missing). cover = the target hid in the last 3 s or 2+
+// enemies stand together; coverOrHolding = that, or any target while the bot holds its spot (BOT-034: frags at cover,
+// clusters or from a held point); holding = the bot holds its spot (defend, camp, objective); lowAmmo = the drawn
+// weapon's reserve is low. An effect missing here is never used by bots.
+const BOT_GADGET_USE = {
+  explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
+  fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
+  singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
+  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tier: 3 },   // BOT-034: flash before a peek from tier 3
+  freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
+  impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
+  dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },
+  emp: { when: 'enemyVisible', range: [8, 25], chance: 0.4, aim: 'enemy' },
+  decoy: { when: 'cover', range: [8, 25], chance: 0.4, aim: 'between' },
+  smoke: { when: 'underFire', range: [8, 25], chance: 0.6, aim: 'between' },
+  mine: { when: 'holding', range: [0, 0], chance: 1 },
+  turret: { when: 'holding', range: [0, 0], chance: 1 },
+  beacon: { when: 'holding', range: [0, 0], chance: 0.5 },
+  jammer: { when: 'objective', range: [0, 0], chance: 1 },
+  dome: { when: 'underFire', range: [0, 40], chance: 0.7 },
+  barrier: { when: 'holding', range: [0, 0], chance: 0.5 },   // a wall the nav graph does not know: only where the bot stays
+  trophy: { when: 'underFire', range: [0, 40], chance: 0.6 },
+  heal: { when: 'lowHealth', range: [0, 0], chance: 0.8 },
+  drain: { when: 'enemyClose', range: [0, 8], chance: 0.6 },
+  drones: { when: 'enemyVisible', range: [10, 40], chance: 0.6 },
+  supply: { when: 'lowAmmo', range: [0, 0], chance: 1 },
+};
+// Thrown effects a bot runs from when it hears one bounce close (smoke, flash, decoys and darts do no harm where they land).
+const BOT_FLEE_EFFECTS = ['explode', 'fire', 'singularity', 'impulse', 'freeze'];

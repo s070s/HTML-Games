@@ -1,6 +1,7 @@
 // ==== S20 SELF-TEST ====
-// Test.add(group, fn) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
-// Blocks run in registration order (file order). Each block gets a clean slate: no match, default seed, memory storage.
+// Test.add(group, fn, options) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
+// Blocks run in registration order (file order). options.slow: a long soak that runs only with Test.run({ slow: true }) or
+// when its group is named (--slow / --group in tools/selftest.mjs), so the default suite stays quick. Each block gets a clean slate: no match, default seed, memory storage.
 // DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
 
 // Hooks that later sections fill at load (ARCHITECTURE: renderer and other hooks). A block may replace one with a stub;
@@ -13,7 +14,7 @@ const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };   //
 const Test = {
   blocks: [],
   loadedHooks: [],
-  add(group, run) { this.blocks.push({ group, run }); },
+  add(group, run, options) { this.blocks.push({ group, run, slow: !!(options && options.slow) }); },
   async run(options) {
     const settings = options || {};
     const results = [];
@@ -24,6 +25,7 @@ const Test = {
     if (settings.headless) Game.headless = true;
     for (const block of this.blocks) {
       if (settings.group && block.group !== settings.group) continue;
+      if (block.slow && !settings.slow && !settings.group) continue;
       groups.add(block.group);
       const check = (name, ok, detail) => { results.push({ group: block.group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
       Test.isolate();

@@ -178,6 +178,8 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 `Test.add(group, (check) => { … check(name, ok, detail) … })`. Each block starts clean (`Test.isolate`: no match, memory storage, seed 1). A block that throws or logs an unexpected error fails; use `Test.expectErrors(fn)` for deliberate ones. Groups: one per area (`core`, `render`, `input`, `ui`, `audio`, `world`, `move`, `weapons`, `damage`, …). Run one group with `--group`.
 
+Slow tests: `Test.add(group, fn, { slow: true })` marks a long soak (whole matches, sweeps over every row). The default run skips slow blocks so the full suite stays quick (about 30 s); `node tools/selftest.mjs --slow` adds them, and naming a group with `--group` always runs its slow blocks. Put a check in a slow block only when a short version of it stays in the default suite (the `botsoak` group backs up `bots`).
+
 ## Git for helpers
 
 Work only in the files your brief names. Commit with clear messages; never commit `ClassTimeKiller.html` (the lead rebuilds it after merging): stage with `git add src tools docs`. Before every commit: `node tools/build.mjs` and `node tools/selftest.mjs` must pass.

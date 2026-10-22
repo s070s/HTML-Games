@@ -42,6 +42,7 @@ const WATER_RIM_RAY = 3;
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
   destX: new Float32Array(MAX_ACTORS), destY: new Float32Array(MAX_ACTORS), destZ: new Float32Array(MAX_ACTORS),
+  plannedX: new Float32Array(MAX_ACTORS), plannedZ: new Float32Array(MAX_ACTORS),   // the destination of the current path
   destRadius: new Float32Array(MAX_ACTORS), hasDest: new Uint8Array(MAX_ACTORS), requestedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   navVersion: new Int32Array(MAX_ACTORS), pending: new Uint8Array(MAX_ACTORS), pathSerial: new Uint32Array(MAX_ACTORS),
   samplePoint: new Int16Array(MAX_ACTORS), sampleSerial: new Uint32Array(MAX_ACTORS), sampleDistance: new Float32Array(MAX_ACTORS),
@@ -77,20 +78,23 @@ const BotMove = {
     Nav.cancel(id);
   },
   // Path options from the bot's movement preset and tier (BOT-010 "preset-aware"): tiers without jumps skip extra jumps.
+  // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
   configure(id) {
     const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
     const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
     for (const options of [this.options[id], this.avoidOptions[id]]) {
       options.allowJumpHeight = single + extra;
+      options.maxDrop = Mutators.fx && Mutators.fx.noFallDamage ? Nav.limits.maxDrop : Nav.limits.safeDrop;   // MUT-003: no fall damage
       options.moveSpeed = preset.groundSpeed * tier.speed;
       options.jumpVelocity = preset.jumpVel;
       options.gravity = gravity;
     }
   },
   // Destination for the execution layer; a nearby change keeps the current path (moving targets repath at most 1.3 Hz).
+  // The change is measured from where the path was asked for: a destination that creeps (the convoy cart) adds up.
   goTo(id, x, y, z, radius) {
-    const moved = Math.hypot(x - this.destX[id], z - this.destZ[id]);
+    const moved = Math.hypot(x - this.plannedX[id], z - this.plannedZ[id]);
     this.destRadius[id] = radius;
     if (this.hasDest[id] && moved < MOVE_REPATH_DISTANCE && this.state[id] !== PATH.FAILED) {
       this.destX[id] = x; this.destY[id] = y; this.destZ[id] = z;
@@ -114,6 +118,7 @@ const BotMove = {
     this.pathSerial[id]++;
     this.pending[id] = 0;
     this.navVersion[id] = Nav.version;
+    this.plannedX[id] = this.destX[id]; this.plannedZ[id] = this.destZ[id];
     const from = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]);
     const goal = Nav.nearestNode(this.destX[id], this.destY[id], this.destZ[id]);
     const to = this.fromWater[id] && goal >= 0 ? this.dryTarget(id, from, goal) : goal;

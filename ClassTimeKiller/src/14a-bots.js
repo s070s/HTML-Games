@@ -77,7 +77,23 @@ function matchOutcome(results, player) {
   return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
 }
 
-Rules.addModifier('difficulty', (rules) => { rules.botSkill = Difficulty.resolve(rules.difficulty); });
+// The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (PvE only) multiplies the mutators' time scale.
+Rules.addModifier('difficulty', (rules) => {
+  rules.botSkill = Difficulty.resolve(rules.difficulty);
+  if (rules.family !== 'pve' || rules.botSkill.gameSpeed === 1 || !rules.fx) return;
+  rules.fx.timeScale = (rules.fx.timeScale === undefined ? 1 : rules.fx.timeScale) * rules.botSkill.gameSpeed;
+});
+
+// DIF-002 damage sliders through their own attacker scale (BOT-040: PvE only, never a bonus for versus bots): hits on
+// the player by PvE enemies x playerDamage, hits on PvE enemies by anyone else x enemyDamage.
+function difficultyDamageScale(source, target) {
+  const skill = Bots.skill;
+  if (!skill || source < 0 || source === target) return 1;
+  const fromEnemy = Actors.kind[source] === ACTOR_KIND.ENEMY, onEnemy = Actors.kind[target] === ACTOR_KIND.ENEMY;
+  if (fromEnemy && Actors.kind[target] === ACTOR_KIND.PLAYER) return skill.playerDamage;
+  return onEnemy && !fromEnemy ? skill.enemyDamage : 1;
+}
+Damage.addAttackerScale(difficultyDamageScale);
 
 const Bots = {
   active: new Uint8Array(MAX_ACTORS),          // 1 = this actor is driven by a brain (BOT kind that spawned)
@@ -137,7 +153,8 @@ const Bots = {
     if (requested >= 0) return requested;
     if (row) return clamp(row.tier + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
     const skill = this.currentSkill(), span = skill.tierMax - skill.tierMin + 1;
-    const spread = skill.tierMin + (Math.max(0, this.setupCursor - 1) % span);   // even tier mix over the bots
+    // Even tier mix over the bots, in pairs: unnamed bots join the two teams in turn, so each team gets the same mix.
+    const spread = skill.tierMin + (Math.floor(Math.max(0, this.setupCursor - 1) / TEAM_COUNT) % span);
     return clamp(spread + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
   },
   currentSkill() {
@@ -254,6 +271,8 @@ const Bots = {
     BotCombat.update(id, dt, now);
     BotMove.update(id, dt, now);
     BotCombat.overlayMovement(id, dt, now);
+    BotCombat.avoidHazards(id, now);
+    if (BotCombat.channeling(id)) this.wish(id, 0, 0, 0);
     BotDecide.act(id, dt, now);
     BotTeam.updateBot(id, now);
     this.motor(id, dt);
