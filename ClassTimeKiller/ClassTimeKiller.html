@@ -12246,6 +12246,38 @@ Bus.on('actor.create', (id) => WeaponSpecialState.reset(id));
 Bus.on('actor.spawn', (event) => WeaponSpecialState.reset(event.id));
 Bus.on('kill', (event) => WeaponSpecialState.stopBlock(event.victim));
 
+// ==== 12a-items.js ====
+// ==== S12 ABILITIES / ITEMS ====
+// STUB until the items helper lands: hook surface used by the HUD and bots (docs/ARCHITECTURE.md "Batch 2 surfaces").
+
+const Items = {
+  // Fills out (array of { id, name, remaining, duration, color }) with the actor's active powerups; returns the count.
+  activePowerups(id, out) { out.length = 0; return 0; },
+  // Fills out (array of { item, x, y, z, remaining, group }) with item spots that are respawning; returns the count.
+  timers(out) { out.length = 0; return 0; },
+};
+
+// ==== 12c-gadgets.js ====
+// STUB until the items helper lands (S12 gadgets and grenades).
+
+const Gadgets = {
+  // Fills out { grenade, grenadeCount, gadget, gadgetCount, gadgetCooldown 0..1 } for the HUD; returns out.
+  hudState(id, out) { out.grenade = ''; out.grenadeCount = 0; out.gadget = ''; out.gadgetCount = 0; out.gadgetCooldown = 0; return out; },
+};
+
+// Smoke volumes (REN-007): bots and aim assist ask whether a segment passes through smoke.
+const Smoke = {
+  lineBlocked(ax, ay, az, bx, by, bz) { return false; },
+};
+
+// ==== 12e-abilities.js ====
+// STUB until the abilities helper lands (S12 abilities, hero kits, meters).
+
+const Abilities = {
+  // Fills out { slots: [{ id, name, ready, cooldown 0..1, charges, active }], meter: { kind, value 0..1, ready } } for the HUD.
+  hudState(id, out) { out.slots.length = 0; out.meter.kind = 'none'; out.meter.value = 0; out.meter.ready = false; return out; },
+};
+
 // ==== 13a-rules.js ====
 // ==== S13 RULES / MODES ====
 // Rules.build turns a match setup into the frozen ruleset Game.match.rules, in the MOV-001 order:
@@ -13569,6 +13601,15 @@ function requestHazard(id, amount) {
   hazardRequest.x = Actors.x[id]; hazardRequest.y = Actors.y[id]; hazardRequest.z = Actors.z[id];
   Bus.emit('damage.request', hazardRequest);
 }
+
+// ==== 13d-economy.js ====
+// STUB until the economy helper lands (S13 economy, loadouts, buy menu).
+
+const Economy = {
+  money(id) { return 0; },
+  // Fills out { money, nextRoundMoney, canBuy, buyTimeLeft } for the HUD.
+  hudState(id, out) { out.money = 0; out.nextRoundMoney = 0; out.canBuy = false; out.buyTimeLeft = 0; return out; },
+};
 
 // ==== 16a-maps.js ====
 // ==== S16 MAPS ====
