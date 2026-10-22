@@ -541,21 +541,19 @@ const Modes = {
     this.behaviour.onRound('end');
     this.emitRound('end');
     this.announce(winner >= 0 ? TEAM_NAMES[winner] + ' wins the round' : 'Round draw', 'round', 2);
-    const matchWinner = this.roundsMatchWinner(false);
+    const matchWinner = this.roundsMatchWinner();
     if (matchWinner !== NOT_OVER) this.finish(matchWinner);
   },
   nextRound(now) {
-    const rounds = this.rules.rounds;
-    const matchWinner = this.roundsMatchWinner(true);
-    if (matchWinner !== NOT_OVER) { this.finish(matchWinner); return; }
-    if (rounds.switchAt > 0 && this.round === rounds.switchAt) this.switchSides();
+    const switchAt = this.rules.rounds.switchAt;
+    if (switchAt > 0 && this.round === switchAt) this.switchSides();
     this.startRound(now);
   },
-  // First to winsNeeded wins; after the last round (limitReached) the side with more round wins, else a draw.
-  roundsMatchWinner(limitReached) {
+  // First to winsNeeded wins; after the last round the side with more round wins, else a draw.
+  roundsMatchWinner() {
     const rounds = this.rules.rounds;
     for (let team = 0; team < TEAM_COUNT; team++) if (this.teamRounds[team] >= rounds.winsNeeded) return this.over(team, 'rounds');
-    if (!limitReached || this.round < rounds.limit) return NOT_OVER;
+    if (this.round < rounds.limit) return NOT_OVER;
     const lead = this.teamRounds[0] - this.teamRounds[1];
     return this.over(lead === 0 ? DRAW : lead > 0 ? 0 : 1, 'rounds');
   },

@@ -1,6 +1,8 @@
 // Self-tests for the S13 mode framework and the core versus modes. Participants are practice dummies
 // (setup.bots entries with dummy: true) moved by setting positions; deaths are simulated with 'kill' events.
 
+DebugApi.modes = Modes;   // __CTK.modes: objectives, hudState(), per-actor stats
+
 const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };
 const testKill = { victim: -1, killer: -1, assister: -1, weapon: '', zone: 'body', element: 'kinetic', x: 0, y: 0, z: 0 };
 
@@ -15,9 +17,9 @@ function startModeTest(mode, map, teams, setup) {
   return Game.start(Object.assign({ mode, seed: 1, bots }, setup));
 }
 
-function killActor(victim, killer) {
+function killActor(victim, killer, assister) {
   Actors.alive[victim] = 0;
-  testKill.victim = victim; testKill.killer = killer;
+  testKill.victim = victim; testKill.killer = killer; testKill.assister = assister === undefined ? -1 : assister;
   Bus.emit('kill', testKill);
 }
 
@@ -179,7 +181,8 @@ Test.add('modes', (check) => {
   check('tdm: kills add to the team score', Modes.teamScore[0] === 2 && Modes.teamScore[1] === 0);
   killActor(1, 0);
   check('tdm: a team kill costs a point', Modes.teamScore[0] === 1 && Modes.score[0] === 0);
-  killActor(2, 1);
+  killActor(2, 1, 0);
+  check('tdm: assists counted (not for the killer)', Modes.assists[0] === 1 && Modes.assists[1] === 0);
   killActor(3, 0);
   Sim.step();
   const results = Game.match.results;
@@ -350,6 +353,10 @@ Test.add('modes', (check) => {
   placeActor(1, -30, 0);
   Sim.step();
   check('oneflag: deliver to the enemy base', Modes.teamScore[1] === 1 && neutral.state === 'home');
+  placeActor(0, 0, 0);
+  Sim.step();
+  Actors.remove(0);
+  check('a removed carrier drops the flag', neutral.state === 'dropped' && neutral.carrier === -1);
   endModeTest();
 });
 
@@ -548,6 +555,15 @@ Test.add('modes', (check) => {
   Sim.step();
   hazards.stop();
   check('elim: wiping a team wins the round and the match', Game.match.ended && Game.match.winner === 0 && Game.match.results.teams[0].rounds === 2);
+  endModeTest();
+});
+
+Test.add('modes', (check) => {
+  startModeTest('elim', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1], { modeOptions: { rounds: { freeze: 0, endDelay: 1, live: 5, limit: 2 } } });
+  runSeconds(5.01);
+  check('round time out with equal survivors is a drawn round', Modes.teamRounds[0] === 0 && Modes.teamRounds[1] === 0 && Modes.round === 1 && Modes.roundWinner === DRAW);
+  runSeconds(6.01);
+  check('after the last round with no lead the match is a draw', Game.match.ended && Game.match.winner === DRAW && Game.match.results.rounds === 2);
   endModeTest();
 });
 

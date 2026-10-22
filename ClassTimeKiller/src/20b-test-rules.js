@@ -1,5 +1,7 @@
 // Self-tests for S13 rules: bundle table, build order and freezing, validation, mode stage, handicap, custom rulesets.
 
+DebugApi.rules = Rules;   // ARC-040: __CTK.rules
+
 // Spec table 6.1: code key move health economy precision meter (one line per bundle).
 const EXPECTED_BUNDLES = [
   'RS01 classic arena stack pickups arena none', 'RS02 tourney arena stack pickups arena adrenaline',
