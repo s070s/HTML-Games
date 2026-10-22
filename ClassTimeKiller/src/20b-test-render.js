@@ -88,7 +88,7 @@ DebugApi.renderDemo = (themeId, weapon, qualityId) => {
   spawnDemoActors();
   spawnDemoPlayer();
   demo.weapon = weapon || 'rifle';
-  Render.viewModel = (out) => { out.visible = true; out.shape = demo.weapon; out.color = '#56606b'; return out; };
+  Render.viewModel = (out) => { out.visible = true; out.shape = demo.weapon; out.model = demo.weapon; out.color = '#56606b'; return out; };   // a class or a weapon id
   emitDemoEffects();
   if (!demo.emitter) {
     demo.emitter = true;
@@ -110,6 +110,36 @@ DebugApi.renderDemo = (themeId, weapon, qualityId) => {
 };
 
 DebugApi.renderState = () => ({ render: Render, worldMesh: WorldMesh, hud: HudBatch });
+
+// Model gallery (07c-render-models): 16 models of a kind a page, side on in a grid on the demo arena, for a screenshot (tools/
+// selftest.mjs --no-selftest --eval "__CTK.models.gallery('weapons', 'full', 0)" --screenshot <png>). kind: 'weapons' | 'classes' |
+// 'projectiles'; lod: 'full' | 'near' | 'far'. Returns the ids shown, left to right, top to bottom. A view model: renderDemo(theme, weapon id).
+const GALLERY_COLUMNS = 4, GALLERY_PAGE = 16, GALLERY_STEP_X = 2.1, GALLERY_STEP_Y = 1.1, GALLERY_Z = -14, GALLERY_TURN = 0.4;
+const modelGallery = { models: [], lod: 0, scale: 1, frame: makeModelFrame() };
+function galleryCell(index, out) {
+  out.x = ((GALLERY_COLUMNS - 1) / 2 - (index % GALLERY_COLUMNS)) * GALLERY_STEP_X;   // screen right = -x
+  out.y = 0.7 + (Math.ceil(modelGallery.models.length / GALLERY_COLUMNS) - 1 - Math.floor(index / GALLERY_COLUMNS)) * GALLERY_STEP_Y; out.z = GALLERY_Z;
+}
+function drawModelGallery(batch) {
+  const frame = modelGallery.frame;
+  modelGallery.models.forEach((model, index) => {
+    galleryCell(index, frame);
+    Object.assign(frame, { yaw: GALLERY_TURN - Math.PI / 2, scale: modelGallery.scale, originZ: model.centerZ, r: model.r, g: model.g, b: model.b });
+    drawModelParts(batch, model.lods[modelGallery.lod], frame);
+  });
+}
+DebugApi.models = {
+  gallery(kind, lod, page) {
+    DebugApi.renderDemo('foundry');
+    Actors.clear(); Render.viewModel = null; Game.playerId = -1;
+    document.getElementById('overlay').style.display = 'none';
+    placeCamera(0, 2.3, -19, 0, 0);
+    if (!modelGallery.models.length) Render.addSource('modelGallery', drawModelGallery);
+    const all = kind === 'projectiles' ? WeaponModels.projectile.filter(Boolean) : kind === 'classes' ? CAT.viewModels.map((row) => WeaponModels.byId[row.id]) : WeaponModels.weapon;
+    Object.assign(modelGallery, { models: all.slice((page || 0) * GALLERY_PAGE, ((page || 0) + 1) * GALLERY_PAGE), lod: MODEL_LOD[lod || 'full'], scale: kind === 'projectiles' ? 3 : 2.4 });
+    return modelGallery.models.map((model) => model.id);
+  },
+};
 
 // ---- Test helpers ----
 // Runs a block with the renderer switched on (headless off, benchmark parked) and restores every hook afterwards.
@@ -440,6 +470,82 @@ Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 2, 0, 0, 0);
   fillViewModel();
   check('no view model while the camera is overridden', batchInstances(viewModelBatch) === 0);
+}));
+
+// ---- Weapon and projectile models (03q, 07c-render-models) ----
+const MODEL_WORLD_PARTS = [3, 9], MODEL_VIEW_PARTS_MAX = 14;
+const modelPartsValid = (parts) => parts.every((part) => SHAPE_INDEX[part.shape] !== undefined && [part.x, part.y, part.z, part.pitch].every(Number.isFinite)
+  && [part.sx, part.sy, part.sz].every((size) => size > 0 && size < 2) && [part.r, part.g, part.b].every((value) => value >= 0 && value <= 1));
+Test.add('render', (check) => {
+  const own = CAT.weapons.filter((weapon) => CAT.weaponModels.byId(weapon.id) && WeaponModels.weapon[weapon.index].id === weapon.id);
+  check('every weapon W01..W46 has its own model row (no class fallback)', own.length === CAT.weapons.length && CAT.weapons.length === 46, own.length);
+  check('every model row names a weapon or a projectile', CAT.weaponModels.every((row) => CAT.weapons.byId(row.id))
+    && CAT.projectileModels.every((row) => CAT.projectiles.byId(row.id)));
+  check('the visible launcher projectiles have models', ['rocket', 'grenade', 'mine', 'stake', 'disc', 'arrow', 'missile', 'warhead'].every((id) => WeaponModels.projectile[CAT.projectiles.byId(id).index]));
+  const models = WeaponModels.weapon.concat(WeaponModels.projectile.filter(Boolean), Object.values(WeaponModels.byId));
+  check('model parts use known shapes, finite offsets, sizes 0..2 m and 0..1 colours', models.every((model) => modelPartsValid(model.lods[MODEL_LOD.full])));
+  const sizes = WeaponModels.weapon.map((model) => model.lods.map((parts) => parts.length));
+  check('weapon world models have 3..9 parts and view models at most 14', sizes.every(([full, near]) => full <= MODEL_VIEW_PARTS_MAX && near >= MODEL_WORLD_PARTS[0] && near <= MODEL_WORLD_PARTS[1]), JSON.stringify(sizes));
+  check('LOD part counts shrink: far < near <= full, far keeps at least one', models.every((model) => model.lods[MODEL_LOD.far].length >= 1
+    && model.lods[MODEL_LOD.far].length < model.lods[MODEL_LOD.near].length && model.lods[MODEL_LOD.near].length <= model.lods[MODEL_LOD.full].length));
+  check('weapon models take the view pose of their class row', WeaponModels.byId.heron.pose === CAT.viewModels.byId('sniper') && WeaponModels.byId.ramjet.pose === CAT.viewModels.byId('launcher'));
+  const twin = WeaponModels.byId.twinsting.lods[MODEL_LOD.full], mirrored = twin.filter((part) => part.shape === 'cylinder' && part.sx < 0.02);
+  check('a mirrored part draws twice, on both sides', mirrored.length === 2 && Test.near(mirrored[0].x, -mirrored[1].x, 1e-9), mirrored.length);
+  const projectileModel = (id) => WeaponModels.projectile[CAT.projectiles.byId(id).index], stretched = projectileModel('missile').lods[MODEL_LOD.full][0];
+  check('a stretched base scales offsets and sizes (missile = 0.75 rocket)', Test.near(stretched.sy, projectileModel('rocket').lods[MODEL_LOD.full][0].sy * 0.75, 1e-6));
+});
+
+Test.add('render', (check) => withRenderer(() => {
+  const id = makeTestActor(ACTOR_KIND.PLAYER, 0, 0, 0), heron = WeaponModels.byId.heron;
+  Game.playerId = id;
+  Render.viewModel = (out) => { out.visible = true; out.shape = 'sniper'; out.model = 'heron'; return out; };
+  Settings.set('video.quality', 'high');
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('the view model draws the weapon\'s own model', batchInstances(viewModelBatch) === heron.lods[MODEL_LOD.full].length, batchInstances(viewModelBatch));
+  Settings.set('video.quality', 'potato');
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('Potato drops the fine view-model parts', heron.lods[MODEL_LOD.near].length < heron.lods[MODEL_LOD.full].length && batchInstances(viewModelBatch) === heron.lods[MODEL_LOD.near].length, batchInstances(viewModelBatch));
+  Settings.set('video.quality', 'high');
+  Game.playerId = -1; Actors.alive[id] = 0;   // only the two bots below are drawn
+  placeCamera(0, 1.6, -4, 0, 0);
+  const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 2), far = makeTestActor(ACTOR_KIND.BOT, 1, 0, Render.quality.lodNear + 5), heldIndex = CAT.weapons.byId('heron').index;
+  Render.heldWeapon = (actor) => (actor === near || actor === far ? heldIndex : -1);
+  fillActors(1 / 60, 1);
+  const expected = NEAR_PARTS.length - 1 + heron.lods[MODEL_LOD.near].length + FAR_PARTS.length + heron.lods[MODEL_LOD.far].length;
+  check('a held weapon replaces the gun part: near parts close up, its leading parts at the far LOD', batchInstances(actorBatch) === expected, batchInstances(actorBatch) + ' / ' + expected);
+  Render.heldWeapon = () => -1;
+  fillActors(1 / 60, 1);
+  check('no held weapon keeps the plain gun part', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
+  propBatch.clear();
+  const instance = makeShapeInstance();
+  instance.z = 2;
+  drawWeaponPickup(propBatch, heldIndex, instance, false);
+  check('a weapon pickup draws its model', batchInstances(propBatch) === heron.lods[MODEL_LOD.near].length, batchInstances(propBatch));
+  propBatch.clear();
+  Projectiles.clear();
+  const rocket = CAT.projectiles.byId('rocket'), slot = Projectiles.spawn(rocket, near, 0, 0, 0, 1, 2, 30, 0, 0, 10);
+  Projectiles.draw(propBatch);
+  check('a rocket draws its model, facing its flight', batchInstances(propBatch) === WeaponModels.projectile[rocket.index].lods[MODEL_LOD.near].length && Test.near(Projectiles.faceYaw[slot], Math.PI / 2, 1e-6));
+  Projectiles.clear(); propBatch.clear();
+}));
+
+// PERF-006: drawing models (view model, held weapons, pickups, projectiles) allocates nothing once compiled.
+Test.add('render', (check) => withRenderer(() => {
+  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the model drawing allocation probe is skipped', true); return; }
+  const weapons = WeaponModels.weapon, ids = CAT.weapons.map((weapon) => weapon.id), instance = makeShapeInstance(), state = viewModelState;
+  Object.assign(actorPose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
+  Object.assign(actorStyle, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
+  Object.assign(state, { visible: true, color: '#56606b', ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
+  Projectiles.clear();
+  CAT.projectileModels.forEach((row, index) => Projectiles.spawn(CAT.projectiles.byId(row.id), 0, 0, 0, 0.5 + index, 1.5, 2, 3, 1, 4, 10));
+  const bytes = {
+    view: perfAllocatedBytes((i) => { state.model = ids[i % ids.length]; fillViewModel(); }),
+    held: perfAllocatedBytes((i) => { actorBatch.clear(); drawHeldWeapon(weapons[i % weapons.length], actorPose, actorStyle, i & 1 ? LOD.near : LOD.far); }),
+    pickup: perfAllocatedBytes((i) => { propBatch.clear(); instance.yaw = i & 7; drawWeaponPickup(propBatch, i % weapons.length, instance, (i & 1) === 1); }),
+    projectiles: perfAllocatedBytes(() => { propBatch.clear(); Projectiles.draw(propBatch); }),
+  };
+  for (const name in bytes) check('drawing models allocates nothing: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, perfAllocationDetail(bytes[name]));
+  Projectiles.clear(); propBatch.clear(); actorBatch.clear(); viewModelBatch.clear();
 }));
 
 // ---- HUD batch (REN-005) ----
