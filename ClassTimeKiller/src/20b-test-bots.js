@@ -1722,3 +1722,26 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- Nav cost cache: water and trap costs keep paths cacheable (and the same as uncached) ----
+const NAV_CACHE_SOAK_SECONDS = 30, NAV_CACHE_SHARE_MIN = 0.6;
+Test.add('bots', (check) => {
+  let cacheable = 0, bots = 0;
+  const probe = () => {
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Bots.isBot(id)) continue;
+      bots++;
+      const options = BotMove.options[id];
+      if (!options.avoid && (!options.danger || options.dangerKey >= 0)) cacheable++;
+    }
+  };
+  playMatch({ mode: 'tdm', map: 'harbor', minutes: NAV_CACHE_SOAK_SECONDS / 60, botCount: 12, seed: 1, probe });
+  check('Harbor (water): most bot paths stay cacheable', bots > 0 && cacheable / bots >= NAV_CACHE_SHARE_MIN, cacheable + ' of ' + bots);
+  const [bot] = startBotTest(botTestMap(false), 'ffa');
+  const from = Nav.nearestNode(-20, 0, -20), to = Nav.nearestNode(20, 0, 20), costs = new Float32Array(Nav.nodeCount);
+  costs[Nav.nearestNode(0, 0, 0)] = 30;
+  const plain = Nav.findPath(from, to, { danger: costs }) && Array.from(Nav.pathNodes.slice(0, Nav.pathLength)).join();
+  Nav.findPath(from, to, { danger: costs, dangerKey: 7 });
+  const cached = Nav.findPath(from, to, { danger: costs, dangerKey: 7 }) && Nav.lastCacheHit && Array.from(Nav.pathNodes.slice(0, Nav.pathLength)).join();
+  check('a keyed extra-cost path is cached and equals the uncached one', bot >= 0 && cached === plain, String(cached));
+  endBotTest();
+});

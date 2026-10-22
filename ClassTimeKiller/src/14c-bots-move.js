@@ -76,9 +76,10 @@ const BotMove = {
 
   init() {
     for (let id = 0; id < MAX_ACTORS; id++) {
-      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY, avoid: null });
-      this.costs.push((node) => extraCost(id, node));                                         // closures per slot, made once at load
-      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : extraCost(id, node));
+      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY,
+        avoid: null, danger: null, dangerKey: -1 });
+      this.costs.push((node) => blockedExitCost(id, node));                                   // closures per slot, made once at load
+      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : blockedExitCost(id, node));
       this.avoidOptions.push(Object.assign({}, this.options[id], { avoid }));
     }
   },
@@ -146,9 +147,12 @@ const BotMove = {
     return length;
   },
   distanceToDestination(id) { return length2(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
+  // Water and trap costs come from the shared extraCosts array, versioned by costEpoch, so those paths stay cacheable;
+  // only a swimmer while some exit is blocked needs its own cost function (not cached).
   request(id, options) {
-    if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
     this.fromWater[id] = inWater(id) ? 1 : 0;
+    options.danger = sharedCosts(Sim.time); options.dangerKey = costEpoch;
+    if (options === this.options[id]) options.avoid = this.fromWater[id] && blockedExits > 0 ? this.costs[id] : null;
     this.requestedAt[id] = Sim.time;
     this.pathSerial[id]++;
     this.pending[id] = 0;
@@ -509,19 +513,7 @@ function safeDropFor(preset, gravity) {
 // team routes around links that look fine on the graph but fail in play (a rim too thin to climb out over, say).
 const TRAP_SLOTS = 32, TRAP_SECONDS = 60, TRAP_COST = 30;
 const trapNodes = new Int32Array(TRAP_SLOTS).fill(-1), trapUntil = new Float64Array(TRAP_SLOTS);
-let trapCursor = 0;
-
-function markTrap(node, now) {
-  if (node < 0) return;
-  trapNodes[trapCursor] = node;
-  trapUntil[trapCursor] = now + TRAP_SECONDS;
-  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
-}
-
-function trapsActive(now) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapUntil[i] > now) return true;
-  return false;
-}
+let trapCursor = 0, trapCount = 0;
 
 // Swimming is slow and its exits are hard (S10 mantle): bots go through water only when it saves real time.
 const WATER_NODE_COST = 4;
@@ -529,13 +521,48 @@ const BLOCKED_EXIT_COST = 1000;         // s: a path from the water climbs out o
 const EXIT = { NONE: 0, BLOCKED: 1, OPEN: 2 };
 let mapHasWater = false;
 let exitKind = new Uint8Array(0), exitVersion = -1;
-let exitList = new Int32Array(0), exitCount = 0;
+let exitList = new Int32Array(0), exitCount = 0, blockedExits = 0;
 
-function extraCost(id, node) {
-  const water = (Nav.nodeFlags[node] & NAV_NODE.WATER) ? WATER_NODE_COST : 0;
-  const blocked = BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0;
-  return trapCost(node) + water + blocked;
+// Extra seconds per nav node for every bot (water nodes, live traps): one array for Nav's danger channel, its version
+// costEpoch bumped on every change so the path cache never serves a path found with other costs (BOT-091).
+let extraCosts = new Float32Array(0), costVersion = -1, costEpoch = 0;
+
+function markTrap(node, now) {
+  if (node < 0) return;
+  sharedCosts(now);
+  if (trapNodes[trapCursor] >= 0) clearTrap(trapCursor);   // the ring is full: the oldest trap goes
+  trapNodes[trapCursor] = node;
+  trapUntil[trapCursor] = now + TRAP_SECONDS;
+  extraCosts[node] += TRAP_COST;
+  trapCount++; costEpoch++;
+  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
 }
+
+function clearTrap(slot) {
+  extraCosts[trapNodes[slot]] -= TRAP_COST;
+  trapNodes[slot] = -1;
+  trapCount--; costEpoch++;
+}
+
+// The shared cost array for a path asked for now (expired traps dropped), or null when it would add nothing (no water,
+// no trap): such paths need no danger channel at all.
+function sharedCosts(now) {
+  if (costVersion !== Nav.version) buildCosts();
+  for (let slot = 0; slot < TRAP_SLOTS; slot++) if (trapNodes[slot] >= 0 && trapUntil[slot] <= now) clearTrap(slot);
+  return mapHasWater || trapCount > 0 ? extraCosts : null;
+}
+
+// Water costs once per graph (the traps of an older graph are dropped with it).
+function buildCosts() {
+  costVersion = Nav.version; costEpoch++;
+  if (extraCosts.length !== Nav.nodeCount) extraCosts = new Float32Array(Nav.nodeCount); else extraCosts.fill(0);
+  trapNodes.fill(-1); trapCount = 0;
+  findWater();
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) extraCosts[node] = WATER_NODE_COST;
+}
+
+// A swimmer's own extra cost: a rimless exit (the shared costs come through Nav's danger channel).
+function blockedExitCost(id, node) { return BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0; }
 
 function exitBlocked(node) { return exitVersion === Nav.version && node < exitKind.length && exitKind[node] === EXIT.BLOCKED; }
 
@@ -558,7 +585,7 @@ function findWater() {
 function findExits() {
   exitVersion = Nav.version;
   if (exitKind.length < Nav.nodeCount) { exitKind = new Uint8Array(Nav.nodeCount); exitList = new Int32Array(Nav.nodeCount); } else exitKind.fill(0);
-  exitCount = 0;
+  exitCount = 0; blockedExits = 0;
   if (!mapHasWater) return;
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (!(Nav.nodeFlags[node] & NAV_NODE.WATER)) continue;
@@ -582,13 +609,10 @@ function nearestExit(from, x, y, z) {
 }
 
 function markBlockedExit(node) {
-  if (node >= 0 && node < exitKind.length && exitVersion === Nav.version) exitKind[node] = EXIT.BLOCKED;
-}
-
-function trapCost(node) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapNodes[i] === node && trapUntil[i] > Sim.time) return TRAP_COST;
-  return 0;
+  if (node < 0 || node >= exitKind.length || exitVersion !== Nav.version || exitKind[node] === EXIT.BLOCKED) return;
+  exitKind[node] = EXIT.BLOCKED;
+  blockedExits++;
 }
 
 BotMove.init();
-Bus.on('match.start', () => { trapUntil.fill(0); trapNodes.fill(-1); findWater(); findExits(); });
+Bus.on('match.start', () => { buildCosts(); findExits(); });
