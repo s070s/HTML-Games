@@ -516,7 +516,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
 }));
 
-/// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
+// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
 const UI_PHONE_SIZES = [[375, 548], [568, 320], [724, 340]];
 const UI_PHONE_SCREENS = ['main', 'solo', 'career', 'ladder', 'challenges', 'operations', 'daily', 'cards', 'stats', 'profile', 'play', 'mapgen'];
 // The controls of a screen that are outside `bounds` and not inside a scroll container that is within it.
