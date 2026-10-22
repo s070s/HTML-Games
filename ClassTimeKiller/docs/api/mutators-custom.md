@@ -40,13 +40,15 @@ Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mu
 | `lifesteal` `regen` `growth` `shrinkHit` `lastGift` `tags` `suppression` `triangle` `slowmoKills` `mirror` | X13 X18 X31 X39 X29 X42 X44 X47 X27 X40 | runtime hooks | 13h |
 | `weaponList` | X08 X09 X10 | with `rules.weaponSet === 'matchSet'`: 13h fills the reserved weapon set row `matchSet` at `match.setup` (melee first, then two guns as the spawn loadout) and empties it on `match.stop` | 13h, S11, S12 (the pickups of the map follow `weaponSet.weapons`) |
 | `infiniteAmmo` | X08 X09 X15 | reserve ammo never runs out | S11 `Weapons.infiniteReserve` |
-| `headScale` | X14 | head hit sphere factor | S08 `Hitbox.headScale`; the renderer should draw the head larger |
+| `headScale` | X14 | head hit sphere factor | S08 `Hitbox.headScale`; S07 draws the head and visor larger (`style.headScale`, 13h actor style) |
 | `noItems` `noPowerups` `volatileAmmo` `superPowerups` | X08 X16 X30 X17 | items | S12: `rules.items === false` (X08, X09, the editor) removes every pickup; `noPowerups` removes powerups; `volatileAmmo`: an ammo pickup explodes when shot; `superPowerups` is the interval, 13h emits `item.grant` |
 | `radar` `noHud` | X35 X36 | `{ mode: 'off'|'team'|'all', range }`, hide the HUD | S17 |
-| `darkness` | X37 | dense fog, flashlights only | S07 |
-| `ballistics` | X41 | `{ gravity: 9.8, drag }`: hitscan becomes projectiles | S11 |
-| `powers` | X46 | one random ability per life: 13h emits `power.pick` | S12 abilities |
+| `darkness` | X37 | dense black fog, no sun or map lights, a flashlight per visible living actor | S07 (`matchDarkness`, `darkenFrame`, `updateFlashlights`) |
+| `ballistics` | X41 | `{ gravity: 9.8, drag }`: hitscan becomes projectiles | S11: every hitscan pellet flies as a `bullet` (P21) through `Projectiles.spawnBallistic` with that gravity and drag, keeping its mode's damage, falloff and range; pierce, penetration, chain and combo do not apply to it |
+| `powers` | X46 | one random ability per life: 13h emits `power.pick` | S12 `Abilities` puts it in the first ability slot |
 | `cards` `wildlife` | X48 X50 | cards allowed in versus; number of neutral beasts | progression, PvE |
+
+`mirror` (X40) is also read by S12: every bot plays the player's hero (`Abilities.pickHero`).
 
 X24 and X25 write no field: S10 (`buildMatchMove`, `hasMutator`) reads their ids from `rules.mutators`.
 
@@ -62,7 +64,7 @@ Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17:
 
 ## Custom match editor (18g)
 
-Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutators, Map. Every simple field is a cycle with its own Reset button; the first option of a number or preset is the default of the mode or bundle. The draft is saved on every change in the setting `custom.draft` (JSON). The Rules tab starts the 12 rule bundles RS01..RS12 with one click (the draft's mode, map, bots and limits with the bundle's own presets). The Mutators tab shows all 50 with a switch and typed controls; switching one on that conflicts with another turns the other off and shows a toast. Footer: Start match, Presets (`customPresets`), Share code (`customShare`), Reset all. Everything uses `Ui` builders: keyboard, gamepad and touch navigable; text fields keep their arrow keys.
+Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutators, Map. Every simple field is a cycle with its own Reset button; the first option of a number or preset is the default of the mode or bundle. The draft is saved on every change in the setting `custom.draft` (JSON). The Rules tab starts the 12 rule bundles RS01..RS12 with one click (the draft's mode, map, bots and limits with the bundle's own presets). The Map tab also opens the generated map screen `mapgen` (docs/api/mapgen.md). The Mutators tab shows all 50 with a switch and typed controls; switching one on that conflicts with another turns the other off and shows a toast. Footer: Start match, Presets (`customPresets`), Share code (`customShare`), Reset all. Everything uses `Ui` builders: keyboard, gamepad and touch navigable; text fields keep their arrow keys.
 
 ### `CustomMatch` (pure model, no DOM)
 
@@ -78,4 +80,4 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 ## Known limits
 
-X14 head size and X31/X39 body size change the hit volumes (and the body is drawn scaled via `Render.addActorStyle`), but a larger head is not drawn yet. X17, X30, X35, X36, X37, X41, X46, X48, X50 only set their `rules.fx` flag (and X17/X46 emit their event): the sections named above have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`. The Bots tab picks one personality for every bot or "Mixed" (the bot section chooses); a custom mix of several personalities is not offered.
+X14 head size and X31/X39 body size change the hit volumes and are drawn through `Render.addActorStyle` (`scale`, `headScale`). X17 (`item.grant`), X30, X37, X40, X41 and X46 (`power.pick`) are read by S07/S11/S12 as listed above. X35 and X36 (S17 HUD), X48 (progression) and X50 (PvE) still only set their `rules.fx` flag: those sections have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`. The Bots tab picks one personality for every bot or "Mixed" (the bot section chooses); a custom mix of several personalities is not offered.

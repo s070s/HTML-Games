@@ -44,9 +44,9 @@ Data.define('modes', {
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
   { id: 'royale', code: 'M20', name: 'Last Ring', teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
-    ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], shieldByRarity: [50, 75, 100, 125, 125], lootHeal: 50 }, ruleset: 'royale' },
-  { id: 'horde', code: 'M21', name: 'Siege Waves', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, waves: 10, miniBossWave: 5, bossWave: 10, retries: 2 }, family: 'pve', ruleset: 'modern' },
-  { id: 'endless', code: 'M22', name: 'Endless Hold', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { scalePerWave: 0.08, scaleCap: 4, extractEvery: 5 }, family: 'pve', ruleset: 'modern' },
+    ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], pickups: false, shieldByRarity: [50, 75, 100, 125, 125], lootHeal: 50 }, ruleset: 'royale' },
+  { id: 'horde', code: 'M21', name: 'Siege Waves', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, waves: 10, miniBossWave: 5, bossWave: 10, retries: 2, souls: true }, family: 'pve', ruleset: 'modern' },
+  { id: 'endless', code: 'M22', name: 'Endless Hold', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { scalePerWave: 0.08, scaleCap: 4, extractEvery: 5, souls: true }, family: 'pve', ruleset: 'modern' },
   { id: 'bank', code: 'M23', name: 'Mote Rush', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'objective', objective: 'bank', params: { blockerAt: [5, 10, 15], invasionAt: 50, bossAt: 100 }, family: 'pve', ruleset: 'modern' },
   { id: 'bearer', code: 'M24', name: 'Flame Bearer', teams: 0, sizeDefault: 8, scoreLimit: 120, timeLimit: 600, scoreBy: 'objective', params: { holdRate: 1, damageMult: 3, returnTime: 30 } },
   { id: 'roulette', code: 'M25', name: 'Roulette Arms', teams: 0, sizeDefault: 8, scoreLimit: 25, timeLimit: 600, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
@@ -55,4 +55,5 @@ Data.define('modes', {
   { id: 'contract', code: 'M28', name: 'Silent Contract', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
   { id: 'attrition', code: 'M29', name: 'Attrition', teams: 2, sizeDefault: 8, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
   { id: 'range', code: 'M30', name: 'Firing Range', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo' },
+  { id: 'puzzle', code: 'M31', name: 'Test Chambers', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo', ruleset: 'modern' },
 ]);

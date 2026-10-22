@@ -139,9 +139,9 @@ const oneOfList = (list) => (value) => (list.includes(value) ? value : undefined
 const integerBetween = (low, high) => (value) => (Number.isInteger(value) && value >= low && value <= high ? value : undefined);
 
 const EDITOR_FIELD_CHECKS = {
-  name: (value) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, EDITOR_NAME_MAX) : undefined),
+  name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
-  map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!CAT.maps.byId(value)),
+  map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),
   move: isBlankOr(catalogueHas('movement')),
   health: isBlankOr(catalogueHas('health')),
@@ -183,7 +183,7 @@ const CustomMatch = {
   },
   // Cross-field rules: a map must serve the mode; limits that a mode cannot use fall back to the default.
   settle(draft, errors) {
-    if (draft.map && !Maps.forMode(draft.mode).some((map) => map.id === draft.map)) { errors.push('map ' + draft.map + ' does not serve ' + draft.mode); draft.map = ''; }
+    if (draft.map && !Maps.savedForMode(draft.mode).some((map) => map.id === draft.map)) { errors.push('map ' + draft.map + ' does not serve ' + draft.mode); draft.map = ''; }
     if (!CAT.modes.byId(draft.mode).rounds) draft.roundWins = EDITOR_DEFAULT;
     if (CAT.modes.byId(draft.mode).teams !== 2) draft.allies = EDITOR_DEFAULT;
     if (draft.weaponList) this.setWeaponList(draft, draft.weaponList);
@@ -274,7 +274,7 @@ const CustomMatch = {
   },
   mapFor(draft, seed) {
     if (draft.map) return draft.map;
-    const maps = Maps.forMode(draft.mode);
+    const maps = Maps.savedForMode(draft.mode);
     return maps.length ? maps[seed % maps.length].id : undefined;
   },
   modeOptions(draft, mode) {
@@ -342,7 +342,7 @@ function editorModeOptions() {
   return { values: rows.map((mode) => mode.id), labels: rows.map((mode) => mode.name) };
 }
 function editorMapOptions(draft) {
-  const maps = Maps.forMode(draft.mode);
+  const maps = Maps.savedForMode(draft.mode);
   return { values: [''].concat(maps.map((map) => map.id)), labels: ['Random'].concat(maps.map((map) => map.code + ' ' + map.name)) };
 }
 function editorBotCountOptions() {
@@ -390,7 +390,7 @@ const EDITOR_CHANGED = {
   // A new mode: the limits belong to the old one; the map stays when it also serves the new mode.
   modeChanged(draft) {
     Object.assign(draft, { scoreLimit: EDITOR_DEFAULT, timeLimit: EDITOR_DEFAULT, roundWins: EDITOR_DEFAULT, allies: EDITOR_DEFAULT });
-    if (!Maps.forMode(draft.mode).some((map) => map.id === draft.map)) draft.map = '';
+    if (!Maps.savedForMode(draft.mode).some((map) => map.id === draft.map)) draft.map = '';
   },
 };
 
@@ -502,11 +502,17 @@ function editorQuickStarts(list) {
   list.appendChild(grid);
 }
 
-const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, mutators: editorMutatorRows };
+// Map tab: the generated map screen (18h) builds a new map from a seed and plays it.
+function editorGeneratedMap(list) {
+  list.appendChild(makeElement('div', 'ui-group', 'Generated map'));
+  list.appendChild(Ui.button('Generate a map from a seed', () => Ui.open('mapgen')));
+}
+
+const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, mutators: editorMutatorRows, map: editorGeneratedMap };
 
 function editorSummary(draft) {
   const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);
-  const map = draft.map ? CAT.maps.byId(draft.map).name : 'random map';
+  const map = draft.map && Maps.get(draft.map) ? Maps.get(draft.map).name : 'random map';
   const mutators = draft.mutators.length ? ', ' + draft.mutators.length + ' mutator' + (draft.mutators.length === 1 ? '' : 's') : '';
   return mode.name + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
 }

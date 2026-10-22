@@ -29,12 +29,18 @@ const Economy = {
   perkKeys: Array.from({ length: MAX_ACTORS }, () => new Set()),   // perk ids and perk flags of the actor's class
   cancels: Array.from({ length: MAX_ACTORS }, () => new Set()),    // victim perks the actor's perks switch off
   dealt: new Float32Array(MAX_ACTORS).fill(1), taken: new Float32Array(MAX_ACTORS).fill(1),
-  grants: {},       // buy item kind -> fn(id, item) -> bool; 'gadget' and 'grant' are filled by other sections
+  grants: {},       // buy item kind -> fn(id, item) -> bool; 'gadget' and 'grant' hand over to S12 (end of this file)
   catalogueList: [],
   hud: { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 },
 
   preset() { return CAT.economy.byId(Abilities.economyKey()) || CAT.economy[0]; },
   usesMoney() { return this.preset().money; },
+  // Class / kit loadouts apply unless the mode arms everyone itself (MODE_ARMING_PARAMS: the weapon ladder, roulette).
+  usesLoadouts() {
+    const params = currentRules().params;
+    if (params && MODE_ARMING_PARAMS.some((key) => params[key])) return false;
+    return this.preset().loadout !== 'none';
+  },
   money(id) { return id >= 0 && id < MAX_ACTORS ? this.credits[id] : 0; },
   setMoney(id, amount) {
     const max = this.preset().maxMoney;
@@ -91,7 +97,7 @@ const Economy = {
     this.checkHalf();
     this.spawnX[id] = Actors.x[id]; this.spawnZ[id] = Actors.z[id];
     this.bought.fill(0, id * CAT.buyItems.length, (id + 1) * CAT.buyItems.length);
-    if (this.preset().loadout === 'classes') this.applyClass(id, Loadouts.classFor(id));
+    if (this.usesLoadouts() && this.preset().loadout === 'classes') this.applyClass(id, Loadouts.classFor(id));
     else this.clearPerks(id);
     if (this.died[id] || !this.preset().keepOnSurvive) this.dropKept(id);
     else this.restoreKept(id);
@@ -112,6 +118,7 @@ const Economy = {
     this.applyPerks(id, row.perks);
     const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
     Weapons.setLoadout(id, melee.concat([row.secondary, row.primary]));
+    Gadgets.clearGrenades(id);
     this.grant(id, 'gadget', row.lethal);
     this.grant(id, 'gadget', row.tactical);
     if (!CAT.abilities.byId(row.fieldUpgrade)) this.grant(id, 'gadget', row.fieldUpgrade);
@@ -129,6 +136,8 @@ const Economy = {
     }
     Meters.streakDiscount[id] = this.hasPerk(id, 'hardline') ? CAT.perks.byId('hardline').value : 0;
     Abilities.rechargeScale[id] = this.hasPerk(id, 'tuneUp') ? CAT.perks.byId('tuneup').value : 1;
+    Move.staminaScale[id] = this.hasPerk(id, 'marathon') ? CAT.perks.byId('marathon').value : 1;
+    Move.footstepScale[id] = this.hasPerk(id, 'quiet') ? 0 : 1;
   },
   // Undoes the perk stats this section wrote (attachments multiply on top and are untouched).
   clearPerks(id) {
@@ -142,6 +151,7 @@ const Economy = {
   resetPerks(id) {
     this.perkKeys[id].clear(); this.cancels[id].clear(); this.dealt[id] = 1; this.taken[id] = 1;
     Meters.streakDiscount[id] = 0; Abilities.rechargeScale[id] = 1;
+    Move.staminaScale[id] = Move.footstepScale[id] = 1;
   },
   resetActor(id) {
     const preset = this.preset();
@@ -215,7 +225,10 @@ const Economy = {
     if (preset.buy === 'round') for (const key of currentWeaponSet().weapons) if (CAT.weapons.byId(key).price > 0) list.push(weaponItem(key));
     return list;
   },
-  canGrant(item) { return item.kind === 'armor' || item.kind === 'helmet' || item.kind === 'ammo' || !!this.grants[item.kind]; },
+  canGrant(item) {
+    if (item.kind === 'grant') return Items.canGrantBuy(item.key);
+    return item.kind === 'armor' || item.kind === 'helmet' || item.kind === 'ammo' || !!this.grants[item.kind];
+  },
   findItem(itemId) { return this.catalogue().find((item) => item.id === itemId) || null; },
   // Economy.buy(id, itemId) -> shared { ok, reason, price, item }: time, zone, item, carry limits and money are checked in that order.
   buy(id, itemId) {
@@ -389,6 +402,8 @@ const Loadouts = {
   },
 };
 
+// Mode params that mean the mode hands out every weapon itself, so no class or kit loadout applies.
+const MODE_ARMING_PARAMS = ['ladder', 'rotateEvery'];
 // A class field upgrade that is an ability fills the ability slot; a gadget one (granted by applyClass) leaves it empty.
 function classFieldAbility(row) { return CAT.abilities.byId(row.fieldUpgrade) ? row.fieldUpgrade : KIT_SLOT_EMPTY; }
 // The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier,
@@ -436,6 +451,10 @@ Abilities.carrierCheck = (id) => {
   return false;
 };
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
+// Buy rows and class slots of kind 'gadget' (grenades, ECP04 field upgrades G13/G22/G23/G24 with their row cooldown as the
+// 60-120 s recharge) and 'grant' (wave shop extras such as the core shield: Items.grantEffects) are delivered by S12.
+Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;
+Economy.grants.grant = (id, item) => Items.grantBuy(id, item);
 
 Bus.on('match.start', () => Economy.ensureMatch());
 Bus.on('match.stop', () => { Economy.match = null; Economy.credits.fill(0); });

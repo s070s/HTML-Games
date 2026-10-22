@@ -23,7 +23,7 @@ Every map is one `maps` catalogue row in the map format of `ARCHITECTURE.md`; `W
 | MP11 | `chambers` | Test Chambers | 80x60 | glacier | puzzle | puzzle | 70 | 12/0/0 | 0 | 12 | 12 | 9 |
 | MP12 | `manor` | Ash Manor | 90x90 | ruins | pve | contract | 75 | 0/6/10 | 4 | 2 | 12 | 1 |
 
-MP09 is a hand-built stand-in marked `placeholder: true`; generator GN5 (step 13.1) replaces it. MP11 has twelve rooms that teach ramps, stairs, ladder, pads,
+MP09 is a hand-built stand-in marked `placeholder: true`; every match on it plays the GN5 island instead (docs/api/mapgen.md "MP09 Ring Isle"). MP11 has twelve rooms that teach ramps, stairs, ladder, pads,
 teleporters, acid and a kill zone; the puzzle objects of MAP-030 (buttons, cubes, gates, lasers) arrive with step 14.4.
 
 ## Map row (catalogue `maps`)
@@ -45,7 +45,8 @@ Coordinates: metres, Y up, floor at y = 0, the map centred on the origin (`x` in
 
 Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`arena tactical pve range puzzle large island`, picks the sightline limit: 60 / 60 / 90 / 60 / 60 / 90 / 150 m),
 `version` (map data version, migrate when it changes), `placeholder`, `blurb` (one line for the map picker), spawn/item/objective `modes` (empty = every mode of the map), objective `stage`
-(Breach Assault stage 1..3) and `checkpoints` (payload: indices into `path`).
+(Breach Assault stage 1..3) and `checkpoints` (payload: indices into `path`). Generated maps add `gen` (how they were made) and royale maps may carry
+`ring: { x, z, radius }` (ring centre and start radius; docs/api/mapgen.md; read by 13g once its contract request lands).
 
 * `sky`: `{ top, horizon, fog, fogFar, sun: [x, y, z] }` (colours 0xRRGGBB, metres, direction towards the sun). `theme`: `foundry ruins station canal overgrowth glacier` (MAP-022).
 * Materials: `concrete metal wood glass dirt water grass sand ice tile`. `water` brushes are canal/pool beds and puddles (solid; the swim volume is the `water` trigger).
@@ -74,7 +75,8 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 
 ## Lookups (`Maps`)
 
-* `Maps.get(idOrCode)` row or null (null before the catalogue exists); `Maps.forMode(modeId)` rows.
+* `Maps.get(idOrCode)` row or null (null before the catalogue exists); `Maps.forMode(modeId)` rows (hand-made, then runtime maps); `Maps.savedForMode(modeId)` hand-made and editor maps, no generated ones (pickers and saved setups use it: a generated map is gone after a reload).
+  **Runtime maps** (`Maps.runtime`): `Maps.registerRuntime(map)` / `Maps.unregisterRuntime(id)` (the map editor's saved maps, `docs/api/mapeditor.md`) and `Maps.addRuntime(map)` (generated maps; past `MAPS_RUNTIME_KEEP` the oldest generated map drops out, editor maps stay). A runtime map is a full map row and replaces the runtime map with the same id; it never replaces a catalogue row.
 * Rows are plain data. The lookup caches and the latest scan are keyed by the row object, so clone a row (`JSON.parse(JSON.stringify(row))`) before editing it; never edit a catalogue row in place.
 * Shared rules, global helpers: `mapServesMode(entry, modeId)` (a spawn, item or objective serves a mode when its `modes` list is missing, empty or holds the mode), `mapModesOf(entry)`, `mapInBox(box, x, y, z, marginXZ, marginY)`
   (point in a `{ min, max }` box: zones, triggers, lights).
@@ -103,7 +105,8 @@ and `sightline` (no free horizontal line longer than the category limit from a 4
 A map that is missing a list (`brushes spawns items objectives zones triggers lights navHints`) or has a bad header or trigger is reported by `structure`/`brush`/`triggers` and not analysed further; entries without a `modes` list serve every mode.
 It works on a grid of standing surfaces (`MapScan`; 0.5 m cells, 1 m on maps 200 m or longer): a cell fits when the walls leave room for the capsule (0.42 m on each side) and 1.4 m in total on each axis, so a 1.4 m doorway passes at any offset on the
 grid and a 1.2 m one never does; 2.4 m of height above the feet; steps up to 0.45 m, walk-off drops up to 6 m, plus pad / teleporter / ladder links. Every spawn, item, objective and hint must lie in one strongly connected region, so nothing is cut
-off or a one-way trap. It needs no movement code and does not touch `World`. Cost: 40 to 150 ms per map and 0.25 s for the 300 m island on a desktop i5. Memory: edges are packed typed arrays (an Int32 target and a Uint8 kind per edge); only the latest
+off or a one-way trap. It needs no movement code and does not touch `World`. Cost (scan plus checks): about 20 to 80 ms per map and 0.2 s for the 300 m island on a desktop i5. Horizontal rays
+(`MapScan.rayLength`) walk the 4 m brush buckets front to back and stop at the first bucket past the nearest hit; path searches use a typed-array heap. Memory: edges are packed typed arrays (an Int32 target and a Uint8 kind per edge); only the latest
 scan is kept (`MapScan.of(map)`) and `Maps.validate` releases it when it ends (`MapScan.release()`).
 Dependencies on S08: `makeBrush`, `rayHitsBox`, `rayVersusBrush`, `pointInBrush`, `makeHit` must stay top-level functions with their present signatures (the test group `maps` cross-checks the scan against `World.raycast`).
 

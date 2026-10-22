@@ -1,8 +1,8 @@
 // Runs ClassTimeKiller's built-in self-test in headless Chrome (software WebGL), no dependencies.
-// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
+// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
 const group = option('--group', '');
+const slow = args.includes('--slow');   // also run the slow blocks (Test.add(..., { slow: true })) of every group
 const extra = option('--eval', '');
 const skipSelfTest = args.includes('--no-selftest');
 const screenshot = option('--screenshot', ''); // PNG path: captured after --eval (use the eval to set up the scene)
@@ -20,9 +21,8 @@ const CHROME_PATHS = ['C:/Program Files/Google/Chrome/Application/chrome.exe', '
 const chromePath = CHROME_PATHS.find((p) => existsSync(p));
 if (!chromePath) { console.log('RUNNER ERROR Chrome not found'); process.exit(3); }
 
-const port = 9300 + Math.floor(Math.random() * 600);
 const profile = mkdtempSync(join(tmpdir(), 'ctk-chrome-'));
-const chrome = spawn(chromePath, ['--headless=new', '--remote-debugging-port=' + port, '--user-data-dir=' + profile, '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+const chrome = spawn(chromePath, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1280,800', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' });
 let failed = false;
 const finish = (code) => {
@@ -33,9 +33,15 @@ const killer = setTimeout(() => { console.log('TIMEOUT after ' + timeoutSeconds 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 async function main() {
+  // Port 0: Chrome picks a free port and writes it to DevToolsActivePort, so parallel runs never collide.
+  // Up to 60 s: Chrome starts slowly while antivirus scans or other runs share the CPU.
   let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    try { const list = await (await fetch('http://127.0.0.1:' + port + '/json')).json(); target = list.find((t) => t.type === 'page'); } catch (error) { await sleep(250); }
+  for (let i = 0; i < 240 && !target; i++) {
+    try {
+      const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split(/\r?\n/)[0].trim();
+      const list = await (await fetch('http://127.0.0.1:' + port + '/json')).json();
+      target = list.find((t) => t.type === 'page');
+    } catch (error) { await sleep(250); }
   }
   if (!target) throw new Error('Chrome did not start');
   const socket = new WebSocket(target.webSocketDebuggerUrl);
@@ -64,7 +70,7 @@ async function main() {
   if (!(await evaluate('!!window.__CTK'))) throw new Error('Game did not boot (no window.__CTK)');
   if (!skipSelfTest) {
     const started = Date.now();
-    const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ' });'
+    const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ', slow: ' + slow + ' });'
       + ' return { total: r.total, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map((x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ')) }; })()');
     console.log('SELFTEST ' + (report.total - report.failed) + '/' + report.total + ' passed in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
     report.bad.forEach((line) => console.log('  FAIL ' + line));

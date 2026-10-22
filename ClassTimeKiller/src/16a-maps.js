@@ -57,6 +57,7 @@ const MapRules = {
 // Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume). They are keyed by the row object:
 // clone a row before editing it (the map editor does), or the tables would go stale.
 const mapCache = new WeakMap();
+const MAPS_RUNTIME_KEEP = 8;                                  // generated maps kept for lookups (each holds a few hundred brushes)
 function mapCacheFor(map) {
   let entry = mapCache.get(map);
   if (!entry) { entry = { spawns: new Map(), zones: null }; mapCache.set(map, entry); }
@@ -65,11 +66,21 @@ function mapCacheFor(map) {
 
 const Maps = {
   rows: [],                                                     // filled by the 16b..16e files, defined as CAT.maps in 16f
+  runtime: [],                                                  // maps registered at run time: the editor's saved maps and generated maps (MapGen keeps at most MAPS_RUNTIME_KEEP of its own), newest last
   get(idOrCode) {
     if (!CAT.maps) return null;
-    return CAT.maps.byId(idOrCode) || CAT.maps.find((map) => map.code === idOrCode) || null;
+    const known = (map) => map.id === idOrCode || map.code === idOrCode;
+    return CAT.maps.byId(idOrCode) || CAT.maps.find(known) || this.runtime.find(known) || null;
   },
-  forMode(modeId) { return CAT.maps ? CAT.maps.filter((map) => map.modes.includes(modeId)) : []; },
+  forMode(modeId) { return CAT.maps ? CAT.maps.concat(this.runtime).filter((map) => map.modes.includes(modeId)) : []; },   // hand-made, then runtime maps
+  // The maps that survive a reload: hand-made maps and the editor's saved maps (pickers and saved setups list these; a generated map is gone after a reload).
+  savedForMode(modeId) { return this.forMode(modeId).filter((map) => !map.gen); },
+  // A generated map joins the lookups (Maps.get / forMode, Game.start({ map: id })); past the limit the oldest generated map drops out (editor maps stay).
+  addRuntime(map) {
+    this.registerRuntime(map);
+    const generated = this.runtime.filter((row) => row.gen);
+    if (generated.length > MAPS_RUNTIME_KEEP) this.unregisterRuntime(generated[0].id);
+  },
   // A spawn serves an actor of `team` (-1 = free for all) in `mode` when team matches and its mode list is empty or has the mode.
   spawnMatches(spawn, modeId, team) { return spawn.team === team && mapServesMode(spawn, modeId); },
   // Cached list (never modified by callers): spawn rows for a mode and team. The cache is keyed by the map row: clone a row before editing it.
@@ -96,6 +107,13 @@ const Maps = {
   },
   validate(map) { return MapCheck.run(map).problems; },     // problem strings, empty = the map is sound (16v-maps-validate.js)
   report(map) { return MapCheck.run(map); },                // { problems, stats }
+  // The map editor's saved maps join the lookups the same way (Maps.get / forMode / Game.start({ map: id })): a row with the same id is replaced.
+  registerRuntime(map) {
+    this.unregisterRuntime(map.id);
+    this.runtime.push(map);
+    return map;
+  },
+  unregisterRuntime(id) { this.runtime = this.runtime.filter((map) => map.id !== id); },
 };
 
 // The one mode rule: spawns, items and objectives carry an optional `modes` list; a missing or empty list serves every mode of the map.

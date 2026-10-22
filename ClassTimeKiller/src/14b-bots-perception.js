@@ -29,6 +29,10 @@ const SENSE_REACQUIRE = 0.5;            // re-acquiring a target lost less than 
 const SENSE_REACQUIRE_WINDOW = 2;
 const SENSE_FAST_REACTION = 0.7, SENSE_SLOW_REACTION = 1.3;   // reaction trait 1 .. 0 scales the tier reaction time
 const SENSE_HURT_ALERT = 1;
+const SENSE_MINE_RANGE = 8;             // m: an enemy placed gadget (mine) is noticed this close, in sight (its glint, GAD-003)
+const SENSE_GRENADE_DANGER = 6;         // m: an enemy grenade heard landing this close is run from...
+const SENSE_GRENADE_FLEE = 1.5;         // ...for this many seconds
+const SENSE_THROWN_MATCH = 0.25;        // m: the Thrown slot whose bounce made a 'grenade' sound sits this close to it
 const PAIR_COUNT = MAX_ACTORS * MAX_ACTORS;
 
 const senseTarget = Vec.make();
@@ -49,6 +53,8 @@ const BotSense = {
   cursor: new Uint8Array(MAX_ACTORS),       // round-robin start of the next scan
   heardAt: new Float64Array(MAX_ACTORS).fill(-1e9), heardX: new Float32Array(MAX_ACTORS), heardY: new Float32Array(MAX_ACTORS), heardZ: new Float32Array(MAX_ACTORS),
   attacker: new Int8Array(MAX_ACTORS).fill(-1), attackedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  mine: new Int8Array(MAX_ACTORS).fill(-1),  // nearest enemy placed gadget in sight (Devices index), -1 none
+  dangerUntil: new Float64Array(MAX_ACTORS), dangerX: new Float32Array(MAX_ACTORS), dangerZ: new Float32Array(MAX_ACTORS),
   raysLeft: 0,
   // raysThisTick counts from one vision pass to the next, so the sounds of a tick (heard after the pass) count with it.
   stats: { rays: 0, raysThisTick: 0, maxRaysPerTick: 0, deferred: 0, heard: 0, hearingRays: 0 },
@@ -69,6 +75,7 @@ const BotSense = {
     this.visible.fill(0, start, end); this.source.fill(0, start, end); this.awareness.fill(0, start, end);
     this.seenAt.fill(-1e9, start, end); this.knownAt.fill(-1e9, start, end); this.lostAt.fill(-1e9, start, end);
     this.alert[bot] = 0; this.heardAt[bot] = -1e9; this.attacker[bot] = -1; this.attackedAt[bot] = -1e9;
+    this.mine[bot] = -1; this.dangerUntil[bot] = 0;
   },
   // An actor that dies or leaves is no longer seen by anybody (its memory entries fade normally).
   forgetActor(other) {
@@ -145,7 +152,7 @@ const BotSense = {
     if (flags & ACTOR_FLAG.PRONE) factor *= SENSE_PRONE;
     else if (flags & ACTOR_FLAG.CROUCHED) factor *= SENSE_CROUCH;
     if (Math.hypot(Actors.vx[other], Actors.vz[other]) < SENSE_STILL_SPEED) factor *= SENSE_STILL;
-    if (flags & ACTOR_FLAG.INVISIBLE) factor *= SENSE_CLOAK;
+    factor *= Math.min(Items.perceptionScale(other), flags & ACTOR_FLAG.INVISIBLE ? SENSE_CLOAK : 1);   // PU04 cloak, cloaking abilities
     return this.viewRange(bot) * factor;
   },
   // The range against a standing, moving, visible actor (the F9 view draws it as the cone's length).
@@ -195,9 +202,30 @@ const BotSense = {
     this.source[pair] = how;
   },
   finishScan(bot, now) {
+    this.mine[bot] = Devices.count > 0 ? this.nearestMine(bot) : -1;
     const quiet = now - this.attackedAt[bot] > SENSE_AWARE_DECAY_AFTER && now - this.heardAt[bot] > SENSE_AWARE_DECAY_AFTER;
     if (quiet && BotCombat.target[bot] < 0) this.alert[bot] = Math.max(0, this.alert[bot] - SENSE_AWARE_DECAY_RATE * (now - Bots.lastPerceive[bot]));
     Bots.schedulePerception(bot, now);
+  },
+
+  // Enemy placed gadgets show only as a glint in sight within 8 m (Gadgets.visibleTo); each check is one budgeted ray.
+  nearestMine(bot) {
+    let best = -1, bestDistance = SENSE_MINE_RANGE;
+    for (let device = 0; device < DEVICE_CAP; device++) {
+      if (!Devices.active[device] || CAT.gadgets[Devices.row[device]].kind !== 'placed' || Devices.friendOf(device, bot)) continue;
+      const distance = Math.hypot(Devices.x[device] - Actors.x[bot], Devices.z[device] - Actors.z[bot]);
+      if (distance >= bestDistance || this.raysLeft <= 0) continue;
+      this.spendRay();
+      if (Gadgets.visibleTo(device, bot)) { best = device; bestDistance = distance; }
+    }
+    return best;
+  },
+  // Actors in a hunted role (Colossus, cursed, prize carriers) carry a marker everyone sees: their place is known.
+  noticeMarked(bot, now) {
+    for (let other = 0; other < Actors.count; other++) {
+      if (!huntedRole(other) || !this.canSee(bot, other) || this.visible[this.pair(bot, other)]) continue;
+      this.remember(this.pair(bot, other), SENSE.PINGED, Actors.x[other], Actors.y[other], Actors.z[other], now);
+    }
   },
 
   // ---- Hearing (BOT-004): every 'sound' event within radius x hearing trait; through walls x0.6 ----
@@ -221,10 +249,15 @@ const BotSense = {
     this.heardAt[bot] = now; this.heardX[bot] = x; this.heardY[bot] = y; this.heardZ[bot] = z;
     this.alert[bot] = Math.max(this.alert[bot], SENSE_ALERTED);
     this.stats.heard++;
+    if (event.kind === 'grenade' && distance < SENSE_GRENADE_DANGER && harmfulThrowAt(event.x, event.y, event.z)) this.noteDanger(bot, x, z, now);
     const source = event.source;
     if (source < 0 || source >= MAX_ACTORS) return;
     const pair = this.pair(bot, source);
     if (!this.visible[pair]) this.remember(pair, SENSE.HEARD, x, y, z, now);
+  },
+  noteDanger(bot, x, z, now) {
+    this.dangerX[bot] = x; this.dangerZ[bot] = z;
+    this.dangerUntil[bot] = now + SENSE_GRENADE_FLEE;
   },
   hearingLineOpen(ex, ey, ez, event) {
     if (this.raysLeft <= 0) return false;
@@ -260,6 +293,17 @@ const BotSense = {
     if (!this.visible[pair]) this.remember(pair, SENSE.PINGED, x, y, z, now);
   },
 };
+
+// The bounce sound names no gadget row (S12), so the throwable is the Thrown slot at the sound's place (the sound goes
+// out during its bounce); only BOT_FLEE_EFFECTS rows are run from: a smoke, flash, decoy or dart lands harmlessly.
+function harmfulThrowAt(x, y, z) {
+  for (let slot = 0; slot < THROWN_CAP; slot++) {
+    if (Thrown.state[slot] === THROWN_STATE.FREE) continue;
+    if (distanceSquared3(Thrown.x[slot], Thrown.y[slot], Thrown.z[slot], x, y, z) > SENSE_THROWN_MATCH * SENSE_THROWN_MATCH) continue;
+    return BOT_FLEE_EFFECTS.includes(CAT.gadgets[Thrown.row[slot]].effect);
+  }
+  return false;
+}
 
 Bus.on('sound', (event) => BotSense.hear(event));
 Bus.on('damage', (event) => BotSense.hurt(event));

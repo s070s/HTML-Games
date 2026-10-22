@@ -22,6 +22,8 @@ const wrapAngle = (radians) => { // into -PI..PI
 const lerpAngle = (from, to, t) => from + wrapAngle(to - from) * t;
 const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 - edge0), 0, 1); return t * t * (3 - 2 * t); };
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
+// A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
+const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
 
 const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),

@@ -68,7 +68,7 @@ const Fx = {
   burst(kind, x, y, z, nx, ny, nz, count, colorHex) {
     if (Game.headless) return;
     const row = fxKindRows[kind] || fxKindRows.spark, cap = Render.quality.particles;
-    const total = Math.min(count > 0 ? count : row.count, cap);
+    const total = Math.min(Math.ceil((count > 0 ? count : row.count) * Render.config.particleScale), cap);   // particleScale: ACC-005 intensity slider
     writeColor(fxColor, 0, colorHex === undefined || colorHex === null ? row.color : colorHex);
     const mode = PARTICLE_MODE.billboard + (row.additive ? ADDITIVE_FLAG : 0), random = Rng.fx;
     for (let i = 0; i < total; i++) {
@@ -135,6 +135,61 @@ function updateLights() {
   Render.stats.particles = particlePool.live;
 }
 Render.addUpdate(50, updateLights);
+
+// ---- X37 Lights Out flashlights (rules.fx.darkness) ----
+// Each frame the actors nearest the camera get one flashlight each, written straight into the frame lights after the
+// effect lights (no Fx slots, so nothing stacks or fades). Muzzle flashes and explosions keep FX_LIGHT_RESERVE lights.
+const FLASHLIGHT_AHEAD = 3;              // the light sits this far in front of the eye along the view
+const FLASHLIGHT_RADIUS = 11;
+const FLASHLIGHT_COLOR = 0xfff0d8;
+const FX_LIGHT_RESERVE = 2;
+const FLASHLIGHT_MIN_LIGHTS = 1;         // even a tier without dynamic lights lights the nearest actor (the player) in the dark
+const flashlightColor = new Float32Array(3);
+const flashlightAim = Vec.make();
+const Flashlights = { ids: new Int32Array(MAX_DYNAMIC_LIGHTS), distances: new Float32Array(MAX_DYNAMIC_LIGHTS), count: 0 };
+writeColor(flashlightColor, 0, FLASHLIGHT_COLOR);
+
+function carriesFlashlight(id) {
+  return Actors.alive[id] && Actors.kind[id] !== ACTOR_KIND.NONE && !(Actors.flags[id] & ACTOR_FLAG.INVISIBLE);
+}
+// Inserts an actor into the short sorted list of the nearest ones, keeping at most `limit` (no allocation).
+function keepNearest(id, distance, limit) {
+  let at = Flashlights.count;
+  while (at > 0 && Flashlights.distances[at - 1] > distance) at--;
+  if (at >= limit) return;
+  const last = Math.min(Flashlights.count, limit - 1);
+  for (let i = last; i > at; i--) { Flashlights.ids[i] = Flashlights.ids[i - 1]; Flashlights.distances[i] = Flashlights.distances[i - 1]; }
+  Flashlights.ids[at] = id; Flashlights.distances[at] = distance;
+  Flashlights.count = Math.min(Flashlights.count + 1, limit);
+}
+function pickFlashlights(limit) {
+  const camera = Render.frame.cameraPosition;
+  Flashlights.count = 0;
+  if (limit <= 0) return;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!carriesFlashlight(id)) continue;
+    const dx = Actors.x[id] - camera[0], dy = Actors.y[id] - camera[1], dz = Actors.z[id] - camera[2];
+    keepNearest(id, dx * dx + dy * dy + dz * dz, limit);
+  }
+}
+function writeFlashlight(frame, slot, id) {
+  Vec.fromAngles(flashlightAim, Actors.yaw[id], Actors.pitch[id]);
+  frame.lightPositions[slot * 4] = Actors.x[id] + flashlightAim.x * FLASHLIGHT_AHEAD;
+  frame.lightPositions[slot * 4 + 1] = Actors.eyeY(id) + flashlightAim.y * FLASHLIGHT_AHEAD;
+  frame.lightPositions[slot * 4 + 2] = Actors.z[id] + flashlightAim.z * FLASHLIGHT_AHEAD;
+  frame.lightPositions[slot * 4 + 3] = FLASHLIGHT_RADIUS;
+  for (let c = 0; c < 3; c++) frame.lightColors[slot * 4 + c] = flashlightColor[c] * LIGHT_BOOST;
+}
+function updateFlashlights() {
+  if (!matchDarkness()) return;
+  const frame = Render.frame;
+  const cap = Math.max(FLASHLIGHT_MIN_LIGHTS, Math.min(Render.quality.lights, MAX_DYNAMIC_LIGHTS));
+  pickFlashlights(cap - Math.min(frame.lightCount, FX_LIGHT_RESERVE));
+  const start = Math.min(frame.lightCount, cap - Flashlights.count);
+  for (let i = 0; i < Flashlights.count; i++) writeFlashlight(frame, start + i, Flashlights.ids[i]);
+  frame.lightCount = start + Flashlights.count;
+}
+Render.addUpdate(55, updateFlashlights);   // after the effect lights are copied into the frame (50)
 
 // ---- GPU ----
 const CORNERS = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);

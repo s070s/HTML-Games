@@ -48,6 +48,7 @@ function resetModeExtras() {
   Object.assign(Modes.hud, MODE_HUD_EXTRAS);
   Modes.actorRole.fill(ACTOR_ROLE.NONE);
   Modes.meleeHit.fill(0);
+  modeCloakSet.fill(0);
 }
 
 // Calls an optional add-on hook of the running behaviour.
@@ -94,9 +95,16 @@ function centralSpot(out) {
 
 function wasMeleeKill(victim) { return victim >= 0 && Modes.meleeHit[victim] === 1; }
 
+// ACTOR_FLAG.INVISIBLE belongs to whoever set it: a mode cloak never clears a powerup or ability cloak.
+const modeCloakSet = new Uint8Array(MAX_ACTORS);
 function setCloak(id, cloaked) {
-  if (cloaked) Actors.flags[id] |= ACTOR_FLAG.INVISIBLE;
-  else Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  if (cloaked) {
+    if (!(Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) { Actors.flags[id] |= ACTOR_FLAG.INVISIBLE; modeCloakSet[id] = 1; }
+    return;
+  }
+  if (!modeCloakSet[id]) return;
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  modeCloakSet[id] = 0;
 }
 
 // ---- M08 Breach Assault: attackers (side 0) arm relays (USE held plantTime s in the relay zone), the fuse runs, defenders
@@ -207,9 +215,9 @@ function makePrizeBehaviour(prizeId, role, meleeParam, label) {
       if (prize.state === 'carried') { this.stepHeld(prize, dt, params); return; }
       this.setHolder(-1);
       if (Modes.returnDue(prize, now, params.returnTime)) { Modes.returnHome(prize); Modes.announce('The ' + label + ' returned', 'objective', 1); return; }
-      const taker = Modes.findToucher(prize, NEAR_ANY);
-      // Spawn protection keeps an actor who respawns on the prize from taking it at once.
-      if (taker < 0 || (Actors.flags[taker] & ACTOR_FLAG.PROTECTED)) return;
+      // Spawn protection keeps an actor who respawns on the prize from taking it at once (nor blocking anyone else).
+      const taker = Modes.findToucher(prize, NEAR_ANY, ACTOR_FLAG.PROTECTED);
+      if (taker < 0) return;
       Modes.pickUp(prize, taker);
       prize.holdTime = 0;
       this.setHolder(taker);
@@ -421,7 +429,7 @@ function drawModeExtras(batch) {
 
 Bus.on('match.setup', resetModeExtras);
 Bus.on('match.stop', resetModeExtras);
-Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; });
+Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; modeCloakSet[id] = 0; });
 Bus.on('actor.spawn', (event) => callBehaviour('onSpawn', event.id));
 Bus.on('damage', (event) => {
   Modes.meleeHit[event.target] = event.kind === 'melee' ? 1 : 0;

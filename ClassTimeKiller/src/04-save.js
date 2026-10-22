@@ -16,7 +16,9 @@ const Save = {
   storage: null,          // replaced by a memory stub in headless tests
 
   emptySave() {
-    return { version: SAVE_VERSION, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [], ladder: {} };
+    // play: the last play-screen setup (18d, null = none yet); crosshairs: per-weapon crosshair overrides (17b).
+    return { version: SAVE_VERSION, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [], ladder: {},
+      play: null, crosshairs: {} };
   },
   load() {
     const raw = this.read(SAVE_KEY);

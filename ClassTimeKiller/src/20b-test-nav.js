@@ -335,8 +335,9 @@ Test.add('nav', (check) => {
   const into = navTestPathTypes(bank, centre), out = navTestPathTypes(centre, bank);
   check('water: path into the pool ends swimming', into.length > 0 && into[into.length - 1] === NAV_LINK.SWIM, into.join(','));
   check('water: swimmer climbs out without a jump', out.length > 0 && !out.includes(NAV_LINK.JUMP), out.join(','));
-  const bottom = navTestNode(0, -3, 0);
-  check('water: pool floor nodes are wet', Test.near(Nav.nodeY[bottom], -3, 0.01) && (Nav.nodeFlags[bottom] & NAV_NODE.WATER), Nav.nodeY[bottom]);
+  let floorNodes = 0;
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeY[node] < surface - NAV_STEP) floorNodes++;
+  check('water: the floor of deep water has no walk nodes (the actor swims above it)', floorNodes === 0, floorNodes);
 });
 
 Test.add('nav', (check) => {

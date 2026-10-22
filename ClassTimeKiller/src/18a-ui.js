@@ -27,7 +27,7 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-button[disabled] { opacity: 0.45; cursor: default; } .ui-button.danger { border-color: var(--ui-bad); }'
   + '.ui-button:focus, .ui-slider input:focus, .ui-tab:focus { outline: 3px solid var(--ui-accent); outline-offset: 2px; }'
   + '.ui-menu { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; max-width: 760px; }'
-  + '.ui-menu .ui-button { font-size: 1.1em; } .ui-tag { color: var(--ui-dim); font-size: 0.8em; margin-left: 8px; }'
+  + '.ui-menu .ui-button { font-size: 1.1em; } .ui-tag { color: var(--ui-dim); font-size: 0.875em; margin-left: 8px; }'
   + '.ui-scroll { flex: 1; overflow-y: auto; touch-action: pan-y; padding-right: 4px; min-height: 0; }'
   + '.ui-row { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--ui-panel); border: 1px solid transparent; border-radius: 8px; margin-bottom: 6px; min-height: 48px; }'
   + '.ui-row.conflict { border-color: var(--ui-bad); } .ui-label { flex: 1; } .ui-group { color: var(--ui-accent); font-weight: 700; margin: 12px 0 6px; }'
@@ -37,7 +37,7 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-tab.active { background: var(--ui-accent); color: #1a1205; font-weight: 700; } .ui-note { color: var(--ui-dim); margin: 0 0 10px; line-height: 1.45; }'
   + '.ui-foot { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; } .ui-slot { min-width: 8em; text-align: center; padding: 0.4em 0.7em; min-height: 40px; }'
   + '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
-  + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
+  + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
   + '#overlay > .ui-toasts { position: fixed; top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }'
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
@@ -55,9 +55,12 @@ const Ui = {
   lastSelfTest: null,
   pauseEntries: [],           // { label, screen } rows later sections add to the pause menu (rules panel)
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab
+  settingsFooter: [],         // fn(refresh) -> button: extra buttons under the settings tabs (18l: reset all)
+  settingGroup: () => '',     // fn(key) -> heading title of a settings row ('' = none); 18l fills it
   lastToast: '',
   noticeShown: false,
   clickEvent: { kind: '' },
+  nameCount: 0,               // numbers the ids that tie a row's label to its control
 
   register(name, screen) { this.screens.set(name, screen); },
   top() { return this.stack.length ? this.stack[this.stack.length - 1] : null; },
@@ -116,6 +119,14 @@ const Ui = {
     const target = entry.element.querySelector('[data-autofocus]') || this.focusables(entry.element)[0];
     if (target) target.focus();
   },
+  // Runs build() that refills a container and puts the focus back on the control at the same position, so a screen that redraws itself
+  // after a change (a mode choice that adds rows) never drops the keyboard or gamepad user's place.
+  rebuild(container, build) {
+    const index = this.focusables(container).indexOf(document.activeElement);
+    build();
+    const target = index >= 0 ? this.focusables(container)[index] : null;
+    if (target) target.focus();
+  },
   navigate(command) {
     const entry = this.top();
     if (!entry) return;
@@ -153,6 +164,8 @@ const Ui = {
   },
   onMenuCommand(command) {
     if (!this.stack.length) return;
+    const screen = this.top().screen;
+    if (screen.onCommand && screen.onCommand(command)) return;     // a screen that reads the pad itself (the map editor) takes the command
     if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
   },
   onKeyDown(event) {
@@ -184,7 +197,12 @@ const Ui = {
   },
   row(label, control) {
     const row = makeElement('div', 'ui-row');
-    row.appendChild(makeElement('span', 'ui-label', label));
+    const text = makeElement('span', 'ui-label', label), named = control.input || control;   // sliders keep their input in .input
+    text.id = 'ui-label-' + (++this.nameCount);
+    named.id = named.id || 'ui-control-' + this.nameCount;
+    // Screen readers read the row label and the control's own value ("Mono audio On"); a slider is named by the label alone.
+    named.setAttribute('aria-labelledby', named.tagName === 'INPUT' ? text.id : text.id + ' ' + named.id);
+    row.appendChild(text);
     row.appendChild(control);
     return row;
   },

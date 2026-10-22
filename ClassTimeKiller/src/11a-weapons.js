@@ -90,6 +90,12 @@ function emitImpact(hit, weaponKey, owner) {
   Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
 }
+// A shot stopped by a Weapons.rayBlockers entry (device, dome): an impact facing the shooter, so the stop is visible.
+const blockedHit = makeHit();
+function emitBlockedImpact(x, y, z, dx, dy, dz, weaponKey, owner) {
+  blockedHit.x = x; blockedHit.y = y; blockedHit.z = z; blockedHit.nx = -dx; blockedHit.ny = -dy; blockedHit.nz = -dz;
+  emitImpact(blockedHit, weaponKey, owner);
+}
 
 const shotHit = makeHit();
 const exitHit = makeHit();
@@ -134,7 +140,24 @@ const Weapons = {
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
+  rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
 
+  // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
+  blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
+    let best = -1;
+    for (let i = 0; i < this.rayBlockers.length; i++) {
+      const distance = this.rayBlockers[i](ox, oy, oz, dx, dy, dz, best >= 0 ? best : maxDistance);
+      if (distance >= 0 && distance <= maxDistance && (best < 0 || distance < best)) best = distance;
+    }
+    return best;
+  },
+  // X41 Ballistics: the ruleset's { gravity, drag } while hitscan pellets fly as 11b bullets, else null.
+  ballistics() {
+    const fx = currentRules().fx;
+    return (fx && fx.ballistics) || null;
+  },
+  // True when this firing mode's shots fly as X41 bullets instead of settling at once along a ray.
+  fliesAsBullet(mode) { return mode.type === 'hitscan' && this.ballistics() !== null; },
   slotIndex(id, weaponIndex) { return id * WEAPON_COUNT + weaponIndex; },
   currentWeapon(id) { const index = this.current[id]; return index < 0 ? null : CAT.weapons[index]; },
   has(id, key) { const weapon = CAT.weapons.byId(key); return !!weapon && this.owned[this.slotIndex(id, weapon.index)] === 1; },
@@ -671,11 +694,14 @@ const Shot = {
     let factor = 1, travelled = 0, startX = ox, startY = oy, startZ = oz;
     for (let segment = 0; segment < 2; segment++) {
       const range = mode.range - travelled;
-      const wall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
+      const worldWall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
+      const blocker = Weapons.blockDistance(startX, startY, startZ, dx, dy, dz, worldWall);   // devices and domes stop the shot
+      const wall = blocker >= 0 ? blocker : worldWall;
       if (mode.combo && Projectiles.comboRay(id, mode, startX, startY, startZ, dx, dy, dz, wall)) return travelled + Projectiles.comboDistance;
       const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, wall, travelled);
       if (stopped >= 0) return travelled + stopped;
       travelled += wall;
+      if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
       const exit = this.penetrate(mode, dx, dy, dz);
@@ -735,9 +761,11 @@ function drawTracer(id, direction, distance, weapon) {
 // ---- Deliveries per fire mode type ----
 function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
+  const ballistics = Weapons.ballistics();   // X41: the pellets fly as bullets (11b)
   eyeOrigin(id, originScratch);
   for (let pellet = 0; pellet < mode.pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);
+    if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
     const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
     if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon);
     if (mode.splash) splashAtShotEnd(id, mode, distance);
@@ -890,4 +918,9 @@ Bus.on('actor.create', (id) => {
 });
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
+// The difficulty preset's aimAssist (rules.botSkill, D01 Stroll 100) replaces the player's setting; -1 keeps it.
+Input.aimAssistOverride = () => {
+  const skill = currentRules().botSkill;
+  return skill && skill.aimAssist >= 0 ? skill.aimAssist : -1;
+};
 Render.viewModel = (out) => Weapons.viewModel(out);

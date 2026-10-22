@@ -107,7 +107,10 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.canFire(id)` | false while sprinting, during `sprintToFire` after a sprint, mantling, shield charging or on the board (S11 adds weapon readyTime) |
 | `Move.damageScale(id)` | 0.25 while rolling (MV08), else 1 - S11 multiplies incoming damage |
 | `Move.weaponSpeedScale[id]` | written by S11 every step: weapon `moveMult` x `adsMoveMult` when aiming (default 1) |
-| `Move.statusSpeedScale[id]` | written by S12: slows/hastes (default 1) |
+| `Move.statusSpeedScale[id]` | written only by S12 `Buffs.applyScales`: statuses x powerup speed (default 1) |
+| `Move.gravityScale[id]` | per-actor gravity factor (default 1), written only by `Buffs.applyScales` (glide = a GRAVITY buff); used by `Move.gravity`, every step and slides |
+| `Move.staminaScale[id]` | sprint drain divisor (default 1; S13 Marathon perk) |
+| `Move.footstepScale[id]` | footstep loudness (default 1; S13 Quietstep perk 0): scales the step noise radius and `move.step` `loudness` |
 | `Move.stamina[id]` / `Move.staminaFraction(id)` | seconds of sprint left / 0..1 (1 when unlimited) |
 | `Move.dashCharges(id)` | whole dash charges ready |
 | `Move.stateName(id)` | `walk mantle dash charge wall_run latch ladder swim` |
@@ -133,7 +136,7 @@ Settings: `gameplay.airAssist` = `auto` (default: on for touch/gamepad in preset
 |---|---|---|
 | `move.jump` | `{ id, speed, surface }` | any jump (ground, extra, wall, ladder, bullet) |
 | `move.land` | `{ id, speed (impact m/s), surface }` | first grounded step |
-| `move.step` | `{ id, speed, surface }` | every 1.6 m on the floor (not while sliding; never for silent walks) |
+| `move.step` | `{ id, speed, surface, loudness }` | every 1.6 m on the floor (not while sliding; never for silent walks); `loudness` = `Move.footstepScale[id]` (0 = silent, S06 plays nothing) |
 | `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface }` | slide start; dodge, dash or shield charge; mantle start (speed = height); wall-run start |
 | `sound` | `{ x, y, z, radius, kind: 'step' or 'land', source }` | footsteps 15 m (crouch or walk halves, silentWalk walks are silent), landings 20 m |
 | `damage.request` | `{ target, source: -1, amount, kind: 'fall', element: 'none', x, y, z }` | fall damage (MOV-015) |

@@ -55,14 +55,17 @@ const MatchMove = { rules: undefined, preset: null, gravityScale: 1, knockback: 
 const Move = {
   presetOverride: new Array(MAX_ACTORS).fill(null),   // per-actor preset rows (hero kits); null = the match preset
   weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S11: weapon moveMult x adsMoveMult (MOV-021)
-  statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12: slows and hastes
+  statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12 (Buffs only): slows and hastes
+  gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
+  staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
+  footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
   states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
 
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
-  gravity(id) { matchPreset(); return this.preset(id).gravity * MatchMove.gravityScale; },
+  gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
   horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
   // MOV-025 movement inaccuracy in degrees for weapons (0 in presets without an inaccuracy table).
   inaccuracy(id) {
@@ -106,6 +109,9 @@ function buildMatchMove(rules) {
   MatchMove.autoHop = hasMutator(mutators, 'autohop');        // X25: holding jump repeats
   MatchMove.airControl = hasMutator(mutators, 'aircontrol');  // X24: air-control assist for everyone
 }
+
+// Gravity of one actor: preset x ruleset gravityScale (X01) x the actor's own factor (glide).
+function actorGravity(id, preset) { return preset.gravity * MatchMove.gravityScale * Move.gravityScale[id]; }
 
 function resetMotion(id) {
   for (const field of MOTION_FIELDS) Motion[field][id] = 0;
@@ -417,7 +423,7 @@ function updateSprint(id, preset, dt) {
 
 function updateStamina(id, preset, sprinting, dt) {
   if (preset.sprintStamina <= 0) return;
-  if (sprinting) { Motion.stamina[id] = Math.max(0, Motion.stamina[id] - dt); Motion.staminaWait[id] = 0; return; }
+  if (sprinting) { Motion.stamina[id] = Math.max(0, Motion.stamina[id] - dt / Move.staminaScale[id]); Motion.staminaWait[id] = 0; return; }
   Motion.staminaWait[id] += dt;
   if (Motion.staminaWait[id] < preset.staminaRegenDelay) return;
   Motion.stamina[id] = Math.min(preset.sprintStamina, Motion.stamina[id] + preset.sprintStamina / preset.staminaRegenTime * dt);
@@ -468,7 +474,7 @@ function stepMovement(dt) {
 
 function stepActor(id, dt) {
   const preset = Move.preset(id);
-  const gravity = preset.gravity * MatchMove.gravityScale;
+  const gravity = actorGravity(id, preset);
   const startX = Actors.x[id], startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
   Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
@@ -509,7 +515,8 @@ function writeFlags(id) {
   Actors.flags[id] = flags;
 }
 
-// Footsteps every STRIDE_METRES on the floor; crouching halves the noise, walking is quieter (silent in silentWalk presets).
+// Footsteps every STRIDE_METRES on the floor; crouching halves the noise, walking is quieter (silent in silentWalk presets);
+// Move.footstepScale scales both the bot noise and the 'move.step' loudness (0 = silent, the event still marks the stride).
 function countSteps(id, preset, startX, startZ) {
   if (!Motion.grounded[id] || Motion.sliding[id]) return;
   Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
@@ -517,9 +524,10 @@ function countSteps(id, preset, startX, startZ) {
   Motion.stepDistance[id] = 0;
   const walking = (Actors.buttons[id] & BTN.WALK) !== 0;
   if (walking && preset.silentWalk) return;
-  const radius = FOOTSTEP_NOISE_RADIUS * (Motion.stance[id] === STANCE.STAND ? 1 : 0.5) * (walking ? 0.5 : 1);
+  const loudness = (Motion.stance[id] === STANCE.STAND ? 1 : 0.5) * (walking ? 0.5 : 1) * Move.footstepScale[id];
+  moveEvents['move.step'].loudness = loudness;
   emitMove('move.step', id, Move.horizontalSpeed(id), surfaceOf(id));
-  emitNoise(id, radius, 'step');
+  emitNoise(id, FOOTSTEP_NOISE_RADIUS * loudness, 'step');
 }
 
 function movingInaccuracy(id, table) {
@@ -533,7 +541,7 @@ function movingInaccuracy(id, table) {
 
 // ---- Events (reused payloads: listeners copy what they keep) ----
 const moveEvents = {};
-for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '' };
+for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '', loudness: 1 };
 const noiseEvent = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: 0 };
 
 function emitMove(type, id, speed, surface) {
@@ -570,5 +578,9 @@ Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', cat
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
 Bus.on('impulse', onImpulse);
-Bus.on('actor.create', (id) => { Move.presetOverride[id] = null; Move.weaponSpeedScale[id] = 1; Move.statusSpeedScale[id] = 1; resetMotion(id); });
+Bus.on('actor.create', (id) => {
+  Move.presetOverride[id] = null;
+  Move.weaponSpeedScale[id] = Move.statusSpeedScale[id] = Move.gravityScale[id] = Move.staminaScale[id] = Move.footstepScale[id] = 1;
+  resetMotion(id);
+});
 Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags

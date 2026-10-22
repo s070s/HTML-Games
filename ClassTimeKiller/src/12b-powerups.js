@@ -175,8 +175,7 @@ const Powerups = {
   },
   // The shared per-actor hooks of S10/S11/S12 that powerups drive.
   writeHooks(id) {
-    Move.statusSpeedScale[id] = this.speedScale[id];
-    Weapons.rateScale[id] = this.rateScale[id];
+    Buffs.applyScales(id);   // Buffs (12f) is the single writer of the speed and fire rate hooks; it multiplies these factors in
     Weapons.freeAmmo[id] = this.flags[id] & POWERUP_FLAG.FREE_AMMO ? 1 : 0;
     Items.noArmor[id] = this.flags[id] & POWERUP_FLAG.NO_ARMOR ? 1 : 0;
     if (Items.noArmor[id]) Actors.armor[id] = 0;
@@ -372,6 +371,7 @@ const Powerups = {
 };
 
 Items.takers[PICKUP_KIND.POWERUP] = (id, slot) => Powerups.give(id, CAT.powerups[Items.row[slot]], Items.timeLeft[slot]);
+Items.givers[PICKUP_KIND.POWERUP] = (id, key) => Powerups.give(id, CAT.powerups.byId(key), 0);
 Items.activePowerups = (id, out) => Powerups.fillViews(id, out);
 Items.uniqueOut = (rowIndex) => {
   for (let id = 0; id < Actors.count; id++) if (Powerups.active[id * POWERUP_COUNT + rowIndex]) return true;

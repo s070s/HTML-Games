@@ -2,7 +2,9 @@
 // 0..1 and weighted by traits; the best wins with 10% hysteresis. Goals: attack, chase, retreat, collect items, play the
 // mode objective, camp (time-limited, never in sight of enemy spawns), investigate sounds, follow orders, roam.
 // Objective planners are registered per map objective kind, so every mode with that kind is played (flags, points, hills,
-// bomb sites, the shrinking safe area). The chosen goal becomes a state, a destination for 14c and an action (hold, use).
+// bomb sites, the shrinking safe area and ring); the add-on modes are played from their goal hints (Modes.goalFor: relays,
+// the convoy, relics, the flame, the curse beacon) and royale loot is collected. The chosen goal becomes a state, a
+// destination for 14c and an action (hold, use).
 
 const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9 };
 const GOAL_NAMES = Object.keys(GOAL).map((name) => name.toLowerCase());
@@ -36,8 +38,18 @@ const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enem
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
+const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
 const SAFE_AREA_MARGIN = 0.7;
+const GOAL_DISTANCE_SCALE = 60;         // m: an objective's urgency halves at this distance (goal hints)
+const GOAL_TOUCH_RADIUS = 0.8;          // m: touch a carriable or stand on a spot
+const LOOT_RARITY_VALUE = 0.25;         // royale loot: each rarity step adds this share to a weapon's value
+const HOLD_ARRIVED = 1;                 // m beyond the goal radius that still counts as holding the spot
+const MUTATOR_RISK_MIN = 0.7, MUTATOR_RISK_MAX = 1.3;   // MUT-003: damage dealt / taken mutators scale aggression
+const CARRY_URGENCY = 1.15;             // a flag carry outranks every fight: the carrier shoots on the run, never stops to duel
+const PUSH_URGENCY = 1.05;              // raiders on a push shoot on the run too (a fight only wins with high aggression)
+const FLAG_CHASE_RANGE = 30;            // m: raiders chase their own stolen flag only this close; farther, defenders do it
+const LOOT_HEALTH_ITEM = { group: 'health' }, LOOT_AMMO_ITEM = { group: 'ammo' };   // royale heals and ammo valued like pickups
 const FALLBACK_FAVORITE = 'lancet';
 
 const goalPlan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
@@ -47,6 +59,7 @@ const threatPoint = Vec.make();
 const powerupList = [];
 const timerList = [];
 const objectiveList = [], baseList = [];
+const safeCircle = { x: 0, z: 0, radius: 0 };
 
 const BotDecide = {
   goal: new Uint8Array(MAX_ACTORS), goalScore: new Float32Array(MAX_ACTORS), goalSince: new Float64Array(MAX_ACTORS),
@@ -60,6 +73,7 @@ const BotDecide = {
   items: [], itemNode: new Int32Array(MAX_BOT_ITEMS), itemReadyAt: new Float64Array(MAX_BOT_ITEMS),
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
+  lootNode: new Int32Array(LOOT_MAX).fill(-1),             // nav node of each royale loot spot (Modes.loot)
   planners: {},          // objective kind -> fn(id, plan, now) -> bool (BOT-080 mode brains)
 
   reset(id) {
@@ -85,10 +99,13 @@ const BotDecide = {
     this.campSpots.length = 0;
     this.itemVisited.fill(-1e9);
     this.itemReadyAt.fill(0);
+    this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
     const map = World.map, mode = match.rules ? match.rules.mode : '';
     if (!map) return;
     for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
+    const loot = Modes.loot;
+    for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
   },
   addItem(entry) {
     const index = this.items.length;
@@ -137,6 +154,7 @@ const BotDecide = {
   decide(id, now) {
     Bots.nextDecide[id] = now + BOT_DECIDE_INTERVAL;
     this.refreshTimers(now);
+    BotSense.noticeMarked(id, now);
     bestPlan.score = 0; bestPlan.goal = GOAL.NONE;
     const current = this.goal[id];
     let currentScore = 0;
@@ -207,6 +225,11 @@ const BotDecide = {
     const index = this.goalTarget[id], list = Modes.objectives;
     return index >= 0 && index < list.length && list[index].contested;
   },
+  // The bot stands at the spot its goal holds (defend, camp, objective hold): placed gadgets go down here.
+  holding(id) {
+    if (this.goalAction[id] !== ACTION.HOLD || this.goal[id] === GOAL.NONE) return false;
+    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + HOLD_ARRIVED;
+  },
   favoriteWeapon(id) {
     const row = Bots.profile[id];
     if (!row || !row.favorite) return '';
@@ -221,9 +244,17 @@ const BotDecide = {
     if (lowHealth || (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT)) return 0;
     if (Items.activePowerups(id, powerupList) > 0) return AGGRESSION_POWERUP;
     const weapon = Weapons.currentWeapon(id), value = weapon ? Math.max(AGGRESSION_WEAPON_FLOOR, weapon.botPref.value) : 0;
-    return clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression), 0, 1);
+    return clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression) * mutatorRisk(), 0, 1);
   },
 };
+
+// MUT-003: hitting harder than one is hit (damage dealt / taken mutators) makes fights worth more, and the reverse.
+function mutatorRisk() {
+  const fx = Mutators.fx;
+  if (!fx) return 1;
+  const dealt = fx.damageOut === undefined ? 1 : fx.damageOut, taken = fx.damageIn === undefined ? 1 : fx.damageIn;
+  return clamp(Math.sqrt(dealt / Math.max(taken, 1e-3)), MUTATOR_RISK_MIN, MUTATOR_RISK_MAX);
+}
 
 function holdHere(id) {
   setPlan(goalPlan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
@@ -276,18 +307,17 @@ GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {
   return Math.min(0.95, RETREAT_BASE + RETREAT_GAIN * (RETREAT_THRESHOLD - aggression) * 2 * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
 };
 GOAL_SCORERS[GOAL.COLLECT] = (id, plan, now) => {
+  if (Modes.loot.count > 0) return collectScore(id, bestLoot(id, plan));   // royale: the rolled loot spots instead of map pickups
   const item = bestItem(id, now);
   if (item < 0) return 0;
   const entry = BotDecide.items[item];
   setPlan(plan, entry.x, entry.y, entry.z, ITEM_TOUCH * 0.6, ACTION.MOVE, item);
-  return Math.min(COLLECT_MAX, COLLECT_BASE + COLLECT_GAIN * decideScratch.x * (0.5 + Bots.trait(id, TRAIT.itemFocus)));
+  return collectScore(id, decideScratch.x);
 };
 GOAL_SCORERS[GOAL.OBJECTIVE] = (id, plan, now) => {
   if (!Modes.active || Modes.phase !== PHASE.LIVE) return 0;
-  const planner = BotDecide.planners[Modes.hud.zoneRadius > 0 ? 'safeArea' : Modes.rules.objective];
-  if (!planner) return 0;
   plan.score = 0;
-  if (!planner(id, plan, now)) return 0;
+  if (!planObjective(id, plan, now)) return 0;
   return OBJECTIVE_BASE + OBJECTIVE_GAIN * plan.score;
 };
 GOAL_SCORERS[GOAL.CAMP] = (id, plan, now) => {
@@ -308,6 +338,18 @@ GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
   if (!BotTeam.orderPlan(id, plan, now)) return 0;
   return ORDER_BASE + ORDER_GAIN * Bots.trait(id, TRAIT.teamwork);
 };
+
+function collectScore(id, value) {
+  return value > 0 ? Math.min(COLLECT_MAX, COLLECT_BASE + COLLECT_GAIN * value * (0.5 + Bots.trait(id, TRAIT.itemFocus))) : 0;
+}
+
+// The safe area first while it hurts, then the planner of the mode's objective kind, then the mode's goal hints.
+function planObjective(id, plan, now) {
+  if (Modes.hud.zoneRadius > 0 && BotDecide.planners.safeArea(id, plan, now)) return true;
+  const planner = BotDecide.planners[Modes.rules.objective];
+  if (planner && planner(id, plan, now)) return true;
+  return planGoals(id, plan);
+}
 
 // What a bot retreats from: its target while in sight, else the enemy that hit it in the last 3 s; -1 = nothing.
 function retreatThreat(id, now) {
@@ -377,6 +419,33 @@ function itemAvailable(id, index, distance, now) {
   return now - BotDecide.itemVisited[id * MAX_BOT_ITEMS + index] > ITEM_REVISIT || readyAt > 0;
 }
 
+// Royale loot (Modes.loot): the best untaken, reachable spot by what it gives this bot / travel; fills the plan, returns the value.
+function bestLoot(id, plan) {
+  const loot = Modes.loot, botNode = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]);
+  let best = -1, bestScore = 0;
+  for (let spot = 0; spot < loot.count; spot++) {
+    if (loot.taken[spot] || BotDecide.lootNode[spot] < 0 || !Nav.reachable(botNode, BotDecide.lootNode[spot])) continue;
+    const value = lootValue(id, spot);
+    if (value <= 0) continue;
+    const score = value / (1 + Math.hypot(loot.x[spot] - Actors.x[id], loot.z[spot] - Actors.z[id]) / COLLECT_DISTANCE);
+    if (score > bestScore) { bestScore = score; best = spot; }
+  }
+  // USE: a full inventory swaps a weapon only while USE is held (13g); USE does nothing at the other spots.
+  if (best >= 0) setPlan(plan, loot.x[best], loot.y[best], loot.z[best], ITEM_TOUCH * 0.6, ACTION.USE, -1);
+  return bestScore;
+}
+
+function lootValue(id, spot) {
+  const loot = Modes.loot, group = loot.group[spot];
+  if (group === LOOT_GROUP.WEAPON) {
+    const weapon = loot.weapon[spot] >= 0 ? CAT.weapons[loot.weapon[spot]] : null;
+    if (weapon && Weapons.has(id, weapon.id)) return 0;
+    return ITEM_VALUES.weapon * (weapon ? weapon.botPref.value : 0.5) * (1 + LOOT_RARITY_VALUE * loot.rarity[spot]);
+  }
+  if (group === LOOT_GROUP.ARMOR) return Actors.shield[id] < Modes.rules.params.shieldByRarity[loot.rarity[spot]] ? ITEM_VALUES.armor : 0;
+  return itemValue(id, group === LOOT_GROUP.HEALTH ? LOOT_HEALTH_ITEM : LOOT_AMMO_ITEM);
+}
+
 function campSpot(id) {
   const side = Actors.team[id] < 0 ? 2 : Actors.team[id];
   let best = null, bestDistance = Infinity;
@@ -390,9 +459,13 @@ function campSpot(id) {
 
 // ---- Objective planners (BOT-080): plan.score 0..1 is the objective's urgency for this bot ----
 // A bot's place in a zone: spread around the centre by id so a team does not stack on one spot.
-function zoneSpot(id, objective, plan, action) {
-  const angle = id * 2.399963, offset = objective.radius * SPREAD_FRACTION * ((id % 3) + 1) / 3;   // golden angle spread
-  setPlan(plan, objective.x + Math.sin(angle) * offset, objective.y, objective.z + Math.cos(angle) * offset, objective.radius * SPREAD_FRACTION, action, objective.index);
+function zoneSpot(id, objective, plan, action) { spreadSpot(id, objective, SPREAD_FRACTION, plan, action); }
+
+// The spot inside `share` of the objective's radius (golden angle spread by id), so a crowd does not jam one point.
+function spreadSpot(id, objective, share, plan, action) {
+  const angle = id * GOLDEN_ANGLE, offset = objective.radius * share * ((id % 3) + 1) / 3;
+  const radius = Math.max(GOAL_TOUCH_RADIUS, objective.radius * share);
+  setPlan(plan, objective.x + Math.sin(angle) * offset, objective.y, objective.z + Math.cos(angle) * offset, radius, action, objective.index);
 }
 
 function planZones(id, plan, kind, now) {
@@ -412,6 +485,8 @@ function planZones(id, plan, kind, now) {
   return true;
 }
 
+// Flags (ctf, oneflag): the carrier runs home; a taken own flag is chased, a dropped one returned; attackers and escorts
+// escort a team-mate's carry and, while the enemy flag is home, gather at the team's rally point and push together.
 function planFlags(id, plan) {
   const team = Actors.team[id];
   if (team < 0) return false;
@@ -421,18 +496,37 @@ function planFlags(id, plan) {
   const enemy = neutral ? teamObjective(objectiveList, NO_TEAM) : teamObjective(objectiveList, 1 - team);
   if (!enemy) return false;
   if (enemy.carrier === id) return planCapture(id, plan, own, neutral ? teamObjective(baseList, 1 - team) : own);
-  const role = BotTeam.role[id];
-  if (own && own.state === 'carried') return planTarget(plan, own, role === ROLE.ATTACK ? 0.75 : 0.95, 1.2, ACTION.MOVE);
+  const role = BotTeam.role[id], defender = role === ROLE.DEFEND;
+  if (own && own.state === 'carried' && (defender || nearby(id, own, FLAG_CHASE_RANGE))) return planTarget(plan, own, defender ? 0.95 : 0.75, 1.2, ACTION.MOVE);
   if (own && own.state === 'dropped') return planTarget(plan, own, 0.9, 0.8, ACTION.MOVE);
-  if (enemy.state === 'carried' && !Actors.isEnemy(id, enemy.carrier)) return planTarget(plan, enemy, role === ROLE.ESCORT ? 0.85 : role === ROLE.DEFEND ? 0.3 : 0.6, 4, ACTION.MOVE);
-  if (role === ROLE.DEFEND && own) return planHome(id, plan, own, 0.7);
-  return planTarget(plan, enemy, 0.8, 0.8, ACTION.MOVE);
+  if (enemy.state === 'carried' && !Actors.isEnemy(id, enemy.carrier)) return planTarget(plan, enemy, defender ? 0.3 : 0.85, 4, ACTION.MOVE);
+  if (defender && own) return planHome(id, plan, own, 0.7);
+  if (enemy.state === 'home' && !BotTeam.pushing(team) && BotTeam.hasRally(team) && !pastRally(id, own, team)) return planRally(id, plan, team);
+  return planTarget(plan, enemy, BotTeam.pushing(team) ? PUSH_URGENCY : 0.8, 0.8, ACTION.MOVE);
 }
+
+function nearby(id, objective, range) { return Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) < range; }
 
 function planCapture(id, plan, own, destination) {
   if (!destination) return false;
   setPlan(plan, destination.homeX, destination.homeY, destination.homeZ, 0.8, ACTION.MOVE, destination.index);
-  plan.score = 1;
+  plan.score = CARRY_URGENCY;
+  return true;
+}
+
+// A raider already farther from its own flag than the rally point (plus the gather radius) keeps going: a push that ran
+// out while it fought at the enemy base does not send it back.
+function pastRally(id, own, team) {
+  if (!own) return false;
+  const rallyDistance = Math.hypot(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
+  return Math.hypot(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
+}
+
+// The rally is a meeting place, not a held spot (ACTION.MOVE: no mines, turrets or channels go down there).
+function planRally(id, plan, team) {
+  const angle = id * GOLDEN_ANGLE, spread = BOT_FLAG_PUSH.radius * SPREAD_FRACTION;
+  setPlan(plan, BotTeam.rallyX[team] + Math.sin(angle) * spread, BotTeam.rallyY[team], BotTeam.rallyZ[team] + Math.cos(angle) * spread, 2, ACTION.MOVE, -1);
+  plan.score = 0.75;
   return true;
 }
 
@@ -443,7 +537,7 @@ function planTarget(plan, objective, score, radius, action) {
 }
 
 function planHome(id, plan, objective, score) {
-  const angle = id * 2.399963;
+  const angle = id * GOLDEN_ANGLE;
   setPlan(plan, objective.homeX + Math.sin(angle) * 4, objective.homeY, objective.homeZ + Math.cos(angle) * 4, 2, ACTION.HOLD, objective.index);
   plan.score = score;
   return true;
@@ -485,13 +579,53 @@ function nearestObjective(list, x, z) {
   return best;
 }
 
-// Elimination safe area (M14): get inside before the ring hurts.
+// Elimination safe area (M14) and the royale ring (M20): get inside before it hurts. With a ring coming, the circle
+// that matters is the next one (the ring shrinks onto it).
 function planSafeArea(id, plan) {
-  const hud = Modes.hud, outside = Math.hypot(Actors.x[id] - hud.zoneX, Actors.z[id] - hud.zoneZ) > hud.zoneRadius * SAFE_AREA_MARGIN;
+  safeCircleNow(safeCircle);
+  const outside = Math.hypot(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
   if (!outside) return false;
-  setPlan(plan, hud.zoneX, Actors.y[id], hud.zoneZ, hud.zoneRadius * 0.5, ACTION.MOVE, -1);
+  setPlan(plan, safeCircle.x, Actors.y[id], safeCircle.z, safeCircle.radius * 0.5, ACTION.MOVE, -1);
   plan.score = 1;
   return true;
+}
+
+function safeCircleNow(out) {
+  const hud = Modes.hud, next = hud.ringPhases > 0 && hud.ringNextRadius > 0;
+  out.x = next ? hud.ringNextX : hud.zoneX;
+  out.z = next ? hud.ringNextZ : hud.zoneZ;
+  out.radius = next ? hud.ringNextRadius : hud.zoneRadius;
+  return out;
+}
+
+// Mode goal hints (BOT-080, Modes.goalFor -> BOT_OBJECTIVE_VERBS): the most urgent objective, by distance, that names
+// something for this bot to do (arm or disarm a relay, escort or stop the convoy, take or keep a prize, reach a beacon).
+function planGoals(id, plan) {
+  const objectives = Modes.objectives;
+  let best = null, bestVerb = null, bestScore = 0;
+  for (let i = 0; i < objectives.length; i++) {
+    const verb = BOT_OBJECTIVE_VERBS[Modes.goalFor(objectives[i], id)], objective = objectives[i];
+    if (!verb) continue;
+    const score = verb.urgency / (1 + Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) / GOAL_DISTANCE_SCALE);
+    if (score > bestScore) { bestScore = score; best = objective; bestVerb = verb; }
+  }
+  if (!best) return false;
+  planVerb(id, plan, best, bestVerb);
+  plan.score = bestVerb.urgency;
+  return true;
+}
+
+function planVerb(id, plan, objective, verb) {
+  if (verb.action === 'keep') { keepAway(id, plan); plan.target = objective.index; return; }
+  if (verb.action === 'hold') { zoneSpot(id, objective, plan, ACTION.HOLD); return; }
+  spreadSpot(id, objective, verb.share, plan, verb.action === 'use' ? ACTION.USE : ACTION.MOVE);
+}
+
+// A prize scores while held: keep away from the enemy the bot fights or was hit by (cover, or away), else hold still.
+function keepAway(id, plan) {
+  const threat = BotCombat.target[id] >= 0 ? BotCombat.target[id] : retreatThreat(id, Sim.time);
+  if (threat >= 0) { retreatSpot(id, threat, plan); return; }
+  setPlan(plan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
 }
 
 BotDecide.registerPlanner('point', (id, plan, now) => planZones(id, plan, 'point', now));

@@ -63,9 +63,22 @@ const Abilities = {
   usesHeroes() { return this.economyKey() === 'heroKits'; },
   // The hero chosen for the actor (loadout choice, bot profile, or a role spread by actor id), cached per life.
   pickHero(id) {
+    const mirrored = this.mirroredHero(id);
+    if (mirrored) return mirrored;
     const choice = this.choices[id], profile = Actors.profile[id];
     const wanted = (choice && choice.hero) || (profile && profile.hero) || '';
     return CAT.heroes.byId(wanted) || CAT.heroes[id % CAT.heroes.length];
+  },
+  // X40 Mirror Match: bots play the local player's hero (13h copies the loadout the same way).
+  mirroredHero(id) {
+    const fx = currentRules().fx, player = Game.playerId;
+    if (!fx || !fx.mirror || player < 0 || player === id || Actors.kind[id] === ACTOR_KIND.PLAYER) return null;
+    return this.hero[player] || this.pickHero(player);
+  },
+  // X46 Powers for All (13h 'power.pick' at every spawn): the drawn ability fills the first slot for this life.
+  onPowerPick(event) {
+    const row = CAT.abilities.byId(event.ability);
+    if (row && Actors.alive[event.id]) this.setSlot(event.id, SLOT.ABILITY1, row);
   },
   heroOf(id) { return this.usesHeroes() ? this.hero[id] || this.pickHero(id) : null; },
   kitOf(id) {
@@ -123,10 +136,13 @@ const Abilities = {
     Move.setPreset(id, hero.move);
     this.heroMove[id] = 1;
     Weapons.setLoadout(id, hero.weapons);
+    Gadgets.equipHero(id, hero);
   },
-  // Respawn-in-place kit change (hero switch in the spawn room): pools, weapons, movement and slots of the new hero.
+  // Respawn-in-place kit change (hero switch in the spawn room): pools, weapons, movement, gadgets and slots of the new
+  // hero. The gadget kit starts over as on a spawn, so the old hero's gadget never stays behind.
   refreshKit(id) {
     Damage.resetHealth(id);
+    Gadgets.equip(id);
     this.onSpawn(id);
   },
   endAll(id, reason) {
@@ -254,7 +270,7 @@ const Abilities = {
       case 'energy': return Meters.energy[id] >= Math.max(row.cost, TICK_EPSILON);
       case 'ultimate': return Meters.points[id] >= ultimateCost(id, row);
       case 'fuel': return this.fuel[i] > 0;
-      case 'souls': return Meters.souls[id] >= row.cost;
+      case 'souls': return Meters.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
       default: return true;
     }
   },
@@ -372,6 +388,7 @@ Damage.poolOverride = (id, out) => {
 Sim.addSystem('abilities', 20, (dt) => Abilities.step(dt));
 Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
 Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
+Bus.on('power.pick', (event) => Abilities.onPowerPick(event));
 Bus.on('kill', (event) => Abilities.clearActor(event.victim, 'death'));
 Bus.on('damage', (event) => { if (event.amount > 0 && event.source !== event.target) Abilities.interrupt(event.target, 'damage'); });
 Bus.on('weapon.fire', (event) => Abilities.interrupt(event.id, 'fire'));

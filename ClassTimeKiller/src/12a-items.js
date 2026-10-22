@@ -20,6 +20,10 @@ const DROP_RING = 0.8;                     // several drops of one death spread 
 const SOUL_HOMING_RANGE = 6;               // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
 const ANNOUNCE_POWER_PRIORITY = 2;
+const VOLATILE_RADIUS = 4;                 // X30: a shot ammo pickup explodes with this radius...
+const VOLATILE_DAMAGE = 80;                // ...and this centre damage
+const VOLATILE_HIT_RADIUS = 0.45;          // the pickup's hit sphere for shots
+const MATCH_SET_ID = 'matchSet';           // the reserved weapon set row a match fills from a list (13h: X08, X09, X10, custom matches)
 const NO_TICK = -1;
 
 const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
@@ -67,6 +71,26 @@ function itemMutatorOn(id) {
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
   return false;
 }
+// A flag of the mutator effect bag rules.fx (docs/api/mutators-custom.md).
+function itemFxOn(key) {
+  const fx = itemRule('fx', null);
+  return !!fx && !!fx[key];
+}
+// Map item spots exist unless the ruleset removes every pickup (rules.items === false, X08 noItems) or the mode places its
+// own (params.pickups === false: roulette, royale loot).
+function mapItemsAllowed() {
+  const params = itemRule('params', null);
+  return itemRule('items', true) !== false && !itemFxOn('noItems') && !(params && params.pickups === false);
+}
+function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
+// A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
+function soulCardFx(id, key, fallback) {
+  const cards = itemRule('cards', null);
+  if (id < 0 || id !== Game.playerId || !cards || !cards.fx || cards.fx[key] === undefined) return fallback;
+  return cards.fx[key];
+}
+// ABL-005 soul homing reach of an actor: the C11 Soul Magnet card widens it for its holder.
+function soulHomingRange(id) { return Math.max(SOUL_HOMING_RANGE, soulCardFx(id, 'soulMagnet', 0)); }
 
 const Items = {
   state: new Uint8Array(PICKUP_CAP), kind: new Uint8Array(PICKUP_CAP), row: new Int16Array(PICKUP_CAP), group: new Uint8Array(PICKUP_CAP),
@@ -77,11 +101,15 @@ const Items = {
   timeLeft: new Int32Array(PICKUP_CAP),             // dropped powerups: ticks of effect left (0 = the full duration)
   warned: new Uint8Array(PICKUP_CAP),               // PWR-002: the 10 s warning of this wait was announced
   blocker: new Int8Array(PICKUP_CAP).fill(-1),      // the actor who dropped it cannot take it back until stepping off it
+  rarity: new Uint8Array(PICKUP_CAP),               // weapon pickups: WPN-008 rarity index the weapon is given with
+  matchSetCursor: 0,                                // next weapon of a match list handed to a weapon spot
   spotCount: 0,                                     // map spots use slots 0..spotCount-1, drops the rest
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
+  givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
+  grantEffects: {},                                 // Economy 'grant' buy keys -> fn(id, item) -> true when delivered (unregistered = not on sale)
   effects: {},                                      // item `effect` -> fn(id, row) -> true when it did something
   extraAmmo: [],                                    // fn(id, row) -> true: more refills of an ammo pickup (12c: grenades)
   uniqueOut: (rowIndex) => false,                   // 12b: a unique powerup is held by someone (its spot waits)
@@ -109,6 +137,8 @@ const Items = {
   // entries: map items [{ x, y, z, item, group, modes }]; mode filters each entry's `modes` list (empty = every mode).
   load(entries, mode) {
     this.clear();
+    this.matchSetCursor = 0;
+    if (!mapItemsAllowed()) return;
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
@@ -118,18 +148,28 @@ const Items = {
   addSpot(entry) {
     const kind = this.resolve(entry.item);
     if (kind < 0) { ErrorLog.add('items', 'unknown item key ' + entry.item); return -1; }
-    if (kind === PICKUP_KIND.POWERUP && itemMutatorOn('nopowerups')) return -1;   // X16
+    if (kind === PICKUP_KIND.POWERUP && !powerupsAllowed()) return -1;
+    const key = kind === PICKUP_KIND.WEAPON ? this.spotWeapon(entry.item) : entry.item;
+    if (!key) return -1;
     const slot = this.spotCount++;
-    this.place(slot, kind, PICKUP_ROWS[kind].byId(entry.item).index, entry.x, entry.y, entry.z);
+    this.place(slot, kind, PICKUP_ROWS[kind].byId(key).index, entry.x, entry.y, entry.z);
     this.spot[slot] = 1;
     if (this.isPower(slot)) this.wait(slot, this.firstPowerTicks());
     return slot;
+  },
+  // Weapon spots follow a match weapon list: a weapon outside it becomes the list's next gun ('' = no gun in the list).
+  spotWeapon(key) {
+    if (itemRule('weaponSet', '') !== MATCH_SET_ID) return key;
+    const listed = currentWeaponSet().weapons;
+    if (listed.includes(key)) return key;
+    const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
+    return guns.length ? guns[this.matchSetCursor++ % guns.length] : '';
   },
   place(slot, kind, rowIndex, x, y, z) {
     this.state[slot] = PICKUP_STATE.READY; this.kind[slot] = kind; this.row[slot] = rowIndex;
     this.group[slot] = this.groupFor(kind, PICKUP_ROWS[kind][rowIndex]);
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
-    this.despawnTick[slot] = NO_TICK; this.timeLeft[slot] = 0; this.warned[slot] = 0; this.blocker[slot] = -1;
+    this.despawnTick[slot] = NO_TICK; this.timeLeft[slot] = 0; this.warned[slot] = 0; this.blocker[slot] = -1; this.rarity[slot] = 0;
   },
   // PWR-001: power items first appear 45 +/- 15 s after the start (seeded per spot).
   firstPowerTicks() { return itemTicks(ITEM_TIMING.firstPowerSpawn + Rng.loot.range(-ITEM_TIMING.firstPowerSpread, ITEM_TIMING.firstPowerSpread)); },
@@ -151,8 +191,9 @@ const Items = {
   },
 
   // ---- Dropped pickups ----
-  // Drops a pickup by key at a floor point; it vanishes after 30 s. timeLeft: powerup ticks left (0 = full). Returns the slot or -1.
-  drop(key, x, y, z, timeLeft, dropper) {
+  // Drops a pickup by key at a floor point; it vanishes after 30 s. timeLeft: powerup ticks left (0 = full); rarity: a weapon's
+  // WPN-008 rarity index (0 when left out). Returns the slot or -1.
+  drop(key, x, y, z, timeLeft, dropper, rarity) {
     const kind = this.resolve(key);
     if (kind < 0) return -1;
     const slot = this.dropSlot();
@@ -162,6 +203,7 @@ const Items = {
     this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds);
     this.timeLeft[slot] = timeLeft || 0;
     this.blocker[slot] = dropper === undefined ? -1 : dropper;
+    this.rarity[slot] = rarity || 0;
     return slot;
   },
   // A free slot after the map spots; a full store recycles the drop closest to vanishing.
@@ -174,27 +216,32 @@ const Items = {
     return oldest;
   },
   // Point k of n on a small ring around a death, so several drops do not overlap.
-  dropAround(key, id, k, n, timeLeft) {
+  dropAround(key, id, k, n, timeLeft, rarity) {
     const angle = n > 1 ? k / n * Math.PI * 2 : 0, ring = n > 1 ? DROP_RING : 0;
-    return this.drop(key, Actors.x[id] + Math.cos(angle) * ring, Actors.y[id], Actors.z[id] + Math.sin(angle) * ring, timeLeft, -1);
+    return this.drop(key, Actors.x[id] + Math.cos(angle) * ring, Actors.y[id], Actors.z[id] + Math.sin(angle) * ring, timeLeft, -1, rarity);
+  },
+  // A dying actor's weapon keeps its rarity on the floor.
+  dropWeaponAround(victim, weaponIndex, k, n) {
+    this.dropAround(CAT.weapons[weaponIndex].id, victim, k, n, 0, Weapons.rarity[Weapons.slotIndex(victim, weaponIndex)]);
   },
   // rules.dropOnDeath: 'none' | 'held' (the held weapon) | 'all' (every carried weapon); melee and tools never drop.
   dropWeapons(victim) {
     const rule = itemRule('dropOnDeath', 'held');
     if (rule === 'none') return;
     const held = Weapons.currentWeapon(victim);
-    if (rule === 'held') { if (held && Weapons.countsTowardCarry(held)) this.dropAround(held.id, victim, 0, 1, 0); return; }
+    if (rule === 'held') { if (held && Weapons.countsTowardCarry(held)) this.dropWeaponAround(victim, held.index, 0, 1); return; }
     let count = 0;
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.dropsWeapon(victim, w)) count++;
     let k = 0;
-    for (let w = 0; w < WEAPON_COUNT; w++) if (this.dropsWeapon(victim, w)) this.dropAround(CAT.weapons[w].id, victim, k++, count, 0);
+    for (let w = 0; w < WEAPON_COUNT; w++) if (this.dropsWeapon(victim, w)) this.dropWeaponAround(victim, w, k++, count);
   },
   dropsWeapon(id, weaponIndex) { return Weapons.owned[Weapons.slotIndex(id, weaponIndex)] === 1 && Weapons.countsTowardCarry(CAT.weapons[weaponIndex]); },
   // PU18: kills of PvE enemies drop souls where the mode asks for them (rules.params.souls or the 'souls' mutator).
   dropSoul(victim) {
     const params = itemRule('params', null);
     if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !((params && params.souls) || itemMutatorOn('souls'))) return;
-    this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
+    const slot = this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
+    if (slot >= 0) this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds * soulCardFx(Game.playerId, 'soulLife', 1));   // C03 Soulkeep
   },
 
   // ---- The per-step update (Sim order 60) ----
@@ -257,11 +304,11 @@ const Items = {
     Bus.emit('announce', ITEM_ANNOUNCE);
   },
   homeSoul(slot, dt) {
-    let best = -1, bestDistance = SOUL_HOMING_RANGE;
+    let best = -1, bestDistance = Infinity;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
       const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
-      if (distance < bestDistance) { best = id; bestDistance = distance; }
+      if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;
     const move = Math.min(bestDistance, SOUL_HOMING_SPEED * dt) / bestDistance;
@@ -307,10 +354,58 @@ const Items = {
   takeWeapon(id, slot) {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
-    if (!Weapons.give(id, weapon.id, 0)) return false;
-    // At the carry limit the held weapon was swapped out: it lands at the feet, and this actor cannot grab it back at once.
-    if (Weapons.dropped) this.drop(Weapons.dropped, Actors.x[id], this.y[slot], Actors.z[id], 0, id);
+    return this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot]);
+  },
+  // At the carry limit the held weapon is swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
+  giveWeapon(id, key, rarity, floorY) {
+    if (!Weapons.give(id, key, rarity)) return false;
+    if (Weapons.dropped) this.drop(Weapons.dropped, Actors.x[id], floorY, Actors.z[id], 0, id, Weapons.droppedRarity);
     return true;
+  },
+  // item.grant { id, item } (X17 Super Powerups, scripted gifts): an item, powerup or weapon key given without a pickup.
+  giveKey(id, key) {
+    const kind = this.resolve(key);
+    if (kind < 0 || !Actors.alive[id]) return false;
+    return this.givers[kind](id, key);
+  },
+  // Economy 'grant' buys (ECP07 wave shop): a registered grant effect, else an item row of that key.
+  grantBuy(id, item) {
+    const effect = this.grantEffects[item.key];
+    if (effect) return effect(id, item);
+    return this.grant(id, item.key);
+  },
+  canGrantBuy(key) { return !!this.grantEffects[key] || !!CAT.items.byId(key); },
+  // X30 Volatile Ammo: a shot that reaches a ready ammo pickup before any wall blows it up (credited to the shooter).
+  onShot(event) {
+    if (!itemFxOn('volatileAmmo')) return;
+    const mode = gadgetShotMode(event);
+    if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets set it off as they fly (bulletHit)
+    const range = mode.range || mode.reach || 0;
+    const wall = World.raycast(event.x, event.y, event.z, event.dx, event.dy, event.dz, range, volatileHit) ? volatileHit.distance : range;
+    this.bulletHit(event.id, mode, event.x, event.y, event.z, event.dx, event.dy, event.dz, wall);
+  },
+  // Projectiles.bulletHits (X41 bullets) and hitscan rays: the first ready ammo pickup within `length` blows up.
+  bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
+    if (!itemFxOn('volatileAmmo')) return;
+    const slot = this.rayAmmo(ox, oy, oz, dx, dy, dz, length);
+    if (slot >= 0) this.detonateAmmo(slot, owner);
+  },
+  rayAmmo(ox, oy, oz, dx, dy, dz, maxDistance) {
+    let best = -1, bestDistance = maxDistance;
+    for (let slot = 0; slot < PICKUP_CAP; slot++) {
+      if (this.state[slot] !== PICKUP_STATE.READY || this.groupName(slot) !== 'ammo') continue;
+      const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[slot], this.y[slot] + PICKUP_FLOAT, this.z[slot], VOLATILE_HIT_RADIUS);
+      if (distance >= 0 && distance < bestDistance) { best = slot; bestDistance = distance; }
+    }
+    return best;
+  },
+  detonateAmmo(slot, shooter) {
+    const blast = Damage.blast();
+    blast.x = this.x[slot]; blast.y = this.y[slot] + PICKUP_FLOAT; blast.z = this.z[slot]; blast.owner = shooter;
+    blast.radius = VOLATILE_RADIUS; blast.damage = VOLATILE_DAMAGE; blast.weapon = 'volatile'; blast.element = 'thermal';
+    if (this.spot[slot]) this.wait(slot, this.respawnTicks(slot));
+    else this.state[slot] = PICKUP_STATE.FREE;
+    Damage.explode(blast);
   },
 
   // ---- Item effects (I01..I17) ----
@@ -434,10 +529,14 @@ const Items = {
   },
 };
 const pickupBaseColor = new Float32Array(3);
+const volatileHit = makeHit();
 
 Items.takers[PICKUP_KIND.ITEM] = (id, slot) => Items.takeItem(id, slot);
 Items.takers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
 Items.takers[PICKUP_KIND.WEAPON] = (id, slot) => Items.takeWeapon(id, slot);
+Items.givers[PICKUP_KIND.ITEM] = (id, key) => Items.grant(id, key);
+Items.givers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
+Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Items.giveWeapon(id, key, 0, Actors.y[id]);
 Items.effects.health = (id, row) => Items.addHealth(id, row.amount, Items.healthCap(id, row));
 Items.effects.armor = (id, row) => Items.addArmor(id, row.amount, row.cap);
 Items.effects.ammoType = (id) => Items.addTypeAmmo(id);
@@ -456,6 +555,9 @@ Sim.addSystem('items', 60, (dt) => Items.step(dt));
 Render.addSource('pickups', (batch) => Items.draw(batch));
 Bus.on('match.start', (match) => Items.load(match.map && match.map.items ? match.map.items : [], match.rules ? match.rules.mode : ''));
 Bus.on('match.stop', () => Items.clear());
+Bus.on('item.grant', (event) => Items.giveKey(event.id, event.item));
+Bus.on('weapon.fire', (event) => Items.onShot(event));
+Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Items.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Bus.on('kill', (event) => { Items.dropWeapons(event.victim); Items.dropSoul(event.victim); Items.cancelUse(event.victim); });
 Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));

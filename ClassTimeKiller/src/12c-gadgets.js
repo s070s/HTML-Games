@@ -20,7 +20,7 @@ const AREA_CAP = 32;
 const AREA_TICK = 0.25;                  // fire areas hurt on this tick
 const FIRE_AREA_HEIGHT = 1.5;            // fire reaches feet this close above or below
 const FIRE_FLOOR_PROBE = 3;              // fire that went off on a wall or a body drops this far at most to the floor
-const SMOKE_CAP = 8;
+const SMOKE_CAP = 16;                    // grenade clouds plus the puffs of ability curtains (A17)
 const SMOKE_CELL = 1;                    // REN-007 occupancy grid cell (m)
 const SMOKE_LARGEST_RADIUS = CAT.gadgets.reduce((most, row) => row.effect === 'smoke' ? Math.max(most, row.radius) : most, 1);
 const SMOKE_HALF = Math.ceil(SMOKE_LARGEST_RADIUS / SMOKE_CELL);
@@ -32,10 +32,12 @@ const SMOKE_DRAW_STEP = 2;               // every 2nd cell per axis is drawn as 
 const SMOKE_DRAW_BUDGET = 480;           // most smoke blobs per frame (the renderer takes 1024 spheres from every source)
 const SMOKE_DRAW_START = SMOKE_HALF % SMOKE_DRAW_STEP;   // the lattice is centred on the cloud
 const SMOKE_BLOB = SMOKE_CELL * 2.7;
+const CURTAIN_PUFF_SPACING = 0.75;       // Smoke.add: puffs along a curtain overlap by a quarter of their diameter
 const PREVIEW_SECONDS = 0.05;
 const THROWN_LONGEST_FUSE = CAT.gadgets.reduce((most, row) => row.kind === 'thrown' ? Math.max(most, row.fuse) : most, 0);
 const PREVIEW_POINTS = Math.ceil(THROWN_LONGEST_FUSE / PREVIEW_SECONDS);   // the arc preview follows the flight up to the fuse
 const DECOY_DEFAULT_NOISE = 60;
+const HERO_EXTRA_GRENADES = 1;           // H05 passive 'extraGrenade': one more of the hero's gadget (above its carry limit)
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
 const BOUNCE_EVENT = { x: 0, y: 0, z: 0, kind: 'grenade', source: -1 };
@@ -110,10 +112,22 @@ const Smoke = {
   drawn: 0,                                            // blobs drawn this frame (SMOKE_DRAW_BUDGET)
 
   clear() { this.active.fill(0); this.count = 0; },
-  spawn(row, owner, x, y, z) {
+  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration, owner, row.index); },
+  // A smoke curtain (A17 Veil Curtain and other walls of smoke): puffs of height/2 radius along the line of `width`
+  // metres centred on (x, y, z), across the yaw direction; y is the floor under the curtain. Returns the puff count.
+  add(x, y, z, width, height, seconds, yaw, owner) {
+    const radius = Math.min(SMOKE_LARGEST_RADIUS, height / 2), spacing = radius * 2 * CURTAIN_PUFF_SPACING;
+    const puffs = Math.max(1, Math.ceil(width / spacing)), rightX = -Math.cos(yaw || 0), rightZ = Math.sin(yaw || 0);
+    for (let puff = 0; puff < puffs; puff++) {
+      const offset = (puff - (puffs - 1) / 2) * spacing;
+      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds, owner === undefined ? -1 : owner, -1);
+    }
+    return puffs;
+  },
+  addVolume(x, y, z, radius, seconds, owner, rowIndex) {
     const volume = this.freeSlot();
-    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = row.index; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
-    this.radius[volume] = row.radius; this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(row.duration);
+    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = rowIndex; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
+    this.radius[volume] = Math.min(SMOKE_LARGEST_RADIUS, radius); this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(seconds);
     this.punched.fill(0, volume * SMOKE_CELLS, (volume + 1) * SMOKE_CELLS);
     this.flood(volume);
     this.recount();
@@ -194,9 +208,11 @@ const Smoke = {
     }
     return false;
   },
-  // Bots and aim assist: does the segment pass through at least SMOKE_BLOCK_METRES of smoke?
-  lineBlocked(ax, ay, az, bx, by, bz) {
+  // Bots and aim assist: does the segment pass through at least SMOKE_BLOCK_METRES of smoke? viewer (optional actor id):
+  // a hero with the smokeVision passive (H07) sees through smoke.
+  lineBlocked(ax, ay, az, bx, by, bz, viewer) {
     if (!this.count) return false;
+    if (viewer >= 0 && Abilities.passiveFlag(viewer, 'smokeVision')) return false;
     const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
     if (length < 1e-6) return false;
     const directionX = dx / length, directionY = dy / length, directionZ = dz / length;
@@ -414,7 +430,7 @@ const GadgetEffects = {
   },
   emp: (row, owner, x, y, z) => {
     for (let id = 0; id < Actors.count; id++) if (gadgetReaches(owner, id, x, y, z, row.radius)) Gadgets.suppress(id, row.duration);
-    for (let i = 0; i < Gadgets.empHooks.length; i++) Gadgets.empHooks[i](owner, x, y, z, row.radius, row.duration);
+    Gadgets.empDevices(owner, x, y, z, row.radius, row.duration);
     emitGadgetPop(row, owner, x, y, z);
     if (!Game.headless) Fx.burst('shock', x, y, z, 0, 1, 0, 30, null);
   },
@@ -593,10 +609,15 @@ const Gadgets = {
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
   suppressed(id) { return Sim.tick < this.suppressedUntil[id]; },
-  // G20: the same clock holds back shield recharge in S11 (health regeneration is not touched).
+  // G20: shield recharge (S11) and abilities (12e: active ones end) are held for the same time; health regeneration goes on.
   suppress(id, seconds) {
     this.suppressedUntil[id] = Math.max(this.suppressedUntil[id], Sim.tick + itemTicks(seconds));
-    Damage.shieldRegenBlockedUntil[id] = Math.max(Damage.shieldRegenBlockedUntil[id], this.suppressedUntil[id]);
+    Damage.pauseShieldRegen(id, seconds);
+    Abilities.suppress(id, seconds);
+  },
+  // Every EMP (G20, the A15 drone's end) reaches devices in the radius through the empHooks (12d switches them off).
+  empDevices(owner, x, y, z, radius, seconds) {
+    for (let i = 0; i < this.empHooks.length; i++) this.empHooks[i](owner, x, y, z, radius, seconds);
   },
   // Blind share 0..1 for the HUD flash overlay (G03 'blind' seconds left / its longest).
   blindAmount(id) { return clamp(Damage.statusTime[id * STATUS_COUNT + BLIND_INDEX] / CAT.statusEffects[BLIND_INDEX].seconds, 0, 1); },
@@ -652,6 +673,17 @@ const Gadgets = {
     const kit = this.kit();
     for (const key in kit.grenades) this.give(id, key, kit.grenades[key]);
     if (kit.gadget) this.give(id, kit.gadget, 1);
+  },
+  // A class loadout (ECP04) brings its own lethal and tactical: the kit's grenades go, the gadget slot stays.
+  clearGrenades(id) {
+    for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown') this.count[id * GADGET_COUNT + rowIndex] = 0;
+    this.grenade[id] = -1;
+  },
+  // Hero kits (12e on spawn): the hero's gadget (G09, G19), plus one with the 'extraGrenade' passive (H05).
+  equipHero(id, hero) {
+    const row = CAT.gadgets.byId(hero.gadget);
+    if (!row || !this.give(id, row.id, 1)) return;
+    if (Abilities.passiveFlag(id, 'extraGrenade')) this.count[id * GADGET_COUNT + row.index] += HERO_EXTRA_GRENADES;
   },
   // Ammo caches give back one of each kit grenade (economies with refill).
   refill(id) {
@@ -791,7 +823,7 @@ const Gadgets = {
 };
 
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
-Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z));
+Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));

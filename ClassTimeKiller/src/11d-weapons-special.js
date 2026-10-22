@@ -66,7 +66,9 @@ const WeaponSpecialState = {
     this.blockPool[target] -= absorbed;
     return amount - absorbed;
   },
+  parryHooks: [],     // fn(target, projectile) -> true when another rule parries it (S14: PvE green projectiles)
   tryParry(target, projectile) {
+    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); return true; }
     if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
     if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
     Projectiles.reflect(projectile, target);
@@ -157,7 +159,7 @@ const WeaponSpecialState = {
     for (let id = 0; id < Actors.count; id++) this.gateCooldown[id] = Math.max(0, this.gateCooldown[id] - dt);
     for (let owner = 0; owner < Actors.count; owner++) {
       if (!this.gateOpen[owner * 2] || !this.gateOpen[owner * 2 + 1]) continue;
-      for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && this.gateCooldown[id] === 0) this.tryGates(owner, id);
+      for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && this.gateCooldown[id] === 0 && !Damage.hasStatus(id, 'freeze')) this.tryGates(owner, id);   // G08 stops teleports
     }
   },
   tryGates(owner, id) {

@@ -98,7 +98,7 @@ Test.add('economy', (check) => {
   check('buy: a full vest is owned', Economy.buy(0, 'vest').reason === 'owned');
   check('buy: not enough credits', Economy.buy(0, 'vesthelmet').reason === 'money' && Economy.money(0) === 150);
   check('buy: unknown item', Economy.buy(0, 'nothing').reason === 'unknown');
-  check('buy: gadgets need a grant handler', Economy.buy(0, 'buyFlash').reason === 'unknown');
+  check('buy: gadget rows are on sale (S12 delivers them)', Economy.catalogue().some((item) => item.id === 'buyFlash'));
   grantAllGadgets();
   Economy.setMoney(0, 9000);
   const flashes = [Economy.buy(0, 'buyFlash').ok, Economy.buy(0, 'buyFlash').ok, Economy.buy(0, 'buyFlash').reason];

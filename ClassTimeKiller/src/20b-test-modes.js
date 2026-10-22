@@ -52,7 +52,7 @@ const EXPECTED_MODES = [
 const CORE_MODES = ['ffa', 'tdm', 'duel', 'ctf', 'oneflag', 'dom', 'conquest', 'hardpoint', 'control', 'bomb', 'elim', 'lms'];
 
 Test.add('modes', (check) => {
-  check('30 modes M01..M30 in order', CAT.modes.length === 30 && CAT.modes.every((row, index) => row.code === 'M' + String(index + 1).padStart(2, '0')));
+  check('31 modes M01..M31 in order (M31 = the MP11 puzzle chambers)', CAT.modes.length === 31 && CAT.modes.every((row, index) => row.code === 'M' + String(index + 1).padStart(2, '0')));
   for (const mode of CAT.modes) {
     const rules = Rules.build({ mode: mode.id });
     const roundsOk = !mode.rounds || (mode.rounds.winsNeeded > 0 && mode.rounds.limit >= mode.rounds.winsNeeded && mode.rounds.endDelay >= 0);
@@ -81,7 +81,7 @@ Test.add('modes', (check) => {
   check('lms 3 lives', Rules.build({ mode: 'lms' }).lives === 3);
   check('control best of 3', CAT.modes.byId('control').rounds.winsNeeded === 2 && CAT.modes.byId('control').rounds.limit === 3);
   check('core versus modes are playable', CORE_MODES.every((id) => Modes.isPlayable(id)));
-  check('later modes are listed but not yet playable', !Modes.isPlayable('horde') && !Modes.isPlayable('range'));
+  check('the PvE modes are playable (S14 14j)', ['horde', 'endless', 'bank', 'fiends', 'contract', 'attrition', 'range', 'puzzle'].every((id) => Modes.isPlayable(id)));
 });
 
 Test.add('modes', (check) => {

@@ -178,7 +178,7 @@ function checkSlideEnd(id, preset) {
 // Downhill gain: gravity along the floor's slope speeds a slide up (MV04 "downhill gain").
 function slideDownhill(id, preset, dt) {
   if (!preset.slideDownhill) return;
-  const gravity = preset.gravity * MatchMove.gravityScale;
+  const gravity = actorGravity(id, preset);
   Actors.vx[id] += Motion.groundNX[id] * gravity * dt; Actors.vz[id] += Motion.groundNZ[id] * gravity * dt;
 }
 

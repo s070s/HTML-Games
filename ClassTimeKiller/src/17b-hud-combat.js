@@ -260,7 +260,7 @@ function hudDrawVignette(pen, layout) {
   const width = layout.width, height = layout.height;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   const flashAge = Hud.time - HudCombat.flashAt;
-  if (flashAge < HUD_HIT_FLASH.seconds) pen.rect(0, 0, width, height, Hud.colors.bad, HUD_HIT_FLASH.alpha * (1 - flashAge / HUD_HIT_FLASH.seconds));
+  if (flashAge < HUD_HIT_FLASH.seconds) pen.rect(0, 0, width, height, Hud.flashColor(Hud.colors.bad), Hud.flashAlpha(HUD_HIT_FLASH.alpha * (1 - flashAge / HUD_HIT_FLASH.seconds)));
   if (fraction >= HUD_VIGNETTE_START) return;
   const pulse = Hud.reduceMotion() ? 1 : 0.85 + 0.15 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ);
   const strength = (HUD_VIGNETTE_START - fraction) / HUD_VIGNETTE_START * HUD_VIGNETTE_STRENGTH * pulse / HUD_VIGNETTE_LAYERS;
