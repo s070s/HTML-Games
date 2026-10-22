@@ -77,7 +77,8 @@ const Move = {
     return Motion.state[id] !== MOVE_STATE.MANTLE && Motion.state[id] !== MOVE_STATE.CHARGE;
   },
   damageScale(id) { return getClock(id, CLOCK.ROLL) > 0 ? this.preset(id).rollDamageScale : 1; },
-  stamina(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
+  stamina: Motion.stamina,  // seconds of sprint left per actor (read-only)
+  staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
   dashCharges(id) { return Math.floor(Motion.dashCharges[id]); },
   stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
   isGrounded(id) { return Motion.grounded[id] === 1; },
@@ -247,13 +248,19 @@ function integrate(id, gravity, dt) {
   mover.vy = (mover.vy + endVY) / 2;
   if (wasGrounded) followGround(id, mover);
   const touched = sweepActor(mover, dt, wasGrounded ? STEP_HEIGHT : 0);
-  if (gravity !== 0) { mover.vy = endVY; for (let i = 0; i < mover.planeCount; i++) clipVelocity(mover, mover.planes[i * 3], mover.planes[i * 3 + 1], mover.planes[i * 3 + 2]); }
+  if (gravity !== 0) applyEndVelocity(mover, endVY);
   recordBlock(id, mover, touched);
   settle(id, mover);
   const impactSpeed = Math.max(0, -endVY);
   const nowGrounded = probeFloor(id, mover, wasGrounded);
   storeMover(id, mover);
   if (nowGrounded && !wasGrounded) land(id, impactSpeed);
+}
+
+// After the move the vertical speed is the end-of-step value, clipped again by every surface touched on the way.
+function applyEndVelocity(mover, endVY) {
+  mover.vy = endVY;
+  for (let i = 0; i < mover.planeCount; i++) clipVelocity(mover, mover.planes[i * 3], mover.planes[i * 3 + 1], mover.planes[i * 3 + 2]);
 }
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).

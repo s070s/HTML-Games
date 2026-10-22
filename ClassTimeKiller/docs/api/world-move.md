@@ -95,7 +95,7 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.damageScale(id)` | 0.25 while rolling (MV08), else 1 - S11 multiplies incoming damage |
 | `Move.weaponSpeedScale[id]` | written by S11 every step: weapon `moveMult` x `adsMoveMult` when aiming (default 1) |
 | `Move.statusSpeedScale[id]` | written by S12: slows/hastes (default 1) |
-| `Move.stamina(id)` | 0..1 sprint stamina (1 when unlimited) |
+| `Move.stamina[id]` / `Move.staminaFraction(id)` | seconds of sprint left / 0..1 (1 when unlimited) |
 | `Move.dashCharges(id)` | whole dash charges ready |
 | `Move.stateName(id)` | `walk mantle dash charge wall_run latch ladder swim` |
 | `Move.isGrounded(id)`, `Move.horizontalSpeed(id)` | state queries |
