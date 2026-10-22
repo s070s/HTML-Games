@@ -10,6 +10,12 @@ const MODE_QUICK_MELEE = 2;             // weapon.fire mode index of the MELEE b
 const FIRE_MODE_LABELS = MODE_NAMES.concat(['melee']);
 const ADS_SECONDS = 0.2;                 // time to aim down sights fully
 const KICK_SECONDS = 0.12;               // view model kick decay after a shot
+const SCOPE_SWAY_DEG = 0.35;             // W24 scope sway (FireMode.breath): drift size in degrees at full scope
+const SCOPE_SWAY_RATE = 1.6;             // radians per second of the sway figure eight
+const SWAY_STEADY_SCALE = 0.1;           // a held breath shrinks the sway to this...
+const SWAY_WINDED_SCALE = 2.5;           // ...until the breath runs out: then it grows to this
+const SWAY_SETTLE_RATE = 6;              // the sway size eases toward its target at this rate per second
+const BREATH_REFILL_RATE = 1;            // seconds of breath back per second of breathing normally
 const STILL_SPEED = 0.2;                 // below this horizontal speed an actor counts as standing still
 const MAX_SHOTS_PER_STEP = 4;
 const MELEE_RADIUS = 0.25;               // melee traces are fat rays: hit volumes grow by this much
@@ -115,6 +121,8 @@ const Weapons = {
   spin: new Float32Array(MAX_ACTORS),
   ads: new Float32Array(MAX_ACTORS),
   zoomed: new Uint8Array(MAX_ACTORS),               // 1 = the scope's second step (FireMode.zoomMax) is chosen
+  breathUsed: new Float32Array(MAX_ACTORS),         // seconds of the held breath (FireMode.breath) spent; 0 = full lungs
+  swayScale: new Float32Array(MAX_ACTORS).fill(1), swayPitch: new Float32Array(MAX_ACTORS), swayYaw: new Float32Array(MAX_ACTORS),   // scope sway in degrees
   toggled: new Uint8Array(MAX_ACTORS),
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
@@ -208,12 +216,14 @@ const Weapons = {
     this.state[id] = WEAPON_STATE.IDLE;
     this.resetFiring(id);
     this.recoilPitch[id] = this.recoilYaw[id] = this.bloom[id] = this.heat[id] = 0;
+    this.breathUsed[id] = this.swayPitch[id] = this.swayYaw[id] = 0; this.swayScale[id] = 1;
     this.lastShot[id] = -1e9;
     this.lastSlot[id] = 0; this.speedScale[id] = 1;
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
     this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
+    this.swayPitch[id] = this.swayYaw[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
@@ -428,6 +438,7 @@ const Weapons = {
       if (Actors.kind[id] === ACTOR_KIND.NONE || !Actors.alive[id]) continue;
       this.stepActor(id, dt);
     }
+    this.syncBreathButton();
   },
   stepActor(id, dt) {
     this.coolDown(id, dt);
@@ -441,6 +452,7 @@ const Weapons = {
     if (!weapon) return;
     const altTaken = this.altTaken(id);
     this.updateAds(id, weapon, altTaken, dt);
+    this.updateSway(id, weapon, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
@@ -458,6 +470,23 @@ const Weapons = {
     const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0 && !altTaken;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
     if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
+  },
+  // W24 scope sway (FireMode.breath): an aimed scope drifts in a slow figure eight. Holding breath (the Walk action)
+  // steadies it for `breath` seconds; after that the winded sway is stronger until the actor breathes again.
+  updateSway(id, weapon, dt) {
+    const breath = weapon.alt.breath, swaying = this.scopeSways(id, weapon), holding = swaying && (Actors.buttons[id] & BTN.WALK) !== 0;
+    this.breathUsed[id] = holding ? Math.min(breath, this.breathUsed[id] + dt) : Math.max(0, this.breathUsed[id] - dt * BREATH_REFILL_RATE);
+    const wanted = !holding ? 1 : this.breathUsed[id] < breath ? SWAY_STEADY_SCALE : SWAY_WINDED_SCALE;
+    this.swayScale[id] += (wanted - this.swayScale[id]) * Math.min(1, dt * SWAY_SETTLE_RATE);
+    const size = swaying ? SCOPE_SWAY_DEG * this.ads[id] * this.swayScale[id] : 0, phase = Sim.time * SCOPE_SWAY_RATE + id;
+    this.swayYaw[id] = Math.sin(phase) * size;
+    this.swayPitch[id] = Math.sin(phase * 2) * size * 0.5;   // twice as fast and half as tall: a lying eight
+  },
+  scopeSways(id, weapon) { return !!weapon && weapon.alt.breath > 0 && this.ads[id] > 0; },
+  // The touch BREATH button (Walk) shows while the local player's scope sways; setFlag re-applies the layout on a change only.
+  syncBreathButton() {
+    const id = Game.playerId;
+    TouchInput.setFlag('breath', id >= 0 && Actors.alive[id] === 1 && this.scopeSways(id, this.currentWeapon(id)));
   },
   coolDown(id, dt) {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
@@ -633,11 +662,11 @@ const Weapons = {
     this.bloom[id] = Math.max(0, this.bloom[id] - recoil.recover * dt);
     if (keep === 0 && this.bloom[id] === 0) this.recoilShot[id] = 0;
   },
-  // Shot direction: view angles + recoil punch + a seeded random point inside the spread cone.
+  // Shot direction: view angles + recoil punch + scope sway + a seeded random point inside the spread cone.
   aimDirection(id, spreadDeg, out) {
     const radius = spreadDeg * Math.sqrt(Rng.weapons.next()) * DEG, angle = Rng.weapons.next() * Math.PI * 2;
-    const pitch = Actors.pitch[id] + this.recoilPitch[id] * DEG + radius * Math.sin(angle);
-    const yaw = Actors.yaw[id] + (this.recoilYaw[id] * DEG + radius * Math.cos(angle)) / Math.max(0.2, Math.cos(pitch));
+    const pitch = Actors.pitch[id] + (this.recoilPitch[id] + this.swayPitch[id]) * DEG + radius * Math.sin(angle);
+    const yaw = Actors.yaw[id] + ((this.recoilYaw[id] + this.swayYaw[id]) * DEG + radius * Math.cos(angle)) / Math.max(0.2, Math.cos(pitch));
     return Vec.fromAngles(out, yaw, pitch);
   },
   shotDamage(id, weapon, mode, fraction) {
@@ -675,7 +704,7 @@ const Weapons = {
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
     out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
-    out.recoilPitch = this.recoilPitch[id]; out.recoilYaw = this.recoilYaw[id];   // degrees the spray punches away from the view
+    out.recoilPitch = this.recoilPitch[id] + this.swayPitch[id]; out.recoilYaw = this.recoilYaw[id] + this.swayYaw[id];   // degrees the spray and sway move the view
     out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
     return out;
   },
@@ -943,6 +972,7 @@ Bus.on('actor.create', (id) => {
   Weapons.statScale.fill(1, id * WEAPON_STAT_COUNT, (id + 1) * WEAPON_STAT_COUNT);
 });
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
+Bus.on('match.stop', () => TouchInput.setFlag('breath', false));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
 // The difficulty preset's aimAssist (rules.botSkill, D01 Stroll 100) replaces the player's setting; -1 keeps it.
 Input.aimAssistOverride = () => {

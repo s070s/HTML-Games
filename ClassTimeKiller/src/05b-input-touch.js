@@ -34,7 +34,8 @@ const TOUCH_PRESETS = [
 // Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
 // need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists);
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
-// with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more.
+// with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more;
+// 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.72, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
@@ -42,6 +43,7 @@ const TOUCH_CONTROLS = [
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64 },
   { id: 'crouch', label: 'Crouch', face: 'CROUCH', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
   { id: 'reload', label: 'Reload', face: 'RELOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
+  { id: 'breath', label: 'Hold breath', face: 'BREATH', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
   { id: 'swap', label: 'Swap weapon', face: 'SWAP', action: 'nextWeapon', x: 0.70, y: 0.20, size: 46 },
   { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46 },
   { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42 },

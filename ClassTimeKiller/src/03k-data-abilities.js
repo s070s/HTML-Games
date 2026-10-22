@@ -72,7 +72,7 @@ const ABILITY_ROWS = [
   { id: 'mesmer', code: 'A22', name: 'Mesmer Lure', category: 'control', activation: 'instant', cooldown: 25, duration: 6, range: 15, effect: 'mesmer',
     params: { targets: 2 }, counter: 'damage breaks the stare', botUse: { when: 'groupedEnemies', range: [0, 15], chance: 0.5 }, color: 0xff80ff },
   { id: 'puppet', code: 'A23', name: 'Puppet Jump', category: 'control', activation: 'instant', cooldown: 40, duration: 10, range: 20, effect: 'possess', modes: 'pve',
-    params: {}, counter: 'only fodder and beasts can be taken', botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.3 }, color: 0xa040ff },
+    params: {}, interrupt: { damage: true, stun: true, fire: false }, counter: 'only fodder and beasts can be taken; hit the still caster to free it', botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.3 }, color: 0xa040ff },
   { id: 'frenzy', code: 'A24', name: 'Frenzy Hex', category: 'control', activation: 'instant', cooldown: 30, duration: 8, range: 30, effect: 'frenzy',
     params: {}, counter: 'keep away from the hexed one', botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff4040 },
   // ---- Sustain ----
