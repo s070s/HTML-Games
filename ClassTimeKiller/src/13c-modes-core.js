@@ -19,7 +19,7 @@ Modes.register('lms', {
   onSpawn(id) {
     const params = Modes.rules.params;
     if (params.allWeapons) giveWholeSet(id, params.maxAmmo);
-    if (params.startArmor) Actors.armor[id] = Math.max(Actors.armor[id], params.startArmor);
+    if (params.startArmor) Items.addArmor(id, params.startArmor, params.startArmor);   // within maxArmor, none without armor
   },
 });
 function giveWholeSet(id, fullReserve) {

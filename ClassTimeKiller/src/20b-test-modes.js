@@ -301,6 +301,9 @@ Test.add('modes', (check) => {
   check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
   check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
   endModeTest();
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'pilot' });
+  check('lms: start armor stays within maxArmor (none in a ruleset without armor)', Actors.armor[0] <= Actors.maxArmor[0], Actors.armor[0] + ' / ' + Actors.maxArmor[0]);
+  endModeTest();
 
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
