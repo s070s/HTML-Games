@@ -156,6 +156,7 @@ function hudMapPings(pen, map, player) {
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
     if (!p.live(i)) continue;   // each kind's own marker life (17d)
     if (p.source[i] !== player && Actors.isEnemy(player, p.source[i])) continue;
+    p.follow(i);   // also with the world markers hidden (17d)
     hudMapDot(pen, map, p.x[i], p.z[i], 'diamond', 9, hudPingColor(p.kind[i]), 1, true);
   }
 }

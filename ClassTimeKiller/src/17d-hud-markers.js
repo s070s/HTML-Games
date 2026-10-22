@@ -98,7 +98,10 @@ const HudPings = {
   order: new Float64Array(HUD_PING_SLOTS), until: new Float64Array(HUD_PING_SLOTS).fill(-1000), added: 0,   // order = when added, counted (Hud.time can stand still)
   reset() { this.source.fill(-1); this.target.fill(-1); this.order.fill(0); this.until.fill(-1000); this.added = 0; },
   live(slot) { return this.source[slot] >= 0 && Hud.time < this.until[slot]; },
+  // The other side's pings are never drawn, so they never take a slot from your own side's markers.
   add(event) {
+    const player = Game.playerId;
+    if (player >= 0 && event.id !== player && Actors.isEnemy(player, event.id)) return;
     this.capSource(event.id);
     const slot = this.freeSlot(), row = COMM_CALLOUT_BY_KIND.get(event.kind);
     this.source[slot] = event.id; this.kind[slot] = event.kind; this.reply[slot] = row && row.at === 'reply' ? row.label : '';
@@ -136,6 +139,7 @@ const HudPings = {
     return best;
   },
   // An enemy ping follows its target while the pinger sees it (checked every HUD_PING_SIGHT_INTERVAL); out of sight it stays put.
+  // Every view that draws pings calls it (world markers, minimap), so a hidden one never freezes the other.
   follow(slot) {
     const target = this.target[slot], source = this.source[slot];
     if (target < 0 || !Actors.alive[target] || !Actors.alive[source]) return;

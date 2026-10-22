@@ -525,6 +525,15 @@ Test.add('hud', (check) => hudTestWith(() => {
   } finally { World.lineClearOf = lineClear; }
   check('pings: out of sight it stays where the target was last seen', HudPings.x[0] === 9, HudPings.x[0]);
   HudPings.reset();
+  hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: scene.enemy, x: Actors.x[scene.enemy], z: Actors.z[scene.enemy] });
+  const markersShown = Hud.elements.markers;
+  Hud.elements.markers = false;
+  try { hudTestPlace(scene.enemy, 7, 28, 0); hudTestFrame(); } finally { Hud.elements.markers = markersShown; }
+  check('pings: with the world markers hidden the minimap ping still follows its target', HudPings.x[0] === 7 && HudPings.z[0] === 28, [HudPings.x[0], HudPings.z[0]]);
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.enemy, kind: 'go', target: -1, x: 0, z: 12 });
+  check('pings: pings from the other side take no slot from your own side', HudPings.source.every((source) => source < 0));
+  HudPings.reset();
   hudTestEvent('ping', { id: scene.mate, kind: 'go', target: -1, x: 0, z: 12 });
   hudTestEvent('ping', { id: scene.id, kind: 'dibs', target: -1, x: 0, z: 12, to: scene.mate });
   const answered = HudPings.newestToAnswer(scene.id);
