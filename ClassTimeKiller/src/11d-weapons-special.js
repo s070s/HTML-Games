@@ -66,7 +66,9 @@ const WeaponSpecialState = {
     this.blockPool[target] -= absorbed;
     return amount - absorbed;
   },
+  parryHooks: [],     // fn(target, projectile) -> true when another rule parries it (S14: PvE green projectiles)
   tryParry(target, projectile) {
+    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); return true; }
     if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
     if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
     Projectiles.reflect(projectile, target);

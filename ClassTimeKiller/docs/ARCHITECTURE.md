@@ -27,7 +27,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S12 | abilities / items | `12*` | `Items`, `Gadgets`, `Abilities` |
 | S13 | rules / modes | `13*` | `Rules`, `Modes`, `Economy`, `Mutators` |
 | S14 | bots | `14*` | `Bots` |
-| S15 | PvE director | `15*` | `Pve` |
+| S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
 | S16 | map gen | `16*` | `Maps`, `MapGen` |
 | S17 | HUD | `17*` | `Hud` |
 | S18 | UI | `18*` | `Ui`, `Progress` |
@@ -113,6 +113,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` | see docs/api/pve.md | S14 PvE |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
@@ -152,6 +153,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008); `Input.aimAssistFilters` = list of `fn(id, point) -> false` that refuse a found point (S12: never through smoke); `Input.aimAssistOverride = fn() -> 0..100 | -1` (filled by S11 from `rules.botSkill.aimAssist`) replaces the device's strength setting, -1 keeps it. `Input.actions` is the single action table.
 - Audio: `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz)` (filled by S08 with `World.lineClear`) muffles sounds behind walls; `null` = no occlusion.
 - Hooks are filled once at load and never reset by the section that owns them; the self-test restores them before every block.
+- Parry (S11 owns W03): `WeaponSpecialState.parryHooks` (fn(target, projectile) -> true reflects a parryable projectile before the W03 block check); S14 fills it for PvE green projectiles.
 - Movement hooks (S10 owns MOV-021/025, MV08): S11 asks `Move.canFire(id)` before a shot, writes `Move.weaponSpeedScale[id]` every step, adds `Move.inaccuracy(id)` to spread (the only MOV-025 table) and multiplies incoming damage by `Move.damageScale(id)`.
 - Per-actor movement scales (S10 arrays, reset on `actor.create`): `Move.statusSpeedScale` and `Move.gravityScale` are written only by S12 `Buffs.applyScales(id)` (buffs SPEED x SLOW x the powerup factor; glide = a GRAVITY buff; status effects slow through S11's weapon speed scale instead); `Move.staminaScale` (sprint drain divisor) and `Move.footstepScale` (step noise and `move.step` loudness) are written by S13 economy perks.
 - Fire rate: `Weapons.rateScale[id]` (S11) is the single fire-rate factor; only `Buffs.applyScales` writes it (RATE status x powerup rate).

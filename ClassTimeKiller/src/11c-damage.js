@@ -48,6 +48,7 @@ const Damage = {
   previousAttacker: new Int8Array(MAX_ACTORS).fill(-1), previousAttackTime: new Float32Array(MAX_ACTORS),
   surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by powerups (S12); spent before the shield
   shieldElement: new Uint8Array(MAX_ACTORS),        // PvE coloured shield: CAT.elements index + 1 (0 = plain)
+  noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
   limbs: new Float32Array(MAX_ACTORS * LIMB_COUNT),
@@ -325,6 +326,7 @@ const Damage = {
   },
   shieldRegenBlocked(id) { return Sim.tick < this.shieldRegenBlockedUntil[id]; },
   stepRegen(id, preset, dt) {
+    if (this.noRegen[id]) return;
     const since = Sim.time - this.lastDamageTime[id];
     if (Actors.health[id] > Actors.maxHealth[id]) Actors.health[id] = Math.max(Actors.maxHealth[id], Actors.health[id] - preset.overhealDecay * dt);
     if (preset.armorDecayAbove && Actors.armor[id] > preset.armorDecayAbove) Actors.armor[id] = Math.max(preset.armorDecayAbove, Actors.armor[id] - preset.armorDecay * dt);
@@ -510,7 +512,7 @@ function splashDistance(blast, id) {
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));   // HP-001 victim reductions: MV08 roll
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
-Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; });
+Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });
 // Earlier sections (fall damage, hazards, telefrags, drowning) ask for damage; it still goes through Damage.apply.
 Bus.on('damage.request', (request) => {
   const info = Damage.info();
