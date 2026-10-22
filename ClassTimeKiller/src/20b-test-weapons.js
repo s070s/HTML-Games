@@ -863,6 +863,44 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// W24 scope sway (FireMode.breath): the aimed scope drifts and moves view and shots; holding breath (the Walk action)
+// steadies it for 4 s, then the winded sway is larger until the breath refills; the touch BREATH button shows while it sways.
+function weaponSwayPeak(id, buttons, seconds) {
+  let peak = 0;
+  Actors.buttons[id] = buttons;
+  for (let i = 0; i < seconds * TICK_RATE; i++) { Sim.step(); peak = Math.max(peak, Math.abs(Weapons.swayYaw[id])); }
+  return peak;
+}
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), out = {}, aim = Vec.make();
+  giveFull(id, 'heron');
+  Game.playerId = id;
+  const aimed = weaponSwayPeak(id, BTN.ALT, 2.5);
+  check('W24 an aimed scope sways about SCOPE_SWAY_DEG', aimed > SCOPE_SWAY_DEG * 0.8 && aimed <= SCOPE_SWAY_DEG + 1e-4, aimed);
+  for (let i = 0; i < TICK_RATE * 4 && Math.abs(Weapons.swayYaw[id]) < SCOPE_SWAY_DEG * 0.3; i++) Sim.step();
+  Weapons.viewModel(out);
+  Weapons.aimDirection(id, 0, aim);
+  const shotYaw = wrapAngle(Math.atan2(aim.x, aim.z) - Actors.yaw[id]) / DEG;
+  check('W24 the sway moves the view and the shots alike', Test.near(out.recoilYaw, Weapons.swayYaw[id], 1e-5) && Test.near(shotYaw, Weapons.swayYaw[id], 1e-3), shotYaw + ' ' + Weapons.swayYaw[id]);
+  check('touch: the BREATH button (Walk) shows while the scope sways', TouchInput.needMet('breath') && TOUCH_CONTROLS.some((control) => control.need === 'breath' && control.action === 'walk'));
+  weaponSwayPeak(id, BTN.ALT | BTN.WALK, 1);
+  const steady = weaponSwayPeak(id, BTN.ALT | BTN.WALK, 2);
+  check('W24 a held breath steadies the scope', steady < SCOPE_SWAY_DEG * SWAY_STEADY_SCALE * 1.5, steady);
+  weaponSwayPeak(id, BTN.ALT | BTN.WALK, 1.5);
+  const winded = weaponSwayPeak(id, BTN.ALT | BTN.WALK, 2.5);
+  check('W24 after 4 s of held breath the winded sway grows past the normal sway', Weapons.breathUsed[id] === 4 && winded > SCOPE_SWAY_DEG * 1.5, winded);
+  weaponSwayPeak(id, BTN.ALT, 4.5);
+  check('W24 breathing normally refills the breath', Weapons.breathUsed[id] === 0, Weapons.breathUsed[id]);
+  weaponSwayPeak(id, 0, 0.5);
+  check('W24 lowered sights: no sway and no BREATH button', Weapons.swayYaw[id] === 0 && Weapons.swayPitch[id] === 0 && !TouchInput.needMet('breath'));
+  giveFull(id, 'kestrel');
+  check('a scope without breath never sways', weaponSwayPeak(id, BTN.ALT, 1) === 0 && Weapons.ads[id] === 1);
+  Game.playerId = -1;
+  TouchInput.setFlag('breath', false);
+  TestArena.finish();
+});
+
 // W26 stake pins a victim standing just in front of a wall ('pinned' status); in the open it only hits.
 Test.add('weapons', (check) => {
   TestArena.start({}, [{ shape: 'box', min: [-3, 0, 11], max: [3, 3, 12] }]);
