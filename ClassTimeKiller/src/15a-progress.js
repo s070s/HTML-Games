@@ -27,6 +27,7 @@ const RunLog = {
   kills: 0, deaths: 0, airKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
   lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
   bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+  outSeconds: PROGRESS_NEVER,  // match seconds when the player lost their last life (lives rules); PROGRESS_NEVER while still in
   weaponUsed: new Uint8Array(WEAPON_COUNT),
   metrics: {},                // reused result of measure()
 
@@ -35,12 +36,14 @@ const RunLog = {
     this.damageTaken = this.souls = this.armorPickups = this.marks = this.wrathForms = this.wrathKills = 0;
     this.inWrath = false;
     this.lowestHealth = Infinity;
-    this.bossSeconds = this.finalBossSeconds = PROGRESS_NEVER;
+    this.bossSeconds = this.finalBossSeconds = this.outSeconds = PROGRESS_NEVER;
     this.weaponUsed.fill(0);
   },
   isPlayer(id) { return id >= 0 && id === Game.playerId; },
+  // S13 counts the life lost first (its kill listener runs earlier), so lives 0 here means the player is out of the match.
   onKill(event) {
     if (this.isPlayer(event.victim)) this.deaths++;
+    if (this.isPlayer(event.victim) && Modes.lives[event.victim] === 0) this.outSeconds = Math.min(this.outSeconds, Sim.time - Modes.startTime);
     if (!this.isPlayer(event.killer) || event.victim === event.killer) return;
     this.kills++;
     const weapon = CAT.weapons.byId(event.weapon);
@@ -82,7 +85,7 @@ const RunLog = {
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
     out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy();
-    out.seconds = results ? results.duration : 0;
+    out.seconds = results ? Math.min(results.duration, this.outSeconds) : 0;   // a player out of lives stops earning time (PRG-004)
     out.score = mine ? mine.score : 0; out.objective = mine ? mine.objective : 0; out.bestStreak = mine ? mine.bestStreak : 0;
     out.won = results && Progress.outcome(results) === 'win' ? 1 : 0;
     out.placement = Progress.placement(results);

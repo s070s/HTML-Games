@@ -424,6 +424,24 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
+// ---- PRG-004 wave survival: time pays only while the player still has lives ----
+Test.add('progress', (check) => {
+  const survive = (outAfter, endAfter) => {
+    Challenges.start('holdout', false);
+    const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
+    progressAdvance(outAfter);
+    for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
+    progressAdvance(endAfter - outAfter);
+    Modes.finish(rival);
+    return RunLog.measure(Game.match).seconds;
+  };
+  const early = survive(20, 220);
+  check('survival: a player out of lives early stops earning seconds', Math.abs(early - 20) < 0.1 && Game.match.results.duration > 200, early);
+  const full = survive(60, 60);
+  check('survival: a player still in counts the whole match', Math.abs(full - Game.match.results.duration) < 0.01 && full >= 60, full);
+  Game.stop();
+});
+
 // ---- Operations: ticket carry-over math, comeback unit, three maps ----
 Test.add('progress', (check) => {
   check('tickets: base + half of what is left, capped', Operations.carryTickets(0) === 60 && Operations.carryTickets(37) === 78 && Operations.carryTickets(55) === 87 && Operations.carryTickets(500) === 120 && Operations.carryTickets(-5) === 60);
