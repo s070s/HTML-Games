@@ -389,23 +389,37 @@ Test.add('ui', (check) => {
 });
 
 Test.add('input', (check) => {
-  const id = startInputMatch(), off = (name) => TouchInput.elements[name].classList.contains('off'), frame = () => Input.frame(INPUT_TEST_FRAME);
+  const off = (name) => TouchInput.elements[name].classList.contains('off'), frame = () => Input.frame(INPUT_TEST_FRAME);
+  const stale = () => TOUCH_CONTROLS.filter((control) => control.need && off(control.id) === TouchInput.needMet(control.need)).map((control) => control.id);
+  const fill = (id) => {
+    Abilities.setSlot(id, SLOT.ABILITY1, CAT.abilities[0]);
+    Gadgets.give(id, CAT.gadgets.find((row) => row.kind === 'thrown').id, 1);
+    Items.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[0].index] = 1;
+    Move.setPreset(id, 'modern');
+  };
+  const empty = (id) => {
+    for (const slot of [SLOT.ABILITY1, SLOT.ABILITY2, SLOT.ULTIMATE]) Abilities.setSlot(id, slot, null);
+    Gadgets.clearGrenades(id); Gadgets.gadget[id] = -1;
+    Items.carried.fill(0);
+  };
+  let id = startInputMatch();
   Input.setDevice('touch'); TouchInput.syncVisible();
-  for (const slot of [SLOT.ABILITY1, SLOT.ABILITY2, SLOT.ULTIMATE]) Abilities.setSlot(id, slot, null);
-  Gadgets.clearGrenades(id); Gadgets.gadget[id] = -1;
-  Items.carried.fill(0);
+  empty(id);
   frame();
   check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE, HEAL and PRONE', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal', 'prone'].every(off));
-  Abilities.setSlot(id, SLOT.ABILITY1, CAT.abilities[0]);
-  Gadgets.give(id, CAT.gadgets.find((row) => row.kind === 'thrown').id, 1);
-  Items.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[0].index] = 1;
-  Move.setPreset(id, 'modern');
+  fill(id);
   frame();
   check('needs: a filled slot, a grenade, a consumable and prone movement show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal') && !off('prone'));
   inputTouchPointer('pointerdown', TouchInput.elements.prone, 5, 300, 300);
   frame(); Sim.step();
   check('prone: pressing the touch button sets the prone action', (Actors.buttons[id] & BTN.PRONE) !== 0);
   inputTouchPointer('pointerup', TouchInput.elements.prone, 5, 300, 300);
+  Move.setPreset(id, '');
+  id = startInputMatch();   // the same needs again in the next match
+  Input.setDevice('touch'); TouchInput.syncVisible();
+  empty(id); fill(id);
+  frame();
+  check('needs: the next match with the same needs shows the same buttons', stale().length === 0, stale().join());
   Move.setPreset(id, '');
 });
 

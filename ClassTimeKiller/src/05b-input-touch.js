@@ -421,17 +421,20 @@ const TouchInput = {
     Save.scheduleSave();
     this.applyAll();
   },
-  applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
+  // Records the need answers it shows, so syncNeeds re-applies on the next change whoever applied last.
+  applyAll() {
+    this.needBits = this.needBitsNow();
+    for (const control of TOUCH_CONTROLS) this.applyControl(control);
+  },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
-  // Re-applies the layout when a button's need changed since the last frame.
-  syncNeeds() {
+  needBitsNow() {
     let bits = 0;
     for (let i = 0; i < this.needed.length; i++) if (this.needMet(this.needed[i])) bits |= 1 << i;
-    if (bits === this.needBits) return;
-    this.needBits = bits;
-    this.applyAll();
+    return bits;
   },
+  // Re-applies the layout when a button's need changed since it was last applied (a new match included).
+  syncNeeds() { if (this.needBitsNow() !== this.needBits) this.applyAll(); },
   // Shows or hides the controls of a match flag (called on a change only, never per frame).
   setFlag(name, on) {
     if (!!this.flags[name] === !!on) return;
@@ -488,4 +491,3 @@ const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: v
 Input.sources.push(TouchInput);
 Input.addSettings(TOUCH_SETTINGS);
 Bus.on('setting', (key) => { if (key === TOUCH_GYRO_KEY && TouchInput.layer) TouchInput.syncGyro(Settings.get(key)); });   // inside the tap that changed it: iOS asks only then
-Bus.on('match.start', () => { if (TouchInput.layer) TouchInput.applyAll(); });   // need-gated buttons follow the new mode
