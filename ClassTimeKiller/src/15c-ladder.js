@@ -55,6 +55,14 @@ const Ladder = {
   passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
   // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
   retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, progressSeed()); },
+  // After a pass: the match that follows on the ladder, if the ladder has one open.
+  nextStep(tag) {
+    if (!Game.match || !Game.match.results || !this.passed(Game.match.results)) return null;
+    const tierEnds = tag.match + 1 >= CAT.ladder[tag.tier].matches.length;
+    const tier = tag.tier + (tierEnds ? 1 : 0), match = tierEnds ? 0 : tag.match + 1;
+    if (tier >= CAT.ladder.length || !this.isOpen(tier, match)) return null;
+    return { label: 'Next match', build: () => this.setup(tier, match, this.difficultyFor(tier, match), progressSeed()) };
+  },
   onResult(match, metrics, award) {
     const tag = match.setup.progress, entry = this.entry(tag.tier, tag.match), state = this.state();
     if (!entry) return;
@@ -124,6 +132,28 @@ const Challenges = {
   },
 };
 
+// ---- A room on a PvE mode ends here: Siege Waves runs ten waves and the range keeps no clock, so a wave room ends as a win
+// after its `waves` cleared waves and the range course at its time limit (at the rules stage, like the operation tickets) ----
+const ChallengeRun = {
+  row: null,
+  wavesCleared: 0,
+  onStart(match) {
+    const tag = match.setup.progress;
+    this.row = tag && tag.kind === 'challenge' && Modes.active && Modes.rules.family !== 'versus' ? CAT.challenges.byId(tag.id) : null;
+    this.wavesCleared = 0;
+    if (this.row && this.row.waves > 0) PVE_HUD.waves = this.row.waves;   // the wave HUD counts the room's waves
+  },
+  onWave(event) { if (this.row && event.phase === 'end') this.wavesCleared++; },
+  step() {
+    const row = this.row;
+    if (!row || !Modes.active) return;
+    const cleared = row.waves > 0 && this.wavesCleared >= row.waves, timeUp = Modes.rules.timeLimit > 0 && Modes.timeLeft(Sim.time) <= 0;
+    if (!cleared && !timeUp) return;
+    this.row = null;
+    Modes.finish(Modes.over(coopWinner(), cleared ? PVE_WIN : 'time'));
+  },
+};
+
 // ---- Operations: three maps, tickets carried over, the comeback unit ----
 const OperationRun = {
   active: false,
@@ -185,6 +215,11 @@ const Operations = {
     if (this.state(id).done) this.reset(id);
     return this.setup(id, seed);
   },
+  // The operation's next map once this one is counted (none after the last map: New run starts the operation again).
+  nextStep(tag) {
+    if (this.state(tag.id).done) return null;
+    return { label: 'Next map', build: () => this.setup(tag.id, progressSeed()) };
+  },
   start(id, random) {
     if (!CAT.operations.byId(id)) return null;
     return Game.start(this.nextSetup(id, progressSeed(random)));
@@ -203,7 +238,7 @@ const Operations = {
     state.tickets = [this.carryTickets(OperationRun.tickets[0]), this.carryTickets(OperationRun.tickets[1])];
     state.comeback = winner >= 0 ? 1 - winner : -1;
     state.stage++;
-    award.xp += PROGRESS_XP.operationStage;
+    if (award.breakdown.total > 0) award.xp += PROGRESS_XP.operationStage;   // the map pays only a player who took part (no idle farming)
     award.lines.push(row.name + ' map ' + state.stage + ' of ' + row.stages.length + ': ' + (winner === PROGRESS_PLAYER_TEAM ? 'won' : winner < 0 ? 'drawn' : 'lost')
       + '. Tickets next map: ' + state.tickets[0] + ' / ' + state.tickets[1]);
     if (state.stage >= row.stages.length) this.complete(row, state, award);
@@ -288,9 +323,15 @@ Progress.addHandler('operation', (match, metrics, award) => Operations.onResult(
 Progress.addHandler('daily', (match, metrics, award) => Daily.onResult(match, metrics, award));
 Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
 Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
-Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()));
+Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()), 'New run');
 Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
+Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
+Progress.addNext('operation', (tag) => Operations.nextStep(tag));
 Sim.addSystem('operationTickets', 75, () => OperationRun.step());
+Sim.addSystem('challengeEnd', 75, () => ChallengeRun.step());
+Bus.on('match.start', (match) => ChallengeRun.onStart(match));
+Bus.on('match.stop', () => { ChallengeRun.row = null; });
+Bus.on('pve.wave', (event) => ChallengeRun.onWave(event));
 Bus.on('match.start', (match) => OperationRun.onStart(match));
 Bus.on('match.stop', () => { OperationRun.active = false; });
 Bus.on('kill', (event) => OperationRun.onKill(event));

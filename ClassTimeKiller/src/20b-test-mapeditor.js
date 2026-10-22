@@ -932,6 +932,10 @@ Test.add('mapEditor', async (check) => {
   check('a bad code shows its message and stays on the screen', Ui.current() === 'mapEditorCode' && document.querySelector('.ui-mapEditorCode .me-error').textContent.length > 0);
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Make code').click();
   check('Make code fills the box with a code', /^CTKEDIT1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
+  Ui.toastBox.replaceChildren();
+  Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Copy').click();
+  await new Promise((done) => setTimeout(done, 50));
+  check('Copy sends the code through copyText (iOS ignores select())', /copied|copy/i.test(Ui.lastToast), Ui.lastToast);
   Ui.pop();
   MapEditor.newFrom({ kind: 'empty' });
   check('saving an unfinished map says that no mode is complete', mapEditSave(false) && /no mode is complete/i.test(Ui.lastToast) && MapEditor.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);
@@ -1100,3 +1104,24 @@ DebugApi.mapEditorSweep = (seeds) => {
   }
   return { seeds: seeds || 100, failures };
 };
+
+Test.add('mapEditor', (check) => {
+  // ---- One object budget (props included) in add, copy, save and load ----
+  mapEditEditorOff();
+  MapEditor.newFrom({ kind: 'builtin', id: 'harbor' });
+  const props = MapEditor.map.props.length;
+  check('the budget counts props like every other list', MapEditor.count() === MAP_REQUIRED_LISTS.reduce((sum, list) => sum + MapEditor.map[list].length, 0) + props);
+  const listed = MapEditor.countsText().match(/\d+/g).reduce((sum, number) => sum + Number(number), 0);
+  check('the per-list counts add up to the budget count (props listed)', props > 0 && listed === MapEditor.count() && /Prop \d/.test(MapEditor.countsText()), MapEditor.countsText());
+  const kept = MapEditor.map.navHints.slice();
+  for (let index = MapEditor.count(); index <= MAPEDIT_BUDGET; index++) MapEditor.map.navHints.push({ kind: 'cover', x: 0, y: 0, z: 0 });
+  check('a save is refused when the map would not reopen (over the budget)', !MapEditor.saveCurrent('Over budget') && /cannot be saved/.test(MapEditor.message), MapEditor.message);
+  MapEditor.map.navHints = kept;
+  while (MapEditor.count() < MAPEDIT_BUDGET) MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 });
+  check('the budget stops adding at the limit', MapEditor.count() === MAPEDIT_BUDGET && MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 }) === -1);
+  const slot = MapEditor.saveCurrent('Full harbor') && MapEditor.slotId;
+  MapEditor.newFrom({ kind: 'empty' });
+  check('a map saved at the budget reopens', slot && MapEditor.loadSaved(slot), MapEditor.message);
+  MapEditor.deleteSaved(slot);
+  mapEditEditorOff();
+});

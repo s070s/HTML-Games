@@ -14,7 +14,6 @@ function pveReported(results, key) {
 }
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
-const RUN_EXPLOSIVE_CLASSES = ['explosive'];
 const CHAMBER_SECONDS_STEP = 10;            // chamber record times are kept to a tenth of a second
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
@@ -73,8 +72,9 @@ const RunLog = {
     if (!this.isPlayer(event.id)) return;
     const weapon = CAT.weapons.byId(event.weapon);
     if (weapon) this.weaponUsed[weapon.index] = 1;
-    if (RUN_EXPLOSIVE_CLASSES.includes(event.weaponClass)) this.explosiveShots++;
   },
+  // Any explosion the player caused (a grenade, a gadget, a barrel they shot) is explosive use, like a rocket shot.
+  onExplosion(event) { if (event.radius > 0 && this.isPlayer(event.owner)) this.explosiveShots++; },   // a gadget pop (smoke, fire: radius 0) is no blast
   onPickup(event) { if (this.isPlayer(event.id) && event.group === 'armor') this.armorPickups++; },
   weaponsUsed() {
     let count = 0;
@@ -109,7 +109,8 @@ const Progress = {
   handlers: new Map(),        // setup.progress.kind -> fn(match, metrics, award) (ladder, challenge, operation, daily, cards)
   finishers: [],              // fn(match, metrics, award) for every finished match (card unlocks, marks)
   preFinishers: [],           // fn(match) before anything is counted (end-of-match medals such as MD19)
-  retries: new Map(),         // setup.progress.kind -> fn(tag, setup) -> the setup a results-screen retry starts
+  retries: new Map(),         // setup.progress.kind -> { builder: fn(tag, setup) -> the setup a results-screen retry starts, label }
+  nexts: new Map(),           // setup.progress.kind -> fn(tag) -> { label, build } of the next step, or null
   lastAward: null,            // what the last finished match paid (results screen)
   awardedMatch: null,
   look: { color: PROGRESS_NO_LOOK, finish: PROGRESS_NO_LOOK },   // the worn cosmetics as plain numbers (read every frame)
@@ -292,7 +293,7 @@ const Progress = {
   },
   recordStats(match) {
     const stats = this.stats(), results = match.results, mine = this.playerResult(results), won = Progress.outcome(results) === 'win' ? 1 : 0;
-    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, match.map ? match.map.id || 'custom' : 'none', MAP_STAT_FIELDS);
+    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, statMapKey(match.map), MAP_STAT_FIELDS);
     mode.played++; mode.wins += won; mode.kills += mine.kills; mode.deaths += mine.deaths; mode.bestScore = Math.max(mode.bestScore, mine.score);
     map.played++; map.wins += won;
     stats.totals.matches++; stats.totals.wins += won; stats.totals.kills += mine.kills; stats.totals.deaths += mine.deaths;
@@ -310,12 +311,26 @@ const Progress = {
   addHandler(kind, handler) { this.handlers.set(kind, handler); },
   addFinisher(finisher) { this.finishers.push(finisher); },
   addPreFinisher(finisher) { this.preFinishers.push(finisher); },
-  addRetry(kind, builder) { this.retries.set(kind, builder); },
+  // `label` names a retry that does not replay the finished match (an operation moves on): the results screen shows it only when no next step does the same.
+  addRetry(kind, builder, label) { this.retries.set(kind, { builder, label: label || '' }); },
+  addNext(kind, finder) { this.nexts.set(kind, finder); },
   // The setup "Play again" starts for a tagged match (null when untagged): each structure rebuilds its own, so a ladder
   // match keeps its tier and difficulty, a daily keeps its date seed and an operation plays its current map.
   retrySetup(setup) {
-    const tag = setup && setup.progress, builder = tag ? this.retries.get(tag.kind) : null;
-    return builder ? builder(tag, setup) : null;
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    return retry ? retry.builder(tag, setup) : null;
+  },
+  // The results screen's replay button: Retry after a lost career match that replays itself, Play again otherwise; a retry that moves on
+  // shows its own label only when there is no next step (else '' : the next step button already does it).
+  replayLabel(setup, outcome) {
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    if (retry && retry.label) return this.nextStep(setup) ? '' : retry.label;
+    return retry && outcome === 'loss' ? 'Retry' : 'Play again';
+  },
+  // The next step of a career after the finished match, or null (lost, nothing left): { label, build() -> setup } (the results screen's primary button).
+  nextStep(setup) {
+    const tag = setup && setup.progress, finder = tag ? this.nexts.get(tag.kind) : null;
+    return finder ? finder(tag) : null;
   },
   finishMatch(match) {
     if (!match || !match.results || this.awardedMatch === match) return this.awardedMatch === match ? this.lastAward : null;
@@ -381,6 +396,12 @@ const matchXpScratch = { score: 0, objective: 0, medals: 0, finish: 0, podium: 0
 const MODE_STAT_FIELDS = { played: 0, wins: 0, kills: 0, deaths: 0, bestScore: 0 };
 const MAP_STAT_FIELDS = { played: 0, wins: 0 };
 const WEAPON_STAT_FIELDS = { shots: 0, hits: 0, kills: 0, headshots: 0 };
+// Map statistics: a catalogue map by its id; generated and custom maps (a new id per seed or save) share one row each, so the list stays short.
+const STAT_MAP_GROUP_NAMES = { generated: 'Generated maps', custom: 'Custom maps', none: 'No map' };
+function statMapKey(map) {
+  if (!map) return 'none';
+  return CAT.maps.byId(map.id) ? map.id : map.gen ? 'generated' : 'custom';
+}
 
 function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
@@ -423,6 +444,7 @@ Bus.on('kill', (event) => RunLog.onKill(event));
 Bus.on('damage', (event) => RunLog.onDamage(event));
 Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
+Bus.on('explosion', (event) => RunLog.onExplosion(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
 // A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
 Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });

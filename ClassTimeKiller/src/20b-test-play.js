@@ -35,7 +35,7 @@ Test.add('play', (check) => {
   check('quick match: one event starts exactly one match, playing at once', starts.length === 1 && Game.state === 'playing' && Game.match === starts[0]);
   check('quick match: the default setup (ffa, spire, RS01) is running', Game.match.rules.mode === 'ffa' && Game.match.map.id === 'spire' && Game.match.rules.id === 'classic');
   check('quick match: the player and 7 bots exist', Game.playerId >= 0 && playTestCount(ACTOR_KIND.PLAYER) === 1 && playTestCount(ACTOR_KIND.BOT) === 7);
-  check('quick match: the choice is remembered in the save (PRG-001)', JSON.stringify(Save.data.play) === JSON.stringify({ mode: 'ffa', map: 'spire', ruleset: '', bots: 7, difficulty: 'regular', team: -1 }), JSON.stringify(Save.data.play));
+  check('quick match: the choice is remembered in the save (PRG-001)', JSON.stringify(Save.data.play) === JSON.stringify({ mode: 'ffa', map: 'spire', ruleset: '', bots: 7, difficulty: 'regular', team: -1, length: 'standard' }), JSON.stringify(Save.data.play));
   Sim.run(PLAY_TEST_STEPS);
   check('quick match: the match runs for two seconds without errors, everyone alive', Actors.alive[Game.playerId] === 1 && Game.isRunning());
   Bus.emit('ui.quickMatch', null);
@@ -149,7 +149,7 @@ Test.add('play', (check) => uiWith(() => {
   playTestFinish();
   check('results: the screen opens by itself when the match ends', Game.state === 'results' && Ui.current() === 'results');
   const root = Ui.top().element, text = root.textContent;
-  check('results: title, winner, your stats and the scoreboard with all 8 players', text.includes('Victory') && text.includes('wins') && text.includes('kills') && root.querySelectorAll('.sb-table tr').length === 9);
+  check('results: title, winner, your stats and the scoreboard with all 8 players', text.includes('Victory') && text.includes('You win.') && text.includes('kills') && root.querySelectorAll('.sb-table tr').length === 9);
   check('results: the three buttons are there and Esc does not close it', ['Play again', 'Next map', 'Main menu'].every((name) => Array.from(root.querySelectorAll('button')).some((button) => button.textContent === name)) && !Ui.back());
   uiClickButton(root, 'Play again');
   check('results: Play again starts a new match and closes the screen', Game.state === 'playing' && Ui.stack.length === 0 && Game.match.setup.seed !== seed);
@@ -289,3 +289,57 @@ Test.add('play', (check) => {
   check('__CTK.god(false): damage lands again', playTestHit(player, 1) > 0 && (Actors.flags[player] & ACTOR_FLAG.GOD) === 0);
   Game.stop();
 });
+
+// ---- Roster bots: every bot (in the difficulty range or held inside it) gets the adaptive tier shift ----
+Test.add('play', (check) => {
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
+  try {
+    Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 1);
+    const difficulty = CAT.difficulty.byId('stroll');
+    Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'ffa', bots: 7, difficulty: 'stroll' }), () => 0.5));
+    const wrong = [];
+    for (let id = 0; id < Actors.count; id++) {
+      const row = Actors.kind[id] === ACTOR_KIND.BOT ? Bots.profile[id] : null;
+      if (row && Bots.tier(id).tier !== clamp(clamp(row.tier, difficulty.tierMin, difficulty.tierMax) + 1, 0, BOT_TIER_COUNT - 1)) wrong.push(row.name + ' ' + row.tier + '->' + Bots.tier(id).tier);
+    }
+    check('roster bots: each tier is the profile tier held in the range, plus the adaptive shift', wrong.length === 0, wrong.join());
+  } finally {
+    Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+    Game.stop();
+  }
+});
+
+// ---- Results flow: next step, plain winner text, roster bots, match length ----
+Test.add('play', (check) => uiWith(() => {
+  const saved = Save.data.play, buttons = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);
+  try {
+    Save.data.play = undefined;
+    PlayFlow.quickMatch();
+    const names = Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Actors.kind[id] === ACTOR_KIND.BOT).map((id) => Actors.name[id]);
+    check('quick match: the bots are seven different roster bots', names.length === 7 && new Set(names).size === 7 && names.every((name) => CAT.bots.some((row) => row.name === name)), names.join());
+    playTestFinish();
+    check('results: a won free-for-all says You win.', Ui.top().element.textContent.includes('You win.'));
+    Game.stop(); Ui.closeAll();
+    const short = PlayFlow.lengthLimits('ffa', 'short');
+    check('match length: Short halves the limits, rounded up (15 frags, 5 minutes)', short.scoreLimit === 15 && short.timeLimit === 300 && PlayFlow.lengthLimits('ffa', 'standard') === null);
+    PlayFlow.start(Object.assign(PlayFlow.defaults(), { length: 'short' }));
+    const first = Game.match.rules.scoreLimit + '/' + Game.match.rules.timeLimit;
+    Game.stop(); PlayFlow.quickMatch();
+    check('match length: Short runs the match and Quick Match keeps it', first === '15/300' && Game.match.rules.scoreLimit === 15 && Save.data.play.length === 'short', first);
+    Game.stop();
+    Ladder.setDifficulty(0, 0, 'novice'); Ladder.start(0, 0); Modes.finish(Game.playerId);
+    const primary = Ui.top().element.querySelector('.ui-foot .primary');
+    check('results: a cleared ladder match offers Next match as the primary button', Ui.current() === 'results' && primary && primary.textContent === 'Next match');
+    uiClickButton(Ui.top().element, 'Next match');
+    check('results: Next match starts ladder match 2', Game.match.setup.progress.kind === 'ladder' && Game.match.setup.progress.match === 1);
+    Modes.finish(Array.from({ length: Actors.count }, (unused, id) => id).find((id) => id !== Game.playerId && Actors.kind[id] === ACTOR_KIND.BOT));
+    check('results: a lost ladder match offers Retry, not Next match', buttons().includes('Retry') && !buttons().includes('Next match'));
+    Game.stop(); Ui.closeAll();
+    // An operation moves on after every map, so a lost map offers only Next map (no Retry that would start the next stage).
+    Operations.reset('highline'); Operations.start('highline'); Modes.finish(1);
+    check('results: a lost operation map offers Next map and no Retry or Play again', buttons().includes('Next map') && !buttons().includes('Retry') && !buttons().includes('Play again'), buttons().join());
+  } finally {
+    Save.data.play = saved;
+    Game.stop(); Ui.closeAll();
+  }
+}));

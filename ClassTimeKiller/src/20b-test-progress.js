@@ -73,9 +73,13 @@ function progressTeamMatch(mode, map) {
 // each one an airborne headshot in one streak, no misses, no damage, no deaths, a win, at PROGRESS_TEST_PAR_SHARE of par
 // (rooms without par: of the time limit).
 const PROGRESS_TEST_PAR_SHARE = 0.5;
+const PROGRESS_TEST_WAVE_KILLS = 6;     // a flawless wave room: the player's kills per wave
+const PROGRESS_TEST_COURSE_KILLS = 20;  // a flawless range course: targets down
+// PRG-004: the modes each room kind plays (a wave survival is Siege Waves, a ghost run a stealth contract, accuracy a course or a fight).
+const PROGRESS_TEST_ROOM_MODES = { timeTrial: ['ffa', 'duel'], killChain: ['ffa'], waveSurvival: ['horde'], dropKill: ['ffa'], ghostRun: ['contract'], accuracy: ['ffa', 'range'] };
 function progressBestRun(row) {
   const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
-  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const kills = row.options.scoreLimit || row.waves * PROGRESS_TEST_WAVE_KILLS || (row.bots ? row.bots * (lives ? lives.value : 1) : PROGRESS_TEST_COURSE_KILLS);
   const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
   return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
 }
@@ -402,7 +406,8 @@ Test.add('progress', (check) => {
   for (const row of CAT.challenges) {
     const setup = Challenges.setup(row.id, true, 1);
     Rules.build(setup);
-    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
+    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots
+      && (row.bots === 0 || setup.bots[0].tier === Math.min(7, row.tier + row.expertTier));
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
   const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
@@ -438,10 +443,10 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
-// ---- PRG-004 wave survival: time pays only while the player still has lives ----
+// ---- PRG-004 lives: time pays only while the player still has lives ----
 Test.add('progress', (check) => {
   const survive = (outAfter, endAfter) => {
-    Challenges.start('holdout', false);
+    Game.start(progressSetup({ mode: 'ffa', map: 'gantry', bots: [{}, {}, {}], mutators: [{ id: 'lives', value: 3 }], modeOptions: { scoreLimit: 0, timeLimit: 300 } }, null, 1));
     const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
     progressAdvance(outAfter);
     for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
@@ -595,22 +600,24 @@ Test.add('progress', (check) => {
   };
   const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
   try {
-    // The Play screen's own setup: unnamed bots, named and tiered by seat.
+    // The Play screen's own setup: roster bots, seated by the queue after each duel.
     Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
     Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'duel', bots: 3, difficulty: 'veteran' }), () => 0.5));
+    const seated = Game.match.setup.bots.map((bot) => CAT.bots.byId(bot.profile).name);
+    const rotated = [seated[1], seated[2], seated[0]].join();
     const before = tiers();
     Modes.finish(Game.playerId);
     const queue = Game.match.results.queue.slice(), change = Game.match.results.botTierChange;
     PlayFlow.playAgain();
     const after = tiers();
     check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === queue[1]
-      && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+      && Game.match.setup.bots.map((bot) => bot.name).join() === rotated);
     check('duel queue: every bot keeps its tier through the reseat, plus the adaptive change', change === 1
       && Object.keys(before).every((name) => after[name] === clamp(before[name] + change, 0, BOT_TIER_COUNT - 1)));
     const winner = Actors.name[opponent()];
     Modes.finish(opponent());
     PlayFlow.playAgain();
-    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === rotated);
   } finally {
     Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
     Game.stop();
@@ -833,5 +840,70 @@ Test.add('progress', (check) => {
   check('cards: versus without Cards Allowed runs no cards', Game.match.rules.cards.ids.length === 0 && CardRun.holder === CARD_NO_HOLDER);
   progressCardMatch(['stoneskin', 'slowtide'], { modeOptions: {}, mutators: ['cards'] });
   check('cards: versus with X48 runs only the versus cards', Game.match.rules.cards.ids.join() === 'stoneskin');
+  Game.stop();
+});
+
+// ---- Fairness and data: Patron's free cards, operation XP, absence cards, explosions, map stats, mastery rows ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), kept = { marks: record.marks, active: record.active, passive: record.passive }, unlockAll = Settings.get('progress.unlockAll');
+  const cost = (id) => CAT.cards.byId(id).cost, place = (marks) => { record.active = []; record.passive = []; record.marks = marks; ['freecards', 'stoneskin', 'fleet'].forEach((id) => Cards.equip(id)); Cards.unequip('freecards'); };
+  Settings.set('progress.unlockAll', true);
+  try {
+    place(1000);
+    check('patron: removing it charges the cards it placed free', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    place(120);
+    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 120 - cost('stoneskin'));
+  } finally {
+    Settings.set('progress.unlockAll', unlockAll);
+    Object.assign(record, kept);
+  }
+  Operations.reset('ironcoast'); Operations.start('ironcoast'); Modes.finish(1);
+  check('operation: an idle lost map pays no stage XP', Progress.lastAward.xp === 0, Progress.lastAward.xp);
+  Operations.reset('ironcoast'); Operations.start('ironcoast');
+  const enemy = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => Actors.team[id] === 1);
+  for (let kill = 0; kill < 3; kill++) progressKill(enemy, Game.playerId);
+  progressAdvance(PROGRESS_XP.minimumSeconds + 5);
+  Modes.finish(0);
+  check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
+  Operations.reset('ironcoast');
+  Game.stop();
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
+  const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'], met = (metrics) => absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, metrics));
+  check('cards: a level without a kill unlocks no absence card, one with a fight does', met(pacifist).length === 0 && met(Object.assign({}, pacifist, { kills: 3 })).length === 5, met(pacifist).join());
+  progressCardMatch([], { modeOptions: {} });
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId, source: 'frag', element: 'kinetic' });
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId + 1, source: 'frag', element: 'kinetic' });
+  emitGadgetPop(CAT.gadgets.byId('smoke'), Game.playerId, 0, 0, 0);
+  check('cards: an explosion the player caused counts as explosive use, a smoke pop does not', RunLog.explosiveShots === 1, RunLog.explosiveShots);
+  Game.stop();
+  const maps = Progress.stats().maps, keptMaps = JSON.stringify(maps);
+  try {
+    for (const key of Object.keys(maps)) delete maps[key];
+    progressWithPlayer(() => {
+      for (const map of [{ id: 'gen101', gen: true }, { id: 'gen102', gen: true }, { id: 'user2' }, { id: 'draft' }, CAT.maps[0]]) Progress.recordStats({ map, results: progressTestResults({}) });
+    });
+    check('stats: generated and custom maps share one row each', Object.keys(maps).sort().join() === ['custom', 'generated', CAT.maps[0].id].sort().join() && maps.generated.played === 2 && maps.custom.played === 2);
+    check('stats: groups and maps are listed by name', careerMapName('generated') === 'Generated maps' && careerMapName('custom') === 'Custom maps' && careerMapName(CAT.maps[0].id) === CAT.maps[0].name);
+  } finally {
+    for (const key of Object.keys(maps)) delete maps[key];
+    Object.assign(maps, JSON.parse(keptMaps));
+  }
+  check('mastery: each tier reward is its one unlock row', MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value; }) && CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
+  check('rooms: a room named after a map plays on that map', CAT.challenges.every((room) => !/Keep/.test(room.name) || room.map === 'twinkeeps'));
+  const wrong = CAT.challenges.filter((room) => !PROGRESS_TEST_ROOM_MODES[room.kind].includes(room.mode)).map((room) => room.code);
+  check('rooms: room kinds map to modes per the spec table (waves on Siege Waves, ghost runs on Silent Contract, a course on the range)', wrong.length === 0
+    && CAT.challenges.some((room) => room.mode === 'range' && room.map === 'provinggrounds'), wrong.join());
+});
+
+// ---- PvE rooms end: a wave room after its waves, the range course at its clock, both as a win ----
+Test.add('progress', (check) => {
+  Challenges.start('holdout', false);
+  const run = Modes.behaviour.run, room = CAT.challenges.byId('holdout');
+  runUntil(() => !Modes.active, 400, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(Game.playerId); });
+  check('rooms: a wave room ends as a win once its waves are cleared', !Modes.active && run.wave === room.waves && Progress.outcome(Game.match.results) === 'win' && PVE_HUD.waves === room.waves, run.wave);
+  Challenges.start('markYard', false);
+  progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
+  Sim.run(1);
+  check('rooms: the range course ends as a win at its clock', !Modes.active && Progress.outcome(Game.match.results) === 'win');
   Game.stop();
 });

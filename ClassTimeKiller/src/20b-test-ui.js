@@ -567,3 +567,40 @@ Test.add('ui', (check) => uiWith(() => {
     RotateGuard.update();
   }
 }));
+
+// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
+const UI_PHONE_SIZES = [[375, 548], [568, 320], [724, 340]];
+const UI_PHONE_SCREENS = ['main', 'solo', 'career', 'ladder', 'challenges', 'operations', 'daily', 'cards', 'stats', 'profile', 'play', 'mapgen'];
+// The controls of a screen that are outside `bounds` and not inside a scroll container that is within it.
+function uiUnreachable(screen, bounds) {
+  const inside = (box) => box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+  return Ui.focusables(screen).filter((item) => {
+    let holder = item.parentElement;
+    while (holder !== screen && !/auto|scroll/.test(getComputedStyle(holder).overflowY)) holder = holder.parentElement;
+    return !inside(item.getBoundingClientRect()) && !(holder !== screen && inside(holder.getBoundingClientRect()));
+  }).map((item) => item.textContent.slice(0, 20));
+}
+Test.add('ui', (check) => uiWith(() => {
+  const style = Ui.root.style;
+  try {
+    for (const [width, height] of UI_PHONE_SIZES) {
+      Object.assign(style, { right: 'auto', bottom: 'auto', width: width + 'px', height: height + 'px', transform: 'translateZ(0)' });   // the box the fixed screens fill
+      const failed = [];
+      for (const name of UI_PHONE_SCREENS) {
+        Ui.open(name);
+        const hidden = uiUnreachable(Ui.top().element, Ui.root.getBoundingClientRect());
+        if (hidden.length) failed.push(name + ': ' + hidden.slice(0, 3).join('/'));
+        Ui.closeAll();
+      }
+      check('phone ' + width + 'x' + height + ': every control is on screen or in a scroll container', failed.length === 0, failed.join('; '));
+    }
+    Ui.open('career');
+    const labels = Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
+    check('career: Solo links to the PvE modes and the range, which are not repeated', labels.includes('Solo') && !labels.includes('Firing Range') && !labels.includes('Siege Waves'), labels.join());
+    Ui.closeAll();
+    const styles = document.getElementById('ui-style').textContent;
+    check('layout: the focus ring shows for keyboard and pad only, sliders are touch sized', styles.includes('.ui-button:focus-visible') && !/\.ui-button:focus[ ,]/.test(styles) && styles.includes('accent-color: var(--ui-accent); min-height: 44px'));
+  } finally {
+    Object.assign(style, { right: '', bottom: '', width: '', height: '', transform: '' });
+  }
+}));

@@ -5,6 +5,7 @@
 
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
+const MAPGEN_MENU_BUSY_TEXT = 'Generating...';
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
   + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
@@ -59,10 +60,10 @@ const MapGenMenu = {
     const map = this.state.map || this.generate();
     return map.modes.includes(this.state.mode) ? this.state.mode : map.modes[0];
   },
-  // Game.start setup for the generated map: the default bots of the mode, the player on team 0 in team modes.
+  // Game.start setup for the generated map: the mode's default number of named roster bots (as Quick Match), the player on team 0 in team modes.
   setup() {
-    const mode = this.matchMode(), row = CAT.modes.byId(mode);
-    return { mode, map: this.state.map, seed: this.state.seed, bots: Modes.defaultBots(mode, true), player: row.teams === 2 ? { team: 0 } : {} };
+    const mode = this.matchMode(), row = CAT.modes.byId(mode), bots = PlayFlow.rosterBots(Modes.defaultBots(mode, true).length, PLAY_DEFAULT_DIFFICULTY, this.state.seed);
+    return { mode, map: this.state.map, seed: this.state.seed, bots, player: row.teams === 2 ? { team: 0 } : {} };
   },
   describe() {
     const map = this.state.map, report = this.state.report, notice = this.state.notice ? this.state.notice + '\n' : '';
@@ -139,12 +140,25 @@ Ui.register('mapgen', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Generated Map'));
     const list = makeElement('div', 'ui-scroll'), status = makeElement('p', 'ui-note mg-status'), foot = makeElement('div', 'ui-foot');
-    const generate = Ui.button('Generate', () => { MapGenMenu.generate(); mapgenMenuRender(list, status); });
-    const play = Ui.button('Play', () => {
+    const buttons = [];
+    // Generating can take a second on a phone: say so, hold both buttons and let the screen repaint before the work starts (the map check does the same).
+    const whenGenerated = (work) => () => {
+      status.textContent = MAPGEN_MENU_BUSY_TEXT;
+      const focused = buttons.includes(document.activeElement) ? document.activeElement : null;
+      buttons.forEach((button) => { button.disabled = true; });
+      setTimeout(() => {
+        buttons.forEach((button) => { button.disabled = false; });
+        if (focused) focused.focus();
+        if (status.isConnected) work();   // the player may have left the screen meanwhile
+      }, 0);
+    };
+    const generate = Ui.button('Generate', whenGenerated(() => { MapGenMenu.generate(); mapgenMenuRender(list, status); }));
+    const play = Ui.button('Play', whenGenerated(() => {
       const setup = MapGenMenu.setup();
       Ui.closeAll();
       Game.start(setup);
-    }, 'primary');
+    }), 'primary');
+    buttons.push(generate, play);
     play.dataset.autofocus = '1';
     foot.appendChild(play);
     foot.appendChild(generate);

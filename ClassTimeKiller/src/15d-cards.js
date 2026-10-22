@@ -53,8 +53,22 @@ const Cards = {
     if (index < 0) return false;
     this.record().marks += Math.floor(list[index].paid * CARD_REFUND);
     list.splice(index, 1);
+    if (id === 'freecards') this.chargeFreePlacements();
     Save.scheduleSave();
     return true;
+  },
+  // Patron is gone: the cards it placed for free now cost their price; one the Marks cannot cover is taken off (no refund).
+  chargeFreePlacements() {
+    for (const type of Object.keys(CARD_SLOTS)) {
+      this.record()[type] = this.equipped(type).filter((entry) => {   // in the order they were placed
+        const cost = CAT.cards.byId(entry.id).cost;
+        if (entry.paid >= cost) return true;
+        if (this.marks() < cost) return false;
+        this.record().marks -= cost;
+        entry.paid = cost;
+        return true;
+      });
+    }
   },
   addMarks(amount) { this.record().marks += Math.max(0, Math.round(amount)); Save.scheduleSave(); },
   // The cards a match runs with: setup.cards (tests, a run that names them) or the placed ones; PvE always, versus only with X48.

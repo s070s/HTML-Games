@@ -43,6 +43,15 @@ const MEDAL_RULES = {
   comebackDeaths: 3, defendRadius: 10, longShotMetres: 50, clutchEnemies: 2, railHits: 2, railWeapons: ['lancet'],
 };
 
+// Weapon mastery (PRG-014): per weapon, kills and headshots reach a tier; each tier unlocks its `reward` (an UNLOCK_ROWS row below,
+// built from here: the one place the mastery colours live).
+const MASTERY_TIERS = [
+  { id: 'bronze', name: 'Bronze', kills: 25, headshots: 0, reward: { id: 'colorBronzeMastery', name: 'Bronze Mastery', kind: 'color', value: 0xb07a4a } },
+  { id: 'silver', name: 'Silver', kills: 75, headshots: 15, reward: { id: 'colorSilverMastery', name: 'Silver Mastery', kind: 'color', value: 0xc4ccd4 } },
+  { id: 'gold', name: 'Gold', kills: 150, headshots: 40, reward: { id: 'colorGoldMastery', name: 'Gold Mastery', kind: 'color', value: 0xe8c250 } },
+  { id: 'master', name: 'Master', kills: 300, headshots: 100, reward: { id: 'finishMasterGlow', name: 'Master Glow', kind: 'finish', value: 0.65 } },
+];
+
 // ---- Unlocks (PRG-010, PRG-011): cosmetics and sidegrades only. kind: 'color' (body colour), 'finish' (body glow),
 // 'title' (profile title), 'challenge' (a Challenge Room opens), 'card' (a card can be placed). Reached by level (<= 30)
 // or by one named challenge: `mastery` (a weapon mastery tier, PRG-014) or `card` (the card's own play-style condition).
@@ -71,21 +80,10 @@ const UNLOCK_ROWS = [
   { id: 'titleElite', name: 'Elite', kind: 'title', level: 26, value: 'Elite' },
   { id: 'colorRoyal', name: 'Royal', kind: 'color', level: 28, value: 0x4b3fb8 },
   { id: 'titleLegend', name: 'Legend', kind: 'title', level: 30, value: 'Legend' },
-  { id: 'colorBronzeMastery', name: 'Bronze Mastery', kind: 'color', mastery: 'bronze', value: 0xb07a4a },
-  { id: 'colorSilverMastery', name: 'Silver Mastery', kind: 'color', mastery: 'silver', value: 0xc4ccd4 },
-  { id: 'colorGoldMastery', name: 'Gold Mastery', kind: 'color', mastery: 'gold', value: 0xe8c250 },
-  { id: 'finishMasterGlow', name: 'Master Glow', kind: 'finish', mastery: 'master', value: 0.65 },
+  ...MASTERY_TIERS.map((tier) => Object.assign({ mastery: tier.id }, tier.reward)),
   { id: 'roomsTier2', name: 'Challenge Rooms 6-10', kind: 'challenge', level: 4, value: 2 },
   { id: 'roomsTier3', name: 'Challenge Rooms 11-15', kind: 'challenge', level: 9, value: 3 },
   { id: 'roomsTier4', name: 'Challenge Rooms 16-20', kind: 'challenge', level: 16, value: 4 },
-];
-
-// Weapon mastery (PRG-014): per weapon, kills and headshots reach a tier; each tier unlocks the mastery colours above.
-const MASTERY_TIERS = [
-  { id: 'bronze', name: 'Bronze', kills: 25, headshots: 0, color: 0xb07a4a },
-  { id: 'silver', name: 'Silver', kills: 75, headshots: 15, color: 0xc4ccd4 },
-  { id: 'gold', name: 'Gold', kills: 150, headshots: 40, color: 0xe8c250 },
-  { id: 'master', name: 'Master', kills: 300, headshots: 100, color: 0x7fe0ff },
 ];
 
 // ---- Cards (spec 15 card table, MIS-035): 3 active slots (each used once per level, 30 s) + 2 passive slots; placing costs
@@ -104,21 +102,21 @@ const CARD_ROWS = [
   { id: 'soulkeep', code: 'C03', name: 'Soulkeep', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulLife', value: 3 }, text: 'Souls last x3.', unlock: { metric: 'enemiesLeft', op: '==', value: 0, text: 'Kill all enemies in a level.' } },
   { id: 'longwick', code: 'C04', name: 'Longwick', type: 'passive', cost: 100, versus: true, effect: { kind: 'activeSeconds', value: 10 }, text: 'Active cards last 10 s longer.', unlock: { metric: 'marks', op: '>=', value: 500, text: 'Collect 500 Marks in a level.' } },
   { id: 'blessing', code: 'C05', name: 'Hale Start', type: 'passive', cost: 200, versus: true, effect: { kind: 'startHealth', value: 150 }, text: 'Start with 150 HP.', unlock: { metric: 'bossSeconds', op: '<', value: 120, text: 'Defeat a boss in under 2:00.' } },
-  { id: 'refill', code: 'C06', name: 'Deep Pockets', type: 'passive', cost: 500, versus: true, effect: { kind: 'ammoPickup', value: 2 }, text: 'Ammo pickups give twice as much.', unlock: { metric: 'explosiveShots', op: '==', value: 0, text: 'Finish a level without explosives.' } },
+  { id: 'refill', code: 'C06', name: 'Deep Pockets', type: 'passive', cost: 500, versus: true, effect: { kind: 'ammoPickup', value: 2 }, text: 'Ammo pickups give twice as much.', unlock: { metric: 'explosiveShots', op: '==', value: 0, minKills: 1, text: 'Finish a level without explosives.' } },
   { id: 'fleet', code: 'C07', name: 'Fleetfoot', type: 'active', cost: 100, versus: true, effect: { kind: 'speed', value: 1.3 }, text: 'Speed x1.3.', unlock: { metric: 'souls', op: '>=', value: 100, text: 'Collect 100 souls in a level.' } },
   { id: 'fury2', code: 'C08', name: 'Twin Fury', type: 'active', cost: 200, versus: true, effect: { kind: 'damage', value: 2 }, text: 'Damage x2.', unlock: { metric: 'rangedKills', op: '==', value: 0, minKills: 1, text: 'Finish a level with melee kills only.' } },
   { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'secretsLeft', op: '==', value: 0, text: 'Find all secrets in a level.' } },
   { id: 'rapid', code: 'C10', name: 'Rapid Hands', type: 'active', cost: 300, versus: true, effect: { kind: 'rate', value: 2 }, text: 'Fire rate x2.', unlock: { metric: 'bossSeconds', op: '<', value: 240, text: 'Defeat a boss in under 4:00.' } },
-  { id: 'magnet', code: 'C11', name: 'Soul Magnet', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulMagnet', value: 15 }, text: 'Souls fly to you from 15 m.', unlock: { metric: 'souls', op: '==', value: 0, text: 'Finish a level without collecting souls.' } },
+  { id: 'magnet', code: 'C11', name: 'Soul Magnet', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulMagnet', value: 15 }, text: 'Souls fly to you from 15 m.', unlock: { metric: 'souls', op: '==', value: 0, minKills: 1, text: 'Finish a level without collecting souls.' } },
   { id: 'encore', code: 'C12', name: 'Encore', type: 'passive', cost: 1000, versus: true, effect: { kind: 'activeUses', value: 2 }, text: 'Active cards can be used twice.', unlock: { metric: 'wrathKills', op: '>=', value: 30, text: 'Get 30 kills in Wrath Form.' } },
   { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'optionalLeft', op: '==', value: 0, text: 'Kill all optional enemies in a level.' } },
   { id: 'ironwill', code: 'C14', name: 'Iron Will', type: 'active', cost: 666, versus: false, effect: { kind: 'invulnerable', value: 1 }, text: 'Invulnerable.', unlock: { metric: 'bossSeconds', op: '<', value: 80, text: 'Defeat a boss in under 1:20.' } },
   { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'secretsLeft', op: '==', value: 0, deaths: 0, text: 'Find all secrets in a level without dying.' } },
-  { id: 'hardy', code: 'C16', name: 'Hardy', type: 'passive', cost: 100, versus: true, effect: { kind: 'baseHealth', value: 150 }, text: 'Base HP 150.', unlock: { metric: 'armorPickups', op: '==', value: 0, text: 'Finish a level without armor pickups.' } },
-  { id: 'freecards', code: 'C17', name: 'Patron', type: 'passive', cost: 0, versus: true, effect: { kind: 'freePlacement', value: 1 }, text: 'Cards are placed for free.', unlock: { metric: 'cardsEquipped', op: '==', value: 0, text: 'Finish a level with no cards.' } },
+  { id: 'hardy', code: 'C16', name: 'Hardy', type: 'passive', cost: 100, versus: true, effect: { kind: 'baseHealth', value: 150 }, text: 'Base HP 150.', unlock: { metric: 'armorPickups', op: '==', value: 0, minKills: 1, text: 'Finish a level without armor pickups.' } },
+  { id: 'freecards', code: 'C17', name: 'Patron', type: 'passive', cost: 0, versus: true, effect: { kind: 'freePlacement', value: 1 }, text: 'Cards are placed for free.', unlock: { metric: 'cardsEquipped', op: '==', value: 0, minKills: 1, text: 'Finish a level with no cards.' } },
   { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'secretsLeft', op: '==', value: 0, hard: true, text: 'Find all secrets in a level on a hard difficulty.' } },
   { id: 'discord', code: 'C19', name: 'Discord', type: 'active', cost: 200, versus: false, effect: { kind: 'discord', value: 15 }, text: 'Enemies fight each other for 15 s.', unlock: { metric: 'wrathForms', op: '>=', value: 3, text: 'Enter Wrath Form 3 times in a level.' } },
-  { id: 'redeemer', code: 'C20', name: 'Soul Feast', type: 'passive', cost: 1000, versus: false, effect: { kind: 'soulHeal', value: 2 }, text: 'Souls heal twice as much.', unlock: { metric: 'lowestHealth', op: '>', value: 50, text: 'Keep HP above 50 for a whole level.' } },
+  { id: 'redeemer', code: 'C20', name: 'Soul Feast', type: 'passive', cost: 1000, versus: false, effect: { kind: 'soulHeal', value: 2 }, text: 'Souls heal twice as much.', unlock: { metric: 'lowestHealth', op: '>', value: 50, minKills: 1, text: 'Keep HP above 50 for a whole level.' } },
   { id: 'endless', code: 'C21', name: 'Endless Clip', type: 'active', cost: 300, versus: true, effect: { kind: 'noAmmoUse', value: 1 }, text: 'Shots use no ammo.', unlock: { metric: 'kills', op: '<=', value: 88, minKills: 1, text: 'Finish a level with 88 kills or fewer.' } },
   { id: 'onehp', code: 'C22', name: 'Brittle Foes', type: 'active', cost: 300, versus: false, effect: { kind: 'brittleFoes', value: 1 }, text: 'Every hit on an enemy is lethal.', unlock: { metric: 'weaponsUsed', op: '==', value: 1, text: 'Finish a level with a single weapon.' } },
   { id: 'regenhp', code: 'C23', name: 'Mending', type: 'passive', cost: 1000, versus: true, effect: { kind: 'regen', value: 75, rate: 3 }, text: 'HP regrows to 75 at 3 per second.', unlock: { metric: 'bossSeconds', op: '<', value: 240, hard: true, text: 'Defeat a boss in under 4:00 on a hard difficulty.' } },
@@ -178,7 +176,9 @@ Data.define('ladder', { id: REQUIRED, code: REQUIRED, name: REQUIRED, tier: REQU
 // ---- Challenge Rooms (PRG-004): 20 trials, points from the run metrics x `points` weights (underPar = seconds left of `par`),
 // 1-3 stars at `stars` thresholds (10,000 points per star), an Expert version once 2 stars are earned (bots `expertTier`
 // tiers up and the `expert` mutators, else its kind's CHALLENGE_EXPERT_MUTATORS). group: the room block that a level unlock
-// opens (1 = from the start).
+// opens (1 = from the start). Wave survival plays Siege Waves and ends as a win after `waves` cleared waves; a ghost run is a
+// Silent Contract; the range course ends as a win at its time limit (15c ChallengeRun: those modes keep no end of their own).
+// expertTier 0 where the bots are allies (an Expert room must not get stronger help).
 const CHALLENGE_STARS = [10000, 20000, 30000];
 const CHALLENGE_EXPERT_STARS = 2;
 const CHALLENGE_DIFFICULTY = { normal: 'regular', expert: 'veteran' };   // bot sliders of a normal / Expert room
@@ -191,27 +191,27 @@ const CHALLENGE_EXPERT_MUTATORS = {
 };
 Data.define('challenges', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, group: 1, mode: REQUIRED, map: REQUIRED, bots: REQUIRED, tier: 0,
-  options: {}, mutators: [], par: 0, points: REQUIRED, stars: CHALLENGE_STARS, expertTier: 2, expert: [], text: '',
+  options: {}, mutators: [], par: 0, waves: 0, points: REQUIRED, stars: CHALLENGE_STARS, expertTier: 2, expert: [], text: '',
 }, [
   { id: 'sprint', code: 'CR01', name: 'Spire Sprint', kind: 'timeTrial', mode: 'ffa', map: 'spire', bots: 3, tier: 0, options: { scoreLimit: 5, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 220 }, text: 'Five kills, as fast as you can.' },
   { id: 'chainYard', code: 'CR02', name: 'Yard Chain', kind: 'killChain', mode: 'ffa', map: 'skyyard', bots: 5, tier: 0, options: { scoreLimit: 12, timeLimit: 300 }, points: { bestStreak: 2500, kills: 500 }, text: 'Build the longest chain of kills without dying.' },
-  { id: 'holdout', code: 'CR03', name: 'Holdout', kind: 'waveSurvival', mode: 'ffa', map: 'gantry', bots: 6, tier: 0, options: { scoreLimit: 0, timeLimit: 300 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1200, seconds: 40, won: 6000 }, text: 'Three lives. Outlast everyone.' },
+  { id: 'holdout', code: 'CR03', name: 'Holdout', kind: 'waveSurvival', mode: 'horde', map: 'cistern', bots: 3, tier: 0, waves: 3, expertTier: 0, points: { won: 22000, kills: 450, damageTaken: -10 }, text: 'Hold the core for three waves.' },
   { id: 'dropZone', code: 'CR04', name: 'Drop Zone', kind: 'dropKill', mode: 'ffa', map: 'gantry', bots: 4, tier: 0, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['multijump'], points: { airKills: 3000, kills: 500 }, text: 'Kills while airborne count most.' },
-  { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 500 }, text: 'Every miss costs you points.' },
-  { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 3500, damageTaken: -30, underPar: 110 }, text: 'Win without getting hit.' },
+  { id: 'markYard', code: 'CR05', name: 'Marksman Course', kind: 'accuracy', mode: 'range', map: 'provinggrounds', bots: 0, tier: 0, expertTier: 0, options: { timeLimit: 90 }, points: { accuracy: 22000, headshots: 250, kills: 150 }, text: 'Ninety seconds on the range: every miss costs you points.' },
+  { id: 'quietSpire', code: 'CR06', name: 'Quiet Manor', kind: 'ghostRun', group: 2, mode: 'contract', map: 'manor', bots: 0, tier: 1, expertTier: 0, par: 240, points: { won: 16000, damageTaken: -40, underPar: 120 }, text: 'Take the relic and leave, unseen and unhurt.' },
   { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 2500, underPar: 110 }, text: 'Eight kills against the clock.' },
-  { id: 'chainKeeps', code: 'CR08', name: 'Keep Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
+  { id: 'chainKeeps', code: 'CR08', name: 'Gantry Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
   { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1900, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
-  { id: 'lastLight', code: 'CR10', name: 'Last Light', kind: 'waveSurvival', group: 2, mode: 'ffa', map: 'skyyard', bots: 7, tier: 1, options: { scoreLimit: 0, timeLimit: 360 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 35, won: 7000 }, text: 'Last one standing on the yard.' },
+  { id: 'lastLight', code: 'CR10', name: 'Last Light', kind: 'waveSurvival', group: 2, mode: 'horde', map: 'cistern', bots: 2, tier: 1, waves: 4, expertTier: 0, points: { won: 20000, kills: 420, damageTaken: -8 }, text: 'Four waves, two allies, one core.' },
   { id: 'skyDuel', code: 'CR11', name: 'Sky Duel', kind: 'dropKill', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['aircontrol', 'multijump'], points: { airKills: 3200, kills: 400 }, text: 'Take the fight to the air.' },
   { id: 'oneShot', code: 'CR12', name: 'One Shot', kind: 'accuracy', group: 3, mode: 'ffa', map: 'gantry', bots: 5, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['oneshot'], points: { accuracy: 18000, kills: 1300 }, text: 'One-shot rails: do not miss.' },
-  { id: 'shadowYard', code: 'CR13', name: 'Shadow Yard', kind: 'ghostRun', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 8, timeLimit: 300 }, par: 210, points: { kills: 2800, damageTaken: -25, underPar: 80 }, text: 'Strike from the shadows and stay unhurt.' },
+  { id: 'shadowYard', code: 'CR13', name: 'Shadow Manor', kind: 'ghostRun', group: 3, mode: 'contract', map: 'manor', bots: 0, tier: 2, expertTier: 0, par: 180, mutators: [{ id: 'dmgin', value: 200 }], expert: ['suppression', 'nopowerups'], points: { won: 16000, damageTaken: -30, underPar: 160 }, text: 'The guards hit twice as hard: stay in the shadows.' },
   { id: 'duelRush', code: 'CR14', name: 'Duel Rush', kind: 'timeTrial', group: 3, mode: 'duel', map: 'spire', bots: 1, tier: 2, options: { scoreLimit: 7, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 130, deaths: -800 }, text: 'Seven kills in a duel, fast.' },
   { id: 'packHunt', code: 'CR15', name: 'Pack Hunt', kind: 'killChain', group: 3, mode: 'ffa', map: 'skyyard', bots: 7, tier: 2, options: { scoreLimit: 20, timeLimit: 420 }, points: { bestStreak: 2000, kills: 400 }, text: 'A crowd to chain through.' },
-  { id: 'ironRing', code: 'CR16', name: 'Iron Ring', kind: 'waveSurvival', group: 4, mode: 'ffa', map: 'gantry', bots: 8, tier: 3, options: { scoreLimit: 0, timeLimit: 420 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 30, won: 8000 }, text: 'Eight tough rivals, three lives.' },
+  { id: 'ironRing', code: 'CR16', name: 'Iron Ring', kind: 'waveSurvival', group: 4, mode: 'horde', map: 'cistern', bots: 1, tier: 3, waves: 5, expertTier: 0, points: { won: 18000, kills: 400, damageTaken: -6 }, text: 'Five waves with a single ally.' },
   { id: 'freefall', code: 'CR17', name: 'Freefall', kind: 'dropKill', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 12, timeLimit: 360 }, mutators: ['gravity'], points: { airKills: 2800, kills: 500 }, text: 'Low gravity, long falls.' },
   { id: 'headHunter', code: 'CR18', name: 'Head Hunter', kind: 'accuracy', group: 4, mode: 'ffa', map: 'skyyard', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['headonly'], points: { headshots: 2000, accuracy: 10000 }, text: 'Only headshots hurt.' },
-  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 360 }, par: 240, points: { kills: 2300, damageTaken: -20, underPar: 70 }, text: 'Ten kills, untouched.' },
+  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'contract', map: 'manor', bots: 0, tier: 3, expertTier: 0, par: 150, mutators: [{ id: 'dmgin', value: 400 }], expert: ['suppression', 'nopowerups'], points: { won: 16000, damageTaken: -20, underPar: 200 }, text: 'Four times the damage: one mistake ends it.' },
   { id: 'gauntlet', code: 'CR20', name: 'The Gauntlet', kind: 'timeTrial', group: 4, mode: 'ffa', map: 'skyyard', bots: 7, tier: 3, options: { scoreLimit: 12, timeLimit: 420 }, par: 300, points: { kills: 1800, underPar: 70, deaths: -1000 }, text: 'Twelve kills against the best, against the clock.' },
 ]);
 
