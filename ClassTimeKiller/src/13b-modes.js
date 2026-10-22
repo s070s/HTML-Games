@@ -821,7 +821,7 @@ function makeObjective(source, index) {
 }
 
 function withinTouch(id, x, y, z, radius) {
-  return Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) <= radius;
+  return Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && length2(Actors.x[id] - x, Actors.z[id] - z) <= radius;
 }
 
 function holdsUse(id) { return (Actors.buttons[id] & BTN.USE) !== 0; }

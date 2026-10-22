@@ -197,7 +197,26 @@ const SCALE_CEILING_WAIT_SECONDS = 30;   // first retry above such a scale; the 
 const GPU_BUDGET_MS = 6;                 // PERF-003
 const FRAME_BUDGET_MS = 1000 / 60;       // PERF-001 hard floor, used when no GPU timer exists
 const FRAME_BUDGET_TOLERANCE = 1.08;     // a missed vsync shows up as > 8% over the interval
-const FRAME_SMOOTHING = 0.15;
+const FRAME_SMOOTHING_SECONDS = 0.1;     // time constant of the smoothed frame interval (the same response at 60, 90, 120 or 144 Hz)
+const REFRESH_SAMPLE_FRAMES = 120;       // menu frames per display-interval measurement
+const REFRESH_MIN_MS = 1000 / 240, REFRESH_MAX_MS = 1000 / 24;
+
+// ---- Display interval (non-60 Hz screens): the menu is light, so its frames run at the display's own rate. A display
+// slower than 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame
+// budget, so the scale and the preset are not lowered for frames no setting could make faster. ----
+const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0 };
+
+function measureDisplayRate(seconds) {
+  if (Game.state !== 'menu' || Benchmark.active || !(seconds > 0)) return;
+  const rate = DisplayRate;
+  rate.samples[rate.count++] = seconds * 1000;
+  if (rate.count < REFRESH_SAMPLE_FRAMES) return;
+  rate.count = 0;
+  rate.intervalMs = clamp(rate.samples.sort()[REFRESH_SAMPLE_FRAMES >> 1], REFRESH_MIN_MS, REFRESH_MAX_MS);
+}
+
+// The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval.
+function slowFrameMs() { return Math.max(FRAME_BUDGET_MS, DisplayRate.intervalMs) * FRAME_BUDGET_TOLERANCE; }
 
 // Controller state. `ceiling` = the highest scale known to hold the budget for this preset and screen size.
 function makeScaleControl() {
@@ -253,7 +272,9 @@ function raiseScale(control, scale, high) {
 
 function updateRenderScale(seconds) {
   const control = ScaleControl, size = Render.size, quality = Render.quality, config = Render.config;
-  control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, FRAME_SMOOTHING); // seconds = frame interval
+  measureDisplayRate(seconds);
+  const blend = 1 - Math.exp(-seconds / FRAME_SMOOTHING_SECONDS);
+  control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, blend); // seconds = frame interval
   if (control.quality !== quality || control.width !== size.width || control.height !== size.height) {
     resetScaleCeiling(control);
     control.quality = quality; control.width = size.width; control.height = size.height;
@@ -263,7 +284,7 @@ function updateRenderScale(seconds) {
   if (Benchmark.active) scale = 1;
   else if (config.renderScale !== 'auto') scale = config.renderScale;
   else if (GpuTimer.extension) scale = stepRenderScale(control, GpuTimer.lastMs, GPU_BUDGET_MS, GPU_BUDGET_MS * SCALE_RAISE_FRACTION, seconds, scale, low, high);
-  else scale = stepRenderScale(control, control.smoothedMs, SLOW_FRAME_MS, SLOW_FRAME_MS, seconds, scale, low, high);
+  else scale = stepRenderScale(control, control.smoothedMs, slowFrameMs(), slowFrameMs(), seconds, scale, low, high);
   if (Math.abs(scale - size.scale) < 1e-4) return;
   size.scale = scale;
   size.dirty = true;
@@ -272,7 +293,6 @@ Render.addUpdate(2, updateRenderScale);
 
 // ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it ----
 const STEP_DOWN_SECONDS = 5;
-const SLOW_FRAME_MS = FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE;
 const StepDown = { slowSeconds: 0 };
 
 function lowerQualityStep() {
@@ -292,7 +312,7 @@ function scaleHeadroomLeft() {
 }
 
 function updateStepDown(seconds) {
-  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= SLOW_FRAME_MS || scaleHeadroomLeft()) { StepDown.slowSeconds = 0; return; }
+  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= slowFrameMs() || scaleHeadroomLeft()) { StepDown.slowSeconds = 0; return; }
   StepDown.slowSeconds += seconds;
   if (StepDown.slowSeconds < STEP_DOWN_SECONDS) return;
   StepDown.slowSeconds = 0;

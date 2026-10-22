@@ -60,7 +60,7 @@ Naming: `camelCase` functions, `UPPER_SNAKE` constants, data IDs as lowercase st
 
 | Checkpoint | Limit | Measured where |
 |---|---|---|
-| File size | Plan targets (the spec sets no HTML size limit; saves <= 1 MB per ARC-020): Phase 0 < 60 KB · Slice (M1) < 400 KB · Phase 10 < 1.2 MB · M3 < 2.0 MB · Release < 3.0 MB uncompressed, readable code, no minifier (the build leaves out comment-only lines, D06) | `__CTK.size()` + file system |
+| File size | Plan targets (the spec sets no HTML size limit; saves <= 1 MB per ARC-020): Phase 0 < 60 KB · Slice (M1) < 400 KB · Phase 10 < 1.2 MB · M3 < 2.0 MB · Release <= 3.5 MB uncompressed (D07: the release target is 3.5 MB; `tools/build.mjs` warns above 3.0 MB and fails above 3.5 MB), readable code, no minifier (the build leaves out comment-only lines, D06) | `tools/build.mjs` size line + file system |
 | Frame time | p95 <= 8.3 ms and p99 <= 12 ms on L and P at the phase's test scene; never a frame > 16.6 ms in a 60 s steady scene | perf HUD + `__CTK.perf.run(scene, seconds)` |
 | Sim tick cost | p95 <= 2.0 ms (PERF-002: movement 0.5, AI 1.0, projectiles 0.3, rules 0.2) at the preset's bot cap (PERF-009) | `__CTK.perf.sim()` headless |
 | GPU / draw calls | GPU <= 6.0 ms (PERF-003); draw calls and triangles per preset Ultra..Potato (PERF-004); <= 8 shader programs (PERF-005) | perf HUD (PERF-012) |

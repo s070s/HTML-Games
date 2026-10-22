@@ -40,7 +40,7 @@ Performance HUD (F10, PERF-012 and ARC-040; on touch use the debug toggle in Set
 |---|---|
 | `__CTK.version` | Build string (test hook; fallback: version text on the main menu) |
 | `__CTK.selfTest()` | ARC-030: runs the built-in checks, returns {total, failed, results[]}; also Help > "Run self-test" |
-| `__CTK.perf` | ARC-040: performance data behind the F10 HUD (frame ms, sim/AI/render/HUD ms, GPU ms, draw calls, heap); p50/p99 over 600 frames is a test hook |
+| `__CTK.perf` | ARC-040: performance data behind the F10 HUD (frame ms, sim/AI/render/HUD ms, GPU ms, draw calls, heap); p50/p99 over 600 frames is a test hook; `scenes()`, `scene(name, qualityId, { autoLower })`, `record(seconds)`, `info()`, `stop()` drive the worst-case scenes of `tools/perf.mjs` (docs/PERFORMANCE.md) |
 | `__CTK.soak` | ARC-033: headless bot soak; use before LT-C-031 to catch stuck bots and fairness breaches early |
 | `__CTK.seed(n)` | Test hook: sets the generator seed; fallback: seed field in Custom > Map (MAP-020) |
 | `__CTK.map.check()` | Test hook: reachability and spawn-safety report (the MAP-001 load validation result) |

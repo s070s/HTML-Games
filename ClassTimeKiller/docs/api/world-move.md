@@ -50,7 +50,7 @@ caps instead of rounded ends so the zones never overlap; ties go head, then body
 Low-level movers (`Collide`, used by S10 and bodies; other sections should prefer the World calls):
 `makeMover()`, `Collide.gatherAround(mover, reach)`, `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
 up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)`, `Collide.probeGround(mover, distance, trace)`,
-`Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`.
+`Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`. Zero-allocation forms (PERF-006: float arguments to a call that is not inlined are boxed on the heap): `setSweepSegment(ax, ay, az, bx, by, bz)` (fills the shared sweep query) + `Collide.sweepSegment(hull, out)`; `clipBrush(brush, segment, hull, skin)` takes a segment object `{ sx sy sz ex ey ez }`; `rayBrushOf(ray, brush, hit)` takes `{ sx sy sz dx dy dz limit }` (`rayBrush(...)` is the argument wrapper). Hot code uses `length2` / `length3` (S01) instead of `Math.hypot`.
 A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_SIZE`) and grows on a crowded map. `mover.planeBrushes[i]` is the brush of
 `mover.planes[i]` (the walls touched in a slide).
 

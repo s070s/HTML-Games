@@ -22,8 +22,9 @@ const PERF_SCENES = {
 
 const PerfScene = {
   name: '', row: null, follow: -1, kits: null, upkeep: 0, sincePowerup: 0, setupMs: 0, quality: '',
-  handlers: null,
+  handlers: null, toasts: 0,   // toasts since the scene started (a quality step-down toasts)
 };
+Bus.on('toast', () => { PerfScene.toasts++; });
 
 const PerfRecorder = {
   active: false, skip: 0, count: 0, resolve: null, timer: 0, startTick: 0, startTime: 0, systemStart: {}, lastTick: 0, stepCount: 0,
@@ -134,7 +135,7 @@ function perfStartScene(name, qualityId, options) {
   perfStopScene();
   Settings.set('video.autoLower', !!(options && options.autoLower));
   const started = performance.now();
-  Object.assign(PerfScene, { name, row, quality: qualityId || 'low', generateMs: 0 });
+  Object.assign(PerfScene, { name, row, quality: qualityId || 'low', generateMs: 0, toasts: 0 });
   if (row.editor) perfStartEditor();
   else perfStartMatch(row, PerfScene.quality);
   if (row.horde) perfFillHorde();
@@ -151,7 +152,8 @@ function perfSceneInfo() {
   }
   return { scene: PerfScene.name, label: PerfScene.row ? PerfScene.row.label : '', quality: Quality.current().id, actors: Actors.count, alive, bots, enemies,
     editorObjects: PerfScene.row && PerfScene.row.editor ? MapEditor.count() : 0, setupMs: PerfScene.setupMs, generateMs: PerfScene.generateMs || 0,
-    map: Game.match && Game.match.map ? Game.match.map.id : '' };
+    map: Game.match && Game.match.map ? Game.match.map.id : '', renderScale: Render.size.scale, smoothedFrameMs: ScaleControl.smoothedMs,
+    displayMs: DisplayRate.intervalMs, toasts: PerfScene.toasts };
 }
 
 // ---- Recorder: one sample per frame, read in the 'input' phase from the frame that just finished (Perf, Render.stats) ----
@@ -229,4 +231,157 @@ Object.assign(DebugApi.perf, {
   stop: () => { perfStopScene(); return true; },
   info: () => perfSceneInfo(),
   systems: () => Sim.systems,   // the registered sim systems in step order (allocation and cost probes)
+});
+
+// ---- Self-tests (group 'perf'): exact numbers only, no timing budgets (a busy test machine would make those flaky) ----
+const PERF_TEST_VSYNCS = 1440;   // ten seconds of 144 Hz vsyncs
+
+// Drawn frames per second when the loop's cap pacing sees vsyncs at displayHz with the cap at capFps.
+function perfPacedFps(displayHz, capFps) {
+  const saved = { cap: Loop.frameCapMs, credit: Loop.capCreditMs }, vsyncMs = 1000 / displayHz;
+  Loop.frameCapMs = capFps > 0 ? 1000 / capFps : 0;
+  Loop.capCreditMs = 0;
+  let drawn = 0, lastDrawn = 0;
+  for (let vsync = 1; vsync <= PERF_TEST_VSYNCS; vsync++) {
+    const now = vsync * vsyncMs;
+    if (Loop.skipForCap(now - lastDrawn)) continue;
+    lastDrawn = now;
+    drawn++;
+  }
+  Loop.frameCapMs = saved.cap; Loop.capCreditMs = saved.credit;
+  return drawn / (PERF_TEST_VSYNCS * vsyncMs / 1000);
+}
+
+Test.add('perf', (check) => {
+  const near = (value, target) => Math.abs(value - target) < 1;
+  check('frame cap 60 on a 144 Hz display averages 60 fps (not 48)', near(perfPacedFps(144, 60), 60), perfPacedFps(144, 60));
+  check('frame cap 60 on a 60 Hz display drops no frame', near(perfPacedFps(60, 60), 60), perfPacedFps(60, 60));
+  check('frame cap 90 on a 120 Hz display averages 90 fps', near(perfPacedFps(120, 90), 90), perfPacedFps(120, 90));
+  check('frame cap off draws every vsync', near(perfPacedFps(144, 0), 144), perfPacedFps(144, 0));
+  const savedCap = Settings.get('video.frameCap');
+  Loop.capCreditMs = 5;
+  Settings.set('video.frameCap', 90);
+  check('the frame cap setting reaches the loop and resets the pacing credit', near(Loop.frameCapMs, 1000 / 90) && Loop.capCreditMs === 0, Loop.frameCapMs);
+  Settings.set('video.frameCap', savedCap);
+});
+
+Test.add('perf', async (check) => {
+  const callback = Loop.callback;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  check('the loop keeps one requestAnimationFrame callback across frames (no closure per frame)', typeof callback === 'function' && Loop.callback === callback);
+  check('boot time is recorded at the first loop start and reported', Perf.bootMs > 0 && Perf.bootMs <= performance.now() && Perf.stats().bootMs === Perf.bootMs, Perf.bootMs);
+});
+
+Test.add('perf', (check) => {
+  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active };
+  Game.state = 'menu'; Benchmark.active = false; DisplayRate.count = 0;
+  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 30);
+  check('the menu measures a 30 Hz display', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
+  const slowOn30 = slowFrameMs();
+  const control = makeScaleControl();
+  let scale = 1;
+  for (let i = 0; i < 20; i++) scale = stepRenderScale(control, 1000 / 30, slowOn30, slowOn30, 0.1, scale, 0.5, 1);
+  check('on a 30 Hz display frames at its own rate keep the render scale', scale === 1, scale);
+  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 120);
+  check('a 120 Hz display keeps the 60 fps floor as its budget', Math.abs(slowFrameMs() - FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE) < 1e-6, slowFrameMs());
+  scale = 1;
+  for (let i = 0; i < 20; i++) scale = stepRenderScale(control, 1000 / 30, slowFrameMs(), slowFrameMs(), 0.1, scale, 0.5, 1);
+  check('30 fps against the 60 fps floor lowers the render scale', scale < 1, scale);
+  Benchmark.active = true;
+  for (let i = 0; i < REFRESH_SAMPLE_FRAMES; i++) measureDisplayRate(1 / 30);
+  check('the benchmark frames are not taken as the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 120) < 0.01, DisplayRate.intervalMs);
+  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count });
+  Game.state = saved.state; Benchmark.active = saved.benchmark;
+});
+
+// The smoothed frame interval follows time, not frames: 0.1 s of frames moves it by the same share at 100 or 200 fps.
+function perfSmoothedAfter(startMs, frameMs, frames) {
+  ScaleControl.smoothedMs = startMs;
+  for (let i = 0; i < frames; i++) updateRenderScale(frameMs / 1000);
+  return (ScaleControl.smoothedMs - frameMs) / (startMs - frameMs);
+}
+
+Test.add('perf', (check) => {
+  const saved = { smoothed: ScaleControl.smoothedMs, scale: Render.size.scale, setting: Render.config.renderScale, intervalMs: DisplayRate.intervalMs, count: DisplayRate.count };
+  Render.config.renderScale = 1;   // a fixed scale: only the smoothing runs
+  const at100 = perfSmoothedAfter(40, 10, 10), at200 = perfSmoothedAfter(40, 5, 20);
+  check('frame smoothing gives the same response at 100 and 200 fps', Math.abs(at100 - at200) < 0.01, [at100, at200]);
+  check('frame smoothing keeps about 37% of a step after its 0.1 s time constant', Math.abs(at100 - Math.exp(-1)) < 0.01, at100);
+  Object.assign(ScaleControl, { smoothedMs: saved.smoothed });
+  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count });
+  Render.config.renderScale = saved.setting; Render.size.scale = saved.scale; Render.size.dirty = true;
+});
+
+// Zero-allocation call shapes give the same results as the argument forms they replace.
+Test.add('perf', (check) => {
+  check('length2 / length3 match Math.hypot', length2(3, 4) === 5 && length3(2, 3, 6) === 7 && Math.abs(length3(0.1, -0.2, 0.3) - Math.hypot(0.1, -0.2, 0.3)) < 1e-15);
+  const first = makeRandom(12345), last = makeRandom(0xffffffff);
+  const draw = (random, count) => { let value = 0; for (let i = 0; i < count; i++) value = random.next(); return Math.round(value * 4294967296); };
+  check('typed-array RNG state gives the same numbers as the closure words (seed 12345)', draw(first, 1) === 773969981 && draw(first, 999) === 940126096);
+  check('typed-array RNG state gives the same numbers as the closure words (seed 2^32 - 1)', draw(last, 1) === 3199221271 && draw(last, 999) === 3695540032);
+});
+
+Test.add('perf', (check) => {
+  const savedQuads = HudBatch.quads, bytes = new Uint8Array(HudBatch.bytes), vertexBytes = 4 * HUD_VERTEX_BYTES;
+  HudBatch.quads = 0;
+  pushHudQuad(1, 2, 30, 4, 28, 40, 3, 38, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], 0x336699, 0.5);
+  setHudCorners(1, 2, 30, 4, 28, 40, 3, 38);
+  pushHudSolid(0x336699, 0.5);
+  let same = HudBatch.quads === 2;
+  for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) same = false;
+  check('HUD corner scratch writes the same vertices as the argument form', same);
+  HudBatch.quads = HUD_MAX_QUADS;
+  const dropped = HudBatch.dropped;
+  HudPen.rect(0, 0, 4, 4, 0xffffff, 1);
+  check('a full HUD batch drops and counts instead of growing', HudBatch.quads === HUD_MAX_QUADS && HudBatch.dropped === dropped + 1);
+  HudBatch.quads = savedQuads;
+});
+
+Test.add('perf', (check) => {
+  const batch = actorBatch, saved = batch.counts.slice(), d = batch.data, shape = SHAPES[0];
+  batch.clear();
+  const meshed = batch.mesh(shape, 1, 2, 3, 0.5, 0.25, 1, 2, 3, 0.1, 0.2, 0.3, 0.4);
+  const reserved = batch.reserve(shape);
+  d[reserved] = 1; d[reserved + 1] = 2; d[reserved + 2] = 3; d[reserved + 3] = 0.5;
+  d[reserved + 4] = 1; d[reserved + 5] = 2; d[reserved + 6] = 3; d[reserved + 7] = 0.25;
+  d[reserved + 8] = 0.1; d[reserved + 9] = 0.2; d[reserved + 10] = 0.3; d[reserved + 11] = 0.4;
+  batch.light(reserved);
+  let same = meshed >= 0 && reserved === meshed + INSTANCE_FLOATS;
+  for (let i = 0; i < INSTANCE_FLOATS; i++) if (d[meshed + i] !== d[reserved + i]) same = false;
+  check('batch reserve + light writes the same instance as mesh()', same);
+  batch.counts[SHAPE_INDEX[shape]] = batch.capacity;
+  const droppedBefore = Render.stats.droppedInstances;
+  check('a full shape region refuses and counts instead of growing', batch.reserve(shape) === -1 && Render.stats.droppedInstances === droppedBefore + 1);
+  batch.counts.set(saved);
+});
+
+// The TDM perf scene end to end: bots past the preset cap, kits on every bot, a followed bot, system time totals, a short
+// recording through real frames, and a clean stop.
+Test.add('perf', async (check) => {
+  try {
+    const info = perfStartScene('tdm', 'low');
+    check('the TDM scene keeps its 16 bots past the low preset cap', info.bots === 16 && Quality.current().id === 'low' && Quality.current().bots < 16, info);
+    check('the camera follows a living bot', Game.playerId >= 0 && Actors.kind[Game.playerId] === ACTOR_KIND.BOT);
+    const kitted = Game.playerId, kit = PerfScene.kits ? PerfScene.kits[kitted % KIT_BOTS] : null;
+    const firstAbility = () => (Abilities.row(kitted, 0) ? Abilities.row(kitted, 0).id : '');
+    const equipped = !!kit && kit.abilities.length > 0 && firstAbility() === kit.abilities[0].id;
+    Abilities.setSlot(kitted, 0, null);
+    const respawn = PerfScene.handlers ? PerfScene.handlers['actor.spawn'] : null;
+    if (respawn) respawn({ id: kitted });
+    const listening = !!respawn && Bus.listeners.get('actor.spawn').indexOf(respawn) >= 0;
+    check('every bot gets its scene kit, also after a respawn', equipped && listening && firstAbility() === kit.abilities[0].id, firstAbility());
+    const before = Object.assign({}, Sim.timingTotal);
+    Sim.run(20);
+    let grown = 0, named = 0;
+    for (const name in Sim.timingTotal) grown += Sim.timingTotal[name] - (before[name] || 0);
+    for (const system of Sim.systems) if (Sim.timingTotal[system.name] !== undefined) named++;
+    check('Sim.timingTotal sums the system times of every step', grown > 0 && named === Sim.systems.length, [grown, named]);
+    check('the auto quality step-down is off in a budget run', Settings.get('video.autoLower') === false);
+    const report = await perfRecord(0.3);
+    check('a recording returns frames, percentiles and per-system times', report.frames > 0 && report.cpuMs.p50 >= 0 && Object.keys(report.systems).length > 0, { frames: report.frames, steps: report.steps });
+  } finally {
+    perfStopScene();
+    Settings.reset('video.');
+  }
+  check('stopping the scene ends the match and clears its kits', !Game.isRunning() && PerfScene.row === null && PerfScene.kits === null);
 });

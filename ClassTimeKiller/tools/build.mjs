@@ -1,5 +1,6 @@
 // Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html.
-// Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs.
+// Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, the file size (D07:
+// a warning above 3.0 MB, a failure above 3.5 MB).
 // The shipped file leaves out comment-only lines (about 10% of the size, less to parse on phones); src/ keeps them and the code stays readable.
 // Usage: node tools/build.mjs [--check]   (--check: run the checks and print the report, write nothing)
 // No dependencies. Exit code 1 when a check fails.
@@ -13,6 +14,8 @@ const OUT = join(ROOT, 'ClassTimeKiller.html');
 const SCRIPT_MARK = '/*@@SCRIPT@@*/';
 const DUP_WINDOW = 8;            // lines in a row that count as a duplicated block
 const MIN_LINE_CHARS = 12;       // shorter lines (braces, "return;") never count toward a duplicate
+const SIZE_WARN_BYTES = 3.0 * 1024 * 1024;   // D07: past 3.0 MB the build warns (the release target is 3.5 MB)
+const SIZE_LIMIT_BYTES = 3.5 * 1024 * 1024;  // D07: past 3.5 MB the build fails (readable code, comment-only lines stripped)
 const BANNED_APIS = [/\bfetch\s*\(/, /XMLHttpRequest/, /\bimport\s*\(/, /new\s+WebSocket/, /navigator\.sendBeacon/, /\beval\s*\(/, /new\s+Function\s*\(/];
 
 const checkOnly = process.argv.includes('--check');
@@ -32,8 +35,9 @@ const body = sources.map((s) => '// ==== ' + s.name + ' ====\n' + withoutComment
 const script = "(() => {\n'use strict';\n" + body + '})();\n';
 const html = shell.replace(SCRIPT_MARK, () => script);
 
-const kb = (Buffer.byteLength(html) / 1024).toFixed(1);
+const bytes = Buffer.byteLength(html), kb = (bytes / 1024).toFixed(1);
 console.log('files ' + sources.length + ', lines ' + body.split('\n').length + ', size ' + kb + ' KB');
+checkSize(bytes);
 problems.forEach((p) => console.log('  ' + p));
 if (problems.length) {
   console.log('BUILD FAILED: ' + problems.length + ' problem(s)');
@@ -41,6 +45,13 @@ if (problems.length) {
 }
 if (!checkOnly) writeFileSync(OUT, html);
 console.log(checkOnly ? 'CHECK OK' : 'BUILD OK -> ClassTimeKiller.html');
+
+// D07 size checkpoint: warn above 3.0 MB, fail above the 3.5 MB release target.
+function checkSize(size) {
+  const megabytes = (size / 1048576).toFixed(2) + ' MB';
+  if (size > SIZE_LIMIT_BYTES) problems.push('size ' + megabytes + ' is over the ' + SIZE_LIMIT_BYTES / 1048576 + ' MB release limit (D07)');
+  else if (size > SIZE_WARN_BYTES) console.log('  WARNING size ' + megabytes + ' is over ' + SIZE_WARN_BYTES / 1048576 + ' MB (D07 release limit ' + SIZE_LIMIT_BYTES / 1048576 + ' MB)');
+}
 
 // Drops lines that hold only a // comment. Safe only while no template literal spans lines, so that is checked here.
 function withoutCommentLines(text) {
