@@ -196,6 +196,23 @@ Whole runs at 4x (`perf.mjs --scenes tdm,royale,generated,horde --presets potato
 
 The throttled means stay inside the run-to-run noise of 2.3 (the slices dominate them); the p50s are equal or lower in 7 of 8 rows for render and in all rows for the HUD. The whole-page allocation fell 15-26% in royale, generated Low and horde; TDM is dominated by the sim's own sites (`turn`, `follow`, `depenetrate`, `rayOf`, 5) and stayed within noise. The render and HUD budgets of 3.4 are still missed on the means at 4x. The cooldown rings' CPU (`abilities` and `gadgets` drawers, 1x, tdm Low): 23 and 11 us per frame before, 10 and 4 us after.
 
+### 3.9 All scenes at 4x after round 2 (quiet machine, 8 s, `--bench`)
+
+Measured on the merged round 2 build with nothing else running (`perf.mjs --scenes tdm,horde,royale,generated --presets potato,low --throttle 4 --seconds 8 --no-boot --bench`). In-frame means per step (ms), render / HUD means per frame, and the back-to-back bench sim per step:
+
+| Scene | Preset | Sim | Move | AI | Render | HUD | Alloc KB/s | Bench sim |
+|---|---|---|---|---|---|---|---|---|
+| tdm | potato | 2.81 | 0.66 | 1.39 | 1.93 | 1.22 | 2749 | 1.17 |
+| tdm | low | 2.52 | 0.55 | 1.28 | 1.85 | 1.04 | 805 | 0.96 |
+| horde | potato | 2.08 | 0.55 | 0.89 | 1.18 | 0.91 | 1004 | 0.52 |
+| horde | low | 2.39 | 0.75 | 0.89 | 1.85 | 0.66 | 602 | 0.60 |
+| royale | potato | 1.12 | 0.33 | 0.46 | 1.06 | 0.32 | 569 | 0.74 |
+| royale | low | 1.17 | 0.30 | 0.52 | 0.91 | 0.28 | 363 | 0.72 |
+| generated | potato | 1.37 | 0.41 | 0.63 | 0.91 | 0.38 | 412 | 0.62 |
+| generated | low | 1.98 | 0.60 | 0.92 | 1.47 | 0.30 | 357 | 0.63 |
+
+Royale and generated meet every PERF-002 budget at 4x except generated Low movement (0.60 > 0.5). TDM and horde still miss the in-frame sim, movement, AI, render and HUD means; their p50s are in budget (render 0.2-0.5, HUD 0.1-0.3) and the back-to-back bench meets every sim budget, so the misses are the throttle slices landing inside measured spans (2.3). The real-device pass (LIVE-TESTS LT-C-006, LT-C-029 on D1-D4) decides.
+
 ## 4. Changes in this pass
 
 Leftover round (3.8):
