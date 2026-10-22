@@ -1,6 +1,45 @@
 // Self-tests for S10 movement (group 'move'): MOV-026 per preset, frame-rate independence, every mechanic on test geometry.
 // The helpers here (test worlds, test actors, stepping) are shared with 20b-test-world.js.
 
+// Wall-clock budgets were set on headless desktop Chromium. A busy machine or another engine scales them by this factor:
+// the best of TEST_SPEED_RUNS timings of a fixed typed-array loop that shares no code with the game, over its desktop
+// Chromium time, kept within 1..TEST_SPEED_CAP (so a real slowdown of the game code still fails), times the engine's
+// measured pace on the game code against that loop (TEST_ENGINE_PACE: Firefox runs the nav build about 1.9 x Chromium).
+const TEST_SPEED_RUNS = 3;
+const TEST_SPEED_CAP = 3;
+const TEST_SPEED_SIZE = 1 << 15;
+const TEST_SPEED_ROUNDS = 12;
+const TEST_SPEED_CHROMIUM_MS = 14;
+const TEST_ENGINE_PACE = { chromium: 1, firefox: 2, webkit: 1.3 };
+const testSpeedValues = new Float64Array(TEST_SPEED_SIZE), testSpeedKeys = new Int32Array(TEST_SPEED_SIZE);
+
+function testSpeedWorkload() {
+  let seed = 1, sum = 0;
+  for (let round = 0; round < TEST_SPEED_ROUNDS; round++) {
+    for (let i = 0; i < TEST_SPEED_SIZE; i++) {
+      seed = (seed * 1103515 + 12345) & 0x7fffffff;
+      testSpeedValues[i] = Math.sqrt(seed) * 0.001; testSpeedKeys[i] = seed & (TEST_SPEED_SIZE - 1);
+    }
+    for (let i = 0; i < TEST_SPEED_SIZE; i++) sum += Math.hypot(testSpeedValues[i], testSpeedValues[testSpeedKeys[i]]);
+  }
+  return sum;
+}
+
+function testEngine() {
+  const agent = navigator.userAgent;
+  if (/Firefox\//.test(agent)) return 'firefox';
+  return /Chrome\//.test(agent) ? 'chromium' : 'webkit';
+}
+
+function testSpeedFactor() {
+  let best = Infinity;
+  for (let run = 0; run < TEST_SPEED_RUNS; run++) {
+    const started = performance.now();
+    testSpeedWorkload();
+    best = Math.min(best, performance.now() - started);
+  }
+  return clamp(best / TEST_SPEED_CHROMIUM_MS, 1, TEST_SPEED_CAP) * TEST_ENGINE_PACE[testEngine()];
+}
 
 function loadTestWorld(brushes, extra) {
   World.load(Object.assign({ id: 'test', brushes: [TEST_FLOOR].concat(brushes || []) }, extra || {}));
@@ -67,7 +106,8 @@ DebugApi.movement = {
 // ---- Presets and MOV-026 ----
 Test.add('move', (check) => {
   check('8 movement presets MV01..MV08', CAT.movement.length === 8 && CAT.movement.map((row) => row.code).join() === 'MV01,MV02,MV03,MV04,MV05,MV06,MV07,MV08');
-  for (const row of CAT.movement) check(row.id + ': table jumpHeight = jumpVel^2/2g within 2%', Test.near(row.jumpVel ** 2 / (2 * row.gravity), row.jumpHeight, row.jumpHeight * 0.02));
+  check('the jump apex is derived once (Move.jumpApex), not stored as a movement column', CAT.movement.every((row) => row.jumpHeight === undefined)
+    && Test.near(Move.jumpApex(CAT.movement.byId('arena')), 8.1 * 8.1 / (2 * 24), 1e-9) && Test.near(Move.jumpApex(CAT.movement.byId('arena'), 12), 8.1 * 8.1 / 24, 1e-9));
   useTestRules({});
   check('no rules preset falls back to arena', Move.preset(0).id === 'arena');
   useTestRules({ move: 'tactical' });
@@ -81,7 +121,7 @@ Test.add('move', (check) => {
     const id = groundedTester(0, 0);
     const startY = Actors.y[id];
     tapButtons(id, BTN.JUMP);
-    const height = highestPoint(id, 1.5) - startY, expected = row.jumpVel ** 2 / (2 * row.gravity);
+    const height = highestPoint(id, 1.5) - startY, expected = Move.jumpApex(row);
     check(row.id + ': jump height within 2% (MOV-026)', Test.near(height, expected, expected * 0.02), height.toFixed(3) + ' vs ' + expected.toFixed(3));
     Actors.remove(id);
     const runner = groundedTester(-40, -40);
@@ -512,6 +552,20 @@ Test.add('move', (check) => {
   check('arena does not mantle', recordEvents(['move.mantle'], () => stepSeconds(1)).length === 0);
 });
 
+// MOV-022 on thin cover: a 1 m wall only 0.4 m thick (the MapGen 'lowwalls' kit) is mantled, not a dead end.
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-3, 0, 2], max: [3, 1, 2.4] }]);
+  for (const preset of ['modern', 'knight']) {
+    useTestRules({ move: preset });
+    const id = groundedTester(0, 0.5);
+    holdInput(id, 0, 1, 0, 0);
+    tapButtons(id, BTN.JUMP);
+    stepSeconds(2);
+    check(preset + ': forward + jump crosses a 1 m tall, 0.4 m thick wall', Actors.z[id] > 2.4 + ACTOR_RADIUS, Actors.z[id].toFixed(2));
+    Actors.remove(id);
+  }
+});
+
 // Water exit: in every preset (with or without mantle) a swimmer climbs out over a rim level with the surface or a
 // little above it. The pool is 2 m deep; the rim is the top of the block in front.
 Test.add('move', (check) => {
@@ -719,7 +773,9 @@ Test.add('move', (check) => {
   check('Use while riding steps off', !Move.onBoard(rider));
 });
 
-// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step.
+// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step (on desktop Chromium).
+const MOVE_TEST_STEP_BUDGET_MS = 0.5;
+
 Test.add('move', (check) => {
   loadTestWorld(randomBrushes(21, 400, 50));
   useTestRules({ move: 'agile' });
@@ -731,7 +787,19 @@ Test.add('move', (check) => {
     Sim.step();
     if (step >= 100) total += Sim.timing.move;
   }
-  check('24 actors move in < 0.5 ms per step on average', total / 500 < 0.5, (total / 500).toFixed(3) + ' ms');
+  const factor = testSpeedFactor(), budget = MOVE_TEST_STEP_BUDGET_MS * factor;
+  check('24 actors move in < ' + budget.toFixed(2) + ' ms per step on average (0.5 ms x speed factor ' + factor.toFixed(2) + ')',
+    total / 500 < budget, (total / 500).toFixed(3) + ' ms');
+});
+
+// F67: the speed factor times code the game does not share, so a slower game function leaves it unchanged; it is capped.
+Test.add('move', (check) => {
+  const raycast = World.raycast, before = testSpeedFactor();
+  World.raycast = function slowRaycast(...args) { const until = performance.now() + 0.01; while (performance.now() < until); return raycast.apply(this, args); };
+  let slowed = 0;
+  try { slowed = testSpeedFactor(); } finally { World.raycast = raycast; }
+  check('speed factor: 10 us slower world rays leave it unchanged (' + before.toFixed(2) + ', then ' + slowed.toFixed(2) + ')', slowed < before * 1.5);
+  check('speed factor: at most ' + TEST_SPEED_CAP + ' x the engine pace', before <= TEST_SPEED_CAP * TEST_ENGINE_PACE[testEngine()], before);
 });
 
 // MOV-023: at most 3 world rays per actor per step, in every preset, during random moves among walls and ledges.

@@ -524,3 +524,4 @@ function trapCost(node) {
 
 BotMove.init();
 Bus.on('match.start', () => { trapUntil.fill(0); trapNodes.fill(-1); findWater(); findExits(); });
+Bus.on('nav.ready', () => { findWater(); findExits(); });   // a sliced build finished after match start

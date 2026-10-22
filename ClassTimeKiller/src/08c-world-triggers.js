@@ -23,13 +23,14 @@ const MIN_PAD_FLIGHT = 0.1;             // seconds: a launch never divides by a 
 const JUMPPAD_PEAK = 2;                 // default metres the arc rises above the higher of feet and target
 const FALL_OUT_DEPTH = 30;              // metres below the lowest brush that count as falling out of the world
 const TELEFRAG_REACH = 0.8;             // two capsules (radius 0.40 each) overlap when closer than this
+const TELEPORT_NOISE_RADIUS = 20;       // metres a teleport is heard at each end (as loud as a landing)
 const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the capsule's middle
 
 // fields: defaults (Data.normalize); points: fields that must be [x, y, z]; valid(trigger): extra row check.
 const TRIGGER_KINDS = {
   jumppad: { fields: { target: REQUIRED, peak: JUMPPAD_PEAK }, points: ['target'], valid: (pad) => pad.peak > 0, touch: touchJumpPad },
   teleporter: { fields: { exit: REQUIRED, yaw: 0 }, points: ['exit'], touch: touchTeleporter },
-  ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
+  ladder: { fields: {}, touch: touchLadder },
   water: { fields: {}, touch: touchWater },
   hazard: { fields: { damage: 10, element: 'thermal' }, touch: touchHazard },
   killzone: { fields: { damage: LETHAL_DAMAGE, element: 'none' }, touch: touchHazard },
@@ -41,9 +42,11 @@ const TriggerState = {
   drownCount: new Uint8Array(MAX_ACTORS),
   hazardClock: new Float32Array(MAX_ACTORS),
   padClock: new Float32Array(MAX_ACTORS),
+  ladder: new Array(MAX_ACTORS).fill(null),   // the ladder trigger the actor touched last (S10 keeps a climber on it)
   touchedHazard: false,
   reset(id) {
     this.air[id] = AIR_SECONDS; this.drownClock[id] = 0; this.drownCount[id] = 0; this.hazardClock[id] = 0; this.padClock[id] = 0;
+    this.ladder[id] = null;
   },
 };
 
@@ -89,6 +92,8 @@ World.touchTriggers = function touchTriggers(id) {
   let medium = 0;
   TriggerState.touchedHazard = false;
   TriggerState.padClock[id] = Math.max(0, TriggerState.padClock[id] - TICK_SECONDS);
+  // The hazard interval runs on out of contact too: stepping out and back in waits for the rest of it (no hit per re-entry).
+  TriggerState.hazardClock[id] = Math.max(0, TriggerState.hazardClock[id] - TICK_SECONDS);
   for (let i = 0; i < World.triggers.length; i++) {
     const t = World.triggers[i];
     if (x + ACTOR_RADIUS < t.minX || x - ACTOR_RADIUS > t.maxX || z + ACTOR_RADIUS < t.minZ || z - ACTOR_RADIUS > t.maxZ) continue;
@@ -97,7 +102,6 @@ World.touchTriggers = function touchTriggers(id) {
     if (medium & TRIGGER_MEDIUM.MOVED) break; // teleported: the old position's other triggers no longer apply
   }
   if (Number.isFinite(World.boundsMin.y) && y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger);
-  if (!TriggerState.touchedHazard) TriggerState.hazardClock[id] = 0;
   updateBreath(id, (medium & TRIGGER_MEDIUM.HEAD_UNDER) !== 0);
   return medium;
 };
@@ -144,14 +148,17 @@ function touchJumpPad(id, pad) {
 
 // Moves the actor to the exit facing the exit yaw; horizontal speed turns with it (magnitude kept). Telefrag: every
 // other live capsule at the exit gets a lethal 'telefrag' damage request credited to the arriving actor (MOV-020).
+// Both ends make a noise (bots hear the arrival). S10 turns a dash or charge with the actor and ends a mantle (MOVED).
 function touchTeleporter(id, teleporter) {
   const yaw = teleporter.yaw * DEG, exit = teleporter.exit;
   const horizontalSpeed = length2(Actors.vx[id], Actors.vz[id]);
+  emitSound(Actors.x[id], Actors.y[id], Actors.z[id], TELEPORT_NOISE_RADIUS, 'teleport', id);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
   Actors.vx[id] = Math.sin(yaw) * horizontalSpeed; Actors.vz[id] = Math.cos(yaw) * horizontalSpeed;
   telefragAt(id);
+  emitSound(exit[0], exit[1], exit[2], TELEPORT_NOISE_RADIUS, 'teleport', id);
   emitTrigger(id, teleporter);
   return TRIGGER_MEDIUM.MOVED;
 }
@@ -166,6 +173,11 @@ function telefragAt(arriver) {
   }
 }
 
+function touchLadder(id, ladder) {
+  TriggerState.ladder[id] = ladder;
+  return TRIGGER_MEDIUM.LADDER;
+}
+
 function touchWater(id, water) {
   let medium = TRIGGER_MEDIUM.WADING;
   if (Actors.y[id] + Actors.height[id] * SWIM_DEPTH_FRACTION < water.maxY) medium |= TRIGGER_MEDIUM.WATER;
@@ -173,11 +185,10 @@ function touchWater(id, water) {
   return medium;
 }
 
-// Hazards and kill zones: damage every HAZARD_INTERVAL while touching, the first tick on contact.
+// Hazards and kill zones: damage every HAZARD_INTERVAL while touching, the first tick on contact once the last interval ran out.
 function touchHazard(id, hazard) {
   if (TriggerState.touchedHazard) return 0; // overlapping hazards hurt once per interval, not once each
   TriggerState.touchedHazard = true;
-  TriggerState.hazardClock[id] -= TICK_SECONDS;
   if (TriggerState.hazardClock[id] > 0) return 0;
   TriggerState.hazardClock[id] = HAZARD_INTERVAL;
   const amount = hazard.damage >= LETHAL_DAMAGE ? LETHAL_DAMAGE : hazard.damage * HAZARD_INTERVAL;
@@ -198,6 +209,7 @@ function updateBreath(id, headUnder) {
 }
 
 World.airLeft = (id) => TriggerState.air[id];
+World.ladderOf = (id) => TriggerState.ladder[id];   // { minX, maxX, minZ, maxZ, ... } of the last ladder touched, or null
 
 Bus.on('actor.create', (id) => TriggerState.reset(id));
 Bus.on('actor.spawn', (event) => TriggerState.reset(event.id));

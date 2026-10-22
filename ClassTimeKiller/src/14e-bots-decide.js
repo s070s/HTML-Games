@@ -128,13 +128,17 @@ const BotDecide = {
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
     for (const hint of map.navHints || []) if (hint.kind === BOT_FLANK_HINT) this.flankSpots.push({ x: hint.x, y: hint.y, z: hint.z });
     for (const hint of map.navHints || []) if (hint.kind === BOT_CHOKE_HINT) this.chokeSpots.push({ x: hint.x, y: hint.y, z: hint.z });
-    const loot = Modes.loot;
-    for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
+    this.placeNodes();
   },
   addItem(entry) {
     const index = this.items.length;
     this.items.push({ index, x: entry.x, y: entry.y, z: entry.z, key: entry.item, group: entry.group, weapon: CAT.weapons.byId(entry.item) });
-    this.itemNode[index] = Nav.nearestNode(entry.x, entry.y, entry.z);
+  },
+  // Nav node of every map item and royale loot spot: at match start and again when a sliced nav build finishes ('nav.ready').
+  placeNodes() {
+    for (const item of this.items) this.itemNode[item.index] = Nav.nearestNode(item.x, item.y, item.z);
+    const loot = Modes.loot;
+    for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
   },
   // BOT-041: a spot is safe for a side when no spawn of the other side (any spawn in free-for-all) is in sight within 50 m.
   makeCampSpot(hint, map, mode) {
@@ -785,3 +789,5 @@ BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));
 
 Bus.on('match.start', (match) => BotDecide.onMatchStart(match));
 Bus.on('pickup', (event) => BotDecide.onPickup(event));
+// The graph arrived after match start: goals that failed on the empty graph may be tried again at once.
+Bus.on('nav.ready', () => { BotDecide.failedUntil.fill(0); BotDecide.placeNodes(); });

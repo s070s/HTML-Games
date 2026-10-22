@@ -23,11 +23,16 @@ const HUD_SCOPE_INFO_RANGE = 120;
 const HUD_BLIND_SECONDS_MIN = 0.02;
 const HUD_SUPPRESS_BANDS = 5, HUD_SUPPRESS_COLOR = 0x3a4048;
 const HUD_JAM_BARS = 5;
+const HUD_MOVE_TOP = 70, HUD_MOVE_ROW = 18, HUD_MOVE_WIDTH = 110, HUD_MOVE_BAR = 6;   // design pixels: the meter rows under the crosshair
+const HUD_MOVE_PIP = 10, HUD_MOVE_PIP_GAP = 16;
+const HUD_LOW_AIR = 0.35;                    // share of the breath left that warns (about 4 of the 12 s)
+const HUD_BREATH_COLOR = 0x0a2a4a, HUD_BREATH_ALPHA = 0.55;
 
 hudAddElement({ id: 'minimap', label: 'Minimap' });
 hudAddElement({ id: 'compass', label: 'Compass', fallback: false });
 hudAddElement({ id: 'awareness', label: 'Enemy awareness meters' });
 hudAddElement({ id: 'barks', label: 'Bot chat lines (subtitles)', category: 'accessibility' });
+hudAddElement({ id: 'movement', label: 'Breath, stamina and dash meters' });
 
 // ---- Shared state ----
 const HudExtra = {
@@ -297,6 +302,62 @@ function hudDrawScopeInfo(pen, layout) {
 }
 const HUD_NO_WEAPON = { alt: null };
 
+// ---- Movement meter under the crosshair: breath (MOV-019) and the preset's stamina, glide and charges, each only while used ----
+// Rows appear while a resource is below full: breath under water, sprint stamina, glide time, dash and tactical-sprint charges.
+// Low air turns the label to a blinking LOW AIR, an empty breath to DROWNING, and the screen edges darken (steady under reduce motion).
+const hudMoveMeters = { air: 1, stamina: 1, glide: 1, dash: 0, dashMax: 0, tac: 0, tacMax: 0, rows: 0 };   // the last frame's values (self-test)
+function hudDrawMovement(pen, layout) {
+  const meters = hudMoveMeters;
+  meters.rows = 0;
+  if (!hudLocalAlive()) return;
+  Move.meters(Game.playerId, meters);
+  if (meters.air < 1) hudMoveBar(pen, layout, 'air', meters.air <= 0 ? 'DROWNING' : meters.air < HUD_LOW_AIR ? 'LOW AIR' : 'AIR');
+  if (meters.stamina < 1) hudMoveBar(pen, layout, 'stamina', 'STAMINA');
+  if (meters.glide < 1) hudMoveBar(pen, layout, 'glide', 'GLIDE');
+  if (meters.dash < meters.dashMax) hudMovePips(pen, layout, 'dash', 'dashMax', 'DASH');
+  if (meters.tac < meters.tacMax) hudMovePips(pen, layout, 'tac', 'tacMax', 'SPRINT');
+}
+
+// The next row's centre line (rows stack downward from under the crosshair); the label sits right-aligned before the bar.
+function hudMoveRowY(pen, layout, label, color) {
+  const unit = layout.unit, y = layout.centerY + (HUD_MOVE_TOP + hudMoveMeters.rows++ * HUD_MOVE_ROW) * unit, text = hudTextAt;
+  text[0] = layout.centerX - (HUD_MOVE_WIDTH / 2 + 6) * unit; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
+  pen.labelAt(label, color, 'right');
+  return y;
+}
+
+// A bar of the share in hudMoveMeters[field] (fields, not float arguments: PERF-006). Low air blinks in the warning colour.
+function hudMoveBar(pen, layout, field, label) {
+  const share = hudMoveMeters[field], unit = layout.unit, warning = field === 'air' && share < HUD_LOW_AIR;
+  const color = share <= 0 ? Hud.colors.bad : warning ? HUD_COLOR.warn : field === 'air' ? HUD_COLOR.shield : HUD_COLOR.text;
+  const y = hudMoveRowY(pen, layout, label, color), box = hudBoxAt;
+  box[0] = layout.centerX - HUD_MOVE_WIDTH / 2 * unit; box[1] = y - HUD_MOVE_BAR / 2 * unit; box[2] = HUD_MOVE_WIDTH * unit; box[3] = HUD_MOVE_BAR * unit; box[4] = share;
+  pen.barAt(color, warning && !Hud.reduceMotion() ? 0.6 + 0.4 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1);
+}
+
+// One square per charge of hudMoveMeters[field] (out of [maxField]): bright when ready, dim while recharging.
+function hudMovePips(pen, layout, field, maxField, label) {
+  const unit = layout.unit, ready = Math.floor(hudMoveMeters[field]), maximum = hudMoveMeters[maxField], shape = hudShapeAt;
+  const y = hudMoveRowY(pen, layout, label, HUD_COLOR.text);
+  for (let i = 0; i < maximum; i++) {
+    shape[0] = layout.centerX + (i * HUD_MOVE_PIP_GAP - HUD_MOVE_WIDTH / 2 + HUD_MOVE_PIP / 2) * unit; shape[1] = y; shape[2] = HUD_MOVE_PIP / 2 * unit;
+    pen.shapeAt('square', i < ready ? HUD_COLOR.gold : HUD_COLOR.dim, i < ready ? 1 : 0.4);
+  }
+}
+
+// Low air darkens the screen edges, more as the breath runs out (the vignette of the movement element).
+function hudDrawBreathVignette(pen, layout) {
+  if (!hudLocalAlive()) return;
+  const air = Move.airShare(Game.playerId);
+  if (air >= HUD_LOW_AIR) return;
+  const strength = (1 - air / HUD_LOW_AIR) * HUD_BREATH_ALPHA, width = layout.width, height = layout.height, edge = Math.min(width, height) * 0.18;
+  pen.rect(0, 0, width, height, HUD_BREATH_COLOR, strength * 0.4);
+  pen.rect(0, 0, width, edge, HUD_BREATH_COLOR, strength);
+  pen.rect(0, height - edge, width, edge, HUD_BREATH_COLOR, strength);
+  pen.rect(0, edge, edge, height - edge * 2, HUD_BREATH_COLOR, strength);
+  pen.rect(width - edge, edge, edge, height - edge * 2, HUD_BREATH_COLOR, strength);
+}
+
 // ---- Full-screen effects: flash (blind) and suppression blur ----
 // A blind starts as a bright flash only when the 3-per-second cap allows it and photosensitivity is off; otherwise it fades in dark.
 function hudDrawBlind(pen, layout) {
@@ -333,5 +394,7 @@ Hud.register('main', 'compass', 'compass', hudDrawCompass);
 Hud.register('world', 'awareness', 'awareness', hudDrawAwareness);
 Hud.register('main', 'barks', 'barks', hudDrawBarks);
 Hud.register('main', 'scopeInfo', 'crosshair', hudDrawScopeInfo);
+Hud.register('main', 'movement', 'movement', hudDrawMovement);
+Hud.register('back', 'breath', 'movement', hudDrawBreathVignette);
 Hud.register('back', 'suppression', '', hudDrawSuppression, true);
 Hud.register('front', 'blind', '', hudDrawBlind, true);

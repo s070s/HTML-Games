@@ -71,6 +71,8 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
+  // MOV-026 height of one ground jump in metres under `gravity` (default: the preset's own) - for bots and the UI.
+  jumpApex(preset, gravity) { return preset.jumpVel * preset.jumpVel / (2 * (gravity === undefined ? preset.gravity : gravity)); },
   horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
   // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
   // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
@@ -90,6 +92,18 @@ const Move = {
   stamina: Motion.stamina,  // seconds of sprint left per actor (read-only)
   staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
   dashCharges(id) { return Math.floor(Motion.dashCharges[id]); },
+  // The movement resources for the HUD meter (17f) into out: breath, stamina and glide as shares left (1 = full or unused),
+  // dash and tactical-sprint charges with their preset maximum (0 = the preset has none). Returns out.
+  meters(id, out) {
+    const preset = this.preset(id);
+    out.air = this.airShare(id);
+    out.stamina = this.staminaFraction(id);
+    out.glide = preset.glideTime > 0 ? 1 - Math.min(1, Motion.glideUsed[id] / preset.glideTime) : 1;
+    out.dash = Motion.dashCharges[id]; out.dashMax = preset.dashCharges;
+    out.tac = Motion.tacCharges[id]; out.tacMax = preset.tacSprintCharges;
+    return out;
+  },
+  airShare(id) { return World.airLeft(id) / AIR_SECONDS; },   // breath left, 0..1 (the HUD meter and its vignette)
   stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
   isGrounded(id) { return Motion.grounded[id] === 1; },
 };
@@ -502,13 +516,14 @@ function stepMovement(dt) {
 
 // The step's gravity and start position, read by the states, integrate, afterMove and countSteps: a computed float passed as
 // an argument would be boxed every actor step (PERF-006), and the state call is indirect (one of several), so rarely inlined.
-const moveStep = { gravity: 0, startX: 0, startZ: 0 };
+const moveStep = { gravity: 0, startX: 0, startZ: 0, startYaw: 0 };
 
 function stepActor(id, dt) {
   const preset = Move.preset(id);
   moveStep.gravity = actorGravity(id, preset);
   moveStep.startX = Actors.x[id]; moveStep.startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
+  moveStep.startYaw = Actors.yaw[id];
   Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
   updateClocks(id, dt);
   readInput(id);
@@ -527,8 +542,17 @@ function afterMove(id, preset) {
   if (Actors.vy[id] > verticalBefore + GROUND_LEAVE_SPEED) unground(id); // launched by a jump pad
   updateEye(id);
   writeFlags(id);
-  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { Motion.stepDistance[id] = 0; return; } // teleported: no stride across the map
+  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { afterTeleport(id); return; }
   countSteps(id, preset);
+}
+
+// A teleporter moved and turned the actor (S08 turns its velocity): a dash or charge goes on turned by the same angle, a
+// mantle ends (it would pull the actor back to the old ledge), and no stride is counted across the map.
+function afterTeleport(id) {
+  const turn = Actors.yaw[id] - moveStep.startYaw, cos = Math.cos(turn), sin = Math.sin(turn), x = Motion.dirX[id], z = Motion.dirZ[id];
+  Motion.dirX[id] = x * cos + z * sin; Motion.dirZ[id] = z * cos - x * sin;   // DATA-002: the heading (sin yaw, cos yaw) turned by `turn`
+  if (Motion.state[id] === MOVE_STATE.MANTLE) setState(id, MOVE_STATE.WALK);
+  Motion.stepDistance[id] = 0;
 }
 
 function updateEye(id) {

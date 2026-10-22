@@ -38,7 +38,8 @@ Test.add('world', (check) => {
   const started = performance.now();
   for (let i = 0; i < 5000; i++) World.raycast(random.range(-50, 50), 1.5, random.range(-50, 50), 0.6, -0.1, 0.79, 40, hit);
   const microseconds = (performance.now() - started) * 1000 / 5000;
-  check('ray query < 5 us on average (step 4.3)', microseconds < 5, microseconds.toFixed(2) + ' us');
+  const budget = 5 * testSpeedFactor();
+  check('ray query < ' + budget.toFixed(1) + ' us on average (step 4.3: 5 us x speed factor)', microseconds < budget, microseconds.toFixed(2) + ' us');
 });
 
 const scratchDirection = Vec.make();
@@ -215,6 +216,18 @@ Test.add('world', (check) => {
   check('telefrag: occupant gets lethal damage credited to the arriver (MOV-020)', telefrag && telefrag.target === occupant && telefrag.source === id && telefrag.amount >= 1000);
 });
 
+// A dash keeps going the turned way out of a teleporter, and both ends make a noise bots hear (BOT-004 hearing reads 'sound').
+Test.add('world', (check) => {
+  loadTestWorld([], { triggers: [{ kind: 'teleporter', min: [-1, 0, 4], max: [1, 2, 5], exit: [30, 0.05, 30], yaw: 90 }] });
+  useTestRules({ move: 'ravager' });
+  const id = groundedTester(0, 3);
+  holdInput(id, 0, 1, 0, 0);
+  const sounds = recordEvents(['sound'], () => { tapButtons(id, BTN.SPRINT); stepSeconds(0.2); }).filter((s) => s.kind === 'teleport' && s.source === id);
+  check('dash through a teleporter: carries on along the exit yaw (+x), not the old heading', Actors.x[id] > 33 && Math.abs(Actors.z[id] - 30) < 0.5,
+    Actors.x[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+  check('teleport: a noise at the entry and one at the exit', sounds.length === 2 && Math.abs(sounds[0].z - 4) < 1 && Test.near(sounds[1].x, 30, 0.01), JSON.stringify(sounds));
+});
+
 Test.add('world', (check) => {
   loadTestWorld([{ shape: 'box', min: [-1, 0, 2], max: [1, 8, 3] }, { shape: 'box', min: [-1, 0, 3], max: [1, 6, 6] }],
     { triggers: [{ kind: 'ladder', min: [-1, 0, 1.4], max: [1, 6.2, 2] }] });
@@ -228,6 +241,45 @@ Test.add('world', (check) => {
   check('ladder climb 3.0 m/s', Test.near(Actors.y[id] - y0, 3, 0.1), Actors.y[id] - y0);
   tapButtons(id, BTN.JUMP);
   check('jump leaves the ladder', Motion.state[id] === MOVE_STATE.WALK && Actors.vz[id] < 0);
+});
+
+// MOV-019 ladders work both ways: up to an open top and onto the platform; from the top, looking down > 30 deg and walking on
+// climbs down instead of walking off into a fall. Ladder and swim speeds follow status slows (MOV-021 scales, like walking).
+Test.add('world', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 2], max: [1, 4, 20] }], { triggers: [{ kind: 'ladder', min: [-1, 0, 1.4], max: [1, 4, 2] }] });
+  useTestRules({ move: 'modern' });
+  const climber = groundedTester(0, 1.2);
+  holdInput(climber, 0, 1, 0, 0);
+  stepSeconds(3);
+  check('ladder: climbing an open top ends standing on the platform', Motion.grounded[climber] === 1 && Test.near(Actors.y[climber], 4, 0.05) && Actors.z[climber] > 2,
+    Actors.y[climber].toFixed(2) + ',' + Actors.z[climber].toFixed(2));
+  Actors.remove(climber);
+  const id = spawnTester(0, 4.01, 3);
+  Sim.run(12);
+  holdInput(id, 0, 1, 0, 180);
+  Actors.aimPitch[id] = -46 * DEG;
+  const hurt = recordEvents(['damage.request'], () => {
+    stepSeconds(0.6);
+    check('ladder: looking down 46 deg and walking on from the top climbs down the ladder', Motion.state[id] === MOVE_STATE.LADDER && Actors.y[id] < 3.6 && Actors.y[id] > 1.5
+      && Actors.z[id] > 1.4 - ACTOR_RADIUS, Move.stateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+    stepSeconds(1.5);
+  });
+  check('ladder: reaches the foot with no fall damage', Actors.y[id] < 0.05 && hurt.length === 0, Actors.y[id].toFixed(2) + ' ' + hurt.length);
+  Actors.remove(id);
+  const slowed = groundedTester(0, 1.2);
+  Buffs.add(slowed, BUFF.SLOW, 0.5, 10);
+  holdInput(slowed, 0, 1, 0, 0);
+  stepSeconds(0.3);
+  const y0 = Actors.y[slowed];
+  stepSeconds(0.5);
+  check('ladder: a 50% slow climbs at 1.5 m/s', Test.near((Actors.y[slowed] - y0) / 0.5, 1.5, 0.1), (Actors.y[slowed] - y0) / 0.5);
+  loadTestWorld([], { triggers: [{ kind: 'water', min: [-20, -1, -20], max: [20, 3, 20] }] });
+  useTestRules({ move: 'arena' });
+  const swimmer = groundedTester(-15, 0);
+  Buffs.add(swimmer, BUFF.SLOW, 0.5, 10);
+  holdInput(swimmer, 0, 1, 0, 90);
+  stepSeconds(2);
+  check('swim: a 50% slow swims at half the swim speed', Test.near(Math.hypot(Actors.vx[swimmer], Actors.vy[swimmer], Actors.vz[swimmer]), 2.25, 0.1), testSpeed(swimmer));
 });
 
 Test.add('world', (check) => {
@@ -271,6 +323,24 @@ Test.add('world', (check) => {
   const floating = spawnTester(0, -500, 0);
   check('empty world: bounds reset and no fall-out damage', !Number.isFinite(World.boundsMin.y) && recordEvents(['damage.request'], () => Sim.step()).length === 0);
   Actors.remove(floating);
+});
+
+// The hazard interval keeps running out of contact: an actor jittering on the edge is hurt at the steady rate, not at every re-entry.
+Test.add('world', (check) => {
+  loadTestWorld([], { triggers: [{ kind: 'hazard', min: [-2, 0, -2], max: [2, 1, 2], damage: 10 }] });
+  useTestRules({ move: 'arena' });
+  const id = spawnTester(2.3, 0.05, 0);
+  let toggle = 0;
+  const burns = recordEvents(['damage.request'], () => {
+    for (let step = 0; step < TICK_RATE; step++) {
+      Actors.x[id] = toggle++ % 2 ? 2.5 : 2.3;   // touching at 2.3 (radius 0.4), clear at 2.5
+      Actors.vx[id] = Actors.vz[id] = 0;
+      Sim.step();
+    }
+  }).filter((r) => r.kind === 'hazard');
+  const total = burns.reduce((sum, r) => sum + r.amount, 0);
+  check('hazard: toggling in and out every step for 1 s deals about the steady 10 HP/s (at most 20 HP)', total <= 20, total);
+  Actors.remove(id);
 });
 
 // A pad whose target is level with it still gives a finite arc (the flight time has a floor).

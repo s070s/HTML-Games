@@ -3,6 +3,7 @@
 
 const NAV_TEST_PHONE_FACTOR = 6;        // a low-end phone runs this JavaScript about 4-8 x slower than the headless desktop
 const NAV_TEST_BUILD_BUDGET_MS = 300 / NAV_TEST_PHONE_FACTOR; // BOT-010: 300 ms on Low, as desktop milliseconds
+const NAV_TEST_QUERY_BUDGET_MS = 2;     // one A* query on the big map: 4 fit a tick
 const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
@@ -490,15 +491,30 @@ Test.add('nav', (check) => {
   check('cache: rebuilding the graph invalidates it', Nav.version === version + 1 && !Nav.lastCacheHit);
 });
 
+// Mean Nav.buildMs of NAV_TEST_TIMED_LOADS loads of a copy of map (graph cache emptied before each one or not): one small
+// build can read 0 ms on a 1 ms clock (Firefox, Safari).
+const NAV_TEST_TIMED_LOADS = 8;
+function navTestMeanLoadMs(map, emptyCache) {
+  let total = 0;
+  for (let load = 0; load < NAV_TEST_TIMED_LOADS; load++) {
+    if (emptyCache) Nav.clearCache();
+    World.load(JSON.parse(JSON.stringify(map)));
+    total += Nav.buildMs;
+  }
+  return total / NAV_TEST_TIMED_LOADS;
+}
+
 Test.add('nav', (check) => {
   Nav.clearCache();
-  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount, firstMs = Nav.buildMs;
+  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount;
   check('graph cache: first load builds', !Nav.lastBuildCached);
   const length = Nav.findPath(0, nodes - 1), cost = Nav.pathCost;
   navTestRooms(true);
   World.load(JSON.parse(JSON.stringify(map)));
-  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links && Nav.buildMs < firstMs, Nav.buildMs + ' vs ' + firstMs);
+  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links);
   check('graph cache: reused graph answers the same path', Nav.findPath(0, nodes - 1) === length && Test.near(Nav.pathCost, cost, 1e-6) && navTestLinksClear() === 0);
+  const builtMs = navTestMeanLoadMs(map, true), cachedMs = navTestMeanLoadMs(map, false);
+  check('graph cache: a cached load costs less than a build (mean of ' + NAV_TEST_TIMED_LOADS + ')', cachedMs < builtMs, cachedMs.toFixed(2) + ' vs ' + builtMs.toFixed(2) + ' ms');
   map.brushes[1].max[1] = 2;
   World.load(map);
   check('graph cache: an edited map builds again', !Nav.lastBuildCached);
@@ -613,16 +629,18 @@ function navTestWallLine(brushes, line, half) {
 
 DebugApi.nav = Nav;
 // ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 120 x 120 m test map.
-DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); return Nav.buildMs; };
+DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); Nav.pump(Infinity); return Nav.buildMs; };
 
 function navTestPhases() {
   return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
 }
 
+
 Test.add('nav', (check) => {
+  const factor = testSpeedFactor(), budget = NAV_TEST_BUILD_BUDGET_MS * factor;
   const first = DebugApi.perf.navBuild(), warm = Math.min(DebugApi.perf.navBuild(), DebugApi.perf.navBuild(), DebugApi.perf.navBuild());
-  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + NAV_TEST_BUILD_BUDGET_MS + ' ms = BOT-010 300 ms on a '
-    + NAV_TEST_PHONE_FACTOR + ' x slower phone (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < NAV_TEST_BUILD_BUDGET_MS, navTestPhases());
+  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + budget.toFixed(1) + ' ms = BOT-010 300 ms on a '
+    + NAV_TEST_PHONE_FACTOR + ' x slower phone x speed factor ' + factor.toFixed(2) + ' (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < budget, navTestPhases());
   const problems = Nav.validate(World.map);
   check('big map: every spawn reaches every other spawn', problems.length === 0, problems.slice(0, 3).join('; '));
   check('big map: main component holds nearly all nodes', navComponentSize(Nav.mainComponent) > Nav.nodeCount * 0.95, navComponentSize(Nav.mainComponent) + ' / ' + Nav.nodeCount);
@@ -634,5 +652,88 @@ Test.add('nav', (check) => {
   const started = performance.now();
   for (let i = 0; i < 50; i++) Nav.findPath(navTestNode(spawns[i % count].x, 0, spawns[i % count].z), navTestNode(spawns[(i * 7 + 3) % count].x, 0, spawns[(i * 7 + 3) % count].z), { allowJumpHeight: i * 0.03 });
   const perQuery = (performance.now() - started) / 50;
-  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < 2, perQuery);
+  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < NAV_TEST_QUERY_BUDGET_MS * factor, perQuery);
+});
+
+// F66: Ring Isle builds in frame slices (the loop's input phase pumps it): the graph reads empty and bot requests fail
+// until it is ready, no slice runs long, the result equals the build at once, and a bot path request after it is served.
+// Timings are the best of NAV_TEST_SLICED_RUNS builds each way (a busy machine or a garbage collection slows one run).
+const NAV_TEST_SLICE_LIMIT_MS = 16;     // one 60 Hz frame
+const NAV_TEST_ISLE_BUDGET_MS = 400;    // whole Ring Isle build, desktop Chromium milliseconds of work
+const NAV_TEST_SLICED_OVERHEAD = 1.5;   // sliced work may cost this much more than the same build at once
+const NAV_TEST_SLICED_RUNS = 2;
+const NAV_TEST_MAX_FRAMES = 2000;
+
+// One sliced build of the loaded map, one frame at a time, asking for a path from a to b after every unfinished frame.
+function navTestSlicedBuild(a, b, run) {
+  Nav.clearCache();
+  Nav.startBuild(World.map);
+  let frames = 0;
+  while (!Nav.ready && frames < NAV_TEST_MAX_FRAMES) {
+    Loop.runPhase('input', TICK_SECONDS);
+    frames++;
+    if (Nav.ready) break;
+    if (Nav.nodeCount || Nav.linkCount || Nav.coverCount || Nav.nearestNode(a.x, a.y, a.z) >= 0) run.empty = false;
+    Nav.request(6, Nav.nearestNode(a.x, a.y, a.z), Nav.nearestNode(b.x, b.y, b.z));
+    navTestServeAll();
+    if (Nav.result(6) !== NAV_STATUS.FAILED) run.failed = false;
+  }
+  run.sliced = run.sliced && Nav.ready && Nav.buildSlices > 1 && frames === Nav.buildSlices;
+  run.workMs = Math.min(run.workMs, Nav.buildMs);
+  run.longestMs = Math.min(run.longestMs, Nav.longestSliceMs);
+}
+
+Test.add('nav', (check) => {
+  const factor = testSpeedFactor();
+  World.load(Maps.get('isle'));   // warms the build code up: a first big build runs 2-4 x slower on Firefox and Safari
+  let atOnceMs = Infinity;
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) atOnceMs = Math.min(atOnceMs, DebugApi.perf.navBuild(World.map));
+  const nodes = Nav.nodeCount, links = Nav.linkCount, covers = Nav.coverCount, version = Nav.version, spawns = World.map.spawns;
+  const from = spawns[0], to = spawns[spawns.length - 1], run = { empty: true, failed: true, sliced: true, workMs: Infinity, longestMs: Infinity };
+  const wasHeadless = Game.headless;
+  Nav.clearCache();
+  navJob.inMatchLoad = true; Game.headless = false;   // as between 'match.setup' and 'match.start' in a game
+  try { World.load(World.map); } finally { navJob.inMatchLoad = false; Game.headless = wasHeadless; }
+  check('match load: a game leaves Ring Isle to frame slices after the first one', !Nav.ready && Nav.buildSlices === 1 && Nav.nodeCount === 0, Nav.buildSlices);
+  Nav.pump(Infinity);
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) navTestSlicedBuild(from, to, run);
+  check('sliced build: Ring Isle finishes over ' + Nav.buildSlices + ' frames', run.sliced);
+  check('sliced build: the graph reads empty and path requests fail until it is ready', run.empty && run.failed);
+  check('sliced build: longest slice ' + run.longestMs.toFixed(1) + ' ms under ' + NAV_TEST_SLICE_LIMIT_MS + ' ms x speed factor ' + factor.toFixed(2),
+    run.longestMs < NAV_TEST_SLICE_LIMIT_MS * factor);
+  check('sliced build: ' + run.workMs.toFixed(0) + ' ms of work, at most ' + NAV_TEST_SLICED_OVERHEAD + ' x the build at once (' + atOnceMs.toFixed(0) + ' ms)',
+    run.workMs <= atOnceMs * NAV_TEST_SLICED_OVERHEAD, navTestPhases());
+  check('sliced build: the build at once takes under ' + NAV_TEST_ISLE_BUDGET_MS + ' ms x speed factor', atOnceMs < NAV_TEST_ISLE_BUDGET_MS * factor, atOnceMs);
+  check('sliced build: same graph as the build at once', Nav.nodeCount === nodes && Nav.linkCount === links && Nav.coverCount === covers,
+    Nav.nodeCount + '/' + nodes + ' nodes, ' + Nav.linkCount + '/' + links + ' links');
+  check('sliced build: bots repath (version moved on)', Nav.version > version);
+  Nav.request(6, Nav.nearestNode(from.x, from.y, from.z), Nav.nearestNode(to.x, to.y, to.z));
+  navTestServeAll();
+  check('sliced build: a path request after it is ready is served', Nav.result(6) === NAV_STATUS.DONE, Nav.result(6));
+});
+
+// F66: in a game the graph of a big map finishes in the frames after 'match.start' ('nav.ready'): the lookups bots make at
+// match start run again, so they find every loot spot and map item (14e), the water exits (14c) and the flag rally points (14f).
+function navTestLateMatch(mode, map) {
+  const pump = Nav.pump;
+  Nav.clearCache();
+  Nav.pump = (budgetMs) => pump.call(Nav, Math.min(budgetMs, NAV_SLICE_MS));   // world.load slices as in a game (not headless)
+  try { Game.start({ mode, map, seed: 1, bots: [{}, {}, {}, {}] }); } finally { Nav.pump = pump; }
+  const late = !Nav.ready;
+  for (let frame = 0; frame < NAV_TEST_MAX_FRAMES && !Nav.ready; frame++) Loop.runPhase('input', TICK_SECONDS);
+  return late && Nav.ready;
+}
+
+Test.add('nav', (check) => {
+  try {
+    const isle = navTestLateMatch('royale', 'isle'), loot = Modes.loot;
+    const lootFound = BotDecide.lootNode.subarray(0, loot.count).filter((node) => node >= 0).length;
+    check('late graph: Ring Isle royale bots know the node of every loot spot', isle && loot.count > 0 && lootFound === loot.count, lootFound + ' / ' + loot.count);
+    const harbor = navTestLateMatch('tdm', 'harbor');   // royale uses loot spots, not map items
+    const itemsFound = BotDecide.items.filter((item) => BotDecide.itemNode[item.index] >= 0).length;
+    check('late graph: Harbor Nine bots know the node of every map item', harbor && BotDecide.items.length > 0 && itemsFound === BotDecide.items.length, itemsFound + ' / ' + BotDecide.items.length);
+    check('late graph: Harbor Nine bots know the water and its exits', harbor && mapHasWater && exitCount > 0, exitCount);
+    const keeps = navTestLateMatch('ctf', 'twinkeeps');
+    check('late graph: Twin Keeps flag teams have rally points', keeps && BotTeam.hasRally(0) && BotTeam.hasRally(1));
+  } finally { Game.stop(); World.clear(); }
 });
