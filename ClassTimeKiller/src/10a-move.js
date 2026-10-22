@@ -39,7 +39,7 @@ const MOTION_FIELDS = ['state', 'stateTime', 'stance', 'proneWanted', 'grounded'
   'jumpsLeft', 'jumpPressed', 'stamina', 'staminaWait', 'tacCharges', 'tacRecharge', 'sprinting', 'sliding', 'slideTime', 'slideBoostClock',
   'dashCharges', 'dirX', 'dirY', 'dirZ', 'fromX', 'fromY', 'fromZ', 'toX', 'toY', 'toZ', 'wallNX', 'wallNZ', 'climbed', 'glideUsed', 'liftUsed',
   'stepDistance', 'gliding', 'blocked', 'blockNX', 'blockNZ', 'board', 'medium', 'inputX', 'inputZ', 'tapClockX', 'tapClockZ', 'tapClockSprint',
-  'tapSignX', 'tapSignZ', 'tapSignSprint', 'lastAxisX', 'lastAxisZ', 'lastAxisSprint', 'target'];
+  'tapSignX', 'tapSignZ', 'tapSignSprint', 'lastAxisX', 'lastAxisZ', 'lastAxisSprint', 'target', 'rays'];
 
 const Motion = { clocks: new Float32Array(MAX_ACTORS * CLOCK_COUNT), groundBrush: new Array(MAX_ACTORS).fill(null),
   wallBrush: new Array(MAX_ACTORS).fill(null), lastWallBrush: new Array(MAX_ACTORS).fill(null) };
@@ -134,13 +134,20 @@ function accelerate(id, wishX, wishY, wishZ, wishSpeed, accel, dt) {
 
 const wish = { x: 0, y: 0, z: 0, amount: 0 };
 
-// Horizontal wish direction from the input axes (DATA-002: forward (sin yaw, 0, cos yaw), right (-cos yaw, 0, sin yaw)).
+// World x/z of `forward` metres along the view yaw plus `strafe` to its right (not normalized).
+// DATA-002: forward (sin yaw, 0, cos yaw), right (-cos yaw, 0, sin yaw).
+function yawToWorld(yaw, forward, strafe, out) {
+  out.x = Math.sin(yaw) * forward - Math.cos(yaw) * strafe;
+  out.z = Math.cos(yaw) * forward + Math.sin(yaw) * strafe;
+  return out;
+}
+
+// Horizontal wish direction (unit) and amount (0..1) from the input axes.
 function horizontalWish(id) {
-  const yaw = Actors.yaw[id], forward = Motion.inputZ[id], strafe = Motion.inputX[id];
-  const x = Math.sin(yaw) * forward - Math.cos(yaw) * strafe, z = Math.cos(yaw) * forward + Math.sin(yaw) * strafe;
-  const length = Math.hypot(x, z);
+  yawToWorld(Actors.yaw[id], Motion.inputZ[id], Motion.inputX[id], wish);
+  const length = Math.hypot(wish.x, wish.z);
   wish.amount = Math.min(1, length);
-  wish.x = length > 1e-6 ? x / length : 0; wish.y = 0; wish.z = length > 1e-6 ? z / length : 0;
+  wish.x = length > 1e-6 ? wish.x / length : 0; wish.y = 0; wish.z = length > 1e-6 ? wish.z / length : 0;
   return wish;
 }
 
@@ -247,9 +254,8 @@ function integrate(id, gravity, dt) {
   const endVY = mover.vy - gravity * dt;
   mover.vy = (mover.vy + endVY) / 2;
   if (wasGrounded) followGround(id, mover);
-  const touched = sweepActor(mover, dt, wasGrounded ? STEP_HEIGHT : 0);
+  sweepActor(id, mover, dt, wasGrounded ? STEP_HEIGHT : 0);
   if (gravity !== 0) applyEndVelocity(mover, endVY);
-  recordBlock(id, mover, touched);
   settle(id, mover);
   const impactSpeed = Math.max(0, -endVY);
   const nowGrounded = probeFloor(id, mover, wasGrounded);
@@ -266,36 +272,33 @@ function applyEndVelocity(mover, endVY) {
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
   const speed = Math.hypot(mover.vx, mover.vy, mover.vz);
-  addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
+  addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
   clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
   const clipped = Math.hypot(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
-function sweepActor(mover, dt, stepHeight) {
+function sweepActor(id, mover, dt, stepHeight) {
   const travel = Math.hypot(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
   const firstPlanes = mover.planeCount;
-  let touched = false;
+  Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
     Collide.gatherAround(mover, travel / pieces + stepHeight);
     const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
-    touched = touched || hit;
+    if (hit) recordWall(id, mover);
   }
-  return touched;
 }
 
-// Remembers the wall the actor pushed against this step (mantle, climb and wall checks read it next step).
-function recordBlock(id, mover, touched) {
-  Motion.blocked[id] = 0;
-  if (!touched) return;
+// Remembers a wall the actor pushed against in any sub-step, with that plane's own brush (mantle, climb and wall
+// checks read it next step). Floors and ceilings are not walls.
+function recordWall(id, mover) {
   for (let i = 0; i < mover.planeCount; i++) {
-    const ny = mover.planes[i * 3 + 1];
-    if (Math.abs(ny) >= WALKABLE_NORMAL_Y) continue;
+    if (Math.abs(mover.planes[i * 3 + 1]) >= WALKABLE_NORMAL_Y) continue;
     Motion.blocked[id] = 1; Motion.blockNX[id] = mover.planes[i * 3]; Motion.blockNZ[id] = mover.planes[i * 3 + 2];
-    Motion.wallBrush[id] = mover.lastBrush;
+    Motion.wallBrush[id] = mover.planeBrushes[i];
   }
 }
 
@@ -336,7 +339,7 @@ function storeMover(id, mover) {
 function land(id, impactSpeed) {
   const preset = Move.preset(id);
   const damage = fallDamage(preset, impactSpeed);
-  if (damage > 0) requestMoveDamage(id, damage, 'fall');
+  if (damage > 0) requestDamage(id, -1, damage, 'fall', 'none');
   if (impactSpeed > HARD_LANDING_SPEED) setClock(id, CLOCK.JUMP_LOCK, LANDING_LOCK_SECONDS);
   if (preset.landingPenalty < 1) setClock(id, CLOCK.LAND_SLOW, LANDING_PENALTY_SECONDS);
   if (preset.bhopCap > 0) capHorizontalSpeed(id, preset.bhopCap * preset.groundSpeed);
@@ -429,9 +432,12 @@ function readInput(id) {
   const stopped = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || getClock(id, CLOCK.STAGGER) > 0 || Motion.state[id] === MOVE_STATE.MANTLE;
   Motion.inputX[id] = stopped ? 0 : clamp(Actors.moveX[id], -1, 1);
   Motion.inputZ[id] = stopped ? 0 : clamp(Actors.moveZ[id], -1, 1);
-  const jumpPressed = !stopped && ((Actors.pressed[id] & BTN.JUMP) !== 0 || (MatchMove.autoHop && (Actors.buttons[id] & BTN.JUMP) !== 0));
-  Motion.jumpPressed[id] = jumpPressed ? 1 : 0;
-  if (jumpPressed) setClock(id, CLOCK.JUMP_BUFFER, JUMP_BUFFER_SECONDS);
+  const pressed = !stopped && (Actors.pressed[id] & BTN.JUMP) !== 0;
+  const held = !stopped && (Actors.buttons[id] & BTN.JUMP) !== 0;
+  // jumpPressed stays a fresh press: air jumps, wall jumps, ladder push-offs and mantles never repeat while held.
+  Motion.jumpPressed[id] = pressed ? 1 : 0;
+  // X25 autohop: a held jump keeps the ground-jump buffer full, so only ground jumps repeat.
+  if (pressed || (MatchMove.autoHop && held)) setClock(id, CLOCK.JUMP_BUFFER, JUMP_BUFFER_SECONDS);
 }
 
 function updateClocks(id, dt) {
@@ -461,6 +467,7 @@ function stepActor(id, dt) {
   const gravity = preset.gravity * MatchMove.gravityScale;
   const startX = Actors.x[id], startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
+  Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
   updateClocks(id, dt);
   readInput(id);
   updateStance(id, preset);
@@ -524,7 +531,6 @@ function movingInaccuracy(id, table) {
 const moveEvents = {};
 for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '' };
 const noiseEvent = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: 0 };
-const moveDamage = { target: 0, source: -1, amount: 0, kind: 'fall', element: 'none', x: 0, y: 0, z: 0 };
 
 function emitMove(type, id, speed, surface) {
   const payload = moveEvents[type];
@@ -537,12 +543,6 @@ function emitNoise(id, radius, kind) {
   noiseEvent.x = Actors.x[id]; noiseEvent.y = Actors.y[id]; noiseEvent.z = Actors.z[id];
   noiseEvent.radius = radius; noiseEvent.kind = kind; noiseEvent.source = id;
   Bus.emit('sound', noiseEvent);
-}
-
-function requestMoveDamage(id, amount, kind) {
-  moveDamage.target = id; moveDamage.amount = amount; moveDamage.kind = kind;
-  moveDamage.x = Actors.x[id]; moveDamage.y = Actors.y[id]; moveDamage.z = Actors.z[id];
-  Bus.emit('damage.request', moveDamage);
 }
 
 function surfaceOf(id) {

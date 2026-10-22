@@ -13,6 +13,8 @@ const WALL_RUN_APPROACH_SIN = Math.sin(60 * DEG); // MOV-023: approach under 60 
 const MANTLE_SECONDS = 0.35;           // MOV-022
 const MANTLE_RISE_FRACTION = 0.6;      // share of the mantle spent rising before moving onto the ledge
 const MANTLE_REACH = 0.3;              // how far in front of the capsule a ledge is looked for
+const WATER_EXIT_HEIGHT = 1.6;         // ledge reach (feet to rim) in water in every preset: pools are never traps
+const RAY_BUDGET = 3;                  // MOV-023: wall and ledge rays per actor per step
 const WALL_FACING_COS = 0.7;           // looking this directly at a wall counts as facing it (climb, mantle)
 const CLIMB_SPEED = 4.5;               // m/s up a climbable wall
 const GRIP_MATERIAL = 'grip';          // climbGripOnly presets climb only brushes of this material
@@ -33,10 +35,19 @@ const SKIMMER_MIN_MAP_SIZE = 150;      // metres: only large maps allow the boar
 
 const wallHit = makeHit();
 const facing = { x: 0, y: 0, z: 0 };
+const axes = { x: 0, z: 0 };
 
 // ---- Shared helpers ----
+// Takes `count` rays from this step's budget; false (and nothing taken) when they would pass RAY_BUDGET.
+function spendRays(id, count) {
+  if (Motion.rays[id] + count > RAY_BUDGET) return false;
+  Motion.rays[id] += count;
+  return true;
+}
+
 // Ray from the waist along (dirX, dirZ); fills wallHit and returns true for a near-vertical wall within reach.
 function findWall(id, dirX, dirZ) {
+  if (!spendRays(id, 1)) return false;
   const waist = Actors.y[id] + Actors.height[id] * 0.5;
   if (!World.raycast(Actors.x[id], waist, Actors.z[id], dirX, 0, dirZ, ACTOR_RADIUS + WALL_REACH, wallHit)) return false;
   return wallHit.distance > 0 && Math.abs(wallHit.ny) <= WALL_NORMAL_MAX_Y;
@@ -86,6 +97,18 @@ function grabWall(id, state) {
 
 function inWalkState(id) { return Motion.state[id] === MOVE_STATE.WALK; }
 
+// True when the view points into the wall the actor was blocked by last step (climb, walk-in mantle).
+function facingBlockedWall(id) {
+  const into = -(Math.sin(Actors.yaw[id]) * Motion.blockNX[id] + Math.cos(Actors.yaw[id]) * Motion.blockNZ[id]);
+  return Motion.blocked[id] === 1 && into >= WALL_FACING_COS;
+}
+
+// A dash or shield charge ends: no faster than ground speed, back to walking.
+function endBurst(id, preset) {
+  setHorizontalSpeed(id, Math.min(Move.horizontalSpeed(id), preset.groundSpeed));
+  setState(id, MOVE_STATE.WALK);
+}
+
 // ---- Media: ladders and water (MOV-019) ----
 function selectMedium(id) {
   const state = Motion.state[id], medium = Motion.medium[id];
@@ -113,12 +136,12 @@ function ladderState(id, preset, gravity, dt) {
 
 function swimState(id, preset, gravity, dt) {
   applyFriction(id, WATER_FRICTION, preset.stopSpeed, dt, true);
-  Vec.fromAngles(facing, Actors.yaw[id], Actors.pitch[id]);
+  // Forward follows the view in 3D (pitch included); strafe stays level; jump and crouch swim straight up and down.
   const up = ((Actors.buttons[id] & BTN.JUMP) ? 1 : 0) - ((Actors.buttons[id] & BTN.CROUCH) ? 1 : 0);
-  const forward = Motion.inputZ[id], strafe = Motion.inputX[id], yaw = Actors.yaw[id];
-  const x = facing.x * forward - Math.cos(yaw) * strafe, y = facing.y * forward + up, z = facing.z * forward + Math.sin(yaw) * strafe;
-  const length = Math.hypot(x, y, z);
-  if (length > 1e-6) accelerate(id, x / length, y / length, z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
+  const forward = Motion.inputZ[id], pitch = Actors.pitch[id];
+  yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
+  const y = Math.sin(pitch) * forward + up, length = Math.hypot(axes.x, y, axes.z);
+  if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
   integrate(id, gravity * WATER_GRAVITY_SCALE, dt);
 }
 
@@ -170,10 +193,10 @@ function tryDodge(id, preset) {
   const tapX = doubleTap(id, Motion.inputX[id], 'tapClockX', 'tapSignX', 'lastAxisX');
   const tapZ = doubleTap(id, Motion.inputZ[id], 'tapClockZ', 'tapSignZ', 'lastAxisZ');
   if (preset.dodgeSpeed <= 0 || (tapX === 0 && tapZ === 0) || getClock(id, CLOCK.DODGE_COOLDOWN) > 0 || !inWalkState(id)) return;
-  const yaw = Actors.yaw[id];
-  const x = Math.sin(yaw) * tapZ - Math.cos(yaw) * tapX, z = Math.cos(yaw) * tapZ + Math.sin(yaw) * tapX, length = Math.hypot(x, z);
-  if (!Motion.grounded[id] && !(preset.wallDodge && findWall(id, -x / length, -z / length))) return;
-  Actors.vx[id] = x / length * preset.dodgeSpeed; Actors.vz[id] = z / length * preset.dodgeSpeed; Actors.vy[id] = preset.dodgeUp;
+  yawToWorld(Actors.yaw[id], tapZ, tapX, axes);
+  const length = Math.hypot(axes.x, axes.z), x = axes.x / length, z = axes.z / length;
+  if (!Motion.grounded[id] && !(preset.wallDodge && findWall(id, -x, -z))) return;
+  Actors.vx[id] = x * preset.dodgeSpeed; Actors.vz[id] = z * preset.dodgeSpeed; Actors.vy[id] = preset.dodgeUp;
   setClock(id, CLOCK.DODGE_COOLDOWN, preset.dodgeCooldown);
   launch(id, 'move.dash');
 }
@@ -203,8 +226,7 @@ function dashState(id, preset, gravity, dt) {
   Actors.vx[id] = Motion.dirX[id] * speed; Actors.vy[id] = 0; Actors.vz[id] = Motion.dirZ[id] * speed;
   integrate(id, 0, dt);
   if (Motion.stateTime[id] + dt < preset.dashTime) return;
-  setHorizontalSpeed(id, Math.min(Move.horizontalSpeed(id), preset.groundSpeed));
-  setState(id, MOVE_STATE.WALK);
+  endBurst(id, preset);
 }
 
 function tryCharge(id, preset) {
@@ -238,8 +260,7 @@ function chargeState(id, preset, gravity, dt) {
   const travelled = (Motion.stateTime[id] + dt) * preset.chargeSpeed;
   const arrived = target >= 0 && Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
   if (travelled < preset.chargeDistance && !arrived && !Motion.blocked[id]) return;
-  setHorizontalSpeed(id, Math.min(Move.horizontalSpeed(id), preset.groundSpeed));
-  setState(id, MOVE_STATE.WALK);
+  endBurst(id, preset);
 }
 
 function aimChargeAt(id, target) {
@@ -248,11 +269,12 @@ function aimChargeAt(id, target) {
   Motion.dirX[id] = dx / distance; Motion.dirZ[id] = dz / distance;
 }
 
-// ---- Mantle (MOV-022) and climb ----
+// ---- Mantle (MOV-022), water exit and climb ----
 function tryMantle(id, preset) {
-  if (preset.mantleHeight <= 0 || !inWalkState(id) || Motion.stance[id] === STANCE.PRONE || Motion.board[id]) return;
-  if (!Motion.jumpPressed[id] && !(Motion.blocked[id] && Motion.inputZ[id] > 0)) return;
-  if (!findLedge(id, preset.mantleHeight)) return;
+  const reach = mantleReach(id, preset);
+  if (reach <= 0 || Motion.stance[id] === STANCE.PRONE || Motion.board[id]) return;
+  if (!Motion.jumpPressed[id] && !(Motion.inputZ[id] > 0 && facingBlockedWall(id))) return;
+  if (!findLedge(id, reach)) return;
   Motion.fromX[id] = Actors.x[id]; Motion.fromY[id] = Actors.y[id]; Motion.fromZ[id] = Actors.z[id];
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
   Motion.jumpPressed[id] = 0; setClock(id, CLOCK.JUMP_BUFFER, 0);
@@ -260,8 +282,18 @@ function tryMantle(id, preset) {
   emitMove('move.mantle', id, Motion.toY[id] - Actors.y[id], surfaceOf(id));
 }
 
-// A wall in front at knee height, walkable floor on top within reach, room to stand there and to rise to it.
+// How high a ledge the actor can mantle: the preset's mantleHeight on foot; in or at the water at least
+// WATER_EXIT_HEIGHT, so swimmers climb out over a rim at or just above the surface in every preset. 0 = no mantle.
+function mantleReach(id, preset) {
+  const state = Motion.state[id];
+  if (state !== MOVE_STATE.WALK && state !== MOVE_STATE.SWIM) return 0;
+  const inWater = state === MOVE_STATE.SWIM || (Motion.medium[id] & TRIGGER_MEDIUM.WADING) !== 0;
+  return inWater ? Math.max(preset.mantleHeight, WATER_EXIT_HEIGHT) : preset.mantleHeight;
+}
+
+// A wall in front at knee height, walkable floor on top within reach, room to stand there and to rise to it (2 rays).
 function findLedge(id, maxHeight) {
+  if (!spendRays(id, 2)) return false;
   const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], forwardX = Math.sin(Actors.yaw[id]), forwardZ = Math.cos(Actors.yaw[id]);
   if (!World.raycast(x, y + STEP_HEIGHT + COLLISION_SKIN, z, forwardX, 0, forwardZ, ACTOR_RADIUS + MANTLE_REACH, wallHit)) return false;
   if (Math.abs(wallHit.ny) > WALL_NORMAL_MAX_Y || wallHit.distance <= 0) return false;
@@ -291,9 +323,7 @@ function mantleState(id, preset, gravity, dt) {
 
 // Climbing up a wall while pushing into it (MV04/MV08 2.5 m, MV05 6 m on grip surfaces); the mantle takes over at the top.
 function climbWall(id, preset, dt) {
-  if (preset.climbHeight <= 0 || !Motion.blocked[id] || Motion.inputZ[id] <= 0 || Motion.climbed[id] >= preset.climbHeight) return;
-  const facingWall = -(Math.sin(Actors.yaw[id]) * Motion.blockNX[id] + Math.cos(Actors.yaw[id]) * Motion.blockNZ[id]);
-  if (facingWall < WALL_FACING_COS) return;
+  if (preset.climbHeight <= 0 || !facingBlockedWall(id) || Motion.inputZ[id] <= 0 || Motion.climbed[id] >= preset.climbHeight) return;
   const brush = Motion.wallBrush[id];
   if (preset.climbGripOnly && (!brush || brush.material !== GRIP_MATERIAL)) return;
   Actors.vy[id] = Math.max(Actors.vy[id], CLIMB_SPEED);
@@ -306,7 +336,7 @@ function tryWallRun(id, preset) {
   const speed = Move.horizontalSpeed(id);
   if (speed < WALL_RUN_MIN_SPEED || !findSideWall(id) || wallHit.brush === Motion.lastWallBrush[id]) return;
   if (Math.abs(Actors.vx[id] * wallHit.nx + Actors.vz[id] * wallHit.nz) / speed > WALL_RUN_APPROACH_SIN) return;
-  if (!Number.isNaN(World.floorBelow(Actors.x[id], Actors.y[id], Actors.z[id], preset.wallRunMinHeight))) return;
+  if (!spendRays(id, 1) || !Number.isNaN(World.floorBelow(Actors.x[id], Actors.y[id], Actors.z[id], preset.wallRunMinHeight))) return;
   grabWall(id, MOVE_STATE.WALL_RUN);
   Actors.vy[id] = Math.max(Actors.vy[id], 0);
   emitMove('move.wallrun', id, speed, Motion.wallBrush[id] ? Motion.wallBrush[id].material : 'concrete');

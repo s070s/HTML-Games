@@ -151,8 +151,8 @@ Test.add('move', (check) => {
   Actors.y[id] = 2; Motion.grounded[id] = 0; Actors.vy[id] = -15.5; // lands at about 17.9 m/s
   const damage = recordEvents(['damage.request'], () => { while (!Motion.grounded[id]) Sim.step(); });
   check('hard landing locks jumping 0.25 s (MOV-014)', getClock(id, CLOCK.JUMP_LOCK) > 0.2);
-  tapButtons(id, BTN.JUMP);
-  check('locked jump does not fire', !Motion.jumpPressed[id] || Motion.grounded[id] === 1 || Actors.vy[id] < 1);
+  const lockedJumps = recordEvents(['move.jump'], () => tapButtons(id, BTN.JUMP));
+  check('locked jump does not fire', lockedJumps.length === 0 && Actors.vy[id] < 1 && Motion.grounded[id] === 1, Actors.vy[id]);
   const preset = Move.preset(id), impact = damage.length ? damage[0] : null;
   check('fall damage kind fall', impact && impact.kind === 'fall' && impact.target === id);
   check('fall damage follows the MOV-015 curve', impact && Test.near(impact.amount, fallDamage(preset, Math.sqrt(15.5 ** 2 + 2 * 20 * 2)), 1.5), impact && impact.amount);
@@ -183,6 +183,20 @@ Test.add('move', (check) => {
   check('extra jump refills on the first grounded step (MOV-024)', Motion.jumpsLeft[id] === 1);
   useTestRules({ move: 'arena', moveOverrides: { extraJumps: 1, extraJumpVel: 8.1 } });
   check('ruleset moveOverrides give arena a double jump (RS02)', Move.preset(id).extraJumps === 1 && Move.preset(id).id === 'arena');
+});
+
+// X25 autohop repeats ground jumps only: a held jump never spends the extra jump, wall jumps or mantles.
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'agile', mutators: ['autohop'] });
+  const id = groundedTester(0, 0);
+  holdInput(id, 0, 0, BTN.JUMP);
+  const quick = recordEvents(['move.jump'], () => stepSeconds(0.05));
+  check('autohop + agile: holding jump 0.05 s is one jump', quick.length === 1 && Motion.jumpsLeft[id] === 1, quick.length + ' jumps');
+  stepSeconds(0.5);
+  check('autohop: no double jump while held in the air', Motion.jumpsLeft[id] === 1 && Motion.grounded[id] === 0);
+  const hops = recordEvents(['move.jump'], () => stepSeconds(2));
+  check('autohop: still hops again on every landing', hops.length >= 2 && hops.length <= 3, hops.length);
 });
 
 // ---- Air control: strafe-jump gain and the assist (MOV-012, MOV-018) ----
@@ -450,9 +464,11 @@ Test.add('move', (check) => {
   useTestRules({ move: 'modern' });
   const id = groundedTester(0, 0);
   holdInput(id, 0, 1, 0, 0);
-  const events = recordEvents(['move.mantle'], () => stepSeconds(0.6));
-  check('walking into a 1.5 m ledge mantles (modern 2.2 m)', events.length === 1);
-  check('weapon lowered while mantling', Motion.state[id] === MOVE_STATE.MANTLE ? !Move.canFire(id) : true);
+  let ticks = 0;
+  const events = recordEvents(['move.mantle'], () => { while (Motion.state[id] !== MOVE_STATE.MANTLE && ticks++ < 120) Sim.step(); });
+  check('walking into a 1.5 m ledge mantles (modern 2.2 m)', events.length === 1 && Motion.state[id] === MOVE_STATE.MANTLE);
+  stepSeconds(0.1);
+  check('weapon lowered while mantling', Motion.state[id] === MOVE_STATE.MANTLE && !Move.canFire(id));
   stepSeconds(0.5);
   check('ends standing on the ledge', Test.near(Actors.y[id], 1.5, 0.05) && Motion.grounded[id] === 1, Actors.y[id]);
   const tall = groundedTester(13, 0);
@@ -464,8 +480,25 @@ Test.add('move', (check) => {
   check('arena does not mantle', recordEvents(['move.mantle'], () => stepSeconds(1)).length === 0);
 });
 
+// Water exit: in every preset (with or without mantle) a swimmer climbs out over a rim level with the surface or a
+// little above it. The pool is 2 m deep; the rim is the top of the block in front.
 Test.add('move', (check) => {
-  loadTestWorld([{ shape: 'box', min: [-3, 0, 2], max: [3, 5, 6], material: 'grip' }, { shape: 'box', min: [10, 0, 2], max: [16, 5, 6] }]);
+  for (const rim of [2, 2.5]) {
+    loadTestWorld([{ shape: 'box', min: [-10, 0, 5], max: [10, rim, 20] }], { triggers: [{ kind: 'water', min: [-10, 0, -10], max: [10, 2, 5] }] });
+    for (const row of CAT.movement) {
+      useTestRules({ move: row.id });
+      const id = spawnTester(0, 0.05, 0);
+      holdInput(id, 0, 1, BTN.JUMP, 0);
+      for (let i = 0; i < 10 * TICK_RATE && !(Motion.grounded[id] && Actors.z[id] > 5); i++) Sim.step();
+      check(row.id + ': swims out over a rim ' + (rim - 2) + ' m above the surface', Motion.grounded[id] === 1 && Actors.z[id] > 5 && Test.near(Actors.y[id], rim, 0.05),
+        Move.stateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+      Actors.remove(id);
+    }
+  }
+});
+
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-3, 0, 2], max: [3, 5, 6], material: 'grip' },{ shape: 'box', min: [10, 0, 2], max: [16, 5, 6] }]);
   useTestRules({ move: 'ravager' });
   const id = groundedTester(0, 0);
   holdInput(id, 0, 1, 0, 0);
@@ -607,6 +640,28 @@ Test.add('move', (check) => {
     if (step >= 100) total += Sim.timing.move;
   }
   check('24 actors move in < 0.5 ms per step on average', total / 500 < 0.5, (total / 500).toFixed(3) + ' ms');
+});
+
+// MOV-023: at most 3 world rays per actor per step, in every preset, during random moves among walls and ledges.
+Test.add('move', (check) => {
+  loadTestWorld(randomBrushes(8, 160, 25));
+  const random = makeRandom(17), original = World.raycast;
+  let rays = 0, worst = 0, worstPreset = '';
+  World.raycast = function countedRaycast(...args) { rays++; return original.apply(this, args); };
+  try {
+    for (const row of CAT.movement) {
+      useTestRules({ move: row.id });
+      const id = spawnTester(...freeSpot(random));
+      for (let step = 0; step < 600; step++) {
+        if (step % 20 === 0) randomize(id, random);
+        rays = 0;
+        Sim.step();
+        if (rays > worst) { worst = rays; worstPreset = row.id; }
+      }
+      Actors.remove(id);
+    }
+  } finally { World.raycast = original; }
+  check('no more than 3 rays per actor per step (MOV-023)', worst <= RAY_BUDGET && worst > 0, worst + ' in ' + worstPreset);
 });
 
 // ---- Smaller rules: crouch-jump lift (MV02), wall dodge (RS02), auto-strafe (MOV-018), downhill slide (MV04) ----

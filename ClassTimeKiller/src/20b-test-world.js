@@ -55,6 +55,19 @@ Test.add('world', (check) => {
   check('sweepCapsule stops at the wall', World.sweepCapsule(0, 0.01, 0, 20, 0.01, 0, ACTOR_RADIUS, 1.8, Collide.trace) && Test.near(Collide.trace.x, 7.6, 0.05), Collide.trace.x);
 });
 
+// Long queries see every brush: 400 tiles under a 130 m sweep, then a wall at x = 60.
+Test.add('world', (check) => {
+  const tiles = [];
+  for (let i = 0; i < 400; i++) tiles.push({ shape: 'box', min: [i * 0.3, -0.3, -1], max: [i * 0.3 + 0.25, 0.005, 1] });
+  loadTestWorld(tiles.concat([{ shape: 'box', min: [60, 0, -5], max: [60.5, 4, 5] }]));
+  const blocked = World.sweepCapsule(0, 0.02, 0, 130, 0.02, 0, ACTOR_RADIUS, 1.8, Collide.trace);
+  check('sweepCapsule over 400 brushes stops at the wall behind them', blocked && Test.near(Collide.trace.x, 60 - ACTOR_RADIUS, 0.02), Collide.trace.x);
+  const mover = makeMover();
+  mover.y = 0.02; setCapsuleHull(mover.hull, ACTOR_RADIUS, 1.8);
+  check('a gather past 256 brushes logs one error per map', Test.expectErrors(() => { Collide.gatherAround(mover, 100); Collide.gatherAround(mover, 100); }) === 1);
+  check('the capped list is full, not overrun', Collide.candidateCount === MAX_CANDIDATES);
+});
+
 // ---- Character collision: tunnelling, step height, slopes, ceilings ----
 Test.add('world', (check) => {
   loadTestWorld([{ shape: 'box', min: [10, 0, -30], max: [10.1, 30, 30] }]);
@@ -71,6 +84,19 @@ Test.add('world', (check) => {
   const body = Bodies.spawn(spec);
   stepSeconds(0.5);
   check('no tunnelling for a 40 m/s body', Bodies.x[body] < 10, Bodies.x[body]);
+});
+
+// A wall touched in an early sub-step is remembered with its own brush, even when later sub-steps touch nothing.
+Test.add('world', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, -30], max: [-0.5, 30, 30], material: 'metal' }]);
+  useTestRules({ move: 'arena' });
+  const id = spawnTester(0, 10, 0);
+  Sim.step();
+  Actors.vx[id] = -60; Actors.vz[id] = 60;
+  Sim.step();
+  check('fast glancing hit on a wall: blocked by that wall', Motion.blocked[id] === 1 && Test.near(Motion.blockNX[id], 1, 1e-4), Motion.blocked[id]);
+  check('the wall brush is the wall, not another surface', Motion.wallBrush[id] && Motion.wallBrush[id].material === 'metal');
+  Actors.remove(id);
 });
 
 Test.add('world', (check) => {
@@ -206,6 +232,23 @@ Test.add('world', (check) => {
   const faller = spawnTester(40, -40, 40);
   check('falling out of the world is lethal', recordEvents(['damage.request'], () => Sim.step()).some((r) => r.target === faller && r.amount >= 1000));
   check('unknown trigger kind is reported', Test.expectErrors(() => loadTestWorld([], { triggers: [{ kind: 'portal', min: [0, 0, 0], max: [1, 1, 1] }] })) === 1 && World.triggers.length === 0);
+  const badRows = [{ kind: 'jumppad', min: [0, 0, 0], max: [1, 1, 1], target: [0, 0, 0], peak: 0 }, { kind: 'hazard', min: [2, 0, 0], max: [1, 1, 1] },
+    { kind: 'teleporter', min: [0, 0, 0], max: [1, 1, 1], exit: [1, 2] }, { kind: 'water', min: [0, 0], max: [1, 1, 1] }];
+  check('bad trigger rows are logged and skipped', Test.expectErrors(() => loadTestWorld([], { triggers: badRows })) === 4 && World.triggers.length === 0);
+  World.clear();
+  const floating = spawnTester(0, -500, 0);
+  check('empty world: bounds reset and no fall-out damage', !Number.isFinite(World.boundsMin.y) && recordEvents(['damage.request'], () => Sim.step()).length === 0);
+  Actors.remove(floating);
+});
+
+// A pad whose target is level with it still gives a finite arc (the flight time has a floor).
+Test.add('world', (check) => {
+  loadTestWorld([], { triggers: [{ kind: 'jumppad', min: [-1, 0, -1], max: [1, 0.3, 1], target: [0.1, 0.05, 0], peak: 0.001 }] });
+  useTestRules({ move: 'arena' });
+  const id = spawnTester(0, 0.05, 0);
+  Sim.step();
+  check('flat jump pad: finite velocity and position', [Actors.vx[id], Actors.vy[id], Actors.x[id], Actors.y[id]].every(Number.isFinite));
+  Actors.remove(id);
 });
 
 // ---- Rigid bodies (step 4.4) ----
@@ -246,7 +289,11 @@ Test.add('world', (check) => {
   const rock = throwBody(BODY_SHAPE.SPHERE, 0, 1, 0, 30, 0, 0, 100);
   const hits = recordEvents(['damage.request'], () => stepSeconds(0.4)).filter((r) => r.kind === 'crush');
   check('fast heavy body: impact damage clamped to 40', hits.length === 1 && hits[0].target === id && hits[0].amount === BODY_IMPACT_MAX_DAMAGE, hits.length && hits[0].amount);
-  check('impact ignored below 6 m/s', (Bodies.impactClock[rock] >= 0));
+  check('crush damage comes from the body position', hits.length === 1 && hits[0].x < Actors.x[id]);
+  const slowTarget = groundedTester(-5, 10);
+  throwBody(BODY_SHAPE.SPHERE, -5, 0.21, 9.4, 0, 0, 5, 100); // rolls through the target at 5 m/s or less
+  const slowHits = recordEvents(['damage.request'], () => stepSeconds(0.4)).filter((r) => r.kind === 'crush' && r.target === slowTarget);
+  check('impact ignored below 6 m/s', slowHits.length === 0, JSON.stringify(slowHits));
   Bus.emit('explosion', { x: Bodies.x[rock] - 1, y: Bodies.y[rock], z: Bodies.z[rock], radius: 4, owner: -1, source: 'test', element: 'kinetic' });
   check('explosions push bodies away', Bodies.vx[rock] > 0 && Bodies.sleeping[rock] === 0);
 });
@@ -257,7 +304,26 @@ function propRow(x, z) { return { min: [x, 0, z], max: [x + 1, 1, z + 1], health
 Test.add('world', (check) => {
   Settings.set('video.quality', 'potato');
   loadTestWorld([], { props: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18].map((x) => propRow(x, 5)) });
-  check('active props capped by quality (potato 4)', World.dynamic.length === 4 && Props.brushes.length === 4);
+  const hit = makeHit();
+  check('every prop is solid whatever the quality', World.dynamic.length === 10 && World.raycast(18.5, 0.5, 0, 0, 0, 1, 20, hit) && hit.brush.prop === 9);
+  Props.damage(9, 1000);
+  check('props past the quality budget (potato 4) do not break', Props.isStanding(9) && World.dynamic.length === 10);
+  Props.damage(0, 1000); Props.damage(1, 1000);
+  check('props within the budget break', !Props.isStanding(0) && !Props.isStanding(1) && World.dynamic.length === 8);
+  check('live debris capped by quality (potato 4)', Bodies.debrisCount() === 4, Bodies.debrisCount());
+  Settings.set('video.quality', 'high');
+  Bodies.clear();
+  for (let i = 0; i < 6; i++) throwBody(BODY_SHAPE.SPHERE, i, 3, 0, 0, 0, 0, 1);
+  Bodies.debrisLimit = 2;
+  Object.assign(Bodies.spec, { kind: BODY_KIND.DEBRIS });
+  Bodies.spawn(Bodies.spec); Bodies.spawn(Bodies.spec);
+  Bodies.remove(0); Bodies.remove(1);
+  Bodies.spawn(Bodies.spec); Bodies.spawn(Bodies.spec);
+  check('debris cap holds when free slots sit below live debris', Bodies.debrisCount() === 2 && Bodies.count() === 6, Bodies.debrisCount());
+  Bodies.debrisLimit = BODY_CAPACITY;
+});
+
+Test.add('world', (check) => {
   Settings.set('video.quality', 'high');
   loadTestWorld([], { props: [propRow(0, 5), propRow(-5, 5)] });
   const hit = makeHit();
@@ -269,7 +335,7 @@ Test.add('world', (check) => {
   Props.damage(0, 20);
   check('damage below health keeps the prop', Props.isStanding(0));
   const breaks = recordEvents(['world.break'], () => Props.damage(0, 40));
-  check('breaks at 0 health with world.break', breaks.length === 1 && breaks[0].material === 'wood' && !Props.isStanding(0));
+  check('breaks at 0 health with world.break { prop, material }', breaks.length === 1 && breaks[0].prop === 0 && breaks[0].material === 'wood' && !Props.isStanding(0));
   const debris = Bodies.count();
   check('breaks into 4-8 debris bodies', debris >= DEBRIS_MIN_PIECES && debris <= DEBRIS_MAX_PIECES, debris);
   check('rays pass where the prop was', !World.raycast(0.5, 0.5, 0, 0, 0, 1, 20, hit));

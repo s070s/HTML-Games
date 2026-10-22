@@ -3,7 +3,7 @@
 // ground probe, overlap tests and depenetration (ARC-013). Every move is swept, so fast movers never tunnel.
 
 const COLLISION_SKIN = 0.005;          // metres kept between a hull and a surface (stops float rounding from sinking in)
-const MAX_CANDIDATES = 256;            // brushes near one mover; a step never needs more
+const MAX_CANDIDATES = 256;            // brushes near one mover; a step never needs more (overflow is logged)
 const MAX_CLIP_PLANES = 5;             // planes remembered during one slide (3 independent ones stop the move)
 const SLIDE_BUMPS = 4;                 // trace / clip rounds per slide
 const OVERCLIP = 1.001;                // push slightly off a clipped plane so the next trace does not touch it again
@@ -16,21 +16,22 @@ const STEP_HEIGHT = 0.45;              // DATA-003 step-up height
 const ACTOR_STAND_HEIGHT = 1.80;       // DATA-003 standing capsule height; hit volumes scale by height / this
 
 const makeTrace = () => ({ fraction: 1, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null, startSolid: false, allSolid: false });
+// planes: normals of the surfaces touched during the current slide; planeBrushes[i]: the brush of planes[i].
 const makeMover = () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hull: makeHull(), planes: new Float32Array(MAX_CLIP_PLANES * 3), planeCount: 0,
-  lastBrush: null });
+  planeBrushes: new Array(MAX_CLIP_PLANES).fill(null), lastBrush: null });
 
 const Collide = {
   candidates: new Array(MAX_CANDIDATES).fill(null),
   candidateCount: 0,
-  trace: makeTrace(),          // scratch result for callers that do not keep their own
+  overflowReported: false,     // one error log per map when a gather exceeds MAX_CANDIDATES
+  trace: makeTrace(),         // scratch result for callers that do not keep their own
 
   // Collects the brushes whose box touches the given box (static tree + dynamic props) for the traces that follow.
   gather(minX, minY, minZ, maxX, maxY, maxZ) {
     const query = gatherQuery;
     query.minX = minX; query.minY = minY; query.minZ = minZ; query.maxX = maxX; query.maxY = maxY; query.maxZ = maxZ;
     this.candidateCount = 0;
-    walkTree(World.tree, query, boxTestNode, gatherBrush);
-    for (let i = 0; i < World.dynamic.length; i++) gatherBrush(query, World.dynamic[i]);
+    visitBox(query, gatherBrush);
   },
   // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands.
   gatherAround(mover, reach) {
@@ -41,20 +42,9 @@ const Collide = {
   // Sweeps the hull from start to end against the gathered brushes. Moves that start inside a brush and leave it
   // ignore that brush (so a stuck mover can walk out); a move that stays inside reports allSolid with fraction 0.
   sweep(sx, sy, sz, ex, ey, ez, hull, out) {
-    out.fraction = 1; out.brush = null; out.startSolid = false; out.allSolid = false;
-    const side = hullSide(hull), below = hullBelow(hull), above = hullAbove(hull);
-    const minX = Math.min(sx, ex) - side, minY = Math.min(sy, ey) - below, minZ = Math.min(sz, ez) - side;
-    const maxX = Math.max(sx, ex) + side, maxY = Math.max(sy, ey) + above, maxZ = Math.max(sz, ez) + side;
-    for (let i = 0; i < this.candidateCount; i++) {
-      const brush = this.candidates[i];
-      if (brush.maxX < minX || brush.minX > maxX || brush.maxY < minY || brush.minY > maxY || brush.maxZ < minZ || brush.minZ > maxZ) continue;
-      const fraction = clipBrush(brush, sx, sy, sz, ex, ey, ez, hull, COLLISION_SKIN);
-      if (fraction < 0 || fraction >= out.fraction) continue;
-      if (clipResult.startSolid) { recordSolid(out, clipResult.allSolid, brush); continue; }
-      out.fraction = fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
-    }
-    out.x = sx + (ex - sx) * out.fraction; out.y = sy + (ey - sy) * out.fraction; out.z = sz + (ez - sz) * out.fraction;
-    return out.fraction < 1;
+    const query = startSweep(sx, sy, sz, ex, ey, ez, hull, out);
+    for (let i = 0; i < this.candidateCount; i++) sweepTestBrush(query, this.candidates[i]);
+    return finishSweep(query);
   },
   // True when the hull placed at (x,y,z) overlaps any gathered brush.
   overlaps(x, y, z, hull) {
@@ -75,7 +65,7 @@ const Collide = {
       touched = true;
       mover.lastBrush = trace.brush;
       timeLeft -= timeLeft * trace.fraction;
-      if (!addClipPlane(mover, trace.nx, trace.ny, trace.nz)) { setVelocity(mover, 0, 0, 0); break; }
+      if (!addClipPlane(mover, trace.nx, trace.ny, trace.nz, trace.brush)) { setVelocity(mover, 0, 0, 0); break; }
       if (!resolveVelocity(mover) || mover.vx * primalX + mover.vy * primalY + mover.vz * primalZ <= 0) { setVelocity(mover, 0, 0, 0); break; }
     }
     return touched;
@@ -116,19 +106,64 @@ const Collide = {
 };
 
 const gatherQuery = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+const sweepQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, hull: null, out: null, minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 const stepSave = makeMover();
 const overlapPush = { nx: 0, ny: 0, nz: 0, depth: 0 };
+
+World.addPart({ load() { Collide.overflowReported = false; }, clear() {} });
 
 function boxTestNode(query, bounds, base) {
   return bounds[base] <= query.maxX && bounds[base + 3] >= query.minX && bounds[base + 1] <= query.maxY
     && bounds[base + 4] >= query.minY && bounds[base + 2] <= query.maxZ && bounds[base + 5] >= query.minZ;
 }
 
+function brushTouchesBox(box, brush) {
+  return brush.maxX >= box.minX && brush.minX <= box.maxX && brush.maxY >= box.minY && brush.minY <= box.maxY
+    && brush.maxZ >= box.minZ && brush.minZ <= box.maxZ;
+}
+
+// Calls onBrush(query, brush) for the static brushes in tree leaves touching the query box, then for every prop.
+function visitBox(query, onBrush) {
+  walkTree(World.tree, query, boxTestNode, onBrush);
+  for (let i = 0; i < World.dynamic.length; i++) onBrush(query, World.dynamic[i]);
+}
+
 function gatherBrush(query, brush) {
-  if (Collide.candidateCount >= MAX_CANDIDATES) return;
-  if (brush.maxX < query.minX || brush.minX > query.maxX || brush.maxY < query.minY || brush.minY > query.maxY) return;
-  if (brush.maxZ < query.minZ || brush.minZ > query.maxZ) return;
+  if (!brushTouchesBox(query, brush)) return;
+  if (Collide.candidateCount >= MAX_CANDIDATES) { reportOverflow(); return; }
   Collide.candidates[Collide.candidateCount++] = brush;
+}
+
+function reportOverflow() {
+  if (Collide.overflowReported) return;
+  Collide.overflowReported = true;
+  ErrorLog.add('world.collide', 'more than ' + MAX_CANDIDATES + ' brushes near one mover; the rest are ignored');
+}
+
+// One hull sweep start->end: the swept box limits which brushes get clipped; the nearest entry wins.
+function startSweep(sx, sy, sz, ex, ey, ez, hull, out) {
+  const query = sweepQuery, side = hullSide(hull), below = hullBelow(hull), above = hullAbove(hull);
+  out.fraction = 1; out.brush = null; out.startSolid = false; out.allSolid = false;
+  query.sx = sx; query.sy = sy; query.sz = sz; query.ex = ex; query.ey = ey; query.ez = ez; query.hull = hull; query.out = out;
+  query.minX = Math.min(sx, ex) - side; query.minY = Math.min(sy, ey) - below; query.minZ = Math.min(sz, ez) - side;
+  query.maxX = Math.max(sx, ex) + side; query.maxY = Math.max(sy, ey) + above; query.maxZ = Math.max(sz, ez) + side;
+  return query;
+}
+
+function sweepTestBrush(query, brush) {
+  if (!brushTouchesBox(query, brush)) return;
+  const out = query.out;
+  const fraction = clipBrush(brush, query.sx, query.sy, query.sz, query.ex, query.ey, query.ez, query.hull, COLLISION_SKIN);
+  if (fraction < 0 || fraction >= out.fraction) return;
+  if (clipResult.startSolid) { recordSolid(out, clipResult.allSolid, brush); return; }
+  out.fraction = fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
+}
+
+function finishSweep(query) {
+  const out = query.out;
+  out.x = query.sx + (query.ex - query.sx) * out.fraction; out.y = query.sy + (query.ey - query.sy) * out.fraction;
+  out.z = query.sz + (query.ez - query.sz) * out.fraction;
+  return out.fraction < 1;
 }
 
 function recordSolid(out, allSolid, brush) {
@@ -164,12 +199,14 @@ function setVelocity(mover, vx, vy, vz) { mover.vx = vx; mover.vy = vy; mover.vz
 function saveMover(target, mover) {
   target.x = mover.x; target.y = mover.y; target.z = mover.z; target.vx = mover.vx; target.vy = mover.vy; target.vz = mover.vz;
   target.planeCount = mover.planeCount; target.planes.set(mover.planes); target.lastBrush = mover.lastBrush;
+  for (let i = 0; i < MAX_CLIP_PLANES; i++) target.planeBrushes[i] = mover.planeBrushes[i];
 }
 
 function loadMover(mover, saved) { saveMover(mover, saved); }
 
-// Remembers a touched plane; a plane hit again gets a tiny push instead (stops jitter in a corner). False when full.
-function addClipPlane(mover, nx, ny, nz) {
+// Remembers a touched plane and its brush; a plane hit again gets a tiny push instead (stops jitter in a corner).
+// False when full.
+function addClipPlane(mover, nx, ny, nz, brush) {
   const planes = mover.planes;
   for (let i = 0; i < mover.planeCount; i++) {
     if (planes[i * 3] * nx + planes[i * 3 + 1] * ny + planes[i * 3 + 2] * nz < SAME_PLANE_DOT) continue;
@@ -178,6 +215,7 @@ function addClipPlane(mover, nx, ny, nz) {
   }
   if (mover.planeCount >= MAX_CLIP_PLANES) return false;
   planes[mover.planeCount * 3] = nx; planes[mover.planeCount * 3 + 1] = ny; planes[mover.planeCount * 3 + 2] = nz;
+  mover.planeBrushes[mover.planeCount] = brush;
   mover.planeCount++;
   return true;
 }
@@ -233,13 +271,12 @@ World.capsuleFits = function capsuleFits(x, y, z, radius, height) {
   return !Collide.overlaps(x, y, z, mover.hull);
 };
 
-// Sweeps a capsule from a to b; fills out (a trace) and returns true when something blocks it.
+// Sweeps a capsule from a to b; fills out (a trace) and returns true when something blocks it. It walks the tree
+// directly (no capped candidate list), so a sweep of any length tests every brush along its path.
 World.sweepCapsule = function sweepCapsule(ax, ay, az, bx, by, bz, radius, height, out) {
-  const mover = queryMover;
-  mover.x = (ax + bx) / 2; mover.y = Math.min(ay, by); mover.z = (az + bz) / 2;
-  setCapsuleHull(mover.hull, radius, height);
-  Collide.gatherAround(mover, Math.hypot(bx - ax, by - ay, bz - az) / 2 + Math.abs(by - ay));
-  return Collide.sweep(ax, ay, az, bx, by, bz, mover.hull, out);
+  const query = startSweep(ax, ay, az, bx, by, bz, setCapsuleHull(queryMover.hull, radius, height), out);
+  visitBox(query, sweepTestBrush);
+  return finishSweep(query);
 };
 
 // Height of walkable floor under (x,y,z) within maxDrop metres, or NaN. hit (optional) receives the ray hit.

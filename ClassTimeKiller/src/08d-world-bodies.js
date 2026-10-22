@@ -1,8 +1,9 @@
 // S08 add-on: simple rigid bodies (thrown items, debris) and destructible props (step 4.4, MAP-013, PERF-010).
 // Bodies are spheres or boxes that slide and bounce on the world, sleep after 1 s at rest and never touch each other
 // (no stacking, no joints). map.props = [{ min, max, health, material, mass, debris, color }] are solid boxes that
-// block actors and rays until destroyed; then they break into 4-8 debris bodies. Active props per map and live debris
-// are capped by Quality.current().props.
+// block actors and rays until destroyed; then they break into 4-8 debris bodies. Every prop is solid whatever the
+// video quality (gameplay geometry never depends on it); only the first Quality.current().props of a map can break,
+// and live debris is capped the same way (MAP-013, PERF-010).
 
 const BODY_CAPACITY = 20;              // step 4.4: 6-20 bodies
 const BODY_SHAPE = { SPHERE: 0, BOX: 1 };
@@ -48,16 +49,19 @@ const Bodies = {
     this.mass[index] = Math.max(0.01, spec.mass); this.rest[index] = 0; this.age[index] = 0; this.impactClock[index] = 0; this.color[index] = spec.color;
     return index;
   },
+  // A free slot, unless new debris would pass debrisLimit or no slot is free: then the oldest debris is recycled.
   freeSlot(kind) {
-    let oldestDebris = -1, debrisCount = 0;
+    let free = -1, oldestDebris = -1, debrisCount = 0;
     for (let i = 0; i < BODY_CAPACITY; i++) {
-      if (!this.active[i]) return kind === BODY_KIND.DEBRIS && debrisCount >= this.debrisLimit ? oldestDebris : i;
+      if (!this.active[i]) { free = free < 0 ? i : free; continue; }
       if (this.kind[i] !== BODY_KIND.DEBRIS) continue;
       debrisCount++;
       if (oldestDebris < 0 || this.age[i] > this.age[oldestDebris]) oldestDebris = i;
     }
-    return oldestDebris;
+    const debrisFull = kind === BODY_KIND.DEBRIS && debrisCount >= this.debrisLimit;
+    return free >= 0 && !debrisFull ? free : oldestDebris;
   },
+  debrisCount() { let total = 0; for (let i = 0; i < BODY_CAPACITY; i++) total += this.active[i] && this.kind[i] === BODY_KIND.DEBRIS ? 1 : 0; return total; },
   remove(index) { this.active[index] = 0; },
   clear() { this.active.fill(0); },
   count() { let total = 0; for (let i = 0; i < BODY_CAPACITY; i++) total += this.active[i]; return total; },
@@ -85,25 +89,29 @@ const Bodies = {
 };
 
 const Props = {
-  health: [], mass: [], debris: [], color: [], brushes: [],
+  health: [], mass: [], debris: [], color: [], brushes: [], breakable: [],
   load(map) {
     this.clear();
     const rows = map.props || [];
-    const budget = Math.min(rows.length, Quality.current().props);
-    Bodies.debrisLimit = Math.min(BODY_CAPACITY, Quality.current().props);
-    for (let i = 0; i < budget; i++) this.add(Data.normalize(PROP_FIELDS, rows[i]), i);
+    const budget = Quality.current().props;
+    for (let i = 0; i < rows.length; i++) this.add(Data.normalize(PROP_FIELDS, rows[i]), i, i < budget);
   },
-  add(row, index) {
+  add(row, index, breakable) {
     const brush = makeBrush({ shape: 'box', min: row.min, max: row.max, material: row.material }, -1);
     brush.prop = index;
     this.brushes[index] = brush; this.health[index] = row.health; this.mass[index] = row.mass; this.debris[index] = row.debris; this.color[index] = row.color;
+    this.breakable[index] = breakable;
     World.dynamic.push(brush);
   },
-  clear() { this.health.length = this.mass.length = this.debris.length = this.color.length = this.brushes.length = 0; Bodies.clear(); },
+  clear() {
+    this.health.length = this.mass.length = this.debris.length = this.color.length = this.brushes.length = this.breakable.length = 0;
+    Bodies.clear();
+  },
   isStanding(index) { return this.health[index] > 0; },
-  // Damage from a weapon hit (S11 calls this when a ray hit returns hit.brush.prop >= 0). Breaks the prop at 0 health.
+  // Damage from a weapon hit (S11 calls this when a ray hit returns hit.brush.prop >= 0). Breaks the prop at 0 health;
+  // props past the quality budget ignore damage and stay standing.
   damage(index, amount) {
-    if (!(this.health[index] > 0)) return;
+    if (!(this.health[index] > 0) || !this.breakable[index]) return;
     this.health[index] -= amount;
     if (this.health[index] <= 0) this.breakProp(index);
   },
@@ -112,8 +120,9 @@ const Props = {
     const listIndex = World.dynamic.indexOf(brush);
     if (listIndex >= 0) World.dynamic.splice(listIndex, 1);
     this.health[index] = 0;
+    Bodies.debrisLimit = Math.min(BODY_CAPACITY, Quality.current().props); // read now: quality can change mid-match
     spawnDebris(brush, clamp(this.debris[index], DEBRIS_MIN_PIECES, DEBRIS_MAX_PIECES), this.mass[index], this.color[index]);
-    breakEvent.index = index; breakEvent.material = brush.material;
+    breakEvent.prop = index; breakEvent.material = brush.material;
     breakEvent.x = (brush.minX + brush.maxX) / 2; breakEvent.y = (brush.minY + brush.maxY) / 2; breakEvent.z = (brush.minZ + brush.maxZ) / 2;
     Bus.emit('world.break', breakEvent);
     breakSound.x = breakEvent.x; breakSound.y = breakEvent.y; breakSound.z = breakEvent.z;
@@ -121,10 +130,9 @@ const Props = {
   },
 };
 
-const breakEvent = { index: 0, material: '', x: 0, y: 0, z: 0 };
+const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
 const breakSound = { x: 0, y: 0, z: 0, radius: BREAK_NOISE_RADIUS, kind: 'break', source: -1 };
 const bodyMover = makeMover();
-const bodyDamage = { target: 0, source: -1, amount: 0, kind: 'crush', element: 'kinetic', x: 0, y: 0, z: 0 };
 
 World.addPart({ load: (map) => Props.load(map), clear: () => Props.clear() });
 
@@ -237,10 +245,8 @@ function hitActors(index) {
     if (!Actors.alive[id] || id === Bodies.owner[index]) continue;
     if ((Actors.x[id] - Bodies.x[index]) ** 2 + (Actors.z[id] - Bodies.z[index]) ** 2 > reach * reach) continue;
     if (Bodies.y[index] + Bodies.halfY[index] < Actors.y[id] || Bodies.y[index] - Bodies.halfY[index] > Actors.y[id] + Actors.height[id]) continue;
-    bodyDamage.target = id; bodyDamage.source = Bodies.owner[index];
-    bodyDamage.amount = clamp(Bodies.mass[index] * speed * BODY_IMPACT_DAMAGE_PER_MOMENTUM, 0, BODY_IMPACT_MAX_DAMAGE);
-    bodyDamage.x = Bodies.x[index]; bodyDamage.y = Bodies.y[index]; bodyDamage.z = Bodies.z[index];
-    Bus.emit('damage.request', bodyDamage);
+    const amount = clamp(Bodies.mass[index] * speed * BODY_IMPACT_DAMAGE_PER_MOMENTUM, 0, BODY_IMPACT_MAX_DAMAGE);
+    requestDamageAt(id, Bodies.owner[index], amount, 'crush', 'kinetic', Bodies.x[index], Bodies.y[index], Bodies.z[index]);
     Bodies.impactClock[index] = BODY_IMPACT_COOLDOWN;
     return;
   }

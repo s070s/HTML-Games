@@ -31,6 +31,7 @@ const World = {
   clear() {
     for (const part of this.parts) part.clear();
     this.map = null; this.brushes = []; this.dynamic.length = 0;
+    this.computeBounds(); // no brushes: the bounds are not finite (the fall-out check skips them)
     this.tree = buildTree(this.brushes);
   },
   computeBounds() {

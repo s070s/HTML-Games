@@ -6,8 +6,10 @@
 //   hazard     { damage: 10, element: 'fire' }  damage per second while touching
 //   killzone   {}                             kills on touch (a hazard with lethal damage)
 // S10 calls World.touchTriggers(id, gravity) once per actor step after moving it; the returned bits say which media it is in.
+// Rows with a bad box (min/max not 3 numbers each, min above max), a bad target/exit or peak <= 0 are logged and skipped.
 
-const TRIGGER_MEDIUM = { WATER: 1, LADDER: 2, HEAD_UNDER: 4, MOVED: 8 };
+// WATER: deep enough to swim; WADING: touching any water (the swimmer's water-exit reach applies).
+const TRIGGER_MEDIUM = { WATER: 1, LADDER: 2, HEAD_UNDER: 4, MOVED: 8, WADING: 16 };
 const AIR_SECONDS = 12;                 // MOV-019: breath under water before drowning
 const DROWN_START_DAMAGE = 2;           // HP per second when the air runs out...
 const DROWN_DAMAGE_RISE = 2;            // ...rising this much every second...
@@ -17,13 +19,15 @@ const HAZARD_INTERVAL = 0.5;            // seconds between hazard damage request
 const LETHAL_DAMAGE = 100000;
 const JUMPPAD_REARM = 0.3;              // seconds before the same actor can be launched again
 const MIN_PAD_GRAVITY = 0.5;            // m/s^2 floor so a zero-gravity mutator still gives a finite arc
+const MIN_PAD_FLIGHT = 0.1;             // seconds: a launch never divides by a zero flight time
 const FALL_OUT_DEPTH = 30;              // metres below the lowest brush that count as falling out of the world
 const TELEFRAG_REACH = 0.8;             // two capsules (radius 0.40 each) overlap when closer than this
 const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the capsule's middle
 
+// fields: defaults (Data.normalize); points: fields that must be [x, y, z]; valid(trigger): extra row check.
 const TRIGGER_KINDS = {
-  jumppad: { fields: { target: REQUIRED, peak: 2 }, touch: touchJumpPad },
-  teleporter: { fields: { exit: REQUIRED, yaw: 0 }, touch: touchTeleporter },
+  jumppad: { fields: { target: REQUIRED, peak: 2 }, points: ['target'], valid: (pad) => pad.peak > 0, touch: touchJumpPad },
+  teleporter: { fields: { exit: REQUIRED, yaw: 0 }, points: ['exit'], touch: touchTeleporter },
   ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
   water: { fields: {}, touch: touchWater },
   hazard: { fields: { damage: 10, element: 'fire' }, touch: touchHazard },
@@ -55,13 +59,24 @@ World.addPart({
 
 function makeTrigger(source, index) {
   const kind = TRIGGER_KINDS[source.kind];
-  if (!kind) { ErrorLog.add('world.triggers', 'unknown trigger kind ' + source.kind + ' at ' + index); return null; }
+  if (!kind) return rejectTrigger('unknown trigger kind ' + source.kind, index);
+  if (!validBox(source.min, source.max)) return rejectTrigger('bad min/max box', index);
   const trigger = Data.normalize(kind.fields, source);
+  if (kind.points && !kind.points.every((field) => isPoint(trigger[field]))) return rejectTrigger('bad ' + kind.points.join('/') + ' point', index);
+  if (kind.valid && !kind.valid(trigger)) return rejectTrigger('bad ' + source.kind + ' fields', index);
   trigger.kind = source.kind; trigger.index = index; trigger.handler = kind.touch;
   trigger.minX = source.min[0]; trigger.minY = source.min[1]; trigger.minZ = source.min[2];
   trigger.maxX = source.max[0]; trigger.maxY = source.max[1]; trigger.maxZ = source.max[2];
   return trigger;
 }
+
+function rejectTrigger(problem, index) {
+  ErrorLog.add('world.triggers', problem + ' at trigger ' + index);
+  return null;
+}
+
+const isPoint = (value) => Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+const validBox = (min, max) => isPoint(min) && isPoint(max) && min.every((value, axis) => value <= max[axis]);
 
 // Applies every trigger the actor's capsule touches; returns TRIGGER_MEDIUM bits. gravity: the actor's m/s^2 (jump pad arcs).
 World.touchTriggers = function touchTriggers(id, gravity) {
@@ -76,7 +91,7 @@ World.touchTriggers = function touchTriggers(id, gravity) {
     medium |= t.handler(id, t, gravity);
     if (medium & TRIGGER_MEDIUM.MOVED) break; // teleported: the old position's other triggers no longer apply
   }
-  if (y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger, gravity);
+  if (Number.isFinite(World.boundsMin.y) && y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger, gravity);
   if (!TriggerState.touchedHazard) TriggerState.hazardClock[id] = 0;
   updateBreath(id, (medium & TRIGGER_MEDIUM.HEAD_UNDER) !== 0);
   return medium;
@@ -88,10 +103,14 @@ function emitTrigger(id, trigger) {
   Bus.emit('world.trigger', triggerEvent);
 }
 
+// The one 'damage.request' emitter of S08 and S10 (falls, triggers, bodies); the point defaults to the target's feet.
 function requestDamage(target, source, amount, kind, element) {
+  requestDamageAt(target, source, amount, kind, element, Actors.x[target], Actors.y[target], Actors.z[target]);
+}
+
+function requestDamageAt(target, source, amount, kind, element, x, y, z) {
   damageRequest.target = target; damageRequest.source = source; damageRequest.amount = amount;
-  damageRequest.kind = kind; damageRequest.element = element;
-  damageRequest.x = Actors.x[target]; damageRequest.y = Actors.y[target]; damageRequest.z = Actors.z[target];
+  damageRequest.kind = kind; damageRequest.element = element; damageRequest.x = x; damageRequest.y = y; damageRequest.z = z;
   Bus.emit('damage.request', damageRequest);
 }
 
@@ -102,7 +121,7 @@ function touchJumpPad(id, pad, actorGravity) {
   const target = pad.target, startY = Actors.y[id];
   const peakY = Math.max(startY, target[1]) + pad.peak;
   const upSpeed = Math.sqrt(2 * gravity * (peakY - startY));
-  const flightTime = upSpeed / gravity + Math.sqrt(2 * (peakY - target[1]) / gravity);
+  const flightTime = Math.max(MIN_PAD_FLIGHT, upSpeed / gravity + Math.sqrt(2 * (peakY - target[1]) / gravity));
   Actors.vx[id] = (target[0] - Actors.x[id]) / flightTime;
   Actors.vy[id] = upSpeed;
   Actors.vz[id] = (target[2] - Actors.z[id]) / flightTime;
@@ -135,7 +154,7 @@ function telefragAt(arriver) {
 }
 
 function touchWater(id, water) {
-  let medium = 0;
+  let medium = TRIGGER_MEDIUM.WADING;
   if (Actors.y[id] + Actors.height[id] * SWIM_DEPTH_FRACTION < water.maxY) medium |= TRIGGER_MEDIUM.WATER;
   if (Actors.y[id] + Actors.eye[id] < water.maxY) medium |= TRIGGER_MEDIUM.HEAD_UNDER;
   return medium;

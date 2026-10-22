@@ -30,13 +30,13 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.lineClear(ax, ay, az, bx, by, bz)` | true when nothing solid is between the points |
 | `World.pointInside(x, y, z)` | point inside any brush or prop |
 | `World.capsuleFits(x, y, z, radius, height)` | a capsule with its feet at (x,y,z) touches nothing (spawn checks, nav) |
-| `World.sweepCapsule(ax, ay, az, bx, by, bz, radius, height, trace)` | true when blocked; `trace = makeTrace()` gets `fraction x y z nx ny nz brush startSolid allSolid` |
+| `World.sweepCapsule(ax, ay, az, bx, by, bz, radius, height, trace)` | true when blocked; `trace = makeTrace()` gets `fraction x y z nx ny nz brush startSolid allSolid`; walks the tree directly, so sweeps of any length see every brush (spawn checks, nav links) |
 | `World.floorBelow(x, y, z, maxDrop, hit?)` | height of walkable floor within maxDrop, else `NaN` |
 | `World.sphereTouches(x, y, z, radius)` | sphere overlaps geometry |
 | `World.raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit)` | nearest live actor hit volume along a normalized ray, or -1; `hit = makeActorHit()` gets `distance x y z nx ny nz actor zone` (`'head' 'body' 'legs'`). Walls are not checked: call `World.raycast` first and pass its distance as maxDistance |
 | `World.actorsInSphere(x, y, z, radius, out)` | ids of live actors whose capsule touches the sphere written into `out`; returns the count (explosions, melee) |
 | `World.actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle, range, ignoreId, out)` | ids of live actors whose chest (60 % of height) is inside the cone; returns the count (flames, sprays, aim assist) |
-| `World.touchTriggers(id, gravity)` | called by S10 once per actor step; returns `TRIGGER_MEDIUM` bits `WATER LADDER HEAD_UNDER MOVED` |
+| `World.touchTriggers(id, gravity)` | called by S10 once per actor step; returns `TRIGGER_MEDIUM` bits `WATER` (swim depth) `WADING` (touching water) `LADDER HEAD_UNDER MOVED` |
 | `World.triggers` | normalized trigger rows (`kind index minX..maxZ` + kind fields) for nav links |
 | `World.airLeft(id)` | seconds of breath left (HUD) |
 | `World.tree`, `World.brushes`, `World.dynamic` | read-only data (dynamic = standing props) |
@@ -51,6 +51,8 @@ Low-level movers (`Collide`, used by S10 and bodies; other sections should prefe
 `makeMover()`, `Collide.gatherAround(mover, reach)`, `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
 up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)`, `Collide.probeGround(mover, distance, trace)`,
 `Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`.
+A gather keeps at most 256 brushes (`MAX_CANDIDATES`); more is logged once per map. `mover.planeBrushes[i]` is the brush of
+`mover.planes[i]` (the walls touched in a slide).
 
 ## Triggers (`map.triggers`)
 
@@ -63,7 +65,9 @@ up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)`, `Collide.probeGroun
 | `hazard` | `damage: 10` (HP/s), `element: 'fire'` | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
 | `killzone` | - | lethal `hazard` request; falling 30 m below the lowest brush does the same |
 
-Every volume is `{ kind, min, max }` (axis-aligned). An unknown kind is logged and skipped.
+Every volume is `{ kind, min, max }` (axis-aligned). A row is logged and skipped when its kind is unknown, `min`/`max` are not
+3 numbers each or min is above max, `target`/`exit` is not 3 numbers, or a jump pad's `peak` is not above 0. A pad's flight
+time is at least 0.1 s. The fall-out check is off while the world has no brushes.
 
 ## Rigid bodies and props (`Bodies`, `Props`)
 
@@ -71,12 +75,14 @@ Every volume is `{ kind, min, max }` (axis-aligned). An unknown kind is logged a
 - `Bodies.spawn(spec)` -> index or -1 (20 slots; debris is recycled oldest first; thrown bodies are never evicted).
 - `Bodies.applyImpulse(index, ix, iy, iz)`: velocity change = impulse / mass (kg*m/s), wakes the body.
 - `Bodies.raycast(ox, oy, oz, dx, dy, dz, maxDistance, hit)` -> index or -1 (hit.brush = null).
-- `Bodies.remove(index)`, `Bodies.count()`, arrays `active sleeping x y z vx vy vz halfX halfY halfZ mass owner`.
+- `Bodies.remove(index)`, `Bodies.count()`, `Bodies.debrisCount()`, arrays `active sleeping x y z vx vy vz halfX halfY halfZ mass owner`.
 - Bodies step at Sim order 55: gravity `GRAVITY x rules.gravityScale`, restitution 0.3, floor friction, max 40 m/s, sleep after 1 s at rest; debris sleeps 1 s after spawning and disappears 3 s later; bodies never collide with each other or block actors.
-- A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x 0.05` clamped to 40.
+- A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x 0.05` clamped to 40, point = the body's centre.
 - `Props.damage(index, amount)` (S11 calls it when `hit.brush.prop >= 0`); at 0 health the prop disappears, spawns 4-8 debris and emits `world.break` and a `sound` (kind `break`, radius 30).
 - Explosions (`explosion` event) push bodies (120 kg*m/s at the centre, falling off) and damage props (100 at the centre, falling to 0 at the radius).
-- Budget (MAP-013, PERF-010): the first `Quality.current().props` props of a map are active (32/24/16/8/4); live debris is capped the same way.
+- Budget (MAP-013, PERF-010): every prop is solid at every quality (collision, cover, sight and nav never depend on video
+  settings); only the first `Quality.current().props` props of a map (32/24/16/8/4, read at load) can break, the rest ignore
+  damage. Live debris is capped by the same number, read when a prop breaks; the oldest debris is recycled first.
 - Drawn through `Render.addSource('bodies', ...)` with `batch.mesh(shape, x, y, z, 0, 0, sizeX, sizeY, sizeZ, r, g, b, 0)` - sizes are full extents.
 
 ## Movement presets (`CAT.movement`, `src/03b-data-movement.js`)
@@ -112,8 +118,12 @@ Controls (buttons from `BTN`): JUMP jump / double jump / wall jump-out / mantle 
 CROUCH held crouch, slide when pressed at slide speed, roll when held on landing (MV08); PRONE toggles prone (MV03);
 WALK walk; SPRINT sprint, double-tap = tactical sprint (MV03), or dash (MV05) / shield charge (MV06) in presets without sprint;
 double-tap a direction = dodge (MV01); ALT in the air = wall latch next to a wall or glide (MV08).
-Walls: walking or jumping into a ledge up to `mantleHeight` mantles (0.35 s); pushing into a wall climbs up to `climbHeight`
+Walls: walking (facing the wall) or jumping into a ledge up to `mantleHeight` mantles (0.35 s); in or at water every preset
+reaches ledges up to max(`mantleHeight`, 1.6 m) above the feet, so swimmers climb out over a rim at or a little above the
+surface; pushing into a wall climbs up to `climbHeight`
 (MV05 only on `grip` material); wall-run starts automatically when airborne, moving forward >= 4 m/s next to a wall at < 60 deg.
+Wall and ledge probes share a budget of 3 rays per actor per step (MOV-023): a mantle probe (2 rays) runs first.
+The `autohop` mutator repeats ground jumps only: a held jump never spends double jumps, wall jumps, ladder push-offs or mantles.
 
 Settings: `gameplay.airAssist` = `auto` (default: on for touch/gamepad in presets with `airAssist`, i.e. arena) | `on` | `off`.
 
@@ -128,8 +138,8 @@ Settings: `gameplay.airAssist` = `auto` (default: on for touch/gamepad in preset
 | `sound` | `{ x, y, z, radius, kind: 'step' or 'land', source }` | footsteps 15 m (crouch or walk halves, silentWalk walks are silent), landings 20 m |
 | `damage.request` | `{ target, source: -1, amount, kind: 'fall', element: 'none', x, y, z }` | fall damage (MOV-015) |
 | `world.trigger` | `{ id, kind, index, x, y, z }` | jump pad launch, teleport |
-| `world.break` | `{ index, material, x, y, z }` | a prop broke |
-| `damage.request` kinds `telefrag drown hazard crush` | as above | S08 triggers and bodies |
+| `world.break` | `{ prop, material, x, y, z }` (`prop` = the index in `hit.brush.prop`) | a prop broke |
+| `damage.request` kinds `telefrag drown hazard crush` | as above (`source` = the arriver for telefrag, the thrower for crush) | S08 triggers and bodies |
 
 Consumed: `impulse { id, x, y, z }` (velocity change, x `rules.knockback`, capped 30 m/s; lifts the actor off the floor when upward),
 `damage` (knocks riders off the board), `explosion` (bodies, props), `actor.create` / `actor.spawn` (reset per-actor state).
