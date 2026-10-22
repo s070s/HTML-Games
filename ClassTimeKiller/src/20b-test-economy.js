@@ -212,7 +212,7 @@ Test.add('economy', (check) => uiWith(() => {
   startModeTest('bomb', modesTestMap(BOMB_MAP), [1], Object.assign({ player: { team: 0 } }, BOMB_OPTIONS));
   runSeconds(1.01);
   const player = Game.playerId;
-  check('buy menu: pause rows only in buying matches', Ui.pauseEntries.includes(BUY_PAUSE_ENTRY) && !Ui.pauseEntries.includes(LOADOUT_PAUSE_ENTRY));
+  check('buy menu: pause rows only in buying matches', Ui.pauseEntries.includes(BUY_PAUSE_ENTRY) && BUY_PAUSE_ENTRY.when() && !LOADOUT_PAUSE_ENTRY.when());
   Bus.emit('input.action', buyMenuAction);
   check('buy menu: B opens it during buy time', Ui.current() === 'buy' && BuyMenu.entries.length === Economy.catalogue().length);
   check('buy menu: shows credits and the loss ladder', uiScreenText('buy').includes('800 cr') && uiScreenText('buy').includes('Loss bonus'));
@@ -225,7 +225,6 @@ Test.add('economy', (check) => uiWith(() => {
   BuyMenu.tick();
   check('buy menu: closes itself when buy time ends', Ui.stack.length === 0);
   endModeTest();
-  check('buy menu: pause rows removed after the match', !Ui.pauseEntries.includes(BUY_PAUSE_ENTRY));
 }));
 
 Test.add('economy', (check) => uiWith(() => {

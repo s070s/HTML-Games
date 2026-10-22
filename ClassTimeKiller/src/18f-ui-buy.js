@@ -13,8 +13,9 @@ const BUY_CSS = '.ui-buy .ui-panel { width: min(680px, 100%); max-height: 100%; 
   + '.buy-ladder { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; color: var(--ui-dim); }'
   + '.buy-step { padding: 2px 8px; border: 1px solid var(--ui-line); border-radius: 6px; } .buy-step.next { border-color: var(--ui-accent); color: var(--ui-text); }';
 const BUY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
-const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy' };
-const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout' };
+// The pause rows show only in matches that buy or pick loadouts (when(), read as the pause menu opens).
+const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy', when: () => buyMenuAvailable() };
+const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout', when: () => loadoutAvailable() };
 const LOADOUT_TABS = [['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
 const KIT_SLOT_LABELS = { ability1: 'Ability 1', ability2: 'Ability 2', ultimate: 'Ultimate' };
 const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: primaries come from its weapon set
@@ -298,11 +299,6 @@ function setPauseEntry(entry, wanted) {
   if (wanted && index < 0) Ui.pauseEntries.push(entry);
   if (!wanted && index >= 0) Ui.pauseEntries.splice(index, 1);
 }
-// The pause rows exist only in matches that buy or pick loadouts.
-function syncPauseEntries(inMatch) {
-  setPauseEntry(BUY_PAUSE_ENTRY, inMatch && buyMenuAvailable());
-  setPauseEntry(LOADOUT_PAUSE_ENTRY, inMatch && loadoutAvailable());
-}
 
 Ui.register('buy', {
   overlay: true,
@@ -313,6 +309,5 @@ Ui.register('buy', {
 Ui.register('loadout', { build: (root, params) => LoadoutMenu.build(root, params) });
 Ui.register('classEditor', { build: buildClassEditor });
 Bus.on('input.action', onBuyMenuAction);
-Bus.on('match.start', () => syncPauseEntries(true));
-Bus.on('match.stop', () => syncPauseEntries(false));
+Bus.on('match.start', () => { setPauseEntry(BUY_PAUSE_ENTRY, true); setPauseEntry(LOADOUT_PAUSE_ENTRY, true); });   // a test run may empty the list
 Bus.on('boot', () => window.addEventListener('keydown', onBuyScreenKey));
