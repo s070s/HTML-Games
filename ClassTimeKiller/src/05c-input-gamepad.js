@@ -89,9 +89,13 @@ const PadInput = {
     else if (/045e|xinput|xbox/.test(id)) Input.padStyle = 'letters';
     else Input.padStyle = 'generic';
   },
+  standardLayout(pad) { return pad.mapping === undefined || pad.mapping === 'standard'; },   // test pads have no mapping field
+  // The pad onConnected chose, unless it lacks the standard layout and another pad has it (a second odd device never silences the real pad).
   activePad() {
-    const pads = this.listPads();
-    if (pads[this.index]) return pads[this.index];
+    const pads = this.listPads(), chosen = pads[this.index];
+    if (chosen && this.standardLayout(chosen)) return chosen;
+    for (let i = 0; i < pads.length; i++) if (pads[i] && this.standardLayout(pads[i])) { this.index = i; return pads[i]; }
+    if (chosen) return chosen;
     for (let i = 0; i < pads.length; i++) if (pads[i]) { this.index = i; return pads[i]; }
     return null;
   },
@@ -103,7 +107,7 @@ const PadInput = {
   // pad: a Gamepad (or a plain object with buttons[{pressed,value}] and axes[]) - tests feed fake pads here.
   poll(pad, seconds) {
     this.detectStyle(pad);
-    if (pad.mapping !== undefined && pad.mapping !== 'standard') { this.reportUnsupported(pad); return; }   // other layouts have triggers on the stick axes
+    if (!this.standardLayout(pad)) { this.reportUnsupported(pad); return; }   // other layouts have triggers on the stick axes
     this.updateCapture(seconds);
     this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
     for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
@@ -231,14 +235,14 @@ const PadInput = {
     const radiansPerSecond = PAD_LOOK_DEGREES_PER_SECOND * DEG * turbo * seconds;
     Input.addLook(right.x * config.padSensX * radiansPerSecond, right.y * config.padSensY * radiansPerSecond * (config.padInvertY ? -1 : 1), true);
   },
-  // A stick takes the device only by moving away from its rest, so drift never fights touch or the mouse.
+  // A stick takes the device only by moving away from its rest, so drift never fights touch or the mouse; a let-go stick is a new rest.
   claimDevice(axes, active) {
     const resting = this.restingSticks, own = Input.device === 'gamepad';
     let change = 0;
     for (let i = 0; i < resting.length; i++) {
       const value = axes[i] || 0;
       change = Math.max(change, Math.abs(value - resting[i]));
-      if (own) resting[i] = value;
+      if (own || !active) resting[i] = value;
     }
     if (!own && active && change > PAD_DEVICE_SWITCH_CHANGE) Input.setDevice('gamepad');
   },
