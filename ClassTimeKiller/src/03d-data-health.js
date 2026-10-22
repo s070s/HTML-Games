@@ -48,6 +48,7 @@ Data.define('statusEffects', {
   { id: 'sleep', name: 'Sleep', seconds: 8, speed: 0, stun: true, wakeOnDamage: true, color: 0x8080ff },
   { id: 'slow', name: 'Slowed', seconds: 1, speed: 0.8, color: 0x6080a0 },
   { id: 'reveal', name: 'Revealed', seconds: 5, color: 0xffd040 },
+  { id: 'pinned', name: 'Pinned', seconds: 1, speed: 0, color: 0xb08a5a },   // W26 stake against a wall: rooted, can still aim and fire
 ]);
 
 // HP-006 elements; matching element vs a coloured PvE shield x1.5, other elements x0.75 (NPC-004).

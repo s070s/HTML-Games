@@ -753,6 +753,21 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// W26 stake pins a victim standing just in front of a wall ('pinned' status); in the open it only hits.
+Test.add('weapons', (check) => {
+  TestArena.start({}, [{ shape: 'box', min: [-3, 0, 11], max: [3, 3, 12] }]);
+  const id = TestArena.actor(1, 0, 0), walled = TestArena.sponge(2, 0, 10), open = TestArena.sponge(2, 20, 10);
+  giveFull(id, 'stakedriver');
+  TestArena.aimAt(id, walled);
+  TestArena.hold(id, BTN.FIRE, 0.4);
+  check('W26 a stake pins a victim against the wall behind it', Damage.hasStatus(walled, 'pinned') && Actors.health[walled] < 100000);
+  Sim.step();   // the release must be seen before the next press
+  TestArena.aimAt(id, open);
+  TestArena.hold(id, BTN.FIRE, 1);
+  check('W26 a victim in the open is hit but not pinned', Actors.health[open] < 100000 && !Damage.hasStatus(open, 'pinned'), Actors.health[open] + ' ' + Damage.hasStatus(open, 'pinned'));
+  TestArena.finish();
+});
+
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;

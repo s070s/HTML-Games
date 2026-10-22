@@ -18,7 +18,11 @@ const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bou
 const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
 
+const PIN_WALL_REACH = 1.5;              // W26: a wall this close behind a stake's victim pins it there
+const PIN_HEIGHT = 1;                    // the pin ray starts this high above the victim's feet
+
 const sweepHit = makeHit();
+const pinHit = makeHit();
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
@@ -271,11 +275,17 @@ const Projectiles = {
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
     if (kind === 'drill') { this.attach(i, target, x, y, z); return true; }
     this.hitTarget(i, target, zone, x, y, z, dx, dy, dz);
+    if (kind === 'pin') this.pinToWall(i, target, dx, dy, dz);
     if (kind === 'puddle') { this.becomeArea(i, Actors.x[target], Actors.y[target] + 0.05, Actors.z[target]); return true; }
     if (row.pierce) { this.markHit(i, target); return false; }
     if (row.stickActor) { this.attach(i, target, x, y, z); return true; }
     this.remove(i);
     return true;
+  },
+  // W26 stake: a survivor with a wall just behind it along the flight is pinned there (the 'pinned' status roots it).
+  pinToWall(i, target, dx, dy, dz) {
+    if (!World.raycast(Actors.x[target], Actors.y[target] + PIN_HEIGHT, Actors.z[target], dx, dy, dz, PIN_WALL_REACH, pinHit)) return;
+    Damage.addStatus(target, 'pinned', this.owner[i]);
   },
   hitTarget(i, target, zone, x, y, z, dx, dy, dz) {
     const mode = this.modeOf(i);

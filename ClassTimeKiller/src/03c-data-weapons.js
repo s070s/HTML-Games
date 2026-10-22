@@ -63,7 +63,7 @@ function recoilYawShape(shape, shot, climbing) {
 CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 
 // Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
-// onHit: 'explode' (direct + splash), 'damage', 'pin' (damage, pins ragdoll), 'puddle' (damage area), 'pull' (hook), 'drill'.
+// onHit: 'explode' (direct + splash), 'damage', 'pin' (damage; a wall within 1.5 m behind the victim pins it: status 'pinned'), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
