@@ -155,7 +155,9 @@ const Hud = {
   // How a full-screen flash is drawn (ACC-005): photosensitivity darkens it instead of brightening and caps its strength; reduce motion halves it.
   flashColor(color) { return this.photosensitive ? HUD_COLOR.black : color; },
   flashAlpha(alpha) { return this.photosensitive ? Math.min(alpha, HUD_PHOTOSENSITIVE_ALPHA) : this.reduceMotion() ? alpha * HUD_REDUCED_FLASH : alpha; },
-  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[team % this.colors.teams.length]; },
+  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[this.colorSlot(team) % this.colors.teams.length]; },
+  // M20 squads: the player's own squad always has the first team colour and every other squad the second.
+  colorSlot(team) { return Modes.squads.count > 0 ? (team === Actors.team[Game.playerId] ? 0 : 1) : team; },
   actorColor(id) { return Actors.team[id] >= 0 ? this.teamColor(Actors.team[id]) : this.colors.teams[id % this.colors.teams.length]; },
   teamShape(team) { return team < 0 ? 'circle' : HUD_TEAM_SHAPES[team % HUD_TEAM_SHAPES.length]; },
   // Display text of an input action for the device in use ('' = none bound); refreshed once a second.

@@ -548,6 +548,11 @@ Test.add('modes2', (check) => {
   Move.setPreset(0, 'tactical'); Modes.endProtection(0);   // MOV-015 fall damage (lethal above 22 m/s); firing ends protection
   check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
     && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
+  const viewer = Game.playerId;
+  Game.playerId = 1;   // a player in squad 1
+  const ownColor = Hud.teamColor(1) === Hud.colors.teams[0] && Hud.teamColor(0) === Hud.colors.teams[1];
+  Game.playerId = viewer;
+  check('royale: the player\'s own squad has the own-team HUD colour, whatever its index', ownColor);
   check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
     && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
   runSeconds(3);
