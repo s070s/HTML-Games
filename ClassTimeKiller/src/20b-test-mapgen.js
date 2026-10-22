@@ -18,7 +18,9 @@ const MAPGEN_TEST_NO_LIBM = ['Math.hypot', 'Math.sin', 'Math.cos', 'Math.atan2',
 // The budgets are desktop Chrome numbers. Another engine (or a slower machine) gets them scaled by how much slower it runs a fixed plain
 // workload (typed-array and number work like the generator's), measured once: a 2x regression of the generator still fails everywhere.
 const MAPGEN_TEST_SPEED_REFERENCE_MS = 6;   // the workload's best time on desktop Chrome (Firefox about 9 ms, Safari about 5 ms)
-let mapgenTestSlowdown = 0;
+const MAPGEN_TEST_SPEED_AGE_MS = 3000;
+const MAPGEN_TEST_FIREFOX_EXTRA = 1.6;      // Firefox runs the validator's object-heavy code about 2.5x slower than Chrome, a plain number loop only 1.5x
+let mapgenTestSlowdown = 1, mapgenTestMeasuredAt = -Infinity;
 function mapgenTestWorkload() {
   const cells = new Float32Array(4096);
   let sum = 0;
@@ -28,10 +30,12 @@ function mapgenTestWorkload() {
   return sum;
 }
 function mapgenTestBudget(milliseconds) {
-  if (!mapgenTestSlowdown) {
+  const now = performance.now();
+  if (now - mapgenTestMeasuredAt > MAPGEN_TEST_SPEED_AGE_MS) {   // measured again every few seconds: a busy machine slows the generator too
     let fastest = Infinity;
     for (let run = 0; run < 5; run++) { const started = performance.now(); mapgenTestWorkload(); fastest = Math.min(fastest, performance.now() - started); }
-    mapgenTestSlowdown = Math.max(1, fastest / MAPGEN_TEST_SPEED_REFERENCE_MS);
+    mapgenTestSlowdown = Math.max(1, fastest / MAPGEN_TEST_SPEED_REFERENCE_MS) * (navigator.userAgent.includes('Firefox') ? MAPGEN_TEST_FIREFOX_EXTRA : 1);
+    mapgenTestMeasuredAt = performance.now();
   }
   return milliseconds * mapgenTestSlowdown;
 }
@@ -132,14 +136,14 @@ Test.add('mapgen', (check) => {
     tally.over.length <= tally.total * MAPGEN_TEST_SPIKES, tally.over.join(', ') + ' ' + summary);
 });
 
-// The largest size of every generator, fully validated, within both budgets (the faster of two runs: the budget is not a load test).
+// The largest size of every generator, fully validated, within both budgets (the fastest of three runs: the budget is not a load test).
 Test.add('mapgen', (check) => {
   for (const generator of CAT.generators) {
-    const runs = [0, 1].map(() => {
+    const runs = [0, 1, 2].map(() => {
       MapGen.generate({ generator: generator.code, seed: 3, size: 'large', uncapped: true });
       return Object.assign(mapgenTestCost(MapGen.last), { fallback: MapGen.last.fallback, problems: MapGen.last.problems.length });
     });
-    const generation = Math.min(runs[0].generation, runs[1].generation), validation = Math.min(runs[0].validation, runs[1].validation);
+    const generation = Math.min(...runs.map((run) => run.generation)), validation = Math.min(...runs.map((run) => run.validation));
     check(generator.code + ' large: generation under ' + MAPGEN_TEST_BUDGET_MS + ' ms and validation under ' + MAPGEN_TEST_VALIDATE_BUDGET_MS + ' ms per round',
       generation < mapgenTestBudget(MAPGEN_TEST_BUDGET_MS) && validation < mapgenTestBudget(MAPGEN_TEST_VALIDATE_BUDGET_MS) && !runs[0].fallback && !runs[0].problems,
       'generation ' + generation.toFixed(1) + ' validation ' + validation.toFixed(1) + ' total ' + runs[1].total.toFixed(1));
