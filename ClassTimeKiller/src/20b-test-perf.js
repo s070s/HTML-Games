@@ -482,6 +482,7 @@ const PERF_ALLOC_ROUNDS = 3;
 const PERF_PROBE_ACTORS = 8;
 const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many small objects must show up
 
+const perfShapeInstance = makeShapeInstance();   // the meshFrom probe's record (a match keeps one per caller the same way)
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
 // The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
@@ -526,6 +527,12 @@ function perfHotPaths() {
     },
     'HudBatch.line (HUD quads)': (i) => { HudBatch.quads = 0; HudBatch.line(i & 255, 7, 300, 211, 3, 0xffffff, 1); },
     'emitActorPart (actor parts)': (i) => { actorBatch.clear(); emitActorPart(parts[i % parts.length], pose, style); },
+    'batch.meshFrom (a shape instance record)': (i) => {
+      const instance = perfShapeInstance;
+      instance.x = 0.5 + (i & 7) * 0.25; instance.y = 1.5 - (i & 3) * 0.5; instance.z = (i & 15) * 0.125 - 0.75; instance.yaw = (i & 7) * 0.1;
+      propBatch.clear();
+      propBatch.meshFrom('box', instance);
+    },
   };
 }
 
@@ -537,6 +544,7 @@ function perfMeasureHotPaths() {
   for (const name in paths) bytes[name] = perfAllocatedBytes(paths[name]);
   HudBatch.quads = savedQuads;
   actorBatch.clear();
+  propBatch.clear();
   return bytes;
 }
 

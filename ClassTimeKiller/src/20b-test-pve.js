@@ -705,6 +705,29 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
+// PERF-006: drawing enemies with their champion ring, element shield and awareness mark allocates nothing per frame.
+Test.add('pve', (check) => {
+  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
+  World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
+  startPveTest();
+  const chance = PVE_CHAMPION_RULES.shieldElementChance;
+  PVE_CHAMPION_RULES.shieldElementChance = 1;
+  const shielded = Pve.spawnEnemy('gunner', -6, 0, 10, Math.PI, { champion: championIndex('barrier') });
+  PVE_CHAMPION_RULES.shieldElementChance = chance;
+  ['husk', 'leaper', 'brute'].forEach((key, index) => Pve.spawnEnemy(key, index * 3, 0, 14, Math.PI));
+  Pve.stealth = true;
+  const recorder = meshRecorder();   // two batch kinds, as over a session (tests, killcam): the draw calls are not inlined
+  const bytes = perfAllocatedBytes((i) => {
+    const batch = i < PERF_ALLOC_WARMUP_CALLS / 2 ? recorder : propBatch;
+    recorder.meshes.length = 0; propBatch.clear();
+    Pve.draw(batch);
+  });
+  check('the probe draws a shielded champion', Actors.shield[shielded] > 0 && Pve.champion[shielded] >= 0);
+  check('drawing PvE enemies allocates nothing (instance record, no float arguments)', bytes < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' frames');
+  propBatch.clear();
+  Game.stop();
+});
+
 // Boss phases cannot be skipped: one huge hit stops at the threshold; a frozen boss still switches phase.
 Test.add('pve', (check) => {
   startPveTest();
@@ -910,6 +933,11 @@ Test.add('pve', (check) => {
   const others = [40, 45, 50, 55].map((distance) => spawnFacing('husk', distance)), leaper = spawnFacing('leaper', 30), leaperRow = Pve.rowOf(leaper);
   const closeIn = leaperRow.attackRows[0].range[0] / 2;   // inside the pounce's minimum range
   check('a leaper does not pounce inside its minimum range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === -1);
+  const countLastStand = Pve.lastStand, twoPounces = { brain: leaperRow.brain, attackRows: [leaperRow.attackRows[0], leaperRow.attackRows[0]] };
+  let lastStandCalls = 0;
+  Pve.lastStand = function () { lastStandCalls++; return countLastStand.call(this); };
+  try { Pve.pickAttack(leaper, twoPounces, closeIn, Sim.time); } finally { Pve.lastStand = countLastStand; }
+  check('pickAttack counts the hostiles for the last stand once, not once per attack row', lastStandCalls === 1, lastStandCalls);
   Pve.target[gunner] = dummy;
   BotSense.remember(BotSense.pair(gunner, dummy), SENSE.SEEN, Actors.x[dummy], Actors.y[dummy], Actors.z[dummy], Sim.time);
   Actors.health[gunner] = Actors.maxHealth[gunner] * 0.2;

@@ -121,7 +121,14 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 // ---- Instance batches ----
 const shapeBatches = [];
 // One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
-const makeShapeInstance = () => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, sx: 1, sy: 1, sz: 1, r: 1, g: 1, b: 1, emissive: 0 });
+// Built by a constructor, not an object literal: V8 shares the field types of literals with the same property count and
+// first keys (09a's nav builder { x: [], y: [], z: [], ... } also has 12), and a field that once held an array boxes every
+// float stored into it, three per part drawn (PERF-006). The constructor's records share fields with no other object.
+function ShapeInstance() {
+  this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.sx = 1; this.sy = 1; this.sz = 1;
+  this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
+}
+const makeShapeInstance = () => new ShapeInstance();
 function makeShapeBatch(name, capacity) {
   const batch = {
     name, capacity, counts: new Uint16Array(SHAPES.length), data: new Float32Array(SHAPES.length * capacity * INSTANCE_FLOATS),
