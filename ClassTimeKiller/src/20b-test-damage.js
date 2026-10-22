@@ -1,0 +1,345 @@
+// Self-tests for S11 damage: preset layer order and regen timing (HPP01..HPP09), precision, falloff, splash, statuses,
+// elements, friendly fire, kill/assist events and the single damage path. TestArena is shared with the weapons tests.
+
+const TestArena = {
+  // A flat 120 x 120 m floor, a running match with a hand-made ruleset (only the fields S11 reads).
+  start(overrides, brushes) {
+    Game.start({ mode: 'test', map: 'test', seed: 1 });
+    Game.match.rules = Object.assign({ id: 'test', health: 'stack', precision: 'standard', weaponSet: 'fullSet', friendlyFire: 0, selfDamage: 0.5, knockback: 1 }, overrides || {});
+    World.load({ id: 'weapon-test', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }].concat(brushes || []) });
+    Projectiles.clear();
+  },
+  finish() { Game.stop(); World.clear(); Projectiles.clear(); },
+  actor(team, x, z, yaw) {
+    const id = Actors.create(ACTOR_KIND.DUMMY, team, 'dummy');
+    Actors.alive[id] = 1; Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+    Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
+    Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+    Damage.resetHealth(id);
+    return id;
+  },
+  // A target that survives long tests (large health that never decays).
+  sponge(team, x, z) {
+    const id = this.actor(team, x, z, Math.PI);
+    Actors.health[id] = Actors.maxHealth[id] = 100000;
+    return id;
+  },
+  aimAt(shooter, target, zone) {
+    Hitbox.point(target, zone === undefined ? ZONE.BODY : zone, pointScratch);
+    const dx = pointScratch.x - Actors.x[shooter], dy = pointScratch.y - Actors.eyeY(shooter), dz = pointScratch.z - Actors.z[shooter];
+    Actors.yaw[shooter] = Actors.aimYaw[shooter] = Math.atan2(dx, dz);
+    Actors.pitch[shooter] = Actors.aimPitch[shooter] = Math.atan2(dy, Math.hypot(dx, dz));
+  },
+  hold(id, buttons, seconds) {
+    Actors.buttons[id] = buttons;
+    Sim.run(Math.round(seconds * TICK_RATE));
+    Actors.buttons[id] = 0;
+  },
+  count(type, run) {
+    let count = 0;
+    const handler = Bus.on(type, () => { count++; });
+    run();
+    Bus.off(type, handler);
+    return count;
+  },
+  hit(source, target, amount, extra) {
+    const info = Damage.info();
+    info.amount = amount;
+    Object.assign(info, extra || {});
+    return Damage.apply(source, target, info);
+  },
+};
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'stack' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  check('HPP01 starts 100 HP / 0 armor', Actors.health[target] === 100 && Actors.armor[target] === 0);
+  Actors.armor[target] = 100;
+  TestArena.hit(shooter, target, 30);
+  check('HPP01 armor absorbs 2/3 rounded up', Actors.armor[target] === 80 && Actors.health[target] === 90, Actors.armor[target] + ' / ' + Actors.health[target]);
+  Actors.health[target] = 150; Actors.armor[target] = 150;
+  Sim.run(10 * TICK_RATE);
+  check('HPP01 overheal and armor above 100 decay 1/s', Test.near(Actors.health[target], 140, 0.05) && Test.near(Actors.armor[target], 140, 0.05), Actors.health[target] + ' / ' + Actors.armor[target]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'regen' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  TestArena.hit(shooter, target, 50);
+  Sim.run(5 * TICK_RATE);
+  check('HPP02 no regen before 5 s', Actors.health[target] === 50, Actors.health[target]);
+  Sim.run(TICK_RATE);
+  check('HPP02 regen 25 HP/s after 5 s', Test.near(Actors.health[target], 75, 0.01), Actors.health[target]);
+  TestArena.start({ health: 'suit' });
+  const suited = TestArena.actor(2, 0, 5);
+  TestArena.hit(-1, suited, 50);
+  Sim.run(6 * TICK_RATE);
+  const before = Actors.health[suited];
+  Sim.run(TICK_RATE);
+  check('HPP08 regen 20 HP/s after 6 s', before === 50 && Test.near(Actors.health[suited], 70, 0.01), before + ' -> ' + Actors.health[suited]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'shield' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  check('HPP03 starts shield 70 + health 50', Actors.shield[target] === 70 && Actors.health[target] === 50);
+  const headMode = CAT.weapons.byId('verdict').primary;
+  TestArena.hit(shooter, target, 40, { zone: 'head', mode: headMode });
+  check('HPP03 head multiplier does not apply to the shield', Actors.shield[target] === 30 && Actors.health[target] === 50, Actors.shield[target] + ' / ' + Actors.health[target]);
+  TestArena.hit(shooter, target, 40, { zone: 'head', mode: headMode });
+  check('HPP03 overflow past the shield is multiplied on health', Actors.shield[target] === 0 && Test.near(Actors.health[target], 30, 1e-4), Actors.health[target]);
+  Sim.run(5 * TICK_RATE);
+  check('HPP03 shield waits 5 s', Actors.shield[target] === 0);
+  Sim.run(4 * TICK_RATE);
+  check('HPP03 shield refills in 4 s (17.5/s)', Test.near(Actors.shield[target], 70, 0.01), Actors.shield[target]);
+  Sim.run(4 * TICK_RATE);
+  check('HPP03 health regenerates only to the next third', Test.near(Actors.health[target], 50 * 2 / 3, 0.01), Actors.health[target]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'tactical', precision: 'tactical' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  Actors.armor[target] = 100;
+  const rifle = CAT.weapons.byId('vanguard').primary;
+  TestArena.hit(shooter, target, 20, { zone: 'body', mode: rifle });
+  check('HPP04 vest: health x armorPen, armor x (1-armorPen) x 0.5', Actors.health[target] === 85 && Actors.armor[target] === 97.5, Actors.health[target] + ' / ' + Actors.armor[target]);
+  TestArena.hit(shooter, target, 20, { zone: 'legs', mode: rifle });
+  check('HPP04 legs are unprotected (tactical legs x0.75)', Actors.health[target] === 70 && Actors.armor[target] === 97.5, Actors.health[target]);
+  TestArena.hit(shooter, target, 10, { zone: 'head', mode: CAT.weapons.byId('warden').primary });
+  check('HP-002 tactical pistol head x3.9 (no helmet)', Test.near(Actors.health[target], 31, 1e-4), Actors.health[target]);
+  const second = TestArena.actor(2, 2, 5);
+  TestArena.hit(shooter, second, 10, { zone: 'body', stomach: true, mode: rifle });
+  check('HP-002 tactical stomach x1.25', Actors.health[second] === 87.5, Actors.health[second]);
+  TestArena.hit(shooter, second, 20, { zone: 'head', mode: rifle });
+  check('HP-002 tactical rifle head x4', Actors.health[second] === 7.5, Actors.health[second]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'hero', precision: 'hero' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  check('HPP05 hero pool 200', Actors.health[target] === 200);
+  Actors.armor[target] = 100;
+  TestArena.hit(shooter, target, 20);
+  check('HPP05 armor: flat -5 per hit', Actors.armor[target] === 85 && Actors.health[target] === 200, Actors.armor[target]);
+  TestArena.hit(shooter, target, 6);
+  check('HPP05 armor reduction at most 50%', Actors.armor[target] === 82, Actors.armor[target]);
+  TestArena.hit(shooter, target, 20, { kind: 'beam' });
+  check('HPP05 beams ignore the flat reduction', Actors.armor[target] === 62, Actors.armor[target]);
+  TestArena.hit(shooter, target, 10, { zone: 'head', mode: CAT.weapons.byId('wasp').primary });
+  check('HP-002 hero head x1 for non-precision weapons', Actors.armor[target] === 57, Actors.armor[target]);
+  Actors.maxShield[target] = 50; Actors.shield[target] = 0;
+  TestArena.hit(shooter, target, 1);
+  Sim.run(3 * TICK_RATE + TICK_RATE);
+  check('HPP05 shields regen 30/s after 3 s', Test.near(Actors.shield[target], 30, 0.3), Actors.shield[target]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'loot' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), mate = TestArena.actor(2, 3, 5);
+  Actors.shield[target] = 50;
+  TestArena.hit(shooter, target, 70);
+  check('HPP06 shield first, then health', Actors.shield[target] === 0 && Actors.health[target] === 80);
+  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100));
+  check('HPP06 squad: 0 HP goes down, not dead', kills === 0 && Actors.alive[target] === 1 && (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.health[target] === DOWNED_HEALTH);
+  check('HP-007 downed crawl speed', Damage.statusSpeed(target) === DOWNED_SPEED);
+  const bled = TestArena.count('kill', () => Sim.run(DOWNED_BLEED_SECONDS * TICK_RATE + 2));
+  check('HP-007 bleed-out after 30 s', bled === 1 && Actors.alive[target] === 0);
+  TestArena.hit(shooter, mate, 100);
+  check('HP-007 last standing squad member dies outright', Actors.alive[mate] === 0);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'ravager' });
+  const target = TestArena.actor(2, 0, 5);
+  Actors.armor[target] = 50;
+  TestArena.hit(-1, target, 40);
+  check('HPP07 armor absorbs 50%', Actors.armor[target] === 30 && Actors.health[target] === 80);
+  TestArena.start({ health: 'limb' });
+  const shooter = TestArena.actor(1, 0, 0), limbed = TestArena.actor(2, 0, 5);
+  TestArena.hit(shooter, limbed, 70, { zone: 'legs', x: 0.1, z: 5 });
+  check('HPP09 one leg below 34% -> -25% speed', Damage.statusSpeed(limbed) === 0.75, Damage.statusSpeed(limbed));
+  TestArena.hit(shooter, limbed, 50, { zone: 'body', x: -0.3, z: 5 });
+  check('HPP09 arm below 67% adds 0.1 deg spread', Test.near(Damage.limbSpread(limbed), 0.1, 1e-6), Damage.limbSpread(limbed));
+  check('HPP09 health mirrors the pools', Test.near(Actors.health[limbed], (600 - 120) / 6, 1e-3), Actors.health[limbed]);
+  TestArena.hit(shooter, limbed, 100, { zone: 'head' });
+  check('HPP09 head pool at 0 kills', Actors.alive[limbed] === 0);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'stack', precision: 'arena' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 5);
+  let before = Actors.health[target];
+  TestArena.hit(shooter, target, 10, { zone: 'head', mode: CAT.weapons.byId('lancet').primary });
+  check('HP-002 arena head x1', before - Actors.health[target] === 10);
+  before = Actors.health[target];
+  TestArena.hit(shooter, target, 10, { zone: 'head', mode: CAT.weapons.byId('heron').primary });
+  check('HP-002 arena alwaysHead weapons keep their head multiplier', before - Actors.health[target] === 25);
+  before = Actors.health[target];
+  TestArena.hit(shooter, target, 10, { distance: 40, mode: CAT.weapons.byId('tempest').primary, zone: 'body' });
+  check('WPN-005 falloff halfway from 30 to 50 m = 0.9', Test.near(before - Actors.health[target], 9, 1e-4), before - Actors.health[target]);
+  before = Actors.health[target];
+  TestArena.hit(shooter, target, 10, { distance: 80, mode: CAT.weapons.byId('tempest').primary, zone: 'body' });
+  check('WPN-005 falloff floor at minFactor', Test.near(before - Actors.health[target], 8, 1e-4));
+  before = Actors.health[target];
+  TestArena.hit(shooter, target, 0.3);
+  check('HP-003 a passing hit deals at least 1', before - Actors.health[target] === 1);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ friendlyFire: 0 });
+  const shooter = TestArena.actor(1, 0, 0), mate = TestArena.actor(1, 2, 0);
+  check('friendly fire 0: no team damage', TestArena.hit(shooter, mate, 50) === 0 && Actors.health[mate] === 100);
+  Game.match.rules = Object.assign({}, Game.match.rules, { friendlyFire: 0.5 });
+  TestArena.hit(shooter, mate, 50);
+  check('friendly fire 0.5 halves team damage', Actors.health[mate] === 75);
+  Actors.flags[mate] |= ACTOR_FLAG.PROTECTED;
+  check('spawn protection blocks damage', TestArena.hit(-1, mate, 50, { kind: 'hazard' }) === 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ selfDamage: 0.5 });
+  const owner = TestArena.actor(1, 0, 0), near = TestArena.actor(2, 0, 1.5), far = TestArena.actor(2, 0, 4.4), hidden = TestArena.actor(2, 3, 0);
+  World.load({ id: 'splash', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }, { shape: 'box', min: [1, 0, -1], max: [1.3, 3, 1] }] });
+  let impulses = 0;
+  const onImpulse = Bus.on('impulse', (event) => { if (event.id === owner) impulses++; });
+  const blast = Damage.blast();
+  blast.x = 0; blast.y = 0.3; blast.z = 0; blast.owner = owner; blast.mode = CAT.weapons.byId('ramjet').primary; blast.radius = 3.5; blast.damage = 100;
+  const explosions = TestArena.count('explosion', () => Damage.explode(blast));
+  Bus.off('impulse', onImpulse);
+  check('explosion event', explosions === 1);
+  check('self splash x selfDamage 0.5 and full knockback', Actors.health[owner] === 50 && impulses === 1, Actors.health[owner]);
+  const expectedNear = 100 * lerp(1, 0.2, (1.5 - TORSO_RADIUS) / 3.5);
+  check('splash falls off linearly to minFactor', Test.near(100 - Actors.health[near], expectedNear, 0.01), 100 - Actors.health[near]);
+  check('splash stops at its radius', Actors.health[far] === 100, Actors.health[far]);
+  check('splash is blocked by walls (line of sight)', Actors.health[hidden] === 100);
+  const safe = Damage.blast();
+  safe.x = 0; safe.y = 0.3; safe.z = 0; safe.owner = owner; safe.radius = 6; safe.damage = 300; safe.ownerSafe = true;
+  Damage.explode(safe);
+  check('owner-safe blasts spare the owner (W40)', Actors.health[owner] === 50 && Actors.alive[near] === 0);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({});
+  const a = TestArena.actor(1, 0, 0), b = TestArena.actor(3, 4, 0), victim = TestArena.actor(2, 0, 5);
+  let kill = null;
+  const handler = Bus.on('kill', (event) => { kill = Object.assign({}, event); });
+  TestArena.hit(a, victim, 50, { weapon: 'wasp' });
+  Sim.run(TICK_RATE);
+  TestArena.hit(b, victim, 60, { weapon: 'tempest', zone: 'body' });
+  Bus.off('kill', handler);
+  check('kill event with killer and assister', kill && kill.victim === victim && kill.killer === b && kill.assister === a && kill.weapon === 'tempest', JSON.stringify(kill));
+  check('death sets alive = 0', Actors.alive[victim] === 0);
+  check('dead actors take no damage', TestArena.hit(a, victim, 10) === 0);
+  const late = TestArena.actor(2, 0, 9);
+  TestArena.hit(a, late, 50);
+  Sim.run(6 * TICK_RATE);
+  let lateKill = null;
+  const second = Bus.on('kill', (event) => { lateKill = Object.assign({}, event); });
+  TestArena.hit(b, late, 60);
+  Bus.off('kill', second);
+  check('no assist after the 5 s window', lateKill && lateKill.assister === -1, JSON.stringify(lateKill));
+  const faller = TestArena.actor(2, 9, 9);
+  TestArena.hit(a, faller, 20);
+  let fall = null;
+  const third = Bus.on('kill', (event) => { fall = Object.assign({}, event); });
+  Bus.emit('damage.request', { target: faller, source: -1, amount: 500, kind: 'fall', x: 0, y: 0, z: 0 });
+  Bus.off('kill', third);
+  check('environment kill credits the last attacker', fall && fall.killer === a, JSON.stringify(fall));
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'stack' });
+  const target = TestArena.actor(2, 0, 5);
+  Actors.armor[target] = 100; Actors.shield[target] = 50; Actors.maxShield[target] = 50;
+  Bus.emit('damage.request', { target, source: -1, amount: 30, kind: 'fall', x: 0, y: 0, z: 0 });
+  check('damage.request fall goes to health only', Actors.health[target] === 70 && Actors.armor[target] === 100 && Actors.shield[target] === 50);
+  Bus.emit('damage.request', { target, source: -1, amount: 1, kind: 'telefrag', x: 0, y: 0, z: 0 });
+  check('damage.request telefrag is lethal', Actors.alive[target] === 0);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'stack' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5);
+  Damage.addStatus(target, 'burn', shooter);
+  Sim.run(4 * TICK_RATE + 2);
+  check('HP-005 burn 10 HP/s for 4 s', Test.near(Actors.health[target], 60, 1e-4) && !Damage.hasStatus(target, 'burn'), Actors.health[target]);
+  Damage.addStatus(target, 'chill', shooter, 0, 2);
+  check('HP-005 chill slows 40%', Damage.statusSpeed(target) === 0.6 && !Damage.hasStatus(target, 'freeze'));
+  Damage.addStatus(target, 'chill', shooter);
+  check('HP-005 3 chill stacks = freeze (FROZEN)', Damage.hasStatus(target, 'freeze') && (Actors.flags[target] & ACTOR_FLAG.FROZEN) !== 0);
+  const before = Actors.health[target];
+  TestArena.hit(shooter, target, 10);
+  check('HP-005 frozen target shatters: next hit x3', Test.near(before - Actors.health[target], 30, 1e-4) && !Damage.hasStatus(target, 'freeze') && !(Actors.flags[target] & ACTOR_FLAG.FROZEN), before - Actors.health[target]);
+  Actors.armor[target] = 50;
+  Damage.addStatus(target, 'bleed', shooter);
+  Sim.run(TICK_RATE);
+  check('HP-005 bleed bypasses armor', Actors.armor[target] === 50, Actors.armor[target]);
+  Damage.addStatus(target, 'sleep', shooter);
+  const asleep = (Actors.flags[target] & ACTOR_FLAG.FROZEN) !== 0;
+  TestArena.hit(shooter, target, 1);
+  check('sleep stuns until damaged', asleep && !Damage.hasStatus(target, 'sleep') && !(Actors.flags[target] & ACTOR_FLAG.FROZEN));
+  TestArena.start({ health: 'shield' });
+  const shielded = TestArena.actor(2, 0, 5);
+  Damage.addStatus(shielded, 'toxin', -1);
+  Sim.run(TICK_RATE);
+  check('HP-005 toxin bypasses shields', Actors.shield[shielded] === 70 && Actors.health[shielded] === 44, Actors.shield[shielded] + ' / ' + Actors.health[shielded]);
+  Damage.shieldElement[shielded] = CAT.elements.findIndex((row) => row.id === 'thermal') + 1;
+  TestArena.hit(-1, shielded, 10, { element: 'thermal' });
+  check('HP-006 matching element x1.5 on a coloured shield', Actors.shield[shielded] === 55, Actors.shield[shielded]);
+  TestArena.hit(-1, shielded, 10, { element: 'kinetic' });
+  check('HP-006 other elements x0.75', Actors.shield[shielded] === 47.5, Actors.shield[shielded]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 6);
+  let impulse = null;
+  const handler = Bus.on('impulse', (event) => { if (event.id === target) impulse = Object.assign({}, event); });
+  TestArena.hit(shooter, target, 100, { dx: 0, dy: 0, dz: 1 });
+  Bus.off('impulse', handler);
+  check('MOV-017 knockback 0.15 x damage m/s along the hit', impulse && Test.near(impulse.z, 15, 1e-3) && impulse.y > 0, JSON.stringify(impulse));
+  TestArena.finish();
+});
+
+// HP-004 / 6.2: every damage passes Damage.apply (count check) and no other code lowers health, armor or shields.
+Test.add('damage', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 6);
+  let healthLost = 0, events = 0;
+  const handler = Bus.on('damage', (event) => { healthLost += event.healthDamage; events++; });
+  const callsBefore = Damage.applyCount, start = Actors.health[target];
+  const loadout = ['warden', 'ramjet', 'stormlash', 'kindler', 'shardcaster'];
+  for (const key of loadout) {
+    Weapons.setLoadout(shooter, [key]);
+    TestArena.aimAt(shooter, target);
+    TestArena.hold(shooter, BTN.FIRE, 1);
+    Sim.run(TICK_RATE * 2);
+  }
+  Bus.off('damage', handler);
+  check('weapons dealt damage', events > 10, events);
+  check('health lost equals the sum of damage events', Test.near(start - Actors.health[target], healthLost, 0.01), (start - Actors.health[target]) + ' vs ' + healthLost);
+  check('every damage event came from a Damage.apply call', Damage.applyCount - callsBefore >= events);
+  const script = Array.from(document.scripts).map((element) => element.textContent).join('\n');
+  const sections = script.split(/\n\/\/ ==== (\S+) ====\n/);
+  const offenders = [];
+  for (let k = 1; k < sections.length; k += 2) {
+    if (sections[k] === '11c-damage.js' || sections[k].startsWith('20')) continue;
+    if (/Actors\.(health|armor|shield)\[[^\]]+\]\s*-=/.test(sections[k + 1])) offenders.push(sections[k]);
+  }
+  check('no damage side path lowers health outside Damage.apply', sections.length > 10 && offenders.length === 0, offenders.join(', '));
+  TestArena.finish();
+});

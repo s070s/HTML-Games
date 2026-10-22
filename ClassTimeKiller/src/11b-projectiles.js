@@ -1,0 +1,492 @@
+// S11 projectiles: one pooled struct-of-arrays store, swept every 120 Hz step against the world and actor hit volumes (WPN-002).
+// Behaviour comes from the projectile row (gravity, bounce, fuse, stick, homing, drag, arm, roll) and the firing mode
+// (splash, split, puddle, aura, stickCombo, guided, laser). A full pool recycles its oldest projectile.
+
+const PROJECTILE_CAP = 256;
+const PROJECTILE_STATE = { FREE: 0, FLYING: 1, STUCK: 2, RETURNING: 3, AREA: 4, ATTACHED: 5 };
+const SPLIT_GRACE_SECONDS = 0.25;        // shards from a split start slightly aged so they do not re-trigger on the same spot
+const AREA_TICK_SECONDS = 0.25;          // puddles, auras and laser lines damage on this tick
+const AREA_HEIGHT = 1.5;                 // puddles hurt actors whose feet are this close above or below
+const ATTACH_SECONDS = 2;                // stuck needles and drills stay this long (drill fuse)
+const HOMING_CONE_COS = Math.cos(45 * DEG);
+const HOMING_RANGE = 40;
+const DRILL_RANGE = 20;
+const GUIDED_TURN_DEG = 120;
+const RETURN_CATCH_DISTANCE = 1;
+const COMBO_TARGET_PADDING = 0.3;        // hitscan combo shots get a slightly larger orb to aim at
+const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bouncing and settle
+const HOOK_PULL_SPEED = 20;
+const HOOK_LIFT_SPEED = 3;
+
+const sweepHit = makeHit();
+const projectileScratch = Vec.make();
+const steerScratch = Vec.make();
+const projectileColors = new Float32Array(CAT.projectiles.length * 3);
+CAT.projectiles.forEach((row, index) => {
+  row.index = index;
+  projectileColors[index * 3] = (row.color >> 16 & 255) / 255;
+  projectileColors[index * 3 + 1] = (row.color >> 8 & 255) / 255;
+  projectileColors[index * 3 + 2] = (row.color & 255) / 255;
+});
+
+const Projectiles = {
+  state: new Uint8Array(PROJECTILE_CAP), type: new Uint8Array(PROJECTILE_CAP), owner: new Int8Array(PROJECTILE_CAP),
+  weapon: new Int16Array(PROJECTILE_CAP), modeIndex: new Uint8Array(PROJECTILE_CAP), child: new Uint8Array(PROJECTILE_CAP), lodge: new Uint8Array(PROJECTILE_CAP),
+  x: new Float32Array(PROJECTILE_CAP), y: new Float32Array(PROJECTILE_CAP), z: new Float32Array(PROJECTILE_CAP),
+  vx: new Float32Array(PROJECTILE_CAP), vy: new Float32Array(PROJECTILE_CAP), vz: new Float32Array(PROJECTILE_CAP),
+  age: new Float32Array(PROJECTILE_CAP), life: new Float32Array(PROJECTILE_CAP), travelled: new Float32Array(PROJECTILE_CAP),
+  damage: new Float32Array(PROJECTILE_CAP), multiplier: new Float32Array(PROJECTILE_CAP), bounces: new Int8Array(PROJECTILE_CAP),
+  target: new Int8Array(PROJECTILE_CAP), attached: new Int8Array(PROJECTILE_CAP), offsetX: new Float32Array(PROJECTILE_CAP),
+  offsetY: new Float32Array(PROJECTILE_CAP), offsetZ: new Float32Array(PROJECTILE_CAP), timer: new Float32Array(PROJECTILE_CAP),
+  hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
+  guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
+  active: 0,
+  nextSerial: 1,
+  comboDistance: 0,
+
+  row(i) { return CAT.projectiles[this.type[i]]; },
+  modeOf(i) { const weapon = CAT.weapons[this.weapon[i]]; return this.modeIndex[i] ? weapon.alt : weapon.primary; },
+  clear() { this.state.fill(0); this.guiding.fill(0); this.active = 0; },
+
+  // ---- Spawning ----
+  // From a weapon: starts in front of the eye along `direction`; speed 0 = mode or row speed.
+  spawnFromWeapon(owner, weapon, mode, modeIndex, direction, damage, multiplier, speed, target) {
+    const row = CAT.projectiles.byId(mode.projectile);
+    const launch = speed || mode.speed || row.speed, eyeY = Actors.eyeY(owner);
+    const i = this.spawn(row, owner, weapon.index, modeIndex, Actors.x[owner] + direction.x * MUZZLE_FORWARD, eyeY + direction.y * MUZZLE_FORWARD,
+      Actors.z[owner] + direction.z * MUZZLE_FORWARD, direction.x * launch, direction.y * launch, direction.z * launch, damage * multiplier);
+    if (mode.life) this.life[i] = mode.life;
+    if (mode.bounces > -2) this.bounces[i] = mode.bounces;
+    this.multiplier[i] = multiplier;
+    this.lodge[i] = mode.special === 'lodgeBlade' ? 1 : 0;
+    this.target[i] = target >= 0 ? target : this.acquireTarget(owner, row, direction);
+    if (mode.maxActive && mode.activeRule === 'recycle') this.limitOwned(owner, weapon.index, mode.maxActive);
+    return i;
+  },
+  spawn(row, owner, weaponIndex, modeIndex, x, y, z, vx, vy, vz, damage) {
+    const i = this.freeSlot(row);
+    if (this.state[i] === PROJECTILE_STATE.FREE) this.active++;
+    this.state[i] = PROJECTILE_STATE.FLYING; this.type[i] = row.index; this.owner[i] = owner; this.weapon[i] = weaponIndex; this.modeIndex[i] = modeIndex;
+    this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
+    this.age[i] = 0; this.life[i] = row.life; this.travelled[i] = 0; this.damage[i] = damage; this.multiplier[i] = 1;
+    this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
+    this.hitLow[i] = this.hitHigh[i] = 0;
+    this.serial[i] = this.nextSerial++;
+    return i;
+  },
+  // A free slot; at the row's poolSize or a full pool the oldest projectile (of that row first) is recycled.
+  freeSlot(row) {
+    let free = -1, oldestOfRow = -1, oldest = 0, ofRow = 0;
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (this.state[i] === PROJECTILE_STATE.FREE) { if (free < 0) free = i; continue; }
+      if (this.serial[i] < this.serial[oldest] || this.state[oldest] === PROJECTILE_STATE.FREE) oldest = i;
+      if (this.type[i] !== row.index) continue;
+      ofRow++;
+      if (oldestOfRow < 0 || this.serial[i] < this.serial[oldestOfRow]) oldestOfRow = i;
+    }
+    if (ofRow >= row.poolSize) return oldestOfRow;
+    return free >= 0 ? free : oldest;
+  },
+  remove(i) {
+    if (this.state[i] === PROJECTILE_STATE.FREE) return;
+    this.state[i] = PROJECTILE_STATE.FREE;
+    this.active--;
+  },
+  countOwned(owner, weaponIndex) {
+    let count = 0;
+    for (let i = 0; i < PROJECTILE_CAP; i++) if (this.state[i] && this.owner[i] === owner && this.weapon[i] === weaponIndex) count++;
+    return count;
+  },
+  // maxActive with activeRule 'recycle' (W32 mines): the oldest extra projectile is detonated.
+  limitOwned(owner, weaponIndex, limit) {
+    while (this.countOwned(owner, weaponIndex) > limit) this.detonate(this.oldestOwned(owner, weaponIndex));
+  },
+  oldestOwned(owner, weaponIndex) {
+    let found = -1;
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (!this.state[i] || this.owner[i] !== owner || this.weapon[i] !== weaponIndex) continue;
+      if (found < 0 || this.serial[i] < this.serial[found]) found = i;
+    }
+    return found;
+  },
+  detonateOwned(owner, weaponIndex, projectileKey) {
+    const row = CAT.projectiles.byId(projectileKey);
+    let count = 0;
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (!this.state[i] || this.owner[i] !== owner || this.weapon[i] !== weaponIndex || (row && this.type[i] !== row.index)) continue;
+      this.detonate(i);
+      count++;
+    }
+    return count;
+  },
+  // Homing rows pick the nearest visible enemy near the launch direction (drills: within 20 m).
+  acquireTarget(owner, row, direction) {
+    if (!row.homing) return -1;
+    const range = row.onHit === 'drill' ? DRILL_RANGE : HOMING_RANGE, eyeY = Actors.eyeY(owner);
+    let best = -1, bestDistance = range;
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id] || !Actors.isEnemy(owner, id)) continue;
+      Hitbox.point(id, ZONE.BODY, projectileScratch);
+      const dx = projectileScratch.x - Actors.x[owner], dy = projectileScratch.y - eyeY, dz = projectileScratch.z - Actors.z[owner];
+      const distance = Math.hypot(dx, dy, dz);
+      if (distance >= bestDistance || (dx * direction.x + dy * direction.y + dz * direction.z) / distance < HOMING_CONE_COS) continue;
+      if (!World.lineClear(Actors.x[owner], eyeY, Actors.z[owner], projectileScratch.x, projectileScratch.y, projectileScratch.z)) continue;
+      best = id; bestDistance = distance;
+    }
+    return best;
+  },
+
+  // ---- The per-step update ----
+  step(dt) {
+    this.guiding.fill(0);
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (this.state[i] === PROJECTILE_STATE.FREE) continue;
+      this.age[i] += dt;
+      this.stepOne(i, dt);
+    }
+  },
+  stepOne(i, dt) {
+    const state = this.state[i];
+    if (state === PROJECTILE_STATE.AREA) { this.stepArea(i, dt); return; }
+    if (state === PROJECTILE_STATE.ATTACHED) { this.stepAttached(i); return; }
+    if (state === PROJECTILE_STATE.STUCK) { this.stepStuck(i, dt); return; }
+    if (this.age[i] >= this.life[i]) { this.expire(i); return; }
+    this.steer(i, dt);
+    this.accelerate(i, dt);
+    this.stepAura(i, dt);
+    this.sweep(i, dt);
+  },
+  accelerate(i, dt) {
+    const row = this.row(i);
+    if (row.roll && World.raycast(this.x[i], this.y[i], this.z[i], 0, -1, 0, row.radius + 0.05, sweepHit)) { this.vy[i] = Math.max(0, this.vy[i]); return; }
+    this.vy[i] -= row.gravity * dt;
+    if (!row.drag) return;
+    const keep = Math.max(0, 1 - row.drag * dt);
+    this.vx[i] *= keep; this.vy[i] *= keep; this.vz[i] *= keep;
+  },
+  // Homing toward the target, guided toward the owner's view, or flying back to the owner (returning blades).
+  steer(i, dt) {
+    const row = this.row(i), mode = this.modeOf(i), owner = this.owner[i];
+    if (row.returning && this.state[i] === PROJECTILE_STATE.FLYING && this.age[i] >= this.life[i] * 0.5) this.startReturn(i);
+    if (this.state[i] === PROJECTILE_STATE.RETURNING) { this.steerReturn(i); return; }
+    if (mode.guided && Actors.alive[owner]) { this.guiding[owner] = 1; Vec.fromAngles(steerScratch, Actors.yaw[owner], Actors.pitch[owner]); turnVelocity(i, steerScratch, GUIDED_TURN_DEG * DEG * dt); return; }
+    const target = this.target[i];
+    if (!row.homing || target < 0 || !Actors.alive[target]) return;
+    Hitbox.point(target, row.onHit === 'drill' ? ZONE.HEAD : ZONE.BODY, steerScratch);
+    Vec.set(steerScratch, steerScratch.x - this.x[i], steerScratch.y - this.y[i], steerScratch.z - this.z[i]);
+    Vec.normalize(steerScratch, steerScratch);
+    turnVelocity(i, steerScratch, row.homing * DEG * dt);
+  },
+  startReturn(i) {
+    this.state[i] = PROJECTILE_STATE.RETURNING;
+    this.hitLow[i] = this.hitHigh[i] = 0;   // a returning blade cuts everyone again on its way back
+    this.life[i] = this.age[i] + this.row(i).life * 2;
+  },
+  steerReturn(i) {
+    const owner = this.owner[i], speed = this.row(i).speed;
+    if (!Actors.alive[owner]) { this.remove(i); return; }
+    const dx = Actors.x[owner] - this.x[i], dy = Actors.eyeY(owner) - 0.4 - this.y[i], dz = Actors.z[owner] - this.z[i];
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < RETURN_CATCH_DISTANCE) { this.remove(i); return; }
+    this.vx[i] = dx / distance * speed; this.vy[i] = dy / distance * speed; this.vz[i] = dz / distance * speed;
+  },
+
+  // Moves along the velocity for one step: world ray first, then actor volumes (inflated by the radius) in front of it.
+  sweep(i, dt) {
+    if (this.state[i] === PROJECTILE_STATE.FREE) return;
+    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    if (speed < 1e-6) return;
+    const length = speed * dt, dx = this.vx[i] / speed, dy = this.vy[i] / speed, dz = this.vz[i] / speed, row = this.row(i);
+    const wallHit = World.raycast(this.x[i], this.y[i], this.z[i], dx, dy, dz, length + row.radius, sweepHit);
+    const wall = wallHit ? Math.max(0, sweepHit.distance - row.radius) : length;
+    if (this.sweepActors(i, row, dx, dy, dz, wall)) return;
+    this.x[i] += dx * wall; this.y[i] += dy * wall; this.z[i] += dz * wall;
+    this.travelled[i] += wall;
+    if (wallHit) this.touchWorld(i, row, sweepHit);
+  },
+  // Returns true when an actor contact ended or stopped this projectile.
+  sweepActors(i, row, dx, dy, dz, wall) {
+    // Projectiles never strike their owner directly (they start inside the owner); own splash still applies.
+    const limit = row.pierce ? 4 : 1;
+    const count = RayHits.collect(this.owner[i], this.x[i], this.y[i], this.z[i], dx, dy, dz, wall, limit, row.radius, currentRules().friendlyFire > 0);
+    for (let k = 0; k < count; k++) {
+      const target = RayHits.ids[k];
+      if (this.alreadyHit(i, target)) continue;
+      const distance = RayHits.distances[k];
+      const x = this.x[i] + dx * distance, y = this.y[i] + dy * distance, z = this.z[i] + dz * distance;
+      if (this.touchActor(i, row, target, RayHits.zones[k], x, y, z, dx, dy, dz)) return true;
+    }
+    return false;
+  },
+  alreadyHit(i, target) { return target < 32 ? (this.hitLow[i] >>> target & 1) === 1 : (this.hitHigh[i] >>> (target - 32) & 1) === 1; },
+  markHit(i, target) {
+    if (target < 32) this.hitLow[i] |= 1 << target;
+    else this.hitHigh[i] |= 1 << (target - 32);
+  },
+
+  // ---- Contacts ----
+  touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
+    if (row.parryable && WeaponSpecialState.tryParry(target, i)) return true;
+    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, x, y, z); return true; }
+    const kind = row.onHit;
+    if (kind === 'explode') { this.explodeAt(i, x, y, z, target, zone); return true; }
+    if (kind === 'pull') { this.pullOwner(i, target); return true; }
+    if (kind === 'drill') { this.attach(i, target, x, y, z); return true; }
+    this.hitTarget(i, target, zone, x, y, z, dx, dy, dz);
+    if (kind === 'puddle') { this.becomeArea(i, Actors.x[target], Actors.y[target] + 0.05, Actors.z[target]); return true; }
+    if (row.pierce) { this.markHit(i, target); return false; }
+    if (row.stickActor) { this.attach(i, target, x, y, z); return true; }
+    this.remove(i);
+    return true;
+  },
+  hitTarget(i, target, zone, x, y, z, dx, dy, dz) {
+    const mode = this.modeOf(i);
+    const info = Damage.info();
+    info.amount = this.damage[i]; info.zone = ZONE_NAMES[zone]; info.mode = mode; info.weapon = mode.weapon; info.kind = 'hit';
+    info.element = mode.element; info.distance = this.travelled[i]; info.knockback = mode.knockback;
+    info.x = x; info.y = y; info.z = z; info.dx = dx; info.dy = dy; info.dz = dz;
+    return Damage.apply(this.owner[i], target, info);
+  },
+  touchWorld(i, row, hit) {
+    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, hit.x, hit.y, hit.z); return; }
+    if (row.roll) { reflectVelocity(i, hit, 0.6); return; }
+    if (this.state[i] === PROJECTILE_STATE.RETURNING) return;
+    if (this.bounces[i] !== 0 && this.bounceOff(i, row, hit)) return;
+    if (row.returning && !this.lodge[i]) { this.startReturn(i); return; }
+    if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
+    if (row.onHit === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
+    emitImpact(hit, this.modeOf(i).weapon, this.owner[i]);
+    this.remove(i);
+  },
+  bounceOff(i, row, hit) {
+    reflectVelocity(i, hit, row.bounce || 1);
+    if (this.bounces[i] > 0) this.bounces[i]--;
+    if (Math.hypot(this.vx[i], this.vy[i], this.vz[i]) >= BOUNCE_MIN_SPEED) return true;
+    this.vx[i] = this.vy[i] = this.vz[i] = 0;   // settled: grenades wait for their fuse on the floor
+    return true;
+  },
+  stickTo(i, row, hit) {
+    this.x[i] = hit.x + hit.nx * row.radius; this.y[i] = hit.y + hit.ny * row.radius; this.z[i] = hit.z + hit.nz * row.radius;
+    this.vx[i] = this.vy[i] = this.vz[i] = 0;
+    if (this.modeOf(i).puddle) { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
+    this.state[i] = PROJECTILE_STATE.STUCK;
+    if (this.lodge[i]) this.life[i] = this.age[i] + 1e6;   // a lodged blade stays until recalled
+  },
+  attach(i, target, x, y, z) {
+    this.state[i] = PROJECTILE_STATE.ATTACHED;
+    this.attached[i] = target;
+    this.offsetX[i] = x - Actors.x[target]; this.offsetY[i] = y - Actors.y[target]; this.offsetZ[i] = z - Actors.z[target];
+    this.life[i] = this.age[i] + ATTACH_SECONDS;
+    const combo = this.modeOf(i).stickCombo;
+    if (combo) this.checkStickCombo(i, target, combo);
+  },
+  // W12: enough needles of one owner stuck in one target burst together.
+  checkStickCombo(i, target, combo) {
+    let stuck = 0;
+    for (let k = 0; k < PROJECTILE_CAP; k++) if (this.isStuckSibling(k, i, target)) stuck++;
+    if (stuck < combo.count) return;
+    for (let k = 0; k < PROJECTILE_CAP; k++) if (this.isStuckSibling(k, i, target)) this.remove(k);
+    Hitbox.point(target, ZONE.BODY, projectileScratch);
+    const blast = Damage.blast();
+    blast.x = projectileScratch.x; blast.y = projectileScratch.y; blast.z = projectileScratch.z; blast.owner = this.owner[i];
+    blast.mode = this.modeOf(i); blast.radius = combo.radius; blast.damage = combo.damage;
+    Damage.explode(blast);
+  },
+  isStuckSibling(k, i, target) {
+    return this.state[k] === PROJECTILE_STATE.ATTACHED && this.attached[k] === target && this.owner[k] === this.owner[i] && this.type[k] === this.type[i];
+  },
+  stepAttached(i) {
+    const target = this.attached[i];
+    if (!Actors.alive[target]) { this.remove(i); return; }
+    this.x[i] = Actors.x[target] + this.offsetX[i]; this.y[i] = Actors.y[target] + this.offsetY[i]; this.z[i] = Actors.z[target] + this.offsetZ[i];
+    if (this.age[i] < this.life[i]) return;
+    if (this.row(i).onHit === 'drill') { this.finishDrill(i); return; }
+    this.remove(i);
+  },
+  // W43: the drill's damage lands when its 2 s are over (or on manual detonation).
+  finishDrill(i) {
+    const target = this.attached[i];
+    this.remove(i);
+    if (target < 0 || !Actors.alive[target]) return;
+    this.hitTarget(i, target, ZONE.NONE, this.x[i], this.y[i], this.z[i], 0, -1, 0);
+  },
+  stepStuck(i, dt) {
+    if (this.age[i] >= this.life[i]) { this.expire(i); return; }
+    const mode = this.modeOf(i);
+    if (this.lodge[i] && mode.laser) this.stepLaser(i, mode, dt);
+  },
+  // W44 lodged blade: a cutting line from the blade to its owner.
+  stepLaser(i, mode, dt) {
+    const owner = this.owner[i];
+    if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
+    const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
+    const length = Math.hypot(dx, dy, dz);
+    if (length < 0.5) return;
+    const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
+    for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
+    if (!Game.headless) Fx.tracer(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner], 0xff4040);
+  },
+  // Accumulates the area timer; true once per interval.
+  tickDue(i, dt, interval) {
+    this.timer[i] += dt;
+    if (this.timer[i] < interval) return false;
+    this.timer[i] -= interval;
+    return true;
+  },
+  areaDamage(i, target, amount, mode, kind) {
+    const info = Damage.info();
+    info.amount = amount * this.multiplier[i]; info.mode = mode; info.weapon = mode.weapon; info.kind = kind; info.element = mode.element;
+    info.x = Actors.x[target]; info.y = Actors.y[target]; info.z = Actors.z[target];
+    return Damage.apply(this.owner[i], target, info);
+  },
+  // W45: arcs from a flying orb to enemies near it.
+  stepAura(i, dt) {
+    const aura = this.modeOf(i).aura;
+    if (!aura || !this.tickDue(i, dt, aura.interval)) return;
+    const owner = this.owner[i], radiusSquared = aura.radius * aura.radius;
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id] || !Actors.isEnemy(owner, id)) continue;
+      Hitbox.point(id, ZONE.BODY, projectileScratch);
+      if (distanceSquared3(this.x[i], this.y[i], this.z[i], projectileScratch.x, projectileScratch.y, projectileScratch.z) > radiusSquared) continue;
+      if (!World.lineClear(this.x[i], this.y[i], this.z[i], projectileScratch.x, projectileScratch.y, projectileScratch.z)) continue;
+      this.areaDamage(i, id, aura.damage, this.modeOf(i), 'beam');
+      if (!Game.headless) Fx.tracer(this.x[i], this.y[i], this.z[i], projectileScratch.x, projectileScratch.y, projectileScratch.z, 0x9cff9c);
+    }
+  },
+  // Puddles (W34 goo, W35 napalm): damage everyone standing in them on each area tick.
+  becomeArea(i, x, y, z) {
+    const puddle = this.modeOf(i).puddle;
+    if (!puddle) { this.remove(i); return; }
+    this.state[i] = PROJECTILE_STATE.AREA;
+    this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = this.vy[i] = this.vz[i] = 0;
+    this.life[i] = this.age[i] + puddle.seconds;
+    this.timer[i] = 0;
+  },
+  stepArea(i, dt) {
+    if (this.age[i] >= this.life[i]) { this.remove(i); return; }
+    const mode = this.modeOf(i), puddle = mode.puddle;
+    if (!this.tickDue(i, dt, AREA_TICK_SECONDS)) return;
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[i]) > AREA_HEIGHT) continue;
+      if ((Actors.x[id] - this.x[i]) ** 2 + (Actors.z[id] - this.z[i]) ** 2 > puddle.radius * puddle.radius) continue;
+      this.areaDamage(i, id, puddle.damage, mode, 'splash');
+      if (puddle.status) Damage.addStatus(id, puddle.status.id, this.owner[i], puddle.status.seconds, 1);
+    }
+  },
+
+  // ---- Endings ----
+  expire(i) {
+    const row = this.row(i);
+    if (row.onHit === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
+    if (row.onHit === 'puddle') { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
+    this.remove(i);
+  },
+  detonate(i) {
+    if (i < 0 || !this.state[i]) return;
+    if (this.state[i] === PROJECTILE_STATE.ATTACHED && this.row(i).onHit === 'drill') { this.finishDrill(i); return; }
+    this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE);
+  },
+  dud(i, x, y, z) {
+    if (!Game.headless) Fx.burst('dust', x, y, z, 0, 1, 0, 4, 0x999999);
+    this.remove(i);
+  },
+  // Direct damage to the struck actor, splash around (excluding that actor when the direct hit dealt damage), then shards.
+  explodeAt(i, x, y, z, target, zone) {
+    const mode = this.modeOf(i), row = this.row(i);
+    const direct = target >= 0 && this.damage[i] > 0;
+    if (direct) this.hitTarget(i, target, zone, x, y, z, this.vx[i], this.vy[i], this.vz[i]);
+    this.remove(i);
+    if (mode.splash) {
+      const blast = Damage.blast();
+      blast.x = x; blast.y = y; blast.z = z; blast.owner = this.owner[i]; blast.mode = mode; blast.radius = mode.splash.r;
+      blast.damage = mode.splash.dmg * this.multiplier[i]; blast.exclude = direct ? target : -1; blast.ownerSafe = row.ownerSafe;
+      Damage.explode(blast);
+    }
+    if (mode.split && !this.child[i]) this.spawnSplit(i, mode, x, y, z);
+  },
+  // Shards or goo that burst out of an impact (W21 alt, W34 alt), spread over a fixed fan (no random draw).
+  spawnSplit(i, mode, x, y, z) {
+    const split = mode.split, row = CAT.projectiles.byId(split.projectile);
+    for (let k = 0; k < split.count; k++) {
+      const angle = k / split.count * Math.PI * 2;
+      const child = this.spawn(row, this.owner[i], this.weapon[i], this.modeIndex[i], x, y + 0.1, z, Math.cos(angle) * row.speed * 0.5, row.speed * 0.4, Math.sin(angle) * row.speed * 0.5, split.damage);
+      this.child[child] = 1;
+      this.age[child] = SPLIT_GRACE_SECONDS;
+    }
+  },
+  // W20 hook: pulls the owner toward the struck actor.
+  pullOwner(i, target) {
+    const owner = this.owner[i];
+    this.remove(i);
+    const dx = Actors.x[target] - Actors.x[owner], dz = Actors.z[target] - Actors.z[owner], length = Math.hypot(dx, dz) || 1;
+    emitImpulse(owner, dx / length * HOOK_PULL_SPEED, HOOK_LIFT_SPEED, dz / length * HOOK_PULL_SPEED);
+  },
+  // Parry (W03): the projectile flies back along the parrying actor's view and now belongs to them.
+  reflect(i, newOwner) {
+    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    Vec.fromAngles(projectileScratch, Actors.yaw[newOwner], Actors.pitch[newOwner]);
+    this.vx[i] = projectileScratch.x * speed; this.vy[i] = projectileScratch.y * speed; this.vz[i] = projectileScratch.z * speed;
+    this.owner[i] = newOwner;
+    this.age[i] = 0;
+  },
+
+  // W17 combo: a hitscan ray that meets an energy orb before maxDistance detonates it as a big blast.
+  comboRay(shooter, mode, ox, oy, oz, dx, dy, dz, maxDistance) {
+    let best = -1, bestDistance = maxDistance;
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (this.state[i] !== PROJECTILE_STATE.FLYING || !this.row(i).comboTarget) continue;
+      const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.row(i).radius + COMBO_TARGET_PADDING);
+      if (distance >= 0 && distance < bestDistance) { best = i; bestDistance = distance; }
+    }
+    if (best < 0) return false;
+    this.comboDistance = bestDistance;
+    const blast = Damage.blast();
+    blast.x = this.x[best]; blast.y = this.y[best]; blast.z = this.z[best]; blast.owner = shooter; blast.mode = mode;
+    blast.radius = mode.combo.radius; blast.damage = mode.combo.damage;
+    this.remove(best);
+    Weapons.spendExtra(shooter, mode, mode.combo.ammo - mode.ammoPerShot);
+    Damage.explode(blast);
+    return true;
+  },
+
+  // Render source: one instanced sphere per projectile, puddles as flat discs.
+  draw(batch) {
+    for (let i = 0; i < PROJECTILE_CAP; i++) {
+      if (!this.state[i]) continue;
+      const row = this.row(i), type = this.type[i];
+      const r = projectileColors[type * 3], g = projectileColors[type * 3 + 1], b = projectileColors[type * 3 + 2];
+      if (this.state[i] === PROJECTILE_STATE.AREA) { const size = this.modeOf(i).puddle.radius * 2; batch.mesh('cylinder', this.x[i], this.y[i], this.z[i], 0, 0, size, 0.04, size, r, g, b, 0.6); continue; }
+      const size = Math.max(0.08, row.radius * 2 * row.scale);
+      batch.mesh('sphere', this.x[i], this.y[i], this.z[i], 0, 0, size, size, size, r, g, b, 1);
+    }
+  },
+};
+
+// Rotates a projectile's velocity toward a unit direction by at most maxAngle radians, keeping its speed.
+function turnVelocity(i, direction, maxAngle) {
+  const speed = Math.hypot(Projectiles.vx[i], Projectiles.vy[i], Projectiles.vz[i]);
+  if (speed < 1e-6) return;
+  const fx = Projectiles.vx[i] / speed, fy = Projectiles.vy[i] / speed, fz = Projectiles.vz[i] / speed;
+  const angle = Math.acos(clamp(fx * direction.x + fy * direction.y + fz * direction.z, -1, 1));
+  const t = angle <= maxAngle ? 1 : maxAngle / angle;
+  const nx = lerp(fx, direction.x, t), ny = lerp(fy, direction.y, t), nz = lerp(fz, direction.z, t), length = Math.hypot(nx, ny, nz) || 1;
+  Projectiles.vx[i] = nx / length * speed; Projectiles.vy[i] = ny / length * speed; Projectiles.vz[i] = nz / length * speed;
+}
+function reflectVelocity(i, hit, keep) {
+  const along = Projectiles.vx[i] * hit.nx + Projectiles.vy[i] * hit.ny + Projectiles.vz[i] * hit.nz;
+  Projectiles.vx[i] = (Projectiles.vx[i] - 2 * along * hit.nx) * keep;
+  Projectiles.vy[i] = (Projectiles.vy[i] - 2 * along * hit.ny) * keep;
+  Projectiles.vz[i] = (Projectiles.vz[i] - 2 * along * hit.nz) * keep;
+}
+
+Weapons.spendExtra = (id, mode, rounds) => {
+  const weapon = CAT.weapons.byId(mode.weapon);
+  if (!weapon || rounds <= 0) return;
+  const slot = Weapons.slotIndex(id, weapon.index);
+  Weapons.magazine[slot] = Math.max(0, Weapons.magazine[slot] - rounds);
+};
+
+Sim.addSystem('projectiles', 50, (dt) => Projectiles.step(dt));
+Render.addSource('projectiles', (batch) => Projectiles.draw(batch));
+Bus.on('match.start', () => Projectiles.clear());
+Bus.on('match.stop', () => Projectiles.clear());
