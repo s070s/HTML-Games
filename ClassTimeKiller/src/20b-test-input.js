@@ -924,9 +924,10 @@ Test.add('input', (check) => {
     ['a touch control or is listed', (row) => touchActions.includes(row.id) || touchFree.includes(row.id)], ['no browser or system key', (row) => !Input.defaultsOf(row).some((binding) => reserved.includes(binding))]]) {
     check('defaults: every action has ' + name, !gaps(has), gaps(has));
   }
-  // INP-002: a controller's sprint click toggles by default, the keyboard's Shift is still a hold
+  // INP-002: a controller's sprint click toggles by default where sprint is a run (Agile), the keyboard's Shift is still a hold
   const sprint = Input.actionIndex.sprint, pad = inputFakePad();
-  inputPadPress(pad, 10, true); inputPadPress(pad, 10, false);
+  Move.setPreset(Game.playerId, 'agile');
+  inputPadTap(pad, 10);
   check('sprint: one L3 click turns it on', Input.effective[sprint] === 1);
   inputPadTap(pad, 10);
   check('sprint: the second click turns it off', Input.effective[sprint] === 0);
@@ -978,6 +979,14 @@ Test.add('input', (check) => {
   check('pad device: drift leaves touch alone', Input.device === 'touch', Input.device);
   drift.axes[2] = 0.9; Input.frame(INPUT_TEST_FRAME);
   check('pad device: a stick push takes it', Input.device === 'gamepad', Input.device);
+  Input.frame(INPUT_TEST_FRAME); Input.setDevice('touch'); drift.axes.fill(0); Input.frame(INPUT_TEST_FRAME);   // touch took over while the stick was pushed, then it was let go
+  drift.axes[2] = 0.15; Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+  check('pad device: drift after a let-go stick leaves touch alone', Input.device === 'touch', Input.device);
+  const realListPads = PadInput.listPads, standard = inputFakePad();
+  odd.index = 1; PadInput.listPads = () => [standard, odd]; PadInput.index = 1;   // the odd device connected last
+  check('pad choice: a standard pad wins over a newer odd device', PadInput.activePad() === standard);
+  PadInput.listPads = realListPads; PadInput.index = 0;
 
   Input.frame(INPUT_TEST_FRAME); Input.setDevice('touch'); drift.axes.fill(0); Input.frame(INPUT_TEST_FRAME);   // touch took over while the stick was pushed, then it was let go
   drift.axes[2] = 0.15; Input.frame(INPUT_TEST_FRAME);
@@ -998,6 +1007,32 @@ Test.add('input', (check) => {
   inputMouseButton(0, true); inputMouseButton(0, false);
   check('mouse: with pointer lock it takes over', Input.device === 'kbm');
   Input.canLock = realCanLock; Input.requestLock = realRequestLock;
+  startInputMatch();
+});
+
+// L3 toggles sprint only where sprint is a run: Ravager dashes on each click, Modern's double click is a tactical sprint (MV03).
+Test.add('input', (check) => {
+  const id = startInputMatch(true);
+  const pad = inputFakePad(); inputUsePad(pad);
+  const frames = (count) => { for (let i = 0; i < count; i++) inputStepAndFrame(); };
+  const click = () => { inputPadButton(pad, 10, true); frames(1); inputPadButton(pad, 10, false); frames(1); };
+  const usePreset = (preset) => { Move.setPreset(id, preset); TestArena.place(id, 0, 0); resetMotion(id); frames(12); };
+  usePreset('ravager');
+  const dashes = recordEvents(['move.dash'], () => { click(); frames(20); click(); frames(20); }).length;
+  check('pad sprint: two L3 clicks give two Ravager dashes', dashes === 2, dashes);
+  usePreset('modern');
+  pad.axes[1] = -1; frames(10);
+  click(); frames(4);
+  check('pad sprint: an L3 click runs in Modern', Motion.sprinting[id] === 1);
+  pad.axes[1] = 0; frames(40); pad.axes[1] = -1; frames(40);   // past the 0.25 s double tap
+  check('pad sprint: stopping ends the toggled run', Motion.sprinting[id] === 0 && !Input.isHeld('sprint'));
+  click(); frames(4); click(); frames(4);
+  check('pad sprint: a double click is a tactical sprint', getClock(id, CLOCK.TAC_SPRINT) > 0 && Motion.sprinting[id] === 1, getClock(id, CLOCK.TAC_SPRINT));
+  Input.clearAll(); setInputSetting('controls.toggle.sprint', 'toggle'); setInputSetting('controls.toggle.sprintPad', 'hold');
+  inputPadButton(pad, 10, true); frames(4); inputPadButton(pad, 10, false); frames(4);
+  check('pad sprint: Hold on a controller wins over a keyboard Toggle', !Input.isHeld('sprint'));
+  setInputSetting('controls.toggle.sprint', 'hold'); setInputSetting('controls.toggle.sprintPad', 'toggle');
+  inputReleasePad();
   startInputMatch();
 });
 

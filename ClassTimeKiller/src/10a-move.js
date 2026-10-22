@@ -441,6 +441,7 @@ function updateSprint(id, preset, dt) {
   Motion.sprinting[id] = sprinting ? 1 : 0;
   if (!sprinting) setClock(id, CLOCK.TAC_SPRINT, 0);
   if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire + Move.weaponReadyTime[id]);
+  if (wasSprinting && !sprinting && held && id === Game.playerId) Input.resetToggle('sprint');   // a toggled run ends with the run (a stop, a shot, no stamina)
   updateStamina(id, preset, sprinting, dt);
   updateTacticalCharges(id, preset, dt);
 }
@@ -611,8 +612,12 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
-// A full touch-stick push in Tactical runs instead of walking: the player's own preset (a hero's movement row wins over the match's).
-TouchInput.stickSprints = () => !sprintWalks(Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset());
+// The player's own preset (a hero's movement row wins over the match's).
+function playerPreset() { return Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset(); }
+// A full touch-stick push in Tactical runs instead of walking.
+TouchInput.stickSprints = () => !sprintWalks(playerPreset());
+// L3 toggles sprint only where sprint runs (each click is a dash or charge in MV05/MV06); with a tactical sprint a click while on is the double tap's second press (MV03).
+Input.padToggleRule = () => { const preset = playerPreset(); return preset.sprintSpeed <= 0 ? 0 : preset.tacSprintCharges > 0 ? 2 : 1; };
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;

@@ -135,6 +135,7 @@ const Input = {
   autoFirePhase: 0,        // flips every sim tick: semi and burst auto-fire press on one tick, let go on the next
   mouseNoteShown: false,
   padPress: false,         // a controller binding is being pressed or released
+  padToggleRule: null,     // fn(actionId) -> 0: a controller press holds, 1: toggles, 2: toggles and a press while on is a new press. Filled by S10 (sprint)
   pulsing: false,          // inside pulseAction
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
@@ -155,12 +156,14 @@ const Input = {
   effective: new Uint8Array(ACTION_COUNT),
   toggleMode: new Uint8Array(ACTION_COUNT),
   padToggleMode: new Uint8Array(ACTION_COUNT),
+  pressToggled: new Uint8Array(ACTION_COUNT),   // the held press toggled, so its release leaves the action as it is
   queued: new Uint8Array(ACTION_COUNT),
   lastPressTick: new Int32Array(ACTION_COUNT).fill(NEVER_PRESSED),
   buttonActions: [], axisActions: [], buttonBits: new Uint32Array(ACTION_COUNT),
   queuedTotal: 0,
   pendingButtons: 0, pendingSlot: 0, pendingAge: 0, latchedButtons: 0, latchedSlot: 0,
   writtenButtons: 0, seenButtons: 0, writtenTick: -1,
+  repressButtons: 0,       // toggled-on bits written low until a sim step saw them low, so a press while on is a new edge
   wheelAccumulator: 0,
   analog: { moveX: 0, moveZ: 0 },
   look: { mouseX: 0, mouseY: 0, assistedX: 0, assistedY: 0 },   // radians this frame, +x = right, +y = down
@@ -274,10 +277,10 @@ const Input = {
   // ---- Action state ----
   isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
   isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
-  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button) starts from off again.
+  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button, a run stopped) starts from off again.
   resetToggle(actionId) {
     const index = this.actionIndex[actionId];
-    if (!this.toggleMode[index]) return;
+    if (!this.toggled[index]) return;
     this.toggled[index] = 0;
     this.effective[index] = 0;
   },
@@ -297,18 +300,27 @@ const Input = {
   },
   // A tap (tap-to-fire, wheel notch) never latches a toggled button action on; a toggled screen action (the scoreboard) still flips.
   pulseAction(index) { this.pulsing = true; this.pressAction(index); this.releaseAction(index); this.pulsing = false; },
-  togglesNow(index) { return !(this.pulsing && ACTION_ROWS[index].button) && (this.toggleMode[index] === 1 || (this.padPress && this.padToggleMode[index] === 1)); },
+  // A controller press of a padToggle row (L3 sprint) follows its own setting, then padToggleRule; every other press follows toggleMode.
+  padRule(index) { return this.padToggleMode[index] && this.padToggleRule ? this.padToggleRule(ACTION_ROWS[index].id) : this.padToggleMode[index]; },
+  toggleRuleNow(index) {
+    const row = ACTION_ROWS[index];
+    if (this.pulsing && row.button) return 0;
+    return this.padPress && row.padToggle ? this.padRule(index) : this.toggleMode[index];
+  },
   risingEdge(index) {
     const row = ACTION_ROWS[index];
     this.markPressed(index);
-    if (this.togglesNow(index)) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
+    const rule = this.toggleRuleNow(index);
+    this.pressToggled[index] = rule > 0 ? 1 : 0;
+    if (rule === 2 && this.toggled[index]) this.repressButtons |= row.button;
+    else if (rule > 0) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
     if (!this.effective[index]) { if (row.event) this.emitAction(row.id, false); return; }   // a toggled-off event row reports its release here
     if (row.button) this.pendingButtons |= row.button;
     if (row.slot) this.pendingSlot = row.slot;
     if (row.event) this.emitAction(row.id, true);
   },
   fallingEdge(index) {
-    if (this.togglesNow(index) || (this.pulsing && this.toggled[index])) return;
+    if (this.pressToggled[index] || (this.pulsing && this.toggled[index])) return;
     this.effective[index] = 0;
     if (ACTION_ROWS[index].event) this.emitAction(ACTION_ROWS[index].id, false);
   },
@@ -354,8 +366,8 @@ const Input = {
   },
   // Drops every held, latched and queued input (focus loss, pause, rebinding, disconnect): nothing may stay stuck.
   clearAll() {
-    this.holdCount.fill(0); this.toggled.fill(0); this.effective.fill(0); this.queued.fill(0);
-    this.queuedTotal = 0; this.pendingButtons = 0; this.pendingSlot = 0; this.pendingAge = 0;
+    this.holdCount.fill(0); this.toggled.fill(0); this.effective.fill(0); this.queued.fill(0); this.pressToggled.fill(0);
+    this.queuedTotal = 0; this.pendingButtons = 0; this.pendingSlot = 0; this.pendingAge = 0; this.repressButtons = 0;
     this.latchedButtons = 0; this.latchedSlot = 0; this.wheelAccumulator = 0;
     this.lastPressTick.fill(NEVER_PRESSED);   // Sim.tick restarts at 0 in a new match; an old press must not look recent
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
@@ -595,6 +607,7 @@ const Input = {
     if (length > 1) { x /= length; z /= length; }
     let buttons = this.latchedButtons;
     for (let i = 0; i < this.buttonActions.length; i++) { const index = this.buttonActions[i]; if (this.effective[index]) buttons |= this.buttonBits[index]; }
+    buttons &= ~this.repressButtons;
     if (this.autoFireHeld(id)) buttons |= BTN.FIRE;
     this.writtenButtons = buttons;
     this.writtenTick = Sim.tick;
@@ -613,7 +626,7 @@ const Input = {
   // INP-009: a press stays in the written buttons until a sim step has consumed it. A press that arrives while the
   // sim last saw the same bit high waits (up to 0.10 s) for a step that sees it low, so every tap still makes an edge.
   advanceLatch(seconds) {
-    if (Sim.tick !== this.writtenTick) { this.seenButtons = this.writtenButtons; this.latchedButtons = 0; this.latchedSlot = 0; this.autoFirePhase ^= 1; }
+    if (Sim.tick !== this.writtenTick) { this.seenButtons = this.writtenButtons; this.latchedButtons = 0; this.latchedSlot = 0; this.autoFirePhase ^= 1; this.repressButtons &= this.seenButtons; }
     if (this.queuedTotal) this.releaseQueue();
     const fresh = this.pendingButtons & ~this.seenButtons;
     this.latchedButtons |= fresh;
