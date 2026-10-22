@@ -21,7 +21,7 @@ const NAV_LINK_SLOW_FLAG = Uint8Array.from(NAV_LINK_ROWS, (row, type) => (type =
 
 const navSearch = {
   generation: 0, cost: null, parentLink: null, seen: null, closed: null, heapNode: null, heapScore: null, heapSize: 0,
-  path: null, pathType: null, teleportExitCost: null,
+  path: null, pathType: null, teleportExitCost: null, teleportHop: null,
   goalX: 0, goalY: 0, goalZ: 0, allowJumpHeight: 0, maxDrop: 0, crouchOk: true, avoid: null, danger: null,
   moveSpeed: Infinity, jumpVelocity: 0, gravity: 0, key: 0, physicsKey: 0,
 };
@@ -61,7 +61,7 @@ Object.assign(Nav, {
     s.generation = 0; s.cost = new Float32Array(nodes); s.parentLink = new Int32Array(nodes);
     s.seen = new Uint32Array(nodes); s.closed = new Uint32Array(nodes);
     s.heapNode = new Int32Array(heap); s.heapScore = new Float32Array(heap);
-    s.path = new Int32Array(nodes); s.pathType = new Uint8Array(nodes); s.teleportExitCost = new Float32Array(this.teleportCount);
+    s.path = new Int32Array(nodes); s.pathType = new Uint8Array(nodes); navPrepareTeleportHops();
     this.pathNodes = s.path; this.pathTypes = s.pathType; this.pathLength = 0; this.pathCost = Infinity;
     navCache.from.fill(-1);
     navSlots.status.fill(NAV_STATUS.NONE); navSlots.inQueue.fill(0); navSlots.queueCount = 0;
@@ -209,8 +209,8 @@ function navAStar(from, to) {
   return false;
 }
 
-// A cheaper way into an already closed node reopens it: chained teleporters make the heuristic admissible but not
-// consistent, and reopening keeps A* optimal anyway.
+// A cheaper way into an already closed node reopens it, so A* stays optimal even where float rounding makes the
+// heuristic a hair inconsistent.
 function navExpand(node) {
   const s = navSearch, base = s.cost[node];
   for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) {
@@ -247,11 +247,39 @@ function navEnterCost(node) {
   return (s.danger ? s.danger[node] : 0) + (s.avoid ? s.avoid(node) : 0);
 }
 
-// Admissible: straight-line time at the fastest link speed, or the same through any teleporter.
+// Heuristic = exact cost in a relaxed world where every walk is a straight line at the fastest link speed and the
+// teleporters work as built: admissible and consistent, chained teleporters included.
+// teleportHop[t * count + u]: straight-line seconds from teleporter t's exit to teleporter u's entry, plus the teleport.
+function navPrepareTeleportHops() {
+  const s = navSearch, count = Nav.teleportCount, teleportSeconds = NAV_LINK_ROWS[NAV_LINK.TELEPORT].extraSeconds;
+  s.teleportExitCost = new Float64Array(count);
+  s.teleportHop = new Float64Array(count * count);
+  for (let hop = 0; hop < count * count; hop++) {
+    s.teleportHop[hop] = navNodeDistance(Nav.teleportExit[Math.floor(hop / count)], Nav.teleportEntry[hop % count]) / Nav.heuristicSpeed + teleportSeconds;
+  }
+}
+
+// teleportExitCost[t]: relaxed seconds from teleporter t's exit to the goal, straight or through more teleporters
+// (Bellman-Ford over the few teleporters).
 function navPrepareHeuristic(goal) {
   const s = navSearch;
   s.goalX = Nav.nodeX[goal]; s.goalY = Nav.nodeY[goal]; s.goalZ = Nav.nodeZ[goal];
   for (let t = 0; t < Nav.teleportCount; t++) s.teleportExitCost[t] = navDistanceToGoal(Nav.teleportExit[t]) / Nav.heuristicSpeed;
+  let changed = true;
+  for (let round = 1; round < Nav.teleportCount && changed; round++) {
+    changed = false;
+    for (let t = 0; t < Nav.teleportCount; t++) changed = navRelaxTeleport(t) || changed;
+  }
+}
+
+function navRelaxTeleport(t) {
+  const s = navSearch, count = Nav.teleportCount;
+  let changed = false;
+  for (let u = 0; u < count; u++) {
+    const throughU = s.teleportHop[t * count + u] + s.teleportExitCost[u];
+    if (throughU < s.teleportExitCost[t]) { s.teleportExitCost[t] = throughU; changed = true; }
+  }
+  return changed;
 }
 
 function navDistanceToGoal(node) {

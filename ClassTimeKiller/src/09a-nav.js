@@ -2,7 +2,7 @@
 // Nav graph built from the world brushes on 'world.load' (BOT-010). Build pipeline:
 //   1. raster: 0.5 m columns; every walkable brush top (<= 45 deg) becomes a sample where the 0.40 m capsule fits
 //      standing (1.80 m) or crouched (1.10 m) and has footing (edge margin); deep water adds swim samples at its surface.
-//   2. nodes: one per 1.5 m cell and connected surface (the sample nearest the cell centre), plus one node in every
+//   2. nodes: one per 2 m cell and connected surface (the sample nearest the cell centre), plus one node in every
 //      short standable run (doorways, gaps between crates) so narrow openings are never missed, plus trigger centres.
 //   3. links: walk / crouch / swim (raster walk + chest-height line), jump (flagged with the height it needs),
 //      drop (flagged with its height), ladder, jump pad (launch arc), teleporter; all tested against the brushes.
@@ -10,7 +10,8 @@
 // Pathfinding, cache, per-tick budget and smoothing live in 09b-nav-path.js. Public API: docs/api/nav.md.
 
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
-const NAV_CELL_SAMPLES = 3;            // raster columns per node cell side (one node per 1.5 m cell and surface)
+const NAV_RASTER_BLOCK = 8;            // raster columns that share one brush gather
+const NAV_CELL_SAMPLES = 4;            // raster columns per node cell side (one node per 2 m cell and surface)
 const NAV_RADIUS = 0.4;                // DATA-003 capsule radius, heights, step and slope
 const NAV_STAND_HEIGHT = 1.8;
 const NAV_CROUCH_HEIGHT = 1.1;
@@ -27,7 +28,7 @@ const NAV_SURFACE_PROBE = 0.05;        // probe this far above a top face to see
 const NAV_CHEST = 1.2;                 // line-test heights above the feet
 const NAV_CROUCH_CHEST = 0.8;
 const NAV_HEAD = 1.7;
-const NAV_WALK_RADIUS = 2.2;           // longest walk link: reaches the 8 neighbouring cells (1.5 x sqrt 2 = 2.12)
+const NAV_WALK_RADIUS = 2.9;           // longest walk link: reaches the 8 neighbouring cells (2 x sqrt 2 = 2.83)
 const NAV_PASSAGE_MAX_SAMPLES = 4;     // a standable run this short (<= 2 m) between unstandable columns gets its own node
 const NAV_PASSAGE_MERGE = 0.6;         // ...unless a node is already this close
 const NAV_TRIGGER_NODE_MERGE = 0.3;
@@ -304,9 +305,17 @@ function navGatherCell(cell) {
 // brushes: the build runs tens of thousands). A hit at distance 0 counts only when a really starts inside the brush:
 // rayVersusBrush also reports 0 for a ray that starts above a ramp slope and moves away from it.
 function navSegmentHit(ax, ay, az, bx, by, bz, hit) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+  navGatherBrushes(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz));
+  return navSegmentHitGathered(ax, ay, az, bx, by, bz, hit);
+}
+
+const navSegmentClear = (ax, ay, az, bx, by, bz) => !navSegmentHit(ax, ay, az, bx, by, bz, navHit);
+const navSegmentClearGathered = (ax, ay, az, bx, by, bz) => !navSegmentHitGathered(ax, ay, az, bx, by, bz, navHit);
+
+// navSegmentHit against the brushes of the last navGatherBrushes call, which must cover the segment's xz rectangle.
+function navSegmentHitGathered(ax, ay, az, bx, by, bz, hit) {
+  const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz), count = navBrushGrid.foundCount;
   if (length < 1e-6) return false;
-  const count = navGatherBrushes(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz));
   let best = length, found = false;
   for (let k = 0; k < count; k++) {
     const brush = World.brushes[navBrushGrid.found[k]];
@@ -318,8 +327,6 @@ function navSegmentHit(ax, ay, az, bx, by, bz, hit) {
   }
   return found;
 }
-
-const navSegmentClear = (ax, ay, az, bx, by, bz) => !navSegmentHit(ax, ay, az, bx, by, bz, navHit);
 
 function navSegmentNearBox(ax, ay, az, bx, by, bz, box) {
   return Math.max(ax, bx) >= box.minX && Math.min(ax, bx) <= box.maxX && Math.max(ay, by) >= box.minY
@@ -349,9 +356,14 @@ function navBoxTouchesBrush(minX, minY, minZ, maxX, maxY, maxZ, brush) {
 
 function navPointBuriedGathered(x, y, z) {
   const count = navBrushGrid.foundCount;
-  for (let k = 0; k < count; k++) if (pointInBrush(x, y, z, World.brushes[navBrushGrid.found[k]], -NAV_INSIDE_EPSILON)) return true;
+  for (let k = 0; k < count; k++) {
+    const brush = World.brushes[navBrushGrid.found[k]];
+    if (navPointInBox(x, y, z, brush) && pointInBrush(x, y, z, brush, -NAV_INSIDE_EPSILON)) return true;
+  }
   return false;
 }
+
+const navPointInBox = (x, y, z, box) => x > box.minX && x < box.maxX && y > box.minY && y < box.maxY && z > box.minZ && z < box.maxZ;
 
 // Height of a brush's top surface at (x, z); NaN outside its footprint.
 function navTopAt(brushIndex, x, z) {
@@ -371,11 +383,11 @@ function navHasFootingGathered(x, y, z) {
   return false;
 }
 
-// Highest brush top at (x, z) that is not above limit (-Infinity when none). Infinity when a wall stands there:
+// Highest gathered brush top at (x, z) that is not above limit (-Infinity when none). Infinity when a wall stands there:
 // a brush reaching above limit whose bottom is below wallBelow (it fills the body height, so no jump passes it).
-function navHighestTopAt(x, z, limit, wallBelow) {
+function navHighestTopGathered(x, z, limit, wallBelow) {
   let best = -Infinity;
-  const count = navGatherBrushes(x, z, x, z);
+  const count = navBrushGrid.foundCount;
   for (let k = 0; k < count; k++) {
     const brushIndex = navBrushGrid.found[k], top = navTopAt(brushIndex, x, z);
     if (top > limit && World.brushes[brushIndex].minY < wallBelow) return Infinity;
@@ -390,16 +402,16 @@ function navBuildRaster() {
   raster.originX = World.boundsMin.x; raster.originZ = World.boundsMin.z;
   raster.columnsX = Math.max(1, Math.ceil((World.boundsMax.x - raster.originX) / NAV_FINE));
   raster.columnsZ = Math.max(1, Math.ceil((World.boundsMax.z - raster.originZ) / NAV_FINE));
-  const columnCount = raster.columnsX * raster.columnsZ, heights = [], flags = [];
+  const columnCount = raster.columnsX * raster.columnsZ, heights = [], flags = [], columns = [];
   raster.columnStart = new Int32Array(columnCount + 1);
   for (let column = 0; column < columnCount; column++) {
     navRasterColumn(column, heights, flags);
+    for (let sample = columns.length; sample < heights.length; sample++) columns.push(column);
     raster.columnStart[column + 1] = heights.length;
   }
   raster.sampleY = Float32Array.from(heights);
   raster.sampleFlags = Uint8Array.from(flags);
-  raster.sampleColumn = new Int32Array(heights.length);
-  for (let column = 0; column < columnCount; column++) raster.sampleColumn.fill(column, raster.columnStart[column], raster.columnStart[column + 1]);
+  raster.sampleColumn = Int32Array.from(columns);
 }
 
 const navColumnX = (column) => navRaster.originX + (column % navRaster.columnsX + 0.5) * NAV_FINE;
@@ -411,9 +423,13 @@ function navColumnAt(x, z) {
   return j * navRaster.columnsX + i;
 }
 
+// Columns run along x; one brush gather covers every sample test of the next NAV_RASTER_BLOCK columns.
 function navRasterColumn(column, heights, flags) {
   const x = navColumnX(column), z = navColumnZ(column), first = heights.length, grid = navBrushGrid;
-  const count = navGatherBrushes(x - NAV_OPEN_RADIUS, z - NAV_OPEN_RADIUS, x + NAV_OPEN_RADIUS, z + NAV_OPEN_RADIUS); // covers every sample test
+  if ((column % navRaster.columnsX) % NAV_RASTER_BLOCK === 0) {
+    navGatherBrushes(x - NAV_OPEN_RADIUS, z - NAV_OPEN_RADIUS, x + (NAV_RASTER_BLOCK - 1) * NAV_FINE + NAV_OPEN_RADIUS, z + NAV_OPEN_RADIUS);
+  }
+  const count = grid.foundCount;
   for (let k = 0; k < count; k++) {
     if (grid.walkable[grid.found[k]]) navTrySample(x, navTopAt(grid.found[k], x, z), z, heights, flags, first, 0, grid.found[k]);
   }
@@ -541,7 +557,9 @@ function navCollectCellSamples(cellI, cellJ, samples) {
     const i = cellI * NAV_CELL_SAMPLES + offset % NAV_CELL_SAMPLES, j = cellJ * NAV_CELL_SAMPLES + Math.floor(offset / NAV_CELL_SAMPLES);
     if (i >= raster.columnsX || j >= raster.columnsZ) continue;
     const column = j * raster.columnsX + i;
-    for (let sample = raster.columnStart[column]; sample < raster.columnStart[column + 1]; sample++) samples.push(sample);
+    for (let sample = raster.columnStart[column]; sample < raster.columnStart[column + 1]; sample++) {
+      if (!(raster.sampleFlags[sample] & NAV_NODE.TRIGGER)) samples.push(sample); // a node inside a pad would be a dead end
+    }
   }
 }
 
@@ -755,9 +773,11 @@ function navWalkJoined(builder, other, walks, marks, node) {
 
 function navLinkAir(builder, a, b) {
   if (navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]) >= 0) return; // walkable via nearer nodes
-  const stop = navScanState.stopFraction;
-  navTryAir(builder, a, b, stop);
-  navTryAir(builder, b, a, 1 - stop);
+  navGatherBrushes(Math.min(Nav.nodeX[a], Nav.nodeX[b]), Math.min(Nav.nodeZ[a], Nav.nodeZ[b]), Math.max(Nav.nodeX[a], Nav.nodeX[b]), Math.max(Nav.nodeZ[a], Nav.nodeZ[b]));
+  const highest = navHighestBetween(a, b, navScanState.stopFraction); // the same obstacles stand in both directions
+  if (highest === Infinity) return;
+  navTryAir(builder, a, b, highest);
+  navTryAir(builder, b, a, highest);
 }
 
 // Walk, crouch or swim link both ways. Nothing walks out of a jump pad or teleporter (it launches you first).
@@ -776,11 +796,11 @@ function navTryWalk(builder, a, b) {
 }
 
 // Jump (over a gap, onto a ledge, over an obstacle), drop, or climbing out of water, from one node to another.
-// firstFraction: where the raster walk broke; the obstacle check looks there first (usually the wall).
-function navTryAir(builder, from, to, firstFraction) {
+// highestBetween: navHighestBetween of the pair (the brushes around the pair are still gathered).
+function navTryAir(builder, from, to, highestBetween) {
   const limits = Nav.limits, rise = Nav.nodeY[to] - Nav.nodeY[from];
   if (rise > limits.jumpUp || -rise > limits.maxDrop || (Nav.nodeFlags[from] & NAV_NODE.TRIGGER)) return;
-  const lift = navObstacleLift(from, to, firstFraction), type = navAirType(from, rise, lift);
+  const lift = Math.max(highestBetween, Nav.nodeY[to]) - Nav.nodeY[from], type = navAirType(from, rise, lift);
   const height = type === NAV_LINK.DROP ? -rise : type === NAV_LINK.SWIM ? 0 : lift + NAV_JUMP_MARGIN;
   if (type === NAV_LINK.JUMP && height > limits.jumpUp) return;
   const apex = Nav.nodeY[from] + (type === NAV_LINK.JUMP ? height : Math.max(0, lift));
@@ -801,25 +821,27 @@ function navAirType(from, rise, lift) {
   return NAV_LINK.JUMP;
 }
 
-// Height above the start that the feet must pass: the highest brush top along the way, including the target ledge.
-function navObstacleLift(from, to, firstFraction) {
-  const ax = Nav.nodeX[from], az = Nav.nodeZ[from], bx = Nav.nodeX[to], bz = Nav.nodeZ[to];
-  const base = Math.max(Nav.nodeY[from], Nav.nodeY[to]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN, wallBelow = base + NAV_STAND_HEIGHT;
+// Highest gathered brush top on the line between two nodes (Infinity: a wall), which a jump either way must pass.
+// firstFraction: where the raster walk broke; the check looks there first (usually the wall).
+function navHighestBetween(a, b, firstFraction) {
+  const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b];
+  const base = Math.max(Nav.nodeY[a], Nav.nodeY[b]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN, wallBelow = base + NAV_STAND_HEIGHT;
   const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / NAV_SCAN_STEP);
-  let highest = Math.max(Nav.nodeY[to], navHighestTopAt(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow));
+  let highest = navHighestTopGathered(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow);
   for (let step = 0; step <= steps && highest < Infinity; step++) {
-    highest = Math.max(highest, navHighestTopAt(ax + (bx - ax) * step / steps, az + (bz - az) * step / steps, limit, wallBelow));
+    highest = Math.max(highest, navHighestTopGathered(ax + (bx - ax) * step / steps, az + (bz - az) * step / steps, limit, wallBelow));
   }
-  return highest - Nav.nodeY[from];
+  return highest;
 }
 
-// Rise above the start, cross at apex height (chest and head lines), come down onto the target.
+// Rise above the start, cross at apex height (chest and head lines), come down onto the target. Every line stays
+// inside the pair's xz rectangle, whose brushes are gathered.
 function navArcClear(from, to, apex) {
   const ax = Nav.nodeX[from], ay = Nav.nodeY[from], az = Nav.nodeZ[from], bx = Nav.nodeX[to], by = Nav.nodeY[to], bz = Nav.nodeZ[to];
-  return navSegmentClear(ax, ay + NAV_CHEST, az, ax, apex + NAV_HEAD, az)
-    && navSegmentClear(ax, apex + NAV_CHEST, az, bx, apex + NAV_CHEST, bz)
-    && navSegmentClear(ax, apex + NAV_HEAD, az, bx, apex + NAV_HEAD, bz)
-    && navSegmentClear(bx, apex + NAV_CHEST, bz, bx, by + NAV_CHEST, bz);
+  return navSegmentClearGathered(ax, ay + NAV_CHEST, az, ax, apex + NAV_HEAD, az)
+    && navSegmentClearGathered(ax, apex + NAV_CHEST, az, bx, apex + NAV_CHEST, bz)
+    && navSegmentClearGathered(ax, apex + NAV_HEAD, az, bx, apex + NAV_HEAD, bz)
+    && navSegmentClearGathered(bx, apex + NAV_CHEST, bz, bx, by + NAV_CHEST, bz);
 }
 
 // Trigger volume -> link builder (map trigger fields: docs/api/nav.md).

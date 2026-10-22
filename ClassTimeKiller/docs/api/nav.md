@@ -27,9 +27,9 @@ Later sections may change them before the map loads (for example from the jumpie
 ## How the graph is made
 
 1. Raster of 0.5 m columns over the world bounds. Every walkable brush top (slope <= 45 deg, DATA-003) is a sample when: no brush covers it, there is footing 0.25 m around the centre (edge margin), and the 0.40 m capsule fits from step height (0.45 m) up to 1.80 m (stand) or 1.10 m (crouch-only sample). Water deeper than 1.2 m adds a swim sample 1.2 m under the surface.
-2. Nodes: per 1.5 m cell, one node per walk-connected surface (the sample nearest the cell centre); one node in the middle of every standable run of at most 4 columns along x or z (doorways, gaps between crates); one node at the centre of every jump pad and teleporter.
+2. Nodes: per 2 m cell, one node per walk-connected surface (the sample nearest the cell centre, never inside a jump pad or teleporter); one node in the middle of every standable run of at most 4 columns along x or z (doorways, gaps between crates); one node at the centre of every jump pad and teleporter.
 3. Links (directed; walk-like links are added both ways):
-   - walk / crouch / swim: neighbours within 2.2 m whose raster walk is unbroken (height change per 0.5 m column <= a step or a 45 deg ramp) and whose chest-height line is clear. Crouch when any crossed sample is crouch-only; swim when any end or crossed sample is wet.
+   - walk / crouch / swim: neighbours within 2.9 m whose raster walk is unbroken (height change per 0.5 m column <= a step or a 45 deg ramp) and whose chest-height line is clear. Crouch when any crossed sample is crouch-only; swim when any end or crossed sample is wet.
    - jump: within 3.2 m, not walkable; required height = (highest brush top on the way, including the target ledge) - start + 0.15 m, at most `jumpUp`; the rise, the crossing at apex height (chest and head lines) and the descent must be clear. A brush filling the body height and reaching above the jump limit blocks it.
    - drop: as jump when nothing must be cleared and the target is lower than a step; `height` = drop depth, at most `maxDrop`.
    - ladder, jump pad, teleport: from triggers (below).
@@ -102,11 +102,13 @@ Reach rule: a jump or drop link is allowed when `linkReach <= moveSpeed x flight
 
 ## Debug
 
-`__CTK.nav` = `Nav`; `__CTK.perf.navBuild(map)` empties the graph cache, loads the map (default: the 100 x 100 m test map) and returns the build ms (ARC-034).
+`__CTK.nav` = `Nav`; `__CTK.perf.navBuild(map)` empties the graph cache, loads the map (default: the 120 x 120 m test map) and returns the build ms (ARC-034).
 
 ## Performance (headless Chrome, i5-9600K desktop)
 
-100 x 100 m test map (25 rooms, 2 m doorways, 60 crates, 9 platforms with ramps; 4675 nodes, 37 338 links): build 47-55 ms warm (raster 11, nodes 5, links 28, components and cover 4), about 105 ms on the first (cold) build; A* 0.14 ms average, 0.3 ms corner to corner. A low-end phone runs JavaScript roughly 4-8 x slower: about 200-400 ms warm and more on a cold first build, so the 300 ms target (BOT-010) is met on mid-range phones and integrated-GPU laptops, not yet proven on the slowest phones. Loading a map again takes about 0.4 ms (graph cache).
+120 x 120 m test map (BOT-010 size: 36 rooms, 2 m doorways, 86 crates, 12 platforms with ramps; 3897 nodes, 27 870 links): build 40-45 ms warm (raster 11-13, nodes 8, links 16-18, components and cover 4), 55-60 ms when it is the first big build of a session and about 95 ms in a freshly opened page (JavaScript engine not warmed up yet). The self-test fails above 50 ms warm: a low-end phone runs this code roughly 6 x slower, so 50 ms desktop = the 300 ms BOT-010 target. A cold first build on such a phone is about 350-600 ms. Loading a map again takes about 0.4 ms (graph cache).
+
+Queries on that map: A* 0.13 ms average, 0.3 ms corner to corner; smoothing a 63-node path 0.09 ms. Worst tick: 4 corner-to-corner cache misses = about 1.6 ms (desktop).
 
 ## Known limits
 

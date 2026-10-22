@@ -1,7 +1,8 @@
 // Self-tests for S09 navigation on hand-built maps: doorway, ramp, ledge, tower with ladder, jump pad, teleporters,
-// pool, crawl tunnel, pillar field (A* versus Dijkstra) and a 100 x 100 m benchmark map (ARC-034).
+// pool, crawl tunnel, low slab, pillar field (A* versus Dijkstra) and a 120 x 120 m benchmark map (ARC-034).
 
-const NAV_TEST_BUILD_BUDGET_MS = 300;   // BOT-010 budget; headless desktop must stay well inside it
+const NAV_TEST_PHONE_FACTOR = 6;        // a low-end phone runs this JavaScript about 4-8 x slower than the headless desktop
+const NAV_TEST_BUILD_BUDGET_MS = 300 / NAV_TEST_PHONE_FACTOR; // BOT-010: 300 ms on Low, as desktop milliseconds
 const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
@@ -91,7 +92,7 @@ Test.add('nav', (check) => {
   navTestRooms(true);
   const a = navTestNode(-5, 0, -6), b = navTestNode(5, 0, 6);
   check('rooms: nodes on both sides', Nav.nodeCount > 100 && a >= 0 && b >= 0 && Nav.nodeZ[a] < 0 && Nav.nodeZ[b] > 0, Nav.nodeCount);
-  check('rooms: node spacing about 1.5 m (one per cell and surface)', Nav.nodeCount < 400, Nav.nodeCount);
+  check('rooms: node spacing about 2 m (one per cell and surface)', Nav.nodeCount < 400, Nav.nodeCount);
   check('rooms: no node inside the wall or within the capsule radius of it', navTestNodesClearOfWall());
   check('rooms: doorway connects the rooms (one component)', Nav.componentCount === 1 && Nav.reachable(a, b), Nav.componentCount);
   check('rooms: every walk link has a clear chest line', navTestLinksClear() === 0, navTestLinksClear());
@@ -311,14 +312,16 @@ Test.add('nav', (check) => {
   const west = navTestNode(-37, 0, 5), east = navTestNode(37, 0, 5), types = navTestPathTypes(west, east);
   check('teleporter chain: west to east takes both teleporters', types.filter((type) => type === NAV_LINK.TELEPORT).length === 2, types.join(','));
   const random = makeRandom(21);
-  let mismatches = 0;
+  let mismatches = 0, firstMismatch = '';
   for (let pair = 0; pair < 40; pair++) {
     const from = pair % 4 ? random.int(0, Nav.nodeCount - 1) : west, to = pair % 4 ? random.int(0, Nav.nodeCount - 1) : east;
     Nav.findPath(from, to, pair % 2 ? { allowJumpHeight: 0 } : undefined);
     const expected = navTestDijkstra(from, to, null);
-    if (Nav.pathCost !== expected && !Test.near(Nav.pathCost, expected, 1e-4 * Math.max(1, expected))) mismatches++;
+    if (Nav.pathCost === expected || Test.near(Nav.pathCost, expected, 1e-4 * Math.max(1, expected))) continue;
+    mismatches++;
+    firstMismatch = firstMismatch || from + ' -> ' + to + ': ' + Nav.pathCost + ' vs ' + expected;
   }
-  check('teleporter chain: A* cost equals Dijkstra on 40 pairs', mismatches === 0, mismatches);
+  check('teleporter chain: A* cost equals Dijkstra on 40 pairs', mismatches === 0, mismatches + ' ' + firstMismatch);
 });
 
 Test.add('nav', (check) => {
@@ -561,51 +564,60 @@ Test.add('nav', (check) => {
   check('cover: nothing hides from a threat standing next to us in the open', Nav.nearestCover(3, 0, -5, 3, 1.6, -7, 1.5) === -1);
 });
 
-// 100 x 100 m map: 5 x 5 rooms of 20 m with 2 m doorways, crates, and raised platforms with ramps (ARC-034 benchmark).
-function navTestBigMap() {
-  const random = makeRandom(9), brushes = [navTestFloor(-50, -50, 50, 50, 0)], spawns = [];
-  for (let line = -30; line <= 30; line += 20) navTestWallLine(brushes, line);
-  for (let i = 0; i < 60; i++) {
-    const x = random.int(-48, 47), z = random.int(-48, 47);
+// size x size m map (a multiple of 20): rooms of 20 m with a 2 m doorway in the middle of every wall, crates
+// (0.006 per m^2: 60 on 100 x 100 m), and a raised platform with a ramp in every third room (ARC-034 benchmark).
+const NAV_TEST_ROOM = 20;
+const NAV_TEST_CRATES_PER_SQUARE_METRE = 0.006;
+const NAV_TEST_BENCH_SIZE = 120;        // BOT-010: "< 300 ms on Low for a 120 x 120 m map"
+
+function navTestBigMap(size) {
+  const half = size / 2, rooms = size / NAV_TEST_ROOM, random = makeRandom(9), brushes = [navTestFloor(-half, -half, half, half, 0)], spawns = [];
+  for (let line = -half + NAV_TEST_ROOM; line < half; line += NAV_TEST_ROOM) navTestWallLine(brushes, line, half);
+  for (let i = 0; i < Math.round(NAV_TEST_CRATES_PER_SQUARE_METRE * size * size); i++) {
+    const x = random.int(-half + 2, half - 3), z = random.int(-half + 2, half - 3);
     brushes.push(navTestBox([x, 0, z], [x + 1, 1, z + 1]));
   }
-  for (let room = 0; room < 25; room++) {
-    const centreX = -40 + (room % 5) * 20, centreZ = -40 + Math.floor(room / 5) * 20;
+  for (let room = 0; room < rooms * rooms; room++) {
+    const centreX = -half + (room % rooms + 0.5) * NAV_TEST_ROOM, centreZ = -half + (Math.floor(room / rooms) + 0.5) * NAV_TEST_ROOM;
     spawns.push(navTestSpawn(centreX + 3, 0, centreZ + 3));
     if (room % 3 !== 0) continue;
     brushes.push(navTestBox([centreX - 6, 0, centreZ - 8], [centreX - 2, 2, centreZ - 4]));
     brushes.push({ shape: 'ramp', min: [centreX - 2, 0, centreZ - 8], max: [centreX + 2, 2, centreZ - 6], dir: '-x' });
   }
-  return { id: 'navbig', brushes, spawns, items: [], objectives: [], triggers: [] };
+  return { id: 'navbig' + size, brushes, spawns, items: [], objectives: [], triggers: [] };
 }
 
-// Wall segments along x at z = line and along z at x = line, with a 2 m doorway at each room centre (-40, -20, ... 40).
-function navTestWallLine(brushes, line) {
-  for (let door = -50; door < 50; door += 20) {
-    const start = door === -50 ? -50 : door + 1, end = Math.min(50, door + 19);
-    brushes.push(navTestBox([start, 0, line - 0.15], [end, 3, line + 0.15]));
-    brushes.push(navTestBox([line - 0.15, 0, start], [line + 0.15, 3, end]));
+// Walls along x at z = line and along z at x = line, split by a 2 m doorway in the middle of every room side.
+function navTestWallLine(brushes, line, half) {
+  for (let start = -half; start < half; start += NAV_TEST_ROOM) {
+    const doorStart = start + NAV_TEST_ROOM / 2 - 1, doorEnd = doorStart + 2, end = start + NAV_TEST_ROOM;
+    brushes.push(navTestBox([start, 0, line - 0.15], [doorStart, 3, line + 0.15]), navTestBox([doorEnd, 0, line - 0.15], [end, 3, line + 0.15]));
+    brushes.push(navTestBox([line - 0.15, 0, start], [line + 0.15, 3, doorStart]), navTestBox([line - 0.15, 0, doorEnd], [line + 0.15, 3, end]));
   }
 }
 
 DebugApi.nav = Nav;
-// ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 100 x 100 m test map.
-DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap()); return Nav.buildMs; };
+// ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 120 x 120 m test map.
+DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); return Nav.buildMs; };
+
+function navTestPhases() {
+  return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
+}
 
 Test.add('nav', (check) => {
-  const milliseconds = DebugApi.perf.navBuild();
-  check('big map: build under ' + NAV_TEST_BUILD_BUDGET_MS + ' ms (' + milliseconds.toFixed(1) + ' ms, ' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)',
-    milliseconds < NAV_TEST_BUILD_BUDGET_MS, milliseconds);
+  const first = DebugApi.perf.navBuild(), warm = Math.min(DebugApi.perf.navBuild(), DebugApi.perf.navBuild(), DebugApi.perf.navBuild());
+  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + NAV_TEST_BUILD_BUDGET_MS + ' ms = BOT-010 300 ms on a '
+    + NAV_TEST_PHONE_FACTOR + ' x slower phone (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < NAV_TEST_BUILD_BUDGET_MS, navTestPhases());
   const problems = Nav.validate(World.map);
   check('big map: every spawn reaches every other spawn', problems.length === 0, problems.slice(0, 3).join('; '));
   check('big map: main component holds nearly all nodes', navComponentSize(Nav.mainComponent) > Nav.nodeCount * 0.95, navComponentSize(Nav.mainComponent) + ' / ' + Nav.nodeCount);
   check('big map: every walk link has a clear chest line', navTestLinksClear() === 0, navTestLinksClear());
-  const spawns = World.map.spawns, a = navTestNode(spawns[0].x, 0, spawns[0].z), b = navTestNode(spawns[24].x, 0, spawns[24].z);
+  const spawns = World.map.spawns, count = spawns.length, a = navTestNode(spawns[0].x, 0, spawns[0].z), b = navTestNode(spawns[count - 1].x, 0, spawns[count - 1].z);
   Nav.request(5, a, b);
   navTestServeAll();
   check('big map: corner to corner path, smoothed path stays clear of walls', Nav.result(5) === NAV_STATUS.DONE && navTestSmoothedClear(5), Nav.result(5));
   const started = performance.now();
-  for (let i = 0; i < 50; i++) Nav.findPath(navTestNode(spawns[i % 25].x, 0, spawns[i % 25].z), navTestNode(spawns[(i * 7 + 3) % 25].x, 0, spawns[(i * 7 + 3) % 25].z), { allowJumpHeight: i * 0.03 });
+  for (let i = 0; i < 50; i++) Nav.findPath(navTestNode(spawns[i % count].x, 0, spawns[i % count].z), navTestNode(spawns[(i * 7 + 3) % count].x, 0, spawns[(i * 7 + 3) % count].z), { allowJumpHeight: i * 0.03 });
   const perQuery = (performance.now() - started) / 50;
   check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < 2, perQuery);
 });
