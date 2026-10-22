@@ -1,7 +1,8 @@
 // Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html.
 // Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot in the
 // per-frame and per-step files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB).
-// The shipped file leaves out comment-only lines (about 10% of the size, less to parse on phones); src/ keeps them and the code stays readable.
+// The shipped file leaves out comment-only lines and the // comments after code (about 13% of the size, less to parse on phones);
+// src/ keeps them and the shipped code stays readable (no minifier, D06).
 // Usage: node tools/build.mjs [--check]   (--check: run the checks and print the report, write nothing)
 // No dependencies. Exit code 1 when a check fails.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -14,6 +15,7 @@ const OUT = join(ROOT, 'ClassTimeKiller.html');
 const SCRIPT_MARK = '/*@@SCRIPT@@*/';
 const DUP_WINDOW = 8;            // lines in a row that count as a duplicated block
 const MIN_LINE_CHARS = 12;       // shorter lines (braces, "return;") never count toward a duplicate
+const VALUE_EXPECTED = '(,=:[!&|?{};+-*%<>~^';   // after one of these a / starts a regex literal (withoutEndComment)
 const SIZE_WARN_BYTES = 3.0 * 1024 * 1024;   // D07: past 3.0 MB the build warns (the release target is 3.5 MB)
 const SIZE_LIMIT_BYTES = 3.5 * 1024 * 1024;  // D07: past 3.5 MB the build fails (readable code, comment-only lines stripped)
 const BANNED_APIS = [/\bfetch\s*\(/, /XMLHttpRequest/, /\bimport\s*\(/, /new\s+WebSocket/, /navigator\.sendBeacon/, /\beval\s*\(/, /new\s+Function\s*\(/];
@@ -65,7 +67,31 @@ function withoutCommentLines(text) {
     return wasInside || !/^\s*\/\//.test(line);
   });
   if (insideTemplate) problems.push('a template literal spans lines: comment stripping is not safe');
-  return kept.join('\n');
+  return kept.map(withoutEndComment).join('\n');
+}
+
+// Cuts a " // comment" after code. It walks the line and skips strings and regex literals, so a // inside them stays;
+// only a // with a space before it counts. A / starts a regex where a value is expected (at the line start or after one
+// of VALUE_EXPECTED), else it is a division.
+function withoutEndComment(line) {
+  let quote = '', inRegex = false, inClass = false, previous = '';
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quote || inRegex) {
+      if (char === '\\') { i++; continue; }
+      if (quote && char === quote) quote = '';
+      else if (inRegex && char === '[') inClass = true;
+      else if (inRegex && char === ']') inClass = false;
+      else if (inRegex && char === '/' && !inClass) inRegex = false;
+      if (!quote && !inRegex) previous = 'a';
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') { quote = char; continue; }
+    if (char === '/' && line[i + 1] === '/') return /\s/.test(line[i - 1] || '') ? line.slice(0, i).trimEnd() : line;
+    if (char === '/') { inRegex = previous === '' || VALUE_EXPECTED.includes(previous); continue; }
+    if (!/\s/.test(char)) previous = char;
+  }
+  return line;
 }
 
 // A name declared at column 0 in two files would be a load-time SyntaxError (or a silent override).
