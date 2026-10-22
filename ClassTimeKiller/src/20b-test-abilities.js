@@ -627,6 +627,11 @@ Test.add('abilities', (check) => {
   Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 8, 0.5, 10);   // covers the first patch, not the one 6.5 m away
   runSeconds(2);
   check('smoke puts burning oil out, as it does a G04 fire area', !FloorSurfaces.active[burning] && FloorSurfaces.active[late] === 1);
+  FloorSurfaces.clear();
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 20, 0, 20);
+  GadgetAreas.spawn(CAT.gadgets.byId('incendiary'), t.caster, 24, 0.05, 20, 1);   // a Cinder Jar fire area overlapping the slick's edge
+  runSeconds(0.3);
+  check('a G04 fire area lights the oil it overlaps, not only oil its pop lands on', surfaceSlots('oil').length === 0 && surfaceSlots('fire').length === 1);
   TestArena.finish();
 });
 
@@ -652,6 +657,10 @@ Test.add('abilities', (check) => {
   const cast = Abilities.effects.possess.cast(player, row, SLOT.ABILITY1);
   Abilities.begin(player, SLOT.ABILITY1, row);
   check('A23 the caster takes the fodder enemy', cast && PuppetState.puppet[player] === puppet && PuppetState.master[puppet] === player && Actors.team[puppet] === Actors.team[player]);
+  const castAim = Actors.aimYaw[player];
+  PuppetState.aimYaw[player] = castAim + 1;   // a stale copy: linked after this tick's drive, nothing was taken yet
+  PuppetState.restore();
+  check('A23 on the cast tick the caster keeps its own input (no stale copy handed back)', Actors.aimYaw[player] === castAim);
   Sim.step();
   Actors.moveX[player] = 0; Actors.moveZ[player] = 1; Actors.aimYaw[player] = 0; Actors.aimPitch[player] = 0; Actors.buttons[player] = 0;
   const casterX = Actors.x[player], casterZ = Actors.z[player], puppetZ = Actors.z[puppet];
@@ -660,6 +669,9 @@ Test.add('abilities', (check) => {
   check('A23 the caster\'s body stands still and keeps its input for the next step', length2(Actors.x[player] - casterX, Actors.z[player] - casterZ) < 0.05 && Actors.moveZ[player] === 1);
   check('A23 the camera rides the puppet\'s eyes and the puppet is hidden from its driver', (Render.view.alpha = 1, Render.cameraOverride(camera) === true)
     && Test.near(camera.z, Actors.z[puppet], 1e-6) && Test.near(camera.y, Actors.eyeY(puppet), 1e-6) && (abilityStyle(puppet, style), style.visible === false));
+  const drawn = meshRecorder();
+  Pve.draw(drawn);
+  check('A23 the PvE draw skips the enemy its player drives (the camera is inside it)', drawn.meshes.length === 0, drawn.meshes.length);
   Render.view.alpha = 0.5;
   Render.cameraOverride(camera);
   Render.view.alpha = 1;

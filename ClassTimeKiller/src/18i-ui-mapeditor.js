@@ -61,6 +61,7 @@ const mapEditTeamField = { label: 'Team', kind: 'cycle', values: () => [-1, 0, 1
 const MAPEDIT_FIELDS = {
   brushes: [{ label: 'Material', kind: 'cycle', values: () => MapRules.materials, get: (o) => o.material, set: (o, v) => { o.material = v; } }],
   spawns: [mapEditTeamField],
+  props: [],   // breakable props: no editable fields yet (a problem on one still selects it)
   items: [{ label: 'Item', kind: 'cycle', values: mapEditAllItemKeys, texts: (values) => values.map(mapEditItemName), get: (o) => o.item, set: (o, v) => { o.item = v; o.group = MapRules.groupOf(v); } }],
   objectives: [
     { label: 'Kind', kind: 'cycle', values: () => MapRules.objectiveKinds, get: (o) => o.kind, set: mapEditSetObjectiveKind },

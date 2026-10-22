@@ -439,7 +439,7 @@ const PuppetState = {
   },
   restore() {
     if (!this.count) return;
-    for (let caster = 0; caster < Actors.count; caster++) if (this.puppet[caster] >= 0) this.giveBack(caster);
+    for (let caster = 0; caster < Actors.count; caster++) if (this.puppet[caster] >= 0 && this.drivenTick[caster] === Sim.tick) this.giveBack(caster);   // linked after the drive (cast tick): nothing was taken
   },
   giveBack(caster) {
     Actors.moveX[caster] = this.moveX[caster]; Actors.moveZ[caster] = this.moveZ[caster]; Actors.buttons[caster] = this.buttons[caster];

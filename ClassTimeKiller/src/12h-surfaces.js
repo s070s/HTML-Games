@@ -93,12 +93,14 @@ const FloorSurfaces = {
     return (this.x[a] - this.x[b]) ** 2 + (this.z[a] - this.z[b]) ** 2 <= reach * reach;
   },
   // An explosion of a patch's igniteElement over it (G04 Cinder Jar, rockets) lights it.
-  onExplosion(event) {
+  onExplosion(event) { this.igniteNear(event.element, event.x, event.y, event.z, event.radius, event.owner); },
+  // Lights every patch whose igniteElement is the element and that a blast or fire area of the radius at (x, y, z) reaches.
+  igniteNear(element, x, y, z, radius, owner) {
     for (let slot = 0; slot < SURFACE_CAP; slot++) {
-      if (!this.active[slot] || this.rowOf(slot).igniteElement !== event.element) continue;
-      const reach = this.radius[slot] + event.radius;
-      if (Math.abs(event.y - this.y[slot]) > event.radius + SURFACE_BLAST_REACH) continue;
-      if ((event.x - this.x[slot]) ** 2 + (event.z - this.z[slot]) ** 2 <= reach * reach) this.ignite(slot, event.owner);
+      if (!this.active[slot] || this.rowOf(slot).igniteElement !== element) continue;
+      const reach = this.radius[slot] + radius;
+      if (Math.abs(y - this.y[slot]) > radius + SURFACE_BLAST_REACH) continue;
+      if ((x - this.x[slot]) ** 2 + (z - this.z[slot]) ** 2 <= reach * reach) this.ignite(slot, owner);
     }
   },
   onBreak(event) {
@@ -154,3 +156,9 @@ Sim.addSystem('surfaces', 57, () => FloorSurfaces.step());
 Render.addSource('surfaces', (batch) => FloorSurfaces.draw(batch));
 Bus.on('world.break', (event) => FloorSurfaces.onBreak(event));
 Bus.on('explosion', (event) => FloorSurfaces.onExplosion(event));
+// A G04 fire area lights the oil it overlaps, not only oil its pop lands on (the pop is announced with radius 0, 12c).
+const stepGadgetFireArea = GadgetAreas.steps.fire;
+GadgetAreas.steps.fire = (area, row, dt) => {
+  stepGadgetFireArea(area, row, dt);
+  if (GadgetAreas.active[area]) FloorSurfaces.igniteNear(row.element, GadgetAreas.x[area], GadgetAreas.y[area], GadgetAreas.z[area], row.radius, GadgetAreas.owner[area]);
+};

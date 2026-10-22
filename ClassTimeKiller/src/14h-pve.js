@@ -861,6 +861,7 @@ const Pve = {
     if (!this.active) return;
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
+      if (Game.playerId >= 0 && PuppetState.master[id] === Game.playerId) continue;   // A23: the player's camera is inside it
       this.drawEnemy(batch, id);
     }
   },
