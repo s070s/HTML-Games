@@ -231,6 +231,22 @@ function perfReport() {
   };
 }
 
+// Sim cost per step with no frame in between: `rounds` rounds of `steps` steps run back to back, the fastest round per
+// system (CDP throttling suspends the main thread in slices and a GC lands in some rounds only: the fastest round is the
+// cost itself). Tool only (perf.mjs --bench).
+function perfSimBench(steps, rounds) {
+  const best = { stepMs: Infinity, systems: {} };
+  for (let round = 0; round < rounds; round++) {
+    const before = Object.assign({}, Sim.timingTotal), started = performance.now();
+    Sim.run(steps);
+    best.stepMs = Math.min(best.stepMs, (performance.now() - started) / steps);
+    for (const name in Sim.timingTotal) {
+      const perStep = (Sim.timingTotal[name] - (before[name] || 0)) / steps;
+      best.systems[name] = name in best.systems ? Math.min(best.systems[name], perStep) : perStep;
+    }
+  }
+  return best;
+}
 
 Loop.onFrame('input', perfRecordFrame);
 Loop.onFrame('input', perfSceneFrame);
@@ -243,7 +259,8 @@ Object.assign(DebugApi.perf, {
   stop: () => { perfStopScene(); return true; },
   info: () => perfSceneInfo(),
   systems: () => Sim.systems,   // the registered sim systems in step order (allocation and cost probes)
-  hotPaths: () => withRenderer(perfMeasureHotPaths),   // heap bytes per hot path (the 'perf' allocation probes; perf.mjs --alloc-probes)
+  hotPaths: () => withRenderer(perfMeasureHotPaths),
+  simBench: (steps, rounds) => perfSimBench(steps, rounds),   // heap bytes per hot path (the 'perf' allocation probes; perf.mjs --alloc-probes)
 });
 
 // ---- Self-tests (group 'perf'): exact numbers only, no timing budgets (a busy test machine would make those flaky) ----

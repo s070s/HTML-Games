@@ -4,8 +4,10 @@
 // per-system ms per step, render and HUD CPU ms, draw calls, instances, GC count and longest GC pause (trace), heap growth
 // after forced GCs, and the boot time to the main menu.
 // Usage: node tools/perf.mjs [--scenes tdm,horde,royale,generated,editor] [--presets potato,low,medium] [--throttle 4,6]
-//        [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction]
-//        [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800]
+//        [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction] [--bench]
+//        [--soak <minutes>]
+// --bench: after each recording, still throttled, BENCH_ROUNDS rounds of BENCH_STEPS sim steps back to back (__CTK.perf.simBench);
+// the fastest round per system is the step cost without the throttle slices and GC pauses that land in the frame means. [--json <file>] [--file <html>] [--timeout 1800]
 // --soak: the first scene at the first preset, unthrottled, for that many minutes; the heap after a forced GC every minute
 // (PERF-006 step 18.4: the heap must not grow steadily) and the GC pauses of each minute.
 // Exit code: 0 done (a budget miss is reported, not fatal), 3 runner error, 2 timeout. Budgets: PERF_BUDGETS below (PERF-002).
@@ -29,10 +31,10 @@ function checkArguments() {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const VALUE_OPTIONS = ['--scenes', '--presets', '--throttle', '--seconds', '--warmup', '--boot-runs', '--json', '--file', '--timeout', '--soak'];
-const FLAG_OPTIONS = ['--no-boot', '--no-scenes', '--alloc', '--retained', '--promoted', '--profile', '--reaction'];
+const FLAG_OPTIONS = ['--no-boot', '--no-scenes', '--alloc', '--retained', '--promoted', '--profile', '--reaction', '--bench'];
 const USAGE = [
   'Usage: node tools/perf.mjs [--scenes tdm,horde,royale,generated,editor] [--presets potato,low,medium] [--throttle 4,6]',
-  '       [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction]',
+  '       [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction] [--bench]',
   '       [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800]   (docs/PERFORMANCE.md)',
 ].join('\n');
 checkArguments();
@@ -53,6 +55,8 @@ const cpuProfile = args.includes('--profile');   // also print the functions wit
 const timeoutSeconds = Number(option('--timeout', '1800'));
 const reactionRun = args.includes('--reaction');   // also check that dynamic resolution and the quality step-down react and recover
 const soakMinutes = Number(option('--soak', '0'));
+const benchRun = args.includes('--bench');
+const BENCH_STEPS = 480, BENCH_ROUNDS = 4;   // rounds of 4 s game time: long enough that every round meets its share of throttle slices
 const SOAK_SAMPLE_MS = 60000;   // one heap sample (after a forced GC) per minute
 const REACTION_PHASES = [{ rate: 1, seconds: 6 }, { rate: 6, seconds: 14 }, { rate: 1, seconds: 12 }];   // fast, slow, fast again
 const REACTION_SAMPLE_MS = 1000;
@@ -198,9 +202,11 @@ async function runScene(scene, preset, rate) {
   const hotspots = await stopProfile();
   const allocations = await stopAllocations();
   const heapAfter = await heapAfterGc();
+  const bench = benchRun && !info.editorObjects ? await session.evaluate('__CTK.perf.simBench(' + BENCH_STEPS + ', ' + BENCH_ROUNDS + ')') : null;
   await throttle(1);
   await session.evaluate('__CTK.perf.stop()');
-  return { scene, preset, rate, info, report, gc, heapGrowthKb: (heapAfter - heapBefore) / 1024, heapMb: heapAfter / 1048576, groups: groupSystems(report.systems), allocations, hotspots };
+  return { scene, preset, rate, info, report, gc, heapGrowthKb: (heapAfter - heapBefore) / 1024, heapMb: heapAfter / 1048576, groups: groupSystems(report.systems), allocations, hotspots,
+    bench: bench ? { stepMs: bench.stepMs, groups: groupSystems(bench.systems) } : null };
 }
 
 // One line per run, then the budget misses of that run.
@@ -221,6 +227,16 @@ function printRun(run) {
   run.allocations.sites.forEach((entry) => console.log('    alloc ' + fixed(entry.kb / run.report.seconds, 1).padStart(8) + ' KB/s  ' + entry.site));
   const misses = budgetMisses(run);
   if (misses.length) console.log('    over budget: ' + misses.join(', '));
+  if (run.bench) printBench(run.bench);
+}
+
+// The fastest-round sim cost (--bench) against the PERF-002 sim budgets.
+function printBench(bench) {
+  const g = bench.groups, misses = [];
+  console.log('    bench sim/step ' + fixed(bench.stepMs) + ' move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules));
+  if (bench.stepMs > PERF_BUDGETS.sim) misses.push('sim/step ' + fixed(bench.stepMs) + ' > ' + PERF_BUDGETS.sim);
+  for (const group in SYSTEM_GROUPS) if (g[group] > PERF_BUDGETS[group]) misses.push(group + '/step ' + fixed(g[group]) + ' > ' + PERF_BUDGETS[group]);
+  if (misses.length) console.log('    bench over budget: ' + misses.join(', '));
 }
 
 function budgetMisses(run) {
