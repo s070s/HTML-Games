@@ -564,7 +564,9 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
    mountains: { ridges: [{ x, z, len, yaw, width, height }], plateaus: [{ x, z, r, edge, height }],
      floor: lowest ground height in m (sea bed), rock / snow: ground colours [r, g, b] or null, snowLine: m }
      Ridges and plateaus are added to the rolling base heights; rock and snow colour the ground only when set.
-   maxSlope: steepest ground (deg) a ground vehicle or mech can climb on this map (infantry: INFANTRY_MAX_SLOPE)
+   maxSlope: steepest ground (deg) a ground vehicle or mech can climb on this map (infantry: INFANTRY_MAX_SLOPE); a row
+     with neither mountains nor water and no maxSlope of its own has no limit (Infinity), so the original battlefields
+     keep their old movement (D17, D32)
    weather: { weights: { <state>: weight, ... }, time } the weather states (WEATHER) this battlefield draws its changing
      weather from, each as likely as its weight (missing or 0: never drawn), and the time of day (TIME_PRESETS key) used
      when a mission turns weather on without naming a time. A row's weights replace the default list as a whole.
@@ -592,6 +594,7 @@ function mapDef(id) {
   def.weather = Object.assign({}, MAP_WEATHER, row.weather);
   def.weather.weights = Object.assign({}, def.weather.weights);
   def.water = def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
+  if (row.maxSlope === undefined && !row.mountains && !def.water.length) def.maxSlope = Infinity;
   MAP_DEFS.set(row, def);
   return def;
 }
@@ -1458,15 +1461,17 @@ void main(){
   gl_FragColor = vec4(vCol.rgb, vCol.a * (1.0 - r * r));
 }`;
 /* Water surface: aInfo holds the water depth at the vertex and the river current (x, z). uWave 0 (Low quality)
-   leaves the surface flat and still; uFoam 0 leaves out the shore foam. */
+   leaves the surface flat and still; uFoam 0 leaves out the shore foam. The vertex shader has its own time and wave
+   uniforms (uSwellT, uSwell): a uniform in both shaders must have the same precision, and the fragment shader's may be
+   mediump on mobile. */
 const WATER_VS = `
 attribute vec3 aPos; attribute vec3 aInfo;
-uniform mat4 uVP; uniform float uTime; uniform float uWave;
+uniform mat4 uVP; uniform float uSwellT; uniform float uSwell;
 varying vec3 vW; varying vec3 vInfo;
 void main(){
   vec3 p = aPos;
   float swell = clamp(aInfo.x * 0.3, 0.0, 1.0);   // no swell in the shallows, so the shore line stays put
-  p.y += uWave * swell * (sin(p.x * 0.045 + uTime * 1.1) * 0.22 + sin(p.z * 0.06 - uTime * 0.9) * 0.16);
+  p.y += uSwell * swell * (sin(p.x * 0.045 + uSwellT * 1.1) * 0.22 + sin(p.z * 0.06 - uSwellT * 0.9) * 0.16);
   vW = p; vInfo = aInfo;
   gl_Position = uVP * vec4(p, 1.0);
 }`;
@@ -1643,7 +1648,7 @@ const R = {
     this.program('sky', SKY_VS, SKY_FS, ['aPos'], ['uMVP', 'uZen', 'uHor', 'uSun', 'uSunCol', 'uNight', 'uCloud', 'uCloudCol', 'uDrift', 'uFlash']);
     this.program('pts', PTS_VS, PTS_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale']);
     this.program('precip', PRECIP_VS, PRECIP_FS, ['aPos'], ['uVP', 'uScale', 'uLine', 'uCol', 'uSize']);
-    this.program('water', WATER_VS, WATER_FS, ['aPos', 'aInfo'], ['uVP', 'uTime', 'uWave', 'uSun', 'uSunCol', 'uSky', 'uFog', 'uFogD', 'uCam', 'uFoam', 'uShallow', 'uDeep']);
+    this.program('water', WATER_VS, WATER_FS, ['aPos', 'aInfo'], ['uVP', 'uSwellT', 'uSwell', 'uTime', 'uWave', 'uSun', 'uSunCol', 'uSky', 'uFog', 'uFogD', 'uCam', 'uFoam', 'uShallow', 'uDeep']);
     const defs = { box: meshBox(), cyl: meshCylinder(10), cone: meshCone(8), sphere: meshSphere(6, 9), wedge: meshWedge(), sky: meshSphere(10, 14) };
     this.meshes = {}; this.meshCPU = {}; this.matCache = [NaN, NaN, NaN, NaN, NaN, NaN];
     for (const k in defs) {
@@ -1694,6 +1699,7 @@ const R = {
     this.use('water');
     gl.uniformMatrix4fv(u.uVP, false, this.vp);
     gl.uniform1f(u.uTime, time); gl.uniform1f(u.uWave, waves ? 1 : 0); gl.uniform1f(u.uFoam, waves ? 1 : 0);
+    gl.uniform1f(u.uSwellT, time); gl.uniform1f(u.uSwell, waves ? 1 : 0);
     gl.uniform3fv(u.uSun, e.sun); gl.uniform3fv(u.uSunCol, e.sunCol);
     gl.uniform3f(u.uSky, (e.zen[0] + e.hor[0]) * 0.5, (e.zen[1] + e.hor[1]) * 0.5, (e.zen[2] + e.hor[2]) * 0.5);
     if (this.under) { gl.uniform3fv(u.uFog, WATER_UNDER_COL); gl.uniform1f(u.uFogD, WATER_UNDER_FOG); } else { gl.uniform3fv(u.uFog, e.hor); gl.uniform1f(u.uFogD, e.fogD); }
@@ -2164,6 +2170,7 @@ const RIDGE_OCTAVES = 4;             // noise layers: 170, 84, 41 and 20 m featu
 const RIDGE_BASE = 0.4;              // share of a ridge's height that is a smooth massif; the rest is ridged noise
 const PLATEAU_RIM_NOISE = 0.5;       // a plateau's rim wanders this share of its edge width
 const SITE_FADE = 70;                // a site's levelled ground fades into the terrain over this (see flattenSites)
+const SITE_PAD = 15;                 // a city or base levels this much ground past its own radius (Scenery.sitesFor)
 const SITE_RINGS = 4, SITE_BEARINGS = 10;   // sample rings and bearings of the building-site slope check
 const SITE_MAX_SLOPE = 8;            // cities and districts never sit on steeper ground (deg)
 const BASE_MAX_SLOPE = 12;           // skirmish bases never sit on steeper ground (deg)
@@ -2299,7 +2306,7 @@ const Terrain = {
     const N = this.N, G = this.G;
     const flat = Float64Array.from(base);   // stays in doubles until the final store, exactly as before
     for (let k = 0; k < this.sites.length; k++) {
-      const s = this.sites[k], reach = s.r + 70;
+      const s = this.sites[k], reach = s.r + SITE_FADE;
       const i0 = Math.max(0, Math.floor((s.x - reach + WORLD_HALF) / G)), i1 = Math.min(N, Math.ceil((s.x + reach + WORLD_HALF) / G));
       const j0 = Math.max(0, Math.floor((s.z - reach + WORLD_HALF) / G)), j1 = Math.min(N, Math.ceil((s.z + reach + WORLD_HALF) / G));
       for (let j = j0; j <= j1; j++) {
@@ -2426,10 +2433,15 @@ const WATER_RIVER_DROP = 1.5;      // a river's surface lies this far below the 
 const WATER_RIVER_STEP = 4;        // its surface height is worked out every this many m along it
 const WATER_BANK_RISE = 2;         // shores and banks climb 1 m per this many m to the land (about 27 deg)
 const WATER_BANK_MAX = 120;        // but are never wider than this (m)
+const WATER_BEACH_MAX = 400;       // nor is the land a sea blends down over (m)
 const WATER_LEVEE = 0.3;           // the water's edge stands this far above its surface, so lower land beside it stays dry (m)
+const WATER_BANK_SAFETY = 0.75;    // banks and channel walls stay under this share of the map's maxSlope (the rolling ground adds its own tilt)
+const WATER_SMOOTH_PEAK = 1.5;     // a smoothstep bank climbs at most this many times its average slope
+const WATER_NOISE_GRAD = 1.5;      // valueNoise changes at most this much per unit, so a ragged shore can squeeze its bank by that
 const WATER_COAST_WOBBLE = 45;     // a sea's coast line wanders this far in and out (m)
 const WATER_COAST_WAVE = 160;      // over stretches about this long (m)
 const WATER_LAKE_RAGGED = 0.3;     // a lake's shore wanders this share of its radius
+const WATER_LAKE_WAVE = 70;        // over stretches about this long (m)
 const WATER_FLOW_SPEED = 1.6;      // river current (m/s): swimmers and sinking debris drift with it
 const WATER_SPLASH_MULT = 0.5;     // blast damage share of an explosion at the water surface
 const WATER_SPLASH_REACH = 1.5;    // an explosion at most this far above the surface (m) splashes
@@ -2460,26 +2472,32 @@ const Water = {
      rivers, so a river that runs into a lake or the sea meets its surface */
   carve(grid, m) {
     const n = grid.length, levels = new Float32Array(n).fill(-Infinity), flowX = new Float32Array(n), flowZ = new Float32Array(n);
-    const seed = Math.round(m.seed * 1000);
+    const seed = Math.round(m.seed * 1000), steep = this.bankSteep(m);
     let seaLevel = -Infinity;
-    m.water.forEach((b, k) => { if (b.type === 'sea') { this.carveSea(grid, levels, b, seed + k * 131); seaLevel = seaLevel === -Infinity ? b.level : Math.min(seaLevel, b.level); } });
-    m.water.forEach((b, k) => { if (b.type === 'lake') this.carveLake(grid, levels, b, m, seed + k * 131); });
-    m.water.forEach((b) => { if (b.type === 'river' && b.pts.length >= 2) this.carveRiver(grid, levels, flowX, flowZ, b, seaLevel); });
+    m.water.forEach((b, k) => { if (b.type === 'sea') { this.carveSea(grid, levels, b, seed + k * 131, steep); seaLevel = seaLevel === -Infinity ? b.level : Math.min(seaLevel, b.level); } });
+    m.water.forEach((b, k) => { if (b.type === 'lake') this.carveLake(grid, levels, b, m, seed + k * 131, steep); });
+    m.water.forEach((b) => { if (b.type === 'river' && b.pts.length >= 2) this.carveRiver(grid, levels, flowX, flowZ, b, seaLevel, steep); });
     return { levels, flowX, flowZ };
   },
-  /* a sea: past its wavy coast line the land blends down into the sea bed */
-  carveSea(grid, levels, b, seed) {
+  /* steepest bank or channel wall (rise over run) the carve may cut on map def m, so a vehicle can always climb out */
+  bankSteep(m) { return m.maxSlope === Infinity ? Infinity : Math.tan(m.maxSlope * DEG) * WATER_BANK_SAFETY; },
+  /* a sea: past its wavy coast line the land blends down into the sea bed, over a wider strip where the land stands
+     high, so the beach never climbs steeper than `steep` */
+  carveSea(grid, levels, b, seed, steep) {
     const dir = WATER_SIDES[b.side];
     if (!dir) return;
+    const squeeze = 1 + 2 * WATER_COAST_WOBBLE * WATER_NOISE_GRAD / WATER_COAST_WAVE;   // the wavy coast line packs the blend closer
     for (let j = 0; j <= Terrain.N; j++) for (let i = 0; i <= Terrain.N; i++) {
       const x = -WORLD_HALF + i * Terrain.G, z = -WORLD_HALF + j * Terrain.G, along = dir[0] !== 0 ? z : x;
       const coast = b.shore + (valueNoise(along / WATER_COAST_WAVE, 0.5, seed) - 0.5) * 2 * WATER_COAST_WOBBLE;
       const u = x * dir[0] + z * dir[1] - coast;   // m out to sea past the coast line
-      if (u <= -b.beach) continue;
+      if (u <= -WATER_BEACH_MAX) continue;
       const o = j * (Terrain.N + 1) + i, h = grid[o];
+      const land = clamp((h - b.level) * WATER_SMOOTH_PEAK * squeeze / steep, b.beach, WATER_BEACH_MAX);
+      if (u <= -land) continue;
       const bed = lerp(b.level - 1, b.level - b.depth, smoothstep(0, b.beach, u));
-      grid[o] = lerp(h, Math.min(h, bed), smoothstep(-b.beach, 0, u));
-      if (b.level > levels[o]) levels[o] = b.level;
+      grid[o] = lerp(h, Math.min(h, bed), smoothstep(-land, 0, u));
+      if (u > -b.beach && b.level > levels[o]) levels[o] = b.level;
     }
   },
   /* surface height of a lake: its own, or just below the lowest ground on its rim */
@@ -2490,30 +2508,38 @@ const Water = {
     return low - 0.5;
   },
   /* a lake: a bowl inside its ragged shore line, and a shore that climbs to the land */
-  carveLake(grid, levels, b, m, seed) {
+  carveLake(grid, levels, b, m, seed, steep) {
     const level = this.lakeLevel(b, m), reach = b.r * (1 + WATER_LAKE_RAGGED) + WATER_BANK_MAX, N = Terrain.N, G = Terrain.G;
     const i0 = Math.max(0, Math.floor((b.x - reach + WORLD_HALF) / G)), i1 = Math.min(N, Math.ceil((b.x + reach + WORLD_HALF) / G));
     const j0 = Math.max(0, Math.floor((b.z - reach + WORLD_HALF) / G)), j1 = Math.min(N, Math.ceil((b.z + reach + WORLD_HALF) / G));
+    // the ragged shore makes d change faster than the distance itself: slope limits in d shrink by that much
+    const squeeze = 1 + b.r * WATER_LAKE_RAGGED * WATER_NOISE_GRAD / WATER_LAKE_WAVE;
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const x = -WORLD_HALF + i * G, z = -WORLD_HALF + j * G, o = j * (N + 1) + i, h = grid[o];
-      const d = Math.hypot(x - b.x, z - b.z) + (valueNoise(x / 70, z / 70, seed) - 0.5) * b.r * WATER_LAKE_RAGGED;
-      if (!this.shape(grid, o, h, d, b.r, b.depth, level, b.shore, levels[o] > -Infinity)) continue;
+      const d = Math.hypot(x - b.x, z - b.z) + (valueNoise(x / WATER_LAKE_WAVE, z / WATER_LAKE_WAVE, seed) - 0.5) * b.r * WATER_LAKE_RAGGED;
+      if (!this.shape(grid, o, h, d, b.r, b.depth, level, b.shore, levels[o] > -Infinity, steep / squeeze)) continue;
       if (level > levels[o]) levels[o] = level;
     }
   },
   /* Shapes grid point o (height h) at distance d from the middle of a channel or basin of half-width hw: a bowl down
-     to `depth` below the surface inside, a bank climbing to the land outside. Returns false past the bank. Land already
-     under other water is only ever lowered, so a river's banks never rise out of a lake or the sea. */
-  shape(grid, o, h, d, hw, depth, level, bank, wet) {
-    const w = clamp((h - level) * WATER_BANK_RISE, bank, WATER_BANK_MAX);
+     to `depth` below the surface inside, a bank climbing to the land outside. Returns false past the bank. Neither the
+     bowl's wall nor the bank climbs steeper than `steep` per m of d (a narrow channel is shallower than `depth`), so
+     nothing that drives in is trapped. Land already under other water is only ever lowered, so a river's banks never
+     rise out of a lake or the sea. */
+  shape(grid, o, h, d, hw, depth, level, bank, wet, steep) {
+    const rise = h - level, w = clamp(Math.max(rise * WATER_BANK_RISE, rise * WATER_SMOOTH_PEAK / steep), bank, WATER_BANK_MAX);
     if (d >= hw + w) return false;
-    if (d < hw) { const k = d / hw; grid[o] = Math.min(h, level + WATER_LEVEE - (depth + WATER_LEVEE) * (1 - k * k)); return true; }
+    if (d < hw) {
+      const k = d / hw, bowl = level + WATER_LEVEE - (depth + WATER_LEVEE) * (1 - k * k), wall = level + WATER_LEVEE - (hw - d) * steep;
+      grid[o] = Math.min(h, Math.max(bowl, wall));
+      return true;
+    }
     const t = smoothstep(hw, hw + w, d), shore = Math.max(lerp(level + WATER_LEVEE, h, t), level + WATER_LEVEE * (1 - t));
     grid[o] = wet ? Math.min(h, shore) : shore;
     return true;
   },
   /* a river: its surface steps down the polyline, never rising, then the channel is cut along it */
-  carveRiver(grid, levels, flowX, flowZ, b, seaLevel) {
+  carveRiver(grid, levels, flowX, flowZ, b, seaLevel, steep) {
     const pts = b.pts, segs = [];
     let total = 0;
     for (let k = 0; k + 1 < pts.length; k++) {
@@ -2546,7 +2572,7 @@ const Water = {
       if (best >= reach) continue;
       const f = bs / WATER_RIVER_STEP, k = Math.min(n - 2, Math.floor(f)), level = lerp(surf[k], surf[k + 1], f - k);
       const wet = levels[o] > -Infinity;
-      if (!this.shape(grid, o, grid[o], best, hw, b.depth, level, b.bank, wet)) continue;
+      if (!this.shape(grid, o, grid[o], best, hw, b.depth, level, b.bank, wet, steep)) continue;
       if (level >= levels[o]) { levels[o] = level; flowX[o] = bg.dx * WATER_FLOW_SPEED; flowZ[o] = bg.dz * WATER_FLOW_SPEED; }
     }
   },
@@ -2564,9 +2590,17 @@ const Water = {
     if (fx < 0) fx = 0; else if (fx > 249.999) fx = 249.999;
     if (fz < 0) fz = 0; else if (fz > 249.999) fz = 249.999;
     const ix = Math.floor(fx), iz = Math.floor(fz), L = this.levels, o = iz * 251 + ix;
-    const a = L[o], b = L[o + 1], c = L[o + 251], d = L[o + 252];
-    // at the edge of a body some corners have no surface: the highest of the others stands for them
-    if (a === -Infinity || b === -Infinity || c === -Infinity || d === -Infinity) return Math.max(a, b, c, d);
+    let a = L[o], b = L[o + 1], c = L[o + 251], d = L[o + 252];
+    // At the edge of a body some corners have no surface: the highest of the others stands for them, but never above the
+    // ground at that corner, so the water ends there instead of spreading over lower land outside the carve.
+    if (a === -Infinity || b === -Infinity || c === -Infinity || d === -Infinity) {
+      const top = Math.max(a, b, c, d), hs = Terrain.heights;
+      if (top === -Infinity) return -Infinity;
+      if (a === -Infinity) a = Math.min(top, hs[o]);
+      if (b === -Infinity) b = Math.min(top, hs[o + 1]);
+      if (c === -Infinity) c = Math.min(top, hs[o + 251]);
+      if (d === -Infinity) d = Math.min(top, hs[o + 252]);
+    }
     const tx = fx - ix, tz = fz - iz;
     return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
   },
@@ -2595,9 +2629,13 @@ const Water = {
     out.x = this.flowX[o]; out.z = this.flowZ[o];
     return out;
   },
-  /* top of the highest standing bridge deck at (x, z) that a platform at height y can drive onto, or -Infinity */
+  /* top of the highest standing bridge deck at (x, z) that a platform at height y can drive onto, or -Infinity (only
+     the sections in the deck grid square of (x, z) are tested) */
   deckTop(x, z, y) {
-    const list = W.bridges;
+    const cells = W.deckCells;
+    if (!cells) return -Infinity;
+    const list = cells[deckCell(z) * DECK_CELLS + deckCell(x)];
+    if (!list) return -Infinity;
     let best = -Infinity;
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
@@ -2644,7 +2682,8 @@ const Water = {
     return mesh;
   },
   /* Two triangles for every grid square with water in it, grouped by 160 m chunk (Chunks.SIZE) so each chunk is one
-     draw. A corner with no surface of its own takes the square's highest one; the ground hides what lies above it. */
+     draw. A corner with no surface of its own takes the square's highest one, or the ground there when that is lower
+     (as Water.level does); the ground hides what lies above it. */
   buildMesh() {
     const N = Terrain.N, G = Terrain.G, W1 = N + 1, L = this.levels, hs = Terrain.heights, cells = Chunks.SIZE / G;
     const out = [], chunks = [], lv = [0, 0, 0, 0], co = [0, 0, 0, 0];
@@ -2656,7 +2695,7 @@ const Water = {
         const top = Math.max(L[co[0]], L[co[1]], L[co[2]], L[co[3]]);
         if (top === -Infinity) continue;
         let wet = false;
-        for (let k = 0; k < 4; k++) { lv[k] = L[co[k]] === -Infinity ? top : L[co[k]]; if (lv[k] > hs[co[k]]) wet = true; }
+        for (let k = 0; k < 4; k++) { lv[k] = L[co[k]] === -Infinity ? Math.min(top, hs[co[k]]) : L[co[k]]; if (lv[k] > hs[co[k]]) wet = true; }
         if (!wet) continue;
         for (let v = 0; v < 6; v++) {
           const k = WATER_TRI[v], o = co[k];
@@ -3229,9 +3268,10 @@ function gibSoldier(src, death) {
 function explode(x, y, z, radius, damage, dtype, owner, opts) {
   opts = opts || {};
   const big = radius >= 7;
-  // at the surface of a lake, river or sea (not on a bridge it hit): a splash, no crater, and less blast damage
+  // at the surface of a lake, river or sea (not on a bridge it hit, nor on a deck between it and the water): a splash,
+  // no crater, and less blast damage
   const gh = Terrain.h(x, z), wl = Water.level(x, z);
-  const wet = !opts.excludeStruct && wl - gh > WATER_SPLASH_MIN && y - wl < WATER_SPLASH_REACH;
+  const wet = !opts.excludeStruct && wl - gh > WATER_SPLASH_MIN && y - wl < WATER_SPLASH_REACH && Water.deckTop(x, z, y) < wl;
   if (wet) { damage *= WATER_SPLASH_MULT; Water.splash(x, z, radius, true); }
   // visuals
   FX.emit(x, y, z, 0, 0, 0, 0.16, radius * 2.6, radius * 3.4, 1, 0.9, 0.6, 0.95, 0, 0, true);
@@ -3307,7 +3347,7 @@ function newWorld(cfg) {
   Hash.reset();
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
-    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], roadData: null, roadMesh: null,
+    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
     stats: newStats(),
@@ -3360,6 +3400,10 @@ const BRIDGE_CLEAR = 1;       // the deck's top stays at least this far above th
 const BRIDGE_BANK = 1;        // a bridge reaches on until the road is this far above the water (m)
 const ROAD_KEEP = 2;          // nothing is scattered this close to a road (m)
 const BRIDGE_STEP = 0.6;      // a vehicle drives onto a deck this far above its wheels (resolveWorld lets it pass a structure as high)
+const DECK_CELL = 32;         // deck sections are looked up through a grid of squares this big (m)
+const DECK_CELLS = Math.ceil(2 * WORLD_HALF / DECK_CELL);
+/* the deck grid square (one axis) of world coordinate v */
+function deckCell(v) { const c = Math.floor((v + WORLD_HALF) / DECK_CELL); return c < 0 ? 0 : c > DECK_CELLS - 1 ? DECK_CELLS - 1 : c; }
 const Roads = {
   /* bridges and the road strip mesh for map def m: deck sections into W.bridges, the strip into W.roadData */
   build(m) {
@@ -3384,6 +3428,21 @@ const Roads = {
       for (let k = 0; k + 1 < pts.length; k++) if (!bridged[k] && !bridged[k + 1]) this.strip(verts, pts[k], pts[k + 1], road.w);
     }
     W.roadData = verts.length ? new Float32Array(verts) : null;
+    W.deckCells = this.deckGrid(W.bridges);
+  },
+  /* the deck sections over each DECK_CELL square (null where none), so a deck look-up tests only those; null: no bridges */
+  deckGrid(list) {
+    if (!list.length) return null;
+    const cells = new Array(DECK_CELLS * DECK_CELLS).fill(null);
+    for (const s of list) {
+      const i0 = deckCell(s.x - s.hx), i1 = deckCell(s.x + s.hx), j0 = deckCell(s.z - s.hz), j1 = deckCell(s.z + s.hz);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const k = j * DECK_CELLS + i;
+        if (!cells[k]) cells[k] = [];
+        cells[k].push(s);
+      }
+    }
+    return cells;
   },
   /* points every ROAD_STEP m along a polyline */
   samples(line) {
@@ -3700,6 +3759,7 @@ function drawWorld(dt) {
   R.drawTerrain();
   Roads.draw();
   Chunks.draw();
+  Bld.relightLeft = TIME_RELIGHT_BUDGET;
   for (let i = 0; i < W.buildings.length; i++) Bld.draw(W.buildings[i]);
   // ---- opaque moving objects: one batch, one draw call
   R.beginBatch('opaque');
@@ -3813,7 +3873,7 @@ function drawWorld(dt) {
   R.blend(false); R.depthWrite(true);
   R.drawPoints(FX, false);
   R.drawPoints(FX, true);
-  Precip.update(dt, R.cam);
+  Precip.update(Precip.simStep(), R.cam);
   R.drawPrecip(Precip);
 }
 
@@ -3913,6 +3973,7 @@ const DAWN_LOOK = { sunCol: [1.1, 0.72, 0.48], skyAmb: [0.72, 0.66, 0.7], gndAmb
 const DUSK_LOOK = { sunCol: [1.15, 0.58, 0.36], skyAmb: [0.7, 0.58, 0.62], gndAmb: 0.65, zen: [0.48, 0.4, 0.62], hor: [1.15, 0.66, 0.5], fog: 1.1, night: 0.08 };
 const TIME_KEYS = [[0, NIGHT_LOOK], [4.6, NIGHT_LOOK], [6.5, DAWN_LOOK], [9, DAY_LOOK], [15.5, DAY_LOOK], [17.5, DUSK_LOOK], [19.4, NIGHT_LOOK], [24, NIGHT_LOOK]];
 const TIME_RELIGHT_SPREAD = 40;        // windows light up over this many 0.05 s steps, a few buildings at a time
+const TIME_RELIGHT_BUDGET = 2;         // and never more than this many buildings re-written for it in one frame
 /* falling particles around the camera: fall speed (m/s), colour (rgba), streak length (s of fall, rain) or flake size (m),
    sideways sway (m/s), and how strongly the wind carries them */
 const PRECIP = {
@@ -3928,6 +3989,7 @@ const PRECIP_ABOVE = 20, PRECIP_BELOW = 10;   // and this far above and below it
 const PRECIP_FLOORS = 120;              // cover look-ups per frame; particles past it fall to the bottom of the box
 const PRECIP_FLOATS = 4;                // floats per vertex: position and w (a rain streak's head 1 / tail 0, or a flake's kind)
 const PRECIP_LIGHT = [0.15, 0.55];      // particles darken with the sky light (ambient brightness) below the second value, to the first share
+const PRECIP_STEP_MAX = 0.1;            // longest world-time step (s) particles move in one frame (after a stall they do not jump)
 const WEATHER_LEGACY = { weather: 'clear', time: 'day', seed: 0 };   // the env of a session that names none
 const isWeather = (k) => typeof k === 'string' && (k === WEATHER_CHANGING || Object.prototype.hasOwnProperty.call(WEATHER, k));   // a valid weather setting
 const isTimeOfDay = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(TIME_PRESETS, k);                    // a valid time setting
@@ -3979,13 +4041,14 @@ const Clock = {
     const x = lerp(mo[0], sx, day), y = lerp(mo[1], sy, day), z = lerp(mo[2], sz, day), l = Math.hypot(x, y, z) || 1;
     d[0] = x / l; d[1] = y / l; d[2] = z / l;
   },
-  /* lit windows are baked into building meshes: re-write them, a few buildings per frame */
+  /* lit windows are baked into building meshes: re-write them, a few buildings per frame (at most TIME_RELIGHT_BUDGET,
+     see Bld.mayRefresh) */
   relight() {
     if (!W) return;
     for (let i = 0; i < W.buildings.length; i++) {
       const b = W.buildings[i];
       for (const c of b.chunks) c.dirty = true;
-      b.dirtyMesh = true; b.nextRebuild = W.time + (i % TIME_RELIGHT_SPREAD) * 0.05;
+      b.dirtyMesh = true; b.relit = true; b.nextRebuild = W.time + (i % TIME_RELIGHT_SPREAD) * 0.05;
     }
   },
   /* the clock as HH:MM */
@@ -4104,7 +4167,10 @@ const Precip = {
   col: new Float32Array(PRECIP_KINDS.length * 4), size: new Float32Array(PRECIP_KINDS.length),   // per kind, for the shader
   stepX: new Float32Array(PRECIP_KINDS.length), stepZ: new Float32Array(PRECIP_KINDS.length), fallOf: new Float32Array(PRECIP_KINDS.length),
   near: [], nearN: 0,   // buildings around the camera this frame (cover look-ups test only these)
-  reset() { this.n = 0; this.nLine = 0; this.nFlake = 0; },
+  t: 0,                 // world time of the last frame's move
+  reset() { this.n = 0; this.nLine = 0; this.nFlake = 0; this.t = W ? W.time : 0; },
+  /* world time since the last frame's move: 0 while the game is paused or the world stands still, so rain hangs */
+  simStep() { const d = clamp(W.time - this.t, 0, PRECIP_STEP_MAX); this.t = W.time; return d; },
   /* cheap repeatable random in [0, 1): the look only, nothing in the world depends on it */
   rnd() { let a = this.seedState = (this.seedState * 1664525 + 1013904223) >>> 0; a ^= a >>> 15; return (a >>> 0) / 4294967296; },
   /* the highest thing a drop falling at (x, z) lands on: ground, water, a bridge deck, a building or a structure top */
@@ -4304,6 +4370,7 @@ const BOX_VERTS = (function () {
 }());
 
 const Bld = {
+  relightLeft: TIME_RELIGHT_BUDGET,   // buildings that may still be re-written this frame for lit windows (drawWorld resets it)
   topAt(x, z, margin) {
     let top = -1e9;
     for (const b of W.buildings) {
@@ -4325,7 +4392,7 @@ const Bld = {
     const ox = cx - nx * CELL / 2, oz = cz - nz * CELL / 2, y0 = Terrain.h(cx, cz);
     const b = {
       id: W.buildings.length, name: name || t.name, tpl: tplId, nx, nz, nf, fh, ox, oz, cx, cz, y0, occ, pieces: [], alive: 0, total: 0, mesh: null, data: null, buf: null,
-      dirtyMesh: true, gpuDirty: false, nextRebuild: 0, needCheck: false, checkAt: 0, slab: [], walls: [], pillars: [], flights: [], topY: y0 + nf * fh, radius: Math.hypot(nx, nz) * CELL / 2 + nf * fh * 0.5,
+      dirtyMesh: true, relit: false, gpuDirty: false, nextRebuild: 0, needCheck: false, checkAt: 0, slab: [], walls: [], pillars: [], flights: [], topY: y0 + nf * fh, radius: Math.hypot(nx, nz) * CELL / 2 + nf * fh * 0.5,
       cy: y0 + nf * fh / 2, t, rubbleAt: 0, collapsedAny: false, chunks: [], vertexCount: 0, relayout: false,
       bx1: ox + nx * CELL, bz1: oz + nz * CELL, grid: Array.from({ length: nx * nz * (nf + 1) }, () => []),
       doors: [],   // ground-floor doors { i, j, d }: cell and the side (DIR_AXIS) the doorway faces
@@ -4567,8 +4634,15 @@ const Bld = {
     for (const s of b.pieces) if (!s.destroyed && s.top > top) top = s.top;
     for (const c of b.chunks) vertices += c.count;
     b.topY = top; b.vertexCount = vertices;
-    b.dirtyMesh = false;
+    b.dirtyMesh = false; b.relit = false;
     b.nextRebuild = W.time + 0.12;
+  },
+  /* a building whose only change is its lit windows waits for this frame's relight budget */
+  mayRefresh(b) {
+    if (!b.relit) return true;
+    if (this.relightLeft <= 0) return false;
+    this.relightLeft--;
+    return true;
   },
   /* send changed vertices to the GPU: the whole mesh after a new layout, else only re-written chunks */
   upload(b) {
@@ -4587,7 +4661,7 @@ const Bld = {
   },
   draw(b) {
     if (!R.visible(b.cx, b.cy, b.cz, b.radius)) return;
-    if (b.dirtyMesh && W.time >= b.nextRebuild) this.refresh(b);
+    if (b.dirtyMesh && W.time >= b.nextRebuild && this.mayRefresh(b)) this.refresh(b);
     if (!b.data) this.rebuild(b);
     this.upload(b);
     R.stack.top = 0; R.stack.ident();
@@ -4819,13 +4893,14 @@ const Scenery = {
     for (const q of corridors || []) if (segDist(c.x, c.z, q) < q.w + c.r + SCENERY_GAP) return false;
     return true;
   },
-  /* c { x, z, r } is gentle enough ground for a city or base on battlefield mapId (maps without mountains always are) */
+  /* c { x, z, r } is gentle, dry enough ground for a city or base on battlefield mapId (maps without mountains or water
+     always are): the whole ground its site levels, out to c.r + SITE_PAD and the fade past it */
   flatFor(mapId, c, maxDeg) {
-    const md = mapDef(mapId);
-    return (!Terrain.hasRelief(md) || Terrain.siteFlat(md, c.x, c.z, c.r, maxDeg)) && Water.siteDry(md, c.x, c.z, c.r + SITE_FADE);
+    const md = mapDef(mapId), r = c.r + SITE_PAD;
+    return Water.siteDry(md, c.x, c.z, r + SITE_FADE) && (!Terrain.hasRelief(md) || Terrain.siteFlat(md, c.x, c.z, r, maxDeg));   // the cheap test first
   },
   sitesFor(lay) {
-    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 15, tag: c.style ? 'base' : 'city' }));
+    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + SITE_PAD, tag: c.style ? 'base' : 'city' }));
   },
   keepOutFor(lay) {
     return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 10 }));
@@ -5504,8 +5579,10 @@ class Platform {
     // water: deepest water it takes without flooding (hovercraft ride over it, infantry swim), and its state there
     this.fordDepth = def.ground && def.ground.type === 'hover' || def.style === 'infantry' ? Infinity : this.kind === 'mech' ? def.height * MECH_HIP : def.ford || FORD_DEPTH;
     this.wet = false; this.swimming = false; this.waterSlow = 1; this.drownT = 0;
-    // steepest ground it can climb, as rise over run: its own maxSlope, else infantry's, else the map's
-    this.climbTan = Math.tan((def.maxSlope || (def.style === 'infantry' ? INFANTRY_MAX_SLOPE : W.map.maxSlope || MAP_FIELDS.maxSlope)) * DEG);
+    // steepest ground it can climb, as rise over run: its own maxSlope, else infantry's, else the map's (none on a map
+    // without a limit, whatever the def says)
+    const mapSlope = W.map.maxSlope || MAP_FIELDS.maxSlope;
+    this.climbTan = mapSlope === Infinity ? Infinity : Math.tan((def.maxSlope || (def.style === 'infantry' ? INFANTRY_MAX_SLOPE : mapSlope)) * DEG);
     this.stats = { kills: 0, damage: 0 };
     this.killedBy = null;   // { name, dist } for the death screen; null when unknown or ejected
     this.target = null; this.lock = { target: null, progress: 0, state: 'none', reason: '', grace: 0 };
@@ -5757,13 +5834,20 @@ class Platform {
   onDeck() { return Water.any && Water.deckTop(this.x, this.z, this.y) > Terrain.h(this.x, this.z); }
   /* true when the step from (px, pz) to where it stands now climbs ground steeper than it can */
   climbBlocked(px, pz) {
-    return Terrain.slope(this.x, this.z) > this.climbTan && Terrain.h(this.x, this.z) > Terrain.h(px, pz) && !this.onDeck();
+    return Terrain.slope(this.x, this.z) > this.climbTan && Terrain.h(this.x, this.z) > Terrain.h(px, pz) && !this.onDeck() && !this.floatsAt(this.x, this.z);
+  }
+  /* true when it floats at (x, z), where the slope of the bed below does not matter: a hovercraft over water, or a
+     soldier in water deep enough to swim */
+  floatsAt(x, z) {
+    if (this.fordDepth !== Infinity || !Water.any) return false;
+    return Water.level(x, z) - Terrain.h(x, z) > (this.def.style === 'infantry' ? SWIM_DEPTH : 0);
   }
   /* on ground well past its climbing limit (landed or pushed there) it slides downhill instead of standing still */
   slideDown(dt) {
+    if (this.climbTan === Infinity) return;   // a map without a slope limit
     const e = 4, gx = Terrain.h(this.x + e, this.z) - Terrain.h(this.x - e, this.z), gz = Terrain.h(this.x, this.z + e) - Terrain.h(this.x, this.z - e);
     const gl = Math.hypot(gx, gz), excess = gl / (2 * e) - this.climbTan;
-    if (excess <= 0 || this.onDeck()) return;
+    if (excess <= 0 || this.onDeck() || this.floatsAt(this.x, this.z)) return;
     const step = SLOPE_SLIDE * Math.min(1, excess * 2) * dt / gl;
     this.x -= gx * step; this.z -= gz * step;
   }
@@ -5895,7 +5979,7 @@ class Platform {
     if (this.swimming) {
       this.waterSlow = SWIM_SPEED;
       c.fire1 = c.fire2 = c.fire1Edge = c.fire2Edge = c.meleeEdge = c.superEdge = c.jump = false;
-      if (this === W.player) this.warn = 'SWIMMING: CANNOT FIRE';
+      if (this.isPlayer) this.warn = 'SWIMMING: CANNOT FIRE';   // any human, guests included (their warning goes out in the snapshot)
       const f = Water.flow(this.x, this.z, TMP_FLOW);   // the current carries swimmers
       this.x += f.x * dt; this.z += f.z * dt;
     } else if (this.kind === 'mech') this.waterSlow = clamp(1 - MECH_WADE_DRAG * depth / this.height, MECH_WADE_MIN, 1);
@@ -5904,7 +5988,7 @@ class Platform {
       FX.emit(this.x + rand(-1, 1) * this.radius, level + 0.1, this.z + rand(-1, 1) * this.radius, rand(-2, 2), rand(1, 3), rand(-2, 2), 0.6, 0.6, 1.6, 0.85, 0.92, 0.95, 0.6, 2, 0, false);
     }
     if (!flooded || Net.guest) { this.drownT = 0; return; }
-    if (this === W.player) this.warn = this.kind === 'mech' ? 'DROWNING' : 'ENGINE FLOODED';
+    if (this.isPlayer) this.warn = this.kind === 'mech' ? 'DROWNING' : 'ENGINE FLOODED';
     this.drownT += dt;
     if (this.drownT < DROWN_TICK) return;
     this.drownT -= DROWN_TICK;
@@ -11580,6 +11664,9 @@ const AI_FLARE_INTERVAL = 2;       // seconds between AI flare drops
 const AI_SWITCH_DELAY = 2;         // minimum seconds between AI primary weapon swaps
 const AI_SHIELD_RAISE = 0.6;       // energy fraction the AI needs before raising its shield (it drops at the energy lock)
 const AI_NOSE = { x: 0, y: 0, z: 0 };
+const STEER_ANGLES = [0.5, -0.5, 1.0, -1.0, 1.6, -1.6];   // headings (rad off the wanted one) tried in turn around an obstacle
+/* AI probe: uphill ground at (x, z) past p's climbing limit (gy: the ground under p); downhill and water p floats on stay open */
+function steepUphill(p, x, z, gy) { return Terrain.slope(x, z) > p.climbTan && Terrain.h(x, z) > gy && !p.floatsAt(x, z); }
 
 class AIController {
   constructor(p, profile, diff) {
@@ -11758,26 +11845,25 @@ class AIController {
   }
   /* pick a heading that is not blocked by structures or steep slopes */
   steerAround(dx, dz) {
-    const p = this.p, look = p.radius * 2.5 + 10, gy = Terrain.h(p.x, p.z);
-    // too steep: uphill ground past the platform's climbing limit, at the probe or halfway to it (downhill stays open)
-    const steep = (x, z) => Terrain.slope(x, z) > p.climbTan && Terrain.h(x, z) > gy;
-    const ford = p.def.style === 'infantry' ? SWIM_DEPTH : p.fordDepth;   // soldiers could swim, but do not choose to
-    const test = (ax, az) => {
-      const x = p.x + ax * look, z = p.z + az * look;
-      if (groundBlocked(x, z, p.radius * 0.9, p.y, p.height)) return false;
-      if (Terrain.slope(x, z) >= (p.kind === 'mech' ? 1.1 : 0.85)) return false;
-      if (Water.any && Water.level(x, z) - Math.max(Terrain.h(x, z), Water.deckTop(x, z, p.y)) > ford) return false;   // too deep to ford or wade
-      return !steep(x, z) && !steep(p.x + ax * look * 0.5, p.z + az * look * 0.5);
-    };
-    if (test(dx, dz)) { this.moveDir.x = dx; this.moveDir.z = dz; return; }
-    const angs = [0.5, -0.5, 1.0, -1.0, 1.6, -1.6];
-    if (this.strafeDir < 0) for (let i = 0; i < angs.length; i += 2) { const t = angs[i]; angs[i] = angs[i + 1]; angs[i + 1] = t; }
-    for (let i = 0; i < angs.length; i++) {
-      const c = Math.cos(angs[i]), s = Math.sin(angs[i]);
+    if (this.steerOpen(dx, dz)) { this.moveDir.x = dx; this.moveDir.z = dz; return; }
+    for (let i = 0; i < STEER_ANGLES.length; i++) {
+      const a = STEER_ANGLES[this.strafeDir < 0 ? i ^ 1 : i], c = Math.cos(a), s = Math.sin(a);   // strafing left tries each pair the other way round
       const ax = dx * c - dz * s, az = dx * s + dz * c;
-      if (test(ax, az)) { this.moveDir.x = ax; this.moveDir.z = az; return; }
+      if (this.steerOpen(ax, az)) { this.moveDir.x = ax; this.moveDir.z = az; return; }
     }
     this.moveDir.x = -dx; this.moveDir.z = -dz; // boxed in: back out
+  }
+  /* true when heading (ax, az) is open: no structure, cliff, water too deep to ford or too-steep uphill at the probe
+     ahead (or halfway to it); where the platform floats, the slope of the bed under the water does not count */
+  steerOpen(ax, az) {
+    const p = this.p, look = p.radius * 2.5 + 10, x = p.x + ax * look, z = p.z + az * look;
+    if (groundBlocked(x, z, p.radius * 0.9, p.y, p.height)) return false;
+    if (Terrain.slope(x, z) >= (p.kind === 'mech' ? 1.1 : 0.85) && !p.floatsAt(x, z)) return false;
+    const ford = p.def.style === 'infantry' ? SWIM_DEPTH : p.fordDepth;   // soldiers could swim, but do not choose to
+    if (Water.any && Water.level(x, z) - Math.max(Terrain.h(x, z), Water.deckTop(x, z, p.y)) > ford) return false;   // too deep to ford or wade
+    if (p.climbTan === Infinity) return true;   // a map without a slope limit
+    const gy = Terrain.h(p.x, p.z);
+    return !steepUphill(p, x, z, gy) && !steepUphill(p, p.x + ax * look * 0.5, p.z + az * look * 0.5, gy);
   }
   driveGround(dx, dz, speedF, dt) {
     const p = this.p, c = p.cmd;
@@ -12647,6 +12733,7 @@ const SKIRMISH_BASE_SWING = 0.45;        // the enemy base swings up to this far
 const SKIRMISH_FIELD = 640;              // base centres stay inside +-this; the ground rises steeply past 760 m
 const SKIRMISH_LAYOUT_TRIES = 16;        // seeded attempts at a base pair before the fixed fallback
 const SKIRMISH_LAYOUT_TRIES_RELIEF = 96; // more attempts on a mountain map, where steep ground rules many pairs out
+const SKIRMISH_LAYOUT_TRIES_WATER = 320; // and more still where water does: both bases and the ground they level must stay dry (cheap grid look-ups)
 const SKIRMISH_LAYOUT_SALT = 0x5bd1e995; // the layout draws from its own stream, so a seed's waves stay as they were
 const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far to one side of it (m), nearer if the edge is close
 const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
@@ -12662,7 +12749,7 @@ function skirmishLayout(cfg) {
   const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
   // on a mountain map bases and districts also need gentle ground (maps without mountains keep their old layouts)
   const relief = Terrain.hasRelief(mapDef(cfg.map)), flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg);
-  const tries = relief || mapDef(cfg.map).water.length ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
+  const tries = mapDef(cfg.map).water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
   let own = null, foe = null;
   for (let k = 0; k < tries && !foe; k++) {
     const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
@@ -14534,7 +14621,8 @@ const SelfTest = {
   },
   /* Time whole frames (simulation, camera, render, and a 1-pixel read that waits for the GPU) on each bench scene.
      Returns one row per scene: { id, avg, p95, max } in ms. Run with __IH.bench(); pass ids to time only some scenes,
-     and opts { weather, time } to time them in that weather (clear) or at that time of day (day). */
+     and opts { weather, time } to time them in that weather (clear) or at that time of day (day). With time 'cycle',
+     opts.at sets the hour the timed frames start at: { time: 'cycle', at: 18.35 } times the windows lighting at dusk. */
   bench(ids, opts) {
     const o = Object.assign({ warm: BENCH_WARM, frames: BENCH_FRAMES, repeat: BENCH_REPEAT }, opts), out = [];
     const scenes = ids ? BENCH_SCENES.filter((s) => ids.indexOf(s.id) >= 0) : BENCH_SCENES;
@@ -14546,7 +14634,7 @@ const SelfTest = {
       try {
         for (let k = 0; k < o.repeat; k++) rows.push(this.benchScene(sc, o));
       } finally { if (sc.testMap) delete MAPS[sc.map]; }
-      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality, weather: o.weather || 'clear' });
+      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality, weather: o.weather || 'clear', time: (o.time || 'day') + (Number.isFinite(o.at) ? ' from ' + o.at : '') });
     }
     Game.quitToMenu();
     return out;
@@ -14558,6 +14646,7 @@ const SelfTest = {
     Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish });
     UI.needResize = true; UI.resizeIfNeeded();
     for (let i = 0; i < o.warm; i++) Game.tick(STEP);
+    if (Clock.cycle && Number.isFinite(o.at)) { Clock.start = ((o.at - Weather.clock() * 24 / TIME_CYCLE_SECONDS) % 24 + 24) % 24; Weather.update(0); }   // the timed frames start at hour `at`
     const ms = [];
     for (let i = -BENCH_UNTIMED; i < o.frames; i++) {   // the first frames upload meshes: draw them untimed
       const t0 = performance.now();
@@ -15052,6 +15141,14 @@ const SelfTest = {
       this.check('a semi-auto weapon needs a fresh trigger pull', pl.wslots.secondary.predCd === 0);
       pl.cmd.fire2Edge = true; Net.predictFire(STEP);
       this.check('a trigger pull fires the predicted shot', pl.wslots.secondary.predCd > 0 && pl.recoil === 1);
+      // the host's snapshot says when the guest swims, and a swimming guest predicts no shots
+      const peer = Object.assign(Net.newPeer(), { p: pl, stats: newStats() });
+      pl.swimming = true;
+      const me = Net.selfState(peer);
+      pl.swimming = false; pl.recoil = 0; mg.predCd = 0; pl.cmd.fire1 = true; pl.cmd.fire2 = false;
+      Net.applySelf(me);
+      Net.predictFire(STEP);
+      this.check('a guest whose snapshot says it swims predicts no shots', me.sm === 1 && pl.swimming && pl.recoil === 0 && mg.predCd === 0);
     });
     t('spectating', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
@@ -16043,11 +16140,11 @@ const SelfTest = {
         let basesOk = true, citiesOk = true, why = '';
         for (const seed of [2, 7, 31, 404]) {
           const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'testpeaks', seed }));
-          for (const b of [L.own, L.foe]) if (!Terrain.siteFlat(md, b.x, b.z, FORT.r, BASE_MAX_SLOPE)) { basesOk = false; why = 'seed ' + seed + ' base ' + Math.round(b.x) + ',' + Math.round(b.z); }
-          for (const c of L.lay.cities) if (!Terrain.siteFlat(md, c.x, c.z, c.r, SITE_MAX_SLOPE)) { citiesOk = false; why = 'seed ' + seed + ' ' + c.kind; }
-        }
-        this.check('skirmish bases on a mountain map stand on gentle ground', basesOk, why);
-        this.check('skirmish districts on a mountain map never sit on slopes above ' + SITE_MAX_SLOPE + ' deg', citiesOk, why);
+          // the whole ground each site levels (Scenery.sitesFor adds SITE_PAD; siteFlat adds the fade)
+          for (const b of [L.own, L.foe]) if (!Terrain.siteFlat(md, b.x, b.z, FORT.r + SITE_PAD, BASE_MAX_SLOPE)) { basesOk = false; why = 'seed ' + seed + ' base ' + Math.round(b.x) + ',' + Math.round(b.z); }
+          for (const c of L.lay.cities) if (!Terrain.siteFlat(md, c.x, c.z, c.r + SITE_PAD, SITE_MAX_SLOPE)) { citiesOk = false; why = 'seed ' + seed + ' ' + c.kind; }        }
+        this.check('skirmish bases on a mountain map stand on gentle ground, levelled ground included', basesOk, why);
+        this.check('skirmish districts on a mountain map never sit on slopes above ' + SITE_MAX_SLOPE + ' deg, levelled ground included', citiesOk, why);
         // a real battle on the mountain map
         let err = '';
         try {
@@ -16062,14 +16159,30 @@ const SelfTest = {
         jet.y = Terrain.maxIn(-200, -200, 200, 200) + 120;
         this.check('no pull-up warning high above the range', !pullUpWarning(jet));
       } finally { delete MAPS.testpeaks; S.difficulty = keepDiff; Game.quitToMenu(); }
+      // the original battlefields have no slope limit (D17, D32): their steepest ground blocks and slides nothing, as before
+      for (const id of ['ashfall', 'verdant', 'frost']) {
+        newWorld({ map: id, mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null;
+        let sx = 0, sz = 0, worst = 0;
+        for (let z = -GROUND_BOUND; z <= GROUND_BOUND; z += 16) for (let x = -GROUND_BOUND; x <= GROUND_BOUND; x += 16) { const s = Terrain.slope(x, z); if (s > worst) { worst = s; sx = x; sz = z; } }
+        Terrain.normal(sx, sz, TMP_V);
+        const ux = -TMP_V.x / Math.hypot(TMP_V.x, TMP_V.z), uz = -TMP_V.z / Math.hypot(TMP_V.x, TMP_V.z);   // uphill
+        const tank = new Platform(PLATFORMS.bastion, { team: 1, x: sx, z: sz, yaw: 0, loadout: PLATFORMS.bastion.loadout });
+        tank.slideDown(1);
+        const still = tank.x === sx && tank.z === sz, below = Terrain.h(sx - ux * 2, sz - uz * 2);
+        this.check('battlefield ' + id + ': a tank on its steepest ground (' + Math.round(Math.atan(worst) / DEG) + ' deg) is never blocked uphill, slid or steered away for the slope',
+          mapDef(id).maxSlope === Infinity && tank.climbTan === Infinity && worst > Math.tan(MAP_FIELDS.maxSlope * DEG) && !tank.climbBlocked(sx - ux * 2, sz - uz * 2) && still && !steepUphill(tank, sx, sz, below),
+          'at ' + sx + ',' + sz);
+      }
       // climbing: a tank cannot drive up 45 deg, climbs 20 deg; infantry climb 36 deg; the AI steers away from too-steep ground
+      MAPS.testpeaks = TEST_PEAKS_MAP;   // a map with a slope limit
       const drive = (p, ticks, jump) => {
         let top = p.y;
         for (let i = 0; i < ticks; i++) { p.cmd.moveF = 1; p.cmd.aimYaw = 0; p.cmd.jump = jump; p.update(STEP); top = Math.max(top, p.y); }
         return top;
       };
       const climb = (defId, deg, z0, run) => {   // rise (m) after 2 s of full throttle at a ramp, and the platform
-        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+        newWorld({ map: 'testpeaks', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
         W.mission = null;
         this.rampTerrain(deg, run);
         const def = PLATFORMS[defId], p = new Platform(def, { team: 0, x: 0, z: z0, yaw: 0, loadout: def.loadout });
@@ -16097,12 +16210,17 @@ const SelfTest = {
       this.rampTerrain(20);
       ai.steerAround(0, 1);
       this.check('the AI drives straight up a gentle slope', ai.moveDir.z > 0.99);
+      delete MAPS.testpeaks;
       Game.quitToMenu();
     });
     t('water', () => {
       const keepDiff = S.difficulty;
       MAPS.testwater = TEST_WATER_MAP;
       try {
+        // the water shaders link everywhere: a uniform in both would need the same precision, and mobile fragment shaders may lack highp
+        const uniforms = (src) => Array.from(src.matchAll(/uniform\s+\w+\s+(\w+)/g), (u) => u[1]);
+        const shared = uniforms(WATER_VS).filter((u) => uniforms(WATER_FS).indexOf(u) >= 0);
+        this.check('the water vertex and fragment shaders share no uniform', shared.length === 0 && uniforms(WATER_VS).length > 0, shared.join(', '));
         // the original battlefields have no water and keep their heights
         for (const id of ['ashfall', 'verdant', 'frost']) {
           const m = mapDef(id);
@@ -16118,6 +16236,21 @@ const SelfTest = {
         delete Terrain.baseGrids[gk]; delete Terrain.baseWater[gk];
         this.check('a water battlefield carves the same heights and water twice', this.terrainHash('testwater') === h1 && waterHash() === w1);
         this.check('the water spec is part of the terrain key', Terrain.gridKey(md) !== Terrain.gridKey(Object.assign({}, md, { water: [] })));
+        // every map with water: no water outside the carve (a grid point no body reached reads dry), and banks a vehicle can climb
+        for (const id of Object.keys(MAPS).filter((k) => mapDef(k).water.length)) {
+          const m = mapDef(id), grid = Terrain.baseGrid(m), L = Terrain.baseWater[Terrain.gridKey(m)].levels, N = Terrain.N, G = Terrain.G, lim = Math.tan(m.maxSlope * DEG);
+          Terrain.build(m, []);
+          let ghosts = 0, ghostAt = '', steep = 0, steepAt = '';
+          for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+            const x = -WORLD_HALF + i * G, z = -WORLD_HALF + j * G, o = j * (N + 1) + i;
+            if (L[o] === -Infinity && Water.depth(x, z) > 0.05) { ghosts++; ghostAt = x + ',' + z; }
+            if (Math.max(Math.abs(x), Math.abs(z)) > GROUND_BOUND || grid[o] === Terrain.baseHeight(x, z, m)) continue;   // carved ground a unit can reach
+            const s = Terrain.slope(x, z);
+            if (s > lim) { steep++; steepAt = x + ',' + z + ' ' + (Math.atan(s) / DEG).toFixed(1) + ' deg'; }
+          }
+          this.check('battlefield ' + id + ' has no water outside its carved bodies', ghosts === 0, ghosts + ' wet grid points, last at ' + ghostAt);
+          this.check('battlefield ' + id + ' carves no bank or channel wall steeper than its maxSlope', steep === 0, steep + ' points, last at ' + steepAt);
+        }
         newWorld({ map: 'testwater', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 300, yaw: 0 } });
         W.mission = null;
         Roads.build(W.map);
@@ -16139,14 +16272,22 @@ const SelfTest = {
         // building sites stay dry
         this.check('the site check rejects the lake shore and accepts dry ground', !Water.siteDry(md, lake.x + lake.r, lake.z, 60) && Water.siteDry(md, 0, 300, 60) && Water.siteDry(mapDef('ashfall'), 0, 0, 300));
         let sitesOk = true, why = '';
-        for (const seed of [2, 7, 31]) {
+        for (const seed of [2, 5, 7, 31]) {   // seed 5 once ran out of tries and fell back to bases in the sea
           const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'testwater', seed }));
-          for (const c of L.lay.cities.concat(L.lay.bases)) if (!Water.siteDry(md, c.x, c.z, c.r)) { sitesOk = false; why = 'seed ' + seed + ' ' + (c.kind || c.style); }
+          for (const c of L.lay.cities.concat(L.lay.bases)) if (!Water.siteDry(md, c.x, c.z, c.r + SITE_PAD + SITE_FADE)) { sitesOk = false; why = 'seed ' + seed + ' ' + (c.kind || c.style); }
         }
-        this.check('skirmish bases and districts never stand in water', sitesOk, why);
+        this.check('skirmish bases and districts never stand in water, nor does the ground they level', sitesOk, why);
         // bridges where the road crosses the river, and a tank drives over one
         const over = W.bridges.filter((b) => Water.depth(b.x, b.z) > 1);
         this.check('a bridge stands where the road crosses the river', over.length > 0 && over.every((b) => b.top >= Water.level(b.x, b.z) + BRIDGE_CLEAR - 0.01) && !!W.roadData, W.bridges.length + ' sections');
+        // the deck grid finds the same deck as testing every section
+        const deckScan = (x, z, y) => { let best = -Infinity; for (const s of W.bridges) if (!s.destroyed && y >= s.top - BRIDGE_STEP && s.top > best && Math.abs(x - s.x) <= s.hx && Math.abs(z - s.z) <= s.hz) best = s.top; return best; };
+        let deckMiss = 0;
+        for (const b of W.bridges) for (let k = 0; k < 9; k++) {
+          const x = b.x + ((k % 3) - 1) * b.hx * 1.2, z = b.z + (Math.floor(k / 3) - 1) * b.hz * 1.2;
+          for (const y of [b.top, b.top - 2, Infinity]) if (Water.deckTop(x, z, y) !== deckScan(x, z, y)) deckMiss++;
+        }
+        this.check('the deck grid finds the same bridge decks as a scan of every section', deckMiss === 0 && Water.deckTop(0, 300, Infinity) === -Infinity, deckMiss + ' misses');
         const road = md.roads[0].pts, ry = Math.atan2(road[2][0] - road[1][0], road[2][1] - road[1][1]);
         const z0 = W.bridges[0].z - 12, x0 = lerp(road[1][0], road[2][0], (z0 - road[1][1]) / (road[2][1] - road[1][1]));
         const tank = new Platform(PLATFORMS.bastion, { team: 0, x: x0, z: z0, yaw: ry, loadout: PLATFORMS.bastion.loadout });
@@ -16191,6 +16332,15 @@ const SelfTest = {
         this.check('a swimmer cannot fire (a soldier on land can)', shots(swimmer) === s0 && shots(walker) < k0);
         swimmer.cmd.jump = true; swimmer.update(STEP);
         this.check('a swimmer cannot jump', !swimmer.jetting && swimmer.grounded);
+        // every human gets the water warnings, a co-op guest's platform on the host too (its warning goes out in the snapshot)
+        const guestSwim = new Platform(PLATFORMS.ranger, { team: 0, x: lake.x + 4, z: lake.z, yaw: 0, loadout: PLATFORMS.ranger.loadout });
+        const guestTank = new Platform(PLATFORMS.bastion, { team: 0, x: lake.x - 6, z: lake.z, yaw: 0, loadout: PLATFORMS.bastion.loadout });
+        const aiSwim = new Platform(PLATFORMS.ranger, { team: 0, x: lake.x, z: lake.z + 5, yaw: 0, loadout: PLATFORMS.ranger.loadout });
+        guestSwim.isPlayer = guestTank.isPlayer = true;
+        W.platforms.push(guestSwim, guestTank, aiSwim);
+        for (let i = 0; i < 10; i++) for (const p of [guestSwim, guestTank, aiSwim]) { W.time += STEP; p.update(STEP); }
+        this.check('a co-op guest on the host gets the swimming and flooding warnings (AI units do not)', guestSwim !== W.player && guestTank !== W.player && guestSwim.warn === 'SWIMMING: CANNOT FIRE' && guestTank.warn === 'ENGINE FLOODED' && aiSwim.swimming && aiSwim.warn === '',
+          guestSwim.warn + ' / ' + guestTank.warn + ' / ' + aiSwim.warn);
         // aircraft that touch water crash
         const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 900, z: 0, yaw: 0, y: 6, loadout: PLATFORMS.kestrel.loadout });
         W.platforms.push(jet);
@@ -16214,6 +16364,19 @@ const SelfTest = {
         };
         const ratio = hurt(lake.x, lake.z) / hurt(0, 300);
         this.check('a blast at the water surface deals about WATER_SPLASH_MULT of its damage', Math.abs(ratio - WATER_SPLASH_MULT) < 0.1, ratio.toFixed(2));
+        // a blast on a bridge deck over the river is a blast on land: full damage and no splash
+        // (the deck is lowered to splash height for the test: a blast that close above open water would splash)
+        const deck = over[0], splashFn = Water.splash, deckTop0 = deck.top, dryAt = { x: -100, z: 650 };
+        let splashes = 0, deckRatio = 0;
+        Water.splash = function () { splashes++; return splashFn.apply(this, arguments); };
+        try {
+          deck.top = Water.level(deck.x, deck.z) + WATER_SPLASH_REACH * 0.8;
+          const p = new Platform(PLATFORMS.kestrel, { team: 0, x: deck.x + 3, z: deck.z, yaw: 0, y: deck.top + 2, loadout: PLATFORMS.kestrel.loadout });
+          W.platforms.push(p);
+          explode(deck.x, deck.top, deck.z, 8, 200, 'explosive', null);
+          deckRatio = (p.maxHp - p.hp + p.maxArmor - p.armor) / hurt(dryAt.x, dryAt.z);
+        } finally { Water.splash = splashFn; deck.top = deckTop0; }
+        this.check('a blast on a bridge deck over water deals full damage and makes no splash', Water.depth(dryAt.x, dryAt.z) === 0 && Math.abs(deckRatio - 1) < 0.05 && splashes === 0, deckRatio.toFixed(2) + ', ' + splashes + ' splashes');
         // debris sinks into the lake and is gone soon after
         const n0 = W.debris.length;
         spawnDebris(lake.x, lakeY + 3, lake.z, 6, 1, 4);
@@ -16242,6 +16405,20 @@ const SelfTest = {
         const mechAi = attachAI(aiMech, 'medMech', W.diff);
         mechAi.steerAround(0, 1);
         this.check('the AI lets a mech wade a river', mechAi.moveDir.z > 0.99);
+        // a hovercraft over water ignores the slope of the bed below: a 45 deg bed under the lake neither blocks, slides nor steers it
+        const N = Terrain.N, G = Terrain.G, RAMP = 32;
+        for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+          const x = -WORLD_HALF + i * G, z = -WORLD_HALF + j * G;
+          if (Math.abs(x - lake.x) <= RAMP && Math.abs(z - lake.z) <= RAMP) Terrain.heights[j * (N + 1) + i] = lakeY - 2 - (lake.z + RAMP - z);
+        }
+        const hover = new Platform(PLATFORMS.specter, { team: 1, x: lake.x, z: lake.z, yaw: 0, loadout: PLATFORMS.specter.loadout });
+        const sunk = new Platform(PLATFORMS.bastion, { team: 1, x: lake.x, z: lake.z, yaw: 0, loadout: PLATFORMS.bastion.loadout });
+        const hoverAi = attachAI(hover, 'tank', W.diff);
+        hover.slideDown(1);
+        hoverAi.steerAround(0, 1);
+        this.check('a hovercraft over water is not held back by a steep bed below (a tank there is)', Terrain.slope(lake.x, lake.z) > hover.climbTan && hover.x === lake.x && hover.z === lake.z && !hover.climbBlocked(lake.x, lake.z - 2) && sunk.climbBlocked(lake.x, lake.z - 2) && hoverAi.moveDir.z > 0.99,
+          'dir ' + hoverAi.moveDir.x.toFixed(2) + ',' + hoverAi.moveDir.z.toFixed(2));
+        Terrain.heights.set(Terrain.current.heights);
         // a battle on the water map, drawn: one water draw per visible chunk at most, and the camera knows when it is under water
         let err = '';
         try {
@@ -16254,9 +16431,19 @@ const SelfTest = {
           this.check('nothing but bridges is built in water', !wetStruct, wetStruct && wetStruct.type + ' at ' + Math.round(wetStruct.x) + ',' + Math.round(wetStruct.z));
           Object.assign(W.player, { x: lake.x, z: lake.z, y: Terrain.h(lake.x, lake.z) });
           Cam.update(STEP); Game.render(STEP);
-          const chunks = Water.meshData().chunks.length;
-          this.check('the water surface takes at most one draw per chunk', R.waterDraws > 0 && R.waterDraws <= chunks, R.waterDraws + ' of ' + chunks);
-          this.check('the renderer knows when the camera is under water', R.under === Water.under(R.cam.x, R.cam.y, R.cam.z));
+          // the camera under the lake, then above dry land
+          const view = (x, y, z) => { R.beginFrame({ x, y, z, tx: x + 10, ty: y, tz: z }, 70); return R.under; };
+          const dryY = Terrain.h(0, 300) + 10, underLake = view(lake.x, lakeY - 2, lake.z), overLand = view(0, dryY, 300);
+          this.check('the renderer knows when the camera is under water', underLake === true && overLand === false && lakeY - 2 > Terrain.h(lake.x, lake.z) + 1);
+          // exactly one draw per chunk in view: every chunk from high above (with a long draw distance), none looking out past the west edge
+          const chunks = Water.meshData().chunks, keepDist = R.drawDist;
+          let all = -1, none = -1;
+          try {
+            R.drawDist = 5000;
+            R.beginFrame({ x: 0, y: 2000, z: -60, tx: 0, ty: 0, tz: 0 }, 70); R.drawWater(chunks, 0); all = R.waterDraws;
+            R.beginFrame({ x: -990, y: 30, z: 0, tx: -2000, ty: 30, tz: 0 }, 70); R.drawWater(chunks, 0); none = R.waterDraws;
+          } finally { R.drawDist = keepDist; }
+          this.check('the water surface takes exactly one draw per chunk in view', chunks.length > 1 && all === chunks.length && none === 0, all + ' of ' + chunks.length + ' from above, ' + none + ' looking away');
         }
       } finally { delete MAPS.testwater; S.difficulty = keepDiff; Game.quitToMenu(); }
     });
@@ -16302,6 +16489,28 @@ const SelfTest = {
         Weather.begin(md, { weather: 'clear', time: 'day', seed: 1 });
         Precip.update(STEP, { x: 0, y: 10, z: 0 }); R.drawPrecip(Precip);
         this.check('clear weather draws no particles', Precip.n === 0 && R.precipDraws === 0);
+        // paused (no world time passes): a drawn frame leaves the rain hanging where it is
+        Weather.begin(md, { weather: 'rain', time: 'day', seed: 1 });
+        Game.render(STEP);
+        const drops = Array.from(Precip.y.subarray(0, Precip.n));
+        Game.render(STEP); Game.render(STEP);
+        this.check('rain does not fall while the game is paused', drops.length > 0 && Precip.n === drops.length && drops.every((y, i) => y === Precip.y[i]), drops.length + ' drops');
+        // windows light up a few buildings per frame, never more than TIME_RELIGHT_BUDGET
+        {
+          for (let k = 0; k < TIME_RELIGHT_BUDGET * 3; k++) Bld.make('office', -120 + k * 40, 160, makeRng(k + 1));
+          R.beginFrame({ x: 0, y: 260, z: -80, tx: 0, ty: 0, tz: 160 }, 70);
+          for (const b of W.buildings) Bld.draw(b);   // first meshes (never held back)
+          Clock.relight();
+          W.time += TIME_RELIGHT_SPREAD * 0.05 + 1;   // every building is due
+          let worstFrame = 0, frames = 0;
+          for (; frames < 400 && W.buildings.some((b) => b.relit && R.visible(b.cx, b.cy, b.cz, b.radius)); frames++) {
+            const before = W.buildings.filter((b) => b.relit).length;
+            Bld.relightLeft = TIME_RELIGHT_BUDGET;
+            for (const b of W.buildings) Bld.draw(b);
+            worstFrame = Math.max(worstFrame, before - W.buildings.filter((b) => b.relit).length);
+          }
+          this.check('relighting windows re-writes at most TIME_RELIGHT_BUDGET buildings per frame', worstFrame === TIME_RELIGHT_BUDGET && frames > 1 && frames < 400, worstFrame + ' at most, ' + frames + ' frames');
+        }
         // storm flashes come from the seed and the clock (the same on host and guests), and reach the lightning hook
         let hooked = 0;
         const flashes = (id) => { Weather.begin(md, { weather: id, time: 'day', seed: 9 }); for (W.time = 0; W.time < 120; W.time += 0.25) Weather.update(0.25); return Weather.flashes; };
@@ -16361,11 +16570,16 @@ const SelfTest = {
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
+      // every build starts from nothing (no cached terrain, base grid or water), so carving that is not deterministic shows
+      const fresh = (cfg) => { Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {}; Game.startSession(cfg); return worldHash(); };
       try {
-        Game.startSession(sk(5)); const h1 = worldHash();
-        Game.startSession(sk(5)); const h2 = worldHash();
-        Game.startSession(sk(6)); const h3 = worldHash();
+        const h1 = fresh(sk(5)), h2 = fresh(sk(5)), h3 = fresh(sk(6));
         this.check('two builds of the same battle have the same world hash, another seed a different one', h1 === h2 && h1 !== h3, h1 + ' ' + h2 + ' ' + h3);
+        MAPS.testwater = TEST_WATER_MAP;
+        const skw = Object.assign(sk(5), { skirmish: Object.assign(sk(5).skirmish, { map: 'testwater' }) });
+        let w1 = 0, w2 = 1;
+        try { w1 = fresh(skw); w2 = fresh(skw); } finally { delete MAPS.testwater; }
+        this.check('two builds of the same battle on the water map have the same world hash', w1 === w2 && Water.any, w1 + ' ' + w2);
         // loopback: the host's start carries the env and the hash; a guest whose world differs leaves with a message
         const sent = [], peer = Net.newPeer();
         Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', tx: (str) => sent.push(JSON.parse(str)) });
@@ -16375,6 +16589,7 @@ const SelfTest = {
         this.check('the co-op start carries the env and the world hash', st && st.wh === worldHash() && st.cfg.env && st.cfg.env.weather === 'clear' && st.cfg.env.time === 'day', st && JSON.stringify(st.cfg.env));
         let left = '';
         Net.host = false; Net.guest = true; Net.peers = []; Net.hostPeer = { tx() {} }; Net.leave = (why) => { left = why || 'left'; };
+        Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {};   // the guest builds its world from nothing
         if (st) Net.guestStart(st);
         this.check('a guest with the same world stays', st && left === '' && W.structs.length === st.ns, left);
         if (st) Net.guestStart(Object.assign({}, st, { wh: (st.wh + 1) >>> 0 }));
@@ -16776,7 +16991,7 @@ const Net = {
       w: SLOT_ORDER.map((s) => { const w = p.wslots[s]; return w ? [w.clip, w.reserve, r2(w.cd), r2(w.reloading), r2(w.charge)] : null; }),
       as: SLOT_ORDER.indexOf(p.activeSlot), u: p.util ? [p.util.charges, r1(p.util.cd), p.util.auto ? 1 : 0] : null,
       lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
-      th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked),
+      th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked), sm: p.swimming ? 1 : 0,
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: 0,
       k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
     };
@@ -16942,7 +17157,7 @@ const Net = {
     const lockState = LOCK_STATES[me.lk[0]] || 'none';
     if (lockState === 'locked' && gp.lock.state !== 'locked') Snd.ui('lockDone');
     gp.lock.state = lockState; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = me.lk[3] ? (this.map[me.lk[3]] || null) : null;
-    gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl;
+    gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl; gp.swimming = !!me.sm;
     gp.warnIncoming = gp.netInc = { count: me.inc[0], dist: me.inc[1] }; gp.crouch = !!me.cr; gp.radarFocus = !!me.rf; gp.airbrake = !!me.abk;
     W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2]; W.stats.bestStreak = me.k[3] | 0;
     if (gp && gp.sw && Number.isFinite(me.sw) && me.sw >= 0) { gp.sw.charge = clamp(me.sw, 0, 1); gp.sw.ready = gp.sw.charge >= 1; }
@@ -17027,7 +17242,7 @@ const Net = {
   predicts(d) { return d.fire === 'auto' || d.fire === 'semi'; },
   predictFire(dt) {
     const p = W.player;
-    if (!p || p.dead || p.overheated) return;
+    if (!p || p.dead || p.overheated || p.swimming) return;   // a swimmer cannot fire (the host's snapshot says so)
     this.predictSlot(p, p.primary, p.cmd.fire1, p.cmd.fire1Edge, dt);
     this.predictSlot(p, p.wslots.secondary, p.cmd.fire2, p.cmd.fire2Edge, dt);
   },
