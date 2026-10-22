@@ -172,11 +172,11 @@ Test.add('input', (check) => {
 Test.add('input', (check) => {
   const id = startInputMatch();
   setInputSetting('controls.toggle.crouch', 'toggle');
-  inputKeyEvent('KeyC', true); inputKeyEvent('KeyC', false); Input.frame(INPUT_TEST_FRAME);
+  inputTapKey('KeyC'); Input.frame(INPUT_TEST_FRAME);
   check('toggle: one press turns crouch on and it stays on', (Actors.buttons[id] & BTN.CROUCH) !== 0);
   inputStepAndFrame();
   check('toggle: still on after the key was released', (Actors.buttons[id] & BTN.CROUCH) !== 0);
-  inputKeyEvent('KeyC', true); inputKeyEvent('KeyC', false); inputStepAndFrame(); inputStepAndFrame();
+  inputTapKey('KeyC'); inputStepAndFrame(); inputStepAndFrame();
   check('toggle: the second press turns it off', (Actors.buttons[id] & BTN.CROUCH) === 0);
   setInputSetting('controls.toggle.crouch', 'hold');
   inputKeyEvent('KeyC', true); Input.frame(INPUT_TEST_FRAME);
@@ -255,19 +255,19 @@ Test.add('input', (check) => {
   check('rebind: reset all clears every saved binding', Object.keys(Save.data.bindings).length === 0);
   let captured = 'none';
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('KeyP', true); inputKeyEvent('KeyP', false);
+  inputTapKey('KeyP');
   check('capture: the next key goes to the rebinding screen, not to an action', captured === 'Key:KeyP' && Input.capture === null);
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('Escape', true); inputKeyEvent('Escape', false);
+  inputTapKey('Escape');
   check('capture: Esc cancels', captured === null && Game.paused === false);
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('Backspace', true); inputKeyEvent('Backspace', false);
+  inputTapKey('Backspace');
   check('capture: Backspace clears the slot', captured === '');
   Input.captureNext('kbm', (binding) => { captured = binding; });
   inputMouseButton(4, true); inputMouseButton(4, false);
   check('capture: mouse buttons can be captured', captured === 'Mouse:4');
   Input.captureNext('pad', (binding) => { captured = binding; });
-  inputKeyEvent('KeyP', true); inputKeyEvent('KeyP', false);
+  inputTapKey('KeyP');
   check('capture: a key does not satisfy a controller capture', captured === 'Mouse:4' && Input.capture !== null);
   Input.cancelCapture();
   id = startInputMatch();
@@ -354,7 +354,7 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
   startInputMatch();
-  inputKeyEvent('KeyW', true); inputKeyEvent('KeyW', false);
+  inputTapKey('KeyW');
   check('device: keyboard sets kbm', Input.device === 'kbm');
   window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', pointerId: 77, bubbles: true }));
   check('device: a touch sets touch', Input.device === 'touch');
@@ -363,7 +363,7 @@ Test.add('input', (check) => {
   check('device: a pad press sets gamepad', Input.device === 'gamepad');
   const events = [];
   const listener = Bus.on('input.device', (payload) => events.push(payload.device));
-  inputKeyEvent('KeyW', true); inputKeyEvent('KeyW', false);
+  inputTapKey('KeyW');
   Bus.off('input.device', listener);
   check('device: a change emits input.device once', events.join() === 'kbm');
 });
@@ -889,6 +889,7 @@ function inputAutoFireShots(id, weapon) {
   return shots;
 }
 function inputPadPress(pad, index, down) { inputPadButton(pad, index, down); PadInput.poll(pad, INPUT_TEST_FRAME); }
+function inputPadTap(pad, index) { inputPadPress(pad, index, true); inputPadPress(pad, index, false); }
 Test.add('input', (check) => {
   const id = startInputMatch(true); Input.setDevice('touch');
   TestArena.place(id, 0, 0);
@@ -927,7 +928,7 @@ Test.add('input', (check) => {
   const sprint = Input.actionIndex.sprint, pad = inputFakePad();
   inputPadPress(pad, 10, true); inputPadPress(pad, 10, false);
   check('sprint: one L3 click turns it on', Input.effective[sprint] === 1);
-  inputPadPress(pad, 10, true); inputPadPress(pad, 10, false);
+  inputPadTap(pad, 10);
   check('sprint: the second click turns it off', Input.effective[sprint] === 0);
   inputKeyEvent('ShiftLeft', true);
   check('sprint: the key is still a hold', Input.effective[sprint] === 1);
@@ -947,7 +948,7 @@ Test.add('input', (check) => {
   check('pad capture: View waits for a chord', got === 'none', got);
   inputPadPress(pad, 1, true); letGo();
   check('pad capture: View then B is a chord', got === 'Pad:8+1', got);
-  capture(); inputPadPress(pad, 8, true); inputPadPress(pad, 8, false);
+  capture(); inputPadTap(pad, 8);
   check('pad capture: View alone binds View', got === 'Pad:8', got);
   capture(); inputPadPress(pad, 9, true); PadInput.poll(pad, 1.1); letGo();
   check('pad capture: holding Start cancels', got === null && Input.capture === null, String(got));
@@ -1001,7 +1002,7 @@ Test.add('input', (check) => {
   const perFrame = (performance.now() - started) / 4000;   // one batch: a 1 ms timer (Firefox, Safari) still resolves 0.25 us per call
   const kept = Actors.moveZ[id] === 1;
   inputKeyEvent('KeyW', false);
-  check('perf: a frame of input sampling costs far below the 0.4 ms budget', perFrame < 0.4, perFrame.toFixed(4) + ' ms');
+  check('perf: a frame of input sampling costs within the 0.4 ms budget', perFrame < 0.4, perFrame.toFixed(4) + ' ms');
   check('perf: sampling kept the player input valid', kept);
   Game.pause('menu');
   const sources = Input.sources;
