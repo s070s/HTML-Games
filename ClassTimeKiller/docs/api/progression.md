@@ -61,7 +61,7 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
 | `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
 | `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
-| `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
+| `pve.boss` | `{ kind, seconds, final }` | card unlocks (boss times): only `kind: 'defeated'` is a boss time (S14 14k) |
 | `pve.crate` | `{ id }` | Marks per crate |
 
 `match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` at the end of a PvE level; missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.

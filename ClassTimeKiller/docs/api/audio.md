@@ -21,7 +21,7 @@ Cost: `Sound.updateMs` (last frame), `Sound.peakUpdateMs`; the loop (S19) copies
 | `Sound.play(recipeId, x?, y?, z?, sourceActorId?)` | Queue a sound by recipe id. Without `x` it is not positional (centred, no filtering). |
 | `Sound.enqueue(recipeIndex, positional, x, y, z, source, gain, pitch)` | Allocation-free form used by the event glue. |
 | `Sound.recipeIndex(id)` | Index of a recipe, -1 when unknown. `Sound.recipes[index]`, `Sound.recipeById.get(id)`. |
-| `Sound.setMusicMood(name)` | `'auto'` (default, follows combat intensity), `'calm'`, `'combat'`, `'boss'`. Returns false for other names. Menus always play calm. |
+| `Sound.setMusicMood(name)` | `'auto'` (default, follows combat intensity; the boss layer while a boss fights: `pve.boss` start until defeated, match end or stop), `'calm'`, `'combat'`, `'boss'`. Returns false for other names. Menus always play calm. |
 | `Sound.speak(text)` | Reads text with `speechSynthesis` when `audio.speech` is on (Q3). Called automatically for `announce`. |
 | `Sound.unlock()` | Create/resume the context. Called on `pointerdown`, `pointerup`, `keydown`, `touchend`, `click` and on a gamepad button press. |
 | `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz) -> bool` | Hook filled by S08 at load (`08a-world.js`): true when nothing solid lies between the points (`World.lineClear`). `null` means nothing is occluded. |

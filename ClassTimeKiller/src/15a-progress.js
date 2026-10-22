@@ -395,6 +395,7 @@ Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunL
 // PvE reports (PvE section, docs/api/progression.md): an optional second Wrath Form source and boss times.
 Bus.on('pve.wrath', (event) => RunLog.setWrath(event.id, event.active !== false));
 Bus.on('pve.boss', (event) => {
+  if (event.kind !== 'defeated') return;   // phase, weak and start reports carry no boss time
   RunLog.bossSeconds = Math.min(RunLog.bossSeconds, event.seconds);
   if (event.final) RunLog.finalBossSeconds = Math.min(RunLog.finalBossSeconds, event.seconds);
 });
