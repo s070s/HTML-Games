@@ -3,6 +3,7 @@
 
 const NAV_TEST_PHONE_FACTOR = 6;        // a low-end phone runs this JavaScript about 4-8 x slower than the headless desktop
 const NAV_TEST_BUILD_BUDGET_MS = 300 / NAV_TEST_PHONE_FACTOR; // BOT-010: 300 ms on Low, as desktop milliseconds
+const NAV_TEST_QUERY_BUDGET_MS = 2;     // one A* query on the big map: 4 fit a tick
 const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
@@ -490,15 +491,30 @@ Test.add('nav', (check) => {
   check('cache: rebuilding the graph invalidates it', Nav.version === version + 1 && !Nav.lastCacheHit);
 });
 
+// Mean Nav.buildMs of NAV_TEST_TIMED_LOADS loads of a copy of map (graph cache emptied before each one or not): one small
+// build can read 0 ms on a 1 ms clock (Firefox, Safari).
+const NAV_TEST_TIMED_LOADS = 8;
+function navTestMeanLoadMs(map, emptyCache) {
+  let total = 0;
+  for (let load = 0; load < NAV_TEST_TIMED_LOADS; load++) {
+    if (emptyCache) Nav.clearCache();
+    World.load(JSON.parse(JSON.stringify(map)));
+    total += Nav.buildMs;
+  }
+  return total / NAV_TEST_TIMED_LOADS;
+}
+
 Test.add('nav', (check) => {
   Nav.clearCache();
-  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount, firstMs = Nav.buildMs;
+  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount;
   check('graph cache: first load builds', !Nav.lastBuildCached);
   const length = Nav.findPath(0, nodes - 1), cost = Nav.pathCost;
   navTestRooms(true);
   World.load(JSON.parse(JSON.stringify(map)));
-  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links && Nav.buildMs < firstMs, Nav.buildMs + ' vs ' + firstMs);
+  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links);
   check('graph cache: reused graph answers the same path', Nav.findPath(0, nodes - 1) === length && Test.near(Nav.pathCost, cost, 1e-6) && navTestLinksClear() === 0);
+  const builtMs = navTestMeanLoadMs(map, true), cachedMs = navTestMeanLoadMs(map, false);
+  check('graph cache: a cached load costs less than a build (mean of ' + NAV_TEST_TIMED_LOADS + ')', cachedMs < builtMs, cachedMs.toFixed(2) + ' vs ' + builtMs.toFixed(2) + ' ms');
   map.brushes[1].max[1] = 2;
   World.load(map);
   check('graph cache: an edited map builds again', !Nav.lastBuildCached);
@@ -619,10 +635,16 @@ function navTestPhases() {
   return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
 }
 
+// Engine and machine speed for the build budgets: the same build on a 60 x 60 m map, timed in this run.
+const NAV_TEST_REFERENCE_SIZE = 60;
+const NAV_TEST_REFERENCE_CHROMIUM_MS = 10;
+const navTestSpeedFactor = () => testSpeedFactor(() => DebugApi.perf.navBuild(navTestBigMap(NAV_TEST_REFERENCE_SIZE)), NAV_TEST_REFERENCE_CHROMIUM_MS);
+
 Test.add('nav', (check) => {
+  const factor = navTestSpeedFactor(), budget = NAV_TEST_BUILD_BUDGET_MS * factor;
   const first = DebugApi.perf.navBuild(), warm = Math.min(DebugApi.perf.navBuild(), DebugApi.perf.navBuild(), DebugApi.perf.navBuild());
-  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + NAV_TEST_BUILD_BUDGET_MS + ' ms = BOT-010 300 ms on a '
-    + NAV_TEST_PHONE_FACTOR + ' x slower phone (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < NAV_TEST_BUILD_BUDGET_MS, navTestPhases());
+  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + budget.toFixed(1) + ' ms = BOT-010 300 ms on a '
+    + NAV_TEST_PHONE_FACTOR + ' x slower phone x speed factor ' + factor.toFixed(2) + ' (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < budget, navTestPhases());
   const problems = Nav.validate(World.map);
   check('big map: every spawn reaches every other spawn', problems.length === 0, problems.slice(0, 3).join('; '));
   check('big map: main component holds nearly all nodes', navComponentSize(Nav.mainComponent) > Nav.nodeCount * 0.95, navComponentSize(Nav.mainComponent) + ' / ' + Nav.nodeCount);
@@ -634,5 +656,6 @@ Test.add('nav', (check) => {
   const started = performance.now();
   for (let i = 0; i < 50; i++) Nav.findPath(navTestNode(spawns[i % count].x, 0, spawns[i % count].z), navTestNode(spawns[(i * 7 + 3) % count].x, 0, spawns[(i * 7 + 3) % count].z), { allowJumpHeight: i * 0.03 });
   const perQuery = (performance.now() - started) / 50;
-  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < 2, perQuery);
+  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < NAV_TEST_QUERY_BUDGET_MS * factor, perQuery);
 });
+

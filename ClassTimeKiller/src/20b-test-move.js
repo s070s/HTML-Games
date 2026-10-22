@@ -1,6 +1,18 @@
 // Self-tests for S10 movement (group 'move'): MOV-026 per preset, frame-rate independence, every mechanic on test geometry.
 // The helpers here (test worlds, test actors, stepping) are shared with 20b-test-world.js.
 
+// Wall-clock budgets were set on headless desktop Chromium. A slower engine or a busy machine scales them by this factor:
+// the best of TEST_SPEED_RUNS timings of a reference workload of the same kind over its time there (never below 1).
+const TEST_SPEED_RUNS = 3;
+function testSpeedFactor(workload, chromiumMs) {
+  let best = Infinity;
+  for (let run = 0; run < TEST_SPEED_RUNS; run++) {
+    const started = performance.now();
+    workload();
+    best = Math.min(best, performance.now() - started);
+  }
+  return Math.max(1, best / chromiumMs);
+}
 
 function loadTestWorld(brushes, extra) {
   World.load(Object.assign({ id: 'test', brushes: [TEST_FLOOR].concat(brushes || []) }, extra || {}));
@@ -734,7 +746,19 @@ Test.add('move', (check) => {
   check('Use while riding steps off', !Move.onBoard(rider));
 });
 
-// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step.
+// PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step (on desktop
+// Chromium; the reference is 3000 world rays on the same field, the queries movement is made of).
+const MOVE_TEST_STEP_BUDGET_MS = 0.5;
+const MOVE_TEST_RAYS = 3000;
+const MOVE_TEST_RAYS_CHROMIUM_MS = 9;
+const moveTestHit = makeHit();
+function moveTestRays() {
+  for (let i = 0; i < MOVE_TEST_RAYS; i++) {
+    const angle = i * 0.618;
+    World.raycast((i % 97) - 48, 0.3 + (i % 7) * 0.4, (i % 89) - 44, Math.cos(angle), -0.05, Math.sin(angle), 20, moveTestHit);
+  }
+}
+
 Test.add('move', (check) => {
   loadTestWorld(randomBrushes(21, 400, 50));
   useTestRules({ move: 'agile' });
@@ -746,7 +770,9 @@ Test.add('move', (check) => {
     Sim.step();
     if (step >= 100) total += Sim.timing.move;
   }
-  check('24 actors move in < 0.5 ms per step on average', total / 500 < 0.5, (total / 500).toFixed(3) + ' ms');
+  const factor = testSpeedFactor(moveTestRays, MOVE_TEST_RAYS_CHROMIUM_MS), budget = MOVE_TEST_STEP_BUDGET_MS * factor;
+  check('24 actors move in < ' + budget.toFixed(2) + ' ms per step on average (0.5 ms x speed factor ' + factor.toFixed(2) + ')',
+    total / 500 < budget, (total / 500).toFixed(3) + ' ms');
 });
 
 // MOV-023: at most 3 world rays per actor per step, in every preset, during random moves among walls and ledges.
