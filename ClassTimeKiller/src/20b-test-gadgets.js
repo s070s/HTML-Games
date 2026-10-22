@@ -570,3 +570,23 @@ Test.add('gadgets', (check) => {
   Game.playerId = -1;
   TestArena.finish();
 });
+
+// F42: every gear module starts a round clean; the beacon of the last round does not pull the new round's spawns.
+Test.add('gadgets', (check) => {
+  startModeTest('elim', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 0, 1, 1]);
+  runSeconds(CAT.modes.byId('elim').rounds.freeze + 0.5);
+  const owner = 0;
+  Devices.spawn(CAT.gadgets.byId('claymore'), owner, 0, 0, 3);
+  Devices.spawn(CAT.gadgets.byId('beacon'), owner, 0, 0, 0);
+  Smoke.spawn(CAT.gadgets.byId('smoke'), owner, 0, 1, 10);
+  AbilityZones.add(ZONE_KIND.SMOKE, owner, null, 0, 0, 5, 60);
+  FloorSurfaces.spillUnder(owner, 'oil', owner);
+  Thrown.spawn(CAT.gadgets.byId('frag'), owner, 0, 1, 0, 0, 0, 0, 1000);
+  check('round 1 gear is placed', Devices.count === 2 && Smoke.count > 0 && AbilityZones.count > 0 && FloorSurfaces.active.indexOf(1) >= 0 && GadgetArena.firstThrown() >= 0);
+  Modes.endRound(0, 'test');
+  Modes.nextRound(Sim.time);
+  check('F42 a new round clears devices', Devices.count === 0, Devices.count);
+  check('F42 a new round clears smoke, zones, patches and grenades in the air', Smoke.count === 0 && AbilityZones.count === 0 && FloorSurfaces.active.indexOf(1) < 0 && GadgetArena.firstThrown() < 0);
+  check('F42 the round-start spawn ignores last round beacon', Math.abs(Actors.x[owner]) > 20, Actors.x[owner]);
+  endModeTest();
+});

@@ -154,6 +154,7 @@ Damage.statusHooks.push(surfaceCombo);
 World.addPart({ load: () => FloorSurfaces.clear(), clear: () => FloorSurfaces.clear() });
 Sim.addSystem('surfaces', 57, () => FloorSurfaces.step());
 Render.addSource('surfaces', (batch) => FloorSurfaces.draw(batch));
+Bus.on('round', (event) => { if (event.phase === 'start') FloorSurfaces.clear(); });
 Bus.on('world.break', (event) => FloorSurfaces.onBreak(event));
 Bus.on('explosion', (event) => FloorSurfaces.onExplosion(event));
 // A G04 fire area lights the oil it overlaps, not only oil its pop lands on (the pop is announced with radius 0, 12c).

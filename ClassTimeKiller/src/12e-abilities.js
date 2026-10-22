@@ -409,3 +409,4 @@ Bus.on('weapon.fire', (event) => Abilities.interrupt(event.id, 'fire'));
 Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());
+Bus.on('round', (event) => { if (event.phase === 'start') AbilityZones.clear(); });

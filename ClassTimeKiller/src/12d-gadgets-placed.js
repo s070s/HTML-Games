@@ -54,12 +54,14 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
-  rayDistance: 0,                         // distance of the last rayDevice hit
+  betweenRounds: false,                   // from a round's end to the next round's start: no beacon pulls the new spawns
+  rayDistance: 0,                        // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {
     for (let device = 0; device < DEVICE_CAP; device++) if (this.active[device]) this.remove(device, false);
     this.count = 0;
+    this.betweenRounds = false;
   },
   rowOf(device) { return CAT.gadgets[this.row[device]]; },
   ownedCount(owner, row) {
@@ -341,7 +343,7 @@ const Devices = {
   },
   // G24: a teammate who spawns while the beacon stands appears next to it (when a body fits there).
   onSpawn(id) {
-    if (!this.count) return;
+    if (!this.count || this.betweenRounds) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
       if (this.beaconFor(device, id) && this.moveToBeacon(device, id)) return;
     }
@@ -542,5 +544,7 @@ Bus.on('explosion', (event) => Devices.onExplosion(event));
 Bus.on('kill', (event) => Devices.onDeath(event.victim));
 Bus.on('actor.spawn', (event) => Devices.onSpawn(event.id));
 Bus.on('match.start', () => Devices.clear());
+// The next round's spawns come before its 'start' event: from the 'end' on, no beacon pulls them, and 'start' clears the gear.
+Bus.on('round', (event) => { Devices.betweenRounds = event.phase === 'end'; if (event.phase === 'start') Devices.clear(); });
 Bus.on('match.end', () => Devices.clear());
 Bus.on('match.stop', () => Devices.clear());

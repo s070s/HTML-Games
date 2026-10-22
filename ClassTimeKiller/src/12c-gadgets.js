@@ -876,5 +876,6 @@ Bus.on('kill', (event) => Gadgets.onDeath(event.victim));
 Bus.on('actor.spawn', (event) => Gadgets.equip(event.id));
 Bus.on('actor.create', (id) => Gadgets.resetActor(id));
 Bus.on('match.start', () => Gadgets.clear());
+Bus.on('round', (event) => { if (event.phase === 'start') Gadgets.clear(); });
 Bus.on('match.end', () => Gadgets.clear());
 Bus.on('match.stop', () => Gadgets.clear());
