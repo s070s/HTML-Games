@@ -147,4 +147,4 @@ Emitted: `score` with the new reasons `advance demote infect checkpoint death ho
 
 ### Not built yet
 
-Royale squads (`squadSize`, the downed state with revive and `squadBeacons` respawn beacons; the framework scores at most two teams) and the drop-in start (actors start on the island's spawn points). Royale heals are direct (the I13-I17 consumables belong to the S12 items).
+Royale squads (`squadSize` and `squadBeacons` respawn beacons; the framework scores at most two teams; the downed state and the hold-Use revive are S11, docs/api/weapons-damage.md) and the drop-in start (actors start on the island's spawn points). Royale heals are direct (the I13-I17 consumables belong to the S12 items).

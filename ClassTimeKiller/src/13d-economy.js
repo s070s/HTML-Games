@@ -451,6 +451,7 @@ Abilities.carrierCheck = (id) => {
   return false;
 };
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
+Damage.downedWeapon = (id) => (Economy.hasPerk(id, 'lastStand') ? CAT.perks.byId('laststand').weapon : '');   // ECP04 Last Stand
 // Buy rows and class slots of kind 'gadget' (grenades, ECP04 field upgrades G13/G22/G23/G24 with their row cooldown as the
 // 60-120 s recharge) and 'grant' (wave shop extras such as the core shield: Items.grantEffects) are delivered by S12.
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;

@@ -6,11 +6,11 @@
 // the convoy, relics, the flame, the curse beacon) and royale loot is collected. The chosen goal becomes a state, a
 // destination for 14c and an action (hold, use).
 
-const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9 };
+const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10 };
 const GOAL_NAMES = Object.keys(GOAL).map((name) => name.toLowerCase());
 const GOAL_COUNT = GOAL_NAMES.length;
 const GOAL_STATES = [BOT_STATE.ROAM, BOT_STATE.ROAM, BOT_STATE.ENGAGE, BOT_STATE.CHASE, BOT_STATE.RETREAT, BOT_STATE.COLLECT,
-  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW];
+  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.FOLLOW];
 const ACTION = { MOVE: 0, HOLD: 1, USE: 2 };
 const GOAL_HYSTERESIS = 1.1;            // BOT-020: a new goal must beat the current one by 10%
 const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chosen again for this long
@@ -37,6 +37,10 @@ const CAMP_SECONDS = 120, CAMP_TRAIT_SECONDS = 180;   // spec T07: camp duration
 const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enemy spawns within this range
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
+const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a downed teammate outranks objectives when it is safe
+const REVIVE_SEARCH = 40;               // m: downed teammates farther away are left to others
+const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close to the downed ally (smoke hides them)
+const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
@@ -248,6 +252,15 @@ const BotDecide = {
   },
 };
 
+// BOT-071: no enemy the bot can see within REVIVE_SAFE_DISTANCE of the downed ally (BotSense.sees fails through smoke).
+function reviveSafe(id, ally) {
+  for (let enemy = 0; enemy < Actors.count; enemy++) {
+    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
+    if (Math.hypot(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
+  }
+  return true;
+}
+
 // MUT-003: hitting harder than one is hit (damage dealt / taken mutators) makes fights worth more, and the reverse.
 function mutatorRisk() {
   const fx = Mutators.fx;
@@ -337,6 +350,15 @@ GOAL_SCORERS[GOAL.INVESTIGATE] = (id, plan, now) => {
 GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
   if (!BotTeam.orderPlan(id, plan, now)) return 0;
   return ORDER_BASE + ORDER_GAIN * Bots.trait(id, TRAIT.teamwork);
+};
+// BOT-071: walk to the nearest downed teammate and hold Use next to it (Damage revives after 5 s), when it is safe.
+GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
+  if (!Damage.downedCount || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) return 0;
+  const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
+  if (ally < 0 || !reviveSafe(id, ally)) return 0;
+  setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
+  const distance = Math.hypot(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 
 function collectScore(id, value) {

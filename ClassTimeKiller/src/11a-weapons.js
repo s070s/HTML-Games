@@ -409,6 +409,11 @@ const Weapons = {
     this.beginReload(id, weapon);
   },
 
+  // Stunned, or downed without the Last Stand pistol (Damage.lastStand): no firing, reloading or switching.
+  lowered(id) {
+    const flags = Actors.flags[id];
+    return (flags & ACTOR_FLAG.FROZEN) !== 0 || ((flags & ACTOR_FLAG.DOWNED) !== 0 && !Damage.lastStand[id]);
+  },
   // ---- The per-step state machine ----
   step(dt) {
     for (let id = 0; id < Actors.count; id++) {
@@ -420,8 +425,8 @@ const Weapons = {
     this.coolDown(id, dt);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
-    if (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
-    this.handleSwitchInput(id);
+    if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+    if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
     if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);

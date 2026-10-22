@@ -681,11 +681,8 @@ function isFodderOrBeast(id) {
   return isFodder(id) || (Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.beast === true);
 }
 function castRevive(id, row) {
-  for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !alliesOf(id, other) || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
-    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= row.range * row.range) return Damage.revive(other);
-  }
-  return false;
+  const ally = Damage.nearestDownedAlly(id, row.range);
+  return ally >= 0 && Damage.revive(ally);
 }
 // bolt: the aimed enemy takes params.damage of params.element and the status (stacks; seconds 0 = the status default).
 function castBolt(id, row) {

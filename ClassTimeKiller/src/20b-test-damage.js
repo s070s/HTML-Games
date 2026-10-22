@@ -161,6 +161,36 @@ Test.add('damage', (check) => {
   TestArena.finish();
 });
 
+// HP-007 in squad rulesets: classes and heroes down teammates; hold Use 5 s within 1.5 m revives; Last Stand draws a pistol.
+Test.add('damage', (check) => {
+  check('HP-007 class and hero rulesets down teammates, arena ones do not', Rules.build({ mode: 'tdm', ruleset: 'modern' }).downed === true
+    && Rules.build({ mode: 'payload', ruleset: 'heroes' }).downed === true && Rules.build({ mode: 'tdm', ruleset: 'classic' }).downed === false);
+  TestArena.start({ health: 'regen', downed: true });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5), far = TestArena.actor(2, 20, 5);
+  Weapons.setLoadout(target, ['tempest']);
+  Economy.perkKeys[target].add('lastStand');
+  TestArena.hit(shooter, target, 150);
+  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon);
+  check('HP-007 a teammate at 0 HP goes down in a downed ruleset', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.alive[target] === 1);
+  check('ECP04 Last Stand: the downed actor holds the pistol and may fire', Weapons.current[target] === pistol.index && !Weapons.lowered(target));
+  const shots = TestArena.count('weapon.fire', () => TestArena.hold(target, BTN.FIRE, 0.1));
+  check('ECP04 Last Stand: the pistol fires while downed', shots >= 1, shots);
+  TestArena.hold(far, BTN.USE, REVIVE_SECONDS + 0.2);
+  check('HP-007 Use held 20 m away revives nobody', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0);
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS - 0.5);
+  Sim.step();
+  check('HP-007 letting go of Use starts the revive over', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Damage.reviveProgress[medic] === 0);
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
+  check('HP-007 Use held 5 s within 1.5 m revives the ally', !(Actors.flags[target] & ACTOR_FLAG.DOWNED) && Actors.health[target] === REVIVE_HEALTH, Actors.health[target]);
+  check('ECP04 Last Stand: the old weapon comes back on revive', Weapons.current[target] === CAT.weapons.byId('tempest').index && !Damage.lastStand[target]);
+  TestArena.hit(shooter, target, 150);
+  TestArena.hit(shooter, far, 200);
+  TestArena.hit(shooter, medic, 200);
+  Sim.step();
+  check('HP-007 downed teammates bleed out once no teammate stands', Actors.alive[target] === 0 && Actors.alive[medic] === 0 && Actors.alive[far] === 0);
+  TestArena.finish();
+});
+
 Test.add('damage', (check) => {
   TestArena.start({ health: 'ravager' });
   const target = TestArena.actor(2, 0, 5);

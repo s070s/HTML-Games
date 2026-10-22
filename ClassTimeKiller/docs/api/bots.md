@@ -99,7 +99,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 ### Decisions (14e)
 
-- `GOAL` (`NONE ROAM ATTACK CHASE RETREAT COLLECT OBJECTIVE CAMP INVESTIGATE ORDER`), names in `GOAL_NAMES`. `BotDecide.goal[id]`, `goalScore`, `goalX/Y/Z`, `goalAction` (`ACTION.MOVE HOLD USE`), `goalTarget`, `scores` (last score per goal, F9 view).
+- `GOAL` (`NONE ROAM ATTACK CHASE RETREAT COLLECT OBJECTIVE CAMP INVESTIGATE ORDER REVIVE`; REVIVE = BOT-071: walk to the nearest downed teammate within 40 m and hold Use beside it, only while no enemy the bot sees is within 10 m of it), names in `GOAL_NAMES`. `BotDecide.goal[id]`, `goalScore`, `goalX/Y/Z`, `goalAction` (`ACTION.MOVE HOLD USE`), `goalTarget`, `scores` (last score per goal, F9 view).
 - Every goal scores 0..1; the best wins unless the current one is within 10% (BOT-020). A goal whose path failed rests for 5 s; with nothing wanted the bot holds and looks around (never without a goal).
 - Aggression (BOT-021): 0 when health < 60% with armour < 40, or the enemy is 6 m higher; 0.7 with a powerup; else max(0.55, weapon `botPref.value`) x (0.5 + aggression trait) x (0.5 + difficulty aggression). Below 0.5 the bot retreats (to health, cover from `Nav.nearestCover`, or away) from its target while in sight, else from the enemy that hit it in the last 3 s, judged by where it believes that enemy is.
 - Items (BOT-013): map `items` for the mode, valued by need (health by missing health, armour, unowned weapons, powerups, ammo when low), reachable only, taken spots skipped for 20 s; tiers with `itemTiming` and item focus > 0.5 arrive 1..3 s before a timed respawn (`Items.timers`).

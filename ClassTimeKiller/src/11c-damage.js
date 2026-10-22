@@ -10,6 +10,8 @@ const DOWNED_HEALTH = 100;               // HP-007: finished after 100 more dama
 const DOWNED_BLEED_SECONDS = 30;
 const DOWNED_SPEED = 0.2;                // crawl 1.2 m/s against the 6.4 m/s reference run speed
 const REVIVE_HEALTH = 30;
+const REVIVE_SECONDS = 5;                // HP-007: an ally holds Use this long ...
+const REVIVE_REACH = 1.5;                // ... within this many metres of the downed actor
 const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
@@ -51,6 +53,12 @@ const Damage = {
   noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
+  reviving: new Int8Array(MAX_ACTORS).fill(-1),     // the downed ally this actor is reviving (hold Use), -1 none
+  reviveProgress: new Float32Array(MAX_ACTORS),     // seconds of the current revive (HUD: / REVIVE_SECONDS)
+  lastStand: new Uint8Array(MAX_ACTORS),            // 1 = downed with the Last Stand pistol out (S11 weapons keep firing)
+  lastStandBefore: new Int8Array(MAX_ACTORS).fill(-1),   // weapon index drawn before the Last Stand pistol
+  teamStanding: new Uint8Array(MAX_ACTORS),         // per team index: living actors that are not downed (step scratch)
+  downedCount: 0,                                   // downed actors after the last step
   limbs: new Float32Array(MAX_ACTORS * LIMB_COUNT),
   statusTime: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusStacks: new Uint8Array(MAX_ACTORS * STATUS_COUNT),
   statusTick: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusSource: new Int8Array(MAX_ACTORS * STATUS_COUNT).fill(-1),
@@ -59,6 +67,7 @@ const Damage = {
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
+  downedWeapon: null,                               // fn(id) -> weapon key drawn while downed, '' none (S13: the Last Stand perk)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
@@ -223,29 +232,61 @@ const Damage = {
   },
 
   // ---- Death, downed (HP-007) and kill credit ----
+  // Squad modes down instead of killing: the loot preset, or a ruleset with `downed` (classes, heroes) in a team match.
+  downedAllowed() { return this.preset().downed || currentRules().downed === true; },
   shouldGoDown(target) {
-    if (!this.preset().downed || (Actors.flags[target] & ACTOR_FLAG.DOWNED) || Actors.team[target] < 0) return false;
-    for (let id = 0; id < Actors.count; id++) if (id !== target && Actors.alive[id] && Actors.team[id] === Actors.team[target] && !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) return true;
+    if (!this.downedAllowed() || (Actors.flags[target] & ACTOR_FLAG.DOWNED) || Actors.team[target] < 0 || Actors.kind[target] === ACTOR_KIND.ENEMY) return false;
+    for (let id = 0; id < Actors.count; id++) if (id !== target && this.standingAlly(target, id)) return true;
     return false;
   },
+  standingAlly(id, other) { return Actors.alive[other] === 1 && Actors.team[other] === Actors.team[id] && !(Actors.flags[other] & ACTOR_FLAG.DOWNED); },
   goDown(source, target) {
     Actors.flags[target] |= ACTOR_FLAG.DOWNED;
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
+    if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
+  },
+  // ECP04 Last Stand: the downed actor fights on with a pistol (given when not owned; the old weapon comes back on revive).
+  drawLastStand(id, weapon) {
+    if (!weapon) return;
+    if (!Weapons.owned[Weapons.slotIndex(id, weapon.index)]) Weapons.give(id, weapon.id, 0);
+    this.lastStandBefore[id] = Weapons.current[id];
+    Weapons.current[id] = weapon.index;
+    Weapons.state[id] = WEAPON_STATE.IDLE;
+    this.lastStand[id] = 1;
+  },
+  endLastStand(id) {
+    if (!this.lastStand[id]) return;
+    this.lastStand[id] = 0;
+    const before = this.lastStandBefore[id];
+    if (before >= 0 && Weapons.owned[Weapons.slotIndex(id, before)]) Weapons.current[id] = before;
   },
   revive(id) {
     if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) return false;
     Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
     Actors.health[id] = REVIVE_HEALTH;
     this.lastDamageTime[id] = Sim.time;
+    this.endLastStand(id);
     return true;
+  },
+  // The nearest downed teammate of id within maxDistance (A27 Second Wind, the hold-Use revive, bot revive goals), or -1.
+  nearestDownedAlly(id, maxDistance) {
+    let best = -1, bestSquared = maxDistance * maxDistance;
+    for (let other = 0; other < Actors.count; other++) {
+      if (other === id || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED) || Actors.team[other] !== Actors.team[id] || Actors.team[id] < 0) continue;
+      const squared = distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]);
+      if (squared <= bestSquared) { best = other; bestSquared = squared; }
+    }
+    return best;
   },
   kill(source, target, info) {
     const recent = this.recentAttacker(target, -1);
     const killer = (source < 0 || source === target) && recent >= 0 ? recent : source;
     Actors.alive[target] = 0;
     Actors.flags[target] &= ~(ACTOR_FLAG.DOWNED | ACTOR_FLAG.FROZEN);
+    this.lastStand[target] = 0;
     this.clearAllStatuses(target);
     const event = KILL_EVENT;
     event.victim = target; event.killer = killer; event.assister = this.recentAttacker(target, killer);
@@ -305,6 +346,7 @@ const Damage = {
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
     this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
+    this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.shieldRegenBlockedUntil[id] = 0;
     this.limbs.fill(LIMB_POOL, id * LIMB_COUNT, (id + 1) * LIMB_COUNT);
@@ -313,12 +355,37 @@ const Damage = {
   },
   step(dt) {
     const preset = this.preset();
+    let downed = 0;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id]) continue;
       for (let s = 0; s < STATUS_COUNT; s++) if (this.statusTime[id * STATUS_COUNT + s] > 0) this.stepStatus(id, s, dt);
-      if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { this.stepDowned(id, dt); continue; }
+      if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { downed++; this.stepDowned(id, dt); continue; }
       this.stepRegen(id, preset, dt);
     }
+    this.downedCount = downed;
+    if (downed) this.stepSquads(dt);
+  },
+  // Only while someone is downed: a downed actor with no standing teammate left bleeds out at once; Use holds revive.
+  stepSquads(dt) {
+    this.teamStanding.fill(0);
+    for (let id = 0; id < Actors.count; id++) if (Actors.team[id] >= 0 && this.standingAlly(id, id)) this.teamStanding[Actors.team[id]]++;
+    for (let id = 0; id < Actors.count; id++) {
+      const downed = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED);
+      if (downed && Actors.team[id] >= 0 && !this.teamStanding[Actors.team[id]]) this.bleedOut(id);
+      else this.stepRevive(id, dt);
+    }
+  },
+  // HP-007: hold Use for REVIVE_SECONDS within REVIVE_REACH of a downed ally; letting go or moving away starts over.
+  stepRevive(id, dt) {
+    const holding = Actors.alive[id] && !(Actors.flags[id] & ACTOR_FLAG.DOWNED) && (Actors.buttons[id] & BTN.USE) !== 0;
+    const target = holding ? this.nearestDownedAlly(id, REVIVE_REACH) : -1;
+    if (target < 0 || target !== this.reviving[id]) this.reviveProgress[id] = 0;
+    this.reviving[id] = target;
+    if (target < 0) return;
+    this.reviveProgress[id] += dt;
+    if (this.reviveProgress[id] < REVIVE_SECONDS - TICK_EPSILON) return;
+    this.revive(target);
+    this.reviving[id] = -1; this.reviveProgress[id] = 0;
   },
   // The one way to hold shield recharge (G20 EMP, hero shield passives): health regeneration is not affected.
   pauseShieldRegen(id, seconds) {
@@ -341,7 +408,9 @@ const Damage = {
   },
   stepDowned(id, dt) {
     this.downedTime[id] -= dt;
-    if (this.downedTime[id] > 0) return;
+    if (this.downedTime[id] <= 0) this.bleedOut(id);
+  },
+  bleedOut(id) {
     const info = this.info();
     info.kind = 'dot'; info.weapon = 'bleedout';
     Actors.health[id] = 0;
