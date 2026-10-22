@@ -1,6 +1,6 @@
 // S11 damage: Damage.apply is the ONE path every damage takes (HP-001..HP-004, ARC-015, ARC-032).
 // Order: friendly fire / self scale -> attacker multipliers -> hit zone x precision -> falloff -> shatter -> victim reductions
-// -> overshield -> shield (element factor) -> armor -> health -> minimum 1 -> downed / death. Also: health presets HPP01..HPP09,
+// -> surplus shield -> shield (element factor) -> armor -> health -> minimum 1 -> downed / death. Also: health presets HPP01..HPP09,
 // regeneration, status effects (HP-005), elements (HP-006), downed state (HP-007), splash (Damage.explode) and kill/assist events.
 
 const ASSIST_SECONDS = 5;                // the most recent other damager inside this window gets the assist
@@ -37,7 +37,7 @@ const DAMAGE_EVENT = { target: 0, source: -1, amount: 0, absorbed: 0, zone: 'non
   shieldDamage: 0, armorDamage: 0, healthDamage: 0, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
 const KILL_EVENT = { victim: 0, killer: -1, assister: -1, weapon: '', zone: 'none', element: 'kinetic', x: 0, y: 0, z: 0 };
 const EXPLOSION_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
-const LAYERS = { overshield: 0, shield: 0, armor: 0, health: 0 };
+const LAYERS = { surplus: 0, shield: 0, armor: 0, health: 0 };
 const splashPoint = Vec.make();
 
 const Damage = {
@@ -45,7 +45,7 @@ const Damage = {
   lastDamageTime: new Float32Array(MAX_ACTORS).fill(-1e9),
   lastAttacker: new Int8Array(MAX_ACTORS).fill(-1), lastAttackTime: new Float32Array(MAX_ACTORS),
   previousAttacker: new Int8Array(MAX_ACTORS).fill(-1), previousAttackTime: new Float32Array(MAX_ACTORS),
-  overshield: new Float32Array(MAX_ACTORS),         // filled by powerups (S12); spent before the shield
+  surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by powerups (S12); spent before the shield
   shieldElement: new Uint8Array(MAX_ACTORS),        // PvE coloured shield: CAT.elements index + 1 (0 = plain)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
@@ -118,22 +118,22 @@ const Damage = {
     return isFodder(target) ? Actors.health[target] + Actors.armor[target] + Actors.shield[target] + 1 : amount * freeze.shatter;
   },
   takeEverything(target) {
-    LAYERS.overshield = this.overshield[target]; LAYERS.shield = Actors.shield[target]; LAYERS.armor = Actors.armor[target];
+    LAYERS.surplus = this.surplus[target]; LAYERS.shield = Actors.shield[target]; LAYERS.armor = Actors.armor[target];
     LAYERS.health = Math.max(0, Actors.health[target]);
-    this.overshield[target] = 0; Actors.shield[target] = 0; Actors.armor[target] = 0; Actors.health[target] = 0;
-    return LAYERS.overshield + LAYERS.shield + LAYERS.armor + LAYERS.health;
+    this.surplus[target] = 0; Actors.shield[target] = 0; Actors.armor[target] = 0; Actors.health[target] = 0;
+    return LAYERS.surplus + LAYERS.shield + LAYERS.armor + LAYERS.health;
   },
-  // Overshield -> shield -> armor -> health. lateZone is the zone multiplier still to apply after the shields (HPP03), else 1.
+  // Surplus shield -> shield -> armor -> health. lateZone is the zone multiplier still to apply after the shields (HPP03), else 1.
   takeLayers(target, amount, lateZone, kind, info) {
     const preset = this.preset();
-    LAYERS.overshield = LAYERS.shield = LAYERS.armor = LAYERS.health = 0;
+    LAYERS.surplus = LAYERS.shield = LAYERS.armor = LAYERS.health = 0;
     if (Actors.flags[target] & ACTOR_FLAG.DOWNED) return this.takeHealth(target, Math.max(MIN_HIT_DAMAGE, amount * lateZone));
     let remaining = Math.max(MIN_HIT_DAMAGE, amount);
     if (!kind.bypassShield && !info.bypassShield) remaining = this.takeShields(target, remaining, info.element);
     remaining *= lateZone;
-    if (preset.limbs) return LAYERS.overshield + LAYERS.shield + this.takeLimb(target, remaining, info);
+    if (preset.limbs) return LAYERS.surplus + LAYERS.shield + this.takeLimb(target, remaining, info);
     if (!kind.bypassArmor && !info.bypassArmor) remaining = this.takeArmor(target, remaining, preset, kind, info);
-    return LAYERS.overshield + LAYERS.shield + LAYERS.armor + this.takeHealth(target, remaining);
+    return LAYERS.surplus + LAYERS.shield + LAYERS.armor + this.takeHealth(target, remaining);
   },
   takeHealth(target, amount) {
     Actors.health[target] -= amount;
@@ -141,9 +141,9 @@ const Damage = {
     return amount;
   },
   takeShields(target, amount, element) {
-    const over = Math.min(this.overshield[target], amount);
-    this.overshield[target] -= over;
-    LAYERS.overshield = over;
+    const over = Math.min(this.surplus[target], amount);
+    this.surplus[target] -= over;
+    LAYERS.surplus = over;
     const factor = shieldElementFactor(target, element), wanted = (amount - over) * factor;
     const taken = Math.min(Actors.shield[target], wanted);
     Actors.shield[target] -= taken;
@@ -212,9 +212,9 @@ const Damage = {
   },
   emitDamage(source, target, info, kind, dealt) {
     const event = DAMAGE_EVENT;
-    event.target = target; event.source = source; event.amount = dealt; event.absorbed = LAYERS.overshield + LAYERS.shield + LAYERS.armor;
+    event.target = target; event.source = source; event.amount = dealt; event.absorbed = LAYERS.surplus + LAYERS.shield + LAYERS.armor;
     event.zone = info.zone; event.weapon = info.weapon; event.element = info.element; event.kind = kind.id;
-    event.shieldDamage = LAYERS.overshield + LAYERS.shield; event.armorDamage = LAYERS.armor; event.healthDamage = LAYERS.health;
+    event.shieldDamage = LAYERS.surplus + LAYERS.shield; event.armorDamage = LAYERS.armor; event.healthDamage = LAYERS.health;
     event.x = info.x; event.y = info.y; event.z = info.z; event.dx = info.dx; event.dy = info.dy; event.dz = info.dz;
     Bus.emit('damage', event);
   },
@@ -301,7 +301,7 @@ const Damage = {
     Actors.armor[id] = POOLS.armor; Actors.maxArmor[id] = Math.max(preset.armorCap, POOLS.armor);
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
-    this.overshield[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
+    this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.limbs.fill(LIMB_POOL, id * LIMB_COUNT, (id + 1) * LIMB_COUNT);
     Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
