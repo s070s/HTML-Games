@@ -16,7 +16,7 @@ const PVE_MODE_IDS = ['horde', 'endless', 'bank', 'fiends', 'contract', 'attriti
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
   active: false, mode: '', state: '', stateTimeLeft: 0, wave: 0, waves: 0, enemiesLeft: 0, lives: LIVES_UNLIMITED, retriesLeft: 0,
-  guardian: false, guardianOffer: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
+  guardian: false, guardianOffer: false, guardianAccepted: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
   chamber: 0, chambers: 0, chamberTime: 0, steps: 0, portals: 0, parTime: null, hint: '', solved: false, medal: '', stars: 0,
   shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, accuracy: 0, drillKills: 0, drillTargets: 0, drillBest: 0, drills: 0,
 });
@@ -163,7 +163,7 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, huntAt: 0 };
+        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
@@ -222,7 +222,7 @@ function makeWaveBehaviour(plan) {
     // participant deaths in the wave the Guardian Plate (damage taken x0.5 for the retry) is offered once; it is a retry
     // of its own when checkpoints are on.
     failWave(run, now) {
-      const plate = run.plateOffered && !run.plateUsed && pveSkill().checkpoints;
+      const plate = guardianOpen(run) && pveSkill().checkpoints;
       if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(DRAW, PVE_LOSE); return; }
       if (plate) wearGuardianPlate(run); else run.retriesLeft--;
       Pve.clearEnemies();
@@ -247,7 +247,7 @@ function makeWaveBehaviour(plan) {
     updateHud(run, now) {
       PVE_HUD.wave = run.wave; PVE_HUD.state = run.state; PVE_HUD.stateTimeLeft = Math.max(0, run.endsAt - now);
       PVE_HUD.enemiesLeft = enemiesLeft(); PVE_HUD.retriesLeft = run.retriesLeft;
-      PVE_HUD.guardianOffer = run.plateOffered && !run.plateUsed; PVE_HUD.guardian = guardianWorn();
+      PVE_HUD.guardianOffer = guardianOpen(run); PVE_HUD.guardian = guardianWorn();
       updateCoreHud();
       updatePlayerHud();
     },
@@ -260,14 +260,26 @@ function wearGuardianPlate(run) {
   for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) Pve.guardian[id] = 1;
   Modes.announce('Guardian Plate: damage taken halved', 'wave', 3);
 }
+// The offer stands (not worn yet, not refused this wave); with no answer from the player the plate is worn at the retry.
+function guardianOpen(run) { return run.plateOffered && !run.plateUsed && !run.plateRefused; }
+// DIF-004 choice (18o pause row): accept wears it at the next checkpoint retry, refuse drops the offer for the rest of the
+// wave (a later wave offers it again while it was never worn). False when no wave mode offers it now.
+Pve.answerGuardian = (accept) => {
+  const run = Pve.active && Modes.behaviour ? Modes.behaviour.run : null;
+  if (!run || !guardianOpen(run)) return false;
+  if (accept) PVE_HUD.guardianAccepted = true; else run.plateRefused = true;
+  PVE_HUD.guardianOffer = guardianOpen(run);
+  return true;
+};
 function guardianWorn() {
   for (let id = 0; id < Actors.count; id++) if (Pve.guardian[id]) return true;
   return false;
 }
-// A cleared wave ends the encounter: its death count, an unused offer and the plate go.
+// A cleared wave ends the encounter: its death count, an unused offer, its answer and the plate go.
 function endEncounter(run) {
   run.deaths = 0;
-  run.plateOffered = false;
+  run.plateOffered = run.plateRefused = false;
+  PVE_HUD.guardianAccepted = false;
   Pve.guardian.fill(0);
 }
 // NPC-007: the last few enemies of a wave (nothing queued) are pinged to the co-op bots every few seconds, so the bots
@@ -842,16 +854,6 @@ function drawBox(batch, x, y, z, size, color, glow) {
   batch.mesh('box', x, y, z, 0, 0, size[0], size[1], size[2], color[0], color[1], color[2], glow);
 }
 Render.addSource('pveChambers', drawChambers);
-
-// ---- A34 Wrath Form (the soul modes' automatic ultimate, S12): its start and end go out as pve.wrath ----
-const wrathEventPayload = { id: -1, active: false };
-function reportWrath(event, active) {
-  if (event.ability !== SOUL_ULTIMATE) return;
-  wrathEventPayload.id = event.id; wrathEventPayload.active = active;
-  Bus.emit('pve.wrath', wrathEventPayload);
-}
-Bus.on('ability.cast', (event) => reportWrath(event, true));
-Bus.on('ability.end', (event) => reportWrath(event, false));
 
 // ---- Level report (docs/api/progression.md): secrets, crates, optional enemies, and match.results.pve for card unlocks ----
 // Secrets are the map's 'secret' nav hints (found by a participant within PVE_SECRET_RADIUS, 'pve.secret'); crates are the

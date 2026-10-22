@@ -797,6 +797,31 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+// DIF-004 choice (Pve.answerGuardian, the 18o pause row): accept keeps the plate for the retry, refuse drops it for the wave.
+function offerGuardianPlate(answer) {
+  const ids = startPveMode('horde', [0]), run = Modes.behaviour.run;
+  runUntil(() => run.state === PVE_WAVE_STATE.FIGHT, 10);
+  run.plateOffered = true;
+  runSeconds(0.1);
+  const offered = PVE_HUD.guardianOffer && guardianChoiceOpen() && hudPveGuardianText(PVE_HUD) === HUD_PVE_GUARDIAN_CHOICE;
+  const answered = Pve.answerGuardian(answer);
+  runSeconds(0.1);
+  const after = { offered, answered, accepted: PVE_HUD.guardianAccepted, offer: PVE_HUD.guardianOffer, again: Pve.answerGuardian(answer) };
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  after.worn = Pve.guardian[ids[0]] === 1;
+  endModeTest();
+  return after;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const worn = offerGuardianPlate(true);
+  check('an offered plate asks the player (pause row, CHOICE prompt)', worn.offered);
+  check('accept: guardianAccepted, the offer stays, the retry wears the plate', worn.answered && worn.accepted && worn.offer && worn.worn, JSON.stringify(worn));
+  const refused = offerGuardianPlate(false);
+  check('refuse: no offer for the rest of the wave and no plate at the retry', refused.answered && !refused.accepted && !refused.offer && !refused.again && !refused.worn, JSON.stringify(refused));
+  check('a new match clears the answer', !PVE_HUD.guardianAccepted && Pve.answerGuardian(true) === false);
+}));
+
 // M23 reads its mode params: custom deposit sizes and invasion step change the blockers and invasions.
 function queuedOnSide(side, key) {
   const queue = Pve.queue;
@@ -865,14 +890,15 @@ Test.add('pve', (check) => withShortShop(() => {
   Meters.addPoints(player, Meters.row().max);
   const kept = Abilities.row(player, SLOT.ULTIMATE);
   check('streak rewards leave Wrath Form in the ultimate slot of a soul mode', kept && kept.id === SOUL_ULTIMATE && !Abilities.rewardLoaded[player], kept && kept.id);
-  const reports = startEventLog('pve.wrath');
+  const savedPlayer = Game.playerId;
+  Game.playerId = player;   // the run log follows the local player
   Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
   Sim.step();
   check('Wrath Form casts itself once the souls pay for it and spends them', Abilities.isActive(player, SOUL_ULTIMATE) && Powerups.souls[player] === 0);
+  check('the run log counts the Wrath Form from ability.cast', RunLog.wrathForms === 1 && RunLog.inWrath, RunLog.wrathForms);
   Sim.run((CAT.abilities.byId(SOUL_ULTIMATE).duration + 0.5) * TICK_RATE);
-  reports.stop();
-  check('pve.wrath reports its start and its end', reports.length === 2 && reports[0].id === player && reports[0].active === true && reports[1].active === false,
-    reports.map((event) => event.active).join(' '));
+  check('and its end from ability.end', RunLog.wrathForms === 1 && !RunLog.inWrath);
+  Game.playerId = savedPlayer;
   endModeTest();
 }));
 
@@ -935,9 +961,9 @@ Test.add('pvesoak', (check) => {
   runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
   waves.stop();
   const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results, seconds = [];
-  for (let i = 1; i < waves.length; i++) if (waves[i].kind !== 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
+  for (let i = 1; i < waves.length; i++) if (waves[i].phase === 'end' && waves[i - 1].phase === 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
   check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
     cleared + ' cleared, ' + (results && results.reason));
-  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
+  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });

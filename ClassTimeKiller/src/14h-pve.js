@@ -8,7 +8,8 @@
 // queue out of sight >= 18 m from players, capped per quality preset (PERF-009 Quality.current().enemies), relaxes after
 // intensity peaks and removes corpses. 14i holds the behaviour kinds and attack kinds, 14j the PvE modes, 14k the boss.
 // Difficulty (DIF-002) read here: playerDamage (damage to the player side), enemyDamage (damage to enemies), parry
-// (parry window), projectileSpeed, resourceYield (drop chance), attackers; 14j reads lives / checkpoints / gameSpeed.
+// (parry window), projectileSpeed, resourceYield (drop chance; 12a reads it for spot respawns), attackers; 14j reads lives /
+// checkpoints, 14a gameSpeed.
 // API: docs/api/pve.md.
 
 const ENEMY_TEAM = 1;                     // co-op modes: the players are team 0, the enemies team 1

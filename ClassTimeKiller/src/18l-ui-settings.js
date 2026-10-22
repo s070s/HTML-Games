@@ -110,7 +110,7 @@ const ASSIST_ROWS = {
   aggression: { label: 'Bot aggression (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
   attackers: { label: 'Bots attacking at once', fallback: 3, step: 1, live: true, assist: false },
   parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: true, assist: true },
-  // playerDamage scales the hits the player takes from PvE enemies, enemyDamage the hits PvE enemies take (14a, 14h).
+  // playerDamage scales the hits the player takes from PvE enemies, enemyDamage the hits PvE enemies take (14h).
   playerDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: true, assist: true },
   enemyDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: true, assist: true },
   projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: true, assist: false },
@@ -163,4 +163,4 @@ Ui.difficultyRows = function difficultyRows(container, values, onChange) {
   }
 };
 
-// Game speed rides on rules.fx.timeScale (the Game Speed mutator's field), multiplied in by the difficulty stage in 14a (PvE only).
+// Game speed rides on rules.fx.timeScale (the Game Speed mutator's field), multiplied in by the difficulty stage in 14a (every mode).

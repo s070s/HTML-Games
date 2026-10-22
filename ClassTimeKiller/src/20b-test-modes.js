@@ -126,6 +126,18 @@ Test.add('modes', (check) => {
   endModeTest();
 });
 
+// One touch rule: withinTouch (a point) and withinTouchAt (coordinate arrays, 13g loot and beacons) agree at its edges.
+Test.add('modes', (check) => {
+  World.clear();
+  const id = Actors.create(ACTOR_KIND.DUMMY, NO_TEAM, 'toucher'), xs = new Float32Array(3), ys = new Float32Array(3), zs = new Float32Array(3);
+  Actors.x[id] = Actors.y[id] = Actors.z[id] = 0;
+  xs[1] = TOUCH_RADIUS - 0.01; ys[2] = TOUCH_HEIGHT + 0.01; xs[0] = TOUCH_RADIUS + 0.01;
+  const both = (index) => [withinTouchAt(id, xs, ys, zs, index, TOUCH_RADIUS), withinTouch(id, xs[index], ys[index], zs[index], TOUCH_RADIUS)].join();
+  check('touch rule: inside the radius touches, past it or above the height window does not', both(1) === 'true,true' && both(0) === 'false,false' && both(2) === 'false,false',
+    [0, 1, 2].map(both).join(' '));
+  World.clear();
+});
+
 Test.add('modes', (check) => {
   const scores = startEventLog('score');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);

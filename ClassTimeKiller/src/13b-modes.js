@@ -822,8 +822,17 @@ function makeObjective(source, index) {
     stage: source.stage || 0, checkpoints: source.checkpoints || null, goals: null };
 }
 
+// The touch rule (TOUCH_HEIGHT window, flat radius) for a point kept in coordinate arrays at `index`: the one form, used
+// as is by callers that test many points per step (13g loot and beacons), since float arguments are boxed (PERF-006).
+function withinTouchAt(id, xs, ys, zs, index, radius) {
+  if (Math.abs(Actors.y[id] - ys[index]) > TOUCH_HEIGHT) return false;
+  const dx = Actors.x[id] - xs[index], dz = Actors.z[id] - zs[index];
+  return dx * dx + dz * dz <= radius * radius;
+}
+const touchPointX = new Float64Array(1), touchPointY = new Float64Array(1), touchPointZ = new Float64Array(1);
 function withinTouch(id, x, y, z, radius) {
-  return Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && length2(Actors.x[id] - x, Actors.z[id] - z) <= radius;
+  touchPointX[0] = x; touchPointY[0] = y; touchPointZ[0] = z;
+  return withinTouchAt(id, touchPointX, touchPointY, touchPointZ, 0, radius);
 }
 
 function holdsUse(id) { return (Actors.buttons[id] & BTN.USE) !== 0; }

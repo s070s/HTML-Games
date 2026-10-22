@@ -122,7 +122,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
-| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wrath` | see docs/api/pve.md | S14 PvE |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` | see docs/api/pve.md | S14 PvE |
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | S14 PvE |
 | `pve.boss` | `{ id, phase, phases, kind: 'start' \| 'phase' \| 'weak' \| 'defeated' \| 'gone', seconds, final }` | S14 PvE |
 | `pve.chamber` | `{ chamber, kind: 'enter' \| 'complete', medal, stars, seconds }` | S14 PvE |
@@ -181,9 +181,9 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Shield regen: `Damage.pauseShieldRegen(id, seconds)` / `Damage.shieldRegenBlocked(id)` (S11): EMP and suppression pause shield and ability-shield regeneration.
 - Hit volumes: `Hitbox.sizeScale[id]` (whole body) and `Hitbox.headScale[id]` (head sphere) (S08) scale the hit tests; the renderer draws them through `Render.addActorStyle`.
 - Input buttons: `BTN.CYCLE_GRENADE` (bit 18) makes the next carried grenade type current (S12 `Gadgets.cycleGrenade`, players and bots).
-- Soul cards (S15 to S12): `rules.cards.fx` is read only through `soulCardFx(id, key, fallback)` (12a, player only), one reader per key: `soulLife` (12a drop), `soulMagnet` (`soulHomingRange`, 12a and 12g), `soulHeal` (12b heal), `wrathAt` (12e cost).
-- Difficulty (DIF-002): `rules.botSkill` sliders have one reader each: `playerDamage` / `enemyDamage` in `Pve.attackerScale` (14h, the only difficulty damage scale), `parry` in 14h and the W03 window (11d, against `DIFFICULTY_PARRY_BASE`), `projectileSpeed` (14i), `resourceYield` (14h drops), `lives` / `checkpoints` / `checkpointHeal` (14j), `gameSpeed` (14j rule stage), the bot fields in 14a..14d.
-- PvE level report: `PveLevel.report` writes `match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` (measurable numbers only) on `match.end` before S15 counts the match; chamber records live in `Save.data.progression.chambers` (docs/api/progression.md).
+- Soul cards (S15 to S12): `rules.cards.fx` is read only through `soulCardFx(id, key, fallback)` (12a, player only), one reader per key: `soulLife` (12a drop), `soulMagnet` (`soulHomingRange`, 12a), `soulHeal` (12b heal), `wrathAt` (12e cost).
+- Difficulty (DIF-002): `rules.botSkill` sliders have one reader each: `playerDamage` / `enemyDamage` in `Pve.attackerScale` (14h, the only difficulty damage scale), `parry` in 14h and the W03 window (11d, against `DIFFICULTY_PARRY_BASE`), `projectileSpeed` (14i), `resourceYield` (14h drops, 12a spot respawns), `lives` / `checkpoints` / `checkpointHeal` (14j), `gameSpeed` (14a difficulty rule stage, every mode), the bot fields in 14a..14d.
+- PvE level report: `PveLevel.report` writes `match.results.pve = { propsLeft, secretsLeft, optionalLeft }` (measurable numbers only) on `match.end` before S15 counts the match (cards C02, C09, C13, C15, C18 read them); chamber records live in `Save.data.progression.chambers` (docs/api/progression.md).
 - Pickups (S12): `Items.givers[PICKUP_KIND]` = `fn(id, key)` gives a key without a pickup (`item.grant`); `Items.grantEffects[key]` = `fn(id, item)` delivers an economy 'grant' buy (unregistered keys are not on sale); S13 fills `Economy.grants.gadget` / `.grant` at the end of 13d (S12 cannot fill an S13 registry at load). `Smoke.add(x, y, z, width, height, seconds, yaw, owner)` lays a smoke curtain; `Smoke.lineBlocked(..., viewer)` is false for a viewer with the `smokeVision` passive.
 - Ballistics: `Projectiles.spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, { gravity, drag })` (S11 11b) flies one hitscan pellet as a `bullet` projectile (row P21) while `rules.fx.ballistics` is set.
 - Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.

@@ -217,11 +217,8 @@ function hudPveCentreNote(pen, layout, text, rise, color) {
   pen.panel(layout.centerX - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
   pen.text(text, layout.centerX, y, size, color, 'center');
 }
-// DIF-004: the choice is the player's when the PvE section takes the answer (18o, pause menu row), else the plate is automatic.
-function hudPveGuardianText(pve) {
-  if (pve.guardianAccepted || typeof Pve.answerGuardian !== 'function') return HUD_PVE_GUARDIAN_READY;
-  return HUD_PVE_GUARDIAN_CHOICE;
-}
+// DIF-004: the choice is the player's (18o, pause menu row) until they accept the plate.
+function hudPveGuardianText(pve) { return pve.guardianAccepted ? HUD_PVE_GUARDIAN_READY : HUD_PVE_GUARDIAN_CHOICE; }
 
 function hudDrawPve(pen, layout) {
   const pve = Modes.hud.pve;

@@ -5,7 +5,7 @@ Files:
 - `src/03l-data-economy.js`: catalogues `economy`, `meters`, `perks`, `classes`, `buyItems`.
 - `src/12e-abilities.js`: `Abilities`, the framework.
 - `src/12f-abilities-effects.js`: effect kinds, `Buffs`, `AbilityZones`, hero passives.
-- `src/12g-abilities-meters.js`: `Meters`, the energy bar, match meters and souls.
+- `src/12g-abilities-meters.js`: `Meters`, the energy bar and match meters (souls are PU18 pickups, 12a/12b).
 - `src/13d-economy.js`: `Economy` and `Loadouts`.
 - `src/18f-ui-buy.js`: the `buy`, `loadout` and `classEditor` screens.
 

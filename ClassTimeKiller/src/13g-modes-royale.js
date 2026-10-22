@@ -180,7 +180,7 @@ function stepBeacons(interval) {
 
 function holdsBeacon(id, squad) {
   return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
-    && withinTouch(id, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad], TOUCH_RADIUS);
+    && withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
 }
 
 // The squad's dead drop in over the beacon and count as standing again.
@@ -307,17 +307,9 @@ function touchLoot(now) {
   for (let id = 0; id < Actors.count; id++) {
     if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
-      if (!RoyaleLoot.taken[spot] && lootInTouch(id, spot)) takeLoot(id, spot, now);
+      if (!RoyaleLoot.taken[spot] && withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS)) takeLoot(id, spot, now);
     }
   }
-}
-
-// withinTouch of a loot spot, read from the spot arrays: every actor tests every spot each step, and three float
-// arguments to a call that is not inlined are boxed on the heap (PERF-006).
-function lootInTouch(id, spot) {
-  if (Math.abs(Actors.y[id] - RoyaleLoot.y[spot]) > TOUCH_HEIGHT) return false;
-  const dx = Actors.x[id] - RoyaleLoot.x[spot], dz = Actors.z[id] - RoyaleLoot.z[spot];
-  return dx * dx + dz * dz <= TOUCH_RADIUS * TOUCH_RADIUS;
 }
 
 function takeLoot(id, spot, now) {

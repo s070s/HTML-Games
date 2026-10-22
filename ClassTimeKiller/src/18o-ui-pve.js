@@ -31,15 +31,13 @@ Ui.register('solo', {
   },
 });
 
-// ---- DIF-004 Guardian Plate: the player's choice, through the call the PvE section exposes ----
-// Pve.answerGuardian(accept) is the PvE side of the choice; without it the plate stays automatic and no row is offered.
-// Contract request (docs/api/pve.md): once 14j has Pve.answerGuardian and PVE_HUD_DEFAULTS.guardianAccepted, drop this typeof and the 17g one.
+// ---- DIF-004 Guardian Plate: the player's choice, through the call the PvE section exposes (Pve.answerGuardian, 14j) ----
+// A plate the player does not answer for is worn at the checkpoint retry.
 function guardianChoiceOpen() {
-  return !!Modes.hud.pve && Modes.hud.pve.active && Modes.hud.pve.guardianOffer && typeof Pve.answerGuardian === 'function';
+  return !!Modes.hud.pve && Modes.hud.pve.active && Modes.hud.pve.guardianOffer && !Modes.hud.pve.guardianAccepted;
 }
 function answerGuardian(accept) {
-  if (!guardianChoiceOpen()) return false;
-  Pve.answerGuardian(accept);
+  if (!guardianChoiceOpen() || !Pve.answerGuardian(accept)) return false;
   Ui.toast(accept ? 'Guardian Plate: worn for the retry' : 'Guardian Plate refused');
   return true;
 }

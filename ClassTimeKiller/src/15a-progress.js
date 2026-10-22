@@ -364,9 +364,11 @@ const Progress = {
     return true;
   },
   chamberRecord(chamber) { return this.profile().chambers[String(chamber)] || null; },
+  // A malformed entry of an imported save (not a plain record) counts no stars.
   chamberStars() {
+    const records = this.profile().chambers;
     let stars = 0;
-    for (const key in this.profile().chambers) stars += Number(this.profile().chambers[key].stars) || 0;
+    for (const key in records) stars += isPlainObject(records[key]) ? Number(records[key].stars) || 0 : 0;
     return stars;
   },
   unlockedIds() {
