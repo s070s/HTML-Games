@@ -35,7 +35,7 @@ Test.add('play', (check) => {
   check('quick match: one event starts exactly one match, playing at once', starts.length === 1 && Game.state === 'playing' && Game.match === starts[0]);
   check('quick match: the default setup (ffa, spire, RS01) is running', Game.match.rules.mode === 'ffa' && Game.match.map.id === 'spire' && Game.match.rules.id === 'classic');
   check('quick match: the player and 7 bots exist', Game.playerId >= 0 && playTestCount(ACTOR_KIND.PLAYER) === 1 && playTestCount(ACTOR_KIND.BOT) === 7);
-  check('quick match: the choice is remembered in the save (PRG-001)', JSON.stringify(Save.data.play) === JSON.stringify({ mode: 'ffa', map: 'spire', ruleset: '', bots: 7, difficulty: 'regular', team: -1 }), JSON.stringify(Save.data.play));
+  check('quick match: the choice is remembered in the save (PRG-001)', JSON.stringify(Save.data.play) === JSON.stringify({ mode: 'ffa', map: 'spire', ruleset: '', bots: 7, difficulty: 'regular', team: -1, length: 'standard' }), JSON.stringify(Save.data.play));
   Sim.run(PLAY_TEST_STEPS);
   check('quick match: the match runs for two seconds without errors, everyone alive', Actors.alive[Game.playerId] === 1 && Game.isRunning());
   Bus.emit('ui.quickMatch', null);
@@ -149,7 +149,7 @@ Test.add('play', (check) => uiWith(() => {
   playTestFinish();
   check('results: the screen opens by itself when the match ends', Game.state === 'results' && Ui.current() === 'results');
   const root = Ui.top().element, text = root.textContent;
-  check('results: title, winner, your stats and the scoreboard with all 8 players', text.includes('Victory') && text.includes('wins') && text.includes('kills') && root.querySelectorAll('.sb-table tr').length === 9);
+  check('results: title, winner, your stats and the scoreboard with all 8 players', text.includes('Victory') && text.includes('You win.') && text.includes('kills') && root.querySelectorAll('.sb-table tr').length === 9);
   check('results: the three buttons are there and Esc does not close it', ['Play again', 'Next map', 'Main menu'].every((name) => Array.from(root.querySelectorAll('button')).some((button) => button.textContent === name)) && !Ui.back());
   uiClickButton(root, 'Play again');
   check('results: Play again starts a new match and closes the screen', Game.state === 'playing' && Ui.stack.length === 0 && Game.match.setup.seed !== seed);
@@ -289,3 +289,45 @@ Test.add('play', (check) => {
   check('__CTK.god(false): damage lands again', playTestHit(player, 1) > 0 && (Actors.flags[player] & ACTOR_FLAG.GOD) === 0);
   Game.stop();
 });
+
+// ---- Results flow: next step, plain winner text, roster bots, match length ----
+Test.add('play', (check) => uiWith(() => {
+  const saved = Save.data.play;
+  try {
+    Save.data.play = undefined;
+    PlayFlow.quickMatch();
+    const names = Array.from({ length: Actors.count }, (unused, id) => Actors.name[id]).filter((name, id) => Actors.kind[id] === ACTOR_KIND.BOT);
+    check('quick match: the bots are named roster bots, not Bot 1..7', names.length === 7 && names.every((name) => CAT.bots.some((row) => row.name === name)) && new Set(names).size === 7, names.join());
+    check('quick match: roster bots fit the difficulty tier range', Game.match.setup.bots.every((bot) => { const row = CAT.bots.byId(bot.profile), range = CAT.difficulty.byId('regular'); return bot.tier === undefined ? row.tier >= range.tierMin && row.tier <= range.tierMax : bot.tier >= range.tierMin && bot.tier <= range.tierMax; }));
+    playTestFinish();
+    const text = Ui.top().element.textContent;
+    check('results: a won free-for-all says You win.', text.includes('You win.') && !text.includes('You wins'), text.slice(0, 80));
+    Game.stop();
+    Ui.closeAll();
+    check('match length: Short halves the limits, rounded up (Frenzy 15 frags in 5 minutes)', (() => {
+      const limits = PlayFlow.lengthLimits('ffa', 'short');
+      return limits.scoreLimit === 15 && limits.timeLimit === 300 && PlayFlow.lengthLimits('ffa', 'standard') === null && PlayFlow.lengthLimits('ffa', 'long').timeLimit === 900;
+    })());
+    PlayFlow.start(Object.assign(PlayFlow.defaults(), { length: 'short' }));
+    check('match length: Short is used by the match and remembered for Quick Match', Game.match.rules.scoreLimit === 15 && Game.match.rules.timeLimit === 300 && Save.data.play.length === 'short');
+    Game.stop();
+    PlayFlow.quickMatch();
+    check('match length: Quick Match keeps the remembered length', Game.match.rules.scoreLimit === 15);
+    Game.stop();
+    Ladder.setDifficulty(0, 0, 'novice');
+    Ladder.start(0, 0);
+    Modes.finish(Game.playerId);
+    const root = Ui.top().element, primary = root.querySelector('.ui-foot .primary');
+    check('results: a cleared ladder match offers Next match as the primary button', Ui.current() === 'results' && primary && primary.textContent === 'Next match', primary && primary.textContent);
+    uiClickButton(root, 'Next match');
+    check('results: Next match starts ladder match 2', Game.match.setup.progress.kind === 'ladder' && Game.match.setup.progress.tier === 0 && Game.match.setup.progress.match === 1);
+    const other = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => id !== Game.playerId && Actors.kind[id] === ACTOR_KIND.BOT);
+    Modes.finish(other);
+    const lost = Ui.top().element;
+    check('results: a lost ladder match offers Retry, not Next match', Array.from(lost.querySelectorAll('button')).some((button) => button.textContent === 'Retry') && !Array.from(lost.querySelectorAll('button')).some((button) => button.textContent === 'Next match'));
+  } finally {
+    Save.data.play = saved;
+    Game.stop();
+    Ui.closeAll();
+  }
+}));

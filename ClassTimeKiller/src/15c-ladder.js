@@ -55,6 +55,14 @@ const Ladder = {
   passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
   // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
   retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, progressSeed()); },
+  // After a pass: the match that follows on the ladder, if the ladder has one open.
+  nextStep(tag) {
+    if (!Game.match || !Game.match.results || !this.passed(Game.match.results)) return null;
+    const tierEnds = tag.match + 1 >= CAT.ladder[tag.tier].matches.length;
+    const tier = tag.tier + (tierEnds ? 1 : 0), match = tierEnds ? 0 : tag.match + 1;
+    if (tier >= CAT.ladder.length || !this.isOpen(tier, match)) return null;
+    return { label: 'Next match', build: () => this.setup(tier, match, this.difficultyFor(tier, match), progressSeed()) };
+  },
   onResult(match, metrics, award) {
     const tag = match.setup.progress, entry = this.entry(tag.tier, tag.match), state = this.state();
     if (!entry) return;
@@ -185,6 +193,11 @@ const Operations = {
     if (this.state(id).done) this.reset(id);
     return this.setup(id, seed);
   },
+  // The operation's next map once this one is counted (none after the last map: Play again starts a new run).
+  nextStep(tag) {
+    if (this.state(tag.id).done) return null;
+    return { label: 'Next map', build: () => this.setup(tag.id, progressSeed()) };
+  },
   start(id, random) {
     if (!CAT.operations.byId(id)) return null;
     return Game.start(this.nextSetup(id, progressSeed(random)));
@@ -290,6 +303,8 @@ Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
 Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
 Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()));
 Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
+Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
+Progress.addNext('operation', (tag) => Operations.nextStep(tag));
 Sim.addSystem('operationTickets', 75, () => OperationRun.step());
 Bus.on('match.start', (match) => OperationRun.onStart(match));
 Bus.on('match.stop', () => { OperationRun.active = false; });

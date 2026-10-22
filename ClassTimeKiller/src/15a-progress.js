@@ -110,6 +110,7 @@ const Progress = {
   finishers: [],              // fn(match, metrics, award) for every finished match (card unlocks, marks)
   preFinishers: [],           // fn(match) before anything is counted (end-of-match medals such as MD19)
   retries: new Map(),         // setup.progress.kind -> fn(tag, setup) -> the setup a results-screen retry starts
+  nexts: new Map(),           // setup.progress.kind -> fn(tag) -> { label, build } of the next step, or null
   lastAward: null,            // what the last finished match paid (results screen)
   awardedMatch: null,
   look: { color: PROGRESS_NO_LOOK, finish: PROGRESS_NO_LOOK },   // the worn cosmetics as plain numbers (read every frame)
@@ -311,11 +312,17 @@ const Progress = {
   addFinisher(finisher) { this.finishers.push(finisher); },
   addPreFinisher(finisher) { this.preFinishers.push(finisher); },
   addRetry(kind, builder) { this.retries.set(kind, builder); },
+  addNext(kind, finder) { this.nexts.set(kind, finder); },
   // The setup "Play again" starts for a tagged match (null when untagged): each structure rebuilds its own, so a ladder
   // match keeps its tier and difficulty, a daily keeps its date seed and an operation plays its current map.
   retrySetup(setup) {
     const tag = setup && setup.progress, builder = tag ? this.retries.get(tag.kind) : null;
     return builder ? builder(tag, setup) : null;
+  },
+  // The next step of a career after the finished match, or null (lost, nothing left): { label, build() -> setup } (the results screen's primary button).
+  nextStep(setup) {
+    const tag = setup && setup.progress, finder = tag ? this.nexts.get(tag.kind) : null;
+    return finder ? finder(tag) : null;
   },
   finishMatch(match) {
     if (!match || !match.results || this.awardedMatch === match) return this.awardedMatch === match ? this.lastAward : null;
