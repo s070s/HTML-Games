@@ -11,8 +11,20 @@ function hudUiPveQuads(fields) {
 }
 // The Firing Range drill and the Test Chambers rows a test fills in.
 const HUD_UI_WAVE = { mode: 'horde', state: 'fight', wave: 3, waves: 10, enemiesLeft: 12, coreHealth: 600, coreMax: 1000, retriesLeft: 2 };
-const HUD_UI_CHAMBER = { mode: 'puzzle', chamber: 2, chambers: 6, chamberTime: 20, steps: 4, portals: 1, stars: 3, medal: 'gold' };
-const HUD_UI_RANGE = { mode: 'range', shots: 40, hits: 30, accuracy: 0.75, headshots: 6, damage: 900, drillKills: 4, drillTargets: 10, stateTimeLeft: 12 };
+const HUD_UI_CHAMBER = { mode: 'puzzle', chamber: 2, chambers: 6, chamberTime: 20, steps: 4, portals: 1, stars: 3, medal: 'gold', parTime: PVE_CHAMBERS[1].par.time };
+const HUD_UI_RANGE = { mode: 'range', shots: 40, hits: 30, accuracy: 0.75, headshots: 6, damage: 900, kills: 7, drillKills: 4, drillTargets: 10, stateTimeLeft: 12 };
+const HUD_UI_BIG_CORE = 5000;   // a Siege Waves core starts here, above the 0..999 number cache
+
+// Counts String() calls while run() draws: the HUD builds a number's text once, never per frame (PERF-006).
+function hudUiStringCalls(run) {
+  const realString = globalThis.String;
+  let calls = 0;
+  const counting = (value) => { calls++; return realString(value); };
+  Object.setPrototypeOf(counting, realString);   // String.fromCharCode and friends still work while counting
+  globalThis.String = counting;
+  try { run(); } finally { globalThis.String = realString; }
+  return calls;
+}
 
 Test.add('hudui', (check) => hudTestWith(() => {
   hudTestMatch();
@@ -35,6 +47,14 @@ Test.add('hudui', (check) => hudTestWith(() => {
   check('pve hud: the Firing Range draws its drill table', hudUiPveQuads(HUD_UI_RANGE) > 0);
   check('pve hud: the medal tier follows the chamber par times', hudPveChamberTier(Object.assign({}, PVE_HUD, HUD_UI_CHAMBER, { chamberTime: 0, steps: 0, portals: 0 })) === 0
     && hudPveChamberTier(Object.assign({}, PVE_HUD, HUD_UI_CHAMBER, { chamberTime: 1e6 })) === -1);
+  check('pve hud: the medal table reads its times from PVE_HUD.parTime', chamber > hudUiPveQuads(Object.assign({}, HUD_UI_CHAMBER, { parTime: null })));
+  check('pve hud: the range table shows every target down (PVE_HUD.kills)', hudUiPveQuads(Object.assign({}, HUD_UI_RANGE, { kills: 123 })) > hudUiPveQuads(Object.assign({}, HUD_UI_RANGE, { kills: 1 })));
+  check('pve hud: Attrition shows the enemies left (NPC-008)', hudUiPveQuads({ mode: 'attrition', enemiesLeft: 5 }) > 0);
+  const bigCore = Object.assign({}, HUD_UI_WAVE, { coreHealth: HUD_UI_BIG_CORE, coreMax: HUD_UI_BIG_CORE }), smallCore = Object.assign({}, HUD_UI_WAVE);
+  hudUiPveQuads(bigCore);
+  const bigCalls = hudUiStringCalls(() => hudUiPveQuads(bigCore)), smallCalls = hudUiStringCalls(() => hudUiPveQuads(smallCore));
+  check('pve hud: a steady core of 5000 builds no new text per frame (PERF-006)', bigCalls === smallCalls, bigCalls + ' vs ' + smallCalls);
+  check('pve hud: a new large value is built once, then reused', hudNumber(HUD_UI_BIG_CORE - 1) === '4999' && hudLargeNumberText.has(HUD_UI_BIG_CORE - 1) && hudLargeNumberText.size <= HUD_LARGE_NUMBER_LIMIT);
   Settings.set('hud.element.pve', false);
   check('pve hud: the element can be hidden (UI-015)', hudUiPveQuads(HUD_UI_WAVE) === 0);
   Settings.set('hud.element.pve', true);
@@ -113,6 +133,9 @@ Test.add('hudui', (check) => uiWith(() => {
   check('guardian: the offer adds a pause row (DIF-004)', pauseLabels().includes('Guardian Plate'));
   uiClickButton(Ui.top().element, 'Guardian Plate');
   check('guardian: the row opens the choice', Ui.top().name === 'guardian');
+  const dialogText = Ui.top().element.textContent;
+  check('guardian: the dialog states the PvE rules (deaths, damage share, offered each wave)', dialogText.includes(PVE_DIRECTOR.guardianDeaths + ' deaths')
+    && dialogText.includes(Math.round(PVE_DIRECTOR.guardianTaken * 100) + '%') && dialogText.includes('offered again each wave'), dialogText);
   uiClickButton(Ui.top().element, 'Wear it');
   pve.guardianOffer = true;
   Ui.open('guardian');
@@ -170,7 +193,46 @@ Test.add('hudui', (check) => {
   check('loadout: Gun Game offers no class pick', !Economy.usesLoadouts() && !loadoutAvailable());
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'modern' });
   check('loadout: a class economy offers it', Economy.usesLoadouts() && loadoutAvailable(), Economy.preset().loadout);
+  check('loadout: a class economy opens on the Classes tab', classesApplyInMatch() && defaultLoadoutTab() === 'classes');
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'heroes' });
+  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !classesApplyInMatch());
   Game.stop();
+});
+Test.add('hudui', (check) => uiWith(() => {
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'heroes' });
+  Ui.open('loadout');
+  const classesTab = LoadoutMenu.tabButtons.get('classes');
+  check('loadout: the Classes tab is off in a hero match (a class pick would do nothing)', classesTab.disabled && LoadoutMenu.tab !== 'classes', LoadoutMenu.tab);
+  Ui.closeAll();
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'modern' });
+  Ui.open('loadout');
+  check('loadout: the Classes tab is on in a class match', !LoadoutMenu.tabButtons.get('classes').disabled && LoadoutMenu.tab === 'classes', LoadoutMenu.tab);
+  Ui.closeAll();
+  Game.stop();
+}));
+
+// ---- The stealth label follows the PvE section's own awareness rule; the touch TYPE button waits for its reader ----
+Test.add('hudui', (check) => {
+  World.load(pveTestMap());
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' });
+  check('stealth hud: no guards reads unseen', hudPveMostAwareState() === AWARENESS.UNAWARE);
+  const calm = Pve.spawnEnemy('husk', 0, 0, 6, Math.PI), alert = Pve.spawnEnemy('husk', 4, 0, 6, Math.PI);
+  Pve.awareness[calm] = 0; Pve.awareness[alert] = 1;
+  check('stealth hud: the label is Pve.awarenessState of the most aware guard', hudPveMostAwareState() === AWARENESS.ALERT && hudPveMostAwareState() === Pve.awarenessState(alert));
+  Pve.awareness[alert] = PVE_CONTRACT.unaware;
+  check('stealth hud: the label follows the guard down to suspicious', hudPveMostAwareState() === Pve.awarenessState(alert) && hudPveMostAwareState() === AWARENESS.SUSPICIOUS);
+  check('touch: the TYPE button follows the gadget reader', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
+  Game.stop();
+  const savedCycle = Gadgets.cycleGrenade;
+  Gadgets.cycleGrenade = () => {};
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
+  check('touch: the TYPE button shows once Gadgets.cycleGrenade exists', TouchInput.flags.grenadeCycle === true);
+  Game.stop();
+  if (savedCycle === undefined) delete Gadgets.cycleGrenade; else Gadgets.cycleGrenade = savedCycle;
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
+  check('touch: the TYPE button hides again without it', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
+  Game.stop();
+  World.clear();
 });
 
 // ---- Custom match difficulty sliders (DIF-002) ----
@@ -189,7 +251,7 @@ Test.add('hudui', (check) => {
   const skill = Game.match.rules.botSkill;
   check('custom difficulty: the sliders reach rules.botSkill', skill.preset === 'veteran' && skill.aggression === 0.2 && skill.playerDamage === 0.5 && skill.attackers === 4, JSON.stringify(skill));
   Game.stop();
-  check('assist rows: every DIF-002 field has a reader and a slider', DIFFICULTY_SLIDERS.every((slider) => ASSIST_ROWS[slider.field].live && ASSIST_DEFINITIONS.has(slider.field)));
+  check('assist rows: every DIF-002 field is live with a slider (the settings group measures each effect)', DIFFICULTY_SLIDERS.every((slider) => ASSIST_ROWS[slider.field].live && ASSIST_DEFINITIONS.has(slider.field)));
 });
 
 Test.add('hudui', (check) => uiWith(() => {

@@ -18,6 +18,7 @@ const HUD_FLASHES_PER_SECOND = 3;                        // ACC-005 photosensiti
 const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-screen flash in photosensitivity mode
 const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
 const HUD_NUMBER_CACHE = 1000;
+const HUD_LARGE_NUMBER_LIMIT = 256;                      // larger values drawn lately (a core of 5000 makes one string per new value)
 const HUD_LABEL_REFRESH_SECONDS = 1;
 const HUD_LOW_HEALTH = 0.25;
 const HUD_LOW_AMMO = 0.25;
@@ -96,9 +97,20 @@ const hudCountText = Array.from({ length: 100 }, (unused, index) => 'x' + index)
 const hudTimeText = [];
 const HUD_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+const hudLargeNumberText = new Map();
+
 function hudNumber(value) {
   const whole = Math.ceil(value);
-  return whole >= 0 && whole < HUD_NUMBER_CACHE ? hudNumberText[whole] : String(whole);
+  return whole >= 0 && whole < HUD_NUMBER_CACHE ? hudNumberText[whole] : hudLargeNumber(whole);
+}
+// A steady large value (core health, a contract score, range damage) is built once, not every frame; the map empties when full.
+function hudLargeNumber(whole) {
+  let text = hudLargeNumberText.get(whole);
+  if (text !== undefined) return text;
+  if (hudLargeNumberText.size >= HUD_LARGE_NUMBER_LIMIT) hudLargeNumberText.clear();
+  text = String(whole);
+  hudLargeNumberText.set(whole, text);
+  return text;
 }
 function hudCount(value) { return value >= 0 && value < 100 ? hudCountText[value] : 'x' + value; }
 function hudTime(seconds) {

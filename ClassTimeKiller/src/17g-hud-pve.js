@@ -25,7 +25,7 @@ hudAddElement({ id: 'pve', label: 'PvE status (waves, core, boss, chambers, rang
 
 // Which status rows each PvE mode shows under the header (a new PvE mode adds a row here).
 const HUD_PVE_PANELS = {
-  horde: ['wave'], endless: ['wave'], bank: ['motes'], fiends: ['enemies'], contract: ['stealth'], attrition: [], range: [], puzzle: ['chamber'],
+  horde: ['wave'], endless: ['wave'], bank: ['motes'], fiends: ['enemies'], contract: ['stealth'], attrition: ['enemies'], range: [], puzzle: ['chamber'],
 };
 
 // ---- Small text helpers: a dim label and a value next to it ----
@@ -106,16 +106,20 @@ function hudPveEnemiesRow(pen, layout, pve, y) {
 }
 
 // M28 stealth contract: the most aware guard's meter and state, alarms, the score so far and the relic.
-function hudPveAwarenessState(value) {
-  if (value >= 1) return AWARENESS.ALERT;
-  if (value >= PVE_CONTRACT.suspicious) return AWARENESS.SEARCHING;
-  return value >= PVE_CONTRACT.unaware ? AWARENESS.SUSPICIOUS : AWARENESS.UNAWARE;
+// The state label is the PvE section's own rule (Pve.awarenessState) for the most aware living guard, so the thresholds live in 14h only.
+function hudPveMostAwareState() {
+  let most = -1;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Pve.isEnemy(id) || !Actors.alive[id]) continue;
+    if (most < 0 || Pve.awareness[id] > Pve.awareness[most]) most = id;
+  }
+  return most < 0 ? AWARENESS.UNAWARE : Pve.awarenessState(most);
 }
 function hudPveStealthRow(pen, layout, pve, y) {
   const unit = layout.unit, left = hudPveLeft(layout), right = hudPveRight(layout), height = (HUD_PVE_ROW * 2 + 6) * unit;
   const color = hudAwarenessColor(pve.awareness), lineY = y + HUD_PVE_ROW * 0.6 * unit;
   pen.panel(left, y, right - left, height, 0.5);
-  pen.text(HUD_PVE_AWARENESS_TEXT[hudPveAwarenessState(pve.awareness)], left + HUD_PVE_PAD * unit, lineY, HUD_TEXT_SMALL * unit, color, 'left');
+  pen.text(HUD_PVE_AWARENESS_TEXT[hudPveMostAwareState()], left + HUD_PVE_PAD * unit, lineY, HUD_TEXT_SMALL * unit, color, 'left');
   pen.bar(left + 110 * unit, lineY - HUD_PVE_BAR * unit / 2, right - left - 120 * unit, HUD_PVE_BAR * unit, pve.awareness, color);
   const noteY = y + HUD_PVE_ROW * 1.55 * unit;
   hudPveStat(pen, left + HUD_PVE_PAD * unit, noteY, unit, 'ALARMS', hudNumber(pve.alarms), pve.alarms > 0 ? Hud.colors.bad : HUD_COLOR.text);
@@ -160,9 +164,10 @@ function hudPveBossBar(pen, layout, boss, y) {
 // ---- Right-hand tables: chamber medal limits and the range drill stats ----
 function hudPveSideTop(layout) { return layout.top + HUD_PVE_SIDE_TOP * layout.unit; }
 
+// Par times from the HUD block (PVE_HUD.parTime, set on entering the chamber); steps and gates from the chamber row.
 function hudPveChamberTable(pen, layout, pve) {
   const row = PVE_CHAMBERS[pve.chamber - 1];
-  if (!row) return;
+  if (!row || !pve.parTime) return;
   const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
   const current = hudPveChamberTier(pve), tiers = HUD_PVE_MEDAL_STARS.length;
   pen.panel(left, top, width, rowHeight * (tiers + 3.4), 0.5);
@@ -171,7 +176,7 @@ function hudPveChamberTable(pen, layout, pve) {
     const y = top + rowHeight * (tier + 1.6), alpha = tier === current ? 1 : 0.55;
     if (tier === current) pen.rect(left, y - rowHeight / 2, 3 * unit, rowHeight, HUD_PVE_MEDAL_COLORS[tier]);
     pen.text(HUD_PVE_MEDAL_STARS[tier], left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_PVE_MEDAL_COLORS[tier], 'left', alpha);
-    pen.text(hudTime(row.par.time[tier]), left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
+    pen.text(hudTime(pve.parTime[tier]), left + width * HUD_PVE_TIME_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
     pen.text(hudNumber(row.par.steps[tier]), left + width * HUD_PVE_STEPS_COLUMN, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
     pen.text(hudNumber(row.par.portals[tier]), left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'right', alpha);
   }
@@ -186,10 +191,10 @@ function hudPveTableHeader(pen, left, width, y, unit) {
   pen.text('GATES', left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
 }
 
-// M30: shot statistics and the running drill (kills of the drill, its clock, the best time).
+// M30: shot statistics, every target down, and the running drill (kills of the drill, its clock, the best time).
 function hudPveRangeTable(pen, layout, pve) {
   const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
-  pen.panel(left, top, width, rowHeight * 10.4, 0.5);
+  pen.panel(left, top, width, rowHeight * 11.4, 0.5);
   let y = top + rowHeight * 0.6;
   pen.text('FIRING RANGE', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'left');
   y += rowHeight;
@@ -198,6 +203,7 @@ function hudPveRangeTable(pen, layout, pve) {
   hudPveTableRow(pen, left, width, y, unit, 'ACCURACY %', hudNumber(Math.floor(pve.accuracy * 100)), HUD_COLOR.text); y += rowHeight;
   hudPveTableRow(pen, left, width, y, unit, 'HEADSHOTS', hudNumber(pve.headshots), HUD_COLOR.text); y += rowHeight;
   hudPveTableRow(pen, left, width, y, unit, 'DAMAGE', hudNumber(pve.damage), HUD_COLOR.text); y += rowHeight;
+  hudPveTableRow(pen, left, width, y, unit, 'KILLS', hudNumber(pve.kills), HUD_COLOR.text); y += rowHeight;
   pen.text('DRILL KILLS', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
   hudPveFraction(pen, left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, pve.drillKills, pve.drillTargets, HUD_COLOR.text); y += rowHeight;
   hudPveTableRow(pen, left, width, y, unit, 'DRILL TIME', hudTime(pve.stateTimeLeft), HUD_COLOR.warn); y += rowHeight;

@@ -232,7 +232,7 @@ const Ui = {
     show();
     return wrap;
   },
-  // Yes / No dialog on top of the current screen. options: { title, text, yes, no, onYes, onNo } (Esc / Back closes it without either).
+  // Yes / No dialog on top of the current screen. options: { title, text, yes, no, onYes }.
   confirm(options) { return this.open('confirm', options); },
 
   // ---- Start-up ----
@@ -259,7 +259,7 @@ Ui.register('confirm', {
     panel.appendChild(makeElement('h2', 'ui-title', options.title));
     panel.appendChild(makeElement('p', 'ui-note', options.text));
     const foot = makeElement('div', 'ui-foot');
-    const no = Ui.button(options.no || 'Cancel', () => { Ui.back(); if (options.onNo) options.onNo(); });
+    const no = Ui.button(options.no || 'Cancel', () => Ui.back());
     no.dataset.autofocus = '1';
     foot.appendChild(no);
     foot.appendChild(Ui.button(options.yes || 'OK', () => { Ui.back(); options.onYes(); }, 'primary'));

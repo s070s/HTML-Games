@@ -4,7 +4,13 @@
 // plate) lets the player accept or refuse it. The PvE HUD itself is 17g. Contracts: docs/api/hud-play.md, docs/api/pve.md.
 
 const SOLO_TEXT = 'Hold the core against enemy waves with bot teammates, or solve the Test Chambers alone. The difficulty sets lives, retries and enemy damage.';
-const GUARDIAN_TEXT = 'Three deaths in this wave. Wear the Guardian Plate for the checkpoint retry: enemies deal half damage to your team until the wave is cleared. It is offered once per run.';
+// Built from the PvE rules (PVE_DIRECTOR) so the dialog never drifts from them. A refused plate is offered again in a later wave
+// (14j clears the offer when a wave is cleared); a worn one never again.
+function guardianText() {
+  return PVE_DIRECTOR.guardianDeaths + ' deaths in this wave. Wear the Guardian Plate for the checkpoint retry: enemies deal '
+    + Math.round(PVE_DIRECTOR.guardianTaken * 100) + '% of their damage to your team until the wave is cleared. '
+    + 'It is offered again each wave until it has been worn once.';
+}
 
 const SoloMenu = {
   difficulty: '',             // the difficulty chosen on the Solo screen ('' = the remembered Quick Match one)
@@ -27,6 +33,7 @@ Ui.register('solo', {
 
 // ---- DIF-004 Guardian Plate: the player's choice, through the call the PvE section exposes ----
 // Pve.answerGuardian(accept) is the PvE side of the choice; without it the plate stays automatic and no row is offered.
+// Contract request (docs/api/pve.md): once 14j has Pve.answerGuardian and PVE_HUD_DEFAULTS.guardianAccepted, drop this typeof and the 17g one.
 function guardianChoiceOpen() {
   return !!Modes.hud.pve && Modes.hud.pve.active && Modes.hud.pve.guardianOffer && typeof Pve.answerGuardian === 'function';
 }
@@ -43,7 +50,7 @@ Ui.register('guardian', {
     root.classList.add('ui-dialog');
     const panel = makeElement('div', 'ui-panel');
     panel.appendChild(makeElement('h2', 'ui-title', 'Guardian Plate'));
-    panel.appendChild(makeElement('p', 'ui-note', GUARDIAN_TEXT));
+    panel.appendChild(makeElement('p', 'ui-note', guardianText()));
     const foot = makeElement('div', 'ui-foot');
     const wear = Ui.button('Wear it', () => { answerGuardian(true); Ui.back(); }, 'primary');
     wear.dataset.autofocus = '1';
