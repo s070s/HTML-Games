@@ -30,7 +30,7 @@ const Killcam = {
   sampleScratch: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, eye: 0, alive: false },
   lower: 0, upper: 0, mix: 0,
 
-  reset() { this.head = 0; this.filled = 0; this.playing = false; this.clock = 0; this.killer = -1; },
+  reset() { this.head = 0; this.filled = 0; this.stop(); },
   // Stores one frame of every actor. `forceAlive` keeps a just-killed actor visible in the final frame.
   record(forceAlive) {
     const previous = (this.head - 1 + KILLCAM_FRAMES) % KILLCAM_FRAMES;
@@ -79,7 +79,7 @@ const Killcam = {
     this.record(event.victim);
     const end = this.newestTime(), start = Math.max(this.oldestTime(), end - KILLCAM_SECONDS);
     if (end - start < KILLCAM_MIN_SECONDS) return false;
-    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true;
+    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true;
     this.skipHeld = (Actors.buttons[event.victim] & KILLCAM_SKIP_BUTTONS) !== 0;   // a button still held from the fight does not skip
     this.describeKill(event);
     return true;
@@ -91,7 +91,7 @@ const Killcam = {
     this.headshot = event.zone === 'head';
     this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
   },
-  stop() { this.playing = false; this.clock = 0; this.killer = -1; },
+  stop() { this.playing = false; Hud.replaying = false; this.clock = 0; this.killer = -1; },
   // Moves the replay clock (render frames, not sim time) and ends it when it is over or skipped.
   advance(seconds) {
     if (!this.playing || Game.paused) return;
@@ -140,7 +140,7 @@ Render.actorStyle = (id, out) => {
 };
 
 // Recorded bodies: a capsule per living actor in its team colour, plus a small box on the face that shows where it looks.
-Render.addSource('killcam', (batch) => {
+function hudDrawKillcamFigures(batch) {
   if (!Killcam.playing) return;
   const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), figure = KILLCAM_FIGURE;
   for (let id = 0; id < Actors.count; id++) {
@@ -151,21 +151,22 @@ Render.addSource('killcam', (batch) => {
     batch.mesh('capsule', body.x, body.y + figure.height / 2, body.z, body.yaw, 0, figure.width, figure.height, figure.width, r, g, b, 0);
     batch.mesh('box', body.x + Math.sin(body.yaw) * 0.3, body.y + figure.faceHeight, body.z + Math.cos(body.yaw) * 0.3, body.yaw, 0, figure.faceSize, figure.faceSize * 0.5, figure.faceSize, 1, 1, 1, 0.4);
   }
-});
+}
+Render.addSource('killcam', hudDrawKillcamFigures);
 
 // ---- Killcam panel: letterbox, killer name, weapon, the killer's health and armor, skip hint ----
-function drawKillcamPanel(pen, layout) {
+function hudDrawKillcamPanel(pen, layout) {
   if (!Killcam.playing) return;
   const unit = layout.unit, bar = layout.height * KILLCAM_BAR, x = layout.centerX;
-  pen.rect(0, 0, layout.width, bar, HUD_COLOR.black, 0.85);
-  pen.rect(0, layout.height - bar, layout.width, bar, HUD_COLOR.black, 0.85);
+  pen.rect(0, 0, layout.width, bar, HUD_COLOR.black, 0.92);
+  pen.rect(0, layout.height - bar, layout.width, bar, HUD_COLOR.black, 0.92);
   pen.rect(0, layout.height - 3 * unit, layout.width * Killcam.progress(), 3 * unit, HUD_COLOR.gold, 1);
   pen.text('KILLED BY', x - 8 * unit, bar / 2, 16 * unit, HUD_COLOR.dim, 'right');
   pen.text(Killcam.killerName, x + 8 * unit, bar / 2, 24 * unit, HUD_COLOR.text, 'left');
   const y = layout.height - bar / 2;
   if (Killcam.weaponClass) pen.weaponIcon(Killcam.weaponClass, x - 150 * unit, y, 44 * unit, HUD_COLOR.text);
   pen.text(Killcam.weaponName, x - 120 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
-  if (Killcam.headshot) drawHeadIcon(pen, x + 30 * unit, y, 18 * unit, 1);
+  if (Killcam.headshot) hudDrawHeadIcon(pen, x + 30 * unit, y, 18 * unit, 1);
   pen.text('♥', x + 70 * unit, y, 16 * unit, Hud.colors.health, 'left');
   pen.text(hudNumber(Killcam.killerHealth), x + 90 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
   pen.text('▲', x + 130 * unit, y, 16 * unit, HUD_COLOR.armor, 'left');
@@ -173,4 +174,4 @@ function drawKillcamPanel(pen, layout) {
   pen.text('TO SKIP', layout.right, bar / 2, 14 * unit, HUD_COLOR.dim, 'right');
   pen.text(Hud.keyLabel('fire') || 'TAP', layout.right - HudBatch.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
 }
-Hud.register('front', 'killcam', '', drawKillcamPanel);
+Hud.register('front', 'killcam', '', hudDrawKillcamPanel);

@@ -24,19 +24,19 @@ const HUD_SOUND_FALLBACK = HUD_SOUND_ICONS.alert;
 Settings.define('hud.captionSize', 16, { label: 'Caption text size', category: 'accessibility', min: 14, max: 28, step: 2 });
 Settings.define('hud.captionBackground', true, { label: 'Caption background', category: 'accessibility' });
 const HudAccess = { captionSize: 16, captionBackground: true };
-function readAccessSettings() {
+function hudReadAccessSettings() {
   HudAccess.captionSize = Settings.get('hud.captionSize');
   HudAccess.captionBackground = Settings.get('hud.captionBackground');
 }
-Bus.on('boot', readAccessSettings);
-Bus.on('match.start', readAccessSettings);
-Bus.on('setting', (key) => { if (key === 'hud.captionSize' || key === 'hud.captionBackground') readAccessSettings(); });
+Bus.on('boot', hudReadAccessSettings);
+Bus.on('match.start', hudReadAccessSettings);
+Bus.on('setting', (key) => { if (key === 'hud.captionSize' || key === 'hud.captionBackground') hudReadAccessSettings(); });
 
 // ---- Markers on screen or on the edge ----
 const hudEdge = { x: 0, y: 0, dx: 0, dy: 0 };
 
 // Where the arrow for a point off the screen sits: on the rectangle inset by the margin, along the direction from the centre.
-function edgeArrowPosition(layout, projection) {
+function hudEdgeArrowPosition(layout, projection) {
   const margin = HUD_MARKER_MARGIN * layout.unit, halfW = layout.centerX - margin, halfH = layout.centerY - margin;
   let dx = projection.dirX, dy = projection.dirY;
   if (projection.depth <= 0) dy *= 0.3;                       // behind us: the side matters, not the height
@@ -47,8 +47,8 @@ function edgeArrowPosition(layout, projection) {
   return hudEdge;
 }
 
-function drawEdgeArrow(pen, layout, projection, color, distance) {
-  const unit = layout.unit, edge = edgeArrowPosition(layout, projection);
+function hudDrawEdgeArrow(pen, layout, projection, color, distance) {
+  const unit = layout.unit, edge = hudEdgeArrowPosition(layout, projection);
   const tipX = edge.x + edge.dx * HUD_ARROW_TIP * unit, tipY = edge.y + edge.dy * HUD_ARROW_TIP * unit;
   const baseX = edge.x - edge.dx * HUD_ARROW_BASE * unit, baseY = edge.y - edge.dy * HUD_ARROW_BASE * unit;
   const sideX = -edge.dy * HUD_ARROW_WIDTH * unit, sideY = edge.dx * HUD_ARROW_WIDTH * unit;
@@ -57,9 +57,9 @@ function drawEdgeArrow(pen, layout, projection, color, distance) {
 }
 
 // One marker: on-screen icon with distance below it, or an arrow on the edge. `letter` is -1 for none.
-function drawMarker(pen, layout, x, y, z, shape, color, letter, distanceHint) {
+function hudDrawMarker(pen, layout, x, y, z, shape, color, letter, distanceHint) {
   const unit = layout.unit, onScreen = Hud.project(x, y, z), projection = hudProjection;
-  if (!onScreen) { drawEdgeArrow(pen, layout, projection, color, projection.distance); return; }
+  if (!onScreen) { hudDrawEdgeArrow(pen, layout, projection, color, projection.distance); return; }
   const margin = HUD_MARKER_MARGIN * unit;
   const px = clamp(projection.x, margin, layout.width - margin), py = clamp(projection.y, margin, layout.height - margin);
   const size = 22 * unit;
@@ -68,19 +68,19 @@ function drawMarker(pen, layout, x, y, z, shape, color, letter, distanceHint) {
   if (distanceHint !== false) pen.label(hudNumber(projection.distance), px, py + size * 0.95, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'center');
 }
 
-function objectiveMarkerColor(objective) {
+function hudObjectiveColor(objective) {
   if (objective.kind === 'flag' || objective.kind === 'flagBase') return Hud.teamColor(objective.team);
   return objective.owner >= 0 ? Hud.teamColor(objective.owner) : HUD_COLOR.dim;
 }
 
-function drawObjectiveMarkers(pen, layout) {
+function hudDrawObjectiveMarkers(pen, layout) {
   const list = Modes.objectives;
   let drawn = 0;
   for (let i = 0; i < list.length && drawn < HUD_MARKER_MAX; i++) {
     const objective = list[i], shape = HUD_MARKER_SHAPES[objective.kind];
     if (!objective.active || !shape) continue;
-    const letter = HUD_LETTER_KINDS.includes(objective.kind) ? objectiveLetterIndex(list, i) : -1;
-    drawMarker(pen, layout, objective.x, objective.y + HUD_MARKER_HEIGHT, objective.z, shape, objectiveMarkerColor(objective), letter, true);
+    const letter = HUD_LETTER_KINDS.includes(objective.kind) ? hudObjectiveLetter(list, i) : -1;
+    hudDrawMarker(pen, layout, objective.x, objective.y + HUD_MARKER_HEIGHT, objective.z, shape, hudObjectiveColor(objective), letter, true);
     drawn++;
   }
 }
@@ -99,28 +99,28 @@ const HudPings = {
 };
 Bus.on('ping', (event) => HudPings.add(event));
 
-function pingColor(kind) {
+function hudPingColor(kind) {
   if (kind === 'enemy') return Hud.colors.bad;
   return kind === 'danger' ? HUD_COLOR.warn : Hud.colors.good;
 }
-function drawPingMarkers(pen, layout) {
+function hudDrawPingMarkers(pen, layout) {
   const p = HudPings, player = Game.playerId;
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
     const age = Hud.time - p.at[i], source = p.source[i];
     if (age >= HUD_PING_SECONDS || source < 0) continue;
     if (source !== player && (player < 0 || Actors.isEnemy(player, source))) continue;      // only your side's pings
-    drawMarker(pen, layout, p.x[i], p.y[i] + 0.5, p.z[i], p.kind[i] === 'enemy' ? 'triangle' : 'diamond', pingColor(p.kind[i]), -1, true);
+    hudDrawMarker(pen, layout, p.x[i], p.y[i] + 0.5, p.z[i], p.kind[i] === 'enemy' ? 'triangle' : 'diamond', hudPingColor(p.kind[i]), -1, true);
     if (Hud.project(p.x[i], p.y[i] + 0.5, p.z[i])) pen.label(Actors.name[source], hudProjection.x, hudProjection.y - 18 * layout.unit, HUD_TEXT_SMALL * layout.unit, HUD_COLOR.dim, 'center');
   }
 }
 
-function drawMarkers(pen, layout) {
-  drawObjectiveMarkers(pen, layout);
-  drawPingMarkers(pen, layout);
+function hudDrawMarkers(pen, layout) {
+  hudDrawObjectiveMarkers(pen, layout);
+  hudDrawPingMarkers(pen, layout);
 }
 
 // ---- Teammate name tags with a team shape beside the name (never enemies: no wall hacks) ----
-function drawNameTags(pen, layout) {
+function hudDrawNameTags(pen, layout) {
   const player = Game.playerId;
   if (player < 0 || Actors.team[player] < 0) return;
   const unit = layout.unit, team = Actors.team[player], rangeSquared = HUD_TAG_RANGE * HUD_TAG_RANGE;
@@ -138,7 +138,7 @@ function drawNameTags(pen, layout) {
 
 // ---- Item respawn timers (Items.timers) ----
 const hudItemTimers = [];
-function drawItemTimers(pen, layout) {
+function hudDrawItemTimers(pen, layout) {
   const count = Math.min(Items.timers(hudItemTimers), HUD_ITEM_TIMER_MAX), player = Game.playerId, unit = layout.unit;
   for (let i = 0; i < count; i++) {
     const timer = hudItemTimers[i];
@@ -173,7 +173,7 @@ Bus.on('caption', (event) => {
   HudCaptions.addSound(event);
 });
 
-function drawCaptions(pen, layout) {
+function hudDrawCaptions(pen, layout) {
   const c = HudCaptions, unit = layout.unit, size = HudAccess.captionSize * unit;
   let shown = 0, y = layout.weaponBarY - (layout.compact ? 40 : 56) * unit;
   for (let k = 1; k <= HUD_CAPTION_SLOTS && shown < HUD_CAPTION_SHOWN; k++) {
@@ -190,13 +190,13 @@ function drawCaptions(pen, layout) {
   }
 }
 
-function drawSoundRing(pen, layout) {
+function hudDrawSoundRing(pen, layout) {
   const c = HudCaptions, unit = layout.unit, player = Game.playerId;
   for (let i = 0; i < HUD_SOUND_SLOTS; i++) {
     const age = Hud.time - c.soundAt[i];
     if (age >= HUD_SOUND_SECONDS) continue;
     if (player >= 0 && Math.hypot(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
-    const angle = bearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
+    const angle = hudBearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
     const x = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit, y = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit;
     pen.shape(icon.shape, x, y, 16 * unit, icon.color, 1 - age / HUD_SOUND_SECONDS);
   }
@@ -205,8 +205,8 @@ function drawSoundRing(pen, layout) {
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });
 
-Hud.register('world', 'markers', 'markers', drawMarkers);
-Hud.register('world', 'nameTags', 'nameTags', drawNameTags);
-Hud.register('world', 'itemTimers', 'itemTimers', drawItemTimers);
-Hud.register('main', 'soundRing', 'soundRing', drawSoundRing);
-Hud.register('main', 'captions', 'captions', drawCaptions);
+Hud.register('world', 'markers', 'markers', hudDrawMarkers);
+Hud.register('world', 'nameTags', 'nameTags', hudDrawNameTags);
+Hud.register('world', 'itemTimers', 'itemTimers', hudDrawItemTimers);
+Hud.register('main', 'soundRing', 'soundRing', hudDrawSoundRing);
+Hud.register('main', 'captions', 'captions', hudDrawCaptions);

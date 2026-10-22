@@ -51,12 +51,12 @@ const HudFeed = {
   },
 };
 
-function drawHeadIcon(pen, x, y, size, alpha) {
+function hudDrawHeadIcon(pen, x, y, size, alpha) {
   pen.ring(x, y, size * 0.4, Math.max(1.5, size * 0.14), HUD_COLOR.gold, alpha);
   pen.rect(x - size * 0.09, y - size * 0.09, size * 0.18, size * 0.18, HUD_COLOR.gold, alpha);
 }
 
-function drawFeedRow(pen, layout, slot, right, y, alpha) {
+function hudDrawFeedRow(pen, layout, slot, right, y, alpha) {
   const feed = HudFeed, unit = layout.unit, size = 15 * unit, iconWidth = 34 * unit, flags = feed.flags[slot];
   const world = (flags & feed.FLAG_WORLD) !== 0, self = (flags & feed.FLAG_SELF) !== 0;
   const victimWidth = HudBatch.measure(feed.victim[slot], size), killerWidth = world || self ? 0 : HudBatch.measure(feed.killer[slot], size);
@@ -70,16 +70,16 @@ function drawFeedRow(pen, layout, slot, right, y, alpha) {
   if (feed.weaponClass[slot]) pen.weaponIcon(feed.weaponClass[slot], x + iconWidth / 2, mid, iconWidth, HUD_COLOR.text, alpha);
   else pen.text('×', x + iconWidth / 2, mid, size, HUD_COLOR.dim, 'center', alpha);
   x += iconWidth;
-  if (headWidth) { drawHeadIcon(pen, x + headWidth / 2, mid, headWidth, alpha); x += headWidth; }
+  if (headWidth) { hudDrawHeadIcon(pen, x + headWidth / 2, mid, headWidth, alpha); x += headWidth; }
   pen.text(feed.victim[slot], x, mid, size, feed.victimColor[slot], 'left', alpha);
 }
 
-function drawKillFeed(pen, layout) {
+function hudDrawKillFeed(pen, layout) {
   const now = Hud.time, maxRows = layout.compact ? HUD_FEED_ROWS_COMPACT : HUD_FEED_ROWS, live = HudFeed.liveCount(now);
   const first = Math.max(0, live - maxRows), rowHeight = 25 * layout.unit;
   for (let n = first; n < live; n++) {
     const slot = HudFeed.slotAt(n, now), age = now - HudFeed.at[slot], remaining = HUD_FEED_SECONDS - age;
-    drawFeedRow(pen, layout, slot, layout.right, layout.top + 11 * layout.unit + (n - first) * rowHeight, remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1);
+    hudDrawFeedRow(pen, layout, slot, layout.right, layout.top + 11 * layout.unit + (n - first) * rowHeight, remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1);
   }
 }
 
@@ -101,7 +101,7 @@ const HudBanners = {
 };
 
 // "doubleKill" -> "Double Kill" when the medals catalogue (15.6) has no row yet.
-function medalTitle(medal) {
+function hudMedalTitle(medal) {
   const row = CAT.medals ? CAT.medals.byId(medal) : null;
   if (row) return row.name;
   const spaced = String(medal).replace(HUD_CAMEL_BREAK, '$1 $2');
@@ -109,9 +109,9 @@ function medalTitle(medal) {
 }
 
 Bus.on('announce', (event) => HudBanners.add(event.text, event.kind, event.priority, false));
-Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) HudBanners.add(medalTitle(event.medal), 'medal', HUD_BANNER_PRIORITY_LONG, true); });
+Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) HudBanners.add(hudMedalTitle(event.medal), 'medal', HUD_BANNER_PRIORITY_LONG, true); });
 
-function drawBanners(pen, layout) {
+function hudDrawBanners(pen, layout) {
   const b = HudBanners, now = Hud.time, unit = layout.unit;
   let shown = 0, y = layout.height * 0.22;
   for (let k = 1; k <= HUD_BANNER_SLOTS && shown < HUD_BANNER_SHOWN; k++) {
@@ -133,7 +133,7 @@ function drawBanners(pen, layout) {
 // ---- Header ----
 const hudObjectiveText = { planted: 'BOMB', dropped: 'DROPPED', carried: 'TAKEN' };
 
-function drawTeamScore(pen, layout, team, x, align, score) {
+function hudDrawTeamScore(pen, layout, team, x, align, score) {
   const unit = layout.unit, color = Hud.teamColor(team), mine = Actors.team[Game.playerId] === team;
   const y = layout.top + 17 * unit;
   pen.shape(Hud.teamShapes ? Hud.teamShape(team) : 'square', align === 'left' ? x + 12 * unit : x - 12 * unit, y, 14 * unit, color);
@@ -141,7 +141,7 @@ function drawTeamScore(pen, layout, team, x, align, score) {
   if (mine) pen.rect(align === 'left' ? x : x - 74 * unit, layout.top + 34 * unit, 74 * unit, 3 * unit, color, 1);
 }
 
-function drawTime(pen, layout, state) {
+function hudDrawTime(pen, layout, state) {
   const unit = layout.unit, x = layout.centerX, y = layout.top + 15 * unit;
   if (state.overtime) pen.text('OVERTIME', x, y + 21 * unit, 14 * unit, Hud.colors.bad, 'center');
   if (state.timeLeft > 0) {
@@ -150,17 +150,17 @@ function drawTime(pen, layout, state) {
   }
   if (state.phase === 'freeze') pen.text('GET READY', x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
   else if (state.phase === 'roundEnd') pen.text('ROUND OVER', x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
-  else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) drawScoreLimit(pen, layout, state.scoreLimit, y + 22 * unit);
+  else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit, y + 22 * unit);
 }
 
 // "FIRST TO 25" under the clock: the label ends and the number starts at the centre line.
-function drawScoreLimit(pen, layout, limit, y) {
+function hudDrawScoreLimit(pen, layout, limit, y) {
   const unit = layout.unit;
   pen.text('FIRST TO', layout.centerX - 3 * unit, y, 14 * unit, HUD_COLOR.dim, 'right');
   pen.text(hudNumber(limit), layout.centerX + 3 * unit, y, 14 * unit, HUD_COLOR.dim, 'left');
 }
 
-function drawRoundPips(pen, layout, state) {
+function hudDrawRoundPips(pen, layout, state) {
   const unit = layout.unit, y = layout.top + 56 * unit, wins = Math.max(state.roundsToWin, 1);
   pen.text('ROUND', layout.centerX, y, 14 * unit, HUD_COLOR.dim, 'center');
   pen.text(hudNumber(state.round), layout.centerX + 40 * unit, y, 14 * unit, HUD_COLOR.text, 'left');
@@ -173,7 +173,7 @@ function drawRoundPips(pen, layout, state) {
   }
 }
 
-function drawFreeForAllScore(pen, layout, state) {
+function hudDrawFreeForAllScore(pen, layout, state) {
   const unit = layout.unit, y = layout.top + 17 * unit, x = layout.centerX;
   pen.text('#', x - 144 * unit, y, 22 * unit, HUD_COLOR.dim, 'left');
   pen.text(hudNumber(state.playerRank), x - 132 * unit, y, 26 * unit, HUD_COLOR.text, 'left');
@@ -188,19 +188,19 @@ function drawFreeForAllScore(pen, layout, state) {
   }
 }
 
-function drawControlMeters(pen, layout, state) {
+function hudDrawControlMeters(pen, layout, state) {
   const unit = layout.unit, y = layout.top + 68 * unit, width = 110 * unit;
   pen.bar(layout.centerX - width - 8 * unit, y, width, 6 * unit, state.teamMeter[0], Hud.teamColor(0));
   pen.bar(layout.centerX + 8 * unit, y, width, 6 * unit, state.teamMeter[1], Hud.teamColor(1));
 }
 
 // Objective chips under the header: letter + owner colour + capture arc, flags as team-shaped markers.
-function objectiveLetterIndex(list, index) {
+function hudObjectiveLetter(list, index) {
   let letter = 0;
   for (let i = 0; i < index; i++) if (list[i].kind === list[index].kind && list[i].active) letter++;
   return letter;
 }
-function drawObjectiveChip(pen, layout, objective, letter, x, y) {
+function hudDrawObjectiveChip(pen, layout, objective, letter, x, y) {
   const unit = layout.unit, owner = objective.owner;
   const color = objective.kind === 'flag' ? Hud.teamColor(objective.team) : Hud.teamColor(owner);
   const capturing = objective.capturingTeam >= 0 && objective.progress > 0;
@@ -215,7 +215,7 @@ function drawObjectiveChip(pen, layout, objective, letter, x, y) {
   if (objective.state === 'planted') pen.text(hudTime(objective.detonateAt - Sim.time), x, y + 22 * unit, 14 * unit, Hud.colors.bad, 'center');
   else if (note && objective.kind === 'flag') pen.text(note, x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
 }
-function drawObjectiveChips(pen, layout, state) {
+function hudDrawObjectiveChips(pen, layout, state) {
   const list = state.objectives;
   if (!list || !list.length) return;
   const unit = layout.unit, spacing = 36 * unit, y = layout.top + (state.roundsToWin > 0 ? 92 : 74) * unit;
@@ -225,29 +225,29 @@ function drawObjectiveChips(pen, layout, state) {
   for (let i = 0; i < list.length && drawn < HUD_MAX_OBJECTIVE_CHIPS; i++) {
     const objective = list[i];
     if (!objective.active || objective.kind === 'payloadPath' || objective.kind === 'flagBase') continue;
-    drawObjectiveChip(pen, layout, objective, objectiveLetterIndex(list, i), x, y);
+    hudDrawObjectiveChip(pen, layout, objective, hudObjectiveLetter(list, i), x, y);
     x += spacing;
     drawn++;
   }
 }
 
-function drawHeader(pen, layout) {
+function hudDrawHeader(pen, layout) {
   const state = Modes.hudState();
   if (!state.active && state.phase !== 'ended') return;
   const unit = layout.unit, width = 320 * unit, left = layout.centerX - width / 2;
   pen.panel(left, layout.top, width, 44 * unit, 0.5);
   if (state.teams === 2) {
-    drawTeamScore(pen, layout, 0, left + 4 * unit, 'left', state.teamScores[0]);
-    drawTeamScore(pen, layout, 1, left + width - 4 * unit, 'right', state.teamScores[1]);
-  } else drawFreeForAllScore(pen, layout, state);
-  drawTime(pen, layout, state);
-  if (state.roundsToWin > 0) drawRoundPips(pen, layout, state);
-  if (state.mode === 'control') drawControlMeters(pen, layout, state);
-  drawObjectiveChips(pen, layout, state);
+    hudDrawTeamScore(pen, layout, 0, left + 4 * unit, 'left', state.teamScores[0]);
+    hudDrawTeamScore(pen, layout, 1, left + width - 4 * unit, 'right', state.teamScores[1]);
+  } else hudDrawFreeForAllScore(pen, layout, state);
+  hudDrawTime(pen, layout, state);
+  if (state.roundsToWin > 0) hudDrawRoundPips(pen, layout, state);
+  if (state.mode === 'control') hudDrawControlMeters(pen, layout, state);
+  hudDrawObjectiveChips(pen, layout, state);
 }
 
 // ---- Respawn countdown, elimination and spectate text ----
-function drawRespawnText(pen, layout) {
+function hudDrawRespawnText(pen, layout) {
   const unit = layout.unit, id = Game.playerId, x = layout.centerX, y = layout.height * 0.68;
   if (id < 0) { pen.label('SPECTATING', x, layout.height * 0.82, 22 * unit, HUD_COLOR.text, 'center'); return; }
   if (Actors.alive[id] || Killcam.playing) return;
@@ -265,7 +265,7 @@ function drawRespawnText(pen, layout) {
 Bus.on('match.start', () => { HudFeed.reset(); HudBanners.reset(); });
 Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
 
-Hud.register('main', 'header', 'header', drawHeader);
-Hud.register('main', 'killFeed', 'killFeed', drawKillFeed);
-Hud.register('front', 'banners', 'banners', drawBanners);
-Hud.register('front', 'respawnText', 'respawnText', drawRespawnText);
+Hud.register('main', 'header', 'header', hudDrawHeader);
+Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);
+Hud.register('front', 'banners', 'banners', hudDrawBanners);
+Hud.register('front', 'respawnText', 'respawnText', hudDrawRespawnText);

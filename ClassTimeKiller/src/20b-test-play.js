@@ -2,7 +2,7 @@
 // the scoreboard (rows, teams, objective column, accuracy, medals, open / close) and a full headless quick match from start to results.
 
 DebugApi.scoreboard = Scoreboard;
-DebugApi.playerStats = PlayerStats;
+DebugApi.playerStats = LocalPlayerStats;
 
 const PLAY_TEST_SEED = 11;
 const PLAY_TEST_SHUFFLES = 300;
@@ -192,7 +192,7 @@ Test.add('play', (check) => {
 Test.add('play', (check) => {
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { player: { name: 'Me' } });
   const me = Game.playerId, other = me === 0 ? 1 : 0;
-  PlayerStats.reset();
+  LocalPlayerStats.reset();
   const fire = (id) => Bus.emit('weapon.fire', { id, weapon: 'warden', weaponClass: 'sidearm', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 1 });
   const hit = (extra) => Bus.emit('damage', Object.assign({ target: other, source: me, amount: 10, absorbed: 0, zone: 'body', weapon: 'warden', element: 'kinetic', kind: 'hit', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 }, extra));
   fire(me); hit(); hit(); hit();
@@ -202,7 +202,7 @@ Test.add('play', (check) => {
   fire(other);
   Bus.emit('damage', { target: me, source: other, amount: 5, weapon: 'warden', kind: 'hit', zone: 'body' });
   Bus.emit('kill', { victim: other, killer: me, assister: -1, weapon: 'warden', zone: 'head', element: 'kinetic', x: 0, y: 0, z: 0 });
-  const rows = PlayerStats.rows();
+  const rows = LocalPlayerStats.rows();
   check('accuracy: shots, hits (once per shot even with pellets), headshots and kills per weapon', rows.length === 1 && rows[0].name === 'Warden Pistol' && rows[0].shots === 4 && rows[0].hits === 2 && rows[0].headshots === 1 && rows[0].kills === 1, JSON.stringify(rows));
   check('accuracy: 2 of 4 shots is 50%, burning damage and other players shots do not count', Test.near(rows[0].accuracy, 0.5, 1e-9));
   Bus.emit('medal', { id: me, medal: 'doubleKill' });
@@ -212,7 +212,7 @@ Test.add('play', (check) => {
   Scoreboard.renderInto(box);
   check('scoreboard: your weapons table shows the percentage and the medals show with counts', box.textContent.includes('Your weapons') && box.textContent.includes('50%') && box.textContent.includes('Double Kill x2') && !box.textContent.includes('Spree'));
   Game.start(Game.match.setup);
-  check('accuracy: a new match starts from zero', PlayerStats.rows().length === 0 && PlayerStats.medals.size === 0);
+  check('accuracy: a new match starts from zero', LocalPlayerStats.rows().length === 0 && LocalPlayerStats.medals.size === 0);
   endModeTest();
 });
 

@@ -111,7 +111,7 @@ const hudFlashTimes = new Float64Array(HUD_FLASHES_PER_SECOND).fill(-1000);
 const hudKeyLabels = new Map();
 
 const Hud = {
-  shown: true, scale: 1, opacity: 1, compactSetting: 'auto', teamShapes: true, reduceMotionSetting: 'auto', paletteId: 'off',
+  shown: true, replaying: false, scale: 1, opacity: 1, compactSetting: 'auto', teamShapes: true, reduceMotionSetting: 'auto', paletteId: 'off',
   elements: {},                     // element id -> bool (cache of the hud.element.* settings)
   time: 0,                          // UI clock in seconds: advances every frame except while paused
   frameSeconds: 0,                  // length of the last frame (the killcam clock follows it)
@@ -122,7 +122,7 @@ const Hud = {
   drawers: { back: [], world: [], main: [], front: [] },
   stats: { quads: 0 },
   crosshairOverride: null,          // fn(weaponRow, out): per-weapon crosshair fields (17b fills it)
-  project(x, y, z, out) { return projectToScreen(x, y, z, out || hudProjection); },
+  project(x, y, z, out) { return hudProject(x, y, z, out || hudProjection); },
 
   // Registers a drawer. element: a HUD_ELEMENTS id whose toggle hides it, or '' for always on.
   register(layer, id, element, draw) {
@@ -132,7 +132,7 @@ const Hud = {
   visible() { return this.shown && Game.state === 'playing' && !!Game.match; },
   reduceMotion() {
     if (this.reduceMotionSetting === 'on') return true;
-    return this.reduceMotionSetting === 'auto' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return this.reduceMotionSetting === 'auto' && hudSystemReduceMotion;
   },
   // ACC-005: at most three screen flashes per second; the caller skips its flash when this says no.
   flashAllowed() {
@@ -187,11 +187,11 @@ const Hud = {
   },
   // Draws every drawer of a layer. A drawer that throws is logged once and switched off; the others keep running.
   drawLayer(layer, pen, seconds) {
-    const list = this.drawers[layer];
+    const list = this.drawers[layer], active = this.visible() && !(this.replaying && layer !== 'front');   // a replay shows only the front layer: the camera is not yours
     for (let i = 0; i < list.length; i++) {
       const drawer = list[i];
       drawer.quads = 0;
-      if (drawer.failed || (drawer.element && !this.elements[drawer.element])) continue;
+      if (!active || drawer.failed || (drawer.element && !this.elements[drawer.element])) continue;
       const before = HudBatch.quads;
       try { drawer.draw(pen, this.layout, seconds); } catch (error) { drawer.failed = true; ErrorLog.add('hud ' + drawer.id, error); }
       drawer.quads = HudBatch.quads - before;
@@ -206,7 +206,7 @@ const Hud = {
 };
 
 // ---- Layout: unit = design scale x the player's HUD scale; anchors for the stacks around the screen ----
-function readSafeInsets() {
+function hudReadSafeInsets() {
   const probe = makeElement('div');
   probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left)';
   document.body.appendChild(probe);
@@ -239,7 +239,7 @@ function updateHudLayout(layout, width, height) {
 
 // World point -> screen pixels with the render camera (same maths as the renderer: Hor+ FOV at 16:9, yaw/pitch, no roll).
 // Returns true when the point is in front of the camera and inside the screen; out.dirX/dirY point towards it either way.
-function projectToScreen(x, y, z, out) {
+function hudProject(x, y, z, out) {
   const camera = Render.camera, layout = Hud.layout;
   const dx = x - camera.x, dy = y - camera.y, dz = z - camera.z;
   const sinYaw = Math.sin(camera.yaw), cosYaw = Math.cos(camera.yaw), sinPitch = Math.sin(camera.pitch), cosPitch = Math.cos(camera.pitch);
@@ -326,7 +326,6 @@ function registerHudLayers() {
   HUD_LAYERS.forEach(([name, order], index) => {
     HudBatch.addLayer('hud.' + name, order, (batch, seconds) => {
       if (index === 0) Hud.beginFrame(seconds, batch.width, batch.height);
-      if (!Hud.visible()) return;
       Hud.drawLayer(name, HudPen, seconds);
       if (index === HUD_LAYERS.length - 1) Hud.stats.quads = batch.quads;
     });
@@ -334,11 +333,21 @@ function registerHudLayers() {
 }
 registerHudLayers();
 
+// The system's reduce-motion preference is read once and kept current by the media query (no query object per frame).
+let hudSystemReduceMotion = false;
+function hudWatchSystemMotion() {
+  if (!window.matchMedia) return;
+  const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+  hudSystemReduceMotion = query.matches;
+  query.addEventListener('change', (event) => { hudSystemReduceMotion = event.matches; });
+}
+
 Bus.on('boot', () => {
   if (Game.headless) return;
-  readSafeInsets();
-  window.addEventListener('resize', readSafeInsets);
-  window.addEventListener('orientationchange', readSafeInsets);
+  hudReadSafeInsets();
+  hudWatchSystemMotion();
+  window.addEventListener('resize', hudReadSafeInsets);
+  window.addEventListener('orientationchange', hudReadSafeInsets);
 });
 Bus.on('setting', (key) => { if (typeof key === 'string' && key.startsWith('hud.')) Hud.applySettings(); });
 Bus.on('boot', () => Hud.applySettings());
@@ -348,7 +357,7 @@ Bus.on('match.start', () => { Hud.applySettings(); Hud.resetFlashes(); });
 function hudLocalAlive() { return Game.playerId >= 0 && Actors.alive[Game.playerId] === 1; }
 
 // One bar of the health stack; returns the y of the next row up.
-function drawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
+function hudDrawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
   const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, top = bottomY - height, x = layout.left;
   const fraction = maximum > 0 ? value / maximum : 0;
   const pulse = fraction < HUD_LOW_HEALTH && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
@@ -360,18 +369,18 @@ function drawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
   return top - layout.barGap;
 }
 
-function drawVitals(pen, layout) {
+function hudDrawVitals(pen, layout) {
   const id = Game.playerId;
   if (!hudLocalAlive()) return;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   let y = layout.bottom;
-  y = drawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < HUD_LOW_HEALTH ? Hud.colors.healthLow : Hud.colors.health, '♥');
-  if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = drawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
-  if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) drawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
+  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < HUD_LOW_HEALTH ? Hud.colors.healthLow : Hud.colors.health, '♥');
+  if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = hudDrawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
+  if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
 }
 
 const hudReloadState = { active: false, progress: 0 };
-function readReload(id) {
+function hudReadReload(id) {
   const reloading = Weapons.state[id] === WEAPON_STATE.RELOAD && Weapons.stateDuration[id] > 0;
   hudReloadState.active = reloading;
   hudReloadState.progress = reloading ? Weapons.stateTime[id] / Weapons.stateDuration[id] : 0;
@@ -380,7 +389,7 @@ function readReload(id) {
 
 // The warning under the magazine: reloading, empty, or running low. Returns the text and colour through hudAmmoWarning.
 const hudAmmoWarning = { text: '', color: HUD_COLOR.warn };
-function readAmmoWarning(id, weapon, ammo, reload) {
+function hudReadAmmoWarning(id, weapon, ammo, reload) {
   const warning = hudAmmoWarning;
   warning.text = ''; warning.color = HUD_COLOR.warn;
   if (reload.active) { warning.text = 'RELOADING'; return warning; }
@@ -391,17 +400,17 @@ function readAmmoWarning(id, weapon, ammo, reload) {
   return warning;
 }
 
-function drawAmmo(pen, layout) {
+function hudDrawAmmo(pen, layout) {
   const id = Game.playerId;
   if (!hudLocalAlive()) return;
   const weapon = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
-  const width = (compact ? 132 : 176) * unit, height = (compact ? 46 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
+  const width = (compact ? 132 : 176) * unit, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
   pen.panel(left, top, width, height);
   pen.text(weapon.name, left + 8 * unit, top + HUD_TEXT_SMALL * unit, 14 * unit, HUD_COLOR.dim, 'left');
   if (weapon.mag === 0) return;
-  const reload = readReload(id), warning = readAmmoWarning(id, weapon, ammo, reload);
+  const reload = hudReadReload(id), warning = hudReadAmmoWarning(id, weapon, ammo, reload);
   const blink = warning.text && !reload.active && !Hud.reduceMotion() ? 0.65 + 0.35 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
   const lowColor = warning.text && !reload.active ? warning.color : HUD_COLOR.text;
   pen.text(hudNumber(ammo.magazine), left + 8 * unit, top + height * 0.64, (compact ? 28 : 38) * unit, lowColor, 'left', blink);
@@ -413,7 +422,7 @@ function drawAmmo(pen, layout) {
 
 // Owned weapons ordered by slot (then catalogue order) into a reused array; returns the count.
 const hudOwned = new Int16Array(WEAPON_COUNT);
-function collectOwnedWeapons(id) {
+function hudCollectOwnedWeapons(id) {
   let count = 0;
   for (let index = 0; index < WEAPON_COUNT; index++) {
     if (!Weapons.owned[Weapons.slotIndex(id, index)]) continue;
@@ -424,10 +433,10 @@ function collectOwnedWeapons(id) {
   return count;
 }
 
-function drawWeaponBar(pen, layout) {
+function hudDrawWeaponBar(pen, layout) {
   const id = Game.playerId;
   if (!hudLocalAlive() || layout.compact) return;
-  const count = Math.min(collectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
+  const count = Math.min(hudCollectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
   if (count < 2) return;
   const unit = layout.unit, boxWidth = 50 * unit, boxHeight = 26 * unit, gap = 4 * unit;
   const selected = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
@@ -444,20 +453,20 @@ function drawWeaponBar(pen, layout) {
 }
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
-function drawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
+function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
   pen.ring(x, y, radius, thickness, HUD_COLOR.track, 0.8);
   if (remaining <= 0) { pen.ring(x, y, radius, thickness, color, 1); return; }
   pen.ring(x, y, radius, thickness, HUD_COLOR.dim, 0.7, 0, Math.PI * 2 * (1 - clamp(remaining, 0, 1)));
 }
 
 const hudGadgetState = { grenade: '', grenadeCount: 0, gadget: '', gadgetCount: 0, gadgetCooldown: 0 };
-function drawGadgets(pen, layout) {
+function hudDrawGadgets(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Gadgets.hudState(Game.playerId, hudGadgetState), unit = layout.unit;
   let x = layout.ammoRight - 14 * unit;
   const y = layout.gadgetY;
   if (state.gadget || state.gadgetCount > 0) {
-    drawCooldownRing(pen, x, y, 14 * unit, 3 * unit, state.gadgetCooldown, Hud.colors.good);
+    hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, state.gadgetCooldown, Hud.colors.good);
     pen.shape('diamond', x, y, 11 * unit, HUD_COLOR.text);
     pen.text(hudCount(state.gadgetCount), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
     x -= 74 * unit;
@@ -469,21 +478,21 @@ function drawGadgets(pen, layout) {
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };
-function drawAbilities(pen, layout) {
+function hudDrawAbilities(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Abilities.hudState(Game.playerId, hudAbilityState), unit = layout.unit, radius = 17 * unit;
   const slotCount = Math.min(state.slots.length, HUD_MAX_ABILITY_SLOTS);
   for (let i = 0; i < slotCount; i++) {
     const slot = state.slots[i], x = layout.left + radius + i * (radius * 2 + 16 * unit), y = layout.abilityY;
-    drawCooldownRing(pen, x, y, radius, 4 * unit, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
+    hudDrawCooldownRing(pen, x, y, radius, 4 * unit, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
     pen.text(slot.name, x, y, HUD_TEXT_SMALL * unit, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
     pen.text(Hud.keyLabel(HUD_ABILITY_ACTIONS[i]), x, y + radius + 10 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
     if (slot.charges > 1) pen.text(hudNumber(slot.charges), x + radius, y - radius, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'center');
   }
-  if (state.meter.kind !== 'none') drawMeter(pen, layout, state.meter, slotCount);
+  if (state.meter.kind !== 'none') hudDrawMeter(pen, layout, state.meter, slotCount);
 }
 
-function drawMeter(pen, layout, meter, slotCount) {
+function hudDrawMeter(pen, layout, meter, slotCount) {
   const unit = layout.unit, width = 150 * unit, height = 9 * unit;
   const x = layout.left + (slotCount ? slotCount * (34 + 16) * unit + 8 * unit : 0), y = layout.abilityY - height / 2;
   pen.bar(x, y, width, height, meter.value, meter.ready ? HUD_COLOR.gold : Hud.colors.good);
@@ -495,7 +504,7 @@ function drawMeter(pen, layout, meter, slotCount) {
 }
 
 const hudMoneyState = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
-function drawMoney(pen, layout) {
+function hudDrawMoney(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Economy.hudState(Game.playerId, hudMoneyState), rules = Game.match.rules;
   const usesMoney = !!rules && HUD_MONEY_ECONOMIES.includes(rules.economy);
@@ -508,7 +517,7 @@ function drawMoney(pen, layout) {
 }
 
 const hudPowerups = [];
-function drawPowerups(pen, layout) {
+function hudDrawPowerups(pen, layout) {
   if (!hudLocalAlive()) return;
   const count = Math.min(Items.activePowerups(Game.playerId, hudPowerups), HUD_MAX_POWERUP_CHIPS), unit = layout.unit;
   for (let i = 0; i < count; i++) {
@@ -522,10 +531,10 @@ function drawPowerups(pen, layout) {
   }
 }
 
-Hud.register('main', 'vitals', 'vitals', drawVitals);
-Hud.register('main', 'ammo', 'ammo', drawAmmo);
-Hud.register('main', 'weapons', 'weapons', drawWeaponBar);
-Hud.register('main', 'gadgets', 'gadgets', drawGadgets);
-Hud.register('main', 'abilities', 'abilities', drawAbilities);
-Hud.register('main', 'money', 'money', drawMoney);
-Hud.register('main', 'powerups', 'powerups', drawPowerups);
+Hud.register('main', 'vitals', 'vitals', hudDrawVitals);
+Hud.register('main', 'ammo', 'ammo', hudDrawAmmo);
+Hud.register('main', 'weapons', 'weapons', hudDrawWeaponBar);
+Hud.register('main', 'gadgets', 'gadgets', hudDrawGadgets);
+Hud.register('main', 'abilities', 'abilities', hudDrawAbilities);
+Hud.register('main', 'money', 'money', hudDrawMoney);
+Hud.register('main', 'powerups', 'powerups', hudDrawPowerups);

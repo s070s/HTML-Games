@@ -20,7 +20,7 @@ function hudTestWith(run) {
   size.cssWidth = HUD_TEST_WIDTH; size.cssHeight = HUD_TEST_HEIGHT;
   if (builtAtlas) buildGlyphAtlas();
   Hud.insets.top = Hud.insets.right = Hud.insets.bottom = Hud.insets.left = 0;
-  Hud.applySettings(); HudCombat.readSettings(); readAccessSettings();
+  Hud.applySettings(); HudCombat.readSettings(); hudReadAccessSettings();
   Hud.time = 100;
   try { return run(); } finally {
     size.cssWidth = saved.width; size.cssHeight = saved.height;
@@ -122,7 +122,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('settings: every element has its own toggle', HUD_ELEMENTS.every((row) => Settings.definitions.has('hud.element.' + row.id)));
   check('settings: crosshair editor settings exist (UI-004)', ['style', 'size', 'gap', 'thickness', 'outline', 'color', 'dot', 'dynamic'].every((name) => Settings.definitions.has('hud.crosshair.' + name)));
   const readsBefore = new Map(Settings.readCounts);
-  Hud.applySettings(); HudCombat.readSettings(); readAccessSettings();
+  Hud.applySettings(); HudCombat.readSettings(); hudReadAccessSettings();
   Game.start({ mode: 'ffa', seed: 1 });
   const unread = keys.filter((key) => (Settings.readCounts.get(key) || 0) <= (readsBefore.get(key) || 0));
   check('settings: every hud setting is read by the HUD', unread.length === 0, unread.join());
@@ -254,7 +254,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestEvent('medal', { id: scene.id, medal: 'doubleKill' });
   hudTestEvent('medal', { id: scene.enemy, medal: 'spree' });
   check('banners: your medal shows as a banner, other players medals do not', HudBanners.at.filter((at) => at > 0).length === 2 && HudBanners.medal.includes(1));
-  check('banners: a medal id without a catalogue row becomes readable words', medalTitle('quickScope') === 'Quick Scope');
+  check('banners: a medal id without a catalogue row becomes readable words', hudMedalTitle('quickScope') === 'Quick Scope');
   hudTestFrame();
   check('banners: they draw while alive', Hud.quadsOf('banners') > 0);
   Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
@@ -296,11 +296,11 @@ Test.add('hud', (check) => hudTestWith(() => {
   Render.camera.yaw = 0;
   hudTestPlace(scene.enemy, 0, -20, 0);
   hudTestDamage(scene.enemy, id, { amount: 10 });
-  check('damage arc: a hit from behind points straight back', Math.abs(Math.abs(bearingTo(Actors.x[scene.enemy], Actors.z[scene.enemy])) - Math.PI) < 1e-6);
+  check('damage arc: a hit from behind points straight back', Math.abs(Math.abs(hudBearingTo(Actors.x[scene.enemy], Actors.z[scene.enemy])) - Math.PI) < 1e-6);
   hudTestPlace(scene.enemy, -20, 0, 0);
-  check('damage arc: a hit from the right points right (+90 degrees)', Test.near(bearingTo(-20, 0), Math.PI / 2, 1e-6));
+  check('damage arc: a hit from the right points right (+90 degrees)', Test.near(hudBearingTo(-20, 0), Math.PI / 2, 1e-6));
   hudTestPlace(scene.enemy, 20, 0, 0);
-  check('damage arc: a hit from the left points left', Test.near(bearingTo(20, 0), -Math.PI / 2, 1e-6));
+  check('damage arc: a hit from the left points left', Test.near(hudBearingTo(20, 0), -Math.PI / 2, 1e-6));
   hudTestDamage(scene.enemy, id, { amount: 10 });
   hudTestFrame();
   check('damage arc: drawn while fresh', Hud.quadsOf('damageArcs') > 0);
@@ -337,9 +337,9 @@ Test.add('hud', (check) => hudTestWith(() => {
 
   const weapon = Weapons.currentWeapon(id);
   Weapons.bloom[id] = 0;
-  const calm = crosshairSpreadPixels(id, weapon, Hud.layout);
+  const calm = hudCrosshairSpread(id, weapon, Hud.layout);
   Weapons.bloom[id] = 3;
-  check('crosshair: dynamic spread grows with the weapon bloom (' + calm.toFixed(1) + ' -> ' + crosshairSpreadPixels(id, weapon, Hud.layout).toFixed(1) + ' px)', crosshairSpreadPixels(id, weapon, Hud.layout) > calm + 5);
+  check('crosshair: dynamic spread grows with the weapon bloom (' + calm.toFixed(1) + ' -> ' + hudCrosshairSpread(id, weapon, Hud.layout).toFixed(1) + ' px)', hudCrosshairSpread(id, weapon, Hud.layout) > calm + 5);
   for (let i = 0; i < 60; i++) hudTestFrame();
   check('crosshair: the drawn gap follows the spread smoothly', HudCombat.spread > calm + 3);
   Weapons.bloom[id] = 0;
@@ -362,9 +362,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('scope: not zoomed in, the normal crosshair is drawn and no scope', hudTestDrawer('main', 'crosshair').quads > 0 && hudTestDrawer('back', 'scope').quads === 0);
   Weapons.ads[id] = 1;
   hudTestFrame();
-  check('scope: a fully zoomed sniper draws the overlay instead of the crosshair', currentScopeAmount(id, sniper) === 1 && hudTestDrawer('main', 'crosshair').quads === 0 && hudTestDrawer('back', 'scope').quads > 0);
+  check('scope: a fully zoomed sniper draws the overlay instead of the crosshair', hudScopeAmount(id, sniper) === 1 && hudTestDrawer('main', 'crosshair').quads === 0 && hudTestDrawer('back', 'scope').quads > 0);
   Settings.set('hud.scopeOverlay', false);
-  check('scope: the overlay can be switched off', currentScopeAmount(id, sniper) === 0);
+  check('scope: the overlay can be switched off', hudScopeAmount(id, sniper) === 0);
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -432,8 +432,11 @@ Test.add('hud', (check) => hudTestWith(() => {
   const style = { visible: true };
   Render.actorStyle(foe, style);
   check('killcam: live bodies are hidden while it plays', style.visible === false);
+  let figures = 0;
+  hudDrawKillcamFigures({ mesh() { figures++; return 0; } });
+  check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
   hudTestFrame();
-  check('killcam: the panel draws', Hud.quadsOf('') > 0);
+  check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);
   Killcam.advance(0.5);
   check('killcam: it keeps playing before the end', Killcam.playing);
   Killcam.advance(2);
@@ -441,7 +444,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestFrame();
   style.visible = true;
   Render.actorStyle(foe, style);
-  check('killcam: afterwards bodies and panel are back to normal', style.visible === true && Hud.quadsOf('') === 0);
+  check('killcam: afterwards bodies, panel and the normal HUD are back', style.visible === true && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
 
   Actors.alive[player] = 0;
   Actors.buttons[player] = BTN.FIRE;
@@ -470,6 +473,131 @@ Test.add('hud', (check) => hudTestWith(() => {
   Killcam.reset();
   hudTestKill(player, foe);
   check('killcam: with less than 0.3 s of history there is nothing to replay', !Killcam.playing);
+}));
+
+Test.add('hud', (check) => hudTestWith(() => {
+  const scene = hudTestMatch(), id = scene.id, layout = Hud.layout;
+  Killcam.enabled = false;
+  updateHudLayout(layout, HUD_TEST_WIDTH, HUD_TEST_HEIGHT);
+  const margin = HUD_MARKER_MARGIN * layout.unit;
+  Hud.project(-60, 1.6, 10);
+  let edge = hudEdgeArrowPosition(layout, hudProjection);
+  check('markers: a point far to the right becomes an arrow on the right edge, inside the margin', Test.near(edge.x, 1280 - margin, 1) && edge.dx > 0.9 && edge.y > 0 && edge.y < 720);
+  Hud.project(0, 1.6, -30);
+  edge = hudEdgeArrowPosition(layout, hudProjection);
+  check('markers: a point right behind gives an arrow somewhere on the screen edge, never NaN', Number.isFinite(edge.x) && Number.isFinite(edge.y) && edge.x >= margin - 1 && edge.x <= 1280 - margin + 1 && edge.y >= margin - 1 && edge.y <= 720 - margin + 1);
+  Hud.project(0, 40, 10);
+  edge = hudEdgeArrowPosition(layout, hudProjection);
+  check('markers: a point high above gives an arrow on the top edge', Test.near(edge.y, margin, 1) && edge.dy < -0.9);
+  hudTestFrame();
+  const header = Hud.quadsOf('header'), markers = Hud.quadsOf('markers');
+  check('markers: the three capture points show as markers and as chips under the header', markers > 0 && header > 30);
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.enemy, kind: 'go', target: -1, x: 3, y: 1, z: 12 });
+  hudTestFrame();
+  const withEnemyPing = Hud.quadsOf('markers');
+  hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: -1, x: -3, y: 1, z: 12 });
+  hudTestFrame();
+  check('markers: a teammate ping adds a marker, an enemy ping does not', Hud.quadsOf('markers') > withEnemyPing && withEnemyPing === markers);
+  Hud.time += HUD_PING_SECONDS + 0.1;
+  hudTestFrame();
+  check('markers: pings expire after 6 seconds', Hud.quadsOf('markers') === markers);
+
+  hudTestFrame();
+  const tagged = Hud.quadsOf('nameTags');
+  Actors.team[scene.mate] = 1;
+  hudTestFrame();
+  check('name tags: teammates get one, enemies never do (no wall hacks)', tagged > 0 && Hud.quadsOf('nameTags') === 0);
+  Actors.team[scene.mate] = 0;
+  hudTestPlace(scene.mate, 0, HUD_TAG_RANGE + 10, 0);
+  hudTestFrame();
+  check('name tags: only within 60 m', Hud.quadsOf('nameTags') === 0);
+  Settings.set('hud.teamShapes', false);
+  hudTestPlace(scene.mate, 0, 14, 0);
+  hudTestFrame();
+  const plainTag = Hud.quadsOf('nameTags');
+  Settings.set('hud.teamShapes', true);
+  hudTestFrame();
+  check('name tags: the team shape is optional', Hud.quadsOf('nameTags') > plainTag);
+
+  const undo = hudTestStubs();
+  Settings.set('hud.element.itemTimers', true);
+  hudTestFrame();
+  check('item timers: drawn for an item spot in range and on screen', Hud.quadsOf('itemTimers') > 0);
+  Items.timers = (out) => { out.length = 0; out.push({ item: 'far', x: 0, y: 0, z: HUD_ITEM_TIMER_RANGE + 30, remaining: 9, group: 'power' }); return 1; };
+  hudTestFrame();
+  check('item timers: not drawn beyond 40 m', Hud.quadsOf('itemTimers') === 0);
+  undo();
+
+  Settings.set('hud.element.captions', true);
+  Settings.set('hud.element.soundRing', true);
+  HudCaptions.reset();
+  hudTestEvent('caption', { text: '[Gunfire right]', x: -20, y: 0, z: 0, kind: 'gunfire' });
+  hudTestEvent('caption', { text: '[Gunfire right]', x: -20, y: 0, z: 0, kind: 'gunfire' });
+  check('captions: the same caption inside 0.6 s is one line (it only refreshes)', HudCaptions.text.filter((text) => text === '[Gunfire right]').length === 1 && HudCaptions.at.filter((at) => at > 0).length === 1);
+  hudTestFrame();
+  const withBackground = Hud.quadsOf('captions');
+  Settings.set('hud.captionBackground', false);
+  hudTestFrame();
+  check('captions: the background is optional and the text size follows its setting', withBackground > Hud.quadsOf('captions') && Hud.quadsOf('captions') > 0 && HudAccess.captionSize === 16);
+  Settings.set('hud.captionSize', 28);
+  check('captions: size 28 is the largest and is read at once', HudAccess.captionSize === 28 && Settings.definitions.get('hud.captionSize').min === 14);
+  hudTestEvent('caption', { text: '', x: 0, y: 0, z: 30, kind: 'voice' });
+  check('captions: a sound without text still reaches the sound ring', HudCaptions.soundAt.filter((at) => at > 0).length === 3);
+  const angle = hudBearingTo(-20, 0);
+  check('sound ring: a sound on the right sits right of the crosshair (' + angle.toFixed(2) + ' rad)', Test.near(angle, Math.PI / 2, 1e-6) && Math.sin(angle) > 0);
+  hudTestFrame();
+  check('sound ring: draws its icons, footsteps and gunfire differ by shape (ACC-003)', Hud.quadsOf('soundRing') > 0 && HUD_SOUND_ICONS.footstep.shape !== HUD_SOUND_ICONS.gunfire.shape
+    && AUDIO_CAPTION_KINDS.every((kind) => HUD_SOUND_ICONS[kind]));
+  Hud.time += HUD_CAPTION_SECONDS + HUD_SOUND_SECONDS;
+  hudTestFrame();
+  check('captions and sound ring: everything fades out', Hud.quadsOf('captions') === 0 && Hud.quadsOf('soundRing') === 0);
+  void id;
+}));
+
+Test.add('hud', (check) => hudTestWith(() => {
+  const scene = hudTestMatch(), id = scene.id;
+  Killcam.enabled = false;
+  check('text cache: numbers and times come from cached strings', hudNumber(0) === '0' && hudNumber(99.2) === '100' && hudNumber(1500) === '1500' && hudNumber(-3) === '-3'
+    && hudTime(125) === '2:05' && hudTime(59.2) === '1:00' && hudTime(-5) === '0:00' && hudCount(3) === 'x3' && hudNumber(7) === hudNumber(7));
+  hudTestArm(id, CAT.weapons.find((row) => row.class === 'rifle').id);
+  hudTestArm(id, CAT.weapons.find((row) => row.class === 'smg').id);
+  hudTestArm(id, 'warden');
+  const count = hudCollectOwnedWeapons(id);
+  let ordered = count >= 3;
+  for (let i = 1; i < count; i++) ordered = ordered && CAT.weapons[hudOwned[i - 1]].slot <= CAT.weapons[hudOwned[i]].slot;
+  check('weapon bar: owned weapons are listed in slot order', ordered, count);
+  const weapon = Weapons.currentWeapon(id), slot = Weapons.slotIndex(id, weapon.index), ammo = Weapons.ammo(id), reload = hudReadReload(id);
+  Weapons.magazine[slot] = Weapons.magSize(id, weapon);
+  check('ammo: a full magazine has no warning', hudReadAmmoWarning(id, weapon, ammo, reload).text === '');
+  Weapons.magazine[slot] = 1;
+  check('ammo: a nearly empty magazine says LOW AMMO', hudReadAmmoWarning(id, weapon, Weapons.ammo(id), reload).text === 'LOW AMMO');
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 30;
+  check('ammo: an empty magazine with reserve says RELOAD in the warning colour', hudReadAmmoWarning(id, weapon, Weapons.ammo(id), reload).text === 'RELOAD' && hudAmmoWarning.color === Hud.colors.bad);
+  Weapons.reserve[slot] = 0;
+  check('ammo: nothing left says NO AMMO', hudReadAmmoWarning(id, weapon, Weapons.ammo(id), reload).text === 'NO AMMO');
+  Weapons.state[id] = WEAPON_STATE.RELOAD; Weapons.stateTime[id] = 0.5; Weapons.stateDuration[id] = 2;
+  const reloading = hudReadReload(id);
+  check('ammo: reloading shows the progress and RELOADING', reloading.active && Test.near(reloading.progress, 0.25, 1e-6) && hudReadAmmoWarning(id, weapon, Weapons.ammo(id), reloading).text === 'RELOADING');
+  Weapons.state[id] = WEAPON_STATE.IDLE;
+  hudTestFrame();
+  check('ammo: the panel draws for a weapon with a magazine and hides while dead', Hud.quadsOf('ammo') > 0);
+  Actors.alive[id] = 0;
+  hudTestFrame();
+  check('status panels are hidden while dead', Hud.quadsOf('ammo') === 0 && Hud.quadsOf('vitals') === 0 && Hud.quadsOf('crosshair') === 0);
+  Actors.alive[id] = 1;
+  const undo = hudTestStubs();
+  Economy.hudState = (player, out) => { out.money = 0; out.nextRoundMoney = 0; out.canBuy = false; out.buyTimeLeft = 0; return out; };
+  hudTestFrame();
+  check('money: an economy that gives nothing yet and a mode without money draw nothing', Hud.quadsOf('money') === 0 || Game.match.rules.economy === 'roundBuy');
+  Economy.hudState = (player, out) => { out.money = 300; out.nextRoundMoney = 0; out.canBuy = false; out.buyTimeLeft = 0; return out; };
+  hudTestFrame();
+  check('money: any money draws the panel', Hud.quadsOf('money') > 0);
+  undo();
+  Settings.set('hud.colorBlind', 'tritanopia');
+  check('colour-blind palette: the HUD bars use the palette colours', Hud.colors.health === HUD_PALETTES.tritanopia.health && Hud.colors.healthLow === HUD_PALETTES.tritanopia.healthLow);
+  Settings.set('hud.colorBlind', 'off');
+  check('colour-blind palette: off restores the default colours', Hud.colors.health === HUD_COLOR.health && Hud.colors.teams[0] === colorNumber(CAT.teamColors[0].color));
 }));
 
 // HUD frame cost (PERF-002: <= 0.4 ms): a busy scene, many frames, mean time per frame.

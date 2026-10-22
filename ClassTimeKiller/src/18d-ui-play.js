@@ -122,7 +122,7 @@ function playTeamOptions() {
   return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
 }
 
-function modeSummary(modeId) {
+function playModeSummary(modeId) {
   const mode = CAT.modes.byId(modeId);
   const parts = [mode.sizeDefault + ' players'];
   if (mode.scoreLimit > 0) parts.push('first to ' + mode.scoreLimit);
@@ -143,7 +143,7 @@ Ui.register('play', {
       form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
       if (CAT.modes.byId(choice.mode).teams === 2) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
-      summary.textContent = modeSummary(choice.mode);
+      summary.textContent = playModeSummary(choice.mode);
     };
     root.appendChild(form);
     root.appendChild(summary);
@@ -158,7 +158,7 @@ Ui.register('play', {
 });
 
 // ---- Results screen: opened by the match.end listener of 18b ----
-function resultsStatsLine(results) {
+function playResultsStats(results) {
   const mine = results.players.find((player) => player.id === Game.playerId);
   if (!mine) return Math.round(results.duration) + ' s';
   return mine.kills + ' kills, ' + mine.deaths + ' deaths, ' + mine.assists + ' assists, score ' + Math.round(mine.score) + ', best streak ' + mine.bestStreak;
@@ -173,7 +173,7 @@ Ui.register('results', {
     if (results) {
       const winner = PlayFlow.winnerName(results);
       root.appendChild(makeElement('p', 'ui-sub', (winner ? winner + ' wins. ' : '') + (PLAY_REASON_TEXT[results.reason] || '')));
-      root.appendChild(makeElement('p', 'pl-stats', resultsStatsLine(results)));
+      root.appendChild(makeElement('p', 'pl-stats', playResultsStats(results)));
       if (results.queue.length) root.appendChild(makeElement('p', 'ui-note', 'Next up: ' + results.queue.join(', ')));
     }
     const body = makeElement('div', 'ui-scroll');

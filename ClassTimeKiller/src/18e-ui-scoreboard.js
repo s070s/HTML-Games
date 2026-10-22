@@ -1,7 +1,7 @@
 // ==== S18 UI: SCOREBOARD (MODE-003, UI-010) ====
 // A DOM screen: hold Tab (or the pad's View button) to look, tap the touch button to open and close it; it also opens between rounds and
 // the results screen (18d) shows the same tables. Per player kills / deaths / assists / score, team totals, an objective column for
-// the mode, and the local player's accuracy per weapon (PlayerStats, fed by weapon and damage events) with the medals earned.
+// the mode, and the local player's accuracy per weapon (LocalPlayerStats, fed by weapon and damage events) with the medals earned.
 
 const SCOREBOARD_REFRESH_MS = 250;
 const SCOREBOARD_TEAM_SYMBOLS = ['●', '▲', '■', '◆'];
@@ -19,7 +19,7 @@ const SCOREBOARD_CSS = '.sb-panel { width: min(1000px, 100%); max-height: 100%; 
   + '.sb-section { color: var(--ui-accent); font-weight: 700; margin: 12px 0 4px; } .sb-note { color: var(--ui-dim); margin: 4px 0; }';
 
 // ---- Accuracy and medals of the local player ----
-const PlayerStats = {
+const LocalPlayerStats = {
   shots: new Int32Array(WEAPON_COUNT), hits: new Int32Array(WEAPON_COUNT), headshots: new Int32Array(WEAPON_COUNT), kills: new Int32Array(WEAPON_COUNT),
   damage: new Float32Array(WEAPON_COUNT), shotSerial: new Int32Array(WEAPON_COUNT), hitSerial: new Int32Array(WEAPON_COUNT), headSerial: new Int32Array(WEAPON_COUNT),
   medals: new Map(),
@@ -62,11 +62,11 @@ const PlayerStats = {
     return rows;
   },
 };
-Bus.on('weapon.fire', (event) => PlayerStats.onFire(event));
-Bus.on('damage', (event) => PlayerStats.onDamage(event));
-Bus.on('kill', (event) => PlayerStats.onKill(event));
-Bus.on('medal', (event) => PlayerStats.onMedal(event));
-Bus.on('match.start', () => PlayerStats.reset());
+Bus.on('weapon.fire', (event) => LocalPlayerStats.onFire(event));
+Bus.on('damage', (event) => LocalPlayerStats.onDamage(event));
+Bus.on('kill', (event) => LocalPlayerStats.onKill(event));
+Bus.on('medal', (event) => LocalPlayerStats.onMedal(event));
+Bus.on('match.start', () => LocalPlayerStats.reset());
 
 // ---- Rows: live from Modes while the match runs, from the results record once it is over ----
 const Scoreboard = {
@@ -129,7 +129,7 @@ const Scoreboard = {
     return block;
   },
   buildAccuracy() {
-    const rows = PlayerStats.rows(), box = makeElement('div');
+    const rows = LocalPlayerStats.rows(), box = makeElement('div');
     if (!rows.length) return box;
     box.appendChild(makeElement('div', 'sb-section', 'Your weapons'));
     const table = makeElement('table', 'sb-table'), head = makeElement('tr');
@@ -146,10 +146,10 @@ const Scoreboard = {
   },
   buildMedals() {
     const box = makeElement('div');
-    if (!PlayerStats.medals.size) return box;
+    if (!LocalPlayerStats.medals.size) return box;
     box.appendChild(makeElement('div', 'sb-section', 'Medals'));
     const parts = [];
-    for (const [medal, count] of PlayerStats.medals) parts.push(medalTitle(medal) + (count > 1 ? ' x' + count : ''));
+    for (const [medal, count] of LocalPlayerStats.medals) parts.push(hudMedalTitle(medal) + (count > 1 ? ' x' + count : ''));
     box.appendChild(makeElement('p', 'sb-note', parts.join('   ')));
     return box;
   },
