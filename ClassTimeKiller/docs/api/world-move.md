@@ -33,7 +33,7 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.sweepCapsule(ax, ay, az, bx, by, bz, radius, height, trace)` | true when blocked; `trace = makeTrace()` gets `fraction x y z nx ny nz brush startSolid allSolid`; walks the tree directly, so sweeps of any length see every brush (spawn checks, nav links) |
 | `World.floorBelow(x, y, z, maxDrop, hit?)` | height of walkable floor within maxDrop, else `NaN` |
 | `World.sphereTouches(x, y, z, radius)` | sphere overlaps geometry |
-| `World.raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit)` | nearest live actor hit volume along a normalized ray, or -1; `hit = makeActorHit()` gets `distance x y z nx ny nz actor zone` (`'head' 'body' 'legs'`). Walls are not checked: call `World.raycast` first and pass its distance as maxDistance |
+| `World.raycastActors(ox, oy, oz, dx, dy, dz, maxDistance, ignoreId, hit)` | nearest live actor hit volume along a normalized ray, or -1; `hit = makeActorHit()` gets `distance x y z nx ny nz actor zone` (`'head' 'body' 'legs'`). Walls are not checked: call `World.raycast` first and pass its distance as maxDistance. Uses `Hitbox.ray` (also S08); sizes are the S01 body constants |
 | `World.actorsInSphere(x, y, z, radius, out)` | ids of live actors whose capsule touches the sphere written into `out`; returns the count (explosions, melee) |
 | `World.actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle, range, ignoreId, out)` | ids of live actors whose chest (60 % of height) is inside the cone; returns the count (flames, sprays, aim assist) |
 | `World.touchTriggers(id, gravity)` | called by S10 once per actor step; returns `TRIGGER_MEDIUM` bits `WATER` (swim depth) `WADING` (touching water) `LADDER HEAD_UNDER MOVED` |

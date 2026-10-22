@@ -48,7 +48,7 @@ Firing is blocked while `ACTOR_FLAG.FROZEN` or `ACTOR_FLAG.DOWNED` is set.
 - `Weapons.spreadDegrees(id, weapon, mode)`: current spread (WPN-003, MOV-025, ADS, limb damage).
 - Hooks: `Input.aimAssistTarget(id, out)` -> bool, `out = { x, y, z, target, angle }` (nearest visible, uncloaked enemy body within 6 deg / 60 m). `Render.viewModel(out)` -> `{ visible, shape (weapon class), color, kick, reload 0..1, swap 0..1 (1 = raised), ads, zoom (FOV divisor), charge, recoilPitch / recoilYaw (deg the spray punches away from the view), dual }` for `Game.playerId`.
 - Registries for new behaviours: `Weapons.deliveries[type]`, `Weapons.tools[key]`, `Weapons.specials[key]`.
-- `Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate)` -> distance | -1 (zone in `Hitbox.zone`, `ZONE.HEAD|BODY|LEGS`); `Hitbox.point(id, zone, out)`. Volumes: head sphere r 0.14 at eye + 0.04, torso r 0.30 from 0.85 to 1.45 m, legs r 0.22 from 0.05 to 0.85 m, both as upright cylinders scaled by height/1.8 (zones never overlap).
+- `Hitbox` lives in S08 (`08b-world-collide.js`, used by `World.raycastActors`); its sizes are the S01 body constants. `Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate)` -> distance | -1 (zone in `Hitbox.zone`, `ZONE.HEAD|BODY|LEGS`); `Hitbox.point(id, zone, out)`. Volumes: head sphere r 0.14 at eye + 0.04, torso r 0.30 from 0.85 to 1.45 m, legs r 0.22 from 0.05 to 0.85 m, both as upright cylinders scaled by height/1.8 (zones never overlap).
 
 ## Projectiles (11b)
 

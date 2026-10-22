@@ -13,14 +13,14 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | # | Section | Files | Global objects |
 |---|---|---|---|
 | S00 | style + DOM shells | `shell.html` | `#view` canvas, `#overlay` (DOM UI root), `#fatal`, `#version` |
-| S01 | util / math / core | `01-core.js` | constants, `clamp lerp wrapAngle…`, `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim`, `Game` |
+| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim`, `Game` |
 | S02 | RNG | `02-rng.js` | `makeRandom`, `hashString`, `Rng.{map,loot,bots,rules,fx,weapons,pve}` |
 | S03 | data catalogues | `03a-data.js`, `03b…` | `Data.define`, `REQUIRED`, `CAT` |
 | S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |
 | S05 | input | `05*` | `Input` |
 | S06 | audio | `06*` | `Sound` (never `Audio`: that is a browser global) |
 | S07 | renderer | `07*` | `Render`, `Fx`, `HudBatch` |
-| S08 | world / collision | `08*` | `World`, `makeHit` |
+| S08 | world / collision | `08*` | `World`, `makeHit`, `Hitbox` |
 | S09 | nav | `09*` | `Nav` |
 | S10 | movement | `10*` | `Move` |
 | S11 | weapons / projectiles / damage | `11*` | `Weapons`, `Projectiles`, `Damage` |
@@ -64,7 +64,7 @@ Core fields: `kind team flags x y z (feet) vx vy vz yaw pitch prevX/Y/Z prevYaw 
 Input (BOT-001: player and bots write the same struct before each step): `moveX` (+1 = strafe right), `moveZ` (+1 = forward), `aimYaw`, `aimPitch` (desired view angles, radians), `buttons` (BTN bits held), `pressed` (computed), `slotRequest` (1-9, 0 none).
 Sections keep their own per-actor typed arrays (e.g. `Move.stamina`) sized `MAX_ACTORS` and reset them on `actor.create`.
 
-Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. Forward = `(sin yaw, 0, cos yaw)`, **right = `(-cos yaw, 0, sin yaw)`**. Eye position = `(x, y + eye, z)`. DATA-003 capsule: radius 0.40, height 1.80/1.10/0.60, eye 1.62/0.95/0.40, step 0.45, slope 45 deg. Hit volumes: head sphere r 0.14 centred at eye height + 0.04; torso capsule r 0.30 from 0.85 to 1.45 m; legs capsule r 0.22 from 0.05 to 0.85 m (scaled by height/1.8 when crouched).
+Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. Forward = `(sin yaw, 0, cos yaw)`, **right = `(-cos yaw, 0, sin yaw)`**. Eye position = `(x, y + eye, z)`. DATA-003 capsule: radius 0.40, height 1.80/1.10/0.60, eye 1.62/0.95/0.40, step 0.45, slope 45 deg. Hit volumes: head sphere r 0.14 centred at eye height + 0.04; torso cylinder r 0.30 from 0.85 to 1.45 m; legs cylinder r 0.22 from 0.05 to 0.85 m (scaled by height/1.8 when crouched). The numbers live once in S01; the ray tests live once in S08: `Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate)` (zone in `Hitbox.zone`), `Hitbox.point(id, zone, out)` and `World.raycastActors` (which uses `Hitbox`).
 
 ## Match record and lifecycle
 
@@ -87,7 +87,7 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 | `actor.create` / `actor.remove` | id | S01 |
 | `actor.spawn` | `{ id }` | S13 |
 | `move.jump` `move.land` `move.step` `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface }` | S10 |
-| `weapon.fire` | `{ id, weapon, weaponClass, mode: 'primary'|'alt', x, y, z, dx, dy, dz }` | S11 |
+| `weapon.fire` | `{ id, weapon, weaponClass, mode: 'primary'|'alt'|'melee' (MELEE button bash), x, y, z, dx, dy, dz }` | S11 |
 | `weapon.reload` `weapon.switch` `weapon.empty` | `{ id, weapon }` | S11 |
 | `impact` | `{ x, y, z, nx, ny, nz, material, weapon, owner }` | S11 |
 | `explosion` | `{ x, y, z, radius, owner, source, element }` | S11/S12 |
@@ -95,6 +95,7 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 | `kill` | `{ victim, killer, assister, weapon, zone, element, x, y, z }` | S11 |
 | `damage.request` | `{ target, source, amount, kind: 'fall'|'hazard'|'telefrag'|'crush'|'drown', element, x, y, z }` (earlier sections ask S11 to apply damage) | S08, S10, S12 |
 | `impulse` | `{ id, x, y, z }` velocity change in m/s (knockback, jump pads); S10 applies it | S08, S11, S12 |
+| `world.break` | `{ prop, material, x, y, z }` a destructible prop broke (`prop` = `hit.brush.prop`) | S08 |
 | `toast` | `{ text }` short UI message | any |
 | `caption` | `{ text, x, y, z, kind }` sound caption / visual sound ring (ACC-002/003) | S06 |
 | `ui.click` | `{ kind }` menu feedback sound | S18 |
@@ -126,18 +127,22 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 ## Renderer hooks (S07)
 
-- `Render.addSource(name, fn(batch))`: called inside every rendered frame; `fn` pushes instanced shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`. Shapes are procedural: `box sphere cylinder capsule cone wedge ring`. Later sections draw pickups, projectiles, flags and deployables this way.
+- `Render.worldQuery` (filled by S08 with `World`): the renderer bakes `Render.worldQuery.brushes` on `world.load`; S07 never calls `World` itself.
+- `Render.addSource(name, fn(batch))`: called inside every rendered frame; `fn` pushes instanced shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`, which returns the instance offset or -1 (unknown shape or batch full). Shapes are procedural: `box sphere cylinder capsule cone wedge ring`. Later sections draw pickups, projectiles, flags and deployables this way.
 - Actors are drawn by S07 itself from `Actors` (team/profile colour, crouch, alive). `Render.actorStyle = fn(id, out)` hook lets later sections tint/scale actors (powerups, cloak).
 - `Render.camera` `{ x, y, z, yaw, pitch, roll, fov }` follows the player's interpolated eye by default; `Render.cameraOverride = fn(camera)` for spectate/killcam.
-- `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color }`.
+- `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color, zoom, recoilPitch, recoilYaw, dual }`: `recoilPitch`/`recoilYaw` = the recoil punch in degrees (positive pitch = up), added to the camera view (view kick); `dual` = two pistols drawn.
 - `Fx`: `burst(kind, x, y, z, nx, ny, nz, count, colorHex)`, `tracer(ax, ay, az, bx, by, bz, colorHex)`, `decal(x, y, z, nx, ny, nz, kind)`, `light(x, y, z, colorHex, radius, seconds)`. Kinds: `spark smoke dust blood muzzle explosion energy water fire frost shock heal`. All capped by quality (PERF-010), pooled.
 - `HudBatch` (used by S17): `rect(x, y, w, h, colorHex, alpha)`, `text(string, x, y, sizePx, colorHex, align)`, `ring(x, y, radius, thickness, colorHex, alpha, start, end)`, `line(...)`; one draw call per layer (REN-005).
-- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale).
+- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale). S19 also copies `Sound.updateMs` to `Perf.counters.audioMs` after the frame phases.
 
 ## Other hooks
 
 - Settings: `Settings.define(key, default, { label, category: 'video'|'controls'|'audio'|'gameplay'|'hud'|'accessibility'|'developer', min, max, step, options, optionLabels })`. The settings screen is generated from these definitions; nothing is written that is never read (self-test).
 - Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008). `Input.actions` is the single action table.
+- Audio: `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz)` (filled by S08 with `World.lineClear`) muffles sounds behind walls; `null` = no occlusion.
+- Hooks are filled once at load and never reset by the section that owns them; the self-test restores them before every block.
+- World media: `World.touchTriggers(id, gravity)` (called by S10 every step) returns `TRIGGER_MEDIUM` bits `WATER` (swim depth), `WADING` (touching water), `LADDER`, `HEAD_UNDER`, `MOVED` (docs/api/world-move.md).
 - UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`.
 - Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops.
 - Quality: `Quality.current()` (S04) is the active `CAT.quality` row; `Settings 'video.quality'` ('auto' or a preset id); the renderer's benchmark sets `video.autoQuality`.

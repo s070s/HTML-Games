@@ -12,7 +12,7 @@ Game code does **not** call Web Audio. It emits the events below; the audio sect
 
 Priority (AUD-002), `AUDIO_PRIORITY`: `ui 6 > own 5 > near 4 > explosion 3 > far 2 > ambient 1`. `own` = the sound's acting actor is `Game.playerId`. `near` and `explosion` recipes drop to `far` beyond their `nearRange`.
 
-Cost: `Sound.updateMs` (last frame), `Sound.peakUpdateMs`; the loop (S19) should copy it to `Perf.counters.audioMs` (the audio section does not write into a later section). Budget 0.3 ms (AUD-007); the self-test runs 600 frames of a big fight (14 sound requests per frame, full pool, most starts are steals) and checks the average (about 0.05 ms on a desktop) and the 95th percentile.
+Cost: `Sound.updateMs` (last frame), `Sound.peakUpdateMs`; the loop (S19) copies it to `Perf.counters.audioMs` (the audio section does not write into a later section). Budget 0.3 ms (AUD-007); the self-test runs 600 frames of a big fight (14 sound requests per frame, full pool, most starts are steals) and checks the average (about 0.05 ms on a desktop) and the 95th percentile.
 
 ## Public API
 
@@ -24,7 +24,7 @@ Cost: `Sound.updateMs` (last frame), `Sound.peakUpdateMs`; the loop (S19) should
 | `Sound.setMusicMood(name)` | `'auto'` (default, follows combat intensity), `'calm'`, `'combat'`, `'boss'`. Returns false for other names. Menus always play calm. |
 | `Sound.speak(text)` | Reads text with `speechSynthesis` when `audio.speech` is on (Q3). Called automatically for `announce`. |
 | `Sound.unlock()` | Create/resume the context. Called on `pointerdown`, `pointerup`, `keydown`, `touchend`, `click` and on a gamepad button press. |
-| `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz) -> bool` | Hook filled by the world section: true when nothing solid lies between the points (`World.lineClear`). `null` (default) means nothing is occluded. |
+| `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz) -> bool` | Hook filled by S08 at load (`08a-world.js`): true when nothing solid lies between the points (`World.lineClear`). `null` means nothing is occluded. |
 | `Sound.listenerSource = fn(out) -> bool` | Hook for spectate / killcam: fill `out.x, y, z, yaw, pitch` (eye position, radians) to move the listener. Default: the eye of `Game.playerId`; with neither, positional sounds play centred. |
 | `Sound.frameHooks.push(fn(seconds))` | Called each audio frame before the queue is processed (music uses it). |
 | `Sound.stats()` | `{ voices, voiceLimit, started, stolen, rejected, queueDropped, updateMs, peakUpdateMs, maxStartedPerFrame, enabled }`. |
@@ -54,7 +54,7 @@ Payload fields as in `docs/ARCHITECTURE.md`. "Own" = the actor is `Game.playerId
 
 | Event | Sound |
 |---|---|
-| `weapon.fire` | recipe by `weapon` override, else `weaponClass` (see classes below); `mode: 'alt'` plays 15% lower |
+| `weapon.fire` | `mode: 'melee'` (quick melee) plays the `melee` swing; else recipe by `weapon` override, else `weaponClass` (see classes below); `mode: 'alt'` plays 15% lower |
 | `weapon.reload` `weapon.switch` `weapon.empty` | `reload` `switch` `empty` at the actor |
 | `impact` | `impact.<material>` at the point |
 | `explosion` | `explosion` / `explosionFire` / `explosionFrost` / `explosionShock` by `element`; level and pitch by `radius` |
