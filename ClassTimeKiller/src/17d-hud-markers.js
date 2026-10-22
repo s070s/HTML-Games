@@ -191,9 +191,19 @@ function hudDrawPingMarkers(pen, layout) {
   }
 }
 
+// The last enemies of a PvE wave (pveHunted, 14j): a red triangle and the distance, so a cloaked or distant one can be found.
+function hudDrawPveMarkers(pen, layout) {
+  for (let i = 0; i < pveHunted.length; i++) {
+    const id = pveHunted[i];
+    if (!Actors.alive[id] || !Pve.isHostile(id)) continue;
+    hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + Actors.height[id] + HUD_TAG_HEIGHT_ABOVE, Actors.z[id], 'triangle', Hud.colors.bad, -1, true);
+  }
+}
+
 function hudDrawMarkers(pen, layout) {
   hudDrawObjectiveMarkers(pen, layout);
   hudDrawPingMarkers(pen, layout);
+  hudDrawPveMarkers(pen, layout);
 }
 
 // ---- Teammate name tags with a team shape beside the name (never enemies: no wall hacks) ----

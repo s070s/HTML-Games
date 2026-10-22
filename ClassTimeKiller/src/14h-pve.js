@@ -27,7 +27,6 @@ const PUPPET_AIM_CONE_DEG = 30;           // A23: a driven enemy's FIRE picks th
 const PVE_MOVE_BASE = 'modern';           // movement preset the enemy presets start from (speed per row)
 const PVE_TIER_BASE = 'skilled';          // bot tier row the enemy tiers start from (fov / turn / reaction per row)
 const PVE_FLEE_DISTANCE = 10;
-const PVE_WANDER_RADIUS = 1.5;
 const PVE_STILL_FILL = 0.6, PVE_CROUCH_FILL = 0.7;   // BOT-005: still or crouched targets fill the meter slower
 const PVE_NOISE_AWARENESS = 0.35;         // a heard noise makes an unaware guard suspicious
 const PVE_DECAY_RATE = 0.5;               // awareness per second once unseen for SENSE_AWARE_DECAY_AFTER
@@ -106,7 +105,7 @@ const Pve = {
   encounterSpawned: 0,      // enemies spawned since the mode's last beginEncounter (NPC-007 fallback share)
   spawnPoints: [],          // { x, y, z, yaw, side } director spawn points (filled by the mode)
   queue: { row: new Int16Array(256), champion: new Int8Array(256), side: new Int8Array(256), scale: new Float32Array(256), wave: new Int16Array(256), head: 0, count: 0 },
-  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, destroyedAt: -1 },
+  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0 },
   wildlife: 0, nextBeastAt: 0,
   objectiveFor: null,       // fn(id, out) -> true when the mode gives an idle enemy somewhere to go (14j)
   stats: { spawned: 0, killed: 0, maxAlive: 0, thinks: 0, rays: 0, attacks: 0, parries: 0 },
@@ -135,7 +134,7 @@ const Pve = {
   reset() {
     this.active = false; this.stealth = false; this.intensity = 0; this.peakAt = -1e9;
     this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
-    this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
+    this.core.active = false; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
     BotSense.reservedRays = 0;
     for (const key in this.stats) this.stats[key] = 0;
@@ -158,12 +157,13 @@ const Pve = {
   },
 
   // ---- Spawning (ARCHITECTURE spawning contract: position, alive, actor.spawn; then the enemy body overrides S11's pools) ----
-  // options: { team, side, huntTeam, scale (health and damage), champion (PVE_CHAMPIONS index), wave, summoner }. Returns the id or -1.
+  // options: { team, side, huntTeam, scale (health and damage), champion (PVE_CHAMPIONS index), wave, summoner, overCap (static range
+  // targets and the Mote Rush Overlord ignore the quality enemy cap) }. Returns the id or -1.
   spawnEnemy(key, x, y, z, yaw, options) {
     const row = typeof key === 'string' ? CAT.enemies.byId(key) : key;
     if (!row) { ErrorLog.add('pve', 'unknown enemy ' + key); return -1; }
-    if (this.aliveCount() >= this.cap()) return -1;
     const settings = options || {};
+    if (!settings.overCap && this.aliveCount() >= this.cap()) return -1;
     const team = settings.team === undefined ? (row.beast ? BEAST_TEAM : ENEMY_TEAM) : settings.team;
     const id = Actors.create(ACTOR_KIND.ENEMY, team, row.name, row);
     if (id < 0) return -1;
@@ -642,9 +642,11 @@ const Pve = {
     if (target === PVE_CORE_TARGET) return this.core.active && this.core.health > 0;
     return target >= 0 && Actors.alive[target] === 1;
   },
-  // A parryable blow is parried when the target pressed MELEE or ALT within the difficulty's parry window (DIF-002).
+  // A parryable blow is parried when the target pressed MELEE or ALT within the difficulty's parry window (DIF-002) and faces
+  // the attacker (the same front arc as a projectile parry).
   parried(id, target, attack) {
     if (!attack.parry || target < 0 || Sim.time - this.parryAt[target] > this.skill().parry) return false;
+    if (!comesFromFront(target, Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id], PARRY_ARC_COS)) return false;
     this.stagger(id, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
     this.stats.parries++;
     Bus.emit('pve.parry', pveEvent(id, attack.id, attack.kind, 0, PVE_TELL_COLORS.parry, target));
@@ -680,14 +682,16 @@ const Pve = {
     info.dx = (pveScratch.x - Actors.x[id]) / length; info.dy = (pveScratch.y - Actors.eyeY(id)) / length; info.dz = (pveScratch.z - Actors.z[id]) / length;
     return Damage.apply(id, target, info);
   },
-  // A hitscan shot from the enemy's eye toward aimX/Y/Z with spread: walls first, then actor hit volumes (ARC-014).
-  shoot(id, attack, spreadDeg) {
+  // A hitscan shot from the enemy's eye toward aimX/Y/Z (or along its turn-rate-limited look when alongLook) with spread:
+  // walls first, then actor hit volumes (ARC-014).
+  shoot(id, attack, spreadDeg, alongLook) {
     const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
     Vec.set(pveAim, this.aimX[id] - ex, this.aimY[id] - ey, this.aimZ[id] - ez);
     const distance = Vec.length(pveAim);
     if (distance < 1e-6) return -1;
     const spread = spreadDeg * DEG;
-    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
+    const aimYaw = alongLook ? Actors.aimYaw[id] : Math.atan2(pveAim.x, pveAim.z), aimPitch = alongLook ? Actors.aimPitch[id] : Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z));
+    const yaw = aimYaw + Rng.pve.gauss() * spread, pitch = aimPitch + Rng.pve.gauss() * spread;
     Vec.fromAngles(pveAim, yaw, pitch);
     const range = attack.range[1] + 5;
     const wall = World.raycast(ex, ey, ez, pveAim.x, pveAim.y, pveAim.z, range, pveWallHit) ? pveWallHit.distance : range;
@@ -701,7 +705,7 @@ const Pve = {
   // ---- The core (M21 / M22): enemies with nothing else to do march to it and attack it ----
   setCore(x, y, z, health) {
     const core = this.core;
-    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0; core.destroyedAt = -1;
+    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0;
   },
   damageCore(amount, source) {
     const core = this.core;
@@ -709,7 +713,7 @@ const Pve = {
     const absorbed = Math.min(core.shield, amount);
     core.shield -= absorbed;
     core.health = Math.max(0, core.health - (amount - absorbed));
-    if (core.health <= 0) { core.destroyedAt = Sim.time; Bus.emit('pve.core', pveEvent(source, '', 'destroyed', 0, 0, -1)); }
+    if (core.health <= 0) { Bus.emit('pve.core', pveEvent(source, '', 'destroyed', 0, 0, -1)); }
   },
 
   // ---- Damage hooks: difficulty sliders, weak points, the front shield, staggers ----

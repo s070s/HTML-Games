@@ -14,7 +14,7 @@ const PveBoss = {
   phase: new Int8Array(MAX_ACTORS),
   transitionUntil: new Float64Array(MAX_ACTORS),
   spawnedAt: new Float64Array(MAX_ACTORS),
-  hud: { active: false, id: -1, name: '', health: 0, phase: 0, phases: 0, weakDisabled: false },
+  hud: { active: false, id: -1, name: '', health: 0, phase: 0, phases: 0, weakDisabled: false, shielded: false },
 
   // A boss row announces its fight ('start': boss music, AUD-006) and its defeat ('defeated' with the fight's seconds: music,
   // card unlocks), or 'gone' when a living boss is removed without a kill (a failed wave or a round clear: music only).
@@ -55,23 +55,30 @@ const PveBoss = {
   },
   inTransition(id) { return Sim.time < this.transitionUntil[id]; },
   signature(id, row) { return row.phases[this.phase[id]].attacks[0]; },
-  // The HUD bar of the strongest living boss (UI: name, health share, phase n / 3).
+  // The HUD bar of the first living boss, the player's own side's first (Mote Rush has one per side): name, health share,
+  // phase n / 3, shielded during the phase change.
   updateHud() {
-    const hud = this.hud;
-    hud.active = false; hud.id = -1;
+    const hud = this.hud, player = Game.playerId;
+    let chosen = -1;
     for (let id = 0; id < Actors.count; id++) {
       const row = Pve.rowOf(id);
       if (!row || !row.boss || !Actors.alive[id]) continue;
-      hud.active = true; hud.id = id; hud.name = row.name; hud.health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
-      hud.phase = this.phase[id] + 1; hud.phases = row.phases.length; hud.weakDisabled = Sim.time < Pve.disabledUntil[id];
-      return;
+      if (chosen < 0) chosen = id;
+      if (player >= 0 && Pve.side[id] === Actors.team[player]) { chosen = id; break; }
     }
+    hud.active = chosen >= 0; hud.id = chosen;
+    if (chosen < 0) return;
+    const row = Pve.rowOf(chosen);
+    hud.name = row.name; hud.health = Actors.health[chosen] / Math.max(1, Actors.maxHealth[chosen]);
+    hud.phase = this.phase[chosen] + 1; hud.phases = row.phases.length; hud.weakDisabled = Sim.time < Pve.disabledUntil[chosen];
+    hud.shielded = this.inTransition(chosen);
   },
 };
 
 PveBrains.boss = {
   always(id, row, now) { PveBoss.check(id, row, now); },
   decide(id) { return PveBoss.inTransition(id); },   // no attack while the phase changes
+  draw(batch, id, row) { if (PveBoss.inTransition(id)) drawShieldShell(batch, id, row); },   // the invulnerable phase change shows a shell
   allows(id, attack, now) {
     const row = Pve.rowOf(id), phase = row.phases[PveBoss.phase[id]];
     if (!phase.attacks.includes(attack.id)) return false;

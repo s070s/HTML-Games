@@ -240,7 +240,10 @@ Test.add('pve', (check) => withShortShop(() => {
 Test.add('pve', (check) => {
   const dummy = startPveTest();
   const id = spawnFacing('husk', 1.2), parries = startEventLog('pve.parry');
-  const hit = runUntilHit(id, dummy, 3, () => { if (Pve.phase[id] === ATTACK_PHASE.WINDUP && Pve.phaseEndsAt[id] - Sim.time < 0.1) Pve.parryAt[dummy] = Sim.time; });
+  const hit = runUntilHit(id, dummy, 3, () => {
+    Actors.yaw[dummy] = Math.atan2(Actors.x[id] - Actors.x[dummy], Actors.z[id] - Actors.z[dummy]);   // the target faces the claw (a parry needs the front arc)
+    if (Pve.phase[id] === ATTACK_PHASE.WINDUP && Pve.phaseEndsAt[id] - Sim.time < 0.1) Pve.parryAt[dummy] = Sim.time;
+  });
   parries.stop();
   check('a parried claw deals no damage and staggers the husk', !hit && parries.length > 0 && Sim.time < Pve.staggerUntil[id] + 3, parries.length);
   Game.stop();
@@ -1035,3 +1038,163 @@ Test.add('pvesoak', (check) => {
   check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });
+
+// ---- P08 audit pass (pve-01..15) ----
+// Runs `body` on a quality tier (Potato: enemy cap 12) and restores the setting.
+function withQuality(tier, body) {
+  const saved = Settings.get('video.quality');
+  Settings.set('video.quality', tier);
+  try { body(); } finally { Settings.set('video.quality', saved); }
+}
+function fillEnemyCap() {
+  let guard = 0;
+  while (Pve.spawnEnemy('mite', 20 + guard * 0.1, 0, 20, 0, { team: NO_TEAM }) >= 0 && guard++ < 100) { /* until the cap says no */ }
+}
+
+// Mote Rush: the Overlord waits for a free slot instead of being lost, and only the boss's own side can win with it.
+Test.add('pve', (check) => withQuality('potato', () => {
+  const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
+  godMode([blue, red]);
+  fillEnemyCap();
+  check('the enemy cap is full', Pve.aliveCount() >= Pve.cap(), Pve.aliveCount() + ' / ' + Pve.cap());
+  BankRun.banked[0] = Modes.rules.params.bossAt - 1;
+  BankRun.carried[blue] = 3;
+  placeActor(blue, BankRun.banks[0].x, BankRun.banks[0].z);
+  runSeconds(2);
+  check('a full enemy cap does not lose the Overlord', BankRun.boss[0] >= 0 && Actors.alive[BankRun.boss[0]] === 1, BankRun.boss[0]);
+  killEnemy(BankRun.boss[0], red);
+  runSeconds(0.1);
+  check('the other side killing our Overlord decides nothing', Modes.active && BankRun.result === NOT_OVER);
+  runSeconds(1);
+  check('the Overlord comes back after a foreign kill', BankRun.boss[0] >= 0 && Actors.alive[BankRun.boss[0]] === 1, BankRun.boss[0]);
+  killEnemy(BankRun.boss[0], blue);
+  runSeconds(0.1);
+  check('our own side killing it wins', !Modes.active && Game.match.results.winnerTeam === 0);
+  endModeTest();
+}));
+
+// The boss bar follows the player's side.
+Test.add('pve', (check) => {
+  const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
+  godMode([blue, red]);
+  Modes.behaviour.summonBoss(0);
+  Modes.behaviour.summonBoss(1);
+  const saved = Game.playerId;
+  Game.playerId = red;
+  PveBoss.updateHud();
+  check('the boss bar shows the player\'s side boss', PveBoss.hud.id === BankRun.boss[1] && BankRun.boss[1] >= 0, PveBoss.hud.id + ' ' + BankRun.boss[1]);
+  Game.playerId = blue;
+  PveBoss.updateHud();
+  check('...and the other one for the other side', PveBoss.hud.id === BankRun.boss[0], PveBoss.hud.id + ' ' + BankRun.boss[0]);
+  Game.playerId = saved;
+  endModeTest();
+});
+
+// Difficulty lives belong to the co-op modes: practice and team modes never strand a player on Ascendant.
+Test.add('pve', (check) => {
+  const failures = [];
+  const probe = (mode, ids) => {
+    if (Modes.lives[ids[0]] !== LIVES_UNLIMITED) failures.push(mode + ' lives ' + Modes.lives[ids[0]]);
+    killActor(ids[0], -1);
+    runSeconds(15);
+    if (Modes.active && !Actors.alive[ids[0]]) failures.push(mode + ' stays dead');
+    endModeTest();
+  };
+  probe('range', startPveMode('range', [0], {}, { difficulty: 'ascendant' }));
+  probe('bank', startPveMode('bank', [0, 1], {}, { difficulty: 'ascendant' }));
+  probe('attrition', startPveMode('attrition', [0, 1], {}, { difficulty: 'ascendant' }));
+  World.load(Maps.get('chambers'));
+  Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }], difficulty: 'ascendant' });
+  Modes.endProtection(0);
+  probe('puzzle', [0]);
+  check('puzzle, range, bank and attrition ignore Ascendant lives and respawn the player', failures.length === 0, failures.join(', '));
+  const ids = startPveMode('horde', [0], {}, { difficulty: 'ascendant' });
+  check('horde keeps the Ascendant life', Modes.lives[ids[0]] === 1);
+  endModeTest();
+});
+
+// Endless pays the wave bonus and opens the shop (its own economy row and core health); horde's shop is open before wave 1.
+Test.add('pve', (check) => withShortShop(() => {
+  const horde = startPveMode('horde', [0]);
+  check('the horde shop is open before the first wave', Economy.shopOpen === true && Economy.buyBlock(horde[0]) !== 'closed', Economy.buyBlock(horde[0]));
+  endModeTest();
+  const ids = startPveMode('endless', [0]);
+  godMode(ids);
+  const run = Modes.behaviour.run;
+  check('endless uses the wave shop economy and its own core health', Economy.preset().id === 'waveShop' && Pve.core.max === Modes.rules.params.coreHealth && Pve.core.max > 0, Economy.preset().id + ' ' + Pve.core.max);
+  runUntil(() => run.wave >= 1 && run.state === PVE_WAVE_STATE.SHOP, 200, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(ids[0]); });
+  check('endless wave 1 pays money and opens the shop', Economy.money(ids[0]) > 0 && Economy.shopOpen, Economy.money(ids[0]) + ' ' + run.state);
+  endModeTest();
+}));
+
+// A burst fires along the turn-rate-limited look: a target that moved behind the enemy is not hit while it still faces away.
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), turret = spawnFacing('turret', 10);
+  const hits = startEventLog('damage');
+  for (let tick = 0; tick < 600 && Pve.phase[turret] !== ATTACK_PHASE.ACTIVE; tick++) Sim.run(1);
+  check('the turret reached its burst', Pve.phase[turret] === ATTACK_PHASE.ACTIVE);
+  placeActor(dummy, 0, 18);
+  let behind = 0, ticks = 0;
+  const facingAway = () => Math.cos(Actors.aimYaw[turret] - Math.atan2(Actors.x[dummy] - Actors.x[turret], Actors.z[dummy] - Actors.z[turret])) < 0;
+  while (ticks++ < 120 && Pve.phase[turret] === ATTACK_PHASE.ACTIVE && facingAway()) {
+    const before = hits.length;
+    Actors.health[dummy] = Actors.maxHealth[dummy];
+    Sim.run(1);
+    if (facingAway()) behind += hits.slice(before).filter((event) => event.source === turret && event.target === dummy && event.amount > 0).length;
+  }
+  hits.stop();
+  check('burst shots do not follow a target behind the enemy', behind === 0 && ticks > 2, behind + ' hits in ' + ticks + ' ticks');
+  endModeTest();
+});
+
+// The last few enemies of a wave are shown to the player; a boss phase change reads as shielded; a melee parry needs the front arc.
+Test.add('pve', (check) => withShortShop(() => {
+  const ids = startPveMode('horde', [0]);
+  godMode(ids);
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
+  Pve.queue.count = 0;
+  killAllEnemies(ids[0]);
+  const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
+  runSeconds(0.1);
+  check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
+  killAllEnemies(ids[0]);
+  runSeconds(0.1);
+  check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
+  endModeTest();
+}));
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), boss = spawnFacing('overlord', 3);
+  hitEnemy(dummy, boss, Actors.maxHealth[boss] * 0.5, 'hit', 'body');
+  runSeconds(0.1);
+  check('the boss HUD says shielded during the phase change', PveBoss.hud.active && PveBoss.hud.shielded === true, PveBoss.hud.phase);
+  runSeconds(BOSS_TRANSITION_SECONDS + 0.2);
+  check('...and not afterwards', PveBoss.hud.shielded === false);
+  endModeTest();
+});
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), husk = spawnFacing('husk', 1.2), claw = { parry: true, id: 'claw', kind: 'melee' };
+  const saved = Game.playerId;
+  Game.playerId = dummy;
+  Pve.parryAt[dummy] = Sim.time;
+  Actors.yaw[dummy] = Math.PI;
+  check('a melee blow from behind is not parried', !Pve.parried(husk, dummy, claw) && PVE_HUD.parryAt < Sim.time);
+  Actors.yaw[dummy] = 0;
+  check('a melee blow from the front is parried and flashes the HUD', Pve.parried(husk, dummy, claw) && PVE_HUD.parryAt === Sim.time);
+  Game.playerId = saved;
+  endModeTest();
+});
+
+// Range: every station fills on Potato (static targets skip the enemy cap); the drill clock starts at the first shot.
+Test.add('pve', (check) => withQuality('potato', () => {
+  const hints = [];
+  for (let index = 0; index < 20; index++) hints.push({ kind: 'dummy', x: (index % 10) * 2 - 9, y: 0, z: 12 + Math.floor(index / 10) * 3 });
+  World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
+  Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
+  Modes.endProtection(0);
+  runSeconds(0.5);
+  check('all 20 stations are filled on Potato', RangeRun.stations.length === 20 && RangeRun.stations.every((station) => station.id >= 0), RangeRun.stations.filter((station) => station.id >= 0).length);
+  check('the drill clock is idle before a shot', RangeRun.drillStart < 0);
+  Bus.emit('weapon.fire', { id: 0, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  check('the drill clock starts at the first shot', RangeRun.drillStart === Sim.time);
+  endModeTest();
+}));

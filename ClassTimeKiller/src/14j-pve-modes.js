@@ -11,15 +11,14 @@ const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE:
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
 const PVE_STATION_FALLBACK = [[0, 10], [4, 15], [-4, 20]];   // range stations in front of the spawn when the map has no 'dummy' hints
-const PVE_MODE_IDS = ['horde', 'endless', 'bank', 'fiends', 'contract', 'attrition', 'range', 'puzzle'];
 const PVE_BOT_RESTOCK_ITEM = 'ampAmmo';   // the wave shop row a bot buys when a gun runs low (ECP07, the player's own buy path)
 
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
-  active: false, mode: '', state: '', stateTimeLeft: 0, wave: 0, waves: 0, enemiesLeft: 0, lives: LIVES_UNLIMITED, retriesLeft: 0,
+  active: false, mode: '', state: '', stateTimeLeft: 0, wave: 0, waves: 0, enemiesLeft: 0, retriesLeft: 0,
   guardian: false, guardianOffer: false, guardianAccepted: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
   chamber: 0, chambers: 0, chamberTime: 0, steps: 0, portals: 0, parTime: null, hint: '', solved: false, medal: '', stars: 0,
-  shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, accuracy: 0, drillKills: 0, drillTargets: 0, drillBest: 0, drills: 0,
+  shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, accuracy: 0, drillKills: 0, drillTargets: 0, drillBest: 0, drills: 0, parryAt: -1e9,
 });
 const PVE_HUD = Object.assign({
   banked: [0, 0],
@@ -27,6 +26,7 @@ const PVE_HUD = Object.assign({
 }, PVE_HUD_DEFAULTS);
 const pveSpot = { x: 0, y: 0, z: 0 };
 const pveObjectiveList = [];
+const pveHunted = [];   // the last enemies of a wave (ids), shown to the player as markers (17d)
 
 // ---- Shared helpers ----
 function pveSkill() { return Pve.skill(); }
@@ -34,14 +34,16 @@ function resetPveHud() {
   Object.assign(PVE_HUD, PVE_HUD_DEFAULTS);
   PVE_HUD.banked[0] = PVE_HUD.banked[1] = 0;
 }
-// Every PvE start: the machinery on, difficulty lives, the HUD block (game speed is already in the ruleset).
+// Every PvE start: the machinery on, the HUD block (game speed is already in the ruleset); settings.lives: the difficulty's lives
+// (only the co-op modes that handle a wipe take them: the practice and team modes would strand a fallen player).
 function pveStart(options) {
   const settings = options || {};
   Pve.active = true;
   Pve.stealth = !!settings.stealth;
   PVE_HUD.active = true;
   PVE_HUD.mode = Modes.mode.id;
-  applyDifficultyLives();
+  if (settings.lives) applyDifficultyLives();
+  pveHunted.length = 0;
   PveLevel.begin(World.map);
   if (settings.coop) takeEnemySpawns();
 }
@@ -148,7 +150,6 @@ function updateCoreHud() {
 }
 function updatePlayerHud() {
   const id = Game.playerId;
-  PVE_HUD.lives = id >= 0 ? Modes.lives[id] : LIVES_UNLIMITED;
   PVE_HUD.score = id >= 0 ? Modes.score[id] : 0;
 }
 
@@ -157,17 +158,18 @@ function updatePlayerHud() {
 function makeWaveBehaviour(plan) {
   return {
     start() {
-      pveStart({ coop: true });
+      pveStart({ coop: true, lives: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
         flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
       const spot = cores.length ? cores[0] : centralSpot(pveSpot);
-      Pve.setCore(spot.x, spot.y, spot.z, params.coreHealth || PVE_ENDLESS_CORE_HEALTH);
+      Pve.setCore(spot.x, spot.y, spot.z, params.coreHealth);
       const extracts = addMapObjectives('extract', pveObjectiveList);
       run.extract = extracts.length ? extracts[0] : null;
       Pve.objectiveFor = coreObjective;
+      Economy.ensureMatch();   // it resets the shop at match.start, after this start: open it after that reset
       Economy.setShopOpen(true);
       PVE_HUD.waves = plan.waves === Infinity ? 0 : plan.waves;
     },
@@ -193,7 +195,9 @@ function makeWaveBehaviour(plan) {
     fight(run, now) {
       if (Pve.core.health <= 0 || teamWiped(NO_TEAM)) { this.failWave(run, now); return; }
       const left = enemiesLeft();
-      if (left > 0) { if (left <= PVE_WAVE_RULES.huntLeft && Pve.pending() === 0) huntLastEnemies(run, now); return; }
+      const hunting = left > 0 && left <= PVE_WAVE_RULES.huntLeft && Pve.pending() === 0;
+      if (hunting) huntLastEnemies(run, now); else pveHunted.length = 0;
+      if (left > 0) return;
       for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Modes.awardPlayer(id, 1, 'wave');
       Bus.emit('pve.wave', waveEvent(run.wave, 'end'));
       endEncounter(run);
@@ -250,7 +254,6 @@ function makeWaveBehaviour(plan) {
     },
   };
 }
-const PVE_ENDLESS_CORE_HEALTH = 5000;
 // At each wave break a bot whose gun runs low buys a refill in the shop, as the player would (bots ran dry by wave 8).
 function restockBots() {
   for (let id = 0; id < Actors.count; id++) if (Bots.isBot(id) && Modes.participant[id] && botAmmoLow(id)) Economy.buy(id, PVE_BOT_RESTOCK_ITEM);
@@ -288,12 +291,18 @@ function endEncounter(run) {
   PVE_HUD.guardianAccepted = false;
   Pve.guardian.fill(0);
 }
-// NPC-007: the last few enemies of a wave (nothing queued) are pinged to the co-op bots every few seconds, so the bots
-// hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share): no shots through walls.
+// NPC-007: the last few enemies of a wave (nothing queued) are marked for the player every tick (pveHunted, 17d) and pinged to
+// the co-op bots every few seconds, so both hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share):
+// no shots through walls.
 function huntLastEnemies(run, now) {
-  if (now < run.huntAt) return;
-  run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
-  for (let enemy = 0; enemy < Actors.count; enemy++) if (Pve.isHostile(enemy)) pingToBots(enemy, now);
+  const ping = now >= run.huntAt;
+  if (ping) run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
+  pveHunted.length = 0;
+  for (let enemy = 0; enemy < Actors.count; enemy++) {
+    if (!Pve.isHostile(enemy)) continue;
+    pveHunted.push(enemy);
+    if (ping) pingToBots(enemy, now);
+  }
 }
 function pingToBots(enemy, now) {
   for (let bot = 0; bot < Actors.count; bot++) {
@@ -348,6 +357,8 @@ function repairCore(event) {
   core.health = Math.min(core.max, core.health + repair);
 }
 Bus.on('weapon.fire', repairCore);
+// A parry of the local player's: the HUD flashes PARRIED (17g).
+Bus.on('pve.parry', (event) => { if (event.target === Game.playerId) PVE_HUD.parryAt = Sim.time; });
 
 // ---- M23 Mote Rush: each team fights its own PvE side, banks motes, sends blockers, then kills its boss first ----
 const BankRun = {
@@ -380,6 +391,7 @@ Modes.register('bank', {
       if (refill) topUpSide(team, PVE_BANK.fodderAlive, PVE_BANK.fodder, null, 0);
       this.deposits(team);
     }
+    for (let team = 0; team < TEAM_COUNT; team++) if (BankRun.banked[team] >= Modes.rules.params.bossAt) this.summonBoss(team);   // retried until a slot frees
     const id = Game.playerId;
     PVE_HUD.carried = id >= 0 ? BankRun.carried[id] : 0;
     PVE_HUD.banked[0] = BankRun.banked[0]; PVE_HUD.banked[1] = BankRun.banked[1];
@@ -402,7 +414,6 @@ Modes.register('bank', {
     const params = Modes.rules.params;
     this.sendBlocker(team, amount, params.blockerAt);
     if (Math.floor(BankRun.banked[team] / params.invasionAt) > Math.floor(before / params.invasionAt)) this.invade(team);
-    if (before < params.bossAt && BankRun.banked[team] >= params.bossAt) this.summonBoss(team);
   },
   // The biggest deposit size (mode params.blockerAt) the deposit reaches picks the blocker sent to the other side.
   sendBlocker(team, amount, sizes) {
@@ -420,7 +431,7 @@ Modes.register('bank', {
   },
   summonBoss(team) {
     if (BankRun.boss[team] >= 0 || !Pve.pickSpawn(team, pveSpot)) return;
-    const id = Pve.spawnEnemy(PVE_BANK.boss, pveSpot.x, pveSpot.y, pveSpot.z, pveSpot.yaw, { team: NO_TEAM, side: team, huntTeam: team });
+    const id = Pve.spawnEnemy(PVE_BANK.boss, pveSpot.x, pveSpot.y, pveSpot.z, pveSpot.yaw, { team: NO_TEAM, side: team, huntTeam: team, overCap: true });
     if (id < 0) return;
     setVitality(id, Actors.maxHealth[id] * PVE_BANK.bossHealthShare);
     BankRun.boss[team] = id;
@@ -430,7 +441,10 @@ Modes.register('bank', {
     if (victim >= 0 && Modes.participant[victim]) { BankRun.carried[victim] = 0; return; }
     const side = Pve.isEnemy(victim) ? Pve.side[victim] : NO_TEAM;
     if (side < 0) return;
-    if (victim === BankRun.boss[side]) { BankRun.result = Modes.over(side, 'objective'); return; }
+    if (victim === BankRun.boss[side]) {   // only the boss's own side wins with it; a foreign kill sends it back for the next step
+      if (killer >= 0 && Modes.participant[killer] && Actors.team[killer] === side) BankRun.result = Modes.over(side, 'objective'); else BankRun.boss[side] = -1;
+      return;
+    }
     if (killer < 0 || !Modes.participant[killer] || Actors.team[killer] !== side) return;
     const row = Pve.rowOf(victim), motes = row.heavy || row.leader ? PVE_BANK.motesHeavy : PVE_BANK.motesFodder;
     BankRun.carried[killer] = Math.min(PVE_BANK.carryMax, BankRun.carried[killer] + motes);
@@ -535,7 +549,7 @@ function attritionPoints(victim) {
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
   start() {
-    pveStart({ stealth: Modes.rules.params.stealth });
+    pveStart({ stealth: Modes.rules.params.stealth, lives: true });
     Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });
     ContractRun.relic = addMapObjectives('relic', pveObjectiveList)[0] || null;
     ContractRun.extract = addMapObjectives('extract', pveObjectiveList)[0] || null;
@@ -631,13 +645,14 @@ Modes.register('range', {
     if (row && row.id === station.kind && Actors.alive[station.id]) return;
     if (station.id >= 0) { station.id = -1; station.respawnAt = now + PVE_RANGE.respawnSeconds; }
     if (now + TIME_EPSILON < station.respawnAt) return;
-    station.id = Pve.spawnEnemy(station.kind, station.x, station.y, station.z, station.yaw, { team: ENEMY_TEAM });
+    station.id = Pve.spawnEnemy(station.kind, station.x, station.y, station.z, station.yaw, { team: ENEMY_TEAM, overCap: true });
     if (station.id >= 0 && station.shield > 0) Actors.shield[station.id] = Actors.maxShield[station.id] = station.shield;
   },
   onFire(shot) {
     if (shot.id < 0 || !Modes.participant[shot.id]) return;
     RangeRun.shots++;
     RangeRun.shotOpen[shot.id] = 1;
+    if (RangeRun.drillStart < 0) RangeRun.drillStart = Sim.time;
   },
   onDamage(event) {
     const source = event.source;
