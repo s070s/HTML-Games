@@ -1597,10 +1597,10 @@ Test.add('bots', (check) => {
 });
 
 // ---- Ledges: bots stay on the map, and plan with the reach their preset has ----
-const VOID_SOAK_SECONDS = 90, VOID_DEATH_SHARE_MAX = 0.1;
+const VOID_SOAK_SECONDS = 90, VOID_SOAK_SEEDS = [1, 2, 3], VOID_DEATH_SHARE_MAX = 0.1;
 Test.add('bots', (check) => {
   const kills = startEventLog('kill');
-  playMatch({ mode: 'ffa', map: 'skyyard', minutes: VOID_SOAK_SECONDS / 60, botCount: 7, seed: 3, difficulty: 'regular' });
+  for (const seed of VOID_SOAK_SEEDS) playMatch({ mode: 'ffa', map: 'skyyard', minutes: VOID_SOAK_SECONDS / 60, botCount: 7, seed, difficulty: 'regular' });   // one match has 20-25 kills: one fall is 4-5%
   kills.stop();
   const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
   check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
