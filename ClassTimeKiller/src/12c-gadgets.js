@@ -741,10 +741,12 @@ const Gadgets = {
     for (let i = 0; i < this.attackLocks.length; i++) if (this.attackLocks[i](id)) return true;
     return false;
   },
-  blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id) || this.attackLocked(id); },
+  // Frozen, downed or jammed stops all gear; attackLocked (A06 Phase Slip) stops attacks only.
+  stopped(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  blocked(id) { return this.stopped(id) || this.attackLocked(id); },
   stepActor(id) {
     this.rechargeGadget(id);
-    if (this.holdStart[id] >= 0) { if (this.blocked(id)) this.dropHeld(id); else this.stepHold(id); return; }
+    if (this.holdStart[id] >= 0) { this.stepHeld(id); return; }
     if (this.blocked(id)) return;
     if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
@@ -757,6 +759,12 @@ const Gadgets = {
     this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
+  // A stopped thrower drops the held grenade; Phase Slip only puts it away (no risk-free drop while invulnerable).
+  stepHeld(id) {
+    if (this.stopped(id)) this.dropHeld(id);
+    else if (this.attackLocked(id)) this.holdStart[id] = this.holdRow[id] = -1;
+    else this.stepHold(id);
+  },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
   stepHold(id) {
     const row = CAT.gadgets[this.holdRow[id]], fuse = itemTicks(row.fuse);

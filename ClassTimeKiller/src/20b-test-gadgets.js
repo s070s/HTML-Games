@@ -616,7 +616,9 @@ Test.add('gadgets', (check) => {
   check('F44 no gadget while Phase Slip runs', Devices.count === 0);
   check('F44 an offensive ability is refused while Phase Slip runs', !Abilities.usable(id, CAT.abilities.byId('arcbolt')) && Abilities.usable(id, CAT.abilities.byId('phaseslip')));
   Buffs.clear(id);
-  check('F44 grenades work again afterwards', Abilities.usable(id, CAT.abilities.byId('arcbolt')));
+  check('F44 offensive abilities work again afterwards', Abilities.usable(id, CAT.abilities.byId('arcbolt')));
+  GadgetArena.throwAfter(id, 0.2);
+  check('F44 grenades work again afterwards', GadgetArena.firstThrown() >= 0);
   TestArena.finish();
 });
 
@@ -641,6 +643,20 @@ Test.add('gadgets', (check) => {
   Sim.run(2);
   const slot = GadgetArena.firstThrown();
   check('F44 a cooking grenade of a jammed actor falls at the feet', slot >= 0 && Thrown.vx[slot] === 0 && Thrown.vz[slot] === 0 && Gadgets.holdStart[id] < 0);
+  TestArena.finish();
+});
+
+// F44 (R-104): Phase Slip while cooking puts the grenade away (kept, nothing at the feet): no risk-free drop while invulnerable.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const id = GadgetArena.actor(1, 0, 0, 'frag', 1);
+  Actors.buttons[id] = BTN.GRENADE;
+  Sim.run(10);
+  Buffs.add(id, BUFF.NO_FIRE, 2, 2);
+  Sim.run(1);
+  Actors.buttons[id] = 0;
+  Sim.run(2);
+  check('F44 a cooking grenade under Phase Slip is put away, not dropped', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId('frag').index] === 1);
   TestArena.finish();
 });
 
