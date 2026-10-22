@@ -89,6 +89,8 @@ World.touchTriggers = function touchTriggers(id) {
   let medium = 0;
   TriggerState.touchedHazard = false;
   TriggerState.padClock[id] = Math.max(0, TriggerState.padClock[id] - TICK_SECONDS);
+  // The hazard interval runs on out of contact too: stepping out and back in waits for the rest of it (no hit per re-entry).
+  TriggerState.hazardClock[id] = Math.max(0, TriggerState.hazardClock[id] - TICK_SECONDS);
   for (let i = 0; i < World.triggers.length; i++) {
     const t = World.triggers[i];
     if (x + ACTOR_RADIUS < t.minX || x - ACTOR_RADIUS > t.maxX || z + ACTOR_RADIUS < t.minZ || z - ACTOR_RADIUS > t.maxZ) continue;
@@ -97,7 +99,6 @@ World.touchTriggers = function touchTriggers(id) {
     if (medium & TRIGGER_MEDIUM.MOVED) break; // teleported: the old position's other triggers no longer apply
   }
   if (Number.isFinite(World.boundsMin.y) && y < World.boundsMin.y - FALL_OUT_DEPTH) touchHazard(id, fallOutTrigger);
-  if (!TriggerState.touchedHazard) TriggerState.hazardClock[id] = 0;
   updateBreath(id, (medium & TRIGGER_MEDIUM.HEAD_UNDER) !== 0);
   return medium;
 };
@@ -173,11 +174,10 @@ function touchWater(id, water) {
   return medium;
 }
 
-// Hazards and kill zones: damage every HAZARD_INTERVAL while touching, the first tick on contact.
+// Hazards and kill zones: damage every HAZARD_INTERVAL while touching, the first tick on contact once the last interval ran out.
 function touchHazard(id, hazard) {
   if (TriggerState.touchedHazard) return 0; // overlapping hazards hurt once per interval, not once each
   TriggerState.touchedHazard = true;
-  TriggerState.hazardClock[id] -= TICK_SECONDS;
   if (TriggerState.hazardClock[id] > 0) return 0;
   TriggerState.hazardClock[id] = HAZARD_INTERVAL;
   const amount = hazard.damage >= LETHAL_DAMAGE ? LETHAL_DAMAGE : hazard.damage * HAZARD_INTERVAL;

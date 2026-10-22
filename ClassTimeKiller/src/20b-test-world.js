@@ -273,6 +273,24 @@ Test.add('world', (check) => {
   Actors.remove(floating);
 });
 
+// The hazard interval keeps running out of contact: an actor jittering on the edge is hurt at the steady rate, not at every re-entry.
+Test.add('world', (check) => {
+  loadTestWorld([], { triggers: [{ kind: 'hazard', min: [-2, 0, -2], max: [2, 1, 2], damage: 10 }] });
+  useTestRules({ move: 'arena' });
+  const id = spawnTester(2.3, 0.05, 0);
+  let toggle = 0;
+  const burns = recordEvents(['damage.request'], () => {
+    for (let step = 0; step < TICK_RATE; step++) {
+      Actors.x[id] = toggle++ % 2 ? 2.5 : 2.3;   // touching at 2.3 (radius 0.4), clear at 2.5
+      Actors.vx[id] = Actors.vz[id] = 0;
+      Sim.step();
+    }
+  }).filter((r) => r.kind === 'hazard');
+  const total = burns.reduce((sum, r) => sum + r.amount, 0);
+  check('hazard: toggling in and out every step for 1 s deals about the steady 10 HP/s (at most 20 HP)', total <= 20, total);
+  Actors.remove(id);
+});
+
 // A pad whose target is level with it still gives a finite arc (the flight time has a floor).
 Test.add('world', (check) => {
   loadTestWorld([], { triggers: [{ kind: 'jumppad', min: [-1, 0, -1], max: [1, 0.3, 1], target: [0.1, 0.05, 0], peak: 0.001 }] });
