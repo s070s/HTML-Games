@@ -55,7 +55,6 @@ const NAV_COVER_WALL = 1.0;            // cover: a wall within this distance of 
 const NAV_COVER_OPEN = 4;              // ...and open space this long on the other side
 const NAV_COVER_LOW_HEIGHT = 0.9;      // blocked at this height but open at head height = crouch cover
 const NAV_COVER = { NONE: 0, LOW: 1, FULL: 2 };
-const NAV_FITS = { NONE: 0, CROUCH: 1, STAND: 2 };
 const NAV_GRAPH_CACHE_SIZE = 4;        // graphs kept for maps that load again (rematch): BOT-010 "cached per map"
 // Every build output that queries read; a cached graph restores exactly these Nav fields.
 const NAV_GRAPH_FIELDS = ['nodeCount', 'nodeX', 'nodeY', 'nodeZ', 'nodeFlags', 'nodeSample', 'linkCount', 'linkStart', 'linkFrom',
@@ -416,18 +415,18 @@ function navRasterColumn(column, heights, flags) {
   const x = navColumnX(column), z = navColumnZ(column), first = heights.length, grid = navBrushGrid;
   const count = navGatherBrushes(x - NAV_OPEN_RADIUS, z - NAV_OPEN_RADIUS, x + NAV_OPEN_RADIUS, z + NAV_OPEN_RADIUS); // covers every sample test
   for (let k = 0; k < count; k++) {
-    if (grid.walkable[grid.found[k]]) navTrySample(x, navTopAt(grid.found[k], x, z), z, heights, flags, first, 0);
+    if (grid.walkable[grid.found[k]]) navTrySample(x, navTopAt(grid.found[k], x, z), z, heights, flags, first, 0, grid.found[k]);
   }
   navTrySwimSamples(x, z, heights, flags, first);
 }
 
-function navTrySample(x, y, z, heights, flags, first, extraFlags) {
+// floorBrush: the brush whose top this is (-1 for a swim sample, which needs no footing).
+function navTrySample(x, y, z, heights, flags, first, extraFlags, floorBrush) {
   if (Number.isNaN(y) || navColumnHasNear(heights, first, y) || navPointBuriedGathered(x, y + NAV_SURFACE_PROBE, z)) return;
-  if (!(extraFlags & NAV_NODE.WATER) && !navHasEdgeFooting(x, y, z)) return;
-  const fits = navClearance(x, y, z);
-  if (fits === NAV_FITS.NONE) return;
-  let sampleFlags = extraFlags | (fits === NAV_FITS.CROUCH ? NAV_NODE.CROUCH : 0);
-  if (navBoxBlockedGathered(x - NAV_OPEN_RADIUS, y + NAV_STEP, z - NAV_OPEN_RADIUS, x + NAV_OPEN_RADIUS, y + NAV_STAND_HEIGHT, z + NAV_OPEN_RADIUS)) sampleFlags |= NAV_NODE.NARROW;
+  if (floorBrush >= 0 && !navFootprintHolds(floorBrush, x, z) && !navHasEdgeFooting(x, y, z)) return;
+  const fitFlags = navFitFlags(x, y, z);
+  if (fitFlags < 0) return;
+  let sampleFlags = extraFlags | fitFlags;
   if (navInVolumes(navVolumes.water, x, y + NAV_WATER_PROBE, z)) sampleFlags |= NAV_NODE.WATER;
   if (navInVolumes(navVolumes.trigger, x, y + NAV_WATER_PROBE, z)) sampleFlags |= NAV_NODE.TRIGGER;
   heights.push(y);
@@ -444,11 +443,20 @@ function navHasEdgeFooting(x, y, z) {
     && navHasFootingGathered(x, y, z + NAV_EDGE_MARGIN) && navHasFootingGathered(x, y, z - NAV_EDGE_MARGIN);
 }
 
-// The box starts a step above the feet: steps and 45 deg slopes under the capsule never count as blocking.
-function navClearance(x, y, z) {
-  if (!navBoxBlockedGathered(x - NAV_RADIUS, y + NAV_STEP, z - NAV_RADIUS, x + NAV_RADIUS, y + NAV_STAND_HEIGHT, z + NAV_RADIUS)) return NAV_FITS.STAND;
-  if (!navBoxBlockedGathered(x - NAV_RADIUS, y + NAV_STEP, z - NAV_RADIUS, x + NAV_RADIUS, y + NAV_CROUCH_HEIGHT, z + NAV_RADIUS)) return NAV_FITS.CROUCH;
-  return NAV_FITS.NONE;
+// The sample's own brush gives all the footing when its footprint holds the edge margin on every side.
+function navFootprintHolds(brushIndex, x, z) {
+  const brush = World.brushes[brushIndex];
+  return x - NAV_EDGE_MARGIN >= brush.minX && x + NAV_EDGE_MARGIN <= brush.maxX && z - NAV_EDGE_MARGIN >= brush.minZ && z + NAV_EDGE_MARGIN <= brush.maxZ;
+}
+
+// Flags for how the capsule fits (0 = standing in open space), -1 when it does not fit at all. The boxes start a step
+// above the feet: steps and 45 deg slopes under the capsule never block. One wide box settles most samples.
+function navFitFlags(x, y, z) {
+  const open = NAV_OPEN_RADIUS, radius = NAV_RADIUS, bottom = y + NAV_STEP;
+  if (!navBoxBlockedGathered(x - open, bottom, z - open, x + open, y + NAV_STAND_HEIGHT, z + open)) return 0;
+  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + NAV_STAND_HEIGHT, z + radius)) return NAV_NODE.NARROW;
+  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + NAV_CROUCH_HEIGHT, z + radius)) return NAV_NODE.NARROW | NAV_NODE.CROUCH;
+  return -1;
 }
 
 // Water deeper than NAV_SWIM_DEPTH gets a sample at swimming depth (the floor below is too deep to wade).
@@ -457,7 +465,7 @@ function navTrySwimSamples(x, z, heights, flags, first) {
     const water = navVolumes.water[i], feet = water.maxY - NAV_SWIM_DEPTH;
     if (x < water.minX || x > water.maxX || z < water.minZ || z > water.maxZ || feet < water.minY) continue;
     if (navColumnHasBetween(heights, first, feet - NAV_STEP, water.maxY)) continue;
-    navTrySample(x, feet, z, heights, flags, first, NAV_NODE.WATER);
+    navTrySample(x, feet, z, heights, flags, first, NAV_NODE.WATER, -1);
   }
 }
 

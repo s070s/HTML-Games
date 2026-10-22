@@ -101,7 +101,7 @@ Options (all optional; the same object may be reused):
 
 ## Performance (headless Chrome, i5-9600K desktop)
 
-100 x 100 m test map (25 rooms, 2 m doorways, 60 crates, 9 platforms with ramps; 4675 nodes, 38 466 links): build 55-65 ms warm, about 115 ms on the first (cold) build; A* 0.14 ms average, 0.3 ms corner to corner. A low-end phone runs JavaScript roughly 4-8 x slower: about 250-450 ms warm and more on a cold first build, so the 300 ms target (BOT-010) is met on mid-range phones and integrated-GPU laptops, not yet proven on the slowest phones. Loading a map again takes about 0.4 ms (graph cache).
+100 x 100 m test map (25 rooms, 2 m doorways, 60 crates, 9 platforms with ramps; 4675 nodes, 37 338 links): build 47-55 ms warm (raster 11, nodes 5, links 28, components and cover 4), about 105 ms on the first (cold) build; A* 0.14 ms average, 0.3 ms corner to corner. A low-end phone runs JavaScript roughly 4-8 x slower: about 200-400 ms warm and more on a cold first build, so the 300 ms target (BOT-010) is met on mid-range phones and integrated-GPU laptops, not yet proven on the slowest phones. Loading a map again takes about 0.4 ms (graph cache).
 
 ## Known limits
 
