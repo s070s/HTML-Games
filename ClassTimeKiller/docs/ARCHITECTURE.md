@@ -6,14 +6,15 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 
 - Source: `src/shell.html` (style + DOM shells) and `src/*.js`, joined by file name order into **one** script inside one IIFE: `(() => { 'use strict'; ... })()`.
 - Build: `node tools/build.mjs` writes `ClassTimeKiller.html` (the shipped file; players never build). `--check` runs the checks only.
-- Build checks (fail the build): a top-level name declared in two files; a block of 8 meaningful lines duplicated anywhere (DRY); network/eval APIs (`fetch`, XHR, WebSocket, `import()`, `eval`, `new Function`).
+- Build checks (fail the build): a top-level name declared in two files; a block of 8 meaningful lines duplicated anywhere (DRY); network/eval APIs (`fetch`, XHR, WebSocket, `import()`, `eval`, `new Function`). Size (D07): a warning above 3.0 MB, a failure above 3.5 MB.
 - Test: `node tools/selftest.mjs [--group <name>] [--eval "<js>"]` runs `__CTK.selfTest({headless:true})` in headless Chrome (software WebGL) and fails on any failed check or logged error.
+- Performance: `node tools/perf.mjs` (worst-case scenes under CPU throttling, boot time, allocation and GC; `--help`); results and how to read them in `docs/PERFORMANCE.md`. Both tools start Chrome through `tools/cdp.mjs`.
 - File names: `NN-name.js` for a one-file section; `NNa-name.js` = the section's base file, `NNb-…`, `NNc-…` = add-on files of that section (they sort after the base). Data catalogues: `03b-data-<area>.js` and later letters. Tests: `20b-test-<area>.js` and later letters.
 
 | # | Section | Files | Global objects |
 |---|---|---|---|
 | S00 | style + DOM shells | `shell.html` | `#view` canvas, `#overlay` (DOM UI root), `#fatal`, `#version` |
-| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim`, `Game` |
+| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `length2 length3` (use them, not `Math.hypot`, in hot code: PERF-006), `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim` (`Sim.timing` / `Sim.timingTotal`: read-only ms per system), `Game` |
 | S02 | RNG | `02-rng.js` | `makeRandom`, `hashString`, `Rng.{map,loot,bots,rules,fx,weapons,pve}` |
 | S03 | data catalogues | `03a-data.js`, `03b…` | `Data.define`, `REQUIRED`, `CAT` |
 | S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |
@@ -31,7 +32,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S16 | map gen | `16*` | `Maps`, `MapGen` |
 | S17 | HUD | `17*` | `Hud` |
 | S18 | UI | `18*` | `Ui`, `Progress` |
-| S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
+| S19 | game loop | `19-loop.js` | `Loop` (frame cap pacing), `Perf` (`Perf.bootMs`) |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
 | S21 | bootstrap | `21-boot.js` | `Boot` |
 
