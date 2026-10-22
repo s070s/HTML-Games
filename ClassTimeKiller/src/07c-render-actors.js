@@ -120,6 +120,8 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 
 // ---- Instance batches ----
 const shapeBatches = [];
+// One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
+const makeShapeInstance = () => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, sx: 1, sy: 1, sz: 1, r: 1, g: 1, b: 1, emissive: 0 });
 function makeShapeBatch(name, capacity) {
   const batch = {
     name, capacity, counts: new Uint16Array(SHAPES.length), data: new Float32Array(SHAPES.length * capacity * INSTANCE_FLOATS),
@@ -152,6 +154,17 @@ function makeShapeBatch(name, capacity) {
     light(o) {
       const d = this.data;
       d[o + 12] = sampleSunVisibility(d[o], d[o + 1], d[o + 2]);
+    },
+    // mesh() from a reused instance record (makeShapeInstance): the zero-allocation form for sources that draw many
+    // parts a frame. Same result and return value as mesh().
+    meshFrom(shape, instance) {
+      const o = this.reserve(shape), d = this.data;
+      if (o < 0) return -1;
+      d[o] = instance.x; d[o + 1] = instance.y; d[o + 2] = instance.z; d[o + 3] = instance.yaw;
+      d[o + 4] = instance.sx; d[o + 5] = instance.sy; d[o + 6] = instance.sz; d[o + 7] = instance.pitch;
+      d[o + 8] = instance.r; d[o + 9] = instance.g; d[o + 10] = instance.b; d[o + 11] = instance.emissive;
+      this.light(o);
+      return o;
     },
   };
   shapeBatches.push(batch);
@@ -464,10 +477,12 @@ function emitActorShadow(id, pose, scale) {
   const groundY = airborne ? groundBelow(pose.x, pose.y + 0.1, pose.z, SHADOW_PROBE_METERS) : pose.y;
   const fade = 1 - clamp((pose.y - groundY) / SHADOW_FADE_METERS, 0, 1);
   if (fade <= 0) return;
-  const size = 0.95 * scale * (0.6 + 0.4 * fade);
-  const slot = shadowBatch.mesh('disc', pose.x, groundY + 0.02, pose.z, 0, 0, size, 1, size, 0, 0, 0, 0);
+  const size = 0.95 * scale * (0.6 + 0.4 * fade), instance = shadowInstance;
+  instance.x = pose.x; instance.y = groundY + 0.02; instance.z = pose.z; instance.sx = size; instance.sz = size;
+  const slot = shadowBatch.meshFrom('disc', instance);
   if (slot >= 0) shadowBatch.data[slot + STRENGTH_SLOT] = SHADOW_STRENGTH * fade;
 }
+const shadowInstance = Object.assign(makeShapeInstance(), { r: 0, g: 0, b: 0 });   // flat black disc; position and size per actor
 
 // A loose box around the body and its blob shadow; actors outside the view cost nothing
 function actorInView(pose, scale) {

@@ -366,6 +366,11 @@ Test.add('perf', (check) => {
   let same = meshed >= 0 && reserved === meshed + INSTANCE_FLOATS;
   for (let i = 0; i < INSTANCE_FLOATS; i++) if (d[meshed + i] !== d[reserved + i]) same = false;
   check('batch reserve + light writes the same instance as mesh()', same);
+  const instance = Object.assign(makeShapeInstance(), { x: 1, y: 2, z: 3, yaw: 0.5, pitch: 0.25, sx: 1, sy: 2, sz: 3, r: 0.1, g: 0.2, b: 0.3, emissive: 0.4 });
+  const fromRecord = batch.meshFrom(shape, instance);
+  let sameRecord = fromRecord === reserved + INSTANCE_FLOATS;
+  for (let i = 0; i < INSTANCE_FLOATS; i++) if (d[meshed + i] !== d[fromRecord + i]) sameRecord = false;
+  check('batch.meshFrom(shape, instance record) writes the same instance as mesh()', sameRecord);
   batch.counts[SHAPE_INDEX[shape]] = batch.capacity;
   const droppedBefore = Render.stats.droppedInstances;
   check('a full shape region refuses and counts instead of growing', batch.reserve(shape) === -1 && Render.stats.droppedInstances === droppedBefore + 1);

@@ -128,8 +128,10 @@ const viewModelBatch = makeShapeBatch('viewmodel', 24);
 const viewModelRows = {};
 CAT.viewModels.forEach((row) => { viewModelRows[row.id] = row; });
 const weaponPose = { x: 0, y: 0, z: 0, pitch: 0 };
-const viewLocal = { x: 0, y: 0, z: 0 };
-const viewWorld = { x: 0, y: 0, z: 0 };
+// Weapon part offsets rotated in place, then written into one instance record (no float arguments, PERF-006).
+const viewLocal = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+const viewWorld = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+const viewPart = makeShapeInstance();
 const viewTint = new Float32Array(3);
 
 // Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
@@ -164,12 +166,17 @@ function addWeaponParts(row, pose, state, hand) {
   for (let i = 0; i < row.parts.length; i++) {
     const part = row.parts[i];
     // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    rotateYawPitchInto(viewLocal, -part.at[0] * VIEWMODEL_SCALE * hand, part.at[1] * VIEWMODEL_SCALE, part.at[2] * VIEWMODEL_SCALE, 0, pose.pitch);
-    rotateYawPitchInto(viewWorld, viewLocal.x - pose.x * hand, viewLocal.y + pose.y, viewLocal.z + pose.z, camera.yaw, camera.pitch);
-    const emissive = viewPartColor(part, row, state);
-    const pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
-    viewModelBatch.mesh(part.shape, camera.x + viewWorld.x, camera.y + viewWorld.y, camera.z + viewWorld.z, camera.yaw, pitch,
-      part.size[0] * VIEWMODEL_SCALE, part.size[1] * VIEWMODEL_SCALE, part.size[2] * VIEWMODEL_SCALE, viewTint[0], viewTint[1], viewTint[2], emissive);
+    const local = viewLocal, world = viewWorld, instance = viewPart;
+    local.x = -part.at[0] * VIEWMODEL_SCALE * hand; local.y = part.at[1] * VIEWMODEL_SCALE; local.z = part.at[2] * VIEWMODEL_SCALE; local.yaw = 0; local.pitch = pose.pitch;
+    rotateInPlace(local);
+    world.x = local.x - pose.x * hand; world.y = local.y + pose.y; world.z = local.z + pose.z; world.yaw = camera.yaw; world.pitch = camera.pitch;
+    rotateInPlace(world);
+    instance.emissive = viewPartColor(part, row, state);
+    instance.x = camera.x + world.x; instance.y = camera.y + world.y; instance.z = camera.z + world.z;
+    instance.yaw = camera.yaw; instance.pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
+    instance.sx = part.size[0] * VIEWMODEL_SCALE; instance.sy = part.size[1] * VIEWMODEL_SCALE; instance.sz = part.size[2] * VIEWMODEL_SCALE;
+    instance.r = viewTint[0]; instance.g = viewTint[1]; instance.b = viewTint[2];
+    viewModelBatch.meshFrom(part.shape, instance);
   }
 }
 Render.addUpdate(60, fillViewModel);
