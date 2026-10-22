@@ -747,9 +747,11 @@ function drawTracer(id, direction, distance, weapon) {
 // ---- Deliveries per fire mode type ----
 function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
+  const ballistics = currentRules().fx && currentRules().fx.ballistics;   // X41: the pellets fly as bullets (11b)
   eyeOrigin(id, originScratch);
   for (let pellet = 0; pellet < mode.pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);
+    if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
     const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
     if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon);
     if (mode.splash) splashAtShotEnd(id, mode, distance);
@@ -902,4 +904,9 @@ Bus.on('actor.create', (id) => {
 });
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
+// The difficulty preset's aimAssist (rules.botSkill, D01 Stroll 100) replaces the player's setting; -1 keeps it.
+Input.aimAssistOverride = () => {
+  const skill = currentRules().botSkill;
+  return skill && skill.aimAssist >= 0 ? skill.aimAssist : -1;
+};
 Render.viewModel = (out) => Weapons.viewModel(out);

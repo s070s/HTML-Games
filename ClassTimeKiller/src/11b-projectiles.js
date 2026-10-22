@@ -19,6 +19,7 @@ const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
 
 const sweepHit = makeHit();
+const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
@@ -39,6 +40,7 @@ const Projectiles = {
   target: new Int8Array(PROJECTILE_CAP), attached: new Int8Array(PROJECTILE_CAP), offsetX: new Float32Array(PROJECTILE_CAP),
   offsetY: new Float32Array(PROJECTILE_CAP), offsetZ: new Float32Array(PROJECTILE_CAP), timer: new Float32Array(PROJECTILE_CAP),
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
+  gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   active: 0,
   nextSerial: 1,
@@ -63,6 +65,17 @@ const Projectiles = {
     if (mode.maxActive && mode.activeRule === 'recycle') this.limitOwned(owner, weapon.index, row.index, mode.maxActive);
     return i;
   },
+  // X41 Ballistics (rules.fx.ballistics { gravity, drag }): one hitscan pellet as a bullet that keeps its firing mode (damage,
+  // falloff by distance flown, headshots) and flies at most the mode's range.
+  spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, ballistics) {
+    const row = BALLISTIC_ROW, eyeY = Actors.eyeY(owner), speed = row.speed;
+    const i = this.spawn(row, owner, weapon.index, modeIndex, Actors.x[owner] + direction.x * MUZZLE_FORWARD, eyeY + direction.y * MUZZLE_FORWARD,
+      Actors.z[owner] + direction.z * MUZZLE_FORWARD, direction.x * speed, direction.y * speed, direction.z * speed, damage);
+    this.life[i] = mode.range / speed;
+    this.gravity[i] = ballistics.gravity || 0;
+    this.drag[i] = ballistics.drag || 0;
+    return i;
+  },
   spawn(row, owner, weaponIndex, modeIndex, x, y, z, vx, vy, vz, damage) {
     const i = this.freeSlot(row);
     if (this.state[i] === PROJECTILE_STATE.FREE) this.active++;
@@ -71,6 +84,7 @@ const Projectiles = {
     this.age[i] = 0; this.life[i] = row.life; this.travelled[i] = 0; this.damage[i] = damage; this.multiplier[i] = 1;
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
     this.hitLow[i] = this.hitHigh[i] = 0;
+    this.gravity[i] = row.gravity; this.drag[i] = row.drag;
     this.serial[i] = this.nextSerial++;
     return i;
   },
@@ -164,9 +178,9 @@ const Projectiles = {
   accelerate(i, dt) {
     const row = this.row(i);
     if (row.roll && World.raycast(this.x[i], this.y[i], this.z[i], 0, -1, 0, row.radius + 0.05, sweepHit)) { this.vy[i] = Math.max(0, this.vy[i]); return; }
-    this.vy[i] -= row.gravity * dt;
-    if (!row.drag) return;
-    const keep = Math.max(0, 1 - row.drag * dt);
+    this.vy[i] -= this.gravity[i] * dt;
+    if (!this.drag[i]) return;
+    const keep = Math.max(0, 1 - this.drag[i] * dt);
     this.vx[i] *= keep; this.vy[i] *= keep; this.vz[i] *= keep;
   },
   // Homing toward the target, guided toward the owner's view, or flying back to the owner (returning blades).

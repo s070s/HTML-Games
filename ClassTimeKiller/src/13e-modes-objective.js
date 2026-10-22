@@ -214,9 +214,9 @@ function makePrizeBehaviour(prizeId, role, meleeParam, label) {
       if (prize.state === 'carried') { this.stepHeld(prize, dt, params); return; }
       this.setHolder(-1);
       if (Modes.returnDue(prize, now, params.returnTime)) { Modes.returnHome(prize); Modes.announce('The ' + label + ' returned', 'objective', 1); return; }
-      const taker = Modes.findToucher(prize, NEAR_ANY);
-      // Spawn protection keeps an actor who respawns on the prize from taking it at once.
-      if (taker < 0 || (Actors.flags[taker] & ACTOR_FLAG.PROTECTED)) return;
+      // Spawn protection keeps an actor who respawns on the prize from taking it at once (nor blocking anyone else).
+      const taker = Modes.findToucher(prize, NEAR_ANY, ACTOR_FLAG.PROTECTED);
+      if (taker < 0) return;
       Modes.pickUp(prize, taker);
       prize.holdTime = 0;
       this.setHolder(taker);

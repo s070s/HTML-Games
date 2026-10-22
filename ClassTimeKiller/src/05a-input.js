@@ -105,6 +105,7 @@ const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
   aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
+  aimAssistOverride: null, // fn() -> 0..100 replaces the device's aim assist setting for this match, -1 keeps it (S11: difficulty)
   actions: ACTION_ROWS,    // the single action table
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
@@ -470,8 +471,10 @@ const Input = {
     look.mouseX = look.mouseY = look.assistedX = look.assistedY = 0;
   },
   assistStrength() {
-    if (this.device === 'touch') return this.config.touchAimAssist / 100;
-    return this.device === 'gamepad' ? this.config.padAimAssist / 100 : 0;   // never for the mouse
+    if (this.device !== 'touch' && this.device !== 'gamepad') return 0;   // never for the mouse
+    const forced = this.aimAssistOverride ? this.aimAssistOverride() : -1;
+    if (forced >= 0) return forced / 100;
+    return (this.device === 'touch' ? this.config.touchAimAssist : this.config.padAimAssist) / 100;
   },
   // The aim assist target point into out, when the hook finds one and no filter refuses it.
   findAssistTarget(id, out) {

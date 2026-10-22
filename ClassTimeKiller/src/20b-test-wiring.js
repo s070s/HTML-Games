@@ -344,3 +344,70 @@ Test.add('wiring', (check) => {
   check('world.load builds the drawn world of every map without an error', failed.length === 0 && ErrorLog.entries.length === before,
     failed.join(', ') + ' ' + ErrorLog.entries.slice(before).join(' / '));
 });
+
+// ---- S13 framework: objectives follow the map entry's modes; spawn protection never blocks a prize; the save's fields ----
+Test.add('wiring', (check) => {
+  startModeTest('oneflag', CAT.maps.byId('twinkeeps'), [0, 1]);
+  const flags = Modes.findObjectives('flag', []);
+  check('buildObjectives: only the map objectives that serve the mode (twinkeeps one flag: the middle flag)', flags.length === 1 && flags[0].id === 'flagMid',
+    flags.map((flag) => flag.id).join(', '));
+  endModeTest();
+
+  startModeTest('oddball', modesTestMap(RELIC_MAP), [-1, -1]);
+  placeActor(0, 0, 0); placeActor(1, 0, 0);
+  Actors.flags[0] |= ACTOR_FLAG.PROTECTED;
+  Modes.endProtection(1);
+  Sim.step();
+  const relic = Modes.objectives[0];
+  check('relic: a spawn-protected actor on the prize does not block another one taking it', relic.state === 'carried' && relic.carrier === 1, relic.state + ' ' + relic.carrier);
+  check('findActorNear: skipFlags passes over flagged actors', Modes.findActorNear(0, 0, 0, 1, NO_TEAM, NEAR_ANY, 0, ACTOR_FLAG.PROTECTED) === 1
+    && Modes.findActorNear(0, 0, 0, 1, NO_TEAM, NEAR_ANY) === 0);
+  endModeTest();
+
+  const empty = Save.emptySave(), migrated = Save.migrate({ version: 1, settings: {} });
+  check('save: a fresh save holds the play setup and crosshair overrides', 'play' in empty && empty.crosshairs && typeof empty.crosshairs === 'object');
+  check('save: an older save gains them on load', 'play' in migrated && !!migrated.crosshairs);
+});
+
+// ---- S13 X41 -> S11: rules.fx.ballistics turns hitscan pellets into 11b bullets with drop and drag ----
+function wiringFlyingBullet() {
+  for (let i = 0; i < PROJECTILE_CAP; i++) if (Projectiles.state[i] === PROJECTILE_STATE.FLYING && Projectiles.type[i] === BALLISTIC_ROW.index) return i;
+  return -1;
+}
+
+Test.add('wiring', (check) => {
+  TestArena.start({ teams: 2, fx: { ballistics: { gravity: 9.8, drag: 0.05 } } });
+  const t = WiringTest.shooter(40), healthBefore = Actors.health[t.target];
+  WiringTest.fire(t.shooter);
+  const bullet = wiringFlyingBullet();
+  check('X41: a hitscan shot becomes a flying bullet', bullet >= 0 && Actors.health[t.target] === healthBefore, bullet);
+  if (bullet >= 0) {
+    const mode = t.weapon.primary, startVy = Projectiles.vy[bullet], startSpeed = Math.hypot(Projectiles.vx[bullet], Projectiles.vy[bullet], Projectiles.vz[bullet]);
+    check('X41: the bullet keeps the firing mode and flies at most its range', Projectiles.modeOf(bullet) === mode && Test.near(Projectiles.life[bullet] * BALLISTIC_ROW.speed, mode.range, 0.01));
+    Sim.run(3);
+    const speed = Math.hypot(Projectiles.vx[bullet], Projectiles.vy[bullet], Projectiles.vz[bullet]);
+    check('X41: gravity pulls it down and drag slows it', Projectiles.vy[bullet] < startVy && speed < startSpeed, Projectiles.vy[bullet] + ' ' + speed);
+  }
+  Sim.run(TICK_RATE / 2);
+  check('X41: the bullet reaches and damages the target', Actors.health[t.target] < healthBefore, healthBefore - Actors.health[t.target]);
+  Game.match.rules.fx = {};
+  Projectiles.clear();
+  WiringTest.fire(t.shooter);
+  check('without X41 the shot is hitscan again', wiringFlyingBullet() < 0);
+  TestArena.finish();
+});
+
+// ---- S05 <- S11/S14: the difficulty preset's aimAssist (rules.botSkill) sets the player's aim assist strength ----
+Test.add('wiring', (check) => {
+  const device = Input.device, padSetting = Input.config.padAimAssist;
+  TestArena.start({ teams: 2, botSkill: { aimAssist: 100 } });
+  Input.device = 'gamepad'; Input.config.padAimAssist = 60;
+  check('aim assist: a difficulty with aimAssist 100 gives full strength', Input.assistStrength() === 1, Input.assistStrength());
+  Game.match.rules.botSkill = { aimAssist: -1 };
+  check('aim assist: -1 keeps the player setting', Test.near(Input.assistStrength(), 0.6, 1e-6), Input.assistStrength());
+  Game.match.rules.botSkill = { aimAssist: 100 };
+  Input.device = 'kbm';
+  check('aim assist: never for the mouse', Input.assistStrength() === 0);
+  Input.device = device; Input.config.padAimAssist = padSetting;
+  TestArena.finish();
+});
