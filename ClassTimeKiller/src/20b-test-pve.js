@@ -718,9 +718,8 @@ Test.add('pve', (check) => {
   Pve.stealth = true;
   const recorder = meshRecorder();   // two batch kinds, as over a session (tests, killcam): the draw calls are not inlined
   const bytes = perfAllocatedBytes((i) => {
-    const batch = i < PERF_ALLOC_WARMUP_CALLS / 2 ? recorder : propBatch;
-    recorder.meshes.length = 0; propBatch.clear();
-    Pve.draw(batch);
+    if (i < PERF_ALLOC_WARMUP_CALLS / 2) { recorder.meshes.length = 0; Pve.draw(recorder); return; }
+    fillSources();   // the frame's own path: each render source runs its own compiled code, as in a match
   });
   check('the probe draws a shielded champion', Actors.shield[shielded] > 0 && Pve.champion[shielded] >= 0);
   check('drawing PvE enemies allocates nothing (instance record, no float arguments)', bytes < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' frames');

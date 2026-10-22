@@ -412,15 +412,48 @@ Test.add('perf', (check) => {
   HudBatch.quads = 0;
   pushHudQuad(1, 2, 30, 4, 28, 40, 3, 38, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], 0x336699, 0.5);
   setHudCorners(1, 2, 30, 4, 28, 40, 3, 38);
-  pushHudSolid(0x336699, 0.5);
+  setHudPaint(0x336699, 0.5);
+  pushHudSolid();
   let same = HudBatch.quads === 2;
   for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) same = false;
   check('HUD corner scratch writes the same vertices as the argument form', same);
+  HudBatch.quads = 0;
+  HudPen.quad(1, 2, 30, 4, 28, 40, 3, 38, 0x336699, 0.5 / Hud.opacity);
+  let samePen = HudBatch.quads === 1;
+  for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) samePen = false;
+  check('the pen\'s quads and triangles fill the corner scratch (no fourteen-argument pushHudQuad call)', samePen && !/pushHudQuad/.test(HudPen.quad.toString()));
   HudBatch.quads = HUD_MAX_QUADS;
   const dropped = HudBatch.dropped;
   HudPen.rect(0, 0, 4, 4, 0xffffff, 1);
   check('a full HUD batch drops and counts instead of growing', HudBatch.quads === HUD_MAX_QUADS && HudBatch.dropped === dropped + 1);
   HudBatch.quads = savedQuads;
+});
+
+// Draw paths a live frame showed allocating (PERF-006; the probes above run them inlined, where they did not): the sun lookup
+// takes the instance array and an offset and returns the grid byte, and the PvE part loops are index loops (for-of made an
+// iterator result per part in the frame's own compiled code).
+Test.add('perf', (check) => {
+  const point = new Float32Array([1.5, 2, -3.25]), byte = sunVisibilityAt(point, 0);
+  check('the sun lookup returns the grid byte at the point in the float array (an integer, not a boxed float)',
+    Number.isInteger(byte) && byte >= 0 && byte <= SUN_LIT && sampleSunVisibility(1.5, 2, -3.25) === byte / SUN_LIT, byte);
+  const forOf = /for \(const \w+ of /;
+  check('the PvE part and shield ring loops are index loops', !forOf.test(Pve.drawEnemy.toString()) && !forOf.test(drawShieldShell.toString()));
+});
+
+// A HUD ring turns each segment edge from the last one: two sine / cosine pairs per ring instead of four calls per segment.
+Test.add('perf', (check) => {
+  const savedQuads = HudBatch.quads, sin = Math.sin, cos = Math.cos, from = 0.5, to = 5.5, x = 100, y = 80, outer = 22;
+  let trigCalls = 0;
+  HudBatch.quads = 0;
+  Math.sin = (angle) => { trigCalls++; return sin(angle); };
+  Math.cos = (angle) => { trigCalls++; return cos(angle); };
+  try { HudBatch.ring(x, y, 20, 4, 0xffffff, 1, from, to); } finally { Math.sin = sin; Math.cos = cos; }
+  const segments = HudBatch.quads, corners = hudCorners;
+  HudBatch.quads = savedQuads;
+  check('a partial HUD ring has its share of the segments', segments === Math.ceil(HUD_RING_SEGMENTS * (to - from) / (Math.PI * 2)), segments);
+  check('a HUD ring calls sine and cosine twice each, not per segment', trigCalls === 4, trigCalls);
+  check('the last segment ends on the end angle', Math.abs(corners[2] - (x + sin(to) * outer)) < 1e-3 && Math.abs(corners[3] - (y - cos(to) * outer)) < 1e-3,
+    corners[2] + ', ' + corners[3]);
 });
 
 Test.add('perf', (check) => {

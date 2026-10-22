@@ -319,11 +319,13 @@ const HudPen = {
     if (filled > 0) this.rect(x, y, filled, h, color, alpha);
   },
   // Filled triangle: a quad with two equal corners.
-  triangle(x0, y0, x1, y1, x2, y2, color, alpha) {
-    pushHudQuad(x0, y0, x1, y1, x2, y2, x2, y2, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], color, (alpha === undefined ? 1 : alpha) * Hud.opacity);
-  },
+  triangle(x0, y0, x1, y1, x2, y2, color, alpha) { this.quad(x0, y0, x1, y1, x2, y2, x2, y2, color, alpha); },
+  // Corners straight into the HUD scratch (07f hudCorners): fourteen float arguments to pushHudQuad were boxed per shape (PERF-006).
   quad(x0, y0, x1, y1, x2, y2, x3, y3, color, alpha) {
-    pushHudQuad(x0, y0, x1, y1, x2, y2, x3, y3, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], color, (alpha === undefined ? 1 : alpha) * Hud.opacity);
+    const corners = hudCorners;
+    corners[0] = x0; corners[1] = y0; corners[2] = x1; corners[3] = y1; corners[4] = x2; corners[5] = y2; corners[6] = x3; corners[7] = y3;
+    setHudPaint(color, (alpha === undefined ? 1 : alpha) * Hud.opacity);
+    pushHudSolid();
   },
   // Team and marker icons that differ by shape, not only by colour (ACC-001). size = width in pixels.
   shape(kind, x, y, size, color, alpha) {

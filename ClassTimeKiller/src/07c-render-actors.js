@@ -160,7 +160,7 @@ function makeShapeBatch(name, capacity) {
     },
     light(o) {
       const d = this.data;
-      d[o + 12] = sampleSunVisibility(d[o], d[o + 1], d[o + 2]);
+      d[o + 12] = sunVisibilityAt(d, o) / SUN_LIT;   // the centre d[o..o+2] in, a byte out: no boxed floats (PERF-006)
     },
     // mesh() from a reused instance record (makeShapeInstance): the zero-allocation form for sources that draw many
     // parts a frame. Same result and return value as mesh().

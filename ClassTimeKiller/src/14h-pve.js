@@ -859,8 +859,8 @@ const Pve = {
     const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
     // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
     const point = pvePartPoint, instance = pvePartInstance;
-    for (const part of row.parts) {
-      const tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
+    for (let index = 0; index < row.parts.length; index++) {   // an index loop: for-of makes an iterator result per part here
+      const part = row.parts[index], tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
       point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
       rotateInPlace(point);
       const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
