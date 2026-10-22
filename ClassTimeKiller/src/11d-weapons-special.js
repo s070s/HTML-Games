@@ -3,7 +3,7 @@
 // Twin gates teleport (momentum magnitude kept, MOV-019) but draw as rings: there is no view through a gate.
 
 const LINK_BOOST_SECONDS = 0.25;         // W30: an ally beam keeps the boost alive this long after the last tick
-const PARRY_ARC_COS = Math.cos(70 * DEG);
+const PARRY_ARC_COS = Math.cos(CAT.weapons.byId('bulwark').alt.block.arcDeg * 0.5 * DEG);   // the W03 row's guard arc (block and parry)
 const STANCE_FRONT_COS = Math.cos(60 * DEG);
 const CHAIN_MAX = 8;
 const LIFTER_PUSH_SPEED = 15;

@@ -1045,6 +1045,26 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// R-082 / R-083: the W03 block covers its row's arcDeg; attachments never make a swap faster than the WPN-010 floor.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const guard = TestArena.actor(1, 0, 0), attacker = TestArena.actor(2, 0, 5, Math.PI);
+  Weapons.setLoadout(guard, ['bulwark']);
+  Actors.buttons[guard] = BTN.ALT;
+  Sim.run(3);
+  const angle = 65 * DEG, side = { dx: -Math.sin(angle), dy: 0, dz: -Math.cos(angle) };
+  check('W03 a hit 65 deg off the 120 deg guard is not blocked', TestArena.hit(attacker, guard, 40, side) === 40);
+  Actors.buttons[guard] = 0;
+  Weapons.setLoadout(guard, ['maul', 'tempest']);
+  Weapons.attach(guard, 'tempest', 'shortBarrel');
+  Weapons.attach(guard, 'tempest', 'lightStock');
+  Weapons.current[guard] = CAT.weapons.byId('maul').index;
+  const tempest = CAT.weapons.byId('tempest');
+  Weapons.requestSwitch(guard, tempest.index);
+  check('WPN-010 stacked equip attachments stop at the floor', Weapons.stateDuration[guard] >= tempest.equipTime * EQUIP_SCALE_FLOOR - 1e-6, Weapons.stateDuration[guard]);
+  TestArena.finish();
+});
+
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;

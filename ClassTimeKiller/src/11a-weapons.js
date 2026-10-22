@@ -30,6 +30,7 @@ const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slo
 const AIM_ASSIST_RANGE = 60;
 const IMPACT_SPARK_COLOR = 0xffe0a0;
 const DUAL_FACTOR = 2;                   // W04 dual pistols: magazine and fire rate multiplier
+const EQUIP_SCALE_FLOOR = 0.8;           // WPN-010: stacked equip modifiers never make a swap shorter than 0.8 x equipTime
 const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
 const WEAPON_STAT_COUNT = WEAPON_STATS.length;
 const STAT = { DAMAGE: 0, SPREAD: 1, RECOIL: 2, RELOAD: 3, MAG: 4, RESERVE: 5, EQUIP: 6, MOVE: 7 }; // indexes into WEAPON_STATS
@@ -318,7 +319,8 @@ const Weapons = {
     return AMMO_VIEW;
   },
 
-  // ---- Swap (WPN-010: switching is never faster than the new weapon's equipTime) ----
+  // ---- Swap (WPN-010: switching is never faster than the new weapon's equipTime; equip attachments and perks may
+  // shorten it down to EQUIP_SCALE_FLOOR x equipTime, never further) ----
   requestSwitch(id, index) {
     if (index < 0 || !this.owned[this.slotIndex(id, index)]) return false;
     const target = this.state[id] === WEAPON_STATE.SWAP ? this.pending[id] : this.current[id];
@@ -327,7 +329,7 @@ const Weapons = {
     this.state[id] = WEAPON_STATE.SWAP;
     this.pending[id] = index;
     this.stateTime[id] = 0;
-    this.stateDuration[id] = CAT.weapons[index].equipTime * this.modifier(id, CAT.weapons[index], STAT.EQUIP);
+    this.stateDuration[id] = CAT.weapons[index].equipTime * Math.max(EQUIP_SCALE_FLOOR, this.modifier(id, CAT.weapons[index], STAT.EQUIP));
     emitWeaponEvent('weapon.switch', SWITCH_EVENT, id, CAT.weapons[index]);
     return true;
   },
@@ -837,7 +839,6 @@ const Shot = {
   },
 };
 
-const shotInfoDirection = Vec.make();
 // Builds the damage info for one weapon hit and sends it through the single damage path.
 function applyShotDamage(id, target, weapon, mode, damage, zone, stomach, x, y, z, dx, dy, dz, distance) {
   const info = Damage.info();
