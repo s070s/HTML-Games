@@ -548,7 +548,7 @@ function colorMatches(mesh, hex) {
   return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;
 }
 
-// DIF-002 game speed reaches the sim through the ruleset (no write into the frozen rules) in the PvE modes only.
+// DIF-002 game speed reaches the sim through the ruleset (no write into the frozen rules), in PvE and versus alike (ACC-007).
 Test.add('pve', (check) => withShortShop(() => {
   const mark = errorMark();
   const ids = startPveMode('horde', [0], {}, { difficulty: { preset: 'regular', gameSpeed: 0.8 } });
@@ -559,7 +559,7 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
   World.load(pveTestMap());
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true }], difficulty: { preset: 'regular', gameSpeed: 0.8 } });
-  check('versus modes keep normal speed', Sim.timeScale === 1, Sim.timeScale);
+  check('versus modes use the same assist speed (ACC-007)', Test.near(Sim.timeScale, 0.8, 1e-6), Sim.timeScale);
   Game.stop();
 }));
 

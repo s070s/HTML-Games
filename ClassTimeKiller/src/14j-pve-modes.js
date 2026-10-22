@@ -2,7 +2,7 @@
 // The PvE mode behaviours (Modes.register): M21 Siege Waves, M22 Endless Hold, M23 Mote Rush, M26 Ravager vs Fiends,
 // M28 Silent Contract (stealth, MP12), M29 Attrition, M30 Firing Range and the MP11 Test Chambers (puzzle). Enemies come from
 // the director (14h) and the rows (03o). Difficulty (rules.botSkill): lives (0 = unlimited), checkpoints and checkpointHeal
-// (wave retries, DIF-004 Guardian Plate), gameSpeed (rules.fx.timeScale, written by a 'difficulty' rule modifier before the
+// (wave retries, DIF-004 Guardian Plate), gameSpeed (rules.fx.timeScale, written by the 14a difficulty stage before the
 // ruleset freezes). Co-op results: winner = the player (or the first participant) on a win,
 // DRAW with reason 'defeat' on a loss. The HUD reads Modes.hud.pve (PVE_HUD fields, docs/api/pve.md).
 
@@ -47,15 +47,6 @@ function applyDifficultyLives() {
   const lives = pveSkill().lives > 0 ? pveSkill().lives : LIVES_UNLIMITED;
   for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) Modes.lives[id] = lives;
 }
-// DIF-002 game speed of the PvE modes: multiplied into rules.fx.timeScale while the ruleset is built (before it freezes);
-// the mutator section turns fx.timeScale into Sim.timeScale at the match start (on top of the X02 mutator).
-function applyPveGameSpeed(rules) {
-  const speed = rules.botSkill ? rules.botSkill.gameSpeed : 1;
-  if (!PVE_MODE_IDS.includes(rules.mode) || !speed || speed === 1) return;
-  rules.fx = rules.fx || {};
-  rules.fx.timeScale = (rules.fx.timeScale || 1) * speed;
-}
-Rules.addModifier('difficulty', applyPveGameSpeed);
 // Co-op maps mark enemy gates with team-1 spawns: those feed the director, players never spawn there.
 function takeEnemySpawns() {
   const points = Modes.spawnPoints;
@@ -307,9 +298,9 @@ const ENDLESS_PLAN = {
 Modes.register('horde', makeWaveBehaviour(HORDE_PLAN));
 Modes.register('endless', makeWaveBehaviour(ENDLESS_PLAN));
 
-// ECP07 wave shop item 'coreShield' (buy kind 'grant'): shields the core.
-Economy.grants.grant = (id, item) => {
-  if (item.key !== 'coreShield' || !Pve.core.active || Pve.core.health <= 0) return false;
+// ECP07 wave shop item 'coreShield' (buy kind 'grant', delivered through S12's grant effects): shields the core.
+Items.grantEffects.coreShield = () => {
+  if (!Pve.core.active || Pve.core.health <= 0) return false;
   Pve.core.shield += PVE_WAVE_RULES.coreShield;
   return true;
 };

@@ -14,7 +14,7 @@ const SETTING_GROUPS = [
   ['hud.element.captions', 'Captions and sound cues'], ['hud.element.soundRing', 'Captions and sound cues'], ['hud.element.barks', 'Captions and sound cues'], ['hud.caption', 'Captions and sound cues'],
   ['hud.crosshair.', 'Crosshair'], ['hud.scopeOverlay', 'Crosshair'], ['hud.element.', 'Show or hide parts of the HUD'], ['hud.teamShapes', 'Vision and interface'], ['hud.', 'Layout and look'],
   ['accessibility.colorBlind', 'Vision and interface'], ['accessibility.highContrast', 'Vision and interface'], ['ui.scale', 'Vision and interface'],
-  ['accessibility.', 'Motion and flashes'],
+  ['accessibility.', 'Motion and flashes'], ['progress.', 'Progress'],
 ];
 Ui.settingGroup = function settingGroup(key) {
   const found = SETTING_GROUPS.find((entry) => key.startsWith(entry[0]));
@@ -103,10 +103,4 @@ Ui.difficultyRows = function difficultyRows(container, values, onChange) {
   }
 };
 
-// Game speed is the one assist field that has no owner of its own: it rides on rules.fx.timeScale, the field the Game Speed mutator
-// uses, so the mutators section applies it every step (kill slow-mo comes back to it). 14a builds botSkill before this modifier runs.
-Rules.addModifier('difficulty', (rules) => {
-  const speed = rules.botSkill && rules.botSkill.gameSpeed;
-  if (!speed || speed === 1) return;
-  rules.fx.timeScale = (rules.fx.timeScale || 1) * speed;
-});
+// Game speed rides on rules.fx.timeScale (the Game Speed mutator's field), multiplied in by the difficulty stage in 14a (PvE only).

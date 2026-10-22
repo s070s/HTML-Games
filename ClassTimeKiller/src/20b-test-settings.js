@@ -39,6 +39,7 @@ function settingTestExerciseReads() {
   Gadgets.drawPreview({ mesh: () => 0 });
   Gadgets.holdStart[id] = Gadgets.holdRow[id] = -1;
   Difficulty.tierShift();
+  Progress.unlockAll();
   Tips.show();
   CustomMatch.load();
   Sound.forceActive = true;

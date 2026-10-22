@@ -288,6 +288,7 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.closeAll();
   Save.notice = 'Storage is blocked: settings and progress will not be kept.';
   Ui.noticeShown = false;
+  Progress.profile().rangeOffered = true;   // the first-start Firing Range offer (18j) would sit on top of the menu
   Bus.emit('ready', null);
   const toasts = Ui.toastBox.children.length;
   check('main menu: ready opens it and shows the save notice once', Ui.current() === 'main' && Ui.lastToast === Save.notice);

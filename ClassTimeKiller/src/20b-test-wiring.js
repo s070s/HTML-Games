@@ -198,11 +198,12 @@ Test.add('wiring', (check) => {
   Gadgets.resetActor(id);
   check('Economy.grants.gadget gives grenades', Economy.grant(id, 'gadget', 'frag') && Gadgets.countOf(id, 'frag') === 1);
   check('and ECP04 field upgrades', Economy.grant(id, 'gadget', 'beacon') && Gadgets.hudState(id, {}).gadget === 'Rally Beacon');
-  const shield = CAT.buyItems.byId('coreShield');
+  const shield = CAT.buyItems.byId('coreShield'), registered = Items.grantEffects.coreShield;
+  delete Items.grantEffects.coreShield;
   check('a grant row nobody delivers is not on sale', !Economy.canGrant(shield));
   Items.grantEffects.coreShield = () => true;
   check('a registered grant effect puts it on sale and delivers it', Economy.canGrant(shield) && Economy.grants.grant(id, shield));
-  delete Items.grantEffects.coreShield;
+  Items.grantEffects.coreShield = registered;
   TestArena.finish();
   TestArena.start({ teams: 2, economy: 'heroKits' });
   const brask = TestArena.actor(0, 0, 0, 0);

@@ -77,10 +77,11 @@ function matchOutcome(results, player) {
   return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
 }
 
-// The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (PvE only) multiplies the mutators' time scale.
+// The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (an ACC-007 assist, every mode) multiplies the mutators' time scale.
 Rules.addModifier('difficulty', (rules) => {
   rules.botSkill = Difficulty.resolve(rules.difficulty);
-  if (rules.family !== 'pve' || rules.botSkill.gameSpeed === 1 || !rules.fx) return;
+  if (rules.botSkill.gameSpeed === 1) return;
+  rules.fx = rules.fx || {};
   rules.fx.timeScale = (rules.fx.timeScale === undefined ? 1 : rules.fx.timeScale) * rules.botSkill.gameSpeed;
 });
 

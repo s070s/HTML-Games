@@ -731,8 +731,8 @@ Test.add('bots', (check) => {
   Bots.skill = savedSkill;
   const fast = { preset: BOT_DEFAULT_DIFFICULTY, gameSpeed: 1.2 };
   const pve = Rules.build({ mode: 'horde', difficulty: fast }), versus = Rules.build({ mode: 'ffa', difficulty: fast });
-  check('PvE: the game speed slider scales rules.fx.timeScale', pve.fx.timeScale === 1.2, pve.fx.timeScale);
-  check('versus: it does not', versus.fx.timeScale === undefined, versus.fx.timeScale);
+  check('game speed slider scales rules.fx.timeScale in PvE and versus (ACC-007 assist)', pve.fx.timeScale === 1.2 && versus.fx.timeScale === 1.2, pve.fx.timeScale + ' / ' + versus.fx.timeScale);
+  check('the default game speed leaves the time scale alone', (Rules.build({ mode: 'ffa' }).fx || {}).timeScale === undefined);
   startBotTest(botTestMap(false, { spawns: TEAM_SPAWNS }), 'tdm', { difficulty: 'skilled', bots: [{}, {}, {}, {}, {}, {}] });
   const teamTiers = [0, 0];
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) teamTiers[Actors.team[id]] += Bots.tier(id).tier;
