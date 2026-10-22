@@ -2,6 +2,8 @@
 // ladder and the half reset, ECP07 wave shop, ECP06 ladder), the buy rules (time, zone, money, carry limits), survivors
 // keeping bought gear, class perks (ECP04) and the loadouts saved in Save.data.loadouts.
 
+DebugApi.economy = { economy: Economy, loadouts: Loadouts };   // __CTK.economy
+
 TEST_HOOKS.push([Economy.grants, 'gadget'], [Economy.grants, 'grant'], [Abilities, 'carrierCheck'], [Abilities, 'hiddenFromPulse']);
 
 const ECONOMY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
@@ -175,3 +177,39 @@ Test.add('economy', (check) => {
   check('ECP05 hero switch away from spawn waits for the next spawn', Economy.switchHero(player, 'brask') === 'next' && Abilities.heroOf(player).id === 'lark');
   TestArena.finish();
 });
+
+// ---- Buy menu and loadout editor (DOM screens) ----
+const buyMenuAction = { action: 'buyMenu', down: true };
+
+Test.add('economy', (check) => uiWith(() => {
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [1], Object.assign({ player: { team: 0 } }, BOMB_OPTIONS));
+  runSeconds(1.01);
+  const player = Game.playerId;
+  check('buy menu: pause rows only in buying matches', Ui.pauseEntries.includes(BUY_PAUSE_ENTRY) && !Ui.pauseEntries.includes(LOADOUT_PAUSE_ENTRY));
+  Bus.emit('input.action', buyMenuAction);
+  check('buy menu: B opens it during buy time', Ui.current() === 'buy' && BuyMenu.entries.length === Economy.catalogue().length);
+  check('buy menu: shows credits and the loss ladder', uiScreenText('buy').includes('800 cr') && uiScreenText('buy').includes('Loss bonus'));
+  uiKey('Digit1');
+  check('buy menu: hotkey 1 buys the first item', Economy.money(player) === 150 && Actors.armor[player] === 100, Economy.money(player));
+  uiKey('KeyB');
+  check('buy menu: B closes it', Ui.stack.length === 0);
+  Ui.open('buy');
+  runSeconds(15);
+  BuyMenu.tick();
+  check('buy menu: closes itself when buy time ends', Ui.stack.length === 0);
+  endModeTest();
+  check('buy menu: pause rows removed after the match', !Ui.pauseEntries.includes(BUY_PAUSE_ENTRY));
+}));
+
+Test.add('economy', (check) => uiWith(() => {
+  Ui.open('loadout');
+  check('loadout: opens on the classes tab outside a match', Ui.current() === 'loadout' && LoadoutMenu.tab === 'classes');
+  uiClickButton(Ui.top().element, 'New custom class');
+  check('loadout: the class editor opens', Ui.current() === 'classEditor');
+  uiClickButton(Ui.top().element, 'Save');
+  check('loadout: saving stores and selects the custom class', Ui.current() === 'loadout' && Loadouts.selectedClass().id === 'class-1' && Save.data.loadouts.classes.custom.length === 1);
+  LoadoutMenu.show('heroes');
+  check('loadout: the hero tab lists the hero', uiScreenText('loadout').includes(Loadouts.hero().name));
+  LoadoutMenu.show('kits');
+  check('loadout: the kit tab lists every kit with choices', CAT.abilityKits.filter((kit) => kit.id !== 'classes').every((kit) => uiScreenText('loadout').includes(kit.name)));
+}));

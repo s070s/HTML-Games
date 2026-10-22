@@ -206,13 +206,13 @@ const Economy = {
   },
   canBuy(id) { return this.buyBlock(id) === ''; },
   buyTimeLeft() { return this.preset().buy === 'round' ? Math.max(0, this.buyEndsAt - Sim.time) : 0; },
-  // The items on sale in this match: priced weapons of the weapon set, then the buy / shop rows that can be granted.
+  // The items on sale in this match: the buy / shop rows that can be granted (armor first), then priced weapons of the set.
   catalogue() {
     const list = this.catalogueList, preset = this.preset();
     list.length = 0;
     if (!preset.money) return list;
-    if (preset.buy === 'round') for (const key of currentWeaponSet().weapons) if (CAT.weapons.byId(key).price > 0) list.push(weaponItem(key));
     for (const item of CAT.buyItems) if (item.buy === preset.buy && this.canGrant(item)) list.push(item);
+    if (preset.buy === 'round') for (const key of currentWeaponSet().weapons) if (CAT.weapons.byId(key).price > 0) list.push(weaponItem(key));
     return list;
   },
   canGrant(item) { return item.kind === 'armor' || item.kind === 'helmet' || item.kind === 'ammo' || !!this.grants[item.kind]; },
@@ -373,14 +373,16 @@ const Loadouts = {
     this.changed();
     return true;
   },
-  // The Abilities choice of the local player: the hero, the kit slots and the class field upgrade.
-  choice() {
+  // The Abilities choice for the player's actor: the hero, plus the slots of the kit this match hands out (the class
+  // loadout kit takes its field upgrade from the selected class).
+  choice(id) {
     const merged = { hero: this.hero().id };
-    for (const kit of CAT.abilityKits) Object.assign(merged, kit.id === 'classes' ? {} : this.kitChoice(kit.id));
-    merged.ability1 = Abilities.economyKey() === 'classes' ? this.selectedClass().fieldUpgrade : merged.ability1 || '';
-    return merged;
+    const kit = Abilities.usesHeroes() ? null : Abilities.kitOf(id);
+    if (!kit) return merged;
+    if (kit.id === 'classes') { merged.ability1 = this.selectedClass().fieldUpgrade; return merged; }
+    return Object.assign(merged, this.kitChoice(kit.id));
   },
-  applyTo(id) { Abilities.setChoice(id, this.choice()); },
+  applyTo(id) { Abilities.setChoice(id, this.choice(id)); },
   changed() {
     Save.scheduleSave();
     if (Game.playerId >= 0) this.applyTo(Game.playerId);

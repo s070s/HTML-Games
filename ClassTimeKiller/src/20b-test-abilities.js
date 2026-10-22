@@ -2,6 +2,8 @@
 // interrupts, cleanup on death and at match end), one cast-and-effect check per CAT.abilities row (A01..A40, AX1..AX7)
 // and the hero kits H01..H08 (pools, weapons, movement). Actors stand on TestArena's floor facing +z.
 
+DebugApi.abilities = { abilities: Abilities, meters: Meters, zones: AbilityZones };   // __CTK.abilities
+
 const ENEMY_DISTANCE = 6;
 
 const AbilityTest = {
