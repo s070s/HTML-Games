@@ -48,7 +48,9 @@ const CAMP_SECONDS = 120, CAMP_TRAIT_SECONDS = 180;   // spec T07: camp duration
 const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enemy spawns within this range
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
-const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a downed teammate outranks objectives when it is safe
+const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a safe downed teammate (the player too) farther away ranks with fights...
+const REVIVE_CLOSE = 20;                // ...and one this close outranks every objective but a carry (CARRY_URGENCY):
+const REVIVE_URGENT = 1.1;              // above the objective maximum (0.95) x the hysteresis, below a carrier's 1.0 x 1.1
 const REVIVE_SEARCH = 40;               // m: downed teammates farther away are left to others
 const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close to the downed ally (smoke hides them)
 const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
@@ -338,6 +340,12 @@ function reviveSafe(id, ally) {
   return true;
 }
 
+// One reviver per downed ally: the others keep fighting around it.
+function revivedByOther(id, ally) {
+  for (let other = 0; other < Actors.count; other++) if (other !== id && Damage.reviving[other] === ally) return true;
+  return false;
+}
+
 // MUT-003: hitting harder than one is hit (damage dealt / taken mutators) makes fights worth more, and the reverse.
 function mutatorRisk() {
   const fx = Mutators.fx;
@@ -470,9 +478,10 @@ GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
 GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
   if (!Damage.downedCount || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) return 0;
   const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
-  if (ally < 0 || !reviveSafe(id, ally)) return 0;
+  if (ally < 0 || revivedByOther(id, ally) || (Damage.reviving[id] !== ally && !reviveSafe(id, ally))) return 0;   // a revive under way is finished
   setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
   const distance = length2(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  if (distance <= REVIVE_CLOSE && !BotDecide.carriesObjective(id)) return REVIVE_URGENT;
   return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 

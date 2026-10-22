@@ -1546,3 +1546,36 @@ Test.add('bots', (check) => {
   }
 });
 
+// ---- BOT-071: a safe, close downed teammate (the player too) outranks the objective ----
+const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = [1, 2, 3], REVIVE_SHARE_MIN = 0.3, REVIVE_PLAYER_SECONDS = 12;
+Test.add('bots', (check) => {
+  const downed = new Uint8Array(MAX_ACTORS);
+  let downs = 0, revives = 0;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count; id++) {
+      const now = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED) ? 1 : 0;
+      if (now && !downed[id]) downs++;
+      if (!now && downed[id] && Actors.alive[id]) revives++;
+      downed[id] = now;
+    }
+  };
+  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over three
+    downed.fill(0);
+    playMatch({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', minutes: REVIVE_SOAK_SECONDS / 60, botCount: 10, seed, onTick });
+  }
+  check('Modern Holdfast: bots revive at least 30% of the downed', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
+});
+Test.add('bots', (check) => {
+  Game.headless = true;
+  Game.start({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', seed: 1, balance: false, player: { team: 0 }, bots: [{ team: 0, tier: 3 }, { team: 1, dummy: true }] });
+  const player = Game.playerId, bot = player === 0 ? 1 : 0;
+  runSeconds(1);
+  placeActor(player, Actors.x[bot] + 4, Actors.z[bot]);
+  Actors.flags[player] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, player, 1000);
+  const wasDowned = (Actors.flags[player] & ACTOR_FLAG.DOWNED) !== 0;
+  for (let tick = 0; tick < REVIVE_PLAYER_SECONDS * TICK_RATE && (Actors.flags[player] & ACTOR_FLAG.DOWNED); tick++) Sim.run(1);
+  check('a bot playing the objective revives the downed player next to it', wasDowned && Actors.alive[player] === 1 && !(Actors.flags[player] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
+  endModeTest();
+});
+
