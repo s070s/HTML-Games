@@ -6,6 +6,7 @@ const MAPGEN_TEST_BUDGET_MS = 100;            // generation of the largest size 
 const MAPGEN_TEST_SWEEP_SEEDS = 49;           // per grid generator (GN1..GN4) in the 200-seed sweep, all small
 const MAPGEN_TEST_ISLAND_SEEDS = 4;           // GN5 seeds in the sweep (its validator run takes about 0.3 s)
 const MAPGEN_TEST_MATCH_SECONDS = 4;
+const MAPGEN_TEST_QUICK_RULES = ['spawns', 'items', 'objectives', 'hints', 'zones', 'triggers'];   // the validator's rules without the lane and sightline searches
 const MAPGEN_TEST_REPAIRED = { generator: 'GN2', seed: 3, size: 'medium', uncapped: true };   // a seed whose first build has long sightlines
 
 const mapgenTestMs = (report) => report.ms.build + report.ms.place;
@@ -54,11 +55,15 @@ Test.add('mapgen', (check) => {
   check('the map records how it was made', map.gen && map.gen.generator === 'GN3' && map.gen.theme === 'foundry' && map.gen.requestedSeed === 5 && map.seed === 5);
 });
 
-// 200 seeds over the generators: every one validates (after retries and repairs) or the fallback is reported, all within budget.
+// 200 seeds over the generators, all within budget: every other seed runs the whole pipeline and validates (after retries and
+// repairs) or reports the fallback; the seeds between run placement only and pass the validator's quick rules (the full sweep with
+// every seed validated is __CTK.mapgen.sweep(200)).
 Test.add('mapgen', (check) => {
   const tally = { total: 0, accepted: 0, fallback: 0, repaired: 0, retried: 0, slowest: 0, unreported: [] };
   const run = (code, seed) => {
-    const map = MapGen.generate({ generator: code, seed, size: 'small' }), report = MapGen.last;
+    const trusted = tally.total % 2 === 1;
+    const map = MapGen.generate({ generator: code, seed, size: 'small', trusted }), report = MapGen.last;
+    if (trusted && !report.fallback && mapgenTestRules(map, MAPGEN_TEST_QUICK_RULES).length) tally.unreported.push(code + ' ' + seed + ' (quick rules)');
     tally.total++;
     tally.slowest = Math.max(tally.slowest, mapgenTestMs(report) / report.attempts);
     if (report.repairs) tally.repaired++;
@@ -192,4 +197,39 @@ Test.add('mapgen', (check) => {
   Game.start({ mode: 'royale', map: 'isle', seed: 1, bots: [{}, {}] });
   check('MP09: a royale match on the placeholder plays the island', Game.match.map === isle && World.map === isle);
   Game.stop();
+});
+
+// The generated map screen: the model (settings, seed, share code, Game.start setup) and the screen itself.
+Test.add('mapgen', (check) => {
+  const saved = Object.assign({}, MapGenMenu.state);
+  try {
+    Object.assign(MapGenMenu.state, { generator: 'GN2', mode: 'bomb', size: 'small', theme: 'canal', density: 'dense', seed: 12, map: null, report: null });
+    check('menu: the share code follows the settings', MapGenMenu.shareCode() === 'CTKMAP-GN2-small-canal-dense-bomb-12', MapGenMenu.shareCode());
+    MapGenMenu.set('generator', 'GN3');
+    check('menu: a generator without the chosen mode drops it', MapGenMenu.state.mode === '' && MapGenMenu.state.map === null);
+    check('menu: a seed must be a whole number', !MapGenMenu.setSeedText('12a') && MapGenMenu.setSeedText(' 345 ') && MapGenMenu.state.seed === 345);
+    check('menu: a pasted code sets every option', MapGenMenu.usePaste('CTKMAP-GN4-small-station-sparse-tdm-77') && MapGenMenu.state.generator === 'GN4' && MapGenMenu.state.mode === 'tdm' && MapGenMenu.state.seed === 77);
+    check('menu: a broken code changes nothing', !MapGenMenu.usePaste('CTKMAP-GN4') && MapGenMenu.state.generator === 'GN4');
+    const setup = MapGenMenu.setup();
+    check('menu: Play starts the mode on the generated map with the player on team 0', setup.mode === 'tdm' && setup.map === MapGenMenu.state.map && setup.player.team === 0 && Array.isArray(setup.bots));
+    check('menu: the status says what was made', MapGenMenu.describe().includes(MapGenMenu.state.map.name));
+    check('menu: sizes stop at the tier cap', MapGenMenu.sizes().every((row) => row.index <= MapGen.sizeCap().index));
+    uiWith(() => {
+      Ui.open('custom');
+      uiClickButton(Ui.root.querySelector('.ui-custom'), 'Map');
+      check('screen: the custom match Map tab opens it', uiClickButton(Ui.root.querySelector('.ui-custom'), 'Generate a map') && Ui.current() === 'mapgen');
+      const root = Ui.root.querySelector('.ui-mapgen');
+      check('screen: generator, mode, size, theme, density, seed, share and paste rows', root && root.querySelectorAll('.ui-row').length === 8, root && root.querySelectorAll('.ui-row').length);
+      root.querySelector('.ui-cycle')._adjust(1);
+      check('screen: the generator cycle steps with the pad and arrows', MapGenMenu.state.generator === 'GN5' && root.querySelector('.ui-cycle').textContent.startsWith('GN5'));
+      root.querySelector('.ui-cycle')._adjust(-1);
+      uiClickButton(root, 'Generate');
+      check('screen: Generate shows the result', root.querySelector('.mg-status').textContent.includes('Made in') && MapGenMenu.state.map.gen.generator === 'GN4');
+      uiClickButton(root, 'Play');
+      check('screen: Play starts the match on the shown map', Game.match && Game.match.map === MapGenMenu.state.map && !Ui.current());
+    });
+  } finally {
+    Object.assign(MapGenMenu.state, saved);
+    Game.stop();
+  }
 });

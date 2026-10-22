@@ -377,7 +377,8 @@ function readMapLights(map) {
   return (map.lights || []).map((light) => {
     const color = new Float32Array(3);
     writeColor(color, 0, light.color || '#ffe0b0');
-    return { x: light.pos[0], y: light.pos[1], z: light.pos[2], radius: light.radius || 8, intensity: light.intensity === undefined ? 1 : light.intensity, color };
+    const position = light.pos || [light.x, light.y, light.z];     // map rows (MapKit.light) carry x, y, z; render tests use pos
+    return { x: position[0], y: position[1], z: position[2], radius: light.radius || 8, intensity: light.intensity === undefined ? 1 : light.intensity, color };
   });
 }
 

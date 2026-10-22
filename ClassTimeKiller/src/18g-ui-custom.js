@@ -502,7 +502,13 @@ function editorQuickStarts(list) {
   list.appendChild(grid);
 }
 
-const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, mutators: editorMutatorRows };
+// Map tab: the generated map screen (18h) builds a new map from a seed and plays it.
+function editorGeneratedMap(list) {
+  list.appendChild(makeElement('div', 'ui-group', 'Generated map'));
+  list.appendChild(Ui.button('Generate a map from a seed', () => Ui.open('mapgen')));
+}
+
+const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows, mutators: editorMutatorRows, map: editorGeneratedMap };
 
 function editorSummary(draft) {
   const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);
