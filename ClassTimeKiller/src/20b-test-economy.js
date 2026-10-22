@@ -1,0 +1,177 @@
+// Self-tests for S13 economy and loadouts: money after win / loss sequences per preset (ECP02 round buy with the loss
+// ladder and the half reset, ECP07 wave shop, ECP06 ladder), the buy rules (time, zone, money, carry limits), survivors
+// keeping bought gear, class perks (ECP04) and the loadouts saved in Save.data.loadouts.
+
+TEST_HOOKS.push([Economy.grants, 'gadget'], [Economy.grants, 'grant'], [Abilities, 'carrierCheck'], [Abilities, 'hiddenFromPulse']);
+
+const ECONOMY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
+const ROUND_START_MONEY = 800;
+
+const PHASE_WAIT_STEPS = 10 * TICK_RATE;
+function runUntilPhase(phase) {
+  for (let step = 0; step < PHASE_WAIT_STEPS && Modes.phase !== phase; step++) Sim.step();
+}
+// Plays one bomb round to its end (victim, the last of its team, is killed by killer once the round is live), then
+// waits for the next round's freeze. A kill during the freeze would only count when the round goes live.
+function winRound(victim, killer) {
+  runUntilPhase(PHASE.LIVE);
+  killActor(victim, killer);
+  Sim.step();
+  runUntilPhase(PHASE.FREEZE);
+}
+function grantAllGadgets() { Economy.grants.gadget = () => true; }
+function firstWeaponForSale(id) {
+  return Economy.catalogue().find((item) => item.kind === 'weapon' && !Weapons.has(id, item.key)) || null;
+}
+
+Test.add('economy', (check) => {
+  startBombTest();
+  check('ECP02 everyone starts with 800', Economy.money(0) === ROUND_START_MONEY && Economy.money(1) === ROUND_START_MONEY, Economy.money(0) + ' / ' + Economy.money(1));
+  killActor(1, 0);
+  Sim.step();
+  check('ECP02 kill 200 + win 3000 / first loss 1900', Economy.money(0) === 4000 && Economy.money(1) === 2700, Economy.money(0) + ' / ' + Economy.money(1));
+  runUntilPhase(PHASE.FREEZE);
+  Economy.hudState(1, ECONOMY_HUD);
+  check('ECO-001 next-round money shows the next loss bonus', ECONOMY_HUD.nextRoundMoney === 2700 + 2400 && ECONOMY_HUD.money === 2700, ECONOMY_HUD.nextRoundMoney);
+  check('ECP02 buy time open at the round start', ECONOMY_HUD.canBuy && Test.near(ECONOMY_HUD.buyTimeLeft, 15, 0.05), ECONOMY_HUD.buyTimeLeft);
+  winRound(1, 0);
+  check('ECP02 second loss 2400', Economy.money(1) === 5100 && Economy.money(0) === 7200, Economy.money(0) + ' / ' + Economy.money(1));
+  winRound(1, 0);
+  check('ECP02 third loss 2900, money capped at 9000', Economy.money(1) === 8000 && Economy.money(0) === 9000, Economy.money(0) + ' / ' + Economy.money(1));
+  Economy.setMoney(1, 0);
+  winRound(1, 0);
+  check('ECP02 the ladder stays at its last step', Economy.money(1) === 2900, Economy.money(1));
+  Economy.setMoney(0, 0);
+  winRound(0, 1);
+  check('ECP02 a win resets the loss counter', Economy.lossCount[1] === 0 && Economy.lossCount[0] === 1 && Economy.money(0) === 1900, Economy.lossCount + ' ' + Economy.money(0));
+  Economy.setMoney(1, 0);
+  runUntilPhase(PHASE.LIVE);
+  killActor(1, 0);
+  Sim.step();   // round 6 ends; round 7 would start the second half
+  check('ECP02 after a win the next loss pays 1900 again', Economy.money(1) === 1900, Economy.money(1));
+  endModeTest();
+});
+
+Test.add('economy', (check) => {
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 30, switchAt: 1, winsNeeded: 3 } } });
+  runSeconds(1.01);
+  killActor(1, 0);
+  Sim.step();
+  check('ECP02 last round of the half: next-round money is the start money', Economy.hudState(0, ECONOMY_HUD).nextRoundMoney === ROUND_START_MONEY, ECONOMY_HUD.nextRoundMoney);
+  runSeconds(1);
+  check('ECP02 the side switch resets money and the loss ladder', Modes.swapped && Economy.money(0) === ROUND_START_MONEY && Economy.money(1) === ROUND_START_MONEY && Economy.lossCount[1] === 0,
+    Economy.money(0) + ' / ' + Economy.money(1));
+  endModeTest();
+});
+
+Test.add('economy', (check) => {
+  startBombTest();
+  check('buy: vest', Economy.buy(0, 'vest').ok && Economy.money(0) === 150 && Actors.armor[0] === 100, Economy.money(0) + ' / ' + Actors.armor[0]);
+  check('buy: a full vest is owned', Economy.buy(0, 'vest').reason === 'owned');
+  check('buy: not enough credits', Economy.buy(0, 'vesthelmet').reason === 'money' && Economy.money(0) === 150);
+  check('buy: unknown item', Economy.buy(0, 'nothing').reason === 'unknown');
+  check('buy: gadgets need a grant handler', Economy.buy(0, 'buyFlash').reason === 'unknown');
+  grantAllGadgets();
+  Economy.setMoney(0, 9000);
+  const flashes = [Economy.buy(0, 'buyFlash').ok, Economy.buy(0, 'buyFlash').ok, Economy.buy(0, 'buyFlash').reason];
+  check('buy: 2 glare shells per life', flashes[0] && flashes[1] && flashes[2] === 'limit', flashes);
+  const grenades = [Economy.buy(0, 'buyFrag').ok, Economy.buy(0, 'buySmoke').ok, Economy.buy(0, 'buyFire').reason];
+  check('buy: 4 grenades in all (GAD-001)', grenades[0] && grenades[1] && grenades[2] === 'limit', grenades);
+  const weapon = firstWeaponForSale(0), before = Economy.money(0);
+  check('buy: a priced weapon of the set', !!weapon && Economy.buy(0, weapon.id).ok && Weapons.has(0, weapon.key) && Economy.money(0) === before - weapon.price, weapon && weapon.id);
+  check('buy: an owned weapon', Economy.buy(0, weapon.id).reason === 'owned');
+  const homeX = Actors.x[0];
+  placeActor(0, homeX + 9, Actors.z[0]);
+  check('buy: outside the 8 m buy zone', Economy.buy(0, 'vesthelmet').reason === 'zone');
+  placeActor(0, homeX, Actors.z[0]);
+  Actors.alive[0] = 0;
+  check('buy: dead actors cannot buy', Economy.buy(0, 'vesthelmet').reason === 'dead');
+  Actors.alive[0] = 1;
+  runSeconds(15 - Sim.time - 0.02);
+  check('buy: still open just before 15 s', Economy.canBuy(0));
+  runSeconds(0.03);
+  check('buy: buy time over after 15 s', Economy.buy(0, 'vesthelmet').reason === 'closed' && !Economy.hudState(0, ECONOMY_HUD).canBuy);
+  endModeTest();
+});
+
+Test.add('economy', (check) => {
+  startBombTest();
+  Economy.setMoney(0, 9000); Economy.setMoney(1, 9000);
+  const kept = firstWeaponForSale(0);
+  Economy.buy(0, kept.id); Economy.buy(0, 'vest');
+  Economy.buy(1, firstWeaponForSale(1).id);
+  winRound(1, 0);
+  check('ECP02 survivors keep bought weapons and armor', Weapons.has(0, kept.key) && Actors.armor[0] === 100, Actors.armor[0]);
+  check('ECP02 the dead lose bought weapons', !Weapons.has(1, kept.key));
+  endModeTest();
+});
+
+Test.add('economy', (check) => {
+  TestArena.start({ economy: 'waveShop' });
+  Economy.startHalf();
+  const fighter = TestArena.actor(0, 0, 0), rich = TestArena.actor(1, 0, 5), plain = TestArena.actor(1, 5, 5);
+  Actors.profile[rich] = { cash: 500 };
+  killActor(rich, fighter);
+  check('ECP07 kill reward by enemy, clamped to 100', Economy.money(fighter) === 100, Economy.money(fighter));
+  killActor(plain, fighter);
+  check('ECP07 kill reward default 50', Economy.money(fighter) === 150, Economy.money(fighter));
+  Economy.awardWave(0, true);
+  check('ECP07 wave 700 + flawless 100', Economy.money(fighter) === 950, Economy.money(fighter));
+  check('ECP07 the shop is closed between openings', Economy.buy(fighter, 'ampAmmo').reason === 'closed');
+  Economy.setShopOpen(true);
+  check('ECP07 buy amp ammo in the shop', Economy.buy(fighter, 'ampAmmo').ok && Economy.money(fighter) === 850);
+  check('ECP07 round-buy items are not sold in the shop', Economy.buy(fighter, 'vest').reason === 'unknown');
+  check('ECP06 ladder tiers', Economy.ladderWeapon(0) === 'warden' && Economy.ladderWeapon(17) === 'maul' && Economy.ladderWeapon(40) === 'maul');
+  TestArena.finish();
+});
+
+Test.add('economy', (check) => {
+  TestArena.start({ economy: 'classes' });
+  const rifleman = TestArena.actor(0, 0, 0), assault = TestArena.actor(1, 0, 5), plain = TestArena.actor(1, 5, 0);
+  Economy.applyClass(rifleman, CAT.classes.byId('rifleman'));
+  Economy.applyClass(rifleman, CAT.classes.byId('rifleman'));
+  const base = rifleman * WEAPON_STAT_COUNT;
+  check('ECP04 class weapons', Weapons.has(rifleman, 'vanguard') && Weapons.has(rifleman, 'verdict'));
+  check('ECP04 perk stats once (Bandolier, Steady)', Test.near(Weapons.statScale[base + STAT.RESERVE], 1.5, 1e-6) && Test.near(Weapons.statScale[base + STAT.SPREAD], 0.7, 1e-6),
+    Weapons.statScale[base + STAT.RESERVE]);
+  const bullet = { kind: 'hit', mode: CAT.weapons.byId('vanguard').primary };
+  TestArena.hit(plain, rifleman, 50, bullet);
+  check('ECP04 Hardened: -20% bullet damage', Test.near(Actors.health[rifleman], 60, 1e-3), Actors.health[rifleman]);
+  Economy.applyClass(assault, CAT.classes.byId('assault'));
+  Damage.resetHealth(rifleman);
+  TestArena.hit(assault, rifleman, 50, bullet);
+  check('ECP04 Stopping +20% and cancels Hardened', Test.near(Actors.health[rifleman], 40, 1e-3), Actors.health[rifleman]);
+  Economy.applyClass(assault, CAT.classes.byId('support'));
+  check('ECP04 Tune Up speeds the field upgrade', Abilities.rechargeScale[assault] === 1.5);
+  Economy.applyClass(assault, CAT.classes.byId('scout'));
+  check('ECP04 Hardline and Ghost', Meters.streakDiscount[assault] === 100 && Abilities.hiddenFromPulse(assault) && Abilities.rechargeScale[assault] === 1);
+  Economy.clearPerks(rifleman);
+  check('ECP04 clearing perks restores the stats', Test.near(Weapons.statScale[base + STAT.RESERVE], 1, 1e-6) && Economy.taken[rifleman] === 1);
+  TestArena.finish();
+});
+
+Test.add('economy', (check) => {
+  check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
+  check('loadouts: the secondary must be a sidearm', Loadouts.saveClass({ primary: 'tempest', secondary: 'vanguard', perks: ['bandolier', 'ghost', 'steady'] }) === null && !!Loadouts.lastError);
+  check('loadouts: one perk per tier', Loadouts.saveClass({ primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'scavenger', 'steady'] }) === null);
+  const stored = Loadouts.saveClass({ name: 'Mine', primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
+  check('loadouts: custom class saved', !!stored && stored.id === 'class-1' && Loadouts.selectClass('class-1'));
+  check('loadouts: hero and kit choice', Loadouts.setHero('quill') && Loadouts.setKitChoice('suit', 'ability2', 'colossusweave') && !Loadouts.setKitChoice('suit', 'ability2', 'orbital'));
+  Save.saveNow();
+  Save.data = null;
+  Save.load();
+  check('loadouts: restored from storage', Loadouts.selectedClass().name === 'Mine' && Loadouts.hero().id === 'quill' && Loadouts.kitChoice('suit').ability2 === 'colossusweave');
+  for (let i = 0; i < 10; i++) Loadouts.saveClass({ name: 'Extra', primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
+  check('loadouts: at most 10 custom classes', Save.data.loadouts.classes.custom.length === 10 && !!Loadouts.lastError);
+  check('loadouts: removing the selected class selects a preset', Loadouts.removeClass('class-1') && Loadouts.selectedClass().id === CAT.classes[0].id);
+  TestArena.start({ economy: 'heroKits', health: 'hero', meter: 'ultimate' });
+  const player = Actors.create(ACTOR_KIND.PLAYER, 0, 'player');
+  Actors.alive[player] = 1;
+  Abilities.onSpawn(player);
+  check('loadouts: the player gets the saved hero', Abilities.heroOf(player).id === 'quill' && Abilities.row(player, SLOT.ULTIMATE).id === CAT.heroes.byId('quill').ultimate);
+  Economy.spawnX[player] = Actors.x[player]; Economy.spawnZ[player] = Actors.z[player];
+  check('ECP05 hero switch in the spawn room is instant', Economy.switchHero(player, 'lark') === 'now' && Abilities.heroOf(player).id === 'lark' && Actors.maxHealth[player] === CAT.heroes.byId('lark').health);
+  Actors.x[player] += 20;
+  check('ECP05 hero switch away from spawn waits for the next spawn', Economy.switchHero(player, 'brask') === 'next' && Abilities.heroOf(player).id === 'lark');
+  TestArena.finish();
+});

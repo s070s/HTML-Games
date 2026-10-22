@@ -136,8 +136,20 @@ const Economy = {
       if (!this.hasPerk(id, perk.id)) continue;
       for (const stat in perk.stats) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT[stat.toUpperCase()]] /= perk.stats[stat];
     }
+    this.resetPerks(id);
+  },
+  // A new actor: S11 already reset its stat scales, so only the perk state is cleared.
+  resetPerks(id) {
     this.perkFlags[id] = ''; this.dealt[id] = 1; this.taken[id] = 1; this.cancels[id] = '';
     Meters.streakDiscount[id] = 0; Abilities.rechargeScale[id] = 1;
+  },
+  resetActor(id) {
+    const preset = this.preset();
+    this.resetPerks(id);
+    this.credits[id] = preset.money ? preset.startMoney : 0;
+    this.died[id] = 0;
+    this.dropKept(id);
+    if (Actors.kind[id] === ACTOR_KIND.PLAYER) Loadouts.applyTo(id);
   },
   hasPerk(id, key) { return this.perkFlags[id].indexOf(' ' + key + ' ') >= 0; },
   grant(id, kind, key) {
@@ -259,7 +271,7 @@ const Economy = {
     if (!preset.money || id < 0) return 0;
     const rounds = Modes.rules && Modes.rules.rounds;
     if (rounds && preset.halfReset && rounds.switchAt > 0 && Modes.round === rounds.switchAt) return preset.startMoney;
-    if (!rounds || Modes.phase !== PHASE.LIVE) return this.credits[id];
+    if (!rounds || Modes.phase === PHASE.ROUND_END) return this.credits[id];
     const team = Actors.team[id];
     const bonus = team >= 0 && team < TEAM_SIDES ? ladderValue(preset.lossLadder, this.lossCount[team] + 1) : 0;
     return preset.maxMoney > 0 ? Math.min(preset.maxMoney, this.credits[id] + bonus) : this.credits[id] + bonus;
@@ -412,7 +424,7 @@ Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
 Bus.on('match.start', () => Economy.ensureMatch());
 Bus.on('match.stop', () => { Economy.match = null; Economy.credits.fill(0); });
 Bus.on('round', (event) => Economy.onRound(event));
-Bus.on('actor.create', (id) => { Economy.clearPerks(id); Economy.credits[id] = 0; Economy.died[id] = 0; Economy.dropKept(id); if (Actors.kind[id] === ACTOR_KIND.PLAYER) Loadouts.applyTo(id); });
+Bus.on('actor.create', (id) => Economy.resetActor(id));
 Bus.on('actor.spawn', (event) => Economy.onSpawn(event.id));
 Bus.on('kill', (event) => Economy.onKill(event));
 Bus.on('score', (event) => Economy.onScore(event));
