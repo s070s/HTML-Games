@@ -138,7 +138,7 @@ const TouchInput = {
   init() {
     this.onMotion = (event) => { this.gyro.events++; if (event.rotationRate) gyroToLook(event.rotationRate, this.screenAngle(), this.gyro); };
     this.buildLayer();
-    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false });
+    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false, weaponSlot: 0 });
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) Input.setDevice('touch');
     document.addEventListener('gesturestart', (event) => event.preventDefault());
     this.applyAll();
@@ -205,9 +205,8 @@ const TouchInput = {
     this.noteFinger(event);
     const control = target === this.zone ? null : this.controlById[target.dataset.control];
     if (this.editing) { this.beginEdit(slot, control); return; }
-    const weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);
-    if (weaponSlot) Input.pulseAction(Input.actionIndex['slot' + weaponSlot]);   // a tap on the weapon bar picks that slot
-    else if (control && control.action) this.beginButton(slot, control);
+    slot.weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);   // picked on a still tap (onUp)
+    if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
     else if (event.clientX < window.innerWidth * TOUCH_MOVE_ZONE && !this.stick.slot) this.beginStick(slot, event, null);
     else slot.role = ROLE_LOOK;
@@ -225,13 +224,14 @@ const TouchInput = {
   onUp(event) {
     const slot = this.findSlot(event.pointerId);
     if (!slot) return;
+    const tap = !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS;
     if (slot.role === ROLE_STICK) this.endStick();
     else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
-    else if (slot.role === ROLE_LOOK && this.isTap(slot, event)) Input.pulseAction(Input.actionIndex.fire);
+    if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);   // a still tap on the weapon bar picks that slot
+    else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
     this.freeSlot(slot);
     if (Input.config.touchGyro !== 'off') this.requestGyro();
   },
-  isTap(slot, event) { return Input.config.touchTapFire && !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS; },
 
   // ---- Buttons ----
   beginButton(slot, control) {

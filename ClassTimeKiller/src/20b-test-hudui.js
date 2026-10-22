@@ -441,7 +441,16 @@ Test.add('input', (check) => hudTestWith(() => {
   hudTestFrame();
   hudPlaceWeaponBox(Hud.layout, hudCollectOwnedWeapons(id), hudOwned.indexOf(CAT.weapons.byId(keys[1]).index));
   tap(TouchInput.zone, 6, hudBoxAt[0] + hudBoxAt[2] / 2, hudBoxAt[1] + hudBoxAt[3] / 2);
-  check('weapon bar: tapping the slot 2 box picks slot 2 within one step', CAT.weapons[Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id]].slot === 2 && TouchInput.stick.slot === null);
+  const picked = () => CAT.weapons[Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id]].slot;
+  check('weapon bar: tapping the slot 2 box picks slot 2 within one step', picked() === 2 && TouchInput.stick.slot === null);
+  hudPlaceWeaponBox(Hud.layout, hudCollectOwnedWeapons(id), 0);
+  const barX = hudBoxAt[0] + hudBoxAt[2] / 2, barY = hudBoxAt[1] + hudBoxAt[3] / 2;
+  inputTouchPointer('pointerdown', TouchInput.zone, 9, barX, barY);
+  inputTouchPointer('pointermove', TouchInput.zone, 9, barX + 60, barY);
+  const stickStarted = TouchInput.stick.slot !== null;
+  inputTouchPointer('pointerup', TouchInput.zone, 9, barX + 60, barY);
+  Input.frame(INPUT_TEST_FRAME); Sim.step();
+  check('weapon bar: a thumb that lands on the bar and drags moves, it picks no slot', barX < window.innerWidth * TOUCH_MOVE_ZONE && stickStarted && picked() === 2, barX + ' ' + stickStarted + ' ' + picked());
   tap(swap, 7, 300, 300, true);
   check('swap: a held SWAP is the previous weapon', (Actors.pressed[id] & BTN.PREV_WEAPON) !== 0);
   tap(swap, 8, 300, 300);
