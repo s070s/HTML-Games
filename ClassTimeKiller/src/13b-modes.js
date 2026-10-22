@@ -26,6 +26,7 @@ const SPAWN_DEATH_CAP = 40;
 const SPAWN_JITTER = 2;                // seeded metres of noise so equally good spawns rotate
 const OWNED_SPAWN_OFFSET = 3;          // spawns at owned points (conquest) stand this far from the centre
 const RESPAWN_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
+const SPAWN_CLEARED_FLAGS = ACTOR_FLAG.PROTECTED | ACTOR_FLAG.FROZEN;   // the flags S13 owns
 const TOUCH_RADIUS = 1.2;              // carriable pickup and base touch distance (horizontal metres)
 const TOUCH_HEIGHT = 2.2;
 const ZONE_BELOW = 1;                  // capture zones are cylinders from 1 m below to 3 m above their centre
@@ -57,6 +58,7 @@ const spawnPayload = { id: -1 };
 const scorePayload = { id: -1, team: NO_TEAM, points: 0, reason: '' };
 const announcePayload = { text: '', kind: '', priority: 0 };
 const roundPayload = { round: 0, phase: '', winner: DRAW, reason: '', attackers: 0 };
+const blastPayload = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: 'bomb', element: 'kinetic' };
 
 const Modes = {
   behaviours: new Map(),
@@ -163,7 +165,7 @@ const Modes = {
   },
   // bot: { profile (bots catalogue key or row), team, tier, name, dummy (true: a practice dummy, M30) }
   addBot(bot, index, match) {
-    const row = typeof bot.profile === 'string' && CAT.bots ? CAT.bots.byId(bot.profile) : bot.profile;
+    const row = typeof bot.profile === 'string' ? (CAT.bots ? CAT.bots.byId(bot.profile) : null) : bot.profile;
     const name = bot.name || (row && row.name) || 'Bot ' + (index + 1);
     const kind = bot.dummy ? ACTOR_KIND.DUMMY : ACTOR_KIND.BOT;
     const id = this.addParticipant(kind, this.requestedTeam(bot.team), name, row || null);
@@ -255,7 +257,7 @@ const Modes = {
     Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = point.yaw;
     Actors.pitch[id] = Actors.prevPitch[id] = Actors.aimPitch[id] = 0;
     Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
-    Actors.flags[id] = 0;
+    Actors.flags[id] &= ~SPAWN_CLEARED_FLAGS;   // other sections reset their own flags on actor.spawn
     Actors.alive[id] = 1;
     Actors.spawnCount[id]++;
     this.respawnAt[id] = Infinity;
@@ -501,6 +503,8 @@ const Modes = {
     this.roundEndsAt = Infinity;
     this.balanceTeams();
     this.resetObjectives();
+    // Survivors of the last round must not block or unsafe the new spawns: rate only against actors placed this round.
+    for (let id = 0; id < Actors.count; id++) if (this.isActive(id)) Actors.alive[id] = 0;
     for (let id = 0; id < Actors.count; id++) this.prepareForRound(id);
     this.phase = rounds.freeze > 0 ? PHASE.FREEZE : PHASE.LIVE;
     this.phaseEndsAt = now + rounds.freeze;
@@ -554,8 +558,7 @@ const Modes = {
     const rounds = this.rules.rounds;
     for (let team = 0; team < TEAM_COUNT; team++) if (this.teamRounds[team] >= rounds.winsNeeded) return this.over(team, 'rounds');
     if (this.round < rounds.limit) return NOT_OVER;
-    const lead = this.teamRounds[0] - this.teamRounds[1];
-    return this.over(lead === 0 ? DRAW : lead > 0 ? 0 : 1, 'rounds');
+    return this.over(leadingTeam(this.teamRounds[0] - this.teamRounds[1]), 'rounds');
   },
   switchSides() {
     this.swapped = !this.swapped;
@@ -576,10 +579,7 @@ const Modes = {
     if (!firstWiped && !secondWiped) return;
     this.endRound(firstWiped && secondWiped ? DRAW : firstWiped ? 1 : 0, 'eliminated');
   },
-  aliveLeaderTeam() {
-    const lead = this.teamAliveCount(0) - this.teamAliveCount(1);
-    return lead === 0 ? DRAW : lead > 0 ? 0 : 1;
-  },
+  aliveLeaderTeam() { return leadingTeam(this.teamAliveCount(0) - this.teamAliveCount(1)); },
 
   // ---- Objectives: runtime entities from map.objectives (MODE-004 finite-state, read by bots and the HUD) ----
   buildObjectives(map) {
@@ -602,7 +602,7 @@ const Modes = {
     for (const objective of this.objectives) {
       this.returnHome(objective);
       objective.owner = NO_TEAM; objective.capturingTeam = NO_TEAM; objective.progress = 0;
-      objective.contested = false; objective.timer = 0; objective.holdTime = 0;
+      objective.contested = false; objective.timer = 0; objective.holdTime = 0; objective.planter = -1; objective.detonateAt = Infinity;
     }
   },
   // Capture zones: counts living team participants inside; contested when both teams are in.
@@ -650,17 +650,20 @@ const Modes = {
     this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
   },
   // First living participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
-  findActorNear(x, y, z, radius, team, relation) {
+  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts.
+  findActorNear(x, y, z, radius, team, relation, buttons) {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
-      if (Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) <= radius) return id;
+      if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
+      if (withinTouch(id, x, y, z, radius)) return id;
     }
     return -1;
   },
   findToucher(objective, relation) { return this.findActorNear(objective.x, objective.y, objective.z, TOUCH_RADIUS, objective.team, relation); },
-  carrierNear(objective, x, y, z) {
-    const id = objective.carrier;
-    return id >= 0 && Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) <= TOUCH_RADIUS;
+  carrierNear(objective, x, y, z) { return objective.carrier >= 0 && withinTouch(objective.carrier, x, y, z, TOUCH_RADIUS); },
+  zoneContaining(zones, id) {
+    for (let i = 0; i < zones.length; i++) if (this.inZone(zones[i], id)) return zones[i];
+    return null;
   },
   pickUp(objective, id) {
     objective.state = 'carried';
@@ -686,6 +689,51 @@ const Modes = {
   returnDue(objective, now, seconds) { return objective.state === 'dropped' && seconds > 0 && now + TIME_EPSILON >= objective.droppedAt + seconds; },
   dropCarried(id) {
     for (const objective of this.objectives) if (objective.carrier === id) this.drop(objective);
+  },
+
+  // ---- Charge timers (bomb M13, ghostops M27, rush M08): params plantTime, fuse, defuseTime, defuseCheckpoint,
+  // defuseRange. objective.timer holds the plant progress while carried, then the defuse progress once planted ----
+  // The carrier holding USE inside one of the sites for plantTime plants the charge. Returns true on the plant.
+  stepPlant(charge, sites, dt, params) {
+    const carrier = charge.carrier;
+    const planting = carrier >= 0 && holdsUse(carrier) && this.zoneContaining(sites, carrier) !== null;
+    if (!this.advanceUse(charge, planting, dt, params.plantTime, 0)) return false;
+    this.plantCharge(charge, carrier, params.fuse);
+    return true;
+  },
+  // Plants at the charge's position (rush arms a relay in place); in a live round the fuse replaces the round clock.
+  plantCharge(charge, id, fuse) {
+    if (charge.carrier >= 0) this.drop(charge);
+    charge.state = 'planted'; charge.planter = id; charge.timer = 0; charge.detonateAt = Sim.time + fuse;
+    if (this.rules.rounds && this.phase === PHASE.LIVE) { this.roundEndsAt = charge.detonateAt; this.timeoutReason = 'detonated'; }
+    this.creditObjective(id, 'plant');
+    this.announce('Charge planted', 'bomb', 3);
+  },
+  // Any living member of `team` holding USE within defuseRange defuses in defuseTime. Returns the defuser or -1.
+  stepDefuse(charge, team, dt, params) {
+    const defuser = this.findActorNear(charge.x, charge.y, charge.z, params.defuseRange, team, NEAR_TEAM, BTN.USE);
+    if (!this.advanceUse(charge, defuser >= 0, dt, params.defuseTime, params.defuseCheckpoint)) return -1;
+    charge.state = 'defused';
+    this.creditObjective(defuser, 'defuse');
+    this.announce('Charge defused', 'bomb', 3);
+    return defuser;
+  },
+  detonateCharge(charge, radius) {
+    charge.state = 'detonated';
+    blastPayload.x = charge.x; blastPayload.y = charge.y; blastPayload.z = charge.z;
+    blastPayload.radius = radius; blastPayload.owner = charge.planter;
+    Bus.emit('explosion', blastPayload);
+    this.announce('Charge detonated', 'bomb', 3);
+  },
+  // Hold-USE progress in objective.timer: grows while in use; an interruption keeps `checkpoint` s once passed
+  // (0 = start over). Returns true when `seconds` are reached.
+  advanceUse(objective, using, dt, seconds, checkpoint) {
+    if (!using) {
+      objective.timer = checkpoint > 0 && objective.timer + TIME_EPSILON >= checkpoint ? checkpoint : 0;
+      return false;
+    }
+    objective.timer += dt;
+    return objective.timer + TIME_EPSILON >= seconds;
   },
 
   // ---- HUD, results, markers ----
@@ -714,10 +762,13 @@ const Modes = {
     return this.phase === PHASE.FREEZE || this.phase === PHASE.ROUND_END ? this.phaseEndsAt : 0;
   },
   rankOf(id) {
+    const value = this.rankValue(id);
     let rank = 1;
-    for (let other = 0; other < Actors.count; other++) if (this.isActive(other) && this.score[other] > this.score[id]) rank++;
+    for (let other = 0; other < Actors.count; other++) if (this.isActive(other) && this.rankValue(other) > value) rank++;
     return rank;
   },
+  // Free-for-all ranks like the leader (behaviour.score: lives first in LMS); team modes rank by personal score.
+  rankValue(id) { return this.rules.teams === TEAM_COUNT ? this.score[id] : this.behaviour.score(id); },
   // Seconds until the actor may respawn; 0 when alive or none pending, -1 when no respawn will come.
   respawnIn(id, now) {
     if (id < 0 || Actors.alive[id]) return 0;
@@ -760,8 +811,17 @@ function makeObjective(source, index) {
   return { index, id: source.id || kind + index, kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
     x, y, z, homeX: x, homeY: y, homeZ: z, radius: source.radius || OBJECTIVE_RADIUS[kind] || DEFAULT_OBJECTIVE_RADIUS,
     owner: NO_TEAM, capturingTeam: NO_TEAM, progress: 0, contested: false, inside: new Int16Array(TEAM_COUNT), active: true,
-    state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, path: source.path || null };
+    state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null };
 }
+
+function withinTouch(id, x, y, z, radius) {
+  return Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) <= radius;
+}
+
+function holdsUse(id) { return (Actors.buttons[id] & BTN.USE) !== 0; }
+
+// The team ahead by `difference` (team 0 minus team 1), or DRAW when level.
+function leadingTeam(difference) { return difference === 0 ? DRAW : difference > 0 ? 0 : 1; }
 
 function relationMatches(actorTeam, team, relation) {
   if (relation === NEAR_TEAM) return actorTeam === team;

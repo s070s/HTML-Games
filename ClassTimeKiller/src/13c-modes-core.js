@@ -7,7 +7,6 @@ const HAZARD_INTERVAL = 1;           // the elimination safe area hurts once per
 const SAFE_AREA_FALLBACK_RADIUS = 50;
 
 const hazardRequest = { target: -1, source: -1, amount: 0, kind: 'hazard', element: 'kinetic', x: 0, y: 0, z: 0 };
-const blastPayload = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: 'bomb', element: 'kinetic' };
 
 Modes.register('ffa', {});
 Modes.register('tdm', {});
@@ -72,7 +71,7 @@ Modes.register('dom', {
 });
 
 // ---- M07 Frontline: team score = tickets; -deathCost per death; a team holding <= bleedHeld points
-// and fewer than the enemy loses one ticket every bleedInterval seconds; owned points are spawn points ----
+// loses one ticket every bleedInterval seconds (spec: 'bleed 1/3 s when holding <= 2'); owned points are spawn points ----
 Modes.register('conquest', {
   points: [], bleedTimer: 0,
   start() {
@@ -86,9 +85,9 @@ Modes.register('conquest', {
     this.bleedTimer += dt;
     if (this.bleedTimer + TIME_EPSILON < params.bleedInterval) return;
     this.bleedTimer -= params.bleedInterval;
-    const blueHeld = ownedCount(this.points, 0), redHeld = ownedCount(this.points, 1);
-    bleedTickets(0, blueHeld, redHeld, params);
-    bleedTickets(1, redHeld, blueHeld, params);
+    for (let team = 0; team < TEAM_COUNT; team++) {
+      if (ownedCount(this.points, team) <= params.bleedHeld) spendTickets(team, 1, 'bleed');
+    }
   },
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && Actors.team[victim] >= 0) spendTickets(Actors.team[victim], Modes.rules.params.deathCost, 'death');
@@ -134,105 +133,64 @@ Modes.register('hardpoint', {
   },
 });
 
-// ---- M12 Uplink: capture the point, then the owner's meter (teamMeter) fills over progressTime while no enemy
-// is on it; 100% wins the round, best of 3. An enemy on the point at >= overtimeAt keeps the round in overtime ----
+// ---- M12 Uplink: capture the point, then the owner's meter (teamMeter) fills over progressTime while they own it;
+// 100% wins the round, best of 3. While an enemy is on the point the meter stops at overtimeAt (overtime) ----
 Modes.register('control', {
   point: null,
   start() { this.point = Modes.objectives.find((objective) => objective.kind === 'point') || null; },
   onRound(phase) {
     if (phase === 'start') { Modes.teamMeter.fill(0); Modes.overtime = false; }
-    return phase === 'timeout' ? meterLeader() : DRAW;
+    return phase === 'timeout' ? leadingTeam(Modes.teamMeter[0] - Modes.teamMeter[1]) : DRAW;
   },
   step(dt) {
     const point = this.point, params = Modes.rules.params;
     if (!point) return;
     Modes.updateCapture(point, dt, params);
     const owner = point.owner;
+    Modes.overtime = false;
     if (owner < 0) return;
     const enemyInside = point.inside[1 - owner] > 0;
+    const meter = Modes.teamMeter[owner], filled = meter + dt / params.progressTime;
+    Modes.teamMeter[owner] = enemyInside ? Math.max(meter, Math.min(filled, params.overtimeAt)) : Math.min(1, filled);
     Modes.overtime = enemyInside && Modes.teamMeter[owner] + TIME_EPSILON >= params.overtimeAt;
-    if (enemyInside) return;
-    Modes.teamMeter[owner] = Math.min(1, Modes.teamMeter[owner] + dt / params.progressTime);
-    if (Modes.teamMeter[owner] + TIME_EPSILON >= 1) Modes.endRound(owner, 'objective');
+    if (!enemyInside && Modes.teamMeter[owner] + TIME_EPSILON >= 1) Modes.endRound(owner, 'objective');
   },
 });
 
-// ---- M13 Detonate: side 0 attacks. A carrier holding USE inside a site for plantTime plants; the fuse then
-// replaces the round clock. Defenders holding USE within defuseRange defuse in defuseTime; an interrupted
-// defuse keeps defuseCheckpoint seconds once passed. Economy listens to the 'round' and 'score' events ----
+// ---- M13 Detonate: side 0 attacks; a random attacker carries the charge. Planting, the fuse on the round clock and
+// defusing are the framework charge timers (Modes.stepPlant / stepDefuse). Economy listens to 'round' and 'score' ----
 Modes.register('bomb', {
-  sites: [], bomb: null, planted: false, planter: -1, plantProgress: 0, defuseProgress: 0,
+  sites: [], charge: null,
   start() {
     Modes.findObjectives('bombsite', this.sites);
-    this.bomb = Modes.addObjective({ id: 'charge', kind: 'bomb' });
+    this.charge = Modes.addObjective({ id: 'charge', kind: 'bomb' });
   },
   onRound(phase) {
-    if (phase === 'start') this.resetRound();
+    if (phase === 'start') this.giveCharge();
     if (phase !== 'timeout') return DRAW;
-    if (!this.planted) return defendingTeam();
-    this.detonate();
+    if (this.charge.state !== 'planted') return defendingTeam();
+    Modes.detonateCharge(this.charge, Modes.rules.params.blastRadius);
     return Modes.attackingTeam();
   },
-  resetRound() {
-    this.planted = false; this.planter = -1; this.plantProgress = 0; this.defuseProgress = 0;
+  giveCharge() {
     const carrier = randomAliveMember(Modes.attackingTeam());
-    if (carrier >= 0) Modes.pickUp(this.bomb, carrier);
+    if (carrier >= 0) Modes.pickUp(this.charge, carrier);
   },
   step(dt) {
-    if (this.planted) { this.stepPlanted(dt); return; }
+    if (this.charge.state === 'planted') { this.stepPlanted(dt); return; }
     this.stepCarried();
-    this.stepPlant(dt);
-    if (!this.planted) Modes.checkTeamWipe();
+    if (!Modes.stepPlant(this.charge, this.sites, dt, Modes.rules.params)) Modes.checkTeamWipe();
   },
   stepCarried() {
-    const bomb = this.bomb;
-    if (bomb.state === 'carried') { Modes.followCarrier(bomb); return; }
-    const taker = Modes.findActorNear(bomb.x, bomb.y, bomb.z, TOUCH_RADIUS, Modes.attackingTeam(), NEAR_TEAM);
-    if (taker >= 0) Modes.pickUp(bomb, taker);
+    const charge = this.charge;
+    if (charge.state === 'carried') { Modes.followCarrier(charge); return; }
+    const taker = Modes.findActorNear(charge.x, charge.y, charge.z, TOUCH_RADIUS, Modes.attackingTeam(), NEAR_TEAM);
+    if (taker >= 0) Modes.pickUp(charge, taker);
   },
-  stepPlant(dt) {
-    const carrier = this.bomb.carrier;
-    const planting = carrier >= 0 && holdsUse(carrier) && this.siteOf(carrier) !== null;
-    this.plantProgress = planting ? this.plantProgress + dt : 0;
-    if (planting && this.plantProgress + TIME_EPSILON >= Modes.rules.params.plantTime) this.plant(carrier);
-  },
-  siteOf(id) {
-    for (let i = 0; i < this.sites.length; i++) if (Modes.inZone(this.sites[i], id)) return this.sites[i];
-    return null;
-  },
-  plant(id) {
-    this.planted = true;
-    this.planter = id;
-    Modes.drop(this.bomb);
-    this.bomb.state = 'planted';
-    Modes.roundEndsAt = Sim.time + Modes.rules.params.fuse;
-    Modes.timeoutReason = 'detonated';
-    Modes.creditObjective(id, 'plant');
-    Modes.announce('Charge planted', 'bomb', 3);
-  },
+  // After the plant only the defenders can lose by a wipe: dead attackers do not stop the fuse.
   stepPlanted(dt) {
-    this.stepDefuse(dt);
-    if (Modes.phase === PHASE.LIVE && Modes.teamAliveCount(defendingTeam()) === 0) Modes.endRound(Modes.attackingTeam(), 'eliminated');
-  },
-  stepDefuse(dt) {
-    const params = Modes.rules.params, bomb = this.bomb;
-    const defuser = Modes.findActorNear(bomb.x, bomb.y, bomb.z, params.defuseRange, defendingTeam(), NEAR_TEAM);
-    if (defuser < 0 || !holdsUse(defuser)) {
-      this.defuseProgress = this.defuseProgress + TIME_EPSILON >= params.defuseCheckpoint ? params.defuseCheckpoint : 0;
-      return;
-    }
-    this.defuseProgress += dt;
-    if (this.defuseProgress + TIME_EPSILON < params.defuseTime) return;
-    Modes.creditObjective(defuser, 'defuse');
-    Modes.announce('Charge defused', 'bomb', 3);
-    Modes.endRound(defendingTeam(), 'defused');
-  },
-  detonate() {
-    const bomb = this.bomb;
-    blastPayload.x = bomb.x; blastPayload.y = bomb.y; blastPayload.z = bomb.z;
-    blastPayload.radius = Modes.rules.params.blastRadius; blastPayload.owner = this.planter;
-    Bus.emit('explosion', blastPayload);
-    Modes.announce('Charge detonated', 'bomb', 3);
+    if (Modes.stepDefuse(this.charge, defendingTeam(), dt, Modes.rules.params) >= 0) { Modes.endRound(defendingTeam(), 'defused'); return; }
+    if (Modes.teamAliveCount(defendingTeam()) === 0) Modes.endRound(Modes.attackingTeam(), 'eliminated');
   },
 });
 
@@ -284,22 +242,11 @@ function ownedCount(points, team) {
   return owned;
 }
 
-function bleedTickets(team, held, enemyHeld, params) {
-  if (held <= params.bleedHeld && held < enemyHeld) spendTickets(team, 1, 'bleed');
-}
-
 function spendTickets(team, amount, reason) {
   Modes.awardTeam(team, -Math.min(amount, Math.max(0, Modes.teamScore[team])), reason);
 }
 
-function meterLeader() {
-  const lead = Modes.teamMeter[0] - Modes.teamMeter[1];
-  return lead === 0 ? DRAW : lead > 0 ? 0 : 1;
-}
-
 function defendingTeam() { return 1 - Modes.attackingTeam(); }
-
-function holdsUse(id) { return (Actors.buttons[id] & BTN.USE) !== 0; }
 
 function randomAliveMember(team) {
   const alive = Modes.teamAliveCount(team);

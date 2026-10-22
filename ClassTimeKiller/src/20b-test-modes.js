@@ -68,6 +68,11 @@ Test.add('modes', (check) => {
   const bomb = CAT.modes.byId('bomb');
   check('bomb rounds and timers (M13)', bomb.rounds.winsNeeded === 7 && bomb.rounds.switchAt === 6 && bomb.rounds.freeze === 15 && bomb.rounds.live === 100
     && bomb.params.plantTime === 4 && bomb.params.fuse === 40 && bomb.params.defuseTime === 7 && bomb.params.defuseCheckpoint === 3.5);
+  const rush = CAT.modes.byId('rush');
+  check('rush arm 4 s, fuse 30 s, disarm 5 s (M08)', rush.params.plantTime === 4 && rush.params.fuse === 30 && rush.params.defuseTime === 5 && rush.params.defuseCheckpoint === 0);
+  check('bomb, rush and ghostops share the charge-timer keys', ['rush', 'ghostops'].every((id) => Object.keys(bomb.params).every((key) => key in CAT.modes.byId(id).params)));
+  check('control capture builds on the shared capture params', CAT.modes.byId('control').params.captureStack === CAPTURE_PARAMS.captureStack && CAT.modes.byId('control').params.captureTime === 10);
+  check('leadingTeam: level is a draw, else the team ahead', leadingTeam(0) === DRAW && leadingTeam(2) === 0 && leadingTeam(-0.5) === 1);
   const dom = CAT.modes.byId('dom'), conquest = CAT.modes.byId('conquest');
   check('dom capture 8 s, +1 per point per 2 s', dom.params.captureTime === 8 && dom.params.tickInterval === 2 && dom.params.tickPoints === 1);
   check('conquest 150 tickets, bleed 1/3 s at <= 2 points', conquest.params.tickets === 150 && conquest.params.bleedInterval === 3 && conquest.params.bleedHeld === 2 && conquest.params.deathCost === 1);
@@ -89,6 +94,7 @@ Test.add('modes', (check) => {
   check('Game.playerId is the player', Game.playerId === 0 && Actors.name[0] === 'Tester' && Actors.name[2] === 'Named' && Actors.name[1] === 'Bot 1');
   check('everyone spawned (actor.spawn per actor)', spawns.length === 4 && [0, 1, 2, 3].every((id) => Actors.alive[id] === 1 && Actors.spawnCount[id] === 1));
   check('free-for-all has no teams', [0, 1, 2, 3].every((id) => Actors.team[id] === NO_TEAM));
+  check('an unknown bot profile key stores no profile', Actors.profile[1] === null);
   check('handicap per actor in Game.match.handicap', Game.match.handicap[0] === 0.5 && Game.match.handicap[2] === 0.75 && Game.match.handicap[1] === 1);
   check('nobody spawns inside another actor', [1, 2, 3].every((id) => Math.hypot(Actors.x[id] - Actors.x[0], Actors.z[id] - Actors.z[0]) > 1));
   check('spawn protection set on spawn', (Actors.flags[0] & ACTOR_FLAG.PROTECTED) !== 0);
@@ -242,6 +248,10 @@ Test.add('modes', (check) => {
   check('protection still on just before 2 s', (Actors.flags[1] & ACTOR_FLAG.PROTECTED) !== 0);
   Sim.step();
   check('protection ends exactly after 2 s', (Actors.flags[1] & ACTOR_FLAG.PROTECTED) === 0);
+  Actors.flags[1] |= ACTOR_FLAG.GOD;
+  killActor(1, 0);
+  runSeconds(2.01);
+  check('spawning keeps flags other sections own', Actors.alive[1] && (Actors.flags[1] & ACTOR_FLAG.GOD) !== 0 && (Actors.flags[1] & ACTOR_FLAG.PROTECTED) !== 0);
   spawns.stop();
   endModeTest();
 
@@ -279,6 +289,11 @@ Test.add('modes', (check) => {
 Test.add('modes', (check) => {
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   check('lms: 3 lives each', Modes.lives[0] === 3 && Modes.hudState().teams === 0);
+  killActor(1, 2); killActor(1, 2); killActor(0, 1);
+  check('lms: rank by lives first, then score', Modes.rankOf(2) === 1 && Modes.rankOf(0) === 2 && Modes.rankOf(1) === 3, [0, 1, 2].map((id) => Modes.rankOf(id)).join());
+  endModeTest();
+
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
   check('lms: out of lives means no respawn', !Actors.alive[1] && Modes.lives[1] === 0 && Modes.respawnIn(1, Sim.time) === -1);
   for (let life = 0; life < 2; life++) { killActor(2, 0); runSeconds(2.1); }
@@ -420,8 +435,13 @@ Test.add('modes', (check) => {
   const pointSpawn = Modes.spawnPoints.find((point) => point.objective === Modes.objectives[1]);
   check('conquest: owned points are spawn points for the owner only', pointSpawn && Modes.spawnUsable(pointSpawn, 1, true) && !Modes.spawnUsable(pointSpawn, 0, true));
   placeActor(1, 50, 50);
+  let blue = Modes.teamScore[0], red = Modes.teamScore[1];
   runSeconds(3);
-  check('conquest: the team holding fewer (<= 2) bleeds', Modes.teamScore[0] <= 8 && Modes.teamScore[1] === 10, Modes.teamScore[0]);
+  check('conquest: every team holding <= 2 points bleeds 1 per 3 s', Modes.teamScore[0] === blue - 1 && Modes.teamScore[1] === red - 1, Modes.teamScore[0] + '/' + Modes.teamScore[1]);
+  for (const point of Modes.objectives) point.owner = 1;
+  blue = Modes.teamScore[0]; red = Modes.teamScore[1];
+  runSeconds(3);
+  check('conquest: holding 3 points stops the bleed', Modes.teamScore[0] === blue - 1 && Modes.teamScore[1] === red, Modes.teamScore[0] + '/' + Modes.teamScore[1]);
   for (let i = 0; i < 10; i++) killActor(0, 1);
   Sim.step();
   check('conquest: out of tickets loses', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'tickets');
@@ -436,11 +456,13 @@ Test.add('modes', (check) => {
   placeActor(0, 0, 0);
   runSeconds(3);
   placeActor(1, 1, 0);
+  runSeconds(1);
+  check('control: the owner\'s meter keeps filling while contested', Test.near(Modes.teamMeter[0], 3 / 5, 0.01) && !Modes.overtime, Modes.teamMeter[0]);
   runSeconds(3);
-  check('control: the meter stops while an enemy is on the point', Test.near(Modes.teamMeter[0], 2 / 5, 0.01) && Modes.teamRounds[0] === 0, Modes.teamMeter[0]);
+  check('control: contested, the meter stops at 99% in overtime', Modes.teamMeter[0] === 0.99 && Modes.overtime && Modes.teamRounds[0] === 0 && Modes.phase === PHASE.LIVE, Modes.teamMeter[0]);
   placeActor(1, 40, 40);
-  runSeconds(3);
-  check('control: 100% wins the round', Modes.teamRounds[0] === 1 && Modes.phase === PHASE.ROUND_END);
+  runSeconds(0.05);   // the last 1% of a 5 s meter
+  check('control: 100% wins the round once the enemy leaves', Modes.teamRounds[0] === 1 && Modes.phase === PHASE.ROUND_END && !Modes.overtime);
   runSeconds(1.1);
   check('control: next round resets the meter', Modes.round === 2 && Modes.teamMeter[0] === 0 && Modes.objectives[0].owner === NO_TEAM);
   runSeconds(1);
@@ -473,7 +495,7 @@ Test.add('modes', (check) => {
   placeActor(0, 20, 0);
   holdUseFor(0, 3);
   Sim.step();
-  check('bomb: releasing USE resets the plant', Modes.behaviour.plantProgress === 0 && charge.state === 'carried');
+  check('bomb: releasing USE resets the plant', charge.timer === 0 && charge.state === 'carried');
   Actors.buttons[0] = BTN.USE;
   Sim.run(4 * TICK_RATE - 1);
   check('bomb: not planted before 4 s', charge.state === 'carried');
@@ -487,13 +509,23 @@ Test.add('modes', (check) => {
   placeActor(1, 20, 1);
   holdUseFor(1, 4);
   Sim.step();
-  check('bomb: an interrupted defuse keeps 3.5 s', Modes.behaviour.defuseProgress === 3.5);
+  check('bomb: an interrupted defuse keeps 3.5 s', charge.timer === 3.5);
   Actors.buttons[1] = BTN.USE;
   Sim.run(Math.round(3.5 * TICK_RATE) - 1);
   check('bomb: not defused yet', Modes.phase === PHASE.LIVE);
   Sim.step();
   Actors.buttons[1] = 0;
-  check('bomb: defused after 7 s in total', Modes.teamRounds[1] === 1 && Modes.roundReason === 'defused' && Modes.objective[1] === 1);
+  check('bomb: defused after 7 s in total', Modes.teamRounds[1] === 1 && Modes.roundReason === 'defused' && Modes.objective[1] === 1 && charge.state === 'defused');
+  endModeTest();
+
+  // Two defenders at the charge: only the higher id holds USE, and it still defuses.
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 1, 1], BOMB_OPTIONS);
+  runSeconds(1.01);
+  placeActor(0, 20, 0);
+  holdUseFor(0, 4);
+  placeActor(1, 20, 0.5); placeActor(2, 20, -0.5);
+  holdUseFor(2, 7);
+  check('bomb: any defender holding USE in range defuses', Modes.teamRounds[1] === 1 && Modes.roundReason === 'defused' && Modes.objective[2] === 1 && Modes.objective[1] === 0);
   endModeTest();
 
   startBombTest();
@@ -504,7 +536,7 @@ Test.add('modes', (check) => {
   check('bomb: fuse still burning', Modes.phase === PHASE.LIVE);
   runSeconds(0.02);
   blasts.stop();
-  check('bomb: detonation after 40 s wins for the attackers', Modes.teamRounds[0] === 1 && Modes.roundReason === 'detonated' && blasts.length === 1 && blasts[0].radius === 15);
+  check('bomb: detonation after 40 s wins for the attackers', Modes.teamRounds[0] === 1 && Modes.roundReason === 'detonated' && blasts.length === 1 && blasts[0].radius === 15 && blasts[0].owner === 0);
   endModeTest();
 
   startBombTest();
@@ -559,6 +591,13 @@ Test.add('modes', (check) => {
 });
 
 Test.add('modes', (check) => {
+  const oneSpawnEach = modesTestMap({ spawns: [{ x: -45, y: 0, z: 0, team: 0 }, { x: 45, y: 0, z: 0, team: 1 }] });
+  startModeTest('elim', oneSpawnEach, [0, 1], { modeOptions: { rounds: { freeze: 0, endDelay: 1, live: 5 } } });
+  placeActor(1, -45, 0);   // a survivor standing on the enemy spawn when the round ends
+  runSeconds(6.01);
+  check('round start: survivors of the last round do not block spawns', Modes.round === 2 && Actors.x[0] === -45 && Actors.x[1] === 45, Actors.x[0] + ',' + Actors.x[1]);
+  endModeTest();
+
   startModeTest('elim', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1], { modeOptions: { rounds: { freeze: 0, endDelay: 1, live: 5, limit: 2 } } });
   runSeconds(5.01);
   check('round time out with equal survivors is a drawn round', Modes.teamRounds[0] === 0 && Modes.teamRounds[1] === 0 && Modes.round === 1 && Modes.roundWinner === DRAW);
