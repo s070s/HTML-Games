@@ -120,7 +120,7 @@ const BotCombat = {
   throwYaw: new Float32Array(MAX_ACTORS), throwPitch: new Float32Array(MAX_ACTORS), throwUntil: new Float64Array(MAX_ACTORS),
   throwCook: new Float32Array(MAX_ACTORS), cookUntil: new Float64Array(MAX_ACTORS),   // s to hold a cookable grenade; 0 = not cooking
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
-  checkedDry: new Uint8Array(MAX_ACTORS), combatSwitchAt: new Float64Array(MAX_ACTORS), wantedGain: new Float32Array(MAX_ACTORS),
+  checkedDry: new Uint8Array(MAX_ACTORS), combatSwitchAt: new Float64Array(MAX_ACTORS), combatSwitchTo: new Int16Array(MAX_ACTORS).fill(-1), wantedGain: new Float32Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
   gadgetAt: new Float64Array(MAX_ACTORS), healAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
@@ -139,7 +139,7 @@ const BotCombat = {
     this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
-    this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
+    this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.combatSwitchAt[id] = 0; this.combatSwitchTo[id] = -1; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
     this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9; this.chokeSmokedAt[id] = -1e9; this.grenadeBefore[id] = -1;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
@@ -380,22 +380,26 @@ const BotCombat = {
       if (dry && this.wantedWeapon[id] < 0) this.wantedWeapon[id] = this.bestWeapon(id, false);   // nothing loaded: reload, or any weapon left
     }
     this.checkedDry[id] = dry ? 1 : 0;
-    const wanted = this.wantedWeapon[id];
-    if (wanted < 0 || wanted === Weapons.current[id] || !(safe || dry || this.worthSwitching(id, now))) {
+    const wanted = this.wantedWeapon[id], fight = !safe && !dry;
+    if (wanted < 0 || wanted === Weapons.current[id] || (fight && !this.worthSwitching(id, wanted, now))) {
       if (current && ammo && current.mag > 0 && (safe || ammo.magazine === 0)) this.reloadIfLow(id, current, ammo, now);   // a dry gun with nothing loaded to draw reloads in a fight too
       return;
     }
-    this.switchTo(id, wanted, now);
+    const resting = now < this.combatSwitchAt[id] && this.combatSwitchTo[id] === wanted;   // this switch's rest already runs
+    if (this.switchTo(id, wanted, now) && fight && !resting) {   // the rest starts with the first press
+      this.combatSwitchTo[id] = wanted;
+      this.combatSwitchAt[id] = now + COMBAT_SWITCH_REST;
+    }
   },
   isSafe(id, now) {
     const target = this.target[id];
     return target < 0 || now - BotSense.seenAt[BotSense.pair(id, target)] > SAFE_SECONDS;
   },
-  // In a fight: the wanted gun beat the drawn one by COMBAT_SWITCH_GAIN at the last weapon check (the switch costs time).
-  worthSwitching(id, now) {
-    if (now < this.combatSwitchAt[id] || this.wantedGain[id] < COMBAT_SWITCH_GAIN) return false;
-    this.combatSwitchAt[id] = now + COMBAT_SWITCH_REST;
-    return true;
+  // In a fight: the wanted gun beat the drawn one by COMBAT_SWITCH_GAIN at the last weapon check (the switch costs time);
+  // a switch under way keeps pressing (a shared slot cycles) through its rest.
+  worthSwitching(id, wanted, now) {
+    if (now < this.combatSwitchAt[id]) return this.combatSwitchTo[id] === wanted;
+    return this.wantedGain[id] >= COMBAT_SWITCH_GAIN;
   },
   // The owned weapon worth most at the target's range (botPref value, less outside its range, plus the favourite
   // bonus); wantedGain keeps how much more it is worth than the drawn one. loaded: only a gun with rounds in its
@@ -420,12 +424,13 @@ const BotCombat = {
   hasRounds(id, weapon, slot) {
     return weapon.mag === 0 || Weapons.magazine[slot] > 0 || Weapons.reserve[slot] > 0 || Weapons.infiniteReserve(weapon);
   },
-  // Slot keys like a player: a one-step press, repeated (cycling a shared slot) until the wanted weapon is out.
+  // Slot keys like a player: a one-step press, repeated (cycling a shared slot) until the wanted weapon is out; true = pressed.
   switchTo(id, index, now) {
     const current = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
-    if (current === index || now < this.slotPressAt[id]) return;
+    if (current === index || now < this.slotPressAt[id]) return false;
     this.slotPressAt[id] = now + SLOT_PRESS_INTERVAL;
     Bots.slotWanted[id] = CAT.weapons[index].slot;
+    return true;
   },
   reloadIfLow(id, weapon, ammo, now) {
     if (Weapons.state[id] !== WEAPON_STATE.IDLE || now < this.reloadPressAt[id]) return;

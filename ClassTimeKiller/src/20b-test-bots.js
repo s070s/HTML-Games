@@ -1637,6 +1637,7 @@ Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false));
   placeFacing(bot, 0, -10, 0);
   holdActor(dummy, 0, 2);
+  Actors.flags[dummy] = (Actors.flags[dummy] | ACTOR_FLAG.GOD) & ~ACTOR_FLAG.PROTECTED;   // a target for the whole test
   Weapons.give(bot, 'stormlash', 0);
   const pistol = CAT.weapons.byId('warden'), rifle = CAT.weapons.byId('stormlash');
   Weapons.give(bot, 'warden', 0);
@@ -1653,6 +1654,14 @@ Test.add('bots', (check) => {
   }
   check('a bot whose pistol magazine runs dry in a fight draws its loaded rifle within 0.5 s', BotSense.sees(bot, dummy) && switchedAfter >= 0 && switchedAfter <= 0.5,
     switchedAfter.toFixed(2) + ' s, holding ' + Weapons.currentWeapon(bot).id);
+  // The rest between fight switches starts with the slot press: a press still waiting (SLOT_PRESS_INTERVAL) does not use it up.
+  Weapons.current[bot] = pistol.index; Weapons.state[bot] = WEAPON_STATE.IDLE; Weapons.pending[bot] = -1;
+  Weapons.magazine[Weapons.slotIndex(bot, pistol.index)] = pistol.mag;
+  BotCombat.weaponCheckAt[bot] = 0; BotCombat.combatSwitchAt[bot] = 0; BotCombat.slotPressAt[bot] = Sim.time + SLOT_PRESS_INTERVAL;
+  const inFight = !BotCombat.isSafe(bot, Sim.time);
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(dummy, 0, 2); Sim.run(1); }
+  check('a bot in a fight draws a much better gun once its slot press is free', inFight && (Weapons.current[bot] === rifle.index || Weapons.pending[bot] === rifle.index),
+    'in a fight ' + inFight + ', holding ' + Weapons.currentWeapon(bot).id);
   endBotTest();
 });
 
