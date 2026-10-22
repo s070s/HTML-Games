@@ -858,3 +858,32 @@ Test.add('progress', (check) => {
     Object.assign(record, kept);
   }
 });
+
+// ---- Fairness: operations pay only for activity, absence cards need combat, explosive gadgets count for C06 ----
+Test.add('progress', (check) => {
+  Operations.reset('ironcoast');
+  Operations.start('ironcoast');
+  Modes.finish(1);
+  check('operation: an idle lost map pays no structure XP', Progress.lastAward && Progress.lastAward.xp === 0, Progress.lastAward && Progress.lastAward.xp);
+  Operations.reset('ironcoast');
+  Operations.start('ironcoast');
+  const enemy = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => Actors.team[id] === 1);
+  for (let kill = 0; kill < 3; kill++) progressKill(enemy, Game.playerId);
+  progressAdvance(PROGRESS_XP.minimumSeconds + 5);
+  Modes.finish(0);
+  check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
+  Operations.reset('ironcoast');
+  Game.stop();
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100, weaponsUsed: 0 };
+  const fighter = Object.assign({}, pacifist, { kills: 3 });
+  const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'];
+  check('cards: a level without a single kill unlocks no absence card', absence.every((id) => !cardConditionMet(CAT.cards.byId(id).unlock, pacifist)),
+    absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, pacifist)).join());
+  check('cards: the same absence with a fight still unlocks them', absence.every((id) => cardConditionMet(CAT.cards.byId(id).unlock, fighter)));
+  progressCardMatch([], { modeOptions: {} });
+  RunLog.reset();
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId, source: 'frag', element: 'kinetic' });
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId + 1, source: 'frag', element: 'kinetic' });
+  check('cards: an explosion the player caused (grenade, gadget) counts as explosive use', RunLog.explosiveShots === 1, RunLog.explosiveShots);
+  Game.stop();
+});

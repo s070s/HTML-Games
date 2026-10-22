@@ -203,7 +203,7 @@ const Operations = {
     state.tickets = [this.carryTickets(OperationRun.tickets[0]), this.carryTickets(OperationRun.tickets[1])];
     state.comeback = winner >= 0 ? 1 - winner : -1;
     state.stage++;
-    award.xp += PROGRESS_XP.operationStage;
+    if (award.breakdown.total > 0) award.xp += PROGRESS_XP.operationStage;   // the map pays only a player who took part (no idle farming)
     award.lines.push(row.name + ' map ' + state.stage + ' of ' + row.stages.length + ': ' + (winner === PROGRESS_PLAYER_TEAM ? 'won' : winner < 0 ? 'drawn' : 'lost')
       + '. Tickets next map: ' + state.tickets[0] + ' / ' + state.tickets[1]);
     if (state.stage >= row.stages.length) this.complete(row, state, award);

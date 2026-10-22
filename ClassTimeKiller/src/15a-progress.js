@@ -14,7 +14,6 @@ function pveReported(results, key) {
 }
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
-const RUN_EXPLOSIVE_CLASSES = ['explosive'];
 const CHAMBER_SECONDS_STEP = 10;            // chamber record times are kept to a tenth of a second
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
@@ -73,8 +72,9 @@ const RunLog = {
     if (!this.isPlayer(event.id)) return;
     const weapon = CAT.weapons.byId(event.weapon);
     if (weapon) this.weaponUsed[weapon.index] = 1;
-    if (RUN_EXPLOSIVE_CLASSES.includes(event.weaponClass)) this.explosiveShots++;
   },
+  // Any explosion the player caused (a grenade, a gadget, a barrel they shot) is explosive use, like a rocket shot.
+  onExplosion(event) { if (this.isPlayer(event.owner)) this.explosiveShots++; },
   onPickup(event) { if (this.isPlayer(event.id) && event.group === 'armor') this.armorPickups++; },
   weaponsUsed() {
     let count = 0;
@@ -423,6 +423,7 @@ Bus.on('kill', (event) => RunLog.onKill(event));
 Bus.on('damage', (event) => RunLog.onDamage(event));
 Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
+Bus.on('explosion', (event) => RunLog.onExplosion(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
 // A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
 Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });
