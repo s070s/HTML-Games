@@ -1,6 +1,7 @@
 // ==== S16 MAPS: CATALOGUE ====
 // The `maps` catalogue: every row collected in Maps.rows by 16b..16e. Generated maps (MapGen, later) use the same schema.
-// Fields beyond docs/ARCHITECTURE.md: category (sightline limit, MAP-003), version, placeholder, blurb (menu text). docs/api/maps.md.
+// Fields beyond docs/ARCHITECTURE.md: category (sightline limit, MAP-003), version, placeholder, blurb (menu text), props (breakable
+// boxes, S08 Props; the PvE level report counts them). docs/api/maps.md.
 
 Maps.rows.sort((a, b) => (a.code < b.code ? -1 : 1));          // catalogue order = map code order, whatever file a map lives in
 Data.define('maps', {

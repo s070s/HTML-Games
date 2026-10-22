@@ -40,13 +40,16 @@ Coordinates: metres, Y up, floor at y = 0, the map centred on the origin (`x` in
   triggers:   [{ kind: 'jumppad', min, max, target: [x,y,z], peak } | { kind: 'teleporter', min, max, exit: [x,y,z], yaw } | { kind: 'ladder', min, max }
                | { kind: 'water', min, max } | { kind: 'hazard', min, max, damage, element } | { kind: 'killzone', min, max }],   // fields as in docs/api/world-move.md
   lights:     [{ x, y, z, color: 0xRRGGBB, radius }],
-  navHints:   [{ kind: 'cover'|'sniper'|'choke'|'flank'|'dummy'|'guard', x, y, z }] }
+  navHints:   [{ kind: 'cover'|'sniper'|'choke'|'flank'|'dummy'|'guard'|'secret', x, y, z }],
+  props:      [{ min: [x,y,z], max: [x,y,z], health: 50, material: 'wood', mass: 20, debris: 6, color }] }   // breakable boxes (S08 Props)
 ```
 
 Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`arena tactical pve range puzzle large island`, picks the sightline limit: 60 / 60 / 90 / 60 / 60 / 90 / 150 m),
 `version` (map data version, migrate when it changes), `placeholder`, `blurb` (one line for the map picker), spawn/item/objective `modes` (empty = every mode of the map), objective `stage`
 (Breach Assault stage 1..3) and `checkpoints` (payload: indices into `path`). Generated maps add `gen` (how they were made) and royale maps may carry
-`ring: { x, z, radius }` (ring centre and start radius; docs/api/mapgen.md; read by 13g once its contract request lands).
+`ring: { x, z, radius }` (ring centre and start radius; docs/api/mapgen.md; 13g starts the royale ring there). `secret` hints are PvE level secrets (14j `PveLevel`,
+found within 1.5 m) and `props` the breakable crates the PvE level report counts; `MapKit.make` gives every map a `props` list (empty by default) and the map editor
+keeps it through its codes (rows checked like brushes; codes made before props load with none).
 
 * `sky`: `{ top, horizon, fog, fogFar, sun: [x, y, z] }` (colours 0xRRGGBB, metres, direction towards the sun). `theme`: `foundry ruins station canal overgrowth glacier` (MAP-022).
 * Materials: `concrete metal wood glass dirt water grass sand ice tile`. `water` brushes are canal/pool beds and puddles (solid; the swim volume is the `water` trigger).

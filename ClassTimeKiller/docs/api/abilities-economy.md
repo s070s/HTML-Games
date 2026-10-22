@@ -38,7 +38,7 @@ Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `bl
   - `weapons` is the loadout; the last key is drawn.
   - `move` is a `CAT.movement` key.
   - `passive.kind` is one of `knockbackResist`, `killHaste`, `shieldRegen` (H02: +`rate`/s shield after `delay` s, on top of the HPP05 recharge), `regen` (H06: the HPP05 support role regen, see `Damage.roleOf`), `ability` (an always-on ability row) or `flag`.
-  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, HUD), `extraGrenade` (H05, items), `smokeVision` (H07, items/smoke). **Pending**: no reader exists yet (contract requests to those sections).
+  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, the HUD scope readout in 17f), `extraGrenade` (H05, `Gadgets.equipHero` in 12c), `smokeVision` (H07, `Smoke.lineBlocked` with a viewer id: aim assist and bot sight in 14b see through smoke).
   - `gadget` is for the items section.
 - `abilityKits`: `{ id, name, match, ability1, ability2, ultimate, passive, choices, cooldowns }`.
   - `match` is `{ ruleset }`, `{ economy }` or `{ mutator }`. The first matching row applies.
@@ -63,6 +63,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `refreshKit(id)`: an in-place respawn kit change (pools, weapons, movement, the gadget kit from scratch (`Gadgets.equip`, so the old hero's gadget goes), slots).
 - Use:
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.
+  - The slot button does the same while the ability runs: `stepActor` sees a new press of `BTN.ABILITY1` / `ABILITY2` / `ULTIMATE` on a running toggle or channel (`pressedAgain`) and calls `tryActivate`, which ends it. The press that started it never ends it (only a new press counts).
   - `forceCast(id, abilityId)`: adrenaline combos, already paid.
   - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category.
   - `interrupt(id, 'damage'|'fire')`, `suppress(id, seconds)`, `end(id, slot, reason)`, `endAll`, `clearActor`, `clearMatch`.
@@ -136,7 +137,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - Related calls: `buyBlock(id)`, `canBuy(id)`, `buyTimeLeft()`, `catalogue()` (buy items that can be granted, then the priced weapons of the weapon set), `limitReason(id, item)`.
 - `Economy.grants[kind] = fn(id, item) -> bool`:
   - `armor`, `helmet`, `ammo` and `weapon` are built in.
-  - `gadget` and `grant` are registered by the items section. Until then, those rows are not on sale.
+  - `gadget` (`Gadgets.give`) and `grant` (`Items.grantBuy`) are registered at the end of 13d-economy.js.
 - Other API: `Economy.awardWave(team, flawless)` (700 + 100), `setShopOpen(open)`, `ladderWeapon(tier)` (ECP06, 18 tiers).
 - Classes (ECP04):
   - On spawn, the class perks write `Weapons.statScale` and the class weapons replace the start loadout (the set's melee is kept).
@@ -173,6 +174,6 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
 - A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'shock' and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
 - A16 footprints are drawn only for the local player's tracker.
-- A17 veil curtain is a visual zone. It does not block bot line of sight until `Smoke.add` exists (items section).
+- A17 veil curtain is real smoke (`Smoke.add`): it blocks bot sight and aim assist like a G02 cloud.
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.
-- Not yet wired, because the hook is missing: glide gravity (applied through `vy`), Marathon and Quietstep (flags only: S10 needs a sprint-stamina and a footstep hook), the hero passive flags `scopeInfo`, `extraGrenade`, `smokeVision`.
+- Hooks into S10: glide gravity through `Move.gravityScale`, Marathon through `Move.staminaScale`, Quietstep through `Move.footstepScale` (13d sets both perks; the footstep sound reads the loudness).

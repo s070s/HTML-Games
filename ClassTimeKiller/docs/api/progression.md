@@ -8,7 +8,7 @@ Files:
 - `src/15d-cards.js`: `Cards` (equip, Marks, unlocks), `CardRun` (the running match).
 - `src/18j-ui-progress.js`: screens `career`, `profile`, `ladder`, `challenges`, `operations`, `daily`, `cards`, `cardUse` (pause entry "Cards"), `stats`; the award panel on the results screen; the one-time Firing Range offer.
 
-Tests: group `progress`. Debug: `__CTK.progress` `{ Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun }`.
+Tests: groups `progress` and `simwire` (PvE events, chamber records). Debug: `__CTK.progress` `{ Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun }`.
 
 ## Save layout
 
@@ -50,18 +50,25 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | Key | Card | Meaning | Read by |
 |---|---|---|---|
 | `soulLife` | C03 Soulkeep | multiplier: PU18 souls stay `soulLife` x 30 s | `Items.dropSoul` (12a) |
-| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18 and Wrath souls) | `soulHomingRange` (12a), `Meters.stepSoul` (12g) |
+| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18 and Wrath souls) | `soulHomingRange` (12a; `Items.homeSoul` and `Meters.stepSoul` in 12g call it) |
 | `wrathAt` | C09 Dark Pact | souls Wrath Form costs instead of its row's 66 | `Abilities.canAfford` (12e) |
-| `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | 15d on `pickup` with `item: 'soul'` |
+| `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | `Powerups.healScale` (12b, the PU18 instant heal) |
 
-## Events the PvE section is asked to emit (contract)
+## Events from the PvE section (S14, docs/api/pve.md)
 
 | Event | Payload | Read by |
 |---|---|---|
-| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
-| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
-| `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
-| `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
-| `pve.crate` | `{ id }` | Marks per crate |
+| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | MD20 Flawless Wave |
+| `pve.alarm` | `{ id, ... }` | MD19 Ghost (no alarm), M25 contract alarm count |
+| `pve.boss` | `{ id, phase, phases, kind: 'phase' \| 'weak' \| 'defeated', seconds, final }` | kind `defeated`: `RunLog.bossSeconds` / `finalBossSeconds` (card unlocks) |
+| `pve.crate` | `{ id, prop }` (a participant broke a prop) | Marks per crate (15d) |
+| `pve.secret` | `{ id, secret }` (a participant found a secret hint) | nothing in S15 (the count reaches it through `results.pve.secretsLeft`); HUD and audio may listen |
+| `pve.chamber` | `{ chamber, kind: 'enter' \| 'complete', medal, stars, seconds }` | kind `complete`: `Progress.recordChamber` |
 
-`match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` at the end of a PvE level; missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.
+Wrath Form runs are counted from the A34 ability events (`ability.cast` / `ability.end` with ability `wrath`); there is no separate PvE wrath event.
+
+`match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` is written by `PveLevel.report` on `match.end` (S14 listens before S15). Only numbers the level can measure are present (no hostile spawned: no `enemiesLeft`; no breakable prop: no `propsLeft`; no secret hint: no `secretsLeft`; no optional enemy: no `optionalLeft`); missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.
+
+## Chamber records (MP11 Test Chambers)
+
+`Save.data.progression.chambers = { '1'..'12': { medal, stars, seconds } }` (`PROGRESS_VERSION` 2; a version 1 save gains an empty list on first use). `Progress.recordChamber(event)` keeps the best run of a chamber: more stars, or as many stars in less time (seconds rounded to 0.1). `Progress.chamberRecord(chamber)` returns the record or null; `Progress.chamberStars()` sums the kept stars. A run that sets a record adds the results line "Chamber records: N (stars kept: S)".
