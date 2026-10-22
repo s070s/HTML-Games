@@ -152,6 +152,46 @@ Test.add('core', (check) => {
     && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
 });
 
+// ARC-010 spiral guard: a cheap sim keeps 1x game time down to 10 fps; a costly one keeps the 4-step floor.
+Test.add('core', (check) => {
+  const systems = Sim.systems, dropped = Perf.droppedSteps;
+  Sim.systems = [];   // a cheap sim: the guard reads the measured step cost
+  try {
+    Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0;
+    for (let frame = 0; frame < 48; frame++) Loop.advance(1 / 24);
+    check('loop: 24 fps with a cheap sim drops no steps and runs the clock at 1x', Perf.droppedSteps === dropped && Math.abs(Sim.time - 2) <= TICK_SECONDS, Sim.time + ' s, dropped ' + (Perf.droppedSteps - dropped));
+    Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0;
+    Loop.advance(1);
+    check('loop: a long stall still runs at most 0.1 s of game time', Sim.tick === MAX_STEPS_PER_FRAME && MAX_STEPS_PER_FRAME * TICK_SECONDS <= 0.1 + 1e-9, Sim.tick);
+    Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 10;
+    Loop.advance(1);
+    check('loop: a costly sim (10 ms a step) keeps the 4-step floor', Sim.tick === MIN_STEPS_PER_FRAME, Sim.tick);
+  } finally {
+    Sim.systems = systems; Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0; Perf.droppedSteps = dropped;
+  }
+  check('loop: Loop.frameSeconds is gone (the HUD keeps the frame length)', !('frameSeconds' in Loop));
+});
+
+// The first frame after a resume takes the clock from its own rAF timestamp (it can be older than the resume event).
+Test.add('core', (check) => {
+  const raf = window.requestAnimationFrame, hooks = Loop.hooks, state = Game.state;
+  window.requestAnimationFrame = () => 0;
+  Loop.hooks = { input: [], render: [], hud: [], audio: [], ui: [] };
+  try {
+    Game.state = 'playing'; Game.paused = true;
+    Game.resume();
+    Game.state = 'menu';
+    const frameStart = performance.now() - 5, recorded = Perf.index;
+    Loop.frame(frameStart);
+    const skipped = Perf.index === recorded;
+    Loop.frame(frameStart + 16);
+    const intervalMs = Perf.frameMs[Perf.lastIndex()];
+    check('loop: the first frame after a resume is not recorded and the next interval is positive', skipped && Math.abs(intervalMs - 16) < 0.01, [skipped, intervalMs]);
+  } finally {
+    window.requestAnimationFrame = raf; Loop.hooks = hooks; Game.state = state; Game.paused = false;
+  }
+});
+
 // One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other
 // section builds its own 'sound', 'impulse' or 'toast' payload.
 const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;
