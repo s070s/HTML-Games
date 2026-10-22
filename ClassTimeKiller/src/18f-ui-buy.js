@@ -130,6 +130,7 @@ const LoadoutMenu = {
     this.tabButtons.clear();
     for (const [id, label] of LOADOUT_TABS) {
       const button = Ui.button(label, () => this.show(id), 'ui-tab');
+      button.disabled = id === 'classes' && playerInMatch() && !Economy.usesLoadouts();   // a class pick would do nothing in this match
       this.tabButtons.set(id, button);
       tabs.appendChild(button);
     }
@@ -150,7 +151,8 @@ function defaultLoadoutTab() {
   if (!playerInMatch()) return 'classes';
   if (Abilities.usesHeroes()) return 'heroes';
   const kit = Abilities.kitOf(Game.playerId);
-  return kit && kit.id !== 'classes' ? 'kits' : 'classes';
+  if (kit && kit.id !== 'classes') return 'kits';
+  return Economy.usesLoadouts() ? 'classes' : 'kits';
 }
 
 function renderClassesTab(body) {
@@ -271,8 +273,15 @@ const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, 
 
 // ---- Opening: the buyMenu action (B), the pause menu rows, B again or Esc closes ----
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
+// Classes only where the economy hands them out (Economy.usesLoadouts: not in Gun Game or Roulette, whose mode arms everyone);
+// an ability kit can still be picked in a match without classes, unless the mode arms everyone.
+function modeArmsEveryone() {
+  const params = currentRules().params;
+  return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
+}
 function loadoutAvailable() {
-  return Economy.preset().loadout !== 'none' || (playerInMatch() && Abilities.kitOf(Game.playerId) !== null);
+  if (Economy.usesLoadouts()) return true;
+  return playerInMatch() && !modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
   if (event.action !== 'buyMenu' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;

@@ -249,6 +249,8 @@ const ASSIST_EFFECT_READERS = {
     return -1;
   },
 };
+// The PvE section (14h-14j) reads these through Pve.skill(): damage scales, parry window, projectile speed, drops, lives, checkpoints.
+for (const field of ['playerDamage', 'enemyDamage', 'parry', 'projectileSpeed', 'resourceYield', 'lives', 'checkpointHeal']) ASSIST_EFFECT_READERS[field] = () => Pve.skill()[field];
 function assistEffect(field, value) {
   const setting = Settings.get('controls.pad.aimAssist');
   Settings.set('controls.pad.aimAssist', 0); Input.refreshConfig();
