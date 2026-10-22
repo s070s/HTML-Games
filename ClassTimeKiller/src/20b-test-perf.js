@@ -586,6 +586,7 @@ const PERF_ALLOC_CALLS = 20000;
 const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
 const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
 const PERF_ALLOC_ROUNDS = 3;
+const PERF_ALLOC_PATIENCE_MS = 8000;     // more rounds while a path reads as allocating (a slow compiler thread, see perfAllocatedBytes)
 const PERF_PROBE_ACTORS = 8;
 const PERF_MOVER_ID = PERF_PROBE_ACTORS;  // the actor the movement-step probe steps (past the hitscan probe's actors)
 const perfMoverSpot = { x: 1.25, y: 0, z: -0.25 };    // y: the floor there, found by perfPlaceMover
@@ -595,12 +596,15 @@ const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many s
 const perfShapeInstance = makeShapeInstance();   // the meshFrom probe's record (a match keeps one per caller the same way)
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
-// The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
-// during a round, while a path that really allocates does so in every round. Infinity = a GC ran in every round.
+// The fewest bytes of the measured rounds: the optimized code is compiled on another thread and may arrive during a round,
+// while a path that really allocates does so in every round. Infinity = a GC ran in every round. Past PERF_ALLOC_ROUNDS,
+// rounds go on while the path still reads as allocating, for up to PERF_ALLOC_PATIENCE_MS: on a loaded CPU the compiler
+// thread can take seconds to deliver (a run with --js-flags=--concurrent-recompilation-delay=300 showed it).
 function perfAllocatedBytes(run) {
   for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
   let fewest = Infinity;
-  for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
+  const started = performance.now();
+  for (let round = 0; round < PERF_ALLOC_ROUNDS || (fewest >= PERF_ALLOC_LIMIT_BYTES && performance.now() - started < PERF_ALLOC_PATIENCE_MS); round++) {
     const before = perfHeapBytes();
     for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
     const allocated = perfHeapBytes() - before;
