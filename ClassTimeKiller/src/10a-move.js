@@ -96,13 +96,14 @@ const Move = {
   // dash and tactical-sprint charges with their preset maximum (0 = the preset has none). Returns out.
   meters(id, out) {
     const preset = this.preset(id);
-    out.air = World.airLeft(id) / AIR_SECONDS;
+    out.air = this.airShare(id);
     out.stamina = this.staminaFraction(id);
     out.glide = preset.glideTime > 0 ? 1 - Math.min(1, Motion.glideUsed[id] / preset.glideTime) : 1;
     out.dash = Motion.dashCharges[id]; out.dashMax = preset.dashCharges;
     out.tac = Motion.tacCharges[id]; out.tacMax = preset.tacSprintCharges;
     return out;
   },
+  airShare(id) { return World.airLeft(id) / AIR_SECONDS; },   // breath left, 0..1 (the HUD meter and its vignette)
   stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
   isGrounded(id) { return Motion.grounded[id] === 1; },
 };

@@ -348,7 +348,7 @@ function hudMovePips(pen, layout, field, maxField, label) {
 // Low air darkens the screen edges, more as the breath runs out (the vignette of the movement element).
 function hudDrawBreathVignette(pen, layout) {
   if (!hudLocalAlive()) return;
-  const air = World.airLeft(Game.playerId) / AIR_SECONDS;
+  const air = Move.airShare(Game.playerId);
   if (air >= HUD_LOW_AIR) return;
   const strength = (1 - air / HUD_LOW_AIR) * HUD_BREATH_ALPHA, width = layout.width, height = layout.height, edge = Math.min(width, height) * 0.18;
   pen.rect(0, 0, width, height, HUD_BREATH_COLOR, strength * 0.4);
