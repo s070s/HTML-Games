@@ -114,7 +114,7 @@ const BotDecide = {
     this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
     const map = World.map, mode = match.rules ? match.rules.mode : '';
     if (!map) return;
-    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
+    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode) && Items.spotAllowed(entry)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
     for (const hint of map.navHints || []) if (hint.kind === BOT_FLANK_HINT) this.flankSpots.push({ x: hint.x, y: hint.y, z: hint.z });
     const loot = Modes.loot;
