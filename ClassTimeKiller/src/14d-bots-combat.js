@@ -248,7 +248,7 @@ const BotCombat = {
     const head = headOnlyRules() || (precise && error * DEG * this.targetDistance(id) <= AIM_HEAD_MISS);   // MUT-003: body hits do nothing
     Hitbox.point(target, head ? ZONE.HEAD : ZONE.BODY, out);
     if (mode && mode.splash && skill > AIM_FEET_SKILL && !headOnlyRules()) out.y = Actors.y[target] + AIM_FEET_HEIGHT;
-    const speed = mode && mode.type === 'projectile' ? this.projectileSpeed(mode) : 0;
+    const speed = mode ? this.leadSpeed(mode) : 0;
     if (!speed || !tier.lead || skill <= AIM_LEAD_LINEAR) return out;
     const passes = skill > AIM_LEAD_EXACT ? 2 : 1;   // exact: refine the flight time once; linear: one estimate
     const startX = out.x, startY = out.y, startZ = out.z;
@@ -258,14 +258,21 @@ const BotCombat = {
     }
     return out;
   },
+  // Flight speed of a shot to lead with: projectiles, and hitscan shots flying as X41 bullets (rules.fx.ballistics); 0 = instant.
+  leadSpeed(mode) {
+    if (Weapons.fliesAsBullet(mode)) return BALLISTIC_ROW.speed;
+    return mode.type === 'projectile' ? this.projectileSpeed(mode) : 0;
+  },
   projectileSpeed(mode) {
     if (mode.speed > 0) return mode.speed;
     const row = CAT.projectiles.byId(mode.projectile);
     return row ? row.speed : 0;
   },
+  // Height the shot falls in `time` s (aim that much higher): the projectile row's gravity, or the X41 bullet gravity.
   dropFor(mode, time) {
     const row = CAT.projectiles.byId(mode.projectile);
-    return row ? 0.5 * row.gravity * time * time : 0;
+    const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row ? row.gravity : 0;
+    return 0.5 * gravity * time * time;
   },
   // error = tier error x (1 - accuracy x 0.5) x (1 + target speed/10) x (1 + own speed/10) x settle x difficulty x hit-cap boost.
   aimError(id, target, now) {

@@ -455,9 +455,9 @@ function findWater() {
   for (let node = 0; node < Nav.nodeCount && !mapHasWater; node++) mapHasWater = (Nav.nodeFlags[node] & NAV_NODE.WATER) !== 0;
 }
 
-// Water exits (land nodes linked from a water node) once per match. A swimmer climbs out by mantling over a wall at
-// knee height (S10): an exit above the water without one, such as a thin deck the knee ray passes under, is blocked.
-// Ramps, ladders and rims are open exits.
+// Water exits (land nodes linked from a water node) once per match. S09 links a swim exit only where a bank face stands
+// at knee height (the S10 mantle), so every linked exit starts open; an exit is blocked only when a swimmer fails at it
+// in play (markBlockedExit), and paths from the water then avoid it.
 function findExits() {
   exitVersion = Nav.version;
   if (exitKind.length < Nav.nodeCount) { exitKind = new Uint8Array(Nav.nodeCount); exitList = new Int32Array(Nav.nodeCount); } else exitKind.fill(0);
@@ -465,15 +465,13 @@ function findExits() {
   if (!mapHasWater) return;
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (!(Nav.nodeFlags[node] & NAV_NODE.WATER)) continue;
-    for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) classifyExit(node, Nav.linkTarget[link], Nav.linkType[link]);
+    for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) classifyExit(Nav.linkTarget[link]);
   }
   for (let node = 0; node < Nav.nodeCount; node++) if (exitKind[node] === EXIT.OPEN) exitList[exitCount++] = node;
 }
 
-function classifyExit(from, to, type) {
-  if (Nav.nodeFlags[to] & NAV_NODE.WATER) return;
-  if (type === NAV_LINK.SWIM && exitWithoutRim(from, to)) exitKind[to] = EXIT.BLOCKED;
-  else if (exitKind[to] === EXIT.NONE) exitKind[to] = EXIT.OPEN;
+function classifyExit(to) {
+  if (!(Nav.nodeFlags[to] & NAV_NODE.WATER)) exitKind[to] = EXIT.OPEN;
 }
 
 // The open exit nearest a swimmer that the swimmer's node reaches, or -1.
@@ -484,14 +482,6 @@ function nearestExit(from, x, y, z) {
     if (distance < bestDistance && Nav.reachable(from, node)) { bestDistance = distance; best = node; }
   }
   return best;
-}
-
-function exitWithoutRim(from, to) {
-  if ((Nav.nodeFlags[to] & NAV_NODE.WATER) || Nav.nodeY[to] <= Nav.nodeY[from] + STEP_HEIGHT) return false;
-  const dx = Nav.nodeX[to] - Nav.nodeX[from], dz = Nav.nodeZ[to] - Nav.nodeZ[from], distance = Math.hypot(dx, dz);
-  if (distance < 1e-3) return false;
-  const kneeY = Nav.nodeY[from] + STEP_HEIGHT + COLLISION_SKIN;
-  return !World.raycast(Nav.nodeX[from], kneeY, Nav.nodeZ[from], dx / distance, 0, dz / distance, distance + ACTOR_RADIUS, rimHit);
 }
 
 function markBlockedExit(node) {
