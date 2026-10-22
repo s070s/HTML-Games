@@ -43,7 +43,7 @@ const splashPoint = Vec.make();
 const Damage = {
   applyCount: 0,                                    // self-test: every damage passes here (count check)
   lastDamageTime: new Float32Array(MAX_ACTORS).fill(-1e9),
-  shieldRegenBlockedUntil: new Int32Array(MAX_ACTORS), // S12 EMP: shields do not recharge before this Sim.tick (health regen goes on)
+  shieldRegenBlockedUntil: new Int32Array(MAX_ACTORS), // shields do not recharge before this Sim.tick (write it only through pauseShieldRegen)
   lastAttacker: new Int8Array(MAX_ACTORS).fill(-1), lastAttackTime: new Float32Array(MAX_ACTORS),
   previousAttacker: new Int8Array(MAX_ACTORS).fill(-1), previousAttackTime: new Float32Array(MAX_ACTORS),
   surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by powerups (S12); spent before the shield
@@ -319,12 +319,16 @@ const Damage = {
       this.stepRegen(id, preset, dt);
     }
   },
+  // The one way to hold shield recharge (G20 EMP, hero shield passives): health regeneration is not affected.
+  pauseShieldRegen(id, seconds) {
+    this.shieldRegenBlockedUntil[id] = Math.max(this.shieldRegenBlockedUntil[id], Sim.tick + Math.round(seconds * TICK_RATE));
+  },
+  shieldRegenBlocked(id) { return Sim.tick < this.shieldRegenBlockedUntil[id]; },
   stepRegen(id, preset, dt) {
     const since = Sim.time - this.lastDamageTime[id];
     if (Actors.health[id] > Actors.maxHealth[id]) Actors.health[id] = Math.max(Actors.maxHealth[id], Actors.health[id] - preset.overhealDecay * dt);
     if (preset.armorDecayAbove && Actors.armor[id] > preset.armorDecayAbove) Actors.armor[id] = Math.max(preset.armorDecayAbove, Actors.armor[id] - preset.armorDecay * dt);
-    const shieldBlocked = Sim.tick < this.shieldRegenBlockedUntil[id];
-    if (preset.shieldRate && since >= preset.shieldDelay && !shieldBlocked) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + preset.shieldRate * dt);
+    if (preset.shieldRate && since >= preset.shieldDelay && !this.shieldRegenBlocked(id)) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + preset.shieldRate * dt);
     if (preset.regenRate && since >= preset.regenDelay) this.regenerate(id, preset.regenRate * dt, regenCap(id, preset));
     const role = preset.roleRegen;
     if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);

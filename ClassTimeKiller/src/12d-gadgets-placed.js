@@ -43,6 +43,7 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
+  rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {
@@ -416,6 +417,7 @@ const Devices = {
     const body = World.raycastActors(event.x, event.y, event.z, event.dx, event.dy, event.dz, wall, event.id, deviceActorHit);
     return body >= 0 ? deviceActorHit.distance : wall;
   },
+  // The nearest device hit sphere along the ray (its distance in rayDistance), or -1.
   rayDevice(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
     for (let device = 0; device < DEVICE_CAP; device++) {
@@ -423,7 +425,13 @@ const Devices = {
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[device], this.centreY(device), this.z[device], this.hitRadius(device));
       if (distance >= 0 && distance < bestDistance) { best = device; bestDistance = distance; }
     }
+    this.rayDistance = bestDistance;
     return best;
+  },
+  // Weapons.rayBlockers: hitscan stops at a device with health (the weapon.fire listener above deals the damage).
+  blockShot(ox, oy, oz, dx, dy, dz, maxDistance) {
+    if (!this.count) return -1;
+    return this.rayDevice(ox, oy, oz, dx, dy, dz, maxDistance) >= 0 ? this.rayDistance : -1;
   },
   onExplosion(event) {
     if (!this.count || event.radius <= 0) return;
@@ -519,6 +527,7 @@ Devices.steps.supply = (device, row, dt) => Devices.stepSupply(device, row, dt);
 Devices.steps.beacon = () => {};
 
 Gadgets.deployers.push((id, row) => Devices.deploy(id, row));
+Weapons.rayBlockers.push((ox, oy, oz, dx, dy, dz, maxDistance) => Devices.blockShot(ox, oy, oz, dx, dy, dz, maxDistance));
 Gadgets.empHooks.push((owner, x, y, z, radius, seconds) => Devices.onEmp(owner, x, y, z, radius, seconds));
 Gadgets.jammed = (id) => Devices.jammed(id);
 Gadgets.visibleTo = (index, id) => Devices.visibleTo(index, id);

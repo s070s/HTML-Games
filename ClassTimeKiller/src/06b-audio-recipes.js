@@ -179,6 +179,7 @@ const SOUND_CONDITIONS = {
   playerHurt: (payload) => isLocalPlayer(payload.target) && (payload.amount > 0 || payload.absorbed > 0),
   playerKilled: (payload) => isLocalPlayer(payload.killer) && payload.victim !== payload.killer,
   idIsPlayer: (payload) => isLocalPlayer(payload.id),
+  audible: (payload) => payload.loudness !== 0,   // move.step: Move.footstepScale 0 (Quietstep) is silent; no field = audible
 };
 
 // ---- Event rows: which event plays which recipe (AUD-003..AUD-005, UI-012, ACC-003) ----
@@ -192,7 +193,7 @@ const SOUND_EVENTS = [
   { event: 'weapon.empty', recipe: 'empty', source: 'id', pos: 'actor' },
   { event: 'impact', lookup: [['material', 'material']], source: 'owner', pos: 'payload' },
   { event: 'explosion', lookup: [['element', 'element']], source: 'owner', pos: 'payload', gainScale: { field: 'radius', from: 2, to: 10, min: 0.7, max: 1.3 }, pitchScale: { field: 'radius', from: 2, to: 12, min: 1.25, max: 0.7 } },
-  { event: 'move.step', lookup: [['surface', 'surface']], source: 'id', pos: 'actor', ownGain: 0.45, gainScale: { field: 'speed', from: 0, to: 8, min: 0.45, max: 1 } },
+  { event: 'move.step', lookup: [['surface', 'surface']], source: 'id', pos: 'actor', when: 'audible', ownGain: 0.45, gainScale: { field: 'speed', from: 0, to: 8, min: 0.45, max: 1 } },
   { event: 'move.jump', recipe: 'jump', source: 'id', pos: 'actor', ownGain: 0.6 },
   { event: 'move.land', recipe: 'land', source: 'id', pos: 'actor', ownGain: 0.7, gainScale: { field: 'speed', from: 0, to: 16, min: 0.4, max: 1.3 } },
   { event: 'move.slide', recipe: 'slide', source: 'id', pos: 'actor', ownGain: 0.6 },

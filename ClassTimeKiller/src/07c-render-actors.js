@@ -320,7 +320,10 @@ const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33' };
 const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
-const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, visible: true };
+const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
+// Parts drawn around the head pivot: style.headScale (X14 Big Head, the hit sphere factor) grows them about that pivot.
+const HEAD_PART_IDS = ['head', 'visor'];
+const HEAD_PARTS = new Set(CAT.actorParts.filter((part) => HEAD_PART_IDS.includes(part.id)));
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
 const tintColor = new Float32Array(3);
 const rotated = { x: 0, y: 0, z: 0 };
@@ -345,7 +348,7 @@ function actorBaseColor(id) {
 function readActorStyle(id) {
   writeColor(tintColor, 0, actorBaseColor(id));
   actorStyle.r = tintColor[0]; actorStyle.g = tintColor[1]; actorStyle.b = tintColor[2];
-  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
   Render.applyActorStyle(id, actorStyle);
   return actorStyle;
 }
@@ -392,14 +395,14 @@ function partColor(part, style) {
 function emitActorPart(part, pose, style) {
   // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
-  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing;
-  rotateYawPitchInto(rotated, part.offset[0], part.offset[1] * squash, part.offset[2], 0, pitch);
+  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
+  rotateYawPitchInto(rotated, part.offset[0] * head, part.offset[1] * squash * head, part.offset[2] * head, 0, pitch);
   const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + rotated.y + pose.lift;
   const localX = part.pivot[0] + rotated.x, localZ = part.pivot[2] + rotated.z;
   rotateYawPitchInto(rotated, localX * scale, localY * scale, localZ * scale, pose.yaw, 0);
   const emissive = Math.max(partColor(part, style), style.emissive);
   actorBatch.mesh(part.shape, pose.x + rotated.x, pose.y + rotated.y, pose.z + rotated.z, pose.yaw, pitch,
-    part.size[0] * scale, part.size[1] * squash * scale, part.size[2] * scale, tintColor[0], tintColor[1], tintColor[2], emissive);
+    part.size[0] * scale * head, part.size[1] * squash * scale * head, part.size[2] * scale * head, tintColor[0], tintColor[1], tintColor[2], emissive);
 }
 
 // Blob shadow under an actor (MIS-037); airborne actors probe the ground below in the renderer's brush grid.

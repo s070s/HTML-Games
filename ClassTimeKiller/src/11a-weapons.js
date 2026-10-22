@@ -134,7 +134,17 @@ const Weapons = {
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
+  rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
 
+  // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
+  blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
+    let best = -1;
+    for (let i = 0; i < this.rayBlockers.length; i++) {
+      const distance = this.rayBlockers[i](ox, oy, oz, dx, dy, dz, best >= 0 ? best : maxDistance);
+      if (distance >= 0 && distance <= maxDistance && (best < 0 || distance < best)) best = distance;
+    }
+    return best;
+  },
   slotIndex(id, weaponIndex) { return id * WEAPON_COUNT + weaponIndex; },
   currentWeapon(id) { const index = this.current[id]; return index < 0 ? null : CAT.weapons[index]; },
   has(id, key) { const weapon = CAT.weapons.byId(key); return !!weapon && this.owned[this.slotIndex(id, weapon.index)] === 1; },
@@ -671,12 +681,14 @@ const Shot = {
     let factor = 1, travelled = 0, startX = ox, startY = oy, startZ = oz;
     for (let segment = 0; segment < 2; segment++) {
       const range = mode.range - travelled;
-      const wall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
+      const worldWall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
+      const blocker = Weapons.blockDistance(startX, startY, startZ, dx, dy, dz, worldWall);   // devices and domes stop the shot
+      const wall = blocker >= 0 ? blocker : worldWall;
       if (mode.combo && Projectiles.comboRay(id, mode, startX, startY, startZ, dx, dy, dz, wall)) return travelled + Projectiles.comboDistance;
       const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, wall, travelled);
       if (stopped >= 0) return travelled + stopped;
       travelled += wall;
-      if (wall >= range) return travelled;
+      if (blocker >= 0 || wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;

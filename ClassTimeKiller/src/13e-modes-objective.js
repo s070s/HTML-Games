@@ -94,9 +94,16 @@ function centralSpot(out) {
 
 function wasMeleeKill(victim) { return victim >= 0 && Modes.meleeHit[victim] === 1; }
 
+// ACTOR_FLAG.INVISIBLE belongs to whoever set it: a mode cloak never clears a powerup or ability cloak.
+const modeCloakSet = new Uint8Array(MAX_ACTORS);
 function setCloak(id, cloaked) {
-  if (cloaked) Actors.flags[id] |= ACTOR_FLAG.INVISIBLE;
-  else Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  if (cloaked) {
+    if (!(Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) { Actors.flags[id] |= ACTOR_FLAG.INVISIBLE; modeCloakSet[id] = 1; }
+    return;
+  }
+  if (!modeCloakSet[id]) return;
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  modeCloakSet[id] = 0;
 }
 
 // ---- M08 Breach Assault: attackers (side 0) arm relays (USE held plantTime s in the relay zone), the fuse runs, defenders

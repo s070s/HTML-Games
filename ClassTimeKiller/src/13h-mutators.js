@@ -545,7 +545,7 @@ Bus.on('damage', (event) => runHooks('damage', event));
 Bus.on('weapon.fire', (shot) => runHooks('fire', shot));
 
 // Size changes (X31, X39) also scale the drawn body.
-Render.addActorStyle((id, style) => { style.scale *= Hitbox.sizeScale[id]; });
+Render.addActorStyle((id, style) => { style.scale *= Hitbox.sizeScale[id]; style.headScale *= Hitbox.headScale[id]; });
 
 // Confirm tags (X42) are drawn as small yellow plates above the floor, live last gifts (X29) as red balls that blink faster before the blast.
 Render.addSource('tags', (batch) => {

@@ -82,8 +82,8 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - `Buffs.add(id, BUFF.X, value, seconds)`, `get` (neutral value when off), `has`, `remaining`, `cancel`, `clear(id)`.
   - Each kind keeps 3 overlapping entries with their own value and end time. The same value extends its entry; `get` returns the strongest live entry (the lowest for slows). A strong short buff never lasts as long as a weak long one.
   - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, KNOCKBACK, ENERGY_REGEN, MELEE.
-  - **Buffs is the single writer of `Move.statusSpeedScale`**: SPEED x SLOW, every step. Other sections that need a speed change use `Buffs.add`.
-  - RATE and NO_FIRE work through `Weapons.nextShot` after `weapon.fire`.
+  - **Buffs is the single writer of `Move.statusSpeedScale` and `Weapons.rateScale`** (`Buffs.applyScales(id)`, every step and whenever the powerup set changes): speed = SPEED x SLOW x `Powerups.speedScale`, fire rate = RATE x `Powerups.rateScale`. Other sections that need a speed or fire-rate change use `Buffs.add` (or, like powerups, keep their own factor that `applyScales` multiplies in).
+  - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`.
 - `AbilityZones`: a pool of 48 placed effects, stored as a struct of arrays.
   - Fields: `alive`, `kind` (`ZONE_KIND`), `owner`, `team`, `ability`, `x/y/z`, `radius`, `height`, `timeLeft`, `target`, `other`, `value`, `persist`.
   - Methods: `add(kind, owner, row, x, y, z, seconds)` returns the zone index, `find(kind, owner)`, `remove(zone)`, `removeOwned(id, keepPersistent)`, `clear()`, `inside(zone, id)`.

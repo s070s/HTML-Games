@@ -43,7 +43,7 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 ## Powerups (12b)
 
 - `Powerups.give(id, row, timeLeft)` -> bool, `Powerups.has(id, key)`, `Powerups.ticksLeft(id, row)`, `Powerups.clearActor(id, drop)`, `Powerups.souls[id]`.
-- Writes the shared hooks `Move.statusSpeedScale`, `Weapons.rateScale`, `Weapons.freeAmmo`, `Items.noArmor`, `ACTOR_FLAG.INVISIBLE` (only clears the flag when it set it), and chains `Render.actorStyle` (tint, glow, cloak shimmer). Damage hooks: `Damage.addAttackerScale` (damage, melee, fodder melee) and `Damage.addReducer` (invulnerable, immune kinds, taken scale, belt absorb).
+- Keeps the speed and fire rate factors `Powerups.speedScale` / `Powerups.rateScale`, which `Buffs.applyScales` (12f, the single writer) multiplies into `Move.statusSpeedScale` / `Weapons.rateScale`; writes the shared hooks `Weapons.freeAmmo`, `Items.noArmor`, `ACTOR_FLAG.INVISIBLE` (only clears the flag when it set it), and chains `Render.actorStyle` (tint, glow, cloak shimmer). Damage hooks: `Damage.addAttackerScale` (damage, melee, fodder melee) and `Damage.addReducer` (invulnerable, immune kinds, taken scale, belt absorb).
 - A timed powerup given while `Sim.tick` is T works for exactly `duration` steps: the step of tick T + duration removes it before movement.
 - G08: while the `freeze` status holds a PU04 holder, the cloak is off (`ACTOR_FLAG.INVISIBLE` cleared, `Items.perceptionScale` 1); it comes back when the freeze ends. Abilities should refuse teleports while `Damage.hasStatus(id, 'freeze')`.
 - Death drops the droppable powerups with their time left (at least 5 s); death, `match.end` and `match.stop` remove everything.

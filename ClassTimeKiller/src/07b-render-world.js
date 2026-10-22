@@ -37,6 +37,38 @@ const WorldMesh = {
 };
 CAT.materials.forEach((row, index) => WorldMesh.materialIndex.set(row.id, index));
 
+// ---- X37 Lights Out (rules.fx.darkness): dense black fog, no sun or map lights, flashlights only ----
+const DARK_VIEW_METERS = 22;             // the fog is full at this distance
+const DARK_LIGHT_SCALE = 0.05;           // what is left of the sun and the ambient light
+const DARK_FOG_COLOR = 0x05070a;
+const FLASHLIGHT_AHEAD = 3;              // the light sits this far in front of the eye along the view
+const FLASHLIGHT_RADIUS = 11;
+const FLASHLIGHT_COLOR = 0xfff0d8;
+const FLASHLIGHT_SECONDS = 0.1;          // renewed every frame, so it never fades
+const flashlightAim = Vec.make();
+function matchDarkness() {
+  const rules = Game.match && Game.match.rules;
+  return !!(rules && rules.fx && rules.fx.darkness);
+}
+function darkenFrame(frame) {
+  for (let i = 0; i < 3; i++) {
+    frame.sunColor[i] *= DARK_LIGHT_SCALE; frame.ambientSky[i] *= DARK_LIGHT_SCALE; frame.ambientGround[i] *= DARK_LIGHT_SCALE;
+  }
+  writeColor(frame.fogColor, 0, DARK_FOG_COLOR);
+  writeColor(WorldMesh.skyTop, 0, DARK_FOG_COLOR);
+  writeColor(WorldMesh.skyHorizon, 0, DARK_FOG_COLOR);
+}
+// Every living, visible actor carries a flashlight along its view; the dynamic light cap (REN-004) keeps the nearest ones.
+function updateFlashlights() {
+  if (!matchDarkness()) return;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.NONE || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
+    Vec.fromAngles(flashlightAim, Actors.yaw[id], Actors.pitch[id]);
+    Fx.light(Actors.x[id] + flashlightAim.x * FLASHLIGHT_AHEAD, Actors.eyeY(id) + flashlightAim.y * FLASHLIGHT_AHEAD,
+      Actors.z[id] + flashlightAim.z * FLASHLIGHT_AHEAD, FLASHLIGHT_COLOR, FLASHLIGHT_RADIUS, FLASHLIGHT_SECONDS);
+  }
+}
+
 // ---- Theme: palette, sun, ambient, fog (MAP-022) ----
 function applyTheme(themeId) {
   const theme = CAT.themes.byId(themeId) || CAT.themes[0];
@@ -55,6 +87,7 @@ function applyTheme(themeId) {
   writeColor(WorldMesh.skyTop, 0, theme.skyTop);
   writeColor(WorldMesh.skyHorizon, 0, theme.skyHorizon);
   CAT.materials.forEach((row, index) => writeMaterial(row, index, theme));
+  if (matchDarkness()) darkenFrame(frame);
 }
 
 function writeMaterial(row, index, theme) {
@@ -388,7 +421,7 @@ function makeBake(map, brushes) {
   let topY = -Infinity, bottomY = Infinity;
   for (const brush of brushes) { topY = Math.max(topY, brush.maxY); bottomY = Math.min(bottomY, brush.minY); }
   return { brushes, grid: makeBrushGrid(brushes), seen: new Uint32Array(brushes.length), stamp: 0, topY, bottomY,
-    lights: readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
+    lights: matchDarkness() ? [] : readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
 }
 
 // Builds the CPU-side world mesh from the brush list; returns the chunk list (also used by the self-test).
@@ -641,7 +674,11 @@ function drawWorld(gl) {
 Render.addPass(20, drawWorld);
 
 // Fog follows the active quality's view distance (REN-001 distance fog; the far plane sits just behind it).
-Render.addUpdate(5, () => { Render.frame.fogDensity = FOG_FULL_AT_VIEW * WorldMesh.fogScale / Render.quality.viewDistance; });
+Render.addUpdate(5, () => {
+  const dark = matchDarkness(), view = dark ? Math.min(DARK_VIEW_METERS, Render.quality.viewDistance) : Render.quality.viewDistance;
+  Render.frame.fogDensity = FOG_FULL_AT_VIEW * (dark ? 1 : WorldMesh.fogScale) / view;
+});
+Render.addUpdate(45, updateFlashlights);   // before the lights are copied into the frame (50)
 
 // ---- Sky: full-screen gradient + sun disc, drawn first with depth off ----
 const SKY_FRAGMENT = `#version 300 es
