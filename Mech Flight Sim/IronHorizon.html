@@ -13223,8 +13223,76 @@ const UI = {
    BUILT-IN SELF-TEST (math, data validation, damage rules, lifecycle)
    Run from Help > "Run built-in self-test" or __IH.selfTest() in the console.
    ===================================================================== */
+/* base terrain fingerprints of the original battlefields: missions m1-m8 are built on these heights, so they must never change */
+const TERRAIN_GOLDEN = { ashfall: 189128124, verdant: 1221832613, frost: 1585262179 };
+const TERRAIN_HASH_STRIDE = 37;   // fingerprint every 37th grid height
+/* a save written by the game before the Living World update (version 1, every key it used); it must keep loading */
+const SAVE_FIXTURE_V1 = {
+  v: 1,
+  settings: { master: 0.5, music: 0.3, sfx: 1, ui: 0.6, sens: 1.4, smoothing: 0.2, invertY: true, pointerLock: false, uiScale: 1.2, reducedMotion: true, flightMode: 'direct', flightAssist: false, quality: 'high', fov: 80, showFps: true, tutorialMech: true, tutorialGround: true, tutorialAir: false, difficulty: 'elite', highContrast: true, autoTarget: false, aimAssist: false, lives: '3' },
+  bindings: { moveForward: 'KeyW', moveBack: 'KeyS', moveLeft: 'KeyA', moveRight: 'KeyD', fire1: 'Mouse0', fire2: 'Mouse2', boost: 'ShiftLeft', jump: 'Space', defense: 'KeyQ', melee: 'KeyF', superweapon: 'KeyV', interact: 'KeyE', cycleTarget: 'KeyT', stance: 'KeyC', reload: 'KeyR', weapon1: 'Digit1', weapon2: 'Digit2', gear: 'KeyG', eject: 'KeyX', switchPlatform: 'Tab', pause: 'KeyP' },
+  loadouts: { bulwark: { primaryA: 'acannon', primaryB: 'laser', secondary: 'missile', utility: 'shield' }, kestrel: { primaryA: 'mg', primaryB: 'acannon', secondary: 'aam', utility: 'flares' } },
+  platformId: 'kestrel',
+  best: { m1: { score: 1234, rank: 'A', time: 300, diff: 'veteran' } },
+  skirmishBest: { 'ashfall-small': { waves: 4, score: 900, diff: 'veteran', won: true } },
+  skirmish: { map: 'frost', size: 'medium', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'kestrel', destruction: 'normal', support: 'light', reinforce: 'normal', fog: true, night: true, scarce: false, seed: 777, random: false },
+  career: { kills: 12 },
+  unlocked: [],
+};
+/* scenes timed by __IH.bench(): the busiest battles on every battlefield, plus one flight */
+const BENCH_SCENES = [
+  { id: 'sk-ashfall', map: 'ashfall', platformId: 'bulwark' },
+  { id: 'sk-verdant', map: 'verdant', platformId: 'bulwark' },
+  { id: 'sk-frost', map: 'frost', platformId: 'bulwark' },
+  { id: 'air-ashfall', map: 'ashfall', platformId: 'kestrel' },
+];
+const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
+const BENCH_FRAMES = 150;   // frames timed per scene
+const BENCH_UNTIMED = 10;   // frames drawn before timing starts
+const BENCH_REPEAT = 3;     // runs per scene; the median is reported
+
 const SelfTest = {
   results: [],
+  /* fingerprint of a battlefield's unflattened terrain */
+  terrainHash(mapId) {
+    const g = Terrain.baseGrid(MAPS[mapId]);
+    let h = 2166136261;
+    for (let k = 0; k < g.length; k += TERRAIN_HASH_STRIDE) { h ^= Math.round(g[k] * 1000) & 0xffffffff; h = Math.imul(h, 16777619) >>> 0; }
+    return h;
+  },
+  /* Time whole frames (simulation, camera, render, and a 1-pixel read that waits for the GPU) on each bench scene.
+     Returns one row per scene: { id, avg, p95, max } in ms. Run with __IH.bench(); pass ids to time only some scenes. */
+  bench(ids, opts) {
+    const o = Object.assign({ warm: BENCH_WARM, frames: BENCH_FRAMES, repeat: BENCH_REPEAT }, opts), out = [];
+    const scenes = ids ? BENCH_SCENES.filter((s) => ids.indexOf(s.id) >= 0) : BENCH_SCENES;
+    // other programs on the PC make single runs noisy: report the median of several
+    const median = (rows, k) => rows.map((r) => r[k]).sort((a, b) => a - b)[rows.length >> 1];
+    for (const sc of scenes) {
+      const rows = [];
+      for (let k = 0; k < o.repeat; k++) rows.push(this.benchScene(sc, o));
+      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality });
+    }
+    Game.quitToMenu();
+    return out;
+  },
+  /* one timed run of a bench scene: { avg, p95, max } in ms */
+  benchScene(sc, o) {
+    const gl = R.gl, px = new Uint8Array(4), pid = sc.platformId;
+    const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid });
+    Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish });
+    UI.needResize = true; UI.resizeIfNeeded();
+    for (let i = 0; i < o.warm; i++) Game.tick(STEP);
+    const ms = [];
+    for (let i = -BENCH_UNTIMED; i < o.frames; i++) {   // the first frames upload meshes: draw them untimed
+      const t0 = performance.now();
+      Game.tick(STEP); Cam.update(STEP); Cam.aimRay(); Game.render(STEP);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      if (i >= 0) ms.push(performance.now() - t0);
+    }
+    ms.sort((a, b) => a - b);
+    const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
+    return { avg: +avg.toFixed(2), p95: +ms[Math.floor(ms.length * 0.95)].toFixed(2), max: +ms[ms.length - 1].toFixed(2) };
+  },
   /* superweapon data, unlock rules, charging, firing and the co-op guest replay */
   superChecks() {
     const ns = new Set();
@@ -14633,6 +14701,18 @@ const SelfTest = {
       Civ.draw(); Civ.drawShadows();
       R.endBatch('selftest', 0, 1);
     });
+    t('old saves and battlefields', () => {
+      for (const id in TERRAIN_GOLDEN) this.check('battlefield ' + id + ' keeps its terrain', this.terrainHash(id) === TERRAIN_GOLDEN[id], 'hash ' + this.terrainHash(id));
+      const raw = JSON.parse(JSON.stringify(SAVE_FIXTURE_V1));
+      this.check('a version 1 save is not discarded', raw.v === SAVE_VERSION);
+      const s = Save.sanitize(raw);
+      for (const k in raw.settings) if (SETTING_SCHEMA[k]) this.check('old save keeps setting ' + k, s.settings[k] === raw.settings[k], String(s.settings[k]));
+      this.check('old save keeps its bindings', ['moveForward', 'fire1', 'fire2', 'boost', 'jump', 'interact', 'pause'].every((a) => s.bindings[a] === raw.bindings[a]));
+      this.check('old save keeps its platform and loadouts', s.platformId === 'kestrel' && s.loadouts.bulwark && s.loadouts.bulwark.primaryA === 'acannon' && s.loadouts.kestrel && s.loadouts.kestrel.secondary === 'aam');
+      this.check('old save keeps its records', s.best.m1 && s.best.m1.score === 1234 && s.skirmishBest['ashfall-small'] && s.skirmishBest['ashfall-small'].won === true && s.career.kills === 12);
+      this.check('old save keeps its last battle', s.skirmish && s.skirmish.map === 'frost' && s.skirmish.seed === 777);
+      this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => MAPS[sc.map] && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable));
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -15462,7 +15542,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
