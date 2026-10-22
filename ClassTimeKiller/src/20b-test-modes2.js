@@ -738,3 +738,16 @@ function wipeOutAttackers() {
   return Game.match.ended;
 }
 
+// M26: auto-balance never touches modes that set their sides themselves (params.fixedSides), round after round.
+Test.add('modes2', (check) => {
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'fiends', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }, { dummy: true }, { dummy: true }, { dummy: true }],
+    modeOptions: { rounds: { freeze: 1, endDelay: 1 } } });
+  const ravagers = () => Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === 0 && Actors.maxHealth[id] === 175);
+  check('fiends 1 vs 4: one 175 HP Ravager in round 1', ravagers().length === 1 && Modes.teamSize(0) === 1, ravagers().join());
+  runSeconds(1.01);
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === 1) killActor(id, ravagers()[0]);
+  runSeconds(2.1);
+  check('fiends 1 vs 4: still one Ravager in round 2', Modes.round === 2 && ravagers().length === 1 && Modes.teamSize(0) === 1, Modes.round + ' ' + ravagers().join());
+  endModeTest();
+});

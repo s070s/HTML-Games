@@ -203,9 +203,10 @@ const Modes = {
       if (seen > limit) this.queued[id] = 1;
     }
   },
-  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split stays).
+  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split
+  // stays; params.fixedSides: the mode sets the sides itself, M17 M26).
   balanceTeams() {
-    if (this.rules.teams !== TEAM_COUNT || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
+    if (this.rules.teams !== TEAM_COUNT || this.rules.params.fixedSides || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
     for (let moves = 0; moves < MAX_ACTORS; moves++) {
       const difference = this.teamSize(0) - this.teamSize(1);
       if (Math.abs(difference) <= 1) return;
