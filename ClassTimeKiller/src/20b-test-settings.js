@@ -112,10 +112,10 @@ Test.add('settings', (check) => {
 Test.add('settings', (check) => {
   // ---- Reset to defaults (tab and everything) ----
   for (const key of Settings.definitions.keys()) Settings.set(key, settingTestValue(Settings.definitions.get(key)));
-  resetSettingKeys(settingKeys('hud'));
+  Settings.resetKeys(settingKeys('hud'));
   check('reset: a tab returns to its defaults and leaves the other tabs alone', settingKeys('hud').every((key) => settingTestSame(Settings.get(key), Settings.definitions.get(key).fallback))
     && !settingTestSame(Settings.get('video.fov'), Settings.definitions.get('video.fov').fallback));
-  resetSettingKeys(editableSettingKeys());
+  Settings.resetKeys(editableSettingKeys());
   check('reset: all settings return to their defaults', editableSettingKeys().every((key) => settingTestSame(Settings.get(key), Settings.definitions.get(key).fallback)));
   check('reset: the saved values are gone, not just overwritten', editableSettingKeys().every((key) => Save.data.settings[key] === undefined));
 
@@ -156,12 +156,14 @@ Test.add('settings', async (check) => {
   flushSave();
   check('save: flushSave writes at once (page hide, pause)', counted.writes === 2 && JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 75);
   await uiWait(SETTINGS_SAVE_WAIT_MS);
-  check('save: the flushed change does not write a second time later', counted.writes >= 2);
+  check('save: the flushed change does not write a second time later', counted.writes === 2, counted.writes);
   const broken = makeMemoryStorage(true);
   Save.storage = broken; Save.storageWorks = true; Save.notice = '';
   Settings.set('video.fov', 80);
-  check('save: blocked storage never stops the game from changing settings', Settings.get('video.fov') === 80 && flushSave() === undefined);
-  Save.storageWorks = true; Save.notice = '';
+  let escaped = null;
+  try { flushSave(); } catch (error) { escaped = error; }
+  check('save: blocked storage never stops the game from changing settings', Settings.get('video.fov') === 80 && escaped === null && !Save.storageWorks, escaped);
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
 Test.add('settings', (check) => {

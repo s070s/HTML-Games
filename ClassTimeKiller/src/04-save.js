@@ -119,10 +119,11 @@ const Settings = {
     Save.scheduleSave();
     Bus.emit('setting', key);
   },
-  reset(prefix) {
-    for (const key of this.definitions.keys()) if (!prefix || key.startsWith(prefix)) delete Save.data.settings[key];
+  // The one reset path (a Reset button, the tests): drop the saved values of exactly these keys, then announce each key once.
+  resetKeys(keys) {
+    for (const key of keys) delete Save.data.settings[key];
     Save.scheduleSave();
-    this.applyAll();
+    for (const key of keys) Bus.emit('setting', key);
   },
   applyAll() { for (const key of this.definitions.keys()) Bus.emit('setting', key); },
 };

@@ -1,5 +1,8 @@
 // Self-tests for S01-S04 and the loop: math, RNG, events, actors, data, save, settings, world rays.
 
+// Every defined setting key that starts with the prefix, for Settings.resetKeys in the test files ('video.' after a render test).
+function settingKeysStarting(prefix) { return Array.from(Settings.definitions.keys()).filter((key) => key.startsWith(prefix)); }
+
 Test.add('core', (check) => {
   const v = Vec.fromAngles(Vec.make(), 0, 0);
   check('yaw 0 looks +Z', Test.near(v.z, 1, 1e-6) && Test.near(v.x, 0, 1e-6));
@@ -72,7 +75,7 @@ Test.add('core', (check) => {
   let crashed = false;
   try { Save.load(); Save.saveNow(); } catch (error) { crashed = true; }
   check('save: blocked storage does not crash', !crashed && !Save.storageWorks);
-  Save.storageWorks = true;
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';   // no throwing store for the next block
 });
 
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.

@@ -29,7 +29,7 @@ function editableSettingKeys() {
 }
 Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.confirm({
   title: 'Reset all settings?', text: 'Every setting on every tab returns to its default. Key bindings and your progress stay.', yes: 'Reset',
-  onYes: () => { resetSettingKeys(editableSettingKeys()); refresh(); },
+  onYes: () => { Settings.resetKeys(editableSettingKeys()); refresh(); },
 }), 'danger'));
 
 // ---- Save export and import (ARC-020, PLT-007): the whole save as text to copy or as a file; paste or load one back ----

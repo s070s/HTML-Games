@@ -107,12 +107,6 @@ function settingKeys(category) {
   for (const [key, definition] of Settings.definitions) if (definition.category === category && isEditableSetting(definition)) keys.push(key);
   return keys;
 }
-// Exact keys only (Settings.reset takes a prefix and re-applies everything): drop the saved values, then announce each key once.
-function resetSettingKeys(keys) {
-  for (const key of keys) delete Save.data.settings[key];
-  Save.scheduleSave();
-  for (const key of keys) Bus.emit('setting', key);
-}
 // The tab's keys by group title in first-seen order ('' = no heading); Ui.settingGroup (18l) names the group of a key.
 function groupedSettingKeys(category) {
   const groups = new Map();
@@ -154,7 +148,7 @@ Ui.register('settings', {
     }
     const reset = Ui.button('Reset this tab', () => Ui.confirm({
       title: 'Reset this tab?', text: 'All settings on this tab return to their defaults.', yes: 'Reset',
-      onYes: () => { resetSettingKeys(settingKeys(active)); render(); },
+      onYes: () => { Settings.resetKeys(settingKeys(active)); render(); },
     }));
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(reset);

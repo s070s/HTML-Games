@@ -753,7 +753,7 @@ Test.add('perf', (check) => {
     check('a 16-bot match on Potato fills only the preset\'s 7 bot slots (PERF-009)', bots === PERF_TIER_CAPS.potato.bots, bots);
   } finally {
     Game.stop();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
 });
 
@@ -776,7 +776,7 @@ Test.add('perf', (check) => {
     check('an actor step walks the brush tree about once (gathered lists reused within the step)', actorSteps > 0 && perActorStep < PERF_GATHER_WALKS_PER_ACTOR_STEP, perActorStep.toFixed(2));
   } finally {
     Game.stop();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
 });
 
@@ -809,7 +809,7 @@ Test.add('perf', async (check) => {
     check('__CTK.perf.report() returns the last recording', DebugApi.perf.report() === report);
   } finally {
     perfStopScene();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
   check('stopping the scene ends the match and clears its kits', !Game.isRunning() && PerfScene.row === null && PerfScene.kits === null);
 });

@@ -126,7 +126,7 @@ async function withRenderer(run) {
     GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
     Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
-    Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.reset('video.');
+    Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.resetKeys(settingKeysStarting('video.'));
   }
 }
 
