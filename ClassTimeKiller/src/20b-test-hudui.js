@@ -250,7 +250,8 @@ Test.add('hudui', (check) => {
   Input.device = 'touch';
   updateHudLayout(layout, 844, 390);
   Input.device = savedDevice;
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, hudPveTop(layout));
+  hudPvePlaceRows(layout);
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, hudPveAt[0]);
   const rangeBottom = top + hudPveSideRow(layout) * 11.4;
   check('pve hud on a phone: the range table ends left of the crosshair', left >= layout.left && left + width < layout.centerX, [left, width]);
   check('pve hud on a phone: no touch button over the range table', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom) === '', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom));
