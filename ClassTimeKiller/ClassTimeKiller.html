@@ -263,7 +263,7 @@ function makeGridWalk() { return { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nex
 const BTN = {
   FIRE: 1 << 0, ALT: 1 << 1, JUMP: 1 << 2, CROUCH: 1 << 3, SPRINT: 1 << 4, RELOAD: 1 << 5, USE: 1 << 6,
   ABILITY1: 1 << 7, ABILITY2: 1 << 8, ULTIMATE: 1 << 9, GRENADE: 1 << 10, MELEE: 1 << 11, GADGET: 1 << 12,
-  PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17,
+  PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17, HEAL: 1 << 18,
 };
 
 const STAND_HEIGHT = 1.8;
@@ -613,6 +613,7 @@ Data.define('materials', { id: REQUIRED, name: REQUIRED, pattern: 'noise', scale
   { id: 'glass', name: 'Glass', pattern: 'panels', scale: 0.4, colorA: '#7fa9c4', colorB: '#5c86a3', shine: 1 },
   { id: 'water', name: 'Water', pattern: 'noise', scale: 0.3, colorA: '#2f5d70', colorB: '#3f7890', shine: 1 },
   { id: 'hazard', name: 'Hazard stripes', pattern: 'stripes', scale: 2, colorA: '#e8b02a', colorB: '#26231f' },
+  { id: 'grip', name: 'Grip wall', pattern: 'grid', scale: 2, colorA: '#4f7a5a', colorB: '#2e4a36' },   // MV05 climbs only this (climbGripOnly)
   { id: 'trim', name: 'Trim', pattern: 'flat', scale: 1, colorA: '#c0602a', colorB: '#8a4420' },
   { id: 'light', name: 'Light panel', pattern: 'glow', scale: 1, colorA: '#3a3a3a', colorB: '#fff1cc', emissive: 1 },
 ]);
@@ -827,6 +828,7 @@ function recoilYawShape(shape, shot, climbing) {
 }
 CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 
+const EXPLOSIVE_ALT_ARM = 6;   // WPN-011: explosive alt fires arm at 6 m
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
   fuse: 0, stick: false, stickActor: false, homing: 0, drag: 0, arm: 0, onHit: 'damage', poolSize: 16, roll: false, ownerSafe: false,
@@ -845,7 +847,7 @@ Data.define('projectiles', {
   { id: 'disc', code: 'P11', name: 'Disc', speed: 35, life: 3, radius: 0.15, bounce: 1, bounces: 2, onHit: 'damage', poolSize: 32, color: 0xc8f0ff },
   { id: 'fusion', code: 'P12', name: 'Fusion orb', speed: 6, gravity: 20, life: 2, fuse: 2, radius: 0.5, roll: true, ownerSafe: true, onHit: 'explode', poolSize: 4, color: 0xffee88, scale: 0.8 },
   { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, incoming: true, color: 0xf0f0f0 },
-  { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: 6, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
+  { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: EXPLOSIVE_ALT_ARM, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
   { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, incoming: true, color: 0xffa060 },
   { id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 180, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
@@ -862,7 +864,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, noise: -1, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, noise: -1, arm: 0, weapon: '', family: null,
 };
 
 const WEAPON_SCHEMA = {
@@ -934,12 +936,12 @@ const WEAPON_ROWS = [
     alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
   { id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, recoil: 'launcher' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
   { id: 'frostbore', code: 'W22', name: 'Frostbore', class: 'shotgun', moveMult: 0.93, mag: 8, reserve: 32, altAmmo: 20, price: 1500, killReward: 900, botPref: { range: [0, 10], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 8, rate: 1.2, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.4] },
     alt: { type: 'hitscan', trigger: 'semi', damage: 4, pellets: 6, rate: 1, spreadDeg: 7, ammo: 'alt', ammoPerShot: 5, range: 12, status: { id: 'chill', stacks: 3 }, element: 'cryo' } },
   { id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, pierce: 4, recoil: 'marksman', element: 'arc' },
+    primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
@@ -949,10 +951,10 @@ const WEAPON_ROWS = [
     alt: { type: 'zoom', zoom: 3 } },
   { id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, recoil: 'launcher' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
   { id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
     primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.8, min: 40, max: 110, speed: [40, 70] } },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, noise: 60 } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
   { id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
     primary: { type: 'hitscan', damage: 10, rate: 18, spinUp: 0.5, spreadDeg: 1.6, moveSpread: 1.5, recoil: 'minigun' },
     alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
@@ -985,7 +987,7 @@ const WEAPON_ROWS = [
     alt: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 1.5, ammoPerShot: 5, range: 30, chain: { targets: 3, radius: 6 }, element: 'arc' } },
   { id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 } } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
   { id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
     alt: { type: 'cone', trigger: 'semi', damage: 40, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
@@ -1076,7 +1078,7 @@ Data.define('health', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, health: 100, maxHealth: 100, overhealCap: 100, overhealDecay: 0,
   armor: 0, armorCap: 0, armorDecayAbove: 0, armorDecay: 0, armorMode: 'none', armorAbsorb: 0, armorFlat: 0, armorFlatMax: 0, helmet: false,
   shield: 0, shieldCap: 0, shieldDelay: 0, shieldRate: 0, shieldIgnoresZone: false,
-  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false,
+  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false, triangle: false,
 }, [
   { id: 'stack', code: 'HPP01', name: 'Arena Stack', overhealCap: 200, overhealDecay: 1, armorCap: 200, armorDecayAbove: 100, armorDecay: 1, armorMode: 'absorb', armorAbsorb: 2 / 3 },
   { id: 'regen', code: 'HPP02', name: 'Regenerating', regenDelay: 5, regenRate: 25 },
@@ -1084,7 +1086,7 @@ Data.define('health', {
   { id: 'tactical', code: 'HPP04', name: 'Tactical One-Life', armorCap: 100, armorMode: 'tactical', helmet: false },
   { id: 'hero', code: 'HPP05', name: 'Hero Pools', health: 200, maxHealth: 200, overhealCap: 200, armorMode: 'flat', armorFlat: 5, armorFlatMax: 0.5, shieldDelay: 3, shieldRate: 30, roleRegen: { role: 'support', delay: 1.5, rate: 15 } },
   { id: 'loot', code: 'HPP06', name: 'Loot Shields', shieldCap: 125, downed: true },
-  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', overhealCap: 200, armorCap: 150, armorMode: 'absorb', armorAbsorb: 0.5 },
+  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', armor: 50, armorCap: 50, armorMode: 'absorb', armorAbsorb: 0.5, triangle: true },   // PU20 shards raise the caps to 200/150
   { id: 'suit', code: 'HPP08', name: 'Weave Suit', regenDelay: 6, regenRate: 20, energy: { max: 100, rate: 25, delay: 2 } },
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);
@@ -1144,21 +1146,21 @@ const RULESET_ROWS = [
   { id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
   { id: 'tourney', code: 'RS02', name: 'Arena Tournament', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'adrenaline', moveOverrides: { extraJumps: 1, wallDodge: true } },
   { id: 'tactical', code: 'RS03', name: 'Tactical Breach', move: 'tactical', health: 'tactical', economy: 'roundBuy', precision: 'tactical', weaponSet: 'tacticalSet', meter: 'none' },
-  { id: 'modern', code: 'RS04', name: 'Modern Ops', move: 'modern', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'streak' },
-  { id: 'pilot', code: 'RS05', name: 'Pilot Rush', move: 'agile', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'boost' },
+  { id: 'modern', code: 'RS04', name: 'Modern Ops', move: 'modern', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'streak', downed: true },
+  { id: 'pilot', code: 'RS05', name: 'Pilot Rush', move: 'agile', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'boost', downed: true },
   { id: 'vanguard', code: 'RS06', name: 'Shield Wars', move: 'vanguard', health: 'shield', economy: 'pickups', precision: 'standard', weaponSet: 'sandboxSet', meter: 'none' },
   { id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'ravagerSet', meter: 'none' },
   { id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'knightSet', meter: 'none' },
-  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate' },
+  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true },
   { id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'none' },
   { id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'militarySet', meter: 'energy' },
-  { id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy' },
+  { id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy', downed: true },
 ];
 
 Data.define('rulesets', {
   id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet',
   meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
-  lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, editor: null,
+  lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, downed: false, editor: null,
 }, RULESET_ROWS);
 
 // ==== 03f-data-modes.js ====
@@ -1190,13 +1192,13 @@ Data.define('modes', {
   { id: 'control', code: 'M12', name: 'Uplink', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
   { id: 'bomb', code: 'M13', name: 'Detonate', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'elim', code: 'M14', name: 'Last Squad', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
-  { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'boots' } },
+  { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 18, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
   { id: 'royale', code: 'M20', name: 'Last Ring', useButton: true, teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
-    ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], pickups: false, shieldByRarity: [50, 75, 100, 125, 125], lootHeal: 50 }, ruleset: 'royale' },
+    ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], pickups: false, shieldByRarity: [50, 75, 100, 125, 125] }, ruleset: 'royale' },
   { id: 'horde', code: 'M21', name: 'Siege Waves', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, waves: 10, miniBossWave: 5, bossWave: 10, retries: 2, souls: true }, family: 'pve', ruleset: 'modern' },
   { id: 'endless', code: 'M22', name: 'Endless Hold', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { scalePerWave: 0.08, scaleCap: 4, extractEvery: 5, souls: true }, family: 'pve', ruleset: 'modern' },
   { id: 'bank', code: 'M23', name: 'Mote Rush', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'objective', objective: 'bank', params: { blockerAt: [5, 10, 15], invasionAt: 50, bossAt: 100 }, family: 'pve', ruleset: 'modern' },
@@ -1204,7 +1206,7 @@ Data.define('modes', {
   { id: 'roulette', code: 'M25', name: 'Roulette Arms', teams: 0, sizeDefault: 8, scoreLimit: 25, timeLimit: 600, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
   { id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: { ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
   { id: 'ghostops', code: 'M27', name: 'Ghost Ops', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
-  { id: 'contract', code: 'M28', name: 'Silent Contract', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
+  { id: 'contract', code: 'M28', name: 'Silent Contract', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { stealth: true, ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
   { id: 'attrition', code: 'M29', name: 'Attrition', teams: 2, sizeDefault: 8, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
   { id: 'range', code: 'M30', name: 'Firing Range', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo' },
   { id: 'puzzle', code: 'M31', name: 'Test Chambers', useButton: true, teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo', ruleset: 'modern' },
@@ -1726,7 +1728,7 @@ Data.define('meters', {
 ]);
 
 Data.define('perks', {
-  id: REQUIRED, name: REQUIRED, tier: REQUIRED, text: REQUIRED, stats: {}, dealt: 1, taken: 1, cancels: '', flag: '', value: 0,
+  id: REQUIRED, name: REQUIRED, tier: REQUIRED, text: REQUIRED, stats: {}, dealt: 1, taken: 1, cancels: '', flag: '', value: 0, weapon: '',
 }, [
   { id: 'scavenger', name: 'Scavenger', tier: 1, text: 'Ammo from every kill', flag: 'scavenger', value: 0.5 },
   { id: 'bandolier', name: 'Bandolier', tier: 1, text: '+50% reserve ammo', stats: { reserve: 1.5 } },
@@ -1739,7 +1741,7 @@ Data.define('perks', {
   { id: 'marathon', name: 'Marathon', tier: 3, text: 'Sprint twice as long', flag: 'marathon', value: 2 },
   { id: 'steady', name: 'Steady', tier: 3, text: '-30% hip-fire spread', stats: { spread: 0.7 } },
   { id: 'quietstep', name: 'Quietstep', tier: 3, text: 'Silent footsteps', flag: 'quiet' },
-  { id: 'laststand', name: 'Last Stand', tier: 3, text: 'Pistol while downed (team modes)', flag: 'lastStand' },
+  { id: 'laststand', name: 'Last Stand', tier: 3, text: 'Pistol while downed (team modes)', flag: 'lastStand', weapon: 'warden' },
 ]);
 
 Data.define('classes', {
@@ -2215,23 +2217,23 @@ const CARD_REFUND = 0.5;
 const CARD_HARD_DIFFICULTY = 'skilled';
 const CARD_ROWS = [
   { id: 'stoneskin', code: 'C01', name: 'Stoneskin', type: 'active', cost: 100, versus: true, effect: { kind: 'takenScale', value: 0.5 }, text: 'Damage taken x0.5.', unlock: { metric: 'pveFinished', op: '>=', value: 1, text: 'Finish any PvE level.' } },
-  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'propsLeft', op: '==', value: 0, text: 'Destroy all props in a level.' } },
+  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'damageTaken', op: '==', value: 0, text: 'Finish a level without taking damage.' } },
   { id: 'soulkeep', code: 'C03', name: 'Soulkeep', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulLife', value: 3 }, text: 'Souls last x3.', unlock: { metric: 'enemiesLeft', op: '==', value: 0, text: 'Kill all enemies in a level.' } },
   { id: 'longwick', code: 'C04', name: 'Longwick', type: 'passive', cost: 100, versus: true, effect: { kind: 'activeSeconds', value: 10 }, text: 'Active cards last 10 s longer.', unlock: { metric: 'marks', op: '>=', value: 500, text: 'Collect 500 Marks in a level.' } },
   { id: 'blessing', code: 'C05', name: 'Hale Start', type: 'passive', cost: 200, versus: true, effect: { kind: 'startHealth', value: 150 }, text: 'Start with 150 HP.', unlock: { metric: 'bossSeconds', op: '<', value: 120, text: 'Defeat a boss in under 2:00.' } },
   { id: 'refill', code: 'C06', name: 'Deep Pockets', type: 'passive', cost: 500, versus: true, effect: { kind: 'ammoPickup', value: 2 }, text: 'Ammo pickups give twice as much.', unlock: { metric: 'explosiveShots', op: '==', value: 0, text: 'Finish a level without explosives.' } },
   { id: 'fleet', code: 'C07', name: 'Fleetfoot', type: 'active', cost: 100, versus: true, effect: { kind: 'speed', value: 1.3 }, text: 'Speed x1.3.', unlock: { metric: 'souls', op: '>=', value: 100, text: 'Collect 100 souls in a level.' } },
   { id: 'fury2', code: 'C08', name: 'Twin Fury', type: 'active', cost: 200, versus: true, effect: { kind: 'damage', value: 2 }, text: 'Damage x2.', unlock: { metric: 'rangedKills', op: '==', value: 0, minKills: 1, text: 'Finish a level with melee kills only.' } },
-  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'secretsLeft', op: '==', value: 0, text: 'Find all secrets in a level.' } },
+  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'airKills', op: '>=', value: 10, text: 'Get 10 kills in the air in a level.' } },
   { id: 'rapid', code: 'C10', name: 'Rapid Hands', type: 'active', cost: 300, versus: true, effect: { kind: 'rate', value: 2 }, text: 'Fire rate x2.', unlock: { metric: 'bossSeconds', op: '<', value: 240, text: 'Defeat a boss in under 4:00.' } },
   { id: 'magnet', code: 'C11', name: 'Soul Magnet', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulMagnet', value: 15 }, text: 'Souls fly to you from 15 m.', unlock: { metric: 'souls', op: '==', value: 0, text: 'Finish a level without collecting souls.' } },
   { id: 'encore', code: 'C12', name: 'Encore', type: 'passive', cost: 1000, versus: true, effect: { kind: 'activeUses', value: 2 }, text: 'Active cards can be used twice.', unlock: { metric: 'wrathKills', op: '>=', value: 30, text: 'Get 30 kills in Wrath Form.' } },
-  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'optionalLeft', op: '==', value: 0, text: 'Kill every optional spawn in a level.' } },
+  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'kills', op: '>=', value: 150, deaths: 0, text: 'Get 150 kills in a level without dying.' } },
   { id: 'ironwill', code: 'C14', name: 'Iron Will', type: 'active', cost: 666, versus: false, effect: { kind: 'invulnerable', value: 1 }, text: 'Invulnerable.', unlock: { metric: 'bossSeconds', op: '<', value: 80, text: 'Defeat a boss in under 1:20.' } },
-  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'secretsLeft', op: '==', value: 0, deaths: 0, text: 'Find all secrets without dying.' } },
+  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'headshots', op: '>=', value: 30, deaths: 0, text: 'Land 30 headshots in a level without dying.' } },
   { id: 'hardy', code: 'C16', name: 'Hardy', type: 'passive', cost: 100, versus: true, effect: { kind: 'baseHealth', value: 150 }, text: 'Base HP 150.', unlock: { metric: 'armorPickups', op: '==', value: 0, text: 'Finish a level without armor pickups.' } },
   { id: 'freecards', code: 'C17', name: 'Patron', type: 'passive', cost: 0, versus: true, effect: { kind: 'freePlacement', value: 1 }, text: 'Cards are placed for free.', unlock: { metric: 'cardsEquipped', op: '==', value: 0, text: 'Finish a level with no cards.' } },
-  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'secretsLeft', op: '==', value: 0, hard: true, text: 'Find all secrets on a hard difficulty.' } },
+  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'lowestHealth', op: '<=', value: 10, deaths: 0, hard: true, text: 'Survive a level at 10 HP or less on a hard difficulty.' } },
   { id: 'discord', code: 'C19', name: 'Discord', type: 'active', cost: 200, versus: false, effect: { kind: 'discord', value: 15 }, text: 'Enemies fight each other for 15 s.', unlock: { metric: 'wrathForms', op: '>=', value: 3, text: 'Enter Wrath Form 3 times in a level.' } },
   { id: 'redeemer', code: 'C20', name: 'Soul Feast', type: 'passive', cost: 1000, versus: false, effect: { kind: 'soulHeal', value: 2 }, text: 'Souls heal twice as much.', unlock: { metric: 'lowestHealth', op: '>', value: 50, text: 'Keep HP above 50 for a whole level.' } },
   { id: 'endless', code: 'C21', name: 'Endless Clip', type: 'active', cost: 300, versus: true, effect: { kind: 'noAmmoUse', value: 1 }, text: 'Shots use no ammo.', unlock: { metric: 'kills', op: '<=', value: 88, minKills: 1, text: 'Finish a level with 88 kills or fewer.' } },
@@ -2288,30 +2290,35 @@ const CHALLENGE_STARS = [10000, 20000, 30000];
 const CHALLENGE_EXPERT_STARS = 2;
 const CHALLENGE_DIFFICULTY = { normal: 'regular', expert: 'veteran' };   // bot sliders of a normal / Expert room
 const CHALLENGE_KINDS = ['timeTrial', 'killChain', 'waveSurvival', 'dropKill', 'ghostRun', 'accuracy'];
+const CHALLENGE_EXPERT_MUTATORS = {
+  timeTrial: ['nopowerups', { id: 'dmgin', value: 150 }], killChain: [{ id: 'dmgin', value: 150 }, 'nopowerups'],
+  waveSurvival: ['nopowerups', 'lastgift'], dropKill: ['suppression', 'nopowerups'],
+  ghostRun: ['suppression', { id: 'dmgin', value: 150 }], accuracy: ['suppression', 'nopowerups'],
+};
 Data.define('challenges', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, group: 1, mode: REQUIRED, map: REQUIRED, bots: REQUIRED, tier: 0,
   options: {}, mutators: [], par: 0, points: REQUIRED, stars: CHALLENGE_STARS, expertTier: 2, expert: [], text: '',
 }, [
-  { id: 'sprint', code: 'CR01', name: 'Spire Sprint', kind: 'timeTrial', mode: 'ffa', map: 'spire', bots: 3, tier: 0, options: { scoreLimit: 5, timeLimit: 300 }, par: 150, points: { kills: 2000, underPar: 100 }, text: 'Five kills, as fast as you can.' },
+  { id: 'sprint', code: 'CR01', name: 'Spire Sprint', kind: 'timeTrial', mode: 'ffa', map: 'spire', bots: 3, tier: 0, options: { scoreLimit: 5, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 220 }, text: 'Five kills, as fast as you can.' },
   { id: 'chainYard', code: 'CR02', name: 'Yard Chain', kind: 'killChain', mode: 'ffa', map: 'skyyard', bots: 5, tier: 0, options: { scoreLimit: 12, timeLimit: 300 }, points: { bestStreak: 2500, kills: 500 }, text: 'Build the longest chain of kills without dying.' },
   { id: 'holdout', code: 'CR03', name: 'Holdout', kind: 'waveSurvival', mode: 'ffa', map: 'gantry', bots: 6, tier: 0, options: { scoreLimit: 0, timeLimit: 300 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1200, seconds: 40, won: 6000 }, text: 'Three lives. Outlast everyone.' },
   { id: 'dropZone', code: 'CR04', name: 'Drop Zone', kind: 'dropKill', mode: 'ffa', map: 'gantry', bots: 4, tier: 0, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['multijump'], points: { airKills: 3000, kills: 500 }, text: 'Kills while airborne count most.' },
-  { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 400 }, text: 'Every miss costs you points.' },
-  { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 2500, damageTaken: -30, underPar: 60 }, text: 'Win without getting hit.' },
-  { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 1500, underPar: 90 }, text: 'Eight kills against the clock.' },
+  { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 500 }, text: 'Every miss costs you points.' },
+  { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 3500, damageTaken: -30, underPar: 110 }, text: 'Win without getting hit.' },
+  { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 2500, underPar: 110 }, text: 'Eight kills against the clock.' },
   { id: 'chainKeeps', code: 'CR08', name: 'Keep Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
-  { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1500, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
+  { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1900, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
   { id: 'lastLight', code: 'CR10', name: 'Last Light', kind: 'waveSurvival', group: 2, mode: 'ffa', map: 'skyyard', bots: 7, tier: 1, options: { scoreLimit: 0, timeLimit: 360 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 35, won: 7000 }, text: 'Last one standing on the yard.' },
   { id: 'skyDuel', code: 'CR11', name: 'Sky Duel', kind: 'dropKill', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['aircontrol', 'multijump'], points: { airKills: 3200, kills: 400 }, text: 'Take the fight to the air.' },
-  { id: 'oneShot', code: 'CR12', name: 'One Shot', kind: 'accuracy', group: 3, mode: 'ffa', map: 'gantry', bots: 5, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['oneshot'], points: { accuracy: 18000, kills: 900 }, text: 'One-shot rails: do not miss.' },
-  { id: 'shadowYard', code: 'CR13', name: 'Shadow Yard', kind: 'ghostRun', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 8, timeLimit: 300 }, par: 210, points: { kills: 2000, damageTaken: -25, underPar: 60 }, text: 'Strike from the shadows and stay unhurt.' },
-  { id: 'duelRush', code: 'CR14', name: 'Duel Rush', kind: 'timeTrial', group: 3, mode: 'duel', map: 'spire', bots: 1, tier: 2, options: { scoreLimit: 7, timeLimit: 300 }, par: 150, points: { kills: 2000, underPar: 100, deaths: -800 }, text: 'Seven kills in a duel, fast.' },
+  { id: 'oneShot', code: 'CR12', name: 'One Shot', kind: 'accuracy', group: 3, mode: 'ffa', map: 'gantry', bots: 5, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['oneshot'], points: { accuracy: 18000, kills: 1300 }, text: 'One-shot rails: do not miss.' },
+  { id: 'shadowYard', code: 'CR13', name: 'Shadow Yard', kind: 'ghostRun', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 8, timeLimit: 300 }, par: 210, points: { kills: 2800, damageTaken: -25, underPar: 80 }, text: 'Strike from the shadows and stay unhurt.' },
+  { id: 'duelRush', code: 'CR14', name: 'Duel Rush', kind: 'timeTrial', group: 3, mode: 'duel', map: 'spire', bots: 1, tier: 2, options: { scoreLimit: 7, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 130, deaths: -800 }, text: 'Seven kills in a duel, fast.' },
   { id: 'packHunt', code: 'CR15', name: 'Pack Hunt', kind: 'killChain', group: 3, mode: 'ffa', map: 'skyyard', bots: 7, tier: 2, options: { scoreLimit: 20, timeLimit: 420 }, points: { bestStreak: 2000, kills: 400 }, text: 'A crowd to chain through.' },
   { id: 'ironRing', code: 'CR16', name: 'Iron Ring', kind: 'waveSurvival', group: 4, mode: 'ffa', map: 'gantry', bots: 8, tier: 3, options: { scoreLimit: 0, timeLimit: 420 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 30, won: 8000 }, text: 'Eight tough rivals, three lives.' },
   { id: 'freefall', code: 'CR17', name: 'Freefall', kind: 'dropKill', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 12, timeLimit: 360 }, mutators: ['gravity'], points: { airKills: 2800, kills: 500 }, text: 'Low gravity, long falls.' },
   { id: 'headHunter', code: 'CR18', name: 'Head Hunter', kind: 'accuracy', group: 4, mode: 'ffa', map: 'skyyard', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['headonly'], points: { headshots: 2000, accuracy: 10000 }, text: 'Only headshots hurt.' },
-  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 360 }, par: 240, points: { kills: 1800, damageTaken: -20, underPar: 50 }, text: 'Ten kills, untouched.' },
-  { id: 'gauntlet', code: 'CR20', name: 'The Gauntlet', kind: 'timeTrial', group: 4, mode: 'ffa', map: 'skyyard', bots: 7, tier: 3, options: { scoreLimit: 12, timeLimit: 420 }, par: 300, points: { kills: 1300, underPar: 60, deaths: -1000 }, text: 'Twelve kills against the best, against the clock.' },
+  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 360 }, par: 240, points: { kills: 2300, damageTaken: -20, underPar: 70 }, text: 'Ten kills, untouched.' },
+  { id: 'gauntlet', code: 'CR20', name: 'The Gauntlet', kind: 'timeTrial', group: 4, mode: 'ffa', map: 'skyyard', bots: 7, tier: 3, options: { scoreLimit: 12, timeLimit: 420 }, par: 300, points: { kills: 1800, underPar: 70, deaths: -1000 }, text: 'Twelve kills against the best, against the clock.' },
 ]);
 
 const OPERATION_TICKETS = { base: 60, carry: 0.5, cap: 120, deathCost: 1 };
@@ -2330,6 +2337,7 @@ const DAILY_RULES = {
   rulesets: ['classic', 'tourney', 'modern', 'pilot', 'vanguard'],
   mutators: ['gravity', 'playerspeed', 'vampire', 'bighead', 'infammo', 'regen', 'noself', 'multijump', 'knockback', 'slowmokills', 'aircontrol', 'colossal', 'weaponstay', 'tags'],
   mutatorCount: 2, bots: 5, difficulty: 'regular', historyDays: 60,   // bots: fixed, inside the lowest quality preset's cap (7)
+  mapSize: 'small',   // generated map size: the one size every quality tier allows, so every device builds the same map
   points: { kills: 500, score: 100, headshots: 200, deaths: -150, won: 3000 },
 };
 
@@ -2516,6 +2524,7 @@ const ACTION_ROWS = [
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
+  { id: 'heal', label: 'Use heal / shield item', group: 'Combat', button: BTN.HEAL, kbm: ['Key:KeyH'] },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
   { id: 'ultimate', label: 'Ultimate', group: 'Abilities', button: BTN.ULTIMATE, kbm: ['Key:KeyX'], pad: 'Pad:12' },
@@ -2922,6 +2931,7 @@ const Input = {
     this.pendingButtons = 0; this.pendingSlot = 0; this.queued.fill(0); this.queuedTotal = 0;
     this.autoFireTarget = false;
   },
+  setAim(yaw, pitch) { this.aim.yaw = yaw; this.aim.pitch = pitch; },
   syncAim(id) {
     const aim = this.aim;
     if (aim.playerId === id && aim.spawnCount === Actors.spawnCount[id]) return;
@@ -3098,6 +3108,7 @@ const TOUCH_CONTROLS = [
   { id: 'reload', label: 'Reload', face: 'RELOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
   { id: 'swap', label: 'Swap weapon', face: 'SWAP', action: 'nextWeapon', x: 0.70, y: 0.20, size: 46 },
   { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46 },
+  { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42 },
   { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.14, size: 46 },
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.14, size: 46 },
   { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.14, size: 46 },
@@ -8131,6 +8142,7 @@ function touchTeleporter(id, teleporter) {
   const horizontalSpeed = Math.hypot(Actors.vx[id], Actors.vz[id]);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
+  if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
   Actors.vx[id] = Math.sin(yaw) * horizontalSpeed; Actors.vz[id] = Math.cos(yaw) * horizontalSpeed;
   telefragAt(id);
   emitTrigger(id, teleporter);
@@ -8212,6 +8224,7 @@ const Bodies = {
   halfX: new Float32Array(BODY_CAPACITY), halfY: new Float32Array(BODY_CAPACITY), halfZ: new Float32Array(BODY_CAPACITY),
   mass: new Float32Array(BODY_CAPACITY), rest: new Float32Array(BODY_CAPACITY), age: new Float32Array(BODY_CAPACITY),
   impactClock: new Float32Array(BODY_CAPACITY), color: new Uint32Array(BODY_CAPACITY),
+  impactFactor: new Float32Array(BODY_CAPACITY), impactCap: new Float32Array(BODY_CAPACITY),   // HP per kg*m/s and its cap (W41 launches raise them)
   debrisLimit: BODY_CAPACITY,
   spec: { shape: BODY_SHAPE.SPHERE, kind: BODY_KIND.THROWN, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, halfX: 0.2, halfY: 0.2, halfZ: 0.2, mass: 1, color: 0xffffff, owner: -1 },
 
@@ -8223,6 +8236,7 @@ const Bodies = {
     const sphere = spec.shape === BODY_SHAPE.SPHERE;
     this.halfX[index] = spec.halfX; this.halfY[index] = sphere ? spec.halfX : spec.halfY; this.halfZ[index] = sphere ? spec.halfX : spec.halfZ;
     this.mass[index] = Math.max(0.01, spec.mass); this.rest[index] = 0; this.age[index] = 0; this.impactClock[index] = 0; this.color[index] = spec.color;
+    this.impactFactor[index] = BODY_IMPACT_DAMAGE_PER_MOMENTUM; this.impactCap[index] = BODY_IMPACT_MAX_DAMAGE;
     return index;
   },
   freeSlot(kind) {
@@ -8286,11 +8300,25 @@ const Props = {
     this.health[index] -= amount;
     if (this.health[index] <= 0) this.breakProp(index);
   },
-  breakProp(index) {
-    const brush = this.brushes[index];
-    const listIndex = World.dynamic.indexOf(brush);
+  lift(index, owner, maxMass) {
+    if (!this.isStanding(index) || !this.breakable[index] || this.mass[index] > maxMass) return -1;
+    const brush = this.brushes[index], spec = Bodies.spec;
+    spec.shape = BODY_SHAPE.BOX; spec.kind = BODY_KIND.THROWN; spec.owner = owner; spec.color = this.color[index]; spec.mass = this.mass[index];
+    spec.halfX = (brush.maxX - brush.minX) / 2; spec.halfY = (brush.maxY - brush.minY) / 2; spec.halfZ = (brush.maxZ - brush.minZ) / 2;
+    spec.x = brush.minX + spec.halfX; spec.y = brush.minY + spec.halfY; spec.z = brush.minZ + spec.halfZ;
+    spec.vx = spec.vy = spec.vz = 0;
+    const body = Bodies.spawn(spec);
+    if (body >= 0) this.removeBrush(index);
+    return body;
+  },
+  removeBrush(index) {
+    const listIndex = World.dynamic.indexOf(this.brushes[index]);
     if (listIndex >= 0) World.dynamic.splice(listIndex, 1);
     this.health[index] = 0;
+  },
+  breakProp(index) {
+    const brush = this.brushes[index];
+    this.removeBrush(index);
     Bodies.debrisLimit = Math.min(BODY_CAPACITY, Quality.current().props); // read now: quality can change mid-match
     spawnDebris(brush, clamp(this.debris[index], DEBRIS_MIN_PIECES, DEBRIS_MAX_PIECES), this.mass[index], this.color[index]);
     breakEvent.prop = index; breakEvent.material = brush.material;
@@ -8299,6 +8327,32 @@ const Props = {
     emitSound(breakEvent.x, breakEvent.y, breakEvent.z, BREAK_NOISE_RADIUS, 'break', -1);
   },
 };
+
+const PropLift = {
+  grab(id, ox, oy, oz, dx, dy, dz, range, maxMass) {
+    const wall = World.raycast(ox, oy, oz, dx, dy, dz, range, liftHit) ? liftHit.distance : range;
+    const prop = wall < range && liftHit.brush && liftHit.brush.prop >= 0 ? liftHit.brush.prop : -1;
+    const body = Bodies.raycast(ox, oy, oz, dx, dy, dz, wall, liftHit);
+    if (body < 0) return prop >= 0 ? Props.lift(prop, id, maxMass) : -1;
+    if (Bodies.mass[body] > maxMass) return -1;
+    Bodies.kind[body] = BODY_KIND.THROWN; Bodies.owner[body] = id;   // held debris no longer expires
+    return body;
+  },
+  hold(handle, x, y, z) {
+    if (!Bodies.active[handle]) return;
+    Bodies.x[handle] = x; Bodies.y[handle] = y; Bodies.z[handle] = z;
+    Bodies.vx[handle] = Bodies.vy[handle] = Bodies.vz[handle] = 0;
+    Bodies.sleeping[handle] = 0; Bodies.rest[handle] = 0;
+  },
+  launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap) {
+    if (!Bodies.active[handle]) return;
+    Bodies.vx[handle] = vx; Bodies.vy[handle] = vy; Bodies.vz[handle] = vz;
+    Bodies.impactFactor[handle] = damagePerMassSpeed; Bodies.impactCap[handle] = damageCap;
+    Bodies.sleeping[handle] = 0; Bodies.rest[handle] = 0;
+    clampBodySpeed(handle);
+  },
+};
+const liftHit = makeHit();
 
 const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
 const bodyMover = makeMover();
@@ -8409,7 +8463,7 @@ function hitActors(index) {
     if (!Actors.alive[id] || id === Bodies.owner[index]) continue;
     if ((Actors.x[id] - Bodies.x[index]) ** 2 + (Actors.z[id] - Bodies.z[index]) ** 2 > reach * reach) continue;
     if (Bodies.y[index] + Bodies.halfY[index] < Actors.y[id] || Bodies.y[index] - Bodies.halfY[index] > Actors.y[id] + Actors.height[id]) continue;
-    const amount = clamp(Bodies.mass[index] * speed * BODY_IMPACT_DAMAGE_PER_MOMENTUM, 0, BODY_IMPACT_MAX_DAMAGE);
+    const amount = clamp(Bodies.mass[index] * speed * Bodies.impactFactor[index], 0, Bodies.impactCap[index]);
     requestDamageAt(id, Bodies.owner[index], amount, 'crush', 'kinetic', Bodies.x[index], Bodies.y[index], Bodies.z[index]);
     Bodies.impactClock[index] = BODY_IMPACT_COOLDOWN;
     return;
@@ -9860,6 +9914,8 @@ const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
 const STILL_FRACTION = 0.02;                     // MOV-025: slower than this fraction of ground speed counts as standing
+const MOVE_SPREAD_DEGREES = 1;                   // WPN-003 without a MOV-025 table: + this x speed fraction f (x the mode's moveSpread)
+const AIR_SPREAD_DEGREES = 1.5;                  // WPN-003 air term without a MOV-025 table
 const AIR_ASSIST_ACCEL = 2;                      // MOV-018
 const SPRINT_INPUT = 0.5;                        // forward input needed to sprint
 const MOVE_FLAG_MASK = ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE | ACTOR_FLAG.SPRINTING
@@ -9887,10 +9943,12 @@ const MatchMove = { rules: undefined, preset: null, gravityScale: 1, knockback: 
 const Move = {
   presetOverride: new Array(MAX_ACTORS).fill(null),   // per-actor preset rows (hero kits); null = the match preset
   weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S11: weapon moveMult x adsMoveMult (MOV-021)
+  weaponReadyTime: new Float32Array(MAX_ACTORS),          // written by S11: the held weapon's readyTime, added to sprintToFire (MOV-021)
   statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12 (Buffs only): slows and hastes
   gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
   footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
+  safeLanding: new Uint8Array(MAX_ACTORS),                // 1 = the next landing deals no fall damage, then cleared (S13: royale drop-in)
   states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
@@ -9899,9 +9957,9 @@ const Move = {
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
   horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
-  inaccuracy(id) {
+  inaccuracy(id, tableOnly) {
     const table = this.preset(id).inaccuracy;
-    if (!table) return 0;
+    if (!table) return tableOnly ? 0 : defaultInaccuracy(id);
     const sinceLanding = Motion.sinceLanding[id];
     const landing = sinceLanding < table.landTime ? table.land * (1 - sinceLanding / table.landTime) : 0;
     return movingInaccuracy(id, table) + landing;
@@ -9996,7 +10054,7 @@ function groundWishSpeed(id, preset) {
   if (Motion.board[id]) speed = SKIMMER_SPEED;
   else if (getClock(id, CLOCK.TAC_SPRINT) > 0) speed = preset.tacSprintSpeed;
   else if (Motion.sprinting[id]) speed = preset.sprintSpeed;
-  const stance = Motion.stance[id];
+  const stance = Actors.flags[id] & ACTOR_FLAG.DOWNED ? STANCE.STAND : Motion.stance[id];   // HP-007: S11's DOWNED_SPEED alone sets the crawl
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
   else if (isWalking(id, preset)) speed *= preset.walkMult;
@@ -10163,7 +10221,8 @@ function storeMover(id, mover) {
 
 function land(id, impactSpeed) {
   const preset = Move.preset(id);
-  const damage = fallDamage(preset, impactSpeed);
+  const damage = Move.safeLanding[id] ? 0 : fallDamage(preset, impactSpeed);
+  Move.safeLanding[id] = 0;
   if (damage > 0) requestDamage(id, -1, damage, 'fall', 'none');
   if (impactSpeed > HARD_LANDING_SPEED) setClock(id, CLOCK.JUMP_LOCK, LANDING_LOCK_SECONDS);
   if (preset.landingPenalty < 1) setClock(id, CLOCK.LAND_SLOW, LANDING_PENALTY_SECONDS);
@@ -10191,7 +10250,8 @@ function capHorizontalSpeed(id, cap) {
 function updateStance(id, preset) {
   if ((Actors.pressed[id] & BTN.PRONE) && preset.proneMult > 0) Motion.proneWanted[id] = Motion.proneWanted[id] ? 0 : 1;
   const crouching = (Actors.buttons[id] & BTN.CROUCH) !== 0 || Motion.sliding[id] === 1;
-  let wanted = Motion.proneWanted[id] && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
+  const lying = Motion.proneWanted[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0;   // HP-007: the downed crawl prone
+  let wanted = lying && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
   if (Motion.board[id] || Motion.state[id] === MOVE_STATE.SWIM || Motion.state[id] === MOVE_STATE.LADDER) wanted = STANCE.STAND;
   const current = Motion.stance[id];
   if (wanted === current) return;
@@ -10227,7 +10287,7 @@ function updateSprint(id, preset, dt) {
     && Motion.stance[id] === STANCE.STAND && !Motion.sliding[id] && Motion.state[id] === MOVE_STATE.WALK && !Motion.board[id];
   Motion.sprinting[id] = sprinting ? 1 : 0;
   if (!sprinting) setClock(id, CLOCK.TAC_SPRINT, 0);
-  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire);
+  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire + Move.weaponReadyTime[id]);
   updateStamina(id, preset, sprinting, dt);
   updateTacticalCharges(id, preset, dt);
 }
@@ -10335,6 +10395,11 @@ function countSteps(id, preset, startX, startZ) {
   emitNoise(id, FOOTSTEP_NOISE_RADIUS * loudness, 'step');
 }
 
+function defaultInaccuracy(id) {
+  const fraction = Math.min(1, Move.horizontalSpeed(id) / Move.preset(id).groundSpeed);
+  const moving = fraction < STILL_FRACTION ? 0 : MOVE_SPREAD_DEGREES * fraction;
+  return Motion.grounded[id] ? moving : moving + AIR_SPREAD_DEGREES;
+}
 function movingInaccuracy(id, table) {
   if (!Motion.grounded[id] || Motion.state[id] !== MOVE_STATE.WALK) return table.air;
   const preset = Move.preset(id), fraction = Move.horizontalSpeed(id) / preset.groundSpeed;
@@ -10380,6 +10445,7 @@ Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
   Move.weaponSpeedScale[id] = Move.statusSpeedScale[id] = Move.gravityScale[id] = Move.staminaScale[id] = Move.footstepScale[id] = 1;
+  Move.weaponReadyTime[id] = 0; Move.safeLanding[id] = 0;
   resetMotion(id);
 });
 Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags
@@ -10922,6 +10988,8 @@ const Weapons = {
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
+  altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
+  altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
 
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1;
@@ -10991,11 +11059,11 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
-  give(id, key, rarity) {
+  give(id, key, rarity, outsideCarry) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
     this.droppedRarity = 0;
@@ -11003,7 +11071,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -11038,6 +11106,10 @@ const Weapons = {
     this.dropped = CAT.weapons[victim].id;
     this.droppedRarity = this.rarity[slot];
     if (this.current[id] === victim) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
+  },
+  takeAway(id, weaponIndex) {
+    this.owned[this.slotIndex(id, weaponIndex)] = 0;
+    if (this.current[id] === weaponIndex) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
   },
   firstCarried(id) {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) return w;
@@ -11176,6 +11248,10 @@ const Weapons = {
     this.beginReload(id, weapon);
   },
 
+  lowered(id) {
+    const flags = Actors.flags[id];
+    return (flags & ACTOR_FLAG.FROZEN) !== 0 || ((flags & ACTOR_FLAG.DOWNED) !== 0 && !Damage.lastStand[id]);
+  },
   step(dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (Actors.kind[id] === ACTOR_KIND.NONE || !Actors.alive[id]) continue;
@@ -11186,8 +11262,8 @@ const Weapons = {
     this.coolDown(id, dt);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
-    if (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
-    this.handleSwitchInput(id);
+    if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+    if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
     if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
@@ -11197,7 +11273,12 @@ const Weapons = {
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    this.stepAltMode(id, weapon, dt);
+    if (!this.altTaken(id)) this.stepAltMode(id, weapon, dt);
+  },
+  altTaken(id) {
+    if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
+    if (this.altClaim && this.altClaim(id)) this.altClaimed[id] = 1;
+    return this.altClaimed[id] === 1;
   },
   updateAds(id, weapon, dt) {
     const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
@@ -11215,6 +11296,7 @@ const Weapons = {
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
     Move.weaponSpeedScale[id] = this.speedScale[id];   // S10 scales the actor's move speed by it
+    Move.weaponReadyTime[id] = weapon ? weapon.readyTime : 0;   // S10 adds it to the sprint-to-fire wait
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;
@@ -11343,7 +11425,7 @@ const Weapons = {
   },
 
   spreadDegrees(id, weapon, mode) {
-    const movement = Move.inaccuracy(id) * mode.moveSpread;   // MOV-025 belongs to the movement preset (S10)
+    const movement = Move.inaccuracy(id, mode.type !== 'hitscan') * mode.moveSpread;
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);
@@ -11456,6 +11538,7 @@ const Shot = {
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
+      if (shotHit.brush && shotHit.brush.prop >= 0) Props.damage(shotHit.brush.prop, damage * factor);   // MAP-013 props break under fire
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
       factor *= PENETRATION_FACTOR[mode.penetration];
@@ -11928,9 +12011,14 @@ const Projectiles = {
     if ((row.onHit === 'damage' || row.onHit === 'pin') && this.modeOf(i).splash) return 'explode';
     return row.onHit;
   },
+  unarmed(i, row) {
+    const modeArm = this.child[i] || this.onHitKind(i, row) !== 'explode' ? 0 : this.modeOf(i).arm;
+    const arm = Math.max(row.arm, modeArm);
+    return arm > 0 && this.travelled[i] < arm;
+  },
   touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
     if (row.parryable && WeaponSpecialState.tryParry(target, i)) return true;
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, x, y, z); return true; }
+    if (this.unarmed(i, row)) { this.dud(i, x, y, z); return true; }
     const kind = this.onHitKind(i, row);
     if (kind === 'explode') { this.explodeAt(i, x, y, z, target, zone); return true; }
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
@@ -11956,10 +12044,10 @@ const Projectiles = {
     return Damage.apply(this.owner[i], target, info);
   },
   touchWorld(i, row, hit) {
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, hit.x, hit.y, hit.z); return; }
     if (row.roll) { reflectVelocity(i, hit, 0.6); return; }
     if (this.state[i] === PROJECTILE_STATE.RETURNING) return;
     if (this.bounces[i] !== 0 && this.bounceOff(i, row, hit)) return;
+    if (this.unarmed(i, row)) { this.dud(i, hit.x, hit.y, hit.z); return; }   // bounces still happen before it arms
     if (row.returning && !this.lodge[i]) { this.startReturn(i); return; }
     if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
     if (this.onHitKind(i, row) === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
@@ -12079,7 +12167,7 @@ const Projectiles = {
 
   expire(i) {
     const row = this.row(i);
-    if (this.onHitKind(i, row) === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
+    if (this.onHitKind(i, row) === 'explode' && !this.unarmed(i, row)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
     if (row.onHit === 'puddle') { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
     this.remove(i);
   },
@@ -12195,6 +12283,8 @@ const DOWNED_HEALTH = 100;               // HP-007: finished after 100 more dama
 const DOWNED_BLEED_SECONDS = 30;
 const DOWNED_SPEED = 0.2;                // crawl 1.2 m/s against the 6.4 m/s reference run speed
 const REVIVE_HEALTH = 30;
+const REVIVE_SECONDS = 5;                // HP-007: an ally holds Use this long ...
+const REVIVE_REACH = 1.5;                // ... within this many metres of the downed actor
 const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
@@ -12220,7 +12310,7 @@ function makeBlast() { return { x: 0, y: 0, z: 0, owner: -1, mode: null, radius:
 
 const DAMAGE_EVENT = { target: 0, source: -1, amount: 0, absorbed: 0, zone: 'none', weapon: '', element: 'kinetic', kind: 'hit',
   shieldDamage: 0, armorDamage: 0, healthDamage: 0, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
-const KILL_EVENT = { victim: 0, killer: -1, assister: -1, weapon: '', zone: 'none', element: 'kinetic', x: 0, y: 0, z: 0 };
+const KILL_EVENT = { victim: 0, killer: -1, assister: -1, weapon: '', zone: 'none', element: 'kinetic', kind: 'hit', x: 0, y: 0, z: 0 };
 const EXPLOSION_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
 const LAYERS = { surplus: 0, shield: 0, armor: 0, health: 0 };
 const splashPoint = Vec.make();
@@ -12236,6 +12326,13 @@ const Damage = {
   noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
+  reviving: new Int8Array(MAX_ACTORS).fill(-1),     // the downed ally this actor is reviving (hold Use), -1 none
+  reviveProgress: new Float32Array(MAX_ACTORS),     // seconds of the current revive (HUD: / REVIVE_SECONDS)
+  lastStand: new Uint8Array(MAX_ACTORS),            // 1 = downed with the Last Stand pistol out (S11 weapons keep firing)
+  lastStandBefore: new Int8Array(MAX_ACTORS).fill(-1),   // weapon index drawn before the Last Stand pistol
+  lastStandLent: new Int8Array(MAX_ACTORS).fill(-1),     // the Last Stand pistol's index when it was lent (not owned before), -1 none
+  teamStanding: new Uint8Array(MAX_ACTORS),         // per team index: living actors that are not downed (step scratch)
+  downedCount: 0,                                   // downed actors after the last step
   limbs: new Float32Array(MAX_ACTORS * LIMB_COUNT),
   statusTime: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusStacks: new Uint8Array(MAX_ACTORS * STATUS_COUNT),
   statusTick: new Float32Array(MAX_ACTORS * STATUS_COUNT), statusSource: new Int8Array(MAX_ACTORS * STATUS_COUNT).fill(-1),
@@ -12245,6 +12342,7 @@ const Damage = {
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
   statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
+  downedWeapon: null,                               // fn(id) -> weapon key drawn while downed, '' none (S13: the Last Stand perk)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
@@ -12399,33 +12497,66 @@ const Damage = {
     Bus.emit('damage', event);
   },
 
+  downedAllowed() { return this.preset().downed || currentRules().downed === true; },
   shouldGoDown(target) {
-    if (!this.preset().downed || (Actors.flags[target] & ACTOR_FLAG.DOWNED) || Actors.team[target] < 0) return false;
-    for (let id = 0; id < Actors.count; id++) if (id !== target && Actors.alive[id] && Actors.team[id] === Actors.team[target] && !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) return true;
+    if (!this.downedAllowed() || (Actors.flags[target] & ACTOR_FLAG.DOWNED) || Actors.team[target] < 0 || Actors.kind[target] === ACTOR_KIND.ENEMY) return false;
+    for (let id = 0; id < Actors.count; id++) if (id !== target && this.standingAlly(target, id)) return true;
     return false;
   },
+  standingAlly(id, other) { return Actors.alive[other] === 1 && Actors.team[other] === Actors.team[id] && !(Actors.flags[other] & ACTOR_FLAG.DOWNED); },
   goDown(source, target) {
     Actors.flags[target] |= ACTOR_FLAG.DOWNED;
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
+    if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
+  },
+  drawLastStand(id, weapon) {
+    if (!weapon) return;
+    this.lastStandBefore[id] = Weapons.current[id];
+    const lent = !Weapons.owned[Weapons.slotIndex(id, weapon.index)];
+    if (lent) Weapons.give(id, weapon.id, 0, true);
+    this.lastStandLent[id] = lent ? weapon.index : -1;
+    Weapons.current[id] = weapon.index;
+    Weapons.state[id] = WEAPON_STATE.IDLE;
+    this.lastStand[id] = 1;
+  },
+  endLastStand(id) {
+    if (!this.lastStand[id]) return;
+    this.lastStand[id] = 0;
+    if (this.lastStandLent[id] >= 0) Weapons.takeAway(id, this.lastStandLent[id]);
+    this.lastStandLent[id] = -1;
+    const before = this.lastStandBefore[id];
+    if (before >= 0 && Weapons.owned[Weapons.slotIndex(id, before)]) Weapons.current[id] = before;
   },
   revive(id) {
     if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) return false;
     Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
     Actors.health[id] = REVIVE_HEALTH;
     this.lastDamageTime[id] = Sim.time;
+    this.endLastStand(id);
     return true;
+  },
+  nearestDownedAlly(id, maxDistance) {
+    let best = -1, bestSquared = maxDistance * maxDistance;
+    for (let other = 0; other < Actors.count; other++) {
+      if (other === id || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED) || Actors.team[other] !== Actors.team[id] || Actors.team[id] < 0) continue;
+      const squared = distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]);
+      if (squared <= bestSquared) { best = other; bestSquared = squared; }
+    }
+    return best;
   },
   kill(source, target, info) {
     const recent = this.recentAttacker(target, -1);
     const killer = (source < 0 || source === target) && recent >= 0 ? recent : source;
     Actors.alive[target] = 0;
     Actors.flags[target] &= ~(ACTOR_FLAG.DOWNED | ACTOR_FLAG.FROZEN);
+    this.endLastStand(target);
     this.clearAllStatuses(target);
     const event = KILL_EVENT;
     event.victim = target; event.killer = killer; event.assister = this.recentAttacker(target, killer);
-    event.weapon = info.weapon; event.zone = info.zone; event.element = info.element;
+    event.weapon = info.weapon; event.zone = info.zone; event.element = info.element; event.kind = info.kind;
     event.x = Actors.x[target]; event.y = Actors.y[target]; event.z = Actors.z[target];
     Bus.emit('kill', event);
     if (!Game.headless && Actors.health[target] < GIB_HEALTH) Fx.burst('blood', Actors.x[target], Actors.y[target] + 1, Actors.z[target], 0, 1, 0, 24, 0xa01818);
@@ -12478,6 +12609,7 @@ const Damage = {
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
     this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
+    this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0; this.lastStandLent[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.shieldRegenBlockedUntil[id] = 0;
     this.limbs.fill(LIMB_POOL, id * LIMB_COUNT, (id + 1) * LIMB_COUNT);
@@ -12486,12 +12618,41 @@ const Damage = {
   },
   step(dt) {
     const preset = this.preset();
+    let downed = 0;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id]) continue;
       for (let s = 0; s < STATUS_COUNT; s++) if (this.statusTime[id * STATUS_COUNT + s] > 0) this.stepStatus(id, s, dt);
-      if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { this.stepDowned(id, dt); continue; }
+      if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { downed++; this.stepDowned(id, dt); continue; }
       this.stepRegen(id, preset, dt);
     }
+    const hadDowned = this.downedCount;
+    this.downedCount = downed;
+    if (downed) this.stepSquads(dt);
+    else if (hadDowned) this.clearRevives();
+  },
+  clearRevives() {
+    this.reviving.fill(-1);
+    this.reviveProgress.fill(0);
+  },
+  stepSquads(dt) {
+    this.teamStanding.fill(0);
+    for (let id = 0; id < Actors.count; id++) if (Actors.team[id] >= 0 && this.standingAlly(id, id)) this.teamStanding[Actors.team[id]]++;
+    for (let id = 0; id < Actors.count; id++) {
+      const downed = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED);
+      if (downed && Actors.team[id] >= 0 && !this.teamStanding[Actors.team[id]]) this.bleedOut(id);
+      else this.stepRevive(id, dt);
+    }
+  },
+  stepRevive(id, dt) {
+    const holding = Actors.alive[id] && !(Actors.flags[id] & ACTOR_FLAG.DOWNED) && (Actors.buttons[id] & BTN.USE) !== 0;
+    const target = holding ? this.nearestDownedAlly(id, REVIVE_REACH) : -1;
+    if (target < 0 || target !== this.reviving[id]) this.reviveProgress[id] = 0;
+    this.reviving[id] = target;
+    if (target < 0) return;
+    this.reviveProgress[id] += dt;
+    if (this.reviveProgress[id] < REVIVE_SECONDS - TICK_EPSILON) return;
+    this.revive(target);
+    this.reviving[id] = -1; this.reviveProgress[id] = 0;
   },
   pauseShieldRegen(id, seconds) {
     this.shieldRegenBlockedUntil[id] = Math.max(this.shieldRegenBlockedUntil[id], Sim.tick + Math.round(seconds * TICK_RATE));
@@ -12519,7 +12680,9 @@ const Damage = {
   },
   stepDowned(id, dt) {
     this.downedTime[id] -= dt;
-    if (this.downedTime[id] > 0) return;
+    if (this.downedTime[id] <= 0) this.bleedOut(id);
+  },
+  bleedOut(id) {
     const info = this.info();
     info.kind = 'dot'; info.weapon = 'bleedout';
     Actors.health[id] = 0;
@@ -12718,16 +12881,19 @@ const specialHit = makeHit();
 const WeaponSpecialState = {
   blockPool: new Float32Array(MAX_ACTORS).fill(Infinity), blocking: new Uint8Array(MAX_ACTORS), parryUntil: new Float32Array(MAX_ACTORS),
   linkUntil: new Float32Array(MAX_ACTORS), linkFactor: new Float32Array(MAX_ACTORS).fill(1),
-  heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1),
+  heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1), heldGrenade: new Int16Array(MAX_ACTORS).fill(-1),
   gateOpen: new Uint8Array(MAX_ACTORS * 2), gateCooldown: new Float32Array(MAX_ACTORS),
   gateX: new Float32Array(MAX_ACTORS * 2), gateY: new Float32Array(MAX_ACTORS * 2), gateZ: new Float32Array(MAX_ACTORS * 2),
   gateNx: new Float32Array(MAX_ACTORS * 2), gateNy: new Float32Array(MAX_ACTORS * 2), gateNz: new Float32Array(MAX_ACTORS * 2),
-  propHook: null,
+  propHook: PropLift,
+  grenadeHook: null,
 
   reset(id) {
     this.blockPool[id] = Infinity; this.blocking[id] = 0; this.parryUntil[id] = 0; this.linkUntil[id] = 0;
-    this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.gateOpen[id * 2] = this.gateOpen[id * 2 + 1] = 0; this.gateCooldown[id] = 0;
+    this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.heldGrenade[id] = -1; this.gateOpen[id * 2] = this.gateOpen[id * 2 + 1] = 0; this.gateCooldown[id] = 0;
   },
+  holding(id) { return this.heldProjectile[id] >= 0 || this.heldProp[id] >= 0 || this.heldGrenade[id] >= 0; },
+  dropHeld(id) { this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.heldGrenade[id] = -1; },
   speedFactor(id) { return Projectiles.guiding[id] ? 0 : 1; },
 
   stepBlock(id, mode, held, dt) {
@@ -12790,8 +12956,12 @@ const WeaponSpecialState = {
     if (target >= 0) emitImpulse(target, specialScratch.x * LIFTER_PUSH_SPEED, specialScratch.y * LIFTER_PUSH_SPEED + 3, specialScratch.z * LIFTER_PUSH_SPEED);
   },
   throwHeld(id) {
-    const projectile = this.heldProjectile[id], prop = this.heldProp[id];
-    this.heldProjectile[id] = -1; this.heldProp[id] = -1;
+    const projectile = this.heldProjectile[id], prop = this.heldProp[id], grenade = this.heldGrenade[id];
+    this.dropHeld(id);
+    if (grenade >= 0 && this.grenadeHook) {
+      this.grenadeHook.launch(grenade, id, specialScratch.x * LIFTER_THROW_SPEED, specialScratch.y * LIFTER_THROW_SPEED, specialScratch.z * LIFTER_THROW_SPEED);
+      return true;
+    }
     if (projectile >= 0 && Projectiles.state[projectile]) {
       Projectiles.owner[projectile] = id;
       Projectiles.vx[projectile] = specialScratch.x * LIFTER_THROW_SPEED; Projectiles.vy[projectile] = specialScratch.y * LIFTER_THROW_SPEED; Projectiles.vz[projectile] = specialScratch.z * LIFTER_THROW_SPEED;
@@ -12802,23 +12972,26 @@ const WeaponSpecialState = {
     return true;
   },
   lifterPull(id, weapon, mode) {
-    if (this.heldProjectile[id] >= 0 || this.heldProp[id] >= 0) return;
+    if (this.holding(id)) return;
     Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
     this.heldProjectile[id] = catchableProjectile(id, mode.range);
     if (this.heldProjectile[id] >= 0) return;
+    if (this.grenadeHook) this.heldGrenade[id] = this.grenadeHook.grab(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], specialScratch.x, specialScratch.y, specialScratch.z, mode.range, LIFTER_CATCH_COS);
+    if (this.heldGrenade[id] >= 0) return;
     if (this.propHook) this.heldProp[id] = this.propHook.grab(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], specialScratch.x, specialScratch.y, specialScratch.z, mode.range, LIFTER_MAX_MASS);
     if (this.heldProp[id] >= 0) return;
     const target = actorInFront(id, mode.range);
     if (target >= 0) emitImpulse(target, -specialScratch.x * LIFTER_PULL_SPEED, 1, -specialScratch.z * LIFTER_PULL_SPEED);
   },
   stepHeld(id) {
-    if (this.heldProjectile[id] < 0 && this.heldProp[id] < 0) return;
+    if (!this.holding(id)) return;
     const holding = (Actors.buttons[id] & BTN.ALT) && Actors.alive[id] && Weapons.currentWeapon(id) === CAT.weapons.byId('lifter');
-    if (!holding) { this.heldProjectile[id] = -1; this.heldProp[id] = -1; return; }
+    if (!holding) { this.dropHeld(id); return; }
     Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
     const x = Actors.x[id] + specialScratch.x * LIFTER_HOLD_DISTANCE, y = Actors.eyeY(id) + specialScratch.y * LIFTER_HOLD_DISTANCE, z = Actors.z[id] + specialScratch.z * LIFTER_HOLD_DISTANCE;
     const projectile = this.heldProjectile[id];
     if (this.heldProp[id] >= 0 && this.propHook) this.propHook.hold(this.heldProp[id], x, y, z);
+    if (this.heldGrenade[id] >= 0 && this.grenadeHook) this.grenadeHook.hold(this.heldGrenade[id], x, y, z);
     if (projectile < 0 || !Projectiles.state[projectile]) return;
     Projectiles.x[projectile] = x; Projectiles.y[projectile] = y; Projectiles.z[projectile] = z;
     Projectiles.vx[projectile] = Projectiles.vy[projectile] = Projectiles.vz[projectile] = 0;
@@ -12984,6 +13157,8 @@ const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
 const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
 const ITEM_COUNT = CAT.items.length;
+const CONSUMABLE_ROWS = CAT.items.filter((row) => row.effect === 'consume');   // I13..I17, catalogue order = the heal button's preference
+const BOT_HEAL_CALM = 3;                 // s without damage before a bot uses a carried consumable
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
 
@@ -13014,6 +13189,10 @@ function itemRule(field, fallback) {
   const value = currentRules()[field];
   return value === undefined ? fallback : value;
 }
+function pickupYield() {
+  const skill = itemRule('botSkill', null);
+  return skill && skill.resourceYield > 0 ? skill.resourceYield : 1;
+}
 function itemMutatorOn(id) {
   const list = itemRule('mutators', []);
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
@@ -13026,6 +13205,10 @@ function itemFxOn(key) {
 function mapItemsAllowed() {
   const params = itemRule('params', null);
   return itemRule('items', true) !== false && !itemFxOn('noItems') && !(params && params.pickups === false);
+}
+function onlyPickup() {
+  const params = itemRule('params', null);
+  return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
 function soulCardFx(id, key, fallback) {
@@ -13079,9 +13262,11 @@ const Items = {
     this.clear();
     this.matchSetCursor = 0;
     if (!mapItemsAllowed()) return;
+    const only = onlyPickup();
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
+      if (only && entry.item !== only) continue;
       this.addSpot(entry);
     }
   },
@@ -13120,7 +13305,7 @@ const Items = {
     const row = this.rowOf(slot), pad = CAT.items.byId('weaponpad');
     let seconds = row.respawn;
     if (this.kind[slot] === PICKUP_KIND.WEAPON) seconds = row.class === 'power' ? pad.respawnPower : itemRule('teams', 0) > 0 ? pad.respawnTeams : pad.respawn;
-    return itemTicks(seconds * itemRule('itemRespawnScale', 1));
+    return itemTicks(seconds * itemRule('itemRespawnScale', 1) / pickupYield());
   },
   stays(slot) {
     return this.spot[slot] === 1 && this.kind[slot] === PICKUP_KIND.WEAPON && itemRule('weaponStay', false) === true && this.rowOf(slot).class !== 'power';
@@ -13182,6 +13367,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
+      if ((Actors.pressed[id] & BTN.HEAL) || this.botWantsHeal(id)) this.useBest(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
@@ -13362,6 +13548,20 @@ const Items = {
     this.useStart[id] = Sim.tick;
     this.useEnd[id] = Sim.tick + itemTicks(row.useTime);
     return true;
+  },
+  useBest(id) {
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) if (this.use(id, CONSUMABLE_ROWS[i].id)) return true;
+    return false;
+  },
+  consumableCount(id) {
+    let total = 0;
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
+    return total;
+  },
+  botWantsHeal(id) {
+    if (Actors.kind[id] !== ACTOR_KIND.BOT || this.usingItem[id] >= 0 || Sim.time - Damage.lastDamageTime[id] < BOT_HEAL_CALM) return false;
+    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return false;
+    return this.consumableCount(id) > 0;
   },
   useProgress(id) {
     if (this.usingItem[id] < 0) return -1;
@@ -13740,6 +13940,7 @@ const Powerups = {
     if (this.seerClock[id] > 0) return;
     this.seerClock[id] += SEER_INTERVAL;
     for (let other = 0; other < Actors.count; other++) {
+      if (Abilities.hiddenFromPulse && Abilities.hiddenFromPulse(other)) continue;
       if (Actors.alive[other] && Actors.isEnemy(id, other)) Damage.addStatus(other, 'reveal', id, SEER_REVEAL_SECONDS, 1);
     }
   },
@@ -14355,6 +14556,27 @@ const Thrown = {
     emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
   },
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
+  grab(id, ox, oy, oz, dx, dy, dz, range, minCos) {
+    let best = -1, bestDistance = range;
+    for (let slot = 0; slot < THROWN_CAP; slot++) {
+      if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
+      best = slot; bestDistance = distance;
+    }
+    return best;
+  },
+  hold(slot, x, y, z) {
+    if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) return;
+    this.state[slot] = THROWN_STATE.FLYING;
+    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
+    this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
+  },
+  launch(slot, owner, vx, vy, vz) {
+    if (this.state[slot] !== THROWN_STATE.FLYING) return;
+    this.owner[slot] = owner;
+    this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
+  },
   draw(batch) {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
@@ -14467,11 +14689,11 @@ const Gadgets = {
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
+  grenadeReady(id) { return this.grenade[id] >= 0 && this.count[id * GADGET_COUNT + this.grenade[id]] > 0; },
   startHold(id) {
-    const rowIndex = this.grenade[id];
-    if (rowIndex < 0 || !this.count[id * GADGET_COUNT + rowIndex]) return;
+    if (!this.grenadeReady(id)) return;
     this.holdStart[id] = Sim.tick;
-    this.holdRow[id] = rowIndex;
+    this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
   stepHold(id) {
@@ -14510,10 +14732,11 @@ const Gadgets = {
     for (let i = 0; i < this.deployers.length && !placed; i++) placed = this.deployers[i](id, row);
     if (!placed) return false;
     this.spend(id, row);
-    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown);
+    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + this.rechargeTicks(id, row);
     this.emitUse(id, row);
     return true;
   },
+  rechargeTicks(id, row) { return itemTicks(row.cooldown / Abilities.rechargeScale[id]); },
   rechargeGadget(id) {
     const row = gadgetRow(this.gadget[id]);
     if (!row || row.cooldown <= 0 || this.count[id * GADGET_COUNT + row.index] || Sim.tick < this.cooldownEnd[id]) return;
@@ -14532,7 +14755,7 @@ const Gadgets = {
     const grenade = id >= 0 ? gadgetRow(this.grenade[id]) : null, gadget = id >= 0 ? gadgetRow(this.gadget[id]) : null;
     out.grenade = grenade ? grenade.name : ''; out.grenadeCount = grenade ? this.count[id * GADGET_COUNT + grenade.index] : 0;
     out.gadget = gadget ? gadget.name : ''; out.gadgetCount = gadget ? this.count[id * GADGET_COUNT + gadget.index] : 0;
-    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / itemTicks(gadget.cooldown), 0, 1) : 0;
+    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / this.rechargeTicks(id, gadget), 0, 1) : 0;
     const held = id >= 0 && this.holdStart[id] >= 0 ? CAT.gadgets[this.holdRow[id]] : null;
     out.cook = held && held.cook ? clamp(this.heldTicks(id) / itemTicks(held.fuse), 0, 1) : 0;
     return out;
@@ -14575,6 +14798,8 @@ const Gadgets = {
 
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
+WeaponSpecialState.grenadeHook = Thrown;
+Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
@@ -14923,7 +15148,7 @@ const Devices = {
     const x = this.x[device] + Math.sin(this.yaw[device]) * BEACON_OFFSET, y = this.y[device];
     const z = this.z[device] + Math.cos(this.yaw[device]) * BEACON_OFFSET;
     for (let k = 0; k < CAPSULE_CHECK_HEIGHTS.length; k++) if (World.pointInside(x, y + CAPSULE_CHECK_HEIGHTS[k], z)) return false;
-    Actors.x[id] = x; Actors.y[id] = y; Actors.z[id] = z;
+    Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;   // no interpolation smear
     return true;
   },
   jammed(id) {
@@ -15005,7 +15230,7 @@ const Devices = {
   onDeath(id) {
     if (!this.count) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
-      if (this.active[device] && this.owner[device] === id) this.remove(device, false);
+      if (this.active[device] && this.owner[device] === id && this.rowOf(device).effect !== 'beacon') this.remove(device, false);
     }
   },
 
@@ -15725,7 +15950,10 @@ function liftActor(zone, id) {
   driveActor(id, Actors.vx[id], speed, Actors.vz[id]);
 }
 function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
-function slowInZone(zone, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF); }
+function slowInZone(zone, id) {
+  Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE, AbilityZones.value[zone], TICK_BUFF);
+}
 function strikeStep(zone, dt) {
   if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;
   const row = zoneRow(zone), blast = Damage.blast();
@@ -16098,11 +16326,8 @@ function isFodderOrBeast(id) {
   return isFodder(id) || (Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.beast === true);
 }
 function castRevive(id, row) {
-  for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !alliesOf(id, other) || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
-    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= row.range * row.range) return Damage.revive(other);
-  }
-  return false;
+  const ally = Damage.nearestDownedAlly(id, row.range);
+  return ally >= 0 && Damage.revive(ally);
 }
 function castBolt(id, row) {
   const target = aimTarget(id, row.range);
@@ -16954,6 +17179,7 @@ const Modes = {
     return -1;
   },
   isActive(id) { return this.participant[id] === 1 && this.queued[id] === 0; },
+  actsOnObjectives(id) { return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0; },
   countParticipants() {
     let count = 0;
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) count++;
@@ -17329,7 +17555,7 @@ const Modes = {
     objective.inside[0] = 0; objective.inside[1] = 0;
     for (let id = 0; id < Actors.count; id++) {
       const team = Actors.team[id];
-      if (Actors.alive[id] && this.participant[id] && team >= 0 && this.inZone(objective, id)) objective.inside[team]++;
+      if (this.actsOnObjectives(id) && this.participant[id] && team >= 0 && this.inZone(objective, id)) objective.inside[team]++;
     }
     objective.contested = objective.inside[0] > 0 && objective.inside[1] > 0;
   },
@@ -17361,13 +17587,13 @@ const Modes = {
   captureZone(objective, team) {
     objective.owner = team; objective.progress = 0; objective.capturingTeam = NO_TEAM;
     for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
+      if (this.actsOnObjectives(id) && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
     }
     this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
   },
   findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
     for (let id = 0; id < Actors.count; id++) {
-      if (!Actors.alive[id] || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
+      if (!this.actsOnObjectives(id) || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
       if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
       if (skipFlags && (Actors.flags[id] & skipFlags) !== 0) continue;
       if (withinTouch(id, x, y, z, radius)) return id;
@@ -17583,7 +17809,16 @@ Modes.register('duel', {});
 
 Modes.register('lms', {
   score(index) { return Math.max(0, Modes.lives[index]) * LMS_LIFE_WEIGHT + Modes.score[index]; },
+  onSpawn(id) {
+    const params = Modes.rules.params;
+    if (params.allWeapons) giveWholeSet(id, params.maxAmmo);
+    if (params.startArmor) Actors.armor[id] = Math.max(Actors.armor[id], params.startArmor);
+  },
 });
+function giveWholeSet(id, fullReserve) {
+  Weapons.setLoadout(id, currentWeaponSet().weapons);
+  if (fullReserve) addAmmoShare(id, 1);
+}
 
 const FLAG_BEHAVIOUR = {
   flags: [], bases: [],
@@ -18249,6 +18484,7 @@ Abilities.carrierCheck = (id) => {
   return false;
 };
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
+Damage.downedWeapon = (id) => (Economy.hasPerk(id, 'lastStand') ? CAT.perks.byId('laststand').weapon : '');   // ECP04 Last Stand
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;
 Economy.grants.grant = (id, item) => Items.grantBuy(id, item);
 
@@ -18546,7 +18782,7 @@ Modes.register('payload', {
   },
   creditPushers(attackers) {
     for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && Modes.isActive(id) && Actors.team[id] === attackers && Modes.inZone(this.cart, id)) Modes.creditObjective(id, 'capture');
+      if (Modes.actsOnObjectives(id) && Modes.isActive(id) && Actors.team[id] === attackers && Modes.inZone(this.cart, id)) Modes.creditObjective(id, 'capture');
     }
   },
   isOver(now) {
@@ -18946,10 +19182,18 @@ const LOOT_CHECK_INTERVAL = 0.1;       // loot touch tests run at 10 Hz
 const LOOT_SWAP_DELAY = 1;             // a full inventory swaps a weapon at most once per second (no swapping back at once)
 const LOOT_GROUPS = ['weapon', 'armor', 'health', 'ammo'];
 const LOOT_GROUP = { WEAPON: 0, ARMOR: 1, HEALTH: 2, AMMO: 3 };
+const LOOT_CONSUMABLES = ['patch', 'cell', 'medkit', 'battery', 'fizzcan'];   // health spots by rarity: I13 I15 I14 I16 I17
 const LOOT_RARITY_COLORS = [[0.7, 0.7, 0.7], [0.3, 0.85, 0.3], [0.3, 0.55, 1], [0.7, 0.3, 0.95], [1, 0.8, 0.2]];   // common .. legendary
 const LOOT_SIZE = 0.5;
 const LOOT_LIFT = 0.4;
 const ROYALE_STANDING_RANK = 1000;     // standing actors rank above everyone out, then by kills
+const ROYALE_DROP_HEIGHT = 30;         // m: drop-in height above the spawn (less under a roof: no drop indoors)
+const DROP_PROBE = 1;                  // m: the roof and spread checks start this high above the feet
+const DROP_SPREAD = 1.5;               // m: squadmates land this far around the squad's drop point
+const BEACON_SECONDS = 4;              // a living squadmate holds Use this long at the beacon to bring the dead back
+const BEACON_COLOR = [0.3, 1, 0.5];
+const BEACON_WIDTH = 0.3;
+const BEACON_HEIGHT = 2;
 
 const RoyaleLoot = {
   count: 0,
@@ -18962,8 +19206,17 @@ const Ring = {
 };
 const royaleOutOrder = new Uint16Array(MAX_ACTORS);       // 1 = first out; 0 = still standing
 const lootSwapAt = new Float64Array(MAX_ACTORS);
+const Squads = {
+  count: 0,
+  anchorX: new Float32Array(MAX_ACTORS), anchorY: new Float32Array(MAX_ACTORS), anchorZ: new Float32Array(MAX_ACTORS),
+  anchorAt: new Float64Array(MAX_ACTORS), landed: new Uint8Array(MAX_ACTORS),
+  beaconX: new Float32Array(MAX_ACTORS), beaconY: new Float32Array(MAX_ACTORS), beaconZ: new Float32Array(MAX_ACTORS),
+  beaconUses: new Uint8Array(MAX_ACTORS), beaconProgress: new Float32Array(MAX_ACTORS),
+  holder: new Uint8Array(MAX_ACTORS), dead: new Uint8Array(MAX_ACTORS), seen: new Uint8Array(MAX_ACTORS),
+};
 Modes.loot = RoyaleLoot;
 Modes.ring = Ring;
+Modes.squads = Squads;
 
 Modes.register('royale', {
   hurtTimer: 0, lootTimer: 0, outCount: 0,
@@ -18971,6 +19224,8 @@ Modes.register('royale', {
     this.hurtTimer = 0; this.lootTimer = 0; this.outCount = 0;
     royaleOutOrder.fill(0);
     lootSwapAt.fill(0);
+    assignSquads();
+    placeBeacons();
     startRing(Sim.time);
     buildLoot(World.map);
     updateRingHud(Sim.time);
@@ -18979,9 +19234,10 @@ Modes.register('royale', {
     stepRing(now);
     this.hurtOutside(dt);
     this.lootTimer += dt;
-    if (this.lootTimer + TIME_EPSILON >= LOOT_CHECK_INTERVAL) { this.lootTimer -= LOOT_CHECK_INTERVAL; touchLoot(now); }
+    if (this.lootTimer + TIME_EPSILON >= LOOT_CHECK_INTERVAL) { this.lootTimer -= LOOT_CHECK_INTERVAL; touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
     updateRingHud(now);
   },
+  onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
     this.hurtTimer += dt;
     if (this.hurtTimer + TIME_EPSILON < RING_HURT_INTERVAL) return;
@@ -18995,13 +19251,109 @@ Modes.register('royale', {
   },
   isOver(now) {
     if (Modes.competitorsAtStart < 2) return Modes.standardIsOver(now);
-    let standing = 0, last = DRAW;
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.isActive(id)) { standing++; last = id; }
+    let standing = 0, sides = 0, last = DRAW;
+    Squads.seen.fill(0, 0, Squads.count);
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Actors.alive[id] || !Modes.isActive(id)) continue;
+      standing++;
+      const squad = Actors.team[id];
+      if (squad >= 0 && Squads.seen[squad]) continue;
+      if (squad >= 0) Squads.seen[squad] = 1;
+      sides++; last = id;
+    }
     Modes.hud.aliveCount = standing;
-    return standing > 1 ? NOT_OVER : Modes.over(standing === 1 ? last : DRAW, 'eliminated');
+    if (sides > 1) return NOT_OVER;
+    return Modes.over(sides === 1 ? squadWinner(last) : DRAW, 'eliminated');
   },
   score(id) { return Actors.alive[id] ? ROYALE_STANDING_RANK + Modes.kills[id] : royaleOutOrder[id]; },
 });
+
+function assignSquads() {
+  const size = Modes.rules.params.squadSize || 1;
+  let participants = 0;
+  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) participants++;
+  Squads.count = size > 1 && participants > size ? Math.ceil(participants / size) : 0;
+  Squads.anchorAt.fill(-1);
+  let order = 0;
+  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Actors.team[id] = Squads.count ? order++ % Squads.count : NO_TEAM;
+}
+
+function placeBeacons() {
+  const points = Modes.spawnPoints, uses = Modes.rules.params.squadBeacons || 0;
+  const offset = Squads.count && points.length ? Rng.rules.int(0, points.length - 1) : 0;
+  for (let squad = 0; squad < Squads.count; squad++) {
+    const point = points.length ? points[(offset + squad) % points.length] : null;
+    Squads.beaconX[squad] = point ? point.x : 0; Squads.beaconY[squad] = point ? point.y : 0; Squads.beaconZ[squad] = point ? point.z : 0;
+    Squads.beaconUses[squad] = point ? uses : 0;
+    Squads.beaconProgress[squad] = 0;
+  }
+}
+
+function dropIn(id) {
+  const squad = Actors.team[id];
+  if (squad >= 0 && Squads.count) joinSquadDrop(id, squad);
+  const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id];
+  Move.safeLanding[id] = 0;
+  if (!World.lineClear(x, y + DROP_PROBE, z, x, y + ROYALE_DROP_HEIGHT + STAND_HEIGHT, z)) return;
+  Actors.y[id] = Actors.prevY[id] = y + ROYALE_DROP_HEIGHT;
+  Move.safeLanding[id] = 1;
+}
+
+function joinSquadDrop(id, squad) {
+  if (Squads.anchorAt[squad] !== Sim.time) { setSquadAnchor(squad, Actors.x[id], Actors.y[id], Actors.z[id]); return; }
+  const slot = Squads.landed[squad]++;
+  const angle = slot * Math.PI * 2 / Math.max(1, Modes.rules.params.squadSize);
+  const anchorX = Squads.anchorX[squad], anchorY = Squads.anchorY[squad], anchorZ = Squads.anchorZ[squad];
+  let x = anchorX, z = anchorZ;
+  if (slot > 0) { x += Math.sin(angle) * DROP_SPREAD; z += Math.cos(angle) * DROP_SPREAD; }
+  if (!World.lineClear(anchorX, anchorY + DROP_PROBE, anchorZ, x, anchorY + DROP_PROBE, z)) { x = anchorX; z = anchorZ; }
+  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = anchorY; Actors.z[id] = Actors.prevZ[id] = z;
+}
+
+function setSquadAnchor(squad, x, y, z) {
+  Squads.anchorX[squad] = x; Squads.anchorY[squad] = y; Squads.anchorZ[squad] = z;
+  Squads.anchorAt[squad] = Sim.time;
+  Squads.landed[squad] = 1;
+}
+
+function stepBeacons(interval) {
+  if (!Squads.count) return;
+  Squads.holder.fill(0, 0, Squads.count); Squads.dead.fill(0, 0, Squads.count);
+  for (let id = 0; id < Actors.count; id++) {
+    const squad = Actors.team[id];
+    if (squad < 0 || squad >= Squads.count || !Modes.isActive(id)) continue;
+    if (!Actors.alive[id]) Squads.dead[squad]++;
+    else if (holdsBeacon(id, squad)) Squads.holder[squad] = 1;
+  }
+  for (let squad = 0; squad < Squads.count; squad++) {
+    const charging = Squads.holder[squad] && Squads.dead[squad] > 0 && Squads.beaconUses[squad] > 0;
+    Squads.beaconProgress[squad] = charging ? Squads.beaconProgress[squad] + interval : 0;
+    if (charging && Squads.beaconProgress[squad] + TIME_EPSILON >= BEACON_SECONDS) respawnSquad(squad);
+  }
+}
+
+function holdsBeacon(id, squad) {
+  return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
+    && withinTouch(id, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad], TOUCH_RADIUS);
+}
+
+function respawnSquad(squad) {
+  Squads.beaconUses[squad]--;
+  Squads.beaconProgress[squad] = 0;
+  setSquadAnchor(squad, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad]);
+  Squads.landed[squad] = 0;
+  for (let id = 0; id < Actors.count; id++) {
+    if (Actors.team[id] !== squad || Actors.alive[id] || !Modes.isActive(id)) continue;
+    royaleOutOrder[id] = 0;
+    Modes.spawnActor(id);
+  }
+  Modes.announce('A squad respawned at its beacon', 'objective', 2);
+}
+
+function squadWinner(id) {
+  const player = Game.playerId;
+  return Squads.count && player >= 0 && Actors.team[id] >= 0 && Actors.team[player] === Actors.team[id] ? player : id;
+}
 
 function startRing(now) {
   worldSafeArea(Ring);
@@ -19103,7 +19455,7 @@ function takeLoot(id, spot, now) {
   const group = RoyaleLoot.group[spot], params = Modes.rules.params;
   if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot, now); return; }
   if (group === LOOT_GROUP.ARMOR && !takeArmor(id, params.shieldByRarity[RoyaleLoot.rarity[spot]])) return;
-  if (group === LOOT_GROUP.HEALTH && !takeHeal(id, params.lootHeal)) return;
+  if (group === LOOT_GROUP.HEALTH && !Items.grant(id, LOOT_CONSUMABLES[RoyaleLoot.rarity[spot]])) return;   // carried until used (BTN.HEAL)
   if (group === LOOT_GROUP.AMMO && !takeAmmo(id)) return;
   RoyaleLoot.taken[spot] = 1;
 }
@@ -19134,12 +19486,6 @@ function takeArmor(id, value) {
   return true;
 }
 
-function takeHeal(id, amount) {
-  if (Actors.health[id] >= Actors.maxHealth[id]) return false;
-  Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + amount);
-  return true;
-}
-
 function takeAmmo(id) {
   const weapon = Weapons.currentWeapon(id);
   return !!weapon && weapon.ammoType !== '' && Weapons.addAmmo(id, weapon.ammoType, 0) > 0;
@@ -19155,9 +19501,14 @@ function drawRoyale(batch) {
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
     batch.mesh('box', RoyaleLoot.x[spot], RoyaleLoot.y[spot] + LOOT_LIFT, RoyaleLoot.z[spot], 0, 0, LOOT_SIZE, LOOT_SIZE, LOOT_SIZE, color[0], color[1], color[2], MARKER_GLOW);
   }
+  for (let squad = 0; squad < Squads.count; squad++) {
+    if (!Squads.beaconUses[squad]) continue;
+    batch.mesh('box', Squads.beaconX[squad], Squads.beaconY[squad] + BEACON_HEIGHT / 2, Squads.beaconZ[squad], 0, 0, BEACON_WIDTH, BEACON_HEIGHT, BEACON_WIDTH,
+      BEACON_COLOR[0], BEACON_COLOR[1], BEACON_COLOR[2], MARKER_GLOW);
+  }
 }
 
-Bus.on('match.setup', () => { RoyaleLoot.count = 0; });
+Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);
 
 // ==== 13h-mutators.js ====
@@ -19206,6 +19557,7 @@ const Mutators = {
   suppressed: new Float32Array(MAX_ACTORS),      // X44 seconds left (HUD blur: Mutators.suppression(id))
   slowmoLeft: 0,
   nextSuperPowerup: 0,
+  superPool: [],                   // X17 powerup rows a grant may pick (filled at match setup)
   tagCount: 0,
   powerNames: [],
   hooks: { spawn: [], kill: [], damage: [], fire: [], step: [] },   // runtime effect hooks, see runHooks
@@ -19397,6 +19749,8 @@ function applyMutatorStage(rules) {
   rules.mutators = resolved.list;
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
+  const health = CAT.health.byId(rules.health);
+  if (health && health.triangle) rules.fx.triangle = true;   // HPP07 Ravager Triangle
   for (const text of resolved.messages) emitToast(text);
 }
 function applyMutatorHandicap(rules, setup) {
@@ -19528,7 +19882,7 @@ function isOpponentKill(event) { return event.killer >= 0 && event.killer !== ev
 function onKillTriangle(fx, event) {
   if (!fx.triangle || !isOpponentKill(event)) return;
   const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
-  if (weapon && weapon.class === 'melee') {
+  if (event.kind === 'melee' || (weapon && weapon.class === 'melee')) {   // a quick-melee bash with a gun is a melee finisher too
     Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
     const held = Weapons.currentWeapon(killer);
     if (held) Weapons.addAmmo(killer, held.ammoType, TRIANGLE_AMMO);
@@ -19595,10 +19949,11 @@ function onStepSuppression(fx, dt) {
 }
 function onStepTags(fx, dt) { if (fx.tags) TagPool.step(dt, touchTag); }
 function onStepGifts(fx, dt) { if (fx.lastGift) GiftPool.step(dt, detonateGift); }
+function superPowerupAllowed(row) { return row.mapItem !== false && !row.campaign && !row.unique; }
 function onStepSuperPowerups(fx) {
-  if (!fx.superPowerups || !CAT.powerups || Sim.time < Mutators.nextSuperPowerup) return;
+  if (!fx.superPowerups || !Mutators.superPool.length || Sim.time < Mutators.nextSuperPowerup) return;
   Mutators.nextSuperPowerup = Sim.time + fx.superPowerups;
-  const item = Rng.rules.pick(CAT.powerups).id;
+  const item = Rng.rules.pick(Mutators.superPool).id;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id]) continue;
     GRANT_EVENT.id = id;
@@ -19642,6 +19997,7 @@ function startMutators(match) {
   Mutators.fx = rules.fx && Object.keys(rules.fx).length ? rules.fx : null;   // later stages (difficulty) may add fx.timeScale too
   Mutators.slowmoLeft = 0;
   Mutators.nextSuperPowerup = rules.fx && rules.fx.superPowerups ? rules.fx.superPowerups : 0;
+  Mutators.superPool = rules.fx && rules.fx.superPowerups && CAT.powerups ? CAT.powerups.filter(superPowerupAllowed) : [];
   Mutators.powerNames = Mutators.fx && Mutators.fx.powers ? powerNamesOf() : [];
   TagPool.clear();
   GiftPool.clear();
@@ -19790,6 +20146,7 @@ const Bots = {
   lastLookYaw: new Float32Array(MAX_ACTORS), lastLookPitch: new Float32Array(MAX_ACTORS),   // feed-forward of a moving aim point
   buttonsWanted: new Uint32Array(MAX_ACTORS), slotWanted: new Int8Array(MAX_ACTORS),
   setupCursor: 0,
+  setupShift: 0,                                // Difficulty.tierShift() at match setup (a rematch adds only the later change, 18d)
   anyActive: false,
   skill: null,                                  // rules.botSkill of the match (or the default preset)
   config: { reactionScale: 1, aimErrorScale: 1 },
@@ -19806,6 +20163,7 @@ const Bots = {
 
   onMatchSetup(match) {
     this.setupCursor = 0;
+    this.setupShift = Difficulty.tierShift();
     this.skill = (match.rules && match.rules.botSkill) || Difficulty.resolve(BOT_DEFAULT_DIFFICULTY);
   },
   onCreate(id) {
@@ -21512,11 +21870,11 @@ Bus.on('match.setup', () => {
 
 // ==== 14e-bots-decide.js ====
 
-const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9 };
+const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10 };
 const GOAL_NAMES = Object.keys(GOAL).map((name) => name.toLowerCase());
 const GOAL_COUNT = GOAL_NAMES.length;
 const GOAL_STATES = [BOT_STATE.ROAM, BOT_STATE.ROAM, BOT_STATE.ENGAGE, BOT_STATE.CHASE, BOT_STATE.RETREAT, BOT_STATE.COLLECT,
-  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW];
+  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.FOLLOW];
 const ACTION = { MOVE: 0, HOLD: 1, USE: 2 };
 const GOAL_HYSTERESIS = 1.1;            // BOT-020: a new goal must beat the current one by 10%
 const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chosen again for this long
@@ -21549,6 +21907,10 @@ const CAMP_SECONDS = 120, CAMP_TRAIT_SECONDS = 180;   // spec T07: camp duration
 const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enemy spawns within this range
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
+const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a downed teammate outranks objectives when it is safe
+const REVIVE_SEARCH = 40;               // m: downed teammates farther away are left to others
+const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close to the downed ally (smoke hides them)
+const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
@@ -21758,6 +22120,14 @@ const BotDecide = {
   },
 };
 
+function reviveSafe(id, ally) {
+  for (let enemy = 0; enemy < Actors.count; enemy++) {
+    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
+    if (Math.hypot(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
+  }
+  return true;
+}
+
 function mutatorRisk() {
   const fx = Mutators.fx;
   if (!fx) return 1;
@@ -21864,6 +22234,14 @@ GOAL_SCORERS[GOAL.INVESTIGATE] = (id, plan, now) => {
 GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
   if (!BotTeam.orderPlan(id, plan, now)) return 0;
   return ORDER_BASE + ORDER_GAIN * Bots.trait(id, TRAIT.teamwork);
+};
+GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
+  if (!Damage.downedCount || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) return 0;
+  const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
+  if (ally < 0 || !reviveSafe(id, ally)) return 0;
+  setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
+  const distance = Math.hypot(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 
 function collectScore(id, value) {
@@ -24368,7 +24746,7 @@ function attritionPoints(victim) {
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
   start() {
-    pveStart({ stealth: true });
+    pveStart({ stealth: Modes.rules.params.stealth });
     Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });
     ContractRun.relic = addMapObjectives('relic', pveObjectiveList)[0] || null;
     ContractRun.extract = addMapObjectives('extract', pveObjectiveList)[0] || null;
@@ -24791,7 +25169,7 @@ Sim.addSystem('pveBoss', 81, () => PveBoss.updateHud());
 
 const PROGRESS_VERSION = 1;
 const PROGRESS_SECONDS_PER_MINUTE = 60;
-const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (the PvE section did not report them)
+const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (enemies left outside a PvE match)
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
@@ -24810,6 +25188,7 @@ const RunLog = {
   kills: 0, deaths: 0, airKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
   lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
   bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+  outSeconds: PROGRESS_NEVER,  // match seconds when the player lost their last life (lives rules); PROGRESS_NEVER while still in
   weaponUsed: new Uint8Array(WEAPON_COUNT),
   metrics: {},                // reused result of measure()
 
@@ -24818,12 +25197,13 @@ const RunLog = {
     this.damageTaken = this.souls = this.armorPickups = this.marks = this.wrathForms = this.wrathKills = 0;
     this.inWrath = false;
     this.lowestHealth = Infinity;
-    this.bossSeconds = this.finalBossSeconds = PROGRESS_NEVER;
+    this.bossSeconds = this.finalBossSeconds = this.outSeconds = PROGRESS_NEVER;
     this.weaponUsed.fill(0);
   },
   isPlayer(id) { return id >= 0 && id === Game.playerId; },
   onKill(event) {
     if (this.isPlayer(event.victim)) this.deaths++;
+    if (this.isPlayer(event.victim) && Modes.lives[event.victim] === 0) this.outSeconds = Math.min(this.outSeconds, Sim.time - Modes.startTime);
     if (!this.isPlayer(event.killer) || event.victim === event.killer) return;
     this.kills++;
     const weapon = CAT.weapons.byId(event.weapon);
@@ -24856,24 +25236,20 @@ const RunLog = {
   },
   measure(match) {
     const out = this.metrics, results = match && match.results, mine = Progress.playerResult(results);
-    const pve = results && results.pve ? results.pve : null;
     out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills;
     out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
     out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy();
-    out.seconds = results ? results.duration : 0;
+    out.seconds = results ? Math.min(results.duration, this.outSeconds) : 0;   // a player out of lives stops earning time (PRG-004)
     out.score = mine ? mine.score : 0; out.objective = mine ? mine.objective : 0; out.bestStreak = mine ? mine.bestStreak : 0;
     out.won = results && Progress.outcome(results) === 'win' ? 1 : 0;
     out.placement = Progress.placement(results);
     out.cardsEquipped = match && match.rules && match.rules.cards ? match.rules.cards.ids.length : 0;
     out.hard = match ? Progress.isHard(match.rules ? match.rules.difficulty : '') : false;
     out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won ? 1 : 0;
-    out.enemiesLeft = pve && typeof pve.enemiesLeft === 'number' ? pve.enemiesLeft : PROGRESS_NOT_REACHED;
-    out.propsLeft = pve && typeof pve.propsLeft === 'number' ? pve.propsLeft : PROGRESS_NOT_REACHED;
-    out.secretsLeft = pve && typeof pve.secretsLeft === 'number' ? pve.secretsLeft : PROGRESS_NOT_REACHED;
-    out.optionalLeft = pve && typeof pve.optionalLeft === 'number' ? pve.optionalLeft : PROGRESS_NOT_REACHED;
+    out.enemiesLeft = Pve.active ? enemiesLeft() : PROGRESS_NOT_REACHED;   // living plus queued enemies (14j), read once at the end
     out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
     return out;
   },
@@ -25026,6 +25402,7 @@ const Progress = {
     this.look.color = color === null ? PROGRESS_NO_LOOK : color;
     this.look.finish = finish === null ? PROGRESS_NO_LOOK : finish;
   },
+  bodyColor(id, fallback) { return id >= 0 && id === Game.playerId && this.look.color !== PROGRESS_NO_LOOK ? this.look.color : fallback; },
   title() { return this.cosmetic('title') || ''; },
 
   weaponStats(key) { return this.stats().weapons[key] || null; },
@@ -25139,6 +25516,12 @@ Render.addActorStyle((id, out) => {
   if (color !== PROGRESS_NO_LOOK) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
   if (finish !== PROGRESS_NO_LOOK) out.emissive = Math.max(out.emissive, finish);
 });
+const progressWeaponViewModel = Render.viewModel;
+Render.viewModel = (out) => {
+  if (progressWeaponViewModel) progressWeaponViewModel(out);
+  out.color = Progress.bodyColor(Game.playerId, out.color);
+  return out;
+};
 
 Bus.on('boot', () => { Progress.ensure(); Progress.refreshLook(); });
 Bus.on('setting', (key) => { if (key === 'progress.unlockAll') Progress.refreshLook(); });
@@ -25288,7 +25671,7 @@ const Medals = {
   },
   onMatchEnd(match) {
     const id = Game.playerId;
-    if (id < 0 || !match.rules || match.rules.family !== 'solo' || this.alarmRaised || !match.results) return;
+    if (id < 0 || !match.rules || !match.rules.params || !match.rules.params.stealth || this.alarmRaised || !match.results) return;
     if (Progress.outcome(match.results) === 'win') this.award(id, 'ghost');
   },
 };
@@ -25422,11 +25805,12 @@ const Challenges = {
     for (const row of CAT.challenges) { const record = this.record(row.id); total += record.stars + record.expertStars; }
     return total;
   },
+  expertMutators(row) { return row.expert.length ? row.expert : CHALLENGE_EXPERT_MUTATORS[row.kind]; },
   setup(id, expert, seed) {
     const row = CAT.challenges.byId(id), tier = clamp(row.tier + (expert ? row.expertTier : 0), 0, CAT.botTiers.length - 1);
     const bots = Array.from({ length: row.bots }, () => ({ tier }));
     return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal,
-      mutators: row.mutators.concat(expert ? row.expert : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
+      mutators: row.mutators.concat(expert ? this.expertMutators(row) : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
   },
   start(id, expert, random) {
     const row = CAT.challenges.byId(id);
@@ -25538,6 +25922,7 @@ const Operations = {
 };
 
 const Daily = {
+  generateMap: null,   // hook filled by the map generator (16w): fn(options) -> map row, MapGen.generate
   dateKey(milliseconds, offsetMinutes) {
     const shifted = new Date(milliseconds + offsetMinutes * MINUTE_MS);
     const month = String(shifted.getUTCMonth() + 1).padStart(2, '0'), day = String(shifted.getUTCDate()).padStart(2, '0');
@@ -25553,8 +25938,8 @@ const Daily = {
       if (mutators.length >= DAILY_RULES.mutatorCount) break;
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
-    const hand = random.pick(dailyHandMaps(mode));
-    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode) };
+    const hand = random.pick(dailyHandMaps(mode)), generator = random.pick(dailyGenerators(mode));
+    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode, generator) };
   },
   setup(key) {
     const choice = this.choiceFor(key);
@@ -25580,11 +25965,12 @@ const Daily = {
 };
 
 function dailyHandMaps(mode) { return CAT.maps.filter((map) => map.modes.includes(mode)); }
-function dailyGeneratedMap(seed, mode) {
-  if (typeof MapGen === 'undefined' || typeof MapGen.generate !== 'function') return null;
+function dailyGenerators(mode) { return CAT.generators.filter((row) => row.modes.includes(mode)); }
+function dailyGeneratedMap(seed, mode, generator) {
+  if (!Daily.generateMap || !generator) return null;
   try {
-    const map = MapGen.generate({ seed, mode });
-    return map && typeof map === 'object' && Array.isArray(map.spawns) && map.spawns.length > 0 ? map : null;
+    const map = Daily.generateMap({ generator: generator.id, seed, mode, size: DAILY_RULES.mapSize });
+    return map && Array.isArray(map.spawns) && map.spawns.length > 0 && map.modes.includes(mode) ? map : null;
   } catch (error) {
     ErrorLog.add('daily map', error);
     return null;
@@ -26080,9 +26466,11 @@ const MAP_OPPOSITE = { West: 'East', East: 'West', North: 'South', South: 'North
 
 // ==== 16b-maps-arena.js ====
 
+const MAP_PARTY_MODES = ['lms', 'infection', 'juggernaut', 'cursetag', 'bearer', 'roulette'];
+
 Maps.rows.push(MapKit.make({
   id: 'spire', code: 'MP01', name: 'Foundry Spire', size: [50, 20, 50], theme: 'foundry', category: 'arena',
-  modes: ['duel', 'ffa'], blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
+  modes: ['duel', 'ffa'].concat(MAP_PARTY_MODES), blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
   sky: { top: 0x1f2a44, horizon: 0xd9824b, fog: 0x4a3a30, fogFar: 140, sun: [0.4, 0.7, 0.3] },
   brushes: [
     ['concrete', -25, -1, -25, 25, 0, 25],                                          // ground
@@ -26144,7 +26532,7 @@ const skyWest = {
   ],
   spawns: [
     [0, ['tdm'], [[-31, 2, -9, 90], [-31, 2, -3, 90], [-31, 2, 3, 90], [-31, 2, 9, 90], [-24.5, 2, -10, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90], [-24.5, 2, 10, 90]]],
-    [-1, ['ffa'], [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
+    [-1, ['ffa'].concat(MAP_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
   ],
   items: [
     ['lightplate', -33, 2, 10.5], ['healthpack', -33, 2, -10.5], ['scattergun', -28, 2, 3.5], ['ammobox', -22.8, 2, -8], ['armorshard', -17, 4, 0],
@@ -26161,7 +26549,7 @@ const skySpan = {                                                               
 };
 const skyNorth = {                                                                                   // north island and the pads that serve it, mirrored to the south
   brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
-  spawns: [[-1, ['ffa'], [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
+  spawns: [[-1, ['ffa'].concat(MAP_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
   items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
   zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
   lights: [[0, 9, 28, 0xcfe8ff, 18]],
@@ -26191,7 +26579,8 @@ const skyCenter = {
   triggers: [{ kind: 'killzone', min: [-40, -40, -40], max: [40, -3, 40] }],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena', modes: ['ffa', 'tdm'],
+  id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena',
+  modes: ['ffa', 'tdm'].concat(MAP_PARTY_MODES),
   blurb: 'Open floating platforms linked by ramps and jump pads; the Lancet Rail waits on a risky ledge.',
   sky: { top: 0x6fa8de, horizon: 0xe3f1fb, fog: 0xcfe3f3, fogFar: 200, sun: [0.3, 0.8, 0.5] },
 }, MapKit.join(MapKit.sym(skyWest, 'x'), MapKit.sym(skySpan, 'xz'), MapKit.sym(skyNorth, 'z'), skyCenter))));
@@ -26205,7 +26594,7 @@ const gantryQuarter = {                                                         
   ],
   spawns: [
     [0, ['tdm', 'dom', 'hardpoint'], [[-46, 0, 6, 90], [-46, 0, 12, 90], [-46, 0, 29, 90], [-46, 0, 35, 90]]],
-    [-1, ['ffa', 'duel', 'gungame', 'oddball'], [[-40, 0, 10, 90], [-44, 0, 32, 90], [-15, 0, 26, 90], [-30, 8, 18, 90], [-30, 0, 11, 90]]],
+    [-1, ['ffa', 'duel', 'gungame', 'oddball'].concat(MAP_PARTY_MODES), [[-40, 0, 10, 90], [-44, 0, 32, 90], [-15, 0, 26, 90], [-30, 8, 18, 90], [-30, 0, 11, 90]]],
   ],
   items: [
     ['lightplate', -47, 0, 37.5], ['healthpack', -42, 0, 12], ['armorshard', -30, 0, 26], ['ammobox', -16, 0, 26], ['stormlash', -28, 0, 9.5],
@@ -26255,7 +26644,7 @@ const gantryCenter = {
 };
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'gantry', code: 'MP06', name: 'Gantry Run', size: [100, 24, 80], theme: 'station', category: 'large',
-  modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'],
+  modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
   blurb: 'Agile playground: rooftop runs, 4 m wall-run lanes and a central hub; ladders and pads cross between levels.',
   sky: { top: 0x3a5a88, horizon: 0xe9c9a0, fog: 0x7a7f8a, fogFar: 170, sun: [-0.3, 0.6, 0.4] },
 }, MapKit.join(MapKit.sym(gantryQuarter, 'xz'), MapKit.sym(gantryHalf, 'x'), gantryCenter))));
@@ -26337,7 +26726,7 @@ const harborWest = {                                                            
     .concat(MapKit.wall('concrete', 'z', -16, 1.5, -10, 10, 0, 4, [[-5, 4, 3.2], [5, 4, 3.2]]))              // yard gate wall (breaks the long diagonals)
     .concat([['metal', -40, 0, -1.5, -37, 1.4, 1.5], ['concrete', -34, 0, 2.5, -33, 2.6, 7.5], ['concrete', -34, 0, -7.5, -33, 2.6, -2.5]]), // base cover and door screens
   spawns: [
-    [0, ['tdm', 'hardpoint', 'attrition'], [[-43, 0, -7, 90], [-43, 0, -2.5, 90], [-43, 0, 2.5, 90], [-43, 0, 7, 90], [-38, 0, -7, 90], [-38, 0, -2.5, 90],
+    [0, ['tdm', 'hardpoint', 'attrition', 'control'], [[-43, 0, -7, 90], [-43, 0, -2.5, 90], [-43, 0, 2.5, 90], [-43, 0, 7, 90], [-38, 0, -7, 90], [-38, 0, -2.5, 90],
       [-38, 0, 2.5, 90], [-38, 0, 7, 90]]],
   ],
   zones: [['West Base', -45, -10, -30, 10, -1, 8]],
@@ -26356,10 +26745,11 @@ const harborCenter = {
     { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0, radius: 8, modes: ['hardpoint'] }, { id: 'hill2', kind: 'hill', x: 0, y: 0, z: 28, radius: 7, modes: ['hardpoint'] },
     { id: 'hill3', kind: 'hill', x: 0, y: 0, z: 16, radius: 5, modes: ['hardpoint'] }, { id: 'hill4', kind: 'hill', x: 0, y: 0, z: -28, radius: 7, modes: ['hardpoint'] },
     { id: 'hill5', kind: 'hill', x: 0, y: 0, z: -16, radius: 5, modes: ['hardpoint'] },
+    { id: 'uplink', kind: 'point', x: 0, y: 0, z: 0, radius: 6, modes: ['control'] },
   ],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'harbor', code: 'MP05', name: 'Harbor Nine', size: [90, 24, 90], theme: 'canal', category: 'large', modes: ['tdm', 'hardpoint', 'attrition'],
+  id: 'harbor', code: 'MP05', name: 'Harbor Nine', size: [90, 24, 90], theme: 'canal', category: 'large', modes: ['tdm', 'hardpoint', 'attrition', 'control'],
   blurb: 'Docks with a cargo yard, two swimmable canals and bridges: three lanes between the bases.',
   sky: { top: 0x4d7fb5, horizon: 0xe8e0d0, fog: 0xb4c4d0, fogFar: 180, sun: [0.2, 0.75, 0.4] },
 }, MapKit.join(MapKit.sym(harborQuarter, 'xz'), MapKit.sym(harborWest, 'x'), harborCenter))));
@@ -28928,6 +29318,8 @@ const MapGen = {
   },
 };
 
+Daily.generateMap = (options) => MapGen.generate(options);
+
 Bus.on('match.setup', (match) => {
   if (match.map && match.map.placeholder && match.map.id === 'isle') match.map = MapGen.ringIsle();
 });
@@ -30859,7 +31251,17 @@ function hudDrawGadgets(pen, layout) {
   if (state.grenade || state.grenadeCount > 0) {
     pen.shape('circle', x, y, 13 * unit, state.grenadeCount > 0 ? HUD_COLOR.text : HUD_COLOR.dim);
     pen.text(hudCount(state.grenadeCount), x - 14 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+    x -= 74 * unit;
   }
+  hudDrawConsumables(pen, x, y, unit);
+}
+function hudDrawConsumables(pen, x, y, unit) {
+  const count = Items.consumableCount(Game.playerId), progress = Items.useProgress(Game.playerId);
+  if (count <= 0 && progress < 0) return;
+  if (progress >= 0) hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, 1 - progress, Hud.colors.good);
+  pen.shape('square', x, y, 11 * unit, HUD_COLOR.text);
+  pen.text(hudCount(count), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+  pen.text(Hud.keyLabel('heal'), x, y + 22 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };
@@ -31671,6 +32073,47 @@ function hudDrawSoundRing(pen, layout) {
   }
 }
 
+const HUD_DOWNED_MARKER_HEIGHT = 1.2;     // metres above a downed teammate's feet
+const HUD_REVIVE_HINT_RANGE = 4;          // metres: the hold-Use hint shows this close to a downed teammate
+
+function hudDrawDownedAllies(pen, layout) {
+  const player = Game.playerId;
+  if (!Damage.downedCount || player < 0 || Actors.team[player] < 0) return;   // no scan while nobody is down
+  for (let id = 0; id < Actors.count; id++) {
+    if (id === player || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED) || Actors.team[id] !== Actors.team[player]) continue;
+    hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + HUD_DOWNED_MARKER_HEIGHT, Actors.z[id], 'diamond', HUD_COLOR.warn, -1, true);
+  }
+}
+function hudReviverOf(id) {
+  for (let other = 0; other < Actors.count; other++) if (Damage.reviving[other] === id) return other;
+  return -1;
+}
+function hudDrawReviveRing(pen, layout, reviver, y) {
+  const unit = layout.unit;
+  hudDrawCooldownRing(pen, layout.centerX, y, 22 * unit, 4 * unit, 1 - Damage.reviveProgress[reviver] / REVIVE_SECONDS, Hud.colors.good);
+}
+function hudDrawDownedState(pen, layout) {
+  const player = Game.playerId;
+  if (player < 0 || !Actors.alive[player] || !Damage.downedCount) return;
+  const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+  if (Actors.flags[player] & ACTOR_FLAG.DOWNED) {
+    pen.label('DOWNED', x, y, 30 * unit, Hud.colors.bad, 'center');
+    pen.label('BLEEDING OUT', x, y + 30 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+    pen.label(hudTime(Damage.downedTime[player]), x, y + 56 * unit, 22 * unit, HUD_COLOR.text, 'center');
+    const reviver = hudReviverOf(player);
+    if (reviver >= 0) hudDrawReviveRing(pen, layout, reviver, y - 44 * unit);
+    return;
+  }
+  if (Damage.reviving[player] >= 0) {
+    hudDrawReviveRing(pen, layout, player, y);
+    pen.label('REVIVING', x, y + 36 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+    return;
+  }
+  if (Damage.nearestDownedAlly(player, HUD_REVIVE_HINT_RANGE) < 0) return;
+  pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
+  pen.label('HOLD TO REVIVE', x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+}
+
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });
 
@@ -31679,6 +32122,8 @@ Hud.register('world', 'nameTags', 'nameTags', hudDrawNameTags);
 Hud.register('world', 'itemTimers', 'itemTimers', hudDrawItemTimers);
 Hud.register('main', 'soundRing', 'soundRing', hudDrawSoundRing);
 Hud.register('main', 'captions', 'captions', hudDrawCaptions);
+Hud.register('world', 'downedAllies', 'markers', hudDrawDownedAllies);
+Hud.register('front', 'downed', 'respawnText', hudDrawDownedState);
 
 // ==== 17e-hud-killcam.js ====
 
@@ -31812,7 +32257,7 @@ function hudDrawKillcamFigures(batch) {
     if (id === Killcam.killer) continue;                       // the camera is inside this one
     const body = Killcam.sample(id, time);
     if (!body.alive) continue;
-    const color = Hud.actorColor(id), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
+    const color = Progress.bodyColor(id, Hud.actorColor(id)), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
     batch.mesh('capsule', body.x, body.y + figure.height / 2, body.z, body.yaw, 0, figure.width, figure.height, figure.width, r, g, b, 0);
     batch.mesh('box', body.x + Math.sin(body.yaw) * 0.3, body.y + figure.faceHeight, body.z + Math.cos(body.yaw) * 0.3, body.yaw, 0, figure.faceSize, figure.faceSize * 0.5, figure.faceSize, 1, 1, 1, 0.4);
   }
@@ -31956,7 +32401,9 @@ function hudMapEnemies(pen, map, player) {
   const reveal = HudExtra.revealIndex, bad = Hud.colors.bad;
   for (let id = 0; id < Actors.count; id++) {
     if (id === player || !Actors.alive[id] || !Actors.isEnemy(player, id)) continue;
-    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || hudTracked(id)) { hudMapDot(pen, map, Actors.x[id], Actors.z[id], 'circle', 7, bad, 1, true); continue; }
+    const ghost = Abilities.hiddenFromPulse !== null && Abilities.hiddenFromPulse(id);   // ECP04 Ghost perk: no tracker or shot blips
+    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || (!ghost && hudTracked(id))) { hudMapDot(pen, map, Actors.x[id], Actors.z[id], 'circle', 7, bad, 1, true); continue; }
+    if (ghost) continue;
     const age = Hud.time - HudExtra.blipAt[id];
     if (age < HUD_MAP_BLIP_SECONDS) hudMapDot(pen, map, HudExtra.blipX[id], HudExtra.blipZ[id], 'circle', 7, bad, 1 - age / HUD_MAP_BLIP_SECONDS * 0.6, true);
   }
@@ -32953,7 +33400,18 @@ const PlayFlow = {
   playAgain(random) {
     if (!Game.match) return null;
     const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const results = Game.match.results;
+    if (!setup.progress && results && results.queue.length && setup.bots) setup.bots = this.queuedBots(setup.bots, results);
     return Game.start(setup);
+  },
+  queuedBots(bots, results) {
+    const botRows = results.players.filter((row) => row.kind !== ACTOR_KIND.PLAYER).sort((a, b) => a.id - b.id);
+    const queued = results.queue.map((name) => botRows.findIndex((row) => row.name === name)).filter((index) => index >= 0);
+    const waiting = bots.map((bot, index) => index).filter((index) => !queued.includes(index));
+    const shift = Difficulty.tierShift() - Bots.setupShift;
+    const seated = (index) => !botRows[index] ? bots[index]
+      : Object.assign({}, bots[index], { name: botRows[index].name, tier: clamp(Bots.tier(botRows[index].id).tier + shift, 0, BOT_TIER_COUNT - 1) });
+    return queued.concat(waiting).map(seated);
   },
   nextMap(random) {
     if (!Game.match || Game.match.setup.progress) return null;
@@ -33166,7 +33624,8 @@ const Scoreboard = {
     const tr = makeElement('tr', (row.id === Game.playerId ? 'sb-me ' : '') + (row.alive || Game.match.results ? '' : 'sb-dead'));
     const symbol = row.team >= 0 ? SCOREBOARD_TEAM_SYMBOLS[row.team % SCOREBOARD_TEAM_SYMBOLS.length] + ' ' : '';
     const name = makeElement('td', '', symbol + this.playerName(row) + (row.queued ? ' (waiting)' : ''));
-    if (row.team >= 0) name.style.color = '#' + Hud.teamColor(row.team).toString(16).padStart(6, '0');
+    const nameColor = Progress.bodyColor(row.id, row.team >= 0 ? Hud.teamColor(row.team) : -1);   // the player's row wears the body colour
+    if (nameColor >= 0) name.style.color = '#' + nameColor.toString(16).padStart(6, '0');
     tr.appendChild(name);
     for (const value of [row.score, row.kills, row.deaths, row.assists]) tr.appendChild(makeElement('td', '', String(Math.round(value))));
     if (withObjective) tr.appendChild(makeElement('td', '', String(Math.round(row.objective))));
@@ -34919,6 +35378,7 @@ const CAREER_RANGE_MODE = 'range';
 const CAREER_NEXT_UNLOCKS = 4;
 const CAREER_HISTORY_SHOWN = 10;
 const CAREER_DEFAULT_LOOK = '';
+const CAREER_FINISH_GLOW_PX = 16;      // swatch glow in pixels at finish 1 (the finishes run 0.1 .. 0.65)
 
 Progress.links.outcome = (results) => PlayFlow.outcome(results);
 Progress.links.playerStats = LocalPlayerStats;
@@ -34981,10 +35441,19 @@ Ui.register('career', {
   },
 });
 
-function careerLookCycle(kind, label) {
+function careerLookCycle(kind, label, onChange) {
   const rows = Progress.unlocked(kind);
   const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name));
-  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => Progress.setCosmetic(kind, value)));
+  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => {
+    Progress.setCosmetic(kind, value);
+    if (onChange) onChange();
+  }));
+}
+function careerPaintSwatch(swatch) {
+  const color = Progress.look.color, finish = Progress.look.finish;
+  const css = color === PROGRESS_NO_LOOK ? '' : '#' + color.toString(16).padStart(6, '0');
+  swatch.style.background = css || 'transparent';
+  swatch.style.boxShadow = css && finish !== PROGRESS_NO_LOOK ? '0 0 ' + Math.round(finish * CAREER_FINISH_GLOW_PX) + 'px ' + css : 'none';
 }
 function careerNextUnlocks() {
   const level = Progress.level();
@@ -34997,8 +35466,12 @@ Ui.register('profile', {
     root.appendChild(careerBar(Progress.levelProgress()));
     const list = careerList(root);
     list.appendChild(makeElement('div', 'ui-group', 'Look (cosmetic only)'));
-    list.appendChild(careerLookCycle('color', 'Body colour'));
-    list.appendChild(careerLookCycle('finish', 'Finish'));
+    const swatch = makeElement('span', 'pg-swatch'), paint = () => careerPaintSwatch(swatch);
+    const colorRow = careerLookCycle('color', 'Body colour', paint);
+    colorRow.appendChild(swatch);
+    paint();
+    list.appendChild(colorRow);
+    list.appendChild(careerLookCycle('finish', 'Finish', paint));
     list.appendChild(careerLookCycle('title', 'Title'));
     list.appendChild(makeElement('div', 'ui-group', 'Next unlocks'));
     for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name, 'Level ' + row.level + ' - ' + row.kind, []));
@@ -36032,7 +36505,8 @@ const ABILITY_CASES = {
       return first >= 0 && newestZone(ZONE_KIND.FENCE, t.caster) !== first && AbilityZones.other[newestZone(ZONE_KIND.FENCE, t.caster)] === first;
     },
   },
-  timebend: { seconds: 0.1, expect: (t) => Test.near(Move.statusSpeedScale[t.enemy], 0.25, 1e-4) && Move.statusSpeedScale[t.caster] === 1 },
+  timebend: { seconds: 0.1, expect: (t) => Test.near(Move.statusSpeedScale[t.enemy], 0.25, 1e-4) && Move.statusSpeedScale[t.caster] === 1
+    && Test.near(Weapons.rateScale[t.enemy], 0.25, 1e-4) && Weapons.rateScale[t.caster] === 1 },   // ABL-004: fire rate slows too
   gale: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.vz[t.enemy] > 5 },
   binding: {
     setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0,
@@ -37477,6 +37951,18 @@ function endBotTest() {
 }
 
 Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 0 }] });
+  placeFacing(bot, 0, -10, 0);
+  holdActor(mate, 6, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0;
+  for (let tick = 0; tick < 15 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) Sim.run(1);
+  check('BOT-071 a bot revives a downed teammate when no enemy is near', downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));
   check('hit caps rise with the tier (BOT-093)', CAT.botTiers.every((row, index) => index === 0 || row.hitCap > CAT.botTiers[index - 1].hitCap));
   check('16 traits T01..T16', CAT.botTraits.length === 16 && CAT.botTraits.every((row, index) => row.code === 'T' + String(index + 1).padStart(2, '0')));
@@ -37549,12 +38035,14 @@ Test.add('bots', (check) => {
 const ACCURACY_SECONDS = 15, ACCURACY_SEEDS = [1, 2, 3], ACCURACY_DISTANCE = 15, ACCURACY_STRAFE = 3, ACCURACY_STRAFE_RATE = 0.8;
 const ACCURACY_BAND_LOW = 0.3, ACCURACY_BAND_SLACK = 0.08;   // band: 30% of the tier's hit cap .. the cap + 0.08
 const ACCURACY_ORDER_SLACK = 0.05;
+const ACCURACY_STILL_TABLE = { walkFraction: 0, walk: 0, crouch: 0, run: 0, air: 0, land: 0, landTime: 1 };   // a MOV-025 table that adds nothing
 
 function measureAccuracy(tier) {
   let shots = 0, hits = 0;
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
     Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
+    Move.presetOverride[bot] = Object.assign({}, Move.preset(bot), { inaccuracy: ACCURACY_STILL_TABLE });   // and no WPN-003 movement spread
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
       holdActor(bot, 0, -ACCURACY_DISTANCE / 2);
@@ -39051,6 +39539,54 @@ Test.add('damage', (check) => {
 });
 
 Test.add('damage', (check) => {
+  check('HP-007 class and hero rulesets down teammates, arena ones do not', Rules.build({ mode: 'tdm', ruleset: 'modern' }).downed === true
+    && Rules.build({ mode: 'payload', ruleset: 'heroes' }).downed === true && Rules.build({ mode: 'tdm', ruleset: 'classic' }).downed === false);
+  TestArena.start({ health: 'regen', downed: true });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5), far = TestArena.actor(2, 20, 5);
+  Weapons.setLoadout(target, ['tempest']);
+  Economy.perkKeys[target].add('lastStand');
+  TestArena.hit(shooter, target, 150);
+  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon);
+  check('HP-007 a teammate at 0 HP goes down in a downed ruleset', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.alive[target] === 1);
+  check('ECP04 Last Stand: the downed actor holds the pistol and may fire', Weapons.current[target] === pistol.index && !Weapons.lowered(target));
+  const shots = TestArena.count('weapon.fire', () => TestArena.hold(target, BTN.FIRE, 0.1));
+  check('ECP04 Last Stand: the pistol fires while downed', shots >= 1, shots);
+  TestArena.hold(far, BTN.USE, REVIVE_SECONDS + 0.2);
+  check('HP-007 Use held 20 m away revives nobody', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0);
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS - 0.5);
+  Sim.step();
+  check('HP-007 letting go of Use starts the revive over', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Damage.reviveProgress[medic] === 0);
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
+  check('HP-007 Use held 5 s within 1.5 m revives the ally', !(Actors.flags[target] & ACTOR_FLAG.DOWNED) && Actors.health[target] === REVIVE_HEALTH, Actors.health[target]);
+  check('ECP04 Last Stand: the old weapon comes back on revive', Weapons.current[target] === CAT.weapons.byId('tempest').index && !Damage.lastStand[target]);
+  TestArena.hit(shooter, target, 150);
+  TestArena.hit(shooter, far, 200);
+  TestArena.hit(shooter, medic, 200);
+  Sim.step();
+  check('HP-007 downed teammates bleed out once no teammate stands', Actors.alive[target] === 0 && Actors.alive[medic] === 0 && Actors.alive[far] === 0);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'regen', downed: true, carry: 2 });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5);
+  Weapons.setLoadout(target, ['lancet', 'tempest']);
+  Economy.perkKeys[target].add('lastStand');
+  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon), lancet = CAT.weapons.byId('lancet'), tempest = CAT.weapons.byId('tempest');
+  const owns = (weapon) => Weapons.owned[Weapons.slotIndex(target, weapon.index)] === 1;
+  TestArena.hit(shooter, target, 150);
+  check('ECP04 Last Stand at the carry limit keeps both carried weapons', Weapons.current[target] === pistol.index && owns(lancet) && owns(tempest) && Weapons.dropped === '');
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
+  check('ECP04 Last Stand: revive gives the held weapon back and takes the lent pistol', Weapons.current[target] === tempest.index && owns(lancet) && !owns(pistol), Weapons.current[target]);
+  TestArena.hit(shooter, target, 150);
+  TestArena.hold(medic, BTN.USE, 2);
+  TestArena.hit(shooter, target, 500);
+  Sim.step();
+  check('HP-007 a revive cut short by the kill leaves no progress behind', Actors.alive[target] === 0 && Damage.reviveProgress[medic] === 0 && Damage.reviving[medic] === -1, Damage.reviveProgress[medic]);
+  TestArena.finish();
+});
+
+Test.add('damage', (check) => {
   TestArena.start({ health: 'ravager' });
   const target = TestArena.actor(2, 0, 5);
   Actors.armor[target] = 50;
@@ -39607,6 +40143,14 @@ Test.add('gadgets', (check) => {
   GadgetArena.throwAfter(id, 0, BTN.ALT);
   const under = GadgetArena.firstThrown();
   check('GAD-002 underhand on ALT is slower', under >= 0 && Test.near(Thrown.vz[under], GADGET_TUNING.underhandSpeed, 0.01));
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['warden']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the pistol is out
+  const thrownShots = TestArena.count('weapon.fire', () => GadgetArena.throwAfter(id, 0.2, BTN.ALT));
+  Sim.run(itemTicks(1));
+  const altShots = TestArena.count('weapon.fire', () => GadgetArena.press(id, BTN.ALT));
+  check('GAD-002 the underhand throw does not fire the weapon alt (ALT alone still does)', GadgetArena.firstThrown() >= 0 && thrownShots === 0 && altShots > 0, thrownShots + ' / ' + altShots);
   TestArena.finish();
 });
 
@@ -39736,6 +40280,18 @@ Test.add('gadgets', (check) => {
 
 Test.add('gadgets', (check) => {
   GadgetArena.start();
+  const owner = GadgetArena.actor(1, 0, 0, 'cover', 1), cooldown = CAT.gadgets.byId('cover').cooldown;
+  Abilities.rechargeScale[owner] = 2;
+  GadgetArena.press(owner, BTN.GADGET);
+  const spent = Gadgets.countOf(owner, 'cover') === 0, ring = Gadgets.hudState(owner, {}).gadgetCooldown;
+  check('ECP04 Tune Up: the HUD recharge ring starts full', ring > 0.95, ring);
+  Sim.run(itemTicks(cooldown / 2) + 1);
+  check('ECP04 Tune Up halves the field upgrade recharge at scale 2', spent && Gadgets.countOf(owner, 'cover') === 1);
+  TestArena.finish();
+});
+
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
   const owner = GadgetArena.actor(1, 0, 0, 'cover', 1);
   const hud = {};
   GadgetArena.press(owner, BTN.GADGET);
@@ -39854,12 +40410,13 @@ Test.add('gadgets', (check) => {
   check('G24 one beacon per team', Devices.room(friend, CAT.gadgets.byId('beacon')) === 0);
   Bus.emit('actor.spawn', { id: friend });
   check('G24 teammates spawn at the beacon', Math.hypot(Actors.x[friend] - 10, Actors.z[friend] - 10) <= 1.5, Actors.x[friend] + ',' + Actors.z[friend]);
+  check('G24 the beacon spawn sets the previous position too (no interpolation smear)', Actors.prevX[friend] === Actors.x[friend] && Actors.prevZ[friend] === Actors.z[friend]);
   const mine = GadgetArena.device('prox', owner, 0, 5);
   check('GAD-003 enemy mines glint only within 8 m', !Devices.visibleTo(mine, enemy) && Devices.visibleTo(mine, friend));
   TestArena.place(enemy, 0, 10);
   check('GAD-003 visible to the enemy within 8 m', Devices.visibleTo(mine, enemy));
   ItemArena.kill(owner);
-  check('devices are removed when the owner dies', !Devices.active[beacon] && !Devices.active[mine] && Devices.count === 0);
+  check('devices are removed when the owner dies, the G24 beacon stays', Devices.active[beacon] === 1 && !Devices.active[mine] && Devices.count === 1);
   GadgetArena.device('sentry', friend, 3, 3);
   Smoke.spawn(CAT.gadgets.byId('smoke'), friend, 0, 1, 0);
   Bus.emit('match.end', {});
@@ -40695,6 +41252,25 @@ DebugApi.hudHeap = (frames) => hudTestBusy(() => {
   for (let frame = 0; frame < frames; frame++) hudTestFrame();
   return performance.memory.usedJSHeapSize - before;
 });
+
+Test.add('hud', (check) => hudTestWith(() => {
+  const { id, mate } = hudTestMatch(), quads = (layer, drawer) => { hudTestFrame(); return hudTestDrawer(layer, drawer).quads; };
+  check('downed: no downed cues while nobody is down', quads('world', 'downedAllies') === 0 && quads('front', 'downed') === 0);
+  Damage.goDown(-1, mate);
+  Sim.step();
+  check('downed: a downed teammate gets a marker', quads('world', 'downedAllies') > 0);
+  check('downed: no revive hint far from it', quads('front', 'downed') === 0);
+  hudTestPlace(id, 0, 12, 0);
+  check('downed: the hold-Use hint shows near it', quads('front', 'downed') > 0);
+  Damage.reviving[id] = mate; Damage.reviveProgress[id] = REVIVE_SECONDS / 2;
+  check('downed: the revive ring shows while reviving', quads('front', 'downed') > 0);
+  Damage.reviving[id] = -1; Damage.reviveProgress[id] = 0;
+  Damage.revive(mate);
+  Damage.goDown(-1, id);
+  Sim.step();
+  check('downed: the local player sees the bleed-out time', (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0 && quads('front', 'downed') > 0);
+  check('downed: a downed actor lies prone (crawl pose)', Test.near(Actors.height[id], STANCE_HEIGHT[STANCE.PRONE], 1e-4), Actors.height[id]);
+}));
 
 Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
@@ -41597,6 +42173,8 @@ Test.add('items', (check) => {
   check('back exactly on time with an item.respawn event', Items.state[0] === PICKUP_STATE.READY && respawns === 1, respawns);
   ItemArena.start({ itemRespawnScale: 0.5 }, [ItemArena.spot('healthpack', 3, 0)]);
   check('itemRespawnScale halves the timer', Items.respawnTicks(0) === itemTicks(17.5), Items.respawnTicks(0));
+  ItemArena.start({ botSkill: CAT.difficulty.byId('stroll') }, [ItemArena.spot('healthpack', 3, 0)]);
+  check('DIF-002 the difficulty resourceYield (D01 x2) makes map pickups return sooner', Items.respawnTicks(0) === itemTicks(35 / 2), Items.respawnTicks(0));
   TestArena.finish();
 });
 
@@ -41679,6 +42257,27 @@ Test.add('items', (check) => {
   Actors.health[id] = patch.cap;
   Items.grant(id, 'patch');
   check('I13 not usable at its 75 HP cap', !Items.use(id, 'patch'));
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), patch = CAT.items.byId('patch');
+  check('the heal action and its touch button exist', Input.actionIndex.heal !== undefined && TOUCH_CONTROLS.some((control) => control.action === 'heal'));
+  Items.grant(id, 'patch');
+  TestArena.hold(id, BTN.HEAL, 0.05);
+  check('the heal button starts a carried consumable', Items.useProgress(id) >= 0 && Items.consumableCount(id) === 1);
+  Sim.run(itemTicks(patch.useTime));
+  check('the heal button item applies after its use time', Actors.health[id] === 65 && Items.consumableCount(id) === 0, Actors.health[id]);
+  const bot = ItemArena.actor(2, 5, 0);
+  Items.grant(bot, 'patch');
+  Actors.kind[bot] = ACTOR_KIND.BOT;
+  Damage.lastDamageTime[bot] = Sim.time;
+  const hurtNow = Items.botWantsHeal(bot);
+  Damage.lastDamageTime[bot] = Sim.time - BOT_HEAL_CALM - 0.1;
+  const calm = Items.botWantsHeal(bot);
+  Actors.kind[bot] = ACTOR_KIND.DUMMY;
+  check('bots use a carried consumable only once out of the fight', !hurtNow && calm && Actors.health[bot] < Actors.maxHealth[bot]);
   TestArena.finish();
 });
 
@@ -41862,10 +42461,12 @@ Test.add('items', (check) => {
 
 Test.add('items', (check) => {
   ItemArena.start({});
-  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0);
+  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0), ghost = ItemArena.actor(2, 0, -20);
+  Abilities.hiddenFromPulse = (other) => other === ghost;   // the Ghost perk (S13 fills the hook)
   Powerups.give(id, CAT.powerups.byId('seer'), 0);
   Sim.run(2);
   check('PU13 reveals the holder\'s enemies, not friends', Damage.hasStatus(enemy, 'reveal') && !Damage.hasStatus(friend, 'reveal'));
+  check('PU13 does not reveal an enemy with the Ghost perk (ECP04)', !Damage.hasStatus(ghost, 'reveal'));
   Powerups.clearActor(id, false);
   const boots = CAT.powerups.byId('springboots');
   Powerups.give(id, boots, 0);
@@ -43447,6 +44048,8 @@ Test.add('maps', (check) => {
   }
   for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
   check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
+  const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);
+  check('modes: every versus mode has a hand-made map (pickable in Play and Custom)', unserved.length === 0, unserved.join());
   check('lookup: by id and by code', Maps.get('MP05') === Maps.get('harbor') && Maps.get('nope') === null);
 });
 
@@ -44035,6 +44638,16 @@ Test.add('modes', (check) => {
   check('lms: rank by lives first, then score', Modes.rankOf(2) === 1 && Modes.rankOf(0) === 2 && Modes.rankOf(1) === 3, [0, 1, 2].map((id) => Modes.rankOf(id)).join());
   endModeTest();
 
+  const lmsItems = [{ x: 5, y: 0, z: 5, item: 'healthpack' }, { x: 9, y: 0, z: 5, item: 'springboots' }];
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1]);
+  Items.load(lmsItems, 'lms');
+  const set = currentWeaponSet().weapons, lastWeapon = CAT.weapons.byId(set[set.length - 1]);
+  const armed = set.every((key) => Weapons.owned[Weapons.slotIndex(0, CAT.weapons.byId(key).index)]);
+  const fullReserve = Weapons.reserve[Weapons.slotIndex(0, lastWeapon.index)] === Weapons.maxReserve(0, lastWeapon);
+  check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
+  check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
+  endModeTest();
+
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
   check('lms: out of lives means no respawn', !Actors.alive[1] && Modes.lives[1] === 0 && Modes.respawnIn(1, Sim.time) === -1);
@@ -44146,6 +44759,18 @@ Test.add('modes', (check) => {
   placeActor(0, 0, 0);
   runSeconds(2);
   check('dom: the owner undoes enemy progress', Test.near(pointA.progress, 0, 1e-6) && pointA.owner === 0);
+  endModeTest();
+
+  startModeTest('dom', modesTestMap(domMap), [0, 0, 1]);
+  const point = Modes.objectives[0];
+  placeActor(0, 1, 0); placeActor(1, 40, 40); placeActor(2, 0, 1);
+  Damage.goDown(-1, 0);
+  runSeconds(4);
+  check('dom: a downed actor does not contest the point', !point.contested && point.capturingTeam === 1 && point.inside[0] === 0, point.inside.join());
+  placeActor(2, -40, -40);
+  runSeconds(9);
+  check('dom: a downed actor alone does not capture', point.owner === NO_TEAM && point.capturingTeam === NO_TEAM, point.owner + ' ' + point.capturingTeam);
+  check('objectives: findActorNear passes over a downed actor', Modes.findActorNear(1, 0, 0, 2, NO_TEAM, NEAR_ANY) === -1 && Modes.findActorNear(40, 0, 40, 2, NO_TEAM, NEAR_ANY) === 1);
   endModeTest();
 
   const hillMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'H1', kind: 'hill', x: 0, y: 0, z: 0 }, { id: 'H2', kind: 'hill', x: 0, y: 0, z: 30 }] };
@@ -44882,10 +45507,13 @@ Test.add('modes2', (check) => {
   placeActor(0, 10, 10); runSeconds(0.2);
   check('royale: a weapon spot gives its weapon with its rarity (WPN-008)', Weapons.has(0, 'warden') && Weapons.rarity[Weapons.slotIndex(0, CAT.weapons.byId('warden').index)] === rarity && RoyaleLoot.taken[0] === 1);
   placeActor(0, 14, 10); runSeconds(0.2);
-  check('royale: a heal at full health stays on the spot', RoyaleLoot.taken[2] === 0);
+  const consumable = CAT.items.byId(LOOT_CONSUMABLES[RoyaleLoot.rarity[2]]);
+  check('royale: a health spot gives the I13-I17 consumable of its rarity to carry', RoyaleLoot.taken[2] === 1 && Items.carriedCount(0, consumable.id) === 1, consumable.id);
   hitActor(0, 1, 60);
-  runSeconds(0.2);
-  check('royale: a heal restores lootHeal health', RoyaleLoot.taken[2] === 1 && Actors.health[0] === 40 + params.lootHeal, Actors.health[0]);
+  const hurt = Actors.health[0] + Actors.shield[0];
+  Actors.buttons[0] = BTN.HEAL; runSeconds(0.05); Actors.buttons[0] = 0;
+  runSeconds(consumable.useTime + 0.1);
+  check('royale: the heal button uses the carried consumable', Actors.health[0] + Actors.shield[0] > hurt && Items.carriedCount(0, consumable.id) === 0, Actors.health[0] + Actors.shield[0]);
   placeActor(0, 12, 10); runSeconds(0.2);
   check('royale: armor sets the shield by its rarity', Actors.shield[0] === params.shieldByRarity[RoyaleLoot.rarity[1]] && RoyaleLoot.taken[1] === 1);
   const warden = CAT.weapons.byId('warden'), wardenSlot = Weapons.slotIndex(0, warden.index);
@@ -44916,6 +45544,45 @@ Test.add('modes2', (check) => {
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
   Game.start({ mode: 'royale', seed: 1, bots: Array.from({ length: 30 }, () => ({ dummy: true })) });
   check('royale: the bot count stays within the PERF-009 cap', Actors.count === Quality.current().bots && Actors.count <= 23);
+  endModeTest();
+});
+
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1, -1, -1, -1]);
+  const squads = Modes.squads, params = Game.match.rules.params;
+  Move.setPreset(0, 'tactical'); Modes.endProtection(0);   // MOV-015 fall damage (lethal above 22 m/s); firing ends protection
+  check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
+    && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
+  check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
+    && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
+  runSeconds(3);
+  check('royale: the drop lands on the ground', Actors.y[0] < 0.5 && Actors.alive[0] === 1, Actors.y[0]);
+  check('royale: the drop-in takes no fall damage, even with MOV-015 falls', Actors.health[0] === Actors.maxHealth[0] && Move.safeLanding[0] === 0, Actors.health[0]);
+  Move.setPreset(0, null);
+  killActor(2, 1); killActor(4, 1);
+  Actors.alive[2] = 0; Actors.alive[4] = 0;
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  Actors.buttons[0] = 0;
+  runSeconds(0.3);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  check('royale: letting go of Use at the beacon starts over', !Actors.alive[2] && squads.beaconUses[0] === params.squadBeacons);
+  runSeconds(1.2);
+  Actors.buttons[0] = 0;
+  check('royale: holding Use at the squad beacon brings the dead squadmates back', Actors.alive[2] === 1 && Actors.alive[4] === 1 && squads.beaconUses[0] === params.squadBeacons - 1
+    && Math.hypot(Actors.x[2] - squads.beaconX[0], Actors.z[2] - squads.beaconZ[0]) <= DROP_SPREAD + 1e-3 && Modes.behaviour.score(2) >= ROYALE_STANDING_RANK);
+  killActor(1, 0); killActor(3, 0);
+  Sim.step();
+  check('royale: one squad member left keeps the squad in the match', !Game.match.ended && Modes.hud.aliveCount === 4);
+  killActor(5, 0);
+  Sim.step();
+  check('royale: the last squad standing wins', Game.match.ended && Actors.team[Game.match.winner] === 0 && Game.match.results.reason === 'eliminated');
+  endModeTest();
+
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
+  check('royale: a match of one squad or fewer plays solo', Modes.squads.count === 0 && Actors.team[0] === NO_TEAM && Actors.isEnemy(0, 1));
   endModeTest();
 });
 
@@ -45335,6 +46002,16 @@ Test.add('move', (check) => {
   check('sprintToFire 0.20 s blocks firing', !Move.canFire(id));
   stepSeconds(0.06);
   check('can fire after sprintToFire', Move.canFire(id));
+  Weapons.setLoadout(id, ['tempest']);
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(0.5);
+  holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+  Sim.step();
+  const ready = CAT.weapons.byId('tempest').readyTime;
+  stepSeconds(0.21);
+  check('MOV-021 the held weapon adds its readyTime to sprintToFire', ready > 0 && !Move.canFire(id), ready);
+  stepSeconds(ready);
+  check('can fire after sprintToFire + readyTime', Move.canFire(id));
 });
 
 Test.add('move', (check) => {
@@ -45508,6 +46185,7 @@ Test.add('move', (check) => {
   tapButtons(id, BTN.JUMP);
   const top = highestPoint(id, 2.5);
   check('ravager climbs a grip wall and mantles over (6 m)', top > 4.9, top);
+  check('the grip material exists for MV05 climb walls', CAT.materials.byId('grip') !== undefined && CAT.materials.byId('grip') !== null);
   const plain = groundedTester(13, 0);
   holdInput(plain, 0, 1, 0, 0);
   tapButtons(plain, BTN.JUMP);
@@ -46170,6 +46848,9 @@ Test.add('mutators', (check) => {
   Actors.alive[1] = 1; Actors.health[1] = 10;
   strike(0, 1, 100000, { element: 'thermal' });
   check('resource triangle: a burning kill gives armor', Actors.armor[0] >= 25, Actors.armor[0]);
+  Actors.alive[1] = 1; Actors.health[1] = 10; Actors.health[0] = 50;
+  strike(0, 1, 100000, { weapon: 'warden', kind: 'melee' });
+  check('resource triangle: a quick-melee bash with a gun counts as a melee finisher', Actors.health[0] === 75, Actors.health[0]);
   const halved = startReserves(2);
   stopMutatorMatch();
   startMutatorMatch([]);
@@ -46183,6 +46864,12 @@ Test.add('mutators', (check) => {
     && Weapons.maxReserve(2, CAT.weapons.byId('warden')) === Math.round(CAT.weapons.byId('warden').maxAmmo * 0.25));
   stopMutatorMatch();
   check('the mutator factors are cleared after the match', Weapons.mutatorScale.every((scale) => scale === 1));
+  startMutatorMatch([], { ruleset: 'ravager' });
+  check('HPP07: the Ravager rulesets always run the resource triangle', Mutators.fx && Mutators.fx.triangle === true && Rules.build({ mode: 'ffa', ruleset: 'knight' }).fx.triangle === true
+    && !Rules.build({ mode: 'ffa', ruleset: 'classic' }).fx.triangle);
+  check('HPP07: spawn with 100 health and 50 armor, caps 100/50 until Vital Shards raise them', Actors.health[2] === 100 && Actors.armor[2] === 50 && Actors.maxArmor[2] === 50
+    && Damage.preset().overhealCap === 100, Actors.armor[2]);
+  stopMutatorMatch();
 
   startMutatorMatch(['mirror']);
   Game.playerId = 0;
@@ -46221,9 +46908,10 @@ Test.add('mutators', (check) => {
   const hadAbilities = !!CAT.abilities, hadPowerups = !!CAT.powerups;
   if (!hadAbilities) CAT.abilities = [{ id: 'testdash', code: 'A05' }, { id: 'testfar', code: 'A99' }];
   if (!hadPowerups) CAT.powerups = [{ id: 'testboost' }];
-  const picks = [], grants = [];
+  const picks = [], grants = [], grantedItems = [];
+  const SUPER_FORBIDDEN = ['lightbearer', 'vitalshard', 'soul'];   // unique, campaign and PvE-only rows
   const pickListener = Bus.on('power.pick', (payload) => picks.push(payload.ability));
-  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id));
+  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id) && grantedItems.push(payload.item));
   startMutatorMatch([{ id: 'powers', value: true }, { id: 'superpowerups', value: 15 }]);
   Bus.emit('actor.spawn', { id: 1 });
   Sim.run(Math.round(16 * TICK_RATE));
@@ -46231,6 +46919,8 @@ Test.add('mutators', (check) => {
   const aliveCount = Array.from({ length: Actors.count }, (unused, id) => Actors.alive[id]).filter(Boolean).length;
   check('powers for all announces one ability per spawn (A05..A33 only)', picks.length >= 1 && picks.every((name) => CAT.abilities.byId ? CAT.abilities.byId(name) : true) && !picks.includes('testfar'));
   check('super powerups grant every living actor a powerup each interval', grants.length === aliveCount && aliveCount >= 3, grants.length + ' ' + aliveCount);
+  check('super powerups never hand out unique, campaign or PvE-only rows', Mutators.superPool.length > 0
+    && !Mutators.superPool.some((row) => SUPER_FORBIDDEN.includes(row.id)) && grantedItems.every((item) => !SUPER_FORBIDDEN.includes(item)), grantedItems.join());
   stopMutatorMatch();
   if (!hadAbilities) delete CAT.abilities;
   if (!hadPowerups) delete CAT.powerups;
@@ -47241,6 +47931,14 @@ function progressTeamMatch(mode, map) {
   return ids;
 }
 
+const PROGRESS_TEST_PAR_SHARE = 0.5;
+function progressBestRun(row) {
+  const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
+  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
+  return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
+}
+
 Test.add('progress', (check) => {
   for (const name of ['medals', 'cards', 'unlocks', 'ladder', 'challenges', 'operations']) check('catalogue ' + name + ' validates', Data.validate(name).length === 0, Data.validate(name).join('; '));
   check('medals: MD01..MD20 in order', CAT.medals.length === 20 && CAT.medals.every((row, index) => row.code === 'MD' + String(index + 1).padStart(2, '0')));
@@ -47342,6 +48040,14 @@ Test.add('progress', (check) => {
   check('look: without a worn look the body keeps its default colour', plain.r === 0.5 && plain.emissive === 0);
   Progress.setCosmetic('color', 'colorSlate');
   check('look: choosing a colour refreshes the drawn look at once', Progress.look.color === 0x7d8a99);
+  const view = { color: 0 }, slate = 'rgb(125, 138, 153)', rival = Game.playerId === 0 ? 1 : 0;
+  Render.viewModel(view);
+  const myRow = Scoreboard.buildRow({ id: Game.playerId, team: -1, name: 'You', alive: true, score: 0, kills: 0, deaths: 0, assists: 0, objective: 0 }, false);
+  const profile = makeElement('div');
+  Ui.screens.get('profile').build(profile);
+  check('look: the worn colour tints the view model and the player\'s scoreboard row, not other actors', view.color === 0x7d8a99 && myRow.firstChild.style.color === slate
+    && Progress.bodyColor(rival, 7) === 7 && Progress.bodyColor(Game.playerId, 7) === 0x7d8a99);
+  check('look: the profile shows a swatch of the worn colour', profile.querySelector('.pg-swatch').style.backgroundColor === slate);
   check('mastery: an unknown tier id opens nothing', !Progress.masteryReached('nope'));
   Game.stop();
 });
@@ -47476,13 +48182,15 @@ Test.add('progress', (check) => {
   });
   check('medals: no Flawless Wave after taking damage', got.length === 0, got.join());
   Game.stop();
-  const ghostRun = (alarm) => progressMedals(() => {
-    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo' }, player: { name: 'You' }, bots: [{ dummy: true }] });
+  const ghostRun = (alarm, stealth) => progressMedals(() => {
+    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo', params: { stealth } }, player: { name: 'You' }, bots: [{ dummy: true }] });
     if (alarm) Bus.emit('pve.alarm', { id: -1 });
     Modes.finish(Game.playerId);
   });
-  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false).join() === 'ghost' && Progress.profile().medals.ghost === 1);
-  check('medals: no Ghost after an alarm', ghostRun(true).length === 0);
+  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false, true).join() === 'ghost' && Progress.profile().medals.ghost === 1);
+  check('medals: no Ghost after an alarm', ghostRun(true, true).length === 0);
+  check('medals: no Ghost for a won solo level without stealth (Test Chambers, Firing Range)', ghostRun(false, false).length === 0
+    && CAT.modes.filter((mode) => mode.params.stealth).map((mode) => mode.id).join() === 'contract');
   Game.stop();
 });
 
@@ -47545,23 +48253,29 @@ Test.add('progress', (check) => {
     valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
+  const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
+  check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
   const metrics = { kills: 5, seconds: 100 };
-  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * 2000 + 50 * 100 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0
-    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
+    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
+  check('rooms: a flawless run at half of par (or of the time limit) reaches 3 stars in every room', short.length === 0,
+    short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 100 }, first);
-  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === 15000 && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
+  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === onePoints && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
   const again = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 110 }, again);
-  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === 15000 && Challenges.record('sprint').plays === 2);
-  Challenges.onResult(fake(false), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par + 10 }, again);
+  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === onePoints && Challenges.record('sprint').plays === 2);
+  Challenges.onResult(fake(false), twoStars, award());
   check('rooms: 2 stars open the Expert version', Challenges.record('sprint').stars === 2 && Challenges.expertOpen('sprint'));
-  Challenges.onResult(fake(true), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(true), twoStars, award());
   check('rooms: Expert keeps its own best and stars', Challenges.record('sprint').expertStars === 2 && Challenges.record('sprint').stars === 2);
   check('rooms: rooms past the first block wait for their level', !Challenges.isOpen(CAT.challenges.byId('phantom')) && Challenges.isOpen(CAT.challenges.byId('markYard')));
   const match = Challenges.start('sprint', false);
@@ -47569,6 +48283,23 @@ Test.add('progress', (check) => {
   const firstMatch = Game.match;
   Game.start(Game.match.setup);
   check('rooms: instant retry restarts the same trial at once (pause Restart / Play again)', Game.match !== firstMatch && Game.match.setup.progress.id === 'sprint' && Game.state === 'playing');
+  Game.stop();
+});
+
+Test.add('progress', (check) => {
+  const survive = (outAfter, endAfter) => {
+    Challenges.start('holdout', false);
+    const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
+    progressAdvance(outAfter);
+    for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
+    progressAdvance(endAfter - outAfter);
+    Modes.finish(rival);
+    return RunLog.measure(Game.match).seconds;
+  };
+  const early = survive(20, 220);
+  check('survival: a player out of lives early stops earning seconds', Math.abs(early - 20) < 0.1 && Game.match.results.duration > 200, early);
+  const full = survive(60, 60);
+  check('survival: a player still in counts the whole match', Math.abs(full - Game.match.results.duration) < 0.01 && full >= 60, full);
   Game.stop();
 });
 
@@ -47616,6 +48347,15 @@ Test.add('progress', (check) => {
   }
   check('daily: each day picks a playable mode, a bundle, 2 compatible mutators and a map serving the mode', valid);
   check('daily: different dates give different setups', seen.size >= 10, seen.size);
+  let served = true, generatedDays = 0;
+  for (let day = 0; day < 6; day++) {
+    const key = Daily.dateKey(PROGRESS_TEST_DAY + day * 24 * PROGRESS_TEST_HOUR_MS, 0), setup = Daily.setup(key);
+    const map = typeof setup.map === 'string' ? Maps.get(setup.map) : setup.map, needs = MapRules.rule(setup.mode)[1];
+    if (map.gen) generatedDays++;
+    served = served && map.modes.includes(setup.mode) && needs.every(([kind, minimum]) => Maps.objectivesFor(map, setup.mode, kind).length >= minimum)
+      && (!map.gen || MapGen.generator(map.gen.generator).modes.includes(setup.mode));
+  }
+  check('daily: the map serves the daily mode with its objectives, generated by a generator for that mode', served && generatedDays > 0, generatedDays);
   const setup = Daily.setup('2026-10-22');
   Rules.build(setup);
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
@@ -47678,6 +48418,39 @@ Test.add('progress', (check) => {
 });
 
 Test.add('progress', (check) => {
+  const opponent = () => {
+    for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id) && id !== Game.playerId) return id;
+    return -1;
+  };
+  const tiers = () => {
+    const byName = {};
+    for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.BOT) byName[Actors.name[id]] = Bots.tier(id).tier;
+    return byName;
+  };
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
+  try {
+    Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
+    Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'duel', bots: 3, difficulty: 'veteran' }), () => 0.5));
+    const before = tiers();
+    Modes.finish(Game.playerId);
+    const queue = Game.match.results.queue.slice(), change = Game.match.results.botTierChange;
+    PlayFlow.playAgain();
+    const after = tiers();
+    check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === queue[1]
+      && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+    check('duel queue: every bot keeps its tier through the reseat, plus the adaptive change', change === 1
+      && Object.keys(before).every((name) => after[name] === clamp(before[name] + change, 0, BOT_TIER_COUNT - 1)));
+    const winner = Actors.name[opponent()];
+    Modes.finish(opponent());
+    PlayFlow.playAgain();
+    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+  } finally {
+    Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+    Game.stop();
+  }
+});
+
+Test.add('progress', (check) => {
   check('cards: a locked card cannot be placed', !Cards.equip('stoneskin') && Cards.equipProblem('stoneskin') === CAT.cards.byId('stoneskin').unlock.text);
   Settings.set('progress.unlockAll', true);
   check('cards: placing needs the Marks', !Cards.equip('stoneskin') && Cards.equipProblem('stoneskin').startsWith('Needs'));
@@ -47693,11 +48466,11 @@ Test.add('progress', (check) => {
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
-  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, propsLeft: 3, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
-    explosiveShots: 2, souls: 20, rangedKills: 5, secretsLeft: 1, wrathKills: 0, optionalLeft: 1, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
-  const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
-    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
+  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, damageTaken: 40, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+    explosiveShots: 2, souls: 20, rangedKills: 5, airKills: 0, wrathKills: 0, headshots: 0, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
+  const meets = { stoneskin: {}, slowtide: { damageTaken: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
+    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { airKills: 10 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
+    greed: { kills: 150 }, ironwill: { bossSeconds: 79 }, rage: { headshots: 30 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { lowestHealth: 10, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -47707,15 +48480,21 @@ Test.add('progress', (check) => {
     if (!ok) { exact = false; wrong.push(row.id); }
   }
   check('cards: each card unlocks on its own condition and not without it', exact, wrong.join());
-  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { secretsLeft: 0 }))
-    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { secretsLeft: 0, deaths: 1 })));
-  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('slowtide').unlock, Object.assign({}, base, { propsLeft: PROGRESS_NOT_REACHED })));
+  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { lowestHealth: 5 }))
+    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { headshots: 30, deaths: 1 })));
+  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('soulkeep').unlock, Object.assign({}, base, { enemiesLeft: PROGRESS_NOT_REACHED })));
   const award = { lines: [] };
-  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, propsLeft: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, damageTaken: 0 }), award);
   check('cards: nothing unlocks outside a finished PvE level', !Cards.record().unlocked.slowtide);
-  Cards.unlockFromRun(null, Object.assign({}, base, { propsLeft: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { damageTaken: 0 }), award);
   check('cards: a finished level unlocks the cards whose conditions held', Cards.record().unlocked.slowtide && Cards.record().unlocked.stoneskin && Cards.record().unlocked.endless
     && !Cards.record().unlocked.soulkeep && award.lines.length === 3, award.lines.join('; '));
+  Game.start({ mode: 'horde', map: 'cistern', seed: 4, player: { name: 'You' } });
+  Modes.finish(Game.playerId);
+  const measured = RunLog.measure(Game.match);
+  const unmeasured = CAT.cards.filter((row) => typeof measured[row.unlock.metric] !== 'number' || measured[row.unlock.metric] === PROGRESS_NOT_REACHED).map((row) => row.code);
+  check('cards: a finished PvE level measures every metric a card condition reads', unmeasured.length === 0 && measured.enemiesLeft === enemiesLeft(), unmeasured.join());
+  Game.stop();
 });
 
 function progressCardMatch(cards, extra) {
@@ -50606,6 +51385,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 
 Test.add('uiacc', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), { id, mate, enemy } = scene;
+  Abilities.hiddenFromPulse = () => false;   // the enemy's class may carry the Ghost perk (ECP04): these checks need a plain enemy
   hudTestFrame();
   const minimap = () => { hudTestFrame(); return Hud.quadsOf('minimap'); };
   const withoutEnemy = (() => { Actors.alive[enemy] = 0; const quads = minimap(); Actors.alive[enemy] = 1; return quads; })();
@@ -50642,6 +51422,10 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   check('tracker: an enemy out of range stays hidden', minimap() === base);
   setRadar({ mode: 'team', range: 20 });
   check('tracker: team mode shares the range of every living teammate (the mate is 17 m away)', minimap() > base);
+  Abilities.hiddenFromPulse = (id) => id === enemy;   // ECP04 Ghost perk
+  hudTestEvent('sound', { x: 5, y: 0, z: 30, radius: ACCESS_TEST_NEXT_SHOT_NOISE, kind: 'shot', source: enemy });
+  check('tracker: the Ghost perk hides a moving enemy and its shot blips', minimap() === base);
+  Abilities.hiddenFromPulse = () => false; Hud.time += HUD_MAP_BLIP_SECONDS + 0.1;
   setRadar({ mode: 'off', range: 40 });
   check('tracker: off shows nothing', minimap() === base);
   setRadar(null);
@@ -50997,6 +51781,30 @@ Test.add('weapons', (check) => {
   const unknown = CAT.weaponSets.flatMap((set) => set.weapons.concat(set.start)).filter((key) => !CAT.weapons.byId(key));
   check('weapon sets only name existing weapons', unknown.length === 0, unknown.join(', '));
   check('WPN-011 explosive alt fires arm at >= 6 m', CAT.projectiles.byId('contact').arm >= 6);
+  const unarmedAlts = ['shardcaster', 'stakedriver', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
+  check('WPN-011 the W21, W26, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 3);
+  giveFull(shooter, 'talonbow');
+  TestArena.aimAt(shooter, target);
+  let blasts = -1;
+  const shots = TestArena.count('weapon.fire', () => { blasts = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.ALT, 0.5)); });
+  check('WPN-011 the W27 explosive arrow does not explode at 3 m', shots >= 1 && blasts === 0, blasts + ' / ' + shots);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 1.5, 20);
+  const grenade = Projectiles.spawn(CAT.projectiles.byId('grenade'), shooter, CAT.weapons.byId('shardcaster').index, 1, 0, 0.1, 20, 0, 0, 0, 100);
+  Projectiles.explodeAt(grenade, 0, 0.1, 20, -1, ZONE.NONE);
+  Sim.run(TICK_RATE / 2);
+  check('WPN-011 W21 alt shards damage a sponge 1.5 m from the burst', Actors.health[target] < 100000, Actors.health[target]);
+  Projectiles.clear();
+  TestArena.finish();
 });
 
 Test.add('weapons', (check) => {
@@ -51122,6 +51930,23 @@ Test.add('weapons', (check) => {
   check('scoped move speed uses adsMoveMult', Test.near(Weapons.speedScale[shooter], heron.adsMoveMult, 1e-6), Weapons.speedScale[shooter]);
   check('the weapon speed scale reaches S10 (Move.weaponSpeedScale)', Move.weaponSpeedScale[shooter] === Weapons.speedScale[shooter], Move.weaponSpeedScale[shooter]);
   Actors.buttons[shooter] = 0;
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({ move: 'arena' });
+  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest'), mode = tempest.primary;
+  const spread = () => Weapons.spreadDegrees(shooter, tempest, mode);
+  check('WPN-003 standing first shot exact without a table', Move.preset(shooter).inaccuracy === null && spread() === 0);
+  Actors.vx[shooter] = Move.preset(shooter).groundSpeed;
+  const running = spread();
+  check('WPN-003 running adds moveSpread x f', Test.near(running, mode.spreadDeg + mode.moveSpread * MOVE_SPREAD_DEGREES, 1e-4), running);
+  Motion.grounded[shooter] = 0;
+  check('WPN-003 airborne adds the air term', Test.near(spread(), running + mode.moveSpread * AIR_SPREAD_DEGREES, 1e-4), spread());
+  const ramjet = giveFull(shooter, 'ramjet'), lancet = giveFull(shooter, 'lancet');
+  check('WPN-003 the default term spares projectile modes and the W23 rail (arena rockets stay exact)', Weapons.spreadDegrees(shooter, ramjet, ramjet.primary) === ramjet.primary.spreadDeg
+    && Weapons.spreadDegrees(shooter, lancet, lancet.primary) === 0, Weapons.spreadDegrees(shooter, ramjet, ramjet.primary));
+  Actors.vx[shooter] = 0; Motion.grounded[shooter] = 1;
   TestArena.finish();
 });
 
@@ -51396,6 +52221,43 @@ Test.add('weapons', (check) => {
   Actors.buttons[user] = 0;
   check('W41 catches a projectile and throws it back as its own', caught && Projectiles.owner[grenade] === user && Projectiles.vz[grenade] > 20, caught);
   check('W41 exposes a prop hook for the world section', 'propHook' in WeaponSpecialState);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  World.load({ id: 'lifter-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }],
+    props: [{ min: [-0.4, 0.9, 3], max: [0.4, 1.7, 3.8], mass: 20, health: 50 }, { min: [-0.5, 0, 12], max: [0.5, 3, 13], health: 50 }] });
+  const user = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 20);
+  giveFull(user, 'lifter');
+  Actors.pitch[user] = Actors.aimPitch[user] = 0;
+  Actors.buttons[user] = BTN.ALT;
+  Sim.run(2);
+  const body = WeaponSpecialState.heldProp[user];
+  check('W41 alt lifts a breakable prop off the world as a held body', body >= 0 && Bodies.active[body] === 1 && !Props.isStanding(0), body);
+  Sim.run(10);
+  check('W41 holds the lifted body in front of the holder', body >= 0 && Math.abs(Bodies.z[body] - LIFTER_HOLD_DISTANCE) < 0.2, body >= 0 ? Bodies.z[body] : -1);
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 punt launches the held body with the lifter impact damage', body >= 0 && WeaponSpecialState.heldProp[user] === -1 && Bodies.vz[body] > 20
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  Sim.run(TICK_RATE);
+  const grenade = Thrown.spawn(CAT.gadgets.byId('frag'), enemy, 0, 1.6, 5, 0, 0, -3, itemTicks(10));
+  Actors.buttons[user] = BTN.ALT;
+  Weapons.nextShot[user] = 0;
+  Sim.run(2);
+  const caught = WeaponSpecialState.heldGrenade[user] === grenade;
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 catches a hand grenade and throws it back as its own', caught && Thrown.owner[grenade] === user && Thrown.vz[grenade] > 20, caught);
+  Thrown.clear();
+  giveFull(user, 'tempest');
+  TestArena.hold(user, BTN.FIRE, 0.05);
+  check('MAP-013 a hitscan shot damages the prop it hits', Props.health[1] < 50, Props.health[1]);
   TestArena.finish();
 });
 
@@ -52393,11 +53255,14 @@ Test.add('world', (check) => {
   useTestRules({ move: 'arena' });
   const occupant = groundedTester(30, 30, null, 2);
   const id = groundedTester(0, 0, null, 1);
+  Game.playerId = id;
   holdInput(id, 0, 1, 0, 0);
   stepSeconds(0.3);
   const requests = recordEvents(['damage.request'], () => { for (let i = 0; i < 120 && Actors.x[id] < 29; i++) Sim.step(); });
   check('teleporter moves to the exit', Test.near(Actors.x[id], 30, 1.5) && Test.near(Actors.z[id], 30, 0.5), Actors.x[id] + ',' + Actors.z[id]);
   check('exit yaw 90 deg', Test.near(Actors.yaw[id], 90 * DEG, 1e-4));
+  check('MOV-019 the local player view turns to the exit yaw too', Test.near(Input.aim.yaw, 90 * DEG, 1e-4), Input.aim.yaw);
+  Game.playerId = -1;
   check('speed kept, turned to the exit yaw', Actors.vx[id] > 4 && Math.abs(Actors.vz[id]) < 0.5, Actors.vx[id]);
   const telefrag = requests.find((r) => r.kind === 'telefrag');
   check('telefrag: occupant gets lethal damage credited to the arriver (MOV-020)', telefrag && telefrag.target === occupant && telefrag.source === id && telefrag.amount >= 1000);
