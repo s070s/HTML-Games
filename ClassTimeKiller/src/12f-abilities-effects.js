@@ -142,20 +142,26 @@ function aimDistance(id, maxDistance) {
   const blocked = World.raycast(Actors.x[id], Actors.eyeY(id), Actors.z[id], effectDirection.x, effectDirection.y, effectDirection.z, maxDistance, effectHit);
   return blocked ? effectHit.distance : maxDistance;
 }
-// The nearest enemy inside the aim cone (the shared nearestSeenEnemy picker, cone 11a AIM_ASSIST_CONE_DEG): a cloaked enemy or one
-// behind smoke is no target.
+// The enemy nearest the crosshair inside the aim cone and range (the shared nearestSeenEnemy picker ordered by 1 - cos to the aim
+// line, cone 11a AIM_ASSIST_CONE_DEG): a cloaked enemy or one behind smoke is no target.
 const AIM_DEFAULT_COS = Math.cos(AIM_ASSIST_CONE_DEG * DEG);
-let aimMinCos = AIM_DEFAULT_COS;
+const AIM_ORDER_LIMIT = 2;              // the largest 1 - cos (straight behind): the real range is checked in accept
+let aimMinCos = AIM_DEFAULT_COS, aimRange = 0;
 const AIM_TARGET_RULE = {
   skip(who, id) { return !Actors.alive[id] || !Actors.isEnemy(who, id) || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0; },
   point(id, out) { Hitbox.point(id, ZONE.BODY, out); },
-  accept(who, id, dx, dy, dz, distance) { return distance >= 1e-3 && (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / distance >= aimMinCos; },
+  distance(dx, dy, dz) {
+    const length = length3(dx, dy, dz);
+    return length < 1e-3 ? AIM_ORDER_LIMIT : 1 - (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / length;
+  },
+  accept(who, id, dx, dy, dz, offAxis) { return 1 - offAxis >= aimMinCos && length3(dx, dy, dz) <= aimRange; },
   blocked(x, y, z, point) { return Smoke.lineBlocked(x, y, z, point.x, point.y, point.z); },
 };
 function aimTarget(id, range, coneDeg) {
   aimRay(id);
   aimMinCos = coneDeg ? Math.cos(coneDeg * DEG) : AIM_DEFAULT_COS;
-  return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], range, AIM_TARGET_RULE);
+  aimRange = range;
+  return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], AIM_ORDER_LIMIT, AIM_TARGET_RULE);
 }
 // Enemies of id within radius of a point (nearest first is not needed by any caller); returns the count in effectIds.
 function enemiesNear(id, x, y, z, radius, includeGhosts) {

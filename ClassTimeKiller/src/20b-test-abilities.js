@@ -846,3 +846,12 @@ Test.add('abilities', (check) => {
   check('F45 an enemy behind smoke is no target', aimTarget(t.caster, 30) < 0);
   TestArena.finish();
 });
+
+// F45 (R-107): the picker orders by the crosshair, not by distance: a nearer enemy further off the aim line loses (A23 cone).
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({});
+  TestArena.place(t.second, 1.5, 3);
+  check('F45 the enemy on the crosshair is picked over a nearer one 27 deg off', aimTarget(t.caster, 30, 30) === t.enemy);
+  check('F45 the range still holds: only the near one is in reach', aimTarget(t.caster, 5, 30) === t.second);
+  TestArena.finish();
+});
