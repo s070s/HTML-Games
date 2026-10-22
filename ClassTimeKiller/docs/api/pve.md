@@ -58,7 +58,7 @@ Guardian Plate (DIF-004): `Pve.guardian[id] = 1` halves enemy damage to that par
 | `aliveCount(side?)` / `hostileCount(side?)` / `countBeasts()` | living enemies / without range targets and beasts / beasts |
 | `beginEncounter()` / `shouldFallBack(row)` / `lastStand()` | NPC-007 / NPC-008 director states |
 | `isEnemy(id)` / `rowOf(id)` / `cap()` / `skill()` | |
-| `setCore(x, y, z, health)` / `damageCore(amount, source)` / `core` | the M21 / M22 core (`{ active, x, y, z, health, max, shield }`) |
+| `setCore(x, y, z, health)` / `damageCore(amount, source)` / `core` | the M21 / M22 core (`{ active, x, y, z, health, max, shield }`); a non-enemy's `repair` beam (W30) on its hit sphere (radius `coreRadius`, 1 m up) heals it by `repair / rate` per shot (14j `repairCore` on `weapon.fire`) |
 | `startAttack(id, index, target, now)` / `cancelAttack(id)` / `stagger(id, seconds, cause?)` | |
 | `parryProjectile(target, projectile)` | the S11 parry hook (true = reflect it) |
 | `awareness[id]`, `awarenessState(id)` | stealth meter 0..1, `AWARENESS` |

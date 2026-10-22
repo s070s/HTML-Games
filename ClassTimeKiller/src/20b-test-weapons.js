@@ -752,6 +752,13 @@ Test.add('weapons', (check) => {
   giveFull(id, 'linker');
   TestArena.hold(id, BTN.ALT, 1);
   check('W30 beam repairs a friendly turret at about 60 HP/s', Devices.health[turret] > row.health / 2 + 40 && Devices.health[turret] <= row.health, Devices.health[turret]);
+  Devices.remove(turret);
+  Pve.setCore(0, 0, 15, 1000);
+  Pve.core.health = 500;
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Pve.core.y + CORE_HIT_LIFT - Actors.eyeY(id), 15);
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs the PvE core at about 60 HP/s', Pve.core.health > 540 && Pve.core.health <= 560, Pve.core.health);
+  Pve.core.active = false;
   TestArena.finish();
 });
 
