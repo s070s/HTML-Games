@@ -196,7 +196,8 @@ Modes.register('cursetag', {
     const cursed = this.cursed;
     if (cursed < 0 || !Actors.alive[cursed]) return;
     if (Modes.rules.params.meleeOnly) holdLoadout(cursed, this.meleeLoadout);
-    if (Modes.inZone(this.beacon, cursed)) this.pass(randomParticipant(cursed, NO_TEAM));
+    // Spawn protection keeps a cursed actor who respawns on the beacon from passing the curse at once.
+    if (!(Actors.flags[cursed] & ACTOR_FLAG.PROTECTED) && Modes.inZone(this.beacon, cursed)) this.pass(randomParticipant(cursed, NO_TEAM));
   },
   onDamage(event) {
     const target = event.target;

@@ -445,8 +445,13 @@ Test.add('modes2', (check) => {
   check('royale: a heal restores lootHeal health', RoyaleLoot.taken[2] === 1 && Actors.health[0] === 40 + params.lootHeal, Actors.health[0]);
   placeActor(0, 12, 10); runSeconds(0.2);
   check('royale: armor sets the shield by its rarity', Actors.shield[0] === params.shieldByRarity[RoyaleLoot.rarity[1]] && RoyaleLoot.taken[1] === 1);
+  const warden = CAT.weapons.byId('warden'), wardenSlot = Weapons.slotIndex(0, warden.index);
+  Weapons.reserve[wardenSlot] = 0;
   placeActor(0, 16, 10); runSeconds(0.2);
-  check('royale: ammo tops up the drawn weapon', RoyaleLoot.taken[3] === 1 || Weapons.ammo(0).reserve >= CAT.weapons.byId(Weapons.currentWeapon(0).id).maxAmmo);
+  check('royale: ammo stays on the spot while a melee weapon is drawn', Weapons.currentWeapon(0).ammoType === '' && RoyaleLoot.taken[3] === 0);
+  Weapons.requestSwitch(0, warden.index);
+  runSeconds(warden.equipTime + 0.2);
+  check('royale: ammo tops up the drawn weapon', RoyaleLoot.taken[3] === 1 && Weapons.reserve[wardenSlot] > 0, Weapons.reserve[wardenSlot]);
   damageKill(1, 0);
   Sim.step();
   check('royale: the last one standing wins', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated');
@@ -456,10 +461,12 @@ Test.add('modes2', (check) => {
     { modeOptions: { params: { ringWait: [1, 1], ringShrink: [1, 1], ringScale: [0.3, 0.02], ringDamage: [40, 80] } } });
   followFor(4.05, [0, 1, 2], Ring);
   check('royale: after the last phase the ring stays closed', Ring.state === 'closed' && Test.near(Ring.radius, 0.02 * Ring.startRadius, 1e-6) && Ring.damage === 80 && Modes.hud.ringTimeLeft === 0);
-  placeActor(1, 55, 55); placeActor(2, -55, -55);
+  damageKill(1, 0);
+  followFor(3, [0, 2], Ring);
+  check('royale: the dead never respawn', !Actors.alive[1] && Modes.respawnIn(1, Sim.time) === -1 && Modes.hud.aliveCount === 2);
+  placeActor(2, -55, -55);
   for (let step = 0; step < 4 * TICK_RATE && !Game.match.ended; step++) { placeActor(0, Ring.x, Ring.z); Sim.step(); }
   check('royale: only the one inside survives and wins', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated');
-  check('royale: the dead never respawn', Modes.respawnIn(1, Sim.time) === -1 || !Modes.active);
   check('royale: placement ranks the standing first, then later deaths', Modes.behaviour.score(0) > Math.max(Modes.behaviour.score(1), Modes.behaviour.score(2)) && Modes.behaviour.score(1) !== Modes.behaviour.score(2));
   endModeTest();
 
@@ -488,7 +495,43 @@ Test.add('modes2', (check) => {
     const teams = CAT.modes.byId(id).teams === TEAM_COUNT ? [0, 1, 0, 1] : [-1, -1, -1, -1];
     startModeTest(id, modesTestMap(maps[id] || { spawns: FFA_SPAWNS }), teams);
     runSeconds(60);
-    check('mode ' + id + ' runs 60 s headless', Modes.active || Game.match.ended, Modes.phase);
+    check('mode ' + id + ' runs 60 s headless', Modes.active && !Game.match.ended, Modes.phase);
     endModeTest();
   }
+});
+
+// PERF-002: the game rules stay within 0.2 ms per step with a full royale on the island.
+Test.add('modes2', (check) => {
+  Game.start({ mode: 'royale', map: 'isle', seed: 5, bots: Modes.defaultBots('royale', false).map(() => ({ dummy: true })) });
+  runSeconds(1);
+  let total = 0;
+  const steps = 2 * TICK_RATE;
+  for (let step = 0; step < steps; step++) { Sim.step(); total += Sim.timing.rules; }
+  check('royale rules step within the PERF-002 budget (0.2 ms)', total / steps < 0.2, (total / steps).toFixed(4) + ' ms');
+  Game.stop();
+});
+
+// The player's own role and ladder tier reach the HUD; ghost roles follow the side switch.
+Test.add('modes2', (check) => {
+  World.load(modesTestMap({ spawns: FFA_SPAWNS }));
+  Game.start({ mode: 'juggernaut', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }, { dummy: true }] });
+  runSeconds(2);
+  damageKill(1, Game.playerId);
+  check("hud: the player's role", Modes.hudState().role === 'colossus' && Modes.hud.special === Game.playerId);
+  endModeTest();
+
+  World.load(modesTestMap({ spawns: FFA_SPAWNS }));
+  Game.start({ mode: 'gungame', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }] });
+  runSeconds(2);
+  damageKill(1, Game.playerId);
+  check("hud: the player's ladder tier", Modes.hudState().ladderTier === 2 && Modes.hud.ladderTiers === 18);
+  endModeTest();
+
+  startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 5, switchAt: 1, winsNeeded: 3 } } });
+  runSeconds(1.01);
+  check('ghostops: team 0 are the ghosts in round 1', Modes.actorRole[0] === ACTOR_ROLE.GHOST && Modes.actorRole[1] === ACTOR_ROLE.NONE);
+  runSeconds(7.1);
+  check('ghostops: after the side switch team 1 are the ghosts', Modes.swapped && Modes.round === 2 && Modes.actorRole[1] === ACTOR_ROLE.GHOST && Modes.actorRole[0] === ACTOR_ROLE.NONE
+    && Weapons.currentWeapon(1).id === 'warden' && (Actors.flags[0] & ACTOR_FLAG.INVISIBLE) === 0);
+  endModeTest();
 });
