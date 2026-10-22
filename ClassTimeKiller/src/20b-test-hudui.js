@@ -372,7 +372,7 @@ Test.add('hudui', (check) => {
 });
 
 Test.add('ui', (check) => {
-  const savedTips = Save.data.tips, savedDevice = Input.device, rules = { economy: CAT.economy.find((row) => buyKeyAvailable(row)).id }, buyText = () => economyPanelLines(rules).lines.join('\n');
+  const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');
   Save.data.tips = { matches: 0 }; Input.device = 'touch';
   Ui.playBox.replaceChildren();
   Tips.show();
