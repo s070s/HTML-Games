@@ -15,7 +15,7 @@ const LIFTER_MAX_MASS = 150;             // kg a prop may weigh to be held (W41)
 const LIFTER_DAMAGE_PER_MASS_SPEED = 0.5; // punted prop damage = 0.5 x mass x speed, capped (applied by the prop owner on impact)
 const LIFTER_DAMAGE_CAP = 150;
 const GATE_RADIUS = 0.9;
-const GATE_DEPTH = 0.6;                  // an actor's middle this close in front of a gate enters it
+const GATE_DEPTH = 0.6;                  // an actor's contact point (gateContactY) this close in front of a gate enters it
 const GATE_EXIT_OFFSET = 0.8;
 const GATE_COOLDOWN = 0.3;               // seconds before the same actor can enter a gate again (no ping-pong)
 const GATE_MIN_EXIT_SPEED = 2;
@@ -231,9 +231,18 @@ function catchableProjectile(id, range) {
   }
   return best;
 }
+// The body point that meets the gate first: the feet on a floor gate (standing actors rest on the floor, S10), the head
+// on a ceiling gate, the middle on a wall gate.
+function gateContactY(slot, id) {
+  const ny = WeaponSpecialState.gateNy[slot];
+  if (ny > GATE_FLAT_NY) return Actors.y[id];
+  if (ny < -GATE_FLAT_NY) return Actors.y[id] + Actors.height[id];
+  return Actors.y[id] + ACTOR_MIDDLE;
+}
+
 function insideGate(slot, id) {
   const state = WeaponSpecialState;
-  const px = Actors.x[id] - state.gateX[slot], py = Actors.y[id] + ACTOR_MIDDLE - state.gateY[slot], pz = Actors.z[id] - state.gateZ[slot];
+  const px = Actors.x[id] - state.gateX[slot], py = gateContactY(slot, id) - state.gateY[slot], pz = Actors.z[id] - state.gateZ[slot];
   const depth = px * state.gateNx[slot] + py * state.gateNy[slot] + pz * state.gateNz[slot];
   if (depth < -0.2 || depth > GATE_DEPTH) return false;
   const lateralSquared = px * px + py * py + pz * pz - depth * depth;

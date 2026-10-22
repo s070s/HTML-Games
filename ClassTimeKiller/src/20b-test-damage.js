@@ -16,7 +16,14 @@ const TestArena = {
     Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
     Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
     Damage.resetHealth(id);
+    this.place(id, x, z);
     return id;
+  },
+  // Puts an actor at rest on the floor, already standing for S10 too (no landing next step), e.g. after knockback moved it.
+  place(id, x, z) {
+    Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+    Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
+    Motion.grounded[id] = 1; Motion.groundNY[id] = 1;
   },
   // A target that survives long tests (large health that never decays).
   sponge(team, x, z) {

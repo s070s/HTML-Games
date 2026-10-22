@@ -158,7 +158,7 @@ Test.add('weapons', (check) => {
     const points = [];
     const handler = Bus.on('impact', (event) => points.push(event.x.toFixed(5) + ',' + event.y.toFixed(5)));
     World.load({ id: 'wall', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }, { shape: 'box', min: [-20, 0, 30], max: [20, 20, 31] }] });
-    Actors.pitch[shooter] = 0.05;
+    Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.05;
     TestArena.hold(shooter, BTN.FIRE, 30 / 11);
     Bus.off('impact', handler);
     TestArena.finish();
@@ -188,9 +188,8 @@ Test.add('weapons', (check) => {
   Actors.flags[shooter] = 0;
   check('MOV-025 airborne adds +10 deg', Test.near(Weapons.spreadDegrees(shooter, tempest, tempest.primary), 0.25 + 10, 1e-4));
   Actors.vx[shooter] = 0;
-  Sim.step();
-  Actors.flags[shooter] = ACTOR_FLAG.ON_GROUND;
-  Sim.step();
+  Actors.y[shooter] = 1;   // a real short fall: S10 writes ON_GROUND every step
+  for (let step = 0; step < TICK_RATE && !(Actors.flags[shooter] & ACTOR_FLAG.ON_GROUND); step++) Sim.step();
   const landing = Weapons.spreadDegrees(shooter, tempest, tempest.primary);
   Sim.run(Math.round(0.3 * TICK_RATE));
   check('MOV-025 landing +3 deg decaying over 0.3 s', landing > 2.8 && landing <= 3.25 && Weapons.spreadDegrees(shooter, tempest, tempest.primary) === 0, landing);
@@ -231,7 +230,7 @@ Test.add('weapons', (check) => {
   Actors.x[shooter] = 10;
   const row = [3, 4, 5, 6, 7, 8].map((z) => TestArena.sponge(2, 10, z));
   TestArena.aimAt(shooter, row[0], ZONE.HEAD);
-  Actors.pitch[shooter] = 0;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
   TestArena.hold(shooter, BTN.FIRE, 0.05);
   const pierced = row.map((id) => Actors.health[id] < 100000);
   check('W23 rail pierces 4 targets and stops in the 5th', pierced.join() === 'true,true,true,true,true,false', pierced.join());
@@ -270,7 +269,7 @@ function aimForMode(shooter, target, mode) {
   const row = mode.projectile ? CAT.projectiles.byId(mode.projectile) : null;
   if (!row || !row.gravity) return;
   const speed = mode.speed || row.speed, distance = Math.hypot(Actors.x[target] - Actors.x[shooter], Actors.z[target] - Actors.z[shooter]);
-  Actors.pitch[shooter] += Math.asin(Math.min(1, row.gravity * distance / (speed * speed))) / 2;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = Actors.pitch[shooter] + Math.asin(Math.min(1, row.gravity * distance / (speed * speed))) / 2;
 }
 function modeDealsDamage(mode) { return mode.damage > 0 || !!mode.splash || !!mode.charge || mode.heatDamage > 0 || mode.type === 'lock'; }
 const MELEE_TEST_DISTANCE = 1.2;
@@ -290,10 +289,11 @@ Test.add('weapons', (check) => {
     const target = TestArena.sponge(2, 0, testDistance(weapon));
     giveFull(shooter, weapon.id);
     TestArena.aimAt(shooter, target);
-    if (weapon.id === 'twingate') Actors.pitch[shooter] = -1;
+    if (weapon.id === 'twingate') Actors.pitch[shooter] = Actors.aimPitch[shooter] = -1;
     const primary = exerciseMode(shooter, target, weapon, weapon.primary, BTN.FIRE);
     if (!primary.fired) failures.push(weapon.code + ' primary never fired');
     if (modeDealsDamage(weapon.primary) && primary.damage <= 0) failures.push(weapon.code + ' primary dealt no damage');
+    TestArena.place(target, 0, testDistance(weapon));   // the primary's knockback (S10 applies impulses) may have moved it
     const altProblem = checkAlt(shooter, target, weapon);
     if (altProblem) failures.push(weapon.code + ' alt: ' + altProblem);
     TestArena.finish();
@@ -324,7 +324,7 @@ function checkDetonate(shooter, target, weapon) {
   Weapons.resetFiring(shooter);
   const drill = CAT.projectiles.byId(weapon.alt.projectile).onHit === 'drill';
   if (drill) TestArena.aimAt(shooter, target);
-  else Actors.pitch[shooter] = 0.3;
+  else Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.3;
   TestArena.hold(shooter, BTN.FIRE, 0.05);
   Sim.run(drill ? TICK_RATE / 2 : 10);
   const before = Actors.health[target];
@@ -350,7 +350,7 @@ Test.add('weapons', (check) => {
   check('W12 seven stuck needles burst', combos >= 1, combos);
   giveFull(shooter, 'coilcaster');
   TestArena.aimAt(shooter, target);
-  Actors.pitch[shooter] += 0.04;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = Actors.pitch[shooter] + 0.04;
   TestArena.hold(shooter, BTN.ALT, 0.05);
   Sim.run(TICK_RATE / 4);
   Weapons.nextShot[shooter] = 0;
@@ -383,20 +383,21 @@ Test.add('weapons', (check) => {
   Bus.off('impulse', onPull);
   check('W20 hook pulls the user toward the target', pulled && pulled.z > 10, JSON.stringify(pulled));
   check('W20 hook has a 6 s cooldown', countShots(shooter, BTN.ALT, 1) === 0);
+  TestArena.place(shooter, 0, 0);   // the hook really pulled the user (S10)
   giveFull(shooter, 'halcyon');
-  Actors.pitch[shooter] = 0.2;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.2;
   TestArena.hold(shooter, BTN.ALT, 0.05);
   Sim.step();
   check('W46 guided warhead: the user stands still', Weapons.speedScale[shooter] === 0 && Projectiles.guiding[shooter] === 1);
   Projectiles.clear();
   giveFull(shooter, 'razorwind');
-  Actors.pitch[shooter] = 0;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
   TestArena.hold(shooter, BTN.FIRE, 0.05);
   const out = Projectiles.countOwned(shooter, CAT.weapons.byId('razorwind').index);
   Sim.run(TICK_RATE * 2);
   check('W44 blade flies out and returns to the owner', out === 1 && Projectiles.countOwned(shooter, CAT.weapons.byId('razorwind').index) === 0);
   Weapons.nextShot[shooter] = 0;
-  Actors.yaw[shooter] = Math.PI / 2;
+  Actors.yaw[shooter] = Actors.aimYaw[shooter] = Math.PI / 2;
   World.load({ id: 'blade', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }, { shape: 'box', min: [6, 0, -5], max: [7, 5, 5] }] });
   TestArena.hold(shooter, BTN.ALT, 0.05);
   Sim.run(TICK_RATE);
@@ -411,20 +412,21 @@ Test.add('weapons', (check) => {
   TestArena.start({});
   const user = TestArena.actor(1, 0, 0), friend = TestArena.actor(1, 0, 8, Math.PI), enemy = TestArena.sponge(2, 0, 20);
   giveFull(user, 'twingate');
-  Actors.pitch[user] = -0.6;
+  Actors.pitch[user] = Actors.aimPitch[user] = -0.6;
   TestArena.hold(user, BTN.FIRE, 0.05);
-  Actors.yaw[user] = Math.PI;
+  Actors.yaw[user] = Actors.aimYaw[user] = Math.PI;
   Weapons.nextShot[user] = 0;
   TestArena.hold(user, BTN.ALT, 0.05);
   const slot = user * 2;
   check('W42 places both gates', WeaponSpecialState.gateOpen[slot] === 1 && WeaponSpecialState.gateOpen[slot + 1] === 1);
-  Actors.x[friend] = WeaponSpecialState.gateX[slot]; Actors.z[friend] = WeaponSpecialState.gateZ[slot]; Actors.y[friend] = WeaponSpecialState.gateY[slot] - 0.5;
-  Actors.vy[friend] = -5;
+  Actors.x[friend] = WeaponSpecialState.gateX[slot]; Actors.z[friend] = WeaponSpecialState.gateZ[slot]; Actors.y[friend] = WeaponSpecialState.gateY[slot] + 0.1;
+  Actors.vy[friend] = -5; Motion.grounded[friend] = 0;   // falling onto the floor gate
+  Game.match.rules = Object.assign({}, Game.match.rules, { gravityScale: 0 });   // S10 moves the friend first: no gravity keeps 5 m/s
   Sim.step();
   const exitZ = WeaponSpecialState.gateZ[slot + 1];
   check('W42 gate teleports an actor and keeps its speed', Math.abs(Actors.z[friend] - exitZ) < 1.5 && Test.near(Math.hypot(Actors.vx[friend], Actors.vy[friend], Actors.vz[friend]), 5, 1e-3), Actors.z[friend] + ' vs ' + exitZ);
   giveFull(user, 'lifter');
-  Actors.yaw[user] = 0; Actors.pitch[user] = 0;
+  Actors.yaw[user] = Actors.aimYaw[user] = 0; Actors.pitch[user] = Actors.aimPitch[user] = 0;
   Actors.z[friend] = 3; Actors.x[friend] = 0; Actors.y[friend] = 0;
   let pushed = null;
   const onPush = Bus.on('impulse', (event) => { if (event.id === friend) pushed = Object.assign({}, event); });
