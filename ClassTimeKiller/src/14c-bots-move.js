@@ -2,7 +2,8 @@
 // steering along the smoothed points with the same move input as the player, link moves by type (jump with an extra jump
 // when the link is higher than one jump, crouch, ladder, swim, pads and teleporters by walking in), local avoidance of other
 // actors and stuck recovery: no progress 1.5 s -> jump and strafe, 3 s -> repath avoiding the node ahead, 6 s -> new goal.
-// Jump links are filtered by the bot's own movement preset (allowJumpHeight, reach, gravity).
+// Jump and drop links are filtered by the bot's own movement preset (allowJumpHeight with mantle and climb, maxDrop by
+// fall damage, reach, gravity); a ledge guard keeps grounded bots from walking, strafing or sliding off into a void.
 
 const PATH = { NONE: 0, WAITING: 1, FOLLOW: 2, FAILED: 3, ARRIVED: 4 };
 const MOVE_ARRIVE = 0.6;                // m: a path point counts as reached this close (horizontal)...
@@ -39,6 +40,15 @@ const followTarget = { x: 0, z: 0, distance: 0 };   // follow's target point and
 const rimHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const WATER_EXIT_CHECK = 2.5;           // m from a water exit: look for the rim a swimmer climbs out over (S10 mantle)
 const WATER_RIM_RAY = 3;
+const MOVE_MANTLE_MARGIN = 0.2;         // m: ledges planned up to the preset's mantle height less this (link heights add NAV_JUMP_MARGIN)
+const BOT_DROP_DAMAGE = 25;             // HP: a preset with fall damage drops at most as far as costs this (BOT-010: <= safeDrop)
+const BOT_DROP_STEP = 0.5;              // m between the drop heights tried
+const LEDGE_PROBE = 0.9;                // m ahead along the wanted move the ledge guard looks for floor...
+const LEDGE_SLIDE_SPEED = 1.5;          // ...and, faster than this m/s with no move wanted (ice, knockback), along the slide...
+const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it (a wanted move looks this far ahead too)
+const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
+const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
+const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
 
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
@@ -80,13 +90,19 @@ const BotMove = {
   },
   // Path options from the bot's movement preset and tier (BOT-010 "preset-aware"): tiers without jumps skip extra jumps.
   // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
+  // A jump link is climbed by the jump apex (plus extra jumps and the crouch-jump lift), or by the S10 mantle or wall
+  // climb the bot does while facing the ledge, whichever reaches higher (a grip-only climb is not planned: the graph does
+  // not know the brush material).
   configure(id) {
     const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
     const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
+    const climb = preset.climbGripOnly ? 0 : preset.climbHeight;
+    const reach = Math.max(single + extra + preset.crouchJumpLift, preset.mantleHeight - MOVE_MANTLE_MARGIN + NAV_JUMP_MARGIN, climb);
+    const maxDrop = safeDropFor(preset, gravity);
     for (const options of [this.options[id], this.avoidOptions[id]]) {
-      options.allowJumpHeight = single + extra;
-      options.maxDrop = Mutators.fx && Mutators.fx.noFallDamage ? Nav.limits.maxDrop : Nav.limits.safeDrop;   // MUT-003: no fall damage
+      options.allowJumpHeight = reach;
+      options.maxDrop = maxDrop;
       options.moveSpeed = preset.groundSpeed * tier.speed;
       options.jumpVelocity = preset.jumpVel;
       options.gravity = gravity;
@@ -342,10 +358,52 @@ const BotMove = {
     else if (type === NAV_LINK.LADDER) Bots.lookPitch[id] = this.pointY[id] > Actors.y[id] ? BOT_LADDER_UP_PITCH : BOT_LADDER_DOWN_PITCH;
     else if (swimming(id, type)) this.swim(id);
   },
-  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press).
+  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press);
+  // in the air below the landing a preset with a crouch-jump lift tucks its legs (S10), which configure() counts on.
   jumpLink(id) {
-    if (Move.isGrounded(id) && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    const grounded = Move.isGrounded(id);
+    if (grounded && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    if (!grounded && Move.preset(id).crouchJumpLift > 0 && this.pointY[id] > Actors.y[id]) Bots.press(id, BTN.CROUCH);
     this.extraJump(id);
+  },
+  // BOT-010 ledge guard, after every move layer (path, combat footwork, hazards): a grounded bot about to walk, strafe
+  // or slide (ice) over an edge with no floor within its drop limit (a void, a killzone) brakes instead. A planned drop
+  // lands within that limit; jump, pad and ladder links leave the ground on purpose while the move heads along them.
+  guardLedge(id) {
+    if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
+    if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
+    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
+    probe.x = Bots.wishX[id] * ahead; probe.z = Bots.wishZ[id] * ahead;
+    const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
+    if (!wishing && speed > LEDGE_SLIDE_SPEED) {
+      probe.x = Actors.vx[id] * ahead / speed; probe.z = Actors.vz[id] * ahead / speed;
+    }
+    if (!wishing && (speed <= LEDGE_SLIDE_SPEED || !this.unsafeAhead(id))) return;
+    const wanted = botWish;
+    wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = speed > LEDGE_SLIDE_SPEED ? 1 : 0;   // push back against the slide
+    Bots.wishFrom(id);
+  },
+  // A hop off no jump link (combat footwork) flies LEDGE_HOP_SECONDS at run speed or more: no floor that far along the
+  // move (or the slide), no hop.
+  guardHop(id) {
+    const speed = length2(Actors.vx[id], Actors.vz[id]), wishing = Bots.wishAmount[id] > 0;
+    if (!wishing && speed <= LEDGE_SLIDE_SPEED) return;   // a hop on the spot lands where it started
+    const ahead = LEDGE_PROBE + Math.max(speed, this.options[id].moveSpeed) * LEDGE_HOP_SECONDS;
+    const dx = wishing ? Bots.wishX[id] : Actors.vx[id] / speed, dz = wishing ? Bots.wishZ[id] : Actors.vz[id] / speed;
+    ledgeProbe.x = dx * ahead; ledgeProbe.z = dz * ahead;
+    if (this.unsafeAhead(id)) Bots.buttonsWanted[id] &= ~BTN.JUMP;
+  },
+  leavesGround(id) {
+    if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;
+    const type = this.segmentType[id];
+    if (type !== NAV_LINK.JUMP && type !== NAV_LINK.JUMPPAD && type !== NAV_LINK.LADDER && type !== NAV_LINK.TELEPORT) return false;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
+    return length < STEP_HEIGHT || (Bots.wishX[id] * dx + Bots.wishZ[id] * dz) >= LEDGE_ALIGN * length;
+  },
+  // No floor under the point ledgeProbe (x, z) m away within the bot's drop limit (one ray down).
+  unsafeAhead(id) {
+    const fall = this.options[id].maxDrop + STEP_HEIGHT * 2;
+    return !World.raycast(Actors.x[id] + ledgeProbe.x, Actors.y[id] + STEP_HEIGHT, Actors.z[id] + ledgeProbe.z, 0, -1, 0, fall, rimHit);
   },
   // A jump link higher than one jump (only built for tiers with extra jumps): jump again near the apex.
   extraJump(id) {
@@ -436,6 +494,16 @@ const BotMove = {
     BotDecide.goalFailed(id, now);
   },
 };
+
+// BOT-010 drop limit: every drop link the graph has (Nav.limits.maxDrop) without fall damage (the preset's MOV-015 curve,
+// or the MUT-003 mutator), else the deepest drop up to Nav.limits.safeDrop that costs at most BOT_DROP_DAMAGE.
+function safeDropFor(preset, gravity) {
+  const deepest = Nav.limits.maxDrop;
+  if ((Mutators.fx && Mutators.fx.noFallDamage) || fallDamage(preset, Math.sqrt(2 * gravity * deepest)) <= 0) return deepest;
+  let drop = Nav.limits.safeDrop;
+  while (drop > BOT_DROP_STEP && fallDamage(preset, Math.sqrt(2 * gravity * drop)) > BOT_DROP_DAMAGE) drop -= BOT_DROP_STEP;
+  return drop;
+}
 
 // Trap memory shared by all bots: nodes where a bot got stuck cost TRAP_COST extra seconds for TRAP_SECONDS, so the
 // team routes around links that look fine on the graph but fail in play (a rim too thin to climb out over, say).

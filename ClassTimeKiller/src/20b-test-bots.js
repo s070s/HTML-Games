@@ -1579,3 +1579,39 @@ Test.add('bots', (check) => {
   endModeTest();
 });
 
+// ---- Ledges: bots stay on the map, and plan with the reach their preset has ----
+const VOID_SOAK_SECONDS = 90, VOID_DEATH_SHARE_MAX = 0.1;
+Test.add('bots', (check) => {
+  const kills = startEventLog('kill');
+  playMatch({ mode: 'ffa', map: 'skyyard', minutes: VOID_SOAK_SECONDS / 60, botCount: 7, seed: 3, difficulty: 'regular' });
+  kills.stop();
+  const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
+  check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
+});
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false));
+  Motion.tapSignX[bot] = 1; Motion.tapClockX[bot] = 0.1; Motion.lastAxisX[bot] = 0; Actors.moveX[bot] = 1;
+  Bots.keepUnderTap(bot, Actors.moveX, Motion.tapSignX, Motion.tapClockX, Motion.lastAxisX);
+  const held = Actors.moveX[bot];
+  Motion.tapClockX[bot] = DOUBLE_TAP_SECONDS + 0.1; Actors.moveX[bot] = 1;
+  Bots.keepUnderTap(bot, Actors.moveX, Motion.tapSignX, Motion.tapClockX, Motion.lastAxisX);
+  check('a bot\'s second tap of a direction stays under the tap threshold (no double-tap dodge off a ledge), later ones pass',
+    held > 0 && held < TAP_THRESHOLD && Actors.moveX[bot] === 1, held + ' / ' + Actors.moveX[bot]);
+  endBotTest();
+});
+const MANTLE_CRATE = { shape: 'box', min: [-3, 0, 2], max: [3, 2, 8] };
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, MANTLE_CRATE] }), 'ffa', { ruleset: 'modern' });
+  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = BotMove.options[bot];
+  check('a Modern bot (jump 0.83 m, mantle 2.2 m) plans the 2 m mantle link onto a crate', Move.preset(bot).id === 'modern' && Nav.findPath(from, to, options) > 0
+    && Nav.nodeY[Nav.pathNodes[Nav.pathLength - 1]] > 1.5, 'jump limit ' + options.allowJumpHeight.toFixed(2) + ' m');
+  endBotTest();
+  startBotTest(botTestMap(false), 'ffa', { ruleset: 'pilot' });
+  check('an Agile bot (no fall damage) uses drops deeper than 8 m', Move.preset(0).id === 'agile' && BotMove.options[0].maxDrop >= 8, BotMove.options[0].maxDrop);
+  endBotTest();
+  startBotTest(botTestMap(false), 'ffa', { ruleset: 'modern' });
+  const drop = BotMove.options[0].maxDrop, speed = Math.sqrt(2 * Move.gravity(0) * drop);
+  check('a Modern bot drops only as far as costs it a quarter of its health at most', fallDamage(Move.preset(0), speed) <= BOT_DROP_DAMAGE + 1e-6 && drop >= 4, drop.toFixed(1) + ' m');
+  endBotTest();
+});
+

@@ -6,6 +6,7 @@ const NAV_SLOTS = MAX_ACTORS;           // request slots (bots use their actor i
 const NAV_SLOT_PATH = 1024;             // longest path a request slot keeps (nodes and smoothed points)
 const NAV_CACHE_SIZE = 64;              // direct-mapped path cache entries (power of two)
 const NAV_CACHE_PATH = 256;             // longer paths are not cached
+const NAV_MANTLE_REACH = 1;             // m: a landing above the jump apex is a mantle; its node lies up to this past the ledge
 const NAV_SMOOTH_LOOKAHEAD = 12;        // string pulling tests at most this many nodes ahead
 const NAV_HEIGHT_TOLERANCE = 1e-3;      // link heights and lengths are float32
 const NAV_QUANTIZE_SLACK = 1e-4;        // covers float32 option values (1.28 is stored as 1.27999997)
@@ -235,14 +236,15 @@ function navLinkAllowed(link) {
 
 // BOT-010 "gap <= preset reach": a jump (or a run-off for a drop) at moveSpeed with vertical jumpVelocity under gravity
 // must cover the link's horizontal length before the feet sink back to the landing height. Extra jumps only lengthen
-// the flight, so a landing above the single-jump apex (allowJumpHeight counts extra jumps) gets the time to the apex.
+// the flight, so a landing above the single-jump apex (allowJumpHeight counts extra jumps) gets the time to the apex,
+// plus NAV_MANTLE_REACH: the hands catch the ledge and the landing node lies past it (S10 mantle).
 function navReachAllowed(link) {
   const s = navSearch;
   if (s.moveSpeed === Infinity) return true;
   const rise = Nav.nodeY[Nav.linkTarget[link]] - Nav.nodeY[Nav.linkFrom[link]];
-  const descent = Math.sqrt(Math.max(0, s.jumpVelocity * s.jumpVelocity - 2 * s.gravity * rise));
-  const flightSeconds = (s.jumpVelocity + descent) / s.gravity;
-  return Nav.linkReach[link] <= s.moveSpeed * flightSeconds + NAV_HEIGHT_TOLERANCE;
+  const clearance = s.jumpVelocity * s.jumpVelocity - 2 * s.gravity * rise;
+  const flightSeconds = (s.jumpVelocity + Math.sqrt(Math.max(0, clearance))) / s.gravity;
+  return Nav.linkReach[link] <= s.moveSpeed * flightSeconds + (clearance < 0 ? NAV_MANTLE_REACH : 0) + NAV_HEIGHT_TOLERANCE;
 }
 
 function navEnterCost(node) {
