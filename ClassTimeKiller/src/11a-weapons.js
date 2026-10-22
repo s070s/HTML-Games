@@ -126,6 +126,8 @@ const Weapons = {
   fitted: new Int8Array(MAX_ACTORS * WEAPON_COUNT * ATTACHMENT_SLOT_COUNT).fill(-1), // attachment index per weapon slot (-1 none)
   statScale: new Float32Array(MAX_ACTORS * WEAPON_STAT_COUNT).fill(1),              // per-actor stat multipliers (perks write these)
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
+  rateScale: new Float32Array(MAX_ACTORS).fill(1),  // fire rate multiplier written by S12 (powerups); 1 = unchanged
+  freeAmmo: new Uint8Array(MAX_ACTORS),             // 1 = shots spend no ammo (S12 powerups)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
@@ -364,7 +366,7 @@ const Weapons = {
     return pool >= Math.min(this.ammoCost(mode, fraction), mode.ammo === 'alt' ? weapon.altAmmo : this.magSize(id, weapon));
   },
   spendAmmo(id, weapon, mode, fraction) {
-    if (mode.ammo === 'none' || !weapon.mag) return;
+    if (mode.ammo === 'none' || !weapon.mag || this.freeAmmo[id]) return;
     const slot = this.slotIndex(id, weapon.index), cost = this.ammoCost(mode, fraction);
     if (mode.ammo === 'alt') this.altAmmo[slot] = Math.max(0, this.altAmmo[slot] - cost);
     else this.magazine[slot] = Math.max(0, this.magazine[slot] - cost);
@@ -504,7 +506,7 @@ const Weapons = {
   },
   shotInterval(id, weapon, mode) {
     const stance = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.rateMult ? weapon.alt.toggle.rateMult : 1;
-    return 1 / (mode.rate * stance * this.dualFactor(id, weapon));
+    return 1 / (mode.rate * stance * this.dualFactor(id, weapon) * this.rateScale[id]);
   },
   // One trigger pull: timing, then the shot (a burst's later rounds call fireShot directly).
   fire(id, weapon, mode, modeIndex, fraction) {
