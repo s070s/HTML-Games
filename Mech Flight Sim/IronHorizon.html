@@ -518,10 +518,12 @@ const DIFFICULTY = {
   elite: { name: 'Elite', scoreMult: 1.35, react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3, focus: 0.8 },
 };
 
+/* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraBush bushes per chunk
+   drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -532,6 +534,7 @@ const MAPS = {
     zenith: [0.18, 0.36, 0.62], horizon: [0.8, 0.74, 0.64], fog: 0.00085,
     sun: [-0.5, 0.72, -0.35], sunCol: [1.12, 1.0, 0.84], skyAmb: [0.5, 0.56, 0.66], gndAmb: [0.34, 0.29, 0.22], tree: [0.36, 0.36, 0.2],
     weather: { weights: { clear: 5, overcast: 2, storm: 1, sandstorm: 2 }, time: 'day' },
+    biome: 'arid', flora: { species: { acacia: 3, deadtree: 2, joshua: 1, burnt: 1, shrub: 3, prickly: 1, grass: 4, flowers: 1 }, forest: 0, groves: 0, meadow: 0.25, scrub: 0.35, block: false },
   },
   verdant: {
     name: 'Verdant Ridge', desc: 'Forested hills with fuel depots in the valleys.', seed: 4.1, hill: 1.25,
@@ -539,6 +542,7 @@ const MAPS = {
     zenith: [0.2, 0.42, 0.7], horizon: [0.7, 0.8, 0.82], fog: 0.001,
     sun: [0.4, 0.75, -0.45], sunCol: [1.05, 1.0, 0.9], skyAmb: [0.5, 0.6, 0.72], gndAmb: [0.22, 0.3, 0.2], tree: [0.14, 0.34, 0.14],
     weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
+    biome: 'temperate', flora: { species: { oak: 3, birch: 2, pine: 2, spruce: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, mushrooms: 1 }, forest: 0, groves: 0, meadow: 0.4, scrub: 0.3, block: false },
   },
   frost: {
     name: 'Frost Salient', desc: 'Snow-covered flats under a low winter sun.', seed: 8.3, hill: 0.85,
@@ -546,6 +550,7 @@ const MAPS = {
     zenith: [0.28, 0.42, 0.66], horizon: [0.82, 0.86, 0.92], fog: 0.0011,
     sun: [0.7, 0.45, 0.3], sunCol: [1.0, 0.92, 0.85], skyAmb: [0.58, 0.66, 0.8], gndAmb: [0.42, 0.46, 0.56], tree: [0.2, 0.34, 0.26],
     weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 1 }, time: 'day' },
+    biome: 'arctic', flora: { species: { snowpine: 4, spruce: 2, deadtree: 1, shrub: 1, moss: 4, grass: 1 }, forest: 0, groves: 0, meadow: 0.3, scrub: 0.2, block: false },
   },
 };
 const MAP_DEFAULT_ID = 'ashfall';   // an unknown battlefield id falls back to this one
@@ -570,12 +575,24 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
    weather: { weights: { <state>: weight, ... }, time } the weather states (WEATHER) this battlefield draws its changing
      weather from, each as likely as its weight (missing or 0: never drawn), and the time of day (TIME_PRESETS key) used
      when a mission turns weather on without naming a time. A row's weights replace the default list as a whole.
-   flora, fauna, hazards, lanes: lists filled by later updates, [] for none
+   flora: { species, forest, groves, meadow, scrub, density, block } the plants (FLORA) of this battlefield; fields a row
+     leaves out come from MAP_FLORA:
+     species: { <FLORA id>: weight, ... } the species that grow here, each as common as its weight among the species of
+       its layer and zone; null: every species tagged with the battlefield's biome, all equally common
+     forest, meadow, scrub: share of the land (0..1) under forest, meadow and scrub, from seeded noise masks; forests
+       hold trees over bushes and a floor of ferns and mushrooms, scrub holds bushes and a few hardy trees, meadows
+       hold grass and flowers; reeds grow at the shore and kelp in shallow water wherever the species are listed
+     groves: small round clusters of trees; density: multiplier for every layer
+     block: true plants new trees that block ground units and break like the scatter trees; false (the original
+       battlefields, D17) keeps the old tree layout exactly: those trees only take a species look, and the generator adds
+       bushes and ground cover that never block
+   fauna, hazards, lanes: lists filled by later updates, [] for none
    airport: { x, z, yaw } of a runway, or null
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
-  biome: 'temperate', water: [], roads: [], flora: [], fauna: [], weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
+  biome: 'temperate', water: [], roads: [], flora: null, fauna: [], weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
 };
+const MAP_FLORA = { species: null, forest: 0.25, groves: 6, meadow: 0.3, scrub: 0.2, density: 1, block: true };
 const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
 const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity };
 const WATER_BODY = {   // defaults of each water body type (m)
@@ -593,6 +610,8 @@ function mapDef(id) {
   def.mountains = Object.assign({}, MAP_MOUNTAINS, row.mountains);
   def.weather = Object.assign({}, MAP_WEATHER, row.weather);
   def.weather.weights = Object.assign({}, def.weather.weights);
+  def.flora = Object.assign({}, MAP_FLORA, row.flora);
+  if (def.flora.species) def.flora.species = Object.assign({}, def.flora.species);
   def.water = def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
   if (row.maxSlope === undefined && !row.mountains && !def.water.length) def.maxSlope = Infinity;
   MAP_DEFS.set(row, def);
@@ -1342,7 +1361,7 @@ void main(){
   gl_Position = uVP * vec4(w, 1.0);
 }`;
 const INST_FLOATS = 16;          // floats per instance: 3 matrix columns with translation, colour and glow
-const INST_SHAPES = ['box', 'cyl', 'cone', 'sphere', 'wedge'];
+const INST_SHAPES = ['box', 'cyl', 'cone', 'sphere', 'wedge', 'blob', 'gem', 'stem', 'spire', 'blade', 'tuft'];
 const LIT_FS = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
@@ -1581,6 +1600,56 @@ function meshWedge() {
   t.push(B[0], B[1], B[2], F[0], F[1], F[2], D[0], D[1], D[2]);
   return buildConvex(t);
 }
+/* ---------- flora primitives (P2.1): low-poly unit shapes plants are built from ---------- */
+/* blob: icosahedron (60 vertices), a faceted ball for leaf crowns */
+function meshBlob() {
+  const g = (1 + Math.sqrt(5)) / 2, k = 0.5 / Math.hypot(1, g);
+  const v = [[-1, g, 0], [1, g, 0], [-1, -g, 0], [1, -g, 0], [0, -1, g], [0, 1, g], [0, -1, -g], [0, 1, -g], [g, 0, -1], [g, 0, 1], [-g, 0, -1], [-g, 0, 1]];
+  const f = [0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1];
+  const t = [];
+  for (const i of f) t.push(v[i][0] * k, v[i][1] * k, v[i][2] * k);
+  return buildConvex(t);
+}
+/* gem: octahedron (24 vertices), for small leaves, pads, berries and flower heads */
+function meshGem() {
+  const t = [], P = [[0.5, 0, 0], [0, 0, 0.5], [-0.5, 0, 0], [0, 0, -0.5]];
+  for (let i = 0; i < 4; i++) { const a = P[i], b = P[(i + 1) % 4]; t.push(0, 0.5, 0, a[0], 0, a[2], b[0], 0, b[2], 0, -0.5, 0, b[0], 0, b[2], a[0], 0, a[2]); }
+  return buildConvex(t);
+}
+/* stem: open prism (sides only), for trunks, branches and stalks */
+function meshStem(seg) {
+  const t = [];
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * TAU, a1 = ((i + 1) / seg) * TAU;
+    quad(t, [Math.cos(a0) * 0.5, -0.5, Math.sin(a0) * 0.5], [Math.cos(a1) * 0.5, -0.5, Math.sin(a1) * 0.5], [Math.cos(a1) * 0.5, 0.5, Math.sin(a1) * 0.5], [Math.cos(a0) * 0.5, 0.5, Math.sin(a0) * 0.5]);
+  }
+  return buildConvex(t);
+}
+/* spire: cone without a base (the renderer draws both faces), for conifer tiers and caps */
+function meshSpire(seg) {
+  const t = [];
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * TAU, a1 = ((i + 1) / seg) * TAU;
+    t.push(0, 0.5, 0, Math.cos(a0) * 0.5, -0.5, Math.sin(a0) * 0.5, Math.cos(a1) * 0.5, -0.5, Math.sin(a1) * 0.5);
+  }
+  return buildConvex(t);
+}
+/* blade: a thin three-sided pyramid (12 vertices), tip up: grass, fronds, reeds, kelp ribbons */
+function bladeTris(t, ox, oz, lean, yaw) {
+  const c = Math.cos(yaw), s = Math.sin(yaw), P = (x, y, z) => [ox + (x * c + z * s) + lean * (y + 0.5), y, oz + (-x * s + z * c)];
+  const A = P(-0.5, -0.5, -0.12), B = P(0.5, -0.5, -0.12), C = P(0, -0.5, 0.24), T = P(0, 0.5, 0);
+  t.push(...A, ...B, ...T, ...B, ...C, ...T, ...C, ...A, ...T, ...A, ...C, ...B);
+}
+function meshBlade() { const t = []; bladeTris(t, 0, 0, 0, 0); return buildConvex(t); }
+/* tuft: three blades fanned out (36 vertices), one instance per grass tuft */
+function meshTuft() {
+  const parts = [];
+  for (let i = 0; i < 3; i++) { const t = []; bladeTris(t, (i - 1) * 0.28, (i % 2) * 0.12 - 0.06, (i - 1) * 0.35, i * 1.9); parts.push(buildConvex(t).data); }
+  const data = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { data.set(p, o); o += p.length; }
+  return { data, count: data.length / 9 };
+}
 
 /* in place: colour c turned share g of the way to its own grey, then times tint (blended toward 1 by keep) */
 function greyTint(c, g, tint, keep) {
@@ -1649,7 +1718,8 @@ const R = {
     this.program('pts', PTS_VS, PTS_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale']);
     this.program('precip', PRECIP_VS, PRECIP_FS, ['aPos'], ['uVP', 'uScale', 'uLine', 'uCol', 'uSize']);
     this.program('water', WATER_VS, WATER_FS, ['aPos', 'aInfo'], ['uVP', 'uSwellT', 'uSwell', 'uTime', 'uWave', 'uSun', 'uSunCol', 'uSky', 'uFog', 'uFogD', 'uCam', 'uFoam', 'uShallow', 'uDeep']);
-    const defs = { box: meshBox(), cyl: meshCylinder(10), cone: meshCone(8), sphere: meshSphere(6, 9), wedge: meshWedge(), sky: meshSphere(10, 14) };
+    const defs = { box: meshBox(), cyl: meshCylinder(10), cone: meshCone(8), sphere: meshSphere(6, 9), wedge: meshWedge(), sky: meshSphere(10, 14),
+      blob: meshBlob(), gem: meshGem(), stem: meshStem(5), spire: meshSpire(6), blade: meshBlade(), tuft: meshTuft() };
     this.meshes = {}; this.meshCPU = {}; this.matCache = [NaN, NaN, NaN, NaN, NaN, NaN];
     for (const k in defs) {
       this.meshCPU[k] = defs[k].data;
@@ -1735,6 +1805,13 @@ const R = {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
     gl.bufferSubData(gl.ARRAY_BUFFER, startVertex * 36, data.subarray(startVertex * 9, (startVertex + vertexCount) * 9));
+    this.curMesh = null;
+  },
+  /* write vertexCount vertices from the start of src into mesh m from vertex startVertex on */
+  patchMesh(m, src, startVertex, vertexCount) {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, startVertex * 36, src.subarray(0, vertexCount * 9));
     this.curMesh = null;
   },
   /* Per-frame batches: between beginBatch(slot) and endBatch(slot, spec, alpha) every R.draw is collected.
@@ -1832,16 +1909,17 @@ const R = {
     this.stack.top = 0; this.stack.ident();
     this.drawRaw(B.mesh, spec, alpha);
   },
-  /* draw a vertex-coloured mesh at the origin (buildings, chunks, batches) */
-  drawRaw(m, spec, alpha) {
-    if (!m || m.count === 0) return;
+  /* draw a vertex-coloured mesh at the origin (buildings, chunks, batches); count: its first vertices only */
+  drawRaw(m, spec, alpha, count) {
+    const n = count === undefined ? (m ? m.count : 0) : count;
+    if (!m || n === 0) return;
     const gl = this.gl, u = this.uni.lit;
     this.use('lit');
     this.bindMesh(m);
     this.stack.copyTo(this.modelTmp);
     gl.uniformMatrix4fv(u.uModel, false, this.modelTmp);
     this.setMaterial(1, 1, 1, alpha === undefined ? 1 : alpha, 0, spec || 0);
-    gl.drawArrays(gl.TRIANGLES, 0, m.count);
+    gl.drawArrays(gl.TRIANGLES, 0, n);
     this.drawCalls++;
   },
   resize(cssW, cssH, quality) {
@@ -2814,7 +2892,7 @@ function addStruct(type, x, z, opts) {
     hp: d.hp * (opts.hpMult || 1) * (W.structHp || 1), maxHp: 0, mat: opts.mat || d.mat, state: 0, destroyed: false, seed: Math.random() * 100,
     explosive: !!d.explosive, indestructible: !!d.indestructible || !!opts.indestructible, objective: opts.objective || null, invuln: false,
     debris: d.debris, scorch: 0, flash: 0, swap, _q: 0, smokeT: 0, name: opts.name || type, isStruct: true, team: opts.team === undefined ? 2 : opts.team, chunk: null, sq: 0, bakedInvuln: false,
-    top: 0, destroyedAt: 0,
+    top: 0, destroyedAt: 0, plant: null,   // plant: a tree's Flora plant (its species look)
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
   };
@@ -3091,7 +3169,7 @@ function debrisSlot() {
   return d;
 }
 function spawnDebris(x, y, z, count, s, speed) {
-  const col = s && s.mat ? (s.mat === 'wood' && s.type === 'tree' ? Terrain.map.tree : MATERIAL[s.mat].col) : [0.4, 0.4, 0.4];
+  const col = s && s.mat ? (s.mat === 'wood' && s.type === 'tree' ? (s.plant ? FLORA[s.plant.sp].leaf : Terrain.map.tree) : MATERIAL[s.mat].col) : [0.4, 0.4, 0.4];
   const sz = s ? Math.max(0.5, Math.min(s.hx, s.hz) * 0.5) : 0.8;
   for (let i = 0; i < count; i++) {
     const d = debrisSlot();
@@ -3347,7 +3425,7 @@ function newWorld(cfg) {
   Hash.reset();
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
-    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null,
+    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
     stats: newStats(),
@@ -3556,6 +3634,7 @@ function populateWorld(cfg) {
   }
   // indestructible rock ridges so cover always exists, even at low destruction
   for (let i = 0; i < 26; i++) place('rock', (rng() * 2 - 1) * 850, (rng() * 2 - 1) * 850, { scale: 1 + rng() * 1.3, hScale: 1 + rng() * 0.8 });
+  Flora.build(cfg, free);   // last, from a stream of its own: the draws above keep their order (D17)
 }
 
 /* ---------- drawing the world ---------- */
@@ -3564,6 +3643,7 @@ function shadeCol(c, k) { return [c[0] * k, c[1] * k, c[2] * k]; }
 /* Draws one plain structure. With bake = true it is written into a chunk mesh instead:
    full detail, no hit flash, and the animated generator core is left out (drawn live). */
 function drawStruct(s, bake) {
+  if (s.plant && !s.destroyed) return;   // a living tree with a species look is drawn by Flora (its stump stays here)
   const st = R.stack, cam = R.cam;
   const dxc = s.x - cam.x, dzc = s.z - cam.z;
   const dist = Math.hypot(dxc, dzc);
@@ -3687,7 +3767,8 @@ const Chunks = {
     const i = clamp(Math.floor((s.x + WORLD_HALF) / this.SIZE), 0, this.N - 1), j = clamp(Math.floor((s.z + WORLD_HALF) / this.SIZE), 0, this.N - 1);
     let c = W.chunkGrid[i * this.N + j];
     if (!c) {
-      c = { cx: -WORLD_HALF + (i + 0.5) * this.SIZE, cz: -WORLD_HALF + (j + 0.5) * this.SIZE, structs: [], live: [], watch: [], dirty: true, data: null, buf: null, mesh: null, gpuDirty: false, nextRebuild: 0, cy: 0, radius: this.SIZE };
+      c = { cx: -WORLD_HALF + (i + 0.5) * this.SIZE, cz: -WORLD_HALF + (j + 0.5) * this.SIZE, structs: [], live: [], watch: [], dirty: true, data: null, buf: null, mesh: null, gpuDirty: false, nextRebuild: 0, cy: 0, radius: this.SIZE,
+        plants: [], trees: 0, bushes: 0, farAt: 0, fl: null };   // flora: its trees and bushes, where their stand-ins start in the mesh, its full-detail mesh
       W.chunkGrid[i * this.N + j] = c; W.chunks.push(c);
     }
     return c;
@@ -3698,8 +3779,8 @@ const Chunks = {
     if (s.type === 'generator') c.live.push(s);
     if (s.objective) c.watch.push(s);
   },
-  mark(s) { if (s.chunk) s.chunk.dirty = true; },
-  markAll() { for (const c of W.chunks) c.dirty = true; },
+  mark(s) { if (s.chunk) s.chunk.dirty = true; if (s.plant) Flora.touch(s); },
+  markAll() { for (const c of W.chunks) c.dirty = true; Flora.markAll(); },
   rebuild(c) {
     R.bake = { data: c.buf || new Float32Array(32768), n: 0 };
     R.stack.top = 0; R.stack.ident();
@@ -3711,12 +3792,22 @@ const Chunks = {
       if (s.y + s.h * 1.3 > hi) hi = s.y + s.h * 1.3;
       reach = Math.max(reach, Math.abs(s.x - c.cx) + s.hx * 2.3, Math.abs(s.z - c.cz) + s.hz * 2.3);
     }
+    // flora stand-ins after the structures: a chunk drawing its plants in full draws only the vertices before farAt
+    c.farAt = R.bake.n;
+    let bushNo = 0;
+    for (const p of c.plants) {
+      Flora.drawFar(p, p.s ? 0 : bushNo++);
+      if (p.y < lo) lo = p.y;
+      if (p.y + p.h > hi) hi = p.y + p.h;
+      reach = Math.max(reach, Math.abs(p.x - c.cx) + p.r, Math.abs(p.z - c.cz) + p.r);
+    }
     c.buf = R.bake.data; c.data = c.buf.subarray(0, R.bake.n * 9); R.bake = null;
     c.cy = (lo + hi) / 2; c.radius = Math.hypot(reach, reach, (hi - lo) / 2) + 2;
     c.dirty = false; c.gpuDirty = true; c.nextRebuild = W.time + 0.1;
   },
   draw() {
     let budget = 3;
+    Flora.frame();
     for (let n = 0; n < W.chunks.length; n++) {
       const c = W.chunks[n];
       for (let k = 0; k < c.watch.length; k++) if (c.watch[k].invuln !== c.watch[k].bakedInvuln) c.dirty = true;
@@ -3725,9 +3816,12 @@ const Chunks = {
       if (!c.mesh || c.mesh.ctx !== R.ctxId) { c.mesh = R.makeMesh(c.data); c.gpuDirty = false; }
       else if (c.gpuDirty) { R.updateMesh(c.mesh, c.data); c.gpuDirty = false; }
       R.stack.top = 0; R.stack.ident();
-      R.drawRaw(c.mesh, 0.12);
+      const full = c.plants.length > 0 && Flora.nearOf(c);
+      R.drawRaw(c.mesh, 0.12, undefined, full ? c.farAt : c.mesh.count);
+      if (full) R.drawRaw(c.fl.mesh, 0.05);
       for (let k = 0; k < c.live.length; k++) drawStructLive(c.live[k]);
     }
+    Flora.work();
   },
   /* brief additive flash on structures that were just hit (transparent phase) */
   drawFlashes() {
@@ -3754,11 +3848,727 @@ function drawStructLive(s) {
   st.push().t(s.x, s.y + h * 1.1, s.z).s(2, 2, 2); R.draw('sphere', 0.3, 0.9, 1, 1, 1.4 * pulse, 0); st.pop();
 }
 
+/* ---------- flora (P2.1) ----------
+   FLORA holds 30 plant species as data rows, each drawn by shared part builders (FLORA_PARTS) from low-poly primitives.
+   Flora.build plants a battlefield from its def's flora field (mapDef) with a random stream of its own, after everything
+   else is placed, so the old placement draws and tree layout stay exactly as they were (D17) and host and guests grow
+   the same plants (D18). Three layers:
+   - trees: 'tree' structures that block ground units and break like the scatter trees; every scatter or town tree also
+     takes a species look from the battlefield's tree species
+   - bushes: never block; drawn with the trees
+   - cover (grass, flowers, ferns, reeds, kelp, ...): never blocks; grown per FLORA_CELL square when the camera first
+     comes near it and drawn instanced near the camera only (local scenery)
+   LOD (D19): a chunk within QUALITY.floraNear of the camera draws its trees and bushes in full from a merged mesh of
+   their own; a farther one draws each as a single cone, gem or box, baked after the chunk's structures (Chunks.rebuild).
+   The quality caps the bushes and cover drawn; trees are gameplay and the same on every quality. */
+const FLORA_SEED = 7331;            // salt of the flora's own random stream
+const FLORA_EDGE = 880;             // nothing grows farther out than this (the scatter's bound, m)
+const FLORA_TREE_STEP = 11;         // trees are tried on a jittered grid this fine (m), so trunks mostly stand a tank apart
+const FLORA_BUSH_STEP = 8;          // bushes likewise (m)
+const FLORA_TREE_CAP = 180;         // most trees one chunk holds (structures: the same on every quality)
+const FLORA_BUSH_MAX = 300;         // most bushes one chunk holds (QUALITY.floraBush of them are drawn)
+const FLORA_TREE_P = 0.8;           // chance of a tree per grid spot under full forest or in a grove
+const FLORA_SCRUB_TREE_P = 0.07;    // ... in full scrub
+const FLORA_SHORE_TREE_P = 0.2;     // ... next to water, for the species that grow at the shore
+const FLORA_UNDER_P = 0.25;         // chance of a bush per grid spot under full forest (undergrowth)
+const FLORA_SCRUB_P = 0.3;          // ... in full scrub
+const FLORA_MEADOW_P = 0.03;        // ... in a meadow
+const FLORA_TRUNK_BOX = 1.8;        // a tree's collision box is this times its drawn trunk ...
+const FLORA_TRUNK_PAD = 0.8;        // ... plus this (m): about the scatter tree's 2.4 m box round its 0.84 m trunk
+const FLORA_MASK = { forest: 300, meadow: 220, scrub: 160 };   // feature size of the zone noise masks (m)
+const FLORA_SHORE = 9;              // shore plants grow within this of water (m)
+const FLORA_SHALLOW = [1.2, 8];     // kelp grows in water this deep (m)
+const FLORA_ROCK = 0.55;            // on battlefields with rock faces nothing grows steeper than this (rise over run)
+const FLORA_CELL = 32;              // ground cover is grown and drawn per square this size (m)
+const FLORA_CELLS = Math.ceil(2 * WORLD_HALF / FLORA_CELL);
+const FLORA_COVER_TRIES = 90;       // spots tried per cover cell
+const FLORA_COVER_MAX = 60;         // most cover plants one cell holds (QUALITY.coverCell of them are drawn)
+const FLORA_FLOOR_P = 0.45;         // chance of cover per spot under full forest (ferns, mushrooms)
+const FLORA_FIELD_P = 0.9;          // ... in a meadow
+const FLORA_SCRUB_COVER_P = 0.5;    // ... in scrub
+const FLORA_OPEN_P = 0.06;          // ... anywhere else (a little grass)
+const FLORA_REED_P = 0.7;           // ... at the shore
+const FLORA_KELP_P = 0.35;          // ... in shallow water
+const FLORA_BAKE_VERTS = 6000;      // full-detail chunk mesh vertices baked per frame (about 0.3 ms)
+const FLORA_WANTS = 32;             // most chunks asking for a full mesh in one frame
+const FLORA_CELL_BUDGET = 2;        // cover cells grown per frame ...
+const FLORA_BURST = 48;             // ... except for this many at the start of a battle, grown 8 per frame
+const FLORA_REACH = Chunks.SIZE * 0.7;   // a chunk counts as near while its middle is within floraNear + this
+const FLORA_FREE = 260;             // a full-detail mesh is dropped once its chunk is this much farther still (m)
+const FLORA_SNOW = [0.93, 0.95, 0.99];
+const FLORA_BARK = {
+  brown: [0.33, 0.24, 0.16], grey: [0.46, 0.44, 0.4], pale: [0.88, 0.87, 0.82], red: [0.46, 0.23, 0.14], pine: [0.5, 0.31, 0.19],
+  char: [0.08, 0.07, 0.06], palm: [0.5, 0.41, 0.28], culm: [0.56, 0.62, 0.3], dark: [0.24, 0.2, 0.16], tan: [0.52, 0.45, 0.38],
+};
+/* One row per species:
+   layer 'tree' (blocks; a 'tree' structure), 'bush' (never blocks; drawn with the trees) or 'cover' (instanced near the
+   camera); biomes: the battlefield biomes it belongs to (a def's flora.species null takes these); zones: where the
+   generator plants it ('forest', 'grove', 'scrub', 'meadow', 'floor' under trees, 'shore', 'shallow' water);
+   h: height range (m); trunk: drawn trunk width over height; leaf, bark: colours, varied per plant by `vary`;
+   slope: steepest ground (rise over run); water: 'dry', 'shore' (in water at most `deep` m, or within FLORA_SHORE of it)
+   or 'shallow' (FLORA_SHALLOW deep); snow: grows above the snow line; far: [shape, middle, width, height] stand-in
+   (fractions of the height) drawn past floraNear, null to cull it there; parts: [builder, args] drawn in order */
+const FLORA = [
+  // trees
+  { id: 'oak', layer: 'tree', biomes: ['temperate', 'farmland'], zones: ['forest', 'grove', 'scrub'], h: [9, 15], trunk: 0.075, leaf: [0.24, 0.4, 0.16], bark: FLORA_BARK.brown, vary: 0.14, slope: 0.6, water: 'dry', far: ['gem', 0.68, 0.85, 0.62],
+    parts: [['post', { h: 0.55, lean: 0.06 }], ['puffs', { n: 3, at: 0.68, w: 0.2, s: 0.52, fy: 0.78 }]] },
+  { id: 'birch', layer: 'tree', biomes: ['temperate', 'boreal', 'alpine'], zones: ['forest', 'grove'], h: [10, 16], trunk: 0.035, leaf: [0.42, 0.55, 0.2], bark: FLORA_BARK.pale, vary: 0.14, slope: 0.6, water: 'dry', far: ['gem', 0.7, 0.45, 0.62],
+    parts: [['post', { h: 0.75, lean: 0.06 }], ['puffs', { n: 3, at: 0.7, w: 0.09, s: 0.3, fy: 1.4 }]] },
+  { id: 'pine', layer: 'tree', biomes: ['temperate', 'alpine', 'boreal'], zones: ['forest', 'grove'], h: [14, 22], trunk: 0.04, leaf: [0.17, 0.32, 0.17], bark: FLORA_BARK.pine, vary: 0.1, slope: 0.6, water: 'dry', far: ['spire', 0.8, 0.42, 0.36],
+    parts: [['post', { h: 0.82, lean: 0.07 }], ['cones', { n: 2, at: 0.64, w: 0.42, th: 0.22, taper: 0.35 }]] },
+  { id: 'snowpine', layer: 'tree', biomes: ['arctic', 'alpine'], zones: ['forest', 'grove'], h: [8, 15], trunk: 0.04, leaf: [0.16, 0.3, 0.22], bark: FLORA_BARK.dark, vary: 0.08, slope: 0.65, water: 'dry', snow: true, far: ['spire', 0.56, 0.5, 0.9],
+    parts: [['post', { h: 0.3 }], ['cones', { n: 3, at: 0.12, w: 0.5, th: 0.42, taper: 0.7, snow: true }]] },
+  { id: 'spruce', layer: 'tree', biomes: ['alpine', 'boreal', 'arctic'], zones: ['forest', 'grove'], h: [10, 18], trunk: 0.035, leaf: [0.12, 0.26, 0.18], bark: FLORA_BARK.dark, vary: 0.08, slope: 0.65, water: 'dry', snow: true, far: ['spire', 0.55, 0.42, 0.9],
+    parts: [['post', { h: 0.3 }], ['cones', { n: 4, at: 0.1, w: 0.42, th: 0.34, taper: 0.8 }]] },
+  { id: 'palm', layer: 'tree', biomes: ['tropical', 'coastal', 'arid'], zones: ['grove', 'scrub', 'shore'], h: [8, 13], trunk: 0.035, leaf: [0.28, 0.5, 0.18], bark: FLORA_BARK.palm, vary: 0.12, slope: 0.55, water: 'dry', far: ['gem', 0.9, 0.7, 0.3],
+    parts: [['lean', { n: 4, h: 0.92, bend: 0.4 }], ['fronds', { n: 7, len: 0.4, w: 0.1, up: -0.3 }]] },
+  { id: 'coconut', layer: 'tree', biomes: ['tropical', 'coastal'], zones: ['shore', 'grove'], h: [11, 17], trunk: 0.03, leaf: [0.32, 0.52, 0.2], bark: FLORA_BARK.palm, vary: 0.12, slope: 0.5, water: 'dry', far: ['gem', 0.92, 0.6, 0.25],
+    parts: [['lean', { n: 5, h: 0.94, bend: 0.7 }], ['fronds', { n: 8, len: 0.32, w: 0.08, up: -0.45 }], ['dots', { n: 3, r: 0.035, s: 0.045, col: [0.36, 0.26, 0.12] }]] },
+  { id: 'baobab', layer: 'tree', biomes: ['savanna'], zones: ['scrub', 'grove'], h: [10, 15], trunk: 0.2, leaf: [0.34, 0.44, 0.18], bark: FLORA_BARK.tan, vary: 0.1, slope: 0.4, water: 'dry', far: ['gem', 0.75, 0.55, 0.4],
+    parts: [['bottle', { h: 0.72 }], ['fork', { n: 4, len: 0.2, up: 0.65, k: 0.2 }], ['puffs', { ends: true, s: 0.16, fy: 0.6 }]] },
+  { id: 'acacia', layer: 'tree', biomes: ['savanna', 'arid'], zones: ['scrub', 'grove'], h: [6, 10], trunk: 0.05, leaf: [0.32, 0.42, 0.16], bark: FLORA_BARK.dark, vary: 0.12, slope: 0.5, water: 'dry', far: ['gem', 0.78, 1.1, 0.25],
+    parts: [['post', { h: 0.55, lean: 0.2 }], ['fork', { n: 3, len: 0.3, up: 0.45, k: 0.6 }], ['puffs', { ends: true, s: 0.5, fy: 0.2 }]] },
+  { id: 'willow', layer: 'tree', biomes: ['temperate', 'wetland'], zones: ['shore', 'grove'], h: [8, 12], trunk: 0.07, leaf: [0.4, 0.52, 0.22], bark: FLORA_BARK.grey, vary: 0.1, slope: 0.4, water: 'dry', far: ['gem', 0.62, 0.95, 0.75],
+    parts: [['post', { h: 0.5, lean: 0.1 }], ['puffs', { n: 3, at: 0.72, w: 0.22, s: 0.45, fy: 0.7 }], ['drape', { n: 10, at: 0.8, r: 0.32, len: 0.55, w: 0.05 }]] },
+  { id: 'cypress', layer: 'tree', biomes: ['mediterranean', 'coastal'], zones: ['grove', 'scrub'], h: [10, 16], trunk: 0.04, leaf: [0.14, 0.27, 0.15], bark: FLORA_BARK.brown, vary: 0.08, slope: 0.55, water: 'dry', far: ['spire', 0.52, 0.2, 0.95],
+    parts: [['post', { h: 0.15 }], ['cones', { n: 2, at: 0.05, w: 0.2, th: 0.7, taper: 0.25 }]] },
+  { id: 'redwood', layer: 'tree', biomes: ['temperate', 'coastal'], zones: ['forest'], h: [26, 40], trunk: 0.06, leaf: [0.16, 0.3, 0.16], bark: FLORA_BARK.red, vary: 0.08, slope: 0.5, water: 'dry', far: ['spire', 0.74, 0.24, 0.52],
+    parts: [['post', { h: 0.84 }], ['cones', { n: 3, at: 0.48, w: 0.22, th: 0.3, taper: 0.55 }]] },
+  { id: 'deadtree', layer: 'tree', biomes: ['arid', 'arctic', 'wetland', 'volcanic'], zones: ['scrub'], h: [6, 11], trunk: 0.05, leaf: [0.4, 0.36, 0.3], bark: FLORA_BARK.grey, vary: 0.1, slope: 0.7, water: 'dry', snow: true, far: null,
+    parts: [['snag', { n: 4, h: 0.9, len: 0.3 }]] },
+  { id: 'burnt', layer: 'tree', biomes: ['volcanic', 'arid'], zones: ['scrub', 'forest'], h: [6, 10], trunk: 0.06, leaf: [0.1, 0.09, 0.08], bark: FLORA_BARK.char, vary: 0.1, slope: 0.7, water: 'dry', far: null,
+    parts: [['snag', { n: 3, h: 0.8, len: 0.22 }]] },
+  { id: 'giant', layer: 'tree', biomes: ['tropical'], zones: ['forest'], h: [22, 32], trunk: 0.06, leaf: [0.14, 0.36, 0.12], bark: FLORA_BARK.tan, vary: 0.12, slope: 0.5, water: 'dry', far: ['gem', 0.86, 0.8, 0.35],
+    parts: [['buttress', { n: 4, h: 0.14, r: 0.12 }], ['post', { h: 0.82 }], ['fork', { n: 3, len: 0.2, up: 0.35, k: 0.5 }], ['puffs', { ends: true, s: 0.3, fy: 0.5 }], ['puffs', { n: 1, at: 0.92, s: 0.38, fy: 0.45 }]] },
+  { id: 'mangrove', layer: 'tree', biomes: ['tropical', 'wetland'], zones: ['shore'], h: [5, 8], trunk: 0.06, leaf: [0.2, 0.36, 0.16], bark: FLORA_BARK.grey, vary: 0.1, slope: 0.35, water: 'shore', deep: 1.2, far: ['gem', 0.66, 0.85, 0.5],
+    parts: [['roots', { n: 5, h: 0.28, r: 0.22 }], ['post', { h: 0.6 }], ['puffs', { n: 3, at: 0.68, w: 0.22, s: 0.42, fy: 0.6 }]] },
+  { id: 'saguaro', layer: 'tree', biomes: ['arid'], zones: ['scrub'], h: [5, 10], trunk: 0.075, leaf: [0.3, 0.44, 0.24], bark: FLORA_BARK.brown, vary: 0.08, slope: 0.5, water: 'dry', far: ['box', 0.46, 0.09, 0.92],
+    parts: [['arms', { n: 2, w: 0.075 }]] },
+  { id: 'joshua', layer: 'tree', biomes: ['arid'], zones: ['scrub'], h: [5, 9], trunk: 0.06, leaf: [0.3, 0.4, 0.2], bark: FLORA_BARK.tan, vary: 0.1, slope: 0.55, water: 'dry', far: ['gem', 0.72, 0.6, 0.4],
+    parts: [['post', { h: 0.45, lean: 0.12 }], ['fork', { n: 3, len: 0.3, up: 0.75, k: 0.7 }], ['tips', { n: 5, len: 0.14, w: 0.05 }]] },
+  // bushes
+  { id: 'bamboo', layer: 'bush', biomes: ['tropical'], zones: ['forest', 'grove'], h: [7, 11], trunk: 0.012, leaf: [0.34, 0.54, 0.2], bark: FLORA_BARK.culm, vary: 0.1, slope: 0.6, water: 'dry', far: ['spire', 0.5, 0.3, 1],
+    parts: [['culms', { n: 6, r: 0.1 }]] },
+  { id: 'prickly', layer: 'bush', biomes: ['arid'], zones: ['scrub'], h: [1, 1.8], trunk: 0, leaf: [0.36, 0.5, 0.24], bark: FLORA_BARK.brown, vary: 0.1, slope: 0.6, water: 'dry', far: null,
+    parts: [['paddles', { n: 5, s: 0.5 }], ['dots', { n: 3, r: 0.35, at: 0.8, s: 0.08, col: [0.8, 0.25, 0.4] }]] },
+  { id: 'shrub', layer: 'bush', biomes: ['temperate', 'arid', 'savanna', 'alpine', 'mediterranean', 'farmland', 'arctic'], zones: ['scrub', 'forest', 'meadow'], h: [1.2, 2.6], trunk: 0, leaf: [0.27, 0.38, 0.17], bark: FLORA_BARK.brown, vary: 0.16, slope: 0.75, water: 'dry', far: ['gem', 0.45, 1, 0.8],
+    parts: [['puffs', { n: 2, at: 0.45, w: 0.3, s: 0.62, fy: 0.7 }]] },
+  { id: 'berry', layer: 'bush', biomes: ['temperate', 'boreal', 'farmland'], zones: ['scrub', 'forest'], h: [1, 1.8], trunk: 0, leaf: [0.2, 0.36, 0.14], bark: FLORA_BARK.brown, vary: 0.12, slope: 0.75, water: 'dry', far: ['gem', 0.45, 1, 0.8],
+    parts: [['puffs', { n: 2, at: 0.45, w: 0.28, s: 0.6, fy: 0.75 }], ['dots', { n: 5, r: 0.42, at: 0.5, s: 0.08, col: [0.75, 0.1, 0.12] }]] },
+  // ground cover
+  { id: 'fern', layer: 'cover', biomes: ['temperate', 'tropical'], zones: ['floor'], h: [0.6, 1.1], trunk: 0, leaf: [0.24, 0.44, 0.16], bark: FLORA_BARK.brown, vary: 0.14, slope: 0.9, water: 'dry', far: null,
+    parts: [['fronds', { n: 6, at: 0.05, len: 1.0, w: 0.22, up: 0.55 }]] },
+  { id: 'grass', layer: 'cover', biomes: ['temperate', 'savanna', 'farmland', 'alpine', 'mediterranean', 'coastal', 'arid'], zones: ['meadow', 'scrub'], h: [0.5, 1], trunk: 0, leaf: [0.4, 0.5, 0.22], bark: FLORA_BARK.brown, vary: 0.18, slope: 0.9, water: 'dry', far: null,
+    parts: [['blades', { n: 2, shape: 'tuft', r: 0.5, w: 0.9, lean: 0.15 }]] },
+  { id: 'reeds', layer: 'cover', biomes: ['temperate', 'wetland', 'tropical', 'farmland'], zones: ['shore'], h: [1.3, 2.4], trunk: 0, leaf: [0.42, 0.5, 0.24], bark: FLORA_BARK.brown, vary: 0.12, slope: 0.4, water: 'shore', deep: 0.8, far: null,
+    parts: [['blades', { n: 7, r: 0.2, w: 0.04, lean: 0.12, tip: [0.36, 0.24, 0.13], tipS: 0.12 }]] },
+  { id: 'flowers', layer: 'cover', biomes: ['temperate', 'alpine', 'farmland', 'mediterranean'], zones: ['meadow'], h: [0.4, 0.7], trunk: 0, leaf: [0.3, 0.48, 0.2], bark: FLORA_BARK.brown, vary: 0.12, slope: 0.9, water: 'dry', far: null,
+    parts: [['heads', { n: 4, r: 0.6, w: 0.05, s: 0.16, cols: [[0.95, 0.82, 0.2], [0.88, 0.25, 0.22], [0.95, 0.95, 0.95], [0.62, 0.42, 0.9]] }]] },
+  { id: 'lavender', layer: 'cover', biomes: ['mediterranean', 'farmland'], zones: ['meadow'], h: [0.5, 0.8], trunk: 0, leaf: [0.4, 0.48, 0.34], bark: FLORA_BARK.brown, vary: 0.1, slope: 0.8, water: 'dry', far: null,
+    parts: [['blades', { n: 6, r: 0.35, w: 0.05, lean: 0.25, tip: [0.55, 0.42, 0.85], tipS: 0.3, tipShape: 'spire' }]] },
+  { id: 'mushrooms', layer: 'cover', biomes: ['temperate', 'boreal', 'tropical'], zones: ['floor'], h: [0.25, 0.6], trunk: 0, leaf: [0.7, 0.2, 0.14], bark: FLORA_BARK.pale, vary: 0.2, slope: 0.9, water: 'dry', far: null,
+    parts: [['caps', { n: 3, r: 0.9, w: 0.1, cap: 0.7 }]] },
+  { id: 'moss', layer: 'cover', biomes: ['arctic', 'alpine', 'boreal'], zones: ['meadow', 'floor', 'scrub'], h: [0.15, 0.35], trunk: 0, leaf: [0.42, 0.48, 0.3], bark: FLORA_BARK.brown, vary: 0.16, slope: 1, water: 'dry', snow: true, far: null,
+    parts: [['puffs', { n: 3, at: 0.3, w: 1.2, s: 3, fy: 0.22, shape: 'gem' }]] },
+  { id: 'kelp', layer: 'cover', biomes: ['coastal', 'temperate', 'arctic', 'tropical'], zones: ['shallow'], h: [2, 6], trunk: 0, leaf: [0.24, 0.3, 0.12], bark: FLORA_BARK.brown, vary: 0.14, slope: 2, water: 'shallow', far: null,
+    parts: [['wave', { n: 3, r: 0.15, w: 0.12, sway: 0.25 }]] },
+];
+const FLORA_BY_ID = {};
+FLORA.forEach((sp, i) => { FLORA_BY_ID[sp.id] = i; });
+/* Part builders: each draws one part of a plant H m tall at the stack (the plant's base, turned to its yaw), from its
+   args a (sizes are fractions of H). Trunks leave their top in Flora.ax/ay/az, which crowns grow from; branching parts
+   leave their tips in Flora.ends. Randomness comes from Flora.rnd only, so a plant always draws the same vertices. */
+const FLORA_PARTS = {
+  /* a straight trunk Flora.tw wide (k: width factor) and `h` of the height tall, its top leaning up to `lean` of it */
+  post(a, H) {
+    const F = Flora, h = a.h * H, w = Math.max(F.tw * (a.k || 1), 0.08), lean = (a.lean || 0) * H, lx = (F.rnd() - 0.5) * lean, lz = (F.rnd() - 0.5) * lean;
+    F.seg('stem', 0, -0.3, 0, lx, h, lz, w, w, F.bark, 1);
+    F.ax = lx; F.ay = h; F.az = lz;
+  },
+  /* a palm trunk of n segments bending over by up to `bend` (rad) toward a seeded side */
+  lean(a, H) {
+    const F = Flora, L = a.h * H / a.n, bend = a.bend * (0.6 + F.rnd() * 0.8), dir = F.rnd() * TAU, sx = Math.sin(dir), sz = Math.cos(dir);
+    let x = 0, y = -0.3, z = 0;
+    for (let i = 0; i < a.n; i++) {
+      const ang = bend * (i + 1) / a.n, w = F.tw * (1 - i * 0.1);
+      const nx = x + sx * Math.sin(ang) * L, ny = y + Math.cos(ang) * L, nz = z + sz * Math.sin(ang) * L;
+      F.seg('stem', x, y, z, nx, ny, nz, w, w, F.bark, i % 2 ? 0.86 : 1);
+      x = nx; y = ny; z = nz;
+    }
+    F.ax = x; F.ay = y; F.az = z;
+  },
+  /* a baobab's swollen trunk, `h` of the height tall, narrowing at the top */
+  bottle(a, H) {
+    const F = Flora, h = a.h * H, w = F.tw;
+    F.seg('stem', 0, -0.3, 0, 0, h * 0.78, 0, w, w, F.bark, 1);
+    F.seg('spire', 0, h * 0.55, 0, 0, h, 0, w * 0.96, w * 0.96, F.bark, 0.9);
+    F.ax = 0; F.ay = h * 0.94; F.az = 0;
+  },
+  /* n branches `len` of the height long from the trunk top (or `at` of the height), rising at `up` (rad), k times the
+     trunk's width; their tips become the ends */
+  fork(a, H) {
+    const F = Flora, bx = F.ax, by = a.at !== undefined ? a.at * H : F.ay, bz = F.az, off = F.rnd() * TAU, w = Math.max(F.tw * a.k, 0.06);
+    F.nEnds = 0;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU + (F.rnd() - 0.5) * 0.8, up = a.up + (F.rnd() - 0.5) * 0.3, len = a.len * H * (0.8 + F.rnd() * 0.4);
+      const ex = bx + Math.sin(ang) * Math.cos(up) * len, ey = by + Math.sin(up) * len, ez = bz + Math.cos(ang) * Math.cos(up) * len;
+      F.seg('stem', bx, by, bz, ex, ey, ez, w, w, F.bark, 0.9);
+      F.end(ex, ey, ez);
+    }
+  },
+  /* mangrove stilt roots: n stems from the ground `r` of the height out up to the trunk at `h` of it */
+  roots(a, H) {
+    const F = Flora, top = a.h * H, off = F.rnd() * TAU, w = F.tw * 0.45;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU, r = a.r * H * (0.8 + F.rnd() * 0.4);
+      F.seg('stem', Math.sin(ang) * r, -0.3, Math.cos(ang) * r, 0, top, 0, w, w, F.bark, 0.85);
+    }
+  },
+  /* buttress roots: n wedges `h` of the height tall reaching `r` of it out from the trunk */
+  buttress(a, H) {
+    const F = Flora, h = a.h * H, r = a.r * H, off = F.rnd() * TAU;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU;
+      F.put('wedge', Math.sin(ang) * r * 0.5, h * 0.5 - 0.3, Math.cos(ang) * r * 0.5, F.tw * 0.35, h, r, F.bark, 0.88, ang);
+    }
+  },
+  /* bamboo: n culms Flora.tw thick within `r` of the height, each with a leaf near the top */
+  culms(a, H) {
+    const F = Flora, w = Math.max(F.tw, 0.06);
+    for (let i = 0; i < a.n; i++) {
+      const ang = F.rnd() * TAU, rr = F.rnd() * a.r * H, x = Math.sin(ang) * rr, z = Math.cos(ang) * rr, h = H * (0.7 + F.rnd() * 0.3);
+      const tx = x + Math.sin(ang) * h * 0.08, tz = z + Math.cos(ang) * h * 0.08;
+      F.seg('stem', x, -0.3, z, tx, h, tz, w, w, F.bark, i % 2 ? 0.88 : 1);
+      F.seg('blade', tx, h * 0.84, tz, tx + Math.sin(ang + 1) * h * 0.22, h * 0.96, tz + Math.cos(ang + 1) * h * 0.22, h * 0.07, h * 0.02, F.leaf, 1);
+    }
+  },
+  /* a bare trunk `h` of the height tall with n bare branches about `len` of it long */
+  snag(a, H) {
+    const F = Flora, h = a.h * H, w = F.tw;
+    F.seg('stem', 0, -0.3, 0, 0, h, 0, w, w, F.bark, 1);
+    for (let i = 0; i < a.n; i++) {
+      const y = h * (0.45 + F.rnd() * 0.45), ang = F.rnd() * TAU, up = 0.45 + F.rnd() * 0.6, len = a.len * H * (0.6 + F.rnd() * 0.6);
+      F.seg('stem', 0, y, 0, Math.sin(ang) * Math.cos(up) * len, y + Math.sin(up) * len, Math.cos(ang) * Math.cos(up) * len, w * 0.4, w * 0.4, F.bark, 0.85);
+    }
+    F.ax = 0; F.ay = h; F.az = 0;
+  },
+  /* n cone tiers `th` of the height tall from `at` of it to the top, `w` of it wide at the bottom and narrowing by
+     `taper`; snow: true caps each tier white */
+  cones(a, H) {
+    const F = Flora, th = a.th * H, y0 = a.at * H, step = (H - y0 - th) / Math.max(1, a.n - 1);
+    for (let i = 0; i < a.n; i++) {
+      const w = a.w * H * (1 - a.taper * i / Math.max(1, a.n - 1)) * (0.9 + F.rnd() * 0.2), y = y0 + step * i, yaw = F.rnd() * TAU;
+      F.put('spire', F.ax, y + th * 0.5, F.az, w, th, w, F.leaf, i % 2 ? 0.88 : 1, yaw);
+      if (a.snow) F.put('spire', F.ax, y + th * 0.73, F.az, w * 0.6, th * 0.58, w * 0.6, FLORA_SNOW, 1, yaw);
+    }
+  },
+  /* n leaf blobs `s` of the height big, flattened to fy, one in the middle and the rest `w` of it around, at `at` of
+     the height (else the trunk top); ends: true puts one on each branch end instead; shape 'gem' for small plants */
+  puffs(a, H) {
+    const F = Flora, shape = a.shape || 'blob', s0 = a.s * H;
+    if (a.ends) {
+      for (let k = 0; k < F.nEnds; k++) {
+        const sz = s0 * (0.8 + F.rnd() * 0.4);
+        F.put(shape, F.ends[k * 3], F.ends[k * 3 + 1] + sz * a.fy * 0.3, F.ends[k * 3 + 2], sz, sz * a.fy, sz, F.leaf, 0.85 + F.rnd() * 0.25, F.rnd() * TAU);
+      }
+      return;
+    }
+    const cy = a.at !== undefined ? a.at * H : F.ay, off = F.rnd() * TAU;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU, r = i === 0 ? 0 : a.w * H * (0.6 + F.rnd() * 0.4), sz = s0 * (0.8 + F.rnd() * 0.4);
+      const dy = i === 0 ? sz * a.fy * 0.2 : (F.rnd() - 0.6) * sz * a.fy * 0.5;
+      F.put(shape, F.ax + Math.sin(ang) * r, cy + dy, F.az + Math.cos(ang) * r, sz, sz * a.fy, sz, F.leaf, 0.85 + F.rnd() * 0.25, ang);
+    }
+  },
+  /* n leaves `len` of the height long and `w` of it wide from the trunk top (or `at` of the height), rising at `up`
+     (rad; below 0 they droop) */
+  fronds(a, H) {
+    const F = Flora, cy = a.at !== undefined ? a.at * H : F.ay, off = F.rnd() * TAU, w = a.w * H;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU + (F.rnd() - 0.5) * 0.4, up = a.up + (F.rnd() - 0.5) * 0.3, len = a.len * H * (0.8 + F.rnd() * 0.4);
+      F.seg('blade', F.ax, cy, F.az, F.ax + Math.sin(ang) * Math.cos(up) * len, cy + Math.sin(up) * len, F.az + Math.cos(ang) * Math.cos(up) * len, w, w * 0.25, F.leaf, 0.85 + F.rnd() * 0.25);
+    }
+  },
+  /* a willow's curtain: n leaves `len` of the height long hanging from `at` of it round a ring `r` of it wide */
+  drape(a, H) {
+    const F = Flora, top = a.at * H, off = F.rnd() * TAU, w = a.w * H;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU, r = a.r * H * (0.85 + F.rnd() * 0.3), len = a.len * H * (0.7 + F.rnd() * 0.5);
+      const x = F.ax + Math.sin(ang) * r, z = F.az + Math.cos(ang) * r;
+      F.seg('blade', x, top, z, x + Math.sin(ang) * len * 0.15, top - len, z + Math.cos(ang) * len * 0.15, w, w * 0.3, F.leaf, 0.8 + F.rnd() * 0.2);
+    }
+  },
+  /* spiky tufts on every branch end: n blades `len` of the height long (joshua tree) */
+  tips(a, H) {
+    const F = Flora, w = a.w * H;
+    for (let k = 0; k < F.nEnds; k++) {
+      const x = F.ends[k * 3], y = F.ends[k * 3 + 1], z = F.ends[k * 3 + 2], off = F.rnd() * TAU;
+      for (let i = 0; i < a.n; i++) {
+        const ang = off + i / a.n * TAU, up = 0.2 + F.rnd() * 1.1, len = a.len * H * (0.8 + F.rnd() * 0.4);
+        F.seg('blade', x, y, z, x + Math.sin(ang) * Math.cos(up) * len, y + Math.sin(up) * len, z + Math.cos(ang) * Math.cos(up) * len, w, w * 0.3, F.leaf, 0.85 + F.rnd() * 0.25);
+      }
+    }
+  },
+  /* a saguaro: a column `w` of the height thick with n arms that bend upward */
+  arms(a, H) {
+    const F = Flora, w = a.w * H, top = H - w * 0.4, off = F.rnd() * TAU;
+    F.seg('stem', 0, -0.3, 0, 0, top, 0, w, w, F.leaf, 1);
+    F.put('gem', 0, top, 0, w, w * 0.9, w, F.leaf, 0.95, 0);
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU + (F.rnd() - 0.5) * 0.6, y = H * (0.3 + F.rnd() * 0.25), out = w * (1.4 + F.rnd()), up = y + H * (0.18 + F.rnd() * 0.18);
+      const ex = Math.sin(ang) * out, ez = Math.cos(ang) * out, aw = w * 0.7;
+      F.seg('stem', 0, y, 0, ex, y + aw * 0.5, ez, aw, aw, F.leaf, 0.9);
+      F.seg('stem', ex, y + aw * 0.2, ez, ex, up, ez, aw, aw, F.leaf, 0.95);
+      F.put('gem', ex, up, ez, aw, aw * 0.9, aw, F.leaf, 0.95, 0);
+    }
+  },
+  /* a prickly pear: n flat pads `s` of the height big, three at the bottom and the rest on top of them */
+  paddles(a, H) {
+    const F = Flora, off = F.rnd() * TAU;
+    for (let i = 0; i < a.n; i++) {
+      const sz = a.s * H * (0.7 + F.rnd() * 0.5), ang = off + i * 2.4, r = i === 0 ? 0 : sz * 0.4, y = i < 3 ? sz * 0.45 : sz * (1.05 + F.rnd() * 0.3);
+      F.put('gem', Math.sin(ang) * r, y, Math.cos(ang) * r, sz * 0.8, sz, sz * 0.22, F.leaf, 0.85 + F.rnd() * 0.25, ang);
+    }
+  },
+  /* n round fruits (berries, coconuts) of colour col and `s` of the height big, on a shell `r` of it round the
+     crown (at `at` of the height, else just under the trunk top) */
+  dots(a, H) {
+    const F = Flora, r = a.r * H, cy = a.at !== undefined ? a.at * H : F.ay - r, sz = a.s * H;
+    for (let i = 0; i < a.n; i++) {
+      const ang = F.rnd() * TAU, el = (F.rnd() - 0.3) * 1.2;
+      F.put('gem', F.ax + Math.sin(ang) * Math.cos(el) * r, cy + Math.sin(el) * r, F.az + Math.cos(ang) * Math.cos(el) * r, sz, sz, sz, a.col, 0.9 + F.rnd() * 0.2, 0);
+    }
+  },
+  /* n leaves or stalks `w` of the height wide within `r` of it, leaning out `lean` of their height; shape 'tuft' draws a
+     grass tuft for each; tip: a head of that colour `tipS` of the height long on each (tipShape 'stem' or 'spire') */
+  blades(a, H) {
+    const F = Flora, shape = a.shape || 'blade', off = F.rnd() * TAU, w = a.w * H, d = shape === 'tuft' ? w : w * 0.3;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU + (F.rnd() - 0.5) * 0.5, rr = a.r * H * F.rnd(), x = Math.sin(ang) * rr, z = Math.cos(ang) * rr;
+      const h = H * (0.7 + F.rnd() * 0.3), lean = a.lean * h * (0.5 + F.rnd() * 0.5), tx = x + Math.sin(ang) * lean, tz = z + Math.cos(ang) * lean;
+      F.seg(shape, x, -0.05, z, tx, h, tz, w, d, F.leaf, 0.85 + F.rnd() * 0.3);
+      if (a.tip) {
+        const t0 = Math.max(0.5, 0.95 - a.tipS * H / h);
+        F.seg(a.tipShape || 'stem', lerp(x, tx, t0), h * t0, lerp(z, tz, t0), lerp(x, tx, 0.97), h * 0.97, lerp(z, tz, 0.97), w * 1.5, w * 1.5, a.tip, 1);
+      }
+    }
+  },
+  /* n flowers within `r` of the height: a stalk `w` of it wide under a head `s` of it big in one of the colours cols */
+  heads(a, H) {
+    const F = Flora, w = a.w * H, sz = a.s * H, off = F.rnd() * TAU;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU, rr = a.r * H * F.rnd(), x = Math.sin(ang) * rr, z = Math.cos(ang) * rr, h = H * (0.6 + F.rnd() * 0.4);
+      const tx = x + Math.sin(ang) * h * 0.15, tz = z + Math.cos(ang) * h * 0.15, c = a.cols[Math.floor(F.rnd() * a.cols.length)];
+      F.seg('blade', x, -0.05, z, tx, h, tz, w, w * 0.3, F.leaf, 0.9);
+      F.put('gem', tx, h, tz, sz, sz * 0.55, sz, c, 0.9 + F.rnd() * 0.2, ang);
+    }
+  },
+  /* n mushrooms within `r` of the height: a pale stalk `w` of it thick under a cap about `cap` of it wide */
+  caps(a, H) {
+    const F = Flora, w = a.w * H, off = F.rnd() * TAU;
+    for (let i = 0; i < a.n; i++) {
+      const ang = off + i / a.n * TAU, rr = i === 0 ? 0 : a.r * H * (0.5 + F.rnd() * 0.5), x = Math.sin(ang) * rr, z = Math.cos(ang) * rr;
+      const h = H * (0.55 + F.rnd() * 0.45), c = a.cap * h * (0.7 + F.rnd() * 0.5);
+      F.seg('stem', x, -0.05, z, x, h, z, w, w, F.bark, 1);
+      F.put('gem', x, h, z, c, c * 0.5, c, F.leaf, 0.85 + F.rnd() * 0.3, ang);
+    }
+  },
+  /* kelp: n ribbons of three zigzag blades within `r` of the height, swaying `sway` of a section to either side */
+  wave(a, H) {
+    const F = Flora, seg = H / 3, w = a.w * H;
+    for (let i = 0; i < a.n; i++) {
+      const ang = F.rnd() * TAU, rr = a.r * H * F.rnd(), sx = Math.cos(ang), sz = -Math.sin(ang);
+      let x = Math.sin(ang) * rr, z = Math.cos(ang) * rr, y = -0.1;
+      for (let k = 0; k < 3; k++) {
+        const side = (k % 2 ? 1 : -1) * a.sway * seg, nx = x + sx * side, nz = z + sz * side;
+        F.seg('blade', x, y, z, nx, y + seg * 1.08, nz, w, w * 0.3, F.leaf, k % 2 ? 0.85 : 1);
+        x = nx; z = nz; y += seg;
+      }
+    }
+  },
+};
+const Flora = {
+  rs: 1, ax: 0, ay: 0, az: 0, tw: 0, burn: 1, ends: new Float32Array(24), nEnds: 0, leaf: [0, 0, 0], bark: [0, 0, 0],
+  q: QUALITY.medium, qKey: '', offs: null, rec: null, wants: [], wantD: new Float64Array(FLORA_WANTS), nWant: 0,
+  job: { c: null, k: 0, bushes: 0, q: '' },   // the chunk whose full mesh is being baked, its next plant and bush count
+  scratch: { data: new Float32Array(1 << 16), n: 0, useInst: false }, patch: { data: new Float32Array(9 * 1024), n: 0, useInst: false }, zeros: new Float32Array(9 * 1024),
+  /* the part builders' random stream (no allocation) */
+  rnd() { this.rs = (Math.imul(this.rs, 1664525) + 1013904223) >>> 0; return this.rs / 4294967296; },
+  end(x, y, z) {
+    if (this.nEnds >= 8) return;
+    const o = this.nEnds * 3;
+    this.ends[o] = x; this.ends[o + 1] = y; this.ends[o + 2] = z; this.nEnds++;
+  },
+  /* shape centred at (x, y, z), sized sx, sy, sz after turning by yaw; colour col times k */
+  put(shape, x, y, z, sx, sy, sz, col, k, yaw) {
+    const st = R.stack, b = k * this.burn;
+    st.push().t(x, y, z).ry(yaw).s(sx, sy, sz); R.draw(shape, col[0] * b, col[1] * b, col[2] * b); st.pop();
+  },
+  /* shape stretched from (x0, y0, z0) to (x1, y1, z1) along its height, w wide and d deep */
+  seg(shape, x0, y0, z0, x1, y1, z1, w, d, col, k) {
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.hypot(dx, dy, dz) || 0.001, st = R.stack, b = k * this.burn;
+    st.push().t((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5).ry(Math.atan2(dx, dz)).rx(Math.acos(clamp(dy / len, -1, 1))).s(w, len, d);
+    R.draw(shape, col[0] * b, col[1] * b, col[2] * b); st.pop();
+  },
+  /* ---------- planting (once per battle, the same on host and guests) ---------- */
+  /* species pools of map def flora f: { '<layer>:<zone>': { ids, cum, total } }, plus '<layer>:any' */
+  pools(f, biome) {
+    const out = {};
+    FLORA.forEach((sp, i) => {
+      const w = f.species ? f.species[sp.id] || 0 : sp.biomes.indexOf(biome) >= 0 ? 1 : 0;
+      if (!(w > 0)) return;
+      for (const zone of sp.zones.concat('any')) {
+        const key = sp.layer + ':' + zone, pool = out[key] || (out[key] = { ids: [], cum: [], total: 0 });
+        pool.total += w; pool.ids.push(i); pool.cum.push(pool.total);
+      }
+    });
+    return out;
+  },
+  /* the species of pool at r in [0, 1), or -1 for no pool */
+  pick(pool, r) {
+    if (!pool) return -1;
+    const v = r * pool.total;
+    for (let k = 0; k < pool.ids.length; k++) if (v < pool.cum[k]) return pool.ids[k];
+    return pool.ids[pool.ids.length - 1];
+  },
+  makePlant(sp, x, y, z, h, seed) {
+    return { sp, x, y, z, h, r: h * 0.5, yaw: latticeHash(seed, 1, 0) * TAU, tint: latticeHash(seed, 2, 0) * 2 - 1, hue: latticeHash(seed, 3, 0) * 2 - 1, seed, s: null, old: false, nearAt: -1, nearN: 0 };
+  },
+  /* Plants battlefield W.map after populateWorld placed everything else; free is its free-ground test (keep-outs,
+     roads, corridors and structures). Trees and bushes are planted now, cover per cell later (growCell). */
+  build(cfg, free) {
+    const m = W.map, f = m.flora, seed = Math.imul((cfg.seed || 7) >>> 0, 7919) + FLORA_SEED >>> 0;
+    W.flora = { f, free, seed, mseed: Math.round(m.seed * 1000) + seed % 9973, pools: this.pools(f, m.biome), cells: new Array(FLORA_CELLS * FLORA_CELLS).fill(null), near: [], burst: FLORA_BURST, started: false, trees: 0, bushes: 0 };
+    this.job.c = null;
+    for (const s of W.plain) if (s.type === 'tree' && !s.plant) this.adopt(s);
+    const rng = makeRng(seed);
+    if (f.block) this.plantTrees(rng);
+    this.plantBushes(rng);
+  },
+  /* a placed tree takes a species look from the battlefield's trees, hashed from its spot; its layout is untouched */
+  adopt(s) {
+    const F = W.flora, seed = Math.floor(latticeHash(Math.round(s.x * 8), Math.round(s.z * 8), F.seed) * 4294967296) >>> 0;
+    const sp = this.pick(F.pools['tree:any'], latticeHash(seed, 5, 3));
+    if (sp < 0) return;
+    const p = this.makePlant(sp, s.x, s.y, s.z, s.h, seed);
+    p.old = true;   // placed by populateWorld (old rules), not by the flora
+    this.attach(p, s);
+  },
+  attach(p, s) {
+    const c = s.chunk;
+    p.s = s; s.plant = p;
+    c.plants.push(p); c.trees++; c.dirty = true;
+  },
+  /* 0..1: how much (x, z) lies in the battlefield's forest, meadow or scrub (kind), from a seeded noise mask */
+  mask(kind, x, z) {
+    const F = W.flora, share = F.f[kind];
+    if (!(share > 0)) return 0;
+    const sc = FLORA_MASK[kind], sd = F.mseed + sc, th = 0.5 + (0.5 - share) * 0.6;
+    const v = valueNoise(x / sc, z / sc, sd) * 0.65 + valueNoise(x / sc * 2.7, z / sc * 2.7, sd + 1) * 0.35;
+    return smoothstep(th, th + 0.08, v);
+  },
+  nearWater(x, z) {
+    const d = FLORA_SHORE;
+    return Water.any && (Water.at(x + d, z) || Water.at(x - d, z) || Water.at(x, z + d) || Water.at(x, z - d));
+  },
+  /* species sp's ground, slope, snow and water rules hold for a plant r m wide at (x, z) */
+  fits(sp, x, z, r) {
+    if (Math.abs(x) > FLORA_EDGE || Math.abs(z) > FLORA_EDGE) return false;
+    const mt = W.map.mountains, slope = Terrain.slope(x, z);
+    if (slope > sp.slope || (mt.rock && slope > FLORA_ROCK)) return false;
+    if (!sp.snow && Terrain.h(x, z) > mt.snowLine) return false;
+    if (sp.water === 'dry') return !Water.wetIn(x, z, r + 1);
+    const d = Water.depth(x, z);
+    if (sp.water === 'shallow') return d >= FLORA_SHALLOW[0] && d <= FLORA_SHALLOW[1];
+    return d <= sp.deep && (d > 0 || this.nearWater(x, z));
+  },
+  /* (x, z) lies clear of every site (bases, cities, mission sites and pads) by r m plus the site padding */
+  clearOfSites(x, z, r) {
+    for (const s of Terrain.sites) {
+      const dx = x - s.x, dz = z - s.z, reach = s.r + SITE_PAD + r;
+      if (dx * dx + dz * dz < reach * reach) return false;
+    }
+    return true;
+  },
+  plantTrees(rng) {
+    const F = W.flora, f = F.f, step = FLORA_TREE_STEP, n = Math.floor(2 * FLORA_EDGE / step), groves = [];
+    for (let g = 0; g < f.groves; g++) groves.push({ x: (rng() * 2 - 1) * 800, z: (rng() * 2 - 1) * 800, r: 20 + rng() * 30 });
+    const shore = Water.any && !!F.pools['tree:shore'];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x = -FLORA_EDGE + (i + 0.2 + rng() * 0.6) * step, z = -FLORA_EDGE + (j + 0.2 + rng() * 0.6) * step, roll = rng(), pr = rng(), hr = rng(), seed = (rng() * 4294967296) >>> 0;
+      let grove = 0;
+      for (const g of groves) if ((x - g.x) * (x - g.x) + (z - g.z) * (z - g.z) < g.r * g.r) grove = 1;
+      const wF = this.mask('forest', x, z), wW = Math.max(wF, grove), wS = this.mask('scrub', x, z) * (1 - wF), d = f.density;
+      let zone = '';
+      if (roll < wW * FLORA_TREE_P * d) zone = grove > wF ? 'grove' : 'forest';
+      else if (roll < (wW * FLORA_TREE_P + wS * FLORA_SCRUB_TREE_P) * d) zone = 'scrub';
+      else if (shore && roll > 1 - FLORA_SHORE_TREE_P * d && this.nearWater(x, z)) zone = 'shore';
+      if (!zone) continue;
+      const sp = this.pick(F.pools['tree:' + zone], pr);
+      if (sp >= 0) this.addTree(sp, x, z, lerp(FLORA[sp].h[0], FLORA[sp].h[1], hr), seed);
+    }
+  },
+  /* a new tree of species sp, h m tall, at (x, z) when the spot is free: a 'tree' structure with a collision box round
+     its trunk and hit points for its size */
+  addTree(sp, x, z, h, seed) {
+    const def = FLORA[sp], tw = clamp(def.trunk * h * FLORA_TRUNK_BOX + FLORA_TRUNK_PAD, 1.4, 5), c = Chunks.of({ x, z });
+    if (c.trees >= FLORA_TREE_CAP || !this.fits(def, x, z, tw / 2) || !this.clearOfSites(x, z, tw / 2) || !W.flora.free(x, z, tw / 2)) return;
+    const s = addStruct('tree', x, z, { dims: { w: tw, d: tw, h }, hpMult: clamp(tw * h / 24, 0.5, 6) });
+    W.flora.trees++;
+    this.attach(this.makePlant(sp, s.x, s.y, s.z, h, seed), s);
+  },
+  plantBushes(rng) {
+    const F = W.flora, f = F.f, step = FLORA_BUSH_STEP, n = Math.floor(2 * FLORA_EDGE / step);
+    if (!F.pools['bush:any']) return;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x = -FLORA_EDGE + (i + 0.2 + rng() * 0.6) * step, z = -FLORA_EDGE + (j + 0.2 + rng() * 0.6) * step, roll = rng(), pr = rng(), hr = rng(), seed = (rng() * 4294967296) >>> 0;
+      const wF = this.mask('forest', x, z), wM = this.mask('meadow', x, z) * (1 - wF), wS = this.mask('scrub', x, z) * (1 - wF), d = f.density;
+      const pF = wF * FLORA_UNDER_P * d, pS = pF + wS * FLORA_SCRUB_P * d, pM = pS + wM * FLORA_MEADOW_P * d;
+      const zone = roll < pF ? 'forest' : roll < pS ? 'scrub' : roll < pM ? 'meadow' : '';
+      if (!zone) continue;
+      const sp = this.pick(F.pools['bush:' + zone], pr);
+      if (sp < 0) continue;
+      const def = FLORA[sp], h = lerp(def.h[0], def.h[1], hr), r = h * 0.3, c = Chunks.of({ x, z });
+      if (c.bushes >= FLORA_BUSH_MAX || !this.fits(def, x, z, r) || !this.clearOfSites(x, z, r) || !F.free(x, z, r)) continue;
+      c.plants.push(this.makePlant(sp, x, Math.min(Terrain.h(x, z), Terrain.meshH(x, z)) - 0.1, z, h, seed));
+      c.bushes++; c.dirty = true; F.bushes++;
+    }
+  },
+  /* the cover zone at (x, z) for roll, or '' for none */
+  coverZone(x, z, roll) {
+    const F = W.flora, d = F.f.density;
+    if (Water.any) {
+      const depth = Water.depth(x, z);
+      if (depth >= FLORA_SHALLOW[0]) return roll < FLORA_KELP_P * d ? 'shallow' : '';
+      if (F.pools['cover:shore'] && (depth > 0 || this.nearWater(x, z)) && roll < FLORA_REED_P * d) return 'shore';
+      if (depth > 0) return '';
+    }
+    const wF = this.mask('forest', x, z), wM = this.mask('meadow', x, z) * (1 - wF), wS = this.mask('scrub', x, z) * (1 - wF);
+    const pF = wF * FLORA_FLOOR_P * d, pM = pF + wM * FLORA_FIELD_P * d, pS = pM + wS * FLORA_SCRUB_COVER_P * d;
+    return roll < pF ? 'floor' : roll < pM ? 'meadow' : roll < pS ? 'scrub' : roll > 1 - FLORA_OPEN_P * d ? 'meadow' : '';
+  },
+  /* grows the cover of cell (i, j) from a stream of its own, so every visit grows the same plants */
+  growCell(i, j) {
+    const F = W.flora, x0 = -WORLD_HALF + i * FLORA_CELL, z0 = -WORLD_HALF + j * FLORA_CELL;
+    const cell = { cx: x0 + FLORA_CELL / 2, cy: 0, cz: z0 + FLORA_CELL / 2, rad: FLORA_CELL, plants: [], n: 0, q: '', inst: null, ni: 0 };
+    F.cells[i * FLORA_CELLS + j] = cell;
+    const rng = makeRng((F.seed ^ Math.imul(i * FLORA_CELLS + j + 1, 2654435761)) >>> 0);
+    let lo = 1e9, hi = -1e9;
+    for (let t = 0; t < FLORA_COVER_TRIES && cell.plants.length < FLORA_COVER_MAX; t++) {
+      const x = x0 + rng() * FLORA_CELL, z = z0 + rng() * FLORA_CELL, roll = rng(), pr = rng(), hr = rng(), seed = (rng() * 4294967296) >>> 0;
+      if (Math.abs(x) > FLORA_EDGE || Math.abs(z) > FLORA_EDGE) continue;
+      const zone = this.coverZone(x, z, roll), sp = zone ? this.pick(F.pools['cover:' + zone], pr) : -1;
+      if (sp < 0) continue;
+      const def = FLORA[sp];
+      let h = lerp(def.h[0], def.h[1], hr);
+      if (def.water === 'shallow') h = Math.min(h, Water.depth(x, z) - 0.4);   // kelp stays under the surface
+      if (!this.fits(def, x, z, 0.3) || !this.clearOfSites(x, z, 0.5) || !F.free(x, z, 0.4)) continue;
+      const y = Math.min(Terrain.h(x, z), Terrain.meshH(x, z)) - 0.05;
+      cell.plants.push(this.makePlant(sp, x, y, z, h, seed));
+      lo = Math.min(lo, y); hi = Math.max(hi, y + h);
+    }
+    cell.n = cell.plants.length;
+    if (cell.n) { cell.cy = (lo + hi) / 2; cell.rad = Math.hypot(FLORA_CELL * 0.71, (hi - lo) / 2) + 2; }
+    return cell;
+  },
+  /* ---------- drawing ---------- */
+  /* plant colours into Flora.leaf / bark and the scorch into Flora.burn */
+  paint(p, sp) {
+    const v = sp.vary, b = 1 + v * p.tint, kb = 1 + v * 0.5 * p.tint, L = this.leaf, K = this.bark;
+    L[0] = sp.leaf[0] * b * (1 + v * p.hue); L[1] = sp.leaf[1] * b; L[2] = sp.leaf[2] * b * (1 - v * p.hue);
+    K[0] = sp.bark[0] * kb; K[1] = sp.bark[1] * kb; K[2] = sp.bark[2] * kb;
+    this.burn = p.s ? 1 - p.s.scorch * 0.55 : 1;
+  },
+  /* drawn height: a damaged tree sags like the old ones did */
+  heightOf(p) { const s = p.s; return p.h * (!s ? 1 : s.state === 2 ? 0.78 : s.state === 1 ? 0.95 : 1); },
+  /* plant p in full at the stack (or into R.bake); the same vertex count in every state */
+  drawNear(p) {
+    const sp = FLORA[p.sp], s = p.s, st = R.stack, H = this.heightOf(p);
+    this.paint(p, sp);
+    this.rs = p.seed; this.tw = sp.trunk * H; this.ax = 0; this.ay = 0; this.az = 0; this.nEnds = 0;
+    st.push().t(p.x, p.y, p.z).ry(p.yaw);
+    if (s && s.state === 2) st.rz(0.1 * Math.sin(s.seed));
+    for (let k = 0; k < sp.parts.length; k++) FLORA_PARTS[sp.parts[k][0]](sp.parts[k][1], H);
+    st.pop();
+  },
+  /* plant p's stand-in (Chunks.rebuild bakes these after the chunk's structures); bushes past the quality's cap and
+     fallen trees have none */
+  drawFar(p, bushNo) {
+    const sp = FLORA[p.sp], f = sp.far;
+    if (!f || (p.s && p.s.destroyed) || (!p.s && bushNo >= this.q.floraBush)) return;
+    this.paint(p, sp);
+    const H = this.heightOf(p), w = f[2] * H, b = this.burn, L = this.leaf;
+    R.stack.push().t(p.x, p.y + f[1] * H, p.z).ry(p.yaw).s(w, f[3] * H, w);
+    R.draw(f[0], L[0] * b, L[1] * b, L[2] * b); R.stack.pop();
+  },
+  /* once per frame, before the chunks: quality, and dropping full-detail meshes left far behind */
+  frame() {
+    if (S.quality !== this.qKey) {
+      if (this.qKey && W.chunks) Chunks.markAll();   // the bush caps changed: re-bake stand-ins and full meshes
+      this.qKey = S.quality; this.q = QUALITY[S.quality] || QUALITY.medium;
+    }
+    this.nWant = 0;
+    const F = W.flora;
+    if (!F) return;
+    const lim = this.q.floraNear + FLORA_REACH + FLORA_FREE;
+    if (this.job.c && this.beyond(this.job.c, lim)) this.job.c = null;
+    for (let k = F.near.length - 1; k >= 0; k--) {
+      const c = F.near[k];
+      if (!this.beyond(c, lim)) continue;
+      if (c.fl.mesh && c.fl.ctx === R.ctxId) R.gl.deleteBuffer(c.fl.mesh.buf);
+      c.fl = null; F.near[k] = F.near[F.near.length - 1]; F.near.pop();
+    }
+  },
+  beyond(c, lim) { const cam = R.cam, dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z; return dx * dx + dy * dy + dz * dz > lim * lim; },
+  ready(c) { return !!c.fl && c.fl.ctx === R.ctxId && c.fl.q === this.qKey; },
+  /* true when chunk c (visible, with plants) draws its plants in full this frame; a near chunk whose full mesh is not
+     ready asks for one (work) and draws its stand-ins meanwhile */
+  nearOf(c) {
+    const cam = R.cam, dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z, d2 = dx * dx + dy * dy + dz * dz, lim = this.q.floraNear + FLORA_REACH;
+    if (d2 > lim * lim || !W.flora) return false;
+    if (this.ready(c)) return c.fl.n > 0;
+    if (this.nWant < FLORA_WANTS) { this.wants[this.nWant] = c; this.wantD[this.nWant] = d2; this.nWant++; }
+    return false;
+  },
+  /* after the chunks: bakes the full meshes asked for this frame, nearest first, FLORA_BAKE_VERTS vertices a frame (all
+     of them on a battle's first frame), carrying an unfinished chunk over to the next frame */
+  work() {
+    const F = W.flora;
+    if (!F) return;
+    let left = F.started ? FLORA_BAKE_VERTS : Infinity;
+    if (this.nWant) F.started = true;
+    while (left > 0) {
+      if (!this.job.c) {
+        let best = -1;
+        for (let k = 0; k < this.nWant; k++) if (this.wants[k] && !this.ready(this.wants[k]) && (best < 0 || this.wantD[k] < this.wantD[best])) best = k;
+        if (best < 0) break;
+        this.begin(this.wants[best]);
+        this.wants[best] = null;
+      }
+      left -= this.step(left);
+    }
+  },
+  begin(c) { const J = this.job; J.c = c; J.k = 0; J.bushes = 0; J.q = this.qKey; this.scratch.n = 0; },
+  /* bakes the job's next plants (its trees, then bushes up to the quality's cap, each keeping its vertex range) until
+     about `left` vertices are written; uploads the mesh when the chunk is done; returns the vertices written */
+  step(left) {
+    const J = this.job, c = J.c, B = this.scratch, prev = R.bake, st = R.stack, n0 = B.n;
+    R.bake = B; st.push(); st.ident();
+    while (J.k < c.plants.length && B.n - n0 < left) {
+      const p = c.plants[J.k++];
+      p.nearAt = -1; p.nearN = 0;
+      if (!p.s && J.bushes++ >= this.q.floraBush) continue;
+      p.nearAt = B.n;
+      if (!p.s || !p.s.destroyed) this.drawNear(p);
+      p.nearN = B.n - p.nearAt;
+    }
+    st.pop(); R.bake = prev;
+    const used = B.n - n0;
+    if (J.k < c.plants.length) return used;
+    const data = B.data.subarray(0, B.n * 9);
+    let fl = c.fl;
+    if (!fl) { fl = c.fl = { mesh: null, n: 0, ctx: -1, q: '' }; W.flora.near.push(c); }
+    if (fl.mesh && fl.ctx === R.ctxId) R.updateMesh(fl.mesh, data); else fl.mesh = R.makeMesh(data);
+    fl.n = B.n; fl.ctx = R.ctxId; fl.q = J.q;
+    J.c = null;
+    return used + 1;
+  },
+  /* chunk c's full mesh at once (self-test) */
+  bakeNear(c) { this.begin(c); this.step(Infinity); },
+  /* tree structure s changed its look (hit, scorched, felled): rewrite its range of the full mesh in place */
+  touch(s) {
+    const p = s.plant, c = s.chunk;
+    if (c && c === this.job.c) { this.begin(c); return; }   // half baked: start that chunk over
+    if (!c || !this.ready(c) || p.nearN === 0 || !R.gl) return;
+    let src = this.zeros;
+    if (!s.destroyed) {
+      const B = this.patch, prev = R.bake, st = R.stack;
+      B.n = 0; R.bake = B; st.push(); st.ident();
+      this.drawNear(p);
+      st.pop(); R.bake = prev;
+      if (B.n !== p.nearN) { c.fl.q = ''; return; }   // cannot happen (same draws in every state), but re-bake if it does
+      src = B.data;
+    } else if (src.length < p.nearN * 9) src = this.zeros = new Float32Array(p.nearN * 9);
+    R.patchMesh(c.fl.mesh, src, p.nearAt, p.nearN);
+  },
+  /* every full mesh re-bakes (destructibles reset, quality change) */
+  markAll() {
+    if (!W.flora) return;
+    for (const c of W.flora.near) c.fl.q = '';
+    if (this.job.c) this.begin(this.job.c);
+  },
+  /* cell offsets around the camera's cell, nearest first, as [di, dj, distance] triples */
+  offsets() {
+    if (this.offs) return this.offs;
+    let most = 0;
+    for (const k in QUALITY) most = Math.max(most, QUALITY[k].coverR);
+    const n = Math.ceil(most / FLORA_CELL) + 2, list = [];
+    for (let dj = -n; dj <= n; dj++) for (let di = -n; di <= n; di++) list.push([di, dj, Math.hypot(di, dj) * FLORA_CELL]);
+    list.sort((a, b) => a[2] - b[2]);
+    return (this.offs = new Float32Array([].concat(...list)));
+  },
+  /* the instance records of cell's first coverCell plants, per shape: [name, Float32Array, ...] */
+  recordCell(cell) {
+    let rec = this.rec;
+    if (!rec) {
+      rec = this.rec = { useInst: true, inst: {} };
+      for (const name of INST_SHAPES) rec.inst[name] = { data: new Float32Array(INST_FLOATS * 256), n: 0, start: 0 };
+    }
+    for (const name of INST_SHAPES) rec.inst[name].n = 0;
+    const prev = R.bake, st = R.stack, n = Math.min(cell.n, this.q.coverCell);
+    R.bake = rec; st.push(); st.ident();
+    for (let k = 0; k < n; k++) this.drawNear(cell.plants[k]);
+    st.pop(); R.bake = prev;
+    cell.inst = []; cell.ni = 0;
+    for (const name of INST_SHAPES) {
+      const L = rec.inst[name];
+      if (L.n) { cell.inst.push(name, L.data.slice(0, L.n * INST_FLOATS)); cell.ni += L.n; }
+    }
+    cell.q = this.qKey;
+  },
+  /* ground cover within coverR of the camera, nearest cells first up to coverCap instances: one instanced batch */
+  drawCover() {
+    const F = W.flora, q = this.q, cam = R.cam;
+    if (!F || !R.inst || !q.coverR) return;
+    const up = cam.y - Terrain.h(cam.x, cam.z);
+    if (up > q.coverR) return;
+    const reach = Math.sqrt(q.coverR * q.coverR - Math.max(0, up) * up), lim = reach + FLORA_CELL * 0.71, off = this.offsets();
+    const ci = Math.floor((cam.x + WORLD_HALF) / FLORA_CELL), cj = Math.floor((cam.z + WORLD_HALF) / FLORA_CELL);
+    let total = 0, grow = F.burst > 0 ? 8 : FLORA_CELL_BUDGET;
+    R.beginBatch('flora');
+    const B = R.bake;
+    for (let k = 0; k < off.length; k += 3) {
+      if (off[k + 2] > lim + FLORA_CELL * 0.71) break;
+      const i = ci + off[k], j = cj + off[k + 1];
+      if (i < 0 || j < 0 || i >= FLORA_CELLS || j >= FLORA_CELLS) continue;
+      let cell = F.cells[i * FLORA_CELLS + j];
+      if (!cell) {
+        if (grow <= 0) continue;
+        grow--; F.burst--;
+        cell = this.growCell(i, j);
+      }
+      if (!cell.n) continue;
+      const dx = cell.cx - cam.x, dz = cell.cz - cam.z;
+      if (dx * dx + dz * dz > lim * lim || !R.visible(cell.cx, cell.cy, cell.cz, cell.rad)) continue;
+      if (cell.q !== this.qKey) this.recordCell(cell);
+      if (total + cell.ni > q.coverCap) break;
+      total += cell.ni;
+      for (let s = 0; s < cell.inst.length; s += 2) {
+        const L = B.inst[cell.inst[s]], src = cell.inst[s + 1], at = L.n * INST_FLOATS;
+        if (at + src.length > L.data.length) { const bigger = new Float32Array(Math.max(L.data.length * 2, at + src.length)); bigger.set(L.data.subarray(0, at)); L.data = bigger; }
+        L.data.set(src, at); L.n += src.length / INST_FLOATS;
+      }
+    }
+    R.endBatch('flora', 0.04);
+  },
+};
+
 function drawWorld(dt) {
   const gl = R.gl;
   R.drawTerrain();
   Roads.draw();
   Chunks.draw();
+  Flora.drawCover();
   Bld.relightLeft = TIME_RELIGHT_BUDGET;
   for (let i = 0; i < W.buildings.length; i++) Bld.draw(W.buildings[i]);
   // ---- opaque moving objects: one batch, one draw call
@@ -14539,6 +15349,13 @@ const MESH_HASH_STRIDE = 7;
 const ENV_GOLDEN = { ashfall: 812752968, verdant: 692631475, frost: 1019776467 };
 /* and of the old skirmish fog and night checkboxes on Verdant Ridge, which became weather fog and time night */
 const ENV_GOLDEN_OLD_MODS = { fog: 1493184147, night: 3992931435, fogNight: 3648191979 };
+/* tree fingerprints (SelfTest.treeHash) recorded from the code before the flora: the original battlefields' skirmishes
+   (large, seed 11, Bulwark, veteran), missions m1-m8 and the menu world keep every tree where it stood, as big and as
+   solid (D2) */
+const TREE_GOLDEN = {
+  ashfall: 2455524746, verdant: 2824744083, frost: 184983569, menu: 2926377101,
+  m1: 4182421341, m2: 2226895799, m3: 2926744098, m4: 1965397291, m5: 4135028971, m6: 1792406132, m7: 1769301958, m8: 1281774285,
+};
 /* A mountain battlefield for self-test and for looking at mountains live; it is not in MAPS.
    Register it from the console with __IH.MAPS.peaks = __IH.TEST_PEAKS_MAP, then pick it in skirmish. */
 const TEST_PEAKS_MAP = {
@@ -14551,6 +15368,7 @@ const TEST_PEAKS_MAP = {
     plateaus: [{ x: 430, z: -470, r: 80, edge: 45, height: 55 }],
     floor: -20, rock: [0.43, 0.41, 0.39], snow: [0.93, 0.95, 0.98], snowLine: 150,
   },
+  flora: { species: { spruce: 4, pine: 3, snowpine: 3, birch: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, moss: 3, mushrooms: 1 }, forest: 0.4, groves: 8, meadow: 0.4, scrub: 0.25 },
 };
 /* A battlefield with water for self-test, the bench and looking at water live; it is not in MAPS. A sea along the
    east side, a lake in the north-west, and a river from the west edge to the sea that a road crosses on a bridge.
@@ -14566,6 +15384,7 @@ const TEST_WATER_MAP = {
     { type: 'river', pts: [[-760, -520], [-560, -470], [-250, -330], [80, -300], [330, -190], [700, -120]], width: 26, depth: 3.5, bank: 24 },
   ],
   roads: [{ pts: [[-320, -820], [-300, -500], [-270, -150], [-250, 60]], w: 10 }],
+  flora: { species: { oak: 4, birch: 2, pine: 2, willow: 2, redwood: 1, cypress: 1, shrub: 3, berry: 2, fern: 3, grass: 5, flowers: 2, lavender: 1, mushrooms: 1, reeds: 3, kelp: 3 }, forest: 0.45, groves: 8, meadow: 0.35, scrub: 0.2 },
 };
 /* a save written by the game before the Living World update (version 1, every key it used); it must keep loading */
 const SAVE_FIXTURE_V1 = {
@@ -14587,6 +15406,7 @@ const BENCH_SCENES = [
   { id: 'sk-frost', map: 'frost', platformId: 'bulwark' },
   { id: 'air-ashfall', map: 'ashfall', platformId: 'kestrel' },
   { id: 'sk-water', map: 'testwater', platformId: 'bulwark', testMap: TEST_WATER_MAP },   // registered only while it runs
+  { id: 'sk-peaks', map: 'testpeaks', platformId: 'bulwark', testMap: TEST_PEAKS_MAP },   // mountains and a dense forest
 ];
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
 const BENCH_FRAMES = 150;   // frames timed per scene
@@ -14609,6 +15429,51 @@ const SelfTest = {
     const m = mapDef(mapId);
     Terrain.build(m, MESH_HASH_SITES);
     return hashFloats(Terrain.buildMesh(m).data, MESH_HASH_STRIDE, FNV_BASIS);
+  },
+  /* fingerprint of the world's trees: spot, size and collision box of each, and their count */
+  treeHash() {
+    const vals = [];
+    let n = 0;
+    for (const s of W.structs) if (s.type === 'tree') { n++; vals.push(s.x, s.z, s.y, s.w, s.d, s.h); }
+    return (hashFloats(vals, 1, FNV_BASIS) ^ n) >>> 0;
+  },
+  /* fingerprint of the world's flora: every tree and bush, and the cover of every 7th cell (grown here) */
+  floraHash() {
+    const vals = [W.structs.length];
+    for (const c of W.chunks) for (const p of c.plants) vals.push(p.sp, p.x, p.z, p.h, p.yaw);
+    for (let k = 0; k < FLORA_CELLS * FLORA_CELLS; k += 7) {
+      const cell = W.flora.cells[k] || Flora.growCell(Math.floor(k / FLORA_CELLS), k % FLORA_CELLS);
+      for (const p of cell.plants) vals.push(p.sp, p.x, p.z, p.h);
+    }
+    return hashFloats(vals, 1, FNV_BASIS);
+  },
+  /* the trees, bushes and (grown here) cover of every cell of the battle in play */
+  allPlants() {
+    const out = [];
+    for (const c of W.chunks) for (const p of c.plants) out.push(p);
+    for (let i = 0; i < FLORA_CELLS; i++) for (let j = 0; j < FLORA_CELLS; j++) {
+      const cell = W.flora.cells[i * FLORA_CELLS + j] || Flora.growCell(i, j);
+      for (const p of cell.plants) out.push(p);
+    }
+    return out;
+  },
+  /* where the flora's plants (not the old trees) of the battle in play break the planting rules: { rule: [count, last spot] } */
+  floraFaults() {
+    const bad = { building: [0, ''], road: [0, ''], site: [0, ''], water: [0, ''], dry: [0, ''] };
+    const fault = (rule, p) => { bad[rule][0]++; bad[rule][1] = FLORA[p.sp].id + ' at ' + p.x.toFixed(1) + ',' + p.z.toFixed(1); };
+    for (const p of this.allPlants()) {
+      if (p.old) continue;
+      const sp = FLORA[p.sp], n = Hash.query(p.x - 0.5, p.z - 0.5, p.x + 0.5, p.z + 0.5), depth = Water.depth(p.x, p.z);
+      for (let i = 0; i < n; i++) {
+        const s = Hash.out[i];
+        if (s !== p.s && s.type !== 'tree' && Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz) { fault('building', p); break; }
+      }
+      if (Roads.near(p.x, p.z, 1)) fault('road', p);
+      if (Terrain.sites.some((s) => Math.hypot(p.x - s.x, p.z - s.z) < s.r)) fault('site', p);
+      if (sp.water === 'dry' ? depth > 0 : sp.water === 'shallow' ? depth < FLORA_SHALLOW[0] || depth > FLORA_SHALLOW[1] : depth > sp.deep) fault('water', p);
+      if (sp.water !== 'dry' && !(depth > 0 || Flora.nearWater(p.x, p.z))) fault('dry', p);
+    }
+    return bad;
   },
   /* lays a straight ramp of angleDeg rising toward +z from z = 0 for run m (then flat) over the whole terrain grid (undone by the next Terrain.build) */
   rampTerrain(angleDeg, run) {
@@ -16565,6 +17430,114 @@ const SelfTest = {
         this.check('AI sight follows the weather', Math.abs(ai.sightRange() / clearSight - FOG_SIGHT) < 1e-9);
       } finally { Weather.begin(W.map, keepEnv); }
     });
+    const floraBattle = (map, seed) => Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'large', seed, random: false }) });
+    t('flora species', () => {
+      const ids = FLORA.map((sp) => sp.id);
+      this.check('the flora has 30 species with unique ids', FLORA.length === 30 && new Set(ids).size === 30 && ids.every((id, i) => FLORA_BY_ID[id] === i));
+      // every species builds from the shared shapes, the same vertex count however hurt; cover only from instanced shapes
+      const B = { data: new Float32Array(1 << 16), n: 0, useInst: false }, inst = {};
+      for (const name of INST_SHAPES) inst[name] = { data: new Float32Array(INST_FLOATS * 64), n: 0, start: 0 };
+      const I = { data: B.data, n: 0, useInst: true, inst };
+      const bake = (into, p) => { const prev = R.bake, st = R.stack; into.n = 0; R.bake = into; st.push(); st.ident(); Flora.drawNear(p); st.pop(); R.bake = prev; return into.n; };
+      const broken = [];
+      FLORA.forEach((sp, i) => {
+        const p = Flora.makePlant(i, 0, 0, 0, (sp.h[0] + sp.h[1]) / 2, 1234 + i), n = bake(B, p);
+        let finite = true;
+        for (let k = 0; k < n * 9; k++) if (!Number.isFinite(B.data[k])) finite = false;
+        p.s = { state: 2, seed: 7, scorch: 0.6, destroyed: false };
+        const hurt = bake(B, p);
+        p.s = null;
+        for (const name of INST_SHAPES) inst[name].n = 0;
+        const loose = sp.layer === 'cover' ? bake(I, p) : 0, shapes = INST_SHAPES.reduce((sum, name) => sum + inst[name].n, 0);
+        const ok = n > 0 && finite && hurt === n && (!sp.far || !!R.meshes[sp.far[0]]) && (sp.layer !== 'cover' || (loose === 0 && shapes > 0));
+        if (!ok) broken.push(sp.id + ' ' + n + '/' + hurt + '/' + loose);
+      });
+      this.check('every species builds, keeps its vertex count when hurt, and cover draws only instanced shapes', broken.length === 0, broken.join(', '));
+      // map flora: the old battlefields plant no new trees; every species named by a battlefield exists
+      const named = [];
+      MAPS.testwater = TEST_WATER_MAP; MAPS.testpeaks = TEST_PEAKS_MAP;
+      try {
+        for (const id of Object.keys(MAPS)) for (const k in mapDef(id).flora.species || {}) if (FLORA_BY_ID[k] === undefined) named.push(id + ':' + k);
+        this.check('every species a battlefield names exists', named.length === 0, named.join(', '));
+        this.check('the original battlefields plant no new blocking trees', ['ashfall', 'verdant', 'frost'].every((id) => mapDef(id).flora.block === false) && mapDef('testwater').flora.block === true);
+      } finally { delete MAPS.testwater; delete MAPS.testpeaks; }
+    });
+    for (const map of ['testwater', 'testpeaks']) t('flora on ' + map, () => {
+      MAPS.testwater = TEST_WATER_MAP; MAPS.testpeaks = TEST_PEAKS_MAP;
+      try {
+        floraBattle(map, 5);
+        const bad = this.floraFaults();
+        this.check(map + ' plants trees, bushes and cover', W.flora.trees > 500 && W.flora.bushes > 500 && W.flora.cells.some((c) => c.n > 0), W.flora.trees + ' trees, ' + W.flora.bushes + ' bushes');
+        for (const rule in bad) this.check(map + ': no plant breaks the ' + rule + ' rule', bad[rule][0] === 0, bad[rule][0] + ', last ' + bad[rule][1]);
+        if (map === 'testwater') {
+          const wet = { reeds: 0, kelp: 0 };
+          for (const cell of W.flora.cells) for (const p of cell.plants) if (FLORA[p.sp].id in wet) wet[FLORA[p.sp].id]++;
+          this.check('reeds grow at the shore and kelp in the shallows of the water map', wet.reeds > 50 && wet.kelp > 50, wet.reeds + ' reeds, ' + wet.kelp + ' kelp');
+        }
+        this.check(map + ': no chunk or cell holds more than its cap', W.chunks.every((c) => c.trees <= FLORA_TREE_CAP && c.bushes <= FLORA_BUSH_MAX) && W.flora.cells.every((c) => c.n <= FLORA_COVER_MAX));
+      } finally { delete MAPS.testwater; delete MAPS.testpeaks; Game.quitToMenu(); }
+    });
+    t('flora layout and quality caps', () => {
+      MAPS.testpeaks = TEST_PEAKS_MAP;
+      const keepQuality = S.quality;
+      try {
+        floraBattle('testpeaks', 5);
+        const h1 = this.floraHash();
+        floraBattle('testpeaks', 5);
+        const h2 = this.floraHash();
+        floraBattle('testpeaks', 6);
+        this.check('the same seed plants the same flora, another seed another', h1 === h2 && this.floraHash() !== h1, h1 + ' ' + h2);
+        // the densest chunk: its full mesh holds every tree and at most floraBush bushes; cover around it stays under the caps
+        const c = W.chunks.reduce((a, b) => (b.plants.length > a.plants.length ? b : a));
+        const cam = { x: c.cx, y: Terrain.h(c.cx, c.cz) + 3, z: c.cz, tx: c.cx + 30, ty: Terrain.h(c.cx, c.cz), tz: c.cz + 30 };
+        const counts = [];
+        for (const q of ['low', 'medium', 'high']) {
+          S.quality = q;
+          R.beginFrame(cam, 70);
+          Flora.frame();
+          Flora.bakeNear(c);
+          const baked = c.plants.filter((p) => p.nearN > 0), trees = baked.filter((p) => p.s).length;
+          W.flora.burst = 1e9;
+          Flora.drawCover();
+          let cover = 0;
+          for (const name of INST_SHAPES) cover += R.batches.flora.inst[name].n;
+          // a cell holding more plants than coverCell records fewer instances than with every plant drawn
+          let tooMany = false;
+          const full = QUALITY[q].coverCell < FLORA_COVER_MAX && W.flora.cells.find((cell) => cell && cell.n > QUALITY[q].coverCell);
+          if (full) { Flora.recordCell(full); const n = full.ni; S.quality = 'high'; Flora.frame(); Flora.recordCell(full); tooMany = n >= full.ni; S.quality = q; Flora.frame(); }
+          counts.push(q + ' ' + (baked.length - trees) + ' bushes, ' + cover + ' cover');
+          this.check('at ' + q + ' quality a chunk draws every tree, at most floraBush bushes, and cover stays under coverCap and coverCell', trees === c.trees && baked.length - trees <= QUALITY[q].floraBush && cover > 0 && cover <= QUALITY[q].coverCap && !tooMany && (full !== undefined), counts[counts.length - 1]);
+        }
+      } finally { S.quality = keepQuality; Flora.frame(); delete MAPS.testpeaks; Game.quitToMenu(); }
+    });
+    t('flora keeps the old trees of the original battlefields', () => {
+      for (const map of ['ashfall', 'verdant', 'frost']) {
+        floraBattle(map, 11);
+        const planted = W.chunks.some((c) => c.plants.some((p) => p.s && !p.old));
+        this.check(map + ' keeps its trees and plants none (golden fingerprint)', this.treeHash() === TREE_GOLDEN[map] && W.flora.trees === 0 && !planted && W.flora.bushes > 0, 'trees ' + this.treeHash());
+      }
+      Game.quitToMenu();
+      this.check('the menu world keeps its trees', this.treeHash() === TREE_GOLDEN.menu, 'trees ' + this.treeHash());
+    });
+    for (const group of [MISSIONS.slice(0, 4), MISSIONS.slice(4)]) t('flora keeps the old trees of missions ' + group[0].id + '-' + group[group.length - 1].id, () => {
+      try {
+        for (const m of group) {
+          Game.startSession({ mode: 'mission', missionId: m.id, platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          // ground cover keeps off the mission's sites: grow the cells over each one
+          let onSite = 0;
+          for (const s of Terrain.sites) {
+            const i0 = Math.floor((s.x - s.r + WORLD_HALF) / FLORA_CELL), i1 = Math.floor((s.x + s.r + WORLD_HALF) / FLORA_CELL);
+            const j0 = Math.floor((s.z - s.r + WORLD_HALF) / FLORA_CELL), j1 = Math.floor((s.z + s.r + WORLD_HALF) / FLORA_CELL);
+            for (let i = Math.max(0, i0); i <= Math.min(FLORA_CELLS - 1, i1); i++) for (let j = Math.max(0, j0); j <= Math.min(FLORA_CELLS - 1, j1); j++) {
+              const cell = W.flora.cells[i * FLORA_CELLS + j] || Flora.growCell(i, j);
+              for (const p of cell.plants) if (Terrain.sites.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.r)) onSite++;
+            }
+          }
+          for (const c of W.chunks) for (const p of c.plants) if (!p.s && Terrain.sites.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.r)) onSite++;
+          this.check('mission ' + m.id + ' keeps its trees, and no bush or cover grows on its sites', this.treeHash() === TREE_GOLDEN[m.id] && W.flora.trees === 0 && onSite === 0, 'trees ' + this.treeHash() + ', ' + onSite + ' on sites');
+        }
+      } finally { Game.quitToMenu(); }
+    });
     t('co-op start and world hash', () => {
       this.check('the net version is 4 (weather, time of day and the world hash in start)', NET_VERSION === 4);
       const keepDiff = S.difficulty;
@@ -17428,7 +18401,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
