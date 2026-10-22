@@ -1,6 +1,6 @@
-// Self-tests for S14 bots (group 'bots') and the bot debug commands (BOT-091): __CTK.spawnBot(profile, team),
-// __CTK.setTier(id, tier) and __CTK.soak(mode, map, minutes, botCount, seed, modeOptions), which plays a headless bot
-// match and returns its stats.
+// Self-tests for S14 bots (group 'bots'; the long soaks, kit sweeps and full matches are in the slow group 'botsoak')
+// and the bot debug commands (BOT-091): __CTK.spawnBot(profile, team), __CTK.setTier(id, tier) and
+// __CTK.soak(mode, map, minutes, botCount, seed, modeOptions), which plays a headless bot match and returns its stats.
 
 const SOAK_BOTS = 16;
 const SOAK_QUALITY = 'ultra';           // the medium preset caps a match at 15 bots (PERF-009)
@@ -10,7 +10,8 @@ const SOAK_STUCK_LIMIT = 0.01, SOAK_NO_GOAL_LIMIT = 3;
 const PERF_BOTS = 15, PERF_P95_LIMIT_MS = 1.0;
 const SOAK_SKIPPED_FAMILIES = ['pve', 'solo'];   // PvE, range and puzzle modes have no versus objective: soak those maps in ffa
 
-DebugApi.bots = { bots: Bots, sense: BotSense, move: BotMove, combat: BotCombat, decide: BotDecide, team: BotTeam, debug: BotDebug, difficulty: Difficulty };
+DebugApi.bots = { bots: Bots, sense: BotSense, move: BotMove, combat: BotCombat, decide: BotDecide, team: BotTeam, debug: BotDebug, difficulty: Difficulty,
+  flagPush: BOT_FLAG_PUSH };   // tuning: the flag raid numbers can be changed live
 
 // Adds a bot to the running match (a CAT.bots key or row, or nothing for a generic bot) and spawns it; returns its id or -1.
 DebugApi.spawnBot = (profile, team) => {
@@ -26,32 +27,39 @@ DebugApi.setTier = (id, tier) => Bots.setTier(id, tier);
 
 // Plays `minutes` of `mode` on `map` with 16 bots (or botCount), headless, with seed 1 (or seed), without a time or score
 // limit (or with modeOptions), and returns the soak numbers (BOT-091 / ARC-033 / tests).
-DebugApi.soak = (mode, map, minutes, botCount, seed, modeOptions) => {
-  const headless = Game.headless, quality = Settings.get('video.quality');
+DebugApi.soak = (mode, map, minutes, botCount, seed, modeOptions) => playMatch({ mode, map, minutes, botCount: botCount || SOAK_BOTS,
+  seed: seed === undefined ? 1 : seed, modeOptions: modeOptions || SOAK_OPEN_MATCH });
+
+// One headless match at the soak quality, stopped afterwards whatever happens. run: { mode, map (an id, or a map
+// object), ruleset (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
+// probe(stats) at the end while the match still runs }. Returns the soak numbers.
+function playMatch(run) {
+  const headless = Game.headless, quality = Settings.get('video.quality'), ownMap = typeof run.map !== 'string';
   Game.headless = true;
   Settings.set('video.quality', SOAK_QUALITY);
-  try { return runSoak(mode, map, minutes, botCount || SOAK_BOTS, seed === undefined ? 1 : seed, modeOptions || SOAK_OPEN_MATCH); } finally {
+  try { return runSoak(run); } finally {
     Game.stop();
+    if (ownMap) World.clear();
     Settings.set('video.quality', quality);
     Game.headless = headless;
   }
-};
+}
 
-function runSoak(mode, map, minutes, botCount, seed, modeOptions) {
-  const bots = [];
-  for (let i = 0; i < botCount; i++) bots.push({});
-  Game.start({ mode, map, seed, bots, modeOptions });
-  const stats = { mode, map, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
+function runSoak(run) {
+  const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
+  Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions });
+  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) stats.bots++;
   resetSoakCounters();
   const fairness = BotCombat.fairness, shotsBefore = fairness.shots, unknownBefore = fairness.unknown, unperceivedBefore = fairness.unperceived;
   const kills = startEventLog('kill'), scores = startEventLog('score'), timings = [];
-  const ticks = Math.round(minutes * 60 * TICK_RATE), sampleTicks = Math.round(SOAK_SAMPLE_SECONDS * TICK_RATE);
+  const ticks = Math.round(run.minutes * 60 * TICK_RATE), sampleTicks = Math.round(SOAK_SAMPLE_SECONDS * TICK_RATE);
   let played = 0;
   for (; played < ticks && Game.match && !Game.match.ended; played++) {
     Sim.run(1);
+    if (run.onTick) run.onTick(played);
     timings.push(Sim.timing.botThink || 0);
     if (played % sampleTicks === 0) sampleSoak(stats);
   }
@@ -62,6 +70,7 @@ function runSoak(mode, map, minutes, botCount, seed, modeOptions) {
   stats.shots = fairness.shots - shotsBefore;
   stats.unknownShots = fairness.unknown - unknownBefore;
   stats.unperceivedShots = fairness.unperceived - unperceivedBefore;
+  if (run.probe) run.probe(stats);
   return stats;
 }
 
@@ -124,6 +133,7 @@ function soakModeFor(map) {
 
 // ---- Small test arenas: a floor split in two by a wall (no way around), or open ----
 const BOT_WALL = { shape: 'box', min: [-60, 0, -1], max: [60, 12, 1] };
+const BOT_ARENA = 'bots-arena';   // the walled test arena (botArena below) where a run names a map
 
 function botTestMap(withWall, extra) {
   return Object.assign({ id: 'bots-test', brushes: withWall ? [TEST_FLOOR, BOT_WALL] : [TEST_FLOOR],
@@ -243,6 +253,7 @@ function measureAccuracy(tier) {
   let shots = 0, hits = 0;
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
+    Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
       holdActor(bot, 0, -ACCURACY_DISTANCE / 2);
@@ -275,21 +286,23 @@ Test.add('bots', (check) => {
 // ---- Decisions: a hurt bot goes for health ----
 Test.add('bots', (check) => {
   const item = { x: 12, y: 0, z: -10, item: 'healthpack', group: 'health' };
-  const [bot, dummy] = startBotTest(botTestMap(true, { items: [item] }));
+  const itemMap = botTestMap(true, { items: [item] });
+  const [bot, dummy] = startBotTest(itemMap, 'ffa', { map: itemMap });   // setup.map: Items loads the map's items
   placeFacing(bot, 0, -10, 0);
   holdActor(dummy, 0, 10);
   Actors.health[bot] = Actors.maxHealth[bot] * 0.3;
-  // Items are S12 stubs here (nothing is picked up), so the test watches the choice and the walk, not the pickup.
+  const pickups = startEventLog('pickup');
   let choseHealth = false, closest = Infinity;
-  for (let tick = 0; tick < 4 * TICK_RATE; tick++) {
+  for (let tick = 0; tick < 4 * TICK_RATE && !pickups.some((event) => event.id === bot); tick++) {
     holdActor(dummy, 0, 10);
-    Actors.health[bot] = Math.min(Actors.health[bot], Actors.maxHealth[bot] * 0.3);
     Sim.run(1);
     if (BotDecide.goal[bot] === GOAL.COLLECT && BotDecide.goalTarget[bot] === 0) choseHealth = true;
     closest = Math.min(closest, Math.hypot(Actors.x[bot] - item.x, Actors.z[bot] - item.z));
   }
+  pickups.stop();
   check('a low-health bot picks the health item as its goal', choseHealth);
   check('and walks to it', closest < 1.5, closest.toFixed(2));
+  check('and picks it up (real items)', pickups.some((event) => event.id === bot && event.item === item.item), JSON.stringify(pickups));
   endBotTest();
 });
 
@@ -386,11 +399,18 @@ Test.add('bots', (check) => {
   Bots.buttonsWanted[bot] = 0;
   BotCombat.throwYaw[bot] = Actors.aimYaw[bot] + 90 * DEG; BotCombat.throwPitch[bot] = Actors.aimPitch[bot];
   BotCombat.throwUntil[bot] = now + GRENADE_AIM_SECONDS;
-  BotCombat.aimThrow(bot);
+  BotCombat.aimThrow(bot, now);
   check('no throw while the view is off the arc', (Bots.buttonsWanted[bot] & BTN.GRENADE) === 0 && BotCombat.throwUntil[bot] > now);
   Actors.aimYaw[bot] = BotCombat.throwYaw[bot];
-  BotCombat.aimThrow(bot);
-  check('the throw goes once the view is on it', (Bots.buttonsWanted[bot] & BTN.GRENADE) !== 0 && BotCombat.throwUntil[bot] === 0);
+  BotCombat.throwCook[bot] = 0.5;
+  BotCombat.aimThrow(bot, now);
+  const pressed = (Bots.buttonsWanted[bot] & BTN.GRENADE) !== 0;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.aimThrow(bot, now + 0.25);
+  const cooking = (Bots.buttonsWanted[bot] & BTN.GRENADE) !== 0;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.aimThrow(bot, BotCombat.cookUntil[bot]);
+  check('once the view is on it the grenade is held for its cook, then released', pressed && cooking && (Bots.buttonsWanted[bot] & BTN.GRENADE) === 0 && BotCombat.throwUntil[bot] === 0);
   Bots.buttonsWanted[bot] = 0;
   const heldSince = now - 0.2;
   BotCombat.holdSince[bot] = heldSince; BotCombat.keptSince[bot] = -1;
@@ -468,11 +488,317 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
-// ---- Headless matches (BOT-080): 120 s per mode with its score limit; the match ends and the objectives score ----
-// A tie at the time limit goes to sudden death, so the run covers the overtime too (it stops when the match ends).
-const MATCH_SECONDS = 120, MATCH_RUN_MINUTES = (MATCH_SECONDS + OVERTIME_SECONDS) / 60 + 0.1;
+// ---- Data cross-checks: every trigger word, objective goal and hunted role the bot data names exists ----
+const BOT_GADGET_UNUSED = ['launchpad'];   // a launch pad needs a planned route through the air: bots leave it alone
 
-function playMode(mode, map, botCount) { return DebugApi.soak(mode, map, MATCH_RUN_MINUTES, botCount, 1, { timeLimit: MATCH_SECONDS }); }
+Test.add('bots', (check) => {
+  const badAbilities = CAT.abilities.filter((row) => row.botUse && !BOT_USE_TRIGGERS[row.botUse.when]).map((row) => row.id);
+  check('every ability botUse.when is a BOT_USE_TRIGGERS word', badAbilities.length === 0, badAbilities.join());
+  const badGadgets = Object.keys(BOT_GADGET_USE).filter((effect) => !BOT_USE_TRIGGERS[BOT_GADGET_USE[effect].when]);
+  check('every BOT_GADGET_USE trigger exists', badGadgets.length === 0, badGadgets.join());
+  const unplanned = CAT.gadgets.filter((row) => !BOT_GADGET_USE[row.effect] && !BOT_GADGET_UNUSED.includes(row.effect)).map((row) => row.id);
+  check('every gadget effect has a bot use (or is listed as unused)', unplanned.length === 0, unplanned.join());
+  const goalWords = Object.values(OBJECTIVE_GOALS).flat().filter(Boolean), badGoals = goalWords.filter((word) => !BOT_OBJECTIVE_VERBS[word]);
+  check('every objective goal word has a bot verb', badGoals.length === 0, badGoals.join());
+  const badRoles = BOT_HUNTED_ROLES.filter((name) => !ACTOR_ROLE_NAMES.includes(name));
+  check('every hunted role is an actor role', badRoles.length === 0, badRoles.join());
+});
+
+// ---- Perception: smoke blocks sight, a cloak shrinks it, an enemy mine is seen and passed crouched, a grenade heard
+// landing close is run from, a decoy's shot is remembered as its owner ----
+const SMOKE_ROW = 'smoke', CLOAK_POWERUP = 'ghostveil', CROUCH_MINE = 'claymore';
+const CLOAK_DISTANCE = 20, MINE_AHEAD = 3, GRENADE_HEARD_AT = 3, DECOY_X = 30, DECOY_ERROR = 5;
+
+// Runs up to `seconds`, calling hold() before every tick, until until() is true; returns whether it became true.
+function runHeld(seconds, hold, until) {
+  for (let tick = 0; tick < seconds * TICK_RATE; tick++) {
+    hold();
+    Sim.run(1);
+    if (until && until()) return true;
+  }
+  return false;
+}
+
+Test.add('bots', (check) => {
+  let [bot, dummy] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  const holdBoth = () => { holdActor(bot, 0, -10); holdActor(dummy, 0, 10); };
+  check('in the open the enemy is seen', runHeld(3, holdBoth, () => BotSense.sees(bot, dummy)));
+  Smoke.spawn(CAT.gadgets.byId(SMOKE_ROW), -1, 0, 1, 0);
+  const lost = runHeld(3, holdBoth, () => !BotSense.sees(bot, dummy));
+  check('smoke between them blocks the line (Smoke.lineBlocked)', Smoke.lineBlocked(0, Actors.eyeY(bot), -10, 0, 1, 10));
+  check('and the bot loses sight', lost);
+  endBotTest();
+
+  [bot, dummy] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -CLOAK_DISTANCE / 2, Math.PI);   // facing away for the first tick (the cloak is given after it)
+  Sim.run(1);
+  const given = Powerups.give(dummy, CAT.powerups.byId(CLOAK_POWERUP), 0);   // 0: the row's own duration
+  placeFacing(bot, 0, -CLOAK_DISTANCE / 2, 0);
+  const holdApart = () => { holdActor(bot, 0, -CLOAK_DISTANCE / 2); holdActor(dummy, 0, CLOAK_DISTANCE / 2); };
+  check('a cloaked enemy 20 m ahead is not seen in 3 s', !runHeld(3, holdApart, () => BotSense.sees(bot, dummy)), BotSense.range(bot, dummy).toFixed(2));
+  check('the cloak scales perception (Items.perceptionScale)', Items.perceptionScale(dummy) < 1, given + ' ' + Powerups.flags[dummy] + ' ' + Items.perceptionScale(dummy));
+  endBotTest();
+
+  [bot, dummy] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  const mine = Devices.spawn(CAT.gadgets.byId(CROUCH_MINE), dummy, 0, 0, -10 + MINE_AHEAD);
+  let noticed = false, crouched = false;
+  runHeld(2, () => holdActor(dummy, 0, 10), () => {
+    noticed = noticed || BotSense.mine[bot] === mine;
+    crouched = crouched || (noticed && (Actors.buttons[bot] & BTN.CROUCH) !== 0);
+    return crouched;
+  });
+  check('an enemy mine in sight is noticed (Gadgets.visibleTo)', noticed);
+  check('and passed crouched (crouch-safe)', crouched);
+  Devices.remove(mine, false);
+  const sound = { x: Actors.x[bot] + GRENADE_HEARD_AT, y: 0.2, z: Actors.z[bot], radius: 30, kind: 'grenade', source: dummy };
+  Bus.emit('sound', sound);
+  Sim.run(1);
+  check('a grenade heard landing close is run from', BotSense.dangerUntil[bot] > Sim.time && Bots.wishX[bot] < 0, Bots.wishX[bot]);
+  endBotTest();
+
+  [bot, dummy] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 10);
+  Sim.run(1);
+  Bus.emit('sound', { x: DECOY_X, y: 1, z: 10, radius: 80, kind: 'shot', source: dummy });
+  const pair = BotSense.pair(bot, dummy);
+  check('a decoy shot is remembered as its owner, where the decoy is', BotSense.knows(bot, dummy, Sim.time) && Math.abs(BotSense.knownX[pair] - DECOY_X) < DECOY_ERROR, BotSense.knownX[pair]);
+  endBotTest();
+});
+
+// ---- Grenades on the solved arc (real Gadgets): two enemies together draw a frag that lands among them ----
+const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
+
+Test.add('bots', (check) => {
+  const [bot, first, second] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
+  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  Gadgets.give(bot, THROW_ROW, 2);
+  const explosions = startEventLog('explosion'), throwsBefore = BotCombat.uses.grenades;
+  const hold = () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); };
+  runHeld(THROW_SECONDS, hold, () => explosions.some((event) => event.owner === bot));
+  explosions.stop();
+  const blast = explosions.find((event) => event.owner === bot), miss = blast ? Math.hypot(blast.x, blast.z - THROW_DISTANCE / 2) : Infinity;
+  check('a bot throws a grenade at two enemies together', BotCombat.uses.grenades > throwsBefore);
+  check('and it lands among them (within 4 m)', miss < THROW_LANDING, miss.toFixed(2));
+  endBotTest();
+});
+
+// ---- MUT-003: bots adapt to the mutator rules ----
+function withMutator(id, value, read) {
+  const ids = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }], mutators: id ? [{ id, value }] : [] });
+  runSeconds(0.2);
+  try { return read(ids[0], ids[1]); } finally { endBotTest(); }
+}
+
+Test.add('bots', (check) => {
+  const point = Vec.make(), head = Vec.make();
+  const plainGun = CAT.weapons.find((row) => row.primary && row.primary.type === 'hitscan' && !row.primary.splash);
+  const aimsAtHead = withMutator('headonly', true, (bot, dummy) => {
+    BotCombat.aimPoint(bot, dummy, plainGun, 30, point);
+    Hitbox.point(dummy, ZONE.HEAD, head);
+    return point.y === head.y;
+  });
+  check('headshots only: even a poor aim goes for the head', aimsAtHead);
+  check('sky duel: no shots at a grounded target without splash', withMutator('airborne', true, (bot, dummy) => !worthShooting(dummy, plainGun)));
+  const normalDodge = withMutator('', 0, (bot) => dodgeChance(bot)), oneHitDodge = withMutator('oneshot', true, (bot) => dodgeChance(bot));
+  const moreDodge = oneHitDodge > normalDodge || normalDodge >= DODGE_CHANCE_CAP;
+  check('one-shot: dodging matters more (still capped)', moreDodge && oneHitDodge >= ONE_HIT_DODGE_FLOOR && oneHitDodge <= DODGE_CHANCE_CAP, normalDodge + ' -> ' + oneHitDodge);
+  const normalDrop = withMutator('', 0, (bot) => BotMove.options[bot].maxDrop), freeDrop = withMutator('freejump', true, (bot) => BotMove.options[bot].maxDrop);
+  check('no fall damage: paths may drop as far as the nav allows', normalDrop === Nav.limits.safeDrop && freeDrop === Nav.limits.maxDrop);
+  const normalJump = withMutator('', 0, (bot) => BotMove.options[bot].allowJumpHeight), lowJump = withMutator('gravity', 50, (bot) => BotMove.options[bot].allowJumpHeight);
+  check('low gravity: higher jump links are allowed', lowJump > normalJump * 1.5, normalJump.toFixed(2) + ' -> ' + lowJump.toFixed(2));
+  check('more damage dealt: fights are worth more', withMutator('dmgout', 200, () => mutatorRisk()) > 1);
+  check('more damage taken: fights are worth less', withMutator('dmgin', 200, () => mutatorRisk()) < 1);
+});
+
+// ---- Difficulty: the PvE damage sliders through their own attacker scale, the game speed through rules.fx ----
+Test.add('bots', (check) => {
+  const savedSkill = Bots.skill, savedKinds = [Actors.kind[0], Actors.kind[1]];
+  Bots.skill = Object.assign({}, Difficulty.resolve(BOT_DEFAULT_DIFFICULTY), { playerDamage: 2, enemyDamage: 0.5 });
+  Actors.kind[0] = ACTOR_KIND.ENEMY; Actors.kind[1] = ACTOR_KIND.PLAYER;
+  check('a PvE enemy hitting the player x playerDamage', difficultyDamageScale(0, 1) === 2);
+  check('the player hitting a PvE enemy x enemyDamage', difficultyDamageScale(1, 0) === 0.5);
+  Actors.kind[0] = ACTOR_KIND.BOT;
+  check('versus hits are never scaled (BOT-040)', difficultyDamageScale(0, 1) === 1 && difficultyDamageScale(1, 0) === 1);
+  Actors.kind[0] = savedKinds[0]; Actors.kind[1] = savedKinds[1];
+  Bots.skill = savedSkill;
+  const fast = { preset: BOT_DEFAULT_DIFFICULTY, gameSpeed: 1.2 };
+  const pve = Rules.build({ mode: 'horde', difficulty: fast }), versus = Rules.build({ mode: 'ffa', difficulty: fast });
+  check('PvE: the game speed slider scales rules.fx.timeScale', pve.fx.timeScale === 1.2, pve.fx.timeScale);
+  check('versus: it does not', versus.fx.timeScale === undefined, versus.fx.timeScale);
+  startBotTest(botTestMap(false, { spawns: TEAM_SPAWNS }), 'tdm', { difficulty: 'skilled', bots: [{}, {}, {}, {}, {}, {}] });
+  const teamTiers = [0, 0];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) teamTiers[Actors.team[id]] += Bots.tier(id).tier;
+  check('tiers are spread in pairs: both teams get the same tier mix', teamTiers[0] === teamTiers[1], teamTiers.join(' v '));
+  endBotTest();
+});
+
+// ---- Kit use (abilities, grenades, gadgets) in headless matches: bot k carries kit k every life ----
+// Rounds: dom on twinkeeps (objectives to hold and contest), team deathmatch in the small arena (close fights).
+const KIT_ROUNDS = [{ mode: 'dom', map: 'twinkeeps', seed: 1 }, { mode: 'tdm', map: BOT_ARENA, seed: 2 }, { mode: 'dom', map: 'twinkeeps', seed: 3 }];
+const KIT_QUICK_ROUND = KIT_ROUNDS[1];
+const KIT_BOTS = 8, KIT_TIER = 6, KIT_SLOTS = 2, KIT_GRENADES = 3, KIT_METER_FILL = 1e4;
+const KIT_ROWS = KIT_BOTS, KIT_GADGET_ROWS = KIT_BOTS / 2;   // ability rows / thrown and other gadget rows per match
+const DOWNED_RULESET = 'royale';
+const KIT_SKIPPED_ACTIVATIONS = ['passive', 'ult'];   // these run by themselves: there is nothing to press
+
+// Abilities a bot presses (rows limited to a family no versus mode has are left to that family's matches).
+function pressableAbilities() { return CAT.abilities.filter((row) => !KIT_SKIPPED_ACTIVATIONS.includes(row.activation) && row.modes === 'any'); }
+
+// Kits for one match: every row on two bots (bot k: rows[k % n] in slot 0, rows[(k + 1) % n] in slot 1). Fights are
+// short; two carriers give each row more chances to meet its trigger.
+function abilityKits(rows) {
+  return Array.from({ length: KIT_BOTS }, (_, k) => ({ abilities: [rows[k % rows.length], rows[(k + 1) % rows.length]], gadgets: [] }));
+}
+
+// Bot k gets thrown[k % count] and placed[k % count]: every row on two bots.
+function gadgetKits(thrown, placed) {
+  return Array.from({ length: KIT_BOTS }, (_, k) => ({ abilities: [], gadgets: [thrown[k % thrown.length], placed[k % placed.length]].filter(Boolean) }));
+}
+
+function equipKit(id, kits) {
+  const kit = Actors.kind[id] === ACTOR_KIND.BOT ? kits[id % KIT_BOTS] : null;
+  if (!kit) return;
+  kit.abilities.forEach((row, slot) => Abilities.setSlot(id, slot, row));
+  for (const row of kit.gadgets) {
+    Gadgets.give(id, row.id, row.kind === 'thrown' ? KIT_GRENADES : 1);
+    Gadgets.select(id, row.id);   // bots throw the selected grenade type (there is no grenade-cycle button)
+  }
+}
+
+// Abilities pay with energy or the match meter; a sweep keeps both full so every row gets its chance.
+function fillMeters(tick) {
+  if (tick % TICK_RATE !== 0) return;
+  const energy = CAT.meters.byId('energy').max;
+  for (let id = 0; id < Actors.count; id++) { Meters.energy[id] = energy; Meters.points[id] = KIT_METER_FILL; }
+}
+
+function tally(table, key) { table[key] = (table[key] || 0) + 1; }
+
+// Plays one kit match (batch: { kits, ruleset }) and returns { abilities: { id: casts }, gadgets: { id: uses }, placed }.
+function playKitMatch(batch, seconds, round) {
+  const kits = batch.kits;
+  const used = { abilities: {}, gadgets: {}, placed: 0 };
+  const handlers = {
+    'actor.spawn': (event) => equipKit(event.id, kits),
+    'ability.cast': (event) => { if (Bots.active[event.id]) tally(used.abilities, event.ability); },
+    'gadget.use': (event) => { if (Bots.active[event.id]) tally(used.gadgets, event.gadget); },
+    'gadget.place': () => { used.placed++; },
+  };
+  for (const type in handlers) Bus.on(type, handlers[type]);
+  try {
+    playMatch({ mode: round.mode, map: mapFor(round.map), ruleset: batch.ruleset, minutes: seconds / 60, bots: Array.from({ length: KIT_BOTS }, () => ({ tier: KIT_TIER })),
+      seed: round.seed, modeOptions: SOAK_OPEN_MATCH, onTick: fillMeters });
+  } finally {
+    for (const type in handlers) Bus.off(type, handlers[type]);
+  }
+  return used;
+}
+
+// Every row in matches of KIT_BOTS bots (batchesOf(rows) lists the kits of each match), round after round
+// (KIT_ROUNDS) for the rows nobody used yet. Returns { counts: { row id: uses }, unused: [row ids] }.
+function kitSweep(rows, batchesOf, seconds) {
+  const counts = {}, unused = () => rows.filter((row) => !(counts[row.id] > 0));
+  for (const round of KIT_ROUNDS) {
+    for (const batch of batchesOf(unused())) {
+      const used = playKitMatch(batch, seconds, round);
+      for (const table of [used.abilities, used.gadgets]) for (const key in table) counts[key] = (counts[key] || 0) + table[key];
+    }
+  }
+  return { counts, unused: unused().map((row) => row.id) };
+}
+
+// Rows that wait for a downed ally play with the one ruleset whose health preset downs players (HPP06 loot shields).
+function abilityBatches(rows) {
+  const batches = [];
+  for (const downed of [false, true]) {
+    const group = rows.filter((row) => (row.botUse && row.botUse.when === 'allyDowned') === downed);
+    for (let start = 0; start < group.length; start += KIT_ROWS) batches.push({ kits: abilityKits(group.slice(start, start + KIT_ROWS)), ruleset: downed ? DOWNED_RULESET : '' });
+  }
+  return batches;
+}
+
+function gadgetBatches(rows) {
+  const thrown = rows.filter((row) => row.kind === 'thrown'), placed = rows.filter((row) => row.kind !== 'thrown'), batches = [];
+  for (let start = 0; start < Math.max(thrown.length, placed.length); start += KIT_GADGET_ROWS) {
+    batches.push({ kits: gadgetKits(thrown.slice(start, start + KIT_GADGET_ROWS), placed.slice(start, start + KIT_GADGET_ROWS)), ruleset: '' });
+  }
+  return batches;
+}
+
+const KIT_QUICK_SECONDS = 60, KIT_QUICK_SHARE = 0.6, KIT_SWEEP_SECONDS = 60;
+
+Test.add('bots', (check) => {
+  const rows = pressableAbilities().slice(0, KIT_ROWS);
+  const used = playKitMatch({ kits: abilityKits(rows), ruleset: '' }, KIT_QUICK_SECONDS, KIT_QUICK_ROUND);
+  const casts = rows.filter((row) => used.abilities[row.id] > 0).length, text = casts + '/' + rows.length + ' ' + JSON.stringify(used.abilities);
+  check('bots cast most of an 8-ability sample in 60 s', casts >= rows.length * KIT_QUICK_SHARE, text);
+  const gadgets = playKitMatch(gadgetBatches(CAT.gadgets.filter((row) => BOT_GADGET_USE[row.effect]))[0], KIT_QUICK_SECONDS, KIT_QUICK_ROUND);
+  const usedKinds = Object.keys(gadgets.gadgets).map((key) => CAT.gadgets.byId(key).kind);
+  check('bots throw grenades and place gadgets in a match', usedKinds.includes('thrown') && usedKinds.filter((kind) => kind !== 'thrown').length >= 2 && gadgets.placed > 0, JSON.stringify(gadgets));
+});
+
+Test.add('botsoak', (check) => {
+  const abilities = pressableAbilities(), abilitySweep = kitSweep(abilities, abilityBatches, KIT_SWEEP_SECONDS);
+  DebugApi.bots.lastAbilitySweep = abilitySweep;
+  check('every pressable ability is used by bots (' + abilities.length + ' rows)', abilitySweep.unused.length === 0, 'unused: ' + abilitySweep.unused.join());
+  const gadgets = CAT.gadgets.filter((row) => BOT_GADGET_USE[row.effect]), gadgetSweep = kitSweep(gadgets, gadgetBatches, KIT_SWEEP_SECONDS);
+  DebugApi.bots.lastGadgetSweep = gadgetSweep;
+  check('every grenade and gadget with a bot use is used (' + gadgets.length + ' rows)', gadgetSweep.unused.length === 0, 'unused: ' + gadgetSweep.unused.join());
+}, { slow: true });
+
+// ---- Objective play in headless matches (BOT-080): the objective scores; every shot at an enemy in sight ----
+// A run: { mode, map (an id, or BOT_ARENA for the walled test arena), bots, and the sign of objective play: reason (a
+// 'score' event reason), touched (an objective carried or owned), cart (the payload moved), loot (royale loot taken),
+// hunted (a fair share of the hits land on the hunted role) }; ends: the match must end within the run.
+const BOT_ARENA_WALLS = [[-60, -60, 60, -58], [-60, 58, 60, 60], [-60, -58, -58, 58], [58, -58, 60, 58], [-8, -1, 8, 1], [-1, -8, 1, 8]];
+const BOT_ARENA_SPAWNS = Array.from({ length: 8 }, (_, index) => ({ x: Math.sin(index * Math.PI / 4) * 40, y: 0, z: Math.cos(index * Math.PI / 4) * 40 }))
+  .concat([-40, 40].flatMap((x, team) => [-12, -4, 4, 12].map((z) => ({ x, y: 0, z, team }))));   // a ring for free-for-all, sides for teams
+const HUNTED_HIT_FAIR = 1.2;   // the hunted actor gets more hits than its fair share (1 / players): bots go for it
+
+function mapFor(name) { return name === BOT_ARENA ? botArena() : name; }
+
+function botArena() {
+  const walls = BOT_ARENA_WALLS.map(([x0, z0, x1, z1]) => ({ shape: 'box', min: [x0, 0, z0], max: [x1, 4, z1] }));
+  return botTestMap(false, { id: BOT_ARENA, brushes: [TEST_FLOOR, ...walls], spawns: BOT_ARENA_SPAWNS });
+}
+
+function playObjective(run, seconds) {
+  const result = { reasons: {}, loot: 0, cart: 0, hits: 0, huntedHits: 0, stats: null };
+  const onScore = Bus.on('score', (event) => tally(result.reasons, event.reason));
+  const onDamage = Bus.on('damage', (event) => {
+    if (event.source < 0 || event.source === event.target) return;
+    result.hits++;
+    if (huntedRole(event.target)) result.huntedHits++;
+  });
+  const probe = () => {
+    for (let item = 0; item < Modes.loot.count; item++) result.loot += Modes.loot.taken[item];
+    result.cart = Modes.hud.payloadProgress;
+  };
+  try {
+    result.stats = playMatch({ mode: run.mode, map: mapFor(run.map), minutes: seconds / 60, botCount: run.bots, seed: 1,
+      modeOptions: { timeLimit: MATCH_SECONDS }, probe });
+  } finally { Bus.off('score', onScore); Bus.off('damage', onDamage); }
+  return result;
+}
+
+function objectivePlayed(run, result) {
+  if (run.reason) return result.reasons[run.reason] > 0;
+  if (run.touched) return result.stats.objectivesTouched > 0;
+  if (run.cart) return result.cart > 0;
+  if (run.loot) return result.loot > 0;
+  return result.hits > 0 && result.huntedHits / result.hits >= HUNTED_HIT_FAIR / run.bots;
+}
+
+function objectiveText(result) {
+  return matchText(result.stats) + ', score ' + JSON.stringify(result.reasons) + ', loot ' + result.loot + ', cart ' + result.cart.toFixed(2) +
+    ', hunted hits ' + result.huntedHits + '/' + result.hits;
+}
+
+// The time limit; a tie goes to sudden death, so the full run covers the overtime too (it stops when the match ends).
+const MATCH_SECONDS = 120, MATCH_RUN_SECONDS = MATCH_SECONDS + OVERTIME_SECONDS + 6;
 
 function matchText(stats) {
   return stats.mode + ' ' + stats.map + ': ended ' + stats.ended + ' (' + stats.reason + ', winner ' + stats.winner + '), kills ' + stats.kills +
@@ -480,27 +806,80 @@ function matchText(stats) {
     ' (unperceived ' + stats.unperceivedShots + ', unknown ' + stats.unknownShots + ')';
 }
 
-Test.add('bots', (check) => {
-  const ffa = playMode('ffa', 'spire', 6);
-  check('ffa on spire: the match ends with a result, bots fight', ffa.ended && ffa.reason !== '' && ffa.kills > 0, matchText(ffa));
-  check('ffa on spire: every shot at an enemy in sight', ffa.shots > 0 && ffa.unperceivedShots === 0 && ffa.unknownShots === 0, matchText(ffa));
-  const tdm = playMode('tdm', 'harbor', 8);
-  check('tdm on harbor: the match ends with a result, bots fight', tdm.ended && tdm.winner !== NOT_OVER && tdm.kills > 0, matchText(tdm));
-  const ctf = playMode('ctf', 'twinkeeps', 8);
-  check('ctf on twinkeeps: the match ends and flags are captured', ctf.ended && ctf.winner !== NOT_OVER && ctf.teamCaptures >= 1, matchText(ctf));
-  const dom = playMode('dom', 'twinkeeps', 8);
-  check('dom on twinkeeps: the match ends, points are captured and held', dom.ended && dom.winner !== NOT_OVER && dom.actorCaptures >= 1 && dom.holdPoints > 0, matchText(dom));
-});
+function checkObjectiveRuns(check, runs, seconds) {
+  const summary = [];
+  for (const run of runs) {
+    const result = playObjective(run, run.seconds || seconds), text = objectiveText(result), name = run.mode + ' on ' + (run.map === BOT_ARENA ? 'the arena' : run.map);
+    summary.push(text);
+    check(name + ': bots play the objective', objectivePlayed(run, result), text);
+    check(name + ': every shot at an enemy in sight', result.stats.unperceivedShots === 0 && result.stats.unknownShots === 0, text);
+    if (run.ends) check(name + ': the match ends with a result', result.stats.ended && result.stats.winner !== NOT_OVER, text);
+  }
+  return summary;
+}
 
-// ---- Soak (ARC-033): 16 bots, 3 simulated minutes on every hand-made map; per map: stuck < 1% of the bot time, nobody
-// stuck > 6 s, no NaN, never without a goal for 3 s, the ray budget held, every shot at an enemy in sight ----
-const SOAK_TEST_MINUTES = 3;
+const QUICK_OBJECTIVE_RUNS = [
+  { mode: 'ffa', map: 'spire', bots: 6, seconds: 40, reason: 'kill' },
+  { mode: 'dom', map: 'twinkeeps', bots: 8, seconds: 40, reason: 'hold' },
+  { mode: 'ctf', map: 'twinkeeps', bots: 8, seconds: 60, touched: true },
+  { mode: 'payload', map: 'convoyline', bots: 8, seconds: 45, cart: true },
+  { mode: 'oddball', map: BOT_ARENA, bots: 6, seconds: 30, reason: 'hold' },
+  { mode: 'royale', map: 'isle', bots: 12, seconds: 30, loot: true },
+];
 
-Test.add('bots', (check) => {
-  const maps = CAT.maps.filter((map) => !map.placeholder);
+const OBJECTIVE_RUNS = [
+  { mode: 'ffa', map: 'spire', bots: 6, reason: 'kill', ends: true },
+  { mode: 'tdm', map: 'harbor', bots: 8, reason: 'kill', ends: true },
+  { mode: 'ctf', map: 'twinkeeps', bots: 8, reason: 'capture', ends: true },
+  { mode: 'dom', map: 'twinkeeps', bots: 8, reason: 'hold', ends: true },
+  { mode: 'rush', map: 'convoyline', bots: 8, reason: 'plant' },
+  { mode: 'payload', map: 'convoyline', bots: 8, reason: 'checkpoint' },
+  { mode: 'oddball', map: 'gantry', bots: 6, reason: 'hold', ends: true },
+  { mode: 'gungame', map: 'gantry', bots: 6, reason: 'advance', ends: true },
+  { mode: 'ghostops', map: 'dustline', bots: 8, reason: 'plant' },
+  { mode: 'infection', map: BOT_ARENA, bots: 8, reason: 'infect', ends: true },
+  { mode: 'juggernaut', map: BOT_ARENA, bots: 6, hunted: true },
+  { mode: 'cursetag', map: BOT_ARENA, bots: 6, hunted: true },
+  { mode: 'bearer', map: BOT_ARENA, bots: 6, reason: 'hold', ends: true },
+  { mode: 'roulette', map: BOT_ARENA, bots: 6, reason: 'kill', ends: true },
+  { mode: 'royale', map: 'isle', bots: 12, loot: true, ends: true },
+];
+
+Test.add('bots', (check) => { DebugApi.bots.lastQuickModes = checkObjectiveRuns(check, QUICK_OBJECTIVE_RUNS, KIT_QUICK_SECONDS); });
+Test.add('botsoak', (check) => { DebugApi.bots.lastModes = checkObjectiveRuns(check, OBJECTIVE_RUNS, MATCH_RUN_SECONDS); }, { slow: true });
+
+// ---- CTF attack play: 8 bots on twinkeeps capture in normal time, and neither side always wins (5 seeds) ----
+const CTF_SEEDS = [1, 2, 3, 4, 5], CTF_CAPTURE_MATCHES = 3;
+
+Test.add('botsoak', (check) => {
+  const captures = [0, 0], wins = [0, 0];
+  let matchesWithCapture = 0;
+  for (const seed of CTF_SEEDS) {
+    const scores = startEventLog('score');
+    const stats = DebugApi.soak('ctf', 'twinkeeps', MATCH_RUN_SECONDS / 60, 8, seed, { timeLimit: MATCH_SECONDS });
+    scores.stop();
+    const teamCaptures = scores.filter((event) => event.reason === 'capture' && event.id < 0);
+    for (const event of teamCaptures) captures[event.team]++;
+    if (teamCaptures.length > 0) matchesWithCapture++;
+    if (stats.winner === 0 || stats.winner === 1) wins[stats.winner]++;
+  }
+  const text = 'matches with a capture ' + matchesWithCapture + '/' + CTF_SEEDS.length + ', captures ' + captures.join(' v ') + ', wins ' + wins.join(' v ');
+  DebugApi.bots.lastCtf = text;
+  check('ctf: flags are captured in normal time in most matches', matchesWithCapture >= CTF_CAPTURE_MATCHES, text);
+  const decided = wins[0] + wins[1];
+  check('ctf: both sides capture', captures[0] > 0 && captures[1] > 0, text);
+  check('ctf: neither side wins every decided match', decided < 2 || (wins[0] > 0 && wins[1] > 0), text);
+}, { slow: true });
+
+// ---- Soak (ARC-033): 16 bots on a map; per map: stuck < 1% of the bot time, nobody stuck > 6 s, no NaN, never without
+// a goal for 3 s, the ray budget held, every shot at an enemy in sight. 'bots': 1 minute on two maps; 'botsoak': 3
+// minutes on every hand-made map ----
+const SOAK_QUICK_MAPS = ['twinkeeps', 'harbor'], SOAK_QUICK_MINUTES = 1, SOAK_TEST_MINUTES = 3;
+
+function checkSoaks(check, maps, minutes) {
   const summary = [];
   for (const map of maps) {
-    const stats = DebugApi.soak(soakModeFor(map), map.id, SOAK_TEST_MINUTES);
+    const stats = DebugApi.soak(soakModeFor(map), map.id, minutes);
     const text = map.id + ' ' + stats.mode + ': ' + JSON.stringify(stats);
     summary.push(map.id + ' ' + (stats.stuckFraction * 100).toFixed(2) + '%');
     check('soak ' + map.id + ': 16 bots play', stats.bots === SOAK_BOTS, text);
@@ -509,8 +888,11 @@ Test.add('bots', (check) => {
     check('soak ' + map.id + ': perception rays within the budget', stats.raysMax <= SENSE_RAYS_PER_TICK, text);
     check('soak ' + map.id + ': every shot at an enemy in sight (ARC-033)', stats.unknownShots === 0 && stats.unperceivedShots === 0, text);
   }
-  DebugApi.bots.lastSoak = summary;
-});
+  return summary;
+}
+
+Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
+Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
 
 // ---- Performance: 15 bots, AI p95 <= 1.0 ms per tick ----
 Test.add('bots', (check) => {
@@ -518,3 +900,4 @@ Test.add('bots', (check) => {
   check('15 bots: AI p95 <= 1.0 ms per tick', stats.bots === PERF_BOTS && stats.aiP95 <= PERF_P95_LIMIT_MS, 'p95 ' + stats.aiP95.toFixed(3) + ' ms, max ' + stats.aiMax.toFixed(3) + ' ms');
   DebugApi.bots.lastPerf = stats;
 });
+DebugApi.bots.kits = { play: playKitMatch, abilityBatches, gadgetBatches };   // __CTK.bots.kits: kit matches from the console

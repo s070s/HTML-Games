@@ -3,8 +3,10 @@
 // S14 turns the chosen preset (plus custom slider values) into rules.botSkill at the 'difficulty' rule stage.
 // playerDamage / enemyDamage only change PvE damage (BOT-040: no bot damage bonus in versus); resourceYield = the
 // "Pickups" column; aimAssist -1 keeps the player's own aim assist setting; lives 0 = unlimited (PvE).
-// S14 applies tierMin/tierMax, attackers, aggression, reactionScale and aimErrorScale; the other fields are carried in
-// rules.botSkill for their owners (aim assist: the player's input, S10/S18; the PvE fields: S15) and not applied by S14.
+// S14 applies tierMin/tierMax, attackers, aggression, reactionScale and aimErrorScale, and in PvE playerDamage /
+// enemyDamage (its own Damage.addAttackerScale hook) and gameSpeed (x rules.fx.timeScale); the other fields are carried in
+// rules.botSkill for their owners (aim assist: the player's input, S10/S18; parry, projectileSpeed, lives, checkpoints,
+// resourceYield: S15) and not applied by S14.
 
 Data.define('difficulty', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, tierMin: REQUIRED, tierMax: REQUIRED,

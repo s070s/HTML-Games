@@ -77,12 +77,14 @@ const BotMove = {
     Nav.cancel(id);
   },
   // Path options from the bot's movement preset and tier (BOT-010 "preset-aware"): tiers without jumps skip extra jumps.
+  // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
   configure(id) {
     const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
     const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
     for (const options of [this.options[id], this.avoidOptions[id]]) {
       options.allowJumpHeight = single + extra;
+      options.maxDrop = Mutators.fx && Mutators.fx.noFallDamage ? Nav.limits.maxDrop : Nav.limits.safeDrop;   // MUT-003: no fall damage
       options.moveSpeed = preset.groundSpeed * tier.speed;
       options.jumpVelocity = preset.jumpVel;
       options.gravity = gravity;

@@ -1,5 +1,5 @@
 // Runs ClassTimeKiller's built-in self-test in headless Chrome (software WebGL), no dependencies.
-// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
+// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
@@ -12,6 +12,7 @@ const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
 const group = option('--group', '');
+const slow = args.includes('--slow');   // also run the slow blocks (Test.add(..., { slow: true })) of every group
 const extra = option('--eval', '');
 const skipSelfTest = args.includes('--no-selftest');
 const screenshot = option('--screenshot', ''); // PNG path: captured after --eval (use the eval to set up the scene)
@@ -64,7 +65,7 @@ async function main() {
   if (!(await evaluate('!!window.__CTK'))) throw new Error('Game did not boot (no window.__CTK)');
   if (!skipSelfTest) {
     const started = Date.now();
-    const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ' });'
+    const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ', slow: ' + slow + ' });'
       + ' return { total: r.total, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map((x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ')) }; })()');
     console.log('SELFTEST ' + (report.total - report.failed) + '/' + report.total + ' passed in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
     report.bad.forEach((line) => console.log('  FAIL ' + line));

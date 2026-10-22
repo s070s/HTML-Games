@@ -2,7 +2,8 @@
 // the mode's objective kind, BOT_ROLE_SPLITS); the player's pings are orders that the nearest team bots acknowledge and
 // follow (acknowledged within 0.5-1.5 s; the nearest team bot answers an enemy ping the same way); bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
-// Grenade tokens keep a team from throwing more than one every 3 s.
+// Grenade tokens keep a team from throwing more than one every 3 s. Flag raids: attackers gather at a rally point and push
+// together (BOT_FLAG_PUSH).
 
 const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
 const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
@@ -19,6 +20,7 @@ const PING_RANGE = 120;
 const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
 const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
 const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
+const PUSH_CHECK_INTERVAL = 0.5;
 
 Settings.define('gameplay.chatter', 'normal', { label: 'Bot chatter', category: 'gameplay', options: CHATTER_LEVELS });
 Settings.define('gameplay.taunts', true, { label: 'Bot taunts', category: 'gameplay' });
@@ -39,6 +41,9 @@ const BotTeam = {
   teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
   lowBarked: new Uint8Array(MAX_ACTORS),
+  // Flag raids per team: the rally point (rallyNode -1 = none), the push window, the first wait at the rally.
+  rallyNode: new Int32Array(TEAM_COUNT).fill(-1), rallyX: new Float32Array(TEAM_COUNT), rallyY: new Float32Array(TEAM_COUNT), rallyZ: new Float32Array(TEAM_COUNT),
+  pushUntil: new Float64Array(TEAM_COUNT), waitSince: new Float64Array(TEAM_COUNT).fill(-1), pushCheckAt: 0,
   commanderAt: 0,
   chatter: 'normal', taunts: true,
   stats: { barks: 0, pings: 0, orders: 0 },
@@ -52,12 +57,48 @@ const BotTeam = {
     this.barkAt.fill(-1e9);
     this.teamBarkAt.fill(-1e9);
     this.grenadeAt.fill(-1e9);
+    this.pushUntil.fill(0); this.waitSince.fill(-1); this.pushCheckAt = 0;
+    for (let team = 0; team < TEAM_COUNT; team++) this.placeRally(team);
+  },
+  // On the way from the team's own flag to the enemy's: a nav node BOT_FLAG_PUSH.rallyShare of the way (two-flag modes only).
+  placeRally(team) {
+    this.rallyNode[team] = -1;
+    const flags = Modes.active && Modes.rules.objective === 'flag' && !Modes.rules.params.neutral ? Modes.objectives : null;
+    const own = flags ? flags.find((o) => o.kind === 'flag' && o.team === team) : null, enemy = flags ? flags.find((o) => o.kind === 'flag' && o.team === 1 - team) : null;
+    if (!own || !enemy) return;
+    const share = BOT_FLAG_PUSH.rallyShare;
+    const node = Nav.nearestNode(lerp(own.homeX, enemy.homeX, share), lerp(own.homeY, enemy.homeY, share), lerp(own.homeZ, enemy.homeZ, share));
+    if (node < 0) return;
+    this.rallyNode[team] = node;
+    this.rallyX[team] = Nav.nodeX[node]; this.rallyY[team] = Nav.nodeY[node]; this.rallyZ[team] = Nav.nodeZ[node];
+  },
+  hasRally(team) { return team >= 0 && team < TEAM_COUNT && this.rallyNode[team] >= 0; },
+  pushing(team) { return team >= 0 && team < TEAM_COUNT && Sim.time < this.pushUntil[team]; },
+  // Twice a second: a team whose raiders gathered (or waited long enough) at the rally point pushes for BOT_FLAG_PUSH.seconds.
+  updatePushes(now) {
+    if (now < this.pushCheckAt) return;
+    this.pushCheckAt = now + PUSH_CHECK_INTERVAL;
+    for (let team = 0; team < TEAM_COUNT; team++) if (this.rallyNode[team] >= 0 && now >= this.pushUntil[team]) this.checkPush(team, now);
+  },
+  checkPush(team, now) {
+    let raiders = 0, gathered = 0;
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Bots.isBot(id) || Actors.team[id] !== team || (this.role[id] !== ROLE.ATTACK && this.role[id] !== ROLE.ESCORT)) continue;
+      raiders++;
+      if (Math.hypot(Actors.x[id] - this.rallyX[team], Actors.z[id] - this.rallyZ[team]) <= BOT_FLAG_PUSH.radius) gathered++;
+    }
+    if (gathered > 0 && this.waitSince[team] < 0) this.waitSince[team] = now;
+    const waited = this.waitSince[team] >= 0 && now - this.waitSince[team] >= BOT_FLAG_PUSH.wait;
+    if (raiders === 0 || (gathered < Math.min(BOT_FLAG_PUSH.minimum, raiders) && !waited)) return;
+    this.pushUntil[team] = now + BOT_FLAG_PUSH.seconds;
+    this.waitSince[team] = -1;
   },
   onSpawn(id) { this.lowBarked[id] = 0; },
 
   // ---- Once per tick: the commander, the player's ping button ----
   step(now) {
     if (now >= this.commanderAt) { this.commanderAt = now + COMMANDER_INTERVAL; this.assignRoles(); }
+    this.updatePushes(now);
     const player = Game.playerId;
     if (player >= 0 && Actors.alive[player] && (Actors.pressed[player] & BTN.PING) !== 0) this.playerPing(player);
   },
