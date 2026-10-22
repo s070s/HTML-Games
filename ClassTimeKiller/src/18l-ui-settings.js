@@ -37,13 +37,15 @@ const SAVE_FILE_NAME = 'classtimekiller-save.json';
 const SAVE_URL_LIFETIME_MS = 10000;   // Safari / iOS drop a download whose blob URL is revoked right after the click
 const SaveTransfer = {
   reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
-  // Imports the text and restarts; returns '' on success, else the reason shown to the player.
+  // Imports the text and restarts; returns '' on success, else the reason shown to the player (nothing changed then, no restart).
   importText(text) {
+    let written = false;
     try {
-      Save.importText(text);
+      written = Save.importText(text);
     } catch (error) {
       return 'That is not a ClassTimeKiller save (' + (error && error.message || error) + ').';
     }
+    if (!written) return Save.notice || SAVE_BLOCKED;
     this.reload();
     return '';
   },
@@ -72,13 +74,25 @@ Ui.register('saveTransfer', {
     foot.appendChild(Ui.button('Export', () => { area.value = Save.exportText(); area.select(); }));
     foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
     foot.appendChild(Ui.button('Load file', () => picker.click()));
+    const importConfirmed = (text) => { const problem = SaveTransfer.importText(text); if (problem) Ui.toast(problem); };
     foot.appendChild(Ui.button('Import', () => Ui.confirm({
-      title: 'Import this save?', text: 'Your current settings, bindings and progress are replaced.', yes: 'Import',
-      onYes: () => { const problem = SaveTransfer.importText(area.value); if (problem) Ui.toast(problem); },
+      title: 'Import this save?', text: 'Your current settings, bindings and progress are replaced. They are kept as the backup.', yes: 'Import',
+      onYes: () => importConfirmed(area.value),
     }), 'danger'));
     root.appendChild(area);
     root.appendChild(picker);
     root.appendChild(foot);
+    // R-039: the save an import replaced, or one that could not be read at start, can be shown and put back.
+    const backup = Save.backupText();
+    if (backup === null) return;
+    root.appendChild(makeElement('p', 'ui-note', 'Backup: the save the last import replaced, or a save that could not be read.'));
+    const backupFoot = makeElement('div', 'ui-foot');
+    backupFoot.appendChild(Ui.button('Export backup', () => { area.value = backup; }));
+    backupFoot.appendChild(Ui.button('Restore backup', () => Ui.confirm({
+      title: 'Restore the backup?', text: 'Your current save is replaced by the backup and becomes the new backup.', yes: 'Restore',
+      onYes: () => importConfirmed(backup),
+    }), 'danger'));
+    root.appendChild(backupFoot);
   },
 });
 Ui.settingsExtras.developer = [(container) => {

@@ -114,6 +114,39 @@ Test.add('core', (check) => {
   Save.notice = '';
 });
 
+// R-037 / R-038 / R-039: an import never wipes a save with junk, a failed write keeps the old save and restarts nothing, and the
+// backup the notices promise can be shown and restored.
+Test.add('core', (check) => {
+  const reload = SaveTransfer.reload;
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  const leave = uiEnter();
+  try {
+    Save.data.stats.mark = 'A';
+    Save.saveNow();
+    let refused = false;
+    try { Save.importText('{}'); } catch (error) { refused = true; }
+    check('import: "{}" is refused and the save is unchanged', refused && Save.data.stats.mark === 'A' && JSON.parse(Save.read(SAVE_KEY)).stats.mark === 'A');
+    const good = Save.storage;
+    Save.storage = makeMemoryStorage(true); Save.storageWorks = true; Save.notice = '';
+    const blockedWrite = Test.expectErrors(() => Save.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } })));
+    const problem = SaveTransfer.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } }));
+    check('import: a failed write returns false, keeps the old save and does not restart', blockedWrite === 0 && problem === SAVE_BLOCKED && reloads === 0 && Save.data.stats.mark === 'A', problem);
+    Save.storage = good; Save.storageWorks = true; Save.notice = '';
+    check('import: a real save imports and restarts', SaveTransfer.importText(JSON.stringify({ version: 1, stats: { mark: 'B' } })) === '' && reloads === 1 && Save.data.stats.mark === 'B');
+    Ui.open('saveTransfer');
+    check('backup: the screen offers the save the import replaced', uiClickButton(Ui.top().element, 'Restore backup') && Ui.current() === 'confirm');
+    uiClickButton(Ui.top().element, 'Restore');
+    check('backup: restoring it brings the old save back', Save.data.stats.mark === 'A' && reloads === 2 && JSON.parse(Save.read(SAVE_KEY)).stats.mark === 'A');
+    Ui.closeAll();
+    Test.expectErrors(() => DebugApi.save.corrupt('trunc'));
+    Ui.open('saveTransfer');
+    const screen = Ui.top().element;
+    check('backup: after a save could not be read, its text can be shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea.ui-code').value === '{"version":1,"settings":');
+    Ui.closeAll();
+  } finally { leave(); SaveTransfer.reload = reload; Save.notice = ''; }
+});
+
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
 Test.add('core', (check) => {
   const thrower = Bus.on('test.bootcheck', () => { throw new Error('listener broke'); });

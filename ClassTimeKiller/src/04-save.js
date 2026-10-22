@@ -15,6 +15,20 @@ const SAVE_REVISION_HEAD = /^\{"version":\d+,"revision":(\d+)[,}]/;
 
 // 'null' | 'array' | typeof: a loaded field must have the kind of its empty-save default (a null default also takes an object).
 function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
+function saveFieldFits(freshValue, value) {
+  const want = saveFieldKind(freshValue), have = saveFieldKind(value);
+  return have === want || (want === 'null' && have === 'object');
+}
+// A text to import is a save: a version this game can read and at least one known field of the right kind that holds something.
+function saveLooksReal(loaded, fresh) {
+  if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) return false;
+  if (!Number.isInteger(loaded.version) || loaded.version < 1 || loaded.version > SAVE_VERSION) return false;
+  return Object.keys(fresh).some((field) => {
+    const value = loaded[field];
+    if (field === 'version' || field === 'revision' || value === null || !saveFieldFits(fresh[field], value)) return false;
+    return typeof value !== 'object' || Object.keys(value).length > 0;   // a non-empty object or list
+  });
+}
 // The write counter of a stored record; 0 for a record from before the counter (or one that cannot be read).
 function saveRevisionOf(raw) {
   const head = SAVE_REVISION_HEAD.exec(raw || '');
@@ -56,10 +70,7 @@ const Save = {
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     const fresh = this.emptySave();
-    for (const field in fresh) {
-      const want = saveFieldKind(fresh[field]), have = saveFieldKind(loaded[field]);
-      if (have !== want && !(want === 'null' && have === 'object')) loaded[field] = fresh[field];
-    }
+    for (const field in fresh) if (!saveFieldFits(fresh[field], loaded[field])) loaded[field] = fresh[field];
     Settings.sanitize(loaded.settings);
     // A copy that starts with version and revision (SAVE_REVISION_HEAD); the other fields keep their order.
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);
@@ -105,13 +116,22 @@ const Save = {
     return false;
   },
   exportText() { return JSON.stringify(this.data); },
+  // Replaces the save with an exported one; throws on text that is not a save (the UI shows the message). The replaced save goes to
+  // BACKUP_KEY first (Restore backup undoes the import). Returns the write result: on a failed write the old save stays (R-037).
   importText(text) {
-    const parsed = this.migrate(JSON.parse(text)); // throws on bad input; the UI shows the message
+    const loaded = JSON.parse(text);
+    if (!saveLooksReal(loaded, this.emptySave())) throw new Error('no save version or progress in it');   // '{}' never wipes a save (R-038)
+    const parsed = this.migrate(loaded);
     parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));   // an older export still replaces the stored save
+    const previous = this.data;
+    this.write(BACKUP_KEY, JSON.stringify(previous));
     this.data = parsed;
+    const written = this.saveNow();
+    if (!written && this.data === parsed) this.data = previous;   // (a newer save from another tab, adopted by saveNow, stays)
     Settings.applyAll();
-    this.saveNow();
+    return written;
   },
+  backupText() { return this.read(BACKUP_KEY); },   // the save replaced by the last import, or a save that could not be read (null = none)
   read(key) {
     try { return (this.storage || window.localStorage).getItem(key); } catch (error) { this.markBroken(); return null; }
   },
