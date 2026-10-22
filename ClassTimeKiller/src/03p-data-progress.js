@@ -175,11 +175,18 @@ Data.define('ladder', { id: REQUIRED, code: REQUIRED, name: REQUIRED, tier: REQU
 
 // ---- Challenge Rooms (PRG-004): 20 trials, points from the run metrics x `points` weights (underPar = seconds left of `par`),
 // 1-3 stars at `stars` thresholds (10,000 points per star), an Expert version once 2 stars are earned (bots `expertTier`
-// tiers up and the `expert` mutators). group: the room block that a level unlock opens (1 = from the start).
+// tiers up and the `expert` mutators, else its kind's CHALLENGE_EXPERT_MUTATORS). group: the room block that a level unlock
+// opens (1 = from the start).
 const CHALLENGE_STARS = [10000, 20000, 30000];
 const CHALLENGE_EXPERT_STARS = 2;
 const CHALLENGE_DIFFICULTY = { normal: 'regular', expert: 'veteran' };   // bot sliders of a normal / Expert room
 const CHALLENGE_KINDS = ['timeTrial', 'killChain', 'waveSurvival', 'dropKill', 'ghostRun', 'accuracy'];
+// The Expert mutators of each room kind, for rows that name no `expert` list of their own (damage taken in percent).
+const CHALLENGE_EXPERT_MUTATORS = {
+  timeTrial: ['nopowerups', { id: 'dmgin', value: 150 }], killChain: [{ id: 'dmgin', value: 150 }, 'nopowerups'],
+  waveSurvival: ['nopowerups', 'lastgift'], dropKill: ['suppression', 'nopowerups'],
+  ghostRun: ['suppression', { id: 'dmgin', value: 150 }], accuracy: ['suppression', 'nopowerups'],
+};
 Data.define('challenges', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, group: 1, mode: REQUIRED, map: REQUIRED, bots: REQUIRED, tier: 0,
   options: {}, mutators: [], par: 0, points: REQUIRED, stars: CHALLENGE_STARS, expertTier: 2, expert: [], text: '',

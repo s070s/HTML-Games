@@ -94,11 +94,13 @@ const Challenges = {
     for (const row of CAT.challenges) { const record = this.record(row.id); total += record.stars + record.expertStars; }
     return total;
   },
+  // Expert = bots expertTier tiers up plus the room's own `expert` mutators, else its kind's (CHALLENGE_EXPERT_MUTATORS).
+  expertMutators(row) { return row.expert.length ? row.expert : CHALLENGE_EXPERT_MUTATORS[row.kind]; },
   setup(id, expert, seed) {
     const row = CAT.challenges.byId(id), tier = clamp(row.tier + (expert ? row.expertTier : 0), 0, CAT.botTiers.length - 1);
     const bots = Array.from({ length: row.bots }, () => ({ tier }));
     return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal,
-      mutators: row.mutators.concat(expert ? row.expert : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
+      mutators: row.mutators.concat(expert ? this.expertMutators(row) : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
   },
   start(id, expert, random) {
     const row = CAT.challenges.byId(id);

@@ -395,6 +395,8 @@ Test.add('progress', (check) => {
     valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
+  const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
+  check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
   const metrics = { kills: 5, seconds: 100 };
