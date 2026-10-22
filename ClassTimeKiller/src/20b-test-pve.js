@@ -179,7 +179,7 @@ Test.add('pve', (check) => withShortShop(() => {
     if (behaviour.run.state === PVE_WAVE_STATE.FIGHT && (Pve.queue.count === 0 || Pve.aliveCount() >= cap / 2)) killAllEnemies(ids[0]);
   });
   waves.stop();
-  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results;
+  const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results;
   check('10 horde waves cleared headless, then victory', cleared === 10 && results && results.reason === PVE_WIN && results.winnerId === ids[0],
     cleared + ' ' + (results && results.reason));
   check('the director stays within the quality enemy cap', overCap === 0 && Pve.stats.maxAlive <= cap, Pve.stats.maxAlive + ' / ' + cap);
@@ -293,7 +293,7 @@ Test.add('pve', (check) => {
   events.stop();
   const defeated = events.find((event) => event.kind === 'defeated');
   check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
-  check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === defeated.seconds,
+  check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === (defeated.final ? defeated.seconds : PROGRESS_NEVER),
     RunLog.bossSeconds);
   spawnFacing('overlord', 30);
   Pve.clearEnemies();   // a failed wave 10 or a round clear removes the living boss without a kill
@@ -930,7 +930,7 @@ Test.add('pvesoak', (check) => {
   const waves = startEventLog('pve.wave');
   runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
   waves.stop();
-  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results, seconds = [];
+  const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results, seconds = [];
   for (let i = 1; i < waves.length; i++) if (waves[i].kind !== 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
   check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
     cleared + ' cleared, ' + (results && results.reason));

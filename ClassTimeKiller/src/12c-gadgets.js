@@ -570,7 +570,7 @@ const Thrown = {
   emitBounce(slot) {
     BOUNCE_EVENT.x = this.x[slot]; BOUNCE_EVENT.y = this.y[slot]; BOUNCE_EVENT.z = this.z[slot]; BOUNCE_EVENT.source = this.owner[slot];
     Bus.emit('projectile.bounce', BOUNCE_EVENT);
-    emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot], CAT.gadgets[this.row[slot]].effect);
   },
   // G22 and G12 remove enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
@@ -674,6 +674,11 @@ const Gadgets = {
     }
     return -1;
   },
+  // BTN.CYCLE_GRENADE (players and bots alike): the next carried grenade type becomes the one GRENADE throws.
+  cycleGrenade(id) {
+    const next = this.nextGrenade(id);
+    if (next >= 0) this.grenade[id] = next;
+  },
   resetActor(id) {
     this.count.fill(0, id * GADGET_COUNT, (id + 1) * GADGET_COUNT);
     this.grenade[id] = this.gadget[id] = -1;
@@ -719,6 +724,7 @@ const Gadgets = {
     this.rechargeGadget(id);
     if (this.holdStart[id] >= 0) { this.stepHold(id); return; }
     if (this.blocked(id)) return;
+    if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },

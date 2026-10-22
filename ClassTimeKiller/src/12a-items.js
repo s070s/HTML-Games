@@ -94,14 +94,16 @@ function onlyPickup() {
   return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
-// A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
+// A soul card number of the local player (rules.cards.fx, written by the S15 cards), else fallback. One reader per key:
+// soulLife (Items.dropSoul), soulMagnet (soulHomingRange), soulHeal (12b PU18 heal), wrathAt (12e Abilities.canAfford).
 function soulCardFx(id, key, fallback) {
   const cards = itemRule('cards', null);
   if (id < 0 || id !== Game.playerId || !cards || !cards.fx || cards.fx[key] === undefined) return fallback;
   return cards.fx[key];
 }
-// ABL-005 soul homing reach of an actor: the C11 Soul Magnet card widens it for its holder.
-function soulHomingRange(id) { return Math.max(SOUL_HOMING_RANGE, soulCardFx(id, 'soulMagnet', 0)); }
+// Soul homing reach of an actor from a base reach (PU18 souls: ABL-005 SOUL_HOMING_RANGE, Wrath souls: the A34 row):
+// the C11 Soul Magnet card widens it for its holder.
+function soulHomingRange(id, base) { return Math.max(base, soulCardFx(id, 'soulMagnet', 0)); }
 
 const Items = {
   state: new Uint8Array(PICKUP_CAP), kind: new Uint8Array(PICKUP_CAP), row: new Int16Array(PICKUP_CAP), group: new Uint8Array(PICKUP_CAP),
@@ -322,7 +324,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
       const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
-      if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
+      if (distance < bestDistance && distance < soulHomingRange(id, SOUL_HOMING_RANGE)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;
     const move = Math.min(bestDistance, SOUL_HOMING_SPEED * dt) / bestDistance;

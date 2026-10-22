@@ -79,6 +79,10 @@ function emitImpact(hit, weaponKey, owner) {
   Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
 }
+// A shot or bolt that stopped at a destructible prop damages it (S08 Props; the breaker is reported on 'world.break').
+function damagePropAt(hit, amount, owner) {
+  if (hit.brush && hit.brush.prop >= 0) Props.damage(hit.brush.prop, amount, owner);
+}
 // A shot stopped by a Weapons.rayBlockers entry (device, dome): an impact facing the shooter, so the stop is visible.
 const blockedHit = makeHit();
 function emitBlockedImpact(x, y, z, dx, dy, dz, weaponKey, owner) {
@@ -724,7 +728,7 @@ const Shot = {
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
-      if (shotHit.brush && shotHit.brush.prop >= 0) Props.damage(shotHit.brush.prop, damage * factor);   // MAP-013 props break under fire
+      damagePropAt(shotHit, damage * factor, id);
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
       factor *= PENETRATION_FACTOR[mode.penetration];

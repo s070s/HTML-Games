@@ -164,7 +164,7 @@ Test.add('core', (check) => {
   emitImpulse(5, 0, 6, 0);
   emitToast('hello');
   for (const [type, handler] of handlers) Bus.off(type, handler);
-  const expected = 'sound:{"x":1,"y":2,"z":3,"radius":10,"kind":"step","source":4}|impulse:{"id":5,"x":0,"y":6,"z":0}|toast:{"text":"hello"}';
+  const expected = 'sound:{"x":1,"y":2,"z":3,"radius":10,"kind":"step","source":4,"effect":""}|impulse:{"id":5,"x":0,"y":6,"z":0}|toast:{"text":"hello"}';
   check('emitters: payloads arrive, a silent sound sends nothing', seen.join('|') === expected, seen.join('|'));
   const sections = Array.from(document.scripts).map((element) => element.textContent).join('\n').split(/\n\/\/ ==== (\S+) ====\n/);
   const offenders = [];

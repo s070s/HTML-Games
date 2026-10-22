@@ -176,9 +176,15 @@ const Abilities = {
       this.recharge(id, slot, row, dt);
       const i = this.index(id, slot);
       if (this.active[i] && stunned && row.activation !== 'passive' && this.interruptRule(row).stun) { this.end(id, slot, 'stun'); continue; }
+      if (this.active[i] && this.pressedAgain(id, slot, row)) { this.tryActivate(id, slot); continue; }   // the same press must not recast
       if (this.active[i]) this.stepActive(id, slot, row, dt);
       else if (!stunned) this.readInput(id, slot, row);
     }
+  },
+  // A second press of the slot button while a toggle runs turns it off, while a channel runs cancels it.
+  pressedAgain(id, slot, row) {
+    const button = SLOT_BUTTONS[slot];
+    return isCancellable(row) && button !== 0 && (Actors.pressed[id] & button) !== 0;
   },
   readInput(id, slot, row) {
     if (row.activation === 'ult') { if (this.canAfford(id, slot, row)) this.tryActivate(id, slot); return; }
@@ -225,7 +231,7 @@ const Abilities = {
     const row = this.row(id, slot), i = this.index(id, slot);
     if (!row) return false;
     if (this.active[i]) {
-      if (row.activation === 'toggle' || row.activation === 'channel') this.end(id, slot, 'cancel');
+      if (isCancellable(row)) this.end(id, slot, 'cancel');
       return false;
     }
     if (!this.usable(id, row) || !this.canAfford(id, slot, row)) return false;
@@ -362,6 +368,8 @@ const Abilities = {
   },
 };
 
+// Toggles and channels end on a second press of their button (tryActivate on an active slot).
+function isCancellable(row) { return row.activation === 'toggle' || row.activation === 'channel'; }
 function emitAbilityEvent(type, payload, id, row, slot, reason) {
   payload.id = id; payload.ability = row.id; payload.slot = ABILITY_SLOT_NAMES[slot];
   if (type === 'ability.end') payload.reason = reason;

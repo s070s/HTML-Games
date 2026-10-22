@@ -114,13 +114,14 @@ const Bus = {
 };
 
 // ---- The emitters every section shares (one reused payload each: listeners copy what they keep) ----
-const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
+const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1, effect: '' };   // effect: the gadget row's, for grenade bounces
 const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
 const TOAST_EVENT = { text: '' };
 // 'sound': what bots can hear (BOT-005); radius 0 = silent, nothing is sent.
-function emitSound(x, y, z, radius, kind, source) {
+function emitSound(x, y, z, radius, kind, source, effect) {
   if (radius <= 0) return;
   SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
+  SOUND_EVENT.effect = effect || '';
   Bus.emit('sound', SOUND_EVENT);
 }
 // 'impulse': a velocity change in m/s that S10 applies (knockback, jump pads, leaps).
@@ -248,6 +249,7 @@ const BTN = {
   FIRE: 1 << 0, ALT: 1 << 1, JUMP: 1 << 2, CROUCH: 1 << 3, SPRINT: 1 << 4, RELOAD: 1 << 5, USE: 1 << 6,
   ABILITY1: 1 << 7, ABILITY2: 1 << 8, ULTIMATE: 1 << 9, GRENADE: 1 << 10, MELEE: 1 << 11, GADGET: 1 << 12,
   PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17, HEAL: 1 << 18,
+  CYCLE_GRENADE: 1 << 19,     // the next carried grenade type (S12 Gadgets.cycleGrenade)
 };
 
 // ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----

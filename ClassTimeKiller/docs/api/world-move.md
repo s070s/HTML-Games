@@ -79,7 +79,7 @@ time is at least 0.1 s. The fall-out check is off while the world has no brushes
 - Bodies step at Sim order 55: gravity `GRAVITY x rules.gravityScale`, restitution 0.3, floor friction, max 40 m/s, sleep after 1 s at rest; debris sleeps 1 s after spawning and disappears 3 s later; bodies never collide with each other or block actors.
 - A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x Bodies.impactFactor[i]` clamped to `Bodies.impactCap[i]` (spawn: 0.05 and 40; a W41 launch sets its own), point = the body's centre.
 - `Props.lift(index, owner, maxMass)` -> body index or -1: a standing breakable prop up to `maxMass` leaves the world as one thrown box body of its size, mass and colour. `PropLift` is the W41 Graviton Lifter hook (`WeaponSpecialState.propHook`): `grab(id, ox, oy, oz, dx, dy, dz, range, maxMass)` takes the first body (made thrown, owner = id) or breakable prop along the ray before a wall, `hold(handle, x, y, z)` places it with no speed (letting go lets it fall), `launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap)`.
-- `Props.damage(index, amount)` (S11 hitscan shots call it when `hit.brush.prop >= 0`, with the shot's damage after penetration); at 0 health the prop disappears, spawns 4-8 debris and emits `world.break` and a `sound` (kind `break`, radius 30).
+- `Props.damage(index, amount, source)` (S11 calls it when `hit.brush.prop >= 0`, from hitscan rays and projectiles; explosions pass their owner; `source` = the actor, -1 none); at 0 health the prop disappears, spawns 4-8 debris and emits `world.break` and a `sound` (kind `break`, radius 30).
 - Explosions (`explosion` event) push bodies (120 kg*m/s at the centre, falling off) and damage props (100 at the centre, falling to 0 at the radius).
 - Budget (MAP-013, PERF-010): every prop is solid at every quality (collision, cover, sight and nav never depend on video
   settings); only the first `Quality.current().props` props of a map (32/24/16/8/4, read at load) can break, the rest ignore
@@ -143,7 +143,7 @@ Settings: `gameplay.airAssist` = `auto` (default: on for touch/gamepad in preset
 | `sound` | `{ x, y, z, radius, kind: 'step' or 'land', source }` | footsteps 15 m (crouch or walk halves, silentWalk walks are silent), landings 20 m |
 | `damage.request` | `{ target, source: -1, amount, kind: 'fall', element: 'none', x, y, z }` | fall damage (MOV-015) |
 | `world.trigger` | `{ id, kind, index, x, y, z }` | jump pad launch, teleport |
-| `world.break` | `{ prop, material, x, y, z }` (`prop` = the index in `hit.brush.prop`) | a prop broke |
+| `world.break` | `{ prop, material, x, y, z, source }` (`prop` = the index in `hit.brush.prop`; `source` = the actor that broke it, -1 none) | a prop broke (S14 PvE crates) |
 | `damage.request` kinds `telefrag drown hazard crush` | as above (`source` = the arriver for telefrag, the thrower for crush) | S08 triggers and bodies |
 
 Consumed: `impulse { id, x, y, z }` (velocity change, x `rules.knockback`, capped 30 m/s; lifts the actor off the floor when upward),

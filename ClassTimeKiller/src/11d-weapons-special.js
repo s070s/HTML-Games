@@ -26,6 +26,12 @@ const GATE_CLEARANCE = 0.02;             // gap between the exiting capsule and 
 const ACTOR_MIDDLE = 0.9;
 const GATE_COLORS = [0xffa040, 0x40a0ff];
 
+// DIF-002 parry slider: the W03 window scales with rules.botSkill.parry against the preset it is tuned for (default 0.3 s).
+function parryWindowScale() {
+  const skill = Game.match && Game.match.rules ? Game.match.rules.botSkill : null;
+  return skill && skill.parry > 0 ? skill.parry / DIFFICULTY_PARRY_BASE : 1;
+}
+
 const specialScratch = Vec.make();
 const specialHit = makeHit();
 
@@ -55,7 +61,7 @@ const WeaponSpecialState = {
   stepBlock(id, mode, held, dt) {
     const block = mode.block;
     this.blockPool[id] = Math.min(this.blockPool[id], block.pool);
-    if (Actors.pressed[id] & BTN.ALT) this.parryUntil[id] = Sim.time + block.parryWindow;
+    if (Actors.pressed[id] & BTN.ALT) this.parryUntil[id] = Sim.time + block.parryWindow * parryWindowScale();
     this.blocking[id] = held && this.blockPool[id] > 0 ? 1 : 0;
     if (!held) this.blockPool[id] = Math.min(block.pool, this.blockPool[id] + block.regen * dt);
   },

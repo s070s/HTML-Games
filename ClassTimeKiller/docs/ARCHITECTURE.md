@@ -26,11 +26,11 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S11 | weapons / projectiles / damage | `11*` | `Weapons`, `Projectiles`, `Damage` |
 | S12 | abilities / items | `12*` | `Items`, `Gadgets`, `Abilities` |
 | S13 | rules / modes | `13*` | `Rules`, `Modes`, `Economy`, `Mutators` |
-| S14 | bots | `14*` | `Bots` |
-| S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
-| S16 | map gen | `16*` | `Maps`, `MapGen` |
+| S14 | bots and PvE | `14a..14g` bots; `14h..14k` PvE (enemies, director, PvE modes and level report, boss; after the bots they reuse) | `Bots`, `BotSense`, `BotMove`, `BotCombat`; `Pve`, `PveBrains`, `PveAttacks`, `PveLevel`, `PveBoss` (docs/api/bots.md, docs/api/pve.md) |
+| S15 | progression | `15a` progress and run log, `15b` medals, `15c` ladder, challenges, operations, daily, `15d` cards | `Progress`, `RunLog`, `Medals`, `Ladder`, `Challenges`, `Operations`, `OperationRun`, `Daily`, `Cards`, `CardRun` (docs/api/progression.md) |
+| S16 | maps, map gen, map editor | `16*` | `Maps`, `MapKit`, `MapScan`, `MapCheck`, `MapGen`, `MapEditor` (docs/api/maps.md, mapgen.md, mapeditor.md) |
 | S17 | HUD | `17*` | `Hud`, `CommWheel` (17g, comm / ping wheel) |
-| S18 | UI | `18*` | `Ui`, `Progress` |
+| S18 | UI | `18*` | `Ui`, `MapEditorShare` |
 | S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
 | S21 | bootstrap | `21-boot.js` | `Boot` |
@@ -98,23 +98,36 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `kill` | `{ victim, killer, assister, weapon, zone, element, x, y, z }` | S11 |
 | `damage.request` | `{ target, source, amount, kind: 'fall'|'hazard'|'telefrag'|'crush'|'drown', element, x, y, z }` (earlier sections ask S11 to apply damage) | S08, S10, S12 |
 | `impulse` | `{ id, x, y, z }` velocity change in m/s (knockback, jump pads); S10 applies it | S08, S11, S12 |
-| `world.break` | `{ prop, material, x, y, z }` a destructible prop broke (`prop` = `hit.brush.prop`) | S08 |
+| `world.break` | `{ prop, material, x, y, z, source }` a destructible prop broke (`prop` = `hit.brush.prop`; `source` = the actor whose shot or blast broke it, -1 none) | S08 |
+| `world.trigger` | `{ id, kind, index, x, y, z }` an actor used a trigger (docs/api/world-move.md) | S08 |
 | `toast` | `{ text }` short UI message | any |
 | `caption` | `{ text, x, y, z, kind }` sound caption / visual sound ring (ACC-002/003) | S06 |
 | `ui.click` | `{ kind }` menu feedback sound | S18 |
-| `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
-| `pickup` | `{ id, item, x, y, z }` | S12 |
+| `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005); S12 gadget sounds add `effect` (a grenade bounce: the row's effect, which bots check against `BOT_FLEE_EFFECTS`) | any |
+| `pickup` | `{ id, item, group, x, y, z }` | S12 |
+| `item.respawn` | `{ item, group, x, y, z }` | S12 |
+| `projectile.bounce` | `{ x, y, z, kind, source }` | S11/S12 |
+| `powerup.start` / `powerup.end` | `{ id, powerup }` | S12 |
+| `souls` | `{ id, count }` the actor's PU18 soul count changed | S12 |
+| `gadget.use` | `{ id, gadget, kind }` | S12 |
 | `item.grant` | `{ id, item }` give an item, powerup or weapon key without a pickup (X17 Super Powerups); S12 `Items.giveKey` delivers it | S13 |
 | `power.pick` | `{ id, ability }` give a random power in the first ability slot on spawn (X46 Powers for All); S12 `Abilities.setSlot` | S13 |
 | `ability.cast` / `ability.end` | `{ id, ability, slot }` (`ability.end` adds `reason`: done, cancel, release, empty, stun, damage, fire, group, death, match, spawn, replace, suppressed) | S12 |
 | `ability.panic` | `{ id, source, seconds }` an ability panicked a fodder enemy (A32 swarm); S14 PvE breaks its morale for `seconds` | S12 |
 | `ability.teleport` | `{ id, x, y, z }` an ability with `balance.dropsObjective` (A12) moved an actor (S13 drops a carried objective) | S12 |
 | `score` | `{ id, team, points, reason }` | S13 |
-| `medal` | `{ id, medal }` | S13/S18 |
+| `round` | `{ round, phase, winner, reason, attackers }` | S13 |
+| `medal` | `{ id, medal }` (players only) | S15 `Medals` |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
-| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` / `pve.wrath` | see docs/api/pve.md | S14 PvE |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wrath` | see docs/api/pve.md | S14 PvE |
+| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | S14 PvE |
+| `pve.boss` | `{ id, phase, phases, kind: 'start' \| 'phase' \| 'weak' \| 'defeated' \| 'gone', seconds, final }` | S14 PvE |
+| `pve.chamber` | `{ chamber, kind: 'enter' \| 'complete', medal, stars, seconds }` | S14 PvE |
+| `pve.secret` / `pve.crate` | `{ id, secret }` / `{ id, prop }` a participant found a secret hint / broke a prop | S14 PvE |
+| `mapEditor.changed` | `{ what: 'map' \| 'edit' \| 'selection' \| 'problems' \| 'saved' }` | S16 `MapEditor` |
+| `input.action` / `input.device` / `input.menu` / `input.relock` | see docs/api/input-ui.md | S05 |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
@@ -126,10 +139,12 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
   objectives: [{ id, kind: 'flag'|'flagBase'|'point'|'hill'|'bombsite'|'payloadPath'|'relic'|'core'|'bank'|'extract', team, x, y, z, radius, path: [[x,y,z], ...] }],
   zones: [{ name, min, max }]  (callouts, MAP-012),
   triggers: [{ kind: 'jumppad'|'teleporter'|'ladder'|'water'|'hazard'|'killzone', min, max, ... }] (fields: docs/api/world-move.md),
-  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }], seed (generated maps only),
+  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }] (kind 'secret' = a PvE level secret), seed (generated maps only),
+  props: [{ min, max, health, material, mass, debris, color }] (breakable boxes, S08 Props; MapKit.make gives every map the list),
   gen: { generator, size, theme, density, mode, requestedSeed, siteSeconds? } (generated maps only, docs/api/mapgen.md),
-  ring: { x, z, radius } (optional: royale ring centre and start radius; without it the ring starts from the world bounds) }
+  ring: { x, z, radius } (optional: royale ring centre and start radius, read by 13g; without it the ring starts from the world bounds) }
 ```
+Runtime maps (S16 `Maps`): `Maps.runtime` holds maps registered at run time (the editor's saved maps and generated maps, newest last). `Maps.registerRuntime(map)` adds or replaces a row by id, `Maps.unregisterRuntime(id)` drops one, `Maps.addRuntime(map)` registers a generated map and keeps at most `MAPS_RUNTIME_KEEP` generated ones; `Maps.get` and `Maps.forMode(mode)` see hand-made and runtime maps, `Maps.savedForMode(mode)` only those that survive a reload (no generated maps).
 Coordinates in metres, floor usually at y = 0, yaw in degrees in data (radians in code).
 
 ## Spawning contract
@@ -164,6 +179,10 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Status combos: `Damage.statusHooks` = list of `fn(id, row, source, seconds)` run after `Damage.addStatus` lands a status (S12 12f: HP-005 wet + Shock spreads to everyone wading within 8 m, Shock chains once to the source's nearest enemy within 4 m, Burn thaws Chill and Freeze; statuses a combo hands out never combo again). Only the electric 'shock' row combos: non-electric stuns (W03 bash, E10 charger knockdown, A15/G20 EMP) use the 'stun' row.
 - Shield regen: `Damage.pauseShieldRegen(id, seconds)` / `Damage.shieldRegenBlocked(id)` (S11): EMP and suppression pause shield and ability-shield regeneration.
 - Hit volumes: `Hitbox.sizeScale[id]` (whole body) and `Hitbox.headScale[id]` (head sphere) (S08) scale the hit tests; the renderer draws them through `Render.addActorStyle`.
+- Input buttons: `BTN.CYCLE_GRENADE` (bit 18) makes the next carried grenade type current (S12 `Gadgets.cycleGrenade`, players and bots).
+- Soul cards (S15 to S12): `rules.cards.fx` is read only through `soulCardFx(id, key, fallback)` (12a, player only), one reader per key: `soulLife` (12a drop), `soulMagnet` (`soulHomingRange`, 12a and 12g), `soulHeal` (12b heal), `wrathAt` (12e cost).
+- Difficulty (DIF-002): `rules.botSkill` sliders have one reader each: `playerDamage` / `enemyDamage` in `Pve.attackerScale` (14h, the only difficulty damage scale), `parry` in 14h and the W03 window (11d, against `DIFFICULTY_PARRY_BASE`), `projectileSpeed` (14i), `resourceYield` (14h drops), `lives` / `checkpoints` / `checkpointHeal` (14j), `gameSpeed` (14j rule stage), the bot fields in 14a..14d.
+- PvE level report: `PveLevel.report` writes `match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` (measurable numbers only) on `match.end` before S15 counts the match; chamber records live in `Save.data.progression.chambers` (docs/api/progression.md).
 - Pickups (S12): `Items.givers[PICKUP_KIND]` = `fn(id, key)` gives a key without a pickup (`item.grant`); `Items.grantEffects[key]` = `fn(id, item)` delivers an economy 'grant' buy (unregistered keys are not on sale); S13 fills `Economy.grants.gadget` / `.grant` at the end of 13d (S12 cannot fill an S13 registry at load). `Smoke.add(x, y, z, width, height, seconds, yaw, owner)` lays a smoke curtain; `Smoke.lineBlocked(..., viewer)` is false for a viewer with the `smokeVision` passive.
 - Ballistics: `Projectiles.spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, { gravity, drag })` (S11 11b) flies one hitscan pellet as a `bullet` projectile (row P21) while `rules.fx.ballistics` is set.
 - Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.
@@ -178,7 +197,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 ## Data catalogues
 
-`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals`.
+`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals unlocks ladder challenges operations`, plus the supporting tables `abilityKits actorParts attachments buyItems classes damageKinds decalKinds elements fireModes fxKinds gadgetKits mapDensities mapItemSets mapModules mapSizes mapTilesets materials meters perks precision statusEffects teamColors themes viewModels weaponClasses`.
 
 ## Self-test
 

@@ -85,16 +85,7 @@ Rules.addModifier('difficulty', (rules) => {
   rules.fx.timeScale = (rules.fx.timeScale === undefined ? 1 : rules.fx.timeScale) * rules.botSkill.gameSpeed;
 });
 
-// DIF-002 damage sliders through their own attacker scale (BOT-040: PvE only, never a bonus for versus bots): hits on
-// the player by PvE enemies x playerDamage, hits on PvE enemies by anyone else x enemyDamage.
-function difficultyDamageScale(source, target) {
-  const skill = Bots.skill;
-  if (!skill || source < 0 || source === target) return 1;
-  const fromEnemy = Actors.kind[source] === ACTOR_KIND.ENEMY, onEnemy = Actors.kind[target] === ACTOR_KIND.ENEMY;
-  if (fromEnemy && Actors.kind[target] === ACTOR_KIND.PLAYER) return skill.playerDamage;
-  return onEnemy && !fromEnemy ? skill.enemyDamage : 1;
-}
-Damage.addAttackerScale(difficultyDamageScale);
+// The DIF-002 damage sliders (playerDamage, enemyDamage) have one reader: the PvE attacker scale (14h Pve.attackerScale).
 
 const Bots = {
   active: new Uint8Array(MAX_ACTORS),          // 1 = this actor is driven by a brain (BOT kind that spawned)

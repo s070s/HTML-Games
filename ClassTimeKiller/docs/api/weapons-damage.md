@@ -52,6 +52,8 @@ Firing is blocked while `ACTOR_FLAG.FROZEN` or `ACTOR_FLAG.DOWNED` is set.
 - `Weapons.rayBlockers`: list of `fn(ox, oy, oz, dx, dy, dz, maxDistance) -> distance | -1` (S12 pushes devices and ability domes); `Weapons.blockDistance(...)` returns the nearest or -1. `Shot.trace` stops a hitscan ray there (no actor behind it is hit, no penetration) and emits an `impact` at the stop facing the shooter (`emitBlockedImpact`).
 - `Weapons.rateScale[id]`: the single fire-rate factor (default 1); only S12 `Buffs.applyScales` writes it (RATE status x powerup rate).
 - `Input.aimAssistOverride` (filled here): the match's `rules.botSkill.aimAssist` (0..100) replaces the player's device setting; -1 or no difficulty keeps it.
+- W03 parry (11d `stepBlock`): an ALT tap opens the parry window for `block.parryWindow` x `rules.botSkill.parry` / `DIFFICULTY_PARRY_BASE` (0.3 s, the default preset; no difficulty = x1), so the DIF-002 parry slider sets the player's window as it sets the PvE enemies' parry checks.
+- Props: a hitscan ray (`Shot.trace`) or a projectile (`touchWorld`) that hits a prop brush (`hit.brush.prop >= 0`) damages it through `damagePropAt(hit, amount, owner)` -> `Props.damage(index, amount, owner)`; the break's `world.break` names the shooter as `source`.
 - `Hitbox` lives in S08 (`08b-world-collide.js`, used by `World.raycastActors`); its sizes are the S01 body constants. `Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate)` -> distance | -1 (zone in `Hitbox.zone`, `ZONE.HEAD|BODY|LEGS`); `Hitbox.point(id, zone, out)`. Volumes: head sphere r 0.14 at eye + 0.04, torso r 0.30 from 0.85 to 1.45 m, legs r 0.22 from 0.05 to 0.85 m, both as upright cylinders scaled by height/1.8 (zones never overlap).
 
 ## Projectiles (11b)

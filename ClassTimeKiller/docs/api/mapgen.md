@@ -97,7 +97,7 @@ off the map edge.
 `id` = `'gn' + generator number + size letter + theme (2 letters) + density letter + seed + (mode or 'all')`, e.g. `gn3sfon48213ffa`;
 `code` = `GN3-48213`; `name` = theme + generator + seed; `seed` = the seed that was accepted; `modes` = `[mode]` or the default modes.
 Extra fields (ARCHITECTURE.md map format): `gen: { generator, size, theme, density, mode, requestedSeed, siteSeconds? }` and, for GN5,
-`ring: { x, z, radius }` (the royale ring centre and start radius; read by 13g once its contract request lands, see "Contract requests").
+`ring: { x, z, radius }` (the royale ring centre and start radius; 13g `mapRingStart` starts the ring there when all three numbers are valid).
 
 ## Report (`MapGen.last`)
 
@@ -169,8 +169,7 @@ with the player on team 0 in team modes. `MapGenMenu` holds the state and has no
 
 ## Contract requests
 
-- 13g royale ring: read `map.ring` (centre and start radius) when present instead of the world bounds (`worldSafeArea` in `startRing`).
-  Until then the ring starts from the world bounds, which on GN5 maps is the same centre and radius.
+
 - Ziplines (S08) do not exist yet, so GN4 links roofs with bridges, ladders and jump pads only.
 - Main menu (UI-001): an entry for the generated map screen once UI-001 lists it.
 

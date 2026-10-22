@@ -18,7 +18,6 @@ const PveBoss = {
 
   // A boss row announces its fight ('start': boss music, AUD-006) and its defeat ('defeated' with the fight's seconds: music,
   // card unlocks), or 'gone' when a living boss is removed without a kill (a failed wave or a round clear: music only).
-  // E13 is the game's final boss, so every boss defeat is also a final-boss time.
   onSpawn(id) {
     this.phase[id] = 0; this.transitionUntil[id] = 0;
     const row = Pve.rowOf(id);
@@ -50,7 +49,8 @@ const PveBoss = {
   announce(id, row, kind) {
     const event = bossEventPayload;
     event.id = id; event.phase = this.phase[id] + 1; event.phases = row.phases.length; event.kind = kind;
-    event.seconds = Sim.time - this.spawnedAt[id]; event.final = true;
+    event.seconds = Sim.time - this.spawnedAt[id];
+    event.final = kind === 'defeated' && pveFinalBoss(id);
     Bus.emit('pve.boss', event);
   },
   inTransition(id) { return Sim.time < this.transitionUntil[id]; },

@@ -677,7 +677,7 @@ function progressRules(fields) { Game.match.rules = Object.assign({}, Game.match
 function progressDropSoul(victim) {
   Items.dropSoul(victim);
   for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
-    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === CARD_SOUL_ITEM) return slot;
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === 'soul') return slot;
   }
   return -1;
 }
@@ -694,10 +694,8 @@ function progressWrathChecks(check, ids, cost, label) {
   check(label + ': Wrath Form at ' + cost + ' souls counts one form', Abilities.isActive(ids.player, 'wrath') && RunLog.inWrath && RunLog.wrathForms === 1);
   const victim = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   progressKill(victim, ids.player);
-  Bus.emit('pve.wrath', { id: ids.player, active: true });
   Sim.run((CAT.abilities.byId('wrath').duration + 1) * 120);
-  check(label + ': kills in Wrath Form count, the form ends with the ability, a PvE report of the same form is not a second one',
-    RunLog.wrathKills === 1 && !RunLog.inWrath && RunLog.wrathForms === 1);
+  check(label + ': kills in Wrath Form count, the form ends with the ability', RunLog.wrathKills === 1 && !RunLog.inWrath && RunLog.wrathForms === 1);
 }
 // C03 Soulkeep (x3 life), C11 Soul Magnet (15 m reach, both soul kinds), C20 Soul Feast (x2 heal), C09 Dark Pact (50 souls).
 function progressSoulChecks(check, ids, fiend) {
@@ -711,7 +709,7 @@ function progressSoulChecks(check, ids, fiend) {
   check('cards: C11 Soul Magnet: a soul 10 m away flies to you', Items.x[slot] < Actors.x[ids.player] + 10 - 0.5);
   Actors.health[ids.player] = 50;
   Items.take(ids.player, slot);
-  check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CARD_SOUL_ROW.instant.heal, Actors.health[ids.player]);
+  check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CAT.powerups.byId('soul').instant.heal, Actors.health[ids.player]);
   progressWrathChecks(check, ids, 50, 'cards: C09 Dark Pact');
 }
 Test.add('progress', (check) => {
