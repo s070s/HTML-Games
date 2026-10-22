@@ -792,11 +792,11 @@ Test.add('move', (check) => {
   loadTestWorld();
   useTestRules({ move: 'agile' });
   const id = groundedTester(0, 0), ally = groundedTester(-20, -20);
-  Actors.flags[id] |= ACTOR_FLAG.DOWNED;
+  Actors.flags[id] |= ACTOR_FLAG.DOWNED; Damage.downedTime[id] = DOWNED_BLEED_SECONDS;
   const startY = Actors.y[id];
   holdInput(id, 0, 1, BTN.JUMP);
   const rise = highestPoint(id, 0.5) - startY;
-  check('a downed actor does not jump (HP-007)', rise < 0.05, rise.toFixed(3));
+  check('a downed actor does not jump (HP-007)', Actors.alive[id] === 1 && rise < 0.05, rise.toFixed(3));
   Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
   Actors.remove(id); Actors.remove(ally);
 });
