@@ -185,7 +185,7 @@ function insideGrown(brush, x, y, z, hull, margin) {
 
 function deepestOverlap(mover) {
   for (let i = 0; i < Collide.candidateCount; i++) {
-    const push = insideGrown(Collide.candidates[i], mover.x, mover.y, mover.z, mover.hull, -COLLISION_SKIN * 0.5);
+    const push = insideGrown(Collide.candidates[i], mover.x, mover.y, mover.z, mover.hull, 0);
     if (push !== null) return push;
   }
   return null;
