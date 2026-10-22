@@ -256,8 +256,8 @@ Test.add('nav', (check) => {
 });
 
 Test.add('nav', (check) => {
-  // Jump pad at the origin throws actors onto an 8 m platform (vy 20, flight 1.45 s under gravity 20, lands near x 13).
-  const pad = { kind: 'jumppad', min: [-0.75, 0, -0.75], max: [0.75, 0.5, 0.75], launch: [8.98, 20, 0] };
+  // Jump pad at the origin throws actors onto an 8 m platform at x 13 (S08 fields: target and peak).
+  const pad = { kind: 'jumppad', min: [-0.75, 0, -0.75], max: [0.75, 0.5, 0.75], target: [13, 8, 0], peak: 2 };
   navTestLoad([navTestFloor(-10, -10, 20, 10, 0), navTestBox([10, 0, -3], [16, 8, 3])], { triggers: [pad] });
   const floor = navTestNode(-5, 0, 0), high = navTestNode(13, 8, 0), padNode = navTestNode(0, 0, 0);
   let padLinks = 0, landedOnTop = true;

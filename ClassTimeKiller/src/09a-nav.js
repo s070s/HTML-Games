@@ -5,7 +5,7 @@
 //   2. nodes: one per 2 m cell and connected surface (the sample nearest the cell centre), plus one node in every
 //      short standable run (doorways, gaps between crates) so narrow openings are never missed, plus trigger centres.
 //   3. links: walk / crouch / swim (raster walk + chest-height line), jump (flagged with the height it needs),
-//      drop (flagged with its height), ladder, jump pad (launch arc), teleporter; all tested against the brushes.
+//      drop (flagged with its height), ladder, jump pad (S08 target arc), teleporter; all tested against the brushes.
 //   4. strongly connected components, cover points, node lookup grid.
 // Pathfinding, cache, per-tick budget and smoothing live in 09b-nav-path.js. Public API: docs/api/nav.md.
 
@@ -43,9 +43,6 @@ const NAV_BAND_BELOW = 0.6;            // height band for finding the node at a 
 const NAV_BAND_ABOVE = 1.0;
 const NAV_LADDER_TOP_BAND = 1.6;       // the ladder's top node may sit this far below the volume top
 const NAV_TRIGGER_REACH = 2.5;         // horizontal search radius for trigger end nodes
-const NAV_PAD_STEP = 1 / 60;           // jump pad arc integration step (s)
-const NAV_PAD_MAX_TIME = 6;
-const NAV_ARC_LIFT = 0.05;             // the arc trace starts this far above the pad floor
 const NAV_LANDING_SEARCH = 2.5;
 const NAV_VERTICAL_WEIGHT = 2;         // nearestNode: one metre of height counts like two metres sideways
 const NAV_NEAREST_RADIUS = 6;
@@ -87,7 +84,6 @@ const navBrushGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: 
 const navRaster = { originX: 0, originZ: 0, columnsX: 0, columnsZ: 0, columnStart: null, sampleY: null, sampleFlags: null, sampleColumn: null };
 const navNodeGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
 const navSearchState = { x: 0, y: 0, z: 0, yLow: 0, yHigh: 0, radiusSquared: 0, needSight: false, best: -1, score: 0 };
-const navArc = { x: 0, y: 0, z: 0, time: 0 };
 const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
 const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
 const navTarjan = { index: null, low: null, onStack: null, stack: null, stackSize: 0, callNode: null, callEdge: null, depth: -1, counter: 0 };
@@ -871,42 +867,15 @@ function navLinkLadder(builder, trigger) {
   navAddLink(builder, topNode, bottomNode, NAV_LINK.LADDER, climb, seconds);
 }
 
-// Pad fields: launch [vx, vy, vz] (m/s, the velocity the pad gives) traced under limits.gravity, or target [x, y, z].
+// Pad fields as S08 reads them (docs/api/world-move.md): target [x, y, z] landing point and peak; the flight time is
+// S08's own arc (World.padArc) under limits.gravity.
 function navLinkJumpPad(builder, trigger) {
-  const padNode = navFloorNodeOf(trigger);
-  if (padNode < 0 || !navPadLanding(trigger, Nav.nodeY[padNode])) return;
-  const landing = navSearchNodes(navArc.x, navArc.y, navArc.z, navArc.y - NAV_BAND_BELOW, navArc.y + NAV_BAND_BELOW, NAV_LANDING_SEARCH, true);
+  const padNode = navFloorNodeOf(trigger), target = trigger.target;
+  if (padNode < 0 || !Array.isArray(target)) return;
+  const landing = navSearchNodes(target[0], target[1], target[2], target[1] - NAV_BAND_BELOW, target[1] + NAV_BAND_BELOW, NAV_LANDING_SEARCH, true);
   if (landing < 0 || landing === padNode) return;
-  navAddLink(builder, padNode, landing, NAV_LINK.JUMPPAD, 0, navArc.time + NAV_LINK_ROWS[NAV_LINK.JUMPPAD].extraSeconds);
-}
-
-function navPadLanding(trigger, floorY) {
-  if (trigger.target) {
-    Vec.set(navArc, trigger.target[0], trigger.target[1], trigger.target[2]);
-    navArc.time = Math.hypot(trigger.target[0] - navVolumeCentreX(trigger), trigger.target[2] - navVolumeCentreZ(trigger)) / Nav.limits.referenceSpeed;
-    return true;
-  }
-  return Array.isArray(trigger.launch) && navTraceArc(navVolumeCentreX(trigger), floorY + NAV_ARC_LIFT, navVolumeCentreZ(trigger), trigger.launch);
-}
-
-// Integrates the launch arc; true when the feet land on a walkable floor (navArc holds the point and flight time).
-function navTraceArc(x, y, z, launch) {
-  let vx = launch[0], vy = launch[1], vz = launch[2];
-  for (let time = NAV_PAD_STEP; time <= NAV_PAD_MAX_TIME; time += NAV_PAD_STEP) {
-    vy -= Nav.limits.gravity * NAV_PAD_STEP;
-    const nextX = x + vx * NAV_PAD_STEP, nextY = y + vy * NAV_PAD_STEP, nextZ = z + vz * NAV_PAD_STEP;
-    if (!navSegmentClear(x, y + NAV_HEAD, z, nextX, nextY + NAV_HEAD, nextZ)) return false;
-    if (navSegmentHit(x, y, z, nextX, nextY, nextZ, navHit)) return navArcLanded(time);
-    x = nextX; y = nextY; z = nextZ;
-  }
-  return false;
-}
-
-function navArcLanded(time) {
-  if (navHit.ny < NAV_MIN_FLOOR_NORMAL) return false;
-  Vec.set(navArc, navHit.x, navHit.y, navHit.z);
-  navArc.time = time;
-  return true;
+  const seconds = World.padArc(trigger, Nav.nodeY[padNode], Nav.limits.gravity).time;
+  navAddLink(builder, padNode, landing, NAV_LINK.JUMPPAD, 0, seconds + NAV_LINK_ROWS[NAV_LINK.JUMPPAD].extraSeconds);
 }
 
 // Teleporter fields: exit [x, y, z] (feet position after the jump).

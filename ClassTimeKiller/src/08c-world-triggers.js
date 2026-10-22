@@ -20,13 +20,14 @@ const LETHAL_DAMAGE = 100000;
 const JUMPPAD_REARM = 0.3;              // seconds before the same actor can be launched again
 const MIN_PAD_GRAVITY = 0.5;            // m/s^2 floor so a zero-gravity mutator still gives a finite arc
 const MIN_PAD_FLIGHT = 0.1;             // seconds: a launch never divides by a zero flight time
+const JUMPPAD_PEAK = 2;                 // default metres the arc rises above the higher of feet and target
 const FALL_OUT_DEPTH = 30;              // metres below the lowest brush that count as falling out of the world
 const TELEFRAG_REACH = 0.8;             // two capsules (radius 0.40 each) overlap when closer than this
 const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the capsule's middle
 
 // fields: defaults (Data.normalize); points: fields that must be [x, y, z]; valid(trigger): extra row check.
 const TRIGGER_KINDS = {
-  jumppad: { fields: { target: REQUIRED, peak: 2 }, points: ['target'], valid: (pad) => pad.peak > 0, touch: touchJumpPad },
+  jumppad: { fields: { target: REQUIRED, peak: JUMPPAD_PEAK }, points: ['target'], valid: (pad) => pad.peak > 0, touch: touchJumpPad },
   teleporter: { fields: { exit: REQUIRED, yaw: 0 }, points: ['exit'], touch: touchTeleporter },
   ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
   water: { fields: {}, touch: touchWater },
@@ -114,17 +115,24 @@ function requestDamageAt(target, source, amount, kind, element, x, y, z) {
   Bus.emit('damage.request', damageRequest);
 }
 
-// Ballistic launch: up to the peak, then down onto the target, for this actor's gravity (MOV-019 designer height).
+const padArc = { upSpeed: 0, time: 0 };
+
+// Ballistic jump pad arc (MOV-019 designer height): up to `peak` m above the higher of the start and the target, then
+// down onto the target, for this gravity. Fills and returns padArc { upSpeed, time }. S09 times its pad links with it.
+World.padArc = function padArcFor(pad, startY, gravity) {
+  const g = Math.max(MIN_PAD_GRAVITY, gravity), target = pad.target, peak = pad.peak === undefined ? JUMPPAD_PEAK : pad.peak;
+  const peakY = Math.max(startY, target[1]) + peak;
+  padArc.upSpeed = Math.sqrt(2 * g * (peakY - startY));
+  padArc.time = Math.max(MIN_PAD_FLIGHT, padArc.upSpeed / g + Math.sqrt(2 * (peakY - target[1]) / g));
+  return padArc;
+};
+
 function touchJumpPad(id, pad, actorGravity) {
   if (TriggerState.padClock[id] > 0) return 0;
-  const gravity = Math.max(MIN_PAD_GRAVITY, actorGravity);
-  const target = pad.target, startY = Actors.y[id];
-  const peakY = Math.max(startY, target[1]) + pad.peak;
-  const upSpeed = Math.sqrt(2 * gravity * (peakY - startY));
-  const flightTime = Math.max(MIN_PAD_FLIGHT, upSpeed / gravity + Math.sqrt(2 * (peakY - target[1]) / gravity));
-  Actors.vx[id] = (target[0] - Actors.x[id]) / flightTime;
-  Actors.vy[id] = upSpeed;
-  Actors.vz[id] = (target[2] - Actors.z[id]) / flightTime;
+  const target = pad.target, arc = World.padArc(pad, Actors.y[id], actorGravity);
+  Actors.vx[id] = (target[0] - Actors.x[id]) / arc.time;
+  Actors.vy[id] = arc.upSpeed;
+  Actors.vz[id] = (target[2] - Actors.z[id]) / arc.time;
   TriggerState.padClock[id] = JUMPPAD_REARM;
   emitTrigger(id, pad);
   return 0;

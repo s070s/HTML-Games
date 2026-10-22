@@ -45,7 +45,7 @@ All brush tests use the same plane math as `World.raycast` (`rayVersusBrush`), t
 | kind | extra fields | link |
 |---|---|---|
 | `ladder` | - | `LADDER` both ways between the floor node at the volume base and the node near the volume top (top node up to 1.6 m under `max[1]`) |
-| `jumppad` | `launch: [vx, vy, vz]` m/s (velocity given by the pad), or `target: [x, y, z]` landing point | `JUMPPAD` from the pad centre node to the node where the traced arc lands on a walkable floor |
+| `jumppad` | S08 fields: `target: [x, y, z]` landing point, `peak` (default 2) | `JUMPPAD` from the pad centre node to the node at the target; cost = S08's arc flight time (`World.padArc`) |
 | `teleporter` | `exit: [x, y, z]` feet position after teleporting | `TELEPORT` from the volume's floor node to the node nearest the exit |
 | `water` | - | samples inside are wet (`WATER` flag, swim links at 50 % speed) |
 
