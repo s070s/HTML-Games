@@ -347,7 +347,7 @@ const Input = {
     this.addLook(event.movementX * scale, event.movementY * scale * (this.config.invertY ? -1 : 1), false);
   },
   onWheel(event) {
-    if (this.uiOpen || Game.state !== 'playing') return;
+    if (!this.capture && (this.uiOpen || Game.state !== 'playing')) return;   // a rebinding capture may take the wheel inside menus
     event.preventDefault();
     this.setDevice('kbm');
     const unit = event.deltaMode === 1 ? WHEEL_LINE_UNITS : event.deltaMode === 2 ? WHEEL_PAGE_UNITS : 1;

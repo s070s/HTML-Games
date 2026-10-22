@@ -77,25 +77,28 @@ function formatSettingValue(value, definition) {
   const step = definition.step || 1, decimals = (String(step).split('.')[1] || '').length;
   return value.toFixed(decimals) + (definition.max === 100 && definition.min === 0 ? '%' : '');
 }
+// Internal values (a string without options, such as the benchmark result) have no control and stay out of the tabs.
+function isEditableSetting(definition) {
+  return !!definition.options || typeof definition.fallback === 'boolean' || (typeof definition.fallback === 'number' && definition.min !== undefined);
+}
 function settingControl(key, definition) {
   const value = Settings.get(key), apply = (next) => Settings.set(key, next);
   if (definition.options) return Ui.cycle(definition.options, definition.optionLabels || definition.options.map(String), value, apply);
   if (typeof definition.fallback === 'boolean') return Ui.toggle(value, apply);
-  if (typeof definition.fallback !== 'number' || definition.min === undefined) return null;
   const step = definition.step || (definition.max - definition.min) / 100;
   return Ui.slider({ min: definition.min, max: definition.max, step, value, format: (shown) => formatSettingValue(shown, definition) }, apply);
 }
 function settingKeys(category) {
   const keys = [];
-  for (const [key, definition] of Settings.definitions) if (definition.category === category) keys.push(key);
+  for (const [key, definition] of Settings.definitions) if (definition.category === category && isEditableSetting(definition)) keys.push(key);
   return keys;
 }
 function renderSettingsTab(list, category) {
   list.replaceChildren();
   for (const addExtra of Ui.settingsExtras[category] || []) addExtra(list);
   for (const key of settingKeys(category)) {
-    const definition = Settings.definitions.get(key), control = settingControl(key, definition);
-    if (control) list.appendChild(Ui.row(definition.label || key, control));
+    const definition = Settings.definitions.get(key);
+    list.appendChild(Ui.row(definition.label || key, settingControl(key, definition)));
   }
 }
 Ui.register('settings', {
