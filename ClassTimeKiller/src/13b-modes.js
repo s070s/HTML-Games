@@ -39,6 +39,7 @@ const NEAR_ANY = 0, NEAR_TEAM = 1, NEAR_ENEMY = 2;       // findActorNear relati
 const PHASE = { IDLE: 'idle', FREEZE: 'freeze', LIVE: 'live', ROUND_END: 'roundEnd', ENDED: 'ended' };
 const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // blue, red, neutral
 const NEUTRAL_COLOR = 2;
+const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
 
 const DEFAULT_BEHAVIOUR = {
@@ -661,7 +662,17 @@ const Modes = {
     for (let id = 0; id < Actors.count; id++) {
       if (this.actsOnObjectives(id) && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
     }
-    this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
+    this.announce(TEAM_NAMES[team] + ' captured ' + this.objectiveLabel(objective), 'capture', 2);
+  },
+  // The HUD letter of list[index] (0 = A): its place among the active objectives of its kind before it.
+  objectiveLetter(list, index) {
+    let letter = 0;
+    for (let i = 0; i < index; i++) if (list[i].kind === list[index].kind && list[i].active) letter++;
+    return letter;
+  },
+  // What players read and hear for an objective: the map's name for it, else 'point' and the letter the HUD shows.
+  objectiveLabel(objective) {
+    return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
   },
   // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
   // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
@@ -826,7 +837,7 @@ const Modes = {
 
 function makeObjective(source, index) {
   const kind = source.kind, x = source.x || 0, y = source.y || 0, z = source.z || 0;
-  return { index, id: source.id || kind + index, kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
+  return { index, id: source.id || kind + index, name: source.name || '', kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
     x, y, z, homeX: x, homeY: y, homeZ: z, radius: source.radius || OBJECTIVE_RADIUS[kind] || DEFAULT_OBJECTIVE_RADIUS,
     owner: NO_TEAM, capturingTeam: NO_TEAM, progress: 0, contested: false, inside: new Int16Array(TEAM_COUNT), active: true,
     state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null,

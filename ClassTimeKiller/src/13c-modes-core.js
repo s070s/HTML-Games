@@ -133,7 +133,7 @@ Modes.register('hardpoint', {
       const hill = this.hills[i];
       hill.active = i === index; hill.owner = NO_TEAM; hill.holdTime = 0;
     }
-    Modes.announce('Hotpoint at ' + this.hills[index].id, 'objective', 2);
+    Modes.announce('The hotpoint moved', 'objective', 2);   // the one active hill is always HUD letter A: the marker shows where
   },
 });
 
