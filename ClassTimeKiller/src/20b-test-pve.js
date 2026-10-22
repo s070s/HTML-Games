@@ -953,6 +953,20 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+// ECP07 at the wave break: a bot whose gun ran low buys a refill in the shop through Economy.buy, like the player.
+Test.add('pve', (check) => withShortShop(() => {
+  const bot = startPveMode('horde', [], {}, { bots: [{ team: 0 }] })[0];
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.queue.count = 0;
+  Pve.clearEnemies();
+  const weapon = Weapons.currentWeapon(bot), slot = Weapons.slotIndex(bot, weapon.index);
+  Weapons.reserve[slot] = 0;
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.SHOP, 10);
+  const item = CAT.buyItems.byId(PVE_BOT_RESTOCK_ITEM), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
+  check('a bot restocks its emptied gun at the wave shop', bought === 1 && Weapons.reserve[slot] === Weapons.maxReserve(bot, weapon), bought + ' bought, reserve ' + Weapons.reserve[slot]);
+  endModeTest();
+}));
+
 // Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
 const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
 Test.add('pvesoak', (check) => {
