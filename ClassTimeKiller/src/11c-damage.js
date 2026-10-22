@@ -70,6 +70,7 @@ const Damage = {
   statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
   downedWeapon: null,                               // fn(id) -> weapon key drawn while downed, '' none (S13: the Last Stand perk)
+  downHooks: [],                                    // fn(id) after an actor goes down (S13: its carried objectives drop)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
@@ -247,6 +248,7 @@ const Damage = {
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    for (let i = 0; i < this.downHooks.length; i++) this.downHooks[i](target);
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
   },
