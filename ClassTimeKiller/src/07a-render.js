@@ -6,6 +6,7 @@
 
 const MAX_PROGRAMS = 8;                 // REN-003 / PERF-005
 const MAX_DYNAMIC_LIGHTS = 8;           // REN-004 hard cap (the quality row's `lights` is the active cap)
+const SHADOW_TEXTURE_UNIT = 1;          // the sun shadow map's texture unit (nothing else binds unit 1)
 const LIGHT_SCALE = 2;                  // baked light is stored as light / LIGHT_SCALE in 8-bit vertex colours
 const FOG_FULL_AT_VIEW = 2.375;         // exp2 fog factor reaches 98% at the view distance: sqrt(log2(50))
 const TOUCH_DEVICE = window.matchMedia('(pointer: coarse)').matches;
@@ -34,6 +35,7 @@ const Render = {
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
   actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible }
+  worldQuery: null,        // S08 sets it to World: { brushes } (convex brushes with planes), read on 'world.load'
   addSource(name, draw) { this.sources.push({ name, draw }); },
 
   // ---- State ----
@@ -63,6 +65,7 @@ const Render = {
     ambientSky: new Float32Array([0.45, 0.5, 0.6]), ambientGround: new Float32Array([0.3, 0.28, 0.25]),
     fogColor: new Float32Array([0.7, 0.78, 0.85]), fogDensity: 0.015, lightCount: 0,
     lightPositions: new Float32Array(MAX_DYNAMIC_LIGHTS * 4), lightColors: new Float32Array(MAX_DYNAMIC_LIGHTS * 4),
+    shadowMatrix: Mat4.create(), shadowOn: 0,
   },
 
   // A shader program by name; attributes = { name: location } bound before linking so vertex arrays never depend on the driver.
@@ -174,6 +177,16 @@ uniform float uFogDensity;
 uniform int uLightCount;
 uniform vec4 uLightPositions[${MAX_DYNAMIC_LIGHTS}];
 uniform vec4 uLightColors[${MAX_DYNAMIC_LIGHTS}];
+uniform mat4 uShadowMatrix;
+uniform float uShadowOn;
+uniform highp sampler2DShadow uShadowMap;
+// 0 = in the sun shadow of a moving object, 1 = lit (always 1 when the preset has no sun shadow map).
+float sunShadow(vec3 position, vec3 normal) {
+  if (uShadowOn < 0.5) return 1.0;
+  vec3 coords = (uShadowMatrix * vec4(position + normal * 0.05, 1.0)).xyz * 0.5 + 0.5;
+  if (any(lessThan(coords, vec3(0.0))) || any(greaterThan(coords, vec3(1.0)))) return 1.0;
+  return texture(uShadowMap, vec3(coords.xy, coords.z - 0.0015));
+}
 vec3 dynamicLight(vec3 position, vec3 normal) {
   vec3 sum = vec3(0.0);
   for (int i = 0; i < ${MAX_DYNAMIC_LIGHTS}; i++) {
@@ -211,6 +224,9 @@ function applyFrameUniforms(gl, program, viewProjection) {
   if (u.uAmbientGround) gl.uniform3fv(u.uAmbientGround, frame.ambientGround);
   if (u.uFogColor) gl.uniform3fv(u.uFogColor, frame.fogColor);
   if (u.uFogDensity) gl.uniform1f(u.uFogDensity, frame.fogDensity);
+  if (u.uShadowMap) gl.uniform1i(u.uShadowMap, SHADOW_TEXTURE_UNIT);
+  if (u.uShadowOn) gl.uniform1f(u.uShadowOn, frame.shadowOn);
+  if (u.uShadowMatrix) gl.uniformMatrix4fv(u.uShadowMatrix, false, frame.shadowMatrix);
   if (!u.uLightCount) return;
   gl.uniform1i(u.uLightCount, frame.lightCount);
   gl.uniform4fv(u.uLightPositions, frame.lightPositions);
@@ -498,7 +514,10 @@ function handleContextRestored() {
   try {
     createGpuResources(Render.gl);
   } catch (error) {
+    // A rebuild that fails would leave a frozen, paused screen: show the PLT-002 message instead.
     ErrorLog.add('render.restore', error);
+    Render.ready = false;
+    showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
     return;
   }
   Render.lost = false;

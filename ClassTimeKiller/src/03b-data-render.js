@@ -94,13 +94,14 @@ Data.define('decalKinds', { id: REQUIRED, size: 0.1, life: 30, color: '#1b1b1b',
 
 // Rigid-part humanoid (REN-002) in actor space for a 1.80 m stand: x = left, y = up, z = forward (DATA-002).
 // pivot = joint position, offset = part centre relative to the joint, size = full size, hold = base pitch (deg),
-// aim = how much the part follows the actor's pitch, swing = walk-cycle amplitude and side (+/-), far = kept in the far LOD.
-// tint: team | dark | skin | visor | accent. The far LOD keeps exactly the 6 parts marked far (REN-002).
-Data.define('actorParts', { id: REQUIRED, shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, aim: 0, swing: 0, tint: 'team', far: false }, [
-  { id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true },
-  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true },
-  { id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'dark', far: true },
-  { id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'dark', far: true },
+// aim = how much the part follows the actor's pitch, swing = walk-cycle amplitude and side (+/-), far = kept in the far LOD,
+// distant = kept past the preset's lodFar (a still silhouette). tint: team | dark | skin | visor | accent.
+// The far LOD keeps exactly the 6 parts marked far (REN-002).
+Data.define('actorParts', { id: REQUIRED, shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false }, [
+  { id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true },
+  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true },
+  { id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'dark', far: true, distant: true },
+  { id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'dark', far: true, distant: true },
   { id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true },
   { id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true },
   { id: 'hips', shape: 'box', pivot: [0, 0.88, 0], size: [0.46, 0.2, 0.28], tint: 'dark' },

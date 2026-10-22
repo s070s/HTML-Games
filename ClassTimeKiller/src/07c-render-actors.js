@@ -1,7 +1,8 @@
 // Instanced procedural shapes (REN-003 "instanced actors/props") and the rigid-part humanoids (REN-002).
 // Every shape lives in one static mesh buffer; a batch keeps one fixed instance region per shape, so a frame
 // costs one upload + one instanced draw per used shape. Sources (Render.addSource) fill the props batch,
-// actors are drawn from Actors with interpolation, code animation, 2 LODs, outlines and blob shadows (MIS-037).
+// actors are drawn from Actors with interpolation, code animation, 2 LODs (+ a static silhouette past lodFar),
+// outlines, blob shadows (MIS-037) and, on presets with shadows 'sun', one sun shadow map (REN-004).
 
 const SHAPES = ['box', 'sphere', 'cylinder', 'capsule', 'cone', 'wedge', 'ring', 'disc'];
 const SHAPE_INDEX = {};
@@ -16,6 +17,7 @@ const OUTLINE_COLOR = [0.03, 0.03, 0.04];
 const SHADOW_STRENGTH = 0.55;
 const SHADOW_FADE_METERS = 6;
 const SHADOW_PROBE_METERS = 20;
+const STRENGTH_SLOT = 13;                // instance float the blob-shadow pass reads its strength from
 
 // ---- Shape geometry (unit size, centred on the origin; sizes passed to batch.mesh are full sizes) ----
 // Surface of revolution around Y from rings { r, y, nr, ny } (radius, height, normal radial / vertical part).
@@ -118,21 +120,22 @@ const shapeBatches = [];
 function makeShapeBatch(name, capacity) {
   const batch = {
     name, capacity, counts: new Uint16Array(SHAPES.length), data: new Float32Array(SHAPES.length * capacity * INSTANCE_FLOATS),
-    buffer: null, vertexArrays: [], lastOffset: 0,
+    buffer: null, vertexArrays: [],
     clear() { this.counts.fill(0); },
     // ARCHITECTURE contract: centre (x, y, z), yaw/pitch radians, full sizes in metres, colour 0..1, emissive 0..1.
+    // Returns the instance's float offset in `data`, or -1 when the shape is unknown or the region is full.
     mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive) {
       const shapeIndex = SHAPE_INDEX[shape];
-      if (shapeIndex === undefined) return;
+      if (shapeIndex === undefined) return -1;
       const count = this.counts[shapeIndex];
-      if (count >= this.capacity) { Render.stats.droppedInstances++; return; }
+      if (count >= this.capacity) { Render.stats.droppedInstances++; return -1; }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
       d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
       d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
       d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
-      d[o + 12] = sampleSunVisibility(x, y, z); d[o + 13] = 1;
+      d[o + 12] = sampleSunVisibility(x, y, z); d[o + STRENGTH_SLOT] = 1;
       this.counts[shapeIndex] = count + 1;
-      this.lastOffset = o;
+      return o;
     },
   };
   shapeBatches.push(batch);
@@ -176,6 +179,11 @@ function uploadBatch(gl, batch) {
 // Draws every used shape of a batch with the shapes program (already in use, uniforms set).
 function drawBatch(gl, batch, mode) {
   gl.uniform1i(Render.programs.shapes.uniforms.uMode, mode);
+  drawBatchInstances(gl, batch);
+}
+
+// One instanced draw per used shape with whatever program is in use (shapes or the shadow-map program).
+function drawBatchInstances(gl, batch) {
   for (let shape = 0; shape < SHAPES.length; shape++) {
     const count = batch.counts[shape];
     if (!count) continue;
@@ -242,7 +250,7 @@ void main() {
   }
   if (uMode == 2) { outColor = vec4(uOutlineColor, 1.0); return; }
   vec3 normal = normalize(vNormal);
-  float sun = max(dot(normal, uSunDirection), 0.0) * vExtra.x;
+  float sun = max(dot(normal, uSunDirection), 0.0) * vExtra.x * sunShadow(vPosition, normal);
   vec3 light = hemisphereLight(normal) + uSunColor * sun + dynamicLight(vPosition, normal);
   float rim = pow(1.0 - max(dot(normal, normalize(uCameraPosition - vPosition)), 0.0), 3.0) * 0.25;
   vec3 color = vColor.rgb * (light + rim) + vColor.rgb * vColor.a * 2.0;
@@ -270,8 +278,6 @@ Render.addUpdate(40, fillSources);
 function drawShapes(gl) {
   gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND);
   gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
-  uploadBatch(gl, propBatch);
-  uploadBatch(gl, actorBatch);
   useShapesProgram(gl, Render.frame.viewProjection);
   drawBatch(gl, propBatch, SHAPE_MODE.lit);
   drawBatch(gl, actorBatch, SHAPE_MODE.lit);
@@ -299,6 +305,10 @@ Render.addPass(40, drawShadows);
 // ---- Actors (REN-002): rigid parts, code animation, LODs, style hook ----
 const NEAR_PARTS = CAT.actorParts.slice();
 const FAR_PARTS = CAT.actorParts.filter((part) => part.far);
+const DISTANT_PARTS = CAT.actorParts.filter((part) => part.distant);
+const LOD = { near: 0, far: 1, distant: 2 };   // distant = past the preset's lodFar: a still silhouette
+const LOD_PARTS = [NEAR_PARTS, FAR_PARTS, DISTANT_PARTS];
+const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle every 4th frame (plan step 1.8)
 const STAND_HEIGHT = 1.8;
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
 const LEG_LENGTH = 0.9;                  // lower-body height the crouch squash is measured against
@@ -308,12 +318,14 @@ const STRIDE_METERS = 1.7;
 const MAX_SWING = 0.75;                  // radians at full run
 const AIR_SWING = 0.35;
 const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33' };
+const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
+const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, visible: true };
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
 const tintColor = new Float32Array(3);
 const rotated = { x: 0, y: 0, z: 0 };
-const shadowHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
+const ActorFrame = { count: 0 };
 
 // CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)).
 function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
@@ -339,21 +351,36 @@ function readActorStyle(id) {
   return actorStyle;
 }
 
-function readActorPose(id, seconds, alpha) {
-  const pose = actorPose, speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+// Interpolated feet position and body angles (Loop alpha between the previous and the current sim step).
+function readActorPosition(id, alpha) {
+  const pose = actorPose;
   pose.x = lerp(Actors.prevX[id], Actors.x[id], alpha);
   pose.y = lerp(Actors.prevY[id], Actors.y[id], alpha);
   pose.z = lerp(Actors.prevZ[id], Actors.z[id], alpha);
   pose.yaw = lerpAngle(Actors.prevYaw[id], Actors.yaw[id], alpha);
   pose.pitch = lerp(Actors.prevPitch[id], Actors.pitch[id], alpha);
-  actorPhase[id] = (actorPhase[id] + speed * seconds * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
+  return pose;
+}
+
+function lodFor(distanceSquared, quality) {
+  if (distanceSquared < quality.lodNear * quality.lodNear) return LOD.near;
+  return distanceSquared < quality.lodFar * quality.lodFar ? LOD.far : LOD.distant;
+}
+
+// Walk cycle from speed, crouch from height. The far LOD applies its walk time in steps; distant actors stand still.
+function animateActor(id, pose, seconds, lod) {
+  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
+  if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
+    actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
+    actorPendingSeconds[id] = 0;
+  }
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-  const amount = Math.min(1, speed / RUN_SPEED);
+  const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_SPEED);
   pose.swing = grounded ? Math.sin(actorPhase[id]) * amount * MAX_SWING : AIR_SWING;
   pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
   pose.drop = (1 - clamp(Actors.height[id] / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
   pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
-  return pose;
 }
 
 function partColor(part, style) {
@@ -376,20 +403,15 @@ function emitActorPart(part, pose, style) {
     part.size[0] * scale, part.size[1] * squash * scale, part.size[2] * scale, tintColor[0], tintColor[1], tintColor[2], emissive);
 }
 
-// Blob shadow under every actor (the local player too, MIS-037); airborne actors probe the ground below.
-const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
-
+// Blob shadow under an actor (MIS-037); airborne actors probe the ground below in the renderer's brush grid.
 function emitActorShadow(id, pose, scale) {
-  let groundY = pose.y;
-  if ((Actors.flags[id] & ACTOR_FLAG.ON_GROUND) === 0) {
-    if (!World.raycast(pose.x, pose.y + 0.1, pose.z, 0, -1, 0, SHADOW_PROBE_METERS, shadowHit)) return;
-    groundY = shadowHit.y;
-  }
+  const airborne = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) === 0;
+  const groundY = airborne ? groundBelow(pose.x, pose.y + 0.1, pose.z, SHADOW_PROBE_METERS) : pose.y;
   const fade = 1 - clamp((pose.y - groundY) / SHADOW_FADE_METERS, 0, 1);
   if (fade <= 0) return;
   const size = 0.95 * scale * (0.6 + 0.4 * fade);
-  shadowBatch.mesh('disc', pose.x, groundY + 0.02, pose.z, 0, 0, size, 1, size, 0, 0, 0, 0);
-  shadowBatch.data[shadowBatch.lastOffset + 13] = SHADOW_STRENGTH * fade; // the shadow pass reads strength from this slot
+  const slot = shadowBatch.mesh('disc', pose.x, groundY + 0.02, pose.z, 0, 0, size, 1, size, 0, 0, 0, 0);
+  if (slot >= 0) shadowBatch.data[slot + STRENGTH_SLOT] = SHADOW_STRENGTH * fade;
 }
 
 // A loose box around the body and its blob shadow; actors outside the view cost nothing
@@ -401,18 +423,130 @@ function actorInView(pose, scale) {
 function fillActors(seconds, alpha) {
   actorBatch.clear();
   shadowBatch.clear();
-  const camera = Render.camera, quality = Render.quality;
-  const nearSquared = quality.lodNear * quality.lodNear, viewSquared = quality.viewDistance * quality.viewDistance;
+  ActorFrame.count++;
   for (let id = 0; id < Actors.count; id++) {
-    if (Actors.kind[id] === ACTOR_KIND.NONE || !Actors.alive[id]) continue;
-    const pose = readActorPose(id, seconds, alpha), style = readActorStyle(id);
-    if (!style.visible) continue;
-    const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
-    if (distanceSquared > viewSquared || !actorInView(pose, style.scale)) continue;
-    emitActorShadow(id, pose, style.scale);
-    if (id === Game.playerId && !Render.view.overridden) continue; // first person: no own body
-    const parts = distanceSquared < nearSquared ? NEAR_PARTS : FAR_PARTS;
-    for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
+    if (Actors.kind[id] !== ACTOR_KIND.NONE && Actors.alive[id]) drawActor(id, seconds, alpha);
   }
 }
 Render.addUpdate(30, fillActors);
+
+// The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
+// unless the sun shadow map already covers them.
+function drawActor(id, seconds, alpha) {
+  const style = readActorStyle(id);
+  if (!style.visible) return;
+  const pose = readActorPosition(id, alpha), camera = Render.camera, quality = Render.quality;
+  const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
+  if (distanceSquared > quality.viewDistance * quality.viewDistance || !actorInView(pose, style.scale)) return;
+  const lod = lodFor(distanceSquared, quality);
+  animateActor(id, pose, seconds, lod);
+  const firstPerson = id === Game.playerId && !Render.view.overridden;
+  if (firstPerson || !SunShadow.covers(distanceSquared)) emitActorShadow(id, pose, style.scale);
+  if (firstPerson) return;
+  const parts = LOD_PARTS[lod];
+  for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
+}
+
+// ---- Sun shadow map (REN-004: one sun shadow on presets with shadows 'sun', High/Ultra) ----
+// Props and actors cast into one depth map around the camera; the world and shape shaders sample it (sunShadow in
+// GLSL_LIGHTING). Static geometry keeps its baked shadows. Other presets bind a 1x1 map and use blob shadows only.
+const SHADOW_MAP_SIZE = 1024;
+const SHADOW_HALF_METERS = 24;           // half width of the square the map covers
+const SHADOW_DEPTH_HALF_METERS = 40;     // casters up to this far toward the sun are kept
+const SHADOW_AHEAD_SHARE = 0.4;          // the map centre sits this share of the half width ahead of the camera
+const SHADOW_COVER_METERS = SHADOW_HALF_METERS * (1 - SHADOW_AHEAD_SHARE); // always inside the map
+const SunShadow = {
+  active: false, size: 0, texture: null, framebuffer: null, frames: 0,
+  covers(distanceSquared) { return this.active && distanceSquared < SHADOW_COVER_METERS * SHADOW_COVER_METERS; },
+};
+
+function createSunShadowGpu(gl) {
+  SunShadow.texture = gl.createTexture();
+  SunShadow.framebuffer = gl.createFramebuffer();
+  SunShadow.size = 0;
+  sizeSunShadow(gl, 1);
+}
+Render.addGpuPart('sunShadow', createSunShadowGpu);
+
+// (Re)allocates the depth map: full size while active, 1x1 otherwise (the shadow sampler always needs a depth texture).
+function sizeSunShadow(gl, size) {
+  if (SunShadow.size === size) return;
+  SunShadow.size = size;
+  gl.bindTexture(gl.TEXTURE_2D, SunShadow.texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, size, size, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, SunShadow.framebuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, SunShadow.texture, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// Orthographic sun view around a point ahead of the camera, snapped to whole texels so shadow edges do not crawl.
+function updateSunShadow() {
+  SunShadow.active = Render.quality.shadows === 'sun';
+  Render.frame.shadowOn = SunShadow.active ? 1 : 0;
+  if (!SunShadow.active) return;
+  const sun = Render.frame.sunDirection, camera = Render.camera, m = Render.frame.shadowMatrix;
+  const fx = -sun[0], fy = -sun[1], fz = -sun[2];             // light travel direction
+  const flat = Math.hypot(fz, fx) || 1;
+  const rx = -fz / flat, ry = 0, rz = fx / flat;                // right = cross(travel, up), normalized
+  const ux = ry * fz - rz * fy, uy = rz * fx - rx * fz, uz = rx * fy - ry * fx;
+  const ahead = SHADOW_HALF_METERS * SHADOW_AHEAD_SHARE, texel = (SHADOW_HALF_METERS * 2) / SHADOW_MAP_SIZE;
+  const cx = camera.x + Math.sin(camera.yaw) * ahead, cy = camera.y, cz = camera.z + Math.cos(camera.yaw) * ahead;
+  const alongRight = Math.round((rx * cx + ry * cy + rz * cz) / texel) * texel;
+  const alongUp = Math.round((ux * cx + uy * cy + uz * cz) / texel) * texel;
+  const half = SHADOW_HALF_METERS, depth = SHADOW_DEPTH_HALF_METERS;
+  m[0] = rx / half; m[4] = ry / half; m[8] = rz / half; m[12] = -alongRight / half;
+  m[1] = ux / half; m[5] = uy / half; m[9] = uz / half; m[13] = -alongUp / half;
+  m[2] = fx / depth; m[6] = fy / depth; m[10] = fz / depth; m[14] = -(fx * cx + fy * cy + fz * cz) / depth;
+  m[3] = 0; m[7] = 0; m[11] = 0; m[15] = 1;
+}
+Render.addUpdate(6, updateSunShadow);
+
+const SHADOW_VERTEX = `#version 300 es
+precision highp float;
+uniform mat4 uViewProjection;
+in vec3 aPosition;
+in vec4 aOffset;
+in vec4 aScale;
+${GLSL_ROTATION}
+void main() {
+  gl_Position = uViewProjection * vec4(aOffset.xyz + rotateYawPitch(aPosition * aScale.xyz, aOffset.w, aScale.w), 1.0);
+}`;
+const SHADOW_FRAGMENT = `#version 300 es
+precision mediump float;
+void main() {}`;
+Render.defineProgram('shadow', SHADOW_VERTEX, SHADOW_FRAGMENT, SHAPE_ATTRIBUTES);
+
+// Pass 15 (before the world): uploads the prop and actor instances, renders the shadow map when active, binds it
+// to its texture unit for the lit programs, then returns to the scene target.
+function drawSunShadowPass(gl) {
+  uploadBatch(gl, propBatch);
+  uploadBatch(gl, actorBatch);
+  sizeSunShadow(gl, SunShadow.active ? SHADOW_MAP_SIZE : 1);
+  if (SunShadow.active) renderSunShadow(gl);
+  gl.activeTexture(gl.TEXTURE0 + SHADOW_TEXTURE_UNIT);
+  gl.bindTexture(gl.TEXTURE_2D, SunShadow.texture);
+  gl.activeTexture(gl.TEXTURE0);
+  bindSceneTarget(gl);
+}
+Render.addPass(15, drawSunShadowPass);
+
+function renderSunShadow(gl) {
+  const program = Render.programs.shadow;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, SunShadow.framebuffer);
+  gl.viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.5, 3);
+  gl.useProgram(program.handle);
+  gl.uniformMatrix4fv(program.uniforms.uViewProjection, false, Render.frame.shadowMatrix);
+  drawBatchInstances(gl, propBatch);
+  drawBatchInstances(gl, actorBatch);
+  gl.disable(gl.POLYGON_OFFSET_FILL);
+  SunShadow.frames++;
+}

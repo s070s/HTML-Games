@@ -1,14 +1,16 @@
-// Static world (REN-001, REN-004): on 'world.load' every convex brush is turned into face polygons from its planes,
-// cut on a world-aligned grid, lit on the CPU (hemisphere ambient + baked AO + sun with shadow rays + map lights),
-// and merged into one vertex buffer with one draw range per 16 m chunk. Materials are a per-vertex index into a
-// uniform table (one draw per chunk instead of one per chunk and material). Also the procedural sky.
+// Static world (REN-001, REN-004): on 'world.load' every convex brush of Render.worldQuery (filled by S08) is turned
+// into face polygons from its planes, split exactly by the brushes that hide parts of it, cut on a world-aligned grid,
+// lit on the CPU (hemisphere ambient + baked AO + sun with shadow rays + map lights) and merged into one vertex buffer
+// with one draw range per 16 m chunk. Materials are a per-vertex index into a uniform table (one draw per chunk
+// instead of one per chunk and material). Rays use the bake's own brush grid. Also the procedural sky.
 
 const CHUNK_METERS = 16;
 const BAKE_CELL_MIN = 2;                 // metres between lighting samples on big faces
 const BAKE_CELL_MAX = 6;
 const BAKE_CELLS_ACROSS = 60;            // bigger maps use bigger cells so the vertex count stays bounded
 const BRUSH_GRID_METERS = 8;             // bake-time lookup grid for nearby brushes
-const FACE_EPSILON = 0.02;
+const COPLANAR_METERS = 1e-3;            // planes closer than this count as the same plane
+const PARALLEL_DOT = 0.9999;
 const MIN_PIECE_AREA = 1e-4;             // square metres
 const AO_DISTANCES = [0.35, 0.9];
 const AO_STRENGTH = 0.6;
@@ -30,6 +32,7 @@ const WorldMesh = {
   materialA: new Float32Array(MAX_MATERIALS * 3), materialB: new Float32Array(MAX_MATERIALS * 3), materialParams: new Float32Array(MAX_MATERIALS * 4),
   skyTop: new Float32Array(3), skyHorizon: new Float32Array(3), fogScale: 1,
   sunGrid: { originX: 0, originY: 0, originZ: 0, cell: SUN_GRID_METERS, countX: 0, countY: 0, countZ: 0, values: null },
+  brushes: [], brushGrid: null,          // kept after the bake for the ground probe of blob shadows
   bakeMs: 0,
 };
 CAT.materials.forEach((row, index) => WorldMesh.materialIndex.set(row.id, index));
@@ -166,16 +169,149 @@ function brushAt(bake, x, y, z, skip) {
   return -1;
 }
 
-// A face cell is hidden when another brush covers its front, or when a lower-index brush has a coplanar face there (no z-fighting).
-function cellHidden(bake, brushIndex, x, y, z, nx, ny, nz) {
-  if (brushAt(bake, x + nx * FACE_EPSILON, y + ny * FACE_EPSILON, z + nz * FACE_EPSILON, brushIndex) >= 0) return true;
-  const behind = brushAt(bake, x - nx * FACE_EPSILON, y - ny * FACE_EPSILON, z - nz * FACE_EPSILON, brushIndex);
-  return behind >= 0 && behind < brushIndex;
+// ---- Exact face visibility: each face is split by every brush overlapping it; only the uncovered parts are kept ----
+// Brushes whose bounds overlap the polygon's bounds (other than the face's own brush), from the bake grid.
+function overlappingBrushes(bake, polygon, brushIndex) {
+  const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+  for (let i = 0; i < polygon.length; i += 3) growBounds(bounds, polygon[i], polygon[i + 1], polygon[i + 2]);
+  const found = [];
+  bake.stamp++;
+  for (let gx = Math.floor(bounds.minX / BRUSH_GRID_METERS); gx <= Math.floor(bounds.maxX / BRUSH_GRID_METERS); gx++) {
+    for (let gz = Math.floor(bounds.minZ / BRUSH_GRID_METERS); gz <= Math.floor(bounds.maxZ / BRUSH_GRID_METERS); gz++) collectOverlaps(bake, gx, gz, brushIndex, bounds, found);
+  }
+  return found.sort((a, b) => a - b);
+}
+
+function collectOverlaps(bake, gx, gz, brushIndex, bounds, found) {
+  const margin = COPLANAR_METERS;
+  for (const index of bake.grid.get(gridKey(gx, gz)) || []) {
+    if (index === brushIndex || bake.seen[index] === bake.stamp) continue;
+    bake.seen[index] = bake.stamp;
+    const brush = bake.brushes[index];
+    const apart = brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
+      || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin;
+    if (!apart) found.push(index);
+  }
+}
+
+// The planes of `other` that are parallel to the face decide alone whether the face's plane passes through it.
+// A coincident plane facing the other way (two brushes face to face) hides the face; a coincident plane facing
+// the same way (coplanar overlap) hides it only when `other` comes first, so the shared area is drawn once.
+function parallelPlanesContain(polygon, nx, ny, nz, other, hidesCoplanar) {
+  const p = other.planes;
+  for (let k = 0; k < other.planeCount; k++) {
+    const facing = p[k * 4] * nx + p[k * 4 + 1] * ny + p[k * 4 + 2] * nz;
+    if (Math.abs(facing) < PARALLEL_DOT) continue;
+    const distance = p[k * 4] * polygon[0] + p[k * 4 + 1] * polygon[1] + p[k * 4 + 2] * polygon[2] - p[k * 4 + 3];
+    if (distance > COPLANAR_METERS) return false;
+    if (distance >= -COPLANAR_METERS && facing > 0 && !hidesCoplanar) return false;
+  }
+  return true;
+}
+
+// Pushes the parts of `polygon` outside brush `other` to `kept`; the part inside `other` is hidden and dropped.
+function subtractBrush(polygon, nx, ny, nz, other, hidesCoplanar, kept) {
+  if (!parallelPlanesContain(polygon, nx, ny, nz, other, hidesCoplanar)) { kept.push(polygon); return; }
+  const p = other.planes;
+  let inside = polygon;
+  for (let k = 0; k < other.planeCount && inside.length >= 9; k++) {
+    const kx = p[k * 4], ky = p[k * 4 + 1], kz = p[k * 4 + 2], offset = p[k * 4 + 3];
+    if (Math.abs(kx * nx + ky * ny + kz * nz) >= PARALLEL_DOT) continue;
+    const outside = clipPolygon(inside, -kx, -ky, -kz, -offset);
+    if (outside.length >= 9 && polygonArea(outside, nx, ny, nz) >= MIN_PIECE_AREA) kept.push(outside);
+    inside = clipPolygon(inside, kx, ky, kz, offset);
+  }
+}
+
+// The visible parts of a face of brush `brushIndex` (fragments are tested, never a cell centre).
+function visibleParts(bake, polygon, brushIndex, nx, ny, nz) {
+  let parts = [polygon];
+  for (const other of overlappingBrushes(bake, polygon, brushIndex)) {
+    const next = [];
+    for (const part of parts) subtractBrush(part, nx, ny, nz, bake.brushes[other], other < brushIndex, next);
+    parts = next;
+    if (!parts.length) break;
+  }
+  return parts;
+}
+
+// ---- Rays against the bake grid (sun shadows, map lights, the blob-shadow ground probe) ----
+// Distance at which a ray enters a convex brush (0 when it starts inside), or -1 when it misses within maxDistance.
+function rayEntersBrush(brush, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const p = brush.planes;
+  let enter = 0, exit = maxDistance;
+  for (let k = 0; k < brush.planeCount && enter <= exit; k++) {
+    const start = p[k * 4] * ox + p[k * 4 + 1] * oy + p[k * 4 + 2] * oz - p[k * 4 + 3];
+    const rate = p[k * 4] * dx + p[k * 4 + 1] * dy + p[k * 4 + 2] * dz;
+    if (Math.abs(rate) < 1e-9) { if (start > 0) return -1; continue; }
+    if (rate < 0) enter = Math.max(enter, -start / rate);
+    else exit = Math.min(exit, -start / rate);
+  }
+  return enter <= exit ? enter : -1;
+}
+
+// 2D grid walk over the brush grid cells a ray crosses (Amanatides-Woo), one reused state object.
+const gridWalk = { cellX: 0, cellZ: 0, stepX: 0, stepZ: 0, nextX: 0, nextZ: 0, deltaX: 0, deltaZ: 0 };
+function startGridWalk(ox, oz, dx, dz) {
+  const walk = gridWalk, size = BRUSH_GRID_METERS;
+  walk.cellX = Math.floor(ox / size); walk.cellZ = Math.floor(oz / size);
+  walk.stepX = dx > 0 ? 1 : -1; walk.stepZ = dz > 0 ? 1 : -1;
+  walk.deltaX = Math.abs(dx) > 1e-9 ? size / Math.abs(dx) : Infinity;
+  walk.deltaZ = Math.abs(dz) > 1e-9 ? size / Math.abs(dz) : Infinity;
+  walk.nextX = Math.abs(dx) > 1e-9 ? ((walk.cellX + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
+  walk.nextZ = Math.abs(dz) > 1e-9 ? ((walk.cellZ + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
+  return walk;
+}
+
+// Moves to the next cell; returns the ray distance at which the walk entered it.
+function advanceGridWalk(walk) {
+  if (walk.nextX < walk.nextZ) {
+    walk.cellX += walk.stepX; walk.nextX += walk.deltaX;
+    return walk.nextX - walk.deltaX;
+  }
+  walk.cellZ += walk.stepZ; walk.nextZ += walk.deltaZ;
+  return walk.nextZ - walk.deltaZ;
+}
+
+function cellBlocksRay(bake, cellX, cellZ, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const list = bake.grid.get(gridKey(cellX, cellZ));
+  if (!list) return false;
+  for (let i = 0; i < list.length; i++) {
+    const index = list[i];
+    if (bake.seen[index] === bake.stamp) continue;
+    bake.seen[index] = bake.stamp;
+    if (rayEntersBrush(bake.brushes[index], ox, oy, oz, dx, dy, dz, maxDistance) >= 0) return true;
+  }
+  return false;
+}
+
+// True when a brush lies on the ray (unit direction) within maxDistance; stops once the ray leaves the world's height.
+function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const walk = startGridWalk(ox, oz, dx, dz);
+  bake.stamp++;
+  let travelled = 0;
+  while (travelled <= maxDistance) {
+    if (cellBlocksRay(bake, walk.cellX, walk.cellZ, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
+    travelled = advanceGridWalk(walk);
+    const height = oy + dy * travelled;
+    if ((dy > 0 && height > bake.topY) || (dy < 0 && height < bake.bottomY)) return false;
+  }
+  return false;
+}
+
+// Height of the first brush surface straight below (x, y, z) within maxDrop, or -Infinity (allocation-free, per frame).
+function groundBelow(x, y, z, maxDrop) {
+  const list = WorldMesh.brushGrid ? WorldMesh.brushGrid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS))) : null;
+  if (!list) return -Infinity;
+  let nearest = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const distance = rayEntersBrush(WorldMesh.brushes[list[i]], x, y, z, 0, -1, 0, maxDrop);
+    if (distance >= 0 && distance < nearest) nearest = distance;
+  }
+  return nearest <= maxDrop ? y - nearest : -Infinity;
 }
 
 // ---- Vertex lighting (REN-004): hemisphere ambient x AO + sun with a shadow ray + map lights ----
-const bakeHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
-
 function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
   // Ten sample points in the hemisphere (straight out and tilted along two tangents b and c, at two distances).
   const [hx, hy, hz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
@@ -193,9 +329,14 @@ function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
   return 1 - (blocked / samples) * AO_STRENGTH;
 }
 
-function sunVisible(x, y, z) {
+function sunVisible(bake, x, y, z) {
   const sun = Render.frame.sunDirection;
-  return World.raycast(x, y, z, sun[0], sun[1], sun[2], SUN_RAY_METERS, bakeHit) ? 0 : 1;
+  return rayBlocked(bake, x, y, z, sun[0], sun[1], sun[2], SUN_RAY_METERS) ? 0 : 1;
+}
+
+function lightBlocked(bake, x, y, z, light) {
+  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = Math.hypot(dx, dy, dz);
+  return length > 1e-6 && rayBlocked(bake, x, y, z, dx / length, dy / length, dz / length, length);
 }
 
 function mapLightContribution(bake, x, y, z, nx, ny, nz, out) {
@@ -203,7 +344,7 @@ function mapLightContribution(bake, x, y, z, nx, ny, nz, out) {
     const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = Math.hypot(dx, dy, dz);
     if (distance >= light.radius) continue;
     const facing = (nx * dx + ny * dy + nz * dz) / Math.max(distance, 1e-3);
-    if (facing <= 0 || !World.lineClear(x + nx * 0.05, y + ny * 0.05, z + nz * 0.05, light.x, light.y, light.z)) continue;
+    if (facing <= 0 || lightBlocked(bake, x + nx * 0.05, y + ny * 0.05, z + nz * 0.05, light)) continue;
     const strength = (1 - distance / light.radius) ** 2 * facing * light.intensity;
     for (let i = 0; i < 3; i++) out[i] += light.color[i] * strength;
   }
@@ -217,7 +358,7 @@ function vertexLight(bake, x, y, z, nx, ny, nz) {
   const frame = Render.frame, sun = frame.sunDirection;
   const ao = ambientOcclusion(bake, x, y, z, nx, ny, nz);
   const facing = nx * sun[0] + ny * sun[1] + nz * sun[2];
-  const direct = facing > 0 ? facing * sunVisible(x + nx * 0.05, y + ny * 0.05, z + nz * 0.05) : 0;
+  const direct = facing > 0 ? facing * sunVisible(bake, x + nx * 0.05, y + ny * 0.05, z + nz * 0.05) : 0;
   const hemisphere = ny * 0.5 + 0.5, light = [0, 0, 0, ao, direct];
   for (let i = 0; i < 3; i++) light[i] = lerp(frame.ambientGround[i], frame.ambientSky[i], hemisphere) * ao + frame.sunColor[i] * direct;
   mapLightContribution(bake, x, y, z, nx, ny, nz, light);
@@ -240,35 +381,39 @@ function readMapLights(map) {
   });
 }
 
-// Bake context: theme applied, brush lookup grid, map lights, light cache and chunk lists.
+// Bake context: theme applied, brush lookup grid (+ visit stamps), world height range, map lights, caches, chunks.
 function makeBake(map, brushes) {
   applyTheme(map.theme);
-  return { brushes, grid: makeBrushGrid(brushes), lights: readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
+  let topY = -Infinity, bottomY = Infinity;
+  for (const brush of brushes) { topY = Math.max(topY, brush.maxY); bottomY = Math.min(bottomY, brush.minY); }
+  return { brushes, grid: makeBrushGrid(brushes), seen: new Uint32Array(brushes.length), stamp: 0, topY, bottomY,
+    lights: readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
 }
 
-// Builds the CPU-side world mesh from World.brushes; returns the chunk list (also used by the self-test).
+// Builds the CPU-side world mesh from the brush list; returns the chunk list (also used by the self-test).
 function buildWorldMesh(map, brushes) {
   const started = performance.now();
   const bake = makeBake(map, brushes);
-  let floorY = Infinity;
-  for (const brush of brushes) floorY = Math.min(floorY, brush.minY);
-  brushes.forEach((brush, brushIndex) => addBrushFaces(bake, brush, brushIndex, floorY));
+  brushes.forEach((brush, brushIndex) => addBrushFaces(bake, brush, brushIndex));
   packWorldMesh(bake.chunks);
-  buildSunGrid(brushes);
+  buildSunGrid(bake);
+  WorldMesh.brushes = brushes;
+  WorldMesh.brushGrid = bake.grid;
   WorldMesh.bakeMs = performance.now() - started;
   return WorldMesh.chunks;
 }
 
-function addBrushFaces(bake, brush, brushIndex, floorY) {
+function addBrushFaces(bake, brush, brushIndex) {
   const known = WorldMesh.materialIndex.get(brush.material);
   const material = known !== undefined && known < MAX_MATERIALS ? known : 0; // unknown materials draw as concrete
   const p = brush.planes;
   for (let plane = 0; plane < brush.planeCount; plane++) {
     const nx = p[plane * 4], ny = p[plane * 4 + 1], nz = p[plane * 4 + 2];
-    if (ny < -0.99 && brush.minY <= floorY + 1e-3) continue; // the underside of the lowest brushes is never seen
+    if (ny < -0.99 && brush.minY <= bake.bottomY + 1e-3) continue; // the underside of the lowest brushes is never seen
     const polygon = brushFace(brush, plane);
     if (polygon.length < 9) continue;
-    cutFace(polygon, nx, ny, nz, bake.cell, (piece) => addPiece(bake, piece, brushIndex, material, nx, ny, nz));
+    const emit = (piece) => addPiece(bake, piece, material, nx, ny, nz);
+    for (const part of visibleParts(bake, polygon, brushIndex, nx, ny, nz)) cutFace(part, nx, ny, nz, bake.cell, emit);
   }
 }
 
@@ -285,14 +430,12 @@ function polygonArea(points, nx, ny, nz) {
   return Math.abs(x * nx + y * ny + z * nz) / 2;
 }
 
-function addPiece(bake, piece, brushIndex, material, nx, ny, nz) {
+function addPiece(bake, piece, material, nx, ny, nz) {
   if (polygonArea(piece, nx, ny, nz) < MIN_PIECE_AREA) return;
   const count = piece.length / 3;
-  let cx = 0, cy = 0, cz = 0;
-  for (let i = 0; i < piece.length; i += 3) { cx += piece[i]; cy += piece[i + 1]; cz += piece[i + 2]; }
-  cx /= count; cy /= count; cz /= count;
-  if (cellHidden(bake, brushIndex, cx, cy, cz, nx, ny, nz)) return;
-  const key = Math.floor(cx / CHUNK_METERS) + ',' + Math.floor(cz / CHUNK_METERS);
+  let cx = 0, cz = 0;
+  for (let i = 0; i < piece.length; i += 3) { cx += piece[i]; cz += piece[i + 2]; }
+  const key = Math.floor(cx / count / CHUNK_METERS) + ',' + Math.floor(cz / count / CHUNK_METERS);
   if (!bake.chunks.has(key)) bake.chunks.set(key, { vertices: [], indices: [] });
   const chunk = bake.chunks.get(key), base = chunk.vertices.length / BAKE_VALUES_PER_VERTEX;
   for (let i = 0; i < piece.length; i += 3) {
@@ -339,12 +482,12 @@ function growBounds(bounds, x, y, z) {
 }
 
 // ---- Coarse sun visibility for moving objects (actors, props, the view model): one shadow ray per 4 m cell ----
-function buildSunGrid(brushes) {
+function buildSunGrid(bake) {
   const grid = WorldMesh.sunGrid;
   grid.values = null;
-  if (!brushes.length) return;
+  if (!bake.brushes.length) return;
   const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
-  for (const brush of brushes) { growBounds(bounds, brush.minX, brush.minY, brush.minZ); growBounds(bounds, brush.maxX, brush.maxY + 4, brush.maxZ); }
+  for (const brush of bake.brushes) { growBounds(bounds, brush.minX, brush.minY, brush.minZ); growBounds(bounds, brush.maxX, brush.maxY + 4, brush.maxZ); }
   const cellsFor = (size) => Math.ceil((bounds.maxX - bounds.minX) / size) * Math.ceil((bounds.maxY - bounds.minY) / size) * Math.ceil((bounds.maxZ - bounds.minZ) / size);
   let cell = SUN_GRID_METERS;
   while (cellsFor(cell) > SUN_GRID_MAX_CELLS) cell *= 1.5;
@@ -352,14 +495,14 @@ function buildSunGrid(brushes) {
     countX: Math.ceil((bounds.maxX - bounds.minX) / cell), countY: Math.ceil((bounds.maxY - bounds.minY) / cell), countZ: Math.ceil((bounds.maxZ - bounds.minZ) / cell) });
   grid.values = new Uint8Array(grid.countX * grid.countY * grid.countZ);
   for (let iy = 0; iy < grid.countY; iy++) {
-    for (let iz = 0; iz < grid.countZ; iz++) fillSunRow(grid, iy, iz);
+    for (let iz = 0; iz < grid.countZ; iz++) fillSunRow(bake, grid, iy, iz);
   }
 }
 
-function fillSunRow(grid, iy, iz) {
+function fillSunRow(bake, grid, iy, iz) {
   for (let ix = 0; ix < grid.countX; ix++) {
     const x = grid.originX + (ix + 0.5) * grid.cell, y = grid.originY + (iy + 0.5) * grid.cell, z = grid.originZ + (iz + 0.5) * grid.cell;
-    grid.values[(iy * grid.countZ + iz) * grid.countX + ix] = World.pointInside(x, y, z) ? 255 : sunVisible(x, y, z) * 255;
+    grid.values[(iy * grid.countZ + iz) * grid.countX + ix] = brushAt(bake, x, y, z, -1) >= 0 ? 255 : sunVisible(bake, x, y, z) * 255;
   }
 }
 
@@ -375,7 +518,8 @@ function sampleSunVisibility(x, y, z) {
 function clearWorldMesh() {
   const gl = Render.gl;
   if (gl) { gl.deleteBuffer(WorldMesh.vertexBuffer); gl.deleteBuffer(WorldMesh.indexBuffer); gl.deleteVertexArray(WorldMesh.vertexArray); }
-  Object.assign(WorldMesh, { chunks: [], vertexBytes: null, indexData: null, vertexCount: 0, triangles: 0, vertexBuffer: null, indexBuffer: null, vertexArray: null });
+  Object.assign(WorldMesh, { chunks: [], vertexBytes: null, indexData: null, vertexCount: 0, triangles: 0, vertexBuffer: null, indexBuffer: null, vertexArray: null,
+    brushes: [], brushGrid: null });
   WorldMesh.sunGrid.values = null;
 }
 
@@ -398,7 +542,7 @@ Render.addGpuPart('world', uploadWorldMesh);
 Bus.on('world.load', (map) => {
   if (Game.headless) return;
   clearWorldMesh();
-  buildWorldMesh(map, World.brushes);
+  buildWorldMesh(map, Render.worldQuery ? Render.worldQuery.brushes : []);
   if (Render.gl && !Render.lost) uploadWorldMesh(Render.gl);
 });
 Bus.on('match.stop', () => clearWorldMesh());
@@ -464,6 +608,7 @@ void main() {
   float mixAmount = mix(pattern(int(params.x + 0.5), uv), 0.35, smoothstep(30.0, 90.0, distance)); // far patterns fade: no shimmer
   vec3 albedo = mix(uMaterialA[vMaterial], uMaterialB[vMaterial], mixAmount);
   vec3 light = vLight.rgb * ${LIGHT_SCALE.toFixed(1)} + dynamicLight(vPosition, normal) * vLight.a;
+  light = max(light - uSunColor * vSun * (1.0 - sunShadow(vPosition, normal)), vec3(0.0)); // moving casters (High/Ultra)
   vec3 halfVector = normalize(uSunDirection + normalize(uCameraPosition - vPosition));
   float highlight = pow(max(dot(normal, halfVector), 0.0), 32.0) * params.w * vSun;
   vec3 color = albedo * light + uSunColor * highlight + albedo * params.z * mixAmount * 1.5;

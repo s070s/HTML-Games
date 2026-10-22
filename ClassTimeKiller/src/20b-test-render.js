@@ -78,9 +78,11 @@ function emitDemoEffects() {
 const DEMO_WEAPONS = ['rifle', 'shotgun', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'smg'];
 const demo = { emitter: false, sinceEffects: 0, weapon: 'rifle' };
 // Builds a sample scene with world, 8 actors, effects, a player view model and a HUD layer; returns frame stats.
-DebugApi.renderDemo = (themeId, weapon) => {
+DebugApi.renderDemo = (themeId, weapon, qualityId) => {
   Benchmark.active = false; Benchmark.done = true;
+  if (qualityId) Settings.set('video.quality', qualityId);
   Game.stop();
+  Render.worldQuery = Render.worldQuery || World;
   World.load(makeDemoArena(themeId));
   spawnDemoActors();
   spawnDemoPlayer();
@@ -112,13 +114,15 @@ DebugApi.renderState = () => ({ render: Render, worldMesh: WorldMesh, hud: HudBa
 // Runs a block with the renderer switched on (headless off, benchmark parked) and restores every hook afterwards.
 async function withRenderer(run) {
   const wasHeadless = Game.headless, benchmarkActive = Benchmark.active, benchmarkDone = Benchmark.done;
-  const renderScale = Render.size.scale, smoothedMs = ScaleControl.smoothedMs;
-  Game.headless = false; Benchmark.active = false; Benchmark.done = true;
+  const renderScale = Render.size.scale, smoothedMs = ScaleControl.smoothedMs, worldQuery = Render.worldQuery;
+  const timerExtension = GpuTimer.extension, timerMs = GpuTimer.lastMs;
+  Game.headless = false; Benchmark.active = false; Benchmark.done = true; Render.worldQuery = World;
   try {
     return await run();
   } finally {
-    Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone;
-    Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs;
+    Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone; Render.worldQuery = worldQuery;
+    Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs; resetScaleCeiling(ScaleControl);
+    GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
     Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
     Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.reset('video.');
@@ -153,6 +157,27 @@ function worldTriangles(brushes, theme) {
   return WorldMesh.triangles;
 }
 
+// Area of the built world's up-facing triangles at height y (square metres), read back from the packed buffers.
+function worldTopArea(y) {
+  const floats = new Float32Array(WorldMesh.vertexBytes), indices = WorldMesh.indexData;
+  let area = 0;
+  for (let i = 0; i < indices.length; i += 3) area += topTriangleArea(floats, indices[i], indices[i + 1], indices[i + 2], y);
+  return area;
+}
+
+function topTriangleArea(floats, a, b, c, y) {
+  const stride = WORLD_VERTEX_BYTES / 4, pa = a * stride, pb = b * stride, pc = c * stride;
+  const flat = Math.abs(floats[pa + 1] - y) < 1e-3 && Math.abs(floats[pb + 1] - y) < 1e-3 && Math.abs(floats[pc + 1] - y) < 1e-3;
+  if (!flat) return 0;
+  const upward = (floats[pb + 2] - floats[pa + 2]) * (floats[pc] - floats[pa]) - (floats[pb] - floats[pa]) * (floats[pc + 2] - floats[pa + 2]);
+  return Math.max(0, upward) / 2;
+}
+
+function topAreaOf(brushes, y) {
+  worldTriangles(brushes);
+  return worldTopArea(y);
+}
+
 // ---- Data and contracts ----
 Test.add('render', (check) => {
   const themes = ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'];
@@ -184,15 +209,33 @@ Test.add('render', (check) => {
   check('demo arena fits the Potato triangle budget', WorldMesh.triangles < CAT.quality.byId('potato').triangles, WorldMesh.triangles);
   check('chunks are 16 m cells', WorldMesh.chunks.every((c) => c.maxX - c.minX <= CHUNK_METERS + BAKE_CELL_MAX && c.maxZ - c.minZ <= CHUNK_METERS + BAKE_CELL_MAX));
   check('a lone box = 5 faces (lowest underside skipped)', worldTriangles([{ shape: 'box', min: [0, 0, 0], max: [1, 1, 1] }]) === 10, WorldMesh.triangles);
-  const covered = worldTriangles([{ shape: 'box', min: [-2, -1, -2], max: [2, 0, 2] }, { shape: 'box', min: [0, 0, 0], max: [2, 1, 2] }]);
-  check('faces covered by another brush are culled', covered === 32, covered);
-  const overlap = worldTriangles([{ shape: 'box', min: [-2, -1, -2], max: [2, 0, 2] }, { shape: 'box', min: [0, -1, -2], max: [4, 0, 2] }]);
-  check('coplanar overlapping faces are kept once (no z-fighting)', overlap === 32, overlap);
+  const covered = topAreaOf([{ shape: 'box', min: [-2, -1, -2], max: [2, 0, 2] }, { shape: 'box', min: [0, 0, 0], max: [2, 1, 2] }], 0);
+  check('floor under a box is culled, the rest kept', Test.near(covered, 12, 1e-3), covered);
+  const thinWall = topAreaOf([{ shape: 'box', min: [-4, -1, -4], max: [4, 0, 4] }, { shape: 'box', min: [0.8, 0, -4], max: [1.2, 3, 4] }], 0);
+  check('a thin wall off the bake grid hides only its own footprint (no holes)', Test.near(thinWall, 60.8, 1e-3), thinWall);
+  const partial = topAreaOf([{ shape: 'box', min: [-2, -1, -2], max: [1.5, 0, 2] }, { shape: 'box', min: [0, -1, -2], max: [4, 0, 2] }], 0);
+  check('partial coplanar overlap: the union drawn exactly once (no hole, no z-fighting)', Test.near(partial, 24, 1e-3), partial);
+  const pillar = topAreaOf([{ shape: 'box', min: [-3, -1, -3], max: [3, 0, 3] }, { shape: 'box', min: [-0.37, 0, 0.21], max: [0.53, 2, 1.13] }], 0);
+  check('an off-grid pillar cuts an exact hole', Test.near(pillar, 36 - 0.9 * 0.92, 1e-3), pillar);
+  const alone = worldTriangles([{ shape: 'box', min: [-3, -1, -3], max: [3, 2, 3] }]);
+  const buried = worldTriangles([{ shape: 'box', min: [-3, -1, -3], max: [3, 2, 3] }, { shape: 'box', min: [-1.3, 0.7, -1.3], max: [1.1, 1.3, 0.9] }]);
+  check('a brush buried inside another adds nothing', buried === alone, buried + ' vs ' + alone);
   const ramp = worldTriangles([{ shape: 'ramp', min: [0, 0, 0], max: [4, 2, 2], dir: '+x' }]);
   check('a ramp has no zero-area end face', ramp > 0 && ramp <= 12, ramp);
   check('world indices fit 16 bits for small maps', WorldMesh.indexData instanceof Uint16Array);
   World.clear(); clearWorldMesh();
 });
+
+// ---- The world comes through the Render.worldQuery hook (S08 fills it; S07 never calls World) ----
+Test.add('render', (check) => withRenderer(() => {
+  const map = { id: 'render-hook', brushes: [{ shape: 'box', min: [0, 0, 0], max: [1, 1, 1] }] };
+  Render.worldQuery = null;
+  World.load(map);
+  check('world.load builds nothing while the hook is empty', WorldMesh.triangles === 0, WorldMesh.triangles);
+  Render.worldQuery = { brushes: World.brushes };
+  World.load(map);
+  check('world.load builds from Render.worldQuery.brushes', WorldMesh.triangles === 10, WorldMesh.triangles);
+}));
 
 // ---- Baked lighting (REN-004): AO, sun shadow rays, map lights ----
 Test.add('render', (check) => {
@@ -207,8 +250,14 @@ Test.add('render', (check) => {
   check('a roof blocks the sun (shadow ray)', roofed[4] === 0, roofed[4]);
   const lit = vertexLight(bake, 0, 0, -12, 0, 1, 0), unlit = vertexLight(bake, 0, 0, 12, 0, 1, 0);
   check('map lights add light', lit[0] > unlit[0] + 0.1, lit[0] + ' vs ' + unlit[0]);
-  buildSunGrid(World.brushes);
+  buildSunGrid(bake);
   check('sun grid: open air lit, under the roof shaded', sampleSunVisibility(0, 1, 0) === 1 && sampleSunVisibility(-10, 1, 0) === 0);
+  check('bake ray: blocked by the wall', rayBlocked(bake, 0, 1, 0, 1, 0, 0, 30) && !rayBlocked(bake, 0, 1, 0, -1, 0, 0, 30));
+  check('bake ray: stops above the world', !rayBlocked(bake, 0, 1, 0, 0, 1, 0, 300));
+  check('bake ray: crosses grid cells diagonally', rayBlocked(bake, -9, 1, -9, Math.SQRT1_2, 0, Math.SQRT1_2, 40));
+  buildWorldMesh(map, World.brushes);
+  check('ground probe finds the floor and the roof top', Test.near(groundBelow(0, 5, 0, 20), 0, 1e-4) && Test.near(groundBelow(-10, 6, 0, 20), 3.3, 1e-4));
+  check('ground probe misses past its range', groundBelow(0, 50, 0, 20) === -Infinity);
   World.clear(); clearWorldMesh();
 });
 
@@ -305,7 +354,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- Dynamic resolution (PERF-007) ----
 Test.add('render', (check) => {
-  const control = { overSeconds: 0, underSeconds: 0, raiseWait: 2, sinceRaise: 1e9, smoothedMs: 16 };
+  const control = makeScaleControl();
   let scale = 1;
   for (let i = 0; i < 4; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
   check('no change before 0.5 s over budget', scale === 1);
@@ -316,7 +365,13 @@ Test.add('render', (check) => {
   scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
   check('raises after 2 s under 80% (hysteresis)', scale === 1, scale);
   for (let i = 0; i < 5; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
-  check('a drop right after a raise doubles the raise wait', control.raiseWait === 4 && scale === 0.95, control.raiseWait);
+  check('a drop right after a raise sets a ceiling', control.ceiling === 0.95 && scale === 0.95, control.ceiling);
+  for (let i = 0; i < 25; i++) scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('no raise above the ceiling before its wait', scale === 0.95);
+  for (let i = 0; i < 300 && scale === 0.95; i++) scale = stepRenderScale(control, 4, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('retries above the ceiling after 30 s', scale === 1 && control.sinceCeiling === 0 && control.retrying, control.sinceCeiling);
+  for (let i = 0; i < 5; i++) scale = stepRenderScale(control, 9, 6, 4.8, 0.1, scale, 0.5, 1);
+  check('a failed retry doubles the ceiling wait (no cap)', control.ceilingWait === 60 && scale === 0.95, control.ceilingWait);
   check('never below the preset minimum', stepRenderScale(control, 99, 6, 4.8, 0.6, 0.5, 0.5, 1) === 0.5);
   const quality = Quality.current();
   check('preset scale ranges (Potato 0.4-0.8)', CAT.quality.byId('potato').renderScaleMin === 0.4 && CAT.quality.byId('potato').renderScaleMax === 0.8 && quality.renderScaleMin === 0.5);
@@ -332,6 +387,7 @@ Test.add('render', (check) => withRenderer(() => {
   let toast = '';
   const listener = Bus.on('toast', (payload) => { toast = payload.text; });
   Game.state = 'playing';
+  GpuTimer.extension = null;             // frame-time path: the scale floor is used up first
   ScaleControl.smoothedMs = 40;
   Render.size.scale = 1;
   for (let i = 0; i < 6; i++) updateStepDown(1);
@@ -450,4 +506,140 @@ Test.add('render', (check) => withRenderer(async () => {
   check('restore rebuilds GPU resources and resumes', await waitUntil(() => !Render.lost, 5000) && !Game.paused && toasts === 2);
   check('world mesh re-uploaded after restore', WorldMesh.vertexArray !== null && Render.drawFrame(1 / 60, 1) && Render.gl.getError() === Render.gl.NO_ERROR);
   Bus.off('toast', listener);
+}));
+
+// ---- Frame-time dynamic resolution without a GPU timer (PERF-007 hysteresis on GPU-bound phones) ----
+// Simulated device: vsync holds at scale <= 0.7, every higher scale misses it (33 ms frames).
+Test.add('render', (check) => withRenderer(() => {
+  GpuTimer.extension = null;
+  Settings.set('video.quality', 'medium');
+  Render.size.scale = 0.7;
+  updateRenderScale(1 / 60);
+  let drops = 0, secondsAbove = 0, previous = Render.size.scale;
+  for (let frame = 0; frame < 600 * 60; frame++) {
+    const interval = Render.size.scale > 0.7 + 1e-4 ? 1 / 30 : 1 / 60;
+    if (interval > 1 / 60) secondsAbove += interval;
+    updateRenderScale(interval);
+    if (Render.size.scale < previous) drops++;
+    previous = Render.size.scale;
+  }
+  check('raise/drop oscillation settles (at most 6 stutters in 10 minutes)', drops >= 1 && drops <= 6, drops);
+  check('the scale settles at the highest one that holds vsync', Test.near(Render.size.scale, 0.7, 1e-4), Render.size.scale);
+  check('time spent missing vsync stays small', secondsAbove < 8, secondsAbove);
+  Settings.set('video.quality', 'low');
+  updateRenderScale(1 / 60);
+  check('a preset change forgets the ceiling', ScaleControl.ceiling === 1 && ScaleControl.ceilingWait === SCALE_CEILING_WAIT_SECONDS);
+}));
+
+// ---- Step-down (PERF-013) on a CPU-bound device that has the GPU timer ----
+Test.add('render', (check) => withRenderer(() => {
+  Game.state = 'playing';
+  Settings.set('video.autoQuality', 'high');
+  GpuTimer.extension = GpuTimer.extension || { TIME_ELAPSED_EXT: 0 };
+  GpuTimer.lastMs = 2;                    // GPU well within budget: a lower scale cannot help
+  Render.size.scale = 1;
+  ScaleControl.smoothedMs = 40;
+  for (let i = 0; i < 5; i++) updateStepDown(1);
+  check('CPU-bound with the GPU timer: steps down even above the scale floor', Render.quality.id === 'medium', Render.quality.id);
+  GpuTimer.lastMs = 9;                    // GPU over budget: lowering the resolution comes first
+  Render.size.scale = 1;
+  for (let i = 0; i < 6; i++) updateStepDown(1);
+  check('GPU-bound with the GPU timer: resolution is lowered first', Render.quality.id === 'medium', Render.quality.id);
+  ScaleControl.smoothedMs = FRAME_BUDGET_MS;
+}));
+
+// ---- Actor LOD tiers, low-rate far animation, blob shadows and the sun shadow map split ----
+Test.add('render', (check) => withRenderer(() => {
+  Settings.set('video.quality', 'medium');
+  placeCamera(0, 1.6, 0, 0, 0);
+  const quality = Render.quality;
+  const distant = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodFar + 5);
+  fillActors(1 / 60, 1);
+  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DISTANT_PARTS.length && DISTANT_PARTS.length === 4, batchInstances(actorBatch));
+  Actors.alive[distant] = 0;
+  const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodNear + 5);
+  Actors.vz[far] = 5;
+  let changes = 0;
+  for (let i = 0; i < FAR_ANIMATION_STRIDE * 3; i++) {
+    const before = actorPhase[far];
+    fillActors(1 / 60, 1);
+    if (actorPhase[far] !== before) changes++;
+  }
+  check('far LOD animates at a low rate (every 4th frame)', changes === 3, changes);
+  Actors.alive[far] = 0;
+  const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
+  fillActors(1 / 60, 1);
+  check('Medium: blob shadow, no sun shadow map', shadowBatch.counts[SHAPE_INDEX.disc] === 1 && Render.frame.shadowOn === 0);
+  Settings.set('video.quality', 'high');
+  updateSunShadow();
+  fillActors(1 / 60, 1);
+  check('High: actors inside the sun shadow map drop the blob', SunShadow.active && Render.frame.shadowOn === 1 && shadowBatch.counts[SHAPE_INDEX.disc] === 0);
+  Game.playerId = near;
+  Render.cameraOverride = null;
+  updateCamera(1 / 60, 1);
+  fillActors(1 / 60, 1);
+  check('High: the local player keeps a blob shadow (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 1);
+  shadowBatch.clear();
+  for (let i = 0; i < shadowBatch.capacity; i++) shadowBatch.mesh('disc', 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0);
+  const lastSlot = instanceOffset(shadowBatch, 'disc', shadowBatch.capacity - 1);
+  shadowBatch.data[lastSlot + STRENGTH_SLOT] = 0.5;
+  check('a full batch returns -1', shadowBatch.mesh('disc', 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0) === -1);
+  emitActorShadow(near, readActorPosition(near, 1), 1);
+  check('a dropped blob shadow never overwrites another instance', shadowBatch.data[lastSlot + STRENGTH_SLOT] === 0.5);
+  Actors.flags[near] = 0;
+  Actors.y[near] = Actors.prevY[near] = 50;
+  shadowBatch.clear();
+  emitActorShadow(near, readActorPosition(near, 1), 1);
+  check('no ground below in range: no blob shadow', shadowBatch.counts[SHAPE_INDEX.disc] === 0);
+}));
+
+// ---- Particle pools: dead pools are skipped, live counts drive the stats ----
+Test.add('render', (check) => withRenderer(() => {
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, 10);
+  updateLights();
+  check('live particles counted per frame', particlePool.live === 10 && Render.stats.particles === 10);
+  check('the pool remembers its last death time', particlePool.lastDeath > Render.frame.time);
+  Render.frame.time = particlePool.lastDeath + 1;
+  updateLights();
+  check('after the last death nothing is live', particlePool.live === 0 && particlePool.used === 10);
+}));
+
+// ---- GPU: sun shadow pass only on presets with shadows 'sun', Potato memory, failed restore ----
+Test.add('render', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  const gl = Render.gl;
+  DebugApi.renderDemo('ruins');
+  Settings.set('video.quality', 'high');
+  const before = SunShadow.frames;
+  Render.drawFrame(1 / 60, 1);
+  check('High renders the sun shadow map (REN-004)', SunShadow.frames === before + 1 && SunShadow.size === SHADOW_MAP_SIZE && gl.getError() === gl.NO_ERROR);
+  Settings.set('video.quality', 'medium');
+  Render.drawFrame(1 / 60, 1);
+  check('Medium skips it and frees the map', SunShadow.frames === before + 1 && SunShadow.size === 1 && gl.getError() === gl.NO_ERROR);
+  Settings.set('video.quality', 'potato');
+  Render.drawFrame(1 / 60, 1);
+  check('GPU memory estimate under 32 MB on Potato (PERF-005)', Render.gpuMemoryBytes() < 32 * 1024 * 1024, Render.gpuMemoryBytes());
+  Fx.clear();
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, 10);
+  let draws = Render.stats.drawCalls;
+  drawPool(gl, particlePool);
+  check('a pool with live particles is drawn', Render.stats.drawCalls === draws + 1);
+  Render.frame.time += 100;
+  draws = Render.stats.drawCalls;
+  drawPool(gl, particlePool);
+  check('a pool whose particles are all dead costs no draw call', Render.stats.drawCalls === draws && gl.getError() === gl.NO_ERROR);
+}));
+
+Test.add('render', (check) => withRenderer(() => {
+  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
+  Render.gpuParts.push(failing);
+  const logged = Test.expectErrors(() => handleContextRestored());
+  Render.gpuParts.splice(Render.gpuParts.indexOf(failing), 1);
+  const fatal = document.getElementById('fatal');
+  check('a failed restore shows the WebGL2 message instead of a frozen screen (PLT-002)', logged === 1 && fatalShown && fatal.classList.contains('show') && !Render.ready);
+  fatalShown = false;
+  fatal.classList.remove('show');
+  createGpuResources(Render.gl);
+  Render.ready = true;
 }));

@@ -180,41 +180,78 @@ const SCALE_STEP = 0.05;
 const SCALE_LOWER_SECONDS = 0.5;
 const SCALE_RAISE_SECONDS = 2;
 const SCALE_RAISE_FRACTION = 0.8;
-const SCALE_BACKOFF_MAX_SECONDS = 16;
-const SCALE_BACKOFF_WINDOW = 3;          // a drop this soon after a raise doubles the wait before the next raise
+const SCALE_BACKOFF_WINDOW = 3;          // a drop this soon after a raise means the raise was too much
+const SCALE_CEILING_WAIT_SECONDS = 30;   // first retry above such a scale; the wait doubles on every failed retry
 const GPU_BUDGET_MS = 6;                 // PERF-003
 const FRAME_BUDGET_MS = 1000 / 60;       // PERF-001 hard floor, used when no GPU timer exists
 const FRAME_BUDGET_TOLERANCE = 1.08;     // a missed vsync shows up as > 8% over the interval
 const FRAME_SMOOTHING = 0.15;
-const ScaleControl = { overSeconds: 0, underSeconds: 0, raiseWait: SCALE_RAISE_SECONDS, sinceRaise: 1e9, smoothedMs: FRAME_BUDGET_MS };
 
-// One controller step: returns the new scale. Over budget for 0.5 s lowers one step; under the raise limit
-// for raiseWait seconds raises one step (hysteresis); a drop right after a raise backs the raise off.
+// Controller state. `ceiling` = the highest scale known to hold the budget for this preset and screen size.
+function makeScaleControl() {
+  return { overSeconds: 0, underSeconds: 0, sinceRaise: 1e9, smoothedMs: FRAME_BUDGET_MS, retrying: false,
+    ceiling: 1, ceilingWait: SCALE_CEILING_WAIT_SECONDS, sinceCeiling: 0, quality: null, width: 0, height: 0 };
+}
+const ScaleControl = makeScaleControl();
+
+// A new preset or screen size changes the cost of every pixel: forget the learned ceiling.
+function resetScaleCeiling(control) {
+  control.ceiling = 1; control.ceilingWait = SCALE_CEILING_WAIT_SECONDS; control.sinceCeiling = 0; control.retrying = false;
+}
+
+const roundScale = (scale) => Math.round(scale * 100) / 100;
+
+// One controller step: returns the new scale. Over budget for 0.5 s lowers one step; under the raise limit for
+// 2 s raises one step (hysteresis), but never above the ceiling until its wait has passed.
 function stepRenderScale(control, measuredMs, budgetMs, raiseBelowMs, seconds, scale, low, high) {
   control.sinceRaise += seconds;
-  if (measuredMs > budgetMs) { control.overSeconds += seconds; control.underSeconds = 0; } else if (measuredMs <= raiseBelowMs) { control.underSeconds += seconds; control.overSeconds = 0; } else { control.overSeconds = 0; control.underSeconds = 0; }
-  if (control.sinceRaise > SCALE_BACKOFF_MAX_SECONDS * 2) control.raiseWait = SCALE_RAISE_SECONDS;
-  if (control.overSeconds >= SCALE_LOWER_SECONDS) {
-    control.overSeconds = 0;
-    if (control.sinceRaise < SCALE_BACKOFF_WINDOW) control.raiseWait = Math.min(control.raiseWait * 2, SCALE_BACKOFF_MAX_SECONDS);
-    return Math.max(low, Math.round((scale - SCALE_STEP) * 100) / 100);
-  }
-  if (control.underSeconds >= control.raiseWait && scale < high) {
-    control.underSeconds = 0;
-    control.sinceRaise = 0;
-    return Math.min(high, Math.round((scale + SCALE_STEP) * 100) / 100);
-  }
+  control.sinceCeiling += seconds;
+  const over = measuredMs > budgetMs;
+  control.overSeconds = over ? control.overSeconds + seconds : 0;
+  control.underSeconds = !over && measuredMs <= raiseBelowMs ? control.underSeconds + seconds : 0;
+  if (control.overSeconds >= SCALE_LOWER_SECONDS) return lowerScale(control, scale, low);
+  const ceilingOpen = scale + 1e-4 < control.ceiling || control.sinceCeiling >= control.ceilingWait;
+  if (control.underSeconds >= SCALE_RAISE_SECONDS && scale < high && ceilingOpen) return raiseScale(control, scale, high);
   return clamp(scale, low, high);
+}
+
+// Without a GPU timer a frame that holds vsync shows no headroom, so the only sign of a raise that was too much
+// is a drop right after it: that scale becomes the ceiling, retried after a wait that doubles on each failure
+// (no cap), so a GPU-bound phone settles instead of stuttering in a raise/drop loop.
+function lowerScale(control, scale, low) {
+  control.overSeconds = 0;
+  const lowered = Math.max(low, roundScale(scale - SCALE_STEP));
+  if (control.sinceRaise < SCALE_BACKOFF_WINDOW) {
+    if (control.retrying) control.ceilingWait *= 2;
+    control.ceiling = lowered;
+    control.sinceCeiling = 0;
+  }
+  control.retrying = false;
+  return lowered;
+}
+
+function raiseScale(control, scale, high) {
+  const raised = Math.min(high, roundScale(scale + SCALE_STEP));
+  control.underSeconds = 0;
+  control.sinceRaise = 0;
+  control.retrying = raised > control.ceiling + 1e-4;
+  if (control.retrying) { control.ceiling = raised; control.sinceCeiling = 0; }
+  return raised;
 }
 
 function updateRenderScale(seconds) {
   const control = ScaleControl, size = Render.size, quality = Render.quality, config = Render.config;
   control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, FRAME_SMOOTHING); // seconds = frame interval
+  if (control.quality !== quality || control.width !== size.width || control.height !== size.height) {
+    resetScaleCeiling(control);
+    control.quality = quality; control.width = size.width; control.height = size.height;
+  }
   let scale = size.scale;
+  const low = quality.renderScaleMin, high = quality.renderScaleMax;
   if (Benchmark.active) scale = 1;
   else if (config.renderScale !== 'auto') scale = config.renderScale;
-  else if (GpuTimer.extension) scale = stepRenderScale(control, GpuTimer.lastMs, GPU_BUDGET_MS, GPU_BUDGET_MS * SCALE_RAISE_FRACTION, seconds, scale, quality.renderScaleMin, quality.renderScaleMax);
-  else scale = stepRenderScale(control, control.smoothedMs, FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE, FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE, seconds, scale, quality.renderScaleMin, quality.renderScaleMax);
+  else if (GpuTimer.extension) scale = stepRenderScale(control, GpuTimer.lastMs, GPU_BUDGET_MS, GPU_BUDGET_MS * SCALE_RAISE_FRACTION, seconds, scale, low, high);
+  else scale = stepRenderScale(control, control.smoothedMs, SLOW_FRAME_MS, SLOW_FRAME_MS, seconds, scale, low, high);
   if (Math.abs(scale - size.scale) < 1e-4) return;
   size.scale = scale;
   size.dirty = true;
@@ -235,9 +272,11 @@ function lowerQualityStep() {
   return true;
 }
 
-// With automatic render scale, the cheaper fix (lower resolution) is used up before a whole preset drops.
+// With automatic render scale the cheaper fix (lower resolution) is used up before a whole preset drops, but only
+// while it can still help: when the GPU timer shows the GPU within budget the device is CPU-bound.
 function scaleHeadroomLeft() {
-  return Render.config.renderScale === 'auto' && Render.size.scale > Render.quality.renderScaleMin + 1e-4;
+  if (Render.config.renderScale !== 'auto' || Render.size.scale <= Render.quality.renderScaleMin + 1e-4) return false;
+  return !GpuTimer.extension || GpuTimer.lastMs > GPU_BUDGET_MS;
 }
 
 function updateStepDown(seconds) {

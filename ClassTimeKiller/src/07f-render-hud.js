@@ -233,6 +233,7 @@ Render.gpuMemoryBytes = () => {
   bytes += HUD_ATLAS_SIZE * HUD_ATLAS_SIZE * 4 * MIPMAP_FACTOR;
   for (const batch of shapeBatches) bytes += batch.data.byteLength;
   bytes += particlePool.data.byteLength + decalPool.data.byteLength;
+  bytes += SunShadow.size * SunShadow.size * 2;                         // 16-bit sun shadow depth map
   if (WorldMesh.vertexBytes) bytes += WorldMesh.vertexBytes.byteLength + WorldMesh.indexData.byteLength;
   bytes += size.width * size.height * 8;                                  // canvas colour + depth
   if (!target.direct) bytes += target.width * target.height * 8 * (1 + target.samples);

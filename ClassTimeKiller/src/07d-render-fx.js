@@ -15,7 +15,7 @@ const maxOf = (field) => CAT.quality.reduce((most, row) => Math.max(most, row[fi
 // A ring-buffer pool of particle slots; `cap` is the active size (quality), `capacity` the allocated maximum.
 function makeParticlePool(name, capacity) {
   return { name, capacity, data: new Float32Array(capacity * PARTICLE_FLOATS), deathTime: new Float32Array(capacity),
-    next: 0, used: 0, dirtyMin: capacity, dirtyMax: -1, buffer: null, vertexArray: null };
+    next: 0, used: 0, live: 0, lastDeath: 0, dirtyMin: capacity, dirtyMax: -1, buffer: null, vertexArray: null };
 }
 const particlePool = makeParticlePool('particles', maxOf('particles'));
 const decalPool = makeParticlePool('decals', maxOf('decals'));
@@ -43,6 +43,15 @@ function writeParticle(pool, slot, x, y, z, vx, vy, vz, life, sizeStart, sizeEnd
   d[o + 10] = fxColor[0]; d[o + 11] = fxColor[1]; d[o + 12] = fxColor[2]; d[o + 13] = alpha;
   d[o + 14] = gravity; d[o + 15] = drag; d[o + 16] = mode; d[o + 17] = Rng.fx.next() * Math.PI * 2;
   pool.deathTime[slot] = now + life;
+  pool.lastDeath = Math.max(pool.lastDeath, now + life);   // past it every slot is dead: the draw is skipped
+}
+
+// Live slots of a pool on the effects clock (counted once per frame for the stats and the triangle counter).
+function countLive(pool) {
+  const now = Render.frame.time;
+  let live = 0;
+  for (let i = 0; i < pool.used; i++) if (pool.deathTime[i] > now) live++;
+  return live;
 }
 
 // Random direction around a normal: spread 0 = the normal, 1 = almost any direction (a zero normal = any direction).
@@ -97,15 +106,13 @@ const Fx = {
     fxLights.endTime[slot] = now + Math.max(0.01, seconds);
   },
   clear() {
-    for (const pool of [particlePool, decalPool]) { pool.deathTime.fill(0); pool.data.fill(0); pool.next = 0; pool.used = 0; pool.dirtyMin = 0; pool.dirtyMax = pool.capacity - 1; }
+    for (const pool of [particlePool, decalPool]) {
+      pool.deathTime.fill(0); pool.data.fill(0);
+      pool.next = 0; pool.used = 0; pool.live = 0; pool.lastDeath = 0; pool.dirtyMin = 0; pool.dirtyMax = pool.capacity - 1;
+    }
     fxLights.endTime.fill(0);
   },
-  liveParticles() {
-    const now = Render.frame.time;
-    let live = 0;
-    for (let i = 0; i < particlePool.used; i++) if (particlePool.deathTime[i] > now) live++;
-    return live;
-  },
+  liveParticles() { return countLive(particlePool); },
 };
 const fxLights = { position: new Float32Array(MAX_DYNAMIC_LIGHTS * 4), color: new Float32Array(MAX_DYNAMIC_LIGHTS * 3),
   startTime: new Float32Array(MAX_DYNAMIC_LIGHTS), endTime: new Float32Array(MAX_DYNAMIC_LIGHTS) };
@@ -123,7 +130,9 @@ function updateLights() {
     count++;
   }
   frame.lightCount = count;
-  Render.stats.particles = Fx.liveParticles();
+  particlePool.live = countLive(particlePool);
+  decalPool.live = countLive(decalPool);
+  Render.stats.particles = particlePool.live;
 }
 Render.addUpdate(50, updateLights);
 
@@ -161,6 +170,7 @@ uniform vec3 uCameraPosition;
 uniform vec3 uCameraRight;
 uniform vec3 uCameraUp;
 uniform float uTime;
+uniform float uFogDensity;
 in vec2 aCorner;
 in vec3 aOrigin;
 in vec3 aVelocity;
@@ -169,6 +179,7 @@ in vec4 aColor;
 in vec4 aParams;
 out vec2 vCorner;
 out vec4 vColor;
+out float vFog;
 flat out int vMode;
 void main() {
   float age = uTime - aTiming.x;
@@ -203,12 +214,17 @@ void main() {
   vCorner = aCorner;
   vMode = packed;
   vColor = vec4(aColor.rgb, aColor.a * fade);
-  gl_Position = uViewProjection * vec4(center + axisA * aCorner.x + axisB * aCorner.y, 1.0);
+  vec3 position = center + axisA * aCorner.x + axisB * aCorner.y;
+  float fogDistance = length(position - uCameraPosition) * uFogDensity;
+  vFog = 1.0 - exp2(-fogDistance * fogDistance); // the same curve as finishColor
+  gl_Position = uViewProjection * vec4(position, 1.0);
 }`;
 const PARTICLE_FRAGMENT = `#version 300 es
 precision mediump float;
+uniform vec3 uFogColor;
 in vec2 vCorner;
 in vec4 vColor;
+in float vFog;
 flat in int vMode;
 out vec4 outColor;
 void main() {
@@ -217,23 +233,25 @@ void main() {
     : 1.0 - smoothstep(mode == 2 ? 0.6 : 0.3, 1.0, length(vCorner));
   float alpha = vColor.a * clamp(shape, 0.0, 1.0);
   if (alpha < 0.004) discard;
-  outColor = vec4(vColor.rgb * alpha, vMode >= ${ADDITIVE_FLAG} ? 0.0 : alpha);
+  bool additive = vMode >= ${ADDITIVE_FLAG};
+  vec3 color = additive ? vColor.rgb * (1.0 - vFog) : mix(vColor.rgb, uFogColor, vFog); // glows fade out in fog
+  outColor = vec4(color * alpha, additive ? 0.0 : alpha);
 }`;
 Render.defineProgram('particles', PARTICLE_VERTEX, PARTICLE_FRAGMENT, PARTICLE_ATTRIBUTES);
 
 function drawPool(gl, pool) {
   if (!pool.used) return;
   uploadPool(gl, pool);
+  if (Render.frame.time >= pool.lastDeath) return; // every slot is dead: no instances to run
   const program = Render.programs.particles, u = program.uniforms, view = Render.view;
   gl.useProgram(program.handle);
-  gl.uniformMatrix4fv(u.uViewProjection, false, Render.frame.viewProjection);
-  gl.uniform3fv(u.uCameraPosition, Render.frame.cameraPosition);
+  applyFrameUniforms(gl, program, Render.frame.viewProjection);
   gl.uniform3fv(u.uCameraRight, view.right);
   gl.uniform3fv(u.uCameraUp, view.up);
   gl.uniform1f(u.uTime, Render.frame.time);
   gl.bindVertexArray(pool.vertexArray);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, pool.used);
-  Render.countDraw(pool.used * 2);
+  Render.countDraw(pool.live * 2);
 }
 
 function drawEffects(gl) {
