@@ -387,6 +387,8 @@ Test.add('ui', (check) => withUi(() => {
   check('layout editor: the hide toggle hides the control', TouchInput.getProperty('jump', 'hidden') === true && TouchInput.elements.jump.classList.contains('ghost'));
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Preset')).querySelector('button').click();
   check('layout editor: the preset button switches the layout preset', Settings.get('controls.touch.layout') === 'compact');
+  Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Panel position')).querySelector('button').click();
+  check('layout editor: the panel can be docked away from the controls', Ui.top().element.dataset.dock === 'left');
   Settings.reset('controls.touch.layout'); Input.refreshConfig();
   clickButton(Ui.top().element, 'Reset layout');
   check('layout editor: reset restores the defaults', TouchInput.getProperty('jump', 'scale') === TOUCH_PRESETS[0].scale && !TouchInput.getProperty('jump', 'hidden'));

@@ -69,8 +69,8 @@ const PadInput = {
     if (pad.id === this.padId) return;
     this.padId = pad.id;
     const id = String(pad.id).toLowerCase();
-    if (/054c|dualshock|dualsense|playstation|wireless controller/.test(id)) Input.padStyle = 'playstation';
-    else if (/xbox|045e|xinput|microsoft/.test(id)) Input.padStyle = 'xbox';
+    if (/054c/.test(id)) Input.padStyle = 'shapes';          // the pad's USB vendor id decides the glyph family
+    else if (/045e|xinput/.test(id)) Input.padStyle = 'letters';
     else Input.padStyle = 'generic';
   },
   activePad() {

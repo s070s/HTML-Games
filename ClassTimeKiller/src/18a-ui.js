@@ -15,7 +15,7 @@ const UI_SETTINGS = [
   { key: 'developer.botDebug', field: 'botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
 ];
 
-const UI_CSS = '.ui-screen { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
+const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
   + ' padding: calc(16px + var(--safe-top)) calc(20px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(20px + var(--safe-left));'
   + ' background: radial-gradient(ellipse at 20% 0%, #1b2736 0%, #0b0f14 70%); overflow: hidden; }'
   + '.ui-screen.behind { display: none; } #overlay > .ui-screen.passthrough { background: none; pointer-events: none; } .passthrough > * { pointer-events: auto; }'

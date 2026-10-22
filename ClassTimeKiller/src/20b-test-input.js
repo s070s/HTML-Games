@@ -44,7 +44,7 @@ function countEdges(id, bit, frames) {
   return edges;
 }
 function fakePad(id) {
-  return { id: id || 'Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)', index: 0, axes: [0, 0, 0, 0],
+  return { id: id || 'Pad A (STANDARD GAMEPAD Vendor: 045e Product: 028e)', index: 0, axes: [0, 0, 0, 0],
     buttons: Array.from({ length: PAD_BUTTON_COUNT }, () => ({ pressed: false, value: 0 })) };
 }
 function padButton(pad, index, down) { pad.buttons[index].pressed = down; pad.buttons[index].value = down ? 1 : 0; }
@@ -258,10 +258,11 @@ Test.add('input', (check) => {
   check('capture: a key does not satisfy a controller capture', captured === 'Mouse:4' && Input.capture !== null);
   Input.cancelCapture();
   id = startInputMatch();
+  Input.padStyle = 'letters';
   check('labels: glyphs follow the pad family (LT-H-066)', Input.bindingLabel('Pad:7') === 'RT');
-  Input.padStyle = 'playstation';
-  check('labels: playstation glyphs', Input.bindingLabel('Pad:7') === 'R2' && Input.bindingLabel('Pad:0') === 'Cross');
-  Input.padStyle = 'xbox';
+  Input.padStyle = 'shapes';
+  check('labels: shape glyphs', Input.bindingLabel('Pad:7') === 'R2' && Input.bindingLabel('Pad:0') === 'Cross');
+  Input.padStyle = 'letters';
 });
 
 Test.add('input', (check) => {
@@ -325,6 +326,14 @@ Test.add('input', (check) => {
   check('lock: raw input unsupported falls back silently to a plain lock', calls.length === 2 && calls[1] === undefined && !Input.lockRefused);
   Input.onLockPromiseRejected({ name: 'SecurityError' });
   check('lock: any other rejection counts as a refusal', Input.lockRefused === Game.paused);
+  let relocks = 0;
+  const relockListener = Bus.on('input.relock', () => { relocks++; });
+  Game.pause('menu'); Input.resumePending = false; Input.onLockRefused();
+  check('lock: a refusal that was not a Resume keeps the pause menu', relocks === 0);
+  Input.resumePending = true; Input.onLockRefused();
+  Bus.off('input.relock', relockListener);
+  check('lock: a refused Resume asks the UI to drop its menus', relocks === 1);
+  Game.resume();
   Input.canvas = document.getElementById('view');
   Input.lockRefused = false;
   Input.resumePending = false;
@@ -404,11 +413,11 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
   const id = startInputMatch();
-  const pad = fakePad('Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)');
+  const pad = fakePad('Pad B (STANDARD GAMEPAD Vendor: 054c Product: 09cc)');
   PadInput.poll(pad, TEST_FRAME);
-  check('pad: a playstation pad is detected by its id', Input.padStyle === 'playstation');
+  check('pad: a pad with the shape glyph vendor id is detected', Input.padStyle === 'shapes');
   PadInput.poll(fakePad(), TEST_FRAME);
-  check('pad: hot-plugging another pad changes the glyph family', Input.padStyle === 'xbox');
+  check('pad: hot-plugging another pad changes the glyph family', Input.padStyle === 'letters');
   const menu = [];
   const listener = Bus.on('input.menu', (payload) => menu.push(payload.command));
   Input.uiOpen = true;

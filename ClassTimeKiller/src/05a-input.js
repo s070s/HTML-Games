@@ -15,7 +15,6 @@ const MAX_QUEUED_PULSES = 8;
 const NO_BINDING = '';
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
-const PAD_STYLES = ['xbox', 'playstation', 'generic'];
 
 // ---- DOM helpers (S05 is the earliest section that builds DOM; touch controls and the UI share them) ----
 function makeElement(tag, className, text) {
@@ -81,8 +80,8 @@ const KEY_LABELS = {
 };
 // Glyph names per controller family (LT-H-066: prompts follow the connected pad). Index = standard-mapping button number.
 const PAD_GLYPHS = {
-  xbox: ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Home'],
-  playstation: ['Cross', 'Circle', 'Square', 'Triangle', 'L1', 'R1', 'L2', 'R2', 'Share', 'Options', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'PS'],
+  letters: ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Home'],
+  shapes: ['Cross', 'Circle', 'Square', 'Triangle', 'L1', 'R1', 'L2', 'R2', 'Share', 'Options', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'PS'],
   generic: ['Button 1', 'Button 2', 'Button 3', 'Button 4', 'L1', 'R1', 'L2', 'R2', 'Select', 'Start', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Home'],
 };
 
@@ -107,7 +106,7 @@ const Input = {
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
   autoFireTarget: false,   // set by later sections each frame: crosshair is on a visible enemy
-  padStyle: 'xbox',        // glyph family of the active pad
+  padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
   locked: false,           // pointer lock held
   lockRefused: false,      // the browser refused the last lock request (needs a click)
@@ -391,9 +390,10 @@ const Input = {
     this.syncPrompt();
   },
   onLockRefused() {
-    this.lockRefused = this.resumePending || Game.paused;
+    const resuming = this.resumePending;
+    this.lockRefused = resuming || Game.paused;
     this.resumePending = false;
-    if (Game.paused) Bus.emit('input.relock', null);
+    if (resuming && Game.paused) Bus.emit('input.relock', null);   // only a refused Resume drops the menu for the click prompt
     this.syncPrompt();
   },
   finishResume() {
@@ -431,7 +431,7 @@ const Input = {
     if (this.bindingsSource !== Save.data.bindings) this.loadBindings();
     if (this.settingsDirty) this.refreshConfig();
     this.analog.moveX = this.analog.moveZ = 0;
-    for (const source of this.sources) source.frame(seconds);
+    for (let i = 0; i < this.sources.length; i++) this.sources[i].frame(seconds);
     this.syncPrompt();
     const id = Game.playerId;
     if (id < 0 || !Game.isRunning()) { this.discardFrame(); return; }
@@ -488,14 +488,15 @@ const Input = {
   writeActor(id, seconds) {
     this.advanceLatch(seconds);
     let x = this.analog.moveX, z = this.analog.moveZ;
-    for (const index of this.axisActions) {
-      if (!this.effective[index]) continue;
-      if (ACTION_ROWS[index].axis === 'moveX') x += ACTION_ROWS[index].sign; else z += ACTION_ROWS[index].sign;
+    for (let i = 0; i < this.axisActions.length; i++) {
+      const row = ACTION_ROWS[this.axisActions[i]];
+      if (!this.effective[this.axisActions[i]]) continue;
+      if (row.axis === 'moveX') x += row.sign; else z += row.sign;
     }
     const length = Math.hypot(x, z);
     if (length > 1) { x /= length; z /= length; }
     let buttons = this.latchedButtons;
-    for (const index of this.buttonActions) if (this.effective[index]) buttons |= this.buttonBits[index];
+    for (let i = 0; i < this.buttonActions.length; i++) { const index = this.buttonActions[i]; if (this.effective[index]) buttons |= this.buttonBits[index]; }
     if (this.autoFire && this.autoFireTarget && this.device === 'touch') buttons |= BTN.FIRE;
     this.writtenButtons = buttons;
     this.writtenTick = Sim.tick;
@@ -516,8 +517,8 @@ const Input = {
     if (this.pendingSlot) { this.latchedSlot = this.pendingSlot; this.pendingSlot = 0; }
   },
   releaseQueue() {
-    for (const index of this.buttonActions) {
-      const bit = this.buttonBits[index];
+    for (let i = 0; i < this.buttonActions.length; i++) {
+      const index = this.buttonActions[i], bit = this.buttonBits[index];
       if (!this.queued[index] || ((this.pendingButtons | this.latchedButtons) & bit)) continue;
       this.queued[index]--; this.queuedTotal--;
       this.pendingButtons |= bit;
