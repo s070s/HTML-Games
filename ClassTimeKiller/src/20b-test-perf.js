@@ -473,26 +473,31 @@ Test.add('perf', (check) => withRenderer(() => {
 
 // ---- Allocation probes (PERF-006): the heap bytes a hot path allocates over many calls, read from performance.memory, which is
 // exact with Chrome's --enable-precise-memory-info (tools/selftest.mjs starts Chrome with it). One boxed float per call shows
-// as PERF_ALLOC_CALLS x 12 bytes or more; the limit leaves room for stray engine work. A GC inside the window can only hide
-// an allocation, never invent one, so the probe does not fail on a busy machine. ----
+// as PERF_ALLOC_CALLS x 12 bytes or more; the limit leaves room for stray engine work. A GC inside the window shrinks the heap,
+// so a round with a negative reading counts as allocating: a path that allocates enough to start a GC in every round must
+// not read as free. ----
 const PERF_ALLOC_CALLS = 20000;
 const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
 const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
 const PERF_ALLOC_ROUNDS = 3;
 const PERF_PROBE_ACTORS = 8;
+const PERF_MOVER_ID = PERF_PROBE_ACTORS;  // the actor the movement-step probe steps (past the hitscan probe's actors)
+const perfMoverSpot = { x: 1.25, y: 0, z: -0.25 };    // y: the floor there, found by perfPlaceMover
+const PERF_FLOOR_SEARCH = 100;            // m: perfPlaceMover looks for the floor from this high down to as far below
 const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many small objects must show up
 
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
 // The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
-// during a round, while a path that really allocates does so in every round.
+// during a round, while a path that really allocates does so in every round. Infinity = a GC ran in every round.
 function perfAllocatedBytes(run) {
   for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
   let fewest = Infinity;
   for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
     const before = perfHeapBytes();
     for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
-    fewest = Math.min(fewest, perfHeapBytes() - before);
+    const allocated = perfHeapBytes() - before;
+    fewest = Math.min(fewest, allocated < 0 ? Infinity : allocated);
   }
   return fewest;
 }
@@ -507,7 +512,8 @@ function perfHeapCounterWorks() {
 // The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
 // floats are made inside the path, as in a match.
 function perfHotPaths() {
-  const mover = makeMover(), trace = makeTrace(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  navReadOptions(NAV_DEFAULT_OPTIONS);
   Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
   Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
   Object.assign(style, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
@@ -515,6 +521,7 @@ function perfHotPaths() {
     Actors.x[id] = 0.75 + id * 0.25; Actors.y[id] = 0; Actors.z[id] = id * 1.5; Actors.height[id] = STAND_HEIGHT; Actors.eye[id] = 1.6;
   }
   setHitRay(0.5, 1.25, -3.5, 0.1, -0.05, 0.99, 50.5, 0.1);
+  perfPlaceMover();
   return {
     'Hitbox.rayOf (hitscan against an actor)': (i) => { Hitbox.rayOf(i % PERF_PROBE_ACTORS); },
     'Collide.gatherAround + sweepSegment (a mover trace)': (i) => {
@@ -524,9 +531,47 @@ function perfHotPaths() {
       segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z; segment.ex = mover.x + 2.5; segment.ey = mover.y - 4.5; segment.ez = mover.z + 0.75;
       Collide.sweepSegment(mover.hull, trace);
     },
+    'sweepActor + Collide.stepSlide (an actor step into the floor and a wall)': (i) => {
+      mover.x = 0.5 + (i & 3); mover.y = 1.5; mover.z = -0.25; mover.vx = 40; mover.vy = -60; mover.vz = 9; mover.planeCount = 0;
+      sweepActor(0, mover, TICK_SECONDS, true);
+    },
+    'stepActor (an actor step: state call, triggers, flags)': (i) => {
+      Motion.stateTime[PERF_MOVER_ID] = 0; Actors.aimYaw[PERF_MOVER_ID] = (i & 7) * 0.25;
+      stepActor(PERF_MOVER_ID, TICK_SECONDS);
+    },
+    'navAStar (an A* search to a linked node)': (i) => {
+      const from = (i * 7) % Nav.nodeCount, linked = Nav.linkStart[from] < Nav.linkStart[from + 1];
+      navAStar(from, linked ? Nav.linkTarget[Nav.linkStart[from]] : from);
+    },
+    'World.lineClearOf (a bot sight line)': (i) => {
+      sight.ax = 0.5 + (i & 3); sight.ay = 1.5; sight.az = -3.5; sight.bx = -2.5; sight.by = 1.25 + (i & 1); sight.bz = 30.5;
+      World.lineClearOf(sight);
+    },
     'HudBatch.line (HUD quads)': (i) => { HudBatch.quads = 0; HudBatch.line(i & 255, 7, 300, 211, 3, 0xffffff, 1); },
     'emitActorPart (actor parts)': (i) => { actorBatch.clear(); emitActorPart(parts[i % parts.length], pose, style); },
   };
+}
+
+function perfAllocationDetail(bytes) {
+  if (bytes === Infinity) return 'a GC ran in every round of ' + PERF_ALLOC_CALLS + ' calls (it allocates heavily)';
+  return Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' calls';
+}
+
+// The probe actor mantles in place on the floor at perfMoverSpot: the probe restarts the mantle every call, so each step runs
+// the step driver (the indirect state call, triggers, eye, flags, footsteps) with no collision move. The collision move has
+// its own probe (sweepActor); a whole walking step boxes floats only in V8's mid tier (docs/PERFORMANCE.md section 5).
+function perfPlaceMover() {
+  const id = PERF_MOVER_ID, spot = perfMoverSpot;
+  spot.y = World.floorBelow(spot.x, PERF_FLOOR_SEARCH, spot.z, 2 * PERF_FLOOR_SEARCH);
+  resetMotion(id);
+  Move.setPreset(id, null);
+  Actors.x[id] = Motion.fromX[id] = Motion.toX[id] = spot.x;
+  Actors.y[id] = Motion.fromY[id] = Motion.toY[id] = spot.y;
+  Actors.z[id] = Motion.fromZ[id] = Motion.toZ[id] = spot.z;
+  Actors.height[id] = STAND_HEIGHT;
+  Motion.grounded[id] = 1;
+  holdInput(id, 0, 1, 0);
+  setState(id, MOVE_STATE.MANTLE);
 }
 
 // Heap bytes per hot path over PERF_ALLOC_CALLS calls (on a loaded map: the mover step meets real brushes). Run with the renderer on.
@@ -545,7 +590,8 @@ Test.add('perf', (check) => withRenderer(() => {
   const bytes = perfMeasureHotPaths();
   check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
   check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);
-  for (const name in bytes) check('allocation-free hot path: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes[name] / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' calls');
+  check('the movement probe actor stays mantling on the floor', Motion.state[PERF_MOVER_ID] === MOVE_STATE.MANTLE && Test.near(Actors.y[PERF_MOVER_ID], perfMoverSpot.y, 1e-4), Actors.y[PERF_MOVER_ID]);
+  for (const name in bytes) check('allocation-free hot path: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, perfAllocationDetail(bytes[name]));
 }));
 
 // ---- Quality caps per tier (PERF-009 bots and PvE enemies, PERF-010 particles, decals, dynamic lights) ----

@@ -50,6 +50,26 @@ Test.add('items', (check) => {
   check('unknown keys resolve to -1', Items.resolve('no-such-item') === -1);
 });
 
+// PERF-002: the per-step pickup loops stop at Items.usedEnd (every slot from there on is free), and a drop past the
+// map spots still counts.
+Test.add('items', (check) => {
+  ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0), ItemArena.spot('healthpack', 6, 0)]);
+  check('usedEnd covers the map spots only', Items.usedEnd === 2 && Items.spotCount === 2, Items.usedEnd);
+  const id = ItemArena.actor(1, 12, 0), slot = Items.drop('healthpack', 12, 0, 0);
+  check('a drop past the spots raises usedEnd to its slot', slot === 2 && Items.usedEnd === 3, Items.usedEnd);
+  const stray = Items.usedEnd;   // a slot past usedEnd made READY by hand: the unique-spot check must not scan that far
+  const foundDrop = Items.dropExists(0);
+  Items.state[slot] = PICKUP_STATE.FREE;
+  Items.state[stray] = PICKUP_STATE.READY; Items.kind[stray] = Items.kind[0]; Items.row[stray] = Items.row[0];
+  const foundStray = Items.dropExists(0);
+  Items.state[stray] = PICKUP_STATE.FREE; Items.state[slot] = PICKUP_STATE.READY;
+  check('dropExists finds the drop and stops at usedEnd', foundDrop && !foundStray, foundDrop + ' / ' + foundStray);
+  Sim.run(1);
+  check('the dropped pickup is touched and taken', Actors.health[id] === 75 && Items.state[slot] === PICKUP_STATE.FREE, Actors.health[id]);
+  Items.clear();
+  check('clear resets usedEnd', Items.usedEnd === 0);
+});
+
 Test.add('items', (check) => {
   ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
   const id = ItemArena.actor(1, 3, 0);

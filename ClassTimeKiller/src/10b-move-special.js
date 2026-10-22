@@ -120,14 +120,14 @@ function selectMedium(id) {
   if (state === MOVE_STATE.LADDER || state === MOVE_STATE.SWIM) setState(id, MOVE_STATE.WALK);
 }
 
-function ladderState(id, preset, gravity, dt) {
+function ladderState(id, preset, dt) {
   if (Motion.jumpPressed[id]) {
     Actors.vx[id] = -Math.sin(Actors.yaw[id]) * LADDER_PUSH_OFF; Actors.vz[id] = -Math.cos(Actors.yaw[id]) * LADDER_PUSH_OFF;
     Actors.vy[id] = preset.jumpVel * 0.5;
     setClock(id, CLOCK.LADDER_BLOCK, LADDER_REGRAB_SECONDS);
     setState(id, MOVE_STATE.WALK);
     launch(id, 'move.jump');
-    integrate(id, gravity, dt);
+    integrate(id, 1, dt);
     return;
   }
   const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1;
@@ -136,7 +136,7 @@ function ladderState(id, preset, gravity, dt) {
   integrate(id, 0, dt);
 }
 
-function swimState(id, preset, gravity, dt) {
+function swimState(id, preset, dt) {
   applyFriction(id, WATER_FRICTION, preset.stopSpeed, dt, true);
   // Forward follows the view in 3D (pitch included); strafe stays level; jump and crouch swim straight up and down.
   const up = ((Actors.buttons[id] & BTN.JUMP) ? 1 : 0) - ((Actors.buttons[id] & BTN.CROUCH) ? 1 : 0);
@@ -144,7 +144,7 @@ function swimState(id, preset, gravity, dt) {
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
   const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
   if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
-  integrate(id, gravity * WATER_GRAVITY_SCALE, dt);
+  integrate(id, WATER_GRAVITY_SCALE, dt);
 }
 
 // ---- Slide (MV03, MV04, MV08) ----
@@ -180,7 +180,7 @@ function checkSlideEnd(id, preset) {
 // Downhill gain: gravity along the floor's slope speeds a slide up (MV04 "downhill gain").
 function slideDownhill(id, preset, dt) {
   if (!preset.slideDownhill) return;
-  const gravity = actorGravity(id, preset);
+  const gravity = moveStep.gravity;
   Actors.vx[id] += Motion.groundNX[id] * gravity * dt; Actors.vz[id] += Motion.groundNZ[id] * gravity * dt;
 }
 
@@ -223,7 +223,7 @@ function tryDash(id, preset) {
   emitMove('move.dash', id, preset.dashDistance / preset.dashTime, surfaceOf(id));
 }
 
-function dashState(id, preset, gravity, dt) {
+function dashState(id, preset, dt) {
   const speed = preset.dashDistance / preset.dashTime;
   Actors.vx[id] = Motion.dirX[id] * speed; Actors.vy[id] = 0; Actors.vz[id] = Motion.dirZ[id] * speed;
   integrate(id, 0, dt);
@@ -274,11 +274,11 @@ function chargeTarget(id, range) {
   return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], range, CHARGE_RULE);
 }
 
-function chargeState(id, preset, gravity, dt) {
+function chargeState(id, preset, dt) {
   const target = Motion.target[id];
   if (target >= 0 && Actors.alive[target]) aimChargeAt(id, target);
   Actors.vx[id] = Motion.dirX[id] * preset.chargeSpeed; Actors.vz[id] = Motion.dirZ[id] * preset.chargeSpeed;
-  integrate(id, Motion.grounded[id] ? 0 : gravity, dt);
+  integrate(id, Motion.grounded[id] ? 0 : 1, dt);
   const travelled = (Motion.stateTime[id] + dt) * preset.chargeSpeed;
   const arrived = target >= 0 && length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
   if (travelled < preset.chargeDistance && !arrived && !Motion.blocked[id]) return;
@@ -331,7 +331,7 @@ function findLedge(id, maxHeight) {
 }
 
 // Rise first, then move onto the ledge; the weapon is lowered (Move.canFire) for MANTLE_SECONDS.
-function mantleState(id, preset, gravity, dt) {
+function mantleState(id, preset, dt) {
   const progress = Math.min(1, (Motion.stateTime[id] + dt) / MANTLE_SECONDS);
   const rise = smoothstep(0, MANTLE_RISE_FRACTION, progress), across = smoothstep(MANTLE_RISE_FRACTION, 1, progress);
   Actors.x[id] = lerp(Motion.fromX[id], Motion.toX[id], across);
@@ -340,7 +340,7 @@ function mantleState(id, preset, gravity, dt) {
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
   if (progress < 1) return;
   setState(id, MOVE_STATE.WALK);
-  integrate(id, gravity, dt); // settles onto the ledge and finds the floor
+  integrate(id, 1, dt); // settles onto the ledge and finds the floor
 }
 
 // Climbing up a wall while pushing into it (MV04/MV08 2.5 m, MV05 6 m on grip surfaces); the mantle takes over at the top.
@@ -364,14 +364,14 @@ function tryWallRun(id, preset) {
   emitMove('move.wallrun', id, speed, Motion.wallBrush[id] ? Motion.wallBrush[id].material : 'concrete');
 }
 
-function wallRunState(id, preset, gravity, dt) {
-  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, gravity, dt); return; }
+function wallRunState(id, preset, dt) {
+  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, 1, dt); return; }
   const stillOnWall = findWall(id, -Motion.wallNX[id], -Motion.wallNZ[id]);
-  if (Motion.stateTime[id] >= preset.wallRunTime || Motion.inputZ[id] <= 0 || !stillOnWall) { leaveWall(id); integrate(id, gravity, dt); return; }
+  if (Motion.stateTime[id] >= preset.wallRunTime || Motion.inputZ[id] <= 0 || !stillOnWall) { leaveWall(id); integrate(id, 1, dt); return; }
   const into = Actors.vx[id] * Motion.wallNX[id] + Actors.vz[id] * Motion.wallNZ[id];
   Actors.vx[id] -= Motion.wallNX[id] * into; Actors.vz[id] -= Motion.wallNZ[id] * into;
   setHorizontalSpeed(id, preset.wallRunSpeed);
-  integrate(id, gravity * preset.wallRunGravity, dt);
+  integrate(id, preset.wallRunGravity, dt);
   if (Motion.grounded[id]) setState(id, MOVE_STATE.WALK);
 }
 
@@ -382,9 +382,9 @@ function tryLatch(id, preset) {
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }
 
-function latchState(id, preset, gravity, dt) {
-  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, gravity, dt); return; }
-  if (!(Actors.buttons[id] & BTN.ALT) || Motion.stateTime[id] >= preset.wallLatchTime) { leaveWall(id); integrate(id, gravity, dt); return; }
+function latchState(id, preset, dt) {
+  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, 1, dt); return; }
+  if (!(Actors.buttons[id] & BTN.ALT) || Motion.stateTime[id] >= preset.wallLatchTime) { leaveWall(id); integrate(id, 1, dt); return; }
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }
 

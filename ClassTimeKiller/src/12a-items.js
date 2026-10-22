@@ -116,6 +116,7 @@ const Items = {
   rarity: new Uint8Array(PICKUP_CAP),               // weapon pickups: WPN-008 rarity index the weapon is given with
   matchSetCursor: 0,                                // next weapon of a match list handed to a weapon spot
   spotCount: 0,                                     // map spots use slots 0..spotCount-1, drops the rest
+  usedEnd: 0,                                       // every slot from here on is FREE: the per-step loops stop here (PERF-002)
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
@@ -144,7 +145,7 @@ const Items = {
   // ---- Map spots (match.start) ----
   clear() {
     this.state.fill(0); this.spot.fill(0); this.warned.fill(0); this.blocker.fill(-1);
-    this.spotCount = 0;
+    this.spotCount = 0; this.usedEnd = 0;
   },
   // entries: map items [{ x, y, z, item, group, modes }]; mode filters each entry's `modes` list (empty = every mode).
   load(entries, mode) {
@@ -181,6 +182,7 @@ const Items = {
   },
   place(slot, kind, rowIndex, x, y, z) {
     this.state[slot] = PICKUP_STATE.READY; this.kind[slot] = kind; this.row[slot] = rowIndex;
+    this.usedEnd = Math.max(this.usedEnd, slot + 1);
     this.group[slot] = this.groupFor(kind, PICKUP_ROWS[kind][rowIndex]);
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
     this.despawnTick[slot] = NO_TICK; this.timeLeft[slot] = 0; this.warned[slot] = 0; this.blocker[slot] = -1; this.rarity[slot] = 0;
@@ -260,7 +262,7 @@ const Items = {
 
   // ---- The per-step update (Sim order 60) ----
   step(dt) {
-    for (let slot = 0; slot < PICKUP_CAP; slot++) {
+    for (let slot = 0; slot < this.usedEnd; slot++) {
       const state = this.state[slot];
       if (state === PICKUP_STATE.WAITING) this.stepWaiting(slot);
       else if (state === PICKUP_STATE.READY) this.stepReady(slot, dt);
@@ -305,7 +307,7 @@ const Items = {
   },
   // A dropped copy of the same row lies around (unique powerups wait for it).
   dropExists(spotSlot) {
-    for (let slot = this.spotCount; slot < PICKUP_CAP; slot++) {
+    for (let slot = this.spotCount; slot < this.usedEnd; slot++) {
       if (this.state[slot] === PICKUP_STATE.READY && this.kind[slot] === this.kind[spotSlot] && this.row[slot] === this.row[spotSlot]) return true;
     }
     return false;
@@ -337,7 +339,7 @@ const Items = {
     return dx * dx + dz * dz <= PICKUP_REACH * PICKUP_REACH && dy >= -PICKUP_BELOW && dy <= Actors.height[id];
   },
   touch(id) {
-    for (let slot = 0; slot < PICKUP_CAP; slot++) {
+    for (let slot = 0; slot < this.usedEnd; slot++) {
       if (this.state[slot] !== PICKUP_STATE.READY) continue;
       const touching = this.touching(id, slot);
       if (this.blocker[slot] === id) { if (!touching) this.blocker[slot] = -1; continue; }
@@ -405,7 +407,7 @@ const Items = {
   },
   rayAmmo(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
-    for (let slot = 0; slot < PICKUP_CAP; slot++) {
+    for (let slot = 0; slot < this.usedEnd; slot++) {
       if (this.state[slot] !== PICKUP_STATE.READY || this.groupName(slot) !== 'ammo') continue;
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[slot], this.y[slot] + PICKUP_FLOAT, this.z[slot], VOLATILE_HIT_RADIUS);
       if (distance >= 0 && distance < bestDistance) { best = slot; bestDistance = distance; }
@@ -533,7 +535,7 @@ const Items = {
     pickupInstance.yaw = Sim.time * PICKUP_SPIN;
     pickupInstance.pitch = 0;
     const bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
-    for (let slot = 0; slot < PICKUP_CAP; slot++) {
+    for (let slot = 0; slot < this.usedEnd; slot++) {
       const state = this.state[slot];
       if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, bob);
       else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, PICKUP_GLOW_WAITING);

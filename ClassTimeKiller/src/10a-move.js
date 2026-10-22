@@ -64,7 +64,7 @@ const Move = {
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
   footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
   safeLanding: new Uint8Array(MAX_ACTORS),                // 1 = the next landing deals no fall damage, then cleared (S13: royale drop-in)
-  states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
+  states: [],             // MOVE_STATE -> fn(id, preset, dt); 10b fills the special states (the step's gravity: moveStep)
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
 
@@ -196,11 +196,11 @@ function airAssistOn(id, preset) {
 }
 
 // ---- The walk state: ground and air movement, jumps ----
-function walkState(id, preset, gravity, dt) {
+function walkState(id, preset, dt) {
   if (Motion.grounded[id] && tryJump(id, preset)) Motion.grounded[id] = 0;
   if (Motion.grounded[id]) walkGround(id, preset, dt);
   else walkAir(id, preset, dt);
-  integrate(id, Motion.grounded[id] ? 0 : gravity * airGravityScale(id, preset), dt);
+  integrate(id, Motion.grounded[id] ? 0 : airGravityScale(id, preset), dt);
 }
 
 function walkGround(id, preset, dt) {
@@ -261,6 +261,7 @@ function unground(id) {
 // ---- Collision move: exact parabola (gravity averaged over the step), sub-stepped sweeps, step-up, ground probe ----
 const actorMover = makeMover();
 const groundTrace = makeTrace();
+const groundPlane = { nx: 0, ny: 1, nz: 0, brush: null };   // the floor plane of followGround (addClipPlane reads an object)
 
 function loadActorMover(id) {
   const mover = actorMover;
@@ -271,14 +272,15 @@ function loadActorMover(id) {
   return mover;
 }
 
-function integrate(id, gravity, dt) {
-  const mover = loadActorMover(id);
+// gravityScale: the share of the actor's gravity (moveStep.gravity) that pulls it this step (0 on the floor or a ladder).
+function integrate(id, gravityScale, dt) {
+  const mover = loadActorMover(id), gravity = moveStep.gravity * gravityScale;
   const wasGrounded = Motion.grounded[id] === 1;
   const endVY = mover.vy - gravity * dt;
   mover.vy = (mover.vy + endVY) / 2;
   if (wasGrounded) followGround(id, mover);
-  sweepActor(id, mover, dt, wasGrounded ? STEP_HEIGHT : 0);
-  if (gravity !== 0) applyEndVelocity(mover, endVY);
+  sweepActor(id, mover, dt, wasGrounded);
+  if (gravity !== 0) { mover.vy = endVY; clipToTouchedPlanes(mover); }
   settle(id, mover);
   const impactSpeed = Math.max(0, -endVY);
   const nowGrounded = probeFloor(id, mover, wasGrounded);
@@ -287,32 +289,35 @@ function integrate(id, gravity, dt) {
 }
 
 // After the move the vertical speed is the end-of-step value, clipped again by every surface touched on the way.
-function applyEndVelocity(mover, endVY) {
-  mover.vy = endVY;
+function clipToTouchedPlanes(mover) {
   for (let i = 0; i < mover.planeCount; i++) clipVelocity(mover, mover.planes[i * 3], mover.planes[i * 3 + 1], mover.planes[i * 3 + 2]);
 }
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
-  const speed = length3(mover.vx, mover.vy, mover.vz);
-  addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
-  clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
+  const speed = length3(mover.vx, mover.vy, mover.vz), plane = groundPlane;
+  plane.nx = Motion.groundNX[id]; plane.ny = Motion.groundNY[id]; plane.nz = Motion.groundNZ[id]; plane.brush = Motion.groundBrush[id];
+  addClipPlane(mover, plane);
+  clipVelocity(mover, plane.nx, plane.ny, plane.nz);
   const clipped = length3(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
 // Each piece gathers at least the settle reach past its travel, so the settle and floor probe after it reuse that brush
-// list (Collide.gatherAround) instead of walking the brush tree again.
-function sweepActor(id, mover, dt, stepHeight) {
+// list (Collide.gatherAround) instead of walking the brush tree again. The piece time goes through slideClock (slideMover,
+// stepSlideMover): a computed float passed as an argument would be boxed every step (PERF-006). stepUp (it started the step
+// on the floor) is a flag for the same reason: a STEP_HEIGHT-or-0 argument is such a float.
+function sweepActor(id, mover, dt, stepUp) {
   const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
   const firstPlanes = mover.planeCount;
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + Math.max(stepHeight, SETTLE_REACH));
-    const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
+    Collide.gatherAround(mover, travel / pieces + (stepUp ? Math.max(STEP_HEIGHT, SETTLE_REACH) : SETTLE_REACH));
+    slideClock.seconds = dt / pieces;
+    const hit = stepUp ? Collide.stepSlideMover(mover, STEP_HEIGHT) : Collide.slideMover(mover);
     if (hit) recordWall(id, mover);
   }
 }
@@ -340,7 +345,9 @@ function settle(id, mover) {
 function probeFloor(id, mover, wasGrounded) {
   if (getClock(id, CLOCK.UNGROUND) > 0) return setAirborne(id);
   const trace = groundTrace;
-  if (!Collide.probeGround(mover, wasGrounded ? STEP_HEIGHT + GROUND_PROBE : GROUND_PROBE, trace)) return setAirborne(id);
+  // One call per reach: a reach picked by wasGrounded would be a float argument, boxed every step (PERF-006).
+  const found = wasGrounded ? Collide.probeGround(mover, SETTLE_REACH, trace) : Collide.probeGround(mover, GROUND_PROBE, trace);
+  if (!found) return setAirborne(id);
   if (mover.vx * trace.nx + mover.vy * trace.ny + mover.vz * trace.nz > GROUND_LEAVE_SPEED) return setAirborne(id);
   mover.y = trace.y;
   clipVelocity(mover, trace.nx, trace.ny, trace.nz);
@@ -492,10 +499,14 @@ function stepMovement(dt) {
   }
 }
 
+// The step's gravity and start position, read by the states, integrate, afterMove and countSteps: a computed float passed as
+// an argument would be boxed every actor step (PERF-006), and the state call is indirect (one of several), so rarely inlined.
+const moveStep = { gravity: 0, startX: 0, startZ: 0 };
+
 function stepActor(id, dt) {
   const preset = Move.preset(id);
-  const gravity = actorGravity(id, preset);
-  const startX = Actors.x[id], startZ = Actors.z[id];
+  moveStep.gravity = actorGravity(id, preset);
+  moveStep.startX = Actors.x[id]; moveStep.startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
   Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
   updateClocks(id, dt);
@@ -504,18 +515,19 @@ function stepActor(id, dt) {
   // HP-007: no slide, dash, mantle or wall-run while downed
   if (!isDowned(id)) for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
   updateSprint(id, preset, dt);
-  (Move.states[Motion.state[id]] || walkState)(id, preset, gravity, dt);
-  afterMove(id, preset, gravity, startX, startZ);
+  (Move.states[Motion.state[id]] || walkState)(id, preset, dt);
+  afterMove(id, preset);
 }
 
-function afterMove(id, preset, gravity, startX, startZ) {
+function afterMove(id, preset) {
   const verticalBefore = Actors.vy[id];
-  Motion.medium[id] = World.touchTriggers(id, gravity);
+  World.triggerStep.gravity = moveStep.gravity;
+  Motion.medium[id] = World.touchTriggers(id);
   if (Actors.vy[id] > verticalBefore + GROUND_LEAVE_SPEED) unground(id); // launched by a jump pad
   updateEye(id);
   writeFlags(id);
   if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { Motion.stepDistance[id] = 0; return; } // teleported: no stride across the map
-  countSteps(id, preset, startX, startZ);
+  countSteps(id, preset);
 }
 
 function updateEye(id) {
@@ -538,9 +550,9 @@ function writeFlags(id) {
 
 // Footsteps every STRIDE_METRES on the floor; crouching halves the noise, walking is quieter (silent in silentWalk presets);
 // Move.footstepScale scales both the bot noise and the 'move.step' loudness (0 = silent, the event still marks the stride).
-function countSteps(id, preset, startX, startZ) {
+function countSteps(id, preset) {
   if (!Motion.grounded[id] || Motion.sliding[id]) return;
-  Motion.stepDistance[id] += length2(Actors.x[id] - startX, Actors.z[id] - startZ);
+  Motion.stepDistance[id] += length2(Actors.x[id] - moveStep.startX, Actors.z[id] - moveStep.startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
   const walking = isWalking(id, preset);
