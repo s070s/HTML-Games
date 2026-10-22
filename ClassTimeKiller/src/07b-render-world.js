@@ -506,17 +506,27 @@ function buildSunGrid(bake) {
 function fillSunRow(bake, grid, iy, iz) {
   for (let ix = 0; ix < grid.countX; ix++) {
     const x = grid.originX + (ix + 0.5) * grid.cell, y = grid.originY + (iy + 0.5) * grid.cell, z = grid.originZ + (iz + 0.5) * grid.cell;
-    grid.values[(iy * grid.countZ + iz) * grid.countX + ix] = brushAt(bake, x, y, z, -1) >= 0 ? 255 : sunVisible(bake, x, y, z) * 255;
+    grid.values[(iy * grid.countZ + iz) * grid.countX + ix] = brushAt(bake, x, y, z, -1) >= 0 ? SUN_LIT : sunVisible(bake, x, y, z) * SUN_LIT;
   }
 }
 
-// 0..1 sun visibility near a point (1 outside the grid). Used per instance by the shapes batch.
-function sampleSunVisibility(x, y, z) {
+const SUN_LIT = 255;   // a sun grid byte in full sun
+// The sun grid byte (0 shaded .. SUN_LIT, SUN_LIT outside the grid) at the point data[offset..offset+2]. The shapes batch calls
+// it for every instance with its float array and an integer offset and gets an integer back: three float arguments and a
+// float result would each be boxed on the heap whenever the call is not inlined (PERF-006).
+function sunVisibilityAt(data, offset) {
   const grid = WorldMesh.sunGrid;
-  if (!grid.values) return 1;
-  const ix = Math.floor((x - grid.originX) / grid.cell), iy = Math.floor((y - grid.originY) / grid.cell), iz = Math.floor((z - grid.originZ) / grid.cell);
-  if (ix < 0 || iy < 0 || iz < 0 || ix >= grid.countX || iy >= grid.countY || iz >= grid.countZ) return 1;
-  return grid.values[(iy * grid.countZ + iz) * grid.countX + ix] / 255;
+  if (!grid.values) return SUN_LIT;
+  const ix = Math.floor((data[offset] - grid.originX) / grid.cell), iy = Math.floor((data[offset + 1] - grid.originY) / grid.cell);
+  const iz = Math.floor((data[offset + 2] - grid.originZ) / grid.cell);
+  if (ix < 0 || iy < 0 || iz < 0 || ix >= grid.countX || iy >= grid.countY || iz >= grid.countZ) return SUN_LIT;
+  return grid.values[(iy * grid.countZ + iz) * grid.countX + ix];
+}
+// 0..1 sun visibility near a point (1 outside the grid): the float form for tests and tools.
+const sunProbePoint = new Float64Array(3);
+function sampleSunVisibility(x, y, z) {
+  sunProbePoint[0] = x; sunProbePoint[1] = y; sunProbePoint[2] = z;
+  return sunVisibilityAt(sunProbePoint, 0) / SUN_LIT;
 }
 
 function clearWorldMesh() {

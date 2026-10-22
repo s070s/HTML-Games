@@ -43,6 +43,32 @@ Test.add('world', (check) => {
 
 const scratchDirection = Vec.make();
 
+// PERF-002: line of sight stops its tree walk at the first brush it hits (anyHit) and the slab tests use 1 / direction.
+Test.add('world', (check) => {
+  loadTestWorld(randomBrushes(11, 300, 50));
+  const random = makeRandom(9);
+  let mismatches = 0, detail = '';
+  for (let i = 0; i < 2000; i++) {
+    const ax = random.range(-55, 55), ay = random.range(0.1, 6), az = random.range(-55, 55);
+    const axis = i % 4, bx = axis === 1 ? ax : random.range(-55, 55), by = axis === 2 ? ay : random.range(0.1, 6), bz = axis === 3 ? az : random.range(-55, 55);
+    const length = length3(bx - ax, by - ay, bz - az), expected = bruteRay(ax, ay, az, (bx - ax) / length, (by - ay) / length, (bz - az) / length, length) < 0;
+    if (World.lineClear(ax, ay, az, bx, by, bz) !== expected) { mismatches++; detail = [ax, ay, az, bx, by, bz].join(' '); }
+  }
+  check('lineClear matches brute force on 2000 lines, a quarter of them parallel to an axis', mismatches === 0, mismatches + ' ' + detail);
+  loadTestWorld([{ shape: 'box', min: [-6, 0, -2], max: [-5, 3, 2] }, { shape: 'box', min: [5, 0, -2], max: [6, 3, 2] }]);
+  const hit = makeHit();
+  check('raycast through two walls keeps the nearest', World.raycast(10, 1, 0, -1, 0, 0, 20, hit) && Test.near(hit.x, 6, 1e-4), hit.x);
+  check('an axis-parallel ray starting exactly on a box face plane still hits the box (faces count as inside)', World.raycast(6, 5, 2, 0, -1, 0, 10, hit)
+    && Test.near(hit.y, 3, 1e-4), hit.y);
+  const blocked = !World.lineClear(10, 1, 0, -10, 1, 0);
+  check('a sight line through two walls stops at the first wall its tree walk meets (the far one, left child first)', blocked && rayQuery.brush === World.brushes[1]
+    && Test.near(rayQuery.fraction, 0.75, 1e-4), rayQuery.fraction);
+  World.dynamic.push(World.brushes[2]);   // the near wall again as a prop: an any-hit line already blocked skips the props
+  const stillBlocked = !World.lineClear(10, 1, 0, -10, 1, 0), stoppedAt = rayQuery.brush;
+  World.dynamic.length = 0;
+  check('a sight line the static tree already blocks tests no dynamic brush', stillBlocked && stoppedAt === World.brushes[1], stoppedAt && stoppedAt.minX);
+});
+
 Test.add('world', (check) => {
   loadTestWorld([{ shape: 'cylinder', min: [8, 0, -2], max: [12, 3, 2], sides: 12 }, { shape: 'wedge', min: [-6, 0, -2], max: [-2, 2, 2], dir: '+x' }]);
   const hit = makeHit();

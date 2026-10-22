@@ -290,10 +290,7 @@ const Powerups = {
   },
   // PU17: 5 % of each owned weapon's max ammo every second.
   regenerateAmmo(id, dt) {
-    this.ammoClock[id] += dt;
-    if (this.ammoClock[id] < AMMO_REGEN_INTERVAL - 1e-6) return;
-    this.ammoClock[id] -= AMMO_REGEN_INTERVAL;
-    addAmmoShare(id, this.ammoRegen[id]);
+    if (intervalDue(this.ammoClock, id, dt, AMMO_REGEN_INTERVAL)) addAmmoShare(id, this.ammoRegen[id]);
   },
   // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts; the Ghost perk (Abilities.hiddenFromPulse) hides.
   reveal(id, dt) {

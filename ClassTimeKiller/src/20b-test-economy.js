@@ -149,7 +149,9 @@ Test.add('economy', (check) => {
   Economy.setShopOpen(true);
   check('ECP07 buy amp ammo in the shop', Economy.buy(fighter, 'ampAmmo').ok && Economy.money(fighter) === 850);
   check('ECP07 round-buy items are not sold in the shop', Economy.buy(fighter, 'vest').reason === 'unknown');
-  check('ECP06 ladder tiers', Economy.ladderWeapon(0) === 'warden' && Economy.ladderWeapon(17) === 'maul' && Economy.ladderWeapon(40) === 'maul');
+  const played = ladderTiers(CAT.modes.byId('gungame').params);
+  check('ECP06 one ladder: the economy row and the played tiers share GUNGAME_LADDER, no second lookup',
+    CAT.economy.byId('ladder').ladder === GUNGAME_LADDER && played[0] === GUNGAME_LADDER[0] && played[17] === 'maul' && Economy.ladderWeapon === undefined);
   TestArena.finish();
 });
 

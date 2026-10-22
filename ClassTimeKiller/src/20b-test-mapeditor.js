@@ -243,6 +243,11 @@ Test.add('mapEditor', (check) => {
   MapEditor.map.objectives.push(MapKit.objective({ id: 'odd', kind: 'point', x: 0, y: 0, z: 0, radius: 3 }));
   check('numbered objective and hint problems find their object', (MapEditor.locate('objectives: #' + (MapEditor.map.objectives.length - 1) + ' has no valid id or kind') || {}).list === 'objectives'
     && (MapEditor.locate('hints: #1 has unknown kind x') || {}).list === 'navHints');
+  MapEditor.map.props.push({ min: [2, 0, 2], max: [2, 1, 3] });   // a flat box: the validator's form rule refuses it
+  const propIndex = MapEditor.map.props.length - 1, propProblem = MapEditor.validate().find((text) => text.startsWith('props: #' + propIndex + ' '));
+  const propTarget = propProblem ? MapEditor.locate(propProblem) : null;
+  check('a problem about a prop jumps to the prop', !!propTarget && propTarget.list === 'props' && propTarget.index === propIndex, String(propProblem) + ' -> ' + JSON.stringify(propTarget));
+  MapEditor.map.props.pop();
   for (const kind of MapRules.triggerKinds) {
     MapEditorTools.stamp.triggerKind = kind;
     MapEditorTools.turns = 1;
@@ -393,6 +398,36 @@ Test.add('mapEditor', (check) => {
   const sneakyMap = MapEditorShare.decodeCode(encodeCode(Object.assign({}, good, { objectives: [sneaky], __proto__x: 1 }))).map;
   check('unknown keys in a code are dropped, __proto__ never changes a prototype', !!sneakyMap && sneakyMap.objectives[0].evil === undefined && sneakyMap.objectives[0].extra === undefined
     && Object.getPrototypeOf(sneakyMap.objectives[0]) === Object.prototype && sneakyMap.__proto__x === undefined);
+  mapEditEditorOff();
+});
+
+// The first editor version's codes (owner: "Convert them") and the one form checker shared by the validator and the code import (audit 60).
+Test.add('mapEditor', (check) => {
+  MapEditor.newFrom({ kind: 'template', id: 'yard' });
+  const original = MapEditor.toMap();
+  // The first version's encoder, line for line: the v1 rows without a props list, framed under the CTKMAP prefix.
+  const oldDef = MapEditor.compact(original);
+  delete oldDef.props;
+  const oldPayload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(oldDef))));
+  const oldCode = 'CTKMAP' + 1 + '-' + CustomCodec.checksum(oldPayload) + '-' + oldPayload;
+  const decoded = MapEditorShare.decodeCode(oldCode);
+  check('a code of the first editor version is read and converted to the current rows', !decoded.error && Array.isArray(decoded.map.props)
+    && mapEditSameMap(Object.assign({}, original, { props: [] }), decoded.map) === '', decoded.error || mapEditSameMap(original, decoded.map));
+  MapEditor.newFrom({ kind: 'empty' });
+  check('an old code imports and validates like the original', !MapEditorShare.importCode(' ' + oldCode.slice(0, 30) + '\n' + oldCode.slice(30)).error && Maps.validate(MapEditor.toMap()).length === 0);
+  check('a new export of an imported old code uses the current prefix', MapEditorShare.exportCode().startsWith(MAPEDIT_CODE_PREFIX + MAPEDIT_CODE_VERSION + '-'));
+  const damaged = MapEditorShare.decodeCode(oldCode.slice(0, 20) + (oldCode[20] === 'A' ? 'B' : 'A') + oldCode.slice(21));
+  check('a damaged old code is refused as damaged', !!damaged.error && /damaged/.test(damaged.error), damaged.error);
+  check('a generator settings code is still not a map code', !!MapEditorShare.decodeCode(MapGen.shareCode({ generator: 'GN1', size: 'small', theme: 'foundry', density: 'normal', seed: 7 })).error);
+  check('an old prefix with a later version is refused', !!MapEditorShare.decodeCode(oldCode.replace('CTKMAP1', 'CTKMAP2')).error);
+  // One checker: the import checks only shapes and types; the keys are the validator's form rules on the built row.
+  const lava = Object.assign({}, oldDef, { v: MAPEDIT_CODE_VERSION, brushes: oldDef.brushes.concat([['lava', 0, 0, 0, 1, 1, 1]]) });
+  const refused = MapEditor.expand(lava), built = MapKit.make(Object.assign({}, lava, { props: [] }));
+  check('one checker: the import refuses with the validator\'s own form rule text', mapEditProblemWith(lava) === '' && !!refused.error
+    && refused.error.includes('unknown material lava') && Maps.validate(built).some((text) => text.includes('unknown material lava')), refused.error);
+  check('one checker: the validator also refuses inherited names as a category or a mode', MapCheck.headerProblems(Object.assign({}, built, { category: '__proto__' })).length === 1
+    && MapCheck.headerProblems(Object.assign({}, built, { modes: ['constructor'] })).length === 1 && MapRules.rule('constructor') === null);
+  check('one checker: a well-formed map has no form problem', MapCheck.formProblem(original) === '' && CAT.maps.every((map) => MapCheck.formProblem(map) === ''));
   mapEditEditorOff();
 });
 

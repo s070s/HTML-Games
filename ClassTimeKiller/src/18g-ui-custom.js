@@ -102,6 +102,7 @@ const CustomCodec = {
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   },
   checksum(text) { return hashString(text).toString(16).padStart(8, '0'); },
+  cleanCode(text) { return String(text || '').replace(/\s+/g, ''); },   // a pasted code without its line breaks and spaces
   // The one share-code framing (match codes here, map editor codes in 18i): object -> '<prefix><version>-<checksum>-<payload>'.
   packCode(format, object) {
     const payload = this.toBase64Url(this.compress(new TextEncoder().encode(JSON.stringify(object))));
@@ -109,7 +110,7 @@ const CustomCodec = {
   },
   // text -> { object } (the parsed JSON) or { error } with a message for the player. Whitespace is ignored.
   unpackCode(format, text) {
-    const clean = String(text || '').replace(/\s+/g, '');
+    const clean = this.cleanCode(text);
     if (clean.length > format.maxChars) return { error: 'The code is too long to be a ' + format.noun + ' code.' };
     const parts = format.pattern.exec(clean);
     if (!parts) return { error: 'This is not a ClassTimeKiller ' + format.noun + ' code.' };

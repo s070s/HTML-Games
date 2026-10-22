@@ -23,6 +23,7 @@ const PVE_UNSEEN_PENALTY = 15;            // metres added to a remembered (not s
 const PVE_ATTACKER_BONUS = 6;             // metres taken off the actor that hurt the enemy last
 const PVE_FACING_COS = 0.3;               // melee hits need the target roughly in front
 const PVE_MELEE_SLACK = 0.5;              // metres of reach past the attack range while the blow lands
+const PUPPET_AIM_CONE_DEG = 30;           // A23: a driven enemy's FIRE picks the foe nearest its crosshair inside this cone
 const PVE_MOVE_BASE = 'modern';           // movement preset the enemy presets start from (speed per row)
 const PVE_TIER_BASE = 'skilled';          // bot tier row the enemy tiers start from (fov / turn / reaction per row)
 const PVE_FLEE_DISTANCE = 10;
@@ -332,6 +333,7 @@ const Pve = {
     Bots.buttonsWanted[id] = 0;
     if (brain.always) brain.always(id, row, now);   // runs even while stunned (boss phase thresholds)
     if (this.stunned(id, now)) { this.cancelAttack(id); Bots.wish(id, 0, 0, 0); Bots.motor(id, dt); return; }
+    if (PuppetState.master[id] >= 0) { this.stepPuppet(id, row, now); return; }   // A23: the caster drives it (S12)
     if (now + TIME_EPSILON >= this.nextThink[id]) this.think(id, row, brain, now);
     this.stepAttack(id, row, now);
     if (brain.step) brain.step(id, row, dt, now);
@@ -339,6 +341,15 @@ const Pve = {
     this.updateCloak(id, row, now);
     PveMove.run(id, row, dt, now, brain);
     Bots.motor(id, dt);
+  },
+  // A23 Puppet Jump (S12 PuppetState writes its input): no brain and no attack tokens; a FIRE press starts the first attack
+  // in reach on the foe nearest the puppet's crosshair (a wide cone: claws reach a foe well below the eyes).
+  stepPuppet(id, row, now) {
+    this.stepAttack(id, row, now);
+    if (this.phase[id] !== ATTACK_PHASE.IDLE || !(Actors.pressed[id] & BTN.FIRE)) return;
+    const target = aimTarget(id, this.attackReach(row), PUPPET_AIM_CONE_DEG);
+    const index = target >= 0 ? this.pickAttack(id, row, this.distanceTo(id, target), now) : -1;
+    if (index >= 0) this.startAttack(id, index, target, now);
   },
   stunned(id, now) { return (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || now < this.staggerUntil[id]; },
   think(id, row, brain, now) {
@@ -552,10 +563,12 @@ const Pve = {
     if (this.core.active && this.core.health > 0 && this.distanceTo(id, PVE_CORE_TARGET) <= this.coreReach(id)) return PVE_CORE_TARGET;
     return -1;
   },
-  coreReach(id) {
+  coreReach(id) { return Math.min(this.attackReach(this.rowOf(id)), PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20); },
+  // The longest reach among the row's damaging attacks.
+  attackReach(row) {
     let reach = 0;
-    for (const attack of this.rowOf(id).attackRows) if (attack.damage > 0) reach = Math.max(reach, attack.range[1]);
-    return Math.min(reach, PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20);
+    for (const attack of row.attackRows) if (attack.damage > 0) reach = Math.max(reach, attack.range[1]);
+    return reach;
   },
   distanceTo(id, target) {
     if (target === PVE_CORE_TARGET) return Math.max(0, length2(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
@@ -569,10 +582,10 @@ const Pve = {
   // First attack of the row (row order = priority) in range, off cooldown and allowed by the brain (boss phases).
   // NPC-008: in a last stand the minimum ranges go (a cornered leaper pounces on a foe 2 m away instead of standing there).
   pickAttack(id, row, distance, now) {
-    const brain = PveBrains[row.brain];
+    const brain = PveBrains[row.brain], lastStand = this.lastStand();   // once per pick: lastStand counts every hostile
     for (let index = 0; index < row.attackRows.length; index++) {
       const attack = row.attackRows[index];
-      if ((distance < attack.range[0] && !this.lastStand()) || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
+      if ((distance < attack.range[0] && !lastStand) || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
       if (brain.allows && !brain.allows(id, attack, now)) continue;
       return index;
     }
@@ -846,21 +859,22 @@ const Pve = {
   // ---- Drawing: procedural parts per row (instanced shapes in the props batch), tells, damage states, awareness ----
   draw(batch) {
     if (!this.active) return;
-    const now = Sim.time;
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
-      this.drawEnemy(batch, id, now);
+      if (Game.playerId >= 0 && PuppetState.master[id] === Game.playerId) continue;   // A23: the player's camera is inside it
+      this.drawEnemy(batch, id);
     }
   },
-  drawEnemy(batch, id, now) {
-    const row = this.rowOf(id), size = row.size, yaw = Actors.yaw[id], pitch = Actors.pitch[id];
-    const tell = this.tellGlow(id, row, now), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
+  // Sim.time is read here and in tellGlow, not passed in: a float argument to a call that is not inlined is boxed (PERF-006).
+  drawEnemy(batch, id) {
+    const now = Sim.time, row = this.rowOf(id), size = row.size, yaw = Actors.yaw[id], pitch = Actors.pitch[id];
+    const tell = this.tellGlow(id, row), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
     const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
     // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
     const point = pvePartPoint, instance = pvePartInstance;
-    for (const part of row.parts) {
-      const tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
+    for (let index = 0; index < row.parts.length; index++) {   // an index loop: for-of makes an iterator result per part here
+      const part = row.parts[index], tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
       point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
       rotateInPlace(point);
       const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
@@ -872,16 +886,16 @@ const Pve = {
       batch.meshFrom(part[0], instance);
     }
     if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
-    if (this.champion[id] >= 0) drawChampionRing(batch, id, size, this.champion[id]);
-    if (Actors.shield[id] > 0) drawShieldShell(batch, id, size, Damage.shieldElement[id], Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
+    if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
+    if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
     const brain = PveBrains[row.brain];
-    if (brain.draw) brain.draw(batch, id, row, now);
+    if (brain.draw) brain.draw(batch, id, row);
     const attack = this.phase[id] === ATTACK_PHASE.WINDUP ? row.attackRows[this.attack[id]] : null;
-    if (attack && PveAttacks[attack.kind].drawTell) PveAttacks[attack.kind].drawTell(batch, id, attack, tell.progress);
+    if (attack && PveAttacks[attack.kind].drawTell) PveAttacks[attack.kind].drawTell(batch, id, attack);   // reads pveTellGlow.progress
   },
   // The tell: the windup glows in the attack colour, pulsing faster as the blow nears (shared scratch, no allocation).
-  tellGlow(id, row, now) {
-    const glow = pveTellGlow;
+  tellGlow(id, row) {
+    const glow = pveTellGlow, now = Sim.time;
     glow.amount = 0;
     if (this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;
     const attack = row.attackRows[this.attack[id]], length = Math.max(1e-6, this.phaseEndsAt[id] - this.tellStart[id]);
@@ -933,24 +947,39 @@ function weakPointFactor(row, target, info) {
 }
 
 // BOT-005 indicator above a stealth guard's head (UI-014): grey unaware, yellow suspicious, orange searching, red alert.
+// These marks go through the enemy parts' instance record (batch.meshFrom) with integer arguments only (PERF-006).
 const AWARENESS_COLORS = [[0.6, 0.6, 0.6], [1, 0.9, 0.2], [1, 0.55, 0.1], [1, 0.15, 0.1]];
 function drawAwareness(batch, id, row, state) {
-  const color = AWARENESS_COLORS[state];
-  const fill = Math.max(0.15, Pve.awareness[id]);
-  batch.mesh('box', Actors.x[id], Actors.y[id] + STAND_HEIGHT * row.size + 0.45, Actors.z[id], Actors.yaw[id], 0, 0.12, 0.35 * fill, 0.12, color[0], color[1], color[2], 0.9);
+  const color = AWARENESS_COLORS[state], instance = placePveMark(id);
+  instance.y = Actors.y[id] + STAND_HEIGHT * row.size + 0.45; instance.yaw = Actors.yaw[id];
+  instance.sx = 0.12; instance.sy = 0.35 * Math.max(0.15, Pve.awareness[id]); instance.sz = 0.12;
+  instance.r = color[0]; instance.g = color[1]; instance.b = color[2]; instance.emissive = 0.9;
+  batch.meshFrom('box', instance);
 }
 
 // NPC-004 champion tag: a ring in the tag's colour under its feet (barrier blue, unstoppable orange, overload yellow).
-function drawChampionRing(batch, id, size, champion) {
-  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * size;
-  batch.mesh('ring', Actors.x[id], Actors.y[id] + 0.06, Actors.z[id], 0, 0, diameter, 0.1, diameter, colors[slot], colors[slot + 1], colors[slot + 2], 1);
+function drawChampionRing(batch, id, row, champion) {
+  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * row.size, instance = placePveMark(id);
+  instance.y = Actors.y[id] + 0.06; instance.sx = diameter; instance.sy = 0.1; instance.sz = diameter;
+  instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2]; instance.emissive = 1;
+  batch.meshFrom('ring', instance);
 }
 // NPC-004 / HP-006 coloured shield: rings around the body in the element colour, glowing with the shield left.
-function drawShieldShell(batch, id, size, element, share) {
-  const colors = PVE_SHIELD_COLORS, slot = element * 3, diameter = TORSO_RADIUS * 2.6 * size, glow = 0.4 + 0.6 * share;
-  for (const height of PVE_SHELL_HEIGHTS) {
-    batch.mesh('ring', Actors.x[id], Actors.y[id] + height * size, Actors.z[id], 0, 0, diameter, 0.06, diameter, colors[slot], colors[slot + 1], colors[slot + 2], glow);
+function drawShieldShell(batch, id, row) {
+  const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark(id);
+  instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
+  instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
+  instance.emissive = 0.4 + 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+  for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {   // an index loop: for-of boxes each float it yields
+    instance.y = Actors.y[id] + PVE_SHELL_HEIGHTS[ring] * size;
+    batch.meshFrom('ring', instance);
   }
+}
+// The parts' instance record, upright over the enemy's feet (the caller sets height, size, colour and glow).
+function placePveMark(id) {
+  const instance = pvePartInstance;
+  instance.x = Actors.x[id]; instance.z = Actors.z[id]; instance.yaw = 0; instance.pitch = 0;
+  return instance;
 }
 // NPC-002 tells are also heard: a positional cue per tell colour (green, red, orange).
 function playTellSound(event) {

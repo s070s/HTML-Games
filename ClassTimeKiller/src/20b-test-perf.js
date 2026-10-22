@@ -410,17 +410,122 @@ Test.add('perf', (check) => {
 Test.add('perf', (check) => {
   const savedQuads = HudBatch.quads, bytes = new Uint8Array(HudBatch.bytes), vertexBytes = 4 * HUD_VERTEX_BYTES;
   HudBatch.quads = 0;
-  pushHudQuad(1, 2, 30, 4, 28, 40, 3, 38, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], 0x336699, 0.5);
-  setHudCorners(1, 2, 30, 4, 28, 40, 3, 38);
-  pushHudSolid(0x336699, 0.5);
+  const white = HudBatch.white;
+  hudCorners.set([1, 2, 30, 4, 28, 40, 3, 38, white[0], white[1], white[0], white[1]]);   // the reference: every field by hand
+  setHudPaint(0x336699, 0.5);
+  pushHudCorners();
+  hudCorners.set([1, 2, 30, 4, 28, 40, 3, 38, 0, 0, 0, 0]);
+  pushHudSolid();
   let same = HudBatch.quads === 2;
   for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) same = false;
-  check('HUD corner scratch writes the same vertices as the argument form', same);
+  check('an untextured quad (pushHudSolid) writes the same vertices as the hand-filled corner scratch', same);
+  HudBatch.quads = 0;
+  HudPen.quad(1, 2, 30, 4, 28, 40, 3, 38, 0x336699, 0.5 / Hud.opacity);
+  let samePen = HudBatch.quads === 1;
+  for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) samePen = false;
+  check('the pen\'s quads and triangles fill the corner scratch (no fourteen-argument pushHudQuad call)', samePen && !/pushHudQuad/.test(HudPen.quad.toString()));
+  const scale = HudBatch.alphaScale;
+  HudBatch.alphaScale = 0.5;
+  setHudPaint(0xffffff, 1);
+  const halfByte = hudPaint[1];
+  HudBatch.alphaScale = scale;
+  const passThrough = ['rect', 'line', 'ring', 'text', 'quad'].every((name) => !/opacity/.test(HudPen[name].toString()));
+  check('the HUD opacity scales the alpha once, in setHudPaint; the pen passes its alpha through (no boxed product per call)',
+    halfByte === 128 && passThrough && !/clamp\(/.test(setHudPaint.toString()), halfByte);
+  check('a HUD line writes its corners into the scratch (no eight-float call)', !/setHudCorners|pushHudQuad/.test(HudBatch.line.toString()));
   HudBatch.quads = HUD_MAX_QUADS;
   const dropped = HudBatch.dropped;
   HudPen.rect(0, 0, 4, 4, 0xffffff, 1);
   check('a full HUD batch drops and counts instead of growing', HudBatch.quads === HUD_MAX_QUADS && HudBatch.dropped === dropped + 1);
   HudBatch.quads = savedQuads;
+});
+
+// Draw paths a live frame showed allocating (PERF-006; the probes above run them inlined, where they did not): the sun lookup
+// takes the instance array and an offset and returns the grid byte, and the PvE part loops are index loops (for-of made an
+// iterator result per part in the frame's own compiled code).
+Test.add('perf', (check) => {
+  const point = new Float32Array([1.5, 2, -3.25]), byte = sunVisibilityAt(point, 0);
+  check('the sun lookup returns the grid byte at the point in the float array (an integer, not a boxed float)',
+    Number.isInteger(byte) && byte >= 0 && byte <= SUN_LIT && sampleSunVisibility(1.5, 2, -3.25) === byte / SUN_LIT, byte);
+  const forOf = /for \(const \w+ of /;
+  check('the PvE part and shield ring loops are index loops', !forOf.test(Pve.drawEnemy.toString()) && !forOf.test(drawShieldShell.toString()));
+});
+
+// A HUD ring turns each segment edge from the last one: two sine / cosine pairs per ring instead of four calls per segment.
+Test.add('perf', (check) => {
+  const savedQuads = HudBatch.quads, sin = Math.sin, cos = Math.cos, from = 0.5, to = 5.5, x = 100, y = 80, outer = 22;
+  let trigCalls = 0;
+  HudBatch.quads = 0;
+  Math.sin = (angle) => { trigCalls++; return sin(angle); };
+  Math.cos = (angle) => { trigCalls++; return cos(angle); };
+  try { HudBatch.ring(x, y, 20, 4, 0xffffff, 1, from, to); } finally { Math.sin = sin; Math.cos = cos; }
+  const segments = HudBatch.quads, corners = hudCorners;
+  HudBatch.quads = savedQuads;
+  check('a partial HUD ring has its share of the segments', segments === Math.ceil(HUD_RING_SEGMENTS * (to - from) / (Math.PI * 2)), segments);
+  check('a HUD ring calls sine and cosine twice each, not per segment', trigCalls === 4, trigCalls);
+  check('the last segment ends on the end angle', Math.abs(corners[2] - (x + sin(to) * outer)) < 1e-3 && Math.abs(corners[3] - (y - cos(to) * outer)) < 1e-3,
+    corners[2] + ', ' + corners[3]);
+});
+
+// HUD drawing that a live frame showed boxing floats (PERF-006: the once-per-frame drawers run in the middle compiler tier
+// for most of a match, which boxes every float argument of a call it does not inline): shapes, bars, weapon icons, labels,
+// map dots and crosshair arms fill the scratch arrays (hudCorners, hudShapeAt, hudTextAt) instead of calling the pen again.
+Test.add('perf', (check) => {
+  const savedQuads = HudBatch.quads, floats = new Float32Array(HudBatch.bytes), stride = HUD_VERTEX_BYTES / 4;
+  const corner = (quad, vertex) => [floats[(quad * 4 + vertex) * stride], floats[(quad * 4 + vertex) * stride + 1]].join(',');
+  HudBatch.quads = 0;
+  HudPen.shape('circle', 50, 60, 20, 0xffffff, 1);
+  const disc = HudBatch.quads === 2 && corner(0, 0) === '42.5,52.5' && corner(0, 2) === '57.5,67.5' && corner(1, 0) === '50,' + Math.fround(60 - 10.8);
+  HudBatch.quads = 0;
+  HudPen.shape('triangle', 50, 60, 20, 0xffffff, 1);
+  const triangle = HudBatch.quads === 1 && corner(0, 0) === '50,50' && corner(0, 1) === '60,70' && corner(0, 2) === '40,70' && corner(0, 3) === '40,70';
+  HudBatch.quads = 0;
+  HudPen.bar(10, 20, 100, 8, 0.25, 0xffffff, 1);
+  const bar = HudBatch.quads === 2 && corner(1, 2) === '35,28';
+  HudBatch.quads = 0;
+  const width = HudBatch.text('AB 12', 0, 0, 20, 0xffffff, 'left', 1);
+  HudBatch.quads = savedQuads;
+  check('a pen disc is two quads around its centre, a triangle one, a quarter bar a track and a quarter fill', disc && triangle && bar);
+  check('text returns its measured width', width === HudBatch.measure('AB 12', 20) && width > 0, width);
+  const pen = HudPen.shapeAt.toString() + HudPen.bar.toString() + HudPen.weaponIcon.toString() + HudPen.label.toString();
+  check('pen shapes, bars, icons and labels write the scratch, not more pen calls with float arguments', !/this\.(rect|quad|text|triangle|octagon)\(/.test(pen));
+  check('map dots and crosshair arms go through the scratch', !/pen\.(shape|rect)\(/.test(hudMapDot.toString() + hudDrawArms.toString()));
+});
+
+// The every-frame drawers of the main layer place their numbers in the scratch arrays and call the pen's *At forms: a live
+// tdm / horde frame after 60 s of play went from 4.8 KB to about 1 KB of garbage in this layer (PERFORMANCE.md 3.7).
+Test.add('perf', (check) => {
+  const drawers = [hudDrawVitalBar, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar, hudDrawGadgets, hudDrawConsumables, hudDrawAbilities, hudDrawMeter,
+    hudDrawMoney, hudDrawPowerups, hudDrawTeamScore, hudDrawTime, hudDrawScoreLimit, hudDrawHeader, hudDrawFeedRow, hudDrawKillFeed, hudDrawBarks,
+    hudDrawMinimap, hudMapEnemies, hudMapAllies, hudMapObjectives, hudMapPings];
+  const argumentForm = /pen\.(text|label|rect|panel|bar|shape|octagon|ring|weaponIcon|triangle|quad)\(/;
+  const offenders = drawers.filter((drawer) => argumentForm.test(drawer.toString())).map((drawer) => drawer.name);
+  check('the main layer\'s every-frame drawers pass no float to the pen (scratch arrays and the *At forms)', offenders.length === 0, offenders.join(', '));
+  // The PvE status (17g: about 0.5 KB per horde frame before) and the world markers, name tags, timers and captions (17d).
+  const more = [hudPveStat, hudPveStatRight, hudPveTotal, hudPveFraction, hudPveTableRow, hudPveRowPanel, hudPveCoreBar, hudPveBossBar, hudPveTableHeader,
+    hudPveChamberTable, hudPveRangeTable, hudPveNoteRect, hudPveCentreNote, hudDrawPve, hudDrawTickets, ...Object.values(HUD_PVE_ROWS),
+    hudDrawEdgeArrow, hudDrawMarker, hudDrawPingMarkers, hudDrawNameTags, hudDrawItemTimers, hudDrawCaptions, hudDrawSoundRing];
+  const moreOffenders = more.filter((drawer) => argumentForm.test(drawer.toString()) || /HudBatch\.measure\(|clamp\(/.test(drawer.toString())).map((drawer) => drawer.name);
+  check('the PvE status and world marker drawers pass no float to the pen and measure through the scratch', moreOffenders.length === 0, moreOffenders.join(', '));
+  check('the PvE status rows and boss bar read and move the row y in hudPveAt (no y argument or return)',
+    Object.values(HUD_PVE_ROWS).every((row) => row.length === 3) && hudPveBossBar.length === 3 && hudPveStat.length === 5, hudPveBossBar.length);
+  check('the crosshair arms read their geometry from the scratch', hudFillArms.length === 1);
+  const benchmark = Render.sources.find((source) => source.name === 'benchmark'), wasActive = Benchmark.active;
+  Benchmark.active = true;
+  propBatch.clear();
+  benchmark.draw(propBatch);
+  const drawn = propBatch.counts.reduce((sum, count) => sum + count, 0);
+  Benchmark.active = wasActive;
+  propBatch.clear();
+  check('the menu benchmark draws its grid through the instance record (no batch.mesh with float arguments)',
+    !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
+  const savedQuads = HudBatch.quads, ring = hudRingAt;
+  HudBatch.quads = 0;
+  ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;
+  hudDrawCooldownRingAt(HudPen, 0.25, 0xffffff);
+  const quads = HudBatch.quads;
+  HudBatch.quads = savedQuads;
+  check('a cooldown ring from the scratch draws the full track and three quarters of the arc', quads === HUD_RING_SEGMENTS + Math.ceil(HUD_RING_SEGMENTS * 0.75), quads);
 });
 
 Test.add('perf', (check) => {
@@ -473,26 +578,32 @@ Test.add('perf', (check) => withRenderer(() => {
 
 // ---- Allocation probes (PERF-006): the heap bytes a hot path allocates over many calls, read from performance.memory, which is
 // exact with Chrome's --enable-precise-memory-info (tools/selftest.mjs starts Chrome with it). One boxed float per call shows
-// as PERF_ALLOC_CALLS x 12 bytes or more; the limit leaves room for stray engine work. A GC inside the window can only hide
-// an allocation, never invent one, so the probe does not fail on a busy machine. ----
+// as PERF_ALLOC_CALLS x 12 bytes or more; the limit leaves room for stray engine work. A GC inside the window shrinks the heap,
+// so a round with a negative reading counts as allocating: a path that allocates enough to start a GC in every round must
+// not read as free. ----
 const PERF_ALLOC_CALLS = 20000;
 const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
 const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
 const PERF_ALLOC_ROUNDS = 3;
 const PERF_PROBE_ACTORS = 8;
+const PERF_MOVER_ID = PERF_PROBE_ACTORS;  // the actor the movement-step probe steps (past the hitscan probe's actors)
+const perfMoverSpot = { x: 1.25, y: 0, z: -0.25 };    // y: the floor there, found by perfPlaceMover
+const PERF_FLOOR_SEARCH = 100;            // m: perfPlaceMover looks for the floor from this high down to as far below
 const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many small objects must show up
 
+const perfShapeInstance = makeShapeInstance();   // the meshFrom probe's record (a match keeps one per caller the same way)
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
 // The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
-// during a round, while a path that really allocates does so in every round.
+// during a round, while a path that really allocates does so in every round. Infinity = a GC ran in every round.
 function perfAllocatedBytes(run) {
   for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
   let fewest = Infinity;
   for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
     const before = perfHeapBytes();
     for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
-    fewest = Math.min(fewest, perfHeapBytes() - before);
+    const allocated = perfHeapBytes() - before;
+    fewest = Math.min(fewest, allocated < 0 ? Infinity : allocated);
   }
   return fewest;
 }
@@ -507,7 +618,8 @@ function perfHeapCounterWorks() {
 // The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
 // floats are made inside the path, as in a match.
 function perfHotPaths() {
-  const mover = makeMover(), trace = makeTrace(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  navReadOptions(NAV_DEFAULT_OPTIONS);
   Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
   Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
   Object.assign(style, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
@@ -515,6 +627,7 @@ function perfHotPaths() {
     Actors.x[id] = 0.75 + id * 0.25; Actors.y[id] = 0; Actors.z[id] = id * 1.5; Actors.height[id] = STAND_HEIGHT; Actors.eye[id] = 1.6;
   }
   setHitRay(0.5, 1.25, -3.5, 0.1, -0.05, 0.99, 50.5, 0.1);
+  perfPlaceMover();
   return {
     'Hitbox.rayOf (hitscan against an actor)': (i) => { Hitbox.rayOf(i % PERF_PROBE_ACTORS); },
     'Collide.gatherAround + sweepSegment (a mover trace)': (i) => {
@@ -524,9 +637,53 @@ function perfHotPaths() {
       segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z; segment.ex = mover.x + 2.5; segment.ey = mover.y - 4.5; segment.ez = mover.z + 0.75;
       Collide.sweepSegment(mover.hull, trace);
     },
+    'sweepActor + Collide.stepSlide (an actor step into the floor and a wall)': (i) => {
+      mover.x = 0.5 + (i & 3); mover.y = 1.5; mover.z = -0.25; mover.vx = 40; mover.vy = -60; mover.vz = 9; mover.planeCount = 0;
+      sweepActor(0, mover, TICK_SECONDS, true);
+    },
+    'stepActor (an actor step: state call, triggers, flags)': (i) => {
+      Motion.stateTime[PERF_MOVER_ID] = 0; Actors.aimYaw[PERF_MOVER_ID] = (i & 7) * 0.25;
+      stepActor(PERF_MOVER_ID, TICK_SECONDS);
+    },
+    'navAStar (an A* search to a linked node)': (i) => {
+      const from = (i * 7) % Nav.nodeCount, linked = Nav.linkStart[from] < Nav.linkStart[from + 1];
+      navAStar(from, linked ? Nav.linkTarget[Nav.linkStart[from]] : from);
+    },
+    'World.lineClearOf (a bot sight line)': (i) => {
+      sight.ax = 0.5 + (i & 3); sight.ay = 1.5; sight.az = -3.5; sight.bx = -2.5; sight.by = 1.25 + (i & 1); sight.bz = 30.5;
+      World.lineClearOf(sight);
+    },
     'HudBatch.line (HUD quads)': (i) => { HudBatch.quads = 0; HudBatch.line(i & 255, 7, 300, 211, 3, 0xffffff, 1); },
     'emitActorPart (actor parts)': (i) => { actorBatch.clear(); emitActorPart(parts[i % parts.length], pose, style); },
+    'batch.meshFrom (a shape instance record)': (i) => {
+      const instance = perfShapeInstance;
+      instance.x = 0.5 + (i & 7) * 0.25; instance.y = 1.5 - (i & 3) * 0.5; instance.z = (i & 15) * 0.125 - 0.75; instance.yaw = (i & 7) * 0.1;
+      propBatch.clear();
+      propBatch.meshFrom('box', instance);
+    },
   };
+}
+
+function perfAllocationDetail(bytes) {
+  if (bytes === Infinity) return 'a GC ran in every round of ' + PERF_ALLOC_CALLS + ' calls (it allocates heavily)';
+  return Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' calls';
+}
+
+// The probe actor mantles in place on the floor at perfMoverSpot: the probe restarts the mantle every call, so each step runs
+// the step driver (the indirect state call, triggers, eye, flags, footsteps) with no collision move. The collision move has
+// its own probe (sweepActor); a whole walking step boxes floats only in V8's mid tier (docs/PERFORMANCE.md section 5).
+function perfPlaceMover() {
+  const id = PERF_MOVER_ID, spot = perfMoverSpot;
+  spot.y = World.floorBelow(spot.x, PERF_FLOOR_SEARCH, spot.z, 2 * PERF_FLOOR_SEARCH);
+  resetMotion(id);
+  Move.setPreset(id, null);
+  Actors.x[id] = Motion.fromX[id] = Motion.toX[id] = spot.x;
+  Actors.y[id] = Motion.fromY[id] = Motion.toY[id] = spot.y;
+  Actors.z[id] = Motion.fromZ[id] = Motion.toZ[id] = spot.z;
+  Actors.height[id] = STAND_HEIGHT;
+  Motion.grounded[id] = 1;
+  holdInput(id, 0, 1, 0);
+  setState(id, MOVE_STATE.MANTLE);
 }
 
 // Heap bytes per hot path over PERF_ALLOC_CALLS calls (on a loaded map: the mover step meets real brushes). Run with the renderer on.
@@ -537,6 +694,7 @@ function perfMeasureHotPaths() {
   for (const name in paths) bytes[name] = perfAllocatedBytes(paths[name]);
   HudBatch.quads = savedQuads;
   actorBatch.clear();
+  propBatch.clear();
   return bytes;
 }
 
@@ -545,7 +703,8 @@ Test.add('perf', (check) => withRenderer(() => {
   const bytes = perfMeasureHotPaths();
   check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
   check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);
-  for (const name in bytes) check('allocation-free hot path: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes[name] / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' calls');
+  check('the movement probe actor stays mantling on the floor', Motion.state[PERF_MOVER_ID] === MOVE_STATE.MANTLE && Test.near(Actors.y[PERF_MOVER_ID], perfMoverSpot.y, 1e-4), Actors.y[PERF_MOVER_ID]);
+  for (const name in bytes) check('allocation-free hot path: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, perfAllocationDetail(bytes[name]));
 }));
 
 // ---- Quality caps per tier (PERF-009 bots and PvE enemies, PERF-010 particles, decals, dynamic lights) ----

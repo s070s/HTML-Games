@@ -91,7 +91,7 @@ const navRaster = { originX: 0, originZ: 0, columnsX: 0, columnsZ: 0, columnStar
 const navNodeGrid = { originX: 0, originZ: 0, cellSize: NAV_NODE_CELL, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
 const navSearchState = { x: 0, y: 0, z: 0, yLow: 0, yHigh: 0, radiusSquared: 0, needSight: false, best: -1, score: 0 };
 const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
-const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
+const navVolumes = { water: [], trigger: [], props: [] };   // water volumes, jump pad / teleporter volumes and breakable props of the loaded map
 const navTarjan = { index: null, low: null, onStack: null, stack: null, stackSize: 0, callNode: null, callEdge: null, depth: -1, counter: 0 };
 const navNeighbours = { items: null, count: 0, node: -1, radiusSquared: 0 };
 const navGraphCache = [];   // { key, nav, raster, nodeGrid } of recent builds, most recently used last
@@ -121,10 +121,10 @@ const Nav = {
     const started = performance.now(), triggers = map.triggers || [];
     this.map = map;
     this.clearGraph();
-    const key = navGraphKey(map.brushes || [], triggers);
+    const props = map.props || [], key = navGraphKey(map.brushes || [], triggers, props);
     this.lastBuildCached = World.brushes.length > 0 && navRestoreGraph(key);
     if (World.brushes.length && !this.lastBuildCached) {
-      navBuildGraph(triggers);
+      navBuildGraph(triggers, props);
       navStoreGraph(key);
     }
     this.version++;
@@ -178,8 +178,8 @@ const Nav = {
 Bus.on('world.load', (map) => Nav.build(map));
 
 // ---- Graph cache: same brushes, triggers and limits give the same graph ----
-function navGraphKey(brushes, triggers) {
-  const text = JSON.stringify([brushes, triggers, Nav.limits]);
+function navGraphKey(brushes, triggers, props) {
+  const text = JSON.stringify([brushes, triggers, props, Nav.limits]);
   return hashString(text) + ':' + text.length;
 }
 
@@ -203,7 +203,8 @@ function navStoreGraph(key) {
 }
 
 // ---- Build pipeline ----
-function navBuildGraph(triggers) {
+function navBuildGraph(triggers, props) {
+  navVolumes.props = props.map(navPropVolume);
   navVolumes.water = triggers.filter((trigger) => trigger.kind === 'water').map(navVolume);
   navVolumes.trigger = triggers.filter((trigger) => trigger.kind === 'jumppad' || trigger.kind === 'teleporter').map(navVolume);
   const phases = Nav.buildPhases;
@@ -230,6 +231,13 @@ function navBuildGraph(triggers) {
 
 function navVolume(trigger) {
   return { minX: trigger.min[0], minY: trigger.min[1], minZ: trigger.min[2], maxX: trigger.max[0], maxY: trigger.max[1], maxZ: trigger.max[2] };
+}
+
+// A breakable prop (S08) is solid until it breaks: no sample stands where an actor's capsule would overlap it.
+function navPropVolume(prop) {
+  const volume = navVolume(prop);
+  volume.minX -= ACTOR_RADIUS; volume.minZ -= ACTOR_RADIUS; volume.maxX += ACTOR_RADIUS; volume.maxZ += ACTOR_RADIUS;
+  return volume;
 }
 
 function navInVolumes(volumes, x, y, z) {
@@ -396,6 +404,7 @@ function navRasterColumn(column, heights, flags) {
 // floorBrush: the brush whose top this is (-1 for a swim sample, which needs no footing).
 function navTrySample(x, y, z, heights, flags, first, extraFlags, floorBrush) {
   if (Number.isNaN(y) || navColumnHasNear(heights, first, y) || navPointBuriedGathered(x, y + NAV_SURFACE_PROBE, z)) return;
+  if (navInVolumes(navVolumes.props, x, y + NAV_WATER_PROBE, z)) return;
   if (floorBrush >= 0 && !navFootprintHolds(floorBrush, x, z) && !navHasEdgeFooting(x, y, z)) return;
   if (floorBrush >= 0 && navDeepWaterFeet(x, y, z) > y) return;
   const fitFlags = navFitFlags(x, y, z);

@@ -13,11 +13,19 @@ const MAX_ACTORS = 64;                 // ARC-011
 // ---- Math (scalar helpers; vectors are plain {x,y,z} objects reused by callers, never created per frame) ----
 const clamp = (value, low, high) => (value < low ? low : value > high ? high : value);
 const lerp = (from, to, t) => from + (to - from) * t;
-const wrapAngle = (radians) => { // into -PI..PI
-  let a = radians % (Math.PI * 2);
+// values[index] wrapped into -PI..PI in place: the form for per-step code, where a float argument or return of a call that is
+// not inlined is boxed on the heap (PERF-006).
+const wrapAngleAt = (values, index) => {
+  let a = values[index] % (Math.PI * 2);
   if (a > Math.PI) a -= Math.PI * 2;
   if (a < -Math.PI) a += Math.PI * 2;
-  return a;
+  values[index] = a;
+};
+const wrapAngleScratch = new Float64Array(1);
+const wrapAngle = (radians) => { // into -PI..PI
+  wrapAngleScratch[0] = radians;
+  wrapAngleAt(wrapAngleScratch, 0);
+  return wrapAngleScratch[0];
 };
 const lerpAngle = (from, to, t) => from + wrapAngle(to - from) * t;
 const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 - edge0), 0, 1); return t * t * (3 - 2 * t); };
@@ -116,6 +124,14 @@ const Bus = {
     }
   },
 };
+
+// Accumulates clock[index]; true once per interval (gadget areas, placed devices, mode timers, PU17 ammo regen).
+function intervalDue(clock, index, dt, interval) {
+  clock[index] += dt;
+  if (clock[index] < interval - 1e-6) return false;
+  clock[index] -= interval;
+  return true;
+}
 
 // ---- The emitters every section shares (one reused payload each: listeners copy what they keep) ----
 const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1, effect: '' };   // effect: the gadget row's, for grenade bounces

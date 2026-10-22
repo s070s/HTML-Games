@@ -41,7 +41,7 @@ Coordinates: metres, Y up, floor at y = 0, the map centred on the origin (`x` in
                | { kind: 'water', min, max } | { kind: 'hazard', min, max, damage, element } | { kind: 'killzone', min, max }],   // fields as in docs/api/world-move.md
   lights:     [{ x, y, z, color: 0xRRGGBB, radius }],
   navHints:   [{ kind: 'cover'|'sniper'|'choke'|'flank'|'dummy'|'guard'|'secret', x, y, z }],
-  props:      [{ min: [x,y,z], max: [x,y,z], health: 50, material: 'wood', mass: 20, debris: 6, color }] }   // breakable boxes (S08 Props)
+  props:      [{ min: [x,y,z], max: [x,y,z], health: 50, material: 'wood', mass: 20, debris: 6, color }] }   // breakable boxes (S08 Props); material 'oil' / 'water' spill floor patches (12h)
 ```
 
 Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`arena tactical pve range puzzle large island`, picks the sightline limit: 60 / 60 / 90 / 60 / 60 / 90 / 150 m),
@@ -49,7 +49,8 @@ Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`ar
 (Breach Assault stage 1..3) and `checkpoints` (payload: indices into `path`). Generated maps add `gen` (how they were made) and royale maps may carry
 `ring: { x, z, radius }` (ring centre and start radius; docs/api/mapgen.md; 13g starts the royale ring there). `secret` hints are PvE level secrets (14j `PveLevel`,
 found within 1.5 m) and `props` the breakable crates the PvE level report counts; `MapKit.make` gives every map a `props` list (empty by default) and the map editor
-keeps it through its codes (rows checked like brushes; codes made before props load with none).
+keeps it through its codes (rows checked like brushes; codes made before props load with none). The versus maps (MP01..MP06, MP08) carry four crates each in corners off the
+play lines (W41 lifts them, shots and blasts break them). Props are solid until they break, so the map scan (`MapScan.of`) and the validator count them as boxes.
 
 * `sky`: `{ top, horizon, fog, fogFar, sun: [x, y, z] }` (colours 0xRRGGBB, metres, direction towards the sun). `theme`: `foundry ruins station canal overgrowth glacier` (MAP-022).
 * Materials: `concrete metal wood glass dirt water grass sand ice tile`. `water` brushes are canal/pool beds and puddles (solid; the swim volume is the `water` trigger).
@@ -95,11 +96,17 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 Compact rows: brush `[material, x0,y0,z0, x1,y1,z1 (, rampDir)]`; spawn group `[team, modes, [[x,y,z,yawDegrees], …]]`; item `[key, x,y,z (, modes)]`; zone `[name, x0,z0, x1,z1 (, y0, y1)]`; light `[x,y,z,color,radius]`;
 hint `[kind, x,y,z]`. `MapKit.make(def)` expands them; `MapKit.wall(material, axis, fixed, thickness, from, to, y0, y1, doors)` builds a wall with door gaps `[centre, width, height]`;
 `MapKit.stairs(material, dir, x0,z0, x1,z1, yBase, rise, steps)` (throws when a riser would be above 0.45 m); `MapKit.sym(def, 'x'|'z'|'xz', keepTeams?)` adds mirror copies (x swaps teams 0/1 unless `keepTeams`; names swap West/East or North/South);
-`MapKit.join(...defs)`.
+`MapKit.join(...defs)`; `MapKit.crates([[x, z (, y)], ...])` = breakable 1.2 m crates (`props` rows) by their low corner.
 
 ## Validator (`Maps.validate`, hook `__CTK.map.check(id)` -> problems, `__CTK.map.report(id)` -> `{ problems, stats }`, `__CTK.map.list()`)
 
-Problems read `rule: text`. Rules: `structure brush budget light` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
+Form rules (one checker for every map row: hand-made, generated, and the editor's saved maps and codes): `MapCheck.headerProblems(map)` (id, name, size, theme, category, sky, known modes;
+keys are own keys of `MapRules`, never inherited names such as `__proto__`) and one rule per row, `brushProblem triggerProblem lightProblem itemKeyProblem objectiveKeyProblem hintKeyProblem
+propProblem` (each `''` or the text). `MapCheck.formProblem(map)` = the first of them; the validator reports each one under its rule and adds the design limits. Brush material `grip` is the
+MV05 Ravager climb wall (`climbGripOnly`): MP01, MP02, MP06, MP07 and MP12 carry grip panels. Item key `vitalshard` (PU20, group `health`) has spots on the same maps; they appear only in
+matches with the Ravager health preset (`healthPreset`, 12a).
+
+Problems read `rule: text`. Rules: `structure brush budget light props` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights, prop boxes), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
 `items` (known keys and groups, floor under every item, 2 m apart, power items 20 m apart, one top item per zone, exposed power items, distance balance between teams, no spawn nearest to more than 50% of the top
 items = the MAP-005 target), `objectives` (per mode, on a floor, reachable), `hints`, `zones` (names, every point and 97% of the walkable area covered), `lights` (every zone that is mostly indoors holds a light),
 `triggers` (fields; a pad has floor to stand on, its target is a walkable cell at least 0.4 m inside its floor and in the main play space, and the arc from every start cell of the box is free of geometry

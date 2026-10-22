@@ -70,13 +70,14 @@ off the map edge.
 
 ## Data (03n)
 
-- `mapModules`: cover patterns (`plaza`, `pillar`, `crates`, `platform`, `lowwalls`, `corner`, `columns`, `bunker`); props are `[kind, u, v, w, d, h]` in cell units.
-- `mapTilesets` (MAP-022): one per theme with floor, ground, wall, pillar, cover, platform and trim materials, light colour, wall height, sky, and
+- `mapModules`: cover patterns (`plaza`, `pillar`, `crates`, `platform`, `lowwalls`, `corner`, `columns`, `bunker`); props are `[kind, u, v, w, d, h]` in cell units. Kinds: `cover pillar climb platform low`; `pillar` and `climb` reach the wall height, `climb` (the bunker block) is a grip wall MV05 Ravagers climb.
+- `mapTilesets` (MAP-022): one per theme with floor, ground, wall, pillar, cover, platform, trim and climb (default `grip`) materials, light colour, wall height, sky, and
   twelve callout modules `[name, pattern]` (the cell names become the map's callout zones).
 - `mapSizes`: `{ id, name, index, tiers }`; a size is offered only on the quality tiers it lists (small: all; medium: low and up; large: medium and up).
 - `mapDensities`: `{ id, name, moduleShare, scatter }`.
 - `mapItemSets`: `{ id, list }`: `power` (the power-up keys put on the centre line), `pickups` / `supply` (one plain pickup per group entry, for
-  modes with and without pickups), `loot` (per royale loot site).
+  modes with and without pickups), `loot` (per royale loot site). Pickups tied to a health preset (PU20 Vital Shard, `healthPreset`) are
+  never drawn as plain pickups: maps with pickups or supply get one extra pair of each (12a shows it only in Ravager health matches).
 - `generators`: the table above (`cells` per size index, `modes`, `defaultModes`, `fallback`, `blurb`, `siteWalk` for GN2).
 
 ## Pipeline per seed (MAP-023)

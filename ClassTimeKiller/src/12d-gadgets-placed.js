@@ -33,6 +33,17 @@ const deviceHit = makeHit();
 const deviceActorHit = makeActorHit();
 const deviceAim = Vec.make();
 const devicePoint = Vec.make();
+// Turret and drone sight (nearestSeenEnemy): cloaked enemies only within DEVICE_INVISIBLE_SHARE of the range, smoke blocks.
+const deviceSight = { row: null };
+const DEVICE_SIGHT_RULE = {
+  skip(device, id) { return !Devices.enemyOf(device, id); },
+  point(id, out) { Hitbox.point(id, ZONE.BODY, out); },
+  accept(device, id, dx, dy, dz, distance) {
+    const cloakRange = deviceSight.row.range * DEVICE_INVISIBLE_SHARE;
+    return distance <= cloakRange || !(Actors.flags[id] & ACTOR_FLAG.INVISIBLE);
+  },
+  blocked(x, y, z, point) { return Smoke.lineBlocked(x, y, z, point.x, point.y, point.z); },
+};
 const deviceDirection = Vec.make();
 
 // Every shared helper works on the Devices store; behaviour functions get (d, row, dt).
@@ -264,23 +275,8 @@ const Devices = {
   },
   // Turrets and drones: the nearest enemy body within row.range seen from `height` above the device's base.
   nearestSeen(device, row, height) {
-    let best = -1, bestDistance = row.range * row.range;
-    const eyeY = this.y[device] + height;
-    for (let id = 0; id < Actors.count; id++) {
-      if (!this.enemyOf(device, id)) continue;
-      Hitbox.point(id, ZONE.BODY, devicePoint);
-      const distance = distanceSquared3(this.x[device], eyeY, this.z[device], devicePoint.x, devicePoint.y, devicePoint.z);
-      if (distance < bestDistance && this.sees(device, row, eyeY, id, distance)) { best = id; bestDistance = distance; }
-    }
-    return best;
-  },
-  // Cloaked enemies only within DEVICE_INVISIBLE_SHARE of the range; then a clear line to devicePoint past walls and smoke.
-  sees(device, row, eyeY, id, distanceSquared) {
-    const cloakRange = row.range * DEVICE_INVISIBLE_SHARE;
-    if ((Actors.flags[id] & ACTOR_FLAG.INVISIBLE) && distanceSquared > cloakRange * cloakRange) return false;
-    const x = this.x[device], z = this.z[device];
-    if (!World.lineClear(x, eyeY, z, devicePoint.x, devicePoint.y, devicePoint.z)) return false;
-    return !Smoke.lineBlocked(x, eyeY, z, devicePoint.x, devicePoint.y, devicePoint.z);
+    deviceSight.row = row;
+    return nearestSeenEnemy(device, this.x[device], this.y[device] + height, this.z[device], row.range, DEVICE_SIGHT_RULE);
   },
   turretShot(device, row, target) {
     const x = this.x[device], y = this.y[device] + TURRET_MUZZLE, z = this.z[device], spread = GADGET_TUNING.turretSpreadDeg * DEG;

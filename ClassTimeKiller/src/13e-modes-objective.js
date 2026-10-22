@@ -227,11 +227,7 @@ function makePrizeBehaviour(prizeId, role, meleeParam, label) {
       const holder = prize.carrier;
       Modes.followCarrier(prize);
       if (params[meleeParam]) holdLoadout(holder, this.meleeLoadout);
-      prize.holdTime += dt;
-      const secondsPerPoint = 1 / params.holdRate;
-      if (prize.holdTime + TIME_EPSILON < secondsPerPoint) return;
-      prize.holdTime -= secondsPerPoint;
-      Modes.creditObjective(holder, 'hold');
+      if (intervalDue(prize, 'holdTime', dt, 1 / params.holdRate)) Modes.creditObjective(holder, 'hold');
     },
     setHolder(id) {
       if (id === this.holder) return;

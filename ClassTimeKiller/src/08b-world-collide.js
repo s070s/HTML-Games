@@ -16,6 +16,9 @@ const makeTrace = () => ({ fraction: 1, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, b
 // planes: normals of the surfaces touched during the current slide; planeBrushes[i]: the brush of planes[i].
 const makeMover = () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hull: makeHull(), planes: new Float32Array(MAX_CLIP_PLANES * 3), planeCount: 0,
   planeBrushes: new Array(MAX_CLIP_PLANES).fill(null), lastBrush: null });
+// Seconds the per-step forms slideMover and stepSlideMover slide through, written by the caller first: a computed float
+// passed to a call that is not inlined is boxed on the heap, once per actor step (PERF-006).
+const slideClock = { seconds: 0 };
 
 const Collide = {
   candidates: new Array(CANDIDATE_START_SIZE).fill(null),
@@ -61,8 +64,13 @@ const Collide = {
   // Slides the mover through its velocity for dt seconds; clips velocity against every surface it touches.
   // mover.planeCount may be preset (e.g. 1 = the ground plane) so the move follows that plane. Returns true on contact.
   slide(mover, dt) {
+    slideClock.seconds = dt;
+    return this.slideMover(mover);
+  },
+  // slide through slideClock.seconds (per-step callers).
+  slideMover(mover) {
     const primalX = mover.vx, primalY = mover.vy, primalZ = mover.vz;
-    let timeLeft = dt, touched = false;
+    let timeLeft = slideClock.seconds, touched = false;
     for (let bump = 0; bump < SLIDE_BUMPS && timeLeft > 0; bump++) {
       const trace = this.trace, segment = sweepQuery;
       segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z;
@@ -74,7 +82,7 @@ const Collide = {
       touched = true;
       mover.lastBrush = trace.brush;
       timeLeft -= timeLeft * trace.fraction;
-      if (!addClipPlane(mover, trace.nx, trace.ny, trace.nz, trace.brush)) { setVelocity(mover, 0, 0, 0); break; }
+      if (!addClipPlane(mover, trace)) { setVelocity(mover, 0, 0, 0); break; }
       if (!resolveVelocity(mover) || mover.vx * primalX + mover.vy * primalY + mover.vz * primalZ <= 0) { setVelocity(mover, 0, 0, 0); break; }
     }
     return touched;
@@ -82,16 +90,23 @@ const Collide = {
   // Slide with step-up (stairs, kerbs up to stepHeight): when the plain slide was blocked, also try "up, across, down"
   // and keep whichever went further on the ground plane.
   stepSlide(mover, dt, stepHeight) {
+    slideClock.seconds = dt;
+    return this.stepSlideMover(mover, stepHeight);
+  },
+  // stepSlide through slideClock.seconds (per-step callers). The up and down sweeps write sweepQuery in place.
+  stepSlideMover(mover, stepHeight) {
     const startX = mover.x, startY = mover.y, startZ = mover.z, startVX = mover.vx, startVY = mover.vy, startVZ = mover.vz;
-    if (!this.slide(mover, dt)) return false;
+    if (!this.slideMover(mover)) return false;
     saveMover(stepSave, mover);
-    const trace = this.trace;
-    this.sweep(startX, startY, startZ, startX, startY + stepHeight, startZ, mover.hull, trace);
+    const trace = this.trace, segment = sweepQuery;
+    segment.sx = segment.ex = startX; segment.sy = startY; segment.ey = startY + stepHeight; segment.sz = segment.ez = startZ;
+    this.sweepSegment(mover.hull, trace);
     if (trace.allSolid || trace.y - startY < COLLISION_SKIN) { loadMover(mover, stepSave); return true; }
     const raised = trace.y - startY;
     mover.x = startX; mover.y = trace.y; mover.z = startZ; setVelocity(mover, startVX, startVY, startVZ); mover.planeCount = 0;
-    this.slide(mover, dt);
-    this.sweep(mover.x, mover.y, mover.z, mover.x, mover.y - raised - COLLISION_SKIN * 2, mover.z, mover.hull, trace);
+    this.slideMover(mover);
+    segment.sx = segment.ex = mover.x; segment.sy = mover.y; segment.ey = mover.y - raised - COLLISION_SKIN * 2; segment.sz = segment.ez = mover.z;
+    this.sweepSegment(mover.hull, trace);
     const landed = !trace.allSolid && trace.fraction < 1 && trace.ny >= WALKABLE_NORMAL_Y;
     const stepDistance = (mover.x - startX) ** 2 + (mover.z - startZ) ** 2, plainDistance = (stepSave.x - startX) ** 2 + (stepSave.z - startZ) ** 2;
     if (!landed || stepDistance <= plainDistance + 1e-8) { loadMover(mover, stepSave); return true; }
@@ -231,10 +246,10 @@ function saveMover(target, mover) {
 
 function loadMover(mover, saved) { saveMover(mover, saved); }
 
-// Remembers a touched plane and its brush; a plane hit again gets a tiny push instead (stops jitter in a corner).
-// False when full.
-function addClipPlane(mover, nx, ny, nz, brush) {
-  const planes = mover.planes;
+// Remembers a touched plane { nx, ny, nz, brush } (a trace) and its brush; a plane hit again gets a tiny push instead
+// (stops jitter in a corner). False when full. The plane is an object: three float arguments would be boxed (PERF-006).
+function addClipPlane(mover, plane) {
+  const planes = mover.planes, nx = plane.nx, ny = plane.ny, nz = plane.nz;
   for (let i = 0; i < mover.planeCount; i++) {
     if (planes[i * 3] * nx + planes[i * 3 + 1] * ny + planes[i * 3 + 2] * nz < SAME_PLANE_DOT) continue;
     mover.vx += nx * COLLISION_SKIN; mover.vy += ny * COLLISION_SKIN; mover.vz += nz * COLLISION_SKIN;
@@ -242,7 +257,7 @@ function addClipPlane(mover, nx, ny, nz, brush) {
   }
   if (mover.planeCount >= MAX_CLIP_PLANES) return false;
   planes[mover.planeCount * 3] = nx; planes[mover.planeCount * 3 + 1] = ny; planes[mover.planeCount * 3 + 2] = nz;
-  mover.planeBrushes[mover.planeCount] = brush;
+  mover.planeBrushes[mover.planeCount] = plane.brush;
   mover.planeCount++;
   return true;
 }

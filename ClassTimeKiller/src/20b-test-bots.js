@@ -172,6 +172,33 @@ function endBotTest() {
   World.clear();
 }
 
+// BOT-030 look spring: Bots.turn through the botLookSpring scratch follows the spring formulas step for step, and passes no
+// float to a helper call (PERF-006: about 5 boxed floats per bot step before, with springVelocity, lookRate, wrapAngle, clamp).
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  Bots.lookYaw[bot] = 170 * DEG; Bots.lookPitch[bot] = 2;   // past the pitch limit; later across the -PI..PI seam
+  const dt = TICK_SECONDS, limit = Bots.tier(bot).turn * DEG;
+  const rate = (change) => (Math.abs(change / dt) > limit ? 0 : change / dt);
+  const spring = (velocity, error, feed) => {
+    const relative = velocity - feed, next = relative + (BOT_AIM_SPRING * BOT_AIM_SPRING * error - 2 * BOT_AIM_SPRING * relative) * dt;
+    return clamp(next + feed, -limit, limit);
+  };
+  let worst = 0;
+  for (let step = 0; step < 90; step++) {
+    if (step === 45) Bots.lookYaw[bot] = -170 * DEG;
+    const lookPitch = clamp(Bots.lookPitch[bot], -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
+    const yawVelocity = spring(Bots.yawVelocity[bot], wrapAngle(Bots.lookYaw[bot] - Actors.aimYaw[bot]), rate(wrapAngle(Bots.lookYaw[bot] - Bots.lastLookYaw[bot])));
+    const pitchVelocity = spring(Bots.pitchVelocity[bot], lookPitch - Actors.aimPitch[bot], rate(lookPitch - Bots.lastLookPitch[bot]));
+    const yaw = wrapAngle(Actors.aimYaw[bot] + yawVelocity * dt), pitch = clamp(Actors.aimPitch[bot] + pitchVelocity * dt, -BOT_PITCH_LIMIT, BOT_PITCH_LIMIT);
+    Bots.turn(bot, dt);
+    worst = Math.max(worst, Math.abs(Actors.aimYaw[bot] - yaw), Math.abs(Actors.aimPitch[bot] - pitch), Math.abs(Bots.yawVelocity[bot] - yawVelocity));
+  }
+  check('the look spring follows the critically damped spring with the turn cap, step for step', worst < 1e-5, worst);
+  check('the look spring passes no float to a helper call (botLookSpring scratch, wrapAngleAt)', !/springVelocity|lookRate|wrapAngle\(|clamp\(/.test(Bots.turn.toString()));
+  endBotTest();
+});
+
 // ---- BOT-071 revive: a bot walks to a downed teammate and holds Use until it stands again ----
 Test.add('bots', (check) => {
   const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 0 }] });
@@ -346,6 +373,21 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- Decisions: bots list only the item spots Items placed (Items.spotAllowed: PU20 shards need the Ravager health preset) ----
+Test.add('bots', (check) => {
+  const spire = CAT.maps.byId('spire');
+  const shardKeys = (health) => {
+    startBotTest(spire, 'ffa', { map: spire, ruleset: { health } });
+    const keys = BotDecide.items.map((item) => item.key);
+    const placed = Items.spotCount;
+    endBotTest();
+    return { listed: keys.filter((key) => key === 'vitalshard').length, items: keys.length, placed };
+  };
+  const stack = shardKeys('stack'), ravager = shardKeys('ravager');
+  check('MP01 stack health: no bot item is a Vital Shard', stack.listed === 0 && stack.items === stack.placed, JSON.stringify(stack));
+  check('MP01 Ravager health: the bots list the shard spots', ravager.listed === 2 && ravager.items === ravager.placed, JSON.stringify(ravager));
+});
+
 // ---- Team play: a defend ping is answered within 2 s and acknowledged by every taker; an enemy ping gets a reply ----
 Test.add('bots', (check) => {
   const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
@@ -387,6 +429,7 @@ Test.add('bots', (check) => {
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
   runSeconds(1);
   const fromPlayer = () => pings.filter((event) => event.id === player);
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;   // aimed at no bot: the wheel talks to the squad
   Input.effective[pingAction] = 1; CommWheel.frame(0.1);
   Input.effective[pingAction] = 0; CommWheel.frame(0.02);
   check('wheel: a short Ping tap pings at once, no wheel', fromPlayer().length === 1 && !CommWheel.open, fromPlayer().length);
@@ -404,16 +447,66 @@ Test.add('bots', (check) => {
   runSeconds(6);
   const nearCaller = (id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18) < 8;   // a bot in a fight may fight first (combat outscores orders)
   check('follow me: the bots come to where the caller went', mates.some(nearCaller) && mates.every((id) => nearCaller(id) || BotCombat.target[id] >= 0), mates.map((id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18).toFixed(1) + ' goal ' + BotDecide.goal[id]).join());
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;
   CommWheel.onComm(true);
-  CommWheel.pick(0, 0.05);   // straight down: the fifth of eight callouts
+  botsWheelPick('regroup');
   CommWheel.onComm(false);
   const regroup = fromPlayer()[2];
-  check('wheel: the Comm key opens it too (down = Regroup)', regroup && regroup.kind === 'regroup', JSON.stringify(regroup));
-  BotTeam.callout(player, COMM_CALLOUTS.findIndex((row) => row.id === 'hold'));
+  check('wheel: the Comm key opens it too (Regroup)', regroup && regroup.kind === 'regroup' && regroup.to === -1, JSON.stringify(regroup));
+  BotTeam.callout(player, botsCalloutIndex('hold'), -1);
   check('hold position: every bot defends the spot it stands on', mates.every((id) => BotTeam.orderKind[id] === 'defend' && Test.near(BotTeam.orderX[id], Actors.x[id], 1e-3) && Test.near(BotTeam.orderZ[id], Actors.z[id], 1e-3)));
   CommWheel.onComm(true);
   CommWheel.onComm(false);
   check('wheel: letting go with nothing picked sends nothing', fromPlayer().length === 4 && !CommWheel.open, fromPlayer().length);
+  pings.stop();
+  CommWheel.reset();
+  endBotTest();
+});
+
+const BOTS_WHEEL_SKY = 1.2;   // radians of aim pitch: looking at the sky, so the wheel addresses no bot
+function botsCalloutIndex(kind) { return COMM_CALLOUTS.findIndex((row) => row.id === kind); }
+// Moves the wheel's pick point toward a callout (the first at the top, then clockwise).
+function botsWheelPick(kind) {
+  const angle = botsCalloutIndex(kind) / COMM_CALLOUTS.length * 2 * Math.PI;
+  CommWheel.pick(Math.sin(angle) * COMM_WHEEL_REACH, -Math.cos(angle) * COMM_WHEEL_REACH);
+}
+
+// ---- Comm wheel: aimed at a team bot it addresses that bot only (Cover me); replies answer a ping and order nobody ----
+Test.add('bots', (check) => {
+  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const player = Game.playerId, pings = startEventLog('ping'), mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  runSeconds(1);
+  const chosen = mates[0], others = mates.slice(1);
+  placeActor(player, -20, -20); placeActor(chosen, -20, -12);
+  others.forEach((id, index) => placeActor(id, 10 + index * 4, -20));
+  Actors.aimYaw[player] = 0; Actors.aimPitch[player] = 0;   // straight at the chosen bot (+Z)
+  CommWheel.onComm(true);
+  check('wheel: opened while aiming at a team bot, it addresses that bot', CommWheel.addressee === chosen, CommWheel.addressee);
+  botsWheelPick('cover');
+  CommWheel.onComm(false);
+  const cover = pings[pings.length - 1], givenAt = Sim.time;
+  check('cover me: the ping is addressed to the aimed bot', cover && cover.kind === 'cover' && cover.to === chosen, JSON.stringify(cover));
+  check('cover me: only that bot takes it, the squad does not', BotTeam.orderKind[chosen] === 'cover' && BotTeam.orderSource[chosen] === player
+    && others.every((id) => BotTeam.orderUntil[id] <= givenAt), mates.map((id) => BotTeam.orderKind[id]).join());
+  placeActor(player, -8, -26);
+  runSeconds(5);
+  const covering = length2(Actors.x[chosen] + 8, Actors.z[chosen] + 26) < COVER_RADIUS + 3;
+  check('cover me: the bot comes to the caller and holds there (unless it fights)', covering || BotCombat.target[chosen] >= 0, length2(Actors.x[chosen] + 8, Actors.z[chosen] + 26).toFixed(1));
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;
+  CommWheel.onComm(true);
+  check('wheel: aimed at no bot, it addresses the squad', CommWheel.addressee === -1);
+  CommWheel.reset();
+  Bus.emit('ping', { id: others[0], kind: 'go', x: 5, y: 0, z: 5, target: -1, to: -1 });
+  const orders = BotTeam.stats.orders;
+  CommWheel.onComm(true);
+  botsWheelPick('dibs');
+  CommWheel.onComm(false);
+  const dibs = pings[pings.length - 1];
+  check('reply: Dibs answers the newest teammate ping, at its spot and to its sender', dibs && dibs.kind === 'dibs' && dibs.id === player && dibs.x === 5 && dibs.z === 5 && dibs.to === others[0], JSON.stringify(dibs));
+  check('reply: a reply orders nobody', BotTeam.stats.orders === orders, BotTeam.stats.orders - orders);
+  check('reply: the wheel has Dibs, No and On my way', ['dibs', 'no', 'onMyWay'].every((kind) => COMM_CALLOUT_BY_KIND.get(kind).at === 'reply'));
   pings.stop();
   CommWheel.reset();
   endBotTest();
@@ -823,12 +916,206 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- BOT-052 squads (versus): role squads of up to 3 led by the most teamwork, a broken-off follower regroups, a fallen
+// leader hands the squad on. BOT-053 tokens: two bots close in on one target, one flanks per team. BOT-002 Search, Downed ----
+Test.add('bots', (check) => {
+  const map = botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), tier5 = { tier: 5, team: 0 };
+  const ids = startBotTest(map, 'tdm', { ruleset: 'modern', balance: false, bots: [tier5, tier5, tier5, tier5, { dummy: true, team: 1 }] });
+  const enemy = ids[4], plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
+  BotTeam.assignRoles();
+  const attackers = ids.filter((id) => Bots.active[id] && BotTeam.role[id] === ROLE.ATTACK), leader = BotTeam.squadLeader[attackers[0]];
+  const followers = attackers.filter((id) => id !== leader), teamwork = (id) => Bots.trait(id, TRAIT.teamwork);
+  check('BOT-052 the 3 attackers form one squad led by the one with the most teamwork', attackers.length === 3 && followers.length === 2
+    && attackers.every((id) => BotTeam.squadLeader[id] === leader && teamwork(id) <= teamwork(leader)), attackers.map((id) => BotTeam.squadLeader[id]).join());
+  placeFacing(leader, 0, -10, 0); placeFacing(followers[0], 20, -10, 0);
+  const far = GOAL_SCORERS[GOAL.SQUAD](followers[0], plan, Sim.time);
+  const toLeader = plan.x === Actors.x[leader] && plan.z === Actors.z[leader] && plan.radius === BOT_SQUAD.keep;
+  placeFacing(followers[0], 3, -10, 0);
+  const near = GOAL_SCORERS[GOAL.SQUAD](followers[0], plan, Sim.time);
+  check('BOT-052 a broken-off follower regroups (it scores above keeping with the leader, which beats roaming)', toLeader && far > near && near > ROAM_SCORE,
+    far.toFixed(2) + ' / ' + near.toFixed(2));
+  check('BOT-052 the leader has no squad goal', GOAL_SCORERS[GOAL.SQUAD](leader, plan, Sim.time) === 0);
+  Actors.flags[leader] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, leader, 1000); TestArena.hit(-1, leader, 1000);   // downed, then finished
+  const heir = BotTeam.squadLeader[followers[0]];
+  check('BOT-052 a fallen leader hands the squad to its next follower', !Actors.alive[leader] && heir === followers[0]
+    && BotTeam.squadLeader[followers[1]] === heir && BotTeam.squadLeader[leader] === heir, heir);
+
+  const [first, second, third] = ids.filter((id) => Bots.active[id] && Actors.alive[id]), now = Sim.time;
+  for (const id of [first, second, third]) BotDecide.goal[id] = GOAL.ATTACK;
+  const both = BotTeam.takeAttackToken(first, enemy, now) && BotTeam.takeAttackToken(second, enemy, now);
+  const blocked = !BotTeam.takeAttackToken(third, enemy, now), renewed = BotTeam.takeAttackToken(first, enemy, now + 1);
+  const lapsed = BotTeam.takeAttackToken(third, enemy, now + 1 + 0.5);   // the second let its hold (BOT_TOKENS.hold) run out
+  check('BOT-053 two bots close in on one target, a third waits until a holder lets its token lapse', both && blocked && renewed && lapsed);
+  const weapon = Weapons.currentWeapon(second), range = weapon.botPref.range[1];
+  BotTeam.takeAttackToken(first, enemy, now + 1.5); BotTeam.takeAttackToken(third, enemy, now + 1.5);
+  holdActor(enemy, 0, 20); placeFacing(second, 0, 20 - range - 10, 0);
+  BotSense.visible[BotSense.pair(second, enemy)] = 1; BotCombat.target[second] = enemy;
+  const score = GOAL_SCORERS[GOAL.ATTACK](second, plan, now + 1.5);
+  BotSense.visible[BotSense.pair(second, enemy)] = 0; BotCombat.target[second] = -1;
+  check('BOT-053 without a token a bot comes no nearer than its weapon range', score > 0 && plan.radius === range && weapon.class !== 'melee', score.toFixed(2) + ' r ' + plan.radius);
+
+  const later = now + 5, flanks = [];
+  for (const id of [first, third]) {
+    const pair = BotSense.pair(id, enemy);
+    placeFacing(id, 0, -10, 0);
+    BotSense.knownAt[pair] = later; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+    BotCombat.target[id] = enemy; BotDecide.goal[id] = GOAL.CHASE;
+    GOAL_SCORERS[GOAL.CHASE](id, plan, later);
+    flanks.push(BotDecide.flankSpot[id]);
+  }
+  check('BOT-053 one bot of a team flanks at a time (the other chases straight)', flanks[0] === 0 && flanks[1] === -1 && plan.z === 20, flanks.join());
+
+  const pair = BotSense.pair(first, enemy), spots = [];
+  BotDecide.goalTarget[first] = enemy; BotDecide.searchLeft[first] = SEARCH_SPOTS;
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownZ[pair] = 5;
+  for (let spot = 0; spot < SEARCH_SPOTS; spot++) {
+    BotDecide.searched(first);
+    spots.push(BotSense.knows(first, enemy, Sim.time) ? BotSense.knownX[pair].toFixed(1) + ',' + BotSense.knownZ[pair].toFixed(1) : 'lost');
+  }
+  BotDecide.searched(first);
+  check('BOT-002 a search looks at 2 nearby spots past the last known position, then gives up', !spots.includes('lost') && spots[0] !== '0.0,5.0'
+    && !BotSense.knows(first, enemy, Sim.time), spots.join(' '));
+  Actors.flags[first] |= ACTOR_FLAG.DOWNED;
+  const downed = BotDecide.goalState(first, { goal: GOAL.ROAM, target: -1 }, Sim.time);
+  Actors.flags[first] &= ~ACTOR_FLAG.DOWNED;
+  check('BOT-002 Downed and Revive states', downed === BOT_STATE.DOWNED && BotDecide.goalState(first, { goal: GOAL.REVIVE, target: -1 }, Sim.time) === BOT_STATE.REVIVE);
+  endBotTest();
+});
+
+// BOT-002 Search in play: a bot chasing stale memory (the enemy is behind the wall) walks on to a nearby spot after the
+// last known one, instead of skipping both spots on the ticks after its arrival.
+const SEARCH_TEST_SPOT = [10, -6], SEARCH_TEST_STALE = 3, SEARCH_TEST_REACH = 2.5, SEARCH_TEST_WALK = 3;
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 10);
+  const pair = BotSense.pair(bot, dummy), spots = [];
+  BotSense.knownAt[pair] = Sim.time - SEARCH_TEST_STALE;
+  BotSense.knownX[pair] = SEARCH_TEST_SPOT[0]; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = SEARCH_TEST_SPOT[1];
+  let lastX = SEARCH_TEST_SPOT[0], lastZ = SEARCH_TEST_SPOT[1];
+  for (let tick = 0; tick < SENSE_MEMORY * TICK_RATE && BotSense.knows(bot, dummy, Sim.time); tick++) {
+    holdActor(dummy, 0, 10);
+    Sim.run(1);
+    const x = BotSense.knownX[pair], z = BotSense.knownZ[pair], away = length2(x - Actors.x[bot], z - Actors.z[bot]);
+    if (x !== lastX || z !== lastZ) { spots.push({ x, z, away, nearest: away }); lastX = x; lastZ = z; }
+    for (const spot of spots) spot.nearest = Math.min(spot.nearest, length2(spot.x - Actors.x[bot], spot.z - Actors.z[bot]));
+  }
+  const walked = spots.filter((spot) => spot.away > SEARCH_TEST_WALK && spot.nearest < SEARCH_TEST_REACH);
+  check('BOT-002 a searching bot walks to a nearby spot past the last known position before it gives up', walked.length > 0,
+    spots.map((spot) => spot.away.toFixed(1) + '->' + spot.nearest.toFixed(1)).join(' '));
+  endBotTest();
+});
+
 // A rocket launcher in hand and the weapon jumper trait (T12).
 function giveWeaponJumper(bot) {
   const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
   Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
   Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
 }
+
+// ---- BOT-034 smoke at chokes: an attacking bot smokes the choke hint on its way to its target (not one off the way,
+// not one right at the target, and not while it only roams), once per CHOKE_SMOKE_REST s ----
+const CHOKE_SMOKE_ROW = 'smoke', CHOKE_ON_WAY = { kind: 'choke', x: 0, y: 0, z: 0 }, CHOKE_OFF_WAY = { kind: 'choke', x: 15, y: 0, z: 0 };
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [CHOKE_OFF_WAY, CHOKE_ON_WAY, { kind: 'flank', x: 9, y: 0, z: 9 }] }));
+  const pair = BotSense.pair(bot, dummy);
+  let now = Sim.time + GRENADE_TOKEN_INTERVAL;
+  placeFacing(bot, 0, -10, 0);
+  Gadgets.give(bot, CHOKE_SMOKE_ROW, 2); Gadgets.select(bot, CHOKE_SMOKE_ROW);
+  BotCombat.target[bot] = dummy;
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+  check('the match reads the choke hints', BotDecide.chokeSpots.length === 2);
+  BotDecide.goal[bot] = GOAL.ROAM;
+  BotCombat.tryGrenade(bot, now);
+  check('a roaming bot smokes no choke', BotCombat.throwUntil[bot] < now);
+  BotDecide.goal[bot] = GOAL.CHASE;
+  BotCombat.tryGrenade(bot, now);
+  const pitch = solveThrowPitch(10 - THROW_FORWARD, CHOKE_ON_WAY.y - Actors.eyeY(bot));
+  check('chasing, it throws the smoke at the choke on its way', BotCombat.throwUntil[bot] > now && Math.abs(BotCombat.throwYaw[bot]) < 1e-6
+    && Math.abs(BotCombat.throwPitch[bot] - pitch) < 1e-6, BotCombat.throwYaw[bot] + ' ' + BotCombat.throwPitch[bot]);
+  BotCombat.throwUntil[bot] = 0; now += GRENADE_TOKEN_INTERVAL;
+  BotCombat.tryGrenade(bot, now);
+  check('one choke smoke per rest', BotCombat.throwUntil[bot] === 0);
+  now += CHOKE_SMOKE_REST; BotDecide.goal[bot] = GOAL.ATTACK; BotSense.knownZ[pair] = 2;
+  BotCombat.tryGrenade(bot, now);
+  check('a target right past the choke draws no choke smoke', BotCombat.throwUntil[bot] === 0);
+  endBotTest();
+});
+
+// A class loadout gives the lethal first, so the frag is selected: the chasing bot presses CYCLE_GRENADE (one honest
+// input edge through the sim), and at its next kit check throws the smoke at the choke.
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [CHOKE_ON_WAY] }));
+  const pair = BotSense.pair(bot, dummy), smoke = CAT.gadgets.byId(CHOKE_SMOKE_ROW);
+  const now = Sim.time + GRENADE_TOKEN_INTERVAL;
+  const aimAtTarget = () => {
+    BotDecide.goal[bot] = GOAL.CHASE; BotCombat.target[bot] = dummy;
+    BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+  };
+  placeFacing(bot, 0, -10, 0);
+  Gadgets.clearGrenades(bot); Gadgets.give(bot, 'frag', 1); Gadgets.give(bot, CHOKE_SMOKE_ROW, 1);
+  check('frag then smoke: the frag is the selected type', Gadgets.grenade[bot] === CAT.gadgets.byId('frag').index);
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now);
+  check('the chasing bot presses CYCLE_GRENADE and plans no throw yet', (Bots.buttonsWanted[bot] & BTN.CYCLE_GRENADE) !== 0
+    && BotCombat.throwUntil[bot] < now);
+  Actors.buttons[bot] = Bots.buttonsWanted[bot];
+  Sim.run(1);
+  check('the press selects the smoke', Gadgets.grenade[bot] === smoke.index);
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now);
+  const towardChoke = Math.atan2(CHOKE_ON_WAY.x - Actors.x[bot], CHOKE_ON_WAY.z - Actors.z[bot]);
+  check('at the next check it throws the smoke at the choke', BotCombat.throwUntil[bot] > now && BotCombat.chokeSmokedAt[bot] === now
+    && Math.abs(wrapAngle(BotCombat.throwYaw[bot] - towardChoke)) < 1e-6, BotCombat.throwYaw[bot] + ' ' + towardChoke);
+  Actors.buttons[bot] = 0; Sim.run(1);   // the earlier press is let go, so the next one is a new press
+  Bots.buttonsWanted[bot] = 0; BotCombat.throwUntil[bot] = -1e9;   // the smoke has left the hand
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now + KIT_CHECK_INTERVAL);
+  Actors.buttons[bot] = Bots.buttonsWanted[bot];
+  Sim.run(1);
+  check('after the choke it cycles back to the frag it had selected (frags are thrown again)', Gadgets.grenade[bot] === CAT.gadgets.byId('frag').index, Gadgets.grenade[bot]);
+  endBotTest();
+});
+
+// ---- M20 squads (audit 12): a squadmate far from its leader goes back to it; with a squadmate out, a bot holds Use at
+// the squad's beacon until the beacon brings it back (the ring wins over a beacon outside it) ----
+const SQUAD_ENTRIES = [{ dummy: true }, { dummy: true }, { tier: 3 }, { dummy: true }, { dummy: true }, { dummy: true }];
+const SQUAD_DROP_SECONDS = 3, SQUAD_FAR = 30, SQUAD_MIDDLE = 18, SQUAD_NEAR = 5, ENEMY_BEHIND_WALL = 20;
+
+Test.add('bots', (check) => {
+  const [leader, enemy, bot, enemy2, mate, enemy3] = startBotTest(botTestMap(true), 'royale', { bots: SQUAD_ENTRIES });
+  const squads = Modes.squads, plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
+  runSeconds(SQUAD_DROP_SECONDS);   // the drop-in lands
+  check('six actors make two squads of three', squads.count === 2 && Actors.team[bot] === 0 && Actors.team[leader] === 0 && Actors.team[mate] === 0);
+  BotTeam.assignRoles();
+  check('M20 squads are the only squads: no versus role squads (BOT-052) on top', [leader, bot, mate].every((id) => BotTeam.squadLeader[id] === -1));
+  const side = Math.sign(squads.beaconZ[0]) || 1, beaconX = squads.beaconX[0], beaconZ = squads.beaconZ[0];
+  placeActor(leader, beaconX, beaconZ); placeActor(bot, beaconX + SQUAD_FAR, beaconZ);
+  check('a squadmate far from its leader goes back to it', planSquad(bot, plan) && plan.x === Actors.x[leader] && plan.z === Actors.z[leader]
+    && plan.action === ACTION.MOVE && plan.score === SQUAD_FOLLOW_URGENCY, JSON.stringify(plan));
+  placeActor(bot, beaconX + SQUAD_MIDDLE, beaconZ); BotCombat.target[bot] = -1;
+  const followsFree = planSquad(bot, plan);
+  BotCombat.target[bot] = enemy;
+  check('in between, it goes back only without a fight (a target keeps it up to SQUAD_FIGHT_KEEP m)', followsFree && !planSquad(bot, plan));
+  BotCombat.target[bot] = -1;
+  placeActor(bot, beaconX + SQUAD_NEAR, beaconZ);
+  check('near its leader it is free, and the leader follows nobody', !planSquad(bot, plan) && !planSquad(leader, plan));
+  Actors.alive[mate] = 0;
+  runSeconds(LOOT_CHECK_INTERVAL * 2);   // the beacon tallies its squads at 10 Hz
+  check('the ring area is known', Modes.hud.zoneRadius > 0 && insideSafeArea(beaconX, beaconZ));
+  check('a squadmate out: the bot goes to hold Use at the squad beacon', planSquad(bot, plan) && plan.action === ACTION.USE
+    && plan.x === beaconX && plan.z === beaconZ && plan.score === BEACON_URGENCY, JSON.stringify(plan));
+  squads.beaconX[0] = Modes.hud.zoneX + Modes.hud.zoneRadius * 2;
+  check('a beacon the ring left outside is not gone to (near its leader the bot is free)', !planSquad(bot, plan));
+  squads.beaconX[0] = beaconX;
+  const hold = () => { for (const id of [enemy, enemy2, enemy3]) holdActor(id, 0, -side * ENEMY_BEHIND_WALL); };
+  runHeld(BEACON_SECONDS + 2, hold, () => Actors.alive[mate] === 1);
+  check('the bot brings its squadmate back at the beacon', Actors.alive[mate] === 1 && squads.beaconUses[0] === Game.match.rules.params.squadBeacons - 1,
+    'goal ' + GOAL_NAMES[BotDecide.goal[bot]] + ' at ' + Actors.x[bot].toFixed(1) + ',' + Actors.z[bot].toFixed(1));
+  endBotTest();
+});
 
 // The weapon jump on real paths: to a ledge 3 m up with no way to walk there, the blast (on the far side of the bot) lifts
 // it up and toward the goal; with a ramp up beside it the bot walks instead (no self-damage for nothing).
@@ -952,7 +1239,7 @@ function equipKit(id, kits) {
   kit.abilities.forEach((row, slot) => Abilities.setSlot(id, slot, row));
   for (const row of kit.gadgets) {
     Gadgets.give(id, row.id, row.kind === 'thrown' ? KIT_GRENADES : 1);
-    Gadgets.select(id, row.id);   // bots throw the selected grenade type (there is no grenade-cycle button)
+    Gadgets.select(id, row.id);   // bots throw the selected grenade type (they cycle only to smoke a choke)
   }
 }
 

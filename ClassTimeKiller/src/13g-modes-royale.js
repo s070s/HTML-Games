@@ -72,18 +72,12 @@ Modes.register('royale', {
   step(dt, now) {
     stepRing(now);
     this.hurtOutside(dt);
-    this.lootTimer += dt;
-    if (this.lootTimer + TIME_EPSILON >= LOOT_CHECK_INTERVAL) { this.lootTimer -= LOOT_CHECK_INTERVAL; touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
+    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
     updateRingHud(now);
   },
   onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
-    this.hurtTimer += dt;
-    if (this.hurtTimer + TIME_EPSILON < RING_HURT_INTERVAL) return;
-    this.hurtTimer -= RING_HURT_INTERVAL;
-    for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && Modes.isActive(id) && outsideRing(id)) requestHazard(id, Ring.damage * RING_HURT_INTERVAL);
-    }
+    if (intervalDue(this, 'hurtTimer', dt, RING_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * RING_HURT_INTERVAL);
   },
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
@@ -112,8 +106,7 @@ Modes.register('royale', {
 // Round-robin squads of at most squadSize; one squad or fewer (a small match) plays solo.
 function assignSquads() {
   const size = Modes.rules.params.squadSize || 1;
-  let participants = 0;
-  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) participants++;
+  const participants = Modes.countActive();
   Squads.count = size > 1 && participants > size ? Math.ceil(participants / size) : 0;
   Squads.anchorAt.fill(-1);
   let order = 0;
@@ -256,8 +249,6 @@ function stepRing(now) {
   if (Ring.phase + 1 < Ring.phases) beginRingPhase(Ring.phase + 1, Ring.changeAt);
   else Ring.state = RING_STATE.CLOSED;
 }
-
-function outsideRing(id) { return Math.hypot(Actors.x[id] - Ring.x, Actors.z[id] - Ring.z) > Ring.radius; }
 
 function updateRingHud(now) {
   const hud = Modes.hud;

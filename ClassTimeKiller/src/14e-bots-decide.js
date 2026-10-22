@@ -3,14 +3,15 @@
 // mode objective, camp (time-limited, never in sight of enemy spawns), investigate sounds, follow orders, roam.
 // Objective planners are registered per map objective kind, so every mode with that kind is played (flags, points, hills,
 // bomb sites, the shrinking safe area and ring); the add-on modes are played from their goal hints (Modes.goalFor: relays,
-// the convoy, relics, the flame, the curse beacon) and royale loot is collected. The chosen goal becomes a state, a
-// destination for 14c and an action (hold, use).
+// the convoy, relics, the flame, the curse beacon), royale loot is collected and royale squads keep together and use
+// their respawn beacon. The chosen goal becomes a state, a destination for 14c and an action (hold, use).
 
-const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10 };
+// SQUAD: a follower keeps with its squad leader (BOT-052; scored by 14f).
+const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10, SQUAD: 11 };
 const GOAL_NAMES = Object.keys(GOAL).map((name) => name.toLowerCase());
 const GOAL_COUNT = GOAL_NAMES.length;
 const GOAL_STATES = [BOT_STATE.ROAM, BOT_STATE.ROAM, BOT_STATE.ENGAGE, BOT_STATE.CHASE, BOT_STATE.RETREAT, BOT_STATE.COLLECT,
-  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.FOLLOW];
+  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.REVIVE, BOT_STATE.FOLLOW];
 const ACTION = { MOVE: 0, HOLD: 1, USE: 2 };
 const GOAL_HYSTERESIS = 1.1;            // BOT-020: a new goal must beat the current one by 10%
 const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chosen again for this long
@@ -20,6 +21,8 @@ const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
 const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
 const SEARCH_AFTER = 2;                 // s: a chase on older memory than this is the Search state (BOT-002)
+const SEARCH_SPOTS = 2;                 // nearby spots a search looks at past the last known position...
+const SEARCH_HOPS = 4;                  // ...each a random walk of this many nav links (nodes are 2 m apart) from the last one
 const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a flank hint only for a target at least this far...
 const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
 const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
@@ -47,6 +50,10 @@ const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a downed teammate out
 const REVIVE_SEARCH = 40;               // m: downed teammates farther away are left to others
 const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close to the downed ally (smoke hides them)
 const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
+const BEACON_URGENCY = 0.95;            // M20: a squad with a member out and a beacon use left goes to hold Use at its beacon
+const SQUAD_KEEP = 12;                  // m: a royale squadmate farther than this from its squad leader goes back to it...
+const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that distance or more (less nearer)...
+const SQUAD_FIGHT_KEEP = 24;            // ...but a bot with a target stays in its fight up to this far (objectives outrank chases)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
@@ -84,6 +91,8 @@ const BotDecide = {
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
   flankSpots: [], flankSpot: new Int16Array(MAX_ACTORS).fill(-1), flankedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  searchLeft: new Uint8Array(MAX_ACTORS),                  // BOT-002: nearby spots a chase still looks at past the last known one
+  chokeSpots: [],        // map choke hints an attacking bot smokes (14d chokeToSmoke)
   lootNode: new Int32Array(LOOT_MAX).fill(-1),             // nav node of each royale loot spot (Modes.loot)
   planners: {},          // objective kind -> fn(id, plan, now) -> bool (BOT-080 mode brains)
 
@@ -109,14 +118,16 @@ const BotDecide = {
     this.items.length = 0;
     this.campSpots.length = 0;
     this.flankSpots.length = 0;
+    this.chokeSpots.length = 0;
     this.itemVisited.fill(-1e9);
     this.itemReadyAt.fill(0);
     this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
     const map = World.map, mode = match.rules ? match.rules.mode : '';
     if (!map) return;
-    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
+    for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode) && Items.spotAllowed(entry)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
     for (const hint of map.navHints || []) if (hint.kind === BOT_FLANK_HINT) this.flankSpots.push({ x: hint.x, y: hint.y, z: hint.z });
+    for (const hint of map.navHints || []) if (hint.kind === BOT_CHOKE_HINT) this.chokeSpots.push({ x: hint.x, y: hint.y, z: hint.z });
     const loot = Modes.loot;
     for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
   },
@@ -192,6 +203,7 @@ const BotDecide = {
   },
   apply(id, now) {
     const plan = bestPlan;
+    if (plan.goal === GOAL.CHASE && this.goal[id] !== GOAL.CHASE) this.searchLeft[id] = SEARCH_SPOTS;
     if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
@@ -204,6 +216,7 @@ const BotDecide = {
 
   // BOT-002: a chase whose memory of the target is older than SEARCH_AFTER seconds is a Search (the target may have moved on).
   goalState(id, plan, now) {
+    if (Actors.flags[id] & ACTOR_FLAG.DOWNED) return BOT_STATE.DOWNED;
     if (plan.goal !== GOAL.CHASE || plan.target < 0) return GOAL_STATES[plan.goal];
     return now - BotSense.knownAt[BotSense.pair(id, plan.target)] > SEARCH_AFTER ? BOT_STATE.SEARCH : BOT_STATE.CHASE;
   },
@@ -236,10 +249,21 @@ const BotDecide = {
     if (item >= 0 && item < this.items.length) this.itemVisited[id * MAX_BOT_ITEMS + item] = now;
     BotTeam.bark(id, 'itemGrab', now);
   },
-  // Reached the last known position and nothing there: the memory entry is used up (BOT-002 Search ends).
+  // Reached the last known position and nothing there (BOT-002 Search): the bot's guess moves on to SEARCH_SPOTS nearby
+  // spots in turn, then the memory entry is used up and the bot roams. The goal and path move to each spot at once: the
+  // old arrival would otherwise call this again on the next ticks and skip every spot unvisited.
   searched(id) {
     const target = this.goalTarget[id];
-    if (target >= 0 && !BotSense.sees(id, target)) BotSense.knownAt[BotSense.pair(id, target)] = -1e9;
+    if (target < 0 || BotSense.sees(id, target)) return;
+    const pair = BotSense.pair(id, target);
+    const node = this.searchLeft[id] > 0 ? searchWalk(Nav.nearestNode(BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair])) : -1;
+    if (node < 0) { BotSense.knownAt[pair] = -1e9; return; }
+    this.searchLeft[id]--;
+    const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node];
+    BotSense.knownX[pair] = x; BotSense.knownY[pair] = y; BotSense.knownZ[pair] = z;
+    this.goalX[id] = x; this.goalY[id] = y; this.goalZ[id] = z;
+    BotMove.stop(id);   // a fresh path now, past the repath throttle (at most SEARCH_SPOTS times a chase)
+    BotMove.goTo(id, x, y, z, this.goalRadius[id]);
   },
   carriesObjective(actor) {
     const list = Modes.objectives;
@@ -302,7 +326,21 @@ function flankSpot(id, targetX, targetZ, now) {
     if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
     best = i; bestWay = fromBot + toTarget;
   }
-  return best;
+  return best >= 0 && BotTeam.takeFlankToken(id, now) ? best : -1;   // BOT-053: one flanker per team at a time
+}
+
+// BOT-002 Search: a spot the lost target may have gone on to, SEARCH_HOPS random links from `from` (never a jump pad or
+// teleporter node); -1 when the walk leads nowhere new.
+function searchWalk(from) {
+  let node = from;
+  for (let hop = 0; hop < SEARCH_HOPS && node >= 0; hop++) {
+    const first = Nav.linkStart[node], count = Nav.linkStart[node + 1] - first;
+    if (count <= 0) break;
+    const next = Nav.linkTarget[first + Math.floor(Rng.bots.next() * count)];
+    if (Nav.nodeFlags[next] & NAV_NODE.TRIGGER) break;
+    node = next;
+  }
+  return node === from ? -1 : node;
 }
 
 function holdHere(id) {
@@ -329,12 +367,18 @@ GOAL_SCORERS[GOAL.ROAM] = (id, plan) => {
   setPlan(plan, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], 1, ACTION.MOVE, -1);
   return ROAM_SCORE;
 };
-GOAL_SCORERS[GOAL.ATTACK] = (id, plan) => {
+GOAL_SCORERS[GOAL.ATTACK] = (id, plan, now) => {
   const target = BotCombat.target[id];
   if (target < 0 || !BotSense.sees(id, target)) return 0;
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
-  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], attackRadius(Weapons.currentWeapon(id)), ACTION.MOVE, target);
+  // BOT-053: only attack token holders close in; the others fight from where they stand, coming no nearer than the
+  // weapon's range (a melee weapon must close in).
+  const weapon = Weapons.currentWeapon(id), closest = attackRadius(weapon);
+  const closeIn = (weapon && weapon.class === 'melee') || BotTeam.takeAttackToken(id, target, now);
+  const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
+  const radius = closeIn ? closest : clamp(distance, closest, weapon ? weapon.botPref.range[1] : closest);
+  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], radius, ACTION.MOVE, target);
   return ATTACK_BASE + ATTACK_GAIN * aggression;
 };
 // A melee weapon closes inside its reach (a 1.5 m stop left an out-of-ammo bot swinging 2 m short of a cornered enemy).
@@ -408,9 +452,11 @@ function collectScore(id, value) {
   return value > 0 ? Math.min(COLLECT_MAX, COLLECT_BASE + COLLECT_GAIN * value * (0.5 + Bots.trait(id, TRAIT.itemFocus))) : 0;
 }
 
-// The safe area first while it hurts, then the planner of the mode's objective kind, then the mode's goal hints.
+// The safe area first while it hurts, then the M20 squad (beacon, stay together), then the planner of the mode's
+// objective kind, then the mode's goal hints.
 function planObjective(id, plan, now) {
   if (Modes.hud.zoneRadius > 0 && BotDecide.planners.safeArea(id, plan, now)) return true;
+  if (Modes.squads.count > 0 && planSquad(id, plan)) return true;
   const planner = BotDecide.planners[Modes.rules.objective];
   if (planner && planner(id, plan, now)) return true;
   return planGoals(id, plan);
@@ -647,12 +693,50 @@ function nearestObjective(list, x, z) {
 // Elimination safe area (M14) and the royale ring (M20): get inside before it hurts. With a ring coming, the circle
 // that matters is the next one (the ring shrinks onto it).
 function planSafeArea(id, plan) {
-  safeCircleNow(safeCircle);
-  const outside = length2(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
-  if (!outside) return false;
+  if (insideSafeArea(Actors.x[id], Actors.z[id])) return false;
   setPlan(plan, safeCircle.x, Actors.y[id], safeCircle.z, safeCircle.radius * 0.5, ACTION.MOVE, -1);
   plan.score = 1;
   return true;
+}
+
+// A spot inside the safe area (with its margin), or anywhere while there is none; fills safeCircle.
+function insideSafeArea(x, z) {
+  if (Modes.hud.zoneRadius <= 0) return true;
+  safeCircleNow(safeCircle);
+  return length2(x - safeCircle.x, z - safeCircle.z) <= safeCircle.radius * SAFE_AREA_MARGIN;
+}
+
+// M20 squads (Modes.squads, 13g): with a squadmate out and a beacon use left, every standing member goes to hold Use at
+// the squad's beacon (unless the ring has left it outside: the ring wins); else it stays near the squad leader.
+function planSquad(id, plan) {
+  const squads = Modes.squads, squad = Actors.team[id];
+  if (squad < 0 || squad >= squads.count || isDowned(id)) return false;
+  if (squads.dead[squad] === 0 || squads.beaconUses[squad] === 0 || !insideSafeArea(squads.beaconX[squad], squads.beaconZ[squad])) return followSquad(id, squad, plan);
+  setPlan(plan, squads.beaconX[squad], squads.beaconY[squad], squads.beaconZ[squad], GOAL_TOUCH_RADIUS, ACTION.USE, -1);
+  plan.score = BEACON_URGENCY;
+  return true;
+}
+
+// Farther than SQUAD_KEEP m from the leader: back to it, more urgently the farther it is. Any objective plan scores
+// OBJECTIVE_BASE or more and so beats every chase: a bot with a target leaves its fight only past SQUAD_FIGHT_KEEP m.
+function followSquad(id, squad, plan) {
+  const leader = squadLeader(squad);
+  if (leader < 0 || leader === id) return false;
+  const distance = length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]);
+  if (distance <= (BotCombat.target[id] >= 0 ? SQUAD_FIGHT_KEEP : SQUAD_KEEP)) return false;
+  setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], SQUAD_KEEP * SPREAD_FRACTION, ACTION.MOVE, -1);
+  plan.score = SQUAD_FOLLOW_URGENCY * Math.min(1, (distance - SQUAD_KEEP) / SQUAD_KEEP);
+  return true;
+}
+
+// The player when standing in the squad, else its lowest standing id; -1 = nobody standing.
+function squadLeader(squad) {
+  const player = Game.playerId;
+  if (player >= 0 && Actors.team[player] === squad && Actors.alive[player] && !isDowned(player)) return player;
+  for (let id = 0; id < Actors.count; id++) {
+    if (Actors.team[id] === squad && Actors.alive[id] && !isDowned(id) && Modes.isActive(id)) return id;
+  }
+  return -1;
 }
 
 function safeCircleNow(out) {

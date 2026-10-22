@@ -542,6 +542,190 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// HP-005 floor surfaces (12h): a wet patch + Shock stuns everyone standing in it, A29 aimed at the patch floor too, and a
+// thawed Freeze leaves a wet patch.
+function surfaceSlots(key) {
+  const row = CAT.surfaces.byId(key), slots = [];
+  for (let slot = 0; slot < SURFACE_CAP; slot++) if (FloorSurfaces.active[slot] && FloorSurfaces.row[slot] === row.index) slots.push(slot);
+  return slots;
+}
+function aimAtFloor(id, x, z) {
+  const dx = x - Actors.x[id], dz = z - Actors.z[id];
+  Actors.yaw[id] = Actors.aimYaw[id] = Math.atan2(dx, dz);
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(-Actors.eyeY(id), length2(dx, dz));
+}
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start(), 'arcbolt');
+  const refill = () => { Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0; };
+  TestArena.place(t.ally, -1, ENEMY_DISTANCE);   // beside the target: the chain never picks an ally
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  const dryAlly = Damage.hasStatus(t.ally, 'shock');
+  for (const id of [t.enemy, t.second, t.ally]) Damage.clearAllStatuses(id);
+  FloorSurfaces.spill(CAT.surfaces.byId('wet'), -1, 0, 1, ENEMY_DISTANCE);
+  refill();
+  AbilityTest.cast(t);
+  check('A29 on dry floor: the ally beside the target is not shocked', !dryAlly);
+  check('wet floor + Shock: everyone standing in the patch is stunned, the caster on dry floor is not (HP-005)',
+    Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  Damage.clearAllStatuses(t.ally);
+  AbilityTest.clearPath(t);
+  refill();
+  aimAtFloor(t.caster, 0, ENEMY_DISTANCE + 1.5);
+  const floorCast = AbilityTest.cast(t);
+  check('A29 aimed at the wet floor with no enemy in the cone shocks everyone in the patch', floorCast && Damage.hasStatus(t.ally, 'shock'), floorCast);
+  refill();
+  aimAtFloor(t.caster, 0, -ENEMY_DISTANCE);
+  check('A29 aimed at dry floor with no enemy is refused (nothing paid)', !AbilityTest.cast(t) && Meters.energy[t.caster] === Meters.energyMax());
+  FloorSurfaces.clear();
+  TestArena.place(t.enemy, 0, ENEMY_DISTANCE);
+  Damage.clearAllStatuses(t.enemy);
+  Damage.addStatus(t.enemy, 'freeze', t.caster);
+  Damage.addStatus(t.enemy, 'burn', t.caster);
+  const puddle = surfaceSlots('wet');
+  check('Burn thawing a Freeze leaves a wet patch under the target', puddle.length === 1 && FloorSurfaces.stands(puddle[0], t.enemy), puddle.length);
+  TestArena.finish();
+  check('a world load or clear removes every patch', surfaceSlots('wet').length === 0);
+});
+
+// HP-005 oil: an oil drum prop spills a slick; Burn on someone in it (A30) lights a 6 s fire area that burns whoever stands
+// in it and lights touching oil; a thermal explosion over oil lights it, a kinetic one does not.
+Test.add('abilities', (check) => {
+  const badRows = CAT.surfaces.filter((row) => [row.spreads, row.igniteStatus, row.status].some((key) => key && !CAT.statusEffects.byId(key))
+    || (row.becomes && !CAT.surfaces.byId(row.becomes)) || (row.spillFrom && !CAT.materials.byId(row.spillFrom)) || (row.fx && !CAT.fxKinds.byId(row.fx))
+    || !CAT.elements.byId(row.element) || (row.igniteElement && !CAT.elements.byId(row.igniteElement)));
+  check('surface rows name real statuses, surfaces, materials, elements and fx kinds', badRows.length === 0, badRows.map((row) => row.id).join());
+  const t = AbilityTest.give(AbilityTest.start(), 'ignite');
+  Props.load({ props: [{ min: [-0.4, 0, 2.6], max: [0.4, 1.2, 3.4], health: 10, material: 'oil' }, { min: [3, 0, 3], max: [4, 1, 4], health: 10, material: 'wood' }] });
+  Props.damage(1, 50, t.caster);
+  check('a wooden prop spills nothing', surfaceSlots('oil').length === 0);
+  Props.damage(0, 50, t.caster);
+  const slick = surfaceSlots('oil');
+  check('a broken oil drum spills an oil slick on the floor under it', slick.length === 1 && Test.near(FloorSurfaces.y[slick[0]], 0, 1e-3) && Test.near(FloorSurfaces.z[slick[0]], 3, 1e-3), slick.length);
+  const fireRow = CAT.surfaces.byId('fire');
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 0, 0, 7);   // touches the first slick: it lights with it
+  TestArena.place(t.enemy, 0, 3.5);
+  TestArena.place(t.second, 1, 7);
+  TestArena.place(t.ally, -1, 7);
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  check('A30 Ignite on a target standing in oil lights it: a 6 s fire area (HP-005 oil floor + Burn)',
+    surfaceSlots('oil').length === 0 && surfaceSlots('fire').length === 2 && Test.near(FloorSurfaces.endTick[slick[0]] - Sim.tick, fireRow.seconds * TICK_RATE, 1));
+  runSeconds(0.3);
+  check('burning oil hurts and burns an enemy standing in it, not an ally (friendly fire off)',
+    Damage.hasStatus(t.second, 'burn') && Actors.health[t.second] < Actors.maxHealth[t.second] && !Damage.hasStatus(t.ally, 'burn') && Actors.health[t.ally] === Actors.maxHealth[t.ally]);
+  runSeconds(fireRow.seconds);
+  check('the fire area goes out after its seconds', surfaceSlots('fire').length === 0);
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 10, 0, 10);
+  Bus.emit('explosion', { x: 11, y: 0.3, z: 10, radius: 3, owner: t.caster, source: 'frag', element: 'kinetic' });
+  const afterKinetic = surfaceSlots('oil').length;
+  Bus.emit('explosion', { x: 11, y: 0.3, z: 10, radius: 0, owner: t.caster, source: 'incendiary', element: 'thermal' });
+  check('a thermal explosion over oil lights it, a kinetic one does not', afterKinetic === 1 && surfaceSlots('fire').length === 1, afterKinetic);
+  const burning = surfaceSlots('fire')[0], late = FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 14.5, 0, 10);
+  check('oil spilled later against burning oil lights at once, credited to its igniter',
+    surfaceSlots('oil').length === 0 && FloorSurfaces.rowOf(late).id === 'fire' && FloorSurfaces.owner[late] === t.caster);
+  Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 8, 0.5, 10);   // covers the first patch, not the one 6.5 m away
+  runSeconds(2);
+  check('smoke puts burning oil out, as it does a G04 fire area', !FloorSurfaces.active[burning] && FloorSurfaces.active[late] === 1);
+  FloorSurfaces.clear();
+  FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 20, 0, 20);
+  GadgetAreas.spawn(CAT.gadgets.byId('incendiary'), t.caster, 24, 0.05, 20, 1);   // a Cinder Jar fire area overlapping the slick's edge
+  runSeconds(0.3);
+  check('a G04 fire area lights the oil it overlaps, not only oil its pop lands on', surfaceSlots('oil').length === 0 && surfaceSlots('fire').length === 1);
+  TestArena.finish();
+});
+
+// HP-005 in real play: every spill row has a prop of its material on a shipped map (oil drums, a water tank), and the
+// map editor accepts such props.
+Test.add('abilities', (check) => {
+  const propMaterials = new Set(CAT.maps.flatMap((map) => map.props.map((prop) => prop.material)));
+  const missing = CAT.surfaces.filter((row) => row.spillFrom && !propMaterials.has(row.spillFrom));
+  check('every spill row has a prop of its material on a shipped map', missing.length === 0, missing.map((row) => row.id).join());
+  check('the map editor accepts an oil drum prop with its colour', mapEditPropIs(Object.assign({ min: [0, 0, 0], max: [1, 1, 1] }, MAP_OIL_DRUM)));
+});
+
+// A23 Puppet Jump: the caster's input drives the puppet (move, look; FIRE starts its attack) while the caster's body stands
+// still, the camera rides the puppet's eyes, and a hit on the caster or the puppet's death ends it.
+Test.add('abilities', (check) => {
+  startPveTest({ player: { team: 0 } });
+  const player = Game.playerId, row = CAT.abilities.byId('puppet'), camera = {}, style = { visible: true };
+  Modes.endProtection(player);
+  TestArena.place(player, 3, 0);
+  const puppet = Pve.spawnEnemy('husk', 3, 0, 6, Math.PI), enemyTeam = Actors.team[puppet];
+  TestArena.aimAt(player, puppet);
+  Abilities.setSlot(player, SLOT.ABILITY1, row);
+  const cast = Abilities.effects.possess.cast(player, row, SLOT.ABILITY1);
+  Abilities.begin(player, SLOT.ABILITY1, row);
+  check('A23 the caster takes the fodder enemy', cast && PuppetState.puppet[player] === puppet && PuppetState.master[puppet] === player && Actors.team[puppet] === Actors.team[player]);
+  const castAim = Actors.aimYaw[player];
+  PuppetState.aimYaw[player] = castAim + 1;   // a stale copy: linked after this tick's drive, nothing was taken yet
+  PuppetState.restore();
+  check('A23 on the cast tick the caster keeps its own input (no stale copy handed back)', Actors.aimYaw[player] === castAim);
+  Sim.step();
+  Actors.moveX[player] = 0; Actors.moveZ[player] = 1; Actors.aimYaw[player] = 0; Actors.aimPitch[player] = 0; Actors.buttons[player] = 0;
+  const casterX = Actors.x[player], casterZ = Actors.z[player], puppetZ = Actors.z[puppet];
+  Sim.run(TICK_RATE / 2);
+  check('A23 the caster\'s input walks and turns the puppet', Actors.z[puppet] - puppetZ > 1 && Math.abs(wrapAngle(Actors.yaw[puppet])) < 0.05, Actors.z[puppet] - puppetZ);
+  check('A23 the caster\'s body stands still and keeps its input for the next step', length2(Actors.x[player] - casterX, Actors.z[player] - casterZ) < 0.05 && Actors.moveZ[player] === 1);
+  check('A23 the camera rides the puppet\'s eyes and the puppet is hidden from its driver', (Render.view.alpha = 1, Render.cameraOverride(camera) === true)
+    && Test.near(camera.z, Actors.z[puppet], 1e-6) && Test.near(camera.y, Actors.eyeY(puppet), 1e-6) && (abilityStyle(puppet, style), style.visible === false));
+  const drawn = meshRecorder();
+  Pve.draw(drawn);
+  check('A23 the PvE draw skips the enemy its player drives (the camera is inside it)', drawn.meshes.length === 0, drawn.meshes.length);
+  Render.view.alpha = 0.5;
+  Render.cameraOverride(camera);
+  Render.view.alpha = 1;
+  check('A23 the puppet camera is interpolated between sim steps like followPlayer', Actors.z[puppet] > Actors.prevZ[puppet]
+    && Test.near(camera.z, (Actors.prevZ[puppet] + Actors.z[puppet]) / 2, 1e-6), camera.z + ' ' + Actors.prevZ[puppet] + ' ' + Actors.z[puppet]);
+  Actors.moveZ[player] = 0;
+  const victim = Pve.spawnEnemy('husk', Actors.x[puppet], 0, Actors.z[puppet] + 1.2, Math.PI);
+  Actors.buttons[player] = BTN.FIRE; Sim.run(2); Actors.buttons[player] = 0;
+  check('A23 FIRE starts the puppet\'s attack on the foe under its crosshair', Pve.phase[puppet] !== ATTACK_PHASE.IDLE && Pve.attackTarget[puppet] === victim, Pve.phase[puppet] + ' ' + Pve.attackTarget[puppet]);
+  Actors.moveZ[player] = 1; Actors.buttons[player] = BTN.FIRE;
+  PuppetState.drive();   // 'puppet' already ran this step when the hit lands (projectiles: order 50)
+  TestArena.hit(victim, player, 5);
+  check('A23 a hit on the caster frees the puppet and gives the camera back', PuppetState.puppet[player] === -1 && PuppetState.master[puppet] === -1
+    && Actors.team[puppet] === enemyTeam && !Abilities.active[Abilities.index(player, SLOT.ABILITY1)] && Render.cameraOverride(camera) === false);
+  check('A23 control ending after the drive in the same step gives the caster its held input back at once', Actors.moveZ[player] === 1 && Actors.buttons[player] === BTN.FIRE,
+    Actors.moveZ[player] + ' ' + Actors.buttons[player]);
+  Actors.moveZ[player] = 0; Actors.buttons[player] = 0;
+  TestArena.place(victim, 30, 30);
+  TestArena.aimAt(player, puppet);
+  const recast = Abilities.effects.possess.cast(player, row, SLOT.ABILITY1);
+  Abilities.begin(player, SLOT.ABILITY1, row);
+  killEnemy(puppet, player);
+  Sim.run(3);   // the zone goes on its second step, the ability slot one step later
+  check('A23 the puppet\'s death ends the control', PuppetState.puppet[player] === -1 && PuppetState.count === 0 && !Abilities.active[Abilities.index(player, SLOT.ABILITY1)],
+    recast + ' ' + PuppetState.puppet[player]);
+  Game.stop();
+  World.clear();
+});
+
+// A23 from a co-op bot (X46 Powers for All): a plain team swap, the puppet's own brain fights for the bot and the bot keeps its input.
+Test.add('abilities', (check) => {
+  startPveTest({ player: { team: 0 }, bots: [{ team: 0 }] });
+  let bot = -1;
+  for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.BOT) bot = id;
+  const row = CAT.abilities.byId('puppet');
+  TestArena.place(Game.playerId, -20, 0);
+  TestArena.place(bot, 3, 0);
+  const puppet = Pve.spawnEnemy('husk', 3, 0, 6, Math.PI);
+  TestArena.aimAt(bot, puppet);
+  Abilities.setSlot(bot, SLOT.ABILITY1, row);
+  const cast = Abilities.effects.possess.cast(bot, row, SLOT.ABILITY1);
+  Abilities.begin(bot, SLOT.ABILITY1, row);
+  Sim.step();
+  Actors.moveZ[bot] = 1;
+  PuppetState.drive();
+  check('A23 a bot caster: the puppet joins its side but the bot drives nothing and keeps its own input', bot >= 0 && cast
+    && Actors.team[puppet] === Actors.team[bot] && PuppetState.puppet[bot] === -1 && PuppetState.master[puppet] === -1 && PuppetState.count === 0 && Actors.moveZ[bot] === 1,
+    cast + ' ' + PuppetState.puppet[bot] + ' ' + Actors.moveZ[bot]);
+  Sim.run(3);
+  check('A23 a bot caster: the ability runs on (its step hook does not end an unlinked cast)', !!Abilities.active[Abilities.index(bot, SLOT.ABILITY1)]);
+  Game.stop();
+  World.clear();
+});
+
 // A32 panics fodder (ability.panic -> S14 PvE broken morale); A03 throws the enemy in front on a melee swing.
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({ family: 'pve' }), 'swarm');
@@ -563,5 +747,21 @@ Test.add('abilities', (check) => {
   Bus.off('impulse', onImpulse);
   const params = t.row.params;
   check('A03 a melee swing throws the enemy in front along the view', thrown && Test.near(thrown.z, params.throwSpeed, 1e-4) && Test.near(thrown.y, params.throwLift, 1e-4), JSON.stringify(thrown));
+  TestArena.finish();
+});
+
+// A03 with no enemy in reach: the breakable prop in front is thrown along the view with the W41 Lifter's impact damage.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'colossusweave');
+  World.load({ id: 'a03-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }], props: [{ min: [-0.4, 1.2, 1], max: [0.4, 2, 1.8], mass: 20, health: 50 }] });
+  AbilityTest.clearPath(t);
+  AbilityTest.cast(t);
+  Sim.run(1);
+  Actors.yaw[t.caster] = Actors.aimYaw[t.caster] = 0; Actors.pitch[t.caster] = Actors.aimPitch[t.caster] = 0;
+  Bus.emit('weapon.fire', { id: t.caster, weapon: 'maul', weaponClass: 'melee', mode: 'melee', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  let body = -1;
+  for (let i = 0; i < BODY_CAPACITY; i++) if (Bodies.active[i] && Bodies.kind[i] === BODY_KIND.THROWN && Bodies.owner[i] === t.caster) body = i;
+  check('A03 a melee swing throws the prop in front along the view', body >= 0 && !Props.isStanding(0) && Test.near(Bodies.vz[body], t.row.params.throwSpeed, 1e-3)
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
   TestArena.finish();
 });
