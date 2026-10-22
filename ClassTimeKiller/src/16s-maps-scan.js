@@ -57,7 +57,7 @@ const MapScan = {
 
   build(map) {
     const scan = this.makeShell(map);
-    this.fillBuckets(scan);
+    this.findOutside(scan);
     this.scanColumns(scan, map);
     this.linkTriggers(scan, map);
     this.buildAdjacency(scan);
@@ -68,53 +68,36 @@ const MapScan = {
     const brushes = map.brushes.map((source) => makeBrush(source));
     const coarse = map.size[0] >= MAP_COARSE_SIZE || map.size[2] >= MAP_COARSE_SIZE, cell = coarse ? MAP_CELL_COARSE : MAP_CELL;
     const cols = Math.ceil(map.size[0] / cell), rows = Math.ceil(map.size[2] / cell);
-    const bucketsX = Math.ceil(map.size[0] / MAP_BUCKET), bucketsZ = Math.ceil(map.size[2] / MAP_BUCKET);
     const need = Math.max(MAP_HALF_DOOR - cell / 2, MAP_BODY_REACH);     // the body may stand half a cell off the cell centre
+    const originX = -map.size[0] / 2, originZ = -map.size[2] / 2;
     return {
-      map, brushes, cell, cols, rows, originX: -map.size[0] / 2, originZ: -map.size[2] / 2, bucketsX, bucketsZ, need, wallReach: MAP_DOOR_WIDTH - need,
-      buckets: Array.from({ length: bucketsX * bucketsZ }, () => []), stamp: new Int32Array(brushes.length), stampId: 0,
+      map, brushes, cell, cols, rows, originX, originZ, need, wallReach: MAP_DOOR_WIDTH - need,
+      grid: BrushGrid.build({}, brushes, MAP_BUCKET, originX, originZ, originX + map.size[0], originZ + map.size[2]),
       near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32), gaps: new Float64Array(4), steps: new Int32Array(4), flight: { rise: 0, time: 0 },
       outside: [], ray: { ox: 0, oy: 0, oz: 0, dx: 0, dz: 0, limit: 0, best: Infinity, hit: null },
-      walk: { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nextJ: 0, deltaI: 0, deltaJ: 0 },
+      walk: makeGridWalk(),
       edgeCosts: Float64Array.of(cell, cell * Math.SQRT2, MAP_LINK_COSTS[MAP_EDGE.pad], MAP_LINK_COSTS[MAP_EDGE.teleporter], MAP_LINK_COSTS[MAP_EDGE.ladder]),
       nodeColumn: null, nodeY: null, nodeCount: 0, columnStart: null, links: [], pads: [], teleporters: [], ladders: [],
       forward: null, backward: null, hazardNodes: 0,
     };
   },
 
-  // Bucket index of a coordinate on one axis, clamped to the grid (runs for every scanned cell: no arrays).
-  bucketIndex(value, origin, count) { return Math.max(0, Math.min(count - 1, Math.floor((value - origin) / MAP_BUCKET))); },
-
   // Brushes reaching past the bucket grid are also listed in scan.outside: a ray that leaves the grid still meets them.
-  fillBuckets(scan) {
-    scan.brushes.forEach((brush, index) => this.addToBuckets(scan, brush, index));
+  findOutside(scan) {
     scan.outside = scan.brushes.map((brush, index) => index).filter((index) => this.pastGrid(scan, scan.brushes[index]));
   },
   pastGrid(scan, brush) {
-    const right = scan.originX + scan.bucketsX * MAP_BUCKET, far = scan.originZ + scan.bucketsZ * MAP_BUCKET;
+    const right = scan.originX + scan.grid.cellsX * MAP_BUCKET, far = scan.originZ + scan.grid.cellsZ * MAP_BUCKET;
     return brush.minX < scan.originX || brush.minZ < scan.originZ || brush.maxX > right || brush.maxZ > far;
-  },
-  addToBuckets(scan, brush, index) {
-    const i0 = this.bucketIndex(brush.minX, scan.originX, scan.bucketsX), i1 = this.bucketIndex(brush.maxX, scan.originX, scan.bucketsX);
-    const j0 = this.bucketIndex(brush.minZ, scan.originZ, scan.bucketsZ), j1 = this.bucketIndex(brush.maxZ, scan.originZ, scan.bucketsZ);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) scan.buckets[j * scan.bucketsX + i].push(index);
   },
 
   // Fills scan.near with the indices of brushes whose footprint, grown by radius, contains (x, z); returns the count.
   collect(scan, x, z, radius) {
-    scan.stampId++;
-    const i0 = this.bucketIndex(x - radius, scan.originX, scan.bucketsX), i1 = this.bucketIndex(x + radius, scan.originX, scan.bucketsX);
-    const j0 = this.bucketIndex(z - radius, scan.originZ, scan.bucketsZ), j1 = this.bucketIndex(z + radius, scan.originZ, scan.bucketsZ);
+    const found = BrushGrid.query(scan.grid, x - radius, z - radius, x + radius, z + radius);
     let count = 0;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) count = this.addBucket(scan, scan.buckets[j * scan.bucketsX + i], x, z, radius, count);
-    return count;
-  },
-  addBucket(scan, bucket, x, z, radius, count) {
-    for (let k = 0; k < bucket.length; k++) {
-      const id = bucket[k];
-      if (scan.stamp[id] === scan.stampId) continue;
-      scan.stamp[id] = scan.stampId;
-      if (mapInsideRect(scan.brushes[id], x, z, radius) && count < MAP_MAX_BRUSH_HITS) scan.near[count++] = id;
+    for (let k = 0; k < found && count < MAP_MAX_BRUSH_HITS; k++) {
+      const id = scan.grid.found[k];
+      if (mapInsideRect(scan.brushes[id], x, z, radius)) scan.near[count++] = id;
     }
     return count;
   },
@@ -494,39 +477,22 @@ const MapScan = {
   // The ray walks the brush buckets front to back and stops at the first bucket that begins beyond its nearest hit, so it tests only
   // the brushes along its way; the brushes past the grid are tested when it leaves the grid.
   rayLength(scan, ox, oy, oz, dx, dz, maxDistance, hit) {
-    const ray = scan.ray;
+    const ray = scan.ray, grid = scan.grid;
     ray.ox = ox; ray.oy = oy; ray.oz = oz; ray.dx = dx; ray.dz = dz; ray.limit = maxDistance; ray.best = Infinity; ray.hit = hit;
-    scan.stampId++;
-    if (!this.startWalk(scan, ray)) return this.rayAll(scan, ray);
-    const walk = scan.walk;
-    for (;;) {
-      this.rayList(scan, ray, scan.buckets[walk.j * scan.bucketsX + walk.i]);
+    BrushGrid.beginPass(grid);
+    const walk = BrushGrid.startWalk(grid, scan.walk, ox, oz, dx, dz);
+    if (BrushGrid.walkCell(grid, walk) < 0) return this.rayAll(scan, ray);   // starts outside the grid
+    for (let cell = BrushGrid.walkCell(grid, walk); cell >= 0; cell = BrushGrid.walkCell(grid, walk)) {
+      this.rayCell(scan, ray, cell);
       if (Math.min(walk.nextI, walk.nextJ) > Math.min(ray.best, maxDistance)) return ray.best;
-      if (!this.stepWalk(scan, walk)) break;
+      BrushGrid.stepWalk(walk);
     }
     this.rayList(scan, ray, scan.outside);
     return ray.best;
   },
-  // Grid traversal state of the ray (scan.walk): the bucket it starts in, the step per axis and the distance to the next bucket
-  // border on each axis. False when the ray starts outside the grid.
-  startWalk(scan, ray) {
-    const walk = scan.walk;
-    walk.i = Math.floor((ray.ox - scan.originX) / MAP_BUCKET);
-    walk.j = Math.floor((ray.oz - scan.originZ) / MAP_BUCKET);
-    if (walk.i < 0 || walk.j < 0 || walk.i >= scan.bucketsX || walk.j >= scan.bucketsZ) return false;
-    walk.stepI = ray.dx > 0 ? 1 : -1;
-    walk.stepJ = ray.dz > 0 ? 1 : -1;
-    walk.deltaI = ray.dx !== 0 ? MAP_BUCKET / Math.abs(ray.dx) : Infinity;
-    walk.deltaJ = ray.dz !== 0 ? MAP_BUCKET / Math.abs(ray.dz) : Infinity;
-    walk.nextI = ray.dx !== 0 ? (scan.originX + (walk.i + (ray.dx > 0 ? 1 : 0)) * MAP_BUCKET - ray.ox) / ray.dx : Infinity;
-    walk.nextJ = ray.dz !== 0 ? (scan.originZ + (walk.j + (ray.dz > 0 ? 1 : 0)) * MAP_BUCKET - ray.oz) / ray.dz : Infinity;
-    return true;
-  },
-  // Into the next bucket along the ray; false once it leaves the grid.
-  stepWalk(scan, walk) {
-    if (walk.nextI < walk.nextJ) { walk.i += walk.stepI; walk.nextI += walk.deltaI; }
-    else { walk.j += walk.stepJ; walk.nextJ += walk.deltaJ; }
-    return walk.i >= 0 && walk.j >= 0 && walk.i < scan.bucketsX && walk.j < scan.bucketsZ;
+  rayCell(scan, ray, cell) {
+    const grid = scan.grid;
+    for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) this.rayTest(scan, ray, grid.cellItems[k]);
   },
   rayList(scan, ray, list) { for (let k = 0; k < list.length; k++) this.rayTest(scan, ray, list[k]); },
   rayAll(scan, ray) {
@@ -535,8 +501,7 @@ const MapScan = {
   },
   // One brush against the ray (once per ray: brushes span several buckets); a nearer hit shortens the ray.
   rayTest(scan, ray, id) {
-    if (scan.stamp[id] === scan.stampId) return;
-    scan.stamp[id] = scan.stampId;
+    if (!BrushGrid.firstVisit(scan.grid, id)) return;
     const brush = scan.brushes[id];
     if (brush.material !== 'glass' && rayBrush(ray.ox, ray.oy, ray.oz, ray.dx, 0, ray.dz, Math.min(ray.best, ray.limit), brush, ray.hit)) ray.best = ray.hit.distance;
   },

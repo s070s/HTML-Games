@@ -133,3 +133,21 @@ Test.add('core', (check) => {
   check('world: line of sight', World.lineClear(-5, 1, 0, -5, 3, 0) && !World.lineClear(0, 1, 0, 0, -2, 0));
   World.clear();
 });
+
+Test.add('core', (check) => {
+  // Two boxes; the wide one spans four 4 m cells, so a query over all of them must list it once.
+  const boxes = [{ minX: 0, minZ: 0, maxX: 7, maxZ: 7 }, { minX: 9, minZ: 9, maxX: 11, maxZ: 11 }];
+  const grid = BrushGrid.build({}, boxes, 4, 0, 0, 12, 12);
+  check('grid: 3 x 3 cells over a 12 m square of 4 m cells', grid.cellsX === 3 && grid.cellsZ === 3, grid.cellsX + 'x' + grid.cellsZ);
+  const count = BrushGrid.query(grid, 0, 0, 12, 12);
+  check('grid: a query lists each overlapping box once', count === 2 && grid.found[0] === 0 && grid.found[1] === 1, Array.from(grid.found.slice(0, count)).join());
+  check('grid: a query only reaches the cells it overlaps', BrushGrid.query(grid, 9, 9, 10, 10) === 1 && grid.found[0] === 1);
+  check('grid: a point past the edge reads the nearest edge cell', BrushGrid.cellAt(grid, -50, -50) === 0 && BrushGrid.cellAt(grid, 50, 50) === 8);
+  const walk = BrushGrid.startWalk(grid, makeGridWalk(), 1, 1, 1, 0), cells = [];
+  for (let cell = BrushGrid.walkCell(grid, walk); cell >= 0; cell = BrushGrid.walkCell(grid, walk)) { cells.push(cell); BrushGrid.stepWalk(walk); }
+  check('grid: a ray walk crosses the cells in order and ends outside the grid', cells.join() === '0,1,2' && BrushGrid.walkCell(grid, walk) === -1, cells.join());
+  BrushGrid.beginPass(grid);
+  check('grid: a pass counts a box once', BrushGrid.firstVisit(grid, 0) && !BrushGrid.firstVisit(grid, 0));
+  check('grid: nav, map scan and render bake keep no lookup grid of their own', typeof navForCells === 'undefined' && typeof gridKey === 'undefined'
+    && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
+});

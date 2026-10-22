@@ -106,7 +106,7 @@ A map that is missing a list (`brushes spawns items objectives zones triggers li
 It works on a grid of standing surfaces (`MapScan`; 0.5 m cells, 1 m on maps 200 m or longer): a cell fits when the walls leave room for the capsule (0.42 m on each side) and 1.4 m in total on each axis, so a 1.4 m doorway passes at any offset on the
 grid and a 1.2 m one never does; 2.4 m of height above the feet; steps up to 0.45 m, walk-off drops up to 6 m, plus pad / teleporter / ladder links. Every spawn, item, objective and hint must lie in one strongly connected region, so nothing is cut
 off or a one-way trap. It needs no movement code and does not touch `World`. Cost (scan plus checks): about 20 to 80 ms per map and 0.2 s for the 300 m island on a desktop i5. Horizontal rays
-(`MapScan.rayLength`) walk the 4 m brush buckets front to back and stop at the first bucket past the nearest hit; path searches use a typed-array heap. Memory: edges are packed typed arrays (an Int32 target and a Uint8 kind per edge); only the latest
+(`MapScan.rayLength`) walk the 4 m brush buckets (the shared `BrushGrid` of S01) front to back and stop at the first bucket past the nearest hit; path searches use a typed-array heap. Memory: edges are packed typed arrays (an Int32 target and a Uint8 kind per edge); only the latest
 scan is kept (`MapScan.of(map)`) and `Maps.validate` releases it when it ends (`MapScan.release()`).
 Dependencies on S08: `makeBrush`, `rayHitsBox`, `rayVersusBrush`, `pointInBrush`, `makeHit` must stay top-level functions with their present signatures (the test group `maps` cross-checks the scan against `World.raycast`).
 

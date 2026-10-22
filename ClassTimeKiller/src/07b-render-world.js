@@ -160,22 +160,15 @@ function cutFace(polygon, nx, ny, nz, cell, emit) {
   }
 }
 
-// ---- Bake-time brush lookup grid (XZ cells -> brush indices) ----
-const GRID_KEY_OFFSET = 32768;           // numeric cell keys (no strings in the bake loops)
-const gridKey = (gx, gz) => (gx + GRID_KEY_OFFSET) * 65536 + gz + GRID_KEY_OFFSET;
-
+// ---- Bake-time brush lookup grid: a BrushGrid (01-core) over the brushes' xz bounds ----
 function makeBrushGrid(brushes) {
-  const grid = new Map();
-  brushes.forEach((brush, index) => {
-    for (let gx = Math.floor(brush.minX / BRUSH_GRID_METERS); gx <= Math.floor(brush.maxX / BRUSH_GRID_METERS); gx++) {
-      for (let gz = Math.floor(brush.minZ / BRUSH_GRID_METERS); gz <= Math.floor(brush.maxZ / BRUSH_GRID_METERS); gz++) {
-        const key = gridKey(gx, gz);
-        if (!grid.has(key)) grid.set(key, []);
-        grid.get(key).push(index);
-      }
-    }
-  });
-  return grid;
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const brush of brushes) {
+    minX = Math.min(minX, brush.minX); minZ = Math.min(minZ, brush.minZ);
+    maxX = Math.max(maxX, brush.maxX); maxZ = Math.max(maxZ, brush.maxZ);
+  }
+  if (!brushes.length) { minX = minZ = maxX = maxZ = 0; }
+  return BrushGrid.build({}, brushes, BRUSH_GRID_METERS, minX, minZ, maxX, maxZ);
 }
 
 function insideBrush(brush, x, y, z) {
@@ -186,9 +179,11 @@ function insideBrush(brush, x, y, z) {
 
 // Index of a brush (other than `skip`) containing the point, or -1.
 function brushAt(bake, x, y, z, skip) {
-  const list = bake.grid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS)));
-  if (!list) return -1;
-  for (const index of list) if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  const grid = bake.grid, cell = BrushGrid.cellAt(grid, x, z);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  }
   return -1;
 }
 
@@ -197,24 +192,17 @@ function brushAt(bake, x, y, z, skip) {
 function overlappingBrushes(bake, polygon, brushIndex) {
   const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
   for (let i = 0; i < polygon.length; i += 3) growBounds(bounds, polygon[i], polygon[i + 1], polygon[i + 2]);
-  const found = [];
-  bake.stamp++;
-  for (let gx = Math.floor(bounds.minX / BRUSH_GRID_METERS); gx <= Math.floor(bounds.maxX / BRUSH_GRID_METERS); gx++) {
-    for (let gz = Math.floor(bounds.minZ / BRUSH_GRID_METERS); gz <= Math.floor(bounds.maxZ / BRUSH_GRID_METERS); gz++) collectOverlaps(bake, gx, gz, brushIndex, bounds, found);
+  const grid = bake.grid, count = BrushGrid.query(grid, bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ), found = [];
+  for (let k = 0; k < count; k++) {
+    const index = grid.found[k];
+    if (index !== brushIndex && boundsTouch(bake.brushes[index], bounds, COPLANAR_METERS)) found.push(index);
   }
   return found.sort((a, b) => a - b);
 }
 
-function collectOverlaps(bake, gx, gz, brushIndex, bounds, found) {
-  const margin = COPLANAR_METERS;
-  for (const index of bake.grid.get(gridKey(gx, gz)) || []) {
-    if (index === brushIndex || bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
-    const brush = bake.brushes[index];
-    const apart = brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
-      || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin;
-    if (!apart) found.push(index);
-  }
+function boundsTouch(brush, bounds, margin) {
+  return !(brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
+    || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin);
 }
 
 // The planes of `other` that are parallel to the face decide alone whether the face's plane passes through it.
@@ -273,49 +261,29 @@ function rayEntersBrush(brush, ox, oy, oz, dx, dy, dz, maxDistance) {
   return enter <= exit ? enter : -1;
 }
 
-// 2D grid walk over the brush grid cells a ray crosses (Amanatides-Woo), one reused state object.
-const gridWalk = { cellX: 0, cellZ: 0, stepX: 0, stepZ: 0, nextX: 0, nextZ: 0, deltaX: 0, deltaZ: 0 };
-function startGridWalk(ox, oz, dx, dz) {
-  const walk = gridWalk, size = BRUSH_GRID_METERS;
-  walk.cellX = Math.floor(ox / size); walk.cellZ = Math.floor(oz / size);
-  walk.stepX = dx > 0 ? 1 : -1; walk.stepZ = dz > 0 ? 1 : -1;
-  walk.deltaX = Math.abs(dx) > 1e-9 ? size / Math.abs(dx) : Infinity;
-  walk.deltaZ = Math.abs(dz) > 1e-9 ? size / Math.abs(dz) : Infinity;
-  walk.nextX = Math.abs(dx) > 1e-9 ? ((walk.cellX + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
-  walk.nextZ = Math.abs(dz) > 1e-9 ? ((walk.cellZ + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
-  return walk;
-}
+// One reused walk record for the bake's ray walks (BrushGrid.startWalk).
+const bakeGridWalk = makeGridWalk();
 
-// Moves to the next cell; returns the ray distance at which the walk entered it.
-function advanceGridWalk(walk) {
-  if (walk.nextX < walk.nextZ) {
-    walk.cellX += walk.stepX; walk.nextX += walk.deltaX;
-    return walk.nextX - walk.deltaX;
-  }
-  walk.cellZ += walk.stepZ; walk.nextZ += walk.deltaZ;
-  return walk.nextZ - walk.deltaZ;
-}
-
-function cellBlocksRay(bake, cellX, cellZ, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const list = bake.grid.get(gridKey(cellX, cellZ));
-  if (!list) return false;
-  for (let i = 0; i < list.length; i++) {
-    const index = list[i];
-    if (bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
+function cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const grid = bake.grid;
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (!BrushGrid.firstVisit(grid, index)) continue;
     if (rayEntersBrush(bake.brushes[index], ox, oy, oz, dx, dy, dz, maxDistance) >= 0) return true;
   }
   return false;
 }
 
 // True when a brush lies on the ray (unit direction) within maxDistance; stops once the ray leaves the world's height.
+// Cells outside the grid hold no brush (the grid spans every brush), so the walk only skips them.
 function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const walk = startGridWalk(ox, oz, dx, dz);
-  bake.stamp++;
+  const grid = bake.grid, walk = BrushGrid.startWalk(grid, bakeGridWalk, ox, oz, dx, dz);
+  BrushGrid.beginPass(grid);
   let travelled = 0;
   while (travelled <= maxDistance) {
-    if (cellBlocksRay(bake, walk.cellX, walk.cellZ, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
-    travelled = advanceGridWalk(walk);
+    const cell = BrushGrid.walkCell(grid, walk);
+    if (cell >= 0 && cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
+    travelled = BrushGrid.stepWalk(walk);
     const height = oy + dy * travelled;
     if ((dy > 0 && height > bake.topY) || (dy < 0 && height < bake.bottomY)) return false;
   }
@@ -324,11 +292,12 @@ function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
 
 // Height of the first brush surface straight below (x, y, z) within maxDrop, or -Infinity (allocation-free, per frame).
 function groundBelow(x, y, z, maxDrop) {
-  const list = WorldMesh.brushGrid ? WorldMesh.brushGrid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS))) : null;
-  if (!list) return -Infinity;
+  const grid = WorldMesh.brushGrid;
+  if (!grid) return -Infinity;
+  const cell = BrushGrid.cellAt(grid, x, z);
   let nearest = Infinity;
-  for (let i = 0; i < list.length; i++) {
-    const distance = rayEntersBrush(WorldMesh.brushes[list[i]], x, y, z, 0, -1, 0, maxDrop);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const distance = rayEntersBrush(WorldMesh.brushes[grid.cellItems[k]], x, y, z, 0, -1, 0, maxDrop);
     if (distance >= 0 && distance < nearest) nearest = distance;
   }
   return nearest <= maxDrop ? y - nearest : -Infinity;
@@ -405,12 +374,12 @@ function readMapLights(map) {
   });
 }
 
-// Bake context: theme applied, brush lookup grid (+ visit stamps), world height range, map lights, caches, chunks.
+// Bake context: theme applied, brush lookup grid, world height range, map lights, caches, chunks.
 function makeBake(map, brushes) {
   applyTheme(map.theme);
   let topY = -Infinity, bottomY = Infinity;
   for (const brush of brushes) { topY = Math.max(topY, brush.maxY); bottomY = Math.min(bottomY, brush.minY); }
-  return { brushes, grid: makeBrushGrid(brushes), seen: new Uint32Array(brushes.length), stamp: 0, topY, bottomY,
+  return { brushes, grid: makeBrushGrid(brushes), topY, bottomY,
     lights: matchDarkness() ? [] : readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
 }
 

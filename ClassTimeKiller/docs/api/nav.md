@@ -37,7 +37,7 @@ Later sections may change them before the map loads (for example from the jumpie
    - nothing walks out of a node inside a jump pad or teleporter volume (it launches you); walks may step onto its centre node.
 4. Strongly connected components (same component = reachable both ways), cover points, node lookup grid.
 
-All brush tests use the same plane math as `World.raycast` (`rayVersusBrush`), through a 4 m brush grid.
+All brush tests use the same plane math as `World.raycast` (`rayVersusBrush`), through a 4 m brush grid (the shared `BrushGrid` of S01).
 
 ## Map triggers read by nav
 
