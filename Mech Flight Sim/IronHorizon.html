@@ -542,11 +542,13 @@ const DIFFICULTY = {
 
 /* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraBush bushes per chunk
    drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame;
+   fauna (Fauna): share of each group's animals placed, faunaDraw m within which animals are drawn (simple models past
+   faunaLod), faunaCap animals drawn per frame;
    maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, maxPx: 800000 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, maxPx: 1600000 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, maxPx: 800000 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, maxPx: 1600000 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -558,6 +560,7 @@ const MAPS = {
     sun: [-0.5, 0.72, -0.35], sunCol: [1.12, 1.0, 0.84], skyAmb: [0.5, 0.56, 0.66], gndAmb: [0.34, 0.29, 0.22], tree: [0.36, 0.36, 0.2],
     weather: { weights: { clear: 5, overcast: 2, storm: 1, sandstorm: 2 }, time: 'day' },
     biome: 'arid', flora: { species: { acacia: 3, deadtree: 2, joshua: 1, burnt: 1, shrub: 3, prickly: 1, grass: 4, flowers: 1 }, forest: 0, groves: 0, meadow: 0.25, scrub: 0.35, block: false },
+    fauna: { species: { goat: 3, camel: 2, lizard: 3, fox: 1, boar: 1, vulture: 2, crow: 2, pigeon: 1 }, herds: 8, flocks: 5 },
   },
   verdant: {
     name: 'Verdant Ridge', desc: 'Forested hills with fuel depots in the valleys.', seed: 4.1, hill: 1.25,
@@ -566,6 +569,7 @@ const MAPS = {
     sun: [0.4, 0.75, -0.45], sunCol: [1.05, 1.0, 0.9], skyAmb: [0.5, 0.6, 0.72], gndAmb: [0.22, 0.3, 0.2], tree: [0.14, 0.34, 0.14],
     weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
     biome: 'temperate', flora: { species: { oak: 3, birch: 2, pine: 2, spruce: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, mushrooms: 1 }, forest: 0, groves: 0, meadow: 0.4, scrub: 0.3, block: false },
+    fauna: { species: { deer: 3, elk: 1, boar: 2, wolf: 1, fox: 1, bear: 1, rabbit: 2, horse: 1, crow: 2, eagle: 1, pigeon: 1 }, herds: 10, flocks: 6 },
   },
   frost: {
     name: 'Frost Salient', desc: 'Snow-covered flats under a low winter sun.', seed: 8.3, hill: 0.85,
@@ -574,6 +578,7 @@ const MAPS = {
     sun: [0.7, 0.45, 0.3], sunCol: [1.0, 0.92, 0.85], skyAmb: [0.58, 0.66, 0.8], gndAmb: [0.42, 0.46, 0.56], tree: [0.2, 0.34, 0.26],
     weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 1 }, time: 'day' },
     biome: 'arctic', flora: { species: { snowpine: 4, spruce: 2, deadtree: 1, shrub: 1, moss: 4, grass: 1 }, forest: 0, groves: 0, meadow: 0.3, scrub: 0.2, block: false },
+    fauna: { species: { reindeer: 4, polarbear: 1, wolf: 2, fox: 1, rabbit: 1, crow: 1, eagle: 1 }, herds: 8, flocks: 4 },
   },
 };
 const MAP_DEFAULT_ID = 'ashfall';   // an unknown battlefield id falls back to this one
@@ -609,13 +614,21 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      block: true plants new trees that block ground units and break like the scatter trees; false (the original
        battlefields, D17) keeps the old tree layout exactly: those trees only take a species look, and the generator adds
        bushes and ground cover that never block
-   fauna, hazards, lanes: lists filled by later updates, [] for none
+   fauna: { species, herds, flocks, schools, density } the animals (FAUNA) of this battlefield; fields a row leaves out
+     come from MAP_FAUNA; animals are ambient scenery, local to every game (D6), and never spawn on sites:
+     species: { <FAUNA id>: weight, ... } the species that live here, each as common as its weight among the species of
+       its type (ground, air, water); null: every species tagged with the battlefield's biome, all equally common
+     herds, flocks, schools: how many ground groups (herds, packs), bird flocks and water groups (schools, pods) are
+       placed; a water group needs water as deep as its species wants, so a dry battlefield gets none
+     density: multiplier of every group's size
+   hazards, lanes: lists filled by later updates, [] for none
    airport: { x, z, yaw } of a runway, or null
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
-  biome: 'temperate', water: [], roads: [], flora: null, fauna: [], weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
+  biome: 'temperate', water: [], roads: [], flora: null, fauna: null, weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
 };
 const MAP_FLORA = { species: null, forest: 0.25, groves: 6, meadow: 0.3, scrub: 0.2, density: 1, block: true };
+const MAP_FAUNA = { species: null, herds: 8, flocks: 5, schools: 6, density: 1 };
 const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
 const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity };
 const WATER_BODY = {   // defaults of each water body type (m)
@@ -635,6 +648,8 @@ function mapDef(id) {
   def.weather.weights = Object.assign({}, def.weather.weights);
   def.flora = Object.assign({}, MAP_FLORA, row.flora);
   if (def.flora.species) def.flora.species = Object.assign({}, def.flora.species);
+  def.fauna = Object.assign({}, MAP_FAUNA, row.fauna);
+  if (def.fauna.species) def.fauna.species = Object.assign({}, def.fauna.species);
   def.water = def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
   if (row.maxSlope === undefined && !row.mountains && !def.water.length) def.maxSlope = Infinity;
   MAP_DEFS.set(row, def);
@@ -3505,6 +3520,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   shakeFrom(x, y, z, clamp(radius * 0.045, 0.05, 0.6), 160);
   if (W.onExplosion && !opts.noNet) W.onExplosion(x, y, z, radius);   // superweapon blasts are replayed by guests instead
   Civ.blast(x, y, z, radius, damage);   // every game runs its own civilians, guests too
+  Fauna.blast(x, y, z, radius, damage);   // and its own animals
   if (Net.guest) return;   // guests only show effects; the host decides damage
   // damage
   const pl = W.platforms;
@@ -3560,7 +3576,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
+    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null,
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
@@ -4735,6 +4751,7 @@ function drawWorld(dt) {
   // platforms
   for (let i = 0; i < W.platforms.length; i++) drawPlatformBody(W.platforms[i]);
   Civ.draw();
+  Fauna.draw();
   // projectiles
   for (let i = 0; i < W.projs.length; i++) {
     const p = W.projs[i];
@@ -4799,7 +4816,7 @@ function drawWorld(dt) {
         const rr = (p.kind === 'air' ? p.radius * 1.3 : p.radius * 1.35) * (1 + hgt * 0.01);
         st.push().t(p.x, gh + 0.13, p.z).s(rr * 2, 0.05, rr * 2); R.draw('cyl', 0, 0, 0); st.pop();
       }
-      if (!high) Civ.drawShadows();
+      if (!high) { Civ.drawShadows(); Fauna.drawShadows(); }
       R.endBatch(high ? 'shadowHigh' : 'shadowLow', 0, high ? 0.2 : 0.46);
     }
   }
@@ -4828,6 +4845,7 @@ function updateWorldEffects(dt) {
   Weather.update(dt);
   updateDebris(dt);
   Civ.update(dt);
+  Fauna.update(dt);
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
   for (let i = W.rings.length - 1; i >= 0; i--) { W.rings[i].life -= dt; if (W.rings[i].life <= 0) W.rings.splice(i, 1); }
   for (let i = W.scorches.length - 1; i >= 0; i--) { W.scorches[i].life -= dt; if (W.scorches[i].life <= 0) W.scorches.splice(i, 1); }
@@ -6440,6 +6458,951 @@ const Civ = {
     }
   },
 };
+/* ---------------------------------------------------------------------
+   Fauna (P2.2): the animals of the battlefield
+   FAUNA holds 30 species as data rows, each drawn by shared part builders (FAUNA_PARTS) from the same low-poly
+   primitives as the flora. Fauna.populate places a battlefield's herds, flocks and schools (its def's fauna field,
+   mapDef) from a seeded stream of its own, where they belong: grazers on meadows and forest edges, shore animals by the
+   water, birds in the sky, fish, dolphins and whales in water deep enough for them; never in buildings, on roads or
+   on sites. Like the civilians they are scenery that every game runs for itself (co-op guests too, D6): nothing
+   targets them and kills change no score. Herds graze and wander in loose groups, flee from what they hear (gunfire,
+   blasts, deaths, moving machines) and calm down again; predators only roam. Birds fly in light flocks above the
+   ground, land and take off, and scatter at gunfire. Swimmers stay inside the water. Animals that are not active at
+   night sleep or roost while it is night (Clock). Shots and beams hit them, blasts kill them, ground machines crush
+   them, and they gib in their own colours (fish just vanish with a splash). Groups far from the camera think less
+   often; far animals are culled, near ones drawn in full and the drawn ones capped by the quality (D19). W.fauna
+   holds the groups.
+   --------------------------------------------------------------------- */
+const FAUNA_SEED = 0x6a17;          // salt of the fauna's own random stream
+const FAUNA_EDGE = FLORA_EDGE;      // ground animals and perches stay inside this square (m)
+const FAUNA_HOME_TRIES = 30;        // spots tried for a group's home (the first half must suit its habitat)
+const FAUNA_MEMBER_TRIES = 8;       // spots tried for each animal of a group
+const FAUNA_SITE_GAP = 25;          // a group's home keeps this far (plus its spread) from every site (m)
+const FAUNA_ROAM = 150;             // a herd's goal stays this close to its home (m); roamers go twice as far
+const FAUNA_SKY_ROAM = 320;         // a flock's goals likewise
+const FAUNA_SWIM_ROAM = 220;        // a school's goals likewise
+const FAUNA_GOAL_T = [25, 60];      // seconds between moves of a herd's goal
+const FAUNA_GRAZE = [3, 10];        // seconds a grazer grazes (or a sleeper sleeps) before it steps on
+const FAUNA_GRAZE_UP = -0.75;       // neck angle (rad) of a grazing animal
+const FAUNA_PANIC = [6, 11];        // seconds a scared animal runs
+const FAUNA_THREAT_MOVE = 15;       // a scared group re-plans its escape when the danger moves this far (m)
+const FAUNA_GUNFIRE_HEAR = 90;      // animals hear gunfire this far (m)
+const FAUNA_BLAST_HEAR = 8, FAUNA_BLAST_HEAR_MIN = 60;   // and blasts within this many of their radii, at least the second (m)
+const FAUNA_DEATH_SCARE = 30;       // an animal's death scares those this close (m)
+const FAUNA_MACHINE_SCARE = 30;     // a moving machine this close scares a herd or a landed flock (m)
+const FAUNA_GUEST_BLAST = 4;        // a replayed blast (no damage is sent) deals this many times an animal's hit points at its centre
+const FAUNA_LOOK = 0.3;             // seconds between a walker's checks for obstacles ahead
+const FAUNA_TURN = 4;               // walkers turn this fast (rad/s); fleeing ones twice as fast
+const FAUNA_STEP_MAX = 16;          // leg swing phase (rad) per second at most
+const FAUNA_BIRD_TURN = 2.2;        // birds turn this fast (rad/s)
+const FAUNA_BIRD_CLEAR = 2.5;       // flying birds keep this far above the ground or the water (m)
+const FAUNA_PERCH_R = 4;            // a landing spot is clear this far round (m)
+const FAUNA_LANDED = [10, 25], FAUNA_FLY_T = [20, 50];   // seconds a flock stays down, and flies before it lands again
+const FAUNA_SCATTER = 2.5;          // seconds a scared flock flies spread out, three times as wide
+const FAUNA_WATER_PAD = 0.3;        // swimmers keep this far inside the surface and the bed (m)
+const FAUNA_FAR = 600, FAUNA_FAR_EVERY = 4;   // groups farther from the camera than this think every 4th tick
+const FAUNA_SHADOW_DIST = 100;      // contact shadows of ground animals up to (m)
+const FAUNA_NIGHT = 0.5;            // Clock.look.night above this is night
+const FAUNA_SCHOOL = [];            // spots of the fish in a school (in units of its radius), from a fixed hash
+for (let i = 0; i < 12; i++) FAUNA_SCHOOL.push([latticeHash(i, 1, 77) * 2 - 1, latticeHash(i, 2, 77) * 2 - 1, latticeHash(i, 3, 77) * 2 - 1]);
+/* fields a FAUNA row may leave out */
+const FAUNA_DEFAULT = { slope: 0.8, wade: 0.4, amphib: false, swims: false, night: false, roam: false, spread: 16, walk: 1, run: 6, fly: 10, alt: [20, 50], deep: 0, flap: 12, glide: 0.4, blood: true, light: null };
+/* One row per species:
+   type 'ground', 'air' (birds) or 'water'; gait: 'quad' (walk, gallop), 'hop', 'sprawl' (legs out to the sides, body
+   swinging), 'biped' (waddle or stalk), 'slide' (seals), 'bird', 'swim'; home: where its groups are placed ('meadow'
+   or forest edge, 'forest' edge, 'open' ground, 'shore', 'sky', 'coast' (sky by the water), 'water'); biomes: the
+   battlefield biomes it belongs to (a def's fauna.species null takes these); group: animals per group [min, max];
+   spread: how loose the group is (m); walk, run (m/s; swimmers cruise and dart); fly (m/s) and alt (flying height
+   range, m); hp: hit points; slope: steepest ground (rise over run); wade: deepest water it walks into (m); amphib:
+   swims anywhere, floating; swims: a bird that lands on water; deep: least water a swimmer needs (m); night: active at
+   night (else it sleeps or roosts then); roam: wanders without grazing (predators); flap: wing beats (rad/s), glide:
+   share of the time a bird glides; blood: gibs and bleeds (else it vanishes with a splash); col, dark, acc, light:
+   colours, varied per animal; parts: [builder, args] drawn in order (sizes in m, the feet at the origin, facing +z;
+   a swimmer's middle at the origin) */
+const FAUNA = [
+  // grazers and other ground animals
+  { id: 'deer', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['temperate', 'boreal', 'alpine', 'farmland'], group: [4, 8], walk: 1.3, run: 11, hp: 30, slope: 0.9,
+    col: [0.55, 0.38, 0.22], dark: [0.36, 0.25, 0.16], acc: [0.84, 0.76, 0.62],
+    parts: [['legs', { n: 4, y: 0.85, w: 0.08, x: 0.14, zf: 0.48, zb: -0.48 }], ['torso', { y: 1.1, w: 0.42, h: 0.48, l: 1.3 }], ['tail', { y: 1.22, z: -0.64, len: 0.16, w: 0.1, up: 0.5, col: 'acc' }],
+      ['head', { y: 1.2, z: 0.52, len: 0.55, nw: 0.15, up: 1.05, w: 0.2, h: 0.21, l: 0.34, snout: [0.12, 0.12, 0.16], on: [['ears', { x: 0.1, y: 0.08, z: -0.08, w: 0.1, h: 0.15 }], ['antlers', { x: 0.06, h: 0.48, n: 3, w: 0.03 }]] }]] },
+  { id: 'elk', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['boreal', 'temperate', 'alpine'], group: [3, 7], walk: 1.3, run: 10, hp: 60, slope: 0.9,
+    col: [0.46, 0.33, 0.2], dark: [0.27, 0.19, 0.12], acc: [0.8, 0.72, 0.56],
+    parts: [['legs', { n: 4, y: 1.15, w: 0.12, x: 0.2, zf: 0.68, zb: -0.68 }], ['torso', { y: 1.5, w: 0.6, h: 0.7, l: 1.9 }], ['tail', { y: 1.65, z: -0.95, len: 0.15, w: 0.12, up: 0.3, col: 'acc' }],
+      ['head', { y: 1.65, z: 0.78, len: 0.7, nw: 0.26, up: 0.85, w: 0.28, h: 0.3, l: 0.55, mane: 'dark', snout: [0.18, 0.18, 0.2], on: [['ears', { x: 0.13, y: 0.1, z: -0.12, w: 0.12, h: 0.18 }], ['antlers', { x: 0.08, h: 0.9, n: 4, w: 0.05 }]] }]] },
+  { id: 'reindeer', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['arctic', 'boreal', 'alpine'], group: [5, 10], walk: 1.2, run: 10, hp: 40, slope: 0.9,
+    col: [0.55, 0.5, 0.42], dark: [0.3, 0.27, 0.23], acc: [0.86, 0.84, 0.79],
+    parts: [['legs', { n: 4, y: 0.9, w: 0.1, x: 0.16, zf: 0.52, zb: -0.52 }], ['torso', { y: 1.15, w: 0.5, h: 0.55, l: 1.4 }], ['tail', { y: 1.3, z: -0.7, len: 0.12, w: 0.1, up: 0.4, col: 'acc' }],
+      ['head', { y: 1.28, z: 0.58, len: 0.5, nw: 0.22, up: 0.8, w: 0.22, h: 0.24, l: 0.42, col: 'acc', snout: [0.14, 0.14, 0.16, 'main'], on: [['ears', { x: 0.11, y: 0.08, z: -0.1, w: 0.09, h: 0.12 }], ['antlers', { x: 0.07, h: 0.7, n: 4, w: 0.04, col: 'dark' }]] }]] },
+  { id: 'boar', type: 'ground', gait: 'quad', home: 'forest', biomes: ['temperate', 'boreal', 'mediterranean', 'farmland'], group: [3, 6], spread: 12, walk: 1, run: 8, hp: 40, night: true,
+    col: [0.3, 0.24, 0.2], dark: [0.18, 0.14, 0.12], acc: [0.9, 0.86, 0.75],
+    parts: [['legs', { n: 4, y: 0.36, w: 0.09, x: 0.14, zf: 0.38, zb: -0.38 }], ['torso', { y: 0.62, w: 0.45, h: 0.55, l: 1.1 }], ['tail', { y: 0.7, z: -0.55, len: 0.2, w: 0.04, up: -0.8 }],
+      ['head', { y: 0.62, z: 0.5, len: 0.1, nw: 0.3, up: 0.1, w: 0.3, h: 0.32, l: 0.45, snout: [0.16, 0.14, 0.18, 'dark'], on: [['ears', { x: 0.1, y: 0.12, z: -0.1, w: 0.08, h: 0.12 }], ['tusks', { l: 0.1, w: 0.03 }]] }]] },
+  { id: 'wolf', type: 'ground', gait: 'quad', home: 'forest', biomes: ['temperate', 'boreal', 'alpine', 'arctic'], group: [3, 6], spread: 14, walk: 1.5, run: 11, hp: 30, night: true, roam: true,
+    col: [0.48, 0.46, 0.43], dark: [0.3, 0.28, 0.26], acc: [0.76, 0.74, 0.7],
+    parts: [['legs', { n: 4, y: 0.5, w: 0.07, x: 0.1, zf: 0.36, zb: -0.36 }], ['torso', { y: 0.72, w: 0.3, h: 0.38, l: 0.95 }], ['tail', { y: 0.75, z: -0.48, len: 0.45, w: 0.1, up: -0.35 }],
+      ['head', { y: 0.82, z: 0.45, len: 0.2, nw: 0.2, up: 0.5, w: 0.2, h: 0.2, l: 0.3, snout: [0.1, 0.1, 0.16, 'acc'], on: [['ears', { x: 0.07, y: 0.08, z: -0.06, w: 0.07, h: 0.12 }]] }]] },
+  { id: 'fox', type: 'ground', gait: 'quad', home: 'forest', biomes: ['temperate', 'boreal', 'arctic', 'arid', 'alpine', 'farmland', 'mediterranean'], group: [1, 2], spread: 8, walk: 1.2, run: 9, hp: 8, night: true, roam: true,
+    col: [0.8, 0.42, 0.15], dark: [0.2, 0.12, 0.08], acc: [0.93, 0.9, 0.85],
+    parts: [['legs', { n: 4, y: 0.25, w: 0.04, x: 0.06, zf: 0.2, zb: -0.2 }], ['torso', { y: 0.35, w: 0.17, h: 0.2, l: 0.55 }], ['tail', { y: 0.38, z: -0.27, len: 0.42, w: 0.11, up: -0.15 }],
+      ['head', { y: 0.42, z: 0.27, len: 0.1, nw: 0.1, up: 0.5, w: 0.14, h: 0.13, l: 0.2, snout: [0.06, 0.06, 0.12, 'acc'], on: [['ears', { x: 0.05, y: 0.06, z: -0.03, w: 0.06, h: 0.1 }]] }]] },
+  { id: 'bear', type: 'ground', gait: 'quad', home: 'forest', biomes: ['temperate', 'boreal', 'alpine'], group: [1, 2], spread: 10, walk: 1.1, run: 8, hp: 140, roam: true,
+    col: [0.33, 0.22, 0.14], dark: [0.22, 0.15, 0.1], acc: [0.45, 0.34, 0.22],
+    parts: [['legs', { n: 4, y: 0.55, w: 0.2, x: 0.24, zf: 0.5, zb: -0.5, col: 'main' }], ['torso', { y: 0.88, w: 0.75, h: 0.8, l: 1.55 }],
+      ['head', { y: 0.95, z: 0.72, len: 0.2, nw: 0.42, up: 0.2, w: 0.4, h: 0.38, l: 0.46, snout: [0.18, 0.16, 0.18, 'acc'], on: [['ears', { x: 0.14, y: 0.15, z: -0.08, w: 0.1, h: 0.08 }]] }]] },
+  { id: 'polarbear', type: 'ground', gait: 'quad', home: 'shore', biomes: ['arctic'], group: [1, 2], spread: 10, walk: 1.1, run: 8, hp: 160, roam: true, wade: 1,
+    col: [0.93, 0.92, 0.86], dark: [0.84, 0.82, 0.75], acc: [0.1, 0.1, 0.1],
+    parts: [['legs', { n: 4, y: 0.6, w: 0.22, x: 0.26, zf: 0.6, zb: -0.6, col: 'main' }], ['torso', { y: 0.95, w: 0.8, h: 0.85, l: 1.8 }],
+      ['head', { y: 1.0, z: 0.85, len: 0.35, nw: 0.4, up: 0.15, w: 0.36, h: 0.34, l: 0.5, snout: [0.14, 0.13, 0.14, 'acc'], on: [['ears', { x: 0.13, y: 0.14, z: -0.1, w: 0.09, h: 0.07 }]] }]] },
+  { id: 'rabbit', type: 'ground', gait: 'hop', home: 'meadow', biomes: ['temperate', 'farmland', 'arctic', 'alpine', 'boreal', 'mediterranean'], group: [2, 5], spread: 8, walk: 0.8, run: 9, hp: 4,
+    col: [0.55, 0.45, 0.35], dark: [0.42, 0.34, 0.26], acc: [0.93, 0.91, 0.87],
+    parts: [['legs', { n: 4, y: 0.13, w: 0.04, x: 0.05, zf: 0.1, zb: -0.08 }], ['torso', { y: 0.2, w: 0.16, h: 0.18, l: 0.3 }], ['tail', { y: 0.24, z: -0.16, len: 0.06, w: 0.07, up: 0.8, shape: 'sphere', col: 'acc' }],
+      ['head', { y: 0.27, z: 0.13, len: 0.02, nw: 0.08, up: 0.8, w: 0.12, h: 0.12, l: 0.15, on: [['ears', { x: 0.03, y: 0.05, z: -0.03, w: 0.04, h: 0.16 }]] }]] },
+  { id: 'cow', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['farmland', 'temperate', 'mediterranean'], group: [4, 9], spread: 20, walk: 0.9, run: 5, hp: 70,
+    col: [0.92, 0.9, 0.86], dark: [0.12, 0.1, 0.1], acc: [0.86, 0.66, 0.58], light: [0.86, 0.8, 0.7],
+    parts: [['legs', { n: 4, y: 0.7, w: 0.13, x: 0.24, zf: 0.6, zb: -0.6, col: 'main', foot: 'dark' }], ['torso', { y: 1.05, w: 0.7, h: 0.75, l: 1.7, shape: 'box' }],
+      ['spots', { n: 6, y: 1.05, w: 0.7, h: 0.75, l: 1.7, s: 0.3 }], ['tail', { y: 1.3, z: -0.86, len: 0.6, w: 0.05, up: -1.3 }],
+      ['head', { y: 1.15, z: 0.9, len: 0.15, nw: 0.32, up: 0.3, w: 0.3, h: 0.32, l: 0.5, snout: [0.24, 0.18, 0.12, 'acc'], on: [['ears', { x: 0.17, y: 0.04, z: -0.12, w: 0.12, h: 0.06 }], ['horns', { x: 0.1, y: 0.15, z: -0.12, h: 0.18, w: 0.05, out: 1.0, back: 0.2, col: 'light' }]] }]] },
+  { id: 'horse', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['temperate', 'farmland', 'mediterranean', 'savanna'], group: [3, 7], spread: 18, walk: 1.5, run: 13, hp: 60,
+    col: [0.45, 0.28, 0.16], dark: [0.15, 0.1, 0.07], acc: [0.6, 0.45, 0.32],
+    parts: [['legs', { n: 4, y: 0.95, w: 0.11, x: 0.17, zf: 0.62, zb: -0.62, foot: 'dark' }], ['torso', { y: 1.3, w: 0.5, h: 0.6, l: 1.6 }], ['tail', { y: 1.42, z: -0.8, len: 0.7, w: 0.12, up: -1.0, col: 'dark' }],
+      ['head', { y: 1.42, z: 0.72, len: 0.8, nw: 0.2, up: 1.0, w: 0.22, h: 0.26, l: 0.55, mane: 'dark', snout: [0.16, 0.18, 0.2], on: [['ears', { x: 0.07, y: 0.12, z: -0.18, w: 0.06, h: 0.13 }]] }]] },
+  { id: 'sheep', type: 'ground', gait: 'quad', home: 'meadow', biomes: ['farmland', 'temperate', 'alpine', 'mediterranean'], group: [6, 12], spread: 14, walk: 0.9, run: 6, hp: 20,
+    col: [0.9, 0.88, 0.8], dark: [0.2, 0.18, 0.16], acc: [0.75, 0.7, 0.6],
+    parts: [['legs', { n: 4, y: 0.4, w: 0.07, x: 0.14, zf: 0.3, zb: -0.3, col: 'dark' }], ['torso', { y: 0.7, w: 0.58, h: 0.58, l: 0.95 }], ['tail', { y: 0.75, z: -0.48, len: 0.12, w: 0.1, up: -0.6 }],
+      ['head', { y: 0.78, z: 0.45, len: 0.12, nw: 0.2, up: 0.4, w: 0.18, h: 0.2, l: 0.3, col: 'dark', on: [['ears', { x: 0.1, y: 0.0, z: -0.06, w: 0.1, h: 0.05 }]] }]] },
+  { id: 'goat', type: 'ground', gait: 'quad', home: 'open', biomes: ['alpine', 'arid', 'mediterranean', 'farmland'], group: [3, 7], spread: 14, walk: 1, run: 8, hp: 18, slope: 1.4,
+    col: [0.62, 0.56, 0.48], dark: [0.34, 0.3, 0.25], acc: [0.4, 0.36, 0.3],
+    parts: [['legs', { n: 4, y: 0.45, w: 0.07, x: 0.11, zf: 0.32, zb: -0.32, foot: 'dark' }], ['torso', { y: 0.72, w: 0.36, h: 0.42, l: 0.9 }], ['tail', { y: 0.85, z: -0.45, len: 0.12, w: 0.06, up: 1.0 }],
+      ['head', { y: 0.85, z: 0.42, len: 0.3, nw: 0.13, up: 0.95, w: 0.16, h: 0.18, l: 0.3, snout: [0.1, 0.12, 0.1], on: [['ears', { x: 0.09, y: 0.03, z: -0.05, w: 0.1, h: 0.04 }], ['horns', { x: 0.05, y: 0.08, z: -0.05, h: 0.28, w: 0.05, out: 0.3, back: 0.9 }]] }]] },
+  { id: 'camel', type: 'ground', gait: 'quad', home: 'open', biomes: ['arid', 'savanna'], group: [2, 5], spread: 16, walk: 1.2, run: 9, hp: 80, slope: 0.6,
+    col: [0.76, 0.6, 0.4], dark: [0.6, 0.46, 0.3], acc: [0.5, 0.38, 0.26],
+    parts: [['legs', { n: 4, y: 1.25, w: 0.12, x: 0.2, zf: 0.6, zb: -0.6 }], ['torso', { y: 1.72, w: 0.6, h: 0.65, l: 1.6 }], ['hump', { n: 1, y: 2.1, z: -0.05, s: 0.55, h: 0.5 }],
+      ['tail', { y: 1.8, z: -0.8, len: 0.45, w: 0.06, up: -1.2, col: 'dark' }],
+      ['head', { y: 1.85, z: 0.72, len: 0.9, nw: 0.18, up: 0.5, w: 0.2, h: 0.22, l: 0.5, snout: [0.14, 0.14, 0.12], on: [['ears', { x: 0.08, y: 0.1, z: -0.16, w: 0.05, h: 0.07 }]] }]] },
+  { id: 'crocodile', type: 'ground', gait: 'sprawl', home: 'shore', biomes: ['tropical', 'wetland', 'savanna'], group: [1, 3], spread: 10, walk: 0.6, run: 4, hp: 90, amphib: true, wade: 0.6, night: true, slope: 0.5,
+    col: [0.28, 0.33, 0.2], dark: [0.2, 0.24, 0.14], acc: [0.62, 0.6, 0.44],
+    parts: [['legs', { n: 4, y: 0.2, len: 0.3, w: 0.1, x: 0.24, zf: 0.5, zb: -0.5, col: 'dark' }], ['torso', { y: 0.22, w: 0.55, h: 0.3, l: 1.9, shape: 'box' }],
+      ['tail', { y: 0.22, z: -0.9, len: 1.7, w: 0.3, t: 0.22, up: -0.08, wag: 0.1, shape: 'spire' }], ['head', { y: 0.24, z: 1.1, len: 0, nw: 0, up: 0, w: 0.34, h: 0.2, l: 0.8, shape: 'box', snout: [0.22, 0.12, 0.3, 'acc'] }]] },
+  { id: 'monkey', type: 'ground', gait: 'quad', home: 'forest', biomes: ['tropical'], group: [4, 9], spread: 12, walk: 1, run: 7, hp: 10, roam: true,
+    col: [0.4, 0.28, 0.18], dark: [0.3, 0.2, 0.12], acc: [0.82, 0.66, 0.5],
+    parts: [['legs', { n: 4, y: 0.32, w: 0.06, x: 0.1, zf: 0.16, zb: -0.16 }], ['torso', { y: 0.45, w: 0.26, h: 0.32, l: 0.42 }], ['tail', { y: 0.5, z: -0.2, len: 0.6, w: 0.04, up: 1.1, wag: 0.4 }],
+      ['head', { y: 0.58, z: 0.22, len: 0.08, nw: 0.1, up: 1.2, w: 0.18, h: 0.18, l: 0.17, snout: [0.12, 0.1, 0.06, 'acc'], on: [['ears', { x: 0.1, y: 0.0, z: 0.0, w: 0.05, h: 0.07 }]] }]] },
+  { id: 'penguin', type: 'ground', gait: 'biped', home: 'shore', biomes: ['arctic'], group: [5, 12], spread: 10, walk: 0.5, run: 2, hp: 6, wade: 0.4, slope: 0.6,
+    col: [0.1, 0.11, 0.13], dark: [0.95, 0.65, 0.15], acc: [0.94, 0.94, 0.92],
+    parts: [['legs', { n: 2, y: 0.08, w: 0.07, x: 0.07, col: 'dark' }], ['torso', { y: 0.36, w: 0.3, h: 0.6, l: 0.28 }], ['torso', { y: 0.34, z: 0.05, w: 0.24, h: 0.5, l: 0.22, col: 'acc' }],
+      ['wings', { x: 0.14, y: 0.42, z: 0, len: 0.4, chord: 0.12 }], ['head', { y: 0.7, z: 0.02, len: 0, nw: 0, up: 0, w: 0.18, h: 0.18, l: 0.2, on: [['beak', { l: 0.1, w: 0.04, down: 0.1, col: 'dark' }]] }]] },
+  { id: 'seal', type: 'ground', gait: 'slide', home: 'shore', biomes: ['arctic', 'coastal', 'temperate'], group: [2, 6], spread: 12, walk: 0.5, run: 2.5, hp: 40, amphib: true, wade: 0.6, slope: 0.5,
+    col: [0.45, 0.45, 0.43], dark: [0.32, 0.32, 0.3], acc: [0.62, 0.62, 0.6],
+    parts: [['torso', { y: 0.28, w: 0.5, h: 0.45, l: 1.5 }], ['head', { y: 0.42, z: 0.72, len: 0.12, nw: 0.26, up: 0.6, w: 0.26, h: 0.24, l: 0.3, snout: [0.12, 0.1, 0.1, 'acc'] }],
+      ['fins', { x: 0.24, y: 0.12, z: 0.35, l: 0.28, w: 0.14 }], ['fluke', { y: 0.22, z: -0.75, span: 0.45, l: 0.28 }]] },
+  { id: 'flamingo', type: 'ground', gait: 'biped', home: 'shore', biomes: ['tropical', 'wetland', 'savanna'], group: [6, 14], spread: 12, walk: 0.7, run: 3, hp: 5, wade: 0.8, slope: 0.5,
+    col: [0.95, 0.55, 0.6], dark: [0.12, 0.1, 0.1], acc: [0.9, 0.45, 0.5],
+    parts: [['legs', { n: 2, y: 0.85, w: 0.03, x: 0.05, col: 'acc' }], ['torso', { y: 1.0, w: 0.25, h: 0.3, l: 0.45 }], ['wings', { x: 0.11, y: 1.05, z: -0.02, len: 0.5, chord: 0.14, tip: 'dark' }],
+      ['tail', { y: 1.02, z: -0.22, len: 0.12, w: 0.1, t: 0.03, up: -0.2 }], ['head', { y: 1.05, z: 0.18, len: 0.55, nw: 0.05, up: 1.3, w: 0.08, h: 0.08, l: 0.13, on: [['beak', { l: 0.12, w: 0.035, down: 0.6, col: 'dark' }]] }]] },
+  // birds
+  { id: 'seagull', type: 'air', gait: 'bird', home: 'coast', biomes: ['coastal', 'temperate', 'arctic', 'tropical'], group: [5, 10], spread: 8, fly: 11, alt: [14, 40], hp: 3, swims: true, glide: 0.6, flap: 11,
+    col: [0.95, 0.95, 0.94], dark: [0.12, 0.12, 0.13], acc: [0.95, 0.72, 0.18], light: [0.66, 0.69, 0.73],
+    parts: [['legs', { n: 2, y: 0.1, w: 0.02, x: 0.04, col: 'acc' }], ['torso', { y: 0.18, w: 0.13, h: 0.13, l: 0.38 }], ['tail', { y: 0.2, z: -0.2, len: 0.12, w: 0.09, t: 0.02, up: 0.1, col: 'light' }],
+      ['wings', { x: 0.05, y: 0.21, z: 0.02, len: 0.6, chord: 0.18, col: 'light', tip: 'dark' }], ['head', { y: 0.26, z: 0.18, len: 0, nw: 0, up: 0, w: 0.1, h: 0.1, l: 0.13, on: [['beak', { l: 0.08, w: 0.025, down: 0.15 }]] }]] },
+  { id: 'crow', type: 'air', gait: 'bird', home: 'sky', biomes: ['temperate', 'farmland', 'boreal', 'arctic', 'arid', 'alpine', 'mediterranean'], group: [6, 14], spread: 9, fly: 10, alt: [22, 50], hp: 3, glide: 0.3, flap: 13,
+    col: [0.08, 0.08, 0.1], dark: [0.04, 0.04, 0.05], acc: [0.15, 0.15, 0.17],
+    parts: [['legs', { n: 2, y: 0.1, w: 0.02, x: 0.04 }], ['torso', { y: 0.18, w: 0.12, h: 0.13, l: 0.34 }], ['tail', { y: 0.2, z: -0.19, len: 0.14, w: 0.08, t: 0.02, up: 0.05 }],
+      ['wings', { x: 0.05, y: 0.21, z: 0.02, len: 0.45, chord: 0.17 }], ['head', { y: 0.25, z: 0.17, len: 0, nw: 0, up: 0, w: 0.1, h: 0.1, l: 0.12, on: [['beak', { l: 0.08, w: 0.03, down: 0.1 }]] }]] },
+  { id: 'eagle', type: 'air', gait: 'bird', home: 'sky', biomes: ['alpine', 'arctic', 'temperate', 'boreal', 'arid'], group: [1, 2], spread: 12, fly: 14, alt: [50, 110], hp: 6, glide: 0.85, flap: 6,
+    col: [0.32, 0.22, 0.13], dark: [0.2, 0.14, 0.08], acc: [0.95, 0.75, 0.2], light: [0.93, 0.92, 0.88],
+    parts: [['legs', { n: 2, y: 0.15, w: 0.04, x: 0.07, col: 'acc' }], ['torso', { y: 0.3, w: 0.2, h: 0.22, l: 0.62 }], ['tail', { y: 0.32, z: -0.34, len: 0.25, w: 0.16, t: 0.02, up: 0, col: 'light' }],
+      ['wings', { x: 0.08, y: 0.35, z: 0.03, len: 1.0, chord: 0.36, tip: 'dark' }], ['head', { y: 0.4, z: 0.3, len: 0, nw: 0, up: 0, w: 0.14, h: 0.14, l: 0.17, col: 'light', on: [['beak', { l: 0.1, w: 0.05, down: 0.5 }]] }]] },
+  { id: 'vulture', type: 'air', gait: 'bird', home: 'sky', biomes: ['arid', 'savanna', 'mediterranean'], group: [3, 7], spread: 18, fly: 12, alt: [40, 90], hp: 6, glide: 0.9, flap: 5,
+    col: [0.22, 0.18, 0.15], dark: [0.12, 0.1, 0.09], acc: [0.82, 0.62, 0.55], light: [0.75, 0.7, 0.62],
+    parts: [['legs', { n: 2, y: 0.16, w: 0.04, x: 0.08, col: 'acc' }], ['torso', { y: 0.32, w: 0.24, h: 0.24, l: 0.6 }], ['tail', { y: 0.33, z: -0.33, len: 0.22, w: 0.18, t: 0.02, up: 0 }],
+      ['wings', { x: 0.1, y: 0.37, z: 0.03, len: 1.1, chord: 0.4, tip: 'dark' }], ['head', { y: 0.42, z: 0.32, len: 0.12, nw: 0.05, up: 0.6, w: 0.11, h: 0.11, l: 0.14, col: 'acc', mane: 'light', on: [['beak', { l: 0.08, w: 0.04, down: 0.5, col: 'dark' }]] }]] },
+  { id: 'parrot', type: 'air', gait: 'bird', home: 'sky', biomes: ['tropical'], group: [4, 10], spread: 7, fly: 10, alt: [10, 30], hp: 3, glide: 0.2, flap: 14,
+    col: [0.85, 0.15, 0.12], dark: [0.12, 0.3, 0.75], acc: [0.95, 0.85, 0.2], light: [0.2, 0.65, 0.25],
+    parts: [['legs', { n: 2, y: 0.08, w: 0.02, x: 0.04, col: 'dark' }], ['torso', { y: 0.16, w: 0.12, h: 0.13, l: 0.3 }], ['tail', { y: 0.17, z: -0.25, len: 0.32, w: 0.06, t: 0.02, up: -0.1, col: 'dark' }],
+      ['wings', { x: 0.05, y: 0.19, z: 0.02, len: 0.36, chord: 0.14, col: 'light', tip: 'dark' }], ['head', { y: 0.24, z: 0.15, len: 0, nw: 0, up: 0, w: 0.11, h: 0.11, l: 0.12, on: [['beak', { l: 0.06, w: 0.045, down: 0.7, col: 'acc' }]] }]] },
+  { id: 'duck', type: 'air', gait: 'bird', home: 'coast', biomes: ['temperate', 'wetland', 'farmland', 'boreal'], group: [4, 9], spread: 7, fly: 13, alt: [10, 30], hp: 3, swims: true, glide: 0.15, flap: 16,
+    col: [0.5, 0.4, 0.28], dark: [0.12, 0.38, 0.18], acc: [0.95, 0.65, 0.15], light: [0.62, 0.6, 0.55],
+    parts: [['legs', { n: 2, y: 0.07, w: 0.025, x: 0.05, col: 'acc' }], ['torso', { y: 0.15, w: 0.17, h: 0.15, l: 0.36 }], ['tail', { y: 0.18, z: -0.18, len: 0.1, w: 0.1, t: 0.02, up: 0.3 }],
+      ['wings', { x: 0.07, y: 0.19, z: 0.02, len: 0.38, chord: 0.15, col: 'light' }], ['head', { y: 0.22, z: 0.16, len: 0.1, nw: 0.06, up: 1.2, w: 0.1, h: 0.1, l: 0.12, col: 'dark', on: [['beak', { l: 0.07, w: 0.05, down: 0 }]] }]] },
+  { id: 'pigeon', type: 'air', gait: 'bird', home: 'sky', biomes: ['temperate', 'farmland', 'mediterranean', 'arid', 'coastal'], group: [8, 16], spread: 9, fly: 11, alt: [18, 35], hp: 2, glide: 0.25, flap: 15,
+    col: [0.55, 0.57, 0.62], dark: [0.25, 0.26, 0.3], acc: [0.8, 0.45, 0.4], light: [0.3, 0.45, 0.42],
+    parts: [['legs', { n: 2, y: 0.06, w: 0.02, x: 0.03, col: 'acc' }], ['torso', { y: 0.13, w: 0.12, h: 0.12, l: 0.28 }], ['tail', { y: 0.14, z: -0.16, len: 0.1, w: 0.07, t: 0.02, up: 0.05, col: 'dark' }],
+      ['wings', { x: 0.05, y: 0.16, z: 0.02, len: 0.32, chord: 0.13, tip: 'dark' }], ['head', { y: 0.21, z: 0.13, len: 0.04, nw: 0.06, up: 1.2, w: 0.08, h: 0.08, l: 0.09, col: 'light', on: [['beak', { l: 0.04, w: 0.02, down: 0.2, col: 'dark' }]] }]] },
+  // swimmers
+  { id: 'fishschool', type: 'water', gait: 'swim', home: 'water', biomes: ['coastal', 'temperate', 'tropical', 'arctic', 'wetland', 'boreal', 'alpine'], group: [2, 4], spread: 10, walk: 1.2, run: 5, hp: 4, deep: 1.6, blood: false,
+    col: [0.62, 0.68, 0.72], dark: [0.35, 0.4, 0.45], acc: [0.8, 0.82, 0.8],
+    parts: [['school', { n: 10, r: 1.4, w: 0.07, h: 0.13, l: 0.32 }]] },
+  { id: 'dolphin', type: 'water', gait: 'swim', home: 'water', biomes: ['coastal', 'tropical', 'temperate'], group: [3, 6], spread: 12, walk: 3, run: 9, hp: 60, deep: 4,
+    col: [0.45, 0.5, 0.55], dark: [0.3, 0.34, 0.38], acc: [0.8, 0.82, 0.84],
+    parts: [['torso', { y: 0, w: 0.42, h: 0.42, l: 2.0 }], ['torso', { y: -0.08, z: 0.1, w: 0.34, h: 0.3, l: 1.6, col: 'acc' }],
+      ['head', { y: 0.03, z: 0.95, len: 0, nw: 0, up: 0, w: 0.3, h: 0.28, l: 0.38, on: [['beak', { l: 0.3, w: 0.09, down: 0, col: 'main' }]] }],
+      ['fins', { x: 0.2, y: -0.12, z: 0.4, l: 0.35, w: 0.18, dorsal: [0.18, 0.3, 0.35, -0.1] }], ['fluke', { y: 0, z: -0.95, span: 0.6, l: 0.3 }]] },
+  { id: 'whale', type: 'water', gait: 'swim', home: 'water', biomes: ['coastal', 'arctic'], group: [1, 2], spread: 30, walk: 1.6, run: 4, hp: 900, deep: 10,
+    col: [0.25, 0.3, 0.36], dark: [0.18, 0.22, 0.26], acc: [0.7, 0.72, 0.74],
+    parts: [['torso', { y: 0, w: 2.6, h: 2.3, l: 11 }], ['torso', { y: -0.5, z: 1, w: 2.2, h: 1.5, l: 8, col: 'acc' }], ['head', { y: 0.1, z: 5.2, len: 0, nw: 0, up: 0, w: 2.3, h: 1.9, l: 3.2 }],
+      ['fins', { x: 1.1, y: -0.7, z: 2.6, l: 2.6, w: 0.8, dorsal: [1.0, 0.6, 1.2, -3] }], ['fluke', { y: 0, z: -5.3, span: 3.8, l: 1.5 }]] },
+  // a small one
+  { id: 'lizard', type: 'ground', gait: 'sprawl', home: 'open', biomes: ['arid', 'savanna', 'tropical', 'mediterranean', 'volcanic'], group: [1, 3], spread: 6, walk: 0.6, run: 4, hp: 2, slope: 1.2,
+    col: [0.55, 0.5, 0.3], dark: [0.4, 0.36, 0.2], acc: [0.7, 0.6, 0.35],
+    parts: [['legs', { n: 4, y: 0.06, len: 0.09, w: 0.03, x: 0.06, zf: 0.1, zb: -0.1, col: 'dark' }], ['torso', { y: 0.07, w: 0.1, h: 0.06, l: 0.3 }],
+      ['tail', { y: 0.07, z: -0.15, len: 0.35, w: 0.06, t: 0.04, up: -0.1, wag: 0.15, shape: 'spire' }], ['head', { y: 0.08, z: 0.18, len: 0, nw: 0, up: 0, w: 0.07, h: 0.05, l: 0.1 }]] },
+];
+const FAUNA_BY_ID = {};
+/* defaults, and the sizes the behaviour and harm use: cy, rad, ry (the hit ellipsoid's middle above the feet, half
+   width and half height), top (the highest point), legY (hip height) and stride (leg swing per metre) */
+FAUNA.forEach((d, i) => {
+  FAUNA_BY_ID[d.id] = i;
+  for (const k in FAUNA_DEFAULT) if (d[k] === undefined) d[k] = FAUNA_DEFAULT[k];
+  const find = (name) => { const p = d.parts.find((q) => q[0] === name); return p ? p[1] : null; };
+  const t = find('torso'), s = find('school'), legs = find('legs');
+  d.torso = t; d.headP = find('head'); d.legsP = legs; d.wingsP = find('wings');
+  d.legY = legs ? legs.y : 0;
+  if (s) { d.cy = 0; d.rad = s.r + s.l; d.ry = s.r * 0.4 + s.h; d.top = d.ry; }
+  else if (d.type === 'ground') { d.top = t.y + t.h * 0.5; d.cy = d.top * 0.5; d.rad = Math.max(t.w, t.l) * 0.5; d.ry = d.top * 0.5; }
+  else { d.cy = t.y; d.rad = Math.max(t.w, t.l) * 0.5; d.ry = t.h * 0.5 + 0.05; d.top = t.y + d.ry; }
+  d.stride = 2.4 / Math.max(0.12, d.legY || 0.3);
+});
+/* parts a far animal is drawn without (the head draws no parts of its own then either) */
+const FAUNA_LOD_SKIP = { legs: true, tail: true, spots: true, fins: true };
+/* Part builders: each draws one part of the animal being drawn (Fauna.cur) at the stack (its feet, turned to its
+   heading and scaled), in the pose Fauna.pose left in Fauna.g, from its args a; head parts get the head's args too. */
+const FAUNA_PARTS = {
+  /* the body: a blob (or shape) w x h x l round (0, y, z), bobbing with the gait */
+  torso(a) {
+    part(a.shape || 'blob', 0, a.y + Fauna.g.bob, a.z || 0, a.w, a.h, a.l, Fauna.col(a.col), 0, 0.15);
+  },
+  /* neck and head: a neck len long and nw thick from (0, y, z) rising `up` (rad) above the level (lowered while
+     grazing; mane: a strip down its back), then the head w x h x l with its snout [w, h, l, colour] and the head parts
+     in `on` (ears, antlers, horns, ...) */
+  head(a) {
+    const G = Fauna.g, st = R.stack, col = Fauna.col(a.col), tilt = PI / 2 - lerp(a.up, FAUNA_GRAZE_UP, G.graze);
+    st.push().t(0, a.y + G.bob, a.z).rx(tilt);
+    if (a.len > 0) {
+      part('box', 0, a.len * 0.5, 0, a.nw, a.len + a.nw * 0.5, a.nw, col, 0, 0.1);
+      if (a.mane && !Fauna.lod) part('box', 0, a.len * 0.5, -a.nw * 0.55, a.nw * 0.35, a.len, a.nw * 0.45, Fauna.col(a.mane), 0, 0);
+    }
+    st.t(0, a.len, 0).rx(-tilt + G.graze * 0.4);
+    part(a.shape || 'blob', 0, 0, 0, a.w, a.h, a.l, col, 0, 0.15);
+    const sn = a.snout;
+    if (sn) part('box', 0, -a.h * 0.15, a.l * 0.45 + sn[2] * 0.35, sn[0], sn[1], sn[2], Fauna.col(sn[3] || a.col), 0, 0.1);
+    if (a.on && !Fauna.lod) for (let k = 0; k < a.on.length; k++) FAUNA_PARTS[a.on[k][0]](a.on[k][1], a);
+    st.pop();
+  },
+  /* n legs (2 or 4) y long and w thick from hips x to either side at zf (front) and zb (back), swinging with the gait;
+     a sprawler's legs (len long) reach out to the sides; birds tuck theirs in flight; foot: hoof colour */
+  legs(a) {
+    const G = Fauna.g, st = R.stack, d = Fauna.cur.def, col = Fauna.col(a.col || 'dark');
+    if (G.sleep > 0.5 || (d.type === 'air' && G.fold < 0.5)) return;
+    const len = a.len || a.y, amp = G.amp * (0.4 + 0.45 * G.run), sprawl = d.gait === 'sprawl';
+    for (let i = 0; i < a.n; i++) {
+      const side = i % 2 ? 1 : -1, front = a.n === 2 || i < 2, z = a.n === 2 ? 0 : front ? a.zf : a.zb;
+      // hops: front and back pairs together; two legs: in turn; a gallop: front and back pairs; a walk: diagonal pairs
+      const off = d.gait === 'hop' ? (front ? 0 : PI) : a.n === 2 ? (side > 0 ? 0 : PI) : G.run > 0.5 ? (front ? 0 : PI) + (side > 0 ? 0.35 : 0) : (front === (side > 0) ? 0 : PI);
+      const sw = Math.sin(G.phase + off) * amp;
+      st.push().t(side * a.x, a.y, z);
+      if (sprawl) st.ry(sw).rz(side * 1.1); else st.rx(sw);
+      part('box', 0, -len * 0.5, 0, a.w, len, a.w * 1.1, col, 0, 0.1);
+      if (a.foot) part('box', 0, -len + 0.02, a.w * 0.2, a.w * 1.25, Math.max(0.03, a.w * 0.5), a.w * 1.6, Fauna.col(a.foot), 0, 0);
+      st.pop();
+    }
+  },
+  /* a tail len long, w wide and t thick (default w) from (0, y, z), pointing back `up` (rad) above the level, wagging */
+  tail(a) {
+    const G = Fauna.g, st = R.stack, wag = (a.wag || 0.2) * Math.sin(W.time * 3 + Fauna.cur.seed) - G.wig * 1.5;
+    st.push().t(0, a.y + G.bob, a.z).ry(wag).rx(-(PI / 2 - a.up));
+    part(a.shape || 'box', 0, a.len * 0.5, 0, a.w, a.len, a.t || a.w, Fauna.col(a.col), 0, 0.1);
+    st.pop();
+  },
+  /* two ears w wide and h tall at (x, y, z) to either side of the head */
+  ears(a) {
+    const st = R.stack, col = Fauna.col(a.col);
+    for (let side = -1; side <= 1; side += 2) {
+      st.push().t(side * a.x, a.y, a.z).rz(-side * 0.35);
+      part('box', 0, a.h * 0.5, 0, a.w, a.h, a.w * 0.35, col, 0, 0);
+      st.pop();
+    }
+  },
+  /* antlers h tall from x to either side of the head's top: a beam sweeping out and back with n tines */
+  antlers(a, hd) {
+    const col = Fauna.col(a.col || 'acc'), y0 = hd.h * 0.35;
+    for (let side = -1; side <= 1; side += 2) {
+      const x0 = side * a.x, z0 = -hd.l * 0.15, x1 = side * (a.x + a.h * 0.55), y1 = y0 + a.h, z1 = z0 - a.h * 0.35;
+      Fauna.seg('stem', x0, y0, z0, x1, y1, z1, a.w, a.w, col);
+      for (let k = 1; k <= a.n; k++) {
+        const f = k / (a.n + 1), bx = lerp(x0, x1, f), by = lerp(y0, y1, f), bz = lerp(z0, z1, f);
+        Fauna.seg('stem', bx, by, bz, bx + side * a.h * 0.08, by + a.h * 0.3, bz + a.h * 0.2, a.w * 0.7, a.w * 0.7, col);
+      }
+    }
+  },
+  /* two horns h long and w thick at (x, y, z) on the head, leaning out `out` and back `back` (rad) */
+  horns(a) {
+    const st = R.stack, col = Fauna.col(a.col || 'acc');
+    for (let side = -1; side <= 1; side += 2) {
+      st.push().t(side * a.x, a.y, a.z).rz(-side * a.out).rx(-a.back);
+      part('spire', 0, a.h * 0.5, 0, a.w, a.h, a.w, col, 0, 0.3);
+      st.pop();
+    }
+  },
+  /* two tusks l long curving up and forward from the snout */
+  tusks(a, hd) {
+    const col = Fauna.col(a.col || 'acc'), y = -hd.h * 0.25, z = hd.l * 0.5;
+    for (let side = -1; side <= 1; side += 2) Fauna.seg('spire', side * hd.w * 0.3, y, z, side * hd.w * 0.36, y + a.l * 0.8, z + a.l * 0.5, a.w, a.w, col);
+  },
+  /* a beak l long and w thick from the front of the head, its tip `down` of its length lower */
+  beak(a, hd) {
+    const z = hd.l * 0.4;
+    Fauna.seg('spire', 0, 0, z, 0, -a.down * a.l, z + a.l, a.w, a.w * 0.8, Fauna.col(a.col || 'acc'));
+  },
+  /* n humps s long and h tall on the back at height y round z */
+  hump(a) {
+    const col = Fauna.col(a.col), y = a.y + Fauna.g.bob;
+    for (let k = 0; k < a.n; k++) part('blob', 0, y, a.z + (k - (a.n - 1) / 2) * a.s * 0.9, a.s * 0.8, a.h, a.s, col, 0, 0.1);
+  },
+  /* n patches s big on both flanks of a body w wide, h tall and l long round height y */
+  spots(a) {
+    const col = Fauna.col(a.col || 'dark'), yc = a.y + Fauna.g.bob;
+    for (let k = 0; k < a.n; k++) {
+      const side = k % 2 ? 1 : -1, z = ((k * 0.618) % 1 - 0.5) * a.l * 0.75, y = yc + ((k * 0.382) % 1 - 0.5) * a.h * 0.5;
+      part('box', side * a.w * 0.5, y, z, 0.03, a.s * 0.8, a.s * 1.2, col, 0, 0);
+    }
+  },
+  /* two wings len long and chord wide from the shoulders x to either side at (y, z): flapping in two halves (tips of
+     colour tip) in flight, folded along the body on the ground */
+  wings(a) {
+    const G = Fauna.g, st = R.stack, col = Fauna.col(a.col), tip = Fauna.col(a.tip || a.col);
+    for (let side = -1; side <= 1; side += 2) {
+      if (G.fold > 0.5) { part('box', side * a.x, a.y, a.z - a.chord * 0.3, 0.03, a.chord * 0.7, a.len * 0.55, col, 0, 0.1); continue; }
+      st.push().t(side * a.x, a.y, a.z).rz(side * G.flap);
+      part('box', side * a.len * 0.25, 0, 0, a.len * 0.5, 0.03, a.chord, col, 0, 0.1);
+      st.t(side * a.len * 0.5, 0, 0).rz(side * G.flap * 0.6);
+      part('box', side * a.len * 0.22, 0, -a.chord * 0.1, a.len * 0.45, 0.025, a.chord * 0.75, tip, 0, 0.1);
+      st.pop();
+    }
+  },
+  /* pectoral fins (or flippers) l long and w wide at (x, y, z) to either side, and a dorsal fin [y, h, l, z] */
+  fins(a) {
+    const st = R.stack, col = Fauna.col(a.col || 'dark'), dd = a.dorsal;
+    if (dd) { st.push().t(0, dd[0], dd[3]).rx(-0.5); part('spire', 0, dd[1] * 0.5, 0, Math.max(0.03, dd[2] * 0.15), dd[1], dd[2], col, 0, 0.2); st.pop(); }
+    for (let side = -1; side <= 1; side += 2) {
+      st.push().t(side * a.x, a.y, a.z).rz(-side * 0.4).ry(side * 0.5);
+      part('box', side * a.l * 0.5, 0, 0, a.l, 0.04, a.w, col, 0, 0.2);
+      st.pop();
+    }
+  },
+  /* a tail fin span wide and l long at (y, z): flukes beat up and down, a fish's tail (fish: true) side to side */
+  fluke(a) {
+    const G = Fauna.g, st = R.stack, beat = Math.sin(G.phase - 1) * (0.25 + 0.3 * G.amp);
+    st.push().t(0, a.y, a.z);
+    if (a.fish) st.ry(beat); else st.rx(beat);
+    part('box', 0, 0, -a.l * 0.5, a.fish ? 0.04 : a.span, a.fish ? a.span : 0.05 + a.span * 0.03, a.l, Fauna.col(a.col || 'dark'), 0, 0.2);
+    st.pop();
+  },
+  /* a school of n fish w x h x l within r of its middle, each swinging its tail; three when drawn far */
+  school(a) {
+    const G = Fauna.g, st = R.stack, col = Fauna.col(a.col), dark = Fauna.col('dark'), n = Fauna.lod ? 3 : a.n;
+    for (let i = 0; i < n; i++) {
+      const o = FAUNA_SCHOOL[i];
+      st.push().t(o[0] * a.r, o[1] * a.r * 0.4, o[2] * a.r).ry(Math.sin(G.phase + i * 1.7) * 0.3);
+      part('gem', 0, 0, 0, a.w, a.h, a.l, col, 0, 0.6);
+      part('gem', 0, 0, -a.l * 0.55, a.w * 0.4, a.h * 1.1, a.l * 0.35, dark, 0, 0.3);
+      st.pop();
+    }
+  },
+};
+/* an animal in its pose at the stack; lod: the simple model (body, head and wings) */
+function drawAnimal(a, lod) {
+  const st = R.stack, d = a.def, G = Fauna.g, k = a.scale;
+  Fauna.cur = a; Fauna.lod = lod;
+  Fauna.pose(a);
+  st.push().t(a.x, a.y, a.z).ry(a.yaw + G.wig).rx(a.pitch + G.rock).rz(a.roll + G.sway).s(k, k, k);
+  if (G.sleep > 0) st.t(0, -d.legY * 0.8 * G.sleep, 0);   // lying down
+  for (let i = 0; i < d.parts.length; i++) {
+    const p = d.parts[i];
+    if (!lod || !FAUNA_LOD_SKIP[p[0]]) FAUNA_PARTS[p[0]](p[1], null);
+  }
+  st.pop();
+}
+/* an animal's gibs in its own colours: body halves, head, legs or wings, and gore, with blood; a fish school just
+   vanishes with a splash */
+function gibAnimal(a) {
+  const d = a.def, k = a.scale, r = d.rad * k;
+  if (!d.blood) { Water.splash(a.x, a.z, Math.max(0.8, r), true); return; }
+  const big = clamp(r, 0.15, 3), sp = 5 + big * 2, t = d.torso, ty = t.y * k, tw = t.w * k, th = t.h * k, tl = t.l * k;
+  bloodSpray(a.x, a.y + ty, a.z, Math.round(6 + big * 10), 4 + big * 2);
+  gibPart(a, 0, ty, tl * 0.25, tw * 0.9, th * 0.8, tl * 0.45, a.col, 'blob', GIB_BLOOD, sp * 0.6);   // front and back halves
+  gibPart(a, 0, ty, -tl * 0.25, tw * 0.85, th * 0.75, tl * 0.45, a.col, 'blob', 0, sp * 0.6);
+  const h = d.headP;
+  if (h) gibPart(a, 0, (h.y + h.len) * k, (h.z + h.len * 0.3) * k, h.w * k, h.h * k, h.l * k, h.col === 'dark' ? a.dark : h.col === 'acc' ? a.acc : a.col, 'sphere', GIB_BLOOD, sp);
+  const L = d.legsP;
+  if (L && d.type === 'ground') for (let i = 0; i < L.n; i++) gibPart(a, (i % 2 ? 1 : -1) * L.x * k, L.y * k * 0.5, (i < 2 ? L.zf || 0 : L.zb || 0) * k, L.w * k, (L.len || L.y) * k, L.w * k, L.col === 'main' ? a.col : a.dark, 'cyl', i % 2 ? GIB_BLOOD : 0, sp);
+  const wg = d.wingsP;
+  if (wg) for (let side = -1; side <= 1; side += 2) gibPart(a, side * wg.len * 0.4 * k, wg.y * k, 0, wg.len * 0.5 * k, 0.03, wg.chord * k, a.col, 'box', 0, sp);
+  for (let i = 0; i < 2 + Math.round(big * 2); i++) gibPart(a, rand(-0.5, 0.5) * tw, ty + rand(-0.3, 0.3) * th, rand(-0.4, 0.4) * tl, rand(0.3, 0.6) * tw, rand(0.2, 0.4) * th, rand(0.15, 0.3) * tl, i % 2 ? GIB_GORE_COL : GIB_BLOOD_COL, 'box', GIB_BLOOD, sp);
+  if (a.y - Terrain.h(a.x, a.z) < 1) addDecal(a.x, a.z, clamp(r * 1.4, 0.4, 4), GIB_BLOOD_DECAL, BLOOD_DECAL_LIFE);
+  Snd.play('gib', a.x, a.y, a.z, clamp(big, 0.4, 1.2));
+}
+const Fauna = {
+  g: { phase: 0, amp: 0, run: 0, graze: 0, sleep: 0, fold: 0, flap: 0, bob: 0, wig: 0, rock: 0, sway: 0 },   // the pose of the animal being drawn
+  cur: null, lod: false,   // the animal being drawn, and whether as its simple model
+  col(key) { const a = this.cur; return key === 'dark' ? a.dark : key === 'acc' ? a.acc : key === 'light' ? a.light : a.col; },
+  /* shape stretched from (x0, y0, z0) to (x1, y1, z1) along its height, w wide and d deep */
+  seg(shape, x0, y0, z0, x1, y1, z1, w, d, col) {
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.hypot(dx, dy, dz) || 0.001, st = R.stack;
+    st.push().t((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5).ry(Math.atan2(dx, dz)).rx(Math.acos(clamp(dy / len, -1, 1))).s(w, len, d);
+    R.draw(shape, col[0], col[1], col[2], 1, 0, 0.15); st.pop();
+  },
+  quality() { return QUALITY[S.quality] || QUALITY.medium; },
+  /* the pose of animal a into Fauna.g */
+  pose(a) {
+    const G = this.g, d = a.def, swing = Math.sin(a.phase), gait = d.gait;
+    G.phase = a.phase; G.graze = a.graze; G.sleep = a.sleep; G.fold = a.fold;
+    G.amp = clamp(a.speed / Math.max(0.3, d.walk), 0, 1);
+    G.run = clamp((a.speed - d.walk * 1.6) / Math.max(0.5, d.run - d.walk * 1.6), 0, 1);
+    G.bob = gait === 'hop' ? Math.abs(swing) * 0.12 * G.amp : d.type === 'ground' ? Math.abs(Math.cos(a.phase)) * 0.03 * G.amp * (1 + G.run) : 0;
+    G.wig = gait === 'sprawl' ? swing * 0.2 * G.amp : 0;
+    G.rock = gait === 'slide' ? swing * 0.1 * G.amp : gait === 'swim' ? Math.sin(a.phase - 0.5) * 0.05 : 0;
+    G.sway = gait === 'biped' ? swing * 0.12 * G.amp : 0;
+    G.flap = a.fold > 0.5 ? 0 : a.flapping ? swing * 0.8 : 0.08;
+  },
+
+  /* ---------- placement (once per battle, from its seed) ---------- */
+  /* species pools of map def fauna fa as Flora.pick pools: { ground, air, water }, null where none */
+  pools(fa, biome) {
+    const out = { ground: null, air: null, water: null };
+    FAUNA.forEach((sp, i) => {
+      const w = fa.species ? fa.species[sp.id] || 0 : sp.biomes.indexOf(biome) >= 0 ? 1 : 0;
+      if (!(w > 0)) return;
+      const pool = out[sp.type] || (out[sp.type] = { ids: [], cum: [], total: 0 });
+      pool.total += w; pool.ids.push(i); pool.cum.push(pool.total);
+    });
+    return out;
+  },
+  /* the herds, flocks and schools of battlefield W.map (call after populateWorld and the civilians) */
+  populate(seed) {
+    const m = W.map, fa = m.fauna, share = this.quality().fauna;
+    const rng = makeRng((Math.imul((seed || 7) >>> 0, 2654435761) ^ FAUNA_SEED) >>> 0);
+    W.fauna = { groups: [], tick: 0, night: false, drawn: 0, kills: 0, count: 0 };
+    if (!W.flora) return;   // a world built without populateWorld has no free-ground test
+    const pools = this.pools(fa, m.biome), counts = { ground: fa.herds, air: fa.flocks, water: fa.schools };
+    for (const type of ['ground', 'air', 'water']) for (let i = 0; i < counts[type]; i++) {
+      const grng = makeRng((rng() * 4294967296) >>> 0);   // a stream per group: the quality's share changes no other group
+      const sp = Flora.pick(pools[type], grng()), home = sp >= 0 ? this.findHome(FAUNA[sp], grng) : null;
+      if (home) this.spawnGroup(sp, home, grng, fa.density * share);
+    }
+  },
+  /* a home for a group of species d: clear of sites, and where it lives (half the tries insist on its habitat) */
+  findHome(d, rng) {
+    for (let t = 0; t < FAUNA_HOME_TRIES; t++) {
+      const x = (rng() * 2 - 1) * FAUNA_EDGE * 0.92, z = (rng() * 2 - 1) * FAUNA_EDGE * 0.92, picky = t < FAUNA_HOME_TRIES / 2;
+      if (!Flora.clearOfSites(x, z, d.spread + FAUNA_SITE_GAP)) continue;
+      if (d.type === 'water') { if (Water.depth(x, z) >= d.deep * 1.5) return { x, z }; continue; }
+      if (d.type === 'air') { if (d.home !== 'coast' || this.byWater(x, z)) return { x, z }; continue; }
+      if (this.standOk(d, x, z, 2) && this.habitat(d, x, z, picky)) return { x, z };
+    }
+    return null;
+  },
+  /* (x, z) suits a home of d: meadows and forest edges for grazers, forest edges for 'forest', water near for 'shore' */
+  habitat(d, x, z, picky) {
+    if (d.home === 'shore') return this.byWater(x, z);
+    if (!picky || d.home === 'open') return true;
+    const forest = Flora.mask('forest', x, z);
+    if (d.home === 'forest') return forest > 0.1 && forest < 0.75;
+    return Flora.mask('meadow', x, z) > 0.4 || (forest > 0.1 && forest < 0.6);
+  },
+  byWater(x, z) {
+    const r = 40;
+    return Water.any && (Water.at(x, z) || Water.at(x + r, z) || Water.at(x - r, z) || Water.at(x, z + r) || Water.at(x, z - r));
+  },
+  /* species d may be placed standing at (x, z) with r m round it free: ground, slope and water rules, and no
+     structure, building, road, keep-out or corridor there (the flora's free-ground test) */
+  standOk(d, x, z, r) {
+    if (Math.abs(x) > FAUNA_EDGE || Math.abs(z) > FAUNA_EDGE || Terrain.slope(x, z) > d.slope || Water.depth(x, z) > d.wade) return false;
+    return W.flora.free(x, z, r) && !this.inBuilding(x, z, r);
+  },
+  inBuilding(x, z, r) {
+    const bs = W.buildings;
+    for (let i = 0; i < bs.length; i++) { const b = bs[i]; if (x > b.ox - r && x < b.bx1 + r && z > b.oz - r && z < b.bz1 + r) return true; }
+    return false;
+  },
+  spawnGroup(sp, home, rng, mult) {
+    const d = FAUNA[sp], n = Math.max(1, Math.round(lerp(d.group[0], d.group[1], rng()) * mult));
+    const g = {
+      def: d, sp, type: d.type, hx: home.x, hz: home.z, gx: home.x, gy: 0, gz: home.z, tx: home.x, tz: home.z, alt: 0, lx: home.x, lz: home.z, spin: rng() * TAU,
+      state: d.type === 'air' ? 'fly' : '', t: rng() * FAUNA_FLY_T[0], panic: 0, threatX: 0, threatZ: 0, members: [], near: [], slot: W.fauna.groups.length, far: false,
+      x0: 0, x1: 0, y0: 0, y1: 0, z0: 0, z1: 0, cx: 0, cy: 0, cz: 0, rad: 0,
+    };
+    if (d.type === 'air') { g.alt = lerp(d.alt[0], d.alt[1], rng()); g.gy = Water.top(home.x, home.z) + g.alt; this.skyGoal(g, false, rng); }
+    for (let i = 0; i < n; i++) {
+      const a = this.make(g, rng);
+      for (let t = 0; t < FAUNA_MEMBER_TRIES; t++) if (this.place(a, rng)) { g.members.push(a); break; }
+    }
+    if (!g.members.length) return;
+    W.fauna.groups.push(g); W.fauna.count += g.members.length;
+    this.bounds(g);
+  },
+  /* one animal with its own size, pace, colours and place in its group; every animal has the same fields */
+  make(g, rng) {
+    const d = g.def, tint = lerp(0.88, 1.12, rng()), warm = (rng() - 0.5) * 0.1, sp = d.spread;
+    const paint = (c) => (c ? [c[0] * tint * (1 + warm), c[1] * tint, c[2] * tint * (1 - warm)] : null);
+    return {
+      def: d, grp: g, x: 0, y: 0, z: 0, yaw: rng() * TAU, pitch: 0, roll: 0, vx: 0, vy: 0, vz: 0, speed: 0, hp: d.hp, dead: false,
+      state: d.type === 'air' ? 'fly' : d.type === 'water' ? 'swim' : 'graze', t: rng() * FAUNA_GRAZE[1], panic: 0, fleeYaw: 0, tx: 0, tz: 0,
+      phase: rng() * TAU, graze: 0, sleep: 0, fold: d.type === 'air' ? 0 : 1, flapping: true, scatter: 0, seed: rng() * 100,
+      scale: lerp(0.85, 1.12, rng()), pace: lerp(0.9, 1.1, rng()), depthF: lerp(0.3, 0.7, rng()),
+      offX: (rng() * 2 - 1) * sp, offY: (rng() * 2 - 1) * sp * 0.3, offZ: (rng() * 2 - 1) * sp,
+      lookT: rng() * FAUNA_LOOK, avoidYaw: 0, avoidT: 0,
+      col: paint(d.col), dark: paint(d.dark), acc: paint(d.acc), light: paint(d.light || d.acc),
+    };
+  },
+  /* a spot for animal a near its group's home (birds fly in their place in the flock); false when the spot is not free */
+  place(a, rng) {
+    const g = a.grp, d = a.def, ang = rng() * TAU, r = Math.sqrt(rng()) * d.spread;
+    if (d.type === 'air') { a.x = g.gx + a.offX; a.z = g.gz + a.offZ; a.y = g.gy + a.offY; return true; }
+    const x = g.hx + Math.sin(ang) * r, z = g.hz + Math.cos(ang) * r;
+    if (d.type === 'water') {
+      if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || Water.depth(x, z) < d.deep) return false;
+      a.x = x; a.z = z; a.y = this.swimY(a, Terrain.h(x, z), Water.level(x, z), null);
+      return true;
+    }
+    if (!this.standOk(d, x, z, d.rad * a.scale + 0.3)) return false;
+    a.x = x; a.z = z; a.y = this.groundY(d, x, z);
+    return true;
+  },
+  /* the group's box round its animals (for hearing, shots and drawing) */
+  bounds(g) {
+    const ms = g.members;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let k = 0; k < ms.length; k++) {
+      const a = ms[k];
+      if (a.x < x0) x0 = a.x; if (a.x > x1) x1 = a.x; if (a.y < y0) y0 = a.y; if (a.y > y1) y1 = a.y; if (a.z < z0) z0 = a.z; if (a.z > z1) z1 = a.z;
+    }
+    const d = g.def, pad = (d.rad + d.ry + d.top) * 1.15 + 0.5;
+    g.x0 = x0 - pad; g.x1 = x1 + pad; g.y0 = y0 - pad; g.y1 = y1 + pad; g.z0 = z0 - pad; g.z1 = z1 + pad;
+    g.cx = (x0 + x1) * 0.5; g.cy = (y0 + y1) * 0.5; g.cz = (z0 + z1) * 0.5;
+    g.rad = Math.hypot(x1 - x0, y1 - y0, z1 - z0) * 0.5 + pad;
+  },
+
+  /* ---------- per tick ---------- */
+  update(dt) {
+    const F = W.fauna;
+    if (!F) return;
+    F.tick++;
+    F.night = Clock.look.night > FAUNA_NIGHT;
+    const gs = F.groups, cam = R.cam;
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i], dx = g.cx - cam.x, dz = g.cz - cam.z;
+      g.far = dx * dx + dz * dz > FAUNA_FAR * FAUNA_FAR;
+      if (g.far && (F.tick + g.slot) % FAUNA_FAR_EVERY) continue;
+      this.stepGroup(g, g.far ? dt * FAUNA_FAR_EVERY : dt);
+    }
+    for (let i = gs.length - 1; i >= 0; i--) if (!gs[i].members.length) { gs[i] = gs[gs.length - 1]; gs.pop(); }   // groups with no animals left
+  },
+  stepGroup(g, dt) {
+    this.collectMachines(g);
+    if (g.type === 'ground') this.stepHerd(g, dt); else if (g.type === 'air') this.stepFlock(g, dt); else this.stepSchool(g, dt);
+    const ms = g.members;
+    let dead = 0;
+    for (let k = 0; k < ms.length; k++) {
+      const a = ms[k];
+      if (!a.dead) { if (g.type === 'ground') this.stepWalker(a, g, dt); else if (g.type === 'air') this.stepBird(a, g, dt); else this.stepSwimmer(a, g, dt); }
+      if (a.dead) dead++;
+    }
+    if (dead) {
+      for (let k = ms.length - 1; k >= 0; k--) if (ms[k].dead) { ms[k] = ms[ms.length - 1]; ms.pop(); }
+      W.fauna.count -= dead;
+    }
+    if (ms.length) this.bounds(g);
+  },
+  /* animals that are not active at night sleep or roost then */
+  resting(d) { return !d.night && W.fauna.night; },
+  /* the ground platforms near the group this tick (holograms, which lure fire, are only light); none for swimmers and far groups */
+  collectMachines(g) {
+    g.near.length = 0;
+    if (g.far || g.type === 'water') return;
+    const r = FAUNA_MACHINE_SCARE, pl = W.platforms;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.dead || p.kind === 'air' || p.def.lure || p.x < g.x0 - r || p.x > g.x1 + r || p.z < g.z0 - r || p.z > g.z1 + r) continue;
+      g.near.push(p);
+    }
+  },
+  /* ground machines run over animals in their way when moving and scare their group when near; soldiers shove them */
+  touchMachines(a, g) {
+    const near = g.near, d = a.def, r = d.rad * a.scale;
+    for (let i = 0; i < near.length; i++) {
+      const q = near[i], dx = a.x - q.x, dz = a.z - q.z, dd = Math.hypot(dx, dz) || 1e-3, reach = q.radius + r;
+      const machine = q.def.style !== 'infantry', moving = Math.abs(q.speed) > 1;
+      if (dd < reach && a.y + d.top * a.scale > q.y && a.y < q.y + q.height) {
+        if (machine && Math.abs(q.speed) > CIV_CRUSH_SPEED) { this.kill(a, q.vx + dx / dd * 3, 2, q.vz + dz / dd * 3); return; }
+        a.x = q.x + dx / dd * reach; a.z = q.z + dz / dd * reach;
+      }
+      if (machine && moving && dd < FAUNA_MACHINE_SCARE) this.scareGroup(g, q.x, q.z);
+    }
+  },
+
+  /* ---------- herds (ground animals) ---------- */
+  /* the herd's goal moves now and then within its range of home; after a scare it is where the herd ran to */
+  stepHerd(g, dt) {
+    if (g.panic > 0 && (g.panic -= dt) <= 0) this.settle(g);
+    if ((g.t -= dt) > 0 || g.panic > 0) return;
+    const d = g.def, reach = FAUNA_ROAM * (d.roam ? 2 : 1);
+    g.t = rand(FAUNA_GOAL_T[0], FAUNA_GOAL_T[1]) * (d.roam ? 0.5 : 1);
+    for (let k = 0; k < 4; k++) {
+      const x = g.hx + rand(-1, 1) * reach, z = g.hz + rand(-1, 1) * reach;
+      if (!this.blocked(d, x, z, 1) && Flora.clearOfSites(x, z, d.spread)) { g.gx = x; g.gz = z; return; }
+    }
+  },
+  settle(g) {
+    const ms = g.members;
+    let sx = 0, sz = 0, n = 0;
+    for (let k = 0; k < ms.length; k++) if (!ms[k].dead) { sx += ms[k].x; sz += ms[k].z; n++; }
+    if (n) { g.gx = sx / n; g.gz = sz / n; }
+    g.t = rand(FAUNA_GOAL_T[0], FAUNA_GOAL_T[1]);
+  },
+  /* where a ground animal of d stands at (x, z): on the ground, or floating if it swims */
+  groundY(d, x, z) { return d.amphib ? Water.floatY(x, z, d.top * 0.75) : Terrain.h(x, z); },
+  /* a walker of d cannot stand at (x, z), r m round: out of bounds, water too deep, ground too steep, or a structure */
+  blocked(d, x, z, r) {
+    if (this.stepBlocked(d, x, z)) return true;
+    return groundBlocked(x, z, r, Terrain.h(x, z) + 0.1, d.top);
+  },
+  /* the cheap part of that, tested every step */
+  stepBlocked(d, x, z) {
+    return Math.abs(x) > FAUNA_EDGE || Math.abs(z) > FAUNA_EDGE || (!d.amphib && Water.any && Water.depth(x, z) > d.wade) || Terrain.slope(x, z) > d.slope;
+  },
+  /* graze (or sleep) a while */
+  rest(a) { a.state = this.resting(a.def) ? 'sleep' : 'graze'; a.t = rand(FAUNA_GRAZE[0], FAUNA_GRAZE[1]) * (a.def.roam ? 0.4 : 1); a.speed = 0; },
+  /* step to a spot near the herd's goal */
+  wander(a, g) {
+    const d = a.def, ang = Math.random() * TAU, r = Math.random() * d.spread * (d.roam ? 2 : 1);
+    a.tx = g.gx + Math.sin(ang) * r; a.tz = g.gz + Math.cos(ang) * r;
+    a.state = 'walk'; a.t = 30;   // gives up on a spot it cannot reach
+  },
+  stepWalker(a, g, dt) {
+    this.touchMachines(a, g);
+    if (a.dead) return;
+    const d = a.def;
+    let sp = 0, yaw = a.yaw;
+    if (a.panic > 0) a.panic -= dt;
+    if (a.state === 'flee') {
+      if (a.panic <= 0) this.rest(a); else { sp = d.run * a.pace; yaw = a.fleeYaw; }
+    } else if (a.state === 'walk') {
+      const dx = a.tx - a.x, dz = a.tz - a.z, dd = Math.hypot(dx, dz);
+      if (dd < 0.8 || (a.t -= dt) <= 0) this.rest(a);
+      else { sp = d.walk * a.pace * (dd > d.spread * 2 ? 1.8 : 1); yaw = Math.atan2(dx, dz); }
+    } else if ((a.t -= dt) <= 0 || (a.state === 'sleep' && !this.resting(d))) {
+      if (a.state === 'sleep' && this.resting(d)) a.t = rand(FAUNA_GRAZE[0], FAUNA_GRAZE[1]); else this.wander(a, g);
+    }
+    a.graze = approach(a.graze, a.state === 'graze' ? (d.roam ? 0.4 : 1) : 0, dt * 2.5);
+    a.sleep = approach(a.sleep, a.state === 'sleep' ? 1 : 0, dt);
+    a.speed = sp;
+    if (sp > 0) this.walk(a, yaw, sp, dt);
+    a.vx = Math.sin(a.yaw) * a.speed; a.vz = Math.cos(a.yaw) * a.speed; a.vy = 0;
+    a.y = this.groundY(d, a.x, a.z);
+  },
+  /* one step toward heading yaw at sp m/s, round obstacles; a blocked step stops it (a fleeing one turns away) */
+  walk(a, yaw, sp, dt) {
+    const d = a.def, flee = a.state === 'flee';
+    yaw = this.avoid(a, yaw, 0.8 + sp * FAUNA_LOOK * 1.5, dt);
+    if (flee) a.fleeYaw = yaw;
+    a.yaw = turnToward(a.yaw, yaw, FAUNA_TURN * (flee ? 2 : 1) * dt);
+    const nx = a.x + Math.sin(a.yaw) * sp * dt, nz = a.z + Math.cos(a.yaw) * sp * dt;
+    if (this.stepBlocked(d, nx, nz) && !this.stepBlocked(d, a.x, a.z)) {   // never trapped where it already stands
+      a.speed = 0;
+      if (flee) a.fleeYaw += randSign() * rand(1, 2); else this.rest(a);
+      return;
+    }
+    a.x = nx; a.z = nz;
+    a.phase += Math.min(sp * d.stride, FAUNA_STEP_MAX) * dt;
+  },
+  /* the heading to walk: straight on unless something stands `look` m ahead, then the first clear turn, held a moment */
+  avoid(a, yaw, look, dt) {
+    if (a.avoidT > 0) { a.avoidT -= dt; return a.avoidYaw; }
+    if ((a.lookT -= dt) > 0) return yaw;
+    a.lookT = FAUNA_LOOK;
+    const d = a.def, r = d.rad * a.scale * 0.5;
+    if (!this.blocked(d, a.x + Math.sin(yaw) * look, a.z + Math.cos(yaw) * look, r)) return yaw;
+    const side = a.seed % 2 < 1 ? 1 : -1;
+    for (let k = 0; k < CIV_DODGE.length; k++) {
+      const t = yaw + CIV_DODGE[k] * side;
+      if (!this.blocked(d, a.x + Math.sin(t) * look, a.z + Math.cos(t) * look, r)) { a.avoidYaw = t; a.avoidT = 0.6; return t; }
+    }
+    return yaw;
+  },
+
+  /* ---------- flocks (birds) ---------- */
+  /* the flock's middle flies between goals; now and then (and at night) the flock lands, and later takes off again */
+  stepFlock(g, dt) {
+    const d = g.def;
+    if (g.panic > 0) g.panic -= dt;
+    g.spin += dt * 0.12;
+    g.t -= dt;
+    if (g.state === 'fly') {
+      const dx = g.tx - g.gx, dz = g.tz - g.gz, dd = Math.hypot(dx, dz), sp = d.fly * (g.panic > 0 ? 1.3 : 0.75) * dt;
+      if (dd < 20) this.skyGoal(g, false, Math.random);
+      else { g.gx += dx / dd * sp; g.gz += dz / dd * sp; }
+      g.gy = approach(g.gy, Water.top(g.gx, g.gz) + g.alt, 5 * dt);
+      if (g.panic <= 0 && (g.t <= 0 || this.resting(d))) this.tryLand(g);
+      return;
+    }
+    if (g.state === 'land') {
+      let down = 0;
+      for (let k = 0; k < g.members.length; k++) if (g.members[k].state === 'landed') down++;
+      if (down === g.members.length || g.t <= 0) { g.state = 'landed'; g.t = rand(FAUNA_LANDED[0], FAUNA_LANDED[1]); }
+      return;
+    }
+    if (g.t <= 0 && !this.resting(d)) this.takeOff(g, false);
+  },
+  /* a next goal for the flock's middle in its range of home (coast birds keep to the water), or away from the danger */
+  skyGoal(g, scared, rng) {
+    const d = g.def;
+    let x = 0, z = 0;
+    for (let k = 0; k < 4; k++) {
+      x = g.hx + (rng() * 2 - 1) * FAUNA_SKY_ROAM; z = g.hz + (rng() * 2 - 1) * FAUNA_SKY_ROAM;
+      if (d.home !== 'coast' || this.byWater(x, z)) break;
+    }
+    if (scared) { const ax = g.gx - g.threatX, az = g.gz - g.threatZ, l = Math.hypot(ax, az) || 1; x = g.gx + ax / l * 250; z = g.gz + az / l * 250; }
+    g.tx = clamp(x, -FAUNA_EDGE, FAUNA_EDGE); g.tz = clamp(z, -FAUNA_EDGE, FAUNA_EDGE);
+    g.alt = lerp(d.alt[0], d.alt[1], rng()) * (scared ? 1.3 : 1);
+  },
+  tryLand(g) {
+    for (let k = 0; k < 4; k++) {
+      const x = g.gx + rand(-60, 60), z = g.gz + rand(-60, 60);
+      if (this.perchOk(g.def, x, z)) { g.lx = x; g.lz = z; g.state = 'land'; g.t = 30; return; }
+    }
+    g.t = 4;   // nowhere to land here: look again soon
+  },
+  /* a flock of d can land round (x, z): off the sites, and clear dry ground (or open water for birds that swim) */
+  perchOk(d, x, z) {
+    const r = FAUNA_PERCH_R;
+    if (Math.abs(x) > FAUNA_EDGE - r || Math.abs(z) > FAUNA_EDGE - r || !Flora.clearOfSites(x, z, r)) return false;
+    if (Water.wetIn(x, z, r)) return d.swims && Water.depth(x, z) > 0.5 && Water.at(x - r, z - r) && Water.at(x + r, z - r) && Water.at(x - r, z + r) && Water.at(x + r, z + r);
+    return Terrain.slope(x, z) < 0.8 && !groundBlocked(x, z, r, Terrain.h(x, z) + 0.1, 2) && !this.inBuilding(x, z, r);
+  },
+  takeOff(g, scared) {
+    if (g.state !== 'fly') { g.gx = g.lx; g.gz = g.lz; g.gy = Water.top(g.lx, g.lz) + 4; }
+    g.state = 'fly'; g.t = rand(FAUNA_FLY_T[0], FAUNA_FLY_T[1]);
+    this.skyGoal(g, scared, Math.random);
+    if (scared) for (let k = 0; k < g.members.length; k++) g.members[k].scatter = FAUNA_SCATTER;
+  },
+  /* a bird flies to its place in the flock (spread wide while scattering), or down to its spot on the landing place */
+  stepBird(a, g, dt) {
+    const d = a.def;
+    if (a.panic > 0) a.panic -= dt;
+    if (a.state === 'landed') {
+      this.touchMachines(a, g);
+      if (a.dead) return;
+      if (g.state === 'fly') { a.state = 'fly'; a.fold = 0; return; }
+      a.speed = 0; a.fold = 1;
+      a.graze = approach(a.graze, Math.sin(W.time * 1.7 + a.seed) > 0.3 ? 1 : 0, dt * 4);   // pecking
+      return;
+    }
+    const landing = g.state !== 'fly';
+    let px, py, pz;
+    if (landing) { px = g.lx + a.offX * 0.5; pz = g.lz + a.offZ * 0.5; py = Water.top(px, pz); }
+    else {
+      const c = Math.cos(g.spin), s = Math.sin(g.spin), wide = a.scatter > 0 ? 3 : 1;
+      if (a.scatter > 0) a.scatter -= dt;
+      px = g.gx + (a.offX * c + a.offZ * s) * wide; pz = g.gz + (a.offZ * c - a.offX * s) * wide; py = g.gy + a.offY * wide;
+    }
+    const dx = px - a.x, dy = py - a.y, dz = pz - a.z, dh = Math.hypot(dx, dz);
+    if (landing && dh < 1.2 && a.y - py < 0.8) { a.x = px; a.z = pz; a.y = py; a.state = 'landed'; a.speed = 0; a.pitch = 0; a.roll = 0; a.fold = 1; return; }
+    let sp = d.fly * (g.panic > 0 ? 1.4 : 1) * clamp(0.6 + dh / 30, 0.6, 1.6);
+    if (landing) sp = Math.min(sp, Math.max(2, dh * 1.5));   // slows down over its spot
+    const was = a.yaw;
+    a.yaw = turnToward(a.yaw, Math.atan2(dx, dz), FAUNA_BIRD_TURN * (landing ? 2 : 1) * dt);
+    const climb = clamp(dy * 1.5, -d.fly * 0.6, d.fly * 0.5);
+    a.x += Math.sin(a.yaw) * sp * dt; a.z += Math.cos(a.yaw) * sp * dt; a.y += climb * dt;
+    const floor = Water.top(a.x, a.z) + (landing && dh < 10 ? 0 : FAUNA_BIRD_CLEAR);
+    if (a.y < floor) a.y = floor;
+    a.speed = sp; a.vx = Math.sin(a.yaw) * sp; a.vy = climb; a.vz = Math.cos(a.yaw) * sp; a.fold = 0;
+    a.pitch = clamp(-climb / sp * 0.6, -0.5, 0.5);
+    a.roll = approach(a.roll, clamp(-angleDiff(was, a.yaw) / dt * 0.35, -0.7, 0.7), dt * 3);
+    a.flapping = climb > 0.5 || g.panic > 0 || landing || Math.sin(W.time * 0.4 + a.seed) > d.glide * 2 - 1;
+    a.phase += dt * d.flap * (a.flapping ? 1 : 0.3);
+  },
+
+  /* ---------- schools and pods (swimmers) ---------- */
+  stepSchool(g, dt) {
+    const d = g.def;
+    if (g.panic > 0) g.panic -= dt;
+    g.t -= dt;
+    const dx = g.tx - g.gx, dz = g.tz - g.gz, dd = Math.hypot(dx, dz), sp = d.walk * (g.panic > 0 ? 2.5 : 0.8) * dt;
+    if (dd < 8 || g.t <= 0) { this.swimGoal(g, false); return; }
+    const nx = g.gx + dx / dd * sp, nz = g.gz + dz / dd * sp;
+    if (Water.depth(nx, nz) >= d.deep) { g.gx = nx; g.gz = nz; } else this.swimGoal(g, false);
+  },
+  /* a next goal in water deep enough, in range of home (or away from the danger) */
+  swimGoal(g, scared) {
+    const d = g.def;
+    g.t = rand(20, 45);
+    for (let k = 0; k < 6; k++) {
+      let x = g.hx + rand(-1, 1) * FAUNA_SWIM_ROAM, z = g.hz + rand(-1, 1) * FAUNA_SWIM_ROAM;
+      if (scared && k < 4) { const ax = g.gx - g.threatX, az = g.gz - g.threatZ, l = Math.hypot(ax, az) || 1; x = g.gx + ax / l * rand(60, 120) + rand(-30, 30); z = g.gz + az / l * rand(60, 120) + rand(-30, 30); }
+      if (Math.abs(x) < GROUND_BOUND && Math.abs(z) < GROUND_BOUND && Water.depth(x, z) >= d.deep * 1.2) { g.tx = x; g.tz = z; return; }
+    }
+  },
+  /* height y (null: the one the swimmer likes) between bed and surface, kept inside the water by its size */
+  swimY(a, bed, level, y) {
+    const pad = a.def.ry * a.scale + FAUNA_WATER_PAD, lo = bed + pad, hi = level - pad;
+    if (lo >= hi) return (bed + level) * 0.5;
+    return clamp(y === null ? lerp(lo, hi, a.depthF) : y, lo, hi);
+  },
+  /* a swimmer follows its place round the school's middle, only ever into water deep enough, between bed and surface */
+  stepSwimmer(a, g, dt) {
+    const d = a.def, px = g.gx + a.offX, pz = g.gz + a.offZ, dx = px - a.x, dz = pz - a.z, dd = Math.hypot(dx, dz);
+    let sp = (g.panic > 0 ? d.run : d.walk) * a.pace * clamp(dd / 5, 0.4, 1.8);
+    a.yaw = turnToward(a.yaw, Math.atan2(dx, dz), (g.panic > 0 ? 3 : 1.2) * dt);
+    const nx = a.x + Math.sin(a.yaw) * sp * dt, nz = a.z + Math.cos(a.yaw) * sp * dt;
+    if (Math.abs(nx) < GROUND_BOUND && Math.abs(nz) < GROUND_BOUND && Water.depth(nx, nz) >= d.deep * 0.6) { a.x = nx; a.z = nz; }
+    else { sp = 0; a.yaw += (a.seed % 2 < 1 ? 1 : -1) * 2 * dt; }
+    const bed = Terrain.h(a.x, a.z), level = Water.level(a.x, a.z), want = this.swimY(a, bed, level, null);
+    a.y = this.swimY(a, bed, level, approach(a.y, want, 1.5 * dt));
+    a.speed = sp; a.vx = Math.sin(a.yaw) * sp; a.vy = 0; a.vz = Math.cos(a.yaw) * sp;
+    a.phase += dt * (3 + sp * 1.5);
+  },
+
+  /* ---------- fear ---------- */
+  scareOne(a, x, z) {
+    if (a.dead) return;
+    a.panic = rand(FAUNA_PANIC[0], FAUNA_PANIC[1]);
+    if (a.def.type !== 'ground') return;
+    a.state = 'flee'; a.fleeYaw = Math.atan2(a.x - x, a.z - z) + rand(-0.5, 0.5); a.avoidT = 0;
+  },
+  /* danger at (x, z): the whole group runs, takes off or darts away (re-planned when the danger moves or calms) */
+  scareGroup(g, x, z) {
+    const fresh = g.panic <= 0 || Math.hypot(x - g.threatX, z - g.threatZ) > FAUNA_THREAT_MOVE;
+    g.panic = rand(FAUNA_PANIC[0], FAUNA_PANIC[1]);
+    if (fresh) {
+      g.threatX = x; g.threatZ = z;
+      if (g.type === 'air') this.takeOff(g, true); else if (g.type === 'water') this.swimGoal(g, true);
+    }
+    for (let k = 0; k < g.members.length; k++) { const a = g.members[k]; if (fresh || a.panic <= 0) this.scareOne(a, x, z); }
+  },
+  /* any danger near (x, z) within r: gunfire, a death */
+  alarm(x, z, r) {
+    const F = W.fauna;
+    if (!F) return;
+    const gs = F.groups;
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i];
+      if (x < g.x0 - r || x > g.x1 + r || z < g.z0 - r || z > g.z1 + r) continue;
+      const ms = g.members;
+      for (let k = 0; k < ms.length; k++) {
+        const a = ms[k], dx = a.x - x, dz = a.z - z;
+        if (!a.dead && dx * dx + dz * dz < r * r) { this.scareGroup(g, x, z); break; }
+      }
+    }
+  },
+
+  /* ---------- harm (no score) ---------- */
+  kill(a, vx, vy, vz) {
+    if (a.dead) return;
+    a.dead = true; a.hp = 0; a.vx = vx; a.vy = vy; a.vz = vz; a.speed = 0;
+    W.fauna.kills++;
+    gibAnimal(a);
+    this.alarm(a.x, a.z, FAUNA_DEATH_SCARE);
+  },
+  /* (vx, vy, vz): the push of the hit, which throws the gibs */
+  hurt(a, dmg, vx, vy, vz) {
+    if (a.dead) return;
+    if (dmg >= a.hp) { this.kill(a, vx, vy, vz); return; }
+    a.hp -= dmg;
+    if (a.def.blood) bloodSpray(a.x, a.y + a.def.cy * a.scale, a.z, 5, 4);
+    this.scareGroup(a.grp, a.x - vx, a.z - vz);
+  },
+  /* a blast at (x, y, z); a co-op guest's replayed blasts carry no damage, so there its size decides */
+  blast(x, y, z, radius, damage) {
+    const F = W.fauna;
+    if (!F) return;
+    const gs = F.groups, hear = Math.max(FAUNA_BLAST_HEAR_MIN, radius * FAUNA_BLAST_HEAR);
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i];
+      if (x < g.x0 - hear || x > g.x1 + hear || z < g.z0 - hear || z > g.z1 + hear) continue;
+      const ms = g.members;
+      let heard = false;
+      for (let k = 0; k < ms.length; k++) {
+        const a = ms[k];
+        if (a.dead) continue;
+        const d = a.def, dx = a.x - x, dy = a.y + d.cy * a.scale - y, dz = a.z - z, len = Math.hypot(dx, dy, dz), dist = len - d.rad * a.scale;
+        if (dist < radius) {
+          const f = 1 - clamp(dist / radius, 0, 1);
+          const dmg = damage > 0 ? damage * (0.15 + 0.85 * f) : Net.guest ? d.hp * FAUNA_GUEST_BLAST * f : 0;
+          const push = (radius * 2 + 4) * f / (len || 1);
+          if (dmg > 0) this.hurt(a, dmg, dx * push, 3 + 8 * f, dz * push);
+          if (a.dead) continue;
+        }
+        if (dx * dx + dz * dz < hear * hear) heard = true;
+      }
+      if (heard) this.scareGroup(g, x, z);
+    }
+  },
+  /* a shot moving len metres from (x0, y0, z0) along unit (ux, uy, uz) hits every animal in its way and flies on */
+  sweep(x0, y0, z0, ux, uy, uz, len, dmg) {
+    const F = W.fauna;
+    if (!F || !(len > 0)) return;
+    const x1 = x0 + ux * len, y1 = y0 + uy * len, z1 = z0 + uz * len, gs = F.groups;
+    const bx0 = Math.min(x0, x1), bx1 = Math.max(x0, x1), by0 = Math.min(y0, y1), by1 = Math.max(y0, y1), bz0 = Math.min(z0, z1), bz1 = Math.max(z0, z1);
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i];
+      if (bx1 < g.x0 || bx0 > g.x1 || bz1 < g.z0 || bz0 > g.z1 || by1 < g.y0 || by0 > g.y1) continue;
+      const ms = g.members;
+      for (let k = 0; k < ms.length; k++) {
+        const a = ms[k];
+        if (a.dead) continue;
+        const d = a.def, s = a.scale;
+        if (segEllipsoid(x0, y0, z0, ux, uy, uz, len, a.x, a.y + d.cy * s, a.z, d.rad * s + 0.1, d.ry * s + 0.1) >= 0) this.hurt(a, dmg, ux * 6, 2, uz * 6);
+      }
+    }
+  },
+  /* a beam from (x1, y1, z1) to (x2, y2, z2) */
+  ray(x1, y1, z1, x2, y2, z2, dmg) {
+    const len = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
+    if (len > 0) this.sweep(x1, y1, z1, (x2 - x1) / len, (y2 - y1) / len, (z2 - z1) / len, len, dmg);
+  },
+
+  /* ---------- drawing ---------- */
+  /* the animals within faunaDraw of the camera (simple models past faunaLod), at most faunaCap of them */
+  draw() {
+    const F = W.fauna;
+    if (!F) return;
+    const q = this.quality(), st = R.stack, cam = R.cam, far2 = q.faunaDraw * q.faunaDraw, lod2 = q.faunaLod * q.faunaLod, gs = F.groups;
+    let n = 0;
+    for (let i = 0; i < gs.length && n < q.faunaCap; i++) {
+      const g = gs[i], gx = g.cx - cam.x, gz = g.cz - cam.z, reach = q.faunaDraw + g.rad;
+      if (gx * gx + gz * gz > reach * reach || !R.visible(g.cx, g.cy, g.cz, g.rad)) continue;
+      const ms = g.members;
+      for (let k = 0; k < ms.length && n < q.faunaCap; k++) {
+        const a = ms[k];
+        if (a.dead) continue;
+        const d = a.def, dx = a.x - cam.x, dy = a.y - cam.y, dz = a.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > far2 || !R.visible(a.x, a.y + d.cy * a.scale, a.z, (d.rad + d.ry) * a.scale + 0.5)) continue;
+        n++;
+        st.top = 0; st.ident();
+        drawAnimal(a, d2 > lod2);
+      }
+    }
+    F.drawn = n;
+    st.top = 0; st.ident();
+  },
+  /* contact shadows of the near ground animals and landed birds (inside the low shadow batch) */
+  drawShadows() {
+    const F = W.fauna;
+    if (!F) return;
+    const st = R.stack, cam = R.cam, lim2 = FAUNA_SHADOW_DIST * FAUNA_SHADOW_DIST, gs = F.groups;
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i], gx = g.cx - cam.x, gz = g.cz - cam.z, reach = FAUNA_SHADOW_DIST + g.rad;
+      if (g.type === 'water' || gx * gx + gz * gz > reach * reach) continue;
+      const ms = g.members;
+      for (let k = 0; k < ms.length; k++) {
+        const a = ms[k], dx = a.x - cam.x, dz = a.z - cam.z;
+        if (a.dead || (g.type === 'air' && a.state !== 'landed') || dx * dx + dz * dz > lim2 || !R.visible(a.x, a.y, a.z, 2)) continue;
+        const t = a.def.torso, s = a.scale;
+        st.push().t(a.x, Water.top(a.x, a.z) + 0.13, a.z).ry(a.yaw).s(t.w * 1.3 * s, 0.05, t.l * 1.1 * s); R.draw('cyl', 0, 0, 0); st.pop();
+      }
+    }
+  },
+};
 
 
 /* =====================================================================
@@ -7309,6 +8272,7 @@ class Platform {
     if (d.ramp) { dmg *= 1 + this.rampBeam(w, r.hit && r.kind === 'platform' ? r.obj : null); width *= 1 + w.ramp * 0.4; }
     WPN.beam(mz.x, mz.y, mz.z, ex, ey, ez, w.id, width);
     Civ.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Civ.alarm(this.x, this.z, CIV_GUNFIRE_HEAR);
+    Fauna.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Fauna.alarm(this.x, this.z, FAUNA_GUNFIRE_HEAR);
     if (!r.hit) return;
     const kind = r.kind, obj = r.obj;
     fxSparks(ex, ey, ez, 5, d.tracer, 12);
@@ -8093,7 +9057,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.guide && !p.target) p.noGuide = true; else p.noGuide = false;
   if (d.guide && !p.target) notify(owner, 'NO LOCK: DUMB-FIRE');
   p.stuck = null;
-  Civ.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR);
+  Civ.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR); Fauna.alarm(owner.x, owner.z, FAUNA_GUNFIRE_HEAR);
   if (d.mine) WPN.placeMine(p, owner);
   if (d.guide && d.guide.top && p.target) WPN.loft(p);
 }
@@ -8238,7 +9202,8 @@ function updateProjectiles(dt) {
       const ht = segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
       if (ht >= 0 && ht < bestT) { bestT = ht; kind = 'platform'; obj = e; }
     }
-    Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians on the way are hit, and the shot flies on
+    Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians and animals on the way are hit, and the shot flies on
+    Fauna.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);
     if (kind === '') { p.x = x0 + mx; p.y = y0 + my; p.z = z0 + mz; continue; }
     const hx = x0 + ux * bestT, hy = y0 + uy * bestT, hz = z0 + uz * bestT;
     p.x = hx; p.y = hy; p.z = hz;
@@ -14145,6 +15110,7 @@ const Game = {
     def.build(ctx);
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(lay, seed, def.map, destr[0]), sceneryKeep: Scenery.keepOutFor(lay), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
     Civ.populate(lay, seed);   // guests too: every game runs its own civilians
+    Fauna.populate(seed);      // and its own animals (D6)
     W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
@@ -15533,6 +16499,7 @@ const TEST_PEAKS_MAP = {
     floor: -20, rock: [0.43, 0.41, 0.39], snow: [0.93, 0.95, 0.98], snowLine: 150,
   },
   flora: { species: { spruce: 4, pine: 3, snowpine: 3, birch: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, moss: 3, mushrooms: 1 }, forest: 0.4, groves: 8, meadow: 0.4, scrub: 0.25 },
+  fauna: { species: { deer: 3, elk: 2, goat: 3, wolf: 1, bear: 1, fox: 1, rabbit: 2, eagle: 2, crow: 2 }, herds: 12, flocks: 6, schools: 0 },
 };
 /* A battlefield with water for self-test, the bench and looking at water live; it is not in MAPS. A sea along the
    east side, a lake in the north-west, and a river from the west edge to the sea that a road crosses on a bridge.
@@ -15549,6 +16516,7 @@ const TEST_WATER_MAP = {
   ],
   roads: [{ pts: [[-320, -820], [-300, -500], [-270, -150], [-250, 60]], w: 10 }],
   flora: { species: { oak: 4, birch: 2, pine: 2, willow: 2, redwood: 1, cypress: 1, shrub: 3, berry: 2, fern: 3, grass: 5, flowers: 2, lavender: 1, mushrooms: 1, reeds: 3, kelp: 3 }, forest: 0.45, groves: 8, meadow: 0.35, scrub: 0.2 },
+  fauna: { species: { deer: 3, horse: 1, cow: 2, sheep: 2, boar: 1, fox: 1, rabbit: 2, seal: 2, duck: 3, seagull: 3, pigeon: 1, crow: 1, fishschool: 4, dolphin: 2, whale: 1 }, herds: 12, flocks: 8, schools: 10 },
 };
 /* a save written by the game before the Living World update (version 1, every key it used); it must keep loading */
 const SAVE_FIXTURE_V1 = {
@@ -17702,6 +18670,8 @@ const SelfTest = {
           }
           for (const c of W.chunks) for (const p of c.plants) if (!p.s && Terrain.sites.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.r)) onSite++;
           this.check('mission ' + m.id + ' keeps its trees, and no bush or cover grows on its sites', this.treeHash() === TREE_GOLDEN[m.id] && W.flora.trees === 0 && onSite === 0, 'trees ' + this.treeHash() + ', ' + onSite + ' on sites');
+          const onSiteAnimals = W.fauna.groups.reduce((n, g) => n + g.members.filter((a) => !Flora.clearOfSites(a.x, a.z, 0)).length, 0);
+          this.check('mission ' + m.id + ' has animals, none on its sites', W.fauna.count > 0 && onSiteAnimals === 0, W.fauna.count + ' animals, ' + onSiteAnimals + ' on sites');
         }
       } finally { Game.quitToMenu(); }
     });
@@ -17823,6 +18793,149 @@ const SelfTest = {
         UI.rotateCheck(844, 390);
         this.check('portrait pauses the battle behind the rotate overlay; landscape hides it', paused && Game.state === 'paused' && !el('rotate').classList.contains('on'));
       } finally { TouchControls.enabled = keepTouch; Game.quitToMenu(); UI.rotateCheck(window.innerWidth, window.innerHeight); }
+    });
+    t('fauna species', () => {
+      const ids = FAUNA.map((d) => d.id);
+      this.check('the fauna has 30 species with unique ids', FAUNA.length === 30 && new Set(ids).size === 30 && ids.every((id, i) => FAUNA_BY_ID[id] === i));
+      this.check('every species is built from the shared part builders', FAUNA.every((d) => d.parts.length > 0 && d.parts.every((p) => typeof FAUNA_PARTS[p[0]] === 'function')));
+      // every species draws only instanced shapes with finite numbers: near, far (fewer), and resting (asleep or perched)
+      const inst = {};
+      for (const name of INST_SHAPES) inst[name] = { data: new Float32Array(INST_FLOATS * 64), n: 0, start: 0 };
+      const I = { data: new Float32Array(1 << 12), n: 0, useInst: true, inst };
+      const bake = (a, lod) => {
+        const prev = R.bake, st = R.stack;
+        for (const name of INST_SHAPES) inst[name].n = 0;
+        I.n = 0; R.bake = I; st.top = 0; st.ident();
+        drawAnimal(a, lod);
+        R.bake = prev; st.top = 0; st.ident();
+        let n = 0, finite = true;
+        for (const name of INST_SHAPES) { const L = inst[name]; n += L.n; for (let k = 0; k < L.n * INST_FLOATS; k++) if (!Number.isFinite(L.data[k])) finite = false; }
+        return finite && I.n === 0 ? n : -1;
+      };
+      const broken = [], rng = makeRng(77);
+      for (const d of FAUNA) {
+        const a = Fauna.make({ def: d }, rng), near = bake(a, false), far = bake(a, true);
+        if (d.type === 'air') { a.state = 'landed'; a.fold = 1; } else if (d.type === 'ground') { a.state = 'sleep'; a.sleep = 1; }
+        const rest = bake(a, false);
+        if (!(near > 0 && far > 0 && far <= near && rest > 0)) broken.push(d.id + ' ' + near + '/' + far + '/' + rest);
+      }
+      this.check('every species draws near, far and resting from instanced shapes only', broken.length === 0, broken.join(', '));
+      // map fauna: every species a battlefield names exists; defaults fill what a battlefield leaves out
+      const named = [];
+      MAPS.testwater = TEST_WATER_MAP; MAPS.testpeaks = TEST_PEAKS_MAP;
+      try {
+        for (const id of Object.keys(MAPS)) for (const k in mapDef(id).fauna.species || {}) if (FAUNA_BY_ID[k] === undefined) named.push(id + ':' + k);
+        this.check('every animal a battlefield names exists', named.length === 0, named.join(', '));
+        const fa = mapDef('ashfall').fauna;
+        this.check('a battlefield fauna has species, herds, flocks, schools and density', fa.herds === 8 && fa.flocks === 5 && fa.schools === MAP_FAUNA.schools && fa.density === 1 && mapDef('testpeaks').fauna.schools === 0);
+      } finally { delete MAPS.testwater; delete MAPS.testpeaks; }
+    });
+    t('fauna on the water map', () => {
+      MAPS.testwater = TEST_WATER_MAP;
+      const keepGuest = Net.guest;
+      try {
+        floraBattle('testwater', 11);
+        const F = W.fauna, all = () => F.groups.flatMap((g) => g.members.filter((a) => !a.dead));
+        this.check('the water map gets herds, flocks and schools', new Set(F.groups.map((g) => g.type)).size === 3 && F.count === all().length && F.count > 40, F.groups.length + ' groups, ' + F.count + ' animals');
+        const badSpawn = all().filter((a) => !Flora.clearOfSites(a.x, a.z, 0) || (a.def.type === 'ground' && (!W.flora.free(a.x, a.z, 0) || Fauna.inBuilding(a.x, a.z, 0))));
+        this.check('no animal starts in a building, on a road or on a site', badSpawn.length === 0, badSpawn.map((a) => a.def.id).join(', '));
+        // a while of life: birds keep above the ground and the water, swimmers inside the water
+        let low = 0, dry = 0, lowAt = '', dryAt = '';
+        for (let i = 0; i < 60 * 20; i++) {
+          W.time += STEP; Fauna.update(STEP);
+          if (i % 20) continue;
+          for (const a of all()) {
+            const d = a.def, top = Water.top(a.x, a.z);
+            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
+            if (d.type === 'water' && (!Water.at(a.x, a.z) || a.y >= Water.level(a.x, a.z) || a.y <= Terrain.h(a.x, a.z))) { dry++; dryAt = d.id; }
+          }
+        }
+        this.check('birds keep above the ground and the water', low === 0, low + ' low, last ' + lowAt);
+        this.check('swimmers keep inside the water', dry === 0, dry + ' out, last ' + dryAt);
+        // a blast near a herd: the whole herd runs from it
+        const herd = F.groups.find((g) => g.type === 'ground' && g.members.length >= 3);
+        const bx = herd.cx + 25, bz = herd.cz, away = () => herd.members.reduce((s, a) => s + Math.hypot(a.x - bx, a.z - bz), 0) / herd.members.length;
+        explode(bx, Terrain.h(bx, bz) + 0.5, bz, 4, 60, 'explosive', null, { noNet: true });
+        const ran = herd.members.every((a) => a.state === 'flee' && a.panic > 0), d0 = away();
+        for (let i = 0; i < 60; i++) { W.time += STEP; Fauna.update(STEP); }
+        this.check('a herd flees from a blast', ran && away() > d0 + 3, d0.toFixed(1) + ' to ' + away().toFixed(1));
+        // a kill: gibs in the animal's colours, blood, and no score
+        const victim = herd.members[0], col = victim.col, keepStats = JSON.stringify(W.stats), kills = F.kills;
+        W.debris.length = 0; W.scorches.length = 0;
+        explode(victim.x, victim.y + 0.5, victim.z, 4, 300, 'explosive', W.player, { noNet: true });
+        const ownColour = W.debris.some((d) => Math.abs(d.r * col[1] - d.g * col[0]) < 1e-5 && d.r >= col[0] * 0.79 && d.r <= col[0] * 1.06);
+        this.check('a blast kills an animal, which gibs in its own colours and bleeds', victim.dead && F.kills > kills && ownColour && W.debris.some((d) => d.trail === GIB_BLOOD) && W.scorches.some((s) => s.col === GIB_BLOOD_DECAL));
+        this.check('killing animals scores nothing', JSON.stringify(W.stats) === keepStats);
+        const fish = all().find((a) => a.def.id === 'fishschool');
+        W.debris.length = 0;
+        if (fish) Fauna.hurt(fish, 1e6, 0, 0, 0);
+        this.check('a fish school dies with a splash and no blood', !!fish && fish.dead && !W.debris.some((d) => d.trail === GIB_BLOOD));
+        // a shot passes through a bird and flies on; a beam kills too
+        const bird = all().find((a) => a.def.type === 'air'), pr = allocProjectile();
+        bird.y = Water.top(bird.x, bird.z) + 20;   // in the open sky, whether it was flying or perched
+        Fauna.bounds(bird.grp);
+        launchProjectile(pr, WEAPONS.rifle, null, 0, bird.x - 3, bird.y + bird.def.cy * bird.scale, bird.z, 400, 0, 0);
+        pr.dmg = 100;
+        updateProjectiles(STEP);
+        this.check('a shot kills a bird and flies on', bird.dead && pr.active);
+        pr.active = false;
+        const beamed = all().find((a) => a.def.type === 'ground'), by = beamed.y + beamed.def.cy * beamed.scale;
+        Fauna.ray(beamed.x - 5, by, beamed.z, beamed.x + 5, by, beamed.z, 1e4);
+        this.check('a beam kills an animal', beamed.dead);
+        // gunfire scatters a flock
+        const flock = F.groups.find((g) => g.type === 'air' && g.members.length > 1), m = flock.members[0];
+        const shooter = { x: m.x + 20, y: m.y, z: m.z, team: 0, vx: 0, vy: 0, vz: 0, kind: 'ground', lock: { state: 'none', target: null }, ai: null };
+        spawnProjectile(shooter, { def: WEAPONS.rifle }, shooter, 0, 1, 0);
+        for (const p of W.projs) p.active = false;
+        this.check('gunfire scatters a flock', flock.state === 'fly' && flock.panic > 0 && flock.members.every((a) => a.scatter > 0));
+        // a moving tank runs an animal over (near the camera, where animals feel machines)
+        const prey = all().find((a) => a.def.type === 'ground');
+        const tank = new Platform(PLATFORMS[ARCH.tank.def], { team: 1, x: prey.x, z: prey.z, yaw: 0, loadout: ARCH.tank.loadout });
+        tank.speed = 6; W.platforms.push(tank);
+        R.cam.x = prey.x; R.cam.z = prey.z;
+        Fauna.update(STEP);
+        W.platforms.splice(W.platforms.indexOf(tank), 1);
+        this.check('a moving tank crushes an animal', prey.dead);
+        // a co-op guest replays the host's blasts with no damage, and its own animals still die
+        const local = all().find((a) => a.def.type === 'ground');
+        Net.guest = true;
+        explode(local.x, local.y + 0.5, local.z, 5, 0, 'explosive', null, { noNet: true });
+        Net.guest = keepGuest;
+        this.check('a guest\'s replayed blast kills its own animals', local.dead);
+      } finally { Net.guest = keepGuest; delete MAPS.testwater; Game.quitToMenu(); }
+    });
+    t('fauna layout, quality caps and night', () => {
+      MAPS.testpeaks = TEST_PEAKS_MAP;
+      const keepQuality = S.quality, keepCap = QUALITY.high.faunaCap, keepNight = Clock.look.night;
+      try {
+        floraBattle('testpeaks', 5);
+        const hash = () => { let h = W.fauna.count; for (const g of W.fauna.groups) for (const a of g.members) h = (Math.imul(h, 31) + Math.round(a.x * 100) * 7 + Math.round(a.z * 100)) | 0; return h; };
+        const homes = () => W.fauna.groups.map((g) => g.def.id + ' ' + g.hx.toFixed(2) + ' ' + g.hz.toFixed(2));
+        Fauna.populate(5); const h1 = hash();
+        Fauna.populate(5); const h2 = hash();
+        Fauna.populate(6);
+        this.check('the same seed places the same animals, another seed others', h1 === h2 && hash() !== h1, h1 + ' ' + h2);
+        // a lower quality has fewer animals in the same places
+        S.quality = 'low'; Fauna.populate(5);
+        const lowCount = W.fauna.count, lowHomes = homes();
+        S.quality = 'high'; Fauna.populate(5);
+        const highHomes = new Set(homes());
+        this.check('Low quality has fewer animals, in the same herds', lowCount < W.fauna.count && lowHomes.every((h) => highHomes.has(h)), lowCount + ' of ' + W.fauna.count);
+        // drawing stops at the quality's cap
+        const g = W.fauna.groups.filter((q) => q.type === 'ground').reduce((a, b) => (b.members.length > a.members.length ? b : a));
+        const cam = { x: g.cx - 25, y: Terrain.h(g.cx - 25, g.cz) + 8, z: g.cz, tx: g.cx, ty: g.cy, tz: g.cz };
+        const drawn = (q, cap) => { S.quality = q; if (cap) QUALITY.high.faunaCap = cap; R.beginFrame(cam, 70); R.beginBatch('opaque'); Fauna.draw(); R.bake = null; QUALITY.high.faunaCap = keepCap; return W.fauna.drawn; };
+        const free = drawn('high', 1000), capped = drawn('high', 2);
+        const fits = ['low', 'medium', 'high'].every((q) => drawn(q) <= QUALITY[q].faunaCap);
+        this.check('animals drawn stay under the quality cap', free >= 3 && capped === 2 && fits, free + ' drawn, capped ' + capped);
+        // at night day animals sleep and day birds come down to roost; night animals stay up
+        Clock.look.night = 1;
+        for (let i = 0; i < 60 * 45; i++) { W.time += STEP; Fauna.update(STEP); }
+        const day = W.fauna.groups.flatMap((q) => (q.type === 'ground' && !q.def.night ? q.members : []));
+        const asleep = day.filter((a) => a.state === 'sleep').length;
+        const roosts = W.fauna.groups.filter((q) => q.type === 'air' && !q.def.night), down = roosts.filter((q) => q.state !== 'fly').length;
+        this.check('at night day animals sleep and day birds roost; night animals stay up', day.length > 0 && asleep >= day.length * 0.6 && down >= roosts.length * 0.5 && FAUNA.filter((d) => d.night).every((d) => !Fauna.resting(d)), asleep + ' of ' + day.length + ' asleep, ' + down + ' of ' + roosts.length + ' flocks down');
+      } finally { S.quality = keepQuality; QUALITY.high.faunaCap = keepCap; Clock.look.night = keepNight; delete MAPS.testpeaks; Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
@@ -18017,7 +19130,7 @@ const Net = {
       case 'sw': if (W) SW.replay(m); break;
       case 'wz': if (W) WPN.replay(m); break;
       case 'pst': if (W) this.applyPlatState(m); break;
-      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
+      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Fauna.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); } break;
@@ -18345,7 +19458,7 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
-        Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians
+        Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR); Fauna.alarm(e[2], e[4], FAUNA_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians and animals
         if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
           Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
           if (pr.owner) pr.owner.recoil = 1;
@@ -18451,7 +19564,7 @@ const Net = {
     for (const q of W.projs) {
       if (!q.active) continue;
       const len = Math.hypot(q.vx, q.vy, q.vz) * dt;
-      if (len > 0) Civ.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg);   // our own civilians
+      if (len > 0) { Civ.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); Fauna.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); }   // our own civilians and animals
       q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
       if (this.t - q.seen > 0.35) q.active = false;
     }
@@ -18678,7 +19791,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
