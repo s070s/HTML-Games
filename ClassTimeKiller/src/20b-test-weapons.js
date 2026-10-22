@@ -176,23 +176,18 @@ Test.add('weapons', (check) => {
 });
 
 Test.add('weapons', (check) => {
-  TestArena.start({ precision: 'tactical' });
+  // MOV-025 itself (every row of the tactical table) is tested in the move group: weapons only add Move.inaccuracy.
+  TestArena.start({ precision: 'tactical', move: 'tactical' });
   const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest');
-  check('WPN-003 first shot standing is exact for rifles', Weapons.spreadDegrees(shooter, tempest, tempest.primary) === 0);
-  Actors.vx[shooter] = MOVE_REFERENCE_SPEED;
-  check('MOV-025 running adds +5 deg', Test.near(Weapons.spreadDegrees(shooter, tempest, tempest.primary), 0.25 + 5, 1e-4), Weapons.spreadDegrees(shooter, tempest, tempest.primary));
-  Actors.vx[shooter] = MOVE_REFERENCE_SPEED * 0.3;
-  check('MOV-025 walking (f <= 0.34) adds +1.1 deg', Test.near(Weapons.spreadDegrees(shooter, tempest, tempest.primary), 0.25 + 1.1, 1e-4));
-  Actors.flags[shooter] = ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.CROUCHED;
-  check('MOV-025 crouch-moving adds +0.8 deg', Test.near(Weapons.spreadDegrees(shooter, tempest, tempest.primary), 0.25 + 0.8, 1e-4));
-  Actors.flags[shooter] = 0;
-  check('MOV-025 airborne adds +10 deg', Test.near(Weapons.spreadDegrees(shooter, tempest, tempest.primary), 0.25 + 10, 1e-4));
-  Actors.vx[shooter] = 0;
-  Actors.y[shooter] = 1;   // a real short fall: S10 writes ON_GROUND every step
+  const spread = () => Weapons.spreadDegrees(shooter, tempest, tempest.primary);
+  check('WPN-003 first shot standing is exact for rifles', spread() === 0);
+  Actors.y[shooter] = 1; Motion.grounded[shooter] = 0;   // a real short fall
+  Sim.step();
+  check('MOV-025 airborne: the spread adds Move.inaccuracy (+10 deg)', Move.inaccuracy(shooter) === 10 && Test.near(spread(), 0.25 + 10, 1e-4), spread());
   for (let step = 0; step < TICK_RATE && !(Actors.flags[shooter] & ACTOR_FLAG.ON_GROUND); step++) Sim.step();
-  const landing = Weapons.spreadDegrees(shooter, tempest, tempest.primary);
-  Sim.run(Math.round(0.3 * TICK_RATE));
-  check('MOV-025 landing +3 deg decaying over 0.3 s', landing > 2.8 && landing <= 3.25 && Weapons.spreadDegrees(shooter, tempest, tempest.primary) === 0, landing);
+  const landing = spread();
+  Sim.run(Math.round(0.3 * TICK_RATE) + 1);
+  check('MOV-025 landing +3 deg decaying over 0.3 s', landing > 2.8 && landing <= 3.25 && spread() === 0, landing + ' -> ' + spread());
   const heron = giveFull(shooter, 'heron');
   const hip = Weapons.spreadDegrees(shooter, heron, heron.primary);
   TestArena.hold(shooter, BTN.ALT, 0.3);
@@ -200,7 +195,26 @@ Test.add('weapons', (check) => {
   Sim.step();
   check('ADS reaches 1 and the scoped sniper is exact (adsSpreadMult 0)', Weapons.ads[shooter] === 1 && hip >= 8 && Weapons.spreadDegrees(shooter, heron, heron.primary) === 0, hip);
   check('scoped move speed uses adsMoveMult', Test.near(Weapons.speedScale[shooter], heron.adsMoveMult, 1e-6), Weapons.speedScale[shooter]);
+  check('the weapon speed scale reaches S10 (Move.weaponSpeedScale)', Move.weaponSpeedScale[shooter] === Weapons.speedScale[shooter], Move.weaponSpeedScale[shooter]);
   Actors.buttons[shooter] = 0;
+  TestArena.finish();
+});
+
+// Movement hooks: S10 decides when an actor may fire (MOV-021 sprint-to-fire delay) and scales damage during a roll (MV08).
+Test.add('weapons', (check) => {
+  TestArena.start();
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 5);
+  giveFull(shooter, 'tempest');
+  setClock(shooter, CLOCK.FIRE_DELAY, 1);
+  check('no shot while S10 says the actor cannot fire (Move.canFire)', !Move.canFire(shooter) && countShots(shooter, BTN.FIRE, 0.3) === 0);
+  setClock(shooter, CLOCK.FIRE_DELAY, 0);
+  check('fires again once Move.canFire allows it', countShots(shooter, BTN.FIRE, 0.3) > 0);
+  const full = TestArena.hit(shooter, target, 40);
+  Move.setPreset(target, 'parkour');
+  setClock(target, CLOCK.ROLL, 0.4);
+  const rolling = TestArena.hit(shooter, target, 40);
+  check('a rolling target takes damage x Move.damageScale (MV08 0.25)', full === 40 && Test.near(rolling, 40 * 0.25, 1e-4), full + ' / ' + rolling);
+  Move.setPreset(target, null);
   TestArena.finish();
 });
 

@@ -24,6 +24,7 @@ const MAX_SUB_STEPS = 4;
 const STRIDE_METRES = 1.6;                       // ground distance between footstep events
 const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable at 15 m
 const LANDING_NOISE_RADIUS = 20;
+const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
 const STILL_FRACTION = 0.02;                     // MOV-025: slower than this fraction of ground speed counts as standing
 const AIR_ASSIST_ACCEL = 2;                      // MOV-018
 const SPRINT_INPUT = 0.5;                        // forward input needed to sprint
@@ -107,7 +108,7 @@ function resetMotion(id) {
   for (const field of MOTION_FIELDS) Motion[field][id] = 0;
   Motion.clocks.fill(0, id * CLOCK_COUNT, (id + 1) * CLOCK_COUNT);
   Motion.groundBrush[id] = Motion.wallBrush[id] = Motion.lastWallBrush[id] = null;
-  Motion.target[id] = -1;
+  Motion.target[id] = -1; Motion.sinceLanding[id] = NO_RECENT_LANDING;
   const preset = Move.preset(id);
   Motion.stamina[id] = preset.sprintStamina; Motion.tacCharges[id] = preset.tacSprintCharges; Motion.dashCharges[id] = preset.dashCharges;
   Motion.jumpsLeft[id] = preset.extraJumps; Motion.slideBoostClock[id] = preset.slideBoostInterval;

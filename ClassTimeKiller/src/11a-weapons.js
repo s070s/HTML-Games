@@ -10,7 +10,6 @@ const MODE_QUICK_MELEE = 2;             // weapon.fire mode index of the MELEE b
 const FIRE_MODE_LABELS = MODE_NAMES.concat(['melee']);
 const ADS_SECONDS = 0.2;                 // time to aim down sights fully
 const KICK_SECONDS = 0.12;               // view model kick decay after a shot
-const MOVE_REFERENCE_SPEED = 6.4;        // m/s run speed for the MOV-025 speed fraction (movement presets may differ slightly)
 const STILL_SPEED = 0.2;                 // below this horizontal speed an actor counts as standing still
 const MAX_SHOTS_PER_STEP = 4;
 const MELEE_RADIUS = 0.25;               // melee traces are fat rays: hit volumes grow by this much
@@ -122,7 +121,6 @@ const Weapons = {
   altHeld: new Float32Array(MAX_ACTORS),
   recoilShot: new Uint16Array(MAX_ACTORS), recoilPitch: new Float32Array(MAX_ACTORS), recoilYaw: new Float32Array(MAX_ACTORS),
   bloom: new Float32Array(MAX_ACTORS), lastShot: new Float32Array(MAX_ACTORS).fill(-1e9), kick: new Float32Array(MAX_ACTORS),
-  wasGrounded: new Uint8Array(MAX_ACTORS), landTime: new Float32Array(MAX_ACTORS).fill(-1e9),
   lastSlot: new Int8Array(MAX_ACTORS), slotCursor: new Int16Array(MAX_ACTORS),
   lockIds: new Int8Array(MAX_ACTORS * MAX_LOCKS).fill(-1), lockTime: new Float32Array(MAX_ACTORS * MAX_LOCKS), lockCursor: new Uint8Array(MAX_ACTORS),
   fitted: new Int8Array(MAX_ACTORS * WEAPON_COUNT * ATTACHMENT_SLOT_COUNT).fill(-1), // attachment index per weapon slot (-1 none)
@@ -186,7 +184,7 @@ const Weapons = {
     this.state[id] = WEAPON_STATE.IDLE;
     this.resetFiring(id);
     this.recoilPitch[id] = this.recoilYaw[id] = this.bloom[id] = this.heat[id] = 0;
-    this.lastShot[id] = this.landTime[id] = -1e9;
+    this.lastShot[id] = -1e9;
     this.lastSlot[id] = 0; this.speedScale[id] = 1;
   },
   resetFiring(id) {
@@ -387,7 +385,6 @@ const Weapons = {
   },
   stepActor(id, dt) {
     this.coolDown(id, dt);
-    this.trackLanding(id);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
     if (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
@@ -414,16 +411,12 @@ const Weapons = {
     this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
     this.kick[id] = Math.max(0, this.kick[id] - dt / KICK_SECONDS);
   },
-  trackLanding(id) {
-    const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-    if (grounded && !this.wasGrounded[id]) this.landTime[id] = Sim.time;
-    this.wasGrounded[id] = grounded ? 1 : 0;
-  },
   updateSpeed(id) {
     const weapon = this.currentWeapon(id);
     let scale = weapon ? lerp(weapon.moveMult, weapon.adsMoveMult, this.ads[id]) * this.modifier(id, weapon, STAT.MOVE) : 1;
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
+    Move.weaponSpeedScale[id] = this.speedScale[id];   // S10 scales the actor's move speed by it
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;
@@ -501,7 +494,7 @@ const Weapons = {
   },
   // True when the mode may fire now; reports an empty magazine (button = the trigger, 0 = no report).
   ready(id, weapon, mode, modeIndex, button, fraction) {
-    if (this.state[id] !== WEAPON_STATE.IDLE || this.burstLeft[id]) return false;
+    if (this.state[id] !== WEAPON_STATE.IDLE || this.burstLeft[id] || !Move.canFire(id)) return false;   // S10: sprint, mantle, board...
     if (mode.cooldown > 0 ? this.nextAlt[id] > 0 || this.nextShot[id] > 0 : this.nextShot[id] > 0) return false;
     if (mode.maxActive && mode.activeRule === 'block' && !mode.special && Projectiles.countOwned(id, weapon.index, CAT.projectiles.byId(mode.projectile).index) >= mode.maxActive) return false;
     if (mode.type === 'lock' && mode.trigger !== 'release' && !LockOn.lockedCount(id, mode)) return false;
@@ -557,8 +550,7 @@ const Weapons = {
 
   // ---- Spread (WPN-003, MOV-025) and recoil (WPN-004) ----
   spreadDegrees(id, weapon, mode) {
-    const profile = CAT.precision.byId(currentRules().precision) || CAT.precision.byId('standard');
-    const movement = movementSpread(id, profile) * mode.moveSpread;
+    const movement = Move.inaccuracy(id) * mode.moveSpread;   // MOV-025 belongs to the movement preset (S10)
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);
@@ -640,25 +632,6 @@ const WEAPON_HEAT_CAP = 120;             // W36 heat blast: stored heat is cappe
 function chargeLevelIndex(charge, fraction) { return Math.min(charge.levels.length - 1, Math.floor(fraction * (charge.levels.length - 1) + 1e-6)); }
 function chargeLevelValue(charge, fraction) { return charge.levels ? charge.levels[chargeLevelIndex(charge, fraction)] : 1; }
 function chargeDamage(charge, fraction) { return charge.levels ? chargeLevelValue(charge, fraction) : lerp(charge.min, charge.max, fraction); }
-
-// MOV-025 movement inaccuracy in degrees for the actor's current speed, stance and air state.
-function movementSpread(id, profile) {
-  const flags = Actors.flags[id];
-  let spread = 0;
-  if (!(flags & ACTOR_FLAG.ON_GROUND)) spread = profile.airSpread;
-  else spread = groundSpread(id, profile, flags);
-  const sinceLanding = Sim.time - Weapons.landTime[id];
-  if (sinceLanding < profile.landSeconds) spread += profile.landSpread * (1 - sinceLanding / profile.landSeconds);
-  return spread;
-}
-function groundSpread(id, profile, flags) {
-  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
-  if (speed < STILL_SPEED) return 0;
-  if (flags & ACTOR_FLAG.CROUCHED) return profile.crouchSpread;
-  const fraction = speed / MOVE_REFERENCE_SPEED;
-  if (fraction <= profile.walkFraction || (Actors.buttons[id] & BTN.WALK)) return profile.walkSpread;
-  return lerp(profile.walkSpread, profile.runSpread, clamp((fraction - profile.walkFraction) / (1 - profile.walkFraction), 0, 1));
-}
 
 // Angle in degrees between the aim direction and a zone of `other`; -1 when beyond range (measured to the body surface),
 // wider than maxAngle or not visible. The line-of-sight ray is cast last because it is the expensive part. Leaves the point in pointScratch.

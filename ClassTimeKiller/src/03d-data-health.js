@@ -1,5 +1,5 @@
 // ==== S03 DATA: HEALTH, PRECISION, STATUS EFFECTS ====
-// Health presets HPP01..HPP09 (spec §7), precision profiles (HP-002) with movement inaccuracy (MOV-025),
+// Health presets HPP01..HPP09 (spec §7), precision profiles (HP-002 zone multipliers),
 // status effects (HP-005), elements (HP-006) and damage kinds (what each damage.request kind bypasses).
 
 // armorMode: 'absorb' (armor takes armorAbsorb of each hit, rounded up), 'tactical' (HPP04 armorPen split),
@@ -22,16 +22,14 @@ Data.define('health', {
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);
 
-// HP-002 precision profiles and MOV-025 movement inaccuracy (degrees added to spread by speed fraction f).
-// walk applies up to walkFraction of the reference run speed, run at full speed, air while airborne, land decays over landSeconds.
+// HP-002 precision profiles (hit zone multipliers). Movement inaccuracy (MOV-025) is the movement preset's table (S10 Move.inaccuracy).
 Data.define('precision', {
   id: REQUIRED, name: REQUIRED, head: 0, pistolHead: 0, precisionHead: 0, stomach: 1, legs: 0, arenaHead: false,
-  walkFraction: 0.34, walkSpread: 0, crouchSpread: 0, runSpread: 0, airSpread: 0, landSpread: 0, landSeconds: 0.3,
 }, [
-  { id: 'arena', name: 'Arena', head: 1, legs: 1, arenaHead: true, airSpread: 0.5 },
-  { id: 'standard', name: 'Standard', walkSpread: 0.3, crouchSpread: 0.2, runSpread: 1.5, airSpread: 3, landSpread: 1 },
-  { id: 'tactical', name: 'Tactical', head: 4, pistolHead: 3.9, stomach: 1.25, legs: 0.75, walkSpread: 1.1, crouchSpread: 0.8, runSpread: 5, airSpread: 10, landSpread: 3 },
-  { id: 'hero', name: 'Hero', head: 1, precisionHead: 2, legs: 1, runSpread: 0.6, airSpread: 1.5 },
+  { id: 'arena', name: 'Arena', head: 1, legs: 1, arenaHead: true },
+  { id: 'standard', name: 'Standard' },
+  { id: 'tactical', name: 'Tactical', head: 4, pistolHead: 3.9, stomach: 1.25, legs: 0.75 },
+  { id: 'hero', name: 'Hero', head: 1, precisionHead: 2, legs: 1 },
 ]);
 
 // HP-005 status effects (one stack table). dps ticks every tickSeconds; speed multiplies movement; stun blocks moving and firing.
