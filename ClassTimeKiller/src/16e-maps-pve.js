@@ -41,8 +41,8 @@ const cisternQuarter = {                                                        
   lights: [[-20, 6, 20, 0xa8d8ff, 24]],
   hints: [['cover', -15.5, 0, 15], ['cover', -21, 0, 20], ['guard', -10, 0, 20], ['flank', -30, 0, 14]],
   triggers: [
-    { kind: 'hazard', min: [-33, 0, 27], max: [-27, 0.6, 33], dps: 12, element: 'toxin' },
-    { kind: 'teleporter', min: [-23, 0, 29], max: [-20, 0.3, 32], exit: [22, 0, -26], exitYaw: -35 },
+    { kind: 'hazard', min: [-33, 0, 27], max: [-27, 0.6, 33], damage: 12, element: 'toxin' },
+    { kind: 'teleporter', min: [-23, 0, 29], max: [-20, 0.3, 32], exit: [22, 0, -26], yaw: -35 },
   ],
 };
 const cisternCenter = {
@@ -86,7 +86,8 @@ const rangeCenter = {
     ['concrete', -30, 0, 24, 5.2, 6, 25.5],                                                          // backstop behind the lanes
     ['concrete', -20.2, 0, 25.5, -19.8, 4, 28], ['concrete', 11.8, 0, 28, 12.2, 4, 30],              // back walk partitions (staggered gaps)
     ['concrete', 9.8, 0, -30, 10.2, 6, 24], ['concrete', 21.8, 0, -30, 22.2, 6, 24],                 // strafe lane walls (tall: the park platform looks over 3 m)
-    ['concrete', 10.2, 0, -14, 21.8, 0.4, -13.4], ['concrete', 10.2, 0, -6, 21.8, 0.4, -5.4], ['concrete', 10.2, 0, 2, 21.8, 0.4, 2.6], ['concrete', 10.2, 0, 10, 21.8, 0.4, 10.6], // speed bumps
+    ['concrete', 10.2, 0, -14, 21.8, 0.4, -13.4], ['concrete', 10.2, 0, -6, 21.8, 0.4, -5.4], ['concrete', 10.2, 0, 2, 21.8, 0.4, 2.6],
+      ['concrete', 10.2, 0, 10, 21.8, 0.4, 10.6], // speed bumps
     ['concrete', 30, 0, -10, 38, 3, 10], ['concrete', 30, 0, -18, 38, 3, -10, '+z'],                 // movement park platform and ramp
     ...MapKit.stairs('concrete', '+x', 24, 14, 30, 20, 0, 3.2, 8), ['concrete', 30, 0, 14, 38, 3.2, 20], // stairs and landing
     ['concrete', -38, 0, -12, -35, 2.4, -9], ['concrete', -38, 0, 8, -35, 1.2, 11], ['metal', -34, 0, -2, -32, 1.2, 2], // dummy yard cover
@@ -102,7 +103,7 @@ const rangeCenter = {
     .concat([['dummy', 16, 0, -20], ['dummy', 16, 0, 18], ['dummy', -36, 0, -20], ['dummy', -36, 0, 4], ['dummy', -36, 0, 18], ['sniper', 34, 3, 0]]),
   triggers: [
     { kind: 'ladder', min: [29.2, 0, -1], max: [30, 3, 1] },
-    { kind: 'jumppad', min: [26, 0, 5], max: [28, 0.4, 7], launch: [6.06, 14.14, 0] },
+    { kind: 'jumppad', min: [26, 0, 5], max: [28, 0.4, 7], target: [34.3, 3, 6], peak: 2.6 },
   ],
 };
 Maps.rows.push(MapKit.make(Object.assign({
@@ -141,9 +142,11 @@ const manorCenter = {
   ],
   spawns: [
     [0, MANOR_GUARD_MODES, [[-1.5, 0, -42, 0], [1.5, 0, -42, 0], [-42, 0, 8, 90], [-42, 0, 12, 90], [42, 0, -18, 270], [42, 0, -22, 270]]],
-    [1, MANOR_GUARD_MODES, [[-3, 0, 10, 180], [3, 0, 2, 0], [-13, 0, 2, 90], [-13, 0, 14, 270], [13, 0, -2, 90], [13, 0, 14, 0], [0, 0, -30, 0], [-26, 0, -26, 45], [26, 0, 20, 225], [10, 4.4, 6, 270]]],
+    [1, MANOR_GUARD_MODES, [[-3, 0, 10, 180], [3, 0, 2, 0], [-13, 0, 2, 90], [-13, 0, 14, 270], [13, 0, -2, 90], [13, 0, 14, 0], [0, 0, -30, 0], [-26, 0, -26, 45],
+      [26, 0, 20, 225], [10, 4.4, 6, 270]]],
   ],
-  items: [['healthpack', 14, 0, 15.5, MANOR_GUARD_MODES], ['ammobox', 0, 0, 8, MANOR_GUARD_MODES], ['armorshard', -15, 0, -4, MANOR_GUARD_MODES], ['healthvial', 12, 4.4, 14, MANOR_GUARD_MODES]],
+  items: [['healthpack', 14, 0, 15.5, MANOR_GUARD_MODES], ['ammobox', 0, 0, 8, MANOR_GUARD_MODES], ['armorshard', -15, 0, -4, MANOR_GUARD_MODES],
+    ['healthvial', 12, 4.4, 14, MANOR_GUARD_MODES]],
   zones: [
     ['Great Hall', -7, -6, 7, 18, -1, 4.2], ['Library', -20, -6, -7, 6, -1, 4.2], ['Study', -20, 6, -7, 18, -1, 4.2], ['Dining Room', 7, -6, 20, 6, -1, 4.2],
     ['Kitchen', 7, 6, 20, 18, -1, 4.2], ['Manor Roof', -20, -6, 29, 18, 3.9, 12], ['Greenhouse', 28, -24, 40, -14, -1, 6], ['Front Gate', -6, -48, 6, -38, -1, 8],
@@ -175,15 +178,18 @@ const CHAMBER_PLANS = [
   { brushes: [['concrete', 2, 0, -4, 7, 2, 4], ['concrete', -5, 0, -4, 2, 2, 4, '+x']], exit: [4.5, 2, 0] },                                    // 1 ramp
   { brushes: [...MapKit.stairs('concrete', '+x', -4, -3, 2, 3, 0, 3.2, 8), ['concrete', 2, 0, -3, 7, 3.2, 3]], exit: [4.5, 3.2, 0] },             // 2 stairs
   { brushes: [['concrete', 2, 0, -4, 7, 4, 4]], triggers: [{ kind: 'ladder', min: [1.2, 0, -1], max: [2, 4, 1] }], exit: [4.5, 4, 0] },          // 3 ladder
-  { brushes: [['concrete', 3, 0, -4, 7, 4.5, 4]], triggers: [{ kind: 'jumppad', min: [-3, 0, -1.5], max: [-1, 0.4, 1.5], launch: [6.36, 16.73, 0] }], exit: [5, 4.5, 0] }, // 4 jump pad
+  { brushes: [['concrete', 3, 0, -4, 7, 4.5, 4]], triggers: [{ kind: 'jumppad', min: [-3, 0, -1.5], max: [-1, 0.4, 1.5], target: [5, 4.5, 0], peak: 2.9 }], exit: [5, 4.5, 0] }, // 4 jump pad
   { brushes: [['concrete', 2, 0, 3.5, 7, 4, 4], ['concrete', 2, 0, -4, 7, 4, -3.5], ['concrete', 2, 0, -3.5, 2.5, 4, 3.5], ['concrete', 6.5, 0, -3.5, 7, 4, 3.5]], // 5 teleporter alcove
-    triggers: [{ kind: 'teleporter', min: [-6, 0, -1], max: [-4, 0.3, 1], exit: [4.5, 0, -2], exitYaw: 90 }, { kind: 'teleporter', min: [5, 0, 1.5], max: [6.3, 0.3, 3], exit: [-3, 0, 3], exitYaw: 270 }], exit: [4, 0, 2] },
+    triggers: [{ kind: 'teleporter', min: [-6, 0, -1], max: [-4, 0.3, 1], exit: [4.5, 0, -2], yaw: 90 },
+      { kind: 'teleporter', min: [5, 0, 1.5], max: [6.3, 0.3, 3], exit: [-3, 0, 3], yaw: 270 }], exit: [4, 0, 2] },
   { brushes: [['wood', -4, 0, -1.5, -2, 1.4, 1.5, '+x'], ['wood', -2, 0, -1.5, 2, 1.4, 1.5], ['wood', 2, 0, -1.5, 4, 1.4, 1.5, '-x']],                // 6 acid strip with a bridge
-    triggers: [{ kind: 'hazard', min: [-2, -0.5, -9], max: [2, 0.2, 9], dps: 15, element: 'toxin' }], exit: [6, 0, 0] },
+    triggers: [{ kind: 'hazard', min: [-2, -0.5, -9], max: [2, 0.2, 9], damage: 15, element: 'toxin' }], exit: [6, 0, 0] },
   { brushes: [['ice', -8, -1, -8, 8, 0, 8], ['concrete', -3, 0, -6, -1.4, 2.4, -2], ['concrete', 1.4, 0, 2, 3, 2.4, 6]], exit: [6, 0, 0] },       // 7 ice rink with pillars
-  { brushes: [['concrete', -8, 0, -7, -2, 2, -3, '+x'], ['concrete', -2, 0, -7, 2, 2, -3], ['concrete', -2, 2, -3, 2, 4, 3, '+z'], ['concrete', -2, 0, 3, 2, 4, 7]], exit: [0, 4, 5] }, // 8 two ramps
+  { brushes: [['concrete', -8, 0, -7, -2, 2, -3, '+x'], ['concrete', -2, 0, -7, 2, 2, -3], ['concrete', -2, 2, -3, 2, 4, 3, '+z'],
+    ['concrete', -2, 0, 3, 2, 4, 7]], exit: [0, 4, 5] }, // 8 two ramps
   { brushes: [['concrete', -2, 0, -4, 2, 3, 4], ['concrete', 4, 0, -4, 7, 6, 4]],                                                                  // 9 twin pads
-    triggers: [{ kind: 'jumppad', min: [-6, 0, -1], max: [-4, 0.4, 1], launch: [5.2, 14.14, 0] }, { kind: 'jumppad', min: [-0.5, 3, -1], max: [1.5, 3.4, 1], launch: [4.16, 15.49, 0] }], exit: [5.5, 6, 0] },
+    triggers: [{ kind: 'jumppad', min: [-6, 0, -1], max: [-4, 0.4, 1], target: [0.5, 3, 0], peak: 2.4 },
+      { kind: 'jumppad', min: [-0.5, 3, -1], max: [1.5, 3.4, 1], target: [5.5, 6, 0], peak: 3.4 }], exit: [5.5, 6, 0] },
   { brushes: [['concrete', -5.5, 0, -1.5, 4, 2.4, 1.5], ['concrete', -9, 0, -1.5, -5.5, 2.4, 1.5, '+x'], ['concrete', 4, 0, -1.5, 8, 2.4, 1.5, '-x']], // 10 bridge over a kill zone
     triggers: [{ kind: 'killzone', min: [-5, -2, -9], max: [3.5, 0.2, 9] }], exit: [0, 2.4, 0] },
   { brushes: [['concrete', -6, 0, -9, -5.6, 3, 4], ['concrete', -1, 0, -4, -0.6, 3, 9], ['concrete', 4, 0, -9, 4.4, 3, 4]], exit: [7.5, 0, 6] },      // 11 switchback walls
@@ -196,7 +202,7 @@ function mapPlaceChamber(plan, cx, cz) {
   const moveTrigger = (t) => {
     const c = JSON.parse(JSON.stringify(t));
     c.min[0] += cx; c.max[0] += cx; c.min[2] += cz; c.max[2] += cz;
-    if (c.exit) { c.exit[0] += cx; c.exit[2] += cz; }
+    for (const point of [c.exit, c.target]) if (point) { point[0] += cx; point[2] += cz; }
     return c;
   };
   return { brushes: plan.brushes.map(moveBrush), triggers: (plan.triggers || []).map(moveTrigger), exit: [plan.exit[0] + cx, plan.exit[1], plan.exit[2] + cz] };
@@ -204,8 +210,10 @@ function mapPlaceChamber(plan, cx, cz) {
 const chamberRooms = CHAMBER_PLANS.map((plan, index) => mapPlaceChamber(plan, CHAMBER_CENTERS[index][0], CHAMBER_CENTERS[index][1]));
 const chamberCenter = {
   brushes: [
-    ['concrete', -40, -1, -30, 40, 0, 30], ['concrete', -43, -1, -33, 43, 8, -30], ['concrete', -43, -1, 30, 43, 8, 33], ['concrete', -43, -1, -30, -40, 8, 30], ['concrete', 40, -1, -30, 43, 8, 30],
-    ...MapKit.wall('concrete', 'z', -20, 1, -30, 30, 0, 8, [[-22, 3, 3], [2, 3, 3], [18, 3, 3]]),    // walls between rooms, 8 m (platforms look over 5); doors of neighbouring walls are staggered
+    ['concrete', -40, -1, -30, 40, 0, 30], ['concrete', -43, -1, -33, 43, 8, -30], ['concrete', -43, -1, 30, 43, 8, 33], ['concrete', -43, -1, -30, -40, 8, 30],
+      ['concrete', 40, -1, -30, 43, 8, 30],
+    ...MapKit.wall('concrete', 'z', -20, 1, -30, 30, 0, 8, [[-22, 3, 3], [2, 3, 3],
+      [18, 3, 3]]),    // walls between rooms, 8 m (platforms look over 5); doors of neighbouring walls are staggered
     ...MapKit.wall('concrete', 'z', 0, 1, -30, 30, 0, 8, [[-18, 3, 3], [-2, 3, 3], [22, 3, 3]]),
     ...MapKit.wall('concrete', 'z', 20, 1, -30, 30, 0, 8, [[-22, 3, 3], [2, 3, 3], [18, 3, 3]]),
     ...MapKit.wall('concrete', 'x', -10, 1, -40, 40, 0, 8, [[30, 3, 3]]), ...MapKit.wall('concrete', 'x', 10, 1, -40, 40, 0, 8, [[-30, 3, 3]]),
@@ -245,8 +253,9 @@ const isleLootItems = ISLE_POIS.flatMap(([, px, pz], poi) => Array.from({ length
   return [ISLE_LOOT[(poi * 3 + k) % ISLE_LOOT.length], +(px + Math.cos(angle) * radius).toFixed(1), 0, +(pz + Math.sin(angle) * radius).toFixed(1), ['royale']];
 }));
 const isleSpawns = Array.from({ length: 18 }, (unused, k) => {
-  const angle = (k / 18) * Math.PI * 2 + 0.17;
-  return [+(Math.cos(angle) * 138).toFixed(1), 0, +(Math.sin(angle) * 138).toFixed(1), Math.round((((angle * 180) / Math.PI + 270) % 360))];
+  const angle = (k / 18) * Math.PI * 2 + 0.17, x = +(Math.cos(angle) * 138).toFixed(1), z = +(Math.sin(angle) * 138).toFixed(1);
+  const towardCentre = (Math.atan2(-x, -z) * 180) / Math.PI;                                       // yaw 0 looks +z, so the centre lies at atan2(-x, -z)
+  return [x, 0, z, Math.round((towardCentre + 360) % 360)];
 });
 Maps.rows.push(MapKit.make({
   id: 'isle', code: 'MP09', name: 'Ring Isle', size: [300, 40, 300], theme: 'overgrowth', category: 'island', modes: ['royale'], placeholder: true,
@@ -255,7 +264,8 @@ Maps.rows.push(MapKit.make({
   brushes: [
     ['grass', -150, -1, -150, 150, 0, 150],
     ['dirt', -153, -1, -153, 153, 30, -150], ['dirt', -153, -1, 150, 153, 30, 153], ['dirt', -153, -1, -150, -150, 30, 150], ['dirt', 150, -1, -150, 153, 30, 150], // cliffs
-    ['dirt', -10, 0, -10, 10, 5, 10], ['dirt', -22, 0, -6, -10, 5, 6, '+x'], ['dirt', 10, 0, -6, 22, 5, 6, '-x'], ['dirt', -6, 0, -22, 6, 5, -10, '+z'], ['dirt', -6, 0, 10, 6, 5, 22, '-z'], // centre hill
+    ['dirt', -10, 0, -10, 10, 5, 10], ['dirt', -22, 0, -6, -10, 5, 6, '+x'], ['dirt', 10, 0, -6, 22, 5, 6, '-x'], ['dirt', -6, 0, -22, 6, 5, -10, '+z'],
+      ['dirt', -6, 0, 10, 6, 5, 22, '-z'], // centre hill
     ...isleBuildings, ...isleRidges,
   ],
   spawns: [[-1, ['royale'], isleSpawns]],

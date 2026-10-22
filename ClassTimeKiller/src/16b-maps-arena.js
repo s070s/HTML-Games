@@ -91,10 +91,10 @@ const skyNorth = {                                                              
   lights: [[0, 9, 28, 0xcfe8ff, 18]],
   hints: [['sniper', 0, 4, 33], ['cover', 0, 4, 25.5]],
   triggers: [
-    { kind: 'jumppad', min: [2, 6, 7.5], max: [5, 6.4, 10.5], launch: [0, 15.49, 9.59] },
-    { kind: 'jumppad', min: [-5, 6, 7.5], max: [-2, 6.4, 10.5], launch: [0, 15.49, 9.59] },
-    { kind: 'jumppad', min: [2, 4, 22.5], max: [5, 4.4, 25.5], launch: [0, 15.49, -13.5] },
-    { kind: 'jumppad', min: [-5, 4, 22.5], max: [-2, 4.4, 25.5], launch: [0, 15.49, -13.5] },
+    { kind: 'jumppad', min: [2, 6, 7.5], max: [5, 6.4, 10.5], target: [3.5, 4, 28], peak: 4 },      // deck to island
+    { kind: 'jumppad', min: [-5, 6, 7.5], max: [-2, 6.4, 10.5], target: [-3.5, 4, 28], peak: 4 },
+    { kind: 'jumppad', min: [2, 4, 22.5], max: [5, 4.4, 25.5], target: [3.5, 6, 6.5], peak: 4 },    // island back to the deck
+    { kind: 'jumppad', min: [-5, 4, 22.5], max: [-2, 4.4, 25.5], target: [-3.5, 6, 6.5], peak: 4 },
   ],
 };
 const skyCenter = {
@@ -144,7 +144,7 @@ const gantryQuarter = {                                                         
   hints: [['sniper', -34, 8, 19], ['choke', -17, 0, 26], ['cover', -18, 0, 10], ['flank', -43, 0, 30]],
   triggers: [
     { kind: 'ladder', min: [-16, 0, 24], max: [-14, 8, 24.8] },
-    { kind: 'jumppad', min: [-6, 0, 10], max: [-4, 0.4, 12], launch: [0, 20, 5.53] },
+    { kind: 'jumppad', min: [-6, 0, 10], max: [-4, 0.4, 12], target: [-5, 8, 19], peak: 6 },       // up to the north roof
   ],
 };
 const gantryHalf = {                                                                                 // west half of the central area, mirrored east

@@ -77,7 +77,8 @@ const railHalf = {                                                              
     ['metal', -62, 0, 16.5, -60, 2.4, 17.5], ['metal', -62, 0, -17.5, -60, 2.4, -16.5],                                                              // street cover
   ],
   spawns: [
-    [0, ['payload', 'rush', 'conquest'], [[-77, 0, -14, 90], [-77, 0, -7, 90], [-77, 0, 0, 90], [-77, 0, 7, 90], [-77, 0, 14, 90], [-74, 0, -10.5, 90], [-74, 0, -3.5, 90], [-74, 0, 3.5, 90], [-74, 0, 10.5, 90]]],
+    [0, ['payload', 'rush', 'conquest'], [[-77, 0, -14, 90], [-77, 0, -7, 90], [-77, 0, 0, 90], [-77, 0, 7, 90], [-77, 0, 14, 90], [-74, 0, -10.5, 90],
+      [-74, 0, -3.5, 90], [-74, 0, 3.5, 90], [-74, 0, 10.5, 90]]],
   ],
   zones: [
     ['West Base', -80, -20, -70, 20, -1, 8], ['West Plaza', -58, -20, -50, 20, -1, 8], ['Mid West Plaza', -22, -20, -14, 20, -1, 8],
@@ -101,10 +102,14 @@ const railCenter = {
   hints: [['choke', 0, 0, -4]],
   objectives: [
     { id: 'cart', kind: 'payloadPath', team: 0, x: -66, y: 0, z: 0, radius: 3, modes: ['payload'], checkpoints: [6, 10, 15],
-      path: [[-66, 0, 0], [-56, 0, 0], [-44, 0, 3.5], [-37, 0, 3.5], [-32, 0, 0], [-27, 0, -3.5], [-18, 0, 0], [-4, 0, 0], [8, 0, 0], [18, 0, 0], [27, 0, -3.5], [32, 0, 0], [37, 0, 3.5], [44, 0, 3.5], [54, 0, 0], [66, 0, 0]] },
-    { id: 'rush1a', kind: 'bombsite', team: 1, x: -48, y: 0, z: 17, radius: 4, stage: 1, modes: ['rush'] }, { id: 'rush1b', kind: 'bombsite', team: 1, x: -48, y: 0, z: -17, radius: 4, stage: 1, modes: ['rush'] },
-    { id: 'rush2a', kind: 'bombsite', team: 1, x: 0, y: 0, z: 17, radius: 4, stage: 2, modes: ['rush'] }, { id: 'rush2b', kind: 'bombsite', team: 1, x: 0, y: 0, z: -17, radius: 4, stage: 2, modes: ['rush'] },
-    { id: 'rush3a', kind: 'bombsite', team: 1, x: 56, y: 0, z: 17, radius: 4, stage: 3, modes: ['rush'] }, { id: 'rush3b', kind: 'bombsite', team: 1, x: 56, y: 0, z: -17, radius: 4, stage: 3, modes: ['rush'] },
+      path: [[-66, 0, 0], [-56, 0, 0], [-44, 0, 3.5], [-37, 0, 3.5], [-32, 0, 0], [-27, 0, -3.5], [-18, 0, 0], [-4, 0, 0], [8, 0, 0], [18, 0, 0], [27, 0, -3.5],
+        [32, 0, 0], [37, 0, 3.5], [44, 0, 3.5], [54, 0, 0], [66, 0, 0]] },
+    { id: 'rush1a', kind: 'bombsite', team: 1, x: -48, y: 0, z: 17, radius: 4, stage: 1, modes: ['rush'] },
+      { id: 'rush1b', kind: 'bombsite', team: 1, x: -48, y: 0, z: -17, radius: 4, stage: 1, modes: ['rush'] },
+    { id: 'rush2a', kind: 'bombsite', team: 1, x: 0, y: 0, z: 17, radius: 4, stage: 2, modes: ['rush'] },
+      { id: 'rush2b', kind: 'bombsite', team: 1, x: 0, y: 0, z: -17, radius: 4, stage: 2, modes: ['rush'] },
+    { id: 'rush3a', kind: 'bombsite', team: 1, x: 56, y: 0, z: 17, radius: 4, stage: 3, modes: ['rush'] },
+      { id: 'rush3b', kind: 'bombsite', team: 1, x: 56, y: 0, z: -17, radius: 4, stage: 3, modes: ['rush'] },
     { id: 'flag1', kind: 'point', x: -54, y: 0, z: -2, radius: 6, modes: ['conquest'] }, { id: 'flag2', kind: 'point', x: -18, y: 0, z: 2, radius: 6, modes: ['conquest'] },
     { id: 'flag3', kind: 'point', x: 0, y: 0, z: 0, radius: 6, modes: ['conquest'] }, { id: 'flag4', kind: 'point', x: 18, y: 0, z: 2, radius: 6, modes: ['conquest'] },
     { id: 'flag5', kind: 'point', x: 54, y: 0, z: -2, radius: 6, modes: ['conquest'] },

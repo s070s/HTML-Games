@@ -54,7 +54,8 @@ const MapRules = {
   rule(mode) { return this.modes[mode] || null; },
 };
 
-// Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume).
+// Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume). They are keyed by the row object:
+// clone a row before editing it (the map editor does), or the tables would go stale.
 const mapCache = new WeakMap();
 function mapCacheFor(map) {
   let entry = mapCache.get(map);
@@ -65,27 +66,28 @@ function mapCacheFor(map) {
 const Maps = {
   rows: [],                                                     // filled by the 16b..16e files, defined as CAT.maps in 16f
   get(idOrCode) {
-    const list = CAT.maps || [];
-    return list.byId(idOrCode) || list.find((map) => map.code === idOrCode) || null;
+    if (!CAT.maps) return null;
+    return CAT.maps.byId(idOrCode) || CAT.maps.find((map) => map.code === idOrCode) || null;
   },
-  forMode(modeId) { return (CAT.maps || []).filter((map) => map.modes.includes(modeId)); },
+  forMode(modeId) { return CAT.maps ? CAT.maps.filter((map) => map.modes.includes(modeId)) : []; },
   // A spawn serves an actor of `team` (-1 = free for all) in `mode` when team matches and its mode list is empty or has the mode.
-  spawnMatches(spawn, modeId, team) { return spawn.team === team && (spawn.modes.length === 0 || spawn.modes.includes(modeId)); },
-  // Cached list (never modified by callers): spawn rows for a mode and team.
+  spawnMatches(spawn, modeId, team) { return spawn.team === team && mapServesMode(spawn, modeId); },
+  // Cached list (never modified by callers): spawn rows for a mode and team. The cache is keyed by the map row: clone a row before editing it.
   spawnList(map, modeId, team) {
     const cache = mapCacheFor(map).spawns, key = modeId + ':' + team;
     if (!cache.has(key)) cache.set(key, map.spawns.filter((spawn) => this.spawnMatches(spawn, modeId, team)));
     return cache.get(key);
   },
-  itemsFor(map, modeId) { return map.items.filter((item) => item.modes.length === 0 || item.modes.includes(modeId)); },
+  itemsFor(map, modeId) { return map.items.filter((item) => mapServesMode(item, modeId)); },
   objectivesFor(map, modeId, kind) {
-    return map.objectives.filter((o) => (o.modes.length === 0 || o.modes.includes(modeId)) && (!kind || o.kind === kind));
+    return map.objectives.filter((objective) => mapServesMode(objective, modeId) && (!kind || objective.kind === kind));
   },
-  // Smallest callout zone holding the point (MAP-012); null outside every zone.
+  // Smallest callout zone holding the point (MAP-012); null outside every zone. Runs per frame for the HUD: no closures.
   zoneAt(map, x, y, z) {
     const entry = mapCacheFor(map);
-    if (!entry.zones) entry.zones = map.zones.slice().sort((a, b) => mapZoneVolume(a) - mapZoneVolume(b));
-    return entry.zones.find((zone) => mapPointInZone(zone, x, y, z)) || null;
+    if (!entry.zones) entry.zones = map.zones.slice().sort((a, b) => mapBoxVolume(a) - mapBoxVolume(b));
+    for (let i = 0; i < entry.zones.length; i++) if (mapInBox(entry.zones[i], x, y, z, 0, 0)) return entry.zones[i];
+    return null;
   },
   sightLimit(map) { return MapRules.sightLimits[map.category] || MapRules.sightLimits.arena; },
   // Stable fingerprint of the map content (MAP-020: same seed gives the same hash).
@@ -96,14 +98,25 @@ const Maps = {
   report(map) { return MapCheck.run(map); },                // { problems, stats }
 };
 
-function mapZoneVolume(zone) { return (zone.max[0] - zone.min[0]) * (zone.max[1] - zone.min[1]) * (zone.max[2] - zone.min[2]); }
-function mapPointInZone(zone, x, y, z) {
-  return x >= zone.min[0] && x <= zone.max[0] && y >= zone.min[1] && y <= zone.max[1] && z >= zone.min[2] && z <= zone.max[2];
+// The one mode rule: spawns, items and objectives carry an optional `modes` list; a missing or empty list serves every mode of the map.
+const MAP_ALL_MODES = Object.freeze([]);
+const mapModesOf = (entry) => entry.modes || MAP_ALL_MODES;
+const mapServesMode = (entry, modeId) => {
+  const modes = mapModesOf(entry);
+  return modes.length === 0 || modes.includes(modeId);
+};
+
+// The one box rule: a point inside a { min, max } box (zone, trigger), each side grown by the margins (metres).
+function mapInBox(box, x, y, z, marginXZ, marginY) {
+  return x >= box.min[0] - marginXZ && x <= box.max[0] + marginXZ && z >= box.min[2] - marginXZ && z <= box.max[2] + marginXZ &&
+    y >= box.min[1] - marginY && y <= box.max[1] + marginY;
 }
+function mapBoxVolume(box) { return (box.max[0] - box.min[0]) * (box.max[1] - box.min[1]) * (box.max[2] - box.min[2]); }
 
 // ---- MapKit: authoring helpers. Compact rows in, plain map-format objects out (no state, run once at load). ----
 // Compact rows: brush [material, x0,y0,z0, x1,y1,z1 (, rampDir)]; spawn group [team, modes, [[x,y,z,yawDegrees], ...]];
 // item [key, x,y,z (, modes)]; zone [name, x0,z0, x1,z1 (, y0, y1)]; light [x,y,z,color,radius]; hint [kind, x,y,z].
+const MAP_STEP = 0.45;                                   // DATA-003 step height: stairs risers and walkable steps never exceed it
 const MAP_ZONE_FLOOR = -10, MAP_ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
 const MapKit = {
   brush(row) {
@@ -157,6 +170,7 @@ const MapKit = {
   },
   // Stairs filling the rectangle x0..x1 / z0..z1, rising toward dir from yBase by `rise` in `steps` equal steps (each riser <= 0.45 m).
   stairs(material, dir, x0, z0, x1, z1, yBase, rise, steps) {
+    if (rise / steps > MAP_STEP) throw new Error('stairs: riser ' + (rise / steps).toFixed(2) + ' m is higher than the ' + MAP_STEP + ' m step');
     const rows = [], alongX = dir === '+x' || dir === '-x', positive = dir[0] === '+';
     const length = alongX ? x1 - x0 : z1 - z0;
     for (let i = 0; i < steps; i++) {
@@ -210,9 +224,9 @@ const MapKit = {
   mirrorTrigger(t, x) {
     const axis = x ? 0 : 2, copy = JSON.parse(JSON.stringify(t));
     copy.min[axis] = -t.max[axis]; copy.max[axis] = -t.min[axis];
-    if (t.launch) copy.launch[axis] = -t.launch[axis];
+    if (t.target) copy.target[axis] = -t.target[axis];
     if (t.exit) copy.exit[axis] = -t.exit[axis];
-    if (typeof t.exitYaw === 'number') copy.exitYaw = x ? -t.exitYaw : 180 - t.exitYaw;
+    if (typeof t.yaw === 'number') copy.yaw = x ? -t.yaw : 180 - t.yaw;
     return copy;
   },
   mirrorObjective(o, x, swapName, swapTeams) {

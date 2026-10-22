@@ -37,8 +37,8 @@ Coordinates: metres, Y up, floor at y = 0, the map centred on the origin (`x` in
   items:      [{ x, y, z, item: <key>, group: 'power'|'armor'|'health'|'weapon'|'ammo', modes: [] }],
   objectives: [{ id, kind, team: -1, x, y, z, radius: 3, path: [], modes: [], stage?, checkpoints? }],
   zones:      [{ name, min: [x,y,z], max: [x,y,z] }],
-  triggers:   [{ kind: 'jumppad', min, max, launch: [vx, vy, vz] } | { kind: 'teleporter', min, max, exit: [x,y,z], exitYaw } | { kind: 'ladder', min, max }
-               | { kind: 'water', min, max } | { kind: 'hazard', min, max, dps, element } | { kind: 'killzone', min, max }],
+  triggers:   [{ kind: 'jumppad', min, max, target: [x,y,z], peak } | { kind: 'teleporter', min, max, exit: [x,y,z], yaw } | { kind: 'ladder', min, max }
+               | { kind: 'water', min, max } | { kind: 'hazard', min, max, damage, element } | { kind: 'killzone', min, max }],   // fields as in docs/api/world-move.md
   lights:     [{ x, y, z, color: 0xRRGGBB, radius }],
   navHints:   [{ kind: 'cover'|'sniper'|'choke'|'flank'|'dummy'|'guard', x, y, z }] }
 ```
@@ -49,8 +49,10 @@ Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`ar
 
 * `sky`: `{ top, horizon, fog, fogFar, sun: [x, y, z] }` (colours 0xRRGGBB, metres, direction towards the sun). `theme`: `foundry ruins station canal overgrowth glacier` (MAP-022).
 * Materials: `concrete metal wood glass dirt water grass sand ice tile`. `water` brushes are canal/pool beds and puddles (solid; the swim volume is the `water` trigger).
-* Trigger boxes are `min`/`max` corners. `launch` is the velocity at the pad (m/s); the maps are tuned for gravity 20 (`GRAVITY`), other presets land a little short or long.
-  Teleporter `exitYaw` is in degrees. Hazard `element` is one of `kinetic thermal cryo arc toxin void` (HP-006).
+* Trigger boxes are `min`/`max` corners and the fields are the ones S08 reads (docs/api/world-move.md): a pad throws whoever steps on it along an arc that peaks `peak` m above the higher of the
+  feet and the `target` and ends on `target` (feet position), under the actor's own gravity. The arc is the same path under every gravity (only the flight time changes), so a pad lands on its target
+  in every movement preset (gravity 13 to 24) from any spot of its box. Teleporter `yaw` is the exit facing in degrees; hazard `damage` is HP per second and `element` one of
+  `kinetic thermal cryo arc toxin void` (HP-006). The maps never use the older `launch` / `exitYaw` / `dps` names.
 * Item keys: powerups and weapons use the spec backtick keys (`fury`, `lancet`, …; `daybreak`/`halcyon` are group `power`). Plain pickups have no spec key, so these keys are the contract
   for the S12 `items` catalogue: health `healthvial healthpack healthcrate megacell`, armor `armorshard lightplate heavyplate`, ammo `ammobox ammocache`. The item position is the floor point;
   the pickup floats above it.
@@ -72,10 +74,13 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 
 ## Lookups (`Maps`)
 
-* `Maps.get(idOrCode)` row or null; `Maps.forMode(modeId)` rows.
+* `Maps.get(idOrCode)` row or null (null before the catalogue exists); `Maps.forMode(modeId)` rows.
+* Rows are plain data. The lookup caches and the latest scan are keyed by the row object, so clone a row (`JSON.parse(JSON.stringify(row))`) before editing it; never edit a catalogue row in place.
+* Shared rules, global helpers: `mapServesMode(entry, modeId)` (a spawn, item or objective serves a mode when its `modes` list is missing, empty or holds the mode), `mapModesOf(entry)`, `mapInBox(box, x, y, z, marginXZ, marginY)`
+  (point in a `{ min, max }` box: zones, triggers, lights).
 * `Maps.spawnList(map, modeId, team)`: cached array, do not modify. `Maps.spawnMatches(spawn, modeId, team)`.
 * `Maps.itemsFor(map, modeId)`, `Maps.objectivesFor(map, modeId, kind?)`: new arrays, call at match start, not per step.
-* `Maps.zoneAt(map, x, y, z)`: the smallest callout zone holding the point or null (HUD callouts, bot barks).
+* `Maps.zoneAt(map, x, y, z)`: the smallest callout zone holding the point or null (HUD callouts, bot barks); allocation free, safe to call every frame.
 * `Maps.sightLimit(map)`, `Maps.hash(map)` (stable fingerprint, MAP-020), `Maps.validate(map)` -> problem strings (empty = sound), `Maps.report(map)` -> `{ id, problems, stats }`.
 * Events: consumes `match.setup` and sets `Game.match.map` to the row of `setup.map` (id or code), or to `setup.map` itself when it is an object (generated or custom map); an unknown id leaves it null. Emits nothing.
 * Settings keys: none.
@@ -84,7 +89,7 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 
 Compact rows: brush `[material, x0,y0,z0, x1,y1,z1 (, rampDir)]`; spawn group `[team, modes, [[x,y,z,yawDegrees], …]]`; item `[key, x,y,z (, modes)]`; zone `[name, x0,z0, x1,z1 (, y0, y1)]`; light `[x,y,z,color,radius]`;
 hint `[kind, x,y,z]`. `MapKit.make(def)` expands them; `MapKit.wall(material, axis, fixed, thickness, from, to, y0, y1, doors)` builds a wall with door gaps `[centre, width, height]`;
-`MapKit.stairs(material, dir, x0,z0, x1,z1, yBase, rise, steps)`; `MapKit.sym(def, 'x'|'z'|'xz', keepTeams?)` adds mirror copies (x swaps teams 0/1 unless `keepTeams`; names swap West/East or North/South);
+`MapKit.stairs(material, dir, x0,z0, x1,z1, yBase, rise, steps)` (throws when a riser would be above 0.45 m); `MapKit.sym(def, 'x'|'z'|'xz', keepTeams?)` adds mirror copies (x swaps teams 0/1 unless `keepTeams`; names swap West/East or North/South);
 `MapKit.join(...defs)`.
 
 ## Validator (`Maps.validate`, hook `__CTK.map.check(id)` -> problems, `__CTK.map.report(id)` -> `{ problems, stats }`, `__CTK.map.list()`)
@@ -92,13 +97,22 @@ hint `[kind, x,y,z]`. `MapKit.make(def)` expands them; `MapKit.wall(material, ax
 Problems read `rule: text`. Rules: `structure brush budget light` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
 `items` (known keys and groups, floor under every item, 2 m apart, power items 20 m apart, one top item per zone, exposed power items, distance balance between teams, no spawn nearest to more than 50% of the top
 items = the MAP-005 target), `objectives` (per mode, on a floor, reachable), `hints`, `zones` (names, every point and 97% of the walkable area covered), `lights` (every zone that is mostly indoors holds a light),
-`triggers` (fields, pads land on a walkable cell, teleporter exits, ladders have a foot and a top), `open-edge` (a drop over 12 m needs a kill zone), `lanes` (>= 3 separate routes between the team ends; not for `range`/`puzzle`)
+`triggers` (fields; a pad has floor to stand on, its target is a walkable cell at least 0.4 m inside its floor and in the main play space, and the arc from every start cell of the box is free of geometry
+under gravity 13, 20 and 24; teleporter exits; ladders have a foot and a top), `open-edge` (a drop over 12 m needs a kill zone), `lanes` (>= 3 separate routes between the team ends; not for `range`/`puzzle`)
 and `sightline` (no free horizontal line longer than the category limit from a 4 m lattice of eye positions; placeholders are exempt).
-It works on a 0.5 m grid of standing surfaces (`MapScan`: bodies need 1.4 m of width and 2.4 m of height, steps up to 0.45 m, walk-off drops up to 6 m, plus pad / teleporter / ladder links) and requires every
-spawn, item, objective and hint to lie in one strongly connected region, so nothing is cut off or a one-way trap. It needs no movement code and does not touch `World`. Cost: 40 to 250 ms per map, about 1.2 s for the 300 m island.
+A map that is missing a list (`brushes spawns items objectives zones triggers lights navHints`) or has a bad header or trigger is reported by `structure`/`brush`/`triggers` and not analysed further; entries without a `modes` list serve every mode.
+It works on a grid of standing surfaces (`MapScan`; 0.5 m cells, 1 m on maps 200 m or longer): a cell fits when the walls leave room for the capsule (0.42 m on each side) and 1.4 m in total on each axis, so a 1.4 m doorway passes at any offset on the
+grid and a 1.2 m one never does; 2.4 m of height above the feet; steps up to 0.45 m, walk-off drops up to 6 m, plus pad / teleporter / ladder links. Every spawn, item, objective and hint must lie in one strongly connected region, so nothing is cut
+off or a one-way trap. It needs no movement code and does not touch `World`. Cost: 40 to 150 ms per map and 0.25 s for the 300 m island on a desktop i5. Memory: edges are packed typed arrays (an Int32 target and a Uint8 kind per edge); only the latest
+scan is kept (`MapScan.of(map)`) and `Maps.validate` releases it when it ends (`MapScan.release()`).
 Dependencies on S08: `makeBrush`, `rayHitsBox`, `rayVersusBrush`, `pointInBrush`, `makeHit` must stay top-level functions with their present signatures (the test group `maps` cross-checks the scan against `World.raycast`).
 
 ## Tests (group `maps`)
 
-Every map validates; spec table codes and modes; spawn counts and objectives per mode; item spread target; zones; one mutation per validator rule (the validator must catch it); kit and mirror maths;
-scan results; agreement with `World` ray hits; `match.map` resolution.
+Every map validates; spec table codes and modes; spawn counts and objectives per mode; item spread target; zones; a table of mutations (`MAP_MUTATIONS`: 54 broken clones, each has to produce the problem of its own rule, e.g.
+`triggers: ... hits geometry`) covering every rule name of the validator (several checks of the big rules such as `items`, `triggers` and `zones` each have their own row); doorways of 1.2 / 1.3 / 1.4 / 1.6 m at 16 grid offsets and heights of 2.3 / 2.4 m; every pad flown under the six distinct preset gravities (13 to 24) from every start
+cell; maps with missing lists or `modes`; kit and mirror maths; scan results; agreement with `World` ray hits; `match.map` resolution.
+
+## Needs from other sections
+
+* S08 `World.addPart` triggers: read `target/peak`, `yaw`, `damage/element` exactly as in world-move.md (they do). Every map hazard names its own `element` (S08's default `fire` is not an HP-006 element).

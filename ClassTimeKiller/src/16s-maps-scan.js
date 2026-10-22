@@ -1,19 +1,33 @@
 // ==== S16 MAPS: SCAN ====
-// Turns a map's brushes into a walkable graph without any movement code: a 0.5 m grid of standing surfaces (nodes), step/drop
+// Turns a map's brushes into a walkable graph without any movement code: a grid of standing surfaces (nodes, 0.5 m apart), step/drop
 // links between neighbours, extra links for jump pads, teleporters and ladders, and flood fills over it. The validator
 // (16v-maps-validate.js) and the map tests use it; nothing here runs during a match. Uses S08's makeBrush / rayVersusBrush.
 
 const MAP_CELL = 0.5;               // grid spacing, metres
-const MAP_STEP = 0.45;              // DATA-003 step height
+const MAP_CELL_COARSE = 1;          // spacing on very large maps (the island): a quarter of the cells, the same rules
+const MAP_COARSE_SIZE = 200;        // a map this long on either side uses the coarse grid
 const MAP_HEADROOM = 2.4;           // MAP-004 double doorway height: every route needs this much clear space above the feet
-const MAP_CLEARANCE = 0.7;          // half of the 1.4 m minimum doorway width
+const MAP_DOOR_WIDTH = 1.4;         // every route is at least this wide (walls on both sides leave this much room in total)
+const MAP_HALF_DOOR = MAP_DOOR_WIDTH / 2;
+const MAP_BODY_RADIUS = 0.4;        // DATA-003 capsule radius
+const MAP_BODY_REACH = 0.42;        // radius plus skin: a wall never comes closer than this to the body
+const MAP_BODY_CENTRE = 0.9;        // heights above the feet that must be free along a jump pad arc: the middle...
+const MAP_BODY_TOP = 1.7;           // ...and the head
+const MAP_GAP_EPSILON = 1e-6;
 const MAP_DROP_MAX = 6;             // longest walk-off drop treated as a link (BOT-010)
 const MAP_DROP_REACH = 3;           // a drop may land up to this many cells out from the ledge
 const MAP_BUCKET = 4;              // brush lookup grid, metres
 const MAP_SAME_HEIGHT = 0.02;       // surfaces closer than this are one surface
-const MAP_LINK_COSTS = { pad: 4, teleporter: 2, ladder: 3 };
+const MAP_FLOOR_TOLERANCE = 0.3;    // a spawn, item, objective or jump pad target sits on its floor within this
+const MAP_PAD_GRAVITIES = [13, 20, 24];   // lowest preset, the nominal GRAVITY and highest preset: pad arcs are traced under each
+const MAP_PAD_MIN_FLIGHT = 0.1;     // seconds, as in S08's jump pad launch
+const MAP_ARC_STEP = 1 / 30;        // seconds between arc samples
+// Edge kinds: how an edge costs. Walks cost one cell (a diagonal one cell times the square root of two), links a fixed time-like cost.
+const MAP_EDGE = { straight: 0, diagonal: 1, pad: 2, teleporter: 3, ladder: 4 };
+const MAP_LINK_COSTS = { [MAP_EDGE.pad]: 4, [MAP_EDGE.teleporter]: 2, [MAP_EDGE.ladder]: 3 };
 const MAP_NEIGHBOUR_I = [1, -1, 0, 0, 1, 1, -1, -1];
 const MAP_NEIGHBOUR_J = [0, 0, 1, -1, 1, -1, 1, -1];
+const MAP_MAX_EDGES_PER_NODE = 8;
 const MAP_MAX_BRUSH_HITS = 1024;
 
 function mapInsideRect(brush, x, z, margin) {
@@ -31,14 +45,15 @@ function mapBrushTop(brush, x, z) {
 }
 
 const MapScan = {
-  cache: new WeakMap(),
+  last: null,
 
-  // Scan result for a map row, built once (rows are frozen data).
+  // Scan of a map row. Only the latest scan is kept (the island's graph is tens of megabytes) and it is tied to the row object:
+  // clone a row before editing it. MapCheck.run releases it when a validation ends.
   of(map) {
-    let scan = this.cache.get(map);
-    if (!scan) { scan = this.build(map); this.cache.set(map, scan); }
-    return scan;
+    if (!this.last || this.last.map !== map) this.last = this.build(map);
+    return this.last;
   },
+  release() { this.last = null; },
 
   build(map) {
     const scan = this.makeShell(map);
@@ -51,12 +66,15 @@ const MapScan = {
 
   makeShell(map) {
     const brushes = map.brushes.map((source) => makeBrush(source));
-    const cols = Math.ceil(map.size[0] / MAP_CELL), rows = Math.ceil(map.size[2] / MAP_CELL);
+    const coarse = map.size[0] >= MAP_COARSE_SIZE || map.size[2] >= MAP_COARSE_SIZE, cell = coarse ? MAP_CELL_COARSE : MAP_CELL;
+    const cols = Math.ceil(map.size[0] / cell), rows = Math.ceil(map.size[2] / cell);
     const bucketsX = Math.ceil(map.size[0] / MAP_BUCKET), bucketsZ = Math.ceil(map.size[2] / MAP_BUCKET);
+    const need = Math.max(MAP_HALF_DOOR - cell / 2, MAP_BODY_REACH);     // the body may stand half a cell off the cell centre
     return {
-      map, brushes, cols, rows, originX: -map.size[0] / 2, originZ: -map.size[2] / 2, bucketsX, bucketsZ,
+      map, brushes, cell, cols, rows, originX: -map.size[0] / 2, originZ: -map.size[2] / 2, bucketsX, bucketsZ, need, wallReach: MAP_DOOR_WIDTH - need,
       buckets: Array.from({ length: bucketsX * bucketsZ }, () => []), stamp: new Int32Array(brushes.length), stampId: 0,
-      near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32),
+      near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32), gaps: new Float64Array(4), flight: { rise: 0, time: 0 },
+      edgeCosts: Float64Array.of(cell, cell * Math.SQRT2, MAP_LINK_COSTS[MAP_EDGE.pad], MAP_LINK_COSTS[MAP_EDGE.teleporter], MAP_LINK_COSTS[MAP_EDGE.ladder]),
       nodeColumn: null, nodeY: null, nodeCount: 0, columnStart: null, links: [], pads: [], teleporters: [], ladders: [],
       forward: null, backward: null, hazardNodes: 0,
     };
@@ -92,9 +110,9 @@ const MapScan = {
     return count;
   },
 
-  // Standing surfaces at the point: heights (ascending) where a 1.4 m wide, 2.4 m tall body fits. Fills scan.heights, returns count.
+  // Standing surfaces at the point: heights (ascending) where a body fits (see canStand). Fills scan.heights, returns count.
   surfacesAt(scan, x, z) {
-    const near = this.collect(scan, x, z, MAP_CLEARANCE);
+    const near = this.collect(scan, x, z, scan.wallReach);
     let count = 0;
     for (let a = 0; a < near; a++) {
       const brush = scan.brushes[scan.near[a]];
@@ -111,26 +129,46 @@ const MapScan = {
     for (let i = 0; i < count; i++) if (Math.abs(heights[i] - top) < MAP_SAME_HEIGHT) return true;
     return false;
   },
-  // True when the body fits on a surface of height `top`: not inside solid, 2.4 m of air above, no wall within 0.7 m.
+  // True when the body fits on a surface of height `top`: not inside solid, 2.4 m of air above, and room between the walls (gapsFit).
   canStand(scan, near, x, z, top) {
     let ceiling = Infinity;
+    scan.gaps.fill(Infinity);
     for (let a = 0; a < near; a++) {
       const brush = scan.brushes[scan.near[a]];
-      if (mapInsideRect(brush, x, z, 0)) {
-        const other = mapBrushTop(brush, x, z);
-        if (brush.minY < top - MAP_SAME_HEIGHT && other > top + MAP_SAME_HEIGHT) return false;   // the point is buried in this brush
-        if (brush.minY >= top - MAP_SAME_HEIGHT) ceiling = Math.min(ceiling, brush.minY);
-      } else if (this.blocksSide(brush, x, z, top)) {
-        return false;
-      }
+      if (!mapInsideRect(brush, x, z, 0)) { this.noteWall(scan, brush, x, z, top); continue; }
+      const other = mapBrushTop(brush, x, z);
+      if (brush.minY < top - MAP_SAME_HEIGHT && other > top + MAP_SAME_HEIGHT) return false;   // the point is buried in this brush
+      if (brush.minY >= top - MAP_SAME_HEIGHT) ceiling = Math.min(ceiling, brush.minY);
     }
-    return ceiling - top >= MAP_HEADROOM;
+    return ceiling - top >= MAP_HEADROOM && this.gapsFit(scan);
   },
-  // A brush within the body radius that is too tall to step onto and starts below head height.
-  blocksSide(brush, x, z, top) {
+  // A brush too tall to step onto that starts below head height.
+  isWall(brush, x, z, top) {
     const px = Math.max(brush.minX, Math.min(brush.maxX, x)), pz = Math.max(brush.minZ, Math.min(brush.maxZ, z));
-    if ((px - x) * (px - x) + (pz - z) * (pz - z) > MAP_CLEARANCE * MAP_CLEARANCE) return false;
     return mapBrushTop(brush, px, pz) > top + MAP_STEP + MAP_SAME_HEIGHT && brush.minY < top + MAP_HEADROOM - MAP_SAME_HEIGHT;
+  },
+  // Records the free distance to the nearest wall on each side of the point: gaps = [x low, x high, z low, z high]. A wall counts on an
+  // axis when it lies within the body's width on the other axis.
+  noteWall(scan, brush, x, z, top) {
+    if (!this.isWall(brush, x, z, top)) return;
+    const gaps = scan.gaps;
+    if (brush.minZ <= z + MAP_BODY_RADIUS && brush.maxZ >= z - MAP_BODY_RADIUS) {
+      if (brush.maxX <= x) gaps[0] = Math.min(gaps[0], x - brush.maxX);
+      else if (brush.minX >= x) gaps[1] = Math.min(gaps[1], brush.minX - x);
+    }
+    if (brush.minX <= x + MAP_BODY_RADIUS && brush.maxX >= x - MAP_BODY_RADIUS) {
+      if (brush.maxZ <= z) gaps[2] = Math.min(gaps[2], z - brush.maxZ);
+      else if (brush.minZ >= z) gaps[3] = Math.min(gaps[3], brush.minZ - z);
+    }
+  },
+  // The body stands anywhere in its cell, so a cell fits when on each axis both gaps leave room for the body (scan.need) and together
+  // they leave 1.4 m: a 1.4 m doorway passes at any offset on the grid, a 1.2 m one never does.
+  gapsFit(scan) {
+    for (let axis = 0; axis < 4; axis += 2) {
+      const low = scan.gaps[axis], high = scan.gaps[axis + 1];
+      if (low < scan.need - MAP_GAP_EPSILON || high < scan.need - MAP_GAP_EPSILON || low + high < MAP_DOOR_WIDTH - MAP_GAP_EPSILON) return false;
+    }
+    return true;
   },
 
   scanColumns(scan, map) {
@@ -146,7 +184,7 @@ const MapScan = {
     scan.nodeCount = nodeY.length;
   },
   addColumnNodes(scan, map, i, j, nodeColumn, nodeY) {
-    const x = scan.originX + (i + 0.5) * MAP_CELL, z = scan.originZ + (j + 0.5) * MAP_CELL;
+    const x = scan.originX + (i + 0.5) * scan.cell, z = scan.originZ + (j + 0.5) * scan.cell;
     const count = this.surfacesAt(scan, x, z);
     for (let k = 0; k < count; k++) {
       if (this.inDeadlyTrigger(map, x, scan.heights[k], z)) { scan.hazardNodes++; continue; }
@@ -155,16 +193,16 @@ const MapScan = {
     }
   },
   inDeadlyTrigger(map, x, y, z) {
-    return map.triggers.some((t) => (t.kind === 'hazard' || t.kind === 'killzone') && this.inBox(t, x, y, z, 0, 0.6));
-  },
-  inBox(trigger, x, y, z, marginXZ, marginY) {
-    return x >= trigger.min[0] - marginXZ && x <= trigger.max[0] + marginXZ && z >= trigger.min[2] - marginXZ && z <= trigger.max[2] + marginXZ &&
-      y >= trigger.min[1] - marginY && y <= trigger.max[1] + marginY;
+    for (let i = 0; i < map.triggers.length; i++) {
+      const trigger = map.triggers[i];
+      if ((trigger.kind === 'hazard' || trigger.kind === 'killzone') && mapInBox(trigger, x, y, z, 0, 0.6)) return true;
+    }
+    return false;
   },
 
   // ---- Node lookups ----
   columnOf(scan, x, z) {
-    const i = Math.floor((x - scan.originX) / MAP_CELL), j = Math.floor((z - scan.originZ) / MAP_CELL);
+    const i = Math.floor((x - scan.originX) / scan.cell), j = Math.floor((z - scan.originZ) / scan.cell);
     return i < 0 || j < 0 || i >= scan.cols || j >= scan.rows ? -1 : j * scan.cols + i;
   },
   // Node whose surface is closest in height to y within maxDy, looking at the cell and its 8 neighbours; -1 when none.
@@ -183,7 +221,7 @@ const MapScan = {
   },
   bestInColumn(scan, column, y, maxDy, x, z) {
     const ci = column % scan.cols, cj = (column / scan.cols) | 0;
-    const dx = scan.originX + (ci + 0.5) * MAP_CELL - x, dz = scan.originZ + (cj + 0.5) * MAP_CELL - z;
+    const dx = scan.originX + (ci + 0.5) * scan.cell - x, dz = scan.originZ + (cj + 0.5) * scan.cell - z;
     let node = -1, score = Infinity;
     for (let n = scan.columnStart[column]; n < scan.columnStart[column + 1]; n++) {
       const dy = Math.abs(scan.nodeY[n] - y);
@@ -191,11 +229,11 @@ const MapScan = {
     }
     return { node, score };
   },
-  nodeX(scan, node) { return scan.originX + ((scan.nodeColumn[node] % scan.cols) + 0.5) * MAP_CELL; },
-  nodeZ(scan, node) { return scan.originZ + (((scan.nodeColumn[node] / scan.cols) | 0) + 0.5) * MAP_CELL; },
+  nodeX(scan, node) { return scan.originX + ((scan.nodeColumn[node] % scan.cols) + 0.5) * scan.cell; },
+  nodeZ(scan, node) { return scan.originZ + (((scan.nodeColumn[node] / scan.cols) | 0) + 0.5) * scan.cell; },
   // Nodes within `radius` metres (horizontally) and `height` metres (vertically) of a node, itself included.
   nodesAround(scan, node, radius, height) {
-    const reach = Math.ceil(radius / MAP_CELL), column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0, found = [];
+    const reach = Math.ceil(radius / scan.cell), column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0, found = [];
     for (let j = Math.max(0, cj - reach); j <= Math.min(scan.rows - 1, cj + reach); j++) {
       for (let i = Math.max(0, ci - reach); i <= Math.min(scan.cols - 1, ci + reach); i++) this.addNear(scan, j * scan.cols + i, node, radius, height, found);
     }
@@ -210,7 +248,7 @@ const MapScan = {
   // Collects the nodes under a trigger box (grown by margins) into a list.
   nodesInBox(scan, box, marginXZ, marginY) {
     const found = [];
-    for (let n = 0; n < scan.nodeCount; n++) if (this.inBox(box, this.nodeX(scan, n), scan.nodeY[n], this.nodeZ(scan, n), marginXZ, marginY)) found.push(n);
+    for (let n = 0; n < scan.nodeCount; n++) if (mapInBox(box, this.nodeX(scan, n), scan.nodeY[n], this.nodeZ(scan, n), marginXZ, marginY)) found.push(n);
     return found;
   },
 
@@ -229,7 +267,7 @@ const MapScan = {
   },
   // A walk-off drop may land a little way out: the cells right at the foot of a wall are too close to it to hold a body (1.4 m rule).
   dropTarget(scan, node, ci, cj, d) {
-    const nextX = scan.originX + (ci + MAP_NEIGHBOUR_I[d] + 0.5) * MAP_CELL, nextZ = scan.originZ + (cj + MAP_NEIGHBOUR_J[d] + 0.5) * MAP_CELL;
+    const nextX = scan.originX + (ci + MAP_NEIGHBOUR_I[d] + 0.5) * scan.cell, nextZ = scan.originZ + (cj + MAP_NEIGHBOUR_J[d] + 0.5) * scan.cell;
     if (this.solidAtFoot(scan, nextX, nextZ, scan.nodeY[node])) return -1;
     for (let k = 2; k <= MAP_DROP_REACH; k++) {
       const target = this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d] * k, cj + MAP_NEIGHBOUR_J[d] * k);
@@ -250,7 +288,7 @@ const MapScan = {
     return count;
   },
 
-  addLink(scan, from, to, cost) { if (from >= 0 && to >= 0 && from !== to) scan.links.push({ from, to, cost }); },
+  addLink(scan, from, to, kind) { if (from >= 0 && to >= 0 && from !== to) scan.links.push({ from, to, kind }); },
 
   linkTriggers(scan, map) {
     for (const trigger of map.triggers) {
@@ -259,45 +297,59 @@ const MapScan = {
       else if (trigger.kind === 'ladder') this.linkLadder(scan, trigger);
     }
   },
+  // A pad (docs/api/world-move.md) throws whoever steps on it, from wherever it stands, along an arc onto `target`. Every start cell in
+  // the pad box gets a link when the arc is free; the arc is the same under every gravity, only the flight time changes.
   linkPad(scan, trigger) {
-    const entries = this.nodesInBox(scan, trigger, 0, 0.6);
-    const landing = this.padLanding(scan, trigger);
-    scan.pads.push({ trigger, entries: entries.length, landing });
-    for (const entry of entries) this.addLink(scan, entry, landing, MAP_LINK_COSTS.pad);
+    const entries = this.nodesInBox(scan, trigger, 0, 0.6), target = trigger.target;
+    const landing = this.nodeNear(scan, target[0], target[1], target[2], MAP_FLOOR_TOLERANCE);
+    const open = landing < 0 ? [] : entries.filter((entry) => this.arcFree(scan, entry, trigger));
+    scan.pads.push({ trigger, entries: entries.length, landing, open: open.length, firm: landing >= 0 && this.floorAround(scan, target[0], target[1], target[2]) });
+    for (const entry of open) this.addLink(scan, entry, landing, MAP_EDGE.pad);
   },
-  // Flies a body from the pad centre at the launch velocity under nominal gravity; returns the node it lands on, or -1.
-  padLanding(scan, trigger) {
-    const step = 1 / 60;
-    let x = (trigger.min[0] + trigger.max[0]) / 2, y = trigger.max[1], z = (trigger.min[2] + trigger.max[2]) / 2;
-    let vy = trigger.launch[1];
-    for (let t = 0; t < 8; t += step) {
-      const previousY = y;
-      x += trigger.launch[0] * step; z += trigger.launch[2] * step; vy -= GRAVITY * step; y += vy * step;
-      if (this.bodyInSolid(scan, x, y, z)) return -1;
-      const node = vy < 0 ? this.landingNode(scan, x, z, previousY, y) : -1;
-      if (node >= 0) return node;
+  // True when the body flying from the start cell to the pad target hits nothing, under every gravity in MAP_PAD_GRAVITIES.
+  arcFree(scan, node, trigger) {
+    const x = this.nodeX(scan, node), y = scan.nodeY[node], z = this.nodeZ(scan, node);
+    for (const gravity of MAP_PAD_GRAVITIES) if (!this.arcClear(scan, x, y, z, trigger, gravity)) return false;
+    return true;
+  },
+  // The flight S08's touchJumpPad gives: up to `peak` m above the higher of start and target, then down onto the target. Fills
+  // out.rise (the launch speed upward, m/s) and out.time (seconds in the air).
+  padFlight(out, startY, trigger, gravity) {
+    const peakY = Math.max(startY, trigger.target[1]) + trigger.peak;
+    out.rise = Math.sqrt(2 * gravity * (peakY - startY));
+    out.time = Math.max(MAP_PAD_MIN_FLIGHT, out.rise / gravity + Math.sqrt((2 * (peakY - trigger.target[1])) / gravity));
+  },
+  arcClear(scan, startX, startY, startZ, trigger, gravity) {
+    const flight = scan.flight, target = trigger.target;
+    this.padFlight(flight, startY, trigger, gravity);
+    const vx = (target[0] - startX) / flight.time, vz = (target[2] - startZ) / flight.time;
+    for (let t = MAP_ARC_STEP; t < flight.time; t += MAP_ARC_STEP) {
+      if (this.bodyHitsSolid(scan, startX + vx * t, startY + flight.rise * t - 0.5 * gravity * t * t, startZ + vz * t)) return false;
     }
-    return -1;
+    return true;
   },
-  bodyInSolid(scan, x, y, z) {
-    const near = this.collect(scan, x, z, 0);
-    for (let a = 0; a < near; a++) if (pointInBrush(x, y + 0.9, z, scan.brushes[scan.near[a]], 0)) return true;
+  // Middle and head of the body (with the capsule radius as margin) inside a brush. The feet are left out: they start on a floor.
+  bodyHitsSolid(scan, x, y, z) {
+    const near = this.collect(scan, x, z, MAP_BODY_REACH);
+    for (let a = 0; a < near; a++) {
+      const brush = scan.brushes[scan.near[a]];
+      if (pointInBrush(x, y + MAP_BODY_CENTRE, z, brush, MAP_BODY_REACH) || pointInBrush(x, y + MAP_BODY_TOP, z, brush, MAP_BODY_REACH)) return true;
+    }
     return false;
   },
-  landingNode(scan, x, z, fromY, toY) {
-    const column = this.columnOf(scan, x, z);
-    if (column < 0) return -1;
-    let best = -1;
-    for (let n = scan.columnStart[column]; n < scan.columnStart[column + 1]; n++) {
-      if (scan.nodeY[n] <= fromY + 0.05 && scan.nodeY[n] >= toY - 0.05 && (best < 0 || scan.nodeY[n] > scan.nodeY[best])) best = n;
+  // True when floor of the same level lies at least one capsule radius out from the point in every direction (a landing, not an edge).
+  floorAround(scan, x, y, z) {
+    for (let d = 0; d < 8; d++) {
+      const reach = d < 4 ? MAP_BODY_RADIUS : MAP_BODY_RADIUS * Math.SQRT1_2;
+      if (this.topBelow(scan, x + MAP_NEIGHBOUR_I[d] * reach, z + MAP_NEIGHBOUR_J[d] * reach, y + MAP_STEP) < y - MAP_STEP) return false;
     }
-    return best;
+    return true;
   },
   linkTeleporter(scan, trigger) {
     const entries = this.nodesInBox(scan, trigger, 0, 0.6);
     const exit = this.nodeNear(scan, trigger.exit[0], trigger.exit[1], trigger.exit[2], 0.5);
     scan.teleporters.push({ trigger, entries: entries.length, exit });
-    for (const entry of entries) this.addLink(scan, entry, exit, MAP_LINK_COSTS.teleporter);
+    for (const entry of entries) this.addLink(scan, entry, exit, MAP_EDGE.teleporter);
   },
   // A ladder joins the walkable cells around its foot with the cells around its top (both directions).
   linkLadder(scan, trigger) {
@@ -306,48 +358,56 @@ const MapScan = {
     scan.ladders.push({ trigger, bottoms: bottoms.length, tops: tops.length });
     if (!bottoms.length || !tops.length) return;
     const topHub = tops[0], bottomHub = bottoms[0];
-    for (const bottom of bottoms) this.addLink(scan, bottom, topHub, MAP_LINK_COSTS.ladder);
-    for (const top of tops) this.addLink(scan, top, bottomHub, MAP_LINK_COSTS.ladder);
+    for (const bottom of bottoms) this.addLink(scan, bottom, topHub, MAP_EDGE.ladder);
+    for (const top of tops) this.addLink(scan, top, bottomHub, MAP_EDGE.ladder);
   },
 
-  // Compressed adjacency for the whole graph: forward edges and the reverse graph (for strong-connectivity tests).
+  // Compressed adjacency for the whole graph: forward edges and the reverse graph (for strong-connectivity tests). Edges are an
+  // Int32 target and a Uint8 kind (scan.edgeCosts holds the cost of each kind), written straight into pre-sized arrays.
   buildAdjacency(scan) {
-    const count = scan.nodeCount, targets = new Int32Array(8), from = [], to = [], cost = [];
-    const extras = new Map();
-    for (const link of scan.links) { if (!extras.has(link.from)) extras.set(link.from, []); extras.get(link.from).push(link); }
-    for (let n = 0; n < count; n++) this.collectEdges(scan, n, targets, extras.get(n), from, to, cost);
-    scan.forward = { start: this.compress(count, from), to: Int32Array.from(to), cost: Float64Array.from(cost) };
-    scan.backward = this.reverseGraph(count, from, to, cost);
-  },
-  collectEdges(scan, node, targets, links, from, to, cost) {
-    const walk = this.walkTargets(scan, node, targets);
-    for (let k = 0; k < walk; k++) {
-      from.push(node); to.push(targets[k]);
-      cost.push(this.edgeLength(scan, node, targets[k]));
+    const count = scan.nodeCount, targets = new Int32Array(MAP_MAX_EDGES_PER_NODE), extras = new Map();
+    for (const link of scan.links) {
+      if (!extras.has(link.from)) extras.set(link.from, []);
+      extras.get(link.from).push(link);
     }
-    for (const link of links || []) { from.push(node); to.push(link.to); cost.push(link.cost); }
+    const capacity = count * MAP_MAX_EDGES_PER_NODE + scan.links.length;
+    const start = new Int32Array(count + 1), to = new Int32Array(capacity), kind = new Uint8Array(capacity);
+    let edges = 0;
+    for (let n = 0; n < count; n++) {
+      start[n] = edges;
+      edges = this.collectEdges(scan, n, targets, extras.get(n), to, kind, edges);
+    }
+    start[count] = edges;
+    scan.forward = { start, to: to.slice(0, edges), kind: kind.slice(0, edges) };
+    scan.backward = this.reverseGraph(scan.forward, count);
   },
-  edgeLength(scan, a, b) {
+  collectEdges(scan, node, targets, links, to, kind, edges) {
+    const walk = this.walkTargets(scan, node, targets);
+    for (let k = 0; k < walk; k++, edges++) {
+      to[edges] = targets[k];
+      kind[edges] = this.walkKind(scan, node, targets[k]);
+    }
+    for (const link of links || []) { to[edges] = link.to; kind[edges++] = link.kind; }
+    return edges;
+  },
+  walkKind(scan, a, b) {
     const columnA = scan.nodeColumn[a], columnB = scan.nodeColumn[b];
     const diagonal = columnA % scan.cols !== columnB % scan.cols && ((columnA / scan.cols) | 0) !== ((columnB / scan.cols) | 0);
-    return diagonal ? MAP_CELL * Math.SQRT2 : MAP_CELL;
-  },
-  // Start offsets of edge groups: edges[e] holds the node that edge e belongs to (a prefix sum of the per-node counts).
-  compress(count, keys) {
-    const start = new Int32Array(count + 1);
-    for (let e = 0; e < keys.length; e++) start[keys[e] + 1]++;
-    for (let n = 0; n < count; n++) start[n + 1] += start[n];
-    return start;
+    return diagonal ? MAP_EDGE.diagonal : MAP_EDGE.straight;
   },
   // The same edges pointing the other way (for "who can reach this node" questions).
-  reverseGraph(count, from, to, cost) {
-    const start = this.compress(count, to), fill = start.slice(0, count);
-    const targets = new Int32Array(to.length), costs = new Float64Array(to.length);
-    for (let e = 0; e < to.length; e++) {
-      const slot = fill[to[e]]++;
-      targets[slot] = from[e]; costs[slot] = cost[e];
+  reverseGraph(graph, count) {
+    const edges = graph.to.length, start = new Int32Array(count + 1);
+    for (let e = 0; e < edges; e++) start[graph.to[e] + 1]++;
+    for (let n = 0; n < count; n++) start[n + 1] += start[n];
+    const fill = start.slice(0, count), to = new Int32Array(edges), kind = new Uint8Array(edges);
+    for (let n = 0; n < count; n++) {
+      for (let e = graph.start[n]; e < graph.start[n + 1]; e++) {
+        const slot = fill[graph.to[e]]++;
+        to[slot] = n; kind[slot] = graph.kind[e];
+      }
     }
-    return { start, to: targets, cost: costs };
+    return { start, to, kind };
   },
 
   // ---- Flood fills ----
@@ -383,13 +443,13 @@ const MapScan = {
     while (heap.length) {
       const [key, node] = mapHeapPop(heap);
       if (key > dist[node]) continue;
-      this.relax(graph, node, key, dist, previous, heap, blocked);
+      this.relax(scan, graph, node, key, dist, previous, heap, blocked);
     }
     return { dist, previous };
   },
-  relax(graph, node, key, dist, previous, heap, blocked) {
+  relax(scan, graph, node, key, dist, previous, heap, blocked) {
     for (let e = graph.start[node]; e < graph.start[node + 1]; e++) {
-      const next = graph.to[e], total = key + graph.cost[e];
+      const next = graph.to[e], total = key + scan.edgeCosts[graph.kind[e]];
       if ((blocked && blocked[next]) || total >= dist[next]) continue;
       dist[next] = total; previous[next] = node;
       mapHeapPush(heap, total, next);
