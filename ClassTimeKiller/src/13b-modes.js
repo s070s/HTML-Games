@@ -227,6 +227,12 @@ const Modes = {
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) count++;
     return count;
   },
+  // Participants that are in play (not waiting in the queue); countParticipants also counts the queued.
+  countActive() {
+    let count = 0;
+    for (let id = 0; id < Actors.count; id++) if (this.isActive(id)) count++;
+    return count;
+  },
   resetActor(id) {
     this.participant[id] = 0; this.queued[id] = 0; this.hasDied[id] = 0;
     this.kills[id] = 0; this.deaths[id] = 0; this.assists[id] = 0; this.suicides[id] = 0;

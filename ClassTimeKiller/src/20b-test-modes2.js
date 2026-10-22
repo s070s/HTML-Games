@@ -681,3 +681,21 @@ Test.add('modes2', (check) => {
     && Weapons.currentWeapon(1).id === 'warden' && (Actors.flags[0] & ACTOR_FLAG.INVISIBLE) === 0);
   endModeTest();
 });
+
+// The shared helpers of the mode timers (intervalDue on any owner), the zone damage and the active-participant count.
+Test.add('modes2', (check) => {
+  const owner = { timer: 0 };
+  let fired = 0;
+  for (let step = 0; step < 10; step++) if (intervalDue(owner, 'timer', 0.25, 1)) fired++;
+  check('intervalDue: fires once per interval on any owner and key, keeping the remainder', fired === 2 && Test.near(owner.timer, 0.5, 1e-9), fired + ' ' + owner.timer);
+  const hazards = startEventLog('damage.request');
+  startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [0, 0], {});
+  runSeconds(1.01);
+  placeActor(0, 0, 0); placeActor(1, 20, 0); placeActor(2, 0, 0);
+  hazards.length = 0;
+  hurtOutsideZone(0, 0, 10, 7);
+  check('hurtOutsideZone: hurts only the actors beyond the radius', hazards.length === 1 && hazards[0].target === 1 && hazards[0].amount === 7 && hazards[0].kind === 'hazard');
+  check('countActive: in-play participants, never above countParticipants', Modes.countActive() === Actors.count && Modes.countActive() <= Modes.countParticipants(), Modes.countActive() + ' ' + Actors.count);
+  hazards.stop();
+  endModeTest();
+});

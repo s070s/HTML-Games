@@ -800,3 +800,18 @@ Test.add('move', (check) => {
   Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
   Actors.remove(id); Actors.remove(ally);
 });
+
+// nearestSeenEnemy: the nearest enemy that passes the rule's cone test and has a clear line; walls hide the nearer one.
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 4], max: [1, 4, 5] }]);
+  useTestRules({ move: 'arena' });
+  const me = spawnTester(0, 0, 0, null, 0), hidden = spawnTester(0, 0, 8, null, 1), near = spawnTester(6, 0, 3, null, 1), far = spawnTester(-9, 0, 2, null, 1);
+  const rule = { skip: (who, id) => !Actors.alive[id] || !Actors.isEnemy(who, id), point: (id, out) => { out.x = Actors.x[id]; out.y = Actors.eyeY(id); out.z = Actors.z[id]; },
+    accept: (who, id, dx, dy, dz, distance) => distance > 0 };
+  const eyeY = Actors.eyeY(me);
+  check('nearestSeenEnemy: the nearest visible enemy wins, a wall hides the one behind it', nearestSeenEnemy(me, 0, eyeY, 0, 50, rule) === near);
+  check('nearestSeenEnemy: nothing beyond the range', nearestSeenEnemy(me, 0, eyeY, 0, 2, rule) === -1);
+  rule.accept = (who, id) => id === far;
+  check('nearestSeenEnemy: the rule can reject candidates', nearestSeenEnemy(me, 0, eyeY, 0, 50, rule) === far);
+  Actors.remove(me); Actors.remove(hidden); Actors.remove(near); Actors.remove(far);
+});
