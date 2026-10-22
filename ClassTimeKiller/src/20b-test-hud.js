@@ -383,6 +383,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   Actors.health[id] = Actors.maxHealth[id];
   hudTestFrame();
   check('vignette: full health draws none', Hud.quadsOf('vignette') === 0);
+  Actors.health[id] = Actors.maxHealth[id] * 0.37;
+  hudTestFrame();
+  const above = Hud.quadsOf('vignette');
+  Actors.health[id] = Actors.maxHealth[id] * 0.33;
+  hudTestFrame();
+  check('vignette: it starts below 35% health, the HPP02 threshold shared with the heartbeat', above === 0 && Hud.quadsOf('vignette') > 0 && LOW_HEALTH_FRACTION === 0.35, above);
   check('vignette: the colours are red, never white (ACC-005)', HUD_COLOR.healthLow !== 0xffffff && HUD_COLOR.bad !== 0xffffff && (Hud.colors.bad & 0xff) < 0x80);
   const allowed = [];
   for (let i = 0; i < 6; i++) { allowed.push(Hud.flashAllowed()); Hud.time += 0.1; }

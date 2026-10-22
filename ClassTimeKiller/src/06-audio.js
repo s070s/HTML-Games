@@ -35,8 +35,7 @@ const AUDIO_PAUSE_TAU = 0.02;                 // seconds, fade of the game buses
 const AUDIO_SUSPEND_DELAY_MS = 150;           // the context is suspended after the pause fade finished
 const AUDIO_BLOCKED_CHECK_MS = 1500;          // still not running this long after a gesture = blocked
 const AUDIO_HRTF_QUALITY = ['high', 'ultra']; // AUD-004: head-related panning only where the CPU can afford it
-const AUDIO_LOW_HEALTH = 0.3;                 // heartbeat below this health fraction
-const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold
+const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold (LOW_HEALTH_FRACTION, S03)
 const AUDIO_HEARTBEAT_FAST = 0.5;             // seconds between beats at 0 health
 const AUDIO_GAMEPAD_POLL_SECONDS = 0.1;
 const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
@@ -569,9 +568,9 @@ const Sound = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || Actors.maxHealth[id] <= 0) { this.heartbeatClock = 0; return; }
     const fraction = Actors.health[id] / Actors.maxHealth[id];
-    if (fraction >= AUDIO_LOW_HEALTH) { this.heartbeatClock = 0; return; }
+    if (fraction >= LOW_HEALTH_FRACTION) { this.heartbeatClock = 0; return; }
     this.heartbeatClock += seconds;
-    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / AUDIO_LOW_HEALTH);
+    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / LOW_HEALTH_FRACTION);
     if (this.heartbeatClock < period) return;
     this.heartbeatClock -= period;
     this.enqueue(this.recipeIndex('heartbeat'), false, 0, 0, 0, id, 1, 1);

@@ -417,7 +417,14 @@ Test.add('audio', (check) => {
   check('low health beats about every 0.8 s', beats >= 2 && beats <= 3, beats);
   Actors.health[player] = 60;
   for (let i = 0; i < 120; i++) Sound.update(0.0166);
-  check('no heartbeat above 30% health', audioTestCount('heartbeat') === beats);
+  check('no heartbeat above 35% health', audioTestCount('heartbeat') === beats);
+  Actors.health[player] = 36;
+  Sound.resetState();
+  for (let i = 0; i < 120; i++) Sound.update(0.0166);
+  const above = audioTestCount('heartbeat');
+  Actors.health[player] = 34;
+  for (let i = 0; i < 120; i++) Sound.update(0.0166);
+  check('the heartbeat starts below 35 HP of 100 (HPP02, LOW_HEALTH_FRACTION)', above === 0 && audioTestCount('heartbeat') > 0, above);
   Actors.health[player] = 5;
   Sound.resetState();
   for (let i = 0; i < 120; i++) Sound.update(0.0166);

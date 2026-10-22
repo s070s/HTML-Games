@@ -18,7 +18,7 @@ const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a
 const ORDER_RADIUS = 2.5;
 const PING_RANGE = 120;
 const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
-const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
+const HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
 const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
 const PUSH_CHECK_INTERVAL = 0.5;
 
@@ -124,7 +124,7 @@ const BotTeam = {
   updateBot(id, now) {
     if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
-    if (health < LOW_HEALTH_BARK && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
+    if (health < LOW_HEALTH_FRACTION && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
   },
