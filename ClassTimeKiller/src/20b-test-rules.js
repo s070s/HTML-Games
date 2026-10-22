@@ -56,7 +56,7 @@ Test.add('rules', (check) => {
   const onMutators = (rules) => { seen.mutatorSawMove = rules.move; rules.gravityScale = 0.5; };
   const onDifficulty = (rules, setup) => { seen.difficultySawGravity = rules.gravityScale; seen.difficulty = rules.difficulty; rules.selfDamage = setup.selfDamageForTest; };
   const onHandicap = (rules) => { seen.handicapSawSelfDamage = rules.selfDamage; };
-  const onMode = (rules) => { seen.modeSawRuleset = rules.move; rules.knockback = 2; };
+  const onMode = (rules) => { seen.modeSawRuleset = rules.move; rules.itemRespawnScale = 2; };   // a field the tactical bundle does not write
   Rules.addModifier('mutators', onMutators);
   Rules.addModifier('difficulty', onDifficulty);
   Rules.addModifier('handicap', onHandicap);
@@ -67,7 +67,7 @@ Test.add('rules', (check) => {
   Rules.removeModifier('handicap', onHandicap);
   Rules.removeModifier('mode', onMode);
   check('stages run in MOV-001 order', Rules.stagesRun.join(',') === 'mode,bundle,mutators,difficulty,handicap', Rules.stagesRun.join(','));
-  check('a mode-stage modifier runs before the bundle', seen.modeSawRuleset === 'arena' && rules.knockback === 2);
+  check('a mode-stage modifier runs before the bundle', seen.modeSawRuleset === 'arena' && rules.itemRespawnScale === 2);
   check('mutators see the bundle values', seen.mutatorSawMove === 'tactical');
   check('difficulty sees the mutator change', seen.difficultySawGravity === 0.5 && seen.difficulty === 'elite');
   check('handicap sees the difficulty change', seen.handicapSawSelfDamage === 0.25 && rules.selfDamage === 0.25);
