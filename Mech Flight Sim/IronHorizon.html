@@ -545,6 +545,35 @@ const MAPS = {
     sun: [0.7, 0.45, 0.3], sunCol: [1.0, 0.92, 0.85], skyAmb: [0.58, 0.66, 0.8], gndAmb: [0.42, 0.46, 0.56], tree: [0.2, 0.34, 0.26],
   },
 };
+const MAP_DEFAULT_ID = 'ashfall';   // an unknown battlefield id falls back to this one
+const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters only (skirmish records are keyed "<map>-<size>")
+/* Fields every battlefield def has after mapDef(); a MAPS row may leave any of them out.
+   biome: flavour key for later flora, fauna and weather sets ('arid', 'temperate', 'arctic', ...)
+   water: water bodies, [] for none (P1.3)
+   mountains: { ridges: [{ x, z, len, yaw, width, height }], plateaus: [{ x, z, r, edge, height }],
+     floor: lowest ground height in m (sea bed), rock / snow: ground colours [r, g, b] or null, snowLine: m }
+     Ridges and plateaus are added to the rolling base heights; rock and snow colour the ground only when set.
+   maxSlope: steepest ground (deg) a ground vehicle or mech can climb on this map (infantry: INFANTRY_MAX_SLOPE)
+   flora, fauna, weather, hazards, lanes: lists filled by later updates, [] for none
+   airport: { x, z, yaw } of a runway, or null
+   hidden: true keeps the battlefield out of the skirmish list (test maps) */
+const MAP_FIELDS = {
+  biome: 'temperate', water: [], flora: [], fauna: [], weather: [], hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
+};
+const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity };
+const MAP_DEFS = new WeakMap();     // finished def per MAPS row
+/* the complete def of battlefield id (built once per MAPS row): defaults first, then the row's own fields */
+function mapDef(id) {
+  const row = MAPS[id] || MAPS[MAP_DEFAULT_ID];
+  let def = MAP_DEFS.get(row);
+  if (def) return def;
+  def = Object.assign({ id: MAPS[id] ? id : MAP_DEFAULT_ID }, JSON.parse(JSON.stringify(MAP_FIELDS)), row);
+  def.mountains = Object.assign({}, MAP_MOUNTAINS, row.mountains);
+  MAP_DEFS.set(row, def);
+  return def;
+}
+/* battlefield ids offered in the skirmish setup */
+function menuMapIds() { return Object.keys(MAPS).filter((k) => !mapDef(k).hidden); }
 
 /* ---------- controls ---------- */
 const ACTIONS = [
@@ -1912,6 +1941,41 @@ let W = null; // the live world (null in menus)
 
 const TILE_CELLS = 8, TILES = Math.ceil(250 / TILE_CELLS);
 const TERRAIN_CACHE_SIZE = 4;   // recent terrains kept for restarts and co-op joins (about 3 MB each with the mesh)
+const RIDGE_NOISE_SCALE = 1 / 170;   // lattice spacing of the ridged noise on mountains (m)
+const RIDGE_OCTAVES = 4;             // noise layers: 170, 84, 41 and 20 m features
+const RIDGE_BASE = 0.4;              // share of a ridge's height that is a smooth massif; the rest is ridged noise
+const PLATEAU_RIM_NOISE = 0.5;       // a plateau's rim wanders this share of its edge width
+const SITE_FADE = 70;                // a site's levelled ground fades into the terrain over this (see flattenSites)
+const SITE_RINGS = 4, SITE_BEARINGS = 10;   // sample rings and bearings of the building-site slope check
+const SITE_MAX_SLOPE = 8;            // cities and districts never sit on steeper ground (deg)
+const BASE_MAX_SLOPE = 12;           // skirmish bases never sit on steeper ground (deg)
+const ROCK_SLOPE = [0.12, 0.3];      // ground turns to bare rock between these steepness values (1 - normal.y; 0.3 is about 46 deg)
+const SNOW_BLEND = 14;               // snow fades in over this many metres around the snow line
+/* seeded lattice hash in [0, 1) */
+function latticeHash(ix, iz, seed) {
+  let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ Math.imul(seed, 1274126177);
+  h = Math.imul(h ^ (h >>> 13), 1103515245);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+/* seeded value noise in [0, 1], smooth between lattice points one unit apart */
+function valueNoise(x, z, seed) {
+  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  const a = latticeHash(ix, iz, seed), b = latticeHash(ix + 1, iz, seed), c = latticeHash(ix, iz + 1, seed), d = latticeHash(ix + 1, iz + 1, seed);
+  return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+}
+/* ridged multifractal noise in [0, 1]: sharp crests where the noise crosses its middle, finer crests riding on the big ones */
+function ridgedNoise(x, z, seed) {
+  let sum = 0, amp = 0.5, f = 1, norm = 0, prev = 1;
+  for (let o = 0; o < RIDGE_OCTAVES; o++) {
+    let n = 1 - Math.abs(valueNoise(x * f, z * f, seed + o * 101) * 2 - 1);
+    n *= n;
+    sum += n * amp * prev; norm += amp;
+    prev = n; amp *= 0.5; f *= 2.03;
+  }
+  return sum / norm;
+}
 const Terrain = {
   G: 8, N: 250, heights: new Float32Array(251 * 251), tileMax: new Float32Array(TILES * TILES), sites: [], map: null,
   baseHeight(x, z, m) {
@@ -1923,9 +1987,52 @@ const Terrain = {
     h *= m.hill;
     const r = Math.max(Math.abs(x), Math.abs(z));
     if (r > 760) { const e = (r - 760) / 240; h += e * e * 110; }
+    if (m.mountains) h = Math.max(h + this.relief(x, z, m.mountains, m.seed), m.mountains.floor);
     return h;
   },
-  baseGrids: {},   // unflattened heights per map (as doubles), shared by every mission on that map
+  /* height the mountain ranges and plateaus add at (x, z): the highest of them, 0 away from all */
+  relief(x, z, mt, mapSeed) {
+    let best = 0;
+    const seed = Math.round(mapSeed * 1000);
+    const ridges = mt.ridges || [], plateaus = mt.plateaus || [];
+    for (let i = 0; i < ridges.length; i++) {
+      const rg = ridges[i], dx = x - rg.x, dz = z - rg.z, sy = Math.sin(rg.yaw || 0), cy = Math.cos(rg.yaw || 0);
+      const u = Math.abs(dx * sy + dz * cy), v = dx * cy - dz * sy, hw = rg.width / 2;   // along and across the ridge
+      const d = Math.hypot(Math.max(0, u - rg.len / 2), v) / hw;                          // 0 on the spine, 1 at the foot
+      if (d >= 1) continue;
+      const k = 1 - d, env = k * k * (3 - 2 * k);
+      const h = rg.height * env * (RIDGE_BASE + (1 - RIDGE_BASE) * ridgedNoise(x * RIDGE_NOISE_SCALE, z * RIDGE_NOISE_SCALE, seed + i * 7919));
+      if (h > best) best = h;
+    }
+    for (let i = 0; i < plateaus.length; i++) {
+      const pl = plateaus[i], edge = pl.edge || 40;
+      const rim = (valueNoise(x * RIDGE_NOISE_SCALE * 2, z * RIDGE_NOISE_SCALE * 2, seed + 50021 + i) - 0.5) * edge * PLATEAU_RIM_NOISE;
+      const d = Math.hypot(x - pl.x, z - pl.z) + rim;
+      if (d >= pl.r + edge) continue;
+      const h = pl.height * (1 - smoothstep(pl.r, pl.r + edge, d));
+      if (h > best) best = h;
+    }
+    return best;
+  },
+  /* true when the map has mountain ranges or plateaus */
+  hasRelief(m) { return !!m.mountains && ((m.mountains.ridges || []).length > 0 || (m.mountains.plateaus || []).length > 0); },
+  /* Building-site check on the unflattened heights of map def m: no slope above maxDeg anywhere within r plus the
+     levelling fade, so levelling a site never cuts a cliff into a mountainside. Used for bases, cities and districts. */
+  siteFlat(m, x, z, r, maxDeg) {
+    const lim = Math.tan(maxDeg * DEG), reach = r + SITE_FADE, e = 4;
+    for (let ring = 0; ring <= SITE_RINGS; ring++) {
+      const rr = reach * ring / SITE_RINGS, n = ring === 0 ? 1 : SITE_BEARINGS;
+      for (let k = 0; k < n; k++) {
+        const a = k * TAU / n + ring, px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr;
+        const gx = this.baseHeight(px + e, pz, m) - this.baseHeight(px - e, pz, m), gz = this.baseHeight(px, pz + e, m) - this.baseHeight(px, pz - e, m);
+        if (Math.hypot(gx, gz) / (2 * e) > lim) return false;
+      }
+    }
+    return true;
+  },
+  /* the heights a map def's unflattened grid is built from, as a cache key */
+  gridKey(map) { return [map.name, map.seed, map.hill, JSON.stringify(map.mountains || null)].join('|'); },
+  baseGrids: {},   // unflattened heights per map (as doubles, keyed by gridKey), shared by every mission on that map
   cache: [],       // finished terrains (heights, tile maxima, mesh) for recent map + site layouts
   current: null,   // cache entry of the terrain in use
   build(map, sites) {
@@ -1942,7 +2049,7 @@ const Terrain = {
     this.current = entry;
   },
   cacheKey(map, sites) {
-    return [map.name, map.seed, map.hill].concat(sites.map((s) => s.x + ',' + s.z + ',' + s.r + ',' + s.tag)).join('|');
+    return [this.gridKey(map)].concat(sites.map((s) => s.x + ',' + s.z + ',' + s.r + ',' + s.tag)).join('|');
   },
   computeTerrain(map, key) {
     const N = this.N, hs = this.heights;
@@ -1956,12 +2063,13 @@ const Terrain = {
     return { key, heights: hs.slice(), tileMax: this.tileMax.slice(), mesh: null };
   },
   baseGrid(map) {
-    if (this.baseGrids[map.name]) return this.baseGrids[map.name];
+    const gk = this.gridKey(map);
+    if (this.baseGrids[gk]) return this.baseGrids[gk];
     const N = this.N, G = this.G, grid = new Float64Array((N + 1) * (N + 1));
     for (let j = 0; j <= N; j++) {
       for (let i = 0; i <= N; i++) grid[j * (N + 1) + i] = this.baseHeight(-WORLD_HALF + i * G, -WORLD_HALF + j * G, map);
     }
-    this.baseGrids[map.name] = grid;
+    this.baseGrids[gk] = grid;
     return grid;
   },
   /* flatten around each site in site order, visiting only the grid points it can reach (same result as testing every point) */
@@ -2034,7 +2142,7 @@ const Terrain = {
   buildMesh(map) {
     const stride = 2, N = this.N, n = N / stride + 1, G = this.G * stride;
     const data = new Float32Array(n * n * 9);
-    const nrm = { x: 0, y: 1, z: 0 };
+    const nrm = { x: 0, y: 1, z: 0 }, mt = map.mountains;
     let o = 0;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
@@ -2047,6 +2155,14 @@ const Terrain = {
         let r = lerp(map.ground[0], map.high[0], t), g = lerp(map.ground[1], map.high[1], t), b = lerp(map.ground[2], map.high[2], t);
         const steep = clamp((1 - nrm.y) * 4.5, 0, 1);
         r = lerp(r, map.dark[0], steep); g = lerp(g, map.dark[1], steep); b = lerp(b, map.dark[2], steep);
+        if (mt && mt.rock) { // bare rock on steep mountain faces
+          const rk = smoothstep(ROCK_SLOPE[0], ROCK_SLOPE[1], 1 - nrm.y);
+          r = lerp(r, mt.rock[0], rk); g = lerp(g, mt.rock[1], rk); b = lerp(b, mt.rock[2], rk);
+        }
+        if (mt && mt.snow) { // snow above the snow line, thinning out on steep faces
+          const sk = smoothstep(mt.snowLine - SNOW_BLEND, mt.snowLine + SNOW_BLEND, h + noise * SNOW_BLEND) * (1 - smoothstep(ROCK_SLOPE[0], ROCK_SLOPE[1] + 0.2, 1 - nrm.y) * 0.75);
+          r = lerp(r, mt.snow[0], sk); g = lerp(g, mt.snow[1], sk); b = lerp(b, mt.snow[2], sk);
+        }
         for (let k = 0; k < this.sites.length; k++) {
           const s = this.sites[k];
           if (s.tag === 'pad' || s.tag === 'city' || s.tag === 'base') {
@@ -2678,11 +2794,11 @@ function statsOf(pl) {
   return pl.netPeer && pl.netPeer.stats ? pl.netPeer.stats : null;
 }
 function newWorld(cfg) {
-  const m = MAPS[cfg.map];
+  const m = mapDef(cfg.map);
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: cfg.map, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
+    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [],
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [],
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
@@ -3658,6 +3774,7 @@ const SCENERY = {
   verdant: { city: { x: -560, z: 560, r: 150 }, base: { x: 650, z: -250, r: 125 } },
   frost: { city: { x: -600, z: 600, r: 150 }, base: { x: 650, z: -450, r: 125 } },
 };
+const SCENERY_DEFAULT = { city: { x: -560, z: 560, r: 150 }, base: { x: 650, z: -350, r: 125 } };   // a battlefield with no entry above
 const SCENERY_DISTRICT_R = 100, SCENERY_MEGA_R = 190;   // district and mega-district radius (m)
 const SCENERY_DISTRICT_DIST = [200, 250, 300, 360];    // a mission's start district is tried this far from the start (m)
 const SCENERY_DISTRICT_BEARINGS = 12;                  // at this many bearings each
@@ -3713,9 +3830,10 @@ const Scenery = {
   /* the layout of one battle; withDistrict adds the start district (story missions) */
   layoutFor(def, withDistrict) {
     if (def.layout) return def.layout;
-    const s = SCENERY[def.map];
-    if (!s) return { cities: [], bases: [] };
-    const lay = { cities: [Object.assign({ kind: 'city' }, s.city)], bases: [Object.assign({ style: 'outpost', team: 1 }, s.base)] };
+    const s = SCENERY[def.map] || SCENERY_DEFAULT;
+    // the default city and outpost only go where the ground is gentle enough (a mountain map may have none)
+    const fits = (c, deg) => !!SCENERY[def.map] || this.flatFor(def.map, c, deg);
+    const lay = { cities: fits(s.city, SITE_MAX_SLOPE) ? [Object.assign({ kind: 'city' }, s.city)] : [], bases: fits(s.base, BASE_MAX_SLOPE) ? [Object.assign({ style: 'outpost', team: 1 }, s.base)] : [] };
     const d = withDistrict && def.start ? this.startDistrict(def, lay) : null;
     if (d) lay.cities.push(d);
     return lay;
@@ -3729,7 +3847,7 @@ const Scenery = {
       for (let k = 0; k < SCENERY_DISTRICT_BEARINGS; k++) {
         const a = a0 + k * TAU / SCENERY_DISTRICT_BEARINGS;
         const c = { x: st.x + Math.sin(a) * dist, z: st.z + Math.cos(a) * dist, r: SCENERY_DISTRICT_R, kind: 'district' };
-        if (this.clearSpot(c, def.sites, def.corridors, lay)) return c;
+        if (this.clearSpot(c, def.sites, def.corridors, lay) && this.flatFor(def.map, c, SITE_MAX_SLOPE)) return c;
       }
     }
     return null;
@@ -3741,6 +3859,11 @@ const Scenery = {
     for (const k of lay.cities.concat(lay.bases)) if (Math.hypot(c.x - k.x, c.z - k.z) < k.r + c.r + SCENERY_GAP) return false;
     for (const q of corridors || []) if (segDist(c.x, c.z, q) < q.w + c.r + SCENERY_GAP) return false;
     return true;
+  },
+  /* c { x, z, r } is gentle enough ground for a city or base on battlefield mapId (maps without mountains always are) */
+  flatFor(mapId, c, maxDeg) {
+    const md = mapDef(mapId);
+    return !Terrain.hasRelief(md) || Terrain.siteFlat(md, c.x, c.z, c.r, maxDeg);
   },
   sitesFor(lay) {
     return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 15, tag: c.style ? 'base' : 'city' }));
@@ -4380,6 +4503,8 @@ function groundLevel(x, z, y, r) {
   return g;
 }
 
+const INFANTRY_MAX_SLOPE = 40;   // infantry climb ground this steep (deg); vehicles and mechs stop at their map's maxSlope
+const SLOPE_SLIDE = 7;           // m/s a ground unit slides downhill on ground well past its climbing limit
 class Platform {
   constructor(def, opts) {
     this.id = W.nextId++;
@@ -4402,6 +4527,8 @@ class Platform {
     this.telegraph = 0; this.telegraphColor = 0;
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
     this.ejectArm = 0; this.crashCd = 0; this.stuckT = 0; this.lastX = this.x; this.lastZ = this.z; this.warn = '';
+    // steepest ground it can climb, as rise over run: its own maxSlope, else infantry's, else the map's
+    this.climbTan = Math.tan((def.maxSlope || (def.style === 'infantry' ? INFANTRY_MAX_SLOPE : W.map.maxSlope || MAP_FIELDS.maxSlope)) * DEG);
     this.stats = { kills: 0, damage: 0 };
     this.killedBy = null;   // { name, dist } for the death screen; null when unknown or ejected
     this.target = null; this.lock = { target: null, progress: 0, state: 'none', reason: '', grace: 0 };
@@ -4548,7 +4675,8 @@ class Platform {
     if (!this.grounded) this.vy -= GRAVITY * this.gravMult() * dt;
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
-    if (this.grounded && Terrain.slope(this.x, this.z) > 1.25) { this.x = px; this.z = pz; this.vx = this.vz = 0; }
+    if (this.grounded && this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx = this.vz = 0; }   // jump jets still lift it up a ledge
+    if (this.grounded && this.y - Terrain.h(this.x, this.z) < 0.5) this.slideDown(dt);   // not off a roof
     const gy = groundLevel(this.x, this.z, this.y + 0.6, this.radius);
     if (this.grounded) {
       if (this.y - gy > 1.4) this.grounded = false; else this.y = gy;
@@ -4618,7 +4746,8 @@ class Platform {
     this.vx = fx * vf + rx * vl; this.vz = fz * vf + rz * vl;
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt;
-    if (Terrain.slope(this.x, this.z) > (g.type === 'hover' ? 1.6 : 1.15)) { this.x = px; this.z = pz; this.vx *= 0.3; this.vz *= 0.3; }
+    if (this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx *= 0.3; this.vz *= 0.3; }
+    this.slideDown(dt);
     // suspension approximation: sample four points
     const L = this.radius, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const hF = Terrain.h(this.x + sy * L, this.z + cy * L), hB = Terrain.h(this.x - sy * L, this.z - cy * L);
@@ -4631,6 +4760,19 @@ class Platform {
     this.walkPhase += vf * dt;
     if (g.type === 'hover' && this.speed > 4 && Math.random() < dt * 20) FX.emit(this.x + rand(-1, 1) * this.radius, this.y - 0.5, this.z + rand(-1, 1) * this.radius, rand(-2, 2), rand(0.5, 2), rand(-2, 2), 0.6, 1.2, 2.4, 0.6, 0.55, 0.45, 0.35, 2, 0, false);
     if (g.type !== 'hover' && this.speed > 8 && Math.random() < dt * 8) FX.emit(this.x - fx * L, this.y + 0.3, this.z - fz * L, rand(-1, 1), rand(0.5, 1.5), rand(-1, 1), 0.7, 1, 2.2, 0.55, 0.5, 0.42, 0.3, 2, 0, false);
+  }
+
+  /* true when the step from (px, pz) to where it stands now climbs ground steeper than it can */
+  climbBlocked(px, pz) {
+    return Terrain.slope(this.x, this.z) > this.climbTan && Terrain.h(this.x, this.z) > Terrain.h(px, pz);
+  }
+  /* on ground well past its climbing limit (landed or pushed there) it slides downhill instead of standing still */
+  slideDown(dt) {
+    const e = 4, gx = Terrain.h(this.x + e, this.z) - Terrain.h(this.x - e, this.z), gz = Terrain.h(this.x, this.z + e) - Terrain.h(this.x, this.z - e);
+    const gl = Math.hypot(gx, gz), excess = gl / (2 * e) - this.climbTan;
+    if (excess <= 0) return;
+    const step = SLOPE_SLIDE * Math.min(1, excess * 2) * dt / gl;
+    this.x -= gx * step; this.z -= gz * step;
   }
 
   /* ---------------- aircraft flight model ---------------- */
@@ -4799,7 +4941,8 @@ class Platform {
       this.stuckT = 0;
       for (let ring = 1; ring <= 5; ring++) for (let k = 0; k < 12; k++) {
         const a = (k / 12) * TAU, nx = this.x + Math.cos(a) * ring * 6, nz = this.z + Math.sin(a) * ring * 6;
-        if (!groundBlocked(nx, nz, this.radius + 0.5) && Terrain.slope(nx, nz) < 0.6) { this.x = nx; this.z = nz; this.y = Terrain.h(nx, nz); this.vx = this.vz = 0; this.grounded = true; return; }
+        // never up a face it could not climb
+        if (!groundBlocked(nx, nz, this.radius + 0.5) && Terrain.slope(nx, nz) < 0.6 && Terrain.h(nx, nz) - this.y <= ring * 6 * this.climbTan) { this.x = nx; this.z = nz; this.y = Terrain.h(nx, nz); this.vx = this.vz = 0; this.grounded = true; return; }
       }
     }
   }
@@ -10580,11 +10723,14 @@ class AIController {
   }
   /* pick a heading that is not blocked by structures or steep slopes */
   steerAround(dx, dz) {
-    const p = this.p, look = p.radius * 2.5 + 10;
+    const p = this.p, look = p.radius * 2.5 + 10, gy = Terrain.h(p.x, p.z);
+    // too steep: uphill ground past the platform's climbing limit, at the probe or halfway to it (downhill stays open)
+    const steep = (x, z) => Terrain.slope(x, z) > p.climbTan && Terrain.h(x, z) > gy;
     const test = (ax, az) => {
       const x = p.x + ax * look, z = p.z + az * look;
       if (groundBlocked(x, z, p.radius * 0.9, p.y, p.height)) return false;
-      return Terrain.slope(x, z) < (p.kind === 'mech' ? 1.1 : 0.85);
+      if (Terrain.slope(x, z) >= (p.kind === 'mech' ? 1.1 : 0.85)) return false;
+      return !steep(x, z) && !steep(p.x + ax * look * 0.5, p.z + az * look * 0.5);
     };
     if (test(dx, dz)) { this.moveDir.x = dx; this.moveDir.z = dz; return; }
     const angs = [0.5, -0.5, 1.0, -1.0, 1.6, -1.6];
@@ -10724,7 +10870,7 @@ class AIController {
     c.fire1 = false; c.boost = false; c.brake = false; c.moveS = 0;
     let dist = 9999, desYaw = p.yaw, desPitch = 0;
     const ahead = 220, sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
-    const aheadH = Math.max(Terrain.h(p.x + sy * ahead, p.z + cy * ahead), Bld.topAt(p.x + sy * ahead, p.z + cy * ahead, 30), Bld.topAt(p.x, p.z, 30));
+    const aheadH = Math.max(Terrain.h(p.x + sy * ahead, p.z + cy * ahead), Terrain.h(p.x + sy * ahead * 0.5, p.z + cy * ahead * 0.5), Bld.topAt(p.x + sy * ahead, p.z + cy * ahead, 30), Bld.topAt(p.x, p.z, 30));
     const minAlt = Math.max(gh, aheadH) + (gun ? 70 : 55);
     if (hasTarget) {
       dist = this.aimAtTarget(dt, this.weaponSpeed());
@@ -11448,6 +11594,7 @@ const SKIRMISH_BASE_RING = [500, 600];   // base centres sit this far from the m
 const SKIRMISH_BASE_SWING = 0.45;        // the enemy base swings up to this far (rad) off the bearing opposite ours
 const SKIRMISH_FIELD = 640;              // base centres stay inside +-this; the ground rises steeply past 760 m
 const SKIRMISH_LAYOUT_TRIES = 16;        // seeded attempts at a base pair before the fixed fallback
+const SKIRMISH_LAYOUT_TRIES_RELIEF = 96; // more attempts on a mountain map, where steep ground rules many pairs out
 const SKIRMISH_LAYOUT_SALT = 0x5bd1e995; // the layout draws from its own stream, so a seed's waves stay as they were
 const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far to one side of it (m), nearer if the edge is close
 const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
@@ -11461,12 +11608,15 @@ const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, 
 function skirmishLayout(cfg) {
   const rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
   const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
+  // on a mountain map bases and districts also need gentle ground (maps without mountains keep their old layouts)
+  const relief = Terrain.hasRelief(mapDef(cfg.map)), flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg);
+  const tries = relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
   let own = null, foe = null;
-  for (let k = 0; k < SKIRMISH_LAYOUT_TRIES && !foe; k++) {
+  for (let k = 0; k < tries && !foe; k++) {
     const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
     const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
-    const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1 }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2 };
-    if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP) { own = o; foe = e; }
+    const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1, r: FORT.r }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2, r: FORT.r };
+    if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
   }
   if (!foe) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }   // never needed with the constants above
   const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
@@ -11481,13 +11631,13 @@ function skirmishLayout(cfg) {
   const side = rng() < 0.5 ? 1 : -1, shift = lerp(SKIRMISH_MEGA_SHIFT[0], SKIRMISH_MEGA_SHIFT[1], rng());
   for (const k of [shift * side, -shift * side, 0]) {
     const c = { x: mx + px * k, z: mz + pz * k, r: SCENERY_MEGA_R, kind: 'mega' };
-    if (Scenery.clearSpot(c, sites, null, lay)) { lay.cities.push(c); break; }
+    if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
   }
   for (const b of [ownBase, foeBase]) {
     const bs = rng() < 0.5 ? 1 : -1;
     for (const k of [SKIRMISH_DISTRICT_SIDE[0] * bs, -SKIRMISH_DISTRICT_SIDE[0] * bs, SKIRMISH_DISTRICT_SIDE[1] * bs, -SKIRMISH_DISTRICT_SIDE[1] * bs]) {
       const c = { x: b.x + px * k, z: b.z + pz * k, r: SCENERY_DISTRICT_R, kind: 'district' };
-      if (Scenery.clearSpot(c, sites, null, lay)) { lay.cities.push(c); break; }
+      if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
     }
   }
   return { lay, start, sites, own: ownBase, foe: foeBase };
@@ -12300,6 +12450,16 @@ Cam.menuUpdate = function (dt) {
    HUD (2D canvas drawn over the WebGL view)
    ===================================================================== */
 const ALLY_ROWS = 5;   // rows in the HUD ally list
+const PULL_UP_AGL = 70, PULL_UP_SINK = 6;   // warn below this height (m) while sinking faster than this (m/s)
+const PULL_UP_LOOK = 3, PULL_UP_CLEAR = 25;   // or when rising ground this many seconds ahead would come closer than this (m)
+/* aircraft p is about to fly into the ground: sinking low, or heading into a slope or mountain face (not on a gear-down approach) */
+function pullUpWarning(p) {
+  const gh = Terrain.h(p.x, p.z);
+  if (p.y - gh < PULL_UP_AGL && p.vy < -PULL_UP_SINK) return true;
+  if (p.gear) return false;
+  const ahead = Terrain.h(p.x + p.vx * PULL_UP_LOOK, p.z + p.vz * PULL_UP_LOOK);
+  return ahead > gh + PULL_UP_CLEAR && p.y + p.vy * PULL_UP_LOOK < ahead + PULL_UP_CLEAR;
+}
 const HUD = {
   cv: null, g: null, w: 800, h: 600, dpr: 1, u: 1, tmp: { sx: 0, sy: 0, w: 0, vis: false }, targetPos: { x: 0, y: 0, z: 0 },
   C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
@@ -12702,7 +12862,7 @@ const HUD = {
     if (p.warn) warns.push('!! ' + p.warn + ' !!');
     if (p.overheated) warns.push('!! OVERHEAT - WEAPONS LOCKED !!');
     if (p.hp < p.maxHp * 0.25) warns.push('!! HULL CRITICAL !!');
-    if (p.kind === 'air' && !p.grounded) { const agl = p.y - Terrain.h(p.x, p.z); if (agl < 70 && p.vy < -6) warns.push('!! PULL UP !!'); }
+    if (p.kind === 'air' && !p.grounded && pullUpWarning(p)) warns.push('!! PULL UP !!');
     const pw = p.primary;
     if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve === 0 && !W.infiniteAmmo) warns.push('NO AMMO: ' + pw.def.name.toUpperCase());
     else if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve < pw.def.clip * 0.4 && !W.infiniteAmmo) warns.push('LOW AMMO: ' + pw.def.name.toUpperCase());
@@ -12815,6 +12975,7 @@ const UI = {
     this.root.addEventListener('input', (e) => this.onInput(e, false));
     this.root.addEventListener('change', (e) => this.onInput(e, true));
     this.skirmish = Object.assign({}, SKIRMISH_DEFAULT, Save.data.skirmish || {});
+    if (!MAPS[this.skirmish.map]) this.skirmish.map = SKIRMISH_DEFAULT.map;   // a battlefield that no longer exists
     if (!Number.isFinite(this.skirmish.seed)) this.skirmish.seed = SKIRMISH_DEFAULT.seed;   // kept so the last battle can be replayed
     this.skirmish.random = this.skirmish.random !== false;
   },
@@ -13065,7 +13226,7 @@ const UI = {
   scr_missions() {
     const cards = MISSIONS.map((m) => {
       const b = Save.data.best[m.id];
-      return '<button class="card" data-act="brief" data-id="' + m.id + '"><b>' + esc(m.name) + '</b> <span class="tag">' + esc(m.type) + '</span><br><small>' + esc(MAPS[m.map].name) + ' &middot; Difficulty ' + '*'.repeat(m.stars) + ' &middot; Best: ' + (b ? '<span class="rank' + b.rank + '">' + b.rank + '</span> ' + b.score + (b.diff ? ' (' + DIFFICULTY[b.diff].name + ')' : '') : 'not cleared') + '</small></button>';
+      return '<button class="card" data-act="brief" data-id="' + m.id + '"><b>' + esc(m.name) + '</b> <span class="tag">' + esc(m.type) + '</span><br><small>' + esc(mapDef(m.map).name) + ' &middot; Difficulty ' + '*'.repeat(m.stars) + ' &middot; Best: ' + (b ? '<span class="rank' + b.rank + '">' + b.rank + '</span> ' + b.score + (b.diff ? ' (' + DIFFICULTY[b.diff].name + ')' : '') : 'not cleared') + '</small></button>';
     }).join('');
     return '<h2>Objective Missions</h2><div class="grid2">' + cards + '</div><div class="row"><button class="btn" data-act="back">Back</button></div>';
   },
@@ -13075,7 +13236,7 @@ const UI = {
         this.platSummary() + '<div class="row"><button class="btn primary" data-act="deployTraining" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
     }
     const m = MISSION_BY_ID[d.id];
-    return '<h2>' + esc(m.name) + '</h2><div class="row"><span class="tag">' + esc(m.type) + '</span><span class="tag">' + esc(MAPS[m.map].name) + '</span><span class="tag">Difficulty ' + '*'.repeat(m.stars) + '</span>' + (m.timeLimit ? '<span class="tag">Time limit ' + fmtTime(m.timeLimit) + '</span>' : '') + '</div>' +
+    return '<h2>' + esc(m.name) + '</h2><div class="row"><span class="tag">' + esc(m.type) + '</span><span class="tag">' + esc(mapDef(m.map).name) + '</span><span class="tag">Difficulty ' + '*'.repeat(m.stars) + '</span>' + (m.timeLimit ? '<span class="tag">Time limit ' + fmtTime(m.timeLimit) + '</span>' : '') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Briefing</h3>' + esc(m.brief) + '<h3>Recommended</h3>' + esc(m.recommended) + '</div>' +
       this.platSummary() + '<div class="panel">' + this.diffSelect() + '</div>' +
       '<div class="row"><button class="btn primary" data-act="deployMission" data-id="' + m.id + '" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
@@ -13088,7 +13249,7 @@ const UI = {
     return '<h2>Skirmish</h2><div class="panel">Your base and the enemy base stand on opposite sides of a battlefield of your choice, each with a command center and turrets. Enemy waves march out of their base toward yours. Win by destroying the enemy command center, beating every wave or holding out until the time limit; lose your own command center and the battle is lost. A random battle draws new bases and waves each time; untick it to replay the last one.' +
       '<div class="dim">Best here: ' + (best ? best.waves + ' waves cleared, score ' + best.score + (best.diff ? ' (' + DIFFICULTY[best.diff].name + ')' : '') + (best.won ? '' : ', battle lost') : 'none yet') + '</div></div>' +
       '<div class="grid2"><div class="panel">' +
-      sel('map', 'Battlefield', Object.keys(MAPS).map((k) => [k, MAPS[k].name])) +
+      sel('map', 'Battlefield', menuMapIds().map((k) => [k, esc(mapDef(k).name)])) +
       sel('size', 'Encounter size', [['small', 'Small (4 waves)'], ['medium', 'Medium (6 waves)'], ['large', 'Large (9 waves)']]) +
       sel('difficulty', 'Difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) +
       sel('duration', 'Mission duration', [[0, 'Unlimited'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes']]) +
@@ -13226,6 +13387,23 @@ const UI = {
 /* base terrain fingerprints of the original battlefields: missions m1-m8 are built on these heights, so they must never change */
 const TERRAIN_GOLDEN = { ashfall: 189128124, verdant: 1221832613, frost: 1585262179 };
 const TERRAIN_HASH_STRIDE = 37;   // fingerprint every 37th grid height
+/* ground mesh fingerprints (positions, normals and colours) of the original battlefields with MESH_HASH_SITES: they must look the same */
+const TERRAIN_MESH_GOLDEN = { ashfall: 1263172816, verdant: 559064534, frost: 3612008292 };
+const MESH_HASH_SITES = [{ x: 0, z: 0, r: 120, tag: 'city' }, { x: 400, z: -300, r: 100, tag: 'base' }];
+const MESH_HASH_STRIDE = 7;
+/* A mountain battlefield for self-test and for looking at mountains live; it is not in MAPS.
+   Register it from the console with __IH.MAPS.peaks = __IH.TEST_PEAKS_MAP, then pick it in skirmish. */
+const TEST_PEAKS_MAP = {
+  name: 'Test Peaks', desc: 'A mountain range across the middle, a spur and a mesa.', seed: 2.9, hill: 0.45, biome: 'alpine', hidden: true,
+  ground: [0.33, 0.42, 0.25], dark: [0.24, 0.3, 0.19], high: [0.4, 0.45, 0.32],
+  zenith: [0.2, 0.4, 0.68], horizon: [0.72, 0.8, 0.86], fog: 0.0008,
+  sun: [0.45, 0.7, -0.4], sunCol: [1.08, 1.0, 0.9], skyAmb: [0.5, 0.6, 0.72], gndAmb: [0.24, 0.29, 0.22], tree: [0.14, 0.32, 0.16],
+  mountains: {
+    ridges: [{ x: 0, z: 0, len: 640, yaw: 0.6, width: 300, height: 220 }, { x: -470, z: 430, len: 300, yaw: -0.5, width: 200, height: 140 }],
+    plateaus: [{ x: 430, z: -470, r: 80, edge: 45, height: 55 }],
+    floor: -20, rock: [0.43, 0.41, 0.39], snow: [0.93, 0.95, 0.98], snowLine: 150,
+  },
+};
 /* a save written by the game before the Living World update (version 1, every key it used); it must keep loading */
 const SAVE_FIXTURE_V1 = {
   v: 1,
@@ -13255,10 +13433,28 @@ const SelfTest = {
   results: [],
   /* fingerprint of a battlefield's unflattened terrain */
   terrainHash(mapId) {
-    const g = Terrain.baseGrid(MAPS[mapId]);
+    const g = Terrain.baseGrid(mapDef(mapId));
     let h = 2166136261;
     for (let k = 0; k < g.length; k += TERRAIN_HASH_STRIDE) { h ^= Math.round(g[k] * 1000) & 0xffffffff; h = Math.imul(h, 16777619) >>> 0; }
     return h;
+  },
+  /* fingerprint of a battlefield's ground mesh with MESH_HASH_SITES (leaves that terrain built) */
+  meshHash(mapId) {
+    const m = mapDef(mapId);
+    Terrain.build(m, MESH_HASH_SITES);
+    const d = Terrain.buildMesh(m).data;
+    let h = 2166136261;
+    for (let k = 0; k < d.length; k += MESH_HASH_STRIDE) { h ^= Math.round(d[k] * 1000) & 0xffffffff; h = Math.imul(h, 16777619) >>> 0; }
+    return h;
+  },
+  /* lays a straight ramp of angleDeg rising toward +z from z = 0 for run m (then flat) over the whole terrain grid (undone by the next Terrain.build) */
+  rampTerrain(angleDeg, run) {
+    const N = Terrain.N, G = Terrain.G, len = run || 400, k = Math.tan(angleDeg * DEG), top = len * k;
+    for (let j = 0; j <= N; j++) {
+      const z = -WORLD_HALF + j * G, h = clamp(z, 0, len) * k;
+      for (let i = 0; i <= N; i++) Terrain.heights[j * (N + 1) + i] = h;
+    }
+    Terrain.tileMax.fill(top);
   },
   /* Time whole frames (simulation, camera, render, and a 1-pixel read that waits for the GPU) on each bench scene.
      Returns one row per scene: { id, avg, p95, max } in ms. Run with __IH.bench(); pass ids to time only some scenes. */
@@ -14713,6 +14909,112 @@ const SelfTest = {
       this.check('old save keeps its last battle', s.skirmish && s.skirmish.map === 'frost' && s.skirmish.seed === 777);
       this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => MAPS[sc.map] && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable));
     });
+    t('map framework', () => {
+      const core = ['name', 'desc', 'seed', 'hill', 'ground', 'dark', 'high', 'zenith', 'horizon', 'fog', 'sun', 'sunCol', 'skyAmb', 'gndAmb', 'tree'];
+      for (const id in MAPS) {
+        const d = mapDef(id);
+        this.check('battlefield id ' + id + ' is lowercase letters (skirmish record keys)', MAP_ID_RE.test(id));
+        this.check('battlefield ' + id + ' resolves to a complete def', d.id === id && core.every((k) => d[k] !== undefined) && Object.keys(MAP_FIELDS).every((k) => d[k] !== undefined) && Object.keys(MAP_MOUNTAINS).every((k) => d.mountains[k] !== undefined));
+      }
+      this.check('an unknown battlefield id falls back to the default one', mapDef('nowhere').id === MAP_DEFAULT_ID && mapDef('nowhere') === mapDef(MAP_DEFAULT_ID));
+      for (const id in TERRAIN_GOLDEN) {
+        this.check('battlefield ' + id + ' has no mountains, so its ground keeps its colours', !Terrain.hasRelief(mapDef(id)) && !mapDef(id).mountains.rock && !mapDef(id).mountains.snow);
+        this.check('battlefield ' + id + ' ground mesh is unchanged', this.meshHash(id) === TERRAIN_MESH_GOLDEN[id], 'hash ' + this.meshHash(id));
+      }
+      // an extra battlefield is a data row only: no SCENERY entry, missing fields, and it still starts a skirmish
+      const keepDiff = S.difficulty;
+      MAPS.testrow = { name: 'Test Row', desc: 'A placeholder battlefield.', seed: 6.2, hill: 0.9, ground: MAPS.verdant.ground, dark: MAPS.verdant.dark, high: MAPS.verdant.high,
+        zenith: MAPS.verdant.zenith, horizon: MAPS.verdant.horizon, fog: 0.001, sun: MAPS.verdant.sun, sunCol: MAPS.verdant.sunCol, skyAmb: MAPS.verdant.skyAmb, gndAmb: MAPS.verdant.gndAmb, tree: MAPS.verdant.tree };
+      try {
+        this.check('a new battlefield appears in the skirmish list', menuMapIds().indexOf('testrow') >= 0 && UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'testrow' }) })).indexOf('Test Row') >= 0);
+        const lay = Scenery.layoutFor({ id: 'tx', map: 'testrow', start: { x: 0, z: 0 }, sites: [] }, false);
+        this.check('a battlefield with no scenery entry gets the default city and outpost', lay.cities.length === 1 && lay.bases.length === 1 && lay.cities[0].x === SCENERY_DEFAULT.city.x);
+        let err = '';
+        try {
+          Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'testrow', seed: 9, random: false, support: 'none' }) });
+          for (let i = 0; i < 30; i++) Game.tick(STEP);
+        } catch (e) { err = e.message; }
+        this.check('a skirmish starts on a battlefield added as a data row', !err && W && W.map.id === 'testrow' && !!W.player && !!W.mission, err);
+      } finally { delete MAPS.testrow; S.difficulty = keepDiff; Game.quitToMenu(); }
+      this.check('the placeholder battlefield is gone again', !MAPS.testrow && menuMapIds().indexOf('testrow') < 0);
+    });
+    t('mountains and slopes', () => {
+      const keepDiff = S.difficulty;
+      MAPS.testpeaks = TEST_PEAKS_MAP;
+      try {
+        const md = mapDef('testpeaks'), gk = Terrain.gridKey(md);
+        // the same seed builds the same heights, and the range really rises
+        const h1 = this.terrainHash('testpeaks');
+        delete Terrain.baseGrids[gk];
+        this.check('a mountain battlefield builds the same heights twice', this.terrainHash('testpeaks') === h1 && Terrain.baseHeight(123.4, -56.7, md) === Terrain.baseHeight(123.4, -56.7, mapDef('testpeaks')));
+        const g = Terrain.baseGrid(md);
+        let top = -1e9, low = 1e9;
+        for (let k = 0; k < g.length; k++) { if (g[k] > top) top = g[k]; if (g[k] < low) low = g[k]; }
+        this.check('the range rises well above the rolling ground', top > 150 && top < 400, 'top ' + top.toFixed(0) + ' m');
+        this.check('the ground never sinks below the sea-bed floor', low >= md.mountains.floor);
+        this.check('the range has rock faces steeper than any vehicle can climb', Terrain.siteFlat(md, 0, 0, 150, 40) === false);
+        this.check('the world keeps its size', Terrain.N === 250 && Terrain.G === 8 && WORLD_HALF === 1000);
+        // building sites: never on steep ground
+        this.check('the site check rejects the mountainside and accepts open ground', !Terrain.siteFlat(md, 60, 40, 100, SITE_MAX_SLOPE) && !Scenery.flatFor('testpeaks', { x: 60, z: 40, r: 100 }, SITE_MAX_SLOPE) && Scenery.flatFor('ashfall', { x: 60, z: 40, r: 100 }, SITE_MAX_SLOPE));
+        let basesOk = true, citiesOk = true, why = '';
+        for (const seed of [2, 7, 31, 404]) {
+          const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'testpeaks', seed }));
+          for (const b of [L.own, L.foe]) if (!Terrain.siteFlat(md, b.x, b.z, FORT.r, BASE_MAX_SLOPE)) { basesOk = false; why = 'seed ' + seed + ' base ' + Math.round(b.x) + ',' + Math.round(b.z); }
+          for (const c of L.lay.cities) if (!Terrain.siteFlat(md, c.x, c.z, c.r, SITE_MAX_SLOPE)) { citiesOk = false; why = 'seed ' + seed + ' ' + c.kind; }
+        }
+        this.check('skirmish bases on a mountain map stand on gentle ground', basesOk, why);
+        this.check('skirmish districts on a mountain map never sit on slopes above ' + SITE_MAX_SLOPE + ' deg', citiesOk, why);
+        // a real battle on the mountain map
+        let err = '';
+        try {
+          Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'testpeaks', seed: 7, random: false, support: 'none' }) });
+          for (let i = 0; i < 30; i++) Game.tick(STEP);
+        } catch (e) { err = e.message; }
+        this.check('a skirmish starts on the mountain map', !err && W.map.id === 'testpeaks' && !!W.player && Math.abs(W.player.y - Terrain.h(W.player.x, W.player.z)) < 2, err);
+        // aircraft over the range: radar altitude and the pull-up warning follow the ground below and ahead
+        const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: -420, yaw: 0, y: Terrain.h(0, -420) + 60, loadout: PLATFORMS.kestrel.loadout });
+        jet.vx = 0; jet.vz = 90; jet.vy = 0;
+        this.check('pull-up warns when flying level into a mountain face', pullUpWarning(jet));
+        jet.y = Terrain.maxIn(-200, -200, 200, 200) + 120;
+        this.check('no pull-up warning high above the range', !pullUpWarning(jet));
+      } finally { delete MAPS.testpeaks; S.difficulty = keepDiff; Game.quitToMenu(); }
+      // climbing: a tank cannot drive up 45 deg, climbs 20 deg; infantry climb 36 deg; the AI steers away from too-steep ground
+      const drive = (p, ticks, jump) => {
+        let top = p.y;
+        for (let i = 0; i < ticks; i++) { p.cmd.moveF = 1; p.cmd.aimYaw = 0; p.cmd.jump = jump; p.update(STEP); top = Math.max(top, p.y); }
+        return top;
+      };
+      const climb = (defId, deg, z0, run) => {   // rise (m) after 2 s of full throttle at a ramp, and the platform
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+        W.mission = null;
+        this.rampTerrain(deg, run);
+        const def = PLATFORMS[defId], p = new Platform(def, { team: 0, x: 0, z: z0, yaw: 0, loadout: def.loadout });
+        W.platforms.push(p);
+        return { rise: drive(p, 120, false) - Terrain.h(0, z0), p };
+      };
+      const steep = climb('bastion', 45, -3), gentle = climb('bastion', 20, -3), mid = climb('bastion', 36, -3), walker = climb('ranger', 36, -3);
+      this.check('a tank driven at a 45 deg slope makes no progress', steep.rise < 2, 'rose ' + steep.rise.toFixed(1) + ' m');
+      this.check('a tank climbs a 20 deg slope', gentle.rise > 4, 'rose ' + gentle.rise.toFixed(1) + ' m');
+      this.check('a tank stops at 36 deg but infantry climb it', mid.rise < 3 && walker.rise > 4, 'tank ' + mid.rise.toFixed(1) + ' m, infantry ' + walker.rise.toFixed(1) + ' m');
+      // a mech walks into an 8 m ledge and stops, then its jump jets lift it on top
+      const mech = climb('bulwark', 45, -3, 8);
+      this.check('a walking mech stops at a 45 deg ledge', mech.rise < 2, 'rose ' + mech.rise.toFixed(1) + ' m');
+      drive(mech.p, 90, true); drive(mech.p, 120, false);
+      this.check('jump jets lift a mech onto the ledge', Terrain.h(mech.p.x, mech.p.z) > 7.9 && mech.p.grounded, 'ground ' + Terrain.h(mech.p.x, mech.p.z).toFixed(1) + ' m');
+      // a unit left standing on a face it cannot hold slides down
+      const slider = climb('bastion', 45, 30).p;
+      this.check('a tank on a 45 deg face slides down it', slider.z < 30 - 3, 'z ' + slider.z.toFixed(1));
+      // AI probes: too-steep ground ahead is blocked, a gentle slope is not
+      const tank = new Platform(PLATFORMS.bastion, { team: 1, x: 0, z: -12, yaw: 0, loadout: PLATFORMS.bastion.loadout });
+      const ai = attachAI(tank, 'tank', W.diff);
+      this.rampTerrain(45);
+      ai.steerAround(0, 1);
+      this.check('the AI treats a too-steep slope as blocked', ai.moveDir.z < 0.9, 'dir ' + ai.moveDir.x.toFixed(2) + ',' + ai.moveDir.z.toFixed(2));
+      this.rampTerrain(20);
+      ai.steerAround(0, 1);
+      this.check('the AI drives straight up a gentle slope', ai.moveDir.z > 0.99);
+      Game.quitToMenu();
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -15542,7 +15844,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP,Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
