@@ -184,6 +184,15 @@ Test.add('progress', (check) => {
   check('look: without a worn look the body keeps its default colour', plain.r === 0.5 && plain.emissive === 0);
   Progress.setCosmetic('color', 'colorSlate');
   check('look: choosing a colour refreshes the drawn look at once', Progress.look.color === 0x7d8a99);
+  // PRG-010: first person draws no body, so the colour shows on the held weapon, the scoreboard row, the killcam and the profile.
+  const view = { color: 0 }, slate = 'rgb(125, 138, 153)', rival = Game.playerId === 0 ? 1 : 0;
+  Render.viewModel(view);
+  const myRow = Scoreboard.buildRow({ id: Game.playerId, team: -1, name: 'You', alive: true, score: 0, kills: 0, deaths: 0, assists: 0, objective: 0 }, false);
+  const profile = makeElement('div');
+  Ui.screens.get('profile').build(profile);
+  check('look: the worn colour tints the view model and the player\'s scoreboard row, not other actors', view.color === 0x7d8a99 && myRow.firstChild.style.color === slate
+    && Progress.bodyColor(rival, 7) === 7 && Progress.bodyColor(Game.playerId, 7) === 0x7d8a99);
+  check('look: the profile shows a swatch of the worn colour', profile.querySelector('.pg-swatch').style.backgroundColor === slate);
   check('mastery: an unknown tier id opens nothing', !Progress.masteryReached('nope'));
   Game.stop();
 });

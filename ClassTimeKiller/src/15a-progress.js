@@ -260,6 +260,9 @@ const Progress = {
     this.look.color = color === null ? PROGRESS_NO_LOOK : color;
     this.look.finish = finish === null ? PROGRESS_NO_LOOK : finish;
   },
+  // The colour an actor is shown in where no body is drawn (view model, scoreboard row, killcam figure): the worn body colour
+  // for the local player, else `fallback`.
+  bodyColor(id, fallback) { return id >= 0 && id === Game.playerId && this.look.color !== PROGRESS_NO_LOOK ? this.look.color : fallback; },
   title() { return this.cosmetic('title') || ''; },
 
   // ---- Statistics per weapon / mode / map (PRG-014) and weapon mastery ----
@@ -379,6 +382,13 @@ Render.addActorStyle((id, out) => {
   if (color !== PROGRESS_NO_LOOK) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
   if (finish !== PROGRESS_NO_LOOK) out.emissive = Math.max(out.emissive, finish);
 });
+// First person draws no body (07c), so the held weapon wears the body colour: the S11 view model hook, wrapped once at load.
+const progressWeaponViewModel = Render.viewModel;
+Render.viewModel = (out) => {
+  if (progressWeaponViewModel) progressWeaponViewModel(out);
+  out.color = Progress.bodyColor(Game.playerId, out.color);
+  return out;
+};
 
 Bus.on('boot', () => { Progress.ensure(); Progress.refreshLook(); });
 Bus.on('setting', (key) => { if (key === 'progress.unlockAll') Progress.refreshLook(); });

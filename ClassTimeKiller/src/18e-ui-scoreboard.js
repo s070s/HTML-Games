@@ -113,7 +113,8 @@ const Scoreboard = {
     const tr = makeElement('tr', (row.id === Game.playerId ? 'sb-me ' : '') + (row.alive || Game.match.results ? '' : 'sb-dead'));
     const symbol = row.team >= 0 ? SCOREBOARD_TEAM_SYMBOLS[row.team % SCOREBOARD_TEAM_SYMBOLS.length] + ' ' : '';
     const name = makeElement('td', '', symbol + this.playerName(row) + (row.queued ? ' (waiting)' : ''));
-    if (row.team >= 0) name.style.color = '#' + Hud.teamColor(row.team).toString(16).padStart(6, '0');
+    const nameColor = Progress.bodyColor(row.id, row.team >= 0 ? Hud.teamColor(row.team) : -1);   // the player's row wears the body colour
+    if (nameColor >= 0) name.style.color = '#' + nameColor.toString(16).padStart(6, '0');
     tr.appendChild(name);
     for (const value of [row.score, row.kills, row.deaths, row.assists]) tr.appendChild(makeElement('td', '', String(Math.round(value))));
     if (withObjective) tr.appendChild(makeElement('td', '', String(Math.round(row.objective))));
