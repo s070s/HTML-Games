@@ -308,7 +308,7 @@ Render.defineProgram('shapes', SHAPES_VERTEX, SHAPES_FRAGMENT, SHAPE_ATTRIBUTES)
 
 // ---- Batches used in the world pass ----
 const propBatch = makeShapeBatch('props', 1024);
-const actorBatch = makeShapeBatch('actors', 512);
+const actorBatch = makeShapeBatch('actors', 768);   // 64 near actors with up to 6 boxes of a held weapon model each
 const shadowBatch = makeShapeBatch('shadows', 96);
 
 // Render.addSource callbacks fill the props batch; a source that throws is logged once and switched off.
@@ -442,8 +442,9 @@ function partColor(part, style) {
   return part.tint === 'visor' ? 0.8 : 0;
 }
 
-function emitActorPart(part, pose, style) {
-  // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
+// A part's centre relative to the feet and its pitch, left in `rotated` (a returned float would be boxed, PERF-006). Crouch: the lower body squashes, the upper
+// body sinks by the same amount the hips drop. 07c-render-models places the held weapon at the 'gun' part this way.
+function placeActorPart(part, pose, style) {
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
   const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
   const point = rotated;
@@ -453,7 +454,13 @@ function emitActorPart(part, pose, style) {
   const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
   point.x = localX * scale; point.y = localY * scale; point.z = localZ * scale; point.yaw = pose.yaw; point.pitch = 0;
   rotateInPlace(point);
-  const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
+  point.pitch = pitch;
+}
+
+function emitActorPart(part, pose, style) {
+  const scale = style.scale, squash = part.pivot[1] < HIP_HEIGHT ? pose.legSquash : 1, head = HEAD_PARTS.has(part) ? style.headScale : 1;
+  placeActorPart(part, pose, style);
+  const pitch = rotated.pitch, glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
   if (o < 0) return;
   d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
   d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch;
@@ -511,9 +518,10 @@ function drawActor(id, seconds, alpha) {
   const firstPerson = id === Game.playerId && !Render.view.overridden;
   if (firstPerson || !SunShadow.covers(distanceSquared)) emitActorShadow(id, pose, style.scale);
   if (firstPerson) return;
-  const parts = LOD_PARTS[lod];
+  const parts = LOD_PARTS[lod], held = lod === LOD.distant ? null : heldWeaponModel(id);   // the weapon model replaces the gun part
   actorHighlight = highlightFor(id);
-  for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
+  for (let i = 0; i < parts.length; i++) if (!held || parts[i] !== HELD_GUN_PART) emitActorPart(parts[i], pose, style);
+  if (held) drawHeldWeapon(held, pose, style, lod);
 }
 
 // ---- Sun shadow map (REN-004: one sun shadow on presets with shadows 'sun', High/Ultra) ----

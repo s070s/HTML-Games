@@ -555,11 +555,7 @@ const Items = {
     if (this.spot[slot]) this.drawBase(batch, slot, power ? PICKUP_GLOW_POWER_BASE : PICKUP_GLOW_BASE);
     instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FLOAT + bob; instance.z = this.z[slot];
     instance.r = rgb[offset]; instance.g = rgb[offset + 1]; instance.b = rgb[offset + 2];
-    if (kind === PICKUP_KIND.WEAPON) {
-      instance.sx = 0.18; instance.sy = 0.2; instance.sz = 0.8; instance.emissive = power ? 0.8 : 0.35;
-      batch.meshFrom('box', instance);
-      return;
-    }
+    if (kind === PICKUP_KIND.WEAPON) { drawWeaponPickup(batch, index, instance, power); return; }   // its own model (03q)
     const pose = pickupPose, model = row === AMMO_BOX_ROW ? pickupAmmoModel : PICKUP_MODELS[kind][index];
     pose.x = instance.x; pose.y = instance.y; pose.z = instance.z; pose.yaw = instance.yaw;
     pose.r = instance.r; pose.g = instance.g; pose.b = instance.b; pose.emissive = power ? 0.9 : 0.45;

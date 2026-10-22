@@ -34,6 +34,8 @@ const HOMING_RULE = {
   accept(owner, id, dx, dy, dz, distance) { return (dx * homingAim.x + dy * homingAim.y + dz * homingAim.z) / distance >= HOMING_CONE_COS; },
 };
 const steerScratch = Vec.make();
+const projectileFrame = makeModelFrame();   // model projectiles: scale 1, no glow floor
+const PROJECTILE_FACING_SPEED = 0.5;      // m/s: slower (stuck, resting) projectiles keep their last facing
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
 CAT.projectiles.forEach((row, index) => {
   row.index = index;
@@ -54,6 +56,7 @@ const Projectiles = {
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
   warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
+  faceYaw: new Float32Array(PROJECTILE_CAP), facePitch: new Float32Array(PROJECTILE_CAP),   // drawn facing: the last flight direction (a stuck one keeps it)
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -521,16 +524,25 @@ const Projectiles = {
     return true;
   },
 
-  // Render source: one instanced sphere per projectile, puddles as flat discs.
+  // Render source: a projectile with a model (03q projectileModels) faces its flight, the rest are glowing spheres; puddles are flat discs.
   draw(batch) {
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (!this.state[i]) continue;
-      const row = this.row(i), type = this.type[i];
+      const row = this.row(i), type = this.type[i], model = WeaponModels.projectile[type];
       const r = projectileColors[type * 3], g = projectileColors[type * 3 + 1], b = projectileColors[type * 3 + 2];
       if (this.state[i] === PROJECTILE_STATE.AREA) { const size = this.modeOf(i).puddle.radius * 2; batch.mesh('cylinder', this.x[i], this.y[i], this.z[i], 0, 0, size, 0.04, size, r, g, b, 0.6); continue; }
+      if (model) { this.drawModel(batch, i, model); continue; }
       const size = Math.max(0.08, row.radius * 2 * row.scale);
       batch.mesh('sphere', this.x[i], this.y[i], this.z[i], 0, 0, size, size, size, r, g, b, 1);
     }
+  },
+  drawModel(batch, i, model) {
+    const vx = this.vx[i], vy = this.vy[i], vz = this.vz[i], flat = length2(vx, vz), frame = projectileFrame;
+    if (flat + Math.abs(vy) > PROJECTILE_FACING_SPEED) { this.faceYaw[i] = Math.atan2(vx, vz); this.facePitch[i] = Math.atan2(vy, flat); }
+    frame.x = this.x[i]; frame.y = this.y[i]; frame.z = this.z[i];
+    frame.yaw = this.faceYaw[i] + Sim.time * model.spin; frame.pitch = this.facePitch[i] + Sim.time * model.tumble;
+    frame.r = model.r; frame.g = model.g; frame.b = model.b;
+    drawModelParts(batch, model.lods[modelLodOf(frame)], frame);
   },
 };
 

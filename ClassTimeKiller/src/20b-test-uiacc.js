@@ -258,14 +258,14 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   Settings.set('video.viewmodelX', 5);
   check('view: the weapon offset sliders (cm) reach the renderer in metres', Test.near(Render.config.viewmodelOffset[0], 0.05, 1e-9));
   const state = { ads: 0, kick: 0, reload: 0, swap: 0 };
-  const rest = poseWeapon(viewModelRows.rifle, state).x;
+  const rest = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   state.ads = 1;
-  const aimed = poseWeapon(viewModelRows.rifle, state).x;
+  const aimed = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   Settings.set('video.viewmodelX', 0);
   state.ads = 0;
-  const unmoved = poseWeapon(viewModelRows.rifle, state).x;
+  const unmoved = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   state.ads = 1;
-  check('view: the offset moves the held weapon but never the aimed one', Test.near(rest - unmoved, -0.05, 1e-9) && Test.near(aimed, poseWeapon(viewModelRows.rifle, state).x, 1e-9));
+  check('view: the offset moves the held weapon but never the aimed one', Test.near(rest - unmoved, -0.05, 1e-9) && Test.near(aimed, poseWeapon(CAT.viewModels.byId('rifle'), state).x, 1e-9));
   Settings.set('video.fov', 200);
   check('view: the field of view stays between 60 and 120', Settings.get('video.fov') === 120 && (Settings.set('video.fov', 10), Settings.get('video.fov') === 60));
   Settings.set('video.fov', FOV_DEFAULT);

@@ -11,7 +11,6 @@ const HEAD_BOB_METERS = 0.035;
 const BOB_STRIDE_METERS = 1.9;
 const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
-const VIEWMODEL_DARK = '#2b2f35';
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
 
@@ -22,7 +21,7 @@ const ViewState = {
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
-const viewModelState = { visible: false, shape: 'rifle', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
+const viewModelState = { visible: false, shape: 'rifle', model: '', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
   recoilPitch: 0, recoilYaw: 0, dual: false };
 
 // video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more.
@@ -32,7 +31,7 @@ function verticalFov(horizontalDegrees) {
 
 function readViewModel() {
   const state = viewModelState;
-  state.visible = false; state.shape = 'rifle'; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
+  state.visible = false; state.shape = 'rifle'; state.model = ''; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
   state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT; state.recoilPitch = 0; state.recoilYaw = 0; state.dual = false;
   if (!Render.viewModel || Game.playerId < 0 || ViewState.overridden || !Actors.alive[Game.playerId]) return;
   Render.viewModel(state);
@@ -132,15 +131,11 @@ function boundsVisible(box) {
   return true;
 }
 
-// ---- View model: one generic builder reads the parts row of the weapon class (CAT.viewModels) ----
+// ---- View model: the weapon's model (07c-render-models, by weapon id, else by class) at the pose of its viewModels row ----
 const viewModelBatch = makeShapeBatch('viewmodel', 24);
-const viewModelRows = {};
-CAT.viewModels.forEach((row) => { viewModelRows[row.id] = row; });
 const weaponPose = { x: 0, y: 0, z: 0, pitch: 0 };
-// Weapon part offsets rotated in place, then written into one instance record (no float arguments, PERF-006).
-const viewLocal = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-const viewWorld = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-const viewPart = makeShapeInstance();
+const viewPivot = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // the weapon pivot rotated in place (no float arguments, PERF-006)
+const viewFrame = makeModelFrame();
 const viewTint = new Float32Array(3);
 
 // Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
@@ -155,38 +150,31 @@ function poseWeapon(row, state) {
   return weaponPose;
 }
 
-function viewPartColor(part, row, state) {
-  const tint = part.tint === 'body' ? state.color : part.tint === 'accent' ? row.accent : part.tint === 'glow' ? row.glow : VIEWMODEL_DARK;
-  writeColor(viewTint, 0, tint);
-  return part.tint === 'glow' ? 1 : 0;
+function viewWeaponModel(state) {
+  return WeaponModels.byId[state.model] || WeaponModels.byId[state.shape] || WeaponModels.byId[MODEL_FALLBACK_POSE];
 }
 
 function fillViewModel() {
   viewModelBatch.clear();
   const state = viewModelState;
   if (!state.visible) return;
-  const row = viewModelRows[state.shape] || viewModelRows.rifle, pose = poseWeapon(row, state);
-  addWeaponParts(row, pose, state, HAND_RIGHT);
-  if (state.dual) addWeaponParts(row, pose, state, HAND_LEFT);   // W04 second pistol
+  const model = viewWeaponModel(state), pose = poseWeapon(model.pose, state);
+  const parts = model.lods[Render.quality.id === MODEL_COARSE_QUALITY ? MODEL_LOD.near : MODEL_LOD.full];
+  writeColor(viewTint, 0, state.color);
+  addWeaponParts(parts, pose, HAND_RIGHT);
+  if (state.dual) addWeaponParts(parts, pose, HAND_LEFT);   // W04 second pistol
 }
 
-function addWeaponParts(row, pose, state, hand) {
-  const camera = Render.camera;
-  for (let i = 0; i < row.parts.length; i++) {
-    const part = row.parts[i];
-    // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    const local = viewLocal, world = viewWorld, instance = viewPart;
-    local.x = -part.at[0] * VIEWMODEL_SCALE * hand; local.y = part.at[1] * VIEWMODEL_SCALE; local.z = part.at[2] * VIEWMODEL_SCALE; local.yaw = 0; local.pitch = pose.pitch;
-    rotateInPlace(local);
-    world.x = local.x - pose.x * hand; world.y = local.y + pose.y; world.z = local.z + pose.z; world.yaw = camera.yaw; world.pitch = camera.pitch;
-    rotateInPlace(world);
-    instance.emissive = viewPartColor(part, row, state);
-    instance.x = camera.x + world.x; instance.y = camera.y + world.y; instance.z = camera.z + world.z;
-    instance.yaw = camera.yaw; instance.pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
-    instance.sx = part.size[0] * VIEWMODEL_SCALE; instance.sy = part.size[1] * VIEWMODEL_SCALE; instance.sz = part.size[2] * VIEWMODEL_SCALE;
-    instance.r = viewTint[0]; instance.g = viewTint[1]; instance.b = viewTint[2];
-    viewModelBatch.meshFrom(part.shape, instance);
-  }
+// View x is "right"; actor/shape local +X is left (DATA-002), hence the mirror. The pivot turns with the camera, the parts
+// with the camera pitch plus the weapon's own pitch (drawModelParts).
+function addWeaponParts(parts, pose, hand) {
+  const camera = Render.camera, pivot = viewPivot, frame = viewFrame;
+  pivot.x = -pose.x * hand; pivot.y = pose.y; pivot.z = pose.z; pivot.yaw = camera.yaw; pivot.pitch = camera.pitch;
+  rotateInPlace(pivot);
+  frame.x = camera.x + pivot.x; frame.y = camera.y + pivot.y; frame.z = camera.z + pivot.z;
+  frame.yaw = camera.yaw; frame.pitch = camera.pitch + pose.pitch; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
+  frame.r = viewTint[0]; frame.g = viewTint[1]; frame.b = viewTint[2];
+  drawModelParts(viewModelBatch, parts, frame);
 }
 Render.addUpdate(60, fillViewModel);
 
