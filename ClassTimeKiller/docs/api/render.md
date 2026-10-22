@@ -2,13 +2,16 @@
 
 Files: `src/07a-render.js` (core, post, context loss, settings), `07b-render-world.js` (static world, sky), `07c-render-actors.js` (instanced shapes, actors), `07d-render-fx.js` (`Fx`), `07e-render-view.js` (camera, view model, quality control), `07f-render-hud.js` (`HudBatch`). Data: `src/03b-data-render.js`. Tests: `src/20b-test-render.js` (group `render`).
 
-When `Game.headless` is true at boot, or WebGL2 is missing, nothing is created: every hook below stays a cheap no-op (`Fx.*` return at once when `Game.headless`). Missing WebGL2 or a shader that fails to build shows the PLT-002 fatal screen ("WebGL2 is required").
+When `Game.headless` is true at boot, or WebGL2 is missing, nothing is created: every hook below stays a cheap no-op (`Fx.*` return at once when `Game.headless`). Missing WebGL2, a shader that fails to build, or a rebuild that fails after a context restore shows the PLT-002 fatal screen ("WebGL2 is required").
+
+S07 never calls `World` (S08 is a later section): the static world arrives through the `Render.worldQuery` hook, and every ray the renderer needs (baked sun shadows, map lights, the blob-shadow ground probe) runs against its own brush grid built at bake time.
 
 ## Hooks for later sections
 
 | Hook | Contract |
 |---|---|
-| `Render.addSource(name, fn(batch))` | Called once per rendered frame. Push shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`. `shape`: `box sphere cylinder capsule cone wedge ring` (unknown names are ignored). `(x, y, z)` is the centre, `sx sy sz` the full size in metres along the shape's local axes, angles in radians (yaw 0 looks +Z; positive pitch tips the local +Z axis up; local +Y tips forward with pitch -PI/2), `r g b` 0..1, `emissive` 0..1 (self-lit). Cylinder, cone, capsule and ring are built around their local Y axis. A wedge rises toward local +Z. A source that throws is logged once and switched off. Capacity: 1024 instances per shape per frame (extra ones are dropped and counted in `Render.stats.droppedInstances`). |
+| `Render.worldQuery` | **S08 sets it to `World`** (one line in `08a-world.js`). The renderer reads only `Render.worldQuery.brushes` (convex brushes `{ material, minX..maxZ, planes, planeCount }`) on `world.load`. While it is `null` the world mesh is empty. |
+| `Render.addSource(name, fn(batch))` | Called once per rendered frame. Push shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`. `shape`: `box sphere cylinder capsule cone wedge ring` (unknown names are ignored). `(x, y, z)` is the centre, `sx sy sz` the full size in metres along the shape's local axes, angles in radians (yaw 0 looks +Z; positive pitch tips the local +Z axis up; local +Y tips forward with pitch -PI/2), `r g b` 0..1, `emissive` 0..1 (self-lit). Cylinder, cone, capsule and ring are built around their local Y axis. A wedge rises toward local +Z. A source that throws is logged once and switched off. Capacity: 1024 instances per shape per frame (extra ones are dropped and counted in `Render.stats.droppedInstances`). `mesh` returns the instance's float offset in `batch.data`, or -1 when the shape is unknown or the region is full. |
 | `Render.actorStyle = fn(id, out)` | Called per drawn actor. `out = { r, g, b, emissive, scale, visible }` arrives filled with the default look (team colour, else the profile `color`, else a palette colour by id; `visible` is false while `ACTOR_FLAG.INVISIBLE` is set). Change fields in place (powerup glow, cloak, giant mode). |
 | `Render.camera` | `{ x, y, z, yaw, pitch, roll, fov }`. Each frame it follows `Game.playerId`: interpolated feet + smoothed `Actors.eye` (+ optional head bob), angles = `Actors.aimYaw / aimPitch` (the freshest input). `fov` = setting `video.fov` divided by the aim zoom. |
 | `Render.cameraOverride = fn(camera)` | Return `true` after placing the camera (spectate, killcam, menu fly-by). While it returns true the local player's body is drawn and the view model is hidden. `roll` is applied. |
@@ -30,9 +33,9 @@ Budget: 8192 HUD quads per frame (extra quads are dropped and counted in `HudBat
 
 `Render.addUpdate(order, fn(seconds, alpha))` runs before drawing; `Render.addPass(order, fn(gl))` draws into the scene target; `Render.addFinish(fn(gl))` runs after the canvas holds the frame; `Render.addGpuPart(name, fn(gl))` creates GPU objects at init and again after a context restore; `Render.defineProgram(name, vertex, fragment, attributes)` (throws past 8 programs, REN-003).
 
-Updates: -1 benchmark, 0 camera + view-model read, 2 dynamic resolution, 3 auto step-down, 5 fog, 30 actors + blob shadows, 40 sources, 50 lights + particle count, 60 view model. Passes: 10 sky, 20 world, 30 shapes (props, actors, outline shells), 40 blob shadows, 50 decals + particles + tracers, 70 view model (after a depth clear, own FOV). Then the post pass (MSAA resolve, upscale, vignette, FXAA) and, in the Loop `hud` phase, the HUD layers.
+Updates: -1 benchmark, 0 camera + view-model read, 2 dynamic resolution, 3 auto step-down, 5 fog, 6 sun shadow matrix, 30 actors + blob shadows, 40 sources, 50 lights + live particle counts, 60 view model. Passes: 10 sky, 15 instance upload + sun shadow map (High/Ultra) + its texture binding, 20 world, 30 shapes (props, actors, outline shells), 40 blob shadows, 50 decals + particles + tracers, 70 view model (after a depth clear, own FOV). Then the post pass (MSAA resolve, upscale, vignette, FXAA) and, in the Loop `hud` phase, the HUD layers.
 
-Programs (6 of 8): `world`, `shapes` (props, actors, view model, outlines, blob shadows), `particles` (particles, tracers, decals), `sky`, `post`, `hud`.
+Programs (7 of 8): `world`, `shapes` (props, actors, view model, outlines, blob shadows), `shadow` (depth-only sun shadow casters), `particles` (particles, tracers, decals), `sky`, `post`, `hud`. Texture unit 1 is reserved for the sun shadow map.
 
 ## Map data read by the renderer
 
@@ -40,11 +43,17 @@ Programs (6 of 8): `world`, `shapes` (props, actors, view model, outlines, blob 
 - `map.lights` (optional): `[{ pos: [x, y, z], color: '#rrggbb', radius: 8, intensity: 1 }]`, baked into the world's vertex light with a shadow ray.
 - Brush `material`: a `CAT.materials` id (unknown = concrete). Every convex brush is drawn from its planes (box, ramp, and any later convex shape S08 builds planes for).
 
-On `world.load` the renderer builds the static mesh from `World.brushes`: faces cut on a world-aligned 2-6 m grid, faces covered by another brush culled, coplanar overlaps kept once, vertex light = hemisphere ambient x baked AO + sun (shadow ray via `World.raycast`) + map lights, merged into one buffer with one draw range per 16 m chunk (frustum-culled; the material is a per-vertex index into a uniform table). A coarse 4 m sun-visibility grid shades moving objects. On `match.stop` the mesh is freed.
+On `world.load` the renderer builds the static mesh from `Render.worldQuery.brushes`: faces cut on a world-aligned 2-6 m grid, then each cell piece is split exactly by the planes of every brush overlapping it (only the parts no brush covers are kept, so off-grid walls leave no holes; coplanar overlaps are drawn once, by the lower brush index; faces touching face to face are dropped). Vertex light = hemisphere ambient x baked AO + sun (shadow ray) + map lights, with rays walked through the renderer's 8 m brush grid. Everything is merged into one buffer with one draw range per 16 m chunk (frustum-culled; the material is a per-vertex index into a uniform table). A coarse 4 m sun-visibility grid shades moving objects. A 200 m map with 400 brushes bakes in about 0.1 s on a desktop CPU. On `match.stop` the mesh is freed.
 
 ## Data catalogues (src/03b-data-render.js)
 
-`materials` (pattern, scale, colours, emissive, shine), `themes` (sky, fog, sun, ambient, palette overrides), `teamColors`, `fxKinds`, `decalKinds`, `actorParts` (rigid-part humanoid: pivot, offset, size, hold, aim, swing, tint, far-LOD flag), `viewModels` (parts per weapon class; `axis: 'z'` turns a part's Y axis forward).
+`materials` (pattern, scale, colours, emissive, shine), `themes` (sky, fog, sun, ambient, palette overrides), `teamColors`, `fxKinds`, `decalKinds`, `actorParts` (rigid-part humanoid: pivot, offset, size, hold, aim, swing, tint, `far` = kept in the far LOD, `distant` = kept past `lodFar`), `viewModels` (parts per weapon class; `axis: 'z'` turns a part's Y axis forward).
+
+## Actors, LODs and shadows
+
+- LODs by the quality row: closer than `lodNear` all 10 parts, animated every frame; up to `lodFar` the 6 `far` parts, walk cycle re-posed every 4th frame; up to `viewDistance` the 4 `distant` parts as a still silhouette; beyond that nothing.
+- Shadows: presets with `shadows: 'sun'` (High, Ultra) render one 1024 x 1024 sun shadow map (48 m square ahead of the camera, texel-snapped) from props and actors; the world and shape shaders sample it, static geometry keeps its baked shadows. Actors inside the map lose their blob shadow; the local player always keeps one (MIS-037). Other presets bind a 1 x 1 map and use blob shadows only.
+- Particles and decals take the same distance fog as the world (glows fade out in fog). A pool whose particles are all dead is not drawn; the triangle counter counts live particles.
 
 ## Settings
 
@@ -62,10 +71,10 @@ On `world.load` the renderer builds the static mesh from `World.brushes`: faces 
 
 ## Quality control
 
-- Dynamic resolution (PERF-007): scale steps of 0.05 inside the preset's `renderScaleMin..Max`; lowers after 0.5 s over budget, raises after 2 s under 80% (GPU timer: 6 ms budget). Without `EXT_disjoint_timer_query_webgl2` the frame interval is compared with the 60 fps floor, and a drop right after a raise doubles the wait before the next raise (up to 16 s).
+- Dynamic resolution (PERF-007): scale steps of 0.05 inside the preset's `renderScaleMin..Max`; lowers after 0.5 s over budget, raises after 2 s under 80% (GPU timer: 6 ms budget). Without `EXT_disjoint_timer_query_webgl2` the frame interval is compared with the 60 fps floor (a vsync-locked frame shows no headroom). A drop within 3 s of a raise makes the scale it dropped to a ceiling: raising above it is retried only after 30 s, and each failed retry doubles that wait (no cap), so a GPU-bound phone settles instead of stuttering. A new preset or screen size forgets the ceiling.
 - First-run benchmark (PERF-008): when `video.autoQuality` is empty, the menu draws a 3 s stress scene, syncs each frame with a 1-pixel read and maps the median frame cost to a preset (<= 3 ms ultra, 5 high, 8 medium, 13 low, else potato); emits `toast`.
-- Step-down (PERF-013): while playing, under 60 fps for 5 s (counted only once the automatic render scale is at the preset's minimum) lowers one preset (`video.autoQuality` when quality is `auto`, else `video.quality`) and emits `toast`.
-- Context loss (PLT-005): `Game.pause('graphics')`, `toast` "Graphics restoring...", everything rebuilt from CPU copies on restore, then `Game.resume()` and a `toast`.
+- Step-down (PERF-013): while playing, under 60 fps for 5 s lowers one preset (`video.autoQuality` when quality is `auto`, else `video.quality`) and emits `toast`. The slow time is held back only while a lower render scale can still help: automatic scale above the preset's minimum and either no GPU timer or the GPU timer over its budget. A CPU-bound device (GPU timer within budget) steps down even at full scale.
+- Context loss (PLT-005): `Game.pause('graphics')`, `toast` "Graphics restoring...", everything rebuilt from CPU copies on restore, then `Game.resume()` and a `toast`. If the rebuild throws, the PLT-002 fatal screen is shown instead of a frozen, paused frame.
 
 ## Events
 
@@ -73,8 +82,8 @@ Consumes `boot`, `setting` (`video.*`), `world.load`, `match.stop`. Emits `toast
 
 ## Stats
 
-`Render.stats` = `{ drawCalls, triangles, renderMs, gpuMs, renderScale, particles, instances, droppedInstances }`, copied every frame into `Perf.counters` (`drawCalls triangles renderMs gpuMs renderScale particles`; the HUD phase adds its draw calls and `hudMs`). `Render.gpuMemoryBytes()` estimates GPU memory (PERF-005).
+`Render.stats` = `{ drawCalls, triangles, renderMs, gpuMs, renderScale, particles, instances, droppedInstances }`, copied every frame into `Perf.counters` (`drawCalls triangles renderMs gpuMs renderScale particles`; the HUD phase adds its draw calls and `hudMs`). `Render.gpuMemoryBytes()` estimates GPU memory (PERF-005; tested under 64 MB on High and 32 MB on Potato).
 
 ## Debug
 
-`__CTK.renderDemo(themeId, weaponClass)` (test file) loads a sample arena with 8 actors, effects, a player view model and a HUD layer, draws a frame and returns frame stats. `__CTK.renderState()` returns `{ render, worldMesh, hud }`.
+`__CTK.renderDemo(themeId, weaponClass, qualityId)` (test file) fills `Render.worldQuery` if it is empty, loads a sample arena with 8 actors, effects, a player view model and a HUD layer, draws a frame and returns frame stats. `__CTK.renderState()` returns `{ render, worldMesh, hud }`.

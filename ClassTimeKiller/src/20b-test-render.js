@@ -82,6 +82,7 @@ DebugApi.renderDemo = (themeId, weapon, qualityId) => {
   Benchmark.active = false; Benchmark.done = true;
   if (qualityId) Settings.set('video.quality', qualityId);
   Game.stop();
+  Actors.clear();
   Render.worldQuery = Render.worldQuery || World;
   World.load(makeDemoArena(themeId));
   spawnDemoActors();
