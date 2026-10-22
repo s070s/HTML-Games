@@ -68,7 +68,7 @@ function playMusicNote(voice, hz, time, peak, length) {
 const SoundMusic = {
   mood: 'auto',          // 'auto' follows the intensity, the others force a layer mix (boss fights, menus)
   intensity: 0,          // 0..1, raised by damage near the listener, decays over seconds
-  bosses: 0,             // boss fights going on ('pve.boss' start minus defeated; 0 again when the match ends or stops)
+  bosses: 0,             // boss fights going on ('pve.boss' start minus defeated or gone; 0 again when the match ends or stops)
   nodes: null, layerClock: 0, step: 0, bar: 0, nextStepTime: 0,
   weights: { calm: 1, combat: 0, boss: 0 },
 
@@ -84,7 +84,7 @@ const SoundMusic = {
   },
   onBoss(payload) {
     if (payload.kind === 'start') this.bosses++;
-    if (payload.kind === 'defeated') this.bosses = Math.max(0, this.bosses - 1);
+    if (payload.kind === 'defeated' || payload.kind === 'gone') this.bosses = Math.max(0, this.bosses - 1);
   },
   resetMatch() { this.intensity = 0; this.bosses = 0; },
 
