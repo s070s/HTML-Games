@@ -225,10 +225,15 @@ const Projectiles = {
   },
 
   // ---- Contacts ----
+  // A plain or pinning projectile fired by a mode with splash (explosive arrow, explosive disc) explodes instead.
+  onHitKind(i, row) {
+    if ((row.onHit === 'damage' || row.onHit === 'pin') && this.modeOf(i).splash) return 'explode';
+    return row.onHit;
+  },
   touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
     if (row.parryable && WeaponSpecialState.tryParry(target, i)) return true;
     if (row.arm && this.travelled[i] < row.arm) { this.dud(i, x, y, z); return true; }
-    const kind = row.onHit;
+    const kind = this.onHitKind(i, row);
     if (kind === 'explode') { this.explodeAt(i, x, y, z, target, zone); return true; }
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
     if (kind === 'drill') { this.attach(i, target, x, y, z); return true; }
@@ -254,7 +259,7 @@ const Projectiles = {
     if (this.bounces[i] !== 0 && this.bounceOff(i, row, hit)) return;
     if (row.returning && !this.lodge[i]) { this.startReturn(i); return; }
     if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
-    if (row.onHit === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
+    if (this.onHitKind(i, row) === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
     emitImpact(hit, this.modeOf(i).weapon, this.owner[i]);
     this.remove(i);
   },
@@ -361,6 +366,7 @@ const Projectiles = {
     this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = this.vy[i] = this.vz[i] = 0;
     this.life[i] = this.age[i] + puddle.seconds;
     this.timer[i] = 0;
+    if (this.modeOf(i).split && !this.child[i]) this.spawnSplit(i, this.modeOf(i), x, y + 0.2, z);
   },
   stepArea(i, dt) {
     if (this.age[i] >= this.life[i]) { this.remove(i); return; }
@@ -377,7 +383,7 @@ const Projectiles = {
   // ---- Endings ----
   expire(i) {
     const row = this.row(i);
-    if (row.onHit === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
+    if (this.onHitKind(i, row) === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
     if (row.onHit === 'puddle') { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
     this.remove(i);
   },

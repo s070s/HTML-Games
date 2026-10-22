@@ -480,7 +480,7 @@ const Weapons = {
   },
   stepCharge(id, weapon, mode, modeIndex, held, dt) {
     if (held) {
-      if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 1)) return;
+      if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
       this.chargeMode[id] = modeIndex;
       this.charge[id] = Math.min(mode.charge.time, this.charge[id] + dt);
       return;
@@ -620,8 +620,8 @@ const Weapons = {
     let bestAngle = AIM_ASSIST_CONE_DEG, found = false;
     for (let other = 0; other < Actors.count; other++) {
       if (!Actors.alive[other] || !Actors.isEnemy(id, other) || (Actors.flags[other] & ACTOR_FLAG.INVISIBLE)) continue;
-      const angle = angleToZone(id, eyeY, other, ZONE.BODY, aimScratch, AIM_ASSIST_RANGE);
-      if (angle < 0 || angle >= bestAngle) continue;
+      const angle = angleToZone(id, eyeY, other, ZONE.BODY, aimScratch, AIM_ASSIST_RANGE, bestAngle);
+      if (angle < 0) continue;
       bestAngle = angle; found = true;
       Vec.copy(out, pointScratch); out.target = other; out.angle = angle;
     }
@@ -669,15 +669,16 @@ function groundSpread(id, profile, flags) {
   return lerp(profile.walkSpread, profile.runSpread, clamp((fraction - profile.walkFraction) / (1 - profile.walkFraction), 0, 1));
 }
 
-// Angle in degrees between the aim direction and a zone of `other`, -1 when out of range or not visible. Leaves the point in pointScratch.
-function angleToZone(id, eyeY, other, zone, aim, range) {
+// Angle in degrees between the aim direction and a zone of `other`; -1 when beyond range (measured to the body surface),
+// wider than maxAngle or not visible. The line-of-sight ray is cast last because it is the expensive part. Leaves the point in pointScratch.
+function angleToZone(id, eyeY, other, zone, aim, range, maxAngle) {
   Hitbox.point(other, zone, pointScratch);
   const dx = pointScratch.x - Actors.x[id], dy = pointScratch.y - eyeY, dz = pointScratch.z - Actors.z[id];
   const distance = Math.hypot(dx, dy, dz);
-  if (distance > range || distance < 1e-3) return -1;
-  const cosine = clamp((dx * aim.x + dy * aim.y + dz * aim.z) / distance, -1, 1);
-  if (!World.lineClear(Actors.x[id], eyeY, Actors.z[id], pointScratch.x, pointScratch.y, pointScratch.z)) return -1;
-  return Math.acos(cosine) / DEG;
+  if (distance - TORSO_RADIUS > range || distance < 1e-3) return -1;
+  const angle = Math.acos(clamp((dx * aim.x + dy * aim.y + dz * aim.z) / distance, -1, 1)) / DEG;
+  if (angle > maxAngle) return -1;
+  return World.lineClear(Actors.x[id], eyeY, Actors.z[id], pointScratch.x, pointScratch.y, pointScratch.z) ? angle : -1;
 }
 
 // Mounting (W29): a surface at about chest height right in front of the actor.
@@ -805,11 +806,10 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), eyeY = Actors.eyeY(id);
   if (mode.heatDamage) Weapons.heat[id] = 0;
   Vec.fromAngles(aimScratch, Actors.yaw[id], Actors.pitch[id]);
-  const halfAngle = mode.cone.angle * 0.5;
+  const halfAngle = mode.cone.angle >= 360 ? 180 : mode.cone.angle * 0.5;
   for (let target = 0; target < Actors.count; target++) {
     if (!Actors.alive[target] || !Actors.isEnemy(id, target)) continue;
-    const angle = angleToZone(id, eyeY, target, ZONE.BODY, aimScratch, mode.cone.range);
-    if (angle < 0 || (mode.cone.angle < 360 && angle > halfAngle)) continue;
+    if (angleToZone(id, eyeY, target, ZONE.BODY, aimScratch, mode.cone.range, halfAngle) < 0) continue;
     const distance = Math.hypot(pointScratch.x - Actors.x[id], pointScratch.y - eyeY, pointScratch.z - Actors.z[id]) || 1;
     const dirX = (pointScratch.x - Actors.x[id]) / distance, dirY = (pointScratch.y - eyeY) / distance, dirZ = (pointScratch.z - Actors.z[id]) / distance;
     applyShotDamage(id, target, weapon, mode, damage, ZONE.NONE, 0, pointScratch.x, pointScratch.y, pointScratch.z, dirX, dirY, dirZ, distance);
@@ -838,9 +838,9 @@ const LockOn = {
     Vec.fromAngles(lockScratch, Actors.yaw[id], Actors.pitch[id]);
     for (let target = 0; target < Actors.count; target++) {
       if (!Actors.alive[target] || !Actors.isEnemy(id, target)) continue;
-      const angle = angleToZone(id, eyeY, target, ZONE.BODY, lockScratch, mode.lock.range);
+      const angle = angleToZone(id, eyeY, target, ZONE.BODY, lockScratch, mode.lock.range, mode.lock.coneDeg * 0.5);
       const slot = this.slotOf(id, target);
-      if (angle < 0 || angle > mode.lock.coneDeg * 0.5) { if (slot >= 0) Weapons.lockIds[slot] = -1; continue; }
+      if (angle < 0) { if (slot >= 0) Weapons.lockIds[slot] = -1; continue; }
       this.progress(id, target, slot, mode, dt);
     }
   },
