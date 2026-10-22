@@ -23,7 +23,7 @@ const ANNOUNCE_POWER_PRIORITY = 2;
 const VOLATILE_RADIUS = 4;                 // X30: a shot ammo pickup explodes with this radius...
 const VOLATILE_DAMAGE = 80;                // ...and this centre damage
 const VOLATILE_HIT_RADIUS = 0.45;          // the pickup's hit sphere for shots
-const MATCH_SET = 'matchSet';              // weapon spots take the weapons of a match list (X08, X09, X10, custom matches)
+const MATCH_SET_ID = 'matchSet';           // the reserved weapon set row a match fills from a list (13h: X08, X09, X10, custom matches)
 const NO_TICK = -1;
 
 const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
@@ -151,7 +151,7 @@ const Items = {
   },
   // Weapon spots follow a match weapon list: a weapon outside it becomes the list's next gun ('' = no gun in the list).
   spotWeapon(key) {
-    if (itemRule('weaponSet', '') !== MATCH_SET) return key;
+    if (itemRule('weaponSet', '') !== MATCH_SET_ID) return key;
     const listed = currentWeaponSet().weapons;
     if (listed.includes(key)) return key;
     const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
@@ -345,9 +345,12 @@ const Items = {
   takeWeapon(id, slot) {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
-    if (!Weapons.give(id, weapon.id, this.rarity[slot])) return false;
-    // At the carry limit the held weapon was swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
-    if (Weapons.dropped) this.drop(Weapons.dropped, Actors.x[id], this.y[slot], Actors.z[id], 0, id, Weapons.droppedRarity);
+    return this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot]);
+  },
+  // At the carry limit the held weapon is swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
+  giveWeapon(id, key, rarity, floorY) {
+    if (!Weapons.give(id, key, rarity)) return false;
+    if (Weapons.dropped) this.drop(Weapons.dropped, Actors.x[id], floorY, Actors.z[id], 0, id, Weapons.droppedRarity);
     return true;
   },
   // item.grant { id, item } (X17 Super Powerups, scripted gifts): an item, powerup or weapon key given without a pickup.
@@ -367,11 +370,16 @@ const Items = {
   onShot(event) {
     if (!itemFxOn('volatileAmmo')) return;
     const mode = gadgetShotMode(event);
-    if (!mode) return;
+    if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets set it off as they fly (bulletHit)
     const range = mode.range || mode.reach || 0;
     const wall = World.raycast(event.x, event.y, event.z, event.dx, event.dy, event.dz, range, volatileHit) ? volatileHit.distance : range;
-    const slot = this.rayAmmo(event.x, event.y, event.z, event.dx, event.dy, event.dz, wall);
-    if (slot >= 0) this.detonateAmmo(slot, event.id);
+    this.bulletHit(event.id, mode, event.x, event.y, event.z, event.dx, event.dy, event.dz, wall);
+  },
+  // Projectiles.bulletHits (X41 bullets) and hitscan rays: the first ready ammo pickup within `length` blows up.
+  bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
+    if (!itemFxOn('volatileAmmo')) return;
+    const slot = this.rayAmmo(ox, oy, oz, dx, dy, dz, length);
+    if (slot >= 0) this.detonateAmmo(slot, owner);
   },
   rayAmmo(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
@@ -519,7 +527,7 @@ Items.takers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
 Items.takers[PICKUP_KIND.WEAPON] = (id, slot) => Items.takeWeapon(id, slot);
 Items.givers[PICKUP_KIND.ITEM] = (id, key) => Items.grant(id, key);
 Items.givers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
-Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Weapons.give(id, key, 0);
+Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Items.giveWeapon(id, key, 0, Actors.y[id]);
 Items.effects.health = (id, row) => Items.addHealth(id, row.amount, Items.healthCap(id, row));
 Items.effects.armor = (id, row) => Items.addArmor(id, row.amount, row.cap);
 Items.effects.ammoType = (id) => Items.addTypeAmmo(id);
@@ -540,6 +548,7 @@ Bus.on('match.start', (match) => Items.load(match.map && match.map.items ? match
 Bus.on('match.stop', () => Items.clear());
 Bus.on('item.grant', (event) => Items.giveKey(event.id, event.item));
 Bus.on('weapon.fire', (event) => Items.onShot(event));
+Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Items.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Bus.on('kill', (event) => { Items.dropWeapons(event.victim); Items.dropSoul(event.victim); Items.cancelUse(event.victim); });
 Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));

@@ -430,7 +430,7 @@ const GadgetEffects = {
   },
   emp: (row, owner, x, y, z) => {
     for (let id = 0; id < Actors.count; id++) if (gadgetReaches(owner, id, x, y, z, row.radius)) Gadgets.suppress(id, row.duration);
-    for (let i = 0; i < Gadgets.empHooks.length; i++) Gadgets.empHooks[i](owner, x, y, z, row.radius, row.duration);
+    Gadgets.empDevices(owner, x, y, z, row.radius, row.duration);
     emitGadgetPop(row, owner, x, y, z);
     if (!Game.headless) Fx.burst('shock', x, y, z, 0, 1, 0, 30, null);
   },
@@ -614,6 +614,10 @@ const Gadgets = {
     this.suppressedUntil[id] = Math.max(this.suppressedUntil[id], Sim.tick + itemTicks(seconds));
     Damage.pauseShieldRegen(id, seconds);
     Abilities.suppress(id, seconds);
+  },
+  // Every EMP (G20, the A15 drone's end) reaches devices in the radius through the empHooks (12d switches them off).
+  empDevices(owner, x, y, z, radius, seconds) {
+    for (let i = 0; i < this.empHooks.length; i++) this.empHooks[i](owner, x, y, z, radius, seconds);
   },
   // Blind share 0..1 for the HUD flash overlay (G03 'blind' seconds left / its longest).
   blindAmount(id) { return clamp(Damage.statusTime[id * STATUS_COUNT + BLIND_INDEX] / CAT.statusEffects[BLIND_INDEX].seconds, 0, 1); },

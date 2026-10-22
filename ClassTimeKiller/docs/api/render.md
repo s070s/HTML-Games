@@ -29,7 +29,7 @@ S07 never calls `World` (S08 is a later section): the static world arrives throu
 
 Budget: 8192 HUD quads per frame (extra quads are dropped and counted in `HudBatch.dropped`). Text quads are one per visible glyph; a full ring is 48 quads.
 - Actor style fields (`Render.addActorStyle(fn(id, out))`): `r g b emissive scale headScale visible`. `headScale` (default 1) grows the parts drawn around the head pivot (`head`, `visor`) about that pivot; 13h multiplies it by `Hitbox.headScale` (X14 Big Head).
-- Darkness (`rules.fx.darkness`, X37): `applyTheme` dims sun and ambient light to 5 %, fog and sky go near black, the fog is full at 22 m, the light bake uses no map lights, and every visible living actor carries a flashlight (`Fx.light` 3 m ahead along its view, 11 m radius; render update order 45).
+- Darkness (`rules.fx.darkness`, X37): `applyTheme` dims sun and ambient light to 5 %, fog and sky go near black, the fog is full at 22 m, the light bake uses no map lights, and the visible living actors nearest the camera carry a flashlight each (3 m ahead along the view, 11 m radius). `updateFlashlights` (07d, render update 55, after `updateLights`) picks them without allocating (`Flashlights.ids/count`) and writes them straight into `Render.frame` lights after the effect lights, never through `Fx.light` slots: one light per actor, no stacking, no fading. They fill the tier's `lights` (at least 1, so the player in the dark is lit even on Low and Potato); muzzle flashes and explosions keep up to 2 of those lights.
 
 ## Frame pipeline (internal registries, usable by S07 files)
 

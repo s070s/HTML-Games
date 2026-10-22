@@ -90,6 +90,12 @@ function emitImpact(hit, weaponKey, owner) {
   Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
 }
+// A shot stopped by a Weapons.rayBlockers entry (device, dome): an impact facing the shooter, so the stop is visible.
+const blockedHit = makeHit();
+function emitBlockedImpact(x, y, z, dx, dy, dz, weaponKey, owner) {
+  blockedHit.x = x; blockedHit.y = y; blockedHit.z = z; blockedHit.nx = -dx; blockedHit.ny = -dy; blockedHit.nz = -dz;
+  emitImpact(blockedHit, weaponKey, owner);
+}
 
 const shotHit = makeHit();
 const exitHit = makeHit();
@@ -145,6 +151,13 @@ const Weapons = {
     }
     return best;
   },
+  // X41 Ballistics: the ruleset's { gravity, drag } while hitscan pellets fly as 11b bullets, else null.
+  ballistics() {
+    const fx = currentRules().fx;
+    return (fx && fx.ballistics) || null;
+  },
+  // True when this firing mode's shots fly as X41 bullets instead of settling at once along a ray.
+  fliesAsBullet(mode) { return mode.type === 'hitscan' && this.ballistics() !== null; },
   slotIndex(id, weaponIndex) { return id * WEAPON_COUNT + weaponIndex; },
   currentWeapon(id) { const index = this.current[id]; return index < 0 ? null : CAT.weapons[index]; },
   has(id, key) { const weapon = CAT.weapons.byId(key); return !!weapon && this.owned[this.slotIndex(id, weapon.index)] === 1; },
@@ -688,7 +701,8 @@ const Shot = {
       const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, wall, travelled);
       if (stopped >= 0) return travelled + stopped;
       travelled += wall;
-      if (blocker >= 0 || wall >= range) return travelled;
+      if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
+      if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
@@ -747,7 +761,7 @@ function drawTracer(id, direction, distance, weapon) {
 // ---- Deliveries per fire mode type ----
 function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
-  const ballistics = currentRules().fx && currentRules().fx.ballistics;   // X41: the pellets fly as bullets (11b)
+  const ballistics = Weapons.ballistics();   // X41: the pellets fly as bullets (11b)
   eyeOrigin(id, originScratch);
   for (let pellet = 0; pellet < mode.pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);

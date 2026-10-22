@@ -138,9 +138,11 @@ const Abilities = {
     Weapons.setLoadout(id, hero.weapons);
     Gadgets.equipHero(id, hero);
   },
-  // Respawn-in-place kit change (hero switch in the spawn room): pools, weapons, movement and slots of the new hero.
+  // Respawn-in-place kit change (hero switch in the spawn room): pools, weapons, movement, gadgets and slots of the new
+  // hero. The gadget kit starts over as on a spawn, so the old hero's gadget never stays behind.
   refreshKit(id) {
     Damage.resetHealth(id);
+    Gadgets.equip(id);
     this.onSpawn(id);
   },
   endAll(id, reason) {

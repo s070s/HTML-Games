@@ -405,10 +405,16 @@ const Devices = {
   onShot(event) {
     if (!this.count) return;
     const mode = gadgetShotMode(event);
-    if (!mode) return;
+    if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets hit devices as they fly (bulletHit)
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
     if (device >= 0) this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
+  },
+  // Projectiles.bulletHits: an X41 bullet hits the device it stopped at (Weapons.rayBlockers) with one pellet.
+  bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
+    if (!this.count) return;
+    const device = this.rayDevice(ox, oy, oz, dx, dy, dz, length + DEVICE_SHOT_SLACK);
+    if (device >= 0) this.damage(device, mode.damage || DEVICE_DEFAULT_SHOT, owner);
   },
   // How far a shot flies: to the first wall (devices on it still count), or to a body in front, which shields what is behind.
   shotReach(event, range) {
@@ -528,6 +534,7 @@ Devices.steps.beacon = () => {};
 
 Gadgets.deployers.push((id, row) => Devices.deploy(id, row));
 Weapons.rayBlockers.push((ox, oy, oz, dx, dy, dz, maxDistance) => Devices.blockShot(ox, oy, oz, dx, dy, dz, maxDistance));
+Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Devices.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Gadgets.empHooks.push((owner, x, y, z, radius, seconds) => Devices.onEmp(owner, x, y, z, radius, seconds));
 Gadgets.jammed = (id) => Devices.jammed(id);
 Gadgets.visibleTo = (index, id) => Devices.visibleTo(index, id);

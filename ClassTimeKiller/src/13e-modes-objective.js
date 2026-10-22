@@ -48,6 +48,7 @@ function resetModeExtras() {
   Object.assign(Modes.hud, MODE_HUD_EXTRAS);
   Modes.actorRole.fill(ACTOR_ROLE.NONE);
   Modes.meleeHit.fill(0);
+  modeCloakSet.fill(0);
 }
 
 // Calls an optional add-on hook of the running behaviour.
@@ -428,7 +429,7 @@ function drawModeExtras(batch) {
 
 Bus.on('match.setup', resetModeExtras);
 Bus.on('match.stop', resetModeExtras);
-Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; });
+Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; modeCloakSet[id] = 0; });
 Bus.on('actor.spawn', (event) => callBehaviour('onSpawn', event.id));
 Bus.on('damage', (event) => {
   Modes.meleeHit[event.target] = event.kind === 'melee' ? 1 : 0;

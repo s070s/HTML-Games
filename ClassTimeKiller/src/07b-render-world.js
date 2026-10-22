@@ -41,11 +41,6 @@ CAT.materials.forEach((row, index) => WorldMesh.materialIndex.set(row.id, index)
 const DARK_VIEW_METERS = 22;             // the fog is full at this distance
 const DARK_LIGHT_SCALE = 0.05;           // what is left of the sun and the ambient light
 const DARK_FOG_COLOR = 0x05070a;
-const FLASHLIGHT_AHEAD = 3;              // the light sits this far in front of the eye along the view
-const FLASHLIGHT_RADIUS = 11;
-const FLASHLIGHT_COLOR = 0xfff0d8;
-const FLASHLIGHT_SECONDS = 0.1;          // renewed every frame, so it never fades
-const flashlightAim = Vec.make();
 function matchDarkness() {
   const rules = Game.match && Game.match.rules;
   return !!(rules && rules.fx && rules.fx.darkness);
@@ -58,17 +53,6 @@ function darkenFrame(frame) {
   writeColor(WorldMesh.skyTop, 0, DARK_FOG_COLOR);
   writeColor(WorldMesh.skyHorizon, 0, DARK_FOG_COLOR);
 }
-// Every living, visible actor carries a flashlight along its view; the dynamic light cap (REN-004) keeps the nearest ones.
-function updateFlashlights() {
-  if (!matchDarkness()) return;
-  for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.NONE || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
-    Vec.fromAngles(flashlightAim, Actors.yaw[id], Actors.pitch[id]);
-    Fx.light(Actors.x[id] + flashlightAim.x * FLASHLIGHT_AHEAD, Actors.eyeY(id) + flashlightAim.y * FLASHLIGHT_AHEAD,
-      Actors.z[id] + flashlightAim.z * FLASHLIGHT_AHEAD, FLASHLIGHT_COLOR, FLASHLIGHT_RADIUS, FLASHLIGHT_SECONDS);
-  }
-}
-
 // ---- Theme: palette, sun, ambient, fog (MAP-022) ----
 function applyTheme(themeId) {
   const theme = CAT.themes.byId(themeId) || CAT.themes[0];
@@ -678,7 +662,6 @@ Render.addUpdate(5, () => {
   const dark = matchDarkness(), view = dark ? Math.min(DARK_VIEW_METERS, Render.quality.viewDistance) : Render.quality.viewDistance;
   Render.frame.fogDensity = FOG_FULL_AT_VIEW * (dark ? 1 : WorldMesh.fogScale) / view;
 });
-Render.addUpdate(45, updateFlashlights);   // before the lights are copied into the frame (50)
 
 // ---- Sky: full-screen gradient + sun disc, drawn first with depth off ----
 const SKY_FRAGMENT = `#version 300 es

@@ -42,6 +42,7 @@ const Projectiles = {
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
+  bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
   nextSerial: 1,
   comboDistance: 0,
@@ -217,11 +218,24 @@ const Projectiles = {
     if (speed < 1e-6) return;
     const length = speed * dt, dx = this.vx[i] / speed, dy = this.vy[i] / speed, dz = this.vz[i] / speed, row = this.row(i);
     const wallHit = World.raycast(this.x[i], this.y[i], this.z[i], dx, dy, dz, length + row.radius, sweepHit);
-    const wall = wallHit ? Math.max(0, sweepHit.distance - row.radius) : length;
+    const worldWall = wallHit ? Math.max(0, sweepHit.distance - row.radius) : length;
+    const blocker = this.type[i] === BALLISTIC_ROW.index ? Weapons.blockDistance(this.x[i], this.y[i], this.z[i], dx, dy, dz, worldWall) : -1;
+    const wall = blocker >= 0 ? blocker : worldWall;
     if (this.sweepActors(i, row, dx, dy, dz, wall)) return;
+    if (this.type[i] === BALLISTIC_ROW.index) this.passBullet(i, dx, dy, dz, wall);
     this.x[i] += dx * wall; this.y[i] += dy * wall; this.z[i] += dz * wall;
     this.travelled[i] += wall;
+    if (blocker >= 0) { this.stopAtBlocker(i, dx, dy, dz); return; }
     if (wallHit) this.touchWorld(i, row, sweepHit);
+  },
+  // X41 bullets meet what hitscan meets: devices and domes stop them (Weapons.rayBlockers), bulletHits deal the hit.
+  passBullet(i, dx, dy, dz, length) {
+    const mode = this.modeOf(i);
+    for (let k = 0; k < this.bulletHits.length; k++) this.bulletHits[k](this.owner[i], mode, this.x[i], this.y[i], this.z[i], dx, dy, dz, length);
+  },
+  stopAtBlocker(i, dx, dy, dz) {
+    emitBlockedImpact(this.x[i], this.y[i], this.z[i], dx, dy, dz, this.modeOf(i).weapon, this.owner[i]);
+    this.remove(i);
   },
   // Returns true when an actor contact ended or stopped this projectile.
   sweepActors(i, row, dx, dy, dz, wall) {

@@ -60,7 +60,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `heroOf(id)` and `pickHero(id)`. The hero comes from the loadout choice, else `profile.hero`, else `CAT.heroes[id % 8]`.
   - `setChoice(id, { hero, ability1, ability2, ultimate })`. Disallowed choices fall back to the kit default.
   - `assignSlots(id)`, `setSlot(id, slot, row|null)`.
-  - `refreshKit(id)`: an in-place respawn kit change (pools, weapons, movement, slots).
+  - `refreshKit(id)`: an in-place respawn kit change (pools, weapons, movement, the gadget kit from scratch (`Gadgets.equip`, so the old hero's gadget goes), slots).
 - Use:
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.
   - `forceCast(id, abilityId)`: adrenaline combos, already paid.
@@ -82,7 +82,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 
 - `Buffs.add(id, BUFF.X, value, seconds)`, `get` (neutral value when off), `has`, `remaining`, `cancel`, `clear(id)`.
   - Each kind keeps 3 overlapping entries with their own value and end time. The same value extends its entry; `get` returns the strongest live entry (the lowest for slows). A strong short buff never lasts as long as a weak long one.
-  - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, KNOCKBACK, ENERGY_REGEN, MELEE.
+  - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, KNOCKBACK, ENERGY_REGEN, MELEE. INVISIBLE sets `ACTOR_FLAG.INVISIBLE` only while the actor is not frozen (G08: a freeze stops a cloak; it comes back when the freeze ends).
   - **Buffs is the single writer of `Move.statusSpeedScale` and `Weapons.rateScale`** (`Buffs.applyScales(id)`, every step and whenever the powerup set changes): speed = SPEED x SLOW x `Powerups.speedScale`, fire rate = RATE x `Powerups.rateScale`. Other sections that need a speed or fire-rate change use `Buffs.add` (or, like powerups, keep their own factor that `applyScales` multiplies in).
   - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`.
 - `AbilityZones`: a pool of 48 placed effects, stored as a struct of arrays.
@@ -171,7 +171,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - A35 telekinesis pulls on press and punts on release. It cannot hold a prop, because S11's lifter needs the weapon drawn.
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
-- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP. There is no drone camera yet.
+- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'shock' and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
 - A16 footprints are drawn only for the local player's tracker.
 - A17 veil curtain is a visual zone. It does not block bot line of sight until `Smoke.add` exists (items section).
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.

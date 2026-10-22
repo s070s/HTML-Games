@@ -41,7 +41,9 @@ const NAV_WATER_PROBE = 0.5;           // a sample is wet when this point above 
 const NAV_WATER_EXIT_RISE = NAV_SWIM_DEPTH + 0.5; // a swimmer climbs out onto a bank this high above its feet without a jump
 const NAV_DEEP_FLOOR = NAV_SWIM_DEPTH + NAV_STEP; // a floor this far under the water surface is no walk node: the actor swims above it
 const NAV_RIM_PROBE = NAV_STEP + 0.05;   // a swim exit needs a bank face at this height above the swimmer's feet (S10 findLedge knee ray)
-const NAV_SWEEP_OFFSET = NAV_RADIUS - 0.05; // jump checks also run this far to each side of the line: the capsule's width
+// Jump checks also run this far to each side of the line (the capsule's width). 5 cm under the radius: nodes stand a
+// full radius from walls, so a line at the radius would graze the wall beside every wall-hugging jump and refuse it.
+const NAV_SWEEP_OFFSET = NAV_RADIUS - 0.05;
 const NAV_BAND_BELOW = 0.6;            // height band for finding the node at a trigger's floor
 const NAV_BAND_ABOVE = 1.0;
 const NAV_LADDER_TOP_BAND = 1.6;       // the ladder's top node may sit this far below the volume top
@@ -846,17 +848,36 @@ function navAirType(from, rise, lift) {
 function navHighestSwept(a, b, firstFraction) {
   const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b], length = Math.hypot(bx - ax, bz - az);
   let highest = navHighestBetween(a, b, ax, az, bx, bz, firstFraction);
-  if (highest === Infinity || length < 1e-6) return highest;
+  if (highest === Infinity || length < 1e-6 || !navGatheredWall(a, b)) return highest;
   const sideX = (bz - az) / length * NAV_SWEEP_OFFSET, sideZ = -(bx - ax) / length * NAV_SWEEP_OFFSET;
   highest = Math.max(highest, navHighestBetween(a, b, ax + sideX, az + sideZ, bx + sideX, bz + sideZ, firstFraction));
   if (highest === Infinity) return highest;
   return Math.max(highest, navHighestBetween(a, b, ax - sideX, az - sideZ, bx - sideX, bz - sideZ, firstFraction));
 }
 
+// The height band of a jump between a and b: tops above `limit` that start below `wallBelow` are walls.
+const navBand = { limit: 0, wallBelow: 0 };
+function navJumpBand(a, b) {
+  const base = Math.max(Nav.nodeY[a], Nav.nodeY[b]);
+  navBand.limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN;
+  navBand.wallBelow = base + NAV_STAND_HEIGHT;
+  return navBand;
+}
+// True when a gathered brush could be a wall for a jump between a and b (its box reaches above the jump and below head
+// height). Without one the side lines cannot meet a wall, so the sweep skips them (most pairs: the build stays fast).
+function navGatheredWall(a, b) {
+  const band = navJumpBand(a, b);
+  for (let k = 0; k < navBrushGrid.foundCount; k++) {
+    const brush = World.brushes[navBrushGrid.found[k]];
+    if (brush.maxY > band.limit && brush.minY < band.wallBelow) return true;
+  }
+  return false;
+}
+
 // Highest gathered brush top on the line (ax, az)-(bx, bz) between two nodes (Infinity: a wall), which a jump either way
 // must pass. firstFraction: where the raster walk broke; the check looks there first (usually the wall).
 function navHighestBetween(a, b, ax, az, bx, bz, firstFraction) {
-  const base = Math.max(Nav.nodeY[a], Nav.nodeY[b]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN, wallBelow = base + NAV_STAND_HEIGHT;
+  const band = navJumpBand(a, b), limit = band.limit, wallBelow = band.wallBelow;
   const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / NAV_SCAN_STEP);
   let highest = navHighestTopGathered(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow);
   for (let step = 0; step <= steps && highest < Infinity; step++) {

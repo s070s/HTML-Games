@@ -92,7 +92,8 @@ const Buffs = {
   },
   applyActor(id, dt) {
     this.applyScales(id);
-    this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1);
+    // G08: a frozen actor's cloak drops while the freeze lasts (the buff itself keeps running).
+    this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1 && !Damage.hasStatus(id, 'freeze'));
     if (!Actors.alive[id] || dt <= 0) return;
     if (this.has(id, BUFF.NO_FIRE)) Weapons.nextShot[id] = Math.max(Weapons.nextShot[id], this.remaining(id, BUFF.NO_FIRE));
     if (this.has(id, BUFF.REGEN)) healActor(id, this.get(id, BUFF.REGEN) * dt, -1);
@@ -583,8 +584,11 @@ function stepDrone(id, row) {
 function endDrone(id, row) {
   const zone = AbilityZones.find(ZONE_KIND.DRONE, id);
   if (zone < 0) return;
-  const count = enemiesNear(id, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], row.params.empRadius, true);
-  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, row.params.empSeconds, 1); Abilities.suppress(effectIds[k], row.params.empSeconds); }
+  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], z = AbilityZones.z[zone], seconds = row.params.empSeconds;
+  const count = enemiesNear(id, x, y, z, row.params.empRadius, true);
+  // The one EMP path (G20): shields stop recharging, abilities and gadgets are held, devices in the radius switch off.
+  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
+  Gadgets.empDevices(id, x, y, z, row.params.empRadius, seconds);
   AbilityZones.remove(zone);
 }
 // fence: each use plants a node; a node links to the owner's newest node within params.link metres.

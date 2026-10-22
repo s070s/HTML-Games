@@ -31,8 +31,12 @@ Test.add('wiring', (check) => {
   const beacon = Devices.spawn(CAT.gadgets.byId('beacon'), t.target, 0, 0.7, 5);
   Devices.armTick[beacon] = Sim.tick;
   const healthBefore = Actors.health[t.target], deviceBefore = Devices.health[beacon];
+  let impacts = 0;
+  const onImpact = Bus.on('impact', (event) => { if (event.owner === t.shooter) impacts++; });
   WiringTest.fire(t.shooter);
+  Bus.off('impact', onImpact);
   check('a hitscan shot stops at a device in front of its target', Actors.health[t.target] === healthBefore, healthBefore - Actors.health[t.target]);
+  check('the stop shows an impact on the device', impacts === 1, impacts);
   check('the device takes the shot', Devices.health[beacon] < deviceBefore, Devices.health[beacon] + ' / ' + deviceBefore);
   Devices.clear();
   WiringTest.fire(t.shooter);
@@ -95,7 +99,8 @@ Test.add('wiring', (check) => {
   countSteps(id, preset, Actors.x[id], Actors.z[id]);
   Bus.off('sound', onSound); Bus.off('move.step', onStep);
   check('a quiet stride makes no bot noise and a 0 loudness step', heard.length === 1 && loudness[0] === 0 && loudness[1] === 1, heard.join() + ' / ' + loudness.join());
-  check('audio skips silent steps', !SOUND_CONDITIONS.audible({ loudness: 0 }) && SOUND_CONDITIONS.audible({ loudness: 1 }) && SOUND_CONDITIONS.audible({}));
+  const stepRow = SOUND_EVENTS.find((row) => row.event === 'move.step'), when = stepRow && SOUND_CONDITIONS[stepRow.when];
+  check('audio: the move.step sound row skips silent steps', !!when && !when({ loudness: 0 }) && when({ loudness: 1 }) && when({}), stepRow && stepRow.when);
   TestArena.finish();
 });
 
@@ -124,10 +129,41 @@ Test.add('wiring', (check) => {
   Buffs.apply();
   setCloak(id, false);
   check('a mode never clears a cloak another section set', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  Damage.addStatus(id, 'freeze', -1, 3, 1);
+  Buffs.apply();
+  check('G08: a freeze stops an ability cloak', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0);
+  Damage.clearAllStatuses(id);
+  Actors.flags[id] &= ~ACTOR_FLAG.FROZEN;
+  Buffs.apply();
+  check('G08: the cloak comes back when the freeze ends', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
   Buffs.clear(id);
   check('the owner clears its own cloak', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0);
+  setCloak(id, true);
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;   // what Actors.create does to a reused slot
+  Bus.emit('actor.create', id);
+  Buffs.add(id, BUFF.INVISIBLE, 1, 5);
+  Buffs.apply();
+  setCloak(id, false);
+  check('a reused actor slot forgets the mode cloak mark', modeCloakSet[id] === 0 && (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  Buffs.clear(id);
+  setCloak(id, true);
+  const marked = modeCloakSet[id] === 1;
+  Bus.emit('match.stop');
+  check('match.stop forgets every mode cloak mark', marked && modeCloakSet[id] === 0);
+  setCloak(id, false);
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
   Bus.emit('power.pick', { id, ability: 'grapnel' });
   check('X46: power.pick fills the first ability slot', Abilities.row(id, SLOT.ABILITY1).id === 'grapnel');
+  TestArena.finish();
+  TestArena.start({ teams: 2, economy: 'pickups' });
+  const pilot = TestArena.actor(0, 0, 0, 0), enemy = TestArena.actor(1, 0, 2, 0), drone = CAT.abilities.byId('scoutdrone');
+  const enemyDevice = Devices.spawn(CAT.gadgets.byId('beacon'), enemy, 1, 0, 1);
+  castDrone(pilot, drone);
+  endDrone(pilot, drone);
+  check('A15: the drone EMP holds the enemy gadgets and abilities', Gadgets.suppressed(enemy) && Abilities.suppressedUntil[enemy] > Sim.time);
+  check('A15: and pauses its shield recharge', Damage.shieldRegenBlocked(enemy));
+  check('A15: and switches off enemy devices in the radius', Devices.disabledUntil[enemyDevice] > Sim.tick);
+  check('A15: never the pilot', !Gadgets.suppressed(pilot) && !Damage.shieldRegenBlocked(pilot));
   TestArena.finish();
   TestArena.start({ teams: 2, economy: 'heroKits', fx: { mirror: true } });
   const player = TestArena.actor(0, 0, 0, 0), bot = TestArena.actor(1, 0, 10, 0);
@@ -173,6 +209,11 @@ Test.add('wiring', (check) => {
   Abilities.setChoice(brask, { hero: 'brask' });
   Bus.emit('actor.spawn', { id: brask });
   check('H05 gets its hero gadget plus one extra', Gadgets.countOf(brask, 'singularity') === 2, Gadgets.countOf(brask, 'singularity'));
+  const scout = CAT.heroes.find((hero) => hero.gadget && hero.gadget !== 'singularity');
+  Abilities.setChoice(brask, { hero: scout.id });
+  Abilities.refreshKit(brask);
+  check('a hero switch in the spawn room drops the old hero gadget', Gadgets.countOf(brask, 'singularity') === 0, Gadgets.countOf(brask, 'singularity'));
+  check('and gives only the new one', Gadgets.countOf(brask, scout.gadget) === 1, Gadgets.countOf(brask, scout.gadget));
   const mirelle = TestArena.actor(0, 0, 3, 0), plain = TestArena.actor(1, 4, 3, 0);
   Abilities.hero[mirelle] = CAT.heroes.byId('mirelle');
   Abilities.hero[plain] = CAT.heroes.byId('brask');
@@ -187,6 +228,24 @@ Test.add('wiring', (check) => {
   check('A17 Veil Curtain lays real smoke', Abilities.tryActivate(plain, SLOT.ABILITY1) && Smoke.count > 0, Smoke.count);
   TestArena.finish();
 });
+
+// X30: shoots an ammo pickup 16 m ahead (several bullet steps away); returns the volatile blasts right after the shot and after a quarter second.
+function wiringShootAmmo(fx) {
+  ItemArena.start({ fx }, [ItemArena.spot('ammobox', 0, 16)]);
+  const shooter = TestArena.actor(0, 0, 0, 0);
+  giveFull(shooter, 'warden');
+  Weapons.state[shooter] = WEAPON_STATE.IDLE;
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = Math.atan2(PICKUP_FLOAT - Actors.eye[shooter], 16);
+  const result = { atShot: 0, later: 0 };
+  let blasts = 0;
+  const onBlast = Bus.on('explosion', (event) => { if (event.source === 'volatile') blasts++; });
+  WiringTest.fire(shooter);
+  result.atShot = blasts;
+  Sim.run(TICK_RATE / 4);
+  result.later = blasts;
+  Bus.off('explosion', onBlast);
+  return result;
+}
 
 // ---- 12a pickups follow the ruleset: rules.items, fx.noPowerups, params.pickups, royale, matchSet, X30, X17, rarity ----
 Test.add('wiring', (check) => {
@@ -203,20 +262,20 @@ Test.add('wiring', (check) => {
   Items.load(spots, 'ffa');
   check('matchSet: weapon spots hand out the match list', Items.keyOf(2) === 'warden', Items.keyOf(2));
   emptyMatchSet();
-  ItemArena.start({ fx: { volatileAmmo: true } }, [ItemArena.spot('ammobox', 0, 6)]);
-  const shooter = TestArena.actor(0, 0, 0, 0);
-  giveFull(shooter, 'warden');
-  Weapons.state[shooter] = WEAPON_STATE.IDLE;
-  Actors.pitch[shooter] = Actors.aimPitch[shooter] = Math.atan2(PICKUP_FLOAT - Actors.eye[shooter], 6);
-  let blasts = 0;
-  const onBlast = Bus.on('explosion', (event) => { if (event.source === 'volatile') blasts++; });
-  WiringTest.fire(shooter);
-  Bus.off('explosion', onBlast);
-  check('X30: a shot ammo pickup explodes and waits for its respawn', blasts === 1 && Items.state[0] === PICKUP_STATE.WAITING, blasts);
+  const hitscan = wiringShootAmmo({ volatileAmmo: true });
+  check('X30: a shot ammo pickup explodes and waits for its respawn', hitscan.atShot === 1 && Items.state[0] === PICKUP_STATE.WAITING, hitscan.atShot);
+  const bullet = wiringShootAmmo({ volatileAmmo: true, ballistics: { gravity: 0, drag: 0 } });
+  check('X30 + X41: the bullet sets it off when it gets there, once', bullet.atShot === 0 && bullet.later === 1, bullet.atShot + ' ' + bullet.later);
   ItemArena.start({ dropOnDeath: 'held' }, []);
   const giver = ItemArena.actor(1, 0, 0), taker = ItemArena.actor(2, 20, 0);
   Bus.emit('item.grant', { id: giver, item: 'quickening' });
   check('X17: item.grant gives the powerup', Powerups.has(giver, 'quickening'));
+  Game.match.rules.carry = 1;
+  Weapons.setLoadout(giver, ['vanguard']);
+  Bus.emit('item.grant', { id: giver, item: 'warden' });
+  check('X17: a granted weapon at the carry limit drops the held one', Weapons.has(giver, 'warden') && ItemArena.firstDrop('vanguard') >= 0);
+  Items.clear();
+  delete Game.match.rules.carry;
   Weapons.setLoadout(giver, ['vanguard']);
   Weapons.rarity[Weapons.slotIndex(giver, CAT.weapons.byId('vanguard').index)] = 3;
   ItemArena.kill(giver);
@@ -245,17 +304,56 @@ Test.add('wiring', (check) => {
 });
 
 // ---- S07 renderer reads: head size (X14), Lights Out (X37), map lights ----
+// The drawn width of one body part of an actor (the first instance its shape gets in a cleared actor batch).
+function wiringDrawnSize(id, partId) {
+  const part = CAT.actorParts.byId(partId);
+  actorBatch.clear();
+  emitActorPart(part, readActorPosition(id, 1), readActorStyle(id));
+  const width = actorBatch.data[SHAPE_INDEX[part.shape] * actorBatch.capacity * INSTANCE_FLOATS + 4];
+  actorBatch.clear();
+  return width;
+}
+// Runs one frame of the dynamic lights with `effects` effect lights alive; returns how many frame lights sit at the actor's flashlight.
+function wiringFlashlightFrame(id, effects) {
+  WiringTest.withDisplay(() => {
+    Fx.clear();
+    for (let i = 0; i < effects; i++) Fx.light(100 + i, 0, 0, 0xffffff, 4, 1);
+  });
+  updateLights();
+  updateFlashlights();
+  Vec.fromAngles(flashlightAim, Actors.yaw[id], Actors.pitch[id]);
+  const x = Actors.x[id] + flashlightAim.x * FLASHLIGHT_AHEAD, z = Actors.z[id] + flashlightAim.z * FLASHLIGHT_AHEAD;
+  let found = 0;
+  for (let slot = 0; slot < Render.frame.lightCount; slot++) {
+    if (Math.abs(Render.frame.lightPositions[slot * 4] - x) < 1e-3 && Math.abs(Render.frame.lightPositions[slot * 4 + 2] - z) < 1e-3) found++;
+  }
+  return found;
+}
 Test.add('wiring', (check) => {
   TestArena.start({ teams: 2, fx: { darkness: true } });
   const id = TestArena.actor(0, 0, 0, 0);
+  const normalHead = wiringDrawnSize(id, 'head'), normalVisor = wiringDrawnSize(id, 'visor');
   Hitbox.headScale[id] = 2.5;
-  check('X14: the drawn head follows Hitbox.headScale', readActorStyle(id).headScale === 2.5);
+  check('X14: the drawn head follows Hitbox.headScale', Test.near(wiringDrawnSize(id, 'head'), normalHead * 2.5, 1e-5), normalHead + ' -> ' + wiringDrawnSize(id, 'head'));
+  check('X14: and the visor with it', Test.near(wiringDrawnSize(id, 'visor'), normalVisor * 2.5, 1e-5));
+  check('X14: the body keeps its size', Test.near(wiringDrawnSize(id, 'torso'), CAT.actorParts.byId('torso').size[0], 1e-5));
   Hitbox.headScale[id] = 1;
   applyTheme(CAT.themes[0].id);
   const theme = CAT.themes[0], frame = Render.frame;
   check('X37: the sun and ambient light go dark', frame.ambientSky[0] < 0.1 && frame.sunColor[0] < 0.1 * theme.sunIntensity, frame.ambientSky[0]);
-  WiringTest.withDisplay(() => { Fx.clear(); updateFlashlights(); });
-  check('X37: every actor carries a flashlight', fxLights.endTime.some((end) => end > Render.frame.time));
+  for (let i = 1; i <= 11; i++) TestArena.actor(i % 2, i * 2, 6, 0);
+  const quality = Render.quality, camera = Render.frame.cameraPosition;
+  Render.quality = CAT.quality.byId('ultra');
+  camera[0] = Actors.x[id]; camera[1] = Actors.eyeY(id); camera[2] = Actors.z[id];
+  check('X37: with 12 actors the player has exactly one flashlight', wiringFlashlightFrame(id, 0) === 1);
+  check('X37: the lights go to the nearest actors, one each, up to the cap', Render.frame.lightCount === MAX_DYNAMIC_LIGHTS
+    && new Set(Flashlights.ids.slice(0, Flashlights.count)).size === MAX_DYNAMIC_LIGHTS && !Flashlights.ids.slice(0, Flashlights.count).includes(11));
+  check('X37: a second frame does not stack copies', wiringFlashlightFrame(id, 0) === 1 && Render.frame.lightCount === MAX_DYNAMIC_LIGHTS);
+  check('X37: muzzle and explosion lights keep their reserve', wiringFlashlightFrame(id, MAX_DYNAMIC_LIGHTS) === 1
+    && Flashlights.count === MAX_DYNAMIC_LIGHTS - FX_LIGHT_RESERVE, Flashlights.count);
+  Render.quality = CAT.quality.byId('potato');
+  check('X37: a tier without dynamic lights still lights the player', wiringFlashlightFrame(id, 3) === 1 && Render.frame.lightCount === 1);
+  Render.quality = quality;
   Fx.clear();
   TestArena.finish();
   applyTheme(CAT.themes[0].id);
@@ -309,6 +407,14 @@ Test.add('wiring', (check) => {
   check('nav: swimmers climb out onto the quays', swimExits > 0, swimExits);
   check('nav: no swim exit onto a bridge deck (no rim to pull up on)', bridgeExits === 0, bridgeExits);
   check('nav: the canal ladders still start in the water', waterLadders > 0, waterLadders);
+  // S14 keeps the BLOCKED exit kind for exits a bot fails at run time (S09 links no rimless exit any more).
+  findWater(); findExits();
+  const exit = exitCount > 0 ? exitList[0] : -1, fromWater = BotMove.fromWater[0];
+  markBlockedExit(exit);
+  BotMove.fromWater[0] = 1;
+  check('bots: an exit failed at run time is blocked and costly from the water', exit >= 0 && exitBlocked(exit) && extraCost(0, exit) >= BLOCKED_EXIT_COST, exit);
+  BotMove.fromWater[0] = fromWater;
+  findExits();
 
   // Dustline: (-12.3, 0, 10.8) to (-13.8, 0, 12.8) passes 0.15 m from the mid wall end (x -13, z 12..13.5): the capsule clips it.
   World.load(CAT.maps.byId('dustline'));
@@ -394,6 +500,22 @@ Test.add('wiring', (check) => {
   Projectiles.clear();
   WiringTest.fire(t.shooter);
   check('without X41 the shot is hitscan again', wiringFlyingBullet() < 0);
+  TestArena.finish();
+
+  TestArena.start({ teams: 2, economy: 'pickups', fx: { ballistics: { gravity: 0, drag: 0 } } });
+  const d = WiringTest.shooter(20);
+  const beacon = Devices.spawn(CAT.gadgets.byId('beacon'), d.target, 0, 0.7, 18);
+  Devices.armTick[beacon] = Sim.tick;
+  const targetBefore = Actors.health[d.target], deviceBefore = Devices.health[beacon];
+  let impacts = 0;
+  const onImpact = Bus.on('impact', (event) => { if (event.owner === d.shooter) impacts++; });
+  WiringTest.fire(d.shooter);
+  check('X41: the device is not hit before the bullet gets there', Devices.health[beacon] === deviceBefore);
+  Sim.run(TICK_RATE / 2);
+  Bus.off('impact', onImpact);
+  check('X41: a bullet stops at a device in front of its target', Actors.health[d.target] === targetBefore, targetBefore - Actors.health[d.target]);
+  check('X41: the device takes the bullet', Devices.health[beacon] < deviceBefore && wiringFlyingBullet() < 0, Devices.health[beacon] + ' / ' + deviceBefore);
+  check('X41: the stop shows an impact', impacts === 1, impacts);
   TestArena.finish();
 });
 
