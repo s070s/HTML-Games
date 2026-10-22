@@ -224,14 +224,18 @@ const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 
 // 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
 // scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
 // reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
-// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. ----
-const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0 };
+// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. A GPU-bound
+// frame held to every second vsync looks exactly like a 30 Hz display: the GPU timer tells them apart, and without one a
+// slower-than-60 Hz interval counts only once it held across a render-scale change (a GPU frame time follows the scale). ----
+const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
-// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU work left it idle.
+// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU (and timed GPU) work left it idle.
 function displayPacedFrame(seconds) {
   if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
   if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
-  return Perf.cpuMs[Perf.lastIndex()] < seconds * 1000 * REFRESH_IDLE_SHARE;
+  const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
+  if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
+  return Perf.cpuMs[Perf.lastIndex()] < idleMs;
 }
 
 // The standard refresh interval nearest to a measured one, or 0 when none is close (a GPU-bound frame time, not a display).
@@ -250,7 +254,16 @@ function measureDisplayRate(seconds) {
   if (rate.count < REFRESH_SAMPLE_FRAMES) return;
   rate.count = 0;
   const measuredMs = rate.samples.sort()[Math.floor(REFRESH_SAMPLE_FRAMES * REFRESH_PERCENTILE)];
-  rate.intervalMs = standardRefreshMs(measuredMs) || rate.intervalMs;
+  acceptRefreshMs(rate, standardRefreshMs(measuredMs));
+}
+
+// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval in the window before at another scale.
+function acceptRefreshMs(rate, refreshMs) {
+  if (!refreshMs) return;
+  const scale = Render.size.scale;
+  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
+  rate.candidateMs = refreshMs; rate.candidateScale = scale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
 }
 
 // The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
