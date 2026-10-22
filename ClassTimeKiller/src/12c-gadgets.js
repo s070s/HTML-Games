@@ -48,6 +48,17 @@ const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.el
   statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
   family: null, fodderKill: false, falloff: null }));
 const GADGET_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
+// Grenades in flight and in the hand and the 12d devices draw their 03r gear model (one per row by code) in the row colour.
+const GADGET_MODELS = CAT.gadgets.map((row) => GEAR_MODELS.byId[row.code]);
+const THROWN_SPIN = 6, THROWN_GLOW = 0.3;            // rad/s turn of a grenade in flight; its glow
+const HELD_FORWARD = 0.6, HELD_LEFT = 0.26, HELD_DOWN = 0.24;   // m from the eye: the grenade in the first-person hand
+const gadgetPose = makeModelPose();
+// pose: position, yaw and glow set by the caller; the colour comes from the row.
+function drawGadgetModel(batch, row, pose) {
+  const offset = row.index * 3;
+  pose.r = GADGET_RGB[offset]; pose.g = GADGET_RGB[offset + 1]; pose.b = GADGET_RGB[offset + 2];
+  Models.draw(batch, GADGET_MODELS[row.index], pose);
+}
 const BLIND_INDEX = CAT.statusEffects.byId('blind').index;
 const gadgetHit = makeHit();
 const gadgetActorHit = makeActorHit();
@@ -598,11 +609,12 @@ const Thrown = {
     this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
   },
   draw(batch) {
+    const pose = gadgetPose;
+    pose.yaw = Sim.time * THROWN_SPIN; pose.emissive = THROWN_GLOW;
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
-      const row = CAT.gadgets[this.row[slot]], offset = row.index * 3, size = row.size;
-      const red = GADGET_RGB[offset], green = GADGET_RGB[offset + 1], blue = GADGET_RGB[offset + 2];
-      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], red, green, blue, 0.3);
+      pose.x = this.x[slot]; pose.y = this.y[slot]; pose.z = this.z[slot];
+      drawGadgetModel(batch, CAT.gadgets[this.row[slot]], pose);
     }
   },
 };
@@ -835,6 +847,19 @@ const Gadgets = {
       if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
     }
   },
+  // The grenade the local player holds (cooking or about to throw), low in the left of the first-person view.
+  drawHeld(batch) {
+    const id = Game.playerId;
+    if (id < 0 || !Actors.alive[id] || this.holdStart[id] < 0 || Render.view.overridden) return;
+    const camera = Render.camera, pose = gadgetPose, yaw = camera.yaw, pitch = camera.pitch;
+    const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw), sinPitch = Math.sin(pitch), cosPitch = Math.cos(pitch);
+    const forward = HELD_FORWARD, down = HELD_DOWN, left = HELD_LEFT;   // camera axes: forward, right = (-cos, 0, sin), up
+    pose.x = camera.x + sinYaw * cosPitch * forward + cosYaw * left + sinPitch * sinYaw * down;
+    pose.y = camera.y + sinPitch * forward - cosPitch * down;
+    pose.z = camera.z + cosYaw * cosPitch * forward - sinYaw * left + sinPitch * cosYaw * down;
+    pose.yaw = yaw; pose.emissive = THROWN_GLOW;
+    drawGadgetModel(batch, CAT.gadgets[this.holdRow[id]], pose);
+  },
   // Arc segments until the fuse would end (what is left of it for a cooking grenade).
   previewSteps(id, row) {
     const fuseTicks = row.cook ? itemTicks(row.fuse) - this.heldTicks(id) : itemTicks(row.fuse);
@@ -868,7 +893,7 @@ Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & 
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
 TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
-Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
+Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawHeld(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
 Bus.on('explosion', (event) => { if (Smoke.count && event.radius > 0) Smoke.punchSphere(event.x, event.y, event.z, event.radius); });

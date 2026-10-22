@@ -539,6 +539,7 @@ const Items = {
   // ---- Render source: spinning procedural shapes in group colours; empty spots show a faint base ----
   // Shapes go through one reused instance record (batch.meshFrom): 13 float arguments per batch.mesh call are boxed (PERF-006).
   draw(batch) {
+    pickupAmmoModel = ammoModelFor(Game.playerId);
     pickupInstance.yaw = Sim.time * PICKUP_SPIN;
     pickupInstance.pitch = 0;
     const bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
@@ -559,9 +560,10 @@ const Items = {
       batch.meshFrom('box', instance);
       return;
     }
-    const size = row.size, shape = row.shape;
-    instance.sx = size; instance.sy = shape === 'ring' ? size * 0.3 : size; instance.sz = size; instance.emissive = power ? 0.9 : 0.45;
-    batch.meshFrom(shape, instance);
+    const pose = pickupPose, model = row === AMMO_BOX_ROW ? pickupAmmoModel : PICKUP_MODELS[kind][index];
+    pose.x = instance.x; pose.y = instance.y; pose.z = instance.z; pose.yaw = instance.yaw;
+    pose.r = instance.r; pose.g = instance.g; pose.b = instance.b; pose.emissive = power ? 0.9 : 0.45;
+    Models.draw(batch, model, pose);
   },
   // The flat base disc under a pickup spot (no spin).
   drawBase(batch, slot, glow) {
@@ -575,6 +577,19 @@ const Items = {
 const pickupBaseColor = new Float32Array(3);
 const pickupInstance = makeShapeInstance();
 const pickupBaseInstance = Object.assign(makeShapeInstance(), { sx: 1, sy: 0.04, sz: 1 });
+// Gear models (03r, 07g): one per item and powerup row by code; the I08 box shows the ammo type of the local player's held
+// weapon (what it would give first), its own box without one. 12c and 12d draw grenades and devices from GEAR_MODELS too.
+const GEAR_MODELS = Models.compile(CAT.gearModels);
+const PICKUP_MODELS = [CAT.items, CAT.powerups].map((rows) => rows.map((row) => GEAR_MODELS.byId[row.code]));
+const AMMO_BOX_ROW = CAT.items.byId('ammobox');
+const AMMO_MODELS = {};
+CAT.weapons.forEach((weapon) => { if (weapon.ammoType) AMMO_MODELS[weapon.ammoType] = GEAR_MODELS.byId['ammo-' + weapon.ammoType]; });
+function ammoModelFor(id) {
+  const weapon = id >= 0 ? Weapons.currentWeapon(id) : null;
+  return (weapon && AMMO_MODELS[weapon.ammoType]) || PICKUP_MODELS[PICKUP_KIND.ITEM][AMMO_BOX_ROW.index];
+}
+let pickupAmmoModel = null;
+const pickupPose = makeModelPose();
 const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // base disc glow: respawning, item, powerup
 const volatileHit = makeHit();
 

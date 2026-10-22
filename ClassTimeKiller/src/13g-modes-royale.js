@@ -27,7 +27,6 @@ const DROP_PROBE = 1;                  // m: the roof and spread checks start th
 const DROP_SPREAD = 1.5;               // m: squadmates land this far around the squad's drop point
 const BEACON_SECONDS = 4;              // a living squadmate holds Use this long at the beacon to bring the dead back
 const BEACON_COLOR = [0.3, 1, 0.5];
-const BEACON_WIDTH = 0.3;
 const BEACON_HEIGHT = 2;
 
 // Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up.
@@ -354,18 +353,42 @@ function drawRoyale(batch) {
   if (Ring.state !== RING_STATE.CLOSED) drawRing(batch, Ring.toX, ground, Ring.toZ, Ring.toRadius, RING_NEXT_COLOR);
   const instance = royaleInstance;
   instance.sx = LOOT_SIZE; instance.sy = LOOT_SIZE; instance.sz = LOOT_SIZE;
+  royaleAmmoModel = ammoModelFor(Game.playerId);
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot]) continue;
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
     instance.x = RoyaleLoot.x[spot]; instance.y = RoyaleLoot.y[spot] + LOOT_LIFT; instance.z = RoyaleLoot.z[spot];
     instance.r = color[0]; instance.g = color[1]; instance.b = color[2];
-    batch.meshFrom('box', instance);
+    if (RoyaleLoot.group[spot] === LOOT_GROUP.WEAPON) batch.meshFrom('box', instance);
+    else drawLootModel(batch, spot, instance);
   }
+  const pose = royalePose;
+  pose.scale = BEACON_HEIGHT; pose.yaw = 0; pose.emissive = MARKER_GLOW;
+  pose.r = BEACON_COLOR[0]; pose.g = BEACON_COLOR[1]; pose.b = BEACON_COLOR[2];
   for (let squad = 0; squad < Squads.count; squad++) {
     if (!Squads.beaconUses[squad]) continue;
-    batch.mesh('box', Squads.beaconX[squad], Squads.beaconY[squad] + BEACON_HEIGHT / 2, Squads.beaconZ[squad], 0, 0, BEACON_WIDTH, BEACON_HEIGHT, BEACON_WIDTH,
-      BEACON_COLOR[0], BEACON_COLOR[1], BEACON_COLOR[2], MARKER_GLOW);
+    pose.x = Squads.beaconX[squad]; pose.y = Squads.beaconY[squad]; pose.z = Squads.beaconZ[squad];
+    Models.draw(batch, BEACON_MODEL, pose);
   }
+}
+
+// Armor, heal and ammo spots show their gear models (03r, spinning like map pickups): a vest in the rarity colour, the
+// consumable the spot gives, and the ammo box of the local player's held weapon (what takeAmmo gives). The squad beacon is
+// the G24 Rally Beacon model, BEACON_HEIGHT x its size.
+const LOOT_ARMOR_MODEL = GEAR_MODELS.byId[CAT.items.byId('vest').code];
+const LOOT_HEAL_ROWS = LOOT_CONSUMABLES.map((id) => CAT.items.byId(id));
+const BEACON_MODEL = GEAR_MODELS.byId[CAT.gadgets.byId('beacon').code];
+const royalePose = makeModelPose();
+let royaleAmmoModel = null;
+function drawLootModel(batch, spot, instance) {
+  const pose = royalePose, group = RoyaleLoot.group[spot], heal = LOOT_HEAL_ROWS[RoyaleLoot.rarity[spot]];
+  pose.x = instance.x; pose.y = instance.y; pose.z = instance.z; pose.yaw = Sim.time * PICKUP_SPIN; pose.scale = 1; pose.emissive = MARKER_GLOW;
+  pose.r = instance.r; pose.g = instance.g; pose.b = instance.b;
+  if (group === LOOT_GROUP.ARMOR) { Models.draw(batch, LOOT_ARMOR_MODEL, pose); return; }
+  if (group === LOOT_GROUP.AMMO) { Models.draw(batch, royaleAmmoModel, pose); return; }
+  const rgb = PICKUP_RGB[PICKUP_KIND.ITEM], offset = heal.index * 3;
+  pose.r = rgb[offset]; pose.g = rgb[offset + 1]; pose.b = rgb[offset + 2];
+  Models.draw(batch, PICKUP_MODELS[PICKUP_KIND.ITEM][heal.index], pose);
 }
 
 // Loot boxes and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
