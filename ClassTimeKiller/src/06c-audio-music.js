@@ -77,7 +77,6 @@ const SoundMusic = {
   },
   // Menus are always calm; during a match the mood decides.
   effectiveMood() { return Game.state === 'playing' ? this.mood : 'calm'; },
-  wantsToPlay() { return Sound.musicAllowed && Sound.levels.music > 0 && Sound.canPlay(); },
 
   onDamage(payload) {
     if (!Sound.live()) return;
@@ -85,14 +84,17 @@ const SoundMusic = {
     const near = audioListener.valid && distanceSquared3(payload.x, payload.y, payload.z, audioListener.x, audioListener.y, audioListener.z) < MUSIC_NEAR_DAMAGE_SQ;
     if (near) this.excite(payload.amount / 400, 0.15);
   },
-  excite(amount, cap) { this.intensity = Math.min(1, this.intensity + clamp(amount, 0, cap)); },
+  excite(amount, cap) {
+    if (!(amount > 0)) return;                     // also rejects NaN from a payload without an amount
+    this.intensity = Math.min(1, this.intensity + Math.min(amount, cap));
+  },
 
   update(seconds) {
     this.intensity = Math.max(0, this.intensity - seconds * MUSIC_INTENSITY_DECAY);
-    const wanted = this.wantsToPlay();
-    if (wanted && !this.nodes) this.build();
-    if (!wanted && this.nodes) this.stop();
-    if (!this.nodes) return;
+    const allowed = Sound.musicAllowed && Sound.levels.music > 0;
+    if (allowed && !this.nodes && Sound.canPlay()) this.build();
+    if (!allowed && this.nodes) this.stop();
+    if (!this.nodes || !Sound.canPlay()) return;
     this.updateLayers(seconds);
     this.scheduleUntil(Sound.context.currentTime + MUSIC_LOOKAHEAD);
   },

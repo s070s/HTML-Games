@@ -15,9 +15,11 @@ const AUDIO_FLOOR_GAIN = 0.0001;              // exponential ramps cannot reach 
 const AUDIO_AUDIBLE_GAIN = 0.02;              // quieter sounds are dropped instead of using a voice
 const AUDIO_START_DELAY = 0.004;              // seconds between "now" and the scheduled start (avoids clicks)
 const AUDIO_STEAL_FADE = 0.012;               // seconds a stolen voice needs to fade out first
-const AUDIO_NOISE_SECONDS = 2;                // length of the shared noise buffer (looped, read from a random offset)
+const AUDIO_NOISE_SECONDS = 2;                // length of the shared noise buffer (every voice loops it)
 const AUDIO_PITCH_JITTER = 0.06;              // +-3% random pitch so repeated sounds are not identical
-const AUDIO_PAN_WIDTH = 0.95;                 // strongest pan; keeps a trace of the other ear
+const AUDIO_CLIP_KNEE = 0.8;                  // output level where the soft clipper starts to bend
+const AUDIO_CLIP_POINTS = 2049;               // resolution of the clipper curve
+const AUDIO_PAN_WIDTH =0.95;                 // strongest pan; keeps a trace of the other ear
 const AUDIO_CUTOFF_MAX = 18000;               // low-pass cutoff of a sound next to the listener
 const AUDIO_CUTOFF_DISTANCE = 30;             // metres over which the cutoff halves
 const AUDIO_REAR_CUTOFF = 0.65;               // head shadow: sounds behind the listener are duller (front/back cue on one speaker)
@@ -219,20 +221,35 @@ const SoundQueue = {
 };
 
 // ---- Persistent voice chain (one per pool slot) and the helpers that fill it ----
-// source layers -> noiseFilter -> noiseGain \
-//                  oscillators  -> toneGain  -> mix -> lowpass (distance / occlusion) -> panner -> bus
+// Creating a source node costs about 30 microseconds on the main thread, so each slot owns its sources for the whole session:
+// a noise source and two oscillators that run (only while the slot is connected) and are shaped by gains, filters and frequency automation.
+// noise -> noiseFilter -> noiseGain \
+// osc 1 ---------------> toneGain  -> mix -> lowpass (distance / occlusion) -> panner -> bus
+// osc 2 -> partialGain ->/
 function createVoiceSlot(context) {
   const slot = {
     mix: context.createGain(), lowpass: context.createBiquadFilter(), noiseFilter: context.createBiquadFilter(),
-    noiseGain: context.createGain(), toneGain: context.createGain(),
-    spatial: null, spatialKind: '', bus: null, sources: [null, null, null], sourceCount: 0, params: null,
+    noiseGain: context.createGain(), toneGain: context.createGain(), partialGain: context.createGain(),
+    noiseSource: context.createBufferSource(), oscillators: [context.createOscillator(), context.createOscillator()],
+    spatial: null, spatialKind: '', bus: null, connected: false, params: null,
   };
   slot.lowpass.type = 'lowpass';
   slot.noiseGain.gain.value = AUDIO_FLOOR_GAIN; slot.toneGain.gain.value = AUDIO_FLOOR_GAIN;
-  slot.noiseFilter.connect(slot.noiseGain); slot.noiseGain.connect(slot.mix);
-  slot.toneGain.connect(slot.mix); slot.mix.connect(slot.lowpass);
-  slot.params = [slot.mix.gain, slot.lowpass.frequency, slot.noiseFilter.frequency, slot.noiseFilter.Q, slot.noiseGain.gain, slot.toneGain.gain];
+  slot.noiseSource.buffer = Sound.noiseBuffer; slot.noiseSource.loop = true;
+  slot.noiseSource.connect(slot.noiseFilter); slot.noiseFilter.connect(slot.noiseGain); slot.noiseGain.connect(slot.mix);
+  slot.oscillators[0].connect(slot.toneGain); slot.oscillators[1].connect(slot.partialGain); slot.partialGain.connect(slot.toneGain);
+  slot.toneGain.connect(slot.mix);
+  slot.noiseSource.start(0); slot.oscillators[0].start(0); slot.oscillators[1].start(0);
+  slot.params = [slot.mix.gain, slot.lowpass.frequency, slot.noiseFilter.frequency, slot.noiseFilter.Q, slot.noiseGain.gain, slot.toneGain.gain, slot.partialGain.gain];
   return slot;
+}
+
+// While no voice plays, the slot is cut from the output so the audio thread skips its sources.
+function setSlotConnected(slot, connected) {
+  if (slot.connected === connected) return;
+  if (connected) slot.mix.connect(slot.lowpass);
+  else slot.mix.disconnect();
+  slot.connected = connected;
 }
 
 // 'stereo' = equal-power StereoPanner (default), 'hrtf' = head-related PannerNode (High+), 'equalpower' = PannerNode fallback for old browsers.
@@ -276,12 +293,8 @@ function scheduleEnvelope(param, time, peak, attack, decay) {
   param.exponentialRampToValueAtTime(AUDIO_FLOOR_GAIN, time + attack + decay);
 }
 
-// Noise burst: shared noise buffer from a random offset, band-shaped by a sweeping filter, once per pulse.
-function startNoiseLayer(context, slot, recipe, layer, pitch, start) {
-  const source = context.createBufferSource();
-  source.buffer = Sound.noiseBuffer;
-  source.loop = true;
-  source.connect(slot.noiseFilter);
+// Noise burst: the slot's looping noise through a sweeping filter, once per pulse.
+function startNoiseLayer(slot, recipe, layer, pitch, start) {
   slot.noiseFilter.type = layer.filter;
   slot.noiseFilter.Q.setValueAtTime(layer.q, start);
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
@@ -290,16 +303,14 @@ function startNoiseLayer(context, slot, recipe, layer, pitch, start) {
     slot.noiseFilter.frequency.exponentialRampToValueAtTime(layer.to * pitch, time + layer.attack + layer.decay);
     scheduleEnvelope(slot.noiseGain.gain, time, layer.gain, layer.attack, layer.decay);
   }
-  source.start(start, Rng.fx.next() * AUDIO_NOISE_SECONDS * 0.5);
-  source.stop(start + recipe.duration);
-  slot.sources[slot.sourceCount++] = source;
 }
 
 // Tonal body: one oscillator (two when the layer has a partial) gliding from `from` to `to` Hz, once per pulse.
-function startToneLayer(context, slot, recipe, layer, pitch, start) {
+function startToneLayer(slot, recipe, layer, pitch, start) {
   const oscillatorCount = layer.partial ? 2 : 1;
+  slot.partialGain.gain.setValueAtTime(layer.partial ? 1 : 0, start);
   for (let k = 0; k < oscillatorCount; k++) {
-    const oscillator = context.createOscillator();
+    const oscillator = slot.oscillators[k];
     oscillator.type = layer.wave;
     for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
       const time = start + recipe.pulses[pulse];
@@ -307,10 +318,6 @@ function startToneLayer(context, slot, recipe, layer, pitch, start) {
       oscillator.frequency.setValueAtTime(layer.from * scale, time);
       oscillator.frequency.exponentialRampToValueAtTime(layer.to * scale, time + layer.attack + layer.decay);
     }
-    oscillator.connect(slot.toneGain);
-    oscillator.start(start);
-    oscillator.stop(start + recipe.duration);
-    slot.sources[slot.sourceCount++] = oscillator;
   }
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
     scheduleEnvelope(slot.toneGain.gain, start + recipe.pulses[pulse], layer.gain, layer.attack, layer.decay);
@@ -321,9 +328,22 @@ function buildAudioBuses(context) {
   const makeBus = (parent) => { const node = context.createGain(); node.connect(parent); return node; };
   const limiter = context.createDynamicsCompressor();     // keeps explosion pile-ups from clipping (LT-H-069)
   limiter.threshold.value = -10; limiter.knee.value = 10; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.15;
-  limiter.connect(context.destination);
+  const clipper = context.createWaveShaper();            // last line of defence: nothing leaves above 0 dBFS
+  clipper.curve = buildSoftClipCurve();
+  limiter.connect(clipper); clipper.connect(context.destination);
   const master = makeBus(limiter), game = makeBus(master);
-  return { limiter, master, game, sfx: makeBus(game), music: makeBus(game), voice: makeBus(game), ui: makeBus(master) };
+  return { limiter, clipper, master, game, sfx: makeBus(game), music: makeBus(game), voice: makeBus(game), ui: makeBus(master) };
+}
+
+// Straight up to AUDIO_CLIP_KNEE, then a smooth bend towards (but never reaching) 1.
+function buildSoftClipCurve() {
+  const curve = new Float32Array(AUDIO_CLIP_POINTS);
+  for (let i = 0; i < curve.length; i++) {
+    const input = (i / (curve.length - 1)) * 2 - 1;
+    const excess = Math.max(0, Math.abs(input) - AUDIO_CLIP_KNEE);
+    curve[i] = Math.sign(input) * (Math.min(Math.abs(input), AUDIO_CLIP_KNEE) + (1 - AUDIO_CLIP_KNEE) * Math.tanh(excess / (1 - AUDIO_CLIP_KNEE)));
+  }
+  return curve;
 }
 
 function buildNoiseBuffer(context) {
@@ -446,6 +466,7 @@ const Sound = {
     this.allocator.reset();
     this.refreshQuality();
     this.applyVolumes();
+    for (let index = 0; index < this.voiceLimit; index++) this.ensureSlot(index);   // build the voice chains now, not in the middle of a fight
     this.enabled = context.state === 'running';
     context.onstatechange = () => { this.enabled = this.canPlay(); };
   },
@@ -489,7 +510,7 @@ const Sound = {
     return this.enqueue(this.recipeIndex(recipeId), positional, positional ? x : 0, positional ? y : 0, positional ? z : 0, source === undefined ? -1 : source, 1, 1);
   },
   speak(text) {
-    if (!this.live() || !Settings.get('audio.speech')) return false;
+    if (!this.live() || typeof text !== 'string' || !text || !Settings.get('audio.speech')) return false;
     const synth = this.speechSynth || window.speechSynthesis;
     if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') return false;
     const utterance = new window.SpeechSynthesisUtterance(text);
@@ -512,6 +533,7 @@ const Sound = {
     this.watchPlayerCues(seconds);
     for (let i = 0; i < this.frameHooks.length; i++) this.frameHooks[i](seconds);
     this.processQueue();
+    if (this.context) this.releaseIdleSlots();
     this.maxStartedPerFrame = Math.max(this.maxStartedPerFrame, this.startedThisFrame);
     this.updateMs = performance.now() - started;
     this.peakUpdateMs = Math.max(this.updateMs, this.peakUpdateMs * 0.99);
@@ -617,8 +639,10 @@ const Sound = {
     placeSlot(slot, spatial, start);
     slot.mix.gain.setValueAtTime(level, start);
     const voicePitch = pitch * (1 + (Rng.fx.next() - 0.5) * AUDIO_PITCH_JITTER);
-    if (recipe.noise) startNoiseLayer(context, slot, recipe, recipe.noise, voicePitch, start);
-    if (recipe.tone) startToneLayer(context, slot, recipe, recipe.tone, voicePitch, start);
+    if (recipe.noise) startNoiseLayer(slot, recipe, recipe.noise, voicePitch, start);
+    else slot.noiseGain.gain.setValueAtTime(AUDIO_FLOOR_GAIN, start);
+    if (recipe.tone) startToneLayer(slot, recipe, recipe.tone, voicePitch, start);
+    else slot.toneGain.gain.setValueAtTime(AUDIO_FLOOR_GAIN, start);
     this.startedThisFrame++;
     this.started++;
     return true;
@@ -630,16 +654,22 @@ const Sound = {
     if (slot.spatialKind !== kind) attachSlotSpatial(this.context, slot, kind);
     return slot;
   },
-  // Prepares a reused slot: a stolen voice fades out quickly, then every old automation event is dropped.
+  // Prepares a reused slot. A voice that ended by itself has no automation left to clear; a stolen one fades out quickly
+  // and every pending automation event is dropped (the sources keep running, the gains decide what is heard).
   clearSlot(slot, now, stolen) {
+    setSlotConnected(slot, true);
+    if (!stolen) return;
     slot.mix.gain.cancelScheduledValues(now);
-    if (stolen) {
-      slot.mix.gain.setValueAtTime(slot.mix.gain.value, now);
-      slot.mix.gain.linearRampToValueAtTime(0, now + AUDIO_STEAL_FADE * 0.8);
-      for (let i = 0; i < slot.sourceCount; i++) slot.sources[i].stop(now + AUDIO_STEAL_FADE);
-    }
+    slot.mix.gain.setValueAtTime(slot.mix.gain.value, now);
+    slot.mix.gain.linearRampToValueAtTime(0, now + AUDIO_STEAL_FADE * 0.8);
     for (let i = 1; i < slot.params.length; i++) slot.params[i].cancelScheduledValues(now);
-    slot.sourceCount = 0;
+  },
+  // Slots whose voice ended are cut from the output (no audio-thread work while idle).
+  releaseIdleSlots() {
+    const now = this.context.currentTime;
+    for (let index = 0; index < this.slots.length; index++) {
+      if (this.slots[index] && this.allocator.endTime[index] <= now) setSlotConnected(this.slots[index], false);
+    }
   },
 
   stats() {
@@ -647,13 +677,12 @@ const Sound = {
       stolen: this.allocator.stolen, rejected: this.allocator.rejected, queueDropped: SoundQueue.dropped, updateMs: this.updateMs,
       peakUpdateMs: this.peakUpdateMs, maxStartedPerFrame: this.maxStartedPerFrame, enabled: this.enabled };
   },
-  // Clean slate between matches and between tests.
+  // Clean slate between matches and between tests. Voices that still ring out keep their pool slots.
   resetState() {
     SoundQueue.count = 0; SoundQueue.dropped = 0;
     this.lastShield.fill(0); this.captionClock.fill(-1000); this.heartbeatClock = 0;
     this.clock = 0; this.started = 0; this.maxStartedPerFrame = 0; this.peakUpdateMs = 0;
     this.triggerCounts.fill(0);
-    this.allocator.reset();
   },
 };
 

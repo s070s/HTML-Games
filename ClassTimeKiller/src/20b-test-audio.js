@@ -383,7 +383,9 @@ Test.add('audio', async (check) => {
   check('every recipe renders finite samples', broken.length === 0, broken.join(', '));
   check('every recipe is audible', silent.length === 0, silent.join(', '));
   check('no recipe clips the output', loud.length === 0, loud.join(', '));
-  const loudestMenu = Math.max(...['uiClick', 'uiBack', 'uiConfirm', 'uiHover', 'uiError'].map((id) => peaks.get(id)));
+  const curve = buildSoftClipCurve();
+  check('the output clipper stays below full scale and is transparent for normal levels', Math.max(...curve) < 0.96 && Test.near(curve[Math.round(curve.length * 0.75)], 0.5, 1e-3));
+  const loudestMenu =Math.max(...['uiClick', 'uiBack', 'uiConfirm', 'uiHover', 'uiError'].map((id) => peaks.get(id)));
   check('menu sounds are softer than gunfire (LT-L-011)', loudestMenu < peaks.get('rifle'), 'menu ' + loudestMenu + ' rifle ' + peaks.get('rifle'));
   audioTestFinish();
 });
@@ -425,8 +427,9 @@ Test.add('audio', (check) => {
   Sound.applyVolumes();
   const made = audioTestAttach();
   check('the first gesture creates the context', Sound.context === made.context && !!Sound.buses && !!Sound.noiseBuffer);
-  const persistentBase = made.counts.persistent;
-  check('buses are built once: limiter, master, game, sfx, music, voice, ui', persistentBase === 7, persistentBase);
+  const persistentBase = made.counts.persistent, sourcesBase = made.counts.oneShot;
+  check('7 buses and 24 voice chains of 7 nodes are built up front', persistentBase === 7 + 24 * 7, persistentBase);
+  check('each chain owns its 3 sources, so a sound creates none', sourcesBase === 24 * 3 + 1, sourcesBase);
 
   for (let frame = 0; frame < 120; frame++) {
     for (let k = 0; k < 4; k++) {
@@ -440,8 +443,8 @@ Test.add('audio', (check) => {
   const stats = Sound.stats();
   check('voices were started and the cap of 8 new voices per frame holds', stats.started > 24 && stats.maxStartedPerFrame <= 8, JSON.stringify(stats));
   check('the voice cap of 24 holds and stealing happened', stats.voices <= 24 && stats.stolen > 0, JSON.stringify(stats));
-  check('at most one persistent chain per voice was built', Sound.slots.filter(Boolean).length <= 24 && warm - persistentBase <= 24 * 6, warm - persistentBase);
-  check('a sound creates at most 3 one-shot sources', made.counts.oneShot <= stats.started * 3, made.counts.oneShot + ' for ' + stats.started);
+  check('no chain beyond the pool was built', Sound.slots.filter(Boolean).length === 24 && warm === persistentBase, warm - persistentBase);
+  check('sounds create no source nodes (node creation costs 30 us each)', made.counts.oneShot === sourcesBase, made.counts.oneShot + ' vs ' + sourcesBase);
 
   for (let frame = 0; frame < 300; frame++) {
     audioTestPlace(bot, 3, 0, 15);
@@ -449,7 +452,7 @@ Test.add('audio', (check) => {
     Bus.emit('explosion', { x: -5 + frame % 3, y: 1, z: 20, radius: 4, owner: bot, source: 'x', element: '' });
     Sound.update(AUDIO_TEST_FRAME);
   }
-  check('no persistent nodes are created after warm-up', made.counts.persistent === warm, made.counts.persistent + ' vs ' + warm);
+  check('no nodes are created after warm-up', made.counts.persistent === warm && made.counts.oneShot === sourcesBase, made.counts.persistent + ' vs ' + warm);
 
   Settings.set('video.quality', 'potato');
   const potatoStart = Sound.stats().started;
@@ -467,14 +470,21 @@ Test.add('audio', (check) => {
   Sound.update(AUDIO_TEST_FRAME);
   check('the most important sounds win the per-frame cap: your own click got a voice', Array.from(Sound.allocator.priority.subarray(0, 24)).includes(AUDIO_PRIORITY.own));
 
+  // Cost with a moving clock, so finished voices free their slots and 2 new voices start every frame.
+  const clock = { time: 0 };
+  Object.defineProperty(made.context, 'currentTime', { get: () => clock.time });
+  Sound.resetState();
+  Sound.allocator.reset();
   let total = 0;
-  const frames = 400;
+  const frames = 600;
   for (let frame = 0; frame < frames; frame++) {
-    for (let k = 0; k < 4; k++) Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: k * 2, y: 1.5, z: 12 + k, dx: 0, dy: 0, dz: 1 });
+    for (let k = 0; k < 2; k++) Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: k * 2, y: 1.5, z: 12 + k, dx: 0, dy: 0, dz: 1 });
+    clock.time += AUDIO_TEST_FRAME;
     const started = performance.now();
     Sound.update(AUDIO_TEST_FRAME);
     total += performance.now() - started;
   }
+  check('2 new voices every frame were really started', Sound.stats().started >= frames * 2 * 0.9, Sound.stats().started);
   check('audio scheduling stays under 0.3 ms per frame (AUD-007)', total / frames < 0.3, (total / frames).toFixed(3) + ' ms');
   audioTestFinish();
 });
@@ -510,6 +520,8 @@ Test.add('audio', (check) => {
   check('taking damage brings the combat layer in', SoundMusic.intensity > raised && weights.combat > 0.8, weights.combat);
   const far = Actors.create(ACTOR_KIND.BOT, 2, 'far');
   SoundMusic.intensity = 0;
+  Bus.emit('damage', { target: player, source: bot, zone: 'body', x: 0, y: 1, z: 0 });
+  check('a damage event without an amount cannot poison the intensity', SoundMusic.intensity === 0);
   Bus.emit('damage', { target: far, source: bot, amount: 40, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 200, y: 1, z: 200, dx: 0, dy: 0, dz: 1 });
   check('a far-away fight does not excite the music', SoundMusic.intensity === 0);
   Bus.emit('damage', { target: far, source: bot, amount: 40, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 5, y: 1, z: 5, dx: 0, dy: 0, dz: 1 });
@@ -519,7 +531,7 @@ Test.add('audio', (check) => {
 
   Settings.set('video.quality', 'potato');
   Sound.refreshQuality();
-  check('music is off by default on Potato', !Sound.musicAllowed && !SoundMusic.wantsToPlay());
+  check('music is off by default on Potato', !Sound.musicAllowed);
   Settings.set('video.quality', 'low');
   Sound.refreshQuality();
   check('music is on for Low', Sound.musicAllowed);
@@ -528,8 +540,9 @@ Test.add('audio', (check) => {
 
   const made = audioTestAttach();
   Sound.setMusicMood('boss');
+  const beforeMusic = made.counts.persistent;
   SoundMusic.update(0.3);
-  check('music builds its nodes once when allowed', !!SoundMusic.nodes && made.counts.persistent > 7);
+  check('music builds its nodes once when allowed', !!SoundMusic.nodes && made.counts.persistent > beforeMusic);
   const built = [made.counts.persistent, made.counts.oneShot];
   SoundMusic.scheduleUntil(60);
   check('60 s of music creates no nodes (AUD-007)', made.counts.persistent === built[0] && made.counts.oneShot === built[1]);
@@ -600,12 +613,14 @@ Test.add('audio', (check) => {
   Settings.set('video.quality', 'high');
   const spatialKinds = [];
   Sound.resetState();
+  Sound.allocator.reset();
   audioTestPlace(1, 5, 0, 5);
   Sound.enqueue(Sound.recipeIndex('rifle'), true, 5, 1, 5, 1, 1, 1);
   Sound.update(AUDIO_TEST_FRAME);
   spatialKinds.push(Sound.slots[0].spatialKind);
   Settings.set('video.quality', 'medium');
   Sound.resetState();
+  Sound.allocator.reset();
   Sound.enqueue(Sound.recipeIndex('rifle'), true, 5, 1, 5, 1, 1, 1);
   Sound.update(AUDIO_TEST_FRAME);
   spatialKinds.push(Sound.slots[0].spatialKind);

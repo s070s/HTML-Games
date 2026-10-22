@@ -8,7 +8,7 @@ Game code does **not** call Web Audio. It emits the events below; the audio sect
 
 1. An event handler (generic code in `06b`, rows in `SOUND_EVENTS`) resolves a **recipe id** from the payload, finds the position and the acting actor, and calls `Sound.enqueue(...)`. No allocation: the request becomes one row in typed arrays (`SoundQueue`, 64 rows). Identical requests from the same actor within 2 m in one frame are merged (shotgun pellets make one impact sound).
 2. Once per frame (`Loop` phase `audio`, `Sound.update`) the queue is ranked by priority then distance and at most `voices / 3` new voices start (8, Potato 4). Each one gets equal-power pan or HRTF position, distance level, distance low-pass, an occlusion low-pass (max 4 `World.lineClear` rays per frame) and a caption.
-3. A voice is a pooled node chain (`24` voices, Potato `12`, `Quality.current().voices`). Only the 1 to 3 source nodes (noise buffer source, oscillators) are created per sound; the shared 2 s noise buffer is created once. When the pool is full the most expendable voice is stolen: lower priority first, then the farther, then the older. A sound that is less important than everything playing is dropped.
+3. A voice is a pooled node chain (`24` voices, Potato `12`, `Quality.current().voices`) built when the context is created. Each chain owns its sources (a looping noise source and two oscillators; creating a source node costs about 30 microseconds, so a sound creates **no** node, it only schedules parameter changes). A chain with no sound playing is cut from the output so the audio thread skips it. The shared 2 s noise buffer is created once. When the pool is full the most expendable voice is stolen: lower priority first, then the farther, then the older. A sound that is less important than everything playing is dropped.
 
 Priority (AUD-002), `AUDIO_PRIORITY`: `ui 6 > own 5 > near 4 > explosion 3 > far 2 > ambient 1`. `own` = the sound's acting actor is `Game.playerId`. `near` and `explosion` recipes drop to `far` beyond their `nearRange`.
 
@@ -41,7 +41,7 @@ Quality: `Quality.current().voices` (voice limit) and `.music` (generative music
 
 ## Buses
 
-`sfx`, `music`, `voice` (announcer, pings, radio blips), `game` (the three above; faded to 0 on `game.pause`), `ui` (stays audible in the pause menu), `master` -> `limiter` (DynamicsCompressor, no clipping) -> destination.
+`sfx`, `music`, `voice` (announcer, pings, radio blips), `game` (the three above; faded to 0 on `game.pause`), `ui` (stays audible in the pause menu), `master` -> `limiter` (DynamicsCompressor) -> `clipper` (soft clipper, output never above 0.96) -> destination.
 
 Pause: `game.pause` fades the game buses. A `'menu'` pause keeps the context running (menu clicks), every other reason (blur, hidden, pointer-lock loss) suspends it 150 ms later. `game.resume` undoes it.
 
