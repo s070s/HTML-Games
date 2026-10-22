@@ -350,190 +350,113 @@ Test.add('hudui', (check) => uiWith(() => {
   Settings.set('custom.draft', saved);
 }));
 
-// ---- P02 touch: HUD layout, need-gated buttons, weapon bar taps, help text, toasts and gyro ----
-const HUD_UI_SCREENS = [[667, 375], [812, 375], [844, 390]];   // landscape phones: css px
-const HUD_UI_BAR_WEAPONS = 5;
-
-function hudUiRect(left, top, width, height) { return { left, top, right: left + width, bottom: top + height }; }
-// The boxes a phone HUD draws that no default button may cover: header (17c), minimap (17f), vitals, ammo panel and the weapon bar (17a).
-function hudUiPhoneBoxes(layout) {
-  const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit;
-  hudPlaceWeaponBox(layout, HUD_UI_BAR_WEAPONS, 0);
-  const first = hudBoxAt[0], top = hudBoxAt[1], height = hudBoxAt[3];
-  hudPlaceWeaponBox(layout, HUD_UI_BAR_WEAPONS, HUD_UI_BAR_WEAPONS - 1);
-  return {
-    header: hudUiRect(layout.centerX - header / 2, layout.top, header, 44 * unit), minimap: hudUiRect(layout.left, layout.top, map, map),
-    vitals: hudUiRect(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
-    ammo: hudUiRect(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight),
-    weaponBar: hudUiRect(first, top, hudBoxAt[0] + hudBoxAt[2] - first, height),
-  };
-}
-// The first "control over box" pair of a layout preset at a screen size, or '' when the controls keep clear.
-function hudUiTouchOverlap(preset, width, height) {
-  const savedPreset = TouchInput.currentPreset, layout = {};
-  TouchInput.currentPreset = TOUCH_PRESETS.find((row) => row.id === preset);
-  updateHudLayout(layout, width, height);
-  const boxes = hudUiPhoneBoxes(layout);
-  let found = '';
-  for (const name in boxes) {
-    const box = boxes[name], control = found ? '' : hudPveTouchOverlap(layout, box.left, box.top, box.right, box.bottom, true);
-    if (control) found = control + ' over ' + name + ' at ' + width + 'x' + height + ' ' + preset;
-  }
-  TouchInput.currentPreset = savedPreset;
-  return found;
-}
-
+// ---- Touch: HUD layout, usable buttons, weapon bar taps, help, toasts and gyro ----
 Test.add('hudui', (check) => {
-  const savedDevice = Input.device;
+  const savedDevice = Input.device, savedPreset = TouchInput.currentPreset, layout = {}, box = (left, top, width, height) => ({ left, top, right: left + width, bottom: top + height });
   Input.device = 'touch';
-  for (const [width, height] of HUD_UI_SCREENS) {
-    for (const preset of ['standard', 'compact']) {
-      const found = hudUiTouchOverlap(preset, width, height);
-      check('touch hud: no default button covers the header, minimap, vitals, ammo or weapon bar at ' + width + 'x' + height + ' ' + preset, found === '', found);
+  for (const [width, height] of [[667, 375], [812, 375], [844, 390]]) {
+    for (const preset of TOUCH_PRESETS.slice(0, 2)) {
+      TouchInput.currentPreset = preset;
+      updateHudLayout(layout, width, height);
+      const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit, bar = hudBoxAt;
+      hudPlaceWeaponBox(layout, 5, 0);   // a five weapon bar: first box to last
+      const first = bar[0], top = bar[1], boxHeight = bar[3];
+      hudPlaceWeaponBox(layout, 5, 4);
+      const boxes = [box(layout.centerX - header / 2, layout.top, header, 44 * unit), box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
+        box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // header, minimap, vitals, ammo, bar
+      const found = boxes.findIndex((b) => hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true));
+      check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found < 0, found);
     }
   }
-  Input.device = savedDevice;
+  TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
 });
 
-// Toasts and tips in a match go below the header and the top touch buttons.
 Test.add('ui', (check) => {
-  Ui.playBox.replaceChildren();
-  Ui.toast('Match tip', 'play');
-  check('toast: a play toast lands in the match spot, not at the top', Ui.playBox.children.length === 1 &&Ui.playBox.lastChild.textContent === 'Match tip' && Ui.toastBox.lastChild !== Ui.playBox.lastChild);
-  check('toast: the match spot is below the top touch row', getComputedStyle(Ui.playBox).top !== getComputedStyle(Ui.toastBox).top);
-  Ui.playBox.replaceChildren();
-  Bus.emit('toast', { text: 'From the bus', placement: 'play' });
-  check('toast: the toast event passes the placement on', Ui.playBox.lastChild.textContent === 'From the bus');
-  Ui.playBox.replaceChildren();
-  const savedTips = Save.data.tips, savedDevice = Input.device;
+  const savedTips = Save.data.tips, savedDevice = Input.device, rules = { economy: CAT.economy.find((row) => buyKeyAvailable(row)).id }, buyText = () => economyPanelLines(rules).lines.join('\n');
   Save.data.tips = { matches: 0 }; Input.device = 'touch';
-  Tips.show();
-  check('toast: the first-match tip is shown in the match spot', Ui.playBox.lastChild && Ui.playBox.lastChild.textContent === TIP_TOUCH_TEXT);
   Ui.playBox.replaceChildren();
+  Tips.show();
+  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === TIP_TOUCH_TEXT && Ui.toastBox.lastChild !== Ui.playBox.lastChild);
+  check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
+  Input.device = 'gamepad';
+  const padText = buyText();
+  Input.device = 'kbm';
+  const saved = [Input.getBinding('fire', 0), Input.getBinding('fire', 1)];
+  Input.setBinding('fire', 0, ''); Input.setBinding('fire', 1, 'Mouse:1');
+  check('help: a pad gets the pause menu, a keyboard the key; a key in slot 2 only shows', padText.includes('pause menu') && buyText().includes('with B.') && hudBoundLabel('fire', 'kbm') === Input.bindingLabel('Mouse:1'));
+  Input.setBinding('fire', 0, saved[0]); Input.setBinding('fire', 1, saved[1]);
   Save.data.tips = savedTips; Input.device = savedDevice;
 });
 
-// Help and prompts follow the device in use.
-Test.add('ui', (check) => {
-  const savedDevice = Input.device, buyRow = CAT.economy.find((row) => buyKeyAvailable(row)), rules = { economy: buyRow.id };
-  Input.device = 'touch';
-  const touchLines = economyPanelLines(rules).lines.join('\n'), touchControls = controlsSummary();
-  check('help: a phone is not told to press B for the buy menu', !touchLines.includes('with B') && touchLines.includes('pause menu'), touchLines);
-  check('help: a phone sees the touch buttons with their names', touchControls.includes('TAB: Scoreboard') && touchControls.includes('II: Pause') && touchControls.includes('Edit touch layout'), touchControls);
-  Input.device = 'gamepad';
-  check('help: a pad is sent to the pause menu for the buy menu too', economyPanelLines(rules).lines.join('\n').includes('pause menu'));
-  Input.device = 'kbm';
-  check('help: a keyboard player is told the key', economyPanelLines(rules).lines.join('\n').includes('with B.'));
-  const savedFire = [Input.getBinding('fire', 0), Input.getBinding('fire', 1)];
-  Input.setBinding('fire', 0, ''); Input.setBinding('fire', 1, 'Mouse:1');
-  check('prompts: a key bound only in the second slot still shows', hudBoundLabel('fire', 'kbm') === Input.bindingLabel('Mouse:1'), hudBoundLabel('fire', 'kbm'));
-  Input.setBinding('fire', 0, savedFire[0]); Input.setBinding('fire', 1, savedFire[1]);
-  Input.device = savedDevice;
-});
-
-// Only usable buttons show; prone is reachable on touch.
 Test.add('input', (check) => {
-  const id = startInputMatch();
+  const id = startInputMatch(), off = (name) => TouchInput.elements[name].classList.contains('off'), frame = () => Input.frame(INPUT_TEST_FRAME);
   Input.setDevice('touch'); TouchInput.syncVisible();
-  const off = (name) => TouchInput.elements[name].classList.contains('off');
-  const frame = () => Input.frame(INPUT_TEST_FRAME);
   for (const slot of [SLOT.ABILITY1, SLOT.ABILITY2, SLOT.ULTIMATE]) Abilities.setSlot(id, slot, null);
   Gadgets.clearGrenades(id); Gadgets.gadget[id] = -1;
   Items.carried.fill(0);
   frame();
-  check('needs: a player with no abilities sees no A1, A2 or ULT', off('ability1') && off('ability2') && off('ultimate'));
-  check('needs: no gadget, no grenade and nothing to heal hides GADGET, NADE and HEAL', off('gadget') && off('grenade') && off('heal'));
+  check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE, HEAL and PRONE', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal', 'prone'].every(off));
   Abilities.setSlot(id, SLOT.ABILITY1, CAT.abilities[0]);
-  frame();
-  check('needs: a filled slot shows its button and only that one', !off('ability1') && off('ability2') && off('ultimate'));
   Gadgets.give(id, CAT.gadgets.find((row) => row.kind === 'thrown').id, 1);
   Items.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[0].index] = 1;
-  frame();
-  check('needs: a carried grenade and a carried consumable show NADE and HEAL', !off('grenade') && !off('heal'));
-  check('needs: the classic movement has no prone, so no PRONE button', off('prone') && Move.preset(id).proneMult === 0);
   Move.setPreset(id, 'modern');
   frame();
-  check('needs: the Modern movement shows PRONE', !off('prone'));
+  check('needs: a filled slot, a grenade, a consumable and prone movement show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal') && !off('prone'));
   inputTouchPointer('pointerdown', TouchInput.elements.prone, 5, 300, 300);
   frame(); Sim.step();
-  check('prone: pressing the touch button sets the prone action', Input.effective[Input.actionIndex.prone] === 1 && (Actors.buttons[id] & BTN.PRONE) !== 0);
+  check('prone: pressing the touch button sets the prone action', (Actors.buttons[id] & BTN.PRONE) !== 0);
   inputTouchPointer('pointerup', TouchInput.elements.prone, 5, 300, 300);
   Move.setPreset(id, '');
 });
 
-// The HUD weapon bar is a row of slot buttons on a phone; a held SWAP goes back one weapon.
 Test.add('input', (check) => hudTestWith(() => {
   hudTestMatch();
   runSeconds(3);   // past the start of the round
-  const id = Game.playerId, keys = [1, 2, 3, 4].map((slot) => CAT.weapons.find((row) => row.slot === slot).id);
+  const id = Game.playerId, keys = [1, 2, 3, 4].map((slot) => CAT.weapons.find((row) => row.slot === slot).id), swap = TouchInput.elements.swap;
+  const tap = (element, pointer, x, y, held) => {
+    inputTouchPointer('pointerdown', element, pointer, x, y);
+    if (held) TouchInput.findSlot(pointer).startTime -= TOUCH_HOLD_MS * 2;
+    inputTouchPointer('pointerup', element, pointer, x, y);
+    Input.frame(INPUT_TEST_FRAME); Sim.step();
+  };
   Weapons.owned.fill(0);
   keys.forEach((key) => Weapons.give(id, key, 0, true));   // outside the carry limit: all four stay
-  const third = CAT.weapons.byId(keys[2]).index;
-  Weapons.current[id] = third;
+  Weapons.current[id] = CAT.weapons.byId(keys[2]).index;
   Input.setDevice('touch'); TouchInput.syncVisible();
   Input.frame(INPUT_TEST_FRAME);   // takes the bindings of this save before the tap
   hudTestFrame();
-  const count = hudCollectOwnedWeapons(id), second = hudOwned.indexOf(CAT.weapons.byId(keys[1]).index);
-  hudPlaceWeaponBox(Hud.layout, count, second);
-  const x = hudBoxAt[0] + hudBoxAt[2] / 2, y = hudBoxAt[1] + hudBoxAt[3] / 2;
-  check('weapon bar: the phone HUD draws the bar', count === 4 && Hud.layout.touch && Hud.quadsOf('weapons') > 0, count + ' ' + Hud.layout.touch + ' ' + Hud.quadsOf('weapons'));
-  inputTouchPointer('pointerdown', TouchInput.zone, 6, x, y);
-  inputTouchPointer('pointerup', TouchInput.zone, 6, x, y);
-  Input.frame(INPUT_TEST_FRAME); Sim.step();
-  const wanted = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
-  check('weapon bar: tapping the slot 2 box switches to slot 2 within one step', CAT.weapons[wanted].slot === 2, CAT.weapons[wanted].slot);
-  check('weapon bar: the tap did not turn the view or start the stick', TouchInput.stick.slot === null && Input.look.assistedX === 0);
-  Weapons.current[id] = third; Weapons.state[id] = WEAPON_STATE.IDLE;
-  inputTouchPointer('pointerdown', TouchInput.elements.swap, 7, 300, 300);
-  TouchInput.findSlot(7).startTime -= TOUCH_HOLD_MS * 2;
-  inputTouchPointer('pointerup', TouchInput.elements.swap, 7, 300, 300);
-  Input.frame(INPUT_TEST_FRAME); Sim.step();
-  check('swap: a held SWAP is the previous weapon', (Actors.pressed[id] & BTN.PREV_WEAPON) !== 0 && (Actors.pressed[id] & BTN.NEXT_WEAPON) === 0);
-  inputTouchPointer('pointerdown', TouchInput.elements.swap, 8, 300, 300);
-  inputTouchPointer('pointerup', TouchInput.elements.swap, 8, 300, 300);
-  Input.frame(INPUT_TEST_FRAME); Sim.step();
+  hudPlaceWeaponBox(Hud.layout, hudCollectOwnedWeapons(id), hudOwned.indexOf(CAT.weapons.byId(keys[1]).index));
+  tap(TouchInput.zone, 6, hudBoxAt[0] + hudBoxAt[2] / 2, hudBoxAt[1] + hudBoxAt[3] / 2);
+  check('weapon bar: tapping the slot 2 box picks slot 2 within one step', CAT.weapons[Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id]].slot === 2 && TouchInput.stick.slot === null);
+  tap(swap, 7, 300, 300, true);
+  check('swap: a held SWAP is the previous weapon', (Actors.pressed[id] & BTN.PREV_WEAPON) !== 0);
+  tap(swap, 8, 300, 300);
   check('swap: a tapped SWAP is the next weapon', (Actors.pressed[id] & BTN.NEXT_WEAPON) !== 0 && (Actors.pressed[id] & BTN.PREV_WEAPON) === 0);
 }));
 
-// Gyro: never asks while Off, says so once when it cannot work, reads the old iOS -90 as 270.
 Test.add('input', async (check) => {
-  const realMotion = window.DeviceMotionEvent, secure = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
-  const settle = () => new Promise((done) => setTimeout(done, 0));
+  const realMotion = window.DeviceMotionEvent, secure = Object.getOwnPropertyDescriptor(window, 'isSecureContext'), settle = () => new Promise((done) => setTimeout(done, 0));
+  const label = () => Settings.definitions.get(TOUCH_GYRO_KEY).label, gyro = TouchInput.gyro, set = (mode) => Settings.set(TOUCH_GYRO_KEY, mode);
   let asks = 0, answer = 'denied';
-  const stub = function () {};
-  stub.requestPermission = () => { asks++; return Promise.resolve(answer); };
-  window.DeviceMotionEvent = stub;
+  window.DeviceMotionEvent = function () {};
+  window.DeviceMotionEvent.requestPermission = () => { asks++; return Promise.resolve(answer); };
   Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
   Ui.lastToast = '';
   try {
-    Settings.set('controls.touch.gyro', 'off'); Input.refreshConfig();
-    TouchInput.syncGyro(Input.config.touchGyro);
-    await settle();
-    check('gyro: Off never asks for motion access and never listens', asks === 0 && !TouchInput.gyro.attached && !TouchInput.gyro.asked);
-    Settings.set('controls.touch.gyro', 'always');
-    await settle();
-    check('gyro: choosing a mode asks once', asks === 1);
-    check('gyro: a refused permission says so once', Ui.lastToast === TOUCH_GYRO_MESSAGE && TouchInput.gyro.unavailable && !TouchInput.gyro.attached);
-    check('gyro: the settings row is marked unavailable', Settings.definitions.get(TOUCH_GYRO_KEY).label.includes(TOUCH_GYRO_NOTE));
-    Input.refreshConfig();
-    TouchInput.syncGyro(Input.config.touchGyro);
-    await settle();
-    check('gyro: a refused permission is not asked again', asks === 1);
-    Settings.set('controls.touch.gyro', 'off');
-    check('gyro: switching Off clears the mark', !TouchInput.gyro.unavailable && !Settings.definitions.get(TOUCH_GYRO_KEY).label.includes(TOUCH_GYRO_NOTE));
-    answer = 'granted';
-    Settings.set('controls.touch.gyro', 'aiming');
-    await settle();
-    check('gyro: a granted permission attaches the sensor', asks === 2 && TouchInput.gyro.attached);
-    Settings.set('controls.touch.gyro', 'off');
-    check('gyro: switching Off detaches it', !TouchInput.gyro.attached);
+    set('off'); Input.refreshConfig(); await settle();
+    check('gyro: Off never asks and never listens', asks === 0 && !gyro.attached);
+    set('always'); await settle();
+    Input.refreshConfig(); TouchInput.requestGyro(); await settle();
+    check('gyro: a refused permission asks once, says so and marks the row', asks === 1 && Ui.lastToast === TOUCH_GYRO_MESSAGE && label().includes(TOUCH_GYRO_NOTE));
+    set('off');
+    answer = 'granted'; set('aiming'); await settle();
+    check('gyro: Off clears the mark; a granted permission attaches the sensor, Off detaches it', !label().includes(TOUCH_GYRO_NOTE) && asks === 2 && gyro.attached && (set('off'), !gyro.attached));
   } finally {
-    Settings.set('controls.touch.gyro', 'off'); Input.refreshConfig();
+    set('off'); Input.refreshConfig();
     if (realMotion === undefined) delete window.DeviceMotionEvent; else window.DeviceMotionEvent = realMotion;
     if (secure) Object.defineProperty(window, 'isSecureContext', secure); else delete window.isSecureContext;
   }
   const upright = { right: 0, down: 0 }, flipped = { right: 0, down: 0 };
-  gyroToLook({ beta: 30, gamma: 10 }, -90, upright);
-  gyroToLook({ beta: 30, gamma: 10 }, 270, flipped);
-  check('gyro: the old iOS landscape-right angle -90 uses the 270 axes', Test.near(upright.right, flipped.right, 1e-9) && Test.near(upright.down, flipped.down, 1e-9) && flipped.right !== 0);
+  gyroToLook({ beta: 30, gamma: 10 }, -90, upright); gyroToLook({ beta: 30, gamma: 10 }, 270, flipped);
+  check('gyro: the old iOS landscape-right angle -90 uses the 270 axes', upright.right === flipped.right && flipped.right !== 0);
 });

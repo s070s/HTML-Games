@@ -29,7 +29,7 @@ const CommWheel = {
 
   init() {},
   reset() { this.close(); this.pingHeld = -1; this.pingEdge = false; },
-  // Sim order 5, after Sim.step has worked out Actors.pressed: the input latch (05a) keeps a press for one step even when it ended inside a frame.
+  // Sim step: the input latch (05a) keeps a press for one step even when it ended inside a frame.
   stepPing() {
     const player = Game.playerId;
     if (player >= 0 && (Actors.pressed[player] & BTN.PING)) this.pingEdge = true;

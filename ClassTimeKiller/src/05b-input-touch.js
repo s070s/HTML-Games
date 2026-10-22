@@ -41,8 +41,7 @@ const TOUCH_PRESETS = [
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
 // with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more;
 // 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
-// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action. The default places keep every button off the
-// HUD boxes of a phone in landscape: header and minimap on top, vitals and ammo at the bottom (hudui test).
+// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action. Default places keep clear of the phone HUD (hudui test).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
@@ -101,13 +100,11 @@ function useButtonNeeded() {
   return false;
 }
 
-// The buttons that show only while the player has what they use. Read by TouchInput.syncNeeds once a frame (pickups, buys, rewards
-// and respawns need no event); these run at play time only, so they may read the later gameplay sections.
-function touchPlayer() { return Game.playerId; }
-function touchHasAbility(slot) { const id = touchPlayer(); return id >= 0 && Abilities.row(id, slot) !== null; }
+// Needs of the buttons that show only while the player has what they use; read once a frame by syncNeeds, at play time only.
+function touchHasAbility(slot) { return Game.playerId >= 0 && Abilities.row(Game.playerId, slot) !== null; }
 function touchHasHeal() {
-  const id = touchPlayer(), economy = CAT.economy.byId(currentRules().economy);
-  return id >= 0 && (Items.consumableCount(id) > 0 || (!!economy && economy.slots > 0));   // loot rulesets carry consumables
+  const economy = CAT.economy.byId(currentRules().economy);
+  return Game.playerId >= 0 && (Items.consumableCount(Game.playerId) > 0 || (!!economy && economy.slots > 0));   // loot rulesets carry consumables
 }
 
 const TouchInput = {
@@ -122,19 +119,18 @@ const TouchInput = {
   shown: false,
   currentPreset: TOUCH_PRESETS[0],
   gyro: { right: 0, down: 0, attached: false, asked: false, unavailable: false, events: 0 },
-  needed: [],                      // the distinct need keys of the controls, in table order
-  needBits: 0,                     // their last answers (syncNeeds)
-  weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a: the touch weapon bar)
-  buttonLook: null,                // fn(control) -> true: this held button's finger also turns the look (17g: the open comm wheel)
+  needed: [], needBits: 0,         // the need keys of the controls and their last answers (syncNeeds)
+  weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a weapon bar)
+  buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
   needs: {
     use: () => useButtonNeeded(), comm: null,
     ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
-    gadget: () => touchPlayer() >= 0 && Gadgets.gadget[touchPlayer()] >= 0,
-    grenade: () => touchPlayer() >= 0 && Gadgets.thrownTotal(touchPlayer()) > 0,
+    gadget: () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0,
+    grenade: () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0,
     heal: touchHasHeal,
-    prone: () => touchPlayer() >= 0 && Move.preset(touchPlayer()).proneMult > 0,
+    prone: () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0,
   },
   useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
@@ -210,7 +206,7 @@ const TouchInput = {
     const control = target === this.zone ? null : this.controlById[target.dataset.control];
     if (this.editing) { this.beginEdit(slot, control); return; }
     const weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);
-    if (weaponSlot) Input.pulseAction(Input.actionIndex['slot' + weaponSlot]);   // a tap on the HUD weapon bar picks that slot; the finger does nothing else
+    if (weaponSlot) Input.pulseAction(Input.actionIndex['slot' + weaponSlot]);   // a tap on the weapon bar picks that slot
     else if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
     else if (event.clientX < window.innerWidth * TOUCH_MOVE_ZONE && !this.stick.slot) this.beginStick(slot, event, null);
@@ -302,8 +298,7 @@ const TouchInput = {
     Input.addLook(dx * scale, dy * scale * (config.invertY ? -1 : 1), true);
   },
 
-  // ---- Gyro aim (INP-006): ask once for the motion permission while the setting is on, then add the rotation rate ----
-  // A refused permission, a page that is not https and a sensor that sends nothing for a second all say so once and mark the setting row.
+  // ---- Gyro aim (INP-006): ask once while the setting is on; a refusal, a page that is not https or no sensor data says so once ----
   syncGyro(mode) {
     if (mode !== 'off') { this.requestGyro(); return; }
     window.removeEventListener('devicemotion', this.onMotion);
@@ -333,7 +328,6 @@ const TouchInput = {
     this.markGyroRow(TOUCH_GYRO_NOTE);
     emitToast(TOUCH_GYRO_MESSAGE);
   },
-  // The settings screen builds its rows from the definitions, so the label carries the state.
   markGyroRow(note) {
     const definition = Settings.definitions.get(TOUCH_GYRO_KEY);
     definition.label = TOUCH_SETTINGS.find((row) => row.key === TOUCH_GYRO_KEY).label + note;
@@ -430,7 +424,7 @@ const TouchInput = {
   applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
-  // Re-applies the layout when a button's need changed since the last frame (no allocation: a bit mask).
+  // Re-applies the layout when a button's need changed since the last frame.
   syncNeeds() {
     let bits = 0;
     for (let i = 0; i < this.needed.length; i++) if (this.needMet(this.needed[i])) bits |= 1 << i;

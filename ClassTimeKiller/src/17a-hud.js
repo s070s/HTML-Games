@@ -25,7 +25,7 @@ const HUD_PULSE_HZ = 2;                                  // slow pulses only: we
 const HUD_MAX_ABILITY_SLOTS = 4;
 const HUD_MAX_POWERUP_CHIPS = 4;
 const HUD_MAX_WEAPON_SLOTS = 9;
-const HUD_BAR_GAP = 4, HUD_BAR_WIDTH = 50, HUD_BAR_TOUCH_WIDTH = 42, HUD_BAR_TOUCH_HEIGHT = 34;   // design pixels: the gap between boxes and above the ammo panel, a box (phones: sized for a thumb)
+const HUD_BAR_GAP = 4, HUD_BAR_WIDTH = 50, HUD_BAR_TOUCH_WIDTH = 42, HUD_BAR_TOUCH_HEIGHT = 34;   // design pixels (phones: boxes sized for a thumb)
 const HUD_ABILITY_ACTIONS = ['ability1', 'ability2', 'ultimate', 'ability1'];
 const HUD_MONEY_ECONOMIES = ['roundBuy', 'waveShop'];    // rulesets whose economy is money based (others show money only when non-zero)
 const HUD_TEAM_SHAPES = ['circle', 'triangle', 'square', 'diamond'];
@@ -234,7 +234,7 @@ const Hud = {
   },
 };
 
-// The label of an action's first bound key for a device: keyboard and mouse try both slots, a pad has one ('Unbound' when none).
+// The label of an action's first bound key for a device ('Unbound' when none).
 function hudBoundLabel(actionId, device) {
   const first = device === 'gamepad' ? 2 : 0, last = device === 'gamepad' ? 2 : 1;
   for (let slot = first; slot <= last; slot++) if (Input.getBinding(actionId, slot)) return Input.bindingLabel(Input.getBinding(actionId, slot));
@@ -558,8 +558,7 @@ function hudCollectOwnedWeapons(id) {
   return count;
 }
 
-// Fills hudBoxAt with the box of bar entry `index` of `count`: bottom centre on a desktop; on a phone centred on the ammo panel and
-// taller, so the boxes are slot buttons for a thumb (hudWeaponSlotAt).
+// Fills hudBoxAt with weapon bar entry `index` of `count`: bottom centre, on a phone centred on the ammo panel (slot buttons).
 function hudPlaceWeaponBox(layout, count, index) {
   const unit = layout.unit, box = hudBoxAt, width = (layout.touch ? HUD_BAR_TOUCH_WIDTH : HUD_BAR_WIDTH) * unit, gap = HUD_BAR_GAP * unit;
   const centre = layout.touch ? layout.ammoRight - layout.ammoWidth / 2 : layout.centerX;
@@ -590,7 +589,7 @@ function hudDrawWeaponBar(pen, layout) {
   }
 }
 
-// The weapon slot (1..9) of the bar box under a touch at (x, y), else 0 (05b TouchInput.weaponSlotAt: tapping a box picks that slot).
+// The weapon slot (1..9) of the bar box under a touch at (x, y), else 0.
 function hudWeaponSlotAt(x, y) {
   const layout = Hud.layout, id = Game.playerId, box = hudBoxAt;
   if (!layout.touch || !Hud.visible() || Hud.noHud || !Hud.elements.weapons || !hudLocalAlive()) return 0;
