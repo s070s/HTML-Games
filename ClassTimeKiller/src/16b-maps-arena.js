@@ -8,6 +8,7 @@ const MAP_PARTY_MODES = ['lms', 'infection', 'juggernaut', 'cursetag', 'bearer',
 Maps.rows.push(MapKit.make({
   id: 'spire', code: 'MP01', name: 'Foundry Spire', size: [50, 20, 50], theme: 'foundry', category: 'arena',
   modes: ['duel', 'ffa'].concat(MAP_PARTY_MODES), blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
+  props: MapKit.crates([[-21, -21], [19.5, 19.5], [-21, 19.5], [19.5, -21]]),   // breakable crates (MAP-013): corners off the play lines
   sky: { top: 0x1f2a44, horizon: 0xd9824b, fog: 0x4a3a30, fogFar: 140, sun: [0.4, 0.7, 0.3] },
   brushes: [
     ['concrete', -25, -1, -25, 25, 0, 25],                                          // ground
@@ -123,6 +124,7 @@ Maps.rows.push(MapKit.make(Object.assign({
   id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena',
   modes: ['ffa', 'tdm'].concat(MAP_PARTY_MODES),
   blurb: 'Open floating platforms linked by ramps and jump pads; the Lancet Rail waits on a risky ledge.',
+  props: MapKit.crates([[-12, -3.5, 6], [10.5, 2, 6], [-7, -31, 4], [5.5, 29.5, 4]]),   // breakable crates (MAP-013): beside the tower ramps and the island posts
   sky: { top: 0x6fa8de, horizon: 0xe3f1fb, fog: 0xcfe3f3, fogFar: 200, sun: [0.3, 0.8, 0.5] },
 }, MapKit.join(MapKit.sym(skyWest, 'x'), MapKit.sym(skySpan, 'xz'), MapKit.sym(skyNorth, 'z'), skyCenter))));
 
@@ -189,5 +191,6 @@ Maps.rows.push(MapKit.make(Object.assign({
   id: 'gantry', code: 'MP06', name: 'Gantry Run', size: [100, 24, 80], theme: 'station', category: 'large',
   modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
   blurb: 'Agile playground: rooftop runs, 4 m wall-run lanes and a central hub; ladders and pads cross between levels.',
+  props: MapKit.crates([[-50, -23.5], [48.5, 22], [-35.5, 38.5], [34, -40]]),   // breakable crates (MAP-013): corners off the play lines
   sky: { top: 0x3a5a88, horizon: 0xe9c9a0, fog: 0x7a7f8a, fogFar: 170, sun: [-0.3, 0.6, 0.4] },
 }, MapKit.join(MapKit.sym(gantryQuarter, 'xz'), MapKit.sym(gantryHalf, 'x'), gantryCenter))));

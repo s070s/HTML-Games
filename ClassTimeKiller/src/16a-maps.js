@@ -140,6 +140,7 @@ function mapBoxVolume(box) { return (box.max[0] - box.min[0]) * (box.max[1] - bo
 // item [key, x,y,z (, modes)]; zone [name, x0,z0, x1,z1 (, y0, y1)]; light [x,y,z,color,radius]; hint [kind, x,y,z].
 const MAP_STEP = 0.45;                                   // DATA-003 step height: stairs risers and walkable steps never exceed it
 const MAP_ZONE_FLOOR = -10, MAP_ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
+const MAP_CRATE_SIZE = 1.2;                             // a breakable crate's edge, metres (S08 props, W41 lifts it)
 const MapKit = {
   brush(row) {
     const brush = { shape: row.length > 7 ? 'ramp' : 'box', min: [row[1], row[2], row[3]], max: [row[4], row[5], row[6]], material: row[0] };
@@ -160,6 +161,13 @@ const MapKit = {
   light(row) { return { x: row[0], y: row[1], z: row[2], color: row[3], radius: row[4] }; },
   hint(row) { return { kind: row[0], x: row[1], y: row[2], z: row[3] }; },
   objective(row) { return Object.assign({ team: -1, radius: 3, path: [], modes: [] }, row); },
+  // Breakable crates (S08 props with the PROP_FIELDS defaults): one MAP_CRATE_SIZE box per [x, z (, y)] low corner, y = 0 when left out.
+  crates(corners) {
+    return corners.map(([x, z, base]) => {
+      const y = base || 0;
+      return { min: [x, y, z], max: [x + MAP_CRATE_SIZE, y + MAP_CRATE_SIZE, z + MAP_CRATE_SIZE] };
+    });
+  },
   // Expands a map definition (compact lists, see above) into a full map row.
   make(def) {
     const row = Object.assign({}, def);
