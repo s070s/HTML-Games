@@ -15,6 +15,26 @@ const MAPGEN_TEST_FLOOR = -0.5;               // generated floors are at y = 0: 
 const MAPGEN_TEST_REPAIRED = { generator: 'GN2', seed: 3, size: 'medium', uncapped: true };   // a seed whose first build has long sightlines
 const MAPGEN_TEST_NO_LIBM = ['Math.hypot', 'Math.sin', 'Math.cos', 'Math.atan2', 'Math.tan'];   // engine-dependent results (MAP-020 across devices)
 
+// The budgets are desktop Chrome numbers. Another engine (or a slower machine) gets them scaled by how much slower it runs a fixed plain
+// workload (typed-array and number work like the generator's), measured once: a 2x regression of the generator still fails everywhere.
+const MAPGEN_TEST_SPEED_REFERENCE_MS = 6;   // the workload's best time on desktop Chrome (Firefox about 9 ms, Safari about 5 ms)
+let mapgenTestSlowdown = 0;
+function mapgenTestWorkload() {
+  const cells = new Float32Array(4096);
+  let sum = 0;
+  for (let pass = 0; pass < 400; pass++) {
+    for (let i = 0; i < cells.length; i++) { cells[i] = Math.sqrt(i + pass) * 0.5 + cells[(i + 7) & 4095]; sum += cells[i] > 100 ? 1 : 0; }
+  }
+  return sum;
+}
+function mapgenTestBudget(milliseconds) {
+  if (!mapgenTestSlowdown) {
+    let fastest = Infinity;
+    for (let run = 0; run < 5; run++) { const started = performance.now(); mapgenTestWorkload(); fastest = Math.min(fastest, performance.now() - started); }
+    mapgenTestSlowdown = Math.max(1, fastest / MAPGEN_TEST_SPEED_REFERENCE_MS);
+  }
+  return milliseconds * mapgenTestSlowdown;
+}
 // Per-round costs of the latest generate(): { generation, validation, total } in ms.
 function mapgenTestCost(report) {
   const rounds = Math.max(1, report.rounds);
@@ -45,7 +65,7 @@ function mapgenTestSweepRun(tally, options) {
   if (cost.total > tally.slowestTotal) { tally.slowestTotal = cost.total; tally.slowestTotalMap = label; }
   return map;
 }
-const mapgenTestOver = (cost) => cost.generation > MAPGEN_TEST_BUDGET_MS || cost.validation > MAPGEN_TEST_VALIDATE_BUDGET_MS;
+const mapgenTestOver = (cost) => cost.generation > mapgenTestBudget(MAPGEN_TEST_BUDGET_MS) || cost.validation > mapgenTestBudget(MAPGEN_TEST_VALIDATE_BUDGET_MS);
 // A seed over budget runs once more and keeps the faster costs: a pause of the machine (or a collection) is not the generator's.
 function mapgenTestRetime(cost, options) {
   MapGen.generate(Object.assign({ uncapped: true }, options));
@@ -121,7 +141,7 @@ Test.add('mapgen', (check) => {
     });
     const generation = Math.min(runs[0].generation, runs[1].generation), validation = Math.min(runs[0].validation, runs[1].validation);
     check(generator.code + ' large: generation under ' + MAPGEN_TEST_BUDGET_MS + ' ms and validation under ' + MAPGEN_TEST_VALIDATE_BUDGET_MS + ' ms per round',
-      generation < MAPGEN_TEST_BUDGET_MS && validation < MAPGEN_TEST_VALIDATE_BUDGET_MS && !runs[0].fallback && !runs[0].problems,
+      generation < mapgenTestBudget(MAPGEN_TEST_BUDGET_MS) && validation < mapgenTestBudget(MAPGEN_TEST_VALIDATE_BUDGET_MS) && !runs[0].fallback && !runs[0].problems,
       'generation ' + generation.toFixed(1) + ' validation ' + validation.toFixed(1) + ' total ' + runs[1].total.toFixed(1));
   }
 });
@@ -354,7 +374,7 @@ Test.add('mapgen', (check) => {
 });
 
 // The generated map screen: the model (settings, seed, share code, size clamp, Game.start setup) and the screen itself.
-Test.add('mapgen', (check) => {
+Test.add('mapgen', async (check) => {
   const saved = Object.assign({}, MapGenMenu.state), sizeCap = MapGen.sizeCap;
   try {
     Object.assign(MapGenMenu.state, { generator: 'GN2', mode: 'bomb', size: 'small', theme: 'canal', density: 'dense', seed: 12, map: null, report: null, notice: '' });
@@ -375,7 +395,8 @@ Test.add('mapgen', (check) => {
     check('menu: Play starts the mode on the generated map with the player on team 0', setup.mode === 'tdm' && setup.map === MapGenMenu.state.map && setup.player.team === 0 && Array.isArray(setup.bots));
     check('menu: the status says what was made', MapGenMenu.describe().includes(MapGenMenu.state.map.name));
     check('menu: sizes stop at the tier cap', MapGenMenu.sizes().every((row) => row.index <= MapGen.sizeCap().index));
-    uiWith(() => {
+    const leaveUi = uiEnter();
+    try {
       Ui.open('custom');
       uiClickButton(Ui.root.querySelector('.ui-custom'), 'Map');
       check('screen: the custom match Map tab opens it', uiClickButton(Ui.root.querySelector('.ui-custom'), 'Generate a map') && Ui.current() === 'mapgen');
@@ -384,11 +405,20 @@ Test.add('mapgen', (check) => {
       root.querySelector('.ui-cycle')._adjust(1);
       check('screen: the generator cycle steps with the pad and arrows', MapGenMenu.state.generator === 'GN5' && root.querySelector('.ui-cycle').textContent.startsWith('GN5'));
       root.querySelector('.ui-cycle')._adjust(-1);
+      MapGenMenu.state.map = null;
       uiClickButton(root, 'Generate');
-      check('screen: Generate shows the result', root.querySelector('.mg-status').textContent.includes('Made in') && MapGenMenu.state.map.gen.generator === 'GN4');
+      check('screen: Generate first says so and holds the buttons, then the work runs', root.querySelector('.mg-status').textContent === MAPGEN_MENU_BUSY_TEXT && !MapGenMenu.state.map
+        && Array.from(root.querySelectorAll('.ui-foot button')).every((button) => button.disabled));
+      await uiWait(50);
+      check('screen: Generate shows the result', root.querySelector('.mg-status').textContent.includes('Made in') && MapGenMenu.state.map.gen.generator === 'GN4'
+        && Array.from(root.querySelectorAll('.ui-foot button')).every((button) => !button.disabled));
       uiClickButton(root, 'Play');
+      check('screen: Play says Generating first', Ui.current() === 'mapgen' && !Game.match);
+      await uiWait(50);
       check('screen: Play starts the match on the shown map', Game.match && Game.match.map === MapGenMenu.state.map && !Ui.current());
-    });
+    } finally {
+      leaveUi();
+    }
   } finally {
     MapGen.sizeCap = sizeCap;
     Object.assign(MapGenMenu.state, saved);
