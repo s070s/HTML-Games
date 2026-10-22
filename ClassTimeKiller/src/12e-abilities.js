@@ -102,10 +102,11 @@ const Abilities = {
     if (kit && kit.passive && kit.passive.kind === 'ability') this.setSlot(id, SLOT.PASSIVE, CAT.abilities.byId(kit.passive.ability));
     Meters.fillSlots(id);
   },
-  // The kit's ability for one slot (or none), with the kit's cooldown override for that slot.
+  // The kit's ability for one slot (or none), with the kit's cooldown override for that slot. A soul mode
+  // (rules.params.souls: M21, M22) puts A34 Wrath Form in an ultimate slot the kit leaves empty (ABL-005).
   assignKitSlot(id, slot) {
     const kit = this.kitOf(id), slotName = ABILITY_SLOT_NAMES[slot];
-    const key = kit ? this.kitAbility(id, kit, slotName) : '';
+    const key = (kit ? this.kitAbility(id, kit, slotName) : '') || soulUltimate(slot);
     this.setSlot(id, slot, key ? CAT.abilities.byId(key) : null);
     const override = kit && kit.cooldowns ? kit.cooldowns[slotName] : 0;
     if (override > 0 && key) this.slotCooldown[this.index(id, slot)] = override;
@@ -270,7 +271,7 @@ const Abilities = {
       case 'energy': return Meters.energy[id] >= Math.max(row.cost, TICK_EPSILON);
       case 'ultimate': return Meters.points[id] >= ultimateCost(id, row);
       case 'fuel': return this.fuel[i] > 0;
-      case 'souls': return Meters.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
+      case 'souls': return Powerups.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
       default: return true;
     }
   },
@@ -282,7 +283,7 @@ const Abilities = {
     else if (row.resource === 'charges') this.spendCharge(i, row);
     else if (row.resource === 'energy') Meters.spendEnergy(id, row.cost);
     else if (row.resource === 'ultimate') Meters.spendPoints(id, ultimateCost(id, row));
-    else if (row.resource === 'souls') Meters.souls[id] = 0;
+    else if (row.resource === 'souls') Powerups.souls[id] = 0;
   },
   spendCharge(i, row) {
     if (this.charges[i] >= row.charges) this.cooldown[i] = this.slotCooldown[i];
@@ -376,6 +377,11 @@ function kitMatches(kit, rules) {
 // rules.family of the match: versus / pve / solo (no match = versus).
 function matchFamily() { return currentRules().family || 'versus'; }
 function modeAllows(modes) { return modes === matchFamily(); }
+// The automatic ultimate of a soul mode: Wrath Form casts itself once the collected PU18 souls pay for it.
+function soulUltimate(slot) {
+  const params = currentRules().params;
+  return slot === SLOT.ULTIMATE && params && params.souls ? SOUL_ULTIMATE : '';
+}
 function ultimateCost(id, row) { return Meters.ultimateCost(row); }
 
 // Hero pools (HPP05): health / armor / shield per hero instead of the preset's.

@@ -35,7 +35,7 @@ const AbilityTest = {
     if (row.resource === 'charges') return Abilities.charges[t.i] === row.charges - 1;
     if (row.resource === 'energy') return Test.near(Meters.energy[t.caster], Meters.energyMax() - row.cost, 1e-4);
     if (row.resource === 'ultimate') return Test.near(Meters.points[t.caster], pointsBefore - Meters.ultimateCost(row), 1e-3);
-    if (row.resource === 'souls') return Meters.souls[t.caster] === 0;
+    if (row.resource === 'souls') return Powerups.souls[t.caster] === 0;
     return true;
   },
   zoneOf(t, kind) { return AbilityZones.find(kind, t.caster); },
@@ -152,7 +152,7 @@ const ABILITY_CASES = {
     },
   },
   wrath: {
-    setup: (t) => { Meters.souls[t.caster] = 66; }, seconds: 0.1,
+    setup: (t) => { Powerups.souls[t.caster] = 66; }, seconds: 0.1,
     expect: (t) => {
       const buffed = Abilities.active[t.i] === 1 && Buffs.has(t.caster, BUFF.TOUCH_KILL);
       TestArena.place(t.enemy, 0, 1);

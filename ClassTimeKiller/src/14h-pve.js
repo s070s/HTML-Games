@@ -88,7 +88,7 @@ const Pve = {
   aimX: new Float32Array(MAX_ACTORS), aimY: new Float32Array(MAX_ACTORS), aimZ: new Float32Array(MAX_ACTORS),
   cooldown: new Float64Array(MAX_ACTORS * PVE_MAX_ATTACKS),
   brokenUntil: new Float64Array(MAX_ACTORS), staggerUntil: new Float64Array(MAX_ACTORS), revealedUntil: new Float64Array(MAX_ACTORS),
-  coverUntil: new Float64Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
+  coverUntil: new Float64Array(MAX_ACTORS), coverTaken: new Uint8Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
   awareness: new Float32Array(MAX_ACTORS), alarmed: new Uint8Array(MAX_ACTORS), lastThink: new Float64Array(MAX_ACTORS),
   noKnockback: new Uint8Array(MAX_ACTORS),            // unstoppable champions: damage never pushes them
   damageScale: new Float32Array(MAX_ACTORS).fill(1), champion: new Int8Array(MAX_ACTORS).fill(-1), wave: new Int16Array(MAX_ACTORS),
@@ -117,13 +117,14 @@ const Pve = {
     for (let id = 0; id < Actors.count; id++) if (this.isEnemy(id) && Actors.alive[id] && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
-  // Living enemies that count for a mode (range targets and neutral beasts do not).
+  // A living enemy that counts for a mode (range targets and neutral beasts do not).
+  isHostile(id) {
+    const row = this.rowOf(id);
+    return row !== null && Actors.alive[id] === 1 && !row.beast && !row.target;
+  },
   hostileCount(side) {
     let alive = 0;
-    for (let id = 0; id < Actors.count; id++) {
-      const row = this.rowOf(id);
-      if (row && Actors.alive[id] && !row.beast && !row.target && (side === undefined || this.side[id] === side)) alive++;
-    }
+    for (let id = 0; id < Actors.count; id++) if (this.isHostile(id) && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
 
@@ -133,6 +134,7 @@ const Pve = {
     this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
     this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
+    BotSense.reservedRays = 0;
     for (const key in this.stats) this.stats[key] = 0;
   },
   onMatchStart() {
@@ -145,7 +147,7 @@ const Pve = {
     this.row[id] = -1; this.target[id] = -1; this.attack[id] = -1; this.phase[id] = ATTACK_PHASE.IDLE; this.goal[id] = PVE_GOAL.IDLE;
     this.huntTeam[id] = NO_TEAM; this.side[id] = NO_TEAM; this.champion[id] = -1; this.summoner[id] = -1; this.damageScale[id] = 1;
     this.awareness[id] = 0; this.alarmed[id] = 0; this.guardian[id] = 0; this.parryAt[id] = -1e9; this.weakPool[id] = 0; this.disabledUntil[id] = 0;
-    this.hitDone[id] = 0; this.noKnockback[id] = 0;
+    this.hitDone[id] = 0; this.noKnockback[id] = 0; this.coverTaken[id] = 0;
     this.cooldown.fill(0, id * PVE_MAX_ATTACKS, (id + 1) * PVE_MAX_ATTACKS);
     // Timers are absolute sim times and the sim clock restarts per match: clear them all.
     this.brokenUntil[id] = this.staggerUntil[id] = this.revealedUntil[id] = this.coverUntil[id] = this.lureUntil[id] = 0;
@@ -317,6 +319,7 @@ const Pve = {
     if (!this.active || (Game.match && Game.match.ended)) return;
     const now = Sim.time;
     this.raysLeft = PVE_DIRECTOR.raysPerTick;
+    BotSense.reservedRays = PVE_DIRECTOR.raysPerTick;   // BOT-091: the enemies' rays come out of the bots' per-tick budget
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id]) continue;
       this.stepEnemy(id, dt, now);
@@ -359,6 +362,7 @@ const Pve = {
   // unless hurt by one, never fight their own side, and fight other hostile enemies only without a huntTeam (M29 minions).
   isFoe(id, other) {
     if (other === id || !Actors.alive[other] || Actors.kind[other] === ACTOR_KIND.NONE) return false;
+    if (Actors.flags[other] & ACTOR_FLAG.PROTECTED) return false;   // BOT-040: spawn-protected actors are ignored, as by bots
     const row = this.rowOf(id), otherRow = this.rowOf(other);
     if (row.beast) return !(otherRow && otherRow.beast);
     if (otherRow) return this.enemyIsFoe(id, other, otherRow);
@@ -382,6 +386,7 @@ const Pve = {
       if (other === lastAttacker) score -= PVE_ATTACKER_BONUS;
       if (score < bestScore) { bestScore = score; best = other; }
     }
+    if (best !== this.target[id]) this.coverTaken[id] = 0;   // a new sighting: cover may be taken once more
     this.target[id] = best;
     if (this.stealth) this.updateAwareness(id, best, now);
   },
@@ -511,15 +516,18 @@ const Pve = {
     }
     return false;
   },
+  // A hurt enemy takes cover once per target sighting (never forever: NPC-007 waves must end), and never in a last stand.
   wantsCover(id, row, now) {
     const target = this.target[id];
-    if (!row.takesCover || target < 0 || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (!row.takesCover || target < 0 || this.coverTaken[id] || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (this.lastStand()) return false;
     BotSense.perceivedPosition(id, target, pveScratch);
     const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], pveScratch.x, pveScratch.y + STAND_HEIGHT, pveScratch.z, 15);
     if (cover < 0) return false;
     Nav.nodePosition(Nav.coverNode[cover], pveScratch);
     this.setGoalPoint(id, pveScratch.x, pveScratch.y, pveScratch.z);
     this.coverUntil[id] = now + PVE_DIRECTOR.coverSeconds;
+    this.coverTaken[id] = 1;
     return true;
   },
   lureActive(id, row, now) { return row.beast && now < this.lureUntil[id]; },
@@ -557,11 +565,12 @@ const Pve = {
     return count;
   },
   // First attack of the row (row order = priority) in range, off cooldown and allowed by the brain (boss phases).
+  // NPC-008: in a last stand the minimum ranges go (a cornered leaper pounces on a foe 2 m away instead of standing there).
   pickAttack(id, row, distance, now) {
     const brain = PveBrains[row.brain];
     for (let index = 0; index < row.attackRows.length; index++) {
       const attack = row.attackRows[index];
-      if (distance < attack.range[0] || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
+      if ((distance < attack.range[0] && !this.lastStand()) || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
       if (brain.allows && !brain.allows(id, attack, now)) continue;
       return index;
     }

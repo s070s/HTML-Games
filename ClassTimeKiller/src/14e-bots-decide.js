@@ -17,6 +17,7 @@ const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chose
 const GOAL_HURRY = 0.05;                // s: an urgent event brings the next decision this close
 const ROAM_SCORE = 0.12;
 const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
+const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
 const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
 const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
@@ -285,10 +286,14 @@ GOAL_SCORERS[GOAL.ATTACK] = (id, plan) => {
   if (target < 0 || !BotSense.sees(id, target)) return 0;
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
-  const weapon = Weapons.currentWeapon(id), reach = weapon ? weapon.botPref.range[1] * 0.8 : DEFAULT_ENGAGE_DISTANCE;
-  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], Math.max(1.5, reach), ACTION.MOVE, target);
+  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], attackRadius(Weapons.currentWeapon(id)), ACTION.MOVE, target);
   return ATTACK_BASE + ATTACK_GAIN * aggression;
 };
+// A melee weapon closes inside its reach (a 1.5 m stop left an out-of-ammo bot swinging 2 m short of a cornered enemy).
+function attackRadius(weapon) {
+  if (weapon && weapon.class === 'melee') return weapon.primary.reach * ATTACK_RANGE_SHARE;
+  return Math.max(ATTACK_MIN_RADIUS, weapon ? weapon.botPref.range[1] * ATTACK_RANGE_SHARE : DEFAULT_ENGAGE_DISTANCE);
+}
 GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const target = BotCombat.target[id];
   if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now)) return 0;

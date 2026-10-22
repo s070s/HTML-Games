@@ -228,7 +228,7 @@ function cardAmmoPickup(event) {
 function cardSoulPickup(event) {
   if (event.item !== CARD_SOUL_ITEM || !CardRun.holds(CARD_KIND.soulHeal, event.id) || !CARD_SOUL_ROW) return;
   const extra = CARD_SOUL_ROW.instant.heal * (CardRun.value[CARD_KIND.soulHeal] - 1);
-  Items.addHealth(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
+  Damage.regenerate(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
 }
 // C21: the shot's rounds come back at once (ammo is spent before 'weapon.fire').
 function cardFire(event) {
@@ -240,9 +240,7 @@ function cardFire(event) {
 }
 // C24: a share of the damage dealt heals the holder (up to max health).
 function cardDamage(event) {
-  const id = event.source;
-  if (!CardRun.holds(CARD_KIND.lifesteal, id) || event.target === id || !Actors.alive[id]) return;
-  Damage.regenerate(id, event.amount * CardRun.value[CARD_KIND.lifesteal], Actors.maxHealth[id]);
+  if (CardRun.holds(CARD_KIND.lifesteal, event.source)) Damage.lifesteal(event, CardRun.value[CARD_KIND.lifesteal]);
 }
 // Marks: PvE enemy kills and crates (Greed doubles them); added to the profile when the match is counted.
 function cardKill(event) {

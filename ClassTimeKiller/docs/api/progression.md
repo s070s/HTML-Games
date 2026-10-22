@@ -43,14 +43,14 @@ Emitted as `medal { id, medal }` for the local player only. Numbers: `MEDAL_RULE
 
 `Cards.equip(id)`, `unequip(id)` (refunds half), `equipProblem(id)`, `marks()`, `addMarks(n)`, `equipped(type)`. 3 active and 2 passive slots; Patron (C17) makes placing free. Cards run in PvE matches, and in versus only with the X48 mutator (`rules.fx.cards`) and only rows with `versus: true`. `setup.cards` overrides the equipped list. Active cards: `CardRun.activate(slotIndex)` (30 s, once per level; Encore twice; Longwick +10 s).
 
-Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending and Life Thief heal through `Damage.regenerate`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
+Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending heals through `Damage.regenerate` and Life Thief through `Damage.lifesteal`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
 
 `Game.match.rules.cards = { ids, fx }`; `fx` holds the soul cards for the local player (absent keys mean the default). S12 reads them through `soulCardFx(id, key, fallback)` (12a), only for `Game.playerId`:
 
 | Key | Card | Meaning | Read by |
 |---|---|---|---|
 | `soulLife` | C03 Soulkeep | multiplier: PU18 souls stay `soulLife` x 30 s | `Items.dropSoul` (12a) |
-| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18 and Wrath souls) | `soulHomingRange` (12a), `Meters.stepSoul` (12g) |
+| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18, the only souls) | `soulHomingRange` (12a) |
 | `wrathAt` | C09 Dark Pact | souls Wrath Form costs instead of its row's 66 | `Abilities.canAfford` (12e) |
 | `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | 15d on `pickup` with `item: 'soul'` |
 
@@ -60,7 +60,7 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 |---|---|---|
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
 | `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
-| `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
+| `pve.wrath` | `{ id, active }` | the PvE report of a Wrath Form (S15 14j sends it on the A34 `ability.cast` / `ability.end`, which also count wrath forms and wrath kills; a report of the same form is not counted twice) |
 | `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
 | `pve.crate` | `{ id }` | Marks per crate |
 

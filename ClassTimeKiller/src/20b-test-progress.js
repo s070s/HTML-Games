@@ -588,10 +588,10 @@ function progressSoulSeconds(slot) { return slot < 0 ? 0 : (Items.despawnTick[sl
 function progressWrathChecks(check, ids, cost, label) {
   progressRules({ meter: 'energy' });   // the souls pay for Wrath (an ultimate meter would pay instead)
   Abilities.setSlot(ids.player, SLOT.ULTIMATE, CAT.abilities.byId('wrath'));
-  Meters.souls[ids.player] = cost - 1;
+  Powerups.souls[ids.player] = cost - 1;
   Sim.step();
   check(label + ': Wrath Form waits below ' + cost + ' souls', !Abilities.isActive(ids.player, 'wrath') && RunLog.wrathForms === 0);
-  Meters.souls[ids.player] = cost;
+  Powerups.souls[ids.player] = cost;
   Sim.step();
   check(label + ': Wrath Form at ' + cost + ' souls counts one form', Abilities.isActive(ids.player, 'wrath') && RunLog.inWrath && RunLog.wrathForms === 1);
   const victim = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
@@ -611,11 +611,6 @@ function progressSoulChecks(check, ids, fiend) {
   Items.x[slot] = Actors.x[ids.player] + 10; Items.z[slot] = Actors.z[ids.player];
   Items.homeSoul(slot, 0.1);
   check('cards: C11 Soul Magnet: a soul 10 m away flies to you', Items.x[slot] < Actors.x[ids.player] + 10 - 0.5);
-  Meters.dropSoul(ids.player, Actors.x[ids.player] + 10, Actors.y[ids.player], Actors.z[ids.player]);
-  const orb = Meters.soulAlive.indexOf(1), orbStart = Meters.soulX[orb];
-  Meters.stepSoul(orb, 0.1);
-  check('cards: C11 Soul Magnet also pulls Wrath souls from 10 m', orb >= 0 && Meters.soulX[orb] < orbStart - 0.5);
-  Meters.clearSouls();
   Actors.health[ids.player] = 50;
   Items.take(ids.player, slot);
   check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CARD_SOUL_ROW.instant.heal, Actors.health[ids.player]);
