@@ -66,7 +66,7 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
-  horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
+  horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
   // MOV-025 movement inaccuracy in degrees for weapons (0 in presets without an inaccuracy table).
   inaccuracy(id) {
     const table = this.preset(id).inaccuracy;
@@ -127,7 +127,7 @@ function resetMotion(id) {
 // ---- Shared physics (MOV-011/012): one friction rule, one acceleration rule ----
 function applyFriction(id, friction, stopSpeed, dt, includeVertical) {
   const vy = includeVertical ? Actors.vy[id] : 0;
-  const speed = Math.hypot(Actors.vx[id], vy, Actors.vz[id]);
+  const speed = length3(Actors.vx[id], vy, Actors.vz[id]);
   if (speed < 1e-6) return;
   const newSpeed = Math.max(0, speed - Math.max(speed, stopSpeed) * friction * dt);
   const scale = newSpeed / speed;
@@ -155,7 +155,7 @@ function yawToWorld(yaw, forward, strafe, out) {
 // Horizontal wish direction (unit) and amount (0..1) from the input axes.
 function horizontalWish(id) {
   yawToWorld(Actors.yaw[id], Motion.inputZ[id], Motion.inputX[id], wish);
-  const length = Math.hypot(wish.x, wish.z);
+  const length = length2(wish.x, wish.z);
   wish.amount = Math.min(1, length);
   wish.x = length > 1e-6 ? wish.x / length : 0; wish.y = 0; wish.z = length > 1e-6 ? wish.z / length : 0;
   return wish;
@@ -281,16 +281,16 @@ function applyEndVelocity(mover, endVY) {
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
-  const speed = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const speed = length3(mover.vx, mover.vy, mover.vz);
   addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
   clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
-  const clipped = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const clipped = length3(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
 function sweepActor(id, mover, dt, stepHeight) {
-  const travel = Math.hypot(mover.vx, mover.vy, mover.vz) * dt;
+  const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
   const firstPlanes = mover.planeCount;
   Motion.blocked[id] = 0;
@@ -519,7 +519,7 @@ function writeFlags(id) {
 // Move.footstepScale scales both the bot noise and the 'move.step' loudness (0 = silent, the event still marks the stride).
 function countSteps(id, preset, startX, startZ) {
   if (!Motion.grounded[id] || Motion.sliding[id]) return;
-  Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
+  Motion.stepDistance[id] += length2(Actors.x[id] - startX, Actors.z[id] - startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
   const walking = (Actors.buttons[id] & BTN.WALK) !== 0;
@@ -568,7 +568,7 @@ function onImpulse(event) {
   if (id < 0 || id >= MAX_ACTORS || !Actors.alive[id]) return;
   matchPreset();
   let x = event.x * MatchMove.knockback, y = event.y * MatchMove.knockback, z = event.z * MatchMove.knockback;
-  const size = Math.hypot(x, y, z);
+  const size = length3(x, y, z);
   if (size > KNOCKBACK_CAP) { x *= KNOCKBACK_CAP / size; y *= KNOCKBACK_CAP / size; z *= KNOCKBACK_CAP / size; }
   Actors.vx[id] += x; Actors.vy[id] += y; Actors.vz[id] += z;
   if (y > GROUND_LEAVE_SPEED) unground(id);

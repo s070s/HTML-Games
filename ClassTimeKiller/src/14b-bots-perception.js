@@ -134,7 +134,7 @@ const BotSense = {
   viewClass(bot, other) {
     const dx = Actors.x[other] - Actors.x[bot], dz = Actors.z[other] - Actors.z[bot];
     const dy = Actors.y[other] + Actors.height[other] * 0.6 - Actors.eyeY(bot);
-    const flat = Math.hypot(dx, dz), distance = Math.hypot(flat, dy);
+    const flat = length2(dx, dz), distance = length2(flat, dy);
     if (distance > this.range(bot, other)) return 0;
     if (distance < 1) return 2;
     const yaw = Actors.yaw[bot];
@@ -151,7 +151,7 @@ const BotSense = {
     const flags = Actors.flags[other];
     if (flags & ACTOR_FLAG.PRONE) factor *= SENSE_PRONE;
     else if (flags & ACTOR_FLAG.CROUCHED) factor *= SENSE_CROUCH;
-    if (Math.hypot(Actors.vx[other], Actors.vz[other]) < SENSE_STILL_SPEED) factor *= SENSE_STILL;
+    if (length2(Actors.vx[other], Actors.vz[other]) < SENSE_STILL_SPEED) factor *= SENSE_STILL;
     factor *= Math.min(Items.perceptionScale(other), flags & ACTOR_FLAG.INVISIBLE ? SENSE_CLOAK : 1);   // PU04 cloak, cloaking abilities
     return this.viewRange(bot) * factor;
   },
@@ -168,7 +168,7 @@ const BotSense = {
   // In view with a clear line: central vision sees at once, peripheral vision fills the meter first (BOT-005).
   perceive(bot, other, pair, view, now) {
     if (view === 1 && this.visible[pair] === 0) {
-      const distance = Math.hypot(Actors.x[other] - Actors.x[bot], Actors.z[other] - Actors.z[bot]);
+      const distance = length2(Actors.x[other] - Actors.x[bot], Actors.z[other] - Actors.z[bot]);
       const fill = lerp(SENSE_FILL_NEAR, SENSE_FILL_FAR, clamp(distance / this.range(bot, other), 0, 1)) / (0.5 + Bots.trait(bot, TRAIT.alertness));
       this.awareness[pair] = Math.min(1, this.awareness[pair] + (now - Bots.lastPerceive[bot] + BOT_PERCEIVE_NORMAL * 0.5) / fill);
       if (this.awareness[pair] < 1) return;
@@ -213,7 +213,7 @@ const BotSense = {
     let best = -1, bestDistance = SENSE_MINE_RANGE;
     for (let device = 0; device < DEVICE_CAP; device++) {
       if (!Devices.active[device] || CAT.gadgets[Devices.row[device]].kind !== 'placed' || Devices.friendOf(device, bot)) continue;
-      const distance = Math.hypot(Devices.x[device] - Actors.x[bot], Devices.z[device] - Actors.z[bot]);
+      const distance = length2(Devices.x[device] - Actors.x[bot], Devices.z[device] - Actors.z[bot]);
       if (distance >= bestDistance || this.raysLeft <= 0) continue;
       this.spendRay();
       if (Gadgets.visibleTo(device, bot)) { best = device; bestDistance = distance; }
@@ -240,7 +240,7 @@ const BotSense = {
   },
   hearOne(bot, event, now) {
     const ex = Actors.x[bot], ey = Actors.eyeY(bot), ez = Actors.z[bot];
-    const distance = Math.hypot(event.x - ex, event.y - ey, event.z - ez);
+    const distance = length3(event.x - ex, event.y - ey, event.z - ez);
     const radius = event.radius * (SENSE_HEARING_BASE + Bots.trait(bot, TRAIT.hearing));
     if (distance > radius) return;
     if (distance > radius * SENSE_WALL_FACTOR && !this.hearingLineOpen(ex, ey, ez, event)) return;
@@ -280,8 +280,8 @@ const BotSense = {
     BotDecide.hurry(bot, now);
   },
   rememberHit(bot, source, pair, event, now) {
-    const flat = Math.hypot(event.dx, event.dz);
-    const distance = Math.hypot(Actors.x[source] - Actors.x[bot], Actors.z[source] - Actors.z[bot]) * (1 + Rng.bots.gauss() * SENSE_HURT_ERROR);
+    const flat = length2(event.dx, event.dz);
+    const distance = length2(Actors.x[source] - Actors.x[bot], Actors.z[source] - Actors.z[bot]) * (1 + Rng.bots.gauss() * SENSE_HURT_ERROR);
     const directionX = flat > 1e-6 ? -event.dx / flat : 0, directionZ = flat > 1e-6 ? -event.dz / flat : 0;
     this.remember(pair, SENSE.HURT, Actors.x[bot] + directionX * distance, Actors.y[bot], Actors.z[bot] + directionZ * distance, now);
   },

@@ -21,6 +21,10 @@ const wrapAngle = (radians) => { // into -PI..PI
 };
 const lerpAngle = (from, to, t) => from + wrapAngle(to - from) * t;
 const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 - edge0), 0, 1); return t * t * (3 - 2 * t); };
+// Vector lengths for hot paths (use them instead of Math.hypot there): V8 runs Math.hypot as a built-in call that boxes its
+// arguments and result on the heap every time, these inline to one square root (PERF-006).
+const length2 = (x, z) => Math.sqrt(x * x + z * z);
+const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
@@ -29,8 +33,8 @@ const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),
   set: (out, x, y, z) => { out.x = x; out.y = y; out.z = z; return out; },
   copy: (out, a) => { out.x = a.x; out.y = a.y; out.z = a.z; return out; },
-  length: (a) => Math.hypot(a.x, a.y, a.z),
-  normalize: (out, a) => { const l = Math.hypot(a.x, a.y, a.z) || 1; out.x = a.x / l; out.y = a.y / l; out.z = a.z / l; return out; },
+  length: (a) => length3(a.x, a.y, a.z),
+  normalize: (out, a) => { const l = length3(a.x, a.y, a.z) || 1; out.x = a.x / l; out.y = a.y / l; out.z = a.z / l; return out; },
   dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
   // Direction a yaw/pitch pair looks at (DATA-002: yaw 0 looks +Z, positive pitch looks up, Y up).
   fromAngles: (out, yaw, pitch) => {
@@ -205,6 +209,7 @@ const Sim = {
   timeScale: 1,     // game speed: the loop feeds real seconds x timeScale to the 120 Hz steps (mutators X02/X27, difficulty)
   time: 0,          // tick * TICK_SECONDS
   timing: {},       // last step cost per system in ms (perf HUD)
+  timingTotal: {},  // summed cost per system in ms since load (tools/perf.mjs: per-system ms per step over a recording)
   addSystem(name, order, step) {
     this.systems.push({ name, order, step });
     this.systems.sort((a, b) => a.order - b.order);
@@ -221,7 +226,9 @@ const Sim = {
       const system = this.systems[i];
       const started = performance.now();
       try { system.step(TICK_SECONDS); } catch (error) { ErrorLog.add('system ' + system.name, error); }
-      this.timing[system.name] = performance.now() - started;
+      const spent = performance.now() - started;
+      this.timing[system.name] = spent;
+      this.timingTotal[system.name] = (this.timingTotal[system.name] || 0) + spent;
     }
     this.tick++;
     this.time = this.tick * TICK_SECONDS;

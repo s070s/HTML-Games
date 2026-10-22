@@ -38,7 +38,13 @@ const Collide = {
   // Sweeps the hull from start to end against the gathered brushes. Moves that start inside a brush and leave it
   // ignore that brush (so a stuck mover can walk out); a move that stays inside reports allSolid with fraction 0.
   sweep(sx, sy, sz, ex, ey, ez, hull, out) {
-    const query = startSweep(sx, sy, sz, ex, ey, ez, hull, out);
+    setSweepSegment(sx, sy, sz, ex, ey, ez);
+    return this.sweepSegment(hull, out);
+  },
+  // Collide.sweep of the segment already written into sweepQuery (sx..ez). The slide and ground probe below fill it
+  // in place: six float arguments to a call that is not inlined would be boxed on the heap every trace (PERF-006).
+  sweepSegment(hull, out) {
+    const query = startSweep(hull, out);
     for (let i = 0; i < this.candidateCount; i++) sweepTestBrush(query, this.candidates[i]);
     return finishSweep(query);
   },
@@ -53,8 +59,10 @@ const Collide = {
     const primalX = mover.vx, primalY = mover.vy, primalZ = mover.vz;
     let timeLeft = dt, touched = false;
     for (let bump = 0; bump < SLIDE_BUMPS && timeLeft > 0; bump++) {
-      const trace = this.trace;
-      this.sweep(mover.x, mover.y, mover.z, mover.x + mover.vx * timeLeft, mover.y + mover.vy * timeLeft, mover.z + mover.vz * timeLeft, mover.hull, trace);
+      const trace = this.trace, segment = sweepQuery;
+      segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z;
+      segment.ex = mover.x + mover.vx * timeLeft; segment.ey = mover.y + mover.vy * timeLeft; segment.ez = mover.z + mover.vz * timeLeft;
+      this.sweepSegment(mover.hull, trace);
       if (trace.allSolid) { mover.vy = 0; return true; }
       mover.x = trace.x; mover.y = trace.y; mover.z = trace.z;
       if (trace.fraction >= 1) break;
@@ -87,7 +95,9 @@ const Collide = {
   },
   // Looks down from the mover by `distance`; fills out and returns true when it finds walkable floor.
   probeGround(mover, distance, out) {
-    this.sweep(mover.x, mover.y, mover.z, mover.x, mover.y - distance, mover.z, mover.hull, out);
+    const segment = sweepQuery;
+    segment.sx = segment.ex = mover.x; segment.sy = mover.y; segment.ey = mover.y - distance; segment.sz = segment.ez = mover.z;
+    this.sweepSegment(mover.hull, out);
     return out.fraction < 1 && !out.allSolid && out.ny >= WALKABLE_NORMAL_Y;
   },
   // Pushes a mover that ended up inside geometry out along the shallowest face. Returns true when it is free.
@@ -128,11 +138,17 @@ function gatherBrush(query, brush) {
   Collide.candidates[Collide.candidateCount++] = brush;
 }
 
-// One hull sweep start->end: the swept box limits which brushes get clipped; the nearest entry wins.
-function startSweep(sx, sy, sz, ex, ey, ez, hull, out) {
+function setSweepSegment(sx, sy, sz, ex, ey, ez) {
+  const query = sweepQuery;
+  query.sx = sx; query.sy = sy; query.sz = sz; query.ex = ex; query.ey = ey; query.ez = ez;
+}
+
+// One hull sweep of the segment in sweepQuery: the swept box limits which brushes get clipped; the nearest entry wins.
+function startSweep(hull, out) {
   const query = sweepQuery, side = hullSide(hull), below = hullBelow(hull), above = hullAbove(hull);
+  const sx = query.sx, sy = query.sy, sz = query.sz, ex = query.ex, ey = query.ey, ez = query.ez;
   out.fraction = 1; out.brush = null; out.startSolid = false; out.allSolid = false;
-  query.sx = sx; query.sy = sy; query.sz = sz; query.ex = ex; query.ey = ey; query.ez = ez; query.hull = hull; query.out = out;
+  query.hull = hull; query.out = out;
   query.minX = Math.min(sx, ex) - side; query.minY = Math.min(sy, ey) - below; query.minZ = Math.min(sz, ez) - side;
   query.maxX = Math.max(sx, ex) + side; query.maxY = Math.max(sy, ey) + above; query.maxZ = Math.max(sz, ez) + side;
   return query;
@@ -141,7 +157,7 @@ function startSweep(sx, sy, sz, ex, ey, ez, hull, out) {
 function sweepTestBrush(query, brush) {
   if (!brushTouchesBox(query, brush)) return;
   const out = query.out;
-  const fraction = clipBrush(brush, query.sx, query.sy, query.sz, query.ex, query.ey, query.ez, query.hull, COLLISION_SKIN);
+  const fraction = clipBrush(brush, query, query.hull, COLLISION_SKIN);
   if (fraction < 0 || fraction >= out.fraction) return;
   if (clipResult.startSolid) { recordSolid(out, clipResult.allSolid, brush); return; }
   out.fraction = fraction; out.brush = brush; out.nx = clipResult.nx; out.ny = clipResult.ny; out.nz = clipResult.nz;
@@ -230,7 +246,7 @@ function resolveVelocity(mover) {
   let cx = planes[a + 1] * planes[b + 2] - planes[a + 2] * planes[b + 1];
   let cy = planes[a + 2] * planes[b] - planes[a] * planes[b + 2];
   let cz = planes[a] * planes[b + 1] - planes[a + 1] * planes[b];
-  const length = Math.hypot(cx, cy, cz);
+  const length = length3(cx, cy, cz);
   if (length < 1e-6) return false;
   cx /= length; cy /= length; cz /= length;
   const along = cx * vx + cy * vy + cz * vz;
@@ -262,7 +278,8 @@ World.capsuleFits = function capsuleFits(x, y, z, radius, height) {
 // Sweeps a capsule from a to b; fills out (a trace) and returns true when something blocks it. It walks the tree
 // directly (no capped candidate list), so a sweep of any length tests every brush along its path.
 World.sweepCapsule = function sweepCapsule(ax, ay, az, bx, by, bz, radius, height, out) {
-  const query = startSweep(ax, ay, az, bx, by, bz, setCapsuleHull(queryMover.hull, radius, height), out);
+  setSweepSegment(ax, ay, az, bx, by, bz);
+  const query = startSweep(setCapsuleHull(queryMover.hull, radius, height), out);
   visitBox(query, sweepTestBrush);
   return finishSweep(query);
 };
@@ -387,7 +404,7 @@ World.actorsInCone = function actorsInCone(ox, oy, oz, dx, dy, dz, cosHalfAngle,
   let count = 0;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || id === ignoreId) continue;
-    const vx = Actors.x[id] - ox, vy = Actors.y[id] + Actors.height[id] * 0.6 - oy, vz = Actors.z[id] - oz, distance = Math.hypot(vx, vy, vz);
+    const vx = Actors.x[id] - ox, vy = Actors.y[id] + Actors.height[id] * 0.6 - oy, vz = Actors.z[id] - oz, distance = length3(vx, vy, vz);
     if (distance > range || distance < 1e-6) continue;
     if ((vx * dx + vy * dy + vz * dz) / distance >= cosHalfAngle) out[count++] = id;
   }

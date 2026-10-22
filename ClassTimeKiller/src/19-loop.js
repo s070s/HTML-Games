@@ -17,6 +17,7 @@ const Perf = {
   simMs: new Float32Array(FRAME_HISTORY),
   index: 0, filled: 0,
   droppedSteps: 0,
+  bootMs: 0,              // page start (navigation) to the loop start at boot: parse + boot of the whole file (load-time checkpoint)
   sorted: new Float32Array(FRAME_HISTORY),
   counters: { drawCalls: 0, triangles: 0, renderMs: 0, hudMs: 0, audioMs: 0, gpuMs: 0, renderScale: 1, particles: 0, projectiles: 0 },
   record(frameMs, cpuMs, simMs) {
@@ -34,7 +35,8 @@ const Perf = {
   stats() {
     const p50 = this.percentile(this.frameMs, 0.5);
     return { fps: p50 > 0 ? 1000 / p50 : 0, p50, p95: this.percentile(this.frameMs, 0.95), p99: this.percentile(this.frameMs, 0.99),
-      cpuP95: this.percentile(this.cpuMs, 0.95), simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing };
+      cpuP95: this.percentile(this.cpuMs, 0.95), simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing,
+      bootMs: this.bootMs };
   },
   reset() { this.index = 0; this.filled = 0; this.droppedSteps = 0; },
 };
@@ -47,6 +49,8 @@ const Loop = {
   alpha: 0,               // interpolation factor between the previous and current sim state
   frameSeconds: 0,
   frameCapMs: 0,          // 0 = uncapped (PERF 18.5 battery option)
+  capCreditMs: 0,         // frame cap pacing: time owed to the next capped frame (carried over, so the average rate is the cap)
+  callback: null,         // the one requestAnimationFrame callback (made once: no closure per frame, PERF-006)
   onFrame(phase, handler) {
     if (!this.hooks[phase]) throw new Error('unknown frame phase ' + phase);
     this.hooks[phase].push(handler);
@@ -55,13 +59,15 @@ const Loop = {
     if (this.running) return;
     this.running = true;
     this.lastTime = performance.now();
-    requestAnimationFrame((now) => this.frame(now));
+    if (!Perf.bootMs) Perf.bootMs = this.lastTime;
+    if (!this.callback) this.callback = (now) => this.frame(now);
+    requestAnimationFrame(this.callback);
   },
   frame(now) {
     if (!this.running) return;
-    requestAnimationFrame((next) => this.frame(next));
+    requestAnimationFrame(this.callback);
     const intervalMs = now - this.lastTime;
-    if (this.frameCapMs > 0 && intervalMs < this.frameCapMs - FRAME_CAP_TOLERANCE_MS) return;
+    if (this.skipForCap(intervalMs)) return;
     const frameStart = performance.now();
     const seconds = Math.min(MAX_FRAME_SECONDS, Math.max(0, intervalMs / 1000));
     this.lastTime = now;
@@ -73,6 +79,19 @@ const Loop = {
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
     Perf.counters.audioMs = Sound.updateMs;
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
+  },
+  // Frame cap (18.5): paced from the rAF timestamps. A frame is drawn once the time since the last drawn one plus the
+  // carried-over credit reaches the cap interval, so a cap that is no whole fraction of the display rate (60 on 144 Hz)
+  // still averages the cap (frames 2 and 3 vsyncs apart) instead of rounding down to every third vsync (48 fps).
+  skipForCap(intervalMs) {
+    const cap = this.frameCapMs;
+    if (cap <= 0) return false;
+    const owed = intervalMs + this.capCreditMs;
+    if (owed < cap - FRAME_CAP_TOLERANCE_MS) return true;
+    // After a long stall start fresh instead of a burst of frames; a display a little faster than the cap never drops frames.
+    const credit = owed - cap;
+    this.capCreditMs = credit > cap ? 0 : Math.max(-FRAME_CAP_TOLERANCE_MS / 2, credit);
+    return false;
   },
   // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME (times the game speed when it is above 1, so a speed-up
   // is still honoured on a slow frame), the rest is dropped (spiral-of-death guard).
@@ -106,4 +125,5 @@ Bus.on('setting', (key) => {
   if (key !== 'video.frameCap') return;
   const cap = Settings.get('video.frameCap');
   Loop.frameCapMs = cap > 0 ? 1000 / cap : 0;
+  Loop.capCreditMs = 0;
 });

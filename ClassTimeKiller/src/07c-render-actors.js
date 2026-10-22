@@ -128,17 +128,30 @@ function makeShapeBatch(name, capacity) {
     // ARCHITECTURE contract: centre (x, y, z), yaw/pitch radians, full sizes in metres, colour 0..1, emissive 0..1.
     // Returns the instance's float offset in `data`, or -1 when the shape is unknown or the region is full.
     mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive) {
+      const o = this.reserve(shape), d = this.data;
+      if (o < 0) return -1;
+      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
+      d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
+      d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
+      this.light(o);
+      return o;
+    },
+    // The hot S07 callers (actor parts) skip mesh(): reserve(shape) returns the instance offset (or -1), they write
+    // data[o..o+11] (x y z yaw | sx sy sz pitch | r g b emissive) themselves and call light(o). Thirteen float
+    // arguments to a call that is not inlined would be boxed on the heap for every part of every actor (PERF-006).
+    reserve(shape) {
       const shapeIndex = SHAPE_INDEX[shape];
       if (shapeIndex === undefined) return -1;
       const count = this.counts[shapeIndex];
       if (count >= this.capacity) { Render.stats.droppedInstances++; return -1; }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
-      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
-      d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
-      d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
-      d[o + 12] = sampleSunVisibility(x, y, z); d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
+      d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;
       return o;
+    },
+    light(o) {
+      const d = this.data;
+      d[o + 12] = sampleSunVisibility(d[o], d[o + 1], d[o + 2]);
     },
   };
   shapeBatches.push(batch);
@@ -415,10 +428,13 @@ function emitActorPart(part, pose, style) {
   const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + rotated.y + pose.lift;
   const localX = part.pivot[0] + rotated.x, localZ = part.pivot[2] + rotated.z;
   rotateYawPitchInto(rotated, localX * scale, localY * scale, localZ * scale, pose.yaw, 0);
-  const emissive = Math.max(partColor(part, style), style.emissive);
-  const slot = actorBatch.mesh(part.shape, pose.x + rotated.x, pose.y + rotated.y, pose.z + rotated.z, pose.yaw, pitch,
-    part.size[0] * scale * head, part.size[1] * squash * scale * head, part.size[2] * scale * head, tintColor[0], tintColor[1], tintColor[2], emissive);
-  if (slot >= 0) actorBatch.data[slot + HIGHLIGHT_SLOT] = actorHighlight;
+  const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
+  if (o < 0) return;
+  d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
+  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch;
+  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(glow, style.emissive);
+  d[o + HIGHLIGHT_SLOT] = actorHighlight;
+  actorBatch.light(o);
 }
 
 // ACC-006: with high-contrast outlines the local player's enemies get a thick bright outline (set per actor before its parts are emitted).
