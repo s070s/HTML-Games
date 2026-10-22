@@ -663,9 +663,10 @@ const MAPEDIT_OBJECTIVE_KEYS = ['team', 'radius', 'path', 'modes', 'id', 'kind',
 const MAPEDIT_TRIGGER_KEYS = ['kind', 'min', 'max', 'target', 'peak', 'exit', 'yaw', 'damage', 'element'];
 const MAPEDIT_SKY_KEYS = ['top', 'horizon', 'fog', 'fogFar', 'sun'];
 const MAPEDIT_PROP_KEYS = ['min', 'max', 'health', 'material', 'mass', 'debris', 'color'];   // the S08 prop row (PROP_FIELDS)
-// A breakable prop box: min and max corners, the optional numbers finite, the material a known one.
+// A breakable prop box: min and max corners, the optional numbers finite, the colour a 0xRRGGBB one, the material a known one.
 const mapEditPropIs = (prop) => isPlainObject(prop) && mapEditTriple(prop.min) && mapEditTriple(prop.max)
-  && [prop.health, prop.mass, prop.debris, prop.color].every(mapEditOptionalNumber) && (prop.material === undefined || MapRules.materials.includes(prop.material));
+  && [prop.health, prop.mass, prop.debris].every(mapEditOptionalNumber) && (prop.color === undefined || mapEditColor(prop.color))
+  && (prop.material === undefined || MapRules.materials.includes(prop.material));
 const MAPEDIT_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
 const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || MAPEDIT_NAME_MAX) : fallback);
 const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= MAPEDIT_NAME_MAX);

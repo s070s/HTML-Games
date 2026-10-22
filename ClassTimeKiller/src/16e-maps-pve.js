@@ -7,6 +7,10 @@
 
 const MAP_PVE_MODES = ['horde', 'endless', 'fiends'];
 const MAP_BANK_MODES = ['bank'];
+// HP-005 spill props (12h FloorSurfaces): broken, an oil drum spills oil and a water tank a wet floor; debris in the material colour.
+const mapSpillProp = (material) => ({ material, color: colorNumber(CAT.materials.byId(material).colorA) });
+const MAP_OIL_DRUM = mapSpillProp('oil');
+const MAP_WATER_TANK = mapSpillProp('water');
 
 // MP07 Cistern - a square tank: the core room in the middle, four spawn gates (one per side), pump platforms west and east.
 const cisternWest = {                                                                                // west gate and pump platform, mirrored east
@@ -73,7 +77,8 @@ const cisternCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'cistern', code: 'MP07', name: 'Cistern', size: [80, 20, 80], theme: 'canal', category: 'pve', modes: MAP_PVE_MODES.concat(MAP_BANK_MODES),
   blurb: 'Defend the core room in a square tank: four spawn gates, pump platforms with ladders, acid pools and teleporters.',
-  props: [{ min: [37, 0, 37], max: [38.2, 1.2, 38.2] }, { min: [-38.2, 0, -38.2], max: [-37, 1.2, -37] }, { min: [37, 0, -38.2], max: [38.2, 0.9, -37.3] }],
+  props: [Object.assign({ min: [37, 0, 37], max: [38.2, 1.2, 38.2] }, MAP_OIL_DRUM), { min: [-38.2, 0, -38.2], max: [-37, 1.2, -37] },
+    Object.assign({ min: [37, 0, -38.2], max: [38.2, 0.9, -37.3] }, MAP_WATER_TANK)],
   sky: { top: 0x0b1626, horizon: 0x2c4a63, fog: 0x1a2c3c, fogFar: 120, sun: [0.1, 0.9, 0.1] },
 }, MapKit.join(MapKit.sym(cisternWest, 'x', true), MapKit.sym(cisternNorth, 'z', true), MapKit.sym(cisternQuarter, 'xz', true), cisternCenter))));
 
@@ -176,7 +181,8 @@ const manorCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'manor', code: 'MP12', name: 'Ash Manor', size: [90, 16, 90], theme: 'ruins', category: 'pve', modes: MANOR_GUARD_MODES,
   blurb: 'Stealth contract: slip past the guards, steal the relic from the study and leave through the south-east corner.',
-  props: [{ min: [-44, 0, -44], max: [-42.8, 1.2, -42.8] }, { min: [42.8, 0, 42.8], max: [44, 1.2, 44] }, { min: [-44, 0, 42.8], max: [-42.8, 0.9, 44] }],
+  props: [Object.assign({ min: [-44, 0, -44], max: [-42.8, 1.2, -42.8] }, MAP_OIL_DRUM), { min: [42.8, 0, 42.8], max: [44, 1.2, 44] },
+    { min: [-44, 0, 42.8], max: [-42.8, 0.9, 44] }],
   sky: { top: 0x1a2236, horizon: 0x6a5a58, fog: 0x3a3a44, fogFar: 150, sun: [-0.2, 0.5, 0.2] },
 }, manorCenter)));
 

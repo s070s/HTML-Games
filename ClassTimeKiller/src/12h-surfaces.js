@@ -4,15 +4,15 @@
 // meltIce: the ice turns into a wet patch). Reactions (a Damage.statusHooks entry that runs after the 12f combos): a
 // status the patch `spreads` landing on someone in it lands on everyone in it (wet floor + Shock), and its igniteStatus
 // on someone in it or an igniteElement explosion over it lights it (oil + Burn = a 6 s fire area that lights touching
-// oil too). A29 / A30 with no enemy in the aim cone reach the patch at the aimed floor point (FloorSurfaces.boltFloor).
+// oil too, also oil spilled against it later; smoke puts it out like a G04 fire area). A29 / A30 with no enemy in the aim
+// cone reach the patch at the aimed floor point (FloorSurfaces.boltFloor).
 
 const SURFACE_CAP = 16;                  // a full pool replaces the patch that ends first
-const SURFACE_TICK_STEPS = Math.round(0.25 * TICK_RATE);   // burning patches hurt on this tick
+const SURFACE_TICK_STEPS = Math.round(AREA_TICK * TICK_RATE);   // burning patches hurt on the G04 fire area tick (12c)
 const SURFACE_FEET_REACH = 0.6;          // feet this close above or below a patch stand in it
 const SURFACE_BLAST_REACH = 1.5;         // an igniting explosion this far above a patch (plus its own radius) still lights it
 const SURFACE_SPILL_DROP = 4;            // a spill lands on the floor up to this far below where it started
 const SURFACE_DRAW_HEIGHT = 0.03;
-const SURFACE_FX_COUNT = 6;
 const SPILL_BY_MATERIAL = new Map(CAT.surfaces.filter((row) => row.spillFrom).map((row) => [row.spillFrom, row]));
 const surfacePoint = Vec.make();
 const surfaceInstance = makeShapeInstance();
@@ -30,6 +30,7 @@ const FloorSurfaces = {
     this.active[slot] = 1; this.radius[slot] = row.radius;
     this.x[slot] = x; this.y[slot] = Number.isNaN(floor) ? y : floor; this.z[slot] = z;
     this.become(slot, row, owner);
+    this.catchFire(slot, row);
     return slot;
   },
   spillUnder(id, key, owner) { return this.spill(CAT.surfaces.byId(key), owner, Actors.x[id], Actors.y[id], Actors.z[id]); },
@@ -78,6 +79,14 @@ const FloorSurfaces = {
     this.become(slot, CAT.surfaces.byId(row.becomes), source);
     for (let other = 0; other < SURFACE_CAP; other++) if (this.active[other] && this.rowOf(other).becomes && this.touching(slot, other)) this.ignite(other, source);
   },
+  // A patch that can burn, spilled against a burning one, lights at once (credited to whoever lit that one).
+  catchFire(slot, row) {
+    if (!row.becomes) return;
+    const burning = CAT.surfaces.byId(row.becomes).index;
+    for (let other = 0; other < SURFACE_CAP; other++) {
+      if (other !== slot && this.active[other] && this.row[other] === burning && this.touching(slot, other)) { this.ignite(slot, this.owner[other]); return; }
+    }
+  },
   touching(a, b) {
     const reach = this.radius[a] + this.radius[b];
     if (Math.abs(this.y[a] - this.y[b]) > SURFACE_FEET_REACH) return false;
@@ -113,18 +122,13 @@ const FloorSurfaces = {
       if (due && this.rowOf(slot).dps > 0) this.burn(slot);
     }
   },
-  // Burning oil hurts everyone standing in it, credited to whoever lit it.
+  // Burning oil hurts everyone standing in it, credited to whoever lit it (the G04 fire area tick, 12c fireAreaHit);
+  // smoke puts it out, as it does a G04 fire area.
   burn(slot) {
-    const row = this.rowOf(slot);
-    for (let id = 0; id < Actors.count; id++) if (this.stands(slot, id)) this.scorch(slot, row, id);
-    if (!Game.headless && row.fx) Fx.burst(row.fx, this.x[slot], this.y[slot] + 0.1, this.z[slot], 0, 1, 0, SURFACE_FX_COUNT, null);
-  },
-  // One tick of the row's dps through the single damage path (team rules apply); the status lands only on a real hit.
-  scorch(slot, row, id) {
-    const info = Damage.info();
-    info.amount = row.dps * SURFACE_TICK_STEPS * TICK_SECONDS; info.kind = 'dot'; info.weapon = row.id; info.element = row.element;
-    info.x = Actors.x[id]; info.y = Actors.y[id] + 0.5; info.z = Actors.z[id];
-    if (Damage.apply(this.owner[slot], id, info) > 0 && row.status) Damage.addStatus(id, row.status, this.owner[slot], row.statusSeconds, 1);
+    if (Smoke.covers(this.x[slot], this.y[slot] + 0.5, this.z[slot])) { this.active[slot] = 0; return; }
+    const row = this.rowOf(slot), amount = row.dps * SURFACE_TICK_STEPS * TICK_SECONDS;
+    for (let id = 0; id < Actors.count; id++) if (this.stands(slot, id)) fireAreaHit(this.owner[slot], id, amount, row, null);
+    if (!Game.headless && row.fx) Fx.burst(row.fx, this.x[slot], this.y[slot] + 0.1, this.z[slot], 0, 1, 0, FIRE_FX_COUNT, null);
   },
   draw(batch) {
     const instance = surfaceInstance;

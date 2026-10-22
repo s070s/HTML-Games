@@ -621,7 +621,22 @@ Test.add('abilities', (check) => {
   const afterKinetic = surfaceSlots('oil').length;
   Bus.emit('explosion', { x: 11, y: 0.3, z: 10, radius: 0, owner: t.caster, source: 'incendiary', element: 'thermal' });
   check('a thermal explosion over oil lights it, a kinetic one does not', afterKinetic === 1 && surfaceSlots('fire').length === 1, afterKinetic);
+  const burning = surfaceSlots('fire')[0], late = FloorSurfaces.spill(CAT.surfaces.byId('oil'), -1, 14.5, 0, 10);
+  check('oil spilled later against burning oil lights at once, credited to its igniter',
+    surfaceSlots('oil').length === 0 && FloorSurfaces.rowOf(late).id === 'fire' && FloorSurfaces.owner[late] === t.caster);
+  Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 8, 0.5, 10);   // covers the first patch, not the one 6.5 m away
+  runSeconds(2);
+  check('smoke puts burning oil out, as it does a G04 fire area', !FloorSurfaces.active[burning] && FloorSurfaces.active[late] === 1);
   TestArena.finish();
+});
+
+// HP-005 in real play: every spill row has a prop of its material on a shipped map (oil drums, a water tank), and the
+// map editor accepts such props.
+Test.add('abilities', (check) => {
+  const propMaterials = new Set(CAT.maps.flatMap((map) => map.props.map((prop) => prop.material)));
+  const missing = CAT.surfaces.filter((row) => row.spillFrom && !propMaterials.has(row.spillFrom));
+  check('every spill row has a prop of its material on a shipped map', missing.length === 0, missing.map((row) => row.id).join());
+  check('the map editor accepts an oil drum prop with its colour', mapEditPropIs(Object.assign({ min: [0, 0, 0], max: [1, 1, 1] }, MAP_OIL_DRUM)));
 });
 
 // A32 panics fodder (ability.panic -> S14 PvE broken morale); A03 throws the enemy in front on a melee swing.
