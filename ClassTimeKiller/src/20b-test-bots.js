@@ -726,13 +726,12 @@ Test.add('bots', (check) => {
   BotDecide.flankedAt[bot] = Sim.time;
   GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
   check('right after a flank the chase goes straight', BotDecide.flankSpot[bot] === -1 && plan.z === 20);
-  const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
-  Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
-  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
+  giveWeaponJumper(bot);
   BotCombat.target[bot] = -1;
   Motion.grounded[bot] = 1; Actors.health[bot] = Actors.maxHealth[bot];
   BotDecide.goal[bot] = GOAL.ROAM; BotDecide.goalX[bot] = 0; BotDecide.goalY[bot] = 3; BotDecide.goalZ[bot] = -5;
-  check('a weapon jumper with a launcher wants to jump to a goal 3 m up', BotCombat.wantsWeaponJump(bot, Sim.time));
+  BotMove.state[bot] = PATH.FAILED;   // no way to walk there (the ledge tests below cover walkable paths)
+  check('a weapon jumper with a launcher wants to jump to a goal 3 m up with no way to walk there', BotCombat.wantsWeaponJump(bot, Sim.time));
   Actors.aimPitch[bot] = -80 * DEG;
   Bots.buttonsWanted[bot] = 0;
   BotCombat.weaponJump(bot, Sim.time);
@@ -744,6 +743,44 @@ Test.add('bots', (check) => {
   check('the flash grenade is gated by the flashPeek tier flag', BOT_GADGET_USE.flash.tierFlag === 'flashPeek' && CAT.botTiers.every((row) => row.flashPeek === row.tier >= 3));
   endBotTest();
 });
+
+// A rocket launcher in hand and the weapon jumper trait (T12).
+function giveWeaponJumper(bot) {
+  const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
+  Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
+}
+
+// The weapon jump on real paths: to a ledge 3 m up with no way to walk there, the blast (on the far side of the bot) lifts
+// it up and toward the goal; with a ramp up beside it the bot walks instead (no self-damage for nothing).
+const JUMP_LEDGE = { shape: 'box', min: [-4, 0, -4], max: [4, 3, 0] }, JUMP_RAMP = { shape: 'ramp', dir: '+z', min: [1, 0, -10], max: [4, 3, -4] };
+const JUMP_FROM = [-2, -8], JUMP_GOAL_Z = -2, JUMP_SECONDS = 3;
+
+function runLedgeGoal(brushes) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, ...brushes] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  placeFacing(bot, JUMP_FROM[0], JUMP_FROM[1], 0);
+  giveWeaponJumper(bot);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.ROAM, x: 0, y: JUMP_LEDGE.max[1], z: JUMP_GOAL_Z, radius: 1, action: ACTION.MOVE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  const result = { startDistance: Math.abs(JUMP_GOAL_Z - Actors.z[bot]), closest: Infinity, topY: 0, jumps: 0, health: 0 };
+  runHeld(JUMP_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
+    result.topY = Math.max(result.topY, Actors.y[bot]); result.closest = Math.min(result.closest, Math.abs(JUMP_GOAL_Z - Actors.z[bot]));
+    return false;
+  });
+  result.jumps = BotCombat.uses.weaponJumps; result.health = Actors.health[bot];
+  endBotTest();
+  return result;
+}
+
+Test.add('bots', (check) => {
+  const ledge = runLedgeGoal([JUMP_LEDGE]);
+  check('a weapon jump lifts the bot up to the ledge and toward its goal', ledge.jumps === 1 && ledge.topY >= JUMP_LEDGE.max[1] && ledge.closest < ledge.startDistance - 1,
+    JSON.stringify(ledge));
+  const ramp = runLedgeGoal([JUMP_LEDGE, JUMP_RAMP]);
+  check('with a ramp up there the bot walks (no weapon jump)', ramp.jumps === 0 && ramp.topY >= JUMP_LEDGE.max[1] - 0.1, JSON.stringify(ramp));
+});
+
 
 // ---- Flag raids: the rally is a meeting place (no held spot), and a raider already past it keeps going ----
 Test.add('bots', (check) => {

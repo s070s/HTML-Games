@@ -54,6 +54,7 @@ const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at
 const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
 const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
 const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
+const WEAPON_JUMP_DETOUR = 3;   // a walkable path this many times the straight line or longer is worth the jump's self-damage
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
@@ -128,7 +129,7 @@ const BotCombat = {
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
-    this.gadgetAt[id] = 0; this.holdSlot[id] = -1;
+    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
@@ -461,24 +462,35 @@ const BotCombat = {
   // ---- Weapon jumps (botTiers weaponJumps, trait T12 weaponJumper): out of a fight, a goal on a ledge just above is reached
   // with a splash weapon fired at the feet in the jump ----
   weaponJump(id, now) {
-    if (now < this.jumpUntil[id]) { this.aimJump(id, now); return true; }
+    if (this.aimingJump(id, now)) { this.aimJump(id, now); return true; }
     if (!this.wantsWeaponJump(id, now)) return false;
     this.jumpUntil[id] = now + WEAPON_JUMP_AIM_SECONDS;
     this.weaponJumpAt[id] = now;
     this.aimJump(id, now);
     return true;
   },
+  aimingJump(id, now) { return now < this.jumpUntil[id]; },   // the view is the jump's (path following does not turn it)
+  // A weapon jump being aimed, or one wanted now (the goal stays until it is tried).
+  weaponJumpPending(id, now) { return this.aimingJump(id, now) || this.wantsWeaponJump(id, now); },
   wantsWeaponJump(id, now) {
     if (now - this.weaponJumpAt[id] < WEAPON_JUMP_REST || !Bots.tier(id).weaponJumps || Bots.trait(id, TRAIT.weaponJumper) <= BOT_TRAIT_NEUTRAL) return false;
     const weapon = Weapons.currentWeapon(id);
     if (!weapon || !weapon.primary.splash || !Move.isGrounded(id) || Actors.health[id] < Actors.maxHealth[id] * WEAPON_JUMP_HEALTH) return false;
     const rise = BotDecide.goalY[id] - Actors.y[id], reach = Math.hypot(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
-    return BotDecide.goal[id] !== GOAL.NONE && rise >= WEAPON_JUMP_RISE && reach <= WEAPON_JUMP_REACH;
+    return BotDecide.goal[id] !== GOAL.NONE && rise >= WEAPON_JUMP_RISE && reach <= WEAPON_JUMP_REACH && this.jumpBeatsWalking(id, Math.hypot(reach, rise));
   },
-  // The view turns straight down (at the motor's rate) toward the goal; there the bot jumps and fires in one step. The shot
-  // is licensed (ARC-033 counts shots at enemies the bot does not perceive; this one is at its own feet).
+  // No walkable way up (the path failed or ends below the goal), or one WEAPON_JUMP_DETOUR times the straight line or
+  // longer (stairs nearby win).
+  jumpBeatsWalking(id, straight) {
+    if (BotMove.failed(id)) return true;
+    if (!BotMove.following(id)) return false;
+    return !BotMove.pathEndsAt(id, BotDecide.goalY[id]) || BotMove.pathLeft(id) >= straight * WEAPON_JUMP_DETOUR;
+  },
+  // The view turns straight down (at the motor's rate) facing away from the goal, so the blast lands on the far side and
+  // pushes the bot up and toward the ledge; there the bot jumps and fires in one step. The shot is licensed (ARC-033
+  // counts shots at enemies the bot does not perceive; this one is at its own feet).
   aimJump(id, now) {
-    Bots.lookYaw[id] = Math.atan2(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
+    Bots.lookYaw[id] = Math.atan2(Actors.x[id] - BotDecide.goalX[id], Actors.z[id] - BotDecide.goalZ[id]);
     Bots.lookPitch[id] = -BOT_PITCH_LIMIT;
     if (Actors.aimPitch[id] > -WEAPON_JUMP_PITCH) return;
     Bots.press(id, BTN.JUMP | BTN.FIRE);

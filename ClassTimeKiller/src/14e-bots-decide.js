@@ -208,7 +208,7 @@ const BotDecide = {
     const goal = this.goal[id];
     if (goal === GOAL.NONE) { this.noGoalTime[id] += dt; this.longestNoGoal[id] = Math.max(this.longestNoGoal[id], this.noGoalTime[id]); return; }
     this.noGoalTime[id] = 0;
-    if (BotMove.failed(id)) { this.goalFailed(id, now); return; }
+    if (BotMove.failed(id) && !BotCombat.weaponJumpPending(id, now)) { this.goalFailed(id, now); return; }   // a ledge goal may be jumped to
     const near = Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
     if (this.goalAction[id] === ACTION.USE && near) { Bots.wish(id, 0, 0, 0); Bots.press(id, BTN.USE); return; }
     if (!BotMove.arrived(id) && !near) return;

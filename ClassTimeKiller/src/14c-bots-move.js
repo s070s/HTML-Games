@@ -110,6 +110,24 @@ const BotMove = {
   stop(id) { this.hasDest[id] = 0; this.state[id] = PATH.NONE; Nav.cancel(id); },
   arrived(id) { return this.hasDest[id] === 1 && this.state[id] === PATH.ARRIVED; },
   failed(id) { return this.state[id] === PATH.FAILED; },
+  following(id) { return this.state[id] === PATH.FOLLOW; },
+  // Whether the path being followed ends at height y (nav ends a path to an unreachable ledge on the nearest node below).
+  pathEndsAt(id, y) {
+    if (this.pointCount[id] === 0) return true;   // already at the destination node
+    Nav.resultPoint(id, this.pointCount[id] - 1, movePoint);
+    return Math.abs(movePoint.y - y) < MOVE_ARRIVE_HEIGHT;
+  },
+  // Metres still to walk while following: to the next path point, then along the rest of the path.
+  pathLeft(id) {
+    let x = this.pointX[id], y = this.pointY[id], z = this.pointZ[id];
+    let length = Math.hypot(x - Actors.x[id], y - Actors.y[id], z - Actors.z[id]);
+    for (let index = this.pointIndex[id] + 1; index < this.pointCount[id]; index++) {
+      Nav.resultPoint(id, index, movePoint);
+      length += Math.hypot(movePoint.x - x, movePoint.y - y, movePoint.z - z);
+      x = movePoint.x; y = movePoint.y; z = movePoint.z;
+    }
+    return length;
+  },
   distanceToDestination(id) { return Math.hypot(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
   request(id, options) {
     if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
@@ -235,7 +253,7 @@ const BotMove = {
     if (!atEnd && this.waterExitBlocked(id, tx - Actors.x[id], tz - Actors.z[id], distance)) { this.takeAnotherExit(id); return; }
     this.steer(id, dx, dz, amount, now);
     this.linkMove(id);
-    if (BotCombat.target[id] < 0 || this.ownsView(id)) this.lookAlong(id, tx, tz);
+    if ((BotCombat.target[id] < 0 && !BotCombat.aimingJump(id, now)) || this.ownsView(id)) this.lookAlong(id, tx, tz);
   },
   advance(id) {
     for (let guard = 0; guard < 3 && this.pointIndex[id] < this.pointCount[id]; guard++) {
