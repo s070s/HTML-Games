@@ -19,7 +19,7 @@ const forgeSnapped = (value) => Math.round(value * 2) / 2;
 let forgeKept = null;
 function forgeKeepEditor() {
   const tools = ForgeTools;
-  forgeKept = { map: Forge.map, slotId: Forge.slotId, dirty: Forge.dirty, history: Forge.history, selection: Object.assign({}, Forge.selection), runtime: Maps.runtime.slice(),
+  forgeKept = { device: Input.device, map: Forge.map, slotId: Forge.slotId, dirty: Forge.dirty, history: Forge.history, selection: Object.assign({}, Forge.selection), runtime: Maps.runtime.slice(),
     tools: { tool: tools.tool, elevation: tools.elevation, snapIndex: tools.snapIndex, turns: tools.turns, cameraPlaced: tools.cameraPlaced, stamp: forgeClone(tools.stamp),
       view: Object.assign({}, tools.view), camera: Object.assign({}, tools.camera) } };
   Forge.history = { entries: new Array(FORGE_HISTORY_SIZE).fill(null), start: 0, length: 0, position: 0 };
@@ -29,6 +29,7 @@ function forgeRestoreEditor() {
   const kept = forgeKept, tools = ForgeTools;
   forgeKept = null;
   forgeEditorOff();
+  Input.setDevice(kept.device);   // the device tests above act as a touch finger and a pad: other groups (the HUD layout) read the device
   Forge.map = kept.map; Forge.slotId = kept.slotId; Forge.dirty = kept.dirty; Forge.history = kept.history;
   Object.assign(Forge.selection, kept.selection);
   Maps.runtime.push(...kept.runtime);
