@@ -74,7 +74,7 @@ Requested events nobody emits yet (the audio rows exist, the emitters are in oth
 
 | Event | Payload | Sound |
 |---|---|---|
-| `projectile.incoming` | `{ x, y, z, kind, source }` a rocket-like projectile within about 30 m of the local player | `rocketWhistle` + alert caption |
+| `projectile.incoming` | `{ x, y, z, kind, source }` an `incoming` projectile row (rocket, warhead, missile) of a non-ally, once when it comes within 25 m of the local player and closes in (S11 `Projectiles.warnIncoming`) | `rocketWhistle` + alert caption |
 | `projectile.bounce` | `{ x, y, z, kind, source }` | `grenadeTick` |
 | `item.respawn` | `{ x, y, z, item, group }` | `powerChime` for `group: 'power'`, else `itemRespawn` |
 | `bark` | `{ id, text, kind }` bot radio line | `radioBlip` + voice caption |
