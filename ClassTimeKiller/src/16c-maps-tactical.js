@@ -1,5 +1,5 @@
 // ==== S16 MAPS: TACTICAL ====
-// MP04 Dustline (bomb, elim, ghostops) and MP05 Harbor Nine (tdm, hardpoint, attrition).
+// MP04 Dustline (bomb, elim, ghostops) and MP05 Harbor Nine (tdm, hardpoint, attrition, control).
 // Team 0 = attackers / first side, team 1 = defenders / second side. Rows use the compact MapKit lists (see 16a-maps.js).
 
 // MP04 Dustline - three lanes (west, mid, east) between two spawn rooms; bomb sites in the north side rooms; tunnels link the lanes.
@@ -49,7 +49,7 @@ Maps.rows.push(MapKit.make(Object.assign({
   sky: { top: 0x5b86b8, horizon: 0xf0d9a8, fog: 0xc9b48a, fogFar: 190, sun: [0.5, 0.7, -0.2] },
 }, MapKit.join(MapKit.sym(dustWest, 'x'), dustCenter))));
 
-// MP05 Harbor Nine (tdm, hardpoint, attrition) - a cargo yard in the middle, a quay on each side, two canals with bridges;
+// MP05 Harbor Nine (tdm, hardpoint, attrition, control) - a cargo yard in the middle, a quay on each side, two canals with bridges;
 // the canals are swimmable and end in slipways. Team 0 starts at the west end of the yard, team 1 at the east end.
 const harborQuarter = {                                                                              // north-west quarter, mirrored three times
   brushes: [
@@ -80,7 +80,7 @@ const harborWest = {                                                            
     .concat(MapKit.wall('concrete', 'z', -16, 1.5, -10, 10, 0, 4, [[-5, 4, 3.2], [5, 4, 3.2]]))              // yard gate wall (breaks the long diagonals)
     .concat([['metal', -40, 0, -1.5, -37, 1.4, 1.5], ['concrete', -34, 0, 2.5, -33, 2.6, 7.5], ['concrete', -34, 0, -7.5, -33, 2.6, -2.5]]), // base cover and door screens
   spawns: [
-    [0, ['tdm', 'hardpoint', 'attrition'], [[-43, 0, -7, 90], [-43, 0, -2.5, 90], [-43, 0, 2.5, 90], [-43, 0, 7, 90], [-38, 0, -7, 90], [-38, 0, -2.5, 90],
+    [0, ['tdm', 'hardpoint', 'attrition', 'control'], [[-43, 0, -7, 90], [-43, 0, -2.5, 90], [-43, 0, 2.5, 90], [-43, 0, 7, 90], [-38, 0, -7, 90], [-38, 0, -2.5, 90],
       [-38, 0, 2.5, 90], [-38, 0, 7, 90]]],
   ],
   zones: [['West Base', -45, -10, -30, 10, -1, 8]],
@@ -99,10 +99,11 @@ const harborCenter = {
     { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0, radius: 8, modes: ['hardpoint'] }, { id: 'hill2', kind: 'hill', x: 0, y: 0, z: 28, radius: 7, modes: ['hardpoint'] },
     { id: 'hill3', kind: 'hill', x: 0, y: 0, z: 16, radius: 5, modes: ['hardpoint'] }, { id: 'hill4', kind: 'hill', x: 0, y: 0, z: -28, radius: 7, modes: ['hardpoint'] },
     { id: 'hill5', kind: 'hill', x: 0, y: 0, z: -16, radius: 5, modes: ['hardpoint'] },
+    { id: 'uplink', kind: 'point', x: 0, y: 0, z: 0, radius: 6, modes: ['control'] },
   ],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'harbor', code: 'MP05', name: 'Harbor Nine', size: [90, 24, 90], theme: 'canal', category: 'large', modes: ['tdm', 'hardpoint', 'attrition'],
+  id: 'harbor', code: 'MP05', name: 'Harbor Nine', size: [90, 24, 90], theme: 'canal', category: 'large', modes: ['tdm', 'hardpoint', 'attrition', 'control'],
   blurb: 'Docks with a cargo yard, two swimmable canals and bridges: three lanes between the bases.',
   sky: { top: 0x4d7fb5, horizon: 0xe8e0d0, fog: 0xb4c4d0, fogFar: 180, sun: [0.2, 0.75, 0.4] },
 }, MapKit.join(MapKit.sym(harborQuarter, 'xz'), MapKit.sym(harborWest, 'x'), harborCenter))));

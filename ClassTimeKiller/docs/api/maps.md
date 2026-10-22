@@ -10,12 +10,12 @@ Every map is one `maps` catalogue row in the map format of `ARCHITECTURE.md`; `W
 
 | Code | Key | Name | Size m | Theme | Category | Modes | Brushes | Spawns free/team0/team1 | Items | Objectives | Zones | Triggers |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| MP01 | `spire` | Foundry Spire | 50x50 | foundry | arena | duel, ffa | 41 | 16/0/0 | 24 | 0 | 14 | 0 |
-| MP02 | `skyyard` | Skyward Yard | 70x70 | glacier | arena | ffa, tdm | 47 | 16/8/8 | 32 | 0 | 16 | 9 |
+| MP01 | `spire` | Foundry Spire | 50x50 | foundry | arena | duel, ffa, lms, infection, juggernaut, cursetag, bearer, roulette | 41 | 16/0/0 | 24 | 0 | 14 | 0 |
+| MP02 | `skyyard` | Skyward Yard | 70x70 | glacier | arena | ffa, tdm, lms, infection, juggernaut, cursetag, bearer, roulette | 47 | 16/8/8 | 32 | 0 | 16 | 9 |
 | MP03 | `twinkeeps` | Twin Keeps | 120x60 | overgrowth | large | ctf, oneflag, dom, tdm | 61 | 0/8/8 | 37 | 8 | 18 | 0 |
 | MP04 | `dustline` | Dustline | 110x90 | ruins | large | bomb, elim, ghostops | 62 | 0/9/9 | 0 | 2 | 13 | 0 |
-| MP05 | `harbor` | Harbor Nine | 90x90 | canal | large | tdm, hardpoint, attrition | 95 | 0/8/8 | 45 | 5 | 29 | 12 |
-| MP06 | `gantry` | Gantry Run | 100x80 | station | large | ffa, tdm, duel, dom, hardpoint, oddball, gungame | 64 | 20/8/8 | 41 | 9 | 27 | 8 |
+| MP05 | `harbor` | Harbor Nine | 90x90 | canal | large | tdm, hardpoint, attrition, control | 95 | 0/8/8 | 45 | 6 | 29 | 12 |
+| MP06 | `gantry` | Gantry Run | 100x80 | station | large | ffa, tdm, duel, dom, hardpoint, oddball, gungame, lms, infection, juggernaut, cursetag, bearer, roulette | 64 | 20/8/8 | 41 | 9 | 27 | 8 |
 | MP07 | `cistern` | Cistern | 80x80 | canal | pve | horde, endless, fiends | 67 | 0/8/12 | 16 | 2 | 17 | 10 |
 | MP08 | `convoyline` | Old Rail | 160x40 | ruins | large | payload, rush, conquest | 57 | 0/9/9 | 0 | 12 | 23 | 0 |
 | MP09 | `isle` | Ring Isle (placeholder) | 300x300 | overgrowth | island | royale | 128 | 18/0/0 | 48 | 0 | 16 | 0 |
