@@ -362,7 +362,7 @@ const BotMove = {
   recover(id, now) {
     const stuck = this.stuckTime[id];
     if (stuck >= STUCK_GIVE_UP) { this.giveUp(id, now); return; }
-    if (stuck >= STUCK_REPATH && !this.repathed[id]) { this.repathAround(id); return; }
+    if (stuck >= this.repathAfter(id) && !this.repathed[id]) { this.repathAround(id); return; }
     if (stuck < STUCK_JUMP) return;
     // Attempts alternate: jump while strafing to one side, back off, jump to the other side, ...
     const attempt = Math.round((stuck - STUCK_JUMP) / MOVE_SAMPLE_SECONDS);
@@ -372,6 +372,12 @@ const BotMove = {
     this.recoverSide[id] = -this.recoverSide[id];
     this.recoverAngle[id] = STUCK_STRAFE_ANGLE * this.recoverSide[id];
     Bots.press(id, BTN.JUMP);
+  },
+  // A jump with no climb in it (a hop around a corner or over a gap) that failed once is one the body does not fit:
+  // jumping and strafing will not fix it, so the bot repaths at the first stuck mark instead of the second.
+  repathAfter(id) {
+    const levelJump = this.segmentType[id] === NAV_LINK.JUMP && this.pointY[id] <= this.startY[id] + STEP_HEIGHT;
+    return levelJump ? STUCK_JUMP : STUCK_REPATH;
   },
   // A water exit without a rim: blocked for the rest of the match, the path leaves the water elsewhere.
   takeAnotherExit(id) {

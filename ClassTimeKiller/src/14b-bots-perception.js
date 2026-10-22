@@ -17,8 +17,8 @@ const SENSE_FILL_NEAR = 0.6, SENSE_FILL_FAR = 2.5;   // BOT-005: seconds for the
 const SENSE_AWARE_DECAY_AFTER = 6;      // BOT-005: the meter decays after 6 s unseen...
 const SENSE_AWARE_DECAY_RATE = 0.5;     // ...at this many units per second
 const SENSE_MEMORY = 10;                // BOT-007: last known positions decay after 10 s
-const SENSE_RAYS_PER_TICK = 96;         // BOT-091
-const SENSE_HEARING_RAYS_PER_TICK = 16; // sounds behind walls need a ray too; out of budget = not heard (never cheats)
+const SENSE_RAYS_PER_TICK = 96;         // BOT-091: vision and hearing rays together, per tick
+const SENSE_HEARING_RESERVE = 16;       // of those, vision leaves this many for sounds behind walls (out of budget = not heard)
 const SENSE_HEARING_BASE = 0.5;         // radius x (0.5 + hearing trait): a neutral trait hears the full radius
 const SENSE_WALL_FACTOR = 0.6;          // BOT-004: through walls the radius shrinks to 60%
 const SENSE_HEAR_ERROR = 0.15;          // BOT-004: heard position uncertain by 15% of the distance
@@ -49,8 +49,9 @@ const BotSense = {
   cursor: new Uint8Array(MAX_ACTORS),       // round-robin start of the next scan
   heardAt: new Float64Array(MAX_ACTORS).fill(-1e9), heardX: new Float32Array(MAX_ACTORS), heardY: new Float32Array(MAX_ACTORS), heardZ: new Float32Array(MAX_ACTORS),
   attacker: new Int8Array(MAX_ACTORS).fill(-1), attackedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
-  raysLeft: 0, hearingRaysLeft: 0,
-  stats: { rays: 0, raysThisTick: 0, maxRaysPerTick: 0, deferred: 0, heard: 0 },
+  raysLeft: 0,
+  // raysThisTick counts from one vision pass to the next, so the sounds of a tick (heard after the pass) count with it.
+  stats: { rays: 0, raysThisTick: 0, maxRaysPerTick: 0, deferred: 0, heard: 0, hearingRays: 0 },
 
   pair(bot, other) { return bot * MAX_ACTORS + other; },
   sees(bot, other) { return this.visible[bot * MAX_ACTORS + other] === 1; },
@@ -76,9 +77,8 @@ const BotSense = {
 
   // ---- Vision (once per tick from the 'botThink' system) ----
   serve(now) {
+    this.closeRayCount();
     this.raysLeft = SENSE_RAYS_PER_TICK;
-    this.hearingRaysLeft = SENSE_HEARING_RAYS_PER_TICK;
-    this.stats.raysThisTick = 0;
     for (let bot = 0; bot < Actors.count; bot++) {
       const target = BotCombat.target[bot];
       if (Bots.perceiveDue[bot] && Bots.isBot(bot) && target >= 0) this.look(bot, target, now);   // combat pairs first
@@ -87,6 +87,14 @@ const BotSense = {
       if (Bots.perceiveDue[bot] && Bots.isBot(bot)) this.scan(bot, now);
     }
     this.stats.maxRaysPerTick = Math.max(this.stats.maxRaysPerTick, this.stats.raysThisTick);
+  },
+  closeRayCount() {
+    this.stats.maxRaysPerTick = Math.max(this.stats.maxRaysPerTick, this.stats.raysThisTick);
+    this.stats.raysThisTick = 0;
+  },
+  spendRay() {
+    this.raysLeft--;
+    this.stats.rays++; this.stats.raysThisTick++;
   },
   // Checks every other actor from the bot's cursor on; stops (and resumes next tick) when the ray budget is spent.
   scan(bot, now) {
@@ -106,9 +114,8 @@ const BotSense = {
     if (!this.canSee(bot, other)) { this.lose(pair, now); return true; }
     const view = this.viewClass(bot, other);
     if (view === 0) { this.lose(pair, now); return true; }
-    if (this.raysLeft <= 0) { this.checkedTick[pair] = -1; return false; }
-    this.raysLeft--;
-    this.stats.rays++; this.stats.raysThisTick++;
+    if (this.raysLeft <= SENSE_HEARING_RESERVE) { this.checkedTick[pair] = -1; return false; }
+    this.spendRay();
     if (!this.lineOpen(bot, other, pair)) { this.lose(pair, now); return true; }
     this.perceive(bot, other, pair, view, now);
     return true;
@@ -139,8 +146,10 @@ const BotSense = {
     else if (flags & ACTOR_FLAG.CROUCHED) factor *= SENSE_CROUCH;
     if (Math.hypot(Actors.vx[other], Actors.vz[other]) < SENSE_STILL_SPEED) factor *= SENSE_STILL;
     if (flags & ACTOR_FLAG.INVISIBLE) factor *= SENSE_CLOAK;
-    return (SENSE_RANGE_BASE + SENSE_RANGE_ALERT * Bots.trait(bot, TRAIT.alertness)) * factor;
+    return this.viewRange(bot) * factor;
   },
+  // The range against a standing, moving, visible actor (the F9 view draws it as the cone's length).
+  viewRange(bot) { return SENSE_RANGE_BASE + SENSE_RANGE_ALERT * Bots.trait(bot, TRAIT.alertness); },
   // Eye to chest or head (alternating per check); walls and smoke (factor 0) block.
   lineOpen(bot, other, pair) {
     this.rayPart[pair] ^= 1;
@@ -218,8 +227,9 @@ const BotSense = {
     if (!this.visible[pair]) this.remember(pair, SENSE.HEARD, x, y, z, now);
   },
   hearingLineOpen(ex, ey, ez, event) {
-    if (this.hearingRaysLeft <= 0) return false;
-    this.hearingRaysLeft--;
+    if (this.raysLeft <= 0) return false;
+    this.spendRay();
+    this.stats.hearingRays++;
     return World.lineClear(ex, ey, ez, event.x, event.y, event.z);
   },
 

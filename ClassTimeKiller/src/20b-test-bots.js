@@ -293,7 +293,7 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
-// ---- Team play: a defend ping is answered within 2 s ----
+// ---- Team play: a defend ping is answered within 2 s and acknowledged by every taker; an enemy ping gets a reply ----
 Test.add('bots', (check) => {
   const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
   // Two bots with the player against two dummies: 3 v 2 is balanced, so nobody changes sides.
@@ -308,15 +308,163 @@ Test.add('bots', (check) => {
   const answered = takers.filter((id) => BotTeam.answeredAt[id] >= pingedAt && BotTeam.answeredAt[id] - pingedAt <= 2);
   check('the team bots take the order', takers.length === 2, takers.length);
   check('a defend ping is answered within 2 s (goal: order)', answered.length === takers.length && takers.length > 0, answered.length);
-  check('the order is acknowledged in chat', barks.some((event) => event.category === 'orderAck' && event.time - pingedAt <= 2));
+  const acknowledged = takers.filter((id) => barks.some((event) => event.id === id && event.category === 'orderAck' && withinAckTime(event.time - pingedAt)));
+  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-062)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
   runSeconds(4);
   check('the bots head for the pinged spot', takers.every((id) => Math.hypot(Actors.x[id] - 20, Actors.z[id] + 20) < 16));
+  const enemy = firstOfTeam(1), spottedAt = Sim.time;
+  Bus.emit('ping', { id: player, kind: 'enemy', x: Actors.x[enemy], y: Actors.y[enemy], z: Actors.z[enemy], target: enemy });
+  runSeconds(2);
+  check('an enemy ping from the player gets a reply within 1.5 s', barks.some((event) => event.category === 'pingReply' && withinAckTime(event.time - spottedAt)));
   Settings.set('gameplay.chatter', 'off');
   const count = barks.length;
   Bus.emit('ping', { id: player, kind: 'go', x: -20, y: 0, z: -20, target: -1 });
   runSeconds(2);
   check('chatter off silences the barks', barks.length === count);
   barks.stop();
+  endBotTest();
+});
+
+function withinAckTime(seconds) { return seconds >= ORDER_ACK_MIN - TIME_EPSILON && seconds <= ORDER_ACK_MAX + TICK_SECONDS; }
+
+function firstOfTeam(team) {
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === team) return id;
+  return -1;
+}
+
+// ---- Hidden information (BOT-040): what a bot does not see, it judges by where it last perceived it ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 10);
+  runSeconds(0.5);
+  const pair = BotSense.pair(bot, dummy), point = Vec.make();
+  BotSense.visible[pair] = 0;
+  BotSense.knownX[pair] = 5; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 3;
+  BotSense.perceivedPosition(bot, dummy, point);
+  check('an unseen enemy is where the bot last perceived it', point.x === 5 && point.z === 3, point.x + ',' + point.z);
+  BotSense.visible[pair] = 1;
+  BotSense.perceivedPosition(bot, dummy, point);
+  check('a seen enemy is where it really is', point.x === Actors.x[dummy] && point.z === Actors.z[dummy]);
+  BotSense.visible[pair] = 0;
+  BotSense.knownY[pair] = Actors.y[bot] + AGGRESSION_HEIGHT + 1;
+  check('aggression reads the remembered height (0: the enemy is believed far above)', BotDecide.aggression(bot, dummy) === 0);
+  BotSense.knownY[pair] = Actors.y[bot];
+  check('and not the real one', BotDecide.aggression(bot, dummy) > 0, BotDecide.aggression(bot, dummy));
+  BotCombat.target[bot] = -1;
+  BotSense.attacker[bot] = dummy; BotSense.attackedAt[bot] = Sim.time;
+  check('a bot hit from out of sight retreats from its attacker', retreatThreat(bot, Sim.time) === dummy);
+  check('until the hit is 3 s old', retreatThreat(bot, Sim.time + TARGET_REVENGE_SECONDS + 0.1) === -1);
+  endBotTest();
+});
+
+// ---- Hearing shares the 96-ray budget: a sound beyond the through-wall radius needs a ray, and none is left over ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 10);
+  Sim.run(1);
+  // 20 m away with a radius the bot hears in the open but not at the through-wall 60%: only an open line lets it in.
+  const reach = SENSE_HEARING_BASE + Bots.trait(bot, TRAIT.hearing), radius = 20 / reach / ((1 + SENSE_WALL_FACTOR) / 2);
+  const sound = { x: 0, y: 1, z: 10, radius, kind: 'gunfire', source: dummy };
+  const hearingRays = BotSense.stats.hearingRays, raysThisTick = BotSense.stats.raysThisTick;
+  BotSense.raysLeft = 0;
+  Bus.emit('sound', sound);
+  check('out of rays, no ray is cast for the sound', BotSense.stats.hearingRays === hearingRays && BotSense.raysLeft === 0);
+  BotSense.raysLeft = SENSE_HEARING_RESERVE;
+  Bus.emit('sound', sound);
+  check('the reserve vision leaves pays for it and counts in the tick', BotSense.stats.hearingRays === hearingRays + 1 && BotSense.raysLeft === SENSE_HEARING_RESERVE - 1 && BotSense.stats.raysThisTick === raysThisTick + 1);
+  endBotTest();
+});
+
+// ---- Trigger discipline: a grenade waits until the view is on its arc; a charge is held, not fired at nothing ----
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(true));
+  placeFacing(bot, 0, -10, 0);
+  runSeconds(0.2);
+  const now = Sim.time;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.throwYaw[bot] = Actors.aimYaw[bot] + 90 * DEG; BotCombat.throwPitch[bot] = Actors.aimPitch[bot];
+  BotCombat.throwUntil[bot] = now + GRENADE_AIM_SECONDS;
+  BotCombat.aimThrow(bot);
+  check('no throw while the view is off the arc', (Bots.buttonsWanted[bot] & BTN.GRENADE) === 0 && BotCombat.throwUntil[bot] > now);
+  Actors.aimYaw[bot] = BotCombat.throwYaw[bot];
+  BotCombat.aimThrow(bot);
+  check('the throw goes once the view is on it', (Bots.buttonsWanted[bot] & BTN.GRENADE) !== 0 && BotCombat.throwUntil[bot] === 0);
+  Bots.buttonsWanted[bot] = 0;
+  const heldSince = now - 0.2;
+  BotCombat.holdSince[bot] = heldSince; BotCombat.keptSince[bot] = -1;
+  BotCombat.keepCharge(bot, now, false);
+  check('a charge with the target out of sight stays held', (Bots.buttonsWanted[bot] & BTN.FIRE) !== 0 && BotCombat.holdSince[bot] === heldSince);
+  const other = Weapons.cycle(bot, 1), canSwitch = other >= 0 && other !== Weapons.current[bot];
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.keepCharge(bot, now + CHARGE_KEEP_SECONDS + 0.1, false);
+  const dropped = (Bots.buttonsWanted[bot] & BTN.NEXT_WEAPON) !== 0 && BotCombat.holdSince[bot] < 0;
+  check('after 1.5 s unseen a weapon switch drops it (a bot with one weapon keeps it)', canSwitch ? dropped : BotCombat.holdSince[bot] === heldSince);
+  endBotTest();
+});
+
+// ---- Water exits: a swimmer leaves by a ramp, a ladder or a rim, never under a thin deck it cannot climb ----
+Test.add('bots', (check) => {
+  DebugApi.soak('ffa', 'harbor', 0.02, 2);
+  let blocked = 0, open = 0;
+  for (let node = 0; node < exitKind.length; node++) {
+    if (exitKind[node] === EXIT.BLOCKED) blocked++;
+    else if (exitKind[node] === EXIT.OPEN) open++;
+  }
+  check('harbor has open water exits and blocked rimless ones', open > 0 && blocked > 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
+});
+
+// ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----
+function outcomeRow(id, team) { return { id, team }; }
+function teamOutcome(winnerTeam) { return { players: [outcomeRow(1, 1), outcomeRow(0, 0), outcomeRow(2, 1)], teams: [{}, {}], winnerTeam }; }
+
+Test.add('bots', (check) => {
+  check('team mode: the player team won -> +1', matchOutcome(teamOutcome(0), 0) === 1);
+  check('team mode: lost -> -1, even at the top of the scoreboard', matchOutcome({ players: [outcomeRow(0, 0), outcomeRow(1, 1)], teams: [{}, {}], winnerTeam: 1 }, 0) === -1);
+  check('team mode: a draw -> 0', matchOutcome(teamOutcome(NO_TEAM), 0) === 0);
+  const ffa = { players: [outcomeRow(3, NO_TEAM), outcomeRow(0, NO_TEAM), outcomeRow(4, NO_TEAM)], teams: [], winnerTeam: NO_TEAM };
+  check('free-for-all: first +1, middle 0, last -1', matchOutcome(ffa, 3) === 1 && matchOutcome(ffa, 0) === 0 && matchOutcome(ffa, 4) === -1);
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift'), playerId = Game.playerId;
+  Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
+  Game.playerId = 0;
+  const match = { results: teamOutcome(1) };
+  check('adapt: a team loss lowers the shift and shows on the results', Difficulty.adapt(match) === -1 && Settings.get('difficulty.tierShift') === -1 && match.results.botTierChange === -1);
+  Game.playerId = playerId;
+  Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+});
+
+// ---- Debug view (BOT-091/092): the HUD pass draws the nav graph, cones, labels and bars, and only while on ----
+function countingHud() {
+  return { width: 800, height: 600, lines: 0, rects: 0, texts: 0, line() { this.lines++; }, rect() { this.rects++; }, text() { this.texts++; return 0; } };
+}
+
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false));
+  runSeconds(0.5);
+  const matrix = Render.frame.viewProjection, saved = Float32Array.from(matrix);
+  matrix.fill(0); matrix[0] = 1 / 60; matrix[9] = 1 / 60; matrix[15] = 1;   // top-down: the 120 m arena fills the screen
+  const hud = countingHud();
+  BotDebug.drawHud(hud);
+  check('off: the debug view draws nothing', hud.lines + hud.rects + hud.texts === 0);
+  BotDebug.enabled = true; BotDebug.navStale = true;
+  BotDebug.drawHud(hud);
+  const stats = BotDebug.stats, text = JSON.stringify(stats) + ' nav ' + BotDebug.navCount;
+  check('on: the nav graph is read once into its buffer', BotDebug.navCount > 50 && !BotDebug.navStale, text);
+  check('on: nav lines and the vision cone reach the HUD', stats.lines > BOT_DEBUG_CONE_SEGMENTS + 2 && hud.lines === stats.lines, text);
+  check('on: a label and the alert bar per bot', stats.labels >= 1 && stats.bars >= stats.labels && hud.texts === stats.labels && hud.rects === stats.bars * 2, text);
+  check('every nav link type has a colour', BOT_DEBUG_LINK_COLORS.length === NAV_LINK_ROWS.length && BOT_DEBUG_LINK_COLORS.every(Boolean));
+  BotDebug.labelText[bot] = 'kept';
+  check('the label text is reused between refreshes', BotDebug.labelFor(bot) === 'kept');
+  BotDebug.labelAt[bot] = -1e9;
+  check('and rebuilt after one', BotDebug.labelFor(bot) !== 'kept');
+  matrix.fill(0); matrix[0] = 1; matrix[5] = 1; matrix[11] = 1;   // w = z: points with z < 0 are behind the camera
+  const before = stats.lines;
+  debugWorldLine(hud, 0, 0, 5, 0, 0, -5, '#ffffff', 1);
+  debugWorldLine(hud, 0, 0, -1, 0, 0, -5, '#ffffff', 1);
+  check('a line through the camera plane is cut, one behind it is skipped', stats.lines === before + 1 && Number.isFinite(debugLineEnd.x));
+  matrix.set(saved);
+  BotDebug.enabled = false;
   endBotTest();
 });
 

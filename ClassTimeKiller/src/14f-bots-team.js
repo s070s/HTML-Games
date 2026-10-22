@@ -1,6 +1,6 @@
 // Bot team play (BOT-060..BOT-063, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
 // the mode's objective kind, BOT_ROLE_SPLITS); the player's pings are orders that the nearest team bots acknowledge and
-// follow; bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
+// follow (acknowledged within 0.5-1.5 s; the nearest team bot answers an enemy ping the same way); bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
 // Grenade tokens keep a team from throwing more than one every 3 s.
 
@@ -34,6 +34,7 @@ const BotTeam = {
   orderKind: new Array(MAX_ACTORS).fill(''), orderUntil: new Float64Array(MAX_ACTORS),
   orderX: new Float32Array(MAX_ACTORS), orderY: new Float32Array(MAX_ACTORS), orderZ: new Float32Array(MAX_ACTORS),
   orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
+  ackCategory: new Array(MAX_ACTORS).fill('orderAck'),   // the reply bark due at ackAt
   enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
@@ -80,7 +81,7 @@ const BotTeam = {
 
   // ---- Per bot after its decision: delayed acknowledgements and situational barks ----
   updateBot(id, now) {
-    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, 'orderAck', now); }
+    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     if (health < LOW_HEALTH_BARK && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
@@ -100,7 +101,7 @@ const BotTeam = {
     this.orderX[id] = x; this.orderY[id] = y; this.orderZ[id] = z;
     this.orderGivenAt[id] = now;
     this.orderUntil[id] = now + (kind === 'defend' ? ORDER_DEFEND_SECONDS : ORDER_SECONDS);
-    this.ackAt[id] = now + Rng.fx.range(ORDER_ACK_MIN, ORDER_ACK_MAX);
+    this.queueReply(id, 'orderAck', now);
     this.stats.orders++;
     BotDecide.hurry(id, now);
   },
@@ -110,10 +111,16 @@ const BotTeam = {
     const pinger = event.id;
     if (pinger < 0 || pinger >= MAX_ACTORS) return;
     const team = Actors.team[pinger], now = Sim.time;
-    if (event.kind === 'enemy' || event.kind === 'danger') { this.shareEnemy(pinger, team, event, now); return; }
+    const enemyPing = event.kind === 'enemy' || event.kind === 'danger';
+    if (enemyPing) this.shareEnemy(pinger, team, event, now);
     if (Bots.active[pinger] || team < 0) return;
     this.chooseTakers(pinger, team, event.x, event.z);
+    if (enemyPing) { if (takerList.length > 0) this.queueReply(takerList[0], 'pingReply', now); return; }
     for (let i = 0; i < takerList.length; i++) this.give(takerList[i], orderKindOf(event.kind), event.x, event.y, event.z, now);
+  },
+  queueReply(id, category, now) {
+    this.ackCategory[id] = category;
+    this.ackAt[id] = now + Rng.fx.range(ORDER_ACK_MIN, ORDER_ACK_MAX);
   },
   shareEnemy(pinger, team, event, now) {
     if (event.target < 0) return;
@@ -159,7 +166,7 @@ const BotTeam = {
     const profile = Bots.profile[id], chance = BOT_CHAT_CHANCE[profile ? profile.chat : 'normal'] || BOT_CHAT_CHANCE.normal;
     const slot = Actors.team[id] + 1;
     this.barkAt[id] = now;
-    if (!Rng.fx.chance(chance)) return false;
+    if (!row.reply && !Rng.fx.chance(chance)) return false;
     this.teamBarkAt[slot] = now;
     barkPayload.id = id; barkPayload.team = Actors.team[id]; barkPayload.category = category; barkPayload.text = Rng.fx.pick(row.lines);
     this.stats.barks++;
@@ -168,6 +175,7 @@ const BotTeam = {
   },
   mayBark(id, row, now) {
     if (this.chatter === 'off' || (this.chatter === 'minimal' && !row.minimal) || (row.taunt && !this.taunts)) return false;
+    if (row.reply) return true;
     return now - this.barkAt[id] >= BARK_BOT_INTERVAL && now - this.teamBarkAt[Actors.team[id] + 1] >= BARK_TEAM_INTERVAL;
   },
   onKill(event) {

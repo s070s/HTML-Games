@@ -97,6 +97,7 @@ Data.define('bots', {
 ]);
 
 // Chatter (BOT-100): text barks per category. minimal: still spoken with the "minimal" chatter setting. taunt: off with the taunts option.
+// reply: an answer to a person's order or ping, always given (no chance roll, no bark limits) unless chatter is off.
 const BOT_BARKS = {
   spotted: { minimal: false, taunt: false, lines: ['Contact!', 'Enemy spotted.', 'Got eyes on one.'] },
   reloading: { minimal: false, taunt: false, lines: ['Reloading!', 'Changing mag.', 'Cover me, reloading.'] },
@@ -105,8 +106,8 @@ const BOT_BARKS = {
   itemGrab: { minimal: false, taunt: false, lines: ['Grabbing it.', 'Picked that up.', 'Mine.'] },
   killTaunt: { minimal: false, taunt: true, lines: ['Too slow.', 'Better luck next time.', 'Got one.'] },
   death: { minimal: false, taunt: false, lines: ['I am down.', 'They got me.', 'Ouch.'] },
-  orderAck: { minimal: true, taunt: false, lines: ['On it.', 'Copy that.', 'Understood.'] },
-  pingReply: { minimal: true, taunt: false, lines: ['Ok.', 'On my way.', 'Dibs.', 'Thanks.'] },
+  orderAck: { minimal: true, taunt: false, reply: true, lines: ['On it.', 'Copy that.', 'Understood.'] },
+  pingReply: { minimal: true, taunt: false, reply: true, lines: ['Ok.', 'Thanks.', 'Seen it.', 'Got it.'] },
   lowHealth: { minimal: false, taunt: false, lines: ['Low on health.', 'Hurting here.', 'Need a medkit.'] },
   objective: { minimal: true, taunt: false, lines: ['Objective moving!', 'Watch the objective.', 'Push the objective!'] },
 };

@@ -53,12 +53,11 @@ const Difficulty = {
     if (typeof custom.tierMin === 'number') skill.tierMin = clamp(Math.round(custom.tierMin), 0, BOT_TIER_COUNT - 1);
     if (typeof custom.tierMax === 'number') skill.tierMax = clamp(Math.round(custom.tierMax), 0, BOT_TIER_COUNT - 1);
   },
-  // DIF-003 (off by default): after a match against bots, +1 tier when the player won, -1 when last; shown on the results.
+  // DIF-003 (off by default): after a match against bots, +1 tier when the player won, -1 when the player lost (team
+  // modes: the player's team won or lost, a draw changes nothing; free-for-all: first or last); shown on the results.
   adapt(match) {
     if (!Settings.get('difficulty.adaptive') || Game.playerId < 0 || !match.results) return 0;
-    const players = match.results.players, playerRow = players.findIndex((row) => row.id === Game.playerId);
-    if (playerRow < 0 || players.length < 2) return 0;
-    const change = playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
+    const change = matchOutcome(match.results, Game.playerId);
     const shift = clamp(Settings.get('difficulty.tierShift') + change, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT);
     Settings.set('difficulty.tierShift', shift);
     match.results.botTierChange = change;
@@ -66,6 +65,17 @@ const Difficulty = {
   },
   tierShift() { return Settings.get('difficulty.adaptive') ? Settings.get('difficulty.tierShift') : 0; },
 };
+
+// +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
+function matchOutcome(results, player) {
+  const players = results.players, playerRow = players.findIndex((row) => row.id === player);
+  if (playerRow < 0 || players.length < 2) return 0;
+  if (results.teams.length > 0) {
+    if (results.winnerTeam === NO_TEAM) return 0;
+    return players[playerRow].team === results.winnerTeam ? 1 : -1;
+  }
+  return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
+}
 
 Rules.addModifier('difficulty', (rules) => { rules.botSkill = Difficulty.resolve(rules.difficulty); });
 
