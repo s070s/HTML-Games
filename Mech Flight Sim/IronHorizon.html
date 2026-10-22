@@ -2256,7 +2256,7 @@ const Terrain = {
     return true;
   },
   /* the heights a map def's unflattened grid is built from, as a cache key */
-  gridKey(map) { return [map.name, map.seed, map.hill, JSON.stringify(map.mountains || null), JSON.stringify(map.water || [])].join('|'); },
+  gridKey(map) { return [map.name, map.seed, map.hill, map.maxSlope, JSON.stringify(map.mountains || null), JSON.stringify(map.water || [])].join('|'); },   // banks are carved to maxSlope
   baseGrids: {},   // unflattened heights per map (as doubles, keyed by gridKey), shared by every mission on that map
   baseWater: {},   // the water of each base grid that has any (Water.carve), keyed the same way
   cache: [],       // finished terrains (heights, tile maxima, mesh) for recent map + site layouts
@@ -4510,7 +4510,7 @@ const Bld = {
   /* a piece changed look (removed = false) or was removed (true): its chunk needs re-writing */
   markDirty(s, removed) {
     const b = s.bld;
-    b.dirtyMesh = true;
+    b.dirtyMesh = true; b.relit = false;   // damage is more than lit windows: the relight budget must not hold it back
     b.chunks[this.chunkIndex(b, s.fl)].dirty = true;
     if (!removed || !b.data) return;   // before the first layout every mask is computed anyway
     // a removed piece can reveal faces of the pieces touching it (possibly in the next chunk)
@@ -4522,7 +4522,7 @@ const Bld = {
   },
   /* pieces came back (training reset): every face mask must be recomputed */
   markAllDirty(b) {
-    b.dirtyMesh = true; b.relayout = true;
+    b.dirtyMesh = true; b.relayout = true; b.relit = false;
     for (const c of b.chunks) c.dirty = true;
   },
 
