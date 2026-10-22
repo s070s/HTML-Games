@@ -275,7 +275,6 @@ function hudDrawVignette(pen, layout) {
 }
 
 // ---- Events ----
-const hudPosition = { x: 0, y: 0, z: 0 };
 Bus.on('damage', (event) => {
   const player = Game.playerId;
   if (player < 0) return;

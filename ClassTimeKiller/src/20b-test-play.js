@@ -73,6 +73,9 @@ Test.add('play', (check) => {
   }
   check('shuffle: ' + PLAY_TEST_SHUFFLES + ' random picks are all valid mode / map / bot combinations', valid);
   check('shuffle: it really varies the mode', seen.size >= 5, seen.size);
+  Bus.emit('ui.shuffleMatch', null);
+  check('shuffle: the shuffle event starts a valid match in one call', Game.state === 'playing' && Game.match.map.modes.includes(Game.match.rules.mode) && Save.data.play.mode === Game.match.rules.mode);
+  Game.stop();
 });
 
 Test.add('play', (check) => {
@@ -109,7 +112,10 @@ Test.add('play', (check) => uiWith(() => {
   check('main menu: the Play entry is switched on by the play screen', !buttons[2].disabled && buttons[2].firstChild.textContent === 'Play');
   buttons[0].click();
   check('quick match: one click on the main menu starts a match (UI-001, at most 2 actions)', Game.state === 'playing' && Ui.stack.length === 0);
-  Game.stop();
+  Game.pause('menu');
+  check('pause: a quick match can be paused and offers Quit to menu', Ui.current() === 'pause' && uiClickButton(Ui.top().element, 'Quit to menu') && Ui.current() === 'confirm');
+  uiClickButton(Ui.top().element, 'Quit');
+  check('pause: quitting stops the match and shows the main menu', Game.state === 'menu' && Game.match === null && Ui.current() === 'main');
 
   Ui.open('main');
   uiClickButton(Ui.top().element, 'Play');

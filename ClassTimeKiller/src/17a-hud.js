@@ -454,8 +454,8 @@ function hudDrawWeaponBar(pen, layout) {
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
+  if (remaining <= 0) { pen.ring(x, y, radius, thickness, color, 1); return; }       // ready: one full ring, no track under it
   pen.ring(x, y, radius, thickness, HUD_COLOR.track, 0.8);
-  if (remaining <= 0) { pen.ring(x, y, radius, thickness, color, 1); return; }
   pen.ring(x, y, radius, thickness, HUD_COLOR.dim, 0.7, 0, Math.PI * 2 * (1 - clamp(remaining, 0, 1)));
 }
 

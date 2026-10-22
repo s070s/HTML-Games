@@ -109,6 +109,7 @@ const PlayFlow = {
   },
 };
 Bus.on('ui.quickMatch', () => PlayFlow.quickMatch());
+Bus.on('ui.shuffleMatch', () => PlayFlow.start(PlayFlow.shuffle(Math.random)));   // for a menu entry or key that wants a random valid match in one action
 
 // ---- Play screen: every choice on one page, Start and Shuffle ----
 function playModeOptions() {
