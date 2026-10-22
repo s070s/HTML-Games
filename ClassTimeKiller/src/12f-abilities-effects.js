@@ -938,8 +938,7 @@ function abilityStyle(id, out) {
   else if (Buffs.has(id, BUFF.DAMAGE)) { out.r = Math.min(1, out.r + 0.3); out.emissive = Math.max(out.emissive, 0.4); }
 }
 
-const previousActorStyle = Render.actorStyle;
-Render.actorStyle = (id, out) => { if (previousActorStyle) previousActorStyle(id, out); abilityStyle(id, out); };
+Render.addActorStyle(abilityStyle);
 Render.addSource('abilities', (batch) => {
   for (let zone = 0; zone < ZONE_CAP; zone++) if (AbilityZones.alive[zone]) drawZone(batch, zone);
   drawFootprints(batch);

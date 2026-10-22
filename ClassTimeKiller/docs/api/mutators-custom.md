@@ -54,7 +54,7 @@ Other ruleset fields the rows write: `gravityScale`, `knockback`, `selfDamage`, 
 
 ## Events
 
-Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17: every living actor gets the powerup), `power.pick { id, ability }` (X46, abilities A05..A33), `explosion` (X29, source `lastgift`). Consumed: `match.setup`, `match.stop`, `actor.create`, `actor.spawn`, `kill`, `damage`, `weapon.fire`. Render sources: `tags` (confirm tags), `gifts` (live last gifts, blinking faster before the blast). Render hook: `Render.actorStyle` is chained (body size).
+Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17: every living actor gets the powerup), `power.pick { id, ability }` (X46, abilities A05..A33), `explosion` (X29, source `lastgift`). Consumed: `match.setup`, `match.stop`, `actor.create`, `actor.spawn`, `kill`, `damage`, `weapon.fire`. Render sources: `tags` (confirm tags), `gifts` (live last gifts, blinking faster before the blast). Render hook: `Render.addActorStyle` (body size).
 
 ## Edits to other sections
 
@@ -78,4 +78,4 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 ## Known limits
 
-X14 head size and X31/X39 body size change the hit volumes (and the body is drawn scaled when no later hook replaces `Render.actorStyle`), but a larger head is not drawn yet. X17, X30, X35, X36, X37, X41, X46, X48, X50 only set their `rules.fx` flag (and X17/X46 emit their event): the sections named above have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`. The Bots tab picks one personality for every bot or "Mixed" (the bot section chooses); a custom mix of several personalities is not offered.
+X14 head size and X31/X39 body size change the hit volumes (and the body is drawn scaled via `Render.addActorStyle`), but a larger head is not drawn yet. X17, X30, X35, X36, X37, X41, X46, X48, X50 only set their `rules.fx` flag (and X17/X46 emit their event): the sections named above have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`. The Bots tab picks one personality for every bot or "Mixed" (the bot section chooses); a custom mix of several personalities is not offered.

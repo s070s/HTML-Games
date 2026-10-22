@@ -346,7 +346,7 @@ function readActorStyle(id) {
   writeColor(tintColor, 0, actorBaseColor(id));
   actorStyle.r = tintColor[0]; actorStyle.g = tintColor[1]; actorStyle.b = tintColor[2];
   actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
-  if (Render.actorStyle) Render.actorStyle(id, actorStyle);
+  Render.applyActorStyle(id, actorStyle);
   return actorStyle;
 }
 

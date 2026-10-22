@@ -300,7 +300,7 @@ Test.add('mutators', (check) => {
   strike(0, 1, 100000);
   check('growth stops at +50%', Mutators.growth[0] === GROWTH_MAX_KILLS);
   const drawn = { scale: 1 };
-  Render.actorStyle(0, drawn);
+  Render.applyActorStyle(0, drawn);
   check('the renderer draws a grown actor larger (actor style hook)', Math.abs(drawn.scale - 1.5) < 1e-4, drawn.scale);
   Bus.emit('actor.spawn', { id: 0 });
   check('growth resets on respawn', Mutators.growth[0] === 0 && Hitbox.sizeScale[0] === 1);

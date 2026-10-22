@@ -34,7 +34,13 @@ const Render = {
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
-  actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible }
+  actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible }; runs after the addActorStyle list
+  actorStyles: [],         // fn(id, out) per section (powerups, abilities, mutators), run in load order
+  addActorStyle(style) { this.actorStyles.push(style); },
+  applyActorStyle(id, out) {
+    for (let index = 0; index < this.actorStyles.length; index++) this.actorStyles[index](id, out);
+    if (this.actorStyle) this.actorStyle(id, out);
+  },
   worldQuery: null,        // S08 sets it to World: { brushes } (convex brushes with planes), read on 'world.load'
   addSource(name, draw) { this.sources.push({ name, draw }); },
 

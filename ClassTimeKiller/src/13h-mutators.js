@@ -544,12 +544,8 @@ Bus.on('kill', (event) => runHooks('kill', event));
 Bus.on('damage', (event) => runHooks('damage', event));
 Bus.on('weapon.fire', (shot) => runHooks('fire', shot));
 
-// Size changes (X31, X39) also scale the drawn body; chained after any hook an earlier section installed.
-const previousActorStyle = Render.actorStyle;
-Render.actorStyle = (id, style) => {
-  if (previousActorStyle) previousActorStyle(id, style);
-  style.scale *= Hitbox.sizeScale[id];
-};
+// Size changes (X31, X39) also scale the drawn body.
+Render.addActorStyle((id, style) => { style.scale *= Hitbox.sizeScale[id]; });
 
 // Confirm tags (X42) are drawn as small yellow plates above the floor, live last gifts (X29) as red balls that blink faster before the blast.
 Render.addSource('tags', (batch) => {
