@@ -1,4 +1,4 @@
-// Bot team play (BOT-060..BOT-063, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
+// Bot team play (BOT-050, BOT-051, BOT-060..BOT-062, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
 // the mode's objective kind, BOT_ROLE_SPLITS); the player's pings and comm wheel callouts (COMM_CALLOUTS, wheel in 17g) are
 // orders that the nearest team bots (the whole team for follow / hold / regroup) acknowledge and
 // follow (acknowledged within 0.5-1.5 s; the nearest team bot answers an enemy ping the same way); bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
@@ -13,7 +13,7 @@ const ENEMY_PING_INTERVAL = 4;
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
-const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-062: an order is acknowledged within 0.5-1.5 s
+const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-051: an order is acknowledged within 0.5-1.5 s
 const ORDER_SECONDS = { go: 30, attack: 30, defend: 45, follow: 60 };
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
 const ORDER_RADIUS = 2.5;
@@ -33,7 +33,7 @@ const COMM_CALLOUTS = [
 const COMM_CALLOUT_BY_KIND = new Map(COMM_CALLOUTS.map((row) => [row.id, row]));
 const PING_RANGE = 120;
 const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
-const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
+const HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
 const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
 const PUSH_CHECK_INTERVAL = 0.5;
 
@@ -117,12 +117,12 @@ const BotTeam = {
     this.updatePushes(now);
   },
   assignRoles() {
-    const splits = BOT_ROLE_SPLITS[Modes.rules ? Modes.rules.objective : 'none'] || BOT_ROLE_SPLITS.none;
-    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, splits);
+    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, roleSplitKey(team));
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] < 0) this.role[id] = ROLE.FREELANCE;
   },
   // The bots with the most teamwork take the support roles (defend, escort); the others attack.
-  assignTeam(team, splits) {
+  assignTeam(team, key) {
+    const splits = BOT_ROLE_SPLITS[key] || BOT_ROLE_SPLITS.none;
     rankList.length = 0;
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === team) rankList.push(id);
     if (!rankList.length) return;
@@ -138,12 +138,12 @@ const BotTeam = {
   updateBot(id, now) {
     if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
-    if (health < LOW_HEALTH_BARK && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
+    if (health < LOW_HEALTH_FRACTION && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
   },
 
-  // ---- Orders (BOT-062): the decision layer asks for the bot's current order as a goal plan ----
+  // ---- Orders (BOT-051): the decision layer asks for the bot's current order as a goal plan ----
   orderPlan(id, plan, now) {
     if (this.orderUntil[id] <= now) return false;
     const kind = this.orderKind[id];
@@ -207,7 +207,7 @@ const BotTeam = {
     takerList.sort((a, b) => Math.hypot(Actors.x[a] - x, Actors.z[a] - z) - Math.hypot(Actors.x[b] - x, Actors.z[b] - z));
     if (takerList.length > ORDER_TAKERS) takerList.length = ORDER_TAKERS;
   },
-  // A bot that newly sees an enemy pings it for the team (BOT-063) and calls it out.
+  // A bot that newly sees an enemy pings it for the team (BOT-061) and calls it out.
   onSpotted(bot, other, now) {
     if (Actors.team[bot] < 0 || now - this.enemyPingAt[bot] < ENEMY_PING_INTERVAL) return;
     this.enemyPingAt[bot] = now;
@@ -276,6 +276,14 @@ const BotTeam = {
   },
 };
 
+// The BOT_ROLE_SPLITS row for a team: the mode's objective kind; flags: 'flagTaken' while a team-mate carries the enemy flag.
+function roleSplitKey(team) {
+  const objective = Modes.rules ? Modes.rules.objective : 'none';
+  if (objective !== 'flag') return objective;
+  const list = Modes.objectives;
+  for (let i = 0; i < list.length; i++) if (list[i].kind === 'flag' && list[i].team === 1 - team && list[i].carrier >= 0) return 'flagTaken';
+  return objective;
+}
 function aimedEnemy(player, dx, dy, dz) {
   let best = -1, bestCos = PING_AIM_COS;
   const eyeY = Actors.eyeY(player);

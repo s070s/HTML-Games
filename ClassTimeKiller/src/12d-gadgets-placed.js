@@ -252,8 +252,8 @@ const Devices = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(device, row, id)) continue;
       const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
-      emitGadgetImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
-      emitGadgetSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
+      emitImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
+      emitSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
     }
   },
   onPad(device, row, id) {
@@ -299,7 +299,7 @@ const Devices = {
     const reach = hit >= 0 ? deviceActorHit.distance : wall;
     if (hit >= 0 && this.enemyOf(device, hit)) deviceDamage(this.owner[device], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + direction.x * reach, y + direction.y * reach, z + direction.z * reach, null);
-    emitGadgetSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
+    emitSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
   },
   // G16: everyone inside (enemies too) regains health.
   stepHeal(device, row, dt) {
@@ -393,7 +393,7 @@ const Devices = {
     if (this.health[device] > 0) return false;
     this.remove(device, true);
     if (!Game.headless) Fx.burst('spark', this.x[device], this.y[device] + 0.3, this.z[device], 0, 1, 0, 16, null);
-    emitGadgetSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
+    emitSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
     return true;
   },
   hitRadius(device) {

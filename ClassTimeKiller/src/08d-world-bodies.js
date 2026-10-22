@@ -125,13 +125,11 @@ const Props = {
     breakEvent.prop = index; breakEvent.material = brush.material;
     breakEvent.x = (brush.minX + brush.maxX) / 2; breakEvent.y = (brush.minY + brush.maxY) / 2; breakEvent.z = (brush.minZ + brush.maxZ) / 2;
     Bus.emit('world.break', breakEvent);
-    breakSound.x = breakEvent.x; breakSound.y = breakEvent.y; breakSound.z = breakEvent.z;
-    Bus.emit('sound', breakSound);
+    emitSound(breakEvent.x, breakEvent.y, breakEvent.z, BREAK_NOISE_RADIUS, 'break', -1);
   },
 };
 
 const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
-const breakSound = { x: 0, y: 0, z: 0, radius: BREAK_NOISE_RADIUS, kind: 'break', source: -1 };
 const bodyMover = makeMover();
 
 World.addPart({ load: (map) => Props.load(map), clear: () => Props.clear() });

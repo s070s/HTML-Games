@@ -118,7 +118,6 @@ const MapEditor = {
   openGroup: 0,                    // history group of a multi-step edit, 0 = none
   groupCounter: 0,
   history: { entries: new Array(MAPEDIT_HISTORY_SIZE).fill(null), start: 0, length: 0, position: 0 },
-  toastEvent: { text: '' },
   changedEvent: { what: '' },
 
   // ---- Lifecycle ----
@@ -136,8 +135,7 @@ const MapEditor = {
   announce(what) { this.changedEvent.what = what; Bus.emit('mapEditor.changed', this.changedEvent); },
   refuse(text) {
     this.message = text;
-    this.toastEvent.text = text;
-    Bus.emit('toast', this.toastEvent);
+    emitToast(text);
     return -1;
   },
   toMap() { return mapEditClone(this.map); },

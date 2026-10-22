@@ -280,7 +280,7 @@ function lowerQualityStep() {
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
   Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
-  toastText('Quality lowered to ' + next.name + ' to keep the game smooth');
+  emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
 
@@ -324,7 +324,7 @@ function finishBenchmark() {
   Benchmark.done = true;
   Benchmark.result = pickBenchmarkQuality(benchmarkMedian());
   Settings.set('video.autoQuality', Benchmark.result);
-  toastText('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
+  emitToast('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
 }
 
 function updateBenchmark(seconds) {

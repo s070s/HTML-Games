@@ -21,6 +21,9 @@ Data.define('health', {
   { id: 'suit', code: 'HPP08', name: 'Weave Suit', regenDelay: 6, regenRate: 20, energy: { max: 100, rate: 25, delay: 2 } },
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);
+// Low health (HPP02: red vignette and heartbeat below 35 of 100 HP) as a share of max health: the one threshold for the HUD
+// health bar, the vignette, the heartbeat and the bots' low-health bark.
+const LOW_HEALTH_FRACTION = 0.35;
 
 // HP-002 precision profiles (hit zone multipliers). Movement inaccuracy (MOV-025) is the movement preset's table (S10 Move.inaccuracy).
 Data.define('precision', {

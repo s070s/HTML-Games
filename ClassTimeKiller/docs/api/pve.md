@@ -64,7 +64,7 @@ Guardian Plate (DIF-004): `Pve.guardian[id] = 1` halves enemy damage to that par
 | `awareness[id]`, `awarenessState(id)` | stealth meter 0..1, `AWARENESS` |
 | `relocateActor(id, x, y, z, yaw)` (global) | moves an actor with no interpolation and no velocity (spawns, blinks, chambers) |
 
-Events: `pve.tell { id, attack, kind, seconds, color, target }`, `pve.parry { id, attack, kind, target }`, `pve.alarm { id, target }`, `pve.core { id, kind: 'destroyed' }`, `pve.wave { wave, kind: 'start'|'cleared' }`, `pve.boss { id, phase, phases, kind: 'phase'|'weak' }`, `pve.chamber { chamber, kind: 'enter'|'complete', medal }`, `pve.wrath { id, active }` (A34 Wrath Form, the soul modes' automatic ultimate, started / ended). Payloads are reused.
+Events: `pve.tell { id, attack, kind, seconds, color, target }`, `pve.parry { id, attack, kind, target }`, `pve.alarm { id, target }`, `pve.core { id, kind: 'destroyed' }`, `pve.wave { wave, kind: 'start'|'cleared' }`, `pve.boss { id, phase, phases, kind: 'start'|'phase'|'weak'|'defeated'|'gone', seconds (since the boss spawned), final }` (start on a boss row's spawn, defeated on its kill, gone when a living boss is removed without a kill), `pve.chamber { chamber, kind: 'enter'|'complete', medal }`, `pve.wrath { id, active }` (A34 Wrath Form, the soul modes' automatic ultimate, started / ended). Payloads are reused.
 
 ## Boss (E13, 14k)
 

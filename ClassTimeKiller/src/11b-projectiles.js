@@ -17,12 +17,14 @@ const COMBO_TARGET_PADDING = 0.3;        // hitscan combo shots get a slightly l
 const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bouncing and settle
 const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
+const INCOMING_RANGE = 25;               // m: an `incoming` row (rocket, missile) this close and closing in warns the local player once (AUD-005)
 
 const PIN_WALL_REACH = 1.5;              // W26: a wall this close behind a stake's victim pins it there
 const PIN_HEIGHT = 1;                    // the pin ray starts this high above the victim's feet
 
 const sweepHit = makeHit();
 const pinHit = makeHit();
+const INCOMING_EVENT = { x: 0, y: 0, z: 0, kind: '', source: -1 };
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
@@ -45,6 +47,7 @@ const Projectiles = {
   offsetY: new Float32Array(PROJECTILE_CAP), offsetZ: new Float32Array(PROJECTILE_CAP), timer: new Float32Array(PROJECTILE_CAP),
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
+  warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -88,7 +91,7 @@ const Projectiles = {
     this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
     this.age[i] = 0; this.life[i] = row.life; this.travelled[i] = 0; this.damage[i] = damage; this.multiplier[i] = 1;
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
-    this.hitLow[i] = this.hitHigh[i] = 0;
+    this.hitLow[i] = this.hitHigh[i] = 0; this.warned[i] = 0;
     this.gravity[i] = row.gravity; this.drag[i] = row.drag;
     this.serial[i] = this.nextSerial++;
     return i;
@@ -179,6 +182,20 @@ const Projectiles = {
     this.accelerate(i, dt);
     this.stepAura(i, dt);
     this.sweep(i, dt);
+    if (this.state[i] === PROJECTILE_STATE.FLYING) this.warnIncoming(i);
+  },
+  // AUD-005 / ACC-002: a rocket or missile of anyone but the local player and allies, within 25 m and closing in:
+  // 'projectile.incoming' once (S06 plays the whistle and the "[Rocket incoming]" caption).
+  warnIncoming(i) {
+    const player = Game.playerId, owner = this.owner[i];
+    if (this.warned[i] || player < 0 || !Actors.alive[player] || !this.row(i).incoming) return;
+    if (owner === player || (owner >= 0 && !Actors.isEnemy(owner, player))) return;
+    const dx = Actors.x[player] - this.x[i], dy = Actors.eyeY(player) - this.y[i], dz = Actors.z[player] - this.z[i];
+    if (dx * dx + dy * dy + dz * dz > INCOMING_RANGE * INCOMING_RANGE || dx * this.vx[i] + dy * this.vy[i] + dz * this.vz[i] <= 0) return;
+    this.warned[i] = 1;
+    INCOMING_EVENT.x = this.x[i]; INCOMING_EVENT.y = this.y[i]; INCOMING_EVENT.z = this.z[i];
+    INCOMING_EVENT.kind = this.row(i).id; INCOMING_EVENT.source = owner;
+    Bus.emit('projectile.incoming', INCOMING_EVENT);
   },
   accelerate(i, dt) {
     const row = this.row(i);

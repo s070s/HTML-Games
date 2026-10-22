@@ -41,9 +41,7 @@ const HERO_EXTRA_GRENADES = 1;           // H05 passive 'extraGrenade': one more
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
 const BOUNCE_EVENT = { x: 0, y: 0, z: 0, kind: 'grenade', source: -1 };
-const GADGET_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
 const POP_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
-const IMPULSE_PAYLOAD = { id: 0, x: 0, y: 0, z: 0 };
 // Fire-mode-like rows for Damage.explode / Damage.apply (weapon key, element, splash), one per gadget.
 const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null,
   statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
@@ -58,19 +56,11 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
-function emitGadgetSound(x, y, z, radius, kind, source) {
-  GADGET_SOUND.x = x; GADGET_SOUND.y = y; GADGET_SOUND.z = z; GADGET_SOUND.radius = radius; GADGET_SOUND.kind = kind; GADGET_SOUND.source = source;
-  Bus.emit('sound', GADGET_SOUND);
-}
-function emitGadgetImpulse(id, x, y, z) {
-  IMPULSE_PAYLOAD.id = id; IMPULSE_PAYLOAD.x = x; IMPULSE_PAYLOAD.y = y; IMPULSE_PAYLOAD.z = z;
-  Bus.emit('impulse', IMPULSE_PAYLOAD);
-}
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
   Bus.emit('explosion', POP_EVENT);
-  emitGadgetSound(x, y, z, POP_NOISE, 'explosion', owner);
+  emitSound(x, y, z, POP_NOISE, 'explosion', owner);
 }
 // True when an effect at (x, y, z) reaches the target's body: in radius, in line of sight, and an enemy of the owner
 // (or the owner; allies only with friendly fire on).
@@ -367,7 +357,7 @@ const GadgetAreas = {
   stepDecoy(area, row, dt) {
     if (!this.due(area, dt, 1 / row.rate)) return;
     const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-    emitGadgetSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+    emitSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
     if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
   },
   // G09: everyone in reach is pulled to the centre (m/s^2), then the blast.
@@ -375,7 +365,7 @@ const GadgetAreas = {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
-      emitGadgetImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
+      emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
@@ -387,7 +377,7 @@ const GadgetAreas = {
       if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
     }
-    emitGadgetSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
+    emitSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
     if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
     if (--this.pulses[area] <= 0) this.active[area] = 0;
   },
@@ -442,7 +432,7 @@ const GadgetEffects = {
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
       const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
-      emitGadgetImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
+      emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
   },
 };
@@ -580,7 +570,7 @@ const Thrown = {
   emitBounce(slot) {
     BOUNCE_EVENT.x = this.x[slot]; BOUNCE_EVENT.y = this.y[slot]; BOUNCE_EVENT.z = this.z[slot]; BOUNCE_EVENT.source = this.owner[slot];
     Bus.emit('projectile.bounce', BOUNCE_EVENT);
-    emitGadgetSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
   },
   // G22 and G12 remove enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },

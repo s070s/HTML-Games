@@ -282,6 +282,28 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
+// AUD-006: a boss fight plays the boss music layer from the boss spawn until its defeat or the match end; the defeat reports the fight time.
+Test.add('pve', (check) => {
+  startPveTest();
+  const weights = { calm: 0, combat: 0, boss: 0 }, events = startEventLog('pve.boss');
+  const boss = spawnFacing('overlord', 30);
+  check('a boss spawn brings the boss music layer in', SoundMusic.targetWeights(weights).boss === 1, SoundMusic.bosses);
+  runSeconds(1);
+  killEnemy(boss);
+  events.stop();
+  const defeated = events.find((event) => event.kind === 'defeated');
+  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
+  check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === defeated.seconds,
+    RunLog.bossSeconds);
+  spawnFacing('overlord', 30);
+  Pve.clearEnemies();   // a failed wave 10 or a round clear removes the living boss without a kill
+  check('a boss removed without a kill takes the boss layer out', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.bosses === 0, SoundMusic.bosses);
+  spawnFacing('overlord', 30);
+  check('the retry counts one boss fight', SoundMusic.bosses === 1, SoundMusic.bosses);
+  Game.stop();
+  check('the match end stops the boss layer', SoundMusic.bosses === 0);
+});
+
 // X50: rules.fx.wildlife beasts appear on reachable nodes away from players, attack, and a flash blast lures them.
 Test.add('pve', (check) => {
   World.load(pveTestMap());

@@ -68,6 +68,7 @@ function playMusicNote(voice, hz, time, peak, length) {
 const SoundMusic = {
   mood: 'auto',          // 'auto' follows the intensity, the others force a layer mix (boss fights, menus)
   intensity: 0,          // 0..1, raised by damage near the listener, decays over seconds
+  bosses: 0,             // boss fights going on ('pve.boss' start minus defeated or gone; 0 again when the match ends or stops)
   nodes: null, layerClock: 0, step: 0, bar: 0, nextStepTime: 0,
   weights: { calm: 1, combat: 0, boss: 0 },
 
@@ -76,8 +77,16 @@ const SoundMusic = {
     this.mood = name;
     return true;
   },
-  // Menus are always calm; during a match the mood decides.
-  effectiveMood() { return Game.state === 'playing' ? this.mood : 'calm'; },
+  // Menus are always calm; during a match the mood decides, and 'auto' plays the boss layer while a boss fights (AUD-006).
+  effectiveMood() {
+    if (Game.state !== 'playing') return 'calm';
+    return this.mood === 'auto' && this.bosses > 0 ? 'boss' : this.mood;
+  },
+  onBoss(payload) {
+    if (payload.kind === 'start') this.bosses++;
+    if (payload.kind === 'defeated' || payload.kind === 'gone') this.bosses = Math.max(0, this.bosses - 1);
+  },
+  resetMatch() { this.intensity = 0; this.bosses = 0; },
 
   onDamage(payload) {
     if (!Sound.live()) return;
@@ -201,5 +210,7 @@ const SoundMusic = {
 Sound.setMusicMood = (name) => SoundMusic.setMood(name);
 Sound.frameHooks.push((seconds) => SoundMusic.update(seconds));
 Bus.on('damage', (payload) => SoundMusic.onDamage(payload));
-Bus.on('match.start', () => { SoundMusic.intensity = 0; });
-Bus.on('match.stop', () => { SoundMusic.intensity = 0; });
+Bus.on('pve.boss', (payload) => SoundMusic.onBoss(payload));
+Bus.on('match.start', () => SoundMusic.resetMatch());
+Bus.on('match.end', () => { SoundMusic.bosses = 0; });
+Bus.on('match.stop', () => SoundMusic.resetMatch());

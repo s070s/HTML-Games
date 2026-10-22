@@ -113,16 +113,21 @@ const BOT_BARKS = {
 };
 const BOT_CHAT_CHANCE = { quiet: 0.5, normal: 0.8, loud: 1 };   // chance that a due bark is spoken, by the bot's chat style
 
-// Team roles (BOT-060): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
-// attack. Free-for-all bots are freelancers.
+// Team roles (BOT-050): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
+// attack. Free-for-all bots are freelancers. Flags:
+// 'flag' while the enemy flag is home (more raiders than BOT-050's 40% attack: two raiders gather before a push, and the
+// soak's capture rate needs three of four), 'flagTaken' while a team-mate carries it (BOT-050: 60% defend, 30% escort),
+// judged at each commander round (a switch at the very moment of the grab breaks the raid; the soak's balance shows it).
 const BOT_ROLE_SPLITS = {
   flag: { defend: 0.3, escort: 0.2 },
+  flagTaken: { defend: 0.6, escort: 0.3 },
   point: { defend: 0.4 },
   hill: { defend: 0.25 },
   bombsite: { escort: 0.3 },
   none: { defend: 0.2 },
 };
 const BOT_CAMP_HINTS = ['sniper', 'cover', 'guard'];   // map navHints kinds a camper may hold (BOT-041)
+const BOT_FLANK_HINT = 'flank';                         // map navHints kind a flanking tier (botTiers `flanks`) chases round by
 
 // Flag raids (BOT-050 attack play): while the enemy flag is home, a team's attackers and escorts gather at a rally point
 // (share of the way from their own base to the enemy flag) and push together once `minimum` of them are within `radius`
@@ -152,7 +157,7 @@ const BOT_HUNTED_ROLES = ['carrier', 'colossus', 'cursed', 'bearer'];
 // Grenades and gadgets (BOT-034/035) by the gadget row's effect: the trigger (BOT_USE_TRIGGERS: the words of the ability
 // botUse), the target distance range [min, max] m (max 0 = any distance, or no target needed), the chance per check, and
 // for thrown rows where the throw lands ('enemy' = where the bot believes its target is, 'between' = half way there, a
-// screen); tier: the lowest skill tier that uses it (0 when missing). cover = the target hid in the last 3 s or 2+
+// screen); tierFlag: the botTiers flag a bot's tier needs to use it (none = every tier with gadgets). cover = the target hid in the last 3 s or 2+
 // enemies stand together; coverOrHolding = that, or any target while the bot holds its spot (BOT-034: frags at cover,
 // clusters or from a held point); holding = the bot holds its spot (defend, camp, objective); lowAmmo = the drawn
 // weapon's reserve is low. An effect missing here is never used by bots.
@@ -160,7 +165,7 @@ const BOT_GADGET_USE = {
   explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
   fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
   singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
-  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tier: 3 },   // BOT-034: flash before a peek from tier 3
+  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },   // BOT-034: flash before a peek (tier 3+)
   freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
   impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
   dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },

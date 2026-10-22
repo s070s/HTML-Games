@@ -35,8 +35,7 @@ const AUDIO_PAUSE_TAU = 0.02;                 // seconds, fade of the game buses
 const AUDIO_SUSPEND_DELAY_MS = 150;           // the context is suspended after the pause fade finished
 const AUDIO_BLOCKED_CHECK_MS = 1500;          // still not running this long after a gesture = blocked
 const AUDIO_HRTF_QUALITY = ['high', 'ultra']; // AUD-004: head-related panning only where the CPU can afford it
-const AUDIO_LOW_HEALTH = 0.3;                 // heartbeat below this health fraction
-const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold
+const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold (LOW_HEALTH_FRACTION, S03)
 const AUDIO_HEARTBEAT_FAST = 0.5;             // seconds between beats at 0 health
 const AUDIO_GAMEPAD_POLL_SECONDS = 0.1;
 const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
@@ -180,9 +179,7 @@ function audioPriorityFor(recipe, distance, own) {
 }
 
 // ---- Payloads reused for emitted events (listeners copy what they keep) ----
-const audioToastPayload = { text: '' };
 const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
-function audioToast(text) { audioToastPayload.text = text; Bus.emit('toast', audioToastPayload); }
 
 const isAppleTouchDevice = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
 
@@ -427,14 +424,14 @@ const Sound = {
   },
   createContext() {
     const Constructor = window.AudioContext || window.webkitAudioContext;
-    if (!this.contextFactory && !Constructor) { audioToast('Sound is not supported by this browser.'); return false; }
+    if (!this.contextFactory && !Constructor) { emitToast('Sound is not supported by this browser.'); return false; }
     this.sessionHint = this.configureSession(navigator);
     try {
       this.attach(this.contextFactory ? this.contextFactory() : new Constructor({ latencyHint: 'interactive' }));
       this.playSilence();
     } catch (error) {
       ErrorLog.add('audio.createContext', error);
-      audioToast('Sound could not start on this device.');
+      emitToast('Sound could not start on this device.');
       this.context = null; this.buses = null;
       return false;
     }
@@ -451,7 +448,7 @@ const Sound = {
   configureSession(nav) {
     if (nav.audioSession) { nav.audioSession.type = 'playback'; return 'playback'; }
     if (!isAppleTouchDevice(nav)) return 'none';
-    audioToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
+    emitToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
     return 'hint';
   },
   resumeContext() {
@@ -463,7 +460,7 @@ const Sound = {
     this.blockedTimer = 0;
     if (!this.context || this.canPlay() || this.pauseSuspended || this.blockedShown) return;   // no context (detached): nothing is blocked
     this.blockedShown = true;
-    audioToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
+    emitToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
   },
   attach(context) {
     this.context = context;
@@ -569,9 +566,9 @@ const Sound = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || Actors.maxHealth[id] <= 0) { this.heartbeatClock = 0; return; }
     const fraction = Actors.health[id] / Actors.maxHealth[id];
-    if (fraction >= AUDIO_LOW_HEALTH) { this.heartbeatClock = 0; return; }
+    if (fraction >= LOW_HEALTH_FRACTION) { this.heartbeatClock = 0; return; }
     this.heartbeatClock += seconds;
-    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / AUDIO_LOW_HEALTH);
+    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / LOW_HEALTH_FRACTION);
     if (this.heartbeatClock < period) return;
     this.heartbeatClock -= period;
     this.enqueue(this.recipeIndex('heartbeat'), false, 0, 0, 0, id, 1, 1);

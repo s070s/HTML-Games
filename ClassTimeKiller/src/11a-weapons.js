@@ -66,18 +66,7 @@ const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '' };
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
-const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
-const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
 
-function emitSound(x, y, z, radius, kind, source) {
-  if (radius <= 0) return;
-  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
-  Bus.emit('sound', SOUND_EVENT);
-}
-function emitImpulse(id, x, y, z) {
-  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
-  Bus.emit('impulse', IMPULSE_EVENT);
-}
 function emitWeaponEvent(type, payload, id, weapon) {
   payload.id = id; payload.weapon = weapon.id;
   Bus.emit(type, payload);

@@ -19,6 +19,11 @@ const ROAM_SCORE = 0.12;
 const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
 const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
+const SEARCH_AFTER = 2;                 // s: a chase on older memory than this is the Search state (BOT-002)
+const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a flank hint only for a target at least this far...
+const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
+const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
+const FLANK_REST = 20;                  // s between two flanks of one bot
 const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
 const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
 const AGGRESSION_WEAPON_FLOOR = 0.55;   // any armed bot is willing to fight; strong weapons push it higher (BOT-021 table)
@@ -74,6 +79,7 @@ const BotDecide = {
   items: [], itemNode: new Int32Array(MAX_BOT_ITEMS), itemReadyAt: new Float64Array(MAX_BOT_ITEMS),
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
+  flankSpots: [], flankSpot: new Int16Array(MAX_ACTORS).fill(-1), flankedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   lootNode: new Int32Array(LOOT_MAX).fill(-1),             // nav node of each royale loot spot (Modes.loot)
   planners: {},          // objective kind -> fn(id, plan, now) -> bool (BOT-080 mode brains)
 
@@ -98,6 +104,7 @@ const BotDecide = {
   onMatchStart(match) {
     this.items.length = 0;
     this.campSpots.length = 0;
+    this.flankSpots.length = 0;
     this.itemVisited.fill(-1e9);
     this.itemReadyAt.fill(0);
     this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
@@ -105,6 +112,7 @@ const BotDecide = {
     if (!map) return;
     for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
+    for (const hint of map.navHints || []) if (hint.kind === BOT_FLANK_HINT) this.flankSpots.push({ x: hint.x, y: hint.y, z: hint.z });
     const loot = Modes.loot;
     for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
   },
@@ -185,9 +193,15 @@ const BotDecide = {
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
     this.goalRadius[id] = plan.radius; this.goalAction[id] = plan.action; this.goalTarget[id] = plan.target;
-    Bots.setState(id, GOAL_STATES[plan.goal]);
+    Bots.setState(id, this.goalState(id, plan, now));
     if (plan.goal === GOAL.NONE) { BotMove.stop(id); return; }
     BotMove.goTo(id, plan.x, plan.y, plan.z, plan.radius);
+  },
+
+  // BOT-002: a chase whose memory of the target is older than SEARCH_AFTER seconds is a Search (the target may have moved on).
+  goalState(id, plan, now) {
+    if (plan.goal !== GOAL.CHASE || plan.target < 0) return GOAL_STATES[plan.goal];
+    return now - BotSense.knownAt[BotSense.pair(id, plan.target)] > SEARCH_AFTER ? BOT_STATE.SEARCH : BOT_STATE.CHASE;
   },
 
   // ---- Execution per tick: hold and use actions, arrivals, the no-goal clock (soak check) ----
@@ -195,13 +209,14 @@ const BotDecide = {
     const goal = this.goal[id];
     if (goal === GOAL.NONE) { this.noGoalTime[id] += dt; this.longestNoGoal[id] = Math.max(this.longestNoGoal[id], this.noGoalTime[id]); return; }
     this.noGoalTime[id] = 0;
-    if (BotMove.failed(id)) { this.goalFailed(id, now); return; }
+    if (BotMove.failed(id) && !BotCombat.weaponJumpPending(id, now)) { this.goalFailed(id, now); return; }   // a ledge goal may be jumped to
     const near = Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
     if (this.goalAction[id] === ACTION.USE && near) { Bots.wish(id, 0, 0, 0); Bots.press(id, BTN.USE); return; }
     if (!BotMove.arrived(id) && !near) return;
     this.arrive(id, goal, dt, now);
   },
   arrive(id, goal, dt, now) {
+    if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }
     if (goal === GOAL.COLLECT) this.markVisited(id, this.goalTarget[id], now);
     if (goal === GOAL.CHASE) this.searched(id);
     if (goal === GOAL.ROAM) this.roamNode[id] = -1;
@@ -257,6 +272,21 @@ function mutatorRisk() {
   return clamp(Math.sqrt(dealt / Math.max(taken, 1e-3)), MUTATOR_RISK_MIN, MUTATOR_RISK_MAX);
 }
 
+// A tier with `flanks` (BT5+) chases a far target round the side: the flank hint nearer the target than the bot whose way
+// (bot -> hint -> target) is shortest and at most FLANK_DETOUR x the straight way; -1 = straight on. One flank per FLANK_REST s.
+function flankSpot(id, targetX, targetZ, now) {
+  if (!Bots.tier(id).flanks || now - BotDecide.flankedAt[id] < FLANK_REST) return -1;
+  const x = Actors.x[id], z = Actors.z[id], direct = Math.hypot(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
+  if (direct < FLANK_MIN_DISTANCE) return -1;
+  let best = -1, bestWay = direct * FLANK_DETOUR;
+  for (let i = 0; i < spots.length; i++) {
+    const toTarget = Math.hypot(targetX - spots[i].x, targetZ - spots[i].z), fromBot = Math.hypot(spots[i].x - x, spots[i].z - z);
+    if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
+    best = i; bestWay = fromBot + toTarget;
+  }
+  return best;
+}
+
 function holdHere(id) {
   setPlan(goalPlan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
   copyPlan(bestPlan, goalPlan, GOAL.ROAM, ROAM_SCORE);
@@ -300,7 +330,10 @@ GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
   const pair = BotSense.pair(id, target), freshness = 1 - (now - BotSense.knownAt[pair]) / SENSE_MEMORY;
-  setPlan(plan, BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair], 1.5, ACTION.MOVE, target);
+  const flank = flankSpot(id, BotSense.knownX[pair], BotSense.knownZ[pair], now), spot = BotDecide.flankSpots[flank];
+  BotDecide.flankSpot[id] = flank;
+  if (spot) setPlan(plan, spot.x, spot.y, spot.z, FLANK_REACHED, ACTION.MOVE, target);
+  else setPlan(plan, BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair], 1.5, ACTION.MOVE, target);
   return CHASE_BASE + CHASE_GAIN * aggression * freshness;
 };
 GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {

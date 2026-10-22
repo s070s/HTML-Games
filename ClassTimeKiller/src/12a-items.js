@@ -30,7 +30,6 @@ const NO_TICK = -1;
 const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
 const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
-const ITEM_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: 'pickup', source: -1 };
 const ITEM_COUNT = CAT.items.length;
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
@@ -343,9 +342,7 @@ const Items = {
     PICKUP_EVENT.id = id; PICKUP_EVENT.item = row.id; PICKUP_EVENT.group = group;
     PICKUP_EVENT.x = this.x[slot]; PICKUP_EVENT.y = this.y[slot]; PICKUP_EVENT.z = this.z[slot];
     Bus.emit('pickup', PICKUP_EVENT);
-    ITEM_SOUND.x = this.x[slot]; ITEM_SOUND.y = this.y[slot]; ITEM_SOUND.z = this.z[slot]; ITEM_SOUND.source = id;
-    ITEM_SOUND.radius = this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE;
-    Bus.emit('sound', ITEM_SOUND);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE, 'pickup', id);
     if (this.isPower(slot) && row.announce !== false) this.announce(Actors.name[id] + ' took the ' + row.name);
   },
   takeItem(id, slot) {

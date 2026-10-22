@@ -549,8 +549,6 @@ function movingInaccuracy(id, table) {
 // ---- Events (reused payloads: listeners copy what they keep) ----
 const moveEvents = {};
 for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '', loudness: 1 };
-const noiseEvent = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: 0 };
-
 function emitMove(type, id, speed, surface) {
   const payload = moveEvents[type];
   payload.id = id; payload.speed = speed; payload.surface = surface;
@@ -558,10 +556,7 @@ function emitMove(type, id, speed, surface) {
 }
 
 function emitNoise(id, radius, kind) {
-  if (radius <= 0) return;
-  noiseEvent.x = Actors.x[id]; noiseEvent.y = Actors.y[id]; noiseEvent.z = Actors.z[id];
-  noiseEvent.radius = radius; noiseEvent.kind = kind; noiseEvent.source = id;
-  Bus.emit('sound', noiseEvent);
+  emitSound(Actors.x[id], Actors.y[id], Actors.z[id], radius, kind, id);
 }
 
 function surfaceOf(id) {

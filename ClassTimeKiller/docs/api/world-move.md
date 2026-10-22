@@ -115,7 +115,7 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.dashCharges(id)` | whole dash charges ready |
 | `Move.stateName(id)` | `walk mantle dash charge wall_run latch ladder swim` |
 | `Move.isGrounded(id)`, `Move.horizontalSpeed(id)` | state queries |
-| `Move.setBoard(id, on)` -> bool, `Move.onBoard(id)` | Skimmer (MOV-027): only on maps with size >= 150 m; 13 m/s; no weapons; any `damage` to the rider knocks it off for 2 s |
+| `Move.setBoard(id, on)` -> bool, `Move.onBoard(id)` | Skimmer (MOV-027): only on maps with size >= 150 m; 13 m/s; no weapons; any `damage` to the rider knocks it off for 2 s. Players and bots board by pressing Use while running on the ground (at least 0.8 x the ground speed: Use standing or walking stays free for objectives and loot) and step off with Use |
 
 Controls (buttons from `BTN`): JUMP jump / double jump / wall jump-out / mantle / bullet jump (crouched or sliding, MV08);
 CROUCH held crouch, slide when pressed at slide speed, roll when held on landing (MV08); PRONE toggles prone (MV03);

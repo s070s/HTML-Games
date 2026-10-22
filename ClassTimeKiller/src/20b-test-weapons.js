@@ -237,6 +237,25 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// AUD-005 / ACC-002: an enemy rocket closing in on the local player warns once; one flying away, the player's own and a grenade do not.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const player = TestArena.actor(1, 0, 0), enemy = TestArena.actor(2, 0, 40);
+  const rocket = CAT.projectiles.byId('rocket'), grenade = CAT.projectiles.byId('grenade'), ramjet = CAT.weapons.byId('ramjet').index;
+  Game.playerId = player;
+  const warnings = [];
+  const handler = Bus.on('projectile.incoming', (event) => warnings.push(event.kind + ':' + event.source));
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 0, 1.5, 40, 0, 0, -30, 0);      // straight at the player
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 5, 1.5, 20, 0, 0, 30, 0);       // 21 m away, flying away
+  Projectiles.spawn(rocket, player, ramjet, 0, 0, 1.5, 2, 0, 0, 30, 0);       // the player's own
+  Projectiles.spawn(grenade, enemy, ramjet, 0, 3, 1.5, 15, 0, 0, -8, 0);      // a closing grenade (not an incoming row)
+  Sim.run(TICK_RATE);
+  Bus.off('projectile.incoming', handler);
+  check('an enemy rocket closing within 25 m sends one projectile.incoming (rocket whistle)', warnings.length === 1 && warnings[0] === 'rocket:' + enemy, warnings.join());
+  Game.playerId = -1;
+  TestArena.finish();
+});
+
 Test.add('weapons', (check) => {
   TestArena.start({}, [{ shape: 'box', min: [-3, 0, 8], max: [3, 3, 8.1], material: 'wood' }]);
   const shooter = TestArena.actor(1, 0, 0), front = TestArena.sponge(2, -0.6, 4), middle = TestArena.sponge(2, -0.6, 6), back = TestArena.sponge(2, 0.6, 11);

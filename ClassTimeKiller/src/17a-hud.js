@@ -19,7 +19,6 @@ const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-scree
 const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
 const HUD_NUMBER_CACHE = 1000;
 const HUD_LABEL_REFRESH_SECONDS = 1;
-const HUD_LOW_HEALTH = 0.25;
 const HUD_LOW_AMMO = 0.25;
 const HUD_PULSE_HZ = 2;                                  // slow pulses only: well under the flash cap
 const HUD_MAX_ABILITY_SLOTS = 4;
@@ -380,7 +379,7 @@ function hudLocalAlive() { return Game.playerId >= 0 && Actors.alive[Game.player
 function hudDrawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
   const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, top = bottomY - height, x = layout.left;
   const fraction = maximum > 0 ? value / maximum : 0;
-  const pulse = fraction < HUD_LOW_HEALTH && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
+  const pulse = fraction < LOW_HEALTH_FRACTION && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
   pen.bar(x, top, width, height, fraction, color, pulse);
   if (value > maximum && maximum > 0) pen.rect(x, top, width, Math.max(2, unit * 2), HUD_COLOR.gold, 1);   // overheal
   const size = height * 0.78;
@@ -394,7 +393,7 @@ function hudDrawVitals(pen, layout) {
   if (!hudLocalAlive()) return;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   let y = layout.bottom;
-  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < HUD_LOW_HEALTH ? Hud.colors.healthLow : Hud.colors.health, '♥');
+  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < LOW_HEALTH_FRACTION ? Hud.colors.healthLow : Hud.colors.health, '♥');
   if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = hudDrawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
   if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
 }

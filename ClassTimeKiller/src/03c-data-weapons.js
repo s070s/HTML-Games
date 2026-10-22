@@ -65,12 +65,13 @@ CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 // Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
 // onHit: 'explode' (direct + splash), 'damage', 'pin' (damage; a wall within 1.5 m behind the victim pins it: status 'pinned'), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
+// incoming: the local player hears a whistle and sees a caption when one closes in (AUD-005, S11 Projectiles.warnIncoming).
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
   fuse: 0, stick: false, stickActor: false, homing: 0, drag: 0, arm: 0, onHit: 'damage', poolSize: 16, roll: false, ownerSafe: false,
-  comboTarget: false, parryable: false, pierce: false, returning: false, silent: false, color: 0xffcc66, scale: 1, index: 0,
+  comboTarget: false, parryable: false, pierce: false, returning: false, silent: false, incoming: false, color: 0xffcc66, scale: 1, index: 0,
 }, [
-  { id: 'rocket', code: 'P01', name: 'Rocket', speed: 30, life: 8, radius: 0.15, onHit: 'explode', poolSize: 32, color: 0xff8a3d },
+  { id: 'rocket', code: 'P01', name: 'Rocket', speed: 30, life: 8, radius: 0.15, onHit: 'explode', poolSize: 32, incoming: true, color: 0xff8a3d },
   { id: 'grenade', code: 'P02', name: 'Grenade', speed: 22, gravity: 20, life: 2.5, fuse: 2.5, radius: 0.1, bounce: 0.5, bounces: -1, onHit: 'explode', poolSize: 24, color: 0x6a8f3a },
   { id: 'mine', code: 'P03', name: 'Sticky mine', speed: 20, gravity: 20, life: 30, radius: 0.1, stick: true, stickActor: true, onHit: 'explode', poolSize: 16, color: 0xd04040 },
   { id: 'plasma', code: 'P04', name: 'Plasma bolt', speed: 60, life: 3, radius: 0.1, onHit: 'explode', poolSize: 64, parryable: true, color: 0x55e0ff },
@@ -82,9 +83,9 @@ Data.define('projectiles', {
   { id: 'goo', code: 'P10', name: 'Goo blob', speed: 18, gravity: 15, life: 8, radius: 0.2, stick: true, onHit: 'puddle', poolSize: 48, color: 0x7fe04a },
   { id: 'disc', code: 'P11', name: 'Disc', speed: 35, life: 3, radius: 0.15, bounce: 1, bounces: 2, onHit: 'damage', poolSize: 32, color: 0xc8f0ff },
   { id: 'fusion', code: 'P12', name: 'Fusion orb', speed: 6, gravity: 20, life: 2, fuse: 2, radius: 0.5, roll: true, ownerSafe: true, onHit: 'explode', poolSize: 4, color: 0xffee88, scale: 0.8 },
-  { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, color: 0xf0f0f0 },
+  { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, incoming: true, color: 0xf0f0f0 },
   { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: 6, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
-  { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, color: 0xffa060 },
+  { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, incoming: true, color: 0xffa060 },
   { id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 180, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
   { id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
