@@ -11,9 +11,8 @@ const EDITOR_CODE_PREFIX = 'CTK';
 const EDITOR_CODE_VERSION = 1;
 const EDITOR_CODE_MAX_CHARS = 6000;
 const EDITOR_PAYLOAD_MAX_BYTES = 16384;
-const EDITOR_RANDOM = -1;                    // numeric fields: -1 = the mode's / bundle's own default
+const EDITOR_DEFAULT = -1;                    // numeric fields: -1 = the mode's / bundle's own default
 const EDITOR_PERSONALITY_MIXED = 'mixed';
-const EDITOR_LIST_LIMIT = 64;
 const EDITOR_SEED_RANGE = 0x7fffffff;
 const LZ_MAX_RUN = 128, LZ_MIN_MATCH = 3, LZ_MAX_MATCH = 130, LZ_MAX_OFFSET = 65535, LZ_MATCH_FLAG = 0x80;
 const EDITOR_SCORE_LIMITS = [-1, 0, 10, 25, 50, 100, 150, 200, 300, 500];
@@ -129,8 +128,8 @@ const CustomCodec = {
 // ---- The draft: every editor field, validation, and the conversion to a match setup ----
 function customDefaults() {
   return { name: '', mode: DEFAULT_MODE, map: '', bundle: '', move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true,
-    friendlyFire: EDITOR_RANDOM, lives: EDITOR_RANDOM, respawnDelay: EDITOR_RANDOM, botCount: EDITOR_RANDOM, allies: EDITOR_RANDOM,
-    difficulty: DEFAULT_DIFFICULTY, personality: EDITOR_PERSONALITY_MIXED, scoreLimit: EDITOR_RANDOM, timeLimit: EDITOR_RANDOM, roundWins: EDITOR_RANDOM, mutators: [] };
+    friendlyFire: EDITOR_DEFAULT, lives: EDITOR_DEFAULT, respawnDelay: EDITOR_DEFAULT, botCount: EDITOR_DEFAULT, allies: EDITOR_DEFAULT,
+    difficulty: DEFAULT_DIFFICULTY, personality: EDITOR_PERSONALITY_MIXED, scoreLimit: EDITOR_DEFAULT, timeLimit: EDITOR_DEFAULT, roundWins: EDITOR_DEFAULT, mutators: [] };
 }
 const isToken = (value) => typeof value === 'string' && /^[a-z][A-Za-z0-9]{0,31}$/.test(value);
 const isBlankOr = (check) => (value) => (value === '' || check(value) ? value : undefined);
@@ -152,8 +151,8 @@ const EDITOR_FIELD_CHECKS = {
   friendlyFire: oneOfList(EDITOR_FRIENDLY_FIRE),
   lives: oneOfList(EDITOR_LIVES),
   respawnDelay: oneOfList(EDITOR_RESPAWN),
-  botCount: integerBetween(EDITOR_RANDOM, EDITOR_BOTS_MAX),
-  allies: integerBetween(EDITOR_RANDOM, EDITOR_BOTS_MAX),
+  botCount: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
+  allies: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
   difficulty: (value) => (isToken(value) && (!CAT.difficulty || !!CAT.difficulty.byId(value)) ? value : undefined),
   personality: (value) => (value === EDITOR_PERSONALITY_MIXED || (isToken(value) && !!CAT.bots && !!CAT.bots.byId(value)) ? value : undefined),
   scoreLimit: oneOfList(EDITOR_SCORE_LIMITS),
@@ -184,8 +183,8 @@ const CustomMatch = {
   // Cross-field rules: a map must serve the mode; limits that a mode cannot use fall back to the default.
   settle(draft, errors) {
     if (draft.map && !Maps.forMode(draft.mode).some((map) => map.id === draft.map)) { errors.push('map ' + draft.map + ' does not serve ' + draft.mode); draft.map = ''; }
-    if (!CAT.modes.byId(draft.mode).rounds) draft.roundWins = EDITOR_RANDOM;
-    if (CAT.modes.byId(draft.mode).teams !== 2) draft.allies = EDITOR_RANDOM;
+    if (!CAT.modes.byId(draft.mode).rounds) draft.roundWins = EDITOR_DEFAULT;
+    if (CAT.modes.byId(draft.mode).teams !== 2) draft.allies = EDITOR_DEFAULT;
   },
   copy(draft) { return copyRuleValue(draft); },
   load() {
@@ -277,8 +276,8 @@ const CustomMatch = {
   // One-click start of a rule bundle (RS01..RS12): the draft's mode, map, bots and limits with the bundle's own presets.
   bundleStart(draft, bundleId, seed, withPlayer) {
     const plain = this.copy(draft);
-    Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_RANDOM,
-      lives: EDITOR_RANDOM, respawnDelay: EDITOR_RANDOM, name: '', mutators: [] });
+    Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_DEFAULT,
+      lives: EDITOR_DEFAULT, respawnDelay: EDITOR_DEFAULT, name: '', mutators: [] });
     return this.setup(plain, seed, withPlayer);
   },
   start(setup) {
@@ -310,7 +309,7 @@ const CustomMatch = {
 // ---- Screens ----
 const EDITOR_STATE = { draft: null, tab: 'mode', refresh: null };
 
-const editorLimitLabel = (zeroText, format) => (value) => (value === EDITOR_RANDOM ? 'Default' : value === 0 ? zeroText : format(value));
+const editorLimitLabel = (zeroText, format) => (value) => (value === EDITOR_DEFAULT ? 'Default' : value === 0 ? zeroText : format(value));
 const editorMinutes = (seconds) => (seconds >= 3600 ? '60 min' : seconds / 60 + ' min');
 const editorPlain = (value) => String(value);
 const editorList = (values, format) => ({ values, labels: values.map(format) });
@@ -326,14 +325,14 @@ function editorMapOptions(draft) {
   return { values: [''].concat(maps.map((map) => map.id)), labels: ['Random'].concat(maps.map((map) => map.code + ' ' + map.name)) };
 }
 function editorBotCountOptions() {
-  const top = Quality.current().bots, values = [EDITOR_RANDOM];
+  const top = Quality.current().bots, values = [EDITOR_DEFAULT];
   for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_RANDOM ? 'Mode default' : String(value))) };
+  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Mode default' : String(value))) };
 }
 function editorAlliesOptions(draft) {
-  const top = Math.min(Quality.current().bots, EDITOR_BOTS_MAX), values = [EDITOR_RANDOM];
+  const top = Math.min(Quality.current().bots, EDITOR_BOTS_MAX), values = [EDITOR_DEFAULT];
   for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_RANDOM ? 'Balanced' : String(value))) };
+  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Balanced' : String(value))) };
 }
 function editorDifficultyOptions() {
   const rows = CAT.difficulty ? Array.from(CAT.difficulty) : [{ id: DEFAULT_DIFFICULTY, name: 'Regular' }];
@@ -367,9 +366,10 @@ const EDITOR_FIELDS = [
 ];
 
 const EDITOR_CHANGED = {
-  // A new mode: the limits and the map belong to the old one.
+  // A new mode: the limits belong to the old one; the map stays when it also serves the new mode.
   modeChanged(draft) {
-    Object.assign(draft, { map: '', scoreLimit: EDITOR_RANDOM, timeLimit: EDITOR_RANDOM, roundWins: EDITOR_RANDOM, allies: EDITOR_RANDOM, bundle: '' });
+    Object.assign(draft, { scoreLimit: EDITOR_DEFAULT, timeLimit: EDITOR_DEFAULT, roundWins: EDITOR_DEFAULT, allies: EDITOR_DEFAULT });
+    if (!Maps.forMode(draft.mode).some((map) => map.id === draft.map)) draft.map = '';
   },
 };
 
