@@ -280,7 +280,11 @@ function liftActor(zone, id) {
   driveActor(id, Actors.vx[id], speed, Actors.vz[id]);
 }
 function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
-function slowInZone(zone, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF); }
+// ABL-004 time slow: movement and fire rate both run at the zone's factor.
+function slowInZone(zone, id) {
+  Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE, AbilityZones.value[zone], TICK_BUFF);
+}
 // The strike lands after its delay: one blast through Damage.explode (no falloff inside the marked circle).
 function strikeStep(zone, dt) {
   if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;

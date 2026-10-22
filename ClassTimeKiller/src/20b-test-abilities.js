@@ -111,7 +111,8 @@ const ABILITY_CASES = {
       return first >= 0 && newestZone(ZONE_KIND.FENCE, t.caster) !== first && AbilityZones.other[newestZone(ZONE_KIND.FENCE, t.caster)] === first;
     },
   },
-  timebend: { seconds: 0.1, expect: (t) => Test.near(Move.statusSpeedScale[t.enemy], 0.25, 1e-4) && Move.statusSpeedScale[t.caster] === 1 },
+  timebend: { seconds: 0.1, expect: (t) => Test.near(Move.statusSpeedScale[t.enemy], 0.25, 1e-4) && Move.statusSpeedScale[t.caster] === 1
+    && Test.near(Weapons.rateScale[t.enemy], 0.25, 1e-4) && Weapons.rateScale[t.caster] === 1 },   // ABL-004: fire rate slows too
   gale: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.vz[t.enemy] > 5 },
   binding: {
     setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0,
