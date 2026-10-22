@@ -82,6 +82,7 @@ function forgeSetTriggerKind(trigger, kind) {
 
 const ForgeUi = {
   root: null, top: null, left: null, right: null, status: null, touch: null, budget: null, cursorText: null,
+  dialogRefresh: null,                  // fn() of the open dialog that mirrors the panels (the tool and object dialog)
   touchShown: false, panelsShown: true, statusTimer: 0, shownX: NaN, shownY: NaN, shownZ: NaN, shownValid: false,
 
   // ---- small builders ----
@@ -176,9 +177,9 @@ const ForgeUi = {
     const turn = tool.id === 'spawn' || tool.size ? 'Turn: ' + tools.turns * 90 + ' deg' : '';
     if (turn) panel.appendChild(Ui.button(turn, () => tools.command('rotate')));
   },
-  buildProperties() {
-    const panel = this.right, object = Forge.selected(), list = Forge.selection.list;
-    panel.replaceChildren();
+  buildProperties(target) {
+    const panel = target || this.right, object = Forge.selected(), list = Forge.selection.list;
+    if (!target) panel.replaceChildren();
     if (!object) {
       panel.appendChild(makeElement('div', 'ui-group', 'Nothing selected'));
       panel.appendChild(makeElement('p', 'ui-note', Forge.countsText()));
@@ -288,7 +289,7 @@ Ui.register('forge', {
   // The pad drives the editor itself (ForgeTools.readPad): the menu commands it also produces are not for the panels.
   onCommand() { return true; },
 });
-Bus.on('forge.changed', () => ForgeUi.refresh());
+Bus.on('forge.changed', () => { ForgeUi.refresh(); if (ForgeUi.dialogRefresh) ForgeUi.dialogRefresh(); });
 Bus.on('input.device', () => { if (Ui.isOpen('forge')) ForgeUi.buildStatus(); });
 Bus.on('boot', () => Loop.onFrame('ui', (seconds) => { if (ForgeUi.root) ForgeUi.updateStatus(seconds); }));
 // After a test match the editor comes back (this listener runs after the main menu opened, so the editor is on top).
@@ -311,6 +312,14 @@ const forgeKilobytes = (bytes) => (bytes / 1024).toFixed(1) + ' KB';
 // Closes dialogs until the editor screen is on top again.
 function forgeBackToEditor() { while (Ui.current() && Ui.current() !== 'forge') Ui.pop(); }
 
+// Saves the map; one that offers no mode yet gets the modes it is ready for, and the player is told when none is.
+function forgeSave(asNew) {
+  if (!Forge.map.modes.length) Forge.setModes(Forge.suggestModes());
+  if (!(asNew ? Forge.saveAsNew() : Forge.saveCurrent())) return false;
+  Ui.toast(Forge.map.modes.length ? 'Saved' : 'Saved. No mode is complete yet: add spawns and objectives to play it in matches.');
+  return true;
+}
+
 // ---- Menu ----
 Ui.register('forgeMenu', {
   build(root) {
@@ -319,9 +328,10 @@ Ui.register('forgeMenu', {
     const add = (label, action, style) => items.appendChild(Ui.button(label, action, style));
     add('Resume editing', () => Ui.back(), 'primary');
     add('Test play', () => Ui.open('forgePlay'));
+    add('Tool and object options', () => Ui.open('forgeObject'));
     add('Check the map', () => Ui.open('forgeCheck'));
-    add('Save', () => { if (Forge.saveCurrent()) Ui.toast('Saved'); });
-    add('Save as a new map', () => { if (Forge.saveAsNew()) Ui.toast('Saved as a new map'); });
+    add('Save', () => forgeSave(false));
+    add('Save as a new map', () => forgeSave(true));
     add('My maps (' + Forge.saved().length + ' / ' + FORGE_MAX_MAPS + ')', () => Ui.open('forgeMaps'));
     add('New map', () => Ui.open('forgeNew'));
     add('Map settings', () => Ui.open('forgeSettings'));
@@ -330,6 +340,24 @@ Ui.register('forgeMenu', {
     body.appendChild(items);
     body.appendChild(makeElement('p', 'ui-note', Forge.map.name + (Forge.dirty ? ' (not saved)' : ' (saved)') + ' - ' + Forge.count() + ' of ' + FORGE_BUDGET + ' objects.'));
   },
+});
+
+// ---- The tool options and the properties of the selection as a dialog: the pad and the keyboard reach every control here ----
+Ui.register('forgeObject', {
+  build(root) {
+    const body = forgeDialog(root, 'Tool and selection');
+    const render = () => {
+      const focused = Array.from(body.querySelectorAll('button, input')).indexOf(document.activeElement);
+      body.replaceChildren();
+      ForgeUi.buildToolOptions(body);
+      ForgeUi.buildProperties(body);
+      const controls = body.querySelectorAll('button, input');
+      if (focused >= 0 && controls[focused]) controls[focused].focus();
+    };
+    ForgeUi.dialogRefresh = render;
+    render();
+  },
+  onClose() { ForgeUi.dialogRefresh = null; },
 });
 
 // ---- New map: empty, a template or a copy of a built-in map ----

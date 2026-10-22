@@ -21,9 +21,11 @@ The file names sort after `16v`, so the editor calls `Maps.validate`, `MapKit`, 
 
 | Device | Controls |
 |---|---|
-| Keyboard + mouse | WASD fly, E / Q up and down, Shift fast; hold right mouse to look; the left click places (or selects with the Select tool); the wheel turns the stamp or the selection, Shift + wheel changes the level; `1`-`0` choose a tool; R turn, G grab, V copy, F snap, Del / X delete, `[` `]` cycle the tool option, PageUp / PageDown level, arrows nudge the selection, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z undo and redo, T show zones, Esc let go / menu |
+| Keyboard + mouse | WASD fly, E / Q up and down, Shift fast; hold right mouse to look; the left click places (or selects with the Select tool); the wheel turns the stamp or the selection, Shift + wheel changes the level; `1`-`0` choose a tool; R turn, G grab, V copy, F snap, Del / X delete, `[` `]` cycle the tool option, `,` `.` previous / next tool (Tab and the arrows stay free for the panels: the arrows nudge the selection only while no panel control has the focus), PageUp / PageDown level, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z undo and redo, T show zones, Esc let go / menu |
 | Gamepad | left stick flies, right stick looks, RT / LT up and down; the cursor is the screen centre. A place / select, B delete, X turn, Y grab, LB / RB tool option, d-pad up / down tool, d-pad left snap, d-pad right redo, View undo, Start menu, L3 / R3 level down / up |
 | Touch | one finger drags the cursor (a tap places nothing), two fingers look; on-screen buttons fly (hold), place, delete, turn, grab, undo, redo. The side panels start hidden on small screens (Panels button). |
+
+The menu (Start on the pad) lists every dialog: `Tool and object options` mirrors the side panels (tool options and the properties of the selection) so the pad and the keyboard reach every control; `Check the map`, `My maps`, `New map`, `Map settings` (name, theme, size, class, modes), `Share code` and `Test play` are dialogs too.
 
 The pad is read directly each frame (`ForgeTools.readPad`); the menu commands the pad also produces are swallowed by the screen hook `onCommand` (below). While a dialog is open over the editor the editing keys, mouse and pad do nothing (`ForgeTools.inputLive`), and a pad button held under a dialog does not fire when it closes.
 

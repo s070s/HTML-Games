@@ -95,7 +95,7 @@ const FORGE_HOLD_KEYS = { KeyW: 'forward', KeyS: 'back', KeyA: 'left', KeyD: 'ri
 const FORGE_COMMAND_KEYS = {
   'ctrl+KeyZ': 'undo', 'ctrl+KeyY': 'redo', 'ctrl+shift+KeyZ': 'redo', Delete: 'secondary', Backspace: 'secondary', KeyX: 'secondary', KeyR: 'rotate',
   KeyG: 'grab', KeyF: 'snap', KeyV: 'duplicate', BracketLeft: 'optionPrev', BracketRight: 'optionNext', PageUp: 'levelUp', PageDown: 'levelDown',
-  Enter: 'primary', KeyT: 'toggleZones', ArrowUp: 'nudgeForward', ArrowDown: 'nudgeBack', ArrowLeft: 'nudgeLeft', ArrowRight: 'nudgeRight', Tab: 'toolNext',
+  Enter: 'primary', KeyT: 'toggleZones', ArrowUp: 'nudgeForward', ArrowDown: 'nudgeBack', ArrowLeft: 'nudgeLeft', ArrowRight: 'nudgeRight', Comma: 'toolPrev', Period: 'toolNext',
 };
 const FORGE_PAD_COMMANDS = { 0: 'primary', 1: 'secondary', 2: 'rotate', 3: 'grab', 4: 'optionPrev', 5: 'optionNext', 8: 'undo', 9: 'menu',
   10: 'levelDown', 11: 'levelUp', 12: 'toolPrev', 13: 'toolNext', 14: 'snap', 15: 'redo' };
@@ -487,6 +487,7 @@ const ForgeTools = {
     const hold = FORGE_HOLD_KEYS[event.code], command = FORGE_COMMAND_KEYS[this.keyId(event)];
     if (hold && !event.ctrlKey && !event.metaKey) { this.held[hold] = true; event.preventDefault(); return; }
     if (!command || (event.repeat && !FORGE_REPEATING.includes(command))) return;
+    if (command.startsWith('nudge') && document.activeElement && document.activeElement !== document.body) return;   // with a panel control focused the arrows move the focus
     event.preventDefault();
     this.command(command);
   },

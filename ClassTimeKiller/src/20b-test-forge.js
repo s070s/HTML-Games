@@ -444,6 +444,11 @@ Test.add('forge', (check) => {
   ForgeTools.command('toolNext');
   check('toolNext moves to the next tool', ForgeTools.tool === 'spawn');
   check('unknown commands do nothing', ForgeTools.command('nope') === false && ForgeTools.command('tool:nope') === false);
+  while (Forge.count() < FORGE_BUDGET) Forge.add('navHints', MapKit.hint(['cover', 0, 0, 0]));
+  ForgeTools.setTool('item');
+  forgeLookDown(30); ForgeTools.camera.x = -14; ForgeTools.camera.z = 12; ForgeTools.updateCursor();
+  const itemsAtBudget = Forge.map.items.length;
+  check('placing an item with the tool is refused when the budget is full', ForgeTools.place() === -1 && Forge.count() === FORGE_BUDGET && Forge.map.items.length === itemsAtBudget && /budget/i.test(Forge.message), Forge.message);
   forgeEditorOff();
 });
 
@@ -477,6 +482,22 @@ Test.add('forge', (check) => {
   check('R turns the stamp', ForgeTools.turns === 1);
   ForgeTools.onKeyDown(key('Digit4'));
   check('number keys choose the tool', ForgeTools.tool === 'spawn');
+  ForgeTools.onKeyDown(key('Period'));
+  check('. and , step through the tools (Tab stays free for the panels)', ForgeTools.tool === 'item' && (ForgeTools.onKeyDown(key('Comma')), ForgeTools.tool === 'spawn') && !FORGE_COMMAND_KEYS.Tab);
+  const arrowTarget = document.createElement('button');
+  document.body.appendChild(arrowTarget);
+  arrowTarget.focus();
+  const arrow = key('ArrowLeft');
+  Forge.select('spawns', 0);
+  const spawnX = Forge.map.spawns[0].x, spawnZ = Forge.map.spawns[0].z;
+  ForgeTools.onKeyDown(arrow);
+  check('arrows leave the focus alone while a panel control has it', !arrow.prevented && Forge.map.spawns[0].x === spawnX && Forge.map.spawns[0].z === spawnZ);
+  arrowTarget.remove();
+  const arrowFree = key('ArrowLeft');
+  ForgeTools.onKeyDown(arrowFree);
+  check('arrows nudge the selection otherwise', arrowFree.prevented === true && (Forge.map.spawns[0].x !== spawnX || Forge.map.spawns[0].z !== spawnZ));
+  Forge.undo();
+  ForgeTools.onKeyDown(key('Digit4'));
   ForgeTools.onKeyDown(key('Enter', { repeat: true }));
   check('a held placing key does not repeat', Forge.count() === count + 1);
   ForgeTools.onKeyDown(key('KeyZ', { ctrlKey: true, repeat: true }));
@@ -634,7 +655,19 @@ Test.add('forge', (check) => {
   check('only the first finger drives the look (no jump when the other moves)', ForgeTools.camera.yaw === steadyYaw);
   touch('onPointerUp', 2, 560, 300); touch('onPointerUp', 1, 300, 300);
   check('lifting the fingers ends the look', !ForgeTools.drag.look && ForgeTools.drag.touches === 0);
-  for (const name of ['forgeMenu', 'forgeNew', 'forgeMaps', 'forgeCheck', 'forgeCode', 'forgePlay', 'forgeSettings', 'forgeModes']) {
+  ForgeTools.setTool('item');
+  Forge.select('spawns', 0);
+  Ui.open('forgeObject');
+  const objectDialog = document.querySelector('.ui-forgeObject');
+  check('the tool and object dialog holds the tool options and the selection properties', objectDialog.textContent.includes('Item pad') && objectDialog.textContent.includes('Spawn #0') && objectDialog.textContent.includes('Team'));
+  const teamCycle = Array.from(objectDialog.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Team')).querySelector('.ui-cycle');
+  teamCycle.focus();
+  teamCycle.click();
+  check('changing a property in the dialog edits the object and keeps the dialog and the focus', Forge.selected().team === 0 && Ui.current() === 'forgeObject' && document.activeElement.classList.contains('ui-cycle'));
+  Ui.pop();
+  check('closing the dialog stops its refresh', ForgeUi.dialogRefresh === null);
+  Forge.undo();
+  for (const name of ['forgeMenu', 'forgeNew', 'forgeMaps', 'forgeCheck', 'forgeCode', 'forgePlay', 'forgeSettings', 'forgeModes', 'forgeObject']) {
     check('dialog ' + name + ' opens', Ui.open(name) && Ui.current() === name);
     Ui.pop();
   }
@@ -686,7 +719,17 @@ Test.add('forge', (check) => {
   Array.from(document.querySelectorAll('.ui-forgeCode .ui-button')).find((button) => button.textContent === 'Make code').click();
   check('Make code fills the box with a code', /^CTKMAP1-/.test(document.querySelector('.ui-forgeCode .fg-code').value));
   Ui.pop();
-  Forge.saveCurrent('Listed');
+  Forge.newFrom({ kind: 'empty' });
+  check('saving an unfinished map says that no mode is complete', forgeSave(false) && /no mode is complete/i.test(Ui.lastToast) && Forge.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);
+  Forge.deleteSaved('user1');
+  Forge.newFrom({ kind: 'template', id: 'arena' });
+  Forge.setModes([]);
+  check('saving a map without modes picks the ones it is ready for', forgeSave(false) && Forge.map.modes.includes('ffa') && Ui.lastToast === 'Saved' && Maps.forMode('ffa').some((map) => map.id === 'user1'));
+  check('save as a new map keeps the first slot', forgeSave(true) && Forge.saved().length === 2 && Forge.slotId === 'user2');
+  Forge.deleteSaved('user2');
+  Forge.loadSaved('user1');
+  Forge.rename('Listed');
+  Forge.saveCurrent();
   Ui.open('forgeMaps');
   const listed = () => Array.from(document.querySelectorAll('.ui-forgeMaps .fg-name')).map((field) => field.value);
   check('the map list shows saved maps and the space used', listed().join() === 'Listed' && /KB/.test(document.querySelector('.ui-forgeMaps').textContent));
