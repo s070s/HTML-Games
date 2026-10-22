@@ -468,9 +468,10 @@ Test.add('mutators', (check) => {
   const hadAbilities = !!CAT.abilities, hadPowerups = !!CAT.powerups;
   if (!hadAbilities) CAT.abilities = [{ id: 'testdash', code: 'A05' }, { id: 'testfar', code: 'A99' }];
   if (!hadPowerups) CAT.powerups = [{ id: 'testboost' }];
-  const picks = [], grants = [];
+  const picks = [], grants = [], grantedItems = [];
+  const SUPER_FORBIDDEN = ['lightbearer', 'vitalshard', 'soul'];   // unique, campaign and PvE-only rows
   const pickListener = Bus.on('power.pick', (payload) => picks.push(payload.ability));
-  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id));
+  const grantListener = Bus.on('item.grant', (payload) => grants.push(payload.id) && grantedItems.push(payload.item));
   startMutatorMatch([{ id: 'powers', value: true }, { id: 'superpowerups', value: 15 }]);
   Bus.emit('actor.spawn', { id: 1 });
   Sim.run(Math.round(16 * TICK_RATE));
@@ -478,6 +479,8 @@ Test.add('mutators', (check) => {
   const aliveCount = Array.from({ length: Actors.count }, (unused, id) => Actors.alive[id]).filter(Boolean).length;
   check('powers for all announces one ability per spawn (A05..A33 only)', picks.length >= 1 && picks.every((name) => CAT.abilities.byId ? CAT.abilities.byId(name) : true) && !picks.includes('testfar'));
   check('super powerups grant every living actor a powerup each interval', grants.length === aliveCount && aliveCount >= 3, grants.length + ' ' + aliveCount);
+  check('super powerups never hand out unique, campaign or PvE-only rows', Mutators.superPool.length > 0
+    && !Mutators.superPool.some((row) => SUPER_FORBIDDEN.includes(row.id)) && grantedItems.every((item) => !SUPER_FORBIDDEN.includes(item)), grantedItems.join());
   stopMutatorMatch();
   if (!hadAbilities) delete CAT.abilities;
   if (!hadPowerups) delete CAT.powerups;
