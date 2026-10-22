@@ -431,9 +431,9 @@ const Weapons = {
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
     this.stepAltMode(id, weapon, dt);
   },
-  // Aiming down sights needs a zoom alt held while idle: a reload lowers the sights.
+  // Aiming down sights needs a zoom alt (or an alt shot with its own zoom, the W19 slug) held while idle: a reload lowers the sights.
   updateAds(id, weapon, dt) {
-    const aiming = weapon.alt.type === 'zoom' && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
   },
   coolDown(id, dt) {

@@ -408,8 +408,12 @@ const Devices = {
     if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets hit devices as they fly (bulletHit)
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
-    if (device >= 0) this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
+    if (device < 0) return;
+    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, mode.repair / mode.rate); return; }
+    this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
   },
+  // FireMode.repair (W30 beam): a friendly device regains health up to its row's maximum.
+  repair(device, amount) { this.health[device] = Math.min(this.rowOf(device).health, this.health[device] + amount); },
   // Projectiles.bulletHits: an X41 bullet hits the device it stopped at (Weapons.rayBlockers) with one pellet.
   bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
     if (!this.count) return;
