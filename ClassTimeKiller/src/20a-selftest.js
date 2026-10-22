@@ -3,8 +3,14 @@
 // Blocks run in registration order (file order). Each block gets a clean slate: no match, default seed, memory storage.
 // DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
 
+// Hooks that later sections fill at load (ARCHITECTURE: renderer and other hooks). A block may replace one with a stub;
+// the loaded one is put back before the next block, so no block depends on what an earlier block left behind.
+const TEST_HOOKS = [[Input, 'aimAssistTarget'], [Render, 'viewModel'], [Render, 'cameraOverride'], [Render, 'actorStyle'],
+  [Render, 'worldQuery'], [Sound, 'lineOfSight']];
+
 const Test = {
   blocks: [],
+  loadedHooks: [],
   add(group, run) { this.blocks.push({ group, run }); },
   async run(options) {
     const settings = options || {};
@@ -12,6 +18,7 @@ const Test = {
     const wasHeadless = Game.headless;
     const savedData = Save.data, savedStorage = Save.storage;
     const groups = new Set();
+    this.loadedHooks = TEST_HOOKS.map(([owner, key]) => owner[key]);
     if (settings.headless) Game.headless = true;
     for (const block of this.blocks) {
       if (settings.group && block.group !== settings.group) continue;
@@ -24,7 +31,9 @@ const Test = {
       if (unexpected.length) check('no errors logged during the block', false, unexpected.slice(0, 3).join(' || '));
     }
     Game.stop();
+    this.restoreHooks();
     Save.data = savedData; Save.storage = savedStorage;
+    Settings.applyAll();   // settings changed by the tests reach their listeners again
     Game.headless = wasHeadless;
     const failed = results.filter((r) => !r.ok).length;
     return { total: results.length, failed, groups: groups.size, results };
@@ -35,6 +44,10 @@ const Test = {
     Save.storage = makeMemoryStorage(false);
     Save.data = Save.emptySave();
     Rng.reseed(1);
+    this.restoreHooks();
+  },
+  restoreHooks() {
+    TEST_HOOKS.forEach(([owner, key], index) => { owner[key] = this.loadedHooks[index]; });
   },
   near(a, b, tolerance) { return Math.abs(a - b) <= tolerance; },
   // Runs code that is expected to log errors; returns how many it logged and removes them from the ring.
