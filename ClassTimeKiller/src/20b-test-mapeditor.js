@@ -355,7 +355,7 @@ Test.add('mapEditor', (check) => {
   MapEditor.newFrom({ kind: 'template', id: 'yard' });
   const original = MapEditor.toMap();
   const code = MapEditorShare.exportCode();
-  check('a code has the prefix, a check value and fits a text box', /^CTKMAP1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code) && code.length < MAPEDIT_CODE_MAX_CHARS, code.length);
+  check('a code has the prefix, a check value and fits a text box', /^CTKEDIT1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code) && code.length < MAPEDIT_CODE_MAX_CHARS, code.length);
   check('the code is much shorter than the plain JSON', code.length < JSON.stringify(original).length / 2, code.length + ' vs ' + JSON.stringify(original).length);
   MapEditor.newFrom({ kind: 'empty' });
   const imported = MapEditorShare.importCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + '  ');
@@ -364,14 +364,16 @@ Test.add('mapEditor', (check) => {
   check('an imported map validates like the original', Maps.validate(MapEditor.toMap()).length === 0);
   const mutate = (text, index) => text.slice(0, index) + (text[index] === 'A' ? 'B' : 'A') + text.slice(index + 1);
   const bad = [['an empty code', ''], ['a foreign text', 'hello world'], ['a custom match code', 'CTK1-00000000-AAAA'], ['a changed character', mutate(code, code.length - 5)],
-    ['a changed check value', mutate(code, 10)], ['a cut code', code.slice(0, code.length - 30)], ['a newer version', code.replace('CTKMAP1', 'CTKMAP9')], ['an oversize code', code + 'A'.repeat(MAPEDIT_CODE_MAX_CHARS)]];
+    ['a changed check value', mutate(code, 10)], ['a cut code', code.slice(0, code.length - 30)], ['a newer version', code.replace('CTKEDIT1', 'CTKEDIT9')], ['an oversize code', code + 'A'.repeat(MAPEDIT_CODE_MAX_CHARS)]];
   for (const [name, text] of bad) {
     const result = MapEditorShare.decodeCode(text);
     check('corrupt code rejected: ' + name, !!result.error && !result.map, result.error);
   }
-  check('a rejected import leaves the editor map alone', (() => { const json = mapEditMapJson(); MapEditorShare.importCode('CTKMAP1-00000000-AAAA'); return json === mapEditMapJson(); })());
+  check('a rejected import leaves the editor map alone', (() => { const json = mapEditMapJson(); MapEditorShare.importCode('CTKEDIT1-00000000-AAAA'); return json === mapEditMapJson(); })());
   // a code with a correct check value but hostile content
-  const encodeCode = (object) => { const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(object)))); return 'CTKMAP1-' + CustomCodec.checksum(payload) + '-' + payload; };
+  const encodeCode = (object) => CustomCodec.packCode(MAPEDIT_CODE_FORMAT, object);
+  check('codes: map, generator and match codes have distinct prefixes, and none is read by another box', MAPEDIT_CODE_PREFIX !== MAPGEN_SHARE_PREFIX
+    && MapGen.parseShare(code) === null && !!CustomCodec.unpack(code).error && !!MapEditorShare.decodeCode(CustomCodec.pack({ name: 'x' })).error);
   const good = MapEditor.compact(original);
   const hostile = [['no lists', Object.assign({}, good, { brushes: 5 })], ['a bad number', Object.assign({}, good, { brushes: [['concrete', 0, 0, 0, 'x', 1, 1]] })],
     ['an unknown material', Object.assign({}, good, { brushes: [['lava', 0, 0, 0, 1, 1, 1]] })], ['a huge coordinate', Object.assign({}, good, { brushes: [['concrete', 0, 0, 0, 1e9, 1, 1]] })],
@@ -894,7 +896,7 @@ Test.add('mapEditor', async (check) => {
   if (confirmOpen) Array.from(document.querySelectorAll('.ui-confirm .ui-button')).find((button) => button.textContent === 'Import').click();
   check('a bad code shows its message and stays on the screen', Ui.current() === 'mapEditorCode' && document.querySelector('.ui-mapEditorCode .me-error').textContent.length > 0);
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Make code').click();
-  check('Make code fills the box with a code', /^CTKMAP1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
+  check('Make code fills the box with a code', /^CTKEDIT1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
   Ui.pop();
   MapEditor.newFrom({ kind: 'empty' });
   check('saving an unfinished map says that no mode is complete', mapEditSave(false) && /no mode is complete/i.test(Ui.lastToast) && MapEditor.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);

@@ -8,10 +8,10 @@ const MAPEDIT_PANEL_MIN_HEIGHT = 440;
 const MAPEDIT_STATUS_SECONDS = 0.2;           // how often the cursor text is refreshed
 const MAPEDIT_BUDGET_WARNING = 0.9;           // the budget counter turns amber past this share
 const MAPEDIT_LIGHT_COLORS = [[0xffd9a0, 'Warm'], [0xffffff, 'White'], [0x9fc8ff, 'Cool'], [0xff9060, 'Red']];
-const MAPEDIT_CODE_PREFIX = 'CTKMAP';
-const MAPEDIT_CODE_PATTERN = new RegExp(String.raw`^${MAPEDIT_CODE_PREFIX}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+const MAPEDIT_CODE_PREFIX = 'CTKEDIT';       // not the generator's CTKMAP settings code (16w): each paste box knows its own codes
 const MAPEDIT_CODE_MAX_CHARS = 60000;        // a longer text is refused before anything is decoded
 const MAPEDIT_CODE_MAX_BYTES = 262144;       // the unpacked JSON may not be larger than this
+const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VERSION, 0, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
 const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 // Parts of the editor screen a change of the model has to redraw (see MapEditorUi.mark).
@@ -362,23 +362,15 @@ Bus.on('match.stop', () => MapEditorPlay.onMatchStop());
 
 // ---- Share codes: the whole map as one line of text (copy and paste only) ----
 const MapEditorShare = {
-  exportCode(map) {
-    const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(MapEditor.compact(map || MapEditor.map)))));
-    return MAPEDIT_CODE_PREFIX + MAPEDIT_CODE_VERSION + '-' + CustomCodec.checksum(payload) + '-' + payload;
-  },
+  exportCode(map) { return CustomCodec.packCode(MAPEDIT_CODE_FORMAT, MapEditor.compact(map || MapEditor.map)); },
   // text -> { map } or { error } with a message for the player. Nothing is changed.
   decodeCode(text) {
-    const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > MAPEDIT_CODE_MAX_CHARS) return { error: 'The code is too long to be a map code.' };
-    const parts = MAPEDIT_CODE_PATTERN.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller map code.' };
-    if (Number(parts[1]) > MAPEDIT_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (CustomCodec.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
+    const unpacked = CustomCodec.unpackCode(MAPEDIT_CODE_FORMAT, text);
+    if (unpacked.error) return unpacked;
     try {
-      const bytes = CustomCodec.expand(CustomCodec.fromBase64Url(parts[3]), MAPEDIT_CODE_MAX_BYTES);
-      return MapEditor.expand(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      return MapEditor.expand(unpacked.object);
     } catch (error) {
-      return { error: 'The code could not be read.' };
+      return { error: SHARE_CODE_UNREADABLE };
     }
   },
   importCode(text) {
