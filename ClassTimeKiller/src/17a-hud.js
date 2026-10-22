@@ -494,7 +494,18 @@ function hudDrawGadgets(pen, layout) {
   if (state.grenade || state.grenadeCount > 0) {
     pen.shape('circle', x, y, 13 * unit, state.grenadeCount > 0 ? HUD_COLOR.text : HUD_COLOR.dim);
     pen.text(hudCount(state.grenadeCount), x - 14 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+    x -= 74 * unit;
   }
+  hudDrawConsumables(pen, x, y, unit);
+}
+// Carried loot consumables (I13..I17) with the heal key; a ring fills while one is in use.
+function hudDrawConsumables(pen, x, y, unit) {
+  const count = Items.consumableCount(Game.playerId), progress = Items.useProgress(Game.playerId);
+  if (count <= 0 && progress < 0) return;
+  if (progress >= 0) hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, 1 - progress, Hud.colors.good);
+  pen.shape('square', x, y, 11 * unit, HUD_COLOR.text);
+  pen.text(hudCount(count), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+  pen.text(Hud.keyLabel('heal'), x, y + 22 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };

@@ -154,6 +154,28 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
+// The heal action (BTN.HEAL, key H, touch HEAL) uses the first carried consumable that would restore; bots heal once calm.
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), patch = CAT.items.byId('patch');
+  check('the heal action and its touch button exist', Input.actionIndex.heal !== undefined && TOUCH_CONTROLS.some((control) => control.action === 'heal'));
+  Items.grant(id, 'patch');
+  TestArena.hold(id, BTN.HEAL, 0.05);
+  check('the heal button starts a carried consumable', Items.useProgress(id) >= 0 && Items.consumableCount(id) === 1);
+  Sim.run(itemTicks(patch.useTime));
+  check('the heal button item applies after its use time', Actors.health[id] === 65 && Items.consumableCount(id) === 0, Actors.health[id]);
+  const bot = ItemArena.actor(2, 5, 0);
+  Items.grant(bot, 'patch');
+  Actors.kind[bot] = ACTOR_KIND.BOT;
+  Damage.lastDamageTime[bot] = Sim.time;
+  const hurtNow = Items.botWantsHeal(bot);
+  Damage.lastDamageTime[bot] = Sim.time - BOT_HEAL_CALM - 0.1;
+  const calm = Items.botWantsHeal(bot);
+  Actors.kind[bot] = ACTOR_KIND.DUMMY;
+  check('bots use a carried consumable only once out of the fight', !hurtNow && calm && Actors.health[bot] < Actors.maxHealth[bot]);
+  TestArena.finish();
+});
+
 Test.add('items', (check) => {
   ItemArena.start({});
   const id = ItemArena.actor(1, 0, 0), baseHealth = Actors.maxHealth[id], failures = [];

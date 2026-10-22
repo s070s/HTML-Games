@@ -17,6 +17,7 @@ const LOOT_CHECK_INTERVAL = 0.1;       // loot touch tests run at 10 Hz
 const LOOT_SWAP_DELAY = 1;             // a full inventory swaps a weapon at most once per second (no swapping back at once)
 const LOOT_GROUPS = ['weapon', 'armor', 'health', 'ammo'];
 const LOOT_GROUP = { WEAPON: 0, ARMOR: 1, HEALTH: 2, AMMO: 3 };
+const LOOT_CONSUMABLES = ['patch', 'cell', 'medkit', 'battery', 'fizzcan'];   // health spots by rarity: I13 I15 I14 I16 I17
 const LOOT_RARITY_COLORS = [[0.7, 0.7, 0.7], [0.3, 0.85, 0.3], [0.3, 0.55, 1], [0.7, 0.3, 0.95], [1, 0.8, 0.2]];   // common .. legendary
 const LOOT_SIZE = 0.5;
 const LOOT_LIFT = 0.4;
@@ -303,7 +304,7 @@ function takeLoot(id, spot, now) {
   const group = RoyaleLoot.group[spot], params = Modes.rules.params;
   if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot, now); return; }
   if (group === LOOT_GROUP.ARMOR && !takeArmor(id, params.shieldByRarity[RoyaleLoot.rarity[spot]])) return;
-  if (group === LOOT_GROUP.HEALTH && !takeHeal(id, params.lootHeal)) return;
+  if (group === LOOT_GROUP.HEALTH && !Items.grant(id, LOOT_CONSUMABLES[RoyaleLoot.rarity[spot]])) return;   // carried until used (BTN.HEAL)
   if (group === LOOT_GROUP.AMMO && !takeAmmo(id)) return;
   RoyaleLoot.taken[spot] = 1;
 }
@@ -334,12 +335,6 @@ function takeArmor(id, value) {
   if (Actors.shield[id] >= value) return false;
   Actors.maxShield[id] = value;
   Actors.shield[id] = value;
-  return true;
-}
-
-function takeHeal(id, amount) {
-  if (Actors.health[id] >= Actors.maxHealth[id]) return false;
-  Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + amount);
   return true;
 }
 

@@ -501,10 +501,13 @@ Test.add('modes2', (check) => {
   placeActor(0, 10, 10); runSeconds(0.2);
   check('royale: a weapon spot gives its weapon with its rarity (WPN-008)', Weapons.has(0, 'warden') && Weapons.rarity[Weapons.slotIndex(0, CAT.weapons.byId('warden').index)] === rarity && RoyaleLoot.taken[0] === 1);
   placeActor(0, 14, 10); runSeconds(0.2);
-  check('royale: a heal at full health stays on the spot', RoyaleLoot.taken[2] === 0);
+  const consumable = CAT.items.byId(LOOT_CONSUMABLES[RoyaleLoot.rarity[2]]);
+  check('royale: a health spot gives the I13-I17 consumable of its rarity to carry', RoyaleLoot.taken[2] === 1 && Items.carriedCount(0, consumable.id) === 1, consumable.id);
   hitActor(0, 1, 60);
-  runSeconds(0.2);
-  check('royale: a heal restores lootHeal health', RoyaleLoot.taken[2] === 1 && Actors.health[0] === 40 + params.lootHeal, Actors.health[0]);
+  const hurt = Actors.health[0] + Actors.shield[0];
+  Actors.buttons[0] = BTN.HEAL; runSeconds(0.05); Actors.buttons[0] = 0;
+  runSeconds(consumable.useTime + 0.1);
+  check('royale: the heal button uses the carried consumable', Actors.health[0] + Actors.shield[0] > hurt && Items.carriedCount(0, consumable.id) === 0, Actors.health[0] + Actors.shield[0]);
   placeActor(0, 12, 10); runSeconds(0.2);
   check('royale: armor sets the shield by its rarity', Actors.shield[0] === params.shieldByRarity[RoyaleLoot.rarity[1]] && RoyaleLoot.taken[1] === 1);
   const warden = CAT.weapons.byId('warden'), wardenSlot = Weapons.slotIndex(0, warden.index);
