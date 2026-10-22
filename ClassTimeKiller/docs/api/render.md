@@ -1,6 +1,6 @@
 # Renderer API (S07)
 
-Files: `src/07a-render.js` (core, post, context loss, settings), `07b-render-world.js` (static world, sky), `07c-render-actors.js` (instanced shapes, actors), `07d-render-fx.js` (`Fx`), `07e-render-view.js` (camera, view model, quality control), `07f-render-hud.js` (`HudBatch`). Data: `src/03b-data-render.js`. Tests: `src/20b-test-render.js` (group `render`).
+Files: `src/07a-render.js` (core, post, context loss, settings), `07b-render-world.js` (static world, sky), `07c-render-actors.js` (instanced shapes, actors), `07d-render-fx.js` (`Fx`), `07e-render-view.js` (camera, view model, quality control), `07f-render-hud.js` (`HudBatch`), `07g-render-models.js` (`Models`, part models). Data: `src/03b-data-render.js`, `src/03r-data-models-gear.js` (gear models). Tests: `src/20b-test-render.js` (group `render`), `src/20b-test-models-gear.js` (group `models`).
 
 When `Game.headless` is true at boot, or WebGL2 is missing, nothing is created: every hook below stays a cheap no-op (`Fx.*` return at once when `Game.headless`). Missing WebGL2, a shader that fails to build, or a rebuild that fails after a context restore shows the PLT-002 fatal screen ("WebGL2 is required").
 
@@ -50,7 +50,17 @@ On `world.load` the renderer builds the static mesh from `Render.worldQuery.brus
 
 ## Data catalogues (src/03b-data-render.js)
 
-`materials` (pattern, scale, colours, emissive, shine), `themes` (sky, fog, sun, ambient, palette overrides), `teamColors`, `fxKinds`, `decalKinds`, `actorParts` (rigid-part humanoid: pivot, offset, size, hold, aim, swing, tint, `far` = kept in the far LOD, `distant` = kept past `lodFar`), `viewModels` (parts per weapon class; `axis: 'z'` turns a part's Y axis forward).
+`materials` (pattern, scale, colours, emissive, shine), `themes` (sky, fog, sun, ambient, palette overrides), `teamColors`, `fxKinds`, `decalKinds`, `actorParts` (rigid-part humanoid: pivot, offset, size, hold, aim, swing, tint, `far` = kept in the far LOD, `distant` = kept past `lodFar`), `viewModels` (parts per weapon class; `axis: 'z'` turns a part's Y axis forward). `gearModels` (03r): see Part models.
+
+## Part models (07g `Models`)
+
+Built-in 3D models made of the instanced shapes, nothing downloaded. A model row is `{ id, color, from, scale, recolor, parts, add }`; a part is `{ shape, offset [x, y, z], size [x, y, z], rotation [yaw, pitch] (degrees, optional), tint, lod }` (the `actorParts` / `viewModels` part shape: offsets in metres from the model origin, +z = the model's forward, local axes and full sizes as in `batch.mesh`).
+- `tint`: `body` (the caller's colour, or the row's own `color` when it is >= 0), `shade` (body x 0.55), `glow` (body, self-lit), or a palette name: `dark metal white red brass black wood` (plain) and `lamp light cyan flame` (self-lit). Body parts take the caller's glow; palette parts half of it, so details stay readable.
+- `lod`: 2 = drawn at every distance (the silhouette), 1 = near and far (default), 0 = near only (small detail). The LOD comes from the camera distance and the quality row, like actors: under `lodNear` every part, up to `lodFar` the lod >= 1 parts, up to `viewDistance` the lod 2 parts, past it nothing. Potato draws no lod-0 parts even near.
+- Reuse: `from` copies another row's parts (scaled by `scale`, tints renamed by `recolor`, e.g. `{ white: 'body', body: 'white' }`), then `parts` and `add` are appended. No per-row draw code.
+- `Models.compile(rows)` checks every part (unknown shape, tint or `from` throws) and returns `{ byId, list }` of compiled models `{ id, count, lodCounts [near, far, distant], shapes, data, parts }` (parts sorted silhouette first, so each LOD draws a prefix). `Models.draw(batch, model, pose)` draws one through `batch.meshFrom` with one reused instance record; `pose` = a `makeModelPose()` record `{ x y z yaw scale r g b emissive }` (a constructor record, see `ShapeInstance`; keep one per caller). Allocation-free. `Models.levelAt(x, y, z)` gives the LOD (-1 = not drawn).
+- Gear models (`CAT.gearModels`, 03r; ids = catalogue codes): every item I01..I17 and powerup PU01..PU20 (pickup origin = the floating centre; 12a spins and bobs them), grenades (origin = the centre, also the grenade in the local player's first-person hand while cooking or aiming a throw, `Gadgets.drawHeld`), placed and deployed devices (origin = the floor point; the G13 barrier panel matches its row size), and `ammo-<type>` boxes (`light heavy shells cells rockets special`, own colours). The I08 Ammo Box shows the ammo type of the local player's held weapon (the type it gives first), its own box otherwise. 12a compiles `GEAR_MODELS`; 12c/12d draw gadgets through `drawGadgetModel(batch, row, pose)` in the row colour.
+- Debug: `__CTK.gearGallery(group, yaw, scale)` (test file) loads a flat floor and shows a group's models in rows of 6 with their ids on the HUD; `group` = `items` (with the ammo boxes), `powerups`, `thrown`, `devices`, or a list of model ids.
 
 ## Actors, LODs and shadows
 

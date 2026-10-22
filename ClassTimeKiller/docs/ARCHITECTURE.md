@@ -20,7 +20,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |
 | S05 | input | `05*` | `Input` |
 | S06 | audio | `06*` | `Sound` (never `Audio`: that is a browser global) |
-| S07 | renderer | `07*` | `Render`, `Fx`, `HudBatch` |
+| S07 | renderer | `07*` | `Render`, `Fx`, `HudBatch`, `Models` (07g part models from data rows) |
 | S08 | world / collision | `08*` | `World`, `makeHit`, `Hitbox` |
 | S09 | nav | `09*` | `Nav` |
 | S10 | movement | `10*` | `Move` |
@@ -199,7 +199,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 ## Data catalogues
 
-`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals unlocks ladder challenges operations`, plus the supporting tables `abilityKits actorParts attachments buyItems classes damageKinds decalKinds elements fireModes fxKinds gadgetKits mapDensities mapItemSets mapModules mapSizes mapTilesets materials meters perks precision statusEffects teamColors themes viewModels weaponClasses`.
+`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals unlocks ladder challenges operations`, plus the supporting tables `abilityKits actorParts attachments buyItems classes damageKinds decalKinds elements fireModes fxKinds gadgetKits gearModels mapDensities mapItemSets mapModules mapSizes mapTilesets materials meters perks precision statusEffects teamColors themes viewModels weaponClasses`.
 
 ## Self-test
 
