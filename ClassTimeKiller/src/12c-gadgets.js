@@ -33,8 +33,8 @@ const SMOKE_DRAW_BUDGET = 480;           // most smoke blobs per frame (the rend
 const SMOKE_DRAW_START = SMOKE_HALF % SMOKE_DRAW_STEP;   // the lattice is centred on the cloud
 const SMOKE_BLOB = SMOKE_CELL * 2.7;
 const PREVIEW_SECONDS = 0.05;
-const PREVIEW_HORIZON = 3;               // the throw arc preview follows the flight this many seconds
-const PREVIEW_POINTS = Math.ceil(PREVIEW_HORIZON / PREVIEW_SECONDS);
+const THROWN_LONGEST_FUSE = CAT.gadgets.reduce((most, row) => row.kind === 'thrown' ? Math.max(most, row.fuse) : most, 0);
+const PREVIEW_POINTS = Math.ceil(THROWN_LONGEST_FUSE / PREVIEW_SECONDS);   // the arc preview follows the flight up to the fuse
 const DECOY_DEFAULT_NOISE = 60;
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
@@ -760,10 +760,16 @@ const Gadgets = {
     const point = previewScratch, gravity = bodyGravity();
     point.x = throwStart.x; point.y = throwStart.y; point.z = throwStart.z;
     point.vx = throwScratch.x; point.vy = throwScratch.y; point.vz = throwScratch.z;
-    for (let step = 0; step < PREVIEW_POINTS; step++) {
-      if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, CAT.gadgets[this.holdRow[id]]); return; }
+    const row = CAT.gadgets[this.holdRow[id]], steps = this.previewSteps(id, row);
+    for (let step = 0; step < steps; step++) {
+      if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, row); return; }
       if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
     }
+  },
+  // Arc segments until the fuse would end (what is left of it for a cooking grenade).
+  previewSteps(id, row) {
+    const fuseTicks = row.cook ? itemTicks(row.fuse) - this.heldTicks(id) : itemTicks(row.fuse);
+    return Math.min(PREVIEW_POINTS, Math.ceil(fuseTicks / TICK_RATE / PREVIEW_SECONDS));
   },
   // One preview segment; true (and the point on the surface) when it meets the world.
   previewStep(point, gravity) {

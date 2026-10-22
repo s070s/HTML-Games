@@ -278,3 +278,128 @@ Test.add('items', (check) => {
   check('PU19 unique: its spot waits while it is held', Items.uniqueOut(CAT.powerups.byId('lightbearer').index));
   TestArena.finish();
 });
+
+// Every timed powerup at once: each works through the step before its end tick and is gone after the step of its end tick.
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), timed = CAT.powerups.filter((row) => Powerups.isTimed(row)), failures = [];
+  timed.forEach((row) => {
+    Powerups.give(id, row, 0);
+    const left = Powerups.ticksLeft(id, row);
+    if (left !== itemTicks(row.duration)) failures.push(row.id + ' lasts ' + left);
+  });
+  const ends = [...new Set(timed.map((row) => Sim.tick + itemTicks(row.duration)))].sort((a, b) => a - b);
+  ends.forEach((end) => {
+    const due = timed.filter((row) => Sim.tick + Powerups.ticksLeft(id, row) === end);
+    Sim.run(end - Sim.tick);
+    due.forEach((row) => { if (!Powerups.has(id, row.id)) failures.push(row.id + ' gone early'); });
+    Sim.run(1);
+    due.forEach((row) => { if (Powerups.has(id, row.id)) failures.push(row.id + ' still on at its end tick'); });
+  });
+  check('every timed powerup lasts its duration and ends on its exact tick', timed.length >= 10 && failures.length === 0, failures.join('; '));
+  check('nothing is left once they all ended', ItemArena.leftovers(id, Actors.maxHealth[id]) === '', ItemArena.leftovers(id, Actors.maxHealth[id]));
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), target = ItemArena.actor(2, 0, 5);
+  Powerups.give(id, CAT.powerups.byId('skyward'), 0);
+  Actors.buttons[id] = BTN.JUMP;
+  Sim.run(TICK_RATE);
+  Actors.buttons[id] = 0;
+  check('PU06 flight climbs at 8 m/s', Actors.y[id] > 6 && Actors.y[id] < 9, Actors.y[id]);
+  check('PU06 no fall damage while it lasts', powerupLoss(-1, id, 50, { kind: 'fall' }) === 0);
+  Powerups.clearActor(id, false);
+  Damage.resetHealth(id);
+  TestArena.place(id, 0, 0);
+  Powerups.give(id, CAT.powerups.byId('aegisbelt'), 0);
+  const belt = id * POWERUP_COUNT + CAT.powerups.byId('aegisbelt').index;
+  TestArena.hit(-1, id, 30);
+  check('PU08 the belt absorbs damage first', Actors.health[id] === 100 && Powerups.charges[belt] === 70, Actors.health[id] + ' / ' + Powerups.charges[belt]);
+  TestArena.hit(-1, id, 80);
+  Sim.run(1);
+  check('PU08 damage past the belt hurts and the spent belt ends', Actors.health[id] === 90 && !Powerups.has(id, 'aegisbelt'), Actors.health[id]);
+  const plainMelee = powerupLoss(id, target, 10, { kind: 'melee' });
+  Actors.health[id] = 40;
+  Powerups.give(id, CAT.powerups.byId('berserk'), 0);
+  check('PU09 heals to 100 on pickup', Actors.health[id] === 100, Actors.health[id]);
+  check('PU09 melee deals x4', Test.near(powerupLoss(id, target, 10, { kind: 'melee' }), plainMelee * 4, 0.01), plainMelee);
+  check('PU09 other damage is unchanged', Test.near(powerupLoss(id, target, 10), powerupLoss(-1, target, 10), 0.01));
+  Powerups.clearActor(id, false);
+  Powerups.give(id, CAT.powerups.byId('lightbearer'), 0);
+  check('PU19 the bearer flame deals x3', Test.near(powerupLoss(id, target, 10), powerupLoss(-1, target, 10) * 3, 0.01));
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0);
+  Powerups.give(id, CAT.powerups.byId('seer'), 0);
+  Sim.run(2);
+  check('PU13 reveals the holder\'s enemies, not friends', Damage.hasStatus(enemy, 'reveal') && !Damage.hasStatus(friend, 'reveal'));
+  Powerups.clearActor(id, false);
+  const boots = CAT.powerups.byId('springboots');
+  Powerups.give(id, boots, 0);
+  Actors.vy[id] = 5;
+  Bus.emit('move.jump', { id, speed: 5, surface: '' });
+  check('PU14 jumps twice as high (speed x the square root of 2)', Test.near(Actors.vy[id], 5 * Math.SQRT2, 1e-4), Actors.vy[id]);
+  for (let jump = 1; jump < boots.charges; jump++) Bus.emit('move.jump', { id, speed: 5, surface: '' });
+  Sim.run(1);
+  check('PU14 ends after its 3 boosted jumps', !Powerups.has(id, 'springboots'));
+  Actors.armor[id] = 50;
+  Powerups.give(id, CAT.powerups.byId('scoutrune'), 0);
+  check('PU16 removes armor and refuses armor pickups', Actors.armor[id] === 0 && !Items.effects.armor(id, CAT.items.byId('lightplate')));
+  check('PU16 speed x1.25', Test.near(Move.statusSpeedScale[id], 1.25, 1e-6));
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), weapon = ItemArena.plainWeapon(), slot = Weapons.slotIndex(id, weapon.index);
+  Weapons.give(id, weapon.id, 0);
+  Weapons.reserve[slot] = 0;
+  Powerups.give(id, CAT.powerups.byId('ammorune'), 0);
+  Sim.run(TICK_RATE + 1);
+  const share = Math.max(1, Math.round(Weapons.maxReserve(id, weapon) * 0.05));
+  check('PU17 5 % of max ammo every second', Weapons.reserve[slot] === share, Weapons.reserve[slot] + ' / ' + share);
+  Powerups.clearActor(id, false);
+  Actors.health[id] = 50;
+  const souls = Powerups.souls[id];
+  check('PU18 a soul shard adds a soul and 1 HP', Powerups.give(id, CAT.powerups.byId('soul'), 0) && Powerups.souls[id] === souls + 1 && Actors.health[id] === 51);
+  const vital = CAT.powerups.byId('vitalshard');
+  Powerups.give(id, vital, 0);
+  check('PU20 +25 max health', Actors.maxHealth[id] === 125, Actors.maxHealth[id]);
+  for (let shard = 0; shard < 3; shard++) Powerups.give(id, vital, 0);
+  check('PU20 max health stops at 200', Actors.maxHealth[id] === vital.instant.vitalHealthCap, Actors.maxHealth[id]);
+  Actors.maxArmor[id] = 100;
+  Powerups.give(id, vital, 0);
+  check('PU20 then raises max armor by 25', Actors.maxArmor[id] === 125, Actors.maxArmor[id]);
+  Powerups.give(id, vital, 0); Powerups.give(id, vital, 0);
+  check('PU20 max armor stops at 150', Actors.maxArmor[id] === vital.instant.vitalArmorCap && !Powerups.give(id, vital, 0), Actors.maxArmor[id]);
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0);
+  Powerups.give(id, CAT.powerups.byId('ghostveil'), 0);
+  Damage.addStatus(id, 'freeze', -1, 3, 1);
+  Sim.run(1);
+  check('G08 a frozen Ghostveil holder is not cloaked', !(Actors.flags[id] & ACTOR_FLAG.INVISIBLE) && Items.perceptionScale(id) === 1);
+  Sim.run(itemTicks(3) + 2);
+  check('the cloak comes back when the freeze ends', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0 && Test.near(Items.perceptionScale(id), 0.25, 1e-6));
+  TestArena.finish();
+});
+
+Test.add('items', (check) => {
+  ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
+  const monster = ItemArena.actor(2, 3, 0);
+  Actors.kind[monster] = ACTOR_KIND.ENEMY;
+  Sim.run(1);
+  check('PvE enemies leave pickups alone', Actors.health[monster] === 50 && Items.state[0] === PICKUP_STATE.READY);
+  Game.match.rules.params = { enemyPickups: true };
+  Sim.run(1);
+  check('a mode can let enemies take pickups', Actors.health[monster] === 75, Actors.health[monster]);
+  TestArena.finish();
+});

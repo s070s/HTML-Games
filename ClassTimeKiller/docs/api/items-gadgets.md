@@ -15,7 +15,7 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 
 ## Ruleset fields read (`Game.match.rules`, via `currentRules()`)
 
-`mode`, `teams` (0 = free-for-all weapon pad times), `itemRespawnScale` (1), `weaponStay` (false), `dropOnDeath` (`none` | `held` | `all`, default `held`), `friendlyFire` (0), `economy` (gadget kit id, default `pickups`), `mutators` (`nopowerups` skips power spots; `souls` makes PvE kills drop souls), `params.souls` (same, set by a mode), `gravityScale` (grenade arcs through `bodyGravity()`).
+`mode`, `teams` (0 = free-for-all weapon pad times), `itemRespawnScale` (1), `weaponStay` (false), `dropOnDeath` (`none` | `held` | `all`, default `held`), `friendlyFire` (0), `economy` (gadget kit id, default `pickups`), `mutators` (`nopowerups` skips power spots; `souls` makes PvE kills drop souls), `params.souls` (same, set by a mode), `params.enemyPickups` (true lets PvE enemies take pickups; by default they leave them to players), `gravityScale` (grenade arcs through `bodyGravity()`).
 
 ## Input read
 
@@ -38,27 +38,34 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 - `Items.grant(id, key)` (buys: helmet, vest), `Items.carriedCount(id, key)`, `Items.use(id, key)`, `Items.useProgress(id)` (0..1, -1 none), `Items.cancelUse(id)` for loot consumables.
 - HUD: `Items.timers(out)` (respawning spots `{item, group, x, y, z, remaining}`), `Items.activePowerups(id, out)` (`{id, name, remaining, duration, color, persistent}`), `Items.soulCount(id)`. Bots: `Items.perceptionScale(id)` (PU04 cloak: 0.25).
 - Registries: `Items.takers[kind]`, `Items.effects[effect]`, `Items.extraAmmo` (fn(id, row) -> bool; 12c refills kit grenades from ammo caches).
+- `addAmmoShare(id, share)` -> rounds added: every owned magazine weapon gains share x its max reserve, at least 1 (I09, PU17, G23 share it).
 
 ## Powerups (12b)
 
 - `Powerups.give(id, row, timeLeft)` -> bool, `Powerups.has(id, key)`, `Powerups.ticksLeft(id, row)`, `Powerups.clearActor(id, drop)`, `Powerups.souls[id]`.
 - Writes the shared hooks `Move.statusSpeedScale`, `Weapons.rateScale`, `Weapons.freeAmmo`, `Items.noArmor`, `ACTOR_FLAG.INVISIBLE` (only clears the flag when it set it), and chains `Render.actorStyle` (tint, glow, cloak shimmer). Damage hooks: `Damage.addAttackerScale` (damage, melee, fodder melee) and `Damage.addReducer` (invulnerable, immune kinds, taken scale, belt absorb).
+- A timed powerup given while `Sim.tick` is T works for exactly `duration` steps: the step of tick T + duration removes it before movement.
+- G08: while the `freeze` status holds a PU04 holder, the cloak is off (`ACTOR_FLAG.INVISIBLE` cleared, `Items.perceptionScale` 1); it comes back when the freeze ends. Abilities should refuse teleports while `Damage.hasStatus(id, 'freeze')`.
 - Death drops the droppable powerups with their time left (at least 5 s); death, `match.end` and `match.stop` remove everything.
 
 ## Grenades and smoke (12c)
 
 - `Gadgets.give(id, key, amount)` -> added (kit limits for thrown rows), `Gadgets.select(id, key)`, `Gadgets.countOf(id, key)`, `Gadgets.equip(id)` (on `actor.spawn`), `Gadgets.refill(id)`.
 - `Gadgets.hudState(id, out)` -> `{grenade, grenadeCount, gadget, gadgetCount, gadgetCooldown (0..1 left), cook (0..1)}`.
-- `Gadgets.suppressed(id)` (G20 EMP: no grenades, gadgets, abilities or shield regeneration), `Gadgets.blindAmount(id)` (0..1 for the flash overlay), `Gadgets.jammed(id)` (G18: hide the radar), `Gadgets.visibleTo(index, id)`, `Gadgets.damageDevice(index, amount, source)`.
+- `Gadgets.suppressed(id)` (G20 EMP: no grenades, gadgets or abilities; shield recharge is held through `Damage.shieldRegenBlockedUntil` for the same 4 s, health regeneration goes on), `Gadgets.blindAmount(id)` (0..1 for the flash overlay), `Gadgets.jammed(id)` (G18: hide the radar), `Gadgets.visibleTo(index, id)`, `Gadgets.damageDevice(index, amount, source)`.
 - Registries: `Gadgets.deployers` (fn(id, row) -> bool; 12d), `Gadgets.empHooks` (fn(owner, x, y, z, radius, seconds)).
-- `Smoke.lineBlocked(ax, ay, az, bx, by, bz)` -> true when the segment passes through 1 m or more of smoke (bots, turrets and aim assist use it). `Smoke.covers(x, y, z)`. Smoke fills a 1 m occupancy grid from its centre, never through walls, grows over 1.5 s, and loses cells for 2 s to hitscan, beam and cone shots (`weapon.fire`) and blasts (`explosion`).
+- `Smoke.lineBlocked(ax, ay, az, bx, by, bz)` -> true when the segment passes through 1 m or more of smoke (bots, turrets, drones and aim assist use it). Aim assist goes through the `Input.aimAssistFilters` registry, so whichever section fills `Input.aimAssistTarget` keeps the smoke rule. `Smoke.covers(x, y, z)`. Smoke fills a 1 m occupancy grid from its centre, never through walls, grows over 1.5 s, and loses cells for 2 s to hitscan, beam and cone shots (`weapon.fire`) and blasts (`explosion`).
+- Throws leave the hand 0.5 m in front of the eye along the view (`throwOrigin`); the arc preview starts there and follows the flight until the fuse (what is left of it while cooking) would end. Fire areas burn on the floor below where the grenade went off (3 m probe). A grenade stuck to a body loses its throw speed and drops when the carrier dies.
 - Flash: blind seconds = duration x view share (facing 1, facing away 0.1) x distance share (1 at the centre, 0.25 at the edge), line of sight to the eye; enemies and the thrower, allies only with friendly fire.
 
 ## Devices (12d)
 
 - `Devices.spawn(row, owner, x, y, z)`, `Devices.room(owner, row)` (GAD-003 caps: `max` per owner, `perTeam` per team), `Devices.damage(d, amount, source)`, `Devices.working(d)` (armed and not EMP-disabled), `Devices.clear()`.
-- Shots damage devices along the ray (fire mode damage x pellets); blasts deal 100 x (1 - d/r). Allies cannot harm devices unless friendly fire is on. Destroyed devices emit `gadget.destroyed`.
-- Enemy placed gadgets (mines) are only drawn and visible within 8 m in line of sight; deployed devices always show. Devices are removed when their owner dies and at match start, end and stop.
+- Shots damage devices along the ray up to the first wall or body (a body in front shields the device; fire mode damage x pellets); blasts deal 100 x (1 - d/r).
+- G12 dome: any projectile or grenade, whoever fired it, that crosses its wall this step (inside then outside or the reverse) is removed. G22 snatcher: enemy ones anywhere inside its radius, up to its charges.
+- G13 barrier: the device yaw is snapped to the nearest axis (`snapToAxis`), so the drawn box and the axis-aligned brush agree.
+- G15 turret and G21 drones pick the nearest enemy body in range they see (`Devices.nearestSeen`: walls, smoke, cloaked enemies only within 25 % of the range). Turrets pick on every shot; drones on the 0.25 s device tick and between picks only drop a target that died. Allies cannot harm devices unless friendly fire is on. Destroyed devices emit `gadget.destroyed`.
+- `Devices.shownTo(d, id)` (renderer): friends see every device, enemies see deployed devices, and enemy placed gadgets (mines) only as a glint within 8 m in line of sight. `Gadgets.visibleTo(d, id)` (bots): the same, and enemy deployed devices only in line of sight. Devices are removed when their owner dies and at match start, end and stop.
 
 ## Events
 
