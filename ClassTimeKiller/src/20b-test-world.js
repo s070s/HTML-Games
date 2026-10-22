@@ -63,6 +63,10 @@ Test.add('world', (check) => {
   const blocked = !World.lineClear(10, 1, 0, -10, 1, 0);
   check('a sight line through two walls stops at the first wall its tree walk meets (the far one, left child first)', blocked && rayQuery.brush === World.brushes[1]
     && Test.near(rayQuery.fraction, 0.75, 1e-4), rayQuery.fraction);
+  World.dynamic.push(World.brushes[2]);   // the near wall again as a prop: an any-hit line already blocked skips the props
+  const stillBlocked = !World.lineClear(10, 1, 0, -10, 1, 0), stoppedAt = rayQuery.brush;
+  World.dynamic.length = 0;
+  check('a sight line the static tree already blocks tests no dynamic brush', stillBlocked && stoppedAt === World.brushes[1], stoppedAt && stoppedAt.minX);
 });
 
 Test.add('world', (check) => {

@@ -62,6 +62,7 @@ const World = {
     query.fraction = 1; query.brush = null;
     setRayInverse(query);
     walkTree(this.tree, query, rayTestNode, rayTestBrush);
+    if (query.anyHit && query.brush !== null) return true; // the static tree already blocks the line
     for (let i = 0; i < this.dynamic.length; i++) rayTestBrush(query, this.dynamic[i]);
     return query.brush !== null;
   },
@@ -214,18 +215,18 @@ function rayBoundsDistance(ox, oy, oz, dx, dy, dz, maxDistance, minX, minY, minZ
 }
 
 const slab = { near: 0, far: 0 };
+const RAY_PARALLEL = 1e-9;   // a direction component this close to 0 counts as parallel to that axis (clipSlab, slabInverse)
 
 function clipSlab(origin, direction, low, high) {
-  if (Math.abs(direction) < 1e-9) return origin >= low && origin <= high;
+  if (Math.abs(direction) < RAY_PARALLEL) return origin >= low && origin <= high;
   const t1 = (low - origin) / direction, t2 = (high - origin) / direction;
   slab.near = Math.max(slab.near, Math.min(t1, t2));
   slab.far = Math.min(slab.far, Math.max(t1, t2));
   return slab.near <= slab.far;
 }
 
-// 1 / direction per axis for the slab tests below; a direction this close to 0 counts as parallel (inverse 0: that slab
-// passes only when the origin lies between its faces, faces included, as in clipSlab).
-const RAY_PARALLEL = 1e-9;
+// 1 / direction per axis for the slab tests below; a parallel direction (RAY_PARALLEL) gets inverse 0: that slab passes
+// only when the origin lies between its faces, faces included, as in clipSlab.
 const slabInverse = (direction) => (Math.abs(direction) < RAY_PARALLEL ? 0 : 1 / direction);
 
 function setRayInverse(ray) {
