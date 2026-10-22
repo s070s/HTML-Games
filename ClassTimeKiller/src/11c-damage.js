@@ -70,6 +70,7 @@ const Damage = {
   statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
   downedWeapon: null,                               // fn(id) -> weapon key drawn while downed, '' none (S13: the Last Stand perk)
+  downHooks: [],                                    // fn(id) after an actor goes down (S13: its carried objectives drop)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
@@ -247,6 +248,7 @@ const Damage = {
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    for (let i = 0; i < this.downHooks.length; i++) this.downHooks[i](target);
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
   },
@@ -416,12 +418,15 @@ const Damage = {
     const role = preset.roleRegen;
     if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
-  // The one heal path (regen, pickups, abilities, lifesteal): adds health up to cap; false when already at it.
+  // The shared heal step (regen, pickups, abilities, lifesteal, cards): adds health up to cap; false when already at it.
+  // Some mutator, powerup and PvE heals still write health directly (docs/api/weapons-damage.md lists them).
   regenerate(id, amount, cap) {
     if (Actors.health[id] >= cap) return false;
     Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
     return true;
   },
+  // The highest health an overheal may reach: the preset's overhealCap, never below the actor's own max.
+  overhealCap(id) { return Math.max(Actors.maxHealth[id], this.preset().overhealCap); },
   // Lifesteal (PU12 Vampire Fang, X13 Vampire, C24 Life Thief): share of a 'damage' event dealt to another actor heals
   // its living source, up to its max health.
   lifesteal(event, share) {

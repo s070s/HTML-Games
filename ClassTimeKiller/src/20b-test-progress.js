@@ -205,10 +205,10 @@ Test.add('progress', (check) => {
     && profile.cards.marks === 0 && Progress.stats().totals.matches === 0 && Progress.ladder().tier === 0 && Progress.level() === 1);
   Save.data = Save.migrate(JSON.parse('{"version":1,"settings":{},"progression":{"xp":5000,"medals":{"spree":2}},"stats":{"weapons":{"warden":{"kills":30}}},"ladder":{"tier":2}}'));
   check('migration: kept values survive, missing ones are added', Progress.profile().xp === 5000 && Progress.profile().medals.spree === 2 && Progress.ladder().tier === 2
-    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainRecord(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
+    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainObject(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
   check('migration: weapon records gain their missing counters on first use', Progress.masteryOf('warden') === 0 && statRecord(Progress.stats().weapons, 'warden', WEAPON_STAT_FIELDS).headshots === 0);
   Save.data = Save.migrate(JSON.parse('{"version":1,"progression":[1,2],"stats":"broken","ladder":null}'));
-  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainRecord(Progress.stats().weapons) && Progress.ladder().done === false);
+  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainObject(Progress.stats().weapons) && Progress.ladder().done === false);
   Save.data = Save.emptySave();
   check('migration: an empty save migrates lazily on first use', Progress.profile().version === PROGRESS_VERSION && Save.data.progression.version === PROGRESS_VERSION);
   Save.data.progression.xp = 'lots';
@@ -748,7 +748,11 @@ Test.add('progress', (check) => {
 
   ids = progressCardMatch(['slowtide', 'onehp', 'discord', 'endless']);
   CardRun.activate(progressSlot('slowtide'));
-  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE_SLOW) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  Buffs.add(ids.other, BUFF.RATE, 1.5, 5);
+  Buffs.applyScales(ids.other);
+  check('a fire-rate boost does not cancel a slow: they multiply', Test.near(Weapons.rateScale[ids.other], 0.75 * Powerups.rateScale[ids.other], 1e-6), Weapons.rateScale[ids.other]);
+  Buffs.cancel(ids.other, BUFF.RATE);
   const enemy = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   Actors.alive[enemy] = 1;
   CardRun.activate(progressSlot('discord'));

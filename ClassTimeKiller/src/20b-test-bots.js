@@ -185,6 +185,29 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// HP-007 + BOT-071: a downed bot holds still for its reviver instead of crawling after its own goal, so the revive finishes.
+Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { tier: 3, team: 0 }] });
+  placeFacing(bot, 0, -4, 0);
+  placeFacing(mate, 4, 0, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0, startX = Actors.x[mate], startZ = Actors.z[mate];
+  let moved = 0;
+  for (let tick = 0; tick < 8 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) {
+    Sim.run(1);
+    moved = Math.max(moved, Math.hypot(Actors.x[mate] - startX, Actors.z[mate] - startZ));
+  }
+  const revived = downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED);
+  check('BOT-071 a bot revives a downed bot within 8 s (the downed bot holds still)', revived && moved < 0.5, 'moved ' + moved.toFixed(2) + ' m, goal ' + GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+// M20 squads put squad indices in Actors.team: every possible squad has its own bark clock and grenade token.
+Test.add('bots', (check) => {
+  check('team bark clocks cover every squad index', BotTeam.teamBarkAt.length >= MAX_ACTORS + 1 && BotTeam.grenadeAt.length >= 2 * MAX_ACTORS + 1, BotTeam.teamBarkAt.length);
+});
+
 // ---- Catalogues ----
 Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));

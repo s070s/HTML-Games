@@ -251,10 +251,10 @@ const Abilities = {
     this.begin(id, SLOT.ULTIMATE, row);
     return true;
   },
-  // Streak / boost rewards load the ultimate slot for one use.
+  // Streak / boost rewards load the ultimate slot for one use; a soul mode keeps that slot for Wrath Form, so none load there.
   grantReward(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
-    if (!row) return false;
+    if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
     this.reward[id] = 1; this.rewardLoaded[id] = 1;

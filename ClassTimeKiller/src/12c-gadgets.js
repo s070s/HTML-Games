@@ -56,6 +56,13 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
+// Accumulates clock[index]; true once per interval (gadget areas and placed devices tick on it).
+function intervalDue(clock, index, dt, interval) {
+  clock[index] += dt;
+  if (clock[index] < interval - 1e-6) return false;
+  clock[index] -= interval;
+  return true;
+}
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
@@ -78,6 +85,8 @@ function gadgetShotMode(event) {
   const mode = event.mode === 'alt' ? weapon.alt : weapon.primary;
   return mode.type === 'hitscan' || mode.type === 'beam' || mode.type === 'cone' ? mode : null;
 }
+// FireMode.repair (W30 beam): health one shot restores on a friendly device or the PvE core; 0 for other modes.
+function repairPerShot(mode) { return mode && mode.repair > 0 ? mode.repair / mode.rate : 0; }
 // Where a throw leaves the hand (THROW_FORWARD in front of the eye along the view): the throw and its preview arc.
 function throwOrigin(id, out) {
   Vec.fromAngles(out, Actors.aimYaw[id], Actors.aimPitch[id]);
@@ -324,12 +333,7 @@ const GadgetAreas = {
     }
   },
   // Accumulates the area clock; true once per interval.
-  due(area, dt, interval) {
-    this.clock[area] += dt;
-    if (this.clock[area] < interval - 1e-6) return false;
-    this.clock[area] -= interval;
-    return true;
-  },
+  due(area, dt, interval) { return intervalDue(this.clock, area, dt, interval); },
   finish(area, row) {
     this.active[area] = 0;
     if (row.effect === 'singularity') gadgetBlast(row, this.owner[area], this.x[area], this.y[area], this.z[area]);

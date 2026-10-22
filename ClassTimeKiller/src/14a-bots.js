@@ -263,6 +263,7 @@ const Bots = {
     if (Actors.flags[id] & ACTOR_FLAG.FROZEN) { this.settle(id, dt); return; }   // freeze / buy time (S13): wait
     if (now + TIME_EPSILON >= this.nextDecide[id]) BotDecide.decide(id, now);
     BotCombat.update(id, dt, now);
+    if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { this.settle(id, dt); return; }   // HP-007: wait for the reviver, still aiming and firing
     BotMove.update(id, dt, now);
     BotCombat.overlayMovement(id, dt, now);
     BotCombat.avoidHazards(id, now);

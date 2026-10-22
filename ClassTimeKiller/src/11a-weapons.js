@@ -439,22 +439,23 @@ const Weapons = {
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
     if (!weapon) return;
-    this.updateAds(id, weapon, dt);
+    const altTaken = this.altTaken(id);
+    this.updateAds(id, weapon, altTaken, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    if (!this.altTaken(id)) this.stepAltMode(id, weapon, dt);
+    if (!altTaken) this.stepAltMode(id, weapon, dt);
   },
-  // GAD-002: an ALT hold that an underhand throw claimed never reaches the weapon's alt, not even after the throw.
+  // GAD-002: an ALT hold that an underhand throw claimed never reaches the weapon's alt (no sights, no detonate on release).
   altTaken(id) {
     if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
-    if (this.altClaim && this.altClaim(id)) this.altClaimed[id] = 1;
+    if (this.altClaim && this.altClaim(id)) { this.altClaimed[id] = 1; this.altHeld[id] = 0; }
     return this.altClaimed[id] === 1;
   },
   // Aiming down sights needs a zoom alt (or an alt shot with its own zoom, the W19 slug) held while idle: a reload lowers the sights.
-  updateAds(id, weapon, dt) {
-    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+  updateAds(id, weapon, altTaken, dt) {
+    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0 && !altTaken;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
     if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
   },

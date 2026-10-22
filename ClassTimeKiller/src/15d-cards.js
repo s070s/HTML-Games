@@ -176,7 +176,7 @@ const CARD_STARTS = {
     for (let other = 0; other < Actors.count; other++) {
       if (!isCardOpponent(id, other)) continue;
       Buffs.add(other, BUFF.SLOW, value, seconds);
-      Buffs.add(other, BUFF.RATE, value, seconds);
+      Buffs.add(other, BUFF.RATE_SLOW, value, seconds);
     }
   },
   // PvE enemies turn on each other: their team becomes "hostile to all" (A24 rule) until the card ends.

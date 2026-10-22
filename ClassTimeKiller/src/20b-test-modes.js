@@ -301,6 +301,9 @@ Test.add('modes', (check) => {
   check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
   check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
   endModeTest();
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'pilot' });
+  check('lms: start armor stays within maxArmor (none in a ruleset without armor)', Actors.armor[0] <= Actors.maxArmor[0], Actors.armor[0] + ' / ' + Actors.maxArmor[0]);
+  endModeTest();
 
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
@@ -323,6 +326,21 @@ Test.add('modes', (check) => {
 });
 
 const CTF_MAP = { spawns: TEAM_SPAWNS, objectives: [{ id: 'blueFlag', kind: 'flag', team: 0, x: -30, y: 0, z: 0 }, { id: 'redFlag', kind: 'flag', team: 1, x: 30, y: 0, z: 0 }] };
+
+// HP-007: a carrier that goes down drops what it carries (a downed actor acts on no objective) and cannot take it back.
+Test.add('modes', (check) => {
+  startModeTest('ctf', modesTestMap(CTF_MAP), [0, 0, 1]);
+  const redFlag = Modes.objectives[1];
+  placeActor(1, -40, 40); placeActor(2, 40, -40);
+  placeActor(0, 30.5, 0);
+  Sim.step();
+  const carried = redFlag.carrier === 0;
+  placeActor(0, 10, 10);
+  Damage.goDown(-1, 0);
+  Sim.step();
+  check('ctf: a carrier that goes down drops the flag', carried && redFlag.state === 'dropped' && redFlag.carrier === -1, redFlag.state + ' ' + redFlag.carrier);
+  endModeTest();
+});
 
 Test.add('modes', (check) => {
   startModeTest('ctf', modesTestMap(CTF_MAP), [0, 1]);

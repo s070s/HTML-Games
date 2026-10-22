@@ -305,7 +305,7 @@ function lootWeaponIndex(key) {
 
 function touchLoot(now) {
   for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || !Modes.isActive(id)) continue;
+    if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
       if (!RoyaleLoot.taken[spot] && lootInTouch(id, spot)) takeLoot(id, spot, now);
     }

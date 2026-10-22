@@ -323,11 +323,11 @@ Items.grantEffects.coreShield = () => {
 // W30 beam (FireMode.repair) on the core repairs it, as S12 Devices.onShot repairs a friendly device.
 const CORE_HIT_LIFT = 1;   // the core's hit sphere sits this far above its spot (where enemy attacks aim)
 function repairCore(event) {
-  const core = Pve.core, mode = gadgetShotMode(event);
-  if (!mode || !(mode.repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
+  const core = Pve.core, mode = gadgetShotMode(event), repair = repairPerShot(mode);
+  if (!(repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
   const distance = raySphere(event.x, event.y, event.z, event.dx, event.dy, event.dz, core.x, core.y + CORE_HIT_LIFT, core.z, PVE_WAVE_RULES.coreRadius);
   if (distance < 0 || distance > Devices.shotReach(event, mode.range)) return;
-  core.health = Math.min(core.max, core.health + mode.repair / mode.rate);
+  core.health = Math.min(core.max, core.health + repair);
 }
 Bus.on('weapon.fire', repairCore);
 

@@ -455,12 +455,15 @@ function updateTacticalCharges(id, preset, dt) {
 }
 
 // ---- Input, clocks and double taps ----
+function isDowned(id) { return (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0; }
+
 function readInput(id) {
   const stopped = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || getClock(id, CLOCK.STAGGER) > 0 || Motion.state[id] === MOVE_STATE.MANTLE;
   Motion.inputX[id] = stopped ? 0 : clamp(Actors.moveX[id], -1, 1);
   Motion.inputZ[id] = stopped ? 0 : clamp(Actors.moveZ[id], -1, 1);
-  const pressed = !stopped && (Actors.pressed[id] & BTN.JUMP) !== 0;
-  const held = !stopped && (Actors.buttons[id] & BTN.JUMP) !== 0;
+  const noJump = stopped || isDowned(id);   // HP-007: a downed actor crawls but never jumps
+  const pressed = !noJump && (Actors.pressed[id] & BTN.JUMP) !== 0;
+  const held = !noJump && (Actors.buttons[id] & BTN.JUMP) !== 0;
   // jumpPressed stays a fresh press: air jumps, wall jumps, ladder push-offs and mantles never repeat while held.
   Motion.jumpPressed[id] = pressed ? 1 : 0;
   // X25 autohop: a held jump keeps the ground-jump buffer full, so only ground jumps repeat.
@@ -498,7 +501,8 @@ function stepActor(id, dt) {
   updateClocks(id, dt);
   readInput(id);
   updateStance(id, preset);
-  for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
+  // HP-007: no slide, dash, mantle or wall-run while downed
+  if (!isDowned(id)) for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
   updateSprint(id, preset, dt);
   (Move.states[Motion.state[id]] || walkState)(id, preset, gravity, dt);
   afterMove(id, preset, gravity, startX, startZ);

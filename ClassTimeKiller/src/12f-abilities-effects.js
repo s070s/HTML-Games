@@ -4,12 +4,12 @@
 // decoy, telekinesis, gates, rift, rally, zone, and the four suit weaves. Timed self and team effects are Buffs; placed
 // effects are AbilityZones (a pooled struct of arrays). Damage always goes through Damage.apply, knockback through 'impulse'.
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12 };
-const BUFF_COUNT = 13;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12, RATE_SLOW: 13 };
+const BUFF_COUNT = 14;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
@@ -103,7 +103,7 @@ const Buffs = {
   // whenever its set changes, so a pickup or expiry takes effect in the same step).
   applyScales(id) {
     Move.statusSpeedScale[id] = this.get(id, BUFF.SPEED) * this.get(id, BUFF.SLOW) * Powerups.speedScale[id];
-    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * Powerups.rateScale[id];
+    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * this.get(id, BUFF.RATE_SLOW) * Powerups.rateScale[id];   // boosts and slows stack
     Move.gravityScale[id] = this.get(id, BUFF.GRAVITY);
   },
   applyInvisible(id, wanted) {
@@ -283,7 +283,7 @@ function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_S
 // ABL-004 time slow: movement and fire rate both run at the zone's factor.
 function slowInZone(zone, id) {
   Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
-  Buffs.add(id, BUFF.RATE, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE_SLOW, AbilityZones.value[zone], TICK_BUFF);
 }
 // The strike lands after its delay: one blast through Damage.explode (no falloff inside the marked circle).
 function strikeStep(zone, dt) {

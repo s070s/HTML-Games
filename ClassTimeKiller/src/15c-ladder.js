@@ -83,7 +83,7 @@ const Ladder = {
 const Challenges = {
   record(id) {
     const records = Progress.profile().challenges;
-    if (!isPlainRecord(records[id])) records[id] = {};
+    if (!isPlainObject(records[id])) records[id] = {};
     return fillMissing(records[id], { best: 0, stars: 0, expertBest: 0, expertStars: 0, plays: 0 });
   },
   isOpen(row) { return row.group <= Progress.roomGroup(); },
@@ -161,7 +161,7 @@ const Operations = {
   freshState() { return { stage: 0, tickets: [OPERATION_TICKETS.base, OPERATION_TICKETS.base], wins: [0, 0], comeback: -1, done: false, result: '', completed: 0 }; },
   state(id) {
     const records = Progress.profile().operations;
-    if (!isPlainRecord(records[id])) records[id] = this.freshState();
+    if (!isPlainObject(records[id])) records[id] = this.freshState();
     return fillMissing(records[id], this.freshState());
   },
   reset(id) {

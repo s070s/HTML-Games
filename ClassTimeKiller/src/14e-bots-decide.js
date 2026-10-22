@@ -214,10 +214,15 @@ const BotDecide = {
     if (goal === GOAL.NONE) { this.noGoalTime[id] += dt; this.longestNoGoal[id] = Math.max(this.longestNoGoal[id], this.noGoalTime[id]); return; }
     this.noGoalTime[id] = 0;
     if (BotMove.failed(id) && !BotCombat.weaponJumpPending(id, now)) { this.goalFailed(id, now); return; }   // a ledge goal may be jumped to
-    const near = Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
+    const near = this.nearGoal(id, goal);
     if (this.goalAction[id] === ACTION.USE && near) { Bots.wish(id, 0, 0, 0); Bots.press(id, BTN.USE); return; }
     if (!BotMove.arrived(id) && !near) return;
     this.arrive(id, goal, dt, now);
+  },
+  // BOT-071: a reviver keeps holding Use while Damage's own revive search still reaches the ally, wherever it planned to kneel.
+  nearGoal(id, goal) {
+    if (goal === GOAL.REVIVE) return Damage.nearestDownedAlly(id, REVIVE_REACH) >= 0;
+    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
   },
   arrive(id, goal, dt, now) {
     if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }

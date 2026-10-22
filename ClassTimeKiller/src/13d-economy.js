@@ -452,6 +452,7 @@ Abilities.carrierCheck = (id) => {
 };
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
 Damage.downedWeapon = (id) => (Economy.hasPerk(id, 'lastStand') ? CAT.perks.byId('laststand').weapon : '');   // ECP04 Last Stand
+Damage.downHooks.push((id) => Modes.dropCarried(id));   // HP-007: a downed carrier acts on no objective, so it drops it
 // Buy rows and class slots of kind 'gadget' (grenades, ECP04 field upgrades G13/G22/G23/G24 with their row cooldown as the
 // 60-120 s recharge) and 'grant' (wave shop extras such as the core shield: Items.grantEffects) are delivered by S12.
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;

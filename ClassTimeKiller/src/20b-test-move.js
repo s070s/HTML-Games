@@ -786,3 +786,17 @@ Test.add('move', (check) => {
   const vy = Actors.vy[glider]; Sim.step();
   check('glide lasts 3 s per jump', Test.near(vy - Actors.vy[glider], 16 * TICK_SECONDS, 1e-3), vy - Actors.vy[glider]);
 });
+
+// HP-007: a downed actor crawls but never jumps or air-jumps.
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'agile' });
+  const id = groundedTester(0, 0), ally = groundedTester(-20, -20);
+  Actors.flags[id] |= ACTOR_FLAG.DOWNED; Damage.downedTime[id] = DOWNED_BLEED_SECONDS;
+  const startY = Actors.y[id];
+  holdInput(id, 0, 1, BTN.JUMP);
+  const rise = highestPoint(id, 0.5) - startY;
+  check('a downed actor does not jump (HP-007)', Actors.alive[id] === 1 && rise < 0.05, rise.toFixed(3));
+  Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
+  Actors.remove(id); Actors.remove(ally);
+});

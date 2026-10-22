@@ -93,6 +93,15 @@ Test.add('gadgets', (check) => {
   Sim.run(itemTicks(1));
   const altShots = TestArena.count('weapon.fire', () => GadgetArena.press(id, BTN.ALT));
   check('GAD-002 the underhand throw does not fire the weapon alt (ALT alone still does)', GadgetArena.firstThrown() >= 0 && thrownShots === 0 && altShots > 0, thrownShots + ' / ' + altShots);
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['verdict']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the scoped rifle is out
+  Actors.buttons[id] = BTN.GRENADE | BTN.ALT;
+  Sim.run(itemTicks(0.2));
+  const sights = Weapons.ads[id];
+  Actors.buttons[id] = 0;
+  check('GAD-002 holding ALT for an underhand throw does not raise a zoom alt\'s sights', sights === 0, sights);
   TestArena.finish();
 });
 
