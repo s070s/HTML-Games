@@ -1639,3 +1639,34 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- Bot economy (BOT-001: decided in S14): round buys, and heals pressed through BTN.HEAL ----
+const BUY_TEST_MONEY = 3000, BUY_TEST_SECONDS = 2;
+Test.add('bots', (check) => {
+  Game.headless = true;
+  Game.start({ mode: 'bomb', map: 'dustline', seed: 2, bots: Array.from({ length: 10 }, () => ({})) });
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) Economy.setMoney(id, BUY_TEST_MONEY);
+  runSeconds(BUY_TEST_SECONDS);
+  const empty = [];
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Bots.active[id]) continue;
+    const primary = CAT.weapons.some((weapon) => weapon.price > 0 && weapon.class !== 'sidearm' && weapon.class !== 'melee' && Weapons.has(id, weapon.id));
+    if (!primary && Actors.armor[id] <= 0) empty.push(id);
+  }
+  check('Detonate: every bot with $3000 at the buy time owns a bought primary or armour', empty.length === 0, empty.join());
+  endModeTest();
+});
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 0 }] });
+  placeFacing(bot, 0, -10, 0);
+  Items.grant(bot, 'patch');
+  Actors.health[bot] = Actors.maxHealth[bot] * 0.4;
+  Damage.lastDamageTime[bot] = Sim.time;
+  let pressedHurt = false, pressedCalm = false;
+  for (let tick = 0; tick < TICK_RATE; tick++) { Damage.lastDamageTime[bot] = Sim.time; Sim.run(1); pressedHurt = pressedHurt || (Actors.buttons[bot] & BTN.HEAL) !== 0; }
+  for (let tick = 0; tick < 6 * TICK_RATE && Items.useProgress(bot) < 0; tick++) { Sim.run(1); pressedCalm = pressedCalm || (Actors.buttons[bot] & BTN.HEAL) !== 0; }
+  check('a hurt bot under fire keeps its consumable', !pressedHurt && Items.consumableCount(bot) === 1);
+  check('a hurt calm bot presses heal and uses its consumable', pressedCalm && Items.useProgress(bot) >= 0);
+  check('the heal decision lives in the bot brain, not in the items section', typeof Items.botWantsHeal !== 'function');
+  endBotTest();
+});
+

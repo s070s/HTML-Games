@@ -261,6 +261,7 @@ const Bots = {
   think(id, dt, now) {
     this.buttonsWanted[id] = 0;
     this.slotWanted[id] = 0;
+    BotEconomy.update(id, now);   // buy time and the wave shop come while frozen or settling too
     if (this.state[id] === BOT_STATE.SPAWN && now - this.stateSince[id] < BOT_SPAWN_SETTLE) { this.settle(id, dt); return; }
     if (Actors.flags[id] & ACTOR_FLAG.FROZEN) { this.settle(id, dt); return; }   // freeze / buy time (S13): wait
     if (now + TIME_EPSILON >= this.nextDecide[id]) BotDecide.decide(id, now);

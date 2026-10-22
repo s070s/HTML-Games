@@ -50,7 +50,8 @@ const MELEE_DISTANCE = 1.8, MELEE_INTERVAL = 0.5;
 const THROW_PITCH_TOP = 35 * DEG, THROW_SOLVE_STEPS = 16;   // the low arc rises up to here (18 m/s + 5 up: past 40 m)
 const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cooked grenade goes off as it lands)
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
-const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
+const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability, heal) while none is wanted
+const HEAL_CALM_SECONDS = 3;            // s without damage before a neutral bot uses a carried consumable
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
 const CHOKE_SMOKE_EFFECT = 'smoke';     // BOT-034: an attacking bot throws this effect at a choke hint on its way to the target...
 const CHOKE_SMOKE_CORRIDOR = 4;         // ...m at most beside the straight line there...
@@ -120,7 +121,7 @@ const BotCombat = {
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
   checkedDry: new Uint8Array(MAX_ACTORS), combatSwitchAt: new Float64Array(MAX_ACTORS), wantedGain: new Float32Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
-  gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
+  gadgetAt: new Float64Array(MAX_ACTORS), healAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
   jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
@@ -551,6 +552,7 @@ const BotCombat = {
   useKit(id, now) {
     this.keepHolding(id, now);
     this.switchOff(id, now);
+    this.tryHeal(id, now);
     if (!Bots.tier(id).gadgets || now < this.throwUntil[id]) return;
     if (now >= this.abilityAt[id]) this.tryAbilities(id, now);
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
@@ -579,6 +581,15 @@ const BotCombat = {
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
     const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
     this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
+  },
+  // A bot missing health or shield presses heal like a player once out of the fight (no damage for HEAL_CALM_SECONDS,
+  // 0.5x..1.5x by the self-preservation trait); S12 then uses its first carried consumable that restores something.
+  tryHeal(id, now) {
+    if (now < this.healAt[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) || Items.usingItem[id] >= 0) return;
+    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return;
+    this.healAt[id] = now + KIT_CHECK_INTERVAL;
+    const calm = HEAL_CALM_SECONDS * (1.5 - Bots.trait(id, TRAIT.selfPreservation));
+    if (now - Damage.lastDamageTime[id] >= calm && Items.consumableCount(id) > 0) Bots.press(id, BTN.HEAL);
   },
   // One CYCLE_GRENADE press per kit check until the type selected before the choke smoke is back (or no longer carried).
   returnFromChoke(id) {

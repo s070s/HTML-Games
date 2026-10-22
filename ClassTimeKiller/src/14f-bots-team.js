@@ -6,7 +6,7 @@
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
 // Grenade tokens keep a team from throwing more than one every 3 s; attack and flank tokens (BOT-053, BOT_TOKENS) limit
 // how many bots close in on one target and flank at once. Squads (BOT-052, BOT_SQUAD): followers keep with their leader.
-// Flag raids: attackers gather at a rally point and push together (BOT_FLAG_PUSH).
+// Flag raids: attackers gather at a rally point and push together (BOT_FLAG_PUSH). BotEconomy buys in buy times and wave shops.
 
 const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
 const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
@@ -407,9 +407,86 @@ function spotKind(player, x, z) {
 
 GOAL_SCORERS[GOAL.SQUAD] = (id, plan) => BotTeam.squadPlan(id, plan);
 
+// ---- Bot shopping (BOT-001: decided in the brain, bought through Economy.buy like the player's buy menu) ----
+// One pass per buy window (round buy time in the buy zone, an open wave shop), by BOT_BUY. The items, prices and limits
+// are the match catalogue's (Economy.catalogue / limitReason), so every mode rule on what a side may buy holds for bots.
+const BOT_BUY_CHECK = 0.5;              // s between the checks for an open buy window
+const BotEconomy = {
+  checkAt: new Float64Array(MAX_ACTORS),
+  shopped: new Uint8Array(MAX_ACTORS),  // 1 = this window's pass is done (0 again once the window closes)
+
+  update(id, now) {
+    if (now < this.checkAt[id]) return;
+    this.checkAt[id] = now + BOT_BUY_CHECK;
+    if (!Economy.usesMoney() || !Economy.canBuy(id)) { this.shopped[id] = 0; return; }
+    if (this.shopped[id]) return;
+    this.shopped[id] = 1;
+    this.shop(id);
+  },
+  shop(id) {
+    if (Economy.preset().buy === 'round') {
+      if (Economy.money(id) < BOT_BUY.ecoMoney * (0.75 + 0.5 * Bots.trait(id, TRAIT.selfPreservation))) return;   // an eco round
+      this.buyBest(id, gunWorth);
+      this.buyBest(id, armourWorth);
+      if (Bots.tier(id).gadgets) this.buyBest(id, grenadeWorth);
+      return;
+    }
+    if (anyGunLow(id)) this.buyBest(id, ammoWorth);
+    if (Bots.tier(id).gadgets) this.buyBest(id, placedGadgetWorth);
+  },
+  // Buys the catalogue item `worth` values most (0 = not wanted) that the bot may buy now and can pay for.
+  buyBest(id, worth) {
+    const list = Economy.catalogue(), money = Economy.money(id);
+    let best = null, bestValue = 0;
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (item.price > money || Economy.limitReason(id, item)) continue;
+      const value = worth(id, item, money);
+      if (value > bestValue) { bestValue = value; best = item; }
+    }
+    return best !== null && Economy.buy(id, best.id).ok;
+  },
+};
+
+// A gun (not a melee weapon) worth BOT_BUY.upgrade more than the best one the bot owns, by botPref and the favourite.
+function gunWorth(id, item) {
+  if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
+  const value = gunValue(id, CAT.weapons.byId(item.key));
+  return value >= bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
+}
+function gunValue(id, weapon) { return weapon.botPref.value + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); }
+function bestOwnedGun(id) {
+  let best = 0;
+  for (let index = 0; index < WEAPON_COUNT; index++) {
+    const weapon = CAT.weapons[index];
+    if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, gunValue(id, weapon));
+  }
+  return best;
+}
+// The best armour on sale (the dearer row protects more: vest and helmet over the vest).
+function armourWorth(id, item) { return item.kind === 'armor' || item.kind === 'helmet' ? item.price : 0; }
+// One grenade a round: the cheapest one, none when the bot already bought one this life.
+function grenadeWorth(id, item) {
+  if (item.kind !== 'gadget' || item.group !== 'grenade' || boughtInGroup(id, item.group) > 0) return 0;
+  return 1 / item.price;
+}
+function boughtInGroup(id, group) {
+  let total = 0;
+  for (const row of CAT.buyItems) if (row.group === group) total += Economy.bought[id * CAT.buyItems.length + row.index];
+  return total;
+}
+function ammoWorth(id, item) { return item.kind === 'ammo' ? 1 : 0; }
+// Wave shop: a placed gadget (barrier, turret) while BOT_BUY.shopKeep credits stay for the next refill.
+function placedGadgetWorth(id, item, money) { return item.kind === 'gadget' && money - item.price >= BOT_BUY.shopKeep ? item.price : 0; }
+// Any gun the bot carries that runs low (BotCombat.gunLow).
+function anyGunLow(id) {
+  for (let index = 0; index < WEAPON_COUNT; index++) if (Weapons.owned[Weapons.slotIndex(id, index)] && BotCombat.gunLow(id, index)) return true;
+  return false;
+}
+
 // A fresh start every match, so the same seed plays the same match: at match setup every typed array of the bot modules
 // (14a..14f: clocks, aim noise, scan order, paths, plans) goes back to its load-time contents. Copies taken once, at load.
-const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam].flatMap((module) =>
+const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam, BotEconomy].flatMap((module) =>
   Object.values(module).filter((value) => ArrayBuffer.isView(value)).map((array) => ({ array, initial: array.slice() })));
 
 Bus.on('match.setup', () => { for (const entry of BOT_FRESH_STATE) entry.array.set(entry.initial); });
