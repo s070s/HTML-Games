@@ -82,8 +82,10 @@ Bus.on('bark', (event) => {
 Bus.on('announce', (event) => { if (Hud.elements.captions && event.text) HudCaptions.addCaption(event.text); });
 
 // ---- Minimap and tracker ----
-function hudMapPlace(map, x, z, clip) {
-  const camera = Render.camera, dx = x - camera.x, dz = z - camera.z;
+// The world point (x, z) to place is in hudShapeAt[0] and [1]; it becomes the map point there. False when it is off the map
+// and not clipped to the edge. The point goes through the scratch: float arguments were boxed per dot (PERF-006).
+function hudMapPlace(map, clip) {
+  const camera = Render.camera, dx = hudShapeAt[0] - camera.x, dz = hudShapeAt[1] - camera.z;
   const sideways = (-dx * Math.cos(camera.yaw) + dz * Math.sin(camera.yaw)) * map.scale;     // right of the player = right on the map
   const ahead = -(dx * Math.sin(camera.yaw) + dz * Math.cos(camera.yaw)) * map.scale;        // ahead of the player = up on the map
   const inside = Math.abs(sideways) <= map.half && Math.abs(ahead) <= map.half;
@@ -93,9 +95,9 @@ function hudMapPlace(map, x, z, clip) {
   return true;
 }
 
-// The dot goes through the pen's shape scratch: its x, y and size as float arguments were boxed per dot (PERF-006).
-function hudMapDot(pen, map, x, z, shape, size, color, alpha, clip) {
-  if (!hudMapPlace(map, x, z, clip)) return;
+// A dot at the world point (x, z) in hudShapeAt[0] and [1] (hudMapPlace), drawn through the pen's shape scratch.
+function hudMapDot(pen, map, shape, size, color, alpha, clip) {
+  if (!hudMapPlace(map, clip)) return;
   hudShapeAt[2] = size * map.unit / 2;
   pen.shapeAt(shape, color, alpha);
 }
@@ -130,10 +132,12 @@ function hudMapEnemies(pen, map, player) {
   for (let id = 0; id < Actors.count; id++) {
     if (id === player || !Actors.alive[id] || !Actors.isEnemy(player, id)) continue;
     const ghost = Abilities.hiddenFromPulse !== null && Abilities.hiddenFromPulse(id);   // ECP04 Ghost perk: no tracker or shot blips
-    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || (!ghost && hudTracked(id))) { hudMapDot(pen, map, Actors.x[id], Actors.z[id], 'circle', 7, bad, 1, true); continue; }
+    hudShapeAt[0] = Actors.x[id]; hudShapeAt[1] = Actors.z[id];
+    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || (!ghost && hudTracked(id))) { hudMapDot(pen, map, 'circle', 7, bad, 1, true); continue; }
     if (ghost) continue;
     const age = Hud.time - HudExtra.blipAt[id];
-    if (age < HUD_MAP_BLIP_SECONDS) hudMapDot(pen, map, HudExtra.blipX[id], HudExtra.blipZ[id], 'circle', 7, bad, 1 - age / HUD_MAP_BLIP_SECONDS * 0.6, true);
+    hudShapeAt[0] = HudExtra.blipX[id]; hudShapeAt[1] = HudExtra.blipZ[id];
+    if (age < HUD_MAP_BLIP_SECONDS) hudMapDot(pen, map, 'circle', 7, bad, 1 - age / HUD_MAP_BLIP_SECONDS * 0.6, true);
   }
 }
 
@@ -142,7 +146,8 @@ function hudMapAllies(pen, map, player) {
   if (team < 0) return;
   for (let id = 0; id < Actors.count; id++) {
     if (id === player || !Actors.alive[id] || Actors.team[id] !== team) continue;
-    hudMapDot(pen, map, Actors.x[id], Actors.z[id], Hud.teamShapes ? Hud.teamShape(team) : 'circle', 8, Hud.teamColor(team), 1, false);
+    hudShapeAt[0] = Actors.x[id]; hudShapeAt[1] = Actors.z[id];
+    hudMapDot(pen, map, Hud.teamShapes ? Hud.teamShape(team) : 'circle', 8, Hud.teamColor(team), 1, false);
   }
 }
 
@@ -150,7 +155,9 @@ function hudMapObjectives(pen, map) {
   const list = Modes.objectives;
   for (let i = 0; i < list.length; i++) {
     const objective = list[i], shape = HUD_MARKER_SHAPES[objective.kind];
-    if (objective.active && shape) hudMapDot(pen, map, objective.x, objective.z, shape, 10, hudObjectiveColor(objective), 1, true);
+    if (!objective.active || !shape) continue;
+    hudShapeAt[0] = objective.x; hudShapeAt[1] = objective.z;
+    hudMapDot(pen, map, shape, 10, hudObjectiveColor(objective), 1, true);
   }
 }
 
@@ -159,7 +166,8 @@ function hudMapPings(pen, map, player) {
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
     if (Hud.time - p.at[i] >= HUD_PING_SECONDS || p.source[i] < 0) continue;
     if (p.source[i] !== player && Actors.isEnemy(player, p.source[i])) continue;
-    hudMapDot(pen, map, p.x[i], p.z[i], 'diamond', 9, hudPingColor(p.kind[i]), 1, true);
+    hudShapeAt[0] = p.x[i]; hudShapeAt[1] = p.z[i];
+    hudMapDot(pen, map, 'diamond', 9, hudPingColor(p.kind[i]), 1, true);
   }
 }
 
@@ -179,15 +187,23 @@ function hudDrawMinimap(pen, layout) {
   const unit = layout.unit, size = (layout.compact ? HUD_MAP_SIZE_COMPACT : HUD_MAP_SIZE) * unit, half = size / 2, map = HudExtra.map;
   map.cx = layout.left + half; map.cy = layout.top + half; map.half = half; map.unit = unit;
   map.scale = half / Math.max(HUD_MAP_RANGE, HudExtra.radarMode === 'off' ? 0 : HudExtra.radarRange);
-  pen.panel(map.cx - half, map.cy - half, size, size, HUD_MAP_ALPHA);
-  pen.rect(map.cx - half, map.cy - 0.5, size, 1, HUD_COLOR.dim, 0.25);
-  pen.rect(map.cx - 0.5, map.cy - half, 1, size, HUD_COLOR.dim, 0.25);
+  const box = hudBoxAt;   // the pen's scratch forms: no float arguments (PERF-006)
+  box[0] = map.cx - half; box[1] = map.cy - half; box[2] = size; box[3] = size;
+  pen.panelAt(HUD_MAP_ALPHA);
+  box[1] = map.cy - 0.5; box[3] = 1;
+  pen.rectAt(HUD_COLOR.dim, 0.25);   // the cross through the centre
+  box[0] = map.cx - 0.5; box[1] = map.cy - half; box[2] = 1; box[3] = size;
+  pen.rectAt(HUD_COLOR.dim, 0.25);
   if (Gadgets.jammed(player)) { hudDrawMapJammed(pen, map); return; }
   hudMapObjectives(pen, map);
   hudMapPings(pen, map, player);
   hudMapAllies(pen, map, player);
   hudMapEnemies(pen, map, player);
-  pen.triangle(map.cx, map.cy - 7 * unit, map.cx + 5 * unit, map.cy + 5 * unit, map.cx - 5 * unit, map.cy + 5 * unit, HUD_COLOR.text, 1);
+  const corners = hudCorners;   // the player: a triangle pointing ahead, straight into the corner scratch
+  corners[0] = map.cx; corners[1] = map.cy - 7 * unit; corners[2] = map.cx + 5 * unit; corners[3] = corners[5] = corners[7] = map.cy + 5 * unit;
+  corners[4] = corners[6] = map.cx - 5 * unit;
+  setHudPaint(HUD_COLOR.text, 1);
+  pushHudSolid();
 }
 
 // ---- Compass: heading strip with the eight directions and the objective bearings ----
@@ -255,9 +271,11 @@ function hudDrawBarks(pen, layout) {
   for (let k = HUD_BARK_SHOWN; k >= 1; k--) {   // the newest few, oldest first
     const slot = (c.barkNext - k + HUD_BARK_SLOTS) % HUD_BARK_SLOTS, age = Hud.time - c.barkAt[slot];
     if (age >= HUD_BARK_SECONDS) continue;
-    const alpha = Math.min(1, (HUD_BARK_SECONDS - age) / HUD_BARK_FADE), label = c.barkLabel[slot];
-    const nameWidth = pen.label(label, layout.left, y, size, c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
-    pen.label(c.barkText[slot], layout.left + nameWidth, y, size, HUD_COLOR.text, 'left', alpha);
+    const alpha = Math.min(1, (HUD_BARK_SECONDS - age) / HUD_BARK_FADE), text = hudTextAt;   // the text scratch (PERF-006)
+    text[0] = layout.left; text[1] = y; text[2] = size;
+    pen.labelAt(c.barkLabel[slot], c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
+    text[0] = layout.left + text[3];   // the line goes on after the name
+    pen.labelAt(c.barkText[slot], HUD_COLOR.text, 'left', alpha);
     y += line;
   }
 }

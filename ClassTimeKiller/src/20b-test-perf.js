@@ -492,6 +492,25 @@ Test.add('perf', (check) => {
   check('map dots and crosshair arms go through the scratch', !/pen\.(shape|rect)\(/.test(hudMapDot.toString() + hudDrawArms.toString()));
 });
 
+// The every-frame drawers of the main layer place their numbers in the scratch arrays and call the pen's *At forms: a live
+// tdm / horde frame after 60 s of play went from 4.8 KB to about 1 KB of garbage in this layer (PERFORMANCE.md 3.7).
+Test.add('perf', (check) => {
+  const drawers = [hudDrawVitalBar, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar, hudDrawGadgets, hudDrawConsumables, hudDrawAbilities, hudDrawMeter,
+    hudDrawMoney, hudDrawPowerups, hudDrawTeamScore, hudDrawTime, hudDrawScoreLimit, hudDrawHeader, hudDrawFeedRow, hudDrawKillFeed, hudDrawBarks,
+    hudDrawMinimap, hudMapEnemies, hudMapAllies, hudMapObjectives, hudMapPings];
+  const argumentForm = /pen\.(text|label|rect|panel|bar|shape|octagon|ring|weaponIcon|triangle|quad)\(/;
+  const offenders = drawers.filter((drawer) => argumentForm.test(drawer.toString())).map((drawer) => drawer.name);
+  check('the main layer\'s every-frame drawers pass no float to the pen (scratch arrays and the *At forms)', offenders.length === 0, offenders.join(', '));
+  check('the crosshair arms read their geometry from the scratch', hudFillArms.length === 1);
+  const savedQuads = HudBatch.quads, ring = hudRingAt;
+  HudBatch.quads = 0;
+  ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;
+  hudDrawCooldownRingAt(HudPen, 0.25, 0xffffff);
+  const quads = HudBatch.quads;
+  HudBatch.quads = savedQuads;
+  check('a cooldown ring from the scratch draws the full track and three quarters of the arc', quads === HUD_RING_SEGMENTS + Math.ceil(HUD_RING_SEGMENTS * 0.75), quads);
+});
+
 Test.add('perf', (check) => {
   const batch = actorBatch, saved = batch.counts.slice(), d = batch.data, shape = SHAPES[0];
   batch.clear();

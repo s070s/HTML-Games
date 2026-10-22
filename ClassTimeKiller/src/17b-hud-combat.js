@@ -116,8 +116,10 @@ const hudArms = new Float32Array(4 * 4);   // up to four [x, y, width, height] a
 function hudSetArm(index, x, y, width, height) {
   hudArms[index * 4] = x; hudArms[index * 4 + 1] = y; hudArms[index * 4 + 2] = width; hudArms[index * 4 + 3] = height;
 }
-function hudFillArms(style, cx, cy, size, gap, thickness) {
-  const half = thickness / 2;
+// Centre x, y, arm size, gap and thickness of the crosshair being drawn (hudFillArms reads them: no float arguments, PERF-006).
+const hudCross = new Float64Array(5);
+function hudFillArms(style) {
+  const cx = hudCross[0], cy = hudCross[1], size = hudCross[2], gap = hudCross[3], thickness = hudCross[4], half = thickness / 2;
   if (style === 'dot') { const dot = Math.max(thickness * 1.5, 3); hudSetArm(0, cx - dot / 2, cy - dot / 2, dot, dot); return 1; }
   hudSetArm(0, cx - half, cy + gap, thickness, size);
   hudSetArm(1, cx - gap - size, cy - half, size, thickness);
@@ -147,14 +149,17 @@ function hudDrawCrosshairShape(pen, layout, cross, gap) {
   } else if (cross.style === 'chevron') {
     hudDrawChevron(pen, cx, cy, size, line, thickness, color, cross.outline);
   } else {
-    const count = hudFillArms(cross.style, cx, cy, size, line, thickness);
+    hudCross[0] = cx; hudCross[1] = cy; hudCross[2] = size; hudCross[3] = line; hudCross[4] = thickness;
+    const count = hudFillArms(cross.style);
     if (cross.outline) hudDrawArms(pen, count, HUD_COLOR.black, HUD_OUTLINE_ALPHA, 1);
     hudDrawArms(pen, count, color, 1, 0);
   }
   if (!cross.dot) return;
-  const dot = Math.max(thickness, 2);
-  if (cross.outline) pen.rect(cx - dot / 2 - 1, cy - dot / 2 - 1, dot + 2, dot + 2, HUD_COLOR.black, HUD_OUTLINE_ALPHA);
-  pen.rect(cx - dot / 2, cy - dot / 2, dot, dot, color, 1);
+  const shape = hudShapeAt, dot = Math.max(thickness, 2);   // the shape scratch: no float arguments (PERF-006)
+  shape[0] = cx; shape[1] = cy; shape[2] = dot / 2 + 1;
+  if (cross.outline) pen.shapeAt('square', HUD_COLOR.black, HUD_OUTLINE_ALPHA);
+  shape[2] = dot / 2;
+  pen.shapeAt('square', color, 1);
 }
 
 function hudDrawChevron(pen, cx, cy, size, gap, thickness, color, outline) {

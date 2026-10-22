@@ -304,7 +304,10 @@ const HUD_OCTAGON_SQUARE = 0.75, HUD_OCTAGON_TIP = 1.08;   // a disc's two squar
 
 // x, y and half size of the next pen shape (HudPen.shapeAt). The shape helpers read it instead of taking float arguments,
 // which are boxed per call where the call is not inlined (PERF-006: map dots, markers and pips are drawn every frame).
-const hudShapeAt = new Float32Array(3);
+const hudShapeAt = new Float64Array(3);
+// x, y, width, height of the next pen rectangle, panel or bar, and a bar's filled share (HudPen.rectAt, panelAt, barAt).
+const hudBoxAt = new Float64Array(5);
+const HUD_PANEL_ALPHA = 0.5;
 // A square around hudShapeAt with half-width hudShapeAt[2], in the paint already set.
 function pushHudSquare() {
   const at = hudShapeAt, corners = hudCorners;
@@ -325,28 +328,27 @@ const HudPen = {
   ring(x, y, radius, thickness, color, alpha, start, end) { HudBatch.ring(x, y, radius, thickness, color, alpha, start, end); },
   text(string, x, y, size, color, align, alpha) { return HudBatch.text(string, x, y, size, color, align, alpha); },
   // Text with a one-pixel shadow: readable on any background (world markers, banners).
-  // The place goes through the text scratch (07f hudTextAt): the shadow's x and y as float arguments were boxed per label.
   label(string, x, y, size, color, align, alpha) {
-    const at = hudTextAt, shade = HUD_SHADOW_OFFSET * Math.max(1, size / 16);
-    at[0] = x + shade; at[1] = y + shade; at[2] = size;
+    const at = hudTextAt;
+    at[0] = x; at[1] = y; at[2] = size;
+    this.labelAt(string, color, align, alpha);
+    return at[3];
+  },
+  // label() at hudTextAt: the shadow is drawn from the same scratch, moved by the shadow offset and back.
+  labelAt(string, color, align, alpha) {
+    const at = hudTextAt, x = at[0], y = at[1], shade = HUD_SHADOW_OFFSET * Math.max(1, at[2] / 16);
+    at[0] = x + shade; at[1] = y + shade;
     HudBatch.textAt(string, HUD_COLOR.black, align, (alpha === undefined ? 1 : alpha) * HUD_SHADOW_ALPHA);
     at[0] = x; at[1] = y;
     HudBatch.textAt(string, color, align, alpha);
-    return at[3];
   },
   // Dark backing panel behind a group of text.
-  panel(x, y, w, h, alpha) { this.rect(x, y, w, h, HUD_COLOR.panel, alpha === undefined ? 0.5 : alpha); },
+  panel(x, y, w, h, alpha) { this.rect(x, y, w, h, HUD_COLOR.panel, alpha === undefined ? HUD_PANEL_ALPHA : alpha); },
   // Horizontal bar: dark track, coloured fill of `fraction` (0..1).
-  // Both rectangles go straight into the corner scratch (07f): their computed widths as float arguments were boxed.
   bar(x, y, w, h, fraction, color, alpha) {
-    const corners = hudCorners, filled = w * Math.min(1, Math.max(0, fraction));
-    corners[0] = x; corners[1] = y; corners[2] = x + w; corners[3] = y + h;
-    setHudPaint(HUD_COLOR.track, HUD_BAR_TRACK_ALPHA * (alpha === undefined ? 1 : alpha));
-    pushHudBox();
-    if (filled <= 0) return;
-    corners[0] = x; corners[1] = y; corners[2] = x + filled; corners[3] = y + h;
-    setHudPaint(color, alpha);
-    pushHudBox();
+    const at = hudBoxAt;
+    at[0] = x; at[1] = y; at[2] = w; at[3] = h; at[4] = fraction;
+    this.barAt(color, alpha);
   },
   // Filled triangle: a quad with two equal corners.
   triangle(x0, y0, x1, y1, x2, y2, color, alpha) { this.quad(x0, y0, x1, y1, x2, y2, x2, y2, color, alpha); },
@@ -382,9 +384,35 @@ const HudPen = {
     at[2] = half;
   },
   octagon(x, y, radius, color, alpha) { this.shape('circle', x, y, radius * 2, color, alpha); },
+  // ---- Scratch forms (PERF-006): the drawer fills hudBoxAt, hudShapeAt, hudTextAt (07f) or hudRingAt (07f) and passes only
+  // the colour, align and alpha. The once-per-frame drawers run in the middle compiler tier for most of a match, which boxes
+  // every float argument of a call it does not inline (3-4 per pen call).
+  rectAt(color, alpha) {
+    const at = hudBoxAt, corners = hudCorners;
+    corners[0] = at[0]; corners[1] = at[1]; corners[2] = at[0] + at[2]; corners[3] = at[1] + at[3];
+    setHudPaint(color, alpha);
+    pushHudBox();
+  },
+  panelAt(alpha) { this.rectAt(HUD_COLOR.panel, alpha === undefined ? HUD_PANEL_ALPHA : alpha); },
+  // A bar at hudBoxAt: the dark track, then the fill of share hudBoxAt[4] (0..1).
+  barAt(color, alpha) {
+    const at = hudBoxAt, width = at[2];
+    this.rectAt(HUD_COLOR.track, HUD_BAR_TRACK_ALPHA * (alpha === undefined ? 1 : alpha));
+    at[2] = width * Math.min(1, Math.max(0, at[4]));
+    if (at[2] > 0) this.rectAt(color, alpha);
+    at[2] = width;
+  },
+  textAt(string, color, align, alpha) { HudBatch.textAt(string, color, align, alpha); },
+  ringAt(color, alpha) { HudBatch.ringAt(color, alpha); },
   weaponIcon(weaponClass, x, y, width, color, alpha) {
-    const parts = HUD_WEAPON_ICONS[weaponClass] || HUD_FALLBACK_ICON, scale = width / HUD_ICON_WIDTH, corners = hudCorners;
-    const left = x - width / 2, top = y - (HUD_ICON_HEIGHT * scale) / 2;
+    const at = hudShapeAt;
+    at[0] = x; at[1] = y; at[2] = width / 2;
+    this.weaponIconAt(weaponClass, color, alpha);
+  },
+  // weaponIcon() centred on hudShapeAt, hudShapeAt[2] * 2 wide.
+  weaponIconAt(weaponClass, color, alpha) {
+    const at = hudShapeAt, width = at[2] * 2, parts = HUD_WEAPON_ICONS[weaponClass] || HUD_FALLBACK_ICON, scale = width / HUD_ICON_WIDTH;
+    const left = at[0] - width / 2, top = at[1] - (HUD_ICON_HEIGHT * scale) / 2, corners = hudCorners;
     setHudPaint(color, alpha);
     for (let i = 0; i < parts.length; i++) {   // each part straight into the corner scratch (no four floats per pen.rect call)
       const part = parts[i];
@@ -436,27 +464,31 @@ Bus.on('match.start', () => { Hud.applySettings(); Hud.resetFlashes(); });
 // ---- Player status panels ----
 function hudLocalAlive() { return Game.playerId >= 0 && Actors.alive[Game.playerId] === 1; }
 
-// One bar of the health stack; returns the y of the next row up.
-function hudDrawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
-  const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, top = bottomY - height, x = layout.left;
-  const fraction = maximum > 0 ? value / maximum : 0;
+// One bar of the health stack, `row` bars up from the bottom. It reads the player's value and maximum from the stat arrays
+// and draws through the pen's scratch forms: the drawers pass no float to a call (PERF-006).
+function hudDrawVitalBar(pen, layout, row, values, maximums, color, glyph) {
+  const id = Game.playerId, value = values[id], maximum = maximums[id];
+  const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, x = layout.left;
+  const top = layout.bottom - height - row * (height + layout.barGap), fraction = maximum > 0 ? value / maximum : 0;
   const pulse = fraction < LOW_HEALTH_FRACTION && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
-  pen.bar(x, top, width, height, fraction, color, pulse);
-  if (value > maximum && maximum > 0) pen.rect(x, top, width, Math.max(2, unit * 2), HUD_COLOR.gold, 1);   // overheal
-  const size = height * 0.78;
-  pen.text(glyph, x + 6 * unit, top + height / 2, size, HUD_COLOR.text, 'left', 0.9);
-  pen.text(hudNumber(value), x + width - 6 * unit, top + height / 2, size, HUD_COLOR.text, 'right');
-  return top - layout.barGap;
+  const box = hudBoxAt, text = hudTextAt;
+  box[0] = x; box[1] = top; box[2] = width; box[3] = height; box[4] = fraction;
+  pen.barAt(color, pulse);
+  if (value > maximum && maximum > 0) { box[3] = Math.max(2, unit * 2); pen.rectAt(HUD_COLOR.gold, 1); }   // overheal
+  text[0] = x + 6 * unit; text[1] = top + height / 2; text[2] = height * 0.78;
+  pen.textAt(glyph, HUD_COLOR.text, 'left', 0.9);
+  text[0] = x + width - 6 * unit;
+  pen.textAt(hudNumber(value), HUD_COLOR.text, 'right');
 }
 
 function hudDrawVitals(pen, layout) {
   const id = Game.playerId;
   if (!hudLocalAlive()) return;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
-  let y = layout.bottom;
-  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < LOW_HEALTH_FRACTION ? Hud.colors.healthLow : Hud.colors.health, '♥');
-  if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = hudDrawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
-  if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
+  let row = 0;
+  hudDrawVitalBar(pen, layout, row++, Actors.health, Actors.maxHealth, fraction < LOW_HEALTH_FRACTION ? Hud.colors.healthLow : Hud.colors.health, '♥');
+  if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) hudDrawVitalBar(pen, layout, row++, Actors.armor, Actors.maxArmor, HUD_COLOR.armor, '▲');
+  if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, row, Actors.shield, Actors.maxShield, HUD_COLOR.shield, '●');
 }
 
 const hudReloadState = { active: false, progress: 0 };
@@ -487,17 +519,23 @@ function hudDrawAmmo(pen, layout) {
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
   const width = layout.ammoWidth, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
-  pen.panel(left, top, width, height);
-  pen.text(weapon.name, left + 8 * unit, top + HUD_TEXT_SMALL * unit, 14 * unit, HUD_COLOR.dim, 'left');
+  const box = hudBoxAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
+  box[0] = left; box[1] = top; box[2] = width; box[3] = height;
+  pen.panelAt();
+  text[0] = left + 8 * unit; text[1] = top + HUD_TEXT_SMALL * unit; text[2] = 14 * unit;
+  pen.textAt(weapon.name, HUD_COLOR.dim, 'left');
   if (weapon.mag === 0) return;
   const reload = hudReadReload(id), warning = hudReadAmmoWarning(id, weapon, ammo, reload);
   const blink = warning.text && !reload.active && !Hud.reduceMotion() ? 0.65 + 0.35 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
   const lowColor = warning.text && !reload.active ? warning.color : HUD_COLOR.text;
-  pen.text(hudNumber(ammo.magazine), left + 8 * unit, top + height * 0.64, (compact ? 28 : 38) * unit, lowColor, 'left', blink);
-  if (ammo.infinite) pen.text('INF', right - 8 * unit, top + height * 0.7, 16 * unit, HUD_COLOR.dim, 'right');
-  else pen.text(hudNumber(ammo.reserve), right - 8 * unit, top + height * 0.7, 18 * unit, HUD_COLOR.dim, 'right');
-  if (warning.text) pen.text(warning.text, right - 8 * unit, top + HUD_TEXT_SMALL * unit, HUD_TEXT_SMALL * unit, warning.color, 'right', blink);
-  if (reload.active) pen.bar(left, top + height - 4 * unit, width, 4 * unit, reload.progress, HUD_COLOR.warn);
+  text[1] = top + height * 0.64; text[2] = (compact ? 28 : 38) * unit;
+  pen.textAt(hudNumber(ammo.magazine), lowColor, 'left', blink);
+  text[0] = right - 8 * unit; text[1] = top + height * 0.7; text[2] = (ammo.infinite ? 16 : 18) * unit;
+  pen.textAt(ammo.infinite ? 'INF' : hudNumber(ammo.reserve), HUD_COLOR.dim, 'right');
+  text[1] = top + HUD_TEXT_SMALL * unit; text[2] = HUD_TEXT_SMALL * unit;
+  if (warning.text) pen.textAt(warning.text, warning.color, 'right', blink);
+  box[1] = top + height - 4 * unit; box[3] = 4 * unit; box[4] = reload.progress;
+  if (reload.active) pen.barAt(HUD_COLOR.warn);
 }
 
 // Owned weapons ordered by slot (then catalogue order) into a reused array; returns the count.
@@ -522,50 +560,74 @@ function hudDrawWeaponBar(pen, layout) {
   const selected = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
   let x = layout.centerX - (count * (boxWidth + gap) - gap) / 2;
   const top = layout.weaponBarY - boxHeight;
+  const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   for (let i = 0; i < count; i++) {
     const weapon = CAT.weapons[hudOwned[i]], isSelected = hudOwned[i] === selected;
-    pen.panel(x, top, boxWidth, boxHeight, isSelected ? 0.8 : 0.45);
-    pen.weaponIcon(weapon.class, x + boxWidth / 2, top + boxHeight / 2 + 2 * unit, boxWidth * 0.62, isSelected ? HUD_COLOR.text : HUD_COLOR.dim);
-    pen.text(hudNumber(weapon.slot), x + 4 * unit, top + 8 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
-    if (isSelected) pen.rect(x, top + boxHeight - 3 * unit, boxWidth, 3 * unit, HUD_COLOR.gold);
+    box[0] = x; box[1] = top; box[2] = boxWidth; box[3] = boxHeight;
+    pen.panelAt(isSelected ? 0.8 : 0.45);
+    shape[0] = x + boxWidth / 2; shape[1] = top + boxHeight / 2 + 2 * unit; shape[2] = boxWidth * 0.62 / 2;
+    pen.weaponIconAt(weapon.class, isSelected ? HUD_COLOR.text : HUD_COLOR.dim);
+    text[0] = x + 4 * unit; text[1] = top + 8 * unit; text[2] = HUD_TEXT_SMALL * unit;
+    pen.textAt(hudNumber(weapon.slot), HUD_COLOR.dim, 'left');
+    box[1] = top + boxHeight - 3 * unit; box[3] = 3 * unit;
+    if (isSelected) pen.rectAt(HUD_COLOR.gold);
     x += boxWidth + gap;
   }
 }
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
-  if (remaining <= 0) { pen.ring(x, y, radius, thickness, color, 1); return; }       // ready: one full ring, no track under it
-  pen.ring(x, y, radius, thickness, HUD_COLOR.track, 0.8);
-  pen.ring(x, y, radius, thickness, HUD_COLOR.dim, 0.7, 0, Math.PI * 2 * (1 - clamp(remaining, 0, 1)));
+  const at = hudRingAt;
+  at[0] = x; at[1] = y; at[2] = radius; at[3] = thickness;
+  hudDrawCooldownRingAt(pen, remaining, color);
+}
+// The cooldown ring at hudRingAt (07f: x, y, radius and thickness set by the caller; the angles are set here).
+function hudDrawCooldownRingAt(pen, remaining, color) {
+  const at = hudRingAt;
+  at[4] = 0; at[5] = Math.PI * 2;
+  if (remaining <= 0) { pen.ringAt(color, 1); return; }       // ready: one full ring, no track under it
+  pen.ringAt(HUD_COLOR.track, 0.8);
+  at[5] = Math.PI * 2 * (1 - Math.min(1, Math.max(0, remaining)));
+  pen.ringAt(HUD_COLOR.dim, 0.7);
 }
 
 const hudGadgetState = { grenade: '', grenadeCount: 0, gadget: '', gadgetCount: 0, gadgetCooldown: 0 };
 function hudDrawGadgets(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Gadgets.hudState(Game.playerId, hudGadgetState), unit = layout.unit;
-  let x = layout.ammoRight - 14 * unit;
-  const y = layout.gadgetY;
+  let slot = 0;   // icons from the right, 74 units apart (a slot index: x as a float argument would be boxed, PERF-006)
   if (state.gadget || state.gadgetCount > 0) {
-    hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, state.gadgetCooldown, Hud.colors.good);
-    pen.shape('diamond', x, y, 11 * unit, HUD_COLOR.text);
-    pen.text(hudCount(state.gadgetCount), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
-    x -= 74 * unit;
+    hudPlaceGadgetSlot(layout, slot++, 11);
+    hudDrawCooldownRingAt(pen, state.gadgetCooldown, Hud.colors.good);
+    pen.shapeAt('diamond', HUD_COLOR.text);
+    pen.textAt(hudCount(state.gadgetCount), HUD_COLOR.text, 'right');
   }
   if (state.grenade || state.grenadeCount > 0) {
-    pen.shape('circle', x, y, 13 * unit, state.grenadeCount > 0 ? HUD_COLOR.text : HUD_COLOR.dim);
-    pen.text(hudCount(state.grenadeCount), x - 14 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
-    x -= 74 * unit;
+    hudPlaceGadgetSlot(layout, slot++, 13);
+    hudTextAt[0] += 8 * unit;   // the grenade count sits closer to its disc
+    pen.shapeAt('circle', state.grenadeCount > 0 ? HUD_COLOR.text : HUD_COLOR.dim);
+    pen.textAt(hudCount(state.grenadeCount), HUD_COLOR.text, 'right');
   }
-  hudDrawConsumables(pen, x, y, unit);
+  hudDrawConsumables(pen, layout, slot);
+}
+// Fills the scratch arrays for gadget slot `slot`: its ring, its icon (`iconSize` units wide) and its count to the left.
+function hudPlaceGadgetSlot(layout, slot, iconSize) {
+  const unit = layout.unit, x = layout.ammoRight - (14 + slot * 74) * unit, y = layout.gadgetY;
+  hudRingAt[0] = x; hudRingAt[1] = y; hudRingAt[2] = 14 * unit; hudRingAt[3] = 3 * unit;
+  hudShapeAt[0] = x; hudShapeAt[1] = y; hudShapeAt[2] = iconSize * unit / 2;
+  hudTextAt[0] = x - 22 * unit; hudTextAt[1] = y; hudTextAt[2] = 15 * unit;
 }
 // Carried loot consumables (I13..I17) with the heal key; a ring fills while one is in use.
-function hudDrawConsumables(pen, x, y, unit) {
+function hudDrawConsumables(pen, layout, slot) {
   const count = Items.consumableCount(Game.playerId), progress = Items.useProgress(Game.playerId);
   if (count <= 0 && progress < 0) return;
-  if (progress >= 0) hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, 1 - progress, Hud.colors.good);
-  pen.shape('square', x, y, 11 * unit, HUD_COLOR.text);
-  pen.text(hudCount(count), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
-  pen.text(Hud.keyLabel('heal'), x, y + 22 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
+  hudPlaceGadgetSlot(layout, slot, 11);
+  if (progress >= 0) hudDrawCooldownRingAt(pen, 1 - progress, Hud.colors.good);
+  pen.shapeAt('square', HUD_COLOR.text);
+  pen.textAt(hudCount(count), HUD_COLOR.text, 'right');
+  const text = hudTextAt, unit = layout.unit;
+  text[0] = hudShapeAt[0]; text[1] = layout.gadgetY + 22 * unit; text[2] = HUD_TEXT_SMALL * unit;
+  pen.textAt(Hud.keyLabel('heal'), HUD_COLOR.dim, 'center');
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };
@@ -573,12 +635,17 @@ function hudDrawAbilities(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Abilities.hudState(Game.playerId, hudAbilityState), unit = layout.unit, radius = 17 * unit;
   const slotCount = Math.min(state.slots.length, HUD_MAX_ABILITY_SLOTS);
+  const ring = hudRingAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   for (let i = 0; i < slotCount; i++) {
     const slot = state.slots[i], x = layout.left + radius + i * (radius * 2 + 16 * unit), y = layout.abilityY;
-    hudDrawCooldownRing(pen, x, y, radius, 4 * unit, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
-    pen.text(slot.name, x, y, HUD_TEXT_SMALL * unit, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
-    pen.text(Hud.keyLabel(HUD_ABILITY_ACTIONS[i]), x, y + radius + 10 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
-    if (slot.charges > 1) pen.text(hudNumber(slot.charges), x + radius, y - radius, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'center');
+    ring[0] = x; ring[1] = y; ring[2] = radius; ring[3] = 4 * unit;
+    hudDrawCooldownRingAt(pen, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
+    text[0] = x; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
+    pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
+    text[1] = y + radius + 10 * unit;
+    pen.textAt(Hud.keyLabel(HUD_ABILITY_ACTIONS[i]), HUD_COLOR.dim, 'center');
+    text[0] = x + radius; text[1] = y - radius;
+    if (slot.charges > 1) pen.textAt(hudNumber(slot.charges), HUD_COLOR.gold, 'center');
   }
   if (state.meter.kind !== 'none') hudDrawMeter(pen, layout, state.meter, slotCount);
 }
@@ -586,12 +653,19 @@ function hudDrawAbilities(pen, layout) {
 function hudDrawMeter(pen, layout, meter, slotCount) {
   const unit = layout.unit, width = 150 * unit, height = 9 * unit;
   const x = layout.left + (slotCount ? slotCount * (34 + 16) * unit + 8 * unit : 0), y = layout.abilityY - height / 2;
-  pen.bar(x, y, width, height, meter.value, meter.ready ? HUD_COLOR.gold : Hud.colors.good);
-  if (meter.ready) pen.text('READY', x + width / 2, y - HUD_TEXT_SMALL * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'center');
-  else {
-    pen.text(hudNumber(meter.value * 100), x + width - 14 * unit, y - HUD_TEXT_SMALL * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-    pen.text('%', x + width - HUD_TEXT_SMALL * unit, y - HUD_TEXT_SMALL * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'left');
+  const box = hudBoxAt, text = hudTextAt;
+  box[0] = x; box[1] = y; box[2] = width; box[3] = height; box[4] = meter.value;
+  pen.barAt(meter.ready ? HUD_COLOR.gold : Hud.colors.good);
+  text[1] = y - HUD_TEXT_SMALL * unit; text[2] = HUD_TEXT_SMALL * unit;
+  if (meter.ready) {
+    text[0] = x + width / 2;
+    pen.textAt('READY', HUD_COLOR.gold, 'center');
+    return;
   }
+  text[0] = x + width - 14 * unit;
+  pen.textAt(hudNumber(meter.value * 100), HUD_COLOR.dim, 'right');
+  text[0] = x + width - HUD_TEXT_SMALL * unit;
+  pen.textAt('%', HUD_COLOR.dim, 'left');
 }
 
 const hudMoneyState = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
@@ -601,24 +675,35 @@ function hudDrawMoney(pen, layout) {
   const usesMoney = !!rules && HUD_MONEY_ECONOMIES.includes(rules.economy);
   if (!usesMoney && state.money <= 0 && state.nextRoundMoney <= 0 && !state.canBuy) return;
   const unit = layout.unit, right = layout.ammoRight, width = 150 * unit, height = 30 * unit, left = right - width, top = layout.moneyY - height / 2;
-  pen.panel(left, top, width, height);
-  pen.text('$', left + 8 * unit, top + height / 2, 20 * unit, HUD_COLOR.gold, 'left');
-  pen.text(hudNumber(state.money), right - 8 * unit, top + height / 2, 20 * unit, HUD_COLOR.text, 'right');
-  if (state.canBuy) pen.text(hudTime(state.buyTimeLeft), left - 8 * unit, top + height / 2, 16 * unit, HUD_COLOR.warn, 'right');
+  const box = hudBoxAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
+  box[0] = left; box[1] = top; box[2] = width; box[3] = height;
+  pen.panelAt();
+  text[0] = left + 8 * unit; text[1] = top + height / 2; text[2] = 20 * unit;
+  pen.textAt('$', HUD_COLOR.gold, 'left');
+  text[0] = right - 8 * unit;
+  pen.textAt(hudNumber(state.money), HUD_COLOR.text, 'right');
+  text[0] = left - 8 * unit; text[2] = 16 * unit;
+  if (state.canBuy) pen.textAt(hudTime(state.buyTimeLeft), HUD_COLOR.warn, 'right');
 }
 
 const hudPowerups = [];
 function hudDrawPowerups(pen, layout) {
   if (!hudLocalAlive()) return;
   const count = Math.min(Items.activePowerups(Game.playerId, hudPowerups), HUD_MAX_POWERUP_CHIPS), unit = layout.unit;
+  const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   for (let i = 0; i < count; i++) {
     const powerup = hudPowerups[i], y = layout.powerupY - i * 22 * unit, x = layout.left;
-    const color = colorNumber(powerup.color || HUD_COLOR.gold);
-    pen.panel(x, y - 9 * unit, 150 * unit, 18 * unit, 0.5);
-    pen.shape('square', x + 9 * unit, y, 9 * unit, color);
-    pen.text(powerup.name, x + 20 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.text, 'left');
-    pen.text(hudNumber(powerup.remaining), x + 144 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
-    pen.rect(x, y + 8 * unit, 150 * unit * clamp(powerup.remaining / Math.max(powerup.duration, 0.001), 0, 1), 2 * unit, color, 0.9);
+    const color = colorNumber(powerup.color || HUD_COLOR.gold), share = powerup.remaining / Math.max(powerup.duration, 0.001);
+    box[0] = x; box[1] = y - 9 * unit; box[2] = 150 * unit; box[3] = 18 * unit;
+    pen.panelAt(0.5);
+    shape[0] = x + 9 * unit; shape[1] = y; shape[2] = 9 * unit / 2;
+    pen.shapeAt('square', color);
+    text[0] = x + 20 * unit; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
+    pen.textAt(powerup.name, HUD_COLOR.text, 'left');
+    text[0] = x + 144 * unit;
+    pen.textAt(hudNumber(powerup.remaining), HUD_COLOR.dim, 'right');
+    box[1] = y + 8 * unit; box[2] = 150 * unit * Math.min(1, Math.max(0, share)); box[3] = 2 * unit;
+    pen.rectAt(color, 0.9);
   }
 }
 

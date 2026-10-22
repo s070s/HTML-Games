@@ -52,7 +52,13 @@ const HudBatch = {
   },
   // Angles in radians, 0 = 12 o'clock, clockwise (cooldown sweeps). start/end default to a full circle.
   ring(x, y, radius, thickness, colorHex, alpha, start, end) {
-    const from = start === undefined ? 0 : start, to = end === undefined ? Math.PI * 2 : end;
+    const at = hudRingAt;
+    at[0] = x; at[1] = y; at[2] = radius; at[3] = thickness; at[4] = start === undefined ? 0 : start; at[5] = end === undefined ? Math.PI * 2 : end;
+    this.ringAt(colorHex, alpha);
+  },
+  // ring() at hudRingAt (x, y, radius, thickness, start, end): no float arguments (PERF-006).
+  ringAt(colorHex, alpha) {
+    const at = hudRingAt, x = at[0], y = at[1], radius = at[2], thickness = at[3], from = at[4], to = at[5];
     const segments = Math.max(1, Math.ceil(HUD_RING_SEGMENTS * Math.abs(to - from) / (Math.PI * 2)));
     const inner = radius - thickness / 2, outer = radius + thickness / 2, corners = hudCorners, step = (to - from) / segments;
     // One sine and cosine for the start edge and one for the step: each next edge is the last one turned by the step,
@@ -125,6 +131,8 @@ const hudColors = new Uint8Array(HudBatch.bytes);
 const hudCorners = new Float32Array(12);
 // x, y (middle of the line), size in pixels of the next text (HudBatch.textAt); [3] = the width after textAt or measureAt.
 const hudTextAt = new Float64Array(4);
+// x, y, radius, thickness, start and end angle of the next ring (HudBatch.ringAt).
+const hudRingAt = new Float64Array(6);
 
 // The colour (0xrrggbb) and alpha byte (0..255) of the next quads, set once per drawing call; the alpha is scaled by
 // HudBatch.alphaScale here, so the pen passes its alpha through unchanged (a computed float argument is boxed, PERF-006).
