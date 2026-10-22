@@ -67,7 +67,8 @@ DebugApi.movement = {
 // ---- Presets and MOV-026 ----
 Test.add('move', (check) => {
   check('8 movement presets MV01..MV08', CAT.movement.length === 8 && CAT.movement.map((row) => row.code).join() === 'MV01,MV02,MV03,MV04,MV05,MV06,MV07,MV08');
-  for (const row of CAT.movement) check(row.id + ': table jumpHeight = jumpVel^2/2g within 2%', Test.near(row.jumpVel ** 2 / (2 * row.gravity), row.jumpHeight, row.jumpHeight * 0.02));
+  check('the jump apex is derived once (Move.jumpApex), not stored as a movement column', CAT.movement.every((row) => row.jumpHeight === undefined)
+    && Test.near(Move.jumpApex(CAT.movement.byId('arena')), 8.1 * 8.1 / (2 * 24), 1e-9) && Test.near(Move.jumpApex(CAT.movement.byId('arena'), 12), 8.1 * 8.1 / 24, 1e-9));
   useTestRules({});
   check('no rules preset falls back to arena', Move.preset(0).id === 'arena');
   useTestRules({ move: 'tactical' });
@@ -81,7 +82,7 @@ Test.add('move', (check) => {
     const id = groundedTester(0, 0);
     const startY = Actors.y[id];
     tapButtons(id, BTN.JUMP);
-    const height = highestPoint(id, 1.5) - startY, expected = row.jumpVel ** 2 / (2 * row.gravity);
+    const height = highestPoint(id, 1.5) - startY, expected = Move.jumpApex(row);
     check(row.id + ': jump height within 2% (MOV-026)', Test.near(height, expected, expected * 0.02), height.toFixed(3) + ' vs ' + expected.toFixed(3));
     Actors.remove(id);
     const runner = groundedTester(-40, -40);

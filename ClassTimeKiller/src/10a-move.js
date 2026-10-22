@@ -71,6 +71,8 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
+  // MOV-026 height of one ground jump in metres under `gravity` (default: the preset's own) - for bots and the UI.
+  jumpApex(preset, gravity) { return preset.jumpVel * preset.jumpVel / (2 * (gravity === undefined ? preset.gravity : gravity)); },
   horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
   // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
   // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
