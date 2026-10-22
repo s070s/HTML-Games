@@ -39,6 +39,9 @@ const NAV_JUMP_MARGIN = 0.15;          // a jump must clear the highest obstacle
 const NAV_SWIM_DEPTH = 1.2;            // swimmer feet this far under the surface keep the head above water (eye 1.62)
 const NAV_WATER_PROBE = 0.5;           // a sample is wet when this point above its feet is inside a water volume
 const NAV_WATER_EXIT_RISE = NAV_SWIM_DEPTH + 0.5; // a swimmer climbs out onto a bank this high above its feet without a jump
+const NAV_DEEP_FLOOR = NAV_SWIM_DEPTH + NAV_STEP; // a floor this far under the water surface is no walk node: the actor swims above it
+const NAV_RIM_PROBE = NAV_STEP + 0.05;   // a swim exit needs a bank face at this height above the swimmer's feet (S10 findLedge knee ray)
+const NAV_SWEEP_OFFSET = NAV_RADIUS - 0.05; // jump checks also run this far to each side of the line: the capsule's width
 const NAV_BAND_BELOW = 0.6;            // height band for finding the node at a trigger's floor
 const NAV_BAND_ABOVE = 1.0;
 const NAV_LADDER_TOP_BAND = 1.6;       // the ladder's top node may sit this far below the volume top
@@ -436,6 +439,7 @@ function navRasterColumn(column, heights, flags) {
 function navTrySample(x, y, z, heights, flags, first, extraFlags, floorBrush) {
   if (Number.isNaN(y) || navColumnHasNear(heights, first, y) || navPointBuriedGathered(x, y + NAV_SURFACE_PROBE, z)) return;
   if (floorBrush >= 0 && !navFootprintHolds(floorBrush, x, z) && !navHasEdgeFooting(x, y, z)) return;
+  if (floorBrush >= 0 && navDeepWaterFeet(x, y, z) > y) return;
   const fitFlags = navFitFlags(x, y, z);
   if (fitFlags < 0) return;
   let sampleFlags = extraFlags | fitFlags;
@@ -443,6 +447,16 @@ function navTrySample(x, y, z, heights, flags, first, extraFlags, floorBrush) {
   if (navInVolumes(navVolumes.trigger, x, y + NAV_WATER_PROBE, z)) sampleFlags |= NAV_NODE.TRIGGER;
   heights.push(y);
   flags.push(sampleFlags);
+}
+
+// Swimming feet height when this floor point lies under more than NAV_DEEP_FLOOR of water, else -Infinity.
+function navDeepWaterFeet(x, y, z) {
+  for (let i = 0; i < navVolumes.water.length; i++) {
+    const water = navVolumes.water[i], probe = y + NAV_WATER_PROBE;
+    if (x < water.minX || x > water.maxX || z < water.minZ || z > water.maxZ || probe < water.minY || probe > water.maxY) continue;
+    if (water.maxY - y > NAV_DEEP_FLOOR) return water.maxY - NAV_SWIM_DEPTH;
+  }
+  return -Infinity;
 }
 
 function navColumnHasNear(heights, first, y) {
@@ -769,8 +783,10 @@ function navWalkJoined(builder, other, walks, marks, node) {
 
 function navLinkAir(builder, a, b) {
   if (navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]) >= 0) return; // walkable via nearer nodes
-  navGatherBrushes(Math.min(Nav.nodeX[a], Nav.nodeX[b]), Math.min(Nav.nodeZ[a], Nav.nodeZ[b]), Math.max(Nav.nodeX[a], Nav.nodeX[b]), Math.max(Nav.nodeZ[a], Nav.nodeZ[b]));
-  const highest = navHighestBetween(a, b, navScanState.stopFraction); // the same obstacles stand in both directions
+  const margin = NAV_SWEEP_OFFSET;
+  navGatherBrushes(Math.min(Nav.nodeX[a], Nav.nodeX[b]) - margin, Math.min(Nav.nodeZ[a], Nav.nodeZ[b]) - margin,
+    Math.max(Nav.nodeX[a], Nav.nodeX[b]) + margin, Math.max(Nav.nodeZ[a], Nav.nodeZ[b]) + margin);
+  const highest = navHighestSwept(a, b, navScanState.stopFraction); // the same obstacles stand in both directions
   if (highest === Infinity) return;
   navTryAir(builder, a, b, highest);
   navTryAir(builder, b, a, highest);
@@ -799,6 +815,7 @@ function navTryAir(builder, from, to, highestBetween) {
   const lift = Math.max(highestBetween, Nav.nodeY[to]) - Nav.nodeY[from], type = navAirType(from, rise, lift);
   const height = type === NAV_LINK.DROP ? -rise : type === NAV_LINK.SWIM ? 0 : lift + NAV_JUMP_MARGIN;
   if (type === NAV_LINK.JUMP && height > limits.jumpUp) return;
+  if (type === NAV_LINK.SWIM && rise > NAV_STEP && !navHasRim(from, to)) return;
   const apex = Nav.nodeY[from] + (type === NAV_LINK.JUMP ? height : Math.max(0, lift));
   if (!navArcClear(from, to, apex)) return;
   const fallSeconds = type === NAV_LINK.DROP ? Math.sqrt(2 * height / limits.gravity) : 0;
@@ -811,16 +828,34 @@ function navWalkEntersTrigger(flags, from, to) {
   return !(Nav.nodeFlags[from] & NAV_NODE.TRIGGER) && (Nav.nodeFlags[to] & NAV_NODE.TRIGGER) !== 0;
 }
 
+// Climbing out of water is a mantle (S10 findLedge): a bank face must stand at knee height between the swimmer and the
+// target. A thin deck (a bridge) above the water has none: the swimmer passes under it and cannot pull up.
+function navHasRim(from, to) {
+  const y = Nav.nodeY[from] + NAV_RIM_PROBE;
+  return navSegmentHitGathered(Nav.nodeX[from], y, Nav.nodeZ[from], Nav.nodeX[to], y, Nav.nodeZ[to], navHit);
+}
+
 function navAirType(from, rise, lift) {
   if ((Nav.nodeFlags[from] & NAV_NODE.WATER) && lift <= NAV_WATER_EXIT_RISE) return NAV_LINK.SWIM;
   if (lift <= NAV_STEP && rise < -NAV_STEP) return NAV_LINK.DROP;
   return NAV_LINK.JUMP;
 }
 
-// Highest gathered brush top on the line between two nodes (Infinity: a wall), which a jump either way must pass.
-// firstFraction: where the raster walk broke; the check looks there first (usually the wall).
-function navHighestBetween(a, b, firstFraction) {
-  const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b];
+// navHighestBetween on the centre line and on the two lines NAV_SWEEP_OFFSET to its sides, so a jump does not clip a
+// wall end with the capsule (Dustline's mid walls). The pair's brushes are gathered with that margin.
+function navHighestSwept(a, b, firstFraction) {
+  const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b], length = Math.hypot(bx - ax, bz - az);
+  let highest = navHighestBetween(a, b, ax, az, bx, bz, firstFraction);
+  if (highest === Infinity || length < 1e-6) return highest;
+  const sideX = (bz - az) / length * NAV_SWEEP_OFFSET, sideZ = -(bx - ax) / length * NAV_SWEEP_OFFSET;
+  highest = Math.max(highest, navHighestBetween(a, b, ax + sideX, az + sideZ, bx + sideX, bz + sideZ, firstFraction));
+  if (highest === Infinity) return highest;
+  return Math.max(highest, navHighestBetween(a, b, ax - sideX, az - sideZ, bx - sideX, bz - sideZ, firstFraction));
+}
+
+// Highest gathered brush top on the line (ax, az)-(bx, bz) between two nodes (Infinity: a wall), which a jump either way
+// must pass. firstFraction: where the raster walk broke; the check looks there first (usually the wall).
+function navHighestBetween(a, b, ax, az, bx, bz, firstFraction) {
   const base = Math.max(Nav.nodeY[a], Nav.nodeY[b]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN, wallBelow = base + NAV_STAND_HEIGHT;
   const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / NAV_SCAN_STEP);
   let highest = navHighestTopGathered(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow);
@@ -851,8 +886,8 @@ const navVolumeCentreX = (trigger) => (trigger.min[0] + trigger.max[0]) / 2;
 const navVolumeCentreZ = (trigger) => (trigger.min[2] + trigger.max[2]) / 2;
 
 function navFloorNodeOf(trigger) {
-  const floor = trigger.min[1];
-  return navSearchNodes(navVolumeCentreX(trigger), floor, navVolumeCentreZ(trigger), floor - NAV_BAND_BELOW, floor + NAV_BAND_ABOVE, NAV_TRIGGER_REACH, false);
+  const x = navVolumeCentreX(trigger), z = navVolumeCentreZ(trigger), floor = Math.max(trigger.min[1], navDeepWaterFeet(x, trigger.min[1], z));
+  return navSearchNodes(x, floor, z, floor - NAV_BAND_BELOW, floor + NAV_BAND_ABOVE, NAV_TRIGGER_REACH, false);
 }
 
 function navLinkLadder(builder, trigger) {

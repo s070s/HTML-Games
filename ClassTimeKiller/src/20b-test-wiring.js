@@ -266,3 +266,81 @@ Test.add('wiring', (check) => {
   }
   check('map lights read x/y/z on every map', broken.length === 0, broken.slice(0, 5).join(', '));
 });
+
+// ---- S09 <- S08/S10: nav links only what the mover can do ----
+// Index of the link from node a to node b, -1 when none.
+function wiringLinkBetween(a, b) {
+  for (let link = Nav.linkStart[a]; link < Nav.linkStart[a + 1]; link++) if (Nav.linkTarget[link] === b) return link;
+  return -1;
+}
+// The largest single rise met walking the straight line of a link (0.1 m samples of the floor under it).
+function wiringWorstRise(link) {
+  const a = Nav.linkFrom[link], b = Nav.linkTarget[link], ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b];
+  const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.1));
+  let floor = Nav.nodeY[a], worst = 0;
+  for (let step = 1; step <= steps; step++) {
+    const y = World.floorBelow(ax + (bx - ax) * step / steps, floor + 1, az + (bz - az) * step / steps, 3);
+    if (Number.isNaN(y)) return Infinity;
+    worst = Math.max(worst, y - floor);
+    floor = y;
+  }
+  return worst;
+}
+const WIRING_HARBOR_BRIDGES = [[-23, -17], [-3, 3], [17, 23]];   // bridge deck x spans over both canals (|z| 10..22)
+const wiringOnBridge = (node) => Math.abs(Nav.nodeZ[node]) > 10 && Math.abs(Nav.nodeZ[node]) < 22 && Nav.nodeY[node] > -0.6
+  && WIRING_HARBOR_BRIDGES.some((span) => Nav.nodeX[node] > span[0] && Nav.nodeX[node] < span[1]);
+// Water deeper than a swimmer's depth plus a step over this node's feet (the floor of a deep canal).
+const wiringDeepUnder = (volumes, x, y, z) => volumes.some((v) => x >= v.min[0] && x <= v.max[0] && z >= v.min[2] && z <= v.max[2]
+  && y >= v.min[1] && v.max[1] - y > NAV_SWIM_DEPTH + NAV_STEP);
+
+Test.add('wiring', (check) => {
+  World.load(CAT.maps.byId('harbor'));
+  const water = CAT.maps.byId('harbor').triggers.filter((trigger) => trigger.kind === 'water');
+  let bedNodes = 0, swimExits = 0, bridgeExits = 0, waterLadders = 0;
+  for (let node = 0; node < Nav.nodeCount; node++) if (wiringDeepUnder(water, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node])) bedNodes++;
+  for (let link = 0; link < Nav.linkCount; link++) {
+    const from = Nav.linkFrom[link], to = Nav.linkTarget[link], type = Nav.linkType[link];
+    if (type === NAV_LINK.LADDER && (Nav.nodeFlags[from] & NAV_NODE.WATER)) waterLadders++;
+    if (type !== NAV_LINK.SWIM || Nav.nodeY[to] - Nav.nodeY[from] <= NAV_STEP) continue;
+    swimExits++;
+    if (wiringOnBridge(to)) bridgeExits++;
+  }
+  check('nav: no walk nodes on the deep canal beds (harbor)', bedNodes === 0, bedNodes);
+  check('nav: swimmers climb out onto the quays', swimExits > 0, swimExits);
+  check('nav: no swim exit onto a bridge deck (no rim to pull up on)', bridgeExits === 0, bridgeExits);
+  check('nav: the canal ladders still start in the water', waterLadders > 0, waterLadders);
+
+  // Dustline: (-12.3, 0, 10.8) to (-13.8, 0, 12.8) passes 0.15 m from the mid wall end (x -13, z 12..13.5): the capsule clips it.
+  World.load(CAT.maps.byId('dustline'));
+  const near = Nav.nearestNode(-12.3, 0, 10.8), far = Nav.nearestNode(-13.8, 0, 12.8);
+  const placed = Math.hypot(Nav.nodeX[near] + 12.3, Nav.nodeZ[near] - 10.8) < 0.2 && Math.hypot(Nav.nodeX[far] + 13.8, Nav.nodeZ[far] - 12.8) < 0.2;
+  check('nav: the dustline nodes beside the mid wall end exist', placed, near + ' ' + far);
+  check('nav: a jump link sweeps the actor radius past a wall end (dustline)', wiringLinkBetween(near, far) < 0 && wiringLinkBetween(far, near) < 0);
+
+  World.load(CAT.maps.byId('twinkeeps'));
+  let steep = 0, example = '';
+  for (let link = 0; link < Nav.linkCount; link++) {
+    const type = Nav.linkType[link];
+    if (type !== NAV_LINK.WALK && type !== NAV_LINK.CROUCH) continue;
+    if (wiringWorstRise(link) <= NAV_STEP + 0.02) continue;
+    steep++;
+    example = Nav.linkFrom[link] + '->' + Nav.linkTarget[link];
+  }
+  check('nav: no walk link climbs more than a step at once (twinkeeps)', steep === 0, steep + ' ' + example);
+  World.clear();
+});
+
+// ---- S07 <- S08/S16: building the drawn world (mesh, light bake) of every map logs no error ----
+Test.add('wiring', (check) => {
+  const before = ErrorLog.entries.length, failed = [];
+  WiringTest.withDisplay(() => {
+    for (const map of CAT.maps) {
+      const logged = ErrorLog.entries.length;
+      World.load(map);
+      if (ErrorLog.entries.length !== logged || !WorldMesh.vertexCount) failed.push(map.id);
+    }
+  });
+  World.clear();
+  check('world.load builds the drawn world of every map without an error', failed.length === 0 && ErrorLog.entries.length === before,
+    failed.join(', ') + ' ' + ErrorLog.entries.slice(before).join(' / '));
+});

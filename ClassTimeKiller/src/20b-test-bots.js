@@ -412,7 +412,8 @@ Test.add('bots', (check) => {
     if (exitKind[node] === EXIT.BLOCKED) blocked++;
     else if (exitKind[node] === EXIT.OPEN) open++;
   }
-  check('harbor has open water exits and blocked rimless ones', open > 0 && blocked > 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
+  // S09 links no rimless swim exit any more (navHasRim); the blocked kind stays for exits a bot fails at run time.
+  check('harbor has open water exits and no rimless ones', open > 0 && blocked === 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
 });
 
 // ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----
