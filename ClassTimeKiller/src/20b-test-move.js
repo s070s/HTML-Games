@@ -608,3 +608,67 @@ Test.add('move', (check) => {
   }
   check('24 actors move in < 0.5 ms per step on average', total / 500 < 0.5, (total / 500).toFixed(3) + ' ms');
 });
+
+// ---- Smaller rules: crouch-jump lift (MV02), wall dodge (RS02), auto-strafe (MOV-018), downhill slide (MV04) ----
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'tactical' });
+  const id = groundedTester(0, 0);
+  const startY = Actors.y[id];
+  tapButtons(id, BTN.JUMP);
+  stepSeconds(0.1);
+  Actors.buttons[id] = BTN.CROUCH;
+  const top = highestPoint(id, 1) - startY;
+  check('crouch-jump lifts the feet 0.3 m', Test.near(top, 6.3 ** 2 / 40 + 0.3, 0.03), top);
+});
+
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [0.5, 0, -10], max: [1, 10, 10] }]);
+  useTestRules({ move: 'arena', moveOverrides: { wallDodge: true } });
+  const id = spawnTester(0, 3, 0);
+  holdInput(id, 0, 0, 0, 0);
+  Sim.step();
+  check('wall dodge: double-tap away from a wall in the air', recordEvents(['move.dash'], () => doubleTapRight(id)).length === 1 && Actors.vx[id] < -9);
+  useTestRules({ move: 'arena' });
+  const plain = spawnTester(-20, 3, 0);
+  holdInput(plain, 0, 0, 0, 0);
+  Sim.step();
+  check('no air dodge without wallDodge', recordEvents(['move.dash'], () => doubleTapRight(plain)).length === 0);
+});
+
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'arena' });
+  const assisted = airTurn('on'), unassisted = airTurn('off');
+  check('auto-strafe turns the air velocity toward the view', assisted > unassisted + 0.5 && assisted > 1, assisted + ' vs ' + unassisted);
+});
+
+// Flies +Z at 9 m/s looking +X with forward held for 0.4 s; returns how far the velocity turned (radians).
+function airTurn(assist) {
+  const id = spawnTester(0, 30, 0);
+  Game.playerId = id;
+  Settings.set('gameplay.airAssist', assist);
+  Actors.vz[id] = 9;
+  holdInput(id, 0, 1, 0, 90);
+  stepSeconds(0.4);
+  Game.playerId = -1;
+  const turned = Math.atan2(Actors.vx[id], Actors.vz[id]);
+  Actors.remove(id);
+  return turned;
+}
+
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'ramp', min: [-3, 0, 0], max: [3, 6, 20], dir: '-z' }]);
+  useTestRules({ move: 'agile' });
+  const sloped = spawnTester(0, 5.6, 1.5), flat = groundedTester(20, 0);
+  Sim.run(6);
+  for (const id of [sloped, flat]) { Actors.vz[id] = 7.6; holdInput(id, 0, 1, BTN.CROUCH, 0); }
+  stepSeconds(0.5);
+  check('slides gain speed downhill (MV04)', Motion.sliding[sloped] === 1 && testSpeed(sloped) > testSpeed(flat) + 1, testSpeed(sloped) + ' vs ' + testSpeed(flat));
+  useTestRules({ move: 'parkour' });
+  const glider = spawnTester(-30, 40, 0);
+  Actors.buttons[glider] = BTN.ALT;
+  stepSeconds(3.1);
+  const vy = Actors.vy[glider]; Sim.step();
+  check('glide lasts 3 s per jump', Test.near(vy - Actors.vy[glider], 16 * TICK_SECONDS, 1e-3), vy - Actors.vy[glider]);
+});

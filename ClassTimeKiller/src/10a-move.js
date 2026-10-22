@@ -469,6 +469,7 @@ function afterMove(id, preset, gravity, startX, startZ) {
   if (Actors.vy[id] > verticalBefore + GROUND_LEAVE_SPEED) unground(id); // launched by a jump pad
   updateEye(id);
   writeFlags(id);
+  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { Motion.stepDistance[id] = 0; return; } // teleported: no stride across the map
   countSteps(id, preset, startX, startZ);
 }
 
@@ -558,5 +559,5 @@ Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', cat
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
 Bus.on('impulse', onImpulse);
-Bus.on('actor.create', (id) => { resetMotion(id); Move.presetOverride[id] = null; Move.weaponSpeedScale[id] = 1; Move.statusSpeedScale[id] = 1; });
+Bus.on('actor.create', (id) => { Move.presetOverride[id] = null; Move.weaponSpeedScale[id] = 1; Move.statusSpeedScale[id] = 1; resetMotion(id); });
 Bus.on('actor.spawn', (event) => resetMotion(event.id));
