@@ -76,7 +76,8 @@ off the map edge.
 - `mapSizes`: `{ id, name, index, tiers }`; a size is offered only on the quality tiers it lists (small: all; medium: low and up; large: medium and up).
 - `mapDensities`: `{ id, name, moduleShare, scatter }`.
 - `mapItemSets`: `{ id, list }`: `power` (the power-up keys put on the centre line), `pickups` / `supply` (one plain pickup per group entry, for
-  modes with and without pickups), `loot` (per royale loot site).
+  modes with and without pickups), `loot` (per royale loot site). Pickups tied to a health preset (PU20 Vital Shard, `healthPreset`) are
+  never drawn as plain pickups: maps with pickups or supply get one extra pair of each (12a shows it only in Ravager health matches).
 - `generators`: the table above (`cells` per size index, `modes`, `defaultModes`, `fallback`, `blurb`, `siteWalk` for GN2).
 
 ## Pipeline per seed (MAP-023)
