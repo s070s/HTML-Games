@@ -287,7 +287,8 @@ Test.add('custom', (check) => {
 
 // R-044 / R-045 / R-046: code fields can be selected, copied and pasted on iOS and Android, and Copy never claims a copy that failed.
 Test.add('custom', (check) => uiWith(() => {
-  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  const toasts = [], copyTexts = [COPY_DONE_TEXT, COPY_MANUAL_TEXT];   // only the copy toasts (a browser without Web Audio adds its own)
+  const listener = Bus.on('toast', (payload) => { if (copyTexts.includes(payload.text)) toasts.push(payload.text); });
   Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });   // plain http: no clipboard API
   let selected = '';
   document.execCommand = function failedCopy() { selected = document.activeElement && document.activeElement.value; return false; };
