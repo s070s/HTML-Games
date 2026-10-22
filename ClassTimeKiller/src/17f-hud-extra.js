@@ -154,8 +154,9 @@ function hudMapObjectives(pen, map) {
 function hudMapPings(pen, map, player) {
   const p = HudPings;
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
-    if (Hud.time - p.at[i] >= HUD_PING_SECONDS || p.source[i] < 0) continue;
+    if (!p.live(i)) continue;   // each kind's own marker life (17d)
     if (p.source[i] !== player && Actors.isEnemy(player, p.source[i])) continue;
+    p.follow(i);   // also with the world markers hidden (17d)
     hudMapDot(pen, map, p.x[i], p.z[i], 'diamond', 9, hudPingColor(p.kind[i]), 1, true);
   }
 }

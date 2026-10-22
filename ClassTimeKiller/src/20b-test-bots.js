@@ -402,6 +402,7 @@ Test.add('bots', (check) => {
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
   runSeconds(1);
   const fromPlayer = () => pings.filter((event) => event.id === player);
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;   // aimed at no bot: the wheel talks to the squad
   Input.effective[pingAction] = 1; CommWheel.frame(0.1);
   Input.effective[pingAction] = 0; CommWheel.frame(0.02);
   check('wheel: a short Ping tap pings at once, no wheel', fromPlayer().length === 1 && !CommWheel.open, fromPlayer().length);
@@ -419,16 +420,66 @@ Test.add('bots', (check) => {
   runSeconds(6);
   const nearCaller = (id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18) < 8;   // a bot in a fight may fight first (combat outscores orders)
   check('follow me: the bots come to where the caller went', mates.some(nearCaller) && mates.every((id) => nearCaller(id) || BotCombat.target[id] >= 0), mates.map((id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18).toFixed(1) + ' goal ' + BotDecide.goal[id]).join());
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;
   CommWheel.onComm(true);
-  CommWheel.pick(0, 0.05);   // straight down: the fifth of eight callouts
+  botsWheelPick('regroup');
   CommWheel.onComm(false);
   const regroup = fromPlayer()[2];
-  check('wheel: the Comm key opens it too (down = Regroup)', regroup && regroup.kind === 'regroup', JSON.stringify(regroup));
-  BotTeam.callout(player, COMM_CALLOUTS.findIndex((row) => row.id === 'hold'));
+  check('wheel: the Comm key opens it too (Regroup)', regroup && regroup.kind === 'regroup' && regroup.to === -1, JSON.stringify(regroup));
+  BotTeam.callout(player, botsCalloutIndex('hold'), -1);
   check('hold position: every bot defends the spot it stands on', mates.every((id) => BotTeam.orderKind[id] === 'defend' && Test.near(BotTeam.orderX[id], Actors.x[id], 1e-3) && Test.near(BotTeam.orderZ[id], Actors.z[id], 1e-3)));
   CommWheel.onComm(true);
   CommWheel.onComm(false);
   check('wheel: letting go with nothing picked sends nothing', fromPlayer().length === 4 && !CommWheel.open, fromPlayer().length);
+  pings.stop();
+  CommWheel.reset();
+  endBotTest();
+});
+
+const BOTS_WHEEL_SKY = 1.2;   // radians of aim pitch: looking at the sky, so the wheel addresses no bot
+function botsCalloutIndex(kind) { return COMM_CALLOUTS.findIndex((row) => row.id === kind); }
+// Moves the wheel's pick point toward a callout (the first at the top, then clockwise).
+function botsWheelPick(kind) {
+  const angle = botsCalloutIndex(kind) / COMM_CALLOUTS.length * 2 * Math.PI;
+  CommWheel.pick(Math.sin(angle) * COMM_WHEEL_REACH, -Math.cos(angle) * COMM_WHEEL_REACH);
+}
+
+// ---- Comm wheel: aimed at a team bot it addresses that bot only (Cover me); replies answer a ping and order nobody ----
+Test.add('bots', (check) => {
+  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const player = Game.playerId, pings = startEventLog('ping'), mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  runSeconds(1);
+  const chosen = mates[0], others = mates.slice(1);
+  placeActor(player, -20, -20); placeActor(chosen, -20, -12);
+  others.forEach((id, index) => placeActor(id, 10 + index * 4, -20));
+  Actors.aimYaw[player] = 0; Actors.aimPitch[player] = 0;   // straight at the chosen bot (+Z)
+  CommWheel.onComm(true);
+  check('wheel: opened while aiming at a team bot, it addresses that bot', CommWheel.addressee === chosen, CommWheel.addressee);
+  botsWheelPick('cover');
+  CommWheel.onComm(false);
+  const cover = pings[pings.length - 1], givenAt = Sim.time;
+  check('cover me: the ping is addressed to the aimed bot', cover && cover.kind === 'cover' && cover.to === chosen, JSON.stringify(cover));
+  check('cover me: only that bot takes it, the squad does not', BotTeam.orderKind[chosen] === 'cover' && BotTeam.orderSource[chosen] === player
+    && others.every((id) => BotTeam.orderUntil[id] <= givenAt), mates.map((id) => BotTeam.orderKind[id]).join());
+  placeActor(player, -8, -26);
+  runSeconds(5);
+  const covering = length2(Actors.x[chosen] + 8, Actors.z[chosen] + 26) < COVER_RADIUS + 3;
+  check('cover me: the bot comes to the caller and holds there (unless it fights)', covering || BotCombat.target[chosen] >= 0, length2(Actors.x[chosen] + 8, Actors.z[chosen] + 26).toFixed(1));
+  Actors.aimPitch[player] = BOTS_WHEEL_SKY;
+  CommWheel.onComm(true);
+  check('wheel: aimed at no bot, it addresses the squad', CommWheel.addressee === -1);
+  CommWheel.reset();
+  Bus.emit('ping', { id: others[0], kind: 'go', x: 5, y: 0, z: 5, target: -1, to: -1 });
+  const orders = BotTeam.stats.orders;
+  CommWheel.onComm(true);
+  botsWheelPick('dibs');
+  CommWheel.onComm(false);
+  const dibs = pings[pings.length - 1];
+  check('reply: Dibs answers the newest teammate ping, at its spot and to its sender', dibs && dibs.kind === 'dibs' && dibs.id === player && dibs.x === 5 && dibs.z === 5 && dibs.to === others[0], JSON.stringify(dibs));
+  check('reply: a reply orders nobody', BotTeam.stats.orders === orders, BotTeam.stats.orders - orders);
+  check('reply: the wheel has Dibs, No and On my way', ['dibs', 'no', 'onMyWay'].every((kind) => COMM_CALLOUT_BY_KIND.get(kind).at === 'reply'));
   pings.stop();
   CommWheel.reset();
   endBotTest();

@@ -286,6 +286,12 @@ Test.add('move', (check) => {
   holdInput(id, -1, 0, BTN.SPRINT, 0);
   stepSeconds(2);
   check('arena: the sprint button never walks', testSpeed(id) > Move.preset(id).groundSpeed * 0.95 && TouchInput.stickSprints(), testSpeed(id));
+  Game.playerId = id;
+  Move.setPreset(id, 'tactical');
+  check('a player whose own preset walks on sprint (a hero row) gets no stick sprint in an arena match', !TouchInput.stickSprints());
+  Move.setPreset(id, null);
+  check('and the match preset again once the override is gone', TouchInput.stickSprints());
+  Game.playerId = -1;
 });
 
 Test.add('move', (check) => {

@@ -120,7 +120,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `round` | `{ round, phase, winner, reason, attackers }` | S13 |
 | `medal` | `{ id, medal }` (players only) | S15 `Medals` |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
-| `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
+| `ping` | `{ id, kind, x, y, z, target, to }` (`to`: the team bot addressed or the sender a reply answers, -1 = the squad) | S14 (the player's pings and comm wheel through `BotTeam`) |
 | `bark` | `{ id, team, category, text }` | S14 |
 | `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` | see docs/api/pve.md | S14 PvE |
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | S14 PvE |

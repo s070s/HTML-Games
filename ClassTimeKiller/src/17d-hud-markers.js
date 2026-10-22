@@ -9,7 +9,9 @@ const HUD_LETTER_KINDS = ['point', 'hill', 'bombsite'];
 const HUD_MARKER_HEIGHT = 2.4;            // metres above the objective centre
 const HUD_MARKER_MARGIN = 30;             // keeps arrows and icons off the screen edge
 const HUD_MARKER_MAX = 14;
-const HUD_PING_SLOTS = 8, HUD_PING_SECONDS = 6;
+const HUD_PING_SLOTS = 12, HUD_PING_PER_ACTOR = 3;   // a source's fourth live ping replaces its oldest
+const HUD_PING_SECONDS = 6;               // marker life of a ping kind with no COMM_CALLOUTS row (the rows carry their own `seconds`)
+const HUD_PING_SIGHT_INTERVAL = 0.2;      // s between the line-of-sight checks that let an enemy ping follow its target
 const HUD_TAG_RANGE = 60, HUD_TAG_MAX = 12, HUD_TAG_HEIGHT_ABOVE = 0.35;
 const HUD_ITEM_TIMER_RANGE = 40, HUD_ITEM_TIMER_MAX = 12;
 const HUD_ARROW_TIP = 11, HUD_ARROW_BASE = 7, HUD_ARROW_WIDTH = 8;
@@ -86,20 +88,79 @@ function hudDrawObjectiveMarkers(pen, layout) {
   }
 }
 
-// ---- Pings (a ring of the last HUD_PING_SLOTS; teammates' and your own) ----
+// ---- Pings (HUD_PING_SLOTS live ones, at most HUD_PING_PER_ACTOR per source; teammates' and your own) ----
+// Each kind lives its COMM_CALLOUTS row's `seconds`; an enemy ping rides on its target while the pinger still sees it.
+const hudPingSight = makeLine();
 const HudPings = {
-  source: new Int16Array(HUD_PING_SLOTS).fill(-1), kind: new Array(HUD_PING_SLOTS).fill(''),
-  x: new Float32Array(HUD_PING_SLOTS), y: new Float32Array(HUD_PING_SLOTS), z: new Float32Array(HUD_PING_SLOTS), at: new Float64Array(HUD_PING_SLOTS).fill(-1000), next: 0,
-  reset() { this.source.fill(-1); this.at.fill(-1000); this.next = 0; },
+  source: new Int16Array(HUD_PING_SLOTS).fill(-1), kind: new Array(HUD_PING_SLOTS).fill(''), reply: new Array(HUD_PING_SLOTS).fill(''),
+  target: new Int16Array(HUD_PING_SLOTS).fill(-1), seen: new Uint8Array(HUD_PING_SLOTS), sightAt: new Float64Array(HUD_PING_SLOTS),
+  x: new Float32Array(HUD_PING_SLOTS), y: new Float32Array(HUD_PING_SLOTS), z: new Float32Array(HUD_PING_SLOTS),
+  order: new Float64Array(HUD_PING_SLOTS), until: new Float64Array(HUD_PING_SLOTS).fill(-1000), added: 0,   // order = when added, counted (Hud.time can stand still)
+  reset() { this.source.fill(-1); this.target.fill(-1); this.order.fill(0); this.until.fill(-1000); this.added = 0; },
+  live(slot) { return this.source[slot] >= 0 && Hud.time < this.until[slot]; },
+  // The other side's pings are never drawn, so they never take a slot from your own side's markers.
   add(event) {
-    const slot = this.next;
-    this.next = (slot + 1) % HUD_PING_SLOTS;
-    this.source[slot] = event.id; this.kind[slot] = event.kind;
-    this.x[slot] = event.x; this.y[slot] = event.y; this.z[slot] = event.z; this.at[slot] = Hud.time;
+    const player = Game.playerId;
+    if (player >= 0 && event.id !== player && Actors.isEnemy(player, event.id)) return;
+    this.capSource(event.id);
+    const slot = this.freeSlot(), row = COMM_CALLOUT_BY_KIND.get(event.kind);
+    this.source[slot] = event.id; this.kind[slot] = event.kind; this.reply[slot] = row && row.at === 'reply' ? row.label : '';
+    this.target[slot] = event.target >= 0 ? event.target : -1; this.seen[slot] = 1; this.sightAt[slot] = Hud.time + HUD_PING_SIGHT_INTERVAL;
+    this.x[slot] = event.x; this.y[slot] = event.y; this.z[slot] = event.z;
+    this.order[slot] = ++this.added; this.until[slot] = Hud.time + (row ? row.seconds : HUD_PING_SECONDS);
+  },
+  // A source with HUD_PING_PER_ACTOR live pings loses its oldest one.
+  capSource(source) {
+    let count = 0, oldest = -1;
+    for (let i = 0; i < HUD_PING_SLOTS; i++) {
+      if (this.source[i] !== source || !this.live(i)) continue;
+      count++;
+      if (oldest < 0 || this.order[i] < this.order[oldest]) oldest = i;
+    }
+    if (count >= HUD_PING_PER_ACTOR) this.until[oldest] = -1000;
+  },
+  // An expired slot, else the oldest ping.
+  freeSlot() {
+    let oldest = 0;
+    for (let i = 0; i < HUD_PING_SLOTS; i++) {
+      if (!this.live(i)) return i;
+      if (this.order[i] < this.order[oldest]) oldest = i;
+    }
+    return oldest;
+  },
+  // The newest live ping of the player's side (not the player's own, not a reply): what a comm wheel reply answers, or -1.
+  newestToAnswer(player) {
+    let best = -1;
+    for (let i = 0; i < HUD_PING_SLOTS; i++) {
+      const source = this.source[i];
+      if (!this.live(i) || source === player || this.reply[i] || Actors.isEnemy(player, source)) continue;
+      if (best < 0 || this.order[i] > this.order[best]) best = i;
+    }
+    return best;
+  },
+  // An enemy ping follows its target while the pinger sees it (checked every HUD_PING_SIGHT_INTERVAL); out of sight it stays put.
+  // Every view that draws pings calls it (world markers, minimap), so a hidden one never freezes the other.
+  follow(slot) {
+    const target = this.target[slot], source = this.source[slot];
+    if (target < 0 || !Actors.alive[target] || !Actors.alive[source]) return;
+    if (Hud.time >= this.sightAt[slot]) { this.sightAt[slot] = Hud.time + HUD_PING_SIGHT_INTERVAL; this.seen[slot] = hudSees(source, target) ? 1 : 0; }
+    if (!this.seen[slot]) return;
+    this.x[slot] = Actors.x[target]; this.y[slot] = Actors.y[target]; this.z[slot] = Actors.z[target];
   },
 };
 Bus.on('ping', (event) => HudPings.add(event));
 
+function hudSees(viewer, target) {
+  const line = hudPingSight;
+  line.ax = Actors.x[viewer]; line.ay = Actors.eyeY(viewer); line.az = Actors.z[viewer];
+  line.bx = Actors.x[target]; line.by = Actors.eyeY(target); line.bz = Actors.z[target];
+  return World.lineClearOf(line);
+}
+
+function hudPingShape(kind, reply) {
+  if (kind === 'enemy') return 'triangle';
+  return reply ? 'circle' : 'diamond';
+}
 function hudPingColor(kind) {
   if (kind === 'enemy') return Hud.colors.bad;
   return kind === 'danger' ? HUD_COLOR.warn : Hud.colors.good;
@@ -107,11 +168,14 @@ function hudPingColor(kind) {
 function hudDrawPingMarkers(pen, layout) {
   const p = HudPings, player = Game.playerId;
   for (let i = 0; i < HUD_PING_SLOTS; i++) {
-    const age = Hud.time - p.at[i], source = p.source[i];
-    if (age >= HUD_PING_SECONDS || source < 0) continue;
+    const source = p.source[i];
+    if (!p.live(i)) continue;
     if (source !== player && (player < 0 || Actors.isEnemy(player, source))) continue;      // only your side's pings
-    hudDrawMarker(pen, layout, p.x[i], p.y[i] + 0.5, p.z[i], p.kind[i] === 'enemy' ? 'triangle' : 'diamond', hudPingColor(p.kind[i]), -1, true);
-    if (Hud.project(p.x[i], p.y[i] + 0.5, p.z[i])) pen.label(Actors.name[source], hudProjection.x, hudProjection.y - 18 * layout.unit, HUD_TEXT_SMALL * layout.unit, HUD_COLOR.dim, 'center');
+    p.follow(i);
+    hudDrawMarker(pen, layout, p.x[i], p.y[i] + 0.5, p.z[i], hudPingShape(p.kind[i], p.reply[i]), hudPingColor(p.kind[i]), -1, true);
+    if (!Hud.project(p.x[i], p.y[i] + 0.5, p.z[i])) continue;
+    pen.label(Actors.name[source], hudProjection.x, hudProjection.y - 18 * layout.unit, HUD_TEXT_SMALL * layout.unit, HUD_COLOR.dim, 'center');
+    if (p.reply[i]) pen.label(p.reply[i], hudProjection.x, hudProjection.y - 32 * layout.unit, HUD_TEXT_SMALL * layout.unit, Hud.colors.good, 'center');
   }
 }
 
