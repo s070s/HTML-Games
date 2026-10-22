@@ -584,6 +584,29 @@ const Thrown = {
   },
   // G22 and G12 remove enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
+  // W41 Graviton Lifter (WeaponSpecialState.grenadeHook): the nearest flying or resting grenade in the aim cone within range.
+  grab(id, ox, oy, oz, dx, dy, dz, range, minCos) {
+    let best = -1, bestDistance = range;
+    for (let slot = 0; slot < THROWN_CAP; slot++) {
+      if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
+      best = slot; bestDistance = distance;
+    }
+    return best;
+  },
+  hold(slot, x, y, z) {
+    if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) return;
+    this.state[slot] = THROWN_STATE.FLYING;
+    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
+    this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
+  },
+  // Thrown back as the lifter holder's own grenade; the fuse keeps running.
+  launch(slot, owner, vx, vy, vz) {
+    if (this.state[slot] !== THROWN_STATE.FLYING) return;
+    this.owner[slot] = owner;
+    this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
+  },
   draw(batch) {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
@@ -826,6 +849,7 @@ const Gadgets = {
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
 // GAD-002: ALT is the underhand throw while a grenade is held (or its button goes down with one ready), not the weapon's alt.
+WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));

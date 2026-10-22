@@ -718,6 +718,7 @@ const Shot = {
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
+      if (shotHit.brush && shotHit.brush.prop >= 0) Props.damage(shotHit.brush.prop, damage * factor);   // MAP-013 props break under fire
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
       factor *= PENETRATION_FACTOR[mode.penetration];

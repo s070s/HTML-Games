@@ -491,6 +491,44 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// W41 lifts props (S08 PropLift) and catches hand grenades (S12 Thrown); hitscan shots damage props (MAP-013).
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  World.load({ id: 'lifter-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }],
+    props: [{ min: [-0.4, 0.9, 3], max: [0.4, 1.7, 3.8], mass: 20, health: 50 }, { min: [-0.5, 0, 12], max: [0.5, 3, 13], health: 50 }] });
+  const user = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 20);
+  giveFull(user, 'lifter');
+  Actors.pitch[user] = Actors.aimPitch[user] = 0;
+  Actors.buttons[user] = BTN.ALT;
+  Sim.run(2);
+  const body = WeaponSpecialState.heldProp[user];
+  check('W41 alt lifts a breakable prop off the world as a held body', body >= 0 && Bodies.active[body] === 1 && !Props.isStanding(0), body);
+  Sim.run(10);
+  check('W41 holds the lifted body in front of the holder', body >= 0 && Math.abs(Bodies.z[body] - LIFTER_HOLD_DISTANCE) < 0.2, body >= 0 ? Bodies.z[body] : -1);
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 punt launches the held body with the lifter impact damage', body >= 0 && WeaponSpecialState.heldProp[user] === -1 && Bodies.vz[body] > 20
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  Sim.run(TICK_RATE);
+  const grenade = Thrown.spawn(CAT.gadgets.byId('frag'), enemy, 0, 1.6, 5, 0, 0, -3, itemTicks(10));
+  Actors.buttons[user] = BTN.ALT;
+  Weapons.nextShot[user] = 0;
+  Sim.run(2);
+  const caught = WeaponSpecialState.heldGrenade[user] === grenade;
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 catches a hand grenade and throws it back as its own', caught && Thrown.owner[grenade] === user && Thrown.vz[grenade] > 20, caught);
+  Thrown.clear();
+  giveFull(user, 'tempest');
+  TestArena.hold(user, BTN.FIRE, 0.05);
+  check('MAP-013 a hitscan shot damages the prop it hits', Props.health[1] < 50, Props.health[1]);
+  TestArena.finish();
+});
+
 Test.add('weapons', (check) => {
   TestArena.start({ weaponSet: 'tacticalSet' });
   const id = TestArena.actor(1, 0, 0);
