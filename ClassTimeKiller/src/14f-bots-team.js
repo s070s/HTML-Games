@@ -414,6 +414,7 @@ const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam]
 
 Bus.on('match.setup', () => { for (const entry of BOT_FRESH_STATE) entry.array.set(entry.initial); });
 Bus.on('match.start', () => BotTeam.onMatchStart());
+Bus.on('nav.ready', () => { for (let team = 0; team < TEAM_COUNT; team++) BotTeam.placeRally(team); });   // a sliced build finished after match start
 Bus.on('actor.spawn', (event) => BotTeam.onSpawn(event.id));
 Bus.on('ping', (event) => BotTeam.onPing(event));
 Bus.on('kill', (event) => BotTeam.onKill(event));

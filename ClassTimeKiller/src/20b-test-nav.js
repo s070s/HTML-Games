@@ -715,3 +715,29 @@ Test.add('nav', (check) => {
   navTestServeAll();
   check('sliced build: a path request after it is ready is served', Nav.result(6) === NAV_STATUS.DONE, Nav.result(6));
 });
+
+// F66: in a game the graph of a big map finishes in the frames after 'match.start' ('nav.ready'): the lookups bots make at
+// match start run again, so they find every loot spot and map item (14e), the water exits (14c) and the flag rally points (14f).
+function navTestLateMatch(mode, map) {
+  const pump = Nav.pump;
+  Nav.clearCache();
+  Nav.pump = (budgetMs) => pump.call(Nav, Math.min(budgetMs, NAV_SLICE_MS));   // world.load slices as in a game (not headless)
+  try { Game.start({ mode, map, seed: 1, bots: [{}, {}, {}, {}] }); } finally { Nav.pump = pump; }
+  const late = !Nav.ready;
+  for (let frame = 0; frame < NAV_TEST_MAX_FRAMES && !Nav.ready; frame++) Loop.runPhase('input', TICK_SECONDS);
+  return late && Nav.ready;
+}
+
+Test.add('nav', (check) => {
+  try {
+    const isle = navTestLateMatch('royale', 'isle'), loot = Modes.loot;
+    const lootFound = BotDecide.lootNode.subarray(0, loot.count).filter((node) => node >= 0).length;
+    check('late graph: Ring Isle royale bots know the node of every loot spot', isle && loot.count > 0 && lootFound === loot.count, lootFound + ' / ' + loot.count);
+    const harbor = navTestLateMatch('tdm', 'harbor');   // royale uses loot spots, not map items
+    const itemsFound = BotDecide.items.filter((item) => BotDecide.itemNode[item.index] >= 0).length;
+    check('late graph: Harbor Nine bots know the node of every map item', harbor && BotDecide.items.length > 0 && itemsFound === BotDecide.items.length, itemsFound + ' / ' + BotDecide.items.length);
+    check('late graph: Harbor Nine bots know the water and its exits', harbor && mapHasWater && exitCount > 0, exitCount);
+    const keeps = navTestLateMatch('ctf', 'twinkeeps');
+    check('late graph: Twin Keeps flag teams have rally points', keeps && BotTeam.hasRally(0) && BotTeam.hasRally(1));
+  } finally { Game.stop(); World.clear(); }
+});

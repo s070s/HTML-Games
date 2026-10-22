@@ -86,6 +86,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `boot`, `ready` | null | S21 |
 | `setting` | key | S04 |
 | `world.load` | map | S08 |
+| `nav.ready` | `Nav` (a sliced nav build finished) | S09 |
 | `match.setup/load/start/end/stop` | `Game.match` | S01 |
 | `game.pause` / `game.resume` | reason / null | S01 |
 | `actor.create` / `actor.remove` | id | S01 |

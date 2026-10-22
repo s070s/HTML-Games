@@ -9,6 +9,7 @@
 //   4. strongly connected components, cover points, node lookup grid.
 // A match load (not in headless tests) runs the build in slices of NAV_SLICE_MS per frame (the first one inside 'world.load'),
 // so a big map never freezes the load frame; until it is ready the graph reads empty (no nodes) and bots wait for it.
+// A build that finished in a later frame emits 'nav.ready' (Nav) so lookups made at match start run again.
 // Pathfinding, cache, per-tick budget and smoothing live in 09b-nav-path.js. Public API: docs/api/nav.md.
 
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
@@ -221,6 +222,7 @@ function navFinishBuild() {
   Nav.version++;
   Nav.resetPaths();
   Nav.buildMs = navJob.workMs;
+  if (Nav.buildSlices > 1) Bus.emit('nav.ready', Nav);   // after match.start: per-map node lookups (14c, 14e, 14f) run again
 }
 
 // Between slices the graph reads empty; the first time, bots drop their paths of the old map.

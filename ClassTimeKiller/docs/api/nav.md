@@ -8,7 +8,7 @@ Files: `src/09a-nav.js` (graph build, node queries, cover, debug lines), `src/09
 - `Nav.version` increases with every build; `Nav.buildMs` and `Nav.buildPhases` (`raster`, `nodes`, `links`, `components and cover`) hold the build time.
 - A build empties the path cache and every request slot (status back to `NONE`): requesters re-request after a map load.
 - Graph cache (BOT-010 "cached per map"): the last 4 graphs are kept, keyed by a hash of the map's brushes, triggers, props and `Nav.limits`. Loading the same map again restores its graph (about 0.4 ms instead of a full build); `Nav.lastBuildCached` says which happened; `Nav.clearCache()` empties it.
-- Emits no events. Reads `World.brushes`, `World.boundsMin/Max` and the map's `triggers`.
+- Emits `nav.ready` (`Nav`) when a build that ran in frame slices finishes (a big map after `match.start`), so the bots redo their per-map node lookups (loot spots, map items, water exits, rally points). Reads `World.brushes`, `World.boundsMin/Max` and the map's `triggers`.
 
 ## Build limits (`Nav.limits`)
 
