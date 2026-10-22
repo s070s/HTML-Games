@@ -249,14 +249,36 @@ Test.add('mutators', (check) => {
 });
 
 Test.add('mutators', (check) => {
+  const seen = [];
+  const hook = (fx, event) => seen.push(event.victim + ':' + (fx.damageOut === 2));
+  Mutators.addHook('kill', hook);
+  startMutatorMatch([{ id: 'dmgout', value: 200 }]);
+  strike(0, 1, 100000);
+  Mutators.hooks.kill.splice(Mutators.hooks.kill.indexOf(hook), 1);
+  stopMutatorMatch();
+  check('a section can register its own runtime hook; it receives the rule flags', seen.join() === '1:true', seen.join());
+  seen.length = 0;
+  Mutators.addHook('kill', hook);
+  startMutatorMatch([]);
+  strike(0, 1, 100000);
+  Mutators.hooks.kill.splice(Mutators.hooks.kill.indexOf(hook), 1);
+  stopMutatorMatch();
+  check('hooks do not run in a match without mutators', seen.length === 0);
+  check('the mutator hook list is back to its built-in size', Mutators.hooks.kill.length === 5);
+});
+
+Test.add('mutators', (check) => {
   startMutatorMatch(['colossal']);
   strike(0, 1, 100000);
   check('growth: a kill adds 5% health and size', Actors.alive[1] === 0 && Mutators.growth[0] === 1 && Math.abs(Hitbox.sizeScale[0] - 1.05) < 1e-4 && Math.abs(Actors.maxHealth[0] - 105) < 0.01, Actors.maxHealth[0]);
-  for (let kill = 0; kill < 14; kill++) { Mutators.growth[0] = Math.min(Mutators.growth[0], GROWTH_MAX_KILLS); }
   Mutators.growth[0] = GROWTH_MAX_KILLS;
+  refreshSize(0);
   Actors.alive[1] = 1; Actors.health[1] = 1;
   strike(0, 1, 100000);
   check('growth stops at +50%', Mutators.growth[0] === GROWTH_MAX_KILLS);
+  const drawn = { scale: 1 };
+  Render.actorStyle(0, drawn);
+  check('the renderer draws a grown actor larger (actor style hook)', Math.abs(drawn.scale - 1.5) < 1e-4, drawn.scale);
   Bus.emit('actor.spawn', { id: 0 });
   check('growth resets on respawn', Mutators.growth[0] === 0 && Hitbox.sizeScale[0] === 1);
   stopMutatorMatch();
@@ -281,6 +303,12 @@ Test.add('mutators', (check) => {
 });
 
 Test.add('mutators', (check) => {
+  const slowDifficulty = (rules) => { rules.fx.timeScale = 0.8; };
+  Rules.addModifier('difficulty', slowDifficulty);
+  startMutatorMatch([]);
+  check('a later stage can set rules.fx.timeScale without any mutator (difficulty game speed)', Sim.timeScale === 0.8, Sim.timeScale);
+  stopMutatorMatch();
+  Rules.removeModifier('difficulty', slowDifficulty);
   startMutatorMatch(['gamespeed']);
   check('game speed sets the sim time scale', Sim.timeScale === 1.25);
   stopMutatorMatch();

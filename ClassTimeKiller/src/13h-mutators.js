@@ -51,7 +51,9 @@ const Mutators = {
   nextSuperPowerup: 0,
   tagCount: 0,
   powerNames: [],
+  hooks: { spawn: [], kill: [], damage: [], fire: [], step: [] },   // runtime effect hooks, see runHooks
 
+  addHook(kind, hook) { this.hooks[kind].push(hook); },
   row(id) { return CAT.mutators.byId(id); },
   isActive(id) { return !!this.rules && this.rules.mutators.some((entry) => entry.id === id); },
   value(id) {
@@ -277,7 +279,17 @@ function mutatorDamageScale(source, target, info) {
 }
 Damage.addAttackerScale(mutatorDamageScale);
 
-// ---- Runtime effects: sizes (hit volumes) ----
+// ---- Runtime effects: one hook list per event ----
+// Mutators.addHook(kind, fn(fx, a, b)) with kind spawn (a = actor id), kill (a = kill event), damage (a = damage event), fire (a = shot) or
+// step (a = dt). Hooks run only while rules.fx has entries and each one checks its own flag, so a match without mutators pays nothing.
+function runHooks(kind, first, second) {
+  const fx = Mutators.fx;
+  if (!fx) return;
+  const list = Mutators.hooks[kind];
+  for (let i = 0; i < list.length; i++) list[i](fx, first, second);
+}
+
+// ---- Sizes (hit volumes and the drawn body) ----
 function refreshSize(id) {
   const grown = 1 + GROWTH_PER_KILL * Mutators.growth[id];
   Hitbox.sizeScale[id] = grown * Mutators.shrink[id];
@@ -289,49 +301,42 @@ function resetSize(id) {
   Hitbox.headScale[id] = Mutators.fx && Mutators.fx.headScale ? Mutators.fx.headScale : HEAD_SIZE_DEFAULT;
 }
 
-// ---- Runtime effects: spawn ----
-function applyHealthPool(id, fx) {
+// ---- Spawn hooks ----
+function onSpawnReset(fx, id) {
+  resetSize(id);
+  Mutators.suppressed[id] = 0;
+}
+function onSpawnHealth(fx, id) {
   if (fx.health) { Actors.health[id] = fx.health; Actors.maxHealth[id] = fx.health; }
   if (fx.healthScale === undefined) return;
   Actors.health[id] *= fx.healthScale;
   Actors.maxHealth[id] *= fx.healthScale;
 }
-function applyShieldPool(id, fx) {
+function onSpawnShield(fx, id) {
   if (fx.shields === undefined) return;
   const base = Actors.maxShield[id] > 0 ? Actors.maxShield[id] : SHIELD_DEFAULT_POOL;
   const pool = fx.shields === 0 ? 0 : base * fx.shields / 100;
   Actors.shield[id] = pool;
   Actors.maxShield[id] = pool;
 }
-function mirrorPlayerLoadout(id, fx) {
+function onSpawnAmmo(fx, id) {
+  if (fx.triangle) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RESERVE] = TRIANGLE_RESERVE_SCALE;
+  if (fx.suppression) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = 1;
+}
+function onSpawnMirror(fx, id) {
   const player = Game.playerId;
   if (!fx.mirror || player < 0 || player === id || Actors.kind[id] === ACTOR_KIND.PLAYER || !Actors.alive[player]) return;
   const keys = CAT.weapons.filter((row) => Weapons.has(player, row.id)).map((row) => row.id);
   if (keys.length) Weapons.setLoadout(id, keys);
 }
-function pickPower(id, fx) {
+function onSpawnPower(fx, id) {
   if (!fx.powers || !Mutators.powerNames.length) return;
   POWER_EVENT.id = id;
   POWER_EVENT.ability = Rng.rules.pick(Mutators.powerNames);
   Bus.emit('power.pick', POWER_EVENT);
 }
-function applyAmmoScale(id, fx) {
-  if (fx.triangle) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RESERVE] = TRIANGLE_RESERVE_SCALE;
-  if (fx.suppression) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = 1;
-}
-function onMutatorSpawn(id) {
-  const fx = Mutators.fx;
-  if (!fx) return;
-  resetSize(id);
-  Mutators.suppressed[id] = 0;
-  applyHealthPool(id, fx);
-  applyShieldPool(id, fx);
-  applyAmmoScale(id, fx);
-  mirrorPlayerLoadout(id, fx);
-  pickPower(id, fx);
-}
 
-// ---- Runtime effects: kills ----
+// ---- Confirm tags (X42) and last gifts (X29): small pools, no allocation per step ----
 const TagPool = {
   x: new Float32Array(MAX_TAGS), y: new Float32Array(MAX_TAGS), z: new Float32Array(MAX_TAGS),
   life: new Float32Array(MAX_TAGS), owner: new Int8Array(MAX_TAGS).fill(-1),
@@ -341,7 +346,6 @@ const TagPool = {
     if (slot < 0) slot = 0;
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.life[slot] = TAG_LIFE_SECONDS; this.owner[slot] = owner;
   },
-  // A teammate of the killer collects the tag (score); anyone else touching it denies it.
   step(dt) {
     for (let slot = 0; slot < MAX_TAGS; slot++) {
       if (this.life[slot] <= 0) continue;
@@ -349,6 +353,7 @@ const TagPool = {
       this.touch(slot);
     }
   },
+  // A teammate of the killer collects the tag (score); anyone else touching it denies it.
   touch(slot) {
     const count = World.actorsInSphere(this.x[slot], this.y[slot], this.z[slot], TAG_REACH, NEAR_ACTORS);
     if (!count) return;
@@ -386,8 +391,20 @@ const GiftPool = {
   },
 };
 
-function rewardTriangle(killer, event) {
-  const weapon = CAT.weapons.byId(event.weapon);
+// ---- Kill hooks ----
+function onKillGift(fx, event) {
+  if (fx.lastGift) GiftPool.drop(event.x, event.y + 0.5, event.z, event.victim);
+}
+function onKillTag(fx, event) {
+  if (fx.tags && event.killer >= 0 && event.killer !== event.victim) TagPool.drop(event.x, event.y + 0.3, event.z, event.killer);
+}
+function onKillSlowmo(fx, event) {
+  if (fx.slowmoKills && event.killer === Game.playerId && event.killer !== event.victim) Mutators.slowmoLeft = SLOWMO_SIM_SECONDS;
+}
+function isOpponentKill(event) { return event.killer >= 0 && event.killer !== event.victim && Actors.alive[event.killer]; }
+function onKillTriangle(fx, event) {
+  if (!fx.triangle || !isOpponentKill(event)) return;
+  const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
   if (weapon && weapon.class === 'melee') {
     Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
     const held = Weapons.currentWeapon(killer);
@@ -395,41 +412,30 @@ function rewardTriangle(killer, event) {
   }
   if (event.element === 'thermal') Actors.armor[killer] = Math.min(Math.max(Actors.maxArmor[killer], TRIANGLE_ARMOR), Actors.armor[killer] + TRIANGLE_ARMOR);
 }
-function growKiller(killer) {
-  if (Mutators.growth[killer] >= GROWTH_MAX_KILLS) return;
+function onKillGrowth(fx, event) {
+  const killer = event.killer;
+  if (!fx.growth || !isOpponentKill(event) || Mutators.growth[killer] >= GROWTH_MAX_KILLS) return;
   Mutators.growth[killer]++;
   const share = 1 + GROWTH_PER_KILL / (1 + GROWTH_PER_KILL * (Mutators.growth[killer] - 1));
   Actors.maxHealth[killer] *= share;
   Actors.health[killer] *= share;
   refreshSize(killer);
 }
-function onMutatorKill(event) {
-  const fx = Mutators.fx;
-  if (!fx) return;
-  const killer = event.killer, victim = event.victim;
-  const byOpponent = killer >= 0 && killer !== victim && Actors.alive[killer];
-  if (fx.lastGift) GiftPool.drop(event.x, event.y + 0.5, event.z, victim);
-  if (fx.tags && killer >= 0 && killer !== victim) TagPool.drop(event.x, event.y + 0.3, event.z, killer);
-  if (fx.slowmoKills && killer === Game.playerId && killer !== victim) Mutators.slowmoLeft = SLOWMO_SIM_SECONDS;
-  if (!byOpponent) return;
-  if (fx.triangle) rewardTriangle(killer, event);
-  if (fx.growth) growKiller(killer);
+
+// ---- Damage hooks ----
+function onDamageLifesteal(fx, event) {
+  const source = event.source;
+  if (!fx.lifesteal || !isOpponentDamage(source, event.target) || !Actors.alive[source]) return;
+  Actors.health[source] = Math.min(Actors.maxHealth[source], Actors.health[source] + event.amount * fx.lifesteal);
+}
+function onDamageShrink(fx, event) {
+  const target = event.target;
+  if (!fx.shrinkHit || !isOpponentDamage(event.source, target) || !Actors.alive[target]) return;
+  Mutators.shrink[target] = Math.max(SHRINK_MIN, Mutators.shrink[target] - SHRINK_PER_HIT);
+  refreshSize(target);
 }
 
-// ---- Runtime effects: damage taken and given ----
-function onMutatorDamage(event) {
-  const fx = Mutators.fx;
-  if (!fx) return;
-  const source = event.source, target = event.target;
-  if (!isOpponentDamage(source, target) || !Actors.alive[source]) return;
-  if (fx.lifesteal) Actors.health[source] = Math.min(Actors.maxHealth[source], Actors.health[source] + event.amount * fx.lifesteal);
-  if (fx.shrinkHit && Actors.alive[target]) {
-    Mutators.shrink[target] = Math.max(SHRINK_MIN, Mutators.shrink[target] - SHRINK_PER_HIT);
-    refreshSize(target);
-  }
-}
-
-// ---- Runtime effects: near misses (X44) ----
+// ---- Fire hook: near misses (X44) ----
 function suppressTarget(id) {
   if (Mutators.suppressed[id] <= 0) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = SUPPRESS_SPREAD;
   Mutators.suppressed[id] = SUPPRESS_SECONDS;
@@ -441,30 +447,37 @@ function passesNear(shot, id) {
   if (along < 1 || along > SUPPRESS_RANGE) return false;
   return vx * vx + vy * vy + vz * vz - along * along <= SUPPRESS_REACH * SUPPRESS_REACH;
 }
-function onMutatorFire(shot) {
-  const fx = Mutators.fx;
-  if (!fx || !fx.suppression || shot.weaponClass === 'melee') return;
+function onFireSuppress(fx, shot) {
+  if (!fx.suppression || shot.weaponClass === 'melee') return;
   for (let id = 0; id < Actors.count; id++) {
     if (id === shot.id || !Actors.alive[id] || !Actors.isEnemy(shot.id, id)) continue;
     if (passesNear(shot, id)) suppressTarget(id);
   }
 }
 
-// ---- Runtime effects: the sim system ----
-function stepRegeneration(rate, dt) {
+// ---- Step hooks (one sim system, order 85) ----
+function onStepTimeScale(fx, dt) {
+  if (Mutators.slowmoLeft > 0) Mutators.slowmoLeft = Math.max(0, Mutators.slowmoLeft - dt);
+  Sim.timeScale = (fx.timeScale === undefined ? 1 : fx.timeScale) * (Mutators.slowmoLeft > 0 ? SLOWMO_FACTOR : 1);
+}
+function onStepRegeneration(fx, dt) {
+  if (!fx.regen) return;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) continue;
-    if (Actors.health[id] < Actors.maxHealth[id]) Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + rate * dt);
+    if (Actors.health[id] < Actors.maxHealth[id]) Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + fx.regen * dt);
   }
 }
-function stepSuppression(dt) {
+function onStepSuppression(fx, dt) {
+  if (!fx.suppression) return;
   for (let id = 0; id < Actors.count; id++) {
     if (Mutators.suppressed[id] <= 0) continue;
     Mutators.suppressed[id] = Math.max(0, Mutators.suppressed[id] - dt);
     if (Mutators.suppressed[id] === 0) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = 1;
   }
 }
-function stepSuperPowerups(fx) {
+function onStepTags(fx, dt) { if (fx.tags) TagPool.step(dt); }
+function onStepGifts(fx, dt) { if (fx.lastGift) GiftPool.step(dt); }
+function onStepSuperPowerups(fx) {
   if (!fx.superPowerups || !CAT.powerups || Sim.time < Mutators.nextSuperPowerup) return;
   Mutators.nextSuperPowerup = Sim.time + fx.superPowerups;
   const item = Rng.rules.pick(CAT.powerups).id;
@@ -475,21 +488,16 @@ function stepSuperPowerups(fx) {
     Bus.emit('item.grant', GRANT_EVENT);
   }
 }
-function stepTimeScale(fx, dt) {
-  if (Mutators.slowmoLeft > 0) Mutators.slowmoLeft = Math.max(0, Mutators.slowmoLeft - dt);
-  Sim.timeScale = (fx.timeScale === undefined ? 1 : fx.timeScale) * (Mutators.slowmoLeft > 0 ? SLOWMO_FACTOR : 1);
-}
-function stepMutators(dt) {
-  const fx = Mutators.fx;
-  if (!fx) return;
-  stepTimeScale(fx, dt);
-  if (fx.regen) stepRegeneration(fx.regen, dt);
-  if (fx.suppression) stepSuppression(dt);
-  if (fx.tags) TagPool.step(dt);
-  if (fx.lastGift) GiftPool.step(dt);
-  stepSuperPowerups(fx);
-}
-Sim.addSystem('mutators', MUTATOR_STEP_ORDER, stepMutators);
+
+const MUTATOR_HOOKS = {
+  spawn: [onSpawnReset, onSpawnHealth, onSpawnShield, onSpawnAmmo, onSpawnMirror, onSpawnPower],
+  kill: [onKillGift, onKillTag, onKillSlowmo, onKillTriangle, onKillGrowth],
+  damage: [onDamageLifesteal, onDamageShrink],
+  fire: [onFireSuppress],
+  step: [onStepTimeScale, onStepRegeneration, onStepSuppression, onStepTags, onStepGifts, onStepSuperPowerups],
+};
+for (const kind in MUTATOR_HOOKS) for (const hook of MUTATOR_HOOKS[kind]) Mutators.addHook(kind, hook);
+Sim.addSystem('mutators', MUTATOR_STEP_ORDER, (dt) => runHooks('step', dt));
 
 // ---- Match lifecycle ----
 function powerNamesOf() {
@@ -515,7 +523,7 @@ function emptyMatchSet() {
 function startMutators(match) {
   const rules = match.rules;
   Mutators.rules = rules;
-  Mutators.fx = rules.mutators && rules.mutators.length ? rules.fx : null;
+  Mutators.fx = rules.fx && Object.keys(rules.fx).length ? rules.fx : null;   // later stages (difficulty) may add fx.timeScale too
   Mutators.slowmoLeft = 0;
   Mutators.nextSuperPowerup = rules.fx && rules.fx.superPowerups ? rules.fx.superPowerups : 0;
   Mutators.powerNames = Mutators.fx && Mutators.fx.powers ? powerNamesOf() : [];
@@ -536,10 +544,17 @@ function stopMutators() {
 Bus.on('match.setup', startMutators);
 Bus.on('match.stop', stopMutators);
 Bus.on('actor.create', (id) => { resetSize(id); Mutators.suppressed[id] = 0; });
-Bus.on('actor.spawn', (event) => onMutatorSpawn(event.id));
-Bus.on('kill', onMutatorKill);
-Bus.on('damage', onMutatorDamage);
-Bus.on('weapon.fire', onMutatorFire);
+Bus.on('actor.spawn', (event) => runHooks('spawn', event.id));
+Bus.on('kill', (event) => runHooks('kill', event));
+Bus.on('damage', (event) => runHooks('damage', event));
+Bus.on('weapon.fire', (shot) => runHooks('fire', shot));
+
+// Size changes (X31, X39) also scale the drawn body; chained after any hook an earlier section installed.
+const previousActorStyle = Render.actorStyle;
+Render.actorStyle = (id, style) => {
+  if (previousActorStyle) previousActorStyle(id, style);
+  style.scale *= Hitbox.sizeScale[id];
+};
 
 // Confirm tags (X42) are drawn as small yellow plates above the floor.
 Render.addSource('tags', (batch) => {
