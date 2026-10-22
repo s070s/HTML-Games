@@ -474,6 +474,71 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
-DebugApi.giveWeapon = (id, key) => Weapons.give(id, key, 0);
+// Step 5.4: reload and equip durations the weapon would use now (the state machine is reset afterwards).
+function measuredDurations(id, weapon, other) {
+  const slot = Weapons.slotIndex(id, weapon.index);
+  Weapons.state[id] = WEAPON_STATE.IDLE; Weapons.magazine[slot] = 0;
+  Weapons.beginReload(id, weapon);
+  const reload = Weapons.stateDuration[id];
+  Weapons.state[id] = WEAPON_STATE.IDLE; Weapons.current[id] = other.index;
+  Weapons.requestSwitch(id, weapon.index);
+  const equip = Weapons.stateDuration[id];
+  Weapons.state[id] = WEAPON_STATE.IDLE; Weapons.current[id] = weapon.index;
+  return { reload, equip };
+}
+// Step 5.4: the stats a fitted weapon uses right now (bloom forces a non-zero spread to compare against).
+function attachmentStats(id, weapon, other) {
+  Weapons.bloom[id] = 1;
+  Weapons.updateSpeed(id);
+  const durations = measuredDurations(id, weapon, other);
+  return {
+    damage: Weapons.shotDamage(id, weapon, weapon.primary, 1), spread: Weapons.spreadDegrees(id, weapon, weapon.primary),
+    mag: Weapons.magSize(id, weapon), reserve: Weapons.maxReserve(id, weapon), move: Weapons.speedScale[id],
+    reload: durations.reload, equip: durations.equip, recoil: Weapons.modifier(id, weapon, STAT.RECOIL),
+  };
+}
+// True when every stat equals base x the expected multiplier (mag and reserve are rounded to whole rounds).
+function statsMatch(stats, base, weapon, multiplier) {
+  const rounded = { mag: weapon.mag, reserve: weapon.maxAmmo };
+  return WEAPON_STATS.every((stat) => {
+    if (rounded[stat] !== undefined) return stats[stat] === Math.round(rounded[stat] * multiplier[stat]);
+    return Test.near(stats[stat], base[stat] * multiplier[stat], 1e-4 * Math.max(1, base[stat]));
+  });
+}
+
+Test.add('weapons', (check) => {
+  check('attachment slots and multipliers are valid (0.5..2)', CAT.attachments.every((row) =>
+    ATTACHMENT_SLOTS.includes(row.slot) && WEAPON_STATS.every((stat) => row[stat] >= 0.5 && row[stat] <= 2)));
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0);
+  const sidearm = giveFull(id, 'warden'), rifle = CAT.weapons.byId('tempest');
+  Weapons.give(id, 'tempest', 0);
+  Weapons.current[id] = rifle.index;
+  check('attachments: unknown keys and melee weapons are refused', !Weapons.attach(id, 'tempest', 'nothing') && !Weapons.attach(id, 'tanto', 'longBarrel'));
+  const base = attachmentStats(id, rifle, sidearm);
+  const wrong = CAT.attachments.filter((row) => {
+    Weapons.detachAll(id, rifle);
+    Weapons.attach(id, 'tempest', row.id);
+    return !statsMatch(attachmentStats(id, rifle, sidearm), base, rifle, row);
+  }).map((row) => row.id);
+  check('every attachment: stat = base x modifier table', wrong.length === 0, wrong.join(' '));
+  Weapons.detachAll(id, rifle);
+  ['longBarrel', 'shortBarrel', 'laserSight'].forEach((key) => Weapons.attach(id, 'tempest', key));
+  const stacked = attachmentStats(id, rifle, sidearm).spread;
+  check('attachments stack multiplicatively and replace their own slot', Test.near(stacked, base.spread * 1.15 * 0.8, 1e-4), stacked + ' vs ' + base.spread);
+  Weapons.detachAll(id, rifle);
+  Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RELOAD] = 0.5;
+  check('per-actor stat scale (perks) multiplies too', Test.near(attachmentStats(id, rifle, sidearm).reload, base.reload * 0.5, 1e-4));
+  Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RELOAD] = 1;
+  Weapons.attach(id, 'tempest', 'quickMag');
+  Weapons.magazine[Weapons.slotIndex(id, rifle.index)] = rifle.mag;
+  Weapons.attach(id, 'tempest', 'quickMag');
+  check('fitting a smaller magazine trims the loaded rounds', Weapons.magazine[Weapons.slotIndex(id, rifle.index)] === Weapons.magSize(id, rifle));
+  Weapons.give(id, 'tempest', 0);
+  check('picking up an owned weapon again keeps its attachments', Weapons.modifier(id, rifle, STAT.MAG) === CAT.attachments.byId('quickMag').mag);
+  TestArena.finish();
+});
+
+DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;

@@ -285,6 +285,24 @@ function linkWeapon(weapon, index) {
 const WEAPON_RARITY_DAMAGE = [1, 1.05, 1.1, 1.16, 1.22];
 const WEAPON_RARITY_MAG = [0, 0, 0.1, 0.2, 0.3];
 
+// Step 5.4 attachment slots: each attachment multiplies stat rows of the weapon it is fitted to (1 = unchanged).
+// Modifiers are multiplicative only, so stacked attachments stay bounded. reload and equip scale durations (< 1 is faster).
+const ATTACHMENT_SLOTS = ['barrel', 'magazine', 'underbarrel', 'stock'];
+const WEAPON_STATS = ['damage', 'spread', 'recoil', 'reload', 'mag', 'reserve', 'equip', 'move'];
+Data.define('attachments', {
+  id: REQUIRED, name: REQUIRED, slot: REQUIRED, damage: 1, spread: 1, recoil: 1, reload: 1, mag: 1, reserve: 1, equip: 1, move: 1, index: 0,
+}, [
+  { id: 'longBarrel', name: 'Long Barrel', slot: 'barrel', damage: 1.05, spread: 0.85, equip: 1.1, move: 0.97 },
+  { id: 'shortBarrel', name: 'Short Barrel', slot: 'barrel', spread: 1.15, equip: 0.85, move: 1.03 },
+  { id: 'extendedMag', name: 'Extended Magazine', slot: 'magazine', mag: 1.3, reload: 1.15 },
+  { id: 'quickMag', name: 'Quick Magazine', slot: 'magazine', reload: 0.75, mag: 0.9 },
+  { id: 'ammoPouch', name: 'Ammo Pouch', slot: 'magazine', reserve: 1.5, move: 0.98 },
+  { id: 'foreGrip', name: 'Fore Grip', slot: 'underbarrel', recoil: 0.8, equip: 1.05 },
+  { id: 'laserSight', name: 'Laser Sight', slot: 'underbarrel', spread: 0.8 },
+  { id: 'heavyStock', name: 'Heavy Stock', slot: 'stock', recoil: 0.85, spread: 0.9, move: 0.95 },
+  { id: 'lightStock', name: 'Light Stock', slot: 'stock', equip: 0.8, move: 1.04, recoil: 1.1 },
+]);
+
 // WPN-006 weapon sets. carry = max weapons held besides melee and tools (0 = full arsenal, one of each);
 // start = spawn loadout; ammoTiers (WPN-007): primary-tier reserves are infinite.
 Data.define('weaponSets', {

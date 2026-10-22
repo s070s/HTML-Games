@@ -22,6 +22,10 @@ const MUZZLE_FORWARD = 0.45;             // projectiles start this far in front 
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
 const TRACER_COLOR = 0xffe0a0;
+const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
+const WEAPON_STAT_COUNT = WEAPON_STATS.length;
+const STAT = { DAMAGE: 0, SPREAD: 1, RECOIL: 2, RELOAD: 3, MAG: 4, RESERVE: 5, EQUIP: 6, MOVE: 7 }; // indexes into WEAPON_STATS
+CAT.attachments.forEach((row, index) => { row.index = index; });
 const DEFAULT_RULES = Object.freeze({ health: 'stack', precision: 'standard', weaponSet: 'arenaSet', friendlyFire: 0, selfDamage: 0.5, knockback: 1 });
 
 // The match ruleset, or the spec defaults when no match is running (tests, menus).
@@ -189,6 +193,8 @@ const Weapons = {
   wasGrounded: new Uint8Array(MAX_ACTORS), landTime: new Float32Array(MAX_ACTORS).fill(-1e9),
   lastSlot: new Int8Array(MAX_ACTORS), slotCursor: new Int16Array(MAX_ACTORS),
   lockIds: new Int8Array(MAX_ACTORS * MAX_LOCKS).fill(-1), lockTime: new Float32Array(MAX_ACTORS * MAX_LOCKS), lockCursor: new Uint8Array(MAX_ACTORS),
+  fitted: new Int8Array(MAX_ACTORS * WEAPON_COUNT * ATTACHMENT_SLOT_COUNT).fill(-1), // attachment index per weapon slot (-1 none)
+  statScale: new Float32Array(MAX_ACTORS * WEAPON_STAT_COUNT).fill(1),              // per-actor stat multipliers (perks write these)
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
@@ -200,7 +206,33 @@ const Weapons = {
   has(id, key) { const weapon = CAT.weapons.byId(key); return !!weapon && this.owned[this.slotIndex(id, weapon.index)] === 1; },
   magSize(id, weapon) {
     const extra = weapon.rarityScale ? WEAPON_RARITY_MAG[this.rarity[this.slotIndex(id, weapon.index)]] : 0;
-    return Math.round(weapon.mag * (1 + extra));
+    return Math.round(weapon.mag * (1 + extra) * this.modifier(id, weapon, STAT.MAG));
+  },
+  maxReserve(id, weapon) { return Math.round(weapon.maxAmmo * this.modifier(id, weapon, STAT.RESERVE)); },
+
+  // ---- Attachments (step 5.4): stat = base x per-actor scale x every fitted attachment's multiplier ----
+  modifier(id, weapon, stat) {
+    const field = WEAPON_STATS[stat], first = this.slotIndex(id, weapon.index) * ATTACHMENT_SLOT_COUNT;
+    let scale = this.statScale[id * WEAPON_STAT_COUNT + stat];
+    for (let slot = 0; slot < ATTACHMENT_SLOT_COUNT; slot++) {
+      const fitted = this.fitted[first + slot];
+      if (fitted >= 0) scale *= CAT.attachments[fitted][field];
+    }
+    return scale;
+  },
+  acceptsAttachments(weapon) { return weapon.mag > 0 && this.countsTowardCarry(weapon); },
+  // Fits an attachment to a weapon (replacing the one in the same slot); the magazine is trimmed to the new size.
+  attach(id, weaponKey, attachmentKey) {
+    const weapon = CAT.weapons.byId(weaponKey), attachment = CAT.attachments.byId(attachmentKey);
+    if (!weapon || !attachment || !this.acceptsAttachments(weapon)) return false;
+    const slot = this.slotIndex(id, weapon.index);
+    this.fitted[slot * ATTACHMENT_SLOT_COUNT + ATTACHMENT_SLOTS.indexOf(attachment.slot)] = attachment.index;
+    this.magazine[slot] = Math.min(this.magazine[slot], this.magSize(id, weapon));
+    return true;
+  },
+  detachAll(id, weapon) {
+    const first = this.slotIndex(id, weapon.index) * ATTACHMENT_SLOT_COUNT;
+    this.fitted.fill(-1, first, first + ATTACHMENT_SLOT_COUNT);
   },
   // WPN-007: with ammo tiers on, primary-tier weapons never run out of reserve.
   infiniteReserve(weapon) {
@@ -240,8 +272,9 @@ const Weapons = {
     if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.rarity[slot] = rarity || 0;
+    this.detachAll(id, weapon);
     this.magazine[slot] = this.magSize(id, weapon);
-    this.reserve[slot] = weapon.reserve;
+    this.reserve[slot] = Math.round(weapon.reserve * this.modifier(id, weapon, STAT.RESERVE));
     this.altAmmo[slot] = weapon.altAmmo;
     if (this.current[id] < 0) this.current[id] = weapon.index;
     return true;
@@ -284,7 +317,7 @@ const Weapons = {
   },
   addWeaponAmmo(id, weapon, amount) {
     const slot = this.slotIndex(id, weapon.index), before = this.reserve[slot];
-    this.reserve[slot] = Math.min(weapon.maxAmmo, before + amount);
+    this.reserve[slot] = Math.min(this.maxReserve(id, weapon), before + amount);
     if (weapon.altAmmo) this.altAmmo[slot] = weapon.altAmmo;
     return this.reserve[slot] - before;
   },
@@ -306,7 +339,7 @@ const Weapons = {
     this.state[id] = WEAPON_STATE.SWAP;
     this.pending[id] = index;
     this.stateTime[id] = 0;
-    this.stateDuration[id] = CAT.weapons[index].equipTime;
+    this.stateDuration[id] = CAT.weapons[index].equipTime * this.modifier(id, CAT.weapons[index], STAT.EQUIP);
     emitWeaponEvent('weapon.switch', SWITCH_EVENT, id, CAT.weapons[index]);
     return true;
   },
@@ -352,7 +385,7 @@ const Weapons = {
     if (!this.canReload(id, weapon)) return false;
     this.state[id] = WEAPON_STATE.RELOAD;
     this.stateTime[id] = 0;
-    this.stateDuration[id] = weapon.reload;
+    this.stateDuration[id] = weapon.reload * this.modifier(id, weapon, STAT.RELOAD);
     this.charge[id] = 0; this.chargeMode[id] = -1; this.burstLeft[id] = 0;
     emitWeaponEvent('weapon.reload', RELOAD_EVENT, id, weapon);
     return true;
@@ -436,7 +469,7 @@ const Weapons = {
   },
   updateSpeed(id) {
     const weapon = this.currentWeapon(id);
-    let scale = weapon ? lerp(weapon.moveMult, weapon.adsMoveMult, this.ads[id]) : 1;
+    let scale = weapon ? lerp(weapon.moveMult, weapon.adsMoveMult, this.ads[id]) * this.modifier(id, weapon, STAT.MOVE) : 1;
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
   },
@@ -574,11 +607,12 @@ const Weapons = {
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);
-    return (base + movement + this.bloom[id] + Damage.limbSpread(id)) * aiming;
+    return (base + movement + this.bloom[id] + Damage.limbSpread(id)) * aiming * this.modifier(id, weapon, STAT.SPREAD);
   },
   applyRecoil(id, weapon, mode) {
     const recoil = CAT.recoil.byId(mode.recoil) || CAT.recoil[0];
-    const stance = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.recoilMult ? weapon.alt.toggle.recoilMult : 1;
+    const toggle = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.recoilMult ? weapon.alt.toggle.recoilMult : 1;
+    const stance = toggle * this.modifier(id, weapon, STAT.RECOIL);
     const shot = this.recoilShot[id] % RECOIL_PATTERN_LENGTH;
     this.recoilPitch[id] += (recoil.pattern[shot * 2] + recoil.jitter * Rng.weapons.gauss() * 0.5) * stance;
     this.recoilYaw[id] += (recoil.pattern[shot * 2 + 1] + recoil.jitter * Rng.weapons.gauss() * 0.5) * stance;
@@ -609,7 +643,7 @@ const Weapons = {
     let damage = mode.damage;
     if (mode.charge && mode.charge.target !== 'pellets' && mode.charge.target !== 'multiplier') damage = chargeDamage(mode.charge, fraction);
     if (mode.heatDamage) damage = Math.min(mode.heatDamage, this.heat[id]);
-    return damage * rarity * stance;
+    return damage * rarity * stance * this.modifier(id, weapon, STAT.DAMAGE);
   },
 
   // ---- Hooks for other sections ----
@@ -903,7 +937,10 @@ Weapons.deliveries.lock = deliverLock;
 Weapons.deliveries.tool = deliverTool;
 
 Sim.addSystem('weapons', 40, (dt) => Weapons.step(dt));
-Bus.on('actor.create', (id) => Weapons.clear(id));
+Bus.on('actor.create', (id) => {
+  Weapons.clear(id);
+  Weapons.statScale.fill(1, id * WEAPON_STAT_COUNT, (id + 1) * WEAPON_STAT_COUNT);
+});
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
 Render.viewModel = (out) => Weapons.viewModel(out);
