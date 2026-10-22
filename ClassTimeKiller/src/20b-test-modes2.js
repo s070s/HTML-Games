@@ -498,7 +498,11 @@ Test.add('modes2', (check) => {
   check('royale: loot spots from the weapon, armor, health and ammo items', RoyaleLoot.count === 4 && RoyaleLoot.weapon[0] === CAT.weapons.byId('warden').index);
   runSeconds(2);
   const rarity = RoyaleLoot.rarity[0];
+  Actors.flags[0] |= ACTOR_FLAG.DOWNED; Damage.downedTime[0] = DOWNED_BLEED_SECONDS;
   placeActor(0, 10, 10); runSeconds(0.2);
+  check('royale: a downed actor takes no loot (HP-007)', RoyaleLoot.taken[0] === 0);
+  Actors.flags[0] &= ~ACTOR_FLAG.DOWNED;
+  runSeconds(0.2);
   check('royale: a weapon spot gives its weapon with its rarity (WPN-008)', Weapons.has(0, 'warden') && Weapons.rarity[Weapons.slotIndex(0, CAT.weapons.byId('warden').index)] === rarity && RoyaleLoot.taken[0] === 1);
   placeActor(0, 14, 10); runSeconds(0.2);
   const consumable = CAT.items.byId(LOOT_CONSUMABLES[RoyaleLoot.rarity[2]]);
