@@ -831,6 +831,10 @@ function relationMatches(actorTeam, team, relation) {
   return true;
 }
 
+function carriedByInvisible(objective) {
+  return objective.state === 'carried' && objective.carrier >= 0 && (Actors.flags[objective.carrier] & ACTOR_FLAG.INVISIBLE) !== 0;
+}
+
 function formatTimeWarning(seconds) {
   if (seconds < 60) return seconds + ' seconds remaining';
   const minutes = seconds / 60;
@@ -841,6 +845,7 @@ function formatTimeWarning(seconds) {
 function drawObjective(batch, objective) {
   if (!objective.active || objective.kind === 'payloadPath') return;
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
+  if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
   const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
   if (!carriable) {

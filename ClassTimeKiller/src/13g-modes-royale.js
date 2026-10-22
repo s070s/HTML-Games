@@ -75,9 +75,8 @@ Modes.register('royale', {
 
 // ---- Ring ----
 function startRing(now) {
-  const low = World.boundsMin, high = World.boundsMax, known = Number.isFinite(low.x) && Number.isFinite(high.x);
-  Ring.x = worldCentreX(); Ring.z = worldCentreZ();
-  Ring.startRadius = Ring.radius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
+  worldSafeArea(Ring);
+  Ring.startRadius = Ring.radius;
   Ring.phases = Modes.rules.params.ringWait.length;
   beginRingPhase(0, now);
 }
@@ -186,15 +185,23 @@ function takeLoot(id, spot, now) {
 
 // A full inventory takes a new weapon only while USE is held; the dropped weapon stays on the spot with its rarity.
 function takeWeapon(id, spot, now) {
-  const key = CAT.weapons[RoyaleLoot.weapon[spot]].id, owned = Weapons.has(id, key);
-  if (!owned && Weapons.atCarryLimit(id) && ((Actors.buttons[id] & BTN.USE) === 0 || now < lootSwapAt[id])) return;
-  const held = Weapons.currentWeapon(id), heldRarity = held ? Weapons.rarity[Weapons.slotIndex(id, held.index)] : 0;
+  const key = CAT.weapons[RoyaleLoot.weapon[spot]].id;
+  if (Weapons.has(id, key)) { takeDuplicate(id, key, spot); return; }
+  if (Weapons.atCarryLimit(id) && ((Actors.buttons[id] & BTN.USE) === 0 || now < lootSwapAt[id])) return;
   Weapons.give(id, key, RoyaleLoot.rarity[spot]);
   const dropped = Weapons.dropped ? CAT.weapons.byId(Weapons.dropped) : null;
   if (!dropped) { RoyaleLoot.taken[spot] = 1; return; }
   RoyaleLoot.weapon[spot] = dropped.index;
-  RoyaleLoot.rarity[spot] = dropped === held ? heldRarity : 0;
+  RoyaleLoot.rarity[spot] = Weapons.droppedRarity;
   lootSwapAt[id] = now + LOOT_SWAP_DELAY;
+}
+
+// A copy of an owned weapon is taken only when it adds ammo (or makes a pair); the better rarity of the two is kept.
+function takeDuplicate(id, key, spot) {
+  if (!Weapons.give(id, key, RoyaleLoot.rarity[spot])) return;
+  const slot = Weapons.slotIndex(id, CAT.weapons.byId(key).index);
+  Weapons.rarity[slot] = Math.max(Weapons.rarity[slot], RoyaleLoot.rarity[spot]);
+  RoyaleLoot.taken[spot] = 1;
 }
 
 // HPP06: armor sets the shield to its rarity's value; taken only when it beats the shield now.

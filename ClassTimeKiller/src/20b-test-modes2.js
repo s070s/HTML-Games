@@ -24,6 +24,13 @@ function followFor(seconds, ids, point) {
   }
 }
 
+// Shapes drawObjective (13b) pushes for one objective.
+function countObjectiveMeshes(objective) {
+  let meshes = 0;
+  drawObjective({ mesh() { meshes++; return 0; } }, objective);
+  return meshes;
+}
+
 function respawnAll() { runSeconds(Game.match.rules.respawn.delay + 0.05); }
 
 Test.add('modes2', (check) => {
@@ -39,7 +46,14 @@ Test.add('modes2', (check) => {
   check('infection: 1 per 6, after 20 s, 300 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6 && rows('infection').params.infectAfter === 20
     && rows('infection').params.infectedHealth === 300 && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
-  check('cursetag: 50 HP, melee only (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly);
+  check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
+    && rows('cursetag').params.passOnTag === false);
+  const shortLadder = ladderTiers({ ladder: GUNGAME_LADDER, tiers: 3 });
+  check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'tempest,vanguard,maul'
+    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 18 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 18
+    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 1 }).join() === 'maul');
+  const area = worldSafeArea({});
+  check('worldSafeArea: the fallback without world bounds', Number.isFinite(World.boundsMin.x) || (area.x === 0 && area.z === 0 && area.radius === SAFE_AREA_FALLBACK_RADIUS));
   const ring = rows('royale').params;
   check('royale: 18 actors, 6 ring phases with the spec timings (M20)', rows('royale').sizeDefault === 18 && ring.ringWait.join() === '30,25,25,20,15,10'
     && ring.ringShrink.join() === '30,25,20,20,15,15' && ring.ringDamage.join() === '2,4,8,12,16,20' && ring.ringScale.length === 6 && rows('royale').respawn === 'none');
@@ -68,7 +82,7 @@ function armRelay(attacker, relay) {
 }
 
 Test.add('modes2', (check) => {
-  const blasts = startEventLog('explosion');
+  const blasts = startEventLog('explosion'), announcements = startEventLog('announce');
   startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1]);
   const [r1a, r1b, r2a, r2b] = Modes.objectives;
   check('rush: attackers start with 75 tickets', Modes.teamScore[0] === 75 && Modes.attackingTeam() === 0);
@@ -103,7 +117,9 @@ Test.add('modes2', (check) => {
   armRelay(0, r2a); runSeconds(30.1);
   armRelay(0, r2b); runSeconds(30.1);
   check('rush: the last stage destroyed wins for the attackers', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'objective');
-  blasts.stop();
+  check('rush: no stage past the last one is announced or shown', Modes.hud.stage === 2 && announcements.some((event) => event.text === 'Stage 2')
+    && !announcements.some((event) => event.text === 'Stage 3'));
+  blasts.stop(); announcements.stop();
   endModeTest();
 
   startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1], { modeOptions: { params: { tickets: 1 } } });
@@ -125,6 +141,7 @@ Test.add('modes2', (check) => {
   startModeTest('oddball', modesTestMap(RELIC_MAP), [-1, -1, -1]);
   const relic = Modes.objectives[0];
   check('oddball: the relic waits at home', relic.state === 'home' && relic.carrier === -1);
+  Modes.endProtection(0);
   placeActor(0, 0, 0);
   Sim.step();
   check('oddball: touching the relic picks it up', relic.state === 'carried' && relic.carrier === 0 && Modes.actorRole[0] === ACTOR_ROLE.CARRIER && Modes.hud.special === 0);
@@ -150,7 +167,13 @@ Test.add('modes2', (check) => {
   endModeTest();
 
   startModeTest('oddball', modesTestMap(RELIC_MAP), [-1, -1], { modeOptions: { scoreLimit: 5 } });
+  placeActor(0, 0, 0);
+  Actors.flags[0] |= ACTOR_FLAG.PROTECTED;
+  Sim.step();
+  check('oddball: a spawn-protected actor does not take the relic', Modes.objectives[0].state === 'home');
+  placeActor(0, 30, 30);
   placeActor(1, 0, 0);
+  Modes.endProtection(1);
   runSeconds(5.05);
   check('oddball: the first to the score limit wins', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'score');
   endModeTest();
@@ -205,6 +228,10 @@ Test.add('modes2', (check) => {
   runSeconds(10.05);
   check('payload: the clock runs out without the cart: defenders win', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'time');
   endModeTest();
+
+  startModeTest('payload', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1]);
+  check('payload: a map without a path keeps nothing from the last convoy', Modes.behaviour.reached === 0 && Modes.behaviour.total === 0 && Modes.behaviour.score(0) === 0);
+  endModeTest();
 });
 
 // ---- M27 Ghost Ops ----
@@ -213,14 +240,18 @@ Test.add('modes2', (check) => {
   runSeconds(1.01);
   const charge = Modes.objectives[1];
   check('ghostops: attackers are ghosts, defenders are not', Modes.actorRole[0] === ACTOR_ROLE.GHOST && Modes.actorRole[1] === ACTOR_ROLE.NONE && charge.carrier === 0);
+  const site = Modes.objectives[0];
+  check('ghostops: bots read arm / defend on the sites before the plant', Modes.goalFor(site, 0) === 'arm' && Modes.goalFor(site, 1) === 'defend' && Modes.goalFor(charge, 0) === '');
   check('ghostops: attackers carry melee + pistol only', Weapons.has(0, 'tanto') && Weapons.has(0, 'warden') && Weapons.currentWeapon(0).id === 'warden');
   Weapons.give(0, 'vanguard', 0); Weapons.current[0] = CAT.weapons.byId('vanguard').index;
   Sim.step();
   check('ghostops: drawing a rifle puts the attacker loadout back', !Weapons.has(0, 'vanguard'));
   check('ghostops: a still attacker is cloaked, a defender never', (Actors.flags[0] & ACTOR_FLAG.INVISIBLE) !== 0 && (Actors.flags[1] & ACTOR_FLAG.INVISIBLE) === 0);
+  check('ghostops: the carried charge hides with its cloaked carrier', countObjectiveMeshes(charge) === 0);
   Actors.vx[0] = 3;
   Modes.behaviour.stepGhosts(Sim.time);
   check('ghostops: a moving attacker is visible', (Actors.flags[0] & ACTOR_FLAG.INVISIBLE) === 0);
+  check('ghostops: a visible carrier shows the charge', countObjectiveMeshes(charge) === 1);
   Actors.vx[0] = 0;
   Bus.emit('weapon.fire', { id: 0 });
   runSeconds(0.9);
@@ -230,6 +261,8 @@ Test.add('modes2', (check) => {
   placeActor(0, 20, 0);
   holdUseFor(0, 4.05);
   check('ghostops: the bomb rules plant the charge', charge.state === 'planted');
+  Sim.step();
+  check('ghostops: after the plant bots read guard / disarm on the charge', Modes.goalFor(charge, 0) === 'guard' && Modes.goalFor(charge, 1) === 'disarm' && Modes.goalFor(site, 0) === '');
   runSeconds(40.1);
   check('ghostops: detonation wins the round and the match', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'rounds');
   endModeTest();
@@ -238,7 +271,7 @@ Test.add('modes2', (check) => {
 // ---- M16 Arms Ladder ----
 Test.add('modes2', (check) => {
   startModeTest('gungame', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
-  const ladder = Game.match.rules.params.ladder, last = ladder.length - 1;
+  const ladder = Modes.behaviour.ladder, last = ladder.length - 1;
   check('gungame: everyone starts on tier 1 with its weapon and the melee weapon', [0, 1, 2].every((id) => Weapons.currentWeapon(id).id === ladder[0] && Weapons.has(id, 'maul'))
     && Modes.hud.ladderTiers === 18);
   damageKill(1, 0);
@@ -263,6 +296,16 @@ Test.add('modes2', (check) => {
   damageKill(1, 0, 'melee');
   Sim.step();
   check('gungame: the last-tier melee kill wins', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'score');
+  endModeTest();
+
+  startModeTest('gungame', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { params: { tiers: 3 } } });
+  check('gungame: a 3-tier ladder (custom match)', Modes.hud.ladderTiers === 3 && Weapons.currentWeapon(0).id === GUNGAME_LADDER[0]);
+  killActor(1, 0); respawnAll();
+  killActor(1, 0); respawnAll();
+  check('gungame: its third tier is the melee weapon', Weapons.currentWeapon(0).id === 'maul' && Modes.behaviour.score(0) === 2);
+  damageKill(1, 0, 'melee');
+  Sim.step();
+  check('gungame: a melee kill on it wins', Game.match.ended && Game.match.winner === 0);
   endModeTest();
 });
 
@@ -324,6 +367,15 @@ Test.add('modes2', (check) => {
   Sim.step();
   check('juggernaut: first to the score limit wins', Game.match.ended && Game.match.winner === 2 && Game.match.results.reason === 'score');
   endModeTest();
+
+  startModeTest('juggernaut', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
+  runSeconds(2);
+  killActor(0, -1);
+  damageKill(1, 0);   // a late rocket: its shooter is already dead
+  check('juggernaut: a dead killer is crowned', Modes.actorRole[0] === ACTOR_ROLE.COLOSSUS && Modes.behaviour.colossus === 0 && !Actors.alive[0]);
+  respawnAll();
+  check('juggernaut: and respawns with the Colossus health', Actors.alive[0] && Actors.health[0] === 300 && Actors.maxHealth[0] === 300);
+  endModeTest();
 });
 
 // ---- M19 Curse Tag ----
@@ -343,18 +395,28 @@ Test.add('modes2', (check) => {
   respawnAll();
   check('cursetag: the cursed respawns still cursed', Actors.alive[cursed] && Actors.health[cursed] === 50);
   hitActor(other, cursed, 10, 'melee');
-  check('cursetag: a melee hit by the cursed passes the curse', behaviour.cursed === other && Actors.health[other] === 50 && Actors.alive[other]
-    && Modes.actorRole[cursed] === ACTOR_ROLE.NONE && Actors.health[cursed] === 100 && Weapons.currentWeapon(cursed).class !== 'melee');
-  placeActor(other, beacon.x, beacon.z);
+  check('cursetag: a melee hit does not pass the curse (the beacon does)', behaviour.cursed === cursed && Modes.actorRole[other] === ACTOR_ROLE.NONE);
+  Modes.endProtection(cursed);
+  placeActor(cursed, beacon.x, beacon.z);
   Sim.step();
   const next = behaviour.cursed;
-  check('cursetag: reaching the beacon passes the curse to someone else', next !== other && next >= 0 && Modes.actorRole[other] === ACTOR_ROLE.NONE);
+  check('cursetag: reaching the beacon passes the curse to someone else', next !== cursed && next >= 0 && Modes.actorRole[cursed] === ACTOR_ROLE.NONE
+    && Actors.health[next] === 50 && Actors.health[cursed] === 100 && Weapons.currentWeapon(cursed).class !== 'melee');
   const farthest = Math.max(...Modes.spawnPoints.map((point) => Math.hypot(point.x - Actors.x[next], point.z - Actors.z[next])));
   check('cursetag: the beacon moves to the spawn farthest from the new cursed', Test.near(Math.hypot(beacon.x - Actors.x[next], beacon.z - Actors.z[next]), farthest, 1e-4));
+  const killer = next === other ? third : other;
   runSeconds(2);
-  damageKill(next, other);
+  damageKill(next, killer);
   Sim.step();
-  check('cursetag: first to the score limit wins', Game.match.ended && Game.match.winner === other && Game.match.results.reason === 'score');
+  check('cursetag: first to the score limit wins', Game.match.ended && Game.match.winner === killer && Game.match.results.reason === 'score', killer);
+  endModeTest();
+
+  startModeTest('cursetag', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { params: { passOnTag: true } } });
+  Sim.step();
+  const tagger = Modes.behaviour.cursed, tagged = 1 - tagger;
+  hitActor(tagged, tagger, 10, 'melee');
+  check('cursetag: with passOnTag a melee hit passes the curse', Modes.behaviour.cursed === tagged && Actors.health[tagged] === 50 && Actors.alive[tagged]
+    && Modes.actorRole[tagger] === ACTOR_ROLE.NONE && Actors.health[tagger] === 100);
   endModeTest();
 });
 
@@ -473,6 +535,38 @@ Test.add('modes2', (check) => {
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
   Game.start({ mode: 'royale', seed: 1, bots: Array.from({ length: 30 }, () => ({ dummy: true })) });
   check('royale: the bot count stays within the PERF-009 cap', Actors.count === Quality.current().bots && Actors.count <= 23);
+  endModeTest();
+});
+
+// Royale weapon spots: owned copies and swaps at the carry limit keep the loot's rarity.
+const ROYALE_WEAPON_ITEMS = [
+  { x: 10, y: 0, z: 10, item: 'kestrel', group: 'weapon' }, { x: 20, y: 0, z: 10, item: 'kestrel', group: 'weapon' },
+  { x: 30, y: 0, z: 10, item: 'vanguard', group: 'weapon' },
+];
+
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_WEAPON_ITEMS }), [-1, -1]);
+  runSeconds(2);
+  const kestrel = CAT.weapons.byId('kestrel'), slot = Weapons.slotIndex(0, kestrel.index);
+  placeActor(0, 10, 10); runSeconds(0.2);
+  Weapons.reserve[slot] = Weapons.maxReserve(0, kestrel);
+  Weapons.rarity[slot] = 0;
+  RoyaleLoot.rarity[1] = 4;
+  placeActor(0, 20, 10); runSeconds(0.2);
+  check('royale: a copy of an owned gun stays on the spot while the reserve is full', RoyaleLoot.taken[1] === 0 && Weapons.rarity[slot] === 0);
+  Weapons.reserve[slot] = 0;
+  runSeconds(0.2);
+  check('royale: it is taken for its ammo and the better rarity is kept', RoyaleLoot.taken[1] === 1 && Weapons.reserve[slot] > 0 && Weapons.rarity[slot] === 4);
+  for (const key of ['verdict', 'hush', 'wasp', 'hornet']) Weapons.give(0, key, 1);
+  Weapons.current[0] = CAT.weapons.byId('tanto').index;
+  const pushedOut = Weapons.firstCarried(0);
+  Weapons.rarity[Weapons.slotIndex(0, pushedOut)] = 3;
+  placeActor(0, 30, 10);
+  runSeconds(0.2);
+  check('royale: a full inventory leaves a new gun on the spot without USE', Weapons.atCarryLimit(0) && RoyaleLoot.weapon[2] === CAT.weapons.byId('vanguard').index && !Weapons.has(0, 'vanguard'));
+  holdUseFor(0, 0.2);
+  check('royale: with USE held the gun pushed out lies on the spot with its own rarity', Weapons.has(0, 'vanguard') && RoyaleLoot.weapon[2] === pushedOut
+    && RoyaleLoot.rarity[2] === 3 && RoyaleLoot.taken[2] === 0, RoyaleLoot.rarity[2]);
   endModeTest();
 });
 

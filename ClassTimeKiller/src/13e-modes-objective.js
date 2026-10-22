@@ -79,12 +79,9 @@ function setVitality(id, health) {
   Actors.health[id] = health;
 }
 
-function worldCentreX() { return Number.isFinite(World.boundsMin.x) && Number.isFinite(World.boundsMax.x) ? (World.boundsMin.x + World.boundsMax.x) / 2 : 0; }
-function worldCentreZ() { return Number.isFinite(World.boundsMin.z) && Number.isFinite(World.boundsMax.z) ? (World.boundsMin.z + World.boundsMax.z) / 2 : 0; }
-
 // The spawn point nearest the middle of the world: a standing spot for objectives a mode brings itself.
 function centralSpot(out) {
-  const centreX = worldCentreX(), centreZ = worldCentreZ();
+  const area = worldSafeArea(safeAreaScratch), centreX = area.x, centreZ = area.z;
   out.x = centreX; out.y = 0; out.z = centreZ;
   let best = Infinity;
   for (const point of Modes.spawnPoints) {
@@ -139,7 +136,9 @@ Modes.register('rush', {
       this.stepRelay(relay, dt, now, params);
       if (relay.state !== 'detonated') standing++;
     }
-    if (standing === 0) this.openStage(this.stage + 1);
+    if (standing > 0) return;
+    if (this.stage < this.lastStage) this.openStage(this.stage + 1);
+    else this.stage++;   // past the last stage: isOver hands the attackers the win, no stage to announce
   },
   stepRelay(relay, dt, now, params) {
     if (relay.state === 'detonated') return;
@@ -209,7 +208,8 @@ function makePrizeBehaviour(prizeId, role, meleeParam, label) {
       this.setHolder(-1);
       if (Modes.returnDue(prize, now, params.returnTime)) { Modes.returnHome(prize); Modes.announce('The ' + label + ' returned', 'objective', 1); return; }
       const taker = Modes.findToucher(prize, NEAR_ANY);
-      if (taker < 0) return;
+      // Spawn protection keeps an actor who respawns on the prize from taking it at once.
+      if (taker < 0 || (Actors.flags[taker] & ACTOR_FLAG.PROTECTED)) return;
       Modes.pickUp(prize, taker);
       prize.holdTime = 0;
       this.setHolder(taker);
@@ -250,12 +250,12 @@ Modes.register('oddball', makePrizeBehaviour('relic', ACTOR_ROLE.CARRIER, 'carri
 Modes.register('payload', {
   cart: null, lengths: null, marks: null, total: 0, distance: 0, reached: 0, lastPushed: 0,
   start() {
+    this.distance = 0; this.reached = 0; this.total = 0; this.marks = null; this.lengths = null; this.lastPushed = Sim.time;
     const path = this.findPath();
     if (!path) return;
     this.lengths = pathLengths(path);
     this.total = this.lengths[this.lengths.length - 1];
     this.marks = checkpointDistances(this.cart.checkpoints, this.lengths, Modes.rules.params.checkpoints);
-    this.distance = 0; this.reached = 0; this.lastPushed = Sim.time;
     this.cart.goals = OBJECTIVE_GOALS.escort;
     this.placeCart();
     Modes.hud.payloadCheckpoints = this.marks.length;
@@ -353,7 +353,8 @@ function checkpointDistances(indices, lengths, count) {
 
 // ---- M27 Ghost Ops: the bomb rounds of M13 (13c) with a twist: attackers carry only attackerLoadout (melee + pistol) and
 // are cloaked (ACTOR_FLAG.INVISIBLE) while still (speed <= stillSpeed) and for revealTime s after firing they are not;
-// their footsteps still sound (S06) ----
+// their footsteps still sound (S06) and a carried charge hides with its carrier (13b drawObjective). Bots read arm / defend
+// on the sites until the plant, then guard / disarm on the charge ----
 const BOMB_BEHAVIOUR = Modes.behaviours.get('bomb');
 const ghostRevealUntil = new Float64Array(MAX_ACTORS);
 Modes.register('ghostops', Object.assign({}, BOMB_BEHAVIOUR, {
@@ -383,7 +384,13 @@ Modes.register('ghostops', Object.assign({}, BOMB_BEHAVIOUR, {
   },
   step(dt, now) {
     BOMB_BEHAVIOUR.step.call(this, dt, now);
+    this.updateGoals();
     this.stepGhosts(now);
+  },
+  updateGoals() {
+    const planted = this.charge.state === 'planted';
+    this.charge.goals = planted ? OBJECTIVE_GOALS.armed : null;
+    for (let i = 0; i < this.sites.length; i++) this.sites[i].goals = planted ? null : OBJECTIVE_GOALS.arm;
   },
   stepGhosts(now) {
     const params = Modes.rules.params, attackers = Modes.attackingTeam();

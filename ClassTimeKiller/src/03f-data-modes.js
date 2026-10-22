@@ -14,7 +14,8 @@ const BOMB_ROUNDS = { winsNeeded: 7, limit: 13, live: 100, freeze: 15, switchAt:
 const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3.5, defuseRange: 1.5, blastRadius: 15 };
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that score only by their own rule (relic time, ladder tier, ...)
-// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon.
+// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. params.tiers plays
+// the first tiers - 1 weapons plus the melee tier.
 const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'pulsecarbine', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'shardcaster',
   'kestrel', 'lancet', 'heron', 'ramjet', 'ember', 'verdict', 'warden', 'maul'];
 
@@ -41,7 +42,7 @@ Data.define('modes', {
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 18, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
-  { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: true, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
+  { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
   { id: 'royale', code: 'M20', name: 'Last Ring', teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
     ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], shieldByRarity: [50, 75, 100, 125, 125], lootHeal: 50 }, ruleset: 'royale' },
   { id: 'horde', code: 'M21', name: 'Siege Waves', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, waves: 10, miniBossWave: 5, bossWave: 10, retries: 2 }, family: 'pve', ruleset: 'modern' },

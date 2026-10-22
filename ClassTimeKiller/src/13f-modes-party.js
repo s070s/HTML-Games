@@ -17,31 +17,12 @@ function roleDamageScale(source) {
   return Modes.rules.params.damageMult || 1;
 }
 
-// A random living participant other than `except` (Rng.rules), or -1.
-function randomParticipant(except, team) {
-  let count = 0;
-  for (let id = 0; id < Actors.count; id++) if (isCandidate(id, except, team)) count++;
-  if (!count) return -1;
-  let pick = Rng.rules.int(0, count - 1);
-  for (let id = 0; id < Actors.count; id++) {
-    if (!isCandidate(id, except, team)) continue;
-    if (pick === 0) return id;
-    pick--;
-  }
-  return -1;
-}
-
-// team: the team the candidate must be on, or NO_TEAM for anyone.
-function isCandidate(id, except, team) {
-  return id !== except && Actors.alive[id] === 1 && Modes.isActive(id) && (team === NO_TEAM || Actors.team[id] === team);
-}
-
 // ---- M16 Arms Ladder: one weapon per tier (params.ladder, the last tier is the melee weapon); a kill climbs one tier,
 // a melee kill also drops the victim one tier (meleeDemotes), and a melee kill on the last tier wins. Score = tier ----
 Modes.register('gungame', {
   ladder: null, loadouts: null, winner: -1,
   start() {
-    this.ladder = Modes.rules.params.ladder;
+    this.ladder = ladderTiers(Modes.rules.params);
     this.loadouts = ladderLoadouts(this.ladder, meleeWeaponKey());
     this.winner = -1;
     ladderTier.fill(0);
@@ -70,6 +51,12 @@ Modes.register('gungame', {
   isOver(now) { return this.winner >= 0 ? Modes.over(this.winner, 'score') : Modes.timeResult(now); },
   score(id) { return ladderTier[id]; },
 });
+
+// The first tiers - 1 ladder weapons plus the ladder's last (melee) weapon: a custom match can shorten the ladder (MODE-001).
+function ladderTiers(params) {
+  const ladder = params.ladder, tiers = clamp(Math.round(params.tiers) || ladder.length, 1, ladder.length);
+  return ladder.slice(0, tiers - 1).concat(ladder[ladder.length - 1]);
+}
 
 // Loadout per tier: the melee weapon plus the tier weapon (drawn), or the melee weapon alone on a melee tier.
 function ladderLoadouts(ladder, melee) {
@@ -102,7 +89,7 @@ Modes.register('infection', {
     this.outbreak = true;
     const wanted = Math.max(1, Math.floor(this.countSides() / params.infectedPerPlayers));
     for (let k = 0; k < wanted; k++) {
-      const id = randomParticipant(-1, HUMAN_TEAM);
+      const id = randomAliveMember(HUMAN_TEAM, -1);
       if (id >= 0) this.infect(id);
     }
     Modes.announce('The blight spreads', 'objective', 3);
@@ -161,6 +148,7 @@ Modes.register('juggernaut', {
   colossus: -1,
   start() { this.colossus = -1; },
   step() { if (this.colossus >= 0 && !Modes.isActive(this.colossus)) this.crown(-1); },
+  onSpawn(id) { if (id === this.colossus) this.empower(id); },
   onKill(victim, killer) {
     const credited = killer >= 0 && killer !== victim && Modes.isActive(killer);
     if (victim === this.colossus) { this.crown(credited ? killer : -1); return; }
@@ -174,14 +162,16 @@ Modes.register('juggernaut', {
     Modes.hud.special = id;
     if (id < 0) return;
     Modes.setRole(id, ACTOR_ROLE.COLOSSUS);
-    setVitality(id, Actors.maxHealth[id] * Modes.rules.params.healthMult);
+    if (Actors.alive[id]) this.empower(id);   // a killer already dead (a late rocket) is empowered when it respawns
     Modes.announce(Actors.name[id] + ' is the Colossus', 'objective', 3);
   },
+  empower(id) { setVitality(id, Actors.maxHealth[id] * Modes.rules.params.healthMult); },
 });
 
 // ---- M19 Curse Tag: one cursed actor (cursedHealth HP, no armor or shield, melee only). Killing the cursed scores 1; the
 // cursed passes the curse by reaching the beacon (to a random other player; the beacon then moves to the spawn point
-// farthest from the new cursed) or, with passOnTag, by a melee hit (to the one hit). Passing restores health and loadout ----
+// farthest from the new cursed). passOnTag (off by default, custom matches) also passes it by a melee hit (to the one
+// hit). Passing restores health and loadout ----
 Modes.register('cursetag', {
   cursed: -1, beacon: null, meleeLoadout: null,
   start() {
@@ -192,12 +182,12 @@ Modes.register('cursetag', {
     this.beacon.goals = OBJECTIVE_GOALS.beacon;
   },
   step() {
-    if (this.cursed < 0 || !Modes.isActive(this.cursed)) this.curse(randomParticipant(-1, NO_TEAM));
+    if (this.cursed < 0 || !Modes.isActive(this.cursed)) this.curse(randomAliveMember(NO_TEAM, -1));
     const cursed = this.cursed;
     if (cursed < 0 || !Actors.alive[cursed]) return;
     if (Modes.rules.params.meleeOnly) holdLoadout(cursed, this.meleeLoadout);
     // Spawn protection keeps a cursed actor who respawns on the beacon from passing the curse at once.
-    if (!(Actors.flags[cursed] & ACTOR_FLAG.PROTECTED) && Modes.inZone(this.beacon, cursed)) this.pass(randomParticipant(cursed, NO_TEAM));
+    if (!(Actors.flags[cursed] & ACTOR_FLAG.PROTECTED) && Modes.inZone(this.beacon, cursed)) this.pass(randomAliveMember(NO_TEAM, cursed));
   },
   onDamage(event) {
     const target = event.target;

@@ -127,6 +127,7 @@ const Weapons = {
   statScale: new Float32Array(MAX_ACTORS * WEAPON_STAT_COUNT).fill(1),              // per-actor stat multipliers (perks write these)
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
+  droppedRarity: 0,                                 // that weapon's rarity (WPN-008), so a pickup can drop it as it was
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
@@ -195,10 +196,11 @@ const Weapons = {
   },
   // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007),
   // and a dual-wield weapon (W04) picked up a second time becomes a pair. At the carry limit the held weapon is
-  // replaced and its key left in Weapons.dropped for the items section.
+  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section.
   give(id, key, rarity) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
+    this.droppedRarity = 0;
     if (!weapon) return false;
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
@@ -234,8 +236,10 @@ const Weapons = {
     let victim = this.current[id];
     if (victim < 0 || !this.countsTowardCarry(CAT.weapons[victim])) victim = this.firstCarried(id);
     if (victim < 0) return;
-    this.owned[this.slotIndex(id, victim)] = 0;
+    const slot = this.slotIndex(id, victim);
+    this.owned[slot] = 0;
     this.dropped = CAT.weapons[victim].id;
+    this.droppedRarity = this.rarity[slot];
     if (this.current[id] === victim) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
   },
   firstCarried(id) {
