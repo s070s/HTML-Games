@@ -19,9 +19,9 @@ const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .
 // ---- The setup logic (no DOM: tested headless) ----
 const PlayFlow = {
   // Modes with a registered behaviour and at least one map that lists them.
-  playableModes() { return CAT.modes.filter((mode) => Modes.isPlayable(mode.id) && Maps.forMode(mode.id).length > 0); },
+  playableModes() { return CAT.modes.filter((mode) => Modes.isPlayable(mode.id) && Maps.savedForMode(mode.id).length > 0); },
   maxBots() { return Math.min(Quality.current().bots, PLAY_MAX_BOTS); },
-  mapsFor(modeId) { return Maps.forMode(modeId); },
+  mapsFor(modeId) { return Maps.savedForMode(modeId); },
   smallestMap(modeId) {
     let best = null;
     for (const map of this.mapsFor(modeId)) if (!best || map.size[0] * map.size[2] < best.size[0] * best.size[2]) best = map;

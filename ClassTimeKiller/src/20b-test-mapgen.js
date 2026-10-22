@@ -224,8 +224,8 @@ function mapgenTestSteer(id, goal) {
 Test.add('mapgen', (check) => {
   const map = MapGen.generate({ generator: 'GN3', seed: 31, size: 'small', mode: 'ffa' });
   check('runtime: Maps.get finds the generated map by id', Maps.get(map.id) === map);
-  check('runtime: Maps.forMode offers it, Maps.catalogueForMode does not', Maps.forMode('ffa').includes(map) && !Maps.forMode('ctf').includes(map)
-    && !Maps.catalogueForMode('ffa').includes(map) && Maps.catalogueForMode('ffa').length === CAT.maps.filter((row) => row.modes.includes('ffa')).length);
+  check('runtime: Maps.forMode offers it, Maps.savedForMode does not', Maps.forMode('ffa').includes(map) && !Maps.forMode('ctf').includes(map)
+    && !Maps.savedForMode('ffa').includes(map) && Maps.savedForMode('ffa').length === CAT.maps.filter((row) => row.modes.includes('ffa')).length);
   Game.start({ mode: 'ffa', map: map.id, seed: 1 });
   check('runtime: Game.start({ map: id }) plays it', Game.match.map === map);
   Game.stop();
@@ -242,7 +242,7 @@ Test.add('mapgen', (check) => {
 Test.add('mapgen', (check) => {
   const map = MapGen.generate({ generator: 'GN3', seed: 5, size: 'small', mode: 'ffa' });
   const draft = Object.assign(customDefaults(), { mode: 'ffa', map: '' });
-  check('custom: the map picker lists hand-made maps only', !editorMapOptions(draft).values.includes(map.id) && editorMapOptions(draft).values.length === Maps.catalogueForMode('ffa').length + 1);
+  check('custom: the map picker lists hand-made maps only', !editorMapOptions(draft).values.includes(map.id) && editorMapOptions(draft).values.length === Maps.savedForMode('ffa').length + 1);
   const picks = Array.from({ length: 40 }, (unused, seed) => CustomMatch.mapFor(draft, seed));
   check('custom: a random map is always a hand-made one', picks.every((id) => !!CAT.maps.byId(id)), picks.filter((id) => !CAT.maps.byId(id)).join());
   check('custom: a saved draft naming a generated map is refused on load', CustomMatch.validate({ mode: 'ffa', map: map.id }).draft.map === '');
@@ -363,4 +363,14 @@ Test.add('mapgen', (check) => {
     Object.assign(MapGenMenu.state, saved);
     Game.stop();
   }
+});
+
+Test.add('mapgen', (check) => {
+  const before = Maps.runtime.slice();
+  Maps.registerRuntime({ id: 'test-editor-keep', modes: ['ffa'] });
+  for (let index = 0; index <= MAPS_RUNTIME_KEEP; index++) Maps.addRuntime({ id: 'test-generated-' + index, modes: ['ffa'], gen: {} });
+  const generated = Maps.runtime.filter((row) => row.gen && row.id.startsWith('test-generated-'));
+  check('runtime maps: generating past the limit drops the oldest generated map only', generated.length <= MAPS_RUNTIME_KEEP && !Maps.get('test-generated-0'));
+  check('runtime maps: an editor map stays listed for its mode', Maps.forMode('ffa').some((row) => row.id === 'test-editor-keep'));
+  Maps.runtime = before;
 });

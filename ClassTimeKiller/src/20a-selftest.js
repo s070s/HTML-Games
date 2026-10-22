@@ -18,7 +18,7 @@ const Test = {
     const settings = options || {};
     const results = [];
     const wasHeadless = Game.headless;
-    const savedData = Save.data, savedStorage = Save.storage;
+    const savedData = Save.data, savedStorage = Save.storage, savedRuntimeMaps = Maps.runtime;
     const groups = new Set();
     this.loadedHooks = TEST_HOOKS.map(([owner, key]) => owner[key]);
     if (settings.headless) Game.headless = true;
@@ -34,15 +34,16 @@ const Test = {
     }
     Game.stop();
     this.restoreHooks();
-    Save.data = savedData; Save.storage = savedStorage;
+    Save.data = savedData; Save.storage = savedStorage; Maps.runtime = savedRuntimeMaps;
     Settings.applyAll();   // settings changed by the tests reach their listeners again
     Game.headless = wasHeadless;
     const failed = results.filter((r) => !r.ok).length;
     return { total: results.length, failed, groups: groups.size, results };
   },
-  // Clean state between blocks: stops any match, memory-only storage, fresh save, default seed.
+  // Clean state between blocks: stops any match, memory-only storage, fresh save, no runtime maps, default seed.
   isolate() {
     Game.stop();
+    Maps.runtime = [];
     Save.storage = makeMemoryStorage(false);
     Save.data = Save.emptySave();
     Rng.reseed(1);

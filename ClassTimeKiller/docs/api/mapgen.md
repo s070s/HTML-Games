@@ -4,7 +4,7 @@ Files: `src/03n-data-mapgen.js` (catalogues `mapModules`, `mapTilesets`, `mapSiz
 `src/16w-mapgen-kits.js` (`MapGenKits`: the geometry of GN1..GN5 on a shared cell grid), `src/16w-mapgen-place.js` (`MapGenPlace`: spawns, items,
 objectives and hints; the fixed direction tables), `src/16w-mapgen.js` (`MapGen`: options, driver, validation, sightline repair, fallback, MP09),
 `src/18h-ui-mapgen.js` (`MapGenMenu` and the `mapgen` screen), tests in `src/20b-test-mapgen.js` (group `mapgen`). The runtime map list lives in
-`src/16a-maps.js` (`Maps.runtime`, `Maps.addRuntime`, `Maps.catalogueForMode`).
+`src/16a-maps.js` (`Maps.runtime`, `Maps.addRuntime`, `Maps.savedForMode`).
 
 A generated map is an ordinary map row (docs/api/maps.md "Map row"): `World.load`, `Nav.build`, `Maps.validate`, the modes and the renderer
 take it as they take a hand-made one.
@@ -108,7 +108,7 @@ is the seed that was accepted (or the last one tried), `attempts` the seeds trie
 
 `Maps.runtime` keeps the latest `MAPS_RUNTIME_KEEP` (8) generated maps, one per id. `Maps.get(id)` and `Maps.forMode(mode)` include them, so
 `Game.start({ map: id })` and `Game.start({ map: mapObject })` both work. Hand-made maps are never replaced. Pickers and saved setups (the custom
-match Map tab, its random map, its saved draft) use `Maps.catalogueForMode(mode)`, the hand-made maps only: a generated map is gone after a
+match Map tab, its random map, its saved draft) use `Maps.savedForMode(mode)`, the hand-made and editor maps only: a generated map is gone after a
 reload, so a saved setup must never name one.
 
 ## MP09 Ring Isle

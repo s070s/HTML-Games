@@ -2,7 +2,7 @@
 // Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -20,9 +20,8 @@ const CHROME_PATHS = ['C:/Program Files/Google/Chrome/Application/chrome.exe', '
 const chromePath = CHROME_PATHS.find((p) => existsSync(p));
 if (!chromePath) { console.log('RUNNER ERROR Chrome not found'); process.exit(3); }
 
-const port = 9300 + Math.floor(Math.random() * 600);
 const profile = mkdtempSync(join(tmpdir(), 'ctk-chrome-'));
-const chrome = spawn(chromePath, ['--headless=new', '--remote-debugging-port=' + port, '--user-data-dir=' + profile, '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+const chrome = spawn(chromePath, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1280,800', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' });
 let failed = false;
 const finish = (code) => {
@@ -33,9 +32,15 @@ const killer = setTimeout(() => { console.log('TIMEOUT after ' + timeoutSeconds 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 async function main() {
+  // Port 0: Chrome picks a free port and writes it to DevToolsActivePort, so parallel runs never collide.
+  // Up to 60 s: Chrome starts slowly while antivirus scans or other runs share the CPU.
   let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    try { const list = await (await fetch('http://127.0.0.1:' + port + '/json')).json(); target = list.find((t) => t.type === 'page'); } catch (error) { await sleep(250); }
+  for (let i = 0; i < 240 && !target; i++) {
+    try {
+      const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split(/\r?\n/)[0].trim();
+      const list = await (await fetch('http://127.0.0.1:' + port + '/json')).json();
+      target = list.find((t) => t.type === 'page');
+    } catch (error) { await sleep(250); }
   }
   if (!target) throw new Error('Chrome did not start');
   const socket = new WebSocket(target.webSocketDebuggerUrl);

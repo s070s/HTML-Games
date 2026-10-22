@@ -75,8 +75,8 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 
 ## Lookups (`Maps`)
 
-* `Maps.get(idOrCode)` row or null (null before the catalogue exists, generated maps of `Maps.runtime` included); `Maps.forMode(modeId)` rows (hand-made, then the
-  generated maps in `Maps.runtime`); `Maps.catalogueForMode(modeId)` the hand-made rows only (pickers and saved setups use it: a generated map is gone after a reload).
+* `Maps.get(idOrCode)` row or null (null before the catalogue exists); `Maps.forMode(modeId)` rows (hand-made, then runtime maps); `Maps.savedForMode(modeId)` hand-made and editor maps, no generated ones (pickers and saved setups use it: a generated map is gone after a reload).
+  **Runtime maps** (`Maps.runtime`): `Maps.registerRuntime(map)` / `Maps.unregisterRuntime(id)` (the map editor's saved maps, `docs/api/mapeditor.md`) and `Maps.addRuntime(map)` (generated maps; past `MAPS_RUNTIME_KEEP` the oldest generated map drops out, editor maps stay). A runtime map is a full map row and replaces the runtime map with the same id; it never replaces a catalogue row.
 * Rows are plain data. The lookup caches and the latest scan are keyed by the row object, so clone a row (`JSON.parse(JSON.stringify(row))`) before editing it; never edit a catalogue row in place.
 * Shared rules, global helpers: `mapServesMode(entry, modeId)` (a spawn, item or objective serves a mode when its `modes` list is missing, empty or holds the mode), `mapModesOf(entry)`, `mapInBox(box, x, y, z, marginXZ, marginY)`
   (point in a `{ min, max }` box: zones, triggers, lights).

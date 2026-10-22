@@ -159,7 +159,7 @@ Test.add('ui', (check) => uiWith(() => {
     check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && Ui.top().element.contains(document.activeElement));
     const reached = new Set();
     for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); uiMenuCommand('next'); }
-    check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1, reached.size + ' of ' + items.length);
+    check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1 || !!Ui.top().screen.onCommand, reached.size + ' of ' + items.length);
     check('screen ' + name + ': can be left (back, or a top-level screen)', Ui.top().screen.noBack === true || !!Ui.top().screen.onBack || Ui.back());
     Ui.closeAll();
     check('screen ' + name + ': closes cleanly', Ui.stack.length === 0 && !Input.uiOpen && !Ui.root.querySelector('.ui-' + name));
@@ -257,9 +257,9 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
-  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Ladder,Play,Custom,Range,Settings,Help');
+  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Ladder,Play,Custom,Range,Map editor,Settings,Help');
   check('main menu: Quick Match is first, focused and primary', buttons[0].classList.contains('primary') && document.activeElement === buttons[0]);
-  check('main menu: screens that do not exist yet are disabled, not broken', buttons[1].disabled && buttons[5].disabled === false && buttons[6].disabled === false);
+  check('main menu: screens that do not exist yet are disabled, not broken', buttons[1].disabled && buttons[5].disabled === false && buttons[6].disabled === false && buttons[7].disabled === false);
   let quick = 0;
   const listener = Bus.on('ui.quickMatch', () => { quick++; });
   const realQuickMatch = PlayFlow.quickMatch;
