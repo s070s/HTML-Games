@@ -134,6 +134,15 @@ const BOT_FLANK_HINT = 'flank';                         // map navHints kind a f
 // m of it (or the first has waited `wait` s); a push lasts `seconds` s or until the flag is taken.
 const BOT_FLAG_PUSH = { rallyShare: 0.2, radius: 9, minimum: 2, wait: 5, seconds: 22 };
 
+// Squads (BOT-052, versus team modes): at each commander round the bots of one role form squads of up to `size`; the
+// one with the most teamwork leads. Followers keep within `keep` m of the leader, detour at most `regroup` m (items,
+// sounds) and regroup with it once farther (broken off); a fallen leader hands the squad to its next follower.
+const BOT_SQUAD = { size: 3, keep: 6, regroup: 15 };
+// Tokens (BOT-053): at most `attackers` bots close in on one target at once (the others fight from where they stand; a
+// melee weapon always closes in), and one bot per team flanks at a time. A holder keeps its token while it renews it
+// (every decision) within `hold` s and still plays the goal it took it for.
+const BOT_TOKENS = { attackers: 2, hold: 1.2 };
+
 // Mode goal hints (BOT-080): what a bot does at an objective whose Modes.goalFor names the verb. action: 'move' (go
 // there), 'hold' (stay and watch, spread over the zone), 'use' (stand inside and hold USE: arm, disarm), 'keep' (carry a
 // prize and stay away from enemies). share: arrival radius as a share of the objective's radius (0 = touch it).

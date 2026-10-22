@@ -6,11 +6,12 @@
 // the convoy, relics, the flame, the curse beacon) and royale loot is collected. The chosen goal becomes a state, a
 // destination for 14c and an action (hold, use).
 
-const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10 };
+// SQUAD: a follower keeps with its squad leader (BOT-052; scored by 14f).
+const GOAL = { NONE: 0, ROAM: 1, ATTACK: 2, CHASE: 3, RETREAT: 4, COLLECT: 5, OBJECTIVE: 6, CAMP: 7, INVESTIGATE: 8, ORDER: 9, REVIVE: 10, SQUAD: 11 };
 const GOAL_NAMES = Object.keys(GOAL).map((name) => name.toLowerCase());
 const GOAL_COUNT = GOAL_NAMES.length;
 const GOAL_STATES = [BOT_STATE.ROAM, BOT_STATE.ROAM, BOT_STATE.ENGAGE, BOT_STATE.CHASE, BOT_STATE.RETREAT, BOT_STATE.COLLECT,
-  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.FOLLOW];
+  BOT_STATE.OBJECTIVE, BOT_STATE.CAMP, BOT_STATE.INVESTIGATE, BOT_STATE.FOLLOW, BOT_STATE.REVIVE, BOT_STATE.FOLLOW];
 const ACTION = { MOVE: 0, HOLD: 1, USE: 2 };
 const GOAL_HYSTERESIS = 1.1;            // BOT-020: a new goal must beat the current one by 10%
 const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chosen again for this long
@@ -20,6 +21,8 @@ const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
 const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
 const SEARCH_AFTER = 2;                 // s: a chase on older memory than this is the Search state (BOT-002)
+const SEARCH_SPOTS = 2;                 // nearby spots a search looks at past the last known position...
+const SEARCH_HOPS = 4;                  // ...each a random walk of this many nav links (nodes are 2 m apart) from the last one
 const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a flank hint only for a target at least this far...
 const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
 const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
@@ -84,6 +87,7 @@ const BotDecide = {
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
   flankSpots: [], flankSpot: new Int16Array(MAX_ACTORS).fill(-1), flankedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  searchLeft: new Uint8Array(MAX_ACTORS),                  // BOT-002: nearby spots a chase still looks at past the last known one
   lootNode: new Int32Array(LOOT_MAX).fill(-1),             // nav node of each royale loot spot (Modes.loot)
   planners: {},          // objective kind -> fn(id, plan, now) -> bool (BOT-080 mode brains)
 
@@ -192,7 +196,8 @@ const BotDecide = {
   },
   apply(id, now) {
     const plan = bestPlan;
-    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
+    if (plan.goal === GOAL.CHASE && this.goal[id] !== GOAL.CHASE) this.searchLeft[id] = SEARCH_SPOTS;
+    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP)this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
@@ -204,6 +209,7 @@ const BotDecide = {
 
   // BOT-002: a chase whose memory of the target is older than SEARCH_AFTER seconds is a Search (the target may have moved on).
   goalState(id, plan, now) {
+    if (Actors.flags[id] & ACTOR_FLAG.DOWNED) return BOT_STATE.DOWNED;
     if (plan.goal !== GOAL.CHASE || plan.target < 0) return GOAL_STATES[plan.goal];
     return now - BotSense.knownAt[BotSense.pair(id, plan.target)] > SEARCH_AFTER ? BOT_STATE.SEARCH : BOT_STATE.CHASE;
   },
@@ -236,10 +242,16 @@ const BotDecide = {
     if (item >= 0 && item < this.items.length) this.itemVisited[id * MAX_BOT_ITEMS + item] = now;
     BotTeam.bark(id, 'itemGrab', now);
   },
-  // Reached the last known position and nothing there: the memory entry is used up (BOT-002 Search ends).
+  // Reached the last known position and nothing there (BOT-002 Search): the bot's guess moves on to SEARCH_SPOTS nearby
+  // spots in turn, then the memory entry is used up and the bot roams.
   searched(id) {
     const target = this.goalTarget[id];
-    if (target >= 0 && !BotSense.sees(id, target)) BotSense.knownAt[BotSense.pair(id, target)] = -1e9;
+    if (target < 0 || BotSense.sees(id, target)) return;
+    const pair = BotSense.pair(id, target);
+    const node = this.searchLeft[id] > 0 ? searchWalk(Nav.nearestNode(BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair])) : -1;
+    if (node < 0) { BotSense.knownAt[pair] = -1e9; return; }
+    this.searchLeft[id]--;
+    BotSense.knownX[pair] = Nav.nodeX[node]; BotSense.knownY[pair] = Nav.nodeY[node]; BotSense.knownZ[pair] = Nav.nodeZ[node];
   },
   carriesObjective(actor) {
     const list = Modes.objectives;
@@ -302,7 +314,21 @@ function flankSpot(id, targetX, targetZ, now) {
     if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
     best = i; bestWay = fromBot + toTarget;
   }
-  return best;
+  return best >= 0 && BotTeam.takeFlankToken(id, now) ? best : -1;   // BOT-053: one flanker per team at a time
+}
+
+// BOT-002 Search: a spot the lost target may have gone on to, SEARCH_HOPS random links from `from` (never a jump pad or
+// teleporter node); -1 when the walk leads nowhere new.
+function searchWalk(from) {
+  let node = from;
+  for (let hop = 0; hop < SEARCH_HOPS && node >= 0; hop++) {
+    const first = Nav.linkStart[node], count = Nav.linkStart[node + 1] - first;
+    if (count <= 0) break;
+    const next = Nav.linkTarget[first + Math.floor(Rng.bots.next() * count)];
+    if (Nav.nodeFlags[next] & NAV_NODE.TRIGGER) break;
+    node = next;
+  }
+  return node === from ? -1 : node;
 }
 
 function holdHere(id) {
@@ -329,12 +355,18 @@ GOAL_SCORERS[GOAL.ROAM] = (id, plan) => {
   setPlan(plan, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], 1, ACTION.MOVE, -1);
   return ROAM_SCORE;
 };
-GOAL_SCORERS[GOAL.ATTACK] = (id, plan) => {
+GOAL_SCORERS[GOAL.ATTACK] = (id, plan, now) => {
   const target = BotCombat.target[id];
   if (target < 0 || !BotSense.sees(id, target)) return 0;
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
-  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], attackRadius(Weapons.currentWeapon(id)), ACTION.MOVE, target);
+  // BOT-053: only attack token holders close in; the others fight from where they stand, coming no nearer than the
+  // weapon's range (a melee weapon must close in).
+  const weapon = Weapons.currentWeapon(id), closest = attackRadius(weapon);
+  const closeIn = (weapon && weapon.class === 'melee') || BotTeam.takeAttackToken(id, target, now);
+  const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
+  const radius = closeIn ? closest : clamp(distance, closest, weapon ? weapon.botPref.range[1] : closest);
+  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], radius, ACTION.MOVE, target);
   return ATTACK_BASE + ATTACK_GAIN * aggression;
 };
 // A melee weapon closes inside its reach (a 1.5 m stop left an out-of-ammo bot swinging 2 m short of a cornered enemy).

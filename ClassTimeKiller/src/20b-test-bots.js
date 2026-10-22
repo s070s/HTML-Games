@@ -823,6 +823,73 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- BOT-052 squads (versus): role squads of up to 3 led by the most teamwork, a broken-off follower regroups, a fallen
+// leader hands the squad on. BOT-053 tokens: two bots close in on one target, one flanks per team. BOT-002 Search, Downed ----
+Test.add('bots', (check) => {
+  const map = botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), tier5 = { tier: 5, team: 0 };
+  const ids = startBotTest(map, 'tdm', { ruleset: 'modern', balance: false, bots: [tier5, tier5, tier5, tier5, { dummy: true, team: 1 }] });
+  const enemy = ids[4], plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
+  BotTeam.assignRoles();
+  const attackers = ids.filter((id) => Bots.active[id] && BotTeam.role[id] === ROLE.ATTACK), leader = BotTeam.squadLeader[attackers[0]];
+  const followers = attackers.filter((id) => id !== leader), teamwork = (id) => Bots.trait(id, TRAIT.teamwork);
+  check('BOT-052 the 3 attackers form one squad led by the one with the most teamwork', attackers.length === 3 && followers.length === 2
+    && attackers.every((id) => BotTeam.squadLeader[id] === leader && teamwork(id) <= teamwork(leader)), attackers.map((id) => BotTeam.squadLeader[id]).join());
+  placeFacing(leader, 0, -10, 0); placeFacing(followers[0], 20, -10, 0);
+  const far = GOAL_SCORERS[GOAL.SQUAD](followers[0], plan, Sim.time);
+  const toLeader = plan.x === Actors.x[leader] && plan.z === Actors.z[leader] && plan.radius === BOT_SQUAD.keep;
+  placeFacing(followers[0], 3, -10, 0);
+  const near = GOAL_SCORERS[GOAL.SQUAD](followers[0], plan, Sim.time);
+  check('BOT-052 a broken-off follower regroups (it scores above keeping with the leader, which beats roaming)', toLeader && far > near && near > ROAM_SCORE,
+    far.toFixed(2) + ' / ' + near.toFixed(2));
+  check('BOT-052 the leader has no squad goal', GOAL_SCORERS[GOAL.SQUAD](leader, plan, Sim.time) === 0);
+  Actors.flags[leader] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, leader, 1000); TestArena.hit(-1, leader, 1000);   // downed, then finished
+  const heir = BotTeam.squadLeader[followers[0]];
+  check('BOT-052 a fallen leader hands the squad to its next follower', !Actors.alive[leader] && heir === followers[0]
+    && BotTeam.squadLeader[followers[1]] === heir && BotTeam.squadLeader[leader] === heir, heir);
+
+  const [first, second, third] = ids.filter((id) => Bots.active[id] && Actors.alive[id]), now = Sim.time;
+  for (const id of [first, second, third]) BotDecide.goal[id] = GOAL.ATTACK;
+  const both = BotTeam.takeAttackToken(first, enemy, now) && BotTeam.takeAttackToken(second, enemy, now);
+  const blocked = !BotTeam.takeAttackToken(third, enemy, now), renewed = BotTeam.takeAttackToken(first, enemy, now + 1);
+  const lapsed = BotTeam.takeAttackToken(third, enemy, now + 1 + 0.5);   // the second let its hold (BOT_TOKENS.hold) run out
+  check('BOT-053 two bots close in on one target, a third waits until a holder lets its token lapse', both && blocked && renewed && lapsed);
+  const weapon = Weapons.currentWeapon(second), range = weapon.botPref.range[1];
+  BotTeam.takeAttackToken(first, enemy, now + 1.5); BotTeam.takeAttackToken(third, enemy, now + 1.5);
+  holdActor(enemy, 0, 20); placeFacing(second, 0, 20 - range - 10, 0);
+  BotSense.visible[BotSense.pair(second, enemy)] = 1; BotCombat.target[second] = enemy;
+  const score = GOAL_SCORERS[GOAL.ATTACK](second, plan, now + 1.5);
+  BotSense.visible[BotSense.pair(second, enemy)] = 0; BotCombat.target[second] = -1;
+  check('BOT-053 without a token a bot comes no nearer than its weapon range', score > 0 && plan.radius === range && weapon.class !== 'melee', score.toFixed(2) + ' r ' + plan.radius);
+
+  const later = now + 5, flanks = [];
+  for (const id of [first, third]) {
+    const pair = BotSense.pair(id, enemy);
+    placeFacing(id, 0, -10, 0);
+    BotSense.knownAt[pair] = later; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+    BotCombat.target[id] = enemy; BotDecide.goal[id] = GOAL.CHASE;
+    GOAL_SCORERS[GOAL.CHASE](id, plan, later);
+    flanks.push(BotDecide.flankSpot[id]);
+  }
+  check('BOT-053 one bot of a team flanks at a time (the other chases straight)', flanks[0] === 0 && flanks[1] === -1 && plan.z === 20, flanks.join());
+
+  const pair = BotSense.pair(first, enemy), spots = [];
+  BotDecide.goalTarget[first] = enemy; BotDecide.searchLeft[first] = SEARCH_SPOTS;
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownZ[pair] = 5;
+  for (let spot = 0; spot < SEARCH_SPOTS; spot++) {
+    BotDecide.searched(first);
+    spots.push(BotSense.knows(first, enemy, Sim.time) ? BotSense.knownX[pair].toFixed(1) + ',' + BotSense.knownZ[pair].toFixed(1) : 'lost');
+  }
+  BotDecide.searched(first);
+  check('BOT-002 a search looks at 2 nearby spots past the last known position, then gives up', !spots.includes('lost') && spots[0] !== '0.0,5.0'
+    && !BotSense.knows(first, enemy, Sim.time), spots.join(' '));
+  Actors.flags[first] |= ACTOR_FLAG.DOWNED;
+  const downed = BotDecide.goalState(first, { goal: GOAL.ROAM, target: -1 }, Sim.time);
+  Actors.flags[first] &= ~ACTOR_FLAG.DOWNED;
+  check('BOT-002 Downed and Revive states', downed === BOT_STATE.DOWNED && BotDecide.goalState(first, { goal: GOAL.REVIVE, target: -1 }, Sim.time) === BOT_STATE.REVIVE);
+  endBotTest();
+});
+
 // A rocket launcher in hand and the weapon jumper trait (T12).
 function giveWeaponJumper(bot) {
   const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
