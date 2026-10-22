@@ -54,6 +54,32 @@ Test.add('economy', (check) => {
   endModeTest();
 });
 
+// A kill with a weapon (the shared test kill payload carries no weapon otherwise).
+function killWith(victim, killer, weaponId) {
+  testKill.weapon = weaponId;
+  killActor(victim, killer);
+  testKill.weapon = '';
+}
+
+Test.add('economy', (check) => {
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 0, 1, 1], BOMB_OPTIONS);
+  runSeconds(1.01);
+  const rewards = [['wasp', 600], ['scattergun', 900], ['vanguard', CAT.weapons.byId('vanguard').killReward], ['heron', 100], ['maul', 1500]];
+  for (const [weaponId, bonus] of rewards) {
+    Economy.setMoney(0, 0);
+    killWith(3, 0, weaponId);
+    Actors.alive[3] = 1;
+    check('ECP02 kill with ' + weaponId + ': 200 + class bonus ' + bonus, Economy.money(0) === 200 + bonus, Economy.money(0));
+  }
+  for (let id = 0; id < 4; id++) Economy.setMoney(id, 0);
+  Actors.alive[1] = 0;
+  scorePoints(0, 1, 'plant');
+  check('ECP02 a plant pays 300 to every attacker (the dead too)', Economy.money(0) === 300 && Economy.money(1) === 300 && Economy.money(2) === 0, [0, 1, 2].map((id) => Economy.money(id)).join());
+  scorePoints(2, 1, 'defuse');
+  check('ECP02 a defuse pays 300 to the defuser', Economy.money(2) === 300 && Economy.money(3) === 0, [2, 3].map((id) => Economy.money(id)).join());
+  endModeTest();
+});
+
 Test.add('economy', (check) => {
   startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 30, switchAt: 1, winsNeeded: 3 } } });
   runSeconds(1.01);
@@ -155,6 +181,7 @@ Test.add('economy', (check) => {
 Test.add('economy', (check) => {
   check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
   check('loadouts: the secondary must be a sidearm', Loadouts.saveClass({ primary: 'tempest', secondary: 'vanguard', perks: ['bandolier', 'ghost', 'steady'] }) === null && !!Loadouts.lastError);
+  check('loadouts: the field upgrade comes from the ECP04 list', Loadouts.saveClass({ primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'], fieldUpgrade: 'orbital' }) === null);
   check('loadouts: one perk per tier', Loadouts.saveClass({ primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'scavenger', 'steady'] }) === null);
   const stored = Loadouts.saveClass({ name: 'Mine', primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
   check('loadouts: custom class saved', !!stored && stored.id === 'class-1' && Loadouts.selectClass('class-1'));

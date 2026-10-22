@@ -27,6 +27,7 @@ function formatCredits(amount) { return amount + ' cr'; }
 function readableKey(key) { return key ? key.charAt(0).toUpperCase() + key.slice(1) : 'None'; }
 function weaponName(key) { const weapon = CAT.weapons.byId(key); return weapon ? weapon.name : readableKey(key); }
 function abilityName(key) { const row = CAT.abilities.byId(key); return row ? row.name : 'None'; }
+function fieldUpgradeName(key) { return CAT.abilities.byId(key) ? abilityName(key) : readableKey(key); }
 function perkName(key) { const perk = CAT.perks.byId(key); return perk ? perk.name : readableKey(key); }
 function playerInMatch() { return !!Game.match && Game.playerId >= 0; }
 function appendLines(element, lines) {
@@ -170,7 +171,7 @@ function describeClass(element, row) {
     'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
     'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
     'Perks: ' + row.perks.map(perkName).join(', '),
-    'Field upgrade: ' + abilityName(row.fieldUpgrade),
+    'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),
   ]);
 }
 function isCustomClass(row) { return !CAT.classes.byId(row.id); }
@@ -191,10 +192,10 @@ const CLASS_FIELD_OPTIONS = {
   secondary: () => CAT.weapons.filter((weapon) => weapon.class === 'sidearm').map((weapon) => weapon.id),
   lethal: () => uniqueClassValues('lethal'),
   tactical: () => uniqueClassValues('tactical'),
-  fieldUpgrade: () => CAT.abilityKits.byId('classes').choices.ability1,
+  fieldUpgrade: () => CAT.economy.byId('classes').fieldUpgrades,
 };
 const CLASS_FIELD_LABELS = { primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', fieldUpgrade: 'Field upgrade' };
-const CLASS_FIELD_NAMES = { primary: weaponName, secondary: weaponName, lethal: readableKey, tactical: readableKey, fieldUpgrade: abilityName };
+const CLASS_FIELD_NAMES = { primary: weaponName, secondary: weaponName, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
 function uniqueClassValues(field) { return Array.from(new Set(CAT.classes.map((row) => row[field]).filter(Boolean))); }
 
 // params: { row, isNew }; without params it starts a new class from the selected one.

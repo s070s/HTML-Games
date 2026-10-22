@@ -4,17 +4,19 @@
 
 // money: the preset uses credits. buy: 'round' (buy time after each round start, inside the buy zone) | 'shop' (while the
 // shop is open) | 'none'. lossLadder: the one documented loss-bonus rule (13d): consecutive losses n pay ladder[min(n, length) - 1].
-// killReward: credits for a kill without a weapon reward (abilities, explosions); weapon kills pay the weapon's killReward.
+// killReward: the base credits of every kill (ECP02 "kill 200 + class reward bonus"); a weapon kill adds the weapon's
+// killReward (the WPN prices table: SMG 600, shotgun 900, rifle 300, sniper 100, melee 1500). fieldUpgrades: ECP04 choices
+// (gadget keys the items section grants, or ability ids of the classes ability kit).
 Data.define('economy', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, money: false, buy: 'none', startMoney: 0, maxMoney: 0, winReward: 0, lossLadder: [],
   killReward: 0, killRewardRange: [0, 0], plantReward: 0, defuseReward: 0, buyTime: 0, buyZone: 0, carryOver: true, halfReset: true,
-  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, slots: 0, rarities: [], ammoTypes: [], ladder: [], weaponStay: false, loadout: 'none',
+  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, fieldUpgrades: [], slots: 0, rarities: [], ammoTypes: [], ladder: [], weaponStay: false, loadout: 'none',
 }, [
   { id: 'pickups', code: 'ECP01', name: 'Map Pickups', weaponStay: true },
   { id: 'roundBuy', code: 'ECP02', name: 'Round Buy', money: true, buy: 'round', startMoney: 800, maxMoney: 9000, winReward: 3000, lossLadder: [1900, 2400, 2900],
     killReward: 200, plantReward: 300, defuseReward: 300, buyTime: 15, buyZone: 8 },
   { id: 'loot', code: 'ECP03', name: 'Loot Rarity', slots: 5, rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'], ammoTypes: ['light', 'heavy', 'shells', 'cells', 'rockets'] },
-  { id: 'classes', code: 'ECP04', name: 'Classes and Perks', loadout: 'classes' },
+  { id: 'classes', code: 'ECP04', name: 'Classes and Perks', loadout: 'classes', fieldUpgrades: ['echopulse', 'cover', 'trophy', 'ammobox', 'beacon'] },
   { id: 'heroKits', code: 'ECP05', name: 'Hero Kits', loadout: 'heroes' },
   // Gun game order (M16, 18 tiers): one fixed weapon per tier, the last tier is the melee finisher.
   { id: 'ladder', code: 'ECP06', name: 'Weapon Ladder', ladder: ['warden', 'verdict', 'wasp', 'hornet', 'riptide', 'scattergun', 'shardcaster', 'vanguard', 'tempest',
@@ -25,6 +27,8 @@ Data.define('economy', {
 // rules.meter kinds. max: the meter's full value; passive: points per second; perScore: points per scoreboard point;
 // perDamage: points per HP of damage (or healing) dealt; resetOnDeath: streak meters restart each life; cost: what an
 // ultimate-slot ability without its own ultCost takes (ultimate, adrenaline); an ultCost above max costs the full meter.
+// energy row (ABL-002 bar outside HPP08 suits): passive = regen per second, regenDelay = seconds after the last spend
+// before it regenerates (a draining toggle spends every step, so it never regenerates while on), perOrb = kill orb energy.
 // rewards: [{ at (meter value), ability }] (streak / boost); combos: [{ taps (F B L R = move direction taps), ability }] (adrenaline).
 Data.define('meters', {
   id: REQUIRED, name: REQUIRED, max: 0, cost: 0, passive: 0, perScore: 0, perDamage: 0, perKill: 0, perSpree: 0, spreeKills: 5, perCapture: 0, perOrb: 0,
@@ -38,7 +42,7 @@ Data.define('meters', {
   { id: 'adrenaline', name: 'Adrenaline', max: 100, cost: 100, perKill: 5, perSpree: 10, perCapture: 25,
     combos: [{ taps: 'FFFF', ability: 'surgecombo' }, { taps: 'BBBB', ability: 'boostercombo' }, { taps: 'LLRR', ability: 'veilcombo' }, { taps: 'FFBB', ability: 'berserkcombo' }] },
   { id: 'ultimate', name: 'Ultimate', max: 2000, cost: 1500, passive: 5, perDamage: 1 },
-  { id: 'energy', name: 'Energy', max: 100, passive: 5, perOrb: 25 },
+  { id: 'energy', name: 'Energy', max: 100, passive: 5, regenDelay: 1, perOrb: 25 },
 ]);
 
 // ECP04 perks, one per tier. stats: Weapons.statScale multipliers (S11 STAT names in lower case); dealt / taken: bullet

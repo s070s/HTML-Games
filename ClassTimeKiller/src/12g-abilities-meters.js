@@ -1,9 +1,9 @@
 // ==== S12 ABILITIES: METERS ====
-// The energy bar (ABL-002: 100, regen 5/s, +25 per kill orb; HPP08 suits: 25/s after 2 s) and the match meter of
+// The energy bar (ABL-002: 100, regen 5/s after the meter row's regenDelay, +25 per kill orb; HPP08 suits: 25/s after 2 s;
+// a draining toggle or hold spends every step, so it never regenerates while it runs) and the match meter of
 // rules.meter (ECO-003): streak (score-based rewards), boost (time + score), adrenaline (kills, sprees, captures and
 // 4-tap combos), ultimate (5/s + 1 per damage or healing dealt). A34 souls home to their collector within 6 m (ABL-005).
 
-const ENERGY_MAX = 100;
 const SOUL_CAP = 32;                     // soul orbs in the world at once (the oldest is recycled)
 const SOUL_PICKUP = 1;                   // metres: a soul this close is collected
 const SOUL_HOMING_SPEED = 8;             // m/s a soul flies toward its collector inside the homing radius
@@ -15,7 +15,7 @@ const COMBO_TAPS = 4;
 const METER_HUD = { kind: 'none', value: 0, ready: false, energy: 0, souls: 0 };
 
 const Meters = {
-  energy: new Float32Array(MAX_ACTORS).fill(ENERGY_MAX),
+  energy: new Float32Array(MAX_ACTORS).fill(CAT.meters.byId('energy').max),
   lastEnergySpend: new Float64Array(MAX_ACTORS).fill(-1e9),
   points: new Float32Array(MAX_ACTORS),            // the match meter value (0..row.max)
   rewardIndex: new Uint8Array(MAX_ACTORS),         // next streak / boost reward
@@ -35,12 +35,14 @@ const Meters = {
   fraction(id) { const max = this.max(); return max > 0 ? clamp(this.points[id] / max, 0, 1) : 0; },
 
   // ---- Energy ----
-  // Rate and delay: the health preset's suit energy (HPP08) when it has one, else the energy meter row (ABL-002).
+  // Size, rate and delay: the health preset's suit energy (HPP08) when it has one, else the energy meter row (ABL-002).
+  energyMax() { const suit = Damage.preset().energy; return suit ? suit.max : CAT.meters.byId('energy').max; },
   energyRegen(id) {
-    const suit = Damage.preset().energy;
-    const rate = suit ? suit.rate : CAT.meters.byId('energy').passive, delay = suit ? suit.delay : 0;
+    const suit = Damage.preset().energy, row = CAT.meters.byId('energy');
+    const rate = suit ? suit.rate : row.passive, delay = suit ? suit.delay : row.regenDelay;
     return Sim.time - this.lastEnergySpend[id] >= delay ? rate * Buffs.get(id, BUFF.ENERGY_REGEN) : 0;
   },
+  energyFraction(id) { return this.energy[id] / this.energyMax(); },
   // Spends up to amount; returns false (and empties the bar) when there was not enough.
   spendEnergy(id, amount) {
     if (amount <= 0) return true;
@@ -49,7 +51,7 @@ const Meters = {
     this.energy[id] = Math.max(0, this.energy[id] - amount);
     return true;
   },
-  addEnergy(id, amount) { this.energy[id] = Math.min(ENERGY_MAX, this.energy[id] + amount); },
+  addEnergy(id, amount) { this.energy[id] = Math.min(this.energyMax(), this.energy[id] + amount); },
 
   // ---- Match meter ----
   addPoints(id, amount) {
@@ -77,10 +79,10 @@ const Meters = {
     Abilities.setSlot(id, SLOT.ULTIMATE, CAT.abilities.byId(row.combos[0].ability));
   },
   step(dt) {
-    const row = this.row();
+    const row = this.row(), energyMax = this.energyMax();
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id]) continue;
-      if (this.energy[id] < ENERGY_MAX) this.addEnergy(id, this.energyRegen(id) * dt);
+      if (this.energy[id] < energyMax) this.addEnergy(id, this.energyRegen(id) * dt);
       if (row.passive > 0) this.addPoints(id, row.passive * dt);
       if (row.combos.length) this.readTaps(id, row);
     }
@@ -147,16 +149,22 @@ const Meters = {
     if (event.source < 0 || event.source === event.target || !Actors.isEnemy(event.source, event.target)) return;
     this.addPoints(event.source, event.amount * this.row().perDamage);
   },
+  // A new actor: everything. A spawn: a full energy bar and no half-typed combo; the match meter (points, reward
+  // progress) and the souls stay across lives (streak meters restart through resetOnDeath on the kill).
   resetActor(id) {
-    this.energy[id] = ENERGY_MAX; this.lastEnergySpend[id] = -1e9; this.points[id] = 0; this.rewardIndex[id] = 0;
-    this.souls[id] = 0; this.lifeKills[id] = 0; this.taps[id] = 0; this.tapCount[id] = 0; this.lastTap[id] = -1; this.streakDiscount[id] = 0;
+    this.resetLife(id);
+    this.points[id] = 0; this.rewardIndex[id] = 0; this.souls[id] = 0; this.lifeKills[id] = 0; this.streakDiscount[id] = 0;
+  },
+  resetLife(id) {
+    this.energy[id] = this.energyMax(); this.lastEnergySpend[id] = -1e9;
+    this.taps[id] = 0; this.tapCount[id] = 0; this.lastTap[id] = -1;
   },
   // Fills out { kind, value 0..1, ready, energy 0..1, souls } for the HUD (the energy bar shows whenever a slot uses it).
   hudState(id, out) {
     const target = out || METER_HUD;
     target.kind = this.kind(); target.value = id >= 0 ? this.fraction(id) : 0;
     target.ready = id >= 0 && Abilities.ready(id, SLOT.ULTIMATE);
-    target.energy = id >= 0 ? this.energy[id] / ENERGY_MAX : 0;
+    target.energy = id >= 0 ? this.energyFraction(id) : 0;
     target.souls = id >= 0 ? this.souls[id] : 0;
     return target;
   },
@@ -185,6 +193,7 @@ Render.addSource('souls', (batch) => {
 });
 Sim.addSystem('meters', 22, (dt) => Meters.step(dt));
 Bus.on('actor.create', (id) => Meters.resetActor(id));
+Bus.on('actor.spawn', (event) => Meters.resetLife(event.id));
 Bus.on('kill', (event) => Meters.onKill(event));
 Bus.on('score', (event) => Meters.onScore(event));
 Bus.on('damage', (event) => Meters.onDamage(event));

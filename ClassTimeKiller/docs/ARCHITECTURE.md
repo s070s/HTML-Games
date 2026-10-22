@@ -103,7 +103,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
 | `pickup` | `{ id, item, x, y, z }` | S12 |
 | `ability.cast` / `ability.end` | `{ id, ability, slot }` (`ability.end` adds `reason`: done, cancel, release, empty, stun, damage, fire, group, death, match, spawn, replace, suppressed) | S12 |
-| `ability.teleport` | `{ id, x, y, z }` an ability moved an actor (S13 drops a carried objective) | S12 |
+| `ability.teleport` | `{ id, x, y, z }` an ability with `balance.dropsObjective` (A12) moved an actor (S13 drops a carried objective) | S12 |
 | `score` | `{ id, team, points, reason }` | S13 |
 | `medal` | `{ id, medal }` | S13/S18 |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |

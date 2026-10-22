@@ -6,6 +6,8 @@
 
 const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11 };
 const BUFF_COUNT = 12;
+const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
+const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
 const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1];
 const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
@@ -29,7 +31,6 @@ const DOT_INTERVAL = 0.5;
 const FENCE_REACH = 0.6;                 // an actor this close to a fence segment touches it
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
-const RIFT_REARM = 1;
 const DECOY_HEALTH = 1;
 const STRIKE_COLOR = 0xff3030;
 const UNLIMITED_RANGE = 1e9;
@@ -44,26 +45,45 @@ const telefragRequest = { target: 0, source: -1, amount: 1000, kind: 'telefrag',
 const teleportEvent = { id: 0, x: 0, y: 0, z: 0 };
 
 // ---- Buffs: timed per-actor modifiers (speed, slow, damage, fire rate, invulnerable, invisible, regen ...) ----
+// Each kind keeps BUFF_ENTRIES overlapping entries with their own value and end time, so a strong short buff never
+// stretches to the end of a weak long one; get() reads the strongest live entry.
 const Buffs = {
-  value: new Float32Array(MAX_ACTORS * BUFF_COUNT),
-  until: new Float64Array(MAX_ACTORS * BUFF_COUNT),
+  value: new Float32Array(MAX_ACTORS * BUFF_STRIDE),
+  until: new Float64Array(MAX_ACTORS * BUFF_STRIDE),
   invisibleSet: new Uint8Array(MAX_ACTORS),   // this section set ACTOR_FLAG.INVISIBLE (so only then is it cleared here)
+  first(id, kind) { return id * BUFF_STRIDE + kind * BUFF_ENTRIES; },
+  // The same value extends its own entry; a new value takes a free entry, or the one that ends first.
   add(id, kind, value, seconds) {
-    const i = id * BUFF_COUNT + kind, now = Sim.time;
-    const running = this.until[i] > now;
-    if (!running) this.value[i] = value;
-    else this.value[i] = BUFF_LOWEST_WINS[kind] ? Math.min(this.value[i], value) : Math.max(this.value[i], value);
-    this.until[i] = Math.max(running ? this.until[i] : 0, now + seconds);
+    const first = this.first(id, kind), now = Sim.time, until = now + seconds, stored = Math.fround(value);
+    let slot = first;
+    for (let entry = first; entry < first + BUFF_ENTRIES; entry++) {
+      if (this.until[entry] > now && this.value[entry] === stored) { this.until[entry] = Math.max(this.until[entry], until); return; }
+      if (this.until[entry] < this.until[slot]) slot = entry;
+    }
+    this.value[slot] = stored;
+    this.until[slot] = until;
   },
   get(id, kind) {
-    const i = id * BUFF_COUNT + kind;
-    return this.until[i] > Sim.time ? this.value[i] : BUFF_NEUTRAL[kind];
+    const first = this.first(id, kind), now = Sim.time, lowestWins = BUFF_LOWEST_WINS[kind];
+    let best = BUFF_NEUTRAL[kind], found = false;
+    for (let entry = first; entry < first + BUFF_ENTRIES; entry++) {
+      if (this.until[entry] <= now) continue;
+      const value = this.value[entry];
+      if (!found || (lowestWins ? value < best : value > best)) { best = value; found = true; }
+    }
+    return best;
   },
-  has(id, kind) { return this.until[id * BUFF_COUNT + kind] > Sim.time; },
-  cancel(id, kind) { this.until[id * BUFF_COUNT + kind] = 0; },
-  remaining(id, kind) { return Math.max(0, this.until[id * BUFF_COUNT + kind] - Sim.time); },
+  has(id, kind) { return this.remaining(id, kind) > 0; },
+  cancel(id, kind) { const first = this.first(id, kind); this.until.fill(0, first, first + BUFF_ENTRIES); },
+  // Seconds until the last entry of the kind ends.
+  remaining(id, kind) {
+    const first = this.first(id, kind);
+    let last = 0;
+    for (let entry = first; entry < first + BUFF_ENTRIES; entry++) last = Math.max(last, this.until[entry]);
+    return Math.max(0, last - Sim.time);
+  },
   clear(id) {
-    this.until.fill(0, id * BUFF_COUNT, (id + 1) * BUFF_COUNT);
+    this.until.fill(0, id * BUFF_STRIDE, (id + 1) * BUFF_STRIDE);
     this.applyActor(id, 0);
   },
   // Writes the buffs into the hooks other sections read; runs after every ability and zone stepped.
@@ -88,7 +108,7 @@ const Buffs = {
 
 function healActor(id, amount, healer) {
   const before = Actors.health[id];
-  Actors.health[id] = Math.min(Actors.maxHealth[id], before + amount);
+  Damage.regenerate(id, amount, Actors.maxHealth[id]);
   if (healer >= 0 && healer !== id) Meters.addHealing(healer, Actors.health[id] - before);
 }
 // A34: enemies touching the wrathful actor die (lethal 'crush' damage credited to it).
@@ -150,10 +170,12 @@ function driveActor(id, vx, vy, vz) {
   const lift = Math.max(vy, LIFT_OFF_SPEED);
   emitImpulse(id, (vx - Actors.vx[id]) / knockback, (lift - Actors.vy[id]) / knockback, (vz - Actors.vz[id]) / knockback);
 }
-function moveActorTo(id, x, y, z) {
+// Rows with balance.dropsObjective (A12) announce the move: S13 drops the objective the actor carries.
+function moveActorTo(id, x, y, z, row) {
   Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
+  if (!row.balance.dropsObjective) return;
   teleportEvent.id = id; teleportEvent.x = x; teleportEvent.y = y; teleportEvent.z = z;
-  Bus.emit('ability.teleport', teleportEvent);   // S13 drops a carried objective
+  Bus.emit('ability.teleport', teleportEvent);
 }
 // A free standing spot below the point (x, probeY, z): onto the floor under it (or hanging at the point minus the eye
 // height), stepped back toward (fromX, fromZ) until the capsule fits.
@@ -178,114 +200,114 @@ const AbilityZones = {
   yaw: new Float32Array(ZONE_CAP), radius: new Float32Array(ZONE_CAP), height: new Float32Array(ZONE_CAP),
   timeLeft: new Float32Array(ZONE_CAP), timer: new Float32Array(ZONE_CAP), value: new Float32Array(ZONE_CAP), born: new Float64Array(ZONE_CAP),
   rearm: new Float64Array(MAX_ACTORS),   // fences and rifts: an actor is affected again only after this Sim.time
-  behaviours: [],                        // ZONE_KIND index -> { step(z, dt) -> false removes, draw(batch, z), remove(z) }
+  behaviours: [],                        // ZONE_KIND index -> { step(zone, dt) -> false removes, remove(zone) }
   count: 0,
 
   add(kind, id, row, x, y, z, seconds) {
-    const z0 = this.freeSlot();
-    this.alive[z0] = 1; this.kind[z0] = kind; this.owner[z0] = id; this.team[z0] = Actors.team[id]; this.ability[z0] = row ? row.index : -1;
-    this.persist[z0] = row && row.params.persist ? 1 : 0; this.target[z0] = -1; this.other[z0] = -1;
-    this.x[z0] = this.x2[z0] = x; this.y[z0] = this.y2[z0] = y; this.z[z0] = this.z2[z0] = z;
-    this.yaw[z0] = Actors.yaw[id]; this.radius[z0] = row ? row.params.radius || 0 : 0; this.height[z0] = row ? row.params.height || 0 : 0;
-    this.timeLeft[z0] = seconds; this.timer[z0] = 0; this.value[z0] = 0; this.born[z0] = Sim.time;
+    const slot = this.freeSlot();
+    this.alive[slot] = 1; this.kind[slot] = kind; this.owner[slot] = id; this.team[slot] = Actors.team[id]; this.ability[slot] = row ? row.index : -1;
+    this.persist[slot] = row && row.params.persist ? 1 : 0; this.target[slot] = -1; this.other[slot] = -1;
+    this.x[slot] = this.x2[slot] = x; this.y[slot] = this.y2[slot] = y; this.z[slot] = this.z2[slot] = z;
+    this.yaw[slot] = Actors.yaw[id]; this.radius[slot] = row ? row.params.radius || 0 : 0; this.height[slot] = row ? row.params.height || 0 : 0;
+    this.timeLeft[slot] = seconds; this.timer[slot] = 0; this.value[slot] = 0; this.born[slot] = Sim.time;
     this.count++;
-    return z0;
+    return slot;
   },
   freeSlot() {
     let oldest = 0;
-    for (let z = 0; z < ZONE_CAP; z++) {
-      if (!this.alive[z]) return z;
-      if (this.born[z] < this.born[oldest]) oldest = z;
+    for (let zone = 0; zone < ZONE_CAP; zone++) {
+      if (!this.alive[zone]) return zone;
+      if (this.born[zone] < this.born[oldest]) oldest = zone;
     }
     this.remove(oldest);
     return oldest;
   },
-  remove(z) {
-    if (!this.alive[z]) return;
-    const behaviour = this.behaviours[this.kind[z]];
-    if (behaviour && behaviour.remove) behaviour.remove(z);
-    this.alive[z] = 0;
+  remove(zone) {
+    if (!this.alive[zone]) return;
+    const behaviour = this.behaviours[this.kind[zone]];
+    if (behaviour && behaviour.remove) behaviour.remove(zone);
+    this.alive[zone] = 0;
     this.count--;
   },
   find(kind, owner) {
-    for (let z = 0; z < ZONE_CAP; z++) if (this.alive[z] && this.kind[z] === kind && this.owner[z] === owner) return z;
+    for (let zone = 0; zone < ZONE_CAP; zone++) if (this.alive[zone] && this.kind[zone] === kind && this.owner[zone] === owner) return zone;
     return -1;
   },
   // On death the owner's zones go, except the deployed ones (persist); match end and spawn-time cleanups take all.
   removeOwned(id, keepPersistent) {
-    for (let z = 0; z < ZONE_CAP; z++) if (this.alive[z] && this.owner[z] === id && !(keepPersistent && this.persist[z])) this.remove(z);
+    for (let zone = 0; zone < ZONE_CAP; zone++) if (this.alive[zone] && this.owner[zone] === id && !(keepPersistent && this.persist[zone])) this.remove(zone);
   },
-  clear() { for (let z = 0; z < ZONE_CAP; z++) this.remove(z); this.rearm.fill(0); },
+  clear() { for (let zone = 0; zone < ZONE_CAP; zone++) this.remove(zone); this.rearm.fill(0); },
   step(dt) {
-    for (let z = 0; z < ZONE_CAP; z++) {
-      if (!this.alive[z] || this.born[z] === Sim.time) continue;   // a zone placed this step starts working next step
-      const behaviour = this.behaviours[this.kind[z]];
-      if (behaviour.step && behaviour.step(z, dt) === false) { this.remove(z); continue; }
-      this.timeLeft[z] -= dt;
-      if (this.timeLeft[z] <= TICK_EPSILON) this.remove(z);
+    for (let zone = 0; zone < ZONE_CAP; zone++) {
+      if (!this.alive[zone] || this.born[zone] === Sim.time) continue;   // a zone placed this step starts working next step
+      const behaviour = this.behaviours[this.kind[zone]];
+      if (behaviour.step && behaviour.step(zone, dt) === false) { this.remove(zone); continue; }
+      this.timeLeft[zone] -= dt;
+      if (this.timeLeft[zone] <= TICK_EPSILON) this.remove(zone);
     }
   },
-  inside(z, id) {
-    const dy = Actors.y[id] - this.y[z];
-    if (this.height[z] > 0 && (dy < -1 || dy > this.height[z])) return false;
-    return Math.hypot(Actors.x[id] - this.x[z], Actors.z[id] - this.z[z]) <= this.radius[z];
+  inside(zone, id) {
+    const dy = Actors.y[id] - this.y[zone];
+    if (this.height[zone] > 0 && (dy < -1 || dy > this.height[zone])) return false;
+    return Math.hypot(Actors.x[id] - this.x[zone], Actors.z[id] - this.z[zone]) <= this.radius[zone];
   },
-  insideSphere(z, x, y, z3) { return distanceSquared3(x, y, z3, this.x[z], this.y[z], this.z[z]) <= this.radius[z] * this.radius[z]; },
+  insideSphere(zone, x, y, pointZ) { return distanceSquared3(x, y, pointZ, this.x[zone], this.y[zone], this.z[zone]) <= this.radius[zone] * this.radius[zone]; },
 };
 
-function zoneRow(z) { return CAT.abilities[AbilityZones.ability[z]]; }
-// Applies fn(z, actorId) to every live actor inside the zone that is an ally (allies true) or an enemy of the owner.
-function forZoneActors(z, allies, fn) {
-  const owner = AbilityZones.owner[z];
+function zoneRow(zone) { return CAT.abilities[AbilityZones.ability[zone]]; }
+// Applies fn(zone, actorId) to every live actor inside the zone that is an ally (allies true) or an enemy of the owner.
+function forZoneActors(zone, allies, fn) {
+  const owner = AbilityZones.owner[zone];
   for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || !AbilityZones.inside(z, id)) continue;
-    if (alliesOf(owner, id) === allies) fn(z, id);
+    if (!Actors.alive[id] || !AbilityZones.inside(zone, id)) continue;
+    if (alliesOf(owner, id) === allies) fn(zone, id);
   }
 }
-function liftActor(z, id) {
-  if (Actors.y[id] - AbilityZones.y[z] >= AbilityZones.height[z]) return;
-  const speed = zoneRow(z).params.speed;
+function liftActor(zone, id) {
+  if (Actors.y[id] - AbilityZones.y[zone] >= AbilityZones.height[zone]) return;
+  const speed = zoneRow(zone).params.speed;
   driveActor(id, Actors.vx[id], speed, Actors.vz[id]);
 }
-function healInZone(z, id) { healActor(id, zoneRow(z).params.rate * TICK_SECONDS, AbilityZones.owner[z]); }
-function slowInZone(z, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[z], TICK_BUFF); }
+function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
+function slowInZone(zone, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF); }
 // The strike lands after its delay: one blast through Damage.explode (no falloff inside the marked circle).
-function strikeStep(z, dt) {
-  if (AbilityZones.timeLeft[z] > dt + TICK_EPSILON) return true;
-  const row = zoneRow(z), blast = Damage.blast();
-  blast.x = AbilityZones.x[z]; blast.y = AbilityZones.y[z] + 0.5; blast.z = AbilityZones.z[z]; blast.owner = AbilityZones.owner[z];
+function strikeStep(zone, dt) {
+  if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;
+  const row = zoneRow(zone), blast = Damage.blast();
+  blast.x = AbilityZones.x[zone]; blast.y = AbilityZones.y[zone] + 0.5; blast.z = AbilityZones.z[zone]; blast.owner = AbilityZones.owner[zone];
   blast.radius = row.params.radius; blast.damage = row.params.damage; blast.weapon = row.id; blast.element = 'thermal';
   Damage.explode(blast);
   return false;
 }
 // Swarm and other damage over time attached to a target: ticks through Damage.apply as 'dot'.
-function swarmStep(z, dt) {
-  const target = AbilityZones.target[z];
+function swarmStep(zone, dt) {
+  const target = AbilityZones.target[zone];
   if (target < 0 || !Actors.alive[target]) return false;
-  AbilityZones.x[z] = Actors.x[target]; AbilityZones.y[z] = Actors.y[target]; AbilityZones.z[z] = Actors.z[target];
-  AbilityZones.timer[z] += dt;
-  if (AbilityZones.timer[z] < DOT_INTERVAL - TICK_EPSILON) return true;
-  AbilityZones.timer[z] -= DOT_INTERVAL;
+  AbilityZones.x[zone] = Actors.x[target]; AbilityZones.y[zone] = Actors.y[target]; AbilityZones.z[zone] = Actors.z[target];
+  AbilityZones.timer[zone] += dt;
+  if (AbilityZones.timer[zone] < DOT_INTERVAL - TICK_EPSILON) return true;
+  AbilityZones.timer[zone] -= DOT_INTERVAL;
   const info = Damage.info();
-  info.amount = AbilityZones.value[z] * DOT_INTERVAL; info.kind = 'dot'; info.weapon = zoneRow(z).id; info.element = 'toxin';
+  info.amount = AbilityZones.value[zone] * DOT_INTERVAL; info.kind = 'dot'; info.weapon = zoneRow(zone).id; info.element = 'toxin';
   info.x = Actors.x[target]; info.y = Actors.y[target] + 1; info.z = Actors.z[target];
-  Damage.apply(AbilityZones.owner[z], target, info);
+  Damage.apply(AbilityZones.owner[zone], target, info);
   return true;
 }
 // A field that follows its owner (A19 versus) or covers everything (A19 single player, radius UNLIMITED_RANGE).
-function slowFieldStep(z) {
-  const owner = AbilityZones.owner[z];
+function slowFieldStep(zone) {
+  const owner = AbilityZones.owner[zone];
   if (!Actors.alive[owner]) return false;
-  AbilityZones.x[z] = Actors.x[owner]; AbilityZones.y[z] = Actors.y[owner]; AbilityZones.z[z] = Actors.z[owner];
-  forZoneActors(z, false, slowInZone);
+  AbilityZones.x[zone] = Actors.x[owner]; AbilityZones.y[zone] = Actors.y[owner]; AbilityZones.z[zone] = Actors.z[owner];
+  forZoneActors(zone, false, slowInZone);
   return true;
 }
-function fenceStep(z) {
-  const partner = AbilityZones.other[z];
+function fenceStep(zone) {
+  const partner = AbilityZones.other[zone];
   if (partner < 0 || !AbilityZones.alive[partner]) return true;
   for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || !Actors.isEnemy(AbilityZones.owner[z], id) || AbilityZones.rearm[id] > Sim.time) continue;
-    if (touchesSegment(id, AbilityZones.x[z], AbilityZones.y[z], AbilityZones.z[z], AbilityZones.x[partner], AbilityZones.z[partner])) zapFence(z, id);
+    if (!Actors.alive[id] || !Actors.isEnemy(AbilityZones.owner[zone], id) || AbilityZones.rearm[id] > Sim.time) continue;
+    if (touchesSegment(id, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], AbilityZones.x[partner], AbilityZones.z[partner])) zapFence(zone, id);
   }
   return true;
 }
@@ -296,54 +318,54 @@ function touchesSegment(id, ax, ay, az, bx, bz) {
   const t = length > 0 ? clamp(((Actors.x[id] - ax) * sx + (Actors.z[id] - az) * sz) / length, 0, 1) : 0;
   return Math.hypot(Actors.x[id] - (ax + sx * t), Actors.z[id] - (az + sz * t)) <= FENCE_REACH;
 }
-function zapFence(z, id) {
-  const row = zoneRow(z), info = Damage.info();
+function zapFence(zone, id) {
+  const row = zoneRow(zone), info = Damage.info();
   info.amount = row.params.damage; info.kind = 'hit'; info.weapon = row.id; info.element = 'arc';
   info.x = Actors.x[id]; info.y = Actors.y[id] + 1; info.z = Actors.z[id];
-  Damage.apply(AbilityZones.owner[z], id, info);
+  Damage.apply(AbilityZones.owner[zone], id, info);
   Buffs.add(id, BUFF.SLOW, row.params.slow, row.params.slowSeconds);
   AbilityZones.rearm[id] = Sim.time + row.params.rearm;
 }
-function riftStep(z) {
-  const exit = AbilityZones.other[z];
+function riftStep(zone) {
+  const exit = AbilityZones.other[zone], row = zoneRow(zone);
   if (exit < 0 || !AbilityZones.alive[exit]) return false;
   for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || !alliesOf(AbilityZones.owner[z], id) || AbilityZones.rearm[id] > Sim.time || !AbilityZones.inside(z, id)) continue;
-    moveActorTo(id, AbilityZones.x[exit], AbilityZones.y[exit], AbilityZones.z[exit]);
-    AbilityZones.rearm[id] = Sim.time + RIFT_REARM;
+    if (!Actors.alive[id] || !alliesOf(AbilityZones.owner[zone], id) || AbilityZones.rearm[id] > Sim.time || !AbilityZones.inside(zone, id)) continue;
+    moveActorTo(id, AbilityZones.x[exit], AbilityZones.y[exit], AbilityZones.z[exit], row);
+    AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   }
   return true;
 }
 // Possession and frenzy swap the target's team for a while; the original team comes back when the zone goes.
-function restoreTeam(z) {
-  const target = AbilityZones.target[z];
-  if (target >= 0 && Actors.kind[target] !== ACTOR_KIND.NONE) Actors.team[target] = AbilityZones.value[z];
+function restoreTeam(zone) {
+  const target = AbilityZones.target[zone];
+  if (target >= 0 && Actors.kind[target] !== ACTOR_KIND.NONE) Actors.team[target] = AbilityZones.value[zone];
 }
-function droneStep(z, dt) {
-  const owner = AbilityZones.owner[z], row = zoneRow(z);
+function droneStep(zone, dt) {
+  const owner = AbilityZones.owner[zone], row = zoneRow(zone);
   Vec.fromAngles(effectDirection, Actors.yaw[owner], Actors.pitch[owner]);
   const step = row.params.speed * dt;
-  if (!World.raycast(AbilityZones.x[z], AbilityZones.y[z], AbilityZones.z[z], effectDirection.x, effectDirection.y, effectDirection.z, step + 0.3, effectHit)) {
-    AbilityZones.x[z] += effectDirection.x * step; AbilityZones.y[z] += effectDirection.y * step; AbilityZones.z[z] += effectDirection.z * step;
+  if (!World.raycast(AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], effectDirection.x, effectDirection.y, effectDirection.z, step + 0.3, effectHit)) {
+    AbilityZones.x[zone] += effectDirection.x * step; AbilityZones.y[zone] += effectDirection.y * step; AbilityZones.z[zone] += effectDirection.z * step;
   }
-  revealEnemies(owner, AbilityZones.x[z], AbilityZones.y[z], AbilityZones.z[z], row.params.reveal, SIGHT_INTERVAL);
+  revealEnemies(owner, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], row.params.reveal, SIGHT_INTERVAL);
   return true;
 }
-function decoyStep(z) {
-  const decoy = AbilityZones.target[z];
+function decoyStep(zone) {
+  const decoy = AbilityZones.target[zone];
   if (decoy < 0 || !Actors.alive[decoy]) return false;
-  Actors.moveX[decoy] = AbilityZones.x2[z]; Actors.moveZ[decoy] = AbilityZones.z2[z]; Actors.aimYaw[decoy] = AbilityZones.yaw[z];
+  Actors.moveX[decoy] = AbilityZones.x2[zone]; Actors.moveZ[decoy] = AbilityZones.z2[zone]; Actors.aimYaw[decoy] = AbilityZones.yaw[zone];
   return true;
 }
-function removeDecoy(z) {
-  const decoy = AbilityZones.target[z];
-  AbilityZones.target[z] = -1;
-  if (decoy >= 0 && DecoyState.zone[decoy] === z) { DecoyState.zone[decoy] = -1; Actors.remove(decoy); }
+function removeDecoy(zone) {
+  const decoy = AbilityZones.target[zone];
+  AbilityZones.target[zone] = -1;
+  if (decoy >= 0 && DecoyState.zone[decoy] === zone) { DecoyState.zone[decoy] = -1; Actors.remove(decoy); }
 }
-function lureStep(z) {
+function lureStep(zone) {
   for (let k = 0; k < 2; k++) {
-    const victim = k === 0 ? AbilityZones.target[z] : AbilityZones.other[z];
-    if (victim >= 0 && Damage.hasStatus(victim, 'sleep')) Actors.aimYaw[victim] = Math.atan2(AbilityZones.x[z] - Actors.x[victim], AbilityZones.z[z] - Actors.z[victim]);
+    const victim = k === 0 ? AbilityZones.target[zone] : AbilityZones.other[zone];
+    if (victim >= 0 && Damage.hasStatus(victim, 'sleep')) Actors.aimYaw[victim] = Math.atan2(AbilityZones.x[zone] - Actors.x[victim], AbilityZones.z[zone] - Actors.z[victim]);
   }
   return true;
 }
@@ -386,9 +408,9 @@ const Footprints = {
   clear() { this.time.fill(-1e9); this.owner.fill(-1); },
 };
 
-AbilityZones.behaviours[ZONE_KIND.LIFT] = { step(z) { forZoneActors(z, true, liftActor); return true; } };
+AbilityZones.behaviours[ZONE_KIND.LIFT] = { step(zone) { forZoneActors(zone, true, liftActor); return true; } };
 AbilityZones.behaviours[ZONE_KIND.SMOKE] = {};
-AbilityZones.behaviours[ZONE_KIND.HEAL] = { step(z) { forZoneActors(z, true, healInZone); return true; } };
+AbilityZones.behaviours[ZONE_KIND.HEAL] = { step(zone) { forZoneActors(zone, true, healInZone); return true; } };
 AbilityZones.behaviours[ZONE_KIND.DOME] = {};
 AbilityZones.behaviours[ZONE_KIND.WALL] = {};
 AbilityZones.behaviours[ZONE_KIND.STRIKE] = { step: strikeStep };
@@ -409,8 +431,8 @@ function castZone(id, row) {
   const kind = ZONE_KIND[row.params.zone.toUpperCase()];
   const at = zonePlacement(id, row, placeAt);
   const seconds = row.params.zone === 'strike' ? row.params.delay : row.duration;
-  const z = AbilityZones.add(kind, id, row, at.x, at.y, at.z, seconds);
-  if (row.params.zone === 'wall' || row.params.zone === 'smoke') { AbilityZones.radius[z] = row.params.width / 2; AbilityZones.height[z] = row.params.height; }
+  const zone = AbilityZones.add(kind, id, row, at.x, at.y, at.z, seconds);
+  if (row.params.zone === 'wall' || row.params.zone === 'smoke') { AbilityZones.radius[zone] = row.params.width / 2; AbilityZones.height[zone] = row.params.height; }
   return true;
 }
 // The floor under the aimed point within range (or the point itself when there is no floor below it).
@@ -443,7 +465,7 @@ function castBlink(id, row) {
   }
   const arrival = findArrival(id, fromX, fromZ, x, y, z, placeAt) || (row.params.ledgeGrab ? findArrival(id, fromX, fromZ, x, y + LEDGE_LIFT, z, placeAt) : null);
   if (!arrival) return false;
-  moveActorTo(id, arrival.x, arrival.y, arrival.z);
+  moveActorTo(id, arrival.x, arrival.y, arrival.z, row);
   if (row.balance.fireDelay) Buffs.add(id, BUFF.NO_FIRE, row.balance.fireDelay, row.balance.fireDelay);
   return true;
 }
@@ -491,7 +513,7 @@ function stepGrapple(id, row) {
 function castRewind(id, row) {
   const i = RewindHistory.past(id, row.params.seconds);
   if (i < 0) return false;
-  moveActorTo(id, RewindHistory.x[i], RewindHistory.y[i], RewindHistory.z[i]);
+  moveActorTo(id, RewindHistory.x[i], RewindHistory.y[i], RewindHistory.z[i], row);
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
   Actors.health[id] = Math.max(1, RewindHistory.health[i]); Actors.armor[id] = RewindHistory.armor[i]; Actors.shield[id] = RewindHistory.shield[i];
   RewindHistory.reset(id);
@@ -506,20 +528,20 @@ function stepGlide(id, row, slot, dt) {
 // beacon: first use throws the beacon to the aimed floor; the next use teleports there (telefrags whoever stands on it).
 function castBeacon(id, row) {
   const existing = AbilityZones.find(ZONE_KIND.BEACON, id);
-  if (existing >= 0) { teleportToBeacon(id, existing); return true; }
+  if (existing >= 0) { teleportToBeacon(id, existing, row); return true; }
   const at = aimedFloor(id, row.range, placeAt);
   AbilityZones.add(ZONE_KIND.BEACON, id, row, at.x, at.y, at.z, 3600);
   return true;
 }
-function teleportToBeacon(id, z) {
-  const x = AbilityZones.x[z], y = AbilityZones.y[z], zz = AbilityZones.z[z];
-  AbilityZones.remove(z);
+function teleportToBeacon(id, zone, row) {
+  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], beaconZ = AbilityZones.z[zone];
+  AbilityZones.remove(zone);
   for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !Actors.alive[other] || Math.hypot(Actors.x[other] - x, Actors.z[other] - zz) > ACTOR_RADIUS * 2 || Math.abs(Actors.y[other] - y) > STAND_HEIGHT) continue;
-    telefragRequest.target = other; telefragRequest.source = id; telefragRequest.x = x; telefragRequest.y = y; telefragRequest.z = zz;
+    if (other === id || !Actors.alive[other] || Math.hypot(Actors.x[other] - x, Actors.z[other] - beaconZ) > ACTOR_RADIUS * 2 || Math.abs(Actors.y[other] - y) > STAND_HEIGHT) continue;
+    telefragRequest.target = other; telefragRequest.source = id; telefragRequest.x = x; telefragRequest.y = y; telefragRequest.z = beaconZ;
     Bus.emit('damage.request', telefragRequest);
   }
-  moveActorTo(id, x, y, zz);
+  moveActorTo(id, x, y, beaconZ, row);
 }
 const PulseState = { done: new Uint8Array(MAX_ACTORS * ABILITY_SLOT_COUNT) };
 function castPulse(id, row, slot) { PulseState.done[Abilities.index(id, slot)] = 0; return true; }
@@ -548,30 +570,30 @@ function stepDrone(id, row) {
   return AbilityZones.find(ZONE_KIND.DRONE, id) >= 0;
 }
 function endDrone(id, row) {
-  const z = AbilityZones.find(ZONE_KIND.DRONE, id);
-  if (z < 0) return;
-  const count = enemiesNear(id, AbilityZones.x[z], AbilityZones.y[z], AbilityZones.z[z], row.params.empRadius, true);
+  const zone = AbilityZones.find(ZONE_KIND.DRONE, id);
+  if (zone < 0) return;
+  const count = enemiesNear(id, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], row.params.empRadius, true);
   for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, row.params.empSeconds, 1); Abilities.suppress(effectIds[k], row.params.empSeconds); }
-  AbilityZones.remove(z);
+  AbilityZones.remove(zone);
 }
 // fence: each use plants a node; a node links to the owner's newest node within params.link metres.
 function castFence(id, row) {
   const at = aimedFloor(id, row.range, placeAt);
   const previous = newestZone(ZONE_KIND.FENCE, id);
-  const z = AbilityZones.add(ZONE_KIND.FENCE, id, row, at.x, at.y, at.z, row.params.life);
-  if (previous >= 0 && Math.hypot(AbilityZones.x[previous] - at.x, AbilityZones.z[previous] - at.z) <= row.params.link) AbilityZones.other[z] = previous;
+  const zone = AbilityZones.add(ZONE_KIND.FENCE, id, row, at.x, at.y, at.z, row.params.life);
+  if (previous >= 0 && Math.hypot(AbilityZones.x[previous] - at.x, AbilityZones.z[previous] - at.z) <= row.params.link) AbilityZones.other[zone] = previous;
   return true;
 }
 function newestZone(kind, owner) {
   let newest = -1;
-  for (let z = 0; z < ZONE_CAP; z++) if (AbilityZones.alive[z] && AbilityZones.kind[z] === kind && AbilityZones.owner[z] === owner && (newest < 0 || AbilityZones.born[z] >= AbilityZones.born[newest])) newest = z;
+  for (let zone = 0; zone < ZONE_CAP; zone++) if (AbilityZones.alive[zone] && AbilityZones.kind[zone] === kind && AbilityZones.owner[zone] === owner && (newest < 0 || AbilityZones.born[zone] >= AbilityZones.born[newest])) newest = zone;
   return newest;
 }
 // timebend (ABL-004): versus = a slow field around the user; single player / PvE = the whole world except the user.
 function castTimebend(id, row) {
-  const z = AbilityZones.add(ZONE_KIND.SLOW, id, row, Actors.x[id], Actors.y[id], Actors.z[id], row.duration);
-  AbilityZones.radius[z] = matchFamily() === 'versus' ? row.params.radius : UNLIMITED_RANGE;
-  AbilityZones.value[z] = row.params.scale;
+  const zone = AbilityZones.add(ZONE_KIND.SLOW, id, row, Actors.x[id], Actors.y[id], Actors.z[id], row.duration);
+  AbilityZones.radius[zone] = matchFamily() === 'versus' ? row.params.radius : UNLIMITED_RANGE;
+  AbilityZones.value[zone] = row.params.scale;
   return true;
 }
 // push: enemies in the cone are knocked back; enemy projectiles in it turn around and become the user's.
@@ -614,30 +636,30 @@ function closer(from, a, b) {
 // mesmer: up to params.targets visible enemies within range fall into a stare (sleep: damage wakes them) facing the lure.
 function castMesmer(id, row) {
   const count = enemiesNear(id, Actors.x[id], Actors.y[id], Actors.z[id], row.range, true);
-  const z = AbilityZones.add(ZONE_KIND.LURE, id, row, Actors.x[id] + Math.sin(Actors.yaw[id]) * 2, Actors.y[id], Actors.z[id] + Math.cos(Actors.yaw[id]) * 2, row.duration);
+  const zone = AbilityZones.add(ZONE_KIND.LURE, id, row, Actors.x[id] + Math.sin(Actors.yaw[id]) * 2, Actors.y[id], Actors.z[id] + Math.cos(Actors.yaw[id]) * 2, row.duration);
   let taken = 0;
   for (let k = 0; k < count && taken < row.params.targets; k++) {
     const victim = effectIds[k];
     if (!World.lineClear(Actors.x[id], Actors.eyeY(id), Actors.z[id], Actors.x[victim], Actors.eyeY(victim), Actors.z[victim])) continue;
     Damage.addStatus(victim, 'sleep', id, row.duration, 1);
-    if (taken === 0) AbilityZones.target[z] = victim; else AbilityZones.other[z] = victim;
+    if (taken === 0) AbilityZones.target[zone] = victim; else AbilityZones.other[zone] = victim;
     taken++;
   }
-  if (!taken) AbilityZones.remove(z);
+  if (!taken) AbilityZones.remove(zone);
   return taken > 0;
 }
 // possess (A23, fodder and beasts) and frenzy (A24): the target changes side for the duration (frenzy: hostile to all).
 function castTeamSwap(id, row, newTeam) {
   const target = aimTarget(id, row.range);
   if (target < 0 || (row.effect === 'possess' && !isFodderOrBeast(target))) return false;
-  const z = AbilityZones.add(ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
-  AbilityZones.target[z] = target; AbilityZones.value[z] = Actors.team[target];
+  const zone = AbilityZones.add(ZONE_KIND.SWAP, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
+  AbilityZones.target[zone] = target; AbilityZones.value[zone] = Actors.team[target];
   Actors.team[target] = newTeam;
   return true;
 }
 function isFodderOrBeast(id) {
   const profile = Actors.profile[id];
-  return Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && (profile.fodder === true || profile.beast === true);
+  return isFodder(id) || (Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.beast === true);
 }
 function castRevive(id, row) {
   for (let other = 0; other < Actors.count; other++) {
@@ -668,8 +690,8 @@ function castSwarm(id, row) {
 }
 function attachSwarm(id, row, target) {
   if (target < 0) return false;
-  const z = AbilityZones.add(ZONE_KIND.SWARM, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
-  AbilityZones.target[z] = target; AbilityZones.value[z] = row.params.dps; AbilityZones.radius[z] = 1;
+  const zone = AbilityZones.add(ZONE_KIND.SWARM, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
+  AbilityZones.target[zone] = target; AbilityZones.value[zone] = row.params.dps; AbilityZones.radius[zone] = 1;
   return true;
 }
 // decoy: a one-hit double on the user's team keeps the user's last movement input for the duration.
@@ -678,10 +700,10 @@ function castDecoy(id, row) {
   if (decoy < 0) return false;
   Actors.x[decoy] = Actors.prevX[decoy] = Actors.x[id]; Actors.y[decoy] = Actors.prevY[decoy] = Actors.y[id]; Actors.z[decoy] = Actors.prevZ[decoy] = Actors.z[id];
   Actors.yaw[decoy] = Actors.aimYaw[decoy] = Actors.yaw[id]; Actors.alive[decoy] = 1; Actors.health[decoy] = DECOY_HEALTH;
-  const z = AbilityZones.add(ZONE_KIND.DECOY, id, row, Actors.x[id], Actors.y[id], Actors.z[id], row.duration);
-  AbilityZones.target[z] = decoy; AbilityZones.yaw[z] = Actors.yaw[id];
-  AbilityZones.x2[z] = Actors.moveX[id]; AbilityZones.z2[z] = Math.abs(Actors.moveX[id]) + Math.abs(Actors.moveZ[id]) > 0.1 ? Actors.moveZ[id] : 1;
-  DecoyState.zone[decoy] = z;
+  const zone = AbilityZones.add(ZONE_KIND.DECOY, id, row, Actors.x[id], Actors.y[id], Actors.z[id], row.duration);
+  AbilityZones.target[zone] = decoy; AbilityZones.yaw[zone] = Actors.yaw[id];
+  AbilityZones.x2[zone] = Actors.moveX[id]; AbilityZones.z2[zone] = Math.abs(Actors.moveX[id]) + Math.abs(Actors.moveZ[id]) > 0.1 ? Actors.moveZ[id] : 1;
+  DecoyState.zone[decoy] = zone;
   return true;
 }
 // telekinesis (A35): the lifter's pull on press and its punt on release, without the weapon in a slot.
@@ -702,7 +724,7 @@ function castRift(id, row) {
   const entry = AbilityZones.add(ZONE_KIND.RIFT, id, row, Actors.x[id], Actors.y[id], Actors.z[id], row.duration);
   const exit = AbilityZones.add(ZONE_KIND.RIFT, id, row, at.x, at.y, at.z, row.duration);
   AbilityZones.other[entry] = exit; AbilityZones.other[exit] = entry;
-  AbilityZones.rearm[id] = Sim.time + RIFT_REARM;
+  AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   return true;
 }
 // rally: every living ally (the user alone without a team) gains surplus shield and speed for the duration.
@@ -717,8 +739,10 @@ function castRally(id, row) {
 
 // ---- Suit weaves (HPP08 energy bar) ----
 function stepSuitArmor(id) { Buffs.add(id, BUFF.ENERGY_REGEN, CAT.abilities.byId('bulwark').params.regenScale, TICK_BUFF); return true; }
-function drainSuitSpeed(id, row) { return !row.params.sprintOnly || (Actors.flags[id] & ACTOR_FLAG.SPRINTING) ? row.costPerSecond : 0; }
-function stepSuitSpeed(id, row) { Buffs.add(id, BUFF.SPEED, row.params.speed, TICK_BUFF); return true; }
+// A02 works (speed and drain) only while sprinting when params.sprintOnly is set.
+function overdriveWorking(id, row) { return !row.params.sprintOnly || (Actors.flags[id] & ACTOR_FLAG.SPRINTING) !== 0; }
+function drainSuitSpeed(id, row) { return overdriveWorking(id, row) ? row.costPerSecond : 0; }
+function stepSuitSpeed(id, row) { if (overdriveWorking(id, row)) Buffs.add(id, BUFF.SPEED, row.params.speed, TICK_BUFF); return true; }
 function stepSuitStrength(id, row) { Buffs.add(id, BUFF.MELEE, row.params.melee, TICK_BUFF); return true; }
 function drainCloak(id, row) { return Move.horizontalSpeed(id) > row.params.stillSpeed ? row.costPerSecond : row.params.stillCostPerSecond; }
 function stepCloak(id) { Buffs.add(id, BUFF.INVISIBLE, 1, TICK_BUFF); return true; }
@@ -727,16 +751,17 @@ function endCloak(id, row, slot, reason) {
   Buffs.cancel(id, BUFF.INVISIBLE);
   Buffs.applyInvisible(id, false);
 }
-// A03 strength jump (height x params.jumpHeight, so velocity x its square root) and steadier aim, each paid per use.
+// A03 strength jump (height x params.jumpHeight, so velocity x its square root) and melee, each paid params.useCost;
+// steadier aim is free while the weave is on.
 function strengthJump(event) {
   const row = CAT.abilities.byId('colossusweave');
-  if (!Abilities.isActive(event.id, row.id) || !Meters.spendEnergy(event.id, row.cost)) return;
+  if (!Abilities.isActive(event.id, row.id) || !Meters.spendEnergy(event.id, row.params.useCost)) return;
   Actors.vy[event.id] *= Math.sqrt(row.params.jumpHeight);
 }
 function strengthShot(event) {
   const row = CAT.abilities.byId('colossusweave');
   if (!Abilities.isActive(event.id, row.id)) return;
-  if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.cost); return; }
+  if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.params.useCost); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
 // Fire rate buffs: the cooldown the shot just started is shortened by 1 - 1 / rate.
@@ -781,9 +806,15 @@ Object.assign(Abilities.effects, {
 });
 
 // ---- Hero passives (kinds other than an ability in the passive slot) ----
+// The support regen (H06, H07) is the HPP05 role regen of S11 (Damage.roleOf below); shieldRegen (H02) adds its own
+// shield recharge on top of the preset one.
 Object.assign(Abilities.passives, {
-  regen: { step(id, passive, dt) { if (Sim.time - Damage.lastDamageTime[id] >= passive.delay) healActor(id, passive.rate * dt, -1); } },
+  shieldRegen: { step: stepShieldRegen },
 });
+function stepShieldRegen(id, passive, dt) {
+  if (Sim.time - Damage.lastDamageTime[id] < passive.delay) return;
+  Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + passive.rate * dt);
+}
 function heroPassive(id, kind) {
   const hero = Abilities.hero[id];
   return hero && hero.passive.kind === kind ? hero.passive : null;
@@ -798,6 +829,12 @@ function stepHeroPassives(dt) {
 }
 Abilities.passiveFlag = (id, flag) => { const passive = heroPassive(id, 'flag'); return !!passive && passive.flag === flag; };
 Abilities.hiddenFromPulse = null;   // fn(id) -> true for actors pulses skip (S13 fills it: Ghost perk)
+// HPP05 role regen reads the role of this life: the hero's role in hero rulesets, else the bot profile's.
+Damage.roleOf = (id) => {
+  const hero = Abilities.hero[id], profile = Actors.profile[id];
+  if (hero) return hero.role;
+  return profile && profile.role ? profile.role : '';
+};
 
 // ---- Damage hooks ----
 Damage.addAttackerScale((source, target, info) => {
@@ -824,32 +861,32 @@ function bulwarkAbsorb(target, amount) {
 }
 // Domes stop shots that cross their surface; amp walls stop shots from the front.
 function shotBlocked(source, target) {
-  for (let z = 0; z < ZONE_CAP; z++) {
-    if (!AbilityZones.alive[z]) continue;
-    if (AbilityZones.kind[z] === ZONE_KIND.DOME && domeSeparates(z, source, target)) return true;
-    if (AbilityZones.kind[z] === ZONE_KIND.WALL && wallCrossing(z, source, target) > 0 && Actors.isEnemy(AbilityZones.owner[z], source)) return true;
+  for (let zone = 0; zone < ZONE_CAP; zone++) {
+    if (!AbilityZones.alive[zone]) continue;
+    if (AbilityZones.kind[zone] === ZONE_KIND.DOME && domeSeparates(zone, source, target)) return true;
+    if (AbilityZones.kind[zone] === ZONE_KIND.WALL && wallCrossing(zone, source, target) > 0 && Actors.isEnemy(AbilityZones.owner[zone], source)) return true;
   }
   return false;
 }
-function domeSeparates(z, source, target) {
-  const sourceInside = AbilityZones.insideSphere(z, Actors.x[source], Actors.eyeY(source), Actors.z[source]);
-  return sourceInside !== AbilityZones.insideSphere(z, Actors.x[target], Actors.y[target] + 1, Actors.z[target]);
+function domeSeparates(zone, source, target) {
+  const sourceInside = AbilityZones.insideSphere(zone, Actors.x[source], Actors.eyeY(source), Actors.z[source]);
+  return sourceInside !== AbilityZones.insideSphere(zone, Actors.x[target], Actors.y[target] + 1, Actors.z[target]);
 }
 // +1: the shot crosses the wall from its front (incoming), -1: from behind (outgoing), 0: misses the wall.
-function wallCrossing(z, source, target) {
-  const nx = Math.sin(AbilityZones.yaw[z]), nz = Math.cos(AbilityZones.yaw[z]), cx = AbilityZones.x[z], cz = AbilityZones.z[z];
+function wallCrossing(zone, source, target) {
+  const nx = Math.sin(AbilityZones.yaw[zone]), nz = Math.cos(AbilityZones.yaw[zone]), cx = AbilityZones.x[zone], cz = AbilityZones.z[zone];
   const front = (Actors.x[source] - cx) * nx + (Actors.z[source] - cz) * nz, back = (Actors.x[target] - cx) * nx + (Actors.z[target] - cz) * nz;
   if (front * back >= 0) return 0;
-  const t = front / (front - back), x = lerp(Actors.x[source], Actors.x[target], t), zz = lerp(Actors.z[source], Actors.z[target], t);
-  const y = lerp(Actors.eyeY(source), Actors.y[target] + 1, t) - AbilityZones.y[z];
-  const lateral = Math.abs((x - cx) * nz - (zz - cz) * nx);
-  if (lateral > AbilityZones.radius[z] || y < 0 || y > AbilityZones.height[z]) return 0;
+  const t = front / (front - back), x = lerp(Actors.x[source], Actors.x[target], t), crossZ = lerp(Actors.z[source], Actors.z[target], t);
+  const y = lerp(Actors.eyeY(source), Actors.y[target] + 1, t) - AbilityZones.y[zone];
+  const lateral = Math.abs((x - cx) * nz - (crossZ - cz) * nx);
+  if (lateral > AbilityZones.radius[zone] || y < 0 || y > AbilityZones.height[zone]) return 0;
   return front > 0 ? 1 : -1;
 }
 function ampWallFactor(source, target) {
-  for (let z = 0; z < ZONE_CAP; z++) {
-    if (!AbilityZones.alive[z] || AbilityZones.kind[z] !== ZONE_KIND.WALL || !alliesOf(AbilityZones.owner[z], source)) continue;
-    if (wallCrossing(z, source, target) < 0) return zoneRow(z).params.amp;
+  for (let zone = 0; zone < ZONE_CAP; zone++) {
+    if (!AbilityZones.alive[zone] || AbilityZones.kind[zone] !== ZONE_KIND.WALL || !alliesOf(AbilityZones.owner[zone], source)) continue;
+    if (wallCrossing(zone, source, target) < 0) return zoneRow(zone).params.amp;
   }
   return 1;
 }
@@ -871,23 +908,27 @@ function onAbilityKill(event) {
 }
 
 // ---- Drawing: zones, beacons, fences, the tracker's footprints (render only, never in headless runs) ----
-function drawZone(batch, z) {
-  const kind = AbilityZones.kind[z], row = AbilityZones.ability[z] >= 0 ? zoneRow(z) : null;
+function drawZone(batch, zone) {
+  const kind = AbilityZones.kind[zone], row = AbilityZones.ability[zone] >= 0 ? zoneRow(zone) : null;
   const color = row ? row.color : 0xffffff, r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
-  const x = AbilityZones.x[z], y = AbilityZones.y[z], zz = AbilityZones.z[z], radius = Math.min(AbilityZones.radius[z], 60);
-  if (kind === ZONE_KIND.DOME) batch.mesh('sphere', x, y, zz, 0, 0, radius * 2, radius * 2, radius * 2, r, g, b, 0.3);
-  else if (kind === ZONE_KIND.WALL || kind === ZONE_KIND.SMOKE) batch.mesh('box', x, y + AbilityZones.height[z] / 2, zz, AbilityZones.yaw[z], 0, radius * 2, AbilityZones.height[z], 0.2, r, g, b, 0.2);
-  else if (kind === ZONE_KIND.STRIKE) batch.mesh('ring', x, y + 0.05, zz, 0, 0, radius * 2, 0.05, radius * 2, 1, 0.2, 0.2, 1);
-  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) batch.mesh('sphere', x, y + 0.3, zz, 0, 0, 0.3, 0.3, 0.3, r, g, b, 0.8);
-  else if (radius > 0 && radius < 60) batch.mesh('ring', x, y + 0.05, zz, 0, 0, radius * 2, 0.05, radius * 2, r, g, b, 0.6);
+  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], zoneZ = AbilityZones.z[zone], radius = Math.min(AbilityZones.radius[zone], 60);
+  if (kind === ZONE_KIND.DOME) batch.mesh('sphere', x, y, zoneZ, 0, 0, radius * 2, radius * 2, radius * 2, r, g, b, 0.3);
+  else if (kind === ZONE_KIND.WALL || kind === ZONE_KIND.SMOKE) batch.mesh('box', x, y + AbilityZones.height[zone] / 2, zoneZ, AbilityZones.yaw[zone], 0, radius * 2, AbilityZones.height[zone], 0.2, r, g, b, 0.2);
+  else if (kind === ZONE_KIND.STRIKE) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, 1, 0.2, 0.2, 1);
+  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) batch.mesh('sphere', x, y + 0.3, zoneZ, 0, 0, 0.3, 0.3, 0.3, r, g, b, 0.8);
+  else if (radius > 0 && radius < 60) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, r, g, b, 0.6);
+}
+// A16: enemy footprints of the last params.seconds are visible to a viewer with Tracker Sense.
+function footprintVisible(viewer, i) {
+  const owner = Footprints.owner[i];
+  if (owner < 0 || viewer < 0 || Abilities.slotOf(viewer, 'tracker') < 0) return false;
+  return Sim.time - Footprints.time[i] <= CAT.abilities.byId('tracker').params.seconds && Actors.isEnemy(viewer, owner);
 }
 function drawFootprints(batch) {
   const viewer = Game.playerId;
   if (viewer < 0 || Abilities.slotOf(viewer, 'tracker') < 0) return;
-  const seconds = CAT.abilities.byId('tracker').params.seconds;
   for (let i = 0; i < FOOTPRINT_COUNT; i++) {
-    const owner = Footprints.owner[i];
-    if (owner < 0 || Sim.time - Footprints.time[i] > seconds || !Actors.isEnemy(viewer, owner)) continue;
+    if (!footprintVisible(viewer, i)) continue;
     batch.mesh('cylinder', Footprints.x[i], Footprints.y[i] + 0.02, Footprints.z[i], 0, 0, FOOTPRINT_SIZE, 0.02, FOOTPRINT_SIZE, 1, 0.8, 0.2, 0.8);
   }
 }
@@ -900,7 +941,7 @@ function abilityStyle(id, out) {
 const previousActorStyle = Render.actorStyle;
 Render.actorStyle = (id, out) => { if (previousActorStyle) previousActorStyle(id, out); abilityStyle(id, out); };
 Render.addSource('abilities', (batch) => {
-  for (let z = 0; z < ZONE_CAP; z++) if (AbilityZones.alive[z]) drawZone(batch, z);
+  for (let zone = 0; zone < ZONE_CAP; zone++) if (AbilityZones.alive[zone]) drawZone(batch, zone);
   drawFootprints(batch);
 });
 Sim.addSystem('abilityHistory', 21, () => { RewindHistory.record(); stepHeroPassives(TICK_SECONDS); });

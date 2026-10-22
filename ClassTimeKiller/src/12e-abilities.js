@@ -9,6 +9,7 @@ const ABILITY_SLOT_COUNT = ABILITY_SLOT_NAMES.length;
 const SLOT = { ABILITY1: 0, ABILITY2: 1, ULTIMATE: 2, PASSIVE: 3 };
 const SLOT_BUTTONS = [BTN.ABILITY1, BTN.ABILITY2, BTN.ULTIMATE, 0];
 const NO_ABILITY = -1;
+const KIT_SLOT_EMPTY = 'none';          // a loadout choice that leaves the slot empty (ECP04 gadget field upgrades)
 const OPEN_ENDED = -1;                    // activeTime of toggles and holds: they run until turned off
 const DEFAULT_INTERRUPT = Object.freeze({ damage: false, stun: true, fire: false });
 const ABILITY_STUN_FLAGS = ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED;
@@ -21,12 +22,14 @@ function makeHudSlot() { return { id: '', name: '', key: '', ready: false, coold
 const Abilities = {
   slotAbility: new Int16Array(MAX_ACTORS * ABILITY_SLOT_COUNT).fill(NO_ABILITY),
   cooldown: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),     // seconds until ready (charges: until the next charge)
+  slotCooldown: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT), // the slot's full cooldown: the row's, or the kit's override
   charges: new Uint8Array(MAX_ACTORS * ABILITY_SLOT_COUNT),
   active: new Uint8Array(MAX_ACTORS * ABILITY_SLOT_COUNT),
   activeTime: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),   // seconds left of the active window (OPEN_ENDED for toggles/holds)
   elapsed: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),      // seconds since the cast
   fuel: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),         // 'fuel' resource seconds left
-  reward: new Uint8Array(MAX_ACTORS),                              // streak / boost reward loaded into the ultimate slot
+  reward: new Uint8Array(MAX_ACTORS),                              // streak / boost reward loaded into the ultimate slot, not used yet
+  rewardLoaded: new Uint8Array(MAX_ACTORS),                        // the ultimate slot holds a reward until it has run
   suppressedUntil: new Float64Array(MAX_ACTORS),                   // G20 null pulse: no abilities until this Sim.time
   rechargeScale: new Float32Array(MAX_ACTORS).fill(1),             // cooldown speed (Tune Up perk writes it)
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
@@ -72,26 +75,32 @@ const Abilities = {
     return null;
   },
   setChoice(id, choice) { this.choices[id] = choice ? Object.assign({}, choice) : null; },
-  // The ability id for one slot: an allowed loadout choice, else the kit default.
+  // The ability id for one slot: an allowed loadout choice, nothing for KIT_SLOT_EMPTY, else the kit default.
   kitAbility(id, kit, slotName) {
     const choice = this.choices[id], wanted = choice ? choice[slotName] : '';
+    if (wanted === KIT_SLOT_EMPTY) return '';
     const allowed = kit.choices && kit.choices[slotName];
     if (wanted && allowed && allowed.includes(wanted)) return wanted;
     return kit[slotName] || '';
   },
   assignSlots(id) {
+    for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) this.assignKitSlot(id, slot);
     const kit = this.kitOf(id);
-    for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
-      const key = kit ? this.kitAbility(id, kit, ABILITY_SLOT_NAMES[slot]) : '';
-      const row = key ? CAT.abilities.byId(key) : null;
-      this.setSlot(id, slot, row);
-    }
     if (kit && kit.passive && kit.passive.kind === 'ability') this.setSlot(id, SLOT.PASSIVE, CAT.abilities.byId(kit.passive.ability));
     Meters.fillSlots(id);
+  },
+  // The kit's ability for one slot (or none), with the kit's cooldown override for that slot.
+  assignKitSlot(id, slot) {
+    const kit = this.kitOf(id), slotName = ABILITY_SLOT_NAMES[slot];
+    const key = kit ? this.kitAbility(id, kit, slotName) : '';
+    this.setSlot(id, slot, key ? CAT.abilities.byId(key) : null);
+    const override = kit && kit.cooldowns ? kit.cooldowns[slotName] : 0;
+    if (override > 0 && key) this.slotCooldown[this.index(id, slot)] = override;
   },
   setSlot(id, slot, row) {
     const i = this.index(id, slot);
     this.slotAbility[i] = row ? row.index : NO_ABILITY;
+    this.slotCooldown[i] = row ? row.cooldown : 0;
     this.cooldown[i] = 0; this.active[i] = 0; this.activeTime[i] = 0; this.elapsed[i] = 0;
     this.charges[i] = row ? Math.max(1, row.charges) : 0;
     this.fuel[i] = row ? row.duration : 0;
@@ -101,7 +110,7 @@ const Abilities = {
   // ---- Life cycle ----
   onSpawn(id) {
     this.endAll(id, 'spawn');
-    this.reward[id] = 0;
+    this.reward[id] = 0; this.rewardLoaded[id] = 0;
     this.suppressedUntil[id] = 0;
     this.hero[id] = this.usesHeroes() ? this.pickHero(id) : null;
     this.applyHero(id);
@@ -165,13 +174,13 @@ const Abilities = {
     if (row.resource === 'charges') { this.rechargeCharge(i, row, dt * scale); return; }
     if (this.cooldown[i] > 0) this.cooldown[i] = Math.max(0, this.cooldown[i] - dt * scale);
   },
-  // One charge at a time refills in row.cooldown seconds (spec "3 charges, 3 s each").
+  // One charge at a time refills in the slot cooldown (spec "3 charges, 3 s each").
   rechargeCharge(i, row, dt) {
-    if (this.charges[i] >= row.charges || row.cooldown <= 0) return;
+    if (this.charges[i] >= row.charges || this.slotCooldown[i] <= 0) return;
     this.cooldown[i] -= dt;
     if (this.cooldown[i] > TICK_EPSILON) return;
     this.charges[i]++;
-    this.cooldown[i] = this.charges[i] < row.charges ? this.cooldown[i] + row.cooldown : 0;
+    this.cooldown[i] = this.charges[i] < row.charges ? this.cooldown[i] + this.slotCooldown[i] : 0;
   },
   stepActive(id, slot, row, dt) {
     const i = this.index(id, slot), effect = this.effects[row.effect];
@@ -225,7 +234,7 @@ const Abilities = {
     if (!row) return false;
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
-    this.reward[id] = 1;
+    this.reward[id] = 1; this.rewardLoaded[id] = 1;
     return true;
   },
   usable(id, row) {
@@ -253,14 +262,14 @@ const Abilities = {
     const i = this.index(id, slot);
     if (slot === SLOT.ULTIMATE && this.reward[id]) { this.reward[id] = 0; return; }
     if (slot === SLOT.ULTIMATE && Meters.paysUltimate()) { Meters.spendPoints(id, ultimateCost(id, row)); return; }
-    if (row.resource === 'cooldown') this.cooldown[i] = row.cooldown;
+    if (row.resource === 'cooldown') this.cooldown[i] = this.slotCooldown[i];
     else if (row.resource === 'charges') this.spendCharge(i, row);
     else if (row.resource === 'energy') Meters.spendEnergy(id, row.cost);
     else if (row.resource === 'ultimate') Meters.spendPoints(id, ultimateCost(id, row));
     else if (row.resource === 'souls') Meters.souls[id] = 0;
   },
   spendCharge(i, row) {
-    if (this.charges[i] >= row.charges) this.cooldown[i] = row.cooldown;
+    if (this.charges[i] >= row.charges) this.cooldown[i] = this.slotCooldown[i];
     this.charges[i]--;
   },
   begin(id, slot, row) {
@@ -291,9 +300,9 @@ const Abilities = {
   },
   // A reward ultimate is one use: the slot returns to the kit's ultimate (or empties) once it has run.
   afterUse(id, slot) {
-    if (slot !== SLOT.ULTIMATE || Meters.paysUltimate() || this.reward[id]) return;
-    const row = this.row(id, slot);
-    if (row && row.category === 'reward') this.setSlot(id, slot, null);
+    if (slot !== SLOT.ULTIMATE || !this.rewardLoaded[id] || this.reward[id]) return;
+    this.rewardLoaded[id] = 0;
+    this.assignKitSlot(id, slot);
   },
   // Ends the abilities the rule names: 'damage' (channels) or 'fire' (cloak).
   interrupt(id, cause) {
@@ -313,12 +322,14 @@ const Abilities = {
     return !!row && !this.active[this.index(id, slot)] && this.usable(id, row) && this.canAfford(id, slot, row);
   },
   // Fills out { slots: [{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }], meter: { kind, value 0..1, ready } }.
+  // The slots array is filled in place (no per-frame allocation); its length changes only with the slot count.
   hudState(id, out) {
-    out.slots.length = 0;
+    let count = 0;
     for (let slot = 0; slot < HUD_SLOT_COUNT; slot++) {
       const row = id >= 0 ? this.row(id, slot) : null;
-      if (row) out.slots.push(this.fillHudSlot(this.hudSlots[slot], id, slot, row));
+      if (row) out.slots[count++] = this.fillHudSlot(this.hudSlots[slot], id, slot, row);
     }
+    if (out.slots.length !== count) out.slots.length = count;
     Meters.hudState(id, out.meter);
     return out;
   },
@@ -327,7 +338,7 @@ const Abilities = {
     hud.id = row.id; hud.name = row.name; hud.key = ABILITY_SLOT_NAMES[slot]; hud.color = row.color;
     hud.ready = this.ready(id, slot); hud.active = this.active[i] === 1;
     hud.charges = row.resource === 'charges' ? this.charges[i] : 0;
-    hud.cooldown = row.cooldown > 0 && this.cooldown[i] > 0 ? this.cooldown[i] / row.cooldown : 0;
+    hud.cooldown = this.slotCooldown[i] > 0 && this.cooldown[i] > 0 ? this.cooldown[i] / this.slotCooldown[i] : 0;
     if (row.resource === 'ultimate' || slot === SLOT.ULTIMATE) hud.cooldown = hud.ready ? 0 : 1 - Meters.fraction(id);
     hud.remaining = hud.active && this.activeTime[i] !== OPEN_ENDED ? this.activeTime[i] : 0;   // ABL-005 visible timer
     return hud;

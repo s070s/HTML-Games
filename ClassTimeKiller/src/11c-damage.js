@@ -57,6 +57,7 @@ const Damage = {
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
+  roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
 
@@ -322,8 +323,8 @@ const Damage = {
     if (preset.armorDecayAbove && Actors.armor[id] > preset.armorDecayAbove) Actors.armor[id] = Math.max(preset.armorDecayAbove, Actors.armor[id] - preset.armorDecay * dt);
     if (preset.shieldRate && since >= preset.shieldDelay) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + preset.shieldRate * dt);
     if (preset.regenRate && since >= preset.regenDelay) this.regenerate(id, preset.regenRate * dt, regenCap(id, preset));
-    const role = preset.roleRegen, profile = Actors.profile[id];
-    if (role && profile && profile.role === role.role && since >= role.delay) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
+    const role = preset.roleRegen;
+    if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
   regenerate(id, amount, cap) {
     if (Actors.health[id] >= cap) return;
@@ -445,6 +446,12 @@ function hitStatus(source, info) {
   const weapon = source >= 0 && mode.weapon ? CAT.weapons.byId(mode.weapon) : null;
   if (!weapon || weapon.primary !== mode || !weapon.alt.toggle || !Weapons.toggled[source]) return null;
   return weapon.alt.toggle.status || null;
+}
+// The role HPP05 regen checks: Damage.roleOf when a section fills it, else the bot profile's role.
+function actorRole(id) {
+  if (Damage.roleOf) return Damage.roleOf(id);
+  const profile = Actors.profile[id];
+  return profile ? profile.role : '';
 }
 function isFodder(id) { const profile = Actors.profile[id]; return Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.fodder === true; }
 

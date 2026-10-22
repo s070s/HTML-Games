@@ -8,7 +8,8 @@
 //   | ultimate (`ultCost` meter points) | fuel (`duration` seconds, refills on the ground) | souls (`cost` souls) | none.
 // interrupt: { damage, stun, fire }: what ends an active ability (null = the default: stuns end it, damage does not).
 // modes: any | versus | pve | solo (rules.family the ability may be used in). balance: limits for blink-style power
-//   (Appendix B mistakes): lineOfSight (the target point must be visible), fireDelay (weapons lowered after use), noCarrier.
+//   (Appendix B mistakes): lineOfSight (the target point must be visible), fireDelay (weapons lowered after use), noCarrier
+//   (not usable while carrying an objective), dropsObjective (a carried objective drops when it moves the user).
 // botUse (BOT-066, for the bots section): { when, range [min, max] m, chance 0..1 per decision }. when: enemyVisible |
 //   enemyClose | underFire | lowHealth | allyLow | allyDowned | escape | moving | always | groupedEnemies.
 
@@ -24,8 +25,8 @@ const ABILITY_ROWS = [
     params: { regenScale: 2 }, counter: 'drain the energy bar first', botUse: { when: 'underFire', range: [0, 60], chance: 0.8 }, color: 0x4aa8ff },
   { id: 'overdrive', code: 'A02', name: 'Overdrive Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 20, effect: 'suitSpeed', group: 'weave',
     params: { speed: 1.5, sprintOnly: true }, counter: 'it burns energy fast: punish the empty bar', botUse: { when: 'escape', range: [0, 60], chance: 0.5 }, color: 0xffd34a },
-  { id: 'colossusweave', code: 'A03', name: 'Colossus Weave', category: 'suit', activation: 'toggle', resource: 'energy', cost: 15, effect: 'suitStrength', group: 'weave',
-    params: { jumpHeight: 1.8, melee: 2, steady: 0.5 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
+  { id: 'colossusweave', code: 'A03', name: 'Colossus Weave', category: 'suit', activation: 'toggle', resource: 'energy', effect: 'suitStrength', group: 'weave',
+    params: { jumpHeight: 1.8, melee: 2, steady: 0.5, useCost: 15 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
   { id: 'phantasm', code: 'A04', name: 'Phantasm Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 8, effect: 'cloak', group: 'weave',
     params: { stillCostPerSecond: 2, stillSpeed: 0.2 }, interrupt: { damage: false, stun: true, fire: true }, counter: 'firing drops it: listen for steps',
     botUse: { when: 'escape', range: [0, 60], chance: 0.4 }, color: 0x9be7ff },
@@ -46,7 +47,7 @@ const ABILITY_ROWS = [
   { id: 'glidepack', code: 'A11', name: 'Glidepack', category: 'mobility', activation: 'hold', resource: 'fuel', duration: 3, effect: 'glide',
     params: { gravity: 0.1 }, counter: 'gliders fly slow and straight', botUse: { when: 'moving', range: [0, 60], chance: 0.2 }, color: 0xd0e0ff },
   { id: 'relocator', code: 'A12', name: 'Relocator', category: 'mobility', activation: 'instant', resource: 'charges', charges: 6, cooldown: 1, range: 25, effect: 'beacon',
-    params: { telefrag: true }, counter: 'stand on the beacon', botUse: { when: 'escape', range: [0, 25], chance: 0.3 }, color: 0x7affc8 },
+    params: { telefrag: true }, balance: { dropsObjective: true }, counter: 'stand on the beacon', botUse: { when: 'escape', range: [0, 25], chance: 0.3 }, color: 0x7affc8 },
   // ---- Recon ----
   { id: 'echopulse', code: 'A13', name: 'Echo Pulse', category: 'recon', activation: 'instant', cooldown: 20, duration: 3, range: 15, effect: 'pulse',
     params: { pulses: 3, interval: 1, reveal: 1 }, counter: 'leave the 15 m ring', botUse: { when: 'always', range: [0, 15], chance: 0.3 }, color: 0xffd040 },
@@ -130,7 +131,8 @@ Data.define('abilities', ABILITY_SCHEMA, ABILITY_ROWS);
 CAT.abilities.forEach((row, index) => { row.index = index; });
 
 // Hero kits (RS09). health/armor/shield are the hero pools (HPP05); weapons: the loadout (the last key is drawn);
-// move: the hero's movement preset; passive: { kind, ... } handled by S12 (knockbackResist, killHaste, regen, ability, flag);
+// move: the hero's movement preset; passive: { kind, ... } handled by S12 (knockbackResist, killHaste, shieldRegen, ability,
+// flag: read by other sections through Abilities.passiveFlag); regen: the HPP05 support role regen S11 gives the support role;
 // gadget: the gadget slot the items section fills (G09, G19); slots: ability ids per slot ('' = none).
 Data.define('heroes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, role: REQUIRED, health: REQUIRED, armor: 0, shield: 0, weapons: REQUIRED, move: 'modern',
@@ -139,7 +141,7 @@ Data.define('heroes', {
   { id: 'bastide', code: 'H01', name: 'Bastide', role: 'tank', health: 400, armor: 150, weapons: ['bulwark', 'scattergun'], move: 'knight',
     passive: { kind: 'knockbackResist', value: 0.3 }, ability1: 'aegisdome', ultimate: 'orbital', color: 0x5a7fbf },
   { id: 'moraine', code: 'H02', name: 'Moraine', role: 'tank', health: 350, shield: 200, weapons: ['hailstorm'], move: 'vanguard',
-    passive: { kind: 'flag', flag: 'shieldRegen' }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
+    passive: { kind: 'shieldRegen', delay: 1.5, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
   { id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['tempest'], move: 'agile',
     passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
   { id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 200, weapons: ['heron'], move: 'agile',
@@ -147,7 +149,7 @@ Data.define('heroes', {
   { id: 'brask', code: 'H05', name: 'Brask', role: 'damage', health: 225, weapons: ['pitcher'], move: 'modern',
     passive: { kind: 'flag', flag: 'extraGrenade' }, gadget: 'singularity', ability1: 'fence', ultimate: 'orbital', color: 0xd06030 },
   { id: 'lark', code: 'H06', name: 'Lark', role: 'support', health: 200, weapons: ['linker'], move: 'agile',
-    passive: { kind: 'regen', delay: 1.5, rate: 15 }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
+    passive: { kind: 'regen' }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
   { id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 225, weapons: ['needlethorn'], move: 'modern',
     passive: { kind: 'flag', flag: 'smokeVision' }, ability1: 'veil', ability2: 'mesmer', ultimate: 'timebend', color: 0x8080e0 },
   { id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['longshot'], move: 'agile',
@@ -156,9 +158,10 @@ Data.define('heroes', {
 
 // Ability kits outside hero rulesets (ABL-001): which ruleset, economy or mutator hands them out, the default slots and
 // the abilities a loadout may pick per slot (choices; [] = fixed). A kit applies when its `match` test passes, first row first.
+// cooldowns: { slotName: seconds } replaces the row cooldown in this kit (ECP04 field upgrades recharge in 60-120 s).
 // match: { ruleset } bundle id | { mutator } mutator id | { economy } economy key.
 Data.define('abilityKits', {
-  id: REQUIRED, name: REQUIRED, match: REQUIRED, ability1: '', ability2: '', ultimate: '', passive: '', choices: {},
+  id: REQUIRED, name: REQUIRED, match: REQUIRED, ability1: '', ability2: '', ultimate: '', passive: '', choices: {}, cooldowns: {},
 }, [
   { id: 'powers', name: 'Powers for All', match: { mutator: 'powers' }, ability1: 'shadowstep',
     choices: { ability1: ['shadowstep', 'phaseslip', 'grapnel', 'surge', 'rewind', 'updraft', 'glidepack', 'relocator', 'echopulse', 'huntersight', 'scoutdrone',
@@ -168,6 +171,7 @@ Data.define('abilityKits', {
     choices: { ability1: ['bulwark', 'colossusweave'], ability2: ['phantasm', 'colossusweave'], ultimate: ['overdrive', 'colossusweave'] } },
   { id: 'frame', name: 'Frame Runner', match: { ruleset: 'frame' }, ability1: 'shadowstep', ability2: 'arcbolt', ultimate: 'timebend',
     choices: { ability1: ['shadowstep', 'surge', 'glidepack', 'phaseslip'], ability2: ['arcbolt', 'ignite', 'frostlance', 'gale'], ultimate: ['timebend', 'huntersight', 'lifterpower'] } },
-  // ECP04 field upgrade slot: the class picks one (Echo Pulse here; the gadget field upgrades come from the items section).
-  { id: 'classes', name: 'Class Loadout', match: { economy: 'classes' }, ability1: 'echopulse', choices: { ability1: ['echopulse', 'phaseslip', 'grapnel', 'glidepack'] } },
+  // ECP04 field upgrade slot: Echo Pulse is the one ability field upgrade (G13, G22, G23, G24 come from the items section;
+  // a class with a gadget field upgrade leaves this slot empty).
+  { id: 'classes', name: 'Class Loadout', match: { economy: 'classes' }, ability1: 'echopulse', choices: { ability1: ['echopulse'] }, cooldowns: { ability1: 90 } },
 ]);

@@ -165,12 +165,12 @@ const Economy = {
     this.addMoney(killer, this.killReward(event, preset));
     if (this.hasPerk(killer, 'scavenger')) scavengeAmmo(killer);
   },
-  // Weapon kills pay the weapon's killReward (WPN prices table); other kills the preset's; the wave shop pays by enemy.
+  // ECP02: the preset's kill reward plus the weapon's class bonus (WPN prices table) for weapon kills; the wave shop pays by enemy.
   killReward(event, preset) {
     const profile = Actors.profile[event.victim];
     if (preset.buy === 'shop') return clamp(profile && profile.cash ? profile.cash : preset.killReward, preset.killRewardRange[0], preset.killRewardRange[1]);
     const weapon = CAT.weapons.byId(event.weapon);
-    return weapon ? weapon.killReward : preset.killReward;
+    return preset.killReward + (weapon ? weapon.killReward : 0);
   },
   onScore(event) {
     const preset = this.preset();
@@ -379,7 +379,7 @@ const Loadouts = {
     const merged = { hero: this.hero().id };
     const kit = Abilities.usesHeroes() ? null : Abilities.kitOf(id);
     if (!kit) return merged;
-    if (kit.id === 'classes') { merged.ability1 = this.selectedClass().fieldUpgrade; return merged; }
+    if (kit.id === 'classes') { merged.ability1 = classFieldAbility(this.selectedClass()); return merged; }
     return Object.assign(merged, this.kitChoice(kit.id));
   },
   applyTo(id) { Abilities.setChoice(id, this.choice(id)); },
@@ -389,10 +389,14 @@ const Loadouts = {
   },
 };
 
-// The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier.
+// A class field upgrade that is an ability fills the ability slot; a gadget one (granted by applyClass) leaves it empty.
+function classFieldAbility(row) { return CAT.abilities.byId(row.fieldUpgrade) ? row.fieldUpgrade : KIT_SLOT_EMPTY; }
+// The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier,
+// a field upgrade of the preset list.
 function classProblem(row) {
   if (!row || !CAT.weapons.byId(row.primary) || !CAT.weapons.byId(row.secondary)) return 'Pick a primary and a secondary weapon.';
   if (CAT.weapons.byId(row.secondary).class !== 'sidearm') return 'The secondary must be a sidearm.';
+  if (row.fieldUpgrade && !CAT.economy.byId('classes').fieldUpgrades.includes(row.fieldUpgrade)) return 'Pick a field upgrade from the list.';
   if (!Array.isArray(row.perks) || row.perks.length !== 3) return 'Pick three perks.';
   for (let tier = 1; tier <= 3; tier++) {
     const perk = CAT.perks.byId(row.perks[tier - 1]);
@@ -440,4 +444,4 @@ Bus.on('actor.create', (id) => Economy.resetActor(id));
 Bus.on('actor.spawn', (event) => Economy.onSpawn(event.id));
 Bus.on('kill', (event) => Economy.onKill(event));
 Bus.on('score', (event) => Economy.onScore(event));
-Bus.on('ability.teleport', (event) => Modes.dropCarried(event.id));   // A12: a carried flag drops on use
+Bus.on('ability.teleport', (event) => Modes.dropCarried(event.id));   // A12 (balance.dropsObjective): a carried flag drops on use

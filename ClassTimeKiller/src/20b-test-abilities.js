@@ -20,7 +20,7 @@ const AbilityTest = {
     t.slot = slot === undefined ? SLOT.ABILITY1 : slot;
     t.i = Abilities.index(t.caster, t.slot);
     Abilities.setSlot(t.caster, t.slot, t.row);
-    Meters.energy[t.caster] = ENERGY_MAX;
+    Meters.energy[t.caster] = Meters.energyMax();
     Meters.points[t.caster] = Meters.max();
     return t;
   },
@@ -33,7 +33,7 @@ const AbilityTest = {
     const row = t.row;
     if (row.resource === 'cooldown') return Abilities.cooldown[t.i] === row.cooldown;
     if (row.resource === 'charges') return Abilities.charges[t.i] === row.charges - 1;
-    if (row.resource === 'energy') return Test.near(Meters.energy[t.caster], ENERGY_MAX - row.cost, 1e-4);
+    if (row.resource === 'energy') return Test.near(Meters.energy[t.caster], Meters.energyMax() - row.cost, 1e-4);
     if (row.resource === 'ultimate') return Test.near(Meters.points[t.caster], pointsBefore - Meters.ultimateCost(row), 1e-3);
     if (row.resource === 'souls') return Meters.souls[t.caster] === 0;
     return true;
@@ -47,9 +47,16 @@ const AbilityTest = {
 // Ultimate-resource rows run with the ultimate meter so the exact point cost is visible.
 const ABILITY_CASES = {
   bulwark: { rules: { health: 'suit' }, seconds: 0.1, expect: (t) => Buffs.get(t.caster, BUFF.ENERGY_REGEN) === 2 && Abilities.active[t.i] === 1 },
-  overdrive: { seconds: 1, expect: (t) => Buffs.get(t.caster, BUFF.SPEED) === 1.5 && Meters.energy[t.caster] === ENERGY_MAX },   // drains only while sprinting
-  colossusweave: { seconds: 0.1, expect: (t) => Buffs.get(t.caster, BUFF.MELEE) === 2 },
-  phantasm: { rules: { health: 'suit' }, seconds: 1, expect: (t) => Buffs.has(t.caster, BUFF.INVISIBLE) && Test.near(Meters.energy[t.caster], ENERGY_MAX - 2, 0.05) },
+  overdrive: { seconds: 1, expect: (t) => Buffs.get(t.caster, BUFF.SPEED) === 1 && Meters.energy[t.caster] === Meters.energyMax() },   // off while not sprinting
+  colossusweave: {
+    seconds: 0.1,
+    expect: (t) => {
+      Actors.vy[t.caster] = 4;
+      Bus.emit('move.jump', { id: t.caster, speed: 0, surface: '' });
+      return Buffs.get(t.caster, BUFF.MELEE) === 2 && Test.near(Meters.energy[t.caster], Meters.energyMax() - 15, 1e-4) && Test.near(Actors.vy[t.caster], 4 * Math.sqrt(1.8), 1e-4);
+    },
+  },
+  phantasm: { seconds: 1, expect: (t) => Buffs.has(t.caster, BUFF.INVISIBLE) && Test.near(Meters.energy[t.caster], Meters.energyMax() - 2, 0.05) },
   shadowstep: { setup: AbilityTest.clearPath, seconds: 0, expect: (t) => Actors.z[t.caster] > 8 && Buffs.has(t.caster, BUFF.NO_FIRE) },
   phaseslip: { seconds: 0.1, expect: (t) => { TestArena.hit(t.enemy, t.caster, 50); return Actors.health[t.caster] === 100; } },
   grapnel: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 1, expect: (t) => AbilityTest.distance(t.caster, t.enemy) < ENEMY_DISTANCE - 2 },
@@ -73,7 +80,7 @@ const ABILITY_CASES = {
     },
   },
   echopulse: { seconds: 0.1, expect: (t) => Damage.hasStatus(t.enemy, 'reveal') },
-  huntersight: { rules: { health: 'suit' }, seconds: 1, expect: (t) => Damage.hasStatus(t.enemy, 'reveal') && Test.near(Meters.energy[t.caster], ENERGY_MAX - 5, 0.05) },
+  huntersight: { seconds: 1, expect: (t) => Damage.hasStatus(t.enemy, 'reveal') && Test.near(Meters.energy[t.caster], Meters.energyMax() - 5, 0.05) },
   scoutdrone: {
     seconds: 0.5,
     expect: (t) => {
@@ -82,7 +89,18 @@ const ABILITY_CASES = {
       return flying && !Abilities.active[t.i] && AbilityTest.zoneOf(t, ZONE_KIND.DRONE) < 0;   // damage ends the channel
     },
   },
-  tracker: { seconds: 1, expect: (t) => Abilities.active[t.i] === 1 },
+  tracker: {
+    seconds: 1,
+    expect: (t) => {
+      Footprints.clear();
+      Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '' });
+      Bus.emit('move.step', { id: t.ally, speed: 4, surface: '' });
+      const enemyPrint = (Footprints.next + FOOTPRINT_COUNT - 2) % FOOTPRINT_COUNT, allyPrint = (Footprints.next + FOOTPRINT_COUNT - 1) % FOOTPRINT_COUNT;
+      const fresh = footprintVisible(t.caster, enemyPrint) && !footprintVisible(t.caster, allyPrint) && !footprintVisible(t.enemy, enemyPrint);
+      runSeconds(8.1);
+      return Abilities.active[t.i] === 1 && fresh && !footprintVisible(t.caster, enemyPrint);   // enemy prints only, for 8 s
+    },
+  },
   veil: { seconds: 0.1, expect: (t) => AbilityTest.zoneOf(t, ZONE_KIND.SMOKE) >= 0 && AbilityZones.radius[AbilityTest.zoneOf(t, ZONE_KIND.SMOKE)] === 6 },
   fence: {
     setup: AbilityTest.clearPath, seconds: 0.1,
@@ -115,7 +133,7 @@ const ABILITY_CASES = {
     expect: (t) => { killActor(t.caster, t.enemy); return AbilityTest.zoneOf(t, ZONE_KIND.DOME) >= 0; },   // persists after the owner dies
   },
   secondwind: { setup: (t) => { Actors.flags[t.ally] |= ACTOR_FLAG.DOWNED; }, seconds: 0, expect: (t) => !(Actors.flags[t.ally] & ACTOR_FLAG.DOWNED) },
-  ampwall: { seconds: 0.1, expect: (t) => { const z = AbilityTest.zoneOf(t, ZONE_KIND.WALL); return z >= 0 && Test.near(AbilityZones.z[z], 1.5, 0.01); } },
+  ampwall: { seconds: 0.1, expect: (t) => { const wall = AbilityTest.zoneOf(t, ZONE_KIND.WALL); return wall >= 0 && Test.near(AbilityZones.z[wall], 1.5, 0.01); } },
   arcbolt: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 70 && Damage.hasStatus(t.enemy, 'shock') },
   ignite: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 90 && Damage.hasStatus(t.enemy, 'burn') },
   frostlance: {
@@ -133,15 +151,34 @@ const ABILITY_CASES = {
       return standing && !Actors.alive[decoy];
     },
   },
-  wrath: { setup: (t) => { Meters.souls[t.caster] = 66; }, seconds: 0.1, expect: (t) => Abilities.active[t.i] === 1 && Buffs.has(t.caster, BUFF.TOUCH_KILL) },
-  lifterpower: { rules: { health: 'suit' }, seconds: 1, expect: (t) => Test.near(Meters.energy[t.caster], ENERGY_MAX - 10, 0.1) && Abilities.active[t.i] === 1 },
+  wrath: {
+    setup: (t) => { Meters.souls[t.caster] = 66; }, seconds: 0.1,
+    expect: (t) => {
+      const buffed = Abilities.active[t.i] === 1 && Buffs.has(t.caster, BUFF.TOUCH_KILL);
+      TestArena.place(t.enemy, 0, 1);
+      Sim.step();
+      const touched = !Actors.alive[t.enemy];
+      TestArena.hit(t.caster, t.second, 1);
+      return buffed && touched && !Actors.alive[t.second] && Actors.alive[t.ally];   // a touch or any hit kills enemies only
+    },
+  },
+  lifterpower: { seconds: 1, expect: (t) => Test.near(Meters.energy[t.caster], Meters.energyMax() - 10, 0.1) && Abilities.active[t.i] === 1 },
   gatepair: { rules: { family: 'solo' }, seconds: 0, expect: (t) => GateState.next[t.caster] === 1 },
   overcore: { seconds: 0.1, expect: (t) => { TestArena.hit(t.caster, t.enemy, 10); return Actors.health[t.enemy] === 80; } },
   orbital: {
     setup: (t) => TestArena.aimAt(t.caster, t.enemy, ZONE.LEGS), seconds: 1.9,
     expect: (t) => { const before = Actors.alive[t.enemy]; runSeconds(0.15); return before && !Actors.alive[t.enemy]; },
   },
-  rift: { seconds: 0.1, expect: (t) => { const z = AbilityTest.zoneOf(t, ZONE_KIND.RIFT); return z >= 0 && AbilityZones.other[AbilityZones.other[z]] === z; } },
+  rift: {
+    setup: AbilityTest.clearPath, seconds: 0.1,
+    expect: (t) => {
+      const entry = AbilityTest.zoneOf(t, ZONE_KIND.RIFT), exit = AbilityZones.other[entry];
+      const linked = entry >= 0 && AbilityZones.other[exit] === entry;
+      TestArena.place(t.ally, AbilityZones.x[entry], AbilityZones.z[entry]);
+      Sim.step();
+      return linked && Test.near(Actors.x[t.ally], AbilityZones.x[exit], 0.01) && Test.near(Actors.z[t.ally], AbilityZones.z[exit], 0.01);
+    },
+  },
   rally: { seconds: 0.1, expect: (t) => Damage.surplus[t.ally] === 50 && Test.near(Buffs.get(t.ally, BUFF.SPEED), 1.2, 1e-6) && Buffs.get(t.enemy, BUFF.SPEED) === 1 },
   seerpulse: { setup: (t) => TestArena.place(t.enemy, 50, 50), seconds: 0.1, expect: (t) => Damage.hasStatus(t.enemy, 'reveal') },
   picketswarm: { seconds: 1, expect: (t) => Actors.health[t.enemy] < 100 && Actors.health[t.second] < 100 },
@@ -347,5 +384,125 @@ Test.add('abilities', (check) => {
   runSeconds(1);
   Abilities.hudState(t.caster, hud);
   check('HUD: cooldown fraction and remaining time', Test.near(hud.slots[0].cooldown, 19 / 20, 1e-3) && Test.near(hud.slots[0].remaining, 2, 0.01) && hud.slots[0].active, JSON.stringify(hud.slots[0]));
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({});
+  Buffs.add(t.caster, BUFF.SPEED, 1.2, 8);    // A40 rally
+  Buffs.add(t.caster, BUFF.SPEED, 1.25, 2.5); // H03 kill haste
+  check('buffs: the strongest live speed buff applies', Test.near(Buffs.get(t.caster, BUFF.SPEED), 1.25, 1e-6));
+  runSeconds(3);
+  check('buffs: a strong short buff ends on time, the weak long one stays', Test.near(Buffs.get(t.caster, BUFF.SPEED), 1.2, 1e-6), Buffs.get(t.caster, BUFF.SPEED));
+  runSeconds(5.1);
+  check('buffs: neutral after both ended', Buffs.get(t.caster, BUFF.SPEED) === 1 && !Buffs.has(t.caster, BUFF.SPEED));
+  Buffs.add(t.enemy, BUFF.SLOW, 0.4, 1.5);    // A18 fence
+  Buffs.add(t.enemy, BUFF.SLOW, 0, TICK_BUFF); // A15 pilot standing still
+  check('buffs: the lowest slow applies', Buffs.get(t.enemy, BUFF.SLOW) === 0);
+  runSeconds(0.5);
+  check('buffs: the pilot freeze ends, the fence slow stays', Test.near(Buffs.get(t.enemy, BUFF.SLOW), 0.4, 1e-6) && Test.near(Buffs.remaining(t.enemy, BUFF.SLOW), 1, 0.02));
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'huntersight');
+  AbilityTest.cast(t);
+  runSeconds(4);
+  check('ABL-002 a draining toggle never regenerates: hunter sight costs 5/s', Test.near(Meters.energy[t.caster], Meters.energyMax() - 20, 0.05), Meters.energy[t.caster]);
+  Abilities.tryActivate(t.caster, t.slot);
+  runSeconds(1 - 0.02);
+  check('ABL-002 regen waits regenDelay after the last spend', Test.near(Meters.energy[t.caster], Meters.energyMax() - 20, 0.05));
+  runSeconds(1.02);
+  check('ABL-002 then 5/s', Test.near(Meters.energy[t.caster], Meters.energyMax() - 15, 0.1), Meters.energy[t.caster]);
+  Meters.energy[t.caster] = 10;
+  Meters.points[t.caster] = 40;
+  Bus.emit('actor.spawn', { id: t.caster });
+  check('spawn: a full energy bar, the match meter stays', Meters.energy[t.caster] === Meters.energyMax() && Meters.points[t.caster] === 40);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'overdrive');
+  AbilityTest.cast(t);
+  Actors.flags[t.caster] |= ACTOR_FLAG.SPRINTING;
+  const effect = Abilities.effects.suitSpeed;
+  effect.step(t.caster, t.row, t.slot, TICK_SECONDS);
+  check('A02 sprinting: speed x1.5 and 20 energy per second', Buffs.get(t.caster, BUFF.SPEED) === 1.5 && effect.drain(t.caster, t.row) === 20);
+  Actors.flags[t.caster] &= ~ACTOR_FLAG.SPRINTING;
+  Buffs.cancel(t.caster, BUFF.SPEED);
+  effect.step(t.caster, t.row, t.slot, TICK_SECONDS);
+  check('A02 walking: no speed and no drain', Buffs.get(t.caster, BUFF.SPEED) === 1 && effect.drain(t.caster, t.row) === 0);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'surge');
+  AbilityTest.clearPath(t);
+  check('teleport event: a dash keeps a carried objective', TestArena.count('ability.teleport', () => AbilityTest.cast(t)) === 0);
+  AbilityTest.give(t, 'relocator');
+  const events = TestArena.count('ability.teleport', () => { AbilityTest.cast(t); Sim.step(); AbilityTest.cast(t); });
+  check('teleport event: the relocator jump drops it (A12)', events === 1);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ economy: 'classes' });
+  t.row = CAT.abilities.byId('echopulse'); t.i = Abilities.index(t.caster, SLOT.ABILITY1);
+  check('ECP04 the class kit gives Echo Pulse as the field upgrade', Abilities.row(t.caster, SLOT.ABILITY1) === t.row);
+  AbilityTest.cast(t);
+  check('ECP04 the field upgrade recharges in 90 s (kit cooldown)', Abilities.cooldown[t.i] === 90 && Abilities.slotCooldown[t.i] === 90);
+  Abilities.setChoice(t.caster, { ability1: classFieldAbility({ fieldUpgrade: 'cover' }) });
+  Abilities.onSpawn(t.caster);
+  check('ECP04 a gadget field upgrade leaves the ability slot empty', !Abilities.row(t.caster, SLOT.ABILITY1));
+  check('ECP04 only Echo Pulse is an ability field upgrade', CAT.abilityKits.byId('classes').choices.ability1.join() === 'echopulse');
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ meter: 'streak' });
+  scorePoints(t.caster, 5);
+  check('streak: 500 points load the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
+  check('streak: the orbital is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
+  check('streak: an instant reward of any category empties the slot', !Abilities.row(t.caster, SLOT.ULTIMATE) && !Abilities.rewardLoaded[t.caster]);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ economy: 'heroKits', health: 'hero', meter: 'ultimate' });
+  const regenAfter = (heroId, profile) => {
+    Abilities.setChoice(t.caster, { hero: heroId });
+    Abilities.refreshKit(t.caster);
+    Actors.profile[t.caster] = profile || null;
+    TestArena.hit(t.enemy, t.caster, 50);
+    const hurt = Actors.health[t.caster];
+    runSeconds(1.4);
+    const waited = Actors.health[t.caster] === hurt;
+    runSeconds(1.1);
+    return waited ? Actors.health[t.caster] - hurt : -1;
+  };
+  check('HPP05 support role regen: Lark 15/s after 1.5 s', Test.near(regenAfter('lark'), 15, 0.6));
+  check('HPP05 support role regen: Mirelle too', Test.near(regenAfter('mirelle'), 15, 0.6));
+  check('HPP05 a support-profile bot playing Lark regenerates once', Test.near(regenAfter('lark', { role: 'support' }), 15, 0.6));
+  check('HPP05 a tank does not regenerate health', regenAfter('bastide', { role: 'support' }) === 0);
+  Abilities.setChoice(t.caster, { hero: 'moraine' });
+  Abilities.refreshKit(t.caster);
+  Actors.profile[t.caster] = null;
+  TestArena.hit(t.enemy, t.caster, 100);
+  const shield = Actors.shield[t.caster];
+  runSeconds(2.5);
+  check('H02 shield regen passive: 30/s after 1.5 s (before the preset 3 s)', Test.near(Actors.shield[t.caster] - shield, 30, 1), Actors.shield[t.caster] - shield);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
+  const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
+  Abilities.hudState(t.caster, hud);
+  const slots = hud.slots, first = hud.slots[0];
+  Abilities.hudState(t.caster, hud);
+  check('HUD: the slots array and entries are reused', hud.slots === slots && hud.slots[0] === first && hud.slots.length === 1);
+  Abilities.setSlot(t.caster, SLOT.ABILITY1, null);
+  Abilities.hudState(t.caster, hud);
+  check('HUD: emptied slots are trimmed', hud.slots.length === 0);
   TestArena.finish();
 });
