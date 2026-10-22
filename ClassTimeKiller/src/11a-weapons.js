@@ -514,6 +514,7 @@ const Weapons = {
     this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
     this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
     this.kick[id] = Math.max(0, this.kick[id] - dt / KICK_SECONDS);
+    if (Sim.time - this.lastShot[id] > HEAT_VENT_DELAY) this.heat[id] = Math.max(0, this.heat[id] - HEAT_VENT_RATE * dt);
   },
   updateSpeed(id) {
     const weapon = this.currentWeapon(id);
@@ -756,6 +757,8 @@ const Weapons = {
 const AMMO_VIEW = { magazine: 0, reserve: 0, alt: 0, infinite: false };
 const QUICK_MELEE = CAT.fireModes.byId('quick.melee');
 const WEAPON_HEAT_CAP = 120;             // W36 heat blast: stored heat is capped here
+const HEAT_VENT_DELAY = 1;               // R-186: after a second without a shot the stored heat vents...
+const HEAT_VENT_RATE = 10;               // ...at this much per second (a full 120 is gone in 12 s)
 
 function chargeLevelIndex(charge, fraction) { return Math.min(charge.levels.length - 1, Math.floor(fraction * (charge.levels.length - 1) + 1e-6)); }
 function chargeLevelValue(charge, fraction) { return charge.levels ? charge.levels[chargeLevelIndex(charge, fraction)] : 1; }

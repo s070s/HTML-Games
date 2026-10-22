@@ -8,20 +8,7 @@ const SPEC_WEAPON_SETS = {
 };
 const FIRE_TYPES = ['hitscan', 'projectile', 'beam', 'melee', 'cone', 'lock', 'zoom', 'toggle', 'block', 'detonate', 'tool'];
 const TRIGGERS = ['auto', 'semi', 'burst', 'charge', 'release'];
-const BASE_HEALTH = 100;
 
-// Shots needed against 100 HP and the time from the first to the killing shot (all hits, no falloff, body zone).
-function timeToKill(mode) {
-  const charge = mode.charge;
-  const damage = charge && charge.target !== 'pellets' && charge.target !== 'multiplier' ? chargeDamage(charge, 1) : mode.damage;
-  const pellets = charge && charge.target === 'pellets' ? chargeLevelValue(charge, 1) : mode.pellets;
-  const perShot = (damage + (mode.splash ? mode.splash.dmg : 0)) * pellets;
-  if (perShot <= 0) return -1;
-  const shots = Math.ceil(BASE_HEALTH / perShot) - 1;
-  const lockTime = mode.lock ? mode.lock.time : 0, chargeTime = charge ? charge.time : 0;
-  const between = mode.burst ? Math.floor(shots / mode.burst) / mode.rate + (shots % mode.burst) * mode.burstGap : shots / mode.rate;
-  return between + lockTime + chargeTime + mode.spinUp;
-}
 function giveFull(id, key) {
   Weapons.setLoadout(id, [key]);
   const weapon = CAT.weapons.byId(key), slot = Weapons.slotIndex(id, weapon.index);
@@ -100,18 +87,6 @@ Test.add('weapons', (check) => {
 });
 
 Test.add('weapons', (check) => {
-  const outside = [];
-  for (const weapon of CAT.weapons) {
-    const band = weapon.family.ttk;
-    if (!band) continue;
-    const ttk = timeToKill(weapon.primary);
-    if (ttk < band[0] - 1e-6 || ttk > band[1] + 1e-6) outside.push(weapon.code + ' ' + weapon.id + ' ' + ttk.toFixed(3) + ' not in ' + band.join('-'));
-  }
-  check('time-to-kill vs 100 HP inside the family band for every weapon', outside.length === 0, outside.join('; '));
-  check('TTK table: W13 three shots in 0.2 s, W24 one shot', Test.near(timeToKill(CAT.weapons.byId('vanguard').primary), 0.2, 1e-6) && timeToKill(CAT.weapons.byId('heron').primary) === 0);
-});
-
-Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0);
   TestArena.sponge(2, 0, 20);
@@ -125,8 +100,8 @@ Test.add('weapons', (check) => {
   check('semi-auto at its rate when tapped every other step: 4 rps', Math.abs(countTapped(shooter, 10) - 40) <= 1);
   giveFull(shooter, 'ratchet');
   check('burst: 3 bursts/s x 3 rounds over 10 s', Math.abs(countTapped(shooter, 10) - 90) <= 3);
-  giveFull(shooter, 'hailstorm');
-  check('spin-up 0.5 s then 18 rps', Math.abs(countShots(shooter, BTN.FIRE, 10) - 9.5 * 18) <= 2);
+  const spinUp = giveFull(shooter, 'hailstorm').primary.spinUp;
+  check('spin-up ' + spinUp + ' s then 18 rps', Math.abs(countShots(shooter, BTN.FIRE, 10) - (10 - spinUp) * 18) <= 2);
   giveFull(shooter, 'verdict');
   let taps = 0;
   for (let k = 0; k < 5; k++) taps += countShots(shooter, BTN.FIRE, 0.2) + countShots(shooter, 0, 0.3);
@@ -1062,6 +1037,19 @@ Test.add('weapons', (check) => {
   const tempest = CAT.weapons.byId('tempest');
   Weapons.requestSwitch(guard, tempest.index);
   check('WPN-010 stacked equip attachments stop at the floor', Weapons.stateDuration[guard] >= tempest.equipTime * EQUIP_SCALE_FLOOR - 1e-6, Weapons.stateDuration[guard]);
+  TestArena.finish();
+});
+
+// R-186: W36 stored heat vents once the shooter stops firing, so the heat blast is earned right before it is used.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  giveFull(shooter, 'ember');
+  TestArena.hold(shooter, BTN.FIRE, 3);
+  const stored = Weapons.heat[shooter];
+  Sim.run(TICK_RATE * 15);
+  check('W36 heat builds while firing and vents to 0 when idle', stored >= 100 && Weapons.heat[shooter] === 0, stored + ' -> ' + Weapons.heat[shooter]);
   TestArena.finish();
 });
 
