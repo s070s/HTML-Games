@@ -725,7 +725,10 @@ Test.add('input', (check) => {
   inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
   inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
   check('pad: X alone still reloads', (Actors.buttons[id] & BTN.RELOAD) !== 0 && (Actors.buttons[id] & BTN.GADGET) === 0);
-  inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, false); inputStepAndFrame(); inputStepAndFrame();
+  inputPadButton(pad, 8, true); inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: View and X going down in one poll still make the chord', (Actors.buttons[id] & BTN.GADGET) !== 0 && (Actors.buttons[id] & BTN.RELOAD) === 0 && !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, false); inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
   inputReleasePad();
 });
 
