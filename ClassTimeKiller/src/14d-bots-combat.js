@@ -14,12 +14,17 @@ const AIM_TARGET_SPEED = 10, AIM_OWN_SPEED = 10;   // m/s that double the error
 const AIM_LEAD_EXACT = 0.8, AIM_LEAD_LINEAR = 0.4, AIM_FEET_SKILL = 0.6;   // BOT-030 aim skill thresholds
 const AIM_FEET_HEIGHT = 0.15;
 const AIM_CHEST_HEIGHT = 1.1;           // a remembered (unseen) enemy is looked at here
+const AIM_HEAD_MISS = 0.3;              // m: head aim (tier 4+) only while the aim error at the target's range stays this small
 const RECOIL_CONTROL_MIN = 0.3;         // BT0 pulls against 30% of the punch, BT7 all of it...
 const RECOIL_TRAIT_LOW = 0.75, RECOIL_TRAIT_RANGE = 0.5;   // ...times 0.75..1.25 by the spray-control trait
 const FIRE_ALIGN_DEG = 2.5;             // fire when the view is this close to the wanted aim (plus a share of the error)
 const FIRE_ALIGN_ERROR_SHARE = 0.3;
 const FIRE_RANGE_SLACK = 1.6;           // shoot up to botPref max range x this
+const FIRE_TAP_RECOIL = 1;              // deg: a tapped (semi / burst) shot waits until the uncontrolled punch is this small
 const FIRE_HOLD_DEFAULT = 0.5;          // s a charge or release trigger is held
+const CHARGE_KEEP_SECONDS = 1.5;        // a charge held without a shot this long is dropped by a weapon-switch tap
+const GRENADE_AIM_SECONDS = 1;          // BOT-034: the throw waits (at most this long) until the view is on the solved arc...
+const GRENADE_AIM_TOLERANCE = 3 * DEG;  // ...this close
 const HIT_WINDOW = 30;                  // BOT-093: hit rates measured over 30 s windows (halved, not cleared, when full)
 const HIT_MIN_SHOTS = 8;
 const HIT_BOOST_UP = 0.03, HIT_BOOST_DOWN = 0.01, HIT_BOOST_MAX = 4, HIT_RELAX = 0.8;
@@ -47,6 +52,7 @@ const ABILITY_INTERVAL = 1.5;           // s between ability checks at abilityUs
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15;
 
 const aimPoint = Vec.make();
+const perceived = Vec.make();
 const gadgetView = { grenade: '', grenadeCount: 0, gadget: '', gadgetCount: 0, gadgetCooldown: 0 };
 const abilityView = { slots: [], meter: { kind: 'none', value: 0, ready: false } };
 const ABILITY_BUTTONS = [BTN.ABILITY1, BTN.ABILITY2];
@@ -73,22 +79,30 @@ const BotCombat = {
   strafeSide: new Int8Array(MAX_ACTORS).fill(1), strafeCheckAt: new Float64Array(MAX_ACTORS),
   dodgeAt: new Float64Array(MAX_ACTORS), dodgeUntil: new Float64Array(MAX_ACTORS), dodgeSide: new Int8Array(MAX_ACTORS), dodgeSerial: new Uint32Array(MAX_ACTORS),
   fireToggle: new Uint8Array(MAX_ACTORS), overlaid: new Uint8Array(MAX_ACTORS), holdSince: new Float64Array(MAX_ACTORS).fill(-1),
+  keptSince: new Float64Array(MAX_ACTORS).fill(-1),
+  licenseUntil: new Float64Array(MAX_ACTORS).fill(-1), licenseTarget: new Int8Array(MAX_ACTORS).fill(-1),   // ARC-033 record
+  throwYaw: new Float32Array(MAX_ACTORS), throwPitch: new Float32Array(MAX_ACTORS), throwUntil: new Float64Array(MAX_ACTORS),
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
-  fairness: { shots: 0, unperceived: 0, unknown: 0 },    // ARC-033: every bot shot is at an enemy it sees (unknown = never perceived)
+  // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
+  // others; unknown = the target was not even remembered). Judged at the decision, so a shot that kills is not a breach.
+  fairness: { shots: 0, unperceived: 0, unknown: 0 },
 
   reset(id) {
     this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
-    this.holdSince[id] = -1; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
+    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
   },
   targetVisible(id) { const target = this.target[id]; return target >= 0 && BotSense.sees(id, target); },
+  // Distance to where the bot believes its target is (BOT-040: a remembered target is judged by its last known place).
   targetDistance(id) {
     const target = this.target[id];
-    return target < 0 ? Infinity : Math.hypot(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
+    if (target < 0) return Infinity;
+    BotSense.perceivedPosition(id, target, perceived);
+    return Math.hypot(perceived.x - Actors.x[id], perceived.y - Actors.y[id], perceived.z - Actors.z[id]);
   },
   hitRate(id) { return this.windowShots[id] > 0 ? this.windowHits[id] / this.windowShots[id] : 0; },
 
@@ -96,9 +110,10 @@ const BotCombat = {
     if (Bots.lastPerceive[id] === now || !this.validTarget(id, this.target[id], now)) this.chooseTarget(id, now);
     const target = this.target[id];
     this.manageWeapon(id, now);
-    if (target < 0) { this.lookAtThreat(id, now); this.holdSince[id] = -1; return; }
+    if (now < this.throwUntil[id]) { this.aimThrow(id); return; }
+    if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
     if (BotSense.sees(id, target)) this.engage(id, target, now);
-    else this.watch(id, target);
+    else this.watch(id, target, now);
     this.useGadgets(id, now);
     this.checkDodge(id, now);
   },
@@ -154,30 +169,32 @@ const BotCombat = {
     const pair = BotSense.pair(id, attacker);
     Bots.lookAt(id, BotSense.knownX[pair], BotSense.knownY[pair] + AIM_CHEST_HEIGHT, BotSense.knownZ[pair]);
   },
-  watch(id, target) {
+  watch(id, target, now) {
     const pair = BotSense.pair(id, target);
     Bots.lookAt(id, BotSense.knownX[pair], BotSense.knownY[pair] + AIM_CHEST_HEIGHT, BotSense.knownZ[pair]);
-    this.holdSince[id] = -1;
+    this.keepCharge(id, now, false);
   },
 
   // ---- Aim model (BOT-030) and the trigger ----
   engage(id, target, now) {
     const weapon = Weapons.currentWeapon(id);
-    this.aimPoint(id, target, weapon, aimPoint);
     const error = this.aimError(id, target, now);
+    this.aimPoint(id, target, weapon, error, aimPoint);
     const noise = this.noise(id, now);
     const dx = aimPoint.x - Actors.x[id], dy = aimPoint.y - Actors.eyeY(id), dz = aimPoint.z - Actors.z[id];
     const spray = recoilControl(id) * DEG;   // BOT-031 recoil control by tier and spray trait
     Bots.lookYaw[id] = Math.atan2(dx, dz) + error * noise.yaw * DEG - Weapons.recoilYaw[id] * spray;
     Bots.lookPitch[id] = Math.atan2(dy, Math.hypot(dx, dz)) + error * noise.pitch * AIM_PITCH_SHARE * DEG - Weapons.recoilPitch[id] * spray;
-    if (this.mayFire(id, target, weapon, error, Math.hypot(dx, dy, dz), now)) this.pullTrigger(id, weapon, now);
-    else this.holdSince[id] = -1;
+    if (this.mayFire(id, target, weapon, error, Math.hypot(dx, dy, dz), now)) this.pullTrigger(id, target, weapon, now);
+    else this.keepCharge(id, now, true);
     if (weapon && Math.hypot(dx, dz) < MELEE_DISTANCE && weapon.class !== 'melee' && now >= this.meleeAt[id]) { Bots.press(id, BTN.MELEE); this.meleeAt[id] = now + MELEE_INTERVAL; }
   },
-  // Head from tier 4 with precise weapons (BOT-031), feet for splash at aim skill > 0.6, lead for projectiles (BOT-030).
-  aimPoint(id, target, weapon, out) {
+  // Head from tier 4 with precise weapons when the error is small enough at that range (BOT-031: a preference, so a bot
+  // that would mostly miss the head aims at the body), feet for splash at aim skill > 0.6, lead for projectiles (BOT-030).
+  aimPoint(id, target, weapon, error, out) {
     const mode = weapon ? weapon.primary : null, tier = Bots.tier(id), skill = Bots.trait(id, TRAIT.aimSkill);
-    Hitbox.point(target, tier.headAim && mode && mode.type === 'hitscan' && !mode.splash ? ZONE.HEAD : ZONE.BODY, out);
+    const precise = tier.headAim && mode && mode.type === 'hitscan' && !mode.splash;
+    Hitbox.point(target, precise && error * DEG * this.targetDistance(id) <= AIM_HEAD_MISS ? ZONE.HEAD : ZONE.BODY, out);
     if (mode && mode.splash && skill > AIM_FEET_SKILL) out.y = Actors.y[target] + AIM_FEET_HEIGHT;
     const speed = mode && mode.type === 'projectile' ? this.projectileSpeed(mode) : 0;
     if (!speed || !tier.lead || skill <= AIM_LEAD_LINEAR) return out;
@@ -226,24 +243,45 @@ const BotCombat = {
     if (!weapon || now < BotSense.reactAt[BotSense.pair(id, target)]) return false;   // BOT-006 reaction time
     if (distance > weapon.primary.range || distance > weapon.botPref.range[1] * FIRE_RANGE_SLACK + MELEE_DISTANCE) return false;
     const yawOff = Math.abs(wrapAngle(Bots.lookYaw[id] - Actors.aimYaw[id])), pitchOff = Math.abs(Bots.lookPitch[id] - Actors.aimPitch[id]);
-    return Math.hypot(yawOff, pitchOff) <= (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG;
+    if (Math.hypot(yawOff, pitchOff) > (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG) return false;
+    return !tapped(weapon.primary) || Math.hypot(Weapons.recoilYaw[id], Weapons.recoilPitch[id]) * (1 - recoilControl(id)) <= FIRE_TAP_RECOIL;
   },
-  // auto/beam: hold; semi/burst: press every other tick; charge/release: hold, then let go.
-  pullTrigger(id, weapon, now) {
+  // auto/beam: hold; semi/burst: press every other tick; charge/release: hold, then let go. Only called with the target
+  // in sight and the aim on it, so the shots of this tick (and a burst's later rounds) are licensed for the fairness record.
+  pullTrigger(id, target, weapon, now) {
     const mode = weapon.primary;
-    if (mode.trigger === 'charge' || mode.trigger === 'release') { this.holdThenRelease(id, mode, now); return; }
-    if (mode.trigger === 'semi' || mode.trigger === 'burst') {
+    if (mode.trigger === 'charge' || mode.trigger === 'release') { this.holdThenRelease(id, target, mode, now); return; }
+    if (tapped(mode)) {
       this.fireToggle[id] ^= 1;
-      if (this.fireToggle[id]) Bots.press(id, BTN.FIRE);
+      if (this.fireToggle[id]) { Bots.press(id, BTN.FIRE); this.license(id, target, mode, now); }
       return;
     }
     Bots.press(id, BTN.FIRE);
+    this.license(id, target, mode, now);
   },
-  holdThenRelease(id, mode, now) {
+  holdThenRelease(id, target, mode, now) {
     if (this.holdSince[id] < 0) this.holdSince[id] = now;
+    this.keptSince[id] = -1;
     const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
     if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
     this.holdSince[id] = -1;   // released this tick: the shot goes
+    this.license(id, target, mode, now);
+  },
+  license(id, target, mode, now) {
+    this.licenseTarget[id] = target;
+    this.licenseUntil[id] = now + (mode.trigger === 'burst' ? mode.burst * mode.burstGap : 0);
+  },
+  // A charge or lock that cannot go now (aim off, target hidden) stays held: letting go would fire it at nothing. After
+  // CHARGE_KEEP_SECONDS out of sight a weapon-switch tap drops it, like a player giving up; a bot with one weapon keeps it.
+  keepCharge(id, now, seen) {
+    if (this.holdSince[id] < 0) return;
+    Bots.press(id, BTN.FIRE);
+    if (seen) { this.keptSince[id] = -1; return; }
+    if (this.keptSince[id] < 0) this.keptSince[id] = now;
+    const other = Weapons.cycle(id, 1);
+    if (now - this.keptSince[id] < CHARGE_KEEP_SECONDS || other < 0 || other === Weapons.current[id]) return;
+    Bots.press(id, BTN.NEXT_WEAPON);   // the switch resets the charge (S11 resetFiring), so the release that follows is empty
+    this.holdSince[id] = -1; this.keptSince[id] = -1;
   },
 
   // ---- Weapons: choice by range and botPref (BOT-036), switching only when safe or empty, reload when safe ----
@@ -377,9 +415,17 @@ const BotCombat = {
     const hidden = !visible && now - BotSense.seenAt[pair] < GRENADE_RECENT;
     const cluster = visible && this.clusterAround(id, target) >= 2;
     if (distance < GRENADE_MIN || distance > GRENADE_MAX || !(hidden || cluster) || !BotTeam.takeGrenadeToken(id, now)) return;
-    Bots.lookYaw[id] = Math.atan2(BotSense.knownX[pair] - Actors.x[id], BotSense.knownZ[pair] - Actors.z[id]);
-    Bots.lookPitch[id] = throwPitch(distance);
+    this.throwYaw[id] = Math.atan2(BotSense.knownX[pair] - Actors.x[id], BotSense.knownZ[pair] - Actors.z[id]);
+    this.throwPitch[id] = throwPitch(distance);
+    this.throwUntil[id] = now + GRENADE_AIM_SECONDS;
+  },
+  // Two-phase throw: turn the view onto the solved arc (at the motor's turn rate), throw once it is there.
+  aimThrow(id) {
+    Bots.lookYaw[id] = this.throwYaw[id];
+    Bots.lookPitch[id] = this.throwPitch[id];
+    if (Math.abs(wrapAngle(Actors.aimYaw[id] - this.throwYaw[id])) > GRENADE_AIM_TOLERANCE || Math.abs(Actors.aimPitch[id] - this.throwPitch[id]) > GRENADE_AIM_TOLERANCE) return;
     Bots.press(id, BTN.GRENADE);
+    this.throwUntil[id] = 0;
   },
   clusterAround(id, target) {
     let count = 0;
@@ -415,10 +461,11 @@ const BotCombat = {
     this.adjustBoost(id);
   },
   recordFairness(id) {
-    const target = this.target[id];
     this.fairness.shots++;
-    if (target < 0 || !BotSense.sees(id, target)) this.fairness.unperceived++;
-    if (target < 0 || (!BotSense.sees(id, target) && !BotSense.knows(id, target, Sim.time))) this.fairness.unknown++;
+    if (Sim.time <= this.licenseUntil[id] + TIME_EPSILON) return;
+    this.fairness.unperceived++;
+    const target = this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
+    if (target < 0 || !BotSense.knows(id, target, Sim.time)) this.fairness.unknown++;
   },
   onDamage(event) {
     const id = event.source;
@@ -455,6 +502,9 @@ function recoilControl(id) {
   const share = lerp(RECOIL_CONTROL_MIN, 1, tierShare) * (RECOIL_TRAIT_LOW + RECOIL_TRAIT_RANGE * Bots.trait(id, TRAIT.sprayControl));
   return clamp(share, 0, 1);
 }
+
+// Triggers fired by separate presses (BOT-031 fire throttling: wait for the punch to settle between taps).
+function tapped(mode) { return mode.trigger === 'semi' || mode.trigger === 'burst'; }
 
 function noiseSample() { return clamp(Rng.bots.gauss() * AIM_NOISE_SPREAD, -AIM_NOISE_LIMIT, AIM_NOISE_LIMIT); }
 

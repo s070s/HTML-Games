@@ -56,6 +56,13 @@ const BotSense = {
   sees(bot, other) { return this.visible[bot * MAX_ACTORS + other] === 1; },
   knows(bot, other, now) { return now - this.knownAt[bot * MAX_ACTORS + other] < SENSE_MEMORY; },
   alerted(bot) { return this.alert[bot] >= SENSE_ALERTED; },
+  // Where the bot believes another actor is (BOT-040): the live position while in sight, else the remembered one.
+  perceivedPosition(bot, other, out) {
+    if (this.sees(bot, other)) { out.x = Actors.x[other]; out.y = Actors.y[other]; out.z = Actors.z[other]; return out; }
+    const pair = bot * MAX_ACTORS + other;
+    out.x = this.knownX[pair]; out.y = this.knownY[pair]; out.z = this.knownZ[pair];
+    return out;
+  },
   resetBot(bot) {
     const start = bot * MAX_ACTORS, end = start + MAX_ACTORS;
     this.visible.fill(0, start, end); this.source.fill(0, start, end); this.awareness.fill(0, start, end);
