@@ -134,17 +134,15 @@ const ForgeTools = {
   stamp: { material: 'concrete', team: -1, itemKey: 'healthpack', objectiveKind: 'point', objectiveTeam: -1, triggerKind: 'killzone', hintKind: 'cover', sizes: {} },
   view: { zones: false, triggers: true },
   held: {},
-  drag: { look: false, x: 0, y: 0, touches: 0 },
+  drag: { look: false, id: 0, x: 0, y: 0, touches: 0 },     // id: the pointer whose movement turns the view
   grab: { active: false, list: '', index: -1, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0 },
   pad: { forward: 0, strafe: 0, rise: 0, turn: 0, look: 0, previous: new Uint8Array(FORGE_PAD_BUTTONS) },
   move: { forward: 0, strafe: 0, rise: 0, turn: 0, lookUp: 0 },
-  nearest: { list: '', index: -1 },
   shellTheme: '',
   savedOverride: null,
   listeners: null,
   cameraHook: null,
   menuRequest: null,                          // fn() set by the screens: open the editor menu
-  playMode: '',
   rampScratch: { shape: 'ramp', min: [0, 0, 0], max: [0, 0, 0], dir: '+z' },
   pointScratch: { x: 0, y: 0, z: 0, yaw: 0, group: '', radius: 3, color: 0, kind: '', path: null },
   cameraPlaced: false,
@@ -348,7 +346,7 @@ const ForgeTools = {
     const min = [box[0], box[1], box[2]], max = [box[3], box[4], box[5]];
     if (tool.id === 'box') return MapKit.brush([stamp.material, ...min, ...max]);
     if (tool.id === 'ramp') return MapKit.brush([stamp.material, ...min, ...max, FORGE_RAMP_DIRS[this.turns]]);
-    if (tool.id === 'zone') return { name: Forge.uniqueZoneName('Zone'), min, max };
+    if (tool.id === 'zone') return { name: Forge.uniqueZoneName('Zone'), min: [min[0], min[1] - 1, min[2]], max };   // starts a metre below the floor it is placed on
     return this.makeTrigger(min, max, center);
   },
   makeObjective() {
@@ -487,7 +485,7 @@ const ForgeTools = {
     if (event.target && event.target.tagName === 'TEXTAREA') return;
     Input.setDevice('kbm');
     const hold = FORGE_HOLD_KEYS[event.code], command = FORGE_COMMAND_KEYS[this.keyId(event)];
-    if (hold) { this.held[hold] = true; event.preventDefault(); return; }
+    if (hold && !event.ctrlKey && !event.metaKey) { this.held[hold] = true; event.preventDefault(); return; }
     if (!command || (event.repeat && !FORGE_REPEATING.includes(command))) return;
     event.preventDefault();
     this.command(command);
@@ -506,7 +504,8 @@ const ForgeTools = {
     if (!this.onCanvas(event) || !this.inputLive()) return;
     const drag = this.drag;
     this.setPointer(event);
-    drag.x = event.clientX; drag.y = event.clientY;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // a focused panel button must not catch the next key
+    if (event.pointerType !== 'touch' || drag.touches === 0) { drag.id = event.pointerId; drag.x = event.clientX; drag.y = event.clientY; }
     if (event.pointerType === 'touch') { Input.setDevice('touch'); drag.touches++; drag.look = drag.touches >= 2; return; }
     Input.setDevice('kbm');
     if (event.button === 2) { drag.look = true; return; }
@@ -515,6 +514,7 @@ const ForgeTools = {
   onPointerMove(event) {
     const drag = this.drag;
     if (this.onCanvas(event) || drag.look) this.setPointer(event);
+    if (event.pointerId !== drag.id) return;
     if (drag.look) {
       this.camera.yaw -= (event.clientX - drag.x) * FORGE_MOUSE_LOOK;
       this.camera.pitch = clamp(this.camera.pitch - (event.clientY - drag.y) * FORGE_MOUSE_LOOK, -FORGE_PITCH_LIMIT, FORGE_PITCH_LIMIT);
@@ -705,7 +705,6 @@ const ForgeTools = {
     const setup = CustomMatch.setup(draft, Math.floor(performance.now()) % FORGE_PLAY_SEED_RANGE);
     setup.map = map;
     this.returning = true;
-    this.playMode = modeId;
     Ui.closeAll();
     this.detach();
     Game.start(setup);

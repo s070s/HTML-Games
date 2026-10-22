@@ -280,12 +280,19 @@ Test.add('forge', (check) => {
     ['too many objects', Object.assign({}, good, { hints: Array.from({ length: 450 }, () => ['cover', 0, 0, 0]) })], ['a bad size', Object.assign({}, good, { size: [1, 1, 1] })],
     ['an unknown theme', Object.assign({}, good, { theme: 'lava' })], ['an unknown mode', Object.assign({}, good, { modes: ['chess'] })], ['not an object', [1, 2, 3]],
     ['a bad objective', Object.assign({}, good, { objectives: [{ id: 5 }] })], ['a bad trigger', Object.assign({}, good, { triggers: [{ kind: 'jumppad', min: [0, 0], max: [1, 1, 1] }] })],
-    ['a bad item', Object.assign({}, good, { items: [['notakey', 0, 0, 0]] })], ['an old version', Object.assign({}, good, { v: 0 })]];
+    ['a bad item', Object.assign({}, good, { items: [['notakey', 0, 0, 0]] })], ['an old version', Object.assign({}, good, { v: 0 })],
+    ['an inherited name as the category', Object.assign({}, good, { category: '__proto__' })], ['an inherited name as a mode', Object.assign({}, good, { modes: ['constructor'] })],
+    ['a bad objective team', Object.assign({}, good, { objectives: [{ id: 'a', kind: 'point', x: 0, y: 0, z: 0, radius: 3, team: 'red' }] })],
+    ['a bad hazard element', Object.assign({}, good, { triggers: [{ kind: 'hazard', min: [0, 0, 0], max: [1, 1, 1], damage: 5, element: 'lava' }] })]];
   for (const [name, object] of hostile) {
     const result = Forge.decodeCode(forge(object));
     check('hostile content rejected: ' + name, !!result.error && !result.map, JSON.stringify(result).slice(0, 80));
   }
   check('a harmless code still imports', !Forge.decodeCode(forge(good)).error);
+  const sneaky = JSON.parse('{"id":"a","kind":"point","x":0,"y":0,"z":0,"radius":3,"__proto__":{"evil":1},"extra":[1,2,3]}');
+  const sneakyMap = Forge.decodeCode(forge(Object.assign({}, good, { objectives: [sneaky], __proto__x: 1 }))).map;
+  check('unknown keys in a code are dropped, __proto__ never changes a prototype', !!sneakyMap && sneakyMap.objectives[0].evil === undefined && sneakyMap.objectives[0].extra === undefined
+    && Object.getPrototypeOf(sneakyMap.objectives[0]) === Object.prototype && sneakyMap.__proto__x === undefined);
   forgeEditorOff();
 });
 
@@ -593,8 +600,11 @@ Test.add('forge', (check) => {
   check('one finger moves the cursor and does not place', Forge.map.navHints.length === hintCount + 1 && ForgeTools.pointer.ndcX < 0 && !ForgeTools.drag.look);
   touch('onPointerDown', 2, 500, 300);
   const touchYaw = ForgeTools.camera.yaw;
-  touch('onPointerMove', 2, 560, 300);
+  touch('onPointerMove', 1, 330, 300);
   check('two fingers look around', ForgeTools.drag.look && ForgeTools.camera.yaw < touchYaw);
+  const steadyYaw = ForgeTools.camera.yaw;
+  touch('onPointerMove', 2, 700, 100);
+  check('only the first finger drives the look (no jump when the other moves)', ForgeTools.camera.yaw === steadyYaw);
   touch('onPointerUp', 2, 560, 300); touch('onPointerUp', 1, 300, 300);
   check('lifting the fingers ends the look', !ForgeTools.drag.look && ForgeTools.drag.touches === 0);
   for (const name of ['forgeMenu', 'forgeNew', 'forgeMaps', 'forgeCheck', 'forgeCode', 'forgePlay', 'forgeSettings', 'forgeModes']) {
@@ -699,6 +709,10 @@ Test.add('forge', (check) => {
   ForgeTools.detach();
   Game.stop();
   check('a match stop without test-play does not open the editor', !ForgeTools.active);
+
+  // the renderer reads the lights of a map row as they are stored ({ x, y, z, color, radius })
+  const lights = readMapLights(Maps.get('spire'));
+  check('map row lights reach the renderer', lights.length === Maps.get('spire').lights.length && lights[0].x === 0 && lights[0].y === 12 && lights[0].radius === 20, JSON.stringify(lights[0]));
 
   // saved map in a normal match
   Forge.newFrom({ kind: 'template', id: 'arena' });

@@ -9,6 +9,7 @@ const FORGE_HISTORY_SIZE = 128;                        // undo steps kept; the r
 const FORGE_MAX_MAPS = 20;                             // saved maps
 const FORGE_SAFE_SAVE_BYTES = Math.floor(SAVE_MAX_BYTES * 0.9);   // a save that would pass this is refused (the whole save stays under 1 MB, ARC-020)
 const FORGE_NAME_MAX = 40;
+const FORGE_BLURB_MAX = 200;
 const FORGE_ID_PREFIX = 'user';
 const FORGE_DRAFT_ID = 'draft';
 const FORGE_CODE_PREFIX = 'CTKMAP';
@@ -47,6 +48,7 @@ const FORGE_KINDS = {
 const forgeClone = (value) => JSON.parse(JSON.stringify(value));
 const forgeFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= FORGE_COORD_LIMIT;
 const forgeTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(forgeFinite);
+const forgeOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);   // never an inherited name such as __proto__
 const forgeColor = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffff;
 const forgeNameOf = (text) => String(text || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, FORGE_NAME_MAX);
 const forgeAdd3 = (point, dx, dy, dz) => { point[0] += dx; point[1] += dy; point[2] += dz; };
@@ -353,7 +355,7 @@ const Forge = {
     return true;
   },
   setSize(width, height) { return this.setMeta('size', [width, height, width]); },
-  setCategory(category) { return category in MapRules.sightLimits && this.setMeta('category', category); },
+  setCategory(category) { return forgeOwn(MapRules.sightLimits, category) && this.setMeta('category', category); },
   setModes(modes) { return this.setMeta('modes', modes.slice()); },
 
   // ---- Modes the map can serve ----
@@ -484,7 +486,7 @@ const Forge = {
   expand(def) {
     const error = forgeProblemWith(def);
     if (error) return { error };
-    const map = MapKit.make(forgeClone(def));
+    const map = MapKit.make(forgeClone(forgeCleanDef(def)));
     delete map.v;
     map.name = forgeNameOf(map.name) || 'Untitled';
     for (const zone of map.zones) zone.name = forgeNameOf(zone.name) || 'Zone';
@@ -653,10 +655,10 @@ const Forge = {
 function forgeProblemWith(def) {
   if (!isPlainObject(def) || def.v !== FORGE_CODE_VERSION) return 'The code holds no map of this version.';
   if (typeof def.name !== 'string' || !Array.isArray(def.size) || def.size.length !== 3 || !def.size.every((n) => forgeFinite(n) && n >= FORGE_SIZE_RANGE[0] && n <= FORGE_SIZE_RANGE[1])) return 'The map size is invalid.';
-  if (!MapRules.themes.includes(def.theme) || !(def.category in MapRules.sightLimits)) return 'The map theme or category is unknown.';
+  if (!MapRules.themes.includes(def.theme) || !forgeOwn(MapRules.sightLimits, def.category)) return 'The map theme or category is unknown.';
   if (!isPlainObject(def.sky) || !forgeColor(def.sky.top) || !forgeColor(def.sky.horizon) || !forgeTriple(def.sky.sun)
     || (def.sky.fog !== undefined && !forgeColor(def.sky.fog)) || (def.sky.fogFar !== undefined && !forgeFinite(def.sky.fogFar))) return 'The sky is invalid.';
-  if (!Array.isArray(def.modes) || !def.modes.every((mode) => !!MapRules.rule(mode))) return 'The mode list is invalid.';
+  if (!Array.isArray(def.modes) || !def.modes.every((mode) => forgeOwn(MapRules.modes, mode))) return 'The mode list is invalid.';
   for (const key of ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints']) if (!Array.isArray(def[key])) return 'The ' + key + ' list is missing.';
   const total = def.brushes.length + def.spawns.length + def.items.length + def.objectives.length + def.zones.length + def.triggers.length + def.lights.length + def.hints.length;
   if (total > FORGE_BUDGET) return 'The map holds ' + total + ' objects, more than the budget of ' + FORGE_BUDGET + '.';
@@ -664,15 +666,41 @@ function forgeProblemWith(def) {
   return '';
 }
 const forgeRowIs = (row, length, texts, numbers) => Array.isArray(row) && row.length >= length && texts.every((i) => typeof row[i] === 'string') && numbers.every((i) => forgeFinite(row[i]));
+const FORGE_OBJECTIVE_KEYS = ['team', 'radius', 'path', 'modes', 'id', 'kind', 'x', 'y', 'z', 'stage', 'checkpoints'];
+const FORGE_TRIGGER_KEYS = ['kind', 'min', 'max', 'target', 'peak', 'exit', 'yaw', 'damage', 'element'];
+const FORGE_SKY_KEYS = ['top', 'horizon', 'fog', 'fogFar', 'sun'];
+const FORGE_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
+const forgeText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || FORGE_NAME_MAX) : fallback);
+const forgeStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= FORGE_NAME_MAX);
+const forgeOptionalNumber = (value) => value === undefined || forgeFinite(value);
+// A copy of an object with only the listed keys, in their own order (a key such as __proto__ never survives).
+function forgeKeep(object, keys) {
+  const kept = {};
+  for (const key of Object.keys(object)) if (keys.includes(key)) kept[key] = object[key];
+  return kept;
+}
+// The checked def rebuilt from known fields only: what a code carried beyond them is dropped.
+function forgeCleanDef(def) {
+  const clean = { v: FORGE_CODE_VERSION, id: forgeText(def.id, FORGE_DRAFT_ID), code: forgeText(def.code, 'U00'), name: def.name, size: def.size, theme: def.theme, category: def.category,
+    sky: forgeKeep(def.sky, FORGE_SKY_KEYS), modes: def.modes, blurb: forgeText(def.blurb, '', FORGE_BLURB_MAX), version: forgeFinite(def.version) ? def.version : MapRules.version,
+    placeholder: def.placeholder === true, seed: forgeFinite(def.seed) ? def.seed : 0 };
+  for (const key of FORGE_DEF_LISTS) clean[key] = def[key];
+  clean.objectives = def.objectives.map((objective) => forgeKeep(objective, FORGE_OBJECTIVE_KEYS));
+  clean.triggers = def.triggers.map((trigger) => forgeKeep(trigger, FORGE_TRIGGER_KEYS));
+  return clean;
+}
 const FORGE_ROW_CHECKS = {
   brushes: (row) => forgeRowIs(row, 7, [0], [1, 2, 3, 4, 5, 6]) && row.length <= 8 && MapRules.materials.includes(row[0]) && (row.length === 7 || ['+x', '-x', '+z', '-z'].includes(row[7])),
-  spawns: (row) => Array.isArray(row) && [-1, 0, 1].includes(row[0]) && Array.isArray(row[1]) && Array.isArray(row[2]) && row[2].every((p) => Array.isArray(p) && p.length === 4 && p.every(forgeFinite)),
-  items: (row) => forgeRowIs(row, 4, [0], [1, 2, 3]) && MapRules.groupOf(row[0]) !== '' && (row.length === 4 || Array.isArray(row[4])),
+  spawns: (row) => Array.isArray(row) && [-1, 0, 1].includes(row[0]) && Array.isArray(row[1]) && forgeStrings(row[1]) && Array.isArray(row[2])
+    && row[2].every((p) => Array.isArray(p) && p.length === 4 && p.every(forgeFinite)),
+  items: (row) => forgeRowIs(row, 4, [0], [1, 2, 3]) && MapRules.groupOf(row[0]) !== '' && (row.length === 4 || (Array.isArray(row[4]) && forgeStrings(row[4]))),
   objectives: (o) => isPlainObject(o) && typeof o.id === 'string' && MapRules.objectiveKinds.includes(o.kind) && [o.x, o.y, o.z, o.radius].every(forgeFinite)
-    && (o.path === undefined || (Array.isArray(o.path) && o.path.every(forgeTriple))) && (o.modes === undefined || Array.isArray(o.modes)),
+    && [o.team, o.stage].every(forgeOptionalNumber) && (o.path === undefined || (Array.isArray(o.path) && o.path.every(forgeTriple)))
+    && (o.modes === undefined || (Array.isArray(o.modes) && forgeStrings(o.modes))) && (o.checkpoints === undefined || (Array.isArray(o.checkpoints) && o.checkpoints.every(forgeFinite))),
   zones: (row) => forgeRowIs(row, 7, [0], [1, 2, 3, 4, 5, 6]),
   triggers: (t) => isPlainObject(t) && MapRules.triggerKinds.includes(t.kind) && forgeTriple(t.min) && forgeTriple(t.max)
-    && (t.target === undefined || forgeTriple(t.target)) && (t.exit === undefined || forgeTriple(t.exit)),
+    && (t.target === undefined || forgeTriple(t.target)) && (t.exit === undefined || forgeTriple(t.exit)) && [t.peak, t.yaw, t.damage].every(forgeOptionalNumber)
+    && (t.element === undefined || MapRules.elements.includes(t.element)),
   lights: (row) => forgeRowIs(row, 5, [], [0, 1, 2, 4]) && forgeColor(row[3]),
   hints: (row) => forgeRowIs(row, 4, [0], [1, 2, 3]) && MapRules.hintKinds.includes(row[0]),
 };
@@ -714,7 +742,7 @@ function forgeArenaDef() {
     spawns: [[-1, [], spawns]],
     items: [['megacell', 0, 2, 0], ['heavyplate', -12, 0, 0], ['healthpack', 0, 0, 11], ['healthpack', 0, 0, -11], ['armorshard', 7, 0, 8], ['armorshard', -7, 0, -8],
       ['lancet', 8, 0, -8], ['scattergun', -8, 0, 8], ['ammobox', 0, 0, 8], ['ammobox', 0, 0, -8]],
-    zones: forgeGridRows([40, 14, 40]),
+    zones: forgeGridRows([40, 20, 40]),
     lights: [[0, 8, 0, FORGE_LIGHT_COLOR, 20], [12, 5, 12, FORGE_LIGHT_COLOR, 14], [-12, 5, 12, FORGE_LIGHT_COLOR, 14], [12, 5, -12, FORGE_LIGHT_COLOR, 14], [-12, 5, -12, FORGE_LIGHT_COLOR, 14]],
     hints: [['cover', -7, 0, -11], ['cover', 7, 0, 11], ['choke', -12, 0, 6], ['choke', 12, 0, -6], ['sniper', 2, 2, 2], ['flank', -14, 0, 12]],
   };
@@ -735,14 +763,14 @@ function forgeYardDef() {
     lights: [[-20, 6, 0, FORGE_LIGHT_COLOR, 20], [-30, 6, 15, FORGE_LIGHT_COLOR, 16], [-30, 6, -15, FORGE_LIGHT_COLOR, 16]],
     hints: [['cover', -24, 0, 6], ['cover', -24, 0, -6], ['choke', -8, 0, 8], ['choke', -8, 0, -8], ['flank', -12, 0, 20], ['sniper', -30, 0, 0]],
   };
-  const full = { brushes: [['concrete', -40, -1, -25, 40, 0, 25]].concat(MapKit.wall('concrete', 'z', 0, 2, -25, 25, 0, 6, doors.map((centre) => [centre, 4, 3.5]))), zones: forgeGridRows([80, 14, 50]),
+  const full = { brushes: [['concrete', -40, -1, -25, 40, 0, 25]].concat(MapKit.wall('concrete', 'z', 0, 2, -25, 25, 0, 6, doors.map((centre) => [centre, 4, 3.5]))), zones: forgeGridRows([80, 20, 50]),
     items: [['megacell', 0, 0, 0], ['heavyplate', 0, 0, 16]] };   // the top items stand in the doors: as far from one base as from the other
   return MapKit.join(MapKit.sym(half, 'x'), full);
 }
 
 const FORGE_TEMPLATES = [
-  { id: 'arena', name: 'Foundry arena', blurb: 'Free for all on a 40 m square: a middle platform with ramps, pillars and 16 spawns.', theme: 'foundry', size: [40, 14, 40],
+  { id: 'arena', name: 'Foundry arena', blurb: 'Free for all on a 40 m square: a middle platform with ramps, pillars and 16 spawns.', theme: 'foundry', size: [40, 20, 40],
     header: { modes: ['ffa', 'duel'] }, def: forgeArenaDef },
-  { id: 'yard', name: 'Team yard', blurb: 'Two bases split by a wall with three doors: team modes and capture the flag.', theme: 'ruins', size: [80, 14, 50],
+  { id: 'yard', name: 'Team yard', blurb: 'Two bases split by a wall with three doors: team modes and capture the flag.', theme: 'ruins', size: [80, 20, 50],
     header: { modes: ['tdm', 'ctf', 'elim', 'attrition'] }, def: forgeYardDef },
 ];
