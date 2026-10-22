@@ -12,7 +12,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 ## Think loop (per tick, per living bot)
 
-1. `BotSense.serve(now)`: perception passes that are due (20 Hz in combat near the player, 10 Hz otherwise, 5 Hz beyond 40 m or outside the player's view; staggered by id). Budget: 96 rays per tick over all bots for sight and hearing together, combat pairs first; sight leaves the last 16 for sounds (a sound beyond the through-wall radius needs a ray; none left = not heard).
+1. `BotSense.serve(now)`: perception passes that are due (20 Hz in combat near the player, 10 Hz otherwise, 5 Hz beyond 40 m or outside the player's view; staggered by id). Budget: 96 rays per tick over all bots for sight and hearing together (minus `BotSense.reservedRays`, the PvE enemies' share while they run), combat pairs first; sight leaves the last 16 for sounds (a sound beyond the through-wall radius needs a ray; none left = not heard).
 2. `BotTeam.step(now)`: the commander (roles every 15 s) and the player's ping button.
 3. Per bot: decision at 2 Hz (staggered), combat (target, aim, fire, weapon), navigation (path following), combat footwork (strafe, dodge), goal actions (hold, use), team updates (acknowledgements, barks), then the motor (look spring with the tier's turn cap, move axes, buttons).
 - The first 0.5 s after a spawn the bot only looks along its facing (BOT-002 Spawn state). Frozen actors (`ACTOR_FLAG.FROZEN`, freeze time) wait the same way.

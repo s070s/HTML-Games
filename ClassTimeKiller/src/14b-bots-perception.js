@@ -56,6 +56,7 @@ const BotSense = {
   mine: new Int8Array(MAX_ACTORS).fill(-1),  // nearest enemy placed gadget in sight (Devices index), -1 none
   dangerUntil: new Float64Array(MAX_ACTORS), dangerX: new Float32Array(MAX_ACTORS), dangerZ: new Float32Array(MAX_ACTORS),
   raysLeft: 0,
+  reservedRays: 0,          // rays per tick a later section takes out of the BOT-091 budget (S15 PvE enemies while they run)
   // raysThisTick counts from one vision pass to the next, so the sounds of a tick (heard after the pass) count with it.
   stats: { rays: 0, raysThisTick: 0, maxRaysPerTick: 0, deferred: 0, heard: 0, hearingRays: 0 },
 
@@ -85,7 +86,7 @@ const BotSense = {
   // ---- Vision (once per tick from the 'botThink' system) ----
   serve(now) {
     this.closeRayCount();
-    this.raysLeft = SENSE_RAYS_PER_TICK;
+    this.raysLeft = SENSE_RAYS_PER_TICK - this.reservedRays;
     for (let bot = 0; bot < Actors.count; bot++) {
       const target = BotCombat.target[bot];
       if (Bots.perceiveDue[bot] && Bots.isBot(bot) && target >= 0) this.look(bot, target, now);   // combat pairs first

@@ -169,7 +169,8 @@ const PVE_HORDE_WAVES = [
 const PVE_ENDLESS = { baseBudget: 10, budgetPerWave: 4, weights: { husk: 3, gunner: 3, mite: 1, phalanx: 1, leaper: 1, bomber: 1, brute: 1, turret: 1,
   stalker: 1, longeye: 1, warden: 1, charger: 1 }, bossEvery: 10, boss: 'brute', extractSeconds: 20 };
 // Between waves (ECP07 wave shop): shop time, the wave bonus is paid by Economy.awardWave; the core shield bought there.
-const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5 };
+// A wave down to huntLeft enemies with nothing left to spawn pings their places to the co-op bots every huntPingSeconds.
+const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5, huntLeft: 3, huntPingSeconds: 2 };
 
 // M23 Mote Rush: motes per kill (fodder 1, heavy / leader 3), carried at most 15. The deposit sizes, the invasion step and the
 // boss threshold are the mode row's params (blockerAt [5, 10, 15], invasionAt 50, bossAt 100); blockers[k] is the enemy a

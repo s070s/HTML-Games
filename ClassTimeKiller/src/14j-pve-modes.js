@@ -162,7 +162,7 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false };
+        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
@@ -195,7 +195,8 @@ function makeWaveBehaviour(plan) {
     },
     fight(run, now) {
       if (Pve.core.health <= 0 || teamWiped(NO_TEAM)) { this.failWave(run, now); return; }
-      if (enemiesLeft() > 0) return;
+      const left = enemiesLeft();
+      if (left > 0) { if (left <= PVE_WAVE_RULES.huntLeft && Pve.pending() === 0) huntLastEnemies(run, now); return; }
       for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Modes.awardPlayer(id, 1, 'wave');
       Bus.emit('pve.wave', waveEvent(run.wave, 'cleared'));
       endEncounter(run);
@@ -266,6 +267,18 @@ function endEncounter(run) {
   run.deaths = 0;
   run.plateOffered = false;
   Pve.guardian.fill(0);
+}
+// NPC-007: the last few enemies of a wave (nothing queued) are pinged to the co-op bots every few seconds, so the bots
+// hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share): no shots through walls.
+function huntLastEnemies(run, now) {
+  if (now < run.huntAt) return;
+  run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
+  for (let enemy = 0; enemy < Actors.count; enemy++) if (Pve.isHostile(enemy)) pingToBots(enemy, now);
+}
+function pingToBots(enemy, now) {
+  for (let bot = 0; bot < Actors.count; bot++) {
+    if (Bots.isBot(bot) && Modes.participant[bot]) BotSense.share(bot, enemy, Actors.x[enemy], Actors.y[enemy], Actors.z[enemy], now);
+  }
 }
 const waveEventPayload = { wave: 0, kind: '' };
 function waveEvent(wave, kind) { waveEventPayload.wave = wave; waveEventPayload.kind = kind; return waveEventPayload; }

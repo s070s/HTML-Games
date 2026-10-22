@@ -36,9 +36,9 @@ function pveTestMap(extra) {
   return Object.assign({ id: 'pve-test', brushes: [TEST_FLOOR], spawns: [{ x: 0, y: 0, z: 0, yaw: 0 }], objectives: [], items: [] }, extra);
 }
 
-// One practice dummy (id 0) at the origin; returns it.
-function startPveTest(setup) {
-  World.load(pveTestMap());
+// One practice dummy (id 0) at the origin (map: extra pveTestMap fields); returns it.
+function startPveTest(setup, map) {
+  World.load(pveTestMap(map));
   Game.start(Object.assign({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' }, setup));
   Modes.endProtection(0);   // spawn protection would swallow the first hits
   return 0;
@@ -849,3 +849,69 @@ Test.add('pve', (check) => withShortShop(() => {
     reports.map((event) => event.active).join(' '));
   endModeTest();
 }));
+
+// NPC-007 / NPC-008: a hurt enemy takes cover once per sighting and never in a last stand, so a wave never stalls on it.
+const PVE_TEST_WALL = { shape: 'box', min: [-4, 0, 12], max: [4, 3, 12.3] };   // cover for an enemy 10 m in front of the dummy
+Test.add('pve', (check) => {
+  const dummy = startPveTest({}, { brushes: [TEST_FLOOR, PVE_TEST_WALL] });
+  const gunner = spawnFacing('gunner', 10), row = Pve.rowOf(gunner);
+  const others = [40, 45, 50, 55].map((distance) => spawnFacing('husk', distance)), leaper = spawnFacing('leaper', 30), leaperRow = Pve.rowOf(leaper);
+  const closeIn = leaperRow.attackRows[0].range[0] / 2;   // inside the pounce's minimum range
+  check('a leaper does not pounce inside its minimum range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === -1);
+  Pve.target[gunner] = dummy;
+  BotSense.remember(BotSense.pair(gunner, dummy), SENSE.SEEN, Actors.x[dummy], Actors.y[dummy], Actors.z[dummy], Sim.time);
+  Actors.health[gunner] = Actors.maxHealth[gunner] * 0.2;
+  Pve.decide(gunner, row, Sim.time);
+  check('a hurt gunner takes cover', Pve.goal[gunner] === PVE_GOAL.COVER, Pve.goal[gunner]);
+  Pve.coverUntil[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('its cover time over, it does not hide again from the same target', Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  for (const id of others) killEnemy(id);
+  Pve.coverTaken[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('in a last stand it never takes cover', Pve.lastStand() && Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  check('in a last stand a cornered leaper pounces at any range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === 0);
+  // BOT-040 / BOT-091 for PvE: spawn-protected actors are no foes; the enemy rays come out of the bots' budget.
+  Actors.flags[dummy] |= ACTOR_FLAG.PROTECTED;
+  const protectedFoe = Pve.isFoe(gunner, dummy);
+  Actors.flags[dummy] &= ~ACTOR_FLAG.PROTECTED;
+  check('PvE enemies ignore a spawn-protected actor', !protectedFoe && Pve.isFoe(gunner, dummy));
+  Pve.stepBrains(TICK_SECONDS);
+  BotSense.serve(Sim.time);
+  check('the bots get the per-tick ray budget minus the PvE share', BotSense.raysLeft <= SENSE_RAYS_PER_TICK - PVE_DIRECTOR.raysPerTick, BotSense.raysLeft);
+  Game.stop();
+  check('without PvE the bots get the whole budget back', BotSense.reservedRays === 0);
+  World.clear();
+});
+
+// NPC-007: the last enemies of a wave (nothing queued) are pinged to the co-op bots, which then know where to hunt them.
+Test.add('pve', (check) => withShortShop(() => {
+  const bot = startPveMode('horde', [], { brushes: [TEST_FLOOR, { shape: 'box', min: [-10, 0, 20], max: [10, 4, 20.5] }] }, { bots: [{ team: 0 }] })[0];
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.queue.count = 0;
+  Pve.clearEnemies();
+  const enemy = Pve.spawnEnemy('husk', 0, 0, 30, Math.PI);
+  Actors.flags[enemy] |= ACTOR_FLAG.FROZEN;   // stays behind the wall
+  runSeconds(PVE_WAVE_RULES.huntPingSeconds + 0.5);
+  const pair = BotSense.pair(bot, enemy);
+  check('the bot knows where the last enemy hides without seeing it', Bots.isBot(bot) && BotSense.knows(bot, enemy, Sim.time) && !BotSense.sees(bot, enemy)
+    && BotSense.source[pair] === SENSE.PINGED, BotSense.source[pair]);
+  const knife = CAT.weapons.byId('tanto');
+  check('an out-of-ammo bot walks inside its knife reach to attack', attackRadius(knife) < knife.primary.reach, attackRadius(knife));
+  endModeTest();
+}));
+
+// Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
+const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
+Test.add('pvesoak', (check) => {
+  Game.start({ mode: 'horde', map: 'cistern', seed: 11, player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 0 }], difficulty: 'regular' });
+  const waves = startEventLog('pve.wave');
+  runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
+  waves.stop();
+  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results, seconds = [];
+  for (let i = 1; i < waves.length; i++) if (waves[i].kind !== 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
+  check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
+    cleared + ' cleared, ' + (results && results.reason));
+  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
+  endModeTest();
+}, { slow: true });
