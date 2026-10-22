@@ -68,7 +68,7 @@ const Fx = {
   burst(kind, x, y, z, nx, ny, nz, count, colorHex) {
     if (Game.headless) return;
     const row = fxKindRows[kind] || fxKindRows.spark, cap = Render.quality.particles;
-    const total = Math.min(count > 0 ? count : row.count, cap);
+    const total = Math.min(Math.ceil((count > 0 ? count : row.count) * Render.config.particleScale), cap);   // particleScale: ACC-005 intensity slider
     writeColor(fxColor, 0, colorHex === undefined || colorHex === null ? row.color : colorHex);
     const mode = PARTICLE_MODE.billboard + (row.additive ? ADDITIVE_FLAG : 0), random = Rng.fx;
     for (let i = 0; i < total; i++) {

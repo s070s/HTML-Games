@@ -42,11 +42,11 @@ const ACTION_ROWS = [
   { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:ControlLeft'], pad: 'Pad:1' },
   { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
   { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'] },
-  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE },
-  { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
+  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true },
+  { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
   { id: 'reload', label: 'Reload', group: 'Combat', button: BTN.RELOAD, kbm: ['Key:KeyR'], pad: 'Pad:2' },
-  { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, kbm: ['Key:KeyE'], pad: 'Pad:13' },
+  { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'] },
@@ -65,7 +65,7 @@ const ACTION_ROWS = [
   { id: 'slot7', label: 'Weapon slot 7', group: 'Weapons', slot: 7, kbm: ['Key:Digit7'] },
   { id: 'slot8', label: 'Weapon slot 8', group: 'Weapons', slot: 8, kbm: ['Key:Digit8'] },
   { id: 'slot9', label: 'Weapon slot 9', group: 'Weapons', slot: 9, kbm: ['Key:Digit9'] },
-  { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
+  { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, toggle: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
@@ -105,7 +105,7 @@ const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
   aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
-  aimAssistOverride: null, // fn() -> 0..100 replaces the device's aim assist setting for this match, -1 keeps it (S11: difficulty)
+  aimAssistOverride: null, // fn() -> 0..100 aim assist floor for this match (the device slider is raised to it), -1 = no floor (S11: difficulty)
   actions: ACTION_ROWS,    // the single action table
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
@@ -245,6 +245,14 @@ const Input = {
 
   // ---- Action state ----
   isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
+  isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
+  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button) starts from off again.
+  resetToggle(actionId) {
+    const index = this.actionIndex[actionId];
+    if (!this.toggleMode[index]) return;
+    this.toggled[index] = 0;
+    this.effective[index] = 0;
+  },
   // True when the action was pressed within the last 0.10 s of simulation time (jump before landing, fire during a cooldown).
   buffered(actionId) { return Sim.tick - this.lastPressTick[this.actionIndex[actionId]] <= INPUT_BUFFER_TICKS; },
   consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = NEVER_PRESSED; },
@@ -264,13 +272,14 @@ const Input = {
     const row = ACTION_ROWS[index];
     this.markPressed(index);
     if (this.toggleMode[index]) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
-    if (!this.effective[index]) return;
+    if (!this.effective[index]) { if (row.event) this.emitAction(row.id, false); return; }   // a toggled-off event row reports its release here
     if (row.button) this.pendingButtons |= row.button;
     if (row.slot) this.pendingSlot = row.slot;
     if (row.event) this.emitAction(row.id, true);
   },
   fallingEdge(index) {
-    if (!this.toggleMode[index]) this.effective[index] = 0;
+    if (this.toggleMode[index]) return;
+    this.effective[index] = 0;
     if (ACTION_ROWS[index].event) this.emitAction(ACTION_ROWS[index].id, false);
   },
   emitAction(id, down) {
@@ -279,13 +288,15 @@ const Input = {
     this.actionEvent.down = down;
     Bus.emit('input.action', this.actionEvent);
   },
+  // A toggled event action that is on (the scoreboard overlay) must hear its own second press although a screen is open: that press turns it off.
+  releasesToggle(index) { return ACTION_ROWS[index].event === true && this.toggleMode[index] === 1 && this.effective[index] === 1; },
   // Returns true when at least one action took the binding (callers then stop the browser's default).
   bindingDown(binding) {
     const list = this.bindingMap.get(binding);
     if (!list) return false;
     let handled = false;
     for (let i = 0; i < list.length; i++) {
-      if (this.uiOpen && !ACTION_ROWS[list[i]].always) continue;
+      if (this.uiOpen && !ACTION_ROWS[list[i]].always && !this.releasesToggle(list[i])) continue;
       this.pressAction(list[i]);
       handled = true;
     }
@@ -470,11 +481,12 @@ const Input = {
     aim.pitch = clamp(aim.pitch - pitch, -MAX_LOOK_PITCH, MAX_LOOK_PITCH);
     look.mouseX = look.mouseY = look.assistedX = look.assistedY = 0;
   },
+  // The device slider, raised to the difficulty's aim assist floor (rules.botSkill.aimAssist 0-100, -1 = no floor). Never for the mouse.
   assistStrength() {
-    if (this.device !== 'touch' && this.device !== 'gamepad') return 0;   // never for the mouse
-    const forced = this.aimAssistOverride ? this.aimAssistOverride() : -1;
-    if (forced >= 0) return forced / 100;
-    return (this.device === 'touch' ? this.config.touchAimAssist : this.config.padAimAssist) / 100;
+    if (this.device !== 'touch' && this.device !== 'gamepad') return 0;
+    const slider = this.device === 'touch' ? this.config.touchAimAssist : this.config.padAimAssist;
+    const floor = this.aimAssistOverride ? this.aimAssistOverride() : -1;   // S11 fills it from rules.botSkill.aimAssist
+    return Math.max(slider, floor) / 100;
   },
   // The aim assist target point into out, when the hook finds one and no filter refuses it.
   findAssistTarget(id, out) {

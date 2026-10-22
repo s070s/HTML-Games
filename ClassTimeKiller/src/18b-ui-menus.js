@@ -27,11 +27,6 @@ const TOUCH_EDITOR_HINT = 'Layout editor: drag a control to move it, tap it to e
 const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overflow: hidden auto; padding: 8px; } .ui-editor .ui-row { min-height: 36px; padding: 2px 8px; margin-bottom: 3px; }'
   + '.ui-editor .ui-button { min-height: 36px; } .ui-editor .ui-note { margin-bottom: 6px; } .ui-editor .ui-slider { width: 58%; } .ui-editor .ui-cycle { min-width: 7em; } .ui-editor .ui-label { min-width: 0; } .ui-editor .ui-value { min-width: 3em; }'
   + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }';
-const HELP_LINES = [
-  'Win matches against bots in fast first-person arena fights. Quick Match starts one right away.',
-  'Keyboard and mouse: click the game to lock the mouse. Gamepad: any pad with the standard layout. Touch: left side moves, right side looks.',
-  'Settings apply immediately and are saved. Everything can be rebound under Settings > Controls.',
-];
 
 function screenHeader(root, title, onBack) {
   const head = makeElement('div', 'ui-head');
@@ -87,13 +82,14 @@ function formatSettingValue(value, definition) {
 function isEditableSetting(definition) {
   return !!definition.options || typeof definition.fallback === 'boolean' || (typeof definition.fallback === 'number' && definition.min !== undefined);
 }
-function settingControl(key, definition) {
-  const value = Settings.get(key), apply = (next) => Settings.set(key, next);
+// The control for one value of a settings row: a cycle for options, a toggle for booleans, else a slider. apply(next) gets every change.
+function valueControl(definition, value, apply) {
   if (definition.options) return Ui.cycle(definition.options, definition.optionLabels || definition.options.map(String), value, apply);
   if (typeof definition.fallback === 'boolean') return Ui.toggle(value, apply);
   const step = definition.step || (definition.max - definition.min) / 100;
   return Ui.slider({ min: definition.min, max: definition.max, step, value, format: (shown) => formatSettingValue(shown, definition) }, apply);
 }
+function settingControl(key, definition) { return valueControl(definition, Settings.get(key), (next) => Settings.set(key, next)); }
 function settingKeys(category) {
   const keys = [];
   for (const [key, definition] of Settings.definitions) if (definition.category === category && isEditableSetting(definition)) keys.push(key);
@@ -105,13 +101,27 @@ function resetSettingKeys(keys) {
   Save.scheduleSave();
   for (const key of keys) Bus.emit('setting', key);
 }
+// The tab's keys by group title in first-seen order ('' = no heading); Ui.settingGroup (18l) names the group of a key.
+function groupedSettingKeys(category) {
+  const groups = new Map();
+  for (const key of settingKeys(category)) {
+    const title = Ui.settingGroup(key);
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(key);
+  }
+  return groups;
+}
 function renderSettingsTab(list, category) {
   list.replaceChildren();
   for (const addExtra of Ui.settingsExtras[category] || []) addExtra(list);
-  for (const key of settingKeys(category)) {
-    const definition = Settings.definitions.get(key);
-    list.appendChild(Ui.row(definition.label || key, settingControl(key, definition)));
+  for (const [title, keys] of groupedSettingKeys(category)) {
+    if (title) list.appendChild(makeElement('div', 'ui-group', title));
+    for (const key of keys) {
+      const definition = Settings.definitions.get(key);
+      list.appendChild(Ui.row(definition.label || key, settingControl(key, definition)));
+    }
   }
+  for (const addExtra of Ui.settingsExtras[category + ':after'] || []) addExtra(list);   // extras that belong below the generated rows
 }
 Ui.register('settings', {
   build(root, params) {
@@ -136,6 +146,7 @@ Ui.register('settings', {
     }));
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(reset);
+    for (const addButton of Ui.settingsFooter) foot.appendChild(addButton(() => render()));
     root.appendChild(tabs); root.appendChild(list); root.appendChild(foot);
     render();
     tabButtons.get(active).dataset.autofocus = '1';
@@ -246,7 +257,7 @@ Ui.register('touchLayout', {
   onClose() { TouchInput.setEditing(false); TouchInput.onSelect = null; },
 });
 
-// ---- Help: how to play, current controls, self-test ----
+// ---- Help pieces: the self-test run and the controls list (the Help screen itself is in 18n) ----
 function selfTestSummary(result) {
   if (!result) return '';
   const lines = [result.failed ? 'FAILED ' + result.failed + ' of ' + result.total + ' checks' : 'All ' + result.total + ' checks passed (' + result.groups + ' groups)'];
@@ -276,24 +287,6 @@ function controlsSummary() {
   }
   return lines.join('\n');
 }
-Ui.register('help', {
-  build(root) {
-    screenHeader(root, 'Help');
-    const body = makeElement('div', 'ui-scroll');
-    for (const line of HELP_LINES) body.appendChild(makeElement('p', 'ui-note', line));
-    body.appendChild(makeElement('div', 'ui-group', 'Current controls'));
-    body.appendChild(makeElement('div', 'ui-result', controlsSummary()));
-    body.appendChild(makeElement('div', 'ui-group', 'Self-test'));
-    const output = makeElement('div', 'ui-result', selfTestSummary(Ui.lastSelfTest));
-    const run = Ui.button('Run self-test', () => runSelfTest(output, run));
-    run.disabled = !Ui.selfTestRunner;
-    body.appendChild(run);
-    body.appendChild(output);
-    body.appendChild(makeElement('p', 'ui-note', 'ClassTimeKiller v' + VERSION));
-    root.appendChild(body);
-  },
-});
-
 // ---- Menu flow: which screen shows for each game state ----
 Bus.on('ready', () => {
   if (Game.headless) return;

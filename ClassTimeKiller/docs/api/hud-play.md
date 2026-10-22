@@ -2,6 +2,8 @@
 
 Files: `src/17a-hud.js` (core, settings, layout, pen, projection, status panels), `17b-hud-combat.js` (crosshair, scope, hit / kill markers, damage numbers, damage arcs, vignette), `17c-hud-match.js` (header, kill feed, banners, respawn text), `17d-hud-markers.js` (world markers, name tags, item timers, captions, sound ring), `17e-hud-killcam.js` (killcam-lite), `18d-ui-play.js` (Quick Match, Play and results screens, `PlayFlow`), `18e-ui-scoreboard.js` (scoreboard screen, `LocalPlayerStats`). Tests: groups `hud` (`20b-test-hud.js`) and `play` (`20b-test-play.js`).
 
+More elements (minimap, compass, awareness, barks), the Hardcore HUD rule, `hudAddElement` and the `keepInHardcore` argument of `Hud.register`: `docs/api/accessibility.md`.
+
 ## How the HUD is drawn (REN-005, PERF-002)
 
 - WebGL quads only, no DOM. Four `HudBatch` layers, one draw call each: `hud.back` (10: scope, vignette, damage arcs), `hud.world` (20: markers, name tags, item timers, damage numbers), `hud.main` (30: crosshair, status panels, header, kill feed, captions, sound ring), `hud.front` (40: banners, respawn text, killcam panel).
@@ -31,8 +33,9 @@ Files: `src/17a-hud.js` (core, settings, layout, pen, projection, status panels)
 | `hud.scopeOverlay` | true | dark scope ring for weapons with `alt.zoom` >= 2.5 |
 | `hud.killcam` | true | killcam replay after your death |
 | `hud.teamShapes` | true | team shape next to team colour (ACC-001) |
-| `hud.colorBlind` | off | protanopia / deuteranopia / tritanopia palettes for HUD colours and team colours (a shared `accessibility.colorBlind` should replace it when the accessibility step lands) |
-| `hud.reduceMotion` | auto | auto follows `prefers-reduced-motion`; on = no pulsing vignette / bars, no screen tint |
+| `accessibility.colorBlind` | off | protanopia / deuteranopia / tritanopia palettes for HUD colours and team colours (defined in 18m, read here; replaces `hud.colorBlind`) |
+| `accessibility.reduceMotion` | auto | auto follows `prefers-reduced-motion`; on = no pulsing vignette / bars, no screen tint, halved flashes (replaces `hud.reduceMotion`) |
+| `accessibility.photosensitive` | off | flashes become dark overlays (`Hud.flashColor/flashAlpha`) |
 | `hud.captionSize` `hud.captionBackground` | 16, on | ACC-002 |
 
 ## Elements and what they read
@@ -56,7 +59,7 @@ Files: `src/17a-hud.js` (core, settings, layout, pen, projection, status panels)
 
 ## Scoreboard (UI-010, MODE-003)
 
-Screen `scoreboard` (overlay, passthrough). Tab / the pad's View button: hold to look; touch: tap to open, tap again or Close to hide. It opens by itself at the end of a round and closes when the next round starts (`round` events). Rows are live from `Modes` during the match and from `Game.match.results` afterwards: player (team symbol + colour, dead greyed, local row highlighted), score, kills, deaths, assists and an objective column (`Captures`, `Plants`, `Hold time`, ... by `rules.objective`, or `Objective` when anyone has objective points); team modes add a block per team with its score and rounds. Below: `LocalPlayerStats` for the local player - per weapon shots, hits (one per shot even for pellets), accuracy, kills, headshots (from `weapon.fire`, `damage`, `kill` events) - and the medals earned (`medal` events). `Scoreboard.renderInto(container)` is shared with the results screen. `LocalPlayerStats` resets on `match.start`.
+Screen `scoreboard` (overlay, passthrough). Tab / the pad's View button: hold to look; touch: tap to open, tap again or Close to hide (with `controls.toggle.scoreboard` on, Input keeps the toggle on every device and the board closes on the reported release; closing it any way resets that toggle). It opens by itself at the end of a round and closes when the next round starts (`round` events). Rows are live from `Modes` during the match and from `Game.match.results` afterwards: player (team symbol + colour, dead greyed, local row highlighted), score, kills, deaths, assists and an objective column (`Captures`, `Plants`, `Hold time`, ... by `rules.objective`, or `Objective` when anyone has objective points); team modes add a block per team with its score and rounds. Below: `LocalPlayerStats` for the local player - per weapon shots, hits (one per shot even for pellets), accuracy, kills, headshots (from `weapon.fire`, `damage`, `kill` events) - and the medals earned (`medal` events). `Scoreboard.renderInto(container)` is shared with the results screen. `LocalPlayerStats` resets on `match.start`.
 
 ## Match flow (PRG-001, UI-001)
 
@@ -77,4 +80,4 @@ Consumes `damage kill weapon.fire medal announce ping caption actor.spawn round 
 
 ## Known limits
 
-No minimap / compass (UI-003, UI-006), no stealth awareness indicator (UI-014), no touch gesture for hiding the HUD. The killcam replays positions and view direction, not animations, projectiles or effects. The vignette is red edge bands (no blur).
+No touch gesture for hiding the HUD (the Hardcore HUD mutator and `hud.show` hide it; minimap, compass, awareness meters, bark lines, scope info, flash and suppression effects are in `accessibility.md`). The minimap is a radar without walls. The killcam replays positions and view direction, not animations, projectiles or effects. The vignette is red edge bands (no blur).

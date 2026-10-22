@@ -186,7 +186,7 @@ Test.add('ui', (check) => uiWith(() => {
   for (const [category] of SETTINGS_TABS) {
     if (!settingKeys(category).length) continue;
     uiClickButton(root, SETTINGS_TABS.find((tab) => tab[0] === category)[1]);
-    check('settings: tab ' + category + ' shows all its settings', root.querySelectorAll('.ui-scroll .ui-row').length === settingKeys(category).length);
+    check('settings: tab ' + category + ' shows all its settings', root.querySelectorAll('.ui-scroll .ui-row').length === settingKeys(category).length + (category === 'accessibility' ? Access.mirroredCount() : 0));
   }
   uiClickButton(root, 'Controls');
   const sensitivityRow = Array.from(root.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Mouse sensitivity'));

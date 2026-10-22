@@ -65,8 +65,10 @@ const PlayFlow = {
     const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: Array.from({ length: choice.bots }, () => ({})),
       seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE), difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
+    for (const adjust of this.setupHooks) adjust(setup);
     return setup;
   },
+  setupHooks: [],   // fn(setup) later sections push to adjust a built setup (18l: the player's assist sliders)
   // Starts a match for a choice (normalized and remembered). Runs synchronously so a click can still lock the pointer.
   start(choice, random) {
     const valid = this.normalize(choice);
@@ -137,7 +139,7 @@ Ui.register('play', {
   build(root) {
     screenHeader(root, 'Play');
     const choice = PlayFlow.remembered(), form = makeElement('div', 'ui-scroll pl-form'), summary = makeElement('p', 'ui-note');
-    const render = () => {
+    const render = () => Ui.rebuild(form, () => {
       form.replaceChildren();
       const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
       form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team })); render(); })));
@@ -147,7 +149,7 @@ Ui.register('play', {
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
       if (CAT.modes.byId(choice.mode).teams === 2) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
       summary.textContent = playModeSummary(choice.mode);
-    };
+    });
     root.appendChild(form);
     root.appendChild(summary);
     const foot = makeElement('div', 'ui-foot');
@@ -155,6 +157,7 @@ Ui.register('play', {
     start.dataset.autofocus = '1';
     foot.appendChild(start);
     foot.appendChild(Ui.button('Shuffle', () => { Object.assign(choice, PlayFlow.shuffle(Math.random)); render(); }));
+    foot.appendChild(Ui.button('Loadout', () => Ui.open('loadout')));   // the abilities section registers the screen
     root.appendChild(foot);
     render();
   },

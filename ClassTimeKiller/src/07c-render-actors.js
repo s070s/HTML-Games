@@ -18,6 +18,9 @@ const SHADOW_STRENGTH = 0.55;
 const SHADOW_FADE_METERS = 6;
 const SHADOW_PROBE_METERS = 20;
 const STRENGTH_SLOT = 13;                // instance float the blob-shadow pass reads its strength from
+const HIGHLIGHT_SLOT = 14;               // instance float: 1 = thick bright outline (high-contrast enemies, ACC-006)
+const HIGHLIGHT_THICKNESS = 2;           // extra outline thickness factor of a highlighted instance
+const HIGHLIGHT_COLOR = [1, 0.85, 0.1];
 
 // ---- Shape geometry (unit size, centred on the origin; sizes passed to batch.mesh are full sizes) ----
 // Surface of revolution around Y from rings { r, y, nr, ny } (radius, height, normal radial / vertical part).
@@ -133,7 +136,7 @@ function makeShapeBatch(name, capacity) {
       d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = yaw;
       d[o + 4] = sx; d[o + 5] = sy; d[o + 6] = sz; d[o + 7] = pitch;
       d[o + 8] = r; d[o + 9] = g; d[o + 10] = b; d[o + 11] = emissive || 0;
-      d[o + 12] = sampleSunVisibility(x, y, z); d[o + STRENGTH_SLOT] = 1;
+      d[o + 12] = sampleSunVisibility(x, y, z); d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;
       return o;
     },
@@ -195,12 +198,19 @@ function drawBatchInstances(gl, batch) {
   }
 }
 
+// The outline shell is 1 for every character when 'Character outlines' is on, else 0: high contrast alone then outlines only the
+// highlighted enemies (ACC-006), not teammates or your own team.
+function baseOutlineAmount() { return Render.config.outlines ? 1 : 0; }
+function outlinePassNeeded() { return Render.config.outlines || Render.config.highContrast; }
+
 function useShapesProgram(gl, viewProjection) {
   const program = Render.programs.shapes;
   gl.useProgram(program.handle);
   applyFrameUniforms(gl, program, viewProjection);
   gl.uniform1f(program.uniforms.uOutline, OUTLINE_METERS);
+  gl.uniform1f(program.uniforms.uBaseOutline, baseOutlineAmount());
   gl.uniform3fv(program.uniforms.uOutlineColor, OUTLINE_COLOR);
+  gl.uniform3fv(program.uniforms.uHighlightColor, HIGHLIGHT_COLOR);
 }
 
 const SHAPES_VERTEX = `#version 300 es
@@ -208,6 +218,7 @@ precision highp float;
 uniform mat4 uViewProjection;
 uniform int uMode;
 uniform float uOutline;
+uniform float uBaseOutline;
 in vec3 aPosition;
 in vec3 aNormal;
 in vec4 aOffset;
@@ -219,10 +230,12 @@ out vec3 vNormal;
 out vec4 vColor;
 out vec2 vExtra;
 out vec2 vLocal;
+out float vHighlight;
 ${GLSL_ROTATION}
 void main() {
   vec3 local = aPosition * aScale.xyz;
-  if (uMode == 2) local += aNormal * uOutline;
+  vHighlight = aExtra.z;
+  if (uMode == 2) local += aNormal * uOutline * (uBaseOutline + vHighlight * (${HIGHLIGHT_THICKNESS}.0 - uBaseOutline));
   vPosition = aOffset.xyz + rotateYawPitch(local, aOffset.w, aScale.w);
   vNormal = rotateYawPitch(aNormal / max(aScale.xyz, vec3(0.001)), aOffset.w, aScale.w);
   vColor = aColor;
@@ -235,12 +248,14 @@ precision highp float;
 precision highp int;
 uniform int uMode;
 uniform vec3 uOutlineColor;
+uniform vec3 uHighlightColor;
 ${GLSL_LIGHTING}
 in vec3 vPosition;
 in vec3 vNormal;
 in vec4 vColor;
 in vec2 vExtra;
 in vec2 vLocal;
+in float vHighlight;
 out vec4 outColor;
 void main() {
   if (uMode == 1) {
@@ -248,7 +263,7 @@ void main() {
     outColor = vec4(0.0, 0.0, 0.0, clamp(1.0 - radius * radius, 0.0, 1.0) * vExtra.y);
     return;
   }
-  if (uMode == 2) { outColor = vec4(uOutlineColor, 1.0); return; }
+  if (uMode == 2) { outColor = vec4(mix(uOutlineColor, uHighlightColor, vHighlight), 1.0); return; }
   vec3 normal = normalize(vNormal);
   float sun = max(dot(normal, uSunDirection), 0.0) * vExtra.x * sunShadow(vPosition, normal);
   vec3 light = hemisphereLight(normal) + uSunColor * sun + dynamicLight(vPosition, normal);
@@ -281,7 +296,7 @@ function drawShapes(gl) {
   useShapesProgram(gl, Render.frame.viewProjection);
   drawBatch(gl, propBatch, SHAPE_MODE.lit);
   drawBatch(gl, actorBatch, SHAPE_MODE.lit);
-  if (Render.config.outlines) {
+  if (outlinePassNeeded()) {
     gl.cullFace(gl.FRONT);
     drawBatch(gl, actorBatch, SHAPE_MODE.outline);
     gl.cullFace(gl.BACK);
@@ -340,7 +355,7 @@ function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
 // Team colour, else the profile colour, else a palette colour by id (free-for-all).
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];
-  if (team >= 0) return CAT.teamColors[team % CAT.teamColors.length].color;
+  if (team >= 0) return Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team % CAT.teamColors.length].color;
   if (profile && profile.color) return profile.color;
   return CAT.teamColors[id % CAT.teamColors.length].color;
 }
@@ -401,8 +416,16 @@ function emitActorPart(part, pose, style) {
   const localX = part.pivot[0] + rotated.x, localZ = part.pivot[2] + rotated.z;
   rotateYawPitchInto(rotated, localX * scale, localY * scale, localZ * scale, pose.yaw, 0);
   const emissive = Math.max(partColor(part, style), style.emissive);
-  actorBatch.mesh(part.shape, pose.x + rotated.x, pose.y + rotated.y, pose.z + rotated.z, pose.yaw, pitch,
+  const slot = actorBatch.mesh(part.shape, pose.x + rotated.x, pose.y + rotated.y, pose.z + rotated.z, pose.yaw, pitch,
     part.size[0] * scale * head, part.size[1] * squash * scale * head, part.size[2] * scale * head, tintColor[0], tintColor[1], tintColor[2], emissive);
+  if (slot >= 0) actorBatch.data[slot + HIGHLIGHT_SLOT] = actorHighlight;
+}
+
+// ACC-006: with high-contrast outlines the local player's enemies get a thick bright outline (set per actor before its parts are emitted).
+let actorHighlight = 0;
+function highlightFor(id) {
+  const player = Game.playerId;
+  return Render.config.highContrast && player >= 0 && Actors.isEnemy(player, id) ? 1 : 0;
 }
 
 // Blob shadow under an actor (MIS-037); airborne actors probe the ground below in the renderer's brush grid.
@@ -446,6 +469,7 @@ function drawActor(id, seconds, alpha) {
   if (firstPerson || !SunShadow.covers(distanceSquared)) emitActorShadow(id, pose, style.scale);
   if (firstPerson) return;
   const parts = LOD_PARTS[lod];
+  actorHighlight = highlightFor(id);
   for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
 }
 
