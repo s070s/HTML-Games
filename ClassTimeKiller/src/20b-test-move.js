@@ -512,6 +512,20 @@ Test.add('move', (check) => {
   check('arena does not mantle', recordEvents(['move.mantle'], () => stepSeconds(1)).length === 0);
 });
 
+// MOV-022 on thin cover: a 1 m wall only 0.4 m thick (the MapGen 'lowwalls' kit) is mantled, not a dead end.
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-3, 0, 2], max: [3, 1, 2.4] }]);
+  for (const preset of ['modern', 'knight']) {
+    useTestRules({ move: preset });
+    const id = groundedTester(0, 0.5);
+    holdInput(id, 0, 1, 0, 0);
+    tapButtons(id, BTN.JUMP);
+    stepSeconds(2);
+    check(preset + ': forward + jump crosses a 1 m tall, 0.4 m thick wall', Actors.z[id] > 2.4 + ACTOR_RADIUS, Actors.z[id].toFixed(2));
+    Actors.remove(id);
+  }
+});
+
 // Water exit: in every preset (with or without mantle) a swimmer climbs out over a rim level with the surface or a
 // little above it. The pool is 2 m deep; the rim is the top of the block in front.
 Test.add('move', (check) => {

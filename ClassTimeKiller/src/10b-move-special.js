@@ -13,6 +13,7 @@ const WALL_RUN_APPROACH_SIN = Math.sin(60 * DEG); // MOV-023: approach under 60 
 const MANTLE_SECONDS = 0.35;           // MOV-022
 const MANTLE_RISE_FRACTION = 0.6;      // share of the mantle spent rising before moving onto the ledge
 const MANTLE_REACH = 0.3;              // how far in front of the capsule a ledge is looked for
+const MANTLE_TOP_PROBE = 0.1;          // the ledge top is probed this far past the wall face (thinner cover than this has no top)
 const WATER_EXIT_HEIGHT = 1.6;         // ledge reach (feet to rim) in water in every preset: pools are never traps
 const RAY_BUDGET = 3;                  // MOV-023: wall and ledge rays per actor per step
 const WALL_FACING_COS = 0.7;           // looking this directly at a wall counts as facing it (climb, mantle)
@@ -314,14 +315,16 @@ function mantleReach(id, preset) {
 }
 
 // A wall in front at knee height, walkable floor on top within reach, room to stand there and to rise to it (2 rays).
+// The top is looked for just past the face, so thin cover (a 0.4 m wall) has one; the stand point a capsule radius past the
+// face may hang over its far edge, and the settle after the mantle lets the actor down on the other side.
 function findLedge(id, maxHeight) {
   if (!spendRays(id, 2)) return false;
   const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], forwardX = Math.sin(Actors.yaw[id]), forwardZ = Math.cos(Actors.yaw[id]);
   if (!World.raycast(x, y + STEP_HEIGHT + COLLISION_SKIN, z, forwardX, 0, forwardZ, ACTOR_RADIUS + MANTLE_REACH, wallHit)) return false;
   if (Math.abs(wallHit.ny) > WALL_NORMAL_MAX_Y || wallHit.distance <= 0) return false;
-  const ledgeX = wallHit.x + forwardX * (ACTOR_RADIUS + COLLISION_SKIN * 4), ledgeZ = wallHit.z + forwardZ * (ACTOR_RADIUS + COLLISION_SKIN * 4);
-  const top = y + maxHeight + COLLISION_SKIN;
-  const ledgeY = World.floorBelow(ledgeX, top, ledgeZ, maxHeight - STEP_HEIGHT, wallHit);
+  const faceX = wallHit.x, faceZ = wallHit.z, top = y + maxHeight + COLLISION_SKIN;
+  const ledgeY = World.floorBelow(faceX + forwardX * MANTLE_TOP_PROBE, top, faceZ + forwardZ * MANTLE_TOP_PROBE, maxHeight - STEP_HEIGHT, wallHit);
+  const ledgeX = faceX + forwardX * (ACTOR_RADIUS + COLLISION_SKIN * 4), ledgeZ = faceZ + forwardZ * (ACTOR_RADIUS + COLLISION_SKIN * 4);
   if (!(ledgeY > y + STEP_HEIGHT) || wallHit.distance <= 0) return false;
   const standY = ledgeY + COLLISION_SKIN * 2;
   if (!World.capsuleFits(ledgeX, standY, ledgeZ, ACTOR_RADIUS, Actors.height[id])) return false;
