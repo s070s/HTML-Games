@@ -92,6 +92,17 @@ const Move = {
   stamina: Motion.stamina,  // seconds of sprint left per actor (read-only)
   staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
   dashCharges(id) { return Math.floor(Motion.dashCharges[id]); },
+  // The movement resources for the HUD meter (17f) into out: breath, stamina and glide as shares left (1 = full or unused),
+  // dash and tactical-sprint charges with their preset maximum (0 = the preset has none). Returns out.
+  meters(id, out) {
+    const preset = this.preset(id);
+    out.air = World.airLeft(id) / AIR_SECONDS;
+    out.stamina = this.staminaFraction(id);
+    out.glide = preset.glideTime > 0 ? 1 - Math.min(1, Motion.glideUsed[id] / preset.glideTime) : 1;
+    out.dash = Motion.dashCharges[id]; out.dashMax = preset.dashCharges;
+    out.tac = Motion.tacCharges[id]; out.tacMax = preset.tacSprintCharges;
+    return out;
+  },
   stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
   isGrounded(id) { return Motion.grounded[id] === 1; },
 };

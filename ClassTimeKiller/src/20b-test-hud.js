@@ -122,6 +122,7 @@ function hudTestFillScene(scene) {
   hudTestEvent('bark', { id: mate, team: 0, category: 'spotted', text: 'Contact!' });
   Actors.kind[enemy] = ACTOR_KIND.BOT;   // the awareness meter belongs to bots
   BotSense.awareness[BotSense.pair(enemy, id)] = 0.6;
+  TriggerState.air[id] = AIR_SECONDS * 0.2;   // the movement meter shows a low breath
 }
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -717,6 +718,32 @@ Test.add('hud', (check) => hudTestWith(() => {
   Sim.step();
   check('downed: the local player sees the bleed-out time', (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0 && quads('front', 'downed') > 0);
   check('downed: a downed actor lies prone (crawl pose)', Test.near(Actors.height[id], STANCE_HEIGHT[STANCE.PRONE], 1e-4), Actors.height[id]);
+}));
+
+// MOV-019 breath and the preset's movement resources reach the HUD: under water the breath bar runs down (low air darkens the
+// edges), a Modern sprint shows its stamina; the Hardcore HUD hides the meter like the rest.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { id } = hudTestMatch();
+  Killcam.enabled = false;
+  World.triggers.push(makeTrigger({ kind: 'water', min: [-60, -5, -60], max: [60, 5, 60] }, World.triggers.length));
+  holdInput(id, 0, 0, BTN.CROUCH);
+  stepSeconds(5);
+  hudTestFrame();
+  check('meter: 5 s with the head under water shows the breath running down', hudMoveMeters.air < 1 && hudMoveMeters.rows > 0 && Hud.quadsOf('movement') > 0,
+    hudMoveMeters.air + ' / ' + hudMoveMeters.rows);
+  stepSeconds(4);
+  check('meter: low air darkens the screen edges', hudTestFrame() > 0 && hudTestDrawer('back', 'breath').quads > 0);
+  World.triggers.pop();
+  Move.setPreset(id, 'modern');
+  resetMotion(id);
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(3);
+  hudTestFrame();
+  check('meter: a 3 s Modern sprint shows the stamina left', hudMoveMeters.stamina < 1 && hudMoveMeters.rows > 0 && hudTestDrawer('main', 'movement').quads > 0, hudMoveMeters.stamina);
+  Hud.noHud = true;
+  hudTestFrame();
+  check('meter: hidden by the Hardcore HUD', Hud.quadsOf('movement') === 0);
+  Hud.noHud = false;
 }));
 
 Test.add('hud', (check) => {
