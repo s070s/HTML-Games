@@ -352,7 +352,7 @@ function ultimateCost(id, row) { return Meters.ultimateCost(row); }
 
 // Hero pools (HPP05): health / armor / shield per hero instead of the preset's.
 Damage.poolOverride = (id, out) => {
-  const hero = Abilities.usesHeroes() ? Abilities.hero[id] || Abilities.pickHero(id) : null;
+  const hero = Abilities.usesHeroes() ? Abilities.pickHero(id) : null;   // runs before this life's onSpawn: read the choice itself
   if (!hero) return;
   out.health = hero.health; out.armor = hero.armor; out.shield = hero.shield;
 };
