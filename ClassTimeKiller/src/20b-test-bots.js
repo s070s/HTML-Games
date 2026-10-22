@@ -1615,3 +1615,27 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- BOT-036: an empty magazine in a fight switches to a loaded gun; a much better gun is drawn in a fight too ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 2);
+  Weapons.give(bot, 'stormlash', 0);
+  const pistol = CAT.weapons.byId('warden'), rifle = CAT.weapons.byId('stormlash');
+  Weapons.give(bot, 'warden', 0);
+  Weapons.current[bot] = pistol.index;
+  for (let tick = 0; tick < 2 * TICK_RATE && !BotSense.sees(bot, dummy); tick++) { holdActor(dummy, 0, 2); Sim.run(1); }
+  Weapons.current[bot] = pistol.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Weapons.magazine[Weapons.slotIndex(bot, pistol.index)] = 0;
+  const pressedAt = Sim.time;
+  let switchedAfter = -1;
+  for (let tick = 0; tick < TICK_RATE && switchedAfter < 0; tick++) {
+    holdActor(dummy, 0, 2);
+    Sim.run(1);
+    if (Weapons.current[bot] === rifle.index || Weapons.pending[bot] === rifle.index) switchedAfter = Sim.time - pressedAt;
+  }
+  check('a bot whose pistol magazine runs dry in a fight draws its loaded rifle within 0.5 s', BotSense.sees(bot, dummy) && switchedAfter >= 0 && switchedAfter <= 0.5,
+    switchedAfter.toFixed(2) + ' s, holding ' + Weapons.currentWeapon(bot).id);
+  endBotTest();
+});
+

@@ -38,6 +38,7 @@ const RANGE_BACKOFF = 0.1;              // BOT-032: back off 10% inside the idea
 const COMBAT_JUMP_CHANCE = 0.15;        // per strafe check x jumpiness (tiers with jumps)
 const DODGE_RANGE = 20, DODGE_MISS = 2.5, DODGE_HORIZON = 0.8, DODGE_SECONDS = 0.35;
 const WEAPON_CHECK_SECONDS = 1;
+const COMBAT_SWITCH_GAIN = 0.25, COMBAT_SWITCH_REST = 3;   // a switch in a fight: to a gun worth this much more, once per this many s
 const SLOT_PRESS_INTERVAL = 0.25;
 const RELOAD_FRACTION = 0.5;            // reload when safe below half a magazine
 const RELOAD_PRESS_INTERVAL = 0.5;
@@ -117,6 +118,7 @@ const BotCombat = {
   throwYaw: new Float32Array(MAX_ACTORS), throwPitch: new Float32Array(MAX_ACTORS), throwUntil: new Float64Array(MAX_ACTORS),
   throwCook: new Float32Array(MAX_ACTORS), cookUntil: new Float64Array(MAX_ACTORS),   // s to hold a cookable grenade; 0 = not cooking
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
+  checkedDry: new Uint8Array(MAX_ACTORS), combatSwitchAt: new Float64Array(MAX_ACTORS), wantedGain: new Float32Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
@@ -363,31 +365,52 @@ const BotCombat = {
     this.holdSince[id] = -1; this.keptSince[id] = -1;
   },
 
-  // ---- Weapons: choice by range and botPref (BOT-036), switching only when safe or empty, reload when safe ----
+  // ---- Weapons: choice by range and botPref (BOT-036): switching when safe, when the magazine runs dry (to a loaded
+  // gun, else reload) or in a fight to a gun worth COMBAT_SWITCH_GAIN more (once per COMBAT_SWITCH_REST s); reload when safe ----
   manageWeapon(id, now) {
-    const safe = this.isSafe(id, now);
-    if (now >= this.weaponCheckAt[id]) { this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS; this.wantedWeapon[id] = this.bestWeapon(id); }
-    const current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
-    const empty = !current || (ammo && !ammo.infinite && ammo.magazine === 0 && ammo.reserve === 0 && current.mag > 0);
-    if ((safe || empty) && this.wantedWeapon[id] >= 0) this.switchTo(id, this.wantedWeapon[id], now);
-    if (current && ammo && current.mag > 0 && (safe || ammo.magazine === 0)) this.reloadIfLow(id, current, ammo, now);   // an empty gun reloads in a fight too
+    const safe = this.isSafe(id, now), current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
+    const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0);
+    if (now >= this.weaponCheckAt[id] || (dry && !this.checkedDry[id])) {
+      this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS;
+      this.wantedWeapon[id] = this.bestWeapon(id, dry);
+      if (dry && this.wantedWeapon[id] < 0) this.wantedWeapon[id] = this.bestWeapon(id, false);   // nothing loaded: reload, or any weapon left
+    }
+    this.checkedDry[id] = dry ? 1 : 0;
+    const wanted = this.wantedWeapon[id];
+    if (wanted < 0 || wanted === Weapons.current[id] || !(safe || dry || this.worthSwitching(id, now))) {
+      if (current && ammo && current.mag > 0 && (safe || ammo.magazine === 0)) this.reloadIfLow(id, current, ammo, now);   // a dry gun with nothing loaded to draw reloads in a fight too
+      return;
+    }
+    this.switchTo(id, wanted, now);
   },
   isSafe(id, now) {
     const target = this.target[id];
     return target < 0 || now - BotSense.seenAt[BotSense.pair(id, target)] > SAFE_SECONDS;
   },
-  bestWeapon(id) {
+  // In a fight: the wanted gun beat the drawn one by COMBAT_SWITCH_GAIN at the last weapon check (the switch costs time).
+  worthSwitching(id, now) {
+    if (now < this.combatSwitchAt[id] || this.wantedGain[id] < COMBAT_SWITCH_GAIN) return false;
+    this.combatSwitchAt[id] = now + COMBAT_SWITCH_REST;
+    return true;
+  },
+  // The owned weapon worth most at the target's range (botPref value, less outside its range, plus the favourite
+  // bonus); wantedGain keeps how much more it is worth than the drawn one. loaded: only a gun with rounds in its
+  // magazine (or a melee weapon in reach), so a dry gun is never swapped for a knife at range. -1 = none.
+  bestWeapon(id, loaded) {
     const distance = this.target[id] >= 0 ? this.targetDistance(id) : DEFAULT_ENGAGE_DISTANCE;
     const favorite = BotDecide.favoriteWeapon(id);
-    let best = -1, bestValue = -1;
+    let best = -1, bestValue = -1, drawnValue = 0;
     for (let index = 0; index < WEAPON_COUNT; index++) {
       const slot = Weapons.slotIndex(id, index), weapon = CAT.weapons[index];
       if (!Weapons.owned[slot] || !this.hasRounds(id, weapon, slot)) continue;
       const range = weapon.botPref.range, inRange = distance >= range[0] && distance <= range[1];
       let value = weapon.botPref.value * (inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
       if (weapon.id === favorite) value += FAVORITE_BONUS;
+      if (index === Weapons.current[id]) drawnValue = value;
+      if (loaded && (weapon.mag === 0 ? distance > range[1] : Weapons.magazine[slot] === 0)) continue;
       if (value > bestValue) { bestValue = value; best = index; }
     }
+    this.wantedGain[id] = bestValue - drawnValue;
     return best;
   },
   hasRounds(id, weapon, slot) {
