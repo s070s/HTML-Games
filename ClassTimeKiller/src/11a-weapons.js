@@ -699,7 +699,7 @@ const Weapons = {
     out.visible = !!weapon;
     if (!weapon) return out;
     const shown = this.state[id] === WEAPON_STATE.SWAP ? CAT.weapons[this.pending[id]] : weapon;
-    out.shape = shown.class; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
+    out.shape = shown.class; out.model = shown.id; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
     out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
@@ -980,3 +980,5 @@ Input.aimAssistOverride = () => {
   return skill && skill.aimAssist >= 0 ? skill.aimAssist : -1;
 };
 Render.viewModel = (out) => Weapons.viewModel(out);
+// Third person: the weapon an actor holds, the one being raised while it swaps (07c draws its model).
+Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP && Weapons.pending[id] >= 0 ? Weapons.pending[id] : Weapons.current[id]);

@@ -7,7 +7,7 @@
 // Hooks that later sections fill at load (ARCHITECTURE: renderer and other hooks). A block may replace one with a stub;
 // the loaded one is put back before the next block, so no block depends on what an earlier block left behind.
 const TEST_HOOKS = [[Input, 'aimAssistTarget'], [Render, 'viewModel'], [Render, 'cameraOverride'], [Render, 'actorStyle'],
-  [Render, 'worldQuery'], [Sound, 'lineOfSight']];
+  [Render, 'worldQuery'], [Render, 'heldWeapon'], [Sound, 'lineOfSight']];
 
 const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };   // 120 m test floor shared by test files
 
