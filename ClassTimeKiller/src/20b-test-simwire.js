@@ -117,7 +117,7 @@ Test.add('simwire', (check) => withShortShop(() => {
 // ---- MP11 chamber records in Save.data.progression.chambers (PROGRESS_VERSION 2) ----
 Test.add('simwire', (check) => {
   Save.data = Save.migrate(JSON.parse('{"version":1,"progression":{"version":1,"xp":120}}'));
-  check('migration: a version 1 profile gains an empty chamber record list', isPlainRecord(Progress.profile().chambers) && Progress.profile().xp === 120 && Progress.chamberStars() === 0);
+  check('migration: a version 1 profile gains an empty chamber record list', isPlainObject(Progress.profile().chambers) && Progress.profile().xp === 120 && Progress.chamberStars() === 0);
   Bus.emit('pve.chamber', { chamber: SIMWIRE_CHAMBER, kind: 'complete', medal: 'silver', stars: 2, seconds: 41.26 });
   const first = Progress.chamberRecord(SIMWIRE_CHAMBER);
   check('a completed chamber keeps medal, stars and time', first && first.medal === 'silver' && first.stars === 2 && first.seconds === 41.3, JSON.stringify(first));

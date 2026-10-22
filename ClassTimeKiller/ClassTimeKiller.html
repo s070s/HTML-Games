@@ -2536,7 +2536,7 @@ const ACTION_ROWS = [
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
   { id: 'grenadeNext', label: 'Next grenade type', group: 'Combat', button: BTN.CYCLE_GRENADE, kbm: ['Key:KeyN'] },
   { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
-  { id: 'heal', label: 'Use heal / shield item', group: 'Combat', button: BTN.HEAL, kbm: ['Key:KeyH'] },
+  { id: 'heal', label: 'Use heal / shield item', group: 'Combat', button: BTN.HEAL, kbm: ['Key:KeyH'], pad: 'Pad:8+0' },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
   { id: 'ultimate', label: 'Ultimate', group: 'Abilities', button: BTN.ULTIMATE, kbm: ['Key:KeyX'], pad: 'Pad:12' },
@@ -3158,8 +3158,11 @@ function gyroToLook(rotationRate, angle, out) {
 }
 
 function useButtonNeeded() {
-  const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
-  return !!mode && mode.useButton;
+  if (!Game.match || !Game.match.rules) return false;
+  const mode = CAT.modes.byId(Game.match.rules.mode);
+  if (mode && mode.useButton) return true;
+  for (let index = 0; index < TouchInput.useNeeds.length; index++) if (TouchInput.useNeeds[index]()) return true;
+  return false;
 }
 
 const TouchInput = {
@@ -3176,6 +3179,7 @@ const TouchInput = {
   gyro: { right: 0, down: 0, attached: false },
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   needs: { use: () => useButtonNeeded(), comm: null },
+  useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
 
   init() {
@@ -3540,7 +3544,6 @@ const PadInput = {
     emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { emitToast(text); },
   reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
@@ -3563,15 +3566,17 @@ const PadInput = {
   },
   poll(pad, seconds) {
     this.detectStyle(pad);
-    for (let i = 0; i < PAD_BUTTON_COUNT; i++) {
-      const button = pad.buttons[i];
-      const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
-      if (down === (this.previous[i] === 1)) continue;
-      this.previous[i] = down ? 1 : 0;
-      this.onButton(i, down);
-    }
+    this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
+    for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
     this.readSticks(pad, seconds);
     this.updateMenuRepeat(pad, seconds);
+  },
+  pollButton(pad, index) {
+    const button = pad.buttons[index];
+    const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
+    if (down === (this.previous[index] === 1)) return;
+    this.previous[index] = down ? 1 : 0;
+    this.onButton(index, down);
   },
   onButton(index, down) {
     if (!down) { this.releaseButton(index); return; }
@@ -10560,12 +10565,15 @@ function updateTacticalCharges(id, preset, dt) {
   Motion.tacCharges[id]++;
 }
 
+function isDowned(id) { return (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0; }
+
 function readInput(id) {
   const stopped = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || getClock(id, CLOCK.STAGGER) > 0 || Motion.state[id] === MOVE_STATE.MANTLE;
   Motion.inputX[id] = stopped ? 0 : clamp(Actors.moveX[id], -1, 1);
   Motion.inputZ[id] = stopped ? 0 : clamp(Actors.moveZ[id], -1, 1);
-  const pressed = !stopped && (Actors.pressed[id] & BTN.JUMP) !== 0;
-  const held = !stopped && (Actors.buttons[id] & BTN.JUMP) !== 0;
+  const noJump = stopped || isDowned(id);   // HP-007: a downed actor crawls but never jumps
+  const pressed = !noJump && (Actors.pressed[id] & BTN.JUMP) !== 0;
+  const held = !noJump && (Actors.buttons[id] & BTN.JUMP) !== 0;
   Motion.jumpPressed[id] = pressed ? 1 : 0;
   if (pressed || (MatchMove.autoHop && held)) setClock(id, CLOCK.JUMP_BUFFER, JUMP_BUFFER_SECONDS);
 }
@@ -10600,7 +10608,7 @@ function stepActor(id, dt) {
   updateClocks(id, dt);
   readInput(id);
   updateStance(id, preset);
-  for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
+  if (!isDowned(id)) for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
   updateSprint(id, preset, dt);
   (Move.states[Motion.state[id]] || walkState)(id, preset, gravity, dt);
   afterMove(id, preset, gravity, startX, startZ);
@@ -11089,6 +11097,7 @@ Move.setBoard = function setBoard(id, on) {
   return true;
 };
 Move.onBoard = (id) => Motion.board[id] === 1;
+TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   // touch players board with Use
 function toggleBoard(id, preset) {
   if (!(Actors.pressed[id] & BTN.USE)) return;
   if (Motion.board[id]) { Move.setBoard(id, false); return; }
@@ -11523,20 +11532,21 @@ const Weapons = {
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
     if (!weapon) return;
-    this.updateAds(id, weapon, dt);
+    const altTaken = this.altTaken(id);
+    this.updateAds(id, weapon, altTaken, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    if (!this.altTaken(id)) this.stepAltMode(id, weapon, dt);
+    if (!altTaken) this.stepAltMode(id, weapon, dt);
   },
   altTaken(id) {
     if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
-    if (this.altClaim && this.altClaim(id)) this.altClaimed[id] = 1;
+    if (this.altClaim && this.altClaim(id)) { this.altClaimed[id] = 1; this.altHeld[id] = 0; }
     return this.altClaimed[id] === 1;
   },
-  updateAds(id, weapon, dt) {
-    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+  updateAds(id, weapon, altTaken, dt) {
+    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0 && !altTaken;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
     if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
   },
@@ -12599,6 +12609,7 @@ const Damage = {
   statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
   downedWeapon: null,                               // fn(id) -> weapon key drawn while downed, '' none (S13: the Last Stand perk)
+  downHooks: [],                                    // fn(id) after an actor goes down (S13: its carried objectives drop)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
@@ -12765,6 +12776,7 @@ const Damage = {
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    for (let i = 0; i < this.downHooks.length; i++) this.downHooks[i](target);
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
   },
@@ -12929,6 +12941,7 @@ const Damage = {
     Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
     return true;
   },
+  overhealCap(id) { return Math.max(Actors.maxHealth[id], this.preset().overhealCap); },
   lifesteal(event, share) {
     const source = event.source;
     if (share <= 0 || source < 0 || source === event.target || !Actors.alive[source]) return;
@@ -13096,6 +13109,7 @@ function splashDistance(blast, id) {
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));   // HP-001 victim reductions: MV08 roll
+TouchInput.useNeeds.push(() => Damage.downedAllowed() && currentRules().teams > 0);   // revive needs Use held (HP-007)
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
 Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });
 Bus.on('damage.request', (request) => {
@@ -13613,7 +13627,7 @@ const Items = {
   dropsWeapon(id, weaponIndex) { return Weapons.owned[Weapons.slotIndex(id, weaponIndex)] === 1 && Weapons.countsTowardCarry(CAT.weapons[weaponIndex]); },
   dropSoul(victim) {
     const params = itemRule('params', null);
-    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !((params && params.souls) || itemMutatorOn('souls'))) return;
+    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !(params && params.souls)) return;
     const slot = this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
     if (slot >= 0) this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds * soulCardFx(Game.playerId, 'soulLife', 1));   // C03 Soulkeep
   },
@@ -14026,7 +14040,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Damage.regenerate(id, instant.heal * this.healScale(id, instant), Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Damage.regenerate(id, instant.heal * this.healScale(id, instant), Damage.overhealCap(id)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -14091,7 +14105,7 @@ const Powerups = {
   applyMaxScales(id, healthScale, armorScale) {
     if (healthScale !== this.healthScale[id]) {
       Actors.maxHealth[id] = Actors.maxHealth[id] / this.healthScale[id] * healthScale;
-      Actors.health[id] = Math.min(Actors.health[id], Math.max(Actors.maxHealth[id], Damage.preset().overhealCap));
+      Actors.health[id] = Math.min(Actors.health[id], Damage.overhealCap(id));
       this.healthScale[id] = healthScale;
     }
     if (armorScale === this.armorScale[id]) return;
@@ -14352,6 +14366,12 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
+function intervalDue(clock, index, dt, interval) {
+  clock[index] += dt;
+  if (clock[index] < interval - 1e-6) return false;
+  clock[index] -= interval;
+  return true;
+}
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
   Bus.emit('explosion', POP_EVENT);
@@ -14370,6 +14390,7 @@ function gadgetShotMode(event) {
   const mode = event.mode === 'alt' ? weapon.alt : weapon.primary;
   return mode.type === 'hitscan' || mode.type === 'beam' || mode.type === 'cone' ? mode : null;
 }
+function repairPerShot(mode) { return mode && mode.repair > 0 ? mode.repair / mode.rate : 0; }
 function throwOrigin(id, out) {
   Vec.fromAngles(out, Actors.aimYaw[id], Actors.aimPitch[id]);
   return Vec.set(out, Actors.x[id] + out.x * THROW_FORWARD, Actors.eyeY(id) + out.y * THROW_FORWARD, Actors.z[id] + out.z * THROW_FORWARD);
@@ -14595,12 +14616,7 @@ const GadgetAreas = {
       this.steps[row.effect](area, row, dt);
     }
   },
-  due(area, dt, interval) {
-    this.clock[area] += dt;
-    if (this.clock[area] < interval - 1e-6) return false;
-    this.clock[area] -= interval;
-    return true;
-  },
+  due(area, dt, interval) { return intervalDue(this.clock, area, dt, interval); },
   finish(area, row) {
     this.active[area] = 0;
     if (row.effect === 'singularity') gadgetBlast(row, this.owner[area], this.x[area], this.y[area], this.z[area]);
@@ -15240,12 +15256,7 @@ const Devices = {
     if (row.effect === 'drones') { this.detonateDrone(device, row); return; }
     this.remove(device, false);
   },
-  due(device, dt, interval) {
-    this.clock[device] += dt;
-    if (this.clock[device] < interval - 1e-6) return false;
-    this.clock[device] -= interval;
-    return true;
-  },
+  due(device, dt, interval) { return intervalDue(this.clock, device, dt, interval); },
   enemyOf(device, id) {
     if (!Actors.alive[id] || id === this.owner[device]) return false;
     return this.team[device] < 0 || Actors.team[id] !== this.team[device];
@@ -15469,7 +15480,7 @@ const Devices = {
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
     if (device < 0) return;
-    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, mode.repair / mode.rate); return; }
+    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, repairPerShot(mode)); return; }
     this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
   },
   repair(device, amount) { this.health[device] = Math.min(this.rowOf(device).health, this.health[device] + amount); },
@@ -15833,7 +15844,7 @@ const Abilities = {
   },
   grantReward(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
-    if (!row) return false;
+    if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
     this.reward[id] = 1; this.rewardLoaded[id] = 1;
@@ -15981,12 +15992,12 @@ Bus.on('match.start', () => AbilityZones.clear());
 
 // ==== 12f-abilities-effects.js ====
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12 };
-const BUFF_COUNT = 13;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12, RATE_SLOW: 13 };
+const BUFF_COUNT = 14;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
@@ -16071,7 +16082,7 @@ const Buffs = {
   },
   applyScales(id) {
     Move.statusSpeedScale[id] = this.get(id, BUFF.SPEED) * this.get(id, BUFF.SLOW) * Powerups.speedScale[id];
-    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * Powerups.rateScale[id];
+    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * this.get(id, BUFF.RATE_SLOW) * Powerups.rateScale[id];   // boosts and slows stack
     Move.gravityScale[id] = this.get(id, BUFF.GRAVITY);
   },
   applyInvisible(id, wanted) {
@@ -16237,7 +16248,7 @@ function liftActor(zone, id) {
 function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
 function slowInZone(zone, id) {
   Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
-  Buffs.add(id, BUFF.RATE, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE_SLOW, AbilityZones.value[zone], TICK_BUFF);
 }
 function strikeStep(zone, dt) {
   if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;
@@ -18097,7 +18108,7 @@ Modes.register('lms', {
   onSpawn(id) {
     const params = Modes.rules.params;
     if (params.allWeapons) giveWholeSet(id, params.maxAmmo);
-    if (params.startArmor) Actors.armor[id] = Math.max(Actors.armor[id], params.startArmor);
+    if (params.startArmor) Items.addArmor(id, params.startArmor, params.startArmor);   // within maxArmor, none without armor
   },
 });
 function giveWholeSet(id, fullReserve) {
@@ -18770,6 +18781,7 @@ Abilities.carrierCheck = (id) => {
 };
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
 Damage.downedWeapon = (id) => (Economy.hasPerk(id, 'lastStand') ? CAT.perks.byId('laststand').weapon : '');   // ECP04 Last Stand
+Damage.downHooks.push((id) => Modes.dropCarried(id));   // HP-007: a downed carrier acts on no objective, so it drops it
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;
 Economy.grants.grant = (id, item) => Items.grantBuy(id, item);
 
@@ -19737,7 +19749,7 @@ function lootWeaponIndex(key) {
 
 function touchLoot(now) {
   for (let id = 0; id < Actors.count; id++) {
-    if (!Actors.alive[id] || !Modes.isActive(id)) continue;
+    if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
       if (!RoyaleLoot.taken[spot] && lootInTouch(id, spot)) takeLoot(id, spot, now);
     }
@@ -20194,7 +20206,7 @@ function onKillTriangle(fx, event) {
   if (!fx.triangle || !isOpponentKill(event)) return;
   const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
   if (event.kind === 'melee' || (weapon && weapon.class === 'melee')) {   // a quick-melee bash with a gun is a melee finisher too
-    Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
+    Damage.regenerate(killer, TRIANGLE_HEALTH, Actors.maxHealth[killer]);
     const held = Weapons.currentWeapon(killer);
     if (held) Weapons.addAmmo(killer, held.ammoType, TRIANGLE_AMMO);
   }
@@ -20601,6 +20613,7 @@ const Bots = {
     if (Actors.flags[id] & ACTOR_FLAG.FROZEN) { this.settle(id, dt); return; }   // freeze / buy time (S13): wait
     if (now + TIME_EPSILON >= this.nextDecide[id]) BotDecide.decide(id, now);
     BotCombat.update(id, dt, now);
+    if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { this.settle(id, dt); return; }   // HP-007: wait for the reviver, still aiming and firing
     BotMove.update(id, dt, now);
     BotCombat.overlayMovement(id, dt, now);
     BotCombat.avoidHazards(id, now);
@@ -22381,10 +22394,14 @@ const BotDecide = {
     if (goal === GOAL.NONE) { this.noGoalTime[id] += dt; this.longestNoGoal[id] = Math.max(this.longestNoGoal[id], this.noGoalTime[id]); return; }
     this.noGoalTime[id] = 0;
     if (BotMove.failed(id) && !BotCombat.weaponJumpPending(id, now)) { this.goalFailed(id, now); return; }   // a ledge goal may be jumped to
-    const near = Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
+    const near = this.nearGoal(id, goal);
     if (this.goalAction[id] === ACTION.USE && near) { Bots.wish(id, 0, 0, 0); Bots.press(id, BTN.USE); return; }
     if (!BotMove.arrived(id) && !near) return;
     this.arrive(id, goal, dt, now);
+  },
+  nearGoal(id, goal) {
+    if (goal === GOAL.REVIVE) return Damage.nearestDownedAlly(id, REVIVE_REACH) >= 0;
+    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
   },
   arrive(id, goal, dt, now) {
     if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }
@@ -22838,7 +22855,7 @@ const COMMANDER_INTERVAL = 15;
 const ENEMY_PING_INTERVAL = 4;
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
-const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
+const TEAM_SLOTS = MAX_ACTORS + 1;      // index 0 = no team, then the teams (M20 squads use team indices up to the actor count)
 const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-051: an order is acknowledged within 0.5-1.5 s
 const ORDER_SECONDS = { go: 30, attack: 30, defend: 45, follow: 60 };
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
@@ -24879,11 +24896,11 @@ Items.grantEffects.coreShield = () => {
 };
 const CORE_HIT_LIFT = 1;   // the core's hit sphere sits this far above its spot (where enemy attacks aim)
 function repairCore(event) {
-  const core = Pve.core, mode = gadgetShotMode(event);
-  if (!mode || !(mode.repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
+  const core = Pve.core, mode = gadgetShotMode(event), repair = repairPerShot(mode);
+  if (!(repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
   const distance = raySphere(event.x, event.y, event.z, event.dx, event.dy, event.dz, core.x, core.y + CORE_HIT_LIFT, core.z, PVE_WAVE_RULES.coreRadius);
   if (distance < 0 || distance > Devices.shotReach(event, mode.range)) return;
-  core.health = Math.min(core.max, core.health + mode.repair / mode.rate);
+  core.health = Math.min(core.max, core.health + repair);
 }
 Bus.on('weapon.fire', repairCore);
 
@@ -25575,7 +25592,6 @@ function pveReported(results, key) {
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
-const RUN_WRATH_ABILITY = 'wrath';          // A34 Wrath Form (S12): its cast and end mark the Wrath Form run metrics
 const CHAMBER_SECONDS_STEP = 10;            // chamber record times are kept to a tenth of a second
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
@@ -25679,9 +25695,9 @@ const Progress = {
   emptyStats() { return { version: PROGRESS_VERSION, weapons: {}, modes: {}, maps: {}, totals: { matches: 0, wins: 0, kills: 0, deaths: 0, seconds: 0 } }; },
   emptyLadder() { return { version: PROGRESS_VERSION, tier: 0, match: 0, done: false, cleared: {}, difficulty: {} }; },
   migrate(data) {
-    data.progression = fillMissing(isPlainRecord(data.progression) ? data.progression : {}, this.emptyProfile());
-    data.stats = fillMissing(isPlainRecord(data.stats) ? data.stats : {}, this.emptyStats());
-    data.ladder = fillMissing(isPlainRecord(data.ladder) ? data.ladder : {}, this.emptyLadder());
+    data.progression = fillMissing(isPlainObject(data.progression) ? data.progression : {}, this.emptyProfile());
+    data.stats = fillMissing(isPlainObject(data.stats) ? data.stats : {}, this.emptyStats());
+    data.ladder = fillMissing(isPlainObject(data.ladder) ? data.ladder : {}, this.emptyLadder());
     data.progression.xp = Math.max(0, Number(data.progression.xp) || 0);
     data.progression.version = data.stats.version = data.ladder.version = PROGRESS_VERSION;
     return data;
@@ -25691,8 +25707,8 @@ const Progress = {
   ladder() { return this.ensure().ladder; },
   ensure() {
     const data = Save.data;
-    const current = isPlainRecord(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainRecord(data.stats)
-      && data.stats.version === PROGRESS_VERSION && isPlainRecord(data.ladder) && data.ladder.version === PROGRESS_VERSION;
+    const current = isPlainObject(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainObject(data.stats)
+      && data.stats.version === PROGRESS_VERSION && isPlainObject(data.ladder) && data.ladder.version === PROGRESS_VERSION;
     return current ? data : this.migrate(data);
   },
 
@@ -25888,7 +25904,7 @@ const Progress = {
   recordChamber(event) {
     const records = this.profile().chambers, key = String(event.chamber), old = records[key];
     const seconds = Math.round(event.seconds * CHAMBER_SECONDS_STEP) / CHAMBER_SECONDS_STEP;
-    const better = !isPlainRecord(old) || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
+    const better = !isPlainObject(old) || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
     if (!better) return false;
     records[key] = { medal: event.medal, stars: event.stars, seconds };
     if (event.stars > 0) RunLog.chamberRecords++;
@@ -25916,18 +25932,17 @@ function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
   return PROGRESS_NOT_REACHED;
 }
-function isPlainRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function fillMissing(target, defaults) {
   for (const key in defaults) {
     const fallback = defaults[key];
-    if (target[key] === undefined || (isPlainRecord(fallback) && !isPlainRecord(target[key]))) target[key] = fallback;
-    else if (isPlainRecord(fallback) && !Object.keys(fallback).length) continue;
-    else if (isPlainRecord(fallback)) fillMissing(target[key], fallback);
+    if (target[key] === undefined || (isPlainObject(fallback) && !isPlainObject(target[key]))) target[key] = fallback;
+    else if (isPlainObject(fallback) && !Object.keys(fallback).length) continue;
+    else if (isPlainObject(fallback)) fillMissing(target[key], fallback);
   }
   return target;
 }
 function statRecord(table, key, fields) {
-  if (!isPlainRecord(table[key])) table[key] = {};
+  if (!isPlainObject(table[key])) table[key] = {};
   return fillMissing(table[key], Object.assign({}, fields));
 }
 
@@ -25952,8 +25967,8 @@ Bus.on('damage', (event) => RunLog.onDamage(event));
 Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
-Bus.on('ability.cast', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, true); });
-Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, false); });
+Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });
+Bus.on('ability.end', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, false); });
 Bus.on('pve.boss', (event) => {
   if (event.kind !== 'defeated') return;   // phase, weak and start reports carry no boss time
   RunLog.bossSeconds = Math.min(RunLog.bossSeconds, event.seconds);
@@ -26218,7 +26233,7 @@ const Ladder = {
 const Challenges = {
   record(id) {
     const records = Progress.profile().challenges;
-    if (!isPlainRecord(records[id])) records[id] = {};
+    if (!isPlainObject(records[id])) records[id] = {};
     return fillMissing(records[id], { best: 0, stars: 0, expertBest: 0, expertStars: 0, plays: 0 });
   },
   isOpen(row) { return row.group <= Progress.roomGroup(); },
@@ -26292,7 +26307,7 @@ const Operations = {
   freshState() { return { stage: 0, tickets: [OPERATION_TICKETS.base, OPERATION_TICKETS.base], wins: [0, 0], comeback: -1, done: false, result: '', completed: 0 }; },
   state(id) {
     const records = Progress.profile().operations;
-    if (!isPlainRecord(records[id])) records[id] = this.freshState();
+    if (!isPlainObject(records[id])) records[id] = this.freshState();
     return fillMissing(records[id], this.freshState());
   },
   reset(id) {
@@ -26363,11 +26378,11 @@ const Daily = {
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
     const hand = random.pick(dailyHandMaps(mode)), generator = random.pick(dailyGenerators(mode));
-    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode, generator) };
+    return { key, seed, mode, ruleset, mutators, map: hand.id, generator: Daily.generateMap && generator ? generator.id : '' };
   },
   setup(key) {
-    const choice = this.choiceFor(key);
-    return progressSetup({ mode: choice.mode, map: choice.generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
+    const choice = this.choiceFor(key), generated = dailyGeneratedMap(choice.seed, choice.mode, choice.generator);
+    return progressSetup({ mode: choice.mode, map: generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
       bots: Array.from({ length: DAILY_RULES.bots }, () => ({})), difficulty: DAILY_RULES.difficulty },
     { kind: 'daily', key }, choice.seed);
   },
@@ -26390,10 +26405,10 @@ const Daily = {
 
 function dailyHandMaps(mode) { return CAT.maps.filter((map) => map.modes.includes(mode)); }
 function dailyGenerators(mode) { return CAT.generators.filter((row) => row.modes.includes(mode)); }
-function dailyGeneratedMap(seed, mode, generator) {
-  if (!Daily.generateMap || !generator) return null;
+function dailyGeneratedMap(seed, mode, generatorId) {
+  if (!Daily.generateMap || !generatorId) return null;
   try {
-    const map = Daily.generateMap({ generator: generator.id, seed, mode, size: DAILY_RULES.mapSize });
+    const map = Daily.generateMap({ generator: generatorId, seed, mode, size: DAILY_RULES.mapSize });
     return map && Array.isArray(map.spawns) && map.spawns.length > 0 && map.modes.includes(mode) ? map : null;
   } catch (error) {
     ErrorLog.add('daily map', error);
@@ -26574,7 +26589,7 @@ const CARD_STARTS = {
     for (let other = 0; other < Actors.count; other++) {
       if (!isCardOpponent(id, other)) continue;
       Buffs.add(other, BUFF.SLOW, value, seconds);
-      Buffs.add(other, BUFF.RATE, value, seconds);
+      Buffs.add(other, BUFF.RATE_SLOW, value, seconds);
     }
   },
   discord(id) {
@@ -31381,7 +31396,8 @@ const Hud = {
   resetFlashes() { hudFlashTimes.fill(-1000); },
   flashColor(color) { return this.photosensitive ? HUD_COLOR.black : color; },
   flashAlpha(alpha) { return this.photosensitive ? Math.min(alpha, HUD_PHOTOSENSITIVE_ALPHA) : this.reduceMotion() ? alpha * HUD_REDUCED_FLASH : alpha; },
-  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[team % this.colors.teams.length]; },
+  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[this.colorSlot(team) % this.colors.teams.length]; },
+  colorSlot(team) { return Modes.squads.count > 0 ? (team === Actors.team[Game.playerId] ? 0 : 1) : team; },
   actorColor(id) { return Actors.team[id] >= 0 ? this.teamColor(Actors.team[id]) : this.colors.teams[id % this.colors.teams.length]; },
   teamShape(team) { return team < 0 ? 'circle' : HUD_TEAM_SHAPES[team % HUD_TEAM_SHAPES.length]; },
   keyLabel(actionId) {
@@ -35107,7 +35123,6 @@ const EDITOR_CHANGED = {
   },
 };
 
-function editorToast(text) { Bus.emit('toast', { text }); }
 function editorDraft() {
   if (!EDITOR_STATE.draft) EDITOR_STATE.draft = CustomMatch.load();
   return EDITOR_STATE.draft;
@@ -35143,7 +35158,7 @@ function editorWeaponRows(list) {
   const draft = EDITOR_STATE.draft;
   const limited = Ui.toggle(!!draft.weaponList, (on) => {
     const message = CustomMatch.setWeaponList(draft, on ? CAT.weapons.map((row) => row.id) : null);
-    if (message) editorToast(message);
+    if (message) emitToast(message);
     editorChanged();
   });
   list.appendChild(Ui.row('Limit to chosen weapons', limited));
@@ -35157,7 +35172,7 @@ function editorWeaponRows(list) {
 function editorToggleWeapon(key, on) {
   const draft = EDITOR_STATE.draft, next = draft.weaponList.filter((item) => item !== key);
   if (on) next.push(key);
-  if (!next.length) { editorToast('At least one weapon is needed.'); editorChanged(); return; }
+  if (!next.length) { emitToast('At least one weapon is needed.'); editorChanged(); return; }
   draft.weaponList = CAT.weapons.map((row) => row.id).filter((id) => next.includes(id));
   CustomMatch.save(draft);
 }
@@ -35191,7 +35206,7 @@ function editorSwitchMutator(row, on) {
   const draft = EDITOR_STATE.draft;
   if (!on) { draft.mutators = Mutators.remove(draft.mutators, row.id); editorChanged(); return; }
   const message = CustomMatch.turnOnMutator(draft, row.id);
-  if (message) editorToast(message);
+  if (message) emitToast(message);
   editorChanged();
 }
 function editorMutatorRows(list) {
@@ -35296,7 +35311,7 @@ function presetRow(preset, nameInput, renderList) {
   }));
   wrap.appendChild(Ui.button('Overwrite', () => {
     const saved = CustomMatch.saveAs(editorDraft(), preset.name, preset.id);
-    editorToast(saved ? 'Preset ' + preset.name + ' overwritten.' : Rules.custom.lastError);
+    emitToast(saved ? 'Preset ' + preset.name + ' overwritten.' : Rules.custom.lastError);
   }));
   wrap.appendChild(Ui.button('Delete', () => Ui.confirm({ title: 'Delete preset?', text: preset.name, yes: 'Delete', onYes: () => { Rules.custom.remove(preset.id); renderList(); } }), 'danger'));
   return Ui.row(preset.name, wrap);
@@ -35318,7 +35333,7 @@ Ui.register('customPresets', {
     };
     const save = Ui.button('Save as new', () => {
       const saved = CustomMatch.saveAs(editorDraft(), nameInput.value);
-      editorToast(saved ? 'Preset ' + saved.name + ' saved.' : Rules.custom.lastError);
+      emitToast(saved ? 'Preset ' + saved.name + ' saved.' : Rules.custom.lastError);
       renderList();
     }, 'primary');
     const form = makeElement('div', 'cm-controls');
@@ -35332,10 +35347,10 @@ Ui.register('customPresets', {
 function copyText(text, field) {
   const fallback = () => {
     field.select();
-    try { document.execCommand('copy'); editorToast('Code copied.'); } catch (error) { editorToast('Select the code and copy it.'); }
+    try { document.execCommand('copy'); emitToast('Code copied.'); } catch (error) { emitToast('Select the code and copy it.'); }
   };
   if (!navigator.clipboard) { fallback(); return; }
-  navigator.clipboard.writeText(text).then(() => editorToast('Code copied.'), fallback);
+  navigator.clipboard.writeText(text).then(() => emitToast('Code copied.'), fallback);
 }
 Ui.register('customShare', {
   build(root) {
@@ -36281,7 +36296,7 @@ Ui.register('operations', {
 
 function careerDailySummary(choice) {
   const ruleset = CAT.rulesets.byId(choice.ruleset), names = choice.mutators.map((id) => Mutators.row(id).name);
-  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generated ? 'generated map' : careerMapName(choice.map));
+  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generator ? 'generated map' : careerMapName(choice.map));
 }
 Ui.register('daily', {
   build(root) {
@@ -36599,6 +36614,7 @@ Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.con
 }), 'danger'));
 
 const SAVE_FILE_NAME = 'classtimekiller-save.json';
+const SAVE_URL_LIFETIME_MS = 10000;   // Safari / iOS drop a download whose blob URL is revoked right after the click
 const SaveTransfer = {
   reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
   importText(text) {
@@ -36614,8 +36630,10 @@ const SaveTransfer = {
     const url = URL.createObjectURL(new Blob([Save.exportText()], { type: 'application/json' }));
     const link = makeElement('a');
     link.href = url; link.download = SAVE_FILE_NAME;
+    document.body.appendChild(link);   // some browsers ignore a click on a detached link
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), SAVE_URL_LIFETIME_MS);
   },
   readFile(file, area) { file.text().then((text) => { area.value = text; }).catch(() => Ui.toast('That file could not be read.')); },
 };
@@ -36693,9 +36711,11 @@ const DifficultyAssist = {
     return values;
   },
   apply(setup) {
-    if (!this.enabled()) return;
-    const preset = typeof setup.difficulty === 'string' ? setup.difficulty : setup.difficulty && setup.difficulty.preset;
-    const previous = setup.difficulty && typeof setup.difficulty === 'object' ? setup.difficulty : null;
+    if (!('baseDifficulty' in setup)) setup.baseDifficulty = setup.difficulty;
+    const base = setup.baseDifficulty;
+    if (!this.enabled()) { setup.difficulty = base; return; }
+    const preset = typeof base === 'string' ? base : base && base.preset;
+    const previous = base && typeof base === 'object' ? base : null;
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
@@ -38771,6 +38791,27 @@ Test.add('bots', (check) => {
 });
 
 Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { tier: 3, team: 0 }] });
+  placeFacing(bot, 0, -4, 0);
+  placeFacing(mate, 4, 0, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0, startX = Actors.x[mate], startZ = Actors.z[mate];
+  let moved = 0;
+  for (let tick = 0; tick < 8 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) {
+    Sim.run(1);
+    moved = Math.max(moved, Math.hypot(Actors.x[mate] - startX, Actors.z[mate] - startZ));
+  }
+  const revived = downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED);
+  check('BOT-071 a bot revives a downed bot within 8 s (the downed bot holds still)', revived && moved < 0.5, 'moved ' + moved.toFixed(2) + ' m, goal ' + GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+Test.add('bots', (check) => {
+  check('team bark clocks cover every squad index', BotTeam.teamBarkAt.length >= MAX_ACTORS + 1 && BotTeam.grenadeAt.length >= 2 * MAX_ACTORS + 1, BotTeam.teamBarkAt.length);
+});
+
+Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));
   check('hit caps rise with the tier (BOT-093)', CAT.botTiers.every((row, index) => index === 0 || row.hitCap > CAT.botTiers[index - 1].hitCap));
   check('16 traits T01..T16', CAT.botTraits.length === 16 && CAT.botTraits.every((row, index) => row.code === 'T' + String(index + 1).padStart(2, '0')));
@@ -39875,7 +39916,7 @@ Test.add('core', (check) => {
 });
 
 const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;
-const SHARED_EMIT_EXEMPT = ['01-core.js', '18g-ui-custom.js'];
+const SHARED_EMIT_EXEMPT = ['01-core.js'];
 Test.add('core', (check) => {
   const seen = [];
   const handlers = ['sound', 'impulse', 'toast'].map((type) => [type, Bus.on(type, (payload) => seen.push(type + ':' + JSON.stringify(payload)))]);
@@ -40950,6 +40991,15 @@ Test.add('gadgets', (check) => {
   Sim.run(itemTicks(1));
   const altShots = TestArena.count('weapon.fire', () => GadgetArena.press(id, BTN.ALT));
   check('GAD-002 the underhand throw does not fire the weapon alt (ALT alone still does)', GadgetArena.firstThrown() >= 0 && thrownShots === 0 && altShots > 0, thrownShots + ' / ' + altShots);
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['verdict']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the scoped rifle is out
+  Actors.buttons[id] = BTN.GRENADE | BTN.ALT;
+  Sim.run(itemTicks(0.2));
+  const sights = Weapons.ads[id];
+  Actors.buttons[id] = 0;
+  check('GAD-002 holding ALT for an underhand throw does not raise a zoom alt\'s sights', sights === 0, sights);
   TestArena.finish();
 });
 
@@ -43003,6 +43053,12 @@ Test.add('input', (check) => {
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
   check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
+  Game.match.rules = { mode: 'tdm', teams: 2, downed: true }; TouchInput.applyAll();
+  check('touch: USE shows in a team match with downed and revive (HP-007)', !TouchInput.elements.use.classList.contains('off'));
+  const loadedMap = World.map;
+  Game.match.rules = { mode: 'ffa' }; World.map = { size: SKIMMER_MIN_MAP_SIZE }; TouchInput.applyAll();
+  check('touch: USE shows on a map large enough for the skimmer board (MOV-027)', !TouchInput.elements.use.classList.contains('off'));
+  World.map = loadedMap;
   Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
   check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
   check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
@@ -43047,7 +43103,7 @@ Test.add('input', (check) => {
   const id = startInputMatch();
   const pad = inputFakePad();
   inputUsePad(pad);
-  check('pad: walk, gadget and comm have View chord defaults (INP-007)', Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
+  check('pad: walk, gadget, comm and heal have View chord defaults (INP-007)', Input.getBinding('heal', 2) === 'Pad:8+0' && Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
   check('pad: a chord binding is labelled with both glyphs', Input.bindingLabel('Pad:8+2') === 'View + X');
   inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
   inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
@@ -43058,7 +43114,10 @@ Test.add('input', (check) => {
   inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
   inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
   check('pad: X alone still reloads', (Actors.buttons[id] & BTN.RELOAD) !== 0 && (Actors.buttons[id] & BTN.GADGET) === 0);
-  inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, false); inputStepAndFrame(); inputStepAndFrame();
+  inputPadButton(pad, 8, true); inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: View and X going down in one poll still make the chord', (Actors.buttons[id] & BTN.GADGET) !== 0 && (Actors.buttons[id] & BTN.RELOAD) === 0 && !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 8, false); inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
   inputReleasePad();
 });
 
@@ -45713,6 +45772,9 @@ Test.add('modes', (check) => {
   check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
   check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
   endModeTest();
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'pilot' });
+  check('lms: start armor stays within maxArmor (none in a ruleset without armor)', Actors.armor[0] <= Actors.maxArmor[0], Actors.armor[0] + ' / ' + Actors.maxArmor[0]);
+  endModeTest();
 
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
@@ -45735,6 +45797,20 @@ Test.add('modes', (check) => {
 });
 
 const CTF_MAP = { spawns: TEAM_SPAWNS, objectives: [{ id: 'blueFlag', kind: 'flag', team: 0, x: -30, y: 0, z: 0 }, { id: 'redFlag', kind: 'flag', team: 1, x: 30, y: 0, z: 0 }] };
+
+Test.add('modes', (check) => {
+  startModeTest('ctf', modesTestMap(CTF_MAP), [0, 0, 1]);
+  const redFlag = Modes.objectives[1];
+  placeActor(1, -40, 40); placeActor(2, 40, -40);
+  placeActor(0, 30.5, 0);
+  Sim.step();
+  const carried = redFlag.carrier === 0;
+  placeActor(0, 10, 10);
+  Damage.goDown(-1, 0);
+  Sim.step();
+  check('ctf: a carrier that goes down drops the flag', carried && redFlag.state === 'dropped' && redFlag.carrier === -1, redFlag.state + ' ' + redFlag.carrier);
+  endModeTest();
+});
 
 Test.add('modes', (check) => {
   startModeTest('ctf', modesTestMap(CTF_MAP), [0, 1]);
@@ -46570,7 +46646,11 @@ Test.add('modes2', (check) => {
   check('royale: loot spots from the weapon, armor, health and ammo items', RoyaleLoot.count === 4 && RoyaleLoot.weapon[0] === CAT.weapons.byId('warden').index);
   runSeconds(2);
   const rarity = RoyaleLoot.rarity[0];
+  Actors.flags[0] |= ACTOR_FLAG.DOWNED; Damage.downedTime[0] = DOWNED_BLEED_SECONDS;
   placeActor(0, 10, 10); runSeconds(0.2);
+  check('royale: a downed actor takes no loot (HP-007)', RoyaleLoot.taken[0] === 0);
+  Actors.flags[0] &= ~ACTOR_FLAG.DOWNED;
+  runSeconds(0.2);
   check('royale: a weapon spot gives its weapon with its rarity (WPN-008)', Weapons.has(0, 'warden') && Weapons.rarity[Weapons.slotIndex(0, CAT.weapons.byId('warden').index)] === rarity && RoyaleLoot.taken[0] === 1);
   placeActor(0, 14, 10); runSeconds(0.2);
   const consumable = CAT.items.byId(LOOT_CONSUMABLES[RoyaleLoot.rarity[2]]);
@@ -46619,6 +46699,11 @@ Test.add('modes2', (check) => {
   Move.setPreset(0, 'tactical'); Modes.endProtection(0);   // MOV-015 fall damage (lethal above 22 m/s); firing ends protection
   check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
     && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
+  const viewer = Game.playerId;
+  Game.playerId = 1;   // a player in squad 1
+  const ownColor = Hud.teamColor(1) === Hud.colors.teams[0] && Hud.teamColor(0) === Hud.colors.teams[1];
+  Game.playerId = viewer;
+  check('royale: the player\'s own squad has the own-team HUD colour, whatever its index', ownColor);
   check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
     && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
   runSeconds(3);
@@ -47499,6 +47584,19 @@ Test.add('move', (check) => {
   stepSeconds(3.1);
   const vy = Actors.vy[glider]; Sim.step();
   check('glide lasts 3 s per jump', Test.near(vy - Actors.vy[glider], 16 * TICK_SECONDS, 1e-3), vy - Actors.vy[glider]);
+});
+
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'agile' });
+  const id = groundedTester(0, 0), ally = groundedTester(-20, -20);
+  Actors.flags[id] |= ACTOR_FLAG.DOWNED; Damage.downedTime[id] = DOWNED_BLEED_SECONDS;
+  const startY = Actors.y[id];
+  holdInput(id, 0, 1, BTN.JUMP);
+  const rise = highestPoint(id, 0.5) - startY;
+  check('a downed actor does not jump (HP-007)', Actors.alive[id] === 1 && rise < 0.05, rise.toFixed(3));
+  Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
+  Actors.remove(id); Actors.remove(ally);
 });
 
 // ==== 20b-test-mutators.js ====
@@ -49724,10 +49822,10 @@ Test.add('progress', (check) => {
     && profile.cards.marks === 0 && Progress.stats().totals.matches === 0 && Progress.ladder().tier === 0 && Progress.level() === 1);
   Save.data = Save.migrate(JSON.parse('{"version":1,"settings":{},"progression":{"xp":5000,"medals":{"spree":2}},"stats":{"weapons":{"warden":{"kills":30}}},"ladder":{"tier":2}}'));
   check('migration: kept values survive, missing ones are added', Progress.profile().xp === 5000 && Progress.profile().medals.spree === 2 && Progress.ladder().tier === 2
-    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainRecord(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
+    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainObject(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
   check('migration: weapon records gain their missing counters on first use', Progress.masteryOf('warden') === 0 && statRecord(Progress.stats().weapons, 'warden', WEAPON_STAT_FIELDS).headshots === 0);
   Save.data = Save.migrate(JSON.parse('{"version":1,"progression":[1,2],"stats":"broken","ladder":null}'));
-  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainRecord(Progress.stats().weapons) && Progress.ladder().done === false);
+  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainObject(Progress.stats().weapons) && Progress.ladder().done === false);
   Save.data = Save.emptySave();
   check('migration: an empty save migrates lazily on first use', Progress.profile().version === PROGRESS_VERSION && Save.data.progression.version === PROGRESS_VERSION);
   Save.data.progression.xp = 'lots';
@@ -50021,6 +50119,13 @@ Test.add('progress', (check) => {
       && (!map.gen || MapGen.generator(map.gen.generator).modes.includes(setup.mode));
   }
   check('daily: the map serves the daily mode with its objectives, generated by a generator for that mode', served && generatedDays > 0, generatedDays);
+  const generateMap = Daily.generateMap;
+  let builds = 0;
+  Daily.generateMap = (options) => { builds++; return generateMap(options); };
+  const shown = Daily.choiceFor('2026-10-22'), shownBuilds = builds;
+  Daily.setup('2026-10-22');
+  Daily.generateMap = generateMap;
+  check('daily: the Daily screen choice builds no map, the match setup builds it once', shownBuilds === 0 && builds === (shown.generator ? 1 : 0), shownBuilds + '/' + builds);
   const setup = Daily.setup('2026-10-22');
   Rules.build(setup);
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
@@ -50247,7 +50352,11 @@ Test.add('progress', (check) => {
 
   ids = progressCardMatch(['slowtide', 'onehp', 'discord', 'endless']);
   CardRun.activate(progressSlot('slowtide'));
-  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE_SLOW) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  Buffs.add(ids.other, BUFF.RATE, 1.5, 5);
+  Buffs.applyScales(ids.other);
+  check('a fire-rate boost does not cancel a slow: they multiply', Test.near(Weapons.rateScale[ids.other], 0.75 * Powerups.rateScale[ids.other], 1e-6), Weapons.rateScale[ids.other]);
+  Buffs.cancel(ids.other, BUFF.RATE);
   const enemy = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   Actors.alive[enemy] = 1;
   CardRun.activate(progressSlot('discord'));
@@ -51131,6 +51240,9 @@ Test.add('pve', (check) => withShortShop(() => {
   check('a PvE kill in a soul mode drops a PU18 soul', slot >= 0);
   if (slot >= 0) Items.take(player, slot);
   check('the soul counts in Powerups.souls', Powerups.souls[player] === before + 1, Powerups.souls[player]);
+  Meters.addPoints(player, Meters.row().max);
+  const kept = Abilities.row(player, SLOT.ULTIMATE);
+  check('streak rewards leave Wrath Form in the ultimate slot of a soul mode', kept && kept.id === SOUL_ULTIMATE && !Abilities.rewardLoaded[player], kept && kept.id);
   const reports = startEventLog('pve.wrath');
   Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
   Sim.step();
@@ -52169,6 +52281,17 @@ Test.add('settings', (check) => {
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
   Settings.set('assist.gameSpeed', 0.7);
+  const restarted = { mode: 'ffa', seed: 1, difficulty: 'regular' };
+  Game.start(restarted); Game.stop();
+  Settings.set('assist.enabled', false);
+  Game.start(restarted);
+  check('assist: a restart after switching assists off drops them', restarted.difficulty === 'regular' && !Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.enabled', true); Settings.set('assist.gameSpeed', 1);
+  Game.start(restarted);
+  check('assist: a restart after a slider went back to neutral drops it', restarted.difficulty.preset === 'regular' && restarted.difficulty.gameSpeed === undefined, JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };
@@ -52282,6 +52405,12 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
   check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
   SaveTransfer.reload = reload;
+  const anchorClick = HTMLAnchorElement.prototype.click;
+  let clicked = null, connected = false;
+  HTMLAnchorElement.prototype.click = function recordClick() { clicked = this; connected = this.isConnected; };
+  SaveTransfer.download();
+  HTMLAnchorElement.prototype.click = anchorClick;
+  check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));
 
 // ==== 20b-test-simwire.js ====
@@ -52394,7 +52523,7 @@ Test.add('simwire', (check) => withShortShop(() => {
 
 Test.add('simwire', (check) => {
   Save.data = Save.migrate(JSON.parse('{"version":1,"progression":{"version":1,"xp":120}}'));
-  check('migration: a version 1 profile gains an empty chamber record list', isPlainRecord(Progress.profile().chambers) && Progress.profile().xp === 120 && Progress.chamberStars() === 0);
+  check('migration: a version 1 profile gains an empty chamber record list', isPlainObject(Progress.profile().chambers) && Progress.profile().xp === 120 && Progress.chamberStars() === 0);
   Bus.emit('pve.chamber', { chamber: SIMWIRE_CHAMBER, kind: 'complete', medal: 'silver', stars: 2, seconds: 41.26 });
   const first = Progress.chamberRecord(SIMWIRE_CHAMBER);
   check('a completed chamber keeps medal, stars and time', first && first.medal === 'silver' && first.stars === 2 && first.seconds === 41.3, JSON.stringify(first));
