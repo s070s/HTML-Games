@@ -129,7 +129,7 @@ const BotDecide = {
   makeCampSpot(hint, map, mode) {
     const spot = { x: hint.x, y: hint.y, z: hint.z, safe: [true, true, true] };
     for (const spawn of map.spawns || []) {
-      if (!mapServesMode(spawn, mode) || Math.hypot(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
+      if (!mapServesMode(spawn, mode) || length2(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
       if (!World.lineClear(hint.x, hint.y + SPAWN_EYE_HEIGHT, hint.z, spawn.x, spawn.y + SPAWN_EYE_HEIGHT, spawn.z)) continue;
       const side = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
       spot.safe[2] = false;                  // free-for-all: every spawn is an enemy spawn
@@ -153,7 +153,7 @@ const BotDecide = {
   itemAt(x, y, z) {
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (Math.hypot(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
+      if (length2(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
     }
     return -1;
   },
@@ -222,7 +222,7 @@ const BotDecide = {
   // BOT-071: a reviver keeps holding Use while Damage's own revive search still reaches the ally, wherever it planned to kneel.
   nearGoal(id, goal) {
     if (goal === GOAL.REVIVE) return Damage.nearestDownedAlly(id, REVIVE_REACH) >= 0;
-    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
+    return length2(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
   },
   arrive(id, goal, dt, now) {
     if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }
@@ -253,7 +253,7 @@ const BotDecide = {
   // The bot stands at the spot its goal holds (defend, camp, objective hold): placed gadgets go down here.
   holding(id) {
     if (this.goalAction[id] !== ACTION.HOLD || this.goal[id] === GOAL.NONE) return false;
-    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + HOLD_ARRIVED;
+    return length2(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + HOLD_ARRIVED;
   },
   favoriteWeapon(id) {
     const row = Bots.profile[id];
@@ -277,7 +277,7 @@ const BotDecide = {
 function reviveSafe(id, ally) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
     if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
-    if (Math.hypot(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
+    if (length2(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
   }
   return true;
 }
@@ -294,11 +294,11 @@ function mutatorRisk() {
 // (bot -> hint -> target) is shortest and at most FLANK_DETOUR x the straight way; -1 = straight on. One flank per FLANK_REST s.
 function flankSpot(id, targetX, targetZ, now) {
   if (!Bots.tier(id).flanks || now - BotDecide.flankedAt[id] < FLANK_REST) return -1;
-  const x = Actors.x[id], z = Actors.z[id], direct = Math.hypot(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
+  const x = Actors.x[id], z = Actors.z[id], direct = length2(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
   if (direct < FLANK_MIN_DISTANCE) return -1;
   let best = -1, bestWay = direct * FLANK_DETOUR;
   for (let i = 0; i < spots.length; i++) {
-    const toTarget = Math.hypot(targetX - spots[i].x, targetZ - spots[i].z), fromBot = Math.hypot(spots[i].x - x, spots[i].z - z);
+    const toTarget = length2(targetX - spots[i].x, targetZ - spots[i].z), fromBot = length2(spots[i].x - x, spots[i].z - z);
     if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
     best = i; bestWay = fromBot + toTarget;
   }
@@ -400,7 +400,7 @@ GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
   const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
   if (ally < 0 || !reviveSafe(id, ally)) return 0;
   setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
-  const distance = Math.hypot(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  const distance = length2(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
   return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 
@@ -434,7 +434,7 @@ function retreatSpot(id, threat, plan) {
   const tx = threatPoint.x, tz = threatPoint.z;
   const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], tx, threatPoint.y + SPAWN_EYE_HEIGHT, tz, RETREAT_COVER_RANGE);
   if (cover >= 0) { const node = Nav.coverNode[cover]; setPlan(plan, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], 0.8, ACTION.HOLD, threat); return; }
-  const dx = Actors.x[id] - tx, dz = Actors.z[id] - tz, length = Math.hypot(dx, dz) || 1;
+  const dx = Actors.x[id] - tx, dz = Actors.z[id] - tz, length = length2(dx, dz) || 1;
   setPlan(plan, Actors.x[id] + dx / length * RETREAT_AWAY, Actors.y[id], Actors.z[id] + dz / length * RETREAT_AWAY, 2, ACTION.MOVE, threat);
 }
 
@@ -448,7 +448,7 @@ function bestItem(id, now, group) {
     if ((group && item.group !== group) || BotDecide.itemNode[i] < 0 || !Nav.reachable(botNode, BotDecide.itemNode[i])) continue;
     const value = itemValue(id, item);
     if (value <= 0) continue;
-    const distance = Math.hypot(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
+    const distance = length3(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
     if (!itemAvailable(id, i, distance, now)) continue;
     const score = value / (1 + distance / COLLECT_DISTANCE);
     if (score > bestScore) { bestScore = score; best = i; }
@@ -492,7 +492,7 @@ function bestLoot(id, plan) {
     if (loot.taken[spot] || BotDecide.lootNode[spot] < 0 || !Nav.reachable(botNode, BotDecide.lootNode[spot])) continue;
     const value = lootValue(id, spot);
     if (value <= 0) continue;
-    const score = value / (1 + Math.hypot(loot.x[spot] - Actors.x[id], loot.z[spot] - Actors.z[id]) / COLLECT_DISTANCE);
+    const score = value / (1 + length2(loot.x[spot] - Actors.x[id], loot.z[spot] - Actors.z[id]) / COLLECT_DISTANCE);
     if (score > bestScore) { bestScore = score; best = spot; }
   }
   // USE: a full inventory swaps a weapon only while USE is held (13g); USE does nothing at the other spots.
@@ -516,7 +516,7 @@ function campSpot(id) {
   let best = null, bestDistance = Infinity;
   for (const spot of BotDecide.campSpots) {
     if (!spot.safe[side]) continue;
-    const distance = Math.hypot(spot.x - Actors.x[id], spot.z - Actors.z[id]);
+    const distance = length2(spot.x - Actors.x[id], spot.z - Actors.z[id]);
     if (distance < bestDistance) { bestDistance = distance; best = spot; }
   }
   return best;
@@ -540,7 +540,7 @@ function planZones(id, plan, kind, now) {
     if (objective.kind !== kind || !objective.active) continue;
     const threatened = objective.contested || (objective.capturingTeam >= 0 && objective.capturingTeam !== team);
     const value = objective.owner !== team || team < 0 ? 1 : threatened ? 0.9 : defender ? 0.6 : 0.25;
-    const score = value / (1 + Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
+    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
     if (score > bestScore) { bestScore = score; best = objective; }
   }
   if (!best) return false;
@@ -570,7 +570,7 @@ function planFlags(id, plan) {
   return planTarget(plan, enemy, BotTeam.pushing(team) ? PUSH_URGENCY : 0.8, 0.8, ACTION.MOVE);
 }
 
-function nearby(id, objective, range) { return Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) < range; }
+function nearby(id, objective, range) { return length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) < range; }
 
 function planCapture(id, plan, own, destination) {
   if (!destination) return false;
@@ -583,8 +583,8 @@ function planCapture(id, plan, own, destination) {
 // out while it fought at the enemy base does not send it back.
 function pastRally(id, own, team) {
   if (!own) return false;
-  const rallyDistance = Math.hypot(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
-  return Math.hypot(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
+  const rallyDistance = length2(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
+  return length2(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
 }
 
 // The rally is a meeting place, not a held spot (ACTION.MOVE: no mines, turrets or channels go down there).
@@ -638,7 +638,7 @@ function planAttackCharge(id, plan, charge) {
 function nearestObjective(list, x, z) {
   let best = null, bestDistance = Infinity;
   for (let i = 0; i < list.length; i++) {
-    const distance = Math.hypot(list[i].x - x, list[i].z - z);
+    const distance = length2(list[i].x - x, list[i].z - z);
     if (distance < bestDistance) { bestDistance = distance; best = list[i]; }
   }
   return best;
@@ -648,7 +648,7 @@ function nearestObjective(list, x, z) {
 // that matters is the next one (the ring shrinks onto it).
 function planSafeArea(id, plan) {
   safeCircleNow(safeCircle);
-  const outside = Math.hypot(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
+  const outside = length2(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
   if (!outside) return false;
   setPlan(plan, safeCircle.x, Actors.y[id], safeCircle.z, safeCircle.radius * 0.5, ACTION.MOVE, -1);
   plan.score = 1;
@@ -671,7 +671,7 @@ function planGoals(id, plan) {
   for (let i = 0; i < objectives.length; i++) {
     const verb = BOT_OBJECTIVE_VERBS[Modes.goalFor(objectives[i], id)], objective = objectives[i];
     if (!verb) continue;
-    const score = verb.urgency / (1 + Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) / GOAL_DISTANCE_SCALE);
+    const score = verb.urgency / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / GOAL_DISTANCE_SCALE);
     if (score > bestScore) { bestScore = score; best = objective; bestVerb = verb; }
   }
   if (!best) return false;
