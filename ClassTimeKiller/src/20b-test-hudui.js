@@ -461,6 +461,8 @@ Test.add('input', async (check) => {
   const realMotion = window.DeviceMotionEvent, secure = Object.getOwnPropertyDescriptor(window, 'isSecureContext'), settle = () => new Promise((done) => setTimeout(done, 0));
   const label = () => Settings.definitions.get(TOUCH_GYRO_KEY).label, gyro = TouchInput.gyro, set = (mode) => Settings.set(TOUCH_GYRO_KEY, mode);
   let asks = 0, answer = 'denied';
+  const realOnMotion = TouchInput.onMotion;
+  TouchInput.onMotion = () => {};   // a sensor that never reports (some engines send one empty event on listen)
   window.DeviceMotionEvent = function () {};
   window.DeviceMotionEvent.requestPermission = () => { asks++; return Promise.resolve(answer); };
   Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
@@ -474,8 +476,13 @@ Test.add('input', async (check) => {
     set('off');
     answer = 'granted'; set('aiming'); await settle();
     check('gyro: Off clears the mark; a granted permission attaches the sensor, Off detaches it', !label().includes(TOUCH_GYRO_NOTE) && asks === 2 && gyro.attached && (set('off'), !gyro.attached));
+    const wait = () => new Promise((done) => setTimeout(done, TOUCH_GYRO_WAIT_MS * 0.6));
+    set('always'); await wait();
+    set('off'); set('always'); await wait();   // the first sensor wait ends here; the new one has not
+    check('gyro: Off then On again does not let the old sensor wait fail the new one', gyro.attached && !gyro.unavailable);
   } finally {
     set('off'); Input.refreshConfig();
+    TouchInput.onMotion = realOnMotion;
     if (realMotion === undefined) delete window.DeviceMotionEvent; else window.DeviceMotionEvent = realMotion;
     if (secure) Object.defineProperty(window, 'isSecureContext', secure); else delete window.isSecureContext;
   }

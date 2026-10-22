@@ -118,7 +118,7 @@ const TouchInput = {
   flags: {},                       // match flags read by the TOUCH_CONTROLS 'need' rows that have no needs fn (setFlag)
   shown: false,
   currentPreset: TOUCH_PRESETS[0],
-  gyro: { right: 0, down: 0, attached: false, asked: false, unavailable: false, events: 0 },
+  gyro: { right: 0, down: 0, attached: false, asked: false, unavailable: false, events: 0, timer: 0 },
   needed: [], needBits: 0,         // the need keys of the controls and their last answers (syncNeeds)
   weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a weapon bar)
   buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
@@ -303,6 +303,7 @@ const TouchInput = {
     if (mode !== 'off') { this.requestGyro(); return; }
     window.removeEventListener('devicemotion', this.onMotion);
     const gyro = this.gyro;
+    clearTimeout(gyro.timer);
     gyro.attached = gyro.asked = gyro.unavailable = false;
     gyro.right = gyro.down = 0;
     this.markGyroRow('');
@@ -320,7 +321,8 @@ const TouchInput = {
     const gyro = this.gyro;
     gyro.attached = true; gyro.events = 0;
     window.addEventListener('devicemotion', this.onMotion);
-    setTimeout(() => { if (gyro.attached && gyro.events === 0) this.failGyro(); }, TOUCH_GYRO_WAIT_MS);
+    clearTimeout(gyro.timer);   // one sensor wait at a time: an older one must not judge this attach
+    gyro.timer = setTimeout(() => { if (gyro.attached && gyro.events === 0) this.failGyro(); }, TOUCH_GYRO_WAIT_MS);
   },
   failGyro() {
     window.removeEventListener('devicemotion', this.onMotion);
