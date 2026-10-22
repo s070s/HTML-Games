@@ -41,7 +41,7 @@ function hudEdgeArrowPosition(layout, projection) {
   const margin = HUD_MARKER_MARGIN * layout.unit, halfW = layout.centerX - margin, halfH = layout.centerY - margin;
   let dx = projection.dirX, dy = projection.dirY;
   if (projection.depth <= 0) dy *= 0.3;                       // behind us: the side matters, not the height
-  const length = Math.hypot(dx, dy);
+  const length = length2(dx, dy);
   if (length < 1e-6) { dx = 0; dy = 1; } else { dx /= length; dy /= length; }
   const scale = Math.min(Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity);
   hudEdge.x = layout.centerX + dx * scale; hudEdge.y = layout.centerY + dy * scale; hudEdge.dx = dx; hudEdge.dy = dy;
@@ -196,7 +196,7 @@ function hudDrawSoundRing(pen, layout) {
   for (let i = 0; i < HUD_SOUND_SLOTS; i++) {
     const age = Hud.time - c.soundAt[i];
     if (age >= HUD_SOUND_SECONDS) continue;
-    if (player >= 0 && Math.hypot(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
+    if (player >= 0 && length2(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
     const angle = hudBearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
     const x = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit, y = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit;
     pen.shape(icon.shape, x, y, 16 * unit, icon.color, 1 - age / HUD_SOUND_SECONDS);

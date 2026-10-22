@@ -112,7 +112,7 @@ function hudCollectObservers(player) {
 // X35: a moving, standing-or-walking actor inside the range of any observer.
 function hudTracked(id) {
   if (HudExtra.radarMode === 'off') return false;
-  if (Math.hypot(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
+  if (length2(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
   const rangeSquared = HudExtra.radarRange * HudExtra.radarRange;
   for (let i = 0; i < HudExtra.observerCount; i++) {
     const observer = HudExtra.observers[i];

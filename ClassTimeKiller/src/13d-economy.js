@@ -35,12 +35,14 @@ const Economy = {
 
   preset() { return CAT.economy.byId(Abilities.economyKey()) || CAT.economy[0]; },
   usesMoney() { return this.preset().money; },
-  // Class / kit loadouts apply unless the mode arms everyone itself (MODE_ARMING_PARAMS: the weapon ladder, roulette).
-  usesLoadouts() {
+  // The mode arms everyone itself (MODE_ARMING_PARAMS: the weapon ladder, roulette): no class or kit loadouts then.
+  modeArmsEveryone() {
     const params = currentRules().params;
-    if (params && MODE_ARMING_PARAMS.some((key) => params[key])) return false;
-    return this.preset().loadout !== 'none';
+    return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
   },
+  usesLoadouts() { return !this.modeArmsEveryone() && this.preset().loadout !== 'none'; },
+  // Class loadouts are handed out at spawn (onSpawn); a hero or kit economy has none.
+  usesClasses() { return this.usesLoadouts() && this.preset().loadout === 'classes'; },
   money(id) { return id >= 0 && id < MAX_ACTORS ? this.credits[id] : 0; },
   setMoney(id, amount) {
     const max = this.preset().maxMoney;
@@ -97,7 +99,7 @@ const Economy = {
     this.checkHalf();
     this.spawnX[id] = Actors.x[id]; this.spawnZ[id] = Actors.z[id];
     this.bought.fill(0, id * CAT.buyItems.length, (id + 1) * CAT.buyItems.length);
-    if (this.usesLoadouts() && this.preset().loadout === 'classes') this.applyClass(id, Loadouts.classFor(id));
+    if (this.usesClasses()) this.applyClass(id, Loadouts.classFor(id));
     else this.clearPerks(id);
     if (this.died[id] || !this.preset().keepOnSurvive) this.dropKept(id);
     else this.restoreKept(id);

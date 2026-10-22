@@ -9,6 +9,9 @@ const HUD_PVE_COMPASS_SHIFT = 30;        // the compass strip, when shown, sits 
 const HUD_PVE_WIDTH = 300, HUD_PVE_ROW = 20, HUD_PVE_PAD = 10, HUD_PVE_BAR = 9;
 const HUD_PVE_BOSS_WIDTH = 420;
 const HUD_PVE_SIDE_WIDTH = 220, HUD_PVE_SIDE_TOP = 150, HUD_PVE_SIDE_ROW = 19;   // right-hand tables under the kill feed
+const HUD_PVE_SIDE_ROW_COMPACT = 17;                                             // compact HUD (phones, short screens): shorter rows
+const HUD_PVE_TOUCH_CROSS_GAP = 40;      // touch: the side tables end this far left of the crosshair (the right side holds the buttons)
+const HUD_PVE_TOUCH_NOTE_RISE = 20;      // touch: the notes rise above the ammo panel, which sits bottom centre-left (17a ammoRight)
 const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
 const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
 const HUD_PVE_LOW_CORE = 0.25;
@@ -162,13 +165,17 @@ function hudPveBossBar(pen, layout, boss, y) {
 }
 
 // ---- Right-hand tables: chamber medal limits and the range drill stats ----
-function hudPveSideTop(layout) { return layout.top + HUD_PVE_SIDE_TOP * layout.unit; }
+// Under the kill feed at the right edge; on phones the right side holds the touch buttons, so the tables sit under the
+// status rows (statusBottom) and end left of the crosshair.
+function hudPveSideLeft(layout, width) { return layout.touch ? layout.centerX - HUD_PVE_TOUCH_CROSS_GAP * layout.unit - width : layout.right - width; }
+function hudPveSideTop(layout, statusBottom) { return layout.touch ? statusBottom : layout.top + HUD_PVE_SIDE_TOP * layout.unit; }
+function hudPveSideRow(layout) { return (layout.compact ? HUD_PVE_SIDE_ROW_COMPACT : HUD_PVE_SIDE_ROW) * layout.unit; }
 
 // Par times from the HUD block (PVE_HUD.parTime, set on entering the chamber); steps and gates from the chamber row.
-function hudPveChamberTable(pen, layout, pve) {
+function hudPveChamberTable(pen, layout, pve, statusBottom) {
   const row = PVE_CHAMBERS[pve.chamber - 1];
   if (!row || !pve.parTime) return;
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
   const current = hudPveChamberTier(pve), tiers = HUD_PVE_MEDAL_STARS.length;
   pen.panel(left, top, width, rowHeight * (tiers + 3.4), 0.5);
   hudPveTableHeader(pen, left, width, top + rowHeight * 0.6, unit);
@@ -192,8 +199,8 @@ function hudPveTableHeader(pen, left, width, y, unit) {
 }
 
 // M30: shot statistics, every target down, and the running drill (kills of the drill, its clock, the best time).
-function hudPveRangeTable(pen, layout, pve) {
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
+function hudPveRangeTable(pen, layout, pve, statusBottom) {
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
   pen.panel(left, top, width, rowHeight * 11.4, 0.5);
   let y = top + rowHeight * 0.6;
   pen.text('FIRING RANGE', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'left');
@@ -212,10 +219,13 @@ function hudPveRangeTable(pen, layout, pve) {
 }
 
 // ---- Bottom centre: the chamber hint and the Guardian Plate prompt ----
+// On phones they rise above the ammo panel, centred on it (17a ammoRight, ammoWidth), never past the left margin.
+function hudPveNoteY(layout, rise) { return layout.weaponBarY - (rise + (layout.touch ? HUD_PVE_TOUCH_NOTE_RISE : 0)) * layout.unit; }
+function hudPveNoteX(layout, width) { return layout.touch ? Math.max(layout.left + width / 2, layout.ammoRight - layout.ammoWidth / 2) : layout.centerX; }
 function hudPveCentreNote(pen, layout, text, rise, color) {
-  const unit = layout.unit, size = 16 * unit, y = layout.weaponBarY - rise * unit, width = HudBatch.measure(text, size) + 24 * unit;
-  pen.panel(layout.centerX - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
-  pen.text(text, layout.centerX, y, size, color, 'center');
+  const unit = layout.unit, size = 16 * unit, y = hudPveNoteY(layout, rise), width = HudBatch.measure(text, size) + 24 * unit, x = hudPveNoteX(layout, width);
+  pen.panel(x - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
+  pen.text(text, x, y, size, color, 'center');
 }
 // DIF-004: the choice is the player's (18o, pause menu row) until they accept the plate.
 function hudPveGuardianText(pve) { return pve.guardianAccepted ? HUD_PVE_GUARDIAN_READY : HUD_PVE_GUARDIAN_CHOICE; }
@@ -226,9 +236,9 @@ function hudDrawPve(pen, layout) {
   const rows = HUD_PVE_PANELS[pve.mode] || [];
   let y = hudPveTop(layout);
   for (let i = 0; i < rows.length; i++) y = HUD_PVE_ROWS[rows[i]](pen, layout, pve, y);
-  hudPveBossBar(pen, layout, pve.boss, y);
-  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
-  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
+  y = hudPveBossBar(pen, layout, pve.boss, y);
+  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve, y);
+  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve, y);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
   if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }

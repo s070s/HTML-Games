@@ -308,7 +308,7 @@ const Pve = {
     const hunted = this.huntFor(side);
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !Modes.participant[id] || (hunted >= 0 && Actors.team[id] !== hunted)) continue;
-      const distance = Math.hypot(Actors.x[id] - point.x, Actors.z[id] - point.z);
+      const distance = length2(Actors.x[id] - point.x, Actors.z[id] - point.z);
       nearest = Math.min(nearest, distance);
       if (distance < SENSE_RANGE_BASE + SENSE_RANGE_ALERT && World.lineClear(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y + STAND_HEIGHT * 0.8, point.z)) seen = true;
     }
@@ -384,7 +384,7 @@ const Pve = {
       const seen = this.look(id, other, now), pair = BotSense.pair(id, other);
       if (!seen && now - BotSense.knownAt[pair] > PVE_DIRECTOR.memorySeconds) continue;
       BotSense.perceivedPosition(id, other, pveScratch);
-      let score = Math.hypot(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
+      let score = length2(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
       if (other === lastAttacker) score -= PVE_ATTACKER_BONUS;
       if (score < bestScore) { bestScore = score; best = other; }
     }
@@ -419,9 +419,9 @@ const Pve = {
     if (this.awareness[id] < PVE_CONTRACT.unaware) this.alarmed[id] = 0;
   },
   fillAwareness(id, target, elapsed) {
-    const distance = Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
+    const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
     let seconds = lerp(SENSE_FILL_NEAR, SENSE_FILL_FAR, clamp(distance / BotSense.viewRange(id), 0, 1));
-    if (Math.hypot(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
+    if (length2(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
     if (Actors.flags[target] & ACTOR_FLAG.CROUCHED) seconds /= PVE_CROUCH_FILL;
     this.awareness[id] = Math.min(1, this.awareness[id] + elapsed / seconds);
   },
@@ -430,7 +430,7 @@ const Pve = {
     Bus.emit('pve.alarm', pveEvent(id, '', '', 0, 0, target));
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !this.isEnemy(other) || !Actors.alive[other] || this.awareness[other] >= 1) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
       this.awareness[other] = 1;
       this.alarmed[other] = 1;
       if (target >= 0) BotSense.remember(BotSense.pair(other, target), SENSE.PINGED, Actors.x[target], Actors.y[target], Actors.z[target], now);
@@ -449,7 +449,7 @@ const Pve = {
     const now = Sim.time;
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || id === event.source || (event.source >= 0 && !this.isFoe(id, event.source))) continue;
-      const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
+      const distance = length3(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
       if (distance > event.radius * PVE_DIRECTOR.hearingShare) continue;
       if (event.source >= 0) BotSense.remember(BotSense.pair(id, event.source), SENSE.HEARD, event.x, event.y, event.z, now);
       if (this.stealth) this.awareness[id] = Math.max(this.awareness[id], PVE_NOISE_AWARENESS);
@@ -499,7 +499,7 @@ const Pve = {
     let foes = 0, friends = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (!Actors.alive[other] || other === id) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
       if (this.isEnemy(other) && !Actors.isEnemy(id, other)) friends++;
       else if (this.isFoe(id, other)) foes++;
     }
@@ -512,7 +512,7 @@ const Pve = {
       if (!Projectiles.state[i] || !PROJECTILE_DODGE_TYPES.includes(Projectiles.type[i])) continue;
       const owner = Projectiles.owner[i];
       if (owner < 0 || owner === id || !Actors.isEnemy(id, owner)) continue;
-      if (Math.hypot(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
+      if (length2(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
       this.setGoalPoint(id, Projectiles.x[i], Projectiles.y[i], Projectiles.z[i]);
       return true;
     }
@@ -558,8 +558,8 @@ const Pve = {
     return Math.min(reach, PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20);
   },
   distanceTo(id, target) {
-    if (target === PVE_CORE_TARGET) return Math.max(0, Math.hypot(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
-    return Math.hypot(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
+    if (target === PVE_CORE_TARGET) return Math.max(0, length2(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
+    return length3(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
   },
   attackersOn(target) {
     let count = 0;
@@ -662,7 +662,7 @@ const Pve = {
     info.amount = amount; info.kind = kind || 'hit'; info.zone = zone || 'body'; info.weapon = attack.id; info.element = attack.element;
     info.distance = this.distanceTo(id, target); info.knockback = 1;
     Hitbox.point(target, ZONE.BODY, pveScratch);
-    const length = Math.max(1e-6, Math.hypot(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
+    const length = Math.max(1e-6, length3(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
     info.x = pveScratch.x; info.y = pveScratch.y; info.z = pveScratch.z;
     info.dx = (pveScratch.x - Actors.x[id]) / length; info.dy = (pveScratch.y - Actors.eyeY(id)) / length; info.dz = (pveScratch.z - Actors.z[id]) / length;
     return Damage.apply(id, target, info);
@@ -674,7 +674,7 @@ const Pve = {
     const distance = Vec.length(pveAim);
     if (distance < 1e-6) return -1;
     const spread = spreadDeg * DEG;
-    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, Math.hypot(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
+    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
     Vec.fromAngles(pveAim, yaw, pitch);
     const range = attack.range[1] + 5;
     const wall = World.raycast(ex, ey, ez, pveAim.x, pveAim.y, pveAim.z, range, pveWallHit) ? pveWallHit.distance : range;
@@ -721,7 +721,7 @@ const Pve = {
   shieldBlocks(target, shield, info) {
     const lowered = this.phase[target] !== ATTACK_PHASE.IDLE || Sim.time < this.phaseEndsAt[target] + shield.lowered;
     if (lowered) return false;
-    const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+    const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
     const along = (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length;   // -1 = the shot travels against the facing (from the front)
     return along < -Math.cos(shield.arcDeg * DEG / 2);
   },
@@ -762,7 +762,7 @@ const Pve = {
   breakMorale(leader, now) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || Actors.team[id] !== Actors.team[leader] || this.rowOf(id).boss) continue;
-      if (Math.hypot(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
       this.brokenUntil[id] = now + Rng.pve.range(PVE_DIRECTOR.brokenSeconds[0], PVE_DIRECTOR.brokenSeconds[1]);
       this.nextThink[id] = now;
     }
@@ -778,7 +778,7 @@ const Pve = {
     if (!this.active || (event.element !== PVE_DIRECTOR.lureElement && !PVE_DIRECTOR.lureSources.includes(event.source))) return;
     for (let id = 0; id < Actors.count; id++) {
       const row = this.rowOf(id);
-      if (!row || !row.beast || !Actors.alive[id] || Math.hypot(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
+      if (!row || !row.beast || !Actors.alive[id] || length2(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
       this.lureUntil[id] = Sim.time + PVE_DIRECTOR.lureSeconds;
       this.lureX[id] = event.x; this.lureZ[id] = event.z;
       this.nextThink[id] = Sim.time;
@@ -839,7 +839,7 @@ const Pve = {
     return false;
   },
   farFromParticipants(x, z, distance) {
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
+    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && length2(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
     return true;
   },
 
@@ -928,7 +928,7 @@ function weakPointFactor(row, target, info) {
   if (!weak || info.kind === 'dot') return 1;
   if (weak.kind === 'air') return Actors.flags[target] & ACTOR_FLAG.ON_GROUND ? 1 : weak.mult;
   if (weak.kind !== 'back') return 1;
-  const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+  const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
   return (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length > Math.cos(60 * DEG) ? weak.mult : 1;
 }
 

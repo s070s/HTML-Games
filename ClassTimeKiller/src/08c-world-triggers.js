@@ -142,7 +142,7 @@ function touchJumpPad(id, pad, actorGravity) {
 // other live capsule at the exit gets a lethal 'telefrag' damage request credited to the arriving actor (MOV-020).
 function touchTeleporter(id, teleporter) {
   const yaw = teleporter.yaw * DEG, exit = teleporter.exit;
-  const horizontalSpeed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const horizontalSpeed = length2(Actors.vx[id], Actors.vz[id]);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too

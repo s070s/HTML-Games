@@ -186,7 +186,7 @@ function hudDrawScope(pen, layout) {
   const amount = weapon ? hudScopeAmount(id, weapon) : 0;
   if (amount <= 0) return;
   const cx = layout.centerX, cy = layout.centerY, inner = layout.height * HUD_SCOPE_RADIUS;
-  const outer = Math.hypot(layout.width, layout.height) / 2 * 1.02;
+  const outer = length2(layout.width, layout.height) / 2 * 1.02;
   pen.ring(cx, cy, (inner + outer) / 2, outer - inner, HUD_COLOR.black, 0.94 * amount);
   pen.rect(cx - inner, cy - 0.5, inner * 2, 1, HUD_COLOR.black, 0.85 * amount);
   pen.rect(cx - 0.5, cy - inner, 1, inner * 2, HUD_COLOR.black, 0.85 * amount);

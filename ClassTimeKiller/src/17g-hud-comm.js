@@ -63,7 +63,7 @@ const CommWheel = {
   // Past the dead zone the pick point's direction chooses the callout: the first at the top, then clockwise.
   pick(dx, dy) {
     this.pickX += dx; this.pickY += dy;
-    const length = Math.hypot(this.pickX, this.pickY);
+    const length = length2(this.pickX, this.pickY);
     if (length < COMM_WHEEL_DEADZONE) return;
     if (length > COMM_WHEEL_REACH) { this.pickX *= COMM_WHEEL_REACH / length; this.pickY *= COMM_WHEEL_REACH / length; }
     const count = COMM_CALLOUTS.length, angle = Math.atan2(this.pickX, -this.pickY);

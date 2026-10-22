@@ -319,8 +319,10 @@ function perfFeedDisplayRate(frameMs, frames, triangles, cpuMs) {
 
 Test.add('perf', (check) => {
   const last = Perf.lastIndex();
-  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active, triangles: Perf.counters.triangles, cpuMs: Perf.cpuMs[last] };
+  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active, triangles: Perf.counters.triangles, cpuMs: Perf.cpuMs[last],
+    extension: GpuTimer.extension, gpuMs: GpuTimer.lastMs, scale: Render.size.scale };
   Game.state = 'menu'; Benchmark.active = false; DisplayRate.count = 0;
+  GpuTimer.extension = saved.extension || {}; GpuTimer.lastMs = 1;   // a GPU timer that shows an idle GPU
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('the menu measures a 30 Hz display', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
   const slowOn30 = slowFrameMs();
@@ -346,7 +348,20 @@ Test.add('perf', (check) => {
   Benchmark.active = true;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('the benchmark frames are not taken as the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 60) < 0.01, DisplayRate.intervalMs);
-  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count });
+  Benchmark.active = false; GpuTimer.lastMs = 25;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('GPU-bound menu frames at every second vsync (timer shows 25 ms) are not taken as a 30 Hz display', slowFrameMs() === budget && DisplayRate.count === 0, DisplayRate.intervalMs);
+  GpuTimer.extension = null;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer one 30 Hz window does not raise the budget', slowFrameMs() === budget, DisplayRate.intervalMs);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz at an unchanged render scale (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
+  Render.size.scale = saved.scale - SCALE_STEP;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz held across a render-scale change is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
+  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count, candidateMs: 0, candidateScale: 0 });
+  Object.assign(GpuTimer, { extension: saved.extension, lastMs: saved.gpuMs });
+  Render.size.scale = saved.scale; Render.size.dirty = true;
   Game.state = saved.state; Benchmark.active = saved.benchmark; Perf.counters.triangles = saved.triangles; Perf.cpuMs[last] = saved.cpuMs;
 });
 
@@ -368,7 +383,14 @@ Test.add('perf', (check) => {
   Render.config.renderScale = saved.setting; Render.size.scale = saved.scale; Render.size.dirty = true;
 });
 
-// Zero-allocation call shapes give the same results as the argument forms they replace.
+// Zero-allocation call shapes give the same results as the argument forms they replace (the cylinder form is test-only).
+function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
+  rayHitCylinder();
+  return volume.distance;
+}
 Test.add('perf', (check) => {
   check('length2 / length3 match Math.hypot', length2(3, 4) === 5 && length3(2, 3, 6) === 7 && Math.abs(length3(0.1, -0.2, 0.3) - Math.hypot(0.1, -0.2, 0.3)) < 1e-15);
   const first = makeRandom(12345), last = makeRandom(0xffffffff);

@@ -187,12 +187,12 @@ Test.add('hudui', (check) => uiWith(() => {
 // ---- Loadouts only where the economy hands them out ----
 Test.add('hudui', (check) => {
   Game.start({ mode: 'gungame', seed: 1, bots: [{ dummy: true }], player: { name: 'Me' } });
-  check('loadout: Gun Game offers no class pick', !Economy.usesLoadouts() && !loadoutAvailable());
+  check('loadout: Gun Game offers no class pick', Economy.modeArmsEveryone() && !Economy.usesLoadouts() && !Economy.usesClasses() && !loadoutAvailable());
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'modern' });
   check('loadout: a class economy offers it', Economy.usesLoadouts() && loadoutAvailable(), Economy.preset().loadout);
-  check('loadout: a class economy opens on the Classes tab', classesApplyInMatch() && defaultLoadoutTab() === 'classes');
+  check('loadout: a class economy opens on the Classes tab', Economy.usesClasses() && defaultLoadoutTab() === 'classes');
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'heroes' });
-  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !classesApplyInMatch());
+  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !Economy.usesClasses());
   Game.stop();
 });
 Test.add('hudui', (check) => uiWith(() => {
@@ -208,7 +208,7 @@ Test.add('hudui', (check) => uiWith(() => {
   Game.stop();
 }));
 
-// ---- The stealth label follows the PvE section's own awareness rule; the touch TYPE button waits for its reader ----
+// ---- The stealth label follows the PvE section's own awareness rule; the touch TYPE button needs two grenade types ----
 Test.add('hudui', (check) => {
   World.load(pveTestMap());
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' });
@@ -218,18 +218,46 @@ Test.add('hudui', (check) => {
   check('stealth hud: the label is Pve.awarenessState of the most aware guard', hudPveMostAwareState() === AWARENESS.ALERT && hudPveMostAwareState() === Pve.awarenessState(alert));
   Pve.awareness[alert] = PVE_CONTRACT.unaware;
   check('stealth hud: the label follows the guard down to suspicious', hudPveMostAwareState() === Pve.awarenessState(alert) && hudPveMostAwareState() === AWARENESS.SUSPICIOUS);
-  check('touch: the TYPE button follows the gadget reader', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
   Game.stop();
-  const savedCycle = Gadgets.cycleGrenade;
-  Gadgets.cycleGrenade = () => {};
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button shows once Gadgets.cycleGrenade exists', TouchInput.flags.grenadeCycle === true);
-  Game.stop();
-  if (savedCycle === undefined) delete Gadgets.cycleGrenade; else Gadgets.cycleGrenade = savedCycle;
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button hides again without it', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
+  const player = Game.playerId;
+  Gadgets.count.fill(0, player * GADGET_COUNT, (player + 1) * GADGET_COUNT);
+  Gadgets.give(player, 'frag', 2);
+  check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
+  Gadgets.give(player, 'smoke', 1);
+  check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
   Game.stop();
   World.clear();
+});
+
+// ---- Phones: the PvE side tables and notes stay clear of the default touch buttons and the ammo panel ----
+function hudPveTouchOverlap(layout, left, top, right, bottom) {
+  const place = {};
+  for (const control of TOUCH_CONTROLS) {
+    if (control.id === 'stick' || control.setting) continue;   // the floating stick and opt-in buttons (left fire) are not default layout
+    TouchInput.layoutOf(control.id, place);
+    const radius = control.size * place.scale / 2, x = place.x * layout.width, y = place.y * layout.height;
+    if (x + radius > left && x - radius < right && y + radius > top && y - radius < bottom) return control.id;
+  }
+  return '';
+}
+Test.add('hudui', (check) => {
+  const layout = {}, savedDevice = Input.device;
+  Input.device = 'touch';
+  updateHudLayout(layout, 844, 390);
+  Input.device = savedDevice;
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, hudPveTop(layout));
+  const rangeBottom = top + hudPveSideRow(layout) * 11.4;
+  check('pve hud on a phone: the range table ends left of the crosshair', left >= layout.left && left + width < layout.centerX, [left, width]);
+  check('pve hud on a phone: no touch button over the range table', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom) === '', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom));
+  const noteWidth = 260 * unit, noteX = hudPveNoteX(layout, noteWidth), noteY = hudPveNoteY(layout, HUD_PVE_HINT_RISE);
+  check('pve hud on a phone: the hint sits above the ammo panel', noteY + 14 * unit <= layout.bottom - 58 * unit, [noteY, layout.bottom]);
+  check('pve hud on a phone: no touch button over the hint', hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit) === '',
+    hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit));
+  Input.device = 'kbm';
+  updateHudLayout(layout, 1280, 800);
+  Input.device = savedDevice;
+  check('pve hud on a desktop: the side tables stay at the right edge', hudPveSideLeft(layout, width) + width === layout.right && hudPveNoteX(layout, noteWidth) === layout.centerX);
 });
 
 // ---- Custom match difficulty sliders (DIF-002) ----

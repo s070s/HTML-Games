@@ -260,6 +260,7 @@ function updateHudLayout(layout, width, height) {
   layout.powerupY = layout.abilityY - 52 * unit;
   // Phones keep the right side free for the touch buttons: the ammo panel sits bottom centre-left instead.
   layout.ammoRight = touch ? width * 0.5 - 6 * unit : layout.right;
+  layout.ammoWidth = (compact ? 132 : 176) * unit;
   layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
   layout.moneyY = layout.gadgetY - 34 * unit;
   layout.weaponBarY = layout.bottom - 12 * unit;
@@ -439,7 +440,7 @@ function hudDrawAmmo(pen, layout) {
   const weapon = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
-  const width = (compact ? 132 : 176) * unit, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
+  const width = layout.ammoWidth, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
   pen.panel(left, top, width, height);
   pen.text(weapon.name, left + 8 * unit, top + HUD_TEXT_SMALL * unit, 14 * unit, HUD_COLOR.dim, 'left');
   if (weapon.mag === 0) return;

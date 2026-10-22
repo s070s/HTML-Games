@@ -74,7 +74,7 @@ const STEPS_PER_BUDGET_FRAME = 1;   // PERF-002 budgets a 120 fps frame: one 120
 // 30 fps (software WebGL), so a raw frame carries about 4 sim steps and would count the sim four times against the budget.
 const frameCpuAt120 = (report) => report.cpuMs.mean - report.simFrameMs.mean + STEPS_PER_BUDGET_FRAME * report.simMs.mean;
 const SYSTEM_GROUPS = { movement: ['move', 'bodies'], ai: ['botThink', 'pveBrains', 'nav'], projectiles: ['weapons', 'projectiles', 'weaponSpecials'],
-  rules: ['rules', 'mutators', 'pve', 'pveBoss', 'operationTickets'] };
+  rules: ['rules', 'mutators', 'pve', 'pveBoss', 'pveLevel', 'operationTickets'] };
 
 let session = null;
 const finish = async (code) => { if (session) await session.close(); process.exit(code); };
@@ -183,9 +183,11 @@ async function heapAfterGc() {
   return usage.result.usedSize;
 }
 
+// 'other' sums every system no group names (items, gadgets, cards, ...), so a new system can never drop out of the report.
 function groupSystems(systems) {
-  const groups = {};
+  const groups = {}, grouped = new Set(Object.values(SYSTEM_GROUPS).flat());
   for (const group in SYSTEM_GROUPS) groups[group] = SYSTEM_GROUPS[group].reduce((sum, name) => sum + (systems[name] || 0), 0);
+  groups.other = Object.keys(systems).filter((name) => !grouped.has(name)).reduce((sum, name) => sum + systems[name], 0);
   return groups;
 }
 
@@ -219,7 +221,7 @@ function printRun(run) {
     'frame p50/95/99 ' + fixed(r.frameMs.p50, 1) + '/' + fixed(r.frameMs.p95, 1) + '/' + fixed(r.frameMs.p99, 1),
     'cpu mean ' + fixed(r.cpuMs.mean) + ' @120 ' + fixed(frameCpuAt120(r)) + ' p50/95/99 ' + fixed(r.cpuMs.p50) + '/' + fixed(r.cpuMs.p95) + '/' + fixed(r.cpuMs.p99),
     'sim/step mean ' + fixed(r.simMs.mean) + ' p95 ' + fixed(r.simMs.p95),
-    'move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules),
+    'move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules) + ' other ' + fixed(g.other),
     'render mean ' + fixed(r.renderMs.mean) + ' p50 ' + fixed(r.renderMs.p50) + ' p95 ' + fixed(r.renderMs.p95), 'hud mean ' + fixed(r.hudMs.mean) + ' p50 ' + fixed(r.hudMs.p50) + ' p95 ' + fixed(r.hudMs.p95),
     'draws ' + fixed(r.drawCalls.p95, 0), 'inst ' + fixed(r.instances.p95, 0), 'scale ' + fixed(r.renderScale.p50),
     'gc minor ' + run.gc.minor.count + ' max ' + fixed(run.gc.minor.maxMs) + ' major ' + run.gc.major.count + ' max ' + fixed(run.gc.major.maxMs) + ' ms', 'alloc ' + fixed(run.allocations.totalKb / run.report.seconds, 0) + ' KB/s', 'heap ' + fixed(run.heapMb, 1) + ' MB ' + (run.heapGrowthKb >= 0 ? '+' : '') + fixed(run.heapGrowthKb, 0) + ' KB'].join(' | '));
@@ -233,7 +235,7 @@ function printRun(run) {
 // The fastest-round sim cost (--bench) against the PERF-002 sim budgets.
 function printBench(bench) {
   const g = bench.groups, misses = [];
-  console.log('    bench sim/step ' + fixed(bench.stepMs) + ' move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules));
+  console.log('    bench sim/step ' + fixed(bench.stepMs) + ' move ' + fixed(g.movement) + ' ai ' + fixed(g.ai) + ' proj ' + fixed(g.projectiles) + ' rules ' + fixed(g.rules) + ' other ' + fixed(g.other));
   if (bench.stepMs > PERF_BUDGETS.sim) misses.push('sim/step ' + fixed(bench.stepMs) + ' > ' + PERF_BUDGETS.sim);
   for (const group in SYSTEM_GROUPS) if (g[group] > PERF_BUDGETS[group]) misses.push(group + '/step ' + fixed(g[group]) + ' > ' + PERF_BUDGETS[group]);
   if (misses.length) console.log('    bench over budget: ' + misses.join(', '));
