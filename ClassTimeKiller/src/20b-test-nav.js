@@ -61,6 +61,28 @@ function navTestSmoothedClear(id) {
   return true;
 }
 
+// Smoothed moves of slot id that pass over the xz rectangle: [all of them, those not of the expected type].
+function navTestMovesOver(id, minX, minZ, maxX, maxZ, expectedType) {
+  const a = Vec.make(), b = Vec.make(), counts = [0, 0];
+  for (let i = 0; i + 1 < Nav.resultPointCount(id); i++) {
+    const type = Nav.resultPoint(id, i, a);
+    Nav.resultPoint(id, i + 1, b);
+    if (!navTestSegmentOver(a, b, minX, minZ, maxX, maxZ)) continue;
+    counts[0]++;
+    if (type !== expectedType) counts[1]++;
+  }
+  return counts;
+}
+
+function navTestSegmentOver(a, b, minX, minZ, maxX, maxZ) {
+  const steps = 100;
+  for (let step = 0; step <= steps; step++) {
+    const x = a.x + (b.x - a.x) * step / steps, z = a.z + (b.z - a.z) * step / steps;
+    if (x > minX && x < maxX && z > minZ && z < maxZ) return true;
+  }
+  return false;
+}
+
 function navTestServeAll() {
   for (let tick = 0; tick < 64 && Nav.pendingRequests() > 0; tick++) Nav.serveRequests();
 }
@@ -142,6 +164,15 @@ Test.add('nav', (check) => {
   check('ledge: way down is a 1.2 m drop', down.includes(NAV_LINK.DROP) && !down.includes(NAV_LINK.JUMP), down.join(','));
   check('ledge: drop limit respected', Nav.findPath(ledge, floor, { allowJumpHeight: 0, maxDrop: 1 }) === 0);
   check('ledge: no node hangs over the edge', Array.from(Nav.nodeY).every((y, node) => y < 1 || (Nav.nodeX[node] >= 2 + NAV_EDGE_MARGIN && Nav.nodeX[node] <= 8 - NAV_EDGE_MARGIN)));
+  // A 1.13 m ledge needs exactly 1.28 m (float32 1.27999997): request (stored options) and findPath must agree.
+  navTestLoad([navTestFloor(-10, -10, 10, 10, 0), navTestBox([2, 0, -3], [8, 1.13, 3])]);
+  const low = navTestNode(-4, 0, 0), high = navTestNode(5, 1.13, 0);
+  Nav.request(0, low, high, { allowJumpHeight: 1.28 });
+  Nav.request(1, low, high, { allowJumpHeight: Math.fround(1.28) });
+  navTestServeAll();
+  check('quantize: a float32 option keeps its centimetre', navQuantize(Math.fround(1.28), 100) === 1.28 && navQuantize(1.28, 100) === 1.28);
+  check('quantize: request and findPath accept the exact jump height', Nav.result(0) === NAV_STATUS.DONE && Nav.result(1) === NAV_STATUS.DONE
+    && Nav.findPath(low, high, { allowJumpHeight: 1.28 }) > 0 && Nav.findPath(low, high, { allowJumpHeight: 1.27 }) === 0);
 });
 
 Test.add('nav', (check) => {
@@ -153,15 +184,48 @@ Test.add('nav', (check) => {
   navTestLoad([navTestBox([-8, 2, -3], [-0.75, 3, 3]), navTestBox([0.75, 2, -3], [8, 3, 3])]);
   const west = navTestNode(-4, 3, 0), east = navTestNode(4, 3, 0), types = navTestPathTypes(west, east);
   check('gap: crossed with a low jump', types.includes(NAV_LINK.JUMP) && Nav.reachable(east, west), types.join(','));
-  let gapHeight = Infinity;
-  for (let link = 0; link < Nav.linkCount; link++) if (Nav.linkType[link] === NAV_LINK.JUMP) gapHeight = Math.min(gapHeight, Nav.linkHeight[link]);
+  const gapHeight = navTestJumpMinimum(Nav.linkHeight), shortestJump = navTestJumpMinimum(Nav.linkReach);
   check('gap: a level gap needs only the jump margin', Test.near(gapHeight, NAV_JUMP_MARGIN, 0.01), gapHeight);
+  check('gap: every link stores its horizontal length', navTestReachStored());
+  // Level jump length = moveSpeed x 2 jumpVelocity / gravity: 6 x 2 x 8 / 20 = 4.8 m clears it, 4 x 2 x 4 / 20 = 1.6 m does not.
+  const strong = { moveSpeed: 6, jumpVelocity: 8, gravity: 20 }, weak = { moveSpeed: 4, jumpVelocity: 4, gravity: 20 };
+  check('gap: shortest jump is longer than the 1.6 m short jump', shortestJump > 1.6 && shortestJump <= Nav.limits.jumpReach, shortestJump);
+  check('reach: a preset with a long jump crosses the gap', Nav.findPath(west, east, strong) > 0);
+  check('reach: a preset with a short jump does not (and is not served from the cache)', Nav.findPath(west, east, weak) === 0 && !Nav.lastCacheHit);
+  Nav.request(0, west, east, weak);
+  Nav.request(1, west, east, strong);
+  navTestServeAll();
+  check('reach: request copies the reach options', Nav.result(0) === NAV_STATUS.FAILED && Nav.result(1) === NAV_STATUS.DONE);
   // An item sealed inside a closed box is reported by validate.
   const sealed = [navTestBox([4, 0, 4], [8, 3, 4.3]), navTestBox([4, 0, 7.7], [8, 3, 8]), navTestBox([4, 0, 4], [4.3, 3, 8]), navTestBox([7.7, 0, 4], [8, 3, 8])];
   const map = navTestLoad([navTestFloor(-10, -10, 10, 10, 0)].concat(sealed), { spawns: [navTestSpawn(-5, 0, -5)], items: [{ x: 6, y: 0, z: 6, item: 'armor', group: 'armor' }, { x: -2, y: 0, z: 2, item: 'health', group: 'health' }] });
   const problems = Nav.validate(map);
   check('validate: item inside a sealed box is unreachable, the open one is fine', problems.length === 1 && problems[0].includes('armor'), problems.join('; '));
 });
+
+// Smallest value of a per-link array over the jump links.
+function navTestJumpMinimum(values) {
+  let smallest = Infinity;
+  for (let link = 0; link < Nav.linkCount; link++) if (Nav.linkType[link] === NAV_LINK.JUMP) smallest = Math.min(smallest, values[link]);
+  return smallest;
+}
+
+function navTestReachStored() {
+  for (let link = 0; link < Nav.linkCount; link++) {
+    const from = Nav.linkFrom[link], to = Nav.linkTarget[link];
+    if (!Test.near(Nav.linkReach[link], Math.hypot(Nav.nodeX[to] - Nav.nodeX[from], Nav.nodeZ[to] - Nav.nodeZ[from]), 1e-3)) return false;
+  }
+  return Nav.linkCount > 0;
+}
+
+function navTestReachableMatches() {
+  const random = makeRandom(8);
+  for (let pair = 0; pair < 300; pair++) {
+    const a = random.int(0, Nav.nodeCount - 1), b = random.int(0, Nav.nodeCount - 1);
+    if (Nav.reachable(a, b) !== navBreadthFirst(a, b)) return false;
+  }
+  return true;
+}
 
 // A 5 m tower; the ladder volume sits against its -x face.
 function navTestTower(withLadder) {
@@ -174,6 +238,13 @@ Test.add('nav', (check) => {
   let floor = navTestNode(-4, 0, 0), top = navTestNode(4, 5, 0);
   check('tower: top reachable from the floor only by dropping', Nav.reachable(top, floor) && !Nav.reachable(floor, top));
   check('tower: 5 m drop allowed by default, refused with maxDrop 4', Nav.findPath(top, floor) > 0 && Nav.findPath(top, floor, { maxDrop: 4 }) === 0);
+  check('tower: running off covers the drop, a crawl off the edge does not', Nav.findPath(top, floor, { moveSpeed: 6, jumpVelocity: 0 }) > 0
+    && Nav.findPath(top, floor, { moveSpeed: 0.1, jumpVelocity: 0 }) === 0);
+  check('reachable: component bit table answers like a breadth-first search', Nav.componentReach !== null && Nav.componentCount > 1 && navTestReachableMatches());
+  const table = Nav.componentReach;
+  Nav.componentReach = null;
+  check('reachable: falls back to breadth-first search without the table', navTestReachableMatches() && Nav.reachable(top, floor) && !Nav.reachable(floor, top));
+  Nav.componentReach = table;
   navTestTower(true);
   floor = navTestNode(-4, 0, 0); top = navTestNode(4, 5, 0);
   const up = navTestPathTypes(floor, top);
@@ -210,11 +281,13 @@ function navTestNoWalkThroughTrigger() {
   return true;
 }
 
+// Teleporter pad centred on (x, -3) that sends actors to (exitX, 0, exitZ).
+const navTestTeleporter = (x, exitX, exitZ) => ({ kind: 'teleporter', min: [x - 0.75, 0, -3.75], max: [x + 0.75, 2, -2.25], exit: [exitX, 0, exitZ] });
+
 // Two islands 20 m apart joined only by a pair of teleporters.
 function navTestIslands() {
-  const teleporter = (x, exitX) => ({ kind: 'teleporter', min: [x - 0.75, 0, -3.75], max: [x + 0.75, 2, -2.25], exit: [exitX, 0, 3] });
   return navTestLoad([navTestFloor(-20, -8, -10, 8, 0), navTestFloor(10, -8, 20, 8, 0)], {
-    triggers: [teleporter(-15, 15), teleporter(15, -15)], spawns: [navTestSpawn(-17, 0, 5), navTestSpawn(17, 0, 5)],
+    triggers: [navTestTeleporter(-15, 15, 3), navTestTeleporter(15, -15, 3)], spawns: [navTestSpawn(-17, 0, 5), navTestSpawn(17, 0, 5)],
   });
 }
 
@@ -227,6 +300,25 @@ Test.add('nav', (check) => {
   check('teleporter: path uses the teleporter', types.includes(NAV_LINK.TELEPORT), types.join(','));
   check('teleporter: A* cost equals Dijkstra through the teleporter', Test.near(Nav.pathCost, navTestDijkstra(west, east, null), 1e-3), Nav.pathCost);
   check('teleporter: validate passes', Nav.validate(World.map).length === 0, Nav.validate(World.map).join('; '));
+});
+
+Test.add('nav', (check) => {
+  // Chained teleporters (west -> middle island next to the second pad -> east) beside a long walkway joining all three:
+  // the teleporter heuristic is admissible but not consistent here, A* must still match Dijkstra.
+  navTestLoad([navTestFloor(-40, -8, -30, 8, 0), navTestFloor(-5, -8, 5, 8, 0), navTestFloor(30, -8, 40, 8, 0), navTestFloor(-40, 8, 40, 11, 0)], {
+    triggers: [navTestTeleporter(-35, -1, -3), navTestTeleporter(2, 35, 3)],
+  });
+  const west = navTestNode(-37, 0, 5), east = navTestNode(37, 0, 5), types = navTestPathTypes(west, east);
+  check('teleporter chain: west to east takes both teleporters', types.filter((type) => type === NAV_LINK.TELEPORT).length === 2, types.join(','));
+  const random = makeRandom(21);
+  let mismatches = 0;
+  for (let pair = 0; pair < 40; pair++) {
+    const from = pair % 4 ? random.int(0, Nav.nodeCount - 1) : west, to = pair % 4 ? random.int(0, Nav.nodeCount - 1) : east;
+    Nav.findPath(from, to, pair % 2 ? { allowJumpHeight: 0 } : undefined);
+    const expected = navTestDijkstra(from, to, null);
+    if (Nav.pathCost !== expected && !Test.near(Nav.pathCost, expected, 1e-4 * Math.max(1, expected))) mismatches++;
+  }
+  check('teleporter chain: A* cost equals Dijkstra on 40 pairs', mismatches === 0, mismatches);
 });
 
 Test.add('nav', (check) => {
@@ -252,6 +344,37 @@ Test.add('nav', (check) => {
   check('crouch: tunnel nodes are crouch-only', Array.from(Nav.nodeZ).some((z, node) => Math.abs(z) < 1 && (Nav.nodeFlags[node] & NAV_NODE.CROUCH)));
   check('crouch: path through the tunnel uses crouch links', types.includes(NAV_LINK.CROUCH), types.join(','));
   check('crouch: crouchOk false finds no way', Nav.findPath(south, north, { crouchOk: false }) === 0);
+  Nav.request(0, south, north);
+  navTestServeAll();
+  const tunnel = navTestMovesOver(0, -1, -1, 1, 1, NAV_LINK.CROUCH);
+  check('crouch: smoothed moves through the tunnel are typed CROUCH', Nav.result(0) === NAV_STATUS.DONE && tunnel[0] > 0 && tunnel[1] === 0, tunnel.join(' / '));
+});
+
+// Footprint half size of a low slab where a standing capsule cannot be: slab + capsule radius, minus one raster
+// column of tolerance (a straight line may clip a column corner between raster steps).
+const NAV_TEST_UNDER_SLAB = 2 + NAV_RADIUS - NAV_FINE / 2;
+
+Test.add('nav', (check) => {
+  // A floating slab at 1.3..1.5 m (crouch-only underneath) in the middle of an open floor; the path passes beside it.
+  navTestLoad([navTestFloor(-10, -10, 10, 10, 0), navTestBox([-2, 1.3, -2], [2, 1.5, 2])]);
+  const from = navTestNode(-5, 0, 0.3), to = navTestNode(5, 0, -0.3), half = NAV_TEST_UNDER_SLAB;
+  Nav.request(0, from, to, { crouchOk: false });
+  Nav.request(1, from, to);
+  navTestServeAll();
+  const standing = navTestMovesOver(0, -half, -half, half, half, NAV_LINK.CROUCH), crouching = navTestMovesOver(1, -half, -half, half, half, NAV_LINK.CROUCH);
+  check('smoothing: crouchOk false never cuts under a low slab', Nav.result(0) === NAV_STATUS.DONE && standing[0] === 0, standing.join(' / '));
+  check('smoothing: a move under the slab is always typed CROUCH', Nav.result(1) === NAV_STATUS.DONE && crouching[1] === 0, crouching.join(' / '));
+  check('smoothing: still smooths the open floor', Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
+});
+
+Test.add('nav', (check) => {
+  // Shallow pool (0.6 m deep, wadeable floor) in the middle of an open floor: smoothing must not walk through it.
+  navTestLoad([navTestFloor(-10, -10, 10, 10, 0)], { triggers: [{ kind: 'water', min: [-2, 0, -2], max: [2, 0.6, 2] }] });
+  const from = navTestNode(-5, 0, 0.3), to = navTestNode(5, 0, -0.3);
+  Nav.request(0, from, to);
+  navTestServeAll();
+  const wet = navTestMovesOver(0, -2, -2, 2, 2, NAV_LINK.SWIM);
+  check('smoothing: a move through water is typed SWIM', Nav.result(0) === NAV_STATUS.DONE && wet[1] === 0, wet.join(' / '));
 });
 
 // Brute-force Dijkstra (O(n^2), no heap) with the same link filters as the default options.
@@ -390,6 +513,14 @@ Test.add('nav', (check) => {
   Nav.request(21, 0, -5);
   navTestServeAll();
   check('budget: invalid node fails the request', Nav.result(21) === NAV_STATUS.FAILED);
+  // 64 bots asking for the same cached path at once (round start): smoothing still costs, so each counts.
+  Nav.findPath(0, Nav.nodeCount - 1);
+  for (let id = 0; id < NAV_SLOTS; id++) Nav.request(id, 0, Nav.nodeCount - 1);
+  Nav.serveRequests();
+  check('budget: cache hits count too (' + NAV_QUERIES_PER_TICK + ' served per tick)', Nav.servedThisTick === NAV_QUERIES_PER_TICK && Nav.searchesThisTick === 0
+    && Nav.pendingRequests() === NAV_SLOTS - NAV_QUERIES_PER_TICK, Nav.servedThisTick + ' served, ' + Nav.pendingRequests() + ' pending');
+  navTestServeAll();
+  check('budget: all 64 answered after 16 ticks', Nav.pendingRequests() === 0 && Nav.result(NAV_SLOTS - 1) === NAV_STATUS.DONE);
 });
 
 Test.add('nav', (check) => {

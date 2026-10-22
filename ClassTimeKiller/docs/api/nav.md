@@ -52,9 +52,9 @@ All brush tests use the same plane math as `World.raycast` (`rayVersusBrush`), t
 ## Graph data (typed arrays, valid until the next build)
 
 - Nodes `0..nodeCount-1`: `nodeX/Y/Z` (feet), `nodeFlags` (`NAV_NODE.CROUCH` 1 crouch-only, `WATER` 2, `PASSAGE` 4 doorway/gap node, `TRIGGER` 8 inside a jump pad/teleporter, `NARROW` 16 solid within 0.6 m), `component`.
-- Links in CSR order: node `n` owns links `linkStart[n] .. linkStart[n + 1] - 1`; `linkFrom`, `linkTarget`, `linkType`, `linkCost` (seconds), `linkHeight` (jump: required height; drop: depth; ladder: climb; else 0).
+- Links in CSR order: node `n` owns links `linkStart[n] .. linkStart[n + 1] - 1`; `linkFrom`, `linkTarget`, `linkType`, `linkCost` (seconds), `linkHeight` (jump: required height; drop: depth; ladder: climb; else 0), `linkReach` (horizontal length, m).
 - `NAV_LINK = { WALK 0, CROUCH 1, JUMP 2, DROP 3, LADDER 4, JUMPPAD 5, TELEPORT 6, SWIM 7 }`, `NAV_LINK_NONE = 255`. `NAV_LINK_ROWS[type]` = `{ key, speedFactor, extraSeconds, smooth, twoWay }`: cost = length / (referenceSpeed x speedFactor) + extraSeconds (+ fall time for drops, + climb / ladderSpeed for ladders, flight time for pads).
-- Components: `componentCount`, `componentStart`, `componentNodes` (CSR), `mainComponent` (largest).
+- Components: `componentCount`, `componentStart`, `componentNodes` (CSR), `mainComponent` (largest), `componentReach` (Uint32Array bit table, `componentWords` words per row: bit `to` of row `from` = component `from` reaches component `to`; null above 1024 components).
 - Cover: `coverCount`, `coverNode`, `coverDirX/Z` (unit direction from the node toward the wall), `coverLow` (1 = crouch cover: blocked at 0.9 m, open at head height).
 
 ## Queries
@@ -63,7 +63,7 @@ All brush tests use the same plane math as `World.raycast` (`rayVersusBrush`), t
 |---|---|
 | `Nav.nearestNode(x, y, z)` | best node within 6 m by horizontal distance + 2 x height difference, preferring nodes up to 3 m below / 1 m above with a clear line; -1 on an empty graph |
 | `Nav.nodePosition(node, out)` | writes the node's feet position into `out {x, y, z}` |
-| `Nav.reachable(a, b)` | true when `b` can be reached from `a` over any links (same component: O(1); else a breadth-first search) |
+| `Nav.reachable(a, b)` | true when `b` can be reached from `a` over any links, ignoring path options. O(1) from the component bit table (breadth-first search only on maps with more than 1024 components) |
 | `Nav.randomReachableNode(from, rng)` | random node of `from`'s component (never a trigger node) for roaming; `rng` = a `makeRandom` stream such as `Rng.bots`; -1 for a bad node |
 | `Nav.nearestCover(x, y, z, threatX, threatY, threatZ, maxDistance)` | cover index (`Nav.coverNode[index]` is its node) whose wall faces the threat and hides the body from it, nearest to (x, y, z); -1 when none |
 | `Nav.debugLines(out)` | fills `out` (Float32Array) with link segments, 7 floats each `ax ay az bx by bz type` (two-way links once); returns the count. For the F9 view (BOT-092). |
@@ -78,22 +78,27 @@ Options (all optional; the same object may be reused):
 | `allowJumpHeight` | `limits.jumpUp` | skip jump links needing more (the bot's own preset: apex + extra jumps) |
 | `maxDrop` | `limits.safeDrop` | skip drop links deeper than this |
 | `crouchOk` | true | false skips crouch links |
+| `moveSpeed` | Infinity | m/s of the bot's preset; with `jumpVelocity` and `gravity` it limits jump and drop links by horizontal length (BOT-010 "gap <= preset reach"). Infinity = only the build limit `jumpReach` |
+| `jumpVelocity` | 0 | m/s upward at take-off (single jump) |
+| `gravity` | `limits.gravity` | m/s^2 of the preset |
 | `danger` | null | Float32Array (length `nodeCount`), extra seconds for entering each node |
 | `avoid` | null | `fn(node)` -> extra seconds for entering the node; `Infinity` forbids it |
 
-`allowJumpHeight` is floored to 1 cm and `maxDrop` to 10 cm (the cache key resolution).
+`allowJumpHeight` is floored to 1 cm, `maxDrop`, `moveSpeed`, `jumpVelocity` and `gravity` to 0.1 (the cache key resolution); float32 values (1.28 stored as 1.27999997) keep their last digit.
 
-- `Nav.findPath(from, to, options)`: synchronous A* (binary heap over typed arrays, admissible heuristic including teleporter shortcuts). Returns the node count (0 = no path). Result in `Nav.pathNodes[0..pathLength-1]`, `Nav.pathTypes[i]` = link type from node i to i + 1 (`NAV_LINK_NONE` on the last), `Nav.pathCost` seconds (Infinity when none). The arrays are overwritten by the next query. Unbudgeted: for validators and tools; bots use `request`.
-- Cache: 64 direct-mapped entries keyed by (from, to, allowJumpHeight, maxDrop, crouchOk), paths up to 256 nodes, also remembers "no path". Queries with `danger` or `avoid` bypass it. `Nav.lastCacheHit`, `Nav.cacheHits`, `Nav.cacheMisses`, `Nav.searches` (A* runs).
+Reach rule: a jump or drop link is allowed when `linkReach <= moveSpeed x flight`, flight = (jumpVelocity + sqrt(max(0, jumpVelocity^2 - 2 x gravity x rise))) / gravity, rise = target height - start height. A drop with `jumpVelocity` 0 is a run off the edge. Extra jumps only lengthen a flight, so presets with them are judged on the single jump (a little cautious); `allowJumpHeight` still sets the height.
+
+- `Nav.findPath(from, to, options)`: synchronous A* (binary heap over typed arrays, admissible heuristic including teleporter shortcuts; a closed node reopens when a cheaper way in appears, so chained teleporters stay optimal). Returns the node count (0 = no path). Result in `Nav.pathNodes[0..pathLength-1]`, `Nav.pathTypes[i]` = link type from node i to i + 1 (`NAV_LINK_NONE` on the last), `Nav.pathCost` seconds (Infinity when none). The arrays are overwritten by the next query. Unbudgeted: for validators and tools; bots use `request`.
+- Cache: 64 direct-mapped entries keyed by (from, to, allowJumpHeight, maxDrop, crouchOk, moveSpeed, jumpVelocity, gravity), paths up to 256 nodes, also remembers "no path". Queries with `danger` or `avoid` bypass it. `Nav.lastCacheHit`, `Nav.cacheHits`, `Nav.cacheMisses`, `Nav.searches` (A* runs).
 - Zero allocation: every buffer is sized by the build; queries create no objects.
 
-## Requests (BOT-091: at most 4 searches per tick)
+## Requests (BOT-091: at most 4 path queries per tick)
 
 - `Nav.request(id, from, to, options)`: `id` = slot 0..63 (a bot uses its actor id). Options are copied. A new request replaces the slot's pending one. Returns false for a bad id.
-- The sim system `'nav'` (order 15, after bot brains) calls `Nav.serveRequests()`: at most `NAV_QUERIES_PER_TICK` (4) A* searches per tick; cache hits do not count. `Nav.searchesThisTick`, `Nav.pendingRequests()`.
+- The sim system `'nav'` (order 15, after bot brains) calls `Nav.serveRequests()`: at most `NAV_QUERIES_PER_TICK` (4) requests served per tick, cache hits included (each served request is smoothed, which costs about as much as a short search). 64 bots re-requesting at round start are all answered within 16 ticks (0.13 s at 120 Hz). `Nav.servedThisTick`, `Nav.searchesThisTick` (the A* runs among them), `Nav.pendingRequests()`.
 - `Nav.result(id)`: `NAV_STATUS.NONE 0 | QUEUED 1 | DONE 2 | FAILED 3`. `Nav.cancel(id)` drops a pending request.
 - Results (valid until the slot is requested again or the map reloads): `Nav.resultCost(id)`, `Nav.resultNodeCount(id)`, `Nav.resultNode(id, i)`, `Nav.resultPointCount(id)`, `Nav.resultPoint(id, i, out)` writes the smoothed point into `out {x, y, z}` and returns the type of the move that starts there (walk, crouch, swim, or the jump/drop/ladder/jumppad/teleport to perform; `NAV_LINK_NONE` at the goal). Paths longer than 1024 nodes fail.
-- Smoothing (`Nav.smoothPath(nodes, types, length, outPoints, outTypes, offset)`): string pulling up to 12 nodes ahead; a corridor is straight when its raster walk is unbroken, it crosses no trigger volume and its chest line is clear. Jump, drop, ladder, pad and teleport links are never cut.
+- Smoothing (`Nav.smoothPath(nodes, types, length, outPoints, outTypes, offset)`): string pulling up to 12 nodes ahead; a corridor is straight when its raster walk is unbroken, it crosses no trigger volume, its chest line is clear, and it crosses crouch-only or wet samples only when the links it replaces already crouch or swim (so it never sends a standing bot under a low ceiling, and `crouchOk: false` holds). The straight move is typed from the samples it crosses: swim when wet, crouch when crouch-only, else walk. Jump, drop, ladder, pad and teleport links are never cut.
 
 ## Debug
 

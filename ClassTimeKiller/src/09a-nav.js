@@ -55,11 +55,12 @@ const NAV_COVER_WALL = 1.0;            // cover: a wall within this distance of 
 const NAV_COVER_OPEN = 4;              // ...and open space this long on the other side
 const NAV_COVER_LOW_HEIGHT = 0.9;      // blocked at this height but open at head height = crouch cover
 const NAV_COVER = { NONE: 0, LOW: 1, FULL: 2 };
+const NAV_REACH_MAX_COMPONENTS = 1024;  // reachability bit table up to this many components (128 KB); beyond: breadth-first search
 const NAV_GRAPH_CACHE_SIZE = 4;        // graphs kept for maps that load again (rematch): BOT-010 "cached per map"
 // Every build output that queries read; a cached graph restores exactly these Nav fields.
 const NAV_GRAPH_FIELDS = ['nodeCount', 'nodeX', 'nodeY', 'nodeZ', 'nodeFlags', 'nodeSample', 'linkCount', 'linkStart', 'linkFrom',
-  'linkTarget', 'linkType', 'linkCost', 'linkHeight', 'heuristicSpeed', 'teleportCount', 'teleportEntry', 'teleportExit', 'componentCount',
-  'component', 'componentStart', 'componentNodes', 'mainComponent', 'coverCount', 'coverNode', 'coverDirX', 'coverDirZ', 'coverLow'];
+  'linkTarget', 'linkType', 'linkCost', 'linkHeight', 'linkReach', 'heuristicSpeed', 'teleportCount', 'teleportEntry', 'teleportExit',
+  'componentCount', 'component', 'componentStart', 'componentNodes', 'componentReach', 'componentWords', 'mainComponent', 'coverCount', 'coverNode', 'coverDirX', 'coverDirZ', 'coverLow'];
 const NAV_DEBUG_STRIDE = 7;            // debugLines: ax, ay, az, bx, by, bz, link type
 
 // Node and sample flags. TRIGGER: inside a jump pad or teleporter. NARROW: a solid lies within NAV_OPEN_RADIUS.
@@ -89,7 +90,7 @@ const navArc = { x: 0, y: 0, z: 0, time: 0 };
 const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
 const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
 const navTarjan = { index: null, low: null, onStack: null, stack: null, stackSize: 0, callNode: null, callEdge: null, depth: -1, counter: 0 };
-const navNeighbours = { items: null, count: 0 };
+const navNeighbours = { items: null, count: 0, node: -1, radiusSquared: 0 };
 const navGraphCache = [];   // { key, nav, raster, nodeGrid } of recent builds, most recently used last
 
 const Nav = {
@@ -106,10 +107,11 @@ const Nav = {
   map: null, version: 0, buildMs: 0, buildPhases: {},   // build time in ms, total and per phase (ARC-034)
   lastBuildCached: false,                               // the last build reused a cached graph of the same map
   nodeCount: 0, nodeX: null, nodeY: null, nodeZ: null, nodeFlags: null, nodeSample: null,
-  linkCount: 0, linkStart: null, linkFrom: null, linkTarget: null, linkType: null, linkCost: null, linkHeight: null,
+  linkCount: 0, linkStart: null, linkFrom: null, linkTarget: null, linkType: null, linkCost: null, linkHeight: null, linkReach: null,
   heuristicSpeed: 6,
   teleportCount: 0, teleportEntry: null, teleportExit: null,
   componentCount: 0, component: null, componentStart: null, componentNodes: null, mainComponent: -1,
+  componentReach: null, componentWords: 0,   // bit (to) of row (from): component from reaches component to; null = too many
   coverCount: 0, coverNode: null, coverDirX: null, coverDirZ: null, coverLow: null,
 
   build(map) {
@@ -207,7 +209,7 @@ function navBuildGraph(triggers) {
   navBuildBrushGrid();
   navBuildRaster();
   lap('raster');
-  const builder = { x: [], y: [], z: [], sample: [], flags: [], cells: new Map(), from: [], to: [], type: [], height: [], seconds: [] };
+  const builder = { x: [], y: [], z: [], sample: [], flags: [], cells: new Map(), from: [], to: [], type: [], height: [], reach: [], seconds: [] };
   navPickCellNodes(builder);
   triggers.forEach((trigger) => navAddTriggerNode(builder, trigger));
   navAddPassageNodes(builder, 1, 0);
@@ -247,27 +249,29 @@ function navBucket(itemCount, cellCount, eachCell) {
 
 const navCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
 
+// Calls visit(cell) for every cell of a lookup grid (navBrushGrid or navNodeGrid) that the xz rectangle overlaps.
+// visit is a top-level function so queries allocate nothing; it may itself query the other grid.
+function navForCells(grid, cellSize, minX, minZ, maxX, maxZ, visit) {
+  const i0 = navCellIndex(minX, grid.originX, cellSize, grid.cellsX), i1 = navCellIndex(maxX, grid.originX, cellSize, grid.cellsX);
+  const j0 = navCellIndex(minZ, grid.originZ, cellSize, grid.cellsZ), j1 = navCellIndex(maxZ, grid.originZ, cellSize, grid.cellsZ);
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
+  }
+}
+
 // ---- Brush lookup grid: build and query tests only touch nearby brushes ----
 function navBuildBrushGrid() {
   const grid = navBrushGrid, brushes = World.brushes;
   grid.originX = World.boundsMin.x; grid.originZ = World.boundsMin.z;
   grid.cellsX = Math.max(1, Math.ceil((World.boundsMax.x - grid.originX) / NAV_BRUSH_CELL));
   grid.cellsZ = Math.max(1, Math.ceil((World.boundsMax.z - grid.originZ) / NAV_BRUSH_CELL));
-  const bucket = navBucket(brushes.length, grid.cellsX * grid.cellsZ, (index, visit) => navEachBrushCell(brushes[index], visit));
+  const bucket = navBucket(brushes.length, grid.cellsX * grid.cellsZ,
+    (index, visit) => navForCells(grid, NAV_BRUSH_CELL, brushes[index].minX, brushes[index].minZ, brushes[index].maxX, brushes[index].maxZ, visit));
   grid.cellStart = bucket.start; grid.cellItems = bucket.items;
   grid.stamp = new Uint32Array(brushes.length); grid.stampValue = 0;
   grid.found = new Int32Array(brushes.length);
   grid.topPlane = Int32Array.from(brushes, navTopPlaneIndex);
   grid.walkable = Uint8Array.from(brushes, (brush, index) => (brush.planes[grid.topPlane[index] * 4 + 1] >= NAV_MIN_FLOOR_NORMAL ? 1 : 0));
-}
-
-function navEachBrushCell(brush, visit) {
-  const grid = navBrushGrid;
-  const i0 = navCellIndex(brush.minX, grid.originX, NAV_BRUSH_CELL, grid.cellsX), i1 = navCellIndex(brush.maxX, grid.originX, NAV_BRUSH_CELL, grid.cellsX);
-  const j0 = navCellIndex(brush.minZ, grid.originZ, NAV_BRUSH_CELL, grid.cellsZ), j1 = navCellIndex(brush.maxZ, grid.originZ, NAV_BRUSH_CELL, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
-  }
 }
 
 // The plane facing most upward is the brush top (box top or ramp slope).
@@ -282,11 +286,7 @@ function navGatherBrushes(minX, minZ, maxX, maxZ) {
   const grid = navBrushGrid;
   grid.stampValue++;
   grid.foundCount = 0;
-  const i0 = navCellIndex(minX, grid.originX, NAV_BRUSH_CELL, grid.cellsX), i1 = navCellIndex(maxX, grid.originX, NAV_BRUSH_CELL, grid.cellsX);
-  const j0 = navCellIndex(minZ, grid.originZ, NAV_BRUSH_CELL, grid.cellsZ), j1 = navCellIndex(maxZ, grid.originZ, NAV_BRUSH_CELL, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) navGatherCell(j * grid.cellsX + i);
-  }
+  navForCells(grid, NAV_BRUSH_CELL, minX, minZ, maxX, maxZ, navGatherCell);
   return grid.foundCount;
 }
 
@@ -595,7 +595,7 @@ function navCentreScore(sample, centreX, centreZ) {
 // Jump pads and teleporters get a node at their centre so bots step right onto them.
 function navAddTriggerNode(builder, trigger) {
   if (trigger.kind !== 'jumppad' && trigger.kind !== 'teleporter') return;
-  const column = navColumnAt((trigger.min[0] + trigger.max[0]) / 2, (trigger.min[2] + trigger.max[2]) / 2);
+  const column = navColumnAt(navVolumeCentreX(trigger), navVolumeCentreZ(trigger));
   if (column < 0) return;
   for (let sample = navRaster.columnStart[column]; sample < navRaster.columnStart[column + 1]; sample++) {
     const y = navRaster.sampleY[sample];
@@ -648,14 +648,10 @@ function navNodeCell(x, z) {
 // ---- Node queries (allocation-free) ----
 // Best node by horizontal distance + weighted height difference inside a height band; needSight: visible from the point.
 function navSearchNodes(x, y, z, yLow, yHigh, radius, needSight) {
-  const grid = navNodeGrid, state = navSearchState;
+  const state = navSearchState;
   state.x = x; state.y = y; state.z = z; state.yLow = yLow; state.yHigh = yHigh; state.radiusSquared = radius * radius;
   state.needSight = needSight; state.best = -1; state.score = Infinity;
-  const i0 = navCellIndex(x - radius, grid.originX, NAV_NODE_CELL, grid.cellsX), i1 = navCellIndex(x + radius, grid.originX, NAV_NODE_CELL, grid.cellsX);
-  const j0 = navCellIndex(z - radius, grid.originZ, NAV_NODE_CELL, grid.cellsZ), j1 = navCellIndex(z + radius, grid.originZ, NAV_NODE_CELL, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) navSearchCell(j * grid.cellsX + i);
-  }
+  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navSearchCell);
   return state.best;
 }
 
@@ -683,21 +679,17 @@ function navNearestAnywhere(x, y, z) {
 
 // Fills navNeighbours.items with the nodes within a horizontal radius of a node (itself excluded).
 function navCollectNeighbours(node, radius) {
-  const grid = navNodeGrid, x = Nav.nodeX[node], z = Nav.nodeZ[node];
-  navNeighbours.count = 0;
-  const i0 = navCellIndex(x - radius, grid.originX, NAV_NODE_CELL, grid.cellsX), i1 = navCellIndex(x + radius, grid.originX, NAV_NODE_CELL, grid.cellsX);
-  const j0 = navCellIndex(z - radius, grid.originZ, NAV_NODE_CELL, grid.cellsZ), j1 = navCellIndex(z + radius, grid.originZ, NAV_NODE_CELL, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) navCollectCell(j * grid.cellsX + i, node, radius * radius);
-  }
-  return navNeighbours.count;
+  const x = Nav.nodeX[node], z = Nav.nodeZ[node], found = navNeighbours;
+  found.count = 0; found.node = node; found.radiusSquared = radius * radius;
+  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navCollectCell);
+  return found.count;
 }
 
-function navCollectCell(cell, node, radiusSquared) {
-  const grid = navNodeGrid;
+function navCollectCell(cell) {
+  const grid = navNodeGrid, found = navNeighbours;
   for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
     const other = grid.cellItems[k];
-    if (other !== node && navHorizontalSquared(node, other) <= radiusSquared) navNeighbours.items[navNeighbours.count++] = other;
+    if (other !== found.node && navHorizontalSquared(found.node, other) <= found.radiusSquared) found.items[found.count++] = other;
   }
 }
 
@@ -722,7 +714,12 @@ function navLinkSeconds(type, length) {
 
 function navAddLink(builder, from, to, type, height, seconds) {
   builder.from.push(from); builder.to.push(to); builder.type.push(type); builder.height.push(height); builder.seconds.push(seconds);
+  builder.reach.push(Math.sqrt(navHorizontalSquared(from, to)));
 }
+
+// Move type of a straight walk over samples with these flags: swim when any is wet, else crouch when any is crouch-only.
+const navWalkType = (flags) => (flags & NAV_NODE.WATER ? NAV_LINK.SWIM : flags & NAV_NODE.CROUCH ? NAV_LINK.CROUCH : NAV_LINK.WALK);
+const navChestHeight = (type) => (type === NAV_LINK.CROUCH ? NAV_CROUCH_CHEST : NAV_CHEST);
 
 // Walk links first; then jump/drop/swim-exit links only between nodes that walking does not already join.
 function navLinkNeighbours(builder) {
@@ -770,9 +767,8 @@ function navTryWalk(builder, a, b) {
   const forward = navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]);
   if (forward < 0) return false;
   const backward = (forward | Nav.nodeFlags[b]) & NAV_NODE.TRIGGER ? navScan(Nav.nodeSample[b], Nav.nodeX[a], Nav.nodeZ[a], Nav.nodeSample[a]) : forward;
-  const flags = forward | Nav.nodeFlags[b];
-  const type = flags & NAV_NODE.WATER ? NAV_LINK.SWIM : flags & NAV_NODE.CROUCH ? NAV_LINK.CROUCH : NAV_LINK.WALK;
-  if ((flags & NAV_NODE.NARROW) && !navLinkLineClear(a, b, type === NAV_LINK.CROUCH ? NAV_CROUCH_CHEST : NAV_CHEST)) return false;
+  const flags = forward | Nav.nodeFlags[b], type = navWalkType(flags);
+  if ((flags & NAV_NODE.NARROW) && !navLinkLineClear(a, b, navChestHeight(type))) return false;
   const seconds = navLinkSeconds(type, navNodeDistance(a, b));
   if (navWalkEntersTrigger(forward, a, b)) navAddLink(builder, a, b, type, 0, seconds);
   if (backward >= 0 && navWalkEntersTrigger(backward, b, a)) navAddLink(builder, b, a, type, 0, seconds);
@@ -908,6 +904,7 @@ function navFinishLinks(builder) {
   Nav.linkCount = count; Nav.linkStart = bucket.start;
   Nav.linkFrom = pick(builder.from, Int32Array); Nav.linkTarget = pick(builder.to, Int32Array);
   Nav.linkType = pick(builder.type, Uint8Array); Nav.linkHeight = pick(builder.height, Float32Array); Nav.linkCost = pick(builder.seconds, Float32Array);
+  Nav.linkReach = pick(builder.reach, Float32Array);
   const teleports = [];
   Nav.heuristicSpeed = Nav.limits.referenceSpeed;
   for (let link = 0; link < count; link++) {
@@ -931,6 +928,30 @@ function navLabelComponents() {
   Nav.componentStart = bucket.start; Nav.componentNodes = bucket.items;
   Nav.mainComponent = 0;
   for (let id = 1; id < Nav.componentCount; id++) if (navComponentSize(id) > navComponentSize(Nav.mainComponent)) Nav.mainComponent = id;
+  navComponentReach();
+}
+
+// Reachability between components as one bit row per component (Nav.reachable in O(1)). Tarjan numbers a component
+// only after every component it links to, so one pass in id order sees each successor's row complete.
+function navComponentReach() {
+  const count = Nav.componentCount, words = Math.ceil(count / 32);
+  Nav.componentWords = words;
+  Nav.componentReach = null;
+  if (count > NAV_REACH_MAX_COMPONENTS) return;
+  const reach = new Uint32Array(count * words);
+  for (let id = 0; id < count; id++) {
+    reach[id * words + (id >> 5)] |= 1 << (id & 31);
+    for (let k = Nav.componentStart[id]; k < Nav.componentStart[id + 1]; k++) navMergeReach(reach, words, id, Nav.componentNodes[k]);
+  }
+  Nav.componentReach = reach;
+}
+
+function navMergeReach(reach, words, id, node) {
+  for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) {
+    const other = Nav.component[Nav.linkTarget[link]];
+    if (other === id) continue;
+    for (let word = 0; word < words; word++) reach[id * words + word] |= reach[other * words + word];
+  }
 }
 
 const navComponentSize = (id) => Nav.componentStart[id + 1] - Nav.componentStart[id];
