@@ -987,15 +987,6 @@ Test.add('input', (check) => {
   odd.index = 1; PadInput.listPads = () => [standard, odd]; PadInput.index = 1;   // the odd device connected last
   check('pad choice: a standard pad wins over a newer odd device', PadInput.activePad() === standard);
   PadInput.listPads = realListPads; PadInput.index = 0;
-
-  Input.frame(INPUT_TEST_FRAME); Input.setDevice('touch'); drift.axes.fill(0); Input.frame(INPUT_TEST_FRAME);   // touch took over while the stick was pushed, then it was let go
-  drift.axes[2] = 0.15; Input.frame(INPUT_TEST_FRAME);
-  inputReleasePad();
-  check('pad device: drift after a let-go stick leaves touch alone', Input.device === 'touch', Input.device);
-  const realListPads = PadInput.listPads, standard = inputFakePad();
-  odd.index = 1; PadInput.listPads = () => [standard, odd]; PadInput.index = 1;   // the odd device connected last
-  check('pad choice: a standard pad wins over a newer odd device', PadInput.activePad() === standard);
-  PadInput.listPads = realListPads; PadInput.index = 0;
   // a mouse on a touch device without pointer lock keeps the touch controls
   startInputMatch(); Input.setDevice('touch');
   const realCanLock = Input.canLock, realRequestLock = Input.requestLock;
