@@ -70,8 +70,8 @@ off the map edge.
 
 ## Data (03n)
 
-- `mapModules`: cover patterns (`plaza`, `pillar`, `crates`, `platform`, `lowwalls`, `corner`, `columns`, `bunker`); props are `[kind, u, v, w, d, h]` in cell units.
-- `mapTilesets` (MAP-022): one per theme with floor, ground, wall, pillar, cover, platform and trim materials, light colour, wall height, sky, and
+- `mapModules`: cover patterns (`plaza`, `pillar`, `crates`, `platform`, `lowwalls`, `corner`, `columns`, `bunker`); props are `[kind, u, v, w, d, h]` in cell units. Kinds: `cover pillar climb platform low`; `pillar` and `climb` reach the wall height, `climb` (the bunker block) is a grip wall MV05 Ravagers climb.
+- `mapTilesets` (MAP-022): one per theme with floor, ground, wall, pillar, cover, platform, trim and climb (default `grip`) materials, light colour, wall height, sky, and
   twelve callout modules `[name, pattern]` (the cell names become the map's callout zones).
 - `mapSizes`: `{ id, name, index, tiers }`; a size is offered only on the quality tiers it lists (small: all; medium: low and up; large: medium and up).
 - `mapDensities`: `{ id, name, moduleShare, scatter }`.

@@ -94,6 +94,8 @@ function onlyPickup() {
   return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
+// A powerup row tied to a health preset (PU20 Vital Shard: the Ravager caps) has map spots only in matches with that preset.
+function powerupSpotAllowed(row) { return !row.healthPreset || itemRule('health', '') === row.healthPreset; }
 // A soul card number of the local player (rules.cards.fx, written by the S15 cards), else fallback. One reader per key:
 // soulLife (Items.dropSoul), soulMagnet (soulHomingRange), soulHeal (12b PU18 heal), wrathAt (12e Abilities.canAfford).
 function soulCardFx(id, key, fallback) {
@@ -162,7 +164,7 @@ const Items = {
   addSpot(entry) {
     const kind = this.resolve(entry.item);
     if (kind < 0) { ErrorLog.add('items', 'unknown item key ' + entry.item); return -1; }
-    if (kind === PICKUP_KIND.POWERUP && !powerupsAllowed()) return -1;
+    if (kind === PICKUP_KIND.POWERUP && (!powerupsAllowed() || !powerupSpotAllowed(CAT.powerups.byId(entry.item)))) return -1;
     const key = kind === PICKUP_KIND.WEAPON ? this.spotWeapon(entry.item) : entry.item;
     if (!key) return -1;
     const slot = this.spotCount++;

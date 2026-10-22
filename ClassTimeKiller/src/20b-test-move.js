@@ -539,6 +539,33 @@ Test.add('move', (check) => {
   check('no climbing on plain walls', Actors.y[plain] < 1, Actors.y[plain]);
 });
 
+// Audit 28: hand-made maps carry grip climb walls, and a Ravager climbs each map's first grip panel to its top.
+Test.add('move', (check) => {
+  const gripMaps = CAT.maps.filter((map) => map.brushes.some((brush) => brush.material === 'grip'));
+  check('grip climb walls on the arena and Ravager vs Fiends maps', gripMaps.length >= 5 && gripMaps.some((map) => map.modes.includes('fiends')), gripMaps.map((map) => map.code).join());
+  useTestRules({ move: 'ravager' });
+  const hit = makeHit();
+  for (const map of gripMaps) {
+    World.load(map);
+    const panel = map.brushes.find((brush) => brush.material === 'grip');
+    const thinX = panel.max[0] - panel.min[0] < panel.max[2] - panel.min[2];
+    const centreX = (panel.min[0] + panel.max[0]) / 2, centreZ = (panel.min[2] + panel.max[2]) / 2, standY = panel.min[1] + 1;
+    // The open face: from 0.8 m out on that side a level ray hits the panel itself.
+    const side = [-1, 1].find((sign) => {
+      const startX = thinX ? (sign < 0 ? panel.min[0] : panel.max[0]) + sign * 0.8 : centreX, startZ = thinX ? centreZ : (sign < 0 ? panel.min[2] : panel.max[2]) + sign * 0.8;
+      return World.raycast(startX, standY, startZ, thinX ? -sign : 0, 0, thinX ? 0 : -sign, 2, hit) && hit.brush.material === 'grip';
+    });
+    const startX = thinX ? (side < 0 ? panel.min[0] : panel.max[0]) + side * 0.6 : centreX, startZ = thinX ? centreZ : (side < 0 ? panel.min[2] : panel.max[2]) + side * 0.6;
+    const id = spawnTester(startX, panel.min[1] + 0.05, startZ);
+    Sim.run(12);
+    holdInput(id, 0, 1, 0, Math.atan2(thinX ? -side : 0, thinX ? 0 : -side) / DEG);
+    tapButtons(id, BTN.JUMP);
+    const top = highestPoint(id, 3);
+    check(map.code + ': a Ravager climbs the grip panel to its top (' + panel.max[1] + ' m)', side !== undefined && top >= panel.max[1] - 0.05, top.toFixed(2));
+    Actors.remove(id);
+  }
+});
+
 Test.add('move', (check) => {
   loadTestWorld([{ shape: 'box', min: [-1.5, 0, -20], max: [-1, 8, 40] }]);
   useTestRules({ move: 'agile' });

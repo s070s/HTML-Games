@@ -5,8 +5,9 @@
 
 // Room module patterns. Props are [kind, u, v, width, depth, height]: u and v in -1..1 across the inner part of a cell
 // (where prop centres may lie: the cell minus a 2.8 m border, so doors and the walk around the walls stay free), sizes in metres.
-// kind: cover (crates and blocks, cover material), pillar (full-height column, pillar material), platform (solid block with a
-// ramp on a seeded side: height = the platform top), low (a low wall, crouch cover).
+// kind: cover (crates and blocks, cover material), pillar (full-height column, pillar material), climb (full-height block in the
+// climb material: a grip wall MV05 Ravagers climb to its top), platform (solid block with a ramp on a seeded side: height = the
+// platform top), low (a low wall, crouch cover).
 Data.define('mapModules', { id: REQUIRED, props: REQUIRED, open: true }, [
   { id: 'plaza', props: [['cover', -0.9, -0.9, 1.2, 1.2, 1], ['cover', 0.9, 0.9, 1.2, 1.2, 1]] },
   { id: 'pillar', props: [['pillar', 0, 0, 1.6, 1.6, 0], ['cover', -0.95, 0.7, 1.2, 1.2, 1.8]], open: false },
@@ -15,7 +16,7 @@ Data.define('mapModules', { id: REQUIRED, props: REQUIRED, open: true }, [
   { id: 'lowwalls', props: [['low', 0, -0.6, 3.6, 0.4, 1], ['low', 0, 0.6, 3.6, 0.4, 1]] },
   { id: 'corner', props: [['pillar', -0.55, -0.55, 2.4, 0.5, 0], ['pillar', -0.8, -0.2, 0.5, 1.8, 0], ['cover', 0.8, 0.8, 1.2, 1.2, 1]], open: false },
   { id: 'columns', props: [['pillar', -0.75, -0.75, 0.8, 0.8, 0], ['pillar', 0.75, 0.75, 0.8, 0.8, 0], ['pillar', -0.75, 0.75, 0.8, 0.8, 0], ['pillar', 0.75, -0.75, 0.8, 0.8, 0]] },
-  { id: 'bunker', props: [['pillar', 0, 0, 3, 1.6, 0], ['cover', 0, 0.95, 1.2, 1.2, 1]], open: false },
+  { id: 'bunker', props: [['climb', 0, 0, 3, 1.6, 0], ['cover', 0, 0.95, 1.2, 1.2, 1]], open: false },
 ]);
 
 // MAP-022 tilesets: one per map theme (the render themes of 03b). Module rows are [callout name, pattern id].
@@ -29,7 +30,7 @@ const MAPGEN_SKIES = {
 };
 Data.define('mapTilesets', {
   id: REQUIRED, name: REQUIRED, floor: 'concrete', ground: 'sand', wall: 'concrete', pillar: 'concrete', cover: 'metal', platform: 'concrete',
-  trim: 'metal', light: 0xffe0b0, wallHeight: 6, sky: REQUIRED, modules: REQUIRED,
+  trim: 'metal', climb: 'grip', light: 0xffe0b0, wallHeight: 6, sky: REQUIRED, modules: REQUIRED,
 }, [
   { id: 'foundry', name: 'Foundry', floor: 'concrete', ground: 'sand', wall: 'metal', pillar: 'concrete', cover: 'metal', platform: 'concrete', trim: 'metal', light: 0xffb070,
     sky: MAPGEN_SKIES.foundry, modules: [['Kiln', 'pillar'], ['Smelter', 'crates'], ['Crucible Hall', 'platform'], ['Slag Pit', 'lowwalls'], ['Gantry', 'columns'],

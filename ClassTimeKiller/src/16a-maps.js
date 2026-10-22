@@ -11,7 +11,7 @@ const mapColorIs = (value) => Number.isInteger(value) && value >= 0 && value <= 
 // One place for every number and key list the map validator and the map files share.
 const MapRules = {
   version: 1,
-  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile'],
+  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile', 'grip'],   // grip: the MV05 climb walls (climbGripOnly)
   themes: ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'],                  // MAP-022 tilesets
   sightLimits: { arena: 60, tactical: 60, pve: 90, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category (pve: enemies approach along lanes)
   elements: ['kinetic', 'thermal', 'cryo', 'arc', 'toxin', 'void'],                            // HP-006 damage elements (hazard triggers name one)
@@ -21,7 +21,7 @@ const MapRules = {
   itemGroups: ['power', 'armor', 'health', 'weapon', 'ammo'],
   // Spec backtick keys (PWR, WPN). Plain pickups (I01..I10) have no spec key: these keys are the map contract for S12.
   itemKeys: {
-    health: ['healthvial', 'healthpack', 'healthcrate', 'megacell'],
+    health: ['healthvial', 'healthpack', 'healthcrate', 'megacell', 'vitalshard'],   // vitalshard (PU20): spots only appear in Ravager health matches (12a)
     armor: ['armorshard', 'lightplate', 'heavyplate'],
     ammo: ['ammobox', 'ammocache'],
     power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'surplus', 'aegisbelt', 'berserk', 'sigil', 'bottomless', 'vampfang',

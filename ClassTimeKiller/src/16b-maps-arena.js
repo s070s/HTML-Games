@@ -15,6 +15,7 @@ Maps.rows.push(MapKit.make({
     ['concrete', -27, -1, -25, -25, 14, 25], ['concrete', 25, -1, -25, 27, 14, 25],
     ['metal', -25, 0, 21, 25, 4, 25], ['metal', -25, 0, -25, 25, 4, -21],           // ring catwalk, 4 m up
     ['metal', 21, 0, -21, 25, 4, 21], ['metal', -25, 0, -21, -21, 4, 21],
+    ['grip', 3, 0, 20.8, 7, 4, 21], ['grip', -7, 0, -21, -3, 4, -20.8],                           // grip panels: MV05 Ravagers climb from the floor to the ring
     ['concrete', 13, 0, -2.5, 21, 4, 2.5, '+x'], ['concrete', -21, 0, -2.5, -13, 4, 2.5, '-x'], // ground to ring ramps
     ['concrete', -4, 0, -4, 4, 8, 4],                                               // the spire
     ['metal', -1, 8, -1, 1, 11, 1],                                                 // crown column (full cover)
@@ -39,7 +40,7 @@ Maps.rows.push(MapKit.make({
       [-14, 4, 23.2, 180], [14, 4, 23.2, 180], [-14, 4, -23.2, 0], [14, 4, -23.2, 0]]],
   ],
   items: [
-    ['fury', 0, 4, 16.5], ['surplus', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6],
+    ['fury', 0, 4, 16.5], ['surplus', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6], ['vitalshard', 5, 4, 23], ['vitalshard', -5, 4, -23],
     ['lightplate', 23.2, 4, 10], ['lightplate', -23.2, 4, -10],
     ['armorshard', 9, 0, 9], ['armorshard', -9, 0, 9], ['armorshard', 9, 0, -9], ['armorshard', -9, 0, -9],
     ['healthpack', 0, 0, 9], ['healthpack', 0, 0, -9], ['healthvial', 23, 4, 22.5], ['healthvial', -23, 4, 22.5],
@@ -103,12 +104,13 @@ const skyNorth = {                                                              
 const skyCenter = {
   brushes: [
     ['ice', -12, 3, -12, 12, 6, 12], ['metal', -4, 6, -4, 4, 10, 4], ['metal', 4, 6, -2, 12, 10, 2, '-x'], ['metal', -12, 6, -2, -4, 10, 2, '+x'], // deck, tower, tower ramps
+    ['grip', -3, 6, 4, -1.5, 10, 4.2], ['grip', 1.5, 6, -4.2, 3, 10, -4],                         // grip panels: MV05 Ravagers climb the tower
     ['metal', -1, 9.5, 4, 1, 10, 16],                                                               // the risky ledge
     ['ice', 6, 0, 12.5, 12, 10, 21.5], ['ice', -12, 0, 12.5, -6, 10, 21.5],                         // floating monoliths: break the long lines over the void
     ['ice', 6, 0, -21.5, 12, 10, -12.5], ['ice', -12, 0, -21.5, -6, 10, -12.5],
     ['metal', 8, 6, 7, 10, 7.4, 9], ['metal', -10, 6, 7, -8, 7.4, 9], ['metal', 8, 6, -9, 10, 7.4, -7], ['metal', -10, 6, -9, -8, 7.4, -7], // crates
   ],
-  items: [['quickening', 0, 10, 0], ['heavyplate', 0, 6, 8], ['megacell', 0, 6, -8], ['lancet', 0, 10, 14.5]],
+  items: [['quickening', 0, 10, 0], ['heavyplate', 0, 6, 8], ['megacell', 0, 6, -8], ['lancet', 0, 10, 14.5], ['vitalshard', 2.5, 10, -2.5], ['vitalshard', -2.5, 10, 2.5]],
   zones: [
     ['Center North', -12, 0, 12, 12, 2, 8], ['Center South', -12, -12, 12, 0, 2, 8], ['Sky Tower', -4, -4, 4, 4, 8, 14],
     ['Rail Ledge', -1.5, 4, 1.5, 17, 8, 12], ['Tower Ramp West', -12, -2, -4, 2, 5, 11], ['Tower Ramp East', 4, -2, 12, 2, 5, 11],
@@ -164,9 +166,10 @@ const gantryCenter = {
     ['concrete', -36, 0, -24, 36, 7.8, -14], ['metal', -36, 7.8, -24, 36, 8, -14],                   // south block and its roof
     ['concrete', -34, 0, 28, 34, 10, 40], ['concrete', -34, 0, -40, 34, 10, -28],                    // warehouses behind the lanes
     ['metal', -8, 0, -8, 8, 4, 8],                                                                   // hub
+    ['grip', -5, 0, 8, 5, 4, 8.2], ['grip', -5, 0, -8.2, 5, 4, -8],                                 // grip panels: MV05 Ravagers climb the hub
     ['metal', -7, 4, -7, -6, 6, -6], ['metal', 6, 4, -7, 7, 6, -6], ['metal', -7, 4, 6, -6, 6, 7], ['metal', 6, 4, 6, 7, 6, 7], // hub corner posts
   ],
-  items: [['fury', 0, 4, 5], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19]],
+  items: [['fury', 0, 4, 5], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
   zones: [
     ['Hub', -8, -8, 8, 8, 2, 8],
     ['Center North', -16, 8, 16, 14, -1, 6], ['Center South', -16, -14, 16, -8, -1, 6], ['North Roof Mid', -6, 14, 6, 24, 6, 12],

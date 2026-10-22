@@ -101,7 +101,9 @@ hint `[kind, x,y,z]`. `MapKit.make(def)` expands them; `MapKit.wall(material, ax
 
 Form rules (one checker for every map row: hand-made, generated, and the editor's saved maps and codes): `MapCheck.headerProblems(map)` (id, name, size, theme, category, sky, known modes;
 keys are own keys of `MapRules`, never inherited names such as `__proto__`) and one rule per row, `brushProblem triggerProblem lightProblem itemKeyProblem objectiveKeyProblem hintKeyProblem
-propProblem` (each `''` or the text). `MapCheck.formProblem(map)` = the first of them; the validator reports each one under its rule and adds the design limits.
+propProblem` (each `''` or the text). `MapCheck.formProblem(map)` = the first of them; the validator reports each one under its rule and adds the design limits. Brush material `grip` is the
+MV05 Ravager climb wall (`climbGripOnly`): MP01, MP02, MP06, MP07 and MP12 carry grip panels. Item key `vitalshard` (PU20, group `health`) has spots on the same maps; they appear only in
+matches with the Ravager health preset (`healthPreset`, 12a).
 
 Problems read `rule: text`. Rules: `structure brush budget light props` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights, prop boxes), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
 `items` (known keys and groups, floor under every item, 2 m apart, power items 20 m apart, one top item per zone, exposed power items, distance balance between teams, no spawn nearest to more than 50% of the top
