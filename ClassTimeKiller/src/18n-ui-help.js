@@ -165,7 +165,7 @@ const Tips = {
   show() {
     const seen = this.matchesSeen();
     if (!Settings.get(TIPS_SETTING) || seen >= TIPS_MATCHES) return '';
-    Save.data.tips = { matches: seen + 1 };
+    Save.data.tips.matches = seen + 1;
     Save.scheduleSave();
     const text = this.text(seen);
     if (text) Ui.toast(text);

@@ -195,10 +195,10 @@ Test.add('ui', (check) => uiWith(() => {
   Settings.set('controls.touch.gyro', 'always'); Settings.set('controls.touch.gyroSensitivity', 2);
   const announced = [];
   const listener = Bus.on('setting', (key) => announced.push(key));
-  resetSettingKeys(['controls.touch.gyro']);
+  Settings.resetKeys(['controls.touch.gyro']);
   Bus.off('setting', listener);
   check('settings: a key reset touches only that key and announces it once', Settings.get('controls.touch.gyro') === 'off' && Settings.get('controls.touch.gyroSensitivity') === 2 && announced.join() === 'controls.touch.gyro', announced.join());
-  Settings.reset('controls.touch.gyro');
+  Settings.resetKeys(['controls.touch.gyro']);
   Ui.open('settings', { tab: 'controls' });
   const root = Ui.top().element;
   const keys = settingKeys('controls');
@@ -229,7 +229,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('settings: the tab redraws after a reset', root.querySelector('.ui-scroll input').value === '1');
   Settings.set('ui.scale', 1.25);
   check('settings: UI scale applies at once', document.documentElement.style.getPropertyValue('--ui-scale') === '1.25');
-  Settings.reset('ui.scale');
+  Settings.resetKeys(['ui.scale']);
   check('settings: UI scale reset', document.documentElement.style.getPropertyValue('--ui-scale') === '1');
   check('settings: developer tab holds the perf and bot overlays', settingKeys('developer').includes('developer.perfHud') && settingKeys('developer').includes('developer.botDebug'));
 }));
@@ -446,7 +446,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout editor: switching the preset refreshes the shown values', sliders[0].value === String(TouchInput.getProperty('jump', 'scale')) && sliders[0].value !== '1.5');
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Panel position')).querySelector('button').click();
   check('layout editor: the panel can be docked away from the controls', Ui.top().element.dataset.dock === 'left');
-  Settings.reset('controls.touch.layout'); Input.refreshConfig();
+  Settings.resetKeys(['controls.touch.layout']); Input.refreshConfig();
   uiClickButton(Ui.top().element, 'Reset layout');
   check('layout editor: reset restores the defaults', TouchInput.getProperty('jump', 'scale') === TOUCH_PRESETS[0].scale && !TouchInput.getProperty('jump', 'hidden'));
   uiClickButton(Ui.top().element, 'Done');
@@ -514,4 +514,27 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: focus is always drawn (ACC-008)', styles.includes('.ui-button:focus'));
   check('layout: the overlay root passes taps to the game when empty', getComputedStyle(document.getElementById('overlay')).pointerEvents === 'none');
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
+}));
+
+// R-009 / R-167: the Home Screen web app, a back swipe that pauses, Full screen only where it exists, no version label in matches.
+Test.add('ui', (check) => uiWith(() => {
+  const head = document.head.innerHTML, version = document.getElementById('version');
+  check('home screen: metas and icon', ['"apple-mobile-web-app-capable', '"mobile-web-app-capable', 'black-translucent',
+    'apple-touch-icon" href="data:'].every((part) => head.includes(part)) && /img-src[^;]*data:/.test(head));
+  Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ bots: 1 }), () => 0.5));
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  check('back swipe: pauses, version hidden', Game.state === 'playing' && Game.paused && version.hidden);
+  Game.stop();
+  const offered = (enabled) => {
+    for (const name of ['fullscreenEnabled', 'webkitFullscreenEnabled']) Object.defineProperty(document, name, { value: enabled, configurable: true });
+    Ui.open('settings', { tab: 'video' });
+    const found = uiClickButton(Ui.top().element, 'Full screen on or off') || false;
+    Ui.closeAll();
+    delete document.fullscreenEnabled; delete document.webkitFullscreenEnabled;
+    return found;
+  };
+  // The click asks for full screen; nothing happens in the test.
+  document.documentElement.requestFullscreen = () => null;
+  check('full screen: only where it exists; version back', !version.hidden && !offered(false) && offered(true));
+  delete document.documentElement.requestFullscreen;
 }));

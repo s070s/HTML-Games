@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ClassTimeKiller">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0AQMAAAAHA5RxAAAABlBMVEULDxT/tUddGaQ2AAABx0lEQVR42u2XMW7DMAxFI2jQ6CPoKDqacjQdxVvXjBkMsSBlV6SjX9dAixRIvCR5iKVPmiK/L5eXvUJ982fyRGWEJyIacSKi22B15nW0Ol9luMxgId/4MlJDA0Vp5WW4/MMGbuP3gfpBBLztR80PG0eiJVQWezU8E5VQWdW8k1M5/2EnyLGQUNunzcIszyvbTATej3m0Qif+yTxYoZFvZ+6t0MQypB5s5jLLFp5NAHK38GgCkN2ET5o7USc86MC8RCPc68Dan4Q7HViQRVvdaj6JuMYz6XDLF08q4CjfG4+KJ8OL4v28TIrn2nlQCUK8xdi4VwlqOWncde4sv3d+U+e3c2/50vmseN7zTfTS06xrINVjrmsp1v5YDKdjbmv4iMcdvx7xas/Ob/M1I+6+y1ZadL/1e74GtPG0NSquTNXNDjn37f/Ef6gf5eGbvIE8//XzPVtvZ+v57HlB5+7s+UV9APeNcZ9BfQn1MdT3YJ88229R30Z9Hs0FNEfQ3EFzCs01NAfR3ERzFs5lNMfR3Ec+AfkK5EOQb0E+B/ki6KOQ70I+Dfk65AORb4Q+E/lS5GOR74U+Gflq5MOhb0c+//0e9GT+EtcnG4wI1Eky9BYAAAAASUVORK5CYII=">
 <title>ClassTimeKiller</title>
 <style>
 /* ==== S00 STYLE + DOM SHELLS ==== */
@@ -17,10 +22,13 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; color: var(--ui-text); font-family: var(--ui-font);
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+/* Selectable, with the paste menu (older Safari: -webkit- only). */
+input, textarea, .ui-code { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #overlay { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
 #overlay > * { pointer-events: auto; }
-#fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #0b0f14; z-index: 100; padding: 24px; }
+#fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #0b0f14; z-index: 100;
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left)); }
 #fatal.show { display: flex; }
 #fatal .box { max-width: 560px; line-height: 1.5; }
 #fatal h1 { color: var(--ui-accent); font-size: 24px; margin: 0 0 12px; }
@@ -38,7 +46,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; col
 window.onerror = function (message, source, line, column, error) {
   if (window.__CTK) return false;
   document.getElementById('fatal-text').textContent = 'The game failed to load. Reload the page; if it keeps happening, update your browser.';
-  document.getElementById('fatal-detail').textContent = String(error && error.stack || message);
+  /* WebKit and Firefox stacks lack the message. */
+  document.getElementById('fatal-detail').textContent = String(message) + (error && error.stack ? '\n' + error.stack : '');
   document.getElementById('fatal').classList.add('show');
   return false;
 };

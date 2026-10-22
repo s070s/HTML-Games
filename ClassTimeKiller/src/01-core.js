@@ -88,17 +88,43 @@ const Mat4 = {
 };
 
 // ---- Error ring (ARC-041): every caught error lands here; the perf HUD and __CTK.log.errors() read it ----
+// Stack frames kept after the 'Name: message' line.
+const ERROR_STACK_FRAMES = 2;
+// 'Name: message | frame | frame': WebKit (iOS) and Firefox stacks lack the message line Chromium starts with (R-007).
+function errorText(error) {
+  if (!error || typeof error.message !== 'string') return String(error);
+  const head = (error.name || 'Error') + ': ' + error.message;
+  let stack = error.stack ? String(error.stack) : '';
+  if (stack.startsWith(head)) stack = stack.slice(head.length);
+  const frames = stack.split('\n').map((line) => line.trim()).filter((line) => line !== '').slice(0, ERROR_STACK_FRAMES);
+  return [head].concat(frames).join(' | ');
+}
 const ErrorLog = {
   size: 50,
   entries: [],
-  total: 0,               // entries ever added (the list keeps only the last `size`)
+  // Errors ever added, repeats included (the list keeps only the last `size`)
+  total: 0,
+  // The session's first error: the root cause outlives the ring.
+  first: '',
+  // The newest entry's text and the list length then.
+  lastText: '',
+  lastLength: 0,
+  repeats: 1,
   add(where, error) {
-    const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    const text = where + ': ' + errorText(error);
     this.total++;
+    if (!this.first) this.first = text;
+    // An error repeated every step is counted on the newest entry, not flooding the ring (R-164).
+    if (text === this.lastText && this.entries.length === this.lastLength) {
+      this.repeats++;
+      this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';
+      return;
+    }
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
+    this.lastText = text; this.lastLength = this.entries.length; this.repeats = 1;
   },
-  // The entries added after ErrorLog.total was `count` (the kept ones).
+  // The entries added or repeated after ErrorLog.total was `count` (the kept ones).
   since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 

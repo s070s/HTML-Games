@@ -111,7 +111,7 @@ const CrosshairEditor = {
   clearOverride() { if (this.target) Hud.setCrosshairOverride(this.target, null); },
   // Back to the factory crosshair: default settings and every weapon override.
   resetAll() {
-    resetSettingKeys(CROSSHAIR_FIELD_ROWS.map((row) => row.key));
+    Settings.resetKeys(CROSSHAIR_FIELD_ROWS.map((row) => row.key));
     Save.data.crosshairs = {};
     Save.scheduleSave();
   },

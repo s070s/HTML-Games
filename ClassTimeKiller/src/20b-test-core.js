@@ -1,5 +1,15 @@
 // Self-tests for S01-S04 and the loop: math, RNG, events, actors, data, save, settings, world rays.
 
+// The defined setting keys with this prefix (for Settings.resetKeys).
+function settingKeysStarting(prefix) { return Array.from(Settings.definitions.keys()).filter((key) => key.startsWith(prefix)); }
+// A memory store that counts its writes (the save tests).
+function makeCountingStorage() {
+  const store = makeMemoryStorage(false), write = store.setItem;
+  store.writes = 0;
+  store.setItem = (key, value) => { store.writes++; write(key, value); };
+  return store;
+}
+
 Test.add('core', (check) => {
   const v = Vec.fromAngles(Vec.make(), 0, 0);
   check('yaw 0 looks +Z', Test.near(v.z, 1, 1e-6) && Test.near(v.x, 0, 1e-6));
@@ -72,8 +82,54 @@ Test.add('core', (check) => {
   let crashed = false;
   try { Save.load(); Save.saveNow(); } catch (error) { crashed = true; }
   check('save: blocked storage does not crash', !crashed && !Save.storageWorks);
-  Save.storageWorks = true;
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
+
+// R-001 / R-163: a stale tab never writes over a newer save; an unchanged flush writes nothing.
+function saveOtherTabWrites(mark) {
+  const other = JSON.parse(Save.read(SAVE_KEY));
+  other.stats.tab = mark;
+  other.revision++;
+  Save.storage.setItem(SAVE_KEY, JSON.stringify(other));
+  return JSON.stringify(other);
+}
+Test.add('core', (check) => {
+  const store = Save.storage = makeCountingStorage(), stored = () => JSON.parse(store.getItem(SAVE_KEY)).stats.tab;
+  Save.saveNow();
+  store.writes = 0;
+  flushSave(); window.dispatchEvent(new Event('pagehide'));
+  check('save: an unchanged flush writes nothing', store.writes === 0, store.writes);
+  saveOtherTabWrites(1);
+  Settings.set('video.fov', 100);
+  flushSave();
+  check('save: a stale tab takes the newer save', stored() === 1 && Save.data.stats.tab === 1 && Save.notice === SAVE_NEWER_ELSEWHERE);
+  window.dispatchEvent(new StorageEvent('storage', { key: SAVE_KEY, newValue: saveOtherTabWrites(2) }));
+  check('save: a storage event takes the newer save', Save.data.stats.tab === 2);
+  Save.notice = '';
+});
+
+// R-037 / R-038 / R-039: junk or a failed write keeps the save; the backup can be shown and restored.
+Test.add('core', (check) => uiWith(() => {
+  const reload = SaveTransfer.reload, good = Save.storage, save = (mark) => JSON.stringify({ version: 1, stats: { mark } });
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  try {
+    Save.importText(save('A'));
+    Save.storage = makeMemoryStorage(true);
+    const blocked = SaveTransfer.importText(save('B'));
+    Save.storage = good; Save.storageWorks = true;
+    check('import: junk or a failed write keeps the save', SaveTransfer.importText('{}') !== '' && blocked === SAVE_BLOCKED && reloads === 0 && Save.data.stats.mark === 'A', blocked);
+    SaveTransfer.importText(save('B'));
+    Ui.open('saveTransfer');
+    uiClickButton(Ui.top().element, 'Restore backup');
+    uiClickButton(Ui.top().element, 'Restore');
+    check('backup: restored', Save.data.stats.mark === 'A' && reloads === 2);
+    Test.expectErrors(() => DebugApi.save.corrupt('trunc'));
+    Ui.open('saveTransfer');
+    const screen = Ui.top().element;
+    check('backup: shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea').value === '{"version":1,"settings":');
+  } finally { SaveTransfer.reload = reload; Save.notice = ''; }
+}));
 
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
 Test.add('core', (check) => {
@@ -102,6 +158,10 @@ Test.add('core', (check) => {
   let newer = [];
   Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
   check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+  // R-007: 'listener broke' above needs the message, which WebKit and Firefox stacks lack. R-164: repeats count on one entry.
+  let flood = [];
+  const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });
+  check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
@@ -122,6 +182,10 @@ Test.add('core', (check) => {
   check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
   Bus.off('toast', listener);
   Save.storageWorks = true; Save.notice = '';
+  // R-040: a field of the wrong kind is repaired before a screen reads it.
+  Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 90 }, loadouts: 'x', tips: 7 }));
+  const errors = uiWith(() => Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }));
+  check('save: wrong-kind loadouts and tips are repaired', errors === 0 && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches === 1, errors);
 });
 
 Test.add('core', (check) => {

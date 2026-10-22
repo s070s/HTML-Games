@@ -284,3 +284,30 @@ Test.add('custom', (check) => {
     Ui.closeAll();
   });
 });
+
+// R-044 / R-045 / R-046: code fields can be selected, copied and pasted on phones; Copy never claims a failed copy.
+// Only the copy toasts (no Web Audio adds its own); no clipboard API (http).
+Test.add('custom', (check) => uiWith(() => {
+  const toasts = [], listener = Bus.on('toast', (payload) => { if ([COPY_DONE_TEXT, COPY_MANUAL_TEXT].includes(payload.text)) toasts.push(payload.text); });
+  Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  let selected = '', copies = false;
+  document.execCommand = () => { selected = document.activeElement.value; return copies; };
+  try {
+    Ui.open('customShare');
+    uiClickButton(Ui.top().element, 'Copy code');
+    const code = Ui.top().element.querySelector('textarea');
+    copies = true;
+    Ui.open('saveTransfer');
+    const area = Ui.top().element.querySelector('textarea'), field = area.parentNode.appendChild(makeElement('input'));
+    uiClickButton(Ui.top().element, 'Copy');
+    check('copy: says copied only when it copied', toasts.join() === COPY_MANUAL_TEXT + ',' + COPY_DONE_TEXT
+      && selected === area.value && code.readOnly && JSON.parse(area.value).version === SAVE_VERSION, toasts.join());
+    const menus = [area, document.getElementById('view')].map((target) => { const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); target.dispatchEvent(menu); return menu.defaultPrevented; });
+    const style = (element) => getComputedStyle(element).getPropertyValue('-webkit-user-select') || getComputedStyle(element).userSelect;
+    check('copy: text fields keep the paste menu', menus.join() === 'false,true' && style(area) === 'text' && style(field) === 'text' && style(document.body) === 'none');
+  } finally {
+    delete document.execCommand;
+    delete navigator.clipboard;
+    Bus.off('toast', listener);
+  }
+}));
