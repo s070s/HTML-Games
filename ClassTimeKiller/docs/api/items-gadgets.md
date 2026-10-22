@@ -39,6 +39,10 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 - HUD: `Items.timers(out)` (respawning spots `{item, group, x, y, z, remaining}`), `Items.activePowerups(id, out)` (`{id, name, remaining, duration, color, persistent}`), `Items.soulCount(id)`. Bots: `Items.perceptionScale(id)` (PU04 cloak: 0.25).
 - Registries: `Items.takers[kind]`, `Items.effects[effect]`, `Items.extraAmmo` (fn(id, row) -> bool; 12c refills kit grenades from ammo caches).
 - `addAmmoShare(id, share)` -> rounds added: every owned magazine weapon gains share x its max reserve, at least 1 (I09, PU17, G23 share it).
+- Gating: map item spots are placed unless `rules.items === false`, `rules.fx.noItems` or the mode's `params.pickups === false` (roulette, royale: the mode places its own loot); powerup spots also skip `fx.noPowerups` / the `nopowerups` mutator (X16). With `rules.weaponSet === 'matchSet'` a weapon spot whose gun is not on the match list hands out the list's guns in turn (`Items.spotWeapon`).
+- Rarity: weapon pickups carry `Items.rarity[slot]` (WPN-008 index); a dying actor's weapons keep theirs on the floor (`dropWeaponAround`), and a weapon swapped out at the carry limit drops with `Weapons.droppedRarity`. `Items.drop(key, x, y, z, timeLeft, dropper, rarity)`, `Items.dropAround(key, id, k, n, timeLeft, rarity)`.
+- Grants: `Items.givers[PICKUP_KIND]` = `fn(id, key) -> bool` (item rows, powerups (12b), weapons); `Items.giveKey(id, key)` answers `item.grant { id, item }` (X17). `Items.grantEffects[key] = fn(id, item) -> bool` delivers an economy buy of kind `grant` (ECP07 wave shop); `Items.canGrantBuy(key)` = a registered effect or an item row; `Items.grantBuy(id, item)`. S13 registers `Economy.grants.gadget` and `Economy.grants.grant` at the end of 13d (S12 cannot fill an S13 registry at load).
+- X30 Volatile Ammo (`rules.fx.volatileAmmo`): a shot (`weapon.fire`) that reaches a ready ammo pickup before any wall blows it up (4 m, 80 damage, credited to the shooter); spot pickups then respawn as usual.
 
 ## Powerups (12b)
 
@@ -57,6 +61,9 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 - `Smoke.lineBlocked(ax, ay, az, bx, by, bz)` -> true when the segment passes through 1 m or more of smoke (bots, turrets, drones and aim assist use it). Aim assist goes through the `Input.aimAssistFilters` registry, so whichever section fills `Input.aimAssistTarget` keeps the smoke rule. `Smoke.covers(x, y, z)`. Smoke fills a 1 m occupancy grid from its centre, never through walls, grows over 1.5 s, and loses cells for 2 s to hitscan, beam and cone shots (`weapon.fire`) and blasts (`explosion`).
 - Throws leave the hand 0.5 m in front of the eye along the view (`throwOrigin`); the arc preview starts there and follows the flight until the fuse (what is left of it while cooking) would end. Fire areas burn on the floor below where the grenade went off (3 m probe). A grenade stuck to a body loses its throw speed and drops when the carrier dies.
 - Flash: blind seconds = duration x view share (facing 1, facing away 0.1) x distance share (1 at the centre, 0.25 at the edge), line of sight to the eye; enemies and the thrower, allies only with friendly fire.
+- `Smoke.add(x, y, z, width, height, seconds, yaw, owner)` -> puff count: a smoke curtain `width` wide along the right vector of `yaw`, puffs of radius `height / 2` every 0.75 m (ability smoke walls use it); grenade clouds and curtain puffs share 16 smoke slots. `Smoke.lineBlocked(ax, ay, az, bx, by, bz, viewer)` is false for a viewer with the hero passive `smokeVision`; the aim assist filter passes the player.
+- Hero kits: `Gadgets.equipHero(id, hero)` gives the hero's gadget, plus one above the carry limit with the passive `extraGrenade` (H05); 12e calls it from `applyHero`. `Gadgets.clearGrenades(id)` empties the thrown counts (13d before a class kit's lethal and tactical).
+- `Gadgets.suppress(id, seconds)` also pauses shield regeneration (`Damage.pauseShieldRegen`) and the actor's abilities (`Abilities.suppress`).
 
 ## Devices (12d)
 

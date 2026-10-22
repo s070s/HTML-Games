@@ -28,6 +28,8 @@ S07 never calls `World` (S08 is a later section): the static world arrives throu
 | `HudBatch.line(x1, y1, x2, y2, thickness, colorHex, alpha)` | A straight line. |
 
 Budget: 8192 HUD quads per frame (extra quads are dropped and counted in `HudBatch.dropped`). Text quads are one per visible glyph; a full ring is 48 quads.
+- Actor style fields (`Render.addActorStyle(fn(id, out))`): `r g b emissive scale headScale visible`. `headScale` (default 1) grows the parts drawn around the head pivot (`head`, `visor`) about that pivot; 13h multiplies it by `Hitbox.headScale` (X14 Big Head).
+- Darkness (`rules.fx.darkness`, X37): `applyTheme` dims sun and ambient light to 5 %, fog and sky go near black, the fog is full at 22 m, the light bake uses no map lights, and every visible living actor carries a flashlight (`Fx.light` 3 m ahead along its view, 11 m radius; render update order 45).
 
 ## Frame pipeline (internal registries, usable by S07 files)
 

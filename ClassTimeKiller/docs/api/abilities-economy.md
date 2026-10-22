@@ -76,6 +76,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - Slots are reset on `actor.create` and `actor.spawn`.
   - On `kill`: abilities end, and zones without `params.persist` are removed.
   - On `match.end` and `match.stop`: everything is cleared.
+- Wiring: `power.pick { id, ability }` (X46) puts the ability in `ABILITY1`; with `rules.fx.mirror` (X40) every bot plays the player's hero (`pickHero` -> `mirroredHero`); `applyHero` calls `Gadgets.equipHero`. A frozen actor (FREEZE status) cannot teleport: blink, rewind, the beacon's return and rift steps check `canTeleport(id)`, and S11 gates skip frozen actors.
 
 ## Buffs and zones (`src/12f-abilities-effects.js`)
 
@@ -90,6 +91,8 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - A zone starts working on the step after it was placed. The A38 strike lands exactly `params.delay` after the cast.
 - Damage hooks: attacker scale (DAMAGE and MELEE buffs, touch kill), reducer (decoy, invulnerable, dome and amp wall, knockback resist, the bulwark weave), linked damage sharing (A21).
 - Event `ability.teleport` `{ id, x, y, z }`: only rows with `balance.dropsObjective` (A12 relocator). Dashes, rewinds and rifts keep a carried objective.
+- `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x powerup rate) and `Move.gravityScale`; 12b calls it when powerups change.
+- Domes (A26) stop hitscan at their surface from either side (`Weapons.rayBlockers`); ability shields do not regenerate while `Damage.shieldRegenBlocked(id)`. Smoke zones are laid with `Smoke.add` (not drawn as a box).
 
 ## Meters (`src/12g-abilities-meters.js`)
 
@@ -142,6 +145,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - `Economy.hasPerk(id, key)` exposes flags to other sections: `ghost`, `marathon`, `quiet`, `lastStand`.
   - Field upgrades: `CAT.economy.byId('classes').fieldUpgrades` (G13 `cover`, G22 `trophy`, G23 `ammobox`, G24 `beacon`, A13 `echopulse`). Gadget ones are granted through `Economy.grants.gadget`.
 - `Economy.switchHero(id, heroId)` (ECP05) returns `'now'` within 8 m of the last spawn point (in-place kit change), `'next'` otherwise, or `'unknown'`.
+- `Economy.usesLoadouts()`: false when the mode arms everyone itself (params `ladder` or `rotateEvery`: Arms Ladder, Roulette) or the preset has `loadout: 'none'`; class kits apply only when true (the buy screen should ask it too). Perks write `Move.staminaScale` (Marathon) and `Move.footstepScale` (Quietstep 0); `Weapons.statScale` stays the perks' stat slot, `Weapons.mutatorScale` the mutators'.
 
 ## Loadouts (`Save.data.loadouts`)
 
