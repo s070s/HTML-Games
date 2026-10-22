@@ -860,7 +860,7 @@ const Gadgets = {
     const size = Math.max(0.5, row.radius * 2);
     batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
   },
-  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); },
+  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
 };
 
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).

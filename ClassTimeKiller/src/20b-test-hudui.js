@@ -226,6 +226,10 @@ Test.add('hudui', (check) => {
   check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
   Gadgets.give(player, 'smoke', 1);
   check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
+  Gadgets.cycleShown = true;
+  Game.stop();
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
+  check('touch: a new match forgets the last TYPE button answer (the next step re-shows it)', !Gadgets.cycleShown);
   Game.stop();
   World.clear();
 });
