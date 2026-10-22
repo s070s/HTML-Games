@@ -289,6 +289,13 @@ Test.add('gadgets', (check) => {
   Devices.clear();
   GadgetArena.device('jammer', owner, 0, 0);
   check('G18 jams enemies nearby, not friends', Gadgets.jammed(enemy) && !Gadgets.jammed(friend));
+  Devices.clear();
+  const weapon = ItemArena.plainWeapon(), slot = Weapons.slotIndex(friend, weapon.index);
+  Weapons.give(friend, weapon.id, 0); Weapons.reserve[slot] = 0;
+  GadgetArena.device('ammobox', owner, 0, 0);
+  Sim.run(TICK_RATE + 1);
+  const share = Math.round(Weapons.maxReserve(friend, weapon) * CAT.gadgets.byId('ammobox').amount);
+  check('G23 the supply crate refills friends 20 % a second', Weapons.reserve[slot] === share, Weapons.reserve[slot] + ' / ' + share);
   TestArena.finish();
 });
 
