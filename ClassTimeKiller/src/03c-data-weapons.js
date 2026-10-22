@@ -318,4 +318,6 @@ Data.define('weaponSets', {
   { id: 'lootSet', name: 'Loot', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'hornet', 'riptide', 'vanguard', 'tempest', 'ratchet', 'longshot', 'scattergun', 'heron', 'kestrel', 'anvil'], start: ['tanto'], carry: 5, rarity: true },
   { id: 'exoticSet', name: 'Exotic', weapons: ['sparklock', 'needlethorn', 'talonbow', 'gloop', 'stormlash', 'starthrower', 'accelerator', 'auger', 'razorwind'], start: ['tanto', 'sparklock'], ammoTiers: true },
   { id: 'fullSet', name: 'Full arsenal', weapons: WEAPON_ROWS.map((row) => row.id), start: ['maul', 'warden'], power: ['daybreak', 'halcyon'] },
+  // Reserved row: S13 (13h) fills it for a match that uses a weapon list (mutators X08/X09/X10, custom match); empty outside such a match.
+  { id: 'matchSet', name: 'Match list', weapons: ['maul'], start: ['maul'] },
 ]);
