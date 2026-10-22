@@ -7,6 +7,7 @@ const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
 const navTestNode = (x, y, z) => Nav.nearestNode(x, y, z);
+const NAV_TEST_MIRROR_SHARE = 0.005;   // unmirrored nodes allowed on a mirrored map
 
 function navTestLoad(brushes, extra) {
   const map = Object.assign({ id: 'navtest', brushes, spawns: [], items: [], objectives: [], triggers: [] }, extra || {});
@@ -103,6 +104,19 @@ Test.add('nav', (check) => {
   check('rooms: smoothed path never crosses the wall', Nav.result(0) === NAV_STATUS.DONE && navTestSmoothedClear(0));
   check('rooms: smoothing keeps fewer points than nodes', Nav.resultPointCount(0) >= 2 && Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
   check('rooms: validate passes on a connected map', Nav.validate(World.map).length === 0, Nav.validate(World.map).join('; '));
+});
+
+// A map mirrored east-west gets a mirrored node graph, so neither team's routes hug walls and ledges differently (Twin Keeps CTF).
+Test.add('nav', (check) => {
+  World.load(Object.assign({}, Maps.get('twinkeeps'), { props: [] }));   // its corner crates are not mirrored
+  let unmatched = 0;
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    if (Math.abs(Nav.nodeX[node]) < NAV_FINE) continue;   // on the mirror line
+    const mirror = Nav.nearestNode(-Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node]);
+    if (mirror < 0 || Math.abs(Nav.nodeX[mirror] + Nav.nodeX[node]) > 0.01 || Math.abs(Nav.nodeZ[mirror] - Nav.nodeZ[node]) > 0.01) unmatched++;
+  }
+  // A few passage nodes beside the keep corners still merge in scan order (4 of 2600; 2200 before the tie rule).
+  check('mirrored map: nearly every node has its mirror node', unmatched <= Nav.nodeCount * NAV_TEST_MIRROR_SHARE, unmatched + ' of ' + Nav.nodeCount);
 });
 
 function navTestNodesClearOfWall() {
