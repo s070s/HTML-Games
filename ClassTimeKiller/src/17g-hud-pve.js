@@ -12,6 +12,8 @@ const HUD_PVE_SIDE_WIDTH = 220, HUD_PVE_SIDE_TOP = 150, HUD_PVE_SIDE_ROW = 19;  
 const HUD_PVE_SIDE_ROW_COMPACT = 17;                                             // compact HUD (phones, short screens): shorter rows
 const HUD_PVE_TOUCH_CROSS_GAP = 40;      // touch: the side tables end this far left of the crosshair (the right side holds the buttons)
 const HUD_PVE_TOUCH_NOTE_RISE = 20;      // touch: the notes rise above the ammo panel, which sits bottom centre-left (17a ammoRight)
+const HUD_PVE_TOUCH_NOTE_RIGHT = 0.55;   // touch: notes end left of this share of the width (the default right-hand buttons start past it)
+const HUD_PVE_NOTE_SIZE = 16, HUD_PVE_NOTE_PAD = 24, HUD_PVE_NOTE_HALF = 14;   // design units: note text size, side padding, half the panel height
 const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
 const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
 const HUD_PVE_LOW_CORE = 0.25;
@@ -22,6 +24,7 @@ const HUD_PVE_MEDAL_NAMES = { gold: 'GOLD', silver: 'SILVER', bronze: 'BRONZE', 
 const HUD_PVE_AWARENESS_TEXT = ['UNSEEN', 'SUSPICIOUS', 'SEARCHING', 'ALERT'];  // by AWARENESS state (14h)
 const HUD_PVE_GUARDIAN_CHOICE = 'GUARDIAN PLATE OFFERED: OPEN THE PAUSE MENU TO WEAR OR REFUSE IT';
 const HUD_PVE_GUARDIAN_READY = 'GUARDIAN PLATE READY FOR THE CHECKPOINT RETRY';
+const HUD_PVE_GUARDIAN_CHOICE_TOUCH = 'GUARDIAN PLATE: PAUSE TO CHOOSE', HUD_PVE_GUARDIAN_READY_TOUCH = 'GUARDIAN PLATE READY';   // phones: short, clear of the buttons
 const HUD_PVE_NONE = '-';
 
 hudAddElement({ id: 'pve', label: 'PvE status (waves, core, boss, chambers, range)' });
@@ -221,14 +224,28 @@ function hudPveRangeTable(pen, layout, pve, statusBottom) {
 // ---- Bottom centre: the chamber hint and the Guardian Plate prompt ----
 // On phones they rise above the ammo panel, centred on it (17a ammoRight, ammoWidth), never past the left margin.
 function hudPveNoteY(layout, rise) { return layout.weaponBarY - (rise + (layout.touch ? HUD_PVE_TOUCH_NOTE_RISE : 0)) * layout.unit; }
-function hudPveNoteX(layout, width) { return layout.touch ? Math.max(layout.left + width / 2, layout.ammoRight - layout.ammoWidth / 2) : layout.centerX; }
-function hudPveCentreNote(pen, layout, text, rise, color) {
-  const unit = layout.unit, size = 16 * unit, y = hudPveNoteY(layout, rise), width = HudBatch.measure(text, size) + 24 * unit, x = hudPveNoteX(layout, width);
-  pen.panel(x - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
-  pen.text(text, x, y, size, color, 'center');
+function hudPveNoteX(layout, width) {
+  if (!layout.touch) return layout.centerX;
+  const centre = Math.min(layout.ammoRight - layout.ammoWidth / 2, layout.width * HUD_PVE_TOUCH_NOTE_RIGHT - width / 2);
+  return Math.max(layout.left + width / 2, centre);
 }
-// DIF-004: the choice is the player's (18o, pause menu row) until they accept the plate.
-function hudPveGuardianText(pve) { return pve.guardianAccepted ? HUD_PVE_GUARDIAN_READY : HUD_PVE_GUARDIAN_CHOICE; }
+// The note's panel on screen (centre x, y and width): one source for the drawing and the phone layout test.
+const hudPveNoteBox = { x: 0, y: 0, width: 0 };
+function hudPveNoteRect(layout, text, rise) {
+  const width = HudBatch.measure(text, HUD_PVE_NOTE_SIZE * layout.unit) + HUD_PVE_NOTE_PAD * layout.unit;
+  hudPveNoteBox.width = width; hudPveNoteBox.x = hudPveNoteX(layout, width); hudPveNoteBox.y = hudPveNoteY(layout, rise);
+  return hudPveNoteBox;
+}
+function hudPveCentreNote(pen, layout, text, rise, color) {
+  const unit = layout.unit, box = hudPveNoteRect(layout, text, rise);
+  pen.panel(box.x - box.width / 2, box.y - HUD_PVE_NOTE_HALF * unit, box.width, HUD_PVE_NOTE_HALF * 2 * unit, 0.6);
+  pen.text(text, box.x, box.y, HUD_PVE_NOTE_SIZE * unit, color, 'center');
+}
+// DIF-004: the choice is the player's (18o, pause menu row) until they accept the plate. Phones get the short text.
+function hudPveGuardianText(pve, touch) {
+  if (pve.guardianAccepted) return touch ? HUD_PVE_GUARDIAN_READY_TOUCH : HUD_PVE_GUARDIAN_READY;
+  return touch ? HUD_PVE_GUARDIAN_CHOICE_TOUCH : HUD_PVE_GUARDIAN_CHOICE;
+}
 
 function hudDrawPve(pen, layout) {
   const pve = Modes.hud.pve;
@@ -240,7 +257,7 @@ function hudDrawPve(pen, layout) {
   if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve, y);
   if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve, y);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
-  if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
+  if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve, layout.touch), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }
 
 // ---- Operations: both teams' tickets under the team scores (low tickets in the warning colour) ----

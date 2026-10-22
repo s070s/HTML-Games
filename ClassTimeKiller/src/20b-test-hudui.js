@@ -258,6 +258,11 @@ Test.add('hudui', (check) => {
   check('pve hud on a phone: the hint sits above the ammo panel', noteY + 14 * unit <= layout.bottom - 58 * unit, [noteY, layout.bottom]);
   check('pve hud on a phone: no touch button over the hint', hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit) === '',
     hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit));
+  for (const accepted of [false, true]) {
+    const text = hudPveGuardianText({ guardianAccepted: accepted }, true), box = hudPveNoteRect(layout, text, HUD_PVE_PROMPT_RISE);
+    const over = hudPveTouchOverlap(layout, box.x - box.width / 2, box.y - HUD_PVE_NOTE_HALF * unit, box.x + box.width / 2, box.y + HUD_PVE_NOTE_HALF * unit);
+    check('pve hud on a phone: no touch button over the Guardian Plate prompt (' + (accepted ? 'ready' : 'offered') + ')', over === '' && box.x - box.width / 2 >= layout.left - 1, over + ' ' + [box.x, box.width]);
+  }
   Input.device = 'kbm';
   updateHudLayout(layout, 1280, 800);
   Input.device = savedDevice;
