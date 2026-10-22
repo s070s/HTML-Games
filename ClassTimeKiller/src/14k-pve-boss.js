@@ -74,5 +74,6 @@ PveBrains.boss = {
   },
 };
 
+PVE_HUD.boss = PveBoss.hud;
 Bus.on('actor.spawn', (payload) => PveBoss.onSpawn(payload.id));
 Sim.addSystem('pveBoss', 81, () => PveBoss.updateHud());

@@ -224,10 +224,14 @@ const Pve = {
     this.active = true;
     return true;
   },
+  // Queued enemies (swarm rows count every member) of a side, or of all sides.
   pending(side) {
-    if (side === undefined) return this.queue.count;
+    const queue = this.queue;
     let count = 0;
-    for (let k = 0; k < this.queue.count; k++) if (this.queue.side[(this.queue.head + k) % this.queue.row.length] === side) count++;
+    for (let k = 0; k < queue.count; k++) {
+      const slot = (queue.head + k) % queue.row.length;
+      if (side === undefined || queue.side[slot] === side) count += CAT.enemies[queue.row[slot]].group;
+    }
     return count;
   },
   // Spawns queued enemies while there is room: out of sight and >= 18 m from the players; a group row brings its swarm.
@@ -266,7 +270,7 @@ const Pve = {
       const score = this.spawnScore(point, side);
       if (score > bestScore) { bestScore = score; best = point; }
     }
-    if (!best) return null;
+    if (!best) return this.findBeastSpot(out) ? out : null;   // no point for the side: a reachable node away from the players
     out.x = best.x + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.y = best.y;
     out.z = best.z + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.yaw = best.yaw;
     return out;
@@ -746,6 +750,7 @@ const Pve = {
     return count;
   },
   findBeastSpot(out) {
+    out.yaw = Rng.pve.range(-Math.PI, Math.PI);
     if (Nav.nodeCount <= 0) return false;
     const start = Nav.nearestNode(Actors.x[0], Actors.y[0], Actors.z[0]);
     for (let attempt = 0; attempt < 8; attempt++) {
