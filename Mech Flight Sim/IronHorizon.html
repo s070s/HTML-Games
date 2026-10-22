@@ -14873,10 +14873,14 @@ const SelfTest = {
       Civ.update(STEP);
       this.check('a moving tank crushes a civilian', crushed.dead);
       W.platforms.length = 0;
-      const shoved = out()[0], soldier = new Platform(PLATFORMS.ranger, { team: 1, x: shoved.x + 0.2, z: shoved.z, yaw: 0, loadout: ARCH.infantry.loadout });
+      const shoved = out()[0];
+      shoved.x = (na.x + nb.x) / 2; shoved.z = (na.z + nb.z) / 2; shoved.y = Terrain.h(shoved.x, shoved.z);   // mid-street, so no wall stops the shove
+      const soldier = new Platform(PLATFORMS.ranger, { team: 1, x: shoved.x + 0.2, z: shoved.z, yaw: 0, loadout: ARCH.infantry.loadout });
       soldier.speed = 4; W.platforms.push(soldier);
       Civ.update(STEP);
-      this.check('a soldier shoves a civilian aside', !shoved.dead && Math.hypot(shoved.x - soldier.x, shoved.z - soldier.z) >= soldier.radius + CIV_RADIUS - 0.01);
+      const shoveD = Math.hypot(shoved.x - soldier.x, shoved.z - soldier.z);
+      // the civilian may take one running step back after the push in the same tick
+      this.check('a soldier shoves a civilian aside', !shoved.dead && shoveD >= soldier.radius + CIV_RADIUS - CIV_RUN[1] * STEP - 0.01, 'dead ' + shoved.dead + ' d ' + shoveD.toFixed(3));
       W.platforms.length = 0;
       // a co-op guest's replayed blast carries no damage but still kills its civilians
       const g = out()[0];
