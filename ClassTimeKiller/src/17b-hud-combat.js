@@ -126,8 +126,15 @@ function hudFillArms(style, cx, cy, size, gap, thickness) {
   hudSetArm(3, cx - half, cy - gap - size, thickness, size);
   return 4;
 }
+// The arms go straight into the HUD corner scratch (07f): four float arguments per arm to pen.rect were boxed (PERF-006).
 function hudDrawArms(pen, count, color, alpha, grow) {
-  for (let i = 0; i < count; i++) pen.rect(hudArms[i * 4] - grow, hudArms[i * 4 + 1] - grow, hudArms[i * 4 + 2] + grow * 2, hudArms[i * 4 + 3] + grow * 2, color, alpha);
+  const corners = hudCorners;
+  setHudPaint(color, alpha);
+  for (let i = 0; i < count; i++) {
+    corners[0] = hudArms[i * 4] - grow; corners[1] = hudArms[i * 4 + 1] - grow;
+    corners[2] = corners[0] + hudArms[i * 4 + 2] + grow * 2; corners[3] = corners[1] + hudArms[i * 4 + 3] + grow * 2;
+    pushHudBox();
+  }
 }
 
 function hudDrawCrosshairShape(pen, layout, cross, gap) {

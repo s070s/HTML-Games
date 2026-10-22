@@ -38,7 +38,7 @@ const HudExtra = {
   barkText: new Array(HUD_BARK_SLOTS).fill(''), barkName: new Array(HUD_BARK_SLOTS).fill(''), barkLabel: new Array(HUD_BARK_SLOTS).fill(''), barkTeam: new Int8Array(HUD_BARK_SLOTS),
   barkAt: new Float64Array(HUD_BARK_SLOTS).fill(-1000), barkNext: 0,
   blindWas: 0, blindBright: false,
-  mapPoint: { x: 0, y: 0 }, map: { cx: 0, cy: 0, half: 0, scale: 0, unit: 1 },
+  map: { cx: 0, cy: 0, half: 0, scale: 0, unit: 1 },
   scopeHit: makeActorHit(), scopeWall: makeHit(),
 
   reset() {
@@ -89,12 +89,15 @@ function hudMapPlace(map, x, z, clip) {
   const inside = Math.abs(sideways) <= map.half && Math.abs(ahead) <= map.half;
   if (!inside && !clip) return false;
   const pull = inside ? 1 : map.half / Math.max(Math.abs(sideways), Math.abs(ahead));
-  HudExtra.mapPoint.x = map.cx + sideways * pull; HudExtra.mapPoint.y = map.cy + ahead * pull;
+  hudShapeAt[0] = map.cx + sideways * pull; hudShapeAt[1] = map.cy + ahead * pull;   // the next dot's place (17a)
   return true;
 }
 
+// The dot goes through the pen's shape scratch: its x, y and size as float arguments were boxed per dot (PERF-006).
 function hudMapDot(pen, map, x, z, shape, size, color, alpha, clip) {
-  if (hudMapPlace(map, x, z, clip)) pen.shape(shape, HudExtra.mapPoint.x, HudExtra.mapPoint.y, size * map.unit, color, alpha);
+  if (!hudMapPlace(map, x, z, clip)) return;
+  hudShapeAt[2] = size * map.unit / 2;
+  pen.shapeAt(shape, color, alpha);
 }
 
 function hudCollectObservers(player) {

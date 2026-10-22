@@ -187,6 +187,7 @@ const Hud = {
     this.shown = Settings.get('hud.show');
     this.scale = Settings.get('hud.scale') / 100;
     this.opacity = Settings.get('hud.opacity') / 100;
+    HudBatch.alphaScale = this.opacity;   // applied once per drawing call in setHudPaint (07f)
     this.compactSetting = Settings.get('hud.compact');
     this.teamShapes = Settings.get('hud.teamShapes');
     this.reduceMotionSetting = Settings.get('accessibility.reduceMotion');
@@ -285,7 +286,7 @@ function hudProject(x, y, z, out) {
   return out.onScreen;
 }
 
-// ---- The pen: HudBatch calls with the player's HUD opacity applied, plus small shapes and bars ----
+// ---- The pen: HudBatch calls (the HUD opacity is applied by HudBatch.alphaScale), plus small shapes and bars ----
 const HUD_WEAPON_ICONS = {   // rectangles [x, y, width, height] inside a 28 x 12 box
   melee: [[2, 5, 20, 2], [22, 3, 4, 6]], sidearm: [[8, 2, 14, 4], [8, 6, 5, 6]], smg: [[4, 3, 18, 4], [12, 7, 4, 5], [0, 3, 4, 3]],
   shotgun: [[0, 3, 7, 4], [7, 3, 21, 2], [10, 6, 10, 2]], rifle: [[0, 3, 6, 4], [6, 3, 18, 3], [24, 4, 4, 1], [10, 6, 4, 5]],
@@ -298,55 +299,98 @@ const HUD_ICON_WIDTH = 28, HUD_ICON_HEIGHT = 12;
 const HUD_FALLBACK_ICON = HUD_WEAPON_ICONS.rifle;
 const HUD_SHADOW_OFFSET = 1;
 const HUD_SHADOW_ALPHA = 0.7;
+const HUD_BAR_TRACK_ALPHA = 0.6;
+const HUD_OCTAGON_SQUARE = 0.75, HUD_OCTAGON_TIP = 1.08;   // a disc's two squares: half-side and tip distance per radius
+
+// x, y and half size of the next pen shape (HudPen.shapeAt). The shape helpers read it instead of taking float arguments,
+// which are boxed per call where the call is not inlined (PERF-006: map dots, markers and pips are drawn every frame).
+const hudShapeAt = new Float32Array(3);
+// A square around hudShapeAt with half-width hudShapeAt[2], in the paint already set.
+function pushHudSquare() {
+  const at = hudShapeAt, corners = hudCorners;
+  corners[0] = at[0] - at[2]; corners[1] = at[1] - at[2]; corners[2] = at[0] + at[2]; corners[3] = at[1] + at[2];
+  pushHudBox();
+}
+// A diamond around hudShapeAt with its tips hudShapeAt[2] away, in the paint already set.
+function pushHudDiamond() {
+  const at = hudShapeAt, corners = hudCorners, x = at[0], y = at[1], tip = at[2];
+  corners[0] = x; corners[1] = y - tip; corners[2] = x + tip; corners[3] = y; corners[4] = x; corners[5] = y + tip; corners[6] = x - tip; corners[7] = y;
+  pushHudSolid();
+}
 
 const HudPen = {
-  rect(x, y, w, h, color, alpha) { HudBatch.rect(x, y, w, h, color, (alpha === undefined ? 1 : alpha) * Hud.opacity); },
-  line(x1, y1, x2, y2, thickness, color, alpha) { HudBatch.line(x1, y1, x2, y2, thickness, color, (alpha === undefined ? 1 : alpha) * Hud.opacity); },
-  ring(x, y, radius, thickness, color, alpha, start, end) { HudBatch.ring(x, y, radius, thickness, color, (alpha === undefined ? 1 : alpha) * Hud.opacity, start, end); },
-  text(string, x, y, size, color, align, alpha) { return HudBatch.text(string, x, y, size, color, align, (alpha === undefined ? 1 : alpha) * Hud.opacity); },
+  // The arguments pass through unchanged: a float computed here would be boxed on its way to HudBatch (PERF-006).
+  rect(x, y, w, h, color, alpha) { HudBatch.rect(x, y, w, h, color, alpha); },
+  line(x1, y1, x2, y2, thickness, color, alpha) { HudBatch.line(x1, y1, x2, y2, thickness, color, alpha); },
+  ring(x, y, radius, thickness, color, alpha, start, end) { HudBatch.ring(x, y, radius, thickness, color, alpha, start, end); },
+  text(string, x, y, size, color, align, alpha) { return HudBatch.text(string, x, y, size, color, align, alpha); },
   // Text with a one-pixel shadow: readable on any background (world markers, banners).
+  // The place goes through the text scratch (07f hudTextAt): the shadow's x and y as float arguments were boxed per label.
   label(string, x, y, size, color, align, alpha) {
-    const shade = HUD_SHADOW_OFFSET * Math.max(1, size / 16);
-    this.text(string, x + shade, y + shade, size, HUD_COLOR.black, align, (alpha === undefined ? 1 : alpha) * HUD_SHADOW_ALPHA);
-    return this.text(string, x, y, size, color, align, alpha);
+    const at = hudTextAt, shade = HUD_SHADOW_OFFSET * Math.max(1, size / 16);
+    at[0] = x + shade; at[1] = y + shade; at[2] = size;
+    HudBatch.textAt(string, HUD_COLOR.black, align, (alpha === undefined ? 1 : alpha) * HUD_SHADOW_ALPHA);
+    at[0] = x; at[1] = y;
+    HudBatch.textAt(string, color, align, alpha);
+    return at[3];
   },
   // Dark backing panel behind a group of text.
   panel(x, y, w, h, alpha) { this.rect(x, y, w, h, HUD_COLOR.panel, alpha === undefined ? 0.5 : alpha); },
   // Horizontal bar: dark track, coloured fill of `fraction` (0..1).
+  // Both rectangles go straight into the corner scratch (07f): their computed widths as float arguments were boxed.
   bar(x, y, w, h, fraction, color, alpha) {
-    this.rect(x, y, w, h, HUD_COLOR.track, 0.6 * (alpha === undefined ? 1 : alpha));
-    const filled = w * clamp(fraction, 0, 1);
-    if (filled > 0) this.rect(x, y, filled, h, color, alpha);
+    const corners = hudCorners, filled = w * Math.min(1, Math.max(0, fraction));
+    corners[0] = x; corners[1] = y; corners[2] = x + w; corners[3] = y + h;
+    setHudPaint(HUD_COLOR.track, HUD_BAR_TRACK_ALPHA * (alpha === undefined ? 1 : alpha));
+    pushHudBox();
+    if (filled <= 0) return;
+    corners[0] = x; corners[1] = y; corners[2] = x + filled; corners[3] = y + h;
+    setHudPaint(color, alpha);
+    pushHudBox();
   },
   // Filled triangle: a quad with two equal corners.
   triangle(x0, y0, x1, y1, x2, y2, color, alpha) { this.quad(x0, y0, x1, y1, x2, y2, x2, y2, color, alpha); },
-  // Corners straight into the HUD scratch (07f hudCorners): fourteen float arguments to pushHudQuad were boxed per shape (PERF-006).
+  // Corners straight into the HUD scratch (07f hudCorners): fourteen float arguments to a quad call were boxed per shape (PERF-006).
   quad(x0, y0, x1, y1, x2, y2, x3, y3, color, alpha) {
     const corners = hudCorners;
     corners[0] = x0; corners[1] = y0; corners[2] = x1; corners[3] = y1; corners[4] = x2; corners[5] = y2; corners[6] = x3; corners[7] = y3;
-    setHudPaint(color, (alpha === undefined ? 1 : alpha) * Hud.opacity);
+    setHudPaint(color, alpha);
     pushHudSolid();
   },
   // Team and marker icons that differ by shape, not only by colour (ACC-001). size = width in pixels.
   shape(kind, x, y, size, color, alpha) {
-    const half = size / 2;
-    if (kind === 'square') this.rect(x - half, y - half, size, size, color, alpha);
-    else if (kind === 'triangle') this.triangle(x, y - half, x + half, y + half, x - half, y + half, color, alpha);
-    else if (kind === 'diamond') this.quad(x, y - half, x + half, y, x, y + half, x - half, y, color, alpha);
-    else this.octagon(x, y, half, color, alpha);
+    const at = hudShapeAt;
+    at[0] = x; at[1] = y; at[2] = size / 2;
+    this.shapeAt(kind, color, alpha);
   },
-  // A disc from two squares (one turned 45 degrees): two quads instead of a 48-segment ring.
-  octagon(x, y, radius, color, alpha) {
-    const side = radius * 1.5, tip = radius * 1.08;
-    this.rect(x - side / 2, y - side / 2, side, side, color, alpha);
-    this.quad(x, y - tip, x + tip, y, x, y + tip, x - tip, y, color, alpha);
+  // shape() at hudShapeAt (x, y, half size): the form for drawers that place many shapes (no float arguments).
+  // 'circle' (and any other kind) is a disc from two squares, one turned 45 degrees: two quads instead of a 48-segment ring.
+  shapeAt(kind, color, alpha) {
+    const at = hudShapeAt, half = at[2];
+    setHudPaint(color, alpha);
+    if (kind === 'square') { pushHudSquare(); return; }
+    if (kind === 'diamond') { pushHudDiamond(); return; }
+    if (kind === 'triangle') {
+      const corners = hudCorners;
+      corners[0] = at[0]; corners[1] = at[1] - half; corners[2] = at[0] + half; corners[3] = at[1] + half;
+      corners[4] = corners[6] = at[0] - half; corners[5] = corners[7] = at[1] + half;
+      pushHudSolid();
+      return;
+    }
+    at[2] = half * HUD_OCTAGON_SQUARE; pushHudSquare();
+    at[2] = half * HUD_OCTAGON_TIP; pushHudDiamond();
+    at[2] = half;
   },
+  octagon(x, y, radius, color, alpha) { this.shape('circle', x, y, radius * 2, color, alpha); },
   weaponIcon(weaponClass, x, y, width, color, alpha) {
-    const parts = HUD_WEAPON_ICONS[weaponClass] || HUD_FALLBACK_ICON, scale = width / HUD_ICON_WIDTH;
+    const parts = HUD_WEAPON_ICONS[weaponClass] || HUD_FALLBACK_ICON, scale = width / HUD_ICON_WIDTH, corners = hudCorners;
     const left = x - width / 2, top = y - (HUD_ICON_HEIGHT * scale) / 2;
-    for (let i = 0; i < parts.length; i++) {
+    setHudPaint(color, alpha);
+    for (let i = 0; i < parts.length; i++) {   // each part straight into the corner scratch (no four floats per pen.rect call)
       const part = parts[i];
-      this.rect(left + part[0] * scale, top + part[1] * scale, part[2] * scale, part[3] * scale, color, alpha);
+      corners[0] = left + part[0] * scale; corners[1] = top + part[1] * scale;
+      corners[2] = corners[0] + part[2] * scale; corners[3] = corners[1] + part[3] * scale;
+      pushHudBox();
     }
   },
 };

@@ -18,7 +18,7 @@ More elements (minimap, compass, awareness, barks), the Hardcore HUD rule, `hudA
 
 ## The pen (`Hud.pen`)
 
-`rect line ring text label(text with a shadow) panel(dark backing) bar(track + fill) triangle quad shape(kind 'circle' | 'square' | 'triangle' | 'diamond') octagon weaponIcon(class)` - HudBatch calls with `hud.opacity` applied to every alpha. Colours are numbers (0xRRGGBB). `HUD_WEAPON_ICONS` draws a silhouette per weapon class from rectangles.
+`rect line ring text label(text with a shadow) panel(dark backing) bar(track + fill) triangle quad shape(kind 'circle' | 'square' | 'triangle' | 'diamond') octagon weaponIcon(class)` - HudBatch calls; `hud.opacity` scales every alpha through `HudBatch.alphaScale` (applied once per call in `setHudPaint`, 07f). Colours are numbers (0xRRGGBB). `HUD_WEAPON_ICONS` draws a silhouette per weapon class from rectangles.
 
 ## Settings (all in the generated Settings screen)
 

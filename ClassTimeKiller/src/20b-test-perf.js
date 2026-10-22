@@ -410,18 +410,29 @@ Test.add('perf', (check) => {
 Test.add('perf', (check) => {
   const savedQuads = HudBatch.quads, bytes = new Uint8Array(HudBatch.bytes), vertexBytes = 4 * HUD_VERTEX_BYTES;
   HudBatch.quads = 0;
-  pushHudQuad(1, 2, 30, 4, 28, 40, 3, 38, HudBatch.white[0], HudBatch.white[1], HudBatch.white[0], HudBatch.white[1], 0x336699, 0.5);
-  setHudCorners(1, 2, 30, 4, 28, 40, 3, 38);
+  const white = HudBatch.white;
+  hudCorners.set([1, 2, 30, 4, 28, 40, 3, 38, white[0], white[1], white[0], white[1]]);   // the reference: every field by hand
   setHudPaint(0x336699, 0.5);
+  pushHudCorners();
+  hudCorners.set([1, 2, 30, 4, 28, 40, 3, 38, 0, 0, 0, 0]);
   pushHudSolid();
   let same = HudBatch.quads === 2;
   for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) same = false;
-  check('HUD corner scratch writes the same vertices as the argument form', same);
+  check('an untextured quad (pushHudSolid) writes the same vertices as the hand-filled corner scratch', same);
   HudBatch.quads = 0;
   HudPen.quad(1, 2, 30, 4, 28, 40, 3, 38, 0x336699, 0.5 / Hud.opacity);
   let samePen = HudBatch.quads === 1;
   for (let i = 0; i < vertexBytes; i++) if (bytes[i] !== bytes[vertexBytes + i]) samePen = false;
   check('the pen\'s quads and triangles fill the corner scratch (no fourteen-argument pushHudQuad call)', samePen && !/pushHudQuad/.test(HudPen.quad.toString()));
+  const scale = HudBatch.alphaScale;
+  HudBatch.alphaScale = 0.5;
+  setHudPaint(0xffffff, 1);
+  const halfByte = hudPaint[1];
+  HudBatch.alphaScale = scale;
+  const passThrough = ['rect', 'line', 'ring', 'text', 'quad'].every((name) => !/opacity/.test(HudPen[name].toString()));
+  check('the HUD opacity scales the alpha once, in setHudPaint; the pen passes its alpha through (no boxed product per call)',
+    halfByte === 128 && passThrough && !/clamp\(/.test(setHudPaint.toString()), halfByte);
+  check('a HUD line writes its corners into the scratch (no eight-float call)', !/setHudCorners|pushHudQuad/.test(HudBatch.line.toString()));
   HudBatch.quads = HUD_MAX_QUADS;
   const dropped = HudBatch.dropped;
   HudPen.rect(0, 0, 4, 4, 0xffffff, 1);
@@ -454,6 +465,31 @@ Test.add('perf', (check) => {
   check('a HUD ring calls sine and cosine twice each, not per segment', trigCalls === 4, trigCalls);
   check('the last segment ends on the end angle', Math.abs(corners[2] - (x + sin(to) * outer)) < 1e-3 && Math.abs(corners[3] - (y - cos(to) * outer)) < 1e-3,
     corners[2] + ', ' + corners[3]);
+});
+
+// HUD drawing that a live frame showed boxing floats (PERF-006: the once-per-frame drawers run in the middle compiler tier
+// for most of a match, which boxes every float argument of a call it does not inline): shapes, bars, weapon icons, labels,
+// map dots and crosshair arms fill the scratch arrays (hudCorners, hudShapeAt, hudTextAt) instead of calling the pen again.
+Test.add('perf', (check) => {
+  const savedQuads = HudBatch.quads, floats = new Float32Array(HudBatch.bytes), stride = HUD_VERTEX_BYTES / 4;
+  const corner = (quad, vertex) => [floats[(quad * 4 + vertex) * stride], floats[(quad * 4 + vertex) * stride + 1]].join(',');
+  HudBatch.quads = 0;
+  HudPen.shape('circle', 50, 60, 20, 0xffffff, 1);
+  const disc = HudBatch.quads === 2 && corner(0, 0) === '42.5,52.5' && corner(0, 2) === '57.5,67.5' && corner(1, 0) === '50,' + Math.fround(60 - 10.8);
+  HudBatch.quads = 0;
+  HudPen.shape('triangle', 50, 60, 20, 0xffffff, 1);
+  const triangle = HudBatch.quads === 1 && corner(0, 0) === '50,50' && corner(0, 1) === '60,70' && corner(0, 2) === '40,70' && corner(0, 3) === '40,70';
+  HudBatch.quads = 0;
+  HudPen.bar(10, 20, 100, 8, 0.25, 0xffffff, 1);
+  const bar = HudBatch.quads === 2 && corner(1, 2) === '35,28';
+  HudBatch.quads = 0;
+  const width = HudBatch.text('AB 12', 0, 0, 20, 0xffffff, 'left', 1);
+  HudBatch.quads = savedQuads;
+  check('a pen disc is two quads around its centre, a triangle one, a quarter bar a track and a quarter fill', disc && triangle && bar);
+  check('text returns its measured width', width === HudBatch.measure('AB 12', 20) && width > 0, width);
+  const pen = HudPen.shapeAt.toString() + HudPen.bar.toString() + HudPen.weaponIcon.toString() + HudPen.label.toString();
+  check('pen shapes, bars, icons and labels write the scratch, not more pen calls with float arguments', !/this\.(rect|quad|text|triangle|octagon)\(/.test(pen));
+  check('map dots and crosshair arms go through the scratch', !/pen\.(shape|rect)\(/.test(hudMapDot.toString() + hudDrawArms.toString()));
 });
 
 Test.add('perf', (check) => {
