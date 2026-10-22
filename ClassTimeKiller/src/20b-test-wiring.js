@@ -219,7 +219,7 @@ Test.add('wiring', (check) => {
   const mirelle = TestArena.actor(0, 0, 3, 0), plain = TestArena.actor(1, 4, 3, 0);
   Abilities.hero[mirelle] = CAT.heroes.byId('mirelle');
   Abilities.hero[plain] = CAT.heroes.byId('brask');
-  check('Smoke.add lays a curtain of puffs', Smoke.add(0, 0, 10, 12, 3, 15, 0, -1) >= 4 && Smoke.count >= 4, Smoke.count);
+  check('Smoke.add lays a curtain of puffs', Smoke.add(0, 0, 10, 12, 3, 15, 0) >= 4 && Smoke.count >= 4, Smoke.count);
   Sim.run(itemTicks(2));
   check('the curtain blocks sight through it', Smoke.lineBlocked(0, 1.5, 4, 0, 1.5, 16, plain));
   check('H07 sees through smoke', !Smoke.lineBlocked(0, 1.5, 4, 0, 1.5, 16, mirelle));

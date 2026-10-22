@@ -119,7 +119,7 @@ const Devices = {
     this.yaw[device] = row.effect === 'barrier' ? snapToAxis(yaw) : yaw;   // the drawn box matches its axis-aligned brush
     this.health[device] = row.health; this.armTick[device] = Sim.tick + itemTicks(row.arm);
     this.endTick[device] = Sim.tick + itemTicks(row.duration || DEVICE_FOREVER_SECONDS);
-    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.amount; this.target[device] = -1;
+    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.charges; this.target[device] = -1;
     if (row.effect === 'barrier') this.addBrush(device, row);
     this.count++;
     this.emit('gadget.place', device);

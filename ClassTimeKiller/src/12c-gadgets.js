@@ -95,7 +95,7 @@ function throwVelocity(id, underhand, out) {
 
 // ---- Smoke volumes (REN-007): one local occupancy grid per volume, filled by a flood from the centre that never enters solids ----
 const Smoke = {
-  active: new Uint8Array(SMOKE_CAP), owner: new Int8Array(SMOKE_CAP), row: new Int16Array(SMOKE_CAP),
+  active: new Uint8Array(SMOKE_CAP),
   x: new Float32Array(SMOKE_CAP), y: new Float32Array(SMOKE_CAP), z: new Float32Array(SMOKE_CAP), radius: new Float32Array(SMOKE_CAP),
   startTick: new Int32Array(SMOKE_CAP), endTick: new Int32Array(SMOKE_CAP),
   depth: new Uint8Array(SMOKE_CAP * SMOKE_CELLS),      // flood steps + 1 per cell (0 = no smoke can reach it)
@@ -105,21 +105,21 @@ const Smoke = {
   drawn: 0,                                            // blobs drawn this frame (SMOKE_DRAW_BUDGET)
 
   clear() { this.active.fill(0); this.count = 0; },
-  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration, owner, row.index); },
+  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration); },
   // A smoke curtain (A17 Veil Curtain and other walls of smoke): puffs of height/2 radius along the line of `width`
   // metres centred on (x, y, z), across the yaw direction; y is the floor under the curtain. Returns the puff count.
-  add(x, y, z, width, height, seconds, yaw, owner) {
+  add(x, y, z, width, height, seconds, yaw) {
     const radius = Math.min(SMOKE_LARGEST_RADIUS, height / 2), spacing = radius * 2 * CURTAIN_PUFF_SPACING;
     const puffs = Math.max(1, Math.ceil(width / spacing)), rightX = -Math.cos(yaw || 0), rightZ = Math.sin(yaw || 0);
     for (let puff = 0; puff < puffs; puff++) {
       const offset = (puff - (puffs - 1) / 2) * spacing;
-      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds, owner === undefined ? -1 : owner, -1);
+      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds);
     }
     return puffs;
   },
-  addVolume(x, y, z, radius, seconds, owner, rowIndex) {
+  addVolume(x, y, z, radius, seconds) {
     const volume = this.freeSlot();
-    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = rowIndex; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
+    this.active[volume] = 1; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
     this.radius[volume] = Math.min(SMOKE_LARGEST_RADIUS, radius); this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(seconds);
     this.punched.fill(0, volume * SMOKE_CELLS, (volume + 1) * SMOKE_CELLS);
     this.flood(volume);

@@ -643,3 +643,17 @@ Test.add('gadgets', (check) => {
   check('F44 a cooking grenade of a jammed actor falls at the feet', slot >= 0 && Thrown.vx[slot] === 0 && Thrown.vz[slot] === 0 && Gadgets.holdStart[id] < 0);
   TestArena.finish();
 });
+
+// F46: no write-only gear data: every column of the gadget and ability rows has a reader in the game code (not the data or the tests).
+Test.add('gadgets', (check) => {
+  const source = Array.from(document.scripts).map((script) => script.textContent).join('\n');
+  const code = source.slice(source.indexOf('// ==== 04-save.js'), source.indexOf('// ==== 20a-selftest.js'));
+  const unread = [];
+  for (const table of [CAT.gadgets, CAT.abilities]) {
+    const columns = new Set();
+    table.forEach((row) => Object.keys(row).forEach((key) => columns.add(key)));
+    for (const column of columns) if (!new RegExp('\\.' + column + '\\b').test(code)) unread.push(column);
+  }
+  check('F46 every gadget and ability column has a reader', unread.length === 0, unread.join(', '));
+  check('F46 the smoke grid keeps no owner or row it never reads', !('owner' in Smoke && Smoke.owner) && !('row' in Smoke && Smoke.row));
+});

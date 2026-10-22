@@ -4,12 +4,12 @@
 // decoy, telekinesis, gates, rift, rally, zone, and the four suit weaves. Timed self and team effects are Buffs; placed
 // effects are AbilityZones (a pooled struct of arrays). Damage always goes through Damage.apply, knockback through 'impulse'.
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12, RATE_SLOW: 13 };
-const BUFF_COUNT = 14;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, ENERGY_REGEN: 9, MELEE: 10, GRAVITY: 11, RATE_SLOW: 12 };
+const BUFF_COUNT = 13;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true, true];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, false, false, true, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
@@ -33,7 +33,6 @@ const FENCE_REACH = 0.6;                 // an actor this close to a fence segme
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
 const DECOY_HEALTH = 1;
-const STRIKE_COLOR = 0xff3030;
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;             // A24: a team of -1 is everyone's enemy (Actors.isEnemy)
 const PUPPET_DRIVE_ORDER = 19;         // A23: after every brain (10, 11) and nav (15), before abilities (20) and movement (30)
@@ -539,7 +538,7 @@ function castZone(id, row) {
   const seconds = row.params.zone === 'strike' ? row.params.delay : row.duration;
   const zone = AbilityZones.add(kind, id, row, at.x, at.y, at.z, seconds);
   if (row.params.zone === 'wall' || row.params.zone === 'smoke') { AbilityZones.radius[zone] = row.params.width / 2; AbilityZones.height[zone] = row.params.height; }
-  if (row.params.zone === 'smoke') Smoke.add(at.x, at.y, at.z, row.params.width, row.params.height, seconds, AbilityZones.yaw[zone], id);   // real smoke: blocks sight
+  if (row.params.zone === 'smoke') Smoke.add(at.x, at.y, at.z, row.params.width, row.params.height, seconds, AbilityZones.yaw[zone]);   // real smoke: blocks sight
   return true;
 }
 // The floor under the aimed point within range (or the point itself when there is no floor below it).
