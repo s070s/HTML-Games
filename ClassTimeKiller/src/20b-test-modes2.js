@@ -718,7 +718,7 @@ Test.add('modes2', (check) => {
 const COMBO_MAP = { spawns: TEAM_SPAWNS, objectives: CTF_MAP.objectives.concat(RUSH_MAP.objectives, CONVOY_MAP.objectives, RELIC_MAP.objectives,
   [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: -30, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5 }, { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }]) };
 const ONE_LIFE = [{ id: 'lives', value: 1 }];
-// Versus modes with respawns and without rounds (Blight needs its outbreak first; it ends by its own head count).
+// Versus modes with respawns and without rounds (Blight counts lives only from its outbreak: checked on its own below).
 const LIVES_MODES = CAT.modes.filter((row) => row.family === 'versus' && !row.rounds && row.respawn === 'normal' && row.id !== 'infection').map((row) => row.id);
 
 // Kills every participant on `team` (free-for-all: everyone but actor 0) and reports whether the match ended within 1 s.
@@ -744,7 +744,21 @@ Test.add('modes2', (check) => {
   runSeconds(Modes.rules.params.fuse);
   check('lives 1: the relay goes off, then the defenders win (out of lives counts like 0 tickets)', Game.match.ended && Game.match.winner === 1, Game.match.results && Game.match.results.reason);
   endModeTest();
+  // Blight: everyone starts human, so lives count only from the outbreak on.
+  for (const humansOut of [false, true]) {
+    startModeTest('infection', modesTestMap(COMBO_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+    runSeconds(1.01);
+    check('lives 1: infection does not end before the outbreak', !Game.match.ended, Game.match.results && Game.match.results.reason);
+    runSeconds(Modes.rules.params.infectAfter);
+    const side = humansOut ? HUMAN_TEAM : INFECTED_TEAM, killer = sideMembers(1 - side)[0];
+    for (const id of sideMembers(side)) killActor(id, killer);
+    runSeconds(1);
+    check('lives 1: infection ends when every ' + (humansOut ? 'human' : 'infected') + ' is out', Game.match.ended && Game.match.winner === 1 - side && Game.match.results.reason === 'eliminated',
+      Game.match.winner + ' ' + (Game.match.results && Game.match.results.reason));
+    endModeTest();
+  }
 });
+function sideMembers(team) { return Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === team); }
 function wipeOutAttackers() {
   for (let id = 0; id < Actors.count; id++) if (Actors.team[id] === 0) killActor(id, 1);
   runSeconds(1);

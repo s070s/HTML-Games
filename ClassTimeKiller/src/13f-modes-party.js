@@ -132,6 +132,7 @@ Modes.register('infection', {
     Modes.hud.survivors = humans; Modes.hud.infected = infected;
     return humans + infected;
   },
+  livesOver() { return this.outbreak ? Modes.livesWinner() : NOT_OVER; },   // until the outbreak every side is human
   isOver(now) {
     if (this.outbreak && Modes.teamScore[HUMAN_TEAM] === 0) return Modes.over(INFECTED_TEAM, 'eliminated');
     const limit = Modes.rules.timeLimit;
