@@ -385,13 +385,14 @@ const Projectiles = {
     const mode = this.modeOf(i);
     if (this.lodge[i] && mode.laser) this.stepLaser(i, mode, dt);
   },
-  // W44 lodged blade: a cutting line from the blade to its owner.
+  // W44 lodged blade: a cutting line from the blade to its owner. Walls stop it (R-006): no line while anything solid
+  // stands between the blade and the owner.
   stepLaser(i, mode, dt) {
     const owner = this.owner[i];
     if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
     const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
     const length = length3(dx, dy, dz);
-    if (length < 0.5) return;
+    if (length < 0.5 || !World.lineClear(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner])) return;
     const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
     for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
     if (!Game.headless) Fx.tracer(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner], 0xff4040);

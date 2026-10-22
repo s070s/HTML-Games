@@ -916,6 +916,25 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// R-006: the W44 lodged-blade line stops at walls; an owner out of sight of the blade gets no line at all.
+Test.add('weapons', (check) => {
+  const wall = (z) => ({ shape: 'box', min: [-6, 0, z], max: [6, 5, z + 1] });
+  TestArena.start({}, [wall(10), wall(20)]);
+  const owner = TestArena.actor(1, 0, 15), near = TestArena.sponge(2, 0, 17.5);
+  giveFull(owner, 'razorwind');
+  TestArena.hold(owner, BTN.ALT, 0.05);
+  Sim.run(TICK_RATE / 2);
+  check('W44 blade lodged in the far wall', Projectiles.state.indexOf(PROJECTILE_STATE.STUCK) >= 0);
+  Sim.run(TICK_RATE);
+  check('W44 line cuts an enemy between the blade and the owner', Actors.health[near] < 100000, Actors.health[near]);
+  Actors.alive[near] = 0;
+  TestArena.place(owner, 0, 5);
+  const behind = TestArena.sponge(2, 0, 8);
+  Sim.run(TICK_RATE * 2);
+  check('W44 line never cuts through a wall', Actors.health[behind] === 100000, 100000 - Actors.health[behind]);
+  TestArena.finish();
+});
+
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;
