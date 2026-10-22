@@ -670,6 +670,59 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- BOT-050 CTF splits: enemy flag home 30% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
+// escort (from the next commander round). BOT-002: a chase on stale memory is the Search state ----
+Test.add('bots', (check) => {
+  playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
+    const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
+    BotTeam.assignRoles();
+    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
+    enemyFlag.carrier = team[0];
+    BotTeam.assignRoles();
+    check('ctf, enemy flag taken: 3 defend, 2 escort', roles() === 'defend,defend,defend,escort,escort', roles());
+    enemyFlag.carrier = -1;
+    const chaser = team[0], target = Actors.count - 1, pair = BotSense.pair(chaser, target), plan = { goal: GOAL.CHASE, target };
+    BotSense.knownAt[pair] = Sim.time - 1;
+    const fresh = BotDecide.goalState(chaser, plan, Sim.time);
+    BotSense.knownAt[pair] = Sim.time - 3;
+    check('a chase on fresh memory is Chase, on memory older than 2 s Search', fresh === BOT_STATE.CHASE && BotDecide.goalState(chaser, plan, Sim.time) === BOT_STATE.SEARCH);
+  } });
+});
+
+// ---- BOT-070 / BOT-034 tier flags and T12: flanks (a far chase goes round by a flank hint), weaponJumps with weaponJumper
+// (a splash shot at the feet in a jump up to a goal on a ledge), flashPeek (the flash grenade's tier gate) ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 }, pair = BotSense.pair(bot, dummy);
+  placeFacing(bot, 0, -10, 0); placeFacing(dummy, 0, 20, Math.PI);
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+  BotCombat.target[bot] = dummy;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('a flanking tier chases a far target round by the flank hint', BotDecide.flankSpot[bot] === 0 && plan.x === 12 && plan.z === 10, plan.x + ',' + plan.z);
+  BotDecide.flankedAt[bot] = Sim.time;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('right after a flank the chase goes straight', BotDecide.flankSpot[bot] === -1 && plan.z === 20);
+  const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
+  Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
+  BotCombat.target[bot] = -1;
+  Motion.grounded[bot] = 1; Actors.health[bot] = Actors.maxHealth[bot];
+  BotDecide.goal[bot] = GOAL.ROAM; BotDecide.goalX[bot] = 0; BotDecide.goalY[bot] = 3; BotDecide.goalZ[bot] = -5;
+  check('a weapon jumper with a launcher wants to jump to a goal 3 m up', BotCombat.wantsWeaponJump(bot, Sim.time));
+  Actors.aimPitch[bot] = -80 * DEG;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.weaponJump(bot, Sim.time);
+  const pressed = Bots.buttonsWanted[bot];
+  check('looking down it jumps and fires in one step', (pressed & BTN.JUMP) !== 0 && (pressed & BTN.FIRE) !== 0 && BotCombat.uses.weaponJumps === 1, pressed);
+  check('one weapon jump at a time (6 s rest)', !BotCombat.wantsWeaponJump(bot, Sim.time + 1));
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = BOT_TRAIT_NEUTRAL;
+  check('a bot without the weapon jumper trait does not', !BotCombat.wantsWeaponJump(bot, Sim.time + WEAPON_JUMP_REST + 1));
+  check('the flash grenade is gated by the flashPeek tier flag', BOT_GADGET_USE.flash.tierFlag === 'flashPeek' && CAT.botTiers.every((row) => row.flashPeek === row.tier >= 3));
+  endBotTest();
+});
+
 // ---- Flag raids: the rally is a meeting place (no held spot), and a raider already past it keeps going ----
 Test.add('bots', (check) => {
   const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };

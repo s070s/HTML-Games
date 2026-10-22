@@ -103,12 +103,12 @@ const BotTeam = {
     if (player >= 0 && Actors.alive[player] && (Actors.pressed[player] & BTN.PING) !== 0) this.playerPing(player);
   },
   assignRoles() {
-    const splits = BOT_ROLE_SPLITS[Modes.rules ? Modes.rules.objective : 'none'] || BOT_ROLE_SPLITS.none;
-    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, splits);
+    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, roleSplitKey(team));
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] < 0) this.role[id] = ROLE.FREELANCE;
   },
   // The bots with the most teamwork take the support roles (defend, escort); the others attack.
-  assignTeam(team, splits) {
+  assignTeam(team, key) {
+    const splits = BOT_ROLE_SPLITS[key] || BOT_ROLE_SPLITS.none;
     rankList.length = 0;
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === team) rankList.push(id);
     if (!rankList.length) return;
@@ -236,6 +236,15 @@ const BotTeam = {
     if (key === 'gameplay.taunts') this.taunts = !!Settings.get(key);
   },
 };
+
+// The BOT_ROLE_SPLITS row for a team: the mode's objective kind; flags: 'flagTaken' while a team-mate carries the enemy flag.
+function roleSplitKey(team) {
+  const objective = Modes.rules ? Modes.rules.objective : 'none';
+  if (objective !== 'flag') return objective;
+  const list = Modes.objectives;
+  for (let i = 0; i < list.length; i++) if (list[i].kind === 'flag' && list[i].team === 1 - team && list[i].carrier >= 0) return 'flagTaken';
+  return objective;
+}
 
 // Ping kinds a person may use as orders: 'defend' holds the spot, 'attack' and anything else move there.
 function orderKindOf(kind) { return kind === 'defend' || kind === 'attack' ? kind : 'go'; }

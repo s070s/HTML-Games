@@ -51,6 +51,9 @@ const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cook
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
 const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
+const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
+const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
+const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
@@ -112,7 +115,8 @@ const BotCombat = {
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
-  uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot this match (tests, soak report)
+  jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
+  uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },   // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
   // others; unknown = the target was not even remembered). Judged at the decision, so a shot that kills is not a breach.
@@ -120,7 +124,7 @@ const BotCombat = {
 
   reset(id) {
     this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
-    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
+    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
@@ -144,6 +148,7 @@ const BotCombat = {
     this.manageWeapon(id, now);
     this.useKit(id, now);
     if (now < this.throwUntil[id]) { this.aimThrow(id, now); return; }
+    if (target < 0 && this.weaponJump(id, now)) return;
     if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
     if (BotSense.sees(id, target)) this.engage(id, target, now);
     else this.watch(id, target, now);
@@ -453,6 +458,35 @@ const BotCombat = {
     if (Rng.bots.chance(Bots.trait(id, TRAIT.jumpiness)) && Move.isGrounded(id)) Bots.press(id, BTN.JUMP);
   },
 
+  // ---- Weapon jumps (botTiers weaponJumps, trait T12 weaponJumper): out of a fight, a goal on a ledge just above is reached
+  // with a splash weapon fired at the feet in the jump ----
+  weaponJump(id, now) {
+    if (now < this.jumpUntil[id]) { this.aimJump(id, now); return true; }
+    if (!this.wantsWeaponJump(id, now)) return false;
+    this.jumpUntil[id] = now + WEAPON_JUMP_AIM_SECONDS;
+    this.weaponJumpAt[id] = now;
+    this.aimJump(id, now);
+    return true;
+  },
+  wantsWeaponJump(id, now) {
+    if (now - this.weaponJumpAt[id] < WEAPON_JUMP_REST || !Bots.tier(id).weaponJumps || Bots.trait(id, TRAIT.weaponJumper) <= BOT_TRAIT_NEUTRAL) return false;
+    const weapon = Weapons.currentWeapon(id);
+    if (!weapon || !weapon.primary.splash || !Move.isGrounded(id) || Actors.health[id] < Actors.maxHealth[id] * WEAPON_JUMP_HEALTH) return false;
+    const rise = BotDecide.goalY[id] - Actors.y[id], reach = Math.hypot(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
+    return BotDecide.goal[id] !== GOAL.NONE && rise >= WEAPON_JUMP_RISE && reach <= WEAPON_JUMP_REACH;
+  },
+  // The view turns straight down (at the motor's rate) toward the goal; there the bot jumps and fires in one step. The shot
+  // is licensed (ARC-033 counts shots at enemies the bot does not perceive; this one is at its own feet).
+  aimJump(id, now) {
+    Bots.lookYaw[id] = Math.atan2(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
+    Bots.lookPitch[id] = -BOT_PITCH_LIMIT;
+    if (Actors.aimPitch[id] > -WEAPON_JUMP_PITCH) return;
+    Bots.press(id, BTN.JUMP | BTN.FIRE);
+    this.licenseTarget[id] = -1; this.licenseUntil[id] = now;
+    this.jumpUntil[id] = 0;
+    this.uses.weaponJumps++;
+  },
+
   // ---- Grenades (BOT-034), gadgets and abilities (BOT-035): pressed like a player, only on perceived conditions ----
   // Each kind is checked on its own clock (faster with the abilityUse trait); a throw being aimed waits for nothing else.
   useKit(id, now) {
@@ -682,7 +716,7 @@ function throwRange(pitch, rise) {
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
 function botUseWanted(id, use) {
-  if (!use || use.chance <= 0 || (use.tier && Bots.tier(id).tier < use.tier)) return false;
+  if (!use || use.chance <= 0 || (use.tierFlag && !Bots.tier(id)[use.tierFlag])) return false;
   if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
   return Rng.bots.chance(use.chance);
 }
@@ -739,5 +773,5 @@ Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
 Bus.on('damage', (event) => BotCombat.onDamage(event));
 Bus.on('match.setup', () => {
   BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);
-  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0;
+  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0; BotCombat.uses.weaponJumps = 0;
 });
