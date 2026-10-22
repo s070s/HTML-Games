@@ -65,11 +65,22 @@ function mapCacheFor(map) {
 
 const Maps = {
   rows: [],                                                     // filled by the 16b..16e files, defined as CAT.maps in 16f
+  runtime: [],                                                  // maps added while the game runs (map editor, generator): same rows as the catalogue
   get(idOrCode) {
     if (!CAT.maps) return null;
-    return CAT.maps.byId(idOrCode) || CAT.maps.find((map) => map.code === idOrCode) || null;
+    return CAT.maps.byId(idOrCode) || CAT.maps.find((map) => map.code === idOrCode) || this.runtime.find((map) => map.id === idOrCode || map.code === idOrCode) || null;
   },
-  forMode(modeId) { return CAT.maps ? CAT.maps.filter((map) => map.modes.includes(modeId)) : []; },
+  forMode(modeId) { return CAT.maps ? CAT.maps.filter((map) => map.modes.includes(modeId)).concat(this.runtime.filter((map) => map.modes.includes(modeId))) : []; },
+  // A runtime map replaces the one with the same id; it never replaces a catalogue row.
+  registerRuntime(map) {
+    this.unregisterRuntime(map.id);
+    this.runtime.push(map);
+    return map;
+  },
+  unregisterRuntime(id) {
+    const index = this.runtime.findIndex((map) => map.id === id);
+    if (index >= 0) this.runtime.splice(index, 1);
+  },
   // A spawn serves an actor of `team` (-1 = free for all) in `mode` when team matches and its mode list is empty or has the mode.
   spawnMatches(spawn, modeId, team) { return spawn.team === team && mapServesMode(spawn, modeId); },
   // Cached list (never modified by callers): spawn rows for a mode and team. The cache is keyed by the map row: clone a row before editing it.

@@ -153,6 +153,8 @@ const Ui = {
   },
   onMenuCommand(command) {
     if (!this.stack.length) return;
+    const screen = this.top().screen;
+    if (screen.onCommand && screen.onCommand(command)) return;     // a screen that reads the pad itself (the map editor) takes the command
     if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
   },
   onKeyDown(event) {

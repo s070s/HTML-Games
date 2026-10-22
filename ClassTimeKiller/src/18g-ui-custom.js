@@ -141,7 +141,7 @@ const integerBetween = (low, high) => (value) => (Number.isInteger(value) && val
 const EDITOR_FIELD_CHECKS = {
   name: (value) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, EDITOR_NAME_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
-  map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!CAT.maps.byId(value)),
+  map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),
   move: isBlankOr(catalogueHas('movement')),
   health: isBlankOr(catalogueHas('health')),
@@ -506,7 +506,7 @@ const EDITOR_TAB_EXTRAS = { rules: editorQuickStarts, weapons: editorWeaponRows,
 
 function editorSummary(draft) {
   const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);
-  const map = draft.map ? CAT.maps.byId(draft.map).name : 'random map';
+  const map = draft.map ? Maps.get(draft.map).name : 'random map';
   const mutators = draft.mutators.length ? ', ' + draft.mutators.length + ' mutator' + (draft.mutators.length === 1 ? '' : 's') : '';
   return mode.name + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
 }
