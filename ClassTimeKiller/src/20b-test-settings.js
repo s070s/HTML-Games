@@ -166,6 +166,24 @@ Test.add('settings', async (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// R-036: a stored value the definition would refuse in Settings.set never reaches a reader, from storage or from an import.
+Test.add('settings', (check) => {
+  const fallbackOf = (key) => Settings.definitions.get(key).fallback;
+  const bad = { 'video.fov': null, 'ui.scale': 'huge', 'video.frameCap': 45, 'video.renderScale': 9, 'hud.scale': 9999, 'video.headBob': true };
+  Save.write(SAVE_KEY, JSON.stringify({ version: 1, settings: bad }));
+  Save.load();
+  Settings.applyAll();
+  check('settings: stored values of the wrong type, not finite or not an option fall back to the default', Settings.get('video.fov') === fallbackOf('video.fov')
+    && Settings.get('ui.scale') === fallbackOf('ui.scale') && Settings.get('video.frameCap') === fallbackOf('video.frameCap')
+    && Settings.get('video.renderScale') === fallbackOf('video.renderScale'), JSON.stringify(Save.data.settings));
+  check('settings: a stored number out of range is clamped, an older on/off slider becomes its end', Settings.get('hud.scale') === Settings.definitions.get('hud.scale').max
+    && Settings.get('video.headBob') === Settings.definitions.get('video.headBob').max);
+  check('settings: the renderer reads a finite field of view', Number.isFinite(Render.config.fov) && Render.config.fov === fallbackOf('video.fov'), Render.config.fov);
+  Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 'wide', 'hud.scale': -5 } }));
+  check('settings: an imported save is checked the same way', Settings.get('video.fov') === fallbackOf('video.fov') && Settings.get('hud.scale') === Settings.definitions.get('hud.scale').min);
+  Settings.resetKeys(Object.keys(bad));
+});
+
 Test.add('settings', (check) => {
   // ---- Assist sliders (ACC-007, DIF-002) ----
   // A slider that is shown must change something: every live field has a reader here (what the owning section sees), and the fields

@@ -40,7 +40,8 @@ const Save = {
     }
     return this.data;
   },
-  // Brings any older save up to SAVE_VERSION; fills missing top-level fields and replaces ones of the wrong kind ("settings": null).
+  // Brings any older save up to SAVE_VERSION; fills missing top-level fields and replaces ones of the wrong kind ("settings": null),
+  // then checks every stored setting against its definition (load and import both come through here).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     const fresh = this.emptySave();
@@ -48,6 +49,7 @@ const Save = {
       const want = saveFieldKind(fresh[field]), have = saveFieldKind(loaded[field]);
       if (have !== want && !(want === 'null' && have === 'object')) loaded[field] = fresh[field];
     }
+    Settings.sanitize(loaded.settings);
     loaded.version = SAVE_VERSION;
     return loaded;
   },
@@ -115,11 +117,31 @@ const Settings = {
   set(key, value) {
     const definition = this.definitions.get(key);
     if (!definition) throw new Error('unknown setting: ' + key);
-    if (typeof value === 'number' && definition.min !== undefined) value = clamp(value, definition.min, definition.max);
-    if (definition.options && !definition.options.includes(value)) value = definition.fallback;
-    Save.data.settings[key] = value;
+    const valid = this.validValue(definition, value);
+    Save.data.settings[key] = valid === undefined ? definition.fallback : valid;
     Save.scheduleSave();
     Bus.emit('setting', key);
+  },
+  // The value as the definition allows it (numbers clamped to min..max), or undefined when it cannot be one: not one of the options,
+  // another type than the default, not a finite number. The one check for set and for every loaded or imported save (R-036).
+  validValue(definition, value) {
+    if (definition.options) return definition.options.includes(value) ? value : undefined;   // options may mix 'auto' and numbers
+    const fallback = definition.fallback;
+    // Older saves stored a plain on/off for what is a slider now (head bob): on = the slider's top, off = its bottom.
+    if (typeof value === 'boolean' && typeof fallback === 'number' && definition.min !== undefined) value = value ? definition.max : definition.min;
+    if (value === null || typeof value !== typeof fallback) return undefined;
+    if (typeof value !== 'number') return value;
+    if (!Number.isFinite(value)) return undefined;
+    return definition.min === undefined ? value : clamp(value, definition.min, definition.max);
+  },
+  // A loaded or imported save's settings: values a reader could not use are dropped (the default applies), numbers are clamped.
+  // Keys this version does not define are kept untouched.
+  sanitize(stored) {
+    for (const [key, definition] of this.definitions) {
+      if (!(key in stored)) continue;
+      const value = this.validValue(definition, stored[key]);
+      if (value === undefined) delete stored[key]; else stored[key] = value;
+    }
   },
   // The one reset path (a Reset button, the tests): drop the saved values of exactly these keys, then announce each key once.
   resetKeys(keys) {
