@@ -266,9 +266,10 @@ function updateHudLayout(layout, width, height) {
   layout.vitalsHeight = 3 * (layout.barHeight + layout.barGap);
   layout.abilityY = layout.bottom - layout.vitalsHeight - 28 * unit;
   layout.powerupY = layout.abilityY - 52 * unit;
-  // Phones keep the right side free for the touch buttons: the ammo panel sits bottom centre-left instead.
-  layout.ammoRight = touch ? width * 0.5 - 6 * unit : layout.right;
+  // Phones keep the button side free: the ammo panel sits bottom centre-left, centre-right in the left-handed touch preset.
   layout.ammoWidth = (compact ? 132 : 176) * unit; layout.ammoHeight = (compact ? 58 : 66) * unit;
+  const centreGap = 6 * unit;
+  layout.ammoRight = !touch ? layout.right : TouchInput.preset().mirror ? width * 0.5 + centreGap + layout.ammoWidth : width * 0.5 - centreGap;
   layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
   layout.moneyY = layout.gadgetY - (touch ? 34 + HUD_BAR_TOUCH_HEIGHT + HUD_BAR_GAP : 34) * unit;   // phones: above the weapon bar
   layout.weaponBarY = touch ? layout.bottom - layout.ammoHeight - HUD_BAR_GAP * unit : layout.bottom - 12 * unit;   // phones: the bar sits on the ammo panel

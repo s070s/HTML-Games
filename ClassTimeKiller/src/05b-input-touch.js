@@ -41,19 +41,20 @@ const TOUCH_PRESETS = [
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
 // with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more;
 // 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
-// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action. Default places keep clear of the phone HUD (hudui test).
+// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action; mirrorAt = its place in the left-handed preset where
+// a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
   { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
-  { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64 },
+  { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
   { id: 'crouch', label: 'Crouch', face: 'CROUCH', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
   { id: 'prone', label: 'Prone', face: 'PRONE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
   { id: 'reload', label: 'Reload', face: 'RELOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
   { id: 'breath', label: 'Hold breath', face: 'BREATH', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
-  { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46 },
+  { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
   { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
-  { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal' },
+  { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal', mirrorAt: [0.17, 0.10] },
   { id: 'grenadeNext', label: 'Next grenade type', face: 'TYPE', action: 'grenadeNext', x: 0.60, y: 0.74, size: 36, need: 'grenadeCycle' },
   { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
@@ -64,7 +65,7 @@ const TOUCH_CONTROLS = [
   { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
-  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46 },
+  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
   { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
   { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
 ];
@@ -208,8 +209,13 @@ const TouchInput = {
     slot.weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);   // picked on a still tap (onUp)
     if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
-    else if (event.clientX < window.innerWidth * TOUCH_MOVE_ZONE && !this.stick.slot) this.beginStick(slot, event, null);
+    else if (this.inMoveZone(event.clientX) && !this.stick.slot) this.beginStick(slot, event, null);
     else slot.role = ROLE_LOOK;
+  },
+  // The floating stick starts on the left, on the right in the left-handed preset.
+  inMoveZone(clientX) {
+    const share = clientX / window.innerWidth;
+    return this.preset().mirror ? share > 1 - TOUCH_MOVE_ZONE : share < TOUCH_MOVE_ZONE;
   },
   onMove(event) {
     const slot = this.findSlot(event.pointerId);
@@ -388,8 +394,9 @@ const TouchInput = {
   // Fills out {x, y, scale, opacity, hidden}: the preset default overlaid with the player's saved changes.
   layoutOf(controlId, out) {
     const control = this.controlById[controlId], preset = this.preset(), saved = this.savedLayout(controlId) || TOUCH_NO_LAYOUT;
-    out.x = saved.x !== undefined ? saved.x : (preset.mirror ? 1 - control.x : control.x);
-    out.y = saved.y !== undefined ? saved.y : control.y;
+    const spot = preset.mirror && control.mirrorAt;
+    out.x = saved.x !== undefined ? saved.x : spot ? spot[0] : preset.mirror ? 1 - control.x : control.x;
+    out.y = saved.y !== undefined ? saved.y : spot ? spot[1] : control.y;
     out.scale = saved.scale !== undefined ? saved.scale : preset.scale;
     out.opacity = saved.opacity !== undefined ? saved.opacity : TOUCH_DEFAULT_OPACITY;
     out.hidden = !!saved.hidden;

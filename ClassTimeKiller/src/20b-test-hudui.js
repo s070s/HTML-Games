@@ -355,7 +355,7 @@ Test.add('hudui', (check) => {
   const savedDevice = Input.device, savedPreset = TouchInput.currentPreset, layout = {}, box = (left, top, width, height) => ({ left, top, right: left + width, bottom: top + height });
   Input.device = 'touch';
   for (const [width, height] of [[667, 375], [812, 375], [844, 390]]) {
-    for (const preset of TOUCH_PRESETS.slice(0, 2)) {
+    for (const preset of TOUCH_PRESETS) {
       TouchInput.currentPreset = preset;
       updateHudLayout(layout, width, height);
       const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit, bar = hudBoxAt;
@@ -364,8 +364,8 @@ Test.add('hudui', (check) => {
       hudPlaceWeaponBox(layout, 5, 4);
       const boxes = [box(layout.centerX - header / 2, layout.top, header, 44 * unit), box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
         box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // header, minimap, vitals, ammo, bar
-      const found = boxes.findIndex((b) => hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true));
-      check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found < 0, found);
+      const found = boxes.map((b, index) => index + hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true)).filter((text) => text.length > 1);
+      check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found.length === 0, found.join());
     }
   }
   TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
@@ -421,6 +421,12 @@ Test.add('input', (check) => {
   frame();
   check('needs: the next match with the same needs shows the same buttons', stale().length === 0, stale().join());
   Move.setPreset(id, '');
+  const savedPreset = TouchInput.currentPreset;
+  TouchInput.currentPreset = TOUCH_PRESETS.find((preset) => preset.mirror);
+  inputTouchPointer('pointerdown', TouchInput.zone, 10, INPUT_TEST_RIGHT_X, 300);
+  check('left-handed: a thumb on the right starts the floating stick', TouchInput.stick.slot !== null);
+  inputTouchPointer('pointerup', TouchInput.zone, 10, INPUT_TEST_RIGHT_X, 300);
+  TouchInput.currentPreset = savedPreset;
 });
 
 Test.add('input', (check) => hudTestWith(() => {
