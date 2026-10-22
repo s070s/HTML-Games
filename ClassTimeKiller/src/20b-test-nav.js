@@ -144,6 +144,25 @@ Test.add('nav', (check) => {
   check('ledge: no node hangs over the edge', Array.from(Nav.nodeY).every((y, node) => y < 1 || (Nav.nodeX[node] >= 2 + NAV_EDGE_MARGIN && Nav.nodeX[node] <= 8 - NAV_EDGE_MARGIN)));
 });
 
+Test.add('nav', (check) => {
+  // A 1 m barrier across the whole floor: the only way over is a jump that clears its top.
+  navTestLoad([navTestFloor(-10, -10, 10, 10, 0), navTestBox([-10, 0, -0.5], [10, 1, 0.5])]);
+  const south = navTestNode(0, 0, -5), north = navTestNode(0, 0, 5);
+  check('barrier: jump over it needs barrier height + margin', Nav.findPath(south, north, { allowJumpHeight: 1 + NAV_JUMP_MARGIN }) > 0 && Nav.findPath(south, north, { allowJumpHeight: 1 }) === 0);
+  // Two platforms at 3 m with a 1.5 m gap and no floor below: a level gap jump.
+  navTestLoad([navTestBox([-8, 2, -3], [-0.75, 3, 3]), navTestBox([0.75, 2, -3], [8, 3, 3])]);
+  const west = navTestNode(-4, 3, 0), east = navTestNode(4, 3, 0), types = navTestPathTypes(west, east);
+  check('gap: crossed with a low jump', types.includes(NAV_LINK.JUMP) && Nav.reachable(east, west), types.join(','));
+  let gapHeight = Infinity;
+  for (let link = 0; link < Nav.linkCount; link++) if (Nav.linkType[link] === NAV_LINK.JUMP) gapHeight = Math.min(gapHeight, Nav.linkHeight[link]);
+  check('gap: a level gap needs only the jump margin', Test.near(gapHeight, NAV_JUMP_MARGIN, 0.01), gapHeight);
+  // An item sealed inside a closed box is reported by validate.
+  const sealed = [navTestBox([4, 0, 4], [8, 3, 4.3]), navTestBox([4, 0, 7.7], [8, 3, 8]), navTestBox([4, 0, 4], [4.3, 3, 8]), navTestBox([7.7, 0, 4], [8, 3, 8])];
+  const map = navTestLoad([navTestFloor(-10, -10, 10, 10, 0)].concat(sealed), { spawns: [navTestSpawn(-5, 0, -5)], items: [{ x: 6, y: 0, z: 6, item: 'armor', group: 'armor' }, { x: -2, y: 0, z: 2, item: 'health', group: 'health' }] });
+  const problems = Nav.validate(map);
+  check('validate: item inside a sealed box is unreachable, the open one is fine', problems.length === 1 && problems[0].includes('armor'), problems.join('; '));
+});
+
 // A 5 m tower; the ladder volume sits against its -x face.
 function navTestTower(withLadder) {
   const ladder = { kind: 'ladder', min: [1.4, 0, -0.5], max: [2, 6, 0.5] };

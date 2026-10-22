@@ -50,6 +50,7 @@ const NAV_VERTICAL_WEIGHT = 2;         // nearestNode: one metre of height count
 const NAV_NEAREST_RADIUS = 6;
 const NAV_NEAREST_BELOW = 3;           // nodes up to this far under the point (a falling actor) or above it (a step)
 const NAV_NEAREST_ABOVE = 1;
+const NAV_RANDOM_ATTEMPTS = 8;         // randomReachableNode retries when it draws a trigger node
 const NAV_COVER_WALL = 1.0;            // cover: a wall within this distance of the capsule...
 const NAV_COVER_OPEN = 4;              // ...and open space this long on the other side
 const NAV_COVER_LOW_HEIGHT = 0.9;      // blocked at this height but open at head height = crouch cover
@@ -155,7 +156,6 @@ const Nav = {
     return count;
   },
 };
-const NAV_RANDOM_ATTEMPTS = 8;
 
 Bus.on('world.load', (map) => Nav.build(map));
 
@@ -176,7 +176,7 @@ function navBuildGraph(triggers) {
   navAddPassageNodes(builder, 0, 1);
   navFinishNodes(builder);
   lap('nodes');
-  for (let node = 0; node < Nav.nodeCount; node++) navLinkNeighbours(builder, node);
+  navLinkNeighbours(builder);
   triggers.forEach((trigger) => { if (NAV_TRIGGER_LINKS[trigger.kind]) NAV_TRIGGER_LINKS[trigger.kind](builder, trigger); });
   navFinishLinks(builder);
   lap('links');
@@ -675,16 +675,39 @@ function navAddLink(builder, from, to, type, height, seconds) {
   builder.from.push(from); builder.to.push(to); builder.type.push(type); builder.height.push(height); builder.seconds.push(seconds);
 }
 
-function navLinkNeighbours(builder, node) {
-  const count = navCollectNeighbours(node, Nav.limits.jumpReach);
+// Walk links first; then jump/drop/swim-exit links only between nodes that walking does not already join.
+function navLinkNeighbours(builder) {
+  for (let node = 0; node < Nav.nodeCount; node++) navLinkWalks(builder, node);
+  const walks = navBucket(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const marks = new Int32Array(Nav.nodeCount).fill(-1);
+  for (let node = 0; node < Nav.nodeCount; node++) navLinkAirs(builder, node, walks, marks);
+}
+
+function navLinkWalks(builder, node) {
+  const count = navCollectNeighbours(node, NAV_WALK_RADIUS);
   for (let k = 0; k < count; k++) {
     const other = navNeighbours.items[k];
-    if (other > node) navLinkPair(builder, node, other);
+    if (other > node) navTryWalk(builder, node, other);
   }
 }
 
-function navLinkPair(builder, a, b) {
-  if (navTryWalk(builder, a, b)) return;
+function navLinkAirs(builder, node, walks, marks) {
+  for (let k = walks.start[node]; k < walks.start[node + 1]; k++) marks[builder.to[walks.items[k]]] = node;
+  const count = navCollectNeighbours(node, Nav.limits.jumpReach);
+  for (let k = 0; k < count; k++) {
+    const other = navNeighbours.items[k];
+    if (other > node && !navWalkJoined(builder, other, walks, marks, node)) navLinkAir(builder, node, other);
+  }
+}
+
+// marks[n] === node for every walk neighbour of node: joined when other is one of them or shares one.
+function navWalkJoined(builder, other, walks, marks, node) {
+  if (marks[other] === node) return true;
+  for (let k = walks.start[other]; k < walks.start[other + 1]; k++) if (marks[builder.to[walks.items[k]]] === node) return true;
+  return false;
+}
+
+function navLinkAir(builder, a, b) {
   if (navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]) >= 0) return; // walkable via nearer nodes
   navTryAir(builder, a, b);
   navTryAir(builder, b, a);
@@ -906,20 +929,25 @@ function navTarjanPop(node) {
 const NAV_COVER_DIRECTIONS = [0, 1, 2, 3, 4, 5, 6, 7].map((step) => [Math.sin(step * Math.PI / 4), Math.cos(step * Math.PI / 4)]); // 8 compass rays
 
 function navFindCover() {
-  const nodes = [], dirX = [], dirZ = [], low = [];
+  const nodes = [], dirX = [], dirZ = [], low = [], best = { kind: NAV_COVER.NONE, direction: 0 };
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (Nav.nodeFlags[node] & (NAV_NODE.CROUCH | NAV_NODE.WATER | NAV_NODE.TRIGGER) || !navNearWall(node)) continue;
-    let bestKind = NAV_COVER.NONE, bestDirection = 0;
-    NAV_COVER_DIRECTIONS.forEach((direction, index) => {
-      const kind = navCoverKind(node, direction[0], direction[1]);
-      if (kind > bestKind) { bestKind = kind; bestDirection = index; }
-    });
-    if (bestKind === NAV_COVER.NONE) continue;
-    nodes.push(node); dirX.push(NAV_COVER_DIRECTIONS[bestDirection][0]); dirZ.push(NAV_COVER_DIRECTIONS[bestDirection][1]);
-    low.push(bestKind === NAV_COVER.LOW ? 1 : 0);
+    navBestCover(node, best);
+    if (best.kind === NAV_COVER.NONE) continue;
+    nodes.push(node); dirX.push(NAV_COVER_DIRECTIONS[best.direction][0]); dirZ.push(NAV_COVER_DIRECTIONS[best.direction][1]);
+    low.push(best.kind === NAV_COVER.LOW ? 1 : 0);
   }
   Nav.coverCount = nodes.length;
   Nav.coverNode = Int32Array.from(nodes); Nav.coverDirX = Float32Array.from(dirX); Nav.coverDirZ = Float32Array.from(dirZ); Nav.coverLow = Uint8Array.from(low);
+}
+
+// Full cover beats crouch cover; the first direction wins a tie.
+function navBestCover(node, best) {
+  best.kind = NAV_COVER.NONE; best.direction = 0;
+  for (let index = 0; index < NAV_COVER_DIRECTIONS.length && best.kind !== NAV_COVER.FULL; index++) {
+    const kind = navCoverKind(node, NAV_COVER_DIRECTIONS[index][0], NAV_COVER_DIRECTIONS[index][1]);
+    if (kind > best.kind) { best.kind = kind; best.direction = index; }
+  }
 }
 
 function navNearWall(node) {

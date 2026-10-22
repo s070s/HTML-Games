@@ -367,10 +367,19 @@ function navBreadthFirst(from, to) {
   while (head < tail) {
     const node = s.heapNode[head++];
     if (node === to) return true;
-    for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) {
-      const next = Nav.linkTarget[link];
-      if (s.seen[next] !== s.generation) { s.seen[next] = s.generation; s.heapNode[tail++] = next; }
-    }
+    tail = navQueueTargets(node, tail);
   }
   return false;
+}
+
+// Appends the unvisited link targets of a node to the breadth-first queue; returns the new queue end.
+function navQueueTargets(node, tail) {
+  const s = navSearch;
+  for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) {
+    const next = Nav.linkTarget[link];
+    if (s.seen[next] === s.generation) continue;
+    s.seen[next] = s.generation;
+    s.heapNode[tail++] = next;
+  }
+  return tail;
 }
