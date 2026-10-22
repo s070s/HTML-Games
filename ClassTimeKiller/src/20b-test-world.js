@@ -368,3 +368,10 @@ Test.add('world', (check) => {
   Actors.alive[target] = 0;
   check('dead actors are not hit', World.raycastActors(0, 1.2, 0, 0, 0, 1, 50, shooter, hit) < 0 && World.actorsInSphere(0, 1, 4.5, 0.2, found) === 0);
 });
+
+// Hooks S08 fills for earlier sections at load (integration: without them the world is not drawn and walls never muffle sound).
+Test.add('world', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 4], max: [1, 3, 5] }]);
+  check('Render.worldQuery is the world (S07 bakes its brushes)', Render.worldQuery === World && Render.worldQuery.brushes.length === 2);
+  check('Sound.lineOfSight follows World.lineClear', !Sound.lineOfSight(0, 1.6, 0, 0, 1.6, 10) && Sound.lineOfSight(0, 1.6, 0, 10, 1.6, 0));
+});

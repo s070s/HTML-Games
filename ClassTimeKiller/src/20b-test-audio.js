@@ -235,6 +235,7 @@ Test.add('audio', (check) => {
 
   World.load({ id: 'wall', brushes: [{ shape: 'box', min: [-5, 0, 4], max: [5, 3, 5] }] });
   computeAudioSpatial(spatial, step, 0, 1.6, 10);
+  Sound.lineOfSight = null;   // S08 fills the hook at load; Test.isolate restores it
   check('without a line-of-sight hook nothing is occluded', !Sound.isOccluded(spatial, 0, 1.6, 10));
   Sound.lineOfSight = (ax, ay, az, bx, by, bz) => World.lineClear(ax, ay, az, bx, by, bz);
   check('a wall between listener and source occludes', Sound.isOccluded(spatial, 0, 1.6, 10));

@@ -72,6 +72,10 @@ const World = {
   },
 };
 
+// Hooks of earlier sections: the renderer bakes World.brushes on 'world.load'; audio muffles sounds behind walls.
+Render.worldQuery = World;
+Sound.lineOfSight = (ax, ay, az, bx, by, bz) => World.lineClear(ax, ay, az, bx, by, bz);
+
 const scratchHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const makeHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null });
 const rayQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, dx: 0, dy: 0, dz: 0, length: 0, fraction: 1, nx: 0, ny: 0, nz: 0, brush: null };
