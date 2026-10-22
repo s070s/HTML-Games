@@ -541,7 +541,8 @@ Bus.on('actor.create', (id) => {
   Weapons.mutatorScale.fill(1, id * WEAPON_STAT_COUNT, (id + 1) * WEAPON_STAT_COUNT);
   if (Mutators.fx && Mutators.fx.triangle) setMutatorStat(id, STAT.RESERVE, TRIANGLE_RESERVE_SCALE);   // before the first loadout is given
 });
-Bus.on('actor.spawn', (event) => runHooks('spawn', event.id));
+// The mutator spawn values first (X06 health, X07 shields), then the mode's role on top (13e onSpawn: infected, colossus, cursed).
+Bus.on('actor.spawn', (event) => { runHooks('spawn', event.id); callBehaviour('onSpawn', event.id); });
 Bus.on('kill', (event) => runHooks('kill', event));
 Bus.on('damage', (event) => runHooks('damage', event));
 Bus.on('weapon.fire', (shot) => runHooks('fire', shot));

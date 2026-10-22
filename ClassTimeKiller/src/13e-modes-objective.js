@@ -1,7 +1,8 @@
 // Objective versus modes on the S13 framework (13b): M08 Breach Assault (staged relays, attacker tickets), M10 Relic Run (carry
 // time scores), M11 Convoy (a cart on the map path), M27 Ghost Ops (bomb rounds with cloaked attackers).
 // The first part holds what the party (13f) and royale (13g) files share: actor roles, goal hints for bots, extra HUD fields,
-// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call.
+// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call
+// (onSpawn runs from 13h, after the mutator spawn values, so a role's health builds on them).
 
 const ACTOR_ROLE = { NONE: 0, CARRIER: 1, COLOSSUS: 2, CURSED: 3, INFECTED: 4, BEARER: 5, GHOST: 6 };
 const ACTOR_ROLE_NAMES = ['', 'carrier', 'colossus', 'cursed', 'infected', 'bearer', 'ghost'];
@@ -430,7 +431,6 @@ function drawModeExtras(batch) {
 Bus.on('match.setup', resetModeExtras);
 Bus.on('match.stop', resetModeExtras);
 Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; modeCloakSet[id] = 0; });
-Bus.on('actor.spawn', (event) => callBehaviour('onSpawn', event.id));
 Bus.on('damage', (event) => {
   Modes.meleeHit[event.target] = event.kind === 'melee' ? 1 : 0;
   callBehaviour('onDamage', event);
