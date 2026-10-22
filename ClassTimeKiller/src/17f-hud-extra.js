@@ -13,6 +13,7 @@ const HUD_TRACKER_MIN_SPEED = 1.5;           // m/s: the motion tracker ignores 
 const HUD_TRACKER_RANGE = 25;                // metres when the mutator names none
 const HUD_TRACKER_OBSERVERS = 16;            // the player and this many living teammates share the tracker
 const HUD_COMPASS_HALF_ARC = Math.PI / 2;    // the strip shows 90 degrees to each side
+const HUD_COMPASS_EDGE_SHARE = 0.9;           // marks closer to the strip's end than this are drawn (none are cut by the panel edge)
 const HUD_COMPASS_WIDTH = 300, HUD_COMPASS_TOP = 104;
 const HUD_COMPASS_MARKS = [['N', 0], ['NE', 45], ['E', 90], ['SE', 135], ['S', 180], ['SW', 225], ['W', 270], ['NW', 315]];
 const HUD_AWARE_RANGE = 45, HUD_AWARE_MAX = 10, HUD_AWARE_MIN = 0.02;
@@ -214,14 +215,14 @@ function hudDrawCompass(pen, layout) {
   pen.panel(layout.centerX - width / 2, y - 11 * unit, width, 22 * unit, 0.35);
   for (let i = 0; i < HUD_COMPASS_MARKS.length; i++) {
     const relative = wrapAngle(HUD_COMPASS_MARKS[i][1] * DEG + yaw);   // north is +Z, east is -X: the heading is the negated yaw
-    if (Math.abs(relative) > HUD_COMPASS_HALF_ARC) continue;
+    if (Math.abs(relative) > HUD_COMPASS_HALF_ARC * HUD_COMPASS_EDGE_SHARE) continue;
     const label = HUD_COMPASS_MARKS[i][0], x = hudCompassX(layout, relative, width);
     pen.text(label, x, y, (label.length === 1 ? HUD_TEXT_SMALL : 12) * unit, label === 'N' ? Hud.colors.bad : HUD_COLOR.text, 'center', label.length === 1 ? 1 : 0.7);
   }
   const list = Modes.objectives;
   for (let i = 0; i < list.length; i++) {
     const objective = list[i], shape = HUD_MARKER_SHAPES[objective.kind], relative = hudBearingTo(objective.x, objective.z);
-    if (!objective.active || !shape || Math.abs(relative) > HUD_COMPASS_HALF_ARC) continue;
+    if (!objective.active || !shape || Math.abs(relative) > HUD_COMPASS_HALF_ARC * HUD_COMPASS_EDGE_SHARE) continue;
     pen.shape(shape, hudCompassX(layout, relative, width), y + 15 * unit, 9 * unit, hudObjectiveColor(objective), 1);
   }
   pen.rect(layout.centerX - 0.5, y - 14 * unit, 1, 5 * unit, HUD_COLOR.text, 0.9);
@@ -264,8 +265,8 @@ function hudDrawBarks(pen, layout) {
     const slot = (c.barkNext - k + HUD_BARK_SLOTS) % HUD_BARK_SLOTS, age = Hud.time - c.barkAt[slot];
     if (age >= HUD_BARK_SECONDS) continue;
     const alpha = Math.min(1, (HUD_BARK_SECONDS - age) / HUD_BARK_FADE), label = c.barkLabel[slot];
-    const nameWidth = pen.text(label, layout.left, y, size, c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
-    pen.text(c.barkText[slot], layout.left + nameWidth, y, size, HUD_COLOR.text, 'left', alpha);
+    const nameWidth = pen.label(label, layout.left, y, size, c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
+    pen.label(c.barkText[slot], layout.left + nameWidth, y, size, HUD_COLOR.text, 'left', alpha);
     y += line;
   }
 }

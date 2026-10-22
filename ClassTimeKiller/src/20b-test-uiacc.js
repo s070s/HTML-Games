@@ -458,7 +458,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   Ui.closeAll();
   Game.start({ mode: 'ffa', seed: 1, mutators: ['radar'], bots: [{ dummy: true, team: -1 }], player: { name: 'Me', team: -1 } });
   const rules = Game.match.rules, lines = rulesPanelLines(rules);
-  check('rules panel: goal lines name the mode, the objective and the limits', lines.goal[0] === 'Frenzy' && lines.goal.some((line) => line.startsWith('Limits: first to 25')), lines.goal.join(' | '));
+  check('rules panel: goal lines name the mode, the objective and the limits', lines.goal[0] === 'Mode: Frenzy' && lines.goal.some((line) => line.startsWith('Limits: first to 25')), lines.goal.join(' | '));
   check('rules panel: rule lines name the ruleset, presets and respawn', lines.setup[0].startsWith('Rule set: Arena Classic') && lines.setup.some((line) => line.startsWith('Health:')) && lines.setup.some((line) => line.startsWith('Respawn')), lines.setup.join(' | '));
   check('rules panel: mutators are listed through Mutators.describe', mutatorLines(rules).join().includes('Motion Tracker'), mutatorLines(rules).join());
   Game.pause('menu');

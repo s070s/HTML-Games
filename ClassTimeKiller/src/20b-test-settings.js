@@ -2,6 +2,11 @@
 // (by a settings control or a named internal writer) and read (Settings.readCounts), values round-trip through the save, reset to
 // the defaults, the debounced save writes once, and the assist sliders reach the match setup.
 
+DebugApi.settings = Settings;
+DebugApi.access = Access;
+DebugApi.viewFx = ViewFx;
+DebugApi.crosshair = CrosshairEditor;
+
 const SETTINGS_TEST_TABS = SETTINGS_TABS.map(([id]) => id);
 // Keys with no control on purpose: the code that writes them is named here, the test proves they are read like any other.
 const SETTINGS_INTERNAL_WRITERS = { 'video.autoQuality': 'the renderer benchmark (07e)', 'difficulty.tierShift': 'adaptive difficulty (14a)', 'custom.draft': 'the custom match editor draft (18g)' };
