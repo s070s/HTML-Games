@@ -78,6 +78,42 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';   // no throwing store for the next block
 });
 
+// R-001 / R-163: a second tab (or a page back from the cache) never writes its stale copy over a newer save, and a flush with
+// nothing changed writes nothing.
+function saveOtherTabWrites(change) {
+  const other = JSON.parse(Save.read(SAVE_KEY));
+  change(other);
+  other.revision++;
+  Save.storage.setItem(SAVE_KEY, JSON.stringify(other));   // the other tab writes straight to the shared storage
+  return other;
+}
+Test.add('core', (check) => {
+  const inner = makeMemoryStorage(false);
+  const counted = { writes: 0, getItem: (key) => inner.getItem(key), setItem(key, value) { this.writes++; inner.setItem(key, value); }, removeItem: (key) => inner.removeItem(key) };
+  Save.storage = counted; Save.notice = '';
+  Save.data = Save.emptySave();
+  Save.saveNow();
+  counted.writes = 0;
+  flushSave(); flushSave(); window.dispatchEvent(new Event('pagehide'));
+  check('save: pause, app switch and page hide with nothing changed write nothing', counted.writes === 0, counted.writes);
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  saveOtherTabWrites((other) => { other.stats.otherTab = 42; });
+  Settings.set('video.fov', 100);   // this tab's change on its stale copy
+  flushSave();
+  const stored = JSON.parse(inner.getItem(SAVE_KEY));
+  check('save: a stale tab does not write over the newer save of another tab', stored.stats.otherTab === 42 && stored.settings['video.fov'] === undefined, JSON.stringify(stored.stats));
+  check('save: the stale tab carries on from the newer save and says so', Save.data.stats.otherTab === 42 && toasts.includes(SAVE_NEWER_ELSEWHERE), toasts.join());
+  const newer = saveOtherTabWrites((other) => { other.stats.otherTab = 43; });
+  window.dispatchEvent(new StorageEvent('storage', { key: SAVE_KEY, newValue: JSON.stringify(newer) }));
+  check('save: a write in another tab is taken at once while this tab has no change', Save.data.stats.otherTab === 43 && Save.data.revision === newer.revision);
+  Settings.set('video.fov', 101);
+  flushSave();
+  check('save: the next change of this tab is written on top of it', JSON.parse(inner.getItem(SAVE_KEY)).stats.otherTab === 43 && JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 101);
+  Bus.off('toast', listener);
+  Settings.resetKeys(['video.fov']);
+  Save.notice = '';
+});
+
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
 Test.add('core', (check) => {
   const thrower = Bus.on('test.bootcheck', () => { throw new Error('listener broke'); });

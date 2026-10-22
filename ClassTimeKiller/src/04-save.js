@@ -9,26 +9,37 @@ const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
 const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
+const SAVE_NEWER_ELSEWHERE = 'The game was saved in another tab. This tab now uses that save; its own last change was not kept.';
+// A written record starts with the version and its write counter, so another tab's revision is read without parsing the whole save.
+const SAVE_REVISION_HEAD = /^\{"version":\d+,"revision":(\d+)[,}]/;
 
 // 'null' | 'array' | typeof: a loaded field must have the kind of its empty-save default (a null default also takes an object).
 function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
+// The write counter of a stored record; 0 for a record from before the counter (or one that cannot be read).
+function saveRevisionOf(raw) {
+  const head = SAVE_REVISION_HEAD.exec(raw || '');
+  return head ? Number(head[1]) : 0;
+}
 
 const Save = {
   data: null,             // the live save object
   storageWorks: true,
   notice: '',             // one-line message for the UI (storage blocked, save was reset)
   timer: 0,
+  dirty: false,           // a change waits to be written: a flush on pause or page hide writes only then (R-163)
   storage: null,          // replaced by a memory stub in headless tests
 
   emptySave() {
-    // Every top-level field is declared here, so migrate repairs each one (ARC-020). play: the last play-screen setup (18d, null = none
-    // yet); crosshairs: per-weapon crosshair overrides (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n).
-    return { version: SAVE_VERSION, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [], ladder: {},
-      play: null, crosshairs: {}, tips: { matches: 0 },
+    // Every top-level field is declared here, so migrate repairs each one (ARC-020). revision: counts the writes, so a stale tab never
+    // writes over a newer save (R-001); play: the last play-screen setup (18d, null = none yet); crosshairs: per-weapon crosshair overrides
+    // (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n).
+    return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
+      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0 },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
   },
   load() {
     const raw = this.read(SAVE_KEY);
+    this.dirty = false;
     if (raw === null) { this.data = this.emptySave(); return this.data; }
     try {
       this.data = this.migrate(JSON.parse(raw));
@@ -50,18 +61,41 @@ const Save = {
       if (have !== want && !(want === 'null' && have === 'object')) loaded[field] = fresh[field];
     }
     Settings.sanitize(loaded.settings);
-    loaded.version = SAVE_VERSION;
-    return loaded;
+    // A copy that starts with version and revision (SAVE_REVISION_HEAD); the other fields keep their order.
+    const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);
+    ordered.version = SAVE_VERSION;
+    return ordered;
   },
   scheduleSave() {
+    this.dirty = true;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.saveNow(), SAVE_DEBOUNCE_MS);
   },
+  // Writes at once (callers that changed the save call it directly). Another tab wrote a newer save since this one was read: this tab
+  // carries on from that save instead of writing its stale copy over it (R-001).
   saveNow() {
     clearTimeout(this.timer);
+    if (this.adoptNewer()) return this.fail(SAVE_NEWER_ELSEWHERE);
+    this.data.revision++;
     const text = JSON.stringify(this.data);
-    if (text.length > SAVE_MAX_BYTES) return this.fail(SAVE_TOO_BIG);
-    return this.write(SAVE_KEY, text);
+    if (text.length > SAVE_MAX_BYTES) { this.data.revision--; return this.fail(SAVE_TOO_BIG); }
+    if (!this.write(SAVE_KEY, text)) { this.data.revision--; return false; }
+    this.dirty = false;
+    return true;
+  },
+  // Takes the stored save when another tab wrote a newer one (a 'storage' event, a page back from the cache, or before a write).
+  // Returns true when it did; the settings readers hear every key again.
+  adoptNewer() {
+    const raw = this.read(SAVE_KEY);
+    if (saveRevisionOf(raw) <= this.data.revision) return false;
+    try {
+      this.data = this.migrate(JSON.parse(raw));
+    } catch (error) {
+      return false;   // an unreadable newer record: keep this tab's save; the next load backs it up
+    }
+    this.dirty = false;
+    Settings.applyAll();
+    return true;
   },
   // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure stays quiet.
   fail(text) {
@@ -73,6 +107,7 @@ const Save = {
   exportText() { return JSON.stringify(this.data); },
   importText(text) {
     const parsed = this.migrate(JSON.parse(text)); // throws on bad input; the UI shows the message
+    parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));   // an older export still replaces the stored save
     this.data = parsed;
     Settings.applyAll();
     this.saveNow();

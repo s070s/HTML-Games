@@ -87,11 +87,16 @@ Ui.settingsExtras.developer = [(container) => {
   container.appendChild(foot);
 }];
 
-function flushSave() { if (Save.data) Save.saveNow(); }
+// Pause, page hide and app switch write only a change that waits (one app switch fires all three, R-163).
+function flushSave() { if (Save.data && Save.dirty) Save.saveNow(); }
+// Another tab wrote a newer save (R-001): this tab takes it while it has no change of its own (else its next write takes it).
+function adoptOtherTabSave() { if (Save.data && !Save.dirty) Save.adoptNewer(); }
 Bus.on('boot', () => {
   if (Game.headless) return;
   window.addEventListener('pagehide', flushSave);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); else adoptOtherTabSave(); });
+  window.addEventListener('storage', (event) => { if (event.key === SAVE_KEY && event.newValue !== null) adoptOtherTabSave(); });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) adoptOtherTabSave(); });   // back from the page cache
 });
 Bus.on('game.pause', flushSave);
 
