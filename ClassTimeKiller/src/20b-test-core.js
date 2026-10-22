@@ -137,6 +137,14 @@ Test.add('core', (check) => {
   check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
   Bus.off('toast', listener);
   Save.storageWorks = true; Save.notice = '';
+  // R-040: every top-level field is declared in emptySave, so a wrong kind is repaired before a screen reads it.
+  check('save: every field the sections keep is declared in the empty save', ['loadouts', 'tips'].every((field) => saveFieldKind(Save.emptySave()[field]) === 'object'));
+  Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 90 }, loadouts: 'x', tips: 7 }));
+  const leave = uiEnter();
+  let screenErrors = -1;
+  try { screenErrors = Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }); } finally { leave(); }
+  check('save: an imported loadouts of the wrong kind is repaired and the loadout screen opens', screenErrors === 0 && saveFieldKind(Save.data.loadouts) === 'object'
+    && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches >= 0, screenErrors + ' ' + JSON.stringify(Save.data.loadouts));
 });
 
 Test.add('core', (check) => {

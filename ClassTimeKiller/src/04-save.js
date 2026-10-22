@@ -21,9 +21,11 @@ const Save = {
   storage: null,          // replaced by a memory stub in headless tests
 
   emptySave() {
-    // play: the last play-screen setup (18d, null = none yet); crosshairs: per-weapon crosshair overrides (17b).
+    // Every top-level field is declared here, so migrate repairs each one (ARC-020). play: the last play-screen setup (18d, null = none
+    // yet); crosshairs: per-weapon crosshair overrides (17b); loadouts: classes, hero and kit choices (13d Loadouts); tips: matches seen (18n).
     return { version: SAVE_VERSION, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [], ladder: {},
-      play: null, crosshairs: {} };
+      play: null, crosshairs: {}, tips: { matches: 0 },
+      loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
   },
   load() {
     const raw = this.read(SAVE_KEY);
