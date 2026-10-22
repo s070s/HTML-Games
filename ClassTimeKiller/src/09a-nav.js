@@ -301,9 +301,9 @@ function navGatherCell(cell) {
   }
 }
 
-// Nearest brush hit on the segment a -> b into hit (World.raycast plane math via rayVersusBrush, limited to nearby
-// brushes: the build runs tens of thousands). A hit at distance 0 counts only when a really starts inside the brush:
-// rayVersusBrush also reports 0 for a ray that starts above a ramp slope and moves away from it.
+// Nearest brush hit on the segment a -> b into hit (S08's per-brush ray test rayBrush, limited to nearby brushes:
+// the build runs tens of thousands). A hit at distance 0 counts only when a really starts inside the brush (not
+// merely touching its surface).
 function navSegmentHit(ax, ay, az, bx, by, bz, hit) {
   navGatherBrushes(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz));
   return navSegmentHitGathered(ax, ay, az, bx, by, bz, hit);
@@ -319,7 +319,7 @@ function navSegmentHitGathered(ax, ay, az, bx, by, bz, hit) {
   let best = length, found = false;
   for (let k = 0; k < count; k++) {
     const brush = World.brushes[navBrushGrid.found[k]];
-    if (!navSegmentNearBox(ax, ay, az, bx, by, bz, brush) || !rayVersusBrush(ax, ay, az, dx / length, dy / length, dz / length, best, brush, navScratchHit)) continue;
+    if (!navSegmentNearBox(ax, ay, az, bx, by, bz, brush) || !rayBrush(ax, ay, az, dx / length, dy / length, dz / length, best, brush, navScratchHit)) continue;
     if (navScratchHit.distance === 0 && !pointInBrush(ax, ay, az, brush, 0)) continue;
     best = navScratchHit.distance; found = true;
     Vec.set(hit, ax + dx / length * best, ay + dy / length * best, az + dz / length * best);

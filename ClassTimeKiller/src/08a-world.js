@@ -204,13 +204,25 @@ function rayTestNode(query, bounds, base) {
 }
 
 function rayTestBrush(query, brush) {
-  if (!rayHitsBounds(query.sx, query.sy, query.sz, query.dx, query.dy, query.dz, query.fraction * query.length,
-    brush.minX, brush.minY, brush.minZ, brush.maxX, brush.maxY, brush.maxZ)) return;
-  const fraction = clipBrush(brush, query.sx, query.sy, query.sz, query.ex, query.ey, query.ez, POINT_HULL, 0);
-  if (fraction < 0 || fraction >= query.fraction) return;
-  query.fraction = fraction; query.brush = brush;
-  if (clipResult.startSolid) { query.nx = -query.dx; query.ny = -query.dy; query.nz = -query.dz; return; }
-  query.nx = clipResult.nx; query.ny = clipResult.ny; query.nz = clipResult.nz;
+  const limit = query.fraction * query.length;
+  if (!rayBrush(query.sx, query.sy, query.sz, query.dx, query.dy, query.dz, limit, brush, brushRayHit) || brushRayHit.distance >= limit) return;
+  query.fraction = brushRayHit.distance / query.length; query.brush = brush;
+  query.nx = brushRayHit.nx; query.ny = brushRayHit.ny; query.nz = brushRayHit.nz;
+}
+
+const brushRayHit = { distance: 0, nx: 0, ny: 0, nz: 0 };
+
+// Normalized ray against one convex brush (bounds first, then its planes): fills hit.distance and the normal and
+// returns true, or false on a miss. A ray that starts inside hits at distance 0 with the normal facing back along it.
+// World.raycast and the queries that gather their own brushes (nav build, map scan) all use this one test.
+function rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit) {
+  if (!rayHitsBounds(ox, oy, oz, dx, dy, dz, maxDistance, brush.minX, brush.minY, brush.minZ, brush.maxX, brush.maxY, brush.maxZ)) return false;
+  const fraction = clipBrush(brush, ox, oy, oz, ox + dx * maxDistance, oy + dy * maxDistance, oz + dz * maxDistance, POINT_HULL, 0);
+  if (fraction < 0) return false;
+  hit.distance = fraction * maxDistance;
+  if (clipResult.startSolid) { hit.nx = -dx; hit.ny = -dy; hit.nz = -dz; return true; }
+  hit.nx = clipResult.nx; hit.ny = clipResult.ny; hit.nz = clipResult.nz;
+  return true;
 }
 
 function pointTestNode(query, bounds, base) {

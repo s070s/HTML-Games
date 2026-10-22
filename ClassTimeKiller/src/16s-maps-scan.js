@@ -1,7 +1,7 @@
 // ==== S16 MAPS: SCAN ====
 // Turns a map's brushes into a walkable graph without any movement code: a grid of standing surfaces (nodes, 0.5 m apart), step/drop
 // links between neighbours, extra links for jump pads, teleporters and ladders, and flood fills over it. The validator
-// (16v-maps-validate.js) and the map tests use it; nothing here runs during a match. Uses S08's makeBrush / rayVersusBrush.
+// (16v-maps-validate.js) and the map tests use it; nothing here runs during a match. Uses S08's makeBrush / rayBrush.
 
 const MAP_CELL = 0.5;               // grid spacing, metres
 const MAP_CELL_COARSE = 1;          // spacing on very large maps (the island): a quarter of the cells, the same rules
@@ -467,8 +467,7 @@ const MapScan = {
     let best = Infinity;
     for (let i = 0; i < scan.brushes.length; i++) {
       const brush = scan.brushes[i];
-      if (brush.material === 'glass' || !rayHitsBox(ox, oy, oz, dx, 0, dz, Math.min(best, maxDistance), brush)) continue;
-      if (rayVersusBrush(ox, oy, oz, dx, 0, dz, Math.min(best, maxDistance), brush, hit)) best = hit.distance;
+      if (brush.material !== 'glass' && rayBrush(ox, oy, oz, dx, 0, dz, Math.min(best, maxDistance), brush, hit)) best = hit.distance;
     }
     return best;
   },
@@ -478,7 +477,7 @@ const MapScan = {
     if (length < 1e-6) return true;
     const dx = (bx - ax) / length, dy = (by - ay) / length, dz = (bz - az) / length;
     for (let i = 0; i < scan.brushes.length; i++) {
-      if (rayHitsBox(ax, ay, az, dx, dy, dz, length, scan.brushes[i]) && rayVersusBrush(ax, ay, az, dx, dy, dz, length, scan.brushes[i], hit)) return false;
+      if (rayBrush(ax, ay, az, dx, dy, dz, length, scan.brushes[i], hit)) return false;
     }
     return true;
   },
