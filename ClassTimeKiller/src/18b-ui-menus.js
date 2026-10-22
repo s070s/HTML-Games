@@ -31,7 +31,6 @@ const TOUCH_EDITOR_HINT = 'Layout editor: drag a control to move it, tap it to e
 const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overflow: hidden auto; padding: 8px; } .ui-editor .ui-row { min-height: 36px; padding: 2px 8px; margin-bottom: 3px; }'
   + '.ui-editor .ui-button { min-height: 36px; } .ui-editor .ui-note { margin-bottom: 6px; } .ui-editor .ui-slider { width: 58%; } .ui-editor .ui-cycle { min-width: 7em; } .ui-editor .ui-label { min-width: 0; } .ui-editor .ui-value { min-width: 3em; }'
   + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }'
-  + '.ui-main .ui-menu, .ui-solo .ui-menu { overflow-y: auto; min-height: 0; touch-action: pan-y; padding: 4px; }'
   + '@media (max-height: 520px) { .ui-main .ui-menu, .ui-solo .ui-menu { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .ui-main .ui-menu .ui-button { font-size: 1em; } }';
 
 function screenHeader(root, title, onBack) {

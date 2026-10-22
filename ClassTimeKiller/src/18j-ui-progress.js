@@ -79,8 +79,7 @@ Ui.register('career', {
     root.appendChild(careerBar(Progress.levelProgress()));
     const menu = makeElement('div', 'ui-menu');
     for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
-    if (careerRangeAvailable()) menu.appendChild(Ui.button('Firing Range', careerOpenRange));
-    for (const entry of CAREER_MODE_ENTRIES) menu.appendChild(careerModeButton(entry));
+    menu.appendChild(Ui.button('Solo', () => Ui.open('solo')));   // the PvE modes (with a difficulty choice) live there; the Firing Range is on the main menu
     menu.firstChild.dataset.autofocus = '1';
     root.appendChild(menu);
   },
