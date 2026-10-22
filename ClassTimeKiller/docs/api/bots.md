@@ -13,7 +13,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 ## Think loop (per tick, per living bot)
 
 1. `BotSense.serve(now)`: perception passes that are due (20 Hz in combat near the player, 10 Hz otherwise, 5 Hz beyond 40 m or outside the player's view; staggered by id). Budget: 96 rays per tick over all bots for sight and hearing together, combat pairs first; sight leaves the last 16 for sounds (a sound beyond the through-wall radius needs a ray; none left = not heard).
-2. `BotTeam.step(now)`: the commander (roles every 15 s) and the player's ping button.
+2. `BotTeam.step(now)`: the commander (roles every 15 s). The player's ping button and comm wheel are read by `CommWheel` (17g).
 3. Per bot: decision at 2 Hz (staggered), combat (target, aim, fire, weapon), navigation (path following), combat footwork (strafe, dodge), goal actions (hold, use), team updates (acknowledgements, barks), then the motor (look spring with the tier's turn cap, move axes, buttons).
 - The first 0.5 s after a spawn the bot only looks along its facing (BOT-002 Spawn state). Frozen actors (`ACTOR_FLAG.FROZEN`, freeze time) wait the same way.
 
@@ -110,9 +110,10 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 ### Team (14f)
 
 - `ROLE` (`FREELANCE ATTACK DEFEND ESCORT`), `BotTeam.role[id]`; the bots with the most teamwork take the support roles.
-- Orders (BOT-062): a `ping` from a person (`kind` `defend`, `attack`, anything else = go) is taken by the 2 nearest team bots; every taker acknowledges 0.5..1.5 s later (`orderAck` bark) and follow it as goal `ORDER` (defend: hold 45 s; others: 30 s or until there). `BotTeam.orderGivenAt / answeredAt[id]`.
+- Orders (BOT-062): a `ping` from a person is an order by its `COMM_CALLOUTS` row (14f; a kind with no row = go): `attack`, `defend` and `go` at the spot are taken by the 2 nearest team bots; `follow` (follow the caller, 60 s or until they die), `hold` (defend where each bot stands) and `regroup` (go to the caller) by every team bot. Every taker acknowledges 0.5..1.5 s later (`orderAck` bark) and follows it as goal `ORDER` (`ORDER_SECONDS`: defend holds 45 s; attack / go 30 s or until there). `BotTeam.orderGivenAt / answeredAt / orderSource[id]`.
 - Pings (BOT-063): a bot that spots an enemy pings it (`kind: 'enemy'`, at most once per 4 s per bot); enemy pings from anyone share the position with the pinger's team bots; the team bot nearest a person's enemy ping replies 0.5..1.5 s later (`pingReply` bark).
-- The player's PING button (pressed edge): an enemy within 4 deg of the aim line becomes an enemy ping; else the aimed spot (raycast, 120 m) becomes `defend` (own objective), `attack` (other objective) or `go`.
+- Comm wheel (BOT-061, INP-003; `CommWheel` in 17g, an `Input` source): hold Comm (T) or hold Ping for 0.3 s; look input picks one of the 8 `COMM_CALLOUTS` (Attack, Defend, Follow me, Hold position, Regroup, Danger, Enemy, Go here) instead of turning the view; letting go sends `BotTeam.callout(player, index)`: a ping of that kind at the aimed spot (`at: 'aim'`; Enemy still tags an aimed enemy) or at the caller's feet (`at: 'self'`).
+- The player's PING button (a tap shorter than 0.3 s, `BotTeam.playerPing`): an enemy within 4 deg of the aim line becomes an enemy ping; else the aimed spot (raycast, 120 m) becomes `defend` (own objective), `attack` (other objective) or `go`.
 - `BotTeam.bark(id, category, now)`: at most one bark per bot per 5 s and per team per 1.5 s, spoken by the profile's chat chance; `reply` categories skip the chance and both limits; `chatter` off / minimal (only `minimal` categories) / normal; taunts off with `gameplay.taunts`. Returns true when spoken.
 - `BotTeam.takeGrenadeToken(id, now)`.
 
@@ -125,7 +126,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 
 | Event | Payload | When |
 |---|---|---|
-| `ping` (emits) | `{ id, kind: 'enemy'\|'defend'\|'attack'\|'go', x, y, z, target }` | a bot spots an enemy; the player presses PING |
+| `ping` (emits) | `{ id, kind: 'enemy'\|'defend'\|'attack'\|'go'\|a `COMM_CALLOUTS` id, x, y, z, target }` | a bot spots an enemy; the player taps PING or sends a comm wheel callout |
 | `bark` (emits) | `{ id, team, category, text }` | a bot speaks (text chat line for the HUD) |
 | listens | `match.setup match.start match.stop match.end actor.create actor.spawn actor.remove kill damage sound ping weapon.fire pickup setting` | |
 

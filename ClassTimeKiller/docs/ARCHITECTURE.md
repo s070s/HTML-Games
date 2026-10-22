@@ -29,7 +29,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S14 | bots | `14*` | `Bots` |
 | S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
 | S16 | map gen | `16*` | `Maps`, `MapGen` |
-| S17 | HUD | `17*` | `Hud` |
+| S17 | HUD | `17*` | `Hud`, `CommWheel` (17g, comm / ping wheel) |
 | S18 | UI | `18*` | `Ui`, `Progress` |
 | S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
