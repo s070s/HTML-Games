@@ -538,3 +538,32 @@ Test.add('ui', (check) => uiWith(() => {
   check('full screen: only where it exists; version back', !version.hidden && !offered(false) && offered(true));
   delete document.documentElement.requestFullscreen;
 }));
+
+// Rotate guard (LT-C-022): an upright touch match pauses behind the overlay and resumes in landscape; menus stay usable
+// upright and the player's own pause stays.
+Test.add('ui', (check) => uiWith(() => {
+  const saved = { touch: RotateGuard.touch, portrait: RotateGuard.portrait }, requestResume = Input.requestResume, upright = { matches: true };
+  const turn = (portrait) => { upright.matches = portrait; RotateGuard.update(); return Game.paused && Game.pauseReason; };
+  const overlay = () => getComputedStyle(document.getElementById('rotate')).display !== 'none';
+  Object.assign(RotateGuard, { touch: true, portrait: upright });
+  try {
+    check('rotate: menus stay usable upright', !turn(true) && !RotateGuard.shown);
+    Game.state = 'playing';
+    check('rotate: an upright match pauses behind the overlay', turn(true) === 'rotate' && overlay());
+    check('rotate: landscape resumes', !turn(false) && !overlay());
+    // A held resume (a lost context, or a pointer lock that needs a click) is asked for once, not on every frame.
+    let requests = 0;
+    Input.requestResume = () => { requests++; };
+    turn(true); turn(false); turn(false);
+    check('rotate: a held resume is asked for once', requests === 1, requests);
+    Game.paused = false;
+    Game.pause('menu');
+    turn(true);
+    check('rotate: a pause by the player stays', turn(false) === 'menu' && !RotateGuard.shown);
+  } finally {
+    Object.assign(RotateGuard, saved);
+    Input.requestResume = requestResume;
+    Game.state = 'menu'; Game.paused = false;
+    RotateGuard.update();
+  }
+}));

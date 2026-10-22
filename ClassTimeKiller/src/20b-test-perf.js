@@ -354,11 +354,12 @@ Test.add('perf', (check) => {
   GpuTimer.extension = null;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('without a GPU timer one 30 Hz window does not raise the budget', slowFrameMs() === budget, DisplayRate.intervalMs);
-  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
-  check('without a GPU timer 30 Hz at an unchanged render scale (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
   Render.size.scale = saved.scale - SCALE_STEP;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
-  check('without a GPU timer 30 Hz held across a render-scale change is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
+  check('without a GPU timer 30 Hz across one render-scale step (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
+  Render.size.scale = saved.scale * 0.7;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz held while the pixel count halved is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
   Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count, candidateMs: 0, candidateScale: 0 });
   Object.assign(GpuTimer, { extension: saved.extension, lastMs: saved.gpuMs });
   Render.size.scale = saved.scale; Render.size.dirty = true;

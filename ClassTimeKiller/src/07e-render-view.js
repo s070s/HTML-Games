@@ -13,6 +13,7 @@ const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
+const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep its horizontal view (verticalFov)
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
@@ -24,9 +25,14 @@ Render.view = ViewState;
 const viewModelState = { visible: false, shape: 'rifle', model: '', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
   recoilPitch: 0, recoilYaw: 0, dual: false };
 
-// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more.
+// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more. Below 4:3 (a
+// portrait phone) the horizontal view of 4:3 is kept instead (Vert-), so the view never narrows to a slit. One source
+// for the world, the view model and every HUD projection: it reads the canvas aspect itself.
 function verticalFov(horizontalDegrees) {
-  return 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const fixed = 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const aspect = Render.size.width / Render.size.height;
+  if (aspect >= FOV_MIN_ASPECT) return fixed;
+  return 2 * Math.atan(Math.tan(fixed / 2) * FOV_MIN_ASPECT / aspect);
 }
 
 function readViewModel() {
@@ -206,21 +212,24 @@ const REFRESH_PERCENTILE = 0.25;         // the fast cluster of the samples: a f
 const REFRESH_LIGHT_TRIANGLES = 256;     // more than the menu draws (sky, benchmark off): a world is drawn, as in the map editor
 const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under half its interval: the display set the pace
 const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
+const REFRESH_PIXEL_DROP = 2;            // pixel-count drop that proves a slow interval (acceptRefreshMs)
 const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
-// ---- Display interval (non-60 Hz screens): light menu frames run at the display's own rate. A display slower than
-// 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
-// scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
-// reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
-// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. A GPU-bound
-// frame held to every second vsync looks exactly like a 30 Hz display: the GPU timer tells them apart, and without one a
-// slower-than-60 Hz interval counts only once it held across a render-scale change (a GPU frame time follows the scale). ----
+// ---- Display interval (non-60 Hz screens): light menu frames and idle match frames run at the display's own rate. A
+// display slower than 60 Hz (50 Hz TVs, 30 Hz power-saving modes such as iOS Low Power Mode, which can start mid-match)
+// can never show 60 fps: its own interval becomes the frame budget, so the scale and the preset are not lowered for
+// frames no setting could make faster. Frames that are slow for their own reasons (the map editor draws a whole world in
+// the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the display's interval: they would raise the budget
+// and switch off PERF-007 / PERF-013. A GPU-bound frame held to every second vsync looks exactly like a 30 Hz display:
+// the GPU timer tells them apart, and without one a slower-than-60 Hz interval counts only once it held while the
+// render scale halved the pixel count (a GPU frame time follows the scale; a slow match lowers the scale on its own). ----
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
-// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU (and timed GPU) work left it idle.
+// True when this frame's interval was set by the display: an uncapped light menu frame or running match frame whose CPU
+// (and timed GPU) work left it idle.
 function displayPacedFrame(seconds) {
-  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
-  if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
+  if (Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
+  if (Game.state === 'menu' ? Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES : !Game.isRunning()) return false;
   const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
   if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
   return Perf.cpuMs[Perf.lastIndex()] < idleMs;
@@ -245,13 +254,15 @@ function measureDisplayRate(seconds) {
   acceptRefreshMs(rate, standardRefreshMs(measuredMs));
 }
 
-// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval in the window before at another scale.
+// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval since a scale with at least
+// twice the pixels (or since any other scale, once at the preset minimum): a frame bound by fill would be faster by then.
 function acceptRefreshMs(rate, refreshMs) {
   if (!refreshMs) return;
   const scale = Render.size.scale;
-  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
-  rate.candidateMs = refreshMs; rate.candidateScale = scale;
-  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
+  if (refreshMs !== rate.candidateMs) { rate.candidateMs = refreshMs; rate.candidateScale = scale; }
+  const pixelsHalved = rate.candidateScale * rate.candidateScale >= REFRESH_PIXEL_DROP * scale * scale;
+  const atMinimum = scale <= Render.quality.renderScaleMin + 1e-4 && scale !== rate.candidateScale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || pixelsHalved || atMinimum) rate.intervalMs = refreshMs;
 }
 
 // The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
@@ -331,7 +342,9 @@ function updateRenderScale(seconds) {
 }
 Render.addUpdate(2, updateRenderScale);
 
-// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it ----
+// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it. The lower
+// preset holds for this session only (never saved): a slow spell (a hot phone, a power-saving mode) cannot pin a low
+// preset for good, and the next launch retries the chosen or benchmarked one. ----
 const STEP_DOWN_SECONDS = 5;
 const StepDown = { slowSeconds: 0 };
 
@@ -339,7 +352,9 @@ function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
+  // Quality.current() now returns it, so the renderer and the PERF-009 caps agree.
+  Quality.sessionId = next.id;
+  readVideoSettings();
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }

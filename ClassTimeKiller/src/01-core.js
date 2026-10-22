@@ -5,7 +5,11 @@
 const VERSION = '0.1.0';
 const TICK_RATE = 120;                 // simulation steps per second (ARC-010)
 const TICK_SECONDS = 1 / TICK_RATE;
-const MAX_STEPS_PER_FRAME = 4;         // ARC-010: drop the remainder after 4 steps
+// ARC-010 spiral guard: a frame runs as many steps as SIM_FRAME_BUDGET_MS holds at the measured step cost, between the
+// floor and 12 (0.1 s of game time, so a cheap sim keeps 1x speed down to 10 fps); the remainder is dropped.
+const MAX_STEPS_PER_FRAME = 12;
+const MIN_STEPS_PER_FRAME = 4;
+const SIM_FRAME_BUDGET_MS = 25;
 const DEG = Math.PI / 180;
 const GRAVITY = 20;                    // m/s^2 before the ruleset gravityScale (arena feel; presets scale it)
 const MAX_ACTORS = 64;                 // ARC-011

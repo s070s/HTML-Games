@@ -337,21 +337,19 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
   check('the time scale returns to 1 when the match stops', Sim.timeScale === 1);
 
-  // A speed-up is honoured on a slow frame: 200% on a 30 fps frame needs 8 steps, more than the normal cap of 4.
+  // A speed-up is honoured on a slow frame: 200% on a long frame runs twice the normal step cap (a cheap sim: the full cap, ARC-010).
   startMutatorMatch([{ id: 'gamespeed', value: 200 }]);
   const tickBefore = Sim.tick;
-  Loop.accumulator = 0;
-  Loop.advance(1 / 30);
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
+  Loop.advance(1);
   const doubled = Sim.tick - tickBefore;
   stopMutatorMatch();
   startMutatorMatch([]);
   const normalBefore = Sim.tick;
-  Loop.accumulator = 0;
-  Loop.advance(1 / 30);
-  check('game speed 200% keeps up on a 30 fps frame; normal speed is still capped per frame', doubled === 2 * (Sim.tick - normalBefore) && doubled === 2 * MAX_STEPS_PER_FRAME, doubled + ' ' + (Sim.tick - normalBefore));
-  Loop.accumulator = 0;
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
   Loop.advance(1);
-  check('a long stall is still capped at four steps at normal speed', Sim.tick - normalBefore === 2 * MAX_STEPS_PER_FRAME);
+  check('game speed 200% runs twice the step cap on a long frame; normal speed is capped per frame', doubled === 2 * MAX_STEPS_PER_FRAME && Sim.tick - normalBefore === MAX_STEPS_PER_FRAME, doubled + ' ' + (Sim.tick - normalBefore));
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
   stopMutatorMatch();
 
   startMutatorMatch(['slowmokills']);

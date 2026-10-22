@@ -203,11 +203,16 @@ const Settings = {
 // Current quality preset (PERF-008). 'auto' resolves to Quality.autoId, which the renderer's first-run benchmark sets.
 Settings.define('video.quality', 'auto', { label: 'Quality', category: 'video', options: ['auto', 'ultra', 'high', 'medium', 'low', 'potato'] });
 Settings.define('video.autoQuality', '', { label: 'Benchmarked quality', category: 'developer' });
+// sessionId: the renderer's automatic step-down (PERF-013), for this session only and never saved, so bots, enemies,
+// props and audio voices drop with the renderer; a chosen or benchmarked preset ends it.
 const Quality = {
   autoId: 'medium',
+  sessionId: '',
   current() {
     const chosen = Settings.get('video.quality');
-    const stored = chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen;
+    const stored = this.sessionId || (chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen);
     return CAT.quality.byId(stored) || CAT.quality.byId('medium');
   },
 };
+// Registered before S07's video settings listener, which then reads the new preset.
+Bus.on('setting', (key) => { if (key === 'video.quality' || key === 'video.autoQuality') Quality.sessionId = ''; });

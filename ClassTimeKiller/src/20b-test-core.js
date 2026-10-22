@@ -216,6 +216,36 @@ Test.add('core', (check) => {
     && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
 });
 
+// ARC-010 spiral guard: a cheap sim keeps 1x game time down to 10 fps, a costly one keeps the 4-step floor. The first frame
+// after a resume takes the clock from its own rAF timestamp (it can be older than the resume event).
+Test.add('core', (check) => {
+  const systems = Sim.systems, dropped = Perf.droppedSteps, raf = window.requestAnimationFrame, hooks = Loop.hooks;
+  const run = (stepCostMs, seconds, frames) => {
+    Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = stepCostMs;
+    for (let frame = 0; frame < frames; frame++) Loop.advance(seconds);
+    return Sim.tick;
+  };
+  // A cheap sim.
+  Sim.systems = [];
+  window.requestAnimationFrame = () => 0;
+  Loop.hooks = { input: [], render: [], hud: [], audio: [], ui: [] };
+  try {
+    check('loop: 24 fps runs at 1x', run(0, 1 / 24, 48) >= 239 && Perf.droppedSteps === dropped, Sim.tick);
+    check('loop: a stall runs 0.1 s, a costly sim 4 steps', run(0, 1, 1) === 12 && run(10, 1, 1) === MIN_STEPS_PER_FRAME, Sim.tick);
+    Game.state = 'playing'; Game.paused = true;
+    Game.resume();
+    Game.state = 'menu';
+    const start = performance.now() - 5, recorded = Perf.index;
+    Loop.frame(start);
+    const skipped = Perf.index === recorded;
+    Loop.frame(start + 16);
+    check('loop: a resume skips one frame, no negative interval', skipped && Math.abs(Perf.frameMs[Perf.lastIndex()] - 16) < 0.01);
+  } finally {
+    Sim.systems = systems; Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0; Perf.droppedSteps = dropped;
+    window.requestAnimationFrame = raf; Loop.hooks = hooks; Game.paused = false;
+  }
+});
+
 // One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other
 // section builds its own 'sound', 'impulse' or 'toast' payload.
 const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;

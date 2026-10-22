@@ -7,6 +7,7 @@
 const FRAME_PHASES = ['input', 'render', 'hud', 'audio', 'ui'];
 const FRAME_HISTORY = 240;              // frames kept for p50/p95/p99 (2 s at 120 fps)
 const MAX_FRAME_SECONDS = 0.25;         // a longer gap (tab switch, debugger) is not simulated
+const STEP_COST_BLEND = 0.1;            // smoothing of Loop.stepCostMs
 
 const FRAME_CAP_TOLERANCE_MS = 1.5;   // rAF timestamps jitter; skip a frame only when clearly early
 // 30 is the battery saver (plan 18.5 low-power mode): the renderer takes the cap interval as its frame budget.
@@ -55,7 +56,8 @@ const Loop = {
   lastTime: 0,
   accumulator: 0,
   alpha: 0,               // interpolation factor between the previous and current sim state
-  frameSeconds: 0,
+  stepCostMs: 0,          // smoothed ms per sim step (maxSteps reads it)
+  resync: false,          // set by start and resume: the next rAF timestamp becomes the clock
   frameCapMs: 0,          // 0 = uncapped (PERF 18.5 battery option)
   capCreditMs: 0,         // frame cap pacing: time owed to the next capped frame (carried over, so the average rate is the cap)
   callback: null,         // the one requestAnimationFrame callback (made once: no closure per frame, PERF-006)
@@ -66,27 +68,30 @@ const Loop = {
   start() {
     if (this.running) return;
     this.running = true;
-    this.lastTime = performance.now();
-    if (!Perf.loopStartMs) Perf.loopStartMs = this.lastTime;
+    this.resync = true;
+    if (!Perf.loopStartMs) Perf.loopStartMs = performance.now();
     if (!this.callback) this.callback = (now) => this.frame(now);
     requestAnimationFrame(this.callback);
   },
   frame(now) {
     if (!this.running) return;
     requestAnimationFrame(this.callback);
+    // After start or resume the clock restarts at this frame's own timestamp, which can be older than the resume event:
+    // this frame simulates nothing and is not recorded (no negative interval).
+    const resynced = this.resync;
+    if (resynced) { this.resync = false; this.lastTime = now; this.capCreditMs = 0; }
     const intervalMs = now - this.lastTime;
-    if (this.skipForCap(intervalMs)) return;
+    if (!resynced && this.skipForCap(intervalMs)) return;
     const frameStart = performance.now();
     const seconds = Math.min(MAX_FRAME_SECONDS, Math.max(0, intervalMs / 1000));
     this.lastTime = now;
-    this.frameSeconds = seconds;
     this.runPhase('input', seconds);
     const simStart = performance.now();
     if (Game.isRunning()) this.advance(seconds);
     const simMs = performance.now() - simStart;
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
     Perf.publishCounters();
-    Perf.record(intervalMs, performance.now() - frameStart, simMs);
+    if (!resynced) Perf.record(intervalMs, performance.now() - frameStart, simMs);
     if (!Perf.bootMs) Perf.bootMs = performance.now();   // the first frame: the main menu is on screen
   },
   // Frame cap (18.5): paced from the rAF timestamps. A frame is drawn once the time since the last drawn one plus the
@@ -102,23 +107,27 @@ const Loop = {
     this.capCreditMs = credit > cap ? 0 : Math.max(-FRAME_CAP_TOLERANCE_MS / 2, credit);
     return false;
   },
-  // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME (times the game speed when it is above 1, so a speed-up
+  // Runs whole sim steps for the elapsed time; at most maxSteps() (times the game speed when it is above 1, so a speed-up
   // is still honoured on a slow frame), the rest is dropped (spiral-of-death guard).
   advance(seconds) {
     this.accumulator += seconds * Sim.timeScale;
-    const maxSteps = Math.ceil(MAX_STEPS_PER_FRAME * Math.max(1, Sim.timeScale));
+    const maxSteps = Math.ceil(this.maxSteps() * Math.max(1, Sim.timeScale));
+    const started = performance.now();
     let steps = 0;
     while (this.accumulator >= TICK_SECONDS && steps < maxSteps) {
       Sim.step();
       this.accumulator -= TICK_SECONDS;
       steps++;
     }
+    if (steps > 0) this.stepCostMs += ((performance.now() - started) / steps - this.stepCostMs) * STEP_COST_BLEND;
     if (this.accumulator >= TICK_SECONDS) {
       Perf.droppedSteps += Math.floor(this.accumulator / TICK_SECONDS);
       this.accumulator %= TICK_SECONDS;
     }
     this.alpha = this.accumulator / TICK_SECONDS;
   },
+  // ARC-010: as many steps as the frame budget holds at the measured step cost, between the floor and 0.1 s of game time.
+  maxSteps() { return clamp(Math.floor(SIM_FRAME_BUDGET_MS / this.stepCostMs), MIN_STEPS_PER_FRAME, MAX_STEPS_PER_FRAME); },
   runPhase(phase, seconds) {
     const list = this.hooks[phase];
     for (let i = 0; i < list.length; i++) {
@@ -129,7 +138,7 @@ const Loop = {
 
 // The loop restarts its clocks with every match.
 Bus.on('match.setup', () => { Perf.reset(); Loop.accumulator = 0; });
-Bus.on('game.resume', () => { Loop.lastTime = performance.now(); });
+Bus.on('game.resume', () => { Loop.resync = true; });
 Bus.on('setting', (key) => {
   if (key !== 'video.frameCap') return;
   const cap = Settings.get('video.frameCap');
