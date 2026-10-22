@@ -200,6 +200,7 @@ const Actors = {
 const Sim = {
   systems: [],
   tick: 0,          // steps since match start; the sim's only clock (ARC-010: never read wall-clock)
+  timeScale: 1,     // game speed: the loop feeds real seconds x timeScale to the 120 Hz steps (mutators X02/X27, difficulty)
   time: 0,          // tick * TICK_SECONDS
   timing: {},       // last step cost per system in ms (perf HUD)
   addSystem(name, order, step) {

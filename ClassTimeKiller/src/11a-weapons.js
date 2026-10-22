@@ -167,6 +167,7 @@ const Weapons = {
   // WPN-007: with ammo tiers on, primary-tier weapons never run out of reserve.
   infiniteReserve(weapon) {
     const set = currentWeaponSet(), rules = currentRules();
+    if (rules.fx && rules.fx.infiniteAmmo) return true;   // mutators X08, X09, X15
     const tiers = rules.ammoTiers === undefined ? set.ammoTiers : rules.ammoTiers;
     return tiers && weapon.family.tier === 'primary';
   },

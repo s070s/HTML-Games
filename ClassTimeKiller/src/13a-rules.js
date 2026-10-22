@@ -20,7 +20,7 @@ const RULE_REFERENCES = { move: 'movement', health: 'health', economy: 'economy'
 // The mode's respawn kind lands in rules.respawnMode (rules.respawn holds the ruleset timers).
 const MODE_RULE_FIELDS = ['teams', 'sizeDefault', 'scoreLimit', 'timeLimit', 'scoreBy', 'rounds', 'objective', 'params', 'tiebreak', 'family'];
 const MODE_OPTION_FIELDS = MODE_RULE_FIELDS.concat(['respawnMode']);
-const RULE_IDENTITY_FIELDS = ['id', 'code', 'name'];   // set by the bundle stage itself, never merged
+const RULE_IDENTITY_FIELDS = ['id', 'code', 'name', 'editor'];   // identity is set by the bundle stage itself; editor settings are not rules; never merged
 
 const Rules = {
   modifiers: { mode: [], bundle: [], mutators: [], difficulty: [], handicap: [] },

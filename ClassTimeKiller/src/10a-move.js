@@ -93,6 +93,9 @@ function matchPreset() {
   return MatchMove.preset;
 }
 
+// A ruleset lists mutators as { id, value }; hand-made test rules may list plain ids.
+function hasMutator(list, id) { return list.some((entry) => entry === id || entry.id === id); }
+
 function buildMatchMove(rules) {
   const row = CAT.movement.byId(rules && rules.move) || CAT.movement.byId('arena');
   const mutators = (rules && rules.mutators) || [];
@@ -100,8 +103,8 @@ function buildMatchMove(rules) {
   MatchMove.preset = rules && rules.moveOverrides ? Object.assign({}, row, rules.moveOverrides) : row;
   MatchMove.gravityScale = rules && rules.gravityScale !== undefined ? rules.gravityScale : 1;
   MatchMove.knockback = rules && rules.knockback !== undefined ? rules.knockback : 1;
-  MatchMove.autoHop = mutators.includes('autohop');        // X25: holding jump repeats
-  MatchMove.airControl = mutators.includes('aircontrol');  // X24: air-control assist for everyone
+  MatchMove.autoHop = hasMutator(mutators, 'autohop');        // X25: holding jump repeats
+  MatchMove.airControl = hasMutator(mutators, 'aircontrol');  // X24: air-control assist for everyone
 }
 
 function resetMotion(id) {

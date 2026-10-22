@@ -76,7 +76,7 @@ const Loop = {
   },
   // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME, the rest is dropped (spiral-of-death guard).
   advance(seconds) {
-    this.accumulator += seconds;
+    this.accumulator += seconds * Sim.timeScale;
     let steps = 0;
     while (this.accumulator >= TICK_SECONDS && steps < MAX_STEPS_PER_FRAME) {
       Sim.step();
