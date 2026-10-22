@@ -248,11 +248,13 @@ const Game = {
   match: null,            // { setup, rules, map, ended, winner, ... } filled by the match.* listeners
   playerId: -1,
   headless: false,        // true in headless self-tests: no WebGL, no DOM UI, no audio
+  setupHooks: [],         // fn(setup) later sections push to adjust every setup before match.setup (18l: the player's assist sliders)
 
   isRunning() { return this.state === 'playing' && !this.paused; },
   // setup: { mode, map, ruleset, mutators, bots, seed, difficulty, player } - each section reads the fields it owns.
   start(setup) {
     if (this.match) this.stop();
+    for (const adjust of this.setupHooks) adjust(setup);   // every start path (play, career, custom, generated, restart) gets them
     Sim.reset();
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };

@@ -744,7 +744,7 @@ Test.add('input', (check) => {
   check('perf: a frame of input sampling costs far below the 0.4 ms budget', perFrame < 0.1, perFrame.toFixed(4) + ' ms');
   check('perf: sampling kept the player input valid', kept);
   Game.pause('menu');
-  const sources = Input.sources.length;
-  check('structure: touch and gamepad register as sources', sources === 2);
+  const sources = Input.sources;
+  check('structure: touch, gamepad and the comm wheel (17g) register as sources', sources.length === 3 && sources.includes(TouchInput) && sources.includes(PadInput) && sources.includes(CommWheel));
   Game.resume();
 });

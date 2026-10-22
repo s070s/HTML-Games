@@ -93,7 +93,7 @@ const DifficultyAssist = {
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
-PlayFlow.setupHooks.push((setup) => DifficultyAssist.apply(setup));
+Game.setupHooks.push((setup) => DifficultyAssist.apply(setup));
 
 // Slider rows for a plain object of { field: value } (custom matches); onChange(field, value) runs after every change.
 Ui.difficultyRows = function difficultyRows(container, values, onChange) {

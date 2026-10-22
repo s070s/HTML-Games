@@ -188,8 +188,8 @@ Test.add('settings', (check) => {
   check('assist: switched on with every slider neutral, the preset is not overridden', untouched.difficulty.preset === 'nightmare' && Object.keys(untouched.difficulty).length === 1, JSON.stringify(untouched.difficulty));
   Settings.set('assist.gameSpeed', 0.7);
   const built = PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'nightmare', bots: 2 }), () => 0.5);
-  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   Game.start(built);
+  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   const skill = Game.match.rules.botSkill;
   check('assist: the preset keeps its bot tiers and behaviour', skill.preset === 'nightmare' && skill.tierMin === 7 && skill.aggression === 1 && skill.attackers === 7 && skill.gameSpeed === 0.7);
   check('assist: game speed scales the simulation clock', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
@@ -205,8 +205,15 @@ Test.add('settings', (check) => {
   Sim.run(10);
   check('assist: slow-mo ends back at the assist speed', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
   Game.stop();
+  // ACC-007: every start path (career, custom, generated map, restart) goes through Game.start, so a hand-built setup gets the assists too.
+  const direct = { mode: 'ffa', seed: 1, difficulty: 'veteran' };
+  Game.start(direct);
+  check('assist: a setup not built by Play still gets the assist sliders', direct.difficulty.preset === 'veteran' && Game.match.rules.botSkill.gameSpeed === 0.7 && Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(direct.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 1);
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };

@@ -268,6 +268,12 @@ Test.add('ui', (check) => uiWith(() => {
   PlayFlow.quickMatch = realQuickMatch;
   Bus.off('ui.quickMatch', listener);
   check('main menu: Quick Match emits ui.quickMatch (one action to start)', quick === 1);
+  const range = buttons.find((button) => button.firstChild.textContent === 'Range');
+  const rangeEnabled = !range.disabled;
+  range.click();
+  check('main menu: Range is enabled and starts the Firing Range (PRG-008)', rangeEnabled && Game.match && Game.match.setup.mode === CAREER_RANGE_MODE, String(Game.match && Game.match.setup.mode));
+  Game.stop();
+  Ui.closeAll(); Ui.open('main');
   check('main menu: back does nothing here', !Ui.back() && Ui.current() === 'main');
   const realCareer = Ui.screens.get('career');
   Ui.screens.delete('career');

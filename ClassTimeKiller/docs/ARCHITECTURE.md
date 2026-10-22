@@ -29,7 +29,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S14 | bots | `14*` | `Bots` |
 | S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
 | S16 | map gen | `16*` | `Maps`, `MapGen` |
-| S17 | HUD | `17*` | `Hud` |
+| S17 | HUD | `17*` | `Hud`, `CommWheel` (17g, comm / ping wheel) |
 | S18 | UI | `18*` | `Ui`, `Progress` |
 | S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
@@ -69,7 +69,7 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 
 ## Match record and lifecycle
 
-`Game.start(setup)` emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
+`Game.start(setup)` first runs `Game.setupHooks` (fn(setup) pushed by later sections; 18l adds the player's assist sliders), then emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
 `setup = { mode: 'ffa', map: 'mp01', ruleset: 'rs01' | {…}, mutators: [], bots: [{ profile, team, tier }], seed, difficulty, player: { team, loadout }, modeOptions, balance }`. `balance: false` keeps a custom team split (S13 auto-balance skips it).
 `Game.match = { setup, rules, map, ended, winner, startTick, … }`. `rules` is the frozen built ruleset (Ruleset schema in spec §4, built by S13 `Rules.build`); every section reads its own fields from it (`CAT.movement.byId(Game.match.rules.move)`). Tests may assign a hand-made `rules` object.
 Ruleset fields that cross sections: `rules.fx` = the mutator effect bag (S13 13h sets one key per active mutator, e.g. `darkness`, `ballistics { gravity, drag }`, `volatileAmmo`, `noItems`, `noPowerups`, `mirror`, `powers`, `superPowerups`; the reading section is listed in docs/api/mutators-custom.md); `rules.items` (false = no map pickups; S12 also skips them for `fx.noItems` and mode `params.pickups: false`); `rules.botSkill` = the resolved difficulty preset (S14), read by S11 for the player's aim assist (`aimAssist` 0..100, -1 keeps the setting); `rules.weaponSet: 'matchSet'` = the reserved `weaponSets` row the match fills from a weapon list (X08/X09/X10, custom matches): S11 loadouts and S12 weapon spots use its `weapons`.
@@ -166,7 +166,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Ballistics: `Projectiles.spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, { gravity, drag })` (S11 11b) flies one hitscan pellet as a `bullet` projectile (row P21) while `rules.fx.ballistics` is set.
 - Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.
 - World media: `World.touchTriggers(id, gravity)` (called by S10 every step) returns `TRIGGER_MEDIUM` bits `WATER` (swim depth), `WADING` (touching water), `LADDER`, `HEAD_UNDER`, `MOVED` (docs/api/world-move.md).
-- UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`. Settings screen hooks: `Ui.settingGroup(key)`, `Ui.settingsExtras[category | category + ':after']`, `Ui.settingsFooter`; `PlayFlow.setupHooks` adjust a built setup; `hudAddElement(row)` adds a hideable HUD element (S17).
+- UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`. Settings screen hooks: `Ui.settingGroup(key)`, `Ui.settingsExtras[category | category + ':after']`, `Ui.settingsFooter`; `Game.setupHooks` (S01) adjust every setup at `Game.start`; `hudAddElement(row)` adds a hideable HUD element (S17).
 - Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops.
 - Quality: `Quality.current()` (S04) is the active `CAT.quality` row; `Settings 'video.quality'` ('auto' or a preset id); the renderer's benchmark sets `video.autoQuality`.
 - Input: `Input.device` = last used device `'kbm'|'touch'|'gamepad'`.

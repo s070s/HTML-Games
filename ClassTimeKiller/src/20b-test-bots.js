@@ -340,6 +340,47 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- Comm wheel (BOT-061/062, INP-003): Ping tap vs hold, look picks a callout, follow / hold / regroup reach the whole team ----
+Test.add('bots', (check) => {
+  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
+  const mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  runSeconds(1);
+  const fromPlayer = () => pings.filter((event) => event.id === player);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.1);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  check('wheel: a short Ping tap pings at once, no wheel', fromPlayer().length === 1 && !CommWheel.open, fromPlayer().length);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.2); CommWheel.frame(0.2);
+  check('wheel: holding Ping opens the wheel and sends nothing yet', CommWheel.open && fromPlayer().length === 1);
+  Input.look.mouseX = 0.05;
+  const yaw = Actors.aimYaw[player];
+  CommWheel.frame(0.02);
+  check('wheel: look picks the callout to the right (Follow me) and does not turn the view', COMM_CALLOUTS[CommWheel.selected].id === 'follow' && Input.look.mouseX === 0 && Actors.aimYaw[player] === yaw, CommWheel.selected);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  const follow = fromPlayer()[1];
+  check('wheel: letting go sends the picked callout at the caller', !CommWheel.open && follow && follow.kind === 'follow' && follow.x === Actors.x[player], JSON.stringify(follow));
+  check('follow me: every team bot takes it and tracks the caller', mates.every((id) => BotTeam.orderKind[id] === 'follow' && BotTeam.orderSource[id] === player), mates.map((id) => BotTeam.orderKind[id]).join());
+  placeActor(player, 18, -18);
+  runSeconds(6);
+  const nearCaller = (id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18) < 8;   // a bot in a fight may fight first (combat outscores orders)
+  check('follow me: the bots come to where the caller went', mates.some(nearCaller) && mates.every((id) => nearCaller(id) || BotCombat.target[id] >= 0), mates.map((id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18).toFixed(1) + ' goal ' + BotDecide.goal[id]).join());
+  CommWheel.onComm(true);
+  CommWheel.pick(0, 0.05);   // straight down: the fifth of eight callouts
+  CommWheel.onComm(false);
+  const regroup = fromPlayer()[2];
+  check('wheel: the Comm key opens it too (down = Regroup)', regroup && regroup.kind === 'regroup', JSON.stringify(regroup));
+  BotTeam.callout(player, COMM_CALLOUTS.findIndex((row) => row.id === 'hold'));
+  check('hold position: every bot defends the spot it stands on', mates.every((id) => BotTeam.orderKind[id] === 'defend' && Test.near(BotTeam.orderX[id], Actors.x[id], 1e-3) && Test.near(BotTeam.orderZ[id], Actors.z[id], 1e-3)));
+  CommWheel.onComm(true);
+  CommWheel.onComm(false);
+  check('wheel: letting go with nothing picked sends nothing', fromPlayer().length === 4 && !CommWheel.open, fromPlayer().length);
+  pings.stop();
+  CommWheel.reset();
+  endBotTest();
+});
+
 function withinAckTime(seconds) { return seconds >= ORDER_ACK_MIN - TIME_EPSILON && seconds <= ORDER_ACK_MAX + TICK_SECONDS; }
 
 function firstOfTeam(team) {
