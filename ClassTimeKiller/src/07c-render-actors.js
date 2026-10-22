@@ -377,6 +377,8 @@ function emitActorPart(part, pose, style) {
 }
 
 // Blob shadow under every actor (the local player too, MIS-037); airborne actors probe the ground below.
+const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
+
 function emitActorShadow(id, pose, scale) {
   let groundY = pose.y;
   if ((Actors.flags[id] & ACTOR_FLAG.ON_GROUND) === 0) {
@@ -390,6 +392,12 @@ function emitActorShadow(id, pose, scale) {
   shadowBatch.data[shadowBatch.lastOffset + 13] = SHADOW_STRENGTH * fade; // the shadow pass reads strength from this slot
 }
 
+// A loose box around the body and its blob shadow; actors outside the view cost nothing
+function actorInView(pose, scale) {
+  const half = ACTOR_CULL_HALF_WIDTH * scale;
+  return boxVisible(pose.x - half, pose.y - 1, pose.z - half, pose.x + half, pose.y + ACTOR_CULL_HEIGHT * scale, pose.z + half);
+}
+
 function fillActors(seconds, alpha) {
   actorBatch.clear();
   shadowBatch.clear();
@@ -400,7 +408,7 @@ function fillActors(seconds, alpha) {
     const pose = readActorPose(id, seconds, alpha), style = readActorStyle(id);
     if (!style.visible) continue;
     const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
-    if (distanceSquared > viewSquared) continue;
+    if (distanceSquared > viewSquared || !actorInView(pose, style.scale)) continue;
     emitActorShadow(id, pose, style.scale);
     if (id === Game.playerId && !Render.view.overridden) continue; // first person: no own body
     const parts = distanceSquared < nearSquared ? NEAR_PARTS : FAR_PARTS;

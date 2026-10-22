@@ -112,11 +112,13 @@ DebugApi.renderState = () => ({ render: Render, worldMesh: WorldMesh, hud: HudBa
 // Runs a block with the renderer switched on (headless off, benchmark parked) and restores every hook afterwards.
 async function withRenderer(run) {
   const wasHeadless = Game.headless, benchmarkActive = Benchmark.active, benchmarkDone = Benchmark.done;
+  const renderScale = Render.size.scale, smoothedMs = ScaleControl.smoothedMs;
   Game.headless = false; Benchmark.active = false; Benchmark.done = true;
   try {
     return await run();
   } finally {
     Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone;
+    Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs;
     Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
     Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.reset('video.');
@@ -239,6 +241,10 @@ Test.add('render', (check) => withRenderer(() => {
   fillActors(1 / 60, 1);
   check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
   check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  const behind = makeTestActor(ACTOR_KIND.BOT, 0, 0, -6);
+  fillActors(1 / 60, 1);
+  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  Actors.alive[behind] = 0;
   writeColor(tintColor, 0, CAT.teamColors[1].color);
   check('team colour on the torso', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0) + 8], tintColor[0], 1e-6));
   Actors.prevX[near] = -2; Actors.x[near] = 2;
@@ -327,6 +333,10 @@ Test.add('render', (check) => withRenderer(() => {
   const listener = Bus.on('toast', (payload) => { toast = payload.text; });
   Game.state = 'playing';
   ScaleControl.smoothedMs = 40;
+  Render.size.scale = 1;
+  for (let i = 0; i < 6; i++) updateStepDown(1);
+  check('no step-down while dynamic resolution can still lower the scale', Render.quality.id === 'high');
+  Render.size.scale = Render.quality.renderScaleMin;
   for (let i = 0; i < 4; i++) updateStepDown(1);
   check('no step-down before 5 s under 60 fps', Render.quality.id === 'high');
   updateStepDown(1);

@@ -64,7 +64,7 @@ On `world.load` the renderer builds the static mesh from `World.brushes`: faces 
 
 - Dynamic resolution (PERF-007): scale steps of 0.05 inside the preset's `renderScaleMin..Max`; lowers after 0.5 s over budget, raises after 2 s under 80% (GPU timer: 6 ms budget). Without `EXT_disjoint_timer_query_webgl2` the frame interval is compared with the 60 fps floor, and a drop right after a raise doubles the wait before the next raise (up to 16 s).
 - First-run benchmark (PERF-008): when `video.autoQuality` is empty, the menu draws a 3 s stress scene, syncs each frame with a 1-pixel read and maps the median frame cost to a preset (<= 3 ms ultra, 5 high, 8 medium, 13 low, else potato); emits `toast`.
-- Step-down (PERF-013): while playing, under 60 fps for 5 s lowers one preset (`video.autoQuality` when quality is `auto`, else `video.quality`) and emits `toast`.
+- Step-down (PERF-013): while playing, under 60 fps for 5 s (counted only once the automatic render scale is at the preset's minimum) lowers one preset (`video.autoQuality` when quality is `auto`, else `video.quality`) and emits `toast`.
 - Context loss (PLT-005): `Game.pause('graphics')`, `toast` "Graphics restoring...", everything rebuilt from CPU copies on restore, then `Game.resume()` and a `toast`.
 
 ## Events

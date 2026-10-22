@@ -235,8 +235,13 @@ function lowerQualityStep() {
   return true;
 }
 
+// With automatic render scale, the cheaper fix (lower resolution) is used up before a whole preset drops.
+function scaleHeadroomLeft() {
+  return Render.config.renderScale === 'auto' && Render.size.scale > Render.quality.renderScaleMin + 1e-4;
+}
+
 function updateStepDown(seconds) {
-  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= SLOW_FRAME_MS) { StepDown.slowSeconds = 0; return; }
+  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= SLOW_FRAME_MS || scaleHeadroomLeft()) { StepDown.slowSeconds = 0; return; }
   StepDown.slowSeconds += seconds;
   if (StepDown.slowSeconds < STEP_DOWN_SECONDS) return;
   StepDown.slowSeconds = 0;
