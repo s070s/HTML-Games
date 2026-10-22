@@ -141,14 +141,18 @@ Test.add('weapons', (check) => {
   const wasp = CAT.weapons.byId('wasp'), slot = Weapons.slotIndex(shooter, wasp.index);
   check('setLoadout draws the last key at once', Weapons.currentWeapon(shooter) === wasp && Weapons.magazine[slot] === 30 && Weapons.reserve[slot] === 120);
   Weapons.magazine[slot] = 1;
-  TestArena.hold(shooter, BTN.FIRE, 0.1);
+  Actors.buttons[shooter] = BTN.FIRE;
   Sim.step();
-  let empties = TestArena.count('weapon.empty', () => { Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Sim.step(); Actors.buttons[shooter] = 0; });
-  check('fire on empty: one weapon.empty per press and an automatic reload', empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD);
-  Sim.run(Math.round(wasp.reload * TICK_RATE) - 3);
+  Actors.buttons[shooter] = 0;
+  check('the last round starts the reload by itself (R-084)', Weapons.magazine[slot] === 0 && Weapons.state[shooter] === WEAPON_STATE.RELOAD);
+  Sim.run(Math.round(wasp.reload * TICK_RATE) - 2);
   check('reload not finished before its time', Weapons.magazine[slot] === 0);
   Sim.run(3);
   check('reload fills the magazine at exactly ' + wasp.reload + ' s', Weapons.magazine[slot] === 30 && Weapons.reserve[slot] === 90, Weapons.magazine[slot]);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  const empties = TestArena.count('weapon.empty', () => { Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Sim.step(); Actors.buttons[shooter] = 0; Sim.step(); });
+  check('fire on empty: one weapon.empty per press, no reload without reserve', empties === 1 && Weapons.state[shooter] === WEAPON_STATE.IDLE, empties);
+  Weapons.reserve[slot] = 90;
   Weapons.magazine[slot] = 10;
   TestArena.hold(shooter, BTN.RELOAD, 0.5);
   TestArena.hold(shooter, BTN.FIRE, 0.2);
@@ -932,6 +936,61 @@ Test.add('weapons', (check) => {
   const behind = TestArena.sponge(2, 0, 8);
   Sim.run(TICK_RATE * 2);
   check('W44 line never cuts through a wall', Actors.health[behind] === 100000, 100000 - Actors.health[behind]);
+  TestArena.finish();
+});
+
+// R-018 / R-184: a charge or lock-on release always fires what the magazine pays for, or clicks empty and reloads.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  const accelerator = giveFull(shooter, 'accelerator'), cells = Weapons.slotIndex(shooter, accelerator.index);
+  Weapons.magazine[cells] = 5;
+  TestArena.aimAt(shooter, target);
+  const charged = TestArena.count('weapon.fire', () => { TestArena.hold(shooter, BTN.FIRE, accelerator.primary.charge.time + 0.5); Sim.step(); });
+  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 90, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
+  const kingfisher = giveFull(shooter, 'kingfisher'), rockets = Weapons.slotIndex(shooter, kingfisher.index);
+  Weapons.magazine[rockets] = 1;
+  TestArena.aimAt(shooter, target);
+  let shots = 0;
+  const empties = TestArena.count('weapon.empty', () => { shots = countShots(shooter, BTN.ALT, kingfisher.alt.lock.time + 0.2); Sim.step(); });
+  check('W33 lock release with 1 rocket clicks empty and reloads', shots === 0 && empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD, shots + ' / ' + empties + ' / ' + Weapons.state[shooter]);
+  const hookjaw = giveFull(shooter, 'hookjaw'), shells = Weapons.slotIndex(shooter, hookjaw.index);
+  Weapons.magazine[shells] = 1; Weapons.reserve[shells] = 0;
+  Actors.z[target] = 3;
+  TestArena.aimAt(shooter, target);
+  const single = countShots(shooter, BTN.FIRE, 0.05);
+  check('W20 last shell with no reserve fires one barrel', single === 1 && Weapons.magazine[shells] === 0, single + ' / ' + Weapons.magazine[shells]);
+  TestArena.finish();
+});
+
+// R-084 / R-081: an empty magazine reloads by itself, held trigger included; an empty alt pool only clicks.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  const wasp = CAT.weapons.byId('wasp');
+  Weapons.setLoadout(shooter, ['wasp']);
+  const slot = Weapons.slotIndex(shooter, wasp.index);
+  let emptied = false, refilled = false;
+  Actors.buttons[shooter] = BTN.FIRE;
+  for (let step = 0; step < 5 * TICK_RATE; step++) {
+    Sim.step();
+    if (Weapons.magazine[slot] === 0) emptied = true;
+    else if (emptied) refilled = true;
+  }
+  Actors.buttons[shooter] = 0;
+  check('Wasp with the trigger held 5 s reloads when the magazine runs dry', emptied && refilled, emptied + ' / ' + refilled);
+  const bow = CAT.weapons.byId('talonbow');
+  Weapons.setLoadout(shooter, ['talonbow']);
+  TestArena.hold(shooter, BTN.FIRE, 0.9);
+  Sim.run(TICK_RATE);
+  check('Talon Bow nocks the next arrow by itself after a shot', Weapons.magazine[Weapons.slotIndex(shooter, bow.index)] === 1);
+  const hush = CAT.weapons.byId('hush');
+  Weapons.setLoadout(shooter, ['hush']);
+  const darts = Weapons.slotIndex(shooter, hush.index);
+  Weapons.altAmmo[darts] = 0; Weapons.magazine[darts] = 5;
+  const clicks = TestArena.count('weapon.empty', () => TestArena.hold(shooter, BTN.ALT, 0.05));
+  check('Hush alt with no darts clicks empty and does not reload the magazine', clicks === 1 && Weapons.state[shooter] === WEAPON_STATE.IDLE, clicks + ' / ' + Weapons.state[shooter]);
   TestArena.finish();
 });
 

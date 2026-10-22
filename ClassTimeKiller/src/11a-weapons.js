@@ -70,7 +70,7 @@ const RayHits = {
 const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
-const EMPTY_EVENT = { id: 0, weapon: '' };
+const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag' };   // pool: 'mag' or 'alt' (the separate alt rounds ran out)
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
 
 function emitWeaponEvent(type, payload, id, weapon) {
@@ -137,6 +137,7 @@ const Weapons = {
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
   rateScale: new Float32Array(MAX_ACTORS).fill(1),  // fire rate multiplier written by S12 (powerups); 1 = unchanged
   freeAmmo: new Uint8Array(MAX_ACTORS),             // 1 = shots spend no ammo (S12 powerups)
+  paidShare: 1,                                     // share of its cost the shot being fired paid (below 1: a short last magazine)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
   droppedRarity: 0,                                 // that weapon's rarity (WPN-008), so a pickup can drop it as it was
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
@@ -412,19 +413,37 @@ const Weapons = {
   hasAmmo(id, weapon, mode, fraction) {
     if (mode.ammo === 'none' || !weapon.mag) return true;
     const slot = this.slotIndex(id, weapon.index), pool = mode.ammo === 'alt' ? this.altAmmo[slot] : this.magazine[slot];
-    return pool >= Math.min(this.ammoCost(mode, fraction), mode.ammo === 'alt' ? weapon.altAmmo : this.magSize(id, weapon));
+    const cost = this.ammoCost(mode, fraction);
+    return cost <= 0 || (pool > 0 && pool >= Math.min(cost, this.poolLimit(id, weapon, mode, pool)));
+  },
+  // The most one shot may ask of its pool: the pool's size, or (R-184) just what is left when nothing can refill the
+  // magazine, so the W20's last shell still fires one barrel (paidShare). Charge levels never get cheaper this way.
+  poolLimit(id, weapon, mode, pool) {
+    if (mode.ammo === 'alt') return weapon.altAmmo;
+    const refill = mode.charge || this.reserve[this.slotIndex(id, weapon.index)] > 0 || this.infiniteReserve(weapon);
+    return refill ? this.magSize(id, weapon) : pool;
   },
   spendAmmo(id, weapon, mode, fraction) {
+    this.paidShare = 1;
     if (mode.ammo === 'none' || !weapon.mag || this.freeAmmo[id]) return;
     const slot = this.slotIndex(id, weapon.index), cost = this.ammoCost(mode, fraction);
-    if (mode.ammo === 'alt') this.altAmmo[slot] = Math.max(0, this.altAmmo[slot] - cost);
-    else this.magazine[slot] = Math.max(0, this.magazine[slot] - cost);
+    const pool = mode.ammo === 'alt' ? this.altAmmo[slot] : this.magazine[slot];
+    if (cost > pool) this.paidShare = pool / cost;
+    if (mode.ammo === 'alt') this.altAmmo[slot] = Math.max(0, pool - cost);
+    else this.magazine[slot] = Math.max(0, pool - cost);
   },
-  // Fire on empty: one 'weapon.empty' per trigger press, then an automatic reload when there is reserve.
-  reportEmpty(id, weapon, button) {
-    if (!(Actors.pressed[id] & button)) return;
+  // Pellets of a shot that was only partly paid for (paidShare), at least one.
+  paidPellets(pellets) { return Math.max(1, Math.round(pellets * this.paidShare)); },
+  // Fire on empty: one 'weapon.empty' (with the pool that ran out); an empty magazine also reloads when there is reserve.
+  // An empty alt pool only clicks (R-081): a magazine reload would not refill it.
+  reportEmpty(id, weapon, mode) {
+    EMPTY_EVENT.pool = mode.ammo === 'alt' ? 'alt' : 'mag';
     emitWeaponEvent('weapon.empty', EMPTY_EVENT, id, weapon);
-    this.beginReload(id, weapon);
+    if (mode.ammo !== 'alt') this.beginReload(id, weapon);
+  },
+  // R-084: the shot that empties the magazine starts the reload, so a held trigger (touch fire) never sits on empty.
+  reloadIfEmpty(id, weapon, mode) {
+    if (mode.ammo === 'mag' && this.magazine[this.slotIndex(id, weapon.index)] === 0) this.beginReload(id, weapon);
   },
 
   // Stunned, or downed without the Last Stand pistol (Damage.lastStand): no firing, reloading or switching.
@@ -542,24 +561,40 @@ const Weapons = {
       this.fire(id, weapon, mode, modeIndex, 0);
     }
   },
+  // R-018: the charge stops at the highest level the loaded ammo pays for, so the release always fires (or clicks empty).
   stepCharge(id, weapon, mode, modeIndex, held, dt) {
     if (held) {
       if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
       this.chargeMode[id] = modeIndex;
-      this.charge[id] = Math.min(mode.charge.time, this.charge[id] + dt);
+      const paid = Math.max(0, this.payableCharge(id, weapon, mode));
+      this.charge[id] = Math.min(mode.charge.time * paid, this.charge[id] + dt);
       return;
     }
     if (this.chargeMode[id] !== modeIndex) return;
     const fraction = this.charge[id] / mode.charge.time;
     this.charge[id] = 0; this.chargeMode[id] = -1;
-    if (this.hasAmmo(id, weapon, mode, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
+    this.releaseShot(id, weapon, mode, modeIndex, Math.min(fraction, Math.max(0, this.payableCharge(id, weapon, mode))));
+  },
+  // Highest charge fraction (a level step, or 1 for a smooth charge) the loaded ammo pays for; -1 when not even the lowest.
+  payableCharge(id, weapon, mode) {
+    const steps = mode.charge.levels ? mode.charge.levels.length - 1 : 0;
+    for (let level = steps; level >= 0; level--) {
+      const fraction = steps ? level / steps : 1;
+      if (this.hasAmmo(id, weapon, mode, fraction)) return fraction;
+    }
+    return -1;
   },
   stepRelease(id, weapon, mode, modeIndex, held) {
     if (held) { this.latch[id] |= RELEASE_LATCH; return; }
     if (!(this.latch[id] & RELEASE_LATCH)) return;
     this.latch[id] &= ~RELEASE_LATCH;
-    if (LockOn.lockedCount(id, mode) && this.ready(id, weapon, mode, modeIndex, 0, 0)) this.fire(id, weapon, mode, modeIndex, 0);
+    if (LockOn.lockedCount(id, mode)) this.releaseShot(id, weapon, mode, modeIndex, 0);
     LockOn.clear(id);
+  },
+  // A shot fired by letting go of the trigger (charge, lock-on, W32 mine tap): short of ammo it clicks empty instead.
+  releaseShot(id, weapon, mode, modeIndex, fraction) {
+    if (!this.hasAmmo(id, weapon, mode, fraction)) { this.reportEmpty(id, weapon, mode); return; }
+    if (this.ready(id, weapon, mode, modeIndex, 0, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
   },
   startBurst(id, mode, modeIndex) {
     this.burstLeft[id] = mode.burst - 1;
@@ -576,14 +611,14 @@ const Weapons = {
     if (this.hasAmmo(id, weapon, mode, 0)) this.fireShot(id, weapon, mode, this.burstMode[id], 0);
     else this.burstLeft[id] = 0;
   },
-  // True when the mode may fire now; reports an empty magazine (button = the trigger, 0 = no report).
+  // True when the mode may fire now; a fresh press of `button` on empty reports it (0 = no report).
   ready(id, weapon, mode, modeIndex, button, fraction) {
     if (this.state[id] !== WEAPON_STATE.IDLE || this.burstLeft[id] || !Move.canFire(id)) return false;   // S10: sprint, mantle, board...
     if (mode.cooldown > 0 ? this.nextAlt[id] > 0 || this.nextShot[id] > 0 : this.nextShot[id] > 0) return false;
     if (mode.maxActive && mode.activeRule === 'block' && !mode.special && Projectiles.countOwned(id, weapon.index, CAT.projectiles.byId(mode.projectile).index) >= mode.maxActive) return false;
     if (mode.type === 'lock' && mode.trigger !== 'release' && !LockOn.lockedCount(id, mode)) return false;
     if (this.hasAmmo(id, weapon, mode, fraction)) return true;
-    if (button) this.reportEmpty(id, weapon, button);
+    if (Actors.pressed[id] & button) this.reportEmpty(id, weapon, mode);
     return false;
   },
   shotInterval(id, weapon, mode) {
@@ -604,6 +639,7 @@ const Weapons = {
     this.heat[id] = Math.min(WEAPON_HEAT_CAP, this.heat[id] + mode.heat);
     this.applyRecoil(id, weapon, mode);
     this.announceShot(id, weapon, mode, modeIndex);
+    this.reloadIfEmpty(id, weapon, mode);
   },
   announceShot(id, weapon, mode, modeIndex) {
     const eyeY = Actors.eyeY(id);
@@ -818,7 +854,8 @@ function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
   const ballistics = Weapons.ballistics();   // X41: the pellets fly as bullets (11b)
   eyeOrigin(id, originScratch);
-  for (let pellet = 0; pellet < mode.pellets; pellet++) {
+  const pellets = Weapons.paidPellets(mode.pellets);
+  for (let pellet = 0; pellet < pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);
     if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
     const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
@@ -879,7 +916,7 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
 // Projectile modes: pellets (or charge levels) spawn pooled projectiles with spread.
 function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
   const charge = mode.charge;
-  const pellets = charge && charge.target === 'pellets' ? chargeLevelValue(charge, fraction) : mode.pellets;
+  const pellets = Weapons.paidPellets(charge && charge.target === 'pellets' ? chargeLevelValue(charge, fraction) : mode.pellets);
   const multiplier = charge && charge.target === 'multiplier' ? chargeLevelValue(charge, fraction) : 1;
   const speed = charge && charge.speed ? lerp(charge.speed[0], charge.speed[1], fraction) : 0;
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
