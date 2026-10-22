@@ -141,6 +141,8 @@ const Weapons = {
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
+  altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
+  altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
 
   // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -217,7 +219,7 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
@@ -429,7 +431,13 @@ const Weapons = {
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    this.stepAltMode(id, weapon, dt);
+    if (!this.altTaken(id)) this.stepAltMode(id, weapon, dt);
+  },
+  // GAD-002: an ALT hold that an underhand throw claimed never reaches the weapon's alt, not even after the throw.
+  altTaken(id) {
+    if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
+    if (this.altClaim && this.altClaim(id)) this.altClaimed[id] = 1;
+    return this.altClaimed[id] === 1;
   },
   // Aiming down sights needs a zoom alt held while idle: a reload lowers the sights.
   updateAds(id, weapon, dt) {

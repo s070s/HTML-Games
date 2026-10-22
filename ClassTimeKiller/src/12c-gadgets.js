@@ -709,11 +709,11 @@ const Gadgets = {
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
+  grenadeReady(id) { return this.grenade[id] >= 0 && this.count[id * GADGET_COUNT + this.grenade[id]] > 0; },
   startHold(id) {
-    const rowIndex = this.grenade[id];
-    if (rowIndex < 0 || !this.count[id * GADGET_COUNT + rowIndex]) return;
+    if (!this.grenadeReady(id)) return;
     this.holdStart[id] = Sim.tick;
-    this.holdRow[id] = rowIndex;
+    this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
@@ -753,7 +753,7 @@ const Gadgets = {
     for (let i = 0; i < this.deployers.length && !placed; i++) placed = this.deployers[i](id, row);
     if (!placed) return false;
     this.spend(id, row);
-    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown);
+    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown / Abilities.rechargeScale[id]);   // ECP04 Tune Up
     this.emitUse(id, row);
     return true;
   },
@@ -825,6 +825,8 @@ const Gadgets = {
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
+// GAD-002: ALT is the underhand throw while a grenade is held (or its button goes down with one ready), not the weapon's alt.
+Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });

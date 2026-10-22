@@ -85,6 +85,14 @@ Test.add('gadgets', (check) => {
   GadgetArena.throwAfter(id, 0, BTN.ALT);
   const under = GadgetArena.firstThrown();
   check('GAD-002 underhand on ALT is slower', under >= 0 && Test.near(Thrown.vz[under], GADGET_TUNING.underhandSpeed, 0.01));
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['warden']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the pistol is out
+  const thrownShots = TestArena.count('weapon.fire', () => GadgetArena.throwAfter(id, 0.2, BTN.ALT));
+  Sim.run(itemTicks(1));
+  const altShots = TestArena.count('weapon.fire', () => GadgetArena.press(id, BTN.ALT));
+  check('GAD-002 the underhand throw does not fire the weapon alt (ALT alone still does)', GadgetArena.firstThrown() >= 0 && thrownShots === 0 && altShots > 0, thrownShots + ' / ' + altShots);
   TestArena.finish();
 });
 
@@ -209,6 +217,18 @@ Test.add('gadgets', (check) => {
   check('G20 no grenades while suppressed', GadgetArena.firstThrown() < 0 && Gadgets.countOf(victim, 'frag') === 1);
   Sim.run(itemTicks(emp.duration));
   check('G20 wears off after 4 s', !Gadgets.suppressed(victim) && Devices.working(turret));
+  TestArena.finish();
+});
+
+// ECP04 Tune Up: a field upgrade recharges rechargeScale times faster.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const owner = GadgetArena.actor(1, 0, 0, 'cover', 1), cooldown = CAT.gadgets.byId('cover').cooldown;
+  Abilities.rechargeScale[owner] = 2;
+  GadgetArena.press(owner, BTN.GADGET);
+  const spent = Gadgets.countOf(owner, 'cover') === 0;
+  Sim.run(itemTicks(cooldown / 2) + 1);
+  check('ECP04 Tune Up halves the field upgrade recharge at scale 2', spent && Gadgets.countOf(owner, 'cover') === 1);
   TestArena.finish();
 });
 

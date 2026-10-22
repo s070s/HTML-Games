@@ -19,7 +19,7 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 
 ## Input read
 
-`BTN.GRENADE`: press with a grenade ready starts the hold; release throws (18 m/s along the view + 5 m/s up; with `BTN.ALT` held at release: underhand 9 + 2). Cookable rows burn their fuse while held; a full cook goes off in the hand. `BTN.GADGET`: uses the gadget-slot row (placed or deployed). Both are blocked while `ACTOR_FLAG.FROZEN`, `ACTOR_FLAG.DOWNED` or EMP-suppressed.
+`BTN.GRENADE`: press with a grenade ready starts the hold; release throws (18 m/s along the view + 5 m/s up; with `BTN.ALT` held at release: underhand 9 + 2; that ALT hold never fires the weapon's alt, `Weapons.altClaim`). Cookable rows burn their fuse while held; a full cook goes off in the hand. `BTN.GADGET`: uses the gadget-slot row (placed or deployed). Both are blocked while `ACTOR_FLAG.FROZEN`, `ACTOR_FLAG.DOWNED` or EMP-suppressed.
 
 ## Data catalogues
 
