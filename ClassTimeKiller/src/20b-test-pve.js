@@ -724,10 +724,12 @@ Test.add('pve', (check) => {
   Pve.aimX[sniper] = Actors.x[0]; Pve.aimY[sniper] = Actors.eyeY(0); Pve.aimZ[sniper] = Actors.z[0];
   Pve.stealth = true;
   const recorder = meshRecorder();   // two batch kinds, as over a session (tests, killcam): the draw calls are not inlined
-  const bytes = perfAllocatedBytes((i) => {
-    if (i < PERF_ALLOC_WARMUP_CALLS / 2) { recorder.meshes.length = 0; Pve.draw(recorder); return; }
+  let calls = 0, recorded = 0;   // counted here: run(i) restarts i in every measured round, and the recorder allocates its records
+  const bytes = perfAllocatedBytes(() => {
+    if (calls++ < PERF_ALLOC_WARMUP_CALLS / 2) { recorder.meshes.length = 0; Pve.draw(recorder); recorded++; return; }
     fillSources();   // the frame's own path: each render source runs its own compiled code, as in a match
   });
+  check('the probe draws into the allocating recorder in the warmup only', recorded === PERF_ALLOC_WARMUP_CALLS / 2, recorded);
   check('the probe draws a shielded champion', Actors.shield[shielded] > 0 && Pve.champion[shielded] >= 0);
   recorder.meshes.length = 0;
   Pve.draw(recorder);
