@@ -1,5 +1,6 @@
 // Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html.
 // Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs.
+// The shipped file leaves out comment-only lines (about 10% of the size, less to parse on phones); src/ keeps them and the code stays readable.
 // Usage: node tools/build.mjs [--check]   (--check: run the checks and print the report, write nothing)
 // No dependencies. Exit code 1 when a check fails.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -27,7 +28,7 @@ duplicates.forEach((d) => problems.push('DRY: ' + d));
 
 const shell = readFileSync(join(SRC, 'shell.html'), 'utf8').replace(/\r\n/g, '\n');
 if (!shell.includes(SCRIPT_MARK)) problems.push('shell.html has no ' + SCRIPT_MARK + ' marker');
-const body = sources.map((s) => '// ==== ' + s.name + ' ====\n' + s.text.trimEnd() + '\n').join('\n');
+const body = sources.map((s) => '// ==== ' + s.name + ' ====\n' + withoutCommentLines(s.text).trimEnd() + '\n').join('\n');
 const script = "(() => {\n'use strict';\n" + body + '})();\n';
 const html = shell.replace(SCRIPT_MARK, () => script);
 
@@ -40,6 +41,18 @@ if (problems.length) {
 }
 if (!checkOnly) writeFileSync(OUT, html);
 console.log(checkOnly ? 'CHECK OK' : 'BUILD OK -> ClassTimeKiller.html');
+
+// Drops lines that hold only a // comment. Safe only while no template literal spans lines, so that is checked here.
+function withoutCommentLines(text) {
+  let insideTemplate = false;
+  const kept = text.split('\n').filter((line) => {
+    const wasInside = insideTemplate;
+    if ((line.match(/(?<!\\)`/g) || []).length % 2 === 1) insideTemplate = !insideTemplate;
+    return wasInside || !/^\s*\/\//.test(line);
+  });
+  if (insideTemplate) problems.push('a template literal spans lines: comment stripping is not safe');
+  return kept.join('\n');
+}
 
 // A name declared at column 0 in two files would be a load-time SyntaxError (or a silent override).
 function checkTopLevelNames(files) {
