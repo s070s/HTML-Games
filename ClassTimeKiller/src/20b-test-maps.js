@@ -179,8 +179,8 @@ Test.add('maps', (check) => {
     check(map.code + ': has callout zones, nav hints and lights', map.zones.length >= 4 && map.navHints.length >= MapRules.limits.hints && map.lights.length >= 1);
     mapTestModeCounts(check, map);
   }
-  const usedMaterials = new Set(CAT.maps.flatMap((map) => map.brushes.map((b) => b.material)));
-  check('materials: all ten are used by some map', MapRules.materials.every((material) => usedMaterials.has(material)), MapRules.materials.filter((m) => !usedMaterials.has(m)).join());
+  const usedMaterials = new Set(CAT.maps.flatMap((map) => map.brushes.concat(map.props).map((b) => b.material)));
+  check('materials: every one is used by some map brush or prop', MapRules.materials.every((material) => usedMaterials.has(material)), MapRules.materials.filter((m) => !usedMaterials.has(m)).join());
   const usedThemes = new Set(CAT.maps.map((map) => map.theme));
   check('themes: all six tilesets are used', MapRules.themes.every((theme) => usedThemes.has(theme)), MapRules.themes.filter((t) => !usedThemes.has(t)).join());
   const kinds = new Set(CAT.maps.flatMap((map) => map.triggers.map((t) => t.kind)));

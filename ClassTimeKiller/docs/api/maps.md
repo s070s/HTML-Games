@@ -41,7 +41,7 @@ Coordinates: metres, Y up, floor at y = 0, the map centred on the origin (`x` in
                | { kind: 'water', min, max } | { kind: 'hazard', min, max, damage, element } | { kind: 'killzone', min, max }],   // fields as in docs/api/world-move.md
   lights:     [{ x, y, z, color: 0xRRGGBB, radius }],
   navHints:   [{ kind: 'cover'|'sniper'|'choke'|'flank'|'dummy'|'guard'|'secret', x, y, z }],
-  props:      [{ min: [x,y,z], max: [x,y,z], health: 50, material: 'wood', mass: 20, debris: 6, color }] }   // breakable boxes (S08 Props)
+  props:      [{ min: [x,y,z], max: [x,y,z], health: 50, material: 'wood', mass: 20, debris: 6, color }] }   // breakable boxes (S08 Props); material 'oil' / 'water' spill floor patches (12h)
 ```
 
 Fields beyond ARCHITECTURE.md (all optional, defaults in `16f`): `category` (`arena tactical pve range puzzle large island`, picks the sightline limit: 60 / 60 / 90 / 60 / 60 / 90 / 150 m),

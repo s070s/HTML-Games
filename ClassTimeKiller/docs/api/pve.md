@@ -69,7 +69,7 @@ Events: `pve.tell { id, attack, kind, seconds, color, target }`, `pve.parry { id
 ## Level report (14j `PveLevel`)
 
 - Secrets: the map's `secret` nav hints (at most 16). A participant within 1.5 m finds one: `pve.secret`, the announcement "Secret found". Cistern has 2, Ash Manor 3.
-- Crates: the map's breakable `props` (S08 `Props`; only those within the quality budget break). A participant breaking one (`world.break` with `source`) sends `pve.crate`. Cistern and Ash Manor have 3 each.
+- Crates: the map's breakable `props` (S08 `Props`; only those within the quality budget break). A participant breaking one (`world.break` with `source`) sends `pve.crate`. Cistern and Ash Manor have 3 each (Cistern: an oil drum and a water tank among them, Ash Manor an oil drum: HP-005 floor patches when broken).
 - Optional enemies: contract guards (`PveLevel.markOptional`) and X50 beasts.
 - `PveLevel.report(match)` on `match.end` writes `match.results.pve = { propsLeft, secretsLeft, optionalLeft }` with only the numbers the level can measure (see docs/api/progression.md).
 

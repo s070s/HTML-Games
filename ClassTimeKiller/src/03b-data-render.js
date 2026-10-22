@@ -20,6 +20,7 @@ Data.define('materials', { id: REQUIRED, name: REQUIRED, pattern: 'noise', scale
   { id: 'ice', name: 'Ice', pattern: 'noise', scale: 0.4, colorA: '#a9d6ec', colorB: '#80b6d3', shine: 0.8 },
   { id: 'glass', name: 'Glass', pattern: 'panels', scale: 0.4, colorA: '#7fa9c4', colorB: '#5c86a3', shine: 1 },
   { id: 'water', name: 'Water', pattern: 'noise', scale: 0.3, colorA: '#2f5d70', colorB: '#3f7890', shine: 1 },
+  { id: 'oil', name: 'Oil drum', pattern: 'stripes', scale: 1, colorA: '#3b4a2c', colorB: '#c89a2a', shine: 0.4 },   // a breakable prop of it spills oil (CAT.surfaces)
   { id: 'hazard', name: 'Hazard stripes', pattern: 'stripes', scale: 2, colorA: '#e8b02a', colorB: '#26231f' },
   { id: 'grip', name: 'Grip wall', pattern: 'grid', scale: 2, colorA: '#4f7a5a', colorB: '#2e4a36' },   // MV05 climbs only this (climbGripOnly)
   { id: 'trim', name: 'Trim', pattern: 'flat', scale: 1, colorA: '#c0602a', colorB: '#8a4420' },

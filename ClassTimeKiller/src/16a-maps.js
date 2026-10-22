@@ -11,7 +11,7 @@ const mapColorIs = (value) => Number.isInteger(value) && value >= 0 && value <= 
 // One place for every number and key list the map validator and the map files share.
 const MapRules = {
   version: 1,
-  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile', 'grip'],   // grip: the MV05 climb walls (climbGripOnly)
+  materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile', 'grip', 'oil'],   // grip: the MV05 climb walls (climbGripOnly); props of oil / water spill floor patches (12h)
   themes: ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'],                  // MAP-022 tilesets
   sightLimits: { arena: 60, tactical: 60, pve: 90, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category (pve: enemies approach along lanes)
   elements: ['kinetic', 'thermal', 'cryo', 'arc', 'toxin', 'void'],                            // HP-006 damage elements (hazard triggers name one)
