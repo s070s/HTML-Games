@@ -4,6 +4,7 @@
 // Layouts live in Save.data.touchLayouts[presetId][controlId] = { x, y, scale, opacity, hidden } (only changed keys are stored).
 
 const TOUCH_SLOT_COUNT = 10;
+const TOUCH_NO_LAYOUT = Object.freeze({});   // a control the player never moved: read per frame while the comm wheel is open, so no new {}
 const TOUCH_STICK_RADIUS = 56;          // css px of finger travel for a full push, at control scale 1
 const TOUCH_STICK_DEADZONE = 0.12;
 const TOUCH_SPRINT_ON = 0.9;            // INP-004
@@ -324,7 +325,7 @@ const TouchInput = {
   },
   // Fills out {x, y, scale, opacity, hidden}: the preset default overlaid with the player's saved changes.
   layoutOf(controlId, out) {
-    const control = this.controlById[controlId], preset = this.preset(), saved = this.savedLayout(controlId) || {};
+    const control = this.controlById[controlId], preset = this.preset(), saved = this.savedLayout(controlId) || TOUCH_NO_LAYOUT;
     out.x = saved.x !== undefined ? saved.x : (preset.mirror ? 1 - control.x : control.x);
     out.y = saved.y !== undefined ? saved.y : control.y;
     out.scale = saved.scale !== undefined ? saved.scale : preset.scale;

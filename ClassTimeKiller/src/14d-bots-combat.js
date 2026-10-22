@@ -123,6 +123,7 @@ const BotCombat = {
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
   jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
   chokeSmokedAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // the bot's last smoke at a choke hint
+  grenadeBefore: new Int16Array(MAX_ACTORS).fill(-1),       // the type selected before a choke smoke, cycled back to after it (-1 = none)
   uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },   // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
@@ -135,7 +136,7 @@ const BotCombat = {
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
-    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9; this.chokeSmokedAt[id] = -1e9;
+    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9; this.chokeSmokedAt[id] = -1e9; this.grenadeBefore[id] = -1;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
@@ -534,14 +535,20 @@ const BotCombat = {
   },
   // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen; a carried smoke also
   // goes at a choke hint on an attacking bot's way to its target (chokeToSmoke). When another type is selected, the bot
-  // presses CYCLE_GRENADE like a player and throws at a later kit check, once the smoke is the selected type.
+  // presses CYCLE_GRENADE like a player and throws at a later kit check, once the smoke is the selected type; after the
+  // choke it cycles back to the type it had selected before (returnFromChoke).
   tryGrenade(id, now) {
     const pace = kitPace(id);
     this.grenadeAt[id] = now + KIT_CHECK_INTERVAL / pace;
     const target = this.target[id], row = carriedRow(id, Gadgets.grenade[id]);
     if (target < 0) return;
     const choke = carriedRow(id, CHOKE_SMOKE_INDEX) ? chokeToSmoke(id, target, now) : null;
-    if (choke && Gadgets.grenade[id] !== CHOKE_SMOKE_INDEX) { Bots.press(id, BTN.CYCLE_GRENADE); return; }
+    if (choke && Gadgets.grenade[id] !== CHOKE_SMOKE_INDEX) {
+      if (this.grenadeBefore[id] < 0) this.grenadeBefore[id] = Gadgets.grenade[id];
+      Bots.press(id, BTN.CYCLE_GRENADE);
+      return;
+    }
+    if (!choke && this.returnFromChoke(id)) return;
     const use = row ? BOT_GADGET_USE[row.effect] : null;
     if (!use || (!choke && !botUseWanted(id, use)) || !BotTeam.takeGrenadeToken(id, now)) return;
     this.grenadeAt[id] = now + GRENADE_INTERVAL / pace;
@@ -549,6 +556,14 @@ const BotCombat = {
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
     const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
     this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
+  },
+  // One CYCLE_GRENADE press per kit check until the type selected before the choke smoke is back (or no longer carried).
+  returnFromChoke(id) {
+    const before = this.grenadeBefore[id];
+    if (before < 0) return false;
+    if (Gadgets.grenade[id] === before || !carriedRow(id, before)) { this.grenadeBefore[id] = -1; return false; }
+    Bots.press(id, BTN.CYCLE_GRENADE);
+    return true;
   },
   // The solved arc to a landing (dx, dz) away at height y, and the cook time; aimThrow then turns the view onto it.
   planThrow(id, row, dx, dz, y, now) {

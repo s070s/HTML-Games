@@ -149,7 +149,7 @@ const BotTeam = {
       const id = rankList[rank];
       this.role[id] = rank < defenders ? ROLE.DEFEND : rank < defenders + escorts ? ROLE.ESCORT : ROLE.ATTACK;
     }
-    if (Modes.rules && Modes.rules.family !== 'pve') this.formSquads();
+    if (Modes.rules && Modes.rules.family !== 'pve' && Modes.squads.count === 0) this.formSquads();   // M20 has its own squads (13g, 14e)
   },
   // BOT-052: in rank order (most teamwork first) the bots of one role fill squads of BOT_SQUAD.size; the first one leads.
   formSquads() {
@@ -173,8 +173,10 @@ const BotTeam = {
     this.squadLeader[victim] = heir;
   },
   // A follower's SQUAD goal plan: the leader's live position; broken off (farther than BOT_SQUAD.regroup) it regroups.
+  // A bot with a target fights first (no squad goal, so a regroup never drops a chase).
   squadPlan(id, plan) {
     const leader = this.squadLeader[id];
+    if (BotCombat.target[id] >= 0) return 0;
     if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return 0;
     setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], BOT_SQUAD.keep, ACTION.MOVE, leader);
     const keep = SQUAD_BASE + SQUAD_GAIN * Bots.trait(id, TRAIT.teamwork);
@@ -250,7 +252,7 @@ const BotTeam = {
     }
   },
   // The wheel was opened on one team bot: only that bot takes the callout (else the squad does).
-  isAddressed(pinger, team, to) { return to >= 0 && to < MAX_ACTORS && to !== pinger && Bots.isBot(to) && Actors.team[to] === team; },
+  isAddressed(pinger, team, to) { return to >= 0 && to < MAX_ACTORS && to !== pinger && Bots.isBot(to) && Actors.alive[to] && Actors.team[to] === team; },
   // The ORDER_TAKERS living team bots nearest the pinged spot (every one of them for a whole-team callout).
   chooseTakers(pinger, team, x, z, wholeTeam) {
     takerList.length = 0;

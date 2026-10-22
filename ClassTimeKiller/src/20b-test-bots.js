@@ -1042,6 +1042,13 @@ Test.add('bots', (check) => {
   const towardChoke = Math.atan2(CHOKE_ON_WAY.x - Actors.x[bot], CHOKE_ON_WAY.z - Actors.z[bot]);
   check('at the next check it throws the smoke at the choke', BotCombat.throwUntil[bot] > now && BotCombat.chokeSmokedAt[bot] === now
     && Math.abs(wrapAngle(BotCombat.throwYaw[bot] - towardChoke)) < 1e-6, BotCombat.throwYaw[bot] + ' ' + towardChoke);
+  Actors.buttons[bot] = 0; Sim.run(1);   // the earlier press is let go, so the next one is a new press
+  Bots.buttonsWanted[bot] = 0; BotCombat.throwUntil[bot] = -1e9;   // the smoke has left the hand
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now + KIT_CHECK_INTERVAL);
+  Actors.buttons[bot] = Bots.buttonsWanted[bot];
+  Sim.run(1);
+  check('after the choke it cycles back to the frag it had selected (frags are thrown again)', Gadgets.grenade[bot] === CAT.gadgets.byId('frag').index, Gadgets.grenade[bot]);
   endBotTest();
 });
 
@@ -1055,6 +1062,8 @@ Test.add('bots', (check) => {
   const squads = Modes.squads, plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
   runSeconds(SQUAD_DROP_SECONDS);   // the drop-in lands
   check('six actors make two squads of three', squads.count === 2 && Actors.team[bot] === 0 && Actors.team[leader] === 0 && Actors.team[mate] === 0);
+  BotTeam.assignRoles();
+  check('M20 squads are the only squads: no versus role squads (BOT-052) on top', [leader, bot, mate].every((id) => BotTeam.squadLeader[id] === -1));
   const side = Math.sign(squads.beaconZ[0]) || 1, beaconX = squads.beaconX[0], beaconZ = squads.beaconZ[0];
   placeActor(leader, beaconX, beaconZ); placeActor(bot, beaconX + SQUAD_FAR, beaconZ);
   check('a squadmate far from its leader goes back to it', planSquad(bot, plan) && plan.x === Actors.x[leader] && plan.z === Actors.z[leader]
