@@ -835,3 +835,26 @@ Test.add('progress', (check) => {
   check('cards: versus with X48 runs only the versus cards', Game.match.rules.cards.ids.join() === 'stoneskin');
   Game.stop();
 });
+
+// ---- Cards: Patron's free placements end with Patron ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), kept = { marks: record.marks, active: record.active, passive: record.passive };
+  const unlockAll = Settings.get('progress.unlockAll');
+  Settings.set('progress.unlockAll', true);
+  try {
+    record.active = []; record.passive = []; record.marks = 1000;
+    Cards.equip('freecards'); Cards.equip('stoneskin'); Cards.equip('fleet');
+    check('patron: cards placed under Patron cost nothing', Cards.marks() === 1000 && Cards.equipped('active').length === 2);
+    Cards.unequip('freecards');
+    const price = CAT.cards.byId('stoneskin').cost + CAT.cards.byId('fleet').cost;
+    check('patron: removing it charges the free cards', Cards.marks() === 1000 - price && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    check('patron: the charged cards refund like paid ones', Cards.unequip('fleet') && Cards.marks() === 1000 - price + Math.floor(CAT.cards.byId('fleet').cost * CARD_REFUND));
+    record.active = []; record.passive = []; record.marks = 120;
+    Cards.equip('freecards'); Cards.equip('stoneskin'); Cards.equip('fleet');
+    Cards.unequip('freecards');
+    check('patron: a card the player cannot pay for is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 20);
+  } finally {
+    Settings.set('progress.unlockAll', unlockAll);
+    Object.assign(record, kept);
+  }
+});
