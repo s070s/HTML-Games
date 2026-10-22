@@ -103,6 +103,10 @@ Test.add('progress', (check) => progressWithPlayer(() => {
   const podium = Progress.matchXp(progressTestResults({ rank: 3, won: false }), 0);
   check('xp: a podium place pays 80 instead of the win', podium.win === 0 && podium.podium === 80 && podium.total === 120 + 120 + 80 + 350);
   check('xp: fourth place pays no podium', Progress.matchXp(progressTestResults({ rank: 4, won: false }), 0).podium === 0);
+  check('xp: the loser of a duel (2 of 2) gets no podium XP', Progress.matchXp(progressTestResults({ rank: 2, others: 1, won: false }), 0).podium === 0
+    && !Progress.onPodium(progressTestResults({ rank: 2, others: 1, won: false })));
+  check('xp: a 3-player field has no podium (last place is not paid)', Progress.matchXp(progressTestResults({ rank: 3, others: 2, won: false }), 0).podium === 0);
+  check('xp: team modes pay no podium', !Progress.onPodium(progressTestResults({ teams: true, won: false })));
   check('xp: minutes are capped at 15', Progress.matchXp(progressTestResults({ duration: 3600 }), 0).time === 15 * 35);
   check('xp: an idle match pays nothing (no farming)', Progress.matchXp(progressTestResults({ score: 0, kills: 0, objective: 0 }), 0).total === 0);
   check('xp: a match under 30 s pays nothing', Progress.matchXp(progressTestResults({ duration: 20 }), 0).total === 0);
@@ -161,8 +165,16 @@ Test.add('progress', (check) => {
   Game.start(setup());
   for (const apply of Render.actorStyles) apply(Game.playerId, style);
   check('unlocks: the chosen colour and finish are drawn on the player body', Test.near(style.r, 0xe8 / 255, 0.01) && style.emissive >= 0.65);
-  Game.stop();
+  check('look: the worn colour and finish are resolved once into plain numbers', Progress.look.color === 0xe8c250 && Progress.look.finish === 0.65);
   Settings.set('progress.unlockAll', false);
+  check('look: turning Unlock everything off drops looks that are no longer unlocked', Progress.look.color === PROGRESS_NO_LOOK && Progress.look.finish === PROGRESS_NO_LOOK);
+  const plain = { r: 0.5, g: 0.5, b: 0.5, emissive: 0, scale: 1, visible: true };
+  for (const apply of Render.actorStyles) apply(Game.playerId, plain);
+  check('look: without a worn look the body keeps its default colour', plain.r === 0.5 && plain.emissive === 0);
+  Progress.setCosmetic('color', 'colorSlate');
+  check('look: choosing a colour refreshes the drawn look at once', Progress.look.color === 0x7d8a99);
+  check('mastery: an unknown tier id opens nothing', !Progress.masteryReached('nope'));
+  Game.stop();
 });
 
 // ---- Save migration (ARC-020) ----
@@ -236,6 +248,11 @@ Test.add('progress', (check) => {
   pause();
   got = progressMedals(() => progressKill(c, player, { air: true }));
   check('medals: MD15 Airborne on a kill in the air', got.join() === 'airborne', got.join());
+  const airBefore = RunLog.airKills;
+  pause();
+  got = progressMedals(() => { Actors.flags[player] |= ACTOR_FLAG.IN_WATER; Actors.flags[player] &= ~ACTOR_FLAG.ON_GROUND; Bus.emit('kill', { victim: c, killer: player, assister: -1, weapon: 'warden', zone: 'body', element: 'kinetic', x: Actors.x[player], y: Actors.y[player], z: Actors.z[player] }); progressGround(player, true); Actors.flags[player] &= ~ACTOR_FLAG.IN_WATER; });
+  Actors.alive[c] = 1;
+  check('medals: a kill while swimming is not airborne, for the medal and the run metric alike', !got.includes('airborne') && RunLog.airKills === airBefore, got.join());
   fresh();
   got = progressMedals(() => { progressKill(a, player, { x: Actors.x[player] + 49 }); pause(); progressKill(b, player, { x: Actors.x[player] + 51 }); });
   check('medals: MD16 Long Shot beyond 50 m only', got.join() === 'longShot', got.join());
@@ -278,6 +295,12 @@ Test.add('progress', (check) => {
   check('medals: MD18 Clutch when your side wins the round you held alone against 2+', got.join() === 'clutch', got.join());
   got = progressMedals(() => Bus.emit('round', { round: 3, phase: 'end', winner: 0, reason: 'eliminated', attackers: 0 }));
   check('medals: Clutch is paid once', got.length === 0, got.join());
+  Bus.emit('round', { round: 4, phase: 'start', winner: -1, reason: '', attackers: 0 });
+  Actors.alive[ids.mate] = 1;
+  progressKill(ids.mate, -1);
+  Actors.alive[ids.mate] = 0;
+  got = progressMedals(() => Bus.emit('round', { round: 4, phase: 'end', winner: 0, reason: 'eliminated', attackers: 0 }));
+  check('medals: Clutch also counts when the team-mate fell (no killer)', got.join() === 'clutch', got.join());
   got = progressMedals(() => { Bus.emit('pve.wave', { wave: 1, phase: 'start' }); Bus.emit('pve.wave', { wave: 1, phase: 'end' }); });
   check('medals: MD20 Flawless Wave on a wave cleared without damage', got.join() === 'flawlessWave', got.join());
   got = progressMedals(() => {
@@ -336,15 +359,16 @@ Test.add('progress', (check) => {
     Modes.finish(winFor(entry));
     played++;
   }
-  check('ladder: all 26 matches cleared in order, then champion', Ladder.state().done && played === Ladder.matchCount() && Ladder.clearedCount() === Ladder.matchCount(), played + ' played, ' + Ladder.clearedCount() + ' cleared, ' + JSON.stringify(Ladder.state()).slice(0, 200));
+  check('ladder: all ' + Ladder.matchCount() + ' matches cleared in order, then champion', Ladder.state().done && played === Ladder.matchCount() && Ladder.clearedCount() === Ladder.matchCount(), played + ' played, ' + Ladder.clearedCount() + ' cleared, ' + JSON.stringify(Ladder.state()).slice(0, 200));
   check('ladder: every match ran its mode on its map with its named bots', setupsValid && namedBots);
   check('ladder: progress is saved in the save record', Save.data.ladder.done === true && Object.keys(Save.data.ladder.cleared).length === Ladder.matchCount());
   check('ladder: every match stays replayable', Ladder.isOpen(3, 1) && Ladder.isOpen(0, 0));
   const easy = Ladder.setup(7, 2, 'novice', 1);
   check('ladder: the difficulty is chosen per match and holds bot tiers in its range', easy.difficulty === 'novice' && easy.bots[0].tier === 2 && Ladder.setup(7, 2, 'nightmare', 1).bots[0].tier === 7);
   check('ladder: the B24 final duel names the Warden of Nine', easy.bots[0].profile === 'wardenofnine' && easy.mode === 'duel');
-  check('ladder: free-for-all needs the podium, duels a win', Ladder.passed(progressWithPlayer(() => progressTestResults({ rank: 3, won: false })), { mode: 'ffa' })
-    && !Ladder.passed(progressWithPlayer(() => progressTestResults({ rank: 4, won: false })), { mode: 'ffa' }));
+  check('ladder: free-for-all needs the podium, duels a win', progressWithPlayer(() => Ladder.passed(progressTestResults({ rank: 3, won: false }))
+    && !Ladder.passed(progressTestResults({ rank: 4, won: false })) && !Ladder.passed(progressTestResults({ rank: 2, others: 1, won: false }))
+    && Ladder.passed(progressTestResults({ rank: 1, others: 1, won: true }))));
   check('ladder: setting an unknown difficulty is refused', !Ladder.setDifficulty(0, 0, 'nope') && Ladder.setDifficulty(0, 0, 'regular') && Ladder.difficultyFor(0, 0) === 'regular');
   Game.stop();
 });
@@ -434,6 +458,8 @@ Test.add('progress', (check) => {
   const setup = Daily.setup('2026-10-22');
   Rules.build(setup);
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
+  const lowestBots = Math.min(...CAT.quality.map((row) => row.bots));
+  check('daily: a fixed bot count inside the lowest quality preset, so every device plays the same match', DAILY_RULES.bots <= lowestBots && setup.bots.length === DAILY_RULES.bots);
   const award = () => ({ xp: 0, lines: [] });
   const fake = { setup: { progress: { kind: 'daily', key: '2026-10-22' } } };
   const first = award();
@@ -442,6 +468,54 @@ Test.add('progress', (check) => {
   check('daily: the best score per date is kept, replaying is free', Progress.profile().daily['2026-10-22'] === 2400 && first.xp === PROGRESS_XP.daily);
   for (let day = 0; day < DAILY_RULES.historyDays + 5; day++) Daily.onResult({ setup: { progress: { kind: 'daily', key: Daily.dateKey(PROGRESS_TEST_DAY + day * 24 * PROGRESS_TEST_HOUR_MS, 0) } } }, { kills: 1 }, award());
   check('daily: the history is local and bounded; skipped days cost nothing', Object.keys(Progress.profile().daily).length === DAILY_RULES.historyDays && Daily.history()[0].best > 0);
+});
+
+// ---- PRG-008: the one-time Firing Range offer waits for a build that has the range ----
+Test.add('progress', (check) => {
+  const savedHeadless = Game.headless, savedConfirm = Ui.confirm, hadScreen = Ui.screens.get(CAREER_RANGE_MODE);
+  let offers = 0;
+  Ui.confirm = () => { offers++; };
+  Game.headless = false;
+  try {
+    Ui.screens.delete(CAREER_RANGE_MODE);
+    if (!careerRangeAvailable()) {
+      careerOfferRange();
+      check('range: no range yet -> no offer, and the offer is kept for later', offers === 0 && Progress.profile().rangeOffered === false);
+    }
+    Ui.screens.set(CAREER_RANGE_MODE, hadScreen || { build() {} });
+    careerOfferRange();
+    careerOfferRange();
+    check('range: once the range exists it is offered exactly once', offers === 1 && Progress.profile().rangeOffered === true);
+  } finally {
+    Game.headless = savedHeadless; Ui.confirm = savedConfirm;
+    if (hadScreen) Ui.screens.set(CAREER_RANGE_MODE, hadScreen); else Ui.screens.delete(CAREER_RANGE_MODE);
+  }
+});
+
+// ---- Play again and Next map for career matches (results screen) ----
+Test.add('progress', (check) => {
+  Ladder.setDifficulty(0, 0, 'novice');
+  Ladder.start(0, 0);
+  Modes.finish(Game.playerId);
+  PlayFlow.playAgain();
+  const tag = Game.match.setup.progress;
+  check('retry: a ladder match replays the same tier, match and difficulty', tag.kind === 'ladder' && tag.tier === 0 && tag.match === 0 && Game.match.setup.difficulty === 'novice'
+    && Game.match.map.id === Ladder.entry(0, 0).map);
+  check('retry: Next map is refused for a career match', PlayFlow.nextMap() === null && Game.match.setup.progress.kind === 'ladder');
+  Challenges.start('sprint', false);
+  PlayFlow.playAgain();
+  check('retry: a challenge room replays its own trial', Game.match.setup.progress.id === 'sprint' && Game.match.rules.scoreLimit === 5 && Game.match.map.id === 'spire');
+  Daily.start('2026-10-22');
+  const dailySeed = Game.match.setup.seed;
+  PlayFlow.playAgain();
+  check('retry: a daily replays the date setup with its seed', Game.match.setup.seed === dailySeed && dailySeed === hashString('daily:2026-10-22') && Game.match.setup.progress.key === '2026-10-22');
+  Operations.start('highline');
+  Modes.finish(0);
+  PlayFlow.playAgain();
+  const stage = CAT.operations.byId('highline').stages[1];
+  check('retry: after an operation map, Play again plays the next map of the run', Game.match.setup.progress.stage === 1 && Game.match.map.id === stage.map && Game.match.rules.mode === stage.mode);
+  check('retry: an untagged match has no career retry', Progress.retrySetup({ mode: 'ffa' }) === null);
+  Game.stop();
 });
 
 // ---- Cards: equip rules, Marks, unlock conditions ----
@@ -499,6 +573,54 @@ function progressHit(source, target, amount) {
   return Damage.apply(source, target, info);
 }
 function progressSlot(id) { return CardRun.slots.findIndex((slot) => slot.id === id); }
+// The match rules are frozen: a test swaps in a copy with its own fields.
+function progressRules(fields) { Game.match.rules = Object.assign({}, Game.match.rules, fields); }
+// A PU18 soul dropped by a PvE enemy's death (the S12 drop path); returns its pickup slot.
+function progressDropSoul(victim) {
+  Items.dropSoul(victim);
+  for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === CARD_SOUL_ITEM) return slot;
+  }
+  return -1;
+}
+function progressSoulSeconds(slot) { return slot < 0 ? 0 : (Items.despawnTick[slot] - Sim.tick) / TICK_RATE; }
+// C09 Dark Pact (souls needed) and the Wrath Form run metrics on the real A34 ability, which casts itself once affordable.
+function progressWrathChecks(check, ids, cost, label) {
+  progressRules({ meter: 'energy' });   // the souls pay for Wrath (an ultimate meter would pay instead)
+  Abilities.setSlot(ids.player, SLOT.ULTIMATE, CAT.abilities.byId('wrath'));
+  Meters.souls[ids.player] = cost - 1;
+  Sim.step();
+  check(label + ': Wrath Form waits below ' + cost + ' souls', !Abilities.isActive(ids.player, 'wrath') && RunLog.wrathForms === 0);
+  Meters.souls[ids.player] = cost;
+  Sim.step();
+  check(label + ': Wrath Form at ' + cost + ' souls counts one form', Abilities.isActive(ids.player, 'wrath') && RunLog.inWrath && RunLog.wrathForms === 1);
+  const victim = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
+  progressKill(victim, ids.player);
+  Bus.emit('pve.wrath', { id: ids.player, active: true });
+  Sim.run((CAT.abilities.byId('wrath').duration + 1) * 120);
+  check(label + ': kills in Wrath Form count, the form ends with the ability, a PvE report of the same form is not a second one',
+    RunLog.wrathKills === 1 && !RunLog.inWrath && RunLog.wrathForms === 1);
+}
+// C03 Soulkeep (x3 life), C11 Soul Magnet (15 m reach, both soul kinds), C20 Soul Feast (x2 heal), C09 Dark Pact (50 souls).
+function progressSoulChecks(check, ids, fiend) {
+  progressRules({ params: Object.assign({}, Game.match.rules.params, { souls: true }) });
+  Actors.alive[fiend] = 1;
+  const slot = progressDropSoul(fiend);
+  check('cards: C03 Soulkeep: souls last x3', slot >= 0 && Test.near(progressSoulSeconds(slot), ITEM_TIMING.droppedSeconds * 3, 0.05), progressSoulSeconds(slot));
+  Actors.x[ids.other] = Actors.x[ids.player] - 40;
+  Items.x[slot] = Actors.x[ids.player] + 10; Items.z[slot] = Actors.z[ids.player];
+  Items.homeSoul(slot, 0.1);
+  check('cards: C11 Soul Magnet: a soul 10 m away flies to you', Items.x[slot] < Actors.x[ids.player] + 10 - 0.5);
+  Meters.dropSoul(ids.player, Actors.x[ids.player] + 10, Actors.y[ids.player], Actors.z[ids.player]);
+  const orb = Meters.soulAlive.indexOf(1), orbStart = Meters.soulX[orb];
+  Meters.stepSoul(orb, 0.1);
+  check('cards: C11 Soul Magnet also pulls Wrath souls from 10 m', orb >= 0 && Meters.soulX[orb] < orbStart - 0.5);
+  Meters.clearSouls();
+  Actors.health[ids.player] = 50;
+  Items.take(ids.player, slot);
+  check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CARD_SOUL_ROW.instant.heal, Actors.health[ids.player]);
+  progressWrathChecks(check, ids, 50, 'cards: C09 Dark Pact');
+}
 Test.add('progress', (check) => {
   let ids = progressCardMatch(['stoneskin', 'fury2', 'fleet']);
   check('cards: the match runs with its cards (rules.cards)', Game.match.rules.cards.ids.join() === 'stoneskin,fury2,fleet' && CardRun.holder === ids.player && CardRun.slots.length === 3);
@@ -513,6 +635,15 @@ Test.add('progress', (check) => {
   check('cards: an active card is used once per level', !CardRun.activate(progressSlot('fleet')) && CardRun.slots[progressSlot('fleet')].usesLeft === 0);
   Sim.run((CARD_ACTIVE_SECONDS + 1) * 120);
   check('cards: an active card lasts 30 s', Test.near(progressHit(ids.other, ids.player, 10), plainIn, 0.01) && !Buffs.has(ids.player, BUFF.SPEED));
+
+  ids = progressCardMatch(['rage', 'fury2']);
+  const base = progressHit(ids.player, ids.other, 5);
+  CardRun.activate(progressSlot('rage'));
+  Sim.run(10 * 120);
+  CardRun.activate(progressSlot('fury2'));
+  check('cards: Twin Fury during Rage keeps Rage at x4', Test.near(progressHit(ids.player, ids.other, 5), base * 4, 0.01));
+  Sim.run((CARD_ACTIVE_SECONDS - 10 + 1) * 120);
+  check('cards: Rage ends on its own timer, Twin Fury keeps x2 to its end', Test.near(progressHit(ids.player, ids.other, 5), base * 2, 0.01) && Buffs.has(ids.player, BUFF.DAMAGE));
 
   ids = progressCardMatch(['rage', 'ironwill', 'rapid', 'longwick', 'encore']);
   check('cards: C04 Longwick adds 10 s, C12 Encore allows two uses', CardRun.activeSeconds() === 40 && CardRun.slots.every((slot) => slot.usesLeft === 2));
@@ -571,13 +702,23 @@ Test.add('progress', (check) => {
 
   ids = progressCardMatch(['greed', 'soulkeep', 'darkpact', 'magnet', 'redeemer']);
   const fx = Game.match.rules.cards.fx;
-  check('cards: C03 / C09 / C11 / C20 hand their soul numbers to the PvE section (rules.cards.fx)', fx.soulLife === 3 && fx.wrathAt === 50 && fx.soulMagnet === 15 && fx.soulHeal === 2);
+  check('cards: C03 / C09 / C11 / C20 put their soul numbers in rules.cards.fx', fx.soulLife === 3 && fx.wrathAt === 50 && fx.soulMagnet === 15 && fx.soulHeal === 2);
   const fiend = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
+  progressSoulChecks(check, ids, fiend);
+  const marksBefore = RunLog.marks;
   progressKill(fiend, ids.player);
   Bus.emit('pve.crate', { id: ids.player });
-  check('cards: Marks per PvE kill and crate, C13 Greed doubles them', RunLog.marks === 2 * (MARKS_RULES.perKill + MARKS_RULES.perCrate));
+  check('cards: Marks per PvE kill and crate, C13 Greed doubles them', RunLog.marks - marksBefore === 2 * (MARKS_RULES.perKill + MARKS_RULES.perCrate));
   Modes.finish(ids.player);
   check('cards: the Marks of a level reach the profile', Cards.marks() === RunLog.marks);
+
+  ids = progressCardMatch([]);
+  const plainFiend = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
+  progressRules({ params: Object.assign({}, Game.match.rules.params, { souls: true }) });
+  Actors.alive[plainFiend] = 1;
+  const plainSoul = progressDropSoul(plainFiend);
+  check('cards: without Soulkeep a soul lasts the usual time', Test.near(progressSoulSeconds(plainSoul), ITEM_TIMING.droppedSeconds, 0.05));
+  progressWrathChecks(check, ids, 66, 'cards: without Dark Pact');
 
   progressCardMatch(['stoneskin', 'slowtide'], { modeOptions: {} });
   check('cards: versus without Cards Allowed runs no cards', Game.match.rules.cards.ids.length === 0 && CardRun.holder === CARD_NO_HOLDER);

@@ -51,15 +51,14 @@ const Ladder = {
     if (!this.isOpen(tier, match)) return null;
     return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), progressSeed(random)));
   },
-  // Free-for-all: a podium place; duels and team modes: a win.
-  passed(results, entry) {
-    if (CAT.modes.byId(entry.mode).teams === 0 && entry.mode !== 'duel') return Progress.placement(results) > 0 && Progress.placement(results) <= LADDER_PODIUM;
-    return Progress.outcome(results) === 'win';
-  },
+  // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win.
+  passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
+  // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
+  retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, progressSeed()); },
   onResult(match, metrics, award) {
     const tag = match.setup.progress, entry = this.entry(tag.tier, tag.match), state = this.state();
     if (!entry) return;
-    if (!this.passed(match.results, entry)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
+    if (!this.passed(match.results)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
     const first = !state.cleared[this.key(tag.tier, tag.match)];
     state.cleared[this.key(tag.tier, tag.match)] = true;
     if (first) award.xp += PROGRESS_XP.ladderMatch;
@@ -179,10 +178,14 @@ const Operations = {
     return progressSetup({ mode: stage.mode, map: stage.map, bots, difficulty: row.difficulty, balance: false, modeOptions: { scoreLimit: 0 } },
       { kind: 'operation', id, stage: state.stage, tickets: state.tickets.slice() }, seed);
   },
+  // The operation's current map; a finished operation begins a new run.
+  nextSetup(id, seed) {
+    if (this.state(id).done) this.reset(id);
+    return this.setup(id, seed);
+  },
   start(id, random) {
     if (!CAT.operations.byId(id)) return null;
-    if (this.state(id).done) this.reset(id);
-    return Game.start(this.setup(id, progressSeed(random)));
+    return Game.start(this.nextSetup(id, progressSeed(random)));
   },
   // The map's winner; a draw goes to the side with more tickets left.
   stageWinner(results) {
@@ -221,7 +224,7 @@ const Daily = {
     return shifted.getUTCFullYear() + '-' + month + '-' + day;
   },
   todayKey() { const now = Date.now(); return this.dateKey(now, -new Date(now).getTimezoneOffset()); },
-  modes() { return DAILY_RULES.modes.filter((mode) => Modes.isPlayable(mode) && Maps.forMode(mode).length > 0); },
+  modes() { return DAILY_RULES.modes.filter((mode) => Modes.isPlayable(mode) && dailyHandMaps(mode).length > 0); },
   // Mode, bundle, 2 non-conflicting mutators and the map, all from the date's seed.
   choiceFor(key) {
     const seed = hashString('daily:' + key), random = makeRandom(seed);
@@ -231,13 +234,13 @@ const Daily = {
       if (mutators.length >= DAILY_RULES.mutatorCount) break;
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
-    const hand = random.pick(Maps.forMode(mode));
+    const hand = random.pick(dailyHandMaps(mode));
     return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode) };
   },
   setup(key) {
     const choice = this.choiceFor(key);
     return progressSetup({ mode: choice.mode, map: choice.generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
-      bots: Array.from({ length: Math.min(DAILY_RULES.bots, Quality.current().bots) }, () => ({})), difficulty: DAILY_RULES.difficulty },
+      bots: Array.from({ length: DAILY_RULES.bots }, () => ({})), difficulty: DAILY_RULES.difficulty },
     { kind: 'daily', key }, choice.seed);
   },
   start(key) { return Game.start(this.setup(key || this.todayKey())); },
@@ -257,6 +260,8 @@ const Daily = {
   },
 };
 
+// The hand-made maps (S03 catalogue) serving a mode: never the editor's saved or generated maps, which differ per device.
+function dailyHandMaps(mode) { return CAT.maps.filter((map) => map.modes.includes(mode)); }
 // MAP-020: a generated map when the map generator section is present (another helper builds MapGen), else null (hand-made map).
 function dailyGeneratedMap(seed, mode) {
   if (typeof MapGen === 'undefined' || typeof MapGen.generate !== 'function') return null;
@@ -273,6 +278,10 @@ Progress.addHandler('ladder', (match, metrics, award) => Ladder.onResult(match, 
 Progress.addHandler('challenge', (match, metrics, award) => Challenges.onResult(match, metrics, award));
 Progress.addHandler('operation', (match, metrics, award) => Operations.onResult(match, metrics, award));
 Progress.addHandler('daily', (match, metrics, award) => Daily.onResult(match, metrics, award));
+Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
+Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
+Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()));
+Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
 Sim.addSystem('operationTickets', 75, () => OperationRun.step());
 Bus.on('match.start', (match) => OperationRun.onStart(match));
 Bus.on('match.stop', () => { OperationRun.active = false; });

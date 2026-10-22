@@ -227,6 +227,6 @@ const DAILY_RULES = {
   modes: ['ffa', 'tdm', 'dom', 'hardpoint', 'ctf'],
   rulesets: ['classic', 'tourney', 'modern', 'pilot', 'vanguard'],
   mutators: ['gravity', 'playerspeed', 'vampire', 'bighead', 'infammo', 'regen', 'noself', 'multijump', 'knockback', 'slowmokills', 'aircontrol', 'colossal', 'weaponstay', 'tags'],
-  mutatorCount: 2, bots: 5, difficulty: 'regular', historyDays: 60,
+  mutatorCount: 2, bots: 5, difficulty: 'regular', historyDays: 60,   // bots: fixed, inside the lowest quality preset's cap (7)
   points: { kills: 500, score: 100, headshots: 200, deaths: -150, won: 3000 },
 };

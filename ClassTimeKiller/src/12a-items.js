@@ -67,6 +67,14 @@ function itemMutatorOn(id) {
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
   return false;
 }
+// A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
+function soulCardFx(id, key, fallback) {
+  const cards = itemRule('cards', null);
+  if (id < 0 || id !== Game.playerId || !cards || !cards.fx || cards.fx[key] === undefined) return fallback;
+  return cards.fx[key];
+}
+// ABL-005 soul homing reach of an actor: the C11 Soul Magnet card widens it for its holder.
+function soulHomingRange(id) { return Math.max(SOUL_HOMING_RANGE, soulCardFx(id, 'soulMagnet', 0)); }
 
 const Items = {
   state: new Uint8Array(PICKUP_CAP), kind: new Uint8Array(PICKUP_CAP), row: new Int16Array(PICKUP_CAP), group: new Uint8Array(PICKUP_CAP),
@@ -194,7 +202,8 @@ const Items = {
   dropSoul(victim) {
     const params = itemRule('params', null);
     if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !((params && params.souls) || itemMutatorOn('souls'))) return;
-    this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
+    const slot = this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
+    if (slot >= 0) this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds * soulCardFx(Game.playerId, 'soulLife', 1));   // C03 Soulkeep
   },
 
   // ---- The per-step update (Sim order 60) ----
@@ -257,11 +266,11 @@ const Items = {
     Bus.emit('announce', ITEM_ANNOUNCE);
   },
   homeSoul(slot, dt) {
-    let best = -1, bestDistance = SOUL_HOMING_RANGE;
+    let best = -1, bestDistance = Infinity;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
       const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
-      if (distance < bestDistance) { best = id; bestDistance = distance; }
+      if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;
     const move = Math.min(bestDistance, SOUL_HOMING_SPEED * dt) / bestDistance;

@@ -291,13 +291,12 @@ function careerAwardPanel(container) {
 }
 PlayResultsExtras.push(careerAwardPanel);
 
-// ---- First start: offer the Firing Range once (skippable, PRG-008) ----
+// ---- First start: offer the Firing Range once (skippable, PRG-008); a build without the range keeps the offer for later ----
 function careerOfferRange() {
   const profile = Progress.profile();
-  if (Game.headless || profile.rangeOffered) return;
+  if (Game.headless || profile.rangeOffered || !careerRangeAvailable()) return;
+  Ui.confirm({ title: 'Welcome', text: 'Warm up in the Firing Range first? You can skip it and go straight to the menu.', yes: 'Firing Range', no: 'Skip', onYes: careerOpenRange });
   profile.rangeOffered = true;
   Save.scheduleSave();
-  if (!careerRangeAvailable()) return;
-  Ui.confirm({ title: 'Welcome', text: 'Warm up in the Firing Range first? You can skip it and go straight to the menu.', yes: 'Firing Range', no: 'Skip', onYes: careerOpenRange });
 }
 Bus.on('ready', careerOfferRange);

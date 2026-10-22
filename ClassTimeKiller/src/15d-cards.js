@@ -2,13 +2,16 @@
 // Cards C01..C24 (spec 15 card table, MIS-035): run modifiers the player places before a match. 3 active slots (each card used
 // once per level for 30 s) and 2 passive slots (the whole level); placing costs Marks, removing refunds half of what was paid.
 // Cards apply in PvE matches, and in versus only with X48 (rules.fx.cards) and only rows marked `versus`. The 'handicap' rule
-// stage writes rules.cards = { ids, fx } (fx: the soul numbers the PvE / items sections read); the effects run through the
-// existing hooks (Damage.addAttackerScale / addReducer, Buffs speed / slow / rate, 'pickup', 'weapon.fire', 'damage').
-// Each card unlocks by its own play-style condition over one finished PvE level (RunLog metrics + results.pve).
+// stage writes rules.cards = { ids, fx } (fx: the soul numbers S12 reads for the player: soulLife, soulMagnet, wrathAt);
+// the effects run through the existing systems (Buffs damage / invulnerable / speed / slow / rate, Damage.addReducer and
+// Damage.regenerate, 'pickup', 'weapon.fire', 'damage'). Each card unlocks by its own play-style condition over one finished
+// PvE level (RunLog metrics + results.pve).
 
 const CARD_BRITTLE_EXTRA = 1;              // a brittle hit deals the target's whole pool plus this
 const CARD_NO_HOLDER = -1;
-const CARD_CONTRACT_FX = ['soulLife', 'wrathAt', 'soulMagnet', 'soulHeal'];   // effects other sections apply from rules.cards.fx
+const CARD_SOUL_ITEM = 'soul';             // PU18 Soul Shard (its heal is what C20 Soul Feast multiplies)
+const CARD_SOUL_ROW = CAT.powerups.byId(CARD_SOUL_ITEM);
+const CARD_CONTRACT_FX = ['soulLife', 'wrathAt', 'soulMagnet', 'soulHeal'];   // soul multipliers / numbers copied into rules.cards.fx
 const CARD_KIND = {};
 ['takenScale', 'worldSlow', 'activeSeconds', 'startHealth', 'ammoPickup', 'speed', 'damage', 'rate', 'activeUses', 'marks',
   'invulnerable', 'baseHealth', 'freePlacement', 'lastBreath', 'discord', 'noAmmoUse', 'brittleFoes', 'regen', 'lifesteal']
@@ -97,7 +100,8 @@ const CardRun = {
   holder: CARD_NO_HOLDER,
   has: new Uint8Array(CARD_KIND_COUNT),          // passive or active card of the kind is in the match
   value: new Float32Array(CARD_KIND_COUNT),
-  activeUntil: new Float64Array(CARD_KIND_COUNT),   // Sim.time an active effect of the kind ends (0 = off)
+  rate: new Float32Array(CARD_KIND_COUNT),         // the row's per-second rate (C23 Mending)
+  activeUntil: new Float64Array(CARD_KIND_COUNT),   // Sim.time the last active effect of the kind ends (0 = off)
   slots: [],                                      // active cards: { id, kind, usesLeft, endsAt } (built on match.start only)
   discordTeam: new Int8Array(MAX_ACTORS),
   discordSet: new Uint8Array(MAX_ACTORS),
@@ -105,7 +109,7 @@ const CardRun = {
 
   reset() {
     this.holder = CARD_NO_HOLDER;
-    this.has.fill(0); this.value.fill(0); this.activeUntil.fill(0);
+    this.has.fill(0); this.value.fill(0); this.rate.fill(0); this.activeUntil.fill(0);
     this.slots = [];
     this.discordSet.fill(0);
     this.lastBreathUsed = false;
@@ -125,6 +129,7 @@ const CardRun = {
     if (row.type === 'active') { this.slots.push({ id: row.id, kind, usesLeft: 1, endsAt: 0 }); return; }
     this.has[kind] = 1;
     this.value[kind] = row.effect.value;
+    this.rate[kind] = row.effect.rate || 0;
   },
   active(kind) { return this.activeUntil[kind] > Sim.time; },
   holds(kind, id) { return id === this.holder && id >= 0 && (this.has[kind] === 1 || this.active(kind)); },
@@ -136,18 +141,18 @@ const CardRun = {
     const row = CAT.cards.byId(slot.id), seconds = row.effect.kind === 'discord' ? row.effect.value : this.activeSeconds();
     slot.usesLeft--;
     slot.endsAt = Sim.time + seconds;
-    this.activeUntil[slot.kind] = slot.endsAt;
+    this.activeUntil[slot.kind] = Math.max(this.activeUntil[slot.kind], slot.endsAt);
     this.value[slot.kind] = row.effect.value;
     CARD_STARTS[row.effect.kind](id, row.effect.value, seconds);
     return true;
   },
+  // C23 Mending: HP regrows to the card's cap at its rate (the shared regeneration path).
   step(dt) {
     const id = this.holder;
     if (id < 0) return;
     this.endDiscord();
     if (!Actors.alive[id] || !this.has[CARD_KIND.regen]) return;
-    const cap = this.value[CARD_KIND.regen], row = CAT.cards.byId('regenhp');
-    if (Actors.health[id] < cap) Actors.health[id] = Math.min(cap, Actors.health[id] + row.effect.rate * dt);
+    Damage.regenerate(id, this.rate[CARD_KIND.regen] * dt, this.value[CARD_KIND.regen]);
   },
   endDiscord() {
     if (this.active(CARD_KIND.discord)) return;
@@ -159,10 +164,13 @@ const CardRun = {
   },
 };
 
-// Start effects of active cards; the timed ones ride on the ability Buffs (S12) so speed and fire rate need no new hook.
+// Start effects of active cards; the timed ones ride on the ability Buffs (S12: the strongest live damage buff wins, so
+// Twin Fury during Rage keeps x4 until Rage ends, and the actor glow shows them).
 function isCardOpponent(holder, id) { return id !== holder && Actors.alive[id] === 1 && Actors.isEnemy(holder, id); }
 const CARD_STARTS = {
-  takenScale() {}, damage() {}, invulnerable() {}, brittleFoes() {}, noAmmoUse() {},
+  takenScale() {}, brittleFoes() {}, noAmmoUse() {},
+  damage(id, value, seconds) { Buffs.add(id, BUFF.DAMAGE, value, seconds); },
+  invulnerable(id, value, seconds) { Buffs.add(id, BUFF.INVULNERABLE, 1, seconds); },
   speed(id, value, seconds) { Buffs.add(id, BUFF.SPEED, value, seconds); },
   rate(id, value, seconds) { Buffs.add(id, BUFF.RATE, value, seconds); },
   // "The world x0.5": every opponent moves and fires at the card's factor while it runs.
@@ -189,13 +197,11 @@ Rules.addModifier('handicap', (rules, setup) => {
   const ids = Cards.forMatch(rules, setup);
   rules.cards = { ids, fx: Cards.matchFx(ids) };
 });
-Damage.addAttackerScale((source, target) => (CardRun.holds(CARD_KIND.damage, source) && target !== source ? CardRun.value[CARD_KIND.damage] : 1));
 Damage.addReducer((source, target, amount) => {
   if (CardRun.holds(CARD_KIND.brittleFoes, source) && isCardOpponent(source, target) && !isBoss(target)) {
     return Math.max(amount, Actors.health[target] + Actors.armor[target] + Actors.shield[target] + CARD_BRITTLE_EXTRA);
   }
   if (target !== CardRun.holder || target < 0) return amount;
-  if (CardRun.active(CARD_KIND.invulnerable)) return 0;
   const scaled = CardRun.active(CARD_KIND.takenScale) ? amount * CardRun.value[CARD_KIND.takenScale] : amount;
   return cardLastBreath(target, scaled);
 });
@@ -214,9 +220,15 @@ function applySpawnCards(id) {
   if (CardRun.has[CARD_KIND.startHealth]) Actors.health[id] = Math.max(Actors.health[id], CardRun.value[CARD_KIND.startHealth]);
 }
 // C06: an ammo pickup is granted once more (Items.grant does not emit 'pickup', so this never repeats).
-function cardPickup(event) {
+function cardAmmoPickup(event) {
   if (event.group !== 'ammo' || !CardRun.holds(CARD_KIND.ammoPickup, event.id)) return;
   for (let extra = 1; extra < CardRun.value[CARD_KIND.ammoPickup]; extra++) Items.grant(event.id, event.item);
+}
+// C20 Soul Feast: a soul heals `value` times its own heal (PU18 already healed once, under the same cap).
+function cardSoulPickup(event) {
+  if (event.item !== CARD_SOUL_ITEM || !CardRun.holds(CARD_KIND.soulHeal, event.id) || !CARD_SOUL_ROW) return;
+  const extra = CARD_SOUL_ROW.instant.heal * (CardRun.value[CARD_KIND.soulHeal] - 1);
+  Items.addHealth(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
 }
 // C21: the shot's rounds come back at once (ammo is spent before 'weapon.fire').
 function cardFire(event) {
@@ -230,7 +242,7 @@ function cardFire(event) {
 function cardDamage(event) {
   const id = event.source;
   if (!CardRun.holds(CARD_KIND.lifesteal, id) || event.target === id || !Actors.alive[id]) return;
-  Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + event.amount * CardRun.value[CARD_KIND.lifesteal]);
+  Damage.regenerate(id, event.amount * CardRun.value[CARD_KIND.lifesteal], Actors.maxHealth[id]);
 }
 // Marks: PvE enemy kills and crates (Greed doubles them); added to the profile when the match is counted.
 function cardKill(event) {
@@ -250,7 +262,7 @@ Sim.addSystem('cards', 25, (dt) => CardRun.step(dt));
 Bus.on('match.start', (match) => CardRun.onStart(match));
 Bus.on('match.stop', () => { CardRun.endDiscord(); CardRun.reset(); });
 Bus.on('actor.spawn', (event) => applySpawnCards(event.id));
-Bus.on('pickup', cardPickup);
+Bus.on('pickup', (event) => { cardAmmoPickup(event); cardSoulPickup(event); });
 Bus.on('weapon.fire', cardFire);
 Bus.on('damage', cardDamage);
 Bus.on('kill', cardKill);

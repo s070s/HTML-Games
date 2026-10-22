@@ -120,7 +120,7 @@ const Meters = {
     const owner = this.soulOwner[s];
     if (!Actors.alive[owner]) return;
     const dx = Actors.x[owner] - this.soulX[s], dy = Actors.y[owner] + SOUL_LIFT - this.soulY[s], dz = Actors.z[owner] - this.soulZ[s];
-    const distance = Math.hypot(dx, dy, dz), homing = CAT.abilities.byId('wrath').params.homing;
+    const distance = Math.hypot(dx, dy, dz), homing = Math.max(CAT.abilities.byId('wrath').params.homing, soulCardFx(owner, 'soulMagnet', 0));   // C11
     if (distance <= SOUL_PICKUP) { this.soulAlive[s] = 0; this.souls[owner]++; return; }
     if (distance > homing) return;
     const step = Math.min(distance, SOUL_HOMING_SPEED * dt) / distance;

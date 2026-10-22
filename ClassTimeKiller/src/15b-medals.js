@@ -48,6 +48,8 @@ const Medals = {
     const helper = event.assister;
     if (counts && helper >= 0 && helper !== killer && !Actors.isEnemy(helper, killer)) this.award(helper, 'assist');
     if (counts) this.countedKill(killer, victim, event);
+    // MD18: any death (a fall, a hazard, a suicide too) may leave someone alone against 2 or more.
+    if (inRoundMode()) this.markClutches();
     // The next life starts clean: an old melee or telefrag hit must not style a later kill.
     this.lastHitKind[victim] = MEDAL_KIND.NONE;
     this.lastHitSource[victim] = MEDAL_NOBODY;
@@ -83,15 +85,14 @@ const Medals = {
     if (this.lastHitKind[victim] === MEDAL_KIND.TELEFRAG && this.lastHitSource[victim] === killer) this.award(killer, 'telefrag');
     if (this.lastKiller[killer] === victim) { this.lastKiller[killer] = MEDAL_NOBODY; this.award(killer, 'revenge'); }
     if (isAirborne(killer)) this.award(killer, 'airborne');
-    if (Math.hypot(Actors.x[killer] - event.x, Actors.y[killer] - event.y, Actors.z[killer] - event.z) > MEDAL_RULES.longShotMetres) this.award(killer, 'longShot');
+    if (isLongShot(killer, event)) this.award(killer, 'longShot');
     if (defendsObjective(killer, victim)) this.award(killer, 'defender');
   },
-  // MD17 Ace: in a round mode, the killer took down every enemy participant of this round. MD18 Clutch candidates.
+  // MD17 Ace: in a round mode, the killer took down every enemy participant of this round.
   roundKill(killer, victim) {
-    if (!Modes.active || !Modes.rules || !Modes.rules.rounds) return;
+    if (!inRoundMode()) return;
     this.roundKiller[victim] = killer;
     if (allEnemiesDownBy(killer)) this.award(killer, 'ace');
-    this.markClutches();
   },
   markClutches() {
     for (let team = 0; team < TEAM_COUNT; team++) {
@@ -144,9 +145,7 @@ const Medals = {
 };
 MEDAL_RULES.railWeapons.forEach((key) => { const row = CAT.weapons.byId(key); if (row) Medals.railWeapons[row.index] = 1; });
 
-function isAirborne(id) {
-  return !(Actors.flags[id] & (ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.IN_WATER | ACTOR_FLAG.ON_LADDER));
-}
+function inRoundMode() { return Modes.active && !!Modes.rules && !!Modes.rules.rounds; }
 // MD10: the victim was within defendRadius of an objective of the killer's side (own flag or base, owned point, defended
 // site) or was carrying the killer's flag.
 function defendsObjective(killer, victim) {

@@ -8,24 +8,31 @@ const PROGRESS_VERSION = 1;
 const PROGRESS_SECONDS_PER_MINUTE = 60;
 const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (the PvE section did not report them)
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
-const RUN_LONG_SHOT_METRES = MEDAL_RULES.longShotMetres;
+const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
-const RUN_KIND = { NONE: 0, MELEE: 1, TELEFRAG: 2 };
+const RUN_WRATH_ABILITY = 'wrath';          // A34 Wrath Form (S12): its cast and end mark the Wrath Form run metrics
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
 
+// Kill styles shared by the run metrics and the medals (MD15 Airborne, MD16 Long Shot): one rule each.
+function isAirborne(id) {
+  return !(Actors.flags[id] & (ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.IN_WATER | ACTOR_FLAG.ON_LADDER));
+}
+function isLongShot(killer, event) {
+  return Math.hypot(Actors.x[killer] - event.x, Actors.y[killer] - event.y, Actors.z[killer] - event.z) > MEDAL_RULES.longShotMetres;
+}
+
 // ---- Run metrics of the local player in the running match (reset on match.start; plain numbers, no allocation per event) ----
 const RunLog = {
-  kills: 0, deaths: 0, airKills: 0, longShots: 0, meleeKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
-  lowestHealth: 0, souls: 0, propsBroken: 0, armorPickups: 0, marks: 0, crates: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
-  secrets: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER, alarms: 0,
+  kills: 0, deaths: 0, airKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
+  lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
+  bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
   weaponUsed: new Uint8Array(WEAPON_COUNT),
   metrics: {},                // reused result of measure()
 
   reset() {
-    this.kills = this.deaths = this.airKills = this.longShots = this.meleeKills = this.rangedKills = this.explosiveShots = 0;
-    this.damageTaken = this.souls = this.propsBroken = this.armorPickups = this.marks = this.crates = this.wrathForms = this.wrathKills = 0;
-    this.secrets = this.alarms = 0;
+    this.kills = this.deaths = this.airKills = this.rangedKills = this.explosiveShots = 0;
+    this.damageTaken = this.souls = this.armorPickups = this.marks = this.wrathForms = this.wrathKills = 0;
     this.inWrath = false;
     this.lowestHealth = Infinity;
     this.bossSeconds = this.finalBossSeconds = PROGRESS_NEVER;
@@ -38,10 +45,15 @@ const RunLog = {
     this.kills++;
     const weapon = CAT.weapons.byId(event.weapon);
     if (weapon) this.weaponUsed[weapon.index] = 1;
-    if (weapon && weapon.class === 'melee') this.meleeKills++; else this.rangedKills++;
-    if (!(Actors.flags[event.killer] & ACTOR_FLAG.ON_GROUND)) this.airKills++;
-    if (Math.hypot(Actors.x[event.killer] - event.x, Actors.y[event.killer] - event.y, Actors.z[event.killer] - event.z) > RUN_LONG_SHOT_METRES) this.longShots++;
+    if (!weapon || weapon.class !== 'melee') this.rangedKills++;
+    if (isAirborne(event.killer)) this.airKills++;
     if (this.inWrath) this.wrathKills++;
+  },
+  // Wrath Form starts or ends for the player; a start while already in it is the same form (two sources may report it).
+  setWrath(id, active) {
+    if (!this.isPlayer(id)) return;
+    if (active && !this.inWrath) this.wrathForms++;
+    this.inWrath = active;
   },
   onDamage(event) {
     if (!this.isPlayer(event.target)) return;
@@ -64,8 +76,8 @@ const RunLog = {
   measure(match) {
     const out = this.metrics, results = match && match.results, mine = Progress.playerResult(results);
     const pve = results && results.pve ? results.pve : null;
-    out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills; out.longShots = this.longShots;
-    out.meleeKills = this.meleeKills; out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
+    out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills;
+    out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
@@ -81,7 +93,7 @@ const RunLog = {
     out.propsLeft = pve && typeof pve.propsLeft === 'number' ? pve.propsLeft : PROGRESS_NOT_REACHED;
     out.secretsLeft = pve && typeof pve.secretsLeft === 'number' ? pve.secretsLeft : PROGRESS_NOT_REACHED;
     out.optionalLeft = pve && typeof pve.optionalLeft === 'number' ? pve.optionalLeft : PROGRESS_NOT_REACHED;
-    out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds; out.alarms = this.alarms;
+    out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
     return out;
   },
 };
@@ -91,8 +103,10 @@ const Progress = {
   handlers: new Map(),        // setup.progress.kind -> fn(match, metrics, award) (ladder, challenge, operation, daily, cards)
   finishers: [],              // fn(match, metrics, award) for every finished match (card unlocks, marks)
   preFinishers: [],           // fn(match) before anything is counted (end-of-match medals such as MD19)
+  retries: new Map(),         // setup.progress.kind -> fn(tag, setup) -> the setup a results-screen retry starts
   lastAward: null,            // what the last finished match paid (results screen)
   awardedMatch: null,
+  look: { color: PROGRESS_NO_LOOK, finish: PROGRESS_NO_LOOK },   // the worn cosmetics as plain numbers (read every frame)
   // Filled by S18 (18j) at load, so this earlier section never calls the UI directly: the match outcome rule of the play
   // flow (PlayFlow.outcome) and the local player's per-weapon tallies and medals (LocalPlayerStats).
   links: { outcome: null, playerStats: null },
@@ -161,7 +175,7 @@ const Progress = {
     out.medals = medalXp;
     out.finish = PROGRESS_XP.finish;
     out.win = Progress.outcome(results) === 'win' ? PROGRESS_XP.win : 0;
-    out.podium = !results.teams.length && !out.win && this.placement(results) <= LADDER_PODIUM ? PROGRESS_XP.podium : 0;
+    out.podium = !out.win && this.onPodium(results) ? PROGRESS_XP.podium : 0;
     out.time = Math.min(results.duration / PROGRESS_SECONDS_PER_MINUTE, PROGRESS_XP.minutesCap) * PROGRESS_XP.perMinute;
     out.total = Math.round(out.score + out.objective + out.medals + out.finish + out.win + out.podium + out.time);
     return out;
@@ -177,6 +191,13 @@ const Progress = {
     if (index < 0) return 0;
     if (results.teams.length) return Progress.outcome(results) === 'win' ? 1 : 2;
     return index + 1;
+  },
+  // A podium place (top LADDER_PODIUM) in a free-for-all larger than the podium: a duel or a 3-player match has none, so
+  // its loser is never paid for a place; team modes have none either (only the win counts).
+  onPodium(results) {
+    if (!results || results.teams.length || results.players.length <= LADDER_PODIUM) return false;
+    const place = this.placement(results);
+    return place > 0 && place <= LADDER_PODIUM;
   },
   playerHeadshots() {
     const tally = this.tally();
@@ -226,11 +247,19 @@ const Progress = {
     if (unlockId && (!row || row.kind !== kind || !this.isUnlocked(row))) return false;
     this.profile().cosmetics[kind] = unlockId || '';
     Save.scheduleSave();
+    this.refreshLook();
     return true;
   },
   cosmetic(kind) {
     const row = CAT.unlocks.byId(this.profile().cosmetics[kind]);
     return row && this.isUnlocked(row) ? row.value : null;
+  },
+  // Resolves the worn colour and finish once (cosmetic choice, Unlock everything, match start, a counted match), so the
+  // renderer's per-frame style reads two numbers instead of walking the unlock rules.
+  refreshLook() {
+    const color = this.cosmetic('color'), finish = this.cosmetic('finish');
+    this.look.color = color === null ? PROGRESS_NO_LOOK : color;
+    this.look.finish = finish === null ? PROGRESS_NO_LOOK : finish;
   },
   title() { return this.cosmetic('title') || ''; },
 
@@ -241,11 +270,14 @@ const Progress = {
     let reached = PROGRESS_NOT_REACHED;
     if (!record) return reached;
     const kills = Number(record.kills) || 0, headshots = Number(record.headshots) || 0;   // older saves may lack a counter
-    MASTERY_TIERS.forEach((tier, index) => { if (kills >= tier.kills && headshots >= tier.headshots) reached = index; });
+    for (let index = 0; index < MASTERY_TIERS.length; index++) {
+      if (kills >= MASTERY_TIERS[index].kills && headshots >= MASTERY_TIERS[index].headshots) reached = index;
+    }
     return reached;
   },
   masteryReached(tierId) {
-    const wanted = MASTERY_TIERS.findIndex((tier) => tier.id === tierId);
+    const wanted = masteryTierIndex(tierId);
+    if (wanted < 0) return false;
     for (const key in this.stats().weapons) if (this.masteryOf(key) >= wanted) return true;
     return false;
   },
@@ -269,6 +301,13 @@ const Progress = {
   addHandler(kind, handler) { this.handlers.set(kind, handler); },
   addFinisher(finisher) { this.finishers.push(finisher); },
   addPreFinisher(finisher) { this.preFinishers.push(finisher); },
+  addRetry(kind, builder) { this.retries.set(kind, builder); },
+  // The setup "Play again" starts for a tagged match (null when untagged): each structure rebuilds its own, so a ladder
+  // match keeps its tier and difficulty, a daily keeps its date seed and an operation plays its current map.
+  retrySetup(setup) {
+    const tag = setup && setup.progress, builder = tag ? this.retries.get(tag.kind) : null;
+    return builder ? builder(tag, setup) : null;
+  },
   finishMatch(match) {
     if (!match || !match.results || this.awardedMatch === match) return this.awardedMatch === match ? this.lastAward : null;
     if (!this.playerResult(match.results)) return null;
@@ -290,6 +329,7 @@ const Progress = {
     award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
     if (award.levelAfter > levelBefore) Bus.emit('toast', { text: 'Level ' + award.levelAfter + ' reached' });
     this.lastAward = award;
+    this.refreshLook();
     Save.scheduleSave();
     return award;
   },
@@ -313,6 +353,10 @@ const MODE_STAT_FIELDS = { played: 0, wins: 0, kills: 0, deaths: 0, bestScore: 0
 const MAP_STAT_FIELDS = { played: 0, wins: 0 };
 const WEAPON_STAT_FIELDS = { shots: 0, hits: 0, kills: 0, headshots: 0 };
 
+function masteryTierIndex(tierId) {
+  for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
+  return PROGRESS_NOT_REACHED;
+}
 function isPlainRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 // Copies every field of `defaults` that `target` lacks (one level into nested records); returns target.
 function fillMissing(target, defaults) {
@@ -332,24 +376,26 @@ function statRecord(table, key, fields) {
 // The chosen body colour and finish of the player (cosmetic only: drawn, never read by a rule).
 Render.addActorStyle((id, out) => {
   if (id !== Game.playerId || id < 0) return;
-  const color = Progress.cosmetic('color'), finish = Progress.cosmetic('finish');
-  if (color !== null) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
-  if (finish !== null) out.emissive = Math.max(out.emissive, finish);
+  const color = Progress.look.color, finish = Progress.look.finish;
+  if (color !== PROGRESS_NO_LOOK) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
+  if (finish !== PROGRESS_NO_LOOK) out.emissive = Math.max(out.emissive, finish);
 });
 
-Bus.on('boot', () => Progress.ensure());
-Bus.on('match.start', () => RunLog.reset());
+Bus.on('boot', () => { Progress.ensure(); Progress.refreshLook(); });
+Bus.on('setting', (key) => { if (key === 'progress.unlockAll') Progress.refreshLook(); });
+Bus.on('match.start', () => { RunLog.reset(); Progress.refreshLook(); });
 Bus.on('kill', (event) => RunLog.onKill(event));
 Bus.on('damage', (event) => RunLog.onDamage(event));
 Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
-// PvE reports (S15 PvE section, docs/api/progression.md): Wrath Form, bosses, secrets, crates, stealth alarms.
-Bus.on('pve.wrath', (event) => { if (!RunLog.isPlayer(event.id)) return; RunLog.inWrath = event.active !== false; if (RunLog.inWrath) RunLog.wrathForms++; });
+// A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
+Bus.on('ability.cast', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, true); });
+Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, false); });
+// PvE reports (PvE section, docs/api/progression.md): an optional second Wrath Form source and boss times.
+Bus.on('pve.wrath', (event) => RunLog.setWrath(event.id, event.active !== false));
 Bus.on('pve.boss', (event) => {
   RunLog.bossSeconds = Math.min(RunLog.bossSeconds, event.seconds);
   if (event.final) RunLog.finalBossSeconds = Math.min(RunLog.finalBossSeconds, event.seconds);
 });
-Bus.on('pve.secret', () => { RunLog.secrets++; });
-Bus.on('pve.alarm', () => { RunLog.alarms++; });
 Bus.on('match.end', (match) => Progress.finishMatch(match));

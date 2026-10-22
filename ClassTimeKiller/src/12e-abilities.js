@@ -254,7 +254,7 @@ const Abilities = {
       case 'energy': return Meters.energy[id] >= Math.max(row.cost, TICK_EPSILON);
       case 'ultimate': return Meters.points[id] >= ultimateCost(id, row);
       case 'fuel': return this.fuel[i] > 0;
-      case 'souls': return Meters.souls[id] >= row.cost;
+      case 'souls': return Meters.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
       default: return true;
     }
   },

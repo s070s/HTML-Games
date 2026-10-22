@@ -83,15 +83,15 @@ const PlayFlow = {
     const bots = clamp(PLAY_SHUFFLE_MIN_BOTS + Math.floor(random() * (top - PLAY_SHUFFLE_MIN_BOTS + 1)), 0, this.defaultBots(mode.id));
     return this.normalize({ mode: mode.id, map: map.id, bots, difficulty: pick(this.difficulties()).id });
   },
-  // Same setup, fresh seed (results screen: play again).
+  // Same setup, fresh seed (results screen: play again); a career match (setup.progress) is rebuilt by its structure (S15).
   playAgain(random) {
     if (!Game.match) return null;
-    const setup = Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
     return Game.start(setup);
   },
-  // Same mode and rules on the next map that lists the mode.
+  // Same mode and rules on the next map that lists the mode (not for career matches: they belong to their map).
   nextMap(random) {
-    if (!Game.match) return null;
+    if (!Game.match || Game.match.setup.progress) return null;
     const setup = Game.match.setup, maps = this.mapsFor(setup.mode), current = maps.findIndex((map) => map.id === (Game.match.map ? Game.match.map.id : setup.map));
     const next = maps.length ? maps[(current + 1) % maps.length] : null;
     return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) }));
@@ -187,7 +187,7 @@ Ui.register('results', {
     const again = Ui.button('Play again', () => PlayFlow.playAgain(), 'primary');
     again.dataset.autofocus = '1';
     foot.appendChild(again);
-    foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+    if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
     foot.appendChild(Ui.button('Main menu', () => Game.stop()));
     root.appendChild(foot);
   },
