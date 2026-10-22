@@ -125,6 +125,7 @@ const Weapons = {
   lockIds: new Int8Array(MAX_ACTORS * MAX_LOCKS).fill(-1), lockTime: new Float32Array(MAX_ACTORS * MAX_LOCKS), lockCursor: new Uint8Array(MAX_ACTORS),
   fitted: new Int8Array(MAX_ACTORS * WEAPON_COUNT * ATTACHMENT_SLOT_COUNT).fill(-1), // attachment index per weapon slot (-1 none)
   statScale: new Float32Array(MAX_ACTORS * WEAPON_STAT_COUNT).fill(1),              // per-actor stat multipliers (perks write these)
+  mutatorScale: new Float32Array(MAX_ACTORS * WEAPON_STAT_COUNT).fill(1),           // the same slots for match mutators (13h): never shared with perks
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
@@ -143,7 +144,7 @@ const Weapons = {
   // ---- Attachments (step 5.4): stat = base x per-actor scale x every fitted attachment's multiplier ----
   modifier(id, weapon, stat) {
     const field = WEAPON_STATS[stat], first = this.slotIndex(id, weapon.index) * ATTACHMENT_SLOT_COUNT;
-    let scale = this.statScale[id * WEAPON_STAT_COUNT + stat];
+    let scale = this.statScale[id * WEAPON_STAT_COUNT + stat] * this.mutatorScale[id * WEAPON_STAT_COUNT + stat];
     for (let slot = 0; slot < ATTACHMENT_SLOT_COUNT; slot++) {
       const fitted = this.fitted[first + slot];
       if (fitted >= 0) scale *= CAT.attachments[fitted][field];

@@ -24,6 +24,8 @@ const MAX_GIFTS = 12;                        // X29
 const GIFT_FUSE_SECONDS = 3;
 const GIFT_RADIUS = 5;
 const GIFT_DAMAGE = 100;
+const GIFT_DRAW_SIZE = 0.3;
+const GIFT_BLINK_SLOW = 6, GIFT_BLINK_FAST = 24;   // blink speed (radians per second) at the start of the fuse and what is added by its end
 const SUPPRESS_RANGE = 60;                   // X44: a shot passing within this distance of a target, closer than SUPPRESS_REACH
 const SUPPRESS_REACH = 2.5;
 const SUPPRESS_SECONDS = 1.5;
@@ -261,7 +263,7 @@ Rules.addModifier('mutators', applyMutatorStage);
 Rules.addModifier('handicap', applyMutatorHandicap);
 
 // ---- Runtime effects: damage scale (one Damage hook) ----
-const ONE_HIT_KINDS = ['hit', 'beam'];
+const AIMED_HIT_KINDS = ['hit', 'beam'];      // direct hits of guns and beams: head-only (X28) and one-shot (X08) both judge these
 function isOpponentDamage(source, target) { return source >= 0 && source !== target; }
 
 function mutatorDamageScale(source, target, info) {
@@ -271,10 +273,9 @@ function mutatorDamageScale(source, target, info) {
   let factor = (fx.damageIn === undefined ? 1 : fx.damageIn);
   if (!isOpponentDamage(source, target)) return factor;
   if (fx.damageOut !== undefined) factor *= fx.damageOut;
-  if (fx.handicap && Game.match && Game.match.handicap) factor *= Game.match.handicap[source];
-  if (fx.headOnly && info.kind === 'hit' && info.zone !== MUTATOR_ZONE_HEAD) return 0;
+  if (fx.headOnly && AIMED_HIT_KINDS.includes(info.kind) && info.zone !== MUTATOR_ZONE_HEAD) return 0;
   if (fx.airborneOnly && (Actors.flags[target] & ACTOR_FLAG.ON_GROUND)) return 0;
-  if (fx.oneHit && ONE_HIT_KINDS.includes(info.kind)) factor *= ONE_HIT_FACTOR;
+  if (fx.oneHit && AIMED_HIT_KINDS.includes(info.kind)) factor *= ONE_HIT_FACTOR;
   return factor;
 }
 Damage.addAttackerScale(mutatorDamageScale);
@@ -302,9 +303,11 @@ function resetSize(id) {
 }
 
 // ---- Spawn hooks ----
+function setMutatorStat(id, stat, scale) { Weapons.mutatorScale[id * WEAPON_STAT_COUNT + stat] = scale; }
 function onSpawnReset(fx, id) {
   resetSize(id);
   Mutators.suppressed[id] = 0;
+  setMutatorStat(id, STAT.SPREAD, 1);
 }
 function onSpawnHealth(fx, id) {
   if (fx.health) { Actors.health[id] = fx.health; Actors.maxHealth[id] = fx.health; }
@@ -319,10 +322,6 @@ function onSpawnShield(fx, id) {
   Actors.shield[id] = pool;
   Actors.maxShield[id] = pool;
 }
-function onSpawnAmmo(fx, id) {
-  if (fx.triangle) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RESERVE] = TRIANGLE_RESERVE_SCALE;
-  if (fx.suppression) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = 1;
-}
 function onSpawnMirror(fx, id) {
   const player = Game.playerId;
   if (!fx.mirror || player < 0 || player === id || Actors.kind[id] === ACTOR_KIND.PLAYER || !Actors.alive[player]) return;
@@ -336,60 +335,50 @@ function onSpawnPower(fx, id) {
   Bus.emit('power.pick', POWER_EVENT);
 }
 
-// ---- Confirm tags (X42) and last gifts (X29): small pools, no allocation per step ----
-const TagPool = {
-  x: new Float32Array(MAX_TAGS), y: new Float32Array(MAX_TAGS), z: new Float32Array(MAX_TAGS),
-  life: new Float32Array(MAX_TAGS), owner: new Int8Array(MAX_TAGS).fill(-1),
-  clear() { this.life.fill(0); },
-  drop(x, y, z, owner) {
-    let slot = this.life.findIndex((life) => life <= 0);
-    if (slot < 0) slot = 0;
-    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.life[slot] = TAG_LIFE_SECONDS; this.owner[slot] = owner;
-  },
-  step(dt) {
-    for (let slot = 0; slot < MAX_TAGS; slot++) {
-      if (this.life[slot] <= 0) continue;
-      this.life[slot] -= dt;
-      this.touch(slot);
-    }
-  },
-  // A teammate of the killer collects the tag (score); anyone else touching it denies it.
-  touch(slot) {
-    const count = World.actorsInSphere(this.x[slot], this.y[slot], this.z[slot], TAG_REACH, NEAR_ACTORS);
-    if (!count) return;
-    const toucher = NEAR_ACTORS[0];
-    if (!Actors.isEnemy(this.owner[slot], toucher)) this.collect(toucher);
-    this.life[slot] = 0;
-  },
-  collect(collector) {
-    Modes.objective[collector]++;
-    Modes.awardKillPoints(collector, Mutators.rules.scoring.tag || 0, 'tag');
-  },
-};
+// ---- Confirm tags (X42) and last gifts (X29): two small pools of timed spots, no allocation per step ----
+function makeSpotPool(size, seconds) {
+  return {
+    x: new Float32Array(size), y: new Float32Array(size), z: new Float32Array(size),
+    timer: new Float32Array(size), owner: new Int8Array(size).fill(-1),
+    clear() { this.timer.fill(0); },
+    drop(x, y, z, owner) {
+      let slot = this.timer.findIndex((left) => left <= 0);
+      if (slot < 0) slot = 0;
+      this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.timer[slot] = seconds; this.owner[slot] = owner;
+    },
+    // Counts every live spot down and calls visit(slot) for it (the visit may end the spot by zeroing its timer).
+    step(dt, visit) {
+      for (let slot = 0; slot < size; slot++) {
+        if (this.timer[slot] <= 0) continue;
+        this.timer[slot] -= dt;
+        visit(slot);
+      }
+    },
+  };
+}
+const TagPool = makeSpotPool(MAX_TAGS, TAG_LIFE_SECONDS);
+const GiftPool = makeSpotPool(MAX_GIFTS, GIFT_FUSE_SECONDS);
 
-const GiftPool = {
-  x: new Float32Array(MAX_GIFTS), y: new Float32Array(MAX_GIFTS), z: new Float32Array(MAX_GIFTS),
-  fuse: new Float32Array(MAX_GIFTS), owner: new Int8Array(MAX_GIFTS).fill(-1),
-  clear() { this.fuse.fill(0); },
-  drop(x, y, z, owner) {
-    let slot = this.fuse.findIndex((fuse) => fuse <= 0);
-    if (slot < 0) slot = 0;
-    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.fuse[slot] = GIFT_FUSE_SECONDS; this.owner[slot] = owner;
-  },
-  step(dt) {
-    for (let slot = 0; slot < MAX_GIFTS; slot++) {
-      if (this.fuse[slot] <= 0) continue;
-      this.fuse[slot] -= dt;
-      if (this.fuse[slot] <= 0) this.detonate(slot);
-    }
-  },
-  detonate(slot) {
-    const blast = Damage.blast();
-    blast.x = this.x[slot]; blast.y = this.y[slot]; blast.z = this.z[slot]; blast.owner = this.owner[slot];
-    blast.radius = GIFT_RADIUS; blast.damage = GIFT_DAMAGE; blast.weapon = 'lastgift'; blast.element = 'kinetic';
-    Damage.explode(blast);
-  },
-};
+// A teammate of the killer touching a tag collects it (score); when only opponents touch it, it is denied.
+function touchTag(slot) {
+  const count = World.actorsInSphere(TagPool.x[slot], TagPool.y[slot], TagPool.z[slot], TAG_REACH, NEAR_ACTORS);
+  if (!count) return;
+  let collector = -1;
+  for (let i = 0; i < count && collector < 0; i++) if (!Actors.isEnemy(TagPool.owner[slot], NEAR_ACTORS[i])) collector = NEAR_ACTORS[i];
+  if (collector >= 0) collectTag(collector);
+  TagPool.timer[slot] = 0;
+}
+function collectTag(collector) {
+  Modes.objective[collector]++;
+  Modes.awardKillPoints(collector, Mutators.rules.scoring.tag || 0, 'tag');
+}
+function detonateGift(slot) {
+  if (GiftPool.timer[slot] > 0) return;
+  const blast = Damage.blast();
+  blast.x = GiftPool.x[slot]; blast.y = GiftPool.y[slot]; blast.z = GiftPool.z[slot]; blast.owner = GiftPool.owner[slot];
+  blast.radius = GIFT_RADIUS; blast.damage = GIFT_DAMAGE; blast.weapon = 'lastgift'; blast.element = 'kinetic';
+  Damage.explode(blast);
+}
 
 // ---- Kill hooks ----
 function onKillGift(fx, event) {
@@ -437,7 +426,7 @@ function onDamageShrink(fx, event) {
 
 // ---- Fire hook: near misses (X44) ----
 function suppressTarget(id) {
-  if (Mutators.suppressed[id] <= 0) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = SUPPRESS_SPREAD;
+  if (Mutators.suppressed[id] <= 0) setMutatorStat(id, STAT.SPREAD, SUPPRESS_SPREAD);
   Mutators.suppressed[id] = SUPPRESS_SECONDS;
   Damage.lastDamageTime[id] = Sim.time;     // delays health regeneration
 }
@@ -472,11 +461,11 @@ function onStepSuppression(fx, dt) {
   for (let id = 0; id < Actors.count; id++) {
     if (Mutators.suppressed[id] <= 0) continue;
     Mutators.suppressed[id] = Math.max(0, Mutators.suppressed[id] - dt);
-    if (Mutators.suppressed[id] === 0) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.SPREAD] = 1;
+    if (Mutators.suppressed[id] === 0) setMutatorStat(id, STAT.SPREAD, 1);
   }
 }
-function onStepTags(fx, dt) { if (fx.tags) TagPool.step(dt); }
-function onStepGifts(fx, dt) { if (fx.lastGift) GiftPool.step(dt); }
+function onStepTags(fx, dt) { if (fx.tags) TagPool.step(dt, touchTag); }
+function onStepGifts(fx, dt) { if (fx.lastGift) GiftPool.step(dt, detonateGift); }
 function onStepSuperPowerups(fx) {
   if (!fx.superPowerups || !CAT.powerups || Sim.time < Mutators.nextSuperPowerup) return;
   Mutators.nextSuperPowerup = Sim.time + fx.superPowerups;
@@ -490,7 +479,7 @@ function onStepSuperPowerups(fx) {
 }
 
 const MUTATOR_HOOKS = {
-  spawn: [onSpawnReset, onSpawnHealth, onSpawnShield, onSpawnAmmo, onSpawnMirror, onSpawnPower],
+  spawn: [onSpawnReset, onSpawnHealth, onSpawnShield, onSpawnMirror, onSpawnPower],
   kill: [onKillGift, onKillTag, onKillSlowmo, onKillTriangle, onKillGrowth],
   damage: [onDamageLifesteal, onDamageShrink],
   fire: [onFireSuppress],
@@ -540,10 +529,16 @@ function stopMutators() {
   Hitbox.sizeScale.fill(1);
   Hitbox.headScale.fill(HEAD_SIZE_DEFAULT);
   Mutators.suppressed.fill(0);
+  Weapons.mutatorScale.fill(1);
 }
 Bus.on('match.setup', startMutators);
 Bus.on('match.stop', stopMutators);
-Bus.on('actor.create', (id) => { resetSize(id); Mutators.suppressed[id] = 0; });
+Bus.on('actor.create', (id) => {
+  resetSize(id);
+  Mutators.suppressed[id] = 0;
+  Weapons.mutatorScale.fill(1, id * WEAPON_STAT_COUNT, (id + 1) * WEAPON_STAT_COUNT);
+  if (Mutators.fx && Mutators.fx.triangle) setMutatorStat(id, STAT.RESERVE, TRIANGLE_RESERVE_SCALE);   // before the first loadout is given
+});
 Bus.on('actor.spawn', (event) => runHooks('spawn', event.id));
 Bus.on('kill', (event) => runHooks('kill', event));
 Bus.on('damage', (event) => runHooks('damage', event));
@@ -556,11 +551,21 @@ Render.actorStyle = (id, style) => {
   style.scale *= Hitbox.sizeScale[id];
 };
 
-// Confirm tags (X42) are drawn as small yellow plates above the floor.
+// Confirm tags (X42) are drawn as small yellow plates above the floor, live last gifts (X29) as red balls that blink faster before the blast.
 Render.addSource('tags', (batch) => {
   if (!Mutators.fx || !Mutators.fx.tags) return;
   for (let slot = 0; slot < MAX_TAGS; slot++) {
-    if (TagPool.life[slot] <= 0) continue;
+    if (TagPool.timer[slot] <= 0) continue;
     batch.mesh('box', TagPool.x[slot], TagPool.y[slot] + 0.1 * Math.sin(Sim.time * 4), TagPool.z[slot], Sim.time * 2, 0, 0.18, 0.28, 0.04, 1, 0.85, 0.2, 0.6);
+  }
+});
+Render.addSource('gifts', (batch) => {
+  if (!Mutators.fx || !Mutators.fx.lastGift) return;
+  for (let slot = 0; slot < MAX_GIFTS; slot++) {
+    const left = GiftPool.timer[slot];
+    if (left <= 0) continue;
+    const blinkRate = GIFT_BLINK_SLOW + GIFT_BLINK_FAST * (1 - left / GIFT_FUSE_SECONDS);
+    const lit = Math.sin(Sim.time * blinkRate) > 0 ? 1 : 0.25;
+    batch.mesh('sphere', GiftPool.x[slot], GiftPool.y[slot], GiftPool.z[slot], 0, 0, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, 1, 0.2, 0.1, lit);
   }
 });

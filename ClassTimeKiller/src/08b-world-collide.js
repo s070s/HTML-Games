@@ -321,23 +321,23 @@ function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
 const Hitbox = {
   zone: ZONE.NONE,
   stomach: false,
-  sizeScale: new Float32Array(MAX_ACTORS).fill(1),   // per actor body size factor (mutators X31 growth, X39 diminish)
+  sizeScale: new Float32Array(MAX_ACTORS).fill(1),   // per actor body size factor (mutators X31 growth, X39 diminish): heights and radii of every hit volume
   headScale: new Float32Array(MAX_ACTORS).fill(1),   // per actor head size factor (mutator X14)
   // Nearest hit volume of actor id along a normalized ray; inflate grows every volume (melee, projectile radius).
   // Returns the distance or -1 and leaves the zone in Hitbox.zone.
   ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate) {
-    const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], scale = Actors.height[id] / STAND_HEIGHT * this.sizeScale[id];
+    const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], size = this.sizeScale[id], scale = Actors.height[id] / STAND_HEIGHT * size;
     const mx = x - ox, my = y + 0.9 * scale - oy, mz = z - oz, along = mx * dx + my * dy + mz * dz;
     const reject = ACTOR_REJECT_RADIUS * Math.max(1, this.sizeScale[id]) + inflate;
     if (along < -reject || along > maxDistance + reject) return -1;
     if (mx * mx + my * my + mz * mz - along * along > reject * reject) return -1;
     let best = -1;
     this.zone = ZONE.NONE;
-    const head = raySphere(ox, oy, oz, dx, dy, dz, x, y + Actors.eye[id] + HEAD_ABOVE_EYE, z, HEAD_RADIUS * this.headScale[id] + inflate);
+    const head = raySphere(ox, oy, oz, dx, dy, dz, x, y + (Actors.eye[id] + HEAD_ABOVE_EYE) * size, z, HEAD_RADIUS * this.headScale[id] * size + inflate);
     if (head >= 0) { best = head; this.zone = ZONE.HEAD; }
-    const torso = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, TORSO_RADIUS + inflate);
+    const torso = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, TORSO_RADIUS * size + inflate);
     if (torso >= 0 && (best < 0 || torso < best)) { best = torso; this.zone = ZONE.BODY; }
-    const legs = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, LEGS_RADIUS + inflate);
+    const legs = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, LEGS_RADIUS * size + inflate);
     if (legs >= 0 && (best < 0 || legs < best)) { best = legs; this.zone = ZONE.LEGS; }
     if (best > maxDistance) { this.zone = ZONE.NONE; return -1; }
     this.stomach = this.zone === ZONE.BODY && oy + dy * best < y + STOMACH_HIGH * scale;
@@ -347,7 +347,7 @@ const Hitbox = {
   point(id, zone, out) {
     const scale = Actors.height[id] / STAND_HEIGHT * this.sizeScale[id];
     let height = (TORSO_LOW + TORSO_HIGH) * 0.5 * scale;
-    if (zone === ZONE.HEAD) height = Actors.eye[id] + HEAD_ABOVE_EYE;
+    if (zone === ZONE.HEAD) height = (Actors.eye[id] + HEAD_ABOVE_EYE) * this.sizeScale[id];
     if (zone === ZONE.LEGS) height = (LEGS_LOW + LEGS_HIGH) * 0.5 * scale;
     return Vec.set(out, Actors.x[id], Actors.y[id] + height, Actors.z[id]);
   },

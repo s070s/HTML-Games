@@ -13,6 +13,7 @@ const EDITOR_CODE_MAX_CHARS = 6000;
 const EDITOR_PAYLOAD_MAX_BYTES = 16384;
 const EDITOR_DEFAULT = -1;                    // numeric fields: -1 = the mode's / bundle's own default
 const EDITOR_PERSONALITY_MIXED = 'mixed';
+const EDITOR_LIST_MUTATOR = 'weaponset';      // the Weapons tab list travels as this mutator
 const EDITOR_SEED_RANGE = 0x7fffffff;
 const LZ_MAX_RUN = 128, LZ_MIN_MATCH = 3, LZ_MAX_MATCH = 130, LZ_MAX_OFFSET = 65535, LZ_MATCH_FLAG = 0x80;
 const EDITOR_SCORE_LIMITS = [-1, 0, 10, 25, 50, 100, 150, 200, 300, 500];
@@ -185,6 +186,7 @@ const CustomMatch = {
     if (draft.map && !Maps.forMode(draft.mode).some((map) => map.id === draft.map)) { errors.push('map ' + draft.map + ' does not serve ' + draft.mode); draft.map = ''; }
     if (!CAT.modes.byId(draft.mode).rounds) draft.roundWins = EDITOR_DEFAULT;
     if (CAT.modes.byId(draft.mode).teams !== 2) draft.allies = EDITOR_DEFAULT;
+    if (draft.weaponList) this.setWeaponList(draft, draft.weaponList);
   },
   copy(draft) { return copyRuleValue(draft); },
   load() {
@@ -230,10 +232,29 @@ const CustomMatch = {
     fields.name = draft.name || fields.name;
     return fields;
   },
-  // The mutators the match uses: the draft's own, plus the weapon list of the Weapons tab as a Weapon Set mutator (it wins conflicts).
+  // The mutators the match uses: the draft's own, plus the weapon list of the Weapons tab as a Weapon Set mutator.
   matchMutators(draft) {
     const list = draft.mutators.slice();
-    return draft.weaponList ? Mutators.add(list, 'weaponset', draft.weaponList).list : list;
+    return draft.weaponList ? Mutators.add(list, EDITOR_LIST_MUTATOR, draft.weaponList).list : list;
+  },
+  // Sets (a list of weapon keys) or clears (null) the Weapons tab list. A mutator that cannot be combined with a list (X08, X09)
+  // is turned off in the draft, so the editor never shows a mutator the match would drop. Returns the notice for the player ('' if none).
+  setWeaponList(draft, list) {
+    draft.weaponList = list;
+    if (!list) return '';
+    const result = Mutators.add(draft.mutators, EDITOR_LIST_MUTATOR, list);
+    draft.mutators = draft.mutators.filter((entry) => !result.removed.includes(entry.id));
+    return result.message;
+  },
+  // Switches a mutator on with its default value. Mutators it cannot be combined with are turned off, and so is the weapon list when the
+  // new mutator conflicts with it or chooses weapons itself (the last choice wins).
+  turnOnMutator(draft, id) {
+    const result = Mutators.add(draft.mutators, id, true);
+    draft.mutators = result.list;
+    const replacesList = draft.weaponList && (id === EDITOR_LIST_MUTATOR || Mutators.conflicts(id, EDITOR_LIST_MUTATOR));
+    if (!replacesList) return result.message;
+    draft.weaponList = null;
+    return (result.message + ' The weapon list of the Weapons tab was turned off.').trim();
   },
   botCount(draft, mode) {
     const wanted = draft.botCount >= 0 ? draft.botCount : Modes.defaultBots(mode.id, true).length;
@@ -410,7 +431,8 @@ function editorFieldRow(field) {
 function editorWeaponRows(list) {
   const draft = EDITOR_STATE.draft;
   const limited = Ui.toggle(!!draft.weaponList, (on) => {
-    draft.weaponList = on ? CAT.weapons.map((row) => row.id) : null;
+    const message = CustomMatch.setWeaponList(draft, on ? CAT.weapons.map((row) => row.id) : null);
+    if (message) editorToast(message);
     editorChanged();
   });
   list.appendChild(Ui.row('Limit to chosen weapons', limited));
@@ -458,9 +480,8 @@ function editorMutatorRow(row) {
 function editorSwitchMutator(row, on) {
   const draft = EDITOR_STATE.draft;
   if (!on) { draft.mutators = Mutators.remove(draft.mutators, row.id); editorChanged(); return; }
-  const result = Mutators.add(draft.mutators, row.id, true);
-  draft.mutators = result.list;
-  if (result.message) editorToast(result.message);
+  const message = CustomMatch.turnOnMutator(draft, row.id);
+  if (message) editorToast(message);
   editorChanged();
 }
 function editorMutatorRows(list) {

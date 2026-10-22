@@ -36,8 +36,8 @@ const MUTATOR_EXPECTATIONS = {
   ff: [undefined, (r) => r.friendlyFire === 0.5],
   handicap: [undefined, (r) => r.fx.handicap === true && r.handicap.player === 0.5],
   knockback: [undefined, (r) => r.knockback === 2],
-  aircontrol: [undefined, (r) => r.fx.airControl === true],
-  autohop: [undefined, (r) => r.fx.autoHop === true],
+  aircontrol: [undefined, (r) => r.mutators[0].id === 'aircontrol'],   // S10 reads the id from the list (checked in the movement test below)
+  autohop: [undefined, (r) => r.mutators[0].id === 'autohop'],
   multijump: [undefined, (r) => r.moveOverrides.extraJumps === 2 && r.moveOverrides.extraJumpVel === 6],
   slowmokills: [undefined, (r) => r.fx.slowmoKills === true],
   headonly: [undefined, (r) => r.fx.headOnly === true],
@@ -144,7 +144,8 @@ Test.add('mutators', (check) => {
   const listener = Bus.on('toast', (payload) => toasts.push(payload.text));
   Rules.build({ mode: 'ffa', mutators: ['oneshot', 'rocketpit'] });
   Bus.off('toast', listener);
-  check('a refused combination in a build shows a toast and keeps the last choice', toasts.length === 1 && toasts[0].includes('One-Shot') && Mutators.isActive('oneshot') === false);
+  const kept = Rules.build({ mode: 'ffa', mutators: ['oneshot', 'rocketpit'] }).mutators.map((entry) => entry.id).join();
+  check('a refused combination in a build shows a toast and keeps the last choice', toasts.length === 1 && toasts[0].includes('One-Shot') && kept === 'rocketpit', toasts.length + ' ' + kept);
 });
 
 Test.add('mutators', (check) => {
@@ -185,6 +186,11 @@ function strike(source, target, amount, extra) {
   return Damage.apply(source, target, info);
 }
 function healthOf(id) { return Actors.health[id] + Actors.armor[id] + Actors.shield[id]; }
+function startReserves(id) {
+  const reserves = {};
+  for (const weapon of CAT.weapons) if (Weapons.has(id, weapon.id)) reserves[weapon.id] = Weapons.reserve[Weapons.slotIndex(id, weapon.index)];
+  return reserves;
+}
 
 Test.add('mutators', (check) => {
   startMutatorMatch([{ id: 'dmgout', value: 200 }, { id: 'dmgin', value: 50 }]);
@@ -198,7 +204,9 @@ Test.add('mutators', (check) => {
 
   startMutatorMatch(['headonly']);
   const body = strike(0, 1, 30, { zone: 'body' }), head = strike(0, 1, 30, { zone: 'head' });
+  const beam = strike(0, 1, 30, { kind: 'beam', zone: 'body' }), explosion = strike(0, 1, 30, { kind: 'blast' });
   check('headshots only: a body hit does nothing, a head hit hurts', body === 0 && head > 0, body + ' ' + head);
+  check('headshots only judges beams like hits (the same aimed-hit list as one-shot); blasts are not aimed hits', beam === 0 && explosion > 0, beam + ' ' + explosion);
   stopMutatorMatch();
 
   startMutatorMatch(['airborne']);
@@ -222,6 +230,21 @@ Test.add('mutators', (check) => {
   match.handicap[0] = 0.5;
   const dealt = strike(0, 1, 40);
   check('handicap: damage dealt follows the per-actor factor', Math.abs(dealt - 20) < 0.01, dealt);
+  const selfSlow = strike(0, 0, 40, { kind: 'blast' }), selfNormal = strike(1, 1, 40, { kind: 'blast' });
+  check('handicap does not soften damage to yourself', selfSlow > 0 && Math.abs(selfSlow - selfNormal) < 0.01, selfSlow + ' ' + selfNormal);
+  stopMutatorMatch();
+
+  // MOV-001 handicap stage: a handicap in the setup works without any mutator, per actor.
+  startMutatorMatch([], { bots: [{ dummy: true, handicap: 0.5 }, { dummy: true }, { dummy: true }] });
+  const weak = strike(0, 1, 40), normal = strike(1, 2, 40);
+  check('a bot handicap from the setup reduces its damage without the Handicap mutator', Math.abs(weak - 20) < 0.01 && Math.abs(normal - 40) < 0.01, weak + ' ' + normal);
+  stopMutatorMatch();
+  startMutatorMatch([{ id: 'handicap', value: 25 }], { player: {} });
+  const playerHit = strike(0, 1, 40);
+  check('X22 handicaps the player', Game.playerId === 0 && Math.abs(playerHit - 10) < 0.01 && Math.abs(strike(1, 2, 40) - 40) < 0.01, playerHit);
+  stopMutatorMatch();
+  startMutatorMatch([{ id: 'handicap', value: 25 }], { player: { handicap: 0.75 } });
+  check('a handicap named in the setup beats X22', Math.abs(strike(0, 1, 40) - 30) < 0.01);
   stopMutatorMatch();
 });
 
@@ -314,6 +337,23 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
   check('the time scale returns to 1 when the match stops', Sim.timeScale === 1);
 
+  // A speed-up is honoured on a slow frame: 200% on a 30 fps frame needs 8 steps, more than the normal cap of 4.
+  startMutatorMatch([{ id: 'gamespeed', value: 200 }]);
+  const tickBefore = Sim.tick;
+  Loop.accumulator = 0;
+  Loop.advance(1 / 30);
+  const doubled = Sim.tick - tickBefore;
+  stopMutatorMatch();
+  startMutatorMatch([]);
+  const normalBefore = Sim.tick;
+  Loop.accumulator = 0;
+  Loop.advance(1 / 30);
+  check('game speed 200% keeps up on a 30 fps frame; normal speed is still capped per frame', doubled === 2 * (Sim.tick - normalBefore) && doubled === 2 * MAX_STEPS_PER_FRAME, doubled + ' ' + (Sim.tick - normalBefore));
+  Loop.accumulator = 0;
+  Loop.advance(1);
+  check('a long stall is still capped at four steps at normal speed', Sim.tick - normalBefore === 2 * MAX_STEPS_PER_FRAME);
+  stopMutatorMatch();
+
   startMutatorMatch(['slowmokills']);
   Game.playerId = 0;
   strike(0, 1, 100000);
@@ -326,10 +366,10 @@ Test.add('mutators', (check) => {
   startMutatorMatch(['tags']);
   const killerScore = Modes.score[0];
   strike(0, 1, 100000);
-  check('confirm kills: the kill itself scores nothing', Modes.score[0] === killerScore && TagPool.life.some((life) => life > 0));
+  check('confirm kills: the kill itself scores nothing', Modes.score[0] === killerScore && TagPool.timer.some((left) => left > 0));
   Actors.x[2] = Actors.x[1]; Actors.z[2] = Actors.z[1];
   Sim.run(2);
-  check('an opponent touching the tag denies it', TagPool.life.every((life) => life <= 0) && Modes.score[0] === killerScore);
+  check('an opponent touching the tag denies it', TagPool.timer.every((left) => left <= 0) && Modes.score[0] === killerScore);
   Actors.x[2] = 30;
   Actors.alive[1] = 1; Actors.health[1] = 100;
   strike(0, 1, 100000);
@@ -357,12 +397,15 @@ Test.add('mutators', (check) => {
   const shot = { id: 0, weapon: 'warden', weaponClass: 'pistol', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 1, dy: 0, dz: 0 };
   Actors.x[1] = 10; Actors.y[1] = 0; Actors.z[1] = 1.5;
   Actors.x[2] = 10; Actors.z[2] = 12;
+  Weapons.statScale[1 * WEAPON_STAT_COUNT + STAT.SPREAD] = 0.8;   // a perk's own factor must survive
+  const warden = CAT.weapons.byId('warden');
   Bus.emit('weapon.fire', shot);
-  const spread = Weapons.statScale[1 * WEAPON_STAT_COUNT + STAT.SPREAD];
-  check('suppression: a near miss suppresses the target, widens its spread and blurs the view', Mutators.suppressed[1] > 0 && spread === SUPPRESS_SPREAD && Mutators.suppression(1) > 0.9);
+  const spread = Weapons.modifier(1, warden, STAT.SPREAD) / 0.8;
+  check('suppression: a near miss suppresses the target, widens its spread and blurs the view', Mutators.suppressed[1] > 0 && Math.abs(spread - SUPPRESS_SPREAD) < 1e-4 && Mutators.suppression(1) > 0.9);
   check('suppression: a target far from the line is not suppressed', Mutators.suppressed[2] === 0 && Mutators.suppressed[0] === 0);
   Sim.run(Math.round((SUPPRESS_SECONDS + 0.1) * TICK_RATE));
-  check('suppression wears off and the spread returns', Mutators.suppressed[1] === 0 && Weapons.statScale[1 * WEAPON_STAT_COUNT + STAT.SPREAD] === 1);
+  check('suppression wears off and the spread returns; the perk factor was never touched', Mutators.suppressed[1] === 0 && Math.abs(Weapons.modifier(1, warden, STAT.SPREAD) - 0.8) < 1e-4
+    && Math.abs(Weapons.statScale[1 * WEAPON_STAT_COUNT + STAT.SPREAD] - 0.8) < 1e-6);
   stopMutatorMatch();
 
   startMutatorMatch(['triangle']);
@@ -374,9 +417,19 @@ Test.add('mutators', (check) => {
   Actors.alive[1] = 1; Actors.health[1] = 10;
   strike(0, 1, 100000, { element: 'thermal' });
   check('resource triangle: a burning kill gives armor', Actors.armor[0] >= 25, Actors.armor[0]);
-  Bus.emit('actor.spawn', { id: 2 });
-  check('resource triangle halves the reserve ammo cap', Weapons.statScale[2 * WEAPON_STAT_COUNT + STAT.RESERVE] === TRIANGLE_RESERVE_SCALE);
+  const halved = startReserves(2);
   stopMutatorMatch();
+  startMutatorMatch([]);
+  const full = startReserves(2);
+  stopMutatorMatch();
+  const guns = Object.keys(full).filter((key) => full[key] > 1);
+  check('resource triangle: the very first loadout already has half the reserve ammo', guns.length > 0 && guns.every((key) => halved[key] === Math.round(CAT.weapons.byId(key).reserve * TRIANGLE_RESERVE_SCALE)), JSON.stringify(halved) + JSON.stringify(full));
+  startMutatorMatch(['triangle']);
+  Weapons.statScale[2 * WEAPON_STAT_COUNT + STAT.RESERVE] = 0.5;
+  check('resource triangle leaves the perk slot alone and the reserve cap is halved', Weapons.mutatorScale[2 * WEAPON_STAT_COUNT + STAT.RESERVE] === TRIANGLE_RESERVE_SCALE
+    && Weapons.maxReserve(2, CAT.weapons.byId('warden')) === Math.round(CAT.weapons.byId('warden').maxAmmo * 0.25));
+  stopMutatorMatch();
+  check('the mutator factors are cleared after the match', Weapons.mutatorScale.every((scale) => scale === 1));
 
   startMutatorMatch(['mirror']);
   Game.playerId = 0;
@@ -428,4 +481,69 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
   if (!hadAbilities) delete CAT.abilities;
   if (!hadPowerups) delete CAT.powerups;
+});
+
+// ---- Body size and hit volumes (X31 growth, X39 diminish) ----
+Test.add('mutators', (check) => {
+  const sideRay = (id, height) => Hitbox.ray(id, Actors.x[id] + 5, Actors.y[id] + height, Actors.z[id], -1, 0, 0, 20, 0);
+  const point = Vec.make();
+  startMutatorMatch([]);
+  const eye = Actors.eye[0];
+  for (const size of [0.5, 0.75, 1, 1.24, 1.5]) {
+    Hitbox.sizeScale[0] = size;
+    const headHeight = (eye + HEAD_ABOVE_EYE) * size;
+    const hit = sideRay(0, headHeight);
+    check('size x' + size + ': a ray at the scaled head height hits the head', hit > 0 && Hitbox.zone === ZONE.HEAD, hit + ' ' + Hitbox.zone);
+    const chest = sideRay(0, 1.15 * size);
+    check('size x' + size + ': a ray at the scaled chest hits the body, whose radius is scaled too', Hitbox.zone === ZONE.BODY && Math.abs(chest - (5 - TORSO_RADIUS * size)) < 1e-3, chest + ' ' + Hitbox.zone);
+    check('size x' + size + ': a ray at the scaled knee hits the legs', sideRay(0, 0.4 * size) > 0 && Hitbox.zone === ZONE.LEGS, Hitbox.zone);
+    Hitbox.point(0, ZONE.HEAD, point);
+    check('size x' + size + ': the head aim point sits at the scaled head height', Math.abs(point.y - headHeight) < 1e-4, point.y);
+  }
+  Hitbox.sizeScale[0] = 0.5;
+  check('diminished: nothing is left of the old head height above the small body', sideRay(0, eye + HEAD_ABOVE_EYE) < 0);
+  Hitbox.sizeScale[0] = 1;
+  stopMutatorMatch();
+
+  startMutatorMatch(['colossal']);
+  for (let kill = 0; kill < GROWTH_MAX_KILLS; kill++) { Actors.alive[1] = 1; Actors.health[1] = 1; strike(0, 1, 100000); }
+  const grownHead = (eye + HEAD_ABOVE_EYE) * Hitbox.sizeScale[0];
+  check('after ten kills a grown actor still takes headshots', Hitbox.sizeScale[0] > 1.49 && sideRay(0, grownHead) > 0 && Hitbox.zone === ZONE.HEAD, Hitbox.sizeScale[0] + ' ' + Hitbox.zone);
+  const hit = {};
+  const shooterId = 2;
+  Actors.x[0] = 0; Actors.z[0] = 0; Actors.y[0] = 0;
+  const found = World.raycastActors(0, grownHead, -5, 0, 0, 1, 20, shooterId, Object.assign(hit, makeActorHit()));
+  check('the world ray query agrees: a headshot on a grown actor', found === 0 && hit.zone === 'head', found + ' ' + hit.zone);
+  stopMutatorMatch();
+});
+
+// ---- Confirm tags with teams, last gift drawing ----
+Test.add('mutators', (check) => {
+  startMutatorMatch(['tags'], { mode: 'tdm' });
+  Actors.team[0] = 1; Actors.team[1] = 1; Actors.team[2] = 0;
+  Actors.x[1] = 30; Actors.z[1] = 30; Actors.x[0] = 0; Actors.z[0] = 0; Actors.x[2] = -30; Actors.z[2] = -30;
+  strike(2, 1, 100000);
+  Actors.x[0] = 30; Actors.z[0] = 30;     // an opponent with the lowest id and ...
+  Actors.x[2] = 30; Actors.z[2] = 30;     // ... the killer touch the tag together
+  const before = Modes.score[2];
+  Sim.run(2);
+  check('a tag touched by the killer is collected even when an opponent with a lower id is also there', Modes.objective[2] === 1 && Modes.score[2] === before + 1 && TagPool.timer.every((left) => left <= 0), Modes.objective[2] + ' ' + Modes.score[2]);
+  stopMutatorMatch();
+
+  const drawn = [];
+  const batch = { mesh(shape) { drawn.push(shape); } };
+  const source = Render.sources.find((entry) => entry.name === 'gifts');
+  startMutatorMatch(['lastgift']);
+  source.draw(batch);
+  check('no live gift, nothing drawn', drawn.length === 0);
+  Actors.x[2] = 30; Actors.z[2] = 30;
+  strike(0, 1, 100000);
+  source.draw(batch);
+  check('a live last gift is drawn as a ball', drawn.join() === 'sphere', drawn.join());
+  Sim.run(Math.round((GIFT_FUSE_SECONDS + 0.2) * TICK_RATE));
+  drawn.length = 0;
+  source.draw(batch);
+  check('the gift is gone after the blast', drawn.length === 0);
+  stopMutatorMatch();
+  check('tags and gifts use pools of their own sizes', TagPool.timer.length === MAX_TAGS && GiftPool.timer.length === MAX_GIFTS);
 });

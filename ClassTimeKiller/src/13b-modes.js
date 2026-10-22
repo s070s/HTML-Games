@@ -852,6 +852,8 @@ function drawObjective(batch, objective) {
 Bus.on('match.start', (match) => Modes.start(match));
 Bus.on('match.stop', () => Modes.stop());
 Bus.on('actor.create', (id) => Modes.resetActor(id));
+// MOV-001 handicap: what an actor deals to an opponent follows its own factor (setup.player / setup.bots[].handicap, X22 for the player).
+Damage.addAttackerScale((source, target) => (source >= 0 && source !== target && Game.match && Game.match.handicap ? Game.match.handicap[source] : 1));
 Bus.on('actor.remove', (id) => Modes.onRemove(id));
 Bus.on('kill', (event) => Modes.onKill(event));
 Bus.on('weapon.fire', (shot) => Modes.endProtection(shot.id));

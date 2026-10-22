@@ -67,8 +67,8 @@ Data.define('mutators', {
   { id: 'handicap', code: 'X22', name: 'Handicap', effect: 'The player deals only this share of normal damage (bots use their own handicap).', params: [mutatorPercentParam(25, 100, 5, 50)],
     set: [mutatorFlagOp('fx.handicap'), { field: 'fx.handicapPlayer', op: 'set', param: 'value', scale: MUTATOR_PERCENT }] },
   { id: 'knockback', code: 'X23', name: 'Knockback', effect: 'Scales the push of every hit and blast.', params: [mutatorPercentParam(0, 300, 10, 200)], set: [mutatorPercentOp('knockback', 'mul')] },
-  { id: 'aircontrol', code: 'X24', name: 'Air Control Assist', effect: 'Everyone steers in the air with the air-control assist.', set: [mutatorFlagOp('fx.airControl')] },
-  { id: 'autohop', code: 'X25', name: 'Auto-Hop', effect: 'Holding jump repeats the jump.', set: [mutatorFlagOp('fx.autoHop')] },
+  { id: 'aircontrol', code: 'X24', name: 'Air Control Assist', effect: 'Everyone steers in the air with the air-control assist.', set: [] },   // no field: S10 reads the id from the mutator list
+  { id: 'autohop', code: 'X25', name: 'Auto-Hop', effect: 'Holding jump repeats the jump.', set: [] },   // no field: S10 reads the id from the mutator list
   { id: 'multijump', code: 'X26', name: 'Multi-Jump', effect: 'Extra jumps in the air.',
     params: [{ key: 'value', kind: 'range', min: 0, max: 4, step: 1, default: 2, unit: '' }],
     set: [{ field: 'extraJumps', op: 'setMove', param: 'value' }, { field: 'extraJumpVel', op: 'atLeastMove', value: 6 }] },

@@ -253,3 +253,34 @@ Test.add('custom', (check) => {
     Ui.closeAll();
   });
 });
+
+Test.add('custom', (check) => {
+  // The Weapons tab list and the mutators resolve their conflicts inside the draft (MUT-002: the last choice wins, with a notice).
+  const draft = CustomMatch.defaults();
+  draft.mutators = [{ id: 'oneshot', value: true }, { id: 'gravity', value: 75 }];
+  const notice = CustomMatch.setWeaponList(draft, ['maul', 'warden']);
+  check('switching the weapon list on turns off a conflicting mutator and says so', draft.mutators.map((entry) => entry.id).join() === 'gravity' && notice.includes('One-Shot') && draft.weaponList.join() === 'maul,warden', notice);
+  check('a list without conflicts gives no notice and clearing it gives none either', CustomMatch.setWeaponList(draft, ['maul']) === '' && CustomMatch.setWeaponList(draft, null) === '' && draft.weaponList === null && draft.mutators.length === 1);
+  CustomMatch.setWeaponList(draft, ['maul', 'warden']);
+  const second = CustomMatch.turnOnMutator(draft, 'rocketpit');
+  check('turning on a mutator that conflicts with the list turns the list off and says so', draft.weaponList === null && draft.mutators.map((entry) => entry.id).join() === 'gravity,rocketpit' && second.includes('weapon list'), second);
+  CustomMatch.setWeaponList(draft, ['maul', 'warden']);
+  check('turning on the Weapon Set mutator replaces the list (the last choice wins)', CustomMatch.turnOnMutator(draft, 'weaponset').includes('weapon list') && draft.weaponList === null);
+  check('turning on a harmless mutator keeps the list', (CustomMatch.setWeaponList(draft, ['maul']), CustomMatch.turnOnMutator(draft, 'regen') === '') && draft.weaponList.join() === 'maul');
+
+  const loaded = CustomMatch.validate({ weaponList: ['maul', 'lancet'], mutators: [{ id: 'rocketpit', value: true }, { id: 'regen', value: 5 }] });
+  check('a loaded or imported draft with a conflict is settled in the draft too', loaded.errors.length === 0 && loaded.draft.mutators.map((entry) => entry.id).join() === 'regen' && loaded.draft.weaponList.length === 2, loaded.errors.join());
+  const setup = CustomMatch.setup(loaded.draft, 1);
+  check('the editor draft and the match agree on the mutators', setup.mutators.map((entry) => entry.id).join() === 'regen,weaponset');
+
+  uiWith(() => {
+    Settings.set('custom.draft', '');
+    Ui.open('custom');
+    const root = Ui.root.querySelector('.ui-custom');
+    EDITOR_STATE.draft.mutators = [{ id: 'oneshot', value: true }];
+    uiClickButton(root, 'Weapons');
+    Array.from(root.querySelectorAll('.cm-list .ui-row')).find((row) => row.textContent.startsWith('Limit to chosen')).querySelector('.ui-cycle').click();
+    check('weapons tab: switching the list on with One-Shot on tells the player and updates the draft', EDITOR_STATE.draft.mutators.length === 0 && Ui.lastToast.includes('One-Shot'), Ui.lastToast);
+    Ui.closeAll();
+  });
+});

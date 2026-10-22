@@ -74,11 +74,13 @@ const Loop = {
     Perf.counters.audioMs = Sound.updateMs;
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
   },
-  // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME, the rest is dropped (spiral-of-death guard).
+  // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME (times the game speed when it is above 1, so a speed-up
+  // is still honoured on a slow frame), the rest is dropped (spiral-of-death guard).
   advance(seconds) {
     this.accumulator += seconds * Sim.timeScale;
+    const maxSteps = Math.ceil(MAX_STEPS_PER_FRAME * Math.max(1, Sim.timeScale));
     let steps = 0;
-    while (this.accumulator >= TICK_SECONDS && steps < MAX_STEPS_PER_FRAME) {
+    while (this.accumulator >= TICK_SECONDS && steps < maxSteps) {
       Sim.step();
       this.accumulator -= TICK_SECONDS;
       steps++;

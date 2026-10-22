@@ -32,16 +32,15 @@ Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mu
 
 | Key | Mutator | Meaning | Read by |
 |---|---|---|---|
-| `timeScale` | X02 (difficulty may multiply it) | game speed, copied to `Sim.timeScale` (the loop feeds real seconds x it to the 120 Hz steps); X27 halves it for 1.5 s | 13h |
+| `timeScale` | X02 (difficulty may multiply it) | game speed, copied to `Sim.timeScale` (the loop feeds real seconds x it to the 120 Hz steps and allows that many times more steps per frame, so 200% keeps up on a slow frame at twice the sim cost); X27 halves it for 1.5 s | 13h, 19 |
 | `damageOut` `damageIn` | X04 X05 | damage factors (Damage attacker scale hook) | 13h |
 | `health` `healthScale` `shields` | X06 X36 X07 | spawn pools, applied after S11 resets them | 13h |
-| `handicap` `handicapPlayer` | X22 | damage factor `Game.match.handicap[source]` is applied | 13h |
+| `handicap` `handicapPlayer` | X22 | fills `rules.handicap.player` (unless the setup names one). The damage factor `Game.match.handicap[source]` itself is applied to every opponent hit by 13b, with or without X22 | 13h, 13b |
 | `oneHit` `headOnly` `airborneOnly` `noFallDamage` | X08 X28 X38 X20 | damage rules (Damage attacker scale hook) | 13h; bots (MUT-003: oneHit raises dodge priority) |
 | `lifesteal` `regen` `growth` `shrinkHit` `lastGift` `tags` `suppression` `triangle` `slowmoKills` `mirror` | X13 X18 X31 X39 X29 X42 X44 X47 X27 X40 | runtime hooks | 13h |
 | `weaponList` | X08 X09 X10 | with `rules.weaponSet === 'matchSet'`: 13h fills the reserved weapon set row `matchSet` at `match.setup` (melee first, then two guns as the spawn loadout) and empties it on `match.stop` | 13h, S11, S12 (the pickups of the map follow `weaponSet.weapons`) |
 | `infiniteAmmo` | X08 X09 X15 | reserve ammo never runs out | S11 `Weapons.infiniteReserve` |
 | `headScale` | X14 | head hit sphere factor | S08 `Hitbox.headScale`; the renderer should draw the head larger |
-| `airControl` `autoHop` | X24 X25 | movement flags | S10 (also reads the mutator list) |
 | `noItems` `noPowerups` `volatileAmmo` `superPowerups` | X08 X16 X30 X17 | items | S12: `rules.items === false` (X08, X09, the editor) removes every pickup; `noPowerups` removes powerups; `volatileAmmo`: an ammo pickup explodes when shot; `superPowerups` is the interval, 13h emits `item.grant` |
 | `radar` `noHud` | X35 X36 | `{ mode: 'off'|'team'|'all', range }`, hide the HUD | S17 |
 | `darkness` | X37 | dense fog, flashlights only | S07 |
@@ -49,15 +48,17 @@ Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mu
 | `powers` | X46 | one random ability per life: 13h emits `power.pick` | S12 abilities |
 | `cards` `wildlife` | X48 X50 | cards allowed in versus; number of neutral beasts | progression, PvE |
 
+X24 and X25 write no field: S10 (`buildMatchMove`, `hasMutator`) reads their ids from `rules.mutators`.
+
 Other ruleset fields the rows write: `gravityScale`, `knockback`, `selfDamage`, `friendlyFire`, `lives`, `respawn.{delay,forced,protect,wave}`, `itemRespawnScale`, `weaponStay`, `dropOnDeath`, `meter`, `health` (X49 `limb`), `moveOverrides` (X03 scales `groundSpeed sprintSpeed tacSprintSpeed airWishCap wallRunSpeed`, X26 sets `extraJumps` and raises `extraJumpVel` to 6), `scoring.kill/tag` (X42), `items`.
 
 ## Events
 
-Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17: every living actor gets the powerup), `power.pick { id, ability }` (X46, abilities A05..A33), `explosion` (X29, source `lastgift`). Consumed: `match.setup`, `match.stop`, `actor.create`, `actor.spawn`, `kill`, `damage`, `weapon.fire`. Render sources: `tags` (confirm tags). Render hook: `Render.actorStyle` is chained (body size).
+Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17: every living actor gets the powerup), `power.pick { id, ability }` (X46, abilities A05..A33), `explosion` (X29, source `lastgift`). Consumed: `match.setup`, `match.stop`, `actor.create`, `actor.spawn`, `kill`, `damage`, `weapon.fire`. Render sources: `tags` (confirm tags), `gifts` (live last gifts, blinking faster before the blast). Render hook: `Render.actorStyle` is chained (body size).
 
 ## Edits to other sections
 
-`Sim.timeScale` (S01), `Hitbox.sizeScale` and `Hitbox.headScale` (S08), `Weapons.infiniteReserve` reads `rules.fx.infiniteAmmo` (S11), the `matchSet` row in `weaponSets` (03c), `items` and `editor` fields in the ruleset schema (03e; `editor` is ignored by the build), `RULE_IDENTITY_FIELDS` skips `editor` (13a), `Modes.balanceTeams` keeps a custom split when `setup.balance === false` (13b), `hasMutator` in 10a reads `{ id, value }` lists, `Loop.advance` uses `Sim.timeScale` (19).
+`Sim.timeScale` (S01), `Hitbox.sizeScale` (heights and radii of every hit volume, head centre included) and `Hitbox.headScale` (S08), `Weapons.mutatorScale` (S11: a second per-actor stat factor next to `statScale`, which stays the perks' slot; 13h writes spread for X44 and reserve for X47 there, `Weapons.modifier` multiplies both), the handicap attacker scale (13b), `Weapons.infiniteReserve` reads `rules.fx.infiniteAmmo` (S11), the `matchSet` row in `weaponSets` (03c), `items` and `editor` fields in the ruleset schema (03e; `editor` is ignored by the build), `RULE_IDENTITY_FIELDS` skips `editor` (13a), `Modes.balanceTeams` keeps a custom split when `setup.balance === false` (13b), `hasMutator` in 10a reads `{ id, value }` lists, `Loop.advance` uses `Sim.timeScale` and scales its step cap with it (19).
 
 ## Custom match editor (18g)
 
@@ -67,7 +68,7 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 - `defaults()` -> the draft: `name mode map ('' = random) bundle ('' = mode default) move health economy weaponSet ('' = from the bundle) weaponList (null or weapon keys) items friendlyFire lives respawnDelay botCount allies scoreLimit timeLimit roundWins (-1 = the mode's own default) difficulty personality mutators`.
 - `validate(raw)` -> `{ draft, errors }` (unknown or invalid fields keep their default and are listed). `load()` / `save(draft)` use `custom.draft`.
-- `setup(draft, seed, withPlayer)` -> the `Game.start` setup: `mode map seed ruleset (bundle id, or a custom ruleset object when anything is overridden) mutators bots modeOptions difficulty player balance`. The Weapons tab list becomes the last `weaponset` mutator. With "bots on your team" set, `setup.balance = false` keeps the split.
+- `setup(draft, seed, withPlayer)` -> the `Game.start` setup: `mode map seed ruleset (bundle id, or a custom ruleset object when anything is overridden) mutators bots modeOptions difficulty player balance`. The Weapons tab list becomes the last `weaponset` mutator; `setWeaponList(draft, list)` and `turnOnMutator(draft, id)` resolve its conflicts inside the draft (One-Shot and Rocket Pit are turned off when the list is switched on, and the list is turned off when one of them is switched on; both return the notice the editor shows as a toast), and loading or importing a draft settles them the same way. With "bots on your team" set, `setup.balance = false` keeps the split.
 - `bundleStart(draft, bundleId, seed, withPlayer)` -> setup of a one-click bundle start; `start(setup)` closes the menus and calls `Game.start` (call it inside the click handler so pointer lock can be requested).
 - Presets (MOV-002, max 50, `Rules.custom`): `saveAs(draft, name, id?)` stores the ruleset fields plus `editor` (the whole draft), `fromPreset(row)` loads one (a preset saved without `editor` loads the fields the editor knows).
 
@@ -77,4 +78,4 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 ## Known limits
 
-X14 head size and X31/X39 body size change the hit volumes (and the body is drawn scaled when no later hook replaces `Render.actorStyle`), but a larger head is not drawn yet. X17, X30, X35, X36, X37, X41, X46, X48, X50 only set their `rules.fx` flag (and X17/X46 emit their event): the sections named above have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`.
+X14 head size and X31/X39 body size change the hit volumes (and the body is drawn scaled when no later hook replaces `Render.actorStyle`), but a larger head is not drawn yet. X17, X30, X35, X36, X37, X41, X46, X48, X50 only set their `rules.fx` flag (and X17/X46 emit their event): the sections named above have to read them. X47 refills health and ammo on melee kills and armor on thermal kills; "finisher" kills of downed actors follow when the downed state is exposed to the kill event. X29 uses a 100 damage, 5 m, 3 s grenade until the gadget rows expose the real numbers. X22 handicaps the player; bots take their handicap from `setup.bots[].handicap`. The Bots tab picks one personality for every bot or "Mixed" (the bot section chooses); a custom mix of several personalities is not offered.
