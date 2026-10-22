@@ -140,11 +140,7 @@ const MapEditor = {
   toMap() { return mapEditClone(this.map); },
 
   // ---- Budget (MAP-014) ----
-  count() {
-    let total = 0;
-    for (const list of MAP_REQUIRED_LISTS) total += this.map[list].length;
-    return total;
-  },
+  count() { return mapEditObjectCount(this.map); },
   budgetLeft() { return MAPEDIT_BUDGET - this.count(); },
   countsText() { return MAP_REQUIRED_LISTS.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', '); },
 
@@ -521,7 +517,7 @@ const MapEditor = {
   fromBuiltin(id) {
     const row = Maps.get(id);
     if (!row) return { error: 'Unknown map.' };
-    const objects = MAP_REQUIRED_LISTS.reduce((sum, list) => sum + row[list].length, 0);
+    const objects = mapEditObjectCount(row);
     if (objects > MAPEDIT_BUDGET) return { error: row.name + ' has ' + objects + ' objects, more than the budget of ' + MAPEDIT_BUDGET + '.' };
     const map = mapEditClone(row);
     Object.assign(map, { id: MAPEDIT_DRAFT_ID, code: 'U00', name: 'Copy of ' + row.name });
@@ -553,6 +549,8 @@ const MapEditor = {
     if (index < 0 && this.saved().length >= MAPEDIT_MAX_MAPS) { this.refuse('The map list is full (' + MAPEDIT_MAX_MAPS + ' maps). Delete one first.'); return false; }
     const id = index >= 0 ? this.slotId : this.nextId();
     const entry = this.entryFor(id, clean);
+    const unreadable = this.expand(entry.data).error;   // the same check a reload runs: a saved map always reopens
+    if (unreadable) { this.refuse('That map cannot be saved: ' + unreadable); return false; }
     const needed = entry.bytes - (index >= 0 ? this.saved()[index].bytes : 0);
     if (needed > this.freeBytes()) {
       this.refuse('Not enough room to save: this map needs ' + Math.ceil(needed / 1024) + ' KB, ' + Math.max(0, Math.floor(this.freeBytes() / 1024)) + ' KB are free. Delete a map first.');
@@ -639,7 +637,12 @@ const MapEditor = {
   },
 };
 
-const mapEditEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
+// Placed objects of a map, props included: the one count behind the editor budget, a copied built-in map and a saved map.
+function mapEditObjectCount(map) {
+  return MAP_REQUIRED_LISTS.reduce((sum, list) => sum + map[list].length, (map.props || []).length);
+}
+
+const mapEditEntryIs =(entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
 
 // Why a parsed code is not a map this version can hold, or '' when it is fine. A code is untrusted text: every number, list and text type is
 // checked here; the keys and kinds (theme, category, modes, materials, item keys, trigger, objective and hint kinds) are the validator's form

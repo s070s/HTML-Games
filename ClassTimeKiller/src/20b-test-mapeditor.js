@@ -1100,3 +1100,18 @@ DebugApi.mapEditorSweep = (seeds) => {
   }
   return { seeds: seeds || 100, failures };
 };
+
+Test.add('mapEditor', (check) => {
+  // ---- One object budget (props included) in add, copy, save and load ----
+  mapEditEditorOff();
+  MapEditor.newFrom({ kind: 'builtin', id: 'harbor' });
+  const props = MapEditor.map.props.length;
+  check('the budget counts props like every other list', MapEditor.count() === MAP_REQUIRED_LISTS.reduce((sum, list) => sum + MapEditor.map[list].length, 0) + props);
+  while (MapEditor.count() < MAPEDIT_BUDGET) MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 });
+  check('the budget stops adding at the limit', MapEditor.count() === MAPEDIT_BUDGET && MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 }) === -1);
+  const slot = MapEditor.saveCurrent('Full harbor') && MapEditor.slotId;
+  MapEditor.newFrom({ kind: 'empty' });
+  check('a map saved at the budget reopens', slot && MapEditor.loadSaved(slot), MapEditor.message);
+  MapEditor.deleteSaved(slot);
+  mapEditEditorOff();
+});
