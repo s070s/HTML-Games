@@ -11,7 +11,6 @@ const DOWNED_BLEED_SECONDS = 30;
 const DOWNED_SPEED = 0.2;                // crawl 1.2 m/s against the 6.4 m/s reference run speed
 const REVIVE_HEALTH = 30;
 const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
-const KNOCKBACK_CAP = 30;
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
 const SPLASH_TARGET_LIFT = 0.3;          // splash measures to the actor's body, at least this far above the feet

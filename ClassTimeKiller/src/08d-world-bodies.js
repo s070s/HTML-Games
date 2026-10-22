@@ -78,7 +78,7 @@ const Bodies = {
     let best = maxDistance, found = -1;
     for (let i = 0; i < BODY_CAPACITY; i++) {
       if (!this.active[i]) continue;
-      const distance = this.shape[i] === BODY_SHAPE.SPHERE ? raySphereDistance(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.halfX[i]) : rayBoundsDistance(ox, oy, oz, dx, dy, dz, best,
+      const distance = this.shape[i] === BODY_SHAPE.SPHERE ? raySphere(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.halfX[i]) : rayBoundsDistance(ox, oy, oz, dx, dy, dz, best,
         this.x[i] - this.halfX[i], this.y[i] - this.halfY[i], this.z[i] - this.halfZ[i], this.x[i] + this.halfX[i], this.y[i] + this.halfY[i], this.z[i] + this.halfZ[i]);
       if (distance < 0 || distance >= best) continue;
       best = distance; found = i;

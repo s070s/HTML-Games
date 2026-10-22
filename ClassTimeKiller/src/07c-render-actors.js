@@ -309,7 +309,6 @@ const DISTANT_PARTS = CAT.actorParts.filter((part) => part.distant);
 const LOD = { near: 0, far: 1, distant: 2 };   // distant = past the preset's lodFar: a still silhouette
 const LOD_PARTS = [NEAR_PARTS, FAR_PARTS, DISTANT_PARTS];
 const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle every 4th frame (plan step 1.8)
-const STAND_HEIGHT = 1.8;
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
 const LEG_LENGTH = 0.9;                  // lower-body height the crouch squash is measured against
 const CROUCH_UPPER_SHARE = 0.75;         // share of the lost height the upper body sinks (the rest is a slight lean)

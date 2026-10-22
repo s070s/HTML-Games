@@ -23,7 +23,7 @@ const PENETRATION_FACTOR = { low: 0.5, med: 0.7, high: 0.85 };
 const MUZZLE_FORWARD = 0.45;             // projectiles start this far in front of the eye
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
-const TRACER_COLOR = 0xffe0a0;
+const IMPACT_SPARK_COLOR = 0xffe0a0;
 const DUAL_FACTOR = 2;                   // W04 dual pistols: magazine and fire rate multiplier
 const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
 const WEAPON_STAT_COUNT = WEAPON_STATS.length;
@@ -34,78 +34,6 @@ const DEFAULT_RULES = Object.freeze({ health: 'stack', precision: 'standard', we
 // The match ruleset, or the spec defaults when no match is running (tests, menus).
 function currentRules() { return (Game.match && Game.match.rules) || DEFAULT_RULES; }
 function currentWeaponSet() { return CAT.weaponSets.byId(currentRules().weaponSet) || CAT.weaponSets.byId('arenaSet'); }
-
-// ---- Hit volumes (DATA-003): head sphere, torso and legs as upright cylinders that never overlap, scaled when crouched ----
-const STAND_HEIGHT = 1.8;
-const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
-const TORSO_RADIUS = 0.3, TORSO_LOW = 0.85, TORSO_HIGH = 1.45, STOMACH_HIGH = 1.1;
-const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
-const ACTOR_REJECT_RADIUS = 1.2;         // every hit volume lies within this distance of the actor's middle
-const ZONE = { NONE: 0, HEAD: 1, BODY: 2, LEGS: 3 };
-const ZONE_NAMES = ['none', 'head', 'body', 'legs'];
-
-function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
-  const px = ox - cx, py = oy - cy, pz = oz - cz;
-  const b = px * dx + py * dy + pz * dz, c = px * px + py * py + pz * pz - radius * radius;
-  if (c <= 0) return 0;
-  const disc = b * b - c;
-  if (b > 0 || disc < 0) return -1;
-  return -b - Math.sqrt(disc);
-}
-function rayCap(ox, oy, oz, dx, dy, dz, cx, cz, capY, radius) {
-  const t = (capY - oy) / dy;
-  if (t < 0) return -1;
-  const hx = ox + dx * t - cx, hz = oz + dz * t - cz;
-  return hx * hx + hz * hz <= radius * radius ? t : -1;
-}
-function nearestHit(a, b) { return a < 0 ? b : b < 0 ? a : Math.min(a, b); }
-// Upright cylinder from y0 to y1: side wall plus the two caps. Returns the entry distance or -1.
-function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
-  const px = ox - cx, pz = oz - cz;
-  const a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - radius * radius;
-  if (c <= 0 && oy >= y0 && oy <= y1) return 0;
-  let best = -1;
-  const disc = b * b - a * c;
-  if (a > 1e-9 && disc >= 0) {
-    const t = (-b - Math.sqrt(disc)) / a, y = oy + dy * t;
-    if (t >= 0 && y >= y0 && y <= y1) best = t;
-  }
-  if (Math.abs(dy) < 1e-9) return best;
-  return nearestHit(best, nearestHit(rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y0, radius), rayCap(ox, oy, oz, dx, dy, dz, cx, cz, y1, radius)));
-}
-
-const Hitbox = {
-  zone: ZONE.NONE,
-  stomach: false,
-  // Nearest hit volume of actor id along a normalized ray; inflate grows every volume (melee, projectile radius).
-  // Returns the distance or -1 and leaves the zone in Hitbox.zone.
-  ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate) {
-    const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], scale = Actors.height[id] / STAND_HEIGHT;
-    const mx = x - ox, my = y + 0.9 * scale - oy, mz = z - oz, along = mx * dx + my * dy + mz * dz;
-    const reject = ACTOR_REJECT_RADIUS + inflate;
-    if (along < -reject || along > maxDistance + reject) return -1;
-    if (mx * mx + my * my + mz * mz - along * along > reject * reject) return -1;
-    let best = -1;
-    this.zone = ZONE.NONE;
-    const head = raySphere(ox, oy, oz, dx, dy, dz, x, y + Actors.eye[id] + HEAD_ABOVE_EYE, z, HEAD_RADIUS + inflate);
-    if (head >= 0) { best = head; this.zone = ZONE.HEAD; }
-    const torso = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + TORSO_LOW * scale, y + TORSO_HIGH * scale, TORSO_RADIUS + inflate);
-    if (torso >= 0 && (best < 0 || torso < best)) { best = torso; this.zone = ZONE.BODY; }
-    const legs = rayCylinder(ox, oy, oz, dx, dy, dz, x, z, y + LEGS_LOW * scale, y + LEGS_HIGH * scale, LEGS_RADIUS + inflate);
-    if (legs >= 0 && (best < 0 || legs < best)) { best = legs; this.zone = ZONE.LEGS; }
-    if (best > maxDistance) { this.zone = ZONE.NONE; return -1; }
-    this.stomach = this.zone === ZONE.BODY && oy + dy * best < y + STOMACH_HIGH * scale;
-    return best;
-  },
-  // Centre of a zone (bots, aim assist, lock-on, homing).
-  point(id, zone, out) {
-    const scale = Actors.height[id] / STAND_HEIGHT;
-    let height = (TORSO_LOW + TORSO_HIGH) * 0.5 * scale;
-    if (zone === ZONE.HEAD) height = Actors.eye[id] + HEAD_ABOVE_EYE;
-    if (zone === ZONE.LEGS) height = (LEGS_LOW + LEGS_HIGH) * 0.5 * scale;
-    return Vec.set(out, Actors.x[id], Actors.y[id] + height, Actors.z[id]);
-  },
-};
 
 // ---- Actor hit list along one ray (pierce): sorted nearest first, reused scratch arrays ----
 const RayHits = {
@@ -160,7 +88,7 @@ function emitImpact(hit, weaponKey, owner) {
   IMPACT_EVENT.material = hit.brush ? hit.brush.material : ''; IMPACT_EVENT.weapon = weaponKey; IMPACT_EVENT.owner = owner;
   Bus.emit('impact', IMPACT_EVENT);
   if (Game.headless) return;
-  Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, TRACER_COLOR);
+  Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
 }
 

@@ -123,6 +123,16 @@ const BTN = {
   PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17,
 };
 
+// ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----
+const STAND_HEIGHT = 1.8;
+const ACTOR_RADIUS = 0.40;
+const STEP_HEIGHT = 0.45;
+const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
+const TORSO_RADIUS = 0.3, TORSO_LOW = 0.85, TORSO_HIGH = 1.45, STOMACH_HIGH = 1.1;
+const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
+const ZONE = { NONE: 0, HEAD: 1, BODY: 2, LEGS: 3 };
+const ZONE_NAMES = ['none', 'head', 'body', 'legs'];
+
 const ACTOR_KIND = { NONE: 0, PLAYER: 1, BOT: 2, ENEMY: 3, DUMMY: 4 };
 const ACTOR_FLAG = { ON_GROUND: 1 << 0, CROUCHED: 1 << 1, PRONE: 1 << 2, SPRINTING: 1 << 3, SLIDING: 1 << 4, WALL_RUN: 1 << 5,
   IN_WATER: 1 << 6, ON_LADDER: 1 << 7, PROTECTED: 1 << 8, INVISIBLE: 1 << 9, DOWNED: 1 << 10, GOD: 1 << 11, FROZEN: 1 << 12 };
