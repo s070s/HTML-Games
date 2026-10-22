@@ -355,7 +355,6 @@ const NEAR_PARTS = CAT.actorParts.slice();
 const FAR_PARTS = CAT.actorParts.filter((part) => part.far);
 const DISTANT_PARTS = CAT.actorParts.filter((part) => part.distant);
 const LOD = { near: 0, far: 1, distant: 2 };   // distant = past the preset's lodFar: a still silhouette
-const LOD_PARTS = [NEAR_PARTS, FAR_PARTS, DISTANT_PARTS];
 const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle every 4th frame (plan step 1.8)
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
 const LEG_LENGTH = 0.9;                  // lower-body height the crouch squash is measured against
@@ -364,17 +363,15 @@ const RUN_SPEED = 7;
 const STRIDE_METERS = 1.7;
 const MAX_SWING = 0.75;                  // radians at full run
 const AIR_SWING = 0.35;
-const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33', metal: '#8d949c', light: '#e4e7ea', cloth: '#6b6250', red: '#c8312c' };
-// Tints model, modelDark and modelGlow take the body model's row colour. Plain constants, not a lookup table: a double
-// read from an object property is boxed on the heap for every part drawn (PERF-006).
-const VISOR_GLOW = 0.8, MODEL_GLOW = 0.7, MODEL_DARK_SHADE = 0.45;
+const TEAM_DARK_SHARE = 0.3, TEAM_DARK_LIFT = 0.08;   // teamDark = team colour x share + lift (a black team stays visible)
 const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
-const tintColor = new Float32Array(3);
-const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // emitActorPart's point: filled in place, then rotateInPlace
+const tintColor = new Float32Array(4);   // r g b and the self-lit share of the part being emitted (partColor)
+// placeActorPart's result: the part centre (from the feet) and pitch, and the size factors it used (squash: crouched legs, grow: head scale).
+const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, squash: 1, grow: 1 };
 const ActorFrame = { count: 0 };
 
 // CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)). In place on
@@ -435,18 +432,25 @@ function animateActor(id, pose, seconds, lod) {
   pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
 }
 
+// The part colour and self-lit share into tintColor (stored, not returned: a returned float would be boxed, PERF-006).
+// Palette tints read the one model palette (07c-render-models).
 function partColor(part, style) {
   const tint = part.tint;
-  if (tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return 0; }
-  if (tint === 'dark') { tintColor[0] = style.r * 0.3 + 0.08; tintColor[1] = style.g * 0.3 + 0.08; tintColor[2] = style.b * 0.3 + 0.09; return 0; }
-  if (tint === 'model' || tint === 'modelDark' || tint === 'modelGlow') return modelPartColor(tint);
-  writeColor(tintColor, 0, ACTOR_TINTS[tint] || ACTOR_TINTS.accent);
-  return tint === 'visor' ? VISOR_GLOW : 0;
+  tintColor[3] = 0;
+  if (tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return; }
+  if (tint === 'teamDark') {
+    tintColor[0] = style.r * TEAM_DARK_SHARE + TEAM_DARK_LIFT; tintColor[1] = style.g * TEAM_DARK_SHARE + TEAM_DARK_LIFT;
+    tintColor[2] = style.b * TEAM_DARK_SHARE + TEAM_DARK_LIFT;
+    return;
+  }
+  if (tint === 'model' || tint === 'modelDark' || tint === 'modelGlow') { modelPartColor(tint); return; }
+  const p = (MODEL_PALETTE_INDEX[tint] || 0) * 4;
+  tintColor[0] = MODEL_PALETTE_RGB[p]; tintColor[1] = MODEL_PALETTE_RGB[p + 1]; tintColor[2] = MODEL_PALETTE_RGB[p + 2]; tintColor[3] = MODEL_PALETTE_RGB[p + 3];
 }
 function modelPartColor(tint) {
-  const colors = ActorModels.colors, o = actorModelRow * 3, shade = tint === 'modelDark' ? MODEL_DARK_SHADE : 1;
+  const colors = ActorModels.colors, o = actorModelRow * 3, shade = tint === 'modelDark' ? MODEL_SHADE : 1;
   tintColor[0] = colors[o] * shade; tintColor[1] = colors[o + 1] * shade; tintColor[2] = colors[o + 2] * shade;
-  return tint === 'modelGlow' ? MODEL_GLOW : 0;
+  if (tint === 'modelGlow') tintColor[3] = MODEL_GLOW;
 }
 
 // A part's centre relative to the feet and its pitch, left in `rotated` (a returned float would be boxed, PERF-006). Crouch: the lower body squashes, the upper
@@ -455,6 +459,7 @@ function placeActorPart(part, pose, style) {
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
   const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = part.head ? style.headScale : 1;
   const point = rotated;
+  point.squash = squash; point.grow = head;
   point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
   rotateInPlace(point);
   const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
@@ -464,14 +469,15 @@ function placeActorPart(part, pose, style) {
   point.pitch = pitch;
 }
 
+// placeActorPart, then the part's size (times the squash and head factors it left in `rotated`), colour and highlight.
 function emitActorPart(part, pose, style) {
-  const scale = style.scale, squash = part.pivot[1] < HIP_HEIGHT ? pose.legSquash : 1, head = part.head ? style.headScale : 1;
   placeActorPart(part, pose, style);
-  const pitch = rotated.pitch, glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
+  const point = rotated, scale = style.scale * point.grow, o = actorBatch.reserve(part.shape), d = actorBatch.data;
   if (o < 0) return;
-  d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
-  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch + part.tilt * DEG;
-  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(glow, style.emissive);
+  partColor(part, style);
+  d[o] = pose.x + point.x; d[o + 1] = pose.y + point.y; d[o + 2] = pose.z + point.z; d[o + 3] = pose.yaw;
+  d[o + 4] = part.size[0] * scale; d[o + 5] = part.size[1] * point.squash * scale; d[o + 6] = part.size[2] * scale; d[o + 7] = point.pitch + part.tilt * DEG;
+  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(tintColor[3], style.emissive);
   d[o + HIGHLIGHT_SLOT] = actorHighlight;
   actorBatch.light(o);
 }
@@ -527,7 +533,7 @@ const ActorModels = {
   },
   partsFor(id, lod, quality) {
     actorModelRow = this.index[id];
-    return this.lists[actorModelRow][lod === LOD.near && !quality.actorDetail ? MODEL_LIST_PLAIN : lod];
+    return this.lists[actorModelRow][lod === LOD.near && !quality.modelDetail ? MODEL_LIST_PLAIN : lod];
   },
 };
 let actorModelRow = 0;                   // the model row of the actor being emitted (partColor reads its colour)

@@ -133,9 +133,9 @@ function boundsVisible(box) {
 
 // ---- View model: the weapon's model (07c-render-models, by weapon id, else by class) at the pose of its viewModels row ----
 const viewModelBatch = makeShapeBatch('viewmodel', 24);
-const weaponPose = { x: 0, y: 0, z: 0, pitch: 0 };
-const viewPivot = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // the weapon pivot rotated in place (no float arguments, PERF-006)
-const viewFrame = makeModelFrame();
+const weaponPose = makeModelPose();   // the pivot: x, y, z, pitch (a constructor record: its fields stay unboxed, PERF-006)
+const viewPivot = makeModelPose();   // the weapon pivot rotated in place (no float arguments, PERF-006)
+const viewPose = makeModelPose();
 const viewTint = new Float32Array(3);
 
 // Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
@@ -159,22 +159,21 @@ function fillViewModel() {
   const state = viewModelState;
   if (!state.visible) return;
   const model = viewWeaponModel(state), pose = poseWeapon(model.pose, state);
-  const parts = model.lods[Render.quality.id === MODEL_COARSE_QUALITY ? MODEL_LOD.near : MODEL_LOD.full];
   writeColor(viewTint, 0, state.color);
-  addWeaponParts(parts, pose, HAND_RIGHT);
-  if (state.dual) addWeaponParts(parts, pose, HAND_LEFT);   // W04 second pistol
+  addWeaponModel(model, pose, HAND_RIGHT);
+  if (state.dual) addWeaponModel(model, pose, HAND_LEFT);   // W04 second pistol
 }
 
 // View x is "right"; actor/shape local +X is left (DATA-002), hence the mirror. The pivot turns with the camera, the parts
-// with the camera pitch plus the weapon's own pitch (drawModelParts).
-function addWeaponParts(parts, pose, hand) {
-  const camera = Render.camera, pivot = viewPivot, frame = viewFrame;
+// with the camera pitch plus the weapon's own pitch (Models.drawLevel). Every part close up, without lod-0 details on Potato.
+function addWeaponModel(model, pose, hand) {
+  const camera = Render.camera, pivot = viewPivot, frame = viewPose;
   pivot.x = -pose.x * hand; pivot.y = pose.y; pivot.z = pose.z; pivot.yaw = camera.yaw; pivot.pitch = camera.pitch;
   rotateInPlace(pivot);
   frame.x = camera.x + pivot.x; frame.y = camera.y + pivot.y; frame.z = camera.z + pivot.z;
   frame.yaw = camera.yaw; frame.pitch = camera.pitch + pose.pitch; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
   frame.r = viewTint[0]; frame.g = viewTint[1]; frame.b = viewTint[2];
-  drawModelParts(viewModelBatch, parts, frame);
+  Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
 }
 Render.addUpdate(60, fillViewModel);
 

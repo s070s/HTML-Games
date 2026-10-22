@@ -475,15 +475,15 @@ const Devices = {
     }
   },
   drawDevice(batch, device) {
-    const row = this.rowOf(device), size = row.size, x = this.x[device], y = this.y[device], z = this.z[device], pose = gadgetPose;
+    const row = this.rowOf(device), x = this.x[device], y = this.y[device], z = this.z[device], pose = gadgetPose;
     pose.x = x; pose.y = y; pose.z = z; pose.yaw = this.yaw[device];
     pose.emissive = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
     drawGadgetModel(batch, row, pose);
     const hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
     if (hasArea) batch.mesh('ring', x, y + 0.03, z, 0, 0, row.radius * 2, 0.03, row.radius * 2, pose.r, pose.g, pose.b, 0.6);
     if (row.kind !== 'placed' || Game.playerId < 0 || this.friendOf(device, Game.playerId)) return;
-    const glint = DEVICE_DRAW_GLINT;
-    batch.mesh('sphere', x, y + size[1] + 0.05, z, 0, 0, glint, glint, glint, 1, 0.1, 0.1, 1);
+    const glint = DEVICE_DRAW_GLINT;   // on the model's top, not the collision box
+    batch.mesh('sphere', x, y + GADGET_MODELS[row.index].top + 0.05, z, 0, 0, glint, glint, glint, 1, 0.1, 0.1, 1);
   },
 };
 const DEVICE_FOREVER_SECONDS = 3600;

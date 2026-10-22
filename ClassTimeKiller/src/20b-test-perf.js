@@ -615,10 +615,18 @@ function perfHeapCounterWorks() {
   return perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS;
 }
 
+// The near parts of the body model with the most of them (a real ActorModels row: partColor reads its row colour too).
+function perfBodyParts() {
+  let richest = 0;
+  ActorModels.lists.forEach((lists, row) => { if (lists[LOD.near].length > ActorModels.lists[richest][LOD.near].length) richest = row; });
+  actorModelRow = richest;
+  return ActorModels.lists[richest][LOD.near];
+}
+
 // The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
 // floats are made inside the path, as in a match.
 function perfHotPaths() {
-  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = perfBodyParts(), pose = actorPose, style = actorStyle;
   navReadOptions(NAV_DEFAULT_OPTIONS);
   Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
   Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });

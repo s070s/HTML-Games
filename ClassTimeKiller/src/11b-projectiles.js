@@ -34,7 +34,7 @@ const HOMING_RULE = {
   accept(owner, id, dx, dy, dz, distance) { return (dx * homingAim.x + dy * homingAim.y + dz * homingAim.z) / distance >= HOMING_CONE_COS; },
 };
 const steerScratch = Vec.make();
-const projectileFrame = makeModelFrame();   // model projectiles: scale 1, no glow floor
+const projectilePose = makeModelPose();   // model projectiles: scale 1, no glow floor
 const PROJECTILE_FACING_SPEED = 0.5;      // m/s: slower (stuck, resting) projectiles keep their last facing
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
 CAT.projectiles.forEach((row, index) => {
@@ -57,6 +57,7 @@ const Projectiles = {
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
   warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
   faceYaw: new Float32Array(PROJECTILE_CAP), facePitch: new Float32Array(PROJECTILE_CAP),   // drawn facing: the last flight direction (a stuck one keeps it)
+  flightTime: new Float32Array(PROJECTILE_CAP),   // seconds moving: model spin and tumble turn only in flight
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -102,6 +103,8 @@ const Projectiles = {
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
     this.hitLow[i] = this.hitHigh[i] = 0; this.warned[i] = 0;
     this.gravity[i] = row.gravity; this.drag[i] = row.drag;
+    this.faceYaw[i] = 0; this.facePitch[i] = 0; this.flightTime[i] = 0;
+    this.faceFlight(i);
     this.serial[i] = this.nextSerial++;
     return i;
   },
@@ -182,7 +185,15 @@ const Projectiles = {
     this.accelerate(i, dt);
     this.stepAura(i, dt);
     this.sweep(i, dt);
+    if (this.faceFlight(i)) this.flightTime[i] += dt;
     if (this.state[i] === PROJECTILE_STATE.FLYING) this.warnIncoming(i);
+  },
+  // The drawn facing follows the velocity while the projectile moves; true then (a resting or stuck one keeps its facing).
+  faceFlight(i) {
+    const vx = this.vx[i], vy = this.vy[i], vz = this.vz[i], flat = length2(vx, vz);
+    if (flat + Math.abs(vy) <= PROJECTILE_FACING_SPEED) return false;
+    this.faceYaw[i] = Math.atan2(vx, vz); this.facePitch[i] = Math.atan2(vy, flat);
+    return true;
   },
   // AUD-005 / ACC-002: a rocket or missile of anyone but the local player and allies, within 25 m and closing in:
   // 'projectile.incoming' once (S06 plays the whistle and the "[Rocket incoming]" caption).
@@ -537,12 +548,11 @@ const Projectiles = {
     }
   },
   drawModel(batch, i, model) {
-    const vx = this.vx[i], vy = this.vy[i], vz = this.vz[i], flat = length2(vx, vz), frame = projectileFrame;
-    if (flat + Math.abs(vy) > PROJECTILE_FACING_SPEED) { this.faceYaw[i] = Math.atan2(vx, vz); this.facePitch[i] = Math.atan2(vy, flat); }
-    frame.x = this.x[i]; frame.y = this.y[i]; frame.z = this.z[i];
-    frame.yaw = this.faceYaw[i] + Sim.time * model.spin; frame.pitch = this.facePitch[i] + Sim.time * model.tumble;
-    frame.r = model.r; frame.g = model.g; frame.b = model.b;
-    drawModelParts(batch, model.lods[modelLodOf(frame)], frame);
+    const pose = projectilePose, flight = this.flightTime[i];
+    pose.x = this.x[i]; pose.y = this.y[i]; pose.z = this.z[i];
+    pose.yaw = this.faceYaw[i] + flight * model.spin; pose.pitch = this.facePitch[i] + flight * model.tumble;
+    Models.paint(pose, model);
+    Models.draw(batch, model, pose);
   },
 };
 

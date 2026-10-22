@@ -43,8 +43,8 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
     bodyPart('head', 'cylinder', [0, 0.1, 0], [0.31, 0.12, 0.31], 'model'),
     bodyPart('head', 'box', [0, 0.06, 0.17], [0.24, 0.02, 0.1], 'modelDark'),
     bodyPart('chest', 'box', [0, 0.14, 0.165], [0.5, 0.07, 0.04], 'cloth'),
-    bodyPart('shoulder', 'box', [0.03, 0.02, -0.1], [0.09, 0.15, 0.08], 'dark', { detail: true }),
-    bodyPart('shoulder', 'cylinder', [0.04, 0.3, -0.12], [0.015, 0.42, 0.015], 'dark', { detail: true })] }),
+    bodyPart('shoulder', 'box', [0.03, 0.02, -0.1], [0.09, 0.15, 0.08], 'teamDark', { detail: true }),
+    bodyPart('shoulder', 'cylinder', [0.04, 0.3, -0.12], [0.015, 0.42, 0.015], 'teamDark', { detail: true })] }),
   classBody('scout', { color: 0x46604c, drop: ['pack'], change: { torso: { size: [0.46, 0.6, 0.26] } }, parts: [
     bodyPart('head', 'sphere', [0, 0.05, -0.02], [0.31, 0.27, 0.32], 'model'),
     ...bodyPair('head', 'cylinder', [0.065, 0.09, 0.13], [0.09, 0.06, 0.09], 'visor', { tilt: 90, detail: true }),
@@ -52,27 +52,27 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
     bodyPart('chest', 'box', [0, 0.28, 0.02], [0.34, 0.1, 0.32], 'cloth'),
     bodyPart('hips', 'box', [0, 0, -0.17], [0.28, 0.14, 0.08], 'cloth')] }),
   classBody('breacher', { color: 0x5a6068, change: { torso: { size: [0.58, 0.64, 0.34] }, visor: { offset: [0, -0.01, 0.15], size: [0.27, 0.2, 0.04] } }, parts: [
-    BODY_HELMET, bodyPart('chest', 'box', [0, 0.04, 0.18], [0.5, 0.44, 0.08], 'metal'), ...BODY_KNEE_PADS,
+    BODY_HELMET, bodyPart('chest', 'box', [0, 0.04, 0.18], [0.5, 0.44, 0.08], 'steel'), ...BODY_KNEE_PADS,
     ...bodyPair('shoulder', 'box', [0.03, 0.05, 0], [0.22, 0.14, 0.28], 'modelDark')] }),
   classBody('marksman', { color: 0x5d6b36, drop: ['pack'], parts: [
     bodyPart('head', 'cylinder', [0, 0.08, 0], [0.5, 0.025, 0.5], 'cloth'),
     bodyPart('head', 'cylinder', [0, 0.13, 0], [0.29, 0.1, 0.29], 'cloth'),
     bodyPart('chest', 'box', [0, -0.02, -0.18], [0.54, 0.74, 0.05], 'model', { hold: -6 }),
-    bodyPart('chest', 'cylinder', [0.13, 0.12, -0.25], [0.1, 0.92, 0.1], 'dark')] }),
+    bodyPart('chest', 'cylinder', [0.13, 0.12, -0.25], [0.1, 0.92, 0.1], 'teamDark')] }),
   classBody('support', { color: 0x7b6a44, change: { pack: { offset: [0, 0.03, -0.25], size: [0.46, 0.58, 0.24], tint: 'model' } }, parts: [
     BODY_HELMET, bodyPart('chest', 'box', [0, -0.34, -0.25], [0.38, 0.16, 0.22], 'modelDark'),
-    bodyPart('chest', 'box', [0, 0.14, 0.165], [0.5, 0.08, 0.04], 'accent'),
-    bodyPart('chest', 'cylinder', [-0.16, 0.6, -0.3], [0.02, 0.62, 0.02], 'dark', { detail: true })] }),
+    bodyPart('chest', 'box', [0, 0.14, 0.165], [0.5, 0.08, 0.04], 'dark'),
+    bodyPart('chest', 'cylinder', [-0.16, 0.6, -0.3], [0.02, 0.62, 0.02], 'teamDark', { detail: true })] }),
 
   // ---- Rulesets that dress every player alike (13d: when no hero or class applies; matched by ruleset id) ----
-  { id: 'tactical', kind: 'ruleset', name: 'Operator', color: 0x2e3236, change: { head: { tint: 'dark' } }, parts: [
+  { id: 'tactical', kind: 'ruleset', name: 'Operator', color: 0x2e3236, change: { head: { tint: 'teamDark' } }, parts: [
     BODY_HELMET, BODY_PLATE,
-    bodyPart('head', 'box', [0, 0.12, 0.15], [0.14, 0.07, 0.08], 'dark'),
+    bodyPart('head', 'box', [0, 0.12, 0.15], [0.14, 0.07, 0.08], 'teamDark'),
     ...bodyPair('head', 'cylinder', [0.04, 0.12, 0.2], [0.05, 0.05, 0.05], 'visor', { tilt: 90, detail: true })] },
   { id: 'knight', kind: 'ruleset', name: 'Knight', color: 0xb0302c, drop: ['pack'],
-    change: { head: { shape: 'box', size: [0.32, 0.36, 0.32], tint: 'metal' }, visor: { offset: [0, 0.03, 0.165], size: [0.24, 0.03, 0.03], tint: 'dark' } }, parts: [
+    change: { head: { shape: 'box', size: [0.32, 0.36, 0.32], tint: 'steel' }, visor: { offset: [0, 0.03, 0.165], size: [0.24, 0.03, 0.03], tint: 'teamDark' } }, parts: [
       bodyPart('head', 'box', [0, 0.24, -0.02], [0.05, 0.14, 0.28], 'model'),
-      ...bodyPair('shoulder', 'sphere', [0.02, 0.03, 0], [0.24, 0.2, 0.28], 'metal'),
+      ...bodyPair('shoulder', 'sphere', [0.02, 0.03, 0], [0.24, 0.2, 0.28], 'steel'),
       bodyPart('chest', 'box', [0, -0.2, 0.165], [0.32, 0.8, 0.03], 'team')] },
   { id: 'suit', kind: 'ruleset', name: 'Weave Suit', color: 0x3fd8ff, drop: ['pack'],
     change: { head: { size: [0.31, 0.33, 0.31], tint: 'modelDark' }, visor: { size: [0.26, 0.07, 0.07], tint: 'modelGlow' } }, parts: [
@@ -83,10 +83,10 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
 
   // ---- Heroes H01..H08 (12e: the hero of this life) ----
   heroBody('bastide', { change: { torso: { size: [0.66, 0.68, 0.38] }, head: { shape: 'box', size: [0.34, 0.36, 0.34], tint: 'model' },
-    visor: { offset: [0, 0.03, 0.175], size: [0.26, 0.04, 0.03], tint: 'visor' }, pack: { tint: 'metal' } }, parts: [
-    bodyPart('head', 'box', [0, 0.25, 0], [0.05, 0.12, 0.32], 'metal'),
+    visor: { offset: [0, 0.03, 0.175], size: [0.26, 0.04, 0.03], tint: 'visor' }, pack: { tint: 'steel' } }, parts: [
+    bodyPart('head', 'box', [0, 0.25, 0], [0.05, 0.12, 0.32], 'steel'),
     ...bodyPair('shoulder', 'box', [0.04, 0.06, 0], [0.28, 0.2, 0.34], 'model'),
-    bodyPart('hips', 'box', [0, -0.1, 0], [0.54, 0.26, 0.36], 'metal'),
+    bodyPart('hips', 'box', [0, -0.1, 0], [0.54, 0.26, 0.36], 'steel'),
     bodyPart('chest', 'box', [0, 0.06, 0.2], [0.4, 0.3, 0.04], 'modelDark', { detail: true })] }),
   heroBody('moraine', { change: { torso: { size: [0.6, 0.64, 0.36] }, head: { size: [0.36, 0.34, 0.36], tint: 'model' },
     visor: { offset: [0, 0.01, 0.15], size: [0.28, 0.08, 0.07], tint: 'modelGlow' }, pack: { shape: 'cylinder', size: [0.34, 0.5, 0.22], tint: 'modelDark' } }, parts: [
@@ -102,9 +102,9 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
   heroBody('tessaly', { drop: ['pack'], change: { head: { size: [0.3, 0.32, 0.31], tint: 'modelDark' } }, parts: [
     bodyPart('head', 'sphere', [0, 0.03, -0.035], [0.33, 0.34, 0.34], 'model'),
     ...bodyPair('chest', 'box', [0.32, 0.12, -0.21], [0.52, 0.56, 0.03], 'model', { hold: -8 }),
-    bodyPart('chest', 'box', [0, 0.06, -0.19], [0.26, 0.32, 0.1], 'metal'),
+    bodyPart('chest', 'box', [0, 0.06, -0.19], [0.26, 0.32, 0.1], 'steel'),
     ...bodyPair('hips', 'box', [0.12, -0.3, -0.13], [0.18, 0.56, 0.04], 'modelDark', { swing: 0.3 })] }),
-  heroBody('brask', { change: { visor: { shape: 'cylinder', offset: [0, -0.06, 0.15], size: [0.12, 0.12, 0.12], tint: 'dark', tilt: 90 },
+  heroBody('brask', { change: { visor: { shape: 'cylinder', offset: [0, -0.06, 0.15], size: [0.12, 0.12, 0.12], tint: 'teamDark', tilt: 90 },
     pack: { size: [0.44, 0.38, 0.22], tint: 'cloth' } }, parts: [
     BODY_HELMET,
     ...bodyPair('head', 'sphere', [0.065, 0.03, 0.12], [0.08, 0.08, 0.05], 'visor', { detail: true }),
@@ -112,12 +112,12 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
     bodyPart('chest', 'sphere', [0, 0.03, 0.18], [0.1, 0.1, 0.1], 'model'),
     bodyPart('chest', 'sphere', [-0.13, -0.06, 0.18], [0.1, 0.1, 0.1], 'model'),
     bodyPart('hips', 'box', [0, 0.04, 0], [0.5, 0.08, 0.32], 'cloth', { detail: true })] }),
-  heroBody('lark', { change: { pack: { tint: 'light' } }, parts: [
-    bodyPart('head', 'cylinder', [0, 0.1, 0], [0.3, 0.12, 0.3], 'light'),
+  heroBody('lark', { change: { pack: { tint: 'white' } }, parts: [
+    bodyPart('head', 'cylinder', [0, 0.1, 0], [0.3, 0.12, 0.3], 'white'),
     bodyPart('head', 'box', [0, 0.06, 0.17], [0.24, 0.02, 0.1], 'model'),
     bodyPart('chest', 'box', [0, 0.04, -0.28], [0.22, 0.07, 0.02], 'red'),
     bodyPart('chest', 'box', [0, 0.04, -0.28], [0.07, 0.22, 0.02], 'red'),
-    bodyPart('chest', 'cylinder', [0.14, 0.46, -0.24], [0.02, 0.4, 0.02], 'metal', { detail: true }),
+    bodyPart('chest', 'cylinder', [0.14, 0.46, -0.24], [0.02, 0.4, 0.02], 'steel', { detail: true }),
     bodyPart('chest', 'sphere', [0.14, 0.68, -0.24], [0.09, 0.09, 0.09], 'modelGlow')] }),
   heroBody('mirelle', { drop: ['pack'], parts: [
     bodyPart('head', 'cone', [0, 0.32, -0.03], [0.3, 0.44, 0.3], 'model'),
@@ -130,6 +130,6 @@ Data.define('actorModels', { id: REQUIRED, kind: REQUIRED, name: '', color: 0x80
     bodyPart('chest', 'box', [0, 0, -0.17], [0.5, 0.62, 0.03], 'modelDark'),
     bodyPart('chest', 'box', [-0.42, 0.64, -0.1], [0.24, 0.06, 0.24], 'modelDark'),
     bodyPart('chest', 'sphere', [-0.42, 0.6, -0.02], [0.07, 0.07, 0.07], 'modelGlow'),
-    bodyPart('chest', 'cylinder', [0.12, 0.5, -0.24], [0.015, 0.5, 0.015], 'metal', { detail: true })] }),
+    bodyPart('chest', 'cylinder', [0.12, 0.5, -0.24], [0.015, 0.5, 0.015], 'steel', { detail: true })] }),
 ]);
 CAT.actorModels.forEach((row, index) => { row.index = index; });

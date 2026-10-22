@@ -1,5 +1,6 @@
-// Self-tests for the gear models (03r gearModels, 07g Models; group 'models'): every item, powerup, gadget and ammo type has
-// its own valid model, LODs shrink, the draw allocates nothing. DebugApi.gearGallery(group) shows a group's models in a row grid.
+// Self-tests for the gear models (03r gearModels, 07c-render-models Models; group 'models'): every item, powerup, gadget and ammo type has
+// its own valid model, LODs shrink, the draw allocates nothing. showGearGallery(group) shows a group's models in a row grid
+// (through __CTK.models.gallery, 20b-test-render).
 
 const GEAR_GALLERY_GROUPS = {
   items: () => CAT.items.map((row) => row.code).concat(CAT.gearModels.filter((row) => row.id.startsWith('ammo-')).map((row) => row.id)),
@@ -29,7 +30,7 @@ function drawGearGallery(batch) {
 }
 
 // Debug: a flat floor, the group's models (a group name or a list of model ids; x scale) in rows of 6 (left to right, near to far) and their ids printed per row on the HUD.
-DebugApi.gearGallery = (group, yaw, scale) => {
+function showGearGallery(group, yaw, scale) {
   const devices = group === 'devices', gallery = gearGallery;
   gallery.entries = (Array.isArray(group) ? group : (GEAR_GALLERY_GROUPS[group] || GEAR_GALLERY_GROUPS.items)()).map(gearGalleryEntry);
   gallery.spacing = devices ? 2.6 : 1.4; gallery.scale = scale || (devices ? 1 : group === 'thrown' ? 3 : 1.4); gallery.floor = devices ? 0 : 0.5; gallery.yaw = yaw === undefined ? 1.2 : yaw;
@@ -54,7 +55,7 @@ DebugApi.gearGallery = (group, yaw, scale) => {
   const overlay = document.getElementById('overlay');
   if (overlay) overlay.style.display = 'none';
   return gallery.entries.map((entry) => entry[0]).join(' ');
-};
+}
 
 // Every gear row of the game has its own model in the catalogue (no fallback shape is ever drawn).
 Test.add('models', (check) => {
@@ -74,7 +75,7 @@ Test.add('models', (check) => {
     if (model.id !== 'rune' && (model.count < 3 || model.count > 9)) bad.push(model.id + ': ' + model.count + ' parts');
     if (!(counts[0] >= counts[1] && counts[1] >= counts[2] && counts[2] >= 1)) bad.push(model.id + ': lod ' + counts.join('/'));
     if (!sizes || !model.shapes.every((shape) => SHAPES.includes(shape))) bad.push(model.id + ': part shape or size');
-    const key = Array.from(model.data).join(',');
+    const key = Array.from(model.data).join(',') + '|' + Array.from(model.tints).join(',');
     if (seen.has(key)) bad.push(model.id + ' = ' + seen.get(key));
     seen.set(key, model.id);
   });
@@ -85,7 +86,7 @@ Test.add('models', (check) => {
   try { Models.compile([{ id: 'x', parts: [{ shape: 'teapot', size: [1, 1, 1] }] }]); } catch (error) { refused = true; }
   check('a part with an unknown shape is refused at compile time', refused);
   const heal = GEAR_MODELS.byId.I02, kit = GEAR_MODELS.byId.I14;
-  check('a row built from another copies its parts with its own tints', kit.count === heal.count && kit.data[8] !== heal.data[8]);
+  check('a row built from another copies its parts with its own tints', kit.count === heal.count && Array.from(kit.data).join() === Array.from(heal.data).join() && kit.tints.join() !== heal.tints.join());
 });
 
 // LOD by distance and preset: near draws every part, far the far parts, past lodFar the silhouette, past the view nothing;
@@ -118,7 +119,8 @@ Test.add('models', (check) => {
   camera.x = 0; camera.y = 1.6; camera.z = 0;
   Items.draw(recorder);
   camera.x = cameraX; camera.y = cameraY; camera.z = cameraZ;
-  const expected = 2 + heldModel.lodCounts[Models.levelAt(3, 0.5, 0)] + GEAR_MODELS.byId.I02.lodCounts[Models.levelAt(6, 0.5, 0)];   // two base discs and the two models
+  const levelAt = (x) => Models.levelOf({ x, y: 0.5, z: 0 });
+  const expected = 2 + heldModel.lodCounts[levelAt(3)] + GEAR_MODELS.byId.I02.lodCounts[levelAt(6)];   // two base discs and the two models
   check('pickups draw their gear models', recorder.meshes.length === expected, recorder.meshes.length + ' / ' + expected);
   Game.playerId = -1;
 });

@@ -1,16 +1,16 @@
 // Self-tests for the body models (03s actorModels, 07c ActorModels, picked by 13d; group 'render') and the
-// DebugApi.actorModelGallery scene (visual checks).
+// showActorModelGallery scene (visual checks, through __CTK.models.gallery).
 
-const MODEL_TINTS = ['team', 'dark', 'model', 'modelDark', 'modelGlow', ...Object.keys(ACTOR_TINTS)];
+const MODEL_TINTS = ['team', 'teamDark', 'model', 'modelDark', 'modelGlow', ...MODEL_PALETTE_NAMES];
 const MODEL_MAX_ADDED_PARTS = 9;         // compact rows: a row adds at most this many parts to its base
 const MODEL_MAX_NEAR_PARTS = 18;         // the closest LOD of any model
 const MODEL_GALLERY_SPACING = 1.15;      // metres between the actors of the gallery line
 const MODEL_GALLERY_Z = -8;              // the line stands on the open floor of the demo arena
 
-// __CTK.actorModelGallery(kind, yaw, qualityId): the demo arena with every model of one kind ('' = all) in a line in front
+// showActorModelGallery(kind, yaw, qualityId): the demo arena with every model of one kind ('' = all) in a line in front
 // of a fixed camera, alternating teams; yaw turns them (default PI: facing the camera; 0 shows their backs). Returns the
 // model ids from left to right.
-DebugApi.actorModelGallery = (kind, yaw, qualityId) => {
+function showActorModelGallery(kind, yaw, qualityId) {
   Benchmark.active = false; Benchmark.done = true;
   if (qualityId) Settings.set('video.quality', qualityId);
   Game.stop();
@@ -24,9 +24,10 @@ DebugApi.actorModelGallery = (kind, yaw, qualityId) => {
     ActorModels.set(id, row.kind, row.id);
   });
   Render.cameraOverride = (camera) => { camera.x = 0; camera.y = 1.5; camera.z = MODEL_GALLERY_Z - 5.6; camera.yaw = 0; camera.pitch = -0.06; camera.roll = 0; return true; };
+  document.getElementById('overlay').style.display = 'none';
   Render.drawFrame(1 / 60, 1);
   return rows.map((row) => row.id);
-};
+}
 
 // ---- Catalogue: every hero, preset class and dressed ruleset has its own valid, compact model ----
 Test.add('render', (check) => {

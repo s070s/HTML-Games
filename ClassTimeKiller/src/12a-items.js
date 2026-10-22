@@ -573,7 +573,7 @@ const Items = {
 const pickupBaseColor = new Float32Array(3);
 const pickupInstance = makeShapeInstance();
 const pickupBaseInstance = Object.assign(makeShapeInstance(), { sx: 1, sy: 0.04, sz: 1 });
-// Gear models (03r, 07g): one per item and powerup row by code; the I08 box shows the ammo type of the local player's held
+// Gear models (03r, 07c-render-models): one per item and powerup row by code; the I08 box shows the ammo type of the local player's held
 // weapon (what it would give first), its own box without one. 12c and 12d draw grenades and devices from GEAR_MODELS too.
 const GEAR_MODELS = Models.compile(CAT.gearModels);
 const PICKUP_MODELS = [CAT.items, CAT.powerups].map((rows) => rows.map((row) => GEAR_MODELS.byId[row.code]));
