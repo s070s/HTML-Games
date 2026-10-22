@@ -733,6 +733,7 @@ const SETTING_SCHEMA = {
 };
 const S = {};   // live settings
 const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
+const PHONE_SHORT_SIDE = 600;   // CSS px: screens with a shorter short side are phones (the smallest iPad mini is 744)
 /* Device traits for phones and tablets. iPadOS reports itself as a Mac, so touch points tell it apart; iPhone Safari
    has no element fullscreen at all (only a Home Screen start is full screen) and iPad Safari only the webkit one. */
 const Device = {
@@ -742,6 +743,11 @@ const Device = {
     this.touch = points > 0 || ('ontouchstart' in window);
     this.ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && points > 1);
     return this;
+  },
+  /* a phone: the short side of the screen is under PHONE_SHORT_SIDE CSS px (tablets and laptops are wider) */
+  phone() {
+    const side = Math.min(screen.width || 0, screen.height || 0);
+    return side > 0 && side < PHONE_SHORT_SIDE;   // 0: no screen size reported (a hidden or headless view)
   },
   /* started from the Home Screen: already full screen, with no browser bars */
   standalone() { return navigator.standalone === true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches); },
@@ -1018,6 +1024,8 @@ const TOUCH_STICK_DEAD = 0.12;     // stick share ignored around the centre
 const TOUCH_LOOK_GAIN = 2.4;       // a finger drag turns this many times faster than the same mouse move
 const TOUCH_STICK_SIDE = 0.42;     // left share of the screen where a touch becomes the move stick
 const TOUCH_HUD_RESERVE = 236;     // CSS px on the right that the button cluster covers; HUD panels move left of it
+const ROTATE_TEXT = 'The battle is paused. Turn your phone sideways to keep playing.';
+const ROTATE_TEXT_COOP = 'Your controls are paused; the battle continues. Turn your phone sideways to keep playing.';
 /* name: snapshot field; label: text (a function of the platform kind when it changes); pos: CSS placement;
    look: dragging from it also aims; latch: tap toggles; show: platform kinds or 'pad' (near a supply pad) */
 const TOUCH_BUTTONS = [
@@ -1040,7 +1048,7 @@ const TouchControls = {
   enabled: false,    // the last pointer was a finger
   shown: false,      // the overlay is on screen (playing on a touch screen)
   root: null, stickEl: null, knobEl: null, buttons: [],
-  held: {}, latched: {}, fingers: new Map(),   // finger id -> { kind: 'stick' | 'look' | 'button', button, x, y, ox, oy }
+  held: {}, latched: {}, fingers: new Map(),   // finger id -> { kind: 'stick' | 'look' | 'button', button, x, y, ox, oy, bx, by }
   lx: 0, ly: 0, layout: '',
   init() {
     this.root = el('touch');
@@ -1059,8 +1067,9 @@ const TouchControls = {
     const pause = document.createElement('div');
     pause.className = 'tb'; pause.style.cssText = 'left:calc(50% - 22px);top:6px;width:44px;height:44px;line-height:41px'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
     safe.appendChild(pause);
-    // the device kind is decided by the last pointer used: a finger or a pen shows the controls, a mouse hides them
-    window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType !== 'mouse'; }, true);
+    // the device kind is decided by the last pointer used: a finger (or an Apple Pencil) shows the controls; a mouse or
+    // a pen on a Windows tablet or laptop hides them
+    window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType === 'touch' || (e.pointerType === 'pen' && Device.ios); }, true);
     if (COARSE_POINTER || Device.ios) this.enabled = true;
     const opts = { passive: false };
     this.root.addEventListener('touchstart', (e) => this.onStart(e), opts);
@@ -1091,11 +1100,13 @@ const TouchControls = {
     }
     this.paint();
   },
-  /* the stick centre stays inside the safe area and off the swipe-back edge, so its ring is always on screen */
+  /* the stick centre stays inside the safe area and off the swipe-back edge, so its ring is always on screen;
+     bx/by keep the shift, so the stick still rests where the finger came down */
   placeStick(f) {
     const half = TOUCH_STICK_RADIUS / 2;
     f.ox = Math.max(f.ox, SafeArea.l + TOUCH_EDGE_GUARD + half);
     f.oy = clamp(f.oy, SafeArea.t + half, Math.max(SafeArea.t + half, window.innerHeight - SafeArea.b - half));
+    f.bx = f.ox - f.x; f.by = f.oy - f.y;
     this.stickEl.style.display = 'block'; this.stickEl.style.left = f.ox + 'px'; this.stickEl.style.top = f.oy + 'px';
     this.knobEl.style.transform = '';
     this.moveStick(f);
@@ -1143,7 +1154,7 @@ const TouchControls = {
     return false;
   },
   moveStick(f) {
-    let x = (f.x - f.ox) / TOUCH_STICK_RADIUS, y = (f.y - f.oy) / TOUCH_STICK_RADIUS;
+    let x = (f.x + f.bx - f.ox) / TOUCH_STICK_RADIUS, y = (f.y + f.by - f.oy) / TOUCH_STICK_RADIUS;
     const len = Math.hypot(x, y);
     if (len > 1) { x /= len; y /= len; }
     this.knobEl.style.transform = 'translate(' + Math.round(x * TOUCH_STICK_RADIUS) + 'px,' + Math.round(y * TOUCH_STICK_RADIUS) + 'px)';
@@ -15476,8 +15487,8 @@ const Game = {
   adaptQuality() {
     if (this.state !== 'playing') { this.lowFpsT = 0; return; }
     if (this.fps < 26) this.lowFpsT += 0.5; else this.lowFpsT = Math.max(0, this.lowFpsT - 0.25);
-    if (this.lowFpsT >= 4 && (R.scaleCap || 1) > 0.5) {
-      R.scaleCap = Math.max(0.5, (R.scaleCap || QUALITY[S.quality].scale) - 0.1);
+    if (this.lowFpsT >= 4 && Math.min(R.scaleCap || 1, R.scale) > 0.5) {
+      R.scaleCap = Math.max(0.5, Math.min(R.scaleCap || 1, R.scale) - 0.1);   // from the scale in use, which a pixel cap may already have lowered
       this.lowFpsT = 0; UI.needResize = true;
       UI.toast('Lowering render resolution to keep the game smooth');
     }
@@ -16061,13 +16072,16 @@ const UI = {
     R.resize(cw, ch, S.quality);
     HUD.resize(cw, ch, Math.min(window.devicePixelRatio || 1, 2));
   },
-  /* every frame: a phone held upright during a battle shows the rotate overlay and pauses the game behind it */
+  /* every frame: a phone held upright during a battle shows the rotate overlay and pauses the game behind it
+     (only phones: a tall window on a tablet in Split View or a snapped laptop window plays on) */
   rotateCheck(w, h) {
-    const st = Game.state, want = TouchControls.enabled && h > w && (st === 'playing' || st === 'paused');
+    const st = Game.state, want = TouchControls.enabled && Device.phone() && h > w && (st === 'playing' || st === 'paused');
     if (want && st === 'playing' && !Game.netPaused) Game.pause();
     if (want === this.rotateOn) return;
     this.rotateOn = want;
-    el('rotate').classList.toggle('on', want);
+    const box = el('rotate');
+    if (want) box.querySelector('span').textContent = Net.active && Net.inSession ? ROTATE_TEXT_COOP : ROTATE_TEXT;
+    box.classList.toggle('on', want);
   },
   applySettings() {
     document.documentElement.style.setProperty('--ui', S.uiScale);
@@ -18718,7 +18732,9 @@ const SelfTest = {
         tc.reset();
         tc.onStart(tap(1, 2, 200, [1]));
         const stick = tc.fingers.get(1);
-        this.check('the stick stays clear of the left edge and the inset', stick && stick.kind === 'stick' && stick.ox >= 47 + TOUCH_EDGE_GUARD && tc.lx < 0, stick && stick.ox);
+        this.check('the stick stays clear of the left edge and the inset, resting under the finger', stick && stick.kind === 'stick' && stick.ox >= 47 + TOUCH_EDGE_GUARD && tc.lx === 0 && tc.ly === 0, stick && stick.ox + ' ' + tc.lx);
+        tc.onMove({ preventDefault() {}, changedTouches: [{ identifier: 1, clientX: 2 + TOUCH_STICK_RADIUS, clientY: 200 }] });
+        this.check('a full drag from the edge gives full speed', tc.lx > 0.99 && tc.ly === 0, tc.lx);
       } finally { ['--sat', '--sar', '--sab', '--sal'].forEach((k) => root.removeProperty(k)); SafeArea.read(); }
       const keepHeld = { enabled: tc.enabled, shown: tc.shown };
       try {
@@ -18766,14 +18782,24 @@ const SelfTest = {
         Object.assign(Device, keepDev); S.homeHintSeen = keepSeen; Save.persist = keepPersist; el('toast').style.display = 'none';
       }
       // sound the game paused stays paused when the page comes back; a resume takes it back
-      const keepSnd = Snd.held;
-      Snd.suspend(); Snd.recover();
-      const stayed = Snd.held;
-      Snd.resume();
-      this.check('paused sound is not resumed by a return to the page, a resume clears it', stayed && !Snd.held);
-      Snd.held = keepSnd; if (keepSnd) Snd.suspend();
+      // (a stand-in context, so the check holds before the first tap made a real one)
+      const keepSnd = { held: Snd.held, ctx: Snd.ctx };
+      let resumes = 0;
+      try {
+        Snd.ctx = { state: 'suspended', resume() { resumes++; return Promise.resolve(); }, suspend() { return Promise.resolve(); } };
+        Snd.suspend(); Snd.recover();
+        const stayed = Snd.held && resumes === 0;
+        Snd.resume();
+        this.check('paused sound is not resumed by a return to the page, a resume clears it', stayed && !Snd.held && resumes === 1, resumes);
+      } finally { Snd.ctx = keepSnd.ctx; Snd.held = keepSnd.held; }
       // menus scroll by finger, the battle never does
-      this.check('only form controls and overflowing menus take a finger drag', !touchScrolls(document.body) && !touchScrolls(el('gl')) && touchScrolls(document.createElement('input')));
+      const menu = document.createElement('div'), line = document.createElement('p'), flat = document.createElement('div'), word = document.createElement('p');
+      try {
+        menu.style.cssText = 'position:fixed;left:0;top:0;width:100px;height:40px;overflow-y:auto'; line.style.cssText = 'height:200px;margin:0';
+        flat.style.cssText = 'position:fixed;left:0;top:0;width:100px;height:40px;overflow-y:auto'; word.style.cssText = 'height:10px;margin:0';
+        menu.appendChild(line); flat.appendChild(word); document.body.appendChild(menu); document.body.appendChild(flat);
+        this.check('only form controls and overflowing menus take a finger drag', !touchScrolls(document.body) && !touchScrolls(el('gl')) && touchScrolls(document.createElement('input')) && touchScrolls(line) && !touchScrolls(word));
+      } finally { menu.remove(); flat.remove(); }
       // the render size respects the pixel ratio and caps Low and Medium on big screens; High is untouched
       const keepCap = R.scaleCap, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       try {
@@ -18784,15 +18810,19 @@ const SelfTest = {
         this.check('Medium caps the pixels on a big screen, High keeps the full size', capped <= QUALITY.medium.maxPx * 1.01 && R.width === Math.floor(1920 * dpr) && !QUALITY.high.maxPx, capped + ' ' + R.width + 'x' + R.height);
       } finally { R.scaleCap = keepCap; UI.needResize = true; UI.resizeIfNeeded(); }
       // a phone held upright during a battle pauses it behind the rotate overlay
-      const keepTouch = TouchControls.enabled;
+      const keepTouch = TouchControls.enabled, keepPhone = Device.phone;
       try {
         Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
         TouchControls.enabled = true;
+        Device.phone = () => false;
         UI.rotateCheck(390, 844);
-        const paused = Game.state === 'paused' && el('rotate').classList.contains('on');
+        this.check('a tall window on a tablet or laptop plays on', Game.state === 'playing' && !el('rotate').classList.contains('on'));
+        Device.phone = () => true;
+        UI.rotateCheck(390, 844);
+        const paused = Game.state === 'paused' && el('rotate').classList.contains('on') && el('rotate').textContent.indexOf(ROTATE_TEXT) >= 0;
         UI.rotateCheck(844, 390);
-        this.check('portrait pauses the battle behind the rotate overlay; landscape hides it', paused && Game.state === 'paused' && !el('rotate').classList.contains('on'));
-      } finally { TouchControls.enabled = keepTouch; Game.quitToMenu(); UI.rotateCheck(window.innerWidth, window.innerHeight); }
+        this.check('portrait on a phone pauses the battle behind the rotate overlay; landscape hides it', paused && Game.state === 'paused' && !el('rotate').classList.contains('on'));
+      } finally { Device.phone = keepPhone; TouchControls.enabled = keepTouch; Game.quitToMenu(); Snd.resume(); UI.rotateCheck(window.innerWidth, window.innerHeight); }
     });
     t('fauna species', () => {
       const ids = FAUNA.map((d) => d.id);
