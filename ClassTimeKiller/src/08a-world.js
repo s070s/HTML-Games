@@ -48,17 +48,19 @@ const World = {
     const query = rayQuery;
     query.sx = ox; query.sy = oy; query.sz = oz; query.dx = dx; query.dy = dy; query.dz = dz;
     query.ex = ox + dx * maxDistance; query.ey = oy + dy * maxDistance; query.ez = oz + dz * maxDistance;
-    query.length = maxDistance;
+    query.length = maxDistance; query.anyHit = false;
     if (!this.castQuery()) return false;
     hit.distance = query.fraction * maxDistance;
     hit.x = ox + dx * hit.distance; hit.y = oy + dy * hit.distance; hit.z = oz + dz * hit.distance;
     hit.nx = query.nx; hit.ny = query.ny; hit.nz = query.nz; hit.brush = query.brush;
     return true;
   },
-  // The ray already in rayQuery (start, end, direction, length) against every brush: true on a hit (rayQuery.brush).
+  // The ray already in rayQuery (start, end, direction, length, anyHit) against every brush: true on a hit (rayQuery.brush).
+  // anyHit: the walk stops at the first brush hit (line of sight needs no nearest hit), else the nearest hit is kept.
   castQuery() {
     const query = rayQuery;
     query.fraction = 1; query.brush = null;
+    setRayInverse(query);
     walkTree(this.tree, query, rayTestNode, rayTestBrush);
     for (let i = 0; i < this.dynamic.length; i++) rayTestBrush(query, this.dynamic[i]);
     return query.brush !== null;
@@ -76,7 +78,7 @@ const World = {
     if (length < 1e-6) return true;
     const query = rayQuery;
     query.sx = line.ax; query.sy = line.ay; query.sz = line.az; query.ex = line.bx; query.ey = line.by; query.ez = line.bz;
-    query.dx = dx / length; query.dy = dy / length; query.dz = dz / length; query.length = length;
+    query.dx = dx / length; query.dy = dy / length; query.dz = dz / length; query.length = length; query.anyHit = true;
     return !this.castQuery();
   },
   pointInside(x, y, z) {
@@ -100,7 +102,8 @@ const scratchHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: 
 const makeLine = () => ({ ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0 });   // a segment for World.lineClearOf
 const worldLine = makeLine();
 const makeHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null });
-const rayQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, dx: 0, dy: 0, dz: 0, length: 0, fraction: 1, limit: 0, nx: 0, ny: 0, nz: 0, brush: null };
+const rayQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, dx: 0, dy: 0, dz: 0, ix: 0, iy: 0, iz: 0, length: 0, fraction: 1, limit: 0, nx: 0, ny: 0, nz: 0,
+  brush: null, anyHit: false };
 const pointQuery = { x: 0, y: 0, z: 0, found: false };
 
 // ---- Brushes ----
@@ -114,7 +117,7 @@ function makeBrush(source, index) {
   if (source.shape === 'ramp' || source.shape === 'wedge') addRampTop(addPlane, source.dir, minX, minY, minZ, maxX, maxY, maxZ);
   else addPlane(0, 1, 0, 0, maxY, 0);
   return { shape: source.shape || 'box', material: source.material || 'concrete', index, prop: -1, source, minX, minY, minZ, maxX, maxY, maxZ,
-    planes: new Float32Array(planes), planeCount: planes.length / 4 };
+    box: Float64Array.of(minX, minY, minZ, maxX, maxY, maxZ), planes: new Float32Array(planes), planeCount: planes.length / 4 };
 }
 
 function addBoxSides(addPlane, minX, minZ, maxX, maxZ) {
@@ -220,17 +223,37 @@ function clipSlab(origin, direction, low, high) {
   return slab.near <= slab.far;
 }
 
-// The slab tests of World.raycast read the ray from its query object (no float arguments, PERF-006).
-function rayTestNode(query, bounds, base) {
-  slab.near = 0; slab.far = query.fraction * query.length;
-  return clipSlab(query.sx, query.dx, bounds[base], bounds[base + 3]) && clipSlab(query.sy, query.dy, bounds[base + 1], bounds[base + 4])
-    && clipSlab(query.sz, query.dz, bounds[base + 2], bounds[base + 5]);
+// 1 / direction per axis for the slab tests below; a direction this close to 0 counts as parallel (a huge inverse:
+// the slab passes only when the origin lies between its faces, as in clipSlab).
+const RAY_PARALLEL = 1e-9, RAY_PARALLEL_INVERSE = 1e30;
+const slabInverse = (direction) => (Math.abs(direction) < RAY_PARALLEL ? RAY_PARALLEL_INVERSE : 1 / direction);
+
+function setRayInverse(ray) {
+  ray.ix = slabInverse(ray.dx); ray.iy = slabInverse(ray.dy); ray.iz = slabInverse(ray.dz);
 }
 
-function rayHitsBrushBox(ray, brush) {
-  slab.near = 0; slab.far = ray.limit;
-  return clipSlab(ray.sx, ray.dx, brush.minX, brush.maxX) && clipSlab(ray.sy, ray.dy, brush.minY, brush.maxY) && clipSlab(ray.sz, ray.dz, brush.minZ, brush.maxZ);
+// Slab test of a ray object { sx sy sz, ix iy iz (setRayInverse), limit } against the box box[base .. base + 5] (minX minY
+// minZ maxX maxY maxZ: a tree node or brush.box). The ray stays in its object and the axes are written out, so no float
+// is passed to or returned from a call (boxed on the heap, PERF-006) and no division runs per box.
+function rayCrossesBox(ray, box, base) {
+  let near = 0, far = ray.limit;
+  let low = (box[base] - ray.sx) * ray.ix, high = (box[base + 3] - ray.sx) * ray.ix;
+  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
+  low = (box[base + 1] - ray.sy) * ray.iy; high = (box[base + 4] - ray.sy) * ray.iy;
+  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
+  low = (box[base + 2] - ray.sz) * ray.iz; high = (box[base + 5] - ray.sz) * ray.iz;
+  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
+  return near <= far;
 }
+
+// The node test of World.raycast; an anyHit query (line of sight) skips every node once it has a hit.
+function rayTestNode(query, bounds, base) {
+  if (query.anyHit && query.brush !== null) return false;
+  query.limit = query.fraction * query.length;
+  return rayCrossesBox(query, bounds, base);
+}
+
+function rayHitsBrushBox(ray, brush) { return rayCrossesBox(ray, brush.box, 0); }
 
 // The ray travels in the query object (sx..dz, limit), not as float arguments: a float passed to a call that is
 // not inlined is boxed on the heap, and World.raycast runs this for every brush its tree walk reaches (PERF-006).
@@ -242,7 +265,7 @@ function rayTestBrush(query, brush) {
 }
 
 const brushRayHit = { distance: 0, nx: 0, ny: 0, nz: 0 };
-const brushRay = { sx: 0, sy: 0, sz: 0, dx: 0, dy: 0, dz: 0, limit: 0 };
+const brushRay = { sx: 0, sy: 0, sz: 0, dx: 0, dy: 0, dz: 0, ix: 0, iy: 0, iz: 0, limit: 0 };
 const raySegment = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0 };
 
 // Normalized ray against one convex brush (bounds first, then its planes): fills hit.distance and the normal and
@@ -251,10 +274,11 @@ const raySegment = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0 };
 function rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit) {
   const ray = brushRay;
   ray.sx = ox; ray.sy = oy; ray.sz = oz; ray.dx = dx; ray.dy = dy; ray.dz = dz; ray.limit = maxDistance;
+  setRayInverse(ray);
   return rayBrushOf(ray, brush, hit);
 }
 
-// rayBrush for a ray object { sx, sy, sz, dx, dy, dz, limit }.
+// rayBrush for a ray object { sx, sy, sz, dx, dy, dz, ix, iy, iz (setRayInverse), limit }.
 function rayBrushOf(ray, brush, hit) {
   if (!rayHitsBrushBox(ray, brush)) return false;
   const segment = raySegment, maxDistance = ray.limit;

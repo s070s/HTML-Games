@@ -35,6 +35,7 @@ const LADDER_REACH = 0.8;               // m from the volume's middle: on the la
 const STUCK_LOG_SIZE = 16;
 
 const movePoint = Vec.make();
+const followTarget = { x: 0, z: 0, distance: 0 };   // follow's target point and its flat distance (float arguments are boxed, PERF-006)
 const rimHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const WATER_EXIT_CHECK = 2.5;           // m from a water exit: look for the rim a swimmer climbs out over (S10 mantle)
 const WATER_RIM_RAY = 3;
@@ -223,11 +224,12 @@ const BotMove = {
   // A swimmer climbs out by mantling over a rim; a thin deck above the water has none (the ray passes under it). The
   // graph check at match start (findExits) knows most of them; this check near the exit (one ray) catches the rest.
   // (tx, tz) = the point swum toward, distance = how far it is.
-  waterExitBlocked(id, tx, tz, distance) {
+  waterExitBlocked(id, target) {
+    const distance = target.distance;
     if (this.exitChecked[id] || !swimming(id, this.segmentType[id]) || distance > WATER_EXIT_CHECK || distance < 1e-3) return false;
     if (this.pointY[id] <= Actors.y[id] + STEP_HEIGHT) return false;
     this.exitChecked[id] = 1;
-    const dx = tx - Actors.x[id], dz = tz - Actors.z[id];
+    const dx = target.x - Actors.x[id], dz = target.z - Actors.z[id];
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
   ownsView(id) {
@@ -243,21 +245,23 @@ const BotMove = {
     if (!atEnd && this.fellOff(id) && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
     if (atEnd && this.viaExit[id] && !inWater(id)) { this.request(id, this.options[id]); return; }   // out: on to the destination
     const direct = atEnd && !this.viaExit[id], climbing = !atEnd && this.climbing(id);
-    const tx = direct ? this.destX[id] : climbing ? this.ladderX[id] : this.pointX[id];
-    const tz = direct ? this.destZ[id] : climbing ? this.ladderZ[id] : this.pointZ[id];
-    const distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
+    const target = followTarget;
+    target.x = direct ? this.destX[id] : climbing ? this.ladderX[id] : this.pointX[id];
+    target.z = direct ? this.destZ[id] : climbing ? this.ladderZ[id] : this.pointZ[id];
+    const tx = target.x, tz = target.z, distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
+    target.distance = distance;
     if (!atEnd && !climbing && groundSegment(this.segmentType[id])) this.carrot(id, movePoint); else { movePoint.x = tx; movePoint.z = tz; }
     const dx = movePoint.x - Actors.x[id], dz = movePoint.z - Actors.z[id];
     if (!atEnd && !climbing && distance > MOVE_OFF_PATH && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
     // Past the last point and the destination is still far: it lies off the graph, the end of the path is as close as it gets.
     if (direct && this.distanceToDestination(id) > MOVE_DIRECT_RADIUS) { this.state[id] = PATH.ARRIVED; Bots.wish(id, 0, 0, 0); return; }
     const amount = direct ? clamp(this.distanceToDestination(id) / MOVE_SLOW_RADIUS, 0.25, 1) : 1;
-    if (!atEnd && this.waterExitBlocked(id, tx, tz, distance)) { this.takeAnotherExit(id); return; }
+    if (!atEnd && this.waterExitBlocked(id, target)) { this.takeAnotherExit(id); return; }
     const wanted = botWish;
     wanted.x = dx; wanted.z = dz; wanted.amount = amount;
     this.steer(id, now);
     this.linkMove(id);
-    if ((BotCombat.target[id] < 0 && !BotCombat.aimingJump(id, now)) || this.ownsView(id)) this.lookAlong(id, tx, tz);
+    if ((BotCombat.target[id] < 0 && !BotCombat.aimingJump(id, now)) || this.ownsView(id)) this.lookAlong(id, target);
   },
   advance(id) {
     for (let guard = 0; guard < 3 && this.pointIndex[id] < this.pointCount[id]; guard++) {
@@ -355,8 +359,8 @@ const BotMove = {
     if (rise > MOVE_SWIM_RISE && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);   // up, and out over the rim (mantle)
     else if (rise < -MOVE_SWIM_RISE) Bots.press(id, BTN.CROUCH);
   },
-  lookAlong(id, tx, tz) {
-    Bots.lookYaw[id] = Math.atan2(tx - Actors.x[id], tz - Actors.z[id]);
+  lookAlong(id, target) {
+    Bots.lookYaw[id] = Math.atan2(target.x - Actors.x[id], target.z - Actors.z[id]);
     if (this.segmentType[id] !== NAV_LINK.LADDER) Bots.lookPitch[id] = 0;
   },
 

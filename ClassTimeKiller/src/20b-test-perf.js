@@ -507,7 +507,8 @@ function perfHeapCounterWorks() {
 // The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
 // floats are made inside the path, as in a match.
 function perfHotPaths() {
-  const mover = makeMover(), trace = makeTrace(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  navReadOptions(NAV_DEFAULT_OPTIONS);
   Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
   Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
   Object.assign(style, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
@@ -523,6 +524,18 @@ function perfHotPaths() {
       const segment = sweepQuery;
       segment.sx = mover.x; segment.sy = mover.y; segment.sz = mover.z; segment.ex = mover.x + 2.5; segment.ey = mover.y - 4.5; segment.ez = mover.z + 0.75;
       Collide.sweepSegment(mover.hull, trace);
+    },
+    'sweepActor + Collide.stepSlide (an actor step into the floor and a wall)': (i) => {
+      mover.x = 0.5 + (i & 3); mover.y = 1.5; mover.z = -0.25; mover.vx = 40; mover.vy = -60; mover.vz = 9; mover.planeCount = 0;
+      sweepActor(0, mover, TICK_SECONDS, STEP_HEIGHT);
+    },
+    'navAStar (an A* search to a linked node)': (i) => {
+      const from = (i * 7) % Nav.nodeCount, linked = Nav.linkStart[from] < Nav.linkStart[from + 1];
+      navAStar(from, linked ? Nav.linkTarget[Nav.linkStart[from]] : from);
+    },
+    'World.lineClearOf (a bot sight line)': (i) => {
+      sight.ax = 0.5 + (i & 3); sight.ay = 1.5; sight.az = -3.5; sight.bx = -2.5; sight.by = 1.25 + (i & 1); sight.bz = 30.5;
+      World.lineClearOf(sight);
     },
     'HudBatch.line (HUD quads)': (i) => { HudBatch.quads = 0; HudBatch.line(i & 255, 7, 300, 211, 3, 0xffffff, 1); },
     'emitActorPart (actor parts)': (i) => { actorBatch.clear(); emitActorPart(parts[i % parts.length], pose, style); },

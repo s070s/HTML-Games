@@ -261,6 +261,7 @@ function unground(id) {
 // ---- Collision move: exact parabola (gravity averaged over the step), sub-stepped sweeps, step-up, ground probe ----
 const actorMover = makeMover();
 const groundTrace = makeTrace();
+const groundPlane = { nx: 0, ny: 1, nz: 0, brush: null };   // the floor plane of followGround (addClipPlane reads an object)
 
 function loadActorMover(id) {
   const mover = actorMover;
@@ -278,7 +279,7 @@ function integrate(id, gravity, dt) {
   mover.vy = (mover.vy + endVY) / 2;
   if (wasGrounded) followGround(id, mover);
   sweepActor(id, mover, dt, wasGrounded ? STEP_HEIGHT : 0);
-  if (gravity !== 0) applyEndVelocity(mover, endVY);
+  if (gravity !== 0) { mover.vy = endVY; clipToTouchedPlanes(mover); }
   settle(id, mover);
   const impactSpeed = Math.max(0, -endVY);
   const nowGrounded = probeFloor(id, mover, wasGrounded);
@@ -287,23 +288,24 @@ function integrate(id, gravity, dt) {
 }
 
 // After the move the vertical speed is the end-of-step value, clipped again by every surface touched on the way.
-function applyEndVelocity(mover, endVY) {
-  mover.vy = endVY;
+function clipToTouchedPlanes(mover) {
   for (let i = 0; i < mover.planeCount; i++) clipVelocity(mover, mover.planes[i * 3], mover.planes[i * 3 + 1], mover.planes[i * 3 + 2]);
 }
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
-  const speed = length3(mover.vx, mover.vy, mover.vz);
-  addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
-  clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
+  const speed = length3(mover.vx, mover.vy, mover.vz), plane = groundPlane;
+  plane.nx = Motion.groundNX[id]; plane.ny = Motion.groundNY[id]; plane.nz = Motion.groundNZ[id]; plane.brush = Motion.groundBrush[id];
+  addClipPlane(mover, plane);
+  clipVelocity(mover, plane.nx, plane.ny, plane.nz);
   const clipped = length3(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
 // Each piece gathers at least the settle reach past its travel, so the settle and floor probe after it reuse that brush
-// list (Collide.gatherAround) instead of walking the brush tree again.
+// list (Collide.gatherAround) instead of walking the brush tree again. The piece time goes through slideClock (slideMover,
+// stepSlideMover): a computed float passed as an argument would be boxed every step (PERF-006).
 function sweepActor(id, mover, dt, stepHeight) {
   const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
@@ -312,7 +314,8 @@ function sweepActor(id, mover, dt, stepHeight) {
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
     Collide.gatherAround(mover, travel / pieces + Math.max(stepHeight, SETTLE_REACH));
-    const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
+    slideClock.seconds = dt / pieces;
+    const hit = stepHeight > 0 ? Collide.stepSlideMover(mover, stepHeight) : Collide.slideMover(mover);
     if (hit) recordWall(id, mover);
   }
 }
