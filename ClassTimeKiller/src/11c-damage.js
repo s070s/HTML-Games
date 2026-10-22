@@ -604,6 +604,7 @@ function splashDistance(blast, id) {
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));   // HP-001 victim reductions: MV08 roll
+TouchInput.useNeeds.push(() => Damage.downedAllowed() && currentRules().teams > 0);   // revive needs Use held (HP-007)
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
 Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });
 // Earlier sections (fall damage, hazards, telefrags, drowning) ask for damage; it still goes through Damage.apply.

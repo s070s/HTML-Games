@@ -414,6 +414,7 @@ Move.setBoard = function setBoard(id, on) {
   return true;
 };
 Move.onBoard = (id) => Motion.board[id] === 1;
+TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   // touch players board with Use
 // Boarding (Q5): Use while running on the ground (at least SKIMMER_BOARD_RUN of the preset's ground speed) deploys the board,
 // which keeps it apart from Use on objectives and loot (done standing or walking); Use while riding steps off.
 // Actions run before the walk state, so the velocity is last step's: the move input must still be held this step,
