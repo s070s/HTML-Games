@@ -217,10 +217,11 @@ const Devices = {
   },
   // G14: anyone standing on the pad is thrown up to `launch` metres (the impulse makes up for the match knockback scale).
   stepLaunch(d, row) {
-    const knockback = MatchMove.knockback || 1, speed = Math.sqrt(2 * thrownGravity() * row.launch) / knockback;
+    const knockback = MatchMove.knockback || 1;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(d, row, id)) continue;
-      emitGadgetImpulse(id, 0, speed - Actors.vy[id] / knockback, 0);
+      const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
+      emitGadgetImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
       emitGadgetSound(this.x[d], this.y[d], this.z[d], GRENADE_NOISE, 'jump', id);
     }
   },
@@ -260,7 +261,7 @@ const Devices = {
     const pitch = Math.atan2(devicePoint.y - y, Math.hypot(devicePoint.x - x, devicePoint.z - z));
     Vec.fromAngles(deviceDirection, this.yaw[d] + Rng.weapons.range(-spread, spread), pitch + Rng.weapons.range(-spread, spread));
     const wall = World.raycast(x, y, z, deviceDirection.x, deviceDirection.y, deviceDirection.z, row.range, deviceHit) ? deviceHit.distance : row.range;
-    const hit = World.raycastActors(x, y, z, deviceDirection.x, deviceDirection.y, deviceDirection.z, wall, -1, deviceActorHit);
+    const hit = World.raycastActors(x, y, z, deviceDirection.x, deviceDirection.y, deviceDirection.z, wall, this.owner[d], deviceActorHit);
     const reach = hit >= 0 ? deviceActorHit.distance : wall;
     if (hit >= 0 && this.hostileTo(d, hit)) deviceDamage(this.owner[d], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + deviceDirection.x * reach, y + deviceDirection.y * reach, z + deviceDirection.z * reach, null);

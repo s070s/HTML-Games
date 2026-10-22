@@ -39,7 +39,7 @@ const POP_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element:
 const IMPULSE_PAYLOAD = { id: 0, x: 0, y: 0, z: 0 };
 // Fire-mode-like rows for Damage.explode / Damage.apply (weapon key, element, splash), one per gadget.
 const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null, statusRange: 0,
-  splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, family: null, fodderKill: false, falloff: null }));
+  splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false, family: null, fodderKill: false, falloff: null }));
 const GADGET_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
 const BLIND_INDEX = CAT.statusEffects.byId('blind').index;
 const gadgetHit = makeHit();
@@ -85,7 +85,6 @@ function throwVelocity(id, underhand, out) {
   const speed = underhand ? GADGET_TUNING.underhandSpeed : GADGET_TUNING.throwSpeed, lift = underhand ? GADGET_TUNING.underhandLift : GADGET_TUNING.throwLift;
   return Vec.set(out, out.x * speed, out.y * speed + lift, out.z * speed);
 }
-const thrownGravity = () => GRAVITY * itemRule('gravityScale', 1);
 
 // ---- Smoke volumes (REN-007): one local occupancy grid per volume, filled by a flood from the centre that never enters solids ----
 const Smoke = {
@@ -436,7 +435,7 @@ const Thrown = {
   },
   step(dt) {
     if (!this.active) return;
-    const gravity = thrownGravity();
+    const gravity = bodyGravity();
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       const state = this.state[slot];
       if (state === THROWN_STATE.FREE) continue;
@@ -693,7 +692,7 @@ const Gadgets = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || this.holdStart[id] < 0 || !Settings.get('gameplay.grenadePreview')) return;
     throwVelocity(id, (Actors.buttons[id] & BTN.ALT) !== 0, throwScratch);
-    const p = previewScratch, gravity = thrownGravity();
+    const p = previewScratch, gravity = bodyGravity();
     p.x = Actors.x[id]; p.y = Actors.eyeY(id) - 0.2; p.z = Actors.z[id]; p.vx = throwScratch.x; p.vy = throwScratch.y; p.vz = throwScratch.z;
     for (let k = 0; k < PREVIEW_POINTS; k++) {
       if (this.previewStep(p, gravity)) { this.drawLanding(batch, p, CAT.gadgets[this.holdRow[id]]); return; }
