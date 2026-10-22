@@ -1,4 +1,4 @@
-// Bot team play (BOT-060..BOT-063, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
+// Bot team play (BOT-050, BOT-051, BOT-060..BOT-062, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
 // the mode's objective kind, BOT_ROLE_SPLITS); the player's pings are orders that the nearest team bots acknowledge and
 // follow (acknowledged within 0.5-1.5 s; the nearest team bot answers an enemy ping the same way); bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
@@ -12,7 +12,7 @@ const ENEMY_PING_INTERVAL = 4;
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
-const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-062: an order is acknowledged within 0.5-1.5 s
+const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-051: an order is acknowledged within 0.5-1.5 s
 const ORDER_SECONDS = 30, ORDER_DEFEND_SECONDS = 45;
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
 const ORDER_RADIUS = 2.5;
@@ -129,7 +129,7 @@ const BotTeam = {
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
   },
 
-  // ---- Orders (BOT-062): the decision layer asks for the bot's current order as a goal plan ----
+  // ---- Orders (BOT-051): the decision layer asks for the bot's current order as a goal plan ----
   orderPlan(id, plan, now) {
     if (this.orderUntil[id] <= now) return false;
     const kind = this.orderKind[id];
@@ -177,7 +177,7 @@ const BotTeam = {
     takerList.sort((a, b) => Math.hypot(Actors.x[a] - x, Actors.z[a] - z) - Math.hypot(Actors.x[b] - x, Actors.z[b] - z));
     if (takerList.length > ORDER_TAKERS) takerList.length = ORDER_TAKERS;
   },
-  // A bot that newly sees an enemy pings it for the team (BOT-063) and calls it out.
+  // A bot that newly sees an enemy pings it for the team (BOT-061) and calls it out.
   onSpotted(bot, other, now) {
     if (Actors.team[bot] < 0 || now - this.enemyPingAt[bot] < ENEMY_PING_INTERVAL) return;
     this.enemyPingAt[bot] = now;

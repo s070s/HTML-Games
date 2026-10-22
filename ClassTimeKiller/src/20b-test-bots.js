@@ -324,7 +324,7 @@ Test.add('bots', (check) => {
   check('the team bots take the order', takers.length === 2, takers.length);
   check('a defend ping is answered within 2 s (goal: order)', answered.length === takers.length && takers.length > 0, answered.length);
   const acknowledged = takers.filter((id) => barks.some((event) => event.id === id && event.category === 'orderAck' && withinAckTime(event.time - pingedAt)));
-  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-062)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
+  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-051)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
   runSeconds(4);
   check('the bots head for the pinged spot', takers.every((id) => Math.hypot(Actors.x[id] - 20, Actors.z[id] + 20) < 16));
   const enemy = firstOfTeam(1), spottedAt = Sim.time;

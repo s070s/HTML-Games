@@ -110,8 +110,8 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 ### Team (14f)
 
 - `ROLE` (`FREELANCE ATTACK DEFEND ESCORT`), `BotTeam.role[id]`; the bots with the most teamwork take the support roles.
-- Orders (BOT-062): a `ping` from a person (`kind` `defend`, `attack`, anything else = go) is taken by the 2 nearest team bots; every taker acknowledges 0.5..1.5 s later (`orderAck` bark) and follow it as goal `ORDER` (defend: hold 45 s; others: 30 s or until there). `BotTeam.orderGivenAt / answeredAt[id]`.
-- Pings (BOT-063): a bot that spots an enemy pings it (`kind: 'enemy'`, at most once per 4 s per bot); enemy pings from anyone share the position with the pinger's team bots; the team bot nearest a person's enemy ping replies 0.5..1.5 s later (`pingReply` bark).
+- Orders (BOT-051): a `ping` from a person (`kind` `defend`, `attack`, anything else = go) is taken by the 2 nearest team bots; every taker acknowledges 0.5..1.5 s later (`orderAck` bark) and follow it as goal `ORDER` (defend: hold 45 s; others: 30 s or until there). `BotTeam.orderGivenAt / answeredAt[id]`.
+- Pings (BOT-061, replies BOT-062): a bot that spots an enemy pings it (`kind: 'enemy'`, at most once per 4 s per bot); enemy pings from anyone share the position with the pinger's team bots; the team bot nearest a person's enemy ping replies 0.5..1.5 s later (`pingReply` bark).
 - The player's PING button (pressed edge): an enemy within 4 deg of the aim line becomes an enemy ping; else the aimed spot (raycast, 120 m) becomes `defend` (own objective), `attack` (other objective) or `go`.
 - `BotTeam.bark(id, category, now)`: at most one bark per bot per 5 s and per team per 1.5 s, spoken by the profile's chat chance; `reply` categories skip the chance and both limits; `chatter` off / minimal (only `minimal` categories) / normal; taunts off with `gameplay.taunts`. Returns true when spoken.
 - `BotTeam.takeGrenadeToken(id, now)`.

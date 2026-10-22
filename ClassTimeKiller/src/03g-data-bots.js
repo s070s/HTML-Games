@@ -113,7 +113,7 @@ const BOT_BARKS = {
 };
 const BOT_CHAT_CHANCE = { quiet: 0.5, normal: 0.8, loud: 1 };   // chance that a due bark is spoken, by the bot's chat style
 
-// Team roles (BOT-060): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
+// Team roles (BOT-050): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
 // attack. Free-for-all bots are freelancers.
 const BOT_ROLE_SPLITS = {
   flag: { defend: 0.3, escort: 0.2 },
