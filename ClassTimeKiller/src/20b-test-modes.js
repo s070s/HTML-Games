@@ -428,6 +428,8 @@ Test.add('modes', (check) => {
   check('conquest: tickets as team score', Modes.teamScore[0] === 10 && Modes.teamScore[1] === 10);
   killActor(0, 1);
   check('conquest: a death costs one ticket', Modes.teamScore[0] === 9 && Modes.teamScore[1] === 10);
+  runSeconds(3);
+  check('conquest: nobody bleeds at 0-0', Modes.teamScore[0] === 9 && Modes.teamScore[1] === 10, Modes.teamScore[0] + '/' + Modes.teamScore[1]);
   placeActor(1, 0, 0);
   runSeconds(1);
   check('conquest: point captured', Modes.objectives[1].owner === 1);
@@ -436,7 +438,7 @@ Test.add('modes', (check) => {
   placeActor(1, 50, 50);
   let blue = Modes.teamScore[0], red = Modes.teamScore[1];
   runSeconds(3);
-  check('conquest: every team holding <= 2 points bleeds 1 per 3 s', Modes.teamScore[0] === blue - 1 && Modes.teamScore[1] === red - 1, Modes.teamScore[0] + '/' + Modes.teamScore[1]);
+  check('conquest: only the team holding fewer points (and <= 2) bleeds 1 per 3 s', Modes.teamScore[0] === blue - 1 && Modes.teamScore[1] === red, Modes.teamScore[0] + '/' + Modes.teamScore[1]);
   for (const point of Modes.objectives) point.owner = 1;
   blue = Modes.teamScore[0]; red = Modes.teamScore[1];
   runSeconds(3);

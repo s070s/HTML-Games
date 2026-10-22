@@ -70,8 +70,8 @@ Modes.register('dom', {
   },
 });
 
-// ---- M07 Frontline: team score = tickets; -deathCost per death; a team holding <= bleedHeld points
-// loses one ticket every bleedInterval seconds (spec: 'bleed 1/3 s when holding <= 2'); owned points are spawn points ----
+// ---- M07 Frontline: team score = tickets; -deathCost per death; a team holding fewer points than the other team AND
+// <= bleedHeld points loses one ticket every bleedInterval seconds (so nobody bleeds at 0-0); owned points are spawn points ----
 Modes.register('conquest', {
   points: [], bleedTimer: 0,
   start() {
@@ -86,7 +86,8 @@ Modes.register('conquest', {
     if (this.bleedTimer + TIME_EPSILON < params.bleedInterval) return;
     this.bleedTimer -= params.bleedInterval;
     for (let team = 0; team < TEAM_COUNT; team++) {
-      if (ownedCount(this.points, team) <= params.bleedHeld) spendTickets(team, 1, 'bleed');
+      const held = ownedCount(this.points, team);
+      if (held < ownedCount(this.points, 1 - team) && held <= params.bleedHeld) spendTickets(team, 1, 'bleed');
     }
   },
   onKill(victim) {
