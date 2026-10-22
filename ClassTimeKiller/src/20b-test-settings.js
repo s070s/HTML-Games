@@ -214,6 +214,18 @@ Test.add('settings', (check) => {
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
   Settings.set('assist.gameSpeed', 0.7);
+  // Restart and Play again start the adjusted setup again: assists switched off or moved back since then must come off.
+  const restarted = { mode: 'ffa', seed: 1, difficulty: 'regular' };
+  Game.start(restarted); Game.stop();
+  Settings.set('assist.enabled', false);
+  Game.start(restarted);
+  check('assist: a restart after switching assists off drops them', restarted.difficulty === 'regular' && !Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.enabled', true); Settings.set('assist.gameSpeed', 1);
+  Game.start(restarted);
+  check('assist: a restart after a slider went back to neutral drops it', restarted.difficulty.preset === 'regular' && restarted.difficulty.gameSpeed === undefined, JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };

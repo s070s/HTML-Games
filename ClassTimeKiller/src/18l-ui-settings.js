@@ -138,10 +138,14 @@ const DifficultyAssist = {
     return values;
   },
   // setup.difficulty for the setup: the chosen preset plus the player's changed assists when switched on.
+  // Restart and Play again start the same setup again, so the choice before any assist is kept in setup.baseDifficulty
+  // and every run rebuilds from it: assists switched off or moved back to neutral since then come off.
   apply(setup) {
-    if (!this.enabled()) return;
-    const preset = typeof setup.difficulty === 'string' ? setup.difficulty : setup.difficulty && setup.difficulty.preset;
-    const previous = setup.difficulty && typeof setup.difficulty === 'object' ? setup.difficulty : null;
+    if (!('baseDifficulty' in setup)) setup.baseDifficulty = setup.difficulty;
+    const base = setup.baseDifficulty;
+    if (!this.enabled()) { setup.difficulty = base; return; }
+    const preset = typeof base === 'string' ? base : base && base.preset;
+    const previous = base && typeof base === 'object' ? base : null;
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
