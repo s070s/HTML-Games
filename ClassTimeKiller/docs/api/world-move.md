@@ -111,6 +111,7 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.statusSpeedScale[id]` | written only by S12 `Buffs.applyScales`: statuses x powerup speed (default 1) |
 | `Move.gravityScale[id]` | per-actor gravity factor (default 1), written only by `Buffs.applyScales` (glide = a GRAVITY buff); used by `Move.gravity`, every step and slides |
 | `Move.staminaScale[id]` | sprint drain divisor (default 1; S13 Marathon perk) |
+| `Move.safeLanding[id]` | 1 = the next landing deals no MOV-015 fall damage, then it is cleared (S13: the royale drop-in); 0 on `actor.create` |
 | `Move.footstepScale[id]` | footstep loudness (default 1; S13 Quietstep perk 0): scales the step noise radius and `move.step` `loudness` |
 | `Move.stamina[id]` / `Move.staminaFraction(id)` | seconds of sprint left / 0..1 (1 when unlimited) |
 | `Move.dashCharges(id)` | whole dash charges ready |

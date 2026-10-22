@@ -133,12 +133,15 @@ function placeBeacons() {
 }
 
 // The first squadmate of a spawn wave sets the squad's drop point; the others land around it.
+// The drop lands without fall damage (Move.safeLanding) in every movement preset.
 function dropIn(id) {
   const squad = Actors.team[id];
   if (squad >= 0 && Squads.count) joinSquadDrop(id, squad);
   const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id];
+  Move.safeLanding[id] = 0;
   if (!World.lineClear(x, y + DROP_PROBE, z, x, y + ROYALE_DROP_HEIGHT + STAND_HEIGHT, z)) return;
   Actors.y[id] = Actors.prevY[id] = y + ROYALE_DROP_HEIGHT;
+  Move.safeLanding[id] = 1;
 }
 
 function joinSquadDrop(id, squad) {

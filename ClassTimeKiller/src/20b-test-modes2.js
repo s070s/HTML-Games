@@ -545,12 +545,15 @@ Test.add('modes2', (check) => {
 Test.add('modes2', (check) => {
   startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1, -1, -1, -1]);
   const squads = Modes.squads, params = Game.match.rules.params;
+  Move.setPreset(0, 'tactical'); Modes.endProtection(0);   // MOV-015 fall damage (lethal above 22 m/s); firing ends protection
   check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
     && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
   check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
     && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
   runSeconds(3);
   check('royale: the drop lands on the ground', Actors.y[0] < 0.5 && Actors.alive[0] === 1, Actors.y[0]);
+  check('royale: the drop-in takes no fall damage, even with MOV-015 falls', Actors.health[0] === Actors.maxHealth[0] && Move.safeLanding[0] === 0, Actors.health[0]);
+  Move.setPreset(0, null);
   killActor(2, 1); killActor(4, 1);
   Actors.alive[2] = 0; Actors.alive[4] = 0;
   placeActor(0, squads.beaconX[0], squads.beaconZ[0]);

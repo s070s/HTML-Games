@@ -62,6 +62,7 @@ const Move = {
   gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
   footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
+  safeLanding: new Uint8Array(MAX_ACTORS),                // 1 = the next landing deals no fall damage, then cleared (S13: royale drop-in)
   states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
@@ -352,7 +353,8 @@ function storeMover(id, mover) {
 // ---- Landing (MOV-013..015, MOV-024) ----
 function land(id, impactSpeed) {
   const preset = Move.preset(id);
-  const damage = fallDamage(preset, impactSpeed);
+  const damage = Move.safeLanding[id] ? 0 : fallDamage(preset, impactSpeed);
+  Move.safeLanding[id] = 0;
   if (damage > 0) requestDamage(id, -1, damage, 'fall', 'none');
   if (impactSpeed > HARD_LANDING_SPEED) setClock(id, CLOCK.JUMP_LOCK, LANDING_LOCK_SECONDS);
   if (preset.landingPenalty < 1) setClock(id, CLOCK.LAND_SLOW, LANDING_PENALTY_SECONDS);
@@ -591,7 +593,7 @@ Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
   Move.weaponSpeedScale[id] = Move.statusSpeedScale[id] = Move.gravityScale[id] = Move.staminaScale[id] = Move.footstepScale[id] = 1;
-  Move.weaponReadyTime[id] = 0;
+  Move.weaponReadyTime[id] = 0; Move.safeLanding[id] = 0;
   resetMotion(id);
 });
 Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags
