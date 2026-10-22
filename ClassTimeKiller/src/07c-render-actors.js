@@ -380,15 +380,6 @@ function rotateInPlace(point) {
   return point;
 }
 
-const rotationScratch = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
-  const point = rotationScratch;
-  point.x = x; point.y = y; point.z = z; point.yaw = yaw; point.pitch = pitch;
-  rotateInPlace(point);
-  out.x = point.x; out.y = point.y; out.z = point.z;
-  return out;
-}
-
 // Team colour, else the profile colour, else a palette colour by id (free-for-all).
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];

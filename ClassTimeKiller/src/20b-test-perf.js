@@ -383,7 +383,14 @@ Test.add('perf', (check) => {
   Render.config.renderScale = saved.setting; Render.size.scale = saved.scale; Render.size.dirty = true;
 });
 
-// Zero-allocation call shapes give the same results as the argument forms they replace.
+// Zero-allocation call shapes give the same results as the argument forms they replace (the cylinder form is test-only).
+function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
+  rayHitCylinder();
+  return volume.distance;
+}
 Test.add('perf', (check) => {
   check('length2 / length3 match Math.hypot', length2(3, 4) === 5 && length3(2, 3, 6) === 7 && Math.abs(length3(0.1, -0.2, 0.3) - Math.hypot(0.1, -0.2, 0.3)) < 1e-15);
   const first = makeRandom(12345), last = makeRandom(0xffffffff);

@@ -371,19 +371,12 @@ function rayHitCylinder() {
   volume.distance = best;
 }
 
-// Argument forms (bodies, projectiles, items, gadgets, abilities): entry distance or -1.
+// Argument form (bodies, projectiles, items, gadgets, abilities): entry distance or -1.
 function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
   setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
   const volume = hitVolume;
   volume.cx = cx; volume.cy = cy; volume.cz = cz; volume.radius = radius;
   rayHitSphere();
-  return volume.distance;
-}
-function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
-  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
-  const volume = hitVolume;
-  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
-  rayHitCylinder();
   return volume.distance;
 }
 
@@ -393,7 +386,7 @@ const Hitbox = {
   sizeScale: new Float32Array(MAX_ACTORS).fill(1),   // per actor body size factor (mutators X31 growth, X39 diminish): heights and radii of every hit volume
   headScale: new Float32Array(MAX_ACTORS).fill(1),   // per actor head size factor (mutator X14)
   // Nearest hit volume of actor id along a normalized ray; inflate grows every volume (melee, projectile radius).
-  // Returns the distance or -1 and leaves the zone in Hitbox.zone.
+  // Returns the distance or -1 and leaves the zone in Hitbox.zone. Test and console form: the game calls rayOf.
   ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate) {
     setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, inflate);
     return this.rayOf(id) ? this.distance : -1;
