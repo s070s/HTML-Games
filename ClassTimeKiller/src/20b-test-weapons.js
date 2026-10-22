@@ -87,6 +87,18 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// WPN-011: the W21 alt shards inherit the alt mode but not its arm distance.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 1.5, 20);
+  const grenade = Projectiles.spawn(CAT.projectiles.byId('grenade'), shooter, CAT.weapons.byId('shardcaster').index, 1, 0, 0.1, 20, 0, 0, 0, 100);
+  Projectiles.explodeAt(grenade, 0, 0.1, 20, -1, ZONE.NONE);
+  Sim.run(TICK_RATE / 2);
+  check('WPN-011 W21 alt shards damage a sponge 1.5 m from the burst', Actors.health[target] < 100000, Actors.health[target]);
+  Projectiles.clear();
+  TestArena.finish();
+});
+
 Test.add('weapons', (check) => {
   const outside = [];
   for (const weapon of CAT.weapons) {

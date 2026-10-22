@@ -264,8 +264,10 @@ const Projectiles = {
     return row.onHit;
   },
   // WPN-011: closer than the arm distance of its row or its fire mode, it cannot explode yet.
+  // The mode arm covers the explosive itself only: split shards inherit the mode but never arm.
   unarmed(i, row) {
-    const arm = Math.max(row.arm, this.modeOf(i).arm);
+    const modeArm = this.child[i] || this.onHitKind(i, row) !== 'explode' ? 0 : this.modeOf(i).arm;
+    const arm = Math.max(row.arm, modeArm);
     return arm > 0 && this.travelled[i] < arm;
   },
   touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
