@@ -1435,7 +1435,18 @@ void main(){
   float a = (1.0 - r * r);
   gl_FragColor = vec4(vCol.rgb, vCol.a * a);
 }`;
-/* precipitation: rain streaks as lines (uLine 1), snowflakes and sand as soft points; vertices as PTS_VS takes them */
+/* precipitation: rain streaks as lines (uLine 1), snowflakes and sand as soft points. aPos.w is the streak alpha
+   (head 1, tail 0) or the flake kind; uCol and uSize hold each kind's colour and size (Precip.col, Precip.size). */
+const PRECIP_VS = `
+attribute vec4 aPos;
+uniform mat4 uVP; uniform float uScale; uniform mediump float uLine; uniform vec4 uCol[3]; uniform float uSize[3]; varying vec4 vCol;
+void main(){
+  gl_Position = uVP * vec4(aPos.xyz, 1.0);
+  if (uLine > 0.5) { vCol = vec4(uCol[0].rgb, uCol[0].a * aPos.w); gl_PointSize = 1.0; return; }
+  float snow = step(aPos.w, 1.5);
+  vCol = mix(uCol[2], uCol[1], snow);
+  gl_PointSize = clamp(mix(uSize[2], uSize[1], snow) * uScale / max(gl_Position.w, 0.5), 1.0, 96.0);
+}`;
 const PRECIP_FS = `
 precision mediump float;
 varying vec4 vCol; uniform float uLine;
@@ -1631,7 +1642,7 @@ const R = {
     if (this.inst) this.program('inst', INST_VS, LIT_FS, ['aPos', 'aNrm', 'aCol', 'iA', 'iB', 'iC', 'iD'], litUniforms);
     this.program('sky', SKY_VS, SKY_FS, ['aPos'], ['uMVP', 'uZen', 'uHor', 'uSun', 'uSunCol', 'uNight', 'uCloud', 'uCloudCol', 'uDrift', 'uFlash']);
     this.program('pts', PTS_VS, PTS_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale']);
-    this.program('precip', PTS_VS, PRECIP_FS, ['aPos', 'aCol', 'aSize'], ['uVP', 'uScale', 'uLine']);
+    this.program('precip', PRECIP_VS, PRECIP_FS, ['aPos'], ['uVP', 'uScale', 'uLine', 'uCol', 'uSize']);
     this.program('water', WATER_VS, WATER_FS, ['aPos', 'aInfo'], ['uVP', 'uTime', 'uWave', 'uSun', 'uSunCol', 'uSky', 'uFog', 'uFogD', 'uCam', 'uFoam', 'uShallow', 'uDeep']);
     const defs = { box: meshBox(), cyl: meshCylinder(10), cone: meshCone(8), sphere: meshSphere(6, 9), wedge: meshWedge(), sky: meshSphere(10, 14) };
     this.meshes = {}; this.meshCPU = {}; this.matCache = [NaN, NaN, NaN, NaN, NaN, NaN];
@@ -2043,11 +2054,12 @@ const R = {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.precipBuf);
     if (P.nLine) gl.bufferSubData(gl.ARRAY_BUFFER, 0, P.data.subarray(0, P.nLine * 2 * F));
     if (P.nFlake) gl.bufferSubData(gl.ARRAY_BUFFER, P.flakeAt * F * 4, P.data.subarray(P.flakeAt * F, (P.flakeAt + P.nFlake) * F));
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, F * 4, 0);
-    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, F * 4, 12);
-    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, F * 4, 28);
+    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, F * 4, 0);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, F * 4, 0);   // unused here, but enabled: kept inside this buffer
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, F * 4, 0);
     gl.uniformMatrix4fv(u.uVP, false, this.vp);
     gl.uniform1f(u.uScale, this.pxScale);
+    gl.uniform4fv(u.uCol, P.col); gl.uniform1fv(u.uSize, P.size);
     gl.depthMask(false);
     this.blend(true, false);
     if (P.nLine) { gl.uniform1f(u.uLine, 1); gl.drawArrays(gl.LINES, 0, P.nLine * 2); this.drawCalls++; this.precipDraws++; }
@@ -3914,7 +3926,7 @@ const PRECIP_MAX = 2000;                // particles at most (the High quality c
 const PRECIP_HALF = 22;                 // the particle box reaches this far either side of the camera (m)
 const PRECIP_ABOVE = 20, PRECIP_BELOW = 10;   // and this far above and below it (m)
 const PRECIP_FLOORS = 120;              // cover look-ups per frame; particles past it fall to the bottom of the box
-const PRECIP_FLOATS = 8;                // floats per vertex (position, colour, size), as the point sprites use
+const PRECIP_FLOATS = 4;                // floats per vertex: position and w (a rain streak's head 1 / tail 0, or a flake's kind)
 const PRECIP_LIGHT = [0.15, 0.55];      // particles darken with the sky light (ambient brightness) below the second value, to the first share
 const WEATHER_LEGACY = { weather: 'clear', time: 'day', seed: 0 };   // the env of a session that names none
 const isWeather = (k) => typeof k === 'string' && (k === WEATHER_CHANGING || Object.prototype.hasOwnProperty.call(WEATHER, k));   // a valid weather setting
@@ -4085,10 +4097,13 @@ const Weather = {
 
 /* ---------- precipitation: rain streaks, snowflakes, sand around the camera ---------- */
 const Precip = {
-  n: 0, nLine: 0, nFlake: 0, flakeAt: PRECIP_MAX * 2, seedState: 1, floorsLeft: 0, shade: 1,
+  n: 0, nLine: 0, nFlake: 0, flakeAt: PRECIP_MAX * 2, seedState: 1, floorsLeft: 0,
   x: new Float32Array(PRECIP_MAX), y: new Float32Array(PRECIP_MAX), z: new Float32Array(PRECIP_MAX), floor: new Float32Array(PRECIP_MAX),
-  speed: new Float32Array(PRECIP_MAX), kind: new Uint8Array(PRECIP_MAX),
+  speed: new Float32Array(PRECIP_MAX), driftX: new Float32Array(PRECIP_MAX), driftZ: new Float32Array(PRECIP_MAX), kind: new Uint8Array(PRECIP_MAX),
   data: new Float32Array(PRECIP_MAX * 3 * PRECIP_FLOATS),   // rain lines first (2 vertices each), flakes from vertex flakeAt
+  col: new Float32Array(PRECIP_KINDS.length * 4), size: new Float32Array(PRECIP_KINDS.length),   // per kind, for the shader
+  stepX: new Float32Array(PRECIP_KINDS.length), stepZ: new Float32Array(PRECIP_KINDS.length), fallOf: new Float32Array(PRECIP_KINDS.length),
+  near: [], nearN: 0,   // buildings around the camera this frame (cover look-ups test only these)
   reset() { this.n = 0; this.nLine = 0; this.nFlake = 0; },
   /* cheap repeatable random in [0, 1): the look only, nothing in the world depends on it */
   rnd() { let a = this.seedState = (this.seedState * 1664525 + 1013904223) >>> 0; a ^= a >>> 15; return (a >>> 0) / 4294967296; },
@@ -4096,11 +4111,17 @@ const Precip = {
   floorAt(x, z) {
     let f = Water.top(x, z);
     if (Water.any) { const d = Water.deckTop(x, z, Infinity); if (d > f) f = d; }
-    const list = W.buildings;
-    for (let i = 0; i < list.length; i++) { const b = list[i]; if (b.alive > 0 && b.topY > f && x >= b.ox && x <= b.bx1 && z >= b.oz && z <= b.bz1) f = b.topY; }
+    for (let i = 0; i < this.nearN; i++) { const b = this.near[i]; if (b.alive > 0 && b.topY > f && x >= b.ox && x <= b.bx1 && z >= b.oz && z <= b.bz1) f = b.topY; }
     const cell = Hash.cells[Hash.cellOf(x) * Hash.NC + Hash.cellOf(z)];
     if (cell) for (let i = 0; i < cell.length; i++) { const s = cell[i]; if (!s.destroyed && s.top > f && structContains(s, x, z, 0)) f = s.top; }
     return f;
+  },
+  /* the buildings that reach into the particle box around (cx, cz) */
+  findNear(cx, cz) {
+    const list = W.buildings, r = PRECIP_HALF;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) { const b = list[i]; if (b.bx1 >= cx - r && b.ox <= cx + r && b.bz1 >= cz - r && b.oz <= cz + r) this.near[n++] = b; }
+    this.nearN = n;
   },
   /* a new floor for particle i, within this frame's look-up budget (past it: the bottom of the box) */
   refloor(i) {
@@ -4109,47 +4130,57 @@ const Precip = {
   /* (re)place particle i in the box around the camera: anywhere in it (fill), or at its top (respawn) */
   spawn(i, cam, fill) {
     const w = Weather, sum = w.rain + w.snow + w.sand, r = this.rnd() * sum;
-    this.kind[i] = r < w.rain ? 0 : r < w.rain + w.snow ? 1 : 2;
+    const k = this.kind[i] = r < w.rain ? 0 : r < w.rain + w.snow ? 1 : 2, sway = PRECIP_ROWS[k].sway;
     this.x[i] = cam.x + (this.rnd() * 2 - 1) * PRECIP_HALF; this.z[i] = cam.z + (this.rnd() * 2 - 1) * PRECIP_HALF;
     this.y[i] = fill ? cam.y - PRECIP_BELOW + this.rnd() * (PRECIP_ABOVE + PRECIP_BELOW) : cam.y + PRECIP_ABOVE - this.rnd() * 2;
     this.speed[i] = 0.8 + this.rnd() * 0.4;
+    this.driftX[i] = (this.rnd() * 2 - 1) * sway; this.driftZ[i] = (this.rnd() * 2 - 1) * sway;   // flakes wander a little
     this.refloor(i);
   },
-  /* move the particles with the camera, the fall and the wind, and write this frame's vertices */
+  /* this frame's per-kind wind steps, fall speeds and colours (darkened with the sky light, so rain is dark at night) */
+  prepare(dt) {
+    const amb = R.env.skyAmb, shade = clamp((amb[0] + amb[1] + amb[2]) / 3 / PRECIP_LIGHT[1], PRECIP_LIGHT[0], 1);
+    for (let k = 0; k < PRECIP_ROWS.length; k++) {
+      const P = PRECIP_ROWS[k];
+      this.stepX[k] = Weather.windX * P.wind * dt; this.stepZ[k] = Weather.windZ * P.wind * dt; this.fallOf[k] = P.fall;
+      this.col[k * 4] = P.col[0] * shade; this.col[k * 4 + 1] = P.col[1] * shade; this.col[k * 4 + 2] = P.col[2] * shade; this.col[k * 4 + 3] = P.col[3];
+      this.size[k] = P.size;
+    }
+  },
+  /* move the particles with the camera, the fall and the wind, and write this frame's vertices:
+     x, y, z and w = 1 / 0 for a rain streak's head / tail, or the kind for a flake */
   update(dt, cam) {
     const w = Weather, want = Math.round(Math.min(PRECIP_MAX, (QUALITY[S.quality] || QUALITY.medium).precip) * Math.min(1, w.rain + w.snow + w.sand));
     this.nLine = 0; this.nFlake = 0; this.floorsLeft = PRECIP_FLOORS;
-    const amb = R.env.skyAmb;
-    this.shade = clamp((amb[0] + amb[1] + amb[2]) / 3 / PRECIP_LIGHT[1], PRECIP_LIGHT[0], 1);   // dark rain at night
     if (want === 0 || R.under) { this.n = Math.min(this.n, want); return; }
+    this.prepare(dt);
+    this.findNear(cam.x, cam.z);
     for (let i = this.n; i < want; i++) this.spawn(i, cam, true);
     this.n = want;
-    const top = cam.y + PRECIP_ABOVE, bottom = cam.y - PRECIP_BELOW, span = PRECIP_ABOVE + PRECIP_BELOW, sway = W.time * 1.3;
+    const X = this.x, Y = this.y, Z = this.z, FL = this.floor, SP = this.speed, DX = this.driftX, DZ = this.driftZ, K = this.kind, d = this.data;
+    const SX = this.stepX, SZ = this.stepZ, FS = this.fallOf, F = PRECIP_FLOATS, H = PRECIP_HALF, H2 = PRECIP_HALF * 2;
+    const cx = cam.x, cz = cam.z, top = cam.y + PRECIP_ABOVE, bottom = cam.y - PRECIP_BELOW, span = PRECIP_ABOVE + PRECIP_BELOW;
+    const streak = PRECIP.rain.streak, tailX = -w.windX * streak, tailZ = -w.windZ * streak;
+    let nl = 0, nf = 0;
     for (let i = 0; i < this.n; i++) {
-      const P = PRECIP_ROWS[this.kind[i]], fall = P.fall * this.speed[i];
-      const sx = P.sway ? Math.sin(sway + i * 1.7) * P.sway : 0, sz = P.sway ? Math.cos(sway * 0.8 + i * 2.3) * P.sway : 0;
-      this.x[i] += (w.windX * P.wind + sx) * dt; this.z[i] += (w.windZ * P.wind + sz) * dt; this.y[i] -= fall * dt;
-      const dx = this.x[i] - cam.x, dz = this.z[i] - cam.z;
-      if (dx > PRECIP_HALF || dx < -PRECIP_HALF) { this.x[i] -= Math.sign(dx) * PRECIP_HALF * 2; this.refloor(i); }
-      if (dz > PRECIP_HALF || dz < -PRECIP_HALF) { this.z[i] -= Math.sign(dz) * PRECIP_HALF * 2; this.refloor(i); }
-      if (this.y[i] > top) this.y[i] -= span;
-      if (this.y[i] < this.floor[i] || this.y[i] < bottom) { this.spawn(i, cam, false); continue; }
-      this.write(i, P, fall);
+      const k = K[i], fall = FS[k] * SP[i];
+      let x = X[i] + SX[k] + DX[i] * dt, z = Z[i] + SZ[k] + DZ[i] * dt, y = Y[i] - fall * dt, moved = false;
+      if (x - cx > H) { x -= H2; moved = true; } else if (x - cx < -H) { x += H2; moved = true; }
+      if (z - cz > H) { z -= H2; moved = true; } else if (z - cz < -H) { z += H2; moved = true; }
+      if (y > top) y -= span;
+      X[i] = x; Y[i] = y; Z[i] = z;
+      if (moved) this.refloor(i);
+      if (y < FL[i] || y < bottom) { this.spawn(i, cam, false); continue; }
+      if (k === 0) {
+        const o = nl++ * 2 * F;
+        d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = 1;
+        d[o + 4] = x + tailX; d[o + 5] = y + fall * streak; d[o + 6] = z + tailZ; d[o + 7] = 0;
+      } else {
+        const o = (this.flakeAt + nf++) * F;
+        d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = k;
+      }
     }
-  },
-  /* the vertices of particle i: a streak from it up its fall line (rain), or one point */
-  write(i, P, fall) {
-    const d = this.data, c = P.col, F = PRECIP_FLOATS, x = this.x[i], y = this.y[i], z = this.z[i], k = this.shade;
-    const r = c[0] * k, g = c[1] * k, b = c[2] * k;
-    if (!P.streak) {
-      const o = (this.flakeAt + this.nFlake++) * F;
-      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = r; d[o + 4] = g; d[o + 5] = b; d[o + 6] = c[3]; d[o + 7] = P.size;
-      return;
-    }
-    const o = this.nLine++ * 2 * F, s = P.streak;
-    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = r; d[o + 4] = g; d[o + 5] = b; d[o + 6] = c[3]; d[o + 7] = 0;
-    d[o + 8] = x - Weather.windX * s; d[o + 9] = y + fall * s; d[o + 10] = z - Weather.windZ * s;
-    d[o + 11] = r; d[o + 12] = g; d[o + 13] = b; d[o + 14] = 0; d[o + 15] = 0;
+    this.nLine = nl; this.nFlake = nf;
   },
 };
 
