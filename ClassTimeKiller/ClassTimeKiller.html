@@ -266,10 +266,12 @@ const Game = {
   match: null,            // { setup, rules, map, ended, winner, ... } filled by the match.* listeners
   playerId: -1,
   headless: false,        // true in headless self-tests: no WebGL, no DOM UI, no audio
+  setupHooks: [],         // fn(setup) later sections push to adjust every setup before match.setup (18l: the player's assist sliders)
 
   isRunning() { return this.state === 'playing' && !this.paused; },
   start(setup) {
     if (this.match) this.stop();
+    for (const adjust of this.setupHooks) adjust(setup);   // every start path (play, career, custom, generated, restart) gets them
     Sim.reset();
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };
@@ -744,7 +746,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, special: '', tool: '', zoom: 1, noise: -1, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, noise: -1, weapon: '', family: null,
 };
 
 const WEAPON_SCHEMA = {
@@ -761,7 +763,7 @@ const WEAPON_ROWS = [
     primary: { type: 'melee', damage: 35, rate: 2.5, reach: 1.2 },
     alt: { type: 'melee', trigger: 'semi', damage: 65, rate: 1, reach: 1.2, backstab: 150 } },
   { id: 'bulwark', code: 'W03', name: 'Bulwark Shield-Saw', class: 'melee', moveMult: 0.9, killReward: 1500, noise: 30, botPref: { range: [0, 3], value: 0.4 },
-    primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'shock', seconds: 0.3 } },
+    primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'stun', seconds: 0.3 } },
     alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
   { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
@@ -809,8 +811,8 @@ const WEAPON_ROWS = [
     primary: { type: 'hitscan', damage: 20, rate: 10, spreadDeg: 0.5, recoil: 'rifle', element: 'void' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'darkorb', damage: 100, rate: 0.5, ammo: 'alt', fodderKill: true, element: 'void' } },
   { id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 9, pellets: 10, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 20, 0.4] },
-    alt: { type: 'hitscan', trigger: 'semi', damage: 70, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6] } },
+    primary: { type: 'hitscan', trigger: 'semi', damage: 9, pellets: 10, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
+    alt: { type: 'hitscan', trigger: 'semi', damage: 70, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
   { id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 7, pellets: 20, rate: 0.9, spreadDeg: 7, moveSpread: 0.3, recoil: 'shotgun', falloff: [6, 16, 0.3], ammoPerShot: 2 },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
@@ -825,7 +827,7 @@ const WEAPON_ROWS = [
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
-    alt: { type: 'zoom', zoom: 4 } },
+    alt: { type: 'zoom', zoom: 4, zoomMax: 8 } },
   { id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 10, reserve: 40, price: 1800, botPref: { range: [10, 80], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 3 } },
@@ -843,7 +845,7 @@ const WEAPON_ROWS = [
     alt: { type: 'toggle', toggle: { recoilMult: 0.3, needsLedge: true } } },
   { id: 'linker', code: 'W30', name: 'Linker', class: 'energy', mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
-    alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, element: 'arc' } },
+    alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
   { id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', moveMult: 0.88, mag: 5, reserve: 25, noise: 90, botPref: { range: [4, 40], value: 0.85 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 100, rate: 1.25, splash: { r: 3.5, dmg: 100 }, recoil: 'launcher', element: 'thermal' },
     alt: { type: 'projectile', trigger: 'charge', projectile: 'rocket', damage: 100, rate: 0.8, spreadDeg: 2.5, splash: { r: 3.5, dmg: 100 }, charge: { time: 1.8, levels: [1, 2, 3], target: 'pellets' }, recoil: 'launcher', element: 'thermal' } },
@@ -858,7 +860,7 @@ const WEAPON_ROWS = [
     alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
   { id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
     primary: { type: 'cone', damage: 6, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
   { id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
     primary: { type: 'projectile', projectile: 'plasma', damage: 20, rate: 10, splash: { r: 0.6, dmg: 15 }, heat: 4, recoil: 'energy', element: 'thermal' },
     alt: { type: 'cone', trigger: 'semi', rate: 1, ammoPerShot: 0, heatDamage: 120, cone: { range: 6, angle: 50 }, element: 'thermal' } },
@@ -994,6 +996,8 @@ Data.define('statusEffects', {
   { id: 'sleep', name: 'Sleep', seconds: 8, speed: 0, stun: true, wakeOnDamage: true, color: 0x8080ff },
   { id: 'slow', name: 'Slowed', seconds: 1, speed: 0.8, color: 0x6080a0 },
   { id: 'reveal', name: 'Revealed', seconds: 5, color: 0xffd040 },
+  { id: 'pinned', name: 'Pinned', seconds: 1, speed: 0, color: 0xb08a5a },   // W26 stake against a wall: rooted, can still aim and fire
+  { id: 'stun', name: 'Stunned', seconds: 0.5, speed: 0, stun: true, color: 0xd0d0d0 },   // non-electric stagger, knockdown and EMP: never an HP-005 Shock combo
 ]);
 
 const ELEMENT_MATCH_FACTOR = 1.5;
@@ -1437,7 +1441,7 @@ const ABILITY_ROWS = [
   { id: 'overdrive', code: 'A02', name: 'Overdrive Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 20, effect: 'suitSpeed', group: 'weave',
     params: { speed: 1.5, sprintOnly: true }, counter: 'it burns energy fast: punish the empty bar', botUse: { when: 'escape', range: [0, 60], chance: 0.5 }, color: 0xffd34a },
   { id: 'colossusweave', code: 'A03', name: 'Colossus Weave', category: 'suit', activation: 'toggle', resource: 'energy', effect: 'suitStrength', group: 'weave',
-    params: { jumpHeight: 1.8, melee: 2, steady: 0.5, useCost: 15 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
+    params: { jumpHeight: 1.8, melee: 2, steady: 0.5, useCost: 15, throwReach: 2, throwSpeed: 14, throwLift: 4 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
   { id: 'phantasm', code: 'A04', name: 'Phantasm Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 8, effect: 'cloak', group: 'weave',
     params: { stillCostPerSecond: 2, stillSpeed: 0.2 }, interrupt: { damage: false, stun: true, fire: true }, counter: 'firing drops it: listen for steps',
     botUse: { when: 'escape', range: [0, 60], chance: 0.4 }, color: 0x9be7ff },
@@ -1968,7 +1972,7 @@ const PVE_HORDE_WAVES = [
 ];
 const PVE_ENDLESS = { baseBudget: 10, budgetPerWave: 4, weights: { husk: 3, gunner: 3, mite: 1, phalanx: 1, leaper: 1, bomber: 1, brute: 1, turret: 1,
   stalker: 1, longeye: 1, warden: 1, charger: 1 }, bossEvery: 10, boss: 'brute', extractSeconds: 20 };
-const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5 };
+const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5, huntLeft: 3, huntPingSeconds: 2 };
 
 const PVE_BANK = { motesFodder: 1, motesHeavy: 3, carryMax: 15, blockers: ['gunner', 'phalanx', 'brute'], invader: 'charger', invaderChampion: 'barrier',
   boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fillSeconds: 0.5, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2 };
@@ -3031,6 +3035,7 @@ const TouchInput = {
     if (this.activeCount !== 4 || this.gestureFired || event.timeStamp - this.gestureStart > TOUCH_FOUR_FINGER_MS) return;
     this.gestureFired = true;
     Input.emitAction('perfHud', true);
+    Input.emitAction('botDebug', true);   // ARC-040: on touch both debug views toggle from the same tap
   },
 
   onDown(event, target) {
@@ -10780,6 +10785,7 @@ const Weapons = {
   charge: new Float32Array(MAX_ACTORS), chargeMode: new Int8Array(MAX_ACTORS).fill(-1),
   spin: new Float32Array(MAX_ACTORS),
   ads: new Float32Array(MAX_ACTORS),
+  zoomed: new Uint8Array(MAX_ACTORS),               // 1 = the scope's second step (FireMode.zoomMax) is chosen
   toggled: new Uint8Array(MAX_ACTORS),
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
@@ -10869,7 +10875,7 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
@@ -10983,8 +10989,15 @@ const Weapons = {
     const pressed = Actors.pressed[id], slot = Actors.slotRequest[id];
     if (slot && slot !== this.lastSlot[id]) this.requestSwitch(id, this.inSlot(id, slot));
     this.lastSlot[id] = slot;
+    if (this.stepScopeZoom(id, pressed)) return;
     if (pressed & BTN.NEXT_WEAPON) this.requestSwitch(id, this.cycle(id, 1));
     if (pressed & BTN.PREV_WEAPON) this.requestSwitch(id, this.cycle(id, -1));
+  },
+  stepScopeZoom(id, pressed) {
+    const weapon = this.currentWeapon(id);
+    if (!weapon || this.ads[id] < 1 || !(weapon.alt.zoomMax > weapon.alt.zoom)) return false;
+    if (pressed & (BTN.NEXT_WEAPON | BTN.PREV_WEAPON)) this.zoomed[id] ^= 1;
+    return true;
   },
   stepSwap(id, dt) {
     this.stateTime[id] += dt;
@@ -11071,8 +11084,9 @@ const Weapons = {
     this.stepAltMode(id, weapon, dt);
   },
   updateAds(id, weapon, dt) {
-    const aiming = weapon.alt.type === 'zoom' && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
+    if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
   },
   coolDown(id, dt) {
     this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
@@ -11275,7 +11289,7 @@ const Weapons = {
     out.shape = shown.class; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
-    out.zoom = lerp(1, shown.alt.zoom, this.ads[id]);
+    out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
     out.recoilPitch = this.recoilPitch[id]; out.recoilYaw = this.recoilYaw[id];   // degrees the spray punches away from the view
     out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
@@ -11550,7 +11564,11 @@ const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bou
 const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
 
+const PIN_WALL_REACH = 1.5;              // W26: a wall this close behind a stake's victim pins it there
+const PIN_HEIGHT = 1;                    // the pin ray starts this high above the victim's feet
+
 const sweepHit = makeHit();
+const pinHit = makeHit();
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
@@ -11787,11 +11805,16 @@ const Projectiles = {
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
     if (kind === 'drill') { this.attach(i, target, x, y, z); return true; }
     this.hitTarget(i, target, zone, x, y, z, dx, dy, dz);
+    if (kind === 'pin') this.pinToWall(i, target, dx, dy, dz);
     if (kind === 'puddle') { this.becomeArea(i, Actors.x[target], Actors.y[target] + 0.05, Actors.z[target]); return true; }
     if (row.pierce) { this.markHit(i, target); return false; }
     if (row.stickActor) { this.attach(i, target, x, y, z); return true; }
     this.remove(i);
     return true;
+  },
+  pinToWall(i, target, dx, dy, dz) {
+    if (!World.raycast(Actors.x[target], Actors.y[target] + PIN_HEIGHT, Actors.z[target], dx, dy, dz, PIN_WALL_REACH, pinHit)) return;
+    Damage.addStatus(target, 'pinned', this.owner[i]);
   },
   hitTarget(i, target, zone, x, y, z, dx, dy, dz) {
     const mode = this.modeOf(i);
@@ -12089,6 +12112,7 @@ const Damage = {
   frozenTick: new Int32Array(MAX_ACTORS).fill(-1),  // Sim.tick of the last freeze (no shatter within that same step)
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
+  statusHooks: [],                                  // fn(id, row, source, seconds) after a status lands (S12: HP-005 combos)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
   roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
@@ -12353,8 +12377,14 @@ const Damage = {
     if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
   regenerate(id, amount, cap) {
-    if (Actors.health[id] >= cap) return;
+    if (Actors.health[id] >= cap) return false;
     Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
+    return true;
+  },
+  lifesteal(event, share) {
+    const source = event.source;
+    if (share <= 0 || source < 0 || source === event.target || !Actors.alive[source]) return;
+    this.regenerate(source, event.amount * share, Actors.maxHealth[source]);
   },
   stepDowned(id, dt) {
     this.downedTime[id] -= dt;
@@ -12375,6 +12405,7 @@ const Damage = {
     if (row.stacksTo && this.statusStacks[slot] >= row.stacksTo) { this.clearStatus(id, row.index); return this.addStatus(id, row.becomes, source, 0, 1); }
     if (row.stun) this.setStun(id, true);
     if (row.shatter) this.frozenTick[id] = Sim.tick;
+    for (let k = 0; k < this.statusHooks.length; k++) this.statusHooks[k](id, row, source, seconds || row.seconds);
     return true;
   },
   hasStatus(id, key) { const row = CAT.statusEffects.byId(key); return !!row && this.statusTime[id * STATUS_COUNT + row.index] > 0; },
@@ -12535,6 +12566,8 @@ const LIFTER_PULL_SPEED = 10;
 const LIFTER_THROW_SPEED = 30;           // caught projectiles leave at this speed
 const LIFTER_HOLD_DISTANCE = 1.6;
 const LIFTER_CATCH_COS = Math.cos(30 * DEG);
+const AIRBLAST_RANGE = 5;                // W35 airblast reach in metres
+const AIRBLAST_CONE_COS = Math.cos(45 * DEG);
 const LIFTER_MAX_MASS = 150;             // kg a prop may weigh to be held (W41)
 const LIFTER_DAMAGE_PER_MASS_SPEED = 0.5; // punted prop damage = 0.5 x mass x speed, capped (applied by the prop owner on impact)
 const LIFTER_DAMAGE_CAP = 150;
@@ -12733,14 +12766,18 @@ function actorInFront(id, range) {
 }
 function catchableProjectile(id, range) {
   let best = -1, bestDistance = range;
-  const eyeY = Actors.eyeY(id);
   for (let i = 0; i < PROJECTILE_CAP; i++) {
-    if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) continue;
-    const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - eyeY, dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
-    if (distance >= bestDistance || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < LIFTER_CATCH_COS) continue;
+    const distance = projectileInAim(id, i, bestDistance, LIFTER_CATCH_COS);
+    if (distance < 0) continue;
     best = i; bestDistance = distance;
   }
   return best;
+}
+function projectileInAim(id, i, range, coneCos) {
+  if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) return -1;
+  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  if (distance >= range || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < coneCos) return -1;
+  return distance;
 }
 function gateContactY(slot, id) {
   const ny = WeaponSpecialState.gateNy[slot];
@@ -12765,6 +12802,13 @@ Weapons.specials.lodgeBlade = (id, weapon) => {
     return true;
   }
   return false;
+};
+Weapons.specials.airblast = (id) => {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  for (let i = 0; i < PROJECTILE_CAP; i++) {
+    if (projectileInAim(id, i, AIRBLAST_RANGE, AIRBLAST_CONE_COS) >= 0 && Actors.isEnemy(id, Projectiles.owner[i])) Projectiles.reflect(i, id);
+  }
+  return false;   // the napalm shot still fires
 };
 Weapons.tools.lifterPunt = (id, weapon, mode) => WeaponSpecialState.lifterPunt(id, weapon, mode);
 Weapons.tools.lifterPull = (id, weapon, mode) => WeaponSpecialState.lifterPull(id, weapon, mode);
@@ -12795,7 +12839,8 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
-const SOUL_HOMING_RANGE = 6;               // ABL-005: souls fly to a nearby player
+const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
+const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
 const ANNOUNCE_POWER_PRIORITY = 2;
 const VOLATILE_RADIUS = 4;                 // X30: a shot ammo pickup explodes with this radius...
@@ -13155,11 +13200,6 @@ const Items = {
     if (!row.overheal) return Actors.maxHealth[id];
     return Math.max(Actors.maxHealth[id], Math.min(row.cap, Damage.preset().overhealCap));
   },
-  addHealth(id, amount, cap) {
-    if (Actors.health[id] >= cap) return false;
-    Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
-    return true;
-  },
   addArmor(id, amount, cap) {
     const limit = Math.min(cap, Actors.maxArmor[id]);
     if (this.noArmor[id] || Actors.armor[id] >= limit) return false;
@@ -13269,7 +13309,7 @@ Items.takers[PICKUP_KIND.WEAPON] = (id, slot) => Items.takeWeapon(id, slot);
 Items.givers[PICKUP_KIND.ITEM] = (id, key) => Items.grant(id, key);
 Items.givers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
 Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Items.giveWeapon(id, key, 0, Actors.y[id]);
-Items.effects.health = (id, row) => Items.addHealth(id, row.amount, Items.healthCap(id, row));
+Items.effects.health = (id, row) => Damage.regenerate(id, row.amount, Items.healthCap(id, row));
 Items.effects.armor = (id, row) => Items.addArmor(id, row.amount, row.cap);
 Items.effects.ammoType = (id) => Items.addTypeAmmo(id);
 Items.effects.ammoAll = (id, row) => Items.addAllAmmo(id, row);
@@ -13385,7 +13425,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Items.addHealth(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Damage.regenerate(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -13595,11 +13635,7 @@ const Powerups = {
     this.charges[slot] -= absorbed;
     return amount - absorbed;
   },
-  onDamage(event) {
-    const source = event.source;
-    if (source < 0 || source === event.target || !Actors.alive[source] || this.lifesteal[source] <= 0) return;
-    Items.addHealth(source, event.amount * this.lifesteal[source], Actors.maxHealth[source]);
-  },
+  onDamage(event) { if (event.source >= 0) Damage.lifesteal(event, this.lifesteal[event.source]); },
   onJump(event) {
     const id = event.id;
     if (this.jumpScale[id] <= 1) return;
@@ -14810,8 +14846,11 @@ const Devices = {
     if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets hit devices as they fly (bulletHit)
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
-    if (device >= 0) this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
+    if (device < 0) return;
+    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, mode.repair / mode.rate); return; }
+    this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
   },
+  repair(device, amount) { this.health[device] = Math.min(this.rowOf(device).health, this.health[device] + amount); },
   bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
     if (!this.count) return;
     const device = this.rayDevice(ox, oy, oz, dx, dy, dz, length + DEVICE_SHOT_SLACK);
@@ -15036,7 +15075,7 @@ const Abilities = {
   },
   assignKitSlot(id, slot) {
     const kit = this.kitOf(id), slotName = ABILITY_SLOT_NAMES[slot];
-    const key = kit ? this.kitAbility(id, kit, slotName) : '';
+    const key = (kit ? this.kitAbility(id, kit, slotName) : '') || soulUltimate(slot);
     this.setSlot(id, slot, key ? CAT.abilities.byId(key) : null);
     const override = kit && kit.cooldowns ? kit.cooldowns[slotName] : 0;
     if (override > 0 && key) this.slotCooldown[this.index(id, slot)] = override;
@@ -15189,7 +15228,7 @@ const Abilities = {
       case 'energy': return Meters.energy[id] >= Math.max(row.cost, TICK_EPSILON);
       case 'ultimate': return Meters.points[id] >= ultimateCost(id, row);
       case 'fuel': return this.fuel[i] > 0;
-      case 'souls': return Meters.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
+      case 'souls': return Powerups.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
       default: return true;
     }
   },
@@ -15201,7 +15240,7 @@ const Abilities = {
     else if (row.resource === 'charges') this.spendCharge(i, row);
     else if (row.resource === 'energy') Meters.spendEnergy(id, row.cost);
     else if (row.resource === 'ultimate') Meters.spendPoints(id, ultimateCost(id, row));
-    else if (row.resource === 'souls') Meters.souls[id] = 0;
+    else if (row.resource === 'souls') Powerups.souls[id] = 0;
   },
   spendCharge(i, row) {
     if (this.charges[i] >= row.charges) this.cooldown[i] = this.slotCooldown[i];
@@ -15289,6 +15328,10 @@ function kitMatches(kit, rules) {
 }
 function matchFamily() { return currentRules().family || 'versus'; }
 function modeAllows(modes) { return modes === matchFamily(); }
+function soulUltimate(slot) {
+  const params = currentRules().params;
+  return slot === SLOT.ULTIMATE && params && params.souls ? SOUL_ULTIMATE : '';
+}
 function ultimateCost(id, row) { return Meters.ultimateCost(row); }
 
 Damage.poolOverride = (id, out) => {
@@ -15853,7 +15896,7 @@ function endDrone(id, row) {
   if (zone < 0) return;
   const x = AbilityZones.x[zone], y = AbilityZones.y[zone], z = AbilityZones.z[zone], seconds = row.params.empSeconds;
   const count = enemiesNear(id, x, y, z, row.params.empRadius, true);
-  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
+  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'stun', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
   Gadgets.empDevices(id, x, y, z, row.params.empRadius, seconds);
   AbilityZones.remove(zone);
 }
@@ -15965,7 +16008,13 @@ function attachSwarm(id, row, target) {
   if (target < 0) return false;
   const zone = AbilityZones.add(ZONE_KIND.SWARM, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
   AbilityZones.target[zone] = target; AbilityZones.value[zone] = row.params.dps; AbilityZones.radius[zone] = 1;
+  if (isFodder(target)) emitPanic(target, id, row.duration);   // A32: a swarmed fodder enemy panics (S14 PvE makes it flee)
   return true;
+}
+const PANIC_EVENT = { id: -1, source: -1, seconds: 0 };
+function emitPanic(target, source, seconds) {
+  PANIC_EVENT.id = target; PANIC_EVENT.source = source; PANIC_EVENT.seconds = seconds;
+  Bus.emit('ability.panic', PANIC_EVENT);
 }
 function castDecoy(id, row) {
   const decoy = Actors.create(ACTOR_KIND.DUMMY, Actors.team[id], Actors.name[id], Actors.profile[id]);
@@ -16026,9 +16075,45 @@ function strengthJump(event) {
 function strengthShot(event) {
   const row = CAT.abilities.byId('colossusweave');
   if (!Abilities.isActive(event.id, row.id)) return;
-  if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.params.useCost); return; }
+  if (event.mode === 'melee' || event.weaponClass === 'melee') { if (Meters.spendEnergy(event.id, row.params.useCost)) strengthThrow(event.id, row.params); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
+function strengthThrow(id, params) {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  const target = actorInFront(id, params.throwReach);
+  if (target < 0 || !Actors.isEnemy(id, target)) return;
+  emitImpulse(target, specialScratch.x * params.throwSpeed, specialScratch.y * params.throwSpeed + params.throwLift, specialScratch.z * params.throwSpeed);
+}
+
+const WET_SHOCK_RADIUS = 8;              // wading actors this close to a shocked wet target share its water
+const SHOCK_CHAIN_RADIUS = 4;            // a Shock jumps once to the source's nearest enemy this close to the target
+const ComboState = { spreading: false, freeze: CAT.statusEffects.byId('freeze').index, chill: CAT.statusEffects.byId('chill').index };
+function isWet(id) { return (Motion.medium[id] & TRIGGER_MEDIUM.WADING) !== 0; }
+function statusCombo(id, row, source, seconds) {
+  if (ComboState.spreading) return;   // statuses a combo hands out never combo again
+  ComboState.spreading = true;
+  try {
+    if (row.id === 'shock') { shockWater(id, source, seconds); chainShock(id, source, seconds); }
+    if (row.id === 'burn') meltIce(id);
+  } finally { ComboState.spreading = false; }
+}
+function shockWater(id, source, seconds) {
+  if (!isWet(id)) return;
+  for (let other = 0; other < Actors.count; other++) {
+    if (other === id || !Actors.alive[other] || !isWet(other)) continue;
+    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= WET_SHOCK_RADIUS * WET_SHOCK_RADIUS) Damage.addStatus(other, 'shock', source, seconds, 1);
+  }
+}
+function chainShock(id, source, seconds) {
+  if (source < 0) return;
+  const next = nearestChainTarget(source, id, SHOCK_CHAIN_RADIUS, id < 32 ? 1 << id : 0, id >= 32 ? 1 << (id - 32) : 0);
+  if (next >= 0) Damage.addStatus(next, 'shock', source, seconds, 1);
+}
+function meltIce(id) {
+  if (Damage.hasStatus(id, 'freeze')) Damage.clearStatus(id, ComboState.freeze);
+  if (Damage.hasStatus(id, 'chill')) Damage.clearStatus(id, ComboState.chill);
+}
+Damage.statusHooks.push(statusCombo);
 Object.assign(Abilities.effects, {
   zone: { cast: castZone },
   blink: { cast: castBlink },
@@ -16218,9 +16303,6 @@ Bus.on('match.stop', () => Footprints.clear());
 
 // ==== 12g-abilities-meters.js ====
 
-const SOUL_CAP = 32;                     // soul orbs in the world at once (the oldest is recycled)
-const SOUL_PICKUP = 1;                   // metres: a soul this close is collected
-const SOUL_LIFT = 1;                     // souls float at chest height
 const TAP_CODES = { F: 0, B: 1, L: 2, R: 3 };
 const TAP_BITS = 2;
 const TAP_MASK = 0xff;                   // the last four taps
@@ -16233,11 +16315,8 @@ const Meters = {
   points: new Float32Array(MAX_ACTORS),            // the match meter value (0..row.max)
   rewardIndex: new Uint8Array(MAX_ACTORS),         // next streak / boost reward
   streakDiscount: new Float32Array(MAX_ACTORS),    // reward thresholds lowered by this (Hardline perk, S13 writes it)
-  souls: new Uint16Array(MAX_ACTORS),
   lifeKills: new Uint16Array(MAX_ACTORS),
   taps: new Uint8Array(MAX_ACTORS), tapCount: new Uint8Array(MAX_ACTORS), lastTap: new Int8Array(MAX_ACTORS).fill(-1),
-  soulAlive: new Uint8Array(SOUL_CAP), soulOwner: new Int8Array(SOUL_CAP), soulBorn: new Float64Array(SOUL_CAP),
-  soulX: new Float32Array(SOUL_CAP), soulY: new Float32Array(SOUL_CAP), soulZ: new Float32Array(SOUL_CAP),
 
   row() { return CAT.meters.byId(currentRules().meter) || CAT.meters[0]; },
   kind() { return this.row().id; },
@@ -16293,7 +16372,6 @@ const Meters = {
       if (row.passive > 0) this.addPoints(id, row.passive * dt);
       if (row.combos.length) this.readTaps(id, row);
     }
-    this.stepSouls(dt);
   },
 
   readTaps(id, row) {
@@ -16310,30 +16388,6 @@ const Meters = {
     this.tapCount[id] = 0;
   },
 
-  dropSoul(owner, x, y, z) {
-    let slot = 0;
-    for (let s = 0; s < SOUL_CAP; s++) {
-      if (!this.soulAlive[s]) { slot = s; break; }
-      if (this.soulBorn[s] < this.soulBorn[slot]) slot = s;
-    }
-    this.soulAlive[slot] = 1; this.soulOwner[slot] = owner; this.soulBorn[slot] = Sim.time;
-    this.soulX[slot] = x; this.soulY[slot] = y + SOUL_LIFT; this.soulZ[slot] = z;
-  },
-  stepSouls(dt) {
-    for (let s = 0; s < SOUL_CAP; s++) if (this.soulAlive[s]) this.stepSoul(s, dt);
-  },
-  stepSoul(s, dt) {
-    const owner = this.soulOwner[s];
-    if (!Actors.alive[owner]) return;
-    const dx = Actors.x[owner] - this.soulX[s], dy = Actors.y[owner] + SOUL_LIFT - this.soulY[s], dz = Actors.z[owner] - this.soulZ[s];
-    const distance = Math.hypot(dx, dy, dz), homing = Math.max(CAT.abilities.byId('wrath').params.homing, soulCardFx(owner, 'soulMagnet', 0));   // C11
-    if (distance <= SOUL_PICKUP) { this.soulAlive[s] = 0; this.souls[owner]++; return; }
-    if (distance > homing) return;
-    const step = Math.min(distance, SOUL_HOMING_SPEED * dt) / distance;
-    this.soulX[s] += dx * step; this.soulY[s] += dy * step; this.soulZ[s] += dz * step;
-  },
-  clearSouls() { this.soulAlive.fill(0); },
-
   onKill(event) {
     const victim = event.victim, killer = event.killer, row = this.row();
     this.lifeKills[victim] = 0;
@@ -16342,7 +16396,6 @@ const Meters = {
     this.lifeKills[killer]++;
     this.addEnergy(killer, CAT.meters.byId('energy').perOrb);   // ABL-002 energy orb, collected by the killer
     this.addPoints(killer, row.perKill + (this.lifeKills[killer] % row.spreeKills === 0 ? row.perSpree : 0));
-    if (Abilities.slotOf(killer, 'wrath') >= 0) this.dropSoul(killer, event.x, event.y, event.z);
   },
   onScore(event) {
     if (event.id < 0 || event.points <= 0) return;
@@ -16355,7 +16408,7 @@ const Meters = {
   },
   resetActor(id) {
     this.resetLife(id);
-    this.points[id] = 0; this.rewardIndex[id] = 0; this.souls[id] = 0; this.lifeKills[id] = 0; this.streakDiscount[id] = 0;
+    this.points[id] = 0; this.rewardIndex[id] = 0; this.lifeKills[id] = 0; this.streakDiscount[id] = 0;
   },
   resetLife(id) {
     this.energy[id] = this.energyMax(); this.lastEnergySpend[id] = -1e9;
@@ -16366,7 +16419,7 @@ const Meters = {
     target.kind = this.kind(); target.value = id >= 0 ? this.fraction(id) : 0;
     target.ready = id >= 0 && Abilities.ready(id, SLOT.ULTIMATE);
     target.energy = id >= 0 ? this.energyFraction(id) : 0;
-    target.souls = id >= 0 ? this.souls[id] : 0;
+    target.souls = id >= 0 ? Powerups.souls[id] : 0;
     return target;
   },
 };
@@ -16388,17 +16441,12 @@ function tapCode(taps) {
 }
 
 CAT.meters.forEach((row) => row.combos.forEach((combo) => { combo.code = tapCode(combo.taps); }));
-Render.addSource('souls', (batch) => {
-  for (let s = 0; s < SOUL_CAP; s++) if (Meters.soulAlive[s]) batch.mesh('sphere', Meters.soulX[s], Meters.soulY[s], Meters.soulZ[s], 0, 0, 0.25, 0.25, 0.25, 0.9, 0.95, 1, 1);
-});
 Sim.addSystem('meters', 22, (dt) => Meters.step(dt));
 Bus.on('actor.create', (id) => Meters.resetActor(id));
 Bus.on('actor.spawn', (event) => Meters.resetLife(event.id));
 Bus.on('kill', (event) => Meters.onKill(event));
 Bus.on('score', (event) => Meters.onScore(event));
 Bus.on('damage', (event) => Meters.onDamage(event));
-Bus.on('match.start', () => Meters.clearSouls());
-Bus.on('match.stop', () => Meters.clearSouls());
 
 // ==== 13a-rules.js ====
 
@@ -19384,9 +19432,7 @@ function onKillGrowth(fx, event) {
 }
 
 function onDamageLifesteal(fx, event) {
-  const source = event.source;
-  if (!fx.lifesteal || !isOpponentDamage(source, event.target) || !Actors.alive[source]) return;
-  Actors.health[source] = Math.min(Actors.maxHealth[source], Actors.health[source] + event.amount * fx.lifesteal);
+  if (fx.lifesteal) Damage.lifesteal(event, fx.lifesteal);
 }
 function onDamageShrink(fx, event) {
   const target = event.target;
@@ -19924,6 +19970,7 @@ const BotSense = {
   mine: new Int8Array(MAX_ACTORS).fill(-1),  // nearest enemy placed gadget in sight (Devices index), -1 none
   dangerUntil: new Float64Array(MAX_ACTORS), dangerX: new Float32Array(MAX_ACTORS), dangerZ: new Float32Array(MAX_ACTORS),
   raysLeft: 0,
+  reservedRays: 0,          // rays per tick a later section takes out of the BOT-091 budget (S15 PvE enemies while they run)
   stats: { rays: 0, raysThisTick: 0, maxRaysPerTick: 0, deferred: 0, heard: 0, hearingRays: 0 },
 
   pair(bot, other) { return bot * MAX_ACTORS + other; },
@@ -19949,7 +19996,7 @@ const BotSense = {
 
   serve(now) {
     this.closeRayCount();
-    this.raysLeft = SENSE_RAYS_PER_TICK;
+    this.raysLeft = SENSE_RAYS_PER_TICK - this.reservedRays;
     for (let bot = 0; bot < Actors.count; bot++) {
       const target = BotCombat.target[bot];
       if (Bots.perceiveDue[bot] && Bots.isBot(bot) && target >= 0) this.look(bot, target, now);   // combat pairs first
@@ -21308,6 +21355,7 @@ const GOAL_RETRY_SECONDS = 5;           // a goal whose path failed is not chose
 const GOAL_HURRY = 0.05;                // s: an urgent event brings the next decision this close
 const ROAM_SCORE = 0.12;
 const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
+const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
 const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
 const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
@@ -21563,10 +21611,13 @@ GOAL_SCORERS[GOAL.ATTACK] = (id, plan) => {
   if (target < 0 || !BotSense.sees(id, target)) return 0;
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
-  const weapon = Weapons.currentWeapon(id), reach = weapon ? weapon.botPref.range[1] * 0.8 : DEFAULT_ENGAGE_DISTANCE;
-  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], Math.max(1.5, reach), ACTION.MOVE, target);
+  setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], attackRadius(Weapons.currentWeapon(id)), ACTION.MOVE, target);
   return ATTACK_BASE + ATTACK_GAIN * aggression;
 };
+function attackRadius(weapon) {
+  if (weapon && weapon.class === 'melee') return weapon.primary.reach * ATTACK_RANGE_SHARE;
+  return Math.max(ATTACK_MIN_RADIUS, weapon ? weapon.botPref.range[1] * ATTACK_RANGE_SHARE : DEFAULT_ENGAGE_DISTANCE);
+}
 GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const target = BotCombat.target[id];
   if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now)) return 0;
@@ -21902,9 +21953,21 @@ const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
 const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-062: an order is acknowledged within 0.5-1.5 s
-const ORDER_SECONDS = 30, ORDER_DEFEND_SECONDS = 45;
+const ORDER_SECONDS = { go: 30, attack: 30, defend: 45, follow: 60 };
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
 const ORDER_RADIUS = 2.5;
+const FOLLOW_RADIUS = 3;                // a following bot keeps this close to the one it follows
+const COMM_CALLOUTS = [
+  { id: 'attack', label: 'Attack', at: 'aim', order: 'attack' },
+  { id: 'defend', label: 'Defend', at: 'aim', order: 'defend' },
+  { id: 'follow', label: 'Follow me', at: 'self', order: 'follow', team: true },
+  { id: 'hold', label: 'Hold position', at: 'self', order: 'hold', team: true },
+  { id: 'regroup', label: 'Regroup', at: 'self', order: 'go', team: true },
+  { id: 'danger', label: 'Danger', at: 'aim', order: '' },
+  { id: 'enemy', label: 'Enemy', at: 'aim', order: '' },
+  { id: 'go', label: 'Go here', at: 'aim', order: 'go' },
+];
+const COMM_CALLOUT_BY_KIND = new Map(COMM_CALLOUTS.map((row) => [row.id, row]));
 const PING_RANGE = 120;
 const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
 const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
@@ -21924,6 +21987,7 @@ const BotTeam = {
   role: new Uint8Array(MAX_ACTORS),
   orderKind: new Array(MAX_ACTORS).fill(''), orderUntil: new Float64Array(MAX_ACTORS),
   orderX: new Float32Array(MAX_ACTORS), orderY: new Float32Array(MAX_ACTORS), orderZ: new Float32Array(MAX_ACTORS),
+  orderSource: new Int16Array(MAX_ACTORS).fill(-1),   // who gave the order (a follow order tracks them)
   orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
   ackCategory: new Array(MAX_ACTORS).fill('orderAck'),   // the reply bark due at ackAt
   enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
@@ -21984,8 +22048,6 @@ const BotTeam = {
   step(now) {
     if (now >= this.commanderAt) { this.commanderAt = now + COMMANDER_INTERVAL; this.assignRoles(); }
     this.updatePushes(now);
-    const player = Game.playerId;
-    if (player >= 0 && Actors.alive[player] && (Actors.pressed[player] & BTN.PING) !== 0) this.playerPing(player);
   },
   assignRoles() {
     const splits = BOT_ROLE_SPLITS[Modes.rules ? Modes.rules.objective : 'none'] || BOT_ROLE_SPLITS.none;
@@ -22015,15 +22077,23 @@ const BotTeam = {
   orderPlan(id, plan, now) {
     if (this.orderUntil[id] <= now) return false;
     const kind = this.orderKind[id];
+    if (kind === 'follow') return this.followPlan(id, plan);
     if (kind === 'go' && Math.hypot(this.orderX[id] - Actors.x[id], this.orderZ[id] - Actors.z[id]) < ORDER_RADIUS) { this.orderUntil[id] = 0; return false; }
     setPlan(plan, this.orderX[id], this.orderY[id], this.orderZ[id], ORDER_RADIUS, kind === 'defend' ? ACTION.HOLD : ACTION.MOVE, -1);
     return true;
   },
-  give(id, kind, x, y, z, now) {
+  followPlan(id, plan) {
+    const leader = this.orderSource[id];
+    if (leader < 0 || !Actors.alive[leader]) { this.orderUntil[id] = 0; return false; }
+    setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], FOLLOW_RADIUS, ACTION.MOVE, -1);
+    return true;
+  },
+  give(id, kind, x, y, z, now, source) {
     this.orderKind[id] = kind;
+    this.orderSource[id] = source;
     this.orderX[id] = x; this.orderY[id] = y; this.orderZ[id] = z;
     this.orderGivenAt[id] = now;
-    this.orderUntil[id] = now + (kind === 'defend' ? ORDER_DEFEND_SECONDS : ORDER_SECONDS);
+    this.orderUntil[id] = now + ORDER_SECONDS[kind];
     this.queueReply(id, 'orderAck', now);
     this.stats.orders++;
     BotDecide.hurry(id, now);
@@ -22036,9 +22106,15 @@ const BotTeam = {
     const enemyPing = event.kind === 'enemy' || event.kind === 'danger';
     if (enemyPing) this.shareEnemy(pinger, team, event, now);
     if (Bots.active[pinger] || team < 0) return;
-    this.chooseTakers(pinger, team, event.x, event.z);
+    const callout = COMM_CALLOUT_BY_KIND.get(event.kind);
+    this.chooseTakers(pinger, team, event.x, event.z, !!callout && callout.team === true);
     if (enemyPing) { if (takerList.length > 0) this.queueReply(takerList[0], 'pingReply', now); return; }
-    for (let i = 0; i < takerList.length; i++) this.give(takerList[i], orderKindOf(event.kind), event.x, event.y, event.z, now);
+    const order = callout && callout.order ? callout.order : 'go';   // a ping kind with no order of its own moves the takers there
+    for (let i = 0; i < takerList.length; i++) this.giveOrder(takerList[i], order, event, now);
+  },
+  giveOrder(id, order, event, now) {
+    if (order === 'hold') this.give(id, 'defend', Actors.x[id], Actors.y[id], Actors.z[id], now, event.id);
+    else this.give(id, order, event.x, event.y, event.z, now, event.id);
   },
   queueReply(id, category, now) {
     this.ackCategory[id] = category;
@@ -22051,9 +22127,10 @@ const BotTeam = {
       BotSense.share(id, event.target, event.x, event.y, event.z, now);
     }
   },
-  chooseTakers(pinger, team, x, z) {
+  chooseTakers(pinger, team, x, z, wholeTeam) {
     takerList.length = 0;
     for (let id = 0; id < Actors.count; id++) if (id !== pinger && Bots.isBot(id) && Actors.team[id] === team) takerList.push(id);
+    if (wholeTeam) return;
     takerList.sort((a, b) => Math.hypot(Actors.x[a] - x, Actors.z[a] - z) - Math.hypot(Actors.x[b] - x, Actors.z[b] - z));
     if (takerList.length > ORDER_TAKERS) takerList.length = ORDER_TAKERS;
   },
@@ -22068,14 +22145,21 @@ const BotTeam = {
     this.stats.pings++;
     Bus.emit('ping', pingPayload);
   },
-  playerPing(player) {
+  playerPing(player) { this.aimPing(player, ''); },
+  callout(player, index) {
+    const row = COMM_CALLOUTS[index];
+    if (!row || player < 0 || !Actors.alive[player]) return;
+    if (row.at === 'self') this.emitPing(player, row.id, Actors.x[player], Actors.y[player], Actors.z[player], -1);
+    else this.aimPing(player, row.id);
+  },
+  aimPing(player, kind) {
     const yaw = Actors.aimYaw[player], pitch = Actors.aimPitch[player], eyeY = Actors.eyeY(player);
     const dx = Math.sin(yaw) * Math.cos(pitch), dy = Math.sin(pitch), dz = Math.cos(yaw) * Math.cos(pitch);
-    const enemy = aimedEnemy(player, dx, dy, dz);
+    const enemy = kind === '' || kind === 'enemy' ? aimedEnemy(player, dx, dy, dz) : -1;
     if (enemy >= 0) { this.emitPing(player, 'enemy', Actors.x[enemy], Actors.y[enemy], Actors.z[enemy], enemy); return; }
     const distance = World.raycast(Actors.x[player], eyeY, Actors.z[player], dx, dy, dz, PING_RANGE, pingHit) ? pingHit.distance : PING_RANGE;
     const x = Actors.x[player] + dx * distance, y = eyeY + dy * distance, z = Actors.z[player] + dz * distance;
-    this.emitPing(player, spotKind(player, x, z), x, y, z, -1);
+    this.emitPing(player, kind || spotKind(player, x, z), x, y, z, -1);
   },
 
   bark(id, category, now) {
@@ -22112,8 +22196,6 @@ const BotTeam = {
     if (key === 'gameplay.taunts') this.taunts = !!Settings.get(key);
   },
 };
-
-function orderKindOf(kind) { return kind === 'defend' || kind === 'attack' ? kind : 'go'; }
 
 function aimedEnemy(player, dx, dy, dz) {
   let best = -1, bestCos = PING_AIM_COS;
@@ -22391,7 +22473,7 @@ const Pve = {
   aimX: new Float32Array(MAX_ACTORS), aimY: new Float32Array(MAX_ACTORS), aimZ: new Float32Array(MAX_ACTORS),
   cooldown: new Float64Array(MAX_ACTORS * PVE_MAX_ATTACKS),
   brokenUntil: new Float64Array(MAX_ACTORS), staggerUntil: new Float64Array(MAX_ACTORS), revealedUntil: new Float64Array(MAX_ACTORS),
-  coverUntil: new Float64Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
+  coverUntil: new Float64Array(MAX_ACTORS), coverTaken: new Uint8Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
   awareness: new Float32Array(MAX_ACTORS), alarmed: new Uint8Array(MAX_ACTORS), lastThink: new Float64Array(MAX_ACTORS),
   noKnockback: new Uint8Array(MAX_ACTORS),            // unstoppable champions: damage never pushes them
   damageScale: new Float32Array(MAX_ACTORS).fill(1), champion: new Int8Array(MAX_ACTORS).fill(-1), wave: new Int16Array(MAX_ACTORS),
@@ -22420,12 +22502,13 @@ const Pve = {
     for (let id = 0; id < Actors.count; id++) if (this.isEnemy(id) && Actors.alive[id] && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
+  isHostile(id) {
+    const row = this.rowOf(id);
+    return row !== null && Actors.alive[id] === 1 && !row.beast && !row.target;
+  },
   hostileCount(side) {
     let alive = 0;
-    for (let id = 0; id < Actors.count; id++) {
-      const row = this.rowOf(id);
-      if (row && Actors.alive[id] && !row.beast && !row.target && (side === undefined || this.side[id] === side)) alive++;
-    }
+    for (let id = 0; id < Actors.count; id++) if (this.isHostile(id) && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
 
@@ -22434,6 +22517,7 @@ const Pve = {
     this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
     this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
+    BotSense.reservedRays = 0;
     for (const key in this.stats) this.stats[key] = 0;
   },
   onMatchStart() {
@@ -22446,7 +22530,7 @@ const Pve = {
     this.row[id] = -1; this.target[id] = -1; this.attack[id] = -1; this.phase[id] = ATTACK_PHASE.IDLE; this.goal[id] = PVE_GOAL.IDLE;
     this.huntTeam[id] = NO_TEAM; this.side[id] = NO_TEAM; this.champion[id] = -1; this.summoner[id] = -1; this.damageScale[id] = 1;
     this.awareness[id] = 0; this.alarmed[id] = 0; this.guardian[id] = 0; this.parryAt[id] = -1e9; this.weakPool[id] = 0; this.disabledUntil[id] = 0;
-    this.hitDone[id] = 0; this.noKnockback[id] = 0;
+    this.hitDone[id] = 0; this.noKnockback[id] = 0; this.coverTaken[id] = 0;
     this.cooldown.fill(0, id * PVE_MAX_ATTACKS, (id + 1) * PVE_MAX_ATTACKS);
     this.brokenUntil[id] = this.staggerUntil[id] = this.revealedUntil[id] = this.coverUntil[id] = this.lureUntil[id] = 0;
     this.nextThink[id] = this.goalUntil[id] = this.phaseEndsAt[id] = this.diedAt[id] = 0;
@@ -22605,6 +22689,7 @@ const Pve = {
     if (!this.active || (Game.match && Game.match.ended)) return;
     const now = Sim.time;
     this.raysLeft = PVE_DIRECTOR.raysPerTick;
+    BotSense.reservedRays = PVE_DIRECTOR.raysPerTick;   // BOT-091: the enemies' rays come out of the bots' per-tick budget
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id]) continue;
       this.stepEnemy(id, dt, now);
@@ -22643,6 +22728,7 @@ const Pve = {
 
   isFoe(id, other) {
     if (other === id || !Actors.alive[other] || Actors.kind[other] === ACTOR_KIND.NONE) return false;
+    if (Actors.flags[other] & ACTOR_FLAG.PROTECTED) return false;   // BOT-040: spawn-protected actors are ignored, as by bots
     const row = this.rowOf(id), otherRow = this.rowOf(other);
     if (row.beast) return !(otherRow && otherRow.beast);
     if (otherRow) return this.enemyIsFoe(id, other, otherRow);
@@ -22666,6 +22752,7 @@ const Pve = {
       if (other === lastAttacker) score -= PVE_ATTACKER_BONUS;
       if (score < bestScore) { bestScore = score; best = other; }
     }
+    if (best !== this.target[id]) this.coverTaken[id] = 0;   // a new sighting: cover may be taken once more
     this.target[id] = best;
     if (this.stealth) this.updateAwareness(id, best, now);
   },
@@ -22786,13 +22873,15 @@ const Pve = {
   },
   wantsCover(id, row, now) {
     const target = this.target[id];
-    if (!row.takesCover || target < 0 || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (!row.takesCover || target < 0 || this.coverTaken[id] || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (this.lastStand()) return false;
     BotSense.perceivedPosition(id, target, pveScratch);
     const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], pveScratch.x, pveScratch.y + STAND_HEIGHT, pveScratch.z, 15);
     if (cover < 0) return false;
     Nav.nodePosition(Nav.coverNode[cover], pveScratch);
     this.setGoalPoint(id, pveScratch.x, pveScratch.y, pveScratch.z);
     this.coverUntil[id] = now + PVE_DIRECTOR.coverSeconds;
+    this.coverTaken[id] = 1;
     return true;
   },
   lureActive(id, row, now) { return row.beast && now < this.lureUntil[id]; },
@@ -22831,7 +22920,7 @@ const Pve = {
     const brain = PveBrains[row.brain];
     for (let index = 0; index < row.attackRows.length; index++) {
       const attack = row.attackRows[index];
-      if (distance < attack.range[0] || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
+      if ((distance < attack.range[0] && !this.lastStand()) || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
       if (brain.allows && !brain.allows(id, attack, now)) continue;
       return index;
     }
@@ -23014,6 +23103,11 @@ const Pve = {
       this.nextThink[id] = now;
     }
   },
+  panic(event) {
+    if (!this.isEnemy(event.id) || !Actors.alive[event.id]) return;
+    this.brokenUntil[event.id] = Math.max(this.brokenUntil[event.id], Sim.time + event.seconds);
+    this.nextThink[event.id] = Sim.time;
+  },
   onExplosion(event) {
     if (!this.active || (event.element !== PVE_DIRECTOR.lureElement && !PVE_DIRECTOR.lureSources.includes(event.source))) return;
     for (let id = 0; id < Actors.count; id++) {
@@ -23193,6 +23287,7 @@ Bus.on('damage', (event) => Pve.onDamage(event));
 Bus.on('kill', (event) => Pve.onKill(event));
 Bus.on('sound', (event) => Pve.hear(event));
 Bus.on('explosion', (event) => Pve.onExplosion(event));
+Bus.on('ability.panic', (event) => Pve.panic(event));
 Bus.on('pve.tell', playTellSound);
 Sim.addSystem('pveBrains', 11, (dt) => Pve.stepBrains(dt));
 Sim.addSystem('pve', 80, () => Pve.stepDirector());
@@ -23473,7 +23568,7 @@ function chargeHit(id, target, attack) {
   info.x = Actors.x[target]; info.y = Actors.y[target] + 1; info.z = Actors.z[target];
   info.dx = Pve.goalX[id]; info.dy = 0; info.dz = Pve.goalZ[id];
   Damage.apply(id, target, info);
-  if (attack.knockdown > 0) Damage.addStatus(target, 'shock', id, attack.knockdown, 1);
+  if (attack.knockdown > 0) Damage.addStatus(target, 'stun', id, attack.knockdown, 1);
 }
 
 function launchProjectile(id, attack, yawOffset) {
@@ -23737,7 +23832,7 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false };
+        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
@@ -23770,7 +23865,8 @@ function makeWaveBehaviour(plan) {
     },
     fight(run, now) {
       if (Pve.core.health <= 0 || teamWiped(NO_TEAM)) { this.failWave(run, now); return; }
-      if (enemiesLeft() > 0) return;
+      const left = enemiesLeft();
+      if (left > 0) { if (left <= PVE_WAVE_RULES.huntLeft && Pve.pending() === 0) huntLastEnemies(run, now); return; }
       for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Modes.awardPlayer(id, 1, 'wave');
       Bus.emit('pve.wave', waveEvent(run.wave, 'cleared'));
       endEncounter(run);
@@ -23836,6 +23932,16 @@ function endEncounter(run) {
   run.plateOffered = false;
   Pve.guardian.fill(0);
 }
+function huntLastEnemies(run, now) {
+  if (now < run.huntAt) return;
+  run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
+  for (let enemy = 0; enemy < Actors.count; enemy++) if (Pve.isHostile(enemy)) pingToBots(enemy, now);
+}
+function pingToBots(enemy, now) {
+  for (let bot = 0; bot < Actors.count; bot++) {
+    if (Bots.isBot(bot) && Modes.participant[bot]) BotSense.share(bot, enemy, Actors.x[enemy], Actors.y[enemy], Actors.z[enemy], now);
+  }
+}
 const waveEventPayload = { wave: 0, kind: '' };
 function waveEvent(wave, kind) { waveEventPayload.wave = wave; waveEventPayload.kind = kind; return waveEventPayload; }
 function coreObjective(id, out) {
@@ -23870,6 +23976,15 @@ Items.grantEffects.coreShield = () => {
   Pve.core.shield += PVE_WAVE_RULES.coreShield;
   return true;
 };
+const CORE_HIT_LIFT = 1;   // the core's hit sphere sits this far above its spot (where enemy attacks aim)
+function repairCore(event) {
+  const core = Pve.core, mode = gadgetShotMode(event);
+  if (!mode || !(mode.repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
+  const distance = raySphere(event.x, event.y, event.z, event.dx, event.dy, event.dz, core.x, core.y + CORE_HIT_LIFT, core.z, PVE_WAVE_RULES.coreRadius);
+  if (distance < 0 || distance > Devices.shotReach(event, mode.range)) return;
+  core.health = Math.min(core.max, core.health + mode.repair / mode.rate);
+}
+Bus.on('weapon.fire', repairCore);
 
 const BankRun = {
   carried: new Int16Array(MAX_ACTORS), banked: [0, 0], invasions: [0, 0], boss: [-1, -1], banks: [null, null], result: NOT_OVER, nextFillAt: 0,
@@ -24358,6 +24473,15 @@ function drawBox(batch, x, y, z, size, color, glow) {
   batch.mesh('box', x, y, z, 0, 0, size[0], size[1], size[2], color[0], color[1], color[2], glow);
 }
 Render.addSource('pveChambers', drawChambers);
+
+const wrathEventPayload = { id: -1, active: false };
+function reportWrath(event, active) {
+  if (event.ability !== SOUL_ULTIMATE) return;
+  wrathEventPayload.id = event.id; wrathEventPayload.active = active;
+  Bus.emit('pve.wrath', wrathEventPayload);
+}
+Bus.on('ability.cast', (event) => reportWrath(event, true));
+Bus.on('ability.end', (event) => reportWrath(event, false));
 
 function resetPveModes() {
   resetPveHud();
@@ -25462,7 +25586,7 @@ function cardAmmoPickup(event) {
 function cardSoulPickup(event) {
   if (event.item !== CARD_SOUL_ITEM || !CardRun.holds(CARD_KIND.soulHeal, event.id) || !CARD_SOUL_ROW) return;
   const extra = CARD_SOUL_ROW.instant.heal * (CardRun.value[CARD_KIND.soulHeal] - 1);
-  Items.addHealth(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
+  Damage.regenerate(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
 }
 function cardFire(event) {
   if (!CardRun.holds(CARD_KIND.noAmmoUse, event.id)) return;
@@ -25472,9 +25596,7 @@ function cardFire(event) {
   if (event.mode === 'alt') Weapons.altAmmo[slot] = weapon.altAmmo; else Weapons.magazine[slot] = Weapons.magSize(event.id, weapon);
 }
 function cardDamage(event) {
-  const id = event.source;
-  if (!CardRun.holds(CARD_KIND.lifesteal, id) || event.target === id || !Actors.alive[id]) return;
-  Damage.regenerate(id, event.amount * CardRun.value[CARD_KIND.lifesteal], Actors.maxHealth[id]);
+  if (CardRun.holds(CARD_KIND.lifesteal, event.source)) Damage.lifesteal(event, CardRun.value[CARD_KIND.lifesteal]);
 }
 function cardKill(event) {
   if (event.killer !== Game.playerId || event.killer < 0 || Actors.kind[event.victim] !== ACTOR_KIND.ENEMY) return;
@@ -31823,6 +31945,88 @@ Hud.register('main', 'scopeInfo', 'crosshair', hudDrawScopeInfo);
 Hud.register('back', 'suppression', '', hudDrawSuppression, true);
 Hud.register('front', 'blind', '', hudDrawBlind, true);
 
+// ==== 17g-hud-comm.js ====
+
+const COMM_WHEEL_HOLD = 0.3;           // s a Ping press must be held to open the wheel instead of pinging
+const COMM_WHEEL_DEADZONE = 0.02;      // radians of look before a callout is picked
+const COMM_WHEEL_REACH = 0.06;         // the pick point stays this close to the centre, so turning to another callout is short
+const COMM_WHEEL_RADIUS = 120, COMM_WHEEL_ICON = 18, COMM_WHEEL_PICKED = 1.35, COMM_WHEEL_BACKDROP = 60;   // design pixels (times the HUD unit)
+
+const CommWheel = {
+  open: false,
+  source: '',           // what opened it: 'comm' or 'ping' (letting go of that one sends the callout)
+  pickX: 0, pickY: 0,   // the look gathered since it opened (radians, y positive = down)
+  selected: -1,         // index into COMM_CALLOUTS, -1 = none
+  pingHeld: -1,         // s the Ping action has been held, -1 = up
+
+  init() {},
+  reset() { this.close(); this.pingHeld = -1; },
+  frame(seconds) {
+    const player = Game.playerId;
+    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { if (this.open || this.pingHeld >= 0) this.reset(); return; }
+    this.updatePing(player, seconds);
+    if (this.open) this.takeLook();
+  },
+  updatePing(player, seconds) {
+    if (Input.effective[Input.actionIndex.ping]) {
+      this.pingHeld = Math.max(0, this.pingHeld) + seconds;
+      if (!this.open && this.pingHeld >= COMM_WHEEL_HOLD) this.show('ping');
+      return;
+    }
+    if (this.pingHeld < 0) return;
+    const tapped = this.pingHeld < COMM_WHEEL_HOLD;
+    this.pingHeld = -1;
+    if (tapped) BotTeam.playerPing(player);
+    else if (this.source === 'ping') this.send(player);
+  },
+  onComm(down) {
+    const player = Game.playerId;
+    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) return;
+    if (down) this.show('comm');
+    else if (this.source === 'comm') this.send(player);
+  },
+  show(source) {
+    this.open = true; this.source = source;
+    this.pickX = this.pickY = 0; this.selected = -1;
+  },
+  close() { this.open = false; this.source = ''; this.selected = -1; },
+  send(player) {
+    const selected = this.selected;
+    this.close();
+    if (selected >= 0) BotTeam.callout(player, selected);
+  },
+  takeLook() {
+    const look = Input.look;
+    this.pick(look.mouseX + look.assistedX, look.mouseY + look.assistedY);
+    look.mouseX = look.mouseY = look.assistedX = look.assistedY = 0;
+  },
+  pick(dx, dy) {
+    this.pickX += dx; this.pickY += dy;
+    const length = Math.hypot(this.pickX, this.pickY);
+    if (length < COMM_WHEEL_DEADZONE) return;
+    if (length > COMM_WHEEL_REACH) { this.pickX *= COMM_WHEEL_REACH / length; this.pickY *= COMM_WHEEL_REACH / length; }
+    const count = COMM_CALLOUTS.length, angle = Math.atan2(this.pickX, -this.pickY);
+    this.selected = (Math.round(angle / (2 * Math.PI / count)) + count) % count;
+  },
+};
+Input.sources.push(CommWheel);
+Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
+Bus.on('match.stop', () => CommWheel.reset());
+
+function hudDrawCommWheel(pen, layout) {
+  if (!CommWheel.open) return;
+  const unit = layout.unit, count = COMM_CALLOUTS.length, radius = COMM_WHEEL_RADIUS * unit;
+  pen.shape('square', layout.centerX, layout.centerY, (radius + COMM_WHEEL_BACKDROP * unit) * 2, HUD_COLOR.black, 0.35);   // keeps the labels readable on bright walls
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * 2 * Math.PI, picked = i === CommWheel.selected;
+    const x = layout.centerX + Math.sin(angle) * radius, y = layout.centerY - Math.cos(angle) * radius;
+    const size = COMM_WHEEL_ICON * unit * (picked ? COMM_WHEEL_PICKED : 1);
+    pen.shape('circle', x, y, size, picked ? Hud.colors.good : HUD_COLOR.dim, picked ? 0.95 : 0.6);
+    pen.label(COMM_CALLOUTS[i].label, x, y + size + 4 * unit, HUD_TEXT_SMALL * unit, picked ? Hud.colors.good : HUD_COLOR.text, 'center');
+  }
+}
+Hud.register('front', 'commWheel', '', hudDrawCommWheel, true);
+
 // ==== 18a-ui.js ====
 
 const UI_TOAST_MS = 2600;
@@ -32094,7 +32298,7 @@ const MAIN_MENU_ENTRIES = [
   { label: 'Career', screen: 'career' },   // ladder, challenges, operations, daily, cards, profile (18j)
   { label: 'Play', screen: 'play' },
   { label: 'Custom', screen: 'custom' },
-  { label: 'Range', screen: 'range' },
+  { label: 'Range', event: 'ui.range' },   // starts the Firing Range (18j careerOpenRange)
   { label: 'Map editor', screen: 'mapEditor' },
   { label: 'Settings', screen: 'settings' },
   { label: 'Help', screen: 'help' },
@@ -32390,7 +32594,7 @@ const PERF_REFRESH_MS = 250;
 const PERF_ERROR_LINES = 3;
 const PERF_ERROR_CHARS = 110;
 const PERF_SYSTEMS_SHOWN = 5;
-const AI_SYSTEM_PATTERN = /^(ai|bot)/i;     // PERF-012 wants the bot AI cost always visible, whatever else is slow
+const AI_SYSTEM_PATTERN = /^(ai|bot|pveBrains)/i;    // PERF-012 wants the bot AI cost always visible, whatever else is slow
 const PERF_FLOOR_FPS = 60;               // PERF-001 hard minimum: the panel turns red below it
 const BYTES_PER_MEGABYTE = 1048576;
 const PERF_CSS = '#overlay > .perf-hud { position: fixed; top: calc(6px + var(--safe-top)); left: calc(6px + var(--safe-left)); z-index: 40; margin: 0; padding: 6px 8px;'
@@ -32537,10 +32741,8 @@ const PlayFlow = {
     const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: Array.from({ length: choice.bots }, () => ({})),
       seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE), difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
-    for (const adjust of this.setupHooks) adjust(setup);
     return setup;
   },
-  setupHooks: [],   // fn(setup) later sections push to adjust a built setup (18l: the player's assist sliders)
   start(choice, random) {
     const valid = this.normalize(choice);
     if (!valid.map) { Ui.toast('No map is available for that mode'); return null; }
@@ -34568,6 +34770,7 @@ function careerOpenRange() {
   if (Ui.screens.has(CAREER_RANGE_MODE)) { Ui.open(CAREER_RANGE_MODE); return; }
   careerStartMode(CAREER_RANGE_MODE);
 }
+Bus.on('ui.range', careerOpenRange);   // the main menu Range entry (18b)
 
 const CAREER_SCREENS = [
   { label: 'Profile and unlocks', screen: 'profile' }, { label: 'Tournament Ladder', screen: 'ladder' },
@@ -35054,7 +35257,7 @@ const DifficultyAssist = {
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
-PlayFlow.setupHooks.push((setup) => DifficultyAssist.apply(setup));
+Game.setupHooks.push((setup) => DifficultyAssist.apply(setup));
 
 Ui.difficultyRows = function difficultyRows(container, values, onChange) {
   for (const [field, definition] of ASSIST_DEFINITIONS) {
@@ -35318,6 +35521,10 @@ const Perf = {
       cpuP95: this.percentile(this.cpuMs, 0.95), simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing };
   },
   reset() { this.index = 0; this.filled = 0; this.droppedSteps = 0; },
+  publishCounters() {
+    this.counters.audioMs = Sound.updateMs;
+    this.counters.projectiles = Projectiles.active;
+  },
 };
 
 const Loop = {
@@ -35352,7 +35559,7 @@ const Loop = {
     if (Game.isRunning()) this.advance(seconds);
     const simMs = performance.now() - simStart;
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
-    Perf.counters.audioMs = Sound.updateMs;
+    Perf.publishCounters();
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
   },
   advance(seconds) {
@@ -35445,6 +35652,8 @@ const Test = {
   },
 };
 
+const DEBUG_STRESS_MUTATORS = ['rocketpit', 'lastgift'];   // explosive-heavy: rockets only, and every death drops a grenade
+
 const DebugApi = {
   version: VERSION,
   selfTest: (options) => Test.run(options),
@@ -35455,6 +35664,18 @@ const DebugApi = {
   perf: { stats: () => Perf.stats() },
   step(steps) { Sim.run(steps || 1); return Sim.tick; },
   seed(seed) { Rng.reseed(seed); return Rng.seed; },
+  give(key, id) { return Items.giveKey(id === undefined ? Game.playerId : id, key); },
+  god(on, id) {
+    const target = id === undefined ? Game.playerId : id;
+    if (target < 0) return false;
+    if (on) Actors.flags[target] |= ACTOR_FLAG.GOD; else Actors.flags[target] &= ~ACTOR_FLAG.GOD;
+    return on;
+  },
+  stress(level) {
+    const setup = PlayFlow.buildSetup(PlayFlow.normalize({ mode: PLAY_DEFAULT_MODE, bots: PlayFlow.maxBots() }));
+    if (level === 'max') setup.mutators = DEBUG_STRESS_MUTATORS.slice();
+    return Game.start(setup);
+  },
   log: { errors: () => ErrorLog.entries.slice() },
   save: {
     dump: () => Save.exportText(),
@@ -35498,7 +35719,7 @@ const AbilityTest = {
     if (row.resource === 'charges') return Abilities.charges[t.i] === row.charges - 1;
     if (row.resource === 'energy') return Test.near(Meters.energy[t.caster], Meters.energyMax() - row.cost, 1e-4);
     if (row.resource === 'ultimate') return Test.near(Meters.points[t.caster], pointsBefore - Meters.ultimateCost(row), 1e-3);
-    if (row.resource === 'souls') return Meters.souls[t.caster] === 0;
+    if (row.resource === 'souls') return Powerups.souls[t.caster] === 0;
     return true;
   },
   zoneOf(t, kind) { return AbilityZones.find(kind, t.caster); },
@@ -35612,7 +35833,7 @@ const ABILITY_CASES = {
     },
   },
   wrath: {
-    setup: (t) => { Meters.souls[t.caster] = 66; }, seconds: 0.1,
+    setup: (t) => { Powerups.souls[t.caster] = 66; }, seconds: 0.1,
     expect: (t) => {
       const buffed = Abilities.active[t.i] === 1 && Buffs.has(t.caster, BUFF.TOUCH_KILL);
       TestArena.place(t.enemy, 0, 1);
@@ -35964,6 +36185,62 @@ Test.add('abilities', (check) => {
   Abilities.setSlot(t.caster, SLOT.ABILITY1, null);
   Abilities.hudState(t.caster, hud);
   check('HUD: emptied slots are trimmed', hud.slots.length === 0);
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start(), 'arcbolt');
+  TestArena.aimAt(t.caster, t.enemy);
+  AbilityTest.cast(t);
+  check('Shock chains to the nearest other enemy (HP-005 +chain)', Damage.hasStatus(t.second, 'shock') && !Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  Damage.clearAllStatuses(t.enemy); Damage.clearAllStatuses(t.second);
+  TestArena.place(t.second, 6, ENEMY_DISTANCE);
+  TestArena.place(t.ally, 0, ENEMY_DISTANCE + 7);
+  Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0;
+  AbilityTest.cast(t);
+  const dryShocked = Damage.hasStatus(t.second, 'shock');
+  Damage.clearAllStatuses(t.enemy);
+  for (const id of [t.enemy, t.second, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
+  Meters.energy[t.caster] = Meters.energyMax(); Abilities.cooldown[t.i] = 0;
+  AbilityTest.cast(t);
+  check('A29 on a dry target: nobody 6 m away is shocked', !dryShocked);
+  check('A29 on a wet target: everyone wading in that water is stunned, the caster on dry floor is not (HP-005 wet floor)',
+    Damage.hasStatus(t.second, 'shock') && Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  for (const id of [t.enemy, t.second, t.ally]) { Motion.medium[id] = 0; Damage.clearAllStatuses(id); }
+  Damage.resetHealth(t.enemy);   // three bolts took 90: the shattering ignite hit (x3) must not kill
+  Damage.addStatus(t.enemy, 'freeze', t.caster);
+  AbilityTest.give(t, 'ignite');
+  const cast = AbilityTest.cast(t);
+  check('A30 Ignite melts ice: the frozen target thaws and burns', !Damage.hasStatus(t.enemy, 'freeze') && Damage.hasStatus(t.enemy, 'burn'),
+    cast + ' ' + Damage.hasStatus(t.enemy, 'freeze') + ' ' + Damage.hasStatus(t.enemy, 'burn'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
+  chargeHit(t.enemy, t.caster, CAT.enemies.byId('charger').attacks[0]);   // a non-electric stun: no chain, no wet spread
+  check('E10 charger knockdown stuns only its target, even in water (no HP-005 Shock combo)',
+    Damage.hasStatus(t.caster, 'stun') && !Damage.hasStatus(t.ally, 'stun') && !Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
+  for (const id of [t.caster, t.ally]) Motion.medium[id] = 0;
+  TestArena.finish();
+});
+
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({ family: 'pve' }), 'swarm');
+  Actors.kind[t.enemy] = ACTOR_KIND.ENEMY; Actors.profile[t.enemy] = { fodder: true }; Pve.row[t.enemy] = 0;
+  TestArena.aimAt(t.caster, t.enemy);
+  let panics = 0;
+  const listener = Bus.on('ability.panic', (event) => { if (event.id === t.enemy) panics++; });
+  AbilityTest.cast(t);
+  Bus.off('ability.panic', listener);
+  check('A32 swarm on a fodder enemy panics it for the swarm time', panics === 1 && Test.near(Pve.brokenUntil[t.enemy] - Sim.time, t.row.duration, 1e-6), Pve.brokenUntil[t.enemy] - Sim.time);
+  AbilityTest.give(t, 'colossusweave');
+  AbilityTest.cast(t);
+  Sim.run(1);
+  TestArena.place(t.second, 0, 1.5);
+  Actors.yaw[t.caster] = Actors.aimYaw[t.caster] = 0; Actors.pitch[t.caster] = Actors.aimPitch[t.caster] = 0;
+  let thrown = null;
+  const onImpulse = Bus.on('impulse', (event) => { if (event.id === t.second) thrown = Object.assign({}, event); });
+  Bus.emit('weapon.fire', { id: t.caster, weapon: 'maul', weaponClass: 'melee', mode: 'melee', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  Bus.off('impulse', onImpulse);
+  const params = t.row.params;
+  check('A03 a melee swing throws the enemy in front along the view', thrown && Test.near(thrown.z, params.throwSpeed, 1e-4) && Test.near(thrown.y, params.throwLift, 1e-4), JSON.stringify(thrown));
   TestArena.finish();
 });
 
@@ -37109,6 +37386,46 @@ Test.add('bots', (check) => {
   runSeconds(2);
   check('chatter off silences the barks', barks.length === count);
   barks.stop();
+  endBotTest();
+});
+
+Test.add('bots', (check) => {
+  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
+  const mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  runSeconds(1);
+  const fromPlayer = () => pings.filter((event) => event.id === player);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.1);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  check('wheel: a short Ping tap pings at once, no wheel', fromPlayer().length === 1 && !CommWheel.open, fromPlayer().length);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.2); CommWheel.frame(0.2);
+  check('wheel: holding Ping opens the wheel and sends nothing yet', CommWheel.open && fromPlayer().length === 1);
+  Input.look.mouseX = 0.05;
+  const yaw = Actors.aimYaw[player];
+  CommWheel.frame(0.02);
+  check('wheel: look picks the callout to the right (Follow me) and does not turn the view', COMM_CALLOUTS[CommWheel.selected].id === 'follow' && Input.look.mouseX === 0 && Actors.aimYaw[player] === yaw, CommWheel.selected);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  const follow = fromPlayer()[1];
+  check('wheel: letting go sends the picked callout at the caller', !CommWheel.open && follow && follow.kind === 'follow' && follow.x === Actors.x[player], JSON.stringify(follow));
+  check('follow me: every team bot takes it and tracks the caller', mates.every((id) => BotTeam.orderKind[id] === 'follow' && BotTeam.orderSource[id] === player), mates.map((id) => BotTeam.orderKind[id]).join());
+  placeActor(player, 18, -18);
+  runSeconds(6);
+  const nearCaller = (id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18) < 8;   // a bot in a fight may fight first (combat outscores orders)
+  check('follow me: the bots come to where the caller went', mates.some(nearCaller) && mates.every((id) => nearCaller(id) || BotCombat.target[id] >= 0), mates.map((id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18).toFixed(1) + ' goal ' + BotDecide.goal[id]).join());
+  CommWheel.onComm(true);
+  CommWheel.pick(0, 0.05);   // straight down: the fifth of eight callouts
+  CommWheel.onComm(false);
+  const regroup = fromPlayer()[2];
+  check('wheel: the Comm key opens it too (down = Regroup)', regroup && regroup.kind === 'regroup', JSON.stringify(regroup));
+  BotTeam.callout(player, COMM_CALLOUTS.findIndex((row) => row.id === 'hold'));
+  check('hold position: every bot defends the spot it stands on', mates.every((id) => BotTeam.orderKind[id] === 'defend' && Test.near(BotTeam.orderX[id], Actors.x[id], 1e-3) && Test.near(BotTeam.orderZ[id], Actors.z[id], 1e-3)));
+  CommWheel.onComm(true);
+  CommWheel.onComm(false);
+  check('wheel: letting go with nothing picked sends nothing', fromPlayer().length === 4 && !CommWheel.open, fromPlayer().length);
+  pings.stop();
+  CommWheel.reset();
   endBotTest();
 });
 
@@ -38509,6 +38826,31 @@ Test.add('damage', (check) => {
   const dealt = TestArena.hit(attacker, guard, 30, { mode, zone: 'head', dx: 0, dy: 0, dz: -1 });
   Actors.buttons[guard] = 0;
   check('HP-001 zone x precision applies before victim reductions', head > 1 && Test.near(dealt, 30 * head - 10, 1e-4), dealt + ' head x' + head);
+  TestArena.finish();
+});
+Test.add('damage', (check) => {
+  TestArena.start();
+  const source = TestArena.actor(0, 0, 0), target = TestArena.actor(1, 0, 5);
+  const event = { source, target, amount: 20 };
+  Actors.health[source] = 50;
+  Damage.lifesteal(event, 0.5);
+  check('lifesteal heals the source by the share of the damage', Actors.health[source] === 60, Actors.health[source]);
+  Actors.health[source] = Actors.maxHealth[source] - 1;
+  Damage.lifesteal(event, 0.5);
+  check('lifesteal stops at max health', Actors.health[source] === Actors.maxHealth[source]);
+  Actors.health[source] = 50;
+  Damage.lifesteal({ source, target: source, amount: 20 }, 0.5);
+  check('self damage steals nothing', Actors.health[source] === 50);
+  const steal = Damage.lifesteal, holds = CardRun.holds, shares = [];
+  Damage.lifesteal = (payload, share) => { shares.push(share); };
+  CardRun.holds = (kind) => kind === CARD_KIND.lifesteal;
+  try {
+    Powerups.lifesteal[source] = 0.25;
+    Powerups.onDamage(event);
+    onDamageLifesteal({ lifesteal: 0.1 }, event);
+    cardDamage(event);
+  } finally { Damage.lifesteal = steal; CardRun.holds = holds; Powerups.lifesteal[source] = 0; }
+  check('PU12, X13 and C24 all heal through Damage.lifesteal', shares.length === 3 && shares[0] === 0.25 && shares[1] === 0.1 && shares[2] === CardRun.value[CARD_KIND.lifesteal], shares.join(' '));
   TestArena.finish();
 });
 
@@ -40501,8 +40843,11 @@ Test.add('input', (check) => {
   check('multi-touch: more fingers than slots are ignored safely', TouchInput.activeCount === TOUCH_SLOT_COUNT);
   for (let pointer = 20; pointer < 20 + TOUCH_SLOT_COUNT + 2; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
   check('multi-touch: all slots free again', TouchInput.activeCount === 0);
-  let perfToggles = 0;
-  const listener = Bus.on('input.action', (event) => { if (event.action === 'perfHud' && event.down) perfToggles++; });
+  let perfToggles = 0, botDebugToggles = 0;
+  const listener = Bus.on('input.action', (event) => {
+    if (event.action === 'perfHud' && event.down) perfToggles++;
+    if (event.action === 'botDebug' && event.down) botDebugToggles++;
+  });
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
@@ -40511,6 +40856,7 @@ Test.add('input', (check) => {
   Bus.off('input.action', listener);
   Input.clearAll();
   check('touch: a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
 
@@ -40659,8 +41005,8 @@ Test.add('input', (check) => {
   check('perf: a frame of input sampling costs far below the 0.4 ms budget', perFrame < 0.1, perFrame.toFixed(4) + ' ms');
   check('perf: sampling kept the player input valid', kept);
   Game.pause('menu');
-  const sources = Input.sources.length;
-  check('structure: touch and gamepad register as sources', sources === 2);
+  const sources = Input.sources;
+  check('structure: touch, gamepad and the comm wheel (17g) register as sources', sources.length === 3 && sources.includes(TouchInput) && sources.includes(PadInput) && sources.includes(CommWheel));
   Game.resume();
 });
 
@@ -46236,6 +46582,31 @@ Test.add('play', (check) => uiWith(() => {
   Game.stop();
 }));
 
+function playTestHit(target, amount) {
+  const info = Damage.info();
+  info.amount = amount;
+  let source = 0;
+  while (Actors.kind[source] !== ACTOR_KIND.BOT) source++;
+  return Damage.apply(source, target, info);
+}
+
+Test.add('play', (check) => {
+  const match = DebugApi.stress('max');
+  check('__CTK.stress: a deathmatch with the most bots the quality allows (ARC-040)', match === Game.match && Game.match.rules.mode === 'ffa'
+    && playTestCount(ACTOR_KIND.BOT) === PlayFlow.maxBots() && Game.playerId >= 0, playTestCount(ACTOR_KIND.BOT) + '/' + PlayFlow.maxBots());
+  check('__CTK.stress(\'max\'): the explosive mutators are on', DEBUG_STRESS_MUTATORS.every((id) => Game.match.rules.mutators.some((entry) => entry.id === id)) && Mutators.fx.lastGift === true);
+  const player = Game.playerId;
+  check('__CTK.give: gives a weapon key to the player', DebugApi.give('warden') && Weapons.has(player, 'warden'));
+  check('__CTK.give: gives a powerup key', DebugApi.give('quickening') && Powerups.has(player, 'quickening'));
+  Modes.endProtection(player);
+  DebugApi.god(true);
+  const dealtWithGod = playTestHit(player, 500);
+  check('__CTK.god(true): the player takes no damage', Actors.alive[player] === 1 && dealtWithGod === 0);
+  DebugApi.god(false);
+  check('__CTK.god(false): damage lands again', playTestHit(player, 1) > 0 && (Actors.flags[player] & ACTOR_FLAG.GOD) === 0);
+  Game.stop();
+});
+
 // ==== 20b-test-progress.js ====
 
 DebugApi.progress = { Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun, open: (screen) => Ui.open(screen) };
@@ -46799,10 +47170,10 @@ function progressSoulSeconds(slot) { return slot < 0 ? 0 : (Items.despawnTick[sl
 function progressWrathChecks(check, ids, cost, label) {
   progressRules({ meter: 'energy' });   // the souls pay for Wrath (an ultimate meter would pay instead)
   Abilities.setSlot(ids.player, SLOT.ULTIMATE, CAT.abilities.byId('wrath'));
-  Meters.souls[ids.player] = cost - 1;
+  Powerups.souls[ids.player] = cost - 1;
   Sim.step();
   check(label + ': Wrath Form waits below ' + cost + ' souls', !Abilities.isActive(ids.player, 'wrath') && RunLog.wrathForms === 0);
-  Meters.souls[ids.player] = cost;
+  Powerups.souls[ids.player] = cost;
   Sim.step();
   check(label + ': Wrath Form at ' + cost + ' souls counts one form', Abilities.isActive(ids.player, 'wrath') && RunLog.inWrath && RunLog.wrathForms === 1);
   const victim = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
@@ -46821,11 +47192,6 @@ function progressSoulChecks(check, ids, fiend) {
   Items.x[slot] = Actors.x[ids.player] + 10; Items.z[slot] = Actors.z[ids.player];
   Items.homeSoul(slot, 0.1);
   check('cards: C11 Soul Magnet: a soul 10 m away flies to you', Items.x[slot] < Actors.x[ids.player] + 10 - 0.5);
-  Meters.dropSoul(ids.player, Actors.x[ids.player] + 10, Actors.y[ids.player], Actors.z[ids.player]);
-  const orb = Meters.soulAlive.indexOf(1), orbStart = Meters.soulX[orb];
-  Meters.stepSoul(orb, 0.1);
-  check('cards: C11 Soul Magnet also pulls Wrath souls from 10 m', orb >= 0 && Meters.soulX[orb] < orbStart - 0.5);
-  Meters.clearSouls();
   Actors.health[ids.player] = 50;
   Items.take(ids.player, slot);
   check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CARD_SOUL_ROW.instant.heal, Actors.health[ids.player]);
@@ -46972,8 +47338,8 @@ function pveTestMap(extra) {
   return Object.assign({ id: 'pve-test', brushes: [TEST_FLOOR], spawns: [{ x: 0, y: 0, z: 0, yaw: 0 }], objectives: [], items: [] }, extra);
 }
 
-function startPveTest(setup) {
-  World.load(pveTestMap());
+function startPveTest(setup, map) {
+  World.load(pveTestMap(map));
   Game.start(Object.assign({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' }, setup));
   Modes.endProtection(0);   // spawn protection would swallow the first hits
   return 0;
@@ -47712,6 +48078,95 @@ Test.add('pve', (check) => {
   announces.stop();
   endModeTest();
 });
+
+function soulPickupSlot() {
+  for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === 'soul') return slot;
+  }
+  return -1;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const player = startPveMode('horde', [0])[0], ultimate = Abilities.row(player, SLOT.ULTIMATE);
+  check('a soul mode gives A34 Wrath Form as the ultimate', ultimate && ultimate.id === SOUL_ULTIMATE, ultimate && ultimate.id);
+  check('one soul counter: the meters keep no souls or orbs of their own', Meters.souls === undefined && Meters.dropSoul === undefined);
+  const enemy = Pve.spawnEnemy('husk', Actors.x[player], Actors.y[player], Actors.z[player] + 3, Math.PI);
+  killEnemy(enemy, player);
+  const slot = soulPickupSlot(), before = Powerups.souls[player];
+  check('a PvE kill in a soul mode drops a PU18 soul', slot >= 0);
+  if (slot >= 0) Items.take(player, slot);
+  check('the soul counts in Powerups.souls', Powerups.souls[player] === before + 1, Powerups.souls[player]);
+  const reports = startEventLog('pve.wrath');
+  Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
+  Sim.step();
+  check('Wrath Form casts itself once the souls pay for it and spends them', Abilities.isActive(player, SOUL_ULTIMATE) && Powerups.souls[player] === 0);
+  Sim.run((CAT.abilities.byId(SOUL_ULTIMATE).duration + 0.5) * TICK_RATE);
+  reports.stop();
+  check('pve.wrath reports its start and its end', reports.length === 2 && reports[0].id === player && reports[0].active === true && reports[1].active === false,
+    reports.map((event) => event.active).join(' '));
+  endModeTest();
+}));
+
+const PVE_TEST_WALL = { shape: 'box', min: [-4, 0, 12], max: [4, 3, 12.3] };   // cover for an enemy 10 m in front of the dummy
+Test.add('pve', (check) => {
+  const dummy = startPveTest({}, { brushes: [TEST_FLOOR, PVE_TEST_WALL] });
+  const gunner = spawnFacing('gunner', 10), row = Pve.rowOf(gunner);
+  const others = [40, 45, 50, 55].map((distance) => spawnFacing('husk', distance)), leaper = spawnFacing('leaper', 30), leaperRow = Pve.rowOf(leaper);
+  const closeIn = leaperRow.attackRows[0].range[0] / 2;   // inside the pounce's minimum range
+  check('a leaper does not pounce inside its minimum range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === -1);
+  Pve.target[gunner] = dummy;
+  BotSense.remember(BotSense.pair(gunner, dummy), SENSE.SEEN, Actors.x[dummy], Actors.y[dummy], Actors.z[dummy], Sim.time);
+  Actors.health[gunner] = Actors.maxHealth[gunner] * 0.2;
+  Pve.decide(gunner, row, Sim.time);
+  check('a hurt gunner takes cover', Pve.goal[gunner] === PVE_GOAL.COVER, Pve.goal[gunner]);
+  Pve.coverUntil[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('its cover time over, it does not hide again from the same target', Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  for (const id of others) killEnemy(id);
+  Pve.coverTaken[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('in a last stand it never takes cover', Pve.lastStand() && Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  check('in a last stand a cornered leaper pounces at any range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === 0);
+  Actors.flags[dummy] |= ACTOR_FLAG.PROTECTED;
+  const protectedFoe = Pve.isFoe(gunner, dummy);
+  Actors.flags[dummy] &= ~ACTOR_FLAG.PROTECTED;
+  check('PvE enemies ignore a spawn-protected actor', !protectedFoe && Pve.isFoe(gunner, dummy));
+  Pve.stepBrains(TICK_SECONDS);
+  BotSense.serve(Sim.time);
+  check('the bots get the per-tick ray budget minus the PvE share', BotSense.raysLeft <= SENSE_RAYS_PER_TICK - PVE_DIRECTOR.raysPerTick, BotSense.raysLeft);
+  Game.stop();
+  check('without PvE the bots get the whole budget back', BotSense.reservedRays === 0);
+  World.clear();
+});
+
+Test.add('pve', (check) => withShortShop(() => {
+  const bot = startPveMode('horde', [], { brushes: [TEST_FLOOR, { shape: 'box', min: [-10, 0, 20], max: [10, 4, 20.5] }] }, { bots: [{ team: 0 }] })[0];
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.queue.count = 0;
+  Pve.clearEnemies();
+  const enemy = Pve.spawnEnemy('husk', 0, 0, 30, Math.PI);
+  Actors.flags[enemy] |= ACTOR_FLAG.FROZEN;   // stays behind the wall
+  runSeconds(PVE_WAVE_RULES.huntPingSeconds + 0.5);
+  const pair = BotSense.pair(bot, enemy);
+  check('the bot knows where the last enemy hides without seeing it', Bots.isBot(bot) && BotSense.knows(bot, enemy, Sim.time) && !BotSense.sees(bot, enemy)
+    && BotSense.source[pair] === SENSE.PINGED, BotSense.source[pair]);
+  const knife = CAT.weapons.byId('tanto');
+  check('an out-of-ammo bot walks inside its knife reach to attack', attackRadius(knife) < knife.primary.reach, attackRadius(knife));
+  endModeTest();
+}));
+
+const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
+Test.add('pvesoak', (check) => {
+  Game.start({ mode: 'horde', map: 'cistern', seed: 11, player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 0 }], difficulty: 'regular' });
+  const waves = startEventLog('pve.wave');
+  runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
+  waves.stop();
+  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results, seconds = [];
+  for (let i = 1; i < waves.length; i++) if (waves[i].kind !== 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
+  check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
+    cleared + ' cleared, ' + (results && results.reason));
+  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
+  endModeTest();
+}, { slow: true });
 
 // ==== 20b-test-render.js ====
 
@@ -48654,8 +49109,8 @@ Test.add('settings', (check) => {
   check('assist: switched on with every slider neutral, the preset is not overridden', untouched.difficulty.preset === 'nightmare' && Object.keys(untouched.difficulty).length === 1, JSON.stringify(untouched.difficulty));
   Settings.set('assist.gameSpeed', 0.7);
   const built = PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'nightmare', bots: 2 }), () => 0.5);
-  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   Game.start(built);
+  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   const skill = Game.match.rules.botSkill;
   check('assist: the preset keeps its bot tiers and behaviour', skill.preset === 'nightmare' && skill.tierMin === 7 && skill.aggression === 1 && skill.attackers === 7 && skill.gameSpeed === 0.7);
   check('assist: game speed scales the simulation clock', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
@@ -48670,8 +49125,14 @@ Test.add('settings', (check) => {
   Sim.run(10);
   check('assist: slow-mo ends back at the assist speed', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
   Game.stop();
+  const direct = { mode: 'ffa', seed: 1, difficulty: 'veteran' };
+  Game.start(direct);
+  check('assist: a setup not built by Play still gets the assist sliders', direct.difficulty.preset === 'veteran' && Game.match.rules.botSkill.gameSpeed === 0.7 && Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(direct.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 1);
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };
@@ -48991,6 +49452,12 @@ Test.add('ui', (check) => uiWith(() => {
   PlayFlow.quickMatch = realQuickMatch;
   Bus.off('ui.quickMatch', listener);
   check('main menu: Quick Match emits ui.quickMatch (one action to start)', quick === 1);
+  const range = buttons.find((button) => button.firstChild.textContent === 'Range');
+  const rangeEnabled = !range.disabled;
+  range.click();
+  check('main menu: Range is enabled and starts the Firing Range (PRG-008)', rangeEnabled && Game.match && Game.match.setup.mode === CAREER_RANGE_MODE, String(Game.match && Game.match.setup.mode));
+  Game.stop();
+  Ui.closeAll(); Ui.open('main');
   check('main menu: back does nothing here', !Ui.back() && Ui.current() === 'main');
   const realCareer = Ui.screens.get('career');
   Ui.screens.delete('career');
@@ -49154,8 +49621,12 @@ Test.add('ui', (check) => uiWith(() => {
   Actors.alive[botId] = 1; Actors.alive[playerId] = 1;
   const counts = PerfOverlay.countActors();
   check('perf HUD: counts bots apart from all actors (PERF-012)', counts.actors === 2 && counts.bots === 1, counts.actors + '/' + counts.bots);
+  Projectiles.spawn(CAT.projectiles.byId('grenade'), botId, CAT.weapons.byId('pitcher').index, 0, 0, 1.6, 5, 0, 0, 0, 0);
+  Perf.publishCounters();
+  check('perf HUD: the projectiles counter is the live projectile count (PERF-012)', Perf.counters.projectiles === 1 && Projectiles.active === 1, Perf.counters.projectiles);
+  Projectiles.clear(); Perf.publishCounters();
   Actors.remove(botId); Actors.remove(playerId);
-  check('perf HUD: the AI cost is the sum of the ai and bot systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, render: 9 }), 1.5, 1e-9));
+  check('perf HUD: the AI cost is the sum of the ai, bot and PvE brain systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, pveBrains: 0.25, pve: 4, render: 9 }), 1.75, 1e-9));
   const lines = PerfOverlay.format(Perf.stats());
   const text = lines.join('\n');
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',
@@ -50516,6 +50987,63 @@ Test.add('weapons', (check) => {
   check('W04 dual pistols fire at twice the rate (8 rps; tapping every other step reaches 7.5)', Test.near(Weapons.shotInterval(id, warden, warden.primary), 1 / (warden.primary.rate * 2), 1e-9) && dualShots >= 37, dualShots);
   Weapons.give(id, 'warden');
   check('W04 a third pickup only adds ammo', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2);
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 30), out = {};
+  giveFull(id, 'scattergun');
+  TestArena.hold(id, BTN.ALT, 0.5);
+  Game.playerId = id;
+  Weapons.viewModel(out);
+  Game.playerId = -1;
+  check('W19 slug: holding ALT aims down sights at 1.2x zoom', Weapons.ads[id] > 0 && out.zoom > 1 && out.zoom <= 1.2, Weapons.ads[id] + ' ' + out.zoom);
+  const scatter = CAT.weapons.byId('scattergun'), pelletSpread = Weapons.spreadDegrees(id, scatter, scatter.primary);
+  check('W19: holding the slug ALT leaves the pellet spread at its hip value', Test.near(pelletSpread, scatter.primary.spreadDeg, 1e-6), pelletSpread);
+  Weapons.setLoadout(id, ['warden', 'heron']);   // the last key is drawn
+  Actors.buttons[id] = BTN.ALT;
+  Sim.run(TICK_RATE / 2);
+  Actors.buttons[id] = BTN.ALT | BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = BTN.ALT; Sim.step();
+  Game.playerId = id; Weapons.viewModel(out); Game.playerId = -1;
+  check('W24 scoped: next weapon flips the scope to 8x instead of switching', out.zoom === 8 && Weapons.currentWeapon(id).id === 'heron', out.zoom + ' ' + Weapons.currentWeapon(id).id);
+  Actors.buttons[id] = 0; Sim.run(TICK_RATE / 2);
+  check('W24: lowering the sights returns the scope to 4x', Weapons.zoomed[id] === 0);
+  giveFull(id, 'kindler');
+  const rocket = Projectiles.spawn(CAT.projectiles.byId('rocket'), enemy, CAT.weapons.byId('ramjet').index, 0, 0, 1.6, 3, 0, 0, -10, 50);
+  const friendly = Projectiles.spawn(CAT.projectiles.byId('rocket'), id, CAT.weapons.byId('ramjet').index, 0, 0.5, 1.6, 3, 0, 0, 10, 50);
+  TestArena.hold(id, BTN.ALT, 1 / TICK_RATE);
+  check('W35 airblast: an enemy rocket in front now flies away, owned by the shooter', Projectiles.owner[rocket] === id && Projectiles.vz[rocket] > 0, Projectiles.owner[rocket] + ' ' + Projectiles.vz[rocket]);
+  check('W35 airblast: the napalm shot still fires and own projectiles are left alone', Projectiles.countOwned(id, CAT.weapons.byId('kindler').index, CAT.projectiles.byId('goo').index) === 1
+    && Projectiles.owner[friendly] === id && Projectiles.vz[friendly] === 10);
+  Projectiles.clear();
+  const turret = Devices.spawn(CAT.gadgets.byId('sentry'), id, 0, 0, 6), row = CAT.gadgets.byId('sentry');
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Devices.centreY(turret) - Actors.eyeY(id), 6);
+  Devices.health[turret] = row.health / 2;
+  giveFull(id, 'linker');
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs a friendly turret at about 60 HP/s', Devices.health[turret] > row.health / 2 + 40 && Devices.health[turret] <= row.health, Devices.health[turret]);
+  Devices.remove(turret);
+  Pve.setCore(0, 0, 15, 1000);
+  Pve.core.health = 500;
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Pve.core.y + CORE_HIT_LIFT - Actors.eyeY(id), 15);
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs the PvE core at about 60 HP/s', Pve.core.health > 540 && Pve.core.health <= 560, Pve.core.health);
+  Pve.core.active = false;
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({}, [{ shape: 'box', min: [-3, 0, 11], max: [3, 3, 12] }]);
+  const id = TestArena.actor(1, 0, 0), walled = TestArena.sponge(2, 0, 10), open = TestArena.sponge(2, 20, 10);
+  giveFull(id, 'stakedriver');
+  TestArena.aimAt(id, walled);
+  TestArena.hold(id, BTN.FIRE, 0.4);
+  check('W26 a stake pins a victim against the wall behind it', Damage.hasStatus(walled, 'pinned') && Actors.health[walled] < 100000);
+  Sim.step();   // the release must be seen before the next press
+  TestArena.aimAt(id, open);
+  TestArena.hold(id, BTN.FIRE, 1);
+  check('W26 a victim in the open is hit but not pinned', Actors.health[open] < 100000 && !Damage.hasStatus(open, 'pinned'), Actors.health[open] + ' ' + Damage.hasStatus(open, 'pinned'));
   TestArena.finish();
 });
 
