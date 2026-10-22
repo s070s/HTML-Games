@@ -225,6 +225,7 @@ const REFRESH_PERCENTILE = 0.25;         // the fast cluster of the samples: a f
 const REFRESH_LIGHT_TRIANGLES = 256;     // more than the menu draws (sky, benchmark off): a world is drawn, as in the map editor
 const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under half its interval: the display set the pace
 const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
+const REFRESH_PIXEL_DROP = 2;            // pixel-count drop that proves a slow interval (acceptRefreshMs)
 const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
 // ---- Display interval (non-60 Hz screens): light menu frames and idle match frames run at the display's own rate. A
@@ -233,8 +234,8 @@ const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 
 // frames no setting could make faster. Frames that are slow for their own reasons (the map editor draws a whole world in
 // the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the display's interval: they would raise the budget
 // and switch off PERF-007 / PERF-013. A GPU-bound frame held to every second vsync looks exactly like a 30 Hz display:
-// the GPU timer tells them apart, and without one a slower-than-60 Hz interval counts only once it held across a
-// render-scale change (a GPU frame time follows the scale; a slow match lowers the scale on its own). ----
+// the GPU timer tells them apart, and without one a slower-than-60 Hz interval counts only once it held while the
+// render scale halved the pixel count (a GPU frame time follows the scale; a slow match lowers the scale on its own). ----
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
 // True when this frame's interval was set by the display: an uncapped light menu frame or running match frame whose CPU
@@ -266,13 +267,15 @@ function measureDisplayRate(seconds) {
   acceptRefreshMs(rate, standardRefreshMs(measuredMs));
 }
 
-// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval in the window before at another scale.
+// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval since a scale with at least
+// twice the pixels (or since any other scale, once at the preset minimum): a frame bound by fill would be faster by then.
 function acceptRefreshMs(rate, refreshMs) {
   if (!refreshMs) return;
   const scale = Render.size.scale;
-  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
-  rate.candidateMs = refreshMs; rate.candidateScale = scale;
-  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
+  if (refreshMs !== rate.candidateMs) { rate.candidateMs = refreshMs; rate.candidateScale = scale; }
+  const pixelsHalved = rate.candidateScale * rate.candidateScale >= REFRESH_PIXEL_DROP * scale * scale;
+  const atMinimum = scale <= Render.quality.renderScaleMin + 1e-4 && scale !== rate.candidateScale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || pixelsHalved || atMinimum) rate.intervalMs = refreshMs;
 }
 
 // The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
