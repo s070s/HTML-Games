@@ -211,7 +211,7 @@ Test.add('hudui', (check) => uiWith(() => {
   Game.stop();
 }));
 
-// ---- The stealth label follows the PvE section's own awareness rule; the touch TYPE button waits for its reader ----
+// ---- The stealth label follows the PvE section's own awareness rule; the touch TYPE button needs two grenade types ----
 Test.add('hudui', (check) => {
   World.load(pveTestMap());
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' });
@@ -221,16 +221,14 @@ Test.add('hudui', (check) => {
   check('stealth hud: the label is Pve.awarenessState of the most aware guard', hudPveMostAwareState() === AWARENESS.ALERT && hudPveMostAwareState() === Pve.awarenessState(alert));
   Pve.awareness[alert] = PVE_CONTRACT.unaware;
   check('stealth hud: the label follows the guard down to suspicious', hudPveMostAwareState() === Pve.awarenessState(alert) && hudPveMostAwareState() === AWARENESS.SUSPICIOUS);
-  check('touch: the TYPE button follows the gadget reader', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
   Game.stop();
-  const savedCycle = Gadgets.cycleGrenade;
-  Gadgets.cycleGrenade = () => {};
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button shows once Gadgets.cycleGrenade exists', TouchInput.flags.grenadeCycle === true);
-  Game.stop();
-  if (savedCycle === undefined) delete Gadgets.cycleGrenade; else Gadgets.cycleGrenade = savedCycle;
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button hides again without it', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
+  const player = Game.playerId;
+  Gadgets.count.fill(0, player * GADGET_COUNT, (player + 1) * GADGET_COUNT);
+  Gadgets.give(player, 'frag', 2);
+  check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
+  Gadgets.give(player, 'smoke', 1);
+  check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
   Game.stop();
   World.clear();
 });

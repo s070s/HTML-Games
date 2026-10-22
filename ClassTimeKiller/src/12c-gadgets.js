@@ -622,6 +622,7 @@ const Gadgets = {
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
+  cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -643,6 +644,12 @@ const Gadgets = {
     const kit = this.kit();
     if (kit.limits[row.id] !== undefined) return kit.limits[row.id];
     return kit.perType || row.carry;
+  },
+  // Thrown rows this actor carries at least one of (the touch TYPE button shows from two: a cycle needs a choice).
+  grenadeTypes(id) {
+    let types = 0;
+    for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) types++;
+    return types;
   },
   thrownTotal(id) {
     let total = 0;
@@ -678,7 +685,7 @@ const Gadgets = {
     }
     return -1;
   },
-  // BTN.CYCLE_GRENADE (players and bots alike): the next carried grenade type becomes the one GRENADE throws.
+  // BTN.CYCLE_GRENADE: the next carried grenade type becomes the one GRENADE throws.
   cycleGrenade(id) {
     const next = this.nextGrenade(id);
     if (next >= 0) this.grenade[id] = next;
@@ -722,6 +729,15 @@ const Gadgets = {
     Thrown.step(dt);
     GadgetAreas.step(dt);
     Smoke.step();
+    this.syncCycleButton();
+  },
+  // The touch TYPE button follows the player's carried grenade types: the layout is re-applied on a change only.
+  syncCycleButton() {
+    if (!TouchInput.layer) return;
+    const canCycle = TouchInput.needs.grenadeCycle();
+    if (canCycle === this.cycleShown) return;
+    this.cycleShown = canCycle;
+    TouchInput.applyAll();
   },
   blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
   stepActor(id) {
@@ -855,6 +871,7 @@ WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
+TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));

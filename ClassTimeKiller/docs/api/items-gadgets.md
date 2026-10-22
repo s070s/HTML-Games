@@ -19,7 +19,7 @@ Render sources: `pickups` (spinning shapes in group colours, faint bases on empt
 
 ## Input read
 
-`BTN.GRENADE`: press with a grenade ready starts the hold; release throws (18 m/s along the view + 5 m/s up; with `BTN.ALT` held at release: underhand 9 + 2; that ALT hold never fires the weapon's alt, `Weapons.altClaim`). Cookable rows burn their fuse while held; a full cook goes off in the hand. `BTN.GADGET`: uses the gadget-slot row (placed or deployed). Both are blocked while `ACTOR_FLAG.FROZEN`, `ACTOR_FLAG.DOWNED` or EMP-suppressed. `BTN.CYCLE_GRENADE` (01-core, bit 19; players and bots alike): a new press makes the next carried grenade type the one `BTN.GRENADE` throws (`Gadgets.cycleGrenade(id)`, wrapping round; nothing happens with one type).
+`BTN.GRENADE`: press with a grenade ready starts the hold; release throws (18 m/s along the view + 5 m/s up; with `BTN.ALT` held at release: underhand 9 + 2; that ALT hold never fires the weapon's alt, `Weapons.altClaim`). Cookable rows burn their fuse while held; a full cook goes off in the hand. `BTN.GADGET`: uses the gadget-slot row (placed or deployed). Both are blocked while `ACTOR_FLAG.FROZEN`, `ACTOR_FLAG.DOWNED` or EMP-suppressed. `BTN.CYCLE_GRENADE` (01-core, bit 19; bots do not press it): a new press makes the next carried grenade type the one `BTN.GRENADE` throws (`Gadgets.cycleGrenade(id)`, wrapping round; nothing happens with one type). `Gadgets.grenadeTypes(id)` counts the carried thrown types; `TouchInput.needs.grenadeCycle` (the touch `TYPE` button) is true from two for the player, and `Gadgets.syncCycleButton()` (end of the gadget step, touch layer only) re-applies the touch layout when that answer changes.
 
 ## Data catalogues
 

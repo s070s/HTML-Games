@@ -34,7 +34,7 @@ const TOUCH_PRESETS = [
 // Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
 // need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists);
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
-// with active cards, the grenade type button only once the gadget section reads its button bit).
+// with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more.
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.72, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },

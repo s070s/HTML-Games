@@ -313,9 +313,6 @@ Ui.register('buy', {
 Ui.register('loadout', { build: (root, params) => LoadoutMenu.build(root, params) });
 Ui.register('classEditor', { build: buildClassEditor });
 Bus.on('input.action', onBuyMenuAction);
-// The touch TYPE button (grenade type cycle) shows once the gadget section reads BTN.CYCLE_GRENADE through Gadgets.cycleGrenade
-// (contract request, docs/api/input-ui.md); until then a press would do nothing.
-function grenadeCycleLive() { return typeof Gadgets.cycleGrenade === 'function'; }
-Bus.on('match.start', () => { syncPauseEntries(true); TouchInput.setFlag('grenadeCycle', grenadeCycleLive()); });
+Bus.on('match.start', () => syncPauseEntries(true));
 Bus.on('match.stop', () => syncPauseEntries(false));
 Bus.on('boot', () => window.addEventListener('keydown', onBuyScreenKey));
