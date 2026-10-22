@@ -8,7 +8,7 @@ const MAP_PARTY_MODES = ['lms', 'infection', 'juggernaut', 'cursetag', 'bearer',
 Maps.rows.push(MapKit.make({
   id: 'spire', code: 'MP01', name: 'Foundry Spire', size: [50, 20, 50], theme: 'foundry', category: 'arena',
   modes: ['duel', 'ffa'].concat(MAP_PARTY_MODES), blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
-  props: MapKit.crates([[-21, -21], [19.5, 19.5], [-21, 19.5], [19.5, -21]]),   // breakable crates (MAP-013): corners off the play lines
+  props: MapKit.crates([[-21, -21], [19.5, 19.5], [-14.5, -8], [4, 7]]),   // breakable crates (MAP-013): two in corners, one by a low wall, one by a spire-side crate
   sky: { top: 0x1f2a44, horizon: 0xd9824b, fog: 0x4a3a30, fogFar: 140, sun: [0.4, 0.7, 0.3] },
   brushes: [
     ['concrete', -25, -1, -25, 25, 0, 25],                                          // ground
@@ -191,6 +191,6 @@ Maps.rows.push(MapKit.make(Object.assign({
   id: 'gantry', code: 'MP06', name: 'Gantry Run', size: [100, 24, 80], theme: 'station', category: 'large',
   modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
   blurb: 'Agile playground: rooftop runs, 4 m wall-run lanes and a central hub; ladders and pads cross between levels.',
-  props: MapKit.crates([[-50, -23.5], [48.5, 22], [-35.5, 38.5], [34, -40]]),   // breakable crates (MAP-013): corners off the play lines
+  props: MapKit.crates([[-50, -23.5], [48.5, 22], [-6.5, -6, 4], [-23, -8]]),   // breakable crates (MAP-013): two in corners, one on the hub, one by ground cover
   sky: { top: 0x3a5a88, horizon: 0xe9c9a0, fog: 0x7a7f8a, fogFar: 170, sun: [-0.3, 0.6, 0.4] },
 }, MapKit.join(MapKit.sym(gantryQuarter, 'xz'), MapKit.sym(gantryHalf, 'x'), gantryCenter))));

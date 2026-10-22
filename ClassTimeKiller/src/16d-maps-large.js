@@ -60,7 +60,7 @@ const keepsCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'twinkeeps', code: 'MP03', name: 'Twin Keeps', size: [120, 24, 60], theme: 'overgrowth', category: 'large', modes: ['ctf', 'oneflag', 'dom', 'tdm'],
   blurb: 'Mirrored fortress map: a flag keep at each end, a raised middle platform and a lane along each flank.',
-  props: MapKit.crates([[-60, -30], [58.5, 28.5], [-15.5, 28.5], [14, -30]]),   // breakable crates (MAP-013): corners off the play lines
+  props: MapKit.crates([[-60, -30], [58.5, 28.5], [-30.2, -16], [29, -16]]),   // breakable crates (MAP-013): two in corners, one beside each side's lane cover
   sky: { top: 0x4f86c0, horizon: 0xd8e6c8, fog: 0x9db890, fogFar: 200, sun: [0.3, 0.8, 0.3] },
 }, MapKit.join(MapKit.sym(keepsHalf, 'x'), MapKit.sym(keepsQuarter, 'xz'), keepsCenter))));
 
@@ -119,6 +119,6 @@ const railCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'convoyline', code: 'MP08', name: 'Old Rail', size: [160, 24, 40], theme: 'ruins', category: 'large', modes: ['payload', 'rush', 'conquest'],
   blurb: 'A long railway: push the cart east along the rails, or flank through the streets behind the buildings.',
-  props: MapKit.crates([[-80, -20], [78.5, 18.5], [-32.5, 18.5], [31, -20]]),   // breakable crates (MAP-013): corners off the play lines
+  props: MapKit.crates([[-80, -20], [78.5, 18.5], [-56, 4], [52, 4]]),   // breakable crates (MAP-013): two in corners, two beside the low cover by the rails
   sky: { top: 0x587fa8, horizon: 0xe2d2b0, fog: 0xb0a488, fogFar: 230, sun: [-0.4, 0.6, 0.3] },
 }, MapKit.join(MapKit.sym(railHalf, 'x'), railCenter))));
