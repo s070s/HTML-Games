@@ -139,7 +139,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 - `Economy.grants[kind] = fn(id, item) -> bool`:
   - `armor`, `helmet`, `ammo` and `weapon` are built in.
   - `gadget` (`Gadgets.give`) and `grant` (`Items.grantBuy`) are registered at the end of 13d-economy.js.
-- Other API: `Economy.awardWave(team, flawless)` (700 + 100), `setShopOpen(open)`, `ladderWeapon(tier)` (ECP06, 18 tiers).
+- Other API: `Economy.awardWave(team, flawless)` (700 + 100), `setShopOpen(open)`; the ECP06 tier weapons come from `ladderTiers(params)` (13f, MODE-001).
 - Classes (ECP04):
   - On spawn, the class perks write `Weapons.statScale` and the class weapons replace the start loadout (the set's melee is kept).
   - Bots use `CAT.classes[id % 6]`.

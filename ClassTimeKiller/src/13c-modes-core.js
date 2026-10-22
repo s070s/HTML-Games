@@ -74,9 +74,7 @@ Modes.register('dom', {
   step(dt) {
     const params = Modes.rules.params;
     captureAll(this.points, dt, params);
-    this.tickTimer += dt;
-    if (this.tickTimer + TIME_EPSILON < params.tickInterval) return;
-    this.tickTimer -= params.tickInterval;
+    if (!intervalDue(this, 'tickTimer', dt, params.tickInterval)) return;
     for (let i = 0; i < this.points.length; i++) if (this.points[i].owner >= 0) Modes.awardTeam(this.points[i].owner, params.tickPoints, 'hold');
   },
 });
@@ -93,9 +91,7 @@ Modes.register('conquest', {
   step(dt) {
     const params = Modes.rules.params;
     captureAll(this.points, dt, params);
-    this.bleedTimer += dt;
-    if (this.bleedTimer + TIME_EPSILON < params.bleedInterval) return;
-    this.bleedTimer -= params.bleedInterval;
+    if (!intervalDue(this, 'bleedTimer', dt, params.bleedInterval)) return;
     for (let team = 0; team < TEAM_COUNT; team++) {
       const held = ownedCount(this.points, team);
       if (held < ownedCount(this.points, 1 - team) && held <= params.bleedHeld) spendTickets(team, 1, 'bleed');
@@ -126,11 +122,7 @@ Modes.register('hardpoint', {
     hill.owner = holder;
     if (holder !== this.holder) { this.holder = holder; hill.holdTime = 0; }
     if (holder < 0) return;
-    hill.holdTime += dt;
-    const secondsPerPoint = 1 / Modes.rules.params.holdRate;
-    if (hill.holdTime + TIME_EPSILON < secondsPerPoint) return;
-    hill.holdTime -= secondsPerPoint;
-    Modes.awardTeam(holder, 1, 'hold');
+    if (intervalDue(hill, 'holdTime', dt, 1 / Modes.rules.params.holdRate)) Modes.awardTeam(holder, 1, 'hold');
   },
   rotate(now) {
     const index = Math.floor((now - Modes.startTime + TIME_EPSILON) / Modes.rules.params.moveInterval) % this.hills.length;
@@ -227,12 +219,7 @@ Modes.register('elim', {
     if (remaining > params.shrinkTime) return;
     const radius = lerp(this.fullRadius, params.shrinkMinRadius, 1 - clamp(remaining / params.shrinkTime, 0, 1));
     Modes.hud.zoneX = this.centerX; Modes.hud.zoneZ = this.centerZ; Modes.hud.zoneRadius = radius;
-    this.hazardTimer += dt;
-    if (this.hazardTimer + TIME_EPSILON < SAFE_AREA_HURT_INTERVAL) return;
-    this.hazardTimer -= SAFE_AREA_HURT_INTERVAL;
-    for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && Modes.isActive(id) && Math.hypot(Actors.x[id] - this.centerX, Actors.z[id] - this.centerZ) > radius) requestHazard(id, params.zoneDamage * SAFE_AREA_HURT_INTERVAL);
-    }
+    if (intervalDue(this, 'hazardTimer', dt, SAFE_AREA_HURT_INTERVAL)) hurtOutsideZone(this.centerX, this.centerZ, radius, params.zoneDamage * SAFE_AREA_HURT_INTERVAL);
   },
 });
 
@@ -283,6 +270,13 @@ function worldSafeArea(out) {
   out.z = known ? (low.z + high.z) / 2 : 0;
   out.radius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
   return out;
+}
+
+// Hurts every living participant farther than `radius` from (x, z) by `amount`.
+function hurtOutsideZone(x, z, radius, amount) {
+  for (let id = 0; id < Actors.count; id++) {
+    if (Actors.alive[id] && Modes.isActive(id) && length2(Actors.x[id] - x, Actors.z[id] - z) > radius) requestHazard(id, amount);
+  }
 }
 
 function requestHazard(id, amount) {

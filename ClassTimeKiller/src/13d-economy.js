@@ -199,11 +199,6 @@ const Economy = {
     this.payTeam(team, preset.waveBonus + (flawless ? preset.flawlessBonus : 0));
   },
   setShopOpen(open) { this.shopOpen = !!open; },
-  // ECP06 gun game: the weapon of a tier (0-based; past the end = the last tier).
-  ladderWeapon(tier) {
-    const ladder = CAT.economy.byId('ladder').ladder;
-    return ladder[clamp(tier, 0, ladder.length - 1)];
-  },
 
   // ---- Buying ----
   // '' when the actor may buy right now, else the reason (BUY_REASON_TEXT key).

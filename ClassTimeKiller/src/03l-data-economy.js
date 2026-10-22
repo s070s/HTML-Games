@@ -18,9 +18,8 @@ Data.define('economy', {
   { id: 'loot', code: 'ECP03', name: 'Loot Rarity', slots: 5, rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'], ammoTypes: ['light', 'heavy', 'shells', 'cells', 'rockets'] },
   { id: 'classes', code: 'ECP04', name: 'Classes and Perks', loadout: 'classes', fieldUpgrades: ['echopulse', 'cover', 'trophy', 'ammobox', 'beacon'] },
   { id: 'heroKits', code: 'ECP05', name: 'Hero Kits', loadout: 'heroes' },
-  // Gun game order (M16, 18 tiers): one fixed weapon per tier, the last tier is the melee finisher.
-  { id: 'ladder', code: 'ECP06', name: 'Weapon Ladder', ladder: ['warden', 'verdict', 'wasp', 'hornet', 'riptide', 'scattergun', 'shardcaster', 'vanguard', 'tempest',
-    'ratchet', 'longshot', 'kestrel', 'heron', 'anvil', 'linker', 'ramjet', 'lancet', 'maul'] },
+  // Gun game (M16): the weapon order is the one GUNGAME_LADDER list (03f); the row names it for the help text.
+  { id: 'ladder', code: 'ECP06', name: 'Weapon Ladder', ladder: GUNGAME_LADDER },
   { id: 'waveShop', code: 'ECP07', name: 'Wave Shop', money: true, buy: 'shop', killReward: 50, killRewardRange: [10, 100], waveBonus: 700, flawlessBonus: 100, keepOnSurvive: false, halfReset: false },
 ]);
 

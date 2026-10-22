@@ -97,14 +97,9 @@ function reviveParticipants(heal) {
     Actors.health[id] = Math.max(Actors.health[id], Actors.maxHealth[id] * heal);
   }
 }
-function countParticipants() {
-  let count = 0;
-  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) count++;
-  return count;
-}
 // NPC-008 budget: wave points x difficulty aggression x players (4 is the baseline party).
 function scaledBudget(budget) {
-  const director = PVE_DIRECTOR, players = countParticipants();
+  const director = PVE_DIRECTOR, players = Modes.countActive();
   const byPlayers = Math.max(0.5, 1 + director.budgetPerExtraPlayer * (players - director.playersBaseline));
   return budget * (director.budgetScaleBase + director.budgetScaleAggression * pveSkill().aggression) * byPlayers;
 }
