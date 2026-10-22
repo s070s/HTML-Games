@@ -243,14 +243,16 @@ function tryCharge(id, preset) {
 // The nearest enemy of `who` from (x, y, z): its aim point (rule.point) within `range`, passing rule.accept (the cone, cloak
 // and similar tests) and in a clear line (World, then rule.blocked when the rule has one), or -1. Shared by the shield
 // charge, homing projectiles and turrets and drones. Rule: skip(who, id) true for actors to ignore, point(id, out) writes the
-// aim point, accept(who, id, dx, dy, dz, distance) true when the offset to the point may be a target, blocked(x, y, z, point).
+// aim point, accept(who, id, dx, dy, dz, distance) true when the offset to the point may be a target, blocked(x, y, z, point),
+// distance(dx, dy, dz) the range and ordering measure (default length3; the shield charge measures flat).
 const seenPoint = Vec.make();
 function nearestSeenEnemy(who, x, y, z, range, rule) {
   let best = -1, bestDistance = range;
   for (let id = 0; id < Actors.count; id++) {
     if (rule.skip(who, id)) continue;
     rule.point(id, seenPoint);
-    const dx = seenPoint.x - x, dy = seenPoint.y - y, dz = seenPoint.z - z, distance = length3(dx, dy, dz);
+    const dx = seenPoint.x - x, dy = seenPoint.y - y, dz = seenPoint.z - z;
+    const distance = rule.distance ? rule.distance(dx, dy, dz) : length3(dx, dy, dz);
     if (distance >= bestDistance || !rule.accept(who, id, dx, dy, dz, distance)) continue;
     if (!World.lineClear(x, y, z, seenPoint.x, seenPoint.y, seenPoint.z)) continue;
     if (rule.blocked && rule.blocked(x, y, z, seenPoint)) continue;
@@ -259,15 +261,13 @@ function nearestSeenEnemy(who, x, y, z, range, rule) {
   return best;
 }
 
-// The shield charge targets the nearest visible enemy within range and close to the aim direction.
+// The shield charge targets the nearest visible enemy within flat range and close to the aim direction (line eye to eye).
 const chargeAim = { x: 0, z: 0 };
 const CHARGE_RULE = {
   skip(who, id) { return !Actors.alive[id] || !Actors.isEnemy(who, id); },
   point(id, out) { out.x = Actors.x[id]; out.y = Actors.eyeY(id); out.z = Actors.z[id]; },
-  accept(who, id, dx, dy, dz) {
-    const flat = length2(dx, dz);
-    return flat >= 1e-3 && (dx * chargeAim.x + dz * chargeAim.z) / flat >= CHARGE_CONE_COS;
-  },
+  distance(dx, dy, dz) { return length2(dx, dz); },
+  accept(who, id, dx, dy, dz, flat) { return flat >= 1e-3 && (dx * chargeAim.x + dz * chargeAim.z) / flat >= CHARGE_CONE_COS; },
 };
 function chargeTarget(id, range) {
   chargeAim.x = Math.sin(Actors.yaw[id]); chargeAim.z = Math.cos(Actors.yaw[id]);

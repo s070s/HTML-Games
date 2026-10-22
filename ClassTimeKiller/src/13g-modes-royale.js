@@ -250,7 +250,6 @@ function stepRing(now) {
   else Ring.state = RING_STATE.CLOSED;
 }
 
-
 function updateRingHud(now) {
   const hud = Modes.hud;
   hud.zoneX = Ring.x; hud.zoneZ = Ring.z; hud.zoneRadius = Ring.radius;
