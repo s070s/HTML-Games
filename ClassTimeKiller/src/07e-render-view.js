@@ -14,6 +14,7 @@ const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Rende
 const VIEWMODEL_DARK = '#2b2f35';
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
+const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep this aspect's horizontal view (verticalFov)
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
@@ -25,9 +26,14 @@ Render.view = ViewState;
 const viewModelState = { visible: false, shape: 'rifle', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
   recoilPitch: 0, recoilYaw: 0, dual: false };
 
-// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more.
+// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more. Below 4:3 (a
+// portrait phone) the horizontal view of 4:3 is kept instead (Vert-), so the view never narrows to a slit. One source
+// for the world, the view model and every HUD projection: it reads the canvas aspect itself.
 function verticalFov(horizontalDegrees) {
-  return 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const fixed = 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const aspect = Render.size.width / Render.size.height;
+  if (aspect >= FOV_MIN_ASPECT) return fixed;
+  return 2 * Math.atan(Math.tan(fixed / 2) * FOV_MIN_ASPECT / aspect);
 }
 
 function readViewModel() {

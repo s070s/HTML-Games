@@ -515,3 +515,32 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: the overlay root passes taps to the game when empty', getComputedStyle(document.getElementById('overlay')).pointerEvents === 'none');
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
 }));
+
+// Rotate guard (LT-C-022): a touch match held upright pauses behind the 'turn sideways' overlay and resumes in landscape;
+// the player's own pause stays, and menus outside a match stay usable upright.
+Test.add('ui', (check) => uiWith(() => {
+  const saved = { touch: RotateGuard.touch, portrait: RotateGuard.portrait };
+  const upright = { matches: true };
+  RotateGuard.touch = true; RotateGuard.portrait = upright;
+  try {
+    RotateGuard.update();
+    check('rotate: menus stay usable upright', !RotateGuard.shown && !Game.paused);
+    Game.state = 'playing'; Game.paused = false;
+    RotateGuard.update();
+    const overlay = document.getElementById('rotate');
+    check('rotate: an upright touch match pauses behind the overlay', Game.paused && Game.pauseReason === 'rotate' && !!overlay && getComputedStyle(overlay).display !== 'none');
+    upright.matches = false;
+    RotateGuard.update();
+    check('rotate: landscape hides the overlay and resumes', !Game.paused && getComputedStyle(overlay).display === 'none');
+    Game.pause('menu');
+    upright.matches = true;
+    RotateGuard.update();
+    upright.matches = false;
+    RotateGuard.update();
+    check('rotate: a pause by the player is kept', Game.paused && Game.pauseReason === 'menu' && !RotateGuard.shown);
+  } finally {
+    Object.assign(RotateGuard, saved);
+    Game.state = 'menu'; Game.paused = false;
+    RotateGuard.update();
+  }
+}));

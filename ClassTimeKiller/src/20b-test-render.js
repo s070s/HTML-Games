@@ -281,6 +281,22 @@ Test.add('render', (check) => withRenderer(() => {
   check('horizontal 90 at 16:9 = vertical ~58.7', Test.near(verticalFov(90) / DEG, 58.7, 0.1));
 }));
 
+// A portrait phone keeps the 4:3 horizontal view (Vert- below 4:3) instead of a 25 degree slit; the HUD reads the same FOV.
+function horizontalFovAt(width, height) {
+  const size = Render.size, savedWidth = size.width, savedHeight = size.height;
+  size.width = width; size.height = height;
+  updateCamera(1 / 60, 1);
+  const degrees = 2 * Math.atan(1 / Render.frame.projection[0]) / DEG;
+  size.width = savedWidth; size.height = savedHeight;
+  return degrees;
+}
+Test.add('render', (check) => withRenderer(() => {
+  Settings.set('video.fov', 80);
+  const wide = horizontalFovAt(1600, 900), standard = horizontalFovAt(1024, 768), portrait = horizontalFovAt(390, 844);
+  check('the FOV setting is the horizontal view at 16:9', Test.near(wide, 80, 0.01), wide);
+  check('a portrait phone keeps the 4:3 horizontal view', portrait >= standard - 0.01 && portrait > 60, portrait + ' vs ' + standard);
+}));
+
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
 Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 1.6, 0, 0, 0);
