@@ -1111,6 +1111,12 @@ Test.add('mapEditor', (check) => {
   MapEditor.newFrom({ kind: 'builtin', id: 'harbor' });
   const props = MapEditor.map.props.length;
   check('the budget counts props like every other list', MapEditor.count() === MAP_REQUIRED_LISTS.reduce((sum, list) => sum + MapEditor.map[list].length, 0) + props);
+  const listed = MapEditor.countsText().match(/\d+/g).reduce((sum, number) => sum + Number(number), 0);
+  check('the per-list counts add up to the budget count (props listed)', props > 0 && listed === MapEditor.count() && /Prop \d/.test(MapEditor.countsText()), MapEditor.countsText());
+  const kept = MapEditor.map.navHints.slice();
+  for (let index = MapEditor.count(); index <= MAPEDIT_BUDGET; index++) MapEditor.map.navHints.push({ kind: 'cover', x: 0, y: 0, z: 0 });
+  check('a save is refused when the map would not reopen (over the budget)', !MapEditor.saveCurrent('Over budget') && /cannot be saved/.test(MapEditor.message), MapEditor.message);
+  MapEditor.map.navHints = kept;
   while (MapEditor.count() < MAPEDIT_BUDGET) MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 });
   check('the budget stops adding at the limit', MapEditor.count() === MAPEDIT_BUDGET && MapEditor.add('navHints', { kind: 'cover', x: 0, y: 0, z: 0 }) === -1);
   const slot = MapEditor.saveCurrent('Full harbor') && MapEditor.slotId;

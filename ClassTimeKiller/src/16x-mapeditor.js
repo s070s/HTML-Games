@@ -142,7 +142,10 @@ const MapEditor = {
   // ---- Budget (MAP-014) ----
   count() { return mapEditObjectCount(this.map); },
   budgetLeft() { return MAPEDIT_BUDGET - this.count(); },
-  countsText() { return MAP_REQUIRED_LISTS.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', '); },
+  countsText() {
+    const lists = this.map.props.length ? MAP_REQUIRED_LISTS.concat('props') : MAP_REQUIRED_LISTS;   // props count in the budget too
+    return lists.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', ');
+  },
 
   // ---- Edits: every change is one history entry { op, list, index, before, after, group } ----
   add(list, object) {
@@ -642,7 +645,7 @@ function mapEditObjectCount(map) {
   return MAP_REQUIRED_LISTS.reduce((sum, list) => sum + map[list].length, (map.props || []).length);
 }
 
-const mapEditEntryIs =(entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
+const mapEditEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
 
 // Why a parsed code is not a map this version can hold, or '' when it is fine. A code is untrusted text: every number, list and text type is
 // checked here; the keys and kinds (theme, category, modes, materials, item keys, trigger, objective and hint kinds) are the validator's form
