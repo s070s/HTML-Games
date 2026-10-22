@@ -68,6 +68,17 @@ function progressTeamMatch(mode, map) {
   return ids;
 }
 
+// The metrics of a flawless but human-paced room run: every kill the score limit allows (or every bot life in a lives room),
+// each one an airborne headshot in one streak, no misses, no damage, no deaths, a win, at PROGRESS_TEST_PAR_SHARE of par
+// (rooms without par: of the time limit).
+const PROGRESS_TEST_PAR_SHARE = 0.5;
+function progressBestRun(row) {
+  const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
+  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
+  return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
+}
+
 // ---- Catalogues (VIS-004 counts for this area) ----
 Test.add('progress', (check) => {
   for (const name of ['medals', 'cards', 'unlocks', 'ladder', 'challenges', 'operations']) check('catalogue ' + name + ' validates', Data.validate(name).length === 0, Data.validate(name).join('; '));
@@ -385,20 +396,24 @@ Test.add('progress', (check) => {
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
   const metrics = { kills: 5, seconds: 100 };
-  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * 2000 + 50 * 100 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0
-    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
+    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
+  check('rooms: a flawless run at half of par (or of the time limit) reaches 3 stars in every room', short.length === 0,
+    short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 100 }, first);
-  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === 15000 && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
+  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === onePoints && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
   const again = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 110 }, again);
-  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === 15000 && Challenges.record('sprint').plays === 2);
-  Challenges.onResult(fake(false), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par + 10 }, again);
+  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === onePoints && Challenges.record('sprint').plays === 2);
+  Challenges.onResult(fake(false), twoStars, award());
   check('rooms: 2 stars open the Expert version', Challenges.record('sprint').stars === 2 && Challenges.expertOpen('sprint'));
-  Challenges.onResult(fake(true), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(true), twoStars, award());
   check('rooms: Expert keeps its own best and stars', Challenges.record('sprint').expertStars === 2 && Challenges.record('sprint').stars === 2);
   check('rooms: rooms past the first block wait for their level', !Challenges.isOpen(CAT.challenges.byId('phantom')) && Challenges.isOpen(CAT.challenges.byId('markYard')));
   const match = Challenges.start('sprint', false);
