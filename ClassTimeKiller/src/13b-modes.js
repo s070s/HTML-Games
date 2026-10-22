@@ -651,16 +651,20 @@ const Modes = {
     this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
   },
   // First living participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
-  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts.
-  findActorNear(x, y, z, radius, team, relation, buttons) {
+  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
+  // (an ACTOR_FLAG mask, e.g. PROTECTED) are passed over, so they never hide an actor behind them.
+  findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
       if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
+      if (skipFlags && (Actors.flags[id] & skipFlags) !== 0) continue;
       if (withinTouch(id, x, y, z, radius)) return id;
     }
     return -1;
   },
-  findToucher(objective, relation) { return this.findActorNear(objective.x, objective.y, objective.z, TOUCH_RADIUS, objective.team, relation); },
+  findToucher(objective, relation, skipFlags) {
+    return this.findActorNear(objective.x, objective.y, objective.z, TOUCH_RADIUS, objective.team, relation, 0, skipFlags);
+  },
   carrierNear(objective, x, y, z) { return objective.carrier >= 0 && withinTouch(objective.carrier, x, y, z, TOUCH_RADIUS); },
   zoneContaining(zones, id) {
     for (let i = 0; i < zones.length; i++) if (this.inZone(zones[i], id)) return zones[i];

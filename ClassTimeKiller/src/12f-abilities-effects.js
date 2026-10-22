@@ -4,12 +4,12 @@
 // decoy, telekinesis, gates, rift, rally, zone, and the four suit weaves. Timed self and team effects are Buffs; placed
 // effects are AbilityZones (a pooled struct of arrays). Damage always goes through Damage.apply, knockback through 'impulse'.
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11 };
-const BUFF_COUNT = 12;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12 };
+const BUFF_COUNT = 13;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
@@ -91,12 +91,20 @@ const Buffs = {
     for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] !== ACTOR_KIND.NONE) this.applyActor(id, TICK_SECONDS);
   },
   applyActor(id, dt) {
-    Move.statusSpeedScale[id] = this.get(id, BUFF.SPEED) * this.get(id, BUFF.SLOW);
-    this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1);
+    this.applyScales(id);
+    // G08: a frozen actor's cloak drops while the freeze lasts (the buff itself keeps running).
+    this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1 && !Damage.hasStatus(id, 'freeze'));
     if (!Actors.alive[id] || dt <= 0) return;
     if (this.has(id, BUFF.NO_FIRE)) Weapons.nextShot[id] = Math.max(Weapons.nextShot[id], this.remaining(id, BUFF.NO_FIRE));
     if (this.has(id, BUFF.REGEN)) healActor(id, this.get(id, BUFF.REGEN) * dt, -1);
     if (this.has(id, BUFF.TOUCH_KILL)) touchKill(id);
+  },
+  // The single writer of Move.statusSpeedScale, Move.gravityScale and Weapons.rateScale: buffs times the powerup factors (12b calls this
+  // whenever its set changes, so a pickup or expiry takes effect in the same step).
+  applyScales(id) {
+    Move.statusSpeedScale[id] = this.get(id, BUFF.SPEED) * this.get(id, BUFF.SLOW) * Powerups.speedScale[id];
+    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * Powerups.rateScale[id];
+    Move.gravityScale[id] = this.get(id, BUFF.GRAVITY);
   },
   applyInvisible(id, wanted) {
     if (wanted) { if (!(Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) { Actors.flags[id] |= ACTOR_FLAG.INVISIBLE; this.invisibleSet[id] = 1; } return; }
@@ -170,6 +178,8 @@ function driveActor(id, vx, vy, vz) {
   const lift = Math.max(vy, LIFT_OFF_SPEED);
   emitImpulse(id, (vx - Actors.vx[id]) / knockback, (lift - Actors.vy[id]) / knockback, (vz - Actors.vz[id]) / knockback);
 }
+// G08: a Rime Bomb freeze stops every teleport (blink, rewind, beacon, rift).
+function canTeleport(id) { return !Damage.hasStatus(id, 'freeze'); }
 // Rows with balance.dropsObjective (A12) announce the move: S13 drops the objective the actor carries.
 function moveActorTo(id, x, y, z, row) {
   Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
@@ -331,6 +341,7 @@ function riftStep(zone) {
   if (exit < 0 || !AbilityZones.alive[exit]) return false;
   for (let id = 0; id < Actors.count; id++) {
     if (!Actors.alive[id] || !alliesOf(AbilityZones.owner[zone], id) || AbilityZones.rearm[id] > Sim.time || !AbilityZones.inside(zone, id)) continue;
+    if (!canTeleport(id)) continue;
     moveActorTo(id, AbilityZones.x[exit], AbilityZones.y[exit], AbilityZones.z[exit], row);
     AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   }
@@ -433,6 +444,7 @@ function castZone(id, row) {
   const seconds = row.params.zone === 'strike' ? row.params.delay : row.duration;
   const zone = AbilityZones.add(kind, id, row, at.x, at.y, at.z, seconds);
   if (row.params.zone === 'wall' || row.params.zone === 'smoke') { AbilityZones.radius[zone] = row.params.width / 2; AbilityZones.height[zone] = row.params.height; }
+  if (row.params.zone === 'smoke') Smoke.add(at.x, at.y, at.z, row.params.width, row.params.height, seconds, AbilityZones.yaw[zone], id);   // real smoke: blocks sight
   return true;
 }
 // The floor under the aimed point within range (or the point itself when there is no floor below it).
@@ -453,6 +465,7 @@ function zonePlacement(id, row, out) {
 }
 // blink: aim (A05: to the aimed point, line of sight by construction) or input direction (A08: a 7 m dash).
 function castBlink(id, row) {
+  if (!canTeleport(id)) return false;
   const fromX = Actors.x[id], fromY = Actors.y[id], fromZ = Actors.z[id];
   let x = fromX, y = fromY, z = fromZ;
   if (row.params.direction === 'aim') {
@@ -512,23 +525,22 @@ function stepGrapple(id, row) {
 // rewind: back to the position and pools of `seconds` ago (or the oldest sample of this life).
 function castRewind(id, row) {
   const i = RewindHistory.past(id, row.params.seconds);
-  if (i < 0) return false;
+  if (i < 0 || !canTeleport(id)) return false;
   moveActorTo(id, RewindHistory.x[i], RewindHistory.y[i], RewindHistory.z[i], row);
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
   Actors.health[id] = Math.max(1, RewindHistory.health[i]); Actors.armor[id] = RewindHistory.armor[i]; Actors.shield[id] = RewindHistory.shield[i];
   RewindHistory.reset(id);
   return true;
 }
-// glide: while held in the air, gravity is scaled to params.gravity (the move system integrates the rest).
-function stepGlide(id, row, slot, dt) {
-  if (Move.isGrounded(id)) return true;
-  Actors.vy[id] += Move.gravity(id) * (1 - row.params.gravity) * dt;
+// glide: while held in the air, the actor's gravity is scaled to params.gravity (Move.gravityScale through Buffs).
+function stepGlide(id, row) {
+  if (!Move.isGrounded(id)) Buffs.add(id, BUFF.GRAVITY, row.params.gravity, TICK_BUFF);
   return true;
 }
 // beacon: first use throws the beacon to the aimed floor; the next use teleports there (telefrags whoever stands on it).
 function castBeacon(id, row) {
   const existing = AbilityZones.find(ZONE_KIND.BEACON, id);
-  if (existing >= 0) { teleportToBeacon(id, existing, row); return true; }
+  if (existing >= 0) { if (!canTeleport(id)) return false; teleportToBeacon(id, existing, row); return true; }
   const at = aimedFloor(id, row.range, placeAt);
   AbilityZones.add(ZONE_KIND.BEACON, id, row, at.x, at.y, at.z, 3600);
   return true;
@@ -572,8 +584,11 @@ function stepDrone(id, row) {
 function endDrone(id, row) {
   const zone = AbilityZones.find(ZONE_KIND.DRONE, id);
   if (zone < 0) return;
-  const count = enemiesNear(id, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], row.params.empRadius, true);
-  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, row.params.empSeconds, 1); Abilities.suppress(effectIds[k], row.params.empSeconds); }
+  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], z = AbilityZones.z[zone], seconds = row.params.empSeconds;
+  const count = enemiesNear(id, x, y, z, row.params.empRadius, true);
+  // The one EMP path (G20): shields stop recharging, abilities and gadgets are held, devices in the radius switch off.
+  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
+  Gadgets.empDevices(id, x, y, z, row.params.empRadius, seconds);
   AbilityZones.remove(zone);
 }
 // fence: each use plants a node; a node links to the owner's newest node within params.link metres.
@@ -764,14 +779,6 @@ function strengthShot(event) {
   if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.params.useCost); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
-// Fire rate buffs: the cooldown the shot just started is shortened by 1 - 1 / rate.
-function rateShot(event) {
-  const rate = Buffs.get(event.id, BUFF.RATE);
-  if (rate === 1 || event.mode === 'melee') return;
-  const weapon = Weapons.currentWeapon(event.id);
-  if (weapon) Weapons.nextShot[event.id] -= Weapons.shotInterval(event.id, weapon, event.mode === 'alt' ? weapon.alt : weapon.primary) * (1 - 1 / rate);
-}
-
 Object.assign(Abilities.effects, {
   zone: { cast: castZone },
   blink: { cast: castBlink },
@@ -812,7 +819,7 @@ Object.assign(Abilities.passives, {
   shieldRegen: { step: stepShieldRegen },
 });
 function stepShieldRegen(id, passive, dt) {
-  if (Sim.time - Damage.lastDamageTime[id] < passive.delay) return;
+  if (Sim.time - Damage.lastDamageTime[id] < passive.delay || Damage.shieldRegenBlocked(id)) return;
   Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + passive.rate * dt);
 }
 function heroPassive(id, kind) {
@@ -844,6 +851,7 @@ Damage.addAttackerScale((source, target, info) => {
   if (Buffs.has(source, BUFF.TOUCH_KILL) && !isBoss(target)) scale *= WRATH_FACTOR;
   return scale * ampWallFactor(source, target);
 });
+Weapons.rayBlockers.push(domeBlockDistance);
 Damage.addReducer((source, target, amount, info) => {
   if (DecoyState.zone[target] >= 0) { AbilityZones.remove(DecoyState.zone[target]); return 0; }   // a double vanishes on the first hit
   if (Buffs.has(target, BUFF.INVULNERABLE)) return 0;
@@ -867,6 +875,23 @@ function shotBlocked(source, target) {
     if (AbilityZones.kind[zone] === ZONE_KIND.WALL && wallCrossing(zone, source, target) > 0 && Actors.isEnemy(AbilityZones.owner[zone], source)) return true;
   }
   return false;
+}
+// Weapons.rayBlockers: A26 domes stop bullets where the ray crosses their surface, from outside or from inside.
+function domeBlockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
+  let best = -1;
+  for (let zone = 0; zone < ZONE_CAP; zone++) {
+    if (!AbilityZones.alive[zone] || AbilityZones.kind[zone] !== ZONE_KIND.DOME) continue;
+    const distance = raySphereSurface(ox, oy, oz, dx, dy, dz, AbilityZones.x[zone], AbilityZones.y[zone], AbilityZones.z[zone], AbilityZones.radius[zone]);
+    if (distance >= 0 && distance <= maxDistance && (best < 0 || distance < best)) best = distance;
+  }
+  return best;
+}
+// Distance to a sphere's surface along a unit ray: the entry point from outside, the exit point from inside; -1 when missed.
+function raySphereSurface(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
+  const px = ox - cx, py = oy - cy, pz = oz - cz;
+  const b = px * dx + py * dy + pz * dz, c = px * px + py * py + pz * pz - radius * radius;
+  if (c > 0) return raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius);
+  return -b + Math.sqrt(b * b - c);
 }
 function domeSeparates(zone, source, target) {
   const sourceInside = AbilityZones.insideSphere(zone, Actors.x[source], Actors.eyeY(source), Actors.z[source]);
@@ -913,7 +938,7 @@ function drawZone(batch, zone) {
   const color = row ? row.color : 0xffffff, r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
   const x = AbilityZones.x[zone], y = AbilityZones.y[zone], zoneZ = AbilityZones.z[zone], radius = Math.min(AbilityZones.radius[zone], 60);
   if (kind === ZONE_KIND.DOME) batch.mesh('sphere', x, y, zoneZ, 0, 0, radius * 2, radius * 2, radius * 2, r, g, b, 0.3);
-  else if (kind === ZONE_KIND.WALL || kind === ZONE_KIND.SMOKE) batch.mesh('box', x, y + AbilityZones.height[zone] / 2, zoneZ, AbilityZones.yaw[zone], 0, radius * 2, AbilityZones.height[zone], 0.2, r, g, b, 0.2);
+  else if (kind === ZONE_KIND.WALL) batch.mesh('box', x, y + AbilityZones.height[zone] / 2, zoneZ, AbilityZones.yaw[zone], 0, radius * 2, AbilityZones.height[zone], 0.2, r, g, b, 0.2);
   else if (kind === ZONE_KIND.STRIKE) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, 1, 0.2, 0.2, 1);
   else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) batch.mesh('sphere', x, y + 0.3, zoneZ, 0, 0, 0.3, 0.3, 0.3, r, g, b, 0.8);
   else if (radius > 0 && radius < 60) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, r, g, b, 0.6);
@@ -949,7 +974,7 @@ Bus.on('actor.create', (id) => { RewindHistory.reset(id); DecoyState.zone[id] = 
 Bus.on('actor.remove', (id) => { if (DecoyState.zone[id] >= 0) { AbilityZones.target[DecoyState.zone[id]] = -1; DecoyState.zone[id] = -1; } });
 Bus.on('move.step', (event) => Footprints.add(event.id));
 Bus.on('move.jump', strengthJump);
-Bus.on('weapon.fire', (event) => { strengthShot(event); rateShot(event); });
+Bus.on('weapon.fire', strengthShot);
 Bus.on('damage', shareLinkedDamage);
 Bus.on('kill', onAbilityKill);
 Bus.on('match.stop', () => Footprints.clear());

@@ -90,6 +90,8 @@ Data.define('projectiles', {
   { id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
   { id: 'darkorb', code: 'P19', name: 'Dark orb', speed: 25, life: 1.5, radius: 0.3, bounce: 1, bounces: -1, pierce: true, onHit: 'damage', poolSize: 4, color: 0x30204a },
   { id: 'sunorb', code: 'P20', name: 'Daybreak orb', speed: 18, life: 6, radius: 0.5, onHit: 'explode', poolSize: 4, color: 0xffd98a, scale: 0.7 },
+  // X41 Ballistics: a hitscan pellet flown as a projectile; gravity and drag come from rules.fx.ballistics, the life from the mode's range.
+  { id: 'bullet', code: 'P21', name: 'Bullet', speed: 320, life: 1, radius: 0.02, onHit: 'damage', poolSize: 128, silent: true, color: 0xfff0b0, scale: 0.3 },
 ]);
 
 // FireMode schema (spec §4). type: hitscan | projectile | beam | melee | cone | lock | zoom | toggle | block | detonate | tool.

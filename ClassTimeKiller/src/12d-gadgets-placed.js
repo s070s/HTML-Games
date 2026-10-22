@@ -43,6 +43,7 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
+  rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {
@@ -404,10 +405,16 @@ const Devices = {
   onShot(event) {
     if (!this.count) return;
     const mode = gadgetShotMode(event);
-    if (!mode) return;
+    if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets hit devices as they fly (bulletHit)
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
     if (device >= 0) this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
+  },
+  // Projectiles.bulletHits: an X41 bullet hits the device it stopped at (Weapons.rayBlockers) with one pellet.
+  bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
+    if (!this.count) return;
+    const device = this.rayDevice(ox, oy, oz, dx, dy, dz, length + DEVICE_SHOT_SLACK);
+    if (device >= 0) this.damage(device, mode.damage || DEVICE_DEFAULT_SHOT, owner);
   },
   // How far a shot flies: to the first wall (devices on it still count), or to a body in front, which shields what is behind.
   shotReach(event, range) {
@@ -416,6 +423,7 @@ const Devices = {
     const body = World.raycastActors(event.x, event.y, event.z, event.dx, event.dy, event.dz, wall, event.id, deviceActorHit);
     return body >= 0 ? deviceActorHit.distance : wall;
   },
+  // The nearest device hit sphere along the ray (its distance in rayDistance), or -1.
   rayDevice(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
     for (let device = 0; device < DEVICE_CAP; device++) {
@@ -423,7 +431,13 @@ const Devices = {
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[device], this.centreY(device), this.z[device], this.hitRadius(device));
       if (distance >= 0 && distance < bestDistance) { best = device; bestDistance = distance; }
     }
+    this.rayDistance = bestDistance;
     return best;
+  },
+  // Weapons.rayBlockers: hitscan stops at a device with health (the weapon.fire listener above deals the damage).
+  blockShot(ox, oy, oz, dx, dy, dz, maxDistance) {
+    if (!this.count) return -1;
+    return this.rayDevice(ox, oy, oz, dx, dy, dz, maxDistance) >= 0 ? this.rayDistance : -1;
   },
   onExplosion(event) {
     if (!this.count || event.radius <= 0) return;
@@ -519,6 +533,8 @@ Devices.steps.supply = (device, row, dt) => Devices.stepSupply(device, row, dt);
 Devices.steps.beacon = () => {};
 
 Gadgets.deployers.push((id, row) => Devices.deploy(id, row));
+Weapons.rayBlockers.push((ox, oy, oz, dx, dy, dz, maxDistance) => Devices.blockShot(ox, oy, oz, dx, dy, dz, maxDistance));
+Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Devices.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Gadgets.empHooks.push((owner, x, y, z, radius, seconds) => Devices.onEmp(owner, x, y, z, radius, seconds));
 Gadgets.jammed = (id) => Devices.jammed(id);
 Gadgets.visibleTo = (index, id) => Devices.visibleTo(index, id);
