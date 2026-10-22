@@ -60,6 +60,7 @@ const Ui = {
   lastToast: '',
   noticeShown: false,
   clickEvent: { kind: '' },
+  nameCount: 0,               // numbers the ids that tie a row's label to its control
 
   register(name, screen) { this.screens.set(name, screen); },
   top() { return this.stack.length ? this.stack[this.stack.length - 1] : null; },
@@ -194,7 +195,12 @@ const Ui = {
   },
   row(label, control) {
     const row = makeElement('div', 'ui-row');
-    row.appendChild(makeElement('span', 'ui-label', label));
+    const text = makeElement('span', 'ui-label', label), named = control.input || control;   // sliders keep their input in .input
+    text.id = 'ui-label-' + (++this.nameCount);
+    named.id = named.id || 'ui-control-' + this.nameCount;
+    // Screen readers read the row label and the control's own value ("Mono audio On"); a slider is named by the label alone.
+    named.setAttribute('aria-labelledby', named.tagName === 'INPUT' ? text.id : text.id + ' ' + named.id);
+    row.appendChild(text);
     row.appendChild(control);
     return row;
   },

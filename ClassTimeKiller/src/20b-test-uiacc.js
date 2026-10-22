@@ -496,7 +496,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
 })));
 
 // ---- Every screen: opens fast, reachable and leavable with each device alone, fonts of at least 14 px ----
-const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'loadout', 'rules', 'economy', 'crosshair'];
+const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair'];
 
 function accessTestSmallText(element) {
   const small = [];
@@ -507,51 +507,68 @@ function accessTestSmallText(element) {
   return small;
 }
 
+// One screen with every device: opens fast, fonts, Tab reaches everything and cycles, the gamepad keeps its focus, and (screens that can be left)
+// the keyboard, the gamepad and a touch button each leave it. Top-level screens (main menu, pause, results) cannot be left by Back.
+function accessTestScreen(check, name) {
+  const started = performance.now();
+  const opened = Ui.open(name);
+  const openMs = performance.now() - started;
+  if (!opened) { check('screen ' + name + ': opens', false, 'did not open'); return; }
+  const element = Ui.top().element, items = Ui.focusables(element), first = items[0];
+  check('screen ' + name + ': opens in under a second with something to focus', openMs < ACCESS_TEST_SCREEN_COST_MS && items.length > 0 && element.contains(document.activeElement), openMs.toFixed(0) + ' ms, ' + items.length + ' focusables');
+  check('screen ' + name + ': all text is at least 14 px at 100% scale (ACC-008)', accessTestSmallText(element).length === 0, accessTestSmallText(element).slice(0, 3).join());
+  document.activeElement.blur(); first.focus();
+  const seen = new Set();
+  for (let step = 0; step < items.length; step++) { seen.add(document.activeElement); uiKey('Tab'); }
+  check('screen ' + name + ': Tab reaches every control and comes back (keyboard, no focus trap)', seen.size === items.length && document.activeElement === first, seen.size + ' of ' + items.length);
+  let kept = true;
+  for (const command of ['next', 'down', 'right', 'up', 'left', 'prev']) { uiMenuCommand(command); kept = kept && element.contains(document.activeElement); }
+  check('screen ' + name + ': gamepad navigation keeps the focus inside the screen', kept);
+  if (Ui.screens.get(name).noBack) return;
+  uiKey('Escape');
+  const leftByKeyboard = Ui.current() !== name;
+  Ui.open(name);
+  uiMenuCommand('back');
+  const leftByPad = Ui.current() !== name;
+  Ui.open(name);
+  const button = Array.from(Ui.top().element.querySelectorAll('button')).find((item) => /^(Back|Done|Close)$/.test(item.textContent));
+  if (button) button.click();
+  const leftByTouch = !!button && Ui.current() !== name;
+  check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
+}
+
 Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
-  for (const name of ACCESS_TEST_SCREENS) {
-    const started = performance.now();
-    const opened = Ui.open(name);
-    const openMs = performance.now() - started;
-    if (!opened) { check('screen ' + name + ': opens', false, 'did not open'); continue; }
-    const element = Ui.top().element, items = Ui.focusables(element), first = items[0];
-    check('screen ' + name + ': opens in under a second with something to focus', openMs < ACCESS_TEST_SCREEN_COST_MS && items.length > 0 && element.contains(document.activeElement), openMs.toFixed(0) + ' ms, ' + items.length + ' focusables');
-    check('screen ' + name + ': all text is at least 14 px at 100% scale (ACC-008)', accessTestSmallText(element).length === 0, accessTestSmallText(element).slice(0, 3).join());
-    // keyboard: Tab visits every focusable and the cycle closes (no trap)
-    document.activeElement.blur(); first.focus();
-    const seen = new Set();
-    for (let step = 0; step < items.length; step++) { seen.add(document.activeElement); uiKey('Tab'); }
-    check('screen ' + name + ': Tab reaches every control and comes back (keyboard, no focus trap)', seen.size === items.length && document.activeElement === first, seen.size + ' of ' + items.length);
-    // gamepad: next/prev and the four directions never lose the focus
-    let kept = true;
-    for (const command of ['next', 'down', 'right', 'up', 'left', 'prev']) { uiMenuCommand(command); kept = kept && element.contains(document.activeElement); }
-    check('screen ' + name + ': gamepad navigation keeps the focus inside the screen', kept);
-    // leave with the keyboard, the gamepad and the touch button, one device at a time
-    uiKey('Escape');
-    const leftByKeyboard = Ui.current() !== name;
-    Ui.open(name);
-    uiMenuCommand('back');
-    const leftByPad = Ui.current() !== name;
-    Ui.open(name);
-    const button = Array.from(Ui.top().element.querySelectorAll('button')).find((item) => /^(Back|Done|Close)$/.test(item.textContent));
-    if (button) button.click();
-    const leftByTouch = !!button && Ui.current() !== name;
-    check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
-    Ui.closeAll();
-  }
+  for (const name of ACCESS_TEST_SCREENS) { accessTestScreen(check, name); Ui.closeAll(); }
+  accessTestScreen(check, 'main');
+  Ui.closeAll();
+  Ui.open('settings', { tab: 'accessibility' });
+  const unnamed = Array.from(Ui.top().element.querySelectorAll('.ui-row button, .ui-row input')).filter((control) => !control.getAttribute('aria-labelledby'));
+  check('settings: every control of a row has an accessible name (screen readers)', unnamed.length === 0 && Ui.top().element.querySelectorAll('.ui-row input').length > 0, unnamed.length);
+  Ui.closeAll();
   Settings.set('ui.scale', 1.5);
   Ui.open('help');
   const scaled = parseFloat(getComputedStyle(Ui.root).fontSize);
   Ui.closeAll();
   Settings.set('ui.scale', 1);
   check('UI scale: the interface scales between 75% and 150%', scaled === 24 && Settings.definitions.get('ui.scale').min === 0.75 && Settings.definitions.get('ui.scale').max === 1.5);
-  // the dialog and the pause menu: nothing traps either
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }], player: { name: 'Me', team: -1 } });
+  // screens that exist only inside a match: the buy menu (round buy economy), the pause menu with a dialog on top, the results
+  Game.start({ mode: 'bomb', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 } });
+  accessTestScreen(check, 'buy');
+  Ui.closeAll();
   Game.pause('menu');
   const pauseItems = Ui.focusables(Ui.top().element);
   check('screen pause: it has focusable rows and Resume has the focus', pauseItems.length >= 4 && document.activeElement.textContent === 'Resume');
-  Ui.confirm({ title: 'Test', text: 'Test', yes: 'Yes', onYes: () => {} });
-  uiKey('Escape');
-  check('screen confirm: Escape closes a dialog and returns to the pause menu', Ui.current() === 'pause');
+  Ui.closeAll();
   Game.resume();
+  Game.pause('menu');
+  accessTestScreen(check, 'pause');
+  Ui.confirm({ title: 'Test', text: 'Test', yes: 'Yes', onYes: () => {} });
+  check('screen confirm: the dialog has the focus on its safe button', Ui.current() === 'confirm' && document.activeElement.textContent === 'Cancel');
+  uiKey('Escape');
+  check('screen confirm: Escape closes the dialog and the pause menu is back', Ui.current() === 'pause');
+  Game.resume();
+  Game.end(Game.playerId);
+  check('screen results: it opens when the match ends', Ui.current() === 'results');
+  accessTestScreen(check, 'results');
   Game.stop();
 })));
