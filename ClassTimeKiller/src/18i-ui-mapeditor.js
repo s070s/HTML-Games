@@ -538,7 +538,8 @@ Ui.register('mapEditorCode', {
     area.spellcheck = false;
     const message = makeElement('p', 'ui-note', '');
     const foot = makeElement('div', 'ui-foot');
-    foot.appendChild(Ui.button('Make code', () => { area.value = MapEditorShare.exportCode(); message.textContent = area.value.length + ' characters. Select all and copy.'; area.select(); }));
+    foot.appendChild(Ui.button('Make code', () => { area.value = MapEditorShare.exportCode(); message.textContent = area.value.length + ' characters. Press Copy.'; }));
+    foot.appendChild(Ui.button('Copy', () => { if (area.value) copyText(area.value, area); else message.textContent = 'Press Make code first.'; }));   // area.select() alone does nothing on iOS
     foot.appendChild(Ui.button('Import', () => {
       const run = () => {
         const result = MapEditorShare.importCode(area.value);

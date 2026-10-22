@@ -932,6 +932,10 @@ Test.add('mapEditor', async (check) => {
   check('a bad code shows its message and stays on the screen', Ui.current() === 'mapEditorCode' && document.querySelector('.ui-mapEditorCode .me-error').textContent.length > 0);
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Make code').click();
   check('Make code fills the box with a code', /^CTKEDIT1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
+  Ui.toastBox.replaceChildren();
+  Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Copy').click();
+  await new Promise((done) => setTimeout(done, 50));
+  check('Copy sends the code through copyText (iOS ignores select())', /copied|copy/i.test(Ui.lastToast), Ui.lastToast);
   Ui.pop();
   MapEditor.newFrom({ kind: 'empty' });
   check('saving an unfinished map says that no mode is complete', mapEditSave(false) && /no mode is complete/i.test(Ui.lastToast) && MapEditor.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);
