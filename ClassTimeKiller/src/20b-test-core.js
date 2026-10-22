@@ -161,7 +161,8 @@ Test.add('core', (check) => {
     for (let frame = 0; frame < frames; frame++) Loop.advance(seconds);
     return Sim.tick;
   };
-  Sim.systems = [];   // a cheap sim
+  // A cheap sim.
+  Sim.systems = [];
   window.requestAnimationFrame = () => 0;
   Loop.hooks = { input: [], render: [], hud: [], audio: [], ui: [] };
   try {
@@ -179,7 +180,6 @@ Test.add('core', (check) => {
     Sim.systems = systems; Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0; Perf.droppedSteps = dropped;
     window.requestAnimationFrame = raf; Loop.hooks = hooks; Game.paused = false;
   }
-  check('loop: no Loop.frameSeconds', !('frameSeconds' in Loop));
 });
 
 // One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other

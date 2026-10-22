@@ -14,7 +14,7 @@ const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Rende
 const VIEWMODEL_DARK = '#2b2f35';
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
-const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep this aspect's horizontal view (verticalFov)
+const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep its horizontal view (verticalFov)
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),

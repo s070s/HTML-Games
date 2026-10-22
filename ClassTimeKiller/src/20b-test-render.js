@@ -433,7 +433,8 @@ Test.add('render', (check) => withRenderer(() => {
   const savedRate = Object.assign({}, DisplayRate), triangles = Perf.counters.triangles;
   Settings.set('video.quality', 'auto'); Settings.set('video.autoQuality', 'high');
   GpuTimer.extension = null; Game.state = 'playing';
-  Perf.counters.triangles = 50000;   // a match frame draws a world
+  // A match frame draws a world.
+  Perf.counters.triangles = 50000;
   const idle = feedMatchFrames(8, 30);
   check('idle 30 Hz match frames: no step-down', idle === 'high high' && Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, idle);
   const busy = feedMatchFrames(30, 12);
@@ -532,7 +533,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- Context loss and restore (PLT-005) ----
 Test.add('render', (check) => withRenderer(async () => {
-  check('the WebGL2 screen has an iPhone line', /iOS/.test(WEBGL_FATAL_TEXT) && /Lockdown Mode/.test(WEBGL_FATAL_TEXT));
+  check('the WebGL2 screen has an iPhone line', /iOS.*Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
   if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
   World.load(makeDemoArena('station'));
@@ -556,7 +557,8 @@ Test.add('render', (check) => withRenderer(async () => {
   try {
     extension.loseContext();
     await waitUntil(() => Render.lost, 3000);
-    Game.headless = true;   // quit without the menu screens
+    // Quit without the menu screens.
+    Game.headless = true;
     Bus.emit('match.stop', null);
     Game.state = 'menu'; Game.paused = false; writes = 0;
     check('a quit during the loss forgets its pause', !Render.pausedForLoss);

@@ -19,7 +19,8 @@ const WEBGL_FATAL_TEXT = 'ClassTimeKiller needs WebGL2. Turn on hardware acceler
   + 'restart the browser and reload this page. If it still fails, update your browser and graphics driver. '
   + 'iPhone / iPad: update iOS (16 or newer); with Lockdown Mode on, exclude this site in Settings > Privacy & Security > '
   + 'Lockdown Mode > Configure Web Browsing.';
-const CONTEXT_RESTORE_WAIT_MS = 5000;   // PLT-005: a lost context not back by then stays lost (GPU blocked, iOS memory pressure)
+// PLT-005: a lost context not back by then stays lost (GPU blocked, iOS memory pressure)
+const CONTEXT_RESTORE_WAIT_MS = 5000;
 const GRAPHICS_LOST_TITLE = 'The graphics stopped';
 const GRAPHICS_LOST_TEXT = 'The graphics did not come back. Your progress is saved: reload the page.';
 
@@ -59,7 +60,8 @@ const Render = {
   lost: false,
   pausedForLoss: false,
   restoreTimer: 0,
-  restoreWaitMs: CONTEXT_RESTORE_WAIT_MS,   // the wait for a restore before the Reload screen (a test shortens it)
+  // The wait for a restore before the Reload screen (a test shortens it)
+  restoreWaitMs: CONTEXT_RESTORE_WAIT_MS,
   quality: null,           // the active CAT.quality row
   config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: 0, maxDpr: 1.5, autoLower: true, autoQuality: '',
     highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0],   // these three are filled by the accessibility and view settings (18k, 18m)
@@ -510,7 +512,8 @@ function publishStats() {
 }
 
 function renderFrameHook(seconds, alpha) {
-  if (Render.lost && Game.isRunning()) pauseForLoss();   // a match started during the loss waits for the restore (no blind play)
+  // A match started during the loss waits for the restore (no blind play)
+  if (Render.lost && Game.isRunning()) pauseForLoss();
   if (!Render.ready || Render.lost || Game.headless) return;
   const started = performance.now();
   Render.drawFrame(seconds, alpha);
@@ -566,7 +569,8 @@ function handleContextRestored() {
   emitToast('Graphics restored');
 }
 Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
-Bus.on('match.stop', () => { Render.pausedForLoss = false; });   // a quit during the loss: a later match's pause is the player's
+// A quit during the loss: a later match's pause is the player's.
+Bus.on('match.stop', () => { Render.pausedForLoss = false; });
 
 Bus.on('boot', () => {
   if (Game.headless || !Render.init()) return;

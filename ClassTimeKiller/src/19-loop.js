@@ -7,7 +7,7 @@
 const FRAME_PHASES = ['input', 'render', 'hud', 'audio', 'ui'];
 const FRAME_HISTORY = 240;              // frames kept for p50/p95/p99 (2 s at 120 fps)
 const MAX_FRAME_SECONDS = 0.25;         // a longer gap (tab switch, debugger) is not simulated
-const STEP_COST_BLEND = 0.1;            // share of each frame's step cost in the smoothed one the spiral guard reads
+const STEP_COST_BLEND = 0.1;            // smoothing of Loop.stepCostMs
 
 const FRAME_CAP_TOLERANCE_MS = 1.5;   // rAF timestamps jitter; skip a frame only when clearly early
 // 30 is the battery saver (plan 18.5 low-power mode): the renderer takes the cap interval as its frame budget.
@@ -56,7 +56,7 @@ const Loop = {
   lastTime: 0,
   accumulator: 0,
   alpha: 0,               // interpolation factor between the previous and current sim state
-  stepCostMs: 0,          // smoothed cost of one sim step (the spiral guard's step count follows it)
+  stepCostMs: 0,          // smoothed ms per sim step (maxSteps reads it)
   resync: false,          // set by start and resume: the next rAF timestamp becomes the clock
   frameCapMs: 0,          // 0 = uncapped (PERF 18.5 battery option)
   capCreditMs: 0,         // frame cap pacing: time owed to the next capped frame (carried over, so the average rate is the cap)
