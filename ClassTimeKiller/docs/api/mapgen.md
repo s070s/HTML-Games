@@ -21,6 +21,7 @@ MapGen.shareCode(options) -> 'CTKMAP-GN3-medium-foundry-normal-ffa-48213' (the s
 MapGen.parseShare(text) -> options, or null when the text is not a map code
 MapGen.generator(idOrCode) -> generators row or null
 MapGen.ringIsle()    -> MP09 Ring Isle (GN5, seed MAPGEN_TRUSTED_SEED, large, overgrowth, normal, royale), built once and cached
+Daily.generateMap    =  (options) => MapGen.generate(options)   (hook of the earlier Daily Seed section 15c, filled here)
 ```
 
 | Option | Values | Default |

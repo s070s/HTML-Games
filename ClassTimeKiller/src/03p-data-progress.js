@@ -228,12 +228,13 @@ Data.define('operations', { id: REQUIRED, code: REQUIRED, name: REQUIRED, diffic
 ]);
 
 // ---- Daily Seed (PRG-006): the local date picks a mode from DAILY_RULES.modes, a ruleset bundle, 2 non-conflicting
-// mutators from the list, and a generated map when the generator exists (else a hand-made map serving the mode).
+// mutators from the list, and a map from a generator serving the mode (else a hand-made map serving the mode).
 // Scored by DAILY_RULES.points over the run metrics; the best score per date is kept (no streaks, no penalties).
 const DAILY_RULES = {
   modes: ['ffa', 'tdm', 'dom', 'hardpoint', 'ctf'],
   rulesets: ['classic', 'tourney', 'modern', 'pilot', 'vanguard'],
   mutators: ['gravity', 'playerspeed', 'vampire', 'bighead', 'infammo', 'regen', 'noself', 'multijump', 'knockback', 'slowmokills', 'aircontrol', 'colossal', 'weaponstay', 'tags'],
   mutatorCount: 2, bots: 5, difficulty: 'regular', historyDays: 60,   // bots: fixed, inside the lowest quality preset's cap (7)
+  mapSize: 'small',   // generated map size: the one size every quality tier allows, so every device builds the same map
   points: { kills: 500, score: 100, headshots: 200, deaths: -150, won: 3000 },
 };

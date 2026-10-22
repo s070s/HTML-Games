@@ -219,6 +219,7 @@ const Operations = {
 
 // ---- Daily Seed: the local date decides everything; best score per date, replayable, no streaks ----
 const Daily = {
+  generateMap: null,   // hook filled by the map generator (16w): fn(options) -> map row, MapGen.generate
   // 'YYYY-MM-DD' of a moment at a UTC offset in minutes (tests pin the offset; the game passes the device's).
   dateKey(milliseconds, offsetMinutes) {
     const shifted = new Date(milliseconds + offsetMinutes * MINUTE_MS);
@@ -236,8 +237,8 @@ const Daily = {
       if (mutators.length >= DAILY_RULES.mutatorCount) break;
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
-    const hand = random.pick(dailyHandMaps(mode));
-    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode) };
+    const hand = random.pick(dailyHandMaps(mode)), generator = random.pick(dailyGenerators(mode));
+    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode, generator) };
   },
   setup(key) {
     const choice = this.choiceFor(key);
@@ -264,12 +265,16 @@ const Daily = {
 
 // The hand-made maps (S03 catalogue) serving a mode: never the editor's saved or generated maps, which differ per device.
 function dailyHandMaps(mode) { return CAT.maps.filter((map) => map.modes.includes(mode)); }
-// MAP-020: a generated map when the map generator section is present (another helper builds MapGen), else null (hand-made map).
-function dailyGeneratedMap(seed, mode) {
-  if (typeof MapGen === 'undefined' || typeof MapGen.generate !== 'function') return null;
+// The map generators (GN rows) that build maps for the mode: a daily never plays on a generator made for other modes.
+function dailyGenerators(mode) { return CAT.generators.filter((row) => row.modes.includes(mode)); }
+// MAP-020: a map the date's generator builds for the mode at DAILY_RULES.mapSize (allowed on every quality tier, so every device
+// builds the same map); null (the hand-made map) without the generator hook or a generator for the mode, or when the map built
+// does not offer the mode (a fallback map for other modes).
+function dailyGeneratedMap(seed, mode, generator) {
+  if (!Daily.generateMap || !generator) return null;
   try {
-    const map = MapGen.generate({ seed, mode });
-    return map && typeof map === 'object' && Array.isArray(map.spawns) && map.spawns.length > 0 ? map : null;
+    const map = Daily.generateMap({ generator: generator.id, seed, mode, size: DAILY_RULES.mapSize });
+    return map && Array.isArray(map.spawns) && map.spawns.length > 0 && map.modes.includes(mode) ? map : null;
   } catch (error) {
     ErrorLog.add('daily map', error);
     return null;
