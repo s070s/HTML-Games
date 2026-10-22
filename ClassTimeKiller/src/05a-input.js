@@ -13,6 +13,8 @@ const WHEEL_LINE_UNITS = 33;                // browsers that report lines instea
 const WHEEL_PAGE_UNITS = 800;
 const MAX_QUEUED_PULSES = 8;
 const NO_BINDING = '';
+const CAPTURE_CANCEL = 'Key:Escape';          // rebinding, any device: cancels the capture
+const CAPTURE_CLEAR = 'Key:Backspace';
 const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
@@ -41,25 +43,25 @@ function injectStyle(id, css) {
 
 // ---- The action table (ARC: one table only). Bindings are strings: 'Key:KeyW', 'Mouse:0', 'Wheel:up', 'Pad:7'. ----
 // button = BTN bit written to Actors.buttons; axis/sign = digital move axis; slot = weapon slot request; event = no sim effect, emits 'input.action'.
-// toggle = hold/toggle setting exists (INP-002); buffered = press buffered 0.10 s (INP-009); always = also works while a menu is open.
+// toggle = hold/toggle setting exists (INP-002); padToggle = own controller setting; buffered = press buffered 0.10 s (INP-009); always = also works while a menu is open.
 const ACTION_ROWS = [
   { id: 'forward', label: 'Move forward', group: 'Movement', axis: 'moveZ', sign: 1, kbm: ['Key:KeyW'] },
   { id: 'back', label: 'Move back', group: 'Movement', axis: 'moveZ', sign: -1, kbm: ['Key:KeyS'] },
   { id: 'left', label: 'Strafe left', group: 'Movement', axis: 'moveX', sign: -1, kbm: ['Key:KeyA'] },
   { id: 'right', label: 'Strafe right', group: 'Movement', axis: 'moveX', sign: 1, kbm: ['Key:KeyD'] },
   { id: 'jump', label: 'Jump', group: 'Movement', button: BTN.JUMP, buffered: true, kbm: ['Key:Space'], pad: 'Pad:0' },
-  { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:ControlLeft'], pad: 'Pad:1' },
-  { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
+  { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:KeyC'], pad: 'Pad:1' },   // not Ctrl: Ctrl+W/N/T close or open tabs
+  { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, padToggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
   { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
-  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true },
+  { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true, kbm: ['Key:KeyP'], pad: 'Pad:8+10' },
   { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
   { id: 'reload', label: 'Reload', group: 'Combat', button: BTN.RELOAD, kbm: ['Key:KeyR'], pad: 'Pad:2' },
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
-  { id: 'grenadeNext', label: 'Next grenade type', group: 'Combat', button: BTN.CYCLE_GRENADE, kbm: ['Key:KeyN'] },
-  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
+  { id: 'grenadeNext', label: 'Next grenade type', group: 'Combat', button: BTN.CYCLE_GRENADE, kbm: ['Key:KeyN'], pad: 'Pad:8+4' },
+  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyU'], pad: 'Pad:8+2' },
   { id: 'heal', label: 'Use heal / shield item', group: 'Combat', button: BTN.HEAL, kbm: ['Key:KeyH'], pad: 'Pad:8+0' },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
@@ -80,8 +82,8 @@ const ACTION_ROWS = [
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'], pad: 'Pad:8+3' },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
-  { id: 'cards', label: 'Use a card', group: 'Interface', event: true, kbm: ['Key:KeyY'], pad: 'Pad:16' },
-  { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
+  { id: 'cards', label: 'Use a card', group: 'Interface', event: true, kbm: ['Key:KeyY'], pad: 'Pad:8+5' },
+  { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F8'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
 ];
 const ACTION_COUNT = ACTION_ROWS.length;
@@ -114,6 +116,12 @@ const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
   options: HOLD_TOGGLE_OPTIONS, optionLabels: ['Hold', 'Toggle'],
 }));
 
+// L3 is held while steering with that stick, so a controller's sprint defaults to click on, click off.
+const PAD_TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.padToggle).map((row) => ({
+  key: 'controls.toggle.' + row.id + 'Pad', field: 'toggle.' + row.id + 'Pad', fallback: 'toggle', label: row.label + ' on a controller: hold or toggle',
+  options: HOLD_TOGGLE_OPTIONS, optionLabels: ['Hold', 'Toggle'],
+}));
+
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
   aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
@@ -123,6 +131,12 @@ const Input = {
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
   autoFireTarget: false,   // set each frame by updateAssist: the crosshair is on the aim assist target (a visible enemy)
+  autoFireTrigger: null,   // fn(id) -> trigger of the held weapon's primary mode ('auto', 'semi'...). Filled by S11
+  autoFirePhase: 0,        // flips every sim tick: semi and burst auto-fire press on one tick, let go on the next
+  mouseNoteShown: false,
+  padPress: false,         // a controller binding is being pressed or released
+  padToggleRule: null,     // fn(actionId) -> 0: a controller press holds, 1: toggles, 2: toggles and a press while on is a new press. Filled by S10 (sprint)
+  pulsing: false,          // inside pulseAction
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
   locked: false,           // pointer lock held
@@ -141,12 +155,15 @@ const Input = {
   toggled: new Uint8Array(ACTION_COUNT),
   effective: new Uint8Array(ACTION_COUNT),
   toggleMode: new Uint8Array(ACTION_COUNT),
+  padToggleMode: new Uint8Array(ACTION_COUNT),
+  pressToggled: new Uint8Array(ACTION_COUNT),   // the held press toggled, so its release leaves the action as it is
   queued: new Uint8Array(ACTION_COUNT),
   lastPressTick: new Int32Array(ACTION_COUNT).fill(NEVER_PRESSED),
   buttonActions: [], axisActions: [], buttonBits: new Uint32Array(ACTION_COUNT),
   queuedTotal: 0,
   pendingButtons: 0, pendingSlot: 0, pendingAge: 0, latchedButtons: 0, latchedSlot: 0,
   writtenButtons: 0, seenButtons: 0, writtenTick: -1,
+  repressButtons: 0,       // toggled-on bits written low until a sim step saw them low, so a press while on is a new edge
   wheelAccumulator: 0,
   analog: { moveX: 0, moveZ: 0 },
   look: { mouseX: 0, mouseY: 0, assistedX: 0, assistedY: 0 },   // radians this frame, +x = right, +y = down
@@ -168,6 +185,7 @@ const Input = {
     this.settingsDirty = false;
     for (const row of this.settingRows) this.config[row.field] = Settings.get(row.key);
     for (let i = 0; i < ACTION_COUNT; i++) this.toggleMode[i] = this.config['toggle.' + ACTION_ROWS[i].id] === 'toggle' ? 1 : 0;
+    for (let i = 0; i < ACTION_COUNT; i++) this.padToggleMode[i] = this.config['toggle.' + ACTION_ROWS[i].id + 'Pad'] === 'toggle' ? 1 : 0;
     this.autoFire = !!this.config.touchAutoFire;
     for (const source of this.sources) if (source.applyConfig) source.applyConfig(this.config);
   },
@@ -243,26 +261,26 @@ const Input = {
     return KEY_LABELS[name] || name.replace(/^Key|^Digit/, '');
   },
   // The rebinding screen waits for the next press of a device kind ('kbm' or 'pad'); callback(binding) gets it.
-  // Esc cancels (callback(null) on any device), Backspace clears a keyboard/mouse slot (callback('')).
+  // Esc cancels (callback(null)) and Backspace clears the slot (callback('')) on any device.
   captureNext(device, callback) { this.capture = { device, callback }; },
   cancelCapture() { this.capture = null; },
   deliverCapture(binding) {
     const capture = this.capture;
     if (!capture) return false;
-    const cancel = binding === 'Key:Escape';
-    if (!cancel && this.bindingDevice(binding) !== capture.device) return false;
+    const cancel = binding === CAPTURE_CANCEL, clear = binding === CAPTURE_CLEAR;
+    if (!cancel && !clear && this.bindingDevice(binding) !== capture.device) return false;
     this.capture = null;
-    capture.callback(cancel ? null : binding === 'Key:Backspace' ? NO_BINDING : binding);
+    capture.callback(cancel ? null : clear ? NO_BINDING : binding);
     return true;
   },
 
   // ---- Action state ----
   isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
   isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
-  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button) starts from off again.
+  // A toggled action whose effect ended by other means (the scoreboard closed with its Close button, a run stopped) starts from off again.
   resetToggle(actionId) {
     const index = this.actionIndex[actionId];
-    if (!this.toggleMode[index]) return;
+    if (!this.toggled[index]) return;
     this.toggled[index] = 0;
     this.effective[index] = 0;
   },
@@ -280,18 +298,29 @@ const Input = {
     this.holdCount[index]--;
     if (this.holdCount[index] === 0) this.fallingEdge(index);
   },
-  pulseAction(index) { this.pressAction(index); this.releaseAction(index); },
+  // A tap (tap-to-fire, wheel notch) never latches a toggled button action on; a toggled screen action (the scoreboard) still flips.
+  pulseAction(index) { this.pulsing = true; this.pressAction(index); this.releaseAction(index); this.pulsing = false; },
+  // A controller press of a padToggle row (L3 sprint) follows its own setting, then padToggleRule; every other press follows toggleMode.
+  padRule(index) { return this.padToggleMode[index] && this.padToggleRule ? this.padToggleRule(ACTION_ROWS[index].id) : this.padToggleMode[index]; },
+  toggleRuleNow(index) {
+    const row = ACTION_ROWS[index];
+    if (this.pulsing && row.button) return 0;
+    return this.padPress && row.padToggle ? this.padRule(index) : this.toggleMode[index];
+  },
   risingEdge(index) {
     const row = ACTION_ROWS[index];
     this.markPressed(index);
-    if (this.toggleMode[index]) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
+    const rule = this.toggleRuleNow(index);
+    this.pressToggled[index] = rule > 0 ? 1 : 0;
+    if (rule === 2 && this.toggled[index]) this.repressButtons |= row.button;
+    else if (rule > 0) { this.toggled[index] ^= 1; this.effective[index] = this.toggled[index]; } else this.effective[index] = 1;
     if (!this.effective[index]) { if (row.event) this.emitAction(row.id, false); return; }   // a toggled-off event row reports its release here
     if (row.button) this.pendingButtons |= row.button;
     if (row.slot) this.pendingSlot = row.slot;
     if (row.event) this.emitAction(row.id, true);
   },
   fallingEdge(index) {
-    if (this.toggleMode[index]) return;
+    if (this.pressToggled[index] || (this.pulsing && this.toggled[index])) return;
     this.effective[index] = 0;
     if (ACTION_ROWS[index].event) this.emitAction(ACTION_ROWS[index].id, false);
   },
@@ -308,16 +337,21 @@ const Input = {
     const list = this.bindingMap.get(binding);
     if (!list) return false;
     let handled = false;
+    this.padPress = binding.startsWith('Pad:');
     for (let i = 0; i < list.length; i++) {
       if (this.uiOpen && !ACTION_ROWS[list[i]].always && !this.releasesToggle(list[i])) continue;
       this.pressAction(list[i]);
       handled = true;
     }
+    this.padPress = false;
     return handled;
   },
   bindingUp(binding) {
     const list = this.bindingMap.get(binding);
-    if (list) for (let i = 0; i < list.length; i++) this.releaseAction(list[i]);
+    if (!list) return;
+    this.padPress = binding.startsWith('Pad:');
+    for (let i = 0; i < list.length; i++) this.releaseAction(list[i]);
+    this.padPress = false;
   },
   // Wheel notches: one weapon per notch even when several arrive inside one frame (queued, LT-L-027).
   bindingPulse(binding) {
@@ -332,8 +366,8 @@ const Input = {
   },
   // Drops every held, latched and queued input (focus loss, pause, rebinding, disconnect): nothing may stay stuck.
   clearAll() {
-    this.holdCount.fill(0); this.toggled.fill(0); this.effective.fill(0); this.queued.fill(0);
-    this.queuedTotal = 0; this.pendingButtons = 0; this.pendingSlot = 0; this.pendingAge = 0;
+    this.holdCount.fill(0); this.toggled.fill(0); this.effective.fill(0); this.queued.fill(0); this.pressToggled.fill(0);
+    this.queuedTotal = 0; this.pendingButtons = 0; this.pendingSlot = 0; this.pendingAge = 0; this.repressButtons = 0;
     this.latchedButtons = 0; this.latchedSlot = 0; this.wheelAccumulator = 0;
     this.lastPressTick.fill(NEVER_PRESSED);   // Sim.tick restarts at 0 in a new match; an old press must not look recent
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
@@ -359,10 +393,22 @@ const Input = {
     if (this.deliverCapture(binding)) { event.preventDefault(); return; }
     if (this.bindingDown(binding)) event.preventDefault();
   },
-  onKeyUp(event) { this.bindingUp('Key:' + event.code); },
+  onKeyUp(event) {
+    const binding = 'Key:' + event.code;
+    this.bindingUp(binding);
+    // Alt and F10 also act on release (browser menu): stop that too
+    if (Game.state === 'playing' && !this.uiOpen && this.bindingMap.has(binding)) event.preventDefault();
+  },
+  // A mouse takes the device, except on a touch device without pointer lock (iPad): it cannot look there, so the touch controls stay.
+  useMouse() {
+    if (this.canLock() || this.device !== 'touch') { this.setDevice('kbm'); return; }
+    if (this.mouseNoteShown) return;
+    this.mouseNoteShown = true;
+    emitToast('Mouse look needs pointer lock, which this browser lacks. Use the touch controls to look.');
+  },
   onPointerDown(event) {
     if (event.pointerType !== 'mouse') { this.setDevice('touch'); return; }
-    this.setDevice('kbm');
+    this.useMouse();
     const binding = 'Mouse:' + event.button;
     if (this.deliverCapture(binding)) { event.preventDefault(); return; }
     if (this.uiOpen) return;
@@ -379,7 +425,7 @@ const Input = {
   onWheel(event) {
     if (!this.capture && (this.uiOpen || Game.state !== 'playing')) return;   // a rebinding capture may take the wheel inside menus
     event.preventDefault();
-    this.setDevice('kbm');
+    this.useMouse();
     const unit = event.deltaMode === 1 ? WHEEL_LINE_UNITS : event.deltaMode === 2 ? WHEEL_PAGE_UNITS : 1;
     this.wheelAccumulator += event.deltaY * unit;
     while (Math.abs(this.wheelAccumulator) >= WHEEL_NOTCH) {
@@ -561,17 +607,26 @@ const Input = {
     if (length > 1) { x /= length; z /= length; }
     let buttons = this.latchedButtons;
     for (let i = 0; i < this.buttonActions.length; i++) { const index = this.buttonActions[i]; if (this.effective[index]) buttons |= this.buttonBits[index]; }
-    if (this.autoFire && this.autoFireTarget && this.device === 'touch') buttons |= BTN.FIRE;
+    buttons &= ~this.repressButtons;
+    if (this.autoFireHeld(id)) buttons |= BTN.FIRE;
     this.writtenButtons = buttons;
     this.writtenTick = Sim.tick;
     Actors.moveX[id] = x; Actors.moveZ[id] = z;
     Actors.aimYaw[id] = this.aim.yaw; Actors.aimPitch[id] = this.aim.pitch;
     Actors.buttons[id] = buttons; Actors.slotRequest[id] = this.latchedSlot;
   },
+  // INP-006: auto triggers are held on target; semi and burst need a release between shots (the weapon's fire interval sets the rate);
+  // charge and release triggers fire when let go, so the player pulls those by hand.
+  autoFireHeld(id) {
+    if (!this.autoFire || !this.autoFireTarget || this.device !== 'touch') { this.autoFirePhase = 0; return false; }
+    const trigger = this.autoFireTrigger ? this.autoFireTrigger(id) : 'auto';
+    if (trigger === 'auto') return true;
+    return (trigger === 'semi' || trigger === 'burst') && this.autoFirePhase === 1;
+  },
   // INP-009: a press stays in the written buttons until a sim step has consumed it. A press that arrives while the
   // sim last saw the same bit high waits (up to 0.10 s) for a step that sees it low, so every tap still makes an edge.
   advanceLatch(seconds) {
-    if (Sim.tick !== this.writtenTick) { this.seenButtons = this.writtenButtons; this.latchedButtons = 0; this.latchedSlot = 0; }
+    if (Sim.tick !== this.writtenTick) { this.seenButtons = this.writtenButtons; this.latchedButtons = 0; this.latchedSlot = 0; this.autoFirePhase ^= 1; this.repressButtons &= this.seenButtons; }
     if (this.queuedTotal) this.releaseQueue();
     const fresh = this.pendingButtons & ~this.seenButtons;
     this.latchedButtons |= fresh;
@@ -629,6 +684,7 @@ ACTION_ROWS.forEach((row, index) => {
 });
 Input.addSettings(KBM_SETTINGS);
 Input.addSettings(TOGGLE_SETTINGS);
+Input.addSettings(PAD_TOGGLE_SETTINGS);
 
 Bus.on('boot', () => Input.init());
 Bus.on('setting', () => { Input.settingsDirty = true; });

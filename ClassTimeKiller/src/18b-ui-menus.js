@@ -215,7 +215,7 @@ function bindingRow(row, list) {
 Ui.register('bindings', {
   build(root) {
     screenHeader(root, 'Key and button bindings');
-    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. A red row shares a binding with another action.'));
+    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. On a controller, View + a button binds a chord, holding Start cancels and View + Start clears. A red row shares a binding with another action.'));
     const list = makeElement('div', 'ui-scroll');
     root.appendChild(list);
     const foot = makeElement('div', 'ui-foot');

@@ -475,8 +475,8 @@ Test.add('ui', (check) => uiWith(() => {
   PerfOverlay.shown = false; PerfOverlay.lastUpdate = 0;
   PerfOverlay.frame();
   check('perf HUD: hidden means no work and no DOM', !PerfOverlay.element.classList.contains('show') && PerfOverlay.lastUpdate === 0 && getComputedStyle(PerfOverlay.element).display === 'none');
-  inputTapKey('F10');
-  check('perf HUD: F10 turns it on and saves the setting', Ui.perfVisible && Settings.get('developer.perfHud') === true && Save.data.settings['developer.perfHud'] === true);
+  inputTapKey('F8');
+  check('perf HUD: F8 turns it on and saves the setting', Ui.perfVisible && Settings.get('developer.perfHud') === true && Save.data.settings['developer.perfHud'] === true);
   PerfOverlay.frame();
   check('perf HUD: shows and fills the panel', PerfOverlay.element.classList.contains('show') && PerfOverlay.element.textContent.includes('fps') && getComputedStyle(PerfOverlay.element).display === 'block');
   PerfOverlay.element.textContent = 'marker';
@@ -492,8 +492,8 @@ Test.add('ui', (check) => uiWith(() => {
   slow.fps = 120; PerfOverlay.render(slow);
   check('perf HUD: normal colour at 120 fps', !PerfOverlay.element.classList.contains('slow'));
   Ui.open('settings');
-  inputTapKey('F10');
-  check('perf HUD: F10 works while a menu is open and turns it off', !Ui.perfVisible);
+  inputTapKey('F8');
+  check('perf HUD: F8 works while a menu is open and turns it off', !Ui.perfVisible);
   inputTapKey('F9');
   check('perf HUD: F9 sets Ui.botDebug for later sections', Ui.botDebug === true && Settings.get('developer.botDebug') === true);
   inputTapKey('F9');

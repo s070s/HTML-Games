@@ -15,6 +15,9 @@ const PAD_BINDINGS = Array.from({ length: PAD_BUTTON_COUNT }, (unused, index) =>
 // INP-007 second layer: while View (Share / Select) is held, a button with a chord binding 'Pad:8+<button>' uses it instead
 // (every one of the 16 standard buttons already has a default action).
 const PAD_MODIFIER = 8;
+const PAD_CAPTURE_START = 9;                // rebinding: tap binds Start, hold PAD_CAPTURE_CANCEL_HOLD cancels, View + Start clears
+const PAD_CAPTURE_CANCEL_HOLD = 1;          // s
+const PAD_DEVICE_SWITCH_CHANGE = 0.3;       // a stick takes the device after moving this far from its rest (drift does not)
 const PAD_MODIFIER_HOLD = 0.25;             // s View must be held alone before its own action (the scoreboard) goes down: a chord may follow
 const PAD_CHORD_BINDINGS = PAD_BINDINGS.map((unused, index) => 'Pad:' + PAD_MODIFIER + '+' + index);
 const PAD_DIRECTION_BUTTONS = [12, 13, 14, 15];                 // d-pad up, down, left, right
@@ -47,6 +50,10 @@ const PadInput = {
   menuTimer: 0,
   turboSeconds: 0,
   padId: '',
+  unsupportedId: '',                  // last pad without the standard mapping that was reported
+  captureView: false,                 // rebinding: View is down, waiting for a second button
+  captureStartHeld: -1,               // rebinding: s Start has been held, -1 = up
+  restingSticks: new Float32Array(4), // axes 0-3 while the pad had the device
   menuEvent: { command: '' },
 
   init() {
@@ -70,18 +77,25 @@ const PadInput = {
     emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); this.modifierWait = -1; this.modifierActed = 0; },
+  reset() {
+    this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); this.modifierWait = -1; this.modifierActed = 0;
+    this.captureView = false; this.captureStartHeld = -1;
+  },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
     this.padId = pad.id;
     const id = String(pad.id).toLowerCase();
-    if (/054c/.test(id)) Input.padStyle = 'shapes';          // the pad's USB vendor id decides the glyph family
-    else if (/045e|xinput/.test(id)) Input.padStyle = 'letters';
+    if (/054c|dualsense|dualshock|playstation|ps[345]/.test(id)) Input.padStyle = 'shapes';   // Chrome shows the USB vendor id, Safari the product name
+    else if (/045e|xinput|xbox/.test(id)) Input.padStyle = 'letters';
     else Input.padStyle = 'generic';
   },
+  standardLayout(pad) { return pad.mapping === undefined || pad.mapping === 'standard'; },   // test pads have no mapping field
+  // The pad onConnected chose, unless it lacks the standard layout and another pad has it (a second odd device never silences the real pad).
   activePad() {
-    const pads = this.listPads();
-    if (pads[this.index]) return pads[this.index];
+    const pads = this.listPads(), chosen = pads[this.index];
+    if (chosen && this.standardLayout(chosen)) return chosen;
+    for (let i = 0; i < pads.length; i++) if (pads[i] && this.standardLayout(pads[i])) { this.index = i; return pads[i]; }
+    if (chosen) return chosen;
     for (let i = 0; i < pads.length; i++) if (pads[i]) { this.index = i; return pads[i]; }
     return null;
   },
@@ -93,11 +107,18 @@ const PadInput = {
   // pad: a Gamepad (or a plain object with buttons[{pressed,value}] and axes[]) - tests feed fake pads here.
   poll(pad, seconds) {
     this.detectStyle(pad);
+    if (!this.standardLayout(pad)) { this.reportUnsupported(pad); return; }   // other layouts have triggers on the stick axes
+    this.updateCapture(seconds);
     this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
     for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
     this.updateModifier(seconds);
     this.readSticks(pad, seconds);
     this.updateMenuRepeat(pad, seconds);
+  },
+  reportUnsupported(pad) {
+    if (pad.id === this.unsupportedId) return;
+    this.unsupportedId = pad.id;
+    emitToast('This controller has no standard layout here and is ignored');
   },
   pollButton(pad, index) {
     const button = pad.buttons[index];
@@ -107,6 +128,7 @@ const PadInput = {
     this.onButton(index, down);
   },
   onButton(index, down) {
+    if (Input.capture && Input.capture.device === 'pad') { this.captureButton(index, down); return; }
     if (!down) { this.releaseButton(index); return; }
     Input.setDevice('gamepad');
     const binding = this.layerBinding(index);
@@ -115,6 +137,36 @@ const PadInput = {
     if (index === PAD_MODIFIER) { this.modifierWait = 0; return; }   // its own action waits: a chord must never also open the scoreboard
     if (binding === PAD_CHORD_BINDINGS[index]) this.startChord(index);
     Input.bindingDown(binding);
+  },
+  // Rebinding: View waits for a second button ('Pad:8+1') and binds itself when let go alone; Start tapped binds, held cancels;
+  // View + Start clears. Nothing reaches the game.
+  captureButton(index, down) {
+    Input.setDevice('gamepad');
+    if (index === PAD_MODIFIER) {
+      if (!down && this.captureView) Input.deliverCapture(PAD_BINDINGS[PAD_MODIFIER]);
+      this.captureView = down;
+      return;
+    }
+    if (this.previous[PAD_MODIFIER]) {
+      if (!down) return;
+      this.captureView = false;
+      Input.deliverCapture(index === PAD_CAPTURE_START ? CAPTURE_CLEAR : PAD_CHORD_BINDINGS[index]);
+      return;
+    }
+    if (index === PAD_CAPTURE_START) {
+      const tapped = !down && this.captureStartHeld >= 0;
+      this.captureStartHeld = down ? 0 : -1;
+      if (tapped) Input.deliverCapture(PAD_BINDINGS[index]);
+      return;
+    }
+    if (down) Input.deliverCapture(PAD_BINDINGS[index]);
+  },
+  updateCapture(seconds) {
+    if (this.captureStartHeld < 0) return;
+    this.captureStartHeld += seconds;
+    if (this.captureStartHeld < PAD_CAPTURE_CANCEL_HOLD) return;
+    this.captureStartHeld = -1;
+    Input.deliverCapture(CAPTURE_CANCEL);
   },
   // The chord takes over: View's own action never fires for this hold (and lets go if it was already down).
   startChord(index) {
@@ -177,12 +229,22 @@ const PadInput = {
     Input.analog.moveZ -= left.y;
     const rawX = axes[2] || 0, rawY = axes[3] || 0;
     const right = this.shapeStick(rawX, rawY, PAD_CURVES[config.padCurve] || PAD_CURVES.classic);
-    const active = left.magnitude > 0 || right.magnitude > 0;
-    if (active) Input.setDevice('gamepad');
+    this.claimDevice(axes, left.magnitude > 0 || right.magnitude > 0);
     this.turboSeconds = config.padCurve === 'dynamic' && Math.hypot(rawX, rawY) > PAD_TURBO_EDGE ? this.turboSeconds + seconds : 0;
     const turbo = 1 + PAD_TURBO_GAIN * clamp(this.turboSeconds / PAD_TURBO_SECONDS, 0, 1);
     const radiansPerSecond = PAD_LOOK_DEGREES_PER_SECOND * DEG * turbo * seconds;
     Input.addLook(right.x * config.padSensX * radiansPerSecond, right.y * config.padSensY * radiansPerSecond * (config.padInvertY ? -1 : 1), true);
+  },
+  // A stick takes the device only by moving away from its rest, so drift never fights touch or the mouse; a let-go stick is a new rest.
+  claimDevice(axes, active) {
+    const resting = this.restingSticks, own = Input.device === 'gamepad';
+    let change = 0;
+    for (let i = 0; i < resting.length; i++) {
+      const value = axes[i] || 0;
+      change = Math.max(change, Math.abs(value - resting[i]));
+      if (own || !active) resting[i] = value;
+    }
+    if (!own && active && change > PAD_DEVICE_SWITCH_CHANGE) Input.setDevice('gamepad');
   },
   // Menu direction from the d-pad or left stick, repeating while held (INP-010).
   updateMenuRepeat(pad, seconds) {

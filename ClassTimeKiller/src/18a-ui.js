@@ -11,7 +11,7 @@ const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', A
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
 const UI_SETTINGS = [
   { key: 'ui.scale', fallback: 1, label: 'UI scale', category: 'accessibility', min: 0.75, max: 1.5, step: 0.05 },
-  { key: 'developer.perfHud', fallback: false, label: 'Performance overlay (F10)', category: 'developer' },
+  { key: 'developer.perfHud', fallback: false, label: 'Performance overlay (F8)', category: 'developer' },
   { key: 'developer.botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
 ];
 
