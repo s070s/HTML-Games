@@ -135,6 +135,20 @@ Test.add('nav', (check) => {
   check('wall: validate reports the unreachable spawn', Nav.validate(World.map).length > 0);
 });
 
+// Breakable props (the versus maps' crates, audit 32) are solid until they break: no node stands in one and no walk link runs through one.
+Test.add('nav', (check) => {
+  const prop = { min: [-0.6, 0, -0.6], max: [0.6, 1.2, 0.6] };
+  navTestLoad([navTestFloor(-10, -10, 10, 10, 0)], { props: [prop] });
+  let inside = 0;
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    const x = Nav.nodeX[node], z = Nav.nodeZ[node];
+    if (x > prop.min[0] - ACTOR_RADIUS && x < prop.max[0] + ACTOR_RADIUS && z > prop.min[2] - ACTOR_RADIUS && z < prop.max[2] + ACTOR_RADIUS) inside++;
+  }
+  check('props: no node stands where a prop is', Nav.nodeCount > 0 && inside === 0, inside + ' of ' + Nav.nodeCount);
+  check('props: no walk link runs through a prop', navTestLinksClear() === 0, navTestLinksClear());
+  check('props: the floor round the prop stays one component', Nav.componentCount === 1, Nav.componentCount);
+});
+
 Test.add('nav', (check) => {
   // Ramp rising +x from y 0 to 2 over 6 m (18 deg), then a platform at 2 m.
   navTestLoad([navTestFloor(-10, -10, 10, 10, 0), { shape: 'ramp', min: [0, 0, -2], max: [6, 2, 2], dir: '+x' }, navTestBox([6, 0, -2], [10, 2, 2])]);
