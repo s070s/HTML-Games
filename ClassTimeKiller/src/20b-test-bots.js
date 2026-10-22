@@ -718,17 +718,8 @@ Test.add('bots', (check) => {
   check('more damage taken: fights are worth less', withMutator('dmgin', 200, () => mutatorRisk()) < 1);
 });
 
-// ---- Difficulty: the PvE damage sliders through their own attacker scale, the game speed through rules.fx ----
+// ---- Difficulty: the game speed through rules.fx (the PvE damage sliders: group 'simwire') ----
 Test.add('bots', (check) => {
-  const savedSkill = Bots.skill, savedKinds = [Actors.kind[0], Actors.kind[1]];
-  Bots.skill = Object.assign({}, Difficulty.resolve(BOT_DEFAULT_DIFFICULTY), { playerDamage: 2, enemyDamage: 0.5 });
-  Actors.kind[0] = ACTOR_KIND.ENEMY; Actors.kind[1] = ACTOR_KIND.PLAYER;
-  check('a PvE enemy hitting the player x playerDamage', difficultyDamageScale(0, 1) === 2);
-  check('the player hitting a PvE enemy x enemyDamage', difficultyDamageScale(1, 0) === 0.5);
-  Actors.kind[0] = ACTOR_KIND.BOT;
-  check('versus hits are never scaled (BOT-040)', difficultyDamageScale(0, 1) === 1 && difficultyDamageScale(1, 0) === 1);
-  Actors.kind[0] = savedKinds[0]; Actors.kind[1] = savedKinds[1];
-  Bots.skill = savedSkill;
   const fast = { preset: BOT_DEFAULT_DIFFICULTY, gameSpeed: 1.2 };
   const pve = Rules.build({ mode: 'horde', difficulty: fast }), versus = Rules.build({ mode: 'ffa', difficulty: fast });
   check('game speed slider scales rules.fx.timeScale in PvE and versus (ACC-007 assist)', pve.fx.timeScale === 1.2 && versus.fx.timeScale === 1.2, pve.fx.timeScale + ' / ' + versus.fx.timeScale);

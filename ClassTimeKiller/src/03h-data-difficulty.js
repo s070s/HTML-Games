@@ -3,14 +3,16 @@
 // S14 turns the chosen preset (plus custom slider values) into rules.botSkill at the 'difficulty' rule stage.
 // playerDamage / enemyDamage only change PvE damage (BOT-040: no bot damage bonus in versus); resourceYield = the
 // "Pickups" column; aimAssist -1 keeps the player's own aim assist setting; lives 0 = unlimited (PvE).
-// S14 applies tierMin/tierMax, attackers, aggression, reactionScale and aimErrorScale, and in PvE playerDamage /
-// enemyDamage (its own Damage.addAttackerScale hook) and gameSpeed (x rules.fx.timeScale); the other fields are carried in
-// rules.botSkill for their owners (aim assist: the player's input, S10/S18; parry, projectileSpeed, lives, checkpoints,
-// resourceYield: S15) and not applied by S14.
+// One reader per field: the bots (14a..14e) tierMin/tierMax, attackers, aggression, reactionScale, aimErrorScale and
+// gameSpeed (x rules.fx.timeScale); the PvE section (14h..14j) playerDamage / enemyDamage (Pve.attackerScale), attackers
+// (enemy tokens), parry (PvE blows and projectiles), projectileSpeed, resourceYield (drop chance), lives, checkpoints and
+// checkpointHeal; the weapons (11a) aimAssist and (11d) parry for the W03 block weapon (window x parry / DIFFICULTY_PARRY_BASE).
+
+const DIFFICULTY_PARRY_BASE = 0.3;      // s: the parry window of the default preset (W03 parryWindow is tuned for it)
 
 Data.define('difficulty', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, tierMin: REQUIRED, tierMax: REQUIRED,
-  playerDamage: 1, enemyDamage: 1, attackers: 3, aggression: 0.5, resourceYield: 1, parry: 0.3, aimAssist: -1,
+  playerDamage: 1, enemyDamage: 1, attackers: 3, aggression: 0.5, resourceYield: 1, parry: DIFFICULTY_PARRY_BASE, aimAssist: -1,
   reactionScale: 1, aimErrorScale: 1, projectileSpeed: 1, gameSpeed: 1, lives: 0, checkpoints: true, checkpointHeal: 0.5,
 }, [
   { id: 'stroll', code: 'D01', name: 'Stroll', tierMin: 0, tierMax: 0, playerDamage: 0.4, attackers: 1, aggression: 0.1, resourceYield: 2, parry: 0.5, aimAssist: 100, checkpointHeal: 1 },
