@@ -47,6 +47,16 @@ function pickupHexColor(out, offset, color) {
   out[offset] = (value >> 16 & 255) / 255; out[offset + 1] = (value >> 8 & 255) / 255; out[offset + 2] = (value & 255) / 255;
 }
 const itemTicks = (seconds) => Math.round(seconds * TICK_RATE);
+// Every owned weapon with a magazine gains `share` x its max reserve, at least one round (I09, PU17, G23). Returns rounds added.
+function addAmmoShare(id, share) {
+  let added = 0;
+  for (let w = 0; w < WEAPON_COUNT; w++) {
+    const weapon = CAT.weapons[w];
+    if (weapon.mag <= 0 || !Weapons.owned[Weapons.slotIndex(id, w)]) continue;
+    added += Weapons.addWeaponAmmo(id, weapon, Math.max(1, Math.round(Weapons.maxReserve(id, weapon) * share)));
+  }
+  return added;
+}
 // The ruleset fields S12 reads, with the spec defaults when a test or menu runs without them.
 function itemRule(field, fallback) {
   const value = currentRules()[field];
@@ -194,16 +204,27 @@ const Items = {
       if (state === PICKUP_STATE.WAITING) this.stepWaiting(slot);
       else if (state === PICKUP_STATE.READY) this.stepReady(slot, dt);
     }
+    const enemiesTake = this.enemiesTakePickups();
     for (let id = 0; id < Actors.count; id++) {
-      if (!Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) continue;
+      if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
+  // PvE enemies leave pickups to the players unless the mode sets rules.params.enemyPickups.
+  enemiesTakePickups() {
+    const params = itemRule('params', null);
+    return !!(params && params.enemyPickups);
+  },
+  canTouch(id, enemiesTake) {
+    if (!Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) return false;
+    return enemiesTake || Actors.kind[id] !== ACTOR_KIND.ENEMY;
+  },
   stepWaiting(slot) {
     const row = this.rowOf(slot);
-    if (this.kind[slot] === PICKUP_KIND.POWERUP && row.unique && (this.uniqueOut(row.index) || this.dropExists(slot))) { this.readyTick[slot] = Sim.tick + this.respawnTicks(slot); return; }
-    if (this.isPower(slot) && !this.warned[slot] && this.readyTick[slot] - Sim.tick <= itemTicks(ITEM_TIMING.powerWarning)) this.warnPower(slot);
+    if (this.uniqueWaits(slot, row)) { this.readyTick[slot] = Sim.tick + this.respawnTicks(slot); return; }
+    const warningDue = this.readyTick[slot] - Sim.tick <= itemTicks(ITEM_TIMING.powerWarning);
+    if (this.isPower(slot) && !this.warned[slot] && warningDue) this.warnPower(slot);
     if (Sim.tick < this.readyTick[slot]) return;
     this.state[slot] = PICKUP_STATE.READY;
     RESPAWN_EVENT.item = row.id; RESPAWN_EVENT.group = this.groupName(slot);
@@ -214,6 +235,11 @@ const Items = {
     if (this.spot[slot]) return;
     if (Sim.tick >= this.despawnTick[slot]) { this.state[slot] = PICKUP_STATE.FREE; return; }
     if (this.kind[slot] === PICKUP_KIND.POWERUP && this.rowOf(slot).id === 'soul') this.homeSoul(slot, dt);
+  },
+  // PU19: a unique powerup spot waits while someone holds it or a dropped copy lies around.
+  uniqueWaits(slot, row) {
+    if (this.kind[slot] !== PICKUP_KIND.POWERUP || !row.unique) return false;
+    return this.uniqueOut(row.index) || this.dropExists(slot);
   },
   // A dropped copy of the same row lies around (unique powerups wait for it).
   dropExists(spotSlot) {
@@ -314,11 +340,7 @@ const Items = {
   },
   // I09: every owned weapon + amount x its max ammo, plus the extra refills (kit grenades).
   addAllAmmo(id, row) {
-    let added = 0;
-    for (let w = 0; w < WEAPON_COUNT; w++) {
-      const weapon = CAT.weapons[w];
-      if (weapon.mag > 0 && Weapons.owned[Weapons.slotIndex(id, w)]) added += Weapons.addWeaponAmmo(id, weapon, Math.round(Weapons.maxReserve(id, weapon) * row.amount));
-    }
+    const added = addAmmoShare(id, row.amount);
     let extra = false;
     for (let i = 0; i < this.extraAmmo.length; i++) if (this.extraAmmo[i](id, row)) extra = true;
     return added > 0 || extra;
@@ -399,9 +421,11 @@ const Items = {
     const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
     const y = this.y[slot] + PICKUP_FLOAT + bob, power = this.isPower(slot);
     if (this.spot[slot]) this.drawBase(batch, slot, power ? 0.9 : 0.5);
-    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, rgb[offset], rgb[offset + 1], rgb[offset + 2], power ? 0.8 : 0.35); return; }
+    const red = rgb[offset], green = rgb[offset + 1], blue = rgb[offset + 2];
+    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, red, green, blue, power ? 0.8 : 0.35); return; }
     const size = row.size, shape = row.shape;
-    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, shape === 'ring' ? size * 0.3 : size, size, rgb[offset], rgb[offset + 1], rgb[offset + 2], power ? 0.9 : 0.45);
+    const height = shape === 'ring' ? size * 0.3 : size;
+    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, height, size, red, green, blue, power ? 0.9 : 0.45);
   },
   drawBase(batch, slot, glow) {
     const color = PICKUP_GROUP_COLORS[this.group[slot]];

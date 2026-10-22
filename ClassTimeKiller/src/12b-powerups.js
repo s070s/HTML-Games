@@ -16,6 +16,7 @@ const FLIGHT_VERTICAL = 1;                    // PU06: JUMP climbs, CROUCH sinks
 const POWERUP_FLAG = { INVULNERABLE: 1, FREE_AMMO: 2, INVISIBLE: 4, FODDER_MELEE: 8, REVEAL: 16, NO_ARMOR: 32 };
 const DAMAGE_KIND_BIT = {};
 CAT.damageKinds.forEach((row, index) => { DAMAGE_KIND_BIT[row.id] = 1 << index; });
+const FREEZE_INDEX = CAT.statusEffects.byId('freeze').index;   // G08: frozen actors cannot stay cloaked
 
 const POWERUP_EVENT = { id: 0, powerup: '' };
 const SOULS_EVENT = { id: 0, count: 0 };
@@ -50,7 +51,9 @@ const Powerups = {
     return this.endTick[slot] === POWERUP_FOREVER ? POWERUP_FOREVER : Math.max(0, this.endTick[slot] - Sim.tick);
   },
   runeActive(id) {
-    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup] && CAT.powerups[powerup].stacking === 'rune') return true;
+    for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) {
+      if (this.active[id * POWERUP_COUNT + powerup] && CAT.powerups[powerup].stacking === 'rune') return true;
+    }
     return false;
   },
 
@@ -152,8 +155,9 @@ const Powerups = {
     if (mods.invisible) this.perception[id] = Math.min(this.perception[id], mods.perception);
     if (mods.regen) this.regenRow[id] = powerup;
     if (this.glowRow[id] < 0) this.glowRow[id] = powerup;
-    this.flags[id] |= (mods.invulnerable ? POWERUP_FLAG.INVULNERABLE : 0) | (mods.freeAmmo ? POWERUP_FLAG.FREE_AMMO : 0) | (mods.invisible ? POWERUP_FLAG.INVISIBLE : 0)
-      | (mods.fodderMelee ? POWERUP_FLAG.FODDER_MELEE : 0) | (mods.reveal ? POWERUP_FLAG.REVEAL : 0) | (mods.noArmor ? POWERUP_FLAG.NO_ARMOR : 0);
+    this.flags[id] |= (mods.invulnerable ? POWERUP_FLAG.INVULNERABLE : 0) | (mods.freeAmmo ? POWERUP_FLAG.FREE_AMMO : 0)
+      | (mods.invisible ? POWERUP_FLAG.INVISIBLE : 0) | (mods.fodderMelee ? POWERUP_FLAG.FODDER_MELEE : 0)
+      | (mods.reveal ? POWERUP_FLAG.REVEAL : 0) | (mods.noArmor ? POWERUP_FLAG.NO_ARMOR : 0);
     if (mods.noFall) this.immune[id] |= DAMAGE_KIND_BIT.fall;
     if (mods.immune) for (let k = 0; k < mods.immune.length; k++) this.immune[id] |= DAMAGE_KIND_BIT[mods.immune[k]] || 0;
   },
@@ -176,13 +180,24 @@ const Powerups = {
     Weapons.freeAmmo[id] = this.flags[id] & POWERUP_FLAG.FREE_AMMO ? 1 : 0;
     Items.noArmor[id] = this.flags[id] & POWERUP_FLAG.NO_ARMOR ? 1 : 0;
     if (Items.noArmor[id]) Actors.armor[id] = 0;
-    this.setCloak(id, (this.flags[id] & POWERUP_FLAG.INVISIBLE) !== 0);
+    this.setCloak(id, this.cloaked(id));
+  },
+  // PU04 hides its holder unless a Rime Bomb freeze holds them (G08 stops cloak; it comes back when the freeze ends).
+  cloaked(id) {
+    if (!(this.flags[id] & POWERUP_FLAG.INVISIBLE)) return false;
+    return Damage.statusTime[id * STATUS_COUNT + FREEZE_INDEX] <= 0;
   },
   setCloak(id, on) {
-    if (on) { if (!(Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) { Actors.flags[id] |= ACTOR_FLAG.INVISIBLE; this.setInvisible[id] = 1; } return; }
+    if (on) { this.raiseCloak(id); return; }
     if (!this.setInvisible[id]) return;
     Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
     this.setInvisible[id] = 0;
+  },
+  // Sets the flag only when nobody else did (an ability's cloak is left alone when this one ends).
+  raiseCloak(id) {
+    if (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) return;
+    Actors.flags[id] |= ACTOR_FLAG.INVISIBLE;
+    this.setInvisible[id] = 1;
   },
 
   // ---- Expiry and cleanup ----
@@ -249,6 +264,7 @@ const Powerups = {
     if (this.flight[id] > 0) this.fly(id, dt);
     if (this.ammoRegen[id] > 0) this.regenerateAmmo(id, dt);
     if (this.flags[id] & POWERUP_FLAG.REVEAL) this.reveal(id, dt);
+    if (this.flags[id] & POWERUP_FLAG.INVISIBLE) this.setCloak(id, this.cloaked(id));
   },
   // PU05: [rate, upTo, rate, upTo, ...]: the first band below its limit heals.
   regenerate(id, bands, dt) {
@@ -264,7 +280,8 @@ const Powerups = {
     Vec.fromAngles(flightScratch, Actors.aimYaw[id], Actors.aimPitch[id]);
     const forward = Actors.moveZ[id], strafe = Actors.moveX[id], buttons = Actors.buttons[id];
     const lift = (buttons & BTN.JUMP ? FLIGHT_VERTICAL : 0) - (buttons & BTN.CROUCH ? FLIGHT_VERTICAL : 0);
-    let x = flightScratch.x * forward - Math.cos(Actors.aimYaw[id]) * strafe, y = flightScratch.y * forward + lift, z = flightScratch.z * forward + Math.sin(Actors.aimYaw[id]) * strafe;
+    const rightX = -Math.cos(Actors.aimYaw[id]), rightZ = Math.sin(Actors.aimYaw[id]);
+    let x = flightScratch.x * forward + rightX * strafe, y = flightScratch.y * forward + lift, z = flightScratch.z * forward + rightZ * strafe;
     const length = Math.hypot(x, y, z), speed = this.flight[id];
     if (length > 1) { x /= length; y /= length; z /= length; }
     Actors.vx[id] = x * speed; Actors.vz[id] = z * speed;
@@ -275,17 +292,16 @@ const Powerups = {
     this.ammoClock[id] += dt;
     if (this.ammoClock[id] < AMMO_REGEN_INTERVAL - 1e-6) return;
     this.ammoClock[id] -= AMMO_REGEN_INTERVAL;
-    for (let w = 0; w < WEAPON_COUNT; w++) {
-      const weapon = CAT.weapons[w];
-      if (weapon.mag > 0 && Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.addWeaponAmmo(id, weapon, Math.max(1, Math.round(Weapons.maxReserve(id, weapon) * this.ammoRegen[id])));
-    }
+    addAmmoShare(id, this.ammoRegen[id]);
   },
   // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts.
   reveal(id, dt) {
     this.seerClock[id] -= dt;
     if (this.seerClock[id] > 0) return;
     this.seerClock[id] += SEER_INTERVAL;
-    for (let other = 0; other < Actors.count; other++) if (Actors.alive[other] && Actors.isEnemy(id, other)) Damage.addStatus(other, 'reveal', id, SEER_REVEAL_SECONDS, 1);
+    for (let other = 0; other < Actors.count; other++) {
+      if (Actors.alive[other] && Actors.isEnemy(id, other)) Damage.addStatus(other, 'reveal', id, SEER_REVEAL_SECONDS, 1);
+    }
   },
 
   // ---- Damage hooks (HP-001: attacker multipliers, victim reductions) ----
@@ -347,7 +363,9 @@ const Powerups = {
   style(id, out) {
     if (!this.activeCount[id] || this.glowRow[id] < 0) return;
     const offset = this.glowRow[id] * 3;
-    out.r = lerp(out.r, POWERUP_RGB[offset], POWERUP_TINT); out.g = lerp(out.g, POWERUP_RGB[offset + 1], POWERUP_TINT); out.b = lerp(out.b, POWERUP_RGB[offset + 2], POWERUP_TINT);
+    out.r = lerp(out.r, POWERUP_RGB[offset], POWERUP_TINT);
+    out.g = lerp(out.g, POWERUP_RGB[offset + 1], POWERUP_TINT);
+    out.b = lerp(out.b, POWERUP_RGB[offset + 2], POWERUP_TINT);
     out.emissive = Math.max(out.emissive, POWERUP_GLOW);
     if (this.setInvisible[id]) out.visible = (Sim.time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS;
   },
@@ -361,7 +379,7 @@ Items.uniqueOut = (rowIndex) => {
 };
 Items.soulCount = (id) => Powerups.souls[id];
 // Bots perceive a cloaked actor at this share of their normal range (PU04); 1 = fully visible.
-Items.perceptionScale = (id) => Powerups.perception[id];
+Items.perceptionScale = (id) => Powerups.cloaked(id) ? Powerups.perception[id] : 1;
 
 const previousActorStyle = Render.actorStyle;
 Render.actorStyle = (id, out) => {

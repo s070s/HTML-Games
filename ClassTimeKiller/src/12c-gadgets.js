@@ -18,10 +18,12 @@ const GRENADE_NOISE = 15;                // bots hear a bounce within this radiu
 const POP_NOISE = 35;                    // pops without damage (smoke, flash, freeze, pulse)
 const AREA_CAP = 32;
 const AREA_TICK = 0.25;                  // fire areas hurt on this tick
-const FIRE_AREA_HEIGHT = 1.5;                 // fire reaches feet this close above or below
+const FIRE_AREA_HEIGHT = 1.5;            // fire reaches feet this close above or below
+const FIRE_FLOOR_PROBE = 3;              // fire that went off on a wall or a body drops this far at most to the floor
 const SMOKE_CAP = 8;
 const SMOKE_CELL = 1;                    // REN-007 occupancy grid cell (m)
-const SMOKE_HALF = Math.ceil(CAT.gadgets.reduce((most, row) => row.effect === 'smoke' ? Math.max(most, row.radius) : most, 1) / SMOKE_CELL);
+const SMOKE_LARGEST_RADIUS = CAT.gadgets.reduce((most, row) => row.effect === 'smoke' ? Math.max(most, row.radius) : most, 1);
+const SMOKE_HALF = Math.ceil(SMOKE_LARGEST_RADIUS / SMOKE_CELL);
 const SMOKE_DIM = SMOKE_HALF * 2 + 1;
 const SMOKE_CELLS = SMOKE_DIM * SMOKE_DIM * SMOKE_DIM;
 const SMOKE_BLOCK_METRES = 1;            // this much smoke along a line blocks sight
@@ -30,8 +32,9 @@ const SMOKE_DRAW_STEP = 2;               // every 2nd cell per axis is drawn as 
 const SMOKE_DRAW_BUDGET = 480;           // most smoke blobs per frame (the renderer takes 1024 spheres from every source)
 const SMOKE_DRAW_START = SMOKE_HALF % SMOKE_DRAW_STEP;   // the lattice is centred on the cloud
 const SMOKE_BLOB = SMOKE_CELL * 2.7;
-const PREVIEW_POINTS = 36;
 const PREVIEW_SECONDS = 0.05;
+const PREVIEW_HORIZON = 3;               // the throw arc preview follows the flight this many seconds
+const PREVIEW_POINTS = Math.ceil(PREVIEW_HORIZON / PREVIEW_SECONDS);
 const DECOY_DEFAULT_NOISE = 60;
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
@@ -40,14 +43,16 @@ const GADGET_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
 const POP_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
 const IMPULSE_PAYLOAD = { id: 0, x: 0, y: 0, z: 0 };
 // Fire-mode-like rows for Damage.explode / Damage.apply (weapon key, element, splash), one per gadget.
-const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null, statusRange: 0,
-  splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false, family: null, fodderKill: false, falloff: null }));
+const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null,
+  statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
+  family: null, fodderKill: false, falloff: null }));
 const GADGET_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
 const BLIND_INDEX = CAT.statusEffects.byId('blind').index;
 const gadgetHit = makeHit();
 const gadgetActorHit = makeActorHit();
 const reachPoint = Vec.make();
 const throwScratch = Vec.make();
+const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
@@ -80,6 +85,11 @@ function gadgetShotMode(event) {
   if (!weapon || event.mode === 'melee') return null;
   const mode = event.mode === 'alt' ? weapon.alt : weapon.primary;
   return mode.type === 'hitscan' || mode.type === 'beam' || mode.type === 'cone' ? mode : null;
+}
+// Where a throw leaves the hand (THROW_FORWARD in front of the eye along the view): the throw and its preview arc.
+function throwOrigin(id, out) {
+  Vec.fromAngles(out, Actors.aimYaw[id], Actors.aimPitch[id]);
+  return Vec.set(out, Actors.x[id] + out.x * THROW_FORWARD, Actors.eyeY(id) + out.y * THROW_FORWARD, Actors.z[id] + out.z * THROW_FORWARD);
 }
 // Overhand (GAD-002: 18 m/s + 5 up along the view) or underhand launch velocity into out.
 function throwVelocity(id, underhand, out) {
@@ -128,8 +138,8 @@ const Smoke = {
     cells[base + start] = 1;
     queue[tail++] = start;
     while (head < tail) {
-      const cell = queue[head++], ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-      tail = this.spread(volume, cells[base + cell] + 1, ix, iy, iz, tail);
+      const cell = queue[head++], grid = this.cellCoordinates(cell);
+      tail = this.spread(volume, cells[base + cell] + 1, grid.x, grid.y, grid.z, tail);
     }
   },
   // Visits the 6 neighbours of a cell; returns the new queue tail.
@@ -149,11 +159,25 @@ const Smoke = {
     if (dx * dx + dy * dy + dz * dz > this.radius[volume] * this.radius[volume]) return false;
     return !World.pointInside(this.x[volume] + dx, this.y[volume] + dy, this.z[volume] + dz);
   },
+  // Grid coordinates (x, y, z = ix, iy, iz) of a cell index into cellGrid.
+  cellCoordinates(cell) {
+    return Vec.set(cellGrid, Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, cell % SMOKE_DIM);
+  },
+  // World centre of the cell (ix, iy, iz) of a volume into cellPoint.
+  cellCentre(volume, ix, iy, iz) {
+    const x = this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL, y = this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL;
+    return Vec.set(cellPoint, x, y, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL);
+  },
   // Radius the cloud has grown to (it expands over smokeExpandSeconds).
-  grownRadius(volume) { return this.radius[volume] * Math.min(1, (Sim.tick - this.startTick[volume]) / itemTicks(GADGET_TUNING.smokeExpandSeconds)); },
-  // Cell of a world point in volume v, or -1 outside its grid.
+  grownRadius(volume) {
+    const grown = (Sim.tick - this.startTick[volume]) / itemTicks(GADGET_TUNING.smokeExpandSeconds);
+    return this.radius[volume] * Math.min(1, grown);
+  },
+  // Grid coordinate along one axis of a world offset from the volume centre.
+  axisCell(offset) { return Math.round(offset / SMOKE_CELL) + SMOKE_HALF; },
+  // Cell of a world point in a volume, or -1 outside its grid.
   cellAt(volume, x, y, z) {
-    const ix = Math.round((x - this.x[volume]) / SMOKE_CELL) + SMOKE_HALF, iy = Math.round((y - this.y[volume]) / SMOKE_CELL) + SMOKE_HALF, iz = Math.round((z - this.z[volume]) / SMOKE_CELL) + SMOKE_HALF;
+    const ix = this.axisCell(x - this.x[volume]), iy = this.axisCell(y - this.y[volume]), iz = this.axisCell(z - this.z[volume]);
     if (ix < 0 || iy < 0 || iz < 0 || ix >= SMOKE_DIM || iy >= SMOKE_DIM || iz >= SMOKE_DIM) return -1;
     return this.cellIndex(ix, iy, iz);
   },
@@ -175,8 +199,10 @@ const Smoke = {
     if (!this.count) return false;
     const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
     if (length < 1e-6) return false;
+    const directionX = dx / length, directionY = dy / length, directionZ = dz / length;
     for (let volume = 0; volume < SMOKE_CAP; volume++) {
-      if (this.active[volume] && this.smokeAlong(volume, ax, ay, az, dx / length, dy / length, dz / length, length) >= SMOKE_BLOCK_METRES) return true;
+      if (!this.active[volume]) continue;
+      if (this.smokeAlong(volume, ax, ay, az, directionX, directionY, directionZ, length) >= SMOKE_BLOCK_METRES) return true;
     }
     return false;
   },
@@ -215,13 +241,16 @@ const Smoke = {
   punchSphere(x, y, z, radius) {
     const until = Sim.tick + itemTicks(GADGET_TUNING.smokePunchSeconds);
     for (let volume = 0; volume < SMOKE_CAP; volume++) {
-      if (!this.active[volume] || distanceSquared3(x, y, z, this.x[volume], this.y[volume], this.z[volume]) > (radius + this.radius[volume]) ** 2) continue;
-      for (let cell = 0; cell < SMOKE_CELLS; cell++) if (this.cellDistance(volume, cell, x, y, z) <= radius) this.punched[volume * SMOKE_CELLS + cell] = until;
+      if (!this.active[volume]) continue;
+      if (distanceSquared3(x, y, z, this.x[volume], this.y[volume], this.z[volume]) > (radius + this.radius[volume]) ** 2) continue;
+      for (let cell = 0; cell < SMOKE_CELLS; cell++) {
+        if (this.cellDistance(volume, cell, x, y, z) <= radius) this.punched[volume * SMOKE_CELLS + cell] = until;
+      }
     }
   },
   cellDistance(volume, cell, x, y, z) {
-    const ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-    return Math.hypot(this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL - x, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL - y, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL - z);
+    const grid = this.cellCoordinates(cell), centre = this.cellCentre(volume, grid.x, grid.y, grid.z);
+    return Math.hypot(centre.x - x, centre.y - y, centre.z - z);
   },
   onShot(event) {
     if (!this.count) return;
@@ -232,7 +261,9 @@ const Smoke = {
     this.punchRay(event.x, event.y, event.z, event.dx, event.dy, event.dz, wall);
   },
   step() {
-    for (let volume = 0; volume < SMOKE_CAP; volume++) if (this.active[volume] && Sim.tick >= this.endTick[volume]) { this.active[volume] = 0; this.recount(); }
+    for (let volume = 0; volume < SMOKE_CAP; volume++) {
+      if (this.active[volume] && Sim.tick >= this.endTick[volume]) { this.active[volume] = 0; this.recount(); }
+    }
   },
   // Soft grey blobs on a coarse lattice of occupied cells, plus drifting smoke particles (cosmetic, Rng.fx).
   draw(batch) {
@@ -246,21 +277,22 @@ const Smoke = {
     }
     const cell = Rng.fx.int(0, SMOKE_CELLS - 1);
     if (!this.occupied(volume, cell, grown)) return;
-    const ix = Math.floor(cell / (SMOKE_DIM * SMOKE_DIM)), iy = Math.floor(cell / SMOKE_DIM) % SMOKE_DIM, iz = cell % SMOKE_DIM;
-    Fx.burst('smoke', this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL, 0, 1, 0, 2, null);
+    const grid = this.cellCoordinates(cell), centre = this.cellCentre(volume, grid.x, grid.y, grid.z);
+    Fx.burst('smoke', centre.x, centre.y, centre.z, 0, 1, 0, 2, null);
   },
   drawColumn(batch, volume, ix, iy, grown) {
     for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
       if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(volume, this.cellIndex(ix, iy, iz), grown)) continue;
       this.drawn++;
-      const shade = 0.5 + iy / SMOKE_DIM * 0.25;
-      batch.mesh('sphere', this.x[volume] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[volume] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[volume] + (iz - SMOKE_HALF) * SMOKE_CELL,
-        0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
+      const shade = 0.5 + iy / SMOKE_DIM * 0.25, centre = this.cellCentre(volume, ix, iy, iz);
+      batch.mesh('sphere', centre.x, centre.y, centre.z, 0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
     }
   },
 };
 const SMOKE_STEPS = new Int8Array([1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1]);
 const spanScratch = { from: 0, to: 0 };
+const cellGrid = Vec.make();
+const cellPoint = Vec.make();
 
 // ---- Timed areas left by grenades: fire, decoy, pull, sonar pulses ----
 const GadgetAreas = {
@@ -334,8 +366,10 @@ const GadgetAreas = {
   // G19: pulses reveal enemies within reach (line of sight) every interval.
   stepPulse(area, row, dt) {
     if (!this.due(area, dt, row.interval)) return;
+    const owner = this.owner[area];
     for (let id = 0; id < Actors.count; id++) {
-      if (id !== this.owner[area] && gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) Damage.addStatus(id, row.status, this.owner[area], row.statusSeconds, 1);
+      if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
+      Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
     }
     emitGadgetSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
     if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
@@ -354,16 +388,25 @@ function gadgetBlast(row, owner, x, y, z) {
   blast.damage = row.damage; blast.ownerSafe = row.ownerSafe; blast.weapon = row.id; blast.element = row.element;
   Damage.explode(blast);
 }
+// Fire burns on the floor below where it went off (impact rows also go off on walls and bodies).
+function fireFloorY(x, y, z) {
+  if (!World.raycast(x, y + THROWN_RADIUS, z, 0, -1, 0, FIRE_FLOOR_PROBE + THROWN_RADIUS, gadgetHit)) return y;
+  return gadgetHit.y;
+}
 
 // ---- Effects when a grenade goes off (row.effect -> fn(row, owner, x, y, z)) ----
 const GadgetEffects = {
   explode: (row, owner, x, y, z) => gadgetBlast(row, owner, x, y, z),
   smoke: (row, owner, x, y, z) => { Smoke.spawn(row, owner, x, y, z); emitGadgetPop(row, owner, x, y, z); },
-  fire: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y + 0.05, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
+  fire: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, fireFloorY(x, y, z) + 0.05, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
   decoy: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); },
   singularity: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
   dart: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.pulses * row.interval + 0.5); },
-  flash: (row, owner, x, y, z) => { for (let id = 0; id < Actors.count; id++) gadgetFlash(row, owner, id, x, y, z); emitGadgetPop(row, owner, x, y, z); flashLight(x, y, z); },
+  flash: (row, owner, x, y, z) => {
+    for (let id = 0; id < Actors.count; id++) gadgetFlash(row, owner, id, x, y, z);
+    emitGadgetPop(row, owner, x, y, z);
+    flashLight(x, y, z);
+  },
   freeze: (row, owner, x, y, z) => {
     for (let id = 0; id < Actors.count; id++) if (gadgetReaches(owner, id, x, y, z, row.radius)) Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
     emitGadgetPop(row, owner, x, y, z);
@@ -471,10 +514,17 @@ const Thrown = {
     this.x[slot] = gadgetActorHit.x; this.y[slot] = gadgetActorHit.y; this.z[slot] = gadgetActorHit.z;
     if (row.impact && !row.stickActors) { this.detonate(slot); return; }
     if (!row.stickActors) { this.bounceOffActor(slot); return; }
+    this.attach(slot, target);
+    if (row.impact) this.detonate(slot);
+  },
+  // Rides on the body; the throw speed is gone, so it drops straight off a carrier who dies.
+  attach(slot, target) {
     this.state[slot] = THROWN_STATE.ATTACHED;
     this.attached[slot] = target;
-    this.offsetX[slot] = this.x[slot] - Actors.x[target]; this.offsetY[slot] = this.y[slot] - Actors.y[target]; this.offsetZ[slot] = this.z[slot] - Actors.z[target];
-    if (row.impact) this.detonate(slot);
+    this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
+    this.offsetX[slot] = this.x[slot] - Actors.x[target];
+    this.offsetY[slot] = this.y[slot] - Actors.y[target];
+    this.offsetZ[slot] = this.z[slot] - Actors.z[target];
   },
   // Drops off a body: most speed lost, pushed out along the hit normal so the next sweep starts outside the hit volume.
   bounceOffActor(slot) {
@@ -493,7 +543,9 @@ const Thrown = {
   },
   // Sticks where it hit (or goes off on impact).
   settle(slot, row) {
-    this.x[slot] = gadgetHit.x + gadgetHit.nx * THROWN_RADIUS; this.y[slot] = gadgetHit.y + gadgetHit.ny * THROWN_RADIUS; this.z[slot] = gadgetHit.z + gadgetHit.nz * THROWN_RADIUS;
+    this.x[slot] = gadgetHit.x + gadgetHit.nx * THROWN_RADIUS;
+    this.y[slot] = gadgetHit.y + gadgetHit.ny * THROWN_RADIUS;
+    this.z[slot] = gadgetHit.z + gadgetHit.nz * THROWN_RADIUS;
     this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
     if (row.impact) { this.detonate(slot); return; }
     this.state[slot] = THROWN_STATE.STUCK;
@@ -505,7 +557,9 @@ const Thrown = {
   follow(slot) {
     const target = this.attached[slot];
     if (target < 0 || !Actors.alive[target]) { this.state[slot] = THROWN_STATE.FLYING; this.attached[slot] = -1; return; }
-    this.x[slot] = Actors.x[target] + this.offsetX[slot]; this.y[slot] = Actors.y[target] + this.offsetY[slot]; this.z[slot] = Actors.z[target] + this.offsetZ[slot];
+    this.x[slot] = Actors.x[target] + this.offsetX[slot];
+    this.y[slot] = Actors.y[target] + this.offsetY[slot];
+    this.z[slot] = Actors.z[target] + this.offsetZ[slot];
   },
   emitBounce(slot) {
     BOUNCE_EVENT.x = this.x[slot]; BOUNCE_EVENT.y = this.y[slot]; BOUNCE_EVENT.z = this.z[slot]; BOUNCE_EVENT.source = this.owner[slot];
@@ -518,7 +572,8 @@ const Thrown = {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
       const row = CAT.gadgets[this.row[slot]], offset = row.index * 3, size = row.size;
-      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], GADGET_RGB[offset], GADGET_RGB[offset + 1], GADGET_RGB[offset + 2], 0.3);
+      const red = GADGET_RGB[offset], green = GADGET_RGB[offset + 1], blue = GADGET_RGB[offset + 2];
+      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], red, green, blue, 0.3);
     }
   },
 };
@@ -538,7 +593,11 @@ const Gadgets = {
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
   suppressed(id) { return Sim.tick < this.suppressedUntil[id]; },
-  suppress(id, seconds) { this.suppressedUntil[id] = Math.max(this.suppressedUntil[id], Sim.tick + itemTicks(seconds)); },
+  // G20: the same clock holds back shield recharge in S11 (health regeneration is not touched).
+  suppress(id, seconds) {
+    this.suppressedUntil[id] = Math.max(this.suppressedUntil[id], Sim.tick + itemTicks(seconds));
+    Damage.shieldRegenBlockedUntil[id] = Math.max(Damage.shieldRegenBlockedUntil[id], this.suppressedUntil[id]);
+  },
   // Blind share 0..1 for the HUD flash overlay (G03 'blind' seconds left / its longest).
   blindAmount(id) { return clamp(Damage.statusTime[id * STATUS_COUNT + BLIND_INDEX] / CAT.statusEffects[BLIND_INDEX].seconds, 0, 1); },
   // Most of one thrown row this actor may carry under the kit (GAD-001).
@@ -609,7 +668,6 @@ const Gadgets = {
     Thrown.step(dt);
     GadgetAreas.step(dt);
     Smoke.step();
-    this.stepSuppressed();
   },
   blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
   stepActor(id) {
@@ -646,9 +704,8 @@ const Gadgets = {
   },
   throwRow(id, row, fuseTicks, underhand) {
     throwVelocity(id, underhand, throwScratch);
-    Vec.fromAngles(previewScratch, Actors.aimYaw[id], Actors.aimPitch[id]);
-    const x = Actors.x[id] + previewScratch.x * THROW_FORWARD, y = Actors.eyeY(id) + previewScratch.y * THROW_FORWARD, z = Actors.z[id] + previewScratch.z * THROW_FORWARD;
-    const slot = Thrown.spawn(row, id, x, y, z, throwScratch.x, throwScratch.y, throwScratch.z, fuseTicks);
+    throwOrigin(id, throwStart);
+    const slot = Thrown.spawn(row, id, throwStart.x, throwStart.y, throwStart.z, throwScratch.x, throwScratch.y, throwScratch.z, fuseTicks);
     this.emitUse(id, row);
     if (fuseTicks <= 0) Thrown.detonate(slot);
     return slot;
@@ -674,10 +731,6 @@ const Gadgets = {
     if (!row || row.cooldown <= 0 || this.count[id * GADGET_COUNT + row.index] || Sim.tick < this.cooldownEnd[id]) return;
     this.count[id * GADGET_COUNT + row.index] = 1;
   },
-  // G20: shields of suppressed actors do not recharge (their regen clock is held at "just hit").
-  stepSuppressed() {
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && this.suppressed(id)) Damage.lastDamageTime[id] = Sim.time;
-  },
   // A grenade cooking in the hand of someone who dies falls at their feet with the fuse it has left.
   onDeath(id) {
     if (this.holdStart[id] < 0) return;
@@ -694,7 +747,8 @@ const Gadgets = {
     out.grenade = grenade ? grenade.name : ''; out.grenadeCount = grenade ? this.count[id * GADGET_COUNT + grenade.index] : 0;
     out.gadget = gadget ? gadget.name : ''; out.gadgetCount = gadget ? this.count[id * GADGET_COUNT + gadget.index] : 0;
     out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / itemTicks(gadget.cooldown), 0, 1) : 0;
-    out.cook = id >= 0 && this.holdStart[id] >= 0 && CAT.gadgets[this.holdRow[id]].cook ? clamp(this.heldTicks(id) / itemTicks(CAT.gadgets[this.holdRow[id]].fuse), 0, 1) : 0;
+    const held = id >= 0 && this.holdStart[id] >= 0 ? CAT.gadgets[this.holdRow[id]] : null;
+    out.cook = held && held.cook ? clamp(this.heldTicks(id) / itemTicks(held.fuse), 0, 1) : 0;
     return out;
   },
   // The local player's throw arc while the grenade button is held (setting gameplay.grenadePreview).
@@ -702,18 +756,24 @@ const Gadgets = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || this.holdStart[id] < 0 || !Settings.get('gameplay.grenadePreview')) return;
     throwVelocity(id, (Actors.buttons[id] & BTN.ALT) !== 0, throwScratch);
+    throwOrigin(id, throwStart);
     const point = previewScratch, gravity = bodyGravity();
-    point.x = Actors.x[id]; point.y = Actors.eyeY(id) - 0.2; point.z = Actors.z[id]; point.vx = throwScratch.x; point.vy = throwScratch.y; point.vz = throwScratch.z;
-    for (let k = 0; k < PREVIEW_POINTS; k++) {
+    point.x = throwStart.x; point.y = throwStart.y; point.z = throwStart.z;
+    point.vx = throwScratch.x; point.vy = throwScratch.y; point.vz = throwScratch.z;
+    for (let step = 0; step < PREVIEW_POINTS; step++) {
       if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, CAT.gadgets[this.holdRow[id]]); return; }
-      if (k % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
+      if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
     }
   },
-  // One preview segment; true (and p on the surface) when it meets the world.
+  // One preview segment; true (and the point on the surface) when it meets the world.
   previewStep(point, gravity) {
-    const nx = point.vx * PREVIEW_SECONDS, ny = point.vy * PREVIEW_SECONDS - gravity * PREVIEW_SECONDS * PREVIEW_SECONDS / 2, nz = point.vz * PREVIEW_SECONDS, length = Math.hypot(nx, ny, nz);
-    point.vy -= gravity * PREVIEW_SECONDS;
-    if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) { point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z; return true; }
+    const seconds = PREVIEW_SECONDS, drop = gravity * seconds * seconds / 2;
+    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = Math.hypot(nx, ny, nz);
+    point.vy -= gravity * seconds;
+    if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) {
+      point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z;
+      return true;
+    }
     point.x += nx; point.y += ny; point.z += nz;
     return false;
   },
@@ -724,12 +784,8 @@ const Gadgets = {
   clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); },
 };
 
-// Aim assist (INP-008) never locks through smoke.
-const baseAimAssist = Input.aimAssistTarget;
-Input.aimAssistTarget = (id, out) => {
-  if (!baseAimAssist || !baseAimAssist(id, out)) return false;
-  return !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], out.x, out.y, out.z);
-};
+// Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
+Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
