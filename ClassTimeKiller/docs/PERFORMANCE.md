@@ -7,7 +7,7 @@ Status: results of the plan phase 18 pass (steps 18.1-18.6) against `docs/SPECIF
 | Tool | What it does |
 |---|---|
 | `node tools/perf.mjs` | Headless Chrome (`tools/cdp.mjs`, shared with `tools/selftest.mjs`, no dependencies). Boot time at 1x / 4x / 6x CPU throttling, then every scene x preset x throttle rate. `--help` lists the options: `--scenes`, `--presets`, `--throttle`, `--seconds`, `--warmup`, `--alloc` / `--retained` / `--promoted` (top allocation sites), `--profile` (CPU self time), `--reaction` (dynamic resolution and step-down), `--bench` (sim cost per step from back-to-back steps, see 2.3), `--soak <minutes>` (heap after a forced GC every minute, step 18.4), `--json <file>`, `--file <html>` (another build, for before/after). Exit 0 even on a budget miss (the misses are printed). |
-| `node tools/selftest.mjs --group perf` | Exact-number checks that hold on a busy machine: frame-cap pacing, the single rAF callback, boot time wiring, display-rate budget (editor, CPU-bound and GPU-bound menu frames are not taken as the display rate), time-based smoothing, the zero-allocation call forms against their argument forms, allocation probes of hot paths (heap bytes over 20 000 calls of `Hitbox.rayOf`, `Collide.gatherAround` + `sweepSegment`, `HudBatch.line`, `emitActorPart`; `performance.memory` is exact because `tools/selftest.mjs` starts Chrome with `--enable-precise-memory-info`), the PERF-009 / PERF-010 caps of every preset (catalogue rows, flooded particle / decal / light pools, bot and enemy caps, a 16-bot match on Potato), one brush-tree walk per actor step, pool and batch caps, the TDM perf scene end to end. |
+| `node tools/selftest.mjs --group perf` | Exact-number checks that hold on a busy machine: frame-cap pacing, the single rAF callback, boot time wiring, display-rate budget (editor, CPU-bound and GPU-bound menu frames are not taken as the display rate), time-based smoothing, the zero-allocation call forms against their argument forms, allocation probes of hot paths (heap bytes over 20 000 calls of `Hitbox.rayOf`, `Collide.gatherAround` + `sweepSegment`, `HudBatch.line`, `emitActorPart`, `batch.meshFrom` with a shape instance record; `performance.memory` is exact because `tools/selftest.mjs` starts Chrome with `--enable-precise-memory-info`), the PERF-009 / PERF-010 caps of every preset (catalogue rows, flooded particle / decal / light pools, bot and enemy caps, a 16-bot match on Potato), one brush-tree walk per actor step, pool and batch caps, the TDM perf scene end to end. |
 | `node tools/build.mjs` | Size guard (D07): warns above 3.0 MB, fails above 3.5 MB. Release build now: 3.11 MB (3183 KB; past the 3.0 MB warning, under the 3.5 MB limit). Fails on `Math.hypot` in the per-frame / per-step files (07a-07f, 08a-08d, 10a, 11a, 11b, 14a-14e, 14h, 14i, 17a-17g). |
 | `__CTK.perf` (page) | `scenes()`, `scene(name, qualityId, { autoLower })`, `record(seconds)` (a Promise of the report), `report()` (last report), `info()`, `stop()`, `stats()` (frame ring, `loopStartMs`, `bootMs`), `simBench(steps, rounds)`, `hotPaths()` (the allocation probes). The recorder's sample arrays (about 1 MB) are made on the first `record()`. |
 
@@ -126,7 +126,44 @@ After forced GCs the heap stays at 8.5-12 MB in every scene (PERF-005 limit 150 
 
 The growth falls from 263 to 33-90 KB per minute but has not stopped after 10 minutes (+1.1 MB from minute 1 to 10). A `--retained` run (60 s after 60 s of warm-up) puts the whole retained 7 KB/s on the frame loop callback (`Loop.frame` with what is inlined into it), with no game data structure among the sites; it is most likely engine-side (compiled code, feedback, inline caches), but that is not proven. Once the outside load ended, the longest pause per minute was 1.7-2.6 ms (PERF-006: 2 ms or less).
 
+### 3.7 Render and HUD garbage per frame (final review pass, live frames)
+
+Heap bytes per frame of each render update and HUD layer in a running match (Potato, 1x): a wrapper around the step reads `performance.memory` before and after it, over about 70 frames after 4 s of play; median per frame (frames with a GC inside dropped). The `hotPaths` probes cannot show these sites: their loop compiles the path into one function, where the floats never leave registers. Before = b3bf9f4, after = this pass, run back to back.
+
+| Scene | Props sources (`fillSources`) | of which PvE enemies | Actors and shadows (`fillActors`) | HUD `main` layer | HUD `world` layer |
+|---|---|---|---|---|---|
+| tdm | 2008 -> 16 | - | 4468 -> 796 | 8828 -> 8216 | 4888 -> 2992 |
+| royale | 3772 -> 304 | - | 988 -> 52 | 2992 -> 3544 | 424 -> 376 |
+| generated | 3772 -> 304 | - | 856 -> 64 | 2176 -> 2080 | 400 -> 376 |
+| horde | 7380 -> 1048 | 5508 -> 160 | 3232 -> 2656 | 11788 -> 10380 | 1636 -> 2344 |
+
+The render side (props and actors) dropped from 4.6-10.6 KB to 0.4-3.7 KB per frame: 130-210 KB/s less garbage at 30 fps, twice that at 60. The HUD layers are now the largest render-side source (2-10 KB per frame, about the same as before within run-to-run noise): their drawers pass floats to pen calls that are not inlined (5).
+
+Whole runs at 4x (`perf.mjs --scenes tdm,royale,generated,horde --presets potato,low --throttle 4 --seconds 8`, before then after, back to back on the loaded machine): render / HUD mean (p50) ms per frame, allocation of the whole page (sim included), minor GCs in 8 s.
+
+| Scene | Preset | Render before | Render after | HUD before | HUD after | Alloc KB/s before -> after | GCs before -> after |
+|---|---|---|---|---|---|---|---|
+| tdm | potato | 2.35 (0.6) | 2.43 (0.5) | 1.24 (0.3) | 1.17 (0.2) | 3298 -> 3622 | 14 -> 15 |
+| tdm | low | 1.82 (0.4) | 2.74 (0.3) | 1.32 (0.2) | 0.95 (0.2) | 1265 -> 1276 | 6 -> 5 |
+| royale | potato | 2.18 (0.5) | 2.10 (0.4) | 0.63 (0.1) | 0.74 (0.1) | 1113 -> 862 | 5 -> 4 |
+| royale | low | 1.98 (0.3) | 2.30 (0.3) | 0.61 (0.1) | 1.31 (0.1) | 650 -> 481 | 5 -> 2 |
+| generated | potato | 2.38 (0.9) | 1.88 (0.3) | 0.73 (0.1) | 0.50 (0.1) | 704 -> 717 | 3 -> 4 |
+| generated | low | 2.88 (0.5) | 2.47 (0.4) | 0.58 (0.1) | 0.67 (0.1) | 633 -> 475 | 3 -> 2 |
+| horde | potato | 2.66 (0.5) | 2.66 (1.0) | 0.98 (0.2) | 1.21 (0.2) | 1502 -> 1243 | 7 -> 5 |
+| horde | low | 2.34 (0.6) | 2.39 (0.4) | 1.87 (0.2) | 1.38 (0.2) | 1192 -> 1014 | 10 -> 8 |
+
+The throttled means stay inside the run-to-run noise of 2.3 (the slices dominate them); the p50s are equal or lower in 7 of 8 rows for render and in all rows for the HUD. The whole-page allocation fell 15-26% in royale, generated Low and horde; TDM is dominated by the sim's own sites (`turn`, `follow`, `depenetrate`, `rayOf`, 5) and stayed within noise. The render and HUD budgets of 3.4 are still missed on the means at 4x. The cooldown rings' CPU (`abilities` and `gadgets` drawers, 1x, tdm Low): 23 and 11 us per frame before, 10 and 4 us after.
+
 ## 4. Changes in this pass
+
+Final review pass (render and HUD, 3.7):
+
+- Shape instance records (`makeShapeInstance`, 07c) come from a constructor. As object literals they shared V8 field types with every other 12-key literal starting with `x, y, z`; the nav builder's `{ x: [], y: [], z: [], ... }` (09a) made those fields generic once any map loaded, so every `x`, `y`, `z` store of every pickup, royale loot item, shadow disc, view-model part and PvE enemy part boxed a float.
+- The per-instance sun term is read through `sunVisibilityAt(batch.data, offset)` (07b), which returns the grid byte: `sampleSunVisibility(x, y, z)` took three floats and returned one, four boxes per instance wherever the call was not inlined.
+- PvE drawing (14h): champion rings, element shield rings and the awareness mark go through the parts' instance record (`batch.meshFrom`) with integer arguments only; `Sim.time` and the shield share are read inside the helpers, not passed; the part and ring loops are index loops (`for-of` made an iterator result per part, and boxed each float of `PVE_SHELL_HEIGHTS`, in the frame's own compiled code). `pickAttack` counts the hostiles for the last stand once per pick, not once per attack row.
+- HUD (07f, 17a): the colour and alpha byte are set once per drawing call (`setHudPaint`) instead of passing a float alpha to `pushHudCorners` for every glyph and ring segment; `HudPen.quad` / `triangle` fill the corner scratch instead of calling the 14-argument `pushHudQuad`; `HudBatch.rect` writes its corners directly; rings turn each segment edge from the last one (one sine / cosine pair for the start and one for the step instead of four trig calls per segment: the cooldown rings were most of the HUD's CPU).
+- Measuring: the inlined allocation probes (`hotPaths`) missed these sites, because a probe loop compiles the path into one function; the live numbers in 3.7 wrap each render source and HUD layer in a running match and take the median heap bytes per frame.
+- Tests: `perf` group probes for `batch.meshFrom` after a full nav build, the sun lookup contract, index loops in the PvE draw path, the HUD ring (4 trig calls, end on the end angle) and the pen quads; `pve` group: PvE drawing through `fillSources` allocates nothing, `lastStand` counted once per `pickAttack`.
 
 Review pass (after the first results):
 
@@ -147,7 +184,7 @@ First pass:
 ## 5. Remaining risks
 
 - **PERF-002 at 4x (explicit budget failure, 3.4).** In-frame means miss the sim, movement, AI, render, HUD and frame-CPU budgets in most match scenes at 4x on Potato and Low; the back-to-back bench meets every sim budget. CDP throttling is a coarse stand-in for a phone; the decision needs the LT pass on the D1-D4 devices. If a real low-end phone confirms the in-frame numbers, the next steps are a lower bot think rate on Potato (perception and decisions every second or third step), fewer sight rays per step, and a second look at `turn` and `follow` (75-235 KB/s of boxing each at 1x before this pass; this pass removed the steering and sight-line arguments).
-- **PERF-006 not fully met.** Allocation is 0.8-3.3 MB/s at 4x (the editor 1.5-1.8 MB/s, mostly its tools' own drawing, not changed here). Under outside load single scavenges of 10-80 ms show up in throttled runs; unloaded at 1x the longest pause per minute was 1.7-2.6 ms, about the 2 ms limit. Remaining boxed sites include `Collide.slide` (12 bytes per call: the hot-path probe covers `sweepSegment`, not the whole slide), the RNG `next` return value, nav search and audio spatial updates.
+- **PERF-006 not fully met.** Allocation is 0.8-3.3 MB/s at 4x (the editor 1.5-1.8 MB/s, mostly its tools' own drawing, not changed here). Under outside load single scavenges of 10-80 ms show up in throttled runs; unloaded at 1x the longest pause per minute was 1.7-2.6 ms, about the 2 ms limit. Remaining boxed sites include `Collide.slide` (12 bytes per call: the hot-path probe covers `sweepSegment`, not the whole slide), the RNG `next` return value, nav search and audio spatial updates. On the render side the HUD is now the largest (3.7): its drawers pass floats to `HudPen` calls that are not inlined (positions, sizes, alpha), each boxed; removing that needs a pen API that takes its numbers through a typed array, a change to every drawer. `Pve` and `Modes` are dictionary-mode objects (too many properties for a fast literal): every `this.x` in their methods is a hash lookup and their method calls are never inlined.
 - **Long sessions.** The heap still grows 33-130 KB per minute after 10 minutes of TDM (3.6); the retained sites point at the frame callback, not at game data. A 30-minute soak on a quiet machine would show whether it levels off.
 - **HUD and render means at 4x** carry the throttle slices and SwiftShader uploads; their p50 is inside budget. Not measurable headless without them.
 - **GPU side** (PERF-003 6 ms, overdraw, shader cost, render scale recovery) is not measurable headless; it needs the live tests on the D1-D4 devices.

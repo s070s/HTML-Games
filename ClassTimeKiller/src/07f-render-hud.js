@@ -103,7 +103,7 @@ const hudColors = new Uint8Array(HudBatch.bytes);
 // Appends one quad (corners clockwise on screen from top-left); full buffers drop the quad and count it.
 // The drawing calls above fill hudCorners, set the paint once per call (setHudPaint) and call pushHudCorners per quad: a
 // float passed to a call that is not inlined is boxed on the heap, a float written into a typed array is not (PERF-006: the
-// HUD draws thousands of quads a frame; an alpha argument per glyph or ring segment was most of the HUD's garbage).
+// HUD draws thousands of quads a frame, so no float goes to a call per glyph or ring segment).
 function pushHudQuad(x0, y0, x1, y1, x2, y2, x3, y3, u0, v0, u1, v1, colorHex, alpha) {
   setHudCorners(x0, y0, x1, y1, x2, y2, x3, y3);
   hudCorners[8] = u0; hudCorners[9] = v0; hudCorners[10] = u1; hudCorners[11] = v1;
