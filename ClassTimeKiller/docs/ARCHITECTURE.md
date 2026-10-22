@@ -146,7 +146,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color, zoom, recoilPitch, recoilYaw, dual }`: `recoilPitch`/`recoilYaw` = the recoil punch in degrees (positive pitch = up), added to the camera view (view kick); `dual` = two pistols drawn.
 - `Fx`: `burst(kind, x, y, z, nx, ny, nz, count, colorHex)`, `tracer(ax, ay, az, bx, by, bz, colorHex)`, `decal(x, y, z, nx, ny, nz, kind)`, `light(x, y, z, colorHex, radius, seconds)`. Kinds: `spark smoke dust blood muzzle explosion energy water fire frost shock heal`. All capped by quality (PERF-010), pooled.
 - `HudBatch` (used by S17): `rect(x, y, w, h, colorHex, alpha)`, `text(string, x, y, sizePx, colorHex, align)`, `ring(x, y, radius, thickness, colorHex, alpha, start, end)`, `line(...)`; one draw call per layer (REN-005).
-- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale). S19 also copies `Sound.updateMs` to `Perf.counters.audioMs` after the frame phases.
+- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale). S19 `Perf.publishCounters()` also copies `Sound.updateMs` to `Perf.counters.audioMs` and `Projectiles.active` to `Perf.counters.projectiles` after the frame phases.
 
 ## Other hooks
 

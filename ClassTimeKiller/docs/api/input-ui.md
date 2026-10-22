@@ -108,8 +108,9 @@ Controls category: `controls.mouseSensitivity`, `mouseDpi`, `rawMouse`, `invertY
 
 ### Performance overlay (18c)
 
-`PerfOverlay`: DOM text refreshed 4 times a second while visible (`developer.perfHud`, F10, four-finger tap): fps, frame p50/p95/p99, sim p95, render/hud/audio/gpu ms, draw calls, triangles, render scale, actors, bots (alive hostile or friendly bot actors), the AI system cost (all sim systems named `ai*` or `bot*`), projectiles, particles, dropped steps, JS heap (Chrome), device, bot debug, the five slowest sim systems and the last three `ErrorLog` entries. Turns red under 60 fps. Reads `Perf.stats()` and `Sim.timing` at runtime (S19 loads after S18 but the loop starts after boot).
+`PerfOverlay`: DOM text refreshed 4 times a second while visible (`developer.perfHud`, F10; a four-finger tap toggles it and the F9 bot debug view): fps, frame p50/p95/p99, sim p95, render/hud/audio/gpu ms, draw calls, triangles, render scale, actors, bots (alive hostile or friendly bot actors), the AI system cost (all sim systems named `ai*`, `bot*` or `pveBrains`), projectiles (`Projectiles.active`, copied by `Perf.publishCounters()` each frame), particles, dropped steps, JS heap (Chrome), device, bot debug, the five slowest sim systems and the last three `ErrorLog` entries. Turns red under 60 fps. Reads `Perf.stats()` and `Sim.timing` at runtime (S19 loads after S18 but the loop starts after boot).
 
 ## Debug
 
 `__CTK.input`, `__CTK.touch`, `__CTK.pad`, `__CTK.ui` expose the objects.
+Live-test hooks (20a, ARC-040): `__CTK.give(key, id = player)` gives a weapon, item or powerup key through `Items.giveKey`; `__CTK.god(on, id = player)` sets or clears `ACTOR_FLAG.GOD`; `__CTK.stress(level)` starts a Frenzy match with `PlayFlow.maxBots()` bots, and `'max'` adds the explosive mutators X09 Rocket Pit and X29 Last Gift (LT-C-030).

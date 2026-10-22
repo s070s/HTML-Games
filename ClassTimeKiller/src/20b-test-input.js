@@ -586,8 +586,11 @@ Test.add('input', (check) => {
   check('multi-touch: more fingers than slots are ignored safely', TouchInput.activeCount === TOUCH_SLOT_COUNT);
   for (let pointer = 20; pointer < 20 + TOUCH_SLOT_COUNT + 2; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
   check('multi-touch: all slots free again', TouchInput.activeCount === 0);
-  let perfToggles = 0;
-  const listener = Bus.on('input.action', (event) => { if (event.action === 'perfHud' && event.down) perfToggles++; });
+  let perfToggles = 0, botDebugToggles = 0;
+  const listener = Bus.on('input.action', (event) => {
+    if (event.action === 'perfHud' && event.down) perfToggles++;
+    if (event.action === 'botDebug' && event.down) botDebugToggles++;
+  });
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
@@ -596,6 +599,7 @@ Test.add('input', (check) => {
   Bus.off('input.action', listener);
   Input.clearAll();
   check('touch: a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
 

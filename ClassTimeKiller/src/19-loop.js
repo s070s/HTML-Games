@@ -37,6 +37,11 @@ const Perf = {
       cpuP95: this.percentile(this.cpuMs, 0.95), simP95: this.percentile(this.simMs, 0.95), droppedSteps: this.droppedSteps, counters: this.counters, systems: Sim.timing };
   },
   reset() { this.index = 0; this.filled = 0; this.droppedSteps = 0; },
+  // Counters copied once per frame from sections that keep their own (S06 audio cost, S11 live projectiles).
+  publishCounters() {
+    this.counters.audioMs = Sound.updateMs;
+    this.counters.projectiles = Projectiles.active;
+  },
 };
 
 const Loop = {
@@ -71,7 +76,7 @@ const Loop = {
     if (Game.isRunning()) this.advance(seconds);
     const simMs = performance.now() - simStart;
     for (let i = 1; i < FRAME_PHASES.length; i++) this.runPhase(FRAME_PHASES[i], seconds);
-    Perf.counters.audioMs = Sound.updateMs;
+    Perf.publishCounters();
     Perf.record(intervalMs, performance.now() - frameStart, simMs);
   },
   // Runs whole sim steps for the elapsed time; at most MAX_STEPS_PER_FRAME (times the game speed when it is above 1, so a speed-up

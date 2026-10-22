@@ -264,3 +264,28 @@ Test.add('play', (check) => uiWith(() => {
   check('scoreboard: headless runs open no screen', Ui.stack.length === 0);
   Game.stop();
 }));
+
+function playTestHit(target, amount) {
+  const info = Damage.info();
+  info.amount = amount;
+  let source = 0;
+  while (Actors.kind[source] !== ACTOR_KIND.BOT) source++;
+  return Damage.apply(source, target, info);
+}
+
+Test.add('play', (check) => {
+  const match = DebugApi.stress('max');
+  check('__CTK.stress: a deathmatch with the most bots the quality allows (ARC-040)', match === Game.match && Game.match.rules.mode === 'ffa'
+    && playTestCount(ACTOR_KIND.BOT) === PlayFlow.maxBots() && Game.playerId >= 0, playTestCount(ACTOR_KIND.BOT) + '/' + PlayFlow.maxBots());
+  check('__CTK.stress(\'max\'): the explosive mutators are on', DEBUG_STRESS_MUTATORS.every((id) => Game.match.rules.mutators.some((entry) => entry.id === id)) && Mutators.fx.lastGift === true);
+  const player = Game.playerId;
+  check('__CTK.give: gives a weapon key to the player', DebugApi.give('warden') && Weapons.has(player, 'warden'));
+  check('__CTK.give: gives a powerup key', DebugApi.give('quickening') && Powerups.has(player, 'quickening'));
+  Modes.endProtection(player);
+  DebugApi.god(true);
+  const dealtWithGod = playTestHit(player, 500);
+  check('__CTK.god(true): the player takes no damage', Actors.alive[player] === 1 && dealtWithGod === 0);
+  DebugApi.god(false);
+  check('__CTK.god(false): damage lands again', playTestHit(player, 1) > 0 && (Actors.flags[player] & ACTOR_FLAG.GOD) === 0);
+  Game.stop();
+});

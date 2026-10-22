@@ -65,6 +65,8 @@ const Test = {
   },
 };
 
+const DEBUG_STRESS_MUTATORS = ['rocketpit', 'lastgift'];   // explosive-heavy: rockets only, and every death drops a grenade
+
 const DebugApi = {
   version: VERSION,
   selfTest: (options) => Test.run(options),
@@ -75,6 +77,20 @@ const DebugApi = {
   perf: { stats: () => Perf.stats() },
   step(steps) { Sim.run(steps || 1); return Sim.tick; },
   seed(seed) { Rng.reseed(seed); return Rng.seed; },
+  // ARC-040 test hooks for live tests: give a weapon, item or powerup key (the item.grant path), and god mode (ACTOR_FLAG.GOD).
+  give(key, id) { return Items.giveKey(id === undefined ? Game.playerId : id, key); },
+  god(on, id) {
+    const target = id === undefined ? Game.playerId : id;
+    if (target < 0) return false;
+    if (on) Actors.flags[target] |= ACTOR_FLAG.GOD; else Actors.flags[target] &= ~ACTOR_FLAG.GOD;
+    return on;
+  },
+  // LT-C-030: a deathmatch with the most bots the quality preset allows; level 'max' adds the explosive mutators.
+  stress(level) {
+    const setup = PlayFlow.buildSetup(PlayFlow.normalize({ mode: PLAY_DEFAULT_MODE, bots: PlayFlow.maxBots() }));
+    if (level === 'max') setup.mutators = DEBUG_STRESS_MUTATORS.slice();
+    return Game.start(setup);
+  },
   log: { errors: () => ErrorLog.entries.slice() },
   save: {
     dump: () => Save.exportText(),
