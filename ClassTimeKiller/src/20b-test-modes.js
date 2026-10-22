@@ -577,3 +577,18 @@ Test.add('modes', (check) => {
   check('one marker per objective (Render source)', meshes === Modes.objectives.length);
   endModeTest();
 });
+
+// Every mode starts, spawns and runs on a map with every objective kind (unregistered modes use the defaults).
+const ALL_OBJECTIVE_KINDS = ['flag', 'flagBase', 'point', 'hill', 'bombsite', 'payloadPath', 'relic', 'core', 'bank', 'extract'];
+const ALL_OBJECTIVES_MAP = { spawns: TEAM_SPAWNS, objectives: ALL_OBJECTIVE_KINDS.map((kind, index) => ({ kind, team: index % 2, x: -25 + index * 5, y: 0, z: 20 })) };
+
+Test.add('modes', (check) => {
+  for (const mode of CAT.modes) {
+    startModeTest(mode.id, modesTestMap(ALL_OBJECTIVES_MAP), mode.teams === 2 ? [0, 1, 0, 1] : [-1, -1, -1, -1]);
+    const spawned = Actors.alive[0] === 1 && Number.isFinite(Actors.x[0]);
+    killActor(1, 0);
+    runSeconds(20);
+    check('mode ' + mode.code + ' ' + mode.id + ' starts and runs', spawned && Game.match.rules.mode === mode.id && (Modes.active || Game.match.ended));
+    endModeTest();
+  }
+});
