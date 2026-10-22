@@ -202,7 +202,7 @@ function hudDrawScope(pen, layout) {
   pen.ring(cx, cy, (inner + outer) / 2, outer - inner, HUD_COLOR.black, 0.94 * amount);
   pen.rect(cx - inner, cy - 0.5, inner * 2, 1, HUD_COLOR.black, 0.85 * amount);
   pen.rect(cx - 0.5, cy - inner, 1, inner * 2, HUD_COLOR.black, 0.85 * amount);
-  pen.rect(cx - 1.5, cy - 1.5, 3, 3, HUD_COLOR.bad, amount);
+  pen.rect(cx - 1.5, cy - 1.5, 3, 3, Hud.colors.bad, amount);
 }
 
 // ---- Hit and kill markers ----
@@ -278,10 +278,10 @@ function hudDrawVignette(pen, layout) {
   const edge = Math.min(width, height) * HUD_VIGNETTE_EDGE;
   for (let i = 0; i < HUD_VIGNETTE_LAYERS; i++) {
     const band = edge * (HUD_VIGNETTE_LAYERS - i) / HUD_VIGNETTE_LAYERS;
-    pen.rect(0, 0, width, band, HUD_COLOR.healthLow, strength);
-    pen.rect(0, height - band, width, band, HUD_COLOR.healthLow, strength);
-    pen.rect(0, band, band, height - band * 2, HUD_COLOR.healthLow, strength);
-    pen.rect(width - band, band, band, height - band * 2, HUD_COLOR.healthLow, strength);
+    pen.rect(0, 0, width, band, Hud.colors.healthLow, strength);
+    pen.rect(0, height - band, width, band, Hud.colors.healthLow, strength);
+    pen.rect(0, band, band, height - band * 2, Hud.colors.healthLow, strength);
+    pen.rect(width - band, band, band, height - band * 2, Hud.colors.healthLow, strength);
   }
 }
 

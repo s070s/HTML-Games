@@ -723,3 +723,24 @@ Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
   check('cost: a busy HUD frame costs under 0.4 ms (PERF-002)', cost.ms <= HUD_TEST_COST_BUDGET_MS, cost.ms.toFixed(3) + ' ms with ' + cost.quads + ' quads');
 });
+
+// ---- Colour-blind palettes keep health, armor and shield apart ----
+const HUD_TEST_MIN_COLOR_DISTANCE = 100;   // RGB distance (0..441) between two vital bar colours
+function hudTestColorDistance(a, b) {
+  return Math.hypot(((a >> 16) & 255) - ((b >> 16) & 255), ((a >> 8) & 255) - ((b >> 8) & 255), (a & 255) - (b & 255));
+}
+Test.add('hud', (check) => {
+  const saved = Settings.get('accessibility.colorBlind'), close = [];
+  try {
+    for (const id of Object.keys(HUD_PALETTES)) {
+      Settings.set('accessibility.colorBlind', id);
+      const health = Hud.colors.health;
+      for (const [name, other] of [['armor', HUD_COLOR.armor], ['shield', HUD_COLOR.shield], ['low health', Hud.colors.healthLow]]) {
+        if (hudTestColorDistance(health, other) < HUD_TEST_MIN_COLOR_DISTANCE) close.push(id + ' health/' + name);
+      }
+    }
+  } finally {
+    Settings.set('accessibility.colorBlind', saved);
+  }
+  check('colour-blind palettes: health stays well apart from armor, shield and low health', close.length === 0, close.join(', '));
+});

@@ -35,11 +35,13 @@ const HUD_COLOR = {
   armor: 0x5ba8ff, shield: 0x46d9e6, warn: 0xffb347, bad: 0xff5448, good: 0x58d66b, gold: 0xf2c94c, black: 0x000000,
 };
 // ACC-001: colour-blind palettes replace the red/green pairs and the team colours of the HUD (shapes differ as well).
+// Health is near white in every palette: the blue/cyan armor and shield bars never share its hue (the bars keep their own colours).
+const HUD_PALETTE_HEALTH = 0xf0f0f0;
 const HUD_PALETTES = {
   off: null,
-  protanopia: { good: 0x4aa3ff, bad: 0xffb000, health: 0x4aa3ff, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
-  deuteranopia: { good: 0x4aa3ff, bad: 0xffb000, health: 0x4aa3ff, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
-  tritanopia: { good: 0x4fe0d0, bad: 0xff4f7b, health: 0x4fe0d0, healthLow: 0xff4f7b, teams: [0x4fe0d0, 0xff4f7b] },
+  protanopia: { good: 0x4aa3ff, bad: 0xffb000, health: HUD_PALETTE_HEALTH, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
+  deuteranopia: { good: 0x4aa3ff, bad: 0xffb000, health: HUD_PALETTE_HEALTH, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
+  tritanopia: { good: 0x4fe0d0, bad: 0xff4f7b, health: HUD_PALETTE_HEALTH, healthLow: 0xff4f7b, teams: [0x4fe0d0, 0xff4f7b] },
 };
 
 // One row per hideable element: setting hud.element.<id>. Accessibility aids are off until the player asks for them.
