@@ -3,17 +3,29 @@
 <head>
 <meta charset="utf-8">
 <title>IRON HORIZON</title>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="IRON HORIZON">
+<meta name="format-detection" content="telephone=no">
 <style>
-:root{--ui:1;--panel:rgba(10,15,22,.94);--line:#2f4356;--accent:#ffb000;--ok:#58d68d;--bad:#ff5a4d;--txt:#e3ecf3;--dim:#8ea3b5;--cy:#35d0ff}
+:root{--ui:1;--panel:rgba(10,15,22,.94);--line:#2f4356;--accent:#ffb000;--ok:#58d68d;--bad:#ff5a4d;--txt:#e3ecf3;--dim:#8ea3b5;--cy:#35d0ff;
+ /* notch, Dynamic Island and home bar (iPhone with viewport-fit=cover), 0 elsewhere; SafeArea reads them for the HUD */
+ --sat:env(safe-area-inset-top,0px);--sar:env(safe-area-inset-right,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px);
+ --tbs:50px;--tbl:68px}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#05080c;color:var(--txt);font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
-#app{position:fixed;inset:0;background:#05080c}
-canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+html,body{margin:0;height:100%;background:#05080c;color:var(--txt);font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+#app{position:fixed;inset:0;background:#05080c;touch-action:manipulation}
+@supports (height:100dvh){#app{bottom:auto;height:100dvh}}
+canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none}
 #hud{pointer-events:none}
 #fade{position:absolute;inset:0;background:#000;opacity:1;pointer-events:none;transition:opacity .6s}
 #overlay{position:absolute;inset:0;display:none;font-size:calc(16px * var(--ui))}
-.screen{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:2em 1em;background:radial-gradient(ellipse at 50% 30%,rgba(24,38,52,.88),rgba(4,7,11,.97))}
+/* the transparent border keeps menus out of the safe-area insets while the backdrop still covers them;
+   .wrap's auto margins centre a screen that fits and start one taller than a phone at the top, so it scrolls */
+.screen{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-start;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border:solid transparent;border-width:var(--sat) var(--sar) var(--sab) var(--sal);padding:2em 1em;background:radial-gradient(ellipse at 50% 30%,rgba(24,38,52,.88),rgba(4,7,11,.97))}
 .screen.on{display:flex}
 .screen.clear{background:rgba(3,6,10,.72)}
 .screen.menuBg{background:radial-gradient(ellipse at 50% 55%,rgba(4,7,11,.62),rgba(4,7,11,.22))}
@@ -53,21 +65,30 @@ td,th{padding:.3em .5em;border-bottom:1px solid rgba(255,255,255,.07);text-align
 th{color:var(--cy);letter-spacing:.1em;text-transform:uppercase;font-size:.8em}
 kbd{background:#0d1620;border:1px solid var(--line);border-bottom-width:2px;padding:0 .4em;font-family:Consolas,monospace;color:var(--accent)}
 .good{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--accent)}
-#toast{position:absolute;left:50%;top:12%;transform:translateX(-50%);background:rgba(10,15,22,.92);border:1px solid var(--accent);padding:.5em 1.2em;letter-spacing:.1em;display:none;pointer-events:none;font-size:calc(15px * var(--ui));z-index:5;text-transform:uppercase}
-#diag{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.72);color:#9fe;font:12px/1.35 Consolas,monospace;padding:6px 8px;display:none;pointer-events:none;white-space:pre;z-index:6}
-#fatal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#05080c;z-index:9;text-align:center;padding:2em}
+#toast{position:absolute;left:50%;top:calc(12% + var(--sat));transform:translateX(-50%);background:rgba(10,15,22,.92);border:1px solid var(--accent);padding:.5em 1.2em;letter-spacing:.1em;display:none;pointer-events:none;font-size:calc(15px * var(--ui));z-index:5;text-transform:uppercase}
+#diag{position:absolute;left:calc(8px + var(--sal));top:calc(8px + var(--sat));background:rgba(0,0,0,.72);color:#9fe;font:12px/1.35 Consolas,monospace;padding:6px 8px;display:none;pointer-events:none;white-space:pre;z-index:6}
+#fatal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#05080c;z-index:9;text-align:center;padding:calc(2em + var(--sat)) calc(2em + var(--sar)) calc(2em + var(--sab)) calc(2em + var(--sal))}
 #fatal div{max-width:640px}
 .big{font-size:2.4em;letter-spacing:.2em;font-weight:800}
 .rankS{color:#ffd24d}.rankA{color:#8fe388}.rankB{color:#7fd0ff}.rankC{color:#c9c9c9}.rankF{color:var(--bad)}
 .hint{color:var(--dim);font-size:.85em;margin-top:1em;letter-spacing:.08em}
-#touch{position:absolute;inset:0;display:none;touch-action:none;-webkit-touch-callout:none}
+#touch{position:absolute;inset:0;display:none;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 #touch.on{display:block}
-.tb{position:absolute;width:50px;height:50px;border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(16,26,36,.26);color:rgba(255,255,255,.72);font:600 10px/47px "Segoe UI",Roboto,sans-serif;text-align:center;letter-spacing:.05em;text-transform:uppercase}
-.tb.big{width:68px;height:68px;line-height:65px;font-size:12px}
+/* the buttons sit inside the safe area; fingers anywhere on #touch still steer and aim */
+#tsafe{position:absolute;top:var(--sat);right:var(--sar);bottom:var(--sab);left:var(--sal);pointer-events:none}
+.tb{position:absolute;pointer-events:auto;width:var(--tbs);height:var(--tbs);border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(16,26,36,.26);color:rgba(255,255,255,.72);font:600 10px/calc(var(--tbs) - 3px) "Segoe UI",Roboto,sans-serif;text-align:center;letter-spacing:.05em;text-transform:uppercase}
+.tb.big{width:var(--tbl);height:var(--tbl);line-height:calc(var(--tbl) - 3px);font-size:12px}
 .tb.held{background:rgba(255,176,0,.34);border-color:var(--accent);color:#fff}
 .tb.hide{display:none}
 #tstick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.22);display:none;pointer-events:none}
 #tstick i{position:absolute;left:34px;top:34px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.2)}
+/* portrait on a phone while a battle runs: the game pauses behind this until the phone is turned */
+#rotate{position:absolute;inset:0;display:none;z-index:8;flex-direction:column;align-items:center;justify-content:center;gap:1em;padding:2em;text-align:center;background:#05080c;font-size:calc(16px * var(--ui))}
+#rotate.on{display:flex}
+#rotate i{display:block;width:3.2em;height:5.4em;border:3px solid var(--accent);border-radius:.6em;animation:ihTurn 2.4s ease-in-out infinite}
+#rotate b{letter-spacing:.18em;color:var(--accent)}
+@keyframes ihTurn{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
+@media (prefers-reduced-motion:reduce){#rotate i{animation:none;transform:rotate(-90deg)}}
 @media (max-height:520px){.screen{padding:.6em .6em}h1{font-size:1.9em}.sub{margin:.2em 0 .7em}#overlay{font-size:calc(13px * var(--ui))}.menu{gap:.35em}.btn{padding:.5em .9em}}
 </style>
 </head>
@@ -80,10 +101,11 @@ kbd{background:#0d1620;border:1px solid var(--line);border-bottom-width:2px;padd
   <div id="overlay"></div>
   <div id="toast"></div>
   <div id="diag"></div>
+  <div id="rotate"><i></i><b>ROTATE TO LANDSCAPE</b><span class="dim">The battle is paused. Turn your phone sideways to keep playing.</span></div>
   <div id="fatal"><div>
     <h2 id="fatalTitle">Cannot start IRON HORIZON</h2>
     <p id="fatalText" class="dim"></p>
-    <p class="dim">Use a current desktop version of Chrome, Edge or Firefox with hardware acceleration enabled.</p>
+    <p class="dim" id="fatalHelp">Use a current desktop version of Chrome, Edge or Firefox with hardware acceleration enabled.</p>
     <button class="btn" id="fatalBtn" style="display:none">Return to main menu</button>
   </div></div>
 </div>
@@ -519,10 +541,11 @@ const DIFFICULTY = {
 };
 
 /* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraBush bushes per chunk
-   drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame */
+   drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame;
+   maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, maxPx: 800000 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, maxPx: 1600000 },
   high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000 },
 };
 
@@ -691,9 +714,39 @@ const SETTING_SCHEMA = {
   showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
   highContrast: ['bool', false], autoTarget: ['bool', true], aimAssist: ['bool', true],
   lives: ['enum', ['1', '3', '5', '10', '20', 'unlimited'], '5'],   // platforms per mission (skirmish sets its own)
+  homeHintSeen: ['bool', false],   // the iPhone "Add to Home Screen for full screen" tip was shown once
 };
 const S = {};   // live settings
 const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
+/* Device traits for phones and tablets. iPadOS reports itself as a Mac, so touch points tell it apart; iPhone Safari
+   has no element fullscreen at all (only a Home Screen start is full screen) and iPad Safari only the webkit one. */
+const Device = {
+  touch: false, ios: false,
+  detect() {
+    const ua = navigator.userAgent || '', points = navigator.maxTouchPoints || 0;
+    this.touch = points > 0 || ('ontouchstart' in window);
+    this.ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && points > 1);
+    return this;
+  },
+  /* started from the Home Screen: already full screen, with no browser bars */
+  standalone() { return navigator.standalone === true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches); },
+  canFullscreen() {
+    const d = document.documentElement;
+    return !!(d.requestFullscreen || d.webkitRequestFullscreen) && (document.fullscreenEnabled || document.webkitFullscreenEnabled) === true;
+  },
+  fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; },
+  /* inside a user gesture; the webkit call returns nothing, so the result is always a promise */
+  requestFullscreen() {
+    const d = document.documentElement;
+    try { return Promise.resolve(d.requestFullscreen ? d.requestFullscreen() : d.webkitRequestFullscreen()); } catch (e) { return Promise.reject(e); }
+  },
+  /* landscape lock where the browser has one (Android in fullscreen); iOS has none or rejects it, silently */
+  lockLandscape() {
+    const o = screen.orientation;
+    if (!o || typeof o.lock !== 'function') return;
+    try { Promise.resolve(o.lock('landscape')).catch(() => {}); } catch (e) { /* no orientation lock here */ }
+  },
+}.detect();
 /* the setting that records the tutorial as seen for one platform kind: mechs, ground vehicles and aircraft each teach different controls */
 const tutorialKey = (kind) => (kind === 'air' ? 'tutorialAir' : kind === 'ground' ? 'tutorialGround' : 'tutorialMech');
 const diffKey = (k) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(DIFFICULTY, k) ? k : undefined);   // a saved difficulty id, if valid
@@ -705,7 +758,7 @@ const Save = {
     for (const k in SETTING_SCHEMA) { const sc = SETTING_SCHEMA[k]; settings[k] = sc[0] === 'enum' ? sc[2] : sc[0] === 'bool' ? sc[1] : sc[3]; }
     const bindings = {};
     ACTIONS.forEach((a) => { bindings[a[0]] = a[2]; });
-    if (COARSE_POINTER) settings.quality = 'low';   // phones and tablets: start light, the player can raise it
+    if (COARSE_POINTER || Device.ios) settings.quality = 'low';   // phones and tablets: start light, the player can raise it
     return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null, career: Arsenal.blankCareer(), unlocked: [] };
   },
   sanitize(raw) {
@@ -917,7 +970,35 @@ const Input = {
    anywhere else on the right side to aim (dragging from FIRE or ALT also aims). Buttons hold like gamepad
    buttons and are merged into Input.pad(), so every control path stays the same. BOOST latches on until
    the stick is let go. Touching with a mouse again hides them. */
+/* Safe-area insets in CSS px (the --sat/--sar/--sab/--sal variables, measured by a hidden probe). Re-read when the
+   size changes, never per frame. The HUD keeps its edge panels inside them; touch layouts can use them too. */
+const SafeArea = {
+  l: 0, t: 0, r: 0, b: 0, probe: null,
+  read() {
+    if (!this.probe) {
+      const p = this.probe = document.createElement('div');
+      p.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--sat) var(--sar) var(--sab) var(--sal)';
+      document.body.appendChild(p);
+    }
+    const st = getComputedStyle(this.probe);
+    this.t = parseFloat(st.paddingTop) || 0; this.r = parseFloat(st.paddingRight) || 0;
+    this.b = parseFloat(st.paddingBottom) || 0; this.l = parseFloat(st.paddingLeft) || 0;
+    return this;
+  },
+};
+/* true when a finger drag on node should scroll: a form control, or a box on the way up that overflows and scrolls */
+function touchScrolls(node) {
+  let e = node && node.nodeType === 1 ? node : node && node.parentElement;
+  for (; e && e !== document.body; e = e.parentElement) {
+    if (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') return true;
+    if (e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth + 1) continue;
+    const st = getComputedStyle(e);
+    if (/auto|scroll/.test(st.overflowY + st.overflowX)) return true;
+  }
+  return false;
+}
 const TOUCH_STICK_RADIUS = 56;     // px the stick knob travels for full speed
+const TOUCH_EDGE_GUARD = 24;       // px at the left edge where Safari's swipe-back starts: the stick centre stays clear of it
 const TOUCH_STICK_DEAD = 0.12;     // stick share ignored around the centre
 const TOUCH_LOOK_GAIN = 2.4;       // a finger drag turns this many times faster than the same mouse move
 const TOUCH_STICK_SIDE = 0.42;     // left share of the screen where a touch becomes the move stick
@@ -952,26 +1033,33 @@ const TouchControls = {
     this.stickEl = document.createElement('div'); this.stickEl.id = 'tstick';
     this.knobEl = document.createElement('i'); this.stickEl.appendChild(this.knobEl);
     this.root.appendChild(this.stickEl);
+    const safe = document.createElement('div'); safe.id = 'tsafe';
+    this.root.appendChild(safe);
     for (const def of TOUCH_BUTTONS) {
       const b = document.createElement('div');
       b.className = 'tb' + (def.big ? ' big' : ''); b.style.cssText = def.pos; b.dataset.tb = def.name;
-      this.root.appendChild(b);
+      safe.appendChild(b);
       this.buttons.push({ def, el: b });
     }
     const pause = document.createElement('div');
-    pause.className = 'tb'; pause.style.cssText = 'left:calc(50% - 25px);top:6px;width:44px;height:44px;line-height:41px'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
-    this.root.appendChild(pause);
-    // the device kind is decided by the last pointer used: a finger shows the controls, a mouse hides them
-    window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType === 'touch'; }, true);
-    if (COARSE_POINTER) this.enabled = true;
+    pause.className = 'tb'; pause.style.cssText = 'left:calc(50% - 22px);top:6px;width:44px;height:44px;line-height:41px'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
+    safe.appendChild(pause);
+    // the device kind is decided by the last pointer used: a finger or a pen shows the controls, a mouse hides them
+    window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType !== 'mouse'; }, true);
+    if (COARSE_POINTER || Device.ios) this.enabled = true;
     const opts = { passive: false };
     this.root.addEventListener('touchstart', (e) => this.onStart(e), opts);
     this.root.addEventListener('touchmove', (e) => this.onMove(e), opts);
     this.root.addEventListener('touchend', (e) => this.onEnd(e), opts);
     this.root.addEventListener('touchcancel', (e) => this.onEnd(e), opts);
+    // an app switch, a call or the notification shade can swallow touch-ends: let go of everything so nothing sticks
+    window.addEventListener('blur', () => this.reset());
+    window.addEventListener('pagehide', () => this.reset());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.reset(); });
   },
   onStart(e) {
     e.preventDefault();   // no emulated mouse clicks, scrolling or zoom
+    if (this.fingers.size + e.changedTouches.length > e.touches.length) this.prune(e.touches);
     for (const t of e.changedTouches) {
       const target = document.elementFromPoint(t.clientX, t.clientY), name = target && target.dataset ? target.dataset.tb : undefined;
       if (name === 'pause') { if (Game.state === 'playing' && !Game.netPaused) Game.pause(); continue; }
@@ -980,14 +1068,37 @@ const TouchControls = {
         f.kind = 'button'; f.button = TOUCH_BUTTONS.find((d) => d.name === name);
         if (f.button.latch) this.latched[name] = !this.latched[name];
         else this.held[name] = true;
-      } else if (t.clientX < window.innerWidth * TOUCH_STICK_SIDE) {
-        f.kind = 'stick';
-        this.stickEl.style.display = 'block'; this.stickEl.style.left = t.clientX + 'px'; this.stickEl.style.top = t.clientY + 'px';
-        this.knobEl.style.transform = '';
+      } else if (t.clientX < window.innerWidth * TOUCH_STICK_SIDE && !this.stickFinger()) {
+        f.kind = 'stick';   // one finger steers; a second one on the left aims instead
+        this.placeStick(f);
       }
       this.fingers.set(t.identifier, f);
     }
     this.paint();
+  },
+  /* the stick centre stays inside the safe area and off the swipe-back edge, so its ring is always on screen */
+  placeStick(f) {
+    const half = TOUCH_STICK_RADIUS / 2;
+    f.ox = Math.max(f.ox, SafeArea.l + TOUCH_EDGE_GUARD + half);
+    f.oy = clamp(f.oy, SafeArea.t + half, Math.max(SafeArea.t + half, window.innerHeight - SafeArea.b - half));
+    this.stickEl.style.display = 'block'; this.stickEl.style.left = f.ox + 'px'; this.stickEl.style.top = f.oy + 'px';
+    this.knobEl.style.transform = '';
+    this.moveStick(f);
+  },
+  stickFinger() {
+    for (const f of this.fingers.values()) if (f.kind === 'stick') return f;
+    return null;
+  },
+  /* drop fingers the browser no longer reports (their touch-end never came) */
+  prune(touches) {
+    for (const [id, f] of this.fingers) {
+      let alive = false;
+      for (let i = 0; i < touches.length; i++) if (touches[i].identifier === id) { alive = true; break; }
+      if (alive) continue;
+      this.fingers.delete(id);
+      if (f.kind === 'stick') this.releaseStick();
+      else if (f.kind === 'button' && !f.button.latch) this.held[f.button.name] = this.fingerHolds(f.button.name);
+    }
   },
   onMove(e) {
     e.preventDefault();
@@ -1068,11 +1179,9 @@ const TouchControls = {
   },
   /* fill the screen and keep it landscape where the browser allows (needs a user gesture) */
   fullscreen() {
-    const doc = document.documentElement;
-    if (document.fullscreenElement || !doc.requestFullscreen) return;
-    doc.requestFullscreen().then(() => {
-      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
-    }).catch(() => {});
+    if (Device.fullscreenElement()) return;
+    if (!Device.canFullscreen()) { UI.homeScreenHint(); return; }   // iPhone: only a Home Screen start is full screen
+    Device.requestFullscreen().then(() => Device.lockLandscape()).catch(() => {});
   },
 };
 
@@ -1098,12 +1207,36 @@ const Snd = {
       this.noiseBuf = c.createBuffer(1, len, c.sampleRate);
       const d = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      // iOS suspends or 'interrupts' the context for a call, Siri or an alarm: take it back while the page is in front
+      c.onstatechange = () => this.recover();
       this.ok = true;
       this.applyVolumes();
     } catch (e) { this.ok = false; }
   },
-  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); },
-  suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {}); },
+  held: false,     // the game paused the sound on purpose (Game.pause); recover() leaves it alone
+  kicked: false,   // the silent sample that opens the output on iOS has played
+  resume() {
+    this.held = false;
+    const c = this.ctx;
+    if (c && c.state !== 'running' && c.state !== 'closed') { try { Promise.resolve(c.resume()).catch(() => {}); } catch (e) { /* not allowed yet */ } }
+  },
+  suspend() {
+    this.held = true;
+    if (this.ctx && this.ctx.state === 'running') { try { Promise.resolve(this.ctx.suspend()).catch(() => {}); } catch (e) { /* ignore */ } }
+  },
+  /* back in front (visible again, from the back-forward cache, after a call): resume unless the game paused it */
+  recover() { if (this.ctx && !this.held && !document.hidden && this.ctx.state !== 'running') this.resume(); },
+  /* every tap end, click and key: iOS only lets audio start inside the end of a tap. Creates the context on the first
+     one, plays one silent sample so older iOS opens the output, and resumes after an interruption. */
+  unlock() {
+    this.init();
+    const c = this.ctx;
+    if (!c) return;
+    if (!this.kicked) {
+      try { const k = c.createBufferSource(); k.buffer = c.createBuffer(1, 1, 22050); k.connect(c.destination); k.start(0); this.kicked = true; } catch (e) { /* try again on the next tap */ }
+    }
+    this.recover();
+  },
   applyVolumes() {
     if (!this.ok) return;
     this.master.gain.value = S.master;
@@ -1925,7 +2058,10 @@ const R = {
   resize(cssW, cssH, quality) {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const q = QUALITY[quality] || QUALITY.medium;
-    this.scale = Math.min(q.scale, this.scaleCap || 1);
+    let s = Math.min(q.scale, this.scaleCap || 1);
+    const px = cssW * cssH * dpr * dpr * s * s;
+    if (q.maxPx && px > q.maxPx) s *= Math.sqrt(q.maxPx / px);
+    this.scale = s;
     const w = Math.max(320, Math.floor(cssW * dpr * this.scale)), h = Math.max(200, Math.floor(cssH * dpr * this.scale));
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     this.width = w; this.height = h; this.aspect = w / h;
@@ -14278,6 +14414,7 @@ const Game = {
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; this.adaptQuality(); this.updateDiag(); }
     TouchControls.frame();
+    UI.rotateCheck(window.innerWidth, window.innerHeight);
     if (R.lost || !R.ok) return;
     UI.resizeIfNeeded();
     PC.pollPause();
@@ -14468,14 +14605,14 @@ const HUD = {
     } else {
       let dx = t.sx - cx, dy = t.sy - cy;
       if (t.w <= 0.01) { dx = -dx; dy = -dy; if (Math.abs(dx) < 1 && Math.abs(dy) < 1) dy = 1; }
-      const a = Math.atan2(dy, dx), ex = this.w * 0.5 - 40 * u, ey = this.h * 0.5 - 40 * u;
+      const a = Math.atan2(dy, dx), ex = this.w * 0.5 - 40 * u - Math.max(SafeArea.l, SafeArea.r), ey = this.h * 0.5 - 40 * u - Math.max(SafeArea.t, SafeArea.b);
       const k = Math.min(Math.abs(ex / (Math.cos(a) || 1e-6)), Math.abs(ey / (Math.sin(a) || 1e-6)));
       const px = cx + Math.cos(a) * k, py = cy + Math.sin(a) * k;
       g.save(); g.translate(px, py); g.rotate(a);
       g.fillStyle = color; g.strokeStyle = 'rgba(0,0,0,0.8)'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(10 * u, 0); g.lineTo(-7 * u, 7 * u); g.lineTo(-7 * u, -7 * u); g.closePath(); g.stroke(); g.fill();
       g.restore();
-      this.txt(label + (distTxt ? ' ' + distTxt : ''), clamp(px - Math.cos(a) * 34 * u, 60 * u, this.w - 60 * u), clamp(py - Math.sin(a) * 22 * u, 20 * u, this.h - 20 * u), 10, color, 'center');
+      this.txt(label + (distTxt ? ' ' + distTxt : ''), clamp(px - Math.cos(a) * 34 * u, 60 * u + SafeArea.l, this.w - 60 * u - SafeArea.r), clamp(py - Math.sin(a) * 22 * u, 20 * u + SafeArea.t, this.h - 20 * u - SafeArea.b), 10, color, 'center');
     }
   },
 
@@ -14519,15 +14656,15 @@ const HUD = {
     this.drawAllies(u);
     if (W.mode === 'training') this.drawTraining(p, u);
     this.drawTutorial(u);
-    if (S.showFps) this.txt(Game.fps.toFixed(0) + ' FPS', this.w - 12 * u, this.h - 12 * u, 11, C.dim, 'right');
+    if (S.showFps) this.txt(Game.fps.toFixed(0) + ' FPS', this.w - 12 * u - SafeArea.r, this.h - 12 * u - SafeArea.b, 11, C.dim, 'right');
     void dt;
   },
 
   drawObjectives(u) {
     const m = W.mission;
     if (!m) return;
-    let y = 26 * u;
-    const x = 18 * u;
+    let y = 26 * u + SafeArea.t;
+    const x = 18 * u + SafeArea.l;
     this.txt(m.def.name.toUpperCase(), x, y, 14, this.C.main, 'left', true); y += 18 * u;
     if (Clock.cycle && (m.limit > 0 || W.mode !== 'training')) this.txt(Clock.text(), x + 118 * u, y, 11, this.C.text);   // the hour of the day and night cycle
     if (m.limit > 0) { const left = m.limit - m.time; this.txt('TIME ' + fmtTime(Math.max(0, left)), x, y, 12, left < 60 ? this.C.bad : this.C.text, 'left', left < 60); y += 16 * u; }
@@ -14646,8 +14783,8 @@ const HUD = {
     if (p.def.air.landMax > 0 && p.speed > a.landMax && p.gear) this.txt('GEAR OVERSPEED', this.w / 2, this.h / 2 + 252 * u, 11, C.warn, 'center', true);
   },
   drawBars(p, u) {
-    const C = this.C, x = 20 * u, bw = 270 * u, bh = 17 * u, gap = 5 * u;
-    let y = this.h - 20 * u - bh;
+    const C = this.C, x = 20 * u + SafeArea.l, bw = 270 * u, bh = 17 * u, gap = 5 * u;
+    let y = this.h - 20 * u - SafeArea.b - bh;
     const lowH = p.hp < p.maxHp * 0.3;
     this.bar(x, y, bw, bh, p.hpFrac, lowH ? C.bad : C.main, lowH ? 'HULL !' : 'HULL', Math.ceil(p.hp) + '/' + Math.round(p.maxHp), lowH); y -= bh + gap;
     this.bar(x, y, bw, bh, p.armor / Math.max(1, p.maxArmor), '#9aa7b3', 'ARMOR', Math.ceil(p.armor) + '', false); y -= bh + gap;
@@ -14658,13 +14795,13 @@ const HUD = {
     let sy = y - bh - 8 * u;
     for (const k in p.sub) if (p.sub[k] > 0) { this.txt('X ' + k.toUpperCase() + ' OFFLINE ' + Math.ceil(p.sub[k]) + 's', x, sy, 11, C.bad, 'left', true); sy -= 14 * u; }
   },
-  /* canvas pixels kept free on the right for the touch buttons while they show */
+  /* CSS pixels kept free on the right for the touch buttons while they show (from the safe-area edge) */
   touchReserve() {
-    return TouchControls.shown ? TOUCH_HUD_RESERVE * this.w / Math.max(1, window.innerWidth) : 0;
+    return TouchControls.shown ? TOUCH_HUD_RESERVE : 0;
   },
   drawWeapons(p, u) {
-    const C = this.C, w = 250 * u, x = this.w - 20 * u - w - this.touchReserve();
-    let y = this.h - 20 * u - 34 * u;
+    const C = this.C, w = 250 * u, x = this.w - 20 * u - w - SafeArea.r - this.touchReserve();
+    let y = this.h - 20 * u - SafeArea.b - 34 * u;
     const rows = [];
     ['primaryA', 'primaryB', 'secondary'].forEach((s) => { if (p.wslots[s]) rows.push(p.wslots[s]); });
     for (let i = rows.length - 1; i >= 0; i--) {
@@ -14732,7 +14869,7 @@ const HUD = {
       if (p.lock.state === 'locked' && p.lock.target === t) this.txt('LOCKED', s.sx, s.sy + r + 14 * u, 11, C.bad, 'center', true);
     }
     // panel
-    const x = this.w / 2, y = 78 * u, g = this.g;
+    const x = this.w / 2, y = 78 * u + SafeArea.t, g = this.g;
     g.fillStyle = this.C.bg; g.fillRect(x - 130 * u, y - 14 * u, 260 * u, 52 * u);
     g.strokeStyle = lockCol; g.lineWidth = 1; g.strokeRect(x - 130 * u + 0.5, y - 14 * u + 0.5, 260 * u, 52 * u);
     const kindTxt = t.isStruct ? 'OBJECTIVE' : hostile ? 'HOSTILE' : 'FRIENDLY';
@@ -14762,7 +14899,7 @@ const HUD = {
     }
   },
   drawRadar(p, u) {
-    const g = this.g, r = 76 * u, cx = this.w - 20 * u - r, cy = 20 * u + r + 18 * u, C = this.C;
+    const g = this.g, r = 76 * u, cx = this.w - 20 * u - r - SafeArea.r, cy = 20 * u + r + 18 * u + SafeArea.t, C = this.C;
     const range = p.kind === 'air' ? 1400 : 500, sc = r / range;
     const h = Math.atan2(Cam.dx, Cam.dz), sh = Math.sin(h), ch = Math.cos(h);
     g.fillStyle = 'rgba(4,14,12,0.6)'; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
@@ -14794,12 +14931,12 @@ const HUD = {
   drawStatusTop(p, u) {
     const st = W.stats, m = Game.cfg;
     const lives = m && m.mode === 'training' ? 'UNLIMITED' : Game.livesText();
-    this.txt('PLATFORMS ' + lives + '   KILLS ' + st.kills + '   SCORE ' + st.score, this.w / 2, 22 * u, 12, this.C.text, 'center');
+    this.txt('PLATFORMS ' + lives + '   KILLS ' + st.kills + '   SCORE ' + st.score, this.w / 2, 22 * u + SafeArea.t, 12, this.C.text, 'center');
   },
   drawAlerts(p, u) {
     const C = this.C, cx = this.w / 2;
     // transient messages
-    let y = 128 * u;
+    let y = 128 * u + SafeArea.t;
     for (let i = W.msgs.length - 1; i >= 0; i--) {
       const mm = W.msgs[i], age = W.time - mm.t;
       if (age > 3.6) continue;
@@ -14836,7 +14973,7 @@ const HUD = {
     else this.txt('[' + actionLabel('interact') + '] RESUPPLY (' + (unlimited ? 'UNLIMITED' : W.resupplies + ' LEFT') + ')', this.w / 2, y, 13, C.friend, 'center', true);
   },
   drawFeed(u) {
-    let y = this.h - 150 * u;
+    let y = this.h - 150 * u - SafeArea.b;
     for (let i = W.feed.length - 1; i >= 0; i--) {
       const f = W.feed[i], age = W.time - f.t;
       if (age > 7) continue;
@@ -14846,8 +14983,8 @@ const HUD = {
     }
   },
   drawAllies(u) {
-    let y = 150 * u;
-    const x = 18 * u;
+    let y = 150 * u + SafeArea.t;
+    const x = 18 * u + SafeArea.l;
     const ally = (a) => a.team === 0 && a !== W.player && !a.dead && a.model !== 'truck' && (a.arch || a.isPlayer);
     const humans = W.platforms.filter((a) => ally(a) && a.isPlayer), ai = W.platforms.filter((a) => ally(a) && !a.isPlayer);
     for (const a of humans.concat(ai).slice(0, ALLY_ROWS)) {   // human teammates first
@@ -14871,7 +15008,7 @@ const HUD = {
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
   },
   drawTraining(p, u) {
-    const g = this.g, x = this.w - 330 * u - this.touchReserve(), y = 190 * u, C = this.C;
+    const g = this.g, x = this.w - 330 * u - SafeArea.r - this.touchReserve(), y = 190 * u + SafeArea.t, C = this.C;
     const log = W.dmgLog || [];
     while (log.length && W.time - log[0].t > 3) log.shift();
     let dps = 0; for (const e of log) dps += e.a; dps /= 3;
@@ -14901,7 +15038,7 @@ const HUD = {
     if (!t || t.done || Game.state !== 'playing') return;
     const s = t.steps[t.i];
     if (!s) return;
-    const g = this.g, w = Math.min(this.w - 40, 640 * u), x = this.w / 2 - w / 2, y = this.h - 118 * u;
+    const g = this.g, w = Math.min(this.w - 40 - SafeArea.l - SafeArea.r, 640 * u), x = this.w / 2 - w / 2, y = this.h - 118 * u - SafeArea.b;
     g.fillStyle = 'rgba(4,12,16,0.78)'; g.fillRect(x, y, w, 30 * u);
     g.strokeStyle = this.C.warn; g.strokeRect(x + 0.5, y + 0.5, w, 30 * u);
     this.txt('TIP ' + (t.i + 1) + '/' + t.steps.length + ': ' + s.text(), this.w / 2, y + 15 * u, 11, this.C.text, 'center');
@@ -14915,8 +15052,10 @@ const HUD = {
    every [data-act] button so restarts can never duplicate handlers.
    ===================================================================== */
 const MENU_STICK = 0.5;   // left-stick deflection that moves the menu focus
+const HOME_HINT = 'For full screen on iPhone: tap Share, then Add to Home Screen, and start IRON HORIZON from there';
+const HOME_HINT_MS = 7000;
 const UI = {
-  root: null, stack: [], cur: null, diagOn: false, needResize: true, toastT: 0, hg: null, rebind: null, lastW: 0, lastH: 0, skirmish: null, justCaptured: false,
+  root: null, stack: [], cur: null, diagOn: false, needResize: true, toastT: 0, hg: null, rebind: null, lastW: 0, lastH: 0, skirmish: null, justCaptured: false, rotateOn: false,
   padPrev: {},   // menu gamepad buttons held last frame, for edge detection
 
   init() {
@@ -14932,17 +15071,37 @@ const UI = {
   },
   fade(v) { el('fade').style.opacity = v; },
   fadeNow(v) { const f = el('fade'); f.style.transition = 'none'; f.style.opacity = v; void f.offsetWidth; f.style.transition = 'opacity .6s'; },
-  toast(msg) {
+  toast(msg, ms) {
     const t = el('toast'); t.textContent = msg; t.style.display = 'block';
     clearTimeout(this.toastT);
-    this.toastT = setTimeout(() => { t.style.display = 'none'; }, 2600);
+    this.toastT = setTimeout(() => { t.style.display = 'none'; }, ms || 2600);
+  },
+  /* once per device: iPhone Safari cannot go full screen from a page, only when started from the Home Screen */
+  homeScreenHint() {
+    if (S.homeHintSeen || !Device.ios || Device.standalone() || Device.canFullscreen()) return false;
+    S.homeHintSeen = true; Save.persist();
+    this.toast(HOME_HINT, HOME_HINT_MS);
+    return true;
   },
   resizeIfNeeded() {
     const w = window.innerWidth, h = window.innerHeight;
     if (w === this.lastW && h === this.lastH && !this.needResize) return;
     this.lastW = w; this.lastH = h; this.needResize = false;
-    R.resize(w, h, S.quality);
-    HUD.resize(w, h, Math.min(window.devicePixelRatio || 1, 2));
+    // iOS can leave the page scrolled after the keyboard or a rotation; the game never scrolls
+    const a = document.activeElement, typing = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA');
+    if (!typing && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
+    const app = el('app'), cw = app.clientWidth || w, ch = app.clientHeight || h;   // the box the canvases fill (100dvh on phones)
+    SafeArea.read();
+    R.resize(cw, ch, S.quality);
+    HUD.resize(cw, ch, Math.min(window.devicePixelRatio || 1, 2));
+  },
+  /* every frame: a phone held upright during a battle shows the rotate overlay and pauses the game behind it */
+  rotateCheck(w, h) {
+    const st = Game.state, want = TouchControls.enabled && h > w && (st === 'playing' || st === 'paused');
+    if (want && st === 'playing' && !Game.netPaused) Game.pause();
+    if (want === this.rotateOn) return;
+    this.rotateOn = want;
+    el('rotate').classList.toggle('on', want);
   },
   applySettings() {
     document.documentElement.style.setProperty('--ui', S.uiScale);
@@ -15025,7 +15184,10 @@ const UI = {
     const A = this['act_' + a];
     if (A) { Snd.ui('click'); A.call(this, d, el_); } else console.warn('Unhandled UI action', a);
   },
-  act_begin() { Snd.musicStart('menu'); this.show('main', {}, true); this.stack = []; },
+  act_begin() {
+    Snd.musicStart('menu'); this.show('main', {}, true); this.stack = [];
+    if (TouchControls.enabled) TouchControls.fullscreen();   // a tap is a gesture: full screen now, or the iPhone tip once
+  },
   act_back() { this.back(); },
   act_nav(d) { this.show(d.to, d); },
   act_missions() { this.show('missions'); },
@@ -15148,8 +15310,9 @@ const UI = {
   /* ---- screens ---- */
   scr_boot() {
     return '<div style="text-align:center"><h1>IRON <b>HORIZON</b></h1><div class="sub">Mechs &middot; Aircraft &middot; Armor &middot; Total battlefield destruction</div>' +
-      '<button class="btn primary" data-act="begin" data-focus style="min-width:18em;text-align:center">Click or press Enter to begin</button>' +
-      '<div class="hint">Single-player. Everything runs offline in this one file.' + (Save.storageOk ? '' : ' Local saving is unavailable in this browser: settings will not persist.') + '</div></div>';
+      '<button class="btn primary" data-act="begin" data-focus style="min-width:18em;text-align:center">' + (TouchControls.enabled ? 'Tap to begin' : 'Click or press Enter to begin') + '</button>' +
+      '<div class="hint">Single-player. Everything runs offline in this one file.' + (Save.storageOk ? '' : ' Local saving is unavailable in this browser: settings will not persist.') +
+      (TouchControls.enabled && window.innerHeight > window.innerWidth ? ' Turn your device to landscape to play.' : '') + '</div></div>';
   },
   scr_main() {
     const best = Object.keys(Save.data.best).length;
@@ -15283,10 +15446,11 @@ const UI = {
     const ck = (k, label) => '<label class="f"><span>' + label + '</span><input type="checkbox" data-set="' + k + '"' + (S[k] ? ' checked' : '') + '></label>';
     const se = (k, label, opts) => '<label class="f"><span>' + label + '</span><select data-set="' + k + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (S[k] === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
     return '<h2>Settings</h2><div class="grid2"><div class="panel"><h3 style="margin-top:0">Audio</h3>' + sl('master', 'Master volume', 0, 1, 0.05) + sl('music', 'Music', 0, 1, 0.05) + sl('sfx', 'Effects', 0, 1, 0.05) + sl('ui', 'Interface &amp; alerts', 0, 1, 0.05) +
-      '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + ck('pointerLock', 'Capture cursor (pointer lock)') + ck('aimAssist', 'Aim assist (shots bend toward enemies near the reticle)') +
+      '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + (TouchControls.enabled ? '' : ck('pointerLock', 'Capture cursor (pointer lock)')) + ck('aimAssist', 'Aim assist (shots bend toward enemies near the reticle)') +
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
+      (Device.ios && !Device.standalone() && !Device.canFullscreen() ? '<div class="hint">' + HOME_HINT + '.</div>' : '') +
       '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
       '<div class="row"><button class="btn small" data-act="tutorialReset">Replay tutorial hints</button></div>' +
       '<h3>Saved data</h3><div class="dim">Stored in this browser only: ' + (Save.storageOk ? 'available' : '<span class="bad">unavailable (settings will not persist)</span>') + '</div>' +
@@ -15302,7 +15466,7 @@ const UI = {
       '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you choose one platform per mission. Switching between platforms in the field is available only in the Training Range.</p><p><b>Supply:</b> stand near the supply pad and press Interact to refill ammunition and repair (2 uses per mission).</p></div>' +
       '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>8 objective missions covering every objective type, skirmish mode and a training range.</li><li>Fully offline, single file, no external assets.</li></ul>' +
       '<h3>Known limitations</h3><ul><li><b>Co-op</b> (up to 4 players, mission mode) connects browsers directly using copy-and-paste codes; there is no server. Over the internet it may need the public STUN option and can fail behind strict routers. Competitive PvP is not included.</li><li>Mission progress is not saved mid-mission. Best scores and settings are saved locally.</li><li>Performance: designed for desktop GPUs; lower Graphics quality if frames drop. The game also lowers render resolution automatically.</li></ul>' +
-      '<h3>Troubleshooting</h3><ul><li>Black screen or error: enable hardware acceleration and use a current Chrome, Edge or Firefox.</li><li>No mouse look: click to capture the cursor, or disable Capture cursor in Settings to use edge-of-screen aiming.</li><li>No sound: click once in the page; browsers block audio until you interact.</li><li>Press F10 for diagnostics.</li><li><button class="btn small" data-act="selftest">Run built-in self-test</button></li></ul></div></div>' +
+      '<h3>Troubleshooting</h3><ul><li>Black screen or error: enable hardware acceleration and use a current Chrome, Edge or Firefox.</li><li>No mouse look: click to capture the cursor, or disable Capture cursor in Settings to use edge-of-screen aiming.</li><li>No sound: click once in the page; browsers block audio until you interact.</li><li>iPhone and iPad: play in landscape; for full screen use Share, then Add to Home Screen; the silent switch also mutes the game.</li><li>Press F10 for diagnostics.</li><li><button class="btn small" data-act="selftest">Run built-in self-test</button></li></ul></div></div>' +
       '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_pause() {
@@ -15499,7 +15663,8 @@ const SelfTest = {
       try {
         for (let k = 0; k < o.repeat; k++) rows.push(this.benchScene(sc, o));
       } finally { if (sc.testMap) delete MAPS[sc.map]; }
-      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality, weather: o.weather || 'clear', time: (o.time || 'day') + (Number.isFinite(o.at) ? ' from ' + o.at : '') });
+      // best: the lowest p95 of the runs, the scene's own cost with the least outside interference
+      out.push({ id: sc.id, avg: median(rows, 'avg'), p95: median(rows, 'p95'), max: median(rows, 'max'), best: Math.min.apply(null, rows.map((r) => r.p95)), runs: rows.map((r) => r.p95).join(','), res: R.width + 'x' + R.height, quality: S.quality, weather: o.weather || 'clear', time: (o.time || 'day') + (Number.isFinite(o.at) ? ' from ' + o.at : '') });
     }
     Game.quitToMenu();
     return out;
@@ -15764,14 +15929,15 @@ const SelfTest = {
     });
     t('save', () => {
       const d = Save.sanitize({ v: 1, settings: { master: 99, sens: 'x', quality: 'ultra', fov: 70 }, bindings: { fire1: 'Escape', jump: 'Space', boost: 'Space' }, platformId: 'nope' });
-      this.check('corrupt settings fall back', d.settings.master === 1 && d.settings.sens === 1 && d.settings.quality === 'medium' && d.settings.fov === 70);
+      this.check('corrupt settings fall back', d.settings.master === 1 && d.settings.sens === 1 && d.settings.quality === Save.defaults().settings.quality && d.settings.fov === 70);
       this.check('reserved/duplicate bindings repaired', d.bindings.fire1 !== 'Escape' && (d.bindings.boost === '' || d.bindings.boost !== d.bindings.jump));
       this.check('bad platform id', d.platformId === 'bulwark');
       this.check('null raw', Save.sanitize(null).v === SAVE_VERSION);
       const tut = Save.sanitize({ v: SAVE_VERSION, settings: { tutorialMech: true, tutorialAir: 'yes' } }).settings;
       this.check('tutorial hints are tracked per platform kind', tut.tutorialMech === true && tut.tutorialAir === false && tut.tutorialGround === false);
-      const keep = { player: W.player, tutorial: Game.tutorial, mech: S.tutorialMech, air: S.tutorialAir };
+      const keep = { player: W.player, tutorial: Game.tutorial, mech: S.tutorialMech, air: S.tutorialAir, touch: TouchControls.enabled };
       try {
+        TouchControls.enabled = false;   // keys and pad buttons, also when the self-test runs on a phone
         S.tutorialMech = true; S.tutorialAir = false;
         W.player = { kind: 'mech', cmd: {} }; Game.setTutorial();
         const mechHints = !!Game.tutorial;
@@ -15781,7 +15947,7 @@ const SelfTest = {
         Input.usingPad = true; const padTip = tip.text();
         Input.usingPad = false; const keyTip = tip.text();
         this.check('hints name the pad buttons or keys last used', padTip.indexOf('Hold RT') === 0 && keyTip.indexOf('Hold ' + keyLabel(Input.code('fire1'))) === 0, padTip + ' / ' + keyTip);
-      } finally { W.player = keep.player; Game.tutorial = keep.tutorial; S.tutorialMech = keep.mech; S.tutorialAir = keep.air; Input.usingPad = false; }
+      } finally { W.player = keep.player; Game.tutorial = keep.tutorial; S.tutorialMech = keep.mech; S.tutorialAir = keep.air; Input.usingPad = false; TouchControls.enabled = keep.touch; }
     });
     // world based checks need a throwaway world; restore the menu world afterwards
     const hadState = Game.state;
@@ -16086,7 +16252,7 @@ const SelfTest = {
       W.mission = null; W.pads = [];
       const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 0, z: 0, yaw: 0, y: 200, loadout: PLATFORMS.kestrel.loadout });
       W.platforms.push(jet); W.player = jet;
-      const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev, padC: PC.padC };
+      const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev, padC: PC.padC, touch: TouchControls.enabled };
       try {
         const buttons = { right: true, up: true, down: true, reload: true, interact: true, cycle: true, stance: true };
         Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
@@ -16099,11 +16265,12 @@ const SelfTest = {
         c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = c.stanceEdge = false;
         PC.sample(jet, STEP);
         this.check('a held pad button acts once', !c.sel2 && !c.gearEdge && !c.ejectEdge && !c.reloadEdge && !c.stanceEdge);
+        TouchControls.enabled = false;   // prompts name the touch buttons on a touch screen
         Input.usingPad = true;
         this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK' && actionLabel('defense') === 'B' && actionLabel('stance') === 'LB');
         Input.usingPad = false;
         this.check('prompts show the key after keyboard input', actionLabel('interact') === keyLabel(Input.code('interact')));
-      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; }
+      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; TouchControls.enabled = keep.touch; }
     });
     t('gamepad menus', () => {
       const keep = { pad: Input.pad, cur: UI.cur, stack: UI.stack.slice(), state: Game.state, prev: UI.padPrev };
@@ -17301,13 +17468,13 @@ const SelfTest = {
           const dryY = Terrain.h(0, 300) + 10, underLake = view(lake.x, lakeY - 2, lake.z), overLand = view(0, dryY, 300);
           this.check('the renderer knows when the camera is under water', underLake === true && overLand === false && lakeY - 2 > Terrain.h(lake.x, lake.z) + 1);
           // exactly one draw per chunk in view: every chunk from high above (with a long draw distance), none looking out past the west edge
-          const chunks = Water.meshData().chunks, keepDist = R.drawDist;
+          const chunks = Water.meshData().chunks, keepDist = R.drawDist, keepAspect = R.aspect;
           let all = -1, none = -1;
           try {
-            R.drawDist = 5000;
+            R.drawDist = 5000; R.aspect = 16 / 9;   // a landscape view, also when the self-test runs on a phone held upright
             R.beginFrame({ x: 0, y: 2000, z: -60, tx: 0, ty: 0, tz: 0 }, 70); R.drawWater(chunks, 0); all = R.waterDraws;
             R.beginFrame({ x: -990, y: 30, z: 0, tx: -2000, ty: 30, tz: 0 }, 70); R.drawWater(chunks, 0); none = R.waterDraws;
-          } finally { R.drawDist = keepDist; }
+          } finally { R.drawDist = keepDist; R.aspect = keepAspect; }
           this.check('the water surface takes exactly one draw per chunk in view', chunks.length > 1 && all === chunks.length && none === 0, all + ' of ' + chunks.length + ' from above, ' + none + ' looking away');
         }
       } finally { delete MAPS.testwater; S.difficulty = keepDiff; Game.quitToMenu(); }
@@ -17568,6 +17735,94 @@ const SelfTest = {
         if (st) Net.guestStart(Object.assign({}, st, { wh: (st.wh + 1) >>> 0 }));
         this.check('a guest whose ground or water differs leaves with a message', /World mismatch/.test(left), left);
       } finally { Object.assign(Net, saved); S.difficulty = keepDiff; Game.quitToMenu(); }
+    });
+    t('iphone', () => {
+      // safe-area insets come from the CSS variables, so the HUD and touch layouts see the notch and home bar
+      const root = document.documentElement.style;
+      const tc = TouchControls, tap = (id, x, y, all) => ({ preventDefault() {}, changedTouches: [{ identifier: id, clientX: x, clientY: y }], touches: all.map((n) => ({ identifier: n })) });
+      try {
+        root.setProperty('--sat', '11px'); root.setProperty('--sar', '44px'); root.setProperty('--sab', '21px'); root.setProperty('--sal', '47px');
+        SafeArea.read();
+        this.check('SafeArea reads the safe-area insets', SafeArea.t === 11 && SafeArea.r === 44 && SafeArea.b === 21 && SafeArea.l === 47, [SafeArea.t, SafeArea.r, SafeArea.b, SafeArea.l].join(','));
+        // a finger at the very left edge gets a stick centred clear of the inset and the swipe-back edge
+        tc.reset();
+        tc.onStart(tap(1, 2, 200, [1]));
+        const stick = tc.fingers.get(1);
+        this.check('the stick stays clear of the left edge and the inset', stick && stick.kind === 'stick' && stick.ox >= 47 + TOUCH_EDGE_GUARD && tc.lx < 0, stick && stick.ox);
+      } finally { ['--sat', '--sar', '--sab', '--sal'].forEach((k) => root.removeProperty(k)); SafeArea.read(); }
+      const keepHeld = { enabled: tc.enabled, shown: tc.shown };
+      try {
+        // multi-touch: a second finger on the left aims, and lifting it leaves the stick steering
+        tc.reset();
+        tc.onStart(tap(1, 120, 200, [1]));
+        tc.onMove({ preventDefault() {}, changedTouches: [{ identifier: 1, clientX: 180, clientY: 200 }] });
+        tc.onStart(tap(2, 140, 260, [1, 2]));
+        this.check('a second finger on the stick side aims instead of taking the stick', tc.fingers.get(2).kind === 'look' && tc.lx > 0.9);
+        tc.onEnd(tap(2, 140, 260, [1]));
+        this.check('lifting the aiming finger keeps the stick steering', tc.lx > 0.9 && tc.fingers.size === 1);
+        // a finger whose touch-end never came is dropped at the next touch
+        tc.onStart(tap(3, 600, 200, [3]));
+        this.check('a lost touch-end releases the stick at the next touch', tc.lx === 0 && !tc.fingers.has(1) && tc.fingers.has(3));
+        // an app switch or call releases held buttons
+        tc.held.fire1 = true; tc.latched.boost = true; tc.fingers.set(9, { kind: 'button', button: TOUCH_BUTTONS[0] });
+        window.dispatchEvent(new Event('blur'));
+        this.check('blur releases every touch button and finger', !tc.held.fire1 && !tc.latched.boost && tc.fingers.size === 0);
+        tc.shown = true;
+        this.check('the HUD keeps the touch cluster free while it shows', HUD.touchReserve() === TOUCH_HUD_RESERVE);
+        tc.shown = false;
+        this.check('no reserve without touch controls', HUD.touchReserve() === 0);
+      } finally { tc.enabled = keepHeld.enabled; tc.shown = keepHeld.shown; tc.reset(); }
+      // the Home Screen tip is a setting (additive, same save version) shown once on an iPhone without fullscreen
+      this.check('the Home Screen tip flag is a setting that defaults off', SETTING_SCHEMA.homeHintSeen && Save.defaults().settings.homeHintSeen === false && Save.sanitize(SAVE_FIXTURE_V1).settings.homeHintSeen === false && Save.sanitize({ v: 1, settings: { homeHintSeen: true } }).settings.homeHintSeen === true);
+      const keepDev = { ios: Device.ios, canFullscreen: Device.canFullscreen, standalone: Device.standalone }, keepSeen = S.homeHintSeen, keepPersist = Save.persist;
+      const keepFs = Object.getOwnPropertyDescriptor(document.documentElement, 'requestFullscreen'), keepOr = Object.getOwnPropertyDescriptor(screen, 'orientation');
+      try {
+        Save.persist = () => {};
+        Device.ios = true; Device.standalone = () => false; Device.canFullscreen = () => false; S.homeHintSeen = false;
+        const first = UI.homeScreenHint(), second = UI.homeScreenHint();
+        this.check('an iPhone gets the Home Screen tip once', first && !second && S.homeHintSeen === true);
+        // missing fullscreen and orientation lock (iPhone Safari) never throw
+        Device.canFullscreen = keepDev.canFullscreen;
+        Object.defineProperty(document.documentElement, 'requestFullscreen', { value: undefined, configurable: true });
+        Object.defineProperty(document.documentElement, 'webkitRequestFullscreen', { value: undefined, configurable: true });
+        Object.defineProperty(screen, 'orientation', { value: {}, configurable: true });
+        let threw = '';
+        try { TouchControls.fullscreen(); Device.lockLandscape(); } catch (e) { threw = e.message; }
+        this.check('no fullscreen and no orientation lock are handled', !Device.canFullscreen() && threw === '', threw);
+      } finally {
+        delete document.documentElement.requestFullscreen; delete document.documentElement.webkitRequestFullscreen;
+        if (keepFs) Object.defineProperty(document.documentElement, 'requestFullscreen', keepFs);
+        delete screen.orientation; if (keepOr) Object.defineProperty(screen, 'orientation', keepOr);
+        Object.assign(Device, keepDev); S.homeHintSeen = keepSeen; Save.persist = keepPersist; el('toast').style.display = 'none';
+      }
+      // sound the game paused stays paused when the page comes back; a resume takes it back
+      const keepSnd = Snd.held;
+      Snd.suspend(); Snd.recover();
+      const stayed = Snd.held;
+      Snd.resume();
+      this.check('paused sound is not resumed by a return to the page, a resume clears it', stayed && !Snd.held);
+      Snd.held = keepSnd; if (keepSnd) Snd.suspend();
+      // menus scroll by finger, the battle never does
+      this.check('only form controls and overflowing menus take a finger drag', !touchScrolls(document.body) && !touchScrolls(el('gl')) && touchScrolls(document.createElement('input')));
+      // the render size respects the pixel ratio and caps Low and Medium on big screens; High is untouched
+      const keepCap = R.scaleCap, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      try {
+        R.scaleCap = 1;
+        R.resize(2400, 1600, 'medium');
+        const capped = R.width * R.height;
+        R.resize(1920, 1080, 'high');
+        this.check('Medium caps the pixels on a big screen, High keeps the full size', capped <= QUALITY.medium.maxPx * 1.01 && R.width === Math.floor(1920 * dpr) && !QUALITY.high.maxPx, capped + ' ' + R.width + 'x' + R.height);
+      } finally { R.scaleCap = keepCap; UI.needResize = true; UI.resizeIfNeeded(); }
+      // a phone held upright during a battle pauses it behind the rotate overlay
+      const keepTouch = TouchControls.enabled;
+      try {
+        Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        TouchControls.enabled = true;
+        UI.rotateCheck(390, 844);
+        const paused = Game.state === 'paused' && el('rotate').classList.contains('on');
+        UI.rotateCheck(844, 390);
+        this.check('portrait pauses the battle behind the rotate overlay; landscape hides it', paused && Game.state === 'paused' && !el('rotate').classList.contains('on'));
+      } finally { TouchControls.enabled = keepTouch; Game.quitToMenu(); UI.rotateCheck(window.innerWidth, window.innerHeight); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
@@ -18342,6 +18597,8 @@ UI.scr_coopJoin = function () {
 function showFatal(title, text) {
   el('fatalTitle').textContent = title;
   el('fatalText').textContent = text;
+  if (Device.ios) el('fatalHelp').textContent = 'On iPhone and iPad, update iOS, close other tabs and apps, and reload. If it still fails, check that WebGL is not turned off under Settings > Apps > Safari > Advanced > Feature Flags.';
+  else if (Device.touch && COARSE_POINTER) el('fatalHelp').textContent = 'Use a current Chrome, Safari, Edge or Firefox, close other tabs and apps, and reload.';
   el('fatal').style.display = 'flex';
 }
 
@@ -18360,6 +18617,7 @@ function showFatal(title, text) {
     UI.init();
     R.onLost = () => { if (Game.state === 'playing') Game.pause(); UI.toast('Graphics context lost - waiting for the browser to restore it'); };
     R.onRestored = () => {
+      if (!R.ok) { showFatal('Graphics could not be restored', 'The browser gave the graphics back, but the game could not rebuild them. Reload the page to continue.'); return; }
       if (R.terrainSrc) R.setTerrain(R.terrainSrc.data, R.terrainSrc.indices);
       if (R.waterSrc) R.setWater(R.waterSrc);
       UI.needResize = true; UI.toast('Graphics restored');
@@ -18390,8 +18648,27 @@ function showFatal(title, text) {
       }
     };
     glCanvas.addEventListener('mousedown', () => { if (Game.state === 'playing' && !Input.locked && S.pointerLock) Input.requestLock(); });
-    document.addEventListener('visibilitychange', () => { if (document.hidden) { if (Game.state === 'playing') Game.pause(); } });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { if (Game.state === 'playing') Game.pause(); } else { Snd.recover(); UI.needResize = true; } });
     window.addEventListener('blur', () => { if (Game.state === 'playing') Game.pause(); });
+    // phones: sizes settle late after a rotation, toolbar change or a return from the back-forward cache
+    const queueResize = () => { UI.needResize = true; };
+    const onRotate = () => { queueResize(); setTimeout(queueResize, 150); setTimeout(queueResize, 500); };
+    window.addEventListener('resize', queueResize);
+    window.addEventListener('orientationchange', onRotate);
+    if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onRotate);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', queueResize);
+    document.addEventListener('fullscreenchange', queueResize);
+    document.addEventListener('webkitfullscreenchange', queueResize);
+    window.addEventListener('pageshow', () => { queueResize(); Snd.recover(); });
+    // iOS only lets audio start inside the end of a tap (touchend / pointerup), so every one may unlock it
+    document.addEventListener('touchend', () => Snd.unlock(), { passive: true });
+    document.addEventListener('pointerup', () => Snd.unlock(), { passive: true });
+    document.addEventListener('keydown', () => Snd.unlock(), { passive: true });
+    // iOS Safari ignores user-scalable=no: no pinch, page drag or rubber band; only form controls and menus that overflow take a drag
+    document.addEventListener('touchmove', (e) => { if (!e.defaultPrevented && (e.touches.length > 1 || !touchScrolls(e.target))) e.preventDefault(); }, { passive: false });
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    document.addEventListener('dblclick', (e) => e.preventDefault());
+    document.addEventListener('selectstart', (e) => { const t = e.target.nodeType === 1 ? e.target : e.target.parentElement; if (!t || !t.closest('input, textarea')) e.preventDefault(); });
     window.addEventListener('error', (e) => { Game.errors.push('window: ' + (e.message || 'error')); if (Game.errors.length > 20) Game.errors.shift(); });
     window.addEventListener('unhandledrejection', (e) => { Game.errors.push('promise: ' + (e.reason && e.reason.message || e.reason)); });
     UI.applySettings();
@@ -18401,7 +18678,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
