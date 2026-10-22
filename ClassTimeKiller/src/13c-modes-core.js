@@ -14,6 +14,7 @@ Modes.register('tdm', {});
 Modes.register('duel', {});
 
 Modes.register('lms', {
+  limits: ['time'],   // the score ranks lives first (x1000): a score limit would end the match at once
   score(index) { return Math.max(0, Modes.lives[index]) * LMS_LIFE_WEIGHT + Modes.score[index]; },
   // M15: every spawn brings the whole weapon set (params.allWeapons) at full reserve (params.maxAmmo) and params.startArmor.
   onSpawn(id) {
@@ -82,6 +83,7 @@ Modes.register('dom', {
 // ---- M07 Frontline: team score = tickets; -deathCost per death; a team holding fewer points than the other team AND
 // <= bleedHeld points loses one ticket every bleedInterval seconds (so nobody bleeds at 0-0); owned points are spawn points ----
 Modes.register('conquest', {
+  limits: ['time'],
   points: [], bleedTimer: 0,
   start() {
     Modes.findObjectives('point', this.points);
@@ -133,7 +135,7 @@ Modes.register('hardpoint', {
       const hill = this.hills[i];
       hill.active = i === index; hill.owner = NO_TEAM; hill.holdTime = 0;
     }
-    Modes.announce('Hotpoint at ' + this.hills[index].id, 'objective', 2);
+    Modes.announce('The hotpoint moved', 'objective', 2);   // the one active hill is always HUD letter A: the marker shows where
   },
 });
 

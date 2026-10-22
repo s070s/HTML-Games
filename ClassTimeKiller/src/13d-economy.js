@@ -11,19 +11,23 @@ const CUSTOM_CLASS_PREFIX = 'class-';
 const BUY_REASON_TEXT = {
   ok: 'Bought', noEconomy: 'Nothing to buy here', dead: 'You are down', closed: 'Buy time is over', zone: 'Go back to the buy zone',
   unknown: 'Not sold here', owned: 'Already carried', limit: 'Carry limit reached', money: 'Not enough credits', unavailable: 'Not available yet',
+  side: 'Not sold to your side',
 };
 const BUY_RESULT = { ok: false, reason: '', price: 0, item: '' };
+const VEST_ITEM = CAT.buyItems.find((item) => item.kind === 'armor');   // a helmet over a full vest costs the rest of the price
 
 const Economy = {
   credits: new Int32Array(MAX_ACTORS),
   lossCount: new Int8Array(TEAM_SIDES),
   swapped: false,                  // the half the money belongs to (Modes.swapped when it was set)
   match: null,                     // the Game.match the state belongs to
-  buyEndsAt: 0,
+  buyUntil: new Float64Array(MAX_ACTORS),                        // end of the actor's buy time: from the round start in round modes, else its spawn
   shopOpen: false,
   spawnX: new Float32Array(MAX_ACTORS), spawnZ: new Float32Array(MAX_ACTORS),
   died: new Uint8Array(MAX_ACTORS),                              // died since the last spawn (survivors keep their gear)
-  kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // bought weapons that stay with a surviving actor
+  kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // weapons a survivor carried at the round end
+  keptHeld: new Int16Array(MAX_ACTORS).fill(-1),                 // ... the one in its hand
+  keptGadgets: new Uint8Array(MAX_ACTORS * GADGET_COUNT),        // ... and its grenade and gadget uses
   keptArmor: new Float32Array(MAX_ACTORS), keptHelmet: new Uint8Array(MAX_ACTORS),
   bought: new Uint8Array(MAX_ACTORS * CAT.buyItems.length),      // purchases per item this life (limits)
   perkKeys: Array.from({ length: MAX_ACTORS }, () => new Set()),   // perk ids and perk flags of the actor's class
@@ -54,7 +58,7 @@ const Economy = {
   ensureMatch() {
     if (this.match === Game.match) return;
     this.match = Game.match;
-    this.buyEndsAt = 0;
+    this.buyUntil.fill(0);
     this.shopOpen = false;
     this.died.fill(0);
     this.startHalf();
@@ -64,7 +68,7 @@ const Economy = {
     const preset = this.preset();
     this.swapped = Modes.swapped;
     this.lossCount.fill(0);
-    this.kept.fill(0); this.keptArmor.fill(0); this.keptHelmet.fill(0);
+    for (let id = 0; id < MAX_ACTORS; id++) this.dropKept(id);
     for (let id = 0; id < MAX_ACTORS; id++) this.credits[id] = preset.money ? preset.startMoney : 0;
   },
   checkHalf() {
@@ -76,7 +80,7 @@ const Economy = {
     if (event.phase === 'start') this.startBuyTime();
     else if (event.phase === 'end') this.payRound(event.winner);
   },
-  startBuyTime() { this.buyEndsAt = Sim.time + this.preset().buyTime; },
+  startBuyTime() { this.buyUntil.fill(Sim.time + this.preset().buyTime); },
   payRound(winner) {
     const preset = this.preset();
     if (!preset.money) return;
@@ -86,12 +90,17 @@ const Economy = {
       const reward = won ? preset.winReward : this.lossBonus(team);
       for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === team) this.addMoney(id, reward);
     }
-    for (let id = 0; id < Actors.count; id++) this.keepArmor(id);
+    for (let id = 0; id < Actors.count; id++) this.keepGear(id);
   },
   lossBonus(team) { return ladderValue(this.preset().lossLadder, this.lossCount[team]); },
-  keepArmor(id) {
-    this.keptArmor[id] = Actors.alive[id] ? Actors.armor[id] : 0;
-    this.keptHelmet[id] = Actors.alive[id] ? Damage.helmet[id] : 0;
+  // ECP02 survivors keep their gear: what a living actor carries at the round end comes back at its next spawn.
+  keepGear(id) {
+    const alive = Actors.alive[id] === 1;
+    this.keptArmor[id] = alive ? Actors.armor[id] : 0;
+    this.keptHelmet[id] = alive ? Damage.helmet[id] : 0;
+    this.keptHeld[id] = alive ? Weapons.current[id] : -1;
+    for (let w = 0; w < WEAPON_COUNT; w++) this.kept[id * WEAPON_COUNT + w] = alive ? Weapons.owned[Weapons.slotIndex(id, w)] : 0;
+    for (let row = 0; row < GADGET_COUNT; row++) this.keptGadgets[id * GADGET_COUNT + row] = alive ? Gadgets.count[id * GADGET_COUNT + row] : 0;
   },
 
   // ---- Spawns: positions for the buy zone, kept gear, class loadouts and perks ----
@@ -99,6 +108,7 @@ const Economy = {
     this.checkHalf();
     this.spawnX[id] = Actors.x[id]; this.spawnZ[id] = Actors.z[id];
     this.bought.fill(0, id * CAT.buyItems.length, (id + 1) * CAT.buyItems.length);
+    if (!currentRules().rounds) this.buyUntil[id] = Sim.time + this.preset().buyTime;
     if (this.usesClasses()) this.applyClass(id, Loadouts.classFor(id));
     else this.clearPerks(id);
     this.applyBodyModel(id);
@@ -116,11 +126,18 @@ const Economy = {
   },
   dropKept(id) {
     this.kept.fill(0, id * WEAPON_COUNT, (id + 1) * WEAPON_COUNT);
-    this.keptArmor[id] = 0; this.keptHelmet[id] = 0;
+    this.keptGadgets.fill(0, id * GADGET_COUNT, (id + 1) * GADGET_COUNT);
+    this.keptHeld[id] = -1; this.keptArmor[id] = 0; this.keptHelmet[id] = 0;
   },
+  // Runs after the start loadout and kit (S11, S12 spawn listeners): only what is missing comes back, so nothing is doubled.
   restoreKept(id) {
-    for (let w = 0; w < WEAPON_COUNT; w++) if (this.kept[id * WEAPON_COUNT + w]) Weapons.give(id, CAT.weapons[w].id, 0);
-    for (let w = WEAPON_COUNT - 1; w >= 0; w--) if (this.kept[id * WEAPON_COUNT + w]) { Weapons.current[id] = w; break; }
+    for (let w = 0; w < WEAPON_COUNT; w++) if (this.kept[id * WEAPON_COUNT + w] && !Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.give(id, CAT.weapons[w].id, 0);
+    const held = this.keptHeld[id];
+    if (held >= 0 && Weapons.owned[Weapons.slotIndex(id, held)]) Weapons.current[id] = held;
+    for (let row = 0; row < GADGET_COUNT; row++) {
+      const missing = this.keptGadgets[id * GADGET_COUNT + row] - Gadgets.count[id * GADGET_COUNT + row];
+      if (missing > 0) Gadgets.give(id, CAT.gadgets[row].id, missing);
+    }
     if (this.keptArmor[id] > 0) Actors.armor[id] = Math.max(Actors.armor[id], this.keptArmor[id]);
     if (this.keptHelmet[id]) Damage.helmet[id] = 1;
   },
@@ -215,45 +232,60 @@ const Economy = {
     const preset = this.preset();
     if (!preset.money || preset.buy === 'none') return 'noEconomy';
     if (id < 0 || !Actors.alive[id]) return 'dead';
-    if (preset.buy === 'round' && Sim.time >= this.buyEndsAt - TIME_EPSILON) return 'closed';
+    if (preset.buy === 'round' && Sim.time >= this.buyUntil[id] - TIME_EPSILON) return 'closed';
     if (preset.buy === 'shop' && !this.shopOpen) return 'closed';
     if (preset.buyZone > 0 && Math.hypot(Actors.x[id] - this.spawnX[id], Actors.z[id] - this.spawnZ[id]) > preset.buyZone) return 'zone';
     return '';
   },
   canBuy(id) { return this.buyBlock(id) === ''; },
-  buyTimeLeft() { return this.preset().buy === 'round' ? Math.max(0, this.buyEndsAt - Sim.time) : 0; },
-  // The items on sale in this match: the buy / shop rows that can be granted (armor first), then priced weapons of the set.
-  catalogue() {
-    const list = this.catalogueList, preset = this.preset();
+  buyTimeLeft(id) { return this.preset().buy === 'round' && id >= 0 ? Math.max(0, this.buyUntil[id] - Sim.time) : 0; },
+  // The items on sale to actor id (left out: the player) in this match: the buy / shop rows that can be granted (armor first),
+  // then priced weapons of the set; only what the actor's side may buy (sideAllows, shared with the bot buyer).
+  catalogue(id) {
+    const list = this.catalogueList, preset = this.preset(), buyer = id === undefined ? Game.playerId : id;
     list.length = 0;
     if (!preset.money) return list;
-    for (const item of CAT.buyItems) if (item.buy === preset.buy && this.canGrant(item)) list.push(item);
-    if (preset.buy === 'round') for (const key of currentWeaponSet().weapons) if (CAT.weapons.byId(key).price > 0) list.push(weaponItem(key));
+    for (const item of CAT.buyItems) if (item.buy === preset.buy && this.canGrant(item) && this.sideAllows(buyer, item)) list.push(item);
+    if (preset.buy !== 'round') return list;
+    for (const key of currentWeaponSet().weapons) if (CAT.weapons.byId(key).price > 0 && this.sideAllows(buyer, weaponItem(key))) list.push(weaponItem(key));
     return list;
+  },
+  // A mode that arms everyone (the ladder, roulette) sells no weapons; params.attackerBuys lists the item kinds the attacking side
+  // may buy (M27 Ghost Ops: armor and grenades, its attacker loadout is fixed).
+  sideAllows(id, item) {
+    if (item.kind === 'weapon' && this.modeArmsEveryone()) return false;
+    const params = currentRules().params, kinds = params && params.attackerBuys;
+    return !kinds || !(id >= 0) || Actors.team[id] !== Modes.attackingTeam() || kinds.includes(item.kind);
   },
   canGrant(item) {
     if (item.kind === 'grant') return Items.canGrantBuy(item.key);
     return item.kind === 'armor' || item.kind === 'helmet' || item.kind === 'ammo' || !!this.grants[item.kind];
   },
-  findItem(itemId) { return this.catalogue().find((item) => item.id === itemId) || null; },
+  findItem(id, itemId) { return this.catalogue(id).find((item) => item.id === itemId) || null; },
+  // What an item costs the actor: a helmet over a full vest costs only the helmet.
+  priceFor(id, item) {
+    if (item.kind !== 'helmet' || Actors.armor[id] < item.amount) return item.price;
+    return item.price - VEST_ITEM.price;
+  },
   // Economy.buy(id, itemId) -> shared { ok, reason, price, item }: time, zone, item, carry limits and money are checked in that order.
   buy(id, itemId) {
     const result = BUY_RESULT;
     result.ok = false; result.price = 0; result.item = itemId;
     result.reason = this.buyBlock(id);
     if (result.reason) return result;
-    const item = this.findItem(itemId);
+    const item = this.findItem(id, itemId);
     if (!item) { result.reason = 'unknown'; return result; }
-    result.price = item.price;
-    result.reason = this.limitReason(id, item) || (this.credits[id] < item.price ? 'money' : '');
+    result.price = this.priceFor(id, item);
+    result.reason = this.limitReason(id, item) || (this.credits[id] < result.price ? 'money' : '');
     if (result.reason) return result;
     if (!this.deliver(id, item)) { result.reason = 'unavailable'; return result; }
-    this.credits[id] -= item.price;
+    this.credits[id] -= result.price;
     if (item.index >= 0) this.bought[id * CAT.buyItems.length + item.index]++;
     result.ok = true; result.reason = 'ok';
     return result;
   },
   limitReason(id, item) {
+    if (!this.sideAllows(id, item)) return 'side';
     if (item.kind === 'weapon') return Weapons.has(id, item.key) ? 'owned' : '';
     if (item.kind === 'armor' || item.kind === 'helmet') return Actors.armor[id] >= item.amount && (item.kind === 'armor' || Damage.helmet[id]) ? 'owned' : '';
     const base = id * CAT.buyItems.length;
@@ -275,13 +307,10 @@ const Economy = {
     const handler = this.grants[item.kind];
     return !!handler && handler(id, item);
   },
-  // A bought weapon replaces the held one at the carry limit; survivors keep it next round.
+  // A bought weapon replaces the held one at the carry limit and comes into the hand (keepGear keeps it for a survivor).
   deliverWeapon(id, key) {
     if (!Weapons.give(id, key, 0)) return false;
-    const weapon = CAT.weapons.byId(key), dropped = Weapons.dropped ? CAT.weapons.byId(Weapons.dropped) : null;
-    if (dropped) this.kept[id * WEAPON_COUNT + dropped.index] = 0;
-    this.kept[id * WEAPON_COUNT + weapon.index] = 1;
-    Weapons.requestSwitch(id, weapon.index);
+    Weapons.requestSwitch(id, CAT.weapons.byId(key).index);
     return true;
   },
   // Next-round money for the HUD (ECO-001): what the actor has for sure next round (a loss from here pays the bonus).
@@ -301,7 +330,7 @@ const Economy = {
     target.money = this.money(id);
     target.nextRoundMoney = this.nextRoundMoney(id);
     target.canBuy = id >= 0 && this.canBuy(id);
-    target.buyTimeLeft = this.buyTimeLeft();
+    target.buyTimeLeft = this.buyTimeLeft(id);
     return target;
   },
 };

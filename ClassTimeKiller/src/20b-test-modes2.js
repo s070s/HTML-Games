@@ -229,6 +229,19 @@ Test.add('modes2', (check) => {
   check('payload: the clock runs out without the cart: defenders win', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'time');
   endModeTest();
 
+  // Time warnings count the checkpoint time too (R-131): 90 s + 60 s from checkpoint 1.
+  const warnings = startEventLog('announce');
+  startModeTest('payload', modesTestMap(CONVOY_MAP), [0, 0, 1], { modeOptions: { timeLimit: 90, params: { checkpointTime: 60 } } });
+  followFor(15, [0, 1], Modes.objectives[0]);
+  for (const id of [0, 1]) placeActor(id, -45, 20);
+  const minuteWarnings = () => warnings.filter((event) => event.text === '1 minute remaining').length;
+  runSeconds(40 - Sim.time);
+  check('payload: no "1 minute" warning while 110 s are left', Modes.hud.payloadCheckpoint === 1 && minuteWarnings() === 0 && Modes.timeLeft(Sim.time) > 100, Modes.timeLeft(Sim.time));
+  runSeconds(91 - Sim.time);
+  check('payload: the warning comes with 1 minute really left', minuteWarnings() === 1 && Test.near(Modes.timeLeft(Sim.time), 59, 0.1), Modes.timeLeft(Sim.time));
+  warnings.stop();
+  endModeTest();
+
   startModeTest('payload', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1]);
   check('payload: a map without a path keeps nothing from the last convoy', Modes.behaviour.reached === 0 && Modes.behaviour.total === 0 && Modes.behaviour.score(0) === 0);
   endModeTest();
@@ -697,5 +710,71 @@ Test.add('modes2', (check) => {
   check('hurtOutsideZone: hurts only the actors beyond the radius', hazards.length === 1 && hazards[0].target === 1 && hazards[0].amount === 7 && hazards[0].kind === 'hazard');
   check('countActive: in-play participants, never above countParticipants', Modes.countActive() === Actors.count && Modes.countActive() <= Modes.countParticipants(), Modes.countActive() + ' ' + Actors.count);
   hazards.stop();
+  endModeTest();
+});
+
+// ---- Mode x rules combinations (R-138): every mode under X32 lives, fixed sides ----
+// One map with every objective kind the modes below need.
+const COMBO_MAP = { spawns: TEAM_SPAWNS, objectives: CTF_MAP.objectives.concat(RUSH_MAP.objectives, CONVOY_MAP.objectives, RELIC_MAP.objectives,
+  [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: -30, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5 }, { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }]) };
+const ONE_LIFE = [{ id: 'lives', value: 1 }];
+// Versus modes with respawns and without rounds (Blight counts lives only from its outbreak: checked on its own below).
+const LIVES_MODES = CAT.modes.filter((row) => row.family === 'versus' && !row.rounds && row.respawn === 'normal' && row.id !== 'infection').map((row) => row.id);
+
+// Kills every participant on `team` (free-for-all: everyone but actor 0) and reports whether the match ended within 1 s.
+function wipeOut(team) {
+  for (let id = 1; id < Actors.count; id++) if (Modes.participant[id] && (team === NO_TEAM || Actors.team[id] === team)) killActor(id, 0);
+  for (let step = 0; step < TICK_RATE && !Game.match.ended; step++) Sim.step();
+  return Game.match.ended;
+}
+
+Test.add('modes2', (check) => {
+  for (const id of LIVES_MODES) {
+    const teams = CAT.modes.byId(id).teams === TEAM_COUNT ? [0, 1, 0, 1] : [-1, -1, -1];
+    startModeTest(id, modesTestMap(COMBO_MAP), teams, { mutators: ONE_LIFE });
+    runSeconds(1.01);
+    const ended = wipeOut(teams[0] === 0 ? 1 : NO_TEAM);
+    check('lives 1: ' + id + ' ends within 1 s of a wipe-out', ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated', Game.match.results && Game.match.results.reason);
+    endModeTest();
+  }
+  startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+  armRelay(0, Modes.objectives[0]);
+  placeActor(1, -40, 0); placeActor(3, -40, 5);
+  check('lives 1: rush attackers out with a relay armed: the match goes on', !wipeOutAttackers() && Modes.objectives[0].state === 'planted');
+  runSeconds(Modes.rules.params.fuse);
+  check('lives 1: the relay goes off, then the defenders win (out of lives counts like 0 tickets)', Game.match.ended && Game.match.winner === 1, Game.match.results && Game.match.results.reason);
+  endModeTest();
+  // Blight: everyone starts human, so lives count only from the outbreak on.
+  for (const humansOut of [false, true]) {
+    startModeTest('infection', modesTestMap(COMBO_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+    runSeconds(1.01);
+    check('lives 1: infection does not end before the outbreak', !Game.match.ended, Game.match.results && Game.match.results.reason);
+    runSeconds(Modes.rules.params.infectAfter);
+    const side = humansOut ? HUMAN_TEAM : INFECTED_TEAM, killer = sideMembers(1 - side)[0];
+    for (const id of sideMembers(side)) killActor(id, killer);
+    runSeconds(1);
+    check('lives 1: infection ends when every ' + (humansOut ? 'human' : 'infected') + ' is out', Game.match.ended && Game.match.winner === 1 - side && Game.match.results.reason === 'eliminated',
+      Game.match.winner + ' ' + (Game.match.results && Game.match.results.reason));
+    endModeTest();
+  }
+});
+function sideMembers(team) { return Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === team); }
+function wipeOutAttackers() {
+  for (let id = 0; id < Actors.count; id++) if (Actors.team[id] === 0) killActor(id, 1);
+  runSeconds(1);
+  return Game.match.ended;
+}
+
+// M26: auto-balance never touches modes that set their sides themselves (params.fixedSides), round after round.
+Test.add('modes2', (check) => {
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'fiends', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }, { dummy: true }, { dummy: true }, { dummy: true }],
+    modeOptions: { rounds: { freeze: 1, endDelay: 1 } } });
+  const ravagers = () => Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === 0 && Actors.maxHealth[id] === 175);
+  check('fiends 1 vs 4: one 175 HP Ravager in round 1', ravagers().length === 1 && Modes.teamSize(0) === 1, ravagers().join());
+  runSeconds(1.01);
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === 1) killActor(id, ravagers()[0]);
+  runSeconds(2.1);
+  check('fiends 1 vs 4: still one Ravager in round 2', Modes.round === 2 && ravagers().length === 1 && Modes.teamSize(0) === 1, Modes.round + ' ' + ravagers().join());
   endModeTest();
 });

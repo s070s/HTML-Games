@@ -23,7 +23,7 @@ function winRound(victim, killer) {
 }
 function grantAllGadgets() { Economy.grants.gadget = () => true; }
 function firstWeaponForSale(id) {
-  return Economy.catalogue().find((item) => item.kind === 'weapon' && !Weapons.has(id, item.key)) || null;
+  return Economy.catalogue(id).find((item) => item.kind === 'weapon' && !Weapons.has(id, item.key)) || null;
 }
 
 Test.add('economy', (check) => {
@@ -131,6 +131,71 @@ Test.add('economy', (check) => {
   winRound(1, 0);
   check('ECP02 survivors keep bought weapons and armor', Weapons.has(0, kept.key) && Actors.armor[0] === 100, Actors.armor[0]);
   check('ECP02 the dead lose bought weapons', !Weapons.has(1, kept.key));
+  endModeTest();
+});
+
+// R-134, R-197: survivors keep unused grenades and picked-up weapons; a helmet over a full vest costs only the helmet.
+Test.add('economy', (check) => {
+  startBombTest();
+  Economy.setMoney(0, 1000);
+  check('buy: a vest, then the helmet upgrade for 350', Economy.buy(0, 'vest').ok && Economy.buy(0, 'vesthelmet').price === 350 && Economy.money(0) === 0 && Damage.helmet[0] === 1,
+    Economy.money(0));
+  Economy.setMoney(0, 9000);
+  check('buy: one frag charge', Economy.buy(0, 'buyFrag').ok && Gadgets.countOf(0, 'frag') === 1);
+  Weapons.give(0, 'heron', 0);   // a picked-up rifle
+  winRound(1, 0);
+  check('ECP02 a survivor keeps the unused grenade and the picked-up weapon', Gadgets.countOf(0, 'frag') === 1 && Weapons.has(0, 'heron') && Damage.helmet[0] === 1,
+    Gadgets.countOf(0, 'frag') + ' ' + Weapons.has(0, 'heron'));
+  endModeTest();
+});
+
+// R-133, R-135: the Economy panel describes the economy in effect (a mode's params.economy wins); one source per economy rule.
+Test.add('economy', (check) => {
+  TestArena.start({ economy: 'classes', params: CAT.modes.byId('horde').params });
+  const horde = economyPanelLines();
+  check('economy panel: Siege Waves shows the wave shop', horde.name === 'Wave Shop' && horde.lines.some((line) => line.includes('shop between waves')) && !horde.lines.some((line) => line.includes('class')),
+    horde.lines.join(' | '));
+  TestArena.finish();
+  TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
+  check('economy panel: Arms Ladder shows the weapon ladder', economyPanelLines().lines.some((line) => line.includes('ladder of 18 weapons')));
+  TestArena.finish();
+  TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
+  check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));
+  TestArena.finish();
+  check('economy rows keep no unread or duplicate fields', ['carryOver', 'slots', 'ammoTypes', 'weaponStay'].every((field) => !(field in Data.schemas.economy)));
+});
+
+// R-028: Ghost Ops attackers buy armor and grenades only (params.attackerBuys); the defenders buy anything. Bots read the same list.
+Test.add('economy', (check) => {
+  startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 30 } } });
+  runSeconds(1.01);
+  Economy.setMoney(0, 9000); Economy.setMoney(1, 9000);
+  const attackerItems = Economy.catalogue(0).map((item) => item.kind);
+  check('ghostops: no weapons on sale to the attackers', attackerItems.length > 0 && !attackerItems.includes('weapon') && Economy.buy(0, 'vanguard').ok === false
+    && Economy.limitReason(0, weaponItem('vanguard')) === 'side' && Economy.money(0) === 9000, attackerItems.join());
+  check('ghostops: attackers still buy armor and grenades', Economy.buy(0, 'vest').ok && Economy.buy(0, 'buySmoke').ok);
+  check('ghostops: defenders buy rifles', Economy.catalogue(1).some((item) => item.kind === 'weapon') && Economy.buy(1, 'vanguard').ok);
+  endModeTest();
+});
+
+// R-029, R-138: wherever the buy menu has items, buy time opens (round modes at the round start, the others at each spawn).
+Test.add('economy', (check) => {
+  const versus = CAT.modes.filter((row) => row.family === 'versus' && Modes.isPlayable(row.id) && row.respawn !== 'none');
+  for (const mode of versus) {
+    const teams = mode.teams === TEAM_COUNT ? [0, 1] : [-1, -1];
+    startModeTest(mode.id, modesTestMap(COMBO_MAP), teams, { ruleset: 'tactical', modeOptions: { rounds: mode.rounds ? { freeze: 1, endDelay: 1, live: 30 } : null } });
+    runSeconds(1.01);
+    const items = Economy.catalogue(0).length;
+    check('round buy in ' + mode.id + ': buy time is open while items are on sale', items === 0 || Economy.buyBlock(0) === '', items + ' ' + Economy.buyBlock(0));
+    if (Economy.modeArmsEveryone()) check('round buy in ' + mode.id + ': the mode arms everyone, so no weapons are sold', !Economy.catalogue(0).some((item) => item.kind === 'weapon'));
+    endModeTest();
+  }
+  startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'tactical' });
+  runSeconds(Economy.preset().buyTime);
+  check('round buy in ffa: buy time ends buyTime after the spawn', Economy.buyBlock(0) === 'closed');
+  killActor(0, 1);
+  respawnAll();
+  check('round buy in ffa: a respawn opens it again', Actors.alive[0] === 1 && Economy.buyBlock(0) === '' && Economy.hudState(0, ECONOMY_HUD).buyTimeLeft > 0);
   endModeTest();
 });
 

@@ -2,7 +2,7 @@
 // spawn protection, kill scoring, the match clock with score/time limits and sudden death, the round system,
 // generic objectives (capture zones, carriable objects) and the results record Game.match.results.
 // A mode = its CAT.modes row + a behaviour registered with Modes.register(id, { start, step, onKill, onScore,
-// onRound, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
+// onRound, livesOver, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
 // Winner values: a team index in team modes, an actor id otherwise, DRAW (-1) for a draw.
 
 const NO_TEAM = -1;
@@ -39,15 +39,18 @@ const NEAR_ANY = 0, NEAR_TEAM = 1, NEAR_ENEMY = 2;       // findActorNear relati
 const PHASE = { IDLE: 'idle', FREEZE: 'freeze', LIVE: 'live', ROUND_END: 'roundEnd', ENDED: 'ended' };
 const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // blue, red, neutral
 const NEUTRAL_COLOR = 2;
+const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
 
 const DEFAULT_BEHAVIOUR = {
+  limits: ['score', 'time'],
   start() {},
   step() { if (Modes.rules.rounds) Modes.checkTeamWipe(); },
   onKill() {},
   onScore() {},
   // phase: 'start' | 'live' | 'end' | 'timeout'; for 'timeout' the return value is the round winner.
   onRound(phase) { return phase === 'timeout' ? Modes.aliveLeaderTeam() : DRAW; },
+  livesOver() { return Modes.livesWinner(); },
   isOver(now) { return Modes.standardIsOver(now); },
   score(index) { return Modes.competitorScore(index); },
 };
@@ -87,8 +90,17 @@ const Modes = {
     leader: -1, leaderScore: 0, playerId: -1, playerScore: 0, playerRank: 0, playerLives: LIVES_UNLIMITED, respawnIn: 0,
     attackers: 0, teamScores: null, teamRounds: null, teamMeter: null, objectives: null, zoneX: 0, zoneZ: 0, zoneRadius: 0 },
 
-  register(id, behaviour) { this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, behaviour)); },
+  // behaviour.limits: the limits its isOver honours ('score', 'time'); a behaviour with its own isOver honours none unless it lists them.
+  register(id, behaviour) {
+    const limits = behaviour.isOver ? [] : DEFAULT_BEHAVIOUR.limits;
+    this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, { limits }, behaviour));
+  },
   isPlayable(id) { return this.behaviours.has(id); },
+  // Whether a score or time limit (custom match editor) ends this mode: round modes end by rounds only.
+  honoursLimit(modeId, limit) {
+    const mode = CAT.modes.byId(modeId), behaviour = this.behaviours.get(modeId);
+    return !!mode && !!behaviour && !mode.rounds && behaviour.limits.includes(limit);
+  },
   // MODE-002: the bot list that fills every slot of a mode (the UI passes it as setup.bots).
   defaultBots(modeId, withPlayer) {
     const mode = CAT.modes.byId(modeId);
@@ -140,8 +152,13 @@ const Modes = {
     if (!this.active) return;
     this.updateLeader();
     this.stepWarnings(now);
-    const winner = this.behaviour.isOver(now);
+    const winner = this.endResult(now);
     if (winner !== NOT_OVER) this.finish(winner);
+  },
+  // Lives (rules.lives: M15, X32, the editor) end every mode without rounds; a behaviour may hold that end (livesOver).
+  endResult(now) {
+    const survivor = this.rules.lives > 0 && !this.rules.rounds ? this.behaviour.livesOver() : NOT_OVER;
+    return survivor !== NOT_OVER ? survivor : this.behaviour.isOver(now);
   },
   finish(winner) {
     if (!this.active) return;
@@ -197,9 +214,10 @@ const Modes = {
       if (seen > limit) this.queued[id] = 1;
     }
   },
-  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split stays).
+  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split
+  // stays; params.fixedSides: the mode sets the sides itself, M17 M26).
   balanceTeams() {
-    if (this.rules.teams !== TEAM_COUNT || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
+    if (this.rules.teams !== TEAM_COUNT || this.rules.params.fixedSides || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
     for (let moves = 0; moves < MAX_ACTORS; moves++) {
       const difference = this.teamSize(0) - this.teamSize(1);
       if (Math.abs(difference) <= 1) return;
@@ -443,8 +461,6 @@ const Modes = {
   },
   standardIsOver(now) {
     if (this.rules.rounds) return NOT_OVER;
-    const survivor = this.livesWinner();
-    if (survivor !== NOT_OVER) return survivor;
     const limit = this.rules.scoreLimit;
     if (limit > 0 && this.leader >= 0 && this.leaderScore >= limit) return this.over(this.leader, 'score');
     return this.timeResult(now);
@@ -466,9 +482,9 @@ const Modes = {
     this.announce('Sudden death', 'overtime', 3);
   },
   over(winner, reason) { this.endReason = reason; return winner; },
-  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing.
+  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing. Co-op (teams 1) has no rival.
   livesWinner() {
-    if (this.rules.lives <= 0 || this.competitorsAtStart < 2) return NOT_OVER;
+    if (this.rules.lives <= 0 || this.rules.teams === 1 || this.competitorsAtStart < 2) return NOT_OVER;
     let standing = 0, last = DRAW;
     const count = this.competitorCount();
     for (let index = 0; index < count; index++) {
@@ -492,10 +508,14 @@ const Modes = {
     this.warningIndex = 0;
     while (this.warningIndex < TIME_WARNINGS.length && TIME_WARNINGS[this.warningIndex] >= this.rules.timeLimit) this.warningIndex++;
   },
+  // The warnings count the time the behaviour added (timeBonus); a bonus re-arms the warnings it pushed back.
   stepWarnings(now) {
-    if (this.rules.timeLimit <= 0 || this.rules.rounds || this.warningIndex >= TIME_WARNINGS.length) return;
+    if (this.rules.timeLimit <= 0 || this.rules.rounds) return;
+    const left = this.rules.timeLimit + this.timeBonus - (now - this.startTime);
+    while (this.warningIndex > 0 && TIME_WARNINGS[this.warningIndex - 1] < left - TIME_EPSILON) this.warningIndex--;
+    if (this.warningIndex >= TIME_WARNINGS.length) return;
     const threshold = TIME_WARNINGS[this.warningIndex];
-    if (this.rules.timeLimit - (now - this.startTime) > threshold + TIME_EPSILON) return;
+    if (left > threshold + TIME_EPSILON) return;
     this.warningIndex++;
     this.announce(formatTimeWarning(threshold), 'time', 2);
   },
@@ -656,7 +676,17 @@ const Modes = {
     for (let id = 0; id < Actors.count; id++) {
       if (this.actsOnObjectives(id) && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
     }
-    this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
+    this.announce(TEAM_NAMES[team] + ' captured ' + this.objectiveLabel(objective), 'capture', 2);
+  },
+  // The HUD letter of list[index] (0 = A): its place among the active objectives of its kind before it.
+  objectiveLetter(list, index) {
+    let letter = 0;
+    for (let i = 0; i < index; i++) if (list[i].kind === list[index].kind && list[i].active) letter++;
+    return letter;
+  },
+  // What players read and hear for an objective: the map's name for it, else 'point' and the letter the HUD shows.
+  objectiveLabel(objective) {
+    return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
   },
   // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
   // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
@@ -821,7 +851,7 @@ const Modes = {
 
 function makeObjective(source, index) {
   const kind = source.kind, x = source.x || 0, y = source.y || 0, z = source.z || 0;
-  return { index, id: source.id || kind + index, kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
+  return { index, id: source.id || kind + index, name: source.name || '', kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
     x, y, z, homeX: x, homeY: y, homeZ: z, radius: source.radius || OBJECTIVE_RADIUS[kind] || DEFAULT_OBJECTIVE_RADIUS,
     owner: NO_TEAM, capturingTeam: NO_TEAM, progress: 0, contested: false, inside: new Int16Array(TEAM_COUNT), active: true,
     state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null,

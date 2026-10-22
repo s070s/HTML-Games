@@ -1,4 +1,4 @@
-// Game modes M01..M30 (spec section 13). A mode is this data row plus a small behaviour object that S13
+// Game modes M01..M31 (spec section 13). A mode is this data row plus a small behaviour object that S13
 // registers with Modes.register(id, ...); a row without a behaviour is listed but not yet playable.
 // teams: 0 free-for-all, 1 everyone on one side (PvE), 2 two teams. sizeDefault: total participants (player + bots).
 // scoreBy: what decides the leader - kills | objective | tickets | rounds | survival | pve.
@@ -6,7 +6,7 @@
 // respawn: normal (ruleset respawn timers) | round (only at round start) | none.
 // useButton: the mode needs Use held (plant, defuse, arm, loot swap, chamber buttons), so the touch USE button shows (INP-004).
 // rules: ruleset defaults set at the first build stage (MOV-001); a bundle that writes the same field wins.
-// params: numbers read by the mode behaviour (params.pickups: false = no map pickups, a pickup key = only that pickup's spots); params.economy names an economy the mode brings itself (it wins over
+// params: numbers read by the mode behaviour (params.pickups: false = no map pickups, a pickup key = only that pickup's spots; params.fixedSides: the mode sets the sides itself, so auto-balance never moves anyone); params.economy names an economy the mode brings itself (it wins over
 // rules.economy, because every bundle writes an economy).
 // Times are seconds; values marked T in the spec are tunable starting values.
 
@@ -41,7 +41,7 @@ Data.define('modes', {
   { id: 'elim', code: 'M14', name: 'Last Squad', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
   { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 18, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
-  { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
+  { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { fixedSides: true, infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
   { id: 'royale', code: 'M20', name: 'Last Ring', useButton: true, teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
@@ -51,8 +51,8 @@ Data.define('modes', {
   { id: 'bank', code: 'M23', name: 'Mote Rush', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'objective', objective: 'bank', params: { blockerAt: [5, 10, 15], invasionAt: 50, bossAt: 100 }, family: 'pve', ruleset: 'modern' },
   { id: 'bearer', code: 'M24', name: 'Flame Bearer', teams: 0, sizeDefault: 8, scoreLimit: 120, timeLimit: 600, scoreBy: 'objective', params: { holdRate: 1, damageMult: 3, returnTime: 30 } },
   { id: 'roulette', code: 'M25', name: 'Roulette Arms', teams: 0, sizeDefault: 8, scoreLimit: 25, timeLimit: 600, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
-  { id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: { ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
-  { id: 'ghostops', code: 'M27', name: 'Ghost Ops', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
+  { id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: { fixedSides: true, ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
+  { id: 'ghostops', code: 'M27', name: 'Ghost Ops', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], attackerBuys: ['armor', 'helmet', 'gadget'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'contract', code: 'M28', name: 'Silent Contract', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { stealth: true, ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
   { id: 'attrition', code: 'M29', name: 'Attrition', teams: 2, sizeDefault: 8, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
   { id: 'range', code: 'M30', name: 'Firing Range', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo' },

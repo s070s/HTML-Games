@@ -1,7 +1,8 @@
 // Objective versus modes on the S13 framework (13b): M08 Breach Assault (staged relays, attacker tickets), M10 Relic Run (carry
 // time scores), M11 Convoy (a cart on the map path), M27 Ghost Ops (bomb rounds with cloaked attackers).
 // The first part holds what the party (13f) and royale (13g) files share: actor roles, goal hints for bots, extra HUD fields,
-// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call.
+// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call
+// (onSpawn runs from 13h, after the mutator spawn values, so a role's health builds on them).
 
 const ACTOR_ROLE = { NONE: 0, CARRIER: 1, COLOSSUS: 2, CURSED: 3, INFECTED: 4, BEARER: 5, GHOST: 6 };
 const ACTOR_ROLE_NAMES = ['', 'carrier', 'colossus', 'cursed', 'infected', 'bearer', 'ghost'];
@@ -112,6 +113,7 @@ function setCloak(id, cloaked) {
 // destroyed opens the next stage; the last stage destroyed wins. Each attacker death costs a ticket; at 0 tickets with no
 // relay armed the defenders win. Defenders have unlimited tickets ----
 Modes.register('rush', {
+  limits: ['time'],
   relays: [], stage: 0, lastStage: 0, destroyed: 0,
   start() {
     const params = Modes.rules.params;
@@ -174,6 +176,8 @@ Modes.register('rush', {
     for (let i = 0; i < this.relays.length; i++) if (this.relays[i].active && this.relays[i].state === 'planted') return true;
     return false;
   },
+  // Attackers out of lives count like 0 tickets: an armed relay still goes off first.
+  livesOver() { return this.anyArmed() ? NOT_OVER : Modes.livesWinner(); },
   isOver(now) {
     const attackers = Modes.attackingTeam();
     if (this.lastStage > 0 && this.stage > this.lastStage) return Modes.over(attackers, 'objective');
@@ -252,6 +256,7 @@ Modes.register('oddball', makePrizeBehaviour('relic', ACTOR_ROLE.CARRIER, 'carri
 // indices (else params.checkpoints evenly spaced; the last is the end). Each checkpoint before the end adds
 // checkpointTime s to the clock (Modes.timeBonus). At the time limit an attacker at the cart means overtime (max 180 s) ----
 Modes.register('payload', {
+  limits: ['time'],
   cart: null, lengths: null, marks: null, total: 0, distance: 0, reached: 0, lastPushed: 0,
   start() {
     this.distance = 0; this.reached = 0; this.total = 0; this.marks = null; this.lengths = null; this.lastPushed = Sim.time;
@@ -426,7 +431,6 @@ function drawModeExtras(batch) {
 Bus.on('match.setup', resetModeExtras);
 Bus.on('match.stop', resetModeExtras);
 Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; modeCloakSet[id] = 0; });
-Bus.on('actor.spawn', (event) => callBehaviour('onSpawn', event.id));
 Bus.on('damage', (event) => {
   Modes.meleeHit[event.target] = event.kind === 'melee' ? 1 : 0;
   callBehaviour('onDamage', event);

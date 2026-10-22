@@ -81,10 +81,10 @@ Test.add('mutators', (check) => {
 });
 
 Test.add('mutators', (check) => {
-  const base = Rules.build({ mode: 'ffa' });
+  const base = Rules.build({ mode: 'tdm' });   // a team mode with kill scoring and its own weapons: every mutator fits it
   for (const row of CAT.mutators) {
     const [value, applied] = MUTATOR_EXPECTATIONS[row.id];
-    const rules = buildWith(row.id, value);
+    const rules = buildWith(row.id, value, { mode: 'tdm' });
     check(row.code + ' ' + row.id + ' applies as specified', applied(rules, base) && Rules.problems.length === 0, JSON.stringify(rules.fx) + ' / ' + Rules.problems.join('; '));
     check(row.code + ' ' + row.id + ' is listed in the built ruleset', rules.mutators.length === 1 && rules.mutators[0].id === row.id);
   }
@@ -127,7 +127,7 @@ Test.add('mutators', (check) => {
     for (let second = first + 1; second < ids.length; second++) {
       pairs++;
       const result = Mutators.add([{ id: ids[first], value: Mutators.defaultValue(CAT.mutators.byId(ids[first])) }], ids[second], true);
-      const built = Rules.build({ mode: 'ffa', mutators: [ids[first], ids[second]] });
+      const built = Rules.build({ mode: 'tdm', mutators: [ids[first], ids[second]] });
       const conflict = Mutators.conflicts(ids[first], ids[second]);
       if (Mutators.conflicts(ids[second], ids[first]) !== conflict) bad.push('asymmetric ' + ids[first] + '/' + ids[second]);
       if (!conflict && !(result.list.length === 2 && result.message === '' && built.mutators.length === 2)) bad.push('stack ' + ids[first] + '/' + ids[second]);
@@ -556,4 +556,45 @@ Test.add('mutators', (check) => {
   check('the gift is gone after the blast', drawn.length === 0);
   stopMutatorMatch();
   check('tags and gifts use pools of their own sizes', TagPool.timer.length === MAX_TAGS && GiftPool.timer.length === MAX_GIFTS);
+});
+
+// Mode x mutator combinations (R-132, R-137, R-138): role health builds on the health mutators; a mode never runs (or offers)
+// a mutator it cannot use.
+function aliveWithRole(role) {
+  for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.actorRole[id] === role) return id;
+  return -1;
+}
+Test.add('mutators', (check) => {
+  startMutatorMatch([{ id: 'health', value: 100 }], { mode: 'infection', bots: Array.from({ length: 6 }, () => ({ dummy: true })), modeOptions: { params: { infectAfter: 1 } } });
+  Sim.run(Math.round(1.1 * TICK_RATE));
+  const infected = aliveWithRole(ACTOR_ROLE.INFECTED);
+  check('infection + Health 100: the first infected has 300 HP', infected >= 0 && Actors.maxHealth[infected] === 300, infected >= 0 && Actors.maxHealth[infected]);
+  killActor(infected, infected === 0 ? 1 : 0);
+  Sim.run(Math.round((Game.match.rules.respawn.delay + 0.1) * TICK_RATE));
+  check('infection + Health 100: a respawned infected has 300 HP too', Actors.alive[infected] === 1 && Actors.maxHealth[infected] === 300 && Actors.health[infected] === 300, Actors.maxHealth[infected]);
+  stopMutatorMatch();
+  startMutatorMatch([{ id: 'health', value: 200 }], { mode: 'cursetag' });
+  Sim.step();
+  const cursed = aliveWithRole(ACTOR_ROLE.CURSED);
+  killActor(cursed, cursed === 0 ? 1 : 0);
+  Sim.run(Math.round((Game.match.rules.respawn.delay + 0.1) * TICK_RATE));
+  check('cursetag + Health 200: the respawned cursed keeps 50 HP', Modes.actorRole[cursed] === ACTOR_ROLE.CURSED && Actors.alive[cursed] === 1 && Actors.maxHealth[cursed] === 50, Actors.maxHealth[cursed]);
+  stopMutatorMatch();
+});
+
+Test.add('mutators', (check) => {
+  const offered = (modeId) => CAT.mutators.filter((row) => Mutators.fitsMode(row, CAT.modes.byId(modeId))).map((row) => row.id);
+  check('gungame offers no weapon mutators (it arms everyone)', !['oneshot', 'rocketpit', 'weaponset', 'mirror'].some((id) => offered('gungame').includes(id)) && offered('tdm').includes('rocketpit'));
+  check('Confirm Kills only where kills score; Friendly Fire only with teams; Lives only without rounds', !offered('oddball').includes('tags') && !offered('ffa').includes('ff')
+    && !offered('elim').includes('lives') && !offered('royale').includes('lives') && offered('lms').includes('lives') && offered('tdm').includes('ff'));
+  const toasts = startEventLog('toast');
+  const built = Rules.build({ mode: 'gungame', mutators: ['rocketpit', 'gravity'] });
+  check('a build drops a mutator the mode cannot use, with a notice', built.mutators.map((entry) => entry.id).join() === 'gravity' && built.weaponSet !== MATCH_SET_ID
+    && toasts.some((event) => event.text.includes('Rocket Pit')), toasts.map((event) => event.text).join());
+  toasts.stop();
+  check('the editor lists only the mutators of the chosen mode', editorModeMutators('gungame').map((row) => row.id).join() === offered('gungame').join());
+  const livesRow = EDITOR_FIELDS.find((field) => field.key === 'lives');
+  check('the editor Lives row shows only where lives work', !livesRow.show(Object.assign(customDefaults(), { mode: 'elim' })) && livesRow.show(Object.assign(customDefaults(), { mode: 'ffa' })));
+  const unfit = CAT.challenges.filter((row) => row.mutators.some((entry) => !Mutators.fitsMode(Mutators.row(typeof entry === 'string' ? entry : entry.id), CAT.modes.byId(row.mode))));
+  check('no challenge room uses a mutator its mode cannot use', unfit.length === 0, unfit.map((row) => row.id).join());
 });

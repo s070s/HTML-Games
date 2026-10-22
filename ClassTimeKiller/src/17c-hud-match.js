@@ -212,11 +212,7 @@ function hudDrawControlMeters(pen, layout, state) {
 }
 
 // Objective chips under the header: letter + owner colour + capture arc, flags as team-shaped markers.
-function hudObjectiveLetter(list, index) {
-  let letter = 0;
-  for (let i = 0; i < index; i++) if (list[i].kind === list[index].kind && list[i].active) letter++;
-  return letter;
-}
+function hudObjectiveLetter(list, index) { return Modes.objectiveLetter(list, index); }
 function hudDrawObjectiveChip(pen, layout, objective, letter, x, y) {
   const unit = layout.unit, owner = objective.owner;
   const color = objective.kind === 'flag' ? Hud.teamColor(objective.team) : Hud.teamColor(owner);

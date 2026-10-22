@@ -40,11 +40,11 @@ const ECONOMY_LINES = [   // [applies, text] per economy preset field; money amo
   [(row) => row.winReward > 0, (row) => 'A won round pays $' + row.winReward + (row.lossLadder.length ? '; a lost round pays $' + row.lossLadder.join(', $') + ' as losses add up.' : '.')],
   [(row) => row.killReward > 0, (row) => 'Each kill pays $' + row.killReward + ' plus a bonus that depends on the weapon.'],
   [(row) => row.plantReward > 0, (row) => 'Planting or defusing the bomb pays $' + row.plantReward + '.'],
-  [(row) => row.slots > 0, (row) => 'You carry ' + row.slots + ' weapon slots. Loot comes in rarities: ' + row.rarities.join(', ') + '.'],
+  [(row) => row.rarities.length > 0, (row) => 'You carry ' + currentWeaponSet().carry + ' weapons. Loot comes in rarities: ' + row.rarities.join(', ') + '.'],
   [(row) => row.loadout === 'classes', () => 'Choose a class with weapons and perks in the loadout screen. Your field upgrade is part of the class.'],
   [(row) => row.loadout === 'heroes', () => 'Pick a hero. Each hero brings its own weapons, abilities and ultimate.'],
   [(row) => row.ladder.length > 0, (row) => 'Climb a ladder of ' + row.ladder.length + ' weapons: every kill moves you to the next one.'],
-  [(row) => !row.money && row.slots === 0 && row.loadout === 'none' && row.ladder.length === 0, () => 'Weapons, ammo, armor and health come from pickups on the map. They respawn after a while.'],
+  [(row) => !row.money && row.rarities.length === 0 && row.loadout === 'none' && row.ladder.length === 0, () => 'Weapons, ammo, armor and health come from pickups on the map. They respawn after a while.'],
 ];
 
 // ---- Help ----
@@ -110,8 +110,9 @@ function difficultyLine(rules) {
   if (!skill) return 'No bots.';
   return nameOf(CAT.difficulty, skill.preset) + ': bot skill tiers ' + (skill.tierMin + 1) + ' to ' + (skill.tierMax + 1) + '.';
 }
-function economyPanelLines(rules) {
-  const row = CAT.economy.byId(rules.economy) || CAT.economy[0], lines = [];
+// row: the economy in effect (a mode's params.economy wins over the rule set's); the self-test passes other rows.
+function economyPanelLines(row = Economy.preset()) {
+  const lines = [];
   for (const [applies, text] of ECONOMY_LINES) if (applies(row)) lines.push(text(row));
   if (buyKeyAvailable(row)) lines.push(buyMenuText());
   return { name: row.name, lines };
@@ -121,7 +122,7 @@ function buyMenuText() {
   const keyboard = Input.device !== 'touch' && Input.device !== 'gamepad' && (Input.getBinding('buyMenu', 0) || Input.getBinding('buyMenu', 1));
   return keyboard ? 'Open the buy menu with ' + hudBoundLabel('buyMenu', Input.device) + '.' : 'Open the buy menu from the pause menu.';
 }
-function buyKeyAvailable(row) { return row.buy !== 'none' || row.loadout !== 'none'; }
+function buyKeyAvailable(row = Economy.preset()) { return row.buy !== 'none' || row.loadout !== 'none'; }
 
 function buildRulesBody(body, rules) {
   const text = rulesPanelLines(rules);
@@ -143,7 +144,7 @@ Ui.register('economy', {
     screenHeader(root, 'Economy');
     const body = makeElement('div', 'ui-scroll');
     if (Game.match && Game.match.rules) {
-      const panel = economyPanelLines(Game.match.rules);
+      const panel = economyPanelLines();
       rulesSection(body, panel.name, panel.lines);
     } else body.appendChild(makeElement('p', 'ui-note', 'Start a match to see its economy.'));
     root.appendChild(body);

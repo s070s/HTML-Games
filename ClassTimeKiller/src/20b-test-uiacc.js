@@ -512,9 +512,9 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('economy panel: the screen shows the economy of the match', Ui.current() === 'economy' && uiScreenText('economy').includes('Map Pickups'));
   Ui.closeAll();
   Game.resume();
-  const economies = CAT.economy.map((row) => ({ id: row.id, lines: economyPanelLines(Object.assign({}, rules, { economy: row.id })).lines }));
+  const economies = CAT.economy.map((row) => ({ id: row.id, lines: economyPanelLines(row).lines }));
   check('economy panel: every economy explains itself', economies.every((entry) => entry.lines.length > 0), economies.filter((entry) => !entry.lines.length).map((entry) => entry.id).join());
-  const roundBuy = economyPanelLines(Object.assign({}, rules, { economy: 'roundBuy' })).lines.join(' ');
+  const roundBuy = economyPanelLines(CAT.economy.byId('roundBuy')).lines.join(' ');
   check('economy panel: money economies give the numbers of the preset', roundBuy.includes('$800') && roundBuy.includes('$3000') && roundBuy.includes('$200'), roundBuy);
   Game.stop();
   Ui.open('rules');

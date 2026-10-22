@@ -475,6 +475,41 @@ Test.add('modes', (check) => {
   endModeTest();
 });
 
+// Editor limits (R-130, R-136): a limit row shows only where the mode honours it; fewer rounds to win still reach the side switch.
+Test.add('modes', (check) => {
+  const shown = (key, mode) => EDITOR_FIELDS.find((field) => field.key === key).show(Object.assign(customDefaults(), { mode }));
+  check('editor: Last Squad hides the time and score limits (rounds decide)', !shown('timeLimit', 'elim') && !shown('scoreLimit', 'elim'));
+  check('editor: Arms Ladder and Convoy keep only the time limit', shown('timeLimit', 'gungame') && !shown('scoreLimit', 'gungame') && shown('timeLimit', 'payload') && !shown('scoreLimit', 'payload'));
+  check('editor: Frenzy shows both limits, Siege Waves (its own end) none', shown('timeLimit', 'ffa') && shown('scoreLimit', 'ffa') && !shown('timeLimit', 'horde') && !shown('scoreLimit', 'horde'));
+  const options = CustomMatch.modeOptions(Object.assign(customDefaults(), { mode: 'bomb', roundWins: 3 }), CAT.modes.byId('bomb'));
+  check('editor: 3 rounds to win: at most 5 rounds, the sides switch after 2', options.rounds.winsNeeded === 3 && options.rounds.limit === 5 && options.rounds.switchAt === 2, JSON.stringify(options.rounds));
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: Object.assign({}, options.rounds, { freeze: 1, endDelay: 1, live: 5 }) } });
+  runSeconds(14.5);
+  check('bomb to 3 wins: switched sides by round 3', Modes.round === 3 && Modes.swapped, Modes.round + ' ' + Modes.swapped);
+  endModeTest();
+});
+
+// Announcements name objectives the way the HUD letters them, never by their map id (R-129).
+Test.add('modes', (check) => {
+  const announcements = startEventLog('announce');
+  const labelMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: 0, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5, name: 'the bridge' }] };
+  startModeTest('dom', modesTestMap(labelMap), [0, 1], { modeOptions: { params: { captureTime: 1 } } });
+  placeActor(0, 0, 30);
+  runSeconds(1.1);
+  placeActor(0, 1, 0);
+  runSeconds(1.1);
+  const captures = announcements.filter((event) => event.kind === 'capture').map((event) => event.text);
+  check('dom: a capture names the HUD letter, or the map name for the point', captures.join() === 'Blue captured the bridge,Blue captured point A' && Modes.objectiveLetter(Modes.objectives, 1) === 1, captures.join());
+  endModeTest();
+  const hillMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }, { id: 'hill2', kind: 'hill', x: 0, y: 0, z: 30 }] };
+  startModeTest('hardpoint', modesTestMap(hillMap), [0, 1], { modeOptions: { params: { moveInterval: 2 } } });
+  runSeconds(2.1);
+  check('hardpoint: the move announcement shows no map id', announcements.some((event) => event.kind === 'objective') && !announcements.some((event) => /hill\d/.test(event.text)),
+    announcements.map((event) => event.text).join());
+  announcements.stop();
+  endModeTest();
+});
+
 Test.add('modes', (check) => {
   const conquestMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'A', kind: 'point', x: 0, y: 0, z: -20 }, { id: 'B', kind: 'point', x: 0, y: 0, z: 0 }, { id: 'C', kind: 'point', x: 0, y: 0, z: 20 }] };
   startModeTest('conquest', modesTestMap(conquestMap), [0, 1], { modeOptions: { params: { tickets: 10, captureTime: 1 } } });
