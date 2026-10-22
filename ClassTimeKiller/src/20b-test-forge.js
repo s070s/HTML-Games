@@ -535,6 +535,31 @@ Test.add('forge', (check) => {
     check('the right trigger flies up', ForgeTools.camera.y > y);
   });
 
+  // a dialog over the editor takes the input: the world must not react to the pad or the keys under it
+  Ui.open('forge');
+  Ui.open('forgeMenu');
+  forgeLookDown(30); ForgeTools.camera.x = -14; ForgeTools.camera.z = 12; ForgeTools.setTool('box');
+  const underDialog = Forge.count();
+  const dialogPad = forgeFakePad();
+  forgeWithPad(dialogPad, () => {
+    dialogPad.buttons[0] = { pressed: true, value: 1 };
+    ForgeTools.frame(0.016);
+    check('the pad does not place while a dialog is open', Forge.count() === underDialog);
+    Ui.pop();
+    ForgeTools.frame(0.016);
+    check('a button still held from under the dialog does not fire when it closes', Forge.count() === underDialog);
+    dialogPad.buttons[0] = { pressed: false, value: 0 };
+    ForgeTools.frame(0.016);
+    dialogPad.buttons[0] = { pressed: true, value: 1 };
+    ForgeTools.frame(0.016);
+    check('a new press after that places again', Forge.count() === underDialog + 1);
+  });
+  Ui.open('forgeMenu');
+  ForgeTools.onKeyDown(key('Enter'));
+  ForgeTools.onKeyDown(key('KeyW'));
+  check('keys do not edit or fly while a dialog is open', Forge.count() === underDialog + 1 && ForgeTools.held.forward !== true);
+  Ui.closeAll();
+
   // the editor screen, its dialogs, and the touch buttons
   ForgeTools.detach();
   check('the main menu offers the map editor', MAIN_MENU_ENTRIES.some((entry) => entry.screen === 'forge') && Ui.screens.has('forge'));
@@ -712,7 +737,7 @@ Test.add('forge', (check) => {
 });
 
 // A longer randomised sweep: many seeds of random edits with undo / redo, saves and codes. Returns { seeds, failures }.
-DebugApi.forge = { Forge, ForgeTools };
+DebugApi.forge = { Forge, ForgeTools, ForgeUi, Ui, Maps, Game, World, Render, MapRules };   // for scripted checks and screenshots (--eval)
 DebugApi.forgeSweep = (seeds) => {
   const failures = [];
   for (let seed = 1; seed <= (seeds || 100); seed++) {

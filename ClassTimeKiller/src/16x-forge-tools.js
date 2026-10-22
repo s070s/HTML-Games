@@ -34,7 +34,9 @@ const FORGE_TOOLS = [
   { id: 'light', label: 'Light', key: 'Digit9', list: 'lights' },
   { id: 'hint', label: 'Nav hint', key: 'Digit0', list: 'navHints' },
 ];
-const forgeToolById = (id) => FORGE_TOOLS.find((tool) => tool.id === id);
+const FORGE_TOOL_BY_ID = {};
+for (const tool of FORGE_TOOLS) FORGE_TOOL_BY_ID[tool.id] = tool;
+const forgeToolById = (id) => FORGE_TOOL_BY_ID[id];
 const forgeAllItemKeys = () => [].concat(...MapRules.itemGroups.map((group) => MapRules.itemKeys[group]));
 function forgeItemName(key) {
   const row = CAT.weapons.byId(key) || (CAT.powerups && CAT.powerups.byId(key)) || (CAT.items && CAT.items.byId(key));
@@ -80,6 +82,10 @@ function forgeMaterialRgb(material) {
   return triple;
 }
 const FORGE_NO_POINTS = [];
+// A move axis from two held keys or buttons and an analog value, -1..1.
+const forgeAxis = (positive, negative, analog) => clamp((positive ? 1 : 0) - (negative ? 1 : 0) + analog, -1, 1);
+const forgeStick = (value) => (Math.abs(value || 0) < FORGE_PAD_DEADZONE ? 0 : value);
+const forgeTrigger = (state, button) => (state.buttons[button] ? state.buttons[button].value : 0);
 const FORGE_CAPTURE_EVENTS = ['keydown', 'keyup'];
 const FORGE_RAMP_YAW = { '+z': 0, '+x': Math.PI / 2, '-z': Math.PI, '-x': -Math.PI / 2 };
 const FORGE_RAMP_DIRS = ['+z', '+x', '-z', '-x'];
@@ -96,10 +102,12 @@ const FORGE_PAD_COMMANDS = { 0: 'primary', 1: 'secondary', 2: 'rotate', 3: 'grab
 for (const tool of FORGE_TOOLS) FORGE_COMMAND_KEYS[tool.key] = 'tool:' + tool.id;
 
 // Face of a box a point on its surface lies on: writes the unit normal into out (3 numbers).
+const FORGE_FACE_POINT = new Float64Array(3);
 function forgeFaceNormal(box, px, py, pz, out) {
   let best = Infinity;
   out[0] = out[1] = out[2] = 0;
-  const point = [px, py, pz];
+  const point = FORGE_FACE_POINT;
+  point[0] = px; point[1] = py; point[2] = pz;
   for (let axis = 0; axis < 3; axis++) {
     const toMin = Math.abs(point[axis] - box[axis]), toMax = Math.abs(point[axis] - box[axis + 3]);
     if (toMin < best) { best = toMin; out[0] = out[1] = out[2] = 0; out[axis] = -1; }
@@ -187,21 +195,33 @@ const ForgeTools = {
     camera.pitch = -0.55;
   },
 
+  focusSelected() {
+    const object = Forge.selected();
+    if (!object) return false;
+    const box = Forge.bounds(Forge.selection.list, object, this.box);
+    this.focusOn((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
+    return true;
+  },
+
   // ---- Per frame (Loop 'input' phase) ----
   frame(seconds) {
     if (!this.active) return;
-    this.readPad(seconds);
+    this.readPad(seconds, this.inputLive());
     this.moveCamera(seconds);
     this.updateCursor();
   },
+  // The editing keys, mouse and pad act only while the editor itself is on top, not while a dialog (menu, list, confirm) is open over it.
+  inputLive() {
+    const top = Ui.current();
+    return top === '' || top === 'forge';
+  },
   moveCamera(seconds) {
     const camera = this.camera, held = this.held, pad = this.pad, move = this.move, size = Forge.map.size;
-    const axis = (positive, negative, analog) => clamp((held[positive] ? 1 : 0) - (held[negative] ? 1 : 0) + analog, -1, 1);
-    move.forward = axis('forward', 'back', pad.forward);
-    move.strafe = axis('right', 'left', pad.strafe);
-    move.rise = axis('up', 'down', pad.rise);
-    move.turn = axis('turnLeft', 'turnRight', 0);
-    move.lookUp = axis('lookUp', 'lookDown', 0);
+    move.forward = forgeAxis(held.forward, held.back, pad.forward);
+    move.strafe = forgeAxis(held.right, held.left, pad.strafe);
+    move.rise = forgeAxis(held.up, held.down, pad.rise);
+    move.turn = forgeAxis(held.turnLeft, held.turnRight, 0);
+    move.lookUp = forgeAxis(held.lookUp, held.lookDown, 0);
     camera.yaw += (move.turn * FORGE_TURN_SPEED + pad.turn * FORGE_PAD_LOOK) * seconds;
     camera.pitch = clamp(camera.pitch + (move.lookUp * FORGE_TURN_SPEED - pad.look * FORGE_PAD_LOOK) * seconds, -FORGE_PITCH_LIMIT, FORGE_PITCH_LIMIT);
     const speed = FORGE_FLY_SPEED * (held.fast ? FORGE_FAST_FACTOR : 1) * seconds;
@@ -217,7 +237,7 @@ const ForgeTools = {
   onModelChange(what) {
     this.hover.list = ''; this.hover.index = -1;      // the map changed under the pointer: the next frame picks again
     if (!this.active) return;
-    if (what === 'map') { this.homeCamera(); this.grab.active = false; }
+    if (what === 'map') { this.homeCamera(); this.grab.active = false; this.elevation = 0; }
     if (this.shellTheme !== Forge.map.theme || what === 'map') this.loadShell();
   },
   setHold(name, down) { this.held[name] = down; },
@@ -462,6 +482,7 @@ const ForgeTools = {
   },
   keyId(event) { return (event.ctrlKey || event.metaKey ? 'ctrl+' : '') + (event.shiftKey ? 'shift+' : '') + event.code; },
   onKeyDown(event) {
+    if (!this.inputLive()) return;
     if (event.target && event.target.tagName === 'INPUT' && event.target.type === 'text') return;
     if (event.target && event.target.tagName === 'TEXTAREA') return;
     Input.setDevice('kbm');
@@ -482,7 +503,7 @@ const ForgeTools = {
     this.pointer.ndcY = 1 - (event.clientY / window.innerHeight) * 2;
   },
   onPointerDown(event) {
-    if (!this.onCanvas(event)) return;
+    if (!this.onCanvas(event) || !this.inputLive()) return;
     const drag = this.drag;
     this.setPointer(event);
     drag.x = event.clientX; drag.y = event.clientY;
@@ -506,32 +527,32 @@ const ForgeTools = {
     if (event.button === 2) drag.look = false;
   },
   onWheel(event) {
-    if (!this.onCanvas(event)) return;
+    if (!this.onCanvas(event) || !this.inputLive()) return;
     event.preventDefault();
     this.command(event.shiftKey ? (event.deltaY < 0 ? 'levelUp' : 'levelDown') : 'rotate');
   },
   // Gamepad, read straight from the pad: sticks fly and look, the buttons are commands (FORGE_PAD_COMMANDS). The menu events are swallowed by the screen.
-  readPad(seconds) {
+  readPad(seconds, live) {
     const pad = this.pad;
     pad.forward = pad.strafe = pad.rise = pad.turn = pad.look = 0;
     if (!PadInput.connected) return;
     const state = PadInput.activePad();
     if (!state) return;
-    const stick = (value) => (Math.abs(value || 0) < FORGE_PAD_DEADZONE ? 0 : value);
-    const trigger = (button) => (state.buttons[button] ? state.buttons[button].value : 0);
-    pad.forward = -stick(state.axes[1]); pad.strafe = stick(state.axes[0]);
-    pad.turn = -stick(state.axes[2]); pad.look = stick(state.axes[3]);
-    pad.rise = trigger(7) - trigger(6);
+    if (!live) { this.padButtons(state, false); return; }
+    pad.forward = -forgeStick(state.axes[1]); pad.strafe = forgeStick(state.axes[0]);
+    pad.turn = -forgeStick(state.axes[2]); pad.look = forgeStick(state.axes[3]);
+    pad.rise = forgeTrigger(state, 7) - forgeTrigger(state, 6);
     if (pad.forward || pad.strafe || pad.turn || pad.look || pad.rise) { Input.setDevice('gamepad'); this.pointer.centre = true; }
-    this.padButtons(state);
+    this.padButtons(state, true);
   },
-  padButtons(state) {
+  // Edge-detects the buttons; a press that happens under a dialog is seen but not acted on (so it cannot fire when the dialog closes).
+  padButtons(state, live) {
     const previous = this.pad.previous;
     for (let button = 0; button < FORGE_PAD_BUTTONS; button++) {
       const down = state.buttons[button] ? (state.buttons[button].pressed ? 1 : 0) : 0;
       const pressed = down === 1 && previous[button] === 0;
       previous[button] = down;
-      if (pressed && FORGE_PAD_COMMANDS[button]) { Input.setDevice('gamepad'); this.pointer.centre = true; this.command(FORGE_PAD_COMMANDS[button]); }
+      if (live && pressed && FORGE_PAD_COMMANDS[button]) { Input.setDevice('gamepad'); this.pointer.centre = true; this.command(FORGE_PAD_COMMANDS[button]); }
     }
   },
 

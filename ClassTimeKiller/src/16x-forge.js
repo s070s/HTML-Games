@@ -580,6 +580,14 @@ const Forge = {
     }
     return this.store(entry, index);
   },
+  // Saves the map being edited into a new slot even when it was loaded from one.
+  saveAsNew() {
+    const slot = this.slotId;
+    this.slotId = '';
+    if (this.saveCurrent()) return true;
+    this.slotId = slot;
+    return false;
+  },
   entryFor(id, name) {
     const map = this.toMap();
     Object.assign(map, { id, name, code: 'U' + id.slice(FORGE_ID_PREFIX.length).padStart(2, '0') });

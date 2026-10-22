@@ -3,6 +3,8 @@
 // and the dialogs it opens: menu, new map, my maps, validation, codes, test-play, map settings, modes. Every screen is built from the Forge model
 // (16x-forge.js) and the tools (16x-forge-tools.js); all three devices reach the same commands. Contract: docs/api/forge.md.
 
+const FORGE_PANEL_MIN_WIDTH = 760;          // narrower or lower screens start with the side panels hidden
+const FORGE_PANEL_MIN_HEIGHT = 440;
 const FORGE_STATUS_SECONDS = 0.2;           // how often the cursor text is refreshed
 const FORGE_BUDGET_WARNING = 0.9;           // the budget counter turns amber past this share
 const FORGE_LIGHT_COLORS = [[0xffd9a0, 'Warm'], [0xffffff, 'White'], [0x9fc8ff, 'Cool'], [0xff9060, 'Red']];
@@ -14,7 +16,7 @@ const FORGE_HELP = {
 };
 // On-screen buttons for touch (INP: all three devices). hold: a camera move while pressed; command: one action per tap.
 const FORGE_TOUCH_MOVES = [['Fwd', 'forward'], ['Back', 'back'], ['Left', 'left'], ['Right', 'right'], ['Up', 'up'], ['Down', 'down'],
-  ['Turn L', 'turnLeft'], ['Turn R', 'turnRight'], ['Look up', 'lookUp'], ['Look down', 'lookDown']];
+  ['Turn L', 'turnLeft'], ['Turn R', 'turnRight'], ['Look up', 'lookUp'], ['Look dn', 'lookDown']];
 const FORGE_TOUCH_ACTIONS = [['Place', 'primary', 'primary'], ['Delete', 'secondary', 'danger'], ['Turn', 'rotate', ''], ['Grab', 'grab', ''], ['Undo', 'undo', ''], ['Redo', 'redo', '']];
 
 const FORGE_CSS = '.ui-forge { padding: 0; background: none; } .ui-forge > * { pointer-events: auto; }'
@@ -24,16 +26,18 @@ const FORGE_CSS = '.ui-forge { padding: 0; background: none; } .ui-forge > * { p
   + '.fg-budget { padding: 0.25em 0.6em; border-radius: 8px; background: var(--ui-bg); border: 1px solid var(--ui-line); font-variant-numeric: tabular-nums; } .fg-budget.warn { border-color: var(--ui-accent); } .fg-budget.full { border-color: var(--ui-bad); }'
   + '.fg-panel { position: absolute; top: calc(52px + var(--safe-top)); bottom: calc(46px + var(--safe-bottom)); width: min(210px, 34vw); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
   + ' background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 10px; touch-action: pan-y; }'
-  + '.fg-left { left: calc(8px + var(--safe-left)); } .fg-right { right: calc(8px + var(--safe-right)); width: min(250px, 38vw); }'
-  + '.fg-panel .ui-row { min-height: 34px; padding: 2px 6px; margin: 0; gap: 4px; flex-wrap: wrap; } .fg-panel .ui-label { min-width: 0; font-size: 0.85em; }'
+  + '.fg-panel > * { flex-shrink: 0; } .fg-left { left: calc(8px + var(--safe-left)); } .fg-right { right: calc(8px + var(--safe-right)); width: min(250px, 38vw); }'
+  + '.fg-panel .ui-row { flex-direction: column; align-items: stretch; min-height: 34px; padding: 4px 6px; margin: 0; gap: 2px; } .fg-panel .ui-label { min-width: 0; font-size: 0.85em; }'
   + '.fg-panel .ui-cycle { min-width: 6em; } .fg-panel .ui-group { margin: 6px 0 2px; font-size: 0.85em; } .fg-panel .ui-note { margin: 0; font-size: 0.8em; }'
-  + '.fg-step { display: flex; align-items: center; gap: 4px; } .fg-step .ui-button { min-width: 36px; padding: 0.25em 0.4em; } .fg-step .ui-value { min-width: 3.4em; text-align: center; }'
+  + '.fg-step { display: flex; align-items: center; gap: 4px; } .fg-step .ui-button { min-width: 36px; padding: 0.25em 0.4em; } .fg-step .ui-value { flex: 1; min-width: 3em; text-align: center; } .fg-panel .ui-cycle { width: 100%; }'
   + '.fg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; } .fg-name { background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 6px; font: inherit; min-width: 0; width: 100%; }'
   + '.fg-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px calc(10px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(10px + var(--safe-left)); pointer-events: none;'
   + ' background: linear-gradient(rgba(5, 8, 12, 0), rgba(5, 8, 12, 0.85)); font-size: 0.8em; color: var(--ui-dim); } .fg-status b { color: var(--ui-text); font-weight: 600; }'
   + '.fg-touch { position: absolute; left: 0; right: 0; bottom: calc(38px + var(--safe-bottom)); display: none; justify-content: space-between; align-items: flex-end; padding: 0 calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left)); pointer-events: none; }'
-  + '.fg-touch.show { display: flex; } .fg-touch > * { pointer-events: auto; } .fg-pad { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }'
-  + '.fg-touch .ui-button { min-height: 44px; min-width: 64px; opacity: 0.85; touch-action: none; }'
+  + '.fg-touch.show { display: flex; } .fg-touch > * { pointer-events: auto; } .fg-pad { display: grid; gap: 4px; }'
+  + '.fg-moves { grid-template-columns: repeat(5, minmax(52px, 1fr)); width: min(330px, 56vw); } .fg-acts { grid-template-columns: repeat(3, minmax(52px, 1fr)); width: min(200px, 34vw); }'
+  + '.fg-touch .ui-button { min-height: 42px; min-width: 0; padding: 0.2em; font-size: 0.78em; opacity: 0.88; touch-action: none; } .ui-forge.fg-nopanels .fg-panel { display: none; }'
+  + '@media (max-width: 600px) { .fg-touch { flex-direction: column; align-items: stretch; gap: 6px; } .fg-moves, .fg-acts { width: auto; } .fg-acts { grid-template-columns: repeat(6, 1fr); } }'
   + '.fg-problem { display: block; width: 100%; margin-bottom: 4px; } .fg-code { width: 100%; min-height: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; }'
   + '.fg-maprow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .fg-maprow .fg-name { flex: 1; min-width: 8em; } .fg-error { color: var(--ui-bad); }'
   + '@media (pointer: coarse) { .fg-top .ui-button, .fg-panel .ui-button { min-height: 44px; } } @media (max-width: 720px) { .fg-panel { width: min(170px, 36vw); } }';
@@ -78,7 +82,7 @@ function forgeSetTriggerKind(trigger, kind) {
 
 const ForgeUi = {
   root: null, top: null, left: null, right: null, status: null, touch: null, budget: null, cursorText: null,
-  touchShown: false, statusTimer: 0, lastCursorText: '',
+  touchShown: false, panelsShown: true, statusTimer: 0, shownX: NaN, shownY: NaN, shownZ: NaN, shownValid: false,
 
   // ---- small builders ----
   stepper(label, valueText, onMinus, onPlus) {
@@ -114,6 +118,7 @@ const ForgeUi = {
     this.touch = this.buildTouch();
     for (const part of [this.top, this.left, this.right, this.status, this.touch]) root.appendChild(part);
     this.touchShown = Input.device === 'touch' || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    this.panelsShown = window.innerWidth >= FORGE_PANEL_MIN_WIDTH && window.innerHeight >= FORGE_PANEL_MIN_HEIGHT;   // a phone starts with the view free
     this.refresh();
   },
   refresh() {
@@ -123,6 +128,7 @@ const ForgeUi = {
     this.buildProperties();
     this.buildStatus();
     this.touch.classList.toggle('show', this.touchShown);
+    this.root.classList.toggle('fg-nopanels', !this.panelsShown);
   },
   buildTop() {
     const top = this.top, tools = ForgeTools;
@@ -134,6 +140,7 @@ const ForgeUi = {
     top.appendChild(Ui.button('Snap ' + tools.snap() + ' m', () => tools.command('snap')));
     top.appendChild(Ui.button('Check', () => Ui.open('forgeCheck')));
     top.appendChild(Ui.button('Test play', () => Ui.open('forgePlay')));
+    top.appendChild(Ui.button(this.panelsShown ? 'Hide panels' : 'Panels', () => { this.panelsShown = !this.panelsShown; this.refresh(); }));
     top.appendChild(Ui.button(this.touchShown ? 'Hide buttons' : 'Touch buttons', () => { this.touchShown = !this.touchShown; this.refresh(); }));
     const share = Forge.count() / FORGE_BUDGET;
     this.budget = makeElement('span', 'fg-budget' + (share >= 1 ? ' full' : share >= FORGE_BUDGET_WARNING ? ' warn' : ''), 'Objects ' + Forge.count() + ' / ' + FORGE_BUDGET);
@@ -214,8 +221,9 @@ const ForgeUi = {
     grid.appendChild(Ui.button('Grab', () => ForgeTools.command('grab')));
     grid.appendChild(Ui.button('Turn', () => Forge.turnSelected()));
     grid.appendChild(Ui.button('Copy', () => ForgeTools.command('duplicate')));
-    grid.appendChild(Ui.button('Delete', () => Forge.deleteSelected(), 'danger'));
+    grid.appendChild(Ui.button('Look at', () => ForgeTools.focusSelected()));
     panel.appendChild(grid);
+    panel.appendChild(Ui.button('Delete', () => Forge.deleteSelected(), 'danger'));
     if (object.kind === 'payloadPath') {
       panel.appendChild(Ui.button('Add path point at cursor', () => ForgeTools.addPathPoint()));
       panel.appendChild(makeElement('p', 'ui-note', 'Path points: ' + object.path.length + ' (the payload needs 4 or more).'));
@@ -226,7 +234,7 @@ const ForgeUi = {
     this.cursorText = makeElement('b', '', '');
     this.status.appendChild(this.cursorText);
     this.status.appendChild(document.createTextNode('  ' + FORGE_HELP[Input.device] + (Forge.message ? '  ' + Forge.message : '')));
-    this.lastCursorText = '';
+    this.shownX = NaN;
   },
   // Cursor position, refreshed a few times a second while the screen is open.
   updateStatus(seconds) {
@@ -234,13 +242,12 @@ const ForgeUi = {
     if (this.statusTimer > 0 || !this.cursorText || !this.cursorText.isConnected) return;
     this.statusTimer = FORGE_STATUS_SECONDS;
     const cursor = ForgeTools.cursor;
-    const text = cursor.valid ? 'x ' + this.fixed(cursor.x) + '  y ' + this.fixed(cursor.y) + '  z ' + this.fixed(cursor.z) : 'no surface';
-    if (text === this.lastCursorText) return;
-    this.lastCursorText = text;
-    this.cursorText.textContent = text;
+    if (cursor.valid === this.shownValid && cursor.x === this.shownX && cursor.y === this.shownY && cursor.z === this.shownZ) return;
+    this.shownValid = cursor.valid; this.shownX = cursor.x; this.shownY = cursor.y; this.shownZ = cursor.z;
+    this.cursorText.textContent = cursor.valid ? 'x ' + this.fixed(cursor.x) + '  y ' + this.fixed(cursor.y) + '  z ' + this.fixed(cursor.z) : 'no surface';
   },
   buildTouch() {
-    const wrap = makeElement('div', 'fg-touch'), moves = makeElement('div', 'fg-pad'), actions = makeElement('div', 'fg-pad');
+    const wrap = makeElement('div', 'fg-touch'), moves = makeElement('div', 'fg-pad fg-moves'), actions = makeElement('div', 'fg-pad fg-acts');
     for (const [label, hold] of FORGE_TOUCH_MOVES) moves.appendChild(this.holdButton(label, hold));
     for (const [label, command, style] of FORGE_TOUCH_ACTIONS) actions.appendChild(Ui.button(label, () => ForgeTools.command(command), style));
     wrap.appendChild(moves); wrap.appendChild(actions);
@@ -314,6 +321,7 @@ Ui.register('forgeMenu', {
     add('Test play', () => Ui.open('forgePlay'));
     add('Check the map', () => Ui.open('forgeCheck'));
     add('Save', () => { if (Forge.saveCurrent()) Ui.toast('Saved'); });
+    add('Save as a new map', () => { if (Forge.saveAsNew()) Ui.toast('Saved as a new map'); });
     add('My maps (' + Forge.saved().length + ' / ' + FORGE_MAX_MAPS + ')', () => Ui.open('forgeMaps'));
     add('New map', () => Ui.open('forgeNew'));
     add('Map settings', () => Ui.open('forgeSettings'));
