@@ -119,7 +119,9 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
   objectives: [{ id, kind: 'flag'|'flagBase'|'point'|'hill'|'bombsite'|'payloadPath'|'relic'|'core'|'bank'|'extract', team, x, y, z, radius, path: [[x,y,z], ...] }],
   zones: [{ name, min, max }]  (callouts, MAP-012),
   triggers: [{ kind: 'jumppad'|'teleporter'|'ladder'|'water'|'hazard'|'killzone', min, max, ... }] (fields: docs/api/world-move.md),
-  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }], seed (generated maps only) }
+  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }], seed (generated maps only),
+  gen: { generator, size, theme, density, mode, requestedSeed, siteSeconds? } (generated maps only, docs/api/mapgen.md),
+  ring: { x, z, radius } (optional: royale ring centre and start radius; without it the ring starts from the world bounds) }
 ```
 Coordinates in metres, floor usually at y = 0, yaw in degrees in data (radians in code).
 

@@ -136,7 +136,7 @@ const MapCheck = {
     let best = new Uint8Array(scan.nodeCount), bestSize = -1;
     for (let i = 0; i < spawns.length; i += step) {
       const node = MapScan.nodeNear(scan, spawns[i].x, spawns[i].y, spawns[i].z, 0.5);
-      if (node < 0) continue;
+      if (node < 0 || best[node]) continue;                     // already in the best loop: its loop is that same loop
       const loop = MapScan.loopOf(scan, node), size = loop.reduce((sum, v) => sum + v, 0);
       if (size > bestSize) { best = loop; bestSize = size; }
     }

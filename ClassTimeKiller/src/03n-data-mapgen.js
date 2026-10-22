@@ -66,19 +66,30 @@ Data.define('mapDensities', { id: REQUIRED, name: REQUIRED, moduleShare: 0.7, sc
   { id: 'dense', name: 'Dense', moduleShare: 0.95, scatter: 2 },
 ]);
 
+// Item sets the placement draws from (16w-mapgen-place.js). Group lists name MapRules.itemGroups (one plain pickup each, mirrored
+// on mirrored maps); 'power' lists the power-up keys the generator puts on the centre line (the ones that fit any arena: no
+// mode-specific or long-lasting powers).
+Data.define('mapItemSets', { id: REQUIRED, list: REQUIRED }, [
+  { id: 'power', list: ['fury', 'warding', 'quickening', 'surplus', 'renewal', 'skyward'] },
+  { id: 'pickups', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'health', 'ammo', 'ammo'] },   // modes that use pickups
+  { id: 'supply', list: ['health', 'health', 'ammo', 'armor'] },                                                              // other modes
+  { id: 'loot', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'ammo'] },   // per royale loot site (6 sites: the 48 spots of MP09)
+]);
+
 // GN1..GN5 (MAP-021). kit = the layout function in 16w-mapgen-kits.js. cells = [cols, rows] per size (small, medium, large);
 // cell = cell size in metres. modes = every mode the generator can place; defaultModes = the modes of a map made without a mode.
-// fallback = the authored map used when five seeds in a row fail validation (MAP-023).
+// fallback = the authored map used when five seeds in a row fail validation (MAP-023). siteWalk = the spawn-to-site run window in
+// seconds the bomb sites aim for (GN2: 20-25 s at the tactical run speed; the site column nearest the window is used).
 Data.define('generators', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kit: REQUIRED, category: 'arena', cell: 12, cells: REQUIRED, height: 24, modes: REQUIRED,
-  defaultModes: REQUIRED, fallback: REQUIRED, blurb: '',
+  defaultModes: REQUIRED, fallback: REQUIRED, blurb: '', siteWalk: null,
 }, [
   { id: 'tilechain', code: 'GN1', name: 'Tile Chain', kit: 'chain', category: 'pve', cell: 12, cells: [[5, 5], [6, 6], [7, 7]],
     modes: ['horde', 'endless', 'fiends', 'contract'], defaultModes: ['horde', 'endless', 'fiends', 'contract'], fallback: 'cistern',
     blurb: 'Themed rooms chained door to door: start, connectors, the objective room, the exit and a few dead ends.' },
-  { id: 'lanes', code: 'GN2', name: 'Lanes and Sites', kit: 'lanes', category: 'large', cell: 14, cells: [[6, 3], [8, 3], [10, 3]],
+  { id: 'lanes', code: 'GN2', name: 'Lanes and Sites', kit: 'lanes', category: 'large', cell: 14, cells: [[6, 3], [10, 3], [12, 3]],
     modes: ['bomb', 'ghostops', 'elim', 'tdm', 'rush', 'payload', 'conquest', 'dom', 'hardpoint', 'attrition', 'control'],
-    defaultModes: ['bomb', 'elim', 'tdm'], fallback: 'dustline', blurb: 'Three lanes between two bases, two sites near the defenders and a contested middle.' },
+    defaultModes: ['bomb', 'elim', 'tdm'], fallback: 'dustline', siteWalk: [20, 25], blurb: 'Three lanes between two bases, two sites near the defenders and a contested middle.' },
   { id: 'mirror', code: 'GN3', name: 'Mirror Arena', kit: 'mirror', category: 'arena', cell: 12, cells: [[4, 4], [4, 5], [6, 5]],
     modes: ['ffa', 'duel', 'tdm', 'ctf', 'oneflag', 'dom', 'oddball', 'hardpoint', 'lms', 'gungame', 'juggernaut', 'infection', 'cursetag', 'roulette', 'bearer', 'bank'],
     defaultModes: ['ffa', 'duel', 'tdm'], fallback: 'spire', blurb: 'One half generated, then mirrored: the same rooms, items and spawns on both sides.' },

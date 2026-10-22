@@ -72,7 +72,9 @@ const Maps = {
     const known = (map) => map.id === idOrCode || map.code === idOrCode;
     return CAT.maps.byId(idOrCode) || CAT.maps.find(known) || this.runtime.find(known) || null;
   },
-  forMode(modeId) { return CAT.maps ? CAT.maps.concat(this.runtime).filter((map) => map.modes.includes(modeId)) : []; },
+  forMode(modeId) { return this.catalogueForMode(modeId).concat(this.runtime.filter((map) => map.modes.includes(modeId))); },
+  // The hand-made maps only (pickers and saved setups list these: a generated map is gone after a reload).
+  catalogueForMode(modeId) { return CAT.maps ? CAT.maps.filter((map) => map.modes.includes(modeId)) : []; },
   // A generated map joins the lookups (Maps.get / forMode, Game.start({ map: id })); the oldest drops out past the limit.
   addRuntime(map) {
     this.runtime = this.runtime.filter((row) => row.id !== map.id);

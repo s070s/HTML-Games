@@ -13,9 +13,11 @@ const MAPGEN_INNER_BORDER = 2.8;        // prop centres stay this far inside the
 const MAPGEN_SCREEN = 5;                // a screen border: one wall piece this long in the middle, open on both sides
 const MAPGEN_RAMP_RISE = 0.7;           // ramp rise per metre of run (35 degrees, the validator allows 40)
 const MAPGEN_FLOOR = -1;                // floor slabs run from here to y = 0
-const MAPGEN_LIGHT_LIFT = 1;
-const MAPGEN_BRUSH_HEADROOM = 40;       // brushes left free under the budget for repair pillars            // lights hang this far above the walls
-const MAPGEN_TOWER = { half: 3, heights: [4, 5.5], ladder: 1.6, pad: 4, padSize: 1, peak: 3, deck: 2.4, deckThick: 0.3, share: 0.5 };
+const MAPGEN_LIGHT_LIFT = 1;            // lights hang this far above the walls
+const MAPGEN_BRUSH_HEADROOM = 40;       // brushes left free under the budget for repair pillars
+const MAPGEN_TOWER = { half: 3, heights: [4, 5.5], ladder: 1.6, pad: 4, padSize: 1, peak: 3, deck: 2.4, deckThick: 0.3, share: 0.5, screenOdds: 0.4 };
+const MAPGEN_DEAD_ENDS = 3, MAPGEN_DEAD_END_TRIES = 12;   // GN1: at most this many dead-end branches, found in this many tries
+const MAPGEN_DEAD_END_ROOMS = [1, 2];   // rooms per dead-end branch
 const MAPGEN_ISLAND = { hedgeCover: 0.7, hedgeShift: 0.15, hedgeHeight: 4, pois: 6, poiCell: 16, poiShift: 3, scatterBase: 1,
   scatterClear: 4, treeSize: 1, treeHeight: 7, rockSize: 2, rockHeight: 1.8 };
 const MAPGEN_RESERVED = 5;             // tower side kept free for a neighbour's ramp or pad
@@ -42,6 +44,10 @@ const mapgenCentreX = (grid, c) => grid.x0 + (c + 0.5) * grid.cell;
 const mapgenCentreZ = (grid, r) => grid.z0 + (r + 0.5) * grid.cell;
 // A side of a cell in world terms: east cells of a mirrored grid swap east and west.
 const mapgenWorldSide = (cell, side) => (cell.east && side % 2 === 0 ? (side + 2) % 4 : side);
+// Calls visit(c, r) for columns c0..c1 - 1 of rows r0..r1 - 1, row by row (cells or border lines: the caller picks the ranges).
+function mapgenEach(c0, c1, r0, r1, visit) {
+  for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) visit(c, r);
+}
 const mapgenRect = (grid, c, r, inset) => ({ x0: grid.x0 + c * grid.cell + inset, z0: grid.z0 + r * grid.cell + inset, x1: grid.x0 + (c + 1) * grid.cell - inset, z1: grid.z0 + (r + 1) * grid.cell - inset });
 
 function mapgenPickWeighted(random, odds) {
@@ -55,32 +61,29 @@ function mapgenEmptyPlan(size) {
 }
 // Every perimeter border is a wall; borders between used and unused cells too.
 function mapgenCloseGrid(grid) {
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c <= grid.cols; c++) {
-    const west = c > 0 && mapgenCell(grid, c - 1, r).used, east = c < grid.cols && mapgenCell(grid, c, r).used;
-    if (west !== east) grid.vertical[mapgenVertical(grid, c, r)] = 'wall';
-    else if (!west) grid.vertical[mapgenVertical(grid, c, r)] = 'none';
-  }
-  for (let r = 0; r <= grid.rows; r++) for (let c = 0; c < grid.cols; c++) {
-    const south = r > 0 && mapgenCell(grid, c, r - 1).used, north = r < grid.rows && mapgenCell(grid, c, r).used;
-    if (south !== north) grid.horizontal[mapgenHorizontal(grid, c, r)] = 'wall';
-    else if (!south) grid.horizontal[mapgenHorizontal(grid, c, r)] = 'none';
-  }
+  const used = (c, r) => c >= 0 && r >= 0 && c < grid.cols && r < grid.rows && mapgenCell(grid, c, r).used;
+  mapgenEach(0, grid.cols + 1, 0, grid.rows, (c, r) => mapgenCloseBorder(grid.vertical, mapgenVertical(grid, c, r), used(c - 1, r), used(c, r)));
+  mapgenEach(0, grid.cols, 0, grid.rows + 1, (c, r) => mapgenCloseBorder(grid.horizontal, mapgenHorizontal(grid, c, r), used(c, r - 1), used(c, r)));
+}
+// A border between a used and an unused cell is a wall; one between two unused cells is nothing.
+function mapgenCloseBorder(borders, index, before, after) {
+  if (before !== after) borders[index] = 'wall';
+  else if (!before) borders[index] = 'none';
 }
 // Mirrored maps (GN2..GN4): the east half copies the west half's choices across x = 0 (cells, borders and door shifts).
 function mapgenMirrorGrid(grid) {
   const half = grid.cols / 2;
-  for (let r = 0; r < grid.rows; r++) for (let c = half; c < grid.cols; c++) {
-    const source = mapgenCell(grid, grid.cols - 1 - c, r), target = mapgenCell(grid, c, r);
-    Object.assign(target, { used: source.used, module: source.module, name: source.name, turn: source.turn, east: true, height: source.height, sides: source.sides.slice() });
-  }
-  for (let r = 0; r < grid.rows; r++) for (let c = half + 1; c <= grid.cols; c++) {
-    const from = mapgenVertical(grid, grid.cols - c, r), to = mapgenVertical(grid, c, r);
-    grid.vertical[to] = grid.vertical[from]; grid.verticalShift[to] = grid.verticalShift[from];
-  }
-  for (let r = 0; r <= grid.rows; r++) for (let c = half; c < grid.cols; c++) {
-    const from = mapgenHorizontal(grid, grid.cols - 1 - c, r), to = mapgenHorizontal(grid, c, r);
-    grid.horizontal[to] = grid.horizontal[from]; grid.horizontalShift[to] = -grid.horizontalShift[from];
-  }
+  mapgenEach(half, grid.cols, 0, grid.rows, (c, r) => mapgenMirrorCell(mapgenCell(grid, grid.cols - 1 - c, r), mapgenCell(grid, c, r)));
+  mapgenEach(half + 1, grid.cols + 1, 0, grid.rows, (c, r) => mapgenCopyBorder(grid.vertical, grid.verticalShift, mapgenVertical(grid, grid.cols - c, r), mapgenVertical(grid, c, r), 1));
+  mapgenEach(half, grid.cols, 0, grid.rows + 1, (c, r) => mapgenCopyBorder(grid.horizontal, grid.horizontalShift, mapgenHorizontal(grid, grid.cols - 1 - c, r), mapgenHorizontal(grid, c, r), -1));
+}
+function mapgenMirrorCell(source, target) {
+  Object.assign(target, { used: source.used, module: source.module, name: source.name, turn: source.turn, east: true, height: source.height, sides: source.sides.slice() });
+}
+// A border copied onto its mirror line; sign -1 flips the door shift (a horizontal border runs along x, so its shift mirrors too).
+function mapgenCopyBorder(borders, shifts, from, to, sign) {
+  borders[to] = borders[from];
+  shifts[to] = sign * shifts[from];
 }
 // Seeded door shifts: a door sits in the middle half of its border so neighbouring doors stay apart (three-lane rule).
 function mapgenShiftDoors(ctx, grid) {
@@ -90,8 +93,8 @@ function mapgenShiftDoors(ctx, grid) {
 }
 function mapgenRandomBorders(ctx, grid, westOnly) {
   const limit = westOnly ? grid.cols / 2 : grid.cols;
-  for (let r = 0; r < grid.rows; r++) for (let c = 1; c < limit; c++) grid.vertical[mapgenVertical(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS);
-  for (let r = 1; r < grid.rows; r++) for (let c = 0; c < limit; c++) grid.horizontal[mapgenHorizontal(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS);
+  mapgenEach(1, limit, 0, grid.rows, (c, r) => { grid.vertical[mapgenVertical(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS); });
+  mapgenEach(0, limit, 1, grid.rows, (c, r) => { grid.horizontal[mapgenHorizontal(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS); });
   mapgenWidenCorners(grid);
 }
 
@@ -107,14 +110,14 @@ function mapgenWidenBorder(borders, index) {
 }
 // Modules for the cells of one half (or all), share of cells per density; names unique per map (a number is added on repeats).
 function mapgenFillModules(ctx, grid, westOnly) {
-  const limit = westOnly ? grid.cols / 2 : grid.cols;
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < limit; c++) {
-    const cell = mapgenCell(grid, c, r), row = ctx.random.pick(ctx.tileset.modules);
-    cell.turn = ctx.random.int(0, 3);
-    if (cell.used && !cell.module && ctx.random.chance(ctx.density.moduleShare)) cell.module = CAT.mapModules.byId(row[1]);
-    if (!cell.name) cell.name = row[0];
-  }
+  mapgenEach(0, westOnly ? grid.cols / 2 : grid.cols, 0, grid.rows, (c, r) => mapgenFillCell(ctx, mapgenCell(grid, c, r)));
   mapgenFillNames(grid);
+}
+function mapgenFillCell(ctx, cell) {
+  const row = ctx.random.pick(ctx.tileset.modules);
+  cell.turn = ctx.random.int(0, 3);
+  if (cell.used && !cell.module && ctx.random.chance(ctx.density.moduleShare)) cell.module = CAT.mapModules.byId(row[1]);
+  if (!cell.name) cell.name = row[0];
 }
 // Zone names stay unique: a repeated name gets a number (the mirror adds West / East itself).
 function mapgenFillNames(grid) {
@@ -130,29 +133,31 @@ function mapgenFillNames(grid) {
 function mapgenEmitGrid(ctx, grid, plan, wallHeight) {
   mapgenEmitFloors(ctx, grid, plan);
   mapgenEmitBorders(ctx, grid, plan, wallHeight);
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) mapgenEmitCell(ctx, grid, plan, c, r, wallHeight);
+  mapgenEach(0, grid.cols, 0, grid.rows, (c, r) => mapgenEmitCell(ctx, grid, plan, c, r, wallHeight));
 }
 function mapgenEmitFloors(ctx, grid, plan) {
-  for (let r = 0; r < grid.rows; r++) {
-    let start = -1;
-    for (let c = 0; c <= grid.cols; c++) {
-      const used = c < grid.cols && mapgenCell(grid, c, r).used;
-      if (used && start < 0) start = c;
-      if (used || start < 0) continue;
-      plan.def.brushes.push([grid.floor, grid.x0 + start * grid.cell, MAPGEN_FLOOR, grid.z0 + r * grid.cell, grid.x0 + c * grid.cell, 0, grid.z0 + (r + 1) * grid.cell]);
-      start = -1;
-    }
+  for (let r = 0; r < grid.rows; r++) mapgenEmitFloorRow(grid, plan, r);
+}
+// One floor slab per run of used cells in a row.
+function mapgenEmitFloorRow(grid, plan, r) {
+  let start = -1;
+  for (let c = 0; c <= grid.cols; c++) {
+    const used = c < grid.cols && mapgenCell(grid, c, r).used;
+    if (used && start < 0) start = c;
+    if (used || start < 0) continue;
+    plan.def.brushes.push([grid.floor, grid.x0 + start * grid.cell, MAPGEN_FLOOR, grid.z0 + r * grid.cell, grid.x0 + c * grid.cell, 0, grid.z0 + (r + 1) * grid.cell]);
+    start = -1;
   }
 }
 function mapgenEmitBorders(ctx, grid, plan, wallHeight) {
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c <= grid.cols; c++) {
+  mapgenEach(0, grid.cols + 1, 0, grid.rows, (c, r) => {
     const index = mapgenVertical(grid, c, r);
     mapgenBorder(ctx, plan, 'z', grid.x0 + c * grid.cell, grid.z0 + r * grid.cell, grid.cell, grid.vertical[index], grid.verticalShift[index], wallHeight);
-  }
-  for (let r = 0; r <= grid.rows; r++) for (let c = 0; c < grid.cols; c++) {
+  });
+  mapgenEach(0, grid.cols, 0, grid.rows + 1, (c, r) => {
     const index = mapgenHorizontal(grid, c, r);
     mapgenBorder(ctx, plan, 'x', grid.z0 + r * grid.cell, grid.x0 + c * grid.cell, grid.cell, grid.horizontal[index], grid.horizontalShift[index], wallHeight);
-  }
+  });
 }
 // One border: axis = the direction the wall runs, fixed = its line, from = its start, kind = wall | door | doors | wide | screen | none.
 function mapgenBorder(ctx, plan, axis, fixed, from, length, kind, shift, wallHeight) {
@@ -180,7 +185,12 @@ function mapgenEmitCell(ctx, grid, plan, c, r, wallHeight) {
   plan.def.zones.push([cell.name + (cell.east ? ' East' : grid.mirrored ? ' West' : ''), rect.x0, rect.z0, rect.x1, rect.z1]);
   if (grid.lights && plan.def.lights.length < MapRules.limits.lights) plan.def.lights.push([x, wallHeight + MAPGEN_LIGHT_LIFT, z, ctx.tileset.light, grid.cell]);
   plan.itemSpots.push({ x, z });
-  if (cell.module) for (const prop of cell.module.props) mapgenProp(ctx, plan, prop, cell, x, z, (grid.cell / 2 - MAPGEN_INNER_BORDER), wallHeight);
+  mapgenCellProps(ctx, grid, plan, cell, x, z, wallHeight);
+}
+// The props of a cell's module (none without a module), centred on (x, z).
+function mapgenCellProps(ctx, grid, plan, cell, x, z, wallHeight) {
+  if (!cell.module) return;
+  for (const prop of cell.module.props) mapgenProp(ctx, plan, prop, cell, x, z, grid.cell / 2 - MAPGEN_INNER_BORDER, wallHeight);
 }
 // A module prop, turned by the cell's quarter turns and mirrored in east cells.
 function mapgenProp(ctx, plan, prop, cell, x, z, inner, wallHeight) {
@@ -268,7 +278,10 @@ const MapGenKits = {
   },
   laneObjectives(grid, plan) {
     const north = mapgenCentreZ(grid, 2), south = mapgenCentreZ(grid, 0), column = (share) => mapgenCentreX(grid, Math.min(grid.cols - 2, Math.round(grid.cols * share)));
-    plan.sites = [{ x: mapgenCentreX(grid, grid.cols - 2), z: north }, { x: mapgenCentreX(grid, grid.cols - 2), z: south }];
+    const sitePair = (c) => [{ x: mapgenCentreX(grid, c), z: north }, { x: mapgenCentreX(grid, c), z: south }];
+    plan.sites = sitePair(grid.cols - 2);
+    // Site columns in the defenders' half short of their base: placement picks the one nearest the spawn-to-site walk window.
+    plan.siteOptions = Array.from({ length: grid.cols / 2 - 1 }, (unused, index) => sitePair(grid.cols / 2 + index));
     plan.stages = [0.34, 0.5, 0.67].map((share) => [{ x: column(share), z: north }, { x: column(share), z: south }]);
     plan.path = [];
     for (let c = 0; c < grid.cols; c++) {
@@ -285,18 +298,19 @@ const MapGenKits = {
     grid.mirrored = true;
     mapgenShiftDoors(ctx, grid);
     grid.vertical.fill('none'); grid.horizontal.fill('none');
-    for (let r = 0; r < grid.rows; r++) for (let c = 1; c < half; c++) if (ctx.random.chance(0.4)) grid.vertical[mapgenVertical(grid, c, r)] = 'screen';
-    for (let r = 1; r < grid.rows; r++) for (let c = 0; c < half; c++) if (ctx.random.chance(0.4)) grid.horizontal[mapgenHorizontal(grid, c, r)] = 'screen';
+    const screen = (borders, index) => { if (ctx.random.chance(MAPGEN_TOWER.screenOdds)) borders[index] = 'screen'; };
+    mapgenEach(1, half, 0, grid.rows, (c, r) => screen(grid.vertical, mapgenVertical(grid, c, r)));
+    mapgenEach(0, half, 1, grid.rows, (c, r) => screen(grid.horizontal, mapgenHorizontal(grid, c, r)));
     for (let r = 0; r < grid.rows; r++) grid.vertical[mapgenVertical(grid, 1, r)] = 'doors';
     mapgenFillModules(ctx, grid, true);
-    for (let r = 0; r < grid.rows; r++) for (let c = 1; c < half; c++) this.chooseTower(ctx, mapgenCell(grid, c, r));
-    for (let r = 0; r < grid.rows; r++) for (let c = 1; c < half; c++) this.bridges(grid, c, r);
-    for (let r = 0; r < grid.rows; r++) for (let c = 1; c < half; c++) this.towerAccess(ctx, grid, c, r);
+    mapgenEach(1, half, 0, grid.rows, (c, r) => this.chooseTower(ctx, mapgenCell(grid, c, r)));
+    mapgenEach(1, half, 0, grid.rows, (c, r) => this.bridges(grid, c, r));
+    mapgenEach(1, half, 0, grid.rows, (c, r) => this.towerAccess(ctx, grid, c, r));
     mapgenMirrorGrid(grid);
     mapgenOpenCentre(grid);
     mapgenCloseGrid(grid);
     mapgenEmitGrid(ctx, grid, plan, wallHeight);
-    for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) this.emitTower(ctx, grid, plan, c, r);
+    mapgenEach(0, grid.cols, 0, grid.rows, (c, r) => this.emitTower(ctx, grid, plan, c, r));
     mapgenMirrorAnchors(grid, plan, mapgenRowsExcept(grid, Math.floor(grid.rows / 2)));
     return plan;
   },
@@ -404,8 +418,7 @@ const MapGenKits = {
   walk(ctx, grid, start, want) {
     const path = [start], seen = new Set([start.join()]);
     while (path.length < want) {
-      const [c, r] = path[path.length - 1];
-      const options = MAPGEN_SIDES.map(([dx, dz]) => [c + dx, r + dz]).filter(([nc, nr]) => nc >= 0 && nr >= 0 && nc < grid.cols && nr < grid.rows && !seen.has(nc + ',' + nr));
+      const options = this.freeNeighbours(grid, path[path.length - 1], seen);
       if (!options.length) break;
       options.sort((a, b) => b[0] - a[0]);                           // lean east so the chain crosses the map
       const next = ctx.random.chance(0.55) ? options[0] : ctx.random.pick(options);
@@ -414,24 +427,35 @@ const MapGenKits = {
     }
     return path;
   },
-  // 2-3 dead-end branches (1-2 rooms) off connector rooms; each step remembers the room it branches from.
+  // The grid cells beside [c, r] that are not in `seen` (keys 'c,r').
+  freeNeighbours(grid, [c, r], seen) {
+    return MAPGEN_SIDES.map(([dx, dz]) => [c + dx, r + dz]).filter(([nc, nr]) => nc >= 0 && nr >= 0 && nc < grid.cols && nr < grid.rows && !seen.has(nc + ',' + nr));
+  },
+  // Up to three dead-end branches of one or two rooms off connector rooms (never off the start or the exit room).
   deadEnds(ctx, grid, path) {
+    if (path.length < 3) return [];                    // no connector room to branch from
     const used = new Set(path.map((p) => p.join())), branches = [];
-    for (let attempt = 0; attempt < 12 && branches.length < 3; attempt++) {
-      const from = path[ctx.random.int(1, path.length - 2)], branch = [];
-      let at = from;
-      for (let step = 0; step < ctx.random.int(1, 2); step++) {
-        const options = MAPGEN_SIDES.map(([dx, dz]) => [at[0] + dx, at[1] + dz]).filter(([c, r]) => c >= 0 && r >= 0 && c < grid.cols && r < grid.rows && !used.has(c + ',' + r));
-        if (!options.length) break;
-        const next = ctx.random.pick(options);
-        next.from = at;
-        branch.push(next);
-        used.add(next.join());
-        at = next;
-      }
+    for (let attempt = 0; attempt < MAPGEN_DEAD_END_TRIES && branches.length < MAPGEN_DEAD_ENDS; attempt++) {
+      const from = path[ctx.random.int(1, path.length - 2)], rooms = ctx.random.int(MAPGEN_DEAD_END_ROOMS[0], MAPGEN_DEAD_END_ROOMS[1]);
+      const branch = this.deadEnd(ctx, grid, from, rooms, used);
       if (branch.length) branches.push(branch);
     }
     return branches;
+  },
+  // One branch of up to `rooms` new rooms from `from`; each step remembers the room it comes from.
+  deadEnd(ctx, grid, from, rooms, used) {
+    const branch = [];
+    let at = from;
+    for (let step = 0; step < rooms; step++) {
+      const options = this.freeNeighbours(grid, at, used);
+      if (!options.length) break;
+      const next = ctx.random.pick(options);
+      next.from = at;
+      branch.push(next);
+      used.add(next.join());
+      at = next;
+    }
+    return branch;
   },
   joinCells(ctx, grid, a, b) {
     const kind = ctx.random.chance(0.3) ? 'doors' : 'door';
@@ -461,8 +485,8 @@ const MapGenKits = {
     const grid = mapgenGrid(ctx), plan = mapgenEmptyPlan([ctx.cols * ctx.cell, ctx.generator.height, ctx.rows * ctx.cell]), i = MAPGEN_ISLAND;
     Object.assign(grid, { floor: ctx.tileset.ground, lights: false });
     grid.vertical.fill('hedge'); grid.horizontal.fill('hedge');
-    for (let r = 0; r < grid.rows; r++) for (let c = 0; c <= grid.cols; c++) grid.verticalShift[mapgenVertical(grid, c, r)] = this.hedgeShift(ctx, grid, c);
-    for (let r = 0; r <= grid.rows; r++) for (let c = 0; c < grid.cols; c++) grid.horizontalShift[mapgenHorizontal(grid, c, r)] = this.hedgeShift(ctx, grid, r);
+    mapgenEach(0, grid.cols + 1, 0, grid.rows, (c, r) => { grid.verticalShift[mapgenVertical(grid, c, r)] = this.hedgeShift(ctx, grid, c); });
+    mapgenEach(0, grid.cols, 0, grid.rows + 1, (c, r) => { grid.horizontalShift[mapgenHorizontal(grid, c, r)] = this.hedgeShift(ctx, grid, r); });
     this.openCorners(grid);
     mapgenCloseGrid(grid);
     const pois = this.choosePois(ctx, grid);
@@ -516,17 +540,14 @@ const MapGenKits = {
     const i = MAPGEN_ISLAND, placed = [];
     for (let tries = 0; tries < count * 4 && placed.length < count; tries++) {
       const x = ctx.random.range(rect.x0, rect.x1), z = ctx.random.range(rect.z0, rect.z1);
-      if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < i.scatterClear)) continue;
+      if (placed.some((p) => mapgenFlat(p.x, p.z, x, z) < i.scatterClear)) continue;
       placed.push({ x, z });
       const tree = ctx.random.chance(0.6), half = (tree ? i.treeSize : i.rockSize) / 2;
       plan.def.brushes.push([tree ? ctx.tileset.pillar : ctx.tileset.cover, x - half, 0, z - half, x + half, tree ? i.treeHeight : i.rockHeight, z + half]);
     }
   },
 };
-// The props of every used cell of a grid without its floors, zones or lights (compounds stand on the island ground).
+// The props of every cell of a grid without its floors, zones or lights (compounds stand on the island ground).
 function mapgenProps(ctx, grid, plan) {
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) {
-    const cell = mapgenCell(grid, c, r);
-    if (cell.module) for (const prop of cell.module.props) mapgenProp(ctx, plan, prop, cell, mapgenCentreX(grid, c), mapgenCentreZ(grid, r), grid.cell / 2 - MAPGEN_INNER_BORDER, MAPGEN_ISLAND.hedgeHeight);
-  }
+  mapgenEach(0, grid.cols, 0, grid.rows, (c, r) => mapgenCellProps(ctx, grid, plan, mapgenCell(grid, c, r), mapgenCentreX(grid, c), mapgenCentreZ(grid, r), MAPGEN_ISLAND.hedgeHeight));
 }

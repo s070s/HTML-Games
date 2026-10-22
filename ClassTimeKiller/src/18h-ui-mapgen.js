@@ -10,7 +10,7 @@ const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); co
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {
-  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: 'medium', theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null },
+  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: MAPGEN_DEFAULT_SIZE, theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null, notice: '' },
 
   options() {
     const s = this.state;
@@ -20,6 +20,7 @@ const MapGenMenu = {
   set(key, value) {
     this.state[key] = value;
     this.state.map = null;
+    this.state.notice = '';
     const generator = MapGen.generator(this.state.generator);
     if (key === 'generator' && !generator.modes.includes(this.state.mode)) this.state.mode = MAPGEN_MENU_ANY_MODE;
   },
@@ -31,12 +32,21 @@ const MapGenMenu = {
   },
   // The sizes the quality tier allows (13.4 size cap).
   sizes() { return CAT.mapSizes.filter((row) => row.index <= MapGen.sizeCap().index); },
+  // A size the tier does not offer becomes the largest it does (the screen opens and pasted codes go through this); true when cut.
+  clampSize() {
+    const allowed = this.sizes(), largest = allowed[allowed.length - 1];
+    if (allowed.some((row) => row.id === this.state.size)) return false;
+    this.state.size = largest.id;
+    return true;
+  },
   shareCode() { return MapGen.shareCode(this.options()); },
   usePaste(text) {
     const options = MapGen.parseShare(text);
     if (!options) return false;
     for (const key of Object.keys(options)) this.state[key] = options[key];
     this.state.map = null;
+    this.state.notice = this.clampSize() ? 'The code asks for a ' + CAT.mapSizes.byId(options.size).name.toLowerCase() + ' map; this quality setting makes '
+      + CAT.mapSizes.byId(this.state.size).name.toLowerCase() + ' maps at most, so the size was cut and the map differs from the shared one.' : '';
     return true;
   },
   generate() {
@@ -55,12 +65,12 @@ const MapGenMenu = {
     return { mode, map: this.state.map, seed: this.state.seed, bots: Modes.defaultBots(mode, true), player: row.teams === 2 ? { team: 0 } : {} };
   },
   describe() {
-    const map = this.state.map, report = this.state.report;
-    if (!map || !report) return 'Not generated yet. Change any setting, then press Generate.';
-    if (report.fallback) return 'No seed passed the checks, so the authored map ' + map.name + ' is served instead.\n' + report.problems.slice(0, 2).join('\n');
+    const map = this.state.map, report = this.state.report, notice = this.state.notice ? this.state.notice + '\n' : '';
+    if (!map || !report) return notice + 'Not generated yet. Change any setting, then press Generate.';
+    if (report.fallback) return notice + 'No seed passed the checks, so the authored map ' + map.name + ' is served instead.\n' + report.problems.slice(0, 2).join('\n');
     const retried = report.seed === report.requestedSeed ? '' : ' (seed ' + report.requestedSeed + ' failed the checks; seed ' + report.seed + ' passed)';
     const repaired = report.repairs ? ', ' + report.repairs + ' sightline repair' + (report.repairs === 1 ? '' : 's') : '';
-    return map.name + retried + '\n' + map.size[0] + ' x ' + map.size[2] + ' m, ' + map.spawns.length + ' spawns, ' + map.items.length + ' items, '
+    return notice + map.name + retried + '\n' + map.size[0] + ' x ' + map.size[2] + ' m, ' + map.spawns.length + ' spawns, ' + map.items.length + ' items, '
       + map.objectives.length + ' objectives' + repaired + '\nMade in ' + Math.round(report.ms.total) + ' ms. Modes: ' + map.modes.map((id) => CAT.modes.byId(id).name).join(', ');
   },
 };
@@ -100,7 +110,11 @@ function mapgenMenuShareRows(render) {
   copyWrap.appendChild(mine);
   copyWrap.appendChild(Ui.button('Copy', () => copyText(mine.value, mine)));
   pasteWrap.appendChild(paste);
-  pasteWrap.appendChild(Ui.button('Use code', () => { if (!MapGenMenu.usePaste(paste.value)) Ui.toast('That is not a map code.'); render(); }));
+  pasteWrap.appendChild(Ui.button('Use code', () => {
+    if (!MapGenMenu.usePaste(paste.value)) Ui.toast('That is not a map code.');
+    else if (MapGenMenu.state.notice) Ui.toast(MapGenMenu.state.notice);
+    render();
+  }));
   return [Ui.row('Share code', copyWrap), Ui.row('Paste', pasteWrap)];
 }
 function mapgenMenuRender(list, status) {
@@ -122,6 +136,7 @@ function mapgenMenuRender(list, status) {
 Ui.register('mapgen', {
   build(root) {
     injectStyle('ui-mapgen-style', MAPGEN_MENU_CSS);
+    if (MapGenMenu.clampSize()) MapGenMenu.state.map = null;
     const head = makeElement('div', 'ui-head');
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Generated Map'));

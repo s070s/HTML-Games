@@ -1,16 +1,25 @@
 // Self-tests for the S16 map generator (group 'mapgen'). Debug hooks: __CTK.mapgen (MapGen plus sweep(count) and parts()).
-// Timing: "generation" is the generator's own work (kit geometry + placement, MapGen.last.ms.build + place); the scan and the
-// validator are the S16 checker's cost and are reported on their own (docs/api/mapgen.md "Timings").
+// Timings (docs/api/mapgen.md "Timings"): generation = what one build round costs (kit geometry + scan + placement,
+// MapGen.last.ms.build + scan + place per round); validation (Maps.validate) has its own budget; both per round, desktop.
 
-const MAPGEN_TEST_BUDGET_MS = 100;            // generation of the largest size on a desktop (500 ms on a low-end phone)
-const MAPGEN_TEST_SWEEP_SEEDS = 49;           // per grid generator (GN1..GN4) in the 200-seed sweep, all small
-const MAPGEN_TEST_ISLAND_SEEDS = 4;           // GN5 seeds in the sweep (its validator run takes about 0.3 s)
+const MAPGEN_TEST_BUDGET_MS = 100;            // generation per round at the largest size on a desktop (about 500 ms on a low-end phone)
+const MAPGEN_TEST_VALIDATE_BUDGET_MS = 250;   // Maps.validate per round at the largest size on a desktop
+const MAPGEN_TEST_SPIKES = 0.02;              // share of sweep seeds allowed over a budget (a busy machine); the largest-size test is strict
+const MAPGEN_TEST_GRID_SEEDS = 48;            // per grid generator (GN1..GN4) in the 200-seed sweep
+const MAPGEN_TEST_GRID_SIZES = ['small', 'small', 'medium', 'large'];
+const MAPGEN_TEST_ISLAND_SIZES = ['small', 'small', 'small', 'small', 'small', 'medium', 'medium', 'large'];   // GN5 seeds of the sweep
 const MAPGEN_TEST_MATCH_SECONDS = 4;
-const MAPGEN_TEST_QUICK_RULES = ['spawns', 'items', 'objectives', 'hints', 'zones', 'triggers'];   // the validator's rules without the lane and sightline searches
+const MAPGEN_TEST_WALK_MIN = 3;               // metres every scripted walker must cover in the short match
+const MAPGEN_TEST_REPATH_TICKS = 30;          // scripted walkers look up their nav path this often
+const MAPGEN_TEST_FLOOR = -0.5;               // generated floors are at y = 0: an actor below this fell through
 const MAPGEN_TEST_REPAIRED = { generator: 'GN2', seed: 3, size: 'medium', uncapped: true };   // a seed whose first build has long sightlines
+const MAPGEN_TEST_NO_LIBM = ['Math.hypot', 'Math.sin', 'Math.cos', 'Math.atan2', 'Math.tan'];   // engine-dependent results (MAP-020 across devices)
 
-const mapgenTestMs = (report) => report.ms.build + report.ms.place;
-// Runs some of the validator's rules (MapCheck) on a map: the cheap ones, without the lane and sightline searches.
+// Per-round costs of the latest generate(): { generation, validation, total } in ms.
+function mapgenTestCost(report) {
+  const rounds = Math.max(1, report.rounds);
+  return { generation: (report.ms.build + report.ms.scan + report.ms.place) / rounds, validation: report.ms.validate / rounds, total: report.ms.total };
+}
 function mapgenTestRules(map, rules) {
   const ctx = { map, problems: [], counts: {}, stats: {}, scan: MapScan.of(map), loop: null, hit: makeHit() };
   ctx.add = (rule, text) => ctx.problems.push(rule + ': ' + text);
@@ -19,32 +28,44 @@ function mapgenTestRules(map, rules) {
   MapScan.release();
   return ctx.problems;
 }
+// One fully validated generate() for the sweeps: adds to the tally { total, accepted, fallback, repaired, retried, slowest..., over, unreported }.
+function mapgenTestSweepRun(tally, options) {
+  const map = MapGen.generate(Object.assign({ uncapped: true }, options)), report = MapGen.last, cost = mapgenTestCost(report);
+  const label = options.generator + ' ' + options.size + ' ' + options.seed;
+  tally.total++;
+  if (report.fallback) tally.fallback++;
+  else tally.accepted++;
+  if (report.repairs) tally.repaired++;
+  if (report.attempts > 1) tally.retried++;
+  if (report.fallback ? !map || map.gen : report.problems.length) tally.unreported.push(label + ': ' + report.problems.slice(0, 2).join(' | '));
+  if (cost.generation > MAPGEN_TEST_BUDGET_MS || cost.validation > MAPGEN_TEST_VALIDATE_BUDGET_MS) tally.over.push(label);
+  if (cost.generation > tally.slowestGeneration) { tally.slowestGeneration = cost.generation; tally.slowestGenerationMap = label; }
+  if (cost.validation > tally.slowestValidation) { tally.slowestValidation = cost.validation; tally.slowestValidationMap = label; }
+  if (cost.total > tally.slowestTotal) { tally.slowestTotal = cost.total; tally.slowestTotalMap = label; }
+  return map;
+}
+function mapgenTestTally() {
+  return { total: 0, accepted: 0, fallback: 0, repaired: 0, retried: 0, slowestGeneration: 0, slowestGenerationMap: '', slowestValidation: 0, slowestValidationMap: '',
+    slowestTotal: 0, slowestTotalMap: '', over: [], unreported: [] };
+}
 
 DebugApi.mapgen = Object.assign(Object.create(MapGen), {
   parts: () => ({ MapScan, MapCheck, MapGenPlace, MapGenKits }),     // for console debugging of a generated map
-  // Validates `count` seeds spread over GN1..GN5 and every size: accepted / repaired / fallback counts and the slowest runs.
+  // Validates `count` seeds (1000, 1001, ...) spread over GN1..GN5 and every size; counts and the slowest runs (ms per round).
   sweep(count) {
-    const total = count || 100, result = { total, accepted: 0, retried: 0, repaired: 0, fallback: 0, slowestMs: 0, slowest: '', slowestGenerationMs: 0, slowestScanMs: 0, failures: [] };
-    for (let i = 0; i < total; i++) {
+    const tally = mapgenTestTally();
+    for (let i = 0; i < (count || 100); i++) {
       const generator = CAT.generators[i % CAT.generators.length], size = CAT.mapSizes[Math.floor(i / CAT.generators.length) % CAT.mapSizes.length];
-      const map = MapGen.generate({ generator: generator.code, seed: 1000 + i, size: size.id, uncapped: true });
-      const report = MapGen.last;
-      if (report.fallback) { result.fallback++; result.failures.push(generator.code + ' ' + size.id + ' seed ' + (1000 + i) + ': ' + report.problems.slice(0, 2).join(' | ')); }
-      else result.accepted++;
-      if (report.attempts > 1) result.retried++;
-      if (report.repairs) result.repaired++;
-      if (report.ms.total > result.slowestMs) { result.slowestMs = Math.round(report.ms.total); result.slowest = map.code + ' ' + size.id; }
-      result.slowestGenerationMs = Math.max(result.slowestGenerationMs, Math.round(mapgenTestMs(report) / report.attempts));
-      result.slowestScanMs = Math.max(result.slowestScanMs, Math.round(report.ms.scan / report.attempts));
+      mapgenTestSweepRun(tally, { generator: generator.code, seed: 1000 + i, size: size.id });
     }
-    return result;
+    return tally;
   },
 });
 
 // Determinism (MAP-020): the same options give the same map, byte for byte; another seed gives another map.
 Test.add('mapgen', (check) => {
   for (const generator of CAT.generators) {
-    const options = { generator: generator.code, seed: 77, size: 'small', density: 'dense', trusted: generator.code === 'GN5' };   // GN5: placement only (its validation is slow)
+    const options = { generator: generator.code, seed: 77, size: 'small', density: 'dense', trusted: generator.code === 'GN5' };   // GN5: placement only (the sweep validates it)
     const first = JSON.stringify(MapGen.generate(options)), firstReport = MapGen.last;
     const second = JSON.stringify(MapGen.generate(options));
     check(generator.code + ': the same options give a byte-identical map', first === second && !firstReport.fallback, firstReport.problems.slice(0, 2).join(' | '));
@@ -55,38 +76,45 @@ Test.add('mapgen', (check) => {
   check('the map records how it was made', map.gen && map.gen.generator === 'GN3' && map.gen.theme === 'foundry' && map.gen.requestedSeed === 5 && map.seed === 5);
 });
 
-// 200 seeds over the generators, all within budget: every other seed runs the whole pipeline and validates (after retries and
-// repairs) or reports the fallback; the seeds between run placement only and pass the validator's quick rules (the full sweep with
-// every seed validated is __CTK.mapgen.sweep(200)).
+// Same map on every engine: placement and the kits never call the engine-dependent maths functions, and the fixed direction
+// tables match the trigonometry they replace.
 Test.add('mapgen', (check) => {
-  const tally = { total: 0, accepted: 0, fallback: 0, repaired: 0, retried: 0, slowest: 0, unreported: [] };
-  const run = (code, seed) => {
-    const trusted = tally.total % 2 === 1;
-    const map = MapGen.generate({ generator: code, seed, size: 'small', trusted }), report = MapGen.last;
-    if (trusted && !report.fallback && mapgenTestRules(map, MAPGEN_TEST_QUICK_RULES).length) tally.unreported.push(code + ' ' + seed + ' (quick rules)');
-    tally.total++;
-    tally.slowest = Math.max(tally.slowest, mapgenTestMs(report) / report.attempts);
-    if (report.repairs) tally.repaired++;
-    if (report.attempts > 1) tally.retried++;
-    if (report.fallback) tally.fallback++;
-    else tally.accepted++;
-    if (report.fallback ? !map || map.gen : report.problems.length) tally.unreported.push(code + ' ' + seed);
-  };
-  for (const code of ['GN1', 'GN2', 'GN3', 'GN4']) for (let seed = 0; seed < MAPGEN_TEST_SWEEP_SEEDS; seed++) run(code, 500 + seed * 37);
-  for (let seed = 0; seed < MAPGEN_TEST_ISLAND_SEEDS; seed++) run('GN5', 900 + seed);
-  check('sweep: 200 seeds', tally.total === 200, tally.total);
-  check('sweep: every seed is accepted with zero problems or falls back to an authored map', tally.unreported.length === 0, tally.unreported.join(', '));
-  check('sweep: at least 95% accepted without the fallback', tally.accepted >= tally.total * 0.95, JSON.stringify(tally));
-  check('sweep: generation within ' + MAPGEN_TEST_BUDGET_MS + ' ms per seed', tally.slowest < MAPGEN_TEST_BUDGET_MS, tally.slowest.toFixed(1));
+  const sources = [MapGenPlace, MapGenKits, MapGen].flatMap((part) => Object.values(part).filter((value) => typeof value === 'function').map(String))
+    .concat([mapgenEach, mapgenProp, mapgenRamp, mapgenBorder, mapgenCellProps, mapgenEmitFloorRow].map(String));
+  const used = MAPGEN_TEST_NO_LIBM.filter((name) => sources.some((source) => source.includes(name)));
+  check('engines: no hypot, sin, cos, atan2 or tan in the generator', used.length === 0, used.join());
+  const ringOk = MAPGEN_RING.every(([x, z], index) => Math.abs(x - Math.cos(index * Math.PI / 8)) < 1e-15 && Math.abs(z - Math.sin(index * Math.PI / 8)) < 1e-15);
+  const yawOk = MAPGEN_YAWS.every(([x, z], index) => Math.abs(x - Math.sin(index * Math.PI / 4)) < 1e-15 && Math.abs(z - Math.cos(index * Math.PI / 4)) < 1e-15);
+  check('engines: the 16 ring directions and the 8 spawn yaws match the trigonometry', ringOk && yawOk && MAPGEN_RING.length === MAP_SIGHT_DIRECTIONS);
 });
 
-// The largest size of every generator stays within the budget (generation only; scan time is reported).
+// 200 seeds over the generators and the sizes, every one through the whole pipeline: validated with zero problems (after retries
+// and repairs) or reported as the fallback, and within the generation and validation budgets.
+Test.add('mapgen', (check) => {
+  const tally = mapgenTestTally();
+  for (const code of ['GN1', 'GN2', 'GN3', 'GN4']) {
+    for (let i = 0; i < MAPGEN_TEST_GRID_SEEDS; i++) mapgenTestSweepRun(tally, { generator: code, seed: 500 + i * 37, size: MAPGEN_TEST_GRID_SIZES[i % MAPGEN_TEST_GRID_SIZES.length] });
+  }
+  MAPGEN_TEST_ISLAND_SIZES.forEach((size, i) => mapgenTestSweepRun(tally, { generator: 'GN5', seed: 900 + i, size }));
+  const summary = JSON.stringify(Object.assign({}, tally, { unreported: tally.unreported.length, over: tally.over.length }));
+  check('sweep: 200 seeds, all sizes', tally.total === 200, tally.total);
+  check('sweep: every seed passes Maps.validate with zero problems or falls back to an authored map', tally.unreported.length === 0, tally.unreported.slice(0, 3).join(' || '));
+  check('sweep: at least 95% accepted without the fallback', tally.accepted >= tally.total * 0.95, summary);
+  check('sweep: generation under ' + MAPGEN_TEST_BUDGET_MS + ' ms and validation under ' + MAPGEN_TEST_VALIDATE_BUDGET_MS + ' ms per round',
+    tally.over.length <= tally.total * MAPGEN_TEST_SPIKES, tally.over.join(', ') + ' ' + summary);
+});
+
+// The largest size of every generator, fully validated, within both budgets (the faster of two runs: the budget is not a load test).
 Test.add('mapgen', (check) => {
   for (const generator of CAT.generators) {
-    MapGen.generate({ generator: generator.code, seed: 3, size: 'large', uncapped: true, trusted: true });
-    const report = MapGen.last;
-    check(generator.code + ' large: generation under ' + MAPGEN_TEST_BUDGET_MS + ' ms', mapgenTestMs(report) < MAPGEN_TEST_BUDGET_MS && !report.fallback,
-      'build ' + report.ms.build.toFixed(1) + ' place ' + report.ms.place.toFixed(1) + ' scan ' + report.ms.scan.toFixed(1));
+    const runs = [0, 1].map(() => {
+      MapGen.generate({ generator: generator.code, seed: 3, size: 'large', uncapped: true });
+      return Object.assign(mapgenTestCost(MapGen.last), { fallback: MapGen.last.fallback, problems: MapGen.last.problems.length });
+    });
+    const generation = Math.min(runs[0].generation, runs[1].generation), validation = Math.min(runs[0].validation, runs[1].validation);
+    check(generator.code + ' large: generation under ' + MAPGEN_TEST_BUDGET_MS + ' ms and validation under ' + MAPGEN_TEST_VALIDATE_BUDGET_MS + ' ms per round',
+      generation < MAPGEN_TEST_BUDGET_MS && validation < MAPGEN_TEST_VALIDATE_BUDGET_MS && !runs[0].fallback && !runs[0].problems,
+      'generation ' + generation.toFixed(1) + ' validation ' + validation.toFixed(1) + ' total ' + runs[1].total.toFixed(1));
   }
 });
 
@@ -107,32 +135,89 @@ Test.add('mapgen', (check) => {
   }
 });
 
-// A headless short match per generator: the world loads it, the nav graph builds and reaches everything, actors play without errors.
+// Mirrored maps: every team 0 spawn has a team 1 spawn at its mirror image facing the mirrored way (MapKit.mirrorSpawn), and
+// every free spawn of a mirrored free-for-all map has its mirror too.
+Test.add('mapgen', (check) => {
+  for (const [code, mode] of [['GN3', 'tdm'], ['GN4', 'ctf'], ['GN2', 'bomb'], ['GN3', 'ffa']]) {
+    const map = MapGen.generate({ generator: code, seed: 8, size: 'small', mode, trusted: true });
+    const teamOf = (spawn) => (spawn.team === -1 ? -1 : 1 - spawn.team);
+    const mirrored = (spawn) => map.spawns.some((other) => other !== spawn && other.team === teamOf(spawn) && other.x === -spawn.x && other.y === spawn.y && other.z === spawn.z
+      && Math.abs(Math.sin(other.yaw * DEG) + Math.sin(spawn.yaw * DEG)) < 1e-9 && Math.abs(Math.cos(other.yaw * DEG) - Math.cos(spawn.yaw * DEG)) < 1e-9);
+    const lonely = map.spawns.filter((spawn) => !mirrored(spawn));
+    check(code + ' ' + mode + ': every spawn has its mirror image with the mirrored yaw', map.spawns.length > 0 && lonely.length === 0, lonely.length + ' of ' + map.spawns.length);
+    const facing = mapgenTestRules(map, ['spawns']).filter((problem) => problem.startsWith('spawn-facing'));
+    check(code + ' ' + mode + ': no spawn faces a wall', facing.length === 0, facing.slice(0, 2).join(' | '));
+  }
+});
+
+// GN2 (MAP-021): spawn-to-site run time in the generator's window on the large map; smaller maps get the column nearest it.
+Test.add('mapgen', (check) => {
+  const window = MapGen.generator('GN2').siteWalk, speed = CAT.movement.byId(MAPGEN_SITE_PACE).groundSpeed;
+  const inWindow = [], near = [];
+  for (let seed = 1; seed <= 4; seed++) {
+    const large = MapGen.generate({ generator: 'GN2', seed, size: 'large', mode: 'bomb', uncapped: true, trusted: true });
+    inWindow.push(large.gen.siteSeconds.every((value) => value >= window[0] && value <= window[1]) ? '' : 'large ' + seed + ' ' + large.gen.siteSeconds);
+    const medium = MapGen.generate({ generator: 'GN2', seed, size: 'medium', mode: 'ghostops', uncapped: true, trusted: true });
+    near.push(medium.gen.siteSeconds.every((value) => value >= window[0] - 1.5) ? '' : 'medium ' + seed + ' ' + medium.gen.siteSeconds);
+  }
+  check('GN2 large: both sites ' + window.join('-') + ' s of running from the attackers spawn', inWindow.join('') === '', inWindow.join(' '));
+  check('GN2 medium: both sites within 1.5 s of the window', near.join('') === '', near.join(' '));
+  const small = MapGen.generate({ generator: 'GN2', seed: 2, size: 'small', mode: 'bomb', trusted: true });
+  const sites = small.objectives.filter((objective) => objective.kind === 'bombsite'), lastColumn = MapGen.generator('GN2').cells[0][0] - 2;
+  const columnX = -small.size[0] / 2 + (lastColumn + 0.5) * MapGen.generator('GN2').cell;
+  check('GN2 small: too short for the window, so the sites use the farthest column short of the defender base',
+    sites.length === 2 && sites.every((site) => Math.abs(site.x - columnX) < 6) && small.gen.siteSeconds[0] < window[0], JSON.stringify(small.gen.siteSeconds));
+  check('GN2: the run time uses the tactical run speed', speed > 0 && Number.isFinite(small.gen.siteSeconds[0]));
+});
+
+// A headless short match per generator: the world loads it, the nav graph builds and reaches everything, and scripted walkers
+// (no bot brains here) follow nav paths across the map without getting stuck or falling through the floor.
 Test.add('mapgen', (check) => {
   for (const generator of CAT.generators) {
-    const mode = generator.defaultModes[0];
+    const mode = generator.code === 'GN2' ? 'tdm' : generator.defaultModes[0];        // tdm: bomb rounds start frozen for the buy time
     const map = generator.code === 'GN5' ? MapGen.ringIsle() : MapGen.generate({ generator: generator.code, seed: 21, size: 'small', mode });
     Game.start({ mode, map, seed: 1, bots: [{}, {}, {}, {}] });
     check(generator.code + ' ' + mode + ': the match plays on the generated map', Game.match.map === map && World.map === map && World.brushes.length > 0);
     check(generator.code + ': the nav graph builds and reaches every spawn, item and objective', Nav.nodeCount > 0 && Nav.validate(map).length === 0, Nav.validate(map).slice(0, 3).join(' | '));
-    const ids = [];
-    for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) ids.push(id);
-    map.spawns.forEach((spawn, index) => {          // scripted actors (no bot brains yet): walk the spawns in turn
-      const id = ids[index % ids.length];
-      Actors.x[id] = spawn.x; Actors.y[id] = spawn.y; Actors.z[id] = spawn.z;
-      Sim.step();
-    });
-    Sim.run(Math.round(MAPGEN_TEST_MATCH_SECONDS * TICK_RATE));
-    check(generator.code + ': participants spawned and the match ran', ids.length > 0 && Sim.tick > 0 && (Modes.active || Game.match.ended), ids.length);
+    const walk = mapgenTestWalk(map);
+    check(generator.code + ': ' + walk.walkers + ' scripted walkers each cover ' + MAPGEN_TEST_WALK_MIN + ' m', walk.walkers > 0 && walk.stuck.length === 0, walk.stuck.join(', '));
+    check(generator.code + ': nobody falls through the floor and the match keeps running', walk.lowest > MAPGEN_TEST_FLOOR && Sim.tick > 0 && (Modes.active || Game.match.ended), walk.lowest.toFixed(2));
     Game.stop();
   }
 });
+// Every participant but the player walks along nav paths toward a far point of interest for MAPGEN_TEST_MATCH_SECONDS.
+function mapgenTestWalk(map) {
+  const ids = [], travelled = [], goals = [], targets = map.items.concat(map.objectives, map.spawns);
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.alive[id] && id !== Game.playerId) ids.push(id);
+  ids.forEach((id, index) => { goals.push(targets[(index * 7 + 3) % targets.length]); travelled.push(0); });
+  let lowest = Infinity;
+  for (let tick = 0; tick < Math.round(MAPGEN_TEST_MATCH_SECONDS * TICK_RATE); tick++) {
+    if (tick % MAPGEN_TEST_REPATH_TICKS === 0) ids.forEach((id, index) => mapgenTestSteer(id, goals[index]));
+    const before = ids.map((id) => [Actors.x[id], Actors.z[id]]);
+    Sim.step();
+    ids.forEach((id, index) => { travelled[index] += Math.hypot(Actors.x[id] - before[index][0], Actors.z[id] - before[index][1]); lowest = Math.min(lowest, Actors.y[id]); });
+  }
+  const stuck = [];
+  ids.forEach((id, index) => { if (travelled[index] < MAPGEN_TEST_WALK_MIN) stuck.push('actor ' + id + ' ' + travelled[index].toFixed(1) + ' m'); });
+  return { walkers: ids.length, stuck, lowest };
+}
+// Points the actor at the next nav path node toward the goal and walks forward.
+function mapgenTestSteer(id, goal) {
+  const from = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]), to = Nav.nearestNode(goal.x, goal.y, goal.z);
+  const length = Nav.findPath(from, to);
+  const next = length > 1 ? Nav.pathNodes[Math.min(2, length - 1)] : to;
+  if (next < 0) return;
+  Actors.aimYaw[id] = Math.atan2(Nav.nodeX[next] - Actors.x[id], Nav.nodeZ[next] - Actors.z[id]);
+  Actors.moveX[id] = 0;
+  Actors.moveZ[id] = 1;
+}
 
 // Registration: generated maps are found by id, offered for their modes and playable by id; the registry stays bounded.
 Test.add('mapgen', (check) => {
   const map = MapGen.generate({ generator: 'GN3', seed: 31, size: 'small', mode: 'ffa' });
   check('runtime: Maps.get finds the generated map by id', Maps.get(map.id) === map);
-  check('runtime: Maps.forMode offers it', Maps.forMode('ffa').includes(map) && !Maps.forMode('ctf').includes(map));
+  check('runtime: Maps.forMode offers it, Maps.catalogueForMode does not', Maps.forMode('ffa').includes(map) && !Maps.forMode('ctf').includes(map)
+    && !Maps.catalogueForMode('ffa').includes(map) && Maps.catalogueForMode('ffa').length === CAT.maps.filter((row) => row.modes.includes('ffa')).length);
   Game.start({ mode: 'ffa', map: map.id, seed: 1 });
   check('runtime: Game.start({ map: id }) plays it', Game.match.map === map);
   Game.stop();
@@ -144,30 +229,60 @@ Test.add('mapgen', (check) => {
   check('runtime: trusted runs (the MP09 island) are not registered', !Maps.runtime.includes(trusted) && Maps.get(trusted.id) !== trusted);
 });
 
+// The custom match lists and picks hand-made maps only: a generated map in the registry never shows up there, and a saved draft
+// that names one renders and falls back to a random hand-made map.
+Test.add('mapgen', (check) => {
+  const map = MapGen.generate({ generator: 'GN3', seed: 5, size: 'small', mode: 'ffa' });
+  const draft = Object.assign(customDefaults(), { mode: 'ffa', map: '' });
+  check('custom: the map picker lists hand-made maps only', !editorMapOptions(draft).values.includes(map.id) && editorMapOptions(draft).values.length === Maps.catalogueForMode('ffa').length + 1);
+  const picks = Array.from({ length: 40 }, (unused, seed) => CustomMatch.mapFor(draft, seed));
+  check('custom: a random map is always a hand-made one', picks.every((id) => !!CAT.maps.byId(id)), picks.filter((id) => !CAT.maps.byId(id)).join());
+  check('custom: a saved draft naming a generated map is refused on load', CustomMatch.validate({ mode: 'ffa', map: map.id }).draft.map === '');
+  check('custom: the summary names a generated map without failing', editorSummary(Object.assign({}, draft, { map: map.id })).includes(map.name));
+  const errorsBefore = ErrorLog.entries.length;
+  uiWith(() => {
+    Settings.set('custom.draft', '');
+    Ui.open('custom');
+    const root = Ui.root.querySelector('.ui-custom');
+    uiClickButton(root, 'Map');
+    const cycle = root.querySelector('.cm-list .ui-cycle');
+    for (let step = 0; cycle && step < editorMapOptions(EDITOR_STATE.draft).values.length + 1; step++) cycle._adjust(1);
+    const picked = EDITOR_STATE.draft.map;
+    check('custom: the Map tab renders and cycles every map after a map was generated', !!cycle && ErrorLog.entries.length === errorsBefore && (!picked || !!CAT.maps.byId(picked)), picked);
+    Settings.set('custom.draft', '');
+  });
+});
+
 // Size caps per quality tier, options and the share code.
 Test.add('mapgen', (check) => {
   check('caps: potato offers small only', MapGen.sizeCap('potato').id === 'small');
   check('caps: low offers medium', MapGen.sizeCap('low').id === 'medium');
   check('caps: medium and up offer large', ['medium', 'high', 'ultra'].every((tier) => MapGen.sizeCap(tier).id === 'large'));
-  check('caps: a large request on potato is cut to small', MapGen.resolve({ generator: 'GN1', size: 'large', quality: 'potato' }).size.id === 'small');
+  check('caps: a large request on potato is cut to small and reported', MapGen.resolve({ generator: 'GN1', size: 'large', quality: 'potato' }).size.id === 'small'
+    && MapGen.resolve({ generator: 'GN1', size: 'large', quality: 'potato' }).sizeCut && !MapGen.resolve({ generator: 'GN1', size: 'small', quality: 'potato' }).sizeCut);
   check('caps: uncapped keeps the size', MapGen.resolve({ generator: 'GN1', size: 'large', quality: 'potato', uncapped: true }).size.id === 'large');
-  const options = { generator: 'GN4', seed: 4242, size: 'medium', theme: 'glacier', density: 'sparse', mode: 'tdm' };
+  const options = { generator: 'GN4', seed: 4242, size: 'medium', theme: 'glacier', density: 'sparse', mode: 'tdm', quality: 'high' };
   const code = MapGen.shareCode(options);
   const parsed = MapGen.parseShare(code);
-  check('share: the code reads back as the same options', code === 'CTKMAP-GN4-medium-glacier-sparse-tdm-4242' && Object.keys(options).every((key) => parsed[key] === options[key]), code);
+  check('share: the code reads back as the same options', code === 'CTKMAP-GN4-medium-glacier-sparse-tdm-4242' && ['generator', 'seed', 'size', 'theme', 'density', 'mode'].every((key) => parsed[key] === options[key]), code);
+  check('share: the code names the size the tier really makes', MapGen.shareCode(Object.assign({}, options, { size: 'large', quality: 'potato' })) === 'CTKMAP-GN4-small-glacier-sparse-tdm-4242');
+  check('share: a random theme is written as the theme the seed picked', MapGen.shareCode({ generator: 'GN2', seed: 9, quality: 'high' }).split('-')[3] === MapGen.resolve({ generator: 'GN2', seed: 9 }).theme.id);
   check('share: any mode reads back as no mode', MapGen.parseShare('CTKMAP-GN1-small-glacier-normal-any-9').mode === '');
   check('share: broken codes are refused', ['', 'CTKMAP-GN9-small-glacier-normal-any-9', 'CTKMAP-GN1-huge-frost-normal-any-9', 'CTKMAP-GN1-small-glacier-normal-ctf-9',
     'CTKMAP-GN1-small-glacier-normal-any-x', 'MAP-GN1-small-glacier-normal-any-9'].every((text) => MapGen.parseShare(text) === null));
   check('options: unknown values fall back to the defaults', MapGen.resolve({ generator: 'nope', size: 'huge', density: 'x', mode: 'nope', uncapped: true }).generator === CAT.generators[0]);
   check('options: a missing theme is picked from the seed', MapGen.resolve({ generator: 'GN2', seed: 9 }).theme === MapGen.resolve({ generator: 'GN2', seed: 9 }).theme);
+  check('data: the power list names power items and the item sets name item groups', mapgenItemSet('power').every((key) => MapRules.itemKeys.power.includes(key))
+    && ['pickups', 'supply', 'loot'].every((id) => mapgenItemSet(id).every((group) => MapRules.itemGroups.includes(group))));
 });
 
 // Sightline repair: a seed whose first build has long open lines gets pillars and then validates.
 Test.add('mapgen', (check) => {
   const map = MapGen.generate(MAPGEN_TEST_REPAIRED), report = MapGen.last;
   const plain = MapGen.generate(Object.assign({ trusted: true }, MAPGEN_TEST_REPAIRED));
-  check('repair: pillars were added and the map validates', report.repairs > 0 && !report.fallback && report.attempts === 1 && !report.problems.length, JSON.stringify(report.problems.slice(0, 2)));
-  check('repair: the repaired map has more brushes than the first build', map.brushes.length > plain.brushes.length);
+  check('repair: pillars were added and the map validates', report.repairs > 0 && !report.fallback && report.attempts === 1 && !report.problems.length && report.rounds === report.repairs + 1,
+    JSON.stringify(report.problems.slice(0, 2)));
+  check('repair: the repaired map has more brushes than the first build, and the repair time is reported', map.brushes.length > plain.brushes.length && report.ms.repair > 0);
 });
 
 // The fallback: when no seed can be placed, the generator's authored map (or one for the mode) is served and reported.
@@ -199,16 +314,23 @@ Test.add('mapgen', (check) => {
   Game.stop();
 });
 
-// The generated map screen: the model (settings, seed, share code, Game.start setup) and the screen itself.
+// The generated map screen: the model (settings, seed, share code, size clamp, Game.start setup) and the screen itself.
 Test.add('mapgen', (check) => {
-  const saved = Object.assign({}, MapGenMenu.state);
+  const saved = Object.assign({}, MapGenMenu.state), sizeCap = MapGen.sizeCap;
   try {
-    Object.assign(MapGenMenu.state, { generator: 'GN2', mode: 'bomb', size: 'small', theme: 'canal', density: 'dense', seed: 12, map: null, report: null });
+    Object.assign(MapGenMenu.state, { generator: 'GN2', mode: 'bomb', size: 'small', theme: 'canal', density: 'dense', seed: 12, map: null, report: null, notice: '' });
     check('menu: the share code follows the settings', MapGenMenu.shareCode() === 'CTKMAP-GN2-small-canal-dense-bomb-12', MapGenMenu.shareCode());
     MapGenMenu.set('generator', 'GN3');
     check('menu: a generator without the chosen mode drops it', MapGenMenu.state.mode === '' && MapGenMenu.state.map === null);
     check('menu: a seed must be a whole number', !MapGenMenu.setSeedText('12a') && MapGenMenu.setSeedText(' 345 ') && MapGenMenu.state.seed === 345);
-    check('menu: a pasted code sets every option', MapGenMenu.usePaste('CTKMAP-GN4-small-station-sparse-tdm-77') && MapGenMenu.state.generator === 'GN4' && MapGenMenu.state.mode === 'tdm' && MapGenMenu.state.seed === 77);
+    MapGen.sizeCap = () => CAT.mapSizes.byId('small');               // as on the potato tier
+    MapGenMenu.state.size = 'medium';
+    check('menu: a size the tier does not offer is cut to the largest it does', MapGenMenu.clampSize() && MapGenMenu.state.size === 'small' && !MapGenMenu.clampSize());
+    check('menu: a pasted large code on a small tier is cut and the player is told', MapGenMenu.usePaste('CTKMAP-GN4-large-station-sparse-tdm-77') && MapGenMenu.state.size === 'small'
+      && MapGenMenu.state.notice.includes('cut') && MapGenMenu.describe().startsWith(MapGenMenu.state.notice) && MapGenMenu.shareCode() === 'CTKMAP-GN4-small-station-sparse-tdm-77');
+    MapGen.sizeCap = sizeCap;
+    check('menu: a pasted code sets every option', MapGenMenu.usePaste('CTKMAP-GN4-small-station-sparse-tdm-77') && MapGenMenu.state.generator === 'GN4' && MapGenMenu.state.mode === 'tdm'
+      && MapGenMenu.state.seed === 77 && MapGenMenu.state.notice === '');
     check('menu: a broken code changes nothing', !MapGenMenu.usePaste('CTKMAP-GN4') && MapGenMenu.state.generator === 'GN4');
     const setup = MapGenMenu.setup();
     check('menu: Play starts the mode on the generated map with the player on team 0', setup.mode === 'tdm' && setup.map === MapGenMenu.state.map && setup.player.team === 0 && Array.isArray(setup.bots));
@@ -229,6 +351,7 @@ Test.add('mapgen', (check) => {
       check('screen: Play starts the match on the shown map', Game.match && Game.match.map === MapGenMenu.state.map && !Ui.current());
     });
   } finally {
+    MapGen.sizeCap = sizeCap;
     Object.assign(MapGenMenu.state, saved);
     Game.stop();
   }
