@@ -40,10 +40,11 @@ const MAPEDIT_KINDS = {
   triggers: { label: 'Trigger', box: true },
   lights: { label: 'Light', halfWidth: 0.3, height: 0.6, centred: true },
   navHints: { label: 'Nav hint', halfWidth: 0.3, height: 0.6 },
+  props: { label: 'Prop', box: true },
 };
 
 // How a validator message names a list: the word before the number.
-const MAPEDIT_PROBLEM_LISTS = { brush: 'brushes', light: 'lights', spawn: 'spawns', item: 'items', hint: 'navHints', hints: 'navHints', objectives: 'objectives', trigger: 'triggers' };
+const MAPEDIT_PROBLEM_LISTS = { brush: 'brushes', light: 'lights', spawn: 'spawns', item: 'items', hint: 'navHints', hints: 'navHints', objectives: 'objectives', trigger: 'triggers', props: 'props' };
 // Does a validator message talk about the zone with this name? ("duplicate zone name X", "indoor zone X has no light", "zones: X has an invalid box")
 const mapEditNamesZone = (text, name) => text.includes('zone ' + name + ' ') || text.endsWith('zone name ' + name) || text.includes(': ' + name + ' has an invalid box');
 
@@ -408,14 +409,14 @@ const MapEditor = {
   },
   // The validator names an object by list and number ("brush: #3 ...", "item #2 ..."), an objective by id and a zone by name.
   locateNamed(text, target) {
-    const numbered = /^(brush|light|spawn|objectives|hints): #(\d+)/.exec(text) || /\b(item|hint|trigger) #(\d+)/.exec(text);
+    const numbered = /^(brush|light|spawn|objectives|hints|props): #(\d+)/.exec(text) || /\b(item|hint|trigger) #(\d+)/.exec(text);
     if (numbered) return this.targetIn(target, MAPEDIT_PROBLEM_LISTS[numbered[1]], +numbered[2]);
     const objective = /objective (\S+) \(/.exec(text);
     if (objective) return this.targetIn(target, 'objectives', this.map.objectives.findIndex((entry) => entry.id === objective[1]));
     return this.targetIn(target, 'zones', this.map.zones.findIndex((zone) => mapEditNamesZone(text, zone.name)));
   },
   targetIn(target, list, index) {
-    if (!this.map[list][index]) return false;
+    if (!this.map[list] || !this.map[list][index]) return false;   // props: an older map may lack the list
     target.list = list; target.index = index;
     this.centreOf(target);
     return true;

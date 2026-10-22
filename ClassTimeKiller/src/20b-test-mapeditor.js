@@ -243,6 +243,11 @@ Test.add('mapEditor', (check) => {
   MapEditor.map.objectives.push(MapKit.objective({ id: 'odd', kind: 'point', x: 0, y: 0, z: 0, radius: 3 }));
   check('numbered objective and hint problems find their object', (MapEditor.locate('objectives: #' + (MapEditor.map.objectives.length - 1) + ' has no valid id or kind') || {}).list === 'objectives'
     && (MapEditor.locate('hints: #1 has unknown kind x') || {}).list === 'navHints');
+  MapEditor.map.props.push({ min: [2, 0, 2], max: [2, 1, 3] });   // a flat box: the validator's form rule refuses it
+  const propIndex = MapEditor.map.props.length - 1, propProblem = MapEditor.validate().find((text) => text.startsWith('props: #' + propIndex + ' '));
+  const propTarget = propProblem ? MapEditor.locate(propProblem) : null;
+  check('a problem about a prop jumps to the prop', !!propTarget && propTarget.list === 'props' && propTarget.index === propIndex, String(propProblem) + ' -> ' + JSON.stringify(propTarget));
+  MapEditor.map.props.pop();
   for (const kind of MapRules.triggerKinds) {
     MapEditorTools.stamp.triggerKind = kind;
     MapEditorTools.turns = 1;

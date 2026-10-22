@@ -451,8 +451,8 @@ Test.add('maps', (check) => {
   Game.stop();
 });
 
-// Audit 32 (MAP-013): the versus maps carry breakable props for W41, shots and blasts. Bots' nav and the validator do not see props, so a
-// prop stands on a brush top, overlaps no brush or trigger and keeps clear of spawns, items and objectives.
+// Audit 32 (MAP-013): the versus maps carry breakable props for W41, shots and blasts. Bots' nav and the validator treat props as solid
+// boxes; this checks that each prop stands on a floor and keeps clear of brushes, triggers, spawns, items and objectives.
 const MAP_TEST_PROP_CLEARANCE = 2.5;   // metres from a prop's edge to any spawn, item or objective on its level
 const MAP_TEST_PROP_LEVEL = 3;         // points more than this far above or below the prop's base are on another level
 function mapTestBoxesMeet(a, b, margin) {
