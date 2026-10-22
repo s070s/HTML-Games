@@ -319,7 +319,8 @@ const Abilities = {
       const row = id >= 0 ? this.row(id, slot) : null;
       if (row) out.slots.push(this.fillHudSlot(this.hudSlots[slot], id, slot, row));
     }
-    return Meters.hudState(id, out.meter);
+    Meters.hudState(id, out.meter);
+    return out;
   },
   fillHudSlot(hud, id, slot, row) {
     const i = this.index(id, slot);

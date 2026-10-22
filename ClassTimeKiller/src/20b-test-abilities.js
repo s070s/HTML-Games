@@ -341,7 +341,7 @@ Test.add('abilities', (check) => {
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
   const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
-  Abilities.hudState(t.caster, hud);
+  check('HUD: hudState returns out', Abilities.hudState(t.caster, hud) === hud);
   check('HUD: one slot, ready', hud.slots.length === 1 && hud.slots[0].ready && hud.slots[0].id === 'echopulse' && hud.meter.kind === 'energy');
   AbilityTest.cast(t);
   runSeconds(1);
