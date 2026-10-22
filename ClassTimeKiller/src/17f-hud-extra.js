@@ -27,6 +27,9 @@ const HUD_SOUND_CUES = {                      // 'sound' event kind -> [sound ri
   land: ['footstep', 'Landing'], grenade: ['alert', 'Grenade'], pulse: ['alert', 'Pulse'], break: ['alert', 'Breaking'],
 };
 const HUD_DIRECTION_NAMES = ['ahead', 'right', 'behind', 'left'];
+// '[Gunfire left]' for every cue and direction, built once (no strings made while sounds play).
+const HUD_CUE_TEXT = {};
+for (const kind in HUD_SOUND_CUES) HUD_CUE_TEXT[kind] = HUD_DIRECTION_NAMES.map((direction) => '[' + HUD_SOUND_CUES[kind][1] + ' ' + direction + ']');
 
 hudAddElement({ id: 'minimap', label: 'Minimap' });
 hudAddElement({ id: 'compass', label: 'Compass', fallback: false });
@@ -39,7 +42,7 @@ const HudExtra = {
   revealIndex: CAT.statusEffects.byId('reveal').index,
   blipAt: new Float64Array(MAX_ACTORS).fill(-1000), blipX: new Float32Array(MAX_ACTORS), blipZ: new Float32Array(MAX_ACTORS),
   observers: new Int8Array(HUD_TRACKER_OBSERVERS), observerCount: 0,
-  barkText: new Array(HUD_BARK_SLOTS).fill(''), barkName: new Array(HUD_BARK_SLOTS).fill(''), barkTeam: new Int8Array(HUD_BARK_SLOTS),
+  barkText: new Array(HUD_BARK_SLOTS).fill(''), barkName: new Array(HUD_BARK_SLOTS).fill(''), barkLabel: new Array(HUD_BARK_SLOTS).fill(''), barkTeam: new Int8Array(HUD_BARK_SLOTS),
   barkAt: new Float64Array(HUD_BARK_SLOTS).fill(-1000), barkNext: 0,
   blindWas: 0, blindBright: false,
   mapPoint: { x: 0, y: 0 }, map: { cx: 0, cy: 0, half: 0, scale: 0, unit: 1 },
@@ -57,7 +60,7 @@ const HudExtra = {
   addBark(event) {
     const slot = this.barkNext;
     this.barkNext = (slot + 1) % HUD_BARK_SLOTS;
-    this.barkText[slot] = event.text; this.barkName[slot] = Actors.name[event.id] || ''; this.barkTeam[slot] = event.team; this.barkAt[slot] = Hud.time;
+    this.barkText[slot] = event.text; this.barkName[slot] = Actors.name[event.id] || ''; this.barkLabel[slot] = this.barkName[slot] + ': '; this.barkTeam[slot] = event.team; this.barkAt[slot] = Hud.time;
   },
 };
 
@@ -83,7 +86,7 @@ function hudNoteSoundCue(event, player) {
   const dx = event.x - Actors.x[player], dz = event.z - Actors.z[player];
   if (dx * dx + dz * dz > event.radius * event.radius) return;
   const quarter = Math.round(hudBearingTo(event.x, event.z) / (Math.PI / 2));
-  hudCuePayload.text = '[' + cue[1] + ' ' + HUD_DIRECTION_NAMES[(quarter + 4) % 4] + ']';
+  hudCuePayload.text = HUD_CUE_TEXT[event.kind][(quarter + 4) % 4];
   hudCuePayload.x = event.x; hudCuePayload.y = event.y; hudCuePayload.z = event.z; hudCuePayload.kind = cue[0];
   Bus.emit('caption', hudCuePayload);
 }
@@ -260,8 +263,8 @@ function hudDrawBarks(pen, layout) {
   for (let k = HUD_BARK_SHOWN; k >= 1; k--) {   // the newest few, oldest first
     const slot = (c.barkNext - k + HUD_BARK_SLOTS) % HUD_BARK_SLOTS, age = Hud.time - c.barkAt[slot];
     if (age >= HUD_BARK_SECONDS) continue;
-    const alpha = Math.min(1, (HUD_BARK_SECONDS - age) / HUD_BARK_FADE), name = c.barkName[slot] + ': ';
-    const nameWidth = pen.text(name, layout.left, y, size, c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
+    const alpha = Math.min(1, (HUD_BARK_SECONDS - age) / HUD_BARK_FADE), label = c.barkLabel[slot];
+    const nameWidth = pen.text(label, layout.left, y, size, c.barkTeam[slot] >= 0 ? Hud.teamColor(c.barkTeam[slot]) : HUD_COLOR.warn, 'left', alpha);
     pen.text(c.barkText[slot], layout.left + nameWidth, y, size, HUD_COLOR.text, 'left', alpha);
     y += line;
   }

@@ -138,7 +138,7 @@ Ui.register('play', {
   build(root) {
     screenHeader(root, 'Play');
     const choice = PlayFlow.remembered(), form = makeElement('div', 'ui-scroll pl-form'), summary = makeElement('p', 'ui-note');
-    const render = () => {
+    const render = () => Ui.rebuild(form, () => {
       form.replaceChildren();
       const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
       form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team })); render(); })));
@@ -148,7 +148,7 @@ Ui.register('play', {
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
       if (CAT.modes.byId(choice.mode).teams === 2) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
       summary.textContent = playModeSummary(choice.mode);
-    };
+    });
     root.appendChild(form);
     root.appendChild(summary);
     const foot = makeElement('div', 'ui-foot');

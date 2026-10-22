@@ -279,13 +279,15 @@ const Input = {
     this.actionEvent.down = down;
     Bus.emit('input.action', this.actionEvent);
   },
+  // A toggled event action that is on (the scoreboard overlay) must hear its own second press although a screen is open: that press turns it off.
+  releasesToggle(index) { return ACTION_ROWS[index].event === true && this.toggleMode[index] === 1 && this.effective[index] === 1; },
   // Returns true when at least one action took the binding (callers then stop the browser's default).
   bindingDown(binding) {
     const list = this.bindingMap.get(binding);
     if (!list) return false;
     let handled = false;
     for (let i = 0; i < list.length; i++) {
-      if (this.uiOpen && !ACTION_ROWS[list[i]].always) continue;
+      if (this.uiOpen && !ACTION_ROWS[list[i]].always && !this.releasesToggle(list[i])) continue;
       this.pressAction(list[i]);
       handled = true;
     }

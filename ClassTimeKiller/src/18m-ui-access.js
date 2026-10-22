@@ -48,8 +48,8 @@ Bus.on('boot', () => Access.apply());
 Bus.on('match.start', () => Access.apply());
 Bus.on('setting', (key) => { if (typeof key === 'string' && key.startsWith('accessibility.')) Access.apply(); });
 
-// The tab starts with the controls people look for here (other tabs' settings); the accessibility settings themselves follow, grouped by 18l.
-Ui.settingsExtras.accessibility = [
+// The accessibility settings come first (grouped by 18l); below them the same controls people look for here from other tabs (hold or toggle, aim assist, volume).
+Ui.settingsExtras['accessibility:after'] = [
   (container) => Access.addMirroredRows(container, 'Hold or toggle', Access.holdKeys()),
   (container) => Access.addMirroredRows(container, 'Aim assist', ACCESS_AIM_ASSIST_KEYS),
   (container) => Access.addMirroredRows(container, 'Volume and audio', ACCESS_VOLUME_KEYS),

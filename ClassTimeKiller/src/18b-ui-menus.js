@@ -120,6 +120,7 @@ function renderSettingsTab(list, category) {
       list.appendChild(Ui.row(definition.label || key, settingControl(key, definition)));
     }
   }
+  for (const addExtra of Ui.settingsExtras[category + ':after'] || []) addExtra(list);   // extras that belong below the generated rows
 }
 Ui.register('settings', {
   build(root, params) {

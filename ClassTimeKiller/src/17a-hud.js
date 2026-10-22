@@ -39,7 +39,7 @@ const HUD_PALETTES = {
   off: null,
   protanopia: { good: 0x4aa3ff, bad: 0xffb000, health: 0x4aa3ff, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
   deuteranopia: { good: 0x4aa3ff, bad: 0xffb000, health: 0x4aa3ff, healthLow: 0xffb000, teams: [0x3d8bff, 0xffb000] },
-  tritanopia: { good: 0x2ec4b6, bad: 0xff4f7b, health: 0x2ec4b6, healthLow: 0xff4f7b, teams: [0x2ec4b6, 0xff4f7b] },
+  tritanopia: { good: 0x4fe0d0, bad: 0xff4f7b, health: 0x4fe0d0, healthLow: 0xff4f7b, teams: [0x4fe0d0, 0xff4f7b] },
 };
 
 // One row per hideable element: setting hud.element.<id>. Accessibility aids are off until the player asks for them.

@@ -620,7 +620,7 @@ function hudTestBusy(measure) {
   return hudTestWith(() => {
     const scene = hudTestMatch(), undo = hudTestStubs();
     hudTestFillScene(scene);
-    for (const key of ['damageNumbers', 'itemTimers', 'captions', 'soundRing']) Settings.set('hud.element.' + key, true);
+    for (const key of ['damageNumbers', 'itemTimers', 'captions', 'soundRing', 'compass']) Settings.set('hud.element.' + key, true);
     const result = measure(scene);
     undo();
     return result;

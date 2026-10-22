@@ -156,19 +156,19 @@ Ui.register('crosshair', {
     const panel = makeElement('div', 'ui-panel ui-editor'), rows = makeElement('div', 'ui-crosshair-rows');
     const note = makeElement('p', 'ui-note', 'The preview on the right uses the same drawing as the game. A weapon override is kept separately and wins over the default.');
     const refresh = () => {
-      buildCrosshairRows(rows, refresh);
+      Ui.rebuild(rows, () => buildCrosshairRows(rows, refresh));
       remove.disabled = !CrosshairEditor.hasOverride();
     };
     const remove = Ui.button('Remove weapon override', () => { CrosshairEditor.clearOverride(); refresh(); });
     const reset = Ui.button('Reset crosshair', () => Ui.confirm({ title: 'Reset the crosshair?', text: 'The default crosshair and every weapon override return to the factory look.', yes: 'Reset', onYes: () => { CrosshairEditor.resetAll(); refresh(); } }));
     const done = Ui.button('Done', () => Ui.back(), 'primary');
-    done.dataset.autofocus = '1';
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(remove); foot.appendChild(reset); foot.appendChild(done);
     panel.appendChild(makeElement('h1', 'ui-title', 'Crosshair'));
     panel.appendChild(note); panel.appendChild(rows); panel.appendChild(foot);
     root.appendChild(panel);
     refresh();
+    rows.querySelector('button').dataset.autofocus = '1';   // the weapon choice takes the focus first
   },
   onOpen() { CrosshairEditor.open = true; },
   onClose() { CrosshairEditor.open = false; CrosshairEditor.target = ''; },
