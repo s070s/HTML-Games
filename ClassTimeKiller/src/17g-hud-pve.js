@@ -15,7 +15,8 @@ const HUD_PVE_TOUCH_NOTE_RISE = 20;      // touch: the notes rise above the ammo
 const HUD_PVE_TOUCH_NOTE_RIGHT = 0.55;   // touch: notes end left of this share of the width (the default right-hand buttons start past it)
 const HUD_PVE_NOTE_SIZE = 16, HUD_PVE_NOTE_PAD = 24, HUD_PVE_NOTE_HALF = 14;   // design units: note text size, side padding, half the panel height
 const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
-const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
+const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78, HUD_PVE_PARRY_RISE = 110;   // above the weapon bar line
+const HUD_PVE_PARRY_SECONDS = 0.6;       // the PARRIED note stays this long
 const HUD_PVE_LOW_CORE = 0.25;
 const HUD_PVE_STATE_TEXT = { shop: 'NEXT WAVE', fight: 'ENEMIES', extract: 'EXTRACT' };
 const HUD_PVE_MEDAL_STARS = ['★★★', '★★', '★'];
@@ -224,7 +225,8 @@ function hudPveBossBar(pen, layout, boss) {
     pen.rectAt(HUD_COLOR.black, 0.8);
   }
   text[0] = layout.centerX; text[1] = barY + 24 * unit; text[2] = HUD_TEXT_SMALL * unit;
-  if (boss.weakDisabled) pen.labelAt('WEAK POINT BROKEN', HUD_COLOR.gold, 'center');
+  if (boss.shielded) pen.labelAt('SHIELDED: PHASE CHANGE', HUD_COLOR.warn, 'center');
+  else if (boss.weakDisabled) pen.labelAt('WEAK POINT BROKEN', HUD_COLOR.gold, 'center');
   at[0] = barY + 34 * unit;
 }
 
@@ -348,6 +350,7 @@ function hudDrawPve(pen, layout) {
   if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
   if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
+  if (Sim.time - pve.parryAt < HUD_PVE_PARRY_SECONDS) hudPveCentreNote(pen, layout, 'PARRIED', HUD_PVE_PARRY_RISE, Hud.colors.good);
   if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve, layout.touch), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }
 
