@@ -464,6 +464,8 @@ const Input = {
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
     this.pendingButtons = 0; this.pendingSlot = 0; this.queued.fill(0); this.queuedTotal = 0;
   },
+  // Turns the local player's view (S08 teleporter exits, MOV-019): writeActor would otherwise put the old angles back.
+  setAim(yaw, pitch) { this.aim.yaw = yaw; this.aim.pitch = pitch; },
   // A new spawn or a new player actor resets the view angles to the actor's facing.
   syncAim(id) {
     const aim = this.aim;

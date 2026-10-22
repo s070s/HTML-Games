@@ -13,7 +13,7 @@ For the local player (`Game.playerId`), only while `Game.isRunning()` (playing a
 | `Actors.buttons` | `BTN` bits: held actions plus latched presses (below) |
 | `Actors.slotRequest` | 1-9 for one sim step after a slot key, else 0 |
 
-`Input.aim` `{ yaw, pitch }` holds the same angles at full precision, updated every frame before the sim steps: the renderer may use it for the local player's camera so look latency stays under one frame even when no sim step runs that frame (INP latency check).
+`Input.aim` `{ yaw, pitch }` holds the same angles at full precision, updated every frame before the sim steps: the renderer may use it for the local player's camera so look latency stays under one frame even when no sim step runs that frame (INP latency check). `Input.setAim(yaw, pitch)` turns it from the sim (S08 teleporter exits for `Game.playerId`, MOV-019).
 
 View angles resynchronise from `Actors.yaw/pitch` whenever `Actors.spawnCount[id]` changes (a mode that respawns the player must set `Actors.yaw/pitch` and bump `spawnCount`).
 

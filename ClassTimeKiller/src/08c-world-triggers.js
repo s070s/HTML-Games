@@ -145,6 +145,7 @@ function touchTeleporter(id, teleporter) {
   const horizontalSpeed = Math.hypot(Actors.vx[id], Actors.vz[id]);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
+  if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
   Actors.vx[id] = Math.sin(yaw) * horizontalSpeed; Actors.vz[id] = Math.cos(yaw) * horizontalSpeed;
   telefragAt(id);
   emitTrigger(id, teleporter);

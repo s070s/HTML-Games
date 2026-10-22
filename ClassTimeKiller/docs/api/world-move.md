@@ -59,7 +59,7 @@ A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_
 | kind | fields | effect |
 |---|---|---|
 | `jumppad` | `target: [x,y,z]`, `peak: 2` | sets the actor's velocity to a ballistic arc that tops out `peak` m above the higher of feet and target and lands on target (for the actor's own gravity) |
-| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
+| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear) and, for the local player, the view (`Input.setAim`); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
 | `ladder` | - | S10 climbs at 3.0 m/s (look down > 30 deg to descend, crouch slides down, jump pushes off) |
 | `water` | - | swim (50% ground speed, 3D) once the water reaches the capsule middle; the top is the surface; head under: 12 s of air, then `drown` requests 2, 4, 6 ... 15 HP every second; breathing refills at once |
 | `hazard` | `damage: 10` (HP/s), `element: 'thermal'` (an HP-006 element id) | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
@@ -103,7 +103,7 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.preset(id)` | the actor's preset row (per-actor override, else the match preset) |
 | `Move.setPreset(id, presetId or null)` | per-actor preset (hero kits) |
 | `Move.gravity(id)` | effective gravity m/s^2 (jump arcs, nav, bots) |
-| `Move.inaccuracy(id)` | MOV-025 degrees of extra spread (tactical: still 0, walk/slow 1.1, crouch-move 0.8, run 5, air 10, landing +3 fading over 0.3 s); 0 in other presets |
+| `Move.inaccuracy(id)` | MOV-025 degrees of extra spread (tactical: still 0, walk/slow 1.1, crouch-move 0.8, run 5, air 10, landing +3 fading over 0.3 s); other presets (WPN-003): 1 deg x speed fraction f (capped at 1, 0 standing) + 1.5 deg in the air |
 | `Move.canFire(id)` | false while sprinting, during `sprintToFire` after a sprint, mantling, shield charging or on the board (S11 adds weapon readyTime) |
 | `Move.damageScale(id)` | 0.25 while rolling (MV08), else 1 - S11 multiplies incoming damage |
 | `Move.weaponSpeedScale[id]` | written by S11 every step: weapon `moveMult` x `adsMoveMult` when aiming (default 1) |
