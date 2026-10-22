@@ -9,13 +9,13 @@
 // (gadget keys the items section grants, or ability ids of the classes ability kit).
 Data.define('economy', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, money: false, buy: 'none', startMoney: 0, maxMoney: 0, winReward: 0, lossLadder: [],
-  killReward: 0, killRewardRange: [0, 0], plantReward: 0, defuseReward: 0, buyTime: 0, buyZone: 0, carryOver: true, halfReset: true,
-  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, fieldUpgrades: [], slots: 0, rarities: [], ammoTypes: [], ladder: [], weaponStay: false, loadout: 'none',
+  killReward: 0, killRewardRange: [0, 0], plantReward: 0, defuseReward: 0, buyTime: 0, buyZone: 0, halfReset: true,
+  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, fieldUpgrades: [], rarities: [], ladder: [], loadout: 'none',
 }, [
-  { id: 'pickups', code: 'ECP01', name: 'Map Pickups', weaponStay: true },
+  { id: 'pickups', code: 'ECP01', name: 'Map Pickups' },
   { id: 'roundBuy', code: 'ECP02', name: 'Round Buy', money: true, buy: 'round', startMoney: 800, maxMoney: 9000, winReward: 3000, lossLadder: [1900, 2400, 2900],
     killReward: 200, plantReward: 300, defuseReward: 300, buyTime: 15, buyZone: 8 },
-  { id: 'loot', code: 'ECP03', name: 'Loot Rarity', slots: 5, rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'], ammoTypes: ['light', 'heavy', 'shells', 'cells', 'rockets'] },
+  { id: 'loot', code: 'ECP03', name: 'Loot Rarity', rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'] },
   { id: 'classes', code: 'ECP04', name: 'Classes and Perks', loadout: 'classes', fieldUpgrades: ['echopulse', 'cover', 'trophy', 'ammobox', 'beacon'] },
   { id: 'heroKits', code: 'ECP05', name: 'Hero Kits', loadout: 'heroes' },
   // Gun game (M16): the weapon order is the one GUNGAME_LADDER list (03f); the row names it for the help text.

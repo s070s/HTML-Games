@@ -149,6 +149,22 @@ Test.add('economy', (check) => {
   endModeTest();
 });
 
+// R-133, R-135: the Economy panel describes the economy in effect (a mode's params.economy wins); one source per economy rule.
+Test.add('economy', (check) => {
+  TestArena.start({ economy: 'classes', params: CAT.modes.byId('horde').params });
+  const horde = economyPanelLines();
+  check('economy panel: Siege Waves shows the wave shop', horde.name === 'Wave Shop' && horde.lines.some((line) => line.includes('shop between waves')) && !horde.lines.some((line) => line.includes('class')),
+    horde.lines.join(' | '));
+  TestArena.finish();
+  TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
+  check('economy panel: Arms Ladder shows the weapon ladder', economyPanelLines().lines.some((line) => line.includes('ladder of 18 weapons')));
+  TestArena.finish();
+  TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
+  check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));
+  TestArena.finish();
+  check('economy rows keep no unread or duplicate fields', ['carryOver', 'slots', 'ammoTypes', 'weaponStay'].every((field) => !(field in Data.schemas.economy)));
+});
+
 // R-028: Ghost Ops attackers buy armor and grenades only (params.attackerBuys); the defenders buy anything. Bots read the same list.
 Test.add('economy', (check) => {
   startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 30 } } });
