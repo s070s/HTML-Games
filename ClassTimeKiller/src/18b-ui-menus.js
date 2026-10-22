@@ -265,7 +265,8 @@ Ui.register('touchLayout', {
 // ---- Help pieces: the self-test run and the controls list (the Help screen itself is in 18n) ----
 function selfTestSummary(result) {
   if (!result) return '';
-  const lines = [result.failed ? 'FAILED ' + result.failed + ' of ' + result.total + ' checks' : 'All ' + result.total + ' checks passed (' + result.groups + ' groups)'];
+  const skipped = result.skipped ? ', ' + result.skipped + ' skipped' : '';
+  const lines = [result.failed ? 'FAILED ' + result.failed + ' of ' + result.total + ' checks' + skipped : 'All ' + result.passed + ' checks passed' + skipped + ' (' + result.groups + ' groups)'];
   const failures = result.results.filter((item) => !item.ok);
   for (const item of failures.slice(0, SELF_TEST_FAILURES_SHOWN)) lines.push(item.group + ' / ' + item.name + (item.detail ? ' :: ' + item.detail : ''));
   if (failures.length > SELF_TEST_FAILURES_SHOWN) lines.push('... and ' + (failures.length - SELF_TEST_FAILURES_SHOWN) + ' more');

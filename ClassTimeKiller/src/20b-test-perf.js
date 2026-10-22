@@ -554,7 +554,7 @@ Test.add('perf', (check) => {
 
 // World draw runs (PERF-004 on large maps): visible chunks next to each other in the index buffer share one draw call.
 Test.add('perf', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: world draw runs skipped', true); return; }
+  if (!Render.gl) { check.skip('world draw runs', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   Settings.set('video.quality', 'potato');
   World.load(Maps.get('isle'));
@@ -712,7 +712,7 @@ function perfMeasureHotPaths() {
 }
 
 Test.add('perf', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page (Chrome without --enable-precise-memory-info): allocation probes skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('allocation probes', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
   const bytes = perfMeasureHotPaths();
   check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
   check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);

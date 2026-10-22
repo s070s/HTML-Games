@@ -54,7 +54,7 @@ const Ui = {
   toastBox: null, playBox: null,
   botDebug: false,            // F9 / Options > Developer: later sections draw their bot overlay while true
   perfVisible: false,
-  selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
+  selfTestRunner: null,       // set by S20: async (options) => { total, passed, failed, skipped, results[] }
   lastSelfTest: null,
   pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab

@@ -712,7 +712,7 @@ const PVE_PROBE_LASER_LENGTH = 10;   // m: a box longer than any enemy part is t
 // PERF-006: drawing enemies with their champion ring, element shield, awareness mark, heal beam and laser tell allocates
 // nothing per frame.
 Test.add('pve', (check) => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('PvE drawing allocation probe', 'no exact heap counter on this page'); return; }
   World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
   startPveTest();
   const chance = PVE_CHAMPION_RULES.shieldElementChance;

@@ -117,7 +117,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // PERF-006: drawing every body model allocates nothing per frame.
 Test.add('render', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the body model allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('body model allocation probe', 'no exact heap counter on this page'); return; }
   placeCamera(0, 1.6, 0, 0, 0);
   CAT.actorModels.forEach((row, index) => {
     const id = makeTestActor(ACTOR_KIND.BOT, index % 2, (index % 6) - 3, 4 + Math.floor(index / 6) * 2);

@@ -410,7 +410,13 @@ Test.add('ui', async (check) => {
     const output = Ui.top().element.querySelectorAll('.ui-result')[1];
     check('help: running the self-test shows the result and the failures', output.textContent.startsWith('FAILED 1 of 5 checks') && output.textContent.includes('demo / broken check :: was 1'), output.textContent);
     check('help: the self-test runs headless so the live game is untouched', Ui.lastSelfTest.headless === true);
-    check('help: a passing run says so', selfTestSummary({ total: 9, failed: 0, groups: 3, results: [] }) === 'All 9 checks passed (3 groups)');
+    check('help: a passing run says so', selfTestSummary(Test.tally(Array.from({ length: 9 }, () => ({ ok: true })), 3)) === 'All 9 checks passed (3 groups)');
+    // R-160: a skipped probe is not a pass
+    const rows = [], probe = Test.checker('demo', rows);
+    probe('ran', true); probe.skip('gpu probe', 'no WebGL2'); probe('broke', false, 'x');
+    const tally = Test.tally(rows, 1);
+    check('help: skipped probes are counted apart from passes', tally.total === 3 && tally.passed === 1 && tally.skipped === 1 && tally.failed === 1 && rows[1].detail === 'no WebGL2', JSON.stringify(tally));
+    check('help: the summary lists skips', selfTestSummary(Test.tally(rows.slice(0, 2), 1)) === 'All 1 checks passed, 1 skipped (1 groups)', selfTestSummary(Test.tally(rows.slice(0, 2), 1)));
     const many = { total: 30, failed: 12, groups: 1, results: Array.from({ length: 12 }, () => ({ ok: false, group: 'g', name: 'n', detail: '' })) };
     check('help: a long failure list is cut', selfTestSummary(many).split('\n').length === SELF_TEST_FAILURES_SHOWN + 2 && selfTestSummary(many).endsWith('... and 4 more'));
     Ui.closeAll();

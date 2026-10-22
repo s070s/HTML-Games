@@ -140,7 +140,7 @@ Test.add('models', (check) => {
 
 // PERF-006: drawing models allocates nothing once compiled (integer arguments only, one reused pose).
 Test.add('models', (check) => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the model allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('model allocation probe', 'no exact heap counter on this page'); return; }
   const pose = makeModelPose(), list = GEAR_MODELS.list;
   const bytes = perfAllocatedBytes((i) => {
     if (i % 16 === 0) propBatch.clear();

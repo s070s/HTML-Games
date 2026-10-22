@@ -580,7 +580,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // PERF-006: drawing models (view model, held weapons, pickups, projectiles) allocates nothing once compiled.
 Test.add('render', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the model drawing allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('model drawing allocation probe', 'no exact heap counter on this page'); return; }
   const weapons = WeaponModels.weapon, ids = CAT.weapons.map((weapon) => weapon.id), instance = makeShapeInstance(), state = viewModelState;
   Object.assign(actorPose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
   Object.assign(actorStyle, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
@@ -631,7 +631,7 @@ Test.add('render', (check) => {
 
 // ---- GPU frame: budgets, render scale, direct mode (needs a WebGL2 context) ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl, result = DebugApi.renderDemo('glacier');
   const quality = Render.quality;
   check('demo frame within the draw-call cap', result.stats.drawCalls > 0 && result.stats.drawCalls <= quality.drawCalls, result.stats.drawCalls);
@@ -657,7 +657,7 @@ Test.add('render', (check) => withRenderer(() => {
 Test.add('render', (check) => withRenderer(async () => {
   check('the WebGL2 screen has an iPhone line', /iOS.*Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
-  if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
+  if (!extension) { check.skip('context-loss checks', 'no WEBGL_lose_context'); return; }
   World.load(makeDemoArena('station'));
   let toasts = 0;
   const listener = Bus.on('toast', () => { toasts++; });
@@ -796,7 +796,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- GPU: sun shadow pass only on presets with shadows 'sun', Potato memory, failed restore ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   DebugApi.renderDemo('ruins');
   Settings.set('video.quality', 'high');
@@ -821,7 +821,7 @@ Test.add('render', (check) => withRenderer(() => {
 }));
 
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  if (!Render.gl) { check.skip('restore-failure check', 'no WebGL2 context on this page'); return; }
   const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
   Render.gpuParts.push(failing);
   const logged = Test.expectErrors(() => handleContextRestored());
