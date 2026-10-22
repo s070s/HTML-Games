@@ -23,7 +23,7 @@ Every map is one `maps` catalogue row in the map format of `ARCHITECTURE.md`; `W
 | MP11 | `chambers` | Test Chambers | 80x60 | glacier | puzzle | puzzle | 70 | 12/0/0 | 0 | 12 | 12 | 9 |
 | MP12 | `manor` | Ash Manor | 90x90 | ruins | pve | contract | 75 | 0/6/10 | 4 | 2 | 12 | 1 |
 
-MP09 is a hand-built stand-in marked `placeholder: true`; generator GN5 (step 13.1) replaces it. MP11 has twelve rooms that teach ramps, stairs, ladder, pads,
+MP09 is a hand-built stand-in marked `placeholder: true`; every match on it plays the GN5 island instead (docs/api/mapgen.md "MP09 Ring Isle"). MP11 has twelve rooms that teach ramps, stairs, ladder, pads,
 teleporters, acid and a kill zone; the puzzle objects of MAP-030 (buttons, cubes, gates, lasers) arrive with step 14.4.
 
 ## Map row (catalogue `maps`)
