@@ -99,7 +99,11 @@ hint `[kind, x,y,z]`. `MapKit.make(def)` expands them; `MapKit.wall(material, ax
 
 ## Validator (`Maps.validate`, hook `__CTK.map.check(id)` -> problems, `__CTK.map.report(id)` -> `{ problems, stats }`, `__CTK.map.list()`)
 
-Problems read `rule: text`. Rules: `structure brush budget light` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
+Form rules (one checker for every map row: hand-made, generated, and the editor's saved maps and codes): `MapCheck.headerProblems(map)` (id, name, size, theme, category, sky, known modes;
+keys are own keys of `MapRules`, never inherited names such as `__proto__`) and one rule per row, `brushProblem triggerProblem lightProblem itemKeyProblem objectiveKeyProblem hintKeyProblem
+propProblem` (each `''` or the text). `MapCheck.formProblem(map)` = the first of them; the validator reports each one under its rule and adds the design limits.
+
+Problems read `rule: text`. Rules: `structure brush budget light props` (shape, min < max, materials, bounds, ramp slope <= 40 deg, <= 450 brushes, <= 24 lights, prop boxes), `spawn spawn-count spawn-spread spawn-safety spawn-facing`,
 `items` (known keys and groups, floor under every item, 2 m apart, power items 20 m apart, one top item per zone, exposed power items, distance balance between teams, no spawn nearest to more than 50% of the top
 items = the MAP-005 target), `objectives` (per mode, on a floor, reachable), `hints`, `zones` (names, every point and 97% of the walkable area covered), `lights` (every zone that is mostly indoors holds a light),
 `triggers` (fields; a pad has floor to stand on, its target is a walkable cell at least 0.4 m inside its floor and in the main play space, and the arc from every start cell of the box is free of geometry

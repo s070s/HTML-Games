@@ -50,8 +50,6 @@ const mapEditNamesZone = (text, name) => text.includes('zone ' + name + ' ') || 
 const mapEditClone = (value) => JSON.parse(JSON.stringify(value));
 const mapEditFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= MAPEDIT_COORD_LIMIT;
 const mapEditTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(mapEditFinite);
-const mapEditOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);   // never an inherited name such as __proto__
-const mapEditColor = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffff;
 const mapEditNameOf = (text) => cleanLabel(text || '', MAPEDIT_NAME_MAX);
 const mapEditAdd3 = (point, dx, dy, dz) => { point[0] += dx; point[1] += dy; point[2] += dz; };
 
@@ -354,7 +352,7 @@ const MapEditor = {
     return true;
   },
   setSize(width, height, depth) { return this.setMeta('size', [width, height, depth === undefined ? this.map.size[2] : depth]); },
-  setCategory(category) { return mapEditOwn(MapRules.sightLimits, category) && this.setMeta('category', category); },
+  setCategory(category) { return mapOwnKey(MapRules.sightLimits, category) && this.setMeta('category', category); },
   setModes(modes) { return this.setMeta('modes', modes.slice()); },
 
   // ---- Modes the map can serve ----
@@ -488,7 +486,8 @@ const MapEditor = {
     delete map.v;
     map.name = mapEditNameOf(map.name) || 'Untitled';
     for (const zone of map.zones) zone.name = mapEditNameOf(zone.name) || 'Zone';
-    return { map };
+    const problem = MapCheck.formProblem(map);
+    return problem ? { error: 'The code holds an invalid map: ' + problem + '.' } : { map };
   },
   // The text codes (export, import) are MapEditorShare in 18i-ui-mapeditor.js: they use the custom match codec of the UI section.
 
@@ -641,14 +640,15 @@ const MapEditor = {
 
 const mapEditEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
 
-// Why a parsed code is not a map this version can hold, or '' when it is fine. Every number and key is checked: a code is untrusted text.
+// Why a parsed code is not a map this version can hold, or '' when it is fine. A code is untrusted text: every number, list and text type is
+// checked here; the keys and kinds (theme, category, modes, materials, item keys, trigger, objective and hint kinds) are the validator's form
+// rules, which expand() runs on the built row (MapCheck.formProblem, one checker for every map).
 function mapEditProblemWith(def) {
   if (!isPlainObject(def) || def.v !== MAPEDIT_CODE_VERSION) return 'The code holds no map of this version.';
   if (typeof def.name !== 'string' || !Array.isArray(def.size) || def.size.length !== 3 || !def.size.every((n) => mapEditFinite(n) && n >= MAPEDIT_SIZE_RANGE[0] && n <= MAPEDIT_SIZE_RANGE[1])) return 'The map size is invalid.';
-  if (!MapRules.themes.includes(def.theme) || !mapEditOwn(MapRules.sightLimits, def.category)) return 'The map theme or category is unknown.';
-  if (!isPlainObject(def.sky) || !mapEditColor(def.sky.top) || !mapEditColor(def.sky.horizon) || !mapEditTriple(def.sky.sun)
-    || (def.sky.fog !== undefined && !mapEditColor(def.sky.fog)) || (def.sky.fogFar !== undefined && !mapEditFinite(def.sky.fogFar))) return 'The sky is invalid.';
-  if (!Array.isArray(def.modes) || !def.modes.every((mode) => mapEditOwn(MapRules.modes, mode))) return 'The mode list is invalid.';
+  if (!isPlainObject(def.sky) || !mapColorIs(def.sky.top) || !mapColorIs(def.sky.horizon) || !mapEditTriple(def.sky.sun)
+    || (def.sky.fog !== undefined && !mapColorIs(def.sky.fog)) || (def.sky.fogFar !== undefined && !mapEditFinite(def.sky.fogFar))) return 'The sky is invalid.';
+  if (!Array.isArray(def.modes) || !mapEditStrings(def.modes)) return 'The mode list is invalid.';
   for (const key of ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints']) if (!Array.isArray(def[key])) return 'The ' + key + ' list is missing.';
   if (def.props !== undefined && !Array.isArray(def.props)) return 'The props list is invalid.';   // codes made before props have none
   const props = def.props || [];
@@ -663,13 +663,14 @@ const MAPEDIT_OBJECTIVE_KEYS = ['team', 'radius', 'path', 'modes', 'id', 'kind',
 const MAPEDIT_TRIGGER_KEYS = ['kind', 'min', 'max', 'target', 'peak', 'exit', 'yaw', 'damage', 'element'];
 const MAPEDIT_SKY_KEYS = ['top', 'horizon', 'fog', 'fogFar', 'sun'];
 const MAPEDIT_PROP_KEYS = ['min', 'max', 'health', 'material', 'mass', 'debris', 'color'];   // the S08 prop row (PROP_FIELDS)
-// A breakable prop box: min and max corners, the optional numbers finite, the material a known one.
+// A breakable prop box: min and max corners and the optional numbers finite, the material a text (the form rule knows the materials).
 const mapEditPropIs = (prop) => isPlainObject(prop) && mapEditTriple(prop.min) && mapEditTriple(prop.max)
-  && [prop.health, prop.mass, prop.debris, prop.color].every(mapEditOptionalNumber) && (prop.material === undefined || MapRules.materials.includes(prop.material));
+  && [prop.health, prop.mass, prop.debris, prop.color].every(mapEditOptionalNumber) && mapEditOptionalText(prop.material);
 const MAPEDIT_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
 const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || MAPEDIT_NAME_MAX) : fallback);
 const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= MAPEDIT_NAME_MAX);
 const mapEditOptionalNumber = (value) => value === undefined || mapEditFinite(value);
+const mapEditOptionalText = (value) => value === undefined || typeof value === 'string';
 // A copy of an object with only the listed keys, in their own order (a key such as __proto__ never survives).
 function mapEditKeep(object, keys) {
   const kept = {};
@@ -688,19 +689,19 @@ function mapEditCleanDef(def) {
   return clean;
 }
 const MAPEDIT_ROW_CHECKS = {
-  brushes: (row) => mapEditRowIs(row, 7, [0], [1, 2, 3, 4, 5, 6]) && row.length <= 8 && MapRules.materials.includes(row[0]) && (row.length === 7 || ['+x', '-x', '+z', '-z'].includes(row[7])),
+  brushes: (row) => mapEditRowIs(row, 7, [0], [1, 2, 3, 4, 5, 6]) && row.length <= 8 && (row.length === 7 || typeof row[7] === 'string'),
   spawns: (row) => Array.isArray(row) && [-1, 0, 1].includes(row[0]) && Array.isArray(row[1]) && mapEditStrings(row[1]) && Array.isArray(row[2])
     && row[2].every((p) => Array.isArray(p) && p.length === 4 && p.every(mapEditFinite)),
-  items: (row) => mapEditRowIs(row, 4, [0], [1, 2, 3]) && MapRules.groupOf(row[0]) !== '' && (row.length === 4 || (Array.isArray(row[4]) && mapEditStrings(row[4]))),
-  objectives: (o) => isPlainObject(o) && typeof o.id === 'string' && MapRules.objectiveKinds.includes(o.kind) && [o.x, o.y, o.z, o.radius].every(mapEditFinite)
+  items: (row) => mapEditRowIs(row, 4, [0], [1, 2, 3]) && (row.length === 4 || (Array.isArray(row[4]) && mapEditStrings(row[4]))),
+  objectives: (o) => isPlainObject(o) && [o.x, o.y, o.z, o.radius].every(mapEditFinite)
     && [o.team, o.stage].every(mapEditOptionalNumber) && (o.path === undefined || (Array.isArray(o.path) && o.path.every(mapEditTriple)))
     && (o.modes === undefined || (Array.isArray(o.modes) && mapEditStrings(o.modes))) && (o.checkpoints === undefined || (Array.isArray(o.checkpoints) && o.checkpoints.every(mapEditFinite))),
   zones: (row) => mapEditRowIs(row, 7, [0], [1, 2, 3, 4, 5, 6]),
-  triggers: (t) => isPlainObject(t) && MapRules.triggerKinds.includes(t.kind) && mapEditTriple(t.min) && mapEditTriple(t.max)
+  triggers: (t) => isPlainObject(t) && mapEditTriple(t.min) && mapEditTriple(t.max)
     && (t.target === undefined || mapEditTriple(t.target)) && (t.exit === undefined || mapEditTriple(t.exit)) && [t.peak, t.yaw, t.damage].every(mapEditOptionalNumber)
-    && (t.element === undefined || MapRules.elements.includes(t.element)),
-  lights: (row) => mapEditRowIs(row, 5, [], [0, 1, 2, 4]) && mapEditColor(row[3]),
-  hints: (row) => mapEditRowIs(row, 4, [0], [1, 2, 3]) && MapRules.hintKinds.includes(row[0]),
+    && mapEditOptionalText(t.element),
+  lights: (row) => mapEditRowIs(row, 5, [], [0, 1, 2, 4]),
+  hints: (row) => mapEditRowIs(row, 4, [0], [1, 2, 3]),
 };
 
 // Sky colours and sun direction for a theme row (CAT.themes): the numbers a map row carries.

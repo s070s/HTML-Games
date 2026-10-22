@@ -12,6 +12,11 @@ const MAPEDIT_CODE_PREFIX = 'CTKEDIT';       // not the generator's CTKMAP setti
 const MAPEDIT_CODE_MAX_CHARS = 60000;        // a longer text is refused before anything is decoded
 const MAPEDIT_CODE_MAX_BYTES = 262144;       // the unpacked JSON may not be larger than this
 const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VERSION, 0, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
+// Codes of the first editor version: the same framing and v1 rows (without the later props list, which expand() reads as empty) under the
+// prefix CTKMAP, since then given to the generator's settings codes (16w). They are still read; new codes always use MAPEDIT_CODE_PREFIX.
+const MAPEDIT_LEGACY_CODE_PREFIX = 'CTKMAP';
+const MAPEDIT_LEGACY_CODE_VERSION = 1;
+const MAPEDIT_LEGACY_CODE_FORMAT = shareCodeFormat(MAPEDIT_LEGACY_CODE_PREFIX, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
 const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 // Parts of the editor screen a change of the model has to redraw (see MapEditorUi.mark).
@@ -365,7 +370,7 @@ const MapEditorShare = {
   exportCode(map) { return CustomCodec.packCode(MAPEDIT_CODE_FORMAT, MapEditor.compact(map || MapEditor.map)); },
   // text -> { map } or { error } with a message for the player. Nothing is changed.
   decodeCode(text) {
-    const unpacked = CustomCodec.unpackCode(MAPEDIT_CODE_FORMAT, text);
+    const unpacked = CustomCodec.unpackCode(this.formatOf(text), text);
     if (unpacked.error) return unpacked;
     try {
       return MapEditor.expand(unpacked.object);
@@ -373,6 +378,8 @@ const MapEditorShare = {
       return { error: SHARE_CODE_UNREADABLE };
     }
   },
+  // The format of a pasted text: a first-version code (CTKMAP1-...) is read with its own prefix, anything else as a current code.
+  formatOf(text) { return MAPEDIT_LEGACY_CODE_FORMAT.pattern.test(CustomCodec.cleanCode(text)) ? MAPEDIT_LEGACY_CODE_FORMAT : MAPEDIT_CODE_FORMAT; },
   importCode(text) {
     const result = this.decodeCode(text);
     if (result.error) return result;

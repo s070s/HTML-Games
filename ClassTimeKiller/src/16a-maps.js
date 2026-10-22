@@ -4,6 +4,10 @@
 // authoring helpers the map files use to write brushes, spawns, items and zones compactly. The scan and the validator are in
 // 16s-maps-scan.js and 16v-maps-validate.js; the maps in 16b..16e; Data.define('maps') is in 16f.
 
+// A key the table holds itself (never an inherited name such as __proto__ or constructor): mode, category and other key lookups.
+const mapOwnKey = (table, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key);
+const mapColorIs = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffff;   // a 0xRRGGBB map colour
+
 // One place for every number and key list the map validator and the map files share.
 const MapRules = {
   version: 1,
@@ -51,7 +55,7 @@ const MapRules = {
     for (const group in this.itemKeys) if (this.itemKeys[group].includes(key)) return group;
     return '';
   },
-  rule(mode) { return this.modes[mode] || null; },
+  rule(mode) { return mapOwnKey(this.modes, mode) ? this.modes[mode] : null; },
 };
 
 // Per-map lookup tables built once on first use (spawn lists per mode and team, zones sorted by volume). They are keyed by the row object:
