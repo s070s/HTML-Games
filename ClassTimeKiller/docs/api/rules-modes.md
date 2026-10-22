@@ -83,7 +83,7 @@ Lifecycle: `match.start` -> participants created (`Actors.create`, `Game.playerI
 | Mode | Rules implemented |
 |---|---|
 | `ffa`, `tdm`, `duel` | defaults: frag/score and time limits, sudden death; duel: 2 active players, others queued, no frag limit |
-| `lms` | 3 lives; ranked by lives left, then score |
+| `lms` | 3 lives; ranked by lives left, then score; every spawn gets the whole weapon set at full reserve and 100 armor (`params.allWeapons`, `maxAmmo`, `startArmor`); only the boots spots stay (`params.pickups: 'springboots'`) |
 | `ctf` | touch the enemy flag to take it; capture at your own flag while it is home; dropped flags return after `returnTime` s or on a teammate's touch |
 | `oneflag` | neutral flag, deliver to the enemy `flagBase` |
 | `dom` | `updateCapture` per point; +`tickPoints` per held point every `tickInterval` s |

@@ -15,7 +15,18 @@ Modes.register('duel', {});
 
 Modes.register('lms', {
   score(index) { return Math.max(0, Modes.lives[index]) * LMS_LIFE_WEIGHT + Modes.score[index]; },
+  // M15: every spawn brings the whole weapon set (params.allWeapons) at full reserve (params.maxAmmo) and params.startArmor.
+  onSpawn(id) {
+    const params = Modes.rules.params;
+    if (params.allWeapons) giveWholeSet(id, params.maxAmmo);
+    if (params.startArmor) Actors.armor[id] = Math.max(Actors.armor[id], params.startArmor);
+  },
 });
+function giveWholeSet(id, fullReserve) {
+  Weapons.setLoadout(id, currentWeaponSet().weapons);
+  if (!fullReserve) return;
+  for (let w = 0; w < WEAPON_COUNT; w++) if (Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.addWeaponAmmo(id, CAT.weapons[w], Weapons.maxReserve(id, CAT.weapons[w]));
+}
 
 // ---- M04 Flag Raid and M05 Lone Flag: params.neutral picks the one-flag rules ----
 const FLAG_BEHAVIOUR = {

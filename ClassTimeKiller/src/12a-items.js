@@ -82,10 +82,14 @@ function itemFxOn(key) {
   return !!fx && !!fx[key];
 }
 // Map item spots exist unless the ruleset removes every pickup (rules.items === false, X08 noItems) or the mode places its
-// own (params.pickups === false: roulette, royale loot).
+// own (params.pickups === false: roulette, royale loot). params.pickups = a pickup key keeps only that pickup (M15 boots).
 function mapItemsAllowed() {
   const params = itemRule('params', null);
   return itemRule('items', true) !== false && !itemFxOn('noItems') && !(params && params.pickups === false);
+}
+function onlyPickup() {
+  const params = itemRule('params', null);
+  return params && typeof params.pickups === 'string' ? params.pickups : '';
 }
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
 // A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
@@ -144,9 +148,11 @@ const Items = {
     this.clear();
     this.matchSetCursor = 0;
     if (!mapItemsAllowed()) return;
+    const only = onlyPickup();
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
+      if (only && entry.item !== only) continue;
       this.addSpot(entry);
     }
   },

@@ -5,7 +5,7 @@
 // rounds: { winsNeeded, limit (max rounds), live (s, 0 = none), freeze (s), switchAt (rounds before the side switch), endDelay (s) }.
 // respawn: normal (ruleset respawn timers) | round (only at round start) | none.
 // rules: ruleset defaults set at the first build stage (MOV-001); a bundle that writes the same field wins.
-// params: numbers read by the mode behaviour; params.economy names an economy the mode brings itself (it wins over
+// params: numbers read by the mode behaviour (params.pickups: false = no map pickups, a pickup key = only that pickup's spots); params.economy names an economy the mode brings itself (it wins over
 // rules.economy, because every bundle writes an economy).
 // Times are seconds; values marked T in the spec are tunable starting values.
 
@@ -38,7 +38,7 @@ Data.define('modes', {
   { id: 'control', code: 'M12', name: 'Uplink', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
   { id: 'bomb', code: 'M13', name: 'Detonate', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'elim', code: 'M14', name: 'Last Squad', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
-  { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'boots' } },
+  { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 18, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },

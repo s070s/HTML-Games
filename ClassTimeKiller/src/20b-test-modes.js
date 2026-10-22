@@ -292,6 +292,16 @@ Test.add('modes', (check) => {
   check('lms: rank by lives first, then score', Modes.rankOf(2) === 1 && Modes.rankOf(0) === 2 && Modes.rankOf(1) === 3, [0, 1, 2].map((id) => Modes.rankOf(id)).join());
   endModeTest();
 
+  const lmsItems = [{ x: 5, y: 0, z: 5, item: 'healthpack' }, { x: 9, y: 0, z: 5, item: 'springboots' }];
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1]);
+  Items.load(lmsItems, 'lms');
+  const set = currentWeaponSet().weapons, lastWeapon = CAT.weapons.byId(set[set.length - 1]);
+  const armed = set.every((key) => Weapons.owned[Weapons.slotIndex(0, CAT.weapons.byId(key).index)]);
+  const fullReserve = Weapons.reserve[Weapons.slotIndex(0, lastWeapon.index)] === Weapons.maxReserve(0, lastWeapon);
+  check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
+  check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
+  endModeTest();
+
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
   check('lms: out of lives means no respawn', !Actors.alive[1] && Modes.lives[1] === 0 && Modes.respawnIn(1, Sim.time) === -1);
