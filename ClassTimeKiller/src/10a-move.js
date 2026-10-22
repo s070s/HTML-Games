@@ -172,7 +172,7 @@ function groundWishSpeed(id, preset) {
   if (Motion.board[id]) speed = SKIMMER_SPEED;
   else if (getClock(id, CLOCK.TAC_SPRINT) > 0) speed = preset.tacSprintSpeed;
   else if (Motion.sprinting[id]) speed = preset.sprintSpeed;
-  const stance = Motion.stance[id];
+  const stance = Actors.flags[id] & ACTOR_FLAG.DOWNED ? STANCE.STAND : Motion.stance[id];   // HP-007: S11's DOWNED_SPEED alone sets the crawl
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
   else if (Actors.buttons[id] & BTN.WALK) speed *= preset.walkMult;
@@ -384,7 +384,8 @@ function capHorizontalSpeed(id, cap) {
 function updateStance(id, preset) {
   if ((Actors.pressed[id] & BTN.PRONE) && preset.proneMult > 0) Motion.proneWanted[id] = Motion.proneWanted[id] ? 0 : 1;
   const crouching = (Actors.buttons[id] & BTN.CROUCH) !== 0 || Motion.sliding[id] === 1;
-  let wanted = Motion.proneWanted[id] && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
+  const lying = Motion.proneWanted[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0;   // HP-007: the downed crawl prone
+  let wanted = lying && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
   if (Motion.board[id] || Motion.state[id] === MOVE_STATE.SWIM || Motion.state[id] === MOVE_STATE.LADDER) wanted = STANCE.STAND;
   const current = Motion.stance[id];
   if (wanted === current) return;
