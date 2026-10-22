@@ -38,7 +38,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; col
 window.onerror = function (message, source, line, column, error) {
   if (window.__CTK) return false;
   document.getElementById('fatal-text').textContent = 'The game failed to load. Reload the page; if it keeps happening, update your browser.';
-  document.getElementById('fatal-detail').textContent = String(error && error.stack || message);
+  /* The message first: WebKit (iOS) and Firefox stacks hold frames only. */
+  document.getElementById('fatal-detail').textContent = String(message) + (error && error.stack ? '\n' + error.stack : '');
   document.getElementById('fatal').classList.add('show');
   return false;
 };

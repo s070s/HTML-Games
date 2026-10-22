@@ -88,17 +88,40 @@ const Mat4 = {
 };
 
 // ---- Error ring (ARC-041): every caught error lands here; the perf HUD and __CTK.log.errors() read it ----
+const ERROR_STACK_FRAMES = 2;   // stack frames kept after the 'Name: message' line
+// 'Name: message | frame | frame'. Chromium stacks start with the 'Name: message' line, WebKit (iOS) and Firefox stacks hold
+// frames only, so the message is always written first and a stack line that repeats it is skipped (R-007).
+function errorText(error) {
+  if (!error || typeof error.message !== 'string') return String(error);
+  const head = (error.name || 'Error') + ': ' + error.message;
+  let stack = error.stack ? String(error.stack) : '';
+  if (stack.startsWith(head)) stack = stack.slice(head.length);
+  const frames = stack.split('\n').map((line) => line.trim()).filter((line) => line !== '').slice(0, ERROR_STACK_FRAMES);
+  return [head].concat(frames).join(' | ');
+}
 const ErrorLog = {
   size: 50,
   entries: [],
-  total: 0,               // entries ever added (the list keeps only the last `size`)
+  total: 0,               // errors ever added, repeats included (the list keeps only the last `size`)
+  first: '',              // the first error of the session: the root cause stays readable after the ring has moved on
+  lastText: '',           // the newest entry before its repeat count, and the list length when it was added
+  lastLength: 0,
+  repeats: 1,
   add(where, error) {
-    const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    const text = where + ': ' + errorText(error);
     this.total++;
+    if (!this.first) this.first = text;
+    // The same error again (a system that throws every step): count it on the newest entry instead of flooding the ring (R-164).
+    if (text === this.lastText && this.entries.length === this.lastLength) {
+      this.repeats++;
+      this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';
+      return;
+    }
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
+    this.lastText = text; this.lastLength = this.entries.length; this.repeats = 1;
   },
-  // The entries added after ErrorLog.total was `count` (the kept ones).
+  // The entries added or repeated after ErrorLog.total was `count` (the kept ones).
   since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 

@@ -102,6 +102,18 @@ Test.add('core', (check) => {
   let newer = [];
   Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
   check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+  // R-007: WebKit and Firefox stacks hold frames only, Chromium's start with the message; both keep the message once.
+  const framesOnly = errorText({ name: 'TypeError', message: 'boom', stack: 'parse@file:1:2\nload@file:3:4\nrun@file:5:6' });
+  const chromium = errorText({ name: 'Error', message: 'boom', stack: 'Error: boom\n    at parse (file:1:2)\n    at load (file:3:4)' });
+  check('errors: the message is kept on every engine', framesOnly === 'TypeError: boom | parse@file:1:2 | load@file:3:4' && chromium === 'Error: boom | at parse (file:1:2) | at load (file:3:4)', framesOnly + ' / ' + chromium);
+  // R-164: an error repeated every step is counted on one entry, so the root cause stays in the ring.
+  let flood = [];
+  const floodAdded = Test.expectErrors(() => {
+    ErrorLog.add('test', 'root cause');
+    for (let i = 0; i < 200; i++) ErrorLog.add('test', 'every step');
+    flood = ErrorLog.entries.slice(-2);
+  });
+  check('errors: 200 identical errors keep the earlier entry and a count', floodAdded === 2 && flood[0] === 'test: root cause' && flood[1] === 'test: every step (x200)' && ErrorLog.first !== '', flood.join(' / '));
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
