@@ -3891,8 +3891,7 @@ const FLORA_REED_P = 0.7;           // ... at the shore
 const FLORA_KELP_P = 0.35;          // ... in shallow water
 const FLORA_BAKE_VERTS = 6000;      // full-detail chunk mesh vertices baked per frame (about 0.3 ms)
 const FLORA_WANTS = 32;             // most chunks asking for a full mesh in one frame
-const FLORA_CELL_BUDGET = 2;        // cover cells grown per frame ...
-const FLORA_BURST = 48;             // ... except for this many at the start of a battle, grown 8 per frame
+const FLORA_CELL_BUDGET = 1;        // cover cells grown per frame (about 0.2 ms each), except every cell in reach on the first
 const FLORA_REACH = Chunks.SIZE * 0.7;   // a chunk counts as near while its middle is within floraNear + this
 const FLORA_FREE = 260;             // a full-detail mesh is dropped once its chunk is this much farther still (m)
 const FLORA_SNOW = [0.93, 0.95, 0.99];
@@ -4238,7 +4237,7 @@ const Flora = {
      roads, corridors and structures). Trees and bushes are planted now, cover per cell later (growCell). */
   build(cfg, free) {
     const m = W.map, f = m.flora, seed = Math.imul((cfg.seed || 7) >>> 0, 7919) + FLORA_SEED >>> 0;
-    W.flora = { f, free, seed, mseed: Math.round(m.seed * 1000) + seed % 9973, pools: this.pools(f, m.biome), cells: new Array(FLORA_CELLS * FLORA_CELLS).fill(null), near: [], burst: FLORA_BURST, started: false, trees: 0, bushes: 0 };
+    W.flora = { f, free, seed, mseed: Math.round(m.seed * 1000) + seed % 9973, pools: this.pools(f, m.biome), cells: new Array(FLORA_CELLS * FLORA_CELLS).fill(null), near: [], burst: true, started: false, trees: 0, bushes: 0 };
     this.job.c = null;
     for (const s of W.plain) if (s.type === 'tree' && !s.plant) this.adopt(s);
     const rng = makeRng(seed);
@@ -4534,7 +4533,8 @@ const Flora = {
     if (up > q.coverR) return;
     const reach = Math.sqrt(q.coverR * q.coverR - Math.max(0, up) * up), lim = reach + FLORA_CELL * 0.71, off = this.offsets();
     const ci = Math.floor((cam.x + WORLD_HALF) / FLORA_CELL), cj = Math.floor((cam.z + WORLD_HALF) / FLORA_CELL);
-    let total = 0, grow = F.burst > 0 ? 8 : FLORA_CELL_BUDGET;
+    let total = 0, grow = F.burst ? Infinity : FLORA_CELL_BUDGET;
+    F.burst = false;
     R.beginBatch('flora');
     const B = R.bake;
     for (let k = 0; k < off.length; k += 3) {
@@ -4544,7 +4544,7 @@ const Flora = {
       let cell = F.cells[i * FLORA_CELLS + j];
       if (!cell) {
         if (grow <= 0) continue;
-        grow--; F.burst--;
+        grow--;
         cell = this.growCell(i, j);
       }
       if (!cell.n) continue;
@@ -17497,7 +17497,7 @@ const SelfTest = {
           Flora.frame();
           Flora.bakeNear(c);
           const baked = c.plants.filter((p) => p.nearN > 0), trees = baked.filter((p) => p.s).length;
-          W.flora.burst = 1e9;
+          W.flora.burst = true;
           Flora.drawCover();
           let cover = 0;
           for (const name of INST_SHAPES) cover += R.batches.flora.inst[name].n;
