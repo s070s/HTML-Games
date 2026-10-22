@@ -397,16 +397,51 @@ Test.add('render', (check) => withRenderer(() => {
   for (let i = 0; i < 4; i++) updateStepDown(1);
   check('no step-down before 5 s under 60 fps', Render.quality.id === 'high');
   updateStepDown(1);
-  check('5 s under 60 fps lowers one preset and toasts', Settings.get('video.autoQuality') === 'medium' && toast.includes('Medium'), toast);
+  check('5 s under 60 fps lowers one preset for this session and toasts', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high' && toast.includes('Medium'), toast);
   Settings.set('video.autoLower', false);
   for (let i = 0; i < 6; i++) updateStepDown(1);
   check('the option turns the step-down off', Render.quality.id === 'medium');
   Settings.set('video.quality', 'potato');
   check('no step below Potato', !lowerQualityStep());
   Settings.set('video.quality', 'high');
-  check('an explicit preset steps down itself', lowerQualityStep() && Settings.get('video.quality') === 'medium');
+  check('an explicit preset steps down itself, unsaved', lowerQualityStep() && Render.quality.id === 'medium' && Settings.get('video.quality') === 'high');
   Bus.off('toast', listener);
   ScaleControl.smoothedMs = FRAME_BUDGET_MS;
+}));
+
+// PERF-013 on a 30 Hz phone (iOS Low Power Mode, no GPU timer): match frames at 30 Hz with an idle CPU are the display's
+// pace, not slowness. A real slowdown still steps down, for this session only: the saved preset is retried next launch.
+function feedMatchFrames(frameMs, cpuMs, seconds) {
+  for (let frame = 0; frame < seconds * 1000 / frameMs; frame++) {
+    Perf.cpuMs[Perf.lastIndex()] = cpuMs;
+    updateRenderScale(frameMs / 1000);
+    updateStepDown(frameMs / 1000);
+  }
+}
+function resetMatchPacing() {
+  Object.assign(DisplayRate, { count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 });
+  Render.size.scale = 1; ScaleControl.smoothedMs = FRAME_BUDGET_MS; resetScaleCeiling(ScaleControl); StepDown.slowSeconds = 0;
+}
+Test.add('render', (check) => withRenderer(() => {
+  const savedRate = Object.assign({}, DisplayRate), triangles = Perf.counters.triangles, cpuMs = Perf.cpuMs[Perf.lastIndex()];
+  Settings.set('video.quality', 'auto'); Settings.set('video.autoQuality', 'high');
+  GpuTimer.extension = null;
+  Game.state = 'playing'; Game.paused = false;
+  Perf.counters.triangles = 50000;   // a match frame draws a world
+  resetMatchPacing();
+  feedMatchFrames(1000 / 30, 8, 30);
+  check('30 Hz match frames with an idle CPU are the display rate: the preset stays and nothing is saved', Render.quality.id === 'high'
+    && Settings.get('video.autoQuality') === 'high' && Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, Render.quality.id + ' ' + Settings.get('video.autoQuality') + ' ' + DisplayRate.intervalMs);
+  resetMatchPacing();
+  feedMatchFrames(1000 / 30, 30, 12);
+  check('CPU-bound 30 fps match frames still step down, for this session only', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high'
+    && Quality.current().id === 'high', Render.quality.id + ' ' + Settings.get('video.autoQuality'));
+  Settings.set('video.fxaa', false);
+  check('another video setting keeps the session step-down', Render.quality.id === 'medium');
+  Settings.set('video.quality', 'high');
+  check('choosing a preset replaces the session step-down', Render.quality.id === 'high');
+  Object.assign(DisplayRate, savedRate);
+  Perf.counters.triangles = triangles; Perf.cpuMs[Perf.lastIndex()] = cpuMs;
 }));
 
 // ---- View model (step 1.4) ----

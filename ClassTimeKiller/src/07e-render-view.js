@@ -221,19 +221,21 @@ const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under ha
 const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
 const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
-// ---- Display interval (non-60 Hz screens): light menu frames run at the display's own rate. A display slower than
-// 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
-// scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
-// reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
-// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. A GPU-bound
-// frame held to every second vsync looks exactly like a 30 Hz display: the GPU timer tells them apart, and without one a
-// slower-than-60 Hz interval counts only once it held across a render-scale change (a GPU frame time follows the scale). ----
+// ---- Display interval (non-60 Hz screens): light menu frames and idle match frames run at the display's own rate. A
+// display slower than 60 Hz (50 Hz TVs, 30 Hz power-saving modes such as iOS Low Power Mode, which can start mid-match)
+// can never show 60 fps: its own interval becomes the frame budget, so the scale and the preset are not lowered for
+// frames no setting could make faster. Frames that are slow for their own reasons (the map editor draws a whole world in
+// the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the display's interval: they would raise the budget
+// and switch off PERF-007 / PERF-013. A GPU-bound frame held to every second vsync looks exactly like a 30 Hz display:
+// the GPU timer tells them apart, and without one a slower-than-60 Hz interval counts only once it held across a
+// render-scale change (a GPU frame time follows the scale; a slow match lowers the scale on its own). ----
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
-// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU (and timed GPU) work left it idle.
+// True when this frame's interval was set by the display: an uncapped light menu frame or running match frame whose CPU
+// (and timed GPU) work left it idle.
 function displayPacedFrame(seconds) {
-  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
-  if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
+  if (Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
+  if (Game.state === 'menu' ? Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES : !Game.isRunning()) return false;
   const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
   if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
   return Perf.cpuMs[Perf.lastIndex()] < idleMs;
@@ -344,18 +346,33 @@ function updateRenderScale(seconds) {
 }
 Render.addUpdate(2, updateRenderScale);
 
-// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it ----
+// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it. The lower
+// preset holds for this session only (never saved): a slow spell (a hot phone, a power-saving mode) cannot pin a low
+// preset for good, and the next launch retries the chosen or benchmarked one. ----
 const STEP_DOWN_SECONDS = 5;
-const StepDown = { slowSeconds: 0 };
+const StepDown = { slowSeconds: 0, sessionQuality: null };   // sessionQuality: the preset this session stepped down to
 
 function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
+  StepDown.sessionQuality = next;
+  applySessionQuality();
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
+
+function applySessionQuality() {
+  if (!StepDown.sessionQuality) return;
+  Render.quality = StepDown.sessionQuality;
+  Render.size.dirty = true;
+}
+// Runs after S07's own video settings listener (which reads the saved preset): a chosen or benchmarked preset replaces the
+// session step-down, any other video setting keeps it.
+Bus.on('setting', (key) => {
+  if (key === 'video.quality' || key === 'video.autoQuality') StepDown.sessionQuality = null;
+  else if (key.startsWith('video.')) applySessionQuality();
+});
 
 // With automatic render scale the cheaper fix (lower resolution) is used up before a whole preset drops, but only
 // while it can still help: when the GPU timer shows the GPU within budget the device is CPU-bound.
