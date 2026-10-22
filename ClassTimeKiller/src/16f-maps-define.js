@@ -7,3 +7,10 @@ Data.define('maps', {
   brushes: REQUIRED, spawns: REQUIRED, items: [], objectives: [], zones: REQUIRED, triggers: [], lights: [], navHints: [],
   seed: 0, category: 'arena', version: MapRules.version, placeholder: false, blurb: '',
 }, Maps.rows);
+
+// The match record gets its map row as soon as the setup is announced, so every match.load / match.start listener can read Game.match.map.
+// setup.map is a catalogue id / code, or a map object (generated or custom). An unknown id leaves match.map null: the mode layer decides.
+Bus.on('match.setup', (match) => {
+  const requested = match.setup.map;
+  match.map = requested && typeof requested === 'object' ? requested : Maps.get(requested);
+});

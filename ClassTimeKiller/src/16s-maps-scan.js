@@ -8,7 +8,8 @@ const MAP_STEP = 0.45;              // DATA-003 step height
 const MAP_HEADROOM = 2.4;           // MAP-004 double doorway height: every route needs this much clear space above the feet
 const MAP_CLEARANCE = 0.7;          // half of the 1.4 m minimum doorway width
 const MAP_DROP_MAX = 6;             // longest walk-off drop treated as a link (BOT-010)
-const MAP_BUCKET = 4;               // brush lookup grid, metres
+const MAP_DROP_REACH = 3;           // a drop may land up to this many cells out from the ledge
+const MAP_BUCKET = 4;              // brush lookup grid, metres
 const MAP_SAME_HEIGHT = 0.02;       // surfaces closer than this are one surface
 const MAP_LINK_COSTS = { pad: 4, teleporter: 2, ladder: 3 };
 const MAP_NEIGHBOUR_I = [1, -1, 0, 0, 1, 1, -1, -1];
@@ -213,11 +214,22 @@ const MapScan = {
     }
     return best;
   },
+  // A walk-off drop may land a little way out: the cells right at the foot of a wall are too close to it to hold a body (1.4 m rule).
+  dropTarget(scan, node, ci, cj, d) {
+    const nextX = scan.originX + (ci + MAP_NEIGHBOUR_I[d] + 0.5) * MAP_CELL, nextZ = scan.originZ + (cj + MAP_NEIGHBOUR_J[d] + 0.5) * MAP_CELL;
+    if (this.solidAtFoot(scan, nextX, nextZ, scan.nodeY[node])) return -1;
+    for (let k = 2; k <= MAP_DROP_REACH; k++) {
+      const target = this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d] * k, cj + MAP_NEIGHBOUR_J[d] * k);
+      if (target >= 0 && scan.nodeY[target] < scan.nodeY[node] - MAP_STEP) return target;
+    }
+    return -1;
+  },
   walkTargets(scan, node, out) {
     const column = scan.nodeColumn[node], ci = column % scan.cols, cj = (column / scan.cols) | 0;
     let count = 0;
     for (let d = 0; d < 8; d++) {
-      const target = this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d], cj + MAP_NEIGHBOUR_J[d]);
+      let target = this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d], cj + MAP_NEIGHBOUR_J[d]);
+      if (target < 0 && d < 4) target = this.dropTarget(scan, node, ci, cj, d);
       if (target < 0) continue;
       if (d >= 4 && (this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d], cj) < 0 || this.stepTarget(scan, node, ci, cj + MAP_NEIGHBOUR_J[d]) < 0)) continue;
       out[count++] = target;

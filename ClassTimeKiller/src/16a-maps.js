@@ -9,7 +9,7 @@ const MapRules = {
   version: 1,
   materials: ['concrete', 'metal', 'wood', 'glass', 'dirt', 'water', 'grass', 'sand', 'ice', 'tile'],
   themes: ['foundry', 'ruins', 'station', 'canal', 'overgrowth', 'glacier'],                  // MAP-022 tilesets
-  sightLimits: { arena: 60, tactical: 60, pve: 60, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category
+  sightLimits: { arena: 60, tactical: 60, pve: 90, range: 60, puzzle: 60, large: 90, island: 150 }, // MAP-003, metres, by map category (pve: enemies approach along lanes)
   triggerKinds: ['jumppad', 'teleporter', 'ladder', 'water', 'hazard', 'killzone'],
   objectiveKinds: ['flag', 'flagBase', 'point', 'hill', 'bombsite', 'payloadPath', 'relic', 'core', 'bank', 'extract'],
   hintKinds: ['cover', 'sniper', 'choke', 'flank', 'dummy', 'guard'],
@@ -175,23 +175,24 @@ const MapKit = {
     return out;
   },
   // The definition plus its mirror image across x = 0 ('x') or z = 0 ('z'); several letters mirror in turn ('xz' gives four copies).
-  // Mirroring across x swaps teams 0 and 1 (team sides lie along x). Zone and objective names swap West/East (x) or North/South (z).
-  sym(def, axes) {
+  // Mirroring across x swaps teams 0 and 1 (team sides lie along x) unless keepTeams is true (co-op maps: both gates are team 1).
+  // Zone and objective names swap West/East (x) or North/South (z).
+  sym(def, axes, keepTeams) {
     let result = def;
-    for (const axis of axes) result = this.join(result, this.mirror(result, axis));
+    for (const axis of axes) result = this.join(result, this.mirror(result, axis, keepTeams));
     return result;
   },
-  mirror(def, axis) {
-    const x = axis === 'x', swapName = (text) => text.replace(x ? /West|East/g : /North|South/g, (word) => MAP_OPPOSITE[word]);
+  mirror(def, axis, keepTeams) {
+    const x = axis === 'x', swapTeams = x && !keepTeams, swapName = (text) => text.replace(x ? /West|East/g : /North|South/g, (word) => MAP_OPPOSITE[word]);
     const out = {};
     out.brushes = (def.brushes || []).map((row) => this.mirrorBrush(row, x));
-    out.spawns = (def.spawns || []).map(([team, modes, points]) => [x && team >= 0 ? 1 - team : team, modes, points.map((p) => this.mirrorSpawn(p, x))]);
+    out.spawns = (def.spawns || []).map(([team, modes, points]) => [swapTeams && team >= 0 ? 1 - team : team, modes, points.map((p) => this.mirrorSpawn(p, x))]);
     out.items = (def.items || []).map((row) => this.mirrorPoint(row, x ? 1 : 3));
     out.zones = (def.zones || []).map((row) => this.mirrorZone(row, x, swapName));
     out.lights = (def.lights || []).map((row) => this.mirrorPoint(row, x ? 0 : 2));
     out.hints = (def.hints || []).map((row) => this.mirrorPoint(row, x ? 1 : 3));
     out.triggers = (def.triggers || []).map((t) => this.mirrorTrigger(t, x));
-    out.objectives = (def.objectives || []).map((o) => this.mirrorObjective(o, x, swapName));
+    out.objectives = (def.objectives || []).map((o) => this.mirrorObjective(o, x, swapName, swapTeams));
     return out;
   },
   mirrorPoint(row, index) { const copy = row.slice(); copy[index] = -row[index]; return copy; },
@@ -215,10 +216,10 @@ const MapKit = {
     if (typeof t.exitYaw === 'number') copy.exitYaw = x ? -t.exitYaw : 180 - t.exitYaw;
     return copy;
   },
-  mirrorObjective(o, x, swapName) {
+  mirrorObjective(o, x, swapName, swapTeams) {
     const axis = x ? 0 : 2, copy = JSON.parse(JSON.stringify(o));
     copy.id = swapName(o.id);
-    if (x && o.team >= 0) copy.team = 1 - o.team;
+    if (swapTeams && o.team >= 0) copy.team = 1 - o.team;
     copy[x ? 'x' : 'z'] = -o[x ? 'x' : 'z'];
     if (o.path) copy.path = o.path.map((p) => this.mirrorPoint(p, axis));
     return copy;

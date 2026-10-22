@@ -17,7 +17,8 @@ const MAP_BALANCE_LIMIT = 0.3;       // team maps: item distance to each team's 
 const MAP_FLOOR_TOLERANCE = 0.3;     // a spawn, item or objective sits on its floor within this
 const LOCATE_TEXT = ['', 'has no standing floor (needs 1.4 m wide and 2.4 m high free space)', 'is not on the walkable grid', 'is cut off from the main play space'];
 const MAP_MAX_ROUTES = 4;
-const MAP_SPAWN_ZONES = 4;           // free-for-all spawns must cover at least this many callout zones
+const MAP_NO_LANES = ['range', 'puzzle'];   // categories exempt from the three-lane rule (MAP-002)
+const MAP_SPAWN_ZONES = 4;          // free-for-all spawns must cover at least this many callout zones
 const MAP_FALL_MAX = 12;             // a fall this long is survivable in every movement preset; longer needs a kill zone (MOV-015)
 
 const MapCheck = {
@@ -430,6 +431,7 @@ const MapCheck = {
 
   // ---- lanes (MAP-002): at least 3 separate routes between the two ends of the map ----
   lanes(ctx) {
+    if (MAP_NO_LANES.includes(ctx.map.category)) return;       // training and puzzle spaces are single-purpose, not lane maps
     const ends = this.laneEnds(ctx);
     if (!ends) return;
     ctx.stats.routes = this.countRoutes(ctx, ends[0], ends[1]);
@@ -492,6 +494,7 @@ const MapCheck = {
 
   // ---- sightlines (MAP-003) ----
   sightlines(ctx) {
+    if (ctx.map.placeholder) return;                             // stand-in maps (the island until GN5) are exempt: a flat 300 m field cannot meet MAP-003
     const scan = ctx.scan, limit = Maps.sightLimit(ctx.map);
     let longest = 0;
     for (let n = 0; n < scan.nodeCount; n++) {

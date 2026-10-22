@@ -25,7 +25,7 @@ const dustWest = {                                                              
 };
 const dustCenter = {
   brushes: [
-    ['concrete', -55, -1, -45, 55, 0, 45],                                                           // ground
+    ['sand', -55, -1, -45, 55, 0, 45],                                                               // ground
     ['concrete', -58, -1, -48, 58, 8, -45], ['concrete', -58, -1, 45, 58, 8, 48],                    // perimeter
     ['concrete', -58, -1, -45, -55, 8, 45], ['concrete', 55, -1, -45, 58, 8, 45],
     ['concrete', -9, 0, -3, 9, 4, 3], ['concrete', -4, 0, 11.5, 4, 3.4, 16.5], ['concrete', -4, 0, -16.5, 4, 3.4, -11.5], // mid block and the two mid huts
