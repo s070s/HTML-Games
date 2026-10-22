@@ -109,6 +109,27 @@ const Bus = {
   },
 };
 
+// ---- The emitters every section shares (one reused payload each: listeners copy what they keep) ----
+const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
+const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
+const TOAST_EVENT = { text: '' };
+// 'sound': what bots can hear (BOT-005); radius 0 = silent, nothing is sent.
+function emitSound(x, y, z, radius, kind, source) {
+  if (radius <= 0) return;
+  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
+  Bus.emit('sound', SOUND_EVENT);
+}
+// 'impulse': a velocity change in m/s that S10 applies (knockback, jump pads, leaps).
+function emitImpulse(id, x, y, z) {
+  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
+  Bus.emit('impulse', IMPULSE_EVENT);
+}
+// 'toast': a short UI message.
+function emitToast(text) {
+  TOAST_EVENT.text = text;
+  Bus.emit('toast', TOAST_EVENT);
+}
+
 // ---- Fixed-size pool of reusable objects (zero allocation after warm-up, PERF-006) ----
 function makePool(size, create) {
   const items = [];

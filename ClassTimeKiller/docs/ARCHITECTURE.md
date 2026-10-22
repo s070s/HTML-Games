@@ -78,7 +78,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 
 ## Event bus (ARC-015)
 
-`Bus.on(type, fn)`, `Bus.emit(type, payload)`. Emitters reuse one payload object per event type: **listeners copy what they keep**. Listener errors are logged, never thrown.
+`Bus.on(type, fn)`, `Bus.emit(type, payload)`. Emitters reuse one payload object per event type: **listeners copy what they keep**. Listener errors are logged, never thrown. The shared events have one emitter each in S01, used by every section: `emitSound(x, y, z, radius, kind, source)` (radius 0 sends nothing), `emitImpulse(id, x, y, z)` and `emitToast(text)`.
 
 | Event | Payload | Emitted by |
 |---|---|---|

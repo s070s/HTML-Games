@@ -327,7 +327,7 @@ const Progress = {
     this.addXp(award.xp);
     award.levelAfter = this.level();
     award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
-    if (award.levelAfter > levelBefore) Bus.emit('toast', { text: 'Level ' + award.levelAfter + ' reached' });
+    if (award.levelAfter > levelBefore) emitToast('Level ' + award.levelAfter + ' reached');
     this.lastAward = award;
     this.refreshLook();
     Save.scheduleSave();

@@ -179,9 +179,7 @@ function audioPriorityFor(recipe, distance, own) {
 }
 
 // ---- Payloads reused for emitted events (listeners copy what they keep) ----
-const audioToastPayload = { text: '' };
 const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
-function audioToast(text) { audioToastPayload.text = text; Bus.emit('toast', audioToastPayload); }
 
 const isAppleTouchDevice = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
 
@@ -426,14 +424,14 @@ const Sound = {
   },
   createContext() {
     const Constructor = window.AudioContext || window.webkitAudioContext;
-    if (!this.contextFactory && !Constructor) { audioToast('Sound is not supported by this browser.'); return false; }
+    if (!this.contextFactory && !Constructor) { emitToast('Sound is not supported by this browser.'); return false; }
     this.sessionHint = this.configureSession(navigator);
     try {
       this.attach(this.contextFactory ? this.contextFactory() : new Constructor({ latencyHint: 'interactive' }));
       this.playSilence();
     } catch (error) {
       ErrorLog.add('audio.createContext', error);
-      audioToast('Sound could not start on this device.');
+      emitToast('Sound could not start on this device.');
       this.context = null; this.buses = null;
       return false;
     }
@@ -450,7 +448,7 @@ const Sound = {
   configureSession(nav) {
     if (nav.audioSession) { nav.audioSession.type = 'playback'; return 'playback'; }
     if (!isAppleTouchDevice(nav)) return 'none';
-    audioToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
+    emitToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
     return 'hint';
   },
   resumeContext() {
@@ -462,7 +460,7 @@ const Sound = {
     this.blockedTimer = 0;
     if (!this.context || this.canPlay() || this.pauseSuspended || this.blockedShown) return;   // no context (detached): nothing is blocked
     this.blockedShown = true;
-    audioToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
+    emitToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
   },
   attach(context) {
     this.context = context;

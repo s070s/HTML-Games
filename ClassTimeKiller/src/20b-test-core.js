@@ -84,3 +84,26 @@ Test.add('core', (check) => {
   check('world: line of sight', World.lineClear(-5, 1, 0, -5, 3, 0) && !World.lineClear(0, 1, 0, 0, -2, 0));
   World.clear();
 });
+
+// One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other
+// section builds its own 'sound', 'impulse' or 'toast' payload (18g, the custom match UI, is left to its owner).
+const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;
+const SHARED_EMIT_EXEMPT = ['01-core.js', '18g-ui-custom.js'];
+Test.add('core', (check) => {
+  const seen = [];
+  const handlers = ['sound', 'impulse', 'toast'].map((type) => [type, Bus.on(type, (payload) => seen.push(type + ':' + JSON.stringify(payload)))]);
+  emitSound(1, 2, 3, 0, 'step', 4);
+  emitSound(1, 2, 3, 10, 'step', 4);
+  emitImpulse(5, 0, 6, 0);
+  emitToast('hello');
+  for (const [type, handler] of handlers) Bus.off(type, handler);
+  const expected = 'sound:{"x":1,"y":2,"z":3,"radius":10,"kind":"step","source":4}|impulse:{"id":5,"x":0,"y":6,"z":0}|toast:{"text":"hello"}';
+  check('emitters: payloads arrive, a silent sound sends nothing', seen.join('|') === expected, seen.join('|'));
+  const sections = Array.from(document.scripts).map((element) => element.textContent).join('\n').split(/\n\/\/ ==== (\S+) ====\n/);
+  const offenders = [];
+  for (let k = 1; k < sections.length; k += 2) {
+    if (SHARED_EMIT_EXEMPT.includes(sections[k]) || sections[k].startsWith('20')) continue;
+    if (SHARED_EMIT_PATTERN.test(sections[k + 1])) offenders.push(sections[k]);
+  }
+  check('emitters: no section emits its own sound, impulse or toast payload', sections.length > 10 && offenders.length === 0, offenders.join(', '));
+});

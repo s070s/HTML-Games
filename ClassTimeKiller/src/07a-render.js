@@ -510,15 +510,13 @@ function renderFrameHook(seconds, alpha) {
 }
 
 // ---- Context loss (PLT-005): pause, tell the player, rebuild everything on restore ----
-const renderToast = { text: '' };
-function toastText(text) { renderToast.text = text; Bus.emit('toast', renderToast); }
 
 function handleContextLost(event) {
   event.preventDefault();
   Render.lost = true;
   Render.pausedForLoss = Game.state === 'playing' && !Game.paused;
   Game.pause('graphics');
-  toastText('Graphics restoring...');
+  emitToast('Graphics restoring...');
 }
 
 function handleContextRestored() {
@@ -534,7 +532,7 @@ function handleContextRestored() {
   Render.lost = false;
   if (Render.pausedForLoss) Game.resume();
   Render.pausedForLoss = false;
-  toastText('Graphics restored');
+  emitToast('Graphics restored');
 }
 
 Bus.on('boot', () => {

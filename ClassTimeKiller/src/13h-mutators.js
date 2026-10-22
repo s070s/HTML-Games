@@ -38,7 +38,6 @@ const MUTATOR_ZONE_HEAD = 'head';
 
 const GRANT_EVENT = { id: 0, item: '' };
 const POWER_EVENT = { id: 0, ability: '' };
-const TOAST_EVENT = { text: '' };
 const NEAR_ACTORS = new Array(MAX_ACTORS).fill(0);
 
 const Mutators = {
@@ -251,7 +250,7 @@ function applyMutatorStage(rules) {
   rules.mutators = resolved.list;
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
-  for (const text of resolved.messages) { TOAST_EVENT.text = text; Bus.emit('toast', TOAST_EVENT); }
+  for (const text of resolved.messages) emitToast(text);
 }
 // X22: the player's handicap, unless the setup names one (the handicap stage runs after the mutators).
 function applyMutatorHandicap(rules, setup) {

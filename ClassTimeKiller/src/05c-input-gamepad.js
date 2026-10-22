@@ -40,7 +40,6 @@ const PadInput = {
   turboSeconds: 0,
   padId: '',
   menuEvent: { command: '' },
-  toastEvent: { text: '' },
 
   init() {
     window.addEventListener('gamepadconnected', (event) => this.onConnected(event.gamepad));
@@ -52,7 +51,7 @@ const PadInput = {
     this.connected++;
     this.index = pad.index;
     this.detectStyle(pad);
-    this.say('Controller connected');
+    emitToast('Controller connected');
   },
   onDisconnected() {
     this.connected = Math.max(0, this.connected - 1);
@@ -60,10 +59,9 @@ const PadInput = {
     this.reset();
     Input.clearAll();
     if (Input.device !== 'gamepad' || Game.state !== 'playing') return;
-    this.say('Controller disconnected');
+    emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { this.toastEvent.text = text; Bus.emit('toast', this.toastEvent); },
   reset() { this.menuDirection = ''; this.turboSeconds = 0; },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
