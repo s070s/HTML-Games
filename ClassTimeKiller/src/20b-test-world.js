@@ -215,6 +215,18 @@ Test.add('world', (check) => {
   check('telefrag: occupant gets lethal damage credited to the arriver (MOV-020)', telefrag && telefrag.target === occupant && telefrag.source === id && telefrag.amount >= 1000);
 });
 
+// A dash keeps going the turned way out of a teleporter, and both ends make a noise bots hear (BOT-004 hearing reads 'sound').
+Test.add('world', (check) => {
+  loadTestWorld([], { triggers: [{ kind: 'teleporter', min: [-1, 0, 4], max: [1, 2, 5], exit: [30, 0.05, 30], yaw: 90 }] });
+  useTestRules({ move: 'ravager' });
+  const id = groundedTester(0, 3);
+  holdInput(id, 0, 1, 0, 0);
+  const sounds = recordEvents(['sound'], () => { tapButtons(id, BTN.SPRINT); stepSeconds(0.2); }).filter((s) => s.kind === 'teleport' && s.source === id);
+  check('dash through a teleporter: carries on along the exit yaw (+x), not the old heading', Actors.x[id] > 33 && Math.abs(Actors.z[id] - 30) < 0.5,
+    Actors.x[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+  check('teleport: a noise at the entry and one at the exit', sounds.length === 2 && Math.abs(sounds[0].z - 4) < 1 && Test.near(sounds[1].x, 30, 0.01), JSON.stringify(sounds));
+});
+
 Test.add('world', (check) => {
   loadTestWorld([{ shape: 'box', min: [-1, 0, 2], max: [1, 8, 3] }, { shape: 'box', min: [-1, 0, 3], max: [1, 6, 6] }],
     { triggers: [{ kind: 'ladder', min: [-1, 0, 1.4], max: [1, 6.2, 2] }] });

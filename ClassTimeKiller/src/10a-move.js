@@ -501,13 +501,14 @@ function stepMovement(dt) {
 
 // The step's gravity and start position, read by the states, integrate, afterMove and countSteps: a computed float passed as
 // an argument would be boxed every actor step (PERF-006), and the state call is indirect (one of several), so rarely inlined.
-const moveStep = { gravity: 0, startX: 0, startZ: 0 };
+const moveStep = { gravity: 0, startX: 0, startZ: 0, startYaw: 0 };
 
 function stepActor(id, dt) {
   const preset = Move.preset(id);
   moveStep.gravity = actorGravity(id, preset);
   moveStep.startX = Actors.x[id]; moveStep.startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
+  moveStep.startYaw = Actors.yaw[id];
   Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
   updateClocks(id, dt);
   readInput(id);
@@ -526,8 +527,17 @@ function afterMove(id, preset) {
   if (Actors.vy[id] > verticalBefore + GROUND_LEAVE_SPEED) unground(id); // launched by a jump pad
   updateEye(id);
   writeFlags(id);
-  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { Motion.stepDistance[id] = 0; return; } // teleported: no stride across the map
+  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { afterTeleport(id); return; }
   countSteps(id, preset);
+}
+
+// A teleporter moved and turned the actor (S08 turns its velocity): a dash or charge goes on turned by the same angle, a
+// mantle ends (it would pull the actor back to the old ledge), and no stride is counted across the map.
+function afterTeleport(id) {
+  const turn = Actors.yaw[id] - moveStep.startYaw, cos = Math.cos(turn), sin = Math.sin(turn), x = Motion.dirX[id], z = Motion.dirZ[id];
+  Motion.dirX[id] = x * cos + z * sin; Motion.dirZ[id] = z * cos - x * sin;   // DATA-002: the heading (sin yaw, cos yaw) turned by `turn`
+  if (Motion.state[id] === MOVE_STATE.MANTLE) setState(id, MOVE_STATE.WALK);
+  Motion.stepDistance[id] = 0;
 }
 
 function updateEye(id) {

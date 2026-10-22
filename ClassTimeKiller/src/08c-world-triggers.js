@@ -23,6 +23,7 @@ const MIN_PAD_FLIGHT = 0.1;             // seconds: a launch never divides by a 
 const JUMPPAD_PEAK = 2;                 // default metres the arc rises above the higher of feet and target
 const FALL_OUT_DEPTH = 30;              // metres below the lowest brush that count as falling out of the world
 const TELEFRAG_REACH = 0.8;             // two capsules (radius 0.40 each) overlap when closer than this
+const TELEPORT_NOISE_RADIUS = 20;       // metres a teleport is heard at each end (as loud as a landing)
 const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the capsule's middle
 
 // fields: defaults (Data.normalize); points: fields that must be [x, y, z]; valid(trigger): extra row check.
@@ -147,14 +148,17 @@ function touchJumpPad(id, pad) {
 
 // Moves the actor to the exit facing the exit yaw; horizontal speed turns with it (magnitude kept). Telefrag: every
 // other live capsule at the exit gets a lethal 'telefrag' damage request credited to the arriving actor (MOV-020).
+// Both ends make a noise (bots hear the arrival). S10 turns a dash or charge with the actor and ends a mantle (MOVED).
 function touchTeleporter(id, teleporter) {
   const yaw = teleporter.yaw * DEG, exit = teleporter.exit;
   const horizontalSpeed = length2(Actors.vx[id], Actors.vz[id]);
+  emitSound(Actors.x[id], Actors.y[id], Actors.z[id], TELEPORT_NOISE_RADIUS, 'teleport', id);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
   Actors.vx[id] = Math.sin(yaw) * horizontalSpeed; Actors.vz[id] = Math.cos(yaw) * horizontalSpeed;
   telefragAt(id);
+  emitSound(exit[0], exit[1], exit[2], TELEPORT_NOISE_RADIUS, 'teleport', id);
   emitTrigger(id, teleporter);
   return TRIGGER_MEDIUM.MOVED;
 }
