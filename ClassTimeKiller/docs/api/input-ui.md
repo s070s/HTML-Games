@@ -100,7 +100,7 @@ Controls category: `controls.mouseSensitivity`, `mouseDpi`, `rawMouse`, `invertY
 - Builders: `Ui.button(text, onClick, className)`, `Ui.row(label, control)`, `Ui.cycle(options, labels, value, onChange)`, `Ui.toggle`, `Ui.slider({min,max,step,value,format}, onChange)`, `Ui.confirm({ title, text, yes, no, onYes })`, `Ui.toast(text)`.
 - Screens now: `main` (Quick Match, Ladder, Play, Custom, Range, Settings, Help: entries whose screen is not registered are disabled "coming soon"), `pause`, `settings`, `bindings`, `touchLayout`, `help`, `confirm`.
 - Hooks for later sections: register `ladder`, `play`, `custom`, `range` (main menu entries) and `results` (opened on `match.end`); push `{ label, screen }` to `Ui.pauseEntries` (pause menu rows, e.g. the rules panel); push builder functions to `Ui.settingsExtras[category]`; `Ui.botDebug` (F9); `Ui.perfVisible` (F10); `Ui.selfTestRunner` (set by `20b-test-ui.js` to `Test.run`; Help > Run self-test calls it with `{ headless: true }`).
-- A screen may define `onCommand(command)`: `Ui.onMenuCommand` asks it first and stops when it returns true (the map editor reads the pad itself, `docs/api/forge.md`). Main menu entries now include `Map editor` (screen `forge`, after Range).
+- A screen may define `onCommand(command)`: `Ui.onMenuCommand` asks it first and stops when it returns true (the map editor reads the pad itself, `docs/api/mapeditor.md`). Main menu entries now include `Map editor` (screen `mapEditor`, after Range).
 - Headless runs (`Game.headless`) open no menus on `ready`, `game.pause` or `match.stop`.
 - `Ui.settingsExtras.controls` shows cm per 360, controller status and links to the bindings and layout editor.
 

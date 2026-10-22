@@ -9,7 +9,7 @@ const MAIN_MENU_ENTRIES = [
   { label: 'Play', screen: 'play' },
   { label: 'Custom', screen: 'custom' },
   { label: 'Range', screen: 'range' },
-  { label: 'Map editor', screen: 'forge' },
+  { label: 'Map editor', screen: 'mapEditor' },
   { label: 'Settings', screen: 'settings' },
   { label: 'Help', screen: 'help' },
 ];
