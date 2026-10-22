@@ -11,12 +11,16 @@ const MAPGEN_ATTEMPTS = 5;              // MAP-023: seed, seed + 1, ... seed + 4
 const MAPGEN_REPAIR_ROUNDS = 2;         // sightline repairs per seed before it is rejected
 const MAPGEN_REPAIR_PILLARS = 48;       // more long lines than this in one round: reject the seed instead
 const MAPGEN_SEED_RANGE = 0x7fffffff;
-const MAPGEN_TRUSTED_SEED = 1;          // GN5 default seed: MP09 Ring Isle (the self-test proves it validates)
+const MAPGEN_TRUSTED_SEED = 2;          // GN5 default seed: MP09 Ring Isle (the self-test proves it validates)
 const MAPGEN_SPAWN_COUNTS = { free: 16, teams: 8, coop: 6, solo: 4, royale: 24 };
 const MAPGEN_TEAM_SPAWN_GAP = 2.5;      // team spawns stand at least this far apart
 const MAPGEN_LATTICE = 1.5;             // candidate spots are sampled on this lattice, metres
+const MAPGEN_SPAWN_EDGE = 8;            // free spawns keep this far from the map edge: a spawn in a corner pocket leaves too few lanes (MAP-002)
 const MAPGEN_SPAWN_LATTICES = 60;       // free spawn candidates: at most this many lattice steps across the map (2 m at least)
 const MAPGEN_ROOMY = 1;                 // a spot needs floor of its own height this far around it in 8 directions
+const MAPGEN_ROOMY_YES = 1, MAPGEN_ROOMY_NO = 2;
+const MAPGEN_ROOMY_STEP = 0.3;            // height difference that still counts as the same floor
+const MAPGEN_ROOMY_OFFSETS = Array.from({ length: 8 }, (unused, index) => [Math.cos(index * Math.PI / 4) * MAPGEN_ROOMY, Math.sin(index * Math.PI / 4) * MAPGEN_ROOMY]);
 const MAPGEN_FACING_REACH = 12;         // spawn facing: free distance looked at in each direction
 const MAPGEN_FACING_MIN = 3;            // a spawn must look at this much open space (the validator wants 2 m)
 const MAPGEN_POWER_SPAWN_GAP = 10;      // power items stay this far (straight line) from free spawns: walking is never shorter
@@ -256,6 +260,7 @@ const MapGenPlace = {
     ctx.hit = makeHit();
     ctx.mirror = !!ctx.plan.mirror;
     ctx.taken = [];
+    ctx.roomy = new Uint8Array(ctx.scan.nodeCount);      // per node: 0 not checked yet, MAPGEN_ROOMY_YES / _NO
     if (!this.spawns(ctx)) return false;
     this.objectives(ctx);
     this.items(ctx);
@@ -286,13 +291,29 @@ const MapGenPlace = {
   // ---- spots ----
   // A loop node with floor of its own height all around (no edge, no wall at arm's length), or -1.
   roomyNode(ctx, x, y, z) {
-    const scan = ctx.scan, node = MapScan.nodeNear(scan, x, y, z, 0.3);
-    if (node < 0 || !ctx.loop[node]) return -1;
-    for (let d = 0; d < 8; d++) {
-      const angle = d * Math.PI / 4, around = MapScan.nodeNear(scan, x + Math.cos(angle) * MAPGEN_ROOMY, y, z + Math.sin(angle) * MAPGEN_ROOMY, 0.3);
-      if (around < 0 || !ctx.loop[around]) return -1;
+    const node = MapScan.nodeNear(ctx.scan, x, y, z, 0.3);
+    return node >= 0 && this.roomy(ctx, node) ? node : -1;
+  },
+  roomy(ctx, node) {
+    if (!ctx.roomy[node]) ctx.roomy[node] = this.isRoomy(ctx, node) ? MAPGEN_ROOMY_YES : MAPGEN_ROOMY_NO;
+    return ctx.roomy[node] === MAPGEN_ROOMY_YES;
+  },
+  isRoomy(ctx, node) {
+    const scan = ctx.scan, x = MapScan.nodeX(scan, node), y = scan.nodeY[node], z = MapScan.nodeZ(scan, node);
+    if (!ctx.loop[node]) return false;
+    for (const [dx, dz] of MAPGEN_ROOMY_OFFSETS) {
+      if (!this.loopFloorAt(ctx, MapScan.columnOf(scan, x + dx, z + dz), y)) return false;
     }
-    return node;
+    return true;
+  },
+  // A main-loop node of about this height in the column.
+  loopFloorAt(ctx, column, y) {
+    if (column < 0) return false;
+    const scan = ctx.scan;
+    for (let n = scan.columnStart[column]; n < scan.columnStart[column + 1]; n++) {
+      if (ctx.loop[n] && Math.abs(scan.nodeY[n] - y) <= MAPGEN_ROOMY_STEP) return true;
+    }
+    return false;
   },
   // Roomy standing spots on a lattice inside a rect { x0, z0, x1, z1 } (every surface height of each lattice point).
   spotsIn(ctx, rect, step) {
@@ -305,9 +326,8 @@ const MapGenPlace = {
   addSpots(ctx, scan, x, z, spots) {
     const column = MapScan.columnOf(scan, x, z);
     if (column < 0) return;
-    for (let n = scan.columnStart[column]; n < scan.columnStart[column + 1]; n++) {
-      const node = this.roomyNode(ctx, MapScan.nodeX(scan, n), scan.nodeY[n], MapScan.nodeZ(scan, n));
-      if (node < 0) continue;
+    for (let node = scan.columnStart[column]; node < scan.columnStart[column + 1]; node++) {
+      if (!this.roomy(ctx, node)) continue;
       const nx = MapScan.nodeX(scan, node), nz = MapScan.nodeZ(scan, node);
       if (!this.isTaken(ctx, nx, nz, 1)) spots.push({ x: nx, y: scan.nodeY[node], z: nz, node });
     }
@@ -351,32 +371,46 @@ const MapGenPlace = {
   },
   // Free-for-all: farthest-point sampling over the whole loop (mirrored maps: over the west half, then mirrored).
   freeSpawns(ctx, count) {
-    const half = ctx.map.size[0] / 2, depth = ctx.map.size[2] / 2;
+    const edge = MAPGEN_SPAWN_EDGE, half = ctx.map.size[0] / 2 - edge, depth = ctx.map.size[2] / 2 - edge;
     const rect = { x0: -half, z0: -depth, x1: ctx.mirror ? -1.5 : half, z1: depth };
-    const candidates = this.spotsIn(ctx, rect, Math.max(2, ctx.map.size[0] / MAPGEN_SPAWN_LATTICES)), chosen = [];
+    const candidates = this.spotsIn(ctx, rect, Math.max(2, ctx.map.size[0] / MAPGEN_SPAWN_LATTICES));
+    const gaps = this.firstGaps(candidates, ctx.mirror);
     const wanted = ctx.mirror ? Math.ceil(count / 2) : count;
-    while (chosen.length < wanted) {
-      const next = this.farthest(candidates, chosen, ctx.mirror);
-      if (!next) break;
-      candidates.splice(candidates.indexOf(next), 1);
+    for (let placed = 0; placed < wanted;) {
+      const index = this.farthest(gaps);
+      if (index < 0) break;
+      const next = candidates[index];
+      gaps[index] = -1;
       const yaw = this.facing(ctx, next, 0, 0);
       if (yaw === null || (ctx.mirror && this.facing(ctx, this.mirrorPoint(next), 0, 0) === null)) continue;
-      chosen.push(next);
+      this.narrowGaps(candidates, gaps, next, ctx.mirror, placed === 0);
+      placed++;
       this.addSpawn(ctx, next, yaw, -1);
       if (ctx.mirror) this.addSpawn(ctx, this.mirrorPoint(next), -yaw, -1);
     }
   },
-  farthest(candidates, chosen, mirror) {
-    let best = null, bestGap = -1;
-    for (const spot of candidates) {
-      let gap = Math.hypot(spot.x, spot.z) * 0.01;                   // first pick: the spot nearest the edge (deterministic)
-      if (chosen.length) gap = Infinity;
-      for (const other of chosen) {
-        gap = Math.min(gap, Math.hypot(spot.x - other.x, spot.z - other.z));
-        if (mirror) gap = Math.min(gap, Math.hypot(spot.x + other.x, spot.z - other.z));
-      }
-      if (mirror) gap = Math.min(gap, Math.abs(spot.x) * 2);
-      if (gap > bestGap) { best = spot; bestGap = gap; }
+  // Farthest-point sampling: gaps[i] = distance from candidate i to the nearest chosen spawn (and its mirror), -1 once used.
+  // Before the first pick it is a small score that prefers the spot farthest from the centre (deterministic).
+  firstGaps(candidates, mirror) {
+    const gaps = new Float64Array(candidates.length);
+    candidates.forEach((spot, index) => { gaps[index] = Math.hypot(spot.x, spot.z) * 0.01; });
+    if (!mirror) return gaps;
+    candidates.forEach((spot, index) => { gaps[index] = Math.min(gaps[index], Math.abs(spot.x) * 2); });
+    return gaps;
+  },
+  narrowGaps(candidates, gaps, chosen, mirror, first) {
+    for (let index = 0; index < candidates.length; index++) {
+      if (gaps[index] < 0) continue;
+      const spot = candidates[index];
+      let gap = Math.hypot(spot.x - chosen.x, spot.z - chosen.z);
+      if (mirror) gap = Math.min(gap, Math.hypot(spot.x + chosen.x, spot.z - chosen.z), Math.abs(spot.x) * 2);
+      gaps[index] = first ? gap : Math.min(gaps[index], gap);
+    }
+  },
+  farthest(gaps) {
+    let best = -1, bestGap = -1;
+    for (let index = 0; index < gaps.length; index++) {
+      if (gaps[index] > bestGap) { best = index; bestGap = gaps[index]; }
     }
     return best;
   },

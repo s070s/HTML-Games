@@ -92,6 +92,18 @@ function mapgenRandomBorders(ctx, grid, westOnly) {
   const limit = westOnly ? grid.cols / 2 : grid.cols;
   for (let r = 0; r < grid.rows; r++) for (let c = 1; c < limit; c++) grid.vertical[mapgenVertical(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS);
   for (let r = 1; r < grid.rows; r++) for (let c = 0; c < limit; c++) grid.horizontal[mapgenHorizontal(grid, c, r)] = mapgenPickWeighted(ctx.random, MAPGEN_BORDER_ODDS);
+  mapgenWidenCorners(grid);
+}
+
+// Corner rooms have two inner borders only: a single door in each would leave two lanes (MAP-002), so they get two doors.
+function mapgenWidenCorners(grid) {
+  const lastColumn = grid.cols - 1, lastRow = grid.rows - 1;
+  for (const row of [0, lastRow]) for (const column of [1, lastColumn]) mapgenWidenBorder(grid.vertical, mapgenVertical(grid, column, row));
+  for (const row of [1, lastRow]) for (const column of [0, lastColumn]) mapgenWidenBorder(grid.horizontal, mapgenHorizontal(grid, column, row));
+}
+
+function mapgenWidenBorder(borders, index) {
+  if (borders[index] === 'door' || borders[index] === 'wall') borders[index] = 'doors';
 }
 // Modules for the cells of one half (or all), share of cells per density; names unique per map (a number is added on repeats).
 function mapgenFillModules(ctx, grid, westOnly) {
