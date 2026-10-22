@@ -6,7 +6,7 @@
 
 const PROGRESS_VERSION = 1;
 const PROGRESS_SECONDS_PER_MINUTE = 60;
-const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (the PvE section did not report them)
+const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (enemies left outside a PvE match)
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
@@ -78,7 +78,6 @@ const RunLog = {
   // Every number challenges, cards and the daily seed read, for the finished (or running) match. Reused object.
   measure(match) {
     const out = this.metrics, results = match && match.results, mine = Progress.playerResult(results);
-    const pve = results && results.pve ? results.pve : null;
     out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills;
     out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
@@ -92,10 +91,7 @@ const RunLog = {
     out.cardsEquipped = match && match.rules && match.rules.cards ? match.rules.cards.ids.length : 0;
     out.hard = match ? Progress.isHard(match.rules ? match.rules.difficulty : '') : false;
     out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won ? 1 : 0;
-    out.enemiesLeft = pve && typeof pve.enemiesLeft === 'number' ? pve.enemiesLeft : PROGRESS_NOT_REACHED;
-    out.propsLeft = pve && typeof pve.propsLeft === 'number' ? pve.propsLeft : PROGRESS_NOT_REACHED;
-    out.secretsLeft = pve && typeof pve.secretsLeft === 'number' ? pve.secretsLeft : PROGRESS_NOT_REACHED;
-    out.optionalLeft = pve && typeof pve.optionalLeft === 'number' ? pve.optionalLeft : PROGRESS_NOT_REACHED;
+    out.enemiesLeft = Pve.active ? enemiesLeft() : PROGRESS_NOT_REACHED;   // living plus queued enemies (14j), read once at the end
     out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
     return out;
   },

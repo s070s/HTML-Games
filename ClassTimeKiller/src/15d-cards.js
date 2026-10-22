@@ -5,7 +5,7 @@
 // stage writes rules.cards = { ids, fx } (fx: the soul numbers S12 reads for the player: soulLife, soulMagnet, wrathAt);
 // the effects run through the existing systems (Buffs damage / invulnerable / speed / slow / rate, Damage.addReducer and
 // Damage.regenerate, 'pickup', 'weapon.fire', 'damage'). Each card unlocks by its own play-style condition over one finished
-// PvE level (RunLog metrics + results.pve).
+// PvE level (RunLog metrics).
 
 const CARD_BRITTLE_EXTRA = 1;              // a brittle hit deals the target's whole pool plus this
 const CARD_NO_HOLDER = -1;

@@ -582,11 +582,11 @@ Test.add('progress', (check) => {
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
-  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, propsLeft: 3, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
-    explosiveShots: 2, souls: 20, rangedKills: 5, secretsLeft: 1, wrathKills: 0, optionalLeft: 1, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
-  const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
-    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
+  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, damageTaken: 40, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+    explosiveShots: 2, souls: 20, rangedKills: 5, airKills: 0, wrathKills: 0, headshots: 0, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
+  const meets = { stoneskin: {}, slowtide: { damageTaken: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
+    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { airKills: 10 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
+    greed: { kills: 150 }, ironwill: { bossSeconds: 79 }, rage: { headshots: 30 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { lowestHealth: 10, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -596,15 +596,22 @@ Test.add('progress', (check) => {
     if (!ok) { exact = false; wrong.push(row.id); }
   }
   check('cards: each card unlocks on its own condition and not without it', exact, wrong.join());
-  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { secretsLeft: 0 }))
-    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { secretsLeft: 0, deaths: 1 })));
-  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('slowtide').unlock, Object.assign({}, base, { propsLeft: PROGRESS_NOT_REACHED })));
+  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { lowestHealth: 5 }))
+    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { headshots: 30, deaths: 1 })));
+  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('soulkeep').unlock, Object.assign({}, base, { enemiesLeft: PROGRESS_NOT_REACHED })));
   const award = { lines: [] };
-  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, propsLeft: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, damageTaken: 0 }), award);
   check('cards: nothing unlocks outside a finished PvE level', !Cards.record().unlocked.slowtide);
-  Cards.unlockFromRun(null, Object.assign({}, base, { propsLeft: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { damageTaken: 0 }), award);
   check('cards: a finished level unlocks the cards whose conditions held', Cards.record().unlocked.slowtide && Cards.record().unlocked.stoneskin && Cards.record().unlocked.endless
     && !Cards.record().unlocked.soulkeep && award.lines.length === 3, award.lines.join('; '));
+  // PRG-011: every condition reads a number the finished level really measures (no card waits on content no map has).
+  Game.start({ mode: 'horde', map: 'cistern', seed: 4, player: { name: 'You' } });
+  Modes.finish(Game.playerId);
+  const measured = RunLog.measure(Game.match);
+  const unmeasured = CAT.cards.filter((row) => typeof measured[row.unlock.metric] !== 'number' || measured[row.unlock.metric] === PROGRESS_NOT_REACHED).map((row) => row.code);
+  check('cards: a finished PvE level measures every metric a card condition reads', unmeasured.length === 0 && measured.enemiesLeft === enemiesLeft(), unmeasured.join());
+  Game.stop();
 });
 
 // ---- Cards: every effect applies in a match ----

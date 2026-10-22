@@ -64,4 +64,4 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
 | `pve.crate` | `{ id }` | Marks per crate |
 
-`match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` at the end of a PvE level; missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.
+`enemiesLeft` (C03 Soulkeep) = living plus queued PvE enemies when the level ends (14j `enemiesLeft()`, while `Pve.active`); outside a PvE match it is not measured (`PROGRESS_NOT_REACHED`) and never unlocks a card. Every card condition reads a metric a finished level measures (self-test); no condition waits on props, secrets or optional spawns, which no map has. A finished PvE level is a won match whose `rules.family` is not `versus`.
