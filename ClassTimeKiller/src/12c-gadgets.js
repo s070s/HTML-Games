@@ -25,8 +25,10 @@ const SMOKE_HALF = Math.ceil(CAT.gadgets.reduce((most, row) => row.effect === 's
 const SMOKE_DIM = SMOKE_HALF * 2 + 1;
 const SMOKE_CELLS = SMOKE_DIM * SMOKE_DIM * SMOKE_DIM;
 const SMOKE_BLOCK_METRES = 1;            // this much smoke along a line blocks sight
-const SMOKE_SAMPLE = 0.5;                // line samples per metre / 2
-const SMOKE_DRAW_STEP = 2;               // every 2nd cell per axis is drawn as one soft blob
+const SMOKE_SAMPLE = 0.5;                // step (m) of the samples taken along a line
+const SMOKE_DRAW_STEP = 2;               // every 2nd cell per axis is drawn as one blob
+const SMOKE_DRAW_BUDGET = 480;           // most smoke blobs per frame (the renderer takes 1024 spheres from every source)
+const SMOKE_DRAW_START = SMOKE_HALF % SMOKE_DRAW_STEP;   // the lattice is centred on the cloud
 const SMOKE_BLOB = SMOKE_CELL * 2.7;
 const PREVIEW_POINTS = 36;
 const PREVIEW_SECONDS = 0.05;
@@ -95,6 +97,7 @@ const Smoke = {
   punched: new Int32Array(SMOKE_CAP * SMOKE_CELLS),    // Sim.tick until which a bullet or blast keeps the cell clear
   queue: new Int16Array(SMOKE_CELLS),
   count: 0,
+  drawn: 0,                                            // blobs drawn this frame (SMOKE_DRAW_BUDGET)
 
   clear() { this.active.fill(0); this.count = 0; },
   spawn(row, owner, x, y, z) {
@@ -233,12 +236,13 @@ const Smoke = {
   },
   // Soft grey blobs on a coarse lattice of occupied cells, plus drifting smoke particles (cosmetic, Rng.fx).
   draw(batch) {
+    this.drawn = 0;
     for (let v = 0; v < SMOKE_CAP; v++) if (this.active[v]) this.drawVolume(batch, v);
   },
   drawVolume(batch, v) {
     const grown = this.grownRadius(v);
-    for (let ix = 0; ix < SMOKE_DIM; ix += SMOKE_DRAW_STEP) {
-      for (let iy = 0; iy < SMOKE_DIM; iy += SMOKE_DRAW_STEP) this.drawColumn(batch, v, ix, iy, grown);
+    for (let ix = SMOKE_DRAW_START; ix < SMOKE_DIM; ix += SMOKE_DRAW_STEP) {
+      for (let iy = SMOKE_DRAW_START; iy < SMOKE_DIM; iy += SMOKE_DRAW_STEP) this.drawColumn(batch, v, ix, iy, grown);
     }
     const cell = Rng.fx.int(0, SMOKE_CELLS - 1);
     if (!this.occupied(v, cell, grown)) return;
@@ -246,8 +250,9 @@ const Smoke = {
     Fx.burst('smoke', this.x[v] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[v] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[v] + (iz - SMOKE_HALF) * SMOKE_CELL, 0, 1, 0, 2, null);
   },
   drawColumn(batch, v, ix, iy, grown) {
-    for (let iz = 0; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
-      if (!this.occupied(v, this.cellIndex(ix, iy, iz), grown)) continue;
+    for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
+      if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(v, this.cellIndex(ix, iy, iz), grown)) continue;
+      this.drawn++;
       const shade = 0.5 + iy / SMOKE_DIM * 0.25;
       batch.mesh('sphere', this.x[v] + (ix - SMOKE_HALF) * SMOKE_CELL, this.y[v] + (iy - SMOKE_HALF) * SMOKE_CELL, this.z[v] + (iz - SMOKE_HALF) * SMOKE_CELL,
         0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);

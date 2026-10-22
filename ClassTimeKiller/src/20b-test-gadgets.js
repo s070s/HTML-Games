@@ -2,6 +2,11 @@
 // every grenade effect per its data row, smoke volumes (walls, line blocking, punching, expiry), flash by view angle, and
 // deployables (caps, cooldowns, arming, triggers, damage, barrier brush, EMP, visibility, cleanup on death and match end).
 
+// __CTK.gadgets / __CTK.items: inspect and drive S12 from the console or a --eval screenshot.
+DebugApi.gadgets = { gadgets: Gadgets, thrown: Thrown, smoke: Smoke, areas: GadgetAreas, devices: Devices,
+  device: (key, owner, x, y, z) => Devices.spawn(CAT.gadgets.byId(key), owner, x, y, z), effect: (key, owner, x, y, z) => GadgetEffects[CAT.gadgets.byId(key).effect](CAT.gadgets.byId(key), owner, x, y, z) };
+DebugApi.items = { items: Items, powerups: Powerups, give: (id, key) => Powerups.give(id, CAT.powerups.byId(key), 0) };
+
 const GadgetArena = {
   start(rules, brushes) {
     TestArena.start(Object.assign({ economy: 'pickups', teams: 2, mutators: [] }, rules || {}), brushes);
