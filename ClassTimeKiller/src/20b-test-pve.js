@@ -564,8 +564,8 @@ function errorsSince(mark) {
 // A fake batch recording the meshes drawn (shape, height and colour of each).
 function meshRecorder() {
   const meshes = [];
-  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); },
-    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, r: instance.r, g: instance.g, b: instance.b }); } };
+  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, sz, r, g, b }); },
+    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, sz: instance.sz, r: instance.r, g: instance.g, b: instance.b }); } };
 }
 function colorMatches(mesh, hex) {
   return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;
@@ -705,7 +705,9 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
-// PERF-006: drawing enemies with their champion ring, element shield and awareness mark allocates nothing per frame.
+const PVE_PROBE_LASER_LENGTH = 10;   // m: a box longer than any enemy part is the laser tell (the sniper stands ~24 m away)
+// PERF-006: drawing enemies with their champion ring, element shield, awareness mark, heal beam and laser tell allocates
+// nothing per frame.
 Test.add('pve', (check) => {
   if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
   World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
@@ -715,6 +717,11 @@ Test.add('pve', (check) => {
   const shielded = Pve.spawnEnemy('gunner', -6, 0, 10, Math.PI, { champion: championIndex('barrier') });
   PVE_CHAMPION_RULES.shieldElementChance = chance;
   ['husk', 'leaper', 'brute'].forEach((key, index) => Pve.spawnEnemy(key, index * 3, 0, 14, Math.PI));
+  const healer = Pve.spawnEnemy('warden', 6, 0, 20, Math.PI), healed = Pve.spawnEnemy('husk', 8, 0, 20, Math.PI);
+  Actors.health[healed] = Actors.maxHealth[healed] / 2;   // hurt inside the warden's radius: a heal beam per frame
+  const sniper = Pve.spawnEnemy('longeye', -8, 0, 24, Math.PI);   // held in its laser windup: the laser tell per frame
+  Pve.phase[sniper] = ATTACK_PHASE.WINDUP; Pve.attack[sniper] = 0; Pve.tellStart[sniper] = Sim.time; Pve.phaseEndsAt[sniper] = Sim.time + 1;
+  Pve.aimX[sniper] = Actors.x[0]; Pve.aimY[sniper] = Actors.eyeY(0); Pve.aimZ[sniper] = Actors.z[0];
   Pve.stealth = true;
   const recorder = meshRecorder();   // two batch kinds, as over a session (tests, killcam): the draw calls are not inlined
   const bytes = perfAllocatedBytes((i) => {
@@ -722,9 +729,27 @@ Test.add('pve', (check) => {
     fillSources();   // the frame's own path: each render source runs its own compiled code, as in a match
   });
   check('the probe draws a shielded champion', Actors.shield[shielded] > 0 && Pve.champion[shielded] >= 0);
-  check('drawing PvE enemies allocates nothing (instance record, no float arguments)', bytes < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' frames');
+  recorder.meshes.length = 0;
+  Pve.draw(recorder);
+  const colors = Pve.rowOf(healer).colors, slot = HEAL_BEAM_SLOT * 3, longest = PVE_PROBE_LASER_LENGTH;
+  const beams = recorder.meshes.filter((mesh) => mesh.shape === 'box' && mesh.r === colors[slot] && mesh.g === colors[slot + 1]).length;
+  const lasers = recorder.meshes.filter((mesh) => mesh.shape === 'box' && mesh.sz > longest && colorMatches(mesh, PVE_TELL_COLORS.unblockable)).length;
+  check('the probe draws a heal beam and a laser tell', beams === 1 && lasers === 1, beams + ' beams, ' + lasers + ' lasers');
+  check('drawing PvE enemies allocates nothing once the hot loop is fully compiled', bytes < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' frames');
   propBatch.clear();
   Game.stop();
+});
+
+// PERF-006 regression guard for the probe above: its hot loop reaches the top compiler tier, which inlines the draw calls, so
+// it cannot see float arguments. A live frame runs these hooks in the middle tier, which boxes each one (horde Potato:
+// 616 B per frame with the old heal beam and laser calls, 16 B now). So the hooks are checked by their source.
+Test.add('pve', (check) => {
+  const hooks = [Pve.drawEnemy, PveBrains.support.draw, PveAttacks.laser.drawTell, drawHealBeam, drawAwareness, drawChampionRing, drawShieldShell];
+  check('the PvE draw hooks draw through the instance record (no batch.mesh with float arguments)', hooks.every((hook) => !/\.mesh\(/.test(String(hook))));
+  const enemy = String(Pve.drawEnemy);
+  check('brain.draw and drawTell get no float argument (the tell progress is read from pveTellGlow)',
+    enemy.includes('brain.draw(batch, id, row);') && enemy.includes('.drawTell(batch, id, attack);') && PveAttacks.laser.drawTell.length === 2);
+  check('the heal beam reads the two actor ids, not six coordinates', drawHealBeam.length === 4);
 });
 
 // Boss phases cannot be skipped: one huge hit stops at the threshold; a frozen boss still switches phase.

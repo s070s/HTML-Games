@@ -875,9 +875,9 @@ const Pve = {
     if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
     if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
     const brain = PveBrains[row.brain];
-    if (brain.draw) brain.draw(batch, id, row, now);
+    if (brain.draw) brain.draw(batch, id, row);
     const attack = this.phase[id] === ATTACK_PHASE.WINDUP ? row.attackRows[this.attack[id]] : null;
-    if (attack && PveAttacks[attack.kind].drawTell) PveAttacks[attack.kind].drawTell(batch, id, attack, tell.progress);
+    if (attack && PveAttacks[attack.kind].drawTell) PveAttacks[attack.kind].drawTell(batch, id, attack);   // reads pveTellGlow.progress
   },
   // The tell: the windup glows in the attack colour, pulsing faster as the blow nears (shared scratch, no allocation).
   tellGlow(id, row) {
