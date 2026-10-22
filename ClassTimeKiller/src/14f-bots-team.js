@@ -3,8 +3,9 @@
 // orders that the nearest team bots (the whole team for follow / hold / regroup) acknowledge and
 // follow (acknowledged within 0.5-1.5 s; the nearest team bot answers an enemy ping the same way); bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
-// Grenade tokens keep a team from throwing more than one every 3 s. Flag raids: attackers gather at a rally point and push
-// together (BOT_FLAG_PUSH).
+// Grenade tokens keep a team from throwing more than one every 3 s; attack and flank tokens (BOT-053, BOT_TOKENS) limit
+// how many bots close in on one target and flank at once. Squads (BOT-052, BOT_SQUAD): followers keep with their leader.
+// Flag raids: attackers gather at a rally point and push together (BOT_FLAG_PUSH).
 
 const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
 const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
@@ -36,6 +37,8 @@ const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line 
 const HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
 const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
 const PUSH_CHECK_INTERVAL = 0.5;
+const SQUAD_BASE = 0.2, SQUAD_GAIN = 0.2;   // keeping with the leader beats roaming; by teamwork
+const SQUAD_REGROUP = 0.25;              // a broken-off follower adds this (still below fights, objectives and orders)
 
 Settings.define('gameplay.chatter', 'normal', { label: 'Bot chatter', category: 'gameplay', options: CHATTER_LEVELS });
 Settings.define('gameplay.taunts', true, { label: 'Bot taunts', category: 'gameplay' });
@@ -45,6 +48,7 @@ const barkPayload = { id: -1, team: NO_TEAM, category: '', text: '' };
 const pingHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const rankList = [];
 const takerList = [];
+const squadOpen = new Int16Array(ROLE_NAMES.length), squadSize = new Uint8Array(ROLE_NAMES.length);   // per role while squads form
 
 const BotTeam = {
   role: new Uint8Array(MAX_ACTORS),
@@ -56,6 +60,10 @@ const BotTeam = {
   enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
+  // BOT-053 tokens: BOT_TOKENS.attackers slots per target, one flank slot per team (free-for-all: per bot); holder -1 = free.
+  attackHolder: new Int16Array(MAX_ACTORS * BOT_TOKENS.attackers).fill(-1), attackUntil: new Float64Array(MAX_ACTORS * BOT_TOKENS.attackers),
+  flankHolder: new Int16Array(TEAM_SLOTS + MAX_ACTORS).fill(-1), flankUntil: new Float64Array(TEAM_SLOTS + MAX_ACTORS),
+  squadLeader: new Int16Array(MAX_ACTORS).fill(-1),   // BOT-052: the bot's squad leader (itself when it leads), -1 = no squad
   lowBarked: new Uint8Array(MAX_ACTORS),
   // Flag raids per team: the rally point (rallyNode -1 = none), the push window, the first wait at the rally.
   rallyNode: new Int32Array(TEAM_COUNT).fill(-1), rallyX: new Float32Array(TEAM_COUNT), rallyY: new Float32Array(TEAM_COUNT), rallyZ: new Float32Array(TEAM_COUNT),
@@ -117,6 +125,7 @@ const BotTeam = {
     this.updatePushes(now);
   },
   assignRoles() {
+    this.squadLeader.fill(-1);
     for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, roleSplitKey(team));
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] < 0) this.role[id] = ROLE.FREELANCE;
   },
@@ -132,6 +141,36 @@ const BotTeam = {
       const id = rankList[rank];
       this.role[id] = rank < defenders ? ROLE.DEFEND : rank < defenders + escorts ? ROLE.ESCORT : ROLE.ATTACK;
     }
+    if (Modes.rules && Modes.rules.family !== 'pve') this.formSquads();
+  },
+  // BOT-052: in rank order (most teamwork first) the bots of one role fill squads of BOT_SQUAD.size; the first one leads.
+  formSquads() {
+    squadOpen.fill(-1); squadSize.fill(0);
+    for (let rank = 0; rank < rankList.length; rank++) {
+      const id = rankList[rank], role = this.role[id];
+      if (squadOpen[role] < 0 || squadSize[role] >= BOT_SQUAD.size) { squadOpen[role] = id; squadSize[role] = 0; }
+      this.squadLeader[id] = squadOpen[role];
+      squadSize[role]++;
+    }
+  },
+  // A fallen leader hands its squad to the next follower (BOT-052: followers regroup in versus); the leader rejoins as one.
+  passLead(victim) {
+    if (this.squadLeader[victim] !== victim) return;
+    let heir = -1;
+    for (let id = 0; id < Actors.count; id++) {
+      if (id === victim || this.squadLeader[id] !== victim) continue;
+      if (heir < 0) heir = id;
+      this.squadLeader[id] = heir;
+    }
+    this.squadLeader[victim] = heir;
+  },
+  // A follower's SQUAD goal plan: the leader's live position; broken off (farther than BOT_SQUAD.regroup) it regroups.
+  squadPlan(id, plan) {
+    const leader = this.squadLeader[id];
+    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return 0;
+    setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], BOT_SQUAD.keep, ACTION.MOVE, leader);
+    const keep = SQUAD_BASE + SQUAD_GAIN * Bots.trait(id, TRAIT.teamwork);
+    return length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]) > BOT_SQUAD.regroup ? keep + SQUAD_REGROUP : keep;
   },
 
   // ---- Per bot after its decision: delayed acknowledgements and situational barks ----
@@ -260,21 +299,42 @@ const BotTeam = {
   },
   onKill(event) {
     const now = Sim.time;
+    if (event.victim >= 0 && event.victim < MAX_ACTORS) this.passLead(event.victim);
     if (event.victim >= 0 && Bots.active[event.victim]) { this.barkAt[event.victim] = -1e9; this.bark(event.victim, 'death', now); }
     if (event.killer >= 0 && event.killer !== event.victim && Bots.isBot(event.killer)) this.bark(event.killer, 'killTaunt', now);
   },
   // One grenade per team every 3 s (free-for-all bots each have their own clock).
   takeGrenadeToken(id, now) {
-    const slot = Actors.team[id] >= 0 ? Actors.team[id] : TEAM_SLOTS + id;
+    const slot = tokenSlot(id);
     if (now - this.grenadeAt[slot] < GRENADE_TOKEN_INTERVAL) return false;
     this.grenadeAt[slot] = now;
     return true;
   },
+  // BOT-053: one of the BOT_TOKENS.attackers slots of the target (the bot's own one first, so it never holds two).
+  takeAttackToken(id, target, now) {
+    const first = target * BOT_TOKENS.attackers, last = first + BOT_TOKENS.attackers;
+    for (let slot = first; slot < last; slot++) if (this.attackHolder[slot] === id) return claimToken(this.attackHolder, this.attackUntil, slot, id, GOAL.ATTACK, now);
+    for (let slot = first; slot < last; slot++) if (claimToken(this.attackHolder, this.attackUntil, slot, id, GOAL.ATTACK, now)) return true;
+    return false;
+  },
+  takeFlankToken(id, now) { return claimToken(this.flankHolder, this.flankUntil, tokenSlot(id), id, GOAL.CHASE, now); },
   readSettings(key) {
     if (key === 'gameplay.chatter') this.chatter = Settings.get(key);
     if (key === 'gameplay.taunts') this.taunts = !!Settings.get(key);
   },
 };
+
+// The token slot of a bot's team (free-for-all bots each have their own).
+function tokenSlot(id) { return Actors.team[id] >= 0 ? Actors.team[id] : TEAM_SLOTS + id; }
+
+// A token is free when its holder let BOT_TOKENS.hold pass without renewing it, died, or no longer plays `goal`.
+function claimToken(holders, until, slot, id, goal, now) {
+  const holder = holders[slot];
+  if (holder >= 0 && holder !== id && now < until[slot] && Actors.alive[holder] && BotDecide.goal[holder] === goal) return false;
+  holders[slot] = id;
+  until[slot] = now + BOT_TOKENS.hold;
+  return true;
+}
 
 // The BOT_ROLE_SPLITS row for a team: the mode's objective kind; flags: 'flagTaken' while a team-mate carries the enemy flag.
 function roleSplitKey(team) {
@@ -307,6 +367,8 @@ function spotKind(player, x, z) {
   }
   return 'go';
 }
+
+GOAL_SCORERS[GOAL.SQUAD] = (id, plan) => BotTeam.squadPlan(id, plan);
 
 // A fresh start every match, so the same seed plays the same match: at match setup every typed array of the bot modules
 // (14a..14f: clocks, aim noise, scan order, paths, plans) goes back to its load-time contents. Copies taken once, at load.

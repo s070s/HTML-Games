@@ -5,7 +5,8 @@
 // player's input layer (BOT-001), in the Sim system 'botThink' (order 10); every other system treats it like a human.
 // Difficulty (DIF-001..DIF-003) builds rules.botSkill at the 'difficulty' rule stage. API: docs/api/bots.md.
 
-const BOT_STATE = { DEAD: 0, SPAWN: 1, ROAM: 2, COLLECT: 3, ENGAGE: 4, CHASE: 5, RETREAT: 6, CAMP: 7, OBJECTIVE: 8, INVESTIGATE: 9, SEARCH: 10, FOLLOW: 11 };
+const BOT_STATE = { DEAD: 0, SPAWN: 1, ROAM: 2, COLLECT: 3, ENGAGE: 4, CHASE: 5, RETREAT: 6, CAMP: 7, OBJECTIVE: 8, INVESTIGATE: 9, SEARCH: 10, FOLLOW: 11,
+  DOWNED: 12, REVIVE: 13 };
 const BOT_STATE_NAMES = Object.keys(BOT_STATE).map((name) => name.toLowerCase());
 const TRAIT = {};
 CAT.botTraits.forEach((row, index) => { TRAIT[row.id] = index; });
