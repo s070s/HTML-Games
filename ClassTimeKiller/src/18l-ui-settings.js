@@ -32,6 +32,58 @@ Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.con
   onYes: () => { resetSettingKeys(editableSettingKeys()); refresh(); },
 }), 'danger'));
 
+// ---- Save export and import (ARC-020, PLT-007): the whole save as text to copy or as a file; paste or load one back ----
+const SAVE_FILE_NAME = 'classtimekiller-save.json';
+const SaveTransfer = {
+  reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
+  // Imports the text and restarts; returns '' on success, else the reason shown to the player.
+  importText(text) {
+    try {
+      Save.importText(text);
+    } catch (error) {
+      return 'That is not a ClassTimeKiller save (' + (error && error.message || error) + ').';
+    }
+    this.reload();
+    return '';
+  },
+  download() {
+    const url = URL.createObjectURL(new Blob([Save.exportText()], { type: 'application/json' }));
+    const link = makeElement('a');
+    link.href = url; link.download = SAVE_FILE_NAME;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  },
+  readFile(file, area) { file.text().then((text) => { area.value = text; }).catch(() => Ui.toast('That file could not be read.')); },
+};
+Ui.register('saveTransfer', {
+  build(root) {
+    screenHeader(root, 'Save data');
+    root.appendChild(makeElement('p', 'ui-note', 'Export shows your settings, bindings and progress as text to copy, or saves them as a file. '
+      + 'Import replaces them with a save you exported before, then the game restarts.'));
+    const area = makeElement('textarea', 'ui-code');
+    area.spellcheck = false;
+    const picker = makeElement('input');
+    picker.type = 'file'; picker.accept = '.json,application/json,text/plain'; picker.hidden = true;
+    picker.addEventListener('change', () => { if (picker.files[0]) SaveTransfer.readFile(picker.files[0], area); });
+    const foot = makeElement('div', 'ui-foot');
+    foot.appendChild(Ui.button('Export', () => { area.value = Save.exportText(); area.select(); }));
+    foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
+    foot.appendChild(Ui.button('Load file', () => picker.click()));
+    foot.appendChild(Ui.button('Import', () => Ui.confirm({
+      title: 'Import this save?', text: 'Your current settings, bindings and progress are replaced.', yes: 'Import',
+      onYes: () => { const problem = SaveTransfer.importText(area.value); if (problem) Ui.toast(problem); },
+    }), 'danger'));
+    root.appendChild(area);
+    root.appendChild(picker);
+    root.appendChild(foot);
+  },
+});
+Ui.settingsExtras.developer = [(container) => {
+  const foot = makeElement('div', 'ui-foot');
+  foot.appendChild(Ui.button('Export or import save', () => Ui.open('saveTransfer')));
+  container.appendChild(foot);
+}];
+
 function flushSave() { if (Save.data) Save.saveNow(); }
 Bus.on('boot', () => {
   if (Game.headless) return;

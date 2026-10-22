@@ -5,7 +5,7 @@
 
 const CAREER_CSS = '.pg-bar { height: 8px; background: var(--ui-line); border-radius: 4px; overflow: hidden; margin: 4px 0 10px; max-width: 520px; }'
   + '.pg-bar > div { height: 100%; background: var(--ui-accent); } .pg-stars { color: var(--ui-accent); letter-spacing: 0.1em; margin-left: 8px; }'
-  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.85em; } .pg-award { margin-bottom: 10px; }'
+  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.875em; } .pg-award { margin-bottom: 10px; }'
   + '.pg-swatch { display: inline-block; width: 1em; height: 1em; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid var(--ui-line); }';
 const CAREER_STAR = '★';
 const CAREER_NO_STAR = '☆';

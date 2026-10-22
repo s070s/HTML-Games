@@ -6,7 +6,7 @@
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
-  + '.mg-code { flex: 1; min-width: 12em; font: 13px/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
+  + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {

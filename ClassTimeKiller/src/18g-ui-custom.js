@@ -23,9 +23,9 @@ const EDITOR_LIVES = [-1, 0, 1, 2, 3, 5, 10];
 const EDITOR_RESPAWN = [-1, 0, 1, 2, 3, 5, 8, 10, 15];
 const EDITOR_FRIENDLY_FIRE = [-1, 0, 0.5, 1];
 const EDITOR_TABS = [['mode', 'Mode'], ['rules', 'Rules'], ['weapons', 'Weapons'], ['bots', 'Bots'], ['mutators', 'Mutators'], ['map', 'Map']];
-const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.8em; }'
-  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; } .cm-code { width: 100%; box-sizing: border-box; min-height: 7em; background: var(--ui-panel); color: var(--ui-text);'
-  + ' border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; } .cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
+const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.875em; }'
+  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; }'
+  + '.cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
   + ' color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; } .cm-error { color: var(--ui-bad); } .cm-quick { display: grid;'
   + ' grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 6px 0 12px; } .cm-list .ui-row { flex-wrap: wrap; } .cm-controls .ui-slider { width: auto; flex: 1 1 170px; min-width: 150px; } .cm-controls .ui-value { min-width: 3.6em; }';
 
@@ -621,7 +621,7 @@ Ui.register('customShare', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Share Code'));
     const scroll = makeElement('div', 'ui-scroll');
-    const mine = makeElement('textarea', 'cm-code'), paste = makeElement('textarea', 'cm-code');
+    const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
     mine.value = CustomMatch.encode(editorDraft());
     paste.placeholder = 'Paste a match code here';

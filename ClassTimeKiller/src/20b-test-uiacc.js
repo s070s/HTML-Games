@@ -529,7 +529,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
 })));
 
 // ---- Every screen: opens fast, reachable and leavable with each device alone, fonts of at least 14 px ----
-const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair'];
+const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair', 'saveTransfer'];
 
 function accessTestSmallText(element) {
   const small = [];
@@ -569,6 +569,18 @@ function accessTestScreen(check, name) {
   const leftByTouch = !!button && Ui.current() !== name;
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
+
+// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+Test.add('uiacc', (check) => {
+  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  for (const name in sheets) {
+    for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
+      const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);
+      if (pixels < ACCESS_TEST_MIN_FONT - 0.01) small.push(name + ' ' + match[0]);
+    }
+  }
+  check('menus: no menu style sets text under 14 px at 100% scale (ACC-008)', small.length === 0, small.join('; '));
+});
 
 Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   for (const name of ACCESS_TEST_SCREENS) { accessTestScreen(check, name); Ui.closeAll(); }

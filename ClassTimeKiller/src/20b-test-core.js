@@ -75,6 +75,26 @@ Test.add('core', (check) => {
   Save.storageWorks = true;
 });
 
+// PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
+Test.add('core', (check) => {
+  const migrated = Save.migrate({ version: 1, settings: null, bindings: [], touchLayouts: 'x', rulesets: {}, play: { mode: 'ffa' }, crosshairs: 5 });
+  check('save: fields of the wrong kind are replaced', saveFieldKind(migrated.settings) === 'object' && saveFieldKind(migrated.bindings) === 'object'
+    && saveFieldKind(migrated.touchLayouts) === 'object' && Array.isArray(migrated.rulesets) && saveFieldKind(migrated.crosshairs) === 'object' && migrated.play.mode === 'ffa');
+  Save.data = migrated;
+  let threw = false;
+  try { Settings.get('video.fov'); } catch (error) { threw = true; }
+  check('save: "settings": null no longer breaks Settings.get', !threw);
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  Save.storage = makeMemoryStorage(true); Save.storageWorks = true; Save.notice = '';
+  Save.saveNow(); Save.saveNow();
+  check('save: a failed write shows a toast once', toasts.length === 1 && toasts[0] === SAVE_BLOCKED, toasts.join());
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true;
+  Save.data.oversized = 'x'.repeat(SAVE_MAX_BYTES + 1);
+  check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
+  Bus.off('toast', listener);
+  Save.storageWorks = true; Save.notice = '';
+});
+
 Test.add('core', (check) => {
   World.load({ id: 'test', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'ramp', min: [2, 0, -1], max: [6, 2, 1], dir: '+x' }] });
   const hit = makeHit();

@@ -888,13 +888,13 @@ Test.add('mapEditor', async (check) => {
   check('tapping a problem returns to the editor with the object selected and the camera on it', Ui.current() === 'mapEditor' && MapEditor.selection.list === 'spawns' && MapEditor.selection.index === 0
     && Math.abs(MapEditorTools.camera.x + Math.sin(MapEditorTools.camera.yaw) * MAPEDIT_FOCUS_BACK - MapEditor.map.spawns[0].x) < 1e-6);
   Ui.open('mapEditorCode');
-  document.querySelector('.ui-mapEditorCode .me-code').value = 'not a code';
+  document.querySelector('.ui-mapEditorCode .ui-code').value = 'not a code';
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Import').click();
   const confirmOpen = Ui.current() === 'confirm';
   if (confirmOpen) Array.from(document.querySelectorAll('.ui-confirm .ui-button')).find((button) => button.textContent === 'Import').click();
   check('a bad code shows its message and stays on the screen', Ui.current() === 'mapEditorCode' && document.querySelector('.ui-mapEditorCode .me-error').textContent.length > 0);
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Make code').click();
-  check('Make code fills the box with a code', /^CTKMAP1-/.test(document.querySelector('.ui-mapEditorCode .me-code').value));
+  check('Make code fills the box with a code', /^CTKMAP1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
   Ui.pop();
   MapEditor.newFrom({ kind: 'empty' });
   check('saving an unfinished map says that no mode is complete', mapEditSave(false) && /no mode is complete/i.test(Ui.lastToast) && MapEditor.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);
