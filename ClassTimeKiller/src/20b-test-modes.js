@@ -632,3 +632,26 @@ Test.add('modes', (check) => {
     endModeTest();
   }
 });
+
+// Integration (spawning contract): a real ffa match on the smallest hand-made map spawns everyone ready to fight, and the dead return.
+Test.add('modes', (check) => {
+  Game.start({ mode: 'ffa', map: 'spire', seed: 1, bots: [{}, {}, {}] });
+  check('the match map is loaded into the world', World.map && World.map.id === 'spire' && World.brushes.length > 0);
+  const ids = [];
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) ids.push(id);
+  const health = Damage.preset().health;
+  check('3 participants', ids.length === 3, ids.length);
+  check('everyone spawns alive with the preset health', ids.every((id) => Actors.alive[id] && Actors.health[id] === health), ids.map((id) => Actors.health[id]).join());
+  check('everyone spawns with a weapon in hand', ids.every((id) => Weapons.currentWeapon(id) !== null));
+  runSeconds(0.5);
+  check('everyone stands on the floor', ids.every((id) => (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) && Actors.alive[id]), ids.map((id) => Actors.y[id].toFixed(2)).join());
+  runSeconds(Game.match.rules.respawn.protect);   // spawn protection (S13) ignores damage until it ends
+  const victim = ids[0], delay = Game.match.rules.respawn.delay;
+  TestArena.hit(ids[1], victim, 100000);
+  check('a lethal hit kills', !Actors.alive[victim]);
+  Sim.run(Math.round(delay * TICK_RATE) - 2);
+  check('no respawn before rules.respawn.delay', !Actors.alive[victim]);
+  Sim.run(4);
+  check('respawned after rules.respawn.delay with health and a weapon', Actors.alive[victim] && Actors.health[victim] === health && Weapons.currentWeapon(victim) !== null);
+  Game.stop();
+});

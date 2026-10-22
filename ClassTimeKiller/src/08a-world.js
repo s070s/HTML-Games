@@ -76,6 +76,10 @@ const World = {
 Render.worldQuery = World;
 Sound.lineOfSight = (ax, ay, az, bx, by, bz) => World.lineClear(ax, ay, az, bx, by, bz);
 
+// A match plays on its map: S16 puts the row on Game.match.map at match.setup, the world loads it before match.start
+// (spawns, nav and the renderer all follow 'world.load'). No map (tests, hand-built worlds): the loaded world stays.
+Bus.on('match.load', (match) => { if (match.map) World.load(match.map); });
+
 const scratchHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const makeHit = () => ({ distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null });
 const rayQuery = { sx: 0, sy: 0, sz: 0, ex: 0, ey: 0, ez: 0, dx: 0, dy: 0, dz: 0, length: 0, fraction: 1, nx: 0, ny: 0, nz: 0, brush: null };

@@ -567,4 +567,4 @@ Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', cat
 Sim.addSystem('move', 30, stepMovement);
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => { Move.presetOverride[id] = null; Move.weaponSpeedScale[id] = 1; Move.statusSpeedScale[id] = 1; resetMotion(id); });
-Bus.on('actor.spawn', (event) => resetMotion(event.id));
+Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags
