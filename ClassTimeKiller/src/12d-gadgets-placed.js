@@ -55,7 +55,7 @@ const Devices = {
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
   betweenRounds: false,                   // from a round's end to the next round's start: no beacon pulls the new spawns
-  rayDistance: 0,                        // distance of the last rayDevice hit
+  rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {

@@ -20,7 +20,7 @@ const FLOOR_SNAP = 3;                    // arrivals settle onto a floor up to t
 const LIFT_OFF_SPEED = 0.5;              // driving a grounded actor upward needs this much vertical speed to leave the floor
 const REWIND_SAMPLE = 0.1;               // A09 history: one sample per 0.1 s
 const REWIND_SAMPLES = 31;               // 3 s plus the current sample
-const FOOTPRINT_RING = 40;               // prints kept per actor: 8 s of strides at a sprint
+const FOOTPRINT_RING = 40;               // prints kept per actor: 8 s at a base sprint (a speed-buffed sprint loses its oldest prints sooner)
 const FOOTPRINT_COUNT = MAX_ACTORS * FOOTPRINT_RING;
 const FOOTPRINT_MIN_LOUDNESS = 0.5;      // a crouch-walk (0.25) or a Quietstep step (0) leaves no print
 const FOOTPRINT_SIZE = 0.18;
@@ -401,7 +401,8 @@ function lureStep(zone) {
 }
 
 const DecoyState = { zone: new Int8Array(MAX_ACTORS).fill(-1) };   // actor id -> zone of the decoy it is (-1 = a real actor)
-// A40: the surplus a rally gave each actor and when it ends (damage may have eaten into it already).
+// A40: the surplus a rally gave each actor and when it ends. One pool on purpose: a later rally moves the end of the whole pool,
+// and at the end the full rally amount comes off what surplus is left (damage counts against other surplus first).
 const RallyShield = {
   amount: new Float32Array(MAX_ACTORS), until: new Float64Array(MAX_ACTORS),
   expire(id) {
