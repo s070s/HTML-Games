@@ -131,10 +131,21 @@ function ladderState(id, preset, dt) {
     integrate(id, 1, dt);
     return;
   }
-  const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1;
-  Actors.vx[id] = direction.x * direction.amount * LADDER_SPEED; Actors.vz[id] = direction.z * direction.amount * LADDER_SPEED;
-  Actors.vy[id] = (Actors.buttons[id] & BTN.CROUCH) ? -LADDER_SPEED : Motion.inputZ[id] * climbSign * LADDER_SPEED;
+  const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1, speed = LADDER_SPEED * Move.statusSpeedScale[id];
+  Actors.vx[id] = direction.x * direction.amount * speed; Actors.vz[id] = direction.z * direction.amount * speed;
+  Actors.vy[id] = (Actors.buttons[id] & BTN.CROUCH) ? -speed : Motion.inputZ[id] * climbSign * speed;
+  if (Actors.vy[id] <= 0 && !Motion.grounded[id]) holdOnLadder(id);
   integrate(id, 0, dt);
+}
+
+// Climbing down or hanging on, the actor stays on the ladder: a horizontal move that would carry its centre further out
+// of the ladder's footprint stops. Going up the wall blocks such moves; at the top, climbing down, nothing else would.
+// On the floor at either end the actor walks off freely, and jumping pushes off.
+function holdOnLadder(id) {
+  const ladder = World.ladderOf(id);
+  if (!ladder) return;
+  if ((Actors.x[id] <= ladder.minX && Actors.vx[id] < 0) || (Actors.x[id] >= ladder.maxX && Actors.vx[id] > 0)) Actors.vx[id] = 0;
+  if ((Actors.z[id] <= ladder.minZ && Actors.vz[id] < 0) || (Actors.z[id] >= ladder.maxZ && Actors.vz[id] > 0)) Actors.vz[id] = 0;
 }
 
 function swimState(id, preset, dt) {
@@ -144,7 +155,8 @@ function swimState(id, preset, dt) {
   const forward = Motion.inputZ[id], pitch = Actors.pitch[id];
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
   const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
-  if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
+  const speed = preset.groundSpeed * SWIM_SPEED_FRACTION * Move.weaponSpeedScale[id] * Move.statusSpeedScale[id];   // slows and heavy weapons, as on foot
+  if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, speed * Math.min(1, length), preset.accel, dt);
   integrate(id, WATER_GRAVITY_SCALE, dt);
 }
 

@@ -230,6 +230,45 @@ Test.add('world', (check) => {
   check('jump leaves the ladder', Motion.state[id] === MOVE_STATE.WALK && Actors.vz[id] < 0);
 });
 
+// MOV-019 ladders work both ways: up to an open top and onto the platform; from the top, looking down > 30 deg and walking on
+// climbs down instead of walking off into a fall. Ladder and swim speeds follow status slows (MOV-021 scales, like walking).
+Test.add('world', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 2], max: [1, 4, 20] }], { triggers: [{ kind: 'ladder', min: [-1, 0, 1.4], max: [1, 4, 2] }] });
+  useTestRules({ move: 'modern' });
+  const climber = groundedTester(0, 1.2);
+  holdInput(climber, 0, 1, 0, 0);
+  stepSeconds(3);
+  check('ladder: climbing an open top ends standing on the platform', Motion.grounded[climber] === 1 && Test.near(Actors.y[climber], 4, 0.05) && Actors.z[climber] > 2,
+    Actors.y[climber].toFixed(2) + ',' + Actors.z[climber].toFixed(2));
+  Actors.remove(climber);
+  const id = spawnTester(0, 4.01, 3);
+  Sim.run(12);
+  holdInput(id, 0, 1, 0, 180);
+  Actors.aimPitch[id] = -46 * DEG;
+  const hurt = recordEvents(['damage.request'], () => {
+    stepSeconds(0.6);
+    check('ladder: looking down 46 deg and walking on from the top climbs down the ladder', Motion.state[id] === MOVE_STATE.LADDER && Actors.y[id] < 3.6 && Actors.y[id] > 1.5
+      && Actors.z[id] > 1.4 - ACTOR_RADIUS, Move.stateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+    stepSeconds(1.5);
+  });
+  check('ladder: reaches the foot with no fall damage', Actors.y[id] < 0.05 && hurt.length === 0, Actors.y[id].toFixed(2) + ' ' + hurt.length);
+  Actors.remove(id);
+  const slowed = groundedTester(0, 1.2);
+  Buffs.add(slowed, BUFF.SLOW, 0.5, 10);
+  holdInput(slowed, 0, 1, 0, 0);
+  stepSeconds(0.3);
+  const y0 = Actors.y[slowed];
+  stepSeconds(0.5);
+  check('ladder: a 50% slow climbs at 1.5 m/s', Test.near((Actors.y[slowed] - y0) / 0.5, 1.5, 0.1), (Actors.y[slowed] - y0) / 0.5);
+  loadTestWorld([], { triggers: [{ kind: 'water', min: [-20, -1, -20], max: [20, 3, 20] }] });
+  useTestRules({ move: 'arena' });
+  const swimmer = groundedTester(-15, 0);
+  Buffs.add(swimmer, BUFF.SLOW, 0.5, 10);
+  holdInput(swimmer, 0, 1, 0, 90);
+  stepSeconds(2);
+  check('swim: a 50% slow swims at half the swim speed', Test.near(Math.hypot(Actors.vx[swimmer], Actors.vy[swimmer], Actors.vz[swimmer]), 2.25, 0.1), testSpeed(swimmer));
+});
+
 Test.add('world', (check) => {
   loadTestWorld([], { triggers: [{ kind: 'water', min: [-20, -1, -20], max: [20, 3, 20] }] });
   useTestRules({ move: 'arena' });

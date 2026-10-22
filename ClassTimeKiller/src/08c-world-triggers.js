@@ -29,7 +29,7 @@ const SWIM_DEPTH_FRACTION = 0.5;        // swimming once the water reaches the c
 const TRIGGER_KINDS = {
   jumppad: { fields: { target: REQUIRED, peak: JUMPPAD_PEAK }, points: ['target'], valid: (pad) => pad.peak > 0, touch: touchJumpPad },
   teleporter: { fields: { exit: REQUIRED, yaw: 0 }, points: ['exit'], touch: touchTeleporter },
-  ladder: { fields: {}, touch: () => TRIGGER_MEDIUM.LADDER },
+  ladder: { fields: {}, touch: touchLadder },
   water: { fields: {}, touch: touchWater },
   hazard: { fields: { damage: 10, element: 'thermal' }, touch: touchHazard },
   killzone: { fields: { damage: LETHAL_DAMAGE, element: 'none' }, touch: touchHazard },
@@ -41,9 +41,11 @@ const TriggerState = {
   drownCount: new Uint8Array(MAX_ACTORS),
   hazardClock: new Float32Array(MAX_ACTORS),
   padClock: new Float32Array(MAX_ACTORS),
+  ladder: new Array(MAX_ACTORS).fill(null),   // the ladder trigger the actor touched last (S10 keeps a climber on it)
   touchedHazard: false,
   reset(id) {
     this.air[id] = AIR_SECONDS; this.drownClock[id] = 0; this.drownCount[id] = 0; this.hazardClock[id] = 0; this.padClock[id] = 0;
+    this.ladder[id] = null;
   },
 };
 
@@ -167,6 +169,11 @@ function telefragAt(arriver) {
   }
 }
 
+function touchLadder(id, ladder) {
+  TriggerState.ladder[id] = ladder;
+  return TRIGGER_MEDIUM.LADDER;
+}
+
 function touchWater(id, water) {
   let medium = TRIGGER_MEDIUM.WADING;
   if (Actors.y[id] + Actors.height[id] * SWIM_DEPTH_FRACTION < water.maxY) medium |= TRIGGER_MEDIUM.WATER;
@@ -198,6 +205,7 @@ function updateBreath(id, headUnder) {
 }
 
 World.airLeft = (id) => TriggerState.air[id];
+World.ladderOf = (id) => TriggerState.ladder[id];   // { minX, maxX, minZ, maxZ, ... } of the last ladder touched, or null
 
 Bus.on('actor.create', (id) => TriggerState.reset(id));
 Bus.on('actor.spawn', (event) => TriggerState.reset(event.id));
