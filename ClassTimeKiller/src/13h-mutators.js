@@ -396,7 +396,7 @@ function onKillTriangle(fx, event) {
   if (!fx.triangle || !isOpponentKill(event)) return;
   const killer = event.killer, weapon = CAT.weapons.byId(event.weapon);
   if (event.kind === 'melee' || (weapon && weapon.class === 'melee')) {   // a quick-melee bash with a gun is a melee finisher too
-    Actors.health[killer] = Math.min(Actors.maxHealth[killer], Actors.health[killer] + TRIANGLE_HEALTH);
+    Damage.regenerate(killer, TRIANGLE_HEALTH, Actors.maxHealth[killer]);
     const held = Weapons.currentWeapon(killer);
     if (held) Weapons.addAmmo(killer, held.ammoType, TRIANGLE_AMMO);
   }

@@ -418,12 +418,15 @@ const Damage = {
     const role = preset.roleRegen;
     if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
-  // The one heal path (regen, pickups, abilities, lifesteal): adds health up to cap; false when already at it.
+  // The shared heal step (regen, pickups, abilities, lifesteal, cards): adds health up to cap; false when already at it.
+  // Some mutator, powerup and PvE heals still write health directly (docs/api/weapons-damage.md lists them).
   regenerate(id, amount, cap) {
     if (Actors.health[id] >= cap) return false;
     Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
     return true;
   },
+  // The highest health an overheal may reach: the preset's overhealCap, never below the actor's own max.
+  overhealCap(id) { return Math.max(Actors.maxHealth[id], this.preset().overhealCap); },
   // Lifesteal (PU12 Vampire Fang, X13 Vampire, C24 Life Thief): share of a 'damage' event dealt to another actor heals
   // its living source, up to its max health.
   lifesteal(event, share) {

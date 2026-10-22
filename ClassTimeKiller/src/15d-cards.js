@@ -228,7 +228,7 @@ function cardAmmoPickup(event) {
 function cardSoulPickup(event) {
   if (event.item !== CARD_SOUL_ITEM || !CardRun.holds(CARD_KIND.soulHeal, event.id) || !CARD_SOUL_ROW) return;
   const extra = CARD_SOUL_ROW.instant.heal * (CardRun.value[CARD_KIND.soulHeal] - 1);
-  Damage.regenerate(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
+  Damage.regenerate(event.id, extra, Damage.overhealCap(event.id));
 }
 // C21: the shot's rounds come back at once (ammo is spent before 'weapon.fire').
 function cardFire(event) {

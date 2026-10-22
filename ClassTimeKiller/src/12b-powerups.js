@@ -97,7 +97,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Damage.regenerate(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Damage.regenerate(id, instant.heal, Damage.overhealCap(id)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -165,7 +165,7 @@ const Powerups = {
   applyMaxScales(id, healthScale, armorScale) {
     if (healthScale !== this.healthScale[id]) {
       Actors.maxHealth[id] = Actors.maxHealth[id] / this.healthScale[id] * healthScale;
-      Actors.health[id] = Math.min(Actors.health[id], Math.max(Actors.maxHealth[id], Damage.preset().overhealCap));
+      Actors.health[id] = Math.min(Actors.health[id], Damage.overhealCap(id));
       this.healthScale[id] = healthScale;
     }
     if (armorScale === this.armorScale[id]) return;
