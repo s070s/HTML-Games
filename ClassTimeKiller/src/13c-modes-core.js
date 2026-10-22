@@ -7,6 +7,7 @@ const SAFE_AREA_HURT_INTERVAL = 1;           // the elimination safe area hurts 
 const SAFE_AREA_FALLBACK_RADIUS = 50;
 
 const hazardRequest = { target: -1, source: -1, amount: 0, kind: 'hazard', element: 'kinetic', x: 0, y: 0, z: 0 };
+const safeAreaScratch = { x: 0, z: 0, radius: 0 };
 
 Modes.register('ffa', {});
 Modes.register('tdm', {});
@@ -174,7 +175,7 @@ Modes.register('bomb', {
     return Modes.attackingTeam();
   },
   giveCharge() {
-    const carrier = randomAliveMember(Modes.attackingTeam());
+    const carrier = randomAliveMember(Modes.attackingTeam(), -1);
     if (carrier >= 0) Modes.pickUp(this.charge, carrier);
   },
   step(dt) {
@@ -200,11 +201,8 @@ Modes.register('bomb', {
 Modes.register('elim', {
   hazardTimer: 0, centerX: 0, centerZ: 0, fullRadius: SAFE_AREA_FALLBACK_RADIUS,
   start() {
-    const low = World.boundsMin, high = World.boundsMax;
-    const known = Number.isFinite(low.x) && Number.isFinite(high.x);
-    this.centerX = known ? (low.x + high.x) / 2 : 0;
-    this.centerZ = known ? (low.z + high.z) / 2 : 0;
-    this.fullRadius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
+    const area = worldSafeArea(safeAreaScratch);
+    this.centerX = area.x; this.centerZ = area.z; this.fullRadius = area.radius;
   },
   onRound(phase) {
     if (phase === 'start') { Modes.hud.zoneRadius = 0; this.hazardTimer = 0; }
@@ -249,16 +247,32 @@ function spendTickets(team, amount, reason) {
 
 function defendingTeam() { return 1 - Modes.attackingTeam(); }
 
-function randomAliveMember(team) {
-  const alive = Modes.teamAliveCount(team);
-  if (!alive) return -1;
-  let pick = Rng.rules.int(0, alive - 1);
+// A random living participant on `team` (NO_TEAM = any team) other than `except` (Rng.rules), or -1.
+function randomAliveMember(team, except) {
+  let count = 0;
+  for (let id = 0; id < Actors.count; id++) if (isAliveMember(id, team, except)) count++;
+  if (!count) return -1;
+  let pick = Rng.rules.int(0, count - 1);
   for (let id = 0; id < Actors.count; id++) {
-    if (!Modes.isActive(id) || Actors.team[id] !== team || !Actors.alive[id]) continue;
+    if (!isAliveMember(id, team, except)) continue;
     if (pick === 0) return id;
     pick--;
   }
   return -1;
+}
+
+function isAliveMember(id, team, except) {
+  return id !== except && Actors.alive[id] === 1 && Modes.isActive(id) && (team === NO_TEAM || Actors.team[id] === team);
+}
+
+// The world's centre and half-diagonal (a radius that covers the whole map) into out.x/z/radius: safe areas and rings.
+function worldSafeArea(out) {
+  const low = World.boundsMin, high = World.boundsMax;
+  const known = Number.isFinite(low.x) && Number.isFinite(high.x);
+  out.x = known ? (low.x + high.x) / 2 : 0;
+  out.z = known ? (low.z + high.z) / 2 : 0;
+  out.radius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
+  return out;
 }
 
 function requestHazard(id, amount) {

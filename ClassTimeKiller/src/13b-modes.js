@@ -67,6 +67,7 @@ const Modes = {
   phase: PHASE.IDLE,
   startTime: 0,           // Sim.time when the match clock started
   overtime: false,
+  timeBonus: 0,           // seconds a behaviour added to the time limit (payload checkpoints)
   endReason: '',
   warningIndex: 0,
   leader: -1, leaderScore: 0, runnerUpScore: 0, announcedLeader: -1,
@@ -117,7 +118,7 @@ const Modes = {
     else this.beginOpenPlay();
   },
   resetMatch() {
-    this.active = false; this.phase = PHASE.IDLE; this.overtime = false; this.endReason = '';
+    this.active = false; this.phase = PHASE.IDLE; this.overtime = false; this.timeBonus = 0; this.endReason = '';
     this.leader = -1; this.announcedLeader = -1; this.leaderScore = 0; this.runnerUpScore = 0;
     this.round = 0; this.swapped = false; this.roundEndsAt = Infinity; this.roundWinner = DRAW;
     this.teamScore.fill(0); this.teamRounds.fill(0); this.teamMeter.fill(0);
@@ -196,9 +197,9 @@ const Modes = {
       if (seen > limit) this.queued[id] = 1;
     }
   },
-  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one.
+  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split stays).
   balanceTeams() {
-    if (this.rules.teams !== TEAM_COUNT) return;
+    if (this.rules.teams !== TEAM_COUNT || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
     for (let moves = 0; moves < MAX_ACTORS; moves++) {
       const difference = this.teamSize(0) - this.teamSize(1);
       if (Math.abs(difference) <= 1) return;
@@ -442,8 +443,8 @@ const Modes = {
   },
   // Time limit: the leader wins; a tie goes to sudden death (MODE-001) unless the mode's tiebreak is 'draw'.
   timeResult(now) {
-    const limit = this.rules.timeLimit;
-    if (limit <= 0) return NOT_OVER;
+    if (this.rules.timeLimit <= 0) return NOT_OVER;
+    const limit = this.rules.timeLimit + this.timeBonus;
     const elapsed = now - this.startTime;
     if (elapsed + TIME_EPSILON < limit) return NOT_OVER;
     if (this.leader >= 0) return this.over(this.leader, this.overtime ? 'overtime' : 'time');
@@ -586,7 +587,7 @@ const Modes = {
     const kind = this.rules.objective;
     if (!map || !map.objectives || kind === 'none') return;
     const companion = OBJECTIVE_COMPANIONS[kind];
-    for (const source of map.objectives) if (source.kind === kind || source.kind === companion) this.addObjective(source);
+    for (const source of map.objectives) if ((source.kind === kind || source.kind === companion) && mapServesMode(source, this.mode.id)) this.addObjective(source);
   },
   addObjective(source) {
     const objective = makeObjective(source, this.objectives.length);
@@ -755,7 +756,7 @@ const Modes = {
     if (this.rules.rounds) return Math.max(0, this.roundClockEnd() - now);
     const limit = this.rules.timeLimit;
     if (limit <= 0) return 0;
-    return Math.max(0, limit + (this.overtime ? OVERTIME_SECONDS : 0) - (now - this.startTime));
+    return Math.max(0, limit + this.timeBonus + (this.overtime ? OVERTIME_SECONDS : 0) - (now - this.startTime));
   },
   roundClockEnd() {
     if (this.phase === PHASE.LIVE) return this.roundEndsAt === Infinity ? 0 : this.roundEndsAt;
@@ -811,7 +812,8 @@ function makeObjective(source, index) {
   return { index, id: source.id || kind + index, kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
     x, y, z, homeX: x, homeY: y, homeZ: z, radius: source.radius || OBJECTIVE_RADIUS[kind] || DEFAULT_OBJECTIVE_RADIUS,
     owner: NO_TEAM, capturingTeam: NO_TEAM, progress: 0, contested: false, inside: new Int16Array(TEAM_COUNT), active: true,
-    state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null };
+    state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null,
+    stage: source.stage || 0, checkpoints: source.checkpoints || null, goals: null };
 }
 
 function withinTouch(id, x, y, z, radius) {
@@ -829,6 +831,10 @@ function relationMatches(actorTeam, team, relation) {
   return true;
 }
 
+function carriedByInvisible(objective) {
+  return objective.state === 'carried' && objective.carrier >= 0 && (Actors.flags[objective.carrier] & ACTOR_FLAG.INVISIBLE) !== 0;
+}
+
 function formatTimeWarning(seconds) {
   if (seconds < 60) return seconds + ' seconds remaining';
   const minutes = seconds / 60;
@@ -839,6 +845,7 @@ function formatTimeWarning(seconds) {
 function drawObjective(batch, objective) {
   if (!objective.active || objective.kind === 'payloadPath') return;
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
+  if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
   const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
   if (!carriable) {
@@ -852,6 +859,8 @@ function drawObjective(batch, objective) {
 Bus.on('match.start', (match) => Modes.start(match));
 Bus.on('match.stop', () => Modes.stop());
 Bus.on('actor.create', (id) => Modes.resetActor(id));
+// MOV-001 handicap: what an actor deals to an opponent follows its own factor (setup.player / setup.bots[].handicap, X22 for the player).
+Damage.addAttackerScale((source, target) => (source >= 0 && source !== target && Game.match && Game.match.handicap ? Game.match.handicap[source] : 1));
 Bus.on('actor.remove', (id) => Modes.onRemove(id));
 Bus.on('kill', (event) => Modes.onKill(event));
 Bus.on('weapon.fire', (shot) => Modes.endProtection(shot.id));

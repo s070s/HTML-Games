@@ -81,7 +81,7 @@ Test.add('modes', (check) => {
   check('lms 3 lives', Rules.build({ mode: 'lms' }).lives === 3);
   check('control best of 3', CAT.modes.byId('control').rounds.winsNeeded === 2 && CAT.modes.byId('control').rounds.limit === 3);
   check('core versus modes are playable', CORE_MODES.every((id) => Modes.isPlayable(id)));
-  check('later modes are listed but not yet playable', !Modes.isPlayable('horde') && !Modes.isPlayable('royale'));
+  check('later modes are listed but not yet playable', !Modes.isPlayable('horde') && !Modes.isPlayable('range'));
 });
 
 Test.add('modes', (check) => {

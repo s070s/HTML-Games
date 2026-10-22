@@ -68,6 +68,7 @@ const ACTION_ROWS = [
   { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
+  { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
 ];
@@ -103,6 +104,7 @@ const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
 
 const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
+  aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
   actions: ACTION_ROWS,    // the single action table
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
@@ -471,11 +473,17 @@ const Input = {
     if (this.device === 'touch') return this.config.touchAimAssist / 100;
     return this.device === 'gamepad' ? this.config.padAimAssist / 100 : 0;   // never for the mouse
   },
+  // The aim assist target point into out, when the hook finds one and no filter refuses it.
+  findAssistTarget(id, out) {
+    if (!this.aimAssistTarget || !this.aimAssistTarget(id, out)) return false;
+    for (let i = 0; i < this.aimAssistFilters.length; i++) if (!this.aimAssistFilters[i](id, out)) return false;
+    return true;
+  },
   // INP-008: slow the look inside a 3 degree cone and pull toward the target (no snap). Returns the look multiplier.
   updateAssist(id, seconds) {
     const assist = this.assist, strength = this.assistStrength();
     assist.active = false; assist.slowdown = 1; assist.error = 0;
-    if (!strength || !this.aimAssistTarget || !this.aimAssistTarget(id, this.assistPoint)) return 1;
+    if (!strength || !this.findAssistTarget(id, this.assistPoint)) return 1;
     const point = this.assistPoint, aim = this.aim;
     const dx = point.x - Actors.x[id], dy = point.y - Actors.eyeY(id), dz = point.z - Actors.z[id];
     const errorYaw = wrapAngle(Math.atan2(dx, dz) - aim.yaw);

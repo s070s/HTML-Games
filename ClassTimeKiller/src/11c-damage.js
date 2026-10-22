@@ -43,6 +43,7 @@ const splashPoint = Vec.make();
 const Damage = {
   applyCount: 0,                                    // self-test: every damage passes here (count check)
   lastDamageTime: new Float32Array(MAX_ACTORS).fill(-1e9),
+  shieldRegenBlockedUntil: new Int32Array(MAX_ACTORS), // S12 EMP: shields do not recharge before this Sim.tick (health regen goes on)
   lastAttacker: new Int8Array(MAX_ACTORS).fill(-1), lastAttackTime: new Float32Array(MAX_ACTORS),
   previousAttacker: new Int8Array(MAX_ACTORS).fill(-1), previousAttackTime: new Float32Array(MAX_ACTORS),
   surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by powerups (S12); spent before the shield
@@ -57,6 +58,7 @@ const Damage = {
   attackerScales: [],                               // fn(source, target, info) -> factor (powerups, handicap, perks, difficulty)
   reducers: [],                                     // fn(source, target, amount, info) -> amount (block, bulwark, sliders)
   poolOverride: null,                               // fn(id, out {health, armor, shield}) for per-hero pools (S12)
+  roleOf: null,                                     // fn(id) -> role for HPP05 role regen (S12: the hero's role)
   infos: makePool(INFO_RING, makeDamageInfo),
   blasts: makePool(4, makeBlast),
 
@@ -303,6 +305,7 @@ const Damage = {
     this.helmet[id] = preset.helmet ? 1 : 0;
     this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
+    this.shieldRegenBlockedUntil[id] = 0;
     this.limbs.fill(LIMB_POOL, id * LIMB_COUNT, (id + 1) * LIMB_COUNT);
     Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
     this.clearAllStatuses(id);
@@ -320,10 +323,11 @@ const Damage = {
     const since = Sim.time - this.lastDamageTime[id];
     if (Actors.health[id] > Actors.maxHealth[id]) Actors.health[id] = Math.max(Actors.maxHealth[id], Actors.health[id] - preset.overhealDecay * dt);
     if (preset.armorDecayAbove && Actors.armor[id] > preset.armorDecayAbove) Actors.armor[id] = Math.max(preset.armorDecayAbove, Actors.armor[id] - preset.armorDecay * dt);
-    if (preset.shieldRate && since >= preset.shieldDelay) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + preset.shieldRate * dt);
+    const shieldBlocked = Sim.tick < this.shieldRegenBlockedUntil[id];
+    if (preset.shieldRate && since >= preset.shieldDelay && !shieldBlocked) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + preset.shieldRate * dt);
     if (preset.regenRate && since >= preset.regenDelay) this.regenerate(id, preset.regenRate * dt, regenCap(id, preset));
-    const role = preset.roleRegen, profile = Actors.profile[id];
-    if (role && profile && profile.role === role.role && since >= role.delay) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
+    const role = preset.roleRegen;
+    if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
   regenerate(id, amount, cap) {
     if (Actors.health[id] >= cap) return;
@@ -445,6 +449,12 @@ function hitStatus(source, info) {
   const weapon = source >= 0 && mode.weapon ? CAT.weapons.byId(mode.weapon) : null;
   if (!weapon || weapon.primary !== mode || !weapon.alt.toggle || !Weapons.toggled[source]) return null;
   return weapon.alt.toggle.status || null;
+}
+// The role HPP05 regen checks: Damage.roleOf when a section fills it, else the bot profile's role.
+function actorRole(id) {
+  if (Damage.roleOf) return Damage.roleOf(id);
+  const profile = Actors.profile[id];
+  return profile ? profile.role : '';
 }
 function isFodder(id) { const profile = Actors.profile[id]; return Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.fodder === true; }
 

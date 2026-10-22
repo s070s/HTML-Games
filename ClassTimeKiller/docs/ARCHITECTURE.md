@@ -102,11 +102,13 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `ui.click` | `{ kind }` menu feedback sound | S18 |
 | `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
 | `pickup` | `{ id, item, x, y, z }` | S12 |
-| `ability.cast` / `ability.end` | `{ id, ability }` | S12 |
+| `ability.cast` / `ability.end` | `{ id, ability, slot }` (`ability.end` adds `reason`: done, cancel, release, empty, stun, damage, fire, group, death, match, spawn, replace, suppressed) | S12 |
+| `ability.teleport` | `{ id, x, y, z }` an ability with `balance.dropsObjective` (A12) moved an actor (S13 drops a carried objective) | S12 |
 | `score` | `{ id, team, points, reason }` | S13 |
 | `medal` | `{ id, medal }` | S13/S18 |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
+| `bark` | `{ id, team, category, text }` | S14 |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
@@ -130,7 +132,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 - `Render.worldQuery` (filled by S08 with `World`): the renderer bakes `Render.worldQuery.brushes` on `world.load`; S07 never calls `World` itself.
 - `Render.addSource(name, fn(batch))`: called inside every rendered frame; `fn` pushes instanced shapes with `batch.mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b, emissive)`, which returns the instance offset or -1 (unknown shape or batch full). Shapes are procedural: `box sphere cylinder capsule cone wedge ring`. Later sections draw pickups, projectiles, flags and deployables this way.
-- Actors are drawn by S07 itself from `Actors` (team/profile colour, crouch, alive). `Render.actorStyle = fn(id, out)` hook lets later sections tint/scale actors (powerups, cloak).
+- Actors are drawn by S07 itself from `Actors` (team/profile colour, crouch, alive). `Render.addActorStyle(fn(id, out))` lets later sections tint/scale actors (powerups, cloak, size mutators); `Render.actorStyle` is a single override run after that list (tests, debug).
 - `Render.camera` `{ x, y, z, yaw, pitch, roll, fov }` follows the player's interpolated eye by default; `Render.cameraOverride = fn(camera)` for spectate/killcam.
 - `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color, zoom, recoilPitch, recoilYaw, dual }`: `recoilPitch`/`recoilYaw` = the recoil punch in degrees (positive pitch = up), added to the camera view (view kick); `dual` = two pistols drawn.
 - `Fx`: `burst(kind, x, y, z, nx, ny, nz, count, colorHex)`, `tracer(ax, ay, az, bx, by, bz, colorHex)`, `decal(x, y, z, nx, ny, nz, kind)`, `light(x, y, z, colorHex, radius, seconds)`. Kinds: `spark smoke dust blood muzzle explosion energy water fire frost shock heal`. All capped by quality (PERF-010), pooled.

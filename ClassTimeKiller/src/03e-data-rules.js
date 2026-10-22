@@ -2,6 +2,7 @@
 // applies only the fields a bundle row writes on top of the mode defaults, so a bundle never undoes a mode rule
 // it does not mention (for example the lives of Last Standing).
 // moveOverrides: fields laid over the movement preset row (RS02 adds one extra jump and the wall dodge).
+// items: false removes the map's pickups. editor: the custom match editor's own settings of a saved preset (mode, map, bots, limits); the build ignores it.
 
 const RULESET_ROWS = [
   { id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
@@ -23,5 +24,5 @@ const RULESET_ROWS = [
 Data.define('rulesets', {
   id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet',
   meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
-  lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {},
+  lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, editor: null,
 }, RULESET_ROWS);
