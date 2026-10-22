@@ -2228,23 +2228,23 @@ const CARD_REFUND = 0.5;
 const CARD_HARD_DIFFICULTY = 'skilled';
 const CARD_ROWS = [
   { id: 'stoneskin', code: 'C01', name: 'Stoneskin', type: 'active', cost: 100, versus: true, effect: { kind: 'takenScale', value: 0.5 }, text: 'Damage taken x0.5.', unlock: { metric: 'pveFinished', op: '>=', value: 1, text: 'Finish any PvE level.' } },
-  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'damageTaken', op: '==', value: 0, text: 'Finish a level without taking damage.' } },
+  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'propsLeft', op: '==', value: 0, text: 'Destroy all props in a level.' } },
   { id: 'soulkeep', code: 'C03', name: 'Soulkeep', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulLife', value: 3 }, text: 'Souls last x3.', unlock: { metric: 'enemiesLeft', op: '==', value: 0, text: 'Kill all enemies in a level.' } },
   { id: 'longwick', code: 'C04', name: 'Longwick', type: 'passive', cost: 100, versus: true, effect: { kind: 'activeSeconds', value: 10 }, text: 'Active cards last 10 s longer.', unlock: { metric: 'marks', op: '>=', value: 500, text: 'Collect 500 Marks in a level.' } },
   { id: 'blessing', code: 'C05', name: 'Hale Start', type: 'passive', cost: 200, versus: true, effect: { kind: 'startHealth', value: 150 }, text: 'Start with 150 HP.', unlock: { metric: 'bossSeconds', op: '<', value: 120, text: 'Defeat a boss in under 2:00.' } },
   { id: 'refill', code: 'C06', name: 'Deep Pockets', type: 'passive', cost: 500, versus: true, effect: { kind: 'ammoPickup', value: 2 }, text: 'Ammo pickups give twice as much.', unlock: { metric: 'explosiveShots', op: '==', value: 0, text: 'Finish a level without explosives.' } },
   { id: 'fleet', code: 'C07', name: 'Fleetfoot', type: 'active', cost: 100, versus: true, effect: { kind: 'speed', value: 1.3 }, text: 'Speed x1.3.', unlock: { metric: 'souls', op: '>=', value: 100, text: 'Collect 100 souls in a level.' } },
   { id: 'fury2', code: 'C08', name: 'Twin Fury', type: 'active', cost: 200, versus: true, effect: { kind: 'damage', value: 2 }, text: 'Damage x2.', unlock: { metric: 'rangedKills', op: '==', value: 0, minKills: 1, text: 'Finish a level with melee kills only.' } },
-  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'airKills', op: '>=', value: 10, text: 'Get 10 kills in the air in a level.' } },
+  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'secretsLeft', op: '==', value: 0, text: 'Find all secrets in a level.' } },
   { id: 'rapid', code: 'C10', name: 'Rapid Hands', type: 'active', cost: 300, versus: true, effect: { kind: 'rate', value: 2 }, text: 'Fire rate x2.', unlock: { metric: 'bossSeconds', op: '<', value: 240, text: 'Defeat a boss in under 4:00.' } },
   { id: 'magnet', code: 'C11', name: 'Soul Magnet', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulMagnet', value: 15 }, text: 'Souls fly to you from 15 m.', unlock: { metric: 'souls', op: '==', value: 0, text: 'Finish a level without collecting souls.' } },
   { id: 'encore', code: 'C12', name: 'Encore', type: 'passive', cost: 1000, versus: true, effect: { kind: 'activeUses', value: 2 }, text: 'Active cards can be used twice.', unlock: { metric: 'wrathKills', op: '>=', value: 30, text: 'Get 30 kills in Wrath Form.' } },
-  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'kills', op: '>=', value: 150, deaths: 0, text: 'Get 150 kills in a level without dying.' } },
+  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'optionalLeft', op: '==', value: 0, text: 'Kill all optional enemies in a level.' } },
   { id: 'ironwill', code: 'C14', name: 'Iron Will', type: 'active', cost: 666, versus: false, effect: { kind: 'invulnerable', value: 1 }, text: 'Invulnerable.', unlock: { metric: 'bossSeconds', op: '<', value: 80, text: 'Defeat a boss in under 1:20.' } },
-  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'headshots', op: '>=', value: 30, deaths: 0, text: 'Land 30 headshots in a level without dying.' } },
+  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'secretsLeft', op: '==', value: 0, deaths: 0, text: 'Find all secrets in a level without dying.' } },
   { id: 'hardy', code: 'C16', name: 'Hardy', type: 'passive', cost: 100, versus: true, effect: { kind: 'baseHealth', value: 150 }, text: 'Base HP 150.', unlock: { metric: 'armorPickups', op: '==', value: 0, text: 'Finish a level without armor pickups.' } },
   { id: 'freecards', code: 'C17', name: 'Patron', type: 'passive', cost: 0, versus: true, effect: { kind: 'freePlacement', value: 1 }, text: 'Cards are placed for free.', unlock: { metric: 'cardsEquipped', op: '==', value: 0, text: 'Finish a level with no cards.' } },
-  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'lowestHealth', op: '<=', value: 10, deaths: 0, hard: true, text: 'Survive a level at 10 HP or less on a hard difficulty.' } },
+  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'secretsLeft', op: '==', value: 0, hard: true, text: 'Find all secrets in a level on a hard difficulty.' } },
   { id: 'discord', code: 'C19', name: 'Discord', type: 'active', cost: 200, versus: false, effect: { kind: 'discord', value: 15 }, text: 'Enemies fight each other for 15 s.', unlock: { metric: 'wrathForms', op: '>=', value: 3, text: 'Enter Wrath Form 3 times in a level.' } },
   { id: 'redeemer', code: 'C20', name: 'Soul Feast', type: 'passive', cost: 1000, versus: false, effect: { kind: 'soulHeal', value: 2 }, text: 'Souls heal twice as much.', unlock: { metric: 'lowestHealth', op: '>', value: 50, text: 'Keep HP above 50 for a whole level.' } },
   { id: 'endless', code: 'C21', name: 'Endless Clip', type: 'active', cost: 300, versus: true, effect: { kind: 'noAmmoUse', value: 1 }, text: 'Shots use no ammo.', unlock: { metric: 'kills', op: '<=', value: 88, minKills: 1, text: 'Finish a level with 88 kills or fewer.' } },
@@ -6363,15 +6363,6 @@ function rotateInPlace(point) {
   return point;
 }
 
-const rotationScratch = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-function rotateYawPitchInto(out, x, y, z, yaw, pitch) {
-  const point = rotationScratch;
-  point.x = x; point.y = y; point.z = z; point.yaw = yaw; point.pitch = pitch;
-  rotateInPlace(point);
-  out.x = point.x; out.y = point.y; out.z = point.z;
-  return out;
-}
-
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];
   if (team >= 0) return Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team % CAT.teamColors.length].color;
@@ -7104,12 +7095,14 @@ const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under ha
 const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
 const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
-const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0 };
+const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
 function displayPacedFrame(seconds) {
   if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
   if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
-  return Perf.cpuMs[Perf.lastIndex()] < seconds * 1000 * REFRESH_IDLE_SHARE;
+  const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
+  if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
+  return Perf.cpuMs[Perf.lastIndex()] < idleMs;
 }
 
 function standardRefreshMs(measuredMs) {
@@ -7127,7 +7120,15 @@ function measureDisplayRate(seconds) {
   if (rate.count < REFRESH_SAMPLE_FRAMES) return;
   rate.count = 0;
   const measuredMs = rate.samples.sort()[Math.floor(REFRESH_SAMPLE_FRAMES * REFRESH_PERCENTILE)];
-  rate.intervalMs = standardRefreshMs(measuredMs) || rate.intervalMs;
+  acceptRefreshMs(rate, standardRefreshMs(measuredMs));
+}
+
+function acceptRefreshMs(rate, refreshMs) {
+  if (!refreshMs) return;
+  const scale = Render.size.scale;
+  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
+  rate.candidateMs = refreshMs; rate.candidateScale = scale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
 }
 
 function slowFrameMs() { return Math.max(FRAME_BUDGET_MS, DisplayRate.intervalMs, Render.config.frameCapMs) * FRAME_BUDGET_TOLERANCE; }
@@ -8180,13 +8181,6 @@ function raySphere(ox, oy, oz, dx, dy, dz, cx, cy, cz, radius) {
   rayHitSphere();
   return volume.distance;
 }
-function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
-  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
-  const volume = hitVolume;
-  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
-  rayHitCylinder();
-  return volume.distance;
-}
 
 const Hitbox = {
   zone: ZONE.NONE,
@@ -8395,7 +8389,7 @@ function touchJumpPad(id, pad, actorGravity) {
 
 function touchTeleporter(id, teleporter) {
   const yaw = teleporter.yaw * DEG, exit = teleporter.exit;
-  const horizontalSpeed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const horizontalSpeed = length2(Actors.vx[id], Actors.vz[id]);
   Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
@@ -13491,7 +13485,7 @@ function soulCardFx(id, key, fallback) {
   if (id < 0 || id !== Game.playerId || !cards || !cards.fx || cards.fx[key] === undefined) return fallback;
   return cards.fx[key];
 }
-function soulHomingRange(id, base) { return Math.max(base, soulCardFx(id, 'soulMagnet', 0)); }
+function soulHomingRange(id) { return Math.max(SOUL_HOMING_RANGE, soulCardFx(id, 'soulMagnet', 0)); }
 
 const Items = {
   state: new Uint8Array(PICKUP_CAP), kind: new Uint8Array(PICKUP_CAP), row: new Int16Array(PICKUP_CAP), group: new Uint8Array(PICKUP_CAP),
@@ -13693,7 +13687,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
       const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
-      if (distance < bestDistance && distance < soulHomingRange(id, SOUL_HOMING_RANGE)) { best = id; bestDistance = distance; }
+      if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;
     const move = Math.min(bestDistance, SOUL_HOMING_SPEED * dt) / bestDistance;
@@ -14887,6 +14881,7 @@ const Gadgets = {
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
+  cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -14904,6 +14899,11 @@ const Gadgets = {
     const kit = this.kit();
     if (kit.limits[row.id] !== undefined) return kit.limits[row.id];
     return kit.perType || row.carry;
+  },
+  grenadeTypes(id) {
+    let types = 0;
+    for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) types++;
+    return types;
   },
   thrownTotal(id) {
     let total = 0;
@@ -14974,6 +14974,14 @@ const Gadgets = {
     Thrown.step(dt);
     GadgetAreas.step(dt);
     Smoke.step();
+    this.syncCycleButton();
+  },
+  syncCycleButton() {
+    if (!TouchInput.layer) return;
+    const canCycle = TouchInput.needs.grenadeCycle();
+    if (canCycle === this.cycleShown) return;
+    this.cycleShown = canCycle;
+    TouchInput.applyAll();
   },
   blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
   stepActor(id) {
@@ -15097,6 +15105,7 @@ WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
+TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
@@ -18042,8 +18051,15 @@ function makeObjective(source, index) {
     stage: source.stage || 0, checkpoints: source.checkpoints || null, goals: null };
 }
 
+function withinTouchAt(id, xs, ys, zs, index, radius) {
+  if (Math.abs(Actors.y[id] - ys[index]) > TOUCH_HEIGHT) return false;
+  const dx = Actors.x[id] - xs[index], dz = Actors.z[id] - zs[index];
+  return dx * dx + dz * dz <= radius * radius;
+}
+const touchPointX = new Float64Array(1), touchPointY = new Float64Array(1), touchPointZ = new Float64Array(1);
 function withinTouch(id, x, y, z, radius) {
-  return Math.abs(Actors.y[id] - y) <= TOUCH_HEIGHT && length2(Actors.x[id] - x, Actors.z[id] - z) <= radius;
+  touchPointX[0] = x; touchPointY[0] = y; touchPointZ[0] = z;
+  return withinTouchAt(id, touchPointX, touchPointY, touchPointZ, 0, radius);
 }
 
 function holdsUse(id) { return (Actors.buttons[id] & BTN.USE) !== 0; }
@@ -18397,11 +18413,12 @@ const Economy = {
 
   preset() { return CAT.economy.byId(Abilities.economyKey()) || CAT.economy[0]; },
   usesMoney() { return this.preset().money; },
-  usesLoadouts() {
+  modeArmsEveryone() {
     const params = currentRules().params;
-    if (params && MODE_ARMING_PARAMS.some((key) => params[key])) return false;
-    return this.preset().loadout !== 'none';
+    return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
   },
+  usesLoadouts() { return !this.modeArmsEveryone() && this.preset().loadout !== 'none'; },
+  usesClasses() { return this.usesLoadouts() && this.preset().loadout === 'classes'; },
   money(id) { return id >= 0 && id < MAX_ACTORS ? this.credits[id] : 0; },
   setMoney(id, amount) {
     const max = this.preset().maxMoney;
@@ -18455,7 +18472,7 @@ const Economy = {
     this.checkHalf();
     this.spawnX[id] = Actors.x[id]; this.spawnZ[id] = Actors.z[id];
     this.bought.fill(0, id * CAT.buyItems.length, (id + 1) * CAT.buyItems.length);
-    if (this.usesLoadouts() && this.preset().loadout === 'classes') this.applyClass(id, Loadouts.classFor(id));
+    if (this.usesClasses()) this.applyClass(id, Loadouts.classFor(id));
     else this.clearPerks(id);
     if (this.died[id] || !this.preset().keepOnSurvive) this.dropKept(id);
     else this.restoreKept(id);
@@ -19631,7 +19648,7 @@ function stepBeacons(interval) {
 
 function holdsBeacon(id, squad) {
   return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
-    && withinTouch(id, Squads.beaconX[squad], Squads.beaconY[squad], Squads.beaconZ[squad], TOUCH_RADIUS);
+    && withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
 }
 
 function respawnSquad(squad) {
@@ -19751,15 +19768,9 @@ function touchLoot(now) {
   for (let id = 0; id < Actors.count; id++) {
     if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
-      if (!RoyaleLoot.taken[spot] && lootInTouch(id, spot)) takeLoot(id, spot, now);
+      if (!RoyaleLoot.taken[spot] && withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS)) takeLoot(id, spot, now);
     }
   }
-}
-
-function lootInTouch(id, spot) {
-  if (Math.abs(Actors.y[id] - RoyaleLoot.y[spot]) > TOUCH_HEIGHT) return false;
-  const dx = Actors.x[id] - RoyaleLoot.x[spot], dz = Actors.z[id] - RoyaleLoot.z[spot];
-  return dx * dx + dz * dz <= TOUCH_RADIUS * TOUCH_RADIUS;
 }
 
 function takeLoot(id, spot, now) {
@@ -22314,7 +22325,7 @@ const BotDecide = {
   makeCampSpot(hint, map, mode) {
     const spot = { x: hint.x, y: hint.y, z: hint.z, safe: [true, true, true] };
     for (const spawn of map.spawns || []) {
-      if (!mapServesMode(spawn, mode) || Math.hypot(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
+      if (!mapServesMode(spawn, mode) || length2(spawn.x - hint.x, spawn.z - hint.z) > CAMP_SPAWN_SIGHT) continue;
       if (!World.lineClear(hint.x, hint.y + SPAWN_EYE_HEIGHT, hint.z, spawn.x, spawn.y + SPAWN_EYE_HEIGHT, spawn.z)) continue;
       const side = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
       spot.safe[2] = false;                  // free-for-all: every spawn is an enemy spawn
@@ -22336,7 +22347,7 @@ const BotDecide = {
   itemAt(x, y, z) {
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (Math.hypot(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
+      if (length2(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
     }
     return -1;
   },
@@ -22401,7 +22412,7 @@ const BotDecide = {
   },
   nearGoal(id, goal) {
     if (goal === GOAL.REVIVE) return Damage.nearestDownedAlly(id, REVIVE_REACH) >= 0;
-    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
+    return length2(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
   },
   arrive(id, goal, dt, now) {
     if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }
@@ -22430,7 +22441,7 @@ const BotDecide = {
   },
   holding(id) {
     if (this.goalAction[id] !== ACTION.HOLD || this.goal[id] === GOAL.NONE) return false;
-    return Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + HOLD_ARRIVED;
+    return length2(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + HOLD_ARRIVED;
   },
   favoriteWeapon(id) {
     const row = Bots.profile[id];
@@ -22451,7 +22462,7 @@ const BotDecide = {
 function reviveSafe(id, ally) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
     if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
-    if (Math.hypot(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
+    if (length2(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
   }
   return true;
 }
@@ -22465,11 +22476,11 @@ function mutatorRisk() {
 
 function flankSpot(id, targetX, targetZ, now) {
   if (!Bots.tier(id).flanks || now - BotDecide.flankedAt[id] < FLANK_REST) return -1;
-  const x = Actors.x[id], z = Actors.z[id], direct = Math.hypot(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
+  const x = Actors.x[id], z = Actors.z[id], direct = length2(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
   if (direct < FLANK_MIN_DISTANCE) return -1;
   let best = -1, bestWay = direct * FLANK_DETOUR;
   for (let i = 0; i < spots.length; i++) {
-    const toTarget = Math.hypot(targetX - spots[i].x, targetZ - spots[i].z), fromBot = Math.hypot(spots[i].x - x, spots[i].z - z);
+    const toTarget = length2(targetX - spots[i].x, targetZ - spots[i].z), fromBot = length2(spots[i].x - x, spots[i].z - z);
     if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
     best = i; bestWay = fromBot + toTarget;
   }
@@ -22568,7 +22579,7 @@ GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
   const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
   if (ally < 0 || !reviveSafe(id, ally)) return 0;
   setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
-  const distance = Math.hypot(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  const distance = length2(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
   return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 
@@ -22598,7 +22609,7 @@ function retreatSpot(id, threat, plan) {
   const tx = threatPoint.x, tz = threatPoint.z;
   const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], tx, threatPoint.y + SPAWN_EYE_HEIGHT, tz, RETREAT_COVER_RANGE);
   if (cover >= 0) { const node = Nav.coverNode[cover]; setPlan(plan, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], 0.8, ACTION.HOLD, threat); return; }
-  const dx = Actors.x[id] - tx, dz = Actors.z[id] - tz, length = Math.hypot(dx, dz) || 1;
+  const dx = Actors.x[id] - tx, dz = Actors.z[id] - tz, length = length2(dx, dz) || 1;
   setPlan(plan, Actors.x[id] + dx / length * RETREAT_AWAY, Actors.y[id], Actors.z[id] + dz / length * RETREAT_AWAY, 2, ACTION.MOVE, threat);
 }
 
@@ -22610,7 +22621,7 @@ function bestItem(id, now, group) {
     if ((group && item.group !== group) || BotDecide.itemNode[i] < 0 || !Nav.reachable(botNode, BotDecide.itemNode[i])) continue;
     const value = itemValue(id, item);
     if (value <= 0) continue;
-    const distance = Math.hypot(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
+    const distance = length3(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
     if (!itemAvailable(id, i, distance, now)) continue;
     const score = value / (1 + distance / COLLECT_DISTANCE);
     if (score > bestScore) { bestScore = score; best = i; }
@@ -22651,7 +22662,7 @@ function bestLoot(id, plan) {
     if (loot.taken[spot] || BotDecide.lootNode[spot] < 0 || !Nav.reachable(botNode, BotDecide.lootNode[spot])) continue;
     const value = lootValue(id, spot);
     if (value <= 0) continue;
-    const score = value / (1 + Math.hypot(loot.x[spot] - Actors.x[id], loot.z[spot] - Actors.z[id]) / COLLECT_DISTANCE);
+    const score = value / (1 + length2(loot.x[spot] - Actors.x[id], loot.z[spot] - Actors.z[id]) / COLLECT_DISTANCE);
     if (score > bestScore) { bestScore = score; best = spot; }
   }
   if (best >= 0) setPlan(plan, loot.x[best], loot.y[best], loot.z[best], ITEM_TOUCH * 0.6, ACTION.USE, -1);
@@ -22674,7 +22685,7 @@ function campSpot(id) {
   let best = null, bestDistance = Infinity;
   for (const spot of BotDecide.campSpots) {
     if (!spot.safe[side]) continue;
-    const distance = Math.hypot(spot.x - Actors.x[id], spot.z - Actors.z[id]);
+    const distance = length2(spot.x - Actors.x[id], spot.z - Actors.z[id]);
     if (distance < bestDistance) { bestDistance = distance; best = spot; }
   }
   return best;
@@ -22695,7 +22706,7 @@ function planZones(id, plan, kind, now) {
     if (objective.kind !== kind || !objective.active) continue;
     const threatened = objective.contested || (objective.capturingTeam >= 0 && objective.capturingTeam !== team);
     const value = objective.owner !== team || team < 0 ? 1 : threatened ? 0.9 : defender ? 0.6 : 0.25;
-    const score = value / (1 + Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
+    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
     if (score > bestScore) { bestScore = score; best = objective; }
   }
   if (!best) return false;
@@ -22723,7 +22734,7 @@ function planFlags(id, plan) {
   return planTarget(plan, enemy, BotTeam.pushing(team) ? PUSH_URGENCY : 0.8, 0.8, ACTION.MOVE);
 }
 
-function nearby(id, objective, range) { return Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) < range; }
+function nearby(id, objective, range) { return length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) < range; }
 
 function planCapture(id, plan, own, destination) {
   if (!destination) return false;
@@ -22734,8 +22745,8 @@ function planCapture(id, plan, own, destination) {
 
 function pastRally(id, own, team) {
   if (!own) return false;
-  const rallyDistance = Math.hypot(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
-  return Math.hypot(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
+  const rallyDistance = length2(BotTeam.rallyX[team] - own.homeX, BotTeam.rallyZ[team] - own.homeZ);
+  return length2(Actors.x[id] - own.homeX, Actors.z[id] - own.homeZ) > rallyDistance + BOT_FLAG_PUSH.radius;
 }
 
 function planRally(id, plan, team) {
@@ -22788,7 +22799,7 @@ function planAttackCharge(id, plan, charge) {
 function nearestObjective(list, x, z) {
   let best = null, bestDistance = Infinity;
   for (let i = 0; i < list.length; i++) {
-    const distance = Math.hypot(list[i].x - x, list[i].z - z);
+    const distance = length2(list[i].x - x, list[i].z - z);
     if (distance < bestDistance) { bestDistance = distance; best = list[i]; }
   }
   return best;
@@ -22796,7 +22807,7 @@ function nearestObjective(list, x, z) {
 
 function planSafeArea(id, plan) {
   safeCircleNow(safeCircle);
-  const outside = Math.hypot(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
+  const outside = length2(Actors.x[id] - safeCircle.x, Actors.z[id] - safeCircle.z) > safeCircle.radius * SAFE_AREA_MARGIN;
   if (!outside) return false;
   setPlan(plan, safeCircle.x, Actors.y[id], safeCircle.z, safeCircle.radius * 0.5, ACTION.MOVE, -1);
   plan.score = 1;
@@ -22817,7 +22828,7 @@ function planGoals(id, plan) {
   for (let i = 0; i < objectives.length; i++) {
     const verb = BOT_OBJECTIVE_VERBS[Modes.goalFor(objectives[i], id)], objective = objectives[i];
     if (!verb) continue;
-    const score = verb.urgency / (1 + Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) / GOAL_DISTANCE_SCALE);
+    const score = verb.urgency / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / GOAL_DISTANCE_SCALE);
     if (score > bestScore) { bestScore = score; best = objective; bestVerb = verb; }
   }
   if (!best) return false;
@@ -23589,7 +23600,7 @@ const Pve = {
     const hunted = this.huntFor(side);
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !Modes.participant[id] || (hunted >= 0 && Actors.team[id] !== hunted)) continue;
-      const distance = Math.hypot(Actors.x[id] - point.x, Actors.z[id] - point.z);
+      const distance = length2(Actors.x[id] - point.x, Actors.z[id] - point.z);
       nearest = Math.min(nearest, distance);
       if (distance < SENSE_RANGE_BASE + SENSE_RANGE_ALERT && World.lineClear(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y + STAND_HEIGHT * 0.8, point.z)) seen = true;
     }
@@ -23660,7 +23671,7 @@ const Pve = {
       const seen = this.look(id, other, now), pair = BotSense.pair(id, other);
       if (!seen && now - BotSense.knownAt[pair] > PVE_DIRECTOR.memorySeconds) continue;
       BotSense.perceivedPosition(id, other, pveScratch);
-      let score = Math.hypot(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
+      let score = length2(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
       if (other === lastAttacker) score -= PVE_ATTACKER_BONUS;
       if (score < bestScore) { bestScore = score; best = other; }
     }
@@ -23692,9 +23703,9 @@ const Pve = {
     if (this.awareness[id] < PVE_CONTRACT.unaware) this.alarmed[id] = 0;
   },
   fillAwareness(id, target, elapsed) {
-    const distance = Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
+    const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
     let seconds = lerp(SENSE_FILL_NEAR, SENSE_FILL_FAR, clamp(distance / BotSense.viewRange(id), 0, 1));
-    if (Math.hypot(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
+    if (length2(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
     if (Actors.flags[target] & ACTOR_FLAG.CROUCHED) seconds /= PVE_CROUCH_FILL;
     this.awareness[id] = Math.min(1, this.awareness[id] + elapsed / seconds);
   },
@@ -23703,7 +23714,7 @@ const Pve = {
     Bus.emit('pve.alarm', pveEvent(id, '', '', 0, 0, target));
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !this.isEnemy(other) || !Actors.alive[other] || this.awareness[other] >= 1) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
       this.awareness[other] = 1;
       this.alarmed[other] = 1;
       if (target >= 0) BotSense.remember(BotSense.pair(other, target), SENSE.PINGED, Actors.x[target], Actors.y[target], Actors.z[target], now);
@@ -23721,7 +23732,7 @@ const Pve = {
     const now = Sim.time;
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || id === event.source || (event.source >= 0 && !this.isFoe(id, event.source))) continue;
-      const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
+      const distance = length3(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
       if (distance > event.radius * PVE_DIRECTOR.hearingShare) continue;
       if (event.source >= 0) BotSense.remember(BotSense.pair(id, event.source), SENSE.HEARD, event.x, event.y, event.z, now);
       if (this.stealth) this.awareness[id] = Math.max(this.awareness[id], PVE_NOISE_AWARENESS);
@@ -23765,7 +23776,7 @@ const Pve = {
     let foes = 0, friends = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (!Actors.alive[other] || other === id) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
       if (this.isEnemy(other) && !Actors.isEnemy(id, other)) friends++;
       else if (this.isFoe(id, other)) foes++;
     }
@@ -23777,7 +23788,7 @@ const Pve = {
       if (!Projectiles.state[i] || !PROJECTILE_DODGE_TYPES.includes(Projectiles.type[i])) continue;
       const owner = Projectiles.owner[i];
       if (owner < 0 || owner === id || !Actors.isEnemy(id, owner)) continue;
-      if (Math.hypot(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
+      if (length2(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
       this.setGoalPoint(id, Projectiles.x[i], Projectiles.y[i], Projectiles.z[i]);
       return true;
     }
@@ -23820,8 +23831,8 @@ const Pve = {
     return Math.min(reach, PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20);
   },
   distanceTo(id, target) {
-    if (target === PVE_CORE_TARGET) return Math.max(0, Math.hypot(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
-    return Math.hypot(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
+    if (target === PVE_CORE_TARGET) return Math.max(0, length2(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
+    return length3(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
   },
   attackersOn(target) {
     let count = 0;
@@ -23915,7 +23926,7 @@ const Pve = {
     info.amount = amount; info.kind = kind || 'hit'; info.zone = zone || 'body'; info.weapon = attack.id; info.element = attack.element;
     info.distance = this.distanceTo(id, target); info.knockback = 1;
     Hitbox.point(target, ZONE.BODY, pveScratch);
-    const length = Math.max(1e-6, Math.hypot(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
+    const length = Math.max(1e-6, length3(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
     info.x = pveScratch.x; info.y = pveScratch.y; info.z = pveScratch.z;
     info.dx = (pveScratch.x - Actors.x[id]) / length; info.dy = (pveScratch.y - Actors.eyeY(id)) / length; info.dz = (pveScratch.z - Actors.z[id]) / length;
     return Damage.apply(id, target, info);
@@ -23926,7 +23937,7 @@ const Pve = {
     const distance = Vec.length(pveAim);
     if (distance < 1e-6) return -1;
     const spread = spreadDeg * DEG;
-    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, Math.hypot(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
+    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
     Vec.fromAngles(pveAim, yaw, pitch);
     const range = attack.range[1] + 5;
     const wall = World.raycast(ex, ey, ez, pveAim.x, pveAim.y, pveAim.z, range, pveWallHit) ? pveWallHit.distance : range;
@@ -23970,7 +23981,7 @@ const Pve = {
   shieldBlocks(target, shield, info) {
     const lowered = this.phase[target] !== ATTACK_PHASE.IDLE || Sim.time < this.phaseEndsAt[target] + shield.lowered;
     if (lowered) return false;
-    const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+    const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
     const along = (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length;   // -1 = the shot travels against the facing (from the front)
     return along < -Math.cos(shield.arcDeg * DEG / 2);
   },
@@ -24010,7 +24021,7 @@ const Pve = {
   breakMorale(leader, now) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || Actors.team[id] !== Actors.team[leader] || this.rowOf(id).boss) continue;
-      if (Math.hypot(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
       this.brokenUntil[id] = now + Rng.pve.range(PVE_DIRECTOR.brokenSeconds[0], PVE_DIRECTOR.brokenSeconds[1]);
       this.nextThink[id] = now;
     }
@@ -24024,7 +24035,7 @@ const Pve = {
     if (!this.active || (event.element !== PVE_DIRECTOR.lureElement && !PVE_DIRECTOR.lureSources.includes(event.source))) return;
     for (let id = 0; id < Actors.count; id++) {
       const row = this.rowOf(id);
-      if (!row || !row.beast || !Actors.alive[id] || Math.hypot(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
+      if (!row || !row.beast || !Actors.alive[id] || length2(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
       this.lureUntil[id] = Sim.time + PVE_DIRECTOR.lureSeconds;
       this.lureX[id] = event.x; this.lureZ[id] = event.z;
       this.nextThink[id] = Sim.time;
@@ -24082,7 +24093,7 @@ const Pve = {
     return false;
   },
   farFromParticipants(x, z, distance) {
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
+    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && length2(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
     return true;
   },
 
@@ -24163,7 +24174,7 @@ function weakPointFactor(row, target, info) {
   if (!weak || info.kind === 'dot') return 1;
   if (weak.kind === 'air') return Actors.flags[target] & ACTOR_FLAG.ON_GROUND ? 1 : weak.mult;
   if (weak.kind !== 'back') return 1;
-  const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+  const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
   return (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length > Math.cos(60 * DEG) ? weak.mult : 1;
 }
 
@@ -24266,7 +24277,7 @@ const PveMove = {
     const target = Pve.target[id];
     if (target < 0) { this.hold(id); return; }
     const seen = BotSense.sees(id, target), at = BotSense.perceivedPosition(id, target, pveTargetScratch);
-    const dx = at.x - Actors.x[id], dz = at.z - Actors.z[id], distance = Math.hypot(dx, dz);
+    const dx = at.x - Actors.x[id], dz = at.z - Actors.z[id], distance = length2(dx, dz);
     if (distance > this.approach[id]) this.close(id, at, distance, seen, dt, now);
     else if (distance < row.keepRange[0]) { BotMove.stop(id); Bots.wish(id, -dx, -dz, PVE_BACK_AMOUNT); }
     else this.band(id, row, dx, dz, now);
@@ -24286,7 +24297,7 @@ const PveMove = {
     const target = Pve.target[id];
     if (target < 0) { this.hold(id); return; }
     BotSense.perceivedPosition(id, target, pveTargetScratch);
-    const dx = Actors.x[id] - pveTargetScratch.x, dz = Actors.z[id] - pveTargetScratch.z, length = Math.hypot(dx, dz) || 1;
+    const dx = Actors.x[id] - pveTargetScratch.x, dz = Actors.z[id] - pveTargetScratch.z, length = length2(dx, dz) || 1;
     this.travel(id, Actors.x[id] + dx / length * PVE_FLEE_DISTANCE, Actors.y[id], Actors.z[id] + dz / length * PVE_FLEE_DISTANCE, PVE_ARRIVE_RADIUS, dt, now);
   },
   dodge(id) {
@@ -24350,9 +24361,9 @@ const PveAttacks = {
     step() { return true; },
     drawTell(batch, id, attack, progress) {
       const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
-      const dx = Pve.aimX[id] - ex, dy = Pve.aimY[id] - ey, dz = Pve.aimZ[id] - ez, length = Math.hypot(dx, dy, dz);
+      const dx = Pve.aimX[id] - ex, dy = Pve.aimY[id] - ey, dz = Pve.aimZ[id] - ez, length = length3(dx, dy, dz);
       if (length < 1e-3) return;
-      const yaw = Math.atan2(dx, dz), pitch = Math.atan2(dy, Math.hypot(dx, dz)), color = PVE_TELL_COLORS.unblockable;
+      const yaw = Math.atan2(dx, dz), pitch = Math.atan2(dy, length2(dx, dz)), color = PVE_TELL_COLORS.unblockable;
       batch.mesh('box', ex + dx / 2, ey + dy / 2, ez + dz / 2, yaw, pitch, LASER_WIDTH, LASER_WIDTH, length,
         ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 0.5 + progress * 0.5);
     },
@@ -24380,7 +24391,7 @@ const PveAttacks = {
       emitSound(x, y, z, radius * 10, 'explosion', id);
       for (let other = 0; other < Actors.count; other++) {
         if (!Pve.isFoe(id, other) || !(Actors.flags[other] & ACTOR_FLAG.ON_GROUND)) continue;
-        if (Math.hypot(Actors.x[other] - x, Actors.z[other] - z) <= radius && Math.abs(Actors.y[other] - y) < 2) Pve.hitTarget(id, other, attack, attack.damage, 'splash');
+        if (length2(Actors.x[other] - x, Actors.z[other] - z) <= radius && Math.abs(Actors.y[other] - y) < 2) Pve.hitTarget(id, other, attack, attack.damage, 'splash');
       }
       if (Pve.core.active && Pve.distanceTo(id, PVE_CORE_TARGET) <= radius) Pve.hitTarget(id, PVE_CORE_TARGET, attack, attack.damage);
     },
@@ -24408,7 +24419,7 @@ const PveAttacks = {
   charge: {
     lockSeconds: 0.2,
     begin(id, attack, now) {
-      const dx = Pve.aimX[id] - Actors.x[id], dz = Pve.aimZ[id] - Actors.z[id], length = Math.hypot(dx, dz) || 1;
+      const dx = Pve.aimX[id] - Actors.x[id], dz = Pve.aimZ[id] - Actors.z[id], length = length2(dx, dz) || 1;
       Pve.goalX[id] = dx / length; Pve.goalZ[id] = dz / length;   // the locked direction
       Pve.phaseEndsAt[id] = now + attack.seconds;
     },
@@ -24420,7 +24431,7 @@ const PveAttacks = {
       }
       const contact = CHARGE_CONTACT * Pve.rowOf(id).size;
       for (let other = 0; other < Actors.count; other++) {
-        if (!Pve.isFoe(id, other) || Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > contact) continue;
+        if (!Pve.isFoe(id, other) || length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > contact) continue;
         chargeHit(id, other, attack);
         return true;
       }
@@ -24437,7 +24448,7 @@ const PveAttacks = {
     lockSeconds: 0.2,
     begin(id, attack, now) {
       const dx = Pve.aimX[id] - Actors.x[id], dy = Pve.aimY[id] - 1 - Actors.y[id], dz = Pve.aimZ[id] - Actors.z[id];
-      const flight = clamp(Math.hypot(dx, dz) / POUNCE_SPEED, POUNCE_FLIGHT[0], POUNCE_FLIGHT[1]);
+      const flight = clamp(length2(dx, dz) / POUNCE_SPEED, POUNCE_FLIGHT[0], POUNCE_FLIGHT[1]);
       Actors.vx[id] = dx / flight; Actors.vz[id] = dz / flight;
       Actors.vy[id] = (dy + 0.5 * Move.gravity(id) * flight * flight) / flight;
       unground(id);
@@ -24445,7 +24456,7 @@ const PveAttacks = {
     },
     step(id, attack, now) {
       for (let other = 0; other < Actors.count; other++) {
-        if (!Pve.isFoe(id, other) || Math.hypot(Actors.x[other] - Actors.x[id], Actors.y[other] - Actors.y[id], Actors.z[other] - Actors.z[id]) > attack.radius) continue;
+        if (!Pve.isFoe(id, other) || length3(Actors.x[other] - Actors.x[id], Actors.y[other] - Actors.y[id], Actors.z[other] - Actors.z[id]) > attack.radius) continue;
         Pve.hitTarget(id, other, attack, attack.damage, 'melee');
         return true;
       }
@@ -24472,7 +24483,7 @@ const PveAttacks = {
 const pveSummonOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 function inFront(id, target, reach) {
-  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz);
+  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz);
   if (distance > reach * Math.max(1, Pve.rowOf(id).size) || Math.abs(Actors.y[target] - Actors.y[id]) > 2) return false;
   if (distance < 0.3) return true;
   return (Math.sin(Actors.yaw[id]) * dx + Math.cos(Actors.yaw[id]) * dz) / distance > PVE_FACING_COS;
@@ -24491,7 +24502,7 @@ function launchProjectile(id, attack, yawOffset) {
   const weapon = CAT.weapons.byId(attack.weapon), mode = weapon.primary, row = CAT.projectiles.byId(mode.projectile);
   const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
   const yaw = Math.atan2(Pve.aimX[id] - ex, Pve.aimZ[id] - ez) + yawOffset;
-  const pitch = Math.atan2(Pve.aimY[id] - ey, Math.hypot(Pve.aimX[id] - ex, Pve.aimZ[id] - ez));
+  const pitch = Math.atan2(Pve.aimY[id] - ey, length2(Pve.aimX[id] - ex, Pve.aimZ[id] - ez));
   const speed = (mode.speed || row.speed) * Pve.skill().projectileSpeed;
   Vec.fromAngles(pveMoveScratch, yaw, pitch);
   const slot = Projectiles.spawn(row, id, weapon.index, 0, ex + pveMoveScratch.x * 0.6, ey, ez + pveMoveScratch.z * 0.6,
@@ -24578,14 +24589,14 @@ const PveBrains = {
 
 function healable(id, other, radius) {
   if (other === id || !Pve.isEnemy(other) || !Actors.alive[other] || Actors.team[other] !== Actors.team[id]) return false;
-  return Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) <= radius;
+  return length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) <= radius;
 }
 
 function drawBeam(batch, ax, ay, az, bx, by, bz, colors, slot, width) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+  const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
   if (length < 1e-3) return;
   pveBeam.x = ax + dx / 2; pveBeam.y = ay + dy / 2; pveBeam.z = az + dz / 2;
-  batch.mesh('box', pveBeam.x, pveBeam.y, pveBeam.z, Math.atan2(dx, dz), Math.atan2(dy, Math.hypot(dx, dz)), width, width, length,
+  batch.mesh('box', pveBeam.x, pveBeam.y, pveBeam.z, Math.atan2(dx, dz), Math.atan2(dy, length2(dx, dz)), width, width, length,
     colors[slot * 3], colors[slot * 3 + 1], colors[slot * 3 + 2], 0.8);
 }
 
@@ -24596,7 +24607,7 @@ function blinkBeside(id, target) {
   const node = Nav.nearestNode(x, Actors.y[target], z);
   if (node < 0) return;
   Nav.nodePosition(node, pveMoveScratch);
-  if (Math.hypot(pveMoveScratch.x - x, pveMoveScratch.z - z) > BLINK_FLANK + BLINK_NODE_SLACK) return;
+  if (length2(pveMoveScratch.x - x, pveMoveScratch.z - z) > BLINK_FLANK + BLINK_NODE_SLACK) return;
   relocateActor(id, pveMoveScratch.x, pveMoveScratch.y, pveMoveScratch.z, Actors.yaw[id]);
   BotMove.reset(id);
   if (!Game.headless) Fx.burst('shock', pveMoveScratch.x, pveMoveScratch.y + 1, pveMoveScratch.z, 0, 1, 0, 12, Pve.rowOf(id).glow);
@@ -24615,7 +24626,7 @@ const PVE_MODE_IDS = ['horde', 'endless', 'bank', 'fiends', 'contract', 'attriti
 
 const PVE_HUD_DEFAULTS = Object.freeze({
   active: false, mode: '', state: '', stateTimeLeft: 0, wave: 0, waves: 0, enemiesLeft: 0, lives: LIVES_UNLIMITED, retriesLeft: 0,
-  guardian: false, guardianOffer: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
+  guardian: false, guardianOffer: false, guardianAccepted: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
   chamber: 0, chambers: 0, chamberTime: 0, steps: 0, portals: 0, parTime: null, hint: '', solved: false, medal: '', stars: 0,
   shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, accuracy: 0, drillKills: 0, drillTargets: 0, drillBest: 0, drills: 0,
 });
@@ -24749,7 +24760,7 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, huntAt: 0 };
+        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
@@ -24804,7 +24815,7 @@ function makeWaveBehaviour(plan) {
       if (now + TIME_EPSILON >= run.endsAt) this.openShop(run, now);
     },
     failWave(run, now) {
-      const plate = run.plateOffered && !run.plateUsed && pveSkill().checkpoints;
+      const plate = guardianOpen(run) && pveSkill().checkpoints;
       if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(DRAW, PVE_LOSE); return; }
       if (plate) wearGuardianPlate(run); else run.retriesLeft--;
       Pve.clearEnemies();
@@ -24829,7 +24840,7 @@ function makeWaveBehaviour(plan) {
     updateHud(run, now) {
       PVE_HUD.wave = run.wave; PVE_HUD.state = run.state; PVE_HUD.stateTimeLeft = Math.max(0, run.endsAt - now);
       PVE_HUD.enemiesLeft = enemiesLeft(); PVE_HUD.retriesLeft = run.retriesLeft;
-      PVE_HUD.guardianOffer = run.plateOffered && !run.plateUsed; PVE_HUD.guardian = guardianWorn();
+      PVE_HUD.guardianOffer = guardianOpen(run); PVE_HUD.guardian = guardianWorn();
       updateCoreHud();
       updatePlayerHud();
     },
@@ -24841,13 +24852,22 @@ function wearGuardianPlate(run) {
   for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) Pve.guardian[id] = 1;
   Modes.announce('Guardian Plate: damage taken halved', 'wave', 3);
 }
+function guardianOpen(run) { return run.plateOffered && !run.plateUsed && !run.plateRefused; }
+Pve.answerGuardian = (accept) => {
+  const run = Pve.active && Modes.behaviour ? Modes.behaviour.run : null;
+  if (!run || !guardianOpen(run)) return false;
+  if (accept) PVE_HUD.guardianAccepted = true; else run.plateRefused = true;
+  PVE_HUD.guardianOffer = guardianOpen(run);
+  return true;
+};
 function guardianWorn() {
   for (let id = 0; id < Actors.count; id++) if (Pve.guardian[id]) return true;
   return false;
 }
 function endEncounter(run) {
   run.deaths = 0;
-  run.plateOffered = false;
+  run.plateOffered = run.plateRefused = false;
+  PVE_HUD.guardianAccepted = false;
   Pve.guardian.fill(0);
 }
 function huntLastEnemies(run, now) {
@@ -25395,15 +25415,6 @@ function drawBox(batch, x, y, z, size, color, glow) {
 }
 Render.addSource('pveChambers', drawChambers);
 
-const wrathEventPayload = { id: -1, active: false };
-function reportWrath(event, active) {
-  if (event.ability !== SOUL_ULTIMATE) return;
-  wrathEventPayload.id = event.id; wrathEventPayload.active = active;
-  Bus.emit('pve.wrath', wrathEventPayload);
-}
-Bus.on('ability.cast', (event) => reportWrath(event, true));
-Bus.on('ability.end', (event) => reportWrath(event, false));
-
 const PVE_SECRET_RADIUS = 1.5;
 const PVE_SECRET_MAX = 16;
 const PveLevel = {
@@ -25913,8 +25924,9 @@ const Progress = {
   },
   chamberRecord(chamber) { return this.profile().chambers[String(chamber)] || null; },
   chamberStars() {
+    const records = this.profile().chambers;
     let stars = 0;
-    for (const key in this.profile().chambers) stars += Number(this.profile().chambers[key].stars) || 0;
+    for (const key in records) stars += isPlainObject(records[key]) ? Number(records[key].stars) || 0 : 0;
     return stars;
   },
   unlockedIds() {
@@ -31482,6 +31494,7 @@ function updateHudLayout(layout, width, height) {
   layout.abilityY = layout.bottom - layout.vitalsHeight - 28 * unit;
   layout.powerupY = layout.abilityY - 52 * unit;
   layout.ammoRight = touch ? width * 0.5 - 6 * unit : layout.right;
+  layout.ammoWidth = (compact ? 132 : 176) * unit;
   layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
   layout.moneyY = layout.gadgetY - 34 * unit;
   layout.weaponBarY = layout.bottom - 12 * unit;
@@ -31646,7 +31659,7 @@ function hudDrawAmmo(pen, layout) {
   const weapon = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
-  const width = (compact ? 132 : 176) * unit, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
+  const width = layout.ammoWidth, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
   pen.panel(left, top, width, height);
   pen.text(weapon.name, left + 8 * unit, top + HUD_TEXT_SMALL * unit, 14 * unit, HUD_COLOR.dim, 'left');
   if (weapon.mag === 0) return;
@@ -31965,7 +31978,7 @@ function hudDrawScope(pen, layout) {
   const amount = weapon ? hudScopeAmount(id, weapon) : 0;
   if (amount <= 0) return;
   const cx = layout.centerX, cy = layout.centerY, inner = layout.height * HUD_SCOPE_RADIUS;
-  const outer = Math.hypot(layout.width, layout.height) / 2 * 1.02;
+  const outer = length2(layout.width, layout.height) / 2 * 1.02;
   pen.ring(cx, cy, (inner + outer) / 2, outer - inner, HUD_COLOR.black, 0.94 * amount);
   pen.rect(cx - inner, cy - 0.5, inner * 2, 1, HUD_COLOR.black, 0.85 * amount);
   pen.rect(cx - 0.5, cy - inner, 1, inner * 2, HUD_COLOR.black, 0.85 * amount);
@@ -32377,7 +32390,7 @@ function hudEdgeArrowPosition(layout, projection) {
   const margin = HUD_MARKER_MARGIN * layout.unit, halfW = layout.centerX - margin, halfH = layout.centerY - margin;
   let dx = projection.dirX, dy = projection.dirY;
   if (projection.depth <= 0) dy *= 0.3;                       // behind us: the side matters, not the height
-  const length = Math.hypot(dx, dy);
+  const length = length2(dx, dy);
   if (length < 1e-6) { dx = 0; dy = 1; } else { dx /= length; dy /= length; }
   const scale = Math.min(Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity);
   hudEdge.x = layout.centerX + dx * scale; hudEdge.y = layout.centerY + dy * scale; hudEdge.dx = dx; hudEdge.dy = dy;
@@ -32527,7 +32540,7 @@ function hudDrawSoundRing(pen, layout) {
   for (let i = 0; i < HUD_SOUND_SLOTS; i++) {
     const age = Hud.time - c.soundAt[i];
     if (age >= HUD_SOUND_SECONDS) continue;
-    if (player >= 0 && Math.hypot(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
+    if (player >= 0 && length2(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
     const angle = hudBearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
     const x = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit, y = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit;
     pen.shape(icon.shape, x, y, 16 * unit, icon.color, 1 - age / HUD_SOUND_SECONDS);
@@ -32848,7 +32861,7 @@ function hudCollectObservers(player) {
 
 function hudTracked(id) {
   if (HudExtra.radarMode === 'off') return false;
-  if (Math.hypot(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
+  if (length2(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
   const rangeSquared = HudExtra.radarRange * HudExtra.radarRange;
   for (let i = 0; i < HudExtra.observerCount; i++) {
     const observer = HudExtra.observers[i];
@@ -33098,7 +33111,7 @@ const CommWheel = {
   },
   pick(dx, dy) {
     this.pickX += dx; this.pickY += dy;
-    const length = Math.hypot(this.pickX, this.pickY);
+    const length = length2(this.pickX, this.pickY);
     if (length < COMM_WHEEL_DEADZONE) return;
     if (length > COMM_WHEEL_REACH) { this.pickX *= COMM_WHEEL_REACH / length; this.pickY *= COMM_WHEEL_REACH / length; }
     const count = COMM_CALLOUTS.length, angle = Math.atan2(this.pickX, -this.pickY);
@@ -33131,6 +33144,9 @@ const HUD_PVE_COMPASS_SHIFT = 30;        // the compass strip, when shown, sits 
 const HUD_PVE_WIDTH = 300, HUD_PVE_ROW = 20, HUD_PVE_PAD = 10, HUD_PVE_BAR = 9;
 const HUD_PVE_BOSS_WIDTH = 420;
 const HUD_PVE_SIDE_WIDTH = 220, HUD_PVE_SIDE_TOP = 150, HUD_PVE_SIDE_ROW = 19;   // right-hand tables under the kill feed
+const HUD_PVE_SIDE_ROW_COMPACT = 17;                                             // compact HUD (phones, short screens): shorter rows
+const HUD_PVE_TOUCH_CROSS_GAP = 40;      // touch: the side tables end this far left of the crosshair (the right side holds the buttons)
+const HUD_PVE_TOUCH_NOTE_RISE = 20;      // touch: the notes rise above the ammo panel, which sits bottom centre-left (17a ammoRight)
 const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
 const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
 const HUD_PVE_LOW_CORE = 0.25;
@@ -33268,12 +33284,14 @@ function hudPveBossBar(pen, layout, boss, y) {
   return barY + 34 * unit;
 }
 
-function hudPveSideTop(layout) { return layout.top + HUD_PVE_SIDE_TOP * layout.unit; }
+function hudPveSideLeft(layout, width) { return layout.touch ? layout.centerX - HUD_PVE_TOUCH_CROSS_GAP * layout.unit - width : layout.right - width; }
+function hudPveSideTop(layout, statusBottom) { return layout.touch ? statusBottom : layout.top + HUD_PVE_SIDE_TOP * layout.unit; }
+function hudPveSideRow(layout) { return (layout.compact ? HUD_PVE_SIDE_ROW_COMPACT : HUD_PVE_SIDE_ROW) * layout.unit; }
 
-function hudPveChamberTable(pen, layout, pve) {
+function hudPveChamberTable(pen, layout, pve, statusBottom) {
   const row = PVE_CHAMBERS[pve.chamber - 1];
   if (!row || !pve.parTime) return;
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
   const current = hudPveChamberTier(pve), tiers = HUD_PVE_MEDAL_STARS.length;
   pen.panel(left, top, width, rowHeight * (tiers + 3.4), 0.5);
   hudPveTableHeader(pen, left, width, top + rowHeight * 0.6, unit);
@@ -33296,8 +33314,8 @@ function hudPveTableHeader(pen, left, width, y, unit) {
   pen.text('GATES', left + width - 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'right');
 }
 
-function hudPveRangeTable(pen, layout, pve) {
-  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = layout.right - width, top = hudPveSideTop(layout), rowHeight = HUD_PVE_SIDE_ROW * unit;
+function hudPveRangeTable(pen, layout, pve, statusBottom) {
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, statusBottom), rowHeight = hudPveSideRow(layout);
   pen.panel(left, top, width, rowHeight * 11.4, 0.5);
   let y = top + rowHeight * 0.6;
   pen.text('FIRING RANGE', left + 8 * unit, y, HUD_TEXT_SMALL * unit, HUD_COLOR.gold, 'left');
@@ -33315,15 +33333,14 @@ function hudPveRangeTable(pen, layout, pve) {
   hudPveTableRow(pen, left, width, y, unit, 'DRILLS DONE', hudNumber(pve.drills), HUD_COLOR.text);
 }
 
+function hudPveNoteY(layout, rise) { return layout.weaponBarY - (rise + (layout.touch ? HUD_PVE_TOUCH_NOTE_RISE : 0)) * layout.unit; }
+function hudPveNoteX(layout, width) { return layout.touch ? Math.max(layout.left + width / 2, layout.ammoRight - layout.ammoWidth / 2) : layout.centerX; }
 function hudPveCentreNote(pen, layout, text, rise, color) {
-  const unit = layout.unit, size = 16 * unit, y = layout.weaponBarY - rise * unit, width = HudBatch.measure(text, size) + 24 * unit;
-  pen.panel(layout.centerX - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
-  pen.text(text, layout.centerX, y, size, color, 'center');
+  const unit = layout.unit, size = 16 * unit, y = hudPveNoteY(layout, rise), width = HudBatch.measure(text, size) + 24 * unit, x = hudPveNoteX(layout, width);
+  pen.panel(x - width / 2, y - 14 * unit, width, 28 * unit, 0.6);
+  pen.text(text, x, y, size, color, 'center');
 }
-function hudPveGuardianText(pve) {
-  if (pve.guardianAccepted || typeof Pve.answerGuardian !== 'function') return HUD_PVE_GUARDIAN_READY;
-  return HUD_PVE_GUARDIAN_CHOICE;
-}
+function hudPveGuardianText(pve) { return pve.guardianAccepted ? HUD_PVE_GUARDIAN_READY : HUD_PVE_GUARDIAN_CHOICE; }
 
 function hudDrawPve(pen, layout) {
   const pve = Modes.hud.pve;
@@ -33331,9 +33348,9 @@ function hudDrawPve(pen, layout) {
   const rows = HUD_PVE_PANELS[pve.mode] || [];
   let y = hudPveTop(layout);
   for (let i = 0; i < rows.length; i++) y = HUD_PVE_ROWS[rows[i]](pen, layout, pve, y);
-  hudPveBossBar(pen, layout, pve.boss, y);
-  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
-  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
+  y = hudPveBossBar(pen, layout, pve.boss, y);
+  if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve, y);
+  if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve, y);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
   if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }
@@ -34436,8 +34453,8 @@ const BUY_CSS = '.ui-buy .ui-panel { width: min(680px, 100%); max-height: 100%; 
   + '.buy-ladder { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; color: var(--ui-dim); }'
   + '.buy-step { padding: 2px 8px; border: 1px solid var(--ui-line); border-radius: 6px; } .buy-step.next { border-color: var(--ui-accent); color: var(--ui-text); }';
 const BUY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
-const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy' };
-const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout' };
+const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy', when: () => buyMenuAvailable() };
+const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout', when: () => loadoutAvailable() };
 const LOADOUT_TABS = [['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
 const KIT_SLOT_LABELS = { ability1: 'Ability 1', ability2: 'Ability 2', ultimate: 'Ultimate' };
 const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: primaries come from its weapon set
@@ -34550,7 +34567,7 @@ const LoadoutMenu = {
     this.tabButtons.clear();
     for (const [id, label] of LOADOUT_TABS) {
       const button = Ui.button(label, () => this.show(id), 'ui-tab');
-      button.disabled = id === 'classes' && playerInMatch() && !classesApplyInMatch();   // a class pick would do nothing in this match
+      button.disabled = id === 'classes' && playerInMatch() && !Economy.usesClasses();   // a class pick would do nothing in this match
       this.tabButtons.set(id, button);
       tabs.appendChild(button);
     }
@@ -34571,9 +34588,8 @@ function defaultLoadoutTab() {
   if (Abilities.usesHeroes()) return 'heroes';
   const kit = Abilities.kitOf(Game.playerId);
   if (kit && kit.id !== 'classes') return 'kits';
-  return classesApplyInMatch() ? 'classes' : 'kits';
+  return Economy.usesClasses() ? 'classes' : 'kits';
 }
-function classesApplyInMatch() { return Economy.usesLoadouts() && Economy.preset().loadout === 'classes'; }
 
 function renderClassesTab(body) {
   const classes = Loadouts.classes(), details = makeElement('div', 'ui-note');
@@ -34689,13 +34705,9 @@ function kitSlotRow(kit, slotName) {
 const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
 
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
-function modeArmsEveryone() {
-  const params = currentRules().params;
-  return !!params && MODE_ARMING_PARAMS.some((key) => params[key]);
-}
 function loadoutAvailable() {
   if (Economy.usesLoadouts()) return true;
-  return playerInMatch() && !modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
+  return playerInMatch() && !Economy.modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
   if (event.action !== 'buyMenu' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;
@@ -34715,10 +34727,6 @@ function setPauseEntry(entry, wanted) {
   if (wanted && index < 0) Ui.pauseEntries.push(entry);
   if (!wanted && index >= 0) Ui.pauseEntries.splice(index, 1);
 }
-function syncPauseEntries(inMatch) {
-  setPauseEntry(BUY_PAUSE_ENTRY, inMatch && buyMenuAvailable());
-  setPauseEntry(LOADOUT_PAUSE_ENTRY, inMatch && loadoutAvailable());
-}
 
 Ui.register('buy', {
   overlay: true,
@@ -34729,9 +34737,7 @@ Ui.register('buy', {
 Ui.register('loadout', { build: (root, params) => LoadoutMenu.build(root, params) });
 Ui.register('classEditor', { build: buildClassEditor });
 Bus.on('input.action', onBuyMenuAction);
-function grenadeCycleLive() { return typeof Gadgets.cycleGrenade === 'function'; }
-Bus.on('match.start', () => { syncPauseEntries(true); TouchInput.setFlag('grenadeCycle', grenadeCycleLive()); });
-Bus.on('match.stop', () => syncPauseEntries(false));
+Bus.on('match.start', () => { setPauseEntry(BUY_PAUSE_ENTRY, true); setPauseEntry(LOADOUT_PAUSE_ENTRY, true); });   // a test run may empty the list
 Bus.on('boot', () => window.addEventListener('keydown', onBuyScreenKey));
 
 // ==== 18g-ui-custom.js ====
@@ -36977,11 +36983,10 @@ Ui.register('solo', {
 });
 
 function guardianChoiceOpen() {
-  return !!Modes.hud.pve && Modes.hud.pve.active && Modes.hud.pve.guardianOffer && typeof Pve.answerGuardian === 'function';
+  return !!Modes.hud.pve && Modes.hud.pve.active && Modes.hud.pve.guardianOffer && !Modes.hud.pve.guardianAccepted;
 }
 function answerGuardian(accept) {
-  if (!guardianChoiceOpen()) return false;
-  Pve.answerGuardian(accept);
+  if (!guardianChoiceOpen() || !Pve.answerGuardian(accept)) return false;
   Ui.toast(accept ? 'Guardian Plate: worn for the retry' : 'Guardian Plate refused');
   return true;
 }
@@ -40873,7 +40878,7 @@ Test.add('economy', (check) => uiWith(() => {
   startModeTest('bomb', modesTestMap(BOMB_MAP), [1], Object.assign({ player: { team: 0 } }, BOMB_OPTIONS));
   runSeconds(1.01);
   const player = Game.playerId;
-  check('buy menu: pause rows only in buying matches', Ui.pauseEntries.includes(BUY_PAUSE_ENTRY) && !Ui.pauseEntries.includes(LOADOUT_PAUSE_ENTRY));
+  check('buy menu: pause rows only in buying matches', Ui.pauseEntries.includes(BUY_PAUSE_ENTRY) && BUY_PAUSE_ENTRY.when() && !LOADOUT_PAUSE_ENTRY.when());
   Bus.emit('input.action', buyMenuAction);
   check('buy menu: B opens it during buy time', Ui.current() === 'buy' && BuyMenu.entries.length === Economy.catalogue().length);
   check('buy menu: shows credits and the loss ladder', uiScreenText('buy').includes('800 cr') && uiScreenText('buy').includes('Loss bonus'));
@@ -40886,7 +40891,6 @@ Test.add('economy', (check) => uiWith(() => {
   BuyMenu.tick();
   check('buy menu: closes itself when buy time ends', Ui.stack.length === 0);
   endModeTest();
-  check('buy menu: pause rows removed after the match', !Ui.pauseEntries.includes(BUY_PAUSE_ENTRY));
 }));
 
 Test.add('economy', (check) => uiWith(() => {
@@ -42246,7 +42250,7 @@ Test.add('hudui', (check) => uiWith(() => {
 Test.add('hudui', (check) => uiWith(() => {
   const ids = startPveMode('horde', [0], {}, { player: { name: 'Me', team: 0 } });
   const pve = Modes.hud.pve, savedAnswer = Pve.answerGuardian, answers = [];
-  Pve.answerGuardian = (accept) => { answers.push(accept); pve.guardianOffer = false; };
+  Pve.answerGuardian = (accept) => { answers.push(accept); pve.guardianOffer = false; return true; };
   Game.pause('menu'); Ui.open('pause');
   const pauseLabels = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);
   check('guardian: no pause row while nothing is offered', !pauseLabels().includes('Guardian Plate'));
@@ -42264,9 +42268,6 @@ Test.add('hudui', (check) => uiWith(() => {
   Ui.open('guardian');
   uiClickButton(Ui.top().element, 'Refuse');
   check('guardian: Wear it and Refuse reach Pve.answerGuardian', answers.join() === 'true,false', answers.join());
-  Pve.answerGuardian = undefined;
-  pve.guardianOffer = true;
-  check('guardian: without the PvE call the plate stays automatic and no row is offered', !guardianChoiceOpen() && hudPveGuardianText(pve) === HUD_PVE_GUARDIAN_READY);
   Pve.answerGuardian = savedAnswer;
   check('guardian: test match had a player', ids.length > 0);
   Ui.closeAll();
@@ -42311,12 +42312,12 @@ Test.add('hudui', (check) => uiWith(() => {
 
 Test.add('hudui', (check) => {
   Game.start({ mode: 'gungame', seed: 1, bots: [{ dummy: true }], player: { name: 'Me' } });
-  check('loadout: Gun Game offers no class pick', !Economy.usesLoadouts() && !loadoutAvailable());
+  check('loadout: Gun Game offers no class pick', Economy.modeArmsEveryone() && !Economy.usesLoadouts() && !Economy.usesClasses() && !loadoutAvailable());
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'modern' });
   check('loadout: a class economy offers it', Economy.usesLoadouts() && loadoutAvailable(), Economy.preset().loadout);
-  check('loadout: a class economy opens on the Classes tab', classesApplyInMatch() && defaultLoadoutTab() === 'classes');
+  check('loadout: a class economy opens on the Classes tab', Economy.usesClasses() && defaultLoadoutTab() === 'classes');
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }], player: { name: 'Me', team: 0 }, ruleset: 'heroes' });
-  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !classesApplyInMatch());
+  check('loadout: a hero match uses loadouts but applies no class', Economy.usesLoadouts() && Economy.preset().loadout === 'heroes' && !Economy.usesClasses());
   Game.stop();
 });
 Test.add('hudui', (check) => uiWith(() => {
@@ -42341,18 +42342,45 @@ Test.add('hudui', (check) => {
   check('stealth hud: the label is Pve.awarenessState of the most aware guard', hudPveMostAwareState() === AWARENESS.ALERT && hudPveMostAwareState() === Pve.awarenessState(alert));
   Pve.awareness[alert] = PVE_CONTRACT.unaware;
   check('stealth hud: the label follows the guard down to suspicious', hudPveMostAwareState() === Pve.awarenessState(alert) && hudPveMostAwareState() === AWARENESS.SUSPICIOUS);
-  check('touch: the TYPE button follows the gadget reader', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
   Game.stop();
-  const savedCycle = Gadgets.cycleGrenade;
-  Gadgets.cycleGrenade = () => {};
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button shows once Gadgets.cycleGrenade exists', TouchInput.flags.grenadeCycle === true);
-  Game.stop();
-  if (savedCycle === undefined) delete Gadgets.cycleGrenade; else Gadgets.cycleGrenade = savedCycle;
-  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }] });
-  check('touch: the TYPE button hides again without it', !!TouchInput.flags.grenadeCycle === grenadeCycleLive());
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
+  const player = Game.playerId;
+  Gadgets.count.fill(0, player * GADGET_COUNT, (player + 1) * GADGET_COUNT);
+  Gadgets.give(player, 'frag', 2);
+  check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
+  Gadgets.give(player, 'smoke', 1);
+  check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
   Game.stop();
   World.clear();
+});
+
+function hudPveTouchOverlap(layout, left, top, right, bottom) {
+  const place = {};
+  for (const control of TOUCH_CONTROLS) {
+    if (control.id === 'stick' || control.setting) continue;   // the floating stick and opt-in buttons (left fire) are not default layout
+    TouchInput.layoutOf(control.id, place);
+    const radius = control.size * place.scale / 2, x = place.x * layout.width, y = place.y * layout.height;
+    if (x + radius > left && x - radius < right && y + radius > top && y - radius < bottom) return control.id;
+  }
+  return '';
+}
+Test.add('hudui', (check) => {
+  const layout = {}, savedDevice = Input.device;
+  Input.device = 'touch';
+  updateHudLayout(layout, 844, 390);
+  Input.device = savedDevice;
+  const unit = layout.unit, width = HUD_PVE_SIDE_WIDTH * unit, left = hudPveSideLeft(layout, width), top = hudPveSideTop(layout, hudPveTop(layout));
+  const rangeBottom = top + hudPveSideRow(layout) * 11.4;
+  check('pve hud on a phone: the range table ends left of the crosshair', left >= layout.left && left + width < layout.centerX, [left, width]);
+  check('pve hud on a phone: no touch button over the range table', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom) === '', hudPveTouchOverlap(layout, left, top, left + width, rangeBottom));
+  const noteWidth = 260 * unit, noteX = hudPveNoteX(layout, noteWidth), noteY = hudPveNoteY(layout, HUD_PVE_HINT_RISE);
+  check('pve hud on a phone: the hint sits above the ammo panel', noteY + 14 * unit <= layout.bottom - 58 * unit, [noteY, layout.bottom]);
+  check('pve hud on a phone: no touch button over the hint', hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit) === '',
+    hudPveTouchOverlap(layout, noteX - noteWidth / 2, noteY - 14 * unit, noteX + noteWidth / 2, noteY + 14 * unit));
+  Input.device = 'kbm';
+  updateHudLayout(layout, 1280, 800);
+  Input.device = savedDevice;
+  check('pve hud on a desktop: the side tables stay at the right edge', hudPveSideLeft(layout, width) + width === layout.right && hudPveNoteX(layout, noteWidth) === layout.centerX);
 });
 
 Test.add('hudui', (check) => {
@@ -45597,6 +45625,17 @@ Test.add('modes', (check) => {
   killActor(0, -1);
   check('a match without participants stays passive', !Modes.active && !Game.match.ended && Modes.suicides[0] === 0);
   endModeTest();
+});
+
+Test.add('modes', (check) => {
+  World.clear();
+  const id = Actors.create(ACTOR_KIND.DUMMY, NO_TEAM, 'toucher'), xs = new Float32Array(3), ys = new Float32Array(3), zs = new Float32Array(3);
+  Actors.x[id] = Actors.y[id] = Actors.z[id] = 0;
+  xs[1] = TOUCH_RADIUS - 0.01; ys[2] = TOUCH_HEIGHT + 0.01; xs[0] = TOUCH_RADIUS + 0.01;
+  const both = (index) => [withinTouchAt(id, xs, ys, zs, index, TOUCH_RADIUS), withinTouch(id, xs[index], ys[index], zs[index], TOUCH_RADIUS)].join();
+  check('touch rule: inside the radius touches, past it or above the height window does not', both(1) === 'true,true' && both(0) === 'false,false' && both(2) === 'false,false',
+    [0, 1, 2].map(both).join(' '));
+  World.clear();
 });
 
 Test.add('modes', (check) => {
@@ -49046,8 +49085,10 @@ function perfFeedDisplayRate(frameMs, frames, triangles, cpuMs) {
 
 Test.add('perf', (check) => {
   const last = Perf.lastIndex();
-  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active, triangles: Perf.counters.triangles, cpuMs: Perf.cpuMs[last] };
+  const saved = { intervalMs: DisplayRate.intervalMs, count: DisplayRate.count, state: Game.state, benchmark: Benchmark.active, triangles: Perf.counters.triangles, cpuMs: Perf.cpuMs[last],
+    extension: GpuTimer.extension, gpuMs: GpuTimer.lastMs, scale: Render.size.scale };
   Game.state = 'menu'; Benchmark.active = false; DisplayRate.count = 0;
+  GpuTimer.extension = saved.extension || {}; GpuTimer.lastMs = 1;   // a GPU timer that shows an idle GPU
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('the menu measures a 30 Hz display', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
   const slowOn30 = slowFrameMs();
@@ -49073,7 +49114,20 @@ Test.add('perf', (check) => {
   Benchmark.active = true;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('the benchmark frames are not taken as the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 60) < 0.01, DisplayRate.intervalMs);
-  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count });
+  Benchmark.active = false; GpuTimer.lastMs = 25;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('GPU-bound menu frames at every second vsync (timer shows 25 ms) are not taken as a 30 Hz display', slowFrameMs() === budget && DisplayRate.count === 0, DisplayRate.intervalMs);
+  GpuTimer.extension = null;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer one 30 Hz window does not raise the budget', slowFrameMs() === budget, DisplayRate.intervalMs);
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz at an unchanged render scale (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
+  Render.size.scale = saved.scale - SCALE_STEP;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz held across a render-scale change is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
+  Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count, candidateMs: 0, candidateScale: 0 });
+  Object.assign(GpuTimer, { extension: saved.extension, lastMs: saved.gpuMs });
+  Render.size.scale = saved.scale; Render.size.dirty = true;
   Game.state = saved.state; Benchmark.active = saved.benchmark; Perf.counters.triangles = saved.triangles; Perf.cpuMs[last] = saved.cpuMs;
 });
 
@@ -49094,6 +49148,13 @@ Test.add('perf', (check) => {
   Render.config.renderScale = saved.setting; Render.size.scale = saved.scale; Render.size.dirty = true;
 });
 
+function rayCylinder(ox, oy, oz, dx, dy, dz, cx, cz, y0, y1, radius) {
+  setHitRay(ox, oy, oz, dx, dy, dz, 0, 0);
+  const volume = hitVolume;
+  volume.cx = cx; volume.cz = cz; volume.y0 = y0; volume.y1 = y1; volume.radius = radius;
+  rayHitCylinder();
+  return volume.distance;
+}
 Test.add('perf', (check) => {
   check('length2 / length3 match Math.hypot', length2(3, 4) === 5 && length3(2, 3, 6) === 7 && Math.abs(length3(0.1, -0.2, 0.3) - Math.hypot(0.1, -0.2, 0.3)) < 1e-15);
   const first = makeRandom(12345), last = makeRandom(0xffffffff);
@@ -49640,6 +49701,7 @@ const PROGRESS_TEST_TYPICAL = { duration: 600, score: 10, objective: 0, medals: 
 const PROGRESS_TEST_HOURS_TO_30 = [8, 13];          // "about 10 hours" to level 30 (PRG-010)
 const PROGRESS_TEST_DAY = Date.UTC(2026, 9, 22, 12, 0);
 const PROGRESS_TEST_HOUR_MS = 3600000;
+const PROGRESS_CARD_LEVELS = [{ mode: 'horde', map: 'cistern' }, { mode: 'contract', map: 'manor' }];   // shipped levels the card metrics are measured on
 
 function progressTestResults(fields) {
   const options = Object.assign({ duration: 600, score: 10, objective: 0, kills: 10, rank: 1, others: 3, teams: false, won: true }, fields);
@@ -50237,10 +50299,11 @@ Test.add('progress', (check) => {
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
   const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, damageTaken: 40, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
-    explosiveShots: 2, souls: 20, rangedKills: 5, airKills: 0, wrathKills: 0, headshots: 0, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
-  const meets = { stoneskin: {}, slowtide: { damageTaken: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
-    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { airKills: 10 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { kills: 150 }, ironwill: { bossSeconds: 79 }, rage: { headshots: 30 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { lowestHealth: 10, hard: true },
+    explosiveShots: 2, souls: 20, rangedKills: 5, airKills: 0, wrathKills: 0, headshots: 0, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3,
+    propsLeft: 2, secretsLeft: 1, optionalLeft: 3 };
+  const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
+    fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
+    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -50250,21 +50313,25 @@ Test.add('progress', (check) => {
     if (!ok) { exact = false; wrong.push(row.id); }
   }
   check('cards: each card unlocks on its own condition and not without it', exact, wrong.join());
-  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { lowestHealth: 5 }))
-    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { headshots: 30, deaths: 1 })));
+  check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { secretsLeft: 0 }))
+    && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { secretsLeft: 0, deaths: 1 })));
   check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('soulkeep').unlock, Object.assign({}, base, { enemiesLeft: PROGRESS_NOT_REACHED })));
   const award = { lines: [] };
-  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, damageTaken: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, propsLeft: 0 }), award);
   check('cards: nothing unlocks outside a finished PvE level', !Cards.record().unlocked.slowtide);
-  Cards.unlockFromRun(null, Object.assign({}, base, { damageTaken: 0 }), award);
+  Cards.unlockFromRun(null, Object.assign({}, base, { propsLeft: 0 }), award);
   check('cards: a finished level unlocks the cards whose conditions held', Cards.record().unlocked.slowtide && Cards.record().unlocked.stoneskin && Cards.record().unlocked.endless
     && !Cards.record().unlocked.soulkeep && award.lines.length === 3, award.lines.join('; '));
-  Game.start({ mode: 'horde', map: 'cistern', seed: 4, player: { name: 'You' } });
-  Modes.finish(Game.playerId);
-  const measured = RunLog.measure(Game.match);
-  const unmeasured = CAT.cards.filter((row) => typeof measured[row.unlock.metric] !== 'number' || measured[row.unlock.metric] === PROGRESS_NOT_REACHED).map((row) => row.code);
-  check('cards: a finished PvE level measures every metric a card condition reads', unmeasured.length === 0 && measured.enemiesLeft === enemiesLeft(), unmeasured.join());
-  Game.stop();
+  let unmeasured = CAT.cards, enemiesMeasured = false;
+  for (const level of PROGRESS_CARD_LEVELS) {
+    Game.start({ mode: level.mode, map: level.map, seed: 4, player: { name: 'You' } });
+    Modes.finish(Game.playerId);
+    const measured = RunLog.measure(Game.match);
+    enemiesMeasured = enemiesMeasured || measured.enemiesLeft === enemiesLeft();
+    unmeasured = unmeasured.filter((row) => typeof measured[row.unlock.metric] !== 'number' || measured[row.unlock.metric] === PROGRESS_NOT_REACHED);
+    Game.stop();
+  }
+  check('cards: the shipped PvE levels measure every metric a card condition reads', unmeasured.length === 0 && enemiesMeasured, unmeasured.map((row) => row.code).join());
 });
 
 function progressCardMatch(cards, extra) {
@@ -51178,6 +51245,30 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+function offerGuardianPlate(answer) {
+  const ids = startPveMode('horde', [0]), run = Modes.behaviour.run;
+  runUntil(() => run.state === PVE_WAVE_STATE.FIGHT, 10);
+  run.plateOffered = true;
+  runSeconds(0.1);
+  const offered = PVE_HUD.guardianOffer && guardianChoiceOpen() && hudPveGuardianText(PVE_HUD) === HUD_PVE_GUARDIAN_CHOICE;
+  const answered = Pve.answerGuardian(answer);
+  runSeconds(0.1);
+  const after = { offered, answered, accepted: PVE_HUD.guardianAccepted, offer: PVE_HUD.guardianOffer, again: Pve.answerGuardian(answer) };
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  after.worn = Pve.guardian[ids[0]] === 1;
+  endModeTest();
+  return after;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const worn = offerGuardianPlate(true);
+  check('an offered plate asks the player (pause row, CHOICE prompt)', worn.offered);
+  check('accept: guardianAccepted, the offer stays, the retry wears the plate', worn.answered && worn.accepted && worn.offer && worn.worn, JSON.stringify(worn));
+  const refused = offerGuardianPlate(false);
+  check('refuse: no offer for the rest of the wave and no plate at the retry', refused.answered && !refused.accepted && !refused.offer && !refused.again && !refused.worn, JSON.stringify(refused));
+  check('a new match clears the answer', !PVE_HUD.guardianAccepted && Pve.answerGuardian(true) === false);
+}));
+
 function queuedOnSide(side, key) {
   const queue = Pve.queue;
   let count = 0;
@@ -51243,14 +51334,15 @@ Test.add('pve', (check) => withShortShop(() => {
   Meters.addPoints(player, Meters.row().max);
   const kept = Abilities.row(player, SLOT.ULTIMATE);
   check('streak rewards leave Wrath Form in the ultimate slot of a soul mode', kept && kept.id === SOUL_ULTIMATE && !Abilities.rewardLoaded[player], kept && kept.id);
-  const reports = startEventLog('pve.wrath');
+  const savedPlayer = Game.playerId;
+  Game.playerId = player;   // the run log follows the local player
   Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
   Sim.step();
   check('Wrath Form casts itself once the souls pay for it and spends them', Abilities.isActive(player, SOUL_ULTIMATE) && Powerups.souls[player] === 0);
+  check('the run log counts the Wrath Form from ability.cast', RunLog.wrathForms === 1 && RunLog.inWrath, RunLog.wrathForms);
   Sim.run((CAT.abilities.byId(SOUL_ULTIMATE).duration + 0.5) * TICK_RATE);
-  reports.stop();
-  check('pve.wrath reports its start and its end', reports.length === 2 && reports[0].id === player && reports[0].active === true && reports[1].active === false,
-    reports.map((event) => event.active).join(' '));
+  check('and its end from ability.end', RunLog.wrathForms === 1 && !RunLog.inWrath);
+  Game.playerId = savedPlayer;
   endModeTest();
 }));
 
@@ -51309,10 +51401,10 @@ Test.add('pvesoak', (check) => {
   runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
   waves.stop();
   const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results, seconds = [];
-  for (let i = 1; i < waves.length; i++) if (waves[i].kind !== 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
+  for (let i = 1; i < waves.length; i++) if (waves[i].phase === 'end' && waves[i - 1].phase === 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
   check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
     cleared + ' cleared, ' + (results && results.reason));
-  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
+  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });
 
@@ -52533,6 +52625,8 @@ Test.add('simwire', (check) => {
   check('as many stars in less time replace it', Progress.chamberRecord(SIMWIRE_CHAMBER).seconds === 30 && Progress.chamberStars() === 2);
   Bus.emit('pve.chamber', { chamber: SIMWIRE_CHAMBER + 1, kind: 'enter', medal: '', stars: 0, seconds: 0 });
   check('entering a chamber records nothing', Progress.chamberRecord(SIMWIRE_CHAMBER + 1) === null);
+  Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = null;
+  check('a malformed chamber entry of an imported save counts no stars', Progress.chamberStars() === 2);
   Save.data = Save.emptySave();
 });
 
