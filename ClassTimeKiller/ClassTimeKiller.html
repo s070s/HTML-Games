@@ -34,6 +34,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; col
 <div id="fatal"><div class="box"><h1 id="fatal-title">ClassTimeKiller could not start</h1><p id="fatal-text"></p><pre id="fatal-detail"></pre></div></div>
 <div id="version"></div>
 <script>
+/* PLT-002: a script error before the game hooks its own handlers (a top-level error, an old browser) shows the fatal screen, not a blank page. */
+window.onerror = function (message, source, line, column, error) {
+  if (window.__CTK) return false;
+  document.getElementById('fatal-text').textContent = 'The game failed to load. Reload the page; if it keeps happening, update your browser.';
+  document.getElementById('fatal-detail').textContent = String(error && error.stack || message);
+  document.getElementById('fatal').classList.add('show');
+  return false;
+};
+</script>
+<script>
 (() => {
 'use strict';
 // ==== 01-core.js ====
@@ -108,11 +118,14 @@ const Mat4 = {
 const ErrorLog = {
   size: 50,
   entries: [],
+  total: 0,               // entries ever added (the list keeps only the last `size`)
   add(where, error) {
     const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    this.total++;
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
   },
+  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 
 const Bus = {
@@ -137,12 +150,115 @@ const Bus = {
   },
 };
 
+const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
+const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
+const TOAST_EVENT = { text: '' };
+function emitSound(x, y, z, radius, kind, source) {
+  if (radius <= 0) return;
+  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
+  Bus.emit('sound', SOUND_EVENT);
+}
+function emitImpulse(id, x, y, z) {
+  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
+  Bus.emit('impulse', IMPULSE_EVENT);
+}
+function emitToast(text) {
+  TOAST_EVENT.text = text;
+  Bus.emit('toast', TOAST_EVENT);
+}
+
 function makePool(size, create) {
   const items = [];
   for (let i = 0; i < size; i++) items.push(create(i));
   let next = 0;
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
 }
+
+function bucketByCell(itemCount, cellCount, eachCell) {
+  const start = new Int32Array(cellCount + 1);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { start[cell + 1]++; });
+  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
+  const fill = start.slice(0, cellCount), items = new Int32Array(start[cellCount]);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { items[fill[cell]++] = index; });
+  return { start, items };
+}
+const gridCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
+
+const BrushGrid = {
+  build(grid, boxes, cellSize, minX, minZ, maxX, maxZ) {
+    this.shape(grid, cellSize, minX, minZ, maxX, maxZ);
+    const lists = bucketByCell(boxes.length, grid.cellsX * grid.cellsZ, (index, visit) => {
+      const box = boxes[index];
+      this.forCells(grid, box.minX, box.minZ, box.maxX, box.maxZ, visit);
+    });
+    grid.cellStart = lists.start; grid.cellItems = lists.items;
+    grid.stamp = new Uint32Array(boxes.length); grid.stampValue = 0;
+    grid.found = new Int32Array(boxes.length); grid.foundCount = 0;
+    return grid;
+  },
+  shape(grid, cellSize, minX, minZ, maxX, maxZ) {
+    grid.originX = minX; grid.originZ = minZ; grid.cellSize = cellSize;
+    grid.cellsX = Math.max(1, Math.ceil((maxX - minX) / cellSize));
+    grid.cellsZ = Math.max(1, Math.ceil((maxZ - minZ) / cellSize));
+  },
+  cellAt(grid, x, z) {
+    return gridCellIndex(z, grid.originZ, grid.cellSize, grid.cellsZ) * grid.cellsX + gridCellIndex(x, grid.originX, grid.cellSize, grid.cellsX);
+  },
+  forCells(grid, minX, minZ, maxX, maxZ, visit) {
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
+    }
+  },
+  beginPass(grid) { grid.stampValue++; grid.foundCount = 0; },
+  firstVisit(grid, index) {
+    if (grid.stamp[index] === grid.stampValue) return false;
+    grid.stamp[index] = grid.stampValue;
+    return true;
+  },
+  query(grid, minX, minZ, maxX, maxZ) {
+    this.beginPass(grid);
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) this.gatherCell(grid, j * grid.cellsX + i);
+    }
+    return grid.foundCount;
+  },
+  gatherCell(grid, cell) {
+    const stamp = grid.stamp, stampValue = grid.stampValue;
+    for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+      const index = grid.cellItems[k];
+      if (stamp[index] === stampValue) continue;
+      stamp[index] = stampValue;
+      grid.found[grid.foundCount++] = index;
+    }
+  },
+  startWalk(grid, walk, ox, oz, dx, dz) {
+    const size = grid.cellSize, movesX = Math.abs(dx) > 1e-9, movesZ = Math.abs(dz) > 1e-9;
+    walk.i = Math.floor((ox - grid.originX) / size); walk.j = Math.floor((oz - grid.originZ) / size);
+    walk.stepI = dx > 0 ? 1 : -1; walk.stepJ = dz > 0 ? 1 : -1;
+    walk.deltaI = movesX ? size / Math.abs(dx) : Infinity;
+    walk.deltaJ = movesZ ? size / Math.abs(dz) : Infinity;
+    walk.nextI = movesX ? (grid.originX + (walk.i + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
+    walk.nextJ = movesZ ? (grid.originZ + (walk.j + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
+    return walk;
+  },
+  stepWalk(walk) {
+    if (walk.nextI < walk.nextJ) {
+      walk.i += walk.stepI; walk.nextI += walk.deltaI;
+      return walk.nextI - walk.deltaI;
+    }
+    walk.j += walk.stepJ; walk.nextJ += walk.deltaJ;
+    return walk.nextJ - walk.deltaJ;
+  },
+  walkCell(grid, walk) {
+    if (walk.i < 0 || walk.j < 0 || walk.i >= grid.cellsX || walk.j >= grid.cellsZ) return -1;
+    return walk.j * grid.cellsX + walk.i;
+  },
+};
+function makeGridWalk() { return { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nextJ: 0, deltaI: 0, deltaJ: 0 }; }
 
 const BTN = {
   FIRE: 1 << 0, ALT: 1 << 1, JUMP: 1 << 2, CROUCH: 1 << 3, SPRINT: 1 << 4, RELOAD: 1 << 5, USE: 1 << 6,
@@ -714,9 +830,9 @@ CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 Data.define('projectiles', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, speed: REQUIRED, gravity: 0, life: REQUIRED, radius: REQUIRED, bounce: 0, bounces: 0,
   fuse: 0, stick: false, stickActor: false, homing: 0, drag: 0, arm: 0, onHit: 'damage', poolSize: 16, roll: false, ownerSafe: false,
-  comboTarget: false, parryable: false, pierce: false, returning: false, silent: false, color: 0xffcc66, scale: 1, index: 0,
+  comboTarget: false, parryable: false, pierce: false, returning: false, silent: false, incoming: false, color: 0xffcc66, scale: 1, index: 0,
 }, [
-  { id: 'rocket', code: 'P01', name: 'Rocket', speed: 30, life: 8, radius: 0.15, onHit: 'explode', poolSize: 32, color: 0xff8a3d },
+  { id: 'rocket', code: 'P01', name: 'Rocket', speed: 30, life: 8, radius: 0.15, onHit: 'explode', poolSize: 32, incoming: true, color: 0xff8a3d },
   { id: 'grenade', code: 'P02', name: 'Grenade', speed: 22, gravity: 20, life: 2.5, fuse: 2.5, radius: 0.1, bounce: 0.5, bounces: -1, onHit: 'explode', poolSize: 24, color: 0x6a8f3a },
   { id: 'mine', code: 'P03', name: 'Sticky mine', speed: 20, gravity: 20, life: 30, radius: 0.1, stick: true, stickActor: true, onHit: 'explode', poolSize: 16, color: 0xd04040 },
   { id: 'plasma', code: 'P04', name: 'Plasma bolt', speed: 60, life: 3, radius: 0.1, onHit: 'explode', poolSize: 64, parryable: true, color: 0x55e0ff },
@@ -728,9 +844,9 @@ Data.define('projectiles', {
   { id: 'goo', code: 'P10', name: 'Goo blob', speed: 18, gravity: 15, life: 8, radius: 0.2, stick: true, onHit: 'puddle', poolSize: 48, color: 0x7fe04a },
   { id: 'disc', code: 'P11', name: 'Disc', speed: 35, life: 3, radius: 0.15, bounce: 1, bounces: 2, onHit: 'damage', poolSize: 32, color: 0xc8f0ff },
   { id: 'fusion', code: 'P12', name: 'Fusion orb', speed: 6, gravity: 20, life: 2, fuse: 2, radius: 0.5, roll: true, ownerSafe: true, onHit: 'explode', poolSize: 4, color: 0xffee88, scale: 0.8 },
-  { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, color: 0xf0f0f0 },
+  { id: 'warhead', code: 'P13', name: 'Warhead', speed: 14, life: 15, radius: 0.5, onHit: 'explode', poolSize: 2, incoming: true, color: 0xf0f0f0 },
   { id: 'contact', code: 'P14', name: 'Contact grenade', speed: 30, gravity: 15, life: 5, radius: 0.1, arm: 6, onHit: 'explode', poolSize: 8, color: 0x8faa44 },
-  { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, color: 0xffa060 },
+  { id: 'missile', code: 'P15', name: 'Missile', speed: 28, life: 6, radius: 0.12, homing: 120, onHit: 'explode', poolSize: 16, incoming: true, color: 0xffa060 },
   { id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 180, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
   { id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
@@ -972,6 +1088,7 @@ Data.define('health', {
   { id: 'suit', code: 'HPP08', name: 'Weave Suit', regenDelay: 6, regenRate: 20, energy: { max: 100, rate: 25, delay: 2 } },
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);
+const LOW_HEALTH_FRACTION = 0.35;
 
 Data.define('precision', {
   id: REQUIRED, name: REQUIRED, head: 0, pistolHead: 0, precisionHead: 0, stomach: 1, legs: 0, arenaHead: false,
@@ -1057,7 +1174,7 @@ const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'pulsecarbine', 'wasp'
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
   rounds: null, respawn: 'normal', rules: {}, objective: 'none', params: {}, scoring: {}, tiebreak: 'suddenDeath', ruleset: 'classic',
-  family: 'versus',
+  family: 'versus', useButton: false,
 }, [
   { id: 'ffa', code: 'M01', name: 'Frenzy', teams: 0, sizeDefault: 8, scoreLimit: 25, timeLimit: 600, rules: { respawn: { delay: 2, forced: 10 } } },
   { id: 'tdm', code: 'M02', name: 'Team Clash', teams: 2, sizeDefault: 8, scoreLimit: 50, timeLimit: 600, rules: { friendlyFire: 0 } },
@@ -1066,19 +1183,19 @@ Data.define('modes', {
   { id: 'oneflag', code: 'M05', name: 'Lone Flag', teams: 2, sizeDefault: 8, scoreLimit: 5, timeLimit: 900, scoreBy: 'objective', objective: 'flag', params: { returnTime: 20, homeRequired: false, neutral: true } },
   { id: 'dom', code: 'M06', name: 'Holdfast', teams: 2, sizeDefault: 8, scoreLimit: 200, timeLimit: 600, scoreBy: 'objective', objective: 'point', params: Object.assign({ tickInterval: 2, tickPoints: 1 }, CAPTURE_PARAMS), ruleset: 'modern' },
   { id: 'conquest', code: 'M07', name: 'Frontline', teams: 2, sizeDefault: 16, scoreLimit: 0, timeLimit: 1200, scoreBy: 'tickets', objective: 'point', params: Object.assign({ tickets: 150, deathCost: 1, bleedHeld: 2, bleedInterval: 3, spawnAtOwned: true }, CAPTURE_PARAMS), ruleset: 'modern' },
-  { id: 'rush', code: 'M08', name: 'Breach Assault', teams: 2, sizeDefault: 16, timeLimit: 0, scoreBy: 'tickets', objective: 'bombsite', params: Object.assign({}, BOMB_PARAMS, { tickets: 75, stages: 3, perStage: 2, fuse: 30, defuseTime: 5, defuseCheckpoint: 0 }), ruleset: 'modern' },
+  { id: 'rush', code: 'M08', name: 'Breach Assault', useButton: true, teams: 2, sizeDefault: 16, timeLimit: 0, scoreBy: 'tickets', objective: 'bombsite', params: Object.assign({}, BOMB_PARAMS, { tickets: 75, stages: 3, perStage: 2, fuse: 30, defuseTime: 5, defuseCheckpoint: 0 }), ruleset: 'modern' },
   { id: 'hardpoint', code: 'M09', name: 'Hotpoint', teams: 2, sizeDefault: 8, scoreLimit: 150, timeLimit: 600, scoreBy: 'objective', objective: 'hill', params: { moveInterval: 60, holdRate: 1 }, ruleset: 'modern' },
   { id: 'oddball', code: 'M10', name: 'Relic Run', teams: 0, sizeDefault: 8, scoreLimit: 100, timeLimit: 600, scoreBy: 'objective', objective: 'relic', params: { holdRate: 1, carrierMeleeOnly: true, returnTime: 30 }, scoring: NO_KILL_SCORING },
   { id: 'payload', code: 'M11', name: 'Convoy', teams: 2, sizeDefault: 10, timeLimit: 240, scoreBy: 'objective', objective: 'payloadPath', params: { speed: 1.2, maxSpeed: 1.8, pushStack: 0.25, rollbackAfter: 10, rollbackSpeed: 0.5, checkpoints: 3, checkpointTime: 120 }, ruleset: 'heroes' },
   { id: 'control', code: 'M12', name: 'Uplink', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
-  { id: 'bomb', code: 'M13', name: 'Detonate', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
+  { id: 'bomb', code: 'M13', name: 'Detonate', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'elim', code: 'M14', name: 'Last Squad', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
   { id: 'lms', code: 'M15', name: 'Last Standing', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'boots' } },
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 18, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 300, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
-  { id: 'royale', code: 'M20', name: 'Last Ring', teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
+  { id: 'royale', code: 'M20', name: 'Last Ring', useButton: true, teams: 0, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
     ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], pickups: false, shieldByRarity: [50, 75, 100, 125, 125], lootHeal: 50 }, ruleset: 'royale' },
   { id: 'horde', code: 'M21', name: 'Siege Waves', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, waves: 10, miniBossWave: 5, bossWave: 10, retries: 2, souls: true }, family: 'pve', ruleset: 'modern' },
   { id: 'endless', code: 'M22', name: 'Endless Hold', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { scalePerWave: 0.08, scaleCap: 4, extractEvery: 5, souls: true }, family: 'pve', ruleset: 'modern' },
@@ -1086,11 +1203,11 @@ Data.define('modes', {
   { id: 'bearer', code: 'M24', name: 'Flame Bearer', teams: 0, sizeDefault: 8, scoreLimit: 120, timeLimit: 600, scoreBy: 'objective', params: { holdRate: 1, damageMult: 3, returnTime: 30 } },
   { id: 'roulette', code: 'M25', name: 'Roulette Arms', teams: 0, sizeDefault: 8, scoreLimit: 25, timeLimit: 600, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
   { id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: { ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
-  { id: 'ghostops', code: 'M27', name: 'Ghost Ops', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
+  { id: 'ghostops', code: 'M27', name: 'Ghost Ops', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'contract', code: 'M28', name: 'Silent Contract', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
   { id: 'attrition', code: 'M29', name: 'Attrition', teams: 2, sizeDefault: 8, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
   { id: 'range', code: 'M30', name: 'Firing Range', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo' },
-  { id: 'puzzle', code: 'M31', name: 'Test Chambers', teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo', ruleset: 'modern' },
+  { id: 'puzzle', code: 'M31', name: 'Test Chambers', useButton: true, teams: 0, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo', ruleset: 'modern' },
 ]);
 
 // ==== 03g-data-bots.js ====
@@ -1201,12 +1318,14 @@ const BOT_CHAT_CHANCE = { quiet: 0.5, normal: 0.8, loud: 1 };   // chance that a
 
 const BOT_ROLE_SPLITS = {
   flag: { defend: 0.3, escort: 0.2 },
+  flagTaken: { defend: 0.6, escort: 0.3 },
   point: { defend: 0.4 },
   hill: { defend: 0.25 },
   bombsite: { escort: 0.3 },
   none: { defend: 0.2 },
 };
 const BOT_CAMP_HINTS = ['sniper', 'cover', 'guard'];   // map navHints kinds a camper may hold (BOT-041)
+const BOT_FLANK_HINT = 'flank';                         // map navHints kind a flanking tier (botTiers `flanks`) chases round by
 
 const BOT_FLAG_PUSH = { rallyShare: 0.2, radius: 9, minimum: 2, wait: 5, seconds: 22 };
 
@@ -1228,7 +1347,7 @@ const BOT_GADGET_USE = {
   explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
   fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
   singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
-  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tier: 3 },   // BOT-034: flash before a peek from tier 3
+  flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },   // BOT-034: flash before a peek (tier 3+)
   freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
   impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
   dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },
@@ -2221,6 +2340,10 @@ const BACKUP_KEY = 'ctk.save.bak';
 const SAVE_VERSION = 1;
 const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
+const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
+const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
+
+function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
 
 const Save = {
   data: null,             // the live save object
@@ -2249,7 +2372,10 @@ const Save = {
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     const fresh = this.emptySave();
-    for (const field in fresh) if (loaded[field] === undefined) loaded[field] = fresh[field];
+    for (const field in fresh) {
+      const want = saveFieldKind(fresh[field]), have = saveFieldKind(loaded[field]);
+      if (have !== want && !(want === 'null' && have === 'object')) loaded[field] = fresh[field];
+    }
     loaded.version = SAVE_VERSION;
     return loaded;
   },
@@ -2260,8 +2386,14 @@ const Save = {
   saveNow() {
     clearTimeout(this.timer);
     const text = JSON.stringify(this.data);
-    if (text.length > SAVE_MAX_BYTES) { this.notice = 'Save is over 1 MB and was not written.'; return false; }
+    if (text.length > SAVE_MAX_BYTES) return this.fail(SAVE_TOO_BIG);
     return this.write(SAVE_KEY, text);
+  },
+  fail(text) {
+    if (this.notice === text) return false;
+    this.notice = text;
+    emitToast(text);
+    return false;
   },
   exportText() { return JSON.stringify(this.data); },
   importText(text) {
@@ -2279,7 +2411,7 @@ const Save = {
   markBroken() {
     if (!this.storageWorks) return;
     this.storageWorks = false;
-    this.notice = 'Storage is blocked: settings and progress will not be kept.';
+    this.fail(SAVE_BLOCKED);
   },
 };
 
@@ -2348,12 +2480,18 @@ const NO_BINDING = '';
 const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
+const RUMBLE = { damageFull: 100, damageMs: 160, blastReach: 2, blastMs: 240, fireStrength: 0.35, fireMs: 70,
+  heavyClasses: ['heavy', 'explosive', 'power', 'shotgun', 'sniper'] };
 
 function makeElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
+}
+function isTextField(element) {
+  if (!element) return false;
+  return element.tagName === 'TEXTAREA' || (element.tagName === 'INPUT' && element.type === 'text');
 }
 function injectStyle(id, css) {
   let style = document.getElementById(id);
@@ -2369,7 +2507,7 @@ const ACTION_ROWS = [
   { id: 'jump', label: 'Jump', group: 'Movement', button: BTN.JUMP, buffered: true, kbm: ['Key:Space'], pad: 'Pad:0' },
   { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:ControlLeft'], pad: 'Pad:1' },
   { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
-  { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'] },
+  { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
   { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true },
   { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
@@ -2377,7 +2515,7 @@ const ACTION_ROWS = [
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
   { id: 'grenade', label: 'Grenade', group: 'Combat', button: BTN.GRENADE, kbm: ['Key:KeyG'], pad: 'Pad:4' },
-  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'] },
+  { id: 'gadget', label: 'Gadget', group: 'Combat', button: BTN.GADGET, kbm: ['Key:KeyC'], pad: 'Pad:8+2' },
   { id: 'ability1', label: 'Ability 1', group: 'Abilities', button: BTN.ABILITY1, kbm: ['Key:KeyQ'], pad: 'Pad:5' },
   { id: 'ability2', label: 'Ability 2', group: 'Abilities', button: BTN.ABILITY2, kbm: ['Key:KeyF'], pad: 'Pad:14' },
   { id: 'ultimate', label: 'Ultimate', group: 'Abilities', button: BTN.ULTIMATE, kbm: ['Key:KeyX'], pad: 'Pad:12' },
@@ -2395,7 +2533,7 @@ const ACTION_ROWS = [
   { id: 'slot9', label: 'Weapon slot 9', group: 'Weapons', slot: 9, kbm: ['Key:Digit9'] },
   { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, toggle: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
-  { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'] },
+  { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'], pad: 'Pad:8+3' },
   { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F10'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
@@ -2432,10 +2570,11 @@ const Input = {
   aimAssistTarget: null,   // fn(id, out) -> bool; out {x,y,z} gets the nearest valid hitbox point (INP-008). Filled by later sections.
   aimAssistFilters: [],    // fn(id, point) -> false refuses the found point (S12: never through smoke); later sections push
   aimAssistOverride: null, // fn() -> 0..100 aim assist floor for this match (the device slider is raised to it), -1 = no floor (S11: difficulty)
+  resumeBlocked: null,     // fn() -> true while the pause menu's Resume must wait (S07: the graphics context is lost, PLT-005)
   actions: ACTION_ROWS,    // the single action table
   device: 'kbm',           // last used device: 'kbm' | 'touch' | 'gamepad' (MOV-018 assists, INP-008 aim assist)
   autoFire: true,          // touch option (INP-006); later sections read it
-  autoFireTarget: false,   // set by later sections each frame: crosshair is on a visible enemy
+  autoFireTarget: false,   // set each frame by updateAssist: the crosshair is on the aim assist target (a visible enemy)
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
   locked: false,           // pointer lock held
@@ -2548,7 +2687,7 @@ const Input = {
     const kind = binding.slice(0, binding.indexOf(':')), name = binding.slice(binding.indexOf(':') + 1);
     if (kind === 'Mouse') return MOUSE_LABELS[+name] || 'Mouse ' + (+name + 1);
     if (kind === 'Wheel') return 'Wheel ' + (name === 'up' ? 'Up' : 'Down');
-    if (kind === 'Pad') return PAD_GLYPHS[this.padStyle][+name] || 'Button ' + name;
+    if (kind === 'Pad') return name.split('+').map((button) => PAD_GLYPHS[this.padStyle][+button] || 'Button ' + button).join(' + ');   // 'Pad:8+2' = View + X
     return KEY_LABELS[name] || name.replace(/^Key|^Digit/, '');
   },
   captureNext(device, callback) { this.capture = { device, callback }; },
@@ -2649,7 +2788,7 @@ const Input = {
   },
 
   onKeyDown(event) {
-    if (event.target && event.target.tagName === 'INPUT' && event.target.type === 'text') return;
+    if (isTextField(event.target)) return;
     this.setDevice('kbm');
     const binding = 'Key:' + event.code;
     if (event.repeat) { if (this.bindingMap.has(binding) && !this.uiOpen) event.preventDefault(); return; }
@@ -2728,6 +2867,7 @@ const Input = {
     Game.resume();
   },
   requestResume() {
+    if (this.resumeBlocked && this.resumeBlocked()) return;
     if (!this.needsLock()) { this.finishResume(); return; }
     this.resumePending = true;
     this.requestLock();
@@ -2751,6 +2891,19 @@ const Input = {
     if (this.device === 'gamepad') PadInput.rumble(level, duration);
     else if (this.device === 'touch' && navigator.vibrate) navigator.vibrate(Math.max(1, Math.round(duration * level)));
   },
+  rumbleDamage(event) {
+    if (event.target === Game.playerId && event.amount > 0) this.rumble(event.amount / RUMBLE.damageFull, RUMBLE.damageMs);
+  },
+  rumbleBlast(event) {
+    const id = Game.playerId;
+    if (id < 0 || !Actors.alive[id]) return;
+    const reach = event.radius * RUMBLE.blastReach;
+    const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.eyeY(id), event.z - Actors.z[id]);
+    if (distance < reach) this.rumble(1 - distance / reach, RUMBLE.blastMs);
+  },
+  rumbleFire(event) {
+    if (event.id === Game.playerId && event.mode !== 'melee' && RUMBLE.heavyClasses.includes(event.weaponClass)) this.rumble(RUMBLE.fireStrength, RUMBLE.fireMs);
+  },
 
   frame(seconds) {
     if (this.bindingsSource !== Save.data.bindings) this.loadBindings();
@@ -2767,6 +2920,7 @@ const Input = {
   discardFrame() {
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
     this.pendingButtons = 0; this.pendingSlot = 0; this.queued.fill(0); this.queuedTotal = 0;
+    this.autoFireTarget = false;
   },
   syncAim(id) {
     const aim = this.aim;
@@ -2796,16 +2950,18 @@ const Input = {
     return true;
   },
   updateAssist(id, seconds) {
-    const assist = this.assist, strength = this.assistStrength();
+    const assist = this.assist, strength = this.assistStrength(), autoFire = this.autoFire && this.device === 'touch';
     assist.active = false; assist.slowdown = 1; assist.error = 0;
-    if (!strength || !this.findAssistTarget(id, this.assistPoint)) return 1;
+    this.autoFireTarget = false;
+    if ((!strength && !autoFire) || !this.findAssistTarget(id, this.assistPoint)) return 1;
     const point = this.assistPoint, aim = this.aim;
     const dx = point.x - Actors.x[id], dy = point.y - Actors.eyeY(id), dz = point.z - Actors.z[id];
     const errorYaw = wrapAngle(Math.atan2(dx, dz) - aim.yaw);
     const errorPitch = Math.atan2(dy, Math.hypot(dx, dz)) - aim.pitch;
     const error = Math.hypot(errorYaw * Math.cos(aim.pitch), errorPitch);
     assist.error = error;
-    if (error > AIM_ASSIST.coneRadians) return 1;
+    if (autoFire) this.autoFireTarget = error < Math.atan2(TORSO_RADIUS, Math.hypot(dx, dy, dz));
+    if (!strength || error > AIM_ASSIST.coneRadians) return 1;
     assist.active = true;
     assist.slowdown = 1 - AIM_ASSIST.slowdown * strength;
     const lookActive = this.look.assistedX !== 0 || this.look.assistedY !== 0;
@@ -2894,6 +3050,9 @@ Input.addSettings(TOGGLE_SETTINGS);
 
 Bus.on('boot', () => Input.init());
 Bus.on('setting', () => { Input.settingsDirty = true; });
+Bus.on('damage', (event) => Input.rumbleDamage(event));
+Bus.on('explosion', (event) => Input.rumbleBlast(event));
+Bus.on('weapon.fire', (event) => Input.rumbleFire(event));
 Bus.on('game.pause', () => { Input.clearAll(); Input.exitLock(); });
 Bus.on('match.start', () => {
   Input.clearAll();
@@ -2946,6 +3105,10 @@ const TOUCH_CONTROLS = [
   { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.07, size: 40 },
   { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.07, size: 40 },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
+  { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
+  { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.82, y: 0.22, size: 46 },
+  { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.14, size: 46 },
+  { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.07, size: 40, need: 'comm' },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -2968,6 +3131,11 @@ function gyroToLook(rotationRate, angle, out) {
   return out;
 }
 
+function useButtonNeeded() {
+  const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
+  return !!mode && mode.useButton;
+}
+
 const TouchInput = {
   layer: null, zone: null, live: null, knob: null,
   elements: {},                    // control id -> DOM node
@@ -2980,6 +3148,8 @@ const TouchInput = {
   currentPreset: TOUCH_PRESETS[0],
   gyro: { right: 0, down: 0, attached: false },
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
+  needs: { use: () => useButtonNeeded(), comm: null },
+  stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
 
   init() {
     this.buildLayer();
@@ -3106,7 +3276,7 @@ const TouchInput = {
   },
   updateSprint(push) {
     const stick = this.stick, index = Input.actionIndex.sprint;
-    if (!stick.sprinting && push > TOUCH_SPRINT_ON) { stick.sprinting = true; Input.pressAction(index); }
+    if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.pressAction(index); }
     else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.releaseAction(index); }
   },
   endStick() {
@@ -3221,9 +3391,10 @@ const TouchInput = {
     this.applyAll();
   },
   applyAll() { for (const control of TOUCH_CONTROLS) this.applyControl(control); },
+  needMet(need) { const check = this.needs[need]; return !!check && !!check(); },
   applyControl(control) {
     const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch);
-    const optionOff = control.setting && !Input.config[control.setting];
+    const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));
     const size = control.size * layout.scale;
     element.style.left = layout.x * 100 + '%';
     element.style.top = layout.y * 100 + '%';
@@ -3270,6 +3441,7 @@ const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: v
 Input.sources.push(TouchInput);
 Input.addSettings(TOUCH_SETTINGS);
 Bus.on('setting', (key) => { if (key === 'controls.touch.gyro' && TouchInput.layer) TouchInput.requestGyro(); });
+Bus.on('match.start', () => { if (TouchInput.layer) TouchInput.applyAll(); });   // need-gated buttons follow the new mode
 
 // ==== 05c-input-gamepad.js ====
 
@@ -3283,6 +3455,8 @@ const PAD_MENU_STICK_THRESHOLD = 0.6;
 const PAD_MENU_REPEAT_FIRST = 0.35;         // seconds before a held direction repeats in menus
 const PAD_MENU_REPEAT = 0.12;
 const PAD_BINDINGS = Array.from({ length: PAD_BUTTON_COUNT }, (unused, index) => 'Pad:' + index);   // built once: no string concat per press
+const PAD_MODIFIER = 8;
+const PAD_CHORD_BINDINGS = PAD_BINDINGS.map((unused, index) => 'Pad:' + PAD_MODIFIER + '+' + index);
 const PAD_DIRECTION_BUTTONS = [12, 13, 14, 15];                 // d-pad up, down, left, right
 const PAD_DIRECTION_NAMES = ['up', 'down', 'left', 'right'];
 const PAD_MENU_ACTIONS = { 0: 'accept', 1: 'back', 9: 'back', 4: 'prev', 5: 'next' };
@@ -3305,13 +3479,13 @@ const PadInput = {
   connected: 0,
   index: -1,                          // pad the player last used
   previous: new Uint8Array(PAD_BUTTON_COUNT),
+  chorded: new Uint8Array(PAD_BUTTON_COUNT),   // 1 = this held button went down as a chord, so its release lets go of the chord
   stick: { x: 0, y: 0, magnitude: 0 },    // scratch output of shapeStick
   menuDirection: '',
   menuTimer: 0,
   turboSeconds: 0,
   padId: '',
   menuEvent: { command: '' },
-  toastEvent: { text: '' },
 
   init() {
     window.addEventListener('gamepadconnected', (event) => this.onConnected(event.gamepad));
@@ -3323,7 +3497,7 @@ const PadInput = {
     this.connected++;
     this.index = pad.index;
     this.detectStyle(pad);
-    this.say('Controller connected');
+    emitToast('Controller connected');
   },
   onDisconnected() {
     this.connected = Math.max(0, this.connected - 1);
@@ -3331,11 +3505,11 @@ const PadInput = {
     this.reset();
     Input.clearAll();
     if (Input.device !== 'gamepad' || Game.state !== 'playing') return;
-    this.say('Controller disconnected');
+    emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { this.toastEvent.text = text; Bus.emit('toast', this.toastEvent); },
-  reset() { this.menuDirection = ''; this.turboSeconds = 0; },
+  say(text) { emitToast(text); },
+  reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
     this.padId = pad.id;
@@ -3368,12 +3542,25 @@ const PadInput = {
     this.updateMenuRepeat(pad, seconds);
   },
   onButton(index, down) {
-    const binding = PAD_BINDINGS[index];
-    if (!down) { Input.bindingUp(binding); return; }
+    if (!down) { this.releaseButton(index); return; }
     Input.setDevice('gamepad');
+    const binding = this.layerBinding(index);
     if (Input.deliverCapture(binding)) return;
     if (Input.uiOpen && PAD_MENU_ACTIONS[index]) { this.emitMenu(PAD_MENU_ACTIONS[index]); return; }   // the menu may close: the press must not also act in the game
+    if (binding === PAD_CHORD_BINDINGS[index]) {
+      this.chorded[index] = 1;
+      Input.bindingUp(PAD_BINDINGS[PAD_MODIFIER]);   // the chord takes over: the modifier's own action (scoreboard) lets go
+    }
     Input.bindingDown(binding);
+  },
+  layerBinding(index) {
+    if (index === PAD_MODIFIER || !this.previous[PAD_MODIFIER]) return PAD_BINDINGS[index];
+    return Input.bindingMap.has(PAD_CHORD_BINDINGS[index]) ? PAD_CHORD_BINDINGS[index] : PAD_BINDINGS[index];
+  },
+  releaseButton(index) {
+    if (!this.chorded[index]) { Input.bindingUp(PAD_BINDINGS[index]); return; }
+    this.chorded[index] = 0;
+    Input.bindingUp(PAD_CHORD_BINDINGS[index]);
   },
   emitMenu(command) { this.menuEvent.command = command; Bus.emit('input.menu', this.menuEvent); },
   shapeStick(x, y, curve) {
@@ -3463,8 +3650,7 @@ const AUDIO_PAUSE_TAU = 0.02;                 // seconds, fade of the game buses
 const AUDIO_SUSPEND_DELAY_MS = 150;           // the context is suspended after the pause fade finished
 const AUDIO_BLOCKED_CHECK_MS = 1500;          // still not running this long after a gesture = blocked
 const AUDIO_HRTF_QUALITY = ['high', 'ultra']; // AUD-004: head-related panning only where the CPU can afford it
-const AUDIO_LOW_HEALTH = 0.3;                 // heartbeat below this health fraction
-const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold
+const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold (LOW_HEALTH_FRACTION, S03)
 const AUDIO_HEARTBEAT_FAST = 0.5;             // seconds between beats at 0 health
 const AUDIO_GAMEPAD_POLL_SECONDS = 0.1;
 const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
@@ -3596,9 +3782,7 @@ function audioPriorityFor(recipe, distance, own) {
   return demotable && distance > recipe.nearRange ? AUDIO_PRIORITY.far : recipe.priorityValue;
 }
 
-const audioToastPayload = { text: '' };
 const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
-function audioToast(text) { audioToastPayload.text = text; Bus.emit('toast', audioToastPayload); }
 
 const isAppleTouchDevice = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
 
@@ -3826,14 +4010,14 @@ const Sound = {
   },
   createContext() {
     const Constructor = window.AudioContext || window.webkitAudioContext;
-    if (!this.contextFactory && !Constructor) { audioToast('Sound is not supported by this browser.'); return false; }
+    if (!this.contextFactory && !Constructor) { emitToast('Sound is not supported by this browser.'); return false; }
     this.sessionHint = this.configureSession(navigator);
     try {
       this.attach(this.contextFactory ? this.contextFactory() : new Constructor({ latencyHint: 'interactive' }));
       this.playSilence();
     } catch (error) {
       ErrorLog.add('audio.createContext', error);
-      audioToast('Sound could not start on this device.');
+      emitToast('Sound could not start on this device.');
       this.context = null; this.buses = null;
       return false;
     }
@@ -3848,7 +4032,7 @@ const Sound = {
   configureSession(nav) {
     if (nav.audioSession) { nav.audioSession.type = 'playback'; return 'playback'; }
     if (!isAppleTouchDevice(nav)) return 'none';
-    audioToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
+    emitToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
     return 'hint';
   },
   resumeContext() {
@@ -3860,7 +4044,7 @@ const Sound = {
     this.blockedTimer = 0;
     if (!this.context || this.canPlay() || this.pauseSuspended || this.blockedShown) return;   // no context (detached): nothing is blocked
     this.blockedShown = true;
-    audioToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
+    emitToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
   },
   attach(context) {
     this.context = context;
@@ -3957,9 +4141,9 @@ const Sound = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || Actors.maxHealth[id] <= 0) { this.heartbeatClock = 0; return; }
     const fraction = Actors.health[id] / Actors.maxHealth[id];
-    if (fraction >= AUDIO_LOW_HEALTH) { this.heartbeatClock = 0; return; }
+    if (fraction >= LOW_HEALTH_FRACTION) { this.heartbeatClock = 0; return; }
     this.heartbeatClock += seconds;
-    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / AUDIO_LOW_HEALTH);
+    const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / LOW_HEALTH_FRACTION);
     if (this.heartbeatClock < period) return;
     this.heartbeatClock -= period;
     this.enqueue(this.recipeIndex('heartbeat'), false, 0, 0, 0, id, 1, 1);
@@ -4476,6 +4660,7 @@ function playMusicNote(voice, hz, time, peak, length) {
 const SoundMusic = {
   mood: 'auto',          // 'auto' follows the intensity, the others force a layer mix (boss fights, menus)
   intensity: 0,          // 0..1, raised by damage near the listener, decays over seconds
+  bosses: 0,             // boss fights going on ('pve.boss' start minus defeated or gone; 0 again when the match ends or stops)
   nodes: null, layerClock: 0, step: 0, bar: 0, nextStepTime: 0,
   weights: { calm: 1, combat: 0, boss: 0 },
 
@@ -4484,7 +4669,15 @@ const SoundMusic = {
     this.mood = name;
     return true;
   },
-  effectiveMood() { return Game.state === 'playing' ? this.mood : 'calm'; },
+  effectiveMood() {
+    if (Game.state !== 'playing') return 'calm';
+    return this.mood === 'auto' && this.bosses > 0 ? 'boss' : this.mood;
+  },
+  onBoss(payload) {
+    if (payload.kind === 'start') this.bosses++;
+    if (payload.kind === 'defeated' || payload.kind === 'gone') this.bosses = Math.max(0, this.bosses - 1);
+  },
+  resetMatch() { this.intensity = 0; this.bosses = 0; },
 
   onDamage(payload) {
     if (!Sound.live()) return;
@@ -4603,8 +4796,10 @@ const SoundMusic = {
 Sound.setMusicMood = (name) => SoundMusic.setMood(name);
 Sound.frameHooks.push((seconds) => SoundMusic.update(seconds));
 Bus.on('damage', (payload) => SoundMusic.onDamage(payload));
-Bus.on('match.start', () => { SoundMusic.intensity = 0; });
-Bus.on('match.stop', () => { SoundMusic.intensity = 0; });
+Bus.on('pve.boss', (payload) => SoundMusic.onBoss(payload));
+Bus.on('match.start', () => SoundMusic.resetMatch());
+Bus.on('match.end', () => { SoundMusic.bosses = 0; });
+Bus.on('match.stop', () => SoundMusic.resetMatch());
 
 // ==== 07a-render.js ====
 
@@ -5091,15 +5286,13 @@ function renderFrameHook(seconds, alpha) {
   publishStats();
 }
 
-const renderToast = { text: '' };
-function toastText(text) { renderToast.text = text; Bus.emit('toast', renderToast); }
 
 function handleContextLost(event) {
   event.preventDefault();
   Render.lost = true;
   Render.pausedForLoss = Game.state === 'playing' && !Game.paused;
   Game.pause('graphics');
-  toastText('Graphics restoring...');
+  emitToast('Graphics restoring...');
 }
 
 function handleContextRestored() {
@@ -5114,8 +5307,9 @@ function handleContextRestored() {
   Render.lost = false;
   if (Render.pausedForLoss) Game.resume();
   Render.pausedForLoss = false;
-  toastText('Graphics restored');
+  emitToast('Graphics restored');
 }
+Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 
 Bus.on('boot', () => {
   if (Game.headless || !Render.init()) return;
@@ -5271,21 +5465,14 @@ function cutFace(polygon, nx, ny, nz, cell, emit) {
   }
 }
 
-const GRID_KEY_OFFSET = 32768;           // numeric cell keys (no strings in the bake loops)
-const gridKey = (gx, gz) => (gx + GRID_KEY_OFFSET) * 65536 + gz + GRID_KEY_OFFSET;
-
 function makeBrushGrid(brushes) {
-  const grid = new Map();
-  brushes.forEach((brush, index) => {
-    for (let gx = Math.floor(brush.minX / BRUSH_GRID_METERS); gx <= Math.floor(brush.maxX / BRUSH_GRID_METERS); gx++) {
-      for (let gz = Math.floor(brush.minZ / BRUSH_GRID_METERS); gz <= Math.floor(brush.maxZ / BRUSH_GRID_METERS); gz++) {
-        const key = gridKey(gx, gz);
-        if (!grid.has(key)) grid.set(key, []);
-        grid.get(key).push(index);
-      }
-    }
-  });
-  return grid;
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const brush of brushes) {
+    minX = Math.min(minX, brush.minX); minZ = Math.min(minZ, brush.minZ);
+    maxX = Math.max(maxX, brush.maxX); maxZ = Math.max(maxZ, brush.maxZ);
+  }
+  if (!brushes.length) { minX = minZ = maxX = maxZ = 0; }
+  return BrushGrid.build({}, brushes, BRUSH_GRID_METERS, minX, minZ, maxX, maxZ);
 }
 
 function insideBrush(brush, x, y, z) {
@@ -5295,33 +5482,28 @@ function insideBrush(brush, x, y, z) {
 }
 
 function brushAt(bake, x, y, z, skip) {
-  const list = bake.grid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS)));
-  if (!list) return -1;
-  for (const index of list) if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  const grid = bake.grid, cell = BrushGrid.cellAt(grid, x, z);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  }
   return -1;
 }
 
 function overlappingBrushes(bake, polygon, brushIndex) {
   const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
   for (let i = 0; i < polygon.length; i += 3) growBounds(bounds, polygon[i], polygon[i + 1], polygon[i + 2]);
-  const found = [];
-  bake.stamp++;
-  for (let gx = Math.floor(bounds.minX / BRUSH_GRID_METERS); gx <= Math.floor(bounds.maxX / BRUSH_GRID_METERS); gx++) {
-    for (let gz = Math.floor(bounds.minZ / BRUSH_GRID_METERS); gz <= Math.floor(bounds.maxZ / BRUSH_GRID_METERS); gz++) collectOverlaps(bake, gx, gz, brushIndex, bounds, found);
+  const grid = bake.grid, count = BrushGrid.query(grid, bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ), found = [];
+  for (let k = 0; k < count; k++) {
+    const index = grid.found[k];
+    if (index !== brushIndex && boundsTouch(bake.brushes[index], bounds, COPLANAR_METERS)) found.push(index);
   }
   return found.sort((a, b) => a - b);
 }
 
-function collectOverlaps(bake, gx, gz, brushIndex, bounds, found) {
-  const margin = COPLANAR_METERS;
-  for (const index of bake.grid.get(gridKey(gx, gz)) || []) {
-    if (index === brushIndex || bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
-    const brush = bake.brushes[index];
-    const apart = brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
-      || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin;
-    if (!apart) found.push(index);
-  }
+function boundsTouch(brush, bounds, margin) {
+  return !(brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
+    || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin);
 }
 
 function parallelPlanesContain(polygon, nx, ny, nz, other, hidesCoplanar) {
@@ -5373,46 +5555,26 @@ function rayEntersBrush(brush, ox, oy, oz, dx, dy, dz, maxDistance) {
   return enter <= exit ? enter : -1;
 }
 
-const gridWalk = { cellX: 0, cellZ: 0, stepX: 0, stepZ: 0, nextX: 0, nextZ: 0, deltaX: 0, deltaZ: 0 };
-function startGridWalk(ox, oz, dx, dz) {
-  const walk = gridWalk, size = BRUSH_GRID_METERS;
-  walk.cellX = Math.floor(ox / size); walk.cellZ = Math.floor(oz / size);
-  walk.stepX = dx > 0 ? 1 : -1; walk.stepZ = dz > 0 ? 1 : -1;
-  walk.deltaX = Math.abs(dx) > 1e-9 ? size / Math.abs(dx) : Infinity;
-  walk.deltaZ = Math.abs(dz) > 1e-9 ? size / Math.abs(dz) : Infinity;
-  walk.nextX = Math.abs(dx) > 1e-9 ? ((walk.cellX + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
-  walk.nextZ = Math.abs(dz) > 1e-9 ? ((walk.cellZ + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
-  return walk;
-}
+const bakeGridWalk = makeGridWalk();
 
-function advanceGridWalk(walk) {
-  if (walk.nextX < walk.nextZ) {
-    walk.cellX += walk.stepX; walk.nextX += walk.deltaX;
-    return walk.nextX - walk.deltaX;
-  }
-  walk.cellZ += walk.stepZ; walk.nextZ += walk.deltaZ;
-  return walk.nextZ - walk.deltaZ;
-}
-
-function cellBlocksRay(bake, cellX, cellZ, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const list = bake.grid.get(gridKey(cellX, cellZ));
-  if (!list) return false;
-  for (let i = 0; i < list.length; i++) {
-    const index = list[i];
-    if (bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
+function cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const grid = bake.grid;
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (!BrushGrid.firstVisit(grid, index)) continue;
     if (rayEntersBrush(bake.brushes[index], ox, oy, oz, dx, dy, dz, maxDistance) >= 0) return true;
   }
   return false;
 }
 
 function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const walk = startGridWalk(ox, oz, dx, dz);
-  bake.stamp++;
+  const grid = bake.grid, walk = BrushGrid.startWalk(grid, bakeGridWalk, ox, oz, dx, dz);
+  BrushGrid.beginPass(grid);
   let travelled = 0;
   while (travelled <= maxDistance) {
-    if (cellBlocksRay(bake, walk.cellX, walk.cellZ, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
-    travelled = advanceGridWalk(walk);
+    const cell = BrushGrid.walkCell(grid, walk);
+    if (cell >= 0 && cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
+    travelled = BrushGrid.stepWalk(walk);
     const height = oy + dy * travelled;
     if ((dy > 0 && height > bake.topY) || (dy < 0 && height < bake.bottomY)) return false;
   }
@@ -5420,11 +5582,12 @@ function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
 }
 
 function groundBelow(x, y, z, maxDrop) {
-  const list = WorldMesh.brushGrid ? WorldMesh.brushGrid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS))) : null;
-  if (!list) return -Infinity;
+  const grid = WorldMesh.brushGrid;
+  if (!grid) return -Infinity;
+  const cell = BrushGrid.cellAt(grid, x, z);
   let nearest = Infinity;
-  for (let i = 0; i < list.length; i++) {
-    const distance = rayEntersBrush(WorldMesh.brushes[list[i]], x, y, z, 0, -1, 0, maxDrop);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const distance = rayEntersBrush(WorldMesh.brushes[grid.cellItems[k]], x, y, z, 0, -1, 0, maxDrop);
     if (distance >= 0 && distance < nearest) nearest = distance;
   }
   return nearest <= maxDrop ? y - nearest : -Infinity;
@@ -5501,7 +5664,7 @@ function makeBake(map, brushes) {
   applyTheme(map.theme);
   let topY = -Infinity, bottomY = Infinity;
   for (const brush of brushes) { topY = Math.max(topY, brush.maxY); bottomY = Math.min(bottomY, brush.minY); }
-  return { brushes, grid: makeBrushGrid(brushes), seen: new Uint32Array(brushes.length), stamp: 0, topY, bottomY,
+  return { brushes, grid: makeBrushGrid(brushes), topY, bottomY,
     lights: matchDarkness() ? [] : readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
 }
 
@@ -6900,7 +7063,7 @@ function lowerQualityStep() {
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
   Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
-  toastText('Quality lowered to ' + next.name + ' to keep the game smooth');
+  emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
 
@@ -6940,7 +7103,7 @@ function finishBenchmark() {
   Benchmark.done = true;
   Benchmark.result = pickBenchmarkQuality(benchmarkMedian());
   Settings.set('video.autoQuality', Benchmark.result);
-  toastText('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
+  emitToast('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
 }
 
 function updateBenchmark(seconds) {
@@ -8133,13 +8296,11 @@ const Props = {
     breakEvent.prop = index; breakEvent.material = brush.material;
     breakEvent.x = (brush.minX + brush.maxX) / 2; breakEvent.y = (brush.minY + brush.maxY) / 2; breakEvent.z = (brush.minZ + brush.maxZ) / 2;
     Bus.emit('world.break', breakEvent);
-    breakSound.x = breakEvent.x; breakSound.y = breakEvent.y; breakSound.z = breakEvent.z;
-    Bus.emit('sound', breakSound);
+    emitSound(breakEvent.x, breakEvent.y, breakEvent.z, BREAK_NOISE_RADIUS, 'break', -1);
   },
 };
 
 const breakEvent = { prop: 0, material: '', x: 0, y: 0, z: 0 };
-const breakSound = { x: 0, y: 0, z: 0, radius: BREAK_NOISE_RADIUS, kind: 'break', source: -1 };
 const bodyMover = makeMover();
 
 World.addPart({ load: (map) => Props.load(map), clear: () => Props.clear() });
@@ -8361,10 +8522,10 @@ const NAV_LINK_ROWS = [
 ];
 
 const navHit = makeHit(), navScratchHit = makeHit();
-const navBrushGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null,
+const navBrushGrid = { originX: 0, originZ: 0, cellSize: NAV_BRUSH_CELL, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null,
   stamp: null, stampValue: 0, found: null, foundCount: 0, topPlane: null, walkable: null };
 const navRaster = { originX: 0, originZ: 0, columnsX: 0, columnsZ: 0, columnStart: null, sampleY: null, sampleFlags: null, sampleColumn: null };
-const navNodeGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
+const navNodeGrid = { originX: 0, originZ: 0, cellSize: NAV_NODE_CELL, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
 const navSearchState = { x: 0, y: 0, z: 0, yLow: 0, yHigh: 0, radiusSquared: 0, needSight: false, best: -1, score: 0 };
 const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
 const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
@@ -8510,35 +8671,9 @@ function navInVolumes(volumes, x, y, z) {
   return false;
 }
 
-function navBucket(itemCount, cellCount, eachCell) {
-  const start = new Int32Array(cellCount + 1);
-  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { start[cell + 1]++; });
-  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
-  const fill = start.slice(0, cellCount), items = new Int32Array(start[cellCount]);
-  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { items[fill[cell]++] = index; });
-  return { start, items };
-}
-
-const navCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
-
-function navForCells(grid, cellSize, minX, minZ, maxX, maxZ, visit) {
-  const i0 = navCellIndex(minX, grid.originX, cellSize, grid.cellsX), i1 = navCellIndex(maxX, grid.originX, cellSize, grid.cellsX);
-  const j0 = navCellIndex(minZ, grid.originZ, cellSize, grid.cellsZ), j1 = navCellIndex(maxZ, grid.originZ, cellSize, grid.cellsZ);
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
-  }
-}
-
 function navBuildBrushGrid() {
   const grid = navBrushGrid, brushes = World.brushes;
-  grid.originX = World.boundsMin.x; grid.originZ = World.boundsMin.z;
-  grid.cellsX = Math.max(1, Math.ceil((World.boundsMax.x - grid.originX) / NAV_BRUSH_CELL));
-  grid.cellsZ = Math.max(1, Math.ceil((World.boundsMax.z - grid.originZ) / NAV_BRUSH_CELL));
-  const bucket = navBucket(brushes.length, grid.cellsX * grid.cellsZ,
-    (index, visit) => navForCells(grid, NAV_BRUSH_CELL, brushes[index].minX, brushes[index].minZ, brushes[index].maxX, brushes[index].maxZ, visit));
-  grid.cellStart = bucket.start; grid.cellItems = bucket.items;
-  grid.stamp = new Uint32Array(brushes.length); grid.stampValue = 0;
-  grid.found = new Int32Array(brushes.length);
+  BrushGrid.build(grid, brushes, NAV_BRUSH_CELL, World.boundsMin.x, World.boundsMin.z, World.boundsMax.x, World.boundsMax.z);
   grid.topPlane = Int32Array.from(brushes, navTopPlaneIndex);
   grid.walkable = Uint8Array.from(brushes, (brush, index) => (brush.planes[grid.topPlane[index] * 4 + 1] >= NAV_MIN_FLOOR_NORMAL ? 1 : 0));
 }
@@ -8549,23 +8684,7 @@ function navTopPlaneIndex(brush) {
   return best;
 }
 
-function navGatherBrushes(minX, minZ, maxX, maxZ) {
-  const grid = navBrushGrid;
-  grid.stampValue++;
-  grid.foundCount = 0;
-  navForCells(grid, NAV_BRUSH_CELL, minX, minZ, maxX, maxZ, navGatherCell);
-  return grid.foundCount;
-}
-
-function navGatherCell(cell) {
-  const grid = navBrushGrid;
-  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
-    const brush = grid.cellItems[k];
-    if (grid.stamp[brush] === grid.stampValue) continue;
-    grid.stamp[brush] = grid.stampValue;
-    grid.found[grid.foundCount++] = brush;
-  }
-}
+function navGatherBrushes(minX, minZ, maxX, maxZ) { return BrushGrid.query(navBrushGrid, minX, minZ, maxX, maxZ); }
 
 function navSegmentHit(ax, ay, az, bx, by, bz, hit) {
   navGatherBrushes(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz));
@@ -8904,21 +9023,18 @@ function navFinishNodes(builder) {
   grid.originX = navRaster.originX; grid.originZ = navRaster.originZ;
   grid.cellsX = Math.max(1, Math.ceil(navRaster.columnsX * NAV_FINE / NAV_NODE_CELL));
   grid.cellsZ = Math.max(1, Math.ceil(navRaster.columnsZ * NAV_FINE / NAV_NODE_CELL));
-  const bucket = navBucket(Nav.nodeCount, grid.cellsX * grid.cellsZ, (node, visit) => visit(navNodeCell(Nav.nodeX[node], Nav.nodeZ[node])));
+  const bucket = bucketByCell(Nav.nodeCount, grid.cellsX * grid.cellsZ, (node, visit) => visit(navNodeCell(Nav.nodeX[node], Nav.nodeZ[node])));
   grid.cellStart = bucket.start; grid.cellItems = bucket.items;
   navNeighbours.items = new Int32Array(Nav.nodeCount);
 }
 
-function navNodeCell(x, z) {
-  const grid = navNodeGrid;
-  return navCellIndex(z, grid.originZ, NAV_NODE_CELL, grid.cellsZ) * grid.cellsX + navCellIndex(x, grid.originX, NAV_NODE_CELL, grid.cellsX);
-}
+function navNodeCell(x, z) { return BrushGrid.cellAt(navNodeGrid, x, z); }
 
 function navSearchNodes(x, y, z, yLow, yHigh, radius, needSight) {
   const state = navSearchState;
   state.x = x; state.y = y; state.z = z; state.yLow = yLow; state.yHigh = yHigh; state.radiusSquared = radius * radius;
   state.needSight = needSight; state.best = -1; state.score = Infinity;
-  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navSearchCell);
+  BrushGrid.forCells(navNodeGrid, x - radius, z - radius, x + radius, z + radius, navSearchCell);
   return state.best;
 }
 
@@ -8947,7 +9063,7 @@ function navNearestAnywhere(x, y, z) {
 function navCollectNeighbours(node, radius) {
   const x = Nav.nodeX[node], z = Nav.nodeZ[node], found = navNeighbours;
   found.count = 0; found.node = node; found.radiusSquared = radius * radius;
-  navForCells(navNodeGrid, NAV_NODE_CELL, x - radius, z - radius, x + radius, z + radius, navCollectCell);
+  BrushGrid.forCells(navNodeGrid, x - radius, z - radius, x + radius, z + radius, navCollectCell);
   return found.count;
 }
 
@@ -8987,7 +9103,7 @@ const navChestHeight = (type) => (type === NAV_LINK.CROUCH ? NAV_CROUCH_CHEST : 
 
 function navLinkNeighbours(builder) {
   for (let node = 0; node < Nav.nodeCount; node++) navLinkWalks(builder, node);
-  const walks = navBucket(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const walks = bucketByCell(builder.from.length, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
   const marks = new Int32Array(Nav.nodeCount).fill(-1);
   for (let node = 0; node < Nav.nodeCount; node++) navLinkAirs(builder, node, walks, marks);
 }
@@ -9158,7 +9274,7 @@ function navLinkTeleporter(builder, trigger) {
 
 function navFinishLinks(builder) {
   const count = builder.from.length;
-  const bucket = navBucket(count, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
+  const bucket = bucketByCell(count, Nav.nodeCount, (link, visit) => visit(builder.from[link]));
   const order = bucket.items;
   const pick = (list, Type) => { const sorted = new Type(count); for (let k = 0; k < count; k++) sorted[k] = list[order[k]]; return sorted; };
   Nav.linkCount = count; Nav.linkStart = bucket.start;
@@ -9183,7 +9299,7 @@ function navLabelComponents() {
   t.stackSize = 0; t.depth = -1; t.counter = 0;
   Nav.component = new Int32Array(count);
   for (let root = 0; root < count; root++) if (t.index[root] < 0) navStrongConnect(root);
-  const bucket = navBucket(count, Nav.componentCount, (node, visit) => visit(Nav.component[node]));
+  const bucket = bucketByCell(count, Nav.componentCount, (node, visit) => visit(Nav.component[node]));
   Nav.componentStart = bucket.start; Nav.componentNodes = bucket.items;
   Nav.mainComponent = 0;
   for (let id = 1; id < Nav.componentCount; id++) if (navComponentSize(id) > navComponentSize(Nav.mainComponent)) Nav.mainComponent = id;
@@ -9869,6 +9985,12 @@ function horizontalWish(id) {
   return wish;
 }
 
+function sprintWalks(preset) { return preset.sprintSpeed === 0 && preset.silentWalk; }
+function isWalking(id, preset) {
+  const buttons = Actors.buttons[id];
+  return (buttons & BTN.WALK) !== 0 || ((buttons & BTN.SPRINT) !== 0 && sprintWalks(preset));
+}
+
 function groundWishSpeed(id, preset) {
   let speed = preset.groundSpeed;
   if (Motion.board[id]) speed = SKIMMER_SPEED;
@@ -9877,7 +9999,7 @@ function groundWishSpeed(id, preset) {
   const stance = Motion.stance[id];
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
-  else if (Actors.buttons[id] & BTN.WALK) speed *= preset.walkMult;
+  else if (isWalking(id, preset)) speed *= preset.walkMult;
   if (getClock(id, CLOCK.LAND_SLOW) > 0) speed *= preset.landingPenalty;
   return speed * Move.weaponSpeedScale[id] * Move.statusSpeedScale[id];
 }
@@ -10205,7 +10327,7 @@ function countSteps(id, preset, startX, startZ) {
   Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
-  const walking = (Actors.buttons[id] & BTN.WALK) !== 0;
+  const walking = isWalking(id, preset);
   if (walking && preset.silentWalk) return;
   const loudness = (Motion.stance[id] === STANCE.STAND ? 1 : 0.5) * (walking ? 0.5 : 1) * Move.footstepScale[id];
   moveEvents['move.step'].loudness = loudness;
@@ -10215,17 +10337,15 @@ function countSteps(id, preset, startX, startZ) {
 
 function movingInaccuracy(id, table) {
   if (!Motion.grounded[id] || Motion.state[id] !== MOVE_STATE.WALK) return table.air;
-  const fraction = Move.horizontalSpeed(id) / Move.preset(id).groundSpeed;
+  const preset = Move.preset(id), fraction = Move.horizontalSpeed(id) / preset.groundSpeed;
   if (fraction < STILL_FRACTION) return 0;
   if (Motion.stance[id] !== STANCE.STAND) return table.crouch;
-  if ((Actors.buttons[id] & BTN.WALK) || fraction <= table.walkFraction) return table.walk;
+  if (isWalking(id, preset) || fraction <= table.walkFraction) return table.walk;
   return table.run;
 }
 
 const moveEvents = {};
 for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '', loudness: 1 };
-const noiseEvent = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: 0 };
-
 function emitMove(type, id, speed, surface) {
   const payload = moveEvents[type];
   payload.id = id; payload.speed = speed; payload.surface = surface;
@@ -10233,10 +10353,7 @@ function emitMove(type, id, speed, surface) {
 }
 
 function emitNoise(id, radius, kind) {
-  if (radius <= 0) return;
-  noiseEvent.x = Actors.x[id]; noiseEvent.y = Actors.y[id]; noiseEvent.z = Actors.z[id];
-  noiseEvent.radius = radius; noiseEvent.kind = kind; noiseEvent.source = id;
-  Bus.emit('sound', noiseEvent);
+  emitSound(Actors.x[id], Actors.y[id], Actors.z[id], radius, kind, id);
 }
 
 function surfaceOf(id) {
@@ -10258,6 +10375,7 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
+TouchInput.stickSprints = () => !sprintWalks(matchPreset());   // a full touch-stick push in Tactical runs instead of walking
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
@@ -10296,6 +10414,8 @@ const AUTO_STRAFE_RATE = 2.5;          // MOV-018: rad/s the air velocity turns 
 const SKIMMER_SPEED = 13;              // MOV-027
 const SKIMMER_KNOCKOFF_SECONDS = 2;
 const SKIMMER_MIN_MAP_SIZE = 150;      // metres: only large maps allow the board
+const SKIMMER_BOARD_RUN = 0.8;         // share of the ground speed an actor must run at to board with Use
+const SKIMMER_BOARD_INPUT = 0.5;       // move input length that must be held in the Use step to board
 
 const wallHit = makeHit();
 const facing = { x: 0, y: 0, z: 0 };
@@ -10651,6 +10771,13 @@ Move.setBoard = function setBoard(id, on) {
   return true;
 };
 Move.onBoard = (id) => Motion.board[id] === 1;
+function toggleBoard(id, preset) {
+  if (!(Actors.pressed[id] & BTN.USE)) return;
+  if (Motion.board[id]) { Move.setBoard(id, false); return; }
+  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
+}
 
 Bus.on('damage', (event) => {
   if (!Motion.board[event.target]) return;
@@ -10665,7 +10792,7 @@ Move.states[MOVE_STATE.WALL_RUN] = wallRunState;
 Move.states[MOVE_STATE.LATCH] = latchState;
 Move.states[MOVE_STATE.LADDER] = ladderState;
 Move.states[MOVE_STATE.SWIM] = swimState;
-Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide);
+Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide, toggleBoard);
 Move.landHooks.push(rollOrStagger, slideHopLanding);
 
 // ==== 11a-weapons.js ====
@@ -10731,18 +10858,7 @@ const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '' };
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
-const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
-const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
 
-function emitSound(x, y, z, radius, kind, source) {
-  if (radius <= 0) return;
-  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
-  Bus.emit('sound', SOUND_EVENT);
-}
-function emitImpulse(id, x, y, z) {
-  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
-  Bus.emit('impulse', IMPULSE_EVENT);
-}
 function emitWeaponEvent(type, payload, id, weapon) {
   payload.id = id; payload.weapon = weapon.id;
   Bus.emit(type, payload);
@@ -11563,12 +11679,14 @@ const COMBO_TARGET_PADDING = 0.3;        // hitscan combo shots get a slightly l
 const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bouncing and settle
 const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
+const INCOMING_RANGE = 25;               // m: an `incoming` row (rocket, missile) this close and closing in warns the local player once (AUD-005)
 
 const PIN_WALL_REACH = 1.5;              // W26: a wall this close behind a stake's victim pins it there
 const PIN_HEIGHT = 1;                    // the pin ray starts this high above the victim's feet
 
 const sweepHit = makeHit();
 const pinHit = makeHit();
+const INCOMING_EVENT = { x: 0, y: 0, z: 0, kind: '', source: -1 };
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
@@ -11591,6 +11709,7 @@ const Projectiles = {
   offsetY: new Float32Array(PROJECTILE_CAP), offsetZ: new Float32Array(PROJECTILE_CAP), timer: new Float32Array(PROJECTILE_CAP),
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
+  warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -11630,7 +11749,7 @@ const Projectiles = {
     this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
     this.age[i] = 0; this.life[i] = row.life; this.travelled[i] = 0; this.damage[i] = damage; this.multiplier[i] = 1;
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
-    this.hitLow[i] = this.hitHigh[i] = 0;
+    this.hitLow[i] = this.hitHigh[i] = 0; this.warned[i] = 0;
     this.gravity[i] = row.gravity; this.drag[i] = row.drag;
     this.serial[i] = this.nextSerial++;
     return i;
@@ -11716,6 +11835,18 @@ const Projectiles = {
     this.accelerate(i, dt);
     this.stepAura(i, dt);
     this.sweep(i, dt);
+    if (this.state[i] === PROJECTILE_STATE.FLYING) this.warnIncoming(i);
+  },
+  warnIncoming(i) {
+    const player = Game.playerId, owner = this.owner[i];
+    if (this.warned[i] || player < 0 || !Actors.alive[player] || !this.row(i).incoming) return;
+    if (owner === player || (owner >= 0 && !Actors.isEnemy(owner, player))) return;
+    const dx = Actors.x[player] - this.x[i], dy = Actors.eyeY(player) - this.y[i], dz = Actors.z[player] - this.z[i];
+    if (dx * dx + dy * dy + dz * dz > INCOMING_RANGE * INCOMING_RANGE || dx * this.vx[i] + dy * this.vy[i] + dz * this.vz[i] <= 0) return;
+    this.warned[i] = 1;
+    INCOMING_EVENT.x = this.x[i]; INCOMING_EVENT.y = this.y[i]; INCOMING_EVENT.z = this.z[i];
+    INCOMING_EVENT.kind = this.row(i).id; INCOMING_EVENT.source = owner;
+    Bus.emit('projectile.incoming', INCOMING_EVENT);
   },
   accelerate(i, dt) {
     const row = this.row(i);
@@ -12852,7 +12983,6 @@ const NO_TICK = -1;
 const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
 const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
-const ITEM_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: 'pickup', source: -1 };
 const ITEM_COUNT = CAT.items.length;
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
@@ -13135,9 +13265,7 @@ const Items = {
     PICKUP_EVENT.id = id; PICKUP_EVENT.item = row.id; PICKUP_EVENT.group = group;
     PICKUP_EVENT.x = this.x[slot]; PICKUP_EVENT.y = this.y[slot]; PICKUP_EVENT.z = this.z[slot];
     Bus.emit('pickup', PICKUP_EVENT);
-    ITEM_SOUND.x = this.x[slot]; ITEM_SOUND.y = this.y[slot]; ITEM_SOUND.z = this.z[slot]; ITEM_SOUND.source = id;
-    ITEM_SOUND.radius = this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE;
-    Bus.emit('sound', ITEM_SOUND);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE, 'pickup', id);
     if (this.isPower(slot) && row.announce !== false) this.announce(Actors.name[id] + ' took the ' + row.name);
   },
   takeItem(id, slot) {
@@ -13735,9 +13863,7 @@ const HERO_EXTRA_GRENADES = 1;           // H05 passive 'extraGrenade': one more
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
 const BOUNCE_EVENT = { x: 0, y: 0, z: 0, kind: 'grenade', source: -1 };
-const GADGET_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
 const POP_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
-const IMPULSE_PAYLOAD = { id: 0, x: 0, y: 0, z: 0 };
 const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null,
   statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
   family: null, fodderKill: false, falloff: null }));
@@ -13751,18 +13877,10 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
-function emitGadgetSound(x, y, z, radius, kind, source) {
-  GADGET_SOUND.x = x; GADGET_SOUND.y = y; GADGET_SOUND.z = z; GADGET_SOUND.radius = radius; GADGET_SOUND.kind = kind; GADGET_SOUND.source = source;
-  Bus.emit('sound', GADGET_SOUND);
-}
-function emitGadgetImpulse(id, x, y, z) {
-  IMPULSE_PAYLOAD.id = id; IMPULSE_PAYLOAD.x = x; IMPULSE_PAYLOAD.y = y; IMPULSE_PAYLOAD.z = z;
-  Bus.emit('impulse', IMPULSE_PAYLOAD);
-}
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
   Bus.emit('explosion', POP_EVENT);
-  emitGadgetSound(x, y, z, POP_NOISE, 'explosion', owner);
+  emitSound(x, y, z, POP_NOISE, 'explosion', owner);
 }
 function gadgetReaches(owner, target, x, y, z, radius) {
   if (!Actors.alive[target]) return false;
@@ -14033,14 +14151,14 @@ const GadgetAreas = {
   stepDecoy(area, row, dt) {
     if (!this.due(area, dt, 1 / row.rate)) return;
     const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-    emitGadgetSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+    emitSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
     if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
   },
   stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
-      emitGadgetImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
+      emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
@@ -14051,7 +14169,7 @@ const GadgetAreas = {
       if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
     }
-    emitGadgetSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
+    emitSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
     if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
     if (--this.pulses[area] <= 0) this.active[area] = 0;
   },
@@ -14102,7 +14220,7 @@ const GadgetEffects = {
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
       const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
-      emitGadgetImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
+      emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
   },
 };
@@ -14234,7 +14352,7 @@ const Thrown = {
   emitBounce(slot) {
     BOUNCE_EVENT.x = this.x[slot]; BOUNCE_EVENT.y = this.y[slot]; BOUNCE_EVENT.z = this.z[slot]; BOUNCE_EVENT.source = this.owner[slot];
     Bus.emit('projectile.bounce', BOUNCE_EVENT);
-    emitGadgetSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
   },
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
   draw(batch) {
@@ -14703,8 +14821,8 @@ const Devices = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(device, row, id)) continue;
       const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
-      emitGadgetImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
-      emitGadgetSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
+      emitImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
+      emitSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
     }
   },
   onPad(device, row, id) {
@@ -14747,7 +14865,7 @@ const Devices = {
     const reach = hit >= 0 ? deviceActorHit.distance : wall;
     if (hit >= 0 && this.enemyOf(device, hit)) deviceDamage(this.owner[device], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + direction.x * reach, y + direction.y * reach, z + direction.z * reach, null);
-    emitGadgetSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
+    emitSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
   },
   stepHeal(device, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
@@ -14832,7 +14950,7 @@ const Devices = {
     if (this.health[device] > 0) return false;
     this.remove(device, true);
     if (!Game.headless) Fx.burst('spark', this.x[device], this.y[device] + 0.3, this.z[device], 0, 1, 0, 16, null);
-    emitGadgetSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
+    emitSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
     return true;
   },
   hitRadius(device) {
@@ -18556,7 +18674,6 @@ const INFECTED_TEAM = 1;
 const ROULETTE_EXCLUDED_CLASSES = ['melee', 'tool', 'power'];
 const ROULETTE_FALLBACK = 'warden';
 const ladderTier = new Uint8Array(MAX_ACTORS);
-const leapImpulse = { id: -1, x: 0, y: 0, z: 0 };
 
 function roleDamageScale(source) {
   if (!Modes.active || !(source >= 0)) return 1;
@@ -18659,9 +18776,7 @@ Modes.register('infection', {
     const id = event.id;
     if (Modes.actorRole[id] !== ACTOR_ROLE.INFECTED) return;
     const params = Modes.rules.params, yaw = Actors.yaw[id];
-    leapImpulse.id = id;
-    leapImpulse.x = Math.sin(yaw) * params.leapSpeed; leapImpulse.y = params.leapLift; leapImpulse.z = Math.cos(yaw) * params.leapSpeed;
-    Bus.emit('impulse', leapImpulse);
+    emitImpulse(id, Math.sin(yaw) * params.leapSpeed, params.leapLift, Math.cos(yaw) * params.leapSpeed);
   },
   countSides() {
     let humans = 0, infected = 0;
@@ -19080,7 +19195,6 @@ const MUTATOR_ZONE_HEAD = 'head';
 
 const GRANT_EVENT = { id: 0, item: '' };
 const POWER_EVENT = { id: 0, ability: '' };
-const TOAST_EVENT = { text: '' };
 const NEAR_ACTORS = new Array(MAX_ACTORS).fill(0);
 
 const Mutators = {
@@ -19283,7 +19397,7 @@ function applyMutatorStage(rules) {
   rules.mutators = resolved.list;
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
-  for (const text of resolved.messages) { TOAST_EVENT.text = text; Bus.emit('toast', TOAST_EVENT); }
+  for (const text of resolved.messages) emitToast(text);
 }
 function applyMutatorHandicap(rules, setup) {
   const named = setup.player && typeof setup.player.handicap === 'number';
@@ -20308,6 +20422,22 @@ const BotMove = {
   stop(id) { this.hasDest[id] = 0; this.state[id] = PATH.NONE; Nav.cancel(id); },
   arrived(id) { return this.hasDest[id] === 1 && this.state[id] === PATH.ARRIVED; },
   failed(id) { return this.state[id] === PATH.FAILED; },
+  following(id) { return this.state[id] === PATH.FOLLOW; },
+  pathEndsAt(id, y) {
+    if (this.pointCount[id] === 0) return true;   // already at the destination node
+    Nav.resultPoint(id, this.pointCount[id] - 1, movePoint);
+    return Math.abs(movePoint.y - y) < MOVE_ARRIVE_HEIGHT;
+  },
+  pathLeft(id) {
+    let x = this.pointX[id], y = this.pointY[id], z = this.pointZ[id];
+    let length = Math.hypot(x - Actors.x[id], y - Actors.y[id], z - Actors.z[id]);
+    for (let index = this.pointIndex[id] + 1; index < this.pointCount[id]; index++) {
+      Nav.resultPoint(id, index, movePoint);
+      length += Math.hypot(movePoint.x - x, movePoint.y - y, movePoint.z - z);
+      x = movePoint.x; y = movePoint.y; z = movePoint.z;
+    }
+    return length;
+  },
   distanceToDestination(id) { return Math.hypot(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
   request(id, options) {
     if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
@@ -20423,7 +20553,7 @@ const BotMove = {
     if (!atEnd && this.waterExitBlocked(id, tx - Actors.x[id], tz - Actors.z[id], distance)) { this.takeAnotherExit(id); return; }
     this.steer(id, dx, dz, amount, now);
     this.linkMove(id);
-    if (BotCombat.target[id] < 0 || this.ownsView(id)) this.lookAlong(id, tx, tz);
+    if ((BotCombat.target[id] < 0 && !BotCombat.aimingJump(id, now)) || this.ownsView(id)) this.lookAlong(id, tx, tz);
   },
   advance(id) {
     for (let guard = 0; guard < 3 && this.pointIndex[id] < this.pointCount[id]; guard++) {
@@ -20715,6 +20845,10 @@ const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cook
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
 const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
+const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
+const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
+const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
+const WEAPON_JUMP_DETOUR = 3;   // a walkable path this many times the straight line or longer is worth the jump's self-damage
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
@@ -20773,16 +20907,17 @@ const BotCombat = {
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
-  uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot this match (tests, soak report)
+  jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
+  uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },   // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   fairness: { shots: 0, unperceived: 0, unknown: 0 },
 
   reset(id) {
     this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
-    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
+    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
-    this.gadgetAt[id] = 0; this.holdSlot[id] = -1;
+    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
@@ -20801,6 +20936,7 @@ const BotCombat = {
     this.manageWeapon(id, now);
     this.useKit(id, now);
     if (now < this.throwUntil[id]) { this.aimThrow(id, now); return; }
+    if (target < 0 && this.weaponJump(id, now)) return;
     if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
     if (BotSense.sees(id, target)) this.engage(id, target, now);
     else this.watch(id, target, now);
@@ -21092,6 +21228,38 @@ const BotCombat = {
     if (Rng.bots.chance(Bots.trait(id, TRAIT.jumpiness)) && Move.isGrounded(id)) Bots.press(id, BTN.JUMP);
   },
 
+  weaponJump(id, now) {
+    if (this.aimingJump(id, now)) { this.aimJump(id, now); return true; }
+    if (!this.wantsWeaponJump(id, now)) return false;
+    this.jumpUntil[id] = now + WEAPON_JUMP_AIM_SECONDS;
+    this.weaponJumpAt[id] = now;
+    this.aimJump(id, now);
+    return true;
+  },
+  aimingJump(id, now) { return now < this.jumpUntil[id]; },   // the view is the jump's (path following does not turn it)
+  weaponJumpPending(id, now) { return this.aimingJump(id, now) || this.wantsWeaponJump(id, now); },
+  wantsWeaponJump(id, now) {
+    if (now - this.weaponJumpAt[id] < WEAPON_JUMP_REST || !Bots.tier(id).weaponJumps || Bots.trait(id, TRAIT.weaponJumper) <= BOT_TRAIT_NEUTRAL) return false;
+    const weapon = Weapons.currentWeapon(id);
+    if (!weapon || !weapon.primary.splash || !Move.isGrounded(id) || Actors.health[id] < Actors.maxHealth[id] * WEAPON_JUMP_HEALTH) return false;
+    const rise = BotDecide.goalY[id] - Actors.y[id], reach = Math.hypot(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
+    return BotDecide.goal[id] !== GOAL.NONE && rise >= WEAPON_JUMP_RISE && reach <= WEAPON_JUMP_REACH && this.jumpBeatsWalking(id, Math.hypot(reach, rise));
+  },
+  jumpBeatsWalking(id, straight) {
+    if (BotMove.failed(id)) return true;
+    if (!BotMove.following(id)) return false;
+    return !BotMove.pathEndsAt(id, BotDecide.goalY[id]) || BotMove.pathLeft(id) >= straight * WEAPON_JUMP_DETOUR;
+  },
+  aimJump(id, now) {
+    Bots.lookYaw[id] = Math.atan2(Actors.x[id] - BotDecide.goalX[id], Actors.z[id] - BotDecide.goalZ[id]);
+    Bots.lookPitch[id] = -BOT_PITCH_LIMIT;
+    if (Actors.aimPitch[id] > -WEAPON_JUMP_PITCH) return;
+    Bots.press(id, BTN.JUMP | BTN.FIRE);
+    this.licenseTarget[id] = -1; this.licenseUntil[id] = now;
+    this.jumpUntil[id] = 0;
+    this.uses.weaponJumps++;
+  },
+
   useKit(id, now) {
     this.keepHolding(id, now);
     this.switchOff(id, now);
@@ -21290,7 +21458,7 @@ function throwRange(pitch, rise) {
 }
 
 function botUseWanted(id, use) {
-  if (!use || use.chance <= 0 || (use.tier && Bots.tier(id).tier < use.tier)) return false;
+  if (!use || use.chance <= 0 || (use.tierFlag && !Bots.tier(id)[use.tierFlag])) return false;
   if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
   return Rng.bots.chance(use.chance);
 }
@@ -21339,7 +21507,7 @@ Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
 Bus.on('damage', (event) => BotCombat.onDamage(event));
 Bus.on('match.setup', () => {
   BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);
-  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0;
+  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0; BotCombat.uses.weaponJumps = 0;
 });
 
 // ==== 14e-bots-decide.js ====
@@ -21357,6 +21525,11 @@ const ROAM_SCORE = 0.12;
 const ATTACK_BASE = 0.55, ATTACK_GAIN = 0.4;
 const ATTACK_RANGE_SHARE = 0.8, ATTACK_MIN_RADIUS = 1.5;   // an attack walks to 80% of the weapon range (a melee weapon: of its reach)
 const CHASE_BASE = 0.35, CHASE_GAIN = 0.4;
+const SEARCH_AFTER = 2;                 // s: a chase on older memory than this is the Search state (BOT-002)
+const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a flank hint only for a target at least this far...
+const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
+const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
+const FLANK_REST = 20;                  // s between two flanks of one bot
 const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
 const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
 const AGGRESSION_WEAPON_FLOOR = 0.55;   // any armed bot is willing to fight; strong weapons push it higher (BOT-021 table)
@@ -21412,6 +21585,7 @@ const BotDecide = {
   items: [], itemNode: new Int32Array(MAX_BOT_ITEMS), itemReadyAt: new Float64Array(MAX_BOT_ITEMS),
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
+  flankSpots: [], flankSpot: new Int16Array(MAX_ACTORS).fill(-1), flankedAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   lootNode: new Int32Array(LOOT_MAX).fill(-1),             // nav node of each royale loot spot (Modes.loot)
   planners: {},          // objective kind -> fn(id, plan, now) -> bool (BOT-080 mode brains)
 
@@ -21434,6 +21608,7 @@ const BotDecide = {
   onMatchStart(match) {
     this.items.length = 0;
     this.campSpots.length = 0;
+    this.flankSpots.length = 0;
     this.itemVisited.fill(-1e9);
     this.itemReadyAt.fill(0);
     this.timersAt = -1;   // Sim.time starts again at 0: read the item timers at once
@@ -21441,6 +21616,7 @@ const BotDecide = {
     if (!map) return;
     for (const entry of map.items || []) if (this.items.length < MAX_BOT_ITEMS && mapServesMode(entry, mode)) this.addItem(entry);
     for (const hint of map.navHints || []) if (BOT_CAMP_HINTS.includes(hint.kind)) this.campSpots.push(this.makeCampSpot(hint, map, mode));
+    for (const hint of map.navHints || []) if (hint.kind === BOT_FLANK_HINT) this.flankSpots.push({ x: hint.x, y: hint.y, z: hint.z });
     const loot = Modes.loot;
     for (let spot = 0; spot < loot.count; spot++) this.lootNode[spot] = Nav.nearestNode(loot.x[spot], loot.y[spot], loot.z[spot]);
   },
@@ -21517,22 +21693,28 @@ const BotDecide = {
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
     this.goalRadius[id] = plan.radius; this.goalAction[id] = plan.action; this.goalTarget[id] = plan.target;
-    Bots.setState(id, GOAL_STATES[plan.goal]);
+    Bots.setState(id, this.goalState(id, plan, now));
     if (plan.goal === GOAL.NONE) { BotMove.stop(id); return; }
     BotMove.goTo(id, plan.x, plan.y, plan.z, plan.radius);
+  },
+
+  goalState(id, plan, now) {
+    if (plan.goal !== GOAL.CHASE || plan.target < 0) return GOAL_STATES[plan.goal];
+    return now - BotSense.knownAt[BotSense.pair(id, plan.target)] > SEARCH_AFTER ? BOT_STATE.SEARCH : BOT_STATE.CHASE;
   },
 
   act(id, dt, now) {
     const goal = this.goal[id];
     if (goal === GOAL.NONE) { this.noGoalTime[id] += dt; this.longestNoGoal[id] = Math.max(this.longestNoGoal[id], this.noGoalTime[id]); return; }
     this.noGoalTime[id] = 0;
-    if (BotMove.failed(id)) { this.goalFailed(id, now); return; }
+    if (BotMove.failed(id) && !BotCombat.weaponJumpPending(id, now)) { this.goalFailed(id, now); return; }   // a ledge goal may be jumped to
     const near = Math.hypot(this.goalX[id] - Actors.x[id], this.goalZ[id] - Actors.z[id]) <= this.goalRadius[id] + 0.3;
     if (this.goalAction[id] === ACTION.USE && near) { Bots.wish(id, 0, 0, 0); Bots.press(id, BTN.USE); return; }
     if (!BotMove.arrived(id) && !near) return;
     this.arrive(id, goal, dt, now);
   },
   arrive(id, goal, dt, now) {
+    if (goal === GOAL.CHASE && this.flankSpot[id] >= 0) { this.flankedAt[id] = now; this.flankSpot[id] = -1; this.hurry(id, now); return; }
     if (goal === GOAL.COLLECT) this.markVisited(id, this.goalTarget[id], now);
     if (goal === GOAL.CHASE) this.searched(id);
     if (goal === GOAL.ROAM) this.roamNode[id] = -1;
@@ -21583,6 +21765,19 @@ function mutatorRisk() {
   return clamp(Math.sqrt(dealt / Math.max(taken, 1e-3)), MUTATOR_RISK_MIN, MUTATOR_RISK_MAX);
 }
 
+function flankSpot(id, targetX, targetZ, now) {
+  if (!Bots.tier(id).flanks || now - BotDecide.flankedAt[id] < FLANK_REST) return -1;
+  const x = Actors.x[id], z = Actors.z[id], direct = Math.hypot(targetX - x, targetZ - z), spots = BotDecide.flankSpots;
+  if (direct < FLANK_MIN_DISTANCE) return -1;
+  let best = -1, bestWay = direct * FLANK_DETOUR;
+  for (let i = 0; i < spots.length; i++) {
+    const toTarget = Math.hypot(targetX - spots[i].x, targetZ - spots[i].z), fromBot = Math.hypot(spots[i].x - x, spots[i].z - z);
+    if (toTarget >= direct || fromBot <= FLANK_REACHED || fromBot + toTarget >= bestWay) continue;
+    best = i; bestWay = fromBot + toTarget;
+  }
+  return best;
+}
+
 function holdHere(id) {
   setPlan(goalPlan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
   copyPlan(bestPlan, goalPlan, GOAL.ROAM, ROAM_SCORE);
@@ -21624,7 +21819,10 @@ GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const aggression = BotDecide.aggression(id, target);
   if (aggression < RETREAT_THRESHOLD) return 0;
   const pair = BotSense.pair(id, target), freshness = 1 - (now - BotSense.knownAt[pair]) / SENSE_MEMORY;
-  setPlan(plan, BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair], 1.5, ACTION.MOVE, target);
+  const flank = flankSpot(id, BotSense.knownX[pair], BotSense.knownZ[pair], now), spot = BotDecide.flankSpots[flank];
+  BotDecide.flankSpot[id] = flank;
+  if (spot) setPlan(plan, spot.x, spot.y, spot.z, FLANK_REACHED, ACTION.MOVE, target);
+  else setPlan(plan, BotSense.knownX[pair], BotSense.knownY[pair], BotSense.knownZ[pair], 1.5, ACTION.MOVE, target);
   return CHASE_BASE + CHASE_GAIN * aggression * freshness;
 };
 GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {
@@ -21952,7 +22150,7 @@ const ENEMY_PING_INTERVAL = 4;
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
-const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-062: an order is acknowledged within 0.5-1.5 s
+const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-051: an order is acknowledged within 0.5-1.5 s
 const ORDER_SECONDS = { go: 30, attack: 30, defend: 45, follow: 60 };
 const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
 const ORDER_RADIUS = 2.5;
@@ -21970,7 +22168,7 @@ const COMM_CALLOUTS = [
 const COMM_CALLOUT_BY_KIND = new Map(COMM_CALLOUTS.map((row) => [row.id, row]));
 const PING_RANGE = 120;
 const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
-const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
+const HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
 const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
 const PUSH_CHECK_INTERVAL = 0.5;
 
@@ -22050,11 +22248,11 @@ const BotTeam = {
     this.updatePushes(now);
   },
   assignRoles() {
-    const splits = BOT_ROLE_SPLITS[Modes.rules ? Modes.rules.objective : 'none'] || BOT_ROLE_SPLITS.none;
-    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, splits);
+    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, roleSplitKey(team));
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] < 0) this.role[id] = ROLE.FREELANCE;
   },
-  assignTeam(team, splits) {
+  assignTeam(team, key) {
+    const splits = BOT_ROLE_SPLITS[key] || BOT_ROLE_SPLITS.none;
     rankList.length = 0;
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === team) rankList.push(id);
     if (!rankList.length) return;
@@ -22069,7 +22267,7 @@ const BotTeam = {
   updateBot(id, now) {
     if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
-    if (health < LOW_HEALTH_BARK && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
+    if (health < LOW_HEALTH_FRACTION && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
   },
@@ -22197,6 +22395,13 @@ const BotTeam = {
   },
 };
 
+function roleSplitKey(team) {
+  const objective = Modes.rules ? Modes.rules.objective : 'none';
+  if (objective !== 'flag') return objective;
+  const list = Modes.objectives;
+  for (let i = 0; i < list.length; i++) if (list[i].kind === 'flag' && list[i].team === 1 - team && list[i].carrier >= 0) return 'flagTaken';
+  return objective;
+}
 function aimedEnemy(player, dx, dy, dz) {
   let best = -1, bestCos = PING_AIM_COS;
   const eyeY = Actors.eyeY(player);
@@ -24496,14 +24701,29 @@ Bus.on('match.stop', resetPveModes);
 
 const BOSS_TRANSITION_SECONDS = 2;
 const BOSS_FLOOR_SLACK = 1e-3;          // health within this of the threshold counts as reaching it (float rounding)
-const bossEventPayload = { id: -1, phase: 0, phases: 0, kind: '' };
+const bossEventPayload = { id: -1, phase: 0, phases: 0, kind: '', seconds: 0, final: false };
 
 const PveBoss = {
   phase: new Int8Array(MAX_ACTORS),
   transitionUntil: new Float64Array(MAX_ACTORS),
+  spawnedAt: new Float64Array(MAX_ACTORS),
   hud: { active: false, id: -1, name: '', health: 0, phase: 0, phases: 0, weakDisabled: false },
 
-  onSpawn(id) { this.phase[id] = 0; this.transitionUntil[id] = 0; },
+  onSpawn(id) {
+    this.phase[id] = 0; this.transitionUntil[id] = 0;
+    const row = Pve.rowOf(id);
+    if (!row || !row.boss) return;
+    this.spawnedAt[id] = Sim.time;
+    this.announce(id, row, 'start');
+  },
+  onKill(victim) {
+    const row = victim >= 0 && Pve.isEnemy(victim) ? Pve.rowOf(victim) : null;
+    if (row && row.boss) this.announce(victim, row, 'defeated');
+  },
+  onRemove(id) {
+    const row = Pve.isEnemy(id) && Actors.alive[id] ? Pve.rowOf(id) : null;
+    if (row && row.boss) this.announce(id, row, 'gone');
+  },
   floorHealth(id, row) { return row.phases[this.phase[id]].until * Actors.maxHealth[id]; },
   check(id, row, now) {
     if (this.phase[id] >= row.phases.length - 1 || Actors.health[id] > this.floorHealth(id, row) + BOSS_FLOOR_SLACK) return;
@@ -24517,6 +24737,7 @@ const PveBoss = {
   announce(id, row, kind) {
     const event = bossEventPayload;
     event.id = id; event.phase = this.phase[id] + 1; event.phases = row.phases.length; event.kind = kind;
+    event.seconds = Sim.time - this.spawnedAt[id]; event.final = true;
     Bus.emit('pve.boss', event);
   },
   inTransition(id) { return Sim.time < this.transitionUntil[id]; },
@@ -24562,6 +24783,8 @@ PveBrains.boss = {
 
 PVE_HUD.boss = PveBoss.hud;
 Bus.on('actor.spawn', (payload) => PveBoss.onSpawn(payload.id));
+Bus.on('kill', (payload) => PveBoss.onKill(payload.victim));
+Bus.on('actor.remove', (id) => PveBoss.onRemove(id));
 Sim.addSystem('pveBoss', 81, () => PveBoss.updateHud());
 
 // ==== 15a-progress.js ====
@@ -24865,7 +25088,7 @@ const Progress = {
     this.addXp(award.xp);
     award.levelAfter = this.level();
     award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
-    if (award.levelAfter > levelBefore) Bus.emit('toast', { text: 'Level ' + award.levelAfter + ' reached' });
+    if (award.levelAfter > levelBefore) emitToast('Level ' + award.levelAfter + ' reached');
     this.lastAward = award;
     this.refreshLook();
     Save.scheduleSave();
@@ -24929,6 +25152,7 @@ Bus.on('ability.cast', (event) => { if (event.ability === RUN_WRATH_ABILITY) Run
 Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, false); });
 Bus.on('pve.wrath', (event) => RunLog.setWrath(event.id, event.active !== false));
 Bus.on('pve.boss', (event) => {
+  if (event.kind !== 'defeated') return;   // phase, weak and start reports carry no boss time
   RunLog.bossSeconds = Math.min(RunLog.bossSeconds, event.seconds);
   if (event.final) RunLog.finalBossSeconds = Math.min(RunLog.finalBossSeconds, event.seconds);
 });
@@ -26593,7 +26817,7 @@ const MapScan = {
 
   build(map) {
     const scan = this.makeShell(map);
-    this.fillBuckets(scan);
+    this.findOutside(scan);
     this.scanColumns(scan, map);
     this.linkTriggers(scan, map);
     this.buildAdjacency(scan);
@@ -26604,50 +26828,34 @@ const MapScan = {
     const brushes = map.brushes.map((source) => makeBrush(source));
     const coarse = map.size[0] >= MAP_COARSE_SIZE || map.size[2] >= MAP_COARSE_SIZE, cell = coarse ? MAP_CELL_COARSE : MAP_CELL;
     const cols = Math.ceil(map.size[0] / cell), rows = Math.ceil(map.size[2] / cell);
-    const bucketsX = Math.ceil(map.size[0] / MAP_BUCKET), bucketsZ = Math.ceil(map.size[2] / MAP_BUCKET);
     const need = Math.max(MAP_HALF_DOOR - cell / 2, MAP_BODY_REACH);     // the body may stand half a cell off the cell centre
+    const originX = -map.size[0] / 2, originZ = -map.size[2] / 2;
     return {
-      map, brushes, cell, cols, rows, originX: -map.size[0] / 2, originZ: -map.size[2] / 2, bucketsX, bucketsZ, need, wallReach: MAP_DOOR_WIDTH - need,
-      buckets: Array.from({ length: bucketsX * bucketsZ }, () => []), stamp: new Int32Array(brushes.length), stampId: 0,
+      map, brushes, cell, cols, rows, originX, originZ, need, wallReach: MAP_DOOR_WIDTH - need,
+      grid: BrushGrid.build({}, brushes, MAP_BUCKET, originX, originZ, originX + map.size[0], originZ + map.size[2]),
       near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32), gaps: new Float64Array(4), steps: new Int32Array(4), flight: { rise: 0, time: 0 },
       outside: [], ray: { ox: 0, oy: 0, oz: 0, dx: 0, dz: 0, limit: 0, best: Infinity, hit: null },
-      walk: { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nextJ: 0, deltaI: 0, deltaJ: 0 },
+      walk: makeGridWalk(),
       edgeCosts: Float64Array.of(cell, cell * Math.SQRT2, MAP_LINK_COSTS[MAP_EDGE.pad], MAP_LINK_COSTS[MAP_EDGE.teleporter], MAP_LINK_COSTS[MAP_EDGE.ladder]),
       nodeColumn: null, nodeY: null, nodeCount: 0, columnStart: null, links: [], pads: [], teleporters: [], ladders: [],
       forward: null, backward: null, hazardNodes: 0,
     };
   },
 
-  bucketIndex(value, origin, count) { return Math.max(0, Math.min(count - 1, Math.floor((value - origin) / MAP_BUCKET))); },
-
-  fillBuckets(scan) {
-    scan.brushes.forEach((brush, index) => this.addToBuckets(scan, brush, index));
+  findOutside(scan) {
     scan.outside = scan.brushes.map((brush, index) => index).filter((index) => this.pastGrid(scan, scan.brushes[index]));
   },
   pastGrid(scan, brush) {
-    const right = scan.originX + scan.bucketsX * MAP_BUCKET, far = scan.originZ + scan.bucketsZ * MAP_BUCKET;
+    const right = scan.originX + scan.grid.cellsX * MAP_BUCKET, far = scan.originZ + scan.grid.cellsZ * MAP_BUCKET;
     return brush.minX < scan.originX || brush.minZ < scan.originZ || brush.maxX > right || brush.maxZ > far;
-  },
-  addToBuckets(scan, brush, index) {
-    const i0 = this.bucketIndex(brush.minX, scan.originX, scan.bucketsX), i1 = this.bucketIndex(brush.maxX, scan.originX, scan.bucketsX);
-    const j0 = this.bucketIndex(brush.minZ, scan.originZ, scan.bucketsZ), j1 = this.bucketIndex(brush.maxZ, scan.originZ, scan.bucketsZ);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) scan.buckets[j * scan.bucketsX + i].push(index);
   },
 
   collect(scan, x, z, radius) {
-    scan.stampId++;
-    const i0 = this.bucketIndex(x - radius, scan.originX, scan.bucketsX), i1 = this.bucketIndex(x + radius, scan.originX, scan.bucketsX);
-    const j0 = this.bucketIndex(z - radius, scan.originZ, scan.bucketsZ), j1 = this.bucketIndex(z + radius, scan.originZ, scan.bucketsZ);
+    const found = BrushGrid.query(scan.grid, x - radius, z - radius, x + radius, z + radius);
     let count = 0;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) count = this.addBucket(scan, scan.buckets[j * scan.bucketsX + i], x, z, radius, count);
-    return count;
-  },
-  addBucket(scan, bucket, x, z, radius, count) {
-    for (let k = 0; k < bucket.length; k++) {
-      const id = bucket[k];
-      if (scan.stamp[id] === scan.stampId) continue;
-      scan.stamp[id] = scan.stampId;
-      if (mapInsideRect(scan.brushes[id], x, z, radius) && count < MAP_MAX_BRUSH_HITS) scan.near[count++] = id;
+    for (let k = 0; k < found && count < MAP_MAX_BRUSH_HITS; k++) {
+      const id = scan.grid.found[k];
+      if (mapInsideRect(scan.brushes[id], x, z, radius)) scan.near[count++] = id;
     }
     return count;
   },
@@ -26988,36 +27196,22 @@ const MapScan = {
   },
 
   rayLength(scan, ox, oy, oz, dx, dz, maxDistance, hit) {
-    const ray = scan.ray;
+    const ray = scan.ray, grid = scan.grid;
     ray.ox = ox; ray.oy = oy; ray.oz = oz; ray.dx = dx; ray.dz = dz; ray.limit = maxDistance; ray.best = Infinity; ray.hit = hit;
-    scan.stampId++;
-    if (!this.startWalk(scan, ray)) return this.rayAll(scan, ray);
-    const walk = scan.walk;
-    for (;;) {
-      this.rayList(scan, ray, scan.buckets[walk.j * scan.bucketsX + walk.i]);
+    BrushGrid.beginPass(grid);
+    const walk = BrushGrid.startWalk(grid, scan.walk, ox, oz, dx, dz);
+    if (BrushGrid.walkCell(grid, walk) < 0) return this.rayAll(scan, ray);   // starts outside the grid
+    for (let cell = BrushGrid.walkCell(grid, walk); cell >= 0; cell = BrushGrid.walkCell(grid, walk)) {
+      this.rayCell(scan, ray, cell);
       if (Math.min(walk.nextI, walk.nextJ) > Math.min(ray.best, maxDistance)) return ray.best;
-      if (!this.stepWalk(scan, walk)) break;
+      BrushGrid.stepWalk(walk);
     }
     this.rayList(scan, ray, scan.outside);
     return ray.best;
   },
-  startWalk(scan, ray) {
-    const walk = scan.walk;
-    walk.i = Math.floor((ray.ox - scan.originX) / MAP_BUCKET);
-    walk.j = Math.floor((ray.oz - scan.originZ) / MAP_BUCKET);
-    if (walk.i < 0 || walk.j < 0 || walk.i >= scan.bucketsX || walk.j >= scan.bucketsZ) return false;
-    walk.stepI = ray.dx > 0 ? 1 : -1;
-    walk.stepJ = ray.dz > 0 ? 1 : -1;
-    walk.deltaI = ray.dx !== 0 ? MAP_BUCKET / Math.abs(ray.dx) : Infinity;
-    walk.deltaJ = ray.dz !== 0 ? MAP_BUCKET / Math.abs(ray.dz) : Infinity;
-    walk.nextI = ray.dx !== 0 ? (scan.originX + (walk.i + (ray.dx > 0 ? 1 : 0)) * MAP_BUCKET - ray.ox) / ray.dx : Infinity;
-    walk.nextJ = ray.dz !== 0 ? (scan.originZ + (walk.j + (ray.dz > 0 ? 1 : 0)) * MAP_BUCKET - ray.oz) / ray.dz : Infinity;
-    return true;
-  },
-  stepWalk(scan, walk) {
-    if (walk.nextI < walk.nextJ) { walk.i += walk.stepI; walk.nextI += walk.deltaI; }
-    else { walk.j += walk.stepJ; walk.nextJ += walk.deltaJ; }
-    return walk.i >= 0 && walk.j >= 0 && walk.i < scan.bucketsX && walk.j < scan.bucketsZ;
+  rayCell(scan, ray, cell) {
+    const grid = scan.grid;
+    for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) this.rayTest(scan, ray, grid.cellItems[k]);
   },
   rayList(scan, ray, list) { for (let k = 0; k < list.length; k++) this.rayTest(scan, ray, list[k]); },
   rayAll(scan, ray) {
@@ -27025,8 +27219,7 @@ const MapScan = {
     return ray.best;
   },
   rayTest(scan, ray, id) {
-    if (scan.stamp[id] === scan.stampId) return;
-    scan.stamp[id] = scan.stampId;
+    if (!BrushGrid.firstVisit(scan.grid, id)) return;
     const brush = scan.brushes[id];
     if (brush.material !== 'glass' && rayBrush(ray.ox, ray.oy, ray.oz, ray.dx, 0, ray.dz, Math.min(ray.best, ray.limit), brush, ray.hit)) ray.best = ray.hit.distance;
   },
@@ -29199,8 +29392,7 @@ const MapEditorTools = {
   keyId(event) { return (event.ctrlKey || event.metaKey ? 'ctrl+' : '') + (event.shiftKey ? 'shift+' : '') + event.code; },
   onKeyDown(event) {
     if (!this.inputLive()) return;
-    if (event.target && event.target.tagName === 'INPUT' && event.target.type === 'text') return;
-    if (event.target && event.target.tagName === 'TEXTAREA') return;
+    if (isTextField(event.target)) return;
     Input.setDevice('kbm');
     const hold = MAPEDIT_HOLD_KEYS[event.code], command = MAPEDIT_COMMAND_KEYS[this.keyId(event)];
     if (hold && !event.ctrlKey && !event.metaKey) { this.held[hold] = true; event.preventDefault(); return; }
@@ -29608,7 +29800,6 @@ const MapEditor = {
   openGroup: 0,                    // history group of a multi-step edit, 0 = none
   groupCounter: 0,
   history: { entries: new Array(MAPEDIT_HISTORY_SIZE).fill(null), start: 0, length: 0, position: 0 },
-  toastEvent: { text: '' },
   changedEvent: { what: '' },
 
   ensureMap() { if (!this.map) this.newFrom({ kind: 'empty' }); },
@@ -29625,8 +29816,7 @@ const MapEditor = {
   announce(what) { this.changedEvent.what = what; Bus.emit('mapEditor.changed', this.changedEvent); },
   refuse(text) {
     this.message = text;
-    this.toastEvent.text = text;
-    Bus.emit('toast', this.toastEvent);
+    emitToast(text);
     return -1;
   },
   toMap() { return mapEditClone(this.map); },
@@ -30228,7 +30418,6 @@ const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-scree
 const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
 const HUD_NUMBER_CACHE = 1000;
 const HUD_LABEL_REFRESH_SECONDS = 1;
-const HUD_LOW_HEALTH = 0.25;
 const HUD_LOW_AMMO = 0.25;
 const HUD_PULSE_HZ = 2;                                  // slow pulses only: well under the flash cap
 const HUD_MAX_ABILITY_SLOTS = 4;
@@ -30559,7 +30748,7 @@ function hudLocalAlive() { return Game.playerId >= 0 && Actors.alive[Game.player
 function hudDrawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
   const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, top = bottomY - height, x = layout.left;
   const fraction = maximum > 0 ? value / maximum : 0;
-  const pulse = fraction < HUD_LOW_HEALTH && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
+  const pulse = fraction < LOW_HEALTH_FRACTION && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
   pen.bar(x, top, width, height, fraction, color, pulse);
   if (value > maximum && maximum > 0) pen.rect(x, top, width, Math.max(2, unit * 2), HUD_COLOR.gold, 1);   // overheal
   const size = height * 0.78;
@@ -30573,7 +30762,7 @@ function hudDrawVitals(pen, layout) {
   if (!hudLocalAlive()) return;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   let y = layout.bottom;
-  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < HUD_LOW_HEALTH ? Hud.colors.healthLow : Hud.colors.health, '♥');
+  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < LOW_HEALTH_FRACTION ? Hud.colors.healthLow : Hud.colors.health, '♥');
   if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = hudDrawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
   if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
 }
@@ -30775,7 +30964,6 @@ const HUD_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that
 
 const HUD_NUMBER_SLOTS = 8, HUD_NUMBER_SECONDS = 0.9, HUD_NUMBER_STACK_SECONDS = 0.7, HUD_NUMBER_RISE = 46;
 const HUD_ARC_SLOTS = 6, HUD_ARC_SECONDS = 1.4, HUD_ARC_RADIUS = 112, HUD_ARC_HALF_WIDTH = 0.3, HUD_ARC_THICKNESS = 9;
-const HUD_VIGNETTE_START = 0.4;           // health fraction where the vignette begins
 const HUD_VIGNETTE_STRENGTH = 0.55;
 const HUD_VIGNETTE_LAYERS = 5;
 const HUD_VIGNETTE_EDGE = 0.18;           // of the shorter screen side
@@ -30983,9 +31171,9 @@ function hudDrawVignette(pen, layout) {
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   const flashAge = Hud.time - HudCombat.flashAt;
   if (flashAge < HUD_HIT_FLASH.seconds) pen.rect(0, 0, width, height, Hud.flashColor(Hud.colors.bad), Hud.flashAlpha(HUD_HIT_FLASH.alpha * (1 - flashAge / HUD_HIT_FLASH.seconds)));
-  if (fraction >= HUD_VIGNETTE_START) return;
+  if (fraction >= LOW_HEALTH_FRACTION) return;
   const pulse = Hud.reduceMotion() ? 1 : 0.85 + 0.15 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ);
-  const strength = (HUD_VIGNETTE_START - fraction) / HUD_VIGNETTE_START * HUD_VIGNETTE_STRENGTH * pulse / HUD_VIGNETTE_LAYERS;
+  const strength = (LOW_HEALTH_FRACTION - fraction) / LOW_HEALTH_FRACTION * HUD_VIGNETTE_STRENGTH * pulse / HUD_VIGNETTE_LAYERS;
   const edge = Math.min(width, height) * HUD_VIGNETTE_EDGE;
   for (let i = 0; i < HUD_VIGNETTE_LAYERS; i++) {
     const band = edge * (HUD_VIGNETTE_LAYERS - i) / HUD_VIGNETTE_LAYERS;
@@ -32010,6 +32198,7 @@ const CommWheel = {
   },
 };
 Input.sources.push(CommWheel);
+TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 
@@ -32031,7 +32220,7 @@ Hud.register('front', 'commWheel', '', hudDrawCommWheel, true);
 
 const UI_TOAST_MS = 2600;
 const UI_MAX_TOASTS = 4;
-const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex="0"]';
+const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
@@ -32064,6 +32253,8 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-foot { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; } .ui-slot { min-width: 8em; text-align: center; padding: 0.4em 0.7em; min-height: 40px; }'
   + '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
   + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
+  + '.ui-code { display: block; width: 100%; min-height: 8em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px;'
+  + ' font: 0.875em/1.4 ui-monospace, Consolas, monospace; user-select: text; }'
   + '#overlay > .ui-toasts { position: fixed; top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }'
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
@@ -32191,6 +32382,7 @@ const Ui = {
   },
   onKeyDown(event) {
     if (!this.stack.length || event.defaultPrevented) return;
+    if (isTextField(event.target) && event.code !== 'Escape' && event.code !== 'Tab') return;   // arrows move the caret while typing
     if (event.code === 'Escape') this.back();
     else if (event.code === 'Tab') this.navigate(event.shiftKey ? 'prev' : 'next');
     else if (UI_KEY_COMMANDS[event.code]) this.navigate(UI_KEY_COMMANDS[event.code]);
@@ -32306,6 +32498,7 @@ const MAIN_MENU_ENTRIES = [
 const PAUSE_REASONS = {
   menu: '', pointerlock: '', blur: 'Paused: the window lost focus.', hidden: 'Paused: the tab was hidden.',
   controller: 'Controller disconnected. Reconnect it, or keep playing with keyboard or touch.',
+  graphics: 'Paused: the graphics were reset. The game goes on by itself once they are restored.',
 };
 const SETTINGS_TABS = [
   ['video', 'Video'], ['controls', 'Controls'], ['audio', 'Audio'], ['gameplay', 'Gameplay'],
@@ -33396,9 +33589,9 @@ const EDITOR_LIVES = [-1, 0, 1, 2, 3, 5, 10];
 const EDITOR_RESPAWN = [-1, 0, 1, 2, 3, 5, 8, 10, 15];
 const EDITOR_FRIENDLY_FIRE = [-1, 0, 0.5, 1];
 const EDITOR_TABS = [['mode', 'Mode'], ['rules', 'Rules'], ['weapons', 'Weapons'], ['bots', 'Bots'], ['mutators', 'Mutators'], ['map', 'Map']];
-const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.8em; }'
-  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; } .cm-code { width: 100%; box-sizing: border-box; min-height: 7em; background: var(--ui-panel); color: var(--ui-text);'
-  + ' border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; } .cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
+const EDITOR_CSS = '.cm-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .cm-sub { display: block; color: var(--ui-dim); font-size: 0.875em; }'
+  + '.cm-reset { min-height: 36px; padding: 0.3em 0.7em; }'
+  + '.cm-name { flex: 1; min-width: 8em; background: var(--ui-panel);'
   + ' color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; } .cm-error { color: var(--ui-bad); } .cm-quick { display: grid;'
   + ' grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 6px 0 12px; } .cm-list .ui-row { flex-wrap: wrap; } .cm-controls .ui-slider { width: auto; flex: 1 1 170px; min-width: 150px; } .cm-controls .ui-value { min-width: 3.6em; }';
 
@@ -33472,27 +33665,38 @@ const CustomCodec = {
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   },
   checksum(text) { return hashString(text).toString(16).padStart(8, '0'); },
-  pack(object) {
+  packCode(format, object) {
     const payload = this.toBase64Url(this.compress(new TextEncoder().encode(JSON.stringify(object))));
-    return EDITOR_CODE_PREFIX + EDITOR_CODE_VERSION + '-' + this.checksum(payload) + '-' + payload;
+    return format.prefix + format.version + '-' + this.checksum(payload) + '-' + payload;
   },
-  unpack(text) {
+  unpackCode(format, text) {
     const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > EDITOR_CODE_MAX_CHARS) return { error: 'The code is too long to be a match code.' };
-    const parts = /^CTK(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$/.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller match code.' };
-    if (Number(parts[1]) > EDITOR_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (Number(parts[1]) < EDITOR_CODE_VERSION) return { error: 'This code is from an old version and cannot be read.' };
+    if (clean.length > format.maxChars) return { error: 'The code is too long to be a ' + format.noun + ' code.' };
+    const parts = format.pattern.exec(clean);
+    if (!parts) return { error: 'This is not a ClassTimeKiller ' + format.noun + ' code.' };
+    if (Number(parts[1]) > format.version) return { error: 'This code was made by a newer version of the game.' };
+    if (Number(parts[1]) < format.oldest) return { error: 'This code is from an old version and cannot be read.' };
     if (this.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
     try {
-      const bytes = this.expand(this.fromBase64Url(parts[3]), EDITOR_PAYLOAD_MAX_BYTES);
-      const object = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-      return isPlainObject(object) ? { object } : { error: 'The code holds no settings.' };
+      const bytes = this.expand(this.fromBase64Url(parts[3]), format.maxBytes);
+      return { object: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) };
     } catch (error) {
-      return { error: 'The code could not be read.' };
+      return { error: SHARE_CODE_UNREADABLE };
     }
   },
+  pack(object) { return this.packCode(MATCH_CODE_FORMAT, object); },
+  unpack(text) {
+    const unpacked = this.unpackCode(MATCH_CODE_FORMAT, text);
+    if (unpacked.error || isPlainObject(unpacked.object)) return unpacked;
+    return { error: 'The code holds no settings.' };
+  },
 };
+function shareCodeFormat(prefix, version, oldest, maxChars, maxBytes, noun) {
+  const pattern = new RegExp(String.raw`^${prefix}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+  return { prefix, version, oldest, maxChars, maxBytes, noun, pattern };
+}
+const SHARE_CODE_UNREADABLE = 'The code could not be read.';
+const MATCH_CODE_FORMAT = shareCodeFormat(EDITOR_CODE_PREFIX, EDITOR_CODE_VERSION, EDITOR_CODE_VERSION, EDITOR_CODE_MAX_CHARS, EDITOR_PAYLOAD_MAX_BYTES, 'match');
 
 function customDefaults() {
   return { name: '', mode: DEFAULT_MODE, map: '', bundle: '', move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true,
@@ -33904,9 +34108,6 @@ Ui.register('custom', {
   onClose() { EDITOR_STATE.refresh = null; },
 });
 
-function stopTextKeys(input) {
-  input.addEventListener('keydown', (event) => { if (event.code !== 'Tab' && event.code !== 'Escape') event.stopPropagation(); });
-}
 function presetRow(preset, nameInput, renderList) {
   const wrap = makeElement('div', 'cm-controls');
   wrap.appendChild(Ui.button('Load', () => {
@@ -33930,7 +34131,6 @@ Ui.register('customPresets', {
     const nameInput = makeElement('input', 'cm-name');
     nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
-    stopTextKeys(nameInput);
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {
       list.replaceChildren();
@@ -33965,12 +34165,11 @@ Ui.register('customShare', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Share Code'));
     const scroll = makeElement('div', 'ui-scroll');
-    const mine = makeElement('textarea', 'cm-code'), paste = makeElement('textarea', 'cm-code');
+    const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
     mine.value = CustomMatch.encode(editorDraft());
     paste.placeholder = 'Paste a match code here';
     const message = makeElement('p', 'ui-note');
-    [mine, paste].forEach(stopTextKeys);
     const importButton = Ui.button('Import code', () => {
       const result = CustomMatch.decode(paste.value);
       message.className = result.error ? 'ui-note cm-error' : 'ui-note';
@@ -33997,7 +34196,7 @@ Ui.register('customShare', {
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
-  + '.mg-code { flex: 1; min-width: 12em; font: 13px/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
+  + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {
@@ -34079,7 +34278,6 @@ function mapgenMenuChoices() {
 function mapgenMenuSeedRow(render) {
   const input = makeElement('input', 'mg-field');
   input.type = 'text'; input.inputMode = 'numeric'; input.value = String(MapGenMenu.state.seed);
-  stopTextKeys(input);
   input.addEventListener('change', () => { if (!MapGenMenu.setSeedText(input.value)) Ui.toast('A seed is a whole number.'); render(); });
   const wrap = makeElement('div', 'mg-controls');
   wrap.appendChild(input);
@@ -34090,7 +34288,6 @@ function mapgenMenuShareRows(render) {
   const mine = makeElement('input', 'mg-field mg-code'), paste = makeElement('input', 'mg-field mg-code');
   mine.type = 'text'; mine.readOnly = true; mine.value = MapGenMenu.shareCode();
   paste.type = 'text'; paste.placeholder = 'Paste a map code';
-  [mine, paste].forEach(stopTextKeys);
   const copyWrap = makeElement('div', 'mg-controls'), pasteWrap = makeElement('div', 'mg-controls');
   copyWrap.appendChild(mine);
   copyWrap.appendChild(Ui.button('Copy', () => copyText(mine.value, mine)));
@@ -34147,10 +34344,10 @@ const MAPEDIT_PANEL_MIN_HEIGHT = 440;
 const MAPEDIT_STATUS_SECONDS = 0.2;           // how often the cursor text is refreshed
 const MAPEDIT_BUDGET_WARNING = 0.9;           // the budget counter turns amber past this share
 const MAPEDIT_LIGHT_COLORS = [[0xffd9a0, 'Warm'], [0xffffff, 'White'], [0x9fc8ff, 'Cool'], [0xff9060, 'Red']];
-const MAPEDIT_CODE_PREFIX = 'CTKMAP';
-const MAPEDIT_CODE_PATTERN = new RegExp(String.raw`^${MAPEDIT_CODE_PREFIX}(\d+)-([0-9a-f]{8})-([A-Za-z0-9_-]+)$`);   // prefix, version, check value, payload
+const MAPEDIT_CODE_PREFIX = 'CTKEDIT';       // not the generator's CTKMAP settings code (16w): each paste box knows its own codes
 const MAPEDIT_CODE_MAX_CHARS = 60000;        // a longer text is refused before anything is decoded
 const MAPEDIT_CODE_MAX_BYTES = 262144;       // the unpacked JSON may not be larger than this
+const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VERSION, 0, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
 const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 const MAPEDIT_PART_TOP = 1, MAPEDIT_PART_PALETTE = 2, MAPEDIT_PART_PROPERTIES = 4, MAPEDIT_PART_DIALOG = 8;
@@ -34173,18 +34370,18 @@ const MAPEDIT_CSS = '.ui-mapEditor { padding: 0; background: none; } .ui-mapEdit
   + '.me-panel { position: absolute; top: calc(52px + var(--safe-top)); bottom: calc(46px + var(--safe-bottom)); width: min(210px, 34vw); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
   + ' background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 10px; touch-action: pan-y; }'
   + '.me-panel > * { flex-shrink: 0; } .me-left { left: calc(8px + var(--safe-left)); } .me-right { right: calc(8px + var(--safe-right)); width: min(250px, 38vw); }'
-  + '.me-panel .ui-row { flex-direction: column; align-items: stretch; min-height: 34px; padding: 4px 6px; margin: 0; gap: 2px; } .me-panel .ui-label { min-width: 0; font-size: 0.85em; }'
-  + '.me-panel .ui-cycle { min-width: 6em; } .me-panel .ui-group { margin: 6px 0 2px; font-size: 0.85em; } .me-panel .ui-note { margin: 0; font-size: 0.8em; }'
+  + '.me-panel .ui-row { flex-direction: column; align-items: stretch; min-height: 34px; padding: 4px 6px; margin: 0; gap: 2px; } .me-panel .ui-label { min-width: 0; font-size: 0.875em; }'
+  + '.me-panel .ui-cycle { min-width: 6em; } .me-panel .ui-group { margin: 6px 0 2px; font-size: 0.875em; } .me-panel .ui-note { margin: 0; font-size: 0.875em; }'
   + '.me-step { display: flex; align-items: center; gap: 4px; } .me-step .ui-button { min-width: 36px; padding: 0.25em 0.4em; } .me-step .ui-value { flex: 1; min-width: 3em; text-align: center; } .me-panel .ui-cycle { width: 100%; }'
   + '.me-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; } .me-name { background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 6px; font: inherit; min-width: 0; width: 100%; }'
   + '.me-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px calc(10px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(10px + var(--safe-left)); pointer-events: none;'
-  + ' background: linear-gradient(rgba(5, 8, 12, 0), rgba(5, 8, 12, 0.85)); font-size: 0.8em; color: var(--ui-dim); } .me-status b { color: var(--ui-text); font-weight: 600; }'
+  + ' background: linear-gradient(rgba(5, 8, 12, 0), rgba(5, 8, 12, 0.85)); font-size: 0.875em; color: var(--ui-dim); } .me-status b { color: var(--ui-text); font-weight: 600; }'
   + '.me-touch { position: absolute; left: 0; right: 0; bottom: calc(38px + var(--safe-bottom)); display: none; justify-content: space-between; align-items: flex-end; padding: 0 calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left)); pointer-events: none; }'
   + '.me-touch.show { display: flex; } .me-touch > * { pointer-events: auto; } .me-pad { display: grid; gap: 4px; }'
   + '.me-moves { grid-template-columns: repeat(5, minmax(52px, 1fr)); width: min(330px, 56vw); } .me-acts { grid-template-columns: repeat(3, minmax(52px, 1fr)); width: min(200px, 34vw); }'
-  + '.me-touch .ui-button { min-height: 42px; min-width: 0; padding: 0.2em; font-size: 0.78em; opacity: 0.88; touch-action: none; } .ui-mapEditor.me-nopanels .me-panel { display: none; }'
+  + '.me-touch .ui-button { min-height: 42px; min-width: 0; padding: 0.2em; font-size: 0.875em; opacity: 0.88; touch-action: none; } .ui-mapEditor.me-nopanels .me-panel { display: none; }'
   + '@media (max-width: 600px) { .me-touch { flex-direction: column; align-items: stretch; gap: 6px; } .me-moves, .me-acts { width: auto; } .me-acts { grid-template-columns: repeat(6, 1fr); } }'
-  + '.me-problem { display: block; width: 100%; margin-bottom: 4px; } .me-code { width: 100%; min-height: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; }'
+  + '.me-problem { display: block; width: 100%; margin-bottom: 4px; }'
   + '.me-maprow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .me-maprow .me-name { flex: 1; min-width: 8em; } .me-error { color: var(--ui-bad); }'
   + '@media (pointer: coarse) { .me-top .ui-button, .me-panel .ui-button { min-height: 44px; } } @media (max-width: 720px) { .me-panel { width: min(170px, 36vw); } }';
 
@@ -34482,22 +34679,14 @@ const MapEditorPlay = {
 Bus.on('match.stop', () => MapEditorPlay.onMatchStop());
 
 const MapEditorShare = {
-  exportCode(map) {
-    const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(MapEditor.compact(map || MapEditor.map)))));
-    return MAPEDIT_CODE_PREFIX + MAPEDIT_CODE_VERSION + '-' + CustomCodec.checksum(payload) + '-' + payload;
-  },
+  exportCode(map) { return CustomCodec.packCode(MAPEDIT_CODE_FORMAT, MapEditor.compact(map || MapEditor.map)); },
   decodeCode(text) {
-    const clean = String(text || '').replace(/\s+/g, '');
-    if (clean.length > MAPEDIT_CODE_MAX_CHARS) return { error: 'The code is too long to be a map code.' };
-    const parts = MAPEDIT_CODE_PATTERN.exec(clean);
-    if (!parts) return { error: 'This is not a ClassTimeKiller map code.' };
-    if (Number(parts[1]) > MAPEDIT_CODE_VERSION) return { error: 'This code was made by a newer version of the game.' };
-    if (CustomCodec.checksum(parts[3]) !== parts[2]) return { error: 'The code is damaged: it does not match its check value. Copy it again.' };
+    const unpacked = CustomCodec.unpackCode(MAPEDIT_CODE_FORMAT, text);
+    if (unpacked.error) return unpacked;
     try {
-      const bytes = CustomCodec.expand(CustomCodec.fromBase64Url(parts[3]), MAPEDIT_CODE_MAX_BYTES);
-      return MapEditor.expand(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      return MapEditor.expand(unpacked.object);
     } catch (error) {
-      return { error: 'The code could not be read.' };
+      return { error: SHARE_CODE_UNREADABLE };
     }
   },
   importCode(text) {
@@ -34644,7 +34833,7 @@ Ui.register('mapEditorCode', {
   build(root) {
     const body = mapEditDialog(root, 'Share code');
     body.appendChild(makeElement('p', 'ui-note', 'Make a code to copy and send, or paste a code you received and press Import. The code holds the whole map.'));
-    const area = makeElement('textarea', 'me-code');
+    const area = makeElement('textarea', 'ui-code');
     area.spellcheck = false;
     const message = makeElement('p', 'ui-note', '');
     const foot = makeElement('div', 'ui-foot');
@@ -34718,7 +34907,7 @@ Bus.on('boot', () => injectStyle('mapEditor-style', MAPEDIT_CSS));
 
 const CAREER_CSS = '.pg-bar { height: 8px; background: var(--ui-line); border-radius: 4px; overflow: hidden; margin: 4px 0 10px; max-width: 520px; }'
   + '.pg-bar > div { height: 100%; background: var(--ui-accent); } .pg-stars { color: var(--ui-accent); letter-spacing: 0.1em; margin-left: 8px; }'
-  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.85em; } .pg-award { margin-bottom: 10px; }'
+  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.875em; } .pg-award { margin-bottom: 10px; }'
   + '.pg-swatch { display: inline-block; width: 1em; height: 1em; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid var(--ui-line); }';
 const CAREER_STAR = '★';
 const CAREER_NO_STAR = '☆';
@@ -35205,6 +35394,56 @@ Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.con
   title: 'Reset all settings?', text: 'Every setting on every tab returns to its default. Key bindings and your progress stay.', yes: 'Reset',
   onYes: () => { resetSettingKeys(editableSettingKeys()); refresh(); },
 }), 'danger'));
+
+const SAVE_FILE_NAME = 'classtimekiller-save.json';
+const SaveTransfer = {
+  reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
+  importText(text) {
+    try {
+      Save.importText(text);
+    } catch (error) {
+      return 'That is not a ClassTimeKiller save (' + (error && error.message || error) + ').';
+    }
+    this.reload();
+    return '';
+  },
+  download() {
+    const url = URL.createObjectURL(new Blob([Save.exportText()], { type: 'application/json' }));
+    const link = makeElement('a');
+    link.href = url; link.download = SAVE_FILE_NAME;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  },
+  readFile(file, area) { file.text().then((text) => { area.value = text; }).catch(() => Ui.toast('That file could not be read.')); },
+};
+Ui.register('saveTransfer', {
+  build(root) {
+    screenHeader(root, 'Save data');
+    root.appendChild(makeElement('p', 'ui-note', 'Export shows your settings, bindings and progress as text to copy, or saves them as a file. '
+      + 'Import replaces them with a save you exported before, then the game restarts.'));
+    const area = makeElement('textarea', 'ui-code');
+    area.spellcheck = false;
+    const picker = makeElement('input');
+    picker.type = 'file'; picker.accept = '.json,application/json,text/plain'; picker.hidden = true;
+    picker.addEventListener('change', () => { if (picker.files[0]) SaveTransfer.readFile(picker.files[0], area); });
+    const foot = makeElement('div', 'ui-foot');
+    foot.appendChild(Ui.button('Export', () => { area.value = Save.exportText(); area.select(); }));
+    foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
+    foot.appendChild(Ui.button('Load file', () => picker.click()));
+    foot.appendChild(Ui.button('Import', () => Ui.confirm({
+      title: 'Import this save?', text: 'Your current settings, bindings and progress are replaced.', yes: 'Import',
+      onYes: () => { const problem = SaveTransfer.importText(area.value); if (problem) Ui.toast(problem); },
+    }), 'danger'));
+    root.appendChild(area);
+    root.appendChild(picker);
+    root.appendChild(foot);
+  },
+});
+Ui.settingsExtras.developer = [(container) => {
+  const foot = makeElement('div', 'ui-foot');
+  foot.appendChild(Ui.button('Export or import save', () => Ui.open('saveTransfer')));
+  container.appendChild(foot);
+}];
 
 function flushSave() { if (Save.data) Save.saveNow(); }
 Bus.on('boot', () => {
@@ -36657,7 +36896,14 @@ Test.add('audio', (check) => {
   check('low health beats about every 0.8 s', beats >= 2 && beats <= 3, beats);
   Actors.health[player] = 60;
   for (let i = 0; i < 120; i++) Sound.update(0.0166);
-  check('no heartbeat above 30% health', audioTestCount('heartbeat') === beats);
+  check('no heartbeat above 35% health', audioTestCount('heartbeat') === beats);
+  Actors.health[player] = 36;
+  Sound.resetState();
+  for (let i = 0; i < 120; i++) Sound.update(0.0166);
+  const above = audioTestCount('heartbeat');
+  Actors.health[player] = 34;
+  for (let i = 0; i < 120; i++) Sound.update(0.0166);
+  check('the heartbeat starts below 35 HP of 100 (HPP02, LOW_HEALTH_FRACTION)', above === 0 && audioTestCount('heartbeat') > 0, above);
   Actors.health[player] = 5;
   Sound.resetState();
   for (let i = 0; i < 120; i++) Sound.update(0.0166);
@@ -37373,7 +37619,7 @@ Test.add('bots', (check) => {
   check('the team bots take the order', takers.length === 2, takers.length);
   check('a defend ping is answered within 2 s (goal: order)', answered.length === takers.length && takers.length > 0, answered.length);
   const acknowledged = takers.filter((id) => barks.some((event) => event.id === id && event.category === 'orderAck' && withinAckTime(event.time - pingedAt)));
-  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-062)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
+  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-051)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
   runSeconds(4);
   check('the bots head for the pinged spot', takers.every((id) => Math.hypot(Actors.x[id] - 20, Actors.z[id] + 20) < 16));
   const enemy = firstOfTeam(1), spottedAt = Sim.time;
@@ -37677,6 +37923,27 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+const USE_GOAL_MAP_SIZE = 200, USE_GOAL_Z = 15, USE_GOAL_RADIUS = 3, USE_GOAL_SECONDS = 6;
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { size: USE_GOAL_MAP_SIZE }), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  placeFacing(bot, 0, -10, 0);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.OBJECTIVE, x: 0, y: 0, z: USE_GOAL_Z, radius: USE_GOAL_RADIUS, action: ACTION.USE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  let speedBefore = 0, pressSpeed = 0, boarded = false;
+  const hold = () => { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); speedBefore = Math.hypot(Actors.vx[bot], Actors.vz[bot]); };
+  const pressed = runHeld(USE_GOAL_SECONDS, hold, () => {
+    boarded = boarded || Move.onBoard(bot);
+    if (Actors.pressed[bot] & BTN.USE) pressSpeed = speedBefore;   // the speed boarding reads in the Use step
+    return pressSpeed > 0;
+  });
+  const runSpeed = Move.preset(bot).groundSpeed * SKIMMER_BOARD_RUN;
+  check('a running bot reaches the Use goal and presses Use', pressed && pressSpeed >= runSpeed, pressSpeed.toFixed(2) + ' vs ' + runSpeed.toFixed(2));
+  check('and stays off the Skimmer (it can still fire)', !boarded && !Move.onBoard(bot) && Move.canFire(bot));
+  endBotTest();
+});
+
 const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
 
 const LONE_SECONDS = 4, ESCAPE_ULTIMATE = 'rift', STRIKE_ULTIMATE = 'orbital';
@@ -37738,6 +38005,89 @@ Test.add('bots', (check) => {
   check('an off press that did not take is retried every 0.5 s, released in between', presses.length >= 2 && presses.length <= 3 && separate, presses.join());
   endBotTest();
 });
+
+Test.add('bots', (check) => {
+  playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
+    const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
+    BotTeam.assignRoles();
+    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
+    enemyFlag.carrier = team[0];
+    BotTeam.assignRoles();
+    check('ctf, enemy flag taken: 3 defend, 2 escort', roles() === 'defend,defend,defend,escort,escort', roles());
+    enemyFlag.carrier = -1;
+    const chaser = team[0], target = Actors.count - 1, pair = BotSense.pair(chaser, target), plan = { goal: GOAL.CHASE, target };
+    BotSense.knownAt[pair] = Sim.time - 1;
+    const fresh = BotDecide.goalState(chaser, plan, Sim.time);
+    BotSense.knownAt[pair] = Sim.time - 3;
+    check('a chase on fresh memory is Chase, on memory older than 2 s Search', fresh === BOT_STATE.CHASE && BotDecide.goalState(chaser, plan, Sim.time) === BOT_STATE.SEARCH);
+  } });
+});
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 }, pair = BotSense.pair(bot, dummy);
+  placeFacing(bot, 0, -10, 0); placeFacing(dummy, 0, 20, Math.PI);
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+  BotCombat.target[bot] = dummy;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('a flanking tier chases a far target round by the flank hint', BotDecide.flankSpot[bot] === 0 && plan.x === 12 && plan.z === 10, plan.x + ',' + plan.z);
+  BotDecide.flankedAt[bot] = Sim.time;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('right after a flank the chase goes straight', BotDecide.flankSpot[bot] === -1 && plan.z === 20);
+  giveWeaponJumper(bot);
+  BotCombat.target[bot] = -1;
+  Motion.grounded[bot] = 1; Actors.health[bot] = Actors.maxHealth[bot];
+  BotDecide.goal[bot] = GOAL.ROAM; BotDecide.goalX[bot] = 0; BotDecide.goalY[bot] = 3; BotDecide.goalZ[bot] = -5;
+  BotMove.state[bot] = PATH.FAILED;   // no way to walk there (the ledge tests below cover walkable paths)
+  check('a weapon jumper with a launcher wants to jump to a goal 3 m up with no way to walk there', BotCombat.wantsWeaponJump(bot, Sim.time));
+  Actors.aimPitch[bot] = -80 * DEG;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.weaponJump(bot, Sim.time);
+  const pressed = Bots.buttonsWanted[bot];
+  check('looking down it jumps and fires in one step', (pressed & BTN.JUMP) !== 0 && (pressed & BTN.FIRE) !== 0 && BotCombat.uses.weaponJumps === 1, pressed);
+  check('one weapon jump at a time (6 s rest)', !BotCombat.wantsWeaponJump(bot, Sim.time + 1));
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = BOT_TRAIT_NEUTRAL;
+  check('a bot without the weapon jumper trait does not', !BotCombat.wantsWeaponJump(bot, Sim.time + WEAPON_JUMP_REST + 1));
+  check('the flash grenade is gated by the flashPeek tier flag', BOT_GADGET_USE.flash.tierFlag === 'flashPeek' && CAT.botTiers.every((row) => row.flashPeek === row.tier >= 3));
+  endBotTest();
+});
+
+function giveWeaponJumper(bot) {
+  const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
+  Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
+}
+
+const JUMP_LEDGE = { shape: 'box', min: [-4, 0, -4], max: [4, 3, 0] }, JUMP_RAMP = { shape: 'ramp', dir: '+z', min: [1, 0, -10], max: [4, 3, -4] };
+const JUMP_FROM = [-2, -8], JUMP_GOAL_Z = -2, JUMP_SECONDS = 3;
+
+function runLedgeGoal(brushes) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, ...brushes] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  placeFacing(bot, JUMP_FROM[0], JUMP_FROM[1], 0);
+  giveWeaponJumper(bot);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.ROAM, x: 0, y: JUMP_LEDGE.max[1], z: JUMP_GOAL_Z, radius: 1, action: ACTION.MOVE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  const result = { startDistance: Math.abs(JUMP_GOAL_Z - Actors.z[bot]), closest: Infinity, topY: 0, jumps: 0, health: 0 };
+  runHeld(JUMP_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
+    result.topY = Math.max(result.topY, Actors.y[bot]); result.closest = Math.min(result.closest, Math.abs(JUMP_GOAL_Z - Actors.z[bot]));
+    return false;
+  });
+  result.jumps = BotCombat.uses.weaponJumps; result.health = Actors.health[bot];
+  endBotTest();
+  return result;
+}
+
+Test.add('bots', (check) => {
+  const ledge = runLedgeGoal([JUMP_LEDGE]);
+  check('a weapon jump lifts the bot up to the ledge and toward its goal', ledge.jumps === 1 && ledge.topY >= JUMP_LEDGE.max[1] && ledge.closest < ledge.startDistance - 1,
+    JSON.stringify(ledge));
+  const ramp = runLedgeGoal([JUMP_LEDGE, JUMP_RAMP]);
+  check('with a ramp up there the bot walks (no weapon jump)', ramp.jumps === 0 && ramp.topY >= JUMP_LEDGE.max[1] - 0.1, JSON.stringify(ramp));
+});
+
 
 Test.add('bots', (check) => {
   const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
@@ -38164,6 +38514,53 @@ Test.add('core', (check) => {
 });
 
 Test.add('core', (check) => {
+  const thrower = Bus.on('test.bootcheck', () => { throw new Error('listener broke'); });
+  let thrown = null;
+  const logged = Test.expectErrors(() => { try { Boot.emitChecked('test.bootcheck'); } catch (error) { thrown = error; } });
+  Bus.off('test.bootcheck', thrower);
+  check('boot: a start-up listener error stops the start', logged === 1 && !!thrown && /listener broke/.test(thrown.message), thrown && thrown.message);
+  let quiet = true;
+  try { Boot.emitChecked('test.bootcheck'); } catch (error) { quiet = false; }
+  check('boot: a clean start-up event goes on', quiet);
+  const run = Boot.run, fatal = document.getElementById('fatal');
+  Boot.run = () => Boot.emitChecked('test.bootcheck');
+  Bus.on('test.bootcheck', thrower);
+  Test.expectErrors(() => Boot.start());
+  Bus.off('test.bootcheck', thrower);
+  Boot.run = run;
+  check('boot: Boot.start shows the fatal screen for it', fatalShown && fatal.classList.contains('show') && document.getElementById('fatal-title').textContent === BOOT_FATAL_TITLE);
+  fatalShown = false; fatal.classList.remove('show');
+  const debugApi = window.__CTK;
+  delete window.__CTK;
+  window.onerror('Uncaught SyntaxError: early', '', 1, 1, null);
+  window.__CTK = debugApi;
+  check('boot: a script error before boot fills the fatal screen (shell.html)', fatal.classList.contains('show') && /early/.test(document.getElementById('fatal-detail').textContent));
+  fatal.classList.remove('show');
+  let newer = [];
+  Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
+  check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+});
+
+Test.add('core', (check) => {
+  const migrated = Save.migrate({ version: 1, settings: null, bindings: [], touchLayouts: 'x', rulesets: {}, play: { mode: 'ffa' }, crosshairs: 5 });
+  check('save: fields of the wrong kind are replaced', saveFieldKind(migrated.settings) === 'object' && saveFieldKind(migrated.bindings) === 'object'
+    && saveFieldKind(migrated.touchLayouts) === 'object' && Array.isArray(migrated.rulesets) && saveFieldKind(migrated.crosshairs) === 'object' && migrated.play.mode === 'ffa');
+  Save.data = migrated;
+  let threw = false;
+  try { Settings.get('video.fov'); } catch (error) { threw = true; }
+  check('save: "settings": null no longer breaks Settings.get', !threw);
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  Save.storage = makeMemoryStorage(true); Save.storageWorks = true; Save.notice = '';
+  Save.saveNow(); Save.saveNow();
+  check('save: a failed write shows a toast once', toasts.length === 1 && toasts[0] === SAVE_BLOCKED, toasts.join());
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true;
+  Save.data.oversized = 'x'.repeat(SAVE_MAX_BYTES + 1);
+  check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
+  Bus.off('toast', listener);
+  Save.storageWorks = true; Save.notice = '';
+});
+
+Test.add('core', (check) => {
   World.load({ id: 'test', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'ramp', min: [2, 0, -1], max: [6, 2, 1], dir: '+x' }] });
   const hit = makeHit();
   check('world: ray down hits the floor', World.raycast(0, 5, 0, 0, -1, 0, 100, hit) && Test.near(hit.y, 0, 1e-4) && hit.ny > 0.99, JSON.stringify(hit.y));
@@ -38171,6 +38568,44 @@ Test.add('core', (check) => {
   check('world: ray misses beyond max distance', !World.raycast(0, 5, 0, 0, -1, 0, 4, hit));
   check('world: line of sight', World.lineClear(-5, 1, 0, -5, 3, 0) && !World.lineClear(0, 1, 0, 0, -2, 0));
   World.clear();
+});
+
+Test.add('core', (check) => {
+  const boxes = [{ minX: 0, minZ: 0, maxX: 7, maxZ: 7 }, { minX: 9, minZ: 9, maxX: 11, maxZ: 11 }];
+  const grid = BrushGrid.build({}, boxes, 4, 0, 0, 12, 12);
+  check('grid: 3 x 3 cells over a 12 m square of 4 m cells', grid.cellsX === 3 && grid.cellsZ === 3, grid.cellsX + 'x' + grid.cellsZ);
+  const count = BrushGrid.query(grid, 0, 0, 12, 12);
+  check('grid: a query lists each overlapping box once', count === 2 && grid.found[0] === 0 && grid.found[1] === 1, Array.from(grid.found.slice(0, count)).join());
+  check('grid: a query only reaches the cells it overlaps', BrushGrid.query(grid, 9, 9, 10, 10) === 1 && grid.found[0] === 1);
+  check('grid: a point past the edge reads the nearest edge cell', BrushGrid.cellAt(grid, -50, -50) === 0 && BrushGrid.cellAt(grid, 50, 50) === 8);
+  const walk = BrushGrid.startWalk(grid, makeGridWalk(), 1, 1, 1, 0), cells = [];
+  for (let cell = BrushGrid.walkCell(grid, walk); cell >= 0; cell = BrushGrid.walkCell(grid, walk)) { cells.push(cell); BrushGrid.stepWalk(walk); }
+  check('grid: a ray walk crosses the cells in order and ends outside the grid', cells.join() === '0,1,2' && BrushGrid.walkCell(grid, walk) === -1, cells.join());
+  BrushGrid.beginPass(grid);
+  check('grid: a pass counts a box once', BrushGrid.firstVisit(grid, 0) && !BrushGrid.firstVisit(grid, 0));
+  check('grid: nav, map scan and render bake keep no lookup grid of their own', typeof navForCells === 'undefined' && typeof gridKey === 'undefined'
+    && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
+});
+
+const SHARED_EMIT_PATTERN = /Bus\.emit\('(sound|impulse|toast)'/;
+const SHARED_EMIT_EXEMPT = ['01-core.js', '18g-ui-custom.js'];
+Test.add('core', (check) => {
+  const seen = [];
+  const handlers = ['sound', 'impulse', 'toast'].map((type) => [type, Bus.on(type, (payload) => seen.push(type + ':' + JSON.stringify(payload)))]);
+  emitSound(1, 2, 3, 0, 'step', 4);
+  emitSound(1, 2, 3, 10, 'step', 4);
+  emitImpulse(5, 0, 6, 0);
+  emitToast('hello');
+  for (const [type, handler] of handlers) Bus.off(type, handler);
+  const expected = 'sound:{"x":1,"y":2,"z":3,"radius":10,"kind":"step","source":4}|impulse:{"id":5,"x":0,"y":6,"z":0}|toast:{"text":"hello"}';
+  check('emitters: payloads arrive, a silent sound sends nothing', seen.join('|') === expected, seen.join('|'));
+  const sections = Array.from(document.scripts).map((element) => element.textContent).join('\n').split(/\n\/\/ ==== (\S+) ====\n/);
+  const offenders = [];
+  for (let k = 1; k < sections.length; k += 2) {
+    if (SHARED_EMIT_EXEMPT.includes(sections[k]) || sections[k].startsWith('20')) continue;
+    if (SHARED_EMIT_PATTERN.test(sections[k + 1])) offenders.push(sections[k]);
+  }
+  check('emitters: no section emits its own sound, impulse or toast payload', sections.length > 10 && offenders.length === 0, offenders.join(', '));
 });
 
 // ==== 20b-test-custom.js ====
@@ -40002,6 +40437,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   Actors.health[id] = Actors.maxHealth[id];
   hudTestFrame();
   check('vignette: full health draws none', Hud.quadsOf('vignette') === 0);
+  Actors.health[id] = Actors.maxHealth[id] * 0.37;
+  hudTestFrame();
+  const above = Hud.quadsOf('vignette');
+  Actors.health[id] = Actors.maxHealth[id] * 0.33;
+  hudTestFrame();
+  check('vignette: it starts below 35% health, the HPP02 threshold shared with the heartbeat', above === 0 && Hud.quadsOf('vignette') > 0 && LOW_HEALTH_FRACTION === 0.35, above);
   check('vignette: the colours are red, never white (ACC-005)', HUD_COLOR.healthLow !== 0xffffff && HUD_COLOR.bad !== 0xffffff && (Hud.colors.bad & 0xff) < 0x80);
   const allowed = [];
   for (let i = 0; i < 6; i++) { allowed.push(Hud.flashAllowed()); Hud.time += 0.1; }
@@ -40895,18 +41336,100 @@ Test.add('input', (check) => {
   setInputSetting('controls.touch.tapToFire', false);
 
   startInputMatch(); Input.setDevice('touch');
-  Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
-  check('touch: auto-fire presses fire while the crosshair is on an enemy', Input.autoFire && (Actors.buttons[id] & BTN.FIRE) !== 0);
-  Input.autoFireTarget = false; inputStepAndFrame(); inputStepAndFrame();
-  check('touch: auto-fire stops when the crosshair leaves', (Actors.buttons[id] & BTN.FIRE) === 0);
-  setInputSetting('controls.touch.autoFire', false);
-  Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
+  Actors.x[id] = 0; Actors.y[id] = 0; Actors.z[id] = 0; Actors.yaw[id] = 0; Actors.pitch[id] = 0;
+  let offDegrees = 1;
+  Input.aimAssistTarget = (actor, out) => { out.x = Math.sin(offDegrees * DEG) * 10; out.y = Actors.eyeY(actor); out.z = Math.cos(offDegrees * DEG) * 10; return true; };
+  Input.frame(INPUT_TEST_FRAME);
+  check('touch: auto-fire presses fire while the crosshair is on an enemy', Input.autoFire && Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) !== 0);
+  offDegrees = 5; inputStepAndFrame(); inputStepAndFrame();
+  check('touch: auto-fire stops when the crosshair leaves', !Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) === 0);
+  offDegrees = 1;
+  setInputSetting('controls.touch.aimAssist', 0); inputStepAndFrame();
+  check('touch: auto-fire finds the enemy with the aim assist slider at 0', (Actors.buttons[id] & BTN.FIRE) !== 0);
+  setInputSetting('controls.touch.aimAssist', 70);
+  setInputSetting('controls.touch.autoFire', false); inputStepAndFrame(); inputStepAndFrame();
   check('touch: auto-fire can be turned off', !Input.autoFire && (Actors.buttons[id] & BTN.FIRE) === 0);
   setInputSetting('controls.touch.autoFire', true);
-  Input.autoFireTarget = false;
-  Input.setDevice('kbm'); Input.autoFireTarget = true; Input.frame(INPUT_TEST_FRAME);
-  check('touch: auto-fire never acts for other devices', (Actors.buttons[id] & BTN.FIRE) === 0);
-  Input.autoFireTarget = false;
+  Input.setDevice('kbm'); inputStepAndFrame(); inputStepAndFrame();
+  check('touch: auto-fire never acts for other devices', !Input.autoFireTarget && (Actors.buttons[id] & BTN.FIRE) === 0);
+  Input.aimAssistTarget = null;
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+  Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
+  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
+  check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
+  Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
+  check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
+  check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
+  const id = Game.playerId;
+  Input.setDevice('touch'); TouchInput.syncVisible();
+  inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);
+  check('touch: holding USE holds the Use button', (Actors.buttons[id] & BTN.USE) !== 0);
+  inputTouchPointer('pointerup', TouchInput.elements.use, 7, 300, 200); inputStepAndFrame(); inputStepAndFrame();
+  check('touch: releasing USE lets go', (Actors.buttons[id] & BTN.USE) === 0);
+  const stickSprints = TouchInput.stickSprints;
+  TouchInput.stickSprints = () => false; TouchInput.updateSprint(1);
+  check('touch: a full stick push does not sprint where sprint walks (Tactical)', !TouchInput.stick.sprinting);
+  TouchInput.stickSprints = () => true; TouchInput.updateSprint(1);
+  check('touch: a full stick push sprints elsewhere', TouchInput.stick.sprinting);
+  TouchInput.updateSprint(0);
+  TouchInput.stickSprints = stickSprints;
+});
+
+Test.add('input', (check) => {
+  const id = startInputMatch();
+  const effects = [], original = PadInput.activePad;
+  PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });
+  Input.device = 'gamepad';
+  Actors.x[id] = 0; Actors.y[id] = 0; Actors.z[id] = 0;
+  Input.rumbleDamage({ target: id, amount: 50 });
+  Input.rumbleDamage({ target: id + 1, amount: 50 });
+  check('rumble: damage to the player buzzes by amount (INP-007)', effects.length === 1 && Test.near(effects[0].strongMagnitude, 0.5, 1e-9));
+  effects.length = 0;
+  Input.rumbleBlast({ x: 3, y: Actors.eyeY(id), z: 0, radius: 3 });
+  Input.rumbleBlast({ x: 30, y: 0, z: 0, radius: 3 });
+  check('rumble: a near blast buzzes, fading with distance; a far one does not', effects.length === 1 && Test.near(effects[0].strongMagnitude, 0.5, 1e-9));
+  effects.length = 0;
+  Input.rumbleFire({ id, weaponClass: 'heavy', mode: 'primary' });
+  Input.rumbleFire({ id, weaponClass: 'rifle', mode: 'primary' });
+  Input.rumbleFire({ id: id + 1, weaponClass: 'heavy', mode: 'primary' });
+  check('rumble: only the player\'s own heavy fire buzzes', effects.length === 1 && effects[0].strongMagnitude === RUMBLE.fireStrength);
+  check('rumble: the bus wires damage, explosion and weapon.fire', ['damage', 'explosion', 'weapon.fire'].every((type) => Bus.listeners.get(type).some((listener) => String(listener).includes('Input.rumble'))));
+  PadInput.activePad = original;
+});
+
+Test.add('input', (check) => {
+  const id = startInputMatch();
+  const pad = inputFakePad();
+  inputUsePad(pad);
+  check('pad: walk, gadget and comm have View chord defaults (INP-007)', Input.getBinding('walk', 2) === 'Pad:8+1' && Input.getBinding('gadget', 2) === 'Pad:8+2' && Input.getBinding('comm', 2) === 'Pad:8+3');
+  check('pad: a chord binding is labelled with both glyphs', Input.bindingLabel('Pad:8+2') === 'View + X');
+  inputPadButton(pad, 8, true); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: View + X holds gadget, not reload', (Actors.buttons[id] & BTN.GADGET) !== 0 && (Actors.buttons[id] & BTN.RELOAD) === 0);
+  check('pad: the chord lets go of the scoreboard', !Input.isHeld('scoreboard'));
+  inputPadButton(pad, 2, false); inputStepAndFrame(); inputStepAndFrame();
+  check('pad: releasing X releases the gadget', (Actors.buttons[id] & BTN.GADGET) === 0);
+  inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  inputPadButton(pad, 2, true); Input.frame(INPUT_TEST_FRAME);
+  check('pad: X alone still reloads', (Actors.buttons[id] & BTN.RELOAD) !== 0 && (Actors.buttons[id] & BTN.GADGET) === 0);
+  inputPadButton(pad, 2, false); Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  Game.pause('graphics');
+  Render.lost = true;
+  Input.requestResume();
+  check('pause: Resume waits while the graphics context is lost (PLT-005)', Game.paused);
+  Render.lost = false;
+  Input.requestResume();
+  check('pause: Resume works again once the graphics are back', !Game.paused);
+  check('pause: the graphics pause has its own reason text', !!PAUSE_REASONS.graphics);
 });
 
 Test.add('input', (check) => {
@@ -41749,7 +42272,7 @@ Test.add('mapEditor', (check) => {
   MapEditor.newFrom({ kind: 'template', id: 'yard' });
   const original = MapEditor.toMap();
   const code = MapEditorShare.exportCode();
-  check('a code has the prefix, a check value and fits a text box', /^CTKMAP1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code) && code.length < MAPEDIT_CODE_MAX_CHARS, code.length);
+  check('a code has the prefix, a check value and fits a text box', /^CTKEDIT1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code) && code.length < MAPEDIT_CODE_MAX_CHARS, code.length);
   check('the code is much shorter than the plain JSON', code.length < JSON.stringify(original).length / 2, code.length + ' vs ' + JSON.stringify(original).length);
   MapEditor.newFrom({ kind: 'empty' });
   const imported = MapEditorShare.importCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + '  ');
@@ -41758,13 +42281,15 @@ Test.add('mapEditor', (check) => {
   check('an imported map validates like the original', Maps.validate(MapEditor.toMap()).length === 0);
   const mutate = (text, index) => text.slice(0, index) + (text[index] === 'A' ? 'B' : 'A') + text.slice(index + 1);
   const bad = [['an empty code', ''], ['a foreign text', 'hello world'], ['a custom match code', 'CTK1-00000000-AAAA'], ['a changed character', mutate(code, code.length - 5)],
-    ['a changed check value', mutate(code, 10)], ['a cut code', code.slice(0, code.length - 30)], ['a newer version', code.replace('CTKMAP1', 'CTKMAP9')], ['an oversize code', code + 'A'.repeat(MAPEDIT_CODE_MAX_CHARS)]];
+    ['a changed check value', mutate(code, 10)], ['a cut code', code.slice(0, code.length - 30)], ['a newer version', code.replace('CTKEDIT1', 'CTKEDIT9')], ['an oversize code', code + 'A'.repeat(MAPEDIT_CODE_MAX_CHARS)]];
   for (const [name, text] of bad) {
     const result = MapEditorShare.decodeCode(text);
     check('corrupt code rejected: ' + name, !!result.error && !result.map, result.error);
   }
-  check('a rejected import leaves the editor map alone', (() => { const json = mapEditMapJson(); MapEditorShare.importCode('CTKMAP1-00000000-AAAA'); return json === mapEditMapJson(); })());
-  const encodeCode = (object) => { const payload = CustomCodec.toBase64Url(CustomCodec.compress(new TextEncoder().encode(JSON.stringify(object)))); return 'CTKMAP1-' + CustomCodec.checksum(payload) + '-' + payload; };
+  check('a rejected import leaves the editor map alone', (() => { const json = mapEditMapJson(); MapEditorShare.importCode('CTKEDIT1-00000000-AAAA'); return json === mapEditMapJson(); })());
+  const encodeCode = (object) => CustomCodec.packCode(MAPEDIT_CODE_FORMAT, object);
+  check('codes: map, generator and match codes have distinct prefixes, and none is read by another box', MAPEDIT_CODE_PREFIX !== MAPGEN_SHARE_PREFIX
+    && MapGen.parseShare(code) === null && !!CustomCodec.unpack(code).error && !!MapEditorShare.decodeCode(CustomCodec.pack({ name: 'x' })).error);
   const good = MapEditor.compact(original);
   const hostile = [['no lists', Object.assign({}, good, { brushes: 5 })], ['a bad number', Object.assign({}, good, { brushes: [['concrete', 0, 0, 0, 'x', 1, 1]] })],
     ['an unknown material', Object.assign({}, good, { brushes: [['lava', 0, 0, 0, 1, 1, 1]] })], ['a huge coordinate', Object.assign({}, good, { brushes: [['concrete', 0, 0, 0, 1e9, 1, 1]] })],
@@ -42271,13 +42796,13 @@ Test.add('mapEditor', async (check) => {
   check('tapping a problem returns to the editor with the object selected and the camera on it', Ui.current() === 'mapEditor' && MapEditor.selection.list === 'spawns' && MapEditor.selection.index === 0
     && Math.abs(MapEditorTools.camera.x + Math.sin(MapEditorTools.camera.yaw) * MAPEDIT_FOCUS_BACK - MapEditor.map.spawns[0].x) < 1e-6);
   Ui.open('mapEditorCode');
-  document.querySelector('.ui-mapEditorCode .me-code').value = 'not a code';
+  document.querySelector('.ui-mapEditorCode .ui-code').value = 'not a code';
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Import').click();
   const confirmOpen = Ui.current() === 'confirm';
   if (confirmOpen) Array.from(document.querySelectorAll('.ui-confirm .ui-button')).find((button) => button.textContent === 'Import').click();
   check('a bad code shows its message and stays on the screen', Ui.current() === 'mapEditorCode' && document.querySelector('.ui-mapEditorCode .me-error').textContent.length > 0);
   Array.from(document.querySelectorAll('.ui-mapEditorCode .ui-button')).find((button) => button.textContent === 'Make code').click();
-  check('Make code fills the box with a code', /^CTKMAP1-/.test(document.querySelector('.ui-mapEditorCode .me-code').value));
+  check('Make code fills the box with a code', /^CTKEDIT1-/.test(document.querySelector('.ui-mapEditorCode .ui-code').value));
   Ui.pop();
   MapEditor.newFrom({ kind: 'empty' });
   check('saving an unfinished map says that no mode is complete', mapEditSave(false) && /no mode is complete/i.test(Ui.lastToast) && MapEditor.saved().length === 1 && Maps.runtime.length === 0, Ui.lastToast);
@@ -44744,6 +45269,22 @@ Test.add('move', (check) => {
   loadTestWorld();
   useTestRules({ move: 'tactical' });
   const id = groundedTester(-40, 0);
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('tactical: sprint walks at 0.52 x 6.0', Test.near(testSpeed(id), 3.12, 0.03), testSpeed(id));
+  check('tactical: walking on sprint keeps the walk accuracy', Move.inaccuracy(id) === Move.preset(id).inaccuracy.walk);
+  check('tactical: walking on sprint is silent', recordEvents(['move.step'], () => stepSeconds(1)).length === 0);
+  check('tactical: the touch stick does not press sprint there', !TouchInput.stickSprints());
+  useTestRules({ move: 'arena' });
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('arena: the sprint button never walks', testSpeed(id) > Move.preset(id).groundSpeed * 0.95 && TouchInput.stickSprints(), testSpeed(id));
+});
+
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'tactical' });
+  const id = groundedTester(-40, 0);
   const table = Move.preset(id).inaccuracy;
   stepSeconds(0.4);
   check('standing still: no movement inaccuracy', Move.inaccuracy(id) === 0);
@@ -45086,6 +45627,37 @@ Test.add('move', (check) => {
   check('any hit knocks the rider off for 2 s', !Move.onBoard(id) && !Move.setBoard(id, true));
   stepSeconds(2.05);
   check('can board again after 2 s', Move.setBoard(id, true));
+});
+
+Test.add('move', (check) => {
+  loadTestWorld([], { size: 100 });
+  useTestRules({ move: 'arena' });
+  const id = groundedTester(0, 0);
+  holdInput(id, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(id, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('no boarding on a small map', !Move.onBoard(id));
+  loadTestWorld([], { size: [200, 180] });
+  const rider = groundedTester(0, 0);
+  holdInput(rider, 0, 0, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while standing does not board (objectives and loot use it)', !Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(rider, 0, 0, BTN.USE);
+  Sim.step();
+  check('stop-and-Use in one step does not board (bots at Use goals)', !Move.onBoard(rider) && Move.canFire(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while running boards on a large map', Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.1);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while riding steps off', !Move.onBoard(rider));
 });
 
 Test.add('move', (check) => {
@@ -47571,6 +48143,27 @@ Test.add('pve', (check) => {
 });
 
 Test.add('pve', (check) => {
+  startPveTest();
+  const weights = { calm: 0, combat: 0, boss: 0 }, events = startEventLog('pve.boss');
+  const boss = spawnFacing('overlord', 30);
+  check('a boss spawn brings the boss music layer in', SoundMusic.targetWeights(weights).boss === 1, SoundMusic.bosses);
+  runSeconds(1);
+  killEnemy(boss);
+  events.stop();
+  const defeated = events.find((event) => event.kind === 'defeated');
+  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
+  check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === defeated.seconds,
+    RunLog.bossSeconds);
+  spawnFacing('overlord', 30);
+  Pve.clearEnemies();   // a failed wave 10 or a round clear removes the living boss without a kill
+  check('a boss removed without a kill takes the boss layer out', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.bosses === 0, SoundMusic.bosses);
+  spawnFacing('overlord', 30);
+  check('the retry counts one boss fight', SoundMusic.bosses === 1, SoundMusic.bosses);
+  Game.stop();
+  check('the match end stops the boss layer', SoundMusic.bosses === 0);
+});
+
+Test.add('pve', (check) => {
   World.load(pveTestMap());
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true }], mutators: ['wildlife'] });
   runSeconds(6);
@@ -49184,6 +49777,24 @@ function assistEffect(field, value) {
   return seen;
 }
 
+Test.add('settings', (check) => uiWith(() => {
+  Save.data.settings['video.fov'] = 77;
+  Ui.open('settings', { tab: 'developer' });
+  check('save transfer: Settings > Developer opens it', uiClickButton(Ui.top().element, 'Export or import save') && Ui.current() === 'saveTransfer');
+  const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
+  uiClickButton(screen, 'Export');
+  check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
+  Save.data.settings['video.fov'] = 60;
+  const reload = SaveTransfer.reload;
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  uiClickButton(screen, 'Import');
+  uiClickButton(Ui.top().element, 'Import');   // the confirm dialog's yes
+  check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
+  check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
+  SaveTransfer.reload = reload;
+}));
+
 // ==== 20b-test-ui.js ====
 
 DebugApi.ui = Ui;
@@ -49273,6 +49884,28 @@ Test.add('ui', (check) => uiWith(() => {
   uiClickButton(Ui.top().element, 'C'); Ui.back();
   Bus.off('ui.click', listener);
   check('events: buttons and back emit ui.click for the sound hook', clicks.join() === 'accept,back', clicks.join());
+}));
+
+Test.add('ui', (check) => uiWith(() => {
+  Ui.register('testTyping', {
+    build(root) {
+      const field = makeElement('input');
+      field.type = 'text';
+      root.appendChild(field);
+      root.appendChild(makeElement('textarea'));
+      root.appendChild(Ui.button('After', () => {}));
+    },
+  });
+  Ui.open('testTyping');
+  const element = Ui.top().element, field = element.querySelector('input'), area = element.querySelector('textarea');
+  const keyIn = (target, code) => target.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  field.focus(); keyIn(field, 'ArrowDown');
+  check('typing: arrows inside a text field move the caret, not the menu focus (INP-010)', document.activeElement === field);
+  area.focus(); keyIn(area, 'ArrowUp');
+  check('typing: the same inside a textarea', document.activeElement === area);
+  check('typing: a textarea can take the menu focus', Array.from(element.querySelectorAll(UI_FOCUSABLE)).includes(area));
+  field.focus(); keyIn(field, 'Escape');
+  check('typing: Esc in a text field still goes back', Ui.current() !== 'testTyping');
 }));
 
 Test.add('ui', (check) => uiWith(() => {
@@ -50183,7 +50816,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   Input.device = 'kbm';
 })));
 
-const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair'];
+const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair', 'saveTransfer'];
 
 function accessTestSmallText(element) {
   const small = [];
@@ -50221,6 +50854,17 @@ function accessTestScreen(check, name) {
   const leftByTouch = !!button && Ui.current() !== name;
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
+
+Test.add('uiacc', (check) => {
+  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  for (const name in sheets) {
+    for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
+      const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);
+      if (pixels < ACCESS_TEST_MIN_FONT - 0.01) small.push(name + ' ' + match[0]);
+    }
+  }
+  check('menus: no menu style sets text under 14 px at 100% scale (ACC-008)', small.length === 0, small.join('; '));
+});
 
 Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   for (const name of ACCESS_TEST_SCREENS) { accessTestScreen(check, name); Ui.closeAll(); }
@@ -50514,6 +51158,24 @@ Test.add('weapons', (check) => {
   for (let k = 0; k < PROJECTILE_CAP + 10; k++) Projectiles.spawn(rocket, shooter, ramjet.index, 0, 0, 30, 0, 0, 0, 0, 0);
   check('pool cap per projectile row recycles the oldest', Projectiles.active === rocket.poolSize, Projectiles.active);
   Projectiles.clear();
+  TestArena.finish();
+});
+
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const player = TestArena.actor(1, 0, 0), enemy = TestArena.actor(2, 0, 40);
+  const rocket = CAT.projectiles.byId('rocket'), grenade = CAT.projectiles.byId('grenade'), ramjet = CAT.weapons.byId('ramjet').index;
+  Game.playerId = player;
+  const warnings = [];
+  const handler = Bus.on('projectile.incoming', (event) => warnings.push(event.kind + ':' + event.source));
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 0, 1.5, 40, 0, 0, -30, 0);      // straight at the player
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 5, 1.5, 20, 0, 0, 30, 0);       // 21 m away, flying away
+  Projectiles.spawn(rocket, player, ramjet, 0, 0, 1.5, 2, 0, 0, 30, 0);       // the player's own
+  Projectiles.spawn(grenade, enemy, ramjet, 0, 3, 1.5, 15, 0, 0, -8, 0);      // a closing grenade (not an incoming row)
+  Sim.run(TICK_RATE);
+  Bus.off('projectile.incoming', handler);
+  check('an enemy rocket closing within 25 m sends one projectile.incoming (rocket whistle)', warnings.length === 1 && warnings[0] === 'rocket:' + enemy, warnings.join());
+  Game.playerId = -1;
   TestArena.finish();
 });
 
@@ -51929,6 +52591,9 @@ Test.add('world', (check) => {
 
 // ==== 21-boot.js ====
 
+const BOOT_FATAL_TITLE = 'ClassTimeKiller could not start';
+const BOOT_FATAL_TEXT = 'Something went wrong while starting. Reload the page; if it keeps happening, update your browser.';
+
 const Boot = {
   start() {
     window.addEventListener('error', (event) => ErrorLog.add('window', event.error || event.message));
@@ -51936,16 +52601,25 @@ const Boot = {
     document.getElementById('version').textContent = 'v' + VERSION;
     window.__CTK = DebugApi;
     try {
-      Save.load();
-      Bus.emit('boot', null);
-      if (fatalShown) return;
-      Settings.applyAll();
-      Loop.start();
-      Bus.emit('ready', null);
+      this.run();
     } catch (error) {
       ErrorLog.add('boot', error);
-      showFatal('ClassTimeKiller could not start', 'Something went wrong while starting. Reload the page; if it keeps happening, update your browser.', String(error && error.stack || error));
+      showFatal(BOOT_FATAL_TITLE, BOOT_FATAL_TEXT, String(error && error.stack || error));
     }
+  },
+  run() {
+    Save.load();
+    this.emitChecked('boot');
+    if (fatalShown) return;
+    Settings.applyAll();
+    Loop.start();
+    this.emitChecked('ready');
+  },
+  emitChecked(type) {
+    const before = ErrorLog.total;
+    Bus.emit(type, null);
+    const failure = ErrorLog.since(before).find((entry) => entry.startsWith('event ' + type + ':'));
+    if (failure) throw new Error(failure);
   },
 };
 

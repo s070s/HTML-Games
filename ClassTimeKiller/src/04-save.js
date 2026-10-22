@@ -9,7 +9,6 @@ const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
 const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
-const saveToast = { text: '' };
 
 // 'null' | 'array' | typeof: a loaded field must have the kind of its empty-save default (a null default also takes an object).
 function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
@@ -64,8 +63,7 @@ const Save = {
   fail(text) {
     if (this.notice === text) return false;
     this.notice = text;
-    saveToast.text = text;
-    Bus.emit('toast', saveToast);
+    emitToast(text);
     return false;
   },
   exportText() { return JSON.stringify(this.data); },

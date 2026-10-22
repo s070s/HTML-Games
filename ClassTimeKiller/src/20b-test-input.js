@@ -666,7 +666,7 @@ Test.add('input', (check) => {
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
   Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
   check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
-  check('touch: COMM stays hidden until a comm wheel fills its hook', TouchInput.elements.comm.classList.contains('off'));
+  check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
   const id = Game.playerId;
   Input.setDevice('touch'); TouchInput.syncVisible();
   inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);

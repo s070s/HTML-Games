@@ -71,6 +71,7 @@ const CommWheel = {
   },
 };
 Input.sources.push(CommWheel);
+TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 
