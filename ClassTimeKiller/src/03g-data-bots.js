@@ -108,6 +108,7 @@ const BOT_BARKS = {
   death: { minimal: false, taunt: false, lines: ['I am down.', 'They got me.', 'Ouch.'] },
   orderAck: { minimal: true, taunt: false, reply: true, lines: ['On it.', 'Copy that.', 'Understood.'] },
   pingReply: { minimal: true, taunt: false, reply: true, lines: ['Ok.', 'Thanks.', 'Seen it.', 'Got it.'] },
+  dibs: { minimal: true, taunt: false, reply: true, lines: ['Dibs.', 'That one is mine.', 'Taking it.'] },
   lowHealth: { minimal: false, taunt: false, lines: ['Low on health.', 'Hurting here.', 'Need a medkit.'] },
   objective: { minimal: true, taunt: false, lines: ['Objective moving!', 'Watch the objective.', 'Push the objective!'] },
 };

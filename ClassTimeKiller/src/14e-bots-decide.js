@@ -59,6 +59,7 @@ const SQUAD_KEEP = 12;                  // m: a royale squadmate farther than th
 const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that distance or more (less nearer)...
 const SQUAD_FIGHT_KEEP = 24;            // ...but a bot with a target stays in its fight up to this far (objectives outrank chases)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
+const SQUAD_ZONE_PULL = 1.5;            // a squad follower values the zone its leader plays this much more
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view...
 const HOLD_LOOK_ARC = 60 * DEG;         // ...back and forth this far either side of where it faced on arrival (BOT-040: no 360 vision)
@@ -168,10 +169,12 @@ const BotDecide = {
     }
   },
   // The item spot at a position (pickups and timers report positions), or -1.
-  itemAt(x, y, z) {
+  itemAt(x, y, z) { return this.itemNear(x, y, z, ITEM_TOUCH); },
+  // The first item spot within radius m (flat; twice that in height) of a position, or -1.
+  itemNear(x, y, z, radius) {
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (length2(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
+      if (length2(item.x - x, item.z - z) < radius && Math.abs(item.y - y) < radius * 2) return i;
     }
     return -1;
   },
@@ -215,6 +218,8 @@ const BotDecide = {
     if (changed) { this.goalSince[id] = now; this.holdYaw[id] = NaN; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
+    if (changed && plan.goal === GOAL.OBJECTIVE) BotTeam.onObjectiveGoal(id, plan.target, now);   // call-outs of the chosen goal only
+    if (changed && plan.goal === GOAL.COLLECT) BotTeam.onItemGoal(id, plan.x, plan.y, plan.z, now);
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
     this.goalRadius[id] = plan.radius; this.goalAction[id] = plan.action; this.goalTarget[id] = plan.target;
     Bots.setState(id, this.goalState(id, plan, now));
@@ -467,6 +472,7 @@ GOAL_SCORERS[GOAL.CAMP] = (id, plan, now) => {
 };
 GOAL_SCORERS[GOAL.INVESTIGATE] = (id, plan, now) => {
   if (BotCombat.target[id] >= 0 || now - BotSense.heardAt[id] > INVESTIGATE_SECONDS) return 0;
+  if (BotTeam.beyondSquad(id, BotSense.heardX[id], BotSense.heardZ[id])) return 0;
   setPlan(plan, BotSense.heardX[id], BotSense.heardY[id], BotSense.heardZ[id], 2, ACTION.MOVE, -1);
   return INVESTIGATE_BASE + INVESTIGATE_GAIN * Bots.trait(id, TRAIT.alertness);
 };
@@ -529,6 +535,7 @@ function bestItem(id, now, group) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if ((group && item.group !== group) || BotDecide.itemNode[i] < 0 || !Nav.reachable(botNode, BotDecide.itemNode[i])) continue;
+    if (BotTeam.beyondSquad(id, item.x, item.z)) continue;
     const value = itemValue(id, item);
     if (value <= 0) continue;
     const distance = length3(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
@@ -616,20 +623,20 @@ function spreadSpot(id, objective, share, plan, action) {
   setPlan(plan, objective.x + Math.sin(angle) * offset, objective.y, objective.z + Math.cos(angle) * offset, radius, action, objective.index);
 }
 
-function planZones(id, plan, kind, now) {
-  const team = Actors.team[id], defender = BotTeam.role[id] === ROLE.DEFEND;
+// BOT-052: a squad follower is drawn to the zone its leader plays (SQUAD_ZONE_PULL x its score).
+function planZones(id, plan, kind) {
+  const team = Actors.team[id], defender = BotTeam.role[id] === ROLE.DEFEND, led = BotTeam.leaderObjective(id);
   let best = null, bestScore = 0;
   for (const objective of Modes.objectives) {
     if (objective.kind !== kind || !objective.active) continue;
     const threatened = objective.contested || (objective.capturingTeam >= 0 && objective.capturingTeam !== team);
     const value = objective.owner !== team || team < 0 ? 1 : threatened ? 0.9 : defender ? 0.6 : 0.25;
-    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
+    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40) * (objective.index === led ? SQUAD_ZONE_PULL : 1);
     if (score > bestScore) { bestScore = score; best = objective; }
   }
   if (!best) return false;
   zoneSpot(id, best, plan, ACTION.HOLD);
   plan.score = clamp(bestScore * 1.5, 0, 1);
-  if (BotTeam.role[id] !== ROLE.FREELANCE && now - Bots.stateSince[id] < 0.6) BotTeam.bark(id, 'takingPoint', now);
   return true;
 }
 
@@ -814,8 +821,8 @@ function keepAway(id, plan) {
   setPlan(plan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
 }
 
-BotDecide.registerPlanner('point', (id, plan, now) => planZones(id, plan, 'point', now));
-BotDecide.registerPlanner('hill', (id, plan, now) => planZones(id, plan, 'hill', now));
+BotDecide.registerPlanner('point', (id, plan) => planZones(id, plan, 'point'));
+BotDecide.registerPlanner('hill', (id, plan) => planZones(id, plan, 'hill'));
 BotDecide.registerPlanner('flag', (id, plan) => planFlags(id, plan));
 BotDecide.registerPlanner('bombsite', (id, plan) => planBomb(id, plan));
 BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));

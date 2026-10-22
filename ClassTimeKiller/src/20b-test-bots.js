@@ -266,8 +266,8 @@ Test.add('bots', (check) => {
   const custom = Difficulty.resolve({ preset: 'regular', reactionScale: 99, tierMin: 5, tierMax: 2 });
   const slider = DIFFICULTY_SLIDERS.find((row) => row.field === 'reactionScale');
   check('custom sliders clamp to DIF-002 and tierMax >= tierMin', (!slider || custom.reactionScale === slider.max) && custom.tierMax >= custom.tierMin);
-  const ids = startBotTest(botTestMap(false), 'ffa', { bots: [{ profile: 'pell' }, { tier: 'BT6' }, {}] });
-  check('a named bot plays its roster tier, setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
+  const ids = startBotTest(botTestMap(false), 'ffa', { difficulty: 'recruit', bots: [{ profile: 'pell' }, { tier: 'BT6' }, {}] });
+  check('a named bot plays its roster tier (inside the difficulty range), setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
   check('a named bot keeps its profile row', Bots.profile[ids[0]] === CAT.bots.byId('pell') && Actors.profile[ids[0]] === CAT.bots.byId('pell'));
   check('setTier changes the tier', DebugApi.setTier(ids[2], 7) && Bots.tier(ids[2]).tier === 7);
   const extra = DebugApi.spawnBot('nyx7', -1);
@@ -412,11 +412,13 @@ Test.add('bots', (check) => {
   Bus.emit('ping', { id: player, kind: 'enemy', x: Actors.x[enemy], y: Actors.y[enemy], z: Actors.z[enemy], target: enemy });
   runSeconds(2);
   check('an enemy ping from the player gets a reply within 1.5 s', barks.some((event) => event.category === 'pingReply' && withinAckTime(event.time - spottedAt)));
+  const chatter = Settings.get('gameplay.chatter');
   Settings.set('gameplay.chatter', 'off');
   const count = barks.length;
   Bus.emit('ping', { id: player, kind: 'go', x: -20, y: 0, z: -20, target: -1 });
   runSeconds(2);
   check('chatter off silences the barks', barks.length === count);
+  Settings.set('gameplay.chatter', chatter);   // later tests count barks
   barks.stop();
   endBotTest();
 });
@@ -1667,6 +1669,56 @@ Test.add('bots', (check) => {
   check('a hurt bot under fire keeps its consumable', !pressedHurt && Items.consumableCount(bot) === 1);
   check('a hurt calm bot presses heal and uses its consumable', pressedCalm && Items.useProgress(bot) >= 0);
   check('the heal decision lives in the bot brain, not in the items section', typeof Items.botWantsHeal !== 'function');
+  endBotTest();
+});
+
+// ---- BOT-110 tiers: a Custom personality never overrides the difficulty's tier range ----
+Test.add('bots', (check) => {
+  startBotTest(botTestMap(false), 'ffa', { difficulty: 'recruit', bots: [{ profile: 'halloran' }, { profile: 'calderrhee' }] });
+  const recruit = CAT.difficulty.byId('recruit'), tiers = [Bots.tier(0).tier, Bots.tier(1).tier];
+  check('Recruit with Veteran-or-better personalities: every bot stays in the Recruit tier range', tiers.every((tier) => tier >= recruit.tierMin && tier <= recruit.tierMax), tiers.join());
+  endBotTest();
+});
+
+// ---- BOT-061 / BOT-100: objective barks, item pings and Dibs, takingPoint only when the objective wins ----
+Test.add('bots', (check) => {
+  const barks = startEventLog('bark'), announces = startEventLog('announce');
+  let wrongPoint = 0;
+  const handler = Bus.on('bark', (event) => { if (event.category === 'takingPoint' && BotDecide.goal[event.id] !== GOAL.OBJECTIVE) wrongPoint++; });
+  playMatch({ mode: 'dom', map: 'twinkeeps', minutes: 1, botCount: 8, seed: 1 });
+  Bus.off('bark', handler); barks.stop(); announces.stop();
+  const captures = announces.filter((event) => event.kind === 'capture').length, objective = barks.filter((event) => event.category === 'objective').length;
+  check('bots call out objective events (the objective bark is said)', captures > 0 && objective > 0, objective + ' objective barks, ' + captures + ' captures');
+  check('"Taking the point" only from bots whose chosen goal is the objective', wrongPoint === 0, wrongPoint);
+});
+Test.add('bots', (check) => {
+  const items = [{ x: 0, y: 0, z: 6, item: 'health', group: 'health' }];
+  const [bot] = startBotTest(botTestMap(false, { items }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0, tier: 3 }, { team: 1, dummy: true }] }).filter((id) => Bots.active[id]);
+  const player = Game.playerId;
+  placeFacing(bot, 0, -10, 0);
+  const pings = startEventLog('ping');
+  Bus.emit('ping', { id: player, kind: 'go', x: 0.6, y: 0, z: 6.4, target: -1, to: -1 });
+  runSeconds(ORDER_ACK_MAX + 0.2);
+  check('a bot answers a player\'s ping on an item with Dibs', pings.some((event) => event.id === bot && event.kind === 'dibs'), pings.map((event) => event.id + ':' + event.kind).join());
+  pings.length = 0;
+  Actors.health[bot] = Actors.maxHealth[bot] * 0.3;
+  BotTeam.orderUntil[bot] = 0;
+  runSeconds(6);
+  check('a bot taking an item pings it for the team', pings.some((event) => event.id === bot && event.kind === 'dibs'), pings.map((event) => event.id + ':' + event.kind).join());
+  pings.stop();
+  endBotTest();
+});
+Test.add('bots', (check) => {
+  const items = [{ x: 40, y: 0, z: 40, item: 'health', group: 'health' }];
+  const [leader, follower] = startBotTest(botTestMap(false, { items }), 'tdm', { balance: false, bots: [{ team: 0, tier: 3 }, { team: 0, tier: 3 }, { team: 1, dummy: true }] });
+  placeFacing(leader, -40, -40, 0);
+  placeFacing(follower, 20, 20, 0);
+  Actors.health[follower] = Actors.maxHealth[follower] * 0.3;
+  BotTeam.squadLeader[leader] = leader; BotTeam.squadLeader[follower] = leader;
+  const squadScore = GOAL_SCORERS[GOAL.COLLECT](follower, goalPlan, Sim.time);
+  BotTeam.squadLeader[follower] = -1;
+  const soloScore = GOAL_SCORERS[GOAL.COLLECT](follower, goalPlan, Sim.time);
+  check('a squad follower leaves items farther than BOT_SQUAD.regroup from its leader (a lone bot takes them)', squadScore === 0 && soloScore > 0, squadScore + ' / ' + soloScore);
   endBotTest();
 });
 

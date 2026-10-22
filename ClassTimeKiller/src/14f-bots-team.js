@@ -12,6 +12,9 @@ const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
 const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
 const COMMANDER_INTERVAL = 15;
 const ENEMY_PING_INTERVAL = 4;
+const ITEM_PING_INTERVAL = 4;           // s between a bot's item pings (Dibs on the item it goes for)
+const ITEM_PING_RADIUS = 2;             // a move ping this close to an item spot is a ping on the item: the taker calls Dibs
+const OBJECTIVE_ANNOUNCES = new Set(['capture', 'bomb', 'flag', 'objective']);   // announce kinds the objective bark answers
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = MAX_ACTORS + 1;      // index 0 = no team, then the teams (M20 squads use team indices up to the actor count)
@@ -65,7 +68,7 @@ const BotTeam = {
   orderSource: new Int16Array(MAX_ACTORS).fill(-1),   // who gave the order (a follow order tracks them)
   orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
   ackCategory: new Array(MAX_ACTORS).fill('orderAck'),   // the reply bark due at ackAt
-  enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), itemPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
   teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
   // BOT-053 tokens: BOT_TOKENS.attackers slots per target, one flank slot per team (free-for-all: per bot); holder -1 = free.
@@ -85,7 +88,7 @@ const BotTeam = {
     this.role.fill(ROLE.FREELANCE);
     this.orderUntil.fill(0);
     this.ackAt.fill(0);
-    this.enemyPingAt.fill(-1e9);
+    this.enemyPingAt.fill(-1e9); this.itemPingAt.fill(-1e9);
     this.barkAt.fill(-1e9);
     this.teamBarkAt.fill(-1e9);
     this.grenadeAt.fill(-1e9);
@@ -175,21 +178,59 @@ const BotTeam = {
   // A follower's SQUAD goal plan: the leader's live position; broken off (farther than BOT_SQUAD.regroup) it regroups.
   // A bot with a target fights first (no squad goal, so a regroup never drops a chase).
   squadPlan(id, plan) {
-    const leader = this.squadLeader[id];
-    if (BotCombat.target[id] >= 0) return 0;
-    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return 0;
+    const leader = this.liveLeader(id);
+    if (BotCombat.target[id] >= 0 || leader < 0) return 0;
     setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], BOT_SQUAD.keep, ACTION.MOVE, leader);
     const keep = SQUAD_BASE + SQUAD_GAIN * Bots.trait(id, TRAIT.teamwork);
     return length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]) > BOT_SQUAD.regroup ? keep + SQUAD_REGROUP : keep;
   },
+  // The living team leader a follower keeps with, or -1 (no squad, or the bot leads).
+  liveLeader(id) {
+    const leader = this.squadLeader[id];
+    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return -1;
+    return leader;
+  },
+  // BOT-052: a follower detours (items, sounds) at most BOT_SQUAD.regroup m from its leader.
+  beyondSquad(id, x, z) {
+    const leader = this.liveLeader(id);
+    return leader >= 0 && length2(x - Actors.x[leader], z - Actors.z[leader]) > BOT_SQUAD.regroup;
+  },
+  // The objective (index) the follower's leader plays, or -1.
+  leaderObjective(id) {
+    const leader = this.liveLeader(id);
+    return leader >= 0 && BotDecide.goal[leader] === GOAL.OBJECTIVE ? BotDecide.goalTarget[leader] : -1;
+  },
 
   // ---- Per bot after its decision: delayed acknowledgements and situational barks ----
   updateBot(id, now) {
-    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
+    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) this.answer(id, now);
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     if (health < LOW_HEALTH_FRACTION && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
+  },
+
+  answer(id, now) {
+    this.ackAt[id] = 0;
+    this.bark(id, this.ackCategory[id], now);
+    if (this.ackCategory[id] === 'dibs') this.emitPing(id, 'dibs', this.orderX[id], this.orderY[id], this.orderZ[id], -1, this.orderSource[id]);
+  },
+  // A newly chosen objective goal on a point or hill: "Taking the point" (role bots only).
+  onObjectiveGoal(id, target, now) {
+    const objective = target >= 0 ? Modes.objectives[target] : null;
+    if (objective && (objective.kind === 'point' || objective.kind === 'hill') && this.role[id] !== ROLE.FREELANCE) this.bark(id, 'takingPoint', now);
+  },
+  // A newly chosen item: a team bot pings it (Dibs) so the team leaves it, at most every ITEM_PING_INTERVAL s.
+  onItemGoal(id, x, y, z, now) {
+    if (Actors.team[id] < 0 || now - this.itemPingAt[id] < ITEM_PING_INTERVAL) return;
+    this.itemPingAt[id] = now;
+    this.emitPing(id, 'dibs', x, y, z, -1, -1);
+  },
+  // Mode call-outs (capture, bomb, flag): the bots playing the objective call it out (the bark limits keep it to one or so).
+  onAnnounce(event) {
+    if (!OBJECTIVE_ANNOUNCES.has(event.kind)) return;
+    const now = Sim.time;
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.OBJECTIVE) this.bark(id, 'objective', now);
   },
 
   // ---- Orders (BOT-051): the decision layer asks for the bot's current order as a goal plan ----
@@ -235,6 +276,9 @@ const BotTeam = {
     if (enemyPing) { if (takerList.length > 0) this.queueReply(takerList[0], 'pingReply', now); return; }
     const order = callout && callout.order ? callout.order : 'go';   // a ping kind with no order of its own moves the takers there
     for (let i = 0; i < takerList.length; i++) this.giveOrder(takerList[i], order, event, now);
+    // A move ping on an item spot: the first taker calls Dibs on it (said and pinged at ackAt, never inside this handler:
+    // pingPayload is shared).
+    if (order === 'go' && takerList.length > 0 && BotDecide.itemNear(event.x, event.y, event.z, ITEM_PING_RADIUS) >= 0) this.queueReply(takerList[0], 'dibs', now);
   },
   giveOrder(id, order, event, now) {
     if (order === 'hold') this.give(id, 'defend', Actors.x[id], Actors.y[id], Actors.z[id], now, event.id);
@@ -494,4 +538,5 @@ Bus.on('match.start', () => BotTeam.onMatchStart());
 Bus.on('actor.spawn', (event) => BotTeam.onSpawn(event.id));
 Bus.on('ping', (event) => BotTeam.onPing(event));
 Bus.on('kill', (event) => BotTeam.onKill(event));
+Bus.on('announce', (event) => BotTeam.onAnnounce(event));
 Bus.on('setting', (key) => BotTeam.readSettings(key));

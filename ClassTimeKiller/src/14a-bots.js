@@ -144,11 +144,14 @@ const Bots = {
     this.setupCursor++;
     return entry || {};
   },
+  // A named bot plays its roster tier held inside the difficulty's tier range (a personality never overrides the
+  // difficulty, as on the ladder, 15c); then the adaptive shift (DIF-003).
   chooseTier(row, entry) {
     const requested = parseTier(entry.tier);
     if (requested >= 0) return requested;
-    if (row) return clamp(row.tier + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
-    const skill = this.currentSkill(), span = skill.tierMax - skill.tierMin + 1;
+    const skill = this.currentSkill();
+    if (row) return clamp(clamp(row.tier, skill.tierMin, skill.tierMax) + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
+    const span = skill.tierMax - skill.tierMin + 1;
     // Even tier mix over the bots, in pairs: unnamed bots join the two teams in turn, so each team gets the same mix.
     const spread = skill.tierMin + (Math.floor(Math.max(0, this.setupCursor - 1) / TEAM_COUNT) % span);
     return clamp(spread + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
