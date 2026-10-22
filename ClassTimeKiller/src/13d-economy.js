@@ -412,11 +412,13 @@ const Loadouts = {
 const MODE_ARMING_PARAMS = ['ladder', 'rotateEvery'];
 // A class field upgrade that is an ability fills the ability slot; a gadget one (granted by applyClass) leaves it empty.
 function classFieldAbility(row) { return CAT.abilities.byId(row.fieldUpgrade) ? row.fieldUpgrade : KIT_SLOT_EMPTY; }
-// A custom class wears the model of the first preset class with the same primary weapon class (else the default body).
+// A custom class wears the model of the first preset class with the same primary weapon class (else, also for an unknown
+// weapon, the default body: '' matches no model row).
 function classModelId(row) {
   if (CAT.classes.byId(row.id)) return row.id;
-  const weaponClass = CAT.weapons.byId(row.primary).class;
-  const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === weaponClass);
+  const primary = CAT.weapons.byId(row.primary);
+  if (!primary) return '';
+  const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === primary.class);
   return preset ? preset.id : '';
 }
 // The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier,
