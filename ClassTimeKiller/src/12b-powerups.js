@@ -97,7 +97,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Items.addHealth(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Items.addHealth(id, instant.heal * this.healScale(id, instant), Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -108,6 +108,8 @@ const Powerups = {
     this.charges[slot] += added;
     return added > 0;
   },
+  // C20 Soul Feast multiplies the heal of a soul (rows with instant.soul) for its holder.
+  healScale(id, instant) { return instant.soul ? soulCardFx(id, 'soulHeal', 1) : 1; },
   addSoul(id, count) {
     this.souls[id] += count;
     SOULS_EVENT.id = id; SOULS_EVENT.count = this.souls[id];

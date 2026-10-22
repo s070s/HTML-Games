@@ -2,15 +2,13 @@
 // Cards C01..C24 (spec 15 card table, MIS-035): run modifiers the player places before a match. 3 active slots (each card used
 // once per level for 30 s) and 2 passive slots (the whole level); placing costs Marks, removing refunds half of what was paid.
 // Cards apply in PvE matches, and in versus only with X48 (rules.fx.cards) and only rows marked `versus`. The 'handicap' rule
-// stage writes rules.cards = { ids, fx } (fx: the soul numbers S12 reads for the player: soulLife, soulMagnet, wrathAt);
+// stage writes rules.cards = { ids, fx } (fx: the soul numbers S12 reads for the player: soulLife, soulMagnet, wrathAt, soulHeal);
 // the effects run through the existing systems (Buffs damage / invulnerable / speed / slow / rate, Damage.addReducer and
 // Damage.regenerate, 'pickup', 'weapon.fire', 'damage'). Each card unlocks by its own play-style condition over one finished
 // PvE level (RunLog metrics + results.pve).
 
 const CARD_BRITTLE_EXTRA = 1;              // a brittle hit deals the target's whole pool plus this
 const CARD_NO_HOLDER = -1;
-const CARD_SOUL_ITEM = 'soul';             // PU18 Soul Shard (its heal is what C20 Soul Feast multiplies)
-const CARD_SOUL_ROW = CAT.powerups.byId(CARD_SOUL_ITEM);
 const CARD_CONTRACT_FX = ['soulLife', 'wrathAt', 'soulMagnet', 'soulHeal'];   // soul multipliers / numbers copied into rules.cards.fx
 const CARD_KIND = {};
 ['takenScale', 'worldSlow', 'activeSeconds', 'startHealth', 'ammoPickup', 'speed', 'damage', 'rate', 'activeUses', 'marks',
@@ -224,12 +222,6 @@ function cardAmmoPickup(event) {
   if (event.group !== 'ammo' || !CardRun.holds(CARD_KIND.ammoPickup, event.id)) return;
   for (let extra = 1; extra < CardRun.value[CARD_KIND.ammoPickup]; extra++) Items.grant(event.id, event.item);
 }
-// C20 Soul Feast: a soul heals `value` times its own heal (PU18 already healed once, under the same cap).
-function cardSoulPickup(event) {
-  if (event.item !== CARD_SOUL_ITEM || !CardRun.holds(CARD_KIND.soulHeal, event.id) || !CARD_SOUL_ROW) return;
-  const extra = CARD_SOUL_ROW.instant.heal * (CardRun.value[CARD_KIND.soulHeal] - 1);
-  Items.addHealth(event.id, extra, Math.max(Actors.maxHealth[event.id], Damage.preset().overhealCap));
-}
 // C21: the shot's rounds come back at once (ammo is spent before 'weapon.fire').
 function cardFire(event) {
   if (!CardRun.holds(CARD_KIND.noAmmoUse, event.id)) return;
@@ -262,7 +254,7 @@ Sim.addSystem('cards', 25, (dt) => CardRun.step(dt));
 Bus.on('match.start', (match) => CardRun.onStart(match));
 Bus.on('match.stop', () => { CardRun.endDiscord(); CardRun.reset(); });
 Bus.on('actor.spawn', (event) => applySpawnCards(event.id));
-Bus.on('pickup', (event) => { cardAmmoPickup(event); cardSoulPickup(event); });
+Bus.on('pickup', cardAmmoPickup);
 Bus.on('weapon.fire', cardFire);
 Bus.on('damage', cardDamage);
 Bus.on('kill', cardKill);
