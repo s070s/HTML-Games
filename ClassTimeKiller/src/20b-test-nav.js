@@ -350,6 +350,28 @@ Test.add('nav', (check) => {
 });
 
 Test.add('nav', (check) => {
+  Nav.clearCache();
+  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount, firstMs = Nav.buildMs;
+  check('graph cache: first load builds', !Nav.lastBuildCached);
+  const length = Nav.findPath(0, nodes - 1), cost = Nav.pathCost;
+  navTestRooms(true);
+  World.load(JSON.parse(JSON.stringify(map)));
+  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links && Nav.buildMs < firstMs, Nav.buildMs + ' vs ' + firstMs);
+  check('graph cache: reused graph answers the same path', Nav.findPath(0, nodes - 1) === length && Test.near(Nav.pathCost, cost, 1e-6) && navTestLinksClear() === 0);
+  map.brushes[1].max[1] = 2;
+  World.load(map);
+  check('graph cache: an edited map builds again', !Nav.lastBuildCached);
+  const jumpUp = Nav.limits.jumpUp;
+  Nav.limits.jumpUp = 1;
+  World.load(map);
+  check('graph cache: other limits build again', !Nav.lastBuildCached);
+  Nav.limits.jumpUp = jumpUp;
+  for (let i = 0; i < 6; i++) navTestLoad([navTestFloor(-5 - i, -5, 5, 5, 0)]);
+  World.load(map);
+  check('graph cache: holds only the last ' + NAV_GRAPH_CACHE_SIZE + ' maps', !Nav.lastBuildCached);
+});
+
+Test.add('nav', (check) => {
   navTestPillars();
   for (let id = 0; id < 10; id++) Nav.request(id, id, Nav.nodeCount - 1 - id * 3);
   Nav.request(3, 3, Nav.nodeCount - 10);   // re-request while queued: replaces, not queued twice
@@ -436,7 +458,8 @@ function navTestWallLine(brushes, line) {
 }
 
 DebugApi.nav = Nav;
-DebugApi.perf.navBuild = (map) => { World.load(map || navTestBigMap()); return Nav.buildMs; };
+// ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 100 x 100 m test map.
+DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap()); return Nav.buildMs; };
 
 Test.add('nav', (check) => {
   const milliseconds = DebugApi.perf.navBuild();

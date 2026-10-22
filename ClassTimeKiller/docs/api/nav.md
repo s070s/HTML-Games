@@ -7,6 +7,7 @@ Files: `src/09a-nav.js` (graph build, node queries, cover, debug lines), `src/09
 - `Bus.on('world.load', map => Nav.build(map))`: the graph is rebuilt every time S08 loads a map. Nothing else to call.
 - `Nav.version` increases with every build; `Nav.buildMs` and `Nav.buildPhases` (`raster`, `nodes`, `links`, `components and cover`) hold the build time.
 - A build empties the path cache and every request slot (status back to `NONE`): requesters re-request after a map load.
+- Graph cache (BOT-010 "cached per map"): the last 4 graphs are kept, keyed by a hash of the map's brushes, triggers and `Nav.limits`. Loading the same map again restores its graph (about 0.4 ms instead of a full build); `Nav.lastBuildCached` says which happened; `Nav.clearCache()` empties it.
 - Emits no events. Reads `World.brushes`, `World.boundsMin/Max` and the map's `triggers`.
 
 ## Build limits (`Nav.limits`)
@@ -96,13 +97,13 @@ Options (all optional; the same object may be reused):
 
 ## Debug
 
-`__CTK.nav` = `Nav`; `__CTK.perf.navBuild(map)` rebuilds (default: the 100 x 100 m test map) and returns the build ms (ARC-034).
+`__CTK.nav` = `Nav`; `__CTK.perf.navBuild(map)` empties the graph cache, loads the map (default: the 100 x 100 m test map) and returns the build ms (ARC-034).
 
 ## Performance (headless Chrome, i5-9600K desktop)
 
-100 x 100 m test map (25 rooms, 2 m doorways, 60 crates, 9 platforms with ramps; 4675 nodes, 38 466 links): build 55-65 ms warm, about 115 ms on the first (cold) build; A* 0.14 ms average, 0.3 ms corner to corner. A low-end phone runs JavaScript roughly 4-5 x slower: about 250-300 ms warm, more on a cold first build.
+100 x 100 m test map (25 rooms, 2 m doorways, 60 crates, 9 platforms with ramps; 4675 nodes, 38 466 links): build 55-65 ms warm, about 115 ms on the first (cold) build; A* 0.14 ms average, 0.3 ms corner to corner. A low-end phone runs JavaScript roughly 4-8 x slower: about 250-450 ms warm and more on a cold first build, so the 300 ms target (BOT-010) is met on mid-range phones and integrated-GPU laptops, not yet proven on the slowest phones. Loading a map again takes about 0.4 ms (graph cache).
 
 ## Known limits
 
-- One flat node graph: no cluster level (BOT-011 hierarchical A*), no wall-run, rocket-jump or dash links, no per-preset cached graphs (BOT-010): one graph per map, filtered per bot by `allowJumpHeight` / `maxDrop`.
+- One flat node graph: no cluster level (BOT-011 hierarchical A*), no wall-run, rocket-jump or dash links. One graph per map (not per preset), filtered per bot by `allowJumpHeight` / `maxDrop`.
 - Dynamic avoidance of other actors and fire areas is the caller's job through `danger` / `avoid`.

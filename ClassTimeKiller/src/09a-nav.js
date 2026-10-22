@@ -56,6 +56,11 @@ const NAV_COVER_OPEN = 4;              // ...and open space this long on the oth
 const NAV_COVER_LOW_HEIGHT = 0.9;      // blocked at this height but open at head height = crouch cover
 const NAV_COVER = { NONE: 0, LOW: 1, FULL: 2 };
 const NAV_FITS = { NONE: 0, CROUCH: 1, STAND: 2 };
+const NAV_GRAPH_CACHE_SIZE = 4;        // graphs kept for maps that load again (rematch): BOT-010 "cached per map"
+// Every build output that queries read; a cached graph restores exactly these Nav fields.
+const NAV_GRAPH_FIELDS = ['nodeCount', 'nodeX', 'nodeY', 'nodeZ', 'nodeFlags', 'nodeSample', 'linkCount', 'linkStart', 'linkFrom',
+  'linkTarget', 'linkType', 'linkCost', 'linkHeight', 'heuristicSpeed', 'teleportCount', 'teleportEntry', 'teleportExit', 'componentCount',
+  'component', 'componentStart', 'componentNodes', 'mainComponent', 'coverCount', 'coverNode', 'coverDirX', 'coverDirZ', 'coverLow'];
 const NAV_DEBUG_STRIDE = 7;            // debugLines: ax, ay, az, bx, by, bz, link type
 
 // Node and sample flags. TRIGGER: inside a jump pad or teleporter. NARROW: a solid lies within NAV_OPEN_RADIUS.
@@ -82,9 +87,11 @@ const navRaster = { originX: 0, originZ: 0, columnsX: 0, columnsZ: 0, columnStar
 const navNodeGrid = { originX: 0, originZ: 0, cellsX: 1, cellsZ: 1, cellStart: null, cellItems: null };
 const navSearchState = { x: 0, y: 0, z: 0, yLow: 0, yHigh: 0, radiusSquared: 0, needSight: false, best: -1, score: 0 };
 const navArc = { x: 0, y: 0, z: 0, time: 0 };
+const navScanState = { stopFraction: 1 };         // where along the segment the last navScan broke (0..1)
 const navVolumes = { water: [], trigger: [] };   // water volumes and jump pad / teleporter volumes of the loaded map
 const navTarjan = { index: null, low: null, onStack: null, stack: null, stackSize: 0, callNode: null, callEdge: null, depth: -1, counter: 0 };
 const navNeighbours = { items: null, count: 0 };
+const navGraphCache = [];   // { key, nav, raster, nodeGrid } of recent builds, most recently used last
 
 const Nav = {
   // Build limits. Later sections may raise them before the map loads (e.g. from the jumpiest movement preset).
@@ -98,6 +105,7 @@ const Nav = {
     ladderSpeed: 3,      // MOV-019
   },
   map: null, version: 0, buildMs: 0, buildPhases: {},   // build time in ms, total and per phase (ARC-034)
+  lastBuildCached: false,                               // the last build reused a cached graph of the same map
   nodeCount: 0, nodeX: null, nodeY: null, nodeZ: null, nodeFlags: null, nodeSample: null,
   linkCount: 0, linkStart: null, linkFrom: null, linkTarget: null, linkType: null, linkCost: null, linkHeight: null,
   heuristicSpeed: 6,
@@ -106,15 +114,21 @@ const Nav = {
   coverCount: 0, coverNode: null, coverDirX: null, coverDirZ: null, coverLow: null,
 
   build(map) {
-    const started = performance.now();
+    const started = performance.now(), triggers = map.triggers || [];
     this.map = map;
     this.clearGraph();
-    if (World.brushes.length) navBuildGraph(map.triggers || []);
+    const key = navGraphKey(map.brushes || [], triggers);
+    this.lastBuildCached = World.brushes.length > 0 && navRestoreGraph(key);
+    if (World.brushes.length && !this.lastBuildCached) {
+      navBuildGraph(triggers);
+      navStoreGraph(key);
+    }
     this.version++;
     this.resetPaths();
     this.buildMs = performance.now() - started;
     return this.buildMs;
   },
+  clearCache() { navGraphCache.length = 0; },
   clearGraph() {
     this.nodeCount = 0; this.linkCount = 0; this.teleportCount = 0; this.componentCount = 0; this.coverCount = 0; this.mainComponent = -1;
     const empty = new Int32Array(1);
@@ -158,6 +172,31 @@ const Nav = {
 };
 
 Bus.on('world.load', (map) => Nav.build(map));
+
+// ---- Graph cache: same brushes, triggers and limits give the same graph ----
+function navGraphKey(brushes, triggers) {
+  const text = JSON.stringify([brushes, triggers, Nav.limits]);
+  return hashString(text) + ':' + text.length;
+}
+
+function navRestoreGraph(key) {
+  const index = navGraphCache.findIndex((entry) => entry.key === key);
+  if (index < 0) return false;
+  const entry = navGraphCache.splice(index, 1)[0];
+  navGraphCache.push(entry);
+  NAV_GRAPH_FIELDS.forEach((field) => { Nav[field] = entry.nav[field]; });
+  Object.assign(navRaster, entry.raster);
+  Object.assign(navNodeGrid, entry.nodeGrid);
+  navBuildBrushGrid(); // brush indices are the same; the grid holds the new World.brushes
+  return true;
+}
+
+function navStoreGraph(key) {
+  const nav = {};
+  NAV_GRAPH_FIELDS.forEach((field) => { nav[field] = Nav[field]; });
+  navGraphCache.push({ key, nav, raster: Object.assign({}, navRaster), nodeGrid: Object.assign({}, navNodeGrid) });
+  if (navGraphCache.length > NAV_GRAPH_CACHE_SIZE) navGraphCache.shift();
+}
 
 // ---- Build pipeline ----
 function navBuildGraph(triggers) {
@@ -447,9 +486,11 @@ function navScan(fromSample, toX, toZ, toSample) {
   const column = navRaster.sampleColumn[fromSample], startX = navColumnX(column), startZ = navColumnZ(column);
   const steps = Math.ceil(Math.hypot(toX - startX, toZ - startZ) / NAV_SCAN_STEP);
   let current = fromSample, flags = 0;
+  navScanState.stopFraction = 1;
   for (let step = 1; step <= steps && current >= 0; step++) {
     flags |= navRaster.sampleFlags[current];
     current = navScanStep(current, startX + (toX - startX) * step / steps, startZ + (toZ - startZ) * step / steps);
+    if (current < 0) navScanState.stopFraction = step / steps;
   }
   if (steps === 0) flags = navRaster.sampleFlags[fromSample];
   return current === toSample ? flags : -1;
@@ -709,8 +750,9 @@ function navWalkJoined(builder, other, walks, marks, node) {
 
 function navLinkAir(builder, a, b) {
   if (navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]) >= 0) return; // walkable via nearer nodes
-  navTryAir(builder, a, b);
-  navTryAir(builder, b, a);
+  const stop = navScanState.stopFraction;
+  navTryAir(builder, a, b, stop);
+  navTryAir(builder, b, a, 1 - stop);
 }
 
 // Walk, crouch or swim link both ways. Nothing walks out of a jump pad or teleporter (it launches you first).
@@ -730,10 +772,11 @@ function navTryWalk(builder, a, b) {
 }
 
 // Jump (over a gap, onto a ledge, over an obstacle), drop, or climbing out of water, from one node to another.
-function navTryAir(builder, from, to) {
+// firstFraction: where the raster walk broke; the obstacle check looks there first (usually the wall).
+function navTryAir(builder, from, to, firstFraction) {
   const limits = Nav.limits, rise = Nav.nodeY[to] - Nav.nodeY[from];
   if (rise > limits.jumpUp || -rise > limits.maxDrop || (Nav.nodeFlags[from] & NAV_NODE.TRIGGER)) return;
-  const lift = navObstacleLift(from, to), type = navAirType(from, rise, lift);
+  const lift = navObstacleLift(from, to, firstFraction), type = navAirType(from, rise, lift);
   const height = type === NAV_LINK.DROP ? -rise : type === NAV_LINK.SWIM ? 0 : lift + NAV_JUMP_MARGIN;
   if (type === NAV_LINK.JUMP && height > limits.jumpUp) return;
   const apex = Nav.nodeY[from] + (type === NAV_LINK.JUMP ? height : Math.max(0, lift));
@@ -755,13 +798,13 @@ function navAirType(from, rise, lift) {
 }
 
 // Height above the start that the feet must pass: the highest brush top along the way, including the target ledge.
-function navObstacleLift(from, to) {
+function navObstacleLift(from, to, firstFraction) {
   const ax = Nav.nodeX[from], az = Nav.nodeZ[from], bx = Nav.nodeX[to], bz = Nav.nodeZ[to];
-  const base = Math.max(Nav.nodeY[from], Nav.nodeY[to]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN;
+  const base = Math.max(Nav.nodeY[from], Nav.nodeY[to]), limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN, wallBelow = base + NAV_STAND_HEIGHT;
   const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / NAV_SCAN_STEP);
-  let highest = Nav.nodeY[to];
+  let highest = Math.max(Nav.nodeY[to], navHighestTopAt(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow));
   for (let step = 0; step <= steps && highest < Infinity; step++) {
-    highest = Math.max(highest, navHighestTopAt(ax + (bx - ax) * step / steps, az + (bz - az) * step / steps, limit, base + NAV_STAND_HEIGHT));
+    highest = Math.max(highest, navHighestTopAt(ax + (bx - ax) * step / steps, az + (bz - az) * step / steps, limit, wallBelow));
   }
   return highest - Nav.nodeY[from];
 }
