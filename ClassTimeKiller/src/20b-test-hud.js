@@ -723,3 +723,36 @@ Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
   check('cost: a busy HUD frame costs under 0.4 ms (PERF-002)', cost.ms <= HUD_TEST_COST_BUDGET_MS, cost.ms.toFixed(3) + ' ms with ' + cost.quads + ' quads');
 });
+
+// ---- The Ping button: a press shorter than one frame still pings, and the finger on PING also picks on the wheel ----
+Test.add('hud', (check) => {
+  startInputMatch();
+  let pings = 0, callouts = 0;
+  const realPing = BotTeam.playerPing, realCallout = BotTeam.callout;
+  BotTeam.playerPing = () => { pings++; };
+  BotTeam.callout = () => { callouts++; };
+  const frame = (seconds) => { Input.frame(seconds || INPUT_TEST_FRAME); Sim.step(); };
+  try {
+    frame();
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false);   // down and up between two frames
+    frame(); frame();
+    check('ping: a key press shorter than a frame still pings once', pings === 1, pings);
+    pings = 0;
+    inputKeyEvent('KeyZ', true); frame(); inputKeyEvent('KeyZ', false); frame(); frame();
+    check('ping: a tap over a frame pings once, not twice', pings === 1, pings);
+    Input.setDevice('touch');
+    const button = TouchInput.elements.ping;
+    inputTouchPointer('pointerdown', button, 3, 500, 300);
+    for (let i = 0; i < 4; i++) frame(0.1);
+    check('comm wheel: holding the PING button opens it', CommWheel.open && CommWheel.source === 'ping');
+    inputTouchPointer('pointermove', button, 3, 540, 300); frame();
+    const toRight = CommWheel.selected;
+    inputTouchPointer('pointermove', button, 3, 440, 300); frame();
+    check('comm wheel: dragging the same finger changes the pick', toRight >= 0 && CommWheel.selected >= 0 && CommWheel.selected !== toRight, toRight + ' then ' + CommWheel.selected);
+    inputTouchPointer('pointerup', button, 3, 440, 300); frame();
+    check('comm wheel: lifting the finger sends the callout', !CommWheel.open && callouts === 1, callouts);
+  } finally {
+    BotTeam.playerPing = realPing; BotTeam.callout = realCallout;
+    CommWheel.reset(); TouchInput.reset(); Input.device = 'kbm';
+  }
+});

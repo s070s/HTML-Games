@@ -25,9 +25,15 @@ const CommWheel = {
   selected: -1,         // index into COMM_CALLOUTS, -1 = none
   addressee: -1,        // the team bot aimed at when it opened (the callout goes to it only), -1 = the squad
   pingHeld: -1,         // s the Ping action has been held, -1 = up
+  pingEdge: false,      // a sim step saw the Ping button go down since the last frame (a tap shorter than a frame is still a tap)
 
   init() {},
-  reset() { this.close(); this.pingHeld = -1; },
+  reset() { this.close(); this.pingHeld = -1; this.pingEdge = false; },
+  // Sim order 5, after Sim.step has worked out Actors.pressed: the input latch (05a) keeps a press for one step even when it ended inside a frame.
+  stepPing() {
+    const player = Game.playerId;
+    if (player >= 0 && (Actors.pressed[player] & BTN.PING)) this.pingEdge = true;
+  },
   frame(seconds) {
     const player = Game.playerId;
     if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { if (this.open || this.pingHeld >= 0) this.reset(); return; }
@@ -36,12 +42,14 @@ const CommWheel = {
   },
   // Ping: a tap pings at once on release; a hold opens the wheel and its release sends the picked callout.
   updatePing(player, seconds) {
+    const edge = this.pingEdge;
+    this.pingEdge = false;
     if (Input.effective[Input.actionIndex.ping]) {
       this.pingHeld = Math.max(0, this.pingHeld) + seconds;
       if (!this.open && this.pingHeld >= COMM_WHEEL_HOLD) this.show('ping', player);
       return;
     }
-    if (this.pingHeld < 0) return;
+    if (this.pingHeld < 0) { if (edge) BotTeam.playerPing(player); return; }   // pressed and let go between two frames
     const tapped = this.pingHeld < COMM_WHEEL_HOLD;
     this.pingHeld = -1;
     if (tapped) BotTeam.playerPing(player);
@@ -89,7 +97,9 @@ const CommWheel = {
   },
 };
 Input.sources.push(CommWheel);
+Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
 TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
+TouchInput.buttonLook = (control) => CommWheel.open && (control.action === 'ping' || control.action === 'comm');   // the finger on PING / COMM picks the callout
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 
