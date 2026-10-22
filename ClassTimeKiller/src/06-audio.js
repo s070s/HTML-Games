@@ -461,7 +461,7 @@ const Sound = {
   },
   checkBlocked() {
     this.blockedTimer = 0;
-    if (this.canPlay() || this.pauseSuspended || this.blockedShown) return;
+    if (!this.context || this.canPlay() || this.pauseSuspended || this.blockedShown) return;   // no context (detached): nothing is blocked
     this.blockedShown = true;
     audioToast('Sound is blocked by your browser. Tap or click the page to turn it on.');
   },
