@@ -25,18 +25,20 @@ const CommWheel = {
   selected: -1,         // index into COMM_CALLOUTS, -1 = none
   addressee: -1,        // the team bot aimed at when it opened (the callout goes to it only), -1 = the squad
   pingHeld: -1,         // s the Ping action has been held, -1 = up
-  pingEdge: false,      // a sim step saw the Ping button go down since the last frame (a tap shorter than a frame is still a tap)
+  pingEdge: false,      // a sim step saw a Ping press that no frame saw held (a tap shorter than a frame is still a tap)
+  pingSeen: false,      // a frame saw Ping held since the last sim step: that step's press is this one, not a new tap
 
   init() {},
-  reset() { this.close(); this.pingHeld = -1; this.pingEdge = false; },
+  reset() { this.close(); this.pingHeld = -1; this.pingEdge = this.pingSeen = false; },
   // Sim step: the input latch (05a) keeps a press for one step even when it ended inside a frame.
   stepPing() {
     const player = Game.playerId;
-    if (player >= 0 && (Actors.pressed[player] & BTN.PING)) this.pingEdge = true;
+    if (player >= 0 && Actors.alive[player] && !this.pingSeen && (Actors.pressed[player] & BTN.PING)) this.pingEdge = true;
+    this.pingSeen = false;
   },
   frame(seconds) {
     const player = Game.playerId;
-    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { if (this.open || this.pingHeld >= 0) this.reset(); return; }
+    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { this.pingEdge = false; if (this.open || this.pingHeld >= 0) this.reset(); return; }
     this.updatePing(player, seconds);
     if (this.open) this.takeLook();
   },
@@ -45,6 +47,7 @@ const CommWheel = {
     const edge = this.pingEdge;
     this.pingEdge = false;
     if (Input.effective[Input.actionIndex.ping]) {
+      this.pingSeen = true;
       this.pingHeld = Math.max(0, this.pingHeld) + seconds;
       if (!this.open && this.pingHeld >= COMM_WHEEL_HOLD) this.show('ping', player);
       return;

@@ -736,6 +736,14 @@ Test.add('hud', (check) => {
     inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false);   // down and up between two frames
     frame(); frame();
     check('ping: a key press shorter than a frame still pings once', pings === 1, pings);
+    pings = 0;
+    inputKeyEvent('KeyZ', true); Input.frame(INPUT_TEST_FRAME); inputKeyEvent('KeyZ', false); frame(); frame();   // a frame with no sim step (120 Hz screen)
+    check('ping: a tap over a frame with no sim step pings once, not twice', pings === 1, pings);
+    pings = 0;
+    Actors.alive[Game.playerId] = 0;
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false); frame();
+    Actors.alive[Game.playerId] = 1; frame(); frame();
+    check('ping: a Ping pressed while dead does not ping later', pings === 0, pings);
     Input.setDevice('touch');
     inputTouchPointer('pointerdown', button, 3, 500, 300);
     for (let i = 0; i < 4; i++) frame(0.1);
