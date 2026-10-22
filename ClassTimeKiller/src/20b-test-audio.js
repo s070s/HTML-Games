@@ -150,6 +150,7 @@ Test.add('audio', (check) => {
   check('classes sound different (aliases share one recipe)', signatures.size === 15, signatures.size);
   check('unknown class falls back to a rifle', recipeFor(fireLookup, { weapon: 'x', weaponClass: 'zzz' }).id === 'rifle');
   check('weapon overrides win over the class', recipeFor(fireLookup, { weapon: 'lancet', weaponClass: 'marksman' }).id === 'rail');
+  check('a quick melee (mode melee) swings instead of shooting', recipeFor(fireLookup, { weapon: 'hush', weaponClass: 'sidearm', mode: 'melee' }).id === 'melee');
   for (const row of CAT.weapons || []) {
     check('weapon ' + row.id + ' resolves to a recipe', !!recipeFor(fireLookup, { weapon: row.id, weaponClass: row.class || row.weaponClass }));
   }
