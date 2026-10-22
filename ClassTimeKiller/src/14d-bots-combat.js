@@ -54,6 +54,8 @@ const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
+const ABILITY_KEEP_SECONDS = 4;         // a toggle or channel is pressed off once its trigger ends, at most this long after...
+const ABILITY_MIN_ON = 0.5;             // ...and no sooner than this (one press on, a later press off)
 const ABILITY_TRAVEL = 10;              // m: 'moving' abilities (glide, grapple, sprint) only on longer trips
 const UNDER_FIRE_SECONDS = 1.5;         // hit this recently = under fire
 const LOW_AMMO_SHARE = 0.25;
@@ -78,7 +80,7 @@ const BOT_USE_TRIGGERS = {
   escape: (id) => Bots.state[id] === BOT_STATE.RETREAT || (BOT_USE_TRIGGERS.lowHealth(id) && BOT_USE_TRIGGERS.underFire(id)),
   moving: (id) => Bots.wishAmount[id] > 0.5 && BotCombat.target[id] < 0 && BotMove.distanceToDestination(id) > ABILITY_TRAVEL,
   groupedEnemies: (id) => BotCombat.visibleEnemies(id) >= ULTIMATE_TARGETS,
-  objective: (id) => BotDecide.goal[id] === GOAL.OBJECTIVE && BotDecide.contested(id),
+  objective: (id) => BotDecide.goal[id] === GOAL.OBJECTIVE && (BotDecide.contested(id) || BotCombat.targetVisible(id)),   // a fight at the point
   cover: (id) => BotCombat.targetInCover(id, Sim.time),
   holding: (id) => BotDecide.holding(id),
   lowAmmo: (id) => BotCombat.lowAmmo(id),
@@ -101,6 +103,7 @@ const BotCombat = {
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
+  switchedOnAt: new Float64Array(MAX_ACTORS * SLOT.PASSIVE).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
@@ -114,6 +117,7 @@ const BotCombat = {
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
     this.gadgetAt[id] = 0; this.holdSlot[id] = -1;
+    this.switchedOnAt.fill(-1, id * SLOT.PASSIVE, (id + 1) * SLOT.PASSIVE);
   },
   targetVisible(id) { const target = this.target[id]; return target >= 0 && BotSense.sees(id, target); },
   // Distance to where the bot believes its target is (BOT-040: a remembered target is judged by its last known place).
@@ -444,6 +448,7 @@ const BotCombat = {
   // Each kind is checked on its own clock (faster with the abilityUse trait); a throw being aimed waits for nothing else.
   useKit(id, now) {
     this.keepHolding(id, now);
+    this.switchOff(id, now);
     if (!Bots.tier(id).gadgets || now < this.throwUntil[id]) return;
     if (now >= this.abilityAt[id]) this.tryAbilities(id, now);
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
@@ -508,21 +513,43 @@ const BotCombat = {
     for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
       const row = Abilities.row(id, slot);
       if (!row || row.activation === 'passive' || row.activation === 'ult' || !Abilities.ready(id, slot)) continue;
+      if (row.activation === 'channel' && !BotDecide.holding(id)) continue;   // a channel roots the body: only where the bot stays
       if (!botUseWanted(id, row.botUse) && !(slot === SLOT.ULTIMATE && ultimateWanted(id))) continue;
       Bots.press(id, SLOT_BUTTONS[slot]);
       this.abilityAt[id] = now + ABILITY_INTERVAL / pace;
       this.uses.abilities++;
       if (row.activation === 'hold') { this.holdSlot[id] = slot; this.holdSlotUntil[id] = now + ABILITY_HOLD_SECONDS; }
+      if (row.activation === 'toggle' || row.activation === 'channel') this.switchedOnAt[id * SLOT.PASSIVE + slot] = now;
       return;
+    }
+  },
+  // True while a channel runs (the body is rooted: the bot stands still rather than push against it).
+  channeling(id) {
+    for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
+      const row = Abilities.row(id, slot);
+      if (row && row.activation === 'channel' && Abilities.active[Abilities.index(id, slot)]) return true;
+    }
+    return false;
+  },
+  // Toggles and channels stay on until pressed again: off once their trigger ends, at most 4 s on (a channel roots the
+  // body: a scout drone flown for ever is a bot standing still). A press that did not take is tried again 0.5 s later.
+  switchOff(id, now) {
+    for (let slot = 0; slot < SLOT.PASSIVE; slot++) {
+      const i = id * SLOT.PASSIVE + slot, since = this.switchedOnAt[i];
+      if (since < 0 || now - since < ABILITY_MIN_ON) continue;
+      const row = Abilities.row(id, slot);
+      if (!row || !Abilities.active[Abilities.index(id, slot)]) { this.switchedOnAt[i] = -1; continue; }
+      if (now - since < ABILITY_KEEP_SECONDS && triggerHolds(id, row.botUse)) continue;
+      Bots.press(id, SLOT_BUTTONS[slot]);
+      this.switchedOnAt[i] = now - ABILITY_KEEP_SECONDS + ABILITY_MIN_ON;   // checked again in 0.5 s
     }
   },
   // A 'hold' ability stays on while its button is held: held while the trigger lasts (at most 3 s).
   keepHolding(id, now) {
     const slot = this.holdSlot[id];
     if (slot < 0) return;
-    const row = Abilities.row(id, slot), use = row ? row.botUse : null;
-    const trigger = use ? BOT_USE_TRIGGERS[use.when] : null;
-    if (now > this.holdSlotUntil[id] || !trigger || !trigger(id)) { this.holdSlot[id] = -1; return; }
+    const row = Abilities.row(id, slot);
+    if (now > this.holdSlotUntil[id] || !row || !triggerHolds(id, row.botUse)) { this.holdSlot[id] = -1; return; }
     Bots.press(id, SLOT_BUTTONS[slot]);
   },
   // A seen enemy mine is passed crouched when crouching keeps it quiet, else steered around; an enemy grenade heard
@@ -629,9 +656,13 @@ function throwRange(pitch, rise) {
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // and the per-check chance passes.
 function botUseWanted(id, use) {
-  const trigger = use ? BOT_USE_TRIGGERS[use.when] : null;
-  if (!trigger || use.chance <= 0 || !trigger(id) || !inUseRange(id, use.range)) return false;
+  if (!use || use.chance <= 0 || !triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
   return Rng.bots.chance(use.chance);
+}
+
+function triggerHolds(id, use) {
+  const trigger = use ? BOT_USE_TRIGGERS[use.when] : null;
+  return !!trigger && trigger(id);
 }
 
 function inUseRange(id, range) {

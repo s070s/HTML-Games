@@ -272,6 +272,7 @@ const Bots = {
     BotMove.update(id, dt, now);
     BotCombat.overlayMovement(id, dt, now);
     BotCombat.avoidHazards(id, now);
+    if (BotCombat.channeling(id)) this.wish(id, 0, 0, 0);
     BotDecide.act(id, dt, now);
     BotTeam.updateBot(id, now);
     this.motor(id, dt);
