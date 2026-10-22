@@ -114,3 +114,5 @@ Queries on that map: A* 0.13 ms average, 0.3 ms corner to corner; smoothing a 63
 
 - One flat node graph: no cluster level (BOT-011 hierarchical A*), no wall-run, rocket-jump or dash links. One graph per map (not per preset), filtered per bot by `allowJumpHeight` / `maxDrop`.
 - Dynamic avoidance of other actors and fire areas is the caller's job through `danger` / `avoid`.
+- A* runs to completion inside one tick: 4 long cache misses in the same tick cost about 1.6 ms on the desktop (more than the BOT-091 all-bot 1.0 ms). A per-tick node-expansion budget (search resumed next tick) would cap it.
+- Reach is judged on a single jump; double-jump presets get a slightly cautious graph.
