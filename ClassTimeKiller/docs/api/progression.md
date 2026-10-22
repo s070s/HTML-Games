@@ -43,7 +43,7 @@ Emitted as `medal { id, medal }` for the local player only. Numbers: `MEDAL_RULE
 
 `Cards.equip(id)`, `unequip(id)` (refunds half), `equipProblem(id)`, `marks()`, `addMarks(n)`, `equipped(type)`. 3 active and 2 passive slots; Patron (C17) makes placing free. Cards run in PvE matches, and in versus only with the X48 mutator (`rules.fx.cards`) and only rows with `versus: true`. `setup.cards` overrides the equipped list. Active cards: `CardRun.activate(slotIndex)` (30 s, once per level; Encore twice; Longwick +10 s).
 
-Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending and Life Thief heal through `Damage.regenerate`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
+Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending heals through `Damage.regenerate` and Life Thief through `Damage.lifesteal`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
 
 `Game.match.rules.cards = { ids, fx }`; `fx` holds the soul cards for the local player (absent keys mean the default). S12 reads them through `soulCardFx(id, key, fallback)` (12a), only for `Game.playerId`:
 

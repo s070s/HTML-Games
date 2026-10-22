@@ -97,7 +97,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Items.addHealth(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Damage.regenerate(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -324,11 +324,7 @@ const Powerups = {
     return amount - absorbed;
   },
   // PU12: a share of damage dealt to others heals the dealer (up to the normal maximum).
-  onDamage(event) {
-    const source = event.source;
-    if (source < 0 || source === event.target || !Actors.alive[source] || this.lifesteal[source] <= 0) return;
-    Items.addHealth(source, event.amount * this.lifesteal[source], Actors.maxHealth[source]);
-  },
+  onDamage(event) { if (event.source >= 0) Damage.lifesteal(event, this.lifesteal[event.source]); },
   // PU14: boosted jumps (height x jumpScale = speed x its square root), one charge each; no fall damage while worn.
   onJump(event) {
     const id = event.id;

@@ -413,11 +413,6 @@ const Items = {
     if (!row.overheal) return Actors.maxHealth[id];
     return Math.max(Actors.maxHealth[id], Math.min(row.cap, Damage.preset().overhealCap));
   },
-  addHealth(id, amount, cap) {
-    if (Actors.health[id] >= cap) return false;
-    Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
-    return true;
-  },
   addArmor(id, amount, cap) {
     const limit = Math.min(cap, Actors.maxArmor[id]);
     if (this.noArmor[id] || Actors.armor[id] >= limit) return false;
@@ -537,7 +532,7 @@ Items.takers[PICKUP_KIND.WEAPON] = (id, slot) => Items.takeWeapon(id, slot);
 Items.givers[PICKUP_KIND.ITEM] = (id, key) => Items.grant(id, key);
 Items.givers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
 Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Items.giveWeapon(id, key, 0, Actors.y[id]);
-Items.effects.health = (id, row) => Items.addHealth(id, row.amount, Items.healthCap(id, row));
+Items.effects.health = (id, row) => Damage.regenerate(id, row.amount, Items.healthCap(id, row));
 Items.effects.armor = (id, row) => Items.addArmor(id, row.amount, row.cap);
 Items.effects.ammoType = (id) => Items.addTypeAmmo(id);
 Items.effects.ammoAll = (id, row) => Items.addAllAmmo(id, row);

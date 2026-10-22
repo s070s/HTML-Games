@@ -335,9 +335,18 @@ const Damage = {
     const role = preset.roleRegen;
     if (role && since >= role.delay && actorRole(id) === role.role) this.regenerate(id, role.rate * dt, Actors.maxHealth[id]);
   },
+  // The one heal path (regen, pickups, abilities, lifesteal): adds health up to cap; false when already at it.
   regenerate(id, amount, cap) {
-    if (Actors.health[id] >= cap) return;
+    if (Actors.health[id] >= cap) return false;
     Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
+    return true;
+  },
+  // Lifesteal (PU12 Vampire Fang, X13 Vampire, C24 Life Thief): share of a 'damage' event dealt to another actor heals
+  // its living source, up to its max health.
+  lifesteal(event, share) {
+    const source = event.source;
+    if (share <= 0 || source < 0 || source === event.target || !Actors.alive[source]) return;
+    this.regenerate(source, event.amount * share, Actors.maxHealth[source]);
   },
   stepDowned(id, dt) {
     this.downedTime[id] -= dt;

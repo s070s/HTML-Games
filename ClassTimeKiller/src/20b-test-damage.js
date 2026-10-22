@@ -377,3 +377,29 @@ Test.add('damage', (check) => {
   check('HP-001 zone x precision applies before victim reductions', head > 1 && Test.near(dealt, 30 * head - 10, 1e-4), dealt + ' head x' + head);
   TestArena.finish();
 });
+// One lifesteal helper (PU12, X13, C24) and one heal path: a share of damage dealt to another heals the living source.
+Test.add('damage', (check) => {
+  TestArena.start();
+  const source = TestArena.actor(0, 0, 0), target = TestArena.actor(1, 0, 5);
+  const event = { source, target, amount: 20 };
+  Actors.health[source] = 50;
+  Damage.lifesteal(event, 0.5);
+  check('lifesteal heals the source by the share of the damage', Actors.health[source] === 60, Actors.health[source]);
+  Actors.health[source] = Actors.maxHealth[source] - 1;
+  Damage.lifesteal(event, 0.5);
+  check('lifesteal stops at max health', Actors.health[source] === Actors.maxHealth[source]);
+  Actors.health[source] = 50;
+  Damage.lifesteal({ source, target: source, amount: 20 }, 0.5);
+  check('self damage steals nothing', Actors.health[source] === 50);
+  const steal = Damage.lifesteal, holds = CardRun.holds, shares = [];
+  Damage.lifesteal = (payload, share) => { shares.push(share); };
+  CardRun.holds = (kind) => kind === CARD_KIND.lifesteal;
+  try {
+    Powerups.lifesteal[source] = 0.25;
+    Powerups.onDamage(event);
+    onDamageLifesteal({ lifesteal: 0.1 }, event);
+    cardDamage(event);
+  } finally { Damage.lifesteal = steal; CardRun.holds = holds; Powerups.lifesteal[source] = 0; }
+  check('PU12, X13 and C24 all heal through Damage.lifesteal', shares.length === 3 && shares[0] === 0.25 && shares[1] === 0.1 && shares[2] === CardRun.value[CARD_KIND.lifesteal], shares.join(' '));
+  TestArena.finish();
+});

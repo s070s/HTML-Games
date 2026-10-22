@@ -412,9 +412,7 @@ function onKillGrowth(fx, event) {
 
 // ---- Damage hooks ----
 function onDamageLifesteal(fx, event) {
-  const source = event.source;
-  if (!fx.lifesteal || !isOpponentDamage(source, event.target) || !Actors.alive[source]) return;
-  Actors.health[source] = Math.min(Actors.maxHealth[source], Actors.health[source] + event.amount * fx.lifesteal);
+  if (fx.lifesteal) Damage.lifesteal(event, fx.lifesteal);
 }
 function onDamageShrink(fx, event) {
   const target = event.target;
