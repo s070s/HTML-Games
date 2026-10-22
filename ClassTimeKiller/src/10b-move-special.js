@@ -32,6 +32,8 @@ const AUTO_STRAFE_RATE = 2.5;          // MOV-018: rad/s the air velocity turns 
 const SKIMMER_SPEED = 13;              // MOV-027
 const SKIMMER_KNOCKOFF_SECONDS = 2;
 const SKIMMER_MIN_MAP_SIZE = 150;      // metres: only large maps allow the board
+const SKIMMER_BOARD_RUN = 0.8;         // share of the ground speed an actor must run at to board with Use
+const SKIMMER_BOARD_INPUT = 0.5;       // move input length that must be held in the Use step to board
 
 const wallHit = makeHit();
 const facing = { x: 0, y: 0, z: 0 };
@@ -140,7 +142,7 @@ function swimState(id, preset, gravity, dt) {
   const up = ((Actors.buttons[id] & BTN.JUMP) ? 1 : 0) - ((Actors.buttons[id] & BTN.CROUCH) ? 1 : 0);
   const forward = Motion.inputZ[id], pitch = Actors.pitch[id];
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
-  const y = Math.sin(pitch) * forward + up, length = Math.hypot(axes.x, y, axes.z);
+  const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
   if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
   integrate(id, gravity * WATER_GRAVITY_SCALE, dt);
 }
@@ -194,7 +196,7 @@ function tryDodge(id, preset) {
   const tapZ = doubleTap(id, Motion.inputZ[id], 'tapClockZ', 'tapSignZ', 'lastAxisZ');
   if (preset.dodgeSpeed <= 0 || (tapX === 0 && tapZ === 0) || getClock(id, CLOCK.DODGE_COOLDOWN) > 0 || !inWalkState(id)) return;
   yawToWorld(Actors.yaw[id], tapZ, tapX, axes);
-  const length = Math.hypot(axes.x, axes.z), x = axes.x / length, z = axes.z / length;
+  const length = length2(axes.x, axes.z), x = axes.x / length, z = axes.z / length;
   if (!Motion.grounded[id] && !(preset.wallDodge && findWall(id, -x, -z))) return;
   Actors.vx[id] = x * preset.dodgeSpeed; Actors.vz[id] = z * preset.dodgeSpeed; Actors.vy[id] = preset.dodgeUp;
   setClock(id, CLOCK.DODGE_COOLDOWN, preset.dodgeCooldown);
@@ -244,7 +246,7 @@ function chargeTarget(id, range) {
   let best = -1, bestDistance = range;
   for (let other = 0; other < Actors.count; other++) {
     if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
-    const dx = Actors.x[other] - Actors.x[id], dz = Actors.z[other] - Actors.z[id], distance = Math.hypot(dx, dz);
+    const dx = Actors.x[other] - Actors.x[id], dz = Actors.z[other] - Actors.z[id], distance = length2(dx, dz);
     if (distance >= bestDistance || distance < 1e-3 || (dx * forwardX + dz * forwardZ) / distance < CHARGE_CONE_COS) continue;
     if (!World.lineClear(Actors.x[id], eyeY, Actors.z[id], Actors.x[other], Actors.eyeY(other), Actors.z[other])) continue;
     best = other; bestDistance = distance;
@@ -258,13 +260,13 @@ function chargeState(id, preset, gravity, dt) {
   Actors.vx[id] = Motion.dirX[id] * preset.chargeSpeed; Actors.vz[id] = Motion.dirZ[id] * preset.chargeSpeed;
   integrate(id, Motion.grounded[id] ? 0 : gravity, dt);
   const travelled = (Motion.stateTime[id] + dt) * preset.chargeSpeed;
-  const arrived = target >= 0 && Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
+  const arrived = target >= 0 && length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
   if (travelled < preset.chargeDistance && !arrived && !Motion.blocked[id]) return;
   endBurst(id, preset);
 }
 
 function aimChargeAt(id, target) {
-  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz);
+  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz);
   if (distance < 1e-3) return;
   Motion.dirX[id] = dx / distance; Motion.dirZ[id] = dz / distance;
 }
@@ -412,6 +414,18 @@ Move.setBoard = function setBoard(id, on) {
   return true;
 };
 Move.onBoard = (id) => Motion.board[id] === 1;
+TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   // touch players board with Use
+// Boarding (Q5): Use while running on the ground (at least SKIMMER_BOARD_RUN of the preset's ground speed) deploys the board,
+// which keeps it apart from Use on objectives and loot (done standing or walking); Use while riding steps off.
+// Actions run before the walk state, so the velocity is last step's: the move input must still be held this step,
+// or an actor (a bot at a Use goal, a player releasing W) that stops and presses Use in one step would board.
+function toggleBoard(id, preset) {
+  if (!(Actors.pressed[id] & BTN.USE)) return;
+  if (Motion.board[id]) { Move.setBoard(id, false); return; }
+  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
+}
 
 Bus.on('damage', (event) => {
   if (!Motion.board[event.target]) return;
@@ -426,5 +440,5 @@ Move.states[MOVE_STATE.WALL_RUN] = wallRunState;
 Move.states[MOVE_STATE.LATCH] = latchState;
 Move.states[MOVE_STATE.LADDER] = ladderState;
 Move.states[MOVE_STATE.SWIM] = swimState;
-Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide);
+Move.actions.push(selectMedium, tryMantle, tryDodge, tryTacticalSprint, tryDash, tryCharge, updateSlide, tryWallRun, tryLatch, updateGlide, toggleBoard);
 Move.landHooks.push(rollOrStagger, slideHopLanding);

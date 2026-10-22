@@ -310,7 +310,7 @@ Modes.register('payload', {
   },
   creditPushers(attackers) {
     for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && Modes.isActive(id) && Actors.team[id] === attackers && Modes.inZone(this.cart, id)) Modes.creditObjective(id, 'capture');
+      if (Modes.actsOnObjectives(id) && Modes.isActive(id) && Actors.team[id] === attackers && Modes.inZone(this.cart, id)) Modes.creditObjective(id, 'capture');
     }
   },
   isOver(now) {

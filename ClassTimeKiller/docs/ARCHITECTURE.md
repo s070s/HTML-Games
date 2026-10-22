@@ -6,14 +6,15 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 
 - Source: `src/shell.html` (style + DOM shells) and `src/*.js`, joined by file name order into **one** script inside one IIFE: `(() => { 'use strict'; ... })()`.
 - Build: `node tools/build.mjs` writes `ClassTimeKiller.html` (the shipped file; players never build). `--check` runs the checks only.
-- Build checks (fail the build): a top-level name declared in two files; a block of 8 meaningful lines duplicated anywhere (DRY); network/eval APIs (`fetch`, XHR, WebSocket, `import()`, `eval`, `new Function`).
+- Build checks (fail the build): a top-level name declared in two files; a block of 8 meaningful lines duplicated anywhere (DRY); network/eval APIs (`fetch`, XHR, WebSocket, `import()`, `eval`, `new Function`). Size (D07): a warning above 3.0 MB, a failure above 3.5 MB.
 - Test: `node tools/selftest.mjs [--group <name>] [--eval "<js>"]` runs `__CTK.selfTest({headless:true})` in headless Chrome (software WebGL) and fails on any failed check or logged error.
+- Performance: `node tools/perf.mjs` (worst-case scenes under CPU throttling, boot time, allocation and GC; `--help`); results and how to read them in `docs/PERFORMANCE.md`. Both tools start Chrome through `tools/cdp.mjs`.
 - File names: `NN-name.js` for a one-file section; `NNa-name.js` = the section's base file, `NNb-…`, `NNc-…` = add-on files of that section (they sort after the base). Data catalogues: `03b-data-<area>.js` and later letters. Tests: `20b-test-<area>.js` and later letters.
 
 | # | Section | Files | Global objects |
 |---|---|---|---|
 | S00 | style + DOM shells | `shell.html` | `#view` canvas, `#overlay` (DOM UI root), `#fatal`, `#version` |
-| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim`, `Game` |
+| S01 | util / math / core | `01-core.js` | constants (incl. DATA-003 body sizes `STAND_HEIGHT ACTOR_RADIUS STEP_HEIGHT HEAD_/TORSO_/LEGS_*`, `ZONE`, `ZONE_NAMES`), `clamp lerp wrapAngle…`, `length2 length3` (use them, not `Math.hypot`, in hot code: PERF-006), `Vec`, `Mat4`, `ErrorLog`, `Bus`, `makePool`, `BTN`, `ACTOR_KIND`, `ACTOR_FLAG`, `Actors`, `Sim` (`Sim.timing` / `Sim.timingTotal`: read-only ms per system), `Game` |
 | S02 | RNG | `02-rng.js` | `makeRandom`, `hashString`, `Rng.{map,loot,bots,rules,fx,weapons,pve}` |
 | S03 | data catalogues | `03a-data.js`, `03b…` | `Data.define`, `REQUIRED`, `CAT` |
 | S04 | settings / save | `04-save.js` | `Save`, `Settings`, `makeMemoryStorage` |
@@ -26,12 +27,12 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S11 | weapons / projectiles / damage | `11*` | `Weapons`, `Projectiles`, `Damage` |
 | S12 | abilities / items | `12*` | `Items`, `Gadgets`, `Abilities` |
 | S13 | rules / modes | `13*` | `Rules`, `Modes`, `Economy`, `Mutators` |
-| S14 | bots | `14*` | `Bots` |
-| S15 | PvE (enemies, director, PvE modes, boss) | `14h..14k` (after the bots they reuse) | `Pve`, `PveBrains`, `PveAttacks`, `PveBoss` (docs/api/pve.md) |
-| S16 | map gen | `16*` | `Maps`, `MapGen` |
-| S17 | HUD | `17*` | `Hud` |
-| S18 | UI | `18*` | `Ui`, `Progress` |
-| S19 | game loop | `19-loop.js` | `Loop`, `Perf` |
+| S14 | bots and PvE | `14a..14g` bots; `14h..14k` PvE (enemies, director, PvE modes and level report, boss; after the bots they reuse) | `Bots`, `BotSense`, `BotMove`, `BotCombat`; `Pve`, `PveBrains`, `PveAttacks`, `PveLevel`, `PveBoss` (docs/api/bots.md, docs/api/pve.md) |
+| S15 | progression | `15a` progress and run log, `15b` medals, `15c` ladder, challenges, operations, daily, `15d` cards | `Progress`, `RunLog`, `Medals`, `Ladder`, `Challenges`, `Operations`, `OperationRun`, `Daily`, `Cards`, `CardRun` (docs/api/progression.md) |
+| S16 | maps, map gen, map editor | `16*` | `Maps`, `MapKit`, `MapScan`, `MapCheck`, `MapGen`, `MapEditor` (docs/api/maps.md, mapgen.md, mapeditor.md) |
+| S17 | HUD | `17*` | `Hud`, `CommWheel` (17g, comm / ping wheel) |
+| S18 | UI | `18*` | `Ui`, `MapEditorShare` |
+| S19 | game loop | `19-loop.js` | `Loop` (frame cap pacing), `Perf` (`Perf.bootMs`) |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
 | S21 | bootstrap | `21-boot.js` | `Boot` |
 
@@ -69,16 +70,16 @@ Conventions (DATA-002): metres, Y up, yaw 0 looks +Z, positive pitch looks up. F
 
 ## Match record and lifecycle
 
-`Game.start(setup)` emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
+`Game.start(setup)` first runs `Game.setupHooks` (fn(setup) pushed by later sections; 18l adds the player's assist sliders), then emits in order `match.setup` -> `match.load` -> `match.start`, then state `playing`. `Game.end(winner)` -> `match.end` (state `results`). `Game.stop()` -> `match.stop`.
 `setup = { mode: 'ffa', map: 'mp01', ruleset: 'rs01' | {…}, mutators: [], bots: [{ profile, team, tier }], seed, difficulty, player: { team, loadout }, modeOptions, balance }`. `balance: false` keeps a custom team split (S13 auto-balance skips it).
 `Game.match = { setup, rules, map, ended, winner, startTick, … }`. `rules` is the frozen built ruleset (Ruleset schema in spec §4, built by S13 `Rules.build`); every section reads its own fields from it (`CAT.movement.byId(Game.match.rules.move)`). Tests may assign a hand-made `rules` object.
-Ruleset fields that cross sections: `rules.fx` = the mutator effect bag (S13 13h sets one key per active mutator, e.g. `darkness`, `ballistics { gravity, drag }`, `volatileAmmo`, `noItems`, `noPowerups`, `mirror`, `powers`, `superPowerups`; the reading section is listed in docs/api/mutators-custom.md); `rules.items` (false = no map pickups; S12 also skips them for `fx.noItems` and mode `params.pickups: false`); `rules.botSkill` = the resolved difficulty preset (S14), read by S11 for the player's aim assist (`aimAssist` 0..100, -1 keeps the setting); `rules.weaponSet: 'matchSet'` = the reserved `weaponSets` row the match fills from a weapon list (X08/X09/X10, custom matches): S11 loadouts and S12 weapon spots use its `weapons`.
+Ruleset fields that cross sections: `rules.fx` = the mutator effect bag (S13 13h sets one key per active mutator, e.g. `darkness`, `ballistics { gravity, drag }`, `volatileAmmo`, `noItems`, `noPowerups`, `mirror`, `powers`, `superPowerups`; the reading section is listed in docs/api/mutators-custom.md); `rules.downed` (S11: teammates go down instead of dying, HP-007 squad rulesets); `rules.items` (false = no map pickups; S12 also skips them for `fx.noItems` and mode `params.pickups: false`); `rules.botSkill` = the resolved difficulty preset (S14), read by S11 for the player's aim assist (`aimAssist` 0..100, -1 keeps the setting); `rules.weaponSet: 'matchSet'` = the reserved `weaponSets` row the match fills from a weapon list (X08/X09/X10, custom matches): S11 loadouts and S12 weapon spots use its `weapons`.
 Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 loads it with `World.load` on `match.load` (no map = the loaded world stays, e.g. a test world), so spawns, nav and the renderer follow `world.load` before `match.start`.
 `Game.playerId` = the local player's actor id (-1 when spectating / headless).
 
 ## Event bus (ARC-015)
 
-`Bus.on(type, fn)`, `Bus.emit(type, payload)`. Emitters reuse one payload object per event type: **listeners copy what they keep**. Listener errors are logged, never thrown.
+`Bus.on(type, fn)`, `Bus.emit(type, payload)`. Emitters reuse one payload object per event type: **listeners copy what they keep**. Listener errors are logged, never thrown. The shared events have one emitter each in S01, used by every section: `emitSound(x, y, z, radius, kind, source)` (radius 0 sends nothing), `emitImpulse(id, x, y, z)` and `emitToast(text)`.
 
 | Event | Payload | Emitted by |
 |---|---|---|
@@ -98,22 +99,36 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `kill` | `{ victim, killer, assister, weapon, zone, element, x, y, z }` | S11 |
 | `damage.request` | `{ target, source, amount, kind: 'fall'|'hazard'|'telefrag'|'crush'|'drown', element, x, y, z }` (earlier sections ask S11 to apply damage) | S08, S10, S12 |
 | `impulse` | `{ id, x, y, z }` velocity change in m/s (knockback, jump pads); S10 applies it | S08, S11, S12 |
-| `world.break` | `{ prop, material, x, y, z }` a destructible prop broke (`prop` = `hit.brush.prop`) | S08 |
+| `world.break` | `{ prop, material, x, y, z, source }` a destructible prop broke (`prop` = `hit.brush.prop`; `source` = the actor whose shot or blast broke it, -1 none) | S08 |
+| `world.trigger` | `{ id, kind, index, x, y, z }` an actor used a trigger (docs/api/world-move.md) | S08 |
 | `toast` | `{ text }` short UI message | any |
 | `caption` | `{ text, x, y, z, kind }` sound caption / visual sound ring (ACC-002/003) | S06 |
 | `ui.click` | `{ kind }` menu feedback sound | S18 |
-| `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005) | any |
-| `pickup` | `{ id, item, x, y, z }` | S12 |
+| `sound` | `{ x, y, z, radius, kind, source }` (what bots can hear, BOT-005); S12 gadget sounds add `effect` (a grenade bounce: the row's effect, which bots check against `BOT_FLEE_EFFECTS`) | any |
+| `pickup` | `{ id, item, group, x, y, z }` | S12 |
+| `item.respawn` | `{ item, group, x, y, z }` | S12 |
+| `projectile.bounce` | `{ x, y, z, kind, source }` | S11/S12 |
+| `powerup.start` / `powerup.end` | `{ id, powerup }` | S12 |
+| `souls` | `{ id, count }` the actor's PU18 soul count changed | S12 |
+| `gadget.use` | `{ id, gadget, kind }` | S12 |
 | `item.grant` | `{ id, item }` give an item, powerup or weapon key without a pickup (X17 Super Powerups); S12 `Items.giveKey` delivers it | S13 |
 | `power.pick` | `{ id, ability }` give a random power in the first ability slot on spawn (X46 Powers for All); S12 `Abilities.setSlot` | S13 |
 | `ability.cast` / `ability.end` | `{ id, ability, slot }` (`ability.end` adds `reason`: done, cancel, release, empty, stun, damage, fire, group, death, match, spawn, replace, suppressed) | S12 |
+| `ability.panic` | `{ id, source, seconds }` an ability panicked a fodder enemy (A32 swarm); S14 PvE breaks its morale for `seconds` | S12 |
 | `ability.teleport` | `{ id, x, y, z }` an ability with `balance.dropsObjective` (A12) moved an actor (S13 drops a carried objective) | S12 |
 | `score` | `{ id, team, points, reason }` | S13 |
-| `medal` | `{ id, medal }` | S13/S18 |
+| `round` | `{ round, phase, winner, reason, attackers }` | S13 |
+| `medal` | `{ id, medal }` (players only) | S15 `Medals` |
 | `announce` | `{ text, kind, priority }` | any (HUD banner, audio sting) |
 | `ping` | `{ id, kind, x, y, z, target }` | S05/S14 |
 | `bark` | `{ id, team, category, text }` | S14 |
-| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` / `pve.wave` / `pve.boss` / `pve.chamber` | see docs/api/pve.md | S14 PvE |
+| `pve.tell` / `pve.parry` / `pve.alarm` / `pve.core` | see docs/api/pve.md | S14 PvE |
+| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | S14 PvE |
+| `pve.boss` | `{ id, phase, phases, kind: 'start' \| 'phase' \| 'weak' \| 'defeated' \| 'gone', seconds, final }` | S14 PvE |
+| `pve.chamber` | `{ chamber, kind: 'enter' \| 'complete', medal, stars, seconds }` | S14 PvE |
+| `pve.secret` / `pve.crate` | `{ id, secret }` / `{ id, prop }` a participant found a secret hint / broke a prop | S14 PvE |
+| `mapEditor.changed` | `{ what: 'map' \| 'edit' \| 'selection' \| 'problems' \| 'saved' }` | S16 `MapEditor` |
+| `input.action` / `input.device` / `input.menu` / `input.relock` | see docs/api/input-ui.md | S05 |
 
 ## Map data format (catalogue `maps`, generated maps use the same format)
 
@@ -125,10 +140,12 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
   objectives: [{ id, kind: 'flag'|'flagBase'|'point'|'hill'|'bombsite'|'payloadPath'|'relic'|'core'|'bank'|'extract', team, x, y, z, radius, path: [[x,y,z], ...] }],
   zones: [{ name, min, max }]  (callouts, MAP-012),
   triggers: [{ kind: 'jumppad'|'teleporter'|'ladder'|'water'|'hazard'|'killzone', min, max, ... }] (fields: docs/api/world-move.md),
-  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }], seed (generated maps only),
+  lights: [{ x, y, z, color: 0xRRGGBB, radius }], navHints: [{ x, y, z, kind }] (kind 'secret' = a PvE level secret), seed (generated maps only),
+  props: [{ min, max, health, material, mass, debris, color }] (breakable boxes, S08 Props; MapKit.make gives every map the list),
   gen: { generator, size, theme, density, mode, requestedSeed, siteSeconds? } (generated maps only, docs/api/mapgen.md),
-  ring: { x, z, radius } (optional: royale ring centre and start radius; without it the ring starts from the world bounds) }
+  ring: { x, z, radius } (optional: royale ring centre and start radius, read by 13g; without it the ring starts from the world bounds) }
 ```
+Runtime maps (S16 `Maps`): `Maps.runtime` holds maps registered at run time (the editor's saved maps and generated maps, newest last). `Maps.registerRuntime(map)` adds or replaces a row by id, `Maps.unregisterRuntime(id)` drops one, `Maps.addRuntime(map)` registers a generated map and keeps at most `MAPS_RUNTIME_KEEP` generated ones; `Maps.get` and `Maps.forMode(mode)` see hand-made and runtime maps, `Maps.savedForMode(mode)` only those that survive a reload (no generated maps).
 Coordinates in metres, floor usually at y = 0, yaw in degrees in data (radians in code).
 
 ## Spawning contract
@@ -143,31 +160,37 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 - Darkness (`rules.fx.darkness`, X37): S07 darkens the theme and fog, bakes no map lights, and each frame (render update 55, after the effect lights) gives the visible living actors nearest the camera one flashlight each, written straight into the frame lights up to the quality tier's `lights` (at least 1, so the player always has one); muzzle flashes and explosions keep 2 of those lights.
 - Accessibility and view hooks (filled by S18, read by S07): `Render.viewEffect = fn(camera, seconds)` (camera shake and FOV kick after the camera followed the player), `Render.motion = { bob, shake, fovKick }` (0..1 scales: reduce motion and the sliders), `Render.teamPalette` (colour-blind team colours or `null`), `Render.config.highContrast` (thick bright enemy outlines), `Render.config.particleScale` (particle intensity), `Render.config.viewmodelOffset` (metres). `video.headBob` is a 0-100 slider. Details: `docs/api/accessibility.md`.
 - `Render.camera` `{ x, y, z, yaw, pitch, roll, fov }` follows the player's interpolated eye by default; `Render.cameraOverride = fn(camera)` for spectate/killcam.
-- `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color, zoom, recoilPitch, recoilYaw, dual }`: `recoilPitch`/`recoilYaw` = the recoil punch in degrees (positive pitch = up), added to the camera view (view kick); `dual` = two pistols drawn.
+- `Render.viewModel = fn(out)` (filled by S11) returns `{ visible, shape: weapon class, kick, reload 0..1, swap 0..1, ads 0..1, color, zoom, recoilPitch, recoilYaw, dual }`: `recoilPitch`/`recoilYaw` = the recoil punch in degrees (positive pitch = up), added to the camera view (view kick); `dual` = two pistols drawn. S15 (15a) wraps the hook once at load: `color` becomes the player's worn body colour when one is chosen (first person draws no body).
 - `Fx`: `burst(kind, x, y, z, nx, ny, nz, count, colorHex)`, `tracer(ax, ay, az, bx, by, bz, colorHex)`, `decal(x, y, z, nx, ny, nz, kind)`, `light(x, y, z, colorHex, radius, seconds)`. Kinds: `spark smoke dust blood muzzle explosion energy water fire frost shock heal`. All capped by quality (PERF-010), pooled.
 - `HudBatch` (used by S17): `rect(x, y, w, h, colorHex, alpha)`, `text(string, x, y, sizePx, colorHex, align)`, `ring(x, y, radius, thickness, colorHex, alpha, start, end)`, `line(...)`; one draw call per layer (REN-005).
-- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale). S19 also copies `Sound.updateMs` to `Perf.counters.audioMs` after the frame phases.
+- `Render.stats` feeds `Perf.counters` (draw calls, triangles, render ms, scale). S19 `Perf.publishCounters()` also copies `Sound.updateMs` to `Perf.counters.audioMs` and `Projectiles.active` to `Perf.counters.projectiles` after the frame phases.
 
 ## Other hooks
 
 - Settings: `Settings.define(key, default, { label, category: 'video'|'controls'|'audio'|'gameplay'|'hud'|'accessibility'|'developer', min, max, step, options, optionLabels })`. The settings screen is generated from these definitions; nothing is written that is never read (self-test).
-- Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008); `Input.aimAssistFilters` = list of `fn(id, point) -> false` that refuse a found point (S12: never through smoke); `Input.aimAssistOverride = fn() -> 0..100 | -1`: the aim assist floor (filled by S11 from `rules.botSkill.aimAssist`) replaces the device's strength setting, -1 keeps it. `Input.actions` is the single action table.
+- Input: `Input.aimAssistTarget = fn(id, out)` (filled by S11/S14) returns the nearest valid hitbox point for aim assist (INP-008); `Input.aimAssistFilters` = list of `fn(id, point) -> false` that refuse a found point (S12: never through smoke); `Input.aimAssistOverride = fn() -> 0..100 | -1`: the aim assist floor (filled by S11 from `rules.botSkill.aimAssist`) replaces the device's strength setting, -1 keeps it. `Input.actions` is the single action table. `Input.resumeBlocked = fn() -> bool` refuses the pause menu's Resume (S07: graphics context lost). `TouchInput.needs[key] = fn() -> bool` shows a need-gated touch button (`comm`: filled by the comm wheel); `TouchInput.stickSprints` (S10).
 - Audio: `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz)` (filled by S08 with `World.lineClear`) muffles sounds behind walls; `null` = no occlusion.
 - Hooks are filled once at load and never reset by the section that owns them; the self-test restores them before every block.
 - Parry (S11 owns W03): `WeaponSpecialState.parryHooks` (fn(target, projectile) -> true reflects a parryable projectile before the W03 block check); S14 fills it for PvE green projectiles.
-- Movement hooks (S10 owns MOV-021/025, MV08): S11 asks `Move.canFire(id)` before a shot, writes `Move.weaponSpeedScale[id]` every step, adds `Move.inaccuracy(id)` to spread (the only MOV-025 table) and multiplies incoming damage by `Move.damageScale(id)`.
+- Movement hooks (S10 owns MOV-021/025, MV08): S11 asks `Move.canFire(id)` before a shot, writes `Move.weaponSpeedScale[id]` and `Move.weaponReadyTime[id]` every step, adds `Move.inaccuracy(id)` to spread (the only MOV-025 table) and multiplies incoming damage by `Move.damageScale(id)`.
 - Per-actor movement scales (S10 arrays, reset on `actor.create`): `Move.statusSpeedScale` and `Move.gravityScale` are written only by S12 `Buffs.applyScales(id)` (buffs SPEED x SLOW x the powerup factor; glide = a GRAVITY buff; status effects slow through S11's weapon speed scale instead); `Move.staminaScale` (sprint drain divisor) and `Move.footstepScale` (step noise and `move.step` loudness) are written by S13 economy perks.
 - Fire rate: `Weapons.rateScale[id]` (S11) is the single fire-rate factor; only `Buffs.applyScales` writes it (RATE status x powerup rate).
 - Shot blockers: `Weapons.rayBlockers` = list of `fn(ox, oy, oz, dx, dy, dz, maxDistance) -> distance | -1`; `Shot.trace` stops a hitscan ray at the nearest (S12 devices, ability domes) and emits an `impact` there facing the shooter. `Weapons.blockDistance(...)` runs them. Every device with health blocks, the shooter's own and allies' too (it is a solid object; friendly fire still decides whether it takes damage).
 - X41 bullets: `Weapons.ballistics()` = the ruleset's `{ gravity, drag }` or null; `Weapons.fliesAsBullet(mode)` = a hitscan mode turned into 11b bullets. Sections that settle shots on `weapon.fire` with an instant ray (12d devices, 12a X30 ammo) skip such shots. Each bullet sweep step stops at `Weapons.blockDistance` like hitscan, and `Projectiles.bulletHits` = list of `fn(owner, mode, ox, oy, oz, dx, dy, dz, length)` runs for the part a bullet flew unstopped by bodies (12d: the device it stopped at takes one pellet; 12a: X30 ammo pickups on that part blow up).
+- Status combos: `Damage.statusHooks` = list of `fn(id, row, source, seconds)` run after `Damage.addStatus` lands a status (S12 12f: HP-005 wet + Shock spreads to everyone wading within 8 m, Shock chains once to the source's nearest enemy within 4 m, Burn thaws Chill and Freeze; statuses a combo hands out never combo again). Only the electric 'shock' row combos: non-electric stuns (W03 bash, E10 charger knockdown, A15/G20 EMP) use the 'stun' row.
 - Shield regen: `Damage.pauseShieldRegen(id, seconds)` / `Damage.shieldRegenBlocked(id)` (S11): EMP and suppression pause shield and ability-shield regeneration.
 - Hit volumes: `Hitbox.sizeScale[id]` (whole body) and `Hitbox.headScale[id]` (head sphere) (S08) scale the hit tests; the renderer draws them through `Render.addActorStyle`.
+- Input buttons: `BTN.CYCLE_GRENADE` (bit 19) makes the next carried grenade type current (S12 `Gadgets.cycleGrenade`; only players press it, the touch `TYPE` button shows while two thrown types are carried).
+- Soul cards (S15 to S12): `rules.cards.fx` is read only through `soulCardFx(id, key, fallback)` (12a, player only), one reader per key: `soulLife` (12a drop), `soulMagnet` (`soulHomingRange`, 12a), `soulHeal` (12b heal), `wrathAt` (12e cost).
+- Difficulty (DIF-002): `rules.botSkill` sliders have one reader each: `playerDamage` / `enemyDamage` in `Pve.attackerScale` (14h, the only difficulty damage scale), `parry` in 14h and the W03 window (11d, against `DIFFICULTY_PARRY_BASE`), `projectileSpeed` (14i), `resourceYield` (14h drops, 12a spot respawns), `lives` / `checkpoints` / `checkpointHeal` (14j), `gameSpeed` (14a difficulty rule stage, every mode), the bot fields in 14a..14d.
+- PvE level report: `PveLevel.report` writes `match.results.pve = { propsLeft, secretsLeft, optionalLeft }` (measurable numbers only) on `match.end` before S15 counts the match (cards C02, C09, C13, C15, C18 read them); chamber records live in `Save.data.progression.chambers` (docs/api/progression.md).
 - Pickups (S12): `Items.givers[PICKUP_KIND]` = `fn(id, key)` gives a key without a pickup (`item.grant`); `Items.grantEffects[key]` = `fn(id, item)` delivers an economy 'grant' buy (unregistered keys are not on sale); S13 fills `Economy.grants.gadget` / `.grant` at the end of 13d (S12 cannot fill an S13 registry at load). `Smoke.add(x, y, z, width, height, seconds, yaw, owner)` lays a smoke curtain; `Smoke.lineBlocked(..., viewer)` is false for a viewer with the `smokeVision` passive.
 - Ballistics: `Projectiles.spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, { gravity, drag })` (S11 11b) flies one hitscan pellet as a `bullet` projectile (row P21) while `rules.fx.ballistics` is set.
 - Shared world geometry (S08, one source per algorithm): `rayBrush(ox, oy, oz, dx, dy, dz, maxDistance, brush, hit)` is the per-brush ray test behind `World.raycast`, the nav build (S09) and the map scan (S16); `World.padArc(pad, startY, gravity)` is the jump pad arc used by S08 launches and S09 pad links.
+- Lookup grids (S01, one source): `BrushGrid` buckets boxes by xz cell in compressed lists (`build`, `cellAt`, `forCells`, `query` with a per-pass stamp so a box counts once, and a 2D ray walk `startWalk` / `stepWalk` / `walkCell` over a `makeGridWalk()` record); the render bake (S07), the nav build (S09) and the map scan (S16) all use it, and `bucketByCell` is the counting sort behind it.
 - World media: `World.touchTriggers(id, gravity)` (called by S10 every step) returns `TRIGGER_MEDIUM` bits `WATER` (swim depth), `WADING` (touching water), `LADDER`, `HEAD_UNDER`, `MOVED` (docs/api/world-move.md).
-- UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`. Settings screen hooks: `Ui.settingGroup(key)`, `Ui.settingsExtras[category | category + ':after']`, `Ui.settingsFooter`; `PlayFlow.setupHooks` adjust a built setup; `hudAddElement(row)` adds a hideable HUD element (S17).
-- Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops.
+- UI screens: `Ui.register(name, { build(root), onOpen, onClose })`, `Ui.open(name)`, `Ui.back()`, `Ui.toast(text)`. Settings screen hooks: `Ui.settingGroup(key)`, `Ui.settingsExtras[category | category + ':after']`, `Ui.settingsFooter`; `Game.setupHooks` (S01) adjust every setup at `Game.start`; `hudAddElement(row)` adds a hideable HUD element (S17).
+- Fatal errors: `showFatal(title, text, detail)` (S01) shows the full-screen message (PLT-002); boot stops. An error logged by a `boot` or `ready` listener ends the start the same way (`Boot.emitChecked`, using `ErrorLog.total` / `ErrorLog.since(count)`), and an inline `window.onerror` in shell.html fills `#fatal` for a script error before `Boot.start` (ignored once `window.__CTK` exists).
 - Quality: `Quality.current()` (S04) is the active `CAT.quality` row; `Settings 'video.quality'` ('auto' or a preset id); the renderer's benchmark sets `video.autoQuality`.
 - Input: `Input.device` = last used device `'kbm'|'touch'|'gamepad'`.
 - Each helper documents its public API in `docs/api/<area>.md` (functions, data formats such as map entities, events it emits).
@@ -175,7 +198,7 @@ S13 picks the spawn point (MAP-010/011), sets the actor's position/yaw, `alive =
 
 ## Data catalogues
 
-`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals`.
+`Data.define(name, schema, rows)` once per catalogue; schema values are defaults or `REQUIRED`. `CAT.<name>` rows, `CAT.<name>.byId(id)`. Code keys are the spec's backtick keys (`warden`, `arena`), catalogue codes kept in a `code` field (`W04`). Catalogue names: `quality movement rulesets health weapons projectiles recoil weaponSets gadgets abilities heroes powerups items economy modes mutators difficulty cards botTiers botTraits bots enemies maps generators medals unlocks ladder challenges operations`, plus the supporting tables `abilityKits actorParts attachments buyItems classes damageKinds decalKinds elements fireModes fxKinds gadgetKits mapDensities mapItemSets mapModules mapSizes mapTilesets materials meters perks precision statusEffects teamColors themes viewModels weaponClasses`.
 
 ## Self-test
 

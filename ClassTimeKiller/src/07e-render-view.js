@@ -55,7 +55,7 @@ function followPlayer(seconds, alpha) {
 }
 
 function headBob(id, seconds) {
-  const speed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+  const speed = length2(Actors.vx[id], Actors.vz[id]);
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
   ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / BOB_STRIDE_METERS)) % (Math.PI * 2);
   if (!Render.config.headBob || !grounded) return 0;
@@ -114,10 +114,18 @@ function extractFrustum(m, out) {
 }
 
 // Frustum test for an axis-aligned box (the corner furthest along each plane normal must be inside).
+const visibleBox = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 function boxVisible(minX, minY, minZ, maxX, maxY, maxZ) {
+  const box = visibleBox;
+  box.minX = minX; box.minY = minY; box.minZ = minZ; box.maxX = maxX; box.maxY = maxY; box.maxZ = maxZ;
+  return boundsVisible(box);
+}
+
+// boxVisible of an object with minX..maxZ (world chunks): six float arguments per chunk and frame would be boxed (PERF-006).
+function boundsVisible(box) {
   const f = ViewState.frustum;
   for (let i = 0; i < 24; i += 4) {
-    const x = f[i] > 0 ? maxX : minX, y = f[i + 1] > 0 ? maxY : minY, z = f[i + 2] > 0 ? maxZ : minZ;
+    const x = f[i] > 0 ? box.maxX : box.minX, y = f[i + 1] > 0 ? box.maxY : box.minY, z = f[i + 2] > 0 ? box.maxZ : box.minZ;
     if (f[i] * x + f[i + 1] * y + f[i + 2] * z + f[i + 3] < 0) return false;
   }
   return true;
@@ -128,8 +136,10 @@ const viewModelBatch = makeShapeBatch('viewmodel', 24);
 const viewModelRows = {};
 CAT.viewModels.forEach((row) => { viewModelRows[row.id] = row; });
 const weaponPose = { x: 0, y: 0, z: 0, pitch: 0 };
-const viewLocal = { x: 0, y: 0, z: 0 };
-const viewWorld = { x: 0, y: 0, z: 0 };
+// Weapon part offsets rotated in place, then written into one instance record (no float arguments, PERF-006).
+const viewLocal = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+const viewWorld = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+const viewPart = makeShapeInstance();
 const viewTint = new Float32Array(3);
 
 // Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
@@ -164,12 +174,17 @@ function addWeaponParts(row, pose, state, hand) {
   for (let i = 0; i < row.parts.length; i++) {
     const part = row.parts[i];
     // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    rotateYawPitchInto(viewLocal, -part.at[0] * VIEWMODEL_SCALE * hand, part.at[1] * VIEWMODEL_SCALE, part.at[2] * VIEWMODEL_SCALE, 0, pose.pitch);
-    rotateYawPitchInto(viewWorld, viewLocal.x - pose.x * hand, viewLocal.y + pose.y, viewLocal.z + pose.z, camera.yaw, camera.pitch);
-    const emissive = viewPartColor(part, row, state);
-    const pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
-    viewModelBatch.mesh(part.shape, camera.x + viewWorld.x, camera.y + viewWorld.y, camera.z + viewWorld.z, camera.yaw, pitch,
-      part.size[0] * VIEWMODEL_SCALE, part.size[1] * VIEWMODEL_SCALE, part.size[2] * VIEWMODEL_SCALE, viewTint[0], viewTint[1], viewTint[2], emissive);
+    const local = viewLocal, world = viewWorld, instance = viewPart;
+    local.x = -part.at[0] * VIEWMODEL_SCALE * hand; local.y = part.at[1] * VIEWMODEL_SCALE; local.z = part.at[2] * VIEWMODEL_SCALE; local.yaw = 0; local.pitch = pose.pitch;
+    rotateInPlace(local);
+    world.x = local.x - pose.x * hand; world.y = local.y + pose.y; world.z = local.z + pose.z; world.yaw = camera.yaw; world.pitch = camera.pitch;
+    rotateInPlace(world);
+    instance.emissive = viewPartColor(part, row, state);
+    instance.x = camera.x + world.x; instance.y = camera.y + world.y; instance.z = camera.z + world.z;
+    instance.yaw = camera.yaw; instance.pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
+    instance.sx = part.size[0] * VIEWMODEL_SCALE; instance.sy = part.size[1] * VIEWMODEL_SCALE; instance.sz = part.size[2] * VIEWMODEL_SCALE;
+    instance.r = viewTint[0]; instance.g = viewTint[1]; instance.b = viewTint[2];
+    viewModelBatch.meshFrom(part.shape, instance);
   }
 }
 Render.addUpdate(60, fillViewModel);
@@ -197,7 +212,63 @@ const SCALE_CEILING_WAIT_SECONDS = 30;   // first retry above such a scale; the 
 const GPU_BUDGET_MS = 6;                 // PERF-003
 const FRAME_BUDGET_MS = 1000 / 60;       // PERF-001 hard floor, used when no GPU timer exists
 const FRAME_BUDGET_TOLERANCE = 1.08;     // a missed vsync shows up as > 8% over the interval
-const FRAME_SMOOTHING = 0.15;
+const FRAME_SMOOTHING_SECONDS = 0.1;     // time constant of the smoothed frame interval (the same response at 60, 90, 120 or 144 Hz)
+const REFRESH_SAMPLE_FRAMES = 120;       // menu frames per display-interval measurement
+const REFRESH_PERCENTILE = 0.25;         // the fast cluster of the samples: a few late frames (a GC, a menu build) do not count
+const REFRESH_LIGHT_TRIANGLES = 256;     // more than the menu draws (sky, benchmark off): a world is drawn, as in the map editor
+const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under half its interval: the display set the pace
+const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
+const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
+
+// ---- Display interval (non-60 Hz screens): light menu frames run at the display's own rate. A display slower than
+// 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
+// scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
+// reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
+// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. A GPU-bound
+// frame held to every second vsync looks exactly like a 30 Hz display: the GPU timer tells them apart, and without one a
+// slower-than-60 Hz interval counts only once it held across a render-scale change (a GPU frame time follows the scale). ----
+const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
+
+// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU (and timed GPU) work left it idle.
+function displayPacedFrame(seconds) {
+  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
+  if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
+  const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
+  if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
+  return Perf.cpuMs[Perf.lastIndex()] < idleMs;
+}
+
+// The standard refresh interval nearest to a measured one, or 0 when none is close (a GPU-bound frame time, not a display).
+function standardRefreshMs(measuredMs) {
+  for (let i = 0; i < STANDARD_REFRESH_HZ.length; i++) {
+    const intervalMs = 1000 / STANDARD_REFRESH_HZ[i];
+    if (Math.abs(measuredMs - intervalMs) <= intervalMs * REFRESH_RATE_TOLERANCE) return intervalMs;
+  }
+  return 0;
+}
+
+function measureDisplayRate(seconds) {
+  if (!displayPacedFrame(seconds)) return;
+  const rate = DisplayRate;
+  rate.samples[rate.count++] = seconds * 1000;
+  if (rate.count < REFRESH_SAMPLE_FRAMES) return;
+  rate.count = 0;
+  const measuredMs = rate.samples.sort()[Math.floor(REFRESH_SAMPLE_FRAMES * REFRESH_PERCENTILE)];
+  acceptRefreshMs(rate, standardRefreshMs(measuredMs));
+}
+
+// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval in the window before at another scale.
+function acceptRefreshMs(rate, refreshMs) {
+  if (!refreshMs) return;
+  const scale = Render.size.scale;
+  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
+  rate.candidateMs = refreshMs; rate.candidateScale = scale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
+}
+
+// The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
+// or the frame cap's slower interval (the 30 fps battery saver).
+function slowFrameMs() { return Math.max(FRAME_BUDGET_MS, DisplayRate.intervalMs, Render.config.frameCapMs) * FRAME_BUDGET_TOLERANCE; }
 
 // Controller state. `ceiling` = the highest scale known to hold the budget for this preset and screen size.
 function makeScaleControl() {
@@ -253,7 +324,9 @@ function raiseScale(control, scale, high) {
 
 function updateRenderScale(seconds) {
   const control = ScaleControl, size = Render.size, quality = Render.quality, config = Render.config;
-  control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, FRAME_SMOOTHING); // seconds = frame interval
+  measureDisplayRate(seconds);
+  const blend = 1 - Math.exp(-seconds / FRAME_SMOOTHING_SECONDS);
+  control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, blend); // seconds = frame interval
   if (control.quality !== quality || control.width !== size.width || control.height !== size.height) {
     resetScaleCeiling(control);
     control.quality = quality; control.width = size.width; control.height = size.height;
@@ -263,7 +336,7 @@ function updateRenderScale(seconds) {
   if (Benchmark.active) scale = 1;
   else if (config.renderScale !== 'auto') scale = config.renderScale;
   else if (GpuTimer.extension) scale = stepRenderScale(control, GpuTimer.lastMs, GPU_BUDGET_MS, GPU_BUDGET_MS * SCALE_RAISE_FRACTION, seconds, scale, low, high);
-  else scale = stepRenderScale(control, control.smoothedMs, SLOW_FRAME_MS, SLOW_FRAME_MS, seconds, scale, low, high);
+  else scale = stepRenderScale(control, control.smoothedMs, slowFrameMs(), slowFrameMs(), seconds, scale, low, high);
   if (Math.abs(scale - size.scale) < 1e-4) return;
   size.scale = scale;
   size.dirty = true;
@@ -272,7 +345,6 @@ Render.addUpdate(2, updateRenderScale);
 
 // ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it ----
 const STEP_DOWN_SECONDS = 5;
-const SLOW_FRAME_MS = FRAME_BUDGET_MS * FRAME_BUDGET_TOLERANCE;
 const StepDown = { slowSeconds: 0 };
 
 function lowerQualityStep() {
@@ -280,7 +352,7 @@ function lowerQualityStep() {
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
   Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
-  toastText('Quality lowered to ' + next.name + ' to keep the game smooth');
+  emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
 
@@ -292,7 +364,7 @@ function scaleHeadroomLeft() {
 }
 
 function updateStepDown(seconds) {
-  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= SLOW_FRAME_MS || scaleHeadroomLeft()) { StepDown.slowSeconds = 0; return; }
+  if (!Game.isRunning() || !Render.config.autoLower || ScaleControl.smoothedMs <= slowFrameMs() || scaleHeadroomLeft()) { StepDown.slowSeconds = 0; return; }
   StepDown.slowSeconds += seconds;
   if (StepDown.slowSeconds < STEP_DOWN_SECONDS) return;
   StepDown.slowSeconds = 0;
@@ -324,7 +396,7 @@ function finishBenchmark() {
   Benchmark.done = true;
   Benchmark.result = pickBenchmarkQuality(benchmarkMedian());
   Settings.set('video.autoQuality', Benchmark.result);
-  toastText('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
+  emitToast('Graphics quality set to ' + CAT.quality.byId(Benchmark.result).name);
 }
 
 function updateBenchmark(seconds) {

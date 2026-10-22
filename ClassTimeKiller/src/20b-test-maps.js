@@ -138,6 +138,9 @@ Test.add('maps', (check) => {
   }
   for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
   check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
+  // MODE-002: Play, Quick Match, Shuffle and Custom list only modes with a saved map, so every versus mode needs a hand-made one.
+  const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);
+  check('modes: every versus mode has a hand-made map (pickable in Play and Custom)', unserved.length === 0, unserved.join());
   check('lookup: by id and by code', Maps.get('MP05') === Maps.get('harbor') && Maps.get('nope') === null);
 });
 

@@ -271,6 +271,23 @@ Test.add('move', (check) => {
   check('walk speed = 0.52 x 6.0', Test.near(testSpeed(id), 3.12, 0.03), testSpeed(id));
 });
 
+// INP-003: Tactical has no sprint, so Shift (the sprint button) walks: walk speed, walk accuracy, no footsteps.
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'tactical' });
+  const id = groundedTester(-40, 0);
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('tactical: sprint walks at 0.52 x 6.0', Test.near(testSpeed(id), 3.12, 0.03), testSpeed(id));
+  check('tactical: walking on sprint keeps the walk accuracy', Move.inaccuracy(id) === Move.preset(id).inaccuracy.walk);
+  check('tactical: walking on sprint is silent', recordEvents(['move.step'], () => stepSeconds(1)).length === 0);
+  check('tactical: the touch stick does not press sprint there', !TouchInput.stickSprints());
+  useTestRules({ move: 'arena' });
+  holdInput(id, -1, 0, BTN.SPRINT, 0);
+  stepSeconds(2);
+  check('arena: the sprint button never walks', testSpeed(id) > Move.preset(id).groundSpeed * 0.95 && TouchInput.stickSprints(), testSpeed(id));
+});
+
 Test.add('move', (check) => {
   loadTestWorld();
   useTestRules({ move: 'tactical' });
@@ -326,6 +343,16 @@ Test.add('move', (check) => {
   check('sprintToFire 0.20 s blocks firing', !Move.canFire(id));
   stepSeconds(0.06);
   check('can fire after sprintToFire', Move.canFire(id));
+  Weapons.setLoadout(id, ['tempest']);
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(0.5);
+  holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+  Sim.step();
+  const ready = CAT.weapons.byId('tempest').readyTime;
+  stepSeconds(0.21);
+  check('MOV-021 the held weapon adds its readyTime to sprintToFire', ready > 0 && !Move.canFire(id), ready);
+  stepSeconds(ready);
+  check('can fire after sprintToFire + readyTime', Move.canFire(id));
 });
 
 Test.add('move', (check) => {
@@ -504,6 +531,7 @@ Test.add('move', (check) => {
   tapButtons(id, BTN.JUMP);
   const top = highestPoint(id, 2.5);
   check('ravager climbs a grip wall and mantles over (6 m)', top > 4.9, top);
+  check('the grip material exists for MV05 climb walls', CAT.materials.byId('grip') !== undefined && CAT.materials.byId('grip') !== null);
   const plain = groundedTester(13, 0);
   holdInput(plain, 0, 1, 0, 0);
   tapButtons(plain, BTN.JUMP);
@@ -626,6 +654,38 @@ Test.add('move', (check) => {
   check('can board again after 2 s', Move.setBoard(id, true));
 });
 
+// Q5 boarding: Use while running deploys the Skimmer on a large map (never on a small one, never standing); Use again steps off.
+Test.add('move', (check) => {
+  loadTestWorld([], { size: 100 });
+  useTestRules({ move: 'arena' });
+  const id = groundedTester(0, 0);
+  holdInput(id, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(id, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('no boarding on a small map', !Move.onBoard(id));
+  loadTestWorld([], { size: [200, 180] });
+  const rider = groundedTester(0, 0);
+  holdInput(rider, 0, 0, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while standing does not board (objectives and loot use it)', !Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(rider, 0, 0, BTN.USE);
+  Sim.step();
+  check('stop-and-Use in one step does not board (bots at Use goals)', !Move.onBoard(rider) && Move.canFire(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.5);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while running boards on a large map', Move.onBoard(rider));
+  holdInput(rider, 0, 1, 0);
+  stepSeconds(0.1);
+  holdInput(rider, 0, 1, BTN.USE);
+  stepSeconds(0.1);
+  check('Use while riding steps off', !Move.onBoard(rider));
+});
+
 // PERF-002: movement and collision for 24 actors on a 400-brush field stay well inside 0.5 ms per step.
 Test.add('move', (check) => {
   loadTestWorld(randomBrushes(21, 400, 50));
@@ -725,4 +785,18 @@ Test.add('move', (check) => {
   stepSeconds(3.1);
   const vy = Actors.vy[glider]; Sim.step();
   check('glide lasts 3 s per jump', Test.near(vy - Actors.vy[glider], 16 * TICK_SECONDS, 1e-3), vy - Actors.vy[glider]);
+});
+
+// HP-007: a downed actor crawls but never jumps or air-jumps.
+Test.add('move', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'agile' });
+  const id = groundedTester(0, 0), ally = groundedTester(-20, -20);
+  Actors.flags[id] |= ACTOR_FLAG.DOWNED; Damage.downedTime[id] = DOWNED_BLEED_SECONDS;
+  const startY = Actors.y[id];
+  holdInput(id, 0, 1, BTN.JUMP);
+  const rise = highestPoint(id, 0.5) - startY;
+  check('a downed actor does not jump (HP-007)', Actors.alive[id] === 1 && rise < 0.05, rise.toFixed(3));
+  Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
+  Actors.remove(id); Actors.remove(ally);
 });

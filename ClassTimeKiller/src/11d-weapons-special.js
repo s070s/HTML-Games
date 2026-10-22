@@ -11,6 +11,8 @@ const LIFTER_PULL_SPEED = 10;
 const LIFTER_THROW_SPEED = 30;           // caught projectiles leave at this speed
 const LIFTER_HOLD_DISTANCE = 1.6;
 const LIFTER_CATCH_COS = Math.cos(30 * DEG);
+const AIRBLAST_RANGE = 5;                // W35 airblast reach in metres
+const AIRBLAST_CONE_COS = Math.cos(45 * DEG);
 const LIFTER_MAX_MASS = 150;             // kg a prop may weigh to be held (W41)
 const LIFTER_DAMAGE_PER_MASS_SPEED = 0.5; // punted prop damage = 0.5 x mass x speed, capped (applied by the prop owner on impact)
 const LIFTER_DAMAGE_CAP = 150;
@@ -24,31 +26,42 @@ const GATE_CLEARANCE = 0.02;             // gap between the exiting capsule and 
 const ACTOR_MIDDLE = 0.9;
 const GATE_COLORS = [0xffa040, 0x40a0ff];
 
+// DIF-002 parry slider: the W03 window scales with rules.botSkill.parry against the preset it is tuned for (default 0.3 s).
+function parryWindowScale() {
+  const skill = Game.match && Game.match.rules ? Game.match.rules.botSkill : null;
+  return skill && skill.parry > 0 ? skill.parry / DIFFICULTY_PARRY_BASE : 1;
+}
+
 const specialScratch = Vec.make();
 const specialHit = makeHit();
 
 const WeaponSpecialState = {
   blockPool: new Float32Array(MAX_ACTORS).fill(Infinity), blocking: new Uint8Array(MAX_ACTORS), parryUntil: new Float32Array(MAX_ACTORS),
   linkUntil: new Float32Array(MAX_ACTORS), linkFactor: new Float32Array(MAX_ACTORS).fill(1),
-  heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1),
+  heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1), heldGrenade: new Int16Array(MAX_ACTORS).fill(-1),
   gateOpen: new Uint8Array(MAX_ACTORS * 2), gateCooldown: new Float32Array(MAX_ACTORS),
   gateX: new Float32Array(MAX_ACTORS * 2), gateY: new Float32Array(MAX_ACTORS * 2), gateZ: new Float32Array(MAX_ACTORS * 2),
   gateNx: new Float32Array(MAX_ACTORS * 2), gateNy: new Float32Array(MAX_ACTORS * 2), gateNz: new Float32Array(MAX_ACTORS * 2),
-  // Physics props are provided by a later section: { grab(id, ox, oy, oz, dx, dy, dz, range, maxMass) -> handle | -1,
+  // Physics bodies and props (S08 PropLift): { grab(id, ox, oy, oz, dx, dy, dz, range, maxMass) -> handle | -1,
   // hold(handle, x, y, z), launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap) }.
-  propHook: null,
+  propHook: PropLift,
+  // Thrown hand grenades, set by S12: { grab(id, ox, oy, oz, dx, dy, dz, range, minCos) -> slot | -1, hold(slot, x, y, z),
+  // launch(slot, owner, vx, vy, vz) }.
+  grenadeHook: null,
 
   reset(id) {
     this.blockPool[id] = Infinity; this.blocking[id] = 0; this.parryUntil[id] = 0; this.linkUntil[id] = 0;
-    this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.gateOpen[id * 2] = this.gateOpen[id * 2 + 1] = 0; this.gateCooldown[id] = 0;
+    this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.heldGrenade[id] = -1; this.gateOpen[id * 2] = this.gateOpen[id * 2 + 1] = 0; this.gateCooldown[id] = 0;
   },
+  holding(id) { return this.heldProjectile[id] >= 0 || this.heldProp[id] >= 0 || this.heldGrenade[id] >= 0; },
+  dropHeld(id) { this.heldProjectile[id] = -1; this.heldProp[id] = -1; this.heldGrenade[id] = -1; },
   speedFactor(id) { return Projectiles.guiding[id] ? 0 : 1; },
 
   // ---- W03 block (frontal pool) and parry (tap window reflects parryable projectiles) ----
   stepBlock(id, mode, held, dt) {
     const block = mode.block;
     this.blockPool[id] = Math.min(this.blockPool[id], block.pool);
-    if (Actors.pressed[id] & BTN.ALT) this.parryUntil[id] = Sim.time + block.parryWindow;
+    if (Actors.pressed[id] & BTN.ALT) this.parryUntil[id] = Sim.time + block.parryWindow * parryWindowScale();
     this.blocking[id] = held && this.blockPool[id] > 0 ? 1 : 0;
     if (!held) this.blockPool[id] = Math.min(block.pool, this.blockPool[id] + block.regen * dt);
   },
@@ -111,8 +124,12 @@ const WeaponSpecialState = {
     if (target >= 0) emitImpulse(target, specialScratch.x * LIFTER_PUSH_SPEED, specialScratch.y * LIFTER_PUSH_SPEED + 3, specialScratch.z * LIFTER_PUSH_SPEED);
   },
   throwHeld(id) {
-    const projectile = this.heldProjectile[id], prop = this.heldProp[id];
-    this.heldProjectile[id] = -1; this.heldProp[id] = -1;
+    const projectile = this.heldProjectile[id], prop = this.heldProp[id], grenade = this.heldGrenade[id];
+    this.dropHeld(id);
+    if (grenade >= 0 && this.grenadeHook) {
+      this.grenadeHook.launch(grenade, id, specialScratch.x * LIFTER_THROW_SPEED, specialScratch.y * LIFTER_THROW_SPEED, specialScratch.z * LIFTER_THROW_SPEED);
+      return true;
+    }
     if (projectile >= 0 && Projectiles.state[projectile]) {
       Projectiles.owner[projectile] = id;
       Projectiles.vx[projectile] = specialScratch.x * LIFTER_THROW_SPEED; Projectiles.vy[projectile] = specialScratch.y * LIFTER_THROW_SPEED; Projectiles.vz[projectile] = specialScratch.z * LIFTER_THROW_SPEED;
@@ -123,10 +140,12 @@ const WeaponSpecialState = {
     return true;
   },
   lifterPull(id, weapon, mode) {
-    if (this.heldProjectile[id] >= 0 || this.heldProp[id] >= 0) return;
+    if (this.holding(id)) return;
     Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
     this.heldProjectile[id] = catchableProjectile(id, mode.range);
     if (this.heldProjectile[id] >= 0) return;
+    if (this.grenadeHook) this.heldGrenade[id] = this.grenadeHook.grab(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], specialScratch.x, specialScratch.y, specialScratch.z, mode.range, LIFTER_CATCH_COS);
+    if (this.heldGrenade[id] >= 0) return;
     if (this.propHook) this.heldProp[id] = this.propHook.grab(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], specialScratch.x, specialScratch.y, specialScratch.z, mode.range, LIFTER_MAX_MASS);
     if (this.heldProp[id] >= 0) return;
     const target = actorInFront(id, mode.range);
@@ -134,13 +153,14 @@ const WeaponSpecialState = {
   },
   // Keeps held objects in front of the holder while the alt button is held; letting go drops them.
   stepHeld(id) {
-    if (this.heldProjectile[id] < 0 && this.heldProp[id] < 0) return;
+    if (!this.holding(id)) return;
     const holding = (Actors.buttons[id] & BTN.ALT) && Actors.alive[id] && Weapons.currentWeapon(id) === CAT.weapons.byId('lifter');
-    if (!holding) { this.heldProjectile[id] = -1; this.heldProp[id] = -1; return; }
+    if (!holding) { this.dropHeld(id); return; }
     Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
     const x = Actors.x[id] + specialScratch.x * LIFTER_HOLD_DISTANCE, y = Actors.eyeY(id) + specialScratch.y * LIFTER_HOLD_DISTANCE, z = Actors.z[id] + specialScratch.z * LIFTER_HOLD_DISTANCE;
     const projectile = this.heldProjectile[id];
     if (this.heldProp[id] >= 0 && this.propHook) this.propHook.hold(this.heldProp[id], x, y, z);
+    if (this.heldGrenade[id] >= 0 && this.grenadeHook) this.grenadeHook.hold(this.heldGrenade[id], x, y, z);
     if (projectile < 0 || !Projectiles.state[projectile]) return;
     Projectiles.x[projectile] = x; Projectiles.y[projectile] = y; Projectiles.z[projectile] = z;
     Projectiles.vx[projectile] = Projectiles.vy[projectile] = Projectiles.vz[projectile] = 0;
@@ -224,14 +244,19 @@ function actorInFront(id, range) {
 // Nearest flying projectile in front of the holder (W41 catches grenades, rockets, orbs).
 function catchableProjectile(id, range) {
   let best = -1, bestDistance = range;
-  const eyeY = Actors.eyeY(id);
   for (let i = 0; i < PROJECTILE_CAP; i++) {
-    if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) continue;
-    const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - eyeY, dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
-    if (distance >= bestDistance || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < LIFTER_CATCH_COS) continue;
+    const distance = projectileInAim(id, i, bestDistance, LIFTER_CATCH_COS);
+    if (distance < 0) continue;
     best = i; bestDistance = distance;
   }
   return best;
+}
+// Distance from the actor's eye to flying projectile i when it lies closer than `range` inside the aim cone (specialScratch = aim), else -1.
+function projectileInAim(id, i, range, coneCos) {
+  if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) return -1;
+  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  if (distance >= range || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < coneCos) return -1;
+  return distance;
 }
 // The body point that meets the gate first: the feet on a floor gate (standing actors rest on the floor, S10), the head
 // on a ceiling gate, the middle on a wall gate.
@@ -259,6 +284,14 @@ Weapons.specials.lodgeBlade = (id, weapon) => {
     return true;
   }
   return false;
+};
+// W35 alt: the napalm shot also airblasts: enemy projectiles in a short cone in front fly back along the shooter's aim.
+Weapons.specials.airblast = (id) => {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  for (let i = 0; i < PROJECTILE_CAP; i++) {
+    if (projectileInAim(id, i, AIRBLAST_RANGE, AIRBLAST_CONE_COS) >= 0 && Actors.isEnemy(id, Projectiles.owner[i])) Projectiles.reflect(i, id);
+  }
+  return false;   // the napalm shot still fires
 };
 Weapons.tools.lifterPunt = (id, weapon, mode) => WeaponSpecialState.lifterPunt(id, weapon, mode);
 Weapons.tools.lifterPull = (id, weapon, mode) => WeaponSpecialState.lifterPull(id, weapon, mode);

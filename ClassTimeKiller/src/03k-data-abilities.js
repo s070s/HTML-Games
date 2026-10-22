@@ -26,7 +26,7 @@ const ABILITY_ROWS = [
   { id: 'overdrive', code: 'A02', name: 'Overdrive Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 20, effect: 'suitSpeed', group: 'weave',
     params: { speed: 1.5, sprintOnly: true }, counter: 'it burns energy fast: punish the empty bar', botUse: { when: 'escape', range: [0, 60], chance: 0.5 }, color: 0xffd34a },
   { id: 'colossusweave', code: 'A03', name: 'Colossus Weave', category: 'suit', activation: 'toggle', resource: 'energy', effect: 'suitStrength', group: 'weave',
-    params: { jumpHeight: 1.8, melee: 2, steady: 0.5, useCost: 15 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
+    params: { jumpHeight: 1.8, melee: 2, steady: 0.5, useCost: 15, throwReach: 2, throwSpeed: 14, throwLift: 4 }, counter: 'keep range: it is a close-quarters weave', botUse: { when: 'enemyClose', range: [0, 6], chance: 0.5 }, color: 0xff6a3a },
   { id: 'phantasm', code: 'A04', name: 'Phantasm Weave', category: 'suit', activation: 'toggle', resource: 'energy', costPerSecond: 8, effect: 'cloak', group: 'weave',
     params: { stillCostPerSecond: 2, stillSpeed: 0.2 }, interrupt: { damage: false, stun: true, fire: true }, counter: 'firing drops it: listen for steps',
     botUse: { when: 'escape', range: [0, 60], chance: 0.4 }, color: 0x9be7ff },

@@ -6,9 +6,9 @@ Files:
 - `src/15b-medals.js`: `Medals` (MD01..MD20 detection, emits `medal`).
 - `src/15c-ladder.js`: `Ladder`, `Challenges`, `Operations`, `OperationRun`, `Daily`.
 - `src/15d-cards.js`: `Cards` (equip, Marks, unlocks), `CardRun` (the running match).
-- `src/18j-ui-progress.js`: screens `career`, `profile`, `ladder`, `challenges`, `operations`, `daily`, `cards`, `cardUse` (pause entry "Cards"), `stats`; the award panel on the results screen; the one-time Firing Range offer.
+- `src/18j-ui-progress.js`: screens `career`, `profile`, `ladder`, `challenges`, `operations`, `daily`, `cards`, `cardUse` (pause entry "Cards" while the match has active cards; the `cards` action - Y, pad Home, the touch CARD button - opens it during play), `stats`; the career hub's PvE mode buttons (also on the Solo screen, 18o); Range on the main menu (`ui.range`); the award panel on the results screen; the one-time Firing Range offer.
 
-Tests: group `progress`. Debug: `__CTK.progress` `{ Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun }`.
+Tests: groups `progress` and `simwire` (PvE events, chamber records). Debug: `__CTK.progress` `{ Progress, RunLog, Medals, Ladder, Challenges, Operations, OperationRun, Daily, Cards, CardRun }`.
 
 ## Save layout
 
@@ -26,7 +26,7 @@ XP (`Progress.matchXp(results, medalXp)`): score x12 + objectives x30 + medal XP
 
 ## Unlocks (no stat changes)
 
-`CAT.unlocks` kinds: `color`, `finish`, `title`, `challenge` (room block), `card`. A row opens by `level`, by `mastery` tier (`MASTERY_TIERS`: kills and headshots with one weapon) or by its card's condition. `Progress.isUnlocked(row)`, `unlocked(kind)`, `setCosmetic(kind, id)`, `cosmetic(kind)`, `title()`. "Unlock everything" (`progress.unlockAll`) opens all. Cosmetics only reach `Render.addActorStyle`; no rule or actor stat reads them. `Progress.look = { color, finish }` holds the worn look as plain numbers (`PROGRESS_NO_LOOK` = none), refreshed by `Progress.refreshLook()` on a cosmetic choice, the `progress.unlockAll` setting, `match.start` and every counted match; the per-frame style reads only these.
+`CAT.unlocks` kinds: `color`, `finish`, `title`, `challenge` (room block), `card`. A row opens by `level`, by `mastery` tier (`MASTERY_TIERS`: kills and headshots with one weapon) or by its card's condition. `Progress.isUnlocked(row)`, `unlocked(kind)`, `setCosmetic(kind, id)`, `cosmetic(kind)`, `title()`. "Unlock everything" (`progress.unlockAll`) opens all. Cosmetics only reach what is drawn, never a rule or an actor stat: the body through `Render.addActorStyle`, and where no body is drawn `Progress.bodyColor(id, fallback)` (the worn colour for the local player, else `fallback`): the held weapon (15a wraps the S11 `Render.viewModel` hook), the player's scoreboard row (18e) and killcam figure (17e). The Profile screen shows a swatch of the worn colour with the finish as its glow. `Progress.look = { color, finish }` holds the worn look as plain numbers (`PROGRESS_NO_LOOK` = none), refreshed by `Progress.refreshLook()` on a cosmetic choice, the `progress.unlockAll` setting, `match.start` and every counted match; the per-frame style reads only these.
 
 ## Medals MD01..MD20
 
@@ -35,33 +35,41 @@ Emitted as `medal { id, medal }` for the local player only. Numbers: `MEDAL_RULE
 ## Ladder, Challenge Rooms, Operations, Daily Seed
 
 - `Ladder.start(tier, match, difficultyId?)`, `isOpen`, `setDifficulty`, `state()`, `passed(results)`, `matchCount()` (27). 8 tiers of 3-4 matches; free-for-all needs a podium place, duels and team modes a win; the last match is a duel against B24.
-- `Challenges.start(id, expert)`, `starsFor(row, points)`, `record(id)`, `expertOpen(id)`. Points = `Progress.points(row.points, metrics, row.par)`; stars from `row.stars`; Expert opens at 2 stars. XP only for newly gained stars. Retry: start the same setup again.
+- `Challenges.start(id, expert)`, `starsFor(row, points)`, `record(id)`, `expertOpen(id)`. Points = `Progress.points(row.points, metrics, row.par)`; stars from `row.stars`; Expert opens at 2 stars and plays bots `expertTier` tiers up with the row's `expert` mutators, else its kind's `CHALLENGE_EXPERT_MUTATORS` (`Challenges.expertMutators(row)`). The `seconds` metric is the match duration, or the time the player lost their last life under lives rules (`RunLog.outSeconds`), so a player knocked out early stops earning survival points. Every room reaches 3 stars with a flawless run at half of par (self-test). XP only for newly gained stars. Retry: start the same setup again.
 - `Operations.start(id)`, `nextSetup(id, seed)`, `state(id)`, `carryTickets(left) = min(120, 60 + floor(0.5 x left))`. Each death costs one ticket; a side at 0 loses the map (`Modes.finish(..., 'tickets')`). The side that lost the previous map gets one heavy bot (`OPERATION_COMEBACK`).
-- `Daily.dateKey(ms, offsetMinutes)`, `todayKey()`, `choiceFor(key)`, `setup(key)`, `start()`, `history()`. Seeded by `hashString('daily:' + key)`; picks a playable mode, a ruleset, 2 compatible mutators and a hand-made map from `CAT.maps` (never the editor's saved or generated maps, which differ per device), with a fixed `DAILY_RULES.bots` (5, inside the lowest quality preset's cap), so every device gets the same match. When a `MapGen` section exists, `MapGen.generate({ seed, mode })` is offered as `choice.generated`. Best score per date, at most 60 days kept, no streaks.
+- `Daily.dateKey(ms, offsetMinutes)`, `todayKey()`, `choiceFor(key)`, `setup(key)`, `start()`, `history()`. Seeded by `hashString('daily:' + key)`; picks a playable mode, a ruleset, 2 compatible mutators and a hand-made map from `CAT.maps` (never the editor's saved or generated maps, which differ per device), with a fixed `DAILY_RULES.bots` (5, inside the lowest quality preset's cap), so every device gets the same match. The match plays on a generated map: `choice.generator` is the id of a generator (GN row) whose `modes` include the daily mode, picked by the date seed ('' without the hook); only `setup(key)` builds the map, at `DAILY_RULES.mapSize` (small: every quality tier allows it, so every device builds the same map) through the hook `Daily.generateMap` (filled by 16w with `MapGen.generate`); a map that does not offer the mode is refused and the hand-made map plays. Best score per date, at most 60 days kept, no streaks.
 
 ## Cards C01..C24
 
 `Cards.equip(id)`, `unequip(id)` (refunds half), `equipProblem(id)`, `marks()`, `addMarks(n)`, `equipped(type)`. 3 active and 2 passive slots; Patron (C17) makes placing free. Cards run in PvE matches, and in versus only with the X48 mutator (`rules.fx.cards`) and only rows with `versus: true`. `setup.cards` overrides the equipped list. Active cards: `CardRun.activate(slotIndex)` (30 s, once per level; Encore twice; Longwick +10 s).
 
-Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending and Life Thief heal through `Damage.regenerate`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
+Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron Will `BUFF.INVULNERABLE` (S12 Buffs: the strongest live damage buff wins, each keeps its own timer, the actor glows), Fleetfoot / Rapid Hands / Slowtide are speed / rate / slow buffs, Mending heals through `Damage.regenerate` and Life Thief through `Damage.lifesteal`, Stoneskin / Brittle Foes / Last Breath are one `Damage.addReducer`.
 
 `Game.match.rules.cards = { ids, fx }`; `fx` holds the soul cards for the local player (absent keys mean the default). S12 reads them through `soulCardFx(id, key, fallback)` (12a), only for `Game.playerId`:
 
 | Key | Card | Meaning | Read by |
 |---|---|---|---|
 | `soulLife` | C03 Soulkeep | multiplier: PU18 souls stay `soulLife` x 30 s | `Items.dropSoul` (12a) |
-| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18 and Wrath souls) | `soulHomingRange` (12a), `Meters.stepSoul` (12g) |
+| `soulMagnet` | C11 Soul Magnet | metres: souls home to the player from this far (PU18, the only souls) | `soulHomingRange` (12a) |
 | `wrathAt` | C09 Dark Pact | souls Wrath Form costs instead of its row's 66 | `Abilities.canAfford` (12e) |
-| `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | 15d on `pickup` with `item: 'soul'` |
+| `soulHeal` | C20 Soul Feast | multiplier: a soul heals `soulHeal` x its PU18 heal | `Powerups.healScale` (12b, the PU18 instant heal) |
 
-## Events the PvE section is asked to emit (contract)
+## Events from the PvE section (S14, docs/api/pve.md)
 
 | Event | Payload | Read by |
 |---|---|---|
-| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
-| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
-| `pve.wrath` | `{ id, active }` | optional: a Wrath Form outside the A34 ability (the A34 `ability.cast` / `ability.end` events already count wrath forms and wrath kills; a report of the same form is not counted twice) |
-| `pve.boss` | `{ seconds, final }` | card unlocks (boss times) |
-| `pve.crate` | `{ id }` | Marks per crate |
+| `pve.wave` | `{ wave, phase: 'start' \| 'end' }` (end = cleared) | MD20 Flawless Wave |
+| `pve.alarm` | `{ id, ... }` | MD19 Ghost (no alarm; only in a mode with `params.stealth`, M28), M25 contract alarm count |
+| `pve.boss` | `{ kind, seconds, final }` | card unlocks (boss times): only `kind: 'defeated'` is a boss time (S14 14k) |
+| `pve.boss` | `{ id, phase, phases, kind: 'start' \| 'phase' \| 'weak' \| 'defeated' \| 'gone', seconds, final }` | kind `defeated`: `RunLog.bossSeconds` / `finalBossSeconds` (card unlocks) |
+| `pve.crate` | `{ id, prop }` (a participant broke a prop) | Marks per crate (15d) |
+| `pve.secret` | `{ id, secret }` (a participant found a secret hint) | nothing in S15 (the count reaches it through `results.pve.secretsLeft`); HUD and audio may listen |
+| `pve.chamber` | `{ chamber, kind: 'enter' \| 'complete', medal, stars, seconds }` | kind `complete`: `Progress.recordChamber` |
 
-`match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` at the end of a PvE level; missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.
+`enemiesLeft` (C03 Soulkeep) = living plus queued PvE enemies when the level ends (14j `enemiesLeft()`, while `Pve.active`); outside a PvE match it is not measured (`PROGRESS_NOT_REACHED`) and never unlocks a card. Every card condition reads a metric a finished level measures (self-test).
+
+`match.results.pve = { propsLeft, secretsLeft, optionalLeft }` is written by `PveLevel.report` on `match.end` (S14 listens before S15; `RunLog.measure` reads it through `pveReported`). Only numbers the level can measure are present (no breakable prop: no `propsLeft`; no secret hint: no `secretsLeft`; no optional enemy: no `optionalLeft`); missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. Readers (spec card table): `propsLeft` C02 Slowtide (destroy all props), `secretsLeft` C09 Dark Pact (find all secrets), C15 Rage (with no deaths) and C18 Last Breath (on hard), `optionalLeft` C13 Greed (all optional enemies: the Silent Contract guards on Ash Manor, X50 beasts). Cistern and Ash Manor have the crates and secrets; the self-test checks that Siege Waves on Cistern and the contract on Ash Manor together measure every card metric. A finished PvE level is a won match whose `rules.family` is not `versus`.
+
+## Chamber records (MP11 Test Chambers)
+
+`Save.data.progression.chambers = { '1'..'12': { medal, stars, seconds } }` (`PROGRESS_VERSION` 2; a version 1 save gains an empty list on first use). `Progress.recordChamber(event)` keeps the best run of a chamber: more stars, or as many stars in less time (seconds rounded to 0.1). `Progress.chamberRecord(chamber)` returns the record or null; `Progress.chamberStars()` sums the kept stars. A run that sets a record adds the results line "Chamber records: N (stars kept: S)".

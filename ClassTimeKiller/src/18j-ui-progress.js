@@ -1,22 +1,22 @@
 // ==== S18 UI: CAREER SCREENS (PRG-001..PRG-014) ====
 // The Career hub (main menu entry) with Profile / unlocks, Tournament Ladder, Challenge Rooms, Operations, Daily Seed, Cards
-// and Statistics, the in-match card screen (pause menu), the XP panel on the results screen, the Horde and Puzzle Chambers
-// entries (PRG-005) and the Firing Range offer to new players (PRG-008). Logic lives in S15 (15a..15d); this file only shows it.
+// and Statistics, the in-match card screen (pause menu and the 'cards' action), the XP panel on the results screen, the PvE mode
+// entries (PRG-005, also on the Solo screen of 18o) and the Firing Range (main menu Range, the offer to new players, PRG-008).
+// Logic lives in S15 (15a..15d); this file only shows it.
 
 const CAREER_CSS = '.pg-bar { height: 8px; background: var(--ui-line); border-radius: 4px; overflow: hidden; margin: 4px 0 10px; max-width: 520px; }'
   + '.pg-bar > div { height: 100%; background: var(--ui-accent); } .pg-stars { color: var(--ui-accent); letter-spacing: 0.1em; margin-left: 8px; }'
-  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.85em; } .pg-award { margin-bottom: 10px; }'
+  + '.pg-list .ui-row { flex-wrap: wrap; } .pg-small { color: var(--ui-dim); font-size: 0.875em; } .pg-award { margin-bottom: 10px; }'
   + '.pg-swatch { display: inline-block; width: 1em; height: 1em; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid var(--ui-line); }';
 const CAREER_STAR = '★';
 const CAREER_NO_STAR = '☆';
-const CAREER_MODE_ENTRIES = [
-  { label: 'Siege Waves', mode: 'horde' },
-  { label: 'Puzzle Chambers', mode: 'puzzle' },
-];
+// PRG-005: the PvE modes started with a fixed setup (labels are the mode names).
+const CAREER_MODE_ENTRIES = [{ mode: 'horde' }, { mode: 'endless' }, { mode: 'puzzle' }];
 const CAREER_RANGE_MODE = 'range';
 const CAREER_NEXT_UNLOCKS = 4;
 const CAREER_HISTORY_SHOWN = 10;
 const CAREER_DEFAULT_LOOK = '';
+const CAREER_FINISH_GLOW_PX = 16;      // swatch glow in pixels at finish 1 (the finishes run 0.1 .. 0.65)
 
 // The UI fills the links Progress (S15) needs from S18, so S15 never calls the UI directly.
 Progress.links.outcome = (results) => PlayFlow.outcome(results);
@@ -49,10 +49,15 @@ function careerLevelText() {
 
 // ---- Starting modes and the range: a fixed setup that does not overwrite the remembered Quick Match choice ----
 function careerModeAvailable(modeId) { return Modes.isPlayable(modeId) && Maps.forMode(modeId).length > 0; }
-function careerStartMode(modeId) {
+function careerStartMode(modeId, difficulty) {
   if (!careerModeAvailable(modeId)) { Ui.toast('Coming soon'); return null; }
-  const choice = { mode: modeId, map: Maps.forMode(modeId)[0].id, ruleset: '', bots: PlayFlow.defaultBots(modeId), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM };
+  const choice = { mode: modeId, map: Maps.forMode(modeId)[0].id, ruleset: '', bots: PlayFlow.defaultBots(modeId), difficulty: difficulty || PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM };
   return Game.start(PlayFlow.buildSetup(choice));
+}
+// One button per PvE mode entry (a disabled one when the build has no behaviour or map for it).
+function careerModeButton(entry, difficulty) {
+  const label = careerModeName(entry.mode);
+  return careerModeAvailable(entry.mode) ? Ui.button(label, () => careerStartMode(entry.mode, difficulty && difficulty())) : careerDisabled(label + ' (coming soon)');
 }
 function careerRangeAvailable() { return Ui.screens.has(CAREER_RANGE_MODE) || careerModeAvailable(CAREER_RANGE_MODE); }
 function careerOpenRange() {
@@ -75,17 +80,27 @@ Ui.register('career', {
     const menu = makeElement('div', 'ui-menu');
     for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
     if (careerRangeAvailable()) menu.appendChild(Ui.button('Firing Range', careerOpenRange));
-    for (const entry of CAREER_MODE_ENTRIES) menu.appendChild(careerModeAvailable(entry.mode) ? Ui.button(entry.label, () => careerStartMode(entry.mode)) : careerDisabled(entry.label + ' (coming soon)'));
+    for (const entry of CAREER_MODE_ENTRIES) menu.appendChild(careerModeButton(entry));
     menu.firstChild.dataset.autofocus = '1';
     root.appendChild(menu);
   },
 });
 
 // ---- Profile: level, cosmetics, the next unlocks, medals ----
-function careerLookCycle(kind, label) {
+function careerLookCycle(kind, label, onChange) {
   const rows = Progress.unlocked(kind);
   const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name));
-  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => Progress.setCosmetic(kind, value)));
+  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => {
+    Progress.setCosmetic(kind, value);
+    if (onChange) onChange();
+  }));
+}
+// The worn body colour as a swatch, its glow showing the finish (an empty swatch: the default team look).
+function careerPaintSwatch(swatch) {
+  const color = Progress.look.color, finish = Progress.look.finish;
+  const css = color === PROGRESS_NO_LOOK ? '' : '#' + color.toString(16).padStart(6, '0');
+  swatch.style.background = css || 'transparent';
+  swatch.style.boxShadow = css && finish !== PROGRESS_NO_LOOK ? '0 0 ' + Math.round(finish * CAREER_FINISH_GLOW_PX) + 'px ' + css : 'none';
 }
 function careerNextUnlocks() {
   const level = Progress.level();
@@ -98,8 +113,12 @@ Ui.register('profile', {
     root.appendChild(careerBar(Progress.levelProgress()));
     const list = careerList(root);
     list.appendChild(makeElement('div', 'ui-group', 'Look (cosmetic only)'));
-    list.appendChild(careerLookCycle('color', 'Body colour'));
-    list.appendChild(careerLookCycle('finish', 'Finish'));
+    const swatch = makeElement('span', 'pg-swatch'), paint = () => careerPaintSwatch(swatch);
+    const colorRow = careerLookCycle('color', 'Body colour', paint);
+    colorRow.appendChild(swatch);
+    paint();
+    list.appendChild(colorRow);
+    list.appendChild(careerLookCycle('finish', 'Finish', paint));
     list.appendChild(careerLookCycle('title', 'Title'));
     list.appendChild(makeElement('div', 'ui-group', 'Next unlocks'));
     for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name, 'Level ' + row.level + ' - ' + row.kind, []));
@@ -193,7 +212,7 @@ Ui.register('operations', {
 // ---- Daily Seed ----
 function careerDailySummary(choice) {
   const ruleset = CAT.rulesets.byId(choice.ruleset), names = choice.mutators.map((id) => Mutators.row(id).name);
-  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generated ? 'generated map' : careerMapName(choice.map));
+  return careerModeName(choice.mode) + ', ' + (ruleset ? ruleset.name : choice.ruleset) + ', ' + names.join(' + ') + ', ' + (choice.generator ? 'generated map' : careerMapName(choice.map));
 }
 Ui.register('daily', {
   build(root) {
@@ -248,7 +267,18 @@ Ui.register('cardUse', {
     });
   },
 });
-Ui.pauseEntries.push({ label: 'Cards', screen: 'cardUse' });
+// The pause row and the touch button exist only while the match holds active cards; the 'cards' action (Y, pad Home, touch CARD)
+// pauses and opens the same screen. Re-added at every match start (a test run may empty Ui.pauseEntries).
+const CARDS_PAUSE_ENTRY = { label: 'Cards', screen: 'cardUse', when: () => CardRun.slots.length > 0 };
+function careerOpenCards(event) {
+  if (event.action !== 'cards' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;
+  if (!CardRun.slots.length) { Ui.toast('No active cards in this match'); return; }
+  Game.pause('menu');
+  Ui.open('cardUse');
+}
+Bus.on('input.action', careerOpenCards);
+Bus.on('match.start', () => { setPauseEntry(CARDS_PAUSE_ENTRY, true); TouchInput.setFlag('cards', CardRun.slots.length > 0); });
+Bus.on('match.stop', () => TouchInput.setFlag('cards', false));
 
 // ---- Statistics ----
 function careerAccuracy(record) { return record.shots > 0 ? Math.round(record.hits / record.shots * 100) + '%' : '-'; }
@@ -300,3 +330,4 @@ function careerOfferRange() {
   Save.scheduleSave();
 }
 Bus.on('ready', careerOfferRange);
+Bus.on('ui.range', careerOpenRange);   // main menu Range: starts inside the click so the pointer can lock

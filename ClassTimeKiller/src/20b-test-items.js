@@ -67,6 +67,8 @@ Test.add('items', (check) => {
   check('back exactly on time with an item.respawn event', Items.state[0] === PICKUP_STATE.READY && respawns === 1, respawns);
   ItemArena.start({ itemRespawnScale: 0.5 }, [ItemArena.spot('healthpack', 3, 0)]);
   check('itemRespawnScale halves the timer', Items.respawnTicks(0) === itemTicks(17.5), Items.respawnTicks(0));
+  ItemArena.start({ botSkill: CAT.difficulty.byId('stroll') }, [ItemArena.spot('healthpack', 3, 0)]);
+  check('DIF-002 the difficulty resourceYield (D01 x2) makes map pickups return sooner', Items.respawnTicks(0) === itemTicks(35 / 2), Items.respawnTicks(0));
   TestArena.finish();
 });
 
@@ -149,6 +151,28 @@ Test.add('items', (check) => {
   Actors.health[id] = patch.cap;
   Items.grant(id, 'patch');
   check('I13 not usable at its 75 HP cap', !Items.use(id, 'patch'));
+  TestArena.finish();
+});
+
+// The heal action (BTN.HEAL, key H, touch HEAL) uses the first carried consumable that would restore; bots heal once calm.
+Test.add('items', (check) => {
+  ItemArena.start({});
+  const id = ItemArena.actor(1, 0, 0), patch = CAT.items.byId('patch');
+  check('the heal action and its touch button exist', Input.actionIndex.heal !== undefined && TOUCH_CONTROLS.some((control) => control.action === 'heal'));
+  Items.grant(id, 'patch');
+  TestArena.hold(id, BTN.HEAL, 0.05);
+  check('the heal button starts a carried consumable', Items.useProgress(id) >= 0 && Items.consumableCount(id) === 1);
+  Sim.run(itemTicks(patch.useTime));
+  check('the heal button item applies after its use time', Actors.health[id] === 65 && Items.consumableCount(id) === 0, Actors.health[id]);
+  const bot = ItemArena.actor(2, 5, 0);
+  Items.grant(bot, 'patch');
+  Actors.kind[bot] = ACTOR_KIND.BOT;
+  Damage.lastDamageTime[bot] = Sim.time;
+  const hurtNow = Items.botWantsHeal(bot);
+  Damage.lastDamageTime[bot] = Sim.time - BOT_HEAL_CALM - 0.1;
+  const calm = Items.botWantsHeal(bot);
+  Actors.kind[bot] = ACTOR_KIND.DUMMY;
+  check('bots use a carried consumable only once out of the fight', !hurtNow && calm && Actors.health[bot] < Actors.maxHealth[bot]);
   TestArena.finish();
 });
 
@@ -334,10 +358,12 @@ Test.add('items', (check) => {
 
 Test.add('items', (check) => {
   ItemArena.start({});
-  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0);
+  const id = ItemArena.actor(1, 0, 0), enemy = ItemArena.actor(2, 0, 20), friend = ItemArena.actor(1, 5, 0), ghost = ItemArena.actor(2, 0, -20);
+  Abilities.hiddenFromPulse = (other) => other === ghost;   // the Ghost perk (S13 fills the hook)
   Powerups.give(id, CAT.powerups.byId('seer'), 0);
   Sim.run(2);
   check('PU13 reveals the holder\'s enemies, not friends', Damage.hasStatus(enemy, 'reveal') && !Damage.hasStatus(friend, 'reveal'));
+  check('PU13 does not reveal an enemy with the Ghost perk (ECP04)', !Damage.hasStatus(ghost, 'reveal'));
   Powerups.clearActor(id, false);
   const boots = CAT.powerups.byId('springboots');
   Powerups.give(id, boots, 0);

@@ -7,6 +7,11 @@ const BACKUP_KEY = 'ctk.save.bak';
 const SAVE_VERSION = 1;
 const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
+const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
+const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
+
+// 'null' | 'array' | typeof: a loaded field must have the kind of its empty-save default (a null default also takes an object).
+function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
 
 const Save = {
   data: null,             // the live save object
@@ -33,11 +38,14 @@ const Save = {
     }
     return this.data;
   },
-  // Brings any older save up to SAVE_VERSION; fills missing top-level fields.
+  // Brings any older save up to SAVE_VERSION; fills missing top-level fields and replaces ones of the wrong kind ("settings": null).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     const fresh = this.emptySave();
-    for (const field in fresh) if (loaded[field] === undefined) loaded[field] = fresh[field];
+    for (const field in fresh) {
+      const want = saveFieldKind(fresh[field]), have = saveFieldKind(loaded[field]);
+      if (have !== want && !(want === 'null' && have === 'object')) loaded[field] = fresh[field];
+    }
     loaded.version = SAVE_VERSION;
     return loaded;
   },
@@ -48,8 +56,15 @@ const Save = {
   saveNow() {
     clearTimeout(this.timer);
     const text = JSON.stringify(this.data);
-    if (text.length > SAVE_MAX_BYTES) { this.notice = 'Save is over 1 MB and was not written.'; return false; }
+    if (text.length > SAVE_MAX_BYTES) return this.fail(SAVE_TOO_BIG);
     return this.write(SAVE_KEY, text);
+  },
+  // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure stays quiet.
+  fail(text) {
+    if (this.notice === text) return false;
+    this.notice = text;
+    emitToast(text);
+    return false;
   },
   exportText() { return JSON.stringify(this.data); },
   importText(text) {
@@ -67,7 +82,7 @@ const Save = {
   markBroken() {
     if (!this.storageWorks) return;
     this.storageWorks = false;
-    this.notice = 'Storage is blocked: settings and progress will not be kept.';
+    this.fail(SAVE_BLOCKED);
   },
 };
 

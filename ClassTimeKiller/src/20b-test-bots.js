@@ -172,6 +172,42 @@ function endBotTest() {
   World.clear();
 }
 
+// ---- BOT-071 revive: a bot walks to a downed teammate and holds Use until it stands again ----
+Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 0 }] });
+  placeFacing(bot, 0, -10, 0);
+  holdActor(mate, 6, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0;
+  for (let tick = 0; tick < 15 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) Sim.run(1);
+  check('BOT-071 a bot revives a downed teammate when no enemy is near', downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+// HP-007 + BOT-071: a downed bot holds still for its reviver instead of crawling after its own goal, so the revive finishes.
+Test.add('bots', (check) => {
+  const [bot, mate] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false, bots: [{ tier: 3, team: 0 }, { tier: 3, team: 0 }] });
+  placeFacing(bot, 0, -4, 0);
+  placeFacing(mate, 4, 0, 0);
+  Actors.flags[mate] &= ~ACTOR_FLAG.PROTECTED;   // past spawn protection
+  TestArena.hit(-1, mate, 1000);
+  const downed = (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0, startX = Actors.x[mate], startZ = Actors.z[mate];
+  let moved = 0;
+  for (let tick = 0; tick < 8 * TICK_RATE && (Actors.flags[mate] & ACTOR_FLAG.DOWNED); tick++) {
+    Sim.run(1);
+    moved = Math.max(moved, Math.hypot(Actors.x[mate] - startX, Actors.z[mate] - startZ));
+  }
+  const revived = downed && Actors.alive[mate] === 1 && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED);
+  check('BOT-071 a bot revives a downed bot within 8 s (the downed bot holds still)', revived && moved < 0.5, 'moved ' + moved.toFixed(2) + ' m, goal ' + GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+// M20 squads put squad indices in Actors.team: every possible squad has its own bark clock and grenade token.
+Test.add('bots', (check) => {
+  check('team bark clocks cover every squad index', BotTeam.teamBarkAt.length >= MAX_ACTORS + 1 && BotTeam.grenadeAt.length >= 2 * MAX_ACTORS + 1, BotTeam.teamBarkAt.length);
+});
+
 // ---- Catalogues ----
 Test.add('bots', (check) => {
   check('8 skill tiers BT0..BT7 in order', CAT.botTiers.length === 8 && CAT.botTiers.every((row, index) => row.tier === index && row.code === 'BT' + index));
@@ -250,12 +286,14 @@ Test.add('bots', (check) => {
 const ACCURACY_SECONDS = 15, ACCURACY_SEEDS = [1, 2, 3], ACCURACY_DISTANCE = 15, ACCURACY_STRAFE = 3, ACCURACY_STRAFE_RATE = 0.8;
 const ACCURACY_BAND_LOW = 0.3, ACCURACY_BAND_SLACK = 0.08;   // band: 30% of the tier's hit cap .. the cap + 0.08
 const ACCURACY_ORDER_SLACK = 0.05;
+const ACCURACY_STILL_TABLE = { walkFraction: 0, walk: 0, crouch: 0, run: 0, air: 0, land: 0, landTime: 1 };   // a MOV-025 table that adds nothing
 
 function measureAccuracy(tier) {
   let shots = 0, hits = 0;
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
     Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
+    Move.presetOverride[bot] = Object.assign({}, Move.preset(bot), { inaccuracy: ACCURACY_STILL_TABLE });   // and no WPN-003 movement spread
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
       holdActor(bot, 0, -ACCURACY_DISTANCE / 2);
@@ -324,7 +362,7 @@ Test.add('bots', (check) => {
   check('the team bots take the order', takers.length === 2, takers.length);
   check('a defend ping is answered within 2 s (goal: order)', answered.length === takers.length && takers.length > 0, answered.length);
   const acknowledged = takers.filter((id) => barks.some((event) => event.id === id && event.category === 'orderAck' && withinAckTime(event.time - pingedAt)));
-  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-062)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
+  check('every taker acknowledges in chat within 0.5-1.5 s (BOT-051)', acknowledged.length === takers.length && takers.length > 0, acknowledged.length);
   runSeconds(4);
   check('the bots head for the pinged spot', takers.every((id) => Math.hypot(Actors.x[id] - 20, Actors.z[id] + 20) < 16));
   const enemy = firstOfTeam(1), spottedAt = Sim.time;
@@ -337,6 +375,47 @@ Test.add('bots', (check) => {
   runSeconds(2);
   check('chatter off silences the barks', barks.length === count);
   barks.stop();
+  endBotTest();
+});
+
+// ---- Comm wheel (BOT-061/062, INP-003): Ping tap vs hold, look picks a callout, follow / hold / regroup reach the whole team ----
+Test.add('bots', (check) => {
+  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
+  const mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  runSeconds(1);
+  const fromPlayer = () => pings.filter((event) => event.id === player);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.1);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  check('wheel: a short Ping tap pings at once, no wheel', fromPlayer().length === 1 && !CommWheel.open, fromPlayer().length);
+  Input.effective[pingAction] = 1; CommWheel.frame(0.2); CommWheel.frame(0.2);
+  check('wheel: holding Ping opens the wheel and sends nothing yet', CommWheel.open && fromPlayer().length === 1);
+  Input.look.mouseX = 0.05;
+  const yaw = Actors.aimYaw[player];
+  CommWheel.frame(0.02);
+  check('wheel: look picks the callout to the right (Follow me) and does not turn the view', COMM_CALLOUTS[CommWheel.selected].id === 'follow' && Input.look.mouseX === 0 && Actors.aimYaw[player] === yaw, CommWheel.selected);
+  Input.effective[pingAction] = 0; CommWheel.frame(0.02);
+  const follow = fromPlayer()[1];
+  check('wheel: letting go sends the picked callout at the caller', !CommWheel.open && follow && follow.kind === 'follow' && follow.x === Actors.x[player], JSON.stringify(follow));
+  check('follow me: every team bot takes it and tracks the caller', mates.every((id) => BotTeam.orderKind[id] === 'follow' && BotTeam.orderSource[id] === player), mates.map((id) => BotTeam.orderKind[id]).join());
+  placeActor(player, 18, -18);
+  runSeconds(6);
+  const nearCaller = (id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18) < 8;   // a bot in a fight may fight first (combat outscores orders)
+  check('follow me: the bots come to where the caller went', mates.some(nearCaller) && mates.every((id) => nearCaller(id) || BotCombat.target[id] >= 0), mates.map((id) => Math.hypot(Actors.x[id] - 18, Actors.z[id] + 18).toFixed(1) + ' goal ' + BotDecide.goal[id]).join());
+  CommWheel.onComm(true);
+  CommWheel.pick(0, 0.05);   // straight down: the fifth of eight callouts
+  CommWheel.onComm(false);
+  const regroup = fromPlayer()[2];
+  check('wheel: the Comm key opens it too (down = Regroup)', regroup && regroup.kind === 'regroup', JSON.stringify(regroup));
+  BotTeam.callout(player, COMM_CALLOUTS.findIndex((row) => row.id === 'hold'));
+  check('hold position: every bot defends the spot it stands on', mates.every((id) => BotTeam.orderKind[id] === 'defend' && Test.near(BotTeam.orderX[id], Actors.x[id], 1e-3) && Test.near(BotTeam.orderZ[id], Actors.z[id], 1e-3)));
+  CommWheel.onComm(true);
+  CommWheel.onComm(false);
+  check('wheel: letting go with nothing picked sends nothing', fromPlayer().length === 4 && !CommWheel.open, fromPlayer().length);
+  pings.stop();
+  CommWheel.reset();
   endBotTest();
 });
 
@@ -604,6 +683,28 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// Item 37: a bot that runs up to a Use goal (loot, arm, disarm) on a large map stops and presses Use without boarding.
+const USE_GOAL_MAP_SIZE = 200, USE_GOAL_Z = 15, USE_GOAL_RADIUS = 3, USE_GOAL_SECONDS = 6;
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { size: USE_GOAL_MAP_SIZE }), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  placeFacing(bot, 0, -10, 0);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.OBJECTIVE, x: 0, y: 0, z: USE_GOAL_Z, radius: USE_GOAL_RADIUS, action: ACTION.USE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  let speedBefore = 0, pressSpeed = 0, boarded = false;
+  const hold = () => { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); speedBefore = Math.hypot(Actors.vx[bot], Actors.vz[bot]); };
+  const pressed = runHeld(USE_GOAL_SECONDS, hold, () => {
+    boarded = boarded || Move.onBoard(bot);
+    if (Actors.pressed[bot] & BTN.USE) pressSpeed = speedBefore;   // the speed boarding reads in the Use step
+    return pressSpeed > 0;
+  });
+  const runSpeed = Move.preset(bot).groundSpeed * SKIMMER_BOARD_RUN;
+  check('a running bot reaches the Use goal and presses Use', pressed && pressSpeed >= runSpeed, pressSpeed.toFixed(2) + ' vs ' + runSpeed.toFixed(2));
+  check('and stays off the Skimmer (it can still fire)', !boarded && !Move.onBoard(bot) && Move.canFire(bot));
+  endBotTest();
+});
+
 // ---- Grenades on the solved arc (real Gadgets): two enemies together draw a frag that lands among them ----
 const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
 
@@ -670,6 +771,96 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// ---- BOT-050 CTF splits: enemy flag home 30% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
+// escort (from the next commander round). BOT-002: a chase on stale memory is the Search state ----
+Test.add('bots', (check) => {
+  playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
+    const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
+    BotTeam.assignRoles();
+    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
+    enemyFlag.carrier = team[0];
+    BotTeam.assignRoles();
+    check('ctf, enemy flag taken: 3 defend, 2 escort', roles() === 'defend,defend,defend,escort,escort', roles());
+    enemyFlag.carrier = -1;
+    const chaser = team[0], target = Actors.count - 1, pair = BotSense.pair(chaser, target), plan = { goal: GOAL.CHASE, target };
+    BotSense.knownAt[pair] = Sim.time - 1;
+    const fresh = BotDecide.goalState(chaser, plan, Sim.time);
+    BotSense.knownAt[pair] = Sim.time - 3;
+    check('a chase on fresh memory is Chase, on memory older than 2 s Search', fresh === BOT_STATE.CHASE && BotDecide.goalState(chaser, plan, Sim.time) === BOT_STATE.SEARCH);
+  } });
+});
+
+// ---- BOT-070 / BOT-034 tier flags and T12: flanks (a far chase goes round by a flank hint), weaponJumps with weaponJumper
+// (a splash shot at the feet in a jump up to a goal on a ledge), flashPeek (the flash grenade's tier gate) ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 }, pair = BotSense.pair(bot, dummy);
+  placeFacing(bot, 0, -10, 0); placeFacing(dummy, 0, 20, Math.PI);
+  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+  BotCombat.target[bot] = dummy;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('a flanking tier chases a far target round by the flank hint', BotDecide.flankSpot[bot] === 0 && plan.x === 12 && plan.z === 10, plan.x + ',' + plan.z);
+  BotDecide.flankedAt[bot] = Sim.time;
+  GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
+  check('right after a flank the chase goes straight', BotDecide.flankSpot[bot] === -1 && plan.z === 20);
+  giveWeaponJumper(bot);
+  BotCombat.target[bot] = -1;
+  Motion.grounded[bot] = 1; Actors.health[bot] = Actors.maxHealth[bot];
+  BotDecide.goal[bot] = GOAL.ROAM; BotDecide.goalX[bot] = 0; BotDecide.goalY[bot] = 3; BotDecide.goalZ[bot] = -5;
+  BotMove.state[bot] = PATH.FAILED;   // no way to walk there (the ledge tests below cover walkable paths)
+  check('a weapon jumper with a launcher wants to jump to a goal 3 m up with no way to walk there', BotCombat.wantsWeaponJump(bot, Sim.time));
+  Actors.aimPitch[bot] = -80 * DEG;
+  Bots.buttonsWanted[bot] = 0;
+  BotCombat.weaponJump(bot, Sim.time);
+  const pressed = Bots.buttonsWanted[bot];
+  check('looking down it jumps and fires in one step', (pressed & BTN.JUMP) !== 0 && (pressed & BTN.FIRE) !== 0 && BotCombat.uses.weaponJumps === 1, pressed);
+  check('one weapon jump at a time (6 s rest)', !BotCombat.wantsWeaponJump(bot, Sim.time + 1));
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = BOT_TRAIT_NEUTRAL;
+  check('a bot without the weapon jumper trait does not', !BotCombat.wantsWeaponJump(bot, Sim.time + WEAPON_JUMP_REST + 1));
+  check('the flash grenade is gated by the flashPeek tier flag', BOT_GADGET_USE.flash.tierFlag === 'flashPeek' && CAT.botTiers.every((row) => row.flashPeek === row.tier >= 3));
+  endBotTest();
+});
+
+// A rocket launcher in hand and the weapon jumper trait (T12).
+function giveWeaponJumper(bot) {
+  const launcher = CAT.weapons.find((weapon) => weapon.primary.splash && weapon.primary.projectile === 'rocket');
+  Weapons.give(bot, launcher.id); Weapons.current[bot] = launcher.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.weaponJumper] = 0.95;
+}
+
+// The weapon jump on real paths: to a ledge 3 m up with no way to walk there, the blast (on the far side of the bot) lifts
+// it up and toward the goal; with a ramp up beside it the bot walks instead (no self-damage for nothing).
+const JUMP_LEDGE = { shape: 'box', min: [-4, 0, -4], max: [4, 3, 0] }, JUMP_RAMP = { shape: 'ramp', dir: '+z', min: [1, 0, -10], max: [4, 3, -4] };
+const JUMP_FROM = [-2, -8], JUMP_GOAL_Z = -2, JUMP_SECONDS = 3;
+
+function runLedgeGoal(brushes) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, ...brushes] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
+  placeFacing(bot, JUMP_FROM[0], JUMP_FROM[1], 0);
+  giveWeaponJumper(bot);
+  Bots.nextDecide[bot] = Infinity;     // the test gives the goal
+  Object.assign(bestPlan, { goal: GOAL.ROAM, x: 0, y: JUMP_LEDGE.max[1], z: JUMP_GOAL_Z, radius: 1, action: ACTION.MOVE, target: -1, score: 1 });
+  BotDecide.apply(bot, Sim.time);
+  const result = { startDistance: Math.abs(JUMP_GOAL_Z - Actors.z[bot]), closest: Infinity, topY: 0, jumps: 0, health: 0 };
+  runHeld(JUMP_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
+    result.topY = Math.max(result.topY, Actors.y[bot]); result.closest = Math.min(result.closest, Math.abs(JUMP_GOAL_Z - Actors.z[bot]));
+    return false;
+  });
+  result.jumps = BotCombat.uses.weaponJumps; result.health = Actors.health[bot];
+  endBotTest();
+  return result;
+}
+
+Test.add('bots', (check) => {
+  const ledge = runLedgeGoal([JUMP_LEDGE]);
+  check('a weapon jump lifts the bot up to the ledge and toward its goal', ledge.jumps === 1 && ledge.topY >= JUMP_LEDGE.max[1] && ledge.closest < ledge.startDistance - 1,
+    JSON.stringify(ledge));
+  const ramp = runLedgeGoal([JUMP_LEDGE, JUMP_RAMP]);
+  check('with a ramp up there the bot walks (no weapon jump)', ramp.jumps === 0 && ramp.topY >= JUMP_LEDGE.max[1] - 0.1, JSON.stringify(ramp));
+});
+
+
 // ---- Flag raids: the rally is a meeting place (no held spot), and a raider already past it keeps going ----
 Test.add('bots', (check) => {
   const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
@@ -718,17 +909,8 @@ Test.add('bots', (check) => {
   check('more damage taken: fights are worth less', withMutator('dmgin', 200, () => mutatorRisk()) < 1);
 });
 
-// ---- Difficulty: the PvE damage sliders through their own attacker scale, the game speed through rules.fx ----
+// ---- Difficulty: the game speed through rules.fx (the PvE damage sliders: group 'simwire') ----
 Test.add('bots', (check) => {
-  const savedSkill = Bots.skill, savedKinds = [Actors.kind[0], Actors.kind[1]];
-  Bots.skill = Object.assign({}, Difficulty.resolve(BOT_DEFAULT_DIFFICULTY), { playerDamage: 2, enemyDamage: 0.5 });
-  Actors.kind[0] = ACTOR_KIND.ENEMY; Actors.kind[1] = ACTOR_KIND.PLAYER;
-  check('a PvE enemy hitting the player x playerDamage', difficultyDamageScale(0, 1) === 2);
-  check('the player hitting a PvE enemy x enemyDamage', difficultyDamageScale(1, 0) === 0.5);
-  Actors.kind[0] = ACTOR_KIND.BOT;
-  check('versus hits are never scaled (BOT-040)', difficultyDamageScale(0, 1) === 1 && difficultyDamageScale(1, 0) === 1);
-  Actors.kind[0] = savedKinds[0]; Actors.kind[1] = savedKinds[1];
-  Bots.skill = savedSkill;
   const fast = { preset: BOT_DEFAULT_DIFFICULTY, gameSpeed: 1.2 };
   const pve = Rules.build({ mode: 'horde', difficulty: fast }), versus = Rules.build({ mode: 'ffa', difficulty: fast });
   check('game speed slider scales rules.fx.timeScale in PvE and versus (ACC-007 assist)', pve.fx.timeScale === 1.2 && versus.fx.timeScale === 1.2, pve.fx.timeScale + ' / ' + versus.fx.timeScale);

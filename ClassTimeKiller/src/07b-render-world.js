@@ -25,7 +25,7 @@ const BAKE_VALUES_PER_VERTEX = 12;     // x y z nx ny nz material r g b ao sun w
 
 const WorldMesh = {
   chunks: [],              // { minX, minY, minZ, maxX, maxY, maxZ, offset (bytes into the index buffer), count }
-  vertexBytes: null, indexData: null, vertexCount: 0, triangles: 0,
+  vertexBytes: null, indexData: null, indexBytes: 2, vertexCount: 0, triangles: 0,
   vertexBuffer: null, indexBuffer: null, vertexArray: null, indexType: 0,
   theme: null,
   materialIndex: new Map(),
@@ -122,9 +122,9 @@ function brushFace(brush, index) {
   // tangent = normalize(cross(normal, helper)) with helper = +X for floors/ceilings, else +Y; bitangent = cross(normal, tangent)
   const helperX = Math.abs(ny) > 0.9 ? 1 : 0, helperY = 1 - helperX;
   let tx = -nz * helperY, ty = nz * helperX, tz = nx * helperY - ny * helperX;
-  const length = Math.hypot(tx, ty, tz); tx /= length; ty /= length; tz /= length;
+  const length = length3(tx, ty, tz); tx /= length; ty /= length; tz /= length;
   const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
-  const r = Math.hypot(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
+  const r = length3(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
   let polygon = [];
   for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) polygon.push(ox + (tx * su + bx * sv) * r, oy + (ty * su + by * sv) * r, oz + (tz * su + bz * sv) * r);
   for (let j = 0; j < brush.planeCount && polygon.length >= 9; j++) {
@@ -160,22 +160,15 @@ function cutFace(polygon, nx, ny, nz, cell, emit) {
   }
 }
 
-// ---- Bake-time brush lookup grid (XZ cells -> brush indices) ----
-const GRID_KEY_OFFSET = 32768;           // numeric cell keys (no strings in the bake loops)
-const gridKey = (gx, gz) => (gx + GRID_KEY_OFFSET) * 65536 + gz + GRID_KEY_OFFSET;
-
+// ---- Bake-time brush lookup grid: a BrushGrid (01-core) over the brushes' xz bounds ----
 function makeBrushGrid(brushes) {
-  const grid = new Map();
-  brushes.forEach((brush, index) => {
-    for (let gx = Math.floor(brush.minX / BRUSH_GRID_METERS); gx <= Math.floor(brush.maxX / BRUSH_GRID_METERS); gx++) {
-      for (let gz = Math.floor(brush.minZ / BRUSH_GRID_METERS); gz <= Math.floor(brush.maxZ / BRUSH_GRID_METERS); gz++) {
-        const key = gridKey(gx, gz);
-        if (!grid.has(key)) grid.set(key, []);
-        grid.get(key).push(index);
-      }
-    }
-  });
-  return grid;
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const brush of brushes) {
+    minX = Math.min(minX, brush.minX); minZ = Math.min(minZ, brush.minZ);
+    maxX = Math.max(maxX, brush.maxX); maxZ = Math.max(maxZ, brush.maxZ);
+  }
+  if (!brushes.length) { minX = minZ = maxX = maxZ = 0; }
+  return BrushGrid.build({}, brushes, BRUSH_GRID_METERS, minX, minZ, maxX, maxZ);
 }
 
 function insideBrush(brush, x, y, z) {
@@ -186,9 +179,11 @@ function insideBrush(brush, x, y, z) {
 
 // Index of a brush (other than `skip`) containing the point, or -1.
 function brushAt(bake, x, y, z, skip) {
-  const list = bake.grid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS)));
-  if (!list) return -1;
-  for (const index of list) if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  const grid = bake.grid, cell = BrushGrid.cellAt(grid, x, z);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
+  }
   return -1;
 }
 
@@ -197,24 +192,17 @@ function brushAt(bake, x, y, z, skip) {
 function overlappingBrushes(bake, polygon, brushIndex) {
   const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
   for (let i = 0; i < polygon.length; i += 3) growBounds(bounds, polygon[i], polygon[i + 1], polygon[i + 2]);
-  const found = [];
-  bake.stamp++;
-  for (let gx = Math.floor(bounds.minX / BRUSH_GRID_METERS); gx <= Math.floor(bounds.maxX / BRUSH_GRID_METERS); gx++) {
-    for (let gz = Math.floor(bounds.minZ / BRUSH_GRID_METERS); gz <= Math.floor(bounds.maxZ / BRUSH_GRID_METERS); gz++) collectOverlaps(bake, gx, gz, brushIndex, bounds, found);
+  const grid = bake.grid, count = BrushGrid.query(grid, bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ), found = [];
+  for (let k = 0; k < count; k++) {
+    const index = grid.found[k];
+    if (index !== brushIndex && boundsTouch(bake.brushes[index], bounds, COPLANAR_METERS)) found.push(index);
   }
   return found.sort((a, b) => a - b);
 }
 
-function collectOverlaps(bake, gx, gz, brushIndex, bounds, found) {
-  const margin = COPLANAR_METERS;
-  for (const index of bake.grid.get(gridKey(gx, gz)) || []) {
-    if (index === brushIndex || bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
-    const brush = bake.brushes[index];
-    const apart = brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
-      || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin;
-    if (!apart) found.push(index);
-  }
+function boundsTouch(brush, bounds, margin) {
+  return !(brush.minX > bounds.maxX + margin || brush.maxX < bounds.minX - margin || brush.minY > bounds.maxY + margin
+    || brush.maxY < bounds.minY - margin || brush.minZ > bounds.maxZ + margin || brush.maxZ < bounds.minZ - margin);
 }
 
 // The planes of `other` that are parallel to the face decide alone whether the face's plane passes through it.
@@ -273,49 +261,29 @@ function rayEntersBrush(brush, ox, oy, oz, dx, dy, dz, maxDistance) {
   return enter <= exit ? enter : -1;
 }
 
-// 2D grid walk over the brush grid cells a ray crosses (Amanatides-Woo), one reused state object.
-const gridWalk = { cellX: 0, cellZ: 0, stepX: 0, stepZ: 0, nextX: 0, nextZ: 0, deltaX: 0, deltaZ: 0 };
-function startGridWalk(ox, oz, dx, dz) {
-  const walk = gridWalk, size = BRUSH_GRID_METERS;
-  walk.cellX = Math.floor(ox / size); walk.cellZ = Math.floor(oz / size);
-  walk.stepX = dx > 0 ? 1 : -1; walk.stepZ = dz > 0 ? 1 : -1;
-  walk.deltaX = Math.abs(dx) > 1e-9 ? size / Math.abs(dx) : Infinity;
-  walk.deltaZ = Math.abs(dz) > 1e-9 ? size / Math.abs(dz) : Infinity;
-  walk.nextX = Math.abs(dx) > 1e-9 ? ((walk.cellX + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
-  walk.nextZ = Math.abs(dz) > 1e-9 ? ((walk.cellZ + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
-  return walk;
-}
+// One reused walk record for the bake's ray walks (BrushGrid.startWalk).
+const bakeGridWalk = makeGridWalk();
 
-// Moves to the next cell; returns the ray distance at which the walk entered it.
-function advanceGridWalk(walk) {
-  if (walk.nextX < walk.nextZ) {
-    walk.cellX += walk.stepX; walk.nextX += walk.deltaX;
-    return walk.nextX - walk.deltaX;
-  }
-  walk.cellZ += walk.stepZ; walk.nextZ += walk.deltaZ;
-  return walk.nextZ - walk.deltaZ;
-}
-
-function cellBlocksRay(bake, cellX, cellZ, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const list = bake.grid.get(gridKey(cellX, cellZ));
-  if (!list) return false;
-  for (let i = 0; i < list.length; i++) {
-    const index = list[i];
-    if (bake.seen[index] === bake.stamp) continue;
-    bake.seen[index] = bake.stamp;
+function cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance) {
+  const grid = bake.grid;
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const index = grid.cellItems[k];
+    if (!BrushGrid.firstVisit(grid, index)) continue;
     if (rayEntersBrush(bake.brushes[index], ox, oy, oz, dx, dy, dz, maxDistance) >= 0) return true;
   }
   return false;
 }
 
 // True when a brush lies on the ray (unit direction) within maxDistance; stops once the ray leaves the world's height.
+// Cells outside the grid hold no brush (the grid spans every brush), so the walk only skips them.
 function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
-  const walk = startGridWalk(ox, oz, dx, dz);
-  bake.stamp++;
+  const grid = bake.grid, walk = BrushGrid.startWalk(grid, bakeGridWalk, ox, oz, dx, dz);
+  BrushGrid.beginPass(grid);
   let travelled = 0;
   while (travelled <= maxDistance) {
-    if (cellBlocksRay(bake, walk.cellX, walk.cellZ, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
-    travelled = advanceGridWalk(walk);
+    const cell = BrushGrid.walkCell(grid, walk);
+    if (cell >= 0 && cellBlocksRay(bake, cell, ox, oy, oz, dx, dy, dz, maxDistance)) return true;
+    travelled = BrushGrid.stepWalk(walk);
     const height = oy + dy * travelled;
     if ((dy > 0 && height > bake.topY) || (dy < 0 && height < bake.bottomY)) return false;
   }
@@ -324,11 +292,12 @@ function rayBlocked(bake, ox, oy, oz, dx, dy, dz, maxDistance) {
 
 // Height of the first brush surface straight below (x, y, z) within maxDrop, or -Infinity (allocation-free, per frame).
 function groundBelow(x, y, z, maxDrop) {
-  const list = WorldMesh.brushGrid ? WorldMesh.brushGrid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS))) : null;
-  if (!list) return -Infinity;
+  const grid = WorldMesh.brushGrid;
+  if (!grid) return -Infinity;
+  const cell = BrushGrid.cellAt(grid, x, z);
   let nearest = Infinity;
-  for (let i = 0; i < list.length; i++) {
-    const distance = rayEntersBrush(WorldMesh.brushes[list[i]], x, y, z, 0, -1, 0, maxDrop);
+  for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+    const distance = rayEntersBrush(WorldMesh.brushes[grid.cellItems[k]], x, y, z, 0, -1, 0, maxDrop);
     if (distance >= 0 && distance < nearest) nearest = distance;
   }
   return nearest <= maxDrop ? y - nearest : -Infinity;
@@ -338,7 +307,7 @@ function groundBelow(x, y, z, maxDrop) {
 function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
   // Ten sample points in the hemisphere (straight out and tilted along two tangents b and c, at two distances).
   const [hx, hy, hz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-  const tangentLength = Math.hypot(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
+  const tangentLength = length3(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
   const bx = (ny * hz - nz * hy) / tangentLength, by = (nz * hx - nx * hz) / tangentLength, bz = (nx * hy - ny * hx) / tangentLength;
   const cx = ny * bz - nz * by, cy = nz * bx - nx * bz, cz = nx * by - ny * bx;
   let blocked = 0, samples = 0;
@@ -358,13 +327,13 @@ function sunVisible(bake, x, y, z) {
 }
 
 function lightBlocked(bake, x, y, z, light) {
-  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = Math.hypot(dx, dy, dz);
+  const dx = light.x - x, dy = light.y - y, dz = light.z - z, length = length3(dx, dy, dz);
   return length > 1e-6 && rayBlocked(bake, x, y, z, dx / length, dy / length, dz / length, length);
 }
 
 function mapLightContribution(bake, x, y, z, nx, ny, nz, out) {
   for (const light of bake.lights) {
-    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = Math.hypot(dx, dy, dz);
+    const dx = light.x - x, dy = light.y - y, dz = light.z - z, distance = length3(dx, dy, dz);
     if (distance >= light.radius) continue;
     const facing = (nx * dx + ny * dy + nz * dz) / Math.max(distance, 1e-3);
     if (facing <= 0 || lightBlocked(bake, x + nx * 0.05, y + ny * 0.05, z + nz * 0.05, light)) continue;
@@ -405,12 +374,12 @@ function readMapLights(map) {
   });
 }
 
-// Bake context: theme applied, brush lookup grid (+ visit stamps), world height range, map lights, caches, chunks.
+// Bake context: theme applied, brush lookup grid, world height range, map lights, caches, chunks.
 function makeBake(map, brushes) {
   applyTheme(map.theme);
   let topY = -Infinity, bottomY = Infinity;
   for (const brush of brushes) { topY = Math.max(topY, brush.maxY); bottomY = Math.min(bottomY, brush.minY); }
-  return { brushes, grid: makeBrushGrid(brushes), seen: new Uint32Array(brushes.length), stamp: 0, topY, bottomY,
+  return { brushes, grid: makeBrushGrid(brushes), topY, bottomY,
     lights: matchDarkness() ? [] : readMapLights(map), lightCache: new Map(), chunks: new Map(), cell: bakeCellSize(brushes) };
 }
 
@@ -471,16 +440,25 @@ function addPiece(bake, piece, material, nx, ny, nz) {
   for (let i = 1; i < count - 1; i++) chunk.indices.push(base, base + i, base + i + 1);
 }
 
-// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range).
+// Chunk keys are 'cellX,cellZ'; rows of cells (z, then x) so neighbours along x are neighbours in the index buffer.
+function chunkCell(key) { const comma = key.indexOf(','); return { x: Number(key.slice(0, comma)), z: Number(key.slice(comma + 1)) }; }
+function compareChunkKeys(a, b) {
+  const cellA = chunkCell(a[0]), cellB = chunkCell(b[0]);
+  return cellA.z - cellB.z || cellA.x - cellB.x;
+}
+
+// Packs every chunk into one interleaved vertex buffer and one index buffer (chunk = one index range), in row order:
+// drawWorld merges runs of visible chunks that touch in the buffer into one draw call (PERF-004 caps).
 function packWorldMesh(chunkMap) {
+  const ordered = [...chunkMap.entries()].sort(compareChunkKeys).map((entry) => entry[1]);
   let vertexCount = 0, indexCount = 0;
-  for (const chunk of chunkMap.values()) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
+  for (const chunk of ordered) { vertexCount += chunk.vertices.length / BAKE_VALUES_PER_VERTEX; indexCount += chunk.indices.length; }
   const bytes = new ArrayBuffer(Math.max(1, vertexCount) * WORLD_VERTEX_BYTES);
   const views = { floats: new Float32Array(bytes), signed: new Int8Array(bytes), unsigned: new Uint8Array(bytes) };
   const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const chunks = [];
   let vertex = 0, index = 0;
-  for (const chunk of chunkMap.values()) {
+  for (const chunk of ordered) {
     const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity, offset: index * indices.BYTES_PER_ELEMENT, count: chunk.indices.length };
     for (let i = 0; i < chunk.indices.length; i++) indices[index++] = chunk.indices[i] + vertex;
     for (let i = 0; i < chunk.vertices.length; i += BAKE_VALUES_PER_VERTEX) {
@@ -489,7 +467,7 @@ function packWorldMesh(chunkMap) {
     }
     chunks.push(bounds);
   }
-  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, vertexCount, triangles: indexCount / 3 });
+  Object.assign(WorldMesh, { chunks, vertexBytes: bytes, indexData: indices, indexBytes: indices.BYTES_PER_ELEMENT, vertexCount, triangles: indexCount / 3 });
 }
 
 function writeWorldVertex(views, vertex, values, i) {
@@ -653,13 +631,26 @@ function drawWorld(gl) {
   gl.uniform3fv(u.uMaterialB, WorldMesh.materialB);
   gl.uniform4fv(u.uMaterialParams, WorldMesh.materialParams);
   gl.bindVertexArray(WorldMesh.vertexArray);
-  const chunks = WorldMesh.chunks;
+  const chunks = WorldMesh.chunks, run = WorldRun;
+  run.offset = 0; run.count = 0;
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (!boxVisible(chunk.minX, chunk.minY, chunk.minZ, chunk.maxX, chunk.maxY, chunk.maxZ)) continue;
-    gl.drawElements(gl.TRIANGLES, chunk.count, WorldMesh.indexType, chunk.offset);
-    Render.countDraw(chunk.count / 3);
+    if (!boundsVisible(chunk)) { drawWorldRun(gl); continue; }
+    const touches = run.count > 0 && run.offset + run.count * WorldMesh.indexBytes === chunk.offset;
+    if (!touches) { drawWorldRun(gl); run.offset = chunk.offset; }
+    run.count += chunk.count;
   }
+  drawWorldRun(gl);
+}
+
+// The visible chunks next to each other in the index buffer, drawn as one range.
+const WorldRun = { offset: 0, count: 0 };
+function drawWorldRun(gl) {
+  const run = WorldRun;
+  if (!run.count) return;
+  gl.drawElements(gl.TRIANGLES, run.count, WorldMesh.indexType, run.offset);
+  Render.countDraw(run.count / 3);
+  run.count = 0;
 }
 Render.addPass(20, drawWorld);
 

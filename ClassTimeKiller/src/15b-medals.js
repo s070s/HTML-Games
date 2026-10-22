@@ -136,10 +136,10 @@ const Medals = {
     if (event.phase !== 'end') return;
     for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.PLAYER && Actors.alive[id] && !this.waveHurt[id]) this.award(id, 'flawlessWave');
   },
-  // MD19: a stealth (solo family) level finished and won with no alarm raised.
+  // MD19: a stealth level (mode params.stealth: M28 only, not the range or the chambers) finished and won with no alarm raised.
   onMatchEnd(match) {
     const id = Game.playerId;
-    if (id < 0 || !match.rules || match.rules.family !== 'solo' || this.alarmRaised || !match.results) return;
+    if (id < 0 || !match.rules || !match.rules.params || !match.rules.params.stealth || this.alarmRaised || !match.results) return;
     if (Progress.outcome(match.results) === 'win') this.award(id, 'ghost');
   },
 };

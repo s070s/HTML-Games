@@ -55,7 +55,8 @@ const Render = {
   pausedForLoss: false,
   quality: null,           // the active CAT.quality row
   config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: 0, maxDpr: 1.5, autoLower: true, autoQuality: '',
-    highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0] },   // the last three are filled by the accessibility and view settings (18k, 18m)
+    highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0],   // these three are filled by the accessibility and view settings (18k, 18m)
+    frameCapMs: 0 },   // the frame cap interval (0 = off), filled by S19 from video.frameCap
   stats: { drawCalls: 0, triangles: 0, renderMs: 0, gpuMs: 0, renderScale: 1, particles: 0, instances: 0, droppedInstances: 0 },
   size: { cssWidth: 1, cssHeight: 1, pixelRatio: 1, width: 1, height: 1, sceneWidth: 1, sceneHeight: 1, scale: 1, dirty: true },
   target: { framebuffer: null, texture: null, depth: null, msaaFramebuffer: null, msaaColor: null, msaaDepth: null, width: 0, height: 0, samples: 0, direct: true },
@@ -510,15 +511,13 @@ function renderFrameHook(seconds, alpha) {
 }
 
 // ---- Context loss (PLT-005): pause, tell the player, rebuild everything on restore ----
-const renderToast = { text: '' };
-function toastText(text) { renderToast.text = text; Bus.emit('toast', renderToast); }
 
 function handleContextLost(event) {
   event.preventDefault();
   Render.lost = true;
   Render.pausedForLoss = Game.state === 'playing' && !Game.paused;
   Game.pause('graphics');
-  toastText('Graphics restoring...');
+  emitToast('Graphics restoring...');
 }
 
 function handleContextRestored() {
@@ -534,8 +533,9 @@ function handleContextRestored() {
   Render.lost = false;
   if (Render.pausedForLoss) Game.resume();
   Render.pausedForLoss = false;
-  toastText('Graphics restored');
+  emitToast('Graphics restored');
 }
+Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 
 Bus.on('boot', () => {
   if (Game.headless || !Render.init()) return;

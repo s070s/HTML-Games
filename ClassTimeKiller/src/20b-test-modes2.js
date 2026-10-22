@@ -498,13 +498,20 @@ Test.add('modes2', (check) => {
   check('royale: loot spots from the weapon, armor, health and ammo items', RoyaleLoot.count === 4 && RoyaleLoot.weapon[0] === CAT.weapons.byId('warden').index);
   runSeconds(2);
   const rarity = RoyaleLoot.rarity[0];
+  Actors.flags[0] |= ACTOR_FLAG.DOWNED; Damage.downedTime[0] = DOWNED_BLEED_SECONDS;
   placeActor(0, 10, 10); runSeconds(0.2);
+  check('royale: a downed actor takes no loot (HP-007)', RoyaleLoot.taken[0] === 0);
+  Actors.flags[0] &= ~ACTOR_FLAG.DOWNED;
+  runSeconds(0.2);
   check('royale: a weapon spot gives its weapon with its rarity (WPN-008)', Weapons.has(0, 'warden') && Weapons.rarity[Weapons.slotIndex(0, CAT.weapons.byId('warden').index)] === rarity && RoyaleLoot.taken[0] === 1);
   placeActor(0, 14, 10); runSeconds(0.2);
-  check('royale: a heal at full health stays on the spot', RoyaleLoot.taken[2] === 0);
+  const consumable = CAT.items.byId(LOOT_CONSUMABLES[RoyaleLoot.rarity[2]]);
+  check('royale: a health spot gives the I13-I17 consumable of its rarity to carry', RoyaleLoot.taken[2] === 1 && Items.carriedCount(0, consumable.id) === 1, consumable.id);
   hitActor(0, 1, 60);
-  runSeconds(0.2);
-  check('royale: a heal restores lootHeal health', RoyaleLoot.taken[2] === 1 && Actors.health[0] === 40 + params.lootHeal, Actors.health[0]);
+  const hurt = Actors.health[0] + Actors.shield[0];
+  Actors.buttons[0] = BTN.HEAL; runSeconds(0.05); Actors.buttons[0] = 0;
+  runSeconds(consumable.useTime + 0.1);
+  check('royale: the heal button uses the carried consumable', Actors.health[0] + Actors.shield[0] > hurt && Items.carriedCount(0, consumable.id) === 0, Actors.health[0] + Actors.shield[0]);
   placeActor(0, 12, 10); runSeconds(0.2);
   check('royale: armor sets the shield by its rarity', Actors.shield[0] === params.shieldByRarity[RoyaleLoot.rarity[1]] && RoyaleLoot.taken[1] === 1);
   const warden = CAT.weapons.byId('warden'), wardenSlot = Weapons.slotIndex(0, warden.index);
@@ -535,6 +542,51 @@ Test.add('modes2', (check) => {
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
   Game.start({ mode: 'royale', seed: 1, bots: Array.from({ length: 30 }, () => ({ dummy: true })) });
   check('royale: the bot count stays within the PERF-009 cap', Actors.count === Quality.current().bots && Actors.count <= 23);
+  endModeTest();
+});
+
+// M20 squads: round-robin squads, a shared drop-in, one respawn beacon per squad, and the last squad standing wins.
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1, -1, -1, -1]);
+  const squads = Modes.squads, params = Game.match.rules.params;
+  Move.setPreset(0, 'tactical'); Modes.endProtection(0);   // MOV-015 fall damage (lethal above 22 m/s); firing ends protection
+  check('royale: six actors make two squads of three', squads.count === 2 && [0, 1, 0, 1, 0, 1].every((team, id) => Actors.team[id] === team)
+    && !Actors.isEnemy(0, 2) && Actors.isEnemy(0, 1) && Game.match.rules.teams === 0);
+  const viewer = Game.playerId;
+  Game.playerId = 1;   // a player in squad 1
+  const ownColor = Hud.teamColor(1) === Hud.colors.teams[0] && Hud.teamColor(0) === Hud.colors.teams[1];
+  Game.playerId = viewer;
+  check('royale: the player\'s own squad has the own-team HUD colour, whatever its index', ownColor);
+  check('royale: squads drop in together from above', Actors.y[0] >= ROYALE_DROP_HEIGHT - 1 && Math.hypot(Actors.x[2] - Actors.x[0], Actors.z[2] - Actors.z[0]) <= DROP_SPREAD + 1e-3
+    && Math.hypot(Actors.x[1] - Actors.x[0], Actors.z[1] - Actors.z[0]) > DROP_SPREAD * 2, Actors.y[0]);
+  runSeconds(3);
+  check('royale: the drop lands on the ground', Actors.y[0] < 0.5 && Actors.alive[0] === 1, Actors.y[0]);
+  check('royale: the drop-in takes no fall damage, even with MOV-015 falls', Actors.health[0] === Actors.maxHealth[0] && Move.safeLanding[0] === 0, Actors.health[0]);
+  Move.setPreset(0, null);
+  killActor(2, 1); killActor(4, 1);
+  Actors.alive[2] = 0; Actors.alive[4] = 0;
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  Actors.buttons[0] = 0;
+  runSeconds(0.3);
+  Actors.buttons[0] = BTN.USE;
+  runSeconds(BEACON_SECONDS - 1);
+  check('royale: letting go of Use at the beacon starts over', !Actors.alive[2] && squads.beaconUses[0] === params.squadBeacons);
+  runSeconds(1.2);
+  Actors.buttons[0] = 0;
+  check('royale: holding Use at the squad beacon brings the dead squadmates back', Actors.alive[2] === 1 && Actors.alive[4] === 1 && squads.beaconUses[0] === params.squadBeacons - 1
+    && Math.hypot(Actors.x[2] - squads.beaconX[0], Actors.z[2] - squads.beaconZ[0]) <= DROP_SPREAD + 1e-3 && Modes.behaviour.score(2) >= ROYALE_STANDING_RANK);
+  killActor(1, 0); killActor(3, 0);
+  Sim.step();
+  check('royale: one squad member left keeps the squad in the match', !Game.match.ended && Modes.hud.aliveCount === 4);
+  killActor(5, 0);
+  Sim.step();
+  check('royale: the last squad standing wins', Game.match.ended && Actors.team[Game.match.winner] === 0 && Game.match.results.reason === 'eliminated');
+  endModeTest();
+
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
+  check('royale: a match of one squad or fewer plays solo', Modes.squads.count === 0 && Actors.team[0] === NO_TEAM && Actors.isEnemy(0, 1));
   endModeTest();
 });
 

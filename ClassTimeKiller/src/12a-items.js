@@ -17,7 +17,8 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
-const SOUL_HOMING_RANGE = 6;               // ABL-005: souls fly to a nearby player
+const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
+const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
 const ANNOUNCE_POWER_PRIORITY = 2;
 const VOLATILE_RADIUS = 4;                 // X30: a shot ammo pickup explodes with this radius...
@@ -29,8 +30,9 @@ const NO_TICK = -1;
 const PICKUP_EVENT = { id: 0, item: '', group: '', x: 0, y: 0, z: 0 };
 const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
-const ITEM_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: 'pickup', source: -1 };
 const ITEM_COUNT = CAT.items.length;
+const CONSUMABLE_ROWS = CAT.items.filter((row) => row.effect === 'consume');   // I13..I17, catalogue order = the heal button's preference
+const BOT_HEAL_CALM = 3;                 // s without damage before a bot uses a carried consumable
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
 
@@ -66,6 +68,11 @@ function itemRule(field, fallback) {
   const value = currentRules()[field];
   return value === undefined ? fallback : value;
 }
+// DIF-002 Pickups column: more yield = map pickups come back sooner (rules.botSkill is the resolved difficulty preset).
+function pickupYield() {
+  const skill = itemRule('botSkill', null);
+  return skill && skill.resourceYield > 0 ? skill.resourceYield : 1;
+}
 function itemMutatorOn(id) {
   const list = itemRule('mutators', []);
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
@@ -77,19 +84,24 @@ function itemFxOn(key) {
   return !!fx && !!fx[key];
 }
 // Map item spots exist unless the ruleset removes every pickup (rules.items === false, X08 noItems) or the mode places its
-// own (params.pickups === false: roulette, royale loot).
+// own (params.pickups === false: roulette, royale loot). params.pickups = a pickup key keeps only that pickup (M15 boots).
 function mapItemsAllowed() {
   const params = itemRule('params', null);
   return itemRule('items', true) !== false && !itemFxOn('noItems') && !(params && params.pickups === false);
 }
+function onlyPickup() {
+  const params = itemRule('params', null);
+  return params && typeof params.pickups === 'string' ? params.pickups : '';
+}
 function powerupsAllowed() { return !itemMutatorOn('nopowerups') && !itemFxOn('noPowerups'); }   // X16
-// A soul card number of the local player (rules.cards.fx, written by the S15 cards: soulLife, soulMagnet, wrathAt), else fallback.
+// A soul card number of the local player (rules.cards.fx, written by the S15 cards), else fallback. One reader per key:
+// soulLife (Items.dropSoul), soulMagnet (soulHomingRange), soulHeal (12b PU18 heal), wrathAt (12e Abilities.canAfford).
 function soulCardFx(id, key, fallback) {
   const cards = itemRule('cards', null);
   if (id < 0 || id !== Game.playerId || !cards || !cards.fx || cards.fx[key] === undefined) return fallback;
   return cards.fx[key];
 }
-// ABL-005 soul homing reach of an actor: the C11 Soul Magnet card widens it for its holder.
+// Soul homing reach of an actor (PU18 souls, ABL-005 SOUL_HOMING_RANGE): the C11 Soul Magnet card widens it for its holder.
 function soulHomingRange(id) { return Math.max(SOUL_HOMING_RANGE, soulCardFx(id, 'soulMagnet', 0)); }
 
 const Items = {
@@ -139,9 +151,11 @@ const Items = {
     this.clear();
     this.matchSetCursor = 0;
     if (!mapItemsAllowed()) return;
+    const only = onlyPickup();
     for (let i = 0; i < entries.length && this.spotCount < PICKUP_CAP; i++) {
       const entry = entries[i];
       if (entry.modes && entry.modes.length && !entry.modes.includes(mode)) continue;
+      if (only && entry.item !== only) continue;
       this.addSpot(entry);
     }
   },
@@ -178,12 +192,12 @@ const Items = {
     this.readyTick[slot] = Sim.tick + ticks;
     this.warned[slot] = 0;
   },
-  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale.
+  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale / the difficulty's resourceYield (DIF-002).
   respawnTicks(slot) {
     const row = this.rowOf(slot), pad = CAT.items.byId('weaponpad');
     let seconds = row.respawn;
     if (this.kind[slot] === PICKUP_KIND.WEAPON) seconds = row.class === 'power' ? pad.respawnPower : itemRule('teams', 0) > 0 ? pad.respawnTeams : pad.respawn;
-    return itemTicks(seconds * itemRule('itemRespawnScale', 1));
+    return itemTicks(seconds * itemRule('itemRespawnScale', 1) / pickupYield());
   },
   // Weapon stay (X11, rules.weaponStay): a weapon spot stays for everyone who does not own that weapon; power weapons never stay.
   stays(slot) {
@@ -236,10 +250,10 @@ const Items = {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.dropsWeapon(victim, w)) this.dropWeaponAround(victim, w, k++, count);
   },
   dropsWeapon(id, weaponIndex) { return Weapons.owned[Weapons.slotIndex(id, weaponIndex)] === 1 && Weapons.countsTowardCarry(CAT.weapons[weaponIndex]); },
-  // PU18: kills of PvE enemies drop souls where the mode asks for them (rules.params.souls or the 'souls' mutator).
+  // PU18: kills of PvE enemies drop souls where the mode asks for them (rules.params.souls).
   dropSoul(victim) {
     const params = itemRule('params', null);
-    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !((params && params.souls) || itemMutatorOn('souls'))) return;
+    if (Actors.kind[victim] !== ACTOR_KIND.ENEMY || !(params && params.souls)) return;
     const slot = this.drop('soul', Actors.x[victim], Actors.y[victim] + 0.5, Actors.z[victim], 0, -1);
     if (slot >= 0) this.despawnTick[slot] = Sim.tick + itemTicks(ITEM_TIMING.droppedSeconds * soulCardFx(Game.playerId, 'soulLife', 1));   // C03 Soulkeep
   },
@@ -255,6 +269,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
+      if ((Actors.pressed[id] & BTN.HEAL) || this.botWantsHeal(id)) this.useBest(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
@@ -342,9 +357,7 @@ const Items = {
     PICKUP_EVENT.id = id; PICKUP_EVENT.item = row.id; PICKUP_EVENT.group = group;
     PICKUP_EVENT.x = this.x[slot]; PICKUP_EVENT.y = this.y[slot]; PICKUP_EVENT.z = this.z[slot];
     Bus.emit('pickup', PICKUP_EVENT);
-    ITEM_SOUND.x = this.x[slot]; ITEM_SOUND.y = this.y[slot]; ITEM_SOUND.z = this.z[slot]; ITEM_SOUND.source = id;
-    ITEM_SOUND.radius = this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE;
-    Bus.emit('sound', ITEM_SOUND);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], this.isPower(slot) ? POWER_PICKUP_NOISE : PICKUP_NOISE, 'pickup', id);
     if (this.isPower(slot) && row.announce !== false) this.announce(Actors.name[id] + ' took the ' + row.name);
   },
   takeItem(id, slot) {
@@ -413,11 +426,6 @@ const Items = {
     if (!row.overheal) return Actors.maxHealth[id];
     return Math.max(Actors.maxHealth[id], Math.min(row.cap, Damage.preset().overhealCap));
   },
-  addHealth(id, amount, cap) {
-    if (Actors.health[id] >= cap) return false;
-    Actors.health[id] = Math.min(cap, Actors.health[id] + amount);
-    return true;
-  },
   addArmor(id, amount, cap) {
     const limit = Math.min(cap, Actors.maxArmor[id]);
     if (this.noArmor[id] || Actors.armor[id] >= limit) return false;
@@ -457,6 +465,22 @@ const Items = {
     this.useStart[id] = Sim.tick;
     this.useEnd[id] = Sim.tick + itemTicks(row.useTime);
     return true;
+  },
+  // The heal button (BTN.HEAL): the first carried consumable, in catalogue order, that would restore something.
+  useBest(id) {
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) if (this.use(id, CONSUMABLE_ROWS[i].id)) return true;
+    return false;
+  },
+  consumableCount(id) {
+    let total = 0;
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
+    return total;
+  },
+  // Bots heal once they are out of the fight for BOT_HEAL_CALM seconds and miss health or shield.
+  botWantsHeal(id) {
+    if (Actors.kind[id] !== ACTOR_KIND.BOT || this.usingItem[id] >= 0 || Sim.time - Damage.lastDamageTime[id] < BOT_HEAL_CALM) return false;
+    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return false;
+    return this.consumableCount(id) > 0;
   },
   // 0..1 progress of the consumable in use, -1 when none (HUD).
   useProgress(id) {
@@ -504,31 +528,45 @@ const Items = {
   activePowerups(id, out) { out.length = 0; return 0; },
 
   // ---- Render source: spinning procedural shapes in group colours; empty spots show a faint base ----
+  // Shapes go through one reused instance record (batch.meshFrom): 13 float arguments per batch.mesh call are boxed (PERF-006).
   draw(batch) {
-    const spin = Sim.time * PICKUP_SPIN, bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
+    pickupInstance.yaw = Sim.time * PICKUP_SPIN;
+    pickupInstance.pitch = 0;
+    const bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
     for (let slot = 0; slot < PICKUP_CAP; slot++) {
       const state = this.state[slot];
-      if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, spin, bob);
-      else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, 0.25);
+      if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, bob);
+      else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, PICKUP_GLOW_WAITING);
     }
   },
-  drawPickup(batch, slot, spin, bob) {
+  drawPickup(batch, slot, bob) {
     const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
-    const y = this.y[slot] + PICKUP_FLOAT + bob, power = this.isPower(slot);
-    if (this.spot[slot]) this.drawBase(batch, slot, power ? 0.9 : 0.5);
-    const red = rgb[offset], green = rgb[offset + 1], blue = rgb[offset + 2];
-    if (kind === PICKUP_KIND.WEAPON) { batch.mesh('box', this.x[slot], y, this.z[slot], spin, 0, 0.18, 0.2, 0.8, red, green, blue, power ? 0.8 : 0.35); return; }
+    const power = this.isPower(slot), instance = pickupInstance;
+    if (this.spot[slot]) this.drawBase(batch, slot, power ? PICKUP_GLOW_POWER_BASE : PICKUP_GLOW_BASE);
+    instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FLOAT + bob; instance.z = this.z[slot];
+    instance.r = rgb[offset]; instance.g = rgb[offset + 1]; instance.b = rgb[offset + 2];
+    if (kind === PICKUP_KIND.WEAPON) {
+      instance.sx = 0.18; instance.sy = 0.2; instance.sz = 0.8; instance.emissive = power ? 0.8 : 0.35;
+      batch.meshFrom('box', instance);
+      return;
+    }
     const size = row.size, shape = row.shape;
-    const height = shape === 'ring' ? size * 0.3 : size;
-    batch.mesh(shape, this.x[slot], y, this.z[slot], spin, 0, size, height, size, red, green, blue, power ? 0.9 : 0.45);
+    instance.sx = size; instance.sy = shape === 'ring' ? size * 0.3 : size; instance.sz = size; instance.emissive = power ? 0.9 : 0.45;
+    batch.meshFrom(shape, instance);
   },
+  // The flat base disc under a pickup spot (no spin).
   drawBase(batch, slot, glow) {
-    const color = PICKUP_GROUP_COLORS[this.group[slot]];
-    pickupHexColor(pickupBaseColor, 0, color);
-    batch.mesh('cylinder', this.x[slot], this.y[slot] + 0.02, this.z[slot], 0, 0, 1, 0.04, 1, pickupBaseColor[0], pickupBaseColor[1], pickupBaseColor[2], glow);
+    const instance = pickupBaseInstance;
+    pickupHexColor(pickupBaseColor, 0, PICKUP_GROUP_COLORS[this.group[slot]]);
+    instance.x = this.x[slot]; instance.y = this.y[slot] + 0.02; instance.z = this.z[slot];
+    instance.r = pickupBaseColor[0]; instance.g = pickupBaseColor[1]; instance.b = pickupBaseColor[2]; instance.emissive = glow;
+    batch.meshFrom('cylinder', instance);
   },
 };
 const pickupBaseColor = new Float32Array(3);
+const pickupInstance = makeShapeInstance();
+const pickupBaseInstance = Object.assign(makeShapeInstance(), { sx: 1, sy: 0.04, sz: 1 });
+const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // base disc glow: respawning, item, powerup
 const volatileHit = makeHit();
 
 Items.takers[PICKUP_KIND.ITEM] = (id, slot) => Items.takeItem(id, slot);
@@ -537,7 +575,7 @@ Items.takers[PICKUP_KIND.WEAPON] = (id, slot) => Items.takeWeapon(id, slot);
 Items.givers[PICKUP_KIND.ITEM] = (id, key) => Items.grant(id, key);
 Items.givers[PICKUP_KIND.POWERUP] = () => false;   // 12b replaces it
 Items.givers[PICKUP_KIND.WEAPON] = (id, key) => Items.giveWeapon(id, key, 0, Actors.y[id]);
-Items.effects.health = (id, row) => Items.addHealth(id, row.amount, Items.healthCap(id, row));
+Items.effects.health = (id, row) => Damage.regenerate(id, row.amount, Items.healthCap(id, row));
 Items.effects.armor = (id, row) => Items.addArmor(id, row.amount, row.cap);
 Items.effects.ammoType = (id) => Items.addTypeAmmo(id);
 Items.effects.ammoAll = (id, row) => Items.addAllAmmo(id, row);

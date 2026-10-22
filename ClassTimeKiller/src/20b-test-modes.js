@@ -126,6 +126,18 @@ Test.add('modes', (check) => {
   endModeTest();
 });
 
+// One touch rule: withinTouch (a point) and withinTouchAt (coordinate arrays, 13g loot and beacons) agree at its edges.
+Test.add('modes', (check) => {
+  World.clear();
+  const id = Actors.create(ACTOR_KIND.DUMMY, NO_TEAM, 'toucher'), xs = new Float32Array(3), ys = new Float32Array(3), zs = new Float32Array(3);
+  Actors.x[id] = Actors.y[id] = Actors.z[id] = 0;
+  xs[1] = TOUCH_RADIUS - 0.01; ys[2] = TOUCH_HEIGHT + 0.01; xs[0] = TOUCH_RADIUS + 0.01;
+  const both = (index) => [withinTouchAt(id, xs, ys, zs, index, TOUCH_RADIUS), withinTouch(id, xs[index], ys[index], zs[index], TOUCH_RADIUS)].join();
+  check('touch rule: inside the radius touches, past it or above the height window does not', both(1) === 'true,true' && both(0) === 'false,false' && both(2) === 'false,false',
+    [0, 1, 2].map(both).join(' '));
+  World.clear();
+});
+
 Test.add('modes', (check) => {
   const scores = startEventLog('score');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
@@ -292,6 +304,19 @@ Test.add('modes', (check) => {
   check('lms: rank by lives first, then score', Modes.rankOf(2) === 1 && Modes.rankOf(0) === 2 && Modes.rankOf(1) === 3, [0, 1, 2].map((id) => Modes.rankOf(id)).join());
   endModeTest();
 
+  const lmsItems = [{ x: 5, y: 0, z: 5, item: 'healthpack' }, { x: 9, y: 0, z: 5, item: 'springboots' }];
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1]);
+  Items.load(lmsItems, 'lms');
+  const set = currentWeaponSet().weapons, lastWeapon = CAT.weapons.byId(set[set.length - 1]);
+  const armed = set.every((key) => Weapons.owned[Weapons.slotIndex(0, CAT.weapons.byId(key).index)]);
+  const fullReserve = Weapons.reserve[Weapons.slotIndex(0, lastWeapon.index)] === Weapons.maxReserve(0, lastWeapon);
+  check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
+  check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
+  endModeTest();
+  startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'pilot' });
+  check('lms: start armor stays within maxArmor (none in a ruleset without armor)', Actors.armor[0] <= Actors.maxArmor[0], Actors.armor[0] + ' / ' + Actors.maxArmor[0]);
+  endModeTest();
+
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   for (let life = 0; life < 3; life++) { killActor(1, 0); runSeconds(2.1); }
   check('lms: out of lives means no respawn', !Actors.alive[1] && Modes.lives[1] === 0 && Modes.respawnIn(1, Sim.time) === -1);
@@ -313,6 +338,21 @@ Test.add('modes', (check) => {
 });
 
 const CTF_MAP = { spawns: TEAM_SPAWNS, objectives: [{ id: 'blueFlag', kind: 'flag', team: 0, x: -30, y: 0, z: 0 }, { id: 'redFlag', kind: 'flag', team: 1, x: 30, y: 0, z: 0 }] };
+
+// HP-007: a carrier that goes down drops what it carries (a downed actor acts on no objective) and cannot take it back.
+Test.add('modes', (check) => {
+  startModeTest('ctf', modesTestMap(CTF_MAP), [0, 0, 1]);
+  const redFlag = Modes.objectives[1];
+  placeActor(1, -40, 40); placeActor(2, 40, -40);
+  placeActor(0, 30.5, 0);
+  Sim.step();
+  const carried = redFlag.carrier === 0;
+  placeActor(0, 10, 10);
+  Damage.goDown(-1, 0);
+  Sim.step();
+  check('ctf: a carrier that goes down drops the flag', carried && redFlag.state === 'dropped' && redFlag.carrier === -1, redFlag.state + ' ' + redFlag.carrier);
+  endModeTest();
+});
 
 Test.add('modes', (check) => {
   startModeTest('ctf', modesTestMap(CTF_MAP), [0, 1]);
@@ -403,6 +443,19 @@ Test.add('modes', (check) => {
   placeActor(0, 0, 0);
   runSeconds(2);
   check('dom: the owner undoes enemy progress', Test.near(pointA.progress, 0, 1e-6) && pointA.owner === 0);
+  endModeTest();
+
+  // HP-007: a downed actor in a zone neither captures nor contests, and no objective touch finds it.
+  startModeTest('dom', modesTestMap(domMap), [0, 0, 1]);
+  const point = Modes.objectives[0];
+  placeActor(0, 1, 0); placeActor(1, 40, 40); placeActor(2, 0, 1);
+  Damage.goDown(-1, 0);
+  runSeconds(4);
+  check('dom: a downed actor does not contest the point', !point.contested && point.capturingTeam === 1 && point.inside[0] === 0, point.inside.join());
+  placeActor(2, -40, -40);
+  runSeconds(9);
+  check('dom: a downed actor alone does not capture', point.owner === NO_TEAM && point.capturingTeam === NO_TEAM, point.owner + ' ' + point.capturingTeam);
+  check('objectives: findActorNear passes over a downed actor', Modes.findActorNear(1, 0, 0, 2, NO_TEAM, NEAR_ANY) === -1 && Modes.findActorNear(40, 0, 40, 2, NO_TEAM, NEAR_ANY) === 1);
   endModeTest();
 
   const hillMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'H1', kind: 'hill', x: 0, y: 0, z: 0 }, { id: 'H2', kind: 'hill', x: 0, y: 0, z: 30 }] };

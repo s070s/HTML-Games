@@ -188,8 +188,8 @@ Test.add('settings', (check) => {
   check('assist: switched on with every slider neutral, the preset is not overridden', untouched.difficulty.preset === 'nightmare' && Object.keys(untouched.difficulty).length === 1, JSON.stringify(untouched.difficulty));
   Settings.set('assist.gameSpeed', 0.7);
   const built = PlayFlow.buildSetup(PlayFlow.normalize({ difficulty: 'nightmare', bots: 2 }), () => 0.5);
-  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   Game.start(built);
+  check('assist: only the sliders the player moved ride on the preset', built.difficulty.preset === 'nightmare' && built.difficulty.gameSpeed === 0.7 && built.difficulty.aimAssist === undefined, JSON.stringify(built.difficulty));
   const skill = Game.match.rules.botSkill;
   check('assist: the preset keeps its bot tiers and behaviour', skill.preset === 'nightmare' && skill.tierMin === 7 && skill.aggression === 1 && skill.attackers === 7 && skill.gameSpeed === 0.7);
   check('assist: game speed scales the simulation clock', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
@@ -205,8 +205,27 @@ Test.add('settings', (check) => {
   Sim.run(10);
   check('assist: slow-mo ends back at the assist speed', Test.near(Sim.timeScale, 0.7, 1e-9), Sim.timeScale);
   Game.stop();
+  // ACC-007: every start path (career, custom, generated map, restart) goes through Game.start, so a hand-built setup gets the assists too.
+  const direct = { mode: 'ffa', seed: 1, difficulty: 'veteran' };
+  Game.start(direct);
+  check('assist: a setup not built by Play still gets the assist sliders', direct.difficulty.preset === 'veteran' && Game.match.rules.botSkill.gameSpeed === 0.7 && Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(direct.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 1);
   check('assist: the next match starts at normal speed again', (Game.start({ mode: 'ffa', seed: 1 }), Test.near(Sim.timeScale, 1, 1e-9)));
   Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
+  // Restart and Play again start the adjusted setup again: assists switched off or moved back since then must come off.
+  const restarted = { mode: 'ffa', seed: 1, difficulty: 'regular' };
+  Game.start(restarted); Game.stop();
+  Settings.set('assist.enabled', false);
+  Game.start(restarted);
+  check('assist: a restart after switching assists off drops them', restarted.difficulty === 'regular' && !Test.near(Sim.timeScale, 0.7, 1e-9), JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.enabled', true); Settings.set('assist.gameSpeed', 1);
+  Game.start(restarted);
+  check('assist: a restart after a slider went back to neutral drops it', restarted.difficulty.preset === 'regular' && restarted.difficulty.gameSpeed === undefined, JSON.stringify(restarted.difficulty));
+  Game.stop();
+  Settings.set('assist.gameSpeed', 0.7);
 
   Settings.set('assist.aimAssist', 80);
   const floorSetup = { difficulty: 'regular' };
@@ -249,6 +268,55 @@ const ASSIST_EFFECT_READERS = {
     return -1;
   },
 };
+// The PvE section (14h-14j) applies these, measured on a spawned brute (rockets, armour drops) and the first participant through
+// the PvE code itself: damage scales, the parry window, the rocket speed, drops, the PvE start's lives and the checkpoint revive.
+const ASSIST_PARRY_ELAPSED = 0.3;   // seconds since the MELEE press: outside the shortest parry window, inside the longest
+const ASSIST_DROP_TRIES = 40;       // brute kills counted for the drop chance (0.5 x yield)
+function assistTestEnemy() { return Pve.spawnEnemy('brute', 0, 0, 6, Math.PI); }
+function assistFirstParticipant() {
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) return id;
+  return -1;
+}
+function assistRocketSpeed() {
+  const brute = assistTestEnemy();
+  launchProjectile(brute, Pve.rowOf(brute).attackRows[0], 0);
+  for (let slot = 0; slot < PROJECTILE_CAP; slot++) {
+    if (Projectiles.state[slot] && Projectiles.owner[slot] === brute) return Math.hypot(Projectiles.vx[slot], Projectiles.vy[slot], Projectiles.vz[slot]);
+  }
+  return -1;
+}
+function assistDropCount() {
+  const brute = assistTestEnemy(), realDrop = Items.drop;
+  let drops = 0;
+  Items.drop = () => { drops++; };
+  try {
+    for (let kill = 0; kill < ASSIST_DROP_TRIES; kill++) Pve.dropLoot(brute, Pve.rowOf(brute), null, Sim.time);
+  } finally { Items.drop = realDrop; }
+  return drops;
+}
+// The wave modes revive at a checkpoint with reviveParticipants(skill.checkpointHeal) (14j).
+function assistCheckpointHealth() {
+  const id = assistFirstParticipant();
+  Actors.health[id] = 1;
+  reviveParticipants(Pve.skill().checkpointHeal);
+  return Actors.health[id];
+}
+Object.assign(ASSIST_EFFECT_READERS, {
+  playerDamage: () => Pve.attackerScale(assistTestEnemy(), assistFirstParticipant()),
+  enemyDamage: () => Pve.attackerScale(assistFirstParticipant(), assistTestEnemy()),
+  parry: () => {
+    const target = assistFirstParticipant();
+    Pve.parryAt[target] = Sim.time - ASSIST_PARRY_ELAPSED;
+    return Pve.parried(assistTestEnemy(), target, { parry: true, id: 'assistTest', kind: 'melee' });
+  },
+  lives: () => {
+    applyDifficultyLives();
+    return Modes.lives[assistFirstParticipant()];
+  },
+  projectileSpeed: assistRocketSpeed,
+  resourceYield: assistDropCount,
+  checkpointHeal: assistCheckpointHealth,
+});
 function assistEffect(field, value) {
   const setting = Settings.get('controls.pad.aimAssist');
   Settings.set('controls.pad.aimAssist', 0); Input.refreshConfig();
@@ -258,3 +326,28 @@ function assistEffect(field, value) {
   Settings.set('controls.pad.aimAssist', setting); Input.refreshConfig();
   return seen;
 }
+
+// ARC-020 / PLT-007: Settings > Developer > Export or import save; the exported text imports back and restarts the game.
+Test.add('settings', (check) => uiWith(() => {
+  Save.data.settings['video.fov'] = 77;
+  Ui.open('settings', { tab: 'developer' });
+  check('save transfer: Settings > Developer opens it', uiClickButton(Ui.top().element, 'Export or import save') && Ui.current() === 'saveTransfer');
+  const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
+  uiClickButton(screen, 'Export');
+  check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
+  Save.data.settings['video.fov'] = 60;
+  const reload = SaveTransfer.reload;
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  uiClickButton(screen, 'Import');
+  uiClickButton(Ui.top().element, 'Import');   // the confirm dialog's yes
+  check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
+  check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
+  SaveTransfer.reload = reload;
+  const anchorClick = HTMLAnchorElement.prototype.click;
+  let clicked = null, connected = false;
+  HTMLAnchorElement.prototype.click = function recordClick() { clicked = this; connected = this.isConnected; };
+  SaveTransfer.download();
+  HTMLAnchorElement.prototype.click = anchorClick;
+  check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
+}));

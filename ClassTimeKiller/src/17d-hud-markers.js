@@ -1,6 +1,7 @@
 // ==== S17 HUD: WORLD MARKERS AND ACCESSIBILITY AIDS ====
 // Objective / flag / ping markers projected to the screen with distance, off-screen arrows at the edge, teammate name tags with
-// team shapes (UI-013, ACC-001), item respawn timers, sound captions (ACC-002) and the visual sound ring (ACC-003).
+// team shapes (UI-013, ACC-001), item respawn timers, sound captions (ACC-002), the visual sound ring (ACC-003) and the HP-007
+// downed cues (teammate markers, bleed-out time, hold-Use hint, revive ring).
 // The projection itself is Hud.project (17a); positions are read from live state each frame, nothing is allocated.
 
 const HUD_MARKER_SHAPES = { flag: 'triangle', flagBase: 'square', point: 'circle', hill: 'circle', bombsite: 'circle', relic: 'diamond', core: 'diamond', extract: 'triangle', bank: 'square' };
@@ -40,7 +41,7 @@ function hudEdgeArrowPosition(layout, projection) {
   const margin = HUD_MARKER_MARGIN * layout.unit, halfW = layout.centerX - margin, halfH = layout.centerY - margin;
   let dx = projection.dirX, dy = projection.dirY;
   if (projection.depth <= 0) dy *= 0.3;                       // behind us: the side matters, not the height
-  const length = Math.hypot(dx, dy);
+  const length = length2(dx, dy);
   if (length < 1e-6) { dx = 0; dy = 1; } else { dx /= length; dy /= length; }
   const scale = Math.min(Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity);
   hudEdge.x = layout.centerX + dx * scale; hudEdge.y = layout.centerY + dy * scale; hudEdge.dx = dx; hudEdge.dy = dy;
@@ -195,11 +196,54 @@ function hudDrawSoundRing(pen, layout) {
   for (let i = 0; i < HUD_SOUND_SLOTS; i++) {
     const age = Hud.time - c.soundAt[i];
     if (age >= HUD_SOUND_SECONDS) continue;
-    if (player >= 0 && Math.hypot(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
+    if (player >= 0 && length2(c.soundX[i] - Render.camera.x, c.soundZ[i] - Render.camera.z) < HUD_SOUND_MIN_DISTANCE) continue;
     const angle = hudBearingTo(c.soundX[i], c.soundZ[i]), icon = HUD_SOUND_ICONS[c.soundKind[i]] || HUD_SOUND_FALLBACK;
     const x = layout.centerX + Math.sin(angle) * HUD_SOUND_RADIUS * unit, y = layout.centerY - Math.cos(angle) * HUD_SOUND_RADIUS * unit;
     pen.shape(icon.shape, x, y, 16 * unit, icon.color, 1 - age / HUD_SOUND_SECONDS);
   }
+}
+
+// ---- HP-007 downed: teammates down (marker), the local player's bleed-out, the hold-Use hint and the revive ring ----
+const HUD_DOWNED_MARKER_HEIGHT = 1.2;     // metres above a downed teammate's feet
+const HUD_REVIVE_HINT_RANGE = 4;          // metres: the hold-Use hint shows this close to a downed teammate
+
+function hudDrawDownedAllies(pen, layout) {
+  const player = Game.playerId;
+  if (!Damage.downedCount || player < 0 || Actors.team[player] < 0) return;   // no scan while nobody is down
+  for (let id = 0; id < Actors.count; id++) {
+    if (id === player || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED) || Actors.team[id] !== Actors.team[player]) continue;
+    hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + HUD_DOWNED_MARKER_HEIGHT, Actors.z[id], 'diamond', HUD_COLOR.warn, -1, true);
+  }
+}
+// The teammate reviving `id` (Damage.reviving), or -1.
+function hudReviverOf(id) {
+  for (let other = 0; other < Actors.count; other++) if (Damage.reviving[other] === id) return other;
+  return -1;
+}
+function hudDrawReviveRing(pen, layout, reviver, y) {
+  const unit = layout.unit;
+  hudDrawCooldownRing(pen, layout.centerX, y, 22 * unit, 4 * unit, 1 - Damage.reviveProgress[reviver] / REVIVE_SECONDS, Hud.colors.good);
+}
+function hudDrawDownedState(pen, layout) {
+  const player = Game.playerId;
+  if (player < 0 || !Actors.alive[player] || !Damage.downedCount) return;
+  const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+  if (Actors.flags[player] & ACTOR_FLAG.DOWNED) {
+    pen.label('DOWNED', x, y, 30 * unit, Hud.colors.bad, 'center');
+    pen.label('BLEEDING OUT', x, y + 30 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+    pen.label(hudTime(Damage.downedTime[player]), x, y + 56 * unit, 22 * unit, HUD_COLOR.text, 'center');
+    const reviver = hudReviverOf(player);
+    if (reviver >= 0) hudDrawReviveRing(pen, layout, reviver, y - 44 * unit);
+    return;
+  }
+  if (Damage.reviving[player] >= 0) {
+    hudDrawReviveRing(pen, layout, player, y);
+    pen.label('REVIVING', x, y + 36 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+    return;
+  }
+  if (Damage.nearestDownedAlly(player, HUD_REVIVE_HINT_RANGE) < 0) return;
+  pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
+  pen.label('HOLD TO REVIVE', x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
 }
 
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
@@ -210,3 +254,5 @@ Hud.register('world', 'nameTags', 'nameTags', hudDrawNameTags);
 Hud.register('world', 'itemTimers', 'itemTimers', hudDrawItemTimers);
 Hud.register('main', 'soundRing', 'soundRing', hudDrawSoundRing);
 Hud.register('main', 'captions', 'captions', hudDrawCaptions);
+Hud.register('world', 'downedAllies', 'markers', hudDrawDownedAllies);
+Hud.register('front', 'downed', 'respawnText', hudDrawDownedState);

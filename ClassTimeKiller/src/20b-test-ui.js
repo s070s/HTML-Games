@@ -92,6 +92,28 @@ Test.add('ui', (check) => uiWith(() => {
 }));
 
 Test.add('ui', (check) => uiWith(() => {
+  Ui.register('testTyping', {
+    build(root) {
+      const field = makeElement('input');
+      field.type = 'text';
+      root.appendChild(field);
+      root.appendChild(makeElement('textarea'));
+      root.appendChild(Ui.button('After', () => {}));
+    },
+  });
+  Ui.open('testTyping');
+  const element = Ui.top().element, field = element.querySelector('input'), area = element.querySelector('textarea');
+  const keyIn = (target, code) => target.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  field.focus(); keyIn(field, 'ArrowDown');
+  check('typing: arrows inside a text field move the caret, not the menu focus (INP-010)', document.activeElement === field);
+  area.focus(); keyIn(area, 'ArrowUp');
+  check('typing: the same inside a textarea', document.activeElement === area);
+  check('typing: a textarea can take the menu focus', Array.from(element.querySelectorAll(UI_FOCUSABLE)).includes(area));
+  field.focus(); keyIn(field, 'Escape');
+  check('typing: Esc in a text field still goes back', Ui.current() !== 'testTyping');
+}));
+
+Test.add('ui', (check) => uiWith(() => {
   const clicks = [];
   uiOpenTestScreen('testNav', ['First', 'Second', 'Third'], clicks);
   const buttons = Array.from(Ui.top().element.querySelectorAll('button'));
@@ -257,9 +279,9 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
-  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Custom,Range,Map editor,Settings,Help');
+  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Solo,Custom,Range,Generated map,Map editor,Settings,Help');
   check('main menu: Quick Match is first, focused and primary', buttons[0].classList.contains('primary') && document.activeElement === buttons[0]);
-  check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && !buttons[5].disabled && !buttons[6].disabled && !buttons[7].disabled);
+  check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && buttons.every((button) => !button.disabled));
   let quick = 0;
   const listener = Bus.on('ui.quickMatch', () => { quick++; });
   const realQuickMatch = PlayFlow.quickMatch;
@@ -268,6 +290,12 @@ Test.add('ui', (check) => uiWith(() => {
   PlayFlow.quickMatch = realQuickMatch;
   Bus.off('ui.quickMatch', listener);
   check('main menu: Quick Match emits ui.quickMatch (one action to start)', quick === 1);
+  const range = buttons.find((button) => button.firstChild.textContent === 'Range');
+  const rangeEnabled = !range.disabled;
+  range.click();
+  check('main menu: Range is enabled and starts the Firing Range (PRG-008)', rangeEnabled && Game.match && Game.match.setup.mode === CAREER_RANGE_MODE, String(Game.match && Game.match.setup.mode));
+  Game.stop();
+  Ui.closeAll(); Ui.open('main');
   check('main menu: back does nothing here', !Ui.back() && Ui.current() === 'main');
   const realCareer = Ui.screens.get('career');
   Ui.screens.delete('career');
@@ -431,8 +459,12 @@ Test.add('ui', (check) => uiWith(() => {
   Actors.alive[botId] = 1; Actors.alive[playerId] = 1;
   const counts = PerfOverlay.countActors();
   check('perf HUD: counts bots apart from all actors (PERF-012)', counts.actors === 2 && counts.bots === 1, counts.actors + '/' + counts.bots);
+  Projectiles.spawn(CAT.projectiles.byId('grenade'), botId, CAT.weapons.byId('pitcher').index, 0, 0, 1.6, 5, 0, 0, 0, 0);
+  Perf.publishCounters();
+  check('perf HUD: the projectiles counter is the live projectile count (PERF-012)', Perf.counters.projectiles === 1 && Projectiles.active === 1, Perf.counters.projectiles);
+  Projectiles.clear(); Perf.publishCounters();
   Actors.remove(botId); Actors.remove(playerId);
-  check('perf HUD: the AI cost is the sum of the ai and bot systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, render: 9 }), 1.5, 1e-9));
+  check('perf HUD: the AI cost is the sum of the ai, bot and PvE brain systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, pveBrains: 0.25, pve: 4, render: 9 }), 1.75, 1e-9));
   const lines = PerfOverlay.format(Perf.stats());
   const text = lines.join('\n');
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',

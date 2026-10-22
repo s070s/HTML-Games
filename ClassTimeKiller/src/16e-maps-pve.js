@@ -1,9 +1,12 @@
 // ==== S16 MAPS: PVE AND SPECIAL ====
-// MP07 Cistern (horde, endless, fiends), MP10 Proving Grounds (range), MP12 Ash Manor (contract), MP11 Test Chambers (puzzle)
-// and the MP09 Ring Isle placeholder (royale). Co-op maps: team 0 = the player side, team 1 = the enemy gates / guard posts.
+// MP07 Cistern (horde, endless, fiends, bank), MP10 Proving Grounds (range), MP12 Ash Manor (contract), MP11 Test Chambers
+// (puzzle) and the MP09 Ring Isle placeholder (royale). Co-op maps: team 0 = the player side, team 1 = the enemy gates / guard
+// posts. M23 bank on Cistern: team 0 holds the west half, team 1 the east half, each with its bank by the pump platform.
+// 'secret' nav hints are the level secrets and `props` the breakable crates (PvE level report, docs/api/pve.md).
 // Rows use the compact MapKit lists (see 16a-maps.js).
 
 const MAP_PVE_MODES = ['horde', 'endless', 'fiends'];
+const MAP_BANK_MODES = ['bank'];
 
 // MP07 Cistern - a square tank: the core room in the middle, four spawn gates (one per side), pump platforms west and east.
 const cisternWest = {                                                                                // west gate and pump platform, mirrored east
@@ -53,19 +56,24 @@ const cisternCenter = {
     ...MapKit.wall('concrete', 'z', 8, 1.5, -8, 8, 0, 5, [[0, 5, 3.4]]), ...MapKit.wall('concrete', 'z', -8, 1.5, -8, 8, 0, 5, [[0, 5, 3.4]]),
     ['tile', -8, -1, -8, 8, 0, 8], ['metal', -1.5, 0, -1.5, 1.5, 0.4, 1.5],                          // core room floor, core pedestal
   ],
-  spawns: [[0, MAP_PVE_MODES, [[3.5, 0, 3.5, 225], [-3.5, 0, 3.5, 135], [3.5, 0, -3.5, 315], [-3.5, 0, -3.5, 45], [5.5, 0, 0, 270], [-5.5, 0, 0, 90], [0, 0, 5.5, 180], [0, 0, -5.5, 0]]]],
+  spawns: [[0, MAP_PVE_MODES, [[3.5, 0, 3.5, 225], [-3.5, 0, 3.5, 135], [3.5, 0, -3.5, 315], [-3.5, 0, -3.5, 45], [5.5, 0, 0, 270], [-5.5, 0, 0, 90], [0, 0, 5.5, 180], [0, 0, -5.5, 0]]],
+    [0, MAP_BANK_MODES, [[-38, 0, -3, 90], [-38, 0, 3, 90], [-35.5, 0, -3, 40], [-35.5, 0, 3, 140], [-30.5, 0, -6.5, 90], [-30.5, 0, 6.5, 90], [-30.5, 0, -3.5, 90], [-30.5, 0, 3.5, 90]]],
+    [1, MAP_BANK_MODES, [[38, 0, -3, 270], [38, 0, 3, 270], [35.5, 0, -3, 320], [35.5, 0, 3, 220], [30.5, 0, -6.5, 270], [30.5, 0, 6.5, 270], [30.5, 0, -3.5, 270], [30.5, 0, 3.5, 270]]]],
   zones: [['Core Room', -8, -8, 8, 8, -1, 8], ['Core Door North', -2.5, 7, 2.5, 9, -1, 8], ['Core Door South', -2.5, -9, 2.5, -7, -1, 8],
     ['Core Door West', -9, -2.5, -7, 2.5, -1, 8], ['Core Door East', 7, -2.5, 9, 2.5, -1, 8]],
   lights: [[0, 5.5, 0, 0xffe0a0, 14], [0, 3.5, 8, 0xffe0a0, 8], [0, 3.5, -8, 0xffe0a0, 8], [8, 3.5, 0, 0xffe0a0, 8], [-8, 3.5, 0, 0xffe0a0, 8]],
-  hints: [['guard', 0, 0, 4], ['guard', 0, 0, -4]],
+  hints: [['guard', 0, 0, 4], ['guard', 0, 0, -4], ['secret', -37, 0, 37], ['secret', 24, 3, -6]],
   objectives: [
     { id: 'core', kind: 'core', x: 0, y: 0.4, z: 0, radius: 3, modes: ['horde', 'endless'] },
     { id: 'extract', kind: 'extract', x: 0, y: 0, z: -28, radius: 4, modes: ['endless'] },
+    { id: 'bankWest', kind: 'bank', team: 0, x: -30.5, y: 0, z: 0, radius: 2, modes: MAP_BANK_MODES },
+    { id: 'bankEast', kind: 'bank', team: 1, x: 30.5, y: 0, z: 0, radius: 2, modes: MAP_BANK_MODES },
   ],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'cistern', code: 'MP07', name: 'Cistern', size: [80, 20, 80], theme: 'canal', category: 'pve', modes: MAP_PVE_MODES,
+  id: 'cistern', code: 'MP07', name: 'Cistern', size: [80, 20, 80], theme: 'canal', category: 'pve', modes: MAP_PVE_MODES.concat(MAP_BANK_MODES),
   blurb: 'Defend the core room in a square tank: four spawn gates, pump platforms with ladders, acid pools and teleporters.',
+  props: [{ min: [37, 0, 37], max: [38.2, 1.2, 38.2] }, { min: [-38.2, 0, -38.2], max: [-37, 1.2, -37] }, { min: [37, 0, -38.2], max: [38.2, 0.9, -37.3] }],
   sky: { top: 0x0b1626, horizon: 0x2c4a63, fog: 0x1a2c3c, fogFar: 120, sun: [0.1, 0.9, 0.1] },
 }, MapKit.join(MapKit.sym(cisternWest, 'x', true), MapKit.sym(cisternNorth, 'z', true), MapKit.sym(cisternQuarter, 'xz', true), cisternCenter))));
 
@@ -157,6 +165,7 @@ const manorCenter = {
   hints: [
     ['guard', 0, 0, -30], ['guard', -26, 0, -26], ['guard', 26, 0, 20], ['guard', -3, 0, 10], ['guard', 13, 0, 14], ['guard', -13, 0, 14],
     ['sniper', 10, 4.4, 6], ['sniper', -10, 4.4, 14], ['choke', 0, 0, -6], ['choke', -20, 0, 0], ['cover', -16, 0, 1], ['flank', 36, 0, -8],
+    ['secret', 34, 0, -21], ['secret', -18, 4.4, 16], ['secret', -40, 0, 40],
   ],
   objectives: [
     { id: 'relic', kind: 'relic', x: -14, y: 0, z: 12, radius: 1.5, modes: MANOR_GUARD_MODES },
@@ -167,6 +176,7 @@ const manorCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'manor', code: 'MP12', name: 'Ash Manor', size: [90, 16, 90], theme: 'ruins', category: 'pve', modes: MANOR_GUARD_MODES,
   blurb: 'Stealth contract: slip past the guards, steal the relic from the study and leave through the south-east corner.',
+  props: [{ min: [-44, 0, -44], max: [-42.8, 1.2, -42.8] }, { min: [42.8, 0, 42.8], max: [44, 1.2, 44] }, { min: [-44, 0, 42.8], max: [-42.8, 0.9, 44] }],
   sky: { top: 0x1a2236, horizon: 0x6a5a58, fog: 0x3a3a44, fogFar: 150, sun: [-0.2, 0.5, 0.2] },
 }, manorCenter)));
 

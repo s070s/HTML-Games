@@ -157,12 +157,7 @@ const Devices = {
     if (row.effect === 'drones') { this.detonateDrone(device, row); return; }
     this.remove(device, false);
   },
-  due(device, dt, interval) {
-    this.clock[device] += dt;
-    if (this.clock[device] < interval - 1e-6) return false;
-    this.clock[device] -= interval;
-    return true;
-  },
+  due(device, dt, interval) { return intervalDue(this.clock, device, dt, interval); },
   // True for living enemies of the owner (what devices target, trigger on and block).
   enemyOf(device, id) {
     if (!Actors.alive[id] || id === this.owner[device]) return false;
@@ -252,8 +247,8 @@ const Devices = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(device, row, id)) continue;
       const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
-      emitGadgetImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
-      emitGadgetSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
+      emitImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
+      emitSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
     }
   },
   onPad(device, row, id) {
@@ -299,7 +294,7 @@ const Devices = {
     const reach = hit >= 0 ? deviceActorHit.distance : wall;
     if (hit >= 0 && this.enemyOf(device, hit)) deviceDamage(this.owner[device], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + direction.x * reach, y + direction.y * reach, z + direction.z * reach, null);
-    emitGadgetSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
+    emitSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
   },
   // G16: everyone inside (enemies too) regains health.
   stepHeal(device, row, dt) {
@@ -363,7 +358,7 @@ const Devices = {
     const x = this.x[device] + Math.sin(this.yaw[device]) * BEACON_OFFSET, y = this.y[device];
     const z = this.z[device] + Math.cos(this.yaw[device]) * BEACON_OFFSET;
     for (let k = 0; k < CAPSULE_CHECK_HEIGHTS.length; k++) if (World.pointInside(x, y + CAPSULE_CHECK_HEIGHTS[k], z)) return false;
-    Actors.x[id] = x; Actors.y[id] = y; Actors.z[id] = z;
+    Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;   // no interpolation smear
     return true;
   },
   // G18: true when an enemy jammer covers this actor (the HUD hides its radar).
@@ -393,7 +388,7 @@ const Devices = {
     if (this.health[device] > 0) return false;
     this.remove(device, true);
     if (!Game.headless) Fx.burst('spark', this.x[device], this.y[device] + 0.3, this.z[device], 0, 1, 0, 16, null);
-    emitGadgetSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
+    emitSound(this.x[device], this.y[device], this.z[device], POP_NOISE, 'break', source);
     return true;
   },
   hitRadius(device) {
@@ -408,8 +403,12 @@ const Devices = {
     if (!mode || Weapons.fliesAsBullet(mode)) return;   // X41 bullets hit devices as they fly (bulletHit)
     const reach = this.shotReach(event, mode.range || DEVICE_REACH);
     const device = this.rayDevice(event.x, event.y, event.z, event.dx, event.dy, event.dz, reach);
-    if (device >= 0) this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
+    if (device < 0) return;
+    if (mode.repair > 0 && this.friendOf(device, event.id)) { this.repair(device, repairPerShot(mode)); return; }
+    this.damage(device, (mode.damage || DEVICE_DEFAULT_SHOT) * mode.pellets, event.id);
   },
+  // FireMode.repair (W30 beam): a friendly device regains health up to its row's maximum.
+  repair(device, amount) { this.health[device] = Math.min(this.rowOf(device).health, this.health[device] + amount); },
   // Projectiles.bulletHits: an X41 bullet hits the device it stopped at (Weapons.rayBlockers) with one pellet.
   bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length) {
     if (!this.count) return;
@@ -447,10 +446,11 @@ const Devices = {
       if (distance < event.radius) this.damage(device, DEVICE_BLAST_DAMAGE * (1 - distance / event.radius), event.owner);
     }
   },
+  // A dead owner's devices go, except the G24 beacon: the team (and the owner) still respawn on it.
   onDeath(id) {
     if (!this.count) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
-      if (this.active[device] && this.owner[device] === id) this.remove(device, false);
+      if (this.active[device] && this.owner[device] === id && this.rowOf(device).effect !== 'beacon') this.remove(device, false);
     }
   },
 

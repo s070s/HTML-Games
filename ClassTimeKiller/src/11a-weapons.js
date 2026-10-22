@@ -40,11 +40,11 @@ const RayHits = {
   count: 0,
   collect(shooter, ox, oy, oz, dx, dy, dz, maxDistance, limit, inflate, includeAllies) {
     this.count = 0;
+    setHitRay(ox, oy, oz, dx, dy, dz, maxDistance, inflate);   // Hitbox.rayOf: no float arguments per actor (PERF-006)
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || id === shooter) continue;
       if (!includeAllies && !Actors.isEnemy(shooter, id)) continue;
-      const distance = Hitbox.ray(id, ox, oy, oz, dx, dy, dz, maxDistance, inflate);
-      if (distance >= 0) this.insert(id, distance, limit);
+      if (Hitbox.rayOf(id)) this.insert(id, Hitbox.distance, limit);
     }
     return this.count;
   },
@@ -66,18 +66,7 @@ const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '' };
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
-const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
-const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
 
-function emitSound(x, y, z, radius, kind, source) {
-  if (radius <= 0) return;
-  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
-  Bus.emit('sound', SOUND_EVENT);
-}
-function emitImpulse(id, x, y, z) {
-  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
-  Bus.emit('impulse', IMPULSE_EVENT);
-}
 function emitWeaponEvent(type, payload, id, weapon) {
   payload.id = id; payload.weapon = weapon.id;
   Bus.emit(type, payload);
@@ -89,6 +78,10 @@ function emitImpact(hit, weaponKey, owner) {
   if (Game.headless) return;
   Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
+}
+// A shot or bolt that stopped at a destructible prop damages it (S08 Props; the breaker is reported on 'world.break').
+function damagePropAt(hit, amount, owner) {
+  if (hit.brush && hit.brush.prop >= 0) Props.damage(hit.brush.prop, amount, owner);
 }
 // A shot stopped by a Weapons.rayBlockers entry (device, dome): an impact facing the shooter, so the stop is visible.
 const blockedHit = makeHit();
@@ -121,6 +114,7 @@ const Weapons = {
   charge: new Float32Array(MAX_ACTORS), chargeMode: new Int8Array(MAX_ACTORS).fill(-1),
   spin: new Float32Array(MAX_ACTORS),
   ads: new Float32Array(MAX_ACTORS),
+  zoomed: new Uint8Array(MAX_ACTORS),               // 1 = the scope's second step (FireMode.zoomMax) is chosen
   toggled: new Uint8Array(MAX_ACTORS),
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
@@ -141,6 +135,8 @@ const Weapons = {
   tools: {},                                        // FireMode.tool key -> fn(id, weapon, mode)  (11d)
   specials: {},                                     // FireMode.special key -> fn(id, weapon, mode) -> true when it handled the press (11d)
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
+  altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
+  altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
 
   // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -217,14 +213,15 @@ const Weapons = {
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
-    this.ads[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.recoilShot[id] = 0;
+    this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
   },
   // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007),
   // and a dual-wield weapon (W04) picked up a second time becomes a pair. At the carry limit the held weapon is
-  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section.
-  give(id, key, rarity) {
+  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section; outsideCarry skips that
+  // (the Last Stand pistol is lent on top of the carried weapons).
+  give(id, key, rarity, outsideCarry) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
     this.droppedRarity = 0;
@@ -232,7 +229,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -268,6 +265,11 @@ const Weapons = {
     this.dropped = CAT.weapons[victim].id;
     this.droppedRarity = this.rarity[slot];
     if (this.current[id] === victim) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
+  },
+  // Takes a weapon away without a drop (a lent weapon going back); the held one is put away.
+  takeAway(id, weaponIndex) {
+    this.owned[this.slotIndex(id, weaponIndex)] = 0;
+    if (this.current[id] === weaponIndex) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
   },
   firstCarried(id) {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) return w;
@@ -340,8 +342,16 @@ const Weapons = {
     const pressed = Actors.pressed[id], slot = Actors.slotRequest[id];
     if (slot && slot !== this.lastSlot[id]) this.requestSwitch(id, this.inSlot(id, slot));
     this.lastSlot[id] = slot;
+    if (this.stepScopeZoom(id, pressed)) return;
     if (pressed & BTN.NEXT_WEAPON) this.requestSwitch(id, this.cycle(id, 1));
     if (pressed & BTN.PREV_WEAPON) this.requestSwitch(id, this.cycle(id, -1));
+  },
+  // A full scope with a second zoom step (W24 4x/8x, FireMode.zoomMax) takes next/previous weapon to flip between the steps.
+  stepScopeZoom(id, pressed) {
+    const weapon = this.currentWeapon(id);
+    if (!weapon || this.ads[id] < 1 || !(weapon.alt.zoomMax > weapon.alt.zoom)) return false;
+    if (pressed & (BTN.NEXT_WEAPON | BTN.PREV_WEAPON)) this.zoomed[id] ^= 1;
+    return true;
   },
   stepSwap(id, dt) {
     this.stateTime[id] += dt;
@@ -407,6 +417,11 @@ const Weapons = {
     this.beginReload(id, weapon);
   },
 
+  // Stunned, or downed without the Last Stand pistol (Damage.lastStand): no firing, reloading or switching.
+  lowered(id) {
+    const flags = Actors.flags[id];
+    return (flags & ACTOR_FLAG.FROZEN) !== 0 || ((flags & ACTOR_FLAG.DOWNED) !== 0 && !Damage.lastStand[id]);
+  },
   // ---- The per-step state machine ----
   step(dt) {
     for (let id = 0; id < Actors.count; id++) {
@@ -418,23 +433,31 @@ const Weapons = {
     this.coolDown(id, dt);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
-    if (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
-    this.handleSwitchInput(id);
+    if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+    if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
     if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
     if (!weapon) return;
-    this.updateAds(id, weapon, dt);
+    const altTaken = this.altTaken(id);
+    this.updateAds(id, weapon, altTaken, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
-    this.stepAltMode(id, weapon, dt);
+    if (!altTaken) this.stepAltMode(id, weapon, dt);
   },
-  // Aiming down sights needs a zoom alt held while idle: a reload lowers the sights.
-  updateAds(id, weapon, dt) {
-    const aiming = weapon.alt.type === 'zoom' && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0;
+  // GAD-002: an ALT hold that an underhand throw claimed never reaches the weapon's alt (no sights, no detonate on release).
+  altTaken(id) {
+    if (!(Actors.buttons[id] & BTN.ALT)) { this.altClaimed[id] = 0; return false; }
+    if (this.altClaim && this.altClaim(id)) { this.altClaimed[id] = 1; this.altHeld[id] = 0; }
+    return this.altClaimed[id] === 1;
+  },
+  // Aiming down sights needs a zoom alt (or an alt shot with its own zoom, the W19 slug) held while idle: a reload lowers the sights.
+  updateAds(id, weapon, altTaken, dt) {
+    const aiming = (weapon.alt.type === 'zoom' || weapon.alt.zoom > 1) && this.state[id] === WEAPON_STATE.IDLE && (Actors.buttons[id] & BTN.ALT) !== 0 && !altTaken;
     this.ads[id] = clamp(this.ads[id] + (aiming ? dt : -dt) / ADS_SECONDS, 0, 1);
+    if (!aiming) this.zoomed[id] = 0;   // lowering the sights returns the scope to its first step
   },
   coolDown(id, dt) {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
@@ -448,6 +471,7 @@ const Weapons = {
     if (weapon && this.toggled[id] && weapon.alt.toggle) scale *= weapon.alt.toggle.speedMult === undefined ? 1 : weapon.alt.toggle.speedMult;
     this.speedScale[id] = scale * Damage.statusSpeed(id) * WeaponSpecialState.speedFactor(id);
     Move.weaponSpeedScale[id] = this.speedScale[id];   // S10 scales the actor's move speed by it
+    Move.weaponReadyTime[id] = weapon ? weapon.readyTime : 0;   // S10 adds it to the sprint-to-fire wait
   },
   stepAltMode(id, weapon, dt) {
     const mode = weapon.alt, held = (Actors.buttons[id] & BTN.ALT) !== 0;
@@ -581,7 +605,8 @@ const Weapons = {
 
   // ---- Spread (WPN-003, MOV-025) and recoil (WPN-004) ----
   spreadDegrees(id, weapon, mode) {
-    const movement = Move.inaccuracy(id) * mode.moveSpread;   // MOV-025 belongs to the movement preset (S10)
+    // MOV-025 belongs to the movement preset (S10); its WPN-003 default covers hitscan guns only (arena rockets stay exact).
+    const movement = Move.inaccuracy(id, mode.type !== 'hitscan') * mode.moveSpread;
     let base = mode.spreadDeg;
     if (weapon.family.firstShotExact && this.bloom[id] === 0 && movement === 0) base = 0;
     const aiming = lerp(1, mode.adsSpreadMult, this.ads[id]);
@@ -602,7 +627,7 @@ const Weapons = {
     const weapon = this.currentWeapon(id);
     const recoil = weapon ? CAT.recoil.byId(weapon.primary.recoil) || CAT.recoil[0] : CAT.recoil[0];
     if (Sim.time - this.lastShot[id] < recoil.recoverDelay) return;
-    const size = Math.hypot(this.recoilPitch[id], this.recoilYaw[id]);
+    const size = length2(this.recoilPitch[id], this.recoilYaw[id]);
     const keep = size > 0 ? Math.max(0, size - recoil.recover * dt) / size : 0;
     this.recoilPitch[id] *= keep; this.recoilYaw[id] *= keep;
     this.bloom[id] = Math.max(0, this.bloom[id] - recoil.recover * dt);
@@ -648,7 +673,7 @@ const Weapons = {
     out.shape = shown.class; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
     out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
-    out.zoom = lerp(1, shown.alt.zoom, this.ads[id]);
+    out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
     out.recoilPitch = this.recoilPitch[id]; out.recoilYaw = this.recoilYaw[id];   // degrees the spray punches away from the view
     out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
@@ -669,7 +694,7 @@ function chargeDamage(charge, fraction) { return charge.levels ? chargeLevelValu
 function angleToZone(id, eyeY, other, zone, aim, range, maxAngle) {
   Hitbox.point(other, zone, pointScratch);
   const dx = pointScratch.x - Actors.x[id], dy = pointScratch.y - eyeY, dz = pointScratch.z - Actors.z[id];
-  const distance = Math.hypot(dx, dy, dz);
+  const distance = length3(dx, dy, dz);
   if (distance - TORSO_RADIUS > range || distance < 1e-3) return -1;
   const angle = Math.acos(clamp((dx * aim.x + dy * aim.y + dz * aim.z) / distance, -1, 1)) / DEG;
   if (angle > maxAngle) return -1;
@@ -683,7 +708,7 @@ function hasLedgeInFront(id) {
   return World.raycast(probeX, Actors.eyeY(id), probeZ, 0, -1, 0, 0.8, exitHit) && exitHit.ny > 0.7;
 }
 function canStayMounted(id) {
-  if (Math.hypot(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
+  if (length2(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
   return hasLedgeInFront(id);
 }
 
@@ -704,6 +729,7 @@ const Shot = {
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
       emitImpact(shotHit, weapon.id, id);
+      damagePropAt(shotHit, damage * factor, id);
       const exit = this.penetrate(mode, dx, dy, dz);
       if (exit < 0) return travelled;
       factor *= PENETRATION_FACTOR[mode.penetration];
@@ -801,7 +827,7 @@ function meleeMiss(id, mode, hitSurface) {
 }
 // True when the attacker stands behind the target (within 60 deg of the target's back).
 function isBehind(attacker, target) {
-  const dx = Actors.x[target] - Actors.x[attacker], dz = Actors.z[target] - Actors.z[attacker], length = Math.hypot(dx, dz) || 1;
+  const dx = Actors.x[target] - Actors.x[attacker], dz = Actors.z[target] - Actors.z[attacker], length = length2(dx, dz) || 1;
   return (dx * Math.sin(Actors.yaw[target]) + dz * Math.cos(Actors.yaw[target])) / length > 0.5;
 }
 
@@ -814,7 +840,7 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
   for (let target = 0; target < Actors.count; target++) {
     if (!Actors.alive[target] || !Actors.isEnemy(id, target)) continue;
     if (angleToZone(id, eyeY, target, ZONE.BODY, aimScratch, mode.cone.range, halfAngle) < 0) continue;
-    const distance = Math.hypot(pointScratch.x - Actors.x[id], pointScratch.y - eyeY, pointScratch.z - Actors.z[id]) || 1;
+    const distance = length3(pointScratch.x - Actors.x[id], pointScratch.y - eyeY, pointScratch.z - Actors.z[id]) || 1;
     const dirX = (pointScratch.x - Actors.x[id]) / distance, dirY = (pointScratch.y - eyeY) / distance, dirZ = (pointScratch.z - Actors.z[id]) / distance;
     applyShotDamage(id, target, weapon, mode, damage, ZONE.NONE, 0, pointScratch.x, pointScratch.y, pointScratch.z, dirX, dirY, dirZ, distance);
   }

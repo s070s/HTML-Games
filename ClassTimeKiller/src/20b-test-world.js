@@ -15,9 +15,9 @@ function randomBrushes(seed, count, spread) {
 // Reference answer: every brush, no tree.
 function bruteRay(ox, oy, oz, dx, dy, dz, maxDistance) {
   let best = 1, found = null;
+  const segment = { sx: ox, sy: oy, sz: oz, ex: ox + dx * maxDistance, ey: oy + dy * maxDistance, ez: oz + dz * maxDistance };
   for (const brush of World.brushes) {
-    const fraction = clipBrush(brush, ox, oy, oz, ox + dx * maxDistance, oy + dy * maxDistance, oz + dz * maxDistance, POINT_HULL, 0);
-    if (fraction >= 0 && fraction < best) { best = fraction; found = brush; }
+    if (clipBrush(brush, segment, POINT_HULL, 0) && clipResult.fraction < best) { best = clipResult.fraction; found = brush; }
   }
   return found ? best * maxDistance : -1;
 }
@@ -176,11 +176,14 @@ Test.add('world', (check) => {
   useTestRules({ move: 'arena' });
   const occupant = groundedTester(30, 30, null, 2);
   const id = groundedTester(0, 0, null, 1);
+  Game.playerId = id;
   holdInput(id, 0, 1, 0, 0);
   stepSeconds(0.3);
   const requests = recordEvents(['damage.request'], () => { for (let i = 0; i < 120 && Actors.x[id] < 29; i++) Sim.step(); });
   check('teleporter moves to the exit', Test.near(Actors.x[id], 30, 1.5) && Test.near(Actors.z[id], 30, 0.5), Actors.x[id] + ',' + Actors.z[id]);
   check('exit yaw 90 deg', Test.near(Actors.yaw[id], 90 * DEG, 1e-4));
+  check('MOV-019 the local player view turns to the exit yaw too', Test.near(Input.aim.yaw, 90 * DEG, 1e-4), Input.aim.yaw);
+  Game.playerId = -1;
   check('speed kept, turned to the exit yaw', Actors.vx[id] > 4 && Math.abs(Actors.vz[id]) < 0.5, Actors.vx[id]);
   const telefrag = requests.find((r) => r.kind === 'telefrag');
   check('telefrag: occupant gets lethal damage credited to the arriver (MOV-020)', telefrag && telefrag.target === occupant && telefrag.source === id && telefrag.amount >= 1000);

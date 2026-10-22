@@ -6,7 +6,7 @@
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
-  + '.mg-code { flex: 1; min-width: 12em; font: 13px/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
+  + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {
@@ -94,7 +94,6 @@ function mapgenMenuChoices() {
 function mapgenMenuSeedRow(render) {
   const input = makeElement('input', 'mg-field');
   input.type = 'text'; input.inputMode = 'numeric'; input.value = String(MapGenMenu.state.seed);
-  stopTextKeys(input);
   input.addEventListener('change', () => { if (!MapGenMenu.setSeedText(input.value)) Ui.toast('A seed is a whole number.'); render(); });
   const wrap = makeElement('div', 'mg-controls');
   wrap.appendChild(input);
@@ -105,7 +104,6 @@ function mapgenMenuShareRows(render) {
   const mine = makeElement('input', 'mg-field mg-code'), paste = makeElement('input', 'mg-field mg-code');
   mine.type = 'text'; mine.readOnly = true; mine.value = MapGenMenu.shareCode();
   paste.type = 'text'; paste.placeholder = 'Paste a map code';
-  [mine, paste].forEach(stopTextKeys);
   const copyWrap = makeElement('div', 'mg-controls'), pasteWrap = makeElement('div', 'mg-controls');
   copyWrap.appendChild(mine);
   copyWrap.appendChild(Ui.button('Copy', () => copyText(mine.value, mine)));

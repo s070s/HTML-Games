@@ -310,6 +310,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 Test.add('uiacc', (check) => hudTestWith(() => {
   // ---- UI-003/006 minimap, tracker, compass ----
   const scene = hudTestMatch(), { id, mate, enemy } = scene;
+  Abilities.hiddenFromPulse = () => false;   // the enemy's class may carry the Ghost perk (ECP04): these checks need a plain enemy
   hudTestFrame();
   const minimap = () => { hudTestFrame(); return Hud.quadsOf('minimap'); };
   const withoutEnemy = (() => { Actors.alive[enemy] = 0; const quads = minimap(); Actors.alive[enemy] = 1; return quads; })();
@@ -347,6 +348,10 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   check('tracker: an enemy out of range stays hidden', minimap() === base);
   setRadar({ mode: 'team', range: 20 });
   check('tracker: team mode shares the range of every living teammate (the mate is 17 m away)', minimap() > base);
+  Abilities.hiddenFromPulse = (id) => id === enemy;   // ECP04 Ghost perk
+  hudTestEvent('sound', { x: 5, y: 0, z: 30, radius: ACCESS_TEST_NEXT_SHOT_NOISE, kind: 'shot', source: enemy });
+  check('tracker: the Ghost perk hides a moving enemy and its shot blips', minimap() === base);
+  Abilities.hiddenFromPulse = () => false; Hud.time += HUD_MAP_BLIP_SECONDS + 0.1;
   setRadar({ mode: 'off', range: 40 });
   check('tracker: off shows nothing', minimap() === base);
   setRadar(null);
@@ -529,7 +534,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
 })));
 
 // ---- Every screen: opens fast, reachable and leavable with each device alone, fonts of at least 14 px ----
-const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair'];
+const ACCESS_TEST_SCREENS = ['settings', 'bindings', 'help', 'play', 'custom', 'customPresets', 'customShare', 'loadout', 'classEditor', 'touchLayout', 'rules', 'economy', 'crosshair', 'saveTransfer'];
 
 function accessTestSmallText(element) {
   const small = [];
@@ -569,6 +574,18 @@ function accessTestScreen(check, name) {
   const leftByTouch = !!button && Ui.current() !== name;
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
+
+// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+Test.add('uiacc', (check) => {
+  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  for (const name in sheets) {
+    for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
+      const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);
+      if (pixels < ACCESS_TEST_MIN_FONT - 0.01) small.push(name + ' ' + match[0]);
+    }
+  }
+  check('menus: no menu style sets text under 14 px at 100% scale (ACC-008)', small.length === 0, small.join('; '));
+});
 
 Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   for (const name of ACCESS_TEST_SCREENS) { accessTestScreen(check, name); Ui.closeAll(); }

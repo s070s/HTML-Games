@@ -5,7 +5,7 @@
 
 const UI_TOAST_MS = 2600;
 const UI_MAX_TOASTS = 4;
-const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex="0"]';
+const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
@@ -38,6 +38,8 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-foot { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; } .ui-slot { min-width: 8em; text-align: center; padding: 0.4em 0.7em; min-height: 40px; }'
   + '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
   + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
+  + '.ui-code { display: block; width: 100%; min-height: 8em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px;'
+  + ' font: 0.875em/1.4 ui-monospace, Consolas, monospace; user-select: text; }'
   + '#overlay > .ui-toasts { position: fixed; top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }'
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
@@ -53,7 +55,7 @@ const Ui = {
   perfVisible: false,
   selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
   lastSelfTest: null,
-  pauseEntries: [],           // { label, screen } rows later sections add to the pause menu (rules panel)
+  pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab
   settingsFooter: [],         // fn(refresh) -> button: extra buttons under the settings tabs (18l: reset all)
   settingGroup: () => '',     // fn(key) -> heading title of a settings row ('' = none); 18l fills it
@@ -170,6 +172,7 @@ const Ui = {
   },
   onKeyDown(event) {
     if (!this.stack.length || event.defaultPrevented) return;
+    if (isTextField(event.target) && event.code !== 'Escape' && event.code !== 'Tab') return;   // arrows move the caret while typing
     if (event.code === 'Escape') this.back();
     else if (event.code === 'Tab') this.navigate(event.shiftKey ? 'prev' : 'next');
     else if (UI_KEY_COMMANDS[event.code]) this.navigate(UI_KEY_COMMANDS[event.code]);

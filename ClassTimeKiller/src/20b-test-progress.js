@@ -8,6 +8,7 @@ const PROGRESS_TEST_TYPICAL = { duration: 600, score: 10, objective: 0, medals: 
 const PROGRESS_TEST_HOURS_TO_30 = [8, 13];          // "about 10 hours" to level 30 (PRG-010)
 const PROGRESS_TEST_DAY = Date.UTC(2026, 9, 22, 12, 0);
 const PROGRESS_TEST_HOUR_MS = 3600000;
+const PROGRESS_CARD_LEVELS = [{ mode: 'horde', map: 'cistern' }, { mode: 'contract', map: 'manor' }];   // shipped levels the card metrics are measured on
 
 // A results record as S13 builds it, with the local player at `rank` (1-based) among `others` + 1 free-for-all players.
 function progressTestResults(fields) {
@@ -66,6 +67,17 @@ function progressTeamMatch(mode, map) {
   }
   for (let id = 0; id < Actors.count; id++) { Actors.alive[id] = 1; Actors.flags[id] &= ~ACTOR_FLAG.PROTECTED; progressGround(id); Actors.x[id] = id; Actors.y[id] = 0; Actors.z[id] = 0; }
   return ids;
+}
+
+// The metrics of a flawless but human-paced room run: every kill the score limit allows (or every bot life in a lives room),
+// each one an airborne headshot in one streak, no misses, no damage, no deaths, a win, at PROGRESS_TEST_PAR_SHARE of par
+// (rooms without par: of the time limit).
+const PROGRESS_TEST_PAR_SHARE = 0.5;
+function progressBestRun(row) {
+  const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
+  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
+  return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
 }
 
 // ---- Catalogues (VIS-004 counts for this area) ----
@@ -173,6 +185,15 @@ Test.add('progress', (check) => {
   check('look: without a worn look the body keeps its default colour', plain.r === 0.5 && plain.emissive === 0);
   Progress.setCosmetic('color', 'colorSlate');
   check('look: choosing a colour refreshes the drawn look at once', Progress.look.color === 0x7d8a99);
+  // PRG-010: first person draws no body, so the colour shows on the held weapon, the scoreboard row, the killcam and the profile.
+  const view = { color: 0 }, slate = 'rgb(125, 138, 153)', rival = Game.playerId === 0 ? 1 : 0;
+  Render.viewModel(view);
+  const myRow = Scoreboard.buildRow({ id: Game.playerId, team: -1, name: 'You', alive: true, score: 0, kills: 0, deaths: 0, assists: 0, objective: 0 }, false);
+  const profile = makeElement('div');
+  Ui.screens.get('profile').build(profile);
+  check('look: the worn colour tints the view model and the player\'s scoreboard row, not other actors', view.color === 0x7d8a99 && myRow.firstChild.style.color === slate
+    && Progress.bodyColor(rival, 7) === 7 && Progress.bodyColor(Game.playerId, 7) === 0x7d8a99);
+  check('look: the profile shows a swatch of the worn colour', profile.querySelector('.pg-swatch').style.backgroundColor === slate);
   check('mastery: an unknown tier id opens nothing', !Progress.masteryReached('nope'));
   Game.stop();
 });
@@ -185,10 +206,10 @@ Test.add('progress', (check) => {
     && profile.cards.marks === 0 && Progress.stats().totals.matches === 0 && Progress.ladder().tier === 0 && Progress.level() === 1);
   Save.data = Save.migrate(JSON.parse('{"version":1,"settings":{},"progression":{"xp":5000,"medals":{"spree":2}},"stats":{"weapons":{"warden":{"kills":30}}},"ladder":{"tier":2}}'));
   check('migration: kept values survive, missing ones are added', Progress.profile().xp === 5000 && Progress.profile().medals.spree === 2 && Progress.ladder().tier === 2
-    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainRecord(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
+    && Progress.ladder().match === 0 && Progress.stats().weapons.warden.kills === 30 && isPlainObject(Progress.profile().cosmetics) && Progress.stats().totals.wins === 0);
   check('migration: weapon records gain their missing counters on first use', Progress.masteryOf('warden') === 0 && statRecord(Progress.stats().weapons, 'warden', WEAPON_STAT_FIELDS).headshots === 0);
   Save.data = Save.migrate(JSON.parse('{"version":1,"progression":[1,2],"stats":"broken","ladder":null}'));
-  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainRecord(Progress.stats().weapons) && Progress.ladder().done === false);
+  check('migration: broken progress fields are replaced, not crashed on', Progress.profile().xp === 0 && isPlainObject(Progress.stats().weapons) && Progress.ladder().done === false);
   Save.data = Save.emptySave();
   check('migration: an empty save migrates lazily on first use', Progress.profile().version === PROGRESS_VERSION && Save.data.progression.version === PROGRESS_VERSION);
   Save.data.progression.xp = 'lots';
@@ -310,13 +331,15 @@ Test.add('progress', (check) => {
   });
   check('medals: no Flawless Wave after taking damage', got.length === 0, got.join());
   Game.stop();
-  const ghostRun = (alarm) => progressMedals(() => {
-    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo' }, player: { name: 'You' }, bots: [{ dummy: true }] });
+  const ghostRun = (alarm, stealth) => progressMedals(() => {
+    Game.start({ mode: 'ffa', map: 'spire', seed: 2, modeOptions: { family: 'solo', params: { stealth } }, player: { name: 'You' }, bots: [{ dummy: true }] });
     if (alarm) Bus.emit('pve.alarm', { id: -1 });
     Modes.finish(Game.playerId);
   });
-  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false).join() === 'ghost' && Progress.profile().medals.ghost === 1);
-  check('medals: no Ghost after an alarm', ghostRun(true).length === 0);
+  check('medals: MD19 Ghost when a stealth level is won with no alarm', ghostRun(false, true).join() === 'ghost' && Progress.profile().medals.ghost === 1);
+  check('medals: no Ghost after an alarm', ghostRun(true, true).length === 0);
+  check('medals: no Ghost for a won solo level without stealth (Test Chambers, Firing Range)', ghostRun(false, false).length === 0
+    && CAT.modes.filter((mode) => mode.params.stealth).map((mode) => mode.id).join() === 'contract');
   Game.stop();
 });
 
@@ -382,23 +405,29 @@ Test.add('progress', (check) => {
     valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
+  const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
+  check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
   const metrics = { kills: 5, seconds: 100 };
-  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * 2000 + 50 * 100 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0
-    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
+    && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
+  const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
+  check('rooms: a flawless run at half of par (or of the time limit) reaches 3 stars in every room', short.length === 0,
+    short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 100 }, first);
-  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === 15000 && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
+  check('rooms: a result keeps the best and the stars, new stars pay XP', Challenges.record('sprint').best === onePoints && Challenges.record('sprint').stars === 1 && first.xp === PROGRESS_XP.challengeStar);
   const again = award();
-  Challenges.onResult(fake(false), { kills: 5, seconds: 110 }, again);
-  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === 15000 && Challenges.record('sprint').plays === 2);
-  Challenges.onResult(fake(false), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(false), { kills: 5, seconds: row.par + 10 }, again);
+  check('rooms: the same stars again pay no extra XP (no grind)', again.xp === 0 && Challenges.record('sprint').best === onePoints && Challenges.record('sprint').plays === 2);
+  Challenges.onResult(fake(false), twoStars, award());
   check('rooms: 2 stars open the Expert version', Challenges.record('sprint').stars === 2 && Challenges.expertOpen('sprint'));
-  Challenges.onResult(fake(true), { kills: 5, seconds: 0 }, award());
+  Challenges.onResult(fake(true), twoStars, award());
   check('rooms: Expert keeps its own best and stars', Challenges.record('sprint').expertStars === 2 && Challenges.record('sprint').stars === 2);
   check('rooms: rooms past the first block wait for their level', !Challenges.isOpen(CAT.challenges.byId('phantom')) && Challenges.isOpen(CAT.challenges.byId('markYard')));
   const match = Challenges.start('sprint', false);
@@ -406,6 +435,24 @@ Test.add('progress', (check) => {
   const firstMatch = Game.match;
   Game.start(Game.match.setup);
   check('rooms: instant retry restarts the same trial at once (pause Restart / Play again)', Game.match !== firstMatch && Game.match.setup.progress.id === 'sprint' && Game.state === 'playing');
+  Game.stop();
+});
+
+// ---- PRG-004 wave survival: time pays only while the player still has lives ----
+Test.add('progress', (check) => {
+  const survive = (outAfter, endAfter) => {
+    Challenges.start('holdout', false);
+    const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
+    progressAdvance(outAfter);
+    for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
+    progressAdvance(endAfter - outAfter);
+    Modes.finish(rival);
+    return RunLog.measure(Game.match).seconds;
+  };
+  const early = survive(20, 220);
+  check('survival: a player out of lives early stops earning seconds', Math.abs(early - 20) < 0.1 && Game.match.results.duration > 200, early);
+  const full = survive(60, 60);
+  check('survival: a player still in counts the whole match', Math.abs(full - Game.match.results.duration) < 0.01 && full >= 60, full);
   Game.stop();
 });
 
@@ -455,6 +502,23 @@ Test.add('progress', (check) => {
   }
   check('daily: each day picks a playable mode, a bundle, 2 compatible mutators and a map serving the mode', valid);
   check('daily: different dates give different setups', seen.size >= 10, seen.size);
+  // PRG-006 / MAP-020: the played map (generated, else hand-made) offers the mode and holds every objective the mode needs.
+  let served = true, generatedDays = 0;
+  for (let day = 0; day < 6; day++) {
+    const key = Daily.dateKey(PROGRESS_TEST_DAY + day * 24 * PROGRESS_TEST_HOUR_MS, 0), setup = Daily.setup(key);
+    const map = typeof setup.map === 'string' ? Maps.get(setup.map) : setup.map, needs = MapRules.rule(setup.mode)[1];
+    if (map.gen) generatedDays++;
+    served = served && map.modes.includes(setup.mode) && needs.every(([kind, minimum]) => Maps.objectivesFor(map, setup.mode, kind).length >= minimum)
+      && (!map.gen || MapGen.generator(map.gen.generator).modes.includes(setup.mode));
+  }
+  check('daily: the map serves the daily mode with its objectives, generated by a generator for that mode', served && generatedDays > 0, generatedDays);
+  const generateMap = Daily.generateMap;
+  let builds = 0;
+  Daily.generateMap = (options) => { builds++; return generateMap(options); };
+  const shown = Daily.choiceFor('2026-10-22'), shownBuilds = builds;
+  Daily.setup('2026-10-22');
+  Daily.generateMap = generateMap;
+  check('daily: the Daily screen choice builds no map, the match setup builds it once', shownBuilds === 0 && builds === (shown.generator ? 1 : 0), shownBuilds + '/' + builds);
   const setup = Daily.setup('2026-10-22');
   Rules.build(setup);
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
@@ -518,6 +582,41 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
+// ---- M03 Duel winner-stays: Play again seats the winner against the next queued bot ----
+Test.add('progress', (check) => {
+  const opponent = () => {
+    for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id) && id !== Game.playerId) return id;
+    return -1;
+  };
+  const tiers = () => {
+    const byName = {};
+    for (let id = 0; id < Actors.count; id++) if (Actors.kind[id] === ACTOR_KIND.BOT) byName[Actors.name[id]] = Bots.tier(id).tier;
+    return byName;
+  };
+  const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
+  try {
+    // The Play screen's own setup: unnamed bots, named and tiered by seat.
+    Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
+    Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'duel', bots: 3, difficulty: 'veteran' }), () => 0.5));
+    const before = tiers();
+    Modes.finish(Game.playerId);
+    const queue = Game.match.results.queue.slice(), change = Game.match.results.botTierChange;
+    PlayFlow.playAgain();
+    const after = tiers();
+    check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === queue[1]
+      && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+    check('duel queue: every bot keeps its tier through the reseat, plus the adaptive change', change === 1
+      && Object.keys(before).every((name) => after[name] === clamp(before[name] + change, 0, BOT_TIER_COUNT - 1)));
+    const winner = Actors.name[opponent()];
+    Modes.finish(opponent());
+    PlayFlow.playAgain();
+    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+  } finally {
+    Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+    Game.stop();
+  }
+});
+
 // ---- Cards: equip rules, Marks, unlock conditions ----
 Test.add('progress', (check) => {
   check('cards: a locked card cannot be placed', !Cards.equip('stoneskin') && Cards.equipProblem('stoneskin') === CAT.cards.byId('stoneskin').unlock.text);
@@ -535,8 +634,9 @@ Test.add('progress', (check) => {
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
-  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, propsLeft: 3, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
-    explosiveShots: 2, souls: 20, rangedKills: 5, secretsLeft: 1, wrathKills: 0, optionalLeft: 1, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3 };
+  const base = { pveFinished: 1, kills: 10, deaths: 0, hard: false, damageTaken: 40, enemiesLeft: 2, marks: 0, bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+    explosiveShots: 2, souls: 20, rangedKills: 5, airKills: 0, wrathKills: 0, headshots: 0, armorPickups: 2, cardsEquipped: 1, wrathForms: 0, lowestHealth: 20, weaponsUsed: 3,
+    propsLeft: 2, secretsLeft: 1, optionalLeft: 3 };
   const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
     fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
     greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
@@ -551,13 +651,25 @@ Test.add('progress', (check) => {
   check('cards: each card unlocks on its own condition and not without it', exact, wrong.join());
   check('cards: hard-mode and no-death conditions are checked', !cardConditionMet(CAT.cards.byId('lastbreath').unlock, Object.assign({}, base, { secretsLeft: 0 }))
     && !cardConditionMet(CAT.cards.byId('rage').unlock, Object.assign({}, base, { secretsLeft: 0, deaths: 1 })));
-  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('slowtide').unlock, Object.assign({}, base, { propsLeft: PROGRESS_NOT_REACHED })));
+  check('cards: unmeasured PvE numbers never unlock', !cardConditionMet(CAT.cards.byId('soulkeep').unlock, Object.assign({}, base, { enemiesLeft: PROGRESS_NOT_REACHED })));
   const award = { lines: [] };
   Cards.unlockFromRun(null, Object.assign({}, base, { pveFinished: 0, propsLeft: 0 }), award);
   check('cards: nothing unlocks outside a finished PvE level', !Cards.record().unlocked.slowtide);
   Cards.unlockFromRun(null, Object.assign({}, base, { propsLeft: 0 }), award);
   check('cards: a finished level unlocks the cards whose conditions held', Cards.record().unlocked.slowtide && Cards.record().unlocked.stoneskin && Cards.record().unlocked.endless
     && !Cards.record().unlocked.soulkeep && award.lines.length === 3, award.lines.join('; '));
+  // PRG-011: every condition reads a number a finished shipped level really measures (no card waits on content no map has):
+  // Siege Waves on Cistern (crates, secrets) and the Silent Contract on Ash Manor (its guards are the optional enemies).
+  let unmeasured = CAT.cards, enemiesMeasured = false;
+  for (const level of PROGRESS_CARD_LEVELS) {
+    Game.start({ mode: level.mode, map: level.map, seed: 4, player: { name: 'You' } });
+    Modes.finish(Game.playerId);
+    const measured = RunLog.measure(Game.match);
+    enemiesMeasured = enemiesMeasured || measured.enemiesLeft === enemiesLeft();
+    unmeasured = unmeasured.filter((row) => typeof measured[row.unlock.metric] !== 'number' || measured[row.unlock.metric] === PROGRESS_NOT_REACHED);
+    Game.stop();
+  }
+  check('cards: the shipped PvE levels measure every metric a card condition reads', unmeasured.length === 0 && enemiesMeasured, unmeasured.map((row) => row.code).join());
 });
 
 // ---- Cards: every effect applies in a match ----
@@ -579,7 +691,7 @@ function progressRules(fields) { Game.match.rules = Object.assign({}, Game.match
 function progressDropSoul(victim) {
   Items.dropSoul(victim);
   for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
-    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === CARD_SOUL_ITEM) return slot;
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === 'soul') return slot;
   }
   return -1;
 }
@@ -588,18 +700,16 @@ function progressSoulSeconds(slot) { return slot < 0 ? 0 : (Items.despawnTick[sl
 function progressWrathChecks(check, ids, cost, label) {
   progressRules({ meter: 'energy' });   // the souls pay for Wrath (an ultimate meter would pay instead)
   Abilities.setSlot(ids.player, SLOT.ULTIMATE, CAT.abilities.byId('wrath'));
-  Meters.souls[ids.player] = cost - 1;
+  Powerups.souls[ids.player] = cost - 1;
   Sim.step();
   check(label + ': Wrath Form waits below ' + cost + ' souls', !Abilities.isActive(ids.player, 'wrath') && RunLog.wrathForms === 0);
-  Meters.souls[ids.player] = cost;
+  Powerups.souls[ids.player] = cost;
   Sim.step();
   check(label + ': Wrath Form at ' + cost + ' souls counts one form', Abilities.isActive(ids.player, 'wrath') && RunLog.inWrath && RunLog.wrathForms === 1);
   const victim = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   progressKill(victim, ids.player);
-  Bus.emit('pve.wrath', { id: ids.player, active: true });
   Sim.run((CAT.abilities.byId('wrath').duration + 1) * 120);
-  check(label + ': kills in Wrath Form count, the form ends with the ability, a PvE report of the same form is not a second one',
-    RunLog.wrathKills === 1 && !RunLog.inWrath && RunLog.wrathForms === 1);
+  check(label + ': kills in Wrath Form count, the form ends with the ability', RunLog.wrathKills === 1 && !RunLog.inWrath && RunLog.wrathForms === 1);
 }
 // C03 Soulkeep (x3 life), C11 Soul Magnet (15 m reach, both soul kinds), C20 Soul Feast (x2 heal), C09 Dark Pact (50 souls).
 function progressSoulChecks(check, ids, fiend) {
@@ -611,14 +721,9 @@ function progressSoulChecks(check, ids, fiend) {
   Items.x[slot] = Actors.x[ids.player] + 10; Items.z[slot] = Actors.z[ids.player];
   Items.homeSoul(slot, 0.1);
   check('cards: C11 Soul Magnet: a soul 10 m away flies to you', Items.x[slot] < Actors.x[ids.player] + 10 - 0.5);
-  Meters.dropSoul(ids.player, Actors.x[ids.player] + 10, Actors.y[ids.player], Actors.z[ids.player]);
-  const orb = Meters.soulAlive.indexOf(1), orbStart = Meters.soulX[orb];
-  Meters.stepSoul(orb, 0.1);
-  check('cards: C11 Soul Magnet also pulls Wrath souls from 10 m', orb >= 0 && Meters.soulX[orb] < orbStart - 0.5);
-  Meters.clearSouls();
   Actors.health[ids.player] = 50;
   Items.take(ids.player, slot);
-  check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CARD_SOUL_ROW.instant.heal, Actors.health[ids.player]);
+  check('cards: C20 Soul Feast: a soul heals twice as much', Actors.health[ids.player] === 50 + 2 * CAT.powerups.byId('soul').instant.heal, Actors.health[ids.player]);
   progressWrathChecks(check, ids, 50, 'cards: C09 Dark Pact');
 }
 Test.add('progress', (check) => {
@@ -657,7 +762,11 @@ Test.add('progress', (check) => {
 
   ids = progressCardMatch(['slowtide', 'onehp', 'discord', 'endless']);
   CardRun.activate(progressSlot('slowtide'));
-  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  check('cards: C02 Slowtide slows the world around you x0.5', Buffs.get(ids.other, BUFF.SLOW) === 0.5 && Buffs.get(ids.other, BUFF.RATE_SLOW) === 0.5 && Buffs.get(ids.player, BUFF.SLOW) === 1);
+  Buffs.add(ids.other, BUFF.RATE, 1.5, 5);
+  Buffs.applyScales(ids.other);
+  check('a fire-rate boost does not cancel a slow: they multiply', Test.near(Weapons.rateScale[ids.other], 0.75 * Powerups.rateScale[ids.other], 1e-6), Weapons.rateScale[ids.other]);
+  Buffs.cancel(ids.other, BUFF.RATE);
   const enemy = Actors.create(ACTOR_KIND.ENEMY, 1, 'Fiend', null);
   Actors.alive[enemy] = 1;
   CardRun.activate(progressSlot('discord'));

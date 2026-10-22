@@ -5,11 +5,12 @@
 // armorMode: 'absorb' (armor takes armorAbsorb of each hit, rounded up), 'tactical' (HPP04 armorPen split),
 // 'flat' (HPP05: -armorFlat per hit, at most armorFlatMax of the hit, not on beams/DoT), 'none'.
 // regenSteps > 1: health regenerates only up to the next step (HPP03 thirds). shieldIgnoresZone: head multiplier only on health.
+// triangle: the X47 kill resource triangle is always on (S13 sets rules.fx.triangle).
 Data.define('health', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, health: 100, maxHealth: 100, overhealCap: 100, overhealDecay: 0,
   armor: 0, armorCap: 0, armorDecayAbove: 0, armorDecay: 0, armorMode: 'none', armorAbsorb: 0, armorFlat: 0, armorFlatMax: 0, helmet: false,
   shield: 0, shieldCap: 0, shieldDelay: 0, shieldRate: 0, shieldIgnoresZone: false,
-  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false,
+  regenDelay: 0, regenRate: 0, regenSteps: 1, roleRegen: null, energy: null, downed: false, limbs: false, triangle: false,
 }, [
   { id: 'stack', code: 'HPP01', name: 'Arena Stack', overhealCap: 200, overhealDecay: 1, armorCap: 200, armorDecayAbove: 100, armorDecay: 1, armorMode: 'absorb', armorAbsorb: 2 / 3 },
   { id: 'regen', code: 'HPP02', name: 'Regenerating', regenDelay: 5, regenRate: 25 },
@@ -17,10 +18,13 @@ Data.define('health', {
   { id: 'tactical', code: 'HPP04', name: 'Tactical One-Life', armorCap: 100, armorMode: 'tactical', helmet: false },
   { id: 'hero', code: 'HPP05', name: 'Hero Pools', health: 200, maxHealth: 200, overhealCap: 200, armorMode: 'flat', armorFlat: 5, armorFlatMax: 0.5, shieldDelay: 3, shieldRate: 30, roleRegen: { role: 'support', delay: 1.5, rate: 15 } },
   { id: 'loot', code: 'HPP06', name: 'Loot Shields', shieldCap: 125, downed: true },
-  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', overhealCap: 200, armorCap: 150, armorMode: 'absorb', armorAbsorb: 0.5 },
+  { id: 'ravager', code: 'HPP07', name: 'Ravager Triangle', armor: 50, armorCap: 50, armorMode: 'absorb', armorAbsorb: 0.5, triangle: true },   // PU20 shards raise the caps to 200/150
   { id: 'suit', code: 'HPP08', name: 'Weave Suit', regenDelay: 6, regenRate: 20, energy: { max: 100, rate: 25, delay: 2 } },
   { id: 'limb', code: 'HPP09', name: 'Locational', limbs: true },
 ]);
+// Low health (HPP02: red vignette and heartbeat below 35 of 100 HP) as a share of max health: the one threshold for the HUD
+// health bar, the vignette, the heartbeat and the bots' low-health bark.
+const LOW_HEALTH_FRACTION = 0.35;
 
 // HP-002 precision profiles (hit zone multipliers). Movement inaccuracy (MOV-025) is the movement preset's table (S10 Move.inaccuracy).
 Data.define('precision', {
@@ -48,6 +52,8 @@ Data.define('statusEffects', {
   { id: 'sleep', name: 'Sleep', seconds: 8, speed: 0, stun: true, wakeOnDamage: true, color: 0x8080ff },
   { id: 'slow', name: 'Slowed', seconds: 1, speed: 0.8, color: 0x6080a0 },
   { id: 'reveal', name: 'Revealed', seconds: 5, color: 0xffd040 },
+  { id: 'pinned', name: 'Pinned', seconds: 1, speed: 0, color: 0xb08a5a },   // W26 stake against a wall: rooted, can still aim and fire
+  { id: 'stun', name: 'Stunned', seconds: 0.5, speed: 0, stun: true, color: 0xd0d0d0 },   // non-electric stagger, knockdown and EMP: never an HP-005 Shock combo
 ]);
 
 // HP-006 elements; matching element vs a coloured PvE shield x1.5, other elements x0.75 (NPC-004).

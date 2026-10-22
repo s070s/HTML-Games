@@ -51,6 +51,10 @@ const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cook
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
 const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
+const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
+const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
+const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
+const WEAPON_JUMP_DETOUR = 3;   // a walkable path this many times the straight line or longer is worth the jump's self-damage
 const ABILITY_INTERVAL = 1.5;           // s after an ability press at abilityUse 0.5 (shorter with the trait)
 const ABILITY_CLOSE = 10, ALLY_HURT = 0.5, SELF_HURT = 0.5, ALLY_RANGE = 15, DOWNED_ALLY_RANGE = 10;
 const ABILITY_HOLD_SECONDS = 3;         // a 'hold' ability is held while its trigger lasts, at most this long
@@ -112,7 +116,8 @@ const BotCombat = {
   gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
-  uses: { abilities: 0, grenades: 0, gadgets: 0 },       // presses by every bot this match (tests, soak report)
+  jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
+  uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },   // presses by every bot this match (tests, soak report)
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
   // others; unknown = the target was not even remembered). Judged at the decision, so a shot that kills is not a breach.
@@ -120,11 +125,11 @@ const BotCombat = {
 
   reset(id) {
     this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
-    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
+    this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
     this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
-    this.gadgetAt[id] = 0; this.holdSlot[id] = -1;
+    this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
   },
@@ -134,7 +139,7 @@ const BotCombat = {
     const target = this.target[id];
     if (target < 0) return Infinity;
     BotSense.perceivedPosition(id, target, perceived);
-    return Math.hypot(perceived.x - Actors.x[id], perceived.y - Actors.y[id], perceived.z - Actors.z[id]);
+    return length3(perceived.x - Actors.x[id], perceived.y - Actors.y[id], perceived.z - Actors.z[id]);
   },
   hitRate(id) { return this.windowShots[id] > 0 ? this.windowHits[id] / this.windowShots[id] : 0; },
 
@@ -144,6 +149,7 @@ const BotCombat = {
     this.manageWeapon(id, now);
     this.useKit(id, now);
     if (now < this.throwUntil[id]) { this.aimThrow(id, now); return; }
+    if (target < 0 && this.weaponJump(id, now)) return;
     if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
     if (BotSense.sees(id, target)) this.engage(id, target, now);
     else this.watch(id, target, now);
@@ -168,7 +174,7 @@ const BotCombat = {
   },
   targetScore(id, other, now) {
     const pair = BotSense.pair(id, other), visible = BotSense.visible[pair] === 1;
-    const distance = Math.hypot(BotSense.knownX[pair] - Actors.x[id], BotSense.knownZ[pair] - Actors.z[id]);
+    const distance = length2(BotSense.knownX[pair] - Actors.x[id], BotSense.knownZ[pair] - Actors.z[id]);
     let score = (visible ? TARGET_VISIBLE_SCORE : TARGET_KNOWN_SCORE) / (1 + distance / TARGET_DISTANCE_SCALE);
     if (other === this.target[id]) score += Bots.tier(id).targetSwitch ? TARGET_KEEP_SWITCHER : TARGET_KEEP;
     if (BotSense.attacker[id] === other && now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) score += Bots.trait(id, TRAIT.vengefulness);
@@ -190,14 +196,14 @@ const BotCombat = {
   hurtAllyNear(id) {
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !Actors.alive[other] || Actors.isEnemy(id, other) || Actors.health[other] >= Actors.maxHealth[other] * ALLY_HURT) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) < ALLY_RANGE) return true;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) < ALLY_RANGE) return true;
     }
     return false;
   },
   downedAllyNear(id) {
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !Actors.alive[other] || Actors.isEnemy(id, other) || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) < DOWNED_ALLY_RANGE) return true;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) < DOWNED_ALLY_RANGE) return true;
     }
     return false;
   },
@@ -235,10 +241,10 @@ const BotCombat = {
     const dx = aimPoint.x - Actors.x[id], dy = aimPoint.y - Actors.eyeY(id), dz = aimPoint.z - Actors.z[id];
     const spray = recoilControl(id) * DEG;   // BOT-031 recoil control by tier and spray trait
     Bots.lookYaw[id] = Math.atan2(dx, dz) + error * noise.yaw * DEG - Weapons.recoilYaw[id] * spray;
-    Bots.lookPitch[id] = Math.atan2(dy, Math.hypot(dx, dz)) + error * noise.pitch * AIM_PITCH_SHARE * DEG - Weapons.recoilPitch[id] * spray;
-    if (this.mayFire(id, target, weapon, error, Math.hypot(dx, dy, dz), now)) this.pullTrigger(id, target, weapon, now);
+    Bots.lookPitch[id] = Math.atan2(dy, length2(dx, dz)) + error * noise.pitch * AIM_PITCH_SHARE * DEG - Weapons.recoilPitch[id] * spray;
+    if (this.mayFire(id, target, weapon, error, length3(dx, dy, dz), now)) this.pullTrigger(id, target, weapon, now);
     else this.keepCharge(id, now, true);
-    if (weapon && Math.hypot(dx, dz) < MELEE_DISTANCE && weapon.class !== 'melee' && now >= this.meleeAt[id]) { Bots.press(id, BTN.MELEE); this.meleeAt[id] = now + MELEE_INTERVAL; }
+    if (weapon && length2(dx, dz) < MELEE_DISTANCE && weapon.class !== 'melee' && now >= this.meleeAt[id]) { Bots.press(id, BTN.MELEE); this.meleeAt[id] = now + MELEE_INTERVAL; }
   },
   // Head from tier 4 with precise weapons when the error is small enough at that range (BOT-031: a preference, so a bot
   // that would mostly miss the head aims at the body), feet for splash at aim skill > 0.6, lead for projectiles (BOT-030).
@@ -248,29 +254,36 @@ const BotCombat = {
     const head = headOnlyRules() || (precise && error * DEG * this.targetDistance(id) <= AIM_HEAD_MISS);   // MUT-003: body hits do nothing
     Hitbox.point(target, head ? ZONE.HEAD : ZONE.BODY, out);
     if (mode && mode.splash && skill > AIM_FEET_SKILL && !headOnlyRules()) out.y = Actors.y[target] + AIM_FEET_HEIGHT;
-    const speed = mode && mode.type === 'projectile' ? this.projectileSpeed(mode) : 0;
+    const speed = mode ? this.leadSpeed(mode) : 0;
     if (!speed || !tier.lead || skill <= AIM_LEAD_LINEAR) return out;
     const passes = skill > AIM_LEAD_EXACT ? 2 : 1;   // exact: refine the flight time once; linear: one estimate
     const startX = out.x, startY = out.y, startZ = out.z;
     for (let pass = 0; pass < passes; pass++) {
-      const time = Math.hypot(out.x - Actors.x[id], out.y - Actors.eyeY(id), out.z - Actors.z[id]) / speed;
+      const time = length3(out.x - Actors.x[id], out.y - Actors.eyeY(id), out.z - Actors.z[id]) / speed;
       out.x = startX + Actors.vx[target] * time; out.z = startZ + Actors.vz[target] * time; out.y = startY + this.dropFor(mode, time);
     }
     return out;
+  },
+  // Flight speed of a shot to lead with: projectiles, and hitscan shots flying as X41 bullets (rules.fx.ballistics); 0 = instant.
+  leadSpeed(mode) {
+    if (Weapons.fliesAsBullet(mode)) return BALLISTIC_ROW.speed;
+    return mode.type === 'projectile' ? this.projectileSpeed(mode) : 0;
   },
   projectileSpeed(mode) {
     if (mode.speed > 0) return mode.speed;
     const row = CAT.projectiles.byId(mode.projectile);
     return row ? row.speed : 0;
   },
+  // Height the shot falls in `time` s (aim that much higher): the projectile row's gravity, or the X41 bullet gravity.
   dropFor(mode, time) {
     const row = CAT.projectiles.byId(mode.projectile);
-    return row ? 0.5 * row.gravity * time * time : 0;
+    const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row ? row.gravity : 0;
+    return 0.5 * gravity * time * time;
   },
   // error = tier error x (1 - accuracy x 0.5) x (1 + target speed/10) x (1 + own speed/10) x settle x difficulty x hit-cap boost.
   aimError(id, target, now) {
     const tier = Bots.tier(id);
-    const targetSpeed = Math.hypot(Actors.vx[target], Actors.vz[target]), ownSpeed = Math.hypot(Actors.vx[id], Actors.vz[id]);
+    const targetSpeed = length2(Actors.vx[target], Actors.vz[target]), ownSpeed = length2(Actors.vx[id], Actors.vz[id]);
     const settle = 1 + AIM_SETTLE_EXTRA * (1 - clamp((now - this.trackStart[id]) / AIM_SETTLE_SECONDS, 0, 1));
     const error = tier.aimError * (1 - Bots.trait(id, TRAIT.accuracy) * 0.5) * (1 + targetSpeed / AIM_TARGET_SPEED) * (1 + ownSpeed / AIM_OWN_SPEED)
       * settle * Bots.aimErrorScale() * this.errorBoost[id];
@@ -296,8 +309,8 @@ const BotCombat = {
     if (!worthShooting(target, weapon)) return false;
     if (distance > weapon.primary.range || distance > weapon.botPref.range[1] * FIRE_RANGE_SLACK + MELEE_DISTANCE) return false;
     const yawOff = Math.abs(wrapAngle(Bots.lookYaw[id] - Actors.aimYaw[id])), pitchOff = Math.abs(Bots.lookPitch[id] - Actors.aimPitch[id]);
-    if (Math.hypot(yawOff, pitchOff) > (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG) return false;
-    return !tapped(weapon.primary) || Math.hypot(Weapons.recoilYaw[id], Weapons.recoilPitch[id]) * (1 - recoilControl(id)) <= FIRE_TAP_RECOIL;
+    if (length2(yawOff, pitchOff) > (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG) return false;
+    return !tapped(weapon.primary) || length2(Weapons.recoilYaw[id], Weapons.recoilPitch[id]) * (1 - recoilControl(id)) <= FIRE_TAP_RECOIL;
   },
   // auto/beam: hold; semi/burst: press every other tick; charge/release: hold, then let go. Only called with the target
   // in sight and the aim on it, so the shots of this tick (and a burst's later rounds) are licensed for the fairness record.
@@ -397,7 +410,7 @@ const BotCombat = {
   },
   strafe(id, target, tier, now) {
     if (now >= this.strafeCheckAt[id]) this.strafeCheck(id, tier, now);
-    const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz) || 1;
+    const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz) || 1;
     const towardX = dx / distance, towardZ = dz / distance;
     const weapon = Weapons.currentWeapon(id), range = weapon ? weapon.botPref.range : null;
     let along = -RANGE_BACKOFF;
@@ -408,7 +421,9 @@ const BotCombat = {
     const pathX = engaging && along <= 0 ? 0 : Bots.wishX[id] * Bots.wishAmount[id], pathZ = engaging && along <= 0 ? 0 : Bots.wishZ[id] * Bots.wishAmount[id];
     const reloading = Weapons.state[id] === WEAPON_STATE.RELOAD;
     const backX = reloading ? -towardX : engaging ? towardX * along : 0, backZ = reloading ? -towardZ : engaging ? towardZ * along : 0;
-    Bots.wish(id, pathX + backX - towardZ * side, pathZ + backZ + towardX * side, 1);
+    const wanted = botWish;
+    wanted.x = pathX + backX - towardZ * side; wanted.z = pathZ + backZ + towardX * side; wanted.amount = 1;
+    Bots.wishFrom(id);
   },
   strafeCheck(id, tier, now) {
     this.strafeCheckAt[id] = now + STRAFE_CHECK;
@@ -416,8 +431,10 @@ const BotCombat = {
     if (tier.jumps && !airborneOnlyRules() && Move.isGrounded(id) && Rng.bots.chance(COMBAT_JUMP_CHANCE * Bots.trait(id, TRAIT.jumpiness))) Bots.press(id, BTN.JUMP);
   },
   dodge(id, target) {
-    const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz) || 1;
-    Bots.wish(id, -dz / distance * this.dodgeSide[id], dx / distance * this.dodgeSide[id], 1);
+    const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz) || 1;
+    const wanted = botWish;
+    wanted.x = -dz / distance * this.dodgeSide[id]; wanted.z = dx / distance * this.dodgeSide[id]; wanted.amount = 1;
+    Bots.wishFrom(id);
   },
   // BOT-033: a seen enemy projectile on a near-miss course; after the reaction time, a tier chance (<= 60%) to dodge.
   checkDodge(id, now) {
@@ -431,14 +448,14 @@ const BotCombat = {
     const owner = Projectiles.owner[i];
     if (owner < 0 || owner === id || !Actors.isEnemy(id, owner) || Projectiles.serial[i] === this.dodgeSerial[id]) return false;
     const rx = Actors.x[id] - Projectiles.x[i], ry = Actors.eyeY(id) - 0.6 - Projectiles.y[i], rz = Actors.z[id] - Projectiles.z[i];
-    const distance = Math.hypot(rx, ry, rz);
+    const distance = length3(rx, ry, rz);
     if (distance > DODGE_RANGE) return false;
-    const vx = Projectiles.vx[i], vy = Projectiles.vy[i], vz = Projectiles.vz[i], speed = Math.hypot(vx, vy, vz);
+    const vx = Projectiles.vx[i], vy = Projectiles.vy[i], vz = Projectiles.vz[i], speed = length3(vx, vy, vz);
     const closing = (rx * vx + ry * vy + rz * vz) / Math.max(speed, 1e-6);
     if (closing <= 0 || closing / Math.max(speed, 1e-6) > DODGE_HORIZON) return false;
     const missSquared = distance * distance - closing * closing;
     if (missSquared > DODGE_MISS * DODGE_MISS) return false;
-    const yaw = Actors.yaw[id], facing = -(Math.sin(yaw) * rx + Math.cos(yaw) * rz) / Math.max(Math.hypot(rx, rz), 1e-6);
+    const yaw = Actors.yaw[id], facing = -(Math.sin(yaw) * rx + Math.cos(yaw) * rz) / Math.max(length2(rx, rz), 1e-6);
     return facing >= Math.cos(Bots.tier(id).fov * DEG / 2);   // "only when the projectile is seen"
   },
   planDodge(id, i, now) {
@@ -451,6 +468,46 @@ const BotCombat = {
     if (!Rng.bots.chance(chance)) return;
     this.dodgeUntil[id] = now + DODGE_SECONDS;
     if (Rng.bots.chance(Bots.trait(id, TRAIT.jumpiness)) && Move.isGrounded(id)) Bots.press(id, BTN.JUMP);
+  },
+
+  // ---- Weapon jumps (botTiers weaponJumps, trait T12 weaponJumper): out of a fight, a goal on a ledge just above is reached
+  // with a splash weapon fired at the feet in the jump ----
+  weaponJump(id, now) {
+    if (this.aimingJump(id, now)) { this.aimJump(id, now); return true; }
+    if (!this.wantsWeaponJump(id, now)) return false;
+    this.jumpUntil[id] = now + WEAPON_JUMP_AIM_SECONDS;
+    this.weaponJumpAt[id] = now;
+    this.aimJump(id, now);
+    return true;
+  },
+  aimingJump(id, now) { return now < this.jumpUntil[id]; },   // the view is the jump's (path following does not turn it)
+  // A weapon jump being aimed, or one wanted now (the goal stays until it is tried).
+  weaponJumpPending(id, now) { return this.aimingJump(id, now) || this.wantsWeaponJump(id, now); },
+  wantsWeaponJump(id, now) {
+    if (now - this.weaponJumpAt[id] < WEAPON_JUMP_REST || !Bots.tier(id).weaponJumps || Bots.trait(id, TRAIT.weaponJumper) <= BOT_TRAIT_NEUTRAL) return false;
+    const weapon = Weapons.currentWeapon(id);
+    if (!weapon || !weapon.primary.splash || !Move.isGrounded(id) || Actors.health[id] < Actors.maxHealth[id] * WEAPON_JUMP_HEALTH) return false;
+    const rise = BotDecide.goalY[id] - Actors.y[id], reach = length2(BotDecide.goalX[id] - Actors.x[id], BotDecide.goalZ[id] - Actors.z[id]);
+    return BotDecide.goal[id] !== GOAL.NONE && rise >= WEAPON_JUMP_RISE && reach <= WEAPON_JUMP_REACH && this.jumpBeatsWalking(id, length2(reach, rise));
+  },
+  // No walkable way up (the path failed or ends below the goal), or one WEAPON_JUMP_DETOUR times the straight line or
+  // longer (stairs nearby win).
+  jumpBeatsWalking(id, straight) {
+    if (BotMove.failed(id)) return true;
+    if (!BotMove.following(id)) return false;
+    return !BotMove.pathEndsAt(id, BotDecide.goalY[id]) || BotMove.pathLeft(id) >= straight * WEAPON_JUMP_DETOUR;
+  },
+  // The view turns straight down (at the motor's rate) facing away from the goal, so the blast lands on the far side and
+  // pushes the bot up and toward the ledge; there the bot jumps and fires in one step. The shot is licensed (ARC-033
+  // counts shots at enemies the bot does not perceive; this one is at its own feet).
+  aimJump(id, now) {
+    Bots.lookYaw[id] = Math.atan2(Actors.x[id] - BotDecide.goalX[id], Actors.z[id] - BotDecide.goalZ[id]);
+    Bots.lookPitch[id] = -BOT_PITCH_LIMIT;
+    if (Actors.aimPitch[id] > -WEAPON_JUMP_PITCH) return;
+    Bots.press(id, BTN.JUMP | BTN.FIRE);
+    this.licenseTarget[id] = -1; this.licenseUntil[id] = now;
+    this.jumpUntil[id] = 0;
+    this.uses.weaponJumps++;
   },
 
   // ---- Grenades (BOT-034), gadgets and abilities (BOT-035): pressed like a player, only on perceived conditions ----
@@ -474,7 +531,7 @@ const BotCombat = {
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
     const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
     this.throwYaw[id] = Math.atan2(dx, dz);
-    this.throwPitch[id] = solveThrowPitch(Math.hypot(dx, dz) - THROW_FORWARD, BotSense.knownY[pair] - Actors.eyeY(id));
+    this.throwPitch[id] = solveThrowPitch(length2(dx, dz) - THROW_FORWARD, BotSense.knownY[pair] - Actors.eyeY(id));
     this.throwCook[id] = row.cook ? Math.max(0, row.fuse - throwFlight - GRENADE_COOK_MARGIN) : 0;
     this.throwUntil[id] = now + GRENADE_AIM_SECONDS;
   },
@@ -499,7 +556,7 @@ const BotCombat = {
     let count = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (!BotSense.sees(id, other)) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[target], Actors.z[other] - Actors.z[target]) < GRENADE_CLUSTER) count++;
+      if (length2(Actors.x[other] - Actors.x[target], Actors.z[other] - Actors.z[target]) < GRENADE_CLUSTER) count++;
     }
     return count;
   },
@@ -570,7 +627,7 @@ const BotCombat = {
     const device = BotSense.mine[id];
     if (device < 0 || !Devices.active[device]) return;
     const row = CAT.gadgets[Devices.row[device]], clear = row.trigger + HAZARD_CLEARANCE;
-    const distance = Math.max(Math.hypot(Actors.x[id] - Devices.x[device], Actors.z[id] - Devices.z[device]), 1e-3);
+    const distance = Math.max(length2(Actors.x[id] - Devices.x[device], Actors.z[id] - Devices.z[device]), 1e-3);
     if (distance > row.trigger + HAZARD_LOOKAHEAD) return;
     if (row.crouchSafe) { if (distance <= clear) Bots.press(id, BTN.CROUCH); return; }
     this.steerAround(id, device, clear, distance);
@@ -682,7 +739,7 @@ function throwRange(pitch, rise) {
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
 function botUseWanted(id, use) {
-  if (!use || use.chance <= 0 || (use.tier && Bots.tier(id).tier < use.tier)) return false;
+  if (!use || use.chance <= 0 || (use.tierFlag && !Bots.tier(id)[use.tierFlag])) return false;
   if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;
   return Rng.bots.chance(use.chance);
 }
@@ -739,5 +796,5 @@ Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
 Bus.on('damage', (event) => BotCombat.onDamage(event));
 Bus.on('match.setup', () => {
   BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);
-  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0;
+  BotCombat.uses.abilities = 0; BotCombat.uses.grenades = 0; BotCombat.uses.gadgets = 0; BotCombat.uses.weaponJumps = 0;
 });

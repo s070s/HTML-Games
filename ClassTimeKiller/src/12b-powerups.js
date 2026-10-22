@@ -97,7 +97,7 @@ const Powerups = {
     if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
     if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
-    if (instant.heal) changed = Items.addHealth(id, instant.heal, Math.max(Actors.maxHealth[id], Damage.preset().overhealCap)) || changed;
+    if (instant.heal) changed = Damage.regenerate(id, instant.heal * this.healScale(id, instant), Damage.overhealCap(id)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
@@ -108,6 +108,8 @@ const Powerups = {
     this.charges[slot] += added;
     return added > 0;
   },
+  // C20 Soul Feast multiplies the heal of a soul (rows with instant.soul) for its holder.
+  healScale(id, instant) { return instant.soul ? soulCardFx(id, 'soulHeal', 1) : 1; },
   addSoul(id, count) {
     this.souls[id] += count;
     SOULS_EVENT.id = id; SOULS_EVENT.count = this.souls[id];
@@ -165,7 +167,7 @@ const Powerups = {
   applyMaxScales(id, healthScale, armorScale) {
     if (healthScale !== this.healthScale[id]) {
       Actors.maxHealth[id] = Actors.maxHealth[id] / this.healthScale[id] * healthScale;
-      Actors.health[id] = Math.min(Actors.health[id], Math.max(Actors.maxHealth[id], Damage.preset().overhealCap));
+      Actors.health[id] = Math.min(Actors.health[id], Damage.overhealCap(id));
       this.healthScale[id] = healthScale;
     }
     if (armorScale === this.armorScale[id]) return;
@@ -293,12 +295,13 @@ const Powerups = {
     this.ammoClock[id] -= AMMO_REGEN_INTERVAL;
     addAmmoShare(id, this.ammoRegen[id]);
   },
-  // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts.
+  // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts; the Ghost perk (Abilities.hiddenFromPulse) hides.
   reveal(id, dt) {
     this.seerClock[id] -= dt;
     if (this.seerClock[id] > 0) return;
     this.seerClock[id] += SEER_INTERVAL;
     for (let other = 0; other < Actors.count; other++) {
+      if (Abilities.hiddenFromPulse && Abilities.hiddenFromPulse(other)) continue;
       if (Actors.alive[other] && Actors.isEnemy(id, other)) Damage.addStatus(other, 'reveal', id, SEER_REVEAL_SECONDS, 1);
     }
   },
@@ -324,11 +327,7 @@ const Powerups = {
     return amount - absorbed;
   },
   // PU12: a share of damage dealt to others heals the dealer (up to the normal maximum).
-  onDamage(event) {
-    const source = event.source;
-    if (source < 0 || source === event.target || !Actors.alive[source] || this.lifesteal[source] <= 0) return;
-    Items.addHealth(source, event.amount * this.lifesteal[source], Actors.maxHealth[source]);
-  },
+  onDamage(event) { if (event.source >= 0) Damage.lifesteal(event, this.lifesteal[event.source]); },
   // PU14: boosted jumps (height x jumpScale = speed x its square root), one charge each; no fall damage while worn.
   onJump(event) {
     const id = event.id;

@@ -83,7 +83,7 @@ const Ladder = {
 const Challenges = {
   record(id) {
     const records = Progress.profile().challenges;
-    if (!isPlainRecord(records[id])) records[id] = {};
+    if (!isPlainObject(records[id])) records[id] = {};
     return fillMissing(records[id], { best: 0, stars: 0, expertBest: 0, expertStars: 0, plays: 0 });
   },
   isOpen(row) { return row.group <= Progress.roomGroup(); },
@@ -94,11 +94,13 @@ const Challenges = {
     for (const row of CAT.challenges) { const record = this.record(row.id); total += record.stars + record.expertStars; }
     return total;
   },
+  // Expert = bots expertTier tiers up plus the room's own `expert` mutators, else its kind's (CHALLENGE_EXPERT_MUTATORS).
+  expertMutators(row) { return row.expert.length ? row.expert : CHALLENGE_EXPERT_MUTATORS[row.kind]; },
   setup(id, expert, seed) {
     const row = CAT.challenges.byId(id), tier = clamp(row.tier + (expert ? row.expertTier : 0), 0, CAT.botTiers.length - 1);
     const bots = Array.from({ length: row.bots }, () => ({ tier }));
     return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal,
-      mutators: row.mutators.concat(expert ? row.expert : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
+      mutators: row.mutators.concat(expert ? this.expertMutators(row) : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
   },
   start(id, expert, random) {
     const row = CAT.challenges.byId(id);
@@ -159,7 +161,7 @@ const Operations = {
   freshState() { return { stage: 0, tickets: [OPERATION_TICKETS.base, OPERATION_TICKETS.base], wins: [0, 0], comeback: -1, done: false, result: '', completed: 0 }; },
   state(id) {
     const records = Progress.profile().operations;
-    if (!isPlainRecord(records[id])) records[id] = this.freshState();
+    if (!isPlainObject(records[id])) records[id] = this.freshState();
     return fillMissing(records[id], this.freshState());
   },
   reset(id) {
@@ -217,6 +219,7 @@ const Operations = {
 
 // ---- Daily Seed: the local date decides everything; best score per date, replayable, no streaks ----
 const Daily = {
+  generateMap: null,   // hook filled by the map generator (16w): fn(options) -> map row, MapGen.generate
   // 'YYYY-MM-DD' of a moment at a UTC offset in minutes (tests pin the offset; the game passes the device's).
   dateKey(milliseconds, offsetMinutes) {
     const shifted = new Date(milliseconds + offsetMinutes * MINUTE_MS);
@@ -225,7 +228,8 @@ const Daily = {
   },
   todayKey() { const now = Date.now(); return this.dateKey(now, -new Date(now).getTimezoneOffset()); },
   modes() { return DAILY_RULES.modes.filter((mode) => Modes.isPlayable(mode) && dailyHandMaps(mode).length > 0); },
-  // Mode, bundle, 2 non-conflicting mutators and the map, all from the date's seed.
+  // Mode, bundle, 2 non-conflicting mutators, the hand-made map and the generator id, all from the date's seed.
+  // Only setup() builds the generated map (tens to hundreds of ms), so showing the choice on the Daily screen stays cheap.
   choiceFor(key) {
     const seed = hashString('daily:' + key), random = makeRandom(seed);
     const mode = random.pick(this.modes()), ruleset = random.pick(DAILY_RULES.rulesets);
@@ -234,12 +238,12 @@ const Daily = {
       if (mutators.length >= DAILY_RULES.mutatorCount) break;
       if (!mutators.some((taken) => Mutators.conflicts(taken, id))) mutators.push(id);
     }
-    const hand = random.pick(dailyHandMaps(mode));
-    return { key, seed, mode, ruleset, mutators, map: hand.id, generated: dailyGeneratedMap(seed, mode) };
+    const hand = random.pick(dailyHandMaps(mode)), generator = random.pick(dailyGenerators(mode));
+    return { key, seed, mode, ruleset, mutators, map: hand.id, generator: Daily.generateMap && generator ? generator.id : '' };
   },
   setup(key) {
-    const choice = this.choiceFor(key);
-    return progressSetup({ mode: choice.mode, map: choice.generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
+    const choice = this.choiceFor(key), generated = dailyGeneratedMap(choice.seed, choice.mode, choice.generator);
+    return progressSetup({ mode: choice.mode, map: generated || choice.map, ruleset: choice.ruleset, mutators: choice.mutators.slice(),
       bots: Array.from({ length: DAILY_RULES.bots }, () => ({})), difficulty: DAILY_RULES.difficulty },
     { kind: 'daily', key }, choice.seed);
   },
@@ -262,12 +266,16 @@ const Daily = {
 
 // The hand-made maps (S03 catalogue) serving a mode: never the editor's saved or generated maps, which differ per device.
 function dailyHandMaps(mode) { return CAT.maps.filter((map) => map.modes.includes(mode)); }
-// MAP-020: a generated map when the map generator section is present (another helper builds MapGen), else null (hand-made map).
-function dailyGeneratedMap(seed, mode) {
-  if (typeof MapGen === 'undefined' || typeof MapGen.generate !== 'function') return null;
+// The map generators (GN rows) that build maps for the mode: a daily never plays on a generator made for other modes.
+function dailyGenerators(mode) { return CAT.generators.filter((row) => row.modes.includes(mode)); }
+// MAP-020: a map the date's generator builds for the mode at DAILY_RULES.mapSize (allowed on every quality tier, so every device
+// builds the same map); null (the hand-made map) without the generator hook or a generator for the mode, or when the map built
+// does not offer the mode (a fallback map for other modes).
+function dailyGeneratedMap(seed, mode, generatorId) {
+  if (!Daily.generateMap || !generatorId) return null;
   try {
-    const map = MapGen.generate({ seed, mode });
-    return map && typeof map === 'object' && Array.isArray(map.spawns) && map.spawns.length > 0 ? map : null;
+    const map = Daily.generateMap({ generator: generatorId, seed, mode, size: DAILY_RULES.mapSize });
+    return map && Array.isArray(map.spawns) && map.spawns.length > 0 && map.modes.includes(mode) ? map : null;
   } catch (error) {
     ErrorLog.add('daily map', error);
     return null;

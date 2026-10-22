@@ -15,6 +15,7 @@ const HARD_LANDING_SPEED = 15;                   // MOV-014: landing faster lock
 const LANDING_LOCK_SECONDS = 0.25;               // ...for this long
 const LANDING_PENALTY_SECONDS = 0.2;             // MOV-014 landingPenalty window
 const GROUND_PROBE = 0.06;                       // metres looked down for floor while airborne
+const SETTLE_REACH = STEP_HEIGHT + GROUND_PROBE;   // the settle and the floor probe look this far around the feet
 const GROUND_LEAVE_SPEED = 0.25;                 // moving off the floor plane faster than this is airborne (jumps, pads)
 const UNGROUND_SECONDS = 0.05;                   // after a jump or launch the floor probe pauses (no re-sticking)
 const EYE_SPEED = 6;                             // m/s the eye follows stance changes
@@ -26,6 +27,8 @@ const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
 const STILL_FRACTION = 0.02;                     // MOV-025: slower than this fraction of ground speed counts as standing
+const MOVE_SPREAD_DEGREES = 1;                   // WPN-003 without a MOV-025 table: + this x speed fraction f (x the mode's moveSpread)
+const AIR_SPREAD_DEGREES = 1.5;                  // WPN-003 air term without a MOV-025 table
 const AIR_ASSIST_ACCEL = 2;                      // MOV-018
 const SPRINT_INPUT = 0.5;                        // forward input needed to sprint
 const MOVE_FLAG_MASK = ACTOR_FLAG.ON_GROUND | ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE | ACTOR_FLAG.SPRINTING
@@ -55,10 +58,12 @@ const MatchMove = { rules: undefined, preset: null, gravityScale: 1, knockback: 
 const Move = {
   presetOverride: new Array(MAX_ACTORS).fill(null),   // per-actor preset rows (hero kits); null = the match preset
   weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S11: weapon moveMult x adsMoveMult (MOV-021)
+  weaponReadyTime: new Float32Array(MAX_ACTORS),          // written by S11: the held weapon's readyTime, added to sprintToFire (MOV-021)
   statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12 (Buffs only): slows and hastes
   gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
   footstepScale: new Float32Array(MAX_ACTORS).fill(1),    // footstep loudness factor, 0 = silent (S13: Quietstep perk)
+  safeLanding: new Uint8Array(MAX_ACTORS),                // 1 = the next landing deals no fall damage, then cleared (S13: royale drop-in)
   states: [],             // MOVE_STATE -> fn(id, preset, gravity, dt); 10b fills the special states
   actions: [],            // fn(id, preset) run before the state step: start special moves from input (10b)
   landHooks: [],          // fn(id, preset, impactSpeed) run on landing (10b: roll, stagger, slide-hop)
@@ -66,11 +71,12 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
-  horizontalSpeed(id) { return Math.hypot(Actors.vx[id], Actors.vz[id]); },
-  // MOV-025 movement inaccuracy in degrees for weapons (0 in presets without an inaccuracy table).
-  inaccuracy(id) {
+  horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
+  // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
+  // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
+  inaccuracy(id, tableOnly) {
     const table = this.preset(id).inaccuracy;
-    if (!table) return 0;
+    if (!table) return tableOnly ? 0 : defaultInaccuracy(id);
     const sinceLanding = Motion.sinceLanding[id];
     const landing = sinceLanding < table.landTime ? table.land * (1 - sinceLanding / table.landTime) : 0;
     return movingInaccuracy(id, table) + landing;
@@ -127,7 +133,7 @@ function resetMotion(id) {
 // ---- Shared physics (MOV-011/012): one friction rule, one acceleration rule ----
 function applyFriction(id, friction, stopSpeed, dt, includeVertical) {
   const vy = includeVertical ? Actors.vy[id] : 0;
-  const speed = Math.hypot(Actors.vx[id], vy, Actors.vz[id]);
+  const speed = length3(Actors.vx[id], vy, Actors.vz[id]);
   if (speed < 1e-6) return;
   const newSpeed = Math.max(0, speed - Math.max(speed, stopSpeed) * friction * dt);
   const scale = newSpeed / speed;
@@ -155,10 +161,17 @@ function yawToWorld(yaw, forward, strafe, out) {
 // Horizontal wish direction (unit) and amount (0..1) from the input axes.
 function horizontalWish(id) {
   yawToWorld(Actors.yaw[id], Motion.inputZ[id], Motion.inputX[id], wish);
-  const length = Math.hypot(wish.x, wish.z);
+  const length = length2(wish.x, wish.z);
   wish.amount = Math.min(1, length);
   wish.x = length > 1e-6 ? wish.x / length : 0; wish.y = 0; wish.z = length > 1e-6 ? wish.z / length : 0;
   return wish;
+}
+
+// A preset without sprint but with silent walking (MV02 Tactical) walks on the sprint button too: Shift walks (INP-003).
+function sprintWalks(preset) { return preset.sprintSpeed === 0 && preset.silentWalk; }
+function isWalking(id, preset) {
+  const buttons = Actors.buttons[id];
+  return (buttons & BTN.WALK) !== 0 || ((buttons & BTN.SPRINT) !== 0 && sprintWalks(preset));
 }
 
 // Top ground speed for the current stance, sprint, board and speed factors.
@@ -167,10 +180,10 @@ function groundWishSpeed(id, preset) {
   if (Motion.board[id]) speed = SKIMMER_SPEED;
   else if (getClock(id, CLOCK.TAC_SPRINT) > 0) speed = preset.tacSprintSpeed;
   else if (Motion.sprinting[id]) speed = preset.sprintSpeed;
-  const stance = Motion.stance[id];
+  const stance = Actors.flags[id] & ACTOR_FLAG.DOWNED ? STANCE.STAND : Motion.stance[id];   // HP-007: S11's DOWNED_SPEED alone sets the crawl
   if (stance === STANCE.CROUCH) speed *= preset.crouchMult;
   else if (stance === STANCE.PRONE) speed *= preset.proneMult;
-  else if (Actors.buttons[id] & BTN.WALK) speed *= preset.walkMult;
+  else if (isWalking(id, preset)) speed *= preset.walkMult;
   if (getClock(id, CLOCK.LAND_SLOW) > 0) speed *= preset.landingPenalty;
   return speed * Move.weaponSpeedScale[id] * Move.statusSpeedScale[id];
 }
@@ -281,22 +294,24 @@ function applyEndVelocity(mover, endVY) {
 
 // On the floor the velocity follows the floor plane with its speed kept (walking up a slope is not slower).
 function followGround(id, mover) {
-  const speed = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const speed = length3(mover.vx, mover.vy, mover.vz);
   addClipPlane(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id], Motion.groundBrush[id]);
   clipVelocity(mover, Motion.groundNX[id], Motion.groundNY[id], Motion.groundNZ[id]);
-  const clipped = Math.hypot(mover.vx, mover.vy, mover.vz);
+  const clipped = length3(mover.vx, mover.vy, mover.vz);
   if (clipped < 1e-6) return;
   mover.vx *= speed / clipped; mover.vy *= speed / clipped; mover.vz *= speed / clipped;
 }
 
+// Each piece gathers at least the settle reach past its travel, so the settle and floor probe after it reuse that brush
+// list (Collide.gatherAround) instead of walking the brush tree again.
 function sweepActor(id, mover, dt, stepHeight) {
-  const travel = Math.hypot(mover.vx, mover.vy, mover.vz) * dt;
+  const travel = length3(mover.vx, mover.vy, mover.vz) * dt;
   const pieces = clamp(Math.ceil(travel / SUB_STEP_DISTANCE), 1, MAX_SUB_STEPS);
   const firstPlanes = mover.planeCount;
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + stepHeight);
+    Collide.gatherAround(mover, travel / pieces + Math.max(stepHeight, SETTLE_REACH));
     const hit = stepHeight > 0 ? Collide.stepSlide(mover, dt / pieces, stepHeight) : Collide.slide(mover, dt / pieces);
     if (hit) recordWall(id, mover);
   }
@@ -314,11 +329,11 @@ function recordWall(id, mover) {
 
 // Leaves geometry if the move ended inside it; when that fails the actor goes back to where the step began.
 function settle(id, mover) {
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
   if (Collide.depenetrate(mover)) return;
   mover.x = Actors.x[id]; mover.y = Actors.y[id]; mover.z = Actors.z[id];
   mover.vx = mover.vy = mover.vz = 0;
-  Collide.gatherAround(mover, STEP_HEIGHT + GROUND_PROBE);
+  Collide.gatherAround(mover, SETTLE_REACH);
 }
 
 // Floor under the feet: snaps down stairs (up to the step height) while walking, never right after a launch.
@@ -348,7 +363,8 @@ function storeMover(id, mover) {
 // ---- Landing (MOV-013..015, MOV-024) ----
 function land(id, impactSpeed) {
   const preset = Move.preset(id);
-  const damage = fallDamage(preset, impactSpeed);
+  const damage = Move.safeLanding[id] ? 0 : fallDamage(preset, impactSpeed);
+  Move.safeLanding[id] = 0;
   if (damage > 0) requestDamage(id, -1, damage, 'fall', 'none');
   if (impactSpeed > HARD_LANDING_SPEED) setClock(id, CLOCK.JUMP_LOCK, LANDING_LOCK_SECONDS);
   if (preset.landingPenalty < 1) setClock(id, CLOCK.LAND_SLOW, LANDING_PENALTY_SECONDS);
@@ -378,7 +394,8 @@ function capHorizontalSpeed(id, cap) {
 function updateStance(id, preset) {
   if ((Actors.pressed[id] & BTN.PRONE) && preset.proneMult > 0) Motion.proneWanted[id] = Motion.proneWanted[id] ? 0 : 1;
   const crouching = (Actors.buttons[id] & BTN.CROUCH) !== 0 || Motion.sliding[id] === 1;
-  let wanted = Motion.proneWanted[id] && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
+  const lying = Motion.proneWanted[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0;   // HP-007: the downed crawl prone
+  let wanted = lying && Motion.grounded[id] ? STANCE.PRONE : crouching ? STANCE.CROUCH : STANCE.STAND;
   if (Motion.board[id] || Motion.state[id] === MOVE_STATE.SWIM || Motion.state[id] === MOVE_STATE.LADDER) wanted = STANCE.STAND;
   const current = Motion.stance[id];
   if (wanted === current) return;
@@ -416,7 +433,7 @@ function updateSprint(id, preset, dt) {
     && Motion.stance[id] === STANCE.STAND && !Motion.sliding[id] && Motion.state[id] === MOVE_STATE.WALK && !Motion.board[id];
   Motion.sprinting[id] = sprinting ? 1 : 0;
   if (!sprinting) setClock(id, CLOCK.TAC_SPRINT, 0);
-  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire);
+  if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire + Move.weaponReadyTime[id]);
   updateStamina(id, preset, sprinting, dt);
   updateTacticalCharges(id, preset, dt);
 }
@@ -438,12 +455,15 @@ function updateTacticalCharges(id, preset, dt) {
 }
 
 // ---- Input, clocks and double taps ----
+function isDowned(id) { return (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0; }
+
 function readInput(id) {
   const stopped = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0 || getClock(id, CLOCK.STAGGER) > 0 || Motion.state[id] === MOVE_STATE.MANTLE;
   Motion.inputX[id] = stopped ? 0 : clamp(Actors.moveX[id], -1, 1);
   Motion.inputZ[id] = stopped ? 0 : clamp(Actors.moveZ[id], -1, 1);
-  const pressed = !stopped && (Actors.pressed[id] & BTN.JUMP) !== 0;
-  const held = !stopped && (Actors.buttons[id] & BTN.JUMP) !== 0;
+  const noJump = stopped || isDowned(id);   // HP-007: a downed actor crawls but never jumps
+  const pressed = !noJump && (Actors.pressed[id] & BTN.JUMP) !== 0;
+  const held = !noJump && (Actors.buttons[id] & BTN.JUMP) !== 0;
   // jumpPressed stays a fresh press: air jumps, wall jumps, ladder push-offs and mantles never repeat while held.
   Motion.jumpPressed[id] = pressed ? 1 : 0;
   // X25 autohop: a held jump keeps the ground-jump buffer full, so only ground jumps repeat.
@@ -481,7 +501,8 @@ function stepActor(id, dt) {
   updateClocks(id, dt);
   readInput(id);
   updateStance(id, preset);
-  for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
+  // HP-007: no slide, dash, mantle or wall-run while downed
+  if (!isDowned(id)) for (let i = 0; i < Move.actions.length; i++) Move.actions[i](id, preset);
   updateSprint(id, preset, dt);
   (Move.states[Motion.state[id]] || walkState)(id, preset, gravity, dt);
   afterMove(id, preset, gravity, startX, startZ);
@@ -519,10 +540,10 @@ function writeFlags(id) {
 // Move.footstepScale scales both the bot noise and the 'move.step' loudness (0 = silent, the event still marks the stride).
 function countSteps(id, preset, startX, startZ) {
   if (!Motion.grounded[id] || Motion.sliding[id]) return;
-  Motion.stepDistance[id] += Math.hypot(Actors.x[id] - startX, Actors.z[id] - startZ);
+  Motion.stepDistance[id] += length2(Actors.x[id] - startX, Actors.z[id] - startZ);
   if (Motion.stepDistance[id] < STRIDE_METRES) return;
   Motion.stepDistance[id] = 0;
-  const walking = (Actors.buttons[id] & BTN.WALK) !== 0;
+  const walking = isWalking(id, preset);
   if (walking && preset.silentWalk) return;
   const loudness = (Motion.stance[id] === STANCE.STAND ? 1 : 0.5) * (walking ? 0.5 : 1) * Move.footstepScale[id];
   moveEvents['move.step'].loudness = loudness;
@@ -530,20 +551,24 @@ function countSteps(id, preset, startX, startZ) {
   emitNoise(id, FOOTSTEP_NOISE_RADIUS * loudness, 'step');
 }
 
+// WPN-003: MOVE_SPREAD_DEGREES x speed fraction f (capped at 1, 0 standing) + AIR_SPREAD_DEGREES off the ground.
+function defaultInaccuracy(id) {
+  const fraction = Math.min(1, Move.horizontalSpeed(id) / Move.preset(id).groundSpeed);
+  const moving = fraction < STILL_FRACTION ? 0 : MOVE_SPREAD_DEGREES * fraction;
+  return Motion.grounded[id] ? moving : moving + AIR_SPREAD_DEGREES;
+}
 function movingInaccuracy(id, table) {
   if (!Motion.grounded[id] || Motion.state[id] !== MOVE_STATE.WALK) return table.air;
-  const fraction = Move.horizontalSpeed(id) / Move.preset(id).groundSpeed;
+  const preset = Move.preset(id), fraction = Move.horizontalSpeed(id) / preset.groundSpeed;
   if (fraction < STILL_FRACTION) return 0;
   if (Motion.stance[id] !== STANCE.STAND) return table.crouch;
-  if ((Actors.buttons[id] & BTN.WALK) || fraction <= table.walkFraction) return table.walk;
+  if (isWalking(id, preset) || fraction <= table.walkFraction) return table.walk;
   return table.run;
 }
 
 // ---- Events (reused payloads: listeners copy what they keep) ----
 const moveEvents = {};
 for (const type of ['move.jump', 'move.land', 'move.step', 'move.slide', 'move.dash', 'move.mantle', 'move.wallrun']) moveEvents[type] = { id: 0, speed: 0, surface: '', loudness: 1 };
-const noiseEvent = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: 0 };
-
 function emitMove(type, id, speed, surface) {
   const payload = moveEvents[type];
   payload.id = id; payload.speed = speed; payload.surface = surface;
@@ -551,10 +576,7 @@ function emitMove(type, id, speed, surface) {
 }
 
 function emitNoise(id, radius, kind) {
-  if (radius <= 0) return;
-  noiseEvent.x = Actors.x[id]; noiseEvent.y = Actors.y[id]; noiseEvent.z = Actors.z[id];
-  noiseEvent.radius = radius; noiseEvent.kind = kind; noiseEvent.source = id;
-  Bus.emit('sound', noiseEvent);
+  emitSound(Actors.x[id], Actors.y[id], Actors.z[id], radius, kind, id);
 }
 
 function surfaceOf(id) {
@@ -568,7 +590,7 @@ function onImpulse(event) {
   if (id < 0 || id >= MAX_ACTORS || !Actors.alive[id]) return;
   matchPreset();
   let x = event.x * MatchMove.knockback, y = event.y * MatchMove.knockback, z = event.z * MatchMove.knockback;
-  const size = Math.hypot(x, y, z);
+  const size = length3(x, y, z);
   if (size > KNOCKBACK_CAP) { x *= KNOCKBACK_CAP / size; y *= KNOCKBACK_CAP / size; z *= KNOCKBACK_CAP / size; }
   Actors.vx[id] += x; Actors.vy[id] += y; Actors.vz[id] += z;
   if (y > GROUND_LEAVE_SPEED) unground(id);
@@ -577,10 +599,12 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
+TouchInput.stickSprints = () => !sprintWalks(matchPreset());   // a full touch-stick push in Tactical runs instead of walking
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;
   Move.weaponSpeedScale[id] = Move.statusSpeedScale[id] = Move.gravityScale[id] = Move.staminaScale[id] = Move.footstepScale[id] = 1;
+  Move.weaponReadyTime[id] = 0; Move.safeLanding[id] = 0;
   resetMotion(id);
 });
 Bus.on('actor.spawn', (event) => { resetMotion(event.id); Actors.flags[event.id] &= ~MOVE_FLAG_MASK; });   // S10 clears its own flags

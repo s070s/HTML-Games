@@ -496,8 +496,7 @@ const MapEditorTools = {
   keyId(event) { return (event.ctrlKey || event.metaKey ? 'ctrl+' : '') + (event.shiftKey ? 'shift+' : '') + event.code; },
   onKeyDown(event) {
     if (!this.inputLive()) return;
-    if (event.target && event.target.tagName === 'INPUT' && event.target.type === 'text') return;
-    if (event.target && event.target.tagName === 'TEXTAREA') return;
+    if (isTextField(event.target)) return;
     Input.setDevice('kbm');
     const hold = MAPEDIT_HOLD_KEYS[event.code], command = MAPEDIT_COMMAND_KEYS[this.keyId(event)];
     if (hold && !event.ctrlKey && !event.metaKey) { this.held[hold] = true; event.preventDefault(); return; }

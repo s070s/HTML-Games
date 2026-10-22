@@ -2,11 +2,8 @@
 // The energy bar (ABL-002: 100, regen 5/s after the meter row's regenDelay, +25 per kill orb; HPP08 suits: 25/s after 2 s;
 // a draining toggle or hold spends every step, so it never regenerates while it runs) and the match meter of
 // rules.meter (ECO-003): streak (score-based rewards), boost (time + score), adrenaline (kills, sprees, captures and
-// 4-tap combos), ultimate (5/s + 1 per damage or healing dealt). A34 souls home to their collector within 6 m (ABL-005).
+// 4-tap combos), ultimate (5/s + 1 per damage or healing dealt). The A34 souls are PU18 pickups counted in Powerups.souls (S12 12a/12b).
 
-const SOUL_CAP = 32;                     // soul orbs in the world at once (the oldest is recycled)
-const SOUL_PICKUP = 1;                   // metres: a soul this close is collected
-const SOUL_LIFT = 1;                     // souls float at chest height
 const TAP_CODES = { F: 0, B: 1, L: 2, R: 3 };
 const TAP_BITS = 2;
 const TAP_MASK = 0xff;                   // the last four taps
@@ -19,11 +16,8 @@ const Meters = {
   points: new Float32Array(MAX_ACTORS),            // the match meter value (0..row.max)
   rewardIndex: new Uint8Array(MAX_ACTORS),         // next streak / boost reward
   streakDiscount: new Float32Array(MAX_ACTORS),    // reward thresholds lowered by this (Hardline perk, S13 writes it)
-  souls: new Uint16Array(MAX_ACTORS),
   lifeKills: new Uint16Array(MAX_ACTORS),
   taps: new Uint8Array(MAX_ACTORS), tapCount: new Uint8Array(MAX_ACTORS), lastTap: new Int8Array(MAX_ACTORS).fill(-1),
-  soulAlive: new Uint8Array(SOUL_CAP), soulOwner: new Int8Array(SOUL_CAP), soulBorn: new Float64Array(SOUL_CAP),
-  soulX: new Float32Array(SOUL_CAP), soulY: new Float32Array(SOUL_CAP), soulZ: new Float32Array(SOUL_CAP),
 
   row() { return CAT.meters.byId(currentRules().meter) || CAT.meters[0]; },
   kind() { return this.row().id; },
@@ -85,7 +79,6 @@ const Meters = {
       if (row.passive > 0) this.addPoints(id, row.passive * dt);
       if (row.combos.length) this.readTaps(id, row);
     }
-    this.stepSouls(dt);
   },
 
   // ---- Adrenaline combos: four direction taps (F B L R) with a full meter ----
@@ -103,31 +96,6 @@ const Meters = {
     this.tapCount[id] = 0;
   },
 
-  // ---- Souls (A34): kills by an actor with Wrath drop a soul that homes to it ----
-  dropSoul(owner, x, y, z) {
-    let slot = 0;
-    for (let s = 0; s < SOUL_CAP; s++) {
-      if (!this.soulAlive[s]) { slot = s; break; }
-      if (this.soulBorn[s] < this.soulBorn[slot]) slot = s;
-    }
-    this.soulAlive[slot] = 1; this.soulOwner[slot] = owner; this.soulBorn[slot] = Sim.time;
-    this.soulX[slot] = x; this.soulY[slot] = y + SOUL_LIFT; this.soulZ[slot] = z;
-  },
-  stepSouls(dt) {
-    for (let s = 0; s < SOUL_CAP; s++) if (this.soulAlive[s]) this.stepSoul(s, dt);
-  },
-  stepSoul(s, dt) {
-    const owner = this.soulOwner[s];
-    if (!Actors.alive[owner]) return;
-    const dx = Actors.x[owner] - this.soulX[s], dy = Actors.y[owner] + SOUL_LIFT - this.soulY[s], dz = Actors.z[owner] - this.soulZ[s];
-    const distance = Math.hypot(dx, dy, dz), homing = Math.max(CAT.abilities.byId('wrath').params.homing, soulCardFx(owner, 'soulMagnet', 0));   // C11
-    if (distance <= SOUL_PICKUP) { this.soulAlive[s] = 0; this.souls[owner]++; return; }
-    if (distance > homing) return;
-    const step = Math.min(distance, SOUL_HOMING_SPEED * dt) / distance;
-    this.soulX[s] += dx * step; this.soulY[s] += dy * step; this.soulZ[s] += dz * step;
-  },
-  clearSouls() { this.soulAlive.fill(0); },
-
   // ---- Events ----
   onKill(event) {
     const victim = event.victim, killer = event.killer, row = this.row();
@@ -137,7 +105,6 @@ const Meters = {
     this.lifeKills[killer]++;
     this.addEnergy(killer, CAT.meters.byId('energy').perOrb);   // ABL-002 energy orb, collected by the killer
     this.addPoints(killer, row.perKill + (this.lifeKills[killer] % row.spreeKills === 0 ? row.perSpree : 0));
-    if (Abilities.slotOf(killer, 'wrath') >= 0) this.dropSoul(killer, event.x, event.y, event.z);
   },
   onScore(event) {
     if (event.id < 0 || event.points <= 0) return;
@@ -149,10 +116,10 @@ const Meters = {
     this.addPoints(event.source, event.amount * this.row().perDamage);
   },
   // A new actor: everything. A spawn: a full energy bar and no half-typed combo; the match meter (points, reward
-  // progress) and the souls stay across lives (streak meters restart through resetOnDeath on the kill).
+  // progress) stays across lives (streak meters restart through resetOnDeath on the kill).
   resetActor(id) {
     this.resetLife(id);
-    this.points[id] = 0; this.rewardIndex[id] = 0; this.souls[id] = 0; this.lifeKills[id] = 0; this.streakDiscount[id] = 0;
+    this.points[id] = 0; this.rewardIndex[id] = 0; this.lifeKills[id] = 0; this.streakDiscount[id] = 0;
   },
   resetLife(id) {
     this.energy[id] = this.energyMax(); this.lastEnergySpend[id] = -1e9;
@@ -164,7 +131,7 @@ const Meters = {
     target.kind = this.kind(); target.value = id >= 0 ? this.fraction(id) : 0;
     target.ready = id >= 0 && Abilities.ready(id, SLOT.ULTIMATE);
     target.energy = id >= 0 ? this.energyFraction(id) : 0;
-    target.souls = id >= 0 ? this.souls[id] : 0;
+    target.souls = id >= 0 ? Powerups.souls[id] : 0;
     return target;
   },
 };
@@ -187,14 +154,9 @@ function tapCode(taps) {
 }
 
 CAT.meters.forEach((row) => row.combos.forEach((combo) => { combo.code = tapCode(combo.taps); }));
-Render.addSource('souls', (batch) => {
-  for (let s = 0; s < SOUL_CAP; s++) if (Meters.soulAlive[s]) batch.mesh('sphere', Meters.soulX[s], Meters.soulY[s], Meters.soulZ[s], 0, 0, 0.25, 0.25, 0.25, 0.9, 0.95, 1, 1);
-});
 Sim.addSystem('meters', 22, (dt) => Meters.step(dt));
 Bus.on('actor.create', (id) => Meters.resetActor(id));
 Bus.on('actor.spawn', (event) => Meters.resetLife(event.id));
 Bus.on('kill', (event) => Meters.onKill(event));
 Bus.on('score', (event) => Meters.onScore(event));
 Bus.on('damage', (event) => Meters.onDamage(event));
-Bus.on('match.start', () => Meters.clearSouls());
-Bus.on('match.stop', () => Meters.clearSouls());

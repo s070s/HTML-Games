@@ -102,10 +102,11 @@ const Abilities = {
     if (kit && kit.passive && kit.passive.kind === 'ability') this.setSlot(id, SLOT.PASSIVE, CAT.abilities.byId(kit.passive.ability));
     Meters.fillSlots(id);
   },
-  // The kit's ability for one slot (or none), with the kit's cooldown override for that slot.
+  // The kit's ability for one slot (or none), with the kit's cooldown override for that slot. A soul mode
+  // (rules.params.souls: M21, M22) puts A34 Wrath Form in an ultimate slot the kit leaves empty (ABL-005).
   assignKitSlot(id, slot) {
     const kit = this.kitOf(id), slotName = ABILITY_SLOT_NAMES[slot];
-    const key = kit ? this.kitAbility(id, kit, slotName) : '';
+    const key = (kit ? this.kitAbility(id, kit, slotName) : '') || soulUltimate(slot);
     this.setSlot(id, slot, key ? CAT.abilities.byId(key) : null);
     const override = kit && kit.cooldowns ? kit.cooldowns[slotName] : 0;
     if (override > 0 && key) this.slotCooldown[this.index(id, slot)] = override;
@@ -175,9 +176,15 @@ const Abilities = {
       this.recharge(id, slot, row, dt);
       const i = this.index(id, slot);
       if (this.active[i] && stunned && row.activation !== 'passive' && this.interruptRule(row).stun) { this.end(id, slot, 'stun'); continue; }
+      if (this.active[i] && this.pressedAgain(id, slot, row)) { this.tryActivate(id, slot); continue; }   // the same press must not recast
       if (this.active[i]) this.stepActive(id, slot, row, dt);
       else if (!stunned) this.readInput(id, slot, row);
     }
+  },
+  // A second press of the slot button while a toggle runs turns it off, while a channel runs cancels it.
+  pressedAgain(id, slot, row) {
+    const button = SLOT_BUTTONS[slot];
+    return isCancellable(row) && button !== 0 && (Actors.pressed[id] & button) !== 0;
   },
   readInput(id, slot, row) {
     if (row.activation === 'ult') { if (this.canAfford(id, slot, row)) this.tryActivate(id, slot); return; }
@@ -224,7 +231,7 @@ const Abilities = {
     const row = this.row(id, slot), i = this.index(id, slot);
     if (!row) return false;
     if (this.active[i]) {
-      if (row.activation === 'toggle' || row.activation === 'channel') this.end(id, slot, 'cancel');
+      if (isCancellable(row)) this.end(id, slot, 'cancel');
       return false;
     }
     if (!this.usable(id, row) || !this.canAfford(id, slot, row)) return false;
@@ -244,10 +251,10 @@ const Abilities = {
     this.begin(id, SLOT.ULTIMATE, row);
     return true;
   },
-  // Streak / boost rewards load the ultimate slot for one use.
+  // Streak / boost rewards load the ultimate slot for one use; a soul mode keeps that slot for Wrath Form, so none load there.
   grantReward(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
-    if (!row) return false;
+    if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
     this.reward[id] = 1; this.rewardLoaded[id] = 1;
@@ -270,7 +277,7 @@ const Abilities = {
       case 'energy': return Meters.energy[id] >= Math.max(row.cost, TICK_EPSILON);
       case 'ultimate': return Meters.points[id] >= ultimateCost(id, row);
       case 'fuel': return this.fuel[i] > 0;
-      case 'souls': return Meters.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
+      case 'souls': return Powerups.souls[id] >= soulCardFx(id, 'wrathAt', row.cost);   // C09 Dark Pact lowers the cost
       default: return true;
     }
   },
@@ -282,7 +289,7 @@ const Abilities = {
     else if (row.resource === 'charges') this.spendCharge(i, row);
     else if (row.resource === 'energy') Meters.spendEnergy(id, row.cost);
     else if (row.resource === 'ultimate') Meters.spendPoints(id, ultimateCost(id, row));
-    else if (row.resource === 'souls') Meters.souls[id] = 0;
+    else if (row.resource === 'souls') Powerups.souls[id] = 0;
   },
   spendCharge(i, row) {
     if (this.charges[i] >= row.charges) this.cooldown[i] = this.slotCooldown[i];
@@ -361,6 +368,8 @@ const Abilities = {
   },
 };
 
+// Toggles and channels end on a second press of their button (tryActivate on an active slot).
+function isCancellable(row) { return row.activation === 'toggle' || row.activation === 'channel'; }
 function emitAbilityEvent(type, payload, id, row, slot, reason) {
   payload.id = id; payload.ability = row.id; payload.slot = ABILITY_SLOT_NAMES[slot];
   if (type === 'ability.end') payload.reason = reason;
@@ -376,6 +385,11 @@ function kitMatches(kit, rules) {
 // rules.family of the match: versus / pve / solo (no match = versus).
 function matchFamily() { return currentRules().family || 'versus'; }
 function modeAllows(modes) { return modes === matchFamily(); }
+// The automatic ultimate of a soul mode: Wrath Form casts itself once the collected PU18 souls pay for it.
+function soulUltimate(slot) {
+  const params = currentRules().params;
+  return slot === SLOT.ULTIMATE && params && params.souls ? SOUL_ULTIMATE : '';
+}
 function ultimateCost(id, row) { return Meters.ultimateCost(row); }
 
 // Hero pools (HPP05): health / armor / shield per hero instead of the preset's.

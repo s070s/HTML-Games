@@ -112,7 +112,7 @@ function hudCollectObservers(player) {
 // X35: a moving, standing-or-walking actor inside the range of any observer.
 function hudTracked(id) {
   if (HudExtra.radarMode === 'off') return false;
-  if (Math.hypot(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
+  if (length2(Actors.vx[id], Actors.vz[id]) < HUD_TRACKER_MIN_SPEED || (Actors.flags[id] & (ACTOR_FLAG.CROUCHED | ACTOR_FLAG.PRONE))) return false;
   const rangeSquared = HudExtra.radarRange * HudExtra.radarRange;
   for (let i = 0; i < HudExtra.observerCount; i++) {
     const observer = HudExtra.observers[i];
@@ -126,7 +126,9 @@ function hudMapEnemies(pen, map, player) {
   const reveal = HudExtra.revealIndex, bad = Hud.colors.bad;
   for (let id = 0; id < Actors.count; id++) {
     if (id === player || !Actors.alive[id] || !Actors.isEnemy(player, id)) continue;
-    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || hudTracked(id)) { hudMapDot(pen, map, Actors.x[id], Actors.z[id], 'circle', 7, bad, 1, true); continue; }
+    const ghost = Abilities.hiddenFromPulse !== null && Abilities.hiddenFromPulse(id);   // ECP04 Ghost perk: no tracker or shot blips
+    if (Damage.statusTime[id * STATUS_COUNT + reveal] > 0 || (!ghost && hudTracked(id))) { hudMapDot(pen, map, Actors.x[id], Actors.z[id], 'circle', 7, bad, 1, true); continue; }
+    if (ghost) continue;
     const age = Hud.time - HudExtra.blipAt[id];
     if (age < HUD_MAP_BLIP_SECONDS) hudMapDot(pen, map, HudExtra.blipX[id], HudExtra.blipZ[id], 'circle', 7, bad, 1 - age / HUD_MAP_BLIP_SECONDS * 0.6, true);
   }
