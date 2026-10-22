@@ -58,6 +58,8 @@ Test.add('world', (check) => {
   loadTestWorld([{ shape: 'box', min: [-6, 0, -2], max: [-5, 3, 2] }, { shape: 'box', min: [5, 0, -2], max: [6, 3, 2] }]);
   const hit = makeHit();
   check('raycast through two walls keeps the nearest', World.raycast(10, 1, 0, -1, 0, 0, 20, hit) && Test.near(hit.x, 6, 1e-4), hit.x);
+  check('an axis-parallel ray starting exactly on a box face plane still hits the box (faces count as inside)', World.raycast(6, 5, 2, 0, -1, 0, 10, hit)
+    && Test.near(hit.y, 3, 1e-4), hit.y);
   const blocked = !World.lineClear(10, 1, 0, -10, 1, 0);
   check('a sight line through two walls stops at the first wall its tree walk meets (the far one, left child first)', blocked && rayQuery.brush === World.brushes[1]
     && Test.near(rayQuery.fraction, 0.75, 1e-4), rayQuery.fraction);

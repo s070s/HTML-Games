@@ -223,10 +223,10 @@ function clipSlab(origin, direction, low, high) {
   return slab.near <= slab.far;
 }
 
-// 1 / direction per axis for the slab tests below; a direction this close to 0 counts as parallel (a huge inverse:
-// the slab passes only when the origin lies between its faces, as in clipSlab).
-const RAY_PARALLEL = 1e-9, RAY_PARALLEL_INVERSE = 1e30;
-const slabInverse = (direction) => (Math.abs(direction) < RAY_PARALLEL ? RAY_PARALLEL_INVERSE : 1 / direction);
+// 1 / direction per axis for the slab tests below; a direction this close to 0 counts as parallel (inverse 0: that slab
+// passes only when the origin lies between its faces, faces included, as in clipSlab).
+const RAY_PARALLEL = 1e-9;
+const slabInverse = (direction) => (Math.abs(direction) < RAY_PARALLEL ? 0 : 1 / direction);
 
 function setRayInverse(ray) {
   ray.ix = slabInverse(ray.dx); ray.iy = slabInverse(ray.dy); ray.iz = slabInverse(ray.dz);
@@ -236,13 +236,13 @@ function setRayInverse(ray) {
 // minZ maxX maxY maxZ: a tree node or brush.box). The ray stays in its object and the axes are written out, so no float
 // is passed to or returned from a call (boxed on the heap, PERF-006) and no division runs per box.
 function rayCrossesBox(ray, box, base) {
-  let near = 0, far = ray.limit;
-  let low = (box[base] - ray.sx) * ray.ix, high = (box[base + 3] - ray.sx) * ray.ix;
-  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
-  low = (box[base + 1] - ray.sy) * ray.iy; high = (box[base + 4] - ray.sy) * ray.iy;
-  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
-  low = (box[base + 2] - ray.sz) * ray.iz; high = (box[base + 5] - ray.sz) * ray.iz;
-  near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high));
+  let near = 0, far = ray.limit, low = 0, high = 0;
+  if (ray.ix === 0) { if (ray.sx < box[base] || ray.sx > box[base + 3]) return false; }
+  else { low = (box[base] - ray.sx) * ray.ix; high = (box[base + 3] - ray.sx) * ray.ix; near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high)); }
+  if (ray.iy === 0) { if (ray.sy < box[base + 1] || ray.sy > box[base + 4]) return false; }
+  else { low = (box[base + 1] - ray.sy) * ray.iy; high = (box[base + 4] - ray.sy) * ray.iy; near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high)); }
+  if (ray.iz === 0) { if (ray.sz < box[base + 2] || ray.sz > box[base + 5]) return false; }
+  else { low = (box[base + 2] - ray.sz) * ray.iz; high = (box[base + 5] - ray.sz) * ray.iz; near = Math.max(near, Math.min(low, high)); far = Math.min(far, Math.max(low, high)); }
   return near <= far;
 }
 
