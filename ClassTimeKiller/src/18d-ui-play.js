@@ -86,10 +86,21 @@ const PlayFlow = {
     return this.normalize({ mode: mode.id, map: map.id, bots, difficulty: pick(this.difficulties()).id });
   },
   // Same setup, fresh seed (results screen: play again); a career match (setup.progress) is rebuilt by its structure (S15).
+  // A winner-stays queue (M03 duel, results.queue) seats the bots in queue order: the winner stays, the loser waits last.
   playAgain(random) {
     if (!Game.match) return null;
     const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const results = Game.match.results;
+    if (!setup.progress && results && results.queue.length && setup.bots) setup.bots = this.queuedBots(setup.bots, results);
     return Game.start(setup);
+  },
+  // The setup's bots reordered by the queue names. Bots join in setup order, so the n-th bot actor (by id) is setup bot n.
+  queuedBots(bots, results) {
+    const botIds = results.players.filter((row) => row.kind !== ACTOR_KIND.PLAYER).map((row) => row.id).sort((a, b) => a - b);
+    const queued = results.queue.map((name) => results.players.find((row) => row.name === name && row.kind !== ACTOR_KIND.PLAYER))
+      .filter((row) => row).map((row) => botIds.indexOf(row.id));
+    const waiting = bots.map((bot, index) => index).filter((index) => !queued.includes(index));
+    return queued.concat(waiting).map((index) => bots[index]);
   },
   // Same mode and rules on the next map that lists the mode (not for career matches: they belong to their map).
   nextMap(random) {

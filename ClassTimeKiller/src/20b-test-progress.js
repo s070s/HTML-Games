@@ -565,6 +565,23 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
+// ---- M03 Duel winner-stays: Play again seats the winner against the next queued bot ----
+Test.add('progress', (check) => {
+  const opponent = () => {
+    for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id) && id !== Game.playerId) return id;
+    return -1;
+  };
+  Game.start({ mode: 'duel', map: 'spire', seed: 5, player: { name: 'You' }, bots: [{ name: 'Ash' }, { name: 'Birch' }, { name: 'Cedar' }] });
+  Modes.finish(Game.playerId);
+  PlayFlow.playAgain();
+  check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === 'Birch'
+    && Game.match.setup.bots.map((bot) => bot.name).join() === 'Birch,Cedar,Ash');
+  Modes.finish(opponent());
+  PlayFlow.playAgain();
+  check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === 'Birch' && Game.match.setup.bots.map((bot) => bot.name).join() === 'Birch,Cedar,Ash');
+  Game.stop();
+});
+
 // ---- Cards: equip rules, Marks, unlock conditions ----
 Test.add('progress', (check) => {
   check('cards: a locked card cannot be placed', !Cards.equip('stoneskin') && Cards.equipProblem('stoneskin') === CAT.cards.byId('stoneskin').unlock.text);
