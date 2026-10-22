@@ -538,6 +538,8 @@ function pauseForLoss() {
 // A frozen, paused screen has no way out: write the save and show the PLT-002 screen with a Reload button.
 function giveUpRestore() {
   if (!Render.lost) return;
+  // A restore after this screen must not resume a match nobody can see.
+  Render.pausedForLoss = false;
   if (Save.data) Save.saveNow();
   showFatal(GRAPHICS_LOST_TITLE, GRAPHICS_LOST_TEXT, '');
   if (document.getElementById('fatal-reload')) return;

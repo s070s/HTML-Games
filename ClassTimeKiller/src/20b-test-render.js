@@ -547,11 +547,12 @@ Test.add('render', (check) => withRenderer(async () => {
   check('world mesh re-uploaded after restore', WorldMesh.vertexArray !== null && Render.drawFrame(1 / 60, 1) && Render.gl.getError() === Render.gl.NO_ERROR);
   Bus.off('toast', listener);
   // No restore in time: the save is written and the fatal screen offers Reload. A quit during the loss forgets its pause,
-  // a match started during it waits, and a restore never lifts the player's own pause.
+  // a match started during it waits, and a restore after the Reload screen leaves the match paused behind it.
   const fatal = document.getElementById('fatal'), waitMs = Render.restoreWaitMs, saveNow = Save.saveNow;
   let writes = 0;
   Save.saveNow = function () { writes++; return saveNow.call(this); };
-  Render.restoreWaitMs = 200;
+  // Long enough for the quit below to finish before the wait ends, even under load.
+  Render.restoreWaitMs = 1000;
   try {
     extension.loseContext();
     await waitUntil(() => Render.lost, 3000);
@@ -559,15 +560,16 @@ Test.add('render', (check) => withRenderer(async () => {
     Bus.emit('match.stop', null);
     Game.state = 'menu'; Game.paused = false; writes = 0;
     check('a quit during the loss forgets its pause', !Render.pausedForLoss);
-    check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
     Game.state = 'playing';
     renderFrameHook(1 / 60, 1);
     check('a match started during the loss waits', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
-    Game.paused = false; Game.pause('menu');
+    check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
     extension.restoreContext();
-    check('a restore keeps the player\'s own pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'menu');
+    check('a restore after the Reload screen keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics');
   } finally {
     Save.saveNow = saveNow; Render.restoreWaitMs = waitMs;
+    const reload = document.getElementById('fatal-reload');
+    if (reload) reload.remove();
     fatal.classList.remove('show'); fatalShown = false;
   }
 }));
