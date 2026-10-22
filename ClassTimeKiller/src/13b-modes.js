@@ -587,7 +587,7 @@ const Modes = {
     const kind = this.rules.objective;
     if (!map || !map.objectives || kind === 'none') return;
     const companion = OBJECTIVE_COMPANIONS[kind];
-    for (const source of map.objectives) if (source.kind === kind || source.kind === companion) this.addObjective(source);
+    for (const source of map.objectives) if ((source.kind === kind || source.kind === companion) && mapServesMode(source, this.mode.id)) this.addObjective(source);
   },
   addObjective(source) {
     const objective = makeObjective(source, this.objectives.length);
