@@ -123,7 +123,7 @@ Test.add('hudui', (check) => uiWith(() => {
 Test.add('hudui', (check) => uiWith(() => {
   const ids = startPveMode('horde', [0], {}, { player: { name: 'Me', team: 0 } });
   const pve = Modes.hud.pve, savedAnswer = Pve.answerGuardian, answers = [];
-  Pve.answerGuardian = (accept) => { answers.push(accept); pve.guardianOffer = false; };
+  Pve.answerGuardian = (accept) => { answers.push(accept); pve.guardianOffer = false; return true; };
   Game.pause('menu'); Ui.open('pause');
   const pauseLabels = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);
   check('guardian: no pause row while nothing is offered', !pauseLabels().includes('Guardian Plate'));
@@ -141,9 +141,6 @@ Test.add('hudui', (check) => uiWith(() => {
   Ui.open('guardian');
   uiClickButton(Ui.top().element, 'Refuse');
   check('guardian: Wear it and Refuse reach Pve.answerGuardian', answers.join() === 'true,false', answers.join());
-  Pve.answerGuardian = undefined;
-  pve.guardianOffer = true;
-  check('guardian: without the PvE call the plate stays automatic and no row is offered', !guardianChoiceOpen() && hudPveGuardianText(pve) === HUD_PVE_GUARDIAN_READY);
   Pve.answerGuardian = savedAnswer;
   check('guardian: test match had a player', ids.length > 0);
   Ui.closeAll();

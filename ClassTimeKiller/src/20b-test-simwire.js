@@ -127,6 +127,8 @@ Test.add('simwire', (check) => {
   check('as many stars in less time replace it', Progress.chamberRecord(SIMWIRE_CHAMBER).seconds === 30 && Progress.chamberStars() === 2);
   Bus.emit('pve.chamber', { chamber: SIMWIRE_CHAMBER + 1, kind: 'enter', medal: '', stars: 0, seconds: 0 });
   check('entering a chamber records nothing', Progress.chamberRecord(SIMWIRE_CHAMBER + 1) === null);
+  Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = null;
+  check('a malformed chamber entry of an imported save counts no stars', Progress.chamberStars() === 2);
   Save.data = Save.emptySave();
 });
 
