@@ -57,6 +57,7 @@ const Damage = {
   reviveProgress: new Float32Array(MAX_ACTORS),     // seconds of the current revive (HUD: / REVIVE_SECONDS)
   lastStand: new Uint8Array(MAX_ACTORS),            // 1 = downed with the Last Stand pistol out (S11 weapons keep firing)
   lastStandBefore: new Int8Array(MAX_ACTORS).fill(-1),   // weapon index drawn before the Last Stand pistol
+  lastStandLent: new Int8Array(MAX_ACTORS).fill(-1),     // the Last Stand pistol's index when it was lent (not owned before), -1 none
   teamStanding: new Uint8Array(MAX_ACTORS),         // per team index: living actors that are not downed (step scratch)
   downedCount: 0,                                   // downed actors after the last step
   limbs: new Float32Array(MAX_ACTORS * LIMB_COUNT),
@@ -248,11 +249,14 @@ const Damage = {
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
   },
-  // ECP04 Last Stand: the downed actor fights on with a pistol (given when not owned; the old weapon comes back on revive).
+  // ECP04 Last Stand: the downed actor fights on with a pistol, lent outside the carry limit when not owned (so nothing is
+  // dropped); on revive or death the lent pistol goes back and the old weapon comes back.
   drawLastStand(id, weapon) {
     if (!weapon) return;
-    if (!Weapons.owned[Weapons.slotIndex(id, weapon.index)]) Weapons.give(id, weapon.id, 0);
     this.lastStandBefore[id] = Weapons.current[id];
+    const lent = !Weapons.owned[Weapons.slotIndex(id, weapon.index)];
+    if (lent) Weapons.give(id, weapon.id, 0, true);
+    this.lastStandLent[id] = lent ? weapon.index : -1;
     Weapons.current[id] = weapon.index;
     Weapons.state[id] = WEAPON_STATE.IDLE;
     this.lastStand[id] = 1;
@@ -260,6 +264,8 @@ const Damage = {
   endLastStand(id) {
     if (!this.lastStand[id]) return;
     this.lastStand[id] = 0;
+    if (this.lastStandLent[id] >= 0) Weapons.takeAway(id, this.lastStandLent[id]);
+    this.lastStandLent[id] = -1;
     const before = this.lastStandBefore[id];
     if (before >= 0 && Weapons.owned[Weapons.slotIndex(id, before)]) Weapons.current[id] = before;
   },
@@ -286,7 +292,7 @@ const Damage = {
     const killer = (source < 0 || source === target) && recent >= 0 ? recent : source;
     Actors.alive[target] = 0;
     Actors.flags[target] &= ~(ACTOR_FLAG.DOWNED | ACTOR_FLAG.FROZEN);
-    this.lastStand[target] = 0;
+    this.endLastStand(target);
     this.clearAllStatuses(target);
     const event = KILL_EVENT;
     event.victim = target; event.killer = killer; event.assister = this.recentAttacker(target, killer);
@@ -346,7 +352,7 @@ const Damage = {
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
     this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
-    this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0;
+    this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0; this.lastStandLent[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.shieldRegenBlockedUntil[id] = 0;
     this.limbs.fill(LIMB_POOL, id * LIMB_COUNT, (id + 1) * LIMB_COUNT);

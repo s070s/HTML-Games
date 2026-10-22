@@ -191,6 +191,21 @@ Test.add('damage', (check) => {
   TestArena.finish();
 });
 
+// ECP04 Last Stand at the carry limit: the pistol is lent on top, nothing is dropped, and it goes back on revive.
+Test.add('damage', (check) => {
+  TestArena.start({ health: 'regen', downed: true, carry: 2 });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5);
+  Weapons.setLoadout(target, ['lancet', 'tempest']);
+  Economy.perkKeys[target].add('lastStand');
+  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon), lancet = CAT.weapons.byId('lancet'), tempest = CAT.weapons.byId('tempest');
+  const owns = (weapon) => Weapons.owned[Weapons.slotIndex(target, weapon.index)] === 1;
+  TestArena.hit(shooter, target, 150);
+  check('ECP04 Last Stand at the carry limit keeps both carried weapons', Weapons.current[target] === pistol.index && owns(lancet) && owns(tempest) && Weapons.dropped === '');
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
+  check('ECP04 Last Stand: revive gives the held weapon back and takes the lent pistol', Weapons.current[target] === tempest.index && owns(lancet) && !owns(pistol), Weapons.current[target]);
+  TestArena.finish();
+});
+
 Test.add('damage', (check) => {
   TestArena.start({ health: 'ravager' });
   const target = TestArena.actor(2, 0, 5);

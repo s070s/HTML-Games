@@ -225,8 +225,9 @@ const Weapons = {
   },
   // Gives a weapon (full magazine and starting reserve). Owned already: adds its pickup ammo instead (WPN-007),
   // and a dual-wield weapon (W04) picked up a second time becomes a pair. At the carry limit the held weapon is
-  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section.
-  give(id, key, rarity) {
+  // replaced and its key (and rarity) left in Weapons.dropped (droppedRarity) for the items section; outsideCarry skips that
+  // (the Last Stand pistol is lent on top of the carried weapons).
+  give(id, key, rarity, outsideCarry) {
     const weapon = CAT.weapons.byId(key);
     this.dropped = '';
     this.droppedRarity = 0;
@@ -234,7 +235,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -270,6 +271,11 @@ const Weapons = {
     this.dropped = CAT.weapons[victim].id;
     this.droppedRarity = this.rarity[slot];
     if (this.current[id] === victim) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
+  },
+  // Takes a weapon away without a drop (a lent weapon going back); the held one is put away.
+  takeAway(id, weaponIndex) {
+    this.owned[this.slotIndex(id, weaponIndex)] = 0;
+    if (this.current[id] === weaponIndex) { this.current[id] = -1; this.state[id] = WEAPON_STATE.IDLE; }
   },
   firstCarried(id) {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) return w;
