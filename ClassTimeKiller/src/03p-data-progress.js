@@ -91,7 +91,7 @@ const MASTERY_TIERS = [
 // ---- Cards (spec 15 card table, MIS-035): 3 active slots (each used once per level, 30 s) + 2 passive slots; placing costs
 // Marks, removing refunds half. versus: allowed in versus matches with X48 (rules.fx.cards); PvE matches always allow cards.
 // effect: { kind, value } read by the generic effect code in 15d. unlock: { metric, op, value } over the run metrics of one
-// finished PvE level (RunLog in 15a + results.pve from the PvE section); hard: the difficulty is at least CARD_HARD_DIFFICULTY.
+// finished PvE level (the RunLog metrics in 15a; enemiesLeft from 14j at level end); hard: the difficulty is at least CARD_HARD_DIFFICULTY.
 const CARD_SLOTS = { active: 3, passive: 2 };
 const CARD_ACTIVE_SECONDS = 30;
 const CARD_REFUND = 0.5;

@@ -2,7 +2,7 @@
 // MP01 Foundry Spire (duel, ffa, party modes) - vertical, three levels, Fury Core on the exposed north bridge.
 // Rows use the compact MapKit lists (see 16a-maps.js): brushes [material, min xyz, max xyz (, rampDir)].
 
-// Free-for-all party modes (M15, M17, M18, M19, M24, M25): every arena with 16 free spawns offers them (MP01, MP02, MP06).
+// Free-for-all party modes (M15, M17, M18, M19, M24, M25): every map with 16+ free spawns offers them (MP01, MP02, MP06).
 const MAP_PARTY_MODES = ['lms', 'infection', 'juggernaut', 'cursetag', 'bearer', 'roulette'];
 
 Maps.rows.push(MapKit.make({
