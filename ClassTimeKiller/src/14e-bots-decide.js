@@ -49,7 +49,8 @@ const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close t
 const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
 const BEACON_URGENCY = 0.95;            // M20: a squad with a member out and a beacon use left goes to hold Use at its beacon
 const SQUAD_KEEP = 12;                  // m: a royale squadmate farther than this from its squad leader goes back to it...
-const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that distance or more (less nearer)
+const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that distance or more (less nearer)...
+const SQUAD_FIGHT_KEEP = 24;            // ...but a bot with a target stays in its fight up to this far (objectives outrank chases)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
@@ -679,12 +680,13 @@ function planSquad(id, plan) {
   return true;
 }
 
-// Farther than SQUAD_KEEP m from the leader: back to it, more urgently the farther it is.
+// Farther than SQUAD_KEEP m from the leader: back to it, more urgently the farther it is. Any objective plan scores
+// OBJECTIVE_BASE or more and so beats every chase: a bot with a target leaves its fight only past SQUAD_FIGHT_KEEP m.
 function followSquad(id, squad, plan) {
   const leader = squadLeader(squad);
   if (leader < 0 || leader === id) return false;
   const distance = length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]);
-  if (distance <= SQUAD_KEEP) return false;
+  if (distance <= (BotCombat.target[id] >= 0 ? SQUAD_FIGHT_KEEP : SQUAD_KEEP)) return false;
   setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], SQUAD_KEEP * SPREAD_FRACTION, ACTION.MOVE, -1);
   plan.score = SQUAD_FOLLOW_URGENCY * Math.min(1, (distance - SQUAD_KEEP) / SQUAD_KEEP);
   return true;

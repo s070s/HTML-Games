@@ -55,6 +55,7 @@ const CHOKE_SMOKE_EFFECT = 'smoke';     // BOT-034: an attacking bot throws this
 const CHOKE_SMOKE_CORRIDOR = 4;         // ...m at most beside the straight line there...
 const CHOKE_SMOKE_SHORT = 3;            // ...and at least this many m short of the target (nearer it, the 'between' screen covers it)
 const CHOKE_SMOKE_REST = 15;            // s between two choke smokes of one bot
+const CHOKE_SMOKE_INDEX = CAT.gadgets.findIndex((row) => row.kind === 'thrown' && row.effect === CHOKE_SMOKE_EFFECT);   // its gadget row
 const WEAPON_JUMP_RISE = 2.5, WEAPON_JUMP_REACH = 8;   // m: a goal this much higher and at most this far away is weapon-jumped to...
 const WEAPON_JUMP_HEALTH = 0.6, WEAPON_JUMP_REST = 6;  // ...from above 60% health, at most once every 6 s
 const WEAPON_JUMP_AIM_SECONDS = 0.6, WEAPON_JUMP_PITCH = 70 * DEG;   // the view turns down for at most 0.6 s; it fires below -70 degrees
@@ -525,16 +526,18 @@ const BotCombat = {
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
     if (now >= this.gadgetAt[id]) this.tryGadget(id, now);
   },
-  // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen; a smoke also goes at
-  // a choke hint on an attacking bot's way to its target (chokeToSmoke).
+  // Thrown rows by BOT_GADGET_USE: at the target's believed place, or half way there for a screen; a carried smoke also
+  // goes at a choke hint on an attacking bot's way to its target (chokeToSmoke). When another type is selected, the bot
+  // presses CYCLE_GRENADE like a player and throws at a later kit check, once the smoke is the selected type.
   tryGrenade(id, now) {
     const pace = kitPace(id);
     this.grenadeAt[id] = now + KIT_CHECK_INTERVAL / pace;
     const target = this.target[id], row = carriedRow(id, Gadgets.grenade[id]);
+    if (target < 0) return;
+    const choke = carriedRow(id, CHOKE_SMOKE_INDEX) ? chokeToSmoke(id, target, now) : null;
+    if (choke && Gadgets.grenade[id] !== CHOKE_SMOKE_INDEX) { Bots.press(id, BTN.CYCLE_GRENADE); return; }
     const use = row ? BOT_GADGET_USE[row.effect] : null;
-    if (target < 0 || !use) return;
-    const choke = row.effect === CHOKE_SMOKE_EFFECT ? chokeToSmoke(id, target, now) : null;
-    if ((!choke && !botUseWanted(id, use)) || !BotTeam.takeGrenadeToken(id, now)) return;
+    if (!use || (!choke && !botUseWanted(id, use)) || !BotTeam.takeGrenadeToken(id, now)) return;
     this.grenadeAt[id] = now + GRENADE_INTERVAL / pace;
     if (choke) { this.chokeSmokedAt[id] = now; this.planThrow(id, row, choke.x - Actors.x[id], choke.z - Actors.z[id], choke.y, now); return; }
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;

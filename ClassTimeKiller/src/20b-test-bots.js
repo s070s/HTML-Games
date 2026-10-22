@@ -860,10 +860,38 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
+// A class loadout gives the lethal first, so the frag is selected: the chasing bot presses CYCLE_GRENADE (one honest
+// input edge through the sim), and at its next kit check throws the smoke at the choke.
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [CHOKE_ON_WAY] }));
+  const pair = BotSense.pair(bot, dummy), smoke = CAT.gadgets.byId(CHOKE_SMOKE_ROW);
+  const now = Sim.time + GRENADE_TOKEN_INTERVAL;
+  const aimAtTarget = () => {
+    BotDecide.goal[bot] = GOAL.CHASE; BotCombat.target[bot] = dummy;
+    BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+  };
+  placeFacing(bot, 0, -10, 0);
+  Gadgets.clearGrenades(bot); Gadgets.give(bot, 'frag', 1); Gadgets.give(bot, CHOKE_SMOKE_ROW, 1);
+  check('frag then smoke: the frag is the selected type', Gadgets.grenade[bot] === CAT.gadgets.byId('frag').index);
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now);
+  check('the chasing bot presses CYCLE_GRENADE and plans no throw yet', (Bots.buttonsWanted[bot] & BTN.CYCLE_GRENADE) !== 0
+    && BotCombat.throwUntil[bot] < now);
+  Actors.buttons[bot] = Bots.buttonsWanted[bot];
+  Sim.run(1);
+  check('the press selects the smoke', Gadgets.grenade[bot] === smoke.index);
+  aimAtTarget();
+  BotCombat.tryGrenade(bot, now);
+  const towardChoke = Math.atan2(CHOKE_ON_WAY.x - Actors.x[bot], CHOKE_ON_WAY.z - Actors.z[bot]);
+  check('at the next check it throws the smoke at the choke', BotCombat.throwUntil[bot] > now && BotCombat.chokeSmokedAt[bot] === now
+    && Math.abs(wrapAngle(BotCombat.throwYaw[bot] - towardChoke)) < 1e-6, BotCombat.throwYaw[bot] + ' ' + towardChoke);
+  endBotTest();
+});
+
 // ---- M20 squads (audit 12): a squadmate far from its leader goes back to it; with a squadmate out, a bot holds Use at
 // the squad's beacon until the beacon brings it back (the ring wins over a beacon outside it) ----
 const SQUAD_ENTRIES = [{ dummy: true }, { dummy: true }, { tier: 3 }, { dummy: true }, { dummy: true }, { dummy: true }];
-const SQUAD_DROP_SECONDS = 3, SQUAD_FAR = 30, SQUAD_NEAR = 5, ENEMY_BEHIND_WALL = 20;
+const SQUAD_DROP_SECONDS = 3, SQUAD_FAR = 30, SQUAD_MIDDLE = 18, SQUAD_NEAR = 5, ENEMY_BEHIND_WALL = 20;
 
 Test.add('bots', (check) => {
   const [leader, enemy, bot, enemy2, mate, enemy3] = startBotTest(botTestMap(true), 'royale', { bots: SQUAD_ENTRIES });
@@ -874,6 +902,11 @@ Test.add('bots', (check) => {
   placeActor(leader, beaconX, beaconZ); placeActor(bot, beaconX + SQUAD_FAR, beaconZ);
   check('a squadmate far from its leader goes back to it', planSquad(bot, plan) && plan.x === Actors.x[leader] && plan.z === Actors.z[leader]
     && plan.action === ACTION.MOVE && plan.score === SQUAD_FOLLOW_URGENCY, JSON.stringify(plan));
+  placeActor(bot, beaconX + SQUAD_MIDDLE, beaconZ); BotCombat.target[bot] = -1;
+  const followsFree = planSquad(bot, plan);
+  BotCombat.target[bot] = enemy;
+  check('in between, it goes back only without a fight (a target keeps it up to SQUAD_FIGHT_KEEP m)', followsFree && !planSquad(bot, plan));
+  BotCombat.target[bot] = -1;
   placeActor(bot, beaconX + SQUAD_NEAR, beaconZ);
   check('near its leader it is free, and the leader follows nobody', !planSquad(bot, plan) && !planSquad(leader, plan));
   Actors.alive[mate] = 0;
@@ -1013,7 +1046,7 @@ function equipKit(id, kits) {
   kit.abilities.forEach((row, slot) => Abilities.setSlot(id, slot, row));
   for (const row of kit.gadgets) {
     Gadgets.give(id, row.id, row.kind === 'thrown' ? KIT_GRENADES : 1);
-    Gadgets.select(id, row.id);   // bots throw the selected grenade type (there is no grenade-cycle button)
+    Gadgets.select(id, row.id);   // bots throw the selected grenade type (they cycle only to smoke a choke)
   }
 }
 
