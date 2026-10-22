@@ -73,9 +73,13 @@ function progressTeamMatch(mode, map) {
 // each one an airborne headshot in one streak, no misses, no damage, no deaths, a win, at PROGRESS_TEST_PAR_SHARE of par
 // (rooms without par: of the time limit).
 const PROGRESS_TEST_PAR_SHARE = 0.5;
+const PROGRESS_TEST_WAVE_KILLS = 6;     // a flawless wave room: the player's kills per wave
+const PROGRESS_TEST_COURSE_KILLS = 20;  // a flawless range course: targets down
+// PRG-004: the modes each room kind plays (a wave survival is Siege Waves, a ghost run a stealth contract, accuracy a course or a fight).
+const PROGRESS_TEST_ROOM_MODES = { timeTrial: ['ffa', 'duel'], killChain: ['ffa'], waveSurvival: ['horde'], dropKill: ['ffa'], ghostRun: ['contract'], accuracy: ['ffa', 'range'] };
 function progressBestRun(row) {
   const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
-  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const kills = row.options.scoreLimit || row.waves * PROGRESS_TEST_WAVE_KILLS || (row.bots ? row.bots * (lives ? lives.value : 1) : PROGRESS_TEST_COURSE_KILLS);
   const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
   return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
 }
@@ -402,7 +406,8 @@ Test.add('progress', (check) => {
   for (const row of CAT.challenges) {
     const setup = Challenges.setup(row.id, true, 1);
     Rules.build(setup);
-    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
+    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots
+      && (row.bots === 0 || setup.bots[0].tier === Math.min(7, row.tier + row.expertTier));
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
   const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
@@ -438,10 +443,10 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
-// ---- PRG-004 wave survival: time pays only while the player still has lives ----
+// ---- PRG-004 lives: time pays only while the player still has lives ----
 Test.add('progress', (check) => {
   const survive = (outAfter, endAfter) => {
-    Challenges.start('holdout', false);
+    Game.start(progressSetup({ mode: 'ffa', map: 'gantry', bots: [{}, {}, {}], mutators: [{ id: 'lives', value: 3 }], modeOptions: { scoreLimit: 0, timeLimit: 300 } }, null, 1));
     const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
     progressAdvance(outAfter);
     for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
@@ -884,4 +889,20 @@ Test.add('progress', (check) => {
   }
   check('mastery: each tier reward is its one unlock row', MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value; }) && CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
   check('rooms: a room named after a map plays on that map', CAT.challenges.every((room) => !/Keep/.test(room.name) || room.map === 'twinkeeps'));
+  const wrong = CAT.challenges.filter((room) => !PROGRESS_TEST_ROOM_MODES[room.kind].includes(room.mode)).map((room) => room.code);
+  check('rooms: room kinds map to modes per the spec table (waves on Siege Waves, ghost runs on Silent Contract, a course on the range)', wrong.length === 0
+    && CAT.challenges.some((room) => room.mode === 'range' && room.map === 'provinggrounds'), wrong.join());
+});
+
+// ---- PvE rooms end: a wave room after its waves, the range course at its clock, both as a win ----
+Test.add('progress', (check) => {
+  Challenges.start('holdout', false);
+  const run = Modes.behaviour.run, room = CAT.challenges.byId('holdout');
+  runUntil(() => !Modes.active, 400, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(Game.playerId); });
+  check('rooms: a wave room ends as a win once its waves are cleared', !Modes.active && run.wave === room.waves && Progress.outcome(Game.match.results) === 'win' && PVE_HUD.waves === room.waves, run.wave);
+  Challenges.start('markYard', false);
+  progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
+  Sim.run(1);
+  check('rooms: the range course ends as a win at its clock', !Modes.active && Progress.outcome(Game.match.results) === 'win');
+  Game.stop();
 });

@@ -132,6 +132,28 @@ const Challenges = {
   },
 };
 
+// ---- A room on a PvE mode ends here: Siege Waves runs ten waves and the range keeps no clock, so a wave room ends as a win
+// after its `waves` cleared waves and the range course at its time limit (at the rules stage, like the operation tickets) ----
+const ChallengeRun = {
+  row: null,
+  wavesCleared: 0,
+  onStart(match) {
+    const tag = match.setup.progress;
+    this.row = tag && tag.kind === 'challenge' && Modes.active && Modes.rules.family !== 'versus' ? CAT.challenges.byId(tag.id) : null;
+    this.wavesCleared = 0;
+    if (this.row && this.row.waves > 0) PVE_HUD.waves = this.row.waves;   // the wave HUD counts the room's waves
+  },
+  onWave(event) { if (this.row && event.phase === 'end') this.wavesCleared++; },
+  step() {
+    const row = this.row;
+    if (!row || !Modes.active) return;
+    const cleared = row.waves > 0 && this.wavesCleared >= row.waves, timeUp = Modes.rules.timeLimit > 0 && Modes.timeLeft(Sim.time) <= 0;
+    if (!cleared && !timeUp) return;
+    this.row = null;
+    Modes.finish(Modes.over(coopWinner(), cleared ? PVE_WIN : 'time'));
+  },
+};
+
 // ---- Operations: three maps, tickets carried over, the comeback unit ----
 const OperationRun = {
   active: false,
@@ -306,6 +328,10 @@ Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
 Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
 Progress.addNext('operation', (tag) => Operations.nextStep(tag));
 Sim.addSystem('operationTickets', 75, () => OperationRun.step());
+Sim.addSystem('challengeEnd', 75, () => ChallengeRun.step());
+Bus.on('match.start', (match) => ChallengeRun.onStart(match));
+Bus.on('match.stop', () => { ChallengeRun.row = null; });
+Bus.on('pve.wave', (event) => ChallengeRun.onWave(event));
 Bus.on('match.start', (match) => OperationRun.onStart(match));
 Bus.on('match.stop', () => { OperationRun.active = false; });
 Bus.on('kill', (event) => OperationRun.onKill(event));
