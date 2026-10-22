@@ -10,13 +10,14 @@
 // Placed/deployed: health (0 = cannot be destroyed), arm (s before it works), trigger (proximity m), coneDeg (360 = all
 // around), range, rate (shots/s), max (active per owner, GAD-003: 1 each type), perTeam (one per team), cooldown
 // (s to recharge one use; 0 = consumed), count (devices per use), speed (drones m/s), launch (lift height m),
-// heal / drain (per s), amount (supply: fraction of max ammo per second), pulses + interval, knockback (m/s), pull (m/s^2).
+// heal / drain (per s), amount (supply: fraction of max ammo per second), pulses + interval, knockback (m/s), pull (m/s^2),
+// crouchSafe (mines: crouched or prone enemies pass without setting it off).
 Data.define('gadgets', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, effect: REQUIRED, carry: 1, cooldown: 0, fuse: 0, cook: false,
   impact: false, stick: false, stickActors: false, bounce: 0.45, radius: 0, duration: 0, damage: 0, element: 'kinetic',
   status: '', statusSeconds: 0, ownerSafe: false, health: 0, arm: 0, trigger: 0, coneDeg: 360, range: 0, rate: 0, max: 1,
   perTeam: false, count: 1, speed: 0, launch: 0, heal: 0, drain: 0, amount: 0, pulses: 0, interval: 0, knockback: 0, pull: 0,
-  size: [0.3, 0.3, 0.3], shape: 'sphere', color: 0x808080, counter: '', botUse: '', index: 0,
+  crouchSafe: false, size: [0.3, 0.3, 0.3], shape: 'sphere', color: 0x808080, counter: '', botUse: '', index: 0,
 }, [
   { id: 'frag', code: 'G01', name: 'Frag Charge', kind: 'thrown', effect: 'explode', carry: 2, fuse: 2.5, cook: true, radius: 5, damage: 100,
     size: [0.22, 0.22, 0.22], color: 0x4a5a3a, counter: 'throw it back or run', botUse: 'groups and cover' },
@@ -36,7 +37,7 @@ Data.define('gadgets', {
     size: [0.22, 0.22, 0.22], color: 0xb0e8ff, botUse: 'stop a rusher' },
   { id: 'singularity', code: 'G09', name: 'Sink Charge', kind: 'thrown', effect: 'singularity', fuse: 1, radius: 6, duration: 4, damage: 60, pull: 14, element: 'void',
     size: [0.24, 0.24, 0.24], color: 0x7a40ff, counter: 'dash out', botUse: 'groups' },
-  { id: 'claymore', code: 'G10', name: 'Tripjaw Mine', kind: 'placed', effect: 'mine', arm: 1.5, trigger: 2.5, coneDeg: 60, radius: 3, damage: 150, health: 30,
+  { id: 'claymore', code: 'G10', name: 'Tripjaw Mine', kind: 'placed', effect: 'mine', arm: 1.5, trigger: 2.5, coneDeg: 60, crouchSafe: true, radius: 3, damage: 150, health: 30,
     shape: 'box', size: [0.3, 0.2, 0.12], color: 0x3a4a2a, counter: 'shoot it or crouch past', botUse: 'guard a door' },
   { id: 'prox', code: 'G11', name: 'Burr Mine', kind: 'placed', effect: 'mine', stick: true, arm: 2, trigger: 2, radius: 3, damage: 100, health: 30,
     size: [0.18, 0.18, 0.18], color: 0x5a3a3a, counter: 'shoot it', botUse: 'guard an item' },
