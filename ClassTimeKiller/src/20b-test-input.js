@@ -732,6 +732,20 @@ Test.add('input', (check) => {
   inputReleasePad();
 });
 
+// The comm wheel picks with the look the devices already inverted: with invert-Y on, moving the mouse up picks the bottom callout.
+Test.add('input', (check) => {
+  const id = startInputMatch();
+  Input.locked = true;
+  const pickAfterMouseUp = () => { CommWheel.onComm(true); inputMouseMove(0, -100); Input.frame(INPUT_TEST_FRAME); const picked = CommWheel.selected; CommWheel.reset(); return picked; };
+  const plain = pickAfterMouseUp();
+  setInputSetting('controls.invertY', true);
+  const inverted = pickAfterMouseUp();
+  setInputSetting('controls.invertY', false);
+  check('comm wheel: mouse up picks the top callout', plain === 0, plain);
+  check('comm wheel: with invert-Y, mouse up picks the bottom one (the wheel follows the look setting)', inverted === COMM_CALLOUTS.length / 2, inverted);
+  check('comm wheel: the view does not turn while it is open', Actors.aimPitch[id] === 0, Actors.aimPitch[id]);
+});
+
 // A chord never fires View's own action (the scoreboard), held or toggled; View alone still opens it.
 function inputPadFrames(seconds) { for (let time = 0; time < seconds; time += INPUT_TEST_FRAME) Input.frame(INPUT_TEST_FRAME); }
 Test.add('input', (check) => {
