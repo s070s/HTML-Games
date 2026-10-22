@@ -8,7 +8,7 @@ Status: results of the plan phase 18 pass (steps 18.1-18.6) against `docs/SPECIF
 |---|---|
 | `node tools/perf.mjs` | Headless Chrome (`tools/cdp.mjs`, shared with `tools/selftest.mjs`, no dependencies). Boot time at 1x / 4x / 6x CPU throttling, then every scene x preset x throttle rate. `--help` lists the options: `--scenes`, `--presets`, `--throttle`, `--seconds`, `--warmup`, `--alloc` / `--retained` / `--promoted` (top allocation sites), `--profile` (CPU self time), `--reaction` (dynamic resolution and step-down), `--bench` (sim cost per step from back-to-back steps, see 2.3), `--soak <minutes>` (heap after a forced GC every minute, step 18.4), `--json <file>`, `--file <html>` (another build, for before/after). Exit 0 even on a budget miss (the misses are printed). |
 | `node tools/selftest.mjs --group perf` | Exact-number checks that hold on a busy machine: frame-cap pacing, the single rAF callback, boot time wiring, display-rate budget (editor, CPU-bound and GPU-bound menu frames are not taken as the display rate), time-based smoothing, the zero-allocation call forms against their argument forms, allocation probes of hot paths (heap bytes over 20 000 calls of `Hitbox.rayOf`, `Collide.gatherAround` + `sweepSegment`, `HudBatch.line`, `emitActorPart`; `performance.memory` is exact because `tools/selftest.mjs` starts Chrome with `--enable-precise-memory-info`), the PERF-009 / PERF-010 caps of every preset (catalogue rows, flooded particle / decal / light pools, bot and enemy caps, a 16-bot match on Potato), one brush-tree walk per actor step, pool and batch caps, the TDM perf scene end to end. |
-| `node tools/build.mjs` | Size guard (D07): warns above 3.0 MB, fails above 3.5 MB. Release build now: 2.98 MB. Fails on `Math.hypot` in the per-frame / per-step files (07a-07f, 08a-08d, 10a, 11a, 11b, 14a-14e, 14h, 14i, 17a-17g). |
+| `node tools/build.mjs` | Size guard (D07): warns above 3.0 MB, fails above 3.5 MB. Release build now: 3.11 MB (3183 KB; past the 3.0 MB warning, under the 3.5 MB limit). Fails on `Math.hypot` in the per-frame / per-step files (07a-07f, 08a-08d, 10a, 11a, 11b, 14a-14e, 14h, 14i, 17a-17g). |
 | `__CTK.perf` (page) | `scenes()`, `scene(name, qualityId, { autoLower })`, `record(seconds)` (a Promise of the report), `report()` (last report), `info()`, `stop()`, `stats()` (frame ring, `loopStartMs`, `bootMs`), `simBench(steps, rounds)`, `hotPaths()` (the allocation probes). The recorder's sample arrays (about 1 MB) are made on the first `record()`. |
 
 Per run `perf.mjs` prints: frame interval p50/p95/p99; frame CPU mean, `@120` (see 2.3) and p50/p95/p99; sim ms per 120 Hz step (mean, p95) and the PERF-002 groups (movement = `move bodies`, AI = `botThink pveBrains nav`, projectiles = `weapons projectiles weaponSpecials`, rules = `rules mutators pve pveBoss pveLevel operationTickets`, other = every system no group names, from `Sim.timingTotal`); render and HUD CPU ms (mean, p50, p95); draw calls and instances (p95); render scale; minor / major GC count and longest pause (trace events); allocation rate (sampling heap profiler); heap after forced GCs and its growth over the run.
@@ -42,19 +42,19 @@ Presets measured: Potato, Low, Medium. CDP `Emulation.setCPUThrottlingRate` 4x a
 
 ## 3. Results
 
-### 3.1 Boot (navigation start to the main menu's first drawn frame, `Perf.bootMs`, median of 3)
+### 3.1 Boot (navigation start to the main menu's first drawn frame, `Perf.bootMs`, median of 3; re-measured on the merged build, 3.11 MB)
 
 `Perf.bootMs` is stamped at the end of the first drawn frame: parse and boot of the whole file, the main menu built (`ready`) and the first frame with its shader compiles. `Perf.loopStartMs` keeps the loop start.
 
 | Throttle | First menu frame | Loop start |
 |---|---|---|
-| 1x | 365 ms | 362 ms |
-| 4x | 633 ms | 615 ms |
-| 6x | 937 ms | 914 ms |
+| 1x | 458 ms | 455 ms |
+| 4x | 643 ms | 624 ms |
+| 6x | 912 ms | 868 ms |
 
 The menu build and the first frame add about 20 ms. Under the 2 s Potato load checkpoint at 6x, so no boot work was deferred.
 
-### 3.2 Before / after of the first pass (TDM, Low, 10 s, back to back on the same machine)
+### 3.2 Before / after of the first pass (TDM, Low, 10 s, back to back on the same machine; measured before the merge)
 
 Before = the build before this pass (commit 4948af7 plus the perf scene file); after = this pass.
 
@@ -69,7 +69,7 @@ Before = the build before this pass (commit 4948af7 plus the perf scene file); a
 
 The allocation cut is the main win: fewer scavenges, and under throttling fewer GC pauses landing inside sim and render spans.
 
-### 3.3 All scenes at 1x, Low, first pass (8 s; per-step ms, render / HUD p50)
+### 3.3 All scenes at 1x, Low, first pass (8 s; per-step ms, render / HUD p50; measured before the merge, without the audit fixes, the sim wiring and the PvE HUD)
 
 | Scene | Sim | Move | AI | Proj | Rules | Render p50 | HUD p50 | CPU @120 | Alloc KB/s | Minor GCs |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -81,24 +81,24 @@ The allocation cut is the main win: fewer scavenges, and under throttling fewer 
 
 (The tdm row of this run was disturbed by load: the back-to-back run in 3.2 measured 0.44 ms per step.)
 
-### 3.4 All scenes at 4x on the final build (8 s, means; budgets: sim 2.0, move 0.5, AI 1.0, proj 0.3, rules 0.2, render 1.5, HUD 0.4, frame 5.5)
+### 3.4 All scenes at 4x on the merged build (8 s, means; budgets: sim 2.0, move 0.5, AI 1.0, proj 0.3, rules 0.2, render 1.5, HUD 0.4, frame 5.5)
 
-Measured after every change of the review pass (bot steering scratch, world sight lines, gather reuse, draws through `meshFrom`, chunk frustum test), on a quiet machine (load under 20% before and after). Sim columns are the in-frame cost per step; Bench = `--bench` (fastest of 4 back-to-back rounds of 480 steps, still at 4x) as sim / movement / AI.
+Re-measured on the merged build (final review fixes included) with `perf.mjs --scenes tdm,horde,royale,generated,editor --presets potato,low --throttle 4 --seconds 8 --bench`, while another test run shared the machine, so the means carry the noise described below; the earlier table of the perf pass (before the merge) gave the same picture. Sim columns are the in-frame cost per step; Bench = `--bench` (fastest of 4 back-to-back rounds of 480 steps, still at 4x) as sim / movement / AI.
 
 | Scene | Preset | Sim | Move | AI | Proj | Rules | Bench sim / move / AI | Render (p50) | HUD (p50) | CPU @120 | Draws | Alloc KB/s | GCs (longest ms) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| tdm | potato | 3.42 | 0.80 | 1.90 | 0.22 | 0.05 | 1.33 / 0.32 / 0.52 | 1.97 (0.5) | 1.57 (0.3) | 7.77 | 26 | 3330 | 15 (4.7) |
-| tdm | low | 3.37 | 0.85 | 1.59 | 0.37 | 0.06 | 0.92 / 0.23 / 0.37 | 2.59 (1.4) | 1.96 (0.9) | 9.53 | 28 | 1070 | 5 (0.9) |
-| horde | potato | 1.76 | 0.46 | 0.79 | 0.13 | 0.13 | 0.60 / 0.18 / 0.20 | 1.75 (0.4) | 1.04 (0.2) | 5.00 | 25 | 1543 | 7 (9.9) |
-| horde | low | 3.16 | 0.82 | 1.41 | 0.22 | 0.12 | 0.65 / 0.22 / 0.22 | 3.15 (1.2) | 1.35 (0.5) | 8.25 | 26 | 1286 | 10 (7.4) |
-| royale | potato | 2.79 | 0.75 | 1.27 | 0.17 | 0.08 | 0.63 / 0.20 / 0.24 | 1.82 (0.6) | 0.54 (0.1) | 5.53 | 28 | 999 | 4 (1.4) |
-| royale | low | 3.40 | 0.93 | 1.62 | 0.23 | 0.09 | 0.86 / 0.26 / 0.28 | 2.55 (1.1) | 0.79 (0.2) | 7.29 | 32 | 797 | 4 (80.8) |
-| generated | potato | 2.59 | 0.88 | 1.01 | 0.09 | 0.10 | 0.52 / 0.15 / 0.21 | 2.24 (0.8) | 0.83 (0.1) | 6.10 | 29 | 819 | 4 (10.7) |
-| generated | low | 2.05 | 0.59 | 0.85 | 0.11 | 0.13 | 0.52 / 0.15 / 0.20 | 1.76 (0.3) | 0.57 (0.1) | 4.76 | 33 | 809 | 4 (5.6) |
-| editor | potato | - | - | - | - | - | - | 2.75 (0.9) | 0.03 (0.0) | 5.00 | 9 | 1781 | 16 (9.8) |
-| editor | low | - | - | - | - | - | - | 2.22 (0.3) | 0.05 (0.0) | 3.54 | 9 | 1539 | 14 (15.0) |
+| tdm | potato | 1.91 | 0.46 | 0.74 | 0.16 | 0.03 | 1.06 / 0.28 / 0.39 | 1.77 (0.4) | 0.87 (0.3) | 5.29 | 28 | 3653 | 16 (5.3) |
+| tdm | low | 1.26 | 0.32 | 0.66 | 0.06 | 0.01 | 0.81 / 0.19 / 0.31 | 1.78 (0.3) | 1.07 (0.2) | 4.42 | 29 | 1379 | 6 (1.3) |
+| horde | potato | 1.49 | 0.35 | 0.70 | 0.09 | 0.06 | 0.40 / 0.13 / 0.14 | 2.38 (0.7) | 1.06 (0.2) | 5.33 | 25 | 1588 | 7 (8.2) |
+| horde | low | 1.83 | 0.65 | 0.70 | 0.18 | 0.10 | 0.64 / 0.18 / 0.18 | 2.84 (0.5) | 1.33 (0.2) | 6.51 | 26 | 1102 | 9 (10.5) |
+| royale | potato | 2.62 | 0.72 | 1.31 | 0.14 | 0.12 | 0.81 / 0.22 / 0.29 | 2.10 (0.4) | 0.76 (0.1) | 5.78 | 33 | 970 | 5 (8.4) |
+| royale | low | 2.27 | 0.82 | 1.01 | 0.14 | 0.06 | 0.60 / 0.14 / 0.21 | 2.19 (0.3) | 0.62 (0.1) | 5.50 | 36 | 582 | 5 (0.4) |
+| generated | potato | 2.38 | 0.53 | 1.19 | 0.13 | 0.10 | 0.56 / 0.14 / 0.18 | 2.11 (0.4) | 0.87 (0.1) | 5.72 | 26 | 703 | 4 (13.1) |
+| generated | low | 1.98 | 0.55 | 0.90 | 0.10 | 0.13 | 0.76 / 0.17 / 0.23 | 2.29 (0.3) | 0.80 (0.1) | 5.35 | 28 | 647 | 3 (1.9) |
+| editor | potato | - | - | - | - | - | - | 1.93 (1.0) | 0.02 (0.0) | 3.64 | 9 | 1793 | 16 (3.0) |
+| editor | low | - | - | - | - | - | - | 1.76 (0.8) | 0.05 (0.0) | 3.24 | 9 | 1530 | 14 (8.8) |
 
-**Budget result (for the lead to decide).** With the in-frame means the PERF-002 budgets are **not met at 4x** in most match scenes on Potato and Low: sim 1.8-3.4 ms per step (budget 2.0; only horde Potato is under), movement 0.46-0.93 (0.5; only horde Potato is under), AI 0.79-1.90 (1.0; under only in horde Potato and generated Low), render mean 1.8-3.2 (1.5), HUD mean 0.5-2.0 (0.4), frame CPU @120 4.8-9.5 (5.5; under only in horde Potato and generated Low). The editor misses the render mean (2.2-2.8). Projectiles (0.09-0.37) and rules (0.05-0.13) are within budget except projectiles in TDM Low (0.37). The render and HUD p50 (0.1-1.4 ms) are inside their budgets: the means carry the throttle slices (2.3). With the bench cost every match scene meets every sim budget at 4x (sim 0.52-1.33, movement 0.15-0.32, AI 0.20-0.52). The cost on a phone lies between the two; only the LT pass on real devices (D1-D4) can settle it.
+**Budget result (for the lead to decide; ranges from the pre-merge table, the merged table above shows the same misses).** With the in-frame means the PERF-002 budgets are **not met at 4x** in most match scenes on Potato and Low: sim 1.8-3.4 ms per step (budget 2.0; only horde Potato is under), movement 0.46-0.93 (0.5; only horde Potato is under), AI 0.79-1.90 (1.0; under only in horde Potato and generated Low), render mean 1.8-3.2 (1.5), HUD mean 0.5-2.0 (0.4), frame CPU @120 4.8-9.5 (5.5; under only in horde Potato and generated Low). The editor misses the render mean (2.2-2.8). Projectiles (0.09-0.37) and rules (0.05-0.13) are within budget except projectiles in TDM Low (0.37). The render and HUD p50 (0.1-1.4 ms) are inside their budgets: the means carry the throttle slices (2.3). With the bench cost every match scene meets every sim budget at 4x (sim 0.52-1.33, movement 0.15-0.32, AI 0.20-0.52). The cost on a phone lies between the two; only the LT pass on real devices (D1-D4) can settle it.
 
 Between runs of the same build the throttled means move by up to 2x (TDM Low measured 3.5 ms per step in one sweep and 4.2 in the next), so this pass's before/after in throttled means is within noise. Its exact effects are the allocation probes, one brush-tree walk per actor step instead of two (`perf` test: 2.00 -> 1.00 walks per actor step) and the allocation sites listed in 4.
 
