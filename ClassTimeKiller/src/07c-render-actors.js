@@ -364,14 +364,14 @@ const RUN_SPEED = 7;
 const STRIDE_METERS = 1.7;
 const MAX_SWING = 0.75;                  // radians at full run
 const AIR_SWING = 0.35;
-const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33' };
+const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33', metal: '#8d949c', light: '#e4e7ea', cloth: '#6b6250', red: '#c8312c' };
+// Tints model, modelDark and modelGlow take the body model's row colour. Plain constants, not a lookup table: a double
+// read from an object property is boxed on the heap for every part drawn (PERF-006).
+const VISOR_GLOW = 0.8, MODEL_GLOW = 0.7, MODEL_DARK_SHADE = 0.45;
 const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
-// Parts drawn around the head pivot: style.headScale (X14 Big Head, the hit sphere factor) grows them about that pivot.
-const HEAD_PART_IDS = ['head', 'visor'];
-const HEAD_PARTS = new Set(CAT.actorParts.filter((part) => HEAD_PART_IDS.includes(part.id)));
 const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
 const tintColor = new Float32Array(3);
 const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // emitActorPart's point: filled in place, then rotateInPlace
@@ -436,16 +436,23 @@ function animateActor(id, pose, seconds, lod) {
 }
 
 function partColor(part, style) {
-  if (part.tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return 0; }
-  if (part.tint === 'dark') { tintColor[0] = style.r * 0.3 + 0.08; tintColor[1] = style.g * 0.3 + 0.08; tintColor[2] = style.b * 0.3 + 0.09; return 0; }
-  writeColor(tintColor, 0, ACTOR_TINTS[part.tint] || ACTOR_TINTS.accent);
-  return part.tint === 'visor' ? 0.8 : 0;
+  const tint = part.tint;
+  if (tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return 0; }
+  if (tint === 'dark') { tintColor[0] = style.r * 0.3 + 0.08; tintColor[1] = style.g * 0.3 + 0.08; tintColor[2] = style.b * 0.3 + 0.09; return 0; }
+  if (tint === 'model' || tint === 'modelDark' || tint === 'modelGlow') return modelPartColor(tint);
+  writeColor(tintColor, 0, ACTOR_TINTS[tint] || ACTOR_TINTS.accent);
+  return tint === 'visor' ? VISOR_GLOW : 0;
+}
+function modelPartColor(tint) {
+  const colors = ActorModels.colors, o = actorModelRow * 3, shade = tint === 'modelDark' ? MODEL_DARK_SHADE : 1;
+  tintColor[0] = colors[o] * shade; tintColor[1] = colors[o + 1] * shade; tintColor[2] = colors[o + 2] * shade;
+  return tint === 'modelGlow' ? MODEL_GLOW : 0;
 }
 
 function emitActorPart(part, pose, style) {
   // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
-  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
+  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = part.head ? style.headScale : 1;
   const point = rotated;
   point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
   rotateInPlace(point);
@@ -456,7 +463,7 @@ function emitActorPart(part, pose, style) {
   const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
   if (o < 0) return;
   d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
-  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch;
+  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch + part.tilt * DEG;
   d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(glow, style.emissive);
   d[o + HIGHLIGHT_SLOT] = actorHighlight;
   actorBatch.light(o);
@@ -498,6 +505,42 @@ function fillActors(seconds, alpha) {
 }
 Render.addUpdate(30, fillActors);
 
+// ---- Body models (03s actorModels): one generic builder resolves every row into part lists per LOD at load ----
+// A row starts from its base row (or the actorParts body), drops and changes base parts by id and adds its own parts.
+const MODEL_LIST_PLAIN = 3;              // lists per row: near, far, distant (LOD order), plain = near without detail parts
+const ActorModels = {
+  index: new Uint8Array(MAX_ACTORS),     // per actor: the actorModels row worn this life (0 = the default body)
+  bodies: [],                            // per row: every resolved part
+  lists: [],                             // per row: [near, far, distant, plain] part lists
+  colors: new Float32Array(CAT.actorModels.length * 3),
+  // S13 sets the model on spawn: the row of this kind and id, else the default body.
+  set(id, kind, modelId) {
+    this.index[id] = 0;
+    for (let i = 0; i < CAT.actorModels.length; i++) if (CAT.actorModels[i].kind === kind && CAT.actorModels[i].id === modelId) this.index[id] = i;
+  },
+  partsFor(id, lod, quality) {
+    actorModelRow = this.index[id];
+    return this.lists[actorModelRow][lod === LOD.near && !quality.actorDetail ? MODEL_LIST_PLAIN : lod];
+  },
+};
+let actorModelRow = 0;                   // the model row of the actor being emitted (partColor reads its colour)
+
+function resolveModelBody(row) {
+  const baseRow = row.base ? CAT.actorModels.byId(row.base) : null;
+  if (row.base && !(baseRow && baseRow.index < row.index)) throw new Error('actorModels ' + row.id + ': base must be an earlier row');
+  const base = baseRow ? ActorModels.bodies[baseRow.index] : NEAR_PARTS;
+  const kept = base.filter((part) => !row.drop.includes(part.id));
+  const changed = kept.map((part) => (row.change[part.id] ? Object.assign({}, part, row.change[part.id]) : part));
+  return changed.concat(row.parts.map((part) => Data.normalize(ACTOR_PART_SCHEMA, part)));
+}
+CAT.actorModels.forEach((row) => {
+  const body = resolveModelBody(row);
+  ActorModels.bodies.push(body);
+  ActorModels.lists.push([body, body.filter((part) => part.far), body.filter((part) => part.distant), body.filter((part) => !part.detail)]);
+  writeColor(ActorModels.colors, row.index * 3, row.color);
+});
+Bus.on('actor.create', (id) => { ActorModels.index[id] = 0; });
+
 // The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
 // unless the sun shadow map already covers them.
 function drawActor(id, seconds, alpha) {
@@ -511,7 +554,7 @@ function drawActor(id, seconds, alpha) {
   const firstPerson = id === Game.playerId && !Render.view.overridden;
   if (firstPerson || !SunShadow.covers(distanceSquared)) emitActorShadow(id, pose, style.scale);
   if (firstPerson) return;
-  const parts = LOD_PARTS[lod];
+  const parts = ActorModels.partsFor(id, lod, quality);
   actorHighlight = highlightFor(id);
   for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
 }

@@ -54,14 +54,15 @@ function cloneDefault(value) {
 }
 
 // Quality presets (PERF-004, PERF-007..PERF-010, REN-008). Every system that scales by quality reads this table.
+// actorDetail: false skips the small `detail` parts of near actors (07c body models).
 Data.define('quality', {
   id: REQUIRED, name: REQUIRED, renderScaleMin: 0.5, renderScaleMax: 1, drawCalls: 110, triangles: 250000,
   bots: 15, enemies: 24, particles: 1024, decals: 64, lights: 2, props: 16, shadows: 'blob', msaa: 0, post: true,
-  lodNear: 30, lodFar: 80, viewDistance: 160, voices: 24, music: true,
+  lodNear: 30, lodFar: 80, viewDistance: 160, voices: 24, music: true, actorDetail: true,
 }, [
   { id: 'ultra', name: 'Ultra', drawCalls: 200, triangles: 600000, bots: 23, enemies: 40, particles: 4096, decals: 128, lights: 8, props: 32, shadows: 'sun', msaa: 2, lodNear: 50, lodFar: 140, viewDistance: 260 },
   { id: 'high', name: 'High', drawCalls: 150, triangles: 400000, bots: 19, enemies: 32, particles: 2048, decals: 96, lights: 4, props: 24, shadows: 'sun', msaa: 2, lodNear: 40, lodFar: 110, viewDistance: 220 },
   { id: 'medium', name: 'Medium', drawCalls: 110, triangles: 250000, bots: 15, enemies: 24, particles: 1024, decals: 64, lights: 2, props: 16 },
   { id: 'low', name: 'Low', drawCalls: 80, triangles: 120000, bots: 11, enemies: 18, particles: 512, decals: 32, lights: 0, props: 8, post: false, lodNear: 22, lodFar: 60, viewDistance: 130 },
-  { id: 'potato', name: 'Potato', renderScaleMin: 0.4, renderScaleMax: 0.8, drawCalls: 50, triangles: 60000, bots: 7, enemies: 12, particles: 256, decals: 0, lights: 0, props: 4, post: false, lodNear: 15, lodFar: 40, viewDistance: 100, voices: 12, music: false },
+  { id: 'potato', name: 'Potato', renderScaleMin: 0.4, renderScaleMax: 0.8, drawCalls: 50, triangles: 60000, bots: 7, enemies: 12, particles: 256, decals: 0, lights: 0, props: 4, post: false, lodNear: 15, lodFar: 40, viewDistance: 100, voices: 12, music: false, actorDetail: false },
 ]);

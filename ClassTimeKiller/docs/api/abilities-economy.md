@@ -163,6 +163,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 `{ classes: { selected, custom: [] }, heroes: { hero }, kits: { kitId: { ability1, ability2, ultimate } } }` is created on first use.
 
 - `Loadouts.classes()`, `selectedClass()`, `selectClass(id)`, `classFor(actorId)`.
+- Body model (`Economy.applyBodyModel(id)`, on every spawn and an in-room hero switch): the hero's row of 03s `actorModels`, else the class's (`classModelId`: a custom class wears the first preset class with the same primary weapon class), else the ruleset's own row (RS03, RS08, RS11), else the default body; it calls 07c `ActorModels.set` (docs/api/render.md).
 - `saveClass(row)` stores up to 10 custom classes as `class-N`. It returns `null` with `lastError` when the secondary is not a sidearm, the perks are not one per tier, or the field upgrade is not in the ECP04 list.
 - `removeClass(id)`, `hero()`, `setHero(id)`, `kitChoice(kitId)`, `setKitChoice(kitId, slot, abilityId)` (only allowed choices).
 - `applyTo(actorId)` runs on `actor.create` for the player. Changes apply at the next spawn; heroes can switch instantly in the spawn room.

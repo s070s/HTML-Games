@@ -101,9 +101,18 @@ const Economy = {
     this.bought.fill(0, id * CAT.buyItems.length, (id + 1) * CAT.buyItems.length);
     if (this.usesClasses()) this.applyClass(id, Loadouts.classFor(id));
     else this.clearPerks(id);
+    this.applyBodyModel(id);
     if (this.died[id] || !this.preset().keepOnSurvive) this.dropKept(id);
     else this.restoreKept(id);
     this.died[id] = 0;
+  },
+  // The body model (03s actorModels) of this life: the hero (12e set it on this spawn), else the class, else the
+  // ruleset's own model, else the default body.
+  applyBodyModel(id) {
+    const hero = Abilities.hero[id];
+    if (hero) ActorModels.set(id, 'hero', hero.id);
+    else if (this.usesClasses()) ActorModels.set(id, 'class', classModelId(Loadouts.classFor(id)));
+    else ActorModels.set(id, 'ruleset', currentRules().id);
   },
   dropKept(id) {
     this.kept.fill(0, id * WEAPON_COUNT, (id + 1) * WEAPON_COUNT);
@@ -403,6 +412,13 @@ const Loadouts = {
 const MODE_ARMING_PARAMS = ['ladder', 'rotateEvery'];
 // A class field upgrade that is an ability fills the ability slot; a gadget one (granted by applyClass) leaves it empty.
 function classFieldAbility(row) { return CAT.abilities.byId(row.fieldUpgrade) ? row.fieldUpgrade : KIT_SLOT_EMPTY; }
+// A custom class wears the model of the first preset class with the same primary weapon class (else the default body).
+function classModelId(row) {
+  if (CAT.classes.byId(row.id)) return row.id;
+  const weaponClass = CAT.weapons.byId(row.primary).class;
+  const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === weaponClass);
+  return preset ? preset.id : '';
+}
 // The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier,
 // a field upgrade of the preset list.
 function classProblem(row) {
@@ -424,6 +440,7 @@ Economy.switchHero = function switchHero(id, heroId) {
   if (!Abilities.usesHeroes() || !Actors.alive[id]) return 'next';
   if (Math.hypot(Actors.x[id] - Economy.spawnX[id], Actors.z[id] - Economy.spawnZ[id]) > SPAWN_ROOM_RADIUS) return 'next';
   Abilities.refreshKit(id);
+  Economy.applyBodyModel(id);
   return 'now';
 };
 
