@@ -33,7 +33,7 @@ const Render = {
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
-  actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible, outline }
+  actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, visible }
   addSource(name, draw) { this.sources.push({ name, draw }); },
 
   // ---- State ----
@@ -115,8 +115,8 @@ const Render = {
     for (let i = 0; i < this.finishers.length; i++) this.finishers[i](gl);
     return true;
   },
-  wantedSamples() { return this.quality && this.gl ? Math.min(this.quality.msaa, this.maxSamples || 0) : 0; },
-  program(name) { return this.programs[name]; },
+  // MSAA samples the active preset asks for (REN-008), limited by the device.
+  wantedSamples() { return this.gl ? Math.min(this.quality.msaa, this.maxSamples) : 0; },
 };
 
 // ---- Settings (read on every 'setting' event so the frame loop never calls Settings.get) ----

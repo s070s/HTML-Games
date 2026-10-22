@@ -93,9 +93,9 @@ function brushFace(brush, index) {
   const cx = (brush.minX + brush.maxX) / 2, cy = (brush.minY + brush.maxY) / 2, cz = (brush.minZ + brush.maxZ) / 2;
   const along = nx * cx + ny * cy + nz * cz - offset;
   const ox = cx - nx * along, oy = cy - ny * along, oz = cz - nz * along;
-  const helperX = Math.abs(ny) > 0.9 ? 1 : 0, helperY = Math.abs(ny) > 0.9 ? 0 : 1;
-  // tangent = normalize(cross(normal, helper)), bitangent = cross(normal, tangent): (t, b, n) is right-handed
-  let tx = ny * 0 - nz * helperY, ty = nz * helperX - nx * 0, tz = nx * helperY - ny * helperX;
+  // tangent = normalize(cross(normal, helper)) with helper = +X for floors/ceilings, else +Y; bitangent = cross(normal, tangent)
+  const helperX = Math.abs(ny) > 0.9 ? 1 : 0, helperY = 1 - helperX;
+  let tx = -nz * helperY, ty = nz * helperX, tz = nx * helperY - ny * helperX;
   const length = Math.hypot(tx, ty, tz); tx /= length; ty /= length; tz /= length;
   const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
   const r = Math.hypot(brush.maxX - brush.minX, brush.maxY - brush.minY, brush.maxZ - brush.minZ) + 1;
@@ -135,12 +135,15 @@ function cutFace(polygon, nx, ny, nz, cell, emit) {
 }
 
 // ---- Bake-time brush lookup grid (XZ cells -> brush indices) ----
+const GRID_KEY_OFFSET = 32768;           // numeric cell keys (no strings in the bake loops)
+const gridKey = (gx, gz) => (gx + GRID_KEY_OFFSET) * 65536 + gz + GRID_KEY_OFFSET;
+
 function makeBrushGrid(brushes) {
   const grid = new Map();
   brushes.forEach((brush, index) => {
     for (let gx = Math.floor(brush.minX / BRUSH_GRID_METERS); gx <= Math.floor(brush.maxX / BRUSH_GRID_METERS); gx++) {
       for (let gz = Math.floor(brush.minZ / BRUSH_GRID_METERS); gz <= Math.floor(brush.maxZ / BRUSH_GRID_METERS); gz++) {
-        const key = gx + ',' + gz;
+        const key = gridKey(gx, gz);
         if (!grid.has(key)) grid.set(key, []);
         grid.get(key).push(index);
       }
@@ -157,7 +160,7 @@ function insideBrush(brush, x, y, z) {
 
 // Index of a brush (other than `skip`) containing the point, or -1.
 function brushAt(bake, x, y, z, skip) {
-  const list = bake.grid.get(Math.floor(x / BRUSH_GRID_METERS) + ',' + Math.floor(z / BRUSH_GRID_METERS));
+  const list = bake.grid.get(gridKey(Math.floor(x / BRUSH_GRID_METERS), Math.floor(z / BRUSH_GRID_METERS)));
   if (!list) return -1;
   for (const index of list) if (index !== skip && insideBrush(bake.brushes[index], x, y, z)) return index;
   return -1;
@@ -174,8 +177,10 @@ function cellHidden(bake, brushIndex, x, y, z, nx, ny, nz) {
 const bakeHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 
 function ambientOcclusion(bake, x, y, z, nx, ny, nz) {
-  const [tx, ty, tz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-  const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx; // a tangent perpendicular to the normal
+  // Ten sample points in the hemisphere (straight out and tilted along two tangents b and c, at two distances).
+  const [hx, hy, hz] = Math.abs(ny) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const tangentLength = Math.hypot(ny * hz - nz * hy, nz * hx - nx * hz, nx * hy - ny * hx);
+  const bx = (ny * hz - nz * hy) / tangentLength, by = (nz * hx - nx * hz) / tangentLength, bz = (nx * hy - ny * hx) / tangentLength;
   const cx = ny * bz - nz * by, cy = nz * bx - nx * bz, cz = nx * by - ny * bx;
   let blocked = 0, samples = 0;
   for (const distance of AO_DISTANCES) {
@@ -255,7 +260,8 @@ function buildWorldMesh(map, brushes) {
 }
 
 function addBrushFaces(bake, brush, brushIndex, floorY) {
-  const material = WorldMesh.materialIndex.has(brush.material) ? WorldMesh.materialIndex.get(brush.material) : 0;
+  const known = WorldMesh.materialIndex.get(brush.material);
+  const material = known !== undefined && known < MAX_MATERIALS ? known : 0; // unknown materials draw as concrete
   const p = brush.planes;
   for (let plane = 0; plane < brush.planeCount; plane++) {
     const nx = p[plane * 4], ny = p[plane * 4 + 1], nz = p[plane * 4 + 2];

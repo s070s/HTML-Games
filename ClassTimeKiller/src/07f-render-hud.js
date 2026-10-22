@@ -224,3 +224,17 @@ function drawHudLayers(gl) {
 Bus.on('boot', () => {
   if (Render.ready) Loop.onFrame('hud', drawHud);
 });
+
+// GPU memory estimate (PERF-005: WebGL cannot report it) from the tracked buffer, texture and target sizes.
+const MIPMAP_FACTOR = 4 / 3;
+Render.gpuMemoryBytes = () => {
+  const target = Render.target, size = Render.size;
+  let bytes = ShapeMesh.vertices.byteLength + ShapeMesh.indices.byteLength + HudBatch.bytes.byteLength + HUD_MAX_QUADS * 12;
+  bytes += HUD_ATLAS_SIZE * HUD_ATLAS_SIZE * 4 * MIPMAP_FACTOR;
+  for (const batch of shapeBatches) bytes += batch.data.byteLength;
+  bytes += particlePool.data.byteLength + decalPool.data.byteLength;
+  if (WorldMesh.vertexBytes) bytes += WorldMesh.vertexBytes.byteLength + WorldMesh.indexData.byteLength;
+  bytes += size.width * size.height * 8;                                  // canvas colour + depth
+  if (!target.direct) bytes += target.width * target.height * 8 * (1 + target.samples);
+  return bytes;
+};

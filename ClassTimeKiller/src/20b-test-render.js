@@ -259,6 +259,19 @@ Test.add('render', (check) => withRenderer(() => {
   check('first person: no own body but own shadow', batchInstances(actorBatch) === FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
 }));
 
+// ---- Render.addSource (props batch) ----
+Test.add('render', (check) => withRenderer(() => {
+  const source = { name: 'test-pickups', draw: (batch) => batch.mesh('cylinder', 0, 1, 0, 0, 0, 1, 0.2, 1, 1, 0.8, 0.2, 0.5) };
+  const broken = { name: 'test-broken', draw: () => { throw new Error('broken source'); } };
+  Render.sources.push(source, broken);
+  const logged = Test.expectErrors(() => { fillSources(); fillSources(); });
+  check('sources fill the props batch every frame', propBatch.counts[SHAPE_INDEX.cylinder] === 1);
+  check('a throwing source is logged once and switched off', logged === 1 && broken.failed === true);
+  propBatch.mesh('no-such-shape', 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0);
+  check('unknown shapes are ignored', batchInstances(propBatch) === 1);
+  Render.sources.splice(Render.sources.indexOf(source), 2);
+}));
+
 // ---- Effects caps (PERF-010) ----
 Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'potato');
@@ -405,7 +418,11 @@ Test.add('render', (check) => withRenderer(() => {
   check('Low at full scale draws straight to the canvas (no post pass)', Render.target.direct);
   renderFrameHook(1 / 60, 1);
   check('Perf counters filled', Perf.counters.drawCalls > 0 && Perf.counters.triangles > 0 && Perf.counters.renderScale === 1);
+  Settings.set('video.quality', 'high');
+  Render.drawFrame(1 / 60, 1);
+  check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
+  check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
 }));
 
 // ---- Context loss and restore (PLT-005) ----

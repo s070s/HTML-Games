@@ -12,7 +12,7 @@ const BOB_STRIDE_METERS = 1.9;
 const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
 const VIEWMODEL_DARK = '#2b2f35';
-const VIEWMODEL_SCALE = 0.62;            // the parts table is authored large for readability; this sets the on-screen size
+const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
@@ -152,8 +152,8 @@ function fillViewModel() {
   for (let i = 0; i < row.parts.length; i++) {
     const part = row.parts[i];
     // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    rotateYawPitchInto(viewLocal, -part.at[0], part.at[1], part.at[2], 0, pose.pitch);
-    rotateYawPitchInto(viewWorld, (viewLocal.x - pose.x) * VIEWMODEL_SCALE, (viewLocal.y + pose.y) * VIEWMODEL_SCALE, (viewLocal.z + pose.z) * VIEWMODEL_SCALE, camera.yaw, camera.pitch);
+    rotateYawPitchInto(viewLocal, -part.at[0] * VIEWMODEL_SCALE, part.at[1] * VIEWMODEL_SCALE, part.at[2] * VIEWMODEL_SCALE, 0, pose.pitch);
+    rotateYawPitchInto(viewWorld, viewLocal.x - pose.x, viewLocal.y + pose.y, viewLocal.z + pose.z, camera.yaw, camera.pitch);
     const emissive = viewPartColor(part, row, state);
     const pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
     viewModelBatch.mesh(part.shape, camera.x + viewWorld.x, camera.y + viewWorld.y, camera.z + viewWorld.z, camera.yaw, pitch,
@@ -209,7 +209,7 @@ function stepRenderScale(control, measuredMs, budgetMs, raiseBelowMs, seconds, s
 
 function updateRenderScale(seconds) {
   const control = ScaleControl, size = Render.size, quality = Render.quality, config = Render.config;
-  control.smoothedMs = lerp(control.smoothedMs, Loop.frameSeconds * 1000 || FRAME_BUDGET_MS, FRAME_SMOOTHING);
+  control.smoothedMs = lerp(control.smoothedMs, seconds * 1000 || FRAME_BUDGET_MS, FRAME_SMOOTHING); // seconds = frame interval
   let scale = size.scale;
   if (Benchmark.active) scale = 1;
   else if (config.renderScale !== 'auto') scale = config.renderScale;
