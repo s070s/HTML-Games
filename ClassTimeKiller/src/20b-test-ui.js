@@ -262,7 +262,10 @@ Test.add('ui', (check) => uiWith(() => {
   check('main menu: screens that do not exist yet are disabled, not broken', buttons[1].disabled && buttons[5].disabled === false && buttons[6].disabled === false);
   let quick = 0;
   const listener = Bus.on('ui.quickMatch', () => { quick++; });
+  const realQuickMatch = PlayFlow.quickMatch;
+  PlayFlow.quickMatch = () => null;   // the real handler (18d) would start a match: the 'play' group tests that
   buttons[0].click();
+  PlayFlow.quickMatch = realQuickMatch;
   Bus.off('ui.quickMatch', listener);
   check('main menu: Quick Match emits ui.quickMatch (one action to start)', quick === 1);
   check('main menu: back does nothing here', !Ui.back() && Ui.current() === 'main');
