@@ -551,7 +551,8 @@ Modes.register('range', {
     updatePlayerHud();
   },
   keepStation(station, now) {
-    if (station.id >= 0 && Pve.isEnemy(station.id) && Actors.alive[station.id]) return;
+    const row = station.id >= 0 ? Pve.rowOf(station.id) : null;   // the slot may hold another enemy once the corpse is gone
+    if (row && row.id === station.kind && Actors.alive[station.id]) return;
     if (station.id >= 0) { station.id = -1; station.respawnAt = now + PVE_RANGE.respawnSeconds; }
     if (now + TIME_EPSILON < station.respawnAt) return;
     station.id = Pve.spawnEnemy(station.kind, station.x, station.y, station.z, station.yaw, { team: ENEMY_TEAM });
@@ -648,9 +649,15 @@ function stepChamber(id) {
     chamberElementAt(element, pveSpot);
     if (element.kind === 'button' && pressedUse && withinTouch(id, pveSpot.x, pveSpot.y, pveSpot.z, PVE_CHAMBER_RULES.useRadius)) ChamberRun.done[index] = 1;
     else if (element.kind === 'cube') stepCube(id, pressedUse, element);
-    else if (element.kind === 'plate') ChamberRun.done[index] = !ChamberRun.cubeCarried && Math.hypot(ChamberRun.cubeX - pveSpot.x, ChamberRun.cubeZ - pveSpot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(ChamberRun.cubeY - pveSpot.y) < 1 ? 1 : 0;
+    else if (element.kind === 'plate') ChamberRun.done[index] = cubeOn(pveSpot) ? 1 : 0;
     else if (element.kind === 'fizzle' && ChamberRun.cubeCarried && insideFizzle(id, element, pveSpot)) resetCube(row);
   }
+}
+// The dropped cube rests on the plate at `spot`.
+function cubeOn(spot) {
+  const run = ChamberRun;
+  if (run.cubeCarried) return false;
+  return Math.hypot(run.cubeX - spot.x, run.cubeZ - spot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(run.cubeY - spot.y) < 1;
 }
 function stepCube(id, pressedUse, element) {
   const run = ChamberRun;
@@ -734,6 +741,7 @@ function chamberEvent(index, kind, medal) {
 Bus.on('move.step', (event) => { if (Modes.mode && Modes.mode.id === 'puzzle' && Modes.participant[event.id]) ChamberRun.steps++; });
 
 // Puzzle props: buttons, the cube, plates, relays (red until done, then green), fizzle grids and the exit lock ring.
+const CHAMBER_CUBE_SIZE = [PVE_CHAMBER_RULES.cubeSize, PVE_CHAMBER_RULES.cubeSize, PVE_CHAMBER_RULES.cubeSize];
 const CHAMBER_COLORS = { off: [0.9, 0.2, 0.15], on: [0.2, 0.95, 0.35], cube: [0.75, 0.8, 0.9], fizzle: [0.4, 0.7, 1] };
 function drawChambers(batch) {
   if (!Modes.mode || Modes.mode.id !== 'puzzle' || ChamberRun.result !== NOT_OVER) return;
@@ -750,8 +758,11 @@ function drawChamberElement(batch, element, done) {
   if (element.kind === 'button') batch.mesh('cylinder', pveSpot.x, pveSpot.y + 0.5, pveSpot.z, 0, 0, 0.35, 1, 0.35, color[0], color[1], color[2], 0.6);
   else if (element.kind === 'plate') batch.mesh('disc', pveSpot.x, pveSpot.y + 0.03, pveSpot.z, 0, 0, 1.6, 0.05, 1.6, color[0], color[1], color[2], 0.5);
   else if (element.kind === 'relay') batch.mesh('sphere', pveSpot.x, pveSpot.y, pveSpot.z, 0, 0, 0.5, 0.5, 0.5, color[0], color[1], color[2], 0.9);
-  else if (element.kind === 'fizzle') batch.mesh('box', pveSpot.x, pveSpot.y + element.size[1] / 2, pveSpot.z, 0, 0, element.size[0], element.size[1], element.size[2], CHAMBER_COLORS.fizzle[0], CHAMBER_COLORS.fizzle[1], CHAMBER_COLORS.fizzle[2], 0.4);
-  else if (element.kind === 'cube') batch.mesh('box', ChamberRun.cubeX, ChamberRun.cubeY + size / 2, ChamberRun.cubeZ, 0, 0, size, size, size, CHAMBER_COLORS.cube[0], CHAMBER_COLORS.cube[1], CHAMBER_COLORS.cube[2], 0.2);
+  else if (element.kind === 'fizzle') drawBox(batch, pveSpot.x, pveSpot.y + element.size[1] / 2, pveSpot.z, element.size, CHAMBER_COLORS.fizzle, 0.4);
+  else if (element.kind === 'cube') drawBox(batch, ChamberRun.cubeX, ChamberRun.cubeY + size / 2, ChamberRun.cubeZ, CHAMBER_CUBE_SIZE, CHAMBER_COLORS.cube, 0.2);
+}
+function drawBox(batch, x, y, z, size, color, glow) {
+  batch.mesh('box', x, y, z, 0, 0, size[0], size[1], size[2], color[0], color[1], color[2], glow);
 }
 Render.addSource('pveChambers', drawChambers);
 

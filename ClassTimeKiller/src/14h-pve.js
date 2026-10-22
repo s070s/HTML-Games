@@ -753,7 +753,8 @@ const Pve = {
     if (now < this.nextBeastAt || this.countBeasts() >= this.wildlife) return;
     this.nextBeastAt = now + 1;
     if (!this.findBeastSpot(pveScratch)) return;
-    if (this.spawnEnemy('beast', pveScratch.x, pveScratch.y, pveScratch.z, Rng.pve.range(-Math.PI, Math.PI)) >= 0 && this.countBeasts() >= this.wildlife) this.nextBeastAt = now + PVE_DIRECTOR.respawnBeastSeconds;
+    const spawned = this.spawnEnemy('beast', pveScratch.x, pveScratch.y, pveScratch.z, Rng.pve.range(-Math.PI, Math.PI)) >= 0;
+    if (spawned && this.countBeasts() >= this.wildlife) this.nextBeastAt = now + PVE_DIRECTOR.respawnBeastSeconds;   // the pack is full: wait
   },
   countBeasts() {
     let count = 0;

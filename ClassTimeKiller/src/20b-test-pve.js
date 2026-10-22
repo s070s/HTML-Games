@@ -404,6 +404,7 @@ Test.add('pve', (check) => {
   Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
   const id = 0, medals = startEventLog('pve.chamber');
   Modes.endProtection(id);
+  check('every button, cube and plate is reachable on foot from its chamber spawn', unreachableElements().length === 0, unreachableElements().join());
   const failures = [];
   for (let index = 0; index < PVE_CHAMBERS.length && Modes.active; index++) {
     if (!solveChamber(id, PVE_CHAMBERS[index])) failures.push(PVE_CHAMBERS[index].id + (chamberSolved() ? ' exit' : ' lock'));
@@ -415,6 +416,21 @@ Test.add('pve', (check) => {
   check('medal tiers come from the par data', chamberMedal(PVE_CHAMBERS[0], 1, 1, 0) === 0 && chamberMedal(PVE_CHAMBERS[0], 20, 1, 0) === 2 && chamberMedal(PVE_CHAMBERS[0], 99, 1, 0) === -1);
   endModeTest();
 });
+// Walkable elements (not relays: those are shot) whose nearest nav node is far off or not connected to the chamber spawn.
+function unreachableElements() {
+  const bad = [];
+  PVE_CHAMBERS.forEach((row, index) => {
+    const zone = World.map.zones.find((entry) => entry.name === row.zone), spawn = Modes.spawnPoints[index];
+    const start = Nav.nearestNode(spawn.x, spawn.y, spawn.z);
+    for (const element of row.elements) {
+      if (element.kind === 'relay' || element.kind === 'fizzle') continue;
+      const x = (zone.min[0] + zone.max[0]) / 2 + element.at[0], z = (zone.min[2] + zone.max[2]) / 2 + element.at[2];
+      const node = Nav.nearestNode(x, element.at[1], z);
+      if (node < 0 || Math.hypot(Nav.nodeX[node] - x, Nav.nodeZ[node] - z) > 2 || !Nav.reachable(start, node)) bad.push(row.id + '.' + element.kind);
+    }
+  });
+  return bad;
+}
 // Presses USE at buttons, carries the cube onto its plate, shoots relays, then walks onto the exit; true when the chamber completed.
 function solveChamber(id, row) {
   const start = ChamberRun.index;
