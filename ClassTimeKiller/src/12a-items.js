@@ -66,6 +66,11 @@ function itemRule(field, fallback) {
   const value = currentRules()[field];
   return value === undefined ? fallback : value;
 }
+// DIF-002 Pickups column: more yield = map pickups come back sooner (rules.botSkill is the resolved difficulty preset).
+function pickupYield() {
+  const skill = itemRule('botSkill', null);
+  return skill && skill.resourceYield > 0 ? skill.resourceYield : 1;
+}
 function itemMutatorOn(id) {
   const list = itemRule('mutators', []);
   for (let i = 0; i < list.length; i++) if (list[i] === id || list[i].id === id) return true;
@@ -178,12 +183,12 @@ const Items = {
     this.readyTick[slot] = Sim.tick + ticks;
     this.warned[slot] = 0;
   },
-  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale.
+  // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale / the difficulty's resourceYield (DIF-002).
   respawnTicks(slot) {
     const row = this.rowOf(slot), pad = CAT.items.byId('weaponpad');
     let seconds = row.respawn;
     if (this.kind[slot] === PICKUP_KIND.WEAPON) seconds = row.class === 'power' ? pad.respawnPower : itemRule('teams', 0) > 0 ? pad.respawnTeams : pad.respawn;
-    return itemTicks(seconds * itemRule('itemRespawnScale', 1));
+    return itemTicks(seconds * itemRule('itemRespawnScale', 1) / pickupYield());
   },
   // Weapon stay (X11, rules.weaponStay): a weapon spot stays for everyone who does not own that weapon; power weapons never stay.
   stays(slot) {

@@ -67,6 +67,8 @@ Test.add('items', (check) => {
   check('back exactly on time with an item.respawn event', Items.state[0] === PICKUP_STATE.READY && respawns === 1, respawns);
   ItemArena.start({ itemRespawnScale: 0.5 }, [ItemArena.spot('healthpack', 3, 0)]);
   check('itemRespawnScale halves the timer', Items.respawnTicks(0) === itemTicks(17.5), Items.respawnTicks(0));
+  ItemArena.start({ botSkill: CAT.difficulty.byId('stroll') }, [ItemArena.spot('healthpack', 3, 0)]);
+  check('DIF-002 the difficulty resourceYield (D01 x2) makes map pickups return sooner', Items.respawnTicks(0) === itemTicks(35 / 2), Items.respawnTicks(0));
   TestArena.finish();
 });
 
