@@ -412,8 +412,10 @@ function addBrushFaces(bake, brush, brushIndex) {
     if (ny < -0.99 && brush.minY <= bake.bottomY + 1e-3) continue; // the underside of the lowest brushes is never seen
     const polygon = brushFace(brush, plane);
     if (polygon.length < 9) continue;
-    const emit = (piece) => addPiece(bake, piece, material, nx, ny, nz);
-    for (const part of visibleParts(bake, polygon, brushIndex, nx, ny, nz)) cutFace(part, nx, ny, nz, bake.cell, emit);
+    // Cells first, then clipping: each cell meets only its nearby brushes, so big maps bake in linear time.
+    cutFace(polygon, nx, ny, nz, bake.cell, (piece) => {
+      for (const part of visibleParts(bake, piece, brushIndex, nx, ny, nz)) addPiece(bake, part, material, nx, ny, nz);
+    });
   }
 }
 

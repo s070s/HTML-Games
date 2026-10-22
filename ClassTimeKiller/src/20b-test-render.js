@@ -643,3 +643,18 @@ Test.add('render', (check) => withRenderer(() => {
   createGpuResources(Render.gl);
   Render.ready = true;
 }));
+
+// ---- Bake cost on a big map: 200 m, 400 random boxes and ramps (cells are clipped locally, so cost stays linear) ----
+const STRESS_BAKE_MS = 1500;             // about 120 ms on a desktop CPU; the margin covers slow phones and CI
+Test.add('render', (check) => {
+  const random = makeRandom(7), brushes = [{ shape: 'box', min: [-100, -1, -100], max: [100, 0, 100] }];
+  for (let i = 0; i < 400; i++) {
+    const x = random.range(-95, 95), z = random.range(-95, 95);
+    const max = [x + random.range(0.3, 6), random.range(0.5, 6), z + random.range(0.3, 6)];
+    brushes.push({ shape: random.next() < 0.2 ? 'ramp' : 'box', dir: '+z', min: [x, 0, z], max, material: 'metal' });
+  }
+  const triangles = worldTriangles(brushes, 'canal');
+  check('a 400-brush map bakes in bounded time', WorldMesh.bakeMs < STRESS_BAKE_MS, Math.round(WorldMesh.bakeMs) + ' ms, ' + triangles + ' triangles');
+  check('a 400-brush map fits the Low triangle budget', triangles < CAT.quality.byId('low').triangles, triangles);
+  World.clear(); clearWorldMesh();
+});
