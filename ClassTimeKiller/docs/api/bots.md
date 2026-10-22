@@ -1,6 +1,6 @@
 # Bots (S14) - bot brains, team play and difficulty
 
-Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/03h-data-difficulty.js` (difficulty presets and slider ranges), `src/14a-bots.js` (lifecycle, think loop, motor, difficulty stage), `src/14b-bots-perception.js` (sight, hearing, damage, memory), `src/14c-bots-move.js` (paths, steering, links, stuck recovery), `src/14d-bots-combat.js` (targets, aim, fire, weapons, footwork, grenades, abilities), `src/14e-bots-decide.js` (utility goals, objective planners), `src/14f-bots-team.js` (roles, pings, orders, barks), `src/14g-bots-debug.js` (F9 view). Tests: `src/20b-test-bots.js` (group `bots`). Spec: BOT-001..BOT-100, DIF-001..DIF-003, ARC-033, PERF-009, PERF-011.
+Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/03h-data-difficulty.js` (difficulty presets and slider ranges), `src/14a-bots.js` (lifecycle, think loop, motor, difficulty stage), `src/14b-bots-perception.js` (sight, hearing, damage, memory), `src/14c-bots-move.js` (paths, steering, links, stuck recovery), `src/14d-bots-combat.js` (targets, aim, fire, weapons, footwork, grenades, abilities), `src/14e-bots-decide.js` (utility goals, objective planners), `src/14f-bots-team.js` (roles, pings, orders, barks), `src/14g-bots-debug.js` (F9 view). Tests: `src/20b-test-bots.js` (group `bots`, about 8 s; the slow group `botsoak`, about 60 s, runs only with `node tools/selftest.mjs --slow` or `--group botsoak`: see Tests below). Spec: BOT-001..BOT-100, DIF-001..DIF-003, ARC-033, PERF-009, PERF-011.
 
 ## Contract
 
@@ -28,7 +28,11 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 | `BOT_CHAT_CHANCE` | quiet / normal / loud | chance a due bark is spoken |
 | `BOT_ROLE_SPLITS` | per objective kind | share of a team's bots that defend / escort; the rest attack |
 | `BOT_CAMP_HINTS` | `sniper cover guard` | map `navHints` kinds a camper holds |
-| `CAT.difficulty` | D01..D10 | `tierMin tierMax playerDamage enemyDamage attackers aggression resourceYield parry aimAssist reactionScale aimErrorScale projectileSpeed gameSpeed lives checkpoints checkpointHeal`. S14 applies `tierMin tierMax attackers aggression reactionScale aimErrorScale`; the rest ride along in `rules.botSkill` for their owners and S14 does not apply them: `aimAssist` (the player's aim assist, S10/S18), `projectileSpeed playerDamage enemyDamage resourceYield parry gameSpeed lives checkpoints checkpointHeal` (PvE enemies and campaign, S15) |
+| `BOT_FLAG_PUSH` | `rallyShare radius minimum wait seconds` | flag raids (two-flag modes): raiders gather at a nav node `rallyShare` of the way from their flag to the enemy's and push together once `minimum` are within `radius` m (or the first waited `wait` s), for `seconds` s or until the flag is taken |
+| `BOT_OBJECTIVE_VERBS` | `arm disarm defend guard escort stop take reach hold` | what a `Modes.goalFor` verb means: `{ action: 'move'\|'hold'\|'use'\|'keep', share (arrival radius as a share of the objective radius), urgency }`; urgency above 1 outranks any fight |
+| `BOT_HUNTED_ROLES` | `carrier colossus cursed bearer` | `Modes.actorRole` names whose marker everyone sees: bots know where they are (what a person sees on screen) |
+| `BOT_GADGET_USE` | by gadget `effect` | `{ when (a BOT_USE_TRIGGERS word), range [min, max] m (max 0 = any), chance per check, aim: 'enemy'\|'between' (thrown rows) }`; an effect missing here (launchpad) is never used by bots |
+| `CAT.difficulty` | D01..D10 | `tierMin tierMax playerDamage enemyDamage attackers aggression resourceYield parry aimAssist reactionScale aimErrorScale projectileSpeed gameSpeed lives checkpoints checkpointHeal`. S14 applies `tierMin tierMax attackers aggression reactionScale aimErrorScale` everywhere, and in PvE `playerDamage enemyDamage` (its own `Damage.addAttackerScale` hook: PvE enemy hits on the player, and anyone's hits on PvE enemies; never on versus bots) and `gameSpeed` (multiplies `rules.fx.timeScale` in the `difficulty` rule stage). The rest ride along in `rules.botSkill` for their owners: `aimAssist` (S10/S18), `projectileSpeed resourceYield parry lives checkpoints checkpointHeal` (S15) |
 | `DIFFICULTY_SLIDERS` | slider ranges | DIF-002 clamps for custom matches |
 
 ## Match setup
@@ -56,6 +60,9 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 - `BotSense.share(bot, other, x, y, z, now)`: a team-mate's information (enemy pings).
 - `BotSense.stats`: `rays raysThisTick maxRaysPerTick deferred heard hearingRays` (`raysThisTick` runs from one sight pass to the next, so a tick's sounds count with it).
 - Inputs: `sound` events (`radius` x (0.5 + hearing trait); farther than 60% of that needs a clear line), `damage` events (direction and rough distance of the attacker), `Smoke.lineBlocked` for sight, `kill` and `actor.remove` (forget).
+- Smoke blocks sight like a wall. A cloaked actor (`ACTOR_FLAG.INVISIBLE`, `Items.perceptionScale`) is seen only much closer. A decoy's shot is a `sound` with the owner as `source`: the owner is remembered where the decoy stands.
+- `BotSense.mine[bot]`: the nearest enemy placed gadget within 8 m that the bot sees (`Gadgets.visibleTo`, one budgeted ray each; friendly devices skipped), -1 none. An enemy `grenade` sound within 6 m sets `dangerUntil / dangerX / dangerZ` (run from it for 1.5 s).
+- Actors in a `BOT_HUNTED_ROLES` role are remembered as pinged while the bot could see them (their marker is on everyone's screen).
 
 ### Navigation (14c)
 
@@ -75,7 +82,18 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 - Hit cap (BOT-093): over a 30 s window the hit rate is held near the tier's `hitCap` by scaling the error.
 - Weapons: best owned weapon for the distance by `botPref` (+ favourite bonus), switch when safe or empty, reload when safe or empty. Fire only when aligned with the wanted aim and after the reaction time. Head aim only when the expected miss at that range is under 0.3 m. Semi and burst triggers wait until the residual recoil (after recoil control) is under 1 deg.
 - Charge and lock triggers: held until charged, released with the target in sight and the aim on it. Aim off or target hidden: the trigger stays held (letting go would fire at nothing); 1.5 s unseen, a weapon-switch tap drops the charge (a bot with one weapon keeps holding).
-- Footwork: strafe (6.5% side change per 0.4 s check), keep the weapon's range, back off while reloading, dodge seen projectiles (tier `dodgeChance`). Grenades at hidden or clustered enemies 8..25 m (one per team every 3 s), thrown in two phases: the view turns onto the solved arc (at the tier's turn rate), and the throw goes once it is within 3 deg (at most 1 s, then dropped). Abilities and gadgets by their catalogue `botUse` keyword (`BOT_USE_TRIGGERS`).
+- Footwork: strafe (6.5% side change per 0.4 s check), keep the weapon's range, back off while reloading, dodge seen projectiles (tier `dodgeChance`, at most 60%). A seen enemy mine is passed crouched when crouching keeps it quiet, else steered around; a heard grenade is run from.
+
+### Kit use (14d: grenades, gadgets, abilities)
+
+- `BOT_USE_TRIGGERS`: the `when` words (`always enemyVisible enemyClose underFire lowHealth allyLow allyDowned escape moving groupedEnemies objective cover holding lowAmmo`). Each tests only what the bot perceives. An ability row's `botUse { when, range, chance }` and a `BOT_GADGET_USE` row both name one; a use goes when the trigger holds, the target (if any) is in `range` and the chance passes.
+- Pacing: every 0.5 s while nothing is wanted; after a use, 4 s (grenade), 2 s (gadget) or 1.5 s (ability) at abilityUse 0.5, shorter with the trait. One grenade per team every 3 s (`BotTeam.takeGrenadeToken`).
+- Grenades: the selected thrown row (there is no grenade-cycle input). The landing is where the bot believes its target is (`aim: 'enemy'`) or half way there (`'between'`, a screen). The throw solver bisects the low-arc view pitch (up to 35 deg) with the real throw (`GADGET_TUNING.throwSpeed / throwLift`, gravity, from the eye). The view turns onto the arc at the tier's turn rate; then GRENADE is held for the cook time (fuse minus flight minus 0.3 s, cookable rows only) and released.
+- Gadgets (BTN.GADGET): placed and deployed rows by `BOT_GADGET_USE`. Mines, turrets, beacons and barriers go down only where the bot holds its spot (`BotDecide.holding`); the jammer goes down at an objective with a fight on it.
+- Abilities: `passive` and `ult` rows need no press. `hold` rows are held while the trigger lasts (at most 3 s). A `channel` is started only where the bot holds its spot, and the bot stands still while it runs (`BotCombat.channeling(id)`). Toggles and channels are pressed off once their trigger ends (at most 4 s on; see the known limit below). The ultimate also goes with 2+ enemies in sight or a contested objective.
+- `BotCombat.uses`: `{ abilities, grenades, gadgets }`, presses by all bots this match (tests, soak).
+- Mutators (MUT-003, `Mutators.fx`): head-only rules aim for the head; airborne-only rules fire at a grounded target only with splash; one-hit rules raise dodging (still capped at 60%); no fall damage lets paths drop from any height (14c); damage dealt / taken scale aggression (x0.7..1.3, 14e).
+- Known limit: S12 `Abilities.step` reads no input while a slot is active, so the off press does nothing today; channels are therefore kept to held spots.
 
 ### Decisions (14e)
 
@@ -83,7 +101,7 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 - Every goal scores 0..1; the best wins unless the current one is within 10% (BOT-020). A goal whose path failed rests for 5 s; with nothing wanted the bot holds and looks around (never without a goal).
 - Aggression (BOT-021): 0 when health < 60% with armour < 40, or the enemy is 6 m higher; 0.7 with a powerup; else max(0.55, weapon `botPref.value`) x (0.5 + aggression trait) x (0.5 + difficulty aggression). Below 0.5 the bot retreats (to health, cover from `Nav.nearestCover`, or away) from its target while in sight, else from the enemy that hit it in the last 3 s, judged by where it believes that enemy is.
 - Items (BOT-013): map `items` for the mode, valued by need (health by missing health, armour, unowned weapons, powerups, ammo when low), reachable only, taken spots skipped for 20 s; tiers with `itemTiming` and item focus > 0.5 arrive 1..3 s before a timed respawn (`Items.timers`).
-- Objective planners, by `Modes.rules.objective` (BOT-080): `flag` (ctf / oneflag: take, carry home, return, escort, defend by role), `point` and `hill` (spread over the zone, defenders hold owned ones), `bombsite` (carry and plant, escort, defuse), and the elimination safe area. `BotDecide.registerPlanner(kind, fn(id, plan, now))` adds one.
+- Objective planners, by `Modes.rules.objective` (BOT-080): `flag` (ctf / oneflag: take, carry home, return, escort, defend by role; raiders gather and push by `BOT_FLAG_PUSH`, a carrier outranks every fight), `point` and `hill` (spread over the zone, defenders hold owned ones), `bombsite` (carry and plant, escort, defuse), the elimination safe area and the royale ring. Then the add-on modes by their goal hints (`Modes.goalFor` -> `BOT_OBJECTIVE_VERBS`: relays, the convoy, relics, the flame, the curse beacon), and royale loot (`Modes.loot`) instead of map pickups. Bots sent to one spot spread over it (golden-angle offset by id). `BotDecide.registerPlanner(kind, fn(id, plan, now))` adds one.
 - Camping (BOT-041): camper trait > 0.5 and a strong weapon; spots from `BOT_CAMP_HINTS` that see no enemy spawn within 50 m; 120 + 180 x camper seconds, then 60 s cooldown.
 - `BotDecide.carriesObjective(actor)`, `contested(id)`, `favoriteWeapon(id)`, `hurry(id, now)`, `goalFailed(id, now)`.
 
@@ -116,3 +134,9 @@ Files: `src/03g-data-bots.js` (tiers, traits, roster, barks, role splits), `src/
 - `__CTK.setTier(id, tier)`.
 - `__CTK.soak(mode, map, minutes, botCount = 16, seed = 1, modeOptions = { timeLimit: 0, scoreLimit: 0 })`: plays a headless match (Ultra quality for 16 bots) for `minutes` or until it ends, and returns `{ mode, map, bots, seconds, botSeconds, stuckFraction, maxStuck, nan, maxNoGoal, aiP95, aiMax, kills, shots, unknownShots, unperceivedShots, objectivesTouched, raysMax, ended, winner, reason, teamCaptures, actorCaptures, holdPoints }` (times in s, AI in ms per tick; `teamCaptures` = team `capture` points, `actorCaptures` = per-actor capture credits, `holdPoints` = team `hold` points).
 - `__CTK.bots.lastAccuracy` holds the per-tier hit rates of the self-test.
+- `__CTK.bots.kits`: `{ play(batch, seconds, round), abilityBatches(rows), gadgetBatches(rows) }`, the kit matches of the tests (each row given to bots, meters kept full; returns the uses per row). `__CTK.bots.flagPush` is `BOT_FLAG_PUSH` (tune it live).
+
+## Tests
+
+- `bots` (default suite): data cross-checks, perception (smoke, cloak, mine, grenade flee, decoy), a frag landing within 4 m, mutator and difficulty hooks, a 60 s match with 8 abilities (60% cast) and one with gadgets, short objective matches, a 1-minute soak on two maps, the AI time budget.
+- `botsoak` (slow: `--slow`, or `--group botsoak`): every ability and every gadget with a bot use is used at least once (sweeps over dom, the open test arena and a small room), all 15 modes for 120 s, CTF over 5 seeds (captures in 3+, both sides capture, neither side wins every match), and a 3-minute soak on every map.
