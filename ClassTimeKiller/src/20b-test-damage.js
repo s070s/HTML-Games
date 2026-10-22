@@ -203,6 +203,11 @@ Test.add('damage', (check) => {
   check('ECP04 Last Stand at the carry limit keeps both carried weapons', Weapons.current[target] === pistol.index && owns(lancet) && owns(tempest) && Weapons.dropped === '');
   TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
   check('ECP04 Last Stand: revive gives the held weapon back and takes the lent pistol', Weapons.current[target] === tempest.index && owns(lancet) && !owns(pistol), Weapons.current[target]);
+  TestArena.hit(shooter, target, 150);
+  TestArena.hold(medic, BTN.USE, 2);
+  TestArena.hit(shooter, target, 500);
+  Sim.step();
+  check('HP-007 a revive cut short by the kill leaves no progress behind', Actors.alive[target] === 0 && Damage.reviveProgress[medic] === 0 && Damage.reviving[medic] === -1, Damage.reviveProgress[medic]);
   TestArena.finish();
 });
 

@@ -368,8 +368,15 @@ const Damage = {
       if (Actors.flags[id] & ACTOR_FLAG.DOWNED) { downed++; this.stepDowned(id, dt); continue; }
       this.stepRegen(id, preset, dt);
     }
+    const hadDowned = this.downedCount;
     this.downedCount = downed;
     if (downed) this.stepSquads(dt);
+    else if (hadDowned) this.clearRevives();
+  },
+  // The last downed actor was revived or finished: no revive is left half done for the next down.
+  clearRevives() {
+    this.reviving.fill(-1);
+    this.reviveProgress.fill(0);
   },
   // Only while someone is downed: a downed actor with no standing teammate left bleeds out at once; Use holds revive.
   stepSquads(dt) {
