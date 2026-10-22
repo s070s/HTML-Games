@@ -349,7 +349,7 @@ const Devices = {
     }
   },
   beaconFor(device, id) {
-    if (!this.active[device] || this.rowOf(device).effect !== 'beacon' || this.team[device] < 0) return false;
+    if (!this.active[device] || this.rowOf(device).effect !== 'beacon') return false;   // friendOf: the owner alone when the match has no teams
     return this.working(device) && this.friendOf(device, id);
   },
   moveToBeacon(device, id) {

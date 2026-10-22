@@ -590,3 +590,15 @@ Test.add('gadgets', (check) => {
   check('F42 the round-start spawn ignores last round beacon', Math.abs(Actors.x[owner]) > 20, Actors.x[owner]);
   endModeTest();
 });
+
+// F44 (R-099): in a team-less match the owner alone respawns on their own beacon.
+Test.add('gadgets', (check) => {
+  GadgetArena.start({ teams: 0 });
+  const owner = GadgetArena.actor(-1, 40, 40), other = GadgetArena.actor(-1, -40, -40);
+  GadgetArena.device('beacon', owner, 10, 10);
+  Bus.emit('actor.spawn', { id: owner });
+  Bus.emit('actor.spawn', { id: other });
+  check('F44 free-for-all: the owner respawns at their beacon', Math.hypot(Actors.x[owner] - 10, Actors.z[owner] - 10) <= 1.5, Actors.x[owner] + ',' + Actors.z[owner]);
+  check('F44 free-for-all: another player is not moved', Actors.x[other] === -40 && Actors.z[other] === -40);
+  TestArena.finish();
+});
