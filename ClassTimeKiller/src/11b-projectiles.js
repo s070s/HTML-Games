@@ -17,8 +17,14 @@ const COMBO_TARGET_PADDING = 0.3;        // hitscan combo shots get a slightly l
 const BOUNCE_MIN_SPEED = 2;              // slower bouncing projectiles stop bouncing and settle
 const HOOK_PULL_SPEED = 20;
 const HOOK_LIFT_SPEED = 3;
+const INCOMING_RANGE = 25;               // m: an `incoming` row (rocket, missile) this close and closing in warns the local player once (AUD-005)
+
+const PIN_WALL_REACH = 1.5;              // W26: a wall this close behind a stake's victim pins it there
+const PIN_HEIGHT = 1;                    // the pin ray starts this high above the victim's feet
 
 const sweepHit = makeHit();
+const pinHit = makeHit();
+const INCOMING_EVENT = { x: 0, y: 0, z: 0, kind: '', source: -1 };
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
 const steerScratch = Vec.make();
@@ -41,6 +47,7 @@ const Projectiles = {
   offsetY: new Float32Array(PROJECTILE_CAP), offsetZ: new Float32Array(PROJECTILE_CAP), timer: new Float32Array(PROJECTILE_CAP),
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
+  warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -84,7 +91,7 @@ const Projectiles = {
     this.x[i] = x; this.y[i] = y; this.z[i] = z; this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
     this.age[i] = 0; this.life[i] = row.life; this.travelled[i] = 0; this.damage[i] = damage; this.multiplier[i] = 1;
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
-    this.hitLow[i] = this.hitHigh[i] = 0;
+    this.hitLow[i] = this.hitHigh[i] = 0; this.warned[i] = 0;
     this.gravity[i] = row.gravity; this.drag[i] = row.drag;
     this.serial[i] = this.nextSerial++;
     return i;
@@ -148,7 +155,7 @@ const Projectiles = {
       if (!Actors.alive[id] || !Actors.isEnemy(owner, id)) continue;
       Hitbox.point(id, ZONE.BODY, projectileScratch);
       const dx = projectileScratch.x - Actors.x[owner], dy = projectileScratch.y - eyeY, dz = projectileScratch.z - Actors.z[owner];
-      const distance = Math.hypot(dx, dy, dz);
+      const distance = length3(dx, dy, dz);
       if (distance >= bestDistance || (dx * direction.x + dy * direction.y + dz * direction.z) / distance < HOMING_CONE_COS) continue;
       if (!World.lineClear(Actors.x[owner], eyeY, Actors.z[owner], projectileScratch.x, projectileScratch.y, projectileScratch.z)) continue;
       best = id; bestDistance = distance;
@@ -175,6 +182,20 @@ const Projectiles = {
     this.accelerate(i, dt);
     this.stepAura(i, dt);
     this.sweep(i, dt);
+    if (this.state[i] === PROJECTILE_STATE.FLYING) this.warnIncoming(i);
+  },
+  // AUD-005 / ACC-002: a rocket or missile of anyone but the local player and allies, within 25 m and closing in:
+  // 'projectile.incoming' once (S06 plays the whistle and the "[Rocket incoming]" caption).
+  warnIncoming(i) {
+    const player = Game.playerId, owner = this.owner[i];
+    if (this.warned[i] || player < 0 || !Actors.alive[player] || !this.row(i).incoming) return;
+    if (owner === player || (owner >= 0 && !Actors.isEnemy(owner, player))) return;
+    const dx = Actors.x[player] - this.x[i], dy = Actors.eyeY(player) - this.y[i], dz = Actors.z[player] - this.z[i];
+    if (dx * dx + dy * dy + dz * dz > INCOMING_RANGE * INCOMING_RANGE || dx * this.vx[i] + dy * this.vy[i] + dz * this.vz[i] <= 0) return;
+    this.warned[i] = 1;
+    INCOMING_EVENT.x = this.x[i]; INCOMING_EVENT.y = this.y[i]; INCOMING_EVENT.z = this.z[i];
+    INCOMING_EVENT.kind = this.row(i).id; INCOMING_EVENT.source = owner;
+    Bus.emit('projectile.incoming', INCOMING_EVENT);
   },
   accelerate(i, dt) {
     const row = this.row(i);
@@ -206,7 +227,7 @@ const Projectiles = {
     const owner = this.owner[i], speed = this.row(i).speed;
     if (!Actors.alive[owner]) { this.remove(i); return; }
     const dx = Actors.x[owner] - this.x[i], dy = Actors.eyeY(owner) - 0.4 - this.y[i], dz = Actors.z[owner] - this.z[i];
-    const distance = Math.hypot(dx, dy, dz);
+    const distance = length3(dx, dy, dz);
     if (distance < RETURN_CATCH_DISTANCE) { this.remove(i); return; }
     this.vx[i] = dx / distance * speed; this.vy[i] = dy / distance * speed; this.vz[i] = dz / distance * speed;
   },
@@ -214,7 +235,7 @@ const Projectiles = {
   // Moves along the velocity for one step: world ray first, then actor volumes (inflated by the radius) in front of it.
   sweep(i, dt) {
     if (this.state[i] === PROJECTILE_STATE.FREE) return;
-    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    const speed = length3(this.vx[i], this.vy[i], this.vz[i]);
     if (speed < 1e-6) return;
     const length = speed * dt, dx = this.vx[i] / speed, dy = this.vy[i] / speed, dz = this.vz[i] / speed, row = this.row(i);
     const wallHit = World.raycast(this.x[i], this.y[i], this.z[i], dx, dy, dz, length + row.radius, sweepHit);
@@ -263,19 +284,32 @@ const Projectiles = {
     if ((row.onHit === 'damage' || row.onHit === 'pin') && this.modeOf(i).splash) return 'explode';
     return row.onHit;
   },
+  // WPN-011: closer than the arm distance of its row or its fire mode, it cannot explode yet.
+  // The mode arm covers the explosive itself only: split shards inherit the mode but never arm.
+  unarmed(i, row) {
+    const modeArm = this.child[i] || this.onHitKind(i, row) !== 'explode' ? 0 : this.modeOf(i).arm;
+    const arm = Math.max(row.arm, modeArm);
+    return arm > 0 && this.travelled[i] < arm;
+  },
   touchActor(i, row, target, zone, x, y, z, dx, dy, dz) {
     if (row.parryable && WeaponSpecialState.tryParry(target, i)) return true;
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, x, y, z); return true; }
+    if (this.unarmed(i, row)) { this.dud(i, x, y, z); return true; }
     const kind = this.onHitKind(i, row);
     if (kind === 'explode') { this.explodeAt(i, x, y, z, target, zone); return true; }
     if (kind === 'pull') { this.pullOwner(i, target); return true; }
     if (kind === 'drill') { this.attach(i, target, x, y, z); return true; }
     this.hitTarget(i, target, zone, x, y, z, dx, dy, dz);
+    if (kind === 'pin') this.pinToWall(i, target, dx, dy, dz);
     if (kind === 'puddle') { this.becomeArea(i, Actors.x[target], Actors.y[target] + 0.05, Actors.z[target]); return true; }
     if (row.pierce) { this.markHit(i, target); return false; }
     if (row.stickActor) { this.attach(i, target, x, y, z); return true; }
     this.remove(i);
     return true;
+  },
+  // W26 stake: a survivor with a wall just behind it along the flight is pinned there (the 'pinned' status roots it).
+  pinToWall(i, target, dx, dy, dz) {
+    if (!World.raycast(Actors.x[target], Actors.y[target] + PIN_HEIGHT, Actors.z[target], dx, dy, dz, PIN_WALL_REACH, pinHit)) return;
+    Damage.addStatus(target, 'pinned', this.owner[i]);
   },
   hitTarget(i, target, zone, x, y, z, dx, dy, dz) {
     const mode = this.modeOf(i);
@@ -286,20 +320,21 @@ const Projectiles = {
     return Damage.apply(this.owner[i], target, info);
   },
   touchWorld(i, row, hit) {
-    if (row.arm && this.travelled[i] < row.arm) { this.dud(i, hit.x, hit.y, hit.z); return; }
     if (row.roll) { reflectVelocity(i, hit, 0.6); return; }
     if (this.state[i] === PROJECTILE_STATE.RETURNING) return;
     if (this.bounces[i] !== 0 && this.bounceOff(i, row, hit)) return;
+    if (this.unarmed(i, row)) { this.dud(i, hit.x, hit.y, hit.z); return; }   // bounces still happen before it arms
     if (row.returning && !this.lodge[i]) { this.startReturn(i); return; }
     if (row.stick || this.lodge[i]) { this.stickTo(i, row, hit); return; }
     if (this.onHitKind(i, row) === 'explode') { this.explodeAt(i, hit.x + hit.nx * 0.1, hit.y + hit.ny * 0.1, hit.z + hit.nz * 0.1, -1, ZONE.NONE); return; }
     emitImpact(hit, this.modeOf(i).weapon, this.owner[i]);
+    damagePropAt(hit, this.damage[i], this.owner[i]);
     this.remove(i);
   },
   bounceOff(i, row, hit) {
     reflectVelocity(i, hit, row.bounce || 1);
     if (this.bounces[i] > 0) this.bounces[i]--;
-    if (Math.hypot(this.vx[i], this.vy[i], this.vz[i]) >= BOUNCE_MIN_SPEED) return true;
+    if (length3(this.vx[i], this.vy[i], this.vz[i]) >= BOUNCE_MIN_SPEED) return true;
     this.vx[i] = this.vy[i] = this.vz[i] = 0;   // settled: grenades wait for their fuse on the floor
     return true;
   },
@@ -358,7 +393,7 @@ const Projectiles = {
     const owner = this.owner[i];
     if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
     const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
-    const length = Math.hypot(dx, dy, dz);
+    const length = length3(dx, dy, dz);
     if (length < 0.5) return;
     const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
     for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
@@ -417,7 +452,7 @@ const Projectiles = {
   // ---- Endings ----
   expire(i) {
     const row = this.row(i);
-    if (this.onHitKind(i, row) === 'explode' && !(row.arm && this.travelled[i] < row.arm)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
+    if (this.onHitKind(i, row) === 'explode' && !this.unarmed(i, row)) { this.explodeAt(i, this.x[i], this.y[i], this.z[i], -1, ZONE.NONE); return; }
     if (row.onHit === 'puddle') { this.becomeArea(i, this.x[i], this.y[i], this.z[i]); return; }
     this.remove(i);
   },
@@ -458,12 +493,12 @@ const Projectiles = {
   pullOwner(i, target) {
     const owner = this.owner[i];
     this.remove(i);
-    const dx = Actors.x[target] - Actors.x[owner], dz = Actors.z[target] - Actors.z[owner], length = Math.hypot(dx, dz) || 1;
+    const dx = Actors.x[target] - Actors.x[owner], dz = Actors.z[target] - Actors.z[owner], length = length2(dx, dz) || 1;
     emitImpulse(owner, dx / length * HOOK_PULL_SPEED, HOOK_LIFT_SPEED, dz / length * HOOK_PULL_SPEED);
   },
   // Parry (W03): the projectile flies back along the parrying actor's view and now belongs to them.
   reflect(i, newOwner) {
-    const speed = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+    const speed = length3(this.vx[i], this.vy[i], this.vz[i]);
     Vec.fromAngles(projectileScratch, Actors.yaw[newOwner], Actors.pitch[newOwner]);
     this.vx[i] = projectileScratch.x * speed; this.vy[i] = projectileScratch.y * speed; this.vz[i] = projectileScratch.z * speed;
     this.owner[i] = newOwner;
@@ -504,12 +539,12 @@ const Projectiles = {
 
 // Rotates a projectile's velocity toward a unit direction by at most maxAngle radians, keeping its speed.
 function turnVelocity(i, direction, maxAngle) {
-  const speed = Math.hypot(Projectiles.vx[i], Projectiles.vy[i], Projectiles.vz[i]);
+  const speed = length3(Projectiles.vx[i], Projectiles.vy[i], Projectiles.vz[i]);
   if (speed < 1e-6) return;
   const fx = Projectiles.vx[i] / speed, fy = Projectiles.vy[i] / speed, fz = Projectiles.vz[i] / speed;
   const angle = Math.acos(clamp(fx * direction.x + fy * direction.y + fz * direction.z, -1, 1));
   const t = angle <= maxAngle ? 1 : maxAngle / angle;
-  const nx = lerp(fx, direction.x, t), ny = lerp(fy, direction.y, t), nz = lerp(fz, direction.z, t), length = Math.hypot(nx, ny, nz) || 1;
+  const nx = lerp(fx, direction.x, t), ny = lerp(fy, direction.y, t), nz = lerp(fz, direction.z, t), length = length3(nx, ny, nz) || 1;
   Projectiles.vx[i] = nx / length * speed; Projectiles.vy[i] = ny / length * speed; Projectiles.vz[i] = nz / length * speed;
 }
 function reflectVelocity(i, hit, keep) {

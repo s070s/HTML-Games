@@ -18,8 +18,8 @@ const HUD_FLASHES_PER_SECOND = 3;                        // ACC-005 photosensiti
 const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-screen flash in photosensitivity mode
 const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
 const HUD_NUMBER_CACHE = 1000;
+const HUD_LARGE_NUMBER_LIMIT = 256;                      // larger values drawn lately (a core of 5000 makes one string per new value)
 const HUD_LABEL_REFRESH_SECONDS = 1;
-const HUD_LOW_HEALTH = 0.25;
 const HUD_LOW_AMMO = 0.25;
 const HUD_PULSE_HZ = 2;                                  // slow pulses only: well under the flash cap
 const HUD_MAX_ABILITY_SLOTS = 4;
@@ -96,9 +96,20 @@ const hudCountText = Array.from({ length: 100 }, (unused, index) => 'x' + index)
 const hudTimeText = [];
 const HUD_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+const hudLargeNumberText = new Map();
+
 function hudNumber(value) {
   const whole = Math.ceil(value);
-  return whole >= 0 && whole < HUD_NUMBER_CACHE ? hudNumberText[whole] : String(whole);
+  return whole >= 0 && whole < HUD_NUMBER_CACHE ? hudNumberText[whole] : hudLargeNumber(whole);
+}
+// A steady large value (core health, a contract score, range damage) is built once, not every frame; the map empties when full.
+function hudLargeNumber(whole) {
+  let text = hudLargeNumberText.get(whole);
+  if (text !== undefined) return text;
+  if (hudLargeNumberText.size >= HUD_LARGE_NUMBER_LIMIT) hudLargeNumberText.clear();
+  text = String(whole);
+  hudLargeNumberText.set(whole, text);
+  return text;
 }
 function hudCount(value) { return value >= 0 && value < 100 ? hudCountText[value] : 'x' + value; }
 function hudTime(seconds) {
@@ -156,7 +167,9 @@ const Hud = {
   // How a full-screen flash is drawn (ACC-005): photosensitivity darkens it instead of brightening and caps its strength; reduce motion halves it.
   flashColor(color) { return this.photosensitive ? HUD_COLOR.black : color; },
   flashAlpha(alpha) { return this.photosensitive ? Math.min(alpha, HUD_PHOTOSENSITIVE_ALPHA) : this.reduceMotion() ? alpha * HUD_REDUCED_FLASH : alpha; },
-  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[team % this.colors.teams.length]; },
+  teamColor(team) { return team < 0 ? HUD_FREE_FOR_ALL_COLOR : this.colors.teams[this.colorSlot(team) % this.colors.teams.length]; },
+  // M20 squads: the player's own squad always has the first team colour and every other squad the second.
+  colorSlot(team) { return Modes.squads.count > 0 ? (team === Actors.team[Game.playerId] ? 0 : 1) : team; },
   actorColor(id) { return Actors.team[id] >= 0 ? this.teamColor(Actors.team[id]) : this.colors.teams[id % this.colors.teams.length]; },
   teamShape(team) { return team < 0 ? 'circle' : HUD_TEAM_SHAPES[team % HUD_TEAM_SHAPES.length]; },
   // Display text of an input action for the device in use ('' = none bound); refreshed once a second.
@@ -247,6 +260,7 @@ function updateHudLayout(layout, width, height) {
   layout.powerupY = layout.abilityY - 52 * unit;
   // Phones keep the right side free for the touch buttons: the ammo panel sits bottom centre-left instead.
   layout.ammoRight = touch ? width * 0.5 - 6 * unit : layout.right;
+  layout.ammoWidth = (compact ? 132 : 176) * unit;
   layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
   layout.moneyY = layout.gadgetY - 34 * unit;
   layout.weaponBarY = layout.bottom - 12 * unit;
@@ -380,7 +394,7 @@ function hudLocalAlive() { return Game.playerId >= 0 && Actors.alive[Game.player
 function hudDrawVitalBar(pen, layout, bottomY, value, maximum, color, glyph) {
   const unit = layout.unit, width = layout.barWidth, height = layout.barHeight, top = bottomY - height, x = layout.left;
   const fraction = maximum > 0 ? value / maximum : 0;
-  const pulse = fraction < HUD_LOW_HEALTH && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
+  const pulse = fraction < LOW_HEALTH_FRACTION && glyph === '♥' && !Hud.reduceMotion() ? 0.78 + 0.22 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ) : 1;
   pen.bar(x, top, width, height, fraction, color, pulse);
   if (value > maximum && maximum > 0) pen.rect(x, top, width, Math.max(2, unit * 2), HUD_COLOR.gold, 1);   // overheal
   const size = height * 0.78;
@@ -394,7 +408,7 @@ function hudDrawVitals(pen, layout) {
   if (!hudLocalAlive()) return;
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   let y = layout.bottom;
-  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < HUD_LOW_HEALTH ? Hud.colors.healthLow : Hud.colors.health, '♥');
+  y = hudDrawVitalBar(pen, layout, y, Actors.health[id], Actors.maxHealth[id], fraction < LOW_HEALTH_FRACTION ? Hud.colors.healthLow : Hud.colors.health, '♥');
   if (Actors.maxArmor[id] > 0 || Actors.armor[id] > 0) y = hudDrawVitalBar(pen, layout, y, Actors.armor[id], Actors.maxArmor[id], HUD_COLOR.armor, '▲');
   if (Actors.maxShield[id] > 0 || Actors.shield[id] > 0) hudDrawVitalBar(pen, layout, y, Actors.shield[id], Actors.maxShield[id], HUD_COLOR.shield, '●');
 }
@@ -426,7 +440,7 @@ function hudDrawAmmo(pen, layout) {
   const weapon = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
   if (!weapon || !ammo) return;
   const unit = layout.unit, compact = layout.compact;
-  const width = (compact ? 132 : 176) * unit, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
+  const width = layout.ammoWidth, height = (compact ? 58 : 66) * unit, right = layout.ammoRight, left = right - width, top = layout.bottom - height;
   pen.panel(left, top, width, height);
   pen.text(weapon.name, left + 8 * unit, top + HUD_TEXT_SMALL * unit, 14 * unit, HUD_COLOR.dim, 'left');
   if (weapon.mag === 0) return;
@@ -494,7 +508,18 @@ function hudDrawGadgets(pen, layout) {
   if (state.grenade || state.grenadeCount > 0) {
     pen.shape('circle', x, y, 13 * unit, state.grenadeCount > 0 ? HUD_COLOR.text : HUD_COLOR.dim);
     pen.text(hudCount(state.grenadeCount), x - 14 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+    x -= 74 * unit;
   }
+  hudDrawConsumables(pen, x, y, unit);
+}
+// Carried loot consumables (I13..I17) with the heal key; a ring fills while one is in use.
+function hudDrawConsumables(pen, x, y, unit) {
+  const count = Items.consumableCount(Game.playerId), progress = Items.useProgress(Game.playerId);
+  if (count <= 0 && progress < 0) return;
+  if (progress >= 0) hudDrawCooldownRing(pen, x, y, 14 * unit, 3 * unit, 1 - progress, Hud.colors.good);
+  pen.shape('square', x, y, 11 * unit, HUD_COLOR.text);
+  pen.text(hudCount(count), x - 22 * unit, y, 15 * unit, HUD_COLOR.text, 'right');
+  pen.text(Hud.keyLabel('heal'), x, y + 22 * unit, HUD_TEXT_SMALL * unit, HUD_COLOR.dim, 'center');
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };

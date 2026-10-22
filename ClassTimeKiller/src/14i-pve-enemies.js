@@ -65,7 +65,7 @@ const PveMove = {
     const target = Pve.target[id];
     if (target < 0) { this.hold(id); return; }
     const seen = BotSense.sees(id, target), at = BotSense.perceivedPosition(id, target, pveTargetScratch);
-    const dx = at.x - Actors.x[id], dz = at.z - Actors.z[id], distance = Math.hypot(dx, dz);
+    const dx = at.x - Actors.x[id], dz = at.z - Actors.z[id], distance = length2(dx, dz);
     if (distance > this.approach[id]) this.close(id, at, distance, seen, dt, now);
     else if (distance < row.keepRange[0]) { BotMove.stop(id); Bots.wish(id, -dx, -dz, PVE_BACK_AMOUNT); }
     else this.band(id, row, dx, dz, now);
@@ -85,7 +85,7 @@ const PveMove = {
     const target = Pve.target[id];
     if (target < 0) { this.hold(id); return; }
     BotSense.perceivedPosition(id, target, pveTargetScratch);
-    const dx = Actors.x[id] - pveTargetScratch.x, dz = Actors.z[id] - pveTargetScratch.z, length = Math.hypot(dx, dz) || 1;
+    const dx = Actors.x[id] - pveTargetScratch.x, dz = Actors.z[id] - pveTargetScratch.z, length = length2(dx, dz) || 1;
     this.travel(id, Actors.x[id] + dx / length * PVE_FLEE_DISTANCE, Actors.y[id], Actors.z[id] + dz / length * PVE_FLEE_DISTANCE, PVE_ARRIVE_RADIUS, dt, now);
   },
   dodge(id) {
@@ -155,9 +155,9 @@ const PveAttacks = {
     step() { return true; },
     drawTell(batch, id, attack, progress) {
       const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
-      const dx = Pve.aimX[id] - ex, dy = Pve.aimY[id] - ey, dz = Pve.aimZ[id] - ez, length = Math.hypot(dx, dy, dz);
+      const dx = Pve.aimX[id] - ex, dy = Pve.aimY[id] - ey, dz = Pve.aimZ[id] - ez, length = length3(dx, dy, dz);
       if (length < 1e-3) return;
-      const yaw = Math.atan2(dx, dz), pitch = Math.atan2(dy, Math.hypot(dx, dz)), color = PVE_TELL_COLORS.unblockable;
+      const yaw = Math.atan2(dx, dz), pitch = Math.atan2(dy, length2(dx, dz)), color = PVE_TELL_COLORS.unblockable;
       batch.mesh('box', ex + dx / 2, ey + dy / 2, ez + dz / 2, yaw, pitch, LASER_WIDTH, LASER_WIDTH, length,
         ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 0.5 + progress * 0.5);
     },
@@ -187,7 +187,7 @@ const PveAttacks = {
       emitSound(x, y, z, radius * 10, 'explosion', id);
       for (let other = 0; other < Actors.count; other++) {
         if (!Pve.isFoe(id, other) || !(Actors.flags[other] & ACTOR_FLAG.ON_GROUND)) continue;
-        if (Math.hypot(Actors.x[other] - x, Actors.z[other] - z) <= radius && Math.abs(Actors.y[other] - y) < 2) Pve.hitTarget(id, other, attack, attack.damage, 'splash');
+        if (length2(Actors.x[other] - x, Actors.z[other] - z) <= radius && Math.abs(Actors.y[other] - y) < 2) Pve.hitTarget(id, other, attack, attack.damage, 'splash');
       }
       if (Pve.core.active && Pve.distanceTo(id, PVE_CORE_TARGET) <= radius) Pve.hitTarget(id, PVE_CORE_TARGET, attack, attack.damage);
     },
@@ -217,7 +217,7 @@ const PveAttacks = {
   charge: {
     lockSeconds: 0.2,
     begin(id, attack, now) {
-      const dx = Pve.aimX[id] - Actors.x[id], dz = Pve.aimZ[id] - Actors.z[id], length = Math.hypot(dx, dz) || 1;
+      const dx = Pve.aimX[id] - Actors.x[id], dz = Pve.aimZ[id] - Actors.z[id], length = length2(dx, dz) || 1;
       Pve.goalX[id] = dx / length; Pve.goalZ[id] = dz / length;   // the locked direction
       Pve.phaseEndsAt[id] = now + attack.seconds;
     },
@@ -229,7 +229,7 @@ const PveAttacks = {
       }
       const contact = CHARGE_CONTACT * Pve.rowOf(id).size;
       for (let other = 0; other < Actors.count; other++) {
-        if (!Pve.isFoe(id, other) || Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > contact) continue;
+        if (!Pve.isFoe(id, other) || length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > contact) continue;
         chargeHit(id, other, attack);
         return true;
       }
@@ -247,7 +247,7 @@ const PveAttacks = {
     lockSeconds: 0.2,
     begin(id, attack, now) {
       const dx = Pve.aimX[id] - Actors.x[id], dy = Pve.aimY[id] - 1 - Actors.y[id], dz = Pve.aimZ[id] - Actors.z[id];
-      const flight = clamp(Math.hypot(dx, dz) / POUNCE_SPEED, POUNCE_FLIGHT[0], POUNCE_FLIGHT[1]);
+      const flight = clamp(length2(dx, dz) / POUNCE_SPEED, POUNCE_FLIGHT[0], POUNCE_FLIGHT[1]);
       Actors.vx[id] = dx / flight; Actors.vz[id] = dz / flight;
       Actors.vy[id] = (dy + 0.5 * Move.gravity(id) * flight * flight) / flight;
       unground(id);
@@ -255,7 +255,7 @@ const PveAttacks = {
     },
     step(id, attack, now) {
       for (let other = 0; other < Actors.count; other++) {
-        if (!Pve.isFoe(id, other) || Math.hypot(Actors.x[other] - Actors.x[id], Actors.y[other] - Actors.y[id], Actors.z[other] - Actors.z[id]) > attack.radius) continue;
+        if (!Pve.isFoe(id, other) || length3(Actors.x[other] - Actors.x[id], Actors.y[other] - Actors.y[id], Actors.z[other] - Actors.z[id]) > attack.radius) continue;
         Pve.hitTarget(id, other, attack, attack.damage, 'melee');
         return true;
       }
@@ -283,7 +283,7 @@ const PveAttacks = {
 const pveSummonOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 function inFront(id, target, reach) {
-  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = Math.hypot(dx, dz);
+  const dx = Actors.x[target] - Actors.x[id], dz = Actors.z[target] - Actors.z[id], distance = length2(dx, dz);
   if (distance > reach * Math.max(1, Pve.rowOf(id).size) || Math.abs(Actors.y[target] - Actors.y[id]) > 2) return false;
   if (distance < 0.3) return true;
   return (Math.sin(Actors.yaw[id]) * dx + Math.cos(Actors.yaw[id]) * dz) / distance > PVE_FACING_COS;
@@ -295,7 +295,7 @@ function chargeHit(id, target, attack) {
   info.x = Actors.x[target]; info.y = Actors.y[target] + 1; info.z = Actors.z[target];
   info.dx = Pve.goalX[id]; info.dy = 0; info.dz = Pve.goalZ[id];
   Damage.apply(id, target, info);
-  if (attack.knockdown > 0) Damage.addStatus(target, 'shock', id, attack.knockdown, 1);
+  if (attack.knockdown > 0) Damage.addStatus(target, 'stun', id, attack.knockdown, 1);
 }
 
 // The attack's weapon row decides the projectile (rocket splash, parryable plasma); speed x difficulty projectileSpeed.
@@ -303,7 +303,7 @@ function launchProjectile(id, attack, yawOffset) {
   const weapon = CAT.weapons.byId(attack.weapon), mode = weapon.primary, row = CAT.projectiles.byId(mode.projectile);
   const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
   const yaw = Math.atan2(Pve.aimX[id] - ex, Pve.aimZ[id] - ez) + yawOffset;
-  const pitch = Math.atan2(Pve.aimY[id] - ey, Math.hypot(Pve.aimX[id] - ex, Pve.aimZ[id] - ez));
+  const pitch = Math.atan2(Pve.aimY[id] - ey, length2(Pve.aimX[id] - ex, Pve.aimZ[id] - ez));
   const speed = (mode.speed || row.speed) * Pve.skill().projectileSpeed;
   Vec.fromAngles(pveMoveScratch, yaw, pitch);
   // Projectiles scale direct and splash damage by `multiplier`: pass the direct damage pre-divided so the direct hit stays attack.damage.
@@ -397,15 +397,15 @@ const PveBrains = {
 // Healable: another living enemy of the healer's team inside the radius.
 function healable(id, other, radius) {
   if (other === id || !Pve.isEnemy(other) || !Actors.alive[other] || Actors.team[other] !== Actors.team[id]) return false;
-  return Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) <= radius;
+  return length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) <= radius;
 }
 
 // Thin box from a to b in the row colour slot (heal beams).
 function drawBeam(batch, ax, ay, az, bx, by, bz, colors, slot, width) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+  const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
   if (length < 1e-3) return;
   pveBeam.x = ax + dx / 2; pveBeam.y = ay + dy / 2; pveBeam.z = az + dz / 2;
-  batch.mesh('box', pveBeam.x, pveBeam.y, pveBeam.z, Math.atan2(dx, dz), Math.atan2(dy, Math.hypot(dx, dz)), width, width, length,
+  batch.mesh('box', pveBeam.x, pveBeam.y, pveBeam.z, Math.atan2(dx, dz), Math.atan2(dy, length2(dx, dz)), width, width, length,
     colors[slot * 3], colors[slot * 3 + 1], colors[slot * 3 + 2], 0.8);
 }
 
@@ -417,7 +417,7 @@ function blinkBeside(id, target) {
   const node = Nav.nearestNode(x, Actors.y[target], z);
   if (node < 0) return;
   Nav.nodePosition(node, pveMoveScratch);
-  if (Math.hypot(pveMoveScratch.x - x, pveMoveScratch.z - z) > BLINK_FLANK + BLINK_NODE_SLACK) return;
+  if (length2(pveMoveScratch.x - x, pveMoveScratch.z - z) > BLINK_FLANK + BLINK_NODE_SLACK) return;
   relocateActor(id, pveMoveScratch.x, pveMoveScratch.y, pveMoveScratch.z, Actors.yaw[id]);
   BotMove.reset(id);
   if (!Game.headless) Fx.burst('shock', pveMoveScratch.x, pveMoveScratch.y + 1, pveMoveScratch.z, 0, 1, 0, 12, Pve.rowOf(id).glow);

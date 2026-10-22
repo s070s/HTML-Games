@@ -4,13 +4,18 @@
 // statistics per weapon / mode / map with weapon mastery, the run metrics of the current match (RunLog) that challenges,
 // cards and the daily seed score, and the save migration of the progress fields. Data: 03p. Contracts: docs/api/progression.md.
 
-const PROGRESS_VERSION = 1;
+const PROGRESS_VERSION = 2;                 // 2: profile.chambers (MP11 chamber records)
 const PROGRESS_SECONDS_PER_MINUTE = 60;
-const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (the PvE section did not report them)
+const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (enemies left outside a PvE match, a level report number missing)
+// A number of the PvE level report (14j PveLevel: props, secrets, optional enemies), or not measured.
+function pveReported(results, key) {
+  const pve = results && results.pve ? results.pve : null;
+  return pve && typeof pve[key] === 'number' ? pve[key] : PROGRESS_NOT_REACHED;
+}
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
-const RUN_WRATH_ABILITY = 'wrath';          // A34 Wrath Form (S12): its cast and end mark the Wrath Form run metrics
+const CHAMBER_SECONDS_STEP = 10;            // chamber record times are kept to a tenth of a second
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
 
@@ -25,8 +30,9 @@ function isLongShot(killer, event) {
 // ---- Run metrics of the local player in the running match (reset on match.start; plain numbers, no allocation per event) ----
 const RunLog = {
   kills: 0, deaths: 0, airKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
-  lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
+  lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false, chamberRecords: 0,
   bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+  outSeconds: PROGRESS_NEVER,  // match seconds when the player lost their last life (lives rules); PROGRESS_NEVER while still in
   weaponUsed: new Uint8Array(WEAPON_COUNT),
   metrics: {},                // reused result of measure()
 
@@ -34,13 +40,16 @@ const RunLog = {
     this.kills = this.deaths = this.airKills = this.rangedKills = this.explosiveShots = 0;
     this.damageTaken = this.souls = this.armorPickups = this.marks = this.wrathForms = this.wrathKills = 0;
     this.inWrath = false;
+    this.chamberRecords = 0;
     this.lowestHealth = Infinity;
-    this.bossSeconds = this.finalBossSeconds = PROGRESS_NEVER;
+    this.bossSeconds = this.finalBossSeconds = this.outSeconds = PROGRESS_NEVER;
     this.weaponUsed.fill(0);
   },
   isPlayer(id) { return id >= 0 && id === Game.playerId; },
+  // S13 counts the life lost first (its kill listener runs earlier), so lives 0 here means the player is out of the match.
   onKill(event) {
     if (this.isPlayer(event.victim)) this.deaths++;
+    if (this.isPlayer(event.victim) && Modes.lives[event.victim] === 0) this.outSeconds = Math.min(this.outSeconds, Sim.time - Modes.startTime);
     if (!this.isPlayer(event.killer) || event.victim === event.killer) return;
     this.kills++;
     const weapon = CAT.weapons.byId(event.weapon);
@@ -49,7 +58,7 @@ const RunLog = {
     if (isAirborne(event.killer)) this.airKills++;
     if (this.inWrath) this.wrathKills++;
   },
-  // Wrath Form starts or ends for the player; a start while already in it is the same form (two sources may report it).
+  // Wrath Form starts or ends for the player (A34 ability.cast / ability.end); a start while already in it is the same form.
   setWrath(id, active) {
     if (!this.isPlayer(id)) return;
     if (active && !this.inWrath) this.wrathForms++;
@@ -75,24 +84,21 @@ const RunLog = {
   // Every number challenges, cards and the daily seed read, for the finished (or running) match. Reused object.
   measure(match) {
     const out = this.metrics, results = match && match.results, mine = Progress.playerResult(results);
-    const pve = results && results.pve ? results.pve : null;
     out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills;
     out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
     out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy();
-    out.seconds = results ? results.duration : 0;
+    out.seconds = results ? Math.min(results.duration, this.outSeconds) : 0;   // a player out of lives stops earning time (PRG-004)
     out.score = mine ? mine.score : 0; out.objective = mine ? mine.objective : 0; out.bestStreak = mine ? mine.bestStreak : 0;
     out.won = results && Progress.outcome(results) === 'win' ? 1 : 0;
     out.placement = Progress.placement(results);
     out.cardsEquipped = match && match.rules && match.rules.cards ? match.rules.cards.ids.length : 0;
     out.hard = match ? Progress.isHard(match.rules ? match.rules.difficulty : '') : false;
     out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won ? 1 : 0;
-    out.enemiesLeft = pve && typeof pve.enemiesLeft === 'number' ? pve.enemiesLeft : PROGRESS_NOT_REACHED;
-    out.propsLeft = pve && typeof pve.propsLeft === 'number' ? pve.propsLeft : PROGRESS_NOT_REACHED;
-    out.secretsLeft = pve && typeof pve.secretsLeft === 'number' ? pve.secretsLeft : PROGRESS_NOT_REACHED;
-    out.optionalLeft = pve && typeof pve.optionalLeft === 'number' ? pve.optionalLeft : PROGRESS_NOT_REACHED;
+    out.enemiesLeft = Pve.active ? enemiesLeft() : PROGRESS_NOT_REACHED;   // living plus queued enemies (14j), read once at the end
+    out.propsLeft = pveReported(results, 'propsLeft'); out.secretsLeft = pveReported(results, 'secretsLeft'); out.optionalLeft = pveReported(results, 'optionalLeft');
     out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
     return out;
   },
@@ -116,14 +122,14 @@ const Progress = {
   // ---- Save layout (ARC-020): fills every missing progress field of any older save ----
   emptyProfile() {
     return { version: PROGRESS_VERSION, xp: 0, matches: 0, medals: {}, unlocked: {}, cosmetics: { color: '', finish: '', title: '' }, rangeOffered: false,
-      cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {} };
+      cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {}, chambers: {} };
   },
   emptyStats() { return { version: PROGRESS_VERSION, weapons: {}, modes: {}, maps: {}, totals: { matches: 0, wins: 0, kills: 0, deaths: 0, seconds: 0 } }; },
   emptyLadder() { return { version: PROGRESS_VERSION, tier: 0, match: 0, done: false, cleared: {}, difficulty: {} }; },
   migrate(data) {
-    data.progression = fillMissing(isPlainRecord(data.progression) ? data.progression : {}, this.emptyProfile());
-    data.stats = fillMissing(isPlainRecord(data.stats) ? data.stats : {}, this.emptyStats());
-    data.ladder = fillMissing(isPlainRecord(data.ladder) ? data.ladder : {}, this.emptyLadder());
+    data.progression = fillMissing(isPlainObject(data.progression) ? data.progression : {}, this.emptyProfile());
+    data.stats = fillMissing(isPlainObject(data.stats) ? data.stats : {}, this.emptyStats());
+    data.ladder = fillMissing(isPlainObject(data.ladder) ? data.ladder : {}, this.emptyLadder());
     data.progression.xp = Math.max(0, Number(data.progression.xp) || 0);
     data.progression.version = data.stats.version = data.ladder.version = PROGRESS_VERSION;
     return data;
@@ -134,8 +140,8 @@ const Progress = {
   ladder() { return this.ensure().ladder; },
   ensure() {
     const data = Save.data;
-    const current = isPlainRecord(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainRecord(data.stats)
-      && data.stats.version === PROGRESS_VERSION && isPlainRecord(data.ladder) && data.ladder.version === PROGRESS_VERSION;
+    const current = isPlainObject(data.progression) && data.progression.version === PROGRESS_VERSION && isPlainObject(data.stats)
+      && data.stats.version === PROGRESS_VERSION && isPlainObject(data.ladder) && data.ladder.version === PROGRESS_VERSION;
     return current ? data : this.migrate(data);
   },
 
@@ -261,6 +267,9 @@ const Progress = {
     this.look.color = color === null ? PROGRESS_NO_LOOK : color;
     this.look.finish = finish === null ? PROGRESS_NO_LOOK : finish;
   },
+  // The colour an actor is shown in where no body is drawn (view model, scoreboard row, killcam figure): the worn body colour
+  // for the local player, else `fallback`.
+  bodyColor(id, fallback) { return id >= 0 && id === Game.playerId && this.look.color !== PROGRESS_NO_LOOK ? this.look.color : fallback; },
   title() { return this.cosmetic('title') || ''; },
 
   // ---- Statistics per weapon / mode / map (PRG-014) and weapon mastery ----
@@ -327,7 +336,7 @@ const Progress = {
     this.addXp(award.xp);
     award.levelAfter = this.level();
     award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
-    if (award.levelAfter > levelBefore) Bus.emit('toast', { text: 'Level ' + award.levelAfter + ' reached' });
+    if (award.levelAfter > levelBefore) emitToast('Level ' + award.levelAfter + ' reached');
     this.lastAward = award;
     this.refreshLook();
     Save.scheduleSave();
@@ -341,6 +350,26 @@ const Progress = {
       if (row) { xp += row.xp * count; award.medals.push(row.name + (count > 1 ? ' x' + count : '')); }
     }
     return xp;
+  },
+  // ---- MP11 Test Chambers records (Save.data.progression.chambers['1'..'12'] = { medal, stars, seconds }) ----
+  // A completed chamber ('pve.chamber' kind complete) keeps the best run: more stars, or as many stars in less time.
+  recordChamber(event) {
+    const records = this.profile().chambers, key = String(event.chamber), old = records[key];
+    const seconds = Math.round(event.seconds * CHAMBER_SECONDS_STEP) / CHAMBER_SECONDS_STEP;
+    const better = !isPlainObject(old) || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
+    if (!better) return false;
+    records[key] = { medal: event.medal, stars: event.stars, seconds };
+    if (event.stars > 0) RunLog.chamberRecords++;
+    Save.scheduleSave();
+    return true;
+  },
+  chamberRecord(chamber) { return this.profile().chambers[String(chamber)] || null; },
+  // A malformed entry of an imported save (not a plain record) counts no stars.
+  chamberStars() {
+    const records = this.profile().chambers;
+    let stars = 0;
+    for (const key in records) stars += isPlainObject(records[key]) ? Number(records[key].stars) || 0 : 0;
+    return stars;
   },
   unlockedIds() {
     const ids = [];
@@ -357,19 +386,18 @@ function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
   return PROGRESS_NOT_REACHED;
 }
-function isPlainRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 // Copies every field of `defaults` that `target` lacks (one level into nested records); returns target.
 function fillMissing(target, defaults) {
   for (const key in defaults) {
     const fallback = defaults[key];
-    if (target[key] === undefined || (isPlainRecord(fallback) && !isPlainRecord(target[key]))) target[key] = fallback;
-    else if (isPlainRecord(fallback) && !Object.keys(fallback).length) continue;
-    else if (isPlainRecord(fallback)) fillMissing(target[key], fallback);
+    if (target[key] === undefined || (isPlainObject(fallback) && !isPlainObject(target[key]))) target[key] = fallback;
+    else if (isPlainObject(fallback) && !Object.keys(fallback).length) continue;
+    else if (isPlainObject(fallback)) fillMissing(target[key], fallback);
   }
   return target;
 }
 function statRecord(table, key, fields) {
-  if (!isPlainRecord(table[key])) table[key] = {};
+  if (!isPlainObject(table[key])) table[key] = {};
   return fillMissing(table[key], Object.assign({}, fields));
 }
 
@@ -380,6 +408,13 @@ Render.addActorStyle((id, out) => {
   if (color !== PROGRESS_NO_LOOK) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
   if (finish !== PROGRESS_NO_LOOK) out.emissive = Math.max(out.emissive, finish);
 });
+// First person draws no body (07c), so the held weapon wears the body colour: the S11 view model hook, wrapped once at load.
+const progressWeaponViewModel = Render.viewModel;
+Render.viewModel = (out) => {
+  if (progressWeaponViewModel) progressWeaponViewModel(out);
+  out.color = Progress.bodyColor(Game.playerId, out.color);
+  return out;
+};
 
 Bus.on('boot', () => { Progress.ensure(); Progress.refreshLook(); });
 Bus.on('setting', (key) => { if (key === 'progress.unlockAll') Progress.refreshLook(); });
@@ -390,12 +425,17 @@ Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
 // A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
-Bus.on('ability.cast', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, true); });
-Bus.on('ability.end', (event) => { if (event.ability === RUN_WRATH_ABILITY) RunLog.setWrath(event.id, false); });
-// PvE reports (PvE section, docs/api/progression.md): an optional second Wrath Form source and boss times.
-Bus.on('pve.wrath', (event) => RunLog.setWrath(event.id, event.active !== false));
+Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });
+Bus.on('ability.end', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, false); });
+// PvE reports (S14 PvE, docs/api/progression.md): boss fight times (kind 'defeated') and chamber records.
 Bus.on('pve.boss', (event) => {
+  if (event.kind !== 'defeated') return;   // phase, weak and start reports carry no boss time
   RunLog.bossSeconds = Math.min(RunLog.bossSeconds, event.seconds);
   if (event.final) RunLog.finalBossSeconds = Math.min(RunLog.finalBossSeconds, event.seconds);
+});
+Bus.on('pve.chamber', (event) => { if (event.kind === 'complete') Progress.recordChamber(event); });
+// The results lines of a chamber run: new records and the star total kept in the profile.
+Progress.addFinisher((match, metrics, award) => {
+  if (RunLog.chamberRecords > 0) award.lines.push('Chamber records: ' + RunLog.chamberRecords + ' (stars kept: ' + Progress.chamberStars() + ')');
 });
 Bus.on('match.end', (match) => Progress.finishMatch(match));

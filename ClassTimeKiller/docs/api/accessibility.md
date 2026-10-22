@@ -19,7 +19,7 @@ One source per setting. Settings the earlier sections read are filled through ho
 | `hud.element.minimap` `compass` `awareness` `barks` | on, off, on, on | 17f via `hudAddElement` | one toggle per element, like every HUD element. `barks` is in the Accessibility tab |
 | `controls.toggle.<id>` | hold | 05a | one per row with `toggle: true`: `crouch sprint walk prone fire alt use scoreboard` (hold or toggle, ACC-004) |
 | `gameplay.tips` | on | 18n | `Tips.show` at match start |
-| `assist.enabled`, `assist.gameSpeed`, `assist.aimAssist` | off, 1, 0 | 18l | the assist fields that have a reader (range copied from `DIFFICULTY_SLIDERS`); `DifficultyAssist.apply(setup)` |
+| `assist.enabled`, `assist.gameSpeed`, `assist.aimAssist`, `assist.parry`, `assist.playerDamage`, `assist.enemyDamage` | off, 1, 0, 0.3, 1, 1 | 18l | the assist fields that have a reader (range copied from `DIFFICULTY_SLIDERS`); `DifficultyAssist.apply(setup)` (rebuilds `setup.difficulty` from `setup.baseDifficulty`, the choice before any assist, so Restart and Play again drop assists switched off since) |
 
 Existing and unchanged: `ui.scale` (18a, 75-150%), `audio.master/sfx/ui/announcer/music` (separate volumes), `audio.mono`, `hud.captionSize/captionBackground`, `hud.element.captions`, `hud.element.soundRing`, `hud.teamShapes`, `controls.pad.aimAssist`, `controls.touch.aimAssist`, `controls.touch.autoFire`. `hud.colorBlind` and `hud.reduceMotion` no longer exist (replaced by the `accessibility.*` keys; old saves simply ignore them).
 
@@ -34,14 +34,14 @@ Existing and unchanged: `ui.scale` (18a, 75-150%), `audio.master/sfx/ui/announce
 
 ## Assist sliders (ACC-007, DIF-002)
 
-`ASSIST_ROWS` (18l) has one row per `DIFFICULTY_SLIDERS` field with two flags. `live`: a section reads `rules.botSkill.<field>` (reactionScale, aimErrorScale, aggression, attackers by the bots section, gameSpeed, aimAssist below); only live fields get a slider anywhere. `assist`: the player may keep it as a personal assist (the Gameplay tab, setting `assist.<field>`). Today `gameSpeed` and `aimAssist` are both; `parry`, `playerDamage` and `enemyDamage` are assists whose reader (weapons, PvE) does not exist yet, so they have no slider; flip their `live` flag to true when the reader lands (projectileSpeed, resourceYield, lives and checkpointHeal likewise).
+`ASSIST_ROWS` (18l) has one row per `DIFFICULTY_SLIDERS` field with two flags. `live`: a section reads `rules.botSkill.<field>` (reactionScale, aimErrorScale, aggression, attackers by the bots section, gameSpeed, aimAssist below); only live fields get a slider anywhere. `assist`: the player may keep it as a personal assist (the Gameplay tab, setting `assist.<field>`). Every field is live now: the PvE section (14h-14j) reads playerDamage (hits PvE enemies deal to you), enemyDamage (hits you deal to them), parry, projectileSpeed, resourceYield, lives and checkpointHeal. `gameSpeed`, `aimAssist`, `parry`, `playerDamage` and `enemyDamage` are also personal assists. A future field without a reader gets `live: false` and no slider.
 
-Switched on (`assist.enabled`), `PlayFlow.buildSetup` (through `PlayFlow.setupHooks`) turns `setup.difficulty` into `{ preset, <the assists the player moved away from neutral> }`: the preset keeps every other field (tiers, aggression, reaction), so picking Nightmare with a slower game still plays like Nightmare. The bots section clamps the object into `rules.botSkill`.
+Switched on (`assist.enabled`), `Game.start` (through `Game.setupHooks`, so every start path: Play, Quick Match, Career, Custom, Generated Map, Restart) turns `setup.difficulty` into `{ preset, <the assists the player moved away from neutral> }`: the preset keeps every other field (tiers, aggression, reaction), so picking Nightmare with a slower game still plays like Nightmare. The bots section clamps the object into `rules.botSkill`.
 
 - Game speed rides on `rules.fx.timeScale` (a `difficulty` rule-stage modifier in 18l multiplies it by `botSkill.gameSpeed`), the field of the Game Speed mutator: 13h resets `Sim.timeScale` from it every step, so the speed survives mutators and kill slow-mo comes back to it.
 - Aim assist is a floor for the touch and gamepad strength: `Input.assistStrength()` is `max(device slider, rules.botSkill.aimAssist) / 100` (preset value -1 = no floor); never for the mouse (INP-008).
 - Using assists costs nothing: nothing stores or checks them for progression.
-- `Ui.difficultyRows(container, values, onChange)` builds one slider row per live field for a plain `{ field: value }` object (the custom match editor can mount it; see the contract requests).
+- `Ui.difficultyRows(container, values, onChange)` builds one slider row per live field for a plain `{ field: value }` object (the custom match editor mounts it on its Bots tab, `docs/api/mutators-custom.md`).
 
 ## HUD extras (17f)
 
@@ -87,5 +87,4 @@ Consumes `sound bark announce caption explosion damage move.land move.dash impul
 
 ## Contract requests
 
-- Custom match editor (18g): mount `Ui.difficultyRows` for the DIF-002 sliders (the editor keeps a preset id string in `draft.difficulty`, validated and shared by code; it needs a `{ preset, field... }` form in the draft, its validators and the share code; `Bots` already accepts the object). Not done: open item.
-- PvE section: read `rules.botSkill.playerDamage / enemyDamage / lives / checkpointHeal / projectileSpeed / resourceYield`, weapons (11d): scale the parry window by `botSkill.parry`; then flip the `live` flag of the row in `ASSIST_ROWS` (18l).
+None open: the custom editor mounts `Ui.difficultyRows` (M3) and every `ASSIST_ROWS` field has its reader.

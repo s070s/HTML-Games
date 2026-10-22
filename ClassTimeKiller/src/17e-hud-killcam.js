@@ -143,7 +143,7 @@ function hudDrawKillcamFigures(batch) {
     if (id === Killcam.killer) continue;                       // the camera is inside this one
     const body = Killcam.sample(id, time);
     if (!body.alive) continue;
-    const color = Hud.actorColor(id), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
+    const color = Progress.bodyColor(id, Hud.actorColor(id)), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
     batch.mesh('capsule', body.x, body.y + figure.height / 2, body.z, body.yaw, 0, figure.width, figure.height, figure.width, r, g, b, 0);
     batch.mesh('box', body.x + Math.sin(body.yaw) * 0.3, body.y + figure.faceHeight, body.z + Math.cos(body.yaw) * 0.3, body.yaw, 0, figure.faceSize, figure.faceSize * 0.5, figure.faceSize, 1, 1, 1, 0.4);
   }

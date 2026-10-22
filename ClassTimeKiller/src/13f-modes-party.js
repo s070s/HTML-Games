@@ -7,7 +7,6 @@ const INFECTED_TEAM = 1;
 const ROULETTE_EXCLUDED_CLASSES = ['melee', 'tool', 'power'];
 const ROULETTE_FALLBACK = 'warden';
 const ladderTier = new Uint8Array(MAX_ACTORS);
-const leapImpulse = { id: -1, x: 0, y: 0, z: 0 };
 
 // Colossus (M18) and the flame bearer (M24) hit harder by the mode's params.damageMult (HP-001 attacker multipliers).
 function roleDamageScale(source) {
@@ -118,9 +117,7 @@ Modes.register('infection', {
     const id = event.id;
     if (Modes.actorRole[id] !== ACTOR_ROLE.INFECTED) return;
     const params = Modes.rules.params, yaw = Actors.yaw[id];
-    leapImpulse.id = id;
-    leapImpulse.x = Math.sin(yaw) * params.leapSpeed; leapImpulse.y = params.leapLift; leapImpulse.z = Math.cos(yaw) * params.leapSpeed;
-    Bus.emit('impulse', leapImpulse);
+    emitImpulse(id, Math.sin(yaw) * params.leapSpeed, params.leapLift, Math.cos(yaw) * params.leapSpeed);
   },
   // Team scores hold the head counts (humans, infected); returns the number of participants.
   countSides() {

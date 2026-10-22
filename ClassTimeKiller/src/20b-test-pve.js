@@ -36,9 +36,9 @@ function pveTestMap(extra) {
   return Object.assign({ id: 'pve-test', brushes: [TEST_FLOOR], spawns: [{ x: 0, y: 0, z: 0, yaw: 0 }], objectives: [], items: [] }, extra);
 }
 
-// One practice dummy (id 0) at the origin; returns it.
-function startPveTest(setup) {
-  World.load(pveTestMap());
+// One practice dummy (id 0) at the origin (map: extra pveTestMap fields); returns it.
+function startPveTest(setup, map) {
+  World.load(pveTestMap(map));
   Game.start(Object.assign({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], difficulty: 'regular' }, setup));
   Modes.endProtection(0);   // spawn protection would swallow the first hits
   return 0;
@@ -179,7 +179,7 @@ Test.add('pve', (check) => withShortShop(() => {
     if (behaviour.run.state === PVE_WAVE_STATE.FIGHT && (Pve.queue.count === 0 || Pve.aliveCount() >= cap / 2)) killAllEnemies(ids[0]);
   });
   waves.stop();
-  const cleared = waves.filter((event) => event.kind === 'cleared').length, results = Game.match.results;
+  const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results;
   check('10 horde waves cleared headless, then victory', cleared === 10 && results && results.reason === PVE_WIN && results.winnerId === ids[0],
     cleared + ' ' + (results && results.reason));
   check('the director stays within the quality enemy cap', overCap === 0 && Pve.stats.maxAlive <= cap, Pve.stats.maxAlive + ' / ' + cap);
@@ -280,6 +280,28 @@ Test.add('pve', (check) => {
   summons.stop();
   check('the summon calls husks and mites', summons.some((event) => Pve.rowOf(event.id) && Pve.rowOf(event.id).id === 'mite') && countSummons(boss) > 0);
   Game.stop();
+});
+
+// AUD-006: a boss fight plays the boss music layer from the boss spawn until its defeat or the match end; the defeat reports the fight time.
+Test.add('pve', (check) => {
+  startPveTest();
+  const weights = { calm: 0, combat: 0, boss: 0 }, events = startEventLog('pve.boss');
+  const boss = spawnFacing('overlord', 30);
+  check('a boss spawn brings the boss music layer in', SoundMusic.targetWeights(weights).boss === 1, SoundMusic.bosses);
+  runSeconds(1);
+  killEnemy(boss);
+  events.stop();
+  const defeated = events.find((event) => event.kind === 'defeated');
+  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
+  check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === (defeated.final ? defeated.seconds : PROGRESS_NEVER),
+    RunLog.bossSeconds);
+  spawnFacing('overlord', 30);
+  Pve.clearEnemies();   // a failed wave 10 or a round clear removes the living boss without a kill
+  check('a boss removed without a kill takes the boss layer out', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.bosses === 0, SoundMusic.bosses);
+  spawnFacing('overlord', 30);
+  check('the retry counts one boss fight', SoundMusic.bosses === 1, SoundMusic.bosses);
+  Game.stop();
+  check('the match end stops the boss layer', SoundMusic.bosses === 0);
 });
 
 // X50: rules.fx.wildlife beasts appear on reachable nodes away from players, attack, and a flash blast lures them.
@@ -542,7 +564,8 @@ function errorsSince(mark) {
 // A fake batch recording the meshes drawn (shape, height and colour of each).
 function meshRecorder() {
   const meshes = [];
-  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); } };
+  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); },
+    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, r: instance.r, g: instance.g, b: instance.b }); } };
 }
 function colorMatches(mesh, hex) {
   return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;
@@ -774,6 +797,31 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+// DIF-004 choice (Pve.answerGuardian, the 18o pause row): accept keeps the plate for the retry, refuse drops it for the wave.
+function offerGuardianPlate(answer) {
+  const ids = startPveMode('horde', [0]), run = Modes.behaviour.run;
+  runUntil(() => run.state === PVE_WAVE_STATE.FIGHT, 10);
+  run.plateOffered = true;
+  runSeconds(0.1);
+  const offered = PVE_HUD.guardianOffer && guardianChoiceOpen() && hudPveGuardianText(PVE_HUD) === HUD_PVE_GUARDIAN_CHOICE;
+  const answered = Pve.answerGuardian(answer);
+  runSeconds(0.1);
+  const after = { offered, answered, accepted: PVE_HUD.guardianAccepted, offer: PVE_HUD.guardianOffer, again: Pve.answerGuardian(answer) };
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  after.worn = Pve.guardian[ids[0]] === 1;
+  endModeTest();
+  return after;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const worn = offerGuardianPlate(true);
+  check('an offered plate asks the player (pause row, CHOICE prompt)', worn.offered);
+  check('accept: guardianAccepted, the offer stays, the retry wears the plate', worn.answered && worn.accepted && worn.offer && worn.worn, JSON.stringify(worn));
+  const refused = offerGuardianPlate(false);
+  check('refuse: no offer for the rest of the wave and no plate at the retry', refused.answered && !refused.accepted && !refused.offer && !refused.again && !refused.worn, JSON.stringify(refused));
+  check('a new match clears the answer', !PVE_HUD.guardianAccepted && Pve.answerGuardian(true) === false);
+}));
+
 // M23 reads its mode params: custom deposit sizes and invasion step change the blockers and invasions.
 function queuedOnSide(side, key) {
   const queue = Pve.queue;
@@ -821,3 +869,101 @@ Test.add('pve', (check) => {
   announces.stop();
   endModeTest();
 });
+
+// One soul counter (Powerups.souls, fed by PU18 pickups) and A34 Wrath Form as the soul modes' automatic ultimate (ABL-005).
+function soulPickupSlot() {
+  for (let slot = PICKUP_CAP - 1; slot >= Items.spotCount; slot--) {
+    if (Items.state[slot] === PICKUP_STATE.READY && Items.kind[slot] === PICKUP_KIND.POWERUP && Items.rowOf(slot).id === 'soul') return slot;
+  }
+  return -1;
+}
+Test.add('pve', (check) => withShortShop(() => {
+  const player = startPveMode('horde', [0])[0], ultimate = Abilities.row(player, SLOT.ULTIMATE);
+  check('a soul mode gives A34 Wrath Form as the ultimate', ultimate && ultimate.id === SOUL_ULTIMATE, ultimate && ultimate.id);
+  check('one soul counter: the meters keep no souls or orbs of their own', Meters.souls === undefined && Meters.dropSoul === undefined);
+  const enemy = Pve.spawnEnemy('husk', Actors.x[player], Actors.y[player], Actors.z[player] + 3, Math.PI);
+  killEnemy(enemy, player);
+  const slot = soulPickupSlot(), before = Powerups.souls[player];
+  check('a PvE kill in a soul mode drops a PU18 soul', slot >= 0);
+  if (slot >= 0) Items.take(player, slot);
+  check('the soul counts in Powerups.souls', Powerups.souls[player] === before + 1, Powerups.souls[player]);
+  Meters.addPoints(player, Meters.row().max);
+  const kept = Abilities.row(player, SLOT.ULTIMATE);
+  check('streak rewards leave Wrath Form in the ultimate slot of a soul mode', kept && kept.id === SOUL_ULTIMATE && !Abilities.rewardLoaded[player], kept && kept.id);
+  const savedPlayer = Game.playerId;
+  Game.playerId = player;   // the run log follows the local player
+  Powerups.souls[player] = CAT.abilities.byId(SOUL_ULTIMATE).cost;
+  Sim.step();
+  check('Wrath Form casts itself once the souls pay for it and spends them', Abilities.isActive(player, SOUL_ULTIMATE) && Powerups.souls[player] === 0);
+  check('the run log counts the Wrath Form from ability.cast', RunLog.wrathForms === 1 && RunLog.inWrath, RunLog.wrathForms);
+  Sim.run((CAT.abilities.byId(SOUL_ULTIMATE).duration + 0.5) * TICK_RATE);
+  check('and its end from ability.end', RunLog.wrathForms === 1 && !RunLog.inWrath);
+  Game.playerId = savedPlayer;
+  endModeTest();
+}));
+
+// NPC-007 / NPC-008: a hurt enemy takes cover once per sighting and never in a last stand, so a wave never stalls on it.
+const PVE_TEST_WALL = { shape: 'box', min: [-4, 0, 12], max: [4, 3, 12.3] };   // cover for an enemy 10 m in front of the dummy
+Test.add('pve', (check) => {
+  const dummy = startPveTest({}, { brushes: [TEST_FLOOR, PVE_TEST_WALL] });
+  const gunner = spawnFacing('gunner', 10), row = Pve.rowOf(gunner);
+  const others = [40, 45, 50, 55].map((distance) => spawnFacing('husk', distance)), leaper = spawnFacing('leaper', 30), leaperRow = Pve.rowOf(leaper);
+  const closeIn = leaperRow.attackRows[0].range[0] / 2;   // inside the pounce's minimum range
+  check('a leaper does not pounce inside its minimum range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === -1);
+  Pve.target[gunner] = dummy;
+  BotSense.remember(BotSense.pair(gunner, dummy), SENSE.SEEN, Actors.x[dummy], Actors.y[dummy], Actors.z[dummy], Sim.time);
+  Actors.health[gunner] = Actors.maxHealth[gunner] * 0.2;
+  Pve.decide(gunner, row, Sim.time);
+  check('a hurt gunner takes cover', Pve.goal[gunner] === PVE_GOAL.COVER, Pve.goal[gunner]);
+  Pve.coverUntil[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('its cover time over, it does not hide again from the same target', Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  for (const id of others) killEnemy(id);
+  Pve.coverTaken[gunner] = 0;
+  Pve.decide(gunner, row, Sim.time);
+  check('in a last stand it never takes cover', Pve.lastStand() && Pve.goal[gunner] !== PVE_GOAL.COVER, Pve.goal[gunner]);
+  check('in a last stand a cornered leaper pounces at any range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === 0);
+  // BOT-040 / BOT-091 for PvE: spawn-protected actors are no foes; the enemy rays come out of the bots' budget.
+  Actors.flags[dummy] |= ACTOR_FLAG.PROTECTED;
+  const protectedFoe = Pve.isFoe(gunner, dummy);
+  Actors.flags[dummy] &= ~ACTOR_FLAG.PROTECTED;
+  check('PvE enemies ignore a spawn-protected actor', !protectedFoe && Pve.isFoe(gunner, dummy));
+  Pve.stepBrains(TICK_SECONDS);
+  BotSense.serve(Sim.time);
+  check('the bots get the per-tick ray budget minus the PvE share', BotSense.raysLeft <= SENSE_RAYS_PER_TICK - PVE_DIRECTOR.raysPerTick, BotSense.raysLeft);
+  Game.stop();
+  check('without PvE the bots get the whole budget back', BotSense.reservedRays === 0);
+  World.clear();
+});
+
+// NPC-007: the last enemies of a wave (nothing queued) are pinged to the co-op bots, which then know where to hunt them.
+Test.add('pve', (check) => withShortShop(() => {
+  const bot = startPveMode('horde', [], { brushes: [TEST_FLOOR, { shape: 'box', min: [-10, 0, 20], max: [10, 4, 20.5] }] }, { bots: [{ team: 0 }] })[0];
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.queue.count = 0;
+  Pve.clearEnemies();
+  const enemy = Pve.spawnEnemy('husk', 0, 0, 30, Math.PI);
+  Actors.flags[enemy] |= ACTOR_FLAG.FROZEN;   // stays behind the wall
+  runSeconds(PVE_WAVE_RULES.huntPingSeconds + 0.5);
+  const pair = BotSense.pair(bot, enemy);
+  check('the bot knows where the last enemy hides without seeing it', Bots.isBot(bot) && BotSense.knows(bot, enemy, Sim.time) && !BotSense.sees(bot, enemy)
+    && BotSense.source[pair] === SENSE.PINGED, BotSense.source[pair]);
+  const knife = CAT.weapons.byId('tanto');
+  check('an out-of-ammo bot walks inside its knife reach to attack', attackRadius(knife) < knife.primary.reach, attackRadius(knife));
+  endModeTest();
+}));
+
+// Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
+const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
+Test.add('pvesoak', (check) => {
+  Game.start({ mode: 'horde', map: 'cistern', seed: 11, player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 0 }], difficulty: 'regular' });
+  const waves = startEventLog('pve.wave');
+  runUntil(() => !Modes.active, PVE_SOAK_MINUTES * 60);
+  waves.stop();
+  const cleared = waves.filter((event) => event.phase === 'end').length, results = Game.match.results, seconds = [];
+  for (let i = 1; i < waves.length; i++) if (waves[i].phase === 'end' && waves[i - 1].phase === 'start') seconds.push(Math.round(waves[i].time - waves[i - 1].time));
+  check('every Siege Waves wave clears with an idle player', !Modes.active && cleared === PVE_HORDE_WAVES.length && results && results.reason === PVE_WIN,
+    cleared + ' cleared, ' + (results && results.reason));
+  check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
+  endModeTest();
+}, { slow: true });

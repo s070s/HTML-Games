@@ -34,6 +34,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f14; col
 <div id="fatal"><div class="box"><h1 id="fatal-title">ClassTimeKiller could not start</h1><p id="fatal-text"></p><pre id="fatal-detail"></pre></div></div>
 <div id="version"></div>
 <script>
+/* PLT-002: a script error before the game hooks its own handlers (a top-level error, an old browser) shows the fatal screen, not a blank page. */
+window.onerror = function (message, source, line, column, error) {
+  if (window.__CTK) return false;
+  document.getElementById('fatal-text').textContent = 'The game failed to load. Reload the page; if it keeps happening, update your browser.';
+  document.getElementById('fatal-detail').textContent = String(error && error.stack || message);
+  document.getElementById('fatal').classList.add('show');
+  return false;
+};
+</script>
+<script>
 /*@@SCRIPT@@*/
 </script>
 </body>

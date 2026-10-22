@@ -41,9 +41,7 @@ const HERO_EXTRA_GRENADES = 1;           // H05 passive 'extraGrenade': one more
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
 const BOUNCE_EVENT = { x: 0, y: 0, z: 0, kind: 'grenade', source: -1 };
-const GADGET_SOUND = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1 };
 const POP_EVENT = { x: 0, y: 0, z: 0, radius: 0, owner: -1, source: '', element: 'kinetic' };
-const IMPULSE_PAYLOAD = { id: 0, x: 0, y: 0, z: 0 };
 // Fire-mode-like rows for Damage.explode / Damage.apply (weapon key, element, splash), one per gadget.
 const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.element, knockback: row.knockback ? 0 : 1, status: null,
   statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
@@ -58,19 +56,18 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
-function emitGadgetSound(x, y, z, radius, kind, source) {
-  GADGET_SOUND.x = x; GADGET_SOUND.y = y; GADGET_SOUND.z = z; GADGET_SOUND.radius = radius; GADGET_SOUND.kind = kind; GADGET_SOUND.source = source;
-  Bus.emit('sound', GADGET_SOUND);
-}
-function emitGadgetImpulse(id, x, y, z) {
-  IMPULSE_PAYLOAD.id = id; IMPULSE_PAYLOAD.x = x; IMPULSE_PAYLOAD.y = y; IMPULSE_PAYLOAD.z = z;
-  Bus.emit('impulse', IMPULSE_PAYLOAD);
+// Accumulates clock[index]; true once per interval (gadget areas and placed devices tick on it).
+function intervalDue(clock, index, dt, interval) {
+  clock[index] += dt;
+  if (clock[index] < interval - 1e-6) return false;
+  clock[index] -= interval;
+  return true;
 }
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
   Bus.emit('explosion', POP_EVENT);
-  emitGadgetSound(x, y, z, POP_NOISE, 'explosion', owner);
+  emitSound(x, y, z, POP_NOISE, 'explosion', owner);
 }
 // True when an effect at (x, y, z) reaches the target's body: in radius, in line of sight, and an enemy of the owner
 // (or the owner; allies only with friendly fire on).
@@ -88,6 +85,8 @@ function gadgetShotMode(event) {
   const mode = event.mode === 'alt' ? weapon.alt : weapon.primary;
   return mode.type === 'hitscan' || mode.type === 'beam' || mode.type === 'cone' ? mode : null;
 }
+// FireMode.repair (W30 beam): health one shot restores on a friendly device or the PvE core; 0 for other modes.
+function repairPerShot(mode) { return mode && mode.repair > 0 ? mode.repair / mode.rate : 0; }
 // Where a throw leaves the hand (THROW_FORWARD in front of the eye along the view): the throw and its preview arc.
 function throwOrigin(id, out) {
   Vec.fromAngles(out, Actors.aimYaw[id], Actors.aimPitch[id]);
@@ -334,12 +333,7 @@ const GadgetAreas = {
     }
   },
   // Accumulates the area clock; true once per interval.
-  due(area, dt, interval) {
-    this.clock[area] += dt;
-    if (this.clock[area] < interval - 1e-6) return false;
-    this.clock[area] -= interval;
-    return true;
-  },
+  due(area, dt, interval) { return intervalDue(this.clock, area, dt, interval); },
   finish(area, row) {
     this.active[area] = 0;
     if (row.effect === 'singularity') gadgetBlast(row, this.owner[area], this.x[area], this.y[area], this.z[area]);
@@ -367,7 +361,7 @@ const GadgetAreas = {
   stepDecoy(area, row, dt) {
     if (!this.due(area, dt, 1 / row.rate)) return;
     const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-    emitGadgetSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+    emitSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
     if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
   },
   // G09: everyone in reach is pulled to the centre (m/s^2), then the blast.
@@ -375,7 +369,7 @@ const GadgetAreas = {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
-      emitGadgetImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
+      emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
@@ -387,7 +381,7 @@ const GadgetAreas = {
       if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
       Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
     }
-    emitGadgetSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
+    emitSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
     if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
     if (--this.pulses[area] <= 0) this.active[area] = 0;
   },
@@ -442,7 +436,7 @@ const GadgetEffects = {
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
       const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
-      emitGadgetImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
+      emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
   },
 };
@@ -580,10 +574,33 @@ const Thrown = {
   emitBounce(slot) {
     BOUNCE_EVENT.x = this.x[slot]; BOUNCE_EVENT.y = this.y[slot]; BOUNCE_EVENT.z = this.z[slot]; BOUNCE_EVENT.source = this.owner[slot];
     Bus.emit('projectile.bounce', BOUNCE_EVENT);
-    emitGadgetSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot]);
+    emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot], CAT.gadgets[this.row[slot]].effect);
   },
   // G22 and G12 remove enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
+  // W41 Graviton Lifter (WeaponSpecialState.grenadeHook): the nearest flying or resting grenade in the aim cone within range.
+  grab(id, ox, oy, oz, dx, dy, dz, range, minCos) {
+    let best = -1, bestDistance = range;
+    for (let slot = 0; slot < THROWN_CAP; slot++) {
+      if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
+      best = slot; bestDistance = distance;
+    }
+    return best;
+  },
+  hold(slot, x, y, z) {
+    if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) return;
+    this.state[slot] = THROWN_STATE.FLYING;
+    this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
+    this.vx[slot] = this.vy[slot] = this.vz[slot] = 0;
+  },
+  // Thrown back as the lifter holder's own grenade; the fuse keeps running.
+  launch(slot, owner, vx, vy, vz) {
+    if (this.state[slot] !== THROWN_STATE.FLYING) return;
+    this.owner[slot] = owner;
+    this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
+  },
   draw(batch) {
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
@@ -605,6 +622,7 @@ const Gadgets = {
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
+  cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -626,6 +644,12 @@ const Gadgets = {
     const kit = this.kit();
     if (kit.limits[row.id] !== undefined) return kit.limits[row.id];
     return kit.perType || row.carry;
+  },
+  // Thrown rows this actor carries at least one of (the touch TYPE button shows from two: a cycle needs a choice).
+  grenadeTypes(id) {
+    let types = 0;
+    for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) types++;
+    return types;
   },
   thrownTotal(id) {
     let total = 0;
@@ -660,6 +684,11 @@ const Gadgets = {
       if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) return rowIndex;
     }
     return -1;
+  },
+  // BTN.CYCLE_GRENADE: the next carried grenade type becomes the one GRENADE throws.
+  cycleGrenade(id) {
+    const next = this.nextGrenade(id);
+    if (next >= 0) this.grenade[id] = next;
   },
   resetActor(id) {
     this.count.fill(0, id * GADGET_COUNT, (id + 1) * GADGET_COUNT);
@@ -700,20 +729,30 @@ const Gadgets = {
     Thrown.step(dt);
     GadgetAreas.step(dt);
     Smoke.step();
+    this.syncCycleButton();
+  },
+  // The touch TYPE button follows the player's carried grenade types: the layout is re-applied on a change only.
+  syncCycleButton() {
+    if (!TouchInput.layer) return;
+    const canCycle = TouchInput.needs.grenadeCycle();
+    if (canCycle === this.cycleShown) return;
+    this.cycleShown = canCycle;
+    TouchInput.applyAll();
   },
   blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
   stepActor(id) {
     this.rechargeGadget(id);
     if (this.holdStart[id] >= 0) { this.stepHold(id); return; }
     if (this.blocked(id)) return;
+    if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
+  grenadeReady(id) { return this.grenade[id] >= 0 && this.count[id * GADGET_COUNT + this.grenade[id]] > 0; },
   startHold(id) {
-    const rowIndex = this.grenade[id];
-    if (rowIndex < 0 || !this.count[id * GADGET_COUNT + rowIndex]) return;
+    if (!this.grenadeReady(id)) return;
     this.holdStart[id] = Sim.tick;
-    this.holdRow[id] = rowIndex;
+    this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
@@ -753,10 +792,12 @@ const Gadgets = {
     for (let i = 0; i < this.deployers.length && !placed; i++) placed = this.deployers[i](id, row);
     if (!placed) return false;
     this.spend(id, row);
-    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + itemTicks(row.cooldown);
+    if (row.cooldown > 0) this.cooldownEnd[id] = Sim.tick + this.rechargeTicks(id, row);
     this.emitUse(id, row);
     return true;
   },
+  // A field upgrade's recharge for this actor, sped up by ECP04 Tune Up (Abilities.rechargeScale).
+  rechargeTicks(id, row) { return itemTicks(row.cooldown / Abilities.rechargeScale[id]); },
   // Field-upgrade rows (cooldown > 0) regain their single use when the recharge is over.
   rechargeGadget(id) {
     const row = gadgetRow(this.gadget[id]);
@@ -778,7 +819,7 @@ const Gadgets = {
     const grenade = id >= 0 ? gadgetRow(this.grenade[id]) : null, gadget = id >= 0 ? gadgetRow(this.gadget[id]) : null;
     out.grenade = grenade ? grenade.name : ''; out.grenadeCount = grenade ? this.count[id * GADGET_COUNT + grenade.index] : 0;
     out.gadget = gadget ? gadget.name : ''; out.gadgetCount = gadget ? this.count[id * GADGET_COUNT + gadget.index] : 0;
-    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / itemTicks(gadget.cooldown), 0, 1) : 0;
+    out.gadgetCooldown = gadget && gadget.cooldown > 0 && !out.gadgetCount ? clamp((this.cooldownEnd[id] - Sim.tick) / this.rechargeTicks(id, gadget), 0, 1) : 0;
     const held = id >= 0 && this.holdStart[id] >= 0 ? CAT.gadgets[this.holdRow[id]] : null;
     out.cook = held && held.cook ? clamp(this.heldTicks(id) / itemTicks(held.fuse), 0, 1) : 0;
     return out;
@@ -819,14 +860,18 @@ const Gadgets = {
     const size = Math.max(0.5, row.radius * 2);
     batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
   },
-  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); },
+  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
 };
 
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
 Items.extraAmmo.push((id) => Gadgets.refill(id));
+// GAD-002: ALT is the underhand throw while a grenade is held (or its button goes down with one ready), not the weapon's alt.
+WeaponSpecialState.grenadeHook = Thrown;
+Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
+TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));

@@ -9,15 +9,16 @@ function hashString(text) { // 32-bit FNV-1a, used to turn seeds and names into 
 }
 
 function makeRandom(seed) {
-  let a = 0x9e3779b9, b = 0x243f6a88, c = 0xb7e15162, d = seed >>> 0;
+  // The four state words live in an Int32Array: as closure variables, words above 2^31 would be boxed on the heap on
+  // every draw (PERF-006). Same bits as unsigned words, so every seed gives the same numbers as before.
+  const state = new Int32Array([0x9e3779b9, 0x243f6a88, 0xb7e15162, seed]);
   const next = () => { // sfc32: returns 0..1
-    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    const a = state[0], b = state[1], c = state[2], d = state[3];
     const t = (a + b | 0) + d | 0;
-    d = d + 1 | 0;
-    a = b ^ b >>> 9;
-    b = c + (c << 3) | 0;
-    c = (c << 21 | c >>> 11);
-    c = c + t | 0;
+    state[3] = d + 1 | 0;
+    state[0] = b ^ b >>> 9;
+    state[1] = c + (c << 3) | 0;
+    state[2] = (c << 21 | c >>> 11) + t | 0;
     return (t >>> 0) / 4294967296;
   };
   for (let i = 0; i < 12; i++) next(); // warm up so close seeds diverge

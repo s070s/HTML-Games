@@ -32,6 +32,61 @@ Ui.settingsFooter.push((refresh) => Ui.button('Reset all settings', () => Ui.con
   onYes: () => { resetSettingKeys(editableSettingKeys()); refresh(); },
 }), 'danger'));
 
+// ---- Save export and import (ARC-020, PLT-007): the whole save as text to copy or as a file; paste or load one back ----
+const SAVE_FILE_NAME = 'classtimekiller-save.json';
+const SAVE_URL_LIFETIME_MS = 10000;   // Safari / iOS drop a download whose blob URL is revoked right after the click
+const SaveTransfer = {
+  reload: () => window.location.reload(),   // every section reads the imported save from a fresh start; tests replace it
+  // Imports the text and restarts; returns '' on success, else the reason shown to the player.
+  importText(text) {
+    try {
+      Save.importText(text);
+    } catch (error) {
+      return 'That is not a ClassTimeKiller save (' + (error && error.message || error) + ').';
+    }
+    this.reload();
+    return '';
+  },
+  download() {
+    const url = URL.createObjectURL(new Blob([Save.exportText()], { type: 'application/json' }));
+    const link = makeElement('a');
+    link.href = url; link.download = SAVE_FILE_NAME;
+    document.body.appendChild(link);   // some browsers ignore a click on a detached link
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), SAVE_URL_LIFETIME_MS);
+  },
+  readFile(file, area) { file.text().then((text) => { area.value = text; }).catch(() => Ui.toast('That file could not be read.')); },
+};
+Ui.register('saveTransfer', {
+  build(root) {
+    screenHeader(root, 'Save data');
+    root.appendChild(makeElement('p', 'ui-note', 'Export shows your settings, bindings and progress as text to copy, or saves them as a file. '
+      + 'Import replaces them with a save you exported before, then the game restarts.'));
+    const area = makeElement('textarea', 'ui-code');
+    area.spellcheck = false;
+    const picker = makeElement('input');
+    picker.type = 'file'; picker.accept = '.json,application/json,text/plain'; picker.hidden = true;
+    picker.addEventListener('change', () => { if (picker.files[0]) SaveTransfer.readFile(picker.files[0], area); });
+    const foot = makeElement('div', 'ui-foot');
+    foot.appendChild(Ui.button('Export', () => { area.value = Save.exportText(); area.select(); }));
+    foot.appendChild(Ui.button('Download file', () => SaveTransfer.download()));
+    foot.appendChild(Ui.button('Load file', () => picker.click()));
+    foot.appendChild(Ui.button('Import', () => Ui.confirm({
+      title: 'Import this save?', text: 'Your current settings, bindings and progress are replaced.', yes: 'Import',
+      onYes: () => { const problem = SaveTransfer.importText(area.value); if (problem) Ui.toast(problem); },
+    }), 'danger'));
+    root.appendChild(area);
+    root.appendChild(picker);
+    root.appendChild(foot);
+  },
+});
+Ui.settingsExtras.developer = [(container) => {
+  const foot = makeElement('div', 'ui-foot');
+  foot.appendChild(Ui.button('Export or import save', () => Ui.open('saveTransfer')));
+  container.appendChild(foot);
+}];
+
 function flushSave() { if (Save.data) Save.saveNow(); }
 Bus.on('boot', () => {
   if (Game.headless) return;
@@ -45,8 +100,8 @@ Bus.on('game.pause', flushSave);
 //   live  - a section reads rules.botSkill.<field>, so the slider changes the match (custom match rows, Ui.difficultyRows).
 //   assist - the player may set it as a personal assist (the Gameplay tab). Switched on, only the assists the player moved away from
 //            their neutral value replace the chosen preset's field; everything else keeps the preset (no penalty).
-// The fields with live false are carried in rules.botSkill but nobody reads them yet (the PvE section owns damage, lives and checkpoints,
-// the weapons section the parry window): they get no slider until their reader exists, so no slider is shown that does nothing.
+// Every field has its reader now (bots 14a, the PvE section 14h-14j for damage, parry, projectiles, pickups, lives and checkpoints);
+// a row with live false would get no slider, so a future field without a reader shows nothing that does nothing.
 const ASSIST_ROWS = {
   gameSpeed: { label: 'Game speed (x)', fallback: 1, step: 0.05, live: true, assist: true },
   aimAssist: { label: 'Aim assist floor (%, touch and gamepad)', fallback: 0, step: 5, live: true, assist: true },
@@ -54,13 +109,14 @@ const ASSIST_ROWS = {
   aimErrorScale: { label: 'Bot aim error (x)', fallback: 1, step: 0.1, live: true, assist: false },
   aggression: { label: 'Bot aggression (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
   attackers: { label: 'Bots attacking at once', fallback: 3, step: 1, live: true, assist: false },
-  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: false, assist: true },
-  playerDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: false, assist: true },
-  enemyDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: false, assist: true },
-  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: false, assist: false },
-  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1, live: false, assist: false },
-  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1, live: false, assist: false },
-  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05, live: false, assist: false },
+  parry: { label: 'Parry window (seconds)', fallback: 0.3, step: 0.05, live: true, assist: true },
+  // playerDamage scales the hits the player takes from PvE enemies, enemyDamage the hits PvE enemies take (14h).
+  playerDamage: { label: 'Damage enemies deal to you (x)', fallback: 1, step: 0.25, live: true, assist: true },
+  enemyDamage: { label: 'Damage you deal to enemies (x)', fallback: 1, step: 0.25, live: true, assist: true },
+  projectileSpeed: { label: 'Enemy projectile speed (x)', fallback: 1, step: 0.05, live: true, assist: false },
+  resourceYield: { label: 'Pickup yield (x)', fallback: 1, step: 0.1, live: true, assist: false },
+  lives: { label: 'Lives (0 = unlimited)', fallback: 0, step: 1, live: true, assist: false },
+  checkpointHeal: { label: 'Checkpoint healing (0 to 1)', fallback: 0.5, step: 0.05, live: true, assist: false },
 };
 // field -> settings-style definition ({ label, fallback, min, max, step }) of every slider that has a reader.
 const ASSIST_DEFINITIONS = new Map();
@@ -86,14 +142,18 @@ const DifficultyAssist = {
     return values;
   },
   // setup.difficulty for the setup: the chosen preset plus the player's changed assists when switched on.
+  // Restart and Play again start the same setup again, so the choice before any assist is kept in setup.baseDifficulty
+  // and every run rebuilds from it: assists switched off or moved back to neutral since then come off.
   apply(setup) {
-    if (!this.enabled()) return;
-    const preset = typeof setup.difficulty === 'string' ? setup.difficulty : setup.difficulty && setup.difficulty.preset;
-    const previous = setup.difficulty && typeof setup.difficulty === 'object' ? setup.difficulty : null;
+    if (!('baseDifficulty' in setup)) setup.baseDifficulty = setup.difficulty;
+    const base = setup.baseDifficulty;
+    if (!this.enabled()) { setup.difficulty = base; return; }
+    const preset = typeof base === 'string' ? base : base && base.preset;
+    const previous = base && typeof base === 'object' ? base : null;
     setup.difficulty = Object.assign({ preset: preset || PLAY_DEFAULT_DIFFICULTY }, previous, this.values());
   },
 };
-PlayFlow.setupHooks.push((setup) => DifficultyAssist.apply(setup));
+Game.setupHooks.push((setup) => DifficultyAssist.apply(setup));
 
 // Slider rows for a plain object of { field: value } (custom matches); onChange(field, value) runs after every change.
 Ui.difficultyRows = function difficultyRows(container, values, onChange) {
@@ -103,4 +163,4 @@ Ui.difficultyRows = function difficultyRows(container, values, onChange) {
   }
 };
 
-// Game speed rides on rules.fx.timeScale (the Game Speed mutator's field), multiplied in by the difficulty stage in 14a (PvE only).
+// Game speed rides on rules.fx.timeScale (the Game Speed mutator's field), multiplied in by the difficulty stage in 14a (every mode).

@@ -85,6 +85,23 @@ Test.add('gadgets', (check) => {
   GadgetArena.throwAfter(id, 0, BTN.ALT);
   const under = GadgetArena.firstThrown();
   check('GAD-002 underhand on ALT is slower', under >= 0 && Test.near(Thrown.vz[under], GADGET_TUNING.underhandSpeed, 0.01));
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['warden']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the pistol is out
+  const thrownShots = TestArena.count('weapon.fire', () => GadgetArena.throwAfter(id, 0.2, BTN.ALT));
+  Sim.run(itemTicks(1));
+  const altShots = TestArena.count('weapon.fire', () => GadgetArena.press(id, BTN.ALT));
+  check('GAD-002 the underhand throw does not fire the weapon alt (ALT alone still does)', GadgetArena.firstThrown() >= 0 && thrownShots === 0 && altShots > 0, thrownShots + ' / ' + altShots);
+  Gadgets.clear();
+  Weapons.setLoadout(id, ['verdict']);
+  Gadgets.give(id, 'frag', 1);
+  Sim.run(itemTicks(1));   // the scoped rifle is out
+  Actors.buttons[id] = BTN.GRENADE | BTN.ALT;
+  Sim.run(itemTicks(0.2));
+  const sights = Weapons.ads[id];
+  Actors.buttons[id] = 0;
+  check('GAD-002 holding ALT for an underhand throw does not raise a zoom alt\'s sights', sights === 0, sights);
   TestArena.finish();
 });
 
@@ -212,6 +229,19 @@ Test.add('gadgets', (check) => {
   TestArena.finish();
 });
 
+// ECP04 Tune Up: a field upgrade recharges rechargeScale times faster.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const owner = GadgetArena.actor(1, 0, 0, 'cover', 1), cooldown = CAT.gadgets.byId('cover').cooldown;
+  Abilities.rechargeScale[owner] = 2;
+  GadgetArena.press(owner, BTN.GADGET);
+  const spent = Gadgets.countOf(owner, 'cover') === 0, ring = Gadgets.hudState(owner, {}).gadgetCooldown;
+  check('ECP04 Tune Up: the HUD recharge ring starts full', ring > 0.95, ring);
+  Sim.run(itemTicks(cooldown / 2) + 1);
+  check('ECP04 Tune Up halves the field upgrade recharge at scale 2', spent && Gadgets.countOf(owner, 'cover') === 1);
+  TestArena.finish();
+});
+
 Test.add('gadgets', (check) => {
   GadgetArena.start();
   const owner = GadgetArena.actor(1, 0, 0, 'cover', 1);
@@ -332,12 +362,13 @@ Test.add('gadgets', (check) => {
   check('G24 one beacon per team', Devices.room(friend, CAT.gadgets.byId('beacon')) === 0);
   Bus.emit('actor.spawn', { id: friend });
   check('G24 teammates spawn at the beacon', Math.hypot(Actors.x[friend] - 10, Actors.z[friend] - 10) <= 1.5, Actors.x[friend] + ',' + Actors.z[friend]);
+  check('G24 the beacon spawn sets the previous position too (no interpolation smear)', Actors.prevX[friend] === Actors.x[friend] && Actors.prevZ[friend] === Actors.z[friend]);
   const mine = GadgetArena.device('prox', owner, 0, 5);
   check('GAD-003 enemy mines glint only within 8 m', !Devices.visibleTo(mine, enemy) && Devices.visibleTo(mine, friend));
   TestArena.place(enemy, 0, 10);
   check('GAD-003 visible to the enemy within 8 m', Devices.visibleTo(mine, enemy));
   ItemArena.kill(owner);
-  check('devices are removed when the owner dies', !Devices.active[beacon] && !Devices.active[mine] && Devices.count === 0);
+  check('devices are removed when the owner dies, the G24 beacon stays', Devices.active[beacon] === 1 && !Devices.active[mine] && Devices.count === 1);
   GadgetArena.device('sentry', friend, 3, 3);
   Smoke.spawn(CAT.gadgets.byId('smoke'), friend, 0, 1, 0);
   Bus.emit('match.end', {});

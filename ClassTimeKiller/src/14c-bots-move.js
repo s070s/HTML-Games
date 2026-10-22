@@ -94,7 +94,7 @@ const BotMove = {
   // Destination for the execution layer; a nearby change keeps the current path (moving targets repath at most 1.3 Hz).
   // The change is measured from where the path was asked for: a destination that creeps (the convoy cart) adds up.
   goTo(id, x, y, z, radius) {
-    const moved = Math.hypot(x - this.plannedX[id], z - this.plannedZ[id]);
+    const moved = length2(x - this.plannedX[id], z - this.plannedZ[id]);
     this.destRadius[id] = radius;
     if (this.hasDest[id] && moved < MOVE_REPATH_DISTANCE && this.state[id] !== PATH.FAILED) {
       this.destX[id] = x; this.destY[id] = y; this.destZ[id] = z;
@@ -110,7 +110,25 @@ const BotMove = {
   stop(id) { this.hasDest[id] = 0; this.state[id] = PATH.NONE; Nav.cancel(id); },
   arrived(id) { return this.hasDest[id] === 1 && this.state[id] === PATH.ARRIVED; },
   failed(id) { return this.state[id] === PATH.FAILED; },
-  distanceToDestination(id) { return Math.hypot(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
+  following(id) { return this.state[id] === PATH.FOLLOW; },
+  // Whether the path being followed ends at height y (nav ends a path to an unreachable ledge on the nearest node below).
+  pathEndsAt(id, y) {
+    if (this.pointCount[id] === 0) return true;   // already at the destination node
+    Nav.resultPoint(id, this.pointCount[id] - 1, movePoint);
+    return Math.abs(movePoint.y - y) < MOVE_ARRIVE_HEIGHT;
+  },
+  // Metres still to walk while following: to the next path point, then along the rest of the path.
+  pathLeft(id) {
+    let x = this.pointX[id], y = this.pointY[id], z = this.pointZ[id];
+    let length = length3(x - Actors.x[id], y - Actors.y[id], z - Actors.z[id]);
+    for (let index = this.pointIndex[id] + 1; index < this.pointCount[id]; index++) {
+      Nav.resultPoint(id, index, movePoint);
+      length += length3(movePoint.x - x, movePoint.y - y, movePoint.z - z);
+      x = movePoint.x; y = movePoint.y; z = movePoint.z;
+    }
+    return length;
+  },
+  distanceToDestination(id) { return length2(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
   request(id, options) {
     if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
     this.fromWater[id] = inWater(id) ? 1 : 0;
@@ -191,23 +209,25 @@ const BotMove = {
     for (const trigger of World.triggers) {
       if (trigger.kind !== 'ladder') continue;
       const x = (trigger.minX + trigger.maxX) / 2, z = (trigger.minZ + trigger.maxZ) / 2;
-      const distance = Math.min(Math.hypot(x - bottomX, z - bottomZ), Math.hypot(x - movePoint.x, z - movePoint.z));
+      const distance = Math.min(length2(x - bottomX, z - bottomZ), length2(x - movePoint.x, z - movePoint.z));
       if (distance < best) { best = distance; this.ladderX[id] = x; this.ladderZ[id] = z; }
     }
   },
   // Walking to the ladder: below its top and not yet at the volume (on it, facing the top point climbs at full speed).
   climbing(id) {
     if (this.segmentType[id] !== NAV_LINK.LADDER || Actors.y[id] >= this.pointY[id] - LADDER_STEP_OFF) return false;
-    return Math.hypot(this.ladderX[id] - Actors.x[id], this.ladderZ[id] - Actors.z[id]) > LADDER_REACH;
+    return length2(this.ladderX[id] - Actors.x[id], this.ladderZ[id] - Actors.z[id]) > LADDER_REACH;
   },
   // Ladders, water exits and jumps up onto ledges are climbed by facing them (S10 climbs and mantles along the view),
   // so on those links the movement owns the view and combat footwork waits.
   // A swimmer climbs out by mantling over a rim; a thin deck above the water has none (the ray passes under it). The
   // graph check at match start (findExits) knows most of them; this check near the exit (one ray) catches the rest.
-  waterExitBlocked(id, dx, dz, distance) {
+  // (tx, tz) = the point swum toward, distance = how far it is.
+  waterExitBlocked(id, tx, tz, distance) {
     if (this.exitChecked[id] || !swimming(id, this.segmentType[id]) || distance > WATER_EXIT_CHECK || distance < 1e-3) return false;
     if (this.pointY[id] <= Actors.y[id] + STEP_HEIGHT) return false;
     this.exitChecked[id] = 1;
+    const dx = tx - Actors.x[id], dz = tz - Actors.z[id];
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
   ownsView(id) {
@@ -225,17 +245,19 @@ const BotMove = {
     const direct = atEnd && !this.viaExit[id], climbing = !atEnd && this.climbing(id);
     const tx = direct ? this.destX[id] : climbing ? this.ladderX[id] : this.pointX[id];
     const tz = direct ? this.destZ[id] : climbing ? this.ladderZ[id] : this.pointZ[id];
-    const distance = Math.hypot(tx - Actors.x[id], tz - Actors.z[id]);
+    const distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
     if (!atEnd && !climbing && groundSegment(this.segmentType[id])) this.carrot(id, movePoint); else { movePoint.x = tx; movePoint.z = tz; }
     const dx = movePoint.x - Actors.x[id], dz = movePoint.z - Actors.z[id];
     if (!atEnd && !climbing && distance > MOVE_OFF_PATH && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
     // Past the last point and the destination is still far: it lies off the graph, the end of the path is as close as it gets.
     if (direct && this.distanceToDestination(id) > MOVE_DIRECT_RADIUS) { this.state[id] = PATH.ARRIVED; Bots.wish(id, 0, 0, 0); return; }
     const amount = direct ? clamp(this.distanceToDestination(id) / MOVE_SLOW_RADIUS, 0.25, 1) : 1;
-    if (!atEnd && this.waterExitBlocked(id, tx - Actors.x[id], tz - Actors.z[id], distance)) { this.takeAnotherExit(id); return; }
-    this.steer(id, dx, dz, amount, now);
+    if (!atEnd && this.waterExitBlocked(id, tx, tz, distance)) { this.takeAnotherExit(id); return; }
+    const wanted = botWish;
+    wanted.x = dx; wanted.z = dz; wanted.amount = amount;
+    this.steer(id, now);
     this.linkMove(id);
-    if (BotCombat.target[id] < 0 || this.ownsView(id)) this.lookAlong(id, tx, tz);
+    if ((BotCombat.target[id] < 0 && !BotCombat.aimingJump(id, now)) || this.ownsView(id)) this.lookAlong(id, tx, tz);
   },
   advance(id) {
     for (let guard = 0; guard < 3 && this.pointIndex[id] < this.pointCount[id]; guard++) {
@@ -244,7 +266,7 @@ const BotMove = {
     }
   },
   pointReached(id) {
-    const flat = Math.hypot(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
+    const flat = length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
     const type = this.segmentType[id];
     const tall = type === NAV_LINK.JUMP || type === NAV_LINK.DROP || type === NAV_LINK.JUMPPAD || type === NAV_LINK.LADDER;
     if (tall && this.landed(id)) return true;
@@ -254,8 +276,8 @@ const BotMove = {
   // done even when the bot came down a little off the landing point (re-jumping to hit it exactly keeps it hopping).
   landed(id) {
     if (!this.launched[id] || !Move.isGrounded(id) || this.pointY[id] > Actors.y[id] + STEP_HEIGHT) return false;
-    const toPoint = Math.hypot(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
-    return toPoint < Math.hypot(this.startX[id] - Actors.x[id], this.startZ[id] - Actors.z[id]);
+    const toPoint = length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
+    return toPoint < length2(this.startX[id] - Actors.x[id], this.startZ[id] - Actors.z[id]);
   },
   // On the ground well below where the segment runs: walked off a ramp edge, or a drop or pad missed its landing.
   fellOff(id) {
@@ -275,29 +297,32 @@ const BotMove = {
   },
   // The steering target on a walk or swim segment: MOVE_LOOKAHEAD metres past the bot's place on the line, at most the point.
   carrot(id, out) {
-    const ax = this.pointX[id] - this.startX[id], az = this.pointZ[id] - this.startZ[id], length = Math.hypot(ax, az);
+    const ax = this.pointX[id] - this.startX[id], az = this.pointZ[id] - this.startZ[id], length = length2(ax, az);
     const along = Math.min(1, this.along(id) + MOVE_LOOKAHEAD / Math.max(length, 1e-6));
     out.x = this.startX[id] + ax * along; out.z = this.startZ[id] + az * along;
     return out;
   },
-  // Wanted direction with local avoidance and, while recovering from a stuck spot, a sideways strafe.
-  steer(id, dx, dz, amount, now) {
-    let x = dx, z = dz;
-    const length = Math.hypot(x, z) || 1;
-    x /= length; z /= length;
+  // The wanted move in botWish with local avoidance and, while recovering from a stuck spot, a sideways strafe.
+  steer(id, now) {
+    const wanted = botWish, length = length2(wanted.x, wanted.z) || 1;
+    let x = wanted.x / length, z = wanted.z / length;
     if (now < this.recoverUntil[id]) {
       const angle = this.recoverAngle[id], c = Math.cos(angle), s = Math.sin(angle);
       const rx = x * c - z * s, rz = x * s + z * c;
       x = rx; z = rz;
     }
-    const push = this.avoidance(id, x, z);
-    Bots.wish(id, x + push.x, z + push.z, amount);
+    wanted.x = x; wanted.z = z;
+    const push = this.avoidance(id);
+    wanted.x = x + push.x; wanted.z = z + push.z;
+    Bots.wishFrom(id);
   },
-  avoidance(id, forwardX, forwardZ) {
+  // Sideways push away from actors just ahead along the normalized direction in botWish.
+  avoidance(id) {
+    const forwardX = botWish.x, forwardZ = botWish.z;
     movePoint.x = 0; movePoint.z = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !Actors.alive[other]) continue;
-      const ox = Actors.x[other] - Actors.x[id], oz = Actors.z[other] - Actors.z[id], distance = Math.hypot(ox, oz);
+      const ox = Actors.x[other] - Actors.x[id], oz = Actors.z[other] - Actors.z[id], distance = length2(ox, oz);
       if (distance > MOVE_AVOID_RADIUS || distance < 1e-3 || Math.abs(Actors.y[other] - Actors.y[id]) > STAND_HEIGHT) continue;
       if ((ox * forwardX + oz * forwardZ) / distance < MOVE_AVOID_AHEAD) continue;
       const side = forwardX * oz - forwardZ * ox > 0 ? 1 : -1;   // pass on the side away from the other actor
@@ -351,7 +376,7 @@ const BotMove = {
   // ladder. Moving around without getting closer (jumping, strafing along a wall) is not progress. After a new path the
   // points differ, so plain movement counts once.
   progress(id) {
-    if (this.sampleSerial[id] !== this.pathSerial[id]) return Math.hypot(Actors.x[id] - this.sampleX[id], Actors.z[id] - this.sampleZ[id]);
+    if (this.sampleSerial[id] !== this.pathSerial[id]) return length2(Actors.x[id] - this.sampleX[id], Actors.z[id] - this.sampleZ[id]);
     if (this.pointIndex[id] !== this.samplePoint[id]) return Infinity;
     const climbed = this.segmentType[id] === NAV_LINK.LADDER ? Math.abs(Actors.y[id] - this.sampleY[id]) : 0;
     return Math.max(climbed, this.sampleDistance[id] - this.distanceAhead(id));
@@ -362,7 +387,7 @@ const BotMove = {
   },
   distanceAhead(id) {
     const atEnd = this.pointIndex[id] >= this.pointCount[id];
-    return Math.hypot((atEnd ? this.destX[id] : this.pointX[id]) - Actors.x[id], (atEnd ? this.destZ[id] : this.pointZ[id]) - Actors.z[id]);
+    return length2((atEnd ? this.destX[id] : this.pointX[id]) - Actors.x[id], (atEnd ? this.destZ[id] : this.pointZ[id]) - Actors.z[id]);
   },
   recover(id, now) {
     const stuck = this.stuckTime[id];
@@ -455,9 +480,9 @@ function findWater() {
   for (let node = 0; node < Nav.nodeCount && !mapHasWater; node++) mapHasWater = (Nav.nodeFlags[node] & NAV_NODE.WATER) !== 0;
 }
 
-// Water exits (land nodes linked from a water node) once per match. A swimmer climbs out by mantling over a wall at
-// knee height (S10): an exit above the water without one, such as a thin deck the knee ray passes under, is blocked.
-// Ramps, ladders and rims are open exits.
+// Water exits (land nodes linked from a water node) once per match. S09 links a swim exit only where a bank face stands
+// at knee height (the S10 mantle), so every linked exit starts open; an exit is blocked only when a swimmer fails at it
+// in play (markBlockedExit), and paths from the water then avoid it.
 function findExits() {
   exitVersion = Nav.version;
   if (exitKind.length < Nav.nodeCount) { exitKind = new Uint8Array(Nav.nodeCount); exitList = new Int32Array(Nav.nodeCount); } else exitKind.fill(0);
@@ -465,33 +490,23 @@ function findExits() {
   if (!mapHasWater) return;
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (!(Nav.nodeFlags[node] & NAV_NODE.WATER)) continue;
-    for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) classifyExit(node, Nav.linkTarget[link], Nav.linkType[link]);
+    for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) classifyExit(Nav.linkTarget[link]);
   }
   for (let node = 0; node < Nav.nodeCount; node++) if (exitKind[node] === EXIT.OPEN) exitList[exitCount++] = node;
 }
 
-function classifyExit(from, to, type) {
-  if (Nav.nodeFlags[to] & NAV_NODE.WATER) return;
-  if (type === NAV_LINK.SWIM && exitWithoutRim(from, to)) exitKind[to] = EXIT.BLOCKED;
-  else if (exitKind[to] === EXIT.NONE) exitKind[to] = EXIT.OPEN;
+function classifyExit(to) {
+  if (!(Nav.nodeFlags[to] & NAV_NODE.WATER)) exitKind[to] = EXIT.OPEN;
 }
 
 // The open exit nearest a swimmer that the swimmer's node reaches, or -1.
 function nearestExit(from, x, y, z) {
   let best = -1, bestDistance = Infinity;
   for (let i = 0; i < exitCount; i++) {
-    const node = exitList[i], distance = Math.hypot(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
+    const node = exitList[i], distance = length3(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
     if (distance < bestDistance && Nav.reachable(from, node)) { bestDistance = distance; best = node; }
   }
   return best;
-}
-
-function exitWithoutRim(from, to) {
-  if ((Nav.nodeFlags[to] & NAV_NODE.WATER) || Nav.nodeY[to] <= Nav.nodeY[from] + STEP_HEIGHT) return false;
-  const dx = Nav.nodeX[to] - Nav.nodeX[from], dz = Nav.nodeZ[to] - Nav.nodeZ[from], distance = Math.hypot(dx, dz);
-  if (distance < 1e-3) return false;
-  const kneeY = Nav.nodeY[from] + STEP_HEIGHT + COLLISION_SKIN;
-  return !World.raycast(Nav.nodeX[from], kneeY, Nav.nodeZ[from], dx / distance, 0, dz / distance, distance + ACTOR_RADIUS, rimHit);
 }
 
 function markBlockedExit(node) {

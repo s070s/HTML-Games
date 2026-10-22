@@ -5,7 +5,7 @@ Files:
 - `src/03l-data-economy.js`: catalogues `economy`, `meters`, `perks`, `classes`, `buyItems`.
 - `src/12e-abilities.js`: `Abilities`, the framework.
 - `src/12f-abilities-effects.js`: effect kinds, `Buffs`, `AbilityZones`, hero passives.
-- `src/12g-abilities-meters.js`: `Meters`, the energy bar, match meters and souls.
+- `src/12g-abilities-meters.js`: `Meters`, the energy bar and match meters (souls are PU18 pickups, 12a/12b).
 - `src/13d-economy.js`: `Economy` and `Loadouts`.
 - `src/18f-ui-buy.js`: the `buy`, `loadout` and `classEditor` screens.
 
@@ -30,7 +30,7 @@ Tests: groups `abilities` and `economy`. Debug: `__CTK.abilities` `{ abilities, 
 | `counter`, `botUse` | | counterplay text; bot hint `{ when, range, chance }` for S14 |
 | `color`, `index` | | HUD colour; position in `CAT.abilities` (set at load) |
 
-Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength`, `cloak`. A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
+Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `blink`, `buff`, `grapple`, `rewind`, `glide`, `beacon`, `pulse`, `sight`, `drone`, `tracker`, `fence`, `timebend`, `push`, `link`, `mesmer`, `possess`, `frenzy`, `revive`, `bolt`, `swarm`, `decoy`, `telekinesis`, `gates`, `rift`, `rally`, `suitArmor`, `suitSpeed`, `suitStrength` (A03: `params.throwReach/throwSpeed/throwLift`: a paid melee swing throws the enemy in front along the view; there are no physics props), `cloak`. HP-005 combos (12f `statusCombo` on `Damage.statusHooks`): a Shock on a wading target stuns everyone wading within 8 m (A29 in water), every Shock chains once to the source's nearest enemy within 4 m, and Burn (A30 Ignite) thaws Chill and Freeze. A `swarm` on a fodder enemy emits `ability.panic` (A32). A new row reuses a kind with other `params`; a new kind is one entry in `Abilities.effects`: `{ cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) -> energy per second }`.
 
 ## Catalogues `heroes` (H01..H08) and `abilityKits`
 
@@ -38,7 +38,7 @@ Effect kinds: `zone` (`params.zone`: lift, smoke, heal, dome, wall, strike), `bl
   - `weapons` is the loadout; the last key is drawn.
   - `move` is a `CAT.movement` key.
   - `passive.kind` is one of `knockbackResist`, `killHaste`, `shieldRegen` (H02: +`rate`/s shield after `delay` s, on top of the HPP05 recharge), `regen` (H06: the HPP05 support role regen, see `Damage.roleOf`), `ability` (an always-on ability row) or `flag`.
-  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, HUD), `extraGrenade` (H05, items), `smokeVision` (H07, items/smoke). **Pending**: no reader exists yet (contract requests to those sections).
+  - A flag is read by other sections with `Abilities.passiveFlag(id, flag)`: `scopeInfo` (H04, the HUD scope readout in 17f), `extraGrenade` (H05, `Gadgets.equipHero` in 12c), `smokeVision` (H07, `Smoke.lineBlocked` with a viewer id: aim assist and bot sight in 14b see through smoke).
   - `gadget` is for the items section.
 - `abilityKits`: `{ id, name, match, ability1, ability2, ultimate, passive, choices, cooldowns }`.
   - `match` is `{ ruleset }`, `{ economy }` or `{ mutator }`. The first matching row applies.
@@ -63,13 +63,14 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `refreshKit(id)`: an in-place respawn kit change (pools, weapons, movement, the gadget kit from scratch (`Gadgets.equip`, so the old hero's gadget goes), slots).
 - Use:
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.
+  - The slot button does the same while the ability runs: `stepActor` sees a new press of `BTN.ABILITY1` / `ABILITY2` / `ULTIMATE` on a running toggle or channel (`pressedAgain`) and calls `tryActivate`, which ends it. The press that started it never ends it (only a new press counts).
   - `forceCast(id, abilityId)`: adrenaline combos, already paid.
-  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category.
+  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category. In a soul mode (`rules.params.souls`) no reward loads: the slot stays Wrath Form's.
   - `interrupt(id, 'damage'|'fire')`, `suppress(id, seconds)`, `end(id, slot, reason)`, `endAll`, `clearActor`, `clearMatch`.
 - `hudState(id, out)`: fills `out.slots` (up to 3) with `{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }` and `out.meter` with `{ kind, value 0..1, ready, energy 0..1, souls }`. `out` must be `{ slots: [], meter: {} }`. The array and its entries are reused (filled in place every call).
 - Hooks set by S13: `carrierCheck(id)` and `hiddenFromPulse(id)` (the Ghost perk).
 - Other fields:
-  - `rechargeScale[id]` is written by the Tune Up perk.
+  - `rechargeScale[id]` is written by the Tune Up perk; it also divides the field-upgrade gadget recharge (12c `useGadget`).
   - `Damage.poolOverride` gives heroes their pools (HPP05).
   - `Damage.roleOf(id)` (12f) gives S11 the role for the HPP05 role regen: the hero role in hero rulesets, else `profile.role`.
 - Sim system `abilities` at order 20 (after `status`). Lifecycle:
@@ -91,7 +92,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - A zone starts working on the step after it was placed. The A38 strike lands exactly `params.delay` after the cast.
 - Damage hooks: attacker scale (DAMAGE and MELEE buffs, touch kill), reducer (decoy, invulnerable, dome and amp wall, knockback resist, the bulwark weave), linked damage sharing (A21).
 - Event `ability.teleport` `{ id, x, y, z }`: only rows with `balance.dropsObjective` (A12 relocator). Dashes, rewinds and rifts keep a carried objective.
-- `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x powerup rate) and `Move.gravityScale`; 12b calls it when powerups change.
+- `BUFF.GRAVITY` (lowest wins, neutral 1): glide writes it while airborne. `Buffs.applyScales(id)` is the single writer of `Move.statusSpeedScale` (SPEED x SLOW x powerup speed), `Weapons.rateScale` (RATE x RATE_SLOW x powerup rate; `BUFF.RATE_SLOW` is lowest-wins, neutral 1: ABL-004 time slow and C02 Slowtide, so a rate boost never cancels a slow) and `Move.gravityScale`; 12b calls it when powerups change.
 - Domes (A26) stop hitscan at their surface from either side (`Weapons.rayBlockers`); ability shields do not regenerate while `Damage.shieldRegenBlocked(id)`. Smoke zones are laid with `Smoke.add` (not drawn as a box).
 
 ## Meters (`src/12g-abilities-meters.js`)
@@ -102,14 +103,15 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `energyMax()` is the suit preset `energy.max` or the energy meter row `max` (100).
   - A kill orb gives +25.
   - `spendEnergy(id, amount)` returns false and empties the bar when there is not enough; `addEnergy(id, amount)`.
-  - `actor.spawn` refills the bar and clears half-typed combo taps (`resetLife`). The match meter points, reward progress and souls stay across lives; streak meters restart on death (`resetOnDeath`).
+  - `actor.spawn` refills the bar and clears half-typed combo taps (`resetLife`). The match meter points, reward progress and souls (`Powerups.souls`) stay across lives; streak meters restart on death (`resetOnDeath`).
 - Match meter `rules.meter` (catalogue `meters`):
   - `streak` (rewards at 300/500/800 meter points, 100 per scoreboard point, resets on death).
   - `boost` (0.5/s + 4 per point; rewards at 50/80, then it starts over).
   - `adrenaline` (5 per kill, +10 every 5th kill in a life, +25 per capture; four direction taps with a full meter: FFFF BBBB LLRR FFBB).
   - `ultimate` (5/s + 1 per HP of damage or healing dealt; the ultimate slot pays `ultimateCost(row)`).
   - `energy`.
-- `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `souls[id]` (A34), `hudState(id, out)`.
+- `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `hudState(id, out)` (its `souls` = `Powerups.souls[id]`).
+- Souls (A34 Wrath Form): one counter, `Powerups.souls[id]` (S12 12b), fed only by PU18 Soul Shard pickups that PvE kills drop in soul modes (`rules.params.souls`; 12a `Items.dropSoul`, homing in 12a). A soul mode puts Wrath Form in an ultimate slot its kit leaves empty (`assignKitSlot`); it casts itself once the souls pay for it and spends them all.
 - Sim system `meters` at order 22.
 
 ## Economy (`src/13d-economy.js`)
@@ -136,7 +138,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - Related calls: `buyBlock(id)`, `canBuy(id)`, `buyTimeLeft()`, `catalogue()` (buy items that can be granted, then the priced weapons of the weapon set), `limitReason(id, item)`.
 - `Economy.grants[kind] = fn(id, item) -> bool`:
   - `armor`, `helmet`, `ammo` and `weapon` are built in.
-  - `gadget` and `grant` are registered by the items section. Until then, those rows are not on sale.
+  - `gadget` (`Gadgets.give`) and `grant` (`Items.grantBuy`) are registered at the end of 13d-economy.js.
 - Other API: `Economy.awardWave(team, flawless)` (700 + 100), `setShopOpen(open)`, `ladderWeapon(tier)` (ECP06, 18 tiers).
 - Classes (ECP04):
   - On spawn, the class perks write `Weapons.statScale` and the class weapons replace the start loadout (the set's melee is kept).
@@ -145,7 +147,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - `Economy.hasPerk(id, key)` exposes flags to other sections: `ghost`, `marathon`, `quiet`, `lastStand`.
   - Field upgrades: `CAT.economy.byId('classes').fieldUpgrades` (G13 `cover`, G22 `trophy`, G23 `ammobox`, G24 `beacon`, A13 `echopulse`). Gadget ones are granted through `Economy.grants.gadget`.
 - `Economy.switchHero(id, heroId)` (ECP05) returns `'now'` within 8 m of the last spawn point (in-place kit change), `'next'` otherwise, or `'unknown'`.
-- `Economy.usesLoadouts()`: false when the mode arms everyone itself (params `ladder` or `rotateEvery`: Arms Ladder, Roulette) or the preset has `loadout: 'none'`; class kits apply only when true (the buy screen should ask it too). Perks write `Move.staminaScale` (Marathon) and `Move.footstepScale` (Quietstep 0); `Weapons.statScale` stays the perks' stat slot, `Weapons.mutatorScale` the mutators'.
+- `Economy.usesLoadouts()`: false when `Economy.modeArmsEveryone()` (the `MODE_ARMING_PARAMS` check: params `ladder` or `rotateEvery`, Arms Ladder, Roulette) or the preset has `loadout: 'none'`; `Economy.usesClasses()` = `usesLoadouts()` and the preset loadout is `classes`: `onSpawn` applies class kits only then. The loadout screen (18f) asks the same calls: no class pick (or Classes tab) in a match where `usesClasses()` is false (a hero match), an ability kit stays pickable unless the mode arms everyone. Perks write `Move.staminaScale` (Marathon) and `Move.footstepScale` (Quietstep 0); `Weapons.statScale` stays the perks' stat slot, `Weapons.mutatorScale` the mutators'.
 
 ## Loadouts (`Save.data.loadouts`)
 
@@ -171,8 +173,8 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - A35 telekinesis pulls on press and punts on release. It cannot hold a prop, because S11's lifter needs the weapon drawn.
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
-- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'shock' and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
+- A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'stun' (non-electric, so no HP-005 Shock combo) and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
 - A16 footprints are drawn only for the local player's tracker.
-- A17 veil curtain is a visual zone. It does not block bot line of sight until `Smoke.add` exists (items section).
+- A17 veil curtain is real smoke (`Smoke.add`): it blocks bot sight and aim assist like a G02 cloud.
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.
-- Not yet wired, because the hook is missing: glide gravity (applied through `vy`), Marathon and Quietstep (flags only: S10 needs a sprint-stamina and a footstep hook), the hero passive flags `scopeInfo`, `extraGrenade`, `smokeVision`.
+- Hooks into S10: glide gravity through `Move.gravityScale`, Marathon through `Move.staminaScale`, Quietstep through `Move.footstepScale` (13d sets both perks; the footstep sound reads the loudness).

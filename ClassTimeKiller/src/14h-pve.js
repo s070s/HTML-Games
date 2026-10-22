@@ -8,7 +8,8 @@
 // queue out of sight >= 18 m from players, capped per quality preset (PERF-009 Quality.current().enemies), relaxes after
 // intensity peaks and removes corpses. 14i holds the behaviour kinds and attack kinds, 14j the PvE modes, 14k the boss.
 // Difficulty (DIF-002) read here: playerDamage (damage to the player side), enemyDamage (damage to enemies), parry
-// (parry window), projectileSpeed, resourceYield (drop chance), attackers; 14j reads lives / checkpoints / gameSpeed.
+// (parry window), projectileSpeed, resourceYield (drop chance; 12a reads it for spot respawns), attackers; 14j reads lives /
+// checkpoints, 14a gameSpeed.
 // API: docs/api/pve.md.
 
 const ENEMY_TEAM = 1;                     // co-op modes: the players are team 0, the enemies team 1
@@ -73,7 +74,8 @@ const pveHit = makeActorHit();
 const pveWallHit = makeHit();
 const pveSpawnPayload = { id: -1 };
 const pveEventPayload = { id: -1, attack: '', kind: '', seconds: 0, color: 0, target: -1 };
-const pveRendered = { x: 0, y: 0, z: 0 };
+const pvePartPoint = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // an enemy part offset, rotated in place (drawEnemy)
+const pvePartInstance = makeShapeInstance();
 const pveQueueOptions = { team: ENEMY_TEAM, side: NO_TEAM, huntTeam: NO_TEAM, scale: 1, champion: -1, wave: 0, summoner: -1 };
 
 const Pve = {
@@ -88,7 +90,7 @@ const Pve = {
   aimX: new Float32Array(MAX_ACTORS), aimY: new Float32Array(MAX_ACTORS), aimZ: new Float32Array(MAX_ACTORS),
   cooldown: new Float64Array(MAX_ACTORS * PVE_MAX_ATTACKS),
   brokenUntil: new Float64Array(MAX_ACTORS), staggerUntil: new Float64Array(MAX_ACTORS), revealedUntil: new Float64Array(MAX_ACTORS),
-  coverUntil: new Float64Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
+  coverUntil: new Float64Array(MAX_ACTORS), coverTaken: new Uint8Array(MAX_ACTORS), lureUntil: new Float64Array(MAX_ACTORS), lureX: new Float32Array(MAX_ACTORS), lureZ: new Float32Array(MAX_ACTORS),
   awareness: new Float32Array(MAX_ACTORS), alarmed: new Uint8Array(MAX_ACTORS), lastThink: new Float64Array(MAX_ACTORS),
   noKnockback: new Uint8Array(MAX_ACTORS),            // unstoppable champions: damage never pushes them
   damageScale: new Float32Array(MAX_ACTORS).fill(1), champion: new Int8Array(MAX_ACTORS).fill(-1), wave: new Int16Array(MAX_ACTORS),
@@ -117,13 +119,14 @@ const Pve = {
     for (let id = 0; id < Actors.count; id++) if (this.isEnemy(id) && Actors.alive[id] && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
-  // Living enemies that count for a mode (range targets and neutral beasts do not).
+  // A living enemy that counts for a mode (range targets and neutral beasts do not).
+  isHostile(id) {
+    const row = this.rowOf(id);
+    return row !== null && Actors.alive[id] === 1 && !row.beast && !row.target;
+  },
   hostileCount(side) {
     let alive = 0;
-    for (let id = 0; id < Actors.count; id++) {
-      const row = this.rowOf(id);
-      if (row && Actors.alive[id] && !row.beast && !row.target && (side === undefined || this.side[id] === side)) alive++;
-    }
+    for (let id = 0; id < Actors.count; id++) if (this.isHostile(id) && (side === undefined || this.side[id] === side)) alive++;
     return alive;
   },
 
@@ -133,6 +136,7 @@ const Pve = {
     this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
     this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
+    BotSense.reservedRays = 0;
     for (const key in this.stats) this.stats[key] = 0;
   },
   onMatchStart() {
@@ -145,7 +149,7 @@ const Pve = {
     this.row[id] = -1; this.target[id] = -1; this.attack[id] = -1; this.phase[id] = ATTACK_PHASE.IDLE; this.goal[id] = PVE_GOAL.IDLE;
     this.huntTeam[id] = NO_TEAM; this.side[id] = NO_TEAM; this.champion[id] = -1; this.summoner[id] = -1; this.damageScale[id] = 1;
     this.awareness[id] = 0; this.alarmed[id] = 0; this.guardian[id] = 0; this.parryAt[id] = -1e9; this.weakPool[id] = 0; this.disabledUntil[id] = 0;
-    this.hitDone[id] = 0; this.noKnockback[id] = 0;
+    this.hitDone[id] = 0; this.noKnockback[id] = 0; this.coverTaken[id] = 0;
     this.cooldown.fill(0, id * PVE_MAX_ATTACKS, (id + 1) * PVE_MAX_ATTACKS);
     // Timers are absolute sim times and the sim clock restarts per match: clear them all.
     this.brokenUntil[id] = this.staggerUntil[id] = this.revealedUntil[id] = this.coverUntil[id] = this.lureUntil[id] = 0;
@@ -304,7 +308,7 @@ const Pve = {
     const hunted = this.huntFor(side);
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || !Modes.participant[id] || (hunted >= 0 && Actors.team[id] !== hunted)) continue;
-      const distance = Math.hypot(Actors.x[id] - point.x, Actors.z[id] - point.z);
+      const distance = length2(Actors.x[id] - point.x, Actors.z[id] - point.z);
       nearest = Math.min(nearest, distance);
       if (distance < SENSE_RANGE_BASE + SENSE_RANGE_ALERT && World.lineClear(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y + STAND_HEIGHT * 0.8, point.z)) seen = true;
     }
@@ -317,6 +321,7 @@ const Pve = {
     if (!this.active || (Game.match && Game.match.ended)) return;
     const now = Sim.time;
     this.raysLeft = PVE_DIRECTOR.raysPerTick;
+    BotSense.reservedRays = PVE_DIRECTOR.raysPerTick;   // BOT-091: the enemies' rays come out of the bots' per-tick budget
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id]) continue;
       this.stepEnemy(id, dt, now);
@@ -359,6 +364,7 @@ const Pve = {
   // unless hurt by one, never fight their own side, and fight other hostile enemies only without a huntTeam (M29 minions).
   isFoe(id, other) {
     if (other === id || !Actors.alive[other] || Actors.kind[other] === ACTOR_KIND.NONE) return false;
+    if (Actors.flags[other] & ACTOR_FLAG.PROTECTED) return false;   // BOT-040: spawn-protected actors are ignored, as by bots
     const row = this.rowOf(id), otherRow = this.rowOf(other);
     if (row.beast) return !(otherRow && otherRow.beast);
     if (otherRow) return this.enemyIsFoe(id, other, otherRow);
@@ -378,10 +384,11 @@ const Pve = {
       const seen = this.look(id, other, now), pair = BotSense.pair(id, other);
       if (!seen && now - BotSense.knownAt[pair] > PVE_DIRECTOR.memorySeconds) continue;
       BotSense.perceivedPosition(id, other, pveScratch);
-      let score = Math.hypot(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
+      let score = length2(pveScratch.x - Actors.x[id], pveScratch.z - Actors.z[id]) + (seen ? 0 : PVE_UNSEEN_PENALTY);
       if (other === lastAttacker) score -= PVE_ATTACKER_BONUS;
       if (score < bestScore) { bestScore = score; best = other; }
     }
+    if (best !== this.target[id]) this.coverTaken[id] = 0;   // a new sighting: cover may be taken once more
     this.target[id] = best;
     if (this.stealth) this.updateAwareness(id, best, now);
   },
@@ -412,9 +419,9 @@ const Pve = {
     if (this.awareness[id] < PVE_CONTRACT.unaware) this.alarmed[id] = 0;
   },
   fillAwareness(id, target, elapsed) {
-    const distance = Math.hypot(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
+    const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
     let seconds = lerp(SENSE_FILL_NEAR, SENSE_FILL_FAR, clamp(distance / BotSense.viewRange(id), 0, 1));
-    if (Math.hypot(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
+    if (length2(Actors.vx[target], Actors.vz[target]) < SENSE_STILL_SPEED) seconds /= PVE_STILL_FILL;
     if (Actors.flags[target] & ACTOR_FLAG.CROUCHED) seconds /= PVE_CROUCH_FILL;
     this.awareness[id] = Math.min(1, this.awareness[id] + elapsed / seconds);
   },
@@ -423,7 +430,7 @@ const Pve = {
     Bus.emit('pve.alarm', pveEvent(id, '', '', 0, 0, target));
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || !this.isEnemy(other) || !Actors.alive[other] || this.awareness[other] >= 1) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_CONTRACT.alertRadius) continue;
       this.awareness[other] = 1;
       this.alarmed[other] = 1;
       if (target >= 0) BotSense.remember(BotSense.pair(other, target), SENSE.PINGED, Actors.x[target], Actors.y[target], Actors.z[target], now);
@@ -442,7 +449,7 @@ const Pve = {
     const now = Sim.time;
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || id === event.source || (event.source >= 0 && !this.isFoe(id, event.source))) continue;
-      const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
+      const distance = length3(event.x - Actors.x[id], event.y - Actors.y[id], event.z - Actors.z[id]);
       if (distance > event.radius * PVE_DIRECTOR.hearingShare) continue;
       if (event.source >= 0) BotSense.remember(BotSense.pair(id, event.source), SENSE.HEARD, event.x, event.y, event.z, now);
       if (this.stealth) this.awareness[id] = Math.max(this.awareness[id], PVE_NOISE_AWARENESS);
@@ -492,7 +499,7 @@ const Pve = {
     let foes = 0, friends = 0;
     for (let other = 0; other < Actors.count; other++) {
       if (!Actors.alive[other] || other === id) continue;
-      if (Math.hypot(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) > PVE_DIRECTOR.moraleRadius) continue;
       if (this.isEnemy(other) && !Actors.isEnemy(id, other)) friends++;
       else if (this.isFoe(id, other)) foes++;
     }
@@ -505,21 +512,24 @@ const Pve = {
       if (!Projectiles.state[i] || !PROJECTILE_DODGE_TYPES.includes(Projectiles.type[i])) continue;
       const owner = Projectiles.owner[i];
       if (owner < 0 || owner === id || !Actors.isEnemy(id, owner)) continue;
-      if (Math.hypot(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
+      if (length2(Projectiles.x[i] - Actors.x[id], Projectiles.z[i] - Actors.z[id]) > PVE_DIRECTOR.dodgeRadius) continue;
       this.setGoalPoint(id, Projectiles.x[i], Projectiles.y[i], Projectiles.z[i]);
       return true;
     }
     return false;
   },
+  // A hurt enemy takes cover once per target sighting (never forever: NPC-007 waves must end), and never in a last stand.
   wantsCover(id, row, now) {
     const target = this.target[id];
-    if (!row.takesCover || target < 0 || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (!row.takesCover || target < 0 || this.coverTaken[id] || Actors.health[id] > Actors.maxHealth[id] * PVE_DIRECTOR.coverHealth) return false;
+    if (this.lastStand()) return false;
     BotSense.perceivedPosition(id, target, pveScratch);
     const cover = Nav.nearestCover(Actors.x[id], Actors.y[id], Actors.z[id], pveScratch.x, pveScratch.y + STAND_HEIGHT, pveScratch.z, 15);
     if (cover < 0) return false;
     Nav.nodePosition(Nav.coverNode[cover], pveScratch);
     this.setGoalPoint(id, pveScratch.x, pveScratch.y, pveScratch.z);
     this.coverUntil[id] = now + PVE_DIRECTOR.coverSeconds;
+    this.coverTaken[id] = 1;
     return true;
   },
   lureActive(id, row, now) { return row.beast && now < this.lureUntil[id]; },
@@ -548,8 +558,8 @@ const Pve = {
     return Math.min(reach, PVE_WAVE_RULES.coreAttackRange + PVE_WAVE_RULES.coreRadius + 20);
   },
   distanceTo(id, target) {
-    if (target === PVE_CORE_TARGET) return Math.max(0, Math.hypot(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
-    return Math.hypot(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
+    if (target === PVE_CORE_TARGET) return Math.max(0, length2(this.core.x - Actors.x[id], this.core.z - Actors.z[id]) - PVE_WAVE_RULES.coreRadius);
+    return length3(Actors.x[target] - Actors.x[id], Actors.y[target] - Actors.y[id], Actors.z[target] - Actors.z[id]);
   },
   attackersOn(target) {
     let count = 0;
@@ -557,11 +567,12 @@ const Pve = {
     return count;
   },
   // First attack of the row (row order = priority) in range, off cooldown and allowed by the brain (boss phases).
+  // NPC-008: in a last stand the minimum ranges go (a cornered leaper pounces on a foe 2 m away instead of standing there).
   pickAttack(id, row, distance, now) {
     const brain = PveBrains[row.brain];
     for (let index = 0; index < row.attackRows.length; index++) {
       const attack = row.attackRows[index];
-      if (distance < attack.range[0] || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
+      if ((distance < attack.range[0] && !this.lastStand()) || distance > attack.range[1] || now < this.cooldown[id * PVE_MAX_ATTACKS + index]) continue;
       if (brain.allows && !brain.allows(id, attack, now)) continue;
       return index;
     }
@@ -651,7 +662,7 @@ const Pve = {
     info.amount = amount; info.kind = kind || 'hit'; info.zone = zone || 'body'; info.weapon = attack.id; info.element = attack.element;
     info.distance = this.distanceTo(id, target); info.knockback = 1;
     Hitbox.point(target, ZONE.BODY, pveScratch);
-    const length = Math.max(1e-6, Math.hypot(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
+    const length = Math.max(1e-6, length3(pveScratch.x - Actors.x[id], pveScratch.y - Actors.eyeY(id), pveScratch.z - Actors.z[id]));
     info.x = pveScratch.x; info.y = pveScratch.y; info.z = pveScratch.z;
     info.dx = (pveScratch.x - Actors.x[id]) / length; info.dy = (pveScratch.y - Actors.eyeY(id)) / length; info.dz = (pveScratch.z - Actors.z[id]) / length;
     return Damage.apply(id, target, info);
@@ -663,7 +674,7 @@ const Pve = {
     const distance = Vec.length(pveAim);
     if (distance < 1e-6) return -1;
     const spread = spreadDeg * DEG;
-    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, Math.hypot(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
+    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
     Vec.fromAngles(pveAim, yaw, pitch);
     const range = attack.range[1] + 5;
     const wall = World.raycast(ex, ey, ez, pveAim.x, pveAim.y, pveAim.z, range, pveWallHit) ? pveWallHit.distance : range;
@@ -710,7 +721,7 @@ const Pve = {
   shieldBlocks(target, shield, info) {
     const lowered = this.phase[target] !== ATTACK_PHASE.IDLE || Sim.time < this.phaseEndsAt[target] + shield.lowered;
     if (lowered) return false;
-    const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+    const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
     const along = (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length;   // -1 = the shot travels against the facing (from the front)
     return along < -Math.cos(shield.arcDeg * DEG / 2);
   },
@@ -751,17 +762,23 @@ const Pve = {
   breakMorale(leader, now) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || Actors.team[id] !== Actors.team[leader] || this.rowOf(id).boss) continue;
-      if (Math.hypot(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
+      if (length2(Actors.x[id] - Actors.x[leader], Actors.z[id] - Actors.z[leader]) > PVE_DIRECTOR.moraleRadius) continue;
       this.brokenUntil[id] = now + Rng.pve.range(PVE_DIRECTOR.brokenSeconds[0], PVE_DIRECTOR.brokenSeconds[1]);
       this.nextThink[id] = now;
     }
+  },
+  // ability.panic (A32 swarm on fodder): the enemy's morale breaks for the swarm's duration.
+  panic(event) {
+    if (!this.isEnemy(event.id) || !Actors.alive[event.id]) return;
+    this.brokenUntil[event.id] = Math.max(this.brokenUntil[event.id], Sim.time + event.seconds);
+    this.nextThink[event.id] = Sim.time;
   },
   // Lure (X50 flares): thermal or flash blasts pull the beasts within lureRadius for lureSeconds.
   onExplosion(event) {
     if (!this.active || (event.element !== PVE_DIRECTOR.lureElement && !PVE_DIRECTOR.lureSources.includes(event.source))) return;
     for (let id = 0; id < Actors.count; id++) {
       const row = this.rowOf(id);
-      if (!row || !row.beast || !Actors.alive[id] || Math.hypot(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
+      if (!row || !row.beast || !Actors.alive[id] || length2(event.x - Actors.x[id], event.z - Actors.z[id]) > PVE_DIRECTOR.lureRadius) continue;
       this.lureUntil[id] = Sim.time + PVE_DIRECTOR.lureSeconds;
       this.lureX[id] = event.x; this.lureZ[id] = event.z;
       this.nextThink[id] = Sim.time;
@@ -822,7 +839,7 @@ const Pve = {
     return false;
   },
   farFromParticipants(x, z, distance) {
-    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && Math.hypot(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
+    for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.participant[id] && length2(Actors.x[id] - x, Actors.z[id] - z) < distance) return false;
     return true;
   },
 
@@ -840,14 +857,19 @@ const Pve = {
     const tell = this.tellGlow(id, row, now), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
     const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
+    // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
+    const point = pvePartPoint, instance = pvePartInstance;
     for (const part of row.parts) {
       const tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
-      rotateYawPitchInto(pveRendered, part[1] * size, part[2] * size, part[3] * size, yaw, part[8] ? pitch : 0);
-      const emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
+      point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
+      rotateInPlace(point);
       const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
       const b = tell.amount > 0 ? tell.b : colors[tint * 3 + 2] * (glow ? 1 : shade);
-      batch.mesh(part[0], Actors.x[id] + pveRendered.x, Actors.y[id] + pveRendered.y, Actors.z[id] + pveRendered.z, yaw, part[8] ? pitch : 0,
-        part[4] * size, part[5] * size, part[6] * size, glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount), g, b, emissive);
+      instance.x = Actors.x[id] + point.x; instance.y = Actors.y[id] + point.y; instance.z = Actors.z[id] + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
+      instance.sx = part[4] * size; instance.sy = part[5] * size; instance.sz = part[6] * size;
+      instance.r = glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount); instance.g = g; instance.b = b;
+      instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
+      batch.meshFrom(part[0], instance);
     }
     if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
     if (this.champion[id] >= 0) drawChampionRing(batch, id, size, this.champion[id]);
@@ -906,7 +928,7 @@ function weakPointFactor(row, target, info) {
   if (!weak || info.kind === 'dot') return 1;
   if (weak.kind === 'air') return Actors.flags[target] & ACTOR_FLAG.ON_GROUND ? 1 : weak.mult;
   if (weak.kind !== 'back') return 1;
-  const yaw = Actors.yaw[target], length = Math.hypot(info.dx, info.dz) || 1;
+  const yaw = Actors.yaw[target], length = length2(info.dx, info.dz) || 1;
   return (Math.sin(yaw) * info.dx + Math.cos(yaw) * info.dz) / length > Math.cos(60 * DEG) ? weak.mult : 1;
 }
 
@@ -950,6 +972,7 @@ Bus.on('damage', (event) => Pve.onDamage(event));
 Bus.on('kill', (event) => Pve.onKill(event));
 Bus.on('sound', (event) => Pve.hear(event));
 Bus.on('explosion', (event) => Pve.onExplosion(event));
+Bus.on('ability.panic', (event) => Pve.panic(event));
 Bus.on('pve.tell', playTellSound);
 Sim.addSystem('pveBrains', 11, (dt) => Pve.stepBrains(dt));
 Sim.addSystem('pve', 80, () => Pve.stepDirector());

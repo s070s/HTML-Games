@@ -58,7 +58,7 @@ function countLive(pool) {
 function randomDirection(nx, ny, nz, spread) {
   const random = Rng.fx;
   let x = nx + (random.next() * 2 - 1) * spread * 2, y = ny + (random.next() * 2 - 1) * spread * 2, z = nz + (random.next() * 2 - 1) * spread * 2;
-  const length = Math.hypot(x, y, z) || 1;
+  const length = length3(x, y, z) || 1;
   fxDirection.x = x / length; fxDirection.y = y / length; fxDirection.z = z / length;
   return fxDirection;
 }
@@ -90,7 +90,7 @@ const Fx = {
     if (Game.headless || cap <= 0) return;
     const row = decalKindRows[kind] || decalKindRows.bullet, size = row.size * Rng.fx.range(0.8, 1.2);
     writeColor(fxColor, 0, row.color);
-    const length = Math.hypot(nx, ny, nz) || 1;
+    const length = length3(nx, ny, nz) || 1;
     writeParticle(decalPool, takeSlot(decalPool, cap), x, y, z, nx / length, ny / length, nz / length, row.life, size, size, row.alpha, 0, 0,
       PARTICLE_MODE.decal + (row.additive ? ADDITIVE_FLAG : 0));
   },

@@ -1,10 +1,13 @@
 // ==== S16 MAPS: ARENA ====
-// MP01 Foundry Spire (duel, ffa) - vertical, three levels, Fury Core on the exposed north bridge.
+// MP01 Foundry Spire (duel, ffa, party modes) - vertical, three levels, Fury Core on the exposed north bridge.
 // Rows use the compact MapKit lists (see 16a-maps.js): brushes [material, min xyz, max xyz (, rampDir)].
+
+// Free-for-all party modes (M15, M17, M18, M19, M24, M25): every map with 16+ free spawns offers them (MP01, MP02, MP06).
+const MAP_PARTY_MODES = ['lms', 'infection', 'juggernaut', 'cursetag', 'bearer', 'roulette'];
 
 Maps.rows.push(MapKit.make({
   id: 'spire', code: 'MP01', name: 'Foundry Spire', size: [50, 20, 50], theme: 'foundry', category: 'arena',
-  modes: ['duel', 'ffa'], blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
+  modes: ['duel', 'ffa'].concat(MAP_PARTY_MODES), blurb: 'Vertical duel arena: ground floor, a ring catwalk and a spire top linked by two exposed bridges.',
   sky: { top: 0x1f2a44, horizon: 0xd9824b, fog: 0x4a3a30, fogFar: 140, sun: [0.4, 0.7, 0.3] },
   brushes: [
     ['concrete', -25, -1, -25, 25, 0, 25],                                          // ground
@@ -57,7 +60,7 @@ Maps.rows.push(MapKit.make({
   ],
 }));
 
-// MP02 Skyward Yard (ffa, tdm) - floating platforms: bases west and east, islands north and south, a centre deck with a tower;
+// MP02 Skyward Yard (ffa, tdm, party modes) - floating platforms: bases west and east, islands north and south, a centre deck with a tower;
 // jump pads link the deck and the islands; the Lancet Rail sits on a ledge that juts out over the void.
 const skyWest = {
   brushes: [
@@ -68,7 +71,7 @@ const skyWest = {
   ],
   spawns: [
     [0, ['tdm'], [[-31, 2, -9, 90], [-31, 2, -3, 90], [-31, 2, 3, 90], [-31, 2, 9, 90], [-24.5, 2, -10, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90], [-24.5, 2, 10, 90]]],
-    [-1, ['ffa'], [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
+    [-1, ['ffa'].concat(MAP_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
   ],
   items: [
     ['lightplate', -33, 2, 10.5], ['healthpack', -33, 2, -10.5], ['scattergun', -28, 2, 3.5], ['ammobox', -22.8, 2, -8], ['armorshard', -17, 4, 0],
@@ -85,7 +88,7 @@ const skySpan = {                                                               
 };
 const skyNorth = {                                                                                   // north island and the pads that serve it, mirrored to the south
   brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
-  spawns: [[-1, ['ffa'], [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
+  spawns: [[-1, ['ffa'].concat(MAP_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
   items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
   zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
   lights: [[0, 9, 28, 0xcfe8ff, 18]],
@@ -115,7 +118,8 @@ const skyCenter = {
   triggers: [{ kind: 'killzone', min: [-40, -40, -40], max: [40, -3, 40] }],
 };
 Maps.rows.push(MapKit.make(Object.assign({
-  id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena', modes: ['ffa', 'tdm'],
+  id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena',
+  modes: ['ffa', 'tdm'].concat(MAP_PARTY_MODES),
   blurb: 'Open floating platforms linked by ramps and jump pads; the Lancet Rail waits on a risky ledge.',
   sky: { top: 0x6fa8de, horizon: 0xe3f1fb, fog: 0xcfe3f3, fogFar: 200, sun: [0.3, 0.8, 0.5] },
 }, MapKit.join(MapKit.sym(skyWest, 'x'), MapKit.sym(skySpan, 'xz'), MapKit.sym(skyNorth, 'z'), skyCenter))));
@@ -130,7 +134,7 @@ const gantryQuarter = {                                                         
   ],
   spawns: [
     [0, ['tdm', 'dom', 'hardpoint'], [[-46, 0, 6, 90], [-46, 0, 12, 90], [-46, 0, 29, 90], [-46, 0, 35, 90]]],
-    [-1, ['ffa', 'duel', 'gungame', 'oddball'], [[-40, 0, 10, 90], [-44, 0, 32, 90], [-15, 0, 26, 90], [-30, 8, 18, 90], [-30, 0, 11, 90]]],
+    [-1, ['ffa', 'duel', 'gungame', 'oddball'].concat(MAP_PARTY_MODES), [[-40, 0, 10, 90], [-44, 0, 32, 90], [-15, 0, 26, 90], [-30, 8, 18, 90], [-30, 0, 11, 90]]],
   ],
   items: [
     ['lightplate', -47, 0, 37.5], ['healthpack', -42, 0, 12], ['armorshard', -30, 0, 26], ['ammobox', -16, 0, 26], ['stormlash', -28, 0, 9.5],
@@ -180,7 +184,7 @@ const gantryCenter = {
 };
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'gantry', code: 'MP06', name: 'Gantry Run', size: [100, 24, 80], theme: 'station', category: 'large',
-  modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'],
+  modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
   blurb: 'Agile playground: rooftop runs, 4 m wall-run lanes and a central hub; ladders and pads cross between levels.',
   sky: { top: 0x3a5a88, horizon: 0xe9c9a0, fog: 0x7a7f8a, fogFar: 170, sun: [-0.3, 0.6, 0.4] },
 }, MapKit.join(MapKit.sym(gantryQuarter, 'xz'), MapKit.sym(gantryHalf, 'x'), gantryCenter))));

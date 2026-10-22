@@ -21,6 +21,10 @@ const wrapAngle = (radians) => { // into -PI..PI
 };
 const lerpAngle = (from, to, t) => from + wrapAngle(to - from) * t;
 const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 - edge0), 0, 1); return t * t * (3 - 2 * t); };
+// Vector lengths for hot paths (use them instead of Math.hypot there): V8 runs Math.hypot as a built-in call that boxes its
+// arguments and result on the heap every time, these inline to one square root (PERF-006).
+const length2 = (x, z) => Math.sqrt(x * x + z * z);
+const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
@@ -29,8 +33,8 @@ const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),
   set: (out, x, y, z) => { out.x = x; out.y = y; out.z = z; return out; },
   copy: (out, a) => { out.x = a.x; out.y = a.y; out.z = a.z; return out; },
-  length: (a) => Math.hypot(a.x, a.y, a.z),
-  normalize: (out, a) => { const l = Math.hypot(a.x, a.y, a.z) || 1; out.x = a.x / l; out.y = a.y / l; out.z = a.z / l; return out; },
+  length: (a) => length3(a.x, a.y, a.z),
+  normalize: (out, a) => { const l = length3(a.x, a.y, a.z) || 1; out.x = a.x / l; out.y = a.y / l; out.z = a.z / l; return out; },
   dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
   // Direction a yaw/pitch pair looks at (DATA-002: yaw 0 looks +Z, positive pitch looks up, Y up).
   fromAngles: (out, yaw, pitch) => {
@@ -79,11 +83,15 @@ const Mat4 = {
 const ErrorLog = {
   size: 50,
   entries: [],
+  total: 0,               // entries ever added (the list keeps only the last `size`)
   add(where, error) {
     const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    this.total++;
     this.entries.push(text);
     if (this.entries.length > this.size) this.entries.shift();
   },
+  // The entries added after ErrorLog.total was `count` (the kept ones).
+  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
 };
 
 // ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----
@@ -109,6 +117,28 @@ const Bus = {
   },
 };
 
+// ---- The emitters every section shares (one reused payload each: listeners copy what they keep) ----
+const SOUND_EVENT = { x: 0, y: 0, z: 0, radius: 0, kind: '', source: -1, effect: '' };   // effect: the gadget row's, for grenade bounces
+const IMPULSE_EVENT = { id: 0, x: 0, y: 0, z: 0 };
+const TOAST_EVENT = { text: '' };
+// 'sound': what bots can hear (BOT-005); radius 0 = silent, nothing is sent.
+function emitSound(x, y, z, radius, kind, source, effect) {
+  if (radius <= 0) return;
+  SOUND_EVENT.x = x; SOUND_EVENT.y = y; SOUND_EVENT.z = z; SOUND_EVENT.radius = radius; SOUND_EVENT.kind = kind; SOUND_EVENT.source = source;
+  SOUND_EVENT.effect = effect || '';
+  Bus.emit('sound', SOUND_EVENT);
+}
+// 'impulse': a velocity change in m/s that S10 applies (knockback, jump pads, leaps).
+function emitImpulse(id, x, y, z) {
+  IMPULSE_EVENT.id = id; IMPULSE_EVENT.x = x; IMPULSE_EVENT.y = y; IMPULSE_EVENT.z = z;
+  Bus.emit('impulse', IMPULSE_EVENT);
+}
+// 'toast': a short UI message.
+function emitToast(text) {
+  TOAST_EVENT.text = text;
+  Bus.emit('toast', TOAST_EVENT);
+}
+
 // ---- Fixed-size pool of reusable objects (zero allocation after warm-up, PERF-006) ----
 function makePool(size, create) {
   const items = [];
@@ -118,11 +148,112 @@ function makePool(size, create) {
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
 }
 
+// ---- Lookup grids (ARC-013, one source): nav (S09), the render bake (S07) and the map scan (S16) bucket brushes by xz cell ----
+// Lists per cell in compressed form: eachCell(index, visit) calls visit(cell) for every cell of item `index`. Returns { start, items }:
+// the items of cell c are items[start[c]] .. items[start[c + 1] - 1], in item order.
+function bucketByCell(itemCount, cellCount, eachCell) {
+  const start = new Int32Array(cellCount + 1);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { start[cell + 1]++; });
+  for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
+  const fill = start.slice(0, cellCount), items = new Int32Array(start[cellCount]);
+  for (let index = 0; index < itemCount; index++) eachCell(index, (cell) => { items[fill[cell]++] = index; });
+  return { start, items };
+}
+const gridCellIndex = (value, origin, size, cells) => clamp(Math.floor((value - origin) / size), 0, cells - 1);
+
+// A grid record: { originX, originZ, cellSize, cellsX, cellsZ, cellStart, cellItems } plus the query state { stamp, stampValue, found, foundCount }.
+// Cell indices clamp to the edge cells, so a box past the rectangle is still found from the nearest edge cell; callers test found boxes exactly.
+const BrushGrid = {
+  // Fills `grid` (callers may keep their own per-box arrays on it) with boxes { minX, minZ, maxX, maxZ } over the xz rectangle.
+  build(grid, boxes, cellSize, minX, minZ, maxX, maxZ) {
+    this.shape(grid, cellSize, minX, minZ, maxX, maxZ);
+    const lists = bucketByCell(boxes.length, grid.cellsX * grid.cellsZ, (index, visit) => {
+      const box = boxes[index];
+      this.forCells(grid, box.minX, box.minZ, box.maxX, box.maxZ, visit);
+    });
+    grid.cellStart = lists.start; grid.cellItems = lists.items;
+    grid.stamp = new Uint32Array(boxes.length); grid.stampValue = 0;
+    grid.found = new Int32Array(boxes.length); grid.foundCount = 0;
+    return grid;
+  },
+  // Origin, cell size and cell counts of a grid over the xz rectangle (at least one cell per axis).
+  shape(grid, cellSize, minX, minZ, maxX, maxZ) {
+    grid.originX = minX; grid.originZ = minZ; grid.cellSize = cellSize;
+    grid.cellsX = Math.max(1, Math.ceil((maxX - minX) / cellSize));
+    grid.cellsZ = Math.max(1, Math.ceil((maxZ - minZ) / cellSize));
+  },
+  cellAt(grid, x, z) {
+    return gridCellIndex(z, grid.originZ, grid.cellSize, grid.cellsZ) * grid.cellsX + gridCellIndex(x, grid.originX, grid.cellSize, grid.cellsX);
+  },
+  // Calls visit(cell) for every cell the xz rectangle overlaps; visit is a top-level function so queries allocate nothing.
+  forCells(grid, minX, minZ, maxX, maxZ, visit) {
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) visit(j * grid.cellsX + i);
+    }
+  },
+  // A new pass: from here on every box counts once (a query or a ray walk that meets a box in several cells).
+  beginPass(grid) { grid.stampValue++; grid.foundCount = 0; },
+  firstVisit(grid, index) {
+    if (grid.stamp[index] === grid.stampValue) return false;
+    grid.stamp[index] = grid.stampValue;
+    return true;
+  },
+  // The boxes of the cells the rectangle overlaps into grid.found[0 .. count - 1], each once, in cell then box order; returns count.
+  query(grid, minX, minZ, maxX, maxZ) {
+    this.beginPass(grid);
+    const i0 = gridCellIndex(minX, grid.originX, grid.cellSize, grid.cellsX), i1 = gridCellIndex(maxX, grid.originX, grid.cellSize, grid.cellsX);
+    const j0 = gridCellIndex(minZ, grid.originZ, grid.cellSize, grid.cellsZ), j1 = gridCellIndex(maxZ, grid.originZ, grid.cellSize, grid.cellsZ);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) this.gatherCell(grid, j * grid.cellsX + i);
+    }
+    return grid.foundCount;
+  },
+  gatherCell(grid, cell) {
+    const stamp = grid.stamp, stampValue = grid.stampValue;
+    for (let k = grid.cellStart[cell]; k < grid.cellStart[cell + 1]; k++) {
+      const index = grid.cellItems[k];
+      if (stamp[index] === stampValue) continue;
+      stamp[index] = stampValue;
+      grid.found[grid.foundCount++] = index;
+    }
+  },
+  // 2D ray walk (Amanatides-Woo) over the cells a horizontal direction (dx, dz) crosses, in a reused record { i, j, stepI, stepJ,
+  // nextI, nextJ, deltaI, deltaJ } (next* = ray distance to the next cell border per axis). Cell coordinates are not clamped.
+  startWalk(grid, walk, ox, oz, dx, dz) {
+    const size = grid.cellSize, movesX = Math.abs(dx) > 1e-9, movesZ = Math.abs(dz) > 1e-9;
+    walk.i = Math.floor((ox - grid.originX) / size); walk.j = Math.floor((oz - grid.originZ) / size);
+    walk.stepI = dx > 0 ? 1 : -1; walk.stepJ = dz > 0 ? 1 : -1;
+    walk.deltaI = movesX ? size / Math.abs(dx) : Infinity;
+    walk.deltaJ = movesZ ? size / Math.abs(dz) : Infinity;
+    walk.nextI = movesX ? (grid.originX + (walk.i + (dx > 0 ? 1 : 0)) * size - ox) / dx : Infinity;
+    walk.nextJ = movesZ ? (grid.originZ + (walk.j + (dz > 0 ? 1 : 0)) * size - oz) / dz : Infinity;
+    return walk;
+  },
+  // Into the next cell along the ray; returns the ray distance at which the walk entered it.
+  stepWalk(walk) {
+    if (walk.nextI < walk.nextJ) {
+      walk.i += walk.stepI; walk.nextI += walk.deltaI;
+      return walk.nextI - walk.deltaI;
+    }
+    walk.j += walk.stepJ; walk.nextJ += walk.deltaJ;
+    return walk.nextJ - walk.deltaJ;
+  },
+  // The cell the walk is in, or -1 outside the grid.
+  walkCell(grid, walk) {
+    if (walk.i < 0 || walk.j < 0 || walk.i >= grid.cellsX || walk.j >= grid.cellsZ) return -1;
+    return walk.j * grid.cellsX + walk.i;
+  },
+};
+function makeGridWalk() { return { i: 0, j: 0, stepI: 0, stepJ: 0, nextI: 0, nextJ: 0, deltaI: 0, deltaJ: 0 }; }
+
 // ---- Input buttons shared by player input, bots (BOT-001: same input struct) and replays ----
 const BTN = {
   FIRE: 1 << 0, ALT: 1 << 1, JUMP: 1 << 2, CROUCH: 1 << 3, SPRINT: 1 << 4, RELOAD: 1 << 5, USE: 1 << 6,
   ABILITY1: 1 << 7, ABILITY2: 1 << 8, ULTIMATE: 1 << 9, GRENADE: 1 << 10, MELEE: 1 << 11, GADGET: 1 << 12,
-  PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17,
+  PING: 1 << 13, NEXT_WEAPON: 1 << 14, PREV_WEAPON: 1 << 15, WALK: 1 << 16, PRONE: 1 << 17, HEAL: 1 << 18,
+  CYCLE_GRENADE: 1 << 19,     // the next carried grenade type (S12 Gadgets.cycleGrenade)
 };
 
 // ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----
@@ -204,10 +335,17 @@ const Sim = {
   tick: 0,          // steps since match start; the sim's only clock (ARC-010: never read wall-clock)
   timeScale: 1,     // game speed: the loop feeds real seconds x timeScale to the 120 Hz steps (mutators X02/X27, difficulty)
   time: 0,          // tick * TICK_SECONDS
-  timing: {},       // last step cost per system in ms (perf HUD)
+  // Read-only views by system name: last step cost in ms (perf HUD) and the summed cost since load (tools/perf.mjs). The
+  // numbers live in each system's record (ms, totalMs): an object with ~30 names added by key falls back to dictionary
+  // mode, where every write of a float would allocate a heap number (twice per system per step, PERF-006).
+  timing: {},
+  timingTotal: {},
   addSystem(name, order, step) {
-    this.systems.push({ name, order, step });
+    const system = { name, order, step, ms: 0, totalMs: 0 };
+    this.systems.push(system);
     this.systems.sort((a, b) => a.order - b.order);
+    Object.defineProperty(this.timing, name, { get: () => system.ms, enumerable: true, configurable: true });
+    Object.defineProperty(this.timingTotal, name, { get: () => system.totalMs, enumerable: true, configurable: true });
   },
   step() {
     for (let id = 0; id < Actors.count; id++) {
@@ -221,7 +359,9 @@ const Sim = {
       const system = this.systems[i];
       const started = performance.now();
       try { system.step(TICK_SECONDS); } catch (error) { ErrorLog.add('system ' + system.name, error); }
-      this.timing[system.name] = performance.now() - started;
+      const spent = performance.now() - started;
+      system.ms = spent;
+      system.totalMs += spent;
     }
     this.tick++;
     this.time = this.tick * TICK_SECONDS;
@@ -248,11 +388,13 @@ const Game = {
   match: null,            // { setup, rules, map, ended, winner, ... } filled by the match.* listeners
   playerId: -1,
   headless: false,        // true in headless self-tests: no WebGL, no DOM UI, no audio
+  setupHooks: [],         // fn(setup) later sections push to adjust every setup before match.setup (18l: the player's assist sliders)
 
   isRunning() { return this.state === 'playing' && !this.paused; },
   // setup: { mode, map, ruleset, mutators, bots, seed, difficulty, player } - each section reads the fields it owns.
   start(setup) {
     if (this.match) this.stop();
+    for (const adjust of this.setupHooks) adjust(setup);   // every start path (play, career, custom, generated, restart) gets them
     Sim.reset();
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };

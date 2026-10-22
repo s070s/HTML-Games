@@ -12,6 +12,10 @@ const PAD_MENU_STICK_THRESHOLD = 0.6;
 const PAD_MENU_REPEAT_FIRST = 0.35;         // seconds before a held direction repeats in menus
 const PAD_MENU_REPEAT = 0.12;
 const PAD_BINDINGS = Array.from({ length: PAD_BUTTON_COUNT }, (unused, index) => 'Pad:' + index);   // built once: no string concat per press
+// INP-007 second layer: while View (Share / Select) is held, a button with a chord binding 'Pad:8+<button>' uses it instead
+// (every one of the 16 standard buttons already has a default action).
+const PAD_MODIFIER = 8;
+const PAD_CHORD_BINDINGS = PAD_BINDINGS.map((unused, index) => 'Pad:' + PAD_MODIFIER + '+' + index);
 const PAD_DIRECTION_BUTTONS = [12, 13, 14, 15];                 // d-pad up, down, left, right
 const PAD_DIRECTION_NAMES = ['up', 'down', 'left', 'right'];
 const PAD_MENU_ACTIONS = { 0: 'accept', 1: 'back', 9: 'back', 4: 'prev', 5: 'next' };
@@ -34,13 +38,13 @@ const PadInput = {
   connected: 0,
   index: -1,                          // pad the player last used
   previous: new Uint8Array(PAD_BUTTON_COUNT),
+  chorded: new Uint8Array(PAD_BUTTON_COUNT),   // 1 = this held button went down as a chord, so its release lets go of the chord
   stick: { x: 0, y: 0, magnitude: 0 },    // scratch output of shapeStick
   menuDirection: '',
   menuTimer: 0,
   turboSeconds: 0,
   padId: '',
   menuEvent: { command: '' },
-  toastEvent: { text: '' },
 
   init() {
     window.addEventListener('gamepadconnected', (event) => this.onConnected(event.gamepad));
@@ -52,7 +56,7 @@ const PadInput = {
     this.connected++;
     this.index = pad.index;
     this.detectStyle(pad);
-    this.say('Controller connected');
+    emitToast('Controller connected');
   },
   onDisconnected() {
     this.connected = Math.max(0, this.connected - 1);
@@ -60,11 +64,10 @@ const PadInput = {
     this.reset();
     Input.clearAll();
     if (Input.device !== 'gamepad' || Game.state !== 'playing') return;
-    this.say('Controller disconnected');
+    emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { this.toastEvent.text = text; Bus.emit('toast', this.toastEvent); },
-  reset() { this.menuDirection = ''; this.turboSeconds = 0; },
+  reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
     this.padId = pad.id;
@@ -87,23 +90,39 @@ const PadInput = {
   // pad: a Gamepad (or a plain object with buttons[{pressed,value}] and axes[]) - tests feed fake pads here.
   poll(pad, seconds) {
     this.detectStyle(pad);
-    for (let i = 0; i < PAD_BUTTON_COUNT; i++) {
-      const button = pad.buttons[i];
-      const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
-      if (down === (this.previous[i] === 1)) continue;
-      this.previous[i] = down ? 1 : 0;
-      this.onButton(i, down);
-    }
+    this.pollButton(pad, PAD_MODIFIER);   // first: View going down in this same poll still chords the buttons after it
+    for (let i = 0; i < PAD_BUTTON_COUNT; i++) if (i !== PAD_MODIFIER) this.pollButton(pad, i);
     this.readSticks(pad, seconds);
     this.updateMenuRepeat(pad, seconds);
   },
+  pollButton(pad, index) {
+    const button = pad.buttons[index];
+    const down = !!button && (button.pressed || button.value > PAD_PRESS_THRESHOLD);
+    if (down === (this.previous[index] === 1)) return;
+    this.previous[index] = down ? 1 : 0;
+    this.onButton(index, down);
+  },
   onButton(index, down) {
-    const binding = PAD_BINDINGS[index];
-    if (!down) { Input.bindingUp(binding); return; }
+    if (!down) { this.releaseButton(index); return; }
     Input.setDevice('gamepad');
+    const binding = this.layerBinding(index);
     if (Input.deliverCapture(binding)) return;
     if (Input.uiOpen && PAD_MENU_ACTIONS[index]) { this.emitMenu(PAD_MENU_ACTIONS[index]); return; }   // the menu may close: the press must not also act in the game
+    if (binding === PAD_CHORD_BINDINGS[index]) {
+      this.chorded[index] = 1;
+      Input.bindingUp(PAD_BINDINGS[PAD_MODIFIER]);   // the chord takes over: the modifier's own action (scoreboard) lets go
+    }
     Input.bindingDown(binding);
+  },
+  // With the modifier held, a button that has a chord binding uses it (View + X = gadget); otherwise its own binding.
+  layerBinding(index) {
+    if (index === PAD_MODIFIER || !this.previous[PAD_MODIFIER]) return PAD_BINDINGS[index];
+    return Input.bindingMap.has(PAD_CHORD_BINDINGS[index]) ? PAD_CHORD_BINDINGS[index] : PAD_BINDINGS[index];
+  },
+  releaseButton(index) {
+    if (!this.chorded[index]) { Input.bindingUp(PAD_BINDINGS[index]); return; }
+    this.chorded[index] = 0;
+    Input.bindingUp(PAD_CHORD_BINDINGS[index]);
   },
   emitMenu(command) { this.menuEvent.command = command; Bus.emit('input.menu', this.menuEvent); },
   // Radial deadzones then a response curve. Writes this.stick {x, y, magnitude}; magnitude 0 inside the inner deadzone.

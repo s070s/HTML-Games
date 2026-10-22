@@ -71,6 +71,32 @@ Test.add('weapons', (check) => {
   const unknown = CAT.weaponSets.flatMap((set) => set.weapons.concat(set.start)).filter((key) => !CAT.weapons.byId(key));
   check('weapon sets only name existing weapons', unknown.length === 0, unknown.join(', '));
   check('WPN-011 explosive alt fires arm at >= 6 m', CAT.projectiles.byId('contact').arm >= 6);
+  const unarmedAlts = ['shardcaster', 'stakedriver', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
+  check('WPN-011 the W21, W26, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
+});
+
+// WPN-011: an explosive alt that hits closer than its arm distance is a dud.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 3);
+  giveFull(shooter, 'talonbow');
+  TestArena.aimAt(shooter, target);
+  let blasts = -1;
+  const shots = TestArena.count('weapon.fire', () => { blasts = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.ALT, 0.5)); });
+  check('WPN-011 the W27 explosive arrow does not explode at 3 m', shots >= 1 && blasts === 0, blasts + ' / ' + shots);
+  TestArena.finish();
+});
+
+// WPN-011: the W21 alt shards inherit the alt mode but not its arm distance.
+Test.add('weapons', (check) => {
+  TestArena.start({ weaponSet: 'fullSet' });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 1.5, 20);
+  const grenade = Projectiles.spawn(CAT.projectiles.byId('grenade'), shooter, CAT.weapons.byId('shardcaster').index, 1, 0, 0.1, 20, 0, 0, 0, 100);
+  Projectiles.explodeAt(grenade, 0, 0.1, 20, -1, ZONE.NONE);
+  Sim.run(TICK_RATE / 2);
+  check('WPN-011 W21 alt shards damage a sponge 1.5 m from the burst', Actors.health[target] < 100000, Actors.health[target]);
+  Projectiles.clear();
+  TestArena.finish();
 });
 
 Test.add('weapons', (check) => {
@@ -200,6 +226,24 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// WPN-003 in presets without a MOV-025 table: + moveSpread x speed fraction f, + an air term; standing first shots stay exact.
+Test.add('weapons', (check) => {
+  TestArena.start({ move: 'arena' });
+  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest'), mode = tempest.primary;
+  const spread = () => Weapons.spreadDegrees(shooter, tempest, mode);
+  check('WPN-003 standing first shot exact without a table', Move.preset(shooter).inaccuracy === null && spread() === 0);
+  Actors.vx[shooter] = Move.preset(shooter).groundSpeed;
+  const running = spread();
+  check('WPN-003 running adds moveSpread x f', Test.near(running, mode.spreadDeg + mode.moveSpread * MOVE_SPREAD_DEGREES, 1e-4), running);
+  Motion.grounded[shooter] = 0;
+  check('WPN-003 airborne adds the air term', Test.near(spread(), running + mode.moveSpread * AIR_SPREAD_DEGREES, 1e-4), spread());
+  const ramjet = giveFull(shooter, 'ramjet'), lancet = giveFull(shooter, 'lancet');
+  check('WPN-003 the default term spares projectile modes and the W23 rail (arena rockets stay exact)', Weapons.spreadDegrees(shooter, ramjet, ramjet.primary) === ramjet.primary.spreadDeg
+    && Weapons.spreadDegrees(shooter, lancet, lancet.primary) === 0, Weapons.spreadDegrees(shooter, ramjet, ramjet.primary));
+  Actors.vx[shooter] = 0; Motion.grounded[shooter] = 1;
+  TestArena.finish();
+});
+
 // Movement hooks: S10 decides when an actor may fire (MOV-021 sprint-to-fire delay) and scales damage during a roll (MV08).
 Test.add('weapons', (check) => {
   TestArena.start();
@@ -234,6 +278,25 @@ Test.add('weapons', (check) => {
   for (let k = 0; k < PROJECTILE_CAP + 10; k++) Projectiles.spawn(rocket, shooter, ramjet.index, 0, 0, 30, 0, 0, 0, 0, 0);
   check('pool cap per projectile row recycles the oldest', Projectiles.active === rocket.poolSize, Projectiles.active);
   Projectiles.clear();
+  TestArena.finish();
+});
+
+// AUD-005 / ACC-002: an enemy rocket closing in on the local player warns once; one flying away, the player's own and a grenade do not.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const player = TestArena.actor(1, 0, 0), enemy = TestArena.actor(2, 0, 40);
+  const rocket = CAT.projectiles.byId('rocket'), grenade = CAT.projectiles.byId('grenade'), ramjet = CAT.weapons.byId('ramjet').index;
+  Game.playerId = player;
+  const warnings = [];
+  const handler = Bus.on('projectile.incoming', (event) => warnings.push(event.kind + ':' + event.source));
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 0, 1.5, 40, 0, 0, -30, 0);      // straight at the player
+  Projectiles.spawn(rocket, enemy, ramjet, 0, 5, 1.5, 20, 0, 0, 30, 0);       // 21 m away, flying away
+  Projectiles.spawn(rocket, player, ramjet, 0, 0, 1.5, 2, 0, 0, 30, 0);       // the player's own
+  Projectiles.spawn(grenade, enemy, ramjet, 0, 3, 1.5, 15, 0, 0, -8, 0);      // a closing grenade (not an incoming row)
+  Sim.run(TICK_RATE);
+  Bus.off('projectile.incoming', handler);
+  check('an enemy rocket closing within 25 m sends one projectile.incoming (rocket whistle)', warnings.length === 1 && warnings[0] === 'rocket:' + enemy, warnings.join());
+  Game.playerId = -1;
   TestArena.finish();
 });
 
@@ -459,6 +522,44 @@ Test.add('weapons', (check) => {
   Actors.buttons[user] = 0;
   check('W41 catches a projectile and throws it back as its own', caught && Projectiles.owner[grenade] === user && Projectiles.vz[grenade] > 20, caught);
   check('W41 exposes a prop hook for the world section', 'propHook' in WeaponSpecialState);
+  TestArena.finish();
+});
+
+// W41 lifts props (S08 PropLift) and catches hand grenades (S12 Thrown); hitscan shots damage props (MAP-013).
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  World.load({ id: 'lifter-props', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }],
+    props: [{ min: [-0.4, 0.9, 3], max: [0.4, 1.7, 3.8], mass: 20, health: 50 }, { min: [-0.5, 0, 12], max: [0.5, 3, 13], health: 50 }] });
+  const user = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 20);
+  giveFull(user, 'lifter');
+  Actors.pitch[user] = Actors.aimPitch[user] = 0;
+  Actors.buttons[user] = BTN.ALT;
+  Sim.run(2);
+  const body = WeaponSpecialState.heldProp[user];
+  check('W41 alt lifts a breakable prop off the world as a held body', body >= 0 && Bodies.active[body] === 1 && !Props.isStanding(0), body);
+  Sim.run(10);
+  check('W41 holds the lifted body in front of the holder', body >= 0 && Math.abs(Bodies.z[body] - LIFTER_HOLD_DISTANCE) < 0.2, body >= 0 ? Bodies.z[body] : -1);
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 punt launches the held body with the lifter impact damage', body >= 0 && WeaponSpecialState.heldProp[user] === -1 && Bodies.vz[body] > 20
+    && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  Sim.run(TICK_RATE);
+  const grenade = Thrown.spawn(CAT.gadgets.byId('frag'), enemy, 0, 1.6, 5, 0, 0, -3, itemTicks(10));
+  Actors.buttons[user] = BTN.ALT;
+  Weapons.nextShot[user] = 0;
+  Sim.run(2);
+  const caught = WeaponSpecialState.heldGrenade[user] === grenade;
+  Actors.buttons[user] = BTN.ALT | BTN.FIRE;
+  Weapons.nextShot[user] = 0;
+  Sim.step();
+  Actors.buttons[user] = 0;
+  check('W41 catches a hand grenade and throws it back as its own', caught && Thrown.owner[grenade] === user && Thrown.vz[grenade] > 20, caught);
+  Thrown.clear();
+  giveFull(user, 'tempest');
+  TestArena.hold(user, BTN.FIRE, 0.05);
+  check('MAP-013 a hitscan shot damages the prop it hits', Props.health[1] < 50, Props.health[1]);
   TestArena.finish();
 });
 
@@ -715,6 +816,65 @@ Test.add('weapons', (check) => {
   check('W04 dual pistols fire at twice the rate (8 rps; tapping every other step reaches 7.5)', Test.near(Weapons.shotInterval(id, warden, warden.primary), 1 / (warden.primary.rate * 2), 1e-9) && dualShots >= 37, dualShots);
   Weapons.give(id, 'warden');
   check('W04 a third pickup only adds ammo', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2);
+  TestArena.finish();
+});
+
+// WPN-001 alt fires: W19 slug aims at 1.2x, W35 napalm airblasts enemy projectiles back, W30 beam repairs friendly devices.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 30), out = {};
+  giveFull(id, 'scattergun');
+  TestArena.hold(id, BTN.ALT, 0.5);
+  Game.playerId = id;
+  Weapons.viewModel(out);
+  Game.playerId = -1;
+  check('W19 slug: holding ALT aims down sights at 1.2x zoom', Weapons.ads[id] > 0 && out.zoom > 1 && out.zoom <= 1.2, Weapons.ads[id] + ' ' + out.zoom);
+  const scatter = CAT.weapons.byId('scattergun'), pelletSpread = Weapons.spreadDegrees(id, scatter, scatter.primary);
+  check('W19: holding the slug ALT leaves the pellet spread at its hip value', Test.near(pelletSpread, scatter.primary.spreadDeg, 1e-6), pelletSpread);
+  Weapons.setLoadout(id, ['warden', 'heron']);   // the last key is drawn
+  Actors.buttons[id] = BTN.ALT;
+  Sim.run(TICK_RATE / 2);
+  Actors.buttons[id] = BTN.ALT | BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = BTN.ALT; Sim.step();
+  Game.playerId = id; Weapons.viewModel(out); Game.playerId = -1;
+  check('W24 scoped: next weapon flips the scope to 8x instead of switching', out.zoom === 8 && Weapons.currentWeapon(id).id === 'heron', out.zoom + ' ' + Weapons.currentWeapon(id).id);
+  Actors.buttons[id] = 0; Sim.run(TICK_RATE / 2);
+  check('W24: lowering the sights returns the scope to 4x', Weapons.zoomed[id] === 0);
+  giveFull(id, 'kindler');
+  const rocket = Projectiles.spawn(CAT.projectiles.byId('rocket'), enemy, CAT.weapons.byId('ramjet').index, 0, 0, 1.6, 3, 0, 0, -10, 50);
+  const friendly = Projectiles.spawn(CAT.projectiles.byId('rocket'), id, CAT.weapons.byId('ramjet').index, 0, 0.5, 1.6, 3, 0, 0, 10, 50);
+  TestArena.hold(id, BTN.ALT, 1 / TICK_RATE);
+  check('W35 airblast: an enemy rocket in front now flies away, owned by the shooter', Projectiles.owner[rocket] === id && Projectiles.vz[rocket] > 0, Projectiles.owner[rocket] + ' ' + Projectiles.vz[rocket]);
+  check('W35 airblast: the napalm shot still fires and own projectiles are left alone', Projectiles.countOwned(id, CAT.weapons.byId('kindler').index, CAT.projectiles.byId('goo').index) === 1
+    && Projectiles.owner[friendly] === id && Projectiles.vz[friendly] === 10);
+  Projectiles.clear();
+  const turret = Devices.spawn(CAT.gadgets.byId('sentry'), id, 0, 0, 6), row = CAT.gadgets.byId('sentry');
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Devices.centreY(turret) - Actors.eyeY(id), 6);
+  Devices.health[turret] = row.health / 2;
+  giveFull(id, 'linker');
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs a friendly turret at about 60 HP/s', Devices.health[turret] > row.health / 2 + 40 && Devices.health[turret] <= row.health, Devices.health[turret]);
+  Devices.remove(turret);
+  Pve.setCore(0, 0, 15, 1000);
+  Pve.core.health = 500;
+  Actors.pitch[id] = Actors.aimPitch[id] = Math.atan2(Pve.core.y + CORE_HIT_LIFT - Actors.eyeY(id), 15);
+  TestArena.hold(id, BTN.ALT, 1);
+  check('W30 beam repairs the PvE core at about 60 HP/s', Pve.core.health > 540 && Pve.core.health <= 560, Pve.core.health);
+  Pve.core.active = false;
+  TestArena.finish();
+});
+
+// W26 stake pins a victim standing just in front of a wall ('pinned' status); in the open it only hits.
+Test.add('weapons', (check) => {
+  TestArena.start({}, [{ shape: 'box', min: [-3, 0, 11], max: [3, 3, 12] }]);
+  const id = TestArena.actor(1, 0, 0), walled = TestArena.sponge(2, 0, 10), open = TestArena.sponge(2, 20, 10);
+  giveFull(id, 'stakedriver');
+  TestArena.aimAt(id, walled);
+  TestArena.hold(id, BTN.FIRE, 0.4);
+  check('W26 a stake pins a victim against the wall behind it', Damage.hasStatus(walled, 'pinned') && Actors.health[walled] < 100000);
+  Sim.step();   // the release must be seen before the next press
+  TestArena.aimAt(id, open);
+  TestArena.hold(id, BTN.FIRE, 1);
+  check('W26 a victim in the open is hit but not pinned', Actors.health[open] < 100000 && !Damage.hasStatus(open, 'pinned'), Actors.health[open] + ' ' + Damage.hasStatus(open, 'pinned'));
   TestArena.finish();
 });
 

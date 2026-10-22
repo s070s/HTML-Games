@@ -202,6 +202,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     const matchRules = Game.match.rules;
     // The awareness meter belongs to stealth and PvE matches only (BOT-005): this team scene plays as a stealth mode for the element check.
     if (row.id === 'awareness') Game.match.rules = Object.assign({}, matchRules, { params: Object.assign({}, matchRules.params, { cloakWhenStill: true }) });
+    if (row.id === 'pve') Object.assign(Modes.hud.pve, { active: true, mode: 'horde', wave: 2, waves: 10 });   // the PvE panel belongs to PvE modes
     Settings.set('hud.element.' + row.id, true);
     hudTestFrame();
     const shown = Hud.quadsOf(row.id);
@@ -210,6 +211,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     const hidden = Hud.quadsOf(row.id);
     Settings.set('hud.element.' + row.id, row.fallback === undefined ? true : row.fallback);
     Game.match.rules = matchRules;
+    resetPveHud();
     check('element ' + row.id + ' draws something and can be hidden (UI-015)', shown > 0 && hidden === 0, shown + ' quads shown, ' + hidden + ' hidden');
   }
   Settings.set('hud.show', false);
@@ -383,6 +385,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   Actors.health[id] = Actors.maxHealth[id];
   hudTestFrame();
   check('vignette: full health draws none', Hud.quadsOf('vignette') === 0);
+  Actors.health[id] = Actors.maxHealth[id] * 0.37;
+  hudTestFrame();
+  const above = Hud.quadsOf('vignette');
+  Actors.health[id] = Actors.maxHealth[id] * 0.33;
+  hudTestFrame();
+  check('vignette: it starts below 35% health, the HPP02 threshold shared with the heartbeat', above === 0 && Hud.quadsOf('vignette') > 0 && LOW_HEALTH_FRACTION === 0.35, above);
   check('vignette: the colours are red, never white (ACC-005)', HUD_COLOR.healthLow !== 0xffffff && HUD_COLOR.bad !== 0xffffff && (Hud.colors.bad & 0xff) < 0x80);
   const allowed = [];
   for (let i = 0; i < 6; i++) { allowed.push(Hud.flashAllowed()); Hud.time += 0.1; }
@@ -639,6 +647,26 @@ DebugApi.hudHeap = (frames) => hudTestBusy(() => {
   for (let frame = 0; frame < frames; frame++) hudTestFrame();
   return performance.memory.usedJSHeapSize - before;
 });
+
+// HP-007 downed cues: a marker over a downed teammate, the hold-Use hint near it, the revive ring, the own bleed-out text.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { id, mate } = hudTestMatch(), quads = (layer, drawer) => { hudTestFrame(); return hudTestDrawer(layer, drawer).quads; };
+  check('downed: no downed cues while nobody is down', quads('world', 'downedAllies') === 0 && quads('front', 'downed') === 0);
+  Damage.goDown(-1, mate);
+  Sim.step();
+  check('downed: a downed teammate gets a marker', quads('world', 'downedAllies') > 0);
+  check('downed: no revive hint far from it', quads('front', 'downed') === 0);
+  hudTestPlace(id, 0, 12, 0);
+  check('downed: the hold-Use hint shows near it', quads('front', 'downed') > 0);
+  Damage.reviving[id] = mate; Damage.reviveProgress[id] = REVIVE_SECONDS / 2;
+  check('downed: the revive ring shows while reviving', quads('front', 'downed') > 0);
+  Damage.reviving[id] = -1; Damage.reviveProgress[id] = 0;
+  Damage.revive(mate);
+  Damage.goDown(-1, id);
+  Sim.step();
+  check('downed: the local player sees the bleed-out time', (Actors.flags[id] & ACTOR_FLAG.DOWNED) !== 0 && quads('front', 'downed') > 0);
+  check('downed: a downed actor lies prone (crawl pose)', Test.near(Actors.height[id], STANCE_HEIGHT[STANCE.PRONE], 1e-4), Actors.height[id]);
+}));
 
 Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();

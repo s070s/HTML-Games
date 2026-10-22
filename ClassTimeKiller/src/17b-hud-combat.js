@@ -42,7 +42,6 @@ const HUD_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that
 
 const HUD_NUMBER_SLOTS = 8, HUD_NUMBER_SECONDS = 0.9, HUD_NUMBER_STACK_SECONDS = 0.7, HUD_NUMBER_RISE = 46;
 const HUD_ARC_SLOTS = 6, HUD_ARC_SECONDS = 1.4, HUD_ARC_RADIUS = 112, HUD_ARC_HALF_WIDTH = 0.3, HUD_ARC_THICKNESS = 9;
-const HUD_VIGNETTE_START = 0.4;           // health fraction where the vignette begins
 const HUD_VIGNETTE_STRENGTH = 0.55;
 const HUD_VIGNETTE_LAYERS = 5;
 const HUD_VIGNETTE_EDGE = 0.18;           // of the shorter screen side
@@ -187,7 +186,7 @@ function hudDrawScope(pen, layout) {
   const amount = weapon ? hudScopeAmount(id, weapon) : 0;
   if (amount <= 0) return;
   const cx = layout.centerX, cy = layout.centerY, inner = layout.height * HUD_SCOPE_RADIUS;
-  const outer = Math.hypot(layout.width, layout.height) / 2 * 1.02;
+  const outer = length2(layout.width, layout.height) / 2 * 1.02;
   pen.ring(cx, cy, (inner + outer) / 2, outer - inner, HUD_COLOR.black, 0.94 * amount);
   pen.rect(cx - inner, cy - 0.5, inner * 2, 1, HUD_COLOR.black, 0.85 * amount);
   pen.rect(cx - 0.5, cy - inner, 1, inner * 2, HUD_COLOR.black, 0.85 * amount);
@@ -261,9 +260,9 @@ function hudDrawVignette(pen, layout) {
   const fraction = Actors.maxHealth[id] > 0 ? Actors.health[id] / Actors.maxHealth[id] : 1;
   const flashAge = Hud.time - HudCombat.flashAt;
   if (flashAge < HUD_HIT_FLASH.seconds) pen.rect(0, 0, width, height, Hud.flashColor(Hud.colors.bad), Hud.flashAlpha(HUD_HIT_FLASH.alpha * (1 - flashAge / HUD_HIT_FLASH.seconds)));
-  if (fraction >= HUD_VIGNETTE_START) return;
+  if (fraction >= LOW_HEALTH_FRACTION) return;
   const pulse = Hud.reduceMotion() ? 1 : 0.85 + 0.15 * Math.sin(Hud.time * Math.PI * 2 * HUD_PULSE_HZ);
-  const strength = (HUD_VIGNETTE_START - fraction) / HUD_VIGNETTE_START * HUD_VIGNETTE_STRENGTH * pulse / HUD_VIGNETTE_LAYERS;
+  const strength = (LOW_HEALTH_FRACTION - fraction) / LOW_HEALTH_FRACTION * HUD_VIGNETTE_STRENGTH * pulse / HUD_VIGNETTE_LAYERS;
   const edge = Math.min(width, height) * HUD_VIGNETTE_EDGE;
   for (let i = 0; i < HUD_VIGNETTE_LAYERS; i++) {
     const band = edge * (HUD_VIGNETTE_LAYERS - i) / HUD_VIGNETTE_LAYERS;

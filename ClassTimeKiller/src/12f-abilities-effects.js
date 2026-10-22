@@ -4,12 +4,12 @@
 // decoy, telekinesis, gates, rift, rally, zone, and the four suit weaves. Timed self and team effects are Buffs; placed
 // effects are AbilityZones (a pooled struct of arrays). Damage always goes through Damage.apply, knockback through 'impulse'.
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12 };
-const BUFF_COUNT = 13;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12, RATE_SLOW: 13 };
+const BUFF_COUNT = 14;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
@@ -103,7 +103,7 @@ const Buffs = {
   // whenever its set changes, so a pickup or expiry takes effect in the same step).
   applyScales(id) {
     Move.statusSpeedScale[id] = this.get(id, BUFF.SPEED) * this.get(id, BUFF.SLOW) * Powerups.speedScale[id];
-    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * Powerups.rateScale[id];
+    Weapons.rateScale[id] = this.get(id, BUFF.RATE) * this.get(id, BUFF.RATE_SLOW) * Powerups.rateScale[id];   // boosts and slows stack
     Move.gravityScale[id] = this.get(id, BUFF.GRAVITY);
   },
   applyInvisible(id, wanted) {
@@ -280,7 +280,11 @@ function liftActor(zone, id) {
   driveActor(id, Actors.vx[id], speed, Actors.vz[id]);
 }
 function healInZone(zone, id) { healActor(id, zoneRow(zone).params.rate * TICK_SECONDS, AbilityZones.owner[zone]); }
-function slowInZone(zone, id) { Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF); }
+// ABL-004 time slow: movement and fire rate both run at the zone's factor.
+function slowInZone(zone, id) {
+  Buffs.add(id, BUFF.SLOW, AbilityZones.value[zone], TICK_BUFF);
+  Buffs.add(id, BUFF.RATE_SLOW, AbilityZones.value[zone], TICK_BUFF);
+}
 // The strike lands after its delay: one blast through Damage.explode (no falloff inside the marked circle).
 function strikeStep(zone, dt) {
   if (AbilityZones.timeLeft[zone] > dt + TICK_EPSILON) return true;
@@ -587,7 +591,7 @@ function endDrone(id, row) {
   const x = AbilityZones.x[zone], y = AbilityZones.y[zone], z = AbilityZones.z[zone], seconds = row.params.empSeconds;
   const count = enemiesNear(id, x, y, z, row.params.empRadius, true);
   // The one EMP path (G20): shields stop recharging, abilities and gadgets are held, devices in the radius switch off.
-  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'shock', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
+  for (let k = 0; k < count; k++) { Damage.addStatus(effectIds[k], 'stun', id, seconds, 1); Gadgets.suppress(effectIds[k], seconds); }
   Gadgets.empDevices(id, x, y, z, row.params.empRadius, seconds);
   AbilityZones.remove(zone);
 }
@@ -677,11 +681,8 @@ function isFodderOrBeast(id) {
   return isFodder(id) || (Actors.kind[id] === ACTOR_KIND.ENEMY && !!profile && profile.beast === true);
 }
 function castRevive(id, row) {
-  for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !alliesOf(id, other) || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
-    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= row.range * row.range) return Damage.revive(other);
-  }
-  return false;
+  const ally = Damage.nearestDownedAlly(id, row.range);
+  return ally >= 0 && Damage.revive(ally);
 }
 // bolt: the aimed enemy takes params.damage of params.element and the status (stacks; seconds 0 = the status default).
 function castBolt(id, row) {
@@ -707,7 +708,13 @@ function attachSwarm(id, row, target) {
   if (target < 0) return false;
   const zone = AbilityZones.add(ZONE_KIND.SWARM, id, row, Actors.x[target], Actors.y[target], Actors.z[target], row.duration);
   AbilityZones.target[zone] = target; AbilityZones.value[zone] = row.params.dps; AbilityZones.radius[zone] = 1;
+  if (isFodder(target)) emitPanic(target, id, row.duration);   // A32: a swarmed fodder enemy panics (S14 PvE makes it flee)
   return true;
+}
+const PANIC_EVENT = { id: -1, source: -1, seconds: 0 };
+function emitPanic(target, source, seconds) {
+  PANIC_EVENT.id = target; PANIC_EVENT.source = source; PANIC_EVENT.seconds = seconds;
+  Bus.emit('ability.panic', PANIC_EVENT);
 }
 // decoy: a one-hit double on the user's team keeps the user's last movement input for the duration.
 function castDecoy(id, row) {
@@ -776,9 +783,48 @@ function strengthJump(event) {
 function strengthShot(event) {
   const row = CAT.abilities.byId('colossusweave');
   if (!Abilities.isActive(event.id, row.id)) return;
-  if (event.mode === 'melee' || event.weaponClass === 'melee') { Meters.spendEnergy(event.id, row.params.useCost); return; }
+  if (event.mode === 'melee' || event.weaponClass === 'melee') { if (Meters.spendEnergy(event.id, row.params.useCost)) strengthThrow(event.id, row.params); return; }
   Weapons.recoilPitch[event.id] *= row.params.steady; Weapons.recoilYaw[event.id] *= row.params.steady;
 }
+// A03 throw: a paid melee swing hurls the enemy in front along the view (there are no physics props to throw).
+function strengthThrow(id, params) {
+  Vec.fromAngles(specialScratch, Actors.yaw[id], Actors.pitch[id]);
+  const target = actorInFront(id, params.throwReach);
+  if (target < 0 || !Actors.isEnemy(id, target)) return;
+  emitImpulse(target, specialScratch.x * params.throwSpeed, specialScratch.y * params.throwSpeed + params.throwLift, specialScratch.z * params.throwSpeed);
+}
+
+// ---- HP-005 status combos (Damage.statusHooks): wet + Shock stuns everyone in that water, Shock chains once, Burn melts ice ----
+const WET_SHOCK_RADIUS = 8;              // wading actors this close to a shocked wet target share its water
+const SHOCK_CHAIN_RADIUS = 4;            // a Shock jumps once to the source's nearest enemy this close to the target
+const ComboState = { spreading: false, freeze: CAT.statusEffects.byId('freeze').index, chill: CAT.statusEffects.byId('chill').index };
+function isWet(id) { return (Motion.medium[id] & TRIGGER_MEDIUM.WADING) !== 0; }
+function statusCombo(id, row, source, seconds) {
+  if (ComboState.spreading) return;   // statuses a combo hands out never combo again
+  ComboState.spreading = true;
+  try {
+    if (row.id === 'shock') { shockWater(id, source, seconds); chainShock(id, source, seconds); }
+    if (row.id === 'burn') meltIce(id);
+  } finally { ComboState.spreading = false; }
+}
+function shockWater(id, source, seconds) {
+  if (!isWet(id)) return;
+  for (let other = 0; other < Actors.count; other++) {
+    if (other === id || !Actors.alive[other] || !isWet(other)) continue;
+    if (distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]) <= WET_SHOCK_RADIUS * WET_SHOCK_RADIUS) Damage.addStatus(other, 'shock', source, seconds, 1);
+  }
+}
+function chainShock(id, source, seconds) {
+  if (source < 0) return;
+  const next = nearestChainTarget(source, id, SHOCK_CHAIN_RADIUS, id < 32 ? 1 << id : 0, id >= 32 ? 1 << (id - 32) : 0);
+  if (next >= 0) Damage.addStatus(next, 'shock', source, seconds, 1);
+}
+// A30 Ignite (and any Burn) thaws a chilled or frozen target.
+function meltIce(id) {
+  if (Damage.hasStatus(id, 'freeze')) Damage.clearStatus(id, ComboState.freeze);
+  if (Damage.hasStatus(id, 'chill')) Damage.clearStatus(id, ComboState.chill);
+}
+Damage.statusHooks.push(statusCombo);
 Object.assign(Abilities.effects, {
   zone: { cast: castZone },
   blink: { cast: castBlink },

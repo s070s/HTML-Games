@@ -16,7 +16,7 @@ const PVE_MODE_IDS = ['horde', 'endless', 'bank', 'fiends', 'contract', 'attriti
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
   active: false, mode: '', state: '', stateTimeLeft: 0, wave: 0, waves: 0, enemiesLeft: 0, lives: LIVES_UNLIMITED, retriesLeft: 0,
-  guardian: false, guardianOffer: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
+  guardian: false, guardianOffer: false, guardianAccepted: false, coreHealth: 0, coreMax: 0, coreShield: 0, carried: 0, alarms: 0, awareness: 0, relic: false, score: 0,
   chamber: 0, chambers: 0, chamberTime: 0, steps: 0, portals: 0, parTime: null, hint: '', solved: false, medal: '', stars: 0,
   shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, accuracy: 0, drillKills: 0, drillTargets: 0, drillBest: 0, drills: 0,
 });
@@ -41,6 +41,7 @@ function pveStart(options) {
   PVE_HUD.active = true;
   PVE_HUD.mode = Modes.mode.id;
   applyDifficultyLives();
+  PveLevel.begin(World.map);
   if (settings.coop) takeEnemySpawns();
 }
 function applyDifficultyLives() {
@@ -162,7 +163,7 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false };
+        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
@@ -195,9 +196,10 @@ function makeWaveBehaviour(plan) {
     },
     fight(run, now) {
       if (Pve.core.health <= 0 || teamWiped(NO_TEAM)) { this.failWave(run, now); return; }
-      if (enemiesLeft() > 0) return;
+      const left = enemiesLeft();
+      if (left > 0) { if (left <= PVE_WAVE_RULES.huntLeft && Pve.pending() === 0) huntLastEnemies(run, now); return; }
       for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) Modes.awardPlayer(id, 1, 'wave');
-      Bus.emit('pve.wave', waveEvent(run.wave, 'cleared'));
+      Bus.emit('pve.wave', waveEvent(run.wave, 'end'));
       endEncounter(run);
       const next = plan.cleared(run.wave);
       if (next === 'win') { run.result = Modes.over(coopWinner(), PVE_WIN); return; }
@@ -220,7 +222,7 @@ function makeWaveBehaviour(plan) {
     // participant deaths in the wave the Guardian Plate (damage taken x0.5 for the retry) is offered once; it is a retry
     // of its own when checkpoints are on.
     failWave(run, now) {
-      const plate = run.plateOffered && !run.plateUsed && pveSkill().checkpoints;
+      const plate = guardianOpen(run) && pveSkill().checkpoints;
       if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(DRAW, PVE_LOSE); return; }
       if (plate) wearGuardianPlate(run); else run.retriesLeft--;
       Pve.clearEnemies();
@@ -241,10 +243,11 @@ function makeWaveBehaviour(plan) {
     },
     isOver() { return this.run ? this.run.result : NOT_OVER; },
     score(index) { return Modes.score[index]; },
+    finalBoss() { return plan.waves !== Infinity && this.run.wave >= plan.waves; },   // the last wave's boss ends the level
     updateHud(run, now) {
       PVE_HUD.wave = run.wave; PVE_HUD.state = run.state; PVE_HUD.stateTimeLeft = Math.max(0, run.endsAt - now);
       PVE_HUD.enemiesLeft = enemiesLeft(); PVE_HUD.retriesLeft = run.retriesLeft;
-      PVE_HUD.guardianOffer = run.plateOffered && !run.plateUsed; PVE_HUD.guardian = guardianWorn();
+      PVE_HUD.guardianOffer = guardianOpen(run); PVE_HUD.guardian = guardianWorn();
       updateCoreHud();
       updatePlayerHud();
     },
@@ -257,18 +260,43 @@ function wearGuardianPlate(run) {
   for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) Pve.guardian[id] = 1;
   Modes.announce('Guardian Plate: damage taken halved', 'wave', 3);
 }
+// The offer stands (not worn yet, not refused this wave); with no answer from the player the plate is worn at the retry.
+function guardianOpen(run) { return run.plateOffered && !run.plateUsed && !run.plateRefused; }
+// DIF-004 choice (18o pause row): accept wears it at the next checkpoint retry, refuse drops the offer for the rest of the
+// wave (a later wave offers it again while it was never worn). False when no wave mode offers it now.
+Pve.answerGuardian = (accept) => {
+  const run = Pve.active && Modes.behaviour ? Modes.behaviour.run : null;
+  if (!run || !guardianOpen(run)) return false;
+  if (accept) PVE_HUD.guardianAccepted = true; else run.plateRefused = true;
+  PVE_HUD.guardianOffer = guardianOpen(run);
+  return true;
+};
 function guardianWorn() {
   for (let id = 0; id < Actors.count; id++) if (Pve.guardian[id]) return true;
   return false;
 }
-// A cleared wave ends the encounter: its death count, an unused offer and the plate go.
+// A cleared wave ends the encounter: its death count, an unused offer, its answer and the plate go.
 function endEncounter(run) {
   run.deaths = 0;
-  run.plateOffered = false;
+  run.plateOffered = run.plateRefused = false;
+  PVE_HUD.guardianAccepted = false;
   Pve.guardian.fill(0);
 }
-const waveEventPayload = { wave: 0, kind: '' };
-function waveEvent(wave, kind) { waveEventPayload.wave = wave; waveEventPayload.kind = kind; return waveEventPayload; }
+// NPC-007: the last few enemies of a wave (nothing queued) are pinged to the co-op bots every few seconds, so the bots
+// hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share): no shots through walls.
+function huntLastEnemies(run, now) {
+  if (now < run.huntAt) return;
+  run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
+  for (let enemy = 0; enemy < Actors.count; enemy++) if (Pve.isHostile(enemy)) pingToBots(enemy, now);
+}
+function pingToBots(enemy, now) {
+  for (let bot = 0; bot < Actors.count; bot++) {
+    if (Bots.isBot(bot) && Modes.participant[bot]) BotSense.share(bot, enemy, Actors.x[enemy], Actors.y[enemy], Actors.z[enemy], now);
+  }
+}
+// 'pve.wave' { wave, phase: 'start' | 'end' } ('end' = cleared; a lost wave that restarts from its checkpoint sends no 'end').
+const waveEventPayload = { wave: 0, phase: '' };
+function waveEvent(wave, phase) { waveEventPayload.wave = wave; waveEventPayload.phase = phase; return waveEventPayload; }
 // Co-op enemies with nothing else to do march on the core.
 function coreObjective(id, out) {
   if (!Pve.core.active || Pve.core.health <= 0) return false;
@@ -304,6 +332,16 @@ Items.grantEffects.coreShield = () => {
   Pve.core.shield += PVE_WAVE_RULES.coreShield;
   return true;
 };
+// W30 beam (FireMode.repair) on the core repairs it, as S12 Devices.onShot repairs a friendly device.
+const CORE_HIT_LIFT = 1;   // the core's hit sphere sits this far above its spot (where enemy attacks aim)
+function repairCore(event) {
+  const core = Pve.core, mode = gadgetShotMode(event), repair = repairPerShot(mode);
+  if (!(repair > 0) || !core.active || core.health <= 0 || Actors.kind[event.id] === ACTOR_KIND.ENEMY) return;
+  const distance = raySphere(event.x, event.y, event.z, event.dx, event.dy, event.dz, core.x, core.y + CORE_HIT_LIFT, core.z, PVE_WAVE_RULES.coreRadius);
+  if (distance < 0 || distance > Devices.shotReach(event, mode.range)) return;
+  core.health = Math.min(core.max, core.health + repair);
+}
+Bus.on('weapon.fire', repairCore);
 
 // ---- M23 Mote Rush: each team fights its own PvE side, banks motes, sends blockers, then kills its boss first ----
 const BankRun = {
@@ -393,6 +431,7 @@ Modes.register('bank', {
   },
   isOver() { return BankRun.result; },
   score(index) { return BankRun.banked[index]; },
+  finalBoss(id) { return id === BankRun.boss[0] || id === BankRun.boss[1]; },   // the first boss killed wins
 });
 
 // ---- M26 Ravager vs Fiends: one ravager (team 0) against fiends (team 1) who summon fodder and revive each other ----
@@ -490,7 +529,7 @@ function attritionPoints(victim) {
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
   start() {
-    pveStart({ stealth: true });
+    pveStart({ stealth: Modes.rules.params.stealth });
     Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });
     ContractRun.relic = addMapObjectives('relic', pveObjectiveList)[0] || null;
     ContractRun.extract = addMapObjectives('extract', pveObjectiveList)[0] || null;
@@ -504,7 +543,8 @@ Modes.register('contract', {
     let guards = 0;
     for (let i = points.length - 1; i >= 0; i--) {
       if (points[i].team < 1) continue;
-      if (guards < PVE_CONTRACT.guardsMax && Pve.spawnEnemy(PVE_CONTRACT.guard, points[i].x, points[i].y, points[i].z, points[i].yaw) >= 0) guards++;
+      const id = guards < PVE_CONTRACT.guardsMax ? Pve.spawnEnemy(PVE_CONTRACT.guard, points[i].x, points[i].y, points[i].z, points[i].yaw) : -1;
+      if (id >= 0) { guards++; PveLevel.markOptional(id); }   // the relic is the goal: guards never need to die
       points.splice(i, 1);
     }
   },
@@ -675,7 +715,7 @@ function enterChamber(index) {
   PVE_HUD.parTime = row.par.time;
   PVE_HUD.hint = row.hint;   // MAP-030: heavy hints early, none in the last chambers
   if (row.hint) Modes.announce(row.hint, 'objective', 2);
-  Bus.emit('pve.chamber', chamberEvent(index, 'enter', ''));
+  Bus.emit('pve.chamber', chamberEvent(index, 'enter', '', 0, 0));
 }
 // The chamber's spawn (map spawns follow the chamber order), else its zone centre.
 function placeInChamber(id, index) {
@@ -764,13 +804,13 @@ function chamberMedal(row, seconds, steps, portals) {
 }
 function finishChamber(id, now) {
   const run = ChamberRun, row = run.chamber();
-  const tier = chamberMedal(row, now - run.startedAt, run.steps, run.portals);
+  const seconds = now - run.startedAt, tier = chamberMedal(row, seconds, run.steps, run.portals);
   const medal = tier >= 0 ? PVE_CHAMBER_RULES.medals[tier] : '', stars = tier >= 0 ? PVE_CHAMBER_RULES.medals.length - tier : 0;
   run.medals.push(medal);
   run.stars += stars;
   PVE_HUD.medal = medal;
   Modes.awardPlayer(id, stars, 'chamber');
-  Bus.emit('pve.chamber', chamberEvent(run.index, 'complete', medal));
+  Bus.emit('pve.chamber', chamberEvent(run.index, 'complete', medal, stars, seconds));   // S15 keeps the best run per chamber
   if (run.index + 1 >= PVE_CHAMBERS.length) { run.result = Modes.over(id, PVE_WIN); return; }
   enterChamber(run.index + 1);
   placeInChamber(id, run.index);
@@ -781,9 +821,10 @@ function updateChamberHud(now) {
   PVE_HUD.solved = chamberSolved(); PVE_HUD.stars = run.stars;
   updatePlayerHud();
 }
-const chamberEventPayload = { chamber: 0, kind: '', medal: '' };
-function chamberEvent(index, kind, medal) {
+const chamberEventPayload = { chamber: 0, kind: '', medal: '', stars: 0, seconds: 0 };
+function chamberEvent(index, kind, medal, stars, seconds) {
   chamberEventPayload.chamber = index + 1; chamberEventPayload.kind = kind; chamberEventPayload.medal = medal;
+  chamberEventPayload.stars = stars; chamberEventPayload.seconds = seconds;
   return chamberEventPayload;
 }
 Bus.on('move.step', (event) => { if (Modes.mode && Modes.mode.id === 'puzzle' && Modes.participant[event.id]) ChamberRun.steps++; });
@@ -814,12 +855,96 @@ function drawBox(batch, x, y, z, size, color, glow) {
 }
 Render.addSource('pveChambers', drawChambers);
 
+// ---- Level report (docs/api/progression.md): secrets, crates, optional enemies, and match.results.pve for card unlocks ----
+// Secrets are the map's 'secret' nav hints (found by a participant within PVE_SECRET_RADIUS, 'pve.secret'); crates are the
+// destructible props (a participant breaking one: 'pve.crate'); optional enemies are those a level never needs dead
+// (contract guards, X50 beasts). A number the level cannot measure (no secrets, no breakable props, nothing optional, no
+// hostile spawn) stays out of the report, so it never unlocks a card.
+const PVE_SECRET_RADIUS = 1.5;
+const PVE_SECRET_MAX = 16;
+const PveLevel = {
+  secretX: new Float32Array(PVE_SECRET_MAX), secretY: new Float32Array(PVE_SECRET_MAX), secretZ: new Float32Array(PVE_SECRET_MAX),
+  found: new Uint8Array(PVE_SECRET_MAX), secretCount: 0,
+  optional: new Uint8Array(MAX_ACTORS), optionalUsed: false,
+  secretEvent: { id: -1, secret: 0 }, crateEvent: { id: -1, prop: -1 },
+
+  reset() { this.secretCount = 0; this.found.fill(0); this.optional.fill(0); this.optionalUsed = false; },
+  begin(map) {
+    this.reset();
+    for (const hint of (map && map.navHints) || []) if (hint.kind === 'secret' && this.secretCount < PVE_SECRET_MAX) this.addSecret(hint);
+  },
+  addSecret(hint) {
+    const index = this.secretCount++;
+    this.secretX[index] = hint.x; this.secretY[index] = hint.y; this.secretZ[index] = hint.z;
+  },
+  markOptional(id) { this.optional[id] = 1; this.optionalUsed = true; },
+  step() {
+    if (!Pve.active) return;
+    for (let index = 0; index < this.secretCount; index++) {
+      if (this.found[index]) continue;
+      const finder = Modes.findActorNear(this.secretX[index], this.secretY[index], this.secretZ[index], PVE_SECRET_RADIUS, NO_TEAM, NEAR_ANY);
+      if (finder >= 0) this.find(index, finder);
+    }
+  },
+  find(index, id) {
+    this.found[index] = 1;
+    this.secretEvent.id = id; this.secretEvent.secret = index;
+    Bus.emit('pve.secret', this.secretEvent);
+    Modes.announce('Secret found', 'objective', 1);
+  },
+  onBreak(event) {
+    const id = event.source;
+    if (!Pve.active || !(id >= 0) || !Modes.participant[id]) return;
+    this.crateEvent.id = id; this.crateEvent.prop = event.prop;
+    Bus.emit('pve.crate', this.crateEvent);
+  },
+  secretsLeft() {
+    let left = 0;
+    for (let index = 0; index < this.secretCount; index++) if (!this.found[index]) left++;
+    return left;
+  },
+  optionalLeft() {
+    let left = 0;
+    for (let id = 0; id < Actors.count; id++) if (Pve.isEnemy(id) && Actors.alive[id] && (this.optional[id] || Pve.rowOf(id).beast)) left++;
+    return left;
+  },
+  // The match results of a finished PvE level (a fresh object: the results screen keeps it).
+  report(match) {
+    if (!Pve.active || !match.results || !match.rules || match.rules.family === 'versus') return;
+    const pve = {}, props = standingProps();
+    if (props >= 0) pve.propsLeft = props;
+    if (this.secretCount > 0) pve.secretsLeft = this.secretsLeft();
+    if (this.optionalUsed || Pve.wildlife > 0) pve.optionalLeft = this.optionalLeft();
+    match.results.pve = pve;
+  },
+};
+// Breakable props still standing (-1 when the map has none: props past the quality budget never break, S08).
+function standingProps() {
+  let breakable = 0, standing = 0;
+  for (let index = 0; index < Props.brushes.length; index++) {
+    if (!Props.breakable[index]) continue;
+    breakable++;
+    if (Props.isStanding(index)) standing++;
+  }
+  return breakable > 0 ? standing : -1;
+}
+// 14k: whether a killed boss was the level's final boss (the mode behaviour's finalBoss rule; none = not final).
+function pveFinalBoss(id) {
+  const behaviour = Modes.behaviour;
+  return !!(behaviour && behaviour.finalBoss && behaviour.finalBoss(id));
+}
+
 // ---- Lifecycle ----
 function resetPveModes() {
   resetPveHud();
   Pve.sideTeam = null;
   Pve.sideHunt = null;
+  PveLevel.reset();
 }
 Modes.hud.pve = PVE_HUD;
+Sim.addSystem('pveLevel', 82, () => PveLevel.step());
 Bus.on('match.setup', resetPveModes);
 Bus.on('match.stop', resetPveModes);
+Bus.on('match.end', (match) => PveLevel.report(match));   // before S15 counts the match (its listener comes later)
+Bus.on('world.break', (event) => PveLevel.onBreak(event));
+Bus.on('actor.create', (id) => { PveLevel.optional[id] = 0; });
