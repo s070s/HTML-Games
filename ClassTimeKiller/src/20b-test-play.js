@@ -290,7 +290,7 @@ Test.add('play', (check) => {
   Game.stop();
 });
 
-/// ---- Results flow: next step, plain winner text, roster bots, match length ----
+// ---- Results flow: next step, plain winner text, roster bots, match length ----
 Test.add('play', (check) => uiWith(() => {
   const saved = Save.data.play, buttons = () => Array.from(Ui.top().element.querySelectorAll('button')).map((button) => button.textContent);
   try {
@@ -315,6 +315,10 @@ Test.add('play', (check) => uiWith(() => {
     check('results: Next match starts ladder match 2', Game.match.setup.progress.kind === 'ladder' && Game.match.setup.progress.match === 1);
     Modes.finish(Array.from({ length: Actors.count }, (unused, id) => id).find((id) => id !== Game.playerId && Actors.kind[id] === ACTOR_KIND.BOT));
     check('results: a lost ladder match offers Retry, not Next match', buttons().includes('Retry') && !buttons().includes('Next match'));
+    Game.stop(); Ui.closeAll();
+    // An operation moves on after every map, so a lost map offers only Next map (no Retry that would start the next stage).
+    Operations.reset('highline'); Operations.start('highline'); Modes.finish(1);
+    check('results: a lost operation map offers Next map and no Retry or Play again', buttons().includes('Next map') && !buttons().includes('Retry') && !buttons().includes('Play again'), buttons().join());
   } finally {
     Save.data.play = saved;
     Game.stop(); Ui.closeAll();

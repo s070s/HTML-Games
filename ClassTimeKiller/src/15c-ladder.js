@@ -193,7 +193,7 @@ const Operations = {
     if (this.state(id).done) this.reset(id);
     return this.setup(id, seed);
   },
-  // The operation's next map once this one is counted (none after the last map: Play again starts a new run).
+  // The operation's next map once this one is counted (none after the last map: New run starts the operation again).
   nextStep(tag) {
     if (this.state(tag.id).done) return null;
     return { label: 'Next map', build: () => this.setup(tag.id, progressSeed()) };
@@ -301,7 +301,7 @@ Progress.addHandler('operation', (match, metrics, award) => Operations.onResult(
 Progress.addHandler('daily', (match, metrics, award) => Daily.onResult(match, metrics, award));
 Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
 Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
-Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()));
+Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()), 'New run');
 Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
 Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
 Progress.addNext('operation', (tag) => Operations.nextStep(tag));

@@ -109,7 +109,7 @@ const Progress = {
   handlers: new Map(),        // setup.progress.kind -> fn(match, metrics, award) (ladder, challenge, operation, daily, cards)
   finishers: [],              // fn(match, metrics, award) for every finished match (card unlocks, marks)
   preFinishers: [],           // fn(match) before anything is counted (end-of-match medals such as MD19)
-  retries: new Map(),         // setup.progress.kind -> fn(tag, setup) -> the setup a results-screen retry starts
+  retries: new Map(),         // setup.progress.kind -> { builder: fn(tag, setup) -> the setup a results-screen retry starts, label }
   nexts: new Map(),           // setup.progress.kind -> fn(tag) -> { label, build } of the next step, or null
   lastAward: null,            // what the last finished match paid (results screen)
   awardedMatch: null,
@@ -311,13 +311,21 @@ const Progress = {
   addHandler(kind, handler) { this.handlers.set(kind, handler); },
   addFinisher(finisher) { this.finishers.push(finisher); },
   addPreFinisher(finisher) { this.preFinishers.push(finisher); },
-  addRetry(kind, builder) { this.retries.set(kind, builder); },
+  // `label` names a retry that does not replay the finished match (an operation moves on): the results screen shows it only when no next step does the same.
+  addRetry(kind, builder, label) { this.retries.set(kind, { builder, label: label || '' }); },
   addNext(kind, finder) { this.nexts.set(kind, finder); },
   // The setup "Play again" starts for a tagged match (null when untagged): each structure rebuilds its own, so a ladder
   // match keeps its tier and difficulty, a daily keeps its date seed and an operation plays its current map.
   retrySetup(setup) {
-    const tag = setup && setup.progress, builder = tag ? this.retries.get(tag.kind) : null;
-    return builder ? builder(tag, setup) : null;
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    return retry ? retry.builder(tag, setup) : null;
+  },
+  // The results screen's replay button: Retry after a lost career match that replays itself, Play again otherwise; a retry that moves on
+  // shows its own label only when there is no next step (else '' : the next step button already does it).
+  replayLabel(setup, outcome) {
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    if (retry && retry.label) return this.nextStep(setup) ? '' : retry.label;
+    return retry && outcome === 'loss' ? 'Retry' : 'Play again';
   },
   // The next step of a career after the finished match, or null (lost, nothing left): { label, build() -> setup } (the results screen's primary button).
   nextStep(setup) {

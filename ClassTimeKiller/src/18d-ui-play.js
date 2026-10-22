@@ -237,13 +237,14 @@ Ui.register('results', {
     for (const addExtra of PlayResultsExtras) addExtra(body);
     const foot = makeElement('div', 'ui-foot');
     // A career match offers its next step after a pass (Next match, Next map) and Retry after a loss; the primary button is the likely one.
+    // An operation moves on after every map, so its Next map is the only way on until the run ends (then New run).
     const step = Game.match ? Progress.nextStep(Game.match.setup) : null;
-    const retried = Game.match && Game.match.setup.progress && outcome === 'loss' ? 'Retry' : 'Play again';
-    const again = Ui.button(retried, () => PlayFlow.playAgain(), step ? '' : 'primary');
+    const replay = Game.match ? Progress.replayLabel(Game.match.setup, outcome) : 'Play again';
+    const again = replay ? Ui.button(replay, () => PlayFlow.playAgain(), step ? '' : 'primary') : null;
     const main = step ? Ui.button(step.label, () => Game.start(step.build()), 'primary') : again;
     main.dataset.autofocus = '1';
     if (step) foot.appendChild(main);
-    foot.appendChild(again);
+    if (again) foot.appendChild(again);
     if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
     foot.appendChild(Ui.button('Main menu', () => Game.stop()));
     root.appendChild(foot);
