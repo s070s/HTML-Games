@@ -6,7 +6,7 @@
 
 const PROGRESS_VERSION = 1;
 const PROGRESS_SECONDS_PER_MINUTE = 60;
-const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (the PvE section did not report them)
+const PROGRESS_NOT_REACHED = -1;            // run metrics a match could not measure (enemies left outside a PvE match)
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
 const RUN_EXPLOSIVE_CLASSES = ['explosive'];
@@ -27,6 +27,7 @@ const RunLog = {
   kills: 0, deaths: 0, airKills: 0, rangedKills: 0, explosiveShots: 0, damageTaken: 0,
   lowestHealth: 0, souls: 0, armorPickups: 0, marks: 0, wrathForms: 0, wrathKills: 0, inWrath: false,
   bossSeconds: PROGRESS_NEVER, finalBossSeconds: PROGRESS_NEVER,
+  outSeconds: PROGRESS_NEVER,  // match seconds when the player lost their last life (lives rules); PROGRESS_NEVER while still in
   weaponUsed: new Uint8Array(WEAPON_COUNT),
   metrics: {},                // reused result of measure()
 
@@ -35,12 +36,14 @@ const RunLog = {
     this.damageTaken = this.souls = this.armorPickups = this.marks = this.wrathForms = this.wrathKills = 0;
     this.inWrath = false;
     this.lowestHealth = Infinity;
-    this.bossSeconds = this.finalBossSeconds = PROGRESS_NEVER;
+    this.bossSeconds = this.finalBossSeconds = this.outSeconds = PROGRESS_NEVER;
     this.weaponUsed.fill(0);
   },
   isPlayer(id) { return id >= 0 && id === Game.playerId; },
+  // S13 counts the life lost first (its kill listener runs earlier), so lives 0 here means the player is out of the match.
   onKill(event) {
     if (this.isPlayer(event.victim)) this.deaths++;
+    if (this.isPlayer(event.victim) && Modes.lives[event.victim] === 0) this.outSeconds = Math.min(this.outSeconds, Sim.time - Modes.startTime);
     if (!this.isPlayer(event.killer) || event.victim === event.killer) return;
     this.kills++;
     const weapon = CAT.weapons.byId(event.weapon);
@@ -75,24 +78,20 @@ const RunLog = {
   // Every number challenges, cards and the daily seed read, for the finished (or running) match. Reused object.
   measure(match) {
     const out = this.metrics, results = match && match.results, mine = Progress.playerResult(results);
-    const pve = results && results.pve ? results.pve : null;
     out.kills = this.kills; out.deaths = this.deaths; out.airKills = this.airKills;
     out.rangedKills = this.rangedKills; out.explosiveShots = this.explosiveShots;
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
     out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy();
-    out.seconds = results ? results.duration : 0;
+    out.seconds = results ? Math.min(results.duration, this.outSeconds) : 0;   // a player out of lives stops earning time (PRG-004)
     out.score = mine ? mine.score : 0; out.objective = mine ? mine.objective : 0; out.bestStreak = mine ? mine.bestStreak : 0;
     out.won = results && Progress.outcome(results) === 'win' ? 1 : 0;
     out.placement = Progress.placement(results);
     out.cardsEquipped = match && match.rules && match.rules.cards ? match.rules.cards.ids.length : 0;
     out.hard = match ? Progress.isHard(match.rules ? match.rules.difficulty : '') : false;
     out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won ? 1 : 0;
-    out.enemiesLeft = pve && typeof pve.enemiesLeft === 'number' ? pve.enemiesLeft : PROGRESS_NOT_REACHED;
-    out.propsLeft = pve && typeof pve.propsLeft === 'number' ? pve.propsLeft : PROGRESS_NOT_REACHED;
-    out.secretsLeft = pve && typeof pve.secretsLeft === 'number' ? pve.secretsLeft : PROGRESS_NOT_REACHED;
-    out.optionalLeft = pve && typeof pve.optionalLeft === 'number' ? pve.optionalLeft : PROGRESS_NOT_REACHED;
+    out.enemiesLeft = Pve.active ? enemiesLeft() : PROGRESS_NOT_REACHED;   // living plus queued enemies (14j), read once at the end
     out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
     return out;
   },
@@ -261,6 +260,9 @@ const Progress = {
     this.look.color = color === null ? PROGRESS_NO_LOOK : color;
     this.look.finish = finish === null ? PROGRESS_NO_LOOK : finish;
   },
+  // The colour an actor is shown in where no body is drawn (view model, scoreboard row, killcam figure): the worn body colour
+  // for the local player, else `fallback`.
+  bodyColor(id, fallback) { return id >= 0 && id === Game.playerId && this.look.color !== PROGRESS_NO_LOOK ? this.look.color : fallback; },
   title() { return this.cosmetic('title') || ''; },
 
   // ---- Statistics per weapon / mode / map (PRG-014) and weapon mastery ----
@@ -380,6 +382,13 @@ Render.addActorStyle((id, out) => {
   if (color !== PROGRESS_NO_LOOK) { out.r = ((color >> 16) & 255) / 255; out.g = ((color >> 8) & 255) / 255; out.b = (color & 255) / 255; }
   if (finish !== PROGRESS_NO_LOOK) out.emissive = Math.max(out.emissive, finish);
 });
+// First person draws no body (07c), so the held weapon wears the body colour: the S11 view model hook, wrapped once at load.
+const progressWeaponViewModel = Render.viewModel;
+Render.viewModel = (out) => {
+  if (progressWeaponViewModel) progressWeaponViewModel(out);
+  out.color = Progress.bodyColor(Game.playerId, out.color);
+  return out;
+};
 
 Bus.on('boot', () => { Progress.ensure(); Progress.refreshLook(); });
 Bus.on('setting', (key) => { if (key === 'progress.unlockAll') Progress.refreshLook(); });

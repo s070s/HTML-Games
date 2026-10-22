@@ -240,6 +240,9 @@ const MapGen = {
   },
 };
 
+// The Daily Seed (15c, an earlier section) builds its map through this hook.
+Daily.generateMap = (options) => MapGen.generate(options);
+
 // The match asks for MP09 (the placeholder row): it plays on the GN5 island instead. Runs after 16f's own match.setup listener.
 Bus.on('match.setup', (match) => {
   if (match.map && match.map.placeholder && match.map.id === 'isle') match.map = MapGen.ringIsle();

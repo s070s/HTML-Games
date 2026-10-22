@@ -17,6 +17,7 @@ const CAREER_RANGE_MODE = 'range';
 const CAREER_NEXT_UNLOCKS = 4;
 const CAREER_HISTORY_SHOWN = 10;
 const CAREER_DEFAULT_LOOK = '';
+const CAREER_FINISH_GLOW_PX = 16;      // swatch glow in pixels at finish 1 (the finishes run 0.1 .. 0.65)
 
 // The UI fills the links Progress (S15) needs from S18, so S15 never calls the UI directly.
 Progress.links.outcome = (results) => PlayFlow.outcome(results);
@@ -83,10 +84,20 @@ Ui.register('career', {
 });
 
 // ---- Profile: level, cosmetics, the next unlocks, medals ----
-function careerLookCycle(kind, label) {
+function careerLookCycle(kind, label, onChange) {
   const rows = Progress.unlocked(kind);
   const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name));
-  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => Progress.setCosmetic(kind, value)));
+  return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => {
+    Progress.setCosmetic(kind, value);
+    if (onChange) onChange();
+  }));
+}
+// The worn body colour as a swatch, its glow showing the finish (an empty swatch: the default team look).
+function careerPaintSwatch(swatch) {
+  const color = Progress.look.color, finish = Progress.look.finish;
+  const css = color === PROGRESS_NO_LOOK ? '' : '#' + color.toString(16).padStart(6, '0');
+  swatch.style.background = css || 'transparent';
+  swatch.style.boxShadow = css && finish !== PROGRESS_NO_LOOK ? '0 0 ' + Math.round(finish * CAREER_FINISH_GLOW_PX) + 'px ' + css : 'none';
 }
 function careerNextUnlocks() {
   const level = Progress.level();
@@ -99,8 +110,12 @@ Ui.register('profile', {
     root.appendChild(careerBar(Progress.levelProgress()));
     const list = careerList(root);
     list.appendChild(makeElement('div', 'ui-group', 'Look (cosmetic only)'));
-    list.appendChild(careerLookCycle('color', 'Body colour'));
-    list.appendChild(careerLookCycle('finish', 'Finish'));
+    const swatch = makeElement('span', 'pg-swatch'), paint = () => careerPaintSwatch(swatch);
+    const colorRow = careerLookCycle('color', 'Body colour', paint);
+    colorRow.appendChild(swatch);
+    paint();
+    list.appendChild(colorRow);
+    list.appendChild(careerLookCycle('finish', 'Finish', paint));
     list.appendChild(careerLookCycle('title', 'Title'));
     list.appendChild(makeElement('div', 'ui-group', 'Next unlocks'));
     for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name, 'Level ' + row.level + ' - ' + row.kind, []));

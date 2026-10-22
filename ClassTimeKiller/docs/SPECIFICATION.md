@@ -573,23 +573,23 @@ Cards (Painkiller-style, PvE and X48): 3 Active slots (use once per level, 30 s)
 | Code | Key | Name | Type | Cost | Effect | Unlock |
 |---|---|---|---|---|---|---|
 | C01 | `stoneskin` | Stoneskin | active | 100 | damage taken x0.5 | finish any PvE level |
-| C02 | `slowtide` | Slowtide | active | 100 | world x0.5 | destroy all props in a level |
+| C02 | `slowtide` | Slowtide | active | 100 | world x0.5 | finish a level without taking damage |
 | C03 | `soulkeep` | Soulkeep | passive | 500 | souls last x3 | kill all enemies |
 | C04 | `longwick` | Longwick | passive | 100 | active cards +10 s | collect 500 Marks |
 | C05 | `blessing` | Hale Start | passive | 200 | start 150 HP | boss under 2:00 |
 | C06 | `refill` | Deep Pockets | passive | 500 | ammo pickups x2 | no explosives in a level |
 | C07 | `fleet` | Fleetfoot | active | 100 | speed x1.3 | 100 souls in a level |
 | C08 | `fury2` | Twin Fury | active | 200 | damage x2 | melee-only level |
-| C09 | `darkpact` | Dark Pact | passive | 400 | Wrath Form at 50 souls | find all secrets |
+| C09 | `darkpact` | Dark Pact | passive | 400 | Wrath Form at 50 souls | 10 kills in the air in a level |
 | C10 | `rapid` | Rapid Hands | active | 300 | fire rate x2 | boss under 4:00 |
 | C11 | `magnet` | Soul Magnet | passive | 500 | souls fly to you 15 m | collect no souls in a level |
 | C12 | `encore` | Encore | passive | 1000 | active cards usable twice | 30 kills in Wrath Form |
-| C13 | `greed` | Greed | passive | 2000 | Marks x2 | all optional spawns killed |
+| C13 | `greed` | Greed | passive | 2000 | Marks x2 | 150 kills in a level without dying |
 | C14 | `ironwill` | Iron Will | active | 666 | invulnerable | boss under 1:20 |
-| C15 | `rage` | Rage | active | 500 | damage x4 | all secrets + no deaths |
+| C15 | `rage` | Rage | active | 500 | damage x4 | 30 headshots in a level without dying |
 | C16 | `hardy` | Hardy | passive | 100 | base HP 150 | no armor pickups in a level |
 | C17 | `freecards` | Patron | passive | 0 | cards placed free | finish a level with no cards |
-| C18 | `lastbreath` | Last Breath | passive | 500 | revive once at 33 HP | find all secrets on hard |
+| C18 | `lastbreath` | Last Breath | passive | 500 | revive once at 33 HP | finish a level on hard at 10 HP or less without dying |
 | C19 | `discord` | Discord | active | 200 | enemies fight each other 15 s | 3 Wrath Forms in a level |
 | C20 | `redeemer` | Soul Feast | passive | 1000 | souls heal x2 | keep HP > 50 whole level |
 | C21 | `endless` | Endless Clip | active | 300 | no ammo use | kill <= 88 enemies in a level |

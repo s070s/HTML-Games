@@ -26,7 +26,7 @@ XP (`Progress.matchXp(results, medalXp)`): score x12 + objectives x30 + medal XP
 
 ## Unlocks (no stat changes)
 
-`CAT.unlocks` kinds: `color`, `finish`, `title`, `challenge` (room block), `card`. A row opens by `level`, by `mastery` tier (`MASTERY_TIERS`: kills and headshots with one weapon) or by its card's condition. `Progress.isUnlocked(row)`, `unlocked(kind)`, `setCosmetic(kind, id)`, `cosmetic(kind)`, `title()`. "Unlock everything" (`progress.unlockAll`) opens all. Cosmetics only reach `Render.addActorStyle`; no rule or actor stat reads them. `Progress.look = { color, finish }` holds the worn look as plain numbers (`PROGRESS_NO_LOOK` = none), refreshed by `Progress.refreshLook()` on a cosmetic choice, the `progress.unlockAll` setting, `match.start` and every counted match; the per-frame style reads only these.
+`CAT.unlocks` kinds: `color`, `finish`, `title`, `challenge` (room block), `card`. A row opens by `level`, by `mastery` tier (`MASTERY_TIERS`: kills and headshots with one weapon) or by its card's condition. `Progress.isUnlocked(row)`, `unlocked(kind)`, `setCosmetic(kind, id)`, `cosmetic(kind)`, `title()`. "Unlock everything" (`progress.unlockAll`) opens all. Cosmetics only reach what is drawn, never a rule or an actor stat: the body through `Render.addActorStyle`, and where no body is drawn `Progress.bodyColor(id, fallback)` (the worn colour for the local player, else `fallback`): the held weapon (15a wraps the S11 `Render.viewModel` hook), the player's scoreboard row (18e) and killcam figure (17e). The Profile screen shows a swatch of the worn colour with the finish as its glow. `Progress.look = { color, finish }` holds the worn look as plain numbers (`PROGRESS_NO_LOOK` = none), refreshed by `Progress.refreshLook()` on a cosmetic choice, the `progress.unlockAll` setting, `match.start` and every counted match; the per-frame style reads only these.
 
 ## Medals MD01..MD20
 
@@ -35,9 +35,9 @@ Emitted as `medal { id, medal }` for the local player only. Numbers: `MEDAL_RULE
 ## Ladder, Challenge Rooms, Operations, Daily Seed
 
 - `Ladder.start(tier, match, difficultyId?)`, `isOpen`, `setDifficulty`, `state()`, `passed(results)`, `matchCount()` (27). 8 tiers of 3-4 matches; free-for-all needs a podium place, duels and team modes a win; the last match is a duel against B24.
-- `Challenges.start(id, expert)`, `starsFor(row, points)`, `record(id)`, `expertOpen(id)`. Points = `Progress.points(row.points, metrics, row.par)`; stars from `row.stars`; Expert opens at 2 stars. XP only for newly gained stars. Retry: start the same setup again.
+- `Challenges.start(id, expert)`, `starsFor(row, points)`, `record(id)`, `expertOpen(id)`. Points = `Progress.points(row.points, metrics, row.par)`; stars from `row.stars`; Expert opens at 2 stars and plays bots `expertTier` tiers up with the row's `expert` mutators, else its kind's `CHALLENGE_EXPERT_MUTATORS` (`Challenges.expertMutators(row)`). The `seconds` metric is the match duration, or the time the player lost their last life under lives rules (`RunLog.outSeconds`), so a player knocked out early stops earning survival points. Every room reaches 3 stars with a flawless run at half of par (self-test). XP only for newly gained stars. Retry: start the same setup again.
 - `Operations.start(id)`, `nextSetup(id, seed)`, `state(id)`, `carryTickets(left) = min(120, 60 + floor(0.5 x left))`. Each death costs one ticket; a side at 0 loses the map (`Modes.finish(..., 'tickets')`). The side that lost the previous map gets one heavy bot (`OPERATION_COMEBACK`).
-- `Daily.dateKey(ms, offsetMinutes)`, `todayKey()`, `choiceFor(key)`, `setup(key)`, `start()`, `history()`. Seeded by `hashString('daily:' + key)`; picks a playable mode, a ruleset, 2 compatible mutators and a hand-made map from `CAT.maps` (never the editor's saved or generated maps, which differ per device), with a fixed `DAILY_RULES.bots` (5, inside the lowest quality preset's cap), so every device gets the same match. When a `MapGen` section exists, `MapGen.generate({ seed, mode })` is offered as `choice.generated`. Best score per date, at most 60 days kept, no streaks.
+- `Daily.dateKey(ms, offsetMinutes)`, `todayKey()`, `choiceFor(key)`, `setup(key)`, `start()`, `history()`. Seeded by `hashString('daily:' + key)`; picks a playable mode, a ruleset, 2 compatible mutators and a hand-made map from `CAT.maps` (never the editor's saved or generated maps, which differ per device), with a fixed `DAILY_RULES.bots` (5, inside the lowest quality preset's cap), so every device gets the same match. The match plays on `choice.generated`: a map from a generator (GN row) whose `modes` include the daily mode, picked by the date seed and built at `DAILY_RULES.mapSize` (small: every quality tier allows it, so every device builds the same map) through the hook `Daily.generateMap` (filled by 16w with `MapGen.generate`); a map that does not offer the mode is refused and the hand-made map plays. Best score per date, at most 60 days kept, no streaks.
 
 ## Cards C01..C24
 
@@ -59,9 +59,9 @@ Effects go through existing systems: Twin Fury / Rage are `BUFF.DAMAGE` and Iron
 | Event | Payload | Read by |
 |---|---|---|
 | `pve.wave` | `{ wave, phase: 'start' \| 'end' }` | MD20 Flawless Wave |
-| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm) |
+| `pve.alarm` | `{ id }` | MD19 Ghost (no alarm; only in a mode with `params.stealth`, M28) |
 | `pve.wrath` | `{ id, active }` | the PvE report of a Wrath Form (S15 14j sends it on the A34 `ability.cast` / `ability.end`, which also count wrath forms and wrath kills; a report of the same form is not counted twice) |
 | `pve.boss` | `{ kind, seconds, final }` | card unlocks (boss times): only `kind: 'defeated'` is a boss time (S14 14k) |
 | `pve.crate` | `{ id }` | Marks per crate |
 
-`match.results.pve = { enemiesLeft, propsLeft, secretsLeft, optionalLeft }` at the end of a PvE level; missing numbers count as not measured (`PROGRESS_NOT_REACHED`) and never unlock a card. A finished PvE level is a won match whose `rules.family` is not `versus`.
+`enemiesLeft` (C03 Soulkeep) = living plus queued PvE enemies when the level ends (14j `enemiesLeft()`, while `Pve.active`); outside a PvE match it is not measured (`PROGRESS_NOT_REACHED`) and never unlocks a card. Every card condition reads a metric a finished level measures (self-test); no condition waits on props, secrets or optional spawns, which no map has. A finished PvE level is a won match whose `rules.family` is not `versus`.

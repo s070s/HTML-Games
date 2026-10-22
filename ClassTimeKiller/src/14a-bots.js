@@ -112,6 +112,7 @@ const Bots = {
   lastLookYaw: new Float32Array(MAX_ACTORS), lastLookPitch: new Float32Array(MAX_ACTORS),   // feed-forward of a moving aim point
   buttonsWanted: new Uint32Array(MAX_ACTORS), slotWanted: new Int8Array(MAX_ACTORS),
   setupCursor: 0,
+  setupShift: 0,                                // Difficulty.tierShift() at match setup (a rematch adds only the later change, 18d)
   anyActive: false,
   skill: null,                                  // rules.botSkill of the match (or the default preset)
   config: { reactionScale: 1, aimErrorScale: 1 },
@@ -129,6 +130,7 @@ const Bots = {
   // ---- Lifecycle ----
   onMatchSetup(match) {
     this.setupCursor = 0;
+    this.setupShift = Difficulty.tierShift();
     this.skill = (match.rules && match.rules.botSkill) || Difficulty.resolve(BOT_DEFAULT_DIFFICULTY);
   },
   onCreate(id) {

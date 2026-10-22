@@ -91,30 +91,30 @@ const MASTERY_TIERS = [
 // ---- Cards (spec 15 card table, MIS-035): 3 active slots (each used once per level, 30 s) + 2 passive slots; placing costs
 // Marks, removing refunds half. versus: allowed in versus matches with X48 (rules.fx.cards); PvE matches always allow cards.
 // effect: { kind, value } read by the generic effect code in 15d. unlock: { metric, op, value } over the run metrics of one
-// finished PvE level (RunLog in 15a + results.pve from the PvE section); hard: the difficulty is at least CARD_HARD_DIFFICULTY.
+// finished PvE level (the RunLog metrics in 15a; enemiesLeft from 14j at level end); hard: the difficulty is at least CARD_HARD_DIFFICULTY.
 const CARD_SLOTS = { active: 3, passive: 2 };
 const CARD_ACTIVE_SECONDS = 30;
 const CARD_REFUND = 0.5;
 const CARD_HARD_DIFFICULTY = 'skilled';
 const CARD_ROWS = [
   { id: 'stoneskin', code: 'C01', name: 'Stoneskin', type: 'active', cost: 100, versus: true, effect: { kind: 'takenScale', value: 0.5 }, text: 'Damage taken x0.5.', unlock: { metric: 'pveFinished', op: '>=', value: 1, text: 'Finish any PvE level.' } },
-  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'propsLeft', op: '==', value: 0, text: 'Destroy all props in a level.' } },
+  { id: 'slowtide', code: 'C02', name: 'Slowtide', type: 'active', cost: 100, versus: false, effect: { kind: 'worldSlow', value: 0.5 }, text: 'The world around you moves at half speed.', unlock: { metric: 'damageTaken', op: '==', value: 0, text: 'Finish a level without taking damage.' } },
   { id: 'soulkeep', code: 'C03', name: 'Soulkeep', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulLife', value: 3 }, text: 'Souls last x3.', unlock: { metric: 'enemiesLeft', op: '==', value: 0, text: 'Kill all enemies in a level.' } },
   { id: 'longwick', code: 'C04', name: 'Longwick', type: 'passive', cost: 100, versus: true, effect: { kind: 'activeSeconds', value: 10 }, text: 'Active cards last 10 s longer.', unlock: { metric: 'marks', op: '>=', value: 500, text: 'Collect 500 Marks in a level.' } },
   { id: 'blessing', code: 'C05', name: 'Hale Start', type: 'passive', cost: 200, versus: true, effect: { kind: 'startHealth', value: 150 }, text: 'Start with 150 HP.', unlock: { metric: 'bossSeconds', op: '<', value: 120, text: 'Defeat a boss in under 2:00.' } },
   { id: 'refill', code: 'C06', name: 'Deep Pockets', type: 'passive', cost: 500, versus: true, effect: { kind: 'ammoPickup', value: 2 }, text: 'Ammo pickups give twice as much.', unlock: { metric: 'explosiveShots', op: '==', value: 0, text: 'Finish a level without explosives.' } },
   { id: 'fleet', code: 'C07', name: 'Fleetfoot', type: 'active', cost: 100, versus: true, effect: { kind: 'speed', value: 1.3 }, text: 'Speed x1.3.', unlock: { metric: 'souls', op: '>=', value: 100, text: 'Collect 100 souls in a level.' } },
   { id: 'fury2', code: 'C08', name: 'Twin Fury', type: 'active', cost: 200, versus: true, effect: { kind: 'damage', value: 2 }, text: 'Damage x2.', unlock: { metric: 'rangedKills', op: '==', value: 0, minKills: 1, text: 'Finish a level with melee kills only.' } },
-  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'secretsLeft', op: '==', value: 0, text: 'Find all secrets in a level.' } },
+  { id: 'darkpact', code: 'C09', name: 'Dark Pact', type: 'passive', cost: 400, versus: false, effect: { kind: 'wrathAt', value: 50 }, text: 'Wrath Form at 50 souls.', unlock: { metric: 'airKills', op: '>=', value: 10, text: 'Get 10 kills in the air in a level.' } },
   { id: 'rapid', code: 'C10', name: 'Rapid Hands', type: 'active', cost: 300, versus: true, effect: { kind: 'rate', value: 2 }, text: 'Fire rate x2.', unlock: { metric: 'bossSeconds', op: '<', value: 240, text: 'Defeat a boss in under 4:00.' } },
   { id: 'magnet', code: 'C11', name: 'Soul Magnet', type: 'passive', cost: 500, versus: false, effect: { kind: 'soulMagnet', value: 15 }, text: 'Souls fly to you from 15 m.', unlock: { metric: 'souls', op: '==', value: 0, text: 'Finish a level without collecting souls.' } },
   { id: 'encore', code: 'C12', name: 'Encore', type: 'passive', cost: 1000, versus: true, effect: { kind: 'activeUses', value: 2 }, text: 'Active cards can be used twice.', unlock: { metric: 'wrathKills', op: '>=', value: 30, text: 'Get 30 kills in Wrath Form.' } },
-  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'optionalLeft', op: '==', value: 0, text: 'Kill every optional spawn in a level.' } },
+  { id: 'greed', code: 'C13', name: 'Greed', type: 'passive', cost: 2000, versus: false, effect: { kind: 'marks', value: 2 }, text: 'Marks x2.', unlock: { metric: 'kills', op: '>=', value: 150, deaths: 0, text: 'Get 150 kills in a level without dying.' } },
   { id: 'ironwill', code: 'C14', name: 'Iron Will', type: 'active', cost: 666, versus: false, effect: { kind: 'invulnerable', value: 1 }, text: 'Invulnerable.', unlock: { metric: 'bossSeconds', op: '<', value: 80, text: 'Defeat a boss in under 1:20.' } },
-  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'secretsLeft', op: '==', value: 0, deaths: 0, text: 'Find all secrets without dying.' } },
+  { id: 'rage', code: 'C15', name: 'Rage', type: 'active', cost: 500, versus: false, effect: { kind: 'damage', value: 4 }, text: 'Damage x4.', unlock: { metric: 'headshots', op: '>=', value: 30, deaths: 0, text: 'Land 30 headshots in a level without dying.' } },
   { id: 'hardy', code: 'C16', name: 'Hardy', type: 'passive', cost: 100, versus: true, effect: { kind: 'baseHealth', value: 150 }, text: 'Base HP 150.', unlock: { metric: 'armorPickups', op: '==', value: 0, text: 'Finish a level without armor pickups.' } },
   { id: 'freecards', code: 'C17', name: 'Patron', type: 'passive', cost: 0, versus: true, effect: { kind: 'freePlacement', value: 1 }, text: 'Cards are placed for free.', unlock: { metric: 'cardsEquipped', op: '==', value: 0, text: 'Finish a level with no cards.' } },
-  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'secretsLeft', op: '==', value: 0, hard: true, text: 'Find all secrets on a hard difficulty.' } },
+  { id: 'lastbreath', code: 'C18', name: 'Last Breath', type: 'passive', cost: 500, versus: true, effect: { kind: 'lastBreath', value: 33 }, text: 'Survive one lethal hit with 33 HP.', unlock: { metric: 'lowestHealth', op: '<=', value: 10, deaths: 0, hard: true, text: 'Survive a level at 10 HP or less on a hard difficulty.' } },
   { id: 'discord', code: 'C19', name: 'Discord', type: 'active', cost: 200, versus: false, effect: { kind: 'discord', value: 15 }, text: 'Enemies fight each other for 15 s.', unlock: { metric: 'wrathForms', op: '>=', value: 3, text: 'Enter Wrath Form 3 times in a level.' } },
   { id: 'redeemer', code: 'C20', name: 'Soul Feast', type: 'passive', cost: 1000, versus: false, effect: { kind: 'soulHeal', value: 2 }, text: 'Souls heal twice as much.', unlock: { metric: 'lowestHealth', op: '>', value: 50, text: 'Keep HP above 50 for a whole level.' } },
   { id: 'endless', code: 'C21', name: 'Endless Clip', type: 'active', cost: 300, versus: true, effect: { kind: 'noAmmoUse', value: 1 }, text: 'Shots use no ammo.', unlock: { metric: 'kills', op: '<=', value: 88, minKills: 1, text: 'Finish a level with 88 kills or fewer.' } },
@@ -175,35 +175,42 @@ Data.define('ladder', { id: REQUIRED, code: REQUIRED, name: REQUIRED, tier: REQU
 
 // ---- Challenge Rooms (PRG-004): 20 trials, points from the run metrics x `points` weights (underPar = seconds left of `par`),
 // 1-3 stars at `stars` thresholds (10,000 points per star), an Expert version once 2 stars are earned (bots `expertTier`
-// tiers up and the `expert` mutators). group: the room block that a level unlock opens (1 = from the start).
+// tiers up and the `expert` mutators, else its kind's CHALLENGE_EXPERT_MUTATORS). group: the room block that a level unlock
+// opens (1 = from the start).
 const CHALLENGE_STARS = [10000, 20000, 30000];
 const CHALLENGE_EXPERT_STARS = 2;
 const CHALLENGE_DIFFICULTY = { normal: 'regular', expert: 'veteran' };   // bot sliders of a normal / Expert room
 const CHALLENGE_KINDS = ['timeTrial', 'killChain', 'waveSurvival', 'dropKill', 'ghostRun', 'accuracy'];
+// The Expert mutators of each room kind, for rows that name no `expert` list of their own (damage taken in percent).
+const CHALLENGE_EXPERT_MUTATORS = {
+  timeTrial: ['nopowerups', { id: 'dmgin', value: 150 }], killChain: [{ id: 'dmgin', value: 150 }, 'nopowerups'],
+  waveSurvival: ['nopowerups', 'lastgift'], dropKill: ['suppression', 'nopowerups'],
+  ghostRun: ['suppression', { id: 'dmgin', value: 150 }], accuracy: ['suppression', 'nopowerups'],
+};
 Data.define('challenges', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, group: 1, mode: REQUIRED, map: REQUIRED, bots: REQUIRED, tier: 0,
   options: {}, mutators: [], par: 0, points: REQUIRED, stars: CHALLENGE_STARS, expertTier: 2, expert: [], text: '',
 }, [
-  { id: 'sprint', code: 'CR01', name: 'Spire Sprint', kind: 'timeTrial', mode: 'ffa', map: 'spire', bots: 3, tier: 0, options: { scoreLimit: 5, timeLimit: 300 }, par: 150, points: { kills: 2000, underPar: 100 }, text: 'Five kills, as fast as you can.' },
+  { id: 'sprint', code: 'CR01', name: 'Spire Sprint', kind: 'timeTrial', mode: 'ffa', map: 'spire', bots: 3, tier: 0, options: { scoreLimit: 5, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 220 }, text: 'Five kills, as fast as you can.' },
   { id: 'chainYard', code: 'CR02', name: 'Yard Chain', kind: 'killChain', mode: 'ffa', map: 'skyyard', bots: 5, tier: 0, options: { scoreLimit: 12, timeLimit: 300 }, points: { bestStreak: 2500, kills: 500 }, text: 'Build the longest chain of kills without dying.' },
   { id: 'holdout', code: 'CR03', name: 'Holdout', kind: 'waveSurvival', mode: 'ffa', map: 'gantry', bots: 6, tier: 0, options: { scoreLimit: 0, timeLimit: 300 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1200, seconds: 40, won: 6000 }, text: 'Three lives. Outlast everyone.' },
   { id: 'dropZone', code: 'CR04', name: 'Drop Zone', kind: 'dropKill', mode: 'ffa', map: 'gantry', bots: 4, tier: 0, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['multijump'], points: { airKills: 3000, kills: 500 }, text: 'Kills while airborne count most.' },
-  { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 400 }, text: 'Every miss costs you points.' },
-  { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 2500, damageTaken: -30, underPar: 60 }, text: 'Win without getting hit.' },
-  { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 1500, underPar: 90 }, text: 'Eight kills against the clock.' },
+  { id: 'markYard', code: 'CR05', name: 'Marksman Yard', kind: 'accuracy', mode: 'ffa', map: 'skyyard', bots: 4, tier: 0, options: { scoreLimit: 8, timeLimit: 300 }, points: { accuracy: 20000, headshots: 800, kills: 500 }, text: 'Every miss costs you points.' },
+  { id: 'quietSpire', code: 'CR06', name: 'Quiet Spire', kind: 'ghostRun', group: 2, mode: 'ffa', map: 'spire', bots: 3, tier: 1, options: { scoreLimit: 6, timeLimit: 300 }, par: 180, points: { kills: 3500, damageTaken: -30, underPar: 110 }, text: 'Win without getting hit.' },
+  { id: 'sprintGantry', code: 'CR07', name: 'Gantry Dash', kind: 'timeTrial', group: 2, mode: 'ffa', map: 'gantry', bots: 4, tier: 1, options: { scoreLimit: 8, timeLimit: 300 }, par: 200, points: { kills: 2500, underPar: 110 }, text: 'Eight kills against the clock.' },
   { id: 'chainKeeps', code: 'CR08', name: 'Keep Chain', kind: 'killChain', group: 2, mode: 'ffa', map: 'gantry', bots: 6, tier: 1, options: { scoreLimit: 15, timeLimit: 360 }, points: { bestStreak: 2200, kills: 450 }, text: 'Chain kills across the gantries.' },
-  { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1500, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
+  { id: 'bigHeads', code: 'CR09', name: 'Big Heads', kind: 'accuracy', group: 2, mode: 'ffa', map: 'spire', bots: 4, tier: 1, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['bighead'], points: { headshots: 1900, accuracy: 12000 }, text: 'Bigger heads, so aim for them.' },
   { id: 'lastLight', code: 'CR10', name: 'Last Light', kind: 'waveSurvival', group: 2, mode: 'ffa', map: 'skyyard', bots: 7, tier: 1, options: { scoreLimit: 0, timeLimit: 360 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 35, won: 7000 }, text: 'Last one standing on the yard.' },
   { id: 'skyDuel', code: 'CR11', name: 'Sky Duel', kind: 'dropKill', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['aircontrol', 'multijump'], points: { airKills: 3200, kills: 400 }, text: 'Take the fight to the air.' },
-  { id: 'oneShot', code: 'CR12', name: 'One Shot', kind: 'accuracy', group: 3, mode: 'ffa', map: 'gantry', bots: 5, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['oneshot'], points: { accuracy: 18000, kills: 900 }, text: 'One-shot rails: do not miss.' },
-  { id: 'shadowYard', code: 'CR13', name: 'Shadow Yard', kind: 'ghostRun', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 8, timeLimit: 300 }, par: 210, points: { kills: 2000, damageTaken: -25, underPar: 60 }, text: 'Strike from the shadows and stay unhurt.' },
-  { id: 'duelRush', code: 'CR14', name: 'Duel Rush', kind: 'timeTrial', group: 3, mode: 'duel', map: 'spire', bots: 1, tier: 2, options: { scoreLimit: 7, timeLimit: 300 }, par: 150, points: { kills: 2000, underPar: 100, deaths: -800 }, text: 'Seven kills in a duel, fast.' },
+  { id: 'oneShot', code: 'CR12', name: 'One Shot', kind: 'accuracy', group: 3, mode: 'ffa', map: 'gantry', bots: 5, tier: 2, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['oneshot'], points: { accuracy: 18000, kills: 1300 }, text: 'One-shot rails: do not miss.' },
+  { id: 'shadowYard', code: 'CR13', name: 'Shadow Yard', kind: 'ghostRun', group: 3, mode: 'ffa', map: 'skyyard', bots: 4, tier: 2, options: { scoreLimit: 8, timeLimit: 300 }, par: 210, points: { kills: 2800, damageTaken: -25, underPar: 80 }, text: 'Strike from the shadows and stay unhurt.' },
+  { id: 'duelRush', code: 'CR14', name: 'Duel Rush', kind: 'timeTrial', group: 3, mode: 'duel', map: 'spire', bots: 1, tier: 2, options: { scoreLimit: 7, timeLimit: 300 }, par: 150, points: { kills: 3000, underPar: 130, deaths: -800 }, text: 'Seven kills in a duel, fast.' },
   { id: 'packHunt', code: 'CR15', name: 'Pack Hunt', kind: 'killChain', group: 3, mode: 'ffa', map: 'skyyard', bots: 7, tier: 2, options: { scoreLimit: 20, timeLimit: 420 }, points: { bestStreak: 2000, kills: 400 }, text: 'A crowd to chain through.' },
   { id: 'ironRing', code: 'CR16', name: 'Iron Ring', kind: 'waveSurvival', group: 4, mode: 'ffa', map: 'gantry', bots: 8, tier: 3, options: { scoreLimit: 0, timeLimit: 420 }, mutators: [{ id: 'lives', value: 3 }], points: { kills: 1000, seconds: 30, won: 8000 }, text: 'Eight tough rivals, three lives.' },
   { id: 'freefall', code: 'CR17', name: 'Freefall', kind: 'dropKill', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 12, timeLimit: 360 }, mutators: ['gravity'], points: { airKills: 2800, kills: 500 }, text: 'Low gravity, long falls.' },
   { id: 'headHunter', code: 'CR18', name: 'Head Hunter', kind: 'accuracy', group: 4, mode: 'ffa', map: 'skyyard', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 300 }, mutators: ['headonly'], points: { headshots: 2000, accuracy: 10000 }, text: 'Only headshots hurt.' },
-  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 360 }, par: 240, points: { kills: 1800, damageTaken: -20, underPar: 50 }, text: 'Ten kills, untouched.' },
-  { id: 'gauntlet', code: 'CR20', name: 'The Gauntlet', kind: 'timeTrial', group: 4, mode: 'ffa', map: 'skyyard', bots: 7, tier: 3, options: { scoreLimit: 12, timeLimit: 420 }, par: 300, points: { kills: 1300, underPar: 60, deaths: -1000 }, text: 'Twelve kills against the best, against the clock.' },
+  { id: 'phantom', code: 'CR19', name: 'Phantom', kind: 'ghostRun', group: 4, mode: 'ffa', map: 'gantry', bots: 5, tier: 3, options: { scoreLimit: 10, timeLimit: 360 }, par: 240, points: { kills: 2300, damageTaken: -20, underPar: 70 }, text: 'Ten kills, untouched.' },
+  { id: 'gauntlet', code: 'CR20', name: 'The Gauntlet', kind: 'timeTrial', group: 4, mode: 'ffa', map: 'skyyard', bots: 7, tier: 3, options: { scoreLimit: 12, timeLimit: 420 }, par: 300, points: { kills: 1800, underPar: 70, deaths: -1000 }, text: 'Twelve kills against the best, against the clock.' },
 ]);
 
 // ---- Operations (PRG-007): 3 maps in a row; each side starts a map with `tickets` (base) plus `carry` x the tickets it had
@@ -221,12 +228,13 @@ Data.define('operations', { id: REQUIRED, code: REQUIRED, name: REQUIRED, diffic
 ]);
 
 // ---- Daily Seed (PRG-006): the local date picks a mode from DAILY_RULES.modes, a ruleset bundle, 2 non-conflicting
-// mutators from the list, and a generated map when the generator exists (else a hand-made map serving the mode).
+// mutators from the list, and a map from a generator serving the mode (else a hand-made map serving the mode).
 // Scored by DAILY_RULES.points over the run metrics; the best score per date is kept (no streaks, no penalties).
 const DAILY_RULES = {
   modes: ['ffa', 'tdm', 'dom', 'hardpoint', 'ctf'],
   rulesets: ['classic', 'tourney', 'modern', 'pilot', 'vanguard'],
   mutators: ['gravity', 'playerspeed', 'vampire', 'bighead', 'infammo', 'regen', 'noself', 'multijump', 'knockback', 'slowmokills', 'aircontrol', 'colossal', 'weaponstay', 'tags'],
   mutatorCount: 2, bots: 5, difficulty: 'regular', historyDays: 60,   // bots: fixed, inside the lowest quality preset's cap (7)
+  mapSize: 'small',   // generated map size: the one size every quality tier allows, so every device builds the same map
   points: { kills: 500, score: 100, headshots: 200, deaths: -150, won: 3000 },
 };
