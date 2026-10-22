@@ -26,8 +26,9 @@ const Economy = {
   kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // bought weapons that stay with a surviving actor
   keptArmor: new Float32Array(MAX_ACTORS), keptHelmet: new Uint8Array(MAX_ACTORS),
   bought: new Uint8Array(MAX_ACTORS * CAT.buyItems.length),      // purchases per item this life (limits)
-  perkFlags: new Array(MAX_ACTORS).fill(''),                     // ' flag flag ' of the actor's class perks
-  dealt: new Float32Array(MAX_ACTORS).fill(1), taken: new Float32Array(MAX_ACTORS).fill(1), cancels: new Array(MAX_ACTORS).fill(''),
+  perkKeys: Array.from({ length: MAX_ACTORS }, () => new Set()),   // perk ids and perk flags of the actor's class
+  cancels: Array.from({ length: MAX_ACTORS }, () => new Set()),    // victim perks the actor's perks switch off
+  dealt: new Float32Array(MAX_ACTORS).fill(1), taken: new Float32Array(MAX_ACTORS).fill(1),
   grants: {},       // buy item kind -> fn(id, item) -> bool; 'gadget' and 'grant' are filled by other sections
   catalogueList: [],
   hud: { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 },
@@ -117,16 +118,15 @@ const Economy = {
   },
   applyPerks(id, keys) {
     this.clearPerks(id);
-    let flags = ' ';
     for (const key of keys) {
       const perk = CAT.perks.byId(key);
       if (!perk) continue;
       for (const stat in perk.stats) Weapons.statScale[id * WEAPON_STAT_COUNT + STAT[stat.toUpperCase()]] *= perk.stats[stat];
       this.dealt[id] *= perk.dealt; this.taken[id] *= perk.taken;
-      if (perk.cancels) this.cancels[id] += ' ' + perk.cancels;
-      flags += perk.id + ' ' + (perk.flag ? perk.flag + ' ' : '');
+      this.perkKeys[id].add(perk.id);
+      if (perk.flag) this.perkKeys[id].add(perk.flag);
+      if (perk.cancels) this.cancels[id].add(perk.cancels);
     }
-    this.perkFlags[id] = flags;
     Meters.streakDiscount[id] = this.hasPerk(id, 'hardline') ? CAT.perks.byId('hardline').value : 0;
     Abilities.rechargeScale[id] = this.hasPerk(id, 'tuneUp') ? CAT.perks.byId('tuneup').value : 1;
   },
@@ -140,7 +140,7 @@ const Economy = {
   },
   // A new actor: S11 already reset its stat scales, so only the perk state is cleared.
   resetPerks(id) {
-    this.perkFlags[id] = ''; this.dealt[id] = 1; this.taken[id] = 1; this.cancels[id] = '';
+    this.perkKeys[id].clear(); this.cancels[id].clear(); this.dealt[id] = 1; this.taken[id] = 1;
     Meters.streakDiscount[id] = 0; Abilities.rechargeScale[id] = 1;
   },
   resetActor(id) {
@@ -151,7 +151,7 @@ const Economy = {
     this.dropKept(id);
     if (Actors.kind[id] === ACTOR_KIND.PLAYER) Loadouts.applyTo(id);
   },
-  hasPerk(id, key) { return this.perkFlags[id].indexOf(' ' + key + ' ') >= 0; },
+  hasPerk(id, key) { return this.perkKeys[id].has(key); },
   grant(id, kind, key) {
     const handler = this.grants[kind];
     return !!key && !!handler && handler(id, { kind, key, amount: 0 });
@@ -414,13 +414,23 @@ Economy.switchHero = function switchHero(id, heroId) {
 // Perk damage (ECP04): Stopping on bullet hits dealt, Hardened on bullet hits taken unless the attacker's perks cancel it.
 function isBulletHit(info) { return info.kind === 'hit' && !!info.mode && info.mode.type === 'hitscan'; }
 Damage.addAttackerScale((source, target, info) => (source >= 0 && isBulletHit(info) ? Economy.dealt[source] : 1));
+function damageTakenCancelled(source, target) {
+  if (source < 0) return false;
+  for (let i = 0; i < CAT.perks.length; i++) {
+    const perk = CAT.perks[i];
+    if (perk.taken !== 1 && Economy.hasPerk(target, perk.id) && Economy.cancels[source].has(perk.id)) return true;
+  }
+  return false;
+}
 Damage.addReducer((source, target, amount, info) => {
-  if (!isBulletHit(info) || Economy.taken[target] === 1) return amount;
-  const cancelled = source >= 0 && CAT.perks.some((perk) => perk.taken !== 1 && Economy.hasPerk(target, perk.id) && Economy.cancels[source].indexOf(perk.id) >= 0);
-  return cancelled ? amount : amount * Economy.taken[target];
+  if (!isBulletHit(info) || Economy.taken[target] === 1 || damageTakenCancelled(source, target)) return amount;
+  return amount * Economy.taken[target];
 });
 // S12 cannot call S13: the objective and perk checks it asks for are wired here.
-Abilities.carrierCheck = (id) => { for (const objective of Modes.objectives) if (objective.carrier === id) return true; return false; };
+Abilities.carrierCheck = (id) => {
+  for (let i = 0; i < Modes.objectives.length; i++) if (Modes.objectives[i].carrier === id) return true;
+  return false;
+};
 Abilities.hiddenFromPulse = (id) => Economy.hasPerk(id, 'ghost');
 
 Bus.on('match.start', () => Economy.ensureMatch());
