@@ -214,7 +214,7 @@ const PadInput = {
   emitMenu(command) { this.menuEvent.command = command; Bus.emit('input.menu', this.menuEvent); },
   // Radial deadzones then a response curve. Writes this.stick {x, y, magnitude}; magnitude 0 inside the inner deadzone.
   shapeStick(x, y, curve) {
-    const out = this.stick, config = Input.config, length = Math.hypot(x, y);
+    const out = this.stick, config = Input.config, length = length2(x, y);
     out.x = out.y = out.magnitude = 0;
     if (length <= config.padInner) return out;
     const deflection = clamp((length - config.padInner) / (config.padOuter - config.padInner), 0, 1);
@@ -230,7 +230,7 @@ const PadInput = {
     const rawX = axes[2] || 0, rawY = axes[3] || 0;
     const right = this.shapeStick(rawX, rawY, PAD_CURVES[config.padCurve] || PAD_CURVES.classic);
     this.claimDevice(axes, left.magnitude > 0 || right.magnitude > 0);
-    this.turboSeconds = config.padCurve === 'dynamic' && Math.hypot(rawX, rawY) > PAD_TURBO_EDGE ? this.turboSeconds + seconds : 0;
+    this.turboSeconds = config.padCurve === 'dynamic' && length2(rawX, rawY) > PAD_TURBO_EDGE ? this.turboSeconds + seconds : 0;
     const turbo = 1 + PAD_TURBO_GAIN * clamp(this.turboSeconds / PAD_TURBO_SECONDS, 0, 1);
     const radiansPerSecond = PAD_LOOK_DEGREES_PER_SECOND * DEG * turbo * seconds;
     Input.addLook(right.x * config.padSensX * radiansPerSecond, right.y * config.padSensY * radiansPerSecond * (config.padInvertY ? -1 : 1), true);

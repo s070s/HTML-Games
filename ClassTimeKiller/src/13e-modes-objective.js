@@ -87,7 +87,7 @@ function centralSpot(out) {
   out.x = centreX; out.y = 0; out.z = centreZ;
   let best = Infinity;
   for (const point of Modes.spawnPoints) {
-    const distance = Math.hypot(point.x - centreX, point.z - centreZ);
+    const distance = length2(point.x - centreX, point.z - centreZ);
     if (distance >= best) continue;
     best = distance; out.x = point.x; out.y = point.y; out.z = point.z;
   }
@@ -332,7 +332,7 @@ function pathLengths(path) {
   const lengths = new Float64Array(path.length);
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1], b = path[i];
-    lengths[i] = lengths[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    lengths[i] = lengths[i - 1] + length3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   }
   return lengths;
 }

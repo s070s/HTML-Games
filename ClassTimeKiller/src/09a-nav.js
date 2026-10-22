@@ -342,7 +342,7 @@ const navSegmentClearGathered = (ax, ay, az, bx, by, bz) => !navSegmentHitGather
 
 // navSegmentHit against the brushes of the last navGatherBrushes call, which must cover the segment's xz rectangle.
 function navSegmentHitGathered(ax, ay, az, bx, by, bz, hit) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz), count = navBrushGrid.foundCount;
+  const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz), count = navBrushGrid.foundCount;
   if (length < 1e-6) return false;
   let best = length, found = false;
   for (let k = 0; k < count; k++) {
@@ -549,7 +549,7 @@ function navNeighbourSample(sample, di, dj) {
 // sample passed before the last one, or -1 when the walk meets a hole, a wall or does not end on toSample.
 function navScan(fromSample, toX, toZ, toSample) {
   const column = navRaster.sampleColumn[fromSample], startX = navColumnX(column), startZ = navColumnZ(column);
-  const steps = Math.ceil(Math.hypot(toX - startX, toZ - startZ) / NAV_SCAN_STEP);
+  const steps = Math.ceil(length2(toX - startX, toZ - startZ) / NAV_SCAN_STEP);
   let current = fromSample, flags = 0;
   navScanState.stopFraction = 1;
   for (let step = 1; step <= steps && current >= 0; step++) {
@@ -881,7 +881,7 @@ function navAirType(from, rise, lift) {
 // navHighestBetween on the centre line and on the two lines NAV_SWEEP_OFFSET to its sides, so a jump does not clip a
 // wall end with the capsule (Dustline's mid walls). The pair's brushes are gathered with that margin.
 function navHighestSwept(a, b, firstFraction) {
-  const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b], length = Math.hypot(bx - ax, bz - az);
+  const ax = Nav.nodeX[a], az = Nav.nodeZ[a], bx = Nav.nodeX[b], bz = Nav.nodeZ[b], length = length2(bx - ax, bz - az);
   let highest = navHighestBetween(a, b, ax, az, bx, bz, firstFraction);
   if (highest === Infinity || length < 1e-6 || !navGatheredWall(a, b)) return highest;
   const sideX = (bz - az) / length * NAV_SWEEP_OFFSET, sideZ = -(bx - ax) / length * NAV_SWEEP_OFFSET;
@@ -913,7 +913,7 @@ function navGatheredWall(a, b) {
 // must pass. firstFraction: where the raster walk broke; the check looks there first (usually the wall).
 function navHighestBetween(a, b, ax, az, bx, bz, firstFraction) {
   const band = navJumpBand(a, b), limit = band.limit, wallBelow = band.wallBelow;
-  const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / NAV_SCAN_STEP);
+  const steps = Math.ceil(length2(bx - ax, bz - az) / NAV_SCAN_STEP);
   let highest = navHighestTopGathered(ax + (bx - ax) * firstFraction, az + (bz - az) * firstFraction, limit, wallBelow);
   for (let step = 0; step <= steps && highest < Infinity; step++) {
     highest = Math.max(highest, navHighestTopGathered(ax + (bx - ax) * step / steps, az + (bz - az) * step / steps, limit, wallBelow));

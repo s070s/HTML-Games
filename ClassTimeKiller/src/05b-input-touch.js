@@ -225,7 +225,7 @@ const TouchInput = {
     else if (slot.role === ROLE_DRAG) this.dragControl(slot.control, event);
     else if (slot.role === ROLE_BUTTON && this.buttonLook && this.buttonLook(slot.control)) this.moveLook(slot, event);
     slot.lastX = event.clientX; slot.lastY = event.clientY; slot.lastTime = event.timeStamp;
-    if (Math.hypot(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
+    if (length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
   },
   onUp(event) {
     const slot = this.findSlot(event.pointerId);
@@ -273,7 +273,7 @@ const TouchInput = {
   moveStick(event) {
     const stick = this.stick, radius = TOUCH_STICK_RADIUS * this.layoutOf('stick', this.layoutScratch).scale;
     const dx = event.clientX - stick.originX, dy = event.clientY - stick.originY;
-    const length = Math.hypot(dx, dy) || 1;
+    const length = length2(dx, dy) || 1;
     const push = Math.min(length, radius) / radius;
     const scaled = push < TOUCH_STICK_DEADZONE ? 0 : (push - TOUCH_STICK_DEADZONE) / (1 - TOUCH_STICK_DEADZONE);
     stick.x = dx / length * scaled;
@@ -298,7 +298,7 @@ const TouchInput = {
   moveLook(slot, event) {
     const config = Input.config;
     const dx = event.clientX - slot.lastX, dy = event.clientY - slot.lastY;
-    const speed = Math.hypot(dx, dy) / Math.max(event.timeStamp - slot.lastTime, TOUCH_MIN_EVENT_MS);
+    const speed = length2(dx, dy) / Math.max(event.timeStamp - slot.lastTime, TOUCH_MIN_EVENT_MS);
     const gain = 1 + config.touchAccel * clamp(speed / TOUCH_ACCEL_SPEED, 0, 2);
     const scale = TOUCH_RADIANS_PER_PIXEL * config.touchSensitivity * gain;
     Input.addLook(dx * scale, dy * scale * (config.invertY ? -1 : 1), true);

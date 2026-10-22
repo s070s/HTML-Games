@@ -152,7 +152,7 @@ function audioDirection(pan, front) {
 function computeAudioSpatial(out, recipe, x, y, z) {
   const listener = audioListener;
   const dx = x - listener.x, dy = y - listener.y, dz = z - listener.z;
-  const horizontal = Math.hypot(dx, dz);
+  const horizontal = length2(dx, dz);
   out.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
   out.gain = audioAttenuation(recipe, out.distance);
   out.occluded = false;

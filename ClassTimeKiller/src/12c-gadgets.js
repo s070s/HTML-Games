@@ -217,7 +217,7 @@ const Smoke = {
   lineBlocked(ax, ay, az, bx, by, bz, viewer) {
     if (!this.count) return false;
     if (viewer >= 0 && Abilities.passiveFlag(viewer, 'smokeVision')) return false;
-    const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+    const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
     if (length < 1e-6) return false;
     const directionX = dx / length, directionY = dy / length, directionZ = dz / length;
     for (let volume = 0; volume < SMOKE_CAP; volume++) {
@@ -270,7 +270,7 @@ const Smoke = {
   },
   cellDistance(volume, cell, x, y, z) {
     const grid = this.cellCoordinates(cell), centre = this.cellCentre(volume, grid.x, grid.y, grid.z);
-    return Math.hypot(centre.x - x, centre.y - y, centre.z - z);
+    return length3(centre.x - x, centre.y - y, centre.z - z);
   },
   onShot(event) {
     if (!this.count) return;
@@ -367,7 +367,7 @@ const GadgetAreas = {
   stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
-      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
+      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = length3(dx, dy, dz) || 1;
       emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
@@ -441,7 +441,7 @@ const GadgetEffects = {
     for (let id = 0; id < Actors.count; id++) {
       if (id !== owner && !gadgetReaches(owner, id, x, y, z, row.radius)) continue;
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
-      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
+      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = length3(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
       emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
@@ -449,7 +449,7 @@ const GadgetEffects = {
 };
 // G03: blind seconds = duration x view-angle share (facing it 1, facing away flashMinimumAngle) x distance share.
 function flashSeconds(row, id, x, y, z) {
-  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = length3(dx, dy, dz);
   if (distance > row.radius || !World.lineClear(x, y, z, Actors.x[id], eyeY, Actors.z[id])) return 0;
   Vec.fromAngles(throwScratch, Actors.yaw[id], Actors.pitch[id]);
   const facing = distance > 1e-3 ? (throwScratch.x * dx + throwScratch.y * dy + throwScratch.z * dz) / distance : 1;
@@ -516,7 +516,7 @@ const Thrown = {
   },
   fly(slot, gravity, dt) {
     this.vy[slot] -= gravity * dt;
-    const speed = Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]);
+    const speed = length3(this.vx[slot], this.vy[slot], this.vz[slot]);
     if (speed < 1e-6) return;
     const dx = this.vx[slot] / speed, dy = this.vy[slot] / speed, dz = this.vz[slot] / speed, length = speed * dt;
     const wallHit = World.raycast(this.x[slot], this.y[slot], this.z[slot], dx, dy, dz, length + THROWN_RADIUS, gadgetHit);
@@ -556,7 +556,7 @@ const Thrown = {
     this.vy[slot] = (this.vy[slot] - 2 * along * gadgetHit.ny) * row.bounce;
     this.vz[slot] = (this.vz[slot] - 2 * along * gadgetHit.nz) * row.bounce;
     if (speed > BOUNCE_TICK_SPEED) this.emitBounce(slot);
-    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
+    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && length3(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
   },
   // Sticks where it hit (or goes off on impact).
   settle(slot, row) {
@@ -590,7 +590,7 @@ const Thrown = {
     let best = -1, bestDistance = range;
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
-      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = length3(tx, ty, tz);
       if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
       best = slot; bestDistance = distance;
     }
@@ -868,7 +868,7 @@ const Gadgets = {
   // One preview segment; true (and the point on the surface) when it meets the world.
   previewStep(point, gravity) {
     const seconds = PREVIEW_SECONDS, drop = gravity * seconds * seconds / 2;
-    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = Math.hypot(nx, ny, nz);
+    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = length3(nx, ny, nz);
     point.vy -= gravity * seconds;
     if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) {
       point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z;

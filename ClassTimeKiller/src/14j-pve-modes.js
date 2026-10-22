@@ -766,7 +766,7 @@ function crossFizzle(id, row, element) {
 function cubeOn(spot) {
   const run = ChamberRun;
   if (run.cubeCarried) return false;
-  return Math.hypot(run.cubeX - spot.x, run.cubeZ - spot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(run.cubeY - spot.y) < 1;
+  return length2(run.cubeX - spot.x, run.cubeZ - spot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(run.cubeY - spot.y) < 1;
 }
 function stepCube(id, pressedUse, element) {
   const run = ChamberRun;
@@ -797,7 +797,7 @@ function shootRelays(shot) {
     const rx = pveSpot.x - shot.x, ry = pveSpot.y - shot.y, rz = pveSpot.z - shot.z;
     const along = rx * shot.dx + ry * shot.dy + rz * shot.dz;
     if (along <= 0 || along > PVE_CHAMBER_RULES.relayRange) continue;
-    const miss = Math.hypot(rx - shot.dx * along, ry - shot.dy * along, rz - shot.dz * along);
+    const miss = length3(rx - shot.dx * along, ry - shot.dy * along, rz - shot.dz * along);
     if (miss <= PVE_CHAMBER_RULES.relayRadius && World.lineClear(shot.x, shot.y, shot.z, pveSpot.x - shot.dx * 0.3, pveSpot.y - shot.dy * 0.3, pveSpot.z - shot.dz * 0.3)) ChamberRun.done[index] = 1;
   }
 }

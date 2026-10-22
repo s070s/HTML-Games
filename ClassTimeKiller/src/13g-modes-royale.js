@@ -227,7 +227,7 @@ function chooseNextCircle(radius) {
   const angle = Rng.rules.range(0, Math.PI * 2), offset = Math.sqrt(Rng.rules.next()) * slack;
   let x = Ring.x + Math.sin(angle) * offset, z = Ring.z + Math.cos(angle) * offset;
   if (Number.isFinite(World.boundsMin.x)) { x = clamp(x, World.boundsMin.x, World.boundsMax.x); z = clamp(z, World.boundsMin.z, World.boundsMax.z); }
-  const drift = Math.hypot(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
+  const drift = length2(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
   Ring.toX = Ring.x + (x - Ring.x) * keep; Ring.toZ = Ring.z + (z - Ring.z) * keep; Ring.toRadius = radius;
 }
 
