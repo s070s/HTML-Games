@@ -1,0 +1,222 @@
+// Bot team play (BOT-060..BOT-063, BOT-100): a commander per team hands out roles every 15 s (attack, defend, escort by
+// the mode's objective kind, BOT_ROLE_SPLITS); the player's pings are orders that the nearest team bots acknowledge and
+// follow; bots ping enemies they spot (shared memory for the team, at most once per 4 s per bot) and talk in short text
+// barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
+// Grenade tokens keep a team from throwing more than one every 3 s.
+
+const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
+const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
+const COMMANDER_INTERVAL = 15;
+const ENEMY_PING_INTERVAL = 4;
+const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
+const GRENADE_TOKEN_INTERVAL = 3;
+const TEAM_SLOTS = TEAM_COUNT + 1;      // index 0 = no team, then the teams
+const ORDER_ACK_MIN = 0.5, ORDER_ACK_MAX = 1.5;   // BOT-062: an order is acknowledged within 0.5-1.5 s
+const ORDER_SECONDS = 30, ORDER_DEFEND_SECONDS = 45;
+const ORDER_TAKERS = 2;                 // the nearest bots of the team answer a move order
+const ORDER_RADIUS = 2.5;
+const PING_RANGE = 120;
+const PING_AIM_COS = Math.cos(4 * DEG);  // an enemy this close to the aim line is the ping's target
+const LOW_HEALTH_BARK = 0.3, HELP_HEALTH = 0.5, HELP_RECENT = 0.15;
+const CHATTER_LEVELS = ['off', 'minimal', 'normal'];
+
+Settings.define('gameplay.chatter', 'normal', { label: 'Bot chatter', category: 'gameplay', options: CHATTER_LEVELS });
+Settings.define('gameplay.taunts', true, { label: 'Bot taunts', category: 'gameplay' });
+
+const pingPayload = { id: -1, kind: '', x: 0, y: 0, z: 0, target: -1 };
+const barkPayload = { id: -1, team: NO_TEAM, category: '', text: '' };
+const pingHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
+const rankList = [];
+const takerList = [];
+
+const BotTeam = {
+  role: new Uint8Array(MAX_ACTORS),
+  orderKind: new Array(MAX_ACTORS).fill(''), orderUntil: new Float64Array(MAX_ACTORS),
+  orderX: new Float32Array(MAX_ACTORS), orderY: new Float32Array(MAX_ACTORS), orderZ: new Float32Array(MAX_ACTORS),
+  orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
+  enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
+  grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
+  lowBarked: new Uint8Array(MAX_ACTORS),
+  commanderAt: 0,
+  chatter: 'normal', taunts: true,
+  stats: { barks: 0, pings: 0, orders: 0 },
+
+  onMatchStart() {
+    this.commanderAt = 0;
+    this.role.fill(ROLE.FREELANCE);
+    this.orderUntil.fill(0);
+    this.ackAt.fill(0);
+    this.enemyPingAt.fill(-1e9);
+    this.barkAt.fill(-1e9);
+    this.teamBarkAt.fill(-1e9);
+    this.grenadeAt.fill(-1e9);
+  },
+  onSpawn(id) { this.lowBarked[id] = 0; },
+
+  // ---- Once per tick: the commander, the player's ping button ----
+  step(now) {
+    if (now >= this.commanderAt) { this.commanderAt = now + COMMANDER_INTERVAL; this.assignRoles(); }
+    const player = Game.playerId;
+    if (player >= 0 && Actors.alive[player] && (Actors.pressed[player] & BTN.PING) !== 0) this.playerPing(player);
+  },
+  assignRoles() {
+    const splits = BOT_ROLE_SPLITS[Modes.rules ? Modes.rules.objective : 'none'] || BOT_ROLE_SPLITS.none;
+    for (let team = 0; team < TEAM_COUNT; team++) this.assignTeam(team, splits);
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] < 0) this.role[id] = ROLE.FREELANCE;
+  },
+  // The bots with the most teamwork take the support roles (defend, escort); the others attack.
+  assignTeam(team, splits) {
+    rankList.length = 0;
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === team) rankList.push(id);
+    if (!rankList.length) return;
+    rankList.sort((a, b) => Bots.trait(b, TRAIT.teamwork) - Bots.trait(a, TRAIT.teamwork) || a - b);
+    const defenders = Math.round(rankList.length * (splits.defend || 0)), escorts = Math.round(rankList.length * (splits.escort || 0));
+    for (let rank = 0; rank < rankList.length; rank++) {
+      const id = rankList[rank];
+      this.role[id] = rank < defenders ? ROLE.DEFEND : rank < defenders + escorts ? ROLE.ESCORT : ROLE.ATTACK;
+    }
+  },
+
+  // ---- Per bot after its decision: delayed acknowledgements and situational barks ----
+  updateBot(id, now) {
+    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, 'orderAck', now); }
+    const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
+    if (health < LOW_HEALTH_BARK && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
+    if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
+    if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
+  },
+
+  // ---- Orders (BOT-062): the decision layer asks for the bot's current order as a goal plan ----
+  orderPlan(id, plan, now) {
+    if (this.orderUntil[id] <= now) return false;
+    const kind = this.orderKind[id];
+    if (kind === 'go' && Math.hypot(this.orderX[id] - Actors.x[id], this.orderZ[id] - Actors.z[id]) < ORDER_RADIUS) { this.orderUntil[id] = 0; return false; }
+    setPlan(plan, this.orderX[id], this.orderY[id], this.orderZ[id], ORDER_RADIUS, kind === 'defend' ? ACTION.HOLD : ACTION.MOVE, -1);
+    return true;
+  },
+  give(id, kind, x, y, z, now) {
+    this.orderKind[id] = kind;
+    this.orderX[id] = x; this.orderY[id] = y; this.orderZ[id] = z;
+    this.orderGivenAt[id] = now;
+    this.orderUntil[id] = now + (kind === 'defend' ? ORDER_DEFEND_SECONDS : ORDER_SECONDS);
+    this.ackAt[id] = now + Rng.fx.range(ORDER_ACK_MIN, ORDER_ACK_MAX);
+    this.stats.orders++;
+    BotDecide.hurry(id, now);
+  },
+
+  // ---- Pings: enemy pings share memory with the team; move pings from a person are orders ----
+  onPing(event) {
+    const pinger = event.id;
+    if (pinger < 0 || pinger >= MAX_ACTORS) return;
+    const team = Actors.team[pinger], now = Sim.time;
+    if (event.kind === 'enemy' || event.kind === 'danger') { this.shareEnemy(pinger, team, event, now); return; }
+    if (Bots.active[pinger] || team < 0) return;
+    this.chooseTakers(pinger, team, event.x, event.z);
+    for (let i = 0; i < takerList.length; i++) this.give(takerList[i], orderKindOf(event.kind), event.x, event.y, event.z, now);
+  },
+  shareEnemy(pinger, team, event, now) {
+    if (event.target < 0) return;
+    for (let id = 0; id < Actors.count; id++) {
+      if (id === pinger || !Bots.isBot(id) || (team >= 0 && Actors.team[id] !== team) || (team < 0 && id !== pinger)) continue;
+      BotSense.share(id, event.target, event.x, event.y, event.z, now);
+    }
+  },
+  // The ORDER_TAKERS living team bots nearest the pinged spot.
+  chooseTakers(pinger, team, x, z) {
+    takerList.length = 0;
+    for (let id = 0; id < Actors.count; id++) if (id !== pinger && Bots.isBot(id) && Actors.team[id] === team) takerList.push(id);
+    takerList.sort((a, b) => Math.hypot(Actors.x[a] - x, Actors.z[a] - z) - Math.hypot(Actors.x[b] - x, Actors.z[b] - z));
+    if (takerList.length > ORDER_TAKERS) takerList.length = ORDER_TAKERS;
+  },
+  // A bot that newly sees an enemy pings it for the team (BOT-063) and calls it out.
+  onSpotted(bot, other, now) {
+    if (Actors.team[bot] < 0 || now - this.enemyPingAt[bot] < ENEMY_PING_INTERVAL) return;
+    this.enemyPingAt[bot] = now;
+    this.emitPing(bot, 'enemy', Actors.x[other], Actors.y[other], Actors.z[other], other);
+    this.bark(bot, 'spotted', now);
+  },
+  emitPing(id, kind, x, y, z, target) {
+    pingPayload.id = id; pingPayload.kind = kind; pingPayload.x = x; pingPayload.y = y; pingPayload.z = z; pingPayload.target = target;
+    this.stats.pings++;
+    Bus.emit('ping', pingPayload);
+  },
+  // The player's ping button: an enemy near the aim line, else the aimed spot as an attack / defend / go order.
+  playerPing(player) {
+    const yaw = Actors.aimYaw[player], pitch = Actors.aimPitch[player], eyeY = Actors.eyeY(player);
+    const dx = Math.sin(yaw) * Math.cos(pitch), dy = Math.sin(pitch), dz = Math.cos(yaw) * Math.cos(pitch);
+    const enemy = aimedEnemy(player, dx, dy, dz);
+    if (enemy >= 0) { this.emitPing(player, 'enemy', Actors.x[enemy], Actors.y[enemy], Actors.z[enemy], enemy); return; }
+    const distance = World.raycast(Actors.x[player], eyeY, Actors.z[player], dx, dy, dz, PING_RANGE, pingHit) ? pingHit.distance : PING_RANGE;
+    const x = Actors.x[player] + dx * distance, y = eyeY + dy * distance, z = Actors.z[player] + dz * distance;
+    this.emitPing(player, spotKind(player, x, z), x, y, z, -1);
+  },
+
+  // ---- Barks (BOT-100) ----
+  bark(id, category, now) {
+    const row = BOT_BARKS[category];
+    if (!row || !this.mayBark(id, row, now)) return false;
+    const profile = Bots.profile[id], chance = BOT_CHAT_CHANCE[profile ? profile.chat : 'normal'] || BOT_CHAT_CHANCE.normal;
+    const slot = Actors.team[id] + 1;
+    this.barkAt[id] = now;
+    if (!Rng.fx.chance(chance)) return false;
+    this.teamBarkAt[slot] = now;
+    barkPayload.id = id; barkPayload.team = Actors.team[id]; barkPayload.category = category; barkPayload.text = Rng.fx.pick(row.lines);
+    this.stats.barks++;
+    Bus.emit('bark', barkPayload);
+    return true;
+  },
+  mayBark(id, row, now) {
+    if (this.chatter === 'off' || (this.chatter === 'minimal' && !row.minimal) || (row.taunt && !this.taunts)) return false;
+    return now - this.barkAt[id] >= BARK_BOT_INTERVAL && now - this.teamBarkAt[Actors.team[id] + 1] >= BARK_TEAM_INTERVAL;
+  },
+  onKill(event) {
+    const now = Sim.time;
+    if (event.victim >= 0 && Bots.active[event.victim]) { this.barkAt[event.victim] = -1e9; this.bark(event.victim, 'death', now); }
+    if (event.killer >= 0 && event.killer !== event.victim && Bots.isBot(event.killer)) this.bark(event.killer, 'killTaunt', now);
+  },
+  // One grenade per team every 3 s (free-for-all bots each have their own clock).
+  takeGrenadeToken(id, now) {
+    const slot = Actors.team[id] >= 0 ? Actors.team[id] : TEAM_SLOTS + id;
+    if (now - this.grenadeAt[slot] < GRENADE_TOKEN_INTERVAL) return false;
+    this.grenadeAt[slot] = now;
+    return true;
+  },
+  readSettings(key) {
+    if (key === 'gameplay.chatter') this.chatter = Settings.get(key);
+    if (key === 'gameplay.taunts') this.taunts = !!Settings.get(key);
+  },
+};
+
+// Ping kinds a person may use as orders: 'defend' holds the spot, 'attack' and anything else move there.
+function orderKindOf(kind) { return kind === 'defend' || kind === 'attack' ? kind : 'go'; }
+
+function aimedEnemy(player, dx, dy, dz) {
+  let best = -1, bestCos = PING_AIM_COS;
+  const eyeY = Actors.eyeY(player);
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Actors.alive[id] || !Actors.isEnemy(player, id)) continue;
+    const ox = Actors.x[id] - Actors.x[player], oy = Actors.eyeY(id) - eyeY, oz = Actors.z[id] - Actors.z[player];
+    const distance = Math.hypot(ox, oy, oz);
+    if (distance < 1e-3 || distance > PING_RANGE) continue;
+    const cosine = (ox * dx + oy * dy + oz * dz) / distance;
+    if (cosine > bestCos && World.lineClear(Actors.x[player], eyeY, Actors.z[player], Actors.x[id], Actors.eyeY(id), Actors.z[id])) { bestCos = cosine; best = id; }
+  }
+  return best;
+}
+
+// Inside an objective zone: defend it when the player's team owns it (or it is the team's flag), else attack it.
+function spotKind(player, x, z) {
+  const team = Actors.team[player];
+  for (const objective of Modes.objectives) {
+    if (Math.hypot(objective.x - x, objective.z - z) > Math.max(objective.radius, ORDER_RADIUS)) continue;
+    return objective.owner === team || objective.team === team ? 'defend' : 'attack';
+  }
+  return 'go';
+}
+
+Bus.on('match.start', () => BotTeam.onMatchStart());
+Bus.on('actor.spawn', (event) => BotTeam.onSpawn(event.id));
+Bus.on('ping', (event) => BotTeam.onPing(event));
+Bus.on('kill', (event) => BotTeam.onKill(event));
+Bus.on('setting', (key) => BotTeam.readSettings(key));
