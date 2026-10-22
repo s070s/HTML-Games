@@ -930,6 +930,7 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
 const LockOn = {
   update(id, mode, held, dt) {
     if (!held) { if (mode.trigger !== 'release') this.clear(id); return; }
+    this.dropStale(id);
     const eyeY = Actors.eyeY(id);
     Vec.fromAngles(lockScratch, Actors.yaw[id], Actors.pitch[id]);
     for (let target = 0; target < Actors.count; target++) {
@@ -945,6 +946,14 @@ const LockOn = {
     if (index < 0) return;
     if (slot < 0) { Weapons.lockIds[index] = target; Weapons.lockTime[index] = 0; }
     Weapons.lockTime[index] = Math.min(mode.lock.time, Weapons.lockTime[index] + dt);
+  },
+  // R-019: a lock on a dead (or no longer hostile) target frees its slot, so a held trigger moves on to the next enemy
+  // (and a respawned target starts its lock again).
+  dropStale(id) {
+    for (let slot = id * MAX_LOCKS; slot < (id + 1) * MAX_LOCKS; slot++) {
+      const target = Weapons.lockIds[slot];
+      if (target >= 0 && (!Actors.alive[target] || !Actors.isEnemy(id, target))) Weapons.lockIds[slot] = -1;
+    }
   },
   slotOf(id, target) {
     for (let k = 0; k < MAX_LOCKS; k++) if (Weapons.lockIds[id * MAX_LOCKS + k] === target) return id * MAX_LOCKS + k;

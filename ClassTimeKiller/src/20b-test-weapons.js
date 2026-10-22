@@ -963,6 +963,22 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// R-019: a held lock-on weapon drops dead targets and locks the next enemy.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), first = [TestArena.actor(2, -0.4, 10), TestArena.actor(2, 0, 10), TestArena.actor(2, 0.4, 10)];
+  giveFull(shooter, 'sparklock');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Actors.buttons[shooter] = BTN.FIRE;
+  Sim.run(TICK_RATE / 4);
+  first.forEach((id) => TestArena.hit(-1, id, 1, { kind: 'telefrag' }));
+  const fresh = TestArena.sponge(2, 0, 9);
+  Sim.run(TICK_RATE * 2);
+  Actors.buttons[shooter] = 0;
+  check('W07 held through three kills locks and shoots a fresh enemy', Actors.health[fresh] < 100000, 100000 - Actors.health[fresh]);
+  TestArena.finish();
+});
+
 // R-084 / R-081: an empty magazine reloads by itself, held trigger included; an empty alt pool only clicks.
 Test.add('weapons', (check) => {
   TestArena.start({});
