@@ -583,3 +583,20 @@ Test.add('mutators', (check) => {
   check('cursetag + Health 200: the respawned cursed keeps 50 HP', Modes.actorRole[cursed] === ACTOR_ROLE.CURSED && Actors.alive[cursed] === 1 && Actors.maxHealth[cursed] === 50, Actors.maxHealth[cursed]);
   stopMutatorMatch();
 });
+
+Test.add('mutators', (check) => {
+  const offered = (modeId) => CAT.mutators.filter((row) => Mutators.fitsMode(row, CAT.modes.byId(modeId))).map((row) => row.id);
+  check('gungame offers no weapon mutators (it arms everyone)', !['oneshot', 'rocketpit', 'weaponset', 'mirror'].some((id) => offered('gungame').includes(id)) && offered('tdm').includes('rocketpit'));
+  check('Confirm Kills only where kills score; Friendly Fire only with teams; Lives only without rounds', !offered('oddball').includes('tags') && !offered('ffa').includes('ff')
+    && !offered('elim').includes('lives') && !offered('royale').includes('lives') && offered('lms').includes('lives') && offered('tdm').includes('ff'));
+  const toasts = startEventLog('toast');
+  const built = Rules.build({ mode: 'gungame', mutators: ['rocketpit', 'gravity'] });
+  check('a build drops a mutator the mode cannot use, with a notice', built.mutators.map((entry) => entry.id).join() === 'gravity' && built.weaponSet !== MATCH_SET_ID
+    && toasts.some((event) => event.text.includes('Rocket Pit')), toasts.map((event) => event.text).join());
+  toasts.stop();
+  check('the editor lists only the mutators of the chosen mode', editorModeMutators('gungame').map((row) => row.id).join() === offered('gungame').join());
+  const livesRow = EDITOR_FIELDS.find((field) => field.key === 'lives');
+  check('the editor Lives row shows only where lives work', !livesRow.show(Object.assign(customDefaults(), { mode: 'elim' })) && livesRow.show(Object.assign(customDefaults(), { mode: 'ffa' })));
+  const unfit = CAT.challenges.filter((row) => row.mutators.some((entry) => !Mutators.fitsMode(Mutators.row(typeof entry === 'string' ? entry : entry.id), CAT.modes.byId(row.mode))));
+  check('no challenge room uses a mutator its mode cannot use', unfit.length === 0, unfit.map((row) => row.id).join());
+});

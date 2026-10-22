@@ -178,7 +178,7 @@ Test.add('custom', (check) => {
 
     uiClickButton(root, 'Mutators');
     const mutatorRows = root.querySelectorAll('.cm-list .ui-row');
-    check('the mutators tab lists all 50 mutators with a switch each', mutatorRows.length === 50 && Array.from(mutatorRows).every((row) => row.querySelector('.ui-cycle')));
+    check('the mutators tab lists every mutator the mode can use (Frenzy: 49 of 50) with a switch each', mutatorRows.length === editorModeMutators(EDITOR_STATE.draft.mode).length && mutatorRows.length === 49 && Array.from(mutatorRows).every((row) => row.querySelector('.ui-cycle')));
     const switchOf = (code) => Array.from(root.querySelectorAll('.cm-list .ui-row')).find((row) => row.textContent.startsWith(code)).querySelector('.cm-controls > .ui-cycle:last-child');
     switchOf('X08').click();
     check('turning One-Shot on adds it to the draft', EDITOR_STATE.draft.mutators.map((entry) => entry.id).join() === 'oneshot');

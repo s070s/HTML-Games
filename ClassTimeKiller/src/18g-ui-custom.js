@@ -404,7 +404,8 @@ const EDITOR_FIELDS = [
   { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)), show: (draft) => Modes.honoursLimit(draft.mode, 'score') },
   { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)), show: (draft) => Modes.honoursLimit(draft.mode, 'time') },
   { tab: 'mode', key: 'roundWins', label: 'Rounds to win', options: () => editorList(EDITOR_ROUND_WINS, editorLimitLabel('None', editorPlain)), show: (draft) => !!CAT.modes.byId(draft.mode).rounds },
-  { tab: 'mode', key: 'lives', label: 'Lives', options: () => editorList(EDITOR_LIVES, editorLimitLabel('Unlimited', editorPlain)) },
+  { tab: 'mode', key: 'lives', label: 'Lives', options: () => editorList(EDITOR_LIVES, editorLimitLabel('Unlimited', editorPlain)),
+    show: (draft) => Mutators.fitsMode(Mutators.row('lives'), CAT.modes.byId(draft.mode)) },
   { tab: 'rules', key: 'bundle', label: 'Rule bundle', options: () => editorCatalogue(RULESET_ROWS, 'Mode default') },
   { tab: 'rules', key: 'move', label: 'Movement', options: () => editorOptionalCatalogue('movement', 'From bundle') },
   { tab: 'rules', key: 'health', label: 'Health', options: () => editorOptionalCatalogue('health', 'From bundle') },
@@ -521,7 +522,12 @@ function editorMutatorRows(list) {
   const draft = EDITOR_STATE.draft;
   list.appendChild(makeElement('p', 'ui-note', draft.mutators.length ? draft.mutators.map((entry) => Mutators.describe(entry)).join(' | ') : 'No mutators. Turn some on; a mutator that cannot be combined with another one turns the other one off.'));
   list.appendChild(Ui.button('Turn all off', () => { draft.mutators = []; editorChanged(); }));
-  for (const row of CAT.mutators) list.appendChild(editorMutatorRow(row));
+  for (const row of editorModeMutators(draft.mode)) list.appendChild(editorMutatorRow(row));
+}
+// The mutator rows the mode can use (row.needs); the others would do nothing there.
+function editorModeMutators(modeId) {
+  const mode = CAT.modes.byId(modeId);
+  return CAT.mutators.filter((row) => Mutators.fitsMode(row, mode));
 }
 
 // ---- Rules tab: the one-click bundle starts ----

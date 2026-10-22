@@ -36,6 +36,14 @@ const TRIANGLE_RESERVE_SCALE = 0.5;
 const POWER_FIRST = 5, POWER_LAST = 33;      // X46: abilities A05..A33
 const MUTATOR_ZONE_HEAD = 'head';
 
+// Mode traits a mutator row may need (row.needs): without it the mutator would do nothing or work against the mode.
+const MUTATOR_MODE_NEEDS = {
+  lives: (mode) => !mode.rounds && mode.respawn === 'normal' && mode.teams !== 1,   // rounds refill lives; co-op has its own
+  teams: (mode) => mode.teams === TEAM_COUNT,
+  killScoring: (mode) => mode.scoring.kill !== 0,                                    // NO_KILL_SCORING modes score by their own rule
+  ownWeapons: (mode) => !MODE_ARMING_PARAMS.some((key) => mode.params[key]),           // the ladder and roulette arm everyone
+};
+
 const GRANT_EVENT = { id: 0, item: '' };
 const POWER_EVENT = { id: 0, ability: '' };
 const NEAR_ACTORS = new Array(MAX_ACTORS).fill(0);
@@ -122,6 +130,8 @@ const Mutators = {
     return { list: kept, added: true, removed, message };
   },
   remove(list, id) { return list.filter((entry) => entry.id !== id); },
+  // Whether the mutator row works in the mode (a CAT.modes row): the trait its row.needs names (MUTATOR_MODE_NEEDS).
+  fitsMode(row, mode) { return !row.needs || !mode || MUTATOR_MODE_NEEDS[row.needs](mode); },
   // Canonical list: strings and { id, value } accepted, invalid entries dropped (notes in messages), conflicts resolved last-wins.
   resolve(list) {
     const messages = [], unknown = [];
@@ -248,12 +258,21 @@ function applyMutator(rules, entry) {
 function applyMutatorStage(rules) {
   const resolved = Mutators.resolve(rules.mutators);
   for (const id of resolved.unknown) Rules.report('unknown mutator ' + id);
-  rules.mutators = resolved.list;
+  rules.mutators = dropUnfitMutators(resolved.list, CAT.modes.byId(rules.mode), resolved.messages);
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
   const health = CAT.health.byId(rules.health);
   if (health && health.triangle) rules.fx.triangle = true;   // HPP07 Ravager Triangle
   for (const text of resolved.messages) emitToast(text);
+}
+// A mutator the mode cannot use (row.needs) is turned off with a notice.
+function dropUnfitMutators(list, mode, messages) {
+  return list.filter((entry) => {
+    const row = Mutators.row(entry.id);
+    if (Mutators.fitsMode(row, mode)) return true;
+    messages.push(row.name + ' does not work in ' + mode.name + ' and was turned off.');
+    return false;
+  });
 }
 // X22: the player's handicap, unless the setup names one (the handicap stage runs after the mutators).
 function applyMutatorHandicap(rules, setup) {
