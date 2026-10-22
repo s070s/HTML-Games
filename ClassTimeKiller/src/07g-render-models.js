@@ -26,6 +26,7 @@ function ModelPose() {
   this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.scale = 1; this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
 }
 const modelInstance = makeShapeInstance();
+const modelTurn = new Float64Array(2);   // cos and sin of the pose yaw, once per model (a typed array: no boxed floats)
 
 // The row's parts with `from` resolved (copied parts scaled and recoloured), lod defaults applied, silhouette parts first.
 function modelParts(row, rowsById, depth) {
@@ -83,11 +84,12 @@ const Models = {
     const level = this.levelAt(pose.x, pose.y, pose.z);
     if (level < 0) return;
     const count = model.lodCounts[level];
+    modelTurn[0] = Math.cos(pose.yaw); modelTurn[1] = Math.sin(pose.yaw);
     for (let part = 0; part < count; part++) this.drawPart(batch, model, part, pose);
   },
   drawPart(batch, model, part, pose) {
     const d = model.data, o = part * MODEL_PART_FLOATS, scale = pose.scale, yaw = pose.yaw;
-    const cos = Math.cos(yaw), sin = Math.sin(yaw), x = d[o] * scale, z = d[o + 2] * scale;
+    const cos = modelTurn[0], sin = modelTurn[1], x = d[o] * scale, z = d[o + 2] * scale;
     const instance = modelInstance;
     instance.x = pose.x + x * cos + z * sin; instance.y = pose.y + d[o + 1] * scale; instance.z = pose.z - x * sin + z * cos;
     instance.sx = d[o + 3] * scale; instance.sy = d[o + 4] * scale; instance.sz = d[o + 5] * scale;
