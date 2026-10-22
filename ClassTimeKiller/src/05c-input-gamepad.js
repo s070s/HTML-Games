@@ -67,7 +67,6 @@ const PadInput = {
     emitToast('Controller disconnected');
     Input.autoPause('controller');
   },
-  say(text) { emitToast(text); },
   reset() { this.menuDirection = ''; this.turboSeconds = 0; this.chorded.fill(0); },
   detectStyle(pad) {
     if (pad.id === this.padId) return;
