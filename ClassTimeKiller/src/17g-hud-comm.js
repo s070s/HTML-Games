@@ -8,7 +8,7 @@
 const COMM_WHEEL_HOLD = 0.3;           // s a Ping press must be held to open the wheel instead of pinging
 const COMM_WHEEL_DEADZONE = 0.02;      // radians of look before a callout is picked
 const COMM_WHEEL_REACH = 0.06;         // the pick point stays this close to the centre, so turning to another callout is short
-const COMM_WHEEL_RADIUS = 120, COMM_WHEEL_ICON = 18, COMM_WHEEL_PICKED = 1.35;   // design pixels (times the HUD unit)
+const COMM_WHEEL_RADIUS = 120, COMM_WHEEL_ICON = 18, COMM_WHEEL_PICKED = 1.35, COMM_WHEEL_BACKDROP = 60;   // design pixels (times the HUD unit)
 
 const CommWheel = {
   open: false,
@@ -78,12 +78,13 @@ Bus.on('match.stop', () => CommWheel.reset());
 function hudDrawCommWheel(pen, layout) {
   if (!CommWheel.open) return;
   const unit = layout.unit, count = COMM_CALLOUTS.length, radius = COMM_WHEEL_RADIUS * unit;
+  pen.shape('square', layout.centerX, layout.centerY, (radius + COMM_WHEEL_BACKDROP * unit) * 2, HUD_COLOR.black, 0.35);   // keeps the labels readable on bright walls
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * 2 * Math.PI, picked = i === CommWheel.selected;
     const x = layout.centerX + Math.sin(angle) * radius, y = layout.centerY - Math.cos(angle) * radius;
     const size = COMM_WHEEL_ICON * unit * (picked ? COMM_WHEEL_PICKED : 1);
     pen.shape('circle', x, y, size, picked ? Hud.colors.good : HUD_COLOR.dim, picked ? 0.95 : 0.6);
-    pen.label(COMM_CALLOUTS[i].label, x, y + size + 4 * unit, HUD_TEXT_SMALL * unit, picked ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
+    pen.label(COMM_CALLOUTS[i].label, x, y + size + 4 * unit, HUD_TEXT_SMALL * unit, picked ? Hud.colors.good : HUD_COLOR.text, 'center');
   }
 }
 Hud.register('front', 'commWheel', '', hudDrawCommWheel, true);
