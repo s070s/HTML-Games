@@ -363,7 +363,7 @@ const Devices = {
     const x = this.x[device] + Math.sin(this.yaw[device]) * BEACON_OFFSET, y = this.y[device];
     const z = this.z[device] + Math.cos(this.yaw[device]) * BEACON_OFFSET;
     for (let k = 0; k < CAPSULE_CHECK_HEIGHTS.length; k++) if (World.pointInside(x, y + CAPSULE_CHECK_HEIGHTS[k], z)) return false;
-    Actors.x[id] = x; Actors.y[id] = y; Actors.z[id] = z;
+    Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;   // no interpolation smear
     return true;
   },
   // G18: true when an enemy jammer covers this actor (the HUD hides its radar).
@@ -447,10 +447,11 @@ const Devices = {
       if (distance < event.radius) this.damage(device, DEVICE_BLAST_DAMAGE * (1 - distance / event.radius), event.owner);
     }
   },
+  // A dead owner's devices go, except the G24 beacon: the team (and the owner) still respawn on it.
   onDeath(id) {
     if (!this.count) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
-      if (this.active[device] && this.owner[device] === id) this.remove(device, false);
+      if (this.active[device] && this.owner[device] === id && this.rowOf(device).effect !== 'beacon') this.remove(device, false);
     }
   },
 

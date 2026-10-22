@@ -332,12 +332,13 @@ Test.add('gadgets', (check) => {
   check('G24 one beacon per team', Devices.room(friend, CAT.gadgets.byId('beacon')) === 0);
   Bus.emit('actor.spawn', { id: friend });
   check('G24 teammates spawn at the beacon', Math.hypot(Actors.x[friend] - 10, Actors.z[friend] - 10) <= 1.5, Actors.x[friend] + ',' + Actors.z[friend]);
+  check('G24 the beacon spawn sets the previous position too (no interpolation smear)', Actors.prevX[friend] === Actors.x[friend] && Actors.prevZ[friend] === Actors.z[friend]);
   const mine = GadgetArena.device('prox', owner, 0, 5);
   check('GAD-003 enemy mines glint only within 8 m', !Devices.visibleTo(mine, enemy) && Devices.visibleTo(mine, friend));
   TestArena.place(enemy, 0, 10);
   check('GAD-003 visible to the enemy within 8 m', Devices.visibleTo(mine, enemy));
   ItemArena.kill(owner);
-  check('devices are removed when the owner dies', !Devices.active[beacon] && !Devices.active[mine] && Devices.count === 0);
+  check('devices are removed when the owner dies, the G24 beacon stays', Devices.active[beacon] === 1 && !Devices.active[mine] && Devices.count === 1);
   GadgetArena.device('sentry', friend, 3, 3);
   Smoke.spawn(CAT.gadgets.byId('smoke'), friend, 0, 1, 0);
   Bus.emit('match.end', {});
