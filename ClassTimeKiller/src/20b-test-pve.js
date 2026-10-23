@@ -1084,6 +1084,24 @@ Test.add('pvesoak', (check) => {
   endModeTest();
 }, { slow: true });
 
+// ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
+// SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
+// the objective (Mote Rush banks motes, Attrition scores).
+const PVE_TEAM_SOAKS = [{ mode: 'bank', map: 'cistern' }, { mode: 'attrition', map: 'harbor' }], PVE_TEAM_SOAK_SEEDS = [1, 2];
+const PVE_TEAM_SOAK_MINUTES = 3, PVE_TEAM_SOAK_BOTS = 8;
+Test.add('pvesoak', (check) => {
+  for (const soak of PVE_TEAM_SOAKS) for (const seed of PVE_TEAM_SOAK_SEEDS) {
+    let banked = 0;
+    const stats = playMatch({ mode: soak.mode, map: soak.map, minutes: PVE_TEAM_SOAK_MINUTES, botCount: PVE_TEAM_SOAK_BOTS, seed, difficulty: 'regular',
+      probe: () => { banked = BankRun.banked[0] + BankRun.banked[1]; } });
+    const name = soak.mode + ' on ' + soak.map + ' (seed ' + seed + ')', text = name + ': ' + JSON.stringify(stats) + ', banked ' + banked;
+    check(name + ': no NaN, stuck under ' + SOAK_STUCK_LIMIT * 100 + '% of the time', stats.nan === 0 && stats.stuckFraction < SOAK_STUCK_LIMIT, text);
+    check(name + ': nobody stuck > 6 s', stats.maxStuck <= STUCK_GIVE_UP, text);
+    if (soak.mode === 'bank') check(name + ': bots bank motes', banked > 0, text);
+    else check(name + ': bots score kills', stats.kills > 0, text);
+  }
+}, { slow: true });
+
 // ---- P08 audit pass (pve-01..15) ----
 // Runs `body` on a quality tier (Potato: enemy cap 12) and restores the setting.
 function withQuality(tier, body) {
