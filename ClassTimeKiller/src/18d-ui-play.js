@@ -72,7 +72,7 @@ const PlayFlow = {
     const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: this.rosterBots(choice.bots, choice.difficulty, seed),
       seed, difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
-    const limits = this.lengthLimits(choice.mode, choice.length);
+    const limits = this.lengthLimits(choice.mode, choice.length, choice.ruleset);
     if (limits) setup.modeOptions = limits;
     return setup;
   },
@@ -89,13 +89,14 @@ const PlayFlow = {
     while (bots.length < count) bots.push({});
     return bots.slice(0, count);
   },
-  // The mode's score, time and ticket limits scaled by the match length (Short 0.5x); null for the standard length. Rounded up to
-  // 5 points or tickets / 30 s. Round modes and modes without limits get no field: the Play screen then hides the choice.
-  lengthLimits(modeId, length) {
+  // The mode's score (as the ruleset builds it: hero kits lower it), time and ticket limits scaled by the match length (Short 0.5x);
+  // null for the standard length. Rounded up to 5 points or tickets / 30 s. Round modes and modes without limits get no field:
+  // the Play screen then hides the choice.
+  lengthLimits(modeId, length, ruleset) {
     const factor = PLAY_LENGTHS[length] || 1, mode = CAT.modes.byId(modeId);
     if (factor === 1 || !mode) return null;
-    const limits = {};
-    if (mode.scoreLimit > 0) limits.scoreLimit = Math.ceil(mode.scoreLimit * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP;
+    const limits = {}, scoreLimit = playScoreLimit(modeId, ruleset);
+    if (scoreLimit > 0) limits.scoreLimit = Math.ceil(scoreLimit * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP;
     if (mode.timeLimit > 0) limits.timeLimit = Math.ceil(mode.timeLimit * factor / PLAY_TIME_STEP) * PLAY_TIME_STEP;
     if (mode.params.tickets > 0) limits.params = { tickets: Math.ceil(mode.params.tickets * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP };
     return limits;
@@ -186,10 +187,13 @@ function playTeamOptions() {
   return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
 }
 
-function playModeSummary(modeId) {
-  const mode = CAT.modes.byId(modeId);
+// The standard-length score limit the match will use (Rules.build applies the ruleset's own rules, such as the hero kill limit).
+function playScoreLimit(modeId, ruleset) { return Rules.build(ruleset ? { mode: modeId, ruleset } : { mode: modeId }).scoreLimit; }
+
+function playModeSummary(modeId, ruleset) {
+  const mode = CAT.modes.byId(modeId), scoreLimit = playScoreLimit(modeId, ruleset);
   const parts = [mode.sizeDefault + ' players'];
-  if (mode.scoreLimit > 0) parts.push('first to ' + mode.scoreLimit);
+  if (scoreLimit > 0) parts.push('first to ' + scoreLimit);
   if (mode.timeLimit > 0) parts.push(Math.round(mode.timeLimit / 60) + ' min');
   return (mode.goal + ' ' + parts.join(', ') + '.').trim();
 }
@@ -203,12 +207,12 @@ Ui.register('play', {
       const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
       form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team, length: choice.length })); render(); })));
       form.appendChild(Ui.row('Map', Ui.cycle(maps.map((map) => map.id), maps.map((map) => map.name), choice.map, (value) => { choice.map = value; })));
-      form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; })));
+      form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; render(); })));
       form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
       if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
       if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
-      summary.textContent = playModeSummary(choice.mode);
+      summary.textContent = playModeSummary(choice.mode, choice.ruleset);
     });
     root.appendChild(form);
     root.appendChild(summary);

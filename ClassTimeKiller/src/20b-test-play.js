@@ -356,6 +356,9 @@ Test.add('play', (check) => uiWith(() => {
     Game.stop();
     // Rows that change nothing are not shown (modes-05, modes-06); tickets scale with the match length like score and time.
     check('match length: Short halves tickets too', PlayFlow.lengthLimits('conquest', 'short').params.tickets === 75 && PlayFlow.lengthLimits('rush', 'short').params.tickets === 40);
+    // balance-04: Hero Squad Team Clash plays to the built hero limit, and the screen says so for every length.
+    check('play screen: hero Team Clash shows and scales the hero kill limit', playModeSummary('tdm', 'heroes').includes('first to ' + Math.ceil(CAT.modes.byId('tdm').scoreLimit * HERO_KILL_LIMIT_SCALE))
+      && PlayFlow.lengthLimits('tdm', 'short', 'heroes').scoreLimit < PlayFlow.lengthLimits('tdm', 'short').scoreLimit, playModeSummary('tdm', 'heroes'));
     const saved = Save.data.play, rows = (mode) => { Save.data.play = { mode }; Ui.closeAll(); Ui.open('play'); return Ui.top().element.textContent; };
     try {
       check('play screen: Match length and Your team show only where they change something', rows('ffa').includes('Match length') && !rows('bomb').includes('Match length')
