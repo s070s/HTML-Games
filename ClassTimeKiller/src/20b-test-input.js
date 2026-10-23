@@ -344,6 +344,15 @@ Test.add('input', (check) => {
   check('lock: raw input unsupported falls back silently to a plain lock', calls.length === 2 && calls[1] === undefined && !Input.lockRefused);
   Input.onLockPromiseRejected({ name: 'SecurityError' });
   check('lock: any other rejection counts as a refusal', Input.lockRefused === Game.paused);
+  // platforms-01: the plain lock's promise is handled too, so a refused lock is a refusal, not an unhandled error.
+  let onRejected = null, refusals = 0;
+  const realRefused = Input.onLockRefused;
+  Input.canvas = { requestPointerLock: () => ({ catch(handler) { onRejected = handler; } }) };
+  Input.onLockRefused = () => { refusals++; };
+  Input.requestPlainLock();
+  if (onRejected) onRejected(new Error('refused'));
+  Input.onLockRefused = realRefused;
+  check('lock: a refused plain lock is handled as a refusal', refusals === 1, refusals);
   let relocks = 0;
   const relockListener = Bus.on('input.relock', () => { relocks++; });
   Game.pause('menu'); Input.resumePending = false; Input.onLockRefused();

@@ -9,6 +9,7 @@ const HOME_SCREEN_IMPORT = { title: 'Bring your progress?', text: 'This app has 
   + 'there (Settings, Back up or restore save) and import it here.', yes: 'Import', no: 'Not now' };
 const FULLSCREEN_REFUSED = 'The browser did not allow full screen.';
 const BACK_GUARD_STATE = 'ctk-match';
+const WAKE_RETRY_MS = 5000;   // a refused or dropped wake lock is asked for again after this long
 
 const Device = {
   persistAsked: false,
@@ -19,6 +20,7 @@ const Device = {
   // Screen Wake Lock: wanted while a match runs; the sentinel while held (the browser drops it when the page hides)
   awake: false,
   wakeSentinel: null,
+  wakeRetryAt: 0,       // performance.now() before which a lost wake lock is not asked for again
   isIos(nav) { return isAppleTouch(nav || navigator); },
   // Started from the Home Screen.
   standalone() { return navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches; },
@@ -54,18 +56,29 @@ const Device = {
     return true;
   },
   // Once per frame: a running, visible match holds the wake lock (a controller is no touch, so the phone would dim and lock
-  // mid-match); a pause, the menu or a hidden page lets the screen sleep. Acts only when that changes.
+  // mid-match); a pause, the menu or a hidden page lets the screen sleep. Acts only when that changes, or (rate-limited) when
+  // the lock was refused or the system let it go.
   updateWakeLock() {
     const wanted = Game.isRunning() && !document.hidden;
-    if (wanted === this.awake) return;
+    if (wanted === this.awake || (wanted && performance.now() < this.wakeRetryAt)) return;
     this.awake = wanted;
     if (this.wakeSentinel) this.wakeSentinel.release().catch(() => {});
     this.wakeSentinel = null;
     if (!wanted || !navigator.wakeLock) return;
     // An answer that comes after a pause (or after an earlier answer) is let go at once.
     navigator.wakeLock.request('screen').then((sentinel) => {
-      if (this.awake && !this.wakeSentinel) this.wakeSentinel = sentinel; else sentinel.release().catch(() => {});
-    }, () => {});
+      if (!this.awake || this.wakeSentinel) { sentinel.release().catch(() => {}); return; }
+      this.wakeSentinel = sentinel;
+      sentinel.addEventListener('release', () => this.lostWakeLock(sentinel));
+    }, () => this.lostWakeLock(null));
+  },
+  // A refused request, or the system letting the lock go (iOS Low Power Mode): ask again after WAKE_RETRY_MS. A release
+  // this code asked for has already cleared wakeSentinel, so it does not count.
+  lostWakeLock(sentinel) {
+    if (sentinel !== this.wakeSentinel) return;
+    this.wakeSentinel = null;
+    this.awake = false;
+    this.wakeRetryAt = performance.now() + WAKE_RETRY_MS;
   },
   // iPad has only the webkit names; iPhone has none.
   fullscreenAvailable() { return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled); },

@@ -449,7 +449,10 @@ const Input = {
     } catch (error) { this.requestPlainLock(); }
   },
   requestPlainLock() {
-    try { this.canvas.requestPointerLock(); } catch (error) { this.onLockRefused(); }
+    try {
+      const result = this.canvas.requestPointerLock();
+      if (result && result.catch) result.catch(() => this.onLockRefused());   // a refusal, not an unhandled error (platforms-01)
+    } catch (error) { this.onLockRefused(); }
   },
   // Raw input not supported: silent fallback to the normal lock. Any other rejection is a refusal (about 1 s after Esc).
   onLockPromiseRejected(error) {

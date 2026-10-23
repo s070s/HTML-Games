@@ -376,7 +376,7 @@ Test.add('settings', async (check) => {
   const agents = [['iPhone', 'iPhone', 1], ['Macintosh', 'MacIntel', 5], ['Macintosh', 'MacIntel', 0], ['Windows', 'Win32', 10]];
   const apple = agents.map(([userAgent, platform, maxTouchPoints]) => { const nav = { userAgent, platform, maxTouchPoints }; return Device.isIos(nav) + '/' + (Sound.configureSession(nav) !== 'none'); });
   check('iPhone and iPad found by one rule', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
-  const calls = [], sentinel = { release() { calls.push('release'); return Promise.resolve(); } }, scrollTo = window.scrollTo;
+  const calls = [], sentinel = Object.assign(new EventTarget(), { release() { calls.push('release'); return Promise.resolve(); } }), scrollTo = window.scrollTo;
   Object.defineProperty(navigator, 'wakeLock', { value: { request(type) { calls.push(type); return Promise.resolve(sentinel); } }, configurable: true });
   Game.state = 'playing';
   Device.updateWakeLock(); Device.updateWakeLock();
@@ -384,6 +384,18 @@ Test.add('settings', async (check) => {
   Game.paused = true;
   Device.updateWakeLock();
   check('wake lock: held in a running match only', calls.join() === 'screen,release', calls.join());
+  // platforms-03: a lock the system lets go is asked for again (after the retry wait), not left off for the rest of the match.
+  Game.paused = false;
+  Device.updateWakeLock();
+  await Promise.resolve();
+  sentinel.dispatchEvent(new Event('release'));
+  Device.wakeRetryAt = 0;
+  Device.updateWakeLock();
+  check('wake lock: asked for again after the system lets it go', calls.join() === 'screen,release,screen,screen' && Device.awake, calls.join());
+  Game.paused = true;
+  Device.updateWakeLock();
+  await Promise.resolve();
+  calls.length = 0;
   window.scrollTo = (x, y) => calls.push(x + ',' + y);
   // A background page gets no real focus changes: the event a blur sends.
   Ui.root.appendChild(document.createElement('textarea')).dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
