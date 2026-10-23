@@ -254,13 +254,16 @@ const BotCombat = {
   lookAtThreat(id, now) {
     const attacker = BotSense.attacker[id];
     if (attacker < 0 || now - BotSense.attackedAt[id] > TARGET_REVENGE_SECONDS) return;
-    const pair = BotSense.pair(id, attacker);
-    Bots.lookAt(id, BotSense.knownX[pair], BotSense.knownY[pair] + AIM_CHEST_HEIGHT, BotSense.knownZ[pair]);
+    this.lookAtKnown(id, attacker);
   },
   watch(id, target, now) {
-    const pair = BotSense.pair(id, target);
-    Bots.lookAt(id, BotSense.knownX[pair], BotSense.knownY[pair] + AIM_CHEST_HEIGHT, BotSense.knownZ[pair]);
+    this.lookAtKnown(id, target);
     this.keepCharge(id, now, false);
+  },
+  // Turns toward the chest of where the bot last knew the other actor to be.
+  lookAtKnown(id, other) {
+    const pair = BotSense.pair(id, other);
+    Bots.lookAt(id, BotSense.knownX[pair], BotSense.knownY[pair] + AIM_CHEST_HEIGHT, BotSense.knownZ[pair]);
   },
 
   // ---- Aim model (BOT-030) and the trigger ----

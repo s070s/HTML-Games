@@ -54,7 +54,7 @@ function runSoak(run) {
   const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
   Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
     balance: run.balance, player: run.player });
-  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
+  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, enemyStuck: 0, enemyMaxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) stats.bots++;
@@ -109,9 +109,16 @@ function sampleSoak(stats) {
   for (const objective of Modes.objectives) if (objective.state === 'carried' || objective.owner >= 0 || objective.progress > 0) stats.objectivesTouched++;
 }
 
+// Stuck time counts for bot brains (botSeconds counts their ticks, a bot removed mid-match included); PvE enemies also move
+// with BotMove, so their stuck time is reported apart (enemyStuck, enemyMaxStuck) instead of being blamed on the bots (bots-03).
 function finishSoak(stats, timings, ticks) {
   let stuck = 0, longest = 0, noGoal = 0;
   for (let id = 0; id < Actors.count; id++) {
+    if (Actors.kind[id] === ACTOR_KIND.ENEMY) {
+      stats.enemyStuck += BotMove.stuckSeconds[id];
+      stats.enemyMaxStuck = Math.max(stats.enemyMaxStuck, BotMove.longestStuck[id]);
+      continue;
+    }
     stuck += BotMove.stuckSeconds[id];
     longest = Math.max(longest, BotMove.longestStuck[id]);
     noGoal = Math.max(noGoal, BotDecide.longestNoGoal[id]);
@@ -163,6 +170,9 @@ function placeFacing(id, x, z, yaw) {
   Actors.yaw[id] = Actors.aimYaw[id] = yaw;
   if (Bots.active[id]) Bots.lookYaw[id] = yaw;
 }
+
+// A bot's fresh memory of the other actor of a BotSense pair: standing at x 0 on the floor, z metres along.
+function knowAt(pair, z) { BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = z; }
 
 // Holds a dummy in place (bots only move bots; the test arena has no other forces).
 function holdActor(id, x, z) { moveActor(id, x, z, 0, 0); }
@@ -396,10 +406,18 @@ Test.add('bots', (check) => {
 });
 
 // ---- Team play: a defend ping is answered within 2 s and acknowledged by every taker; an enemy ping gets a reply ----
+const SQUAD_SPAWNS = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+// The player and three team bots against two dummies on the walled arena; returns the team bots.
+function startSquadTest() {
+  startBotTest(botTestMap(true, { spawns: SQUAD_SPAWNS }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  return mates;
+}
+
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
   // Two bots with the player against two dummies: 3 v 2 is balanced, so nobody changes sides.
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  startBotTest(botTestMap(true, { spawns: SQUAD_SPAWNS }), 'tdm', { player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
   const player = Game.playerId, barks = startEventLog('bark');
   runSeconds(1);
   const pingedAt = Sim.time;
@@ -431,11 +449,7 @@ Test.add('bots', (check) => {
 
 // ---- Comm wheel (BOT-061/062, INP-003): Ping tap vs hold, look picks a callout, follow / hold / regroup reach the whole team ----
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
-  const player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
-  const mates = [];
-  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  const mates = startSquadTest(), player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
   runSeconds(1);
   const fromPlayer = () => pings.filter((event) => event.id === player);
   Actors.aimPitch[player] = BOTS_WHEEL_SKY;   // aimed at no bot: the wheel talks to the squad
@@ -482,10 +496,7 @@ function botsWheelPick(kind) {
 
 // ---- Comm wheel: aimed at a team bot it addresses that bot only (Cover me); replies answer a ping and order nobody ----
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
-  const player = Game.playerId, pings = startEventLog('ping'), mates = [];
-  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  const mates = startSquadTest(), player = Game.playerId, pings = startEventLog('ping');
   runSeconds(1);
   const chosen = mates[0], others = mates.slice(1);
   placeActor(player, -20, -20); placeActor(chosen, -20, -12);
@@ -954,7 +965,7 @@ Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
   const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 }, pair = BotSense.pair(bot, dummy);
   placeFacing(bot, 0, -10, 0); placeFacing(dummy, 0, 20, Math.PI);
-  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+  knowAt(pair, 20);
   BotCombat.target[bot] = dummy;
   GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
   check('a flanking tier chases a far target round by the flank hint', BotDecide.flankSpot[bot] === 0 && plan.x === 12 && plan.z === 10, plan.x + ',' + plan.z);
@@ -1088,7 +1099,7 @@ Test.add('bots', (check) => {
   placeFacing(bot, 0, -10, 0);
   Gadgets.give(bot, CHOKE_SMOKE_ROW, 2); Gadgets.select(bot, CHOKE_SMOKE_ROW);
   BotCombat.target[bot] = dummy;
-  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+  knowAt(pair, 14);
   check('the match reads the choke hints', BotDecide.chokeSpots.length === 2);
   BotDecide.goal[bot] = GOAL.ROAM;
   BotCombat.tryGrenade(bot, now);
@@ -1115,7 +1126,7 @@ Test.add('bots', (check) => {
   const now = Sim.time + GRENADE_TOKEN_INTERVAL;
   const aimAtTarget = () => {
     BotDecide.goal[bot] = GOAL.CHASE; BotCombat.target[bot] = dummy;
-    BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+    knowAt(pair, 14);
   };
   placeFacing(bot, 0, -10, 0);
   Gadgets.clearGrenades(bot); Gadgets.give(bot, 'frag', 1); Gadgets.give(bot, CHOKE_SMOKE_ROW, 1);
@@ -1543,7 +1554,49 @@ function checkSoaks(check, maps, minutes) {
 }
 
 Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
+
 Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
+
+// bots-03: a PvE enemy stuck on its BotMove path (PveMove) is reported as enemy stuck time, not as the bots' stuck share;
+// a bot removed mid-match keeps its stuck time in the bots' share (its ticks stay in botSeconds).
+const ENEMY_STUCK_SECONDS = 10, REMOVED_BOT = 1, REMOVE_TICK = 30;
+Test.add('bots', (check) => {
+  let enemy = -1;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count && enemy < 0; id++) {
+      if (Actors.kind[id] !== ACTOR_KIND.ENEMY || !Actors.alive[id]) continue;
+      enemy = id;
+      BotMove.stuckSeconds[id] += ENEMY_STUCK_SECONDS;
+      BotMove.longestStuck[id] = ENEMY_STUCK_SECONDS;
+    }
+  };
+  const stats = playMatch({ mode: 'bank', map: 'cistern', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick });
+  const text = 'enemy ' + enemy + ': ' + JSON.stringify(stats);
+  check('bank: a PvE enemy spawned', enemy >= 0, text);
+  check('enemy stuck time stays out of the bots\' stuck share', stats.stuckFraction * stats.botSeconds < ENEMY_STUCK_SECONDS && stats.maxStuck < ENEMY_STUCK_SECONDS, text);
+  check('enemy stuck time is reported apart', stats.enemyStuck >= ENEMY_STUCK_SECONDS && stats.enemyMaxStuck >= ENEMY_STUCK_SECONDS, text);
+  const onRemove = (played) => { if (played === REMOVE_TICK) { BotMove.stuckSeconds[REMOVED_BOT] += ENEMY_STUCK_SECONDS; Actors.remove(REMOVED_BOT); } };
+  const ffa = playMatch({ mode: 'ffa', map: 'harbor', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick: onRemove });
+  check('a removed bot\'s stuck time stays in the bots\' share', ffa.enemyStuck === 0 && ffa.stuckFraction * ffa.botSeconds >= ENEMY_STUCK_SECONDS, JSON.stringify(ffa));
+});
+
+// balance-04 hero kill pace: 10 hero bots on Harbor, 3 minutes per seed (one seed alone swings from 1 to 23 kills): in each
+// kill mode the leader's score over all seeds, projected to the time limit, reaches HERO_PACE_SHARE of the hero score limit.
+const HERO_PACE_MODES = ['ffa', 'tdm'], HERO_PACE_SEEDS = [1, 2, 3, 4], HERO_PACE_BOTS = 10, HERO_PACE_SHARE = 0.8;
+Test.add('botsoak', (check) => {
+  for (const id of HERO_PACE_MODES) {
+    const mode = CAT.modes.byId(id), limit = Rules.build({ mode: id, ruleset: 'heroes' }).scoreLimit;
+    let leads = 0, seconds = 0, lead = 0;
+    const probe = () => { lead = Modes.leaderScore; };
+    for (const seed of HERO_PACE_SEEDS) {
+      const stats = playMatch({ mode: id, map: 'harbor', ruleset: 'heroes', minutes: SOAK_TEST_MINUTES, botCount: HERO_PACE_BOTS, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+      leads += lead; seconds += stats.seconds;
+    }
+    const projected = leads * mode.timeLimit / seconds;
+    check('hero ' + mode.name + ': the leader reaches the limit in time', projected >= limit * HERO_PACE_SHARE,
+      projected.toFixed(1) + ' of ' + limit + ' (' + leads + ' in ' + seconds + ' s)');
+  }
+}, { slow: true });
 
 // ---- Same seed, same match: nothing an earlier match left in the bot modules steers the next one ----
 const REPLAY_SECONDS = 12, REPLAY_SEED = 1, REPLAY_OTHER_SEED = 2;

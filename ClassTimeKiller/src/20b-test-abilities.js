@@ -379,9 +379,49 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// balance-01: bots without a hero choice draw one per team from the match seed (headless Hero Squad Team Clash, 10 bots):
+// a team of five fields every role and no hero twice, keeps its heroes across picks, leaves a teammate's own pick out,
+// draws again when auto-balance moves it to the other team, and the line-ups change with the seed.
+const HERO_DRAW_SEEDS = [1, 2, 3, 4], HERO_DRAW_BOTS = 10;
+Test.add('abilities', (check) => {
+  const roles = new Set(CAT.heroes.map((hero) => hero.role)).size, lineups = new Set();
+  for (const seed of HERO_DRAW_SEEDS) {
+    const probe = () => {
+      for (const team of [0, 1]) {
+        const ids = sideMembers(team), heroes = ids.map((id) => Abilities.pickHero(id)), names = heroes.map((hero) => hero.id).join(' ');
+        check('seed ' + seed + ' team ' + team + ': no hero twice, every role', new Set(heroes).size === heroes.length && new Set(heroes.map((hero) => hero.role)).size === roles, names);
+        check('seed ' + seed + ' team ' + team + ': the same heroes on the next pick', ids.every((id, k) => Abilities.pickHero(id) === heroes[k]), names);
+        lineups.add(team + ': ' + names);
+      }
+      const team = sideMembers(0), picked = Abilities.pickHero(team[1]);
+      for (const id of team) Abilities.drawn[id] = null;
+      Abilities.setChoice(team[0], { hero: picked.id });
+      check('seed ' + seed + ': a teammate\'s own pick is left out of the draw', team.slice(1).every((id) => Abilities.pickHero(id) !== picked), picked.id);
+      const otherHeroes = sideMembers(1).map((id) => Abilities.pickHero(id));
+      const moved = team.slice(1).find((id) => otherHeroes.includes(Abilities.pickHero(id)));   // 5 + 5 heroes of 8: some are shared
+      Actors.team[moved] = 1;   // as auto-balance does
+      check('seed ' + seed + ': a bot moved to the other team draws for it', !otherHeroes.includes(Abilities.pickHero(moved)), String(moved));
+    };
+    playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'heroes', minutes: 0, botCount: HERO_DRAW_BOTS, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+  }
+  check('the line-ups change with the seed', lineups.size > HERO_DRAW_SEEDS.length, [...lineups].join(' / '));
+});
+
+// balance-04: hero Team Clash counts to HERO_KILL_LIMIT_SCALE of its limit; other rulesets and modes and a match's own limit
+// keep theirs.
+Test.add('abilities', (check) => {
+  const tdm = CAT.modes.byId('tdm').scoreLimit, limit = (setup) => Rules.build(setup).scoreLimit, hero = limit({ mode: 'tdm', ruleset: 'heroes' });
+  check('hero Team Clash counts to the hero share of the kill limit', hero === Math.ceil(tdm * HERO_KILL_LIMIT_SCALE), String(hero));
+  check('Arena Classic Team Clash keeps its limit', limit({ mode: 'tdm' }) === tdm);
+  check('a match\'s own score limit is kept', limit({ mode: 'tdm', ruleset: 'heroes', modeOptions: { scoreLimit: 40 } }) === 40);
+  for (const mode of ['ctf', 'ffa', 'attrition', 'cursetag', 'roulette']) {
+    check(mode + ' keeps its score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
+  }
+});
+
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
-  const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
+  const hud = { slots: [], meter: Object.assign({}, METER_HUD) };
   check('HUD: hudState returns out', Abilities.hudState(t.caster, hud) === hud);
   check('HUD: one slot, ready', hud.slots.length === 1 && hud.slots[0].ready && hud.slots[0].id === 'echopulse' && hud.meter.kind === 'energy');
   AbilityTest.cast(t);
@@ -504,7 +544,7 @@ Test.add('abilities', (check) => {
 
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
-  const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
+  const hud = { slots: [], meter: Object.assign({}, METER_HUD) };
   Abilities.hudState(t.caster, hud);
   const slots = hud.slots, first = hud.slots[0];
   Abilities.hudState(t.caster, hud);

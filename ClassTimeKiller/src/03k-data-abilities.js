@@ -156,6 +156,11 @@ Data.define('heroes', {
     passive: { kind: 'ability', ability: 'tracker' }, gadget: 'dart', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 
+// balance-04: hero pools, heals, barriers and downs make team kills a fifth as frequent (Harbor, 10 bots, 3 min: 10-14
+// against 55), so these modes count to this share of their limit in a hero ruleset (Team Clash 15). Hero Frenzy keeps 25:
+// no teammates heal or shield, and its leader scores about 38 in the time limit.
+const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
+
 // Ability kits outside hero rulesets (ABL-001): which ruleset, economy or mutator hands them out, the default slots and
 // the abilities a loadout may pick per slot (choices; [] = fixed). A kit applies when its `match` test passes, first row first.
 // cooldowns: { slotName: seconds } replaces the row cooldown in this kit (ECP04 field upgrades recharge in 60-120 s).
