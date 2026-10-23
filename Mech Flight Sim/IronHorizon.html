@@ -18733,8 +18733,8 @@ const HUD = {
     return TouchControls.shown ? TouchControls.reserve : 0;   // from the placed buttons (TouchControls.clusterReserve)
   },
   drawWeapons(p, u) {
-    const C = this.C, w = 250 * u, x = this.w - 20 * u - w - SafeArea.r - this.touchReserve();
-    let y = this.h - 20 * u - SafeArea.b - 34 * u;
+    const C = this.C, P = this.panels(p, u).weapons, w = P.w, x = P.x;
+    let y = P.row;
     const rows = [];
     ['primaryA', 'primaryB', 'secondary'].forEach((s) => { if (p.wslots[s]) rows.push(p.wslots[s]); });
     for (let i = rows.length - 1; i >= 0; i--) {
@@ -18893,27 +18893,73 @@ const HUD = {
     const top = this.touchTop();
     return Math.max(22 * u + SafeArea.t, top ? top + HUD_TEXT_GAP + 6 * u : 0);
   },
-  /* middle of the first transient message line (deployments, warnings to the player), below the status line */
-  msgY(u) { return Math.max(128 * u + SafeArea.t, this.statusY(u) + 6 * u + HUD_TEXT_GAP + 7 * u); },
-  /* the tutorial tip's box: the bottom middle, between the touch buttons beside it; where they leave it narrower than
-     HUD_TIP_MIN_W it moves up above all of them (a phone held upright) */
-  tipBox(u, out) {
+  /* middle of the first transient message line (deployments, warnings to the player), below the status line, and below
+     the radar on a screen so narrow that a message (HUD_MSG_HALF either side of the middle) would reach it */
+  msgY(u) {
+    const y = Math.max(128 * u + SafeArea.t, this.statusY(u) + 6 * u + HUD_TEXT_GAP + 7 * u);
+    const rb = this.radarBox(this.w, this.h, SafeArea, HUD_MSG_RADAR);
+    return this.w / 2 + HUD_MSG_HALF * u > rb.x ? Math.max(y, rb.y + rb.s + HUD_TEXT_GAP + 7 * u) : y;
+  },
+  /* platform p's HUD panels as boxes { x, y, w, h, at } (HUD_PANELS, reused): the bars at the bottom left (drawBars),
+     the weapons at the bottom right (drawWeapons) and the radar with its label at the top right */
+  panels(p, u) {
+    const P = HUD_PANELS, b = SafeArea.b;
+    const bars = 3 + (p.maxShield > 0 ? 1 : 0) + (p.maxEnergy > 0 ? 1 : 0);
+    P.bars.w = 270 * u; P.bars.h = bars * 22 * u - 5 * u; P.bars.x = 20 * u + SafeArea.l; P.bars.y = this.h - 20 * u - b - P.bars.h;
+    P.weapons.w = 250 * u; P.weapons.x = this.w - 20 * u - P.weapons.w - SafeArea.r - this.touchReserve();
+    // the weapons stand at the bottom, or stacked over the bars where the touch buttons push them that far left
+    const bottom = P.weapons.x < P.bars.x + P.bars.w + HUD_TEXT_GAP ? P.bars.y - HUD_TEXT_GAP : this.h - 22 * u - b;
+    let top = bottom, next = bottom - 32 * u;   // the panel's top so far, the top of its next row up
+    P.weapons.row = next;   // the lowest row's top (drawWeapons)
+    for (let i = 0; i < GUN_SLOTS.length; i++) if (p.wslots[GUN_SLOTS[i]]) { top = next; next -= 36 * u; }
+    if (p.util) { top = next; next -= 30 * u; }
+    if (p.sw) top = next;
+    P.weapons.y = top; P.weapons.h = bottom - top;
+    this.radarBox(this.w, this.h, SafeArea, P.radar);
+    P.radar.w = P.radar.s; P.radar.h = P.radar.s + HUD_RADAR_LABEL * u; P.radar.y -= HUD_RADAR_LABEL * u;
+    return P;
+  },
+  /* the boxes text near the bottom keeps off: the bars and weapons panels and the touch buttons that show (HUD_OBST) */
+  obstacles(p, u) {
+    const out = HUD_OBST, P = this.panels(p, u);
+    out.length = 0; out.push(P.bars, P.weapons);
+    if (TouchControls.shown) for (const b of TouchControls.buttons) if (b.on) out.push(b);
+    return out;
+  },
+  /* the tutorial tip's box: the bottom middle, between the panels and touch buttons beside it; where they leave it
+     narrower than HUD_TIP_MIN_W it moves up above all of them (a phone or tablet held upright) */
+  tipBox(u, out, p) {
     out.h = 30 * u;
-    const minW = Math.min(HUD_TIP_MIN_W * u, this.w - 40 - SafeArea.l - SafeArea.r), tc = TouchControls;
+    const minW = Math.min(HUD_TIP_MIN_W * u, this.w - 40 - SafeArea.l - SafeArea.r), obst = p ? this.obstacles(p, u) : HUD_NONE;
     let y = this.h - 118 * u - SafeArea.b;
     for (let pass = 0; pass < 2; pass++) {
       let l = 20 + SafeArea.l, r = this.w - 20 - SafeArea.r, top = y;
-      for (const b of tc.shown ? tc.buttons : []) {
-        if (!b.on) continue;
-        top = Math.min(top, b.y);
-        if (b.y >= y + out.h || b.y + b.s <= y) continue;
-        if (b.def.at === 'l') l = Math.max(l, b.x + b.s + HUD_TEXT_GAP); else r = Math.min(r, b.x - HUD_TEXT_GAP);
+      for (const o of obst) {
+        top = Math.min(top, o.y);
+        if (o.y >= y + out.h || o.y + hudH(o) <= y) continue;
+        if (hudSide(o) === 'l') l = Math.max(l, o.x + hudW(o) + HUD_TEXT_GAP); else r = Math.min(r, o.x - HUD_TEXT_GAP);
       }
       out.y = y; out.w = Math.max(0, Math.min(r - l, 640 * u)); out.x = (l + r) / 2 - out.w / 2;
       if (out.w >= minW) break;
       y = top - HUD_TEXT_GAP - out.h;
     }
     return out;
+  },
+  /* middle line of the Use prompts (drawUsePrompt): HUD_PROMPT_Y down the screen, moved up above any panel or touch
+     button in the band they take (HUD_PROMPT_HALF either side of the middle, HUD_PROMPT_UP over, HUD_PROMPT_DOWN under) */
+  promptY(u, p) {
+    const half = HUD_PROMPT_HALF * u, x0 = this.w / 2 - half, x1 = this.w / 2 + half, obst = this.obstacles(p, u);
+    let y = this.h * HUD_PROMPT_Y;
+    for (let pass = 0; pass < HUD_PROMPT_PASSES; pass++) {
+      let hit = null;
+      for (const o of obst) {
+        if (o.x >= x1 || o.x + hudW(o) <= x0 || o.y >= y + HUD_PROMPT_DOWN * u || o.y + hudH(o) <= y - HUD_PROMPT_UP * u) continue;
+        if (!hit || o.y < hit.y) hit = o;
+      }
+      if (!hit) break;
+      y = hit.y - HUD_TEXT_GAP - HUD_PROMPT_DOWN * u;
+    }
+    return y;
   },
   drawAlerts(p, u) {
     const C = this.C, cx = this.w / 2;
@@ -18950,7 +18996,7 @@ const HUD = {
   /* what Use would do here (Seats.context), and how far a hold has come */
   drawUsePrompt(p, u) {
     if (W.mode === 'menu') return;
-    const C = this.C, ctx = Seats.context(p, HUD_CTX), y = this.h * 0.58;
+    const C = this.C, ctx = Seats.context(p, HUD_CTX), y = this.promptY(u, p);
     if (PC.useT > USE_SHOW_HOLD && !PC.useDone && (ctx.exit || ctx.eject)) {
       const w = 160 * u, x = this.w / 2 - w / 2, g = this.g;
       this.txt(ctx.eject ? 'EJECTING...' : 'STEPPING OUT...', this.w / 2, y - 12 * u, 12, C.warn, 'center', true);
@@ -19034,26 +19080,57 @@ const HUD = {
     if (!t || t.done || Game.state !== 'playing') return;
     const s = t.steps[t.i];
     if (!s) return;
-    const g = this.g, b = this.tipBox(u, HUD_TIP), text = 'TIP ' + (t.i + 1) + '/' + t.steps.length + ': ' + s.text();
+    const g = this.g, b = this.tipBox(u, HUD_TIP, W.player), text = 'TIP ' + (t.i + 1) + '/' + t.steps.length + ': ' + s.text();
     if (b.w <= 0) return;
     g.fillStyle = 'rgba(4,12,16,0.78)'; g.fillRect(b.x, b.y, b.w, b.h);
     g.strokeStyle = this.C.warn; g.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
-    this.txt(text, b.x + b.w / 2, b.y + b.h / 2, this.fitSize(text, HUD_TIP_SIZE, b.w - 8 * u), this.C.text, 'center');
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2, room = b.w - 8 * u, one = this.fitSize(text, HUD_TIP_SIZE, room);
+    if (this.textWidth(text, one) <= room) { this.txt(text, cx, cy, one, this.C.text, 'center'); return; }
+    // too long for one line even at the smallest size: two lines, broken at the space nearest the middle
+    const cut = tipBreak(text), a = text.substring(0, cut), z = text.substring(cut + 1);
+    const two = Math.min(this.fitSize(a, HUD_TIP_LINE, room), this.fitSize(z, HUD_TIP_LINE, room));
+    this.txt(a, cx, cy - HUD_TIP_LEAD * u, two, this.C.text, 'center');
+    this.txt(z, cx, cy + HUD_TIP_LEAD * u, two, this.C.text, 'center');
   },
-  /* the text size (as txt takes it) at most size that fits string s into w CSS px */
+  /* the width in CSS px of string s at text size size (as txt takes it) */
+  textWidth(s, size, bold) {
+    this.g.font = (bold ? 'bold ' : '') + Math.round(size * this.u) + 'px Consolas, "Courier New", monospace';
+    return this.g.measureText(s).width;
+  },
+  /* the text size (as txt takes it) at most size that fits string s into w CSS px, no smaller than HUD_TIP_MIN */
   fitSize(s, size, w) {
-    const g = this.g;
-    g.font = Math.round(size * this.u) + 'px Consolas, "Courier New", monospace';
-    const tw = g.measureText(s).width;
+    const tw = this.textWidth(s, size);
     return tw > w && tw > 0 ? Math.max(HUD_TIP_MIN, size * w / tw) : size;
   },
 };
 
 
-const HUD_TEXT_GAP = 4;           // CSS px between HUD text and a touch button
+const HUD_TEXT_GAP = 4;           // CSS px between HUD text and a touch button or panel
 const HUD_TIP_SIZE = 11, HUD_TIP_MIN = 8;   // the tutorial tip's text size, shrunk to fit its box no smaller than this
-const HUD_TIP_MIN_W = 300;        // the tip moves up above the touch buttons where they leave it narrower than this (x u)
+const HUD_TIP_LINE = 10, HUD_TIP_LEAD = 7;  // a tip on two lines: their largest size, and each line's offset from the middle (x u)
+const HUD_TIP_MIN_W = 300;        // the tip moves up above the panels and touch buttons where they leave it narrower than this (x u)
 const HUD_TIP = { x: 0, y: 0, w: 0, h: 0 };   // HUD.tipBox's answer for the drawing (no allocation per frame)
+const HUD_PROMPT_Y = 0.58;        // the Use prompts' middle line, as a share of the screen height
+const HUD_PROMPT_HALF = 150, HUD_PROMPT_UP = 37, HUD_PROMPT_DOWN = 23;   // the band the prompts take round it (x u)
+const HUD_PROMPT_PASSES = 6;      // moves up past what stands in that band
+const HUD_RADAR_LABEL = 15;       // the radar's range label over the disc (x u)
+const HUD_MSG_HALF = 180;         // half the widest message line (x u)
+const HUD_MSG_RADAR = { x: 0, y: 0, s: 0 };   // HUD.msgY's radar box (no allocation per frame)
+const HUD_PANELS = { bars: { x: 0, y: 0, w: 0, h: 0, at: 'l' }, weapons: { x: 0, y: 0, w: 0, h: 0, row: 0, at: 'r' }, radar: { x: 0, y: 0, w: 0, h: 0, s: 0, at: 'r' } };
+const HUD_OBST = [], HUD_NONE = [];
+/* a HUD box's width, height and side: panels have w, h and at, touch buttons a side s and their def's at */
+function hudW(o) { return o.w !== undefined ? o.w : o.s; }
+function hudH(o) { return o.h !== undefined ? o.h : o.s; }
+function hudSide(o) { return o.at || o.def.at; }
+/* where a tutorial tip breaks onto two lines: the space nearest its middle */
+function tipBreak(s) {
+  const mid = s.length >> 1;
+  for (let k = 0; k < mid; k++) {
+    if (s[mid + k] === ' ') return mid + k;
+    if (s[mid - k] === ' ') return mid - k;
+  }
+  return mid;
+}
 
 /* =====================================================================
    UI: menus, hangar, controls, settings, pause, results
@@ -23418,17 +23495,23 @@ const SelfTest = {
           for (let bits = 0; bits < 16; bits++) out.push(Object.assign({}, base, { enter: bits & 1 ? sp : null, exit: !!(bits & 2), eject: !!(bits & 4), use: !!(bits & 8) }));
           return out;
         };
-        const sizes = [[375, 812], [812, 375], [1024, 768], [1920, 1080]], scales = [0.8, 1, 1.4];
+        const sizes = [[375, 812], [812, 375], [768, 1024], [1024, 768], [1920, 1080]], scales = [0.8, 1, 1.4];
         const insets = [{ l: 0, t: 0, r: 0, b: 0 }, { l: 47, t: 11, r: 44, b: 21 }, { l: 0, t: 47, r: 0, b: 34 }];
-        // the HUD's text keeps off the buttons: the status line and the first message under the pause button, the tutorial
-        // tip between the clusters (the longest status line and message, at the HUD's scale for the window)
-        const tip = {}, textW = (s, size, bold) => { HUD.g.font = (bold ? 'bold ' : '') + Math.round(size * HUD.u) + 'px Consolas, "Courier New", monospace'; return HUD.g.measureText(s).width; };
-        const hudOver = (w) => {
-          const u = HUD.u, sy = HUD.statusY(u), my = HUD.msgY(u), sw = textW('PLATFORMS 3   KILLS 999   SCORE 99999', 12), mw = textW('TACTICAL WITHDRAWAL: PLATFORM LOST, FAST REDEPLOY', 13, true);
-          HUD.tipBox(u, tip);
-          const rows = [[w / 2 - sw / 2, sy - 6 * u, sw, 12 * u], [w / 2 - mw / 2, my - 6.5 * u, mw, 13 * u], [tip.x, tip.y, tip.w, tip.h]];
+        // the HUD's text keeps off the buttons and the HUD's panels (bars, weapons, radar): the status line and the first
+        // message under the pause button, the tutorial tip between the clusters and panels, the Use prompts above them
+        // (the longest status line, message and prompts, at the HUD's scale for the window)
+        const tip = {}, longName = ids.reduce((a, id) => (PLATFORMS[id].name.length > a.length ? PLATFORMS[id].name : a), '').toUpperCase();
+        const prompts = [['SUPPLY PAD: NO RESUPPLY CHARGES LEFT', 13, true], ['[' + actionLabel('interact') + '] ENTER ' + longName, 13, true], ['NEW PLATFORM ONCE YOU LAND', 13, true]];
+        const hudOver = (w, q) => {
+          const u = HUD.u, sy = HUD.statusY(u), my = HUD.msgY(u), sw = HUD.textWidth('PLATFORMS 3   KILLS 999   SCORE 99999', 12), mw = HUD.textWidth('TACTICAL WITHDRAWAL: PLATFORM LOST, FAST REDEPLOY', 13, true);
+          HUD.tipBox(u, tip, q);
+          const py = HUD.promptY(u, q), half = HUD_PROMPT_HALF * u;
+          const rows = [[w / 2 - sw / 2, sy - 6 * u, sw, 12 * u], [w / 2 - mw / 2, my - 6.5 * u, mw, 13 * u], [tip.x, tip.y, tip.w, tip.h], [w / 2 - half, py - HUD_PROMPT_UP * u, 2 * half, (HUD_PROMPT_UP + HUD_PROMPT_DOWN) * u]];
           tipMin = Math.min(tipMin, tip.w / Math.min(HUD_TIP_MIN_W * u, w - 40 - SafeArea.l - SafeArea.r));
-          return sy + 6 * u > my - 6.5 * u || tc.boxes.some((b) => b.on && rows.some((r) => b.x < r[0] + r[2] && r[0] < b.x + b.s && b.y < r[1] + r[3] && r[1] < b.y + b.s));
+          const P = HUD.panels(q, u), boxes = tc.boxes.filter((b) => b.on).concat([P.bars, P.weapons, P.radar]);
+          if (P.weapons.x < P.bars.x + P.bars.w && P.bars.y < P.weapons.y + P.weapons.h) return true;   // the panels apart
+          const wide = prompts.some((s) => HUD.textWidth(s[0], s[1], s[2]) > 2 * half) || mw > 2 * HUD_MSG_HALF * u;
+          return wide || sy + 6 * u > my - 6.5 * u || boxes.some((b) => rows.some((r) => b.x < r[0] + r[2] && r[0] < b.x + hudW(b) && b.y < r[1] + r[3] && r[1] < b.y + hudH(b)));
         };
         let bad = '', layouts = 0, tipMin = Infinity;
         const wasShown = tc.shown;
@@ -23441,12 +23524,12 @@ const SelfTest = {
             tc.update(q, ctx, true); layouts++;
             const right = (w - sa.r) - tc.reserve;
             if (!tc.fits(w, h, sa, true) || tc.buttons.some((b) => b.on && b.def.at === 'r' && b.x < right)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id;
-            if (hudOver(w)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id + ' HUD text';
+            if (hudOver(w, q)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id + ' HUD text';
           }
         }
         Object.assign(SafeArea, keepHud.sa); HUD.w = keepHud.w; HUD.h = keepHud.h; HUD.u = keepHud.u; tc.shown = wasShown;
-        this.check('at 375x812, 812x375, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and off the radar, and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
-        this.check('the status line, the messages and the tutorial tip keep clear of every button and the pause button, the tip never too narrow', bad === '' && tipMin >= 1, 'narrowest tip ' + tipMin.toFixed(2) + ' of its minimum');
+        this.check('at 375x812, 812x375, 768x1024, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and off the radar, and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
+        this.check('the status line, the messages, the Use prompts and the tutorial tip keep clear of every button, the pause button, the bars, the weapons panel and the radar, the tip never too narrow', bad === '' && tipMin >= 1, 'narrowest tip ' + tipMin.toFixed(2) + ' of its minimum');
         const unit = (w, h, scale) => { tc.place(w, h, insets[0], scale); return tc.unit; };
         const big = [unit(1920, 1080, 0.8), unit(1920, 1080, 1), unit(1920, 1080, 1.4)], phone = [unit(812, 375, 1), unit(812, 375, 1.4)];
         this.check('sizes follow the short side and the touch scale, shrinking only to fit', big[0] < big[1] && big[1] < big[2] && Math.abs(big[1] - TOUCH_UNIT_MAX) < 0.01 && Math.abs(phone[0] - 375 * TOUCH_UNIT_VMIN) < 0.01 && phone[1] > phone[0] * 1.3, big.concat(phone).map((v) => v.toFixed(1)).join());
