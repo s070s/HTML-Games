@@ -66,7 +66,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.
   - The slot button does the same while the ability runs: `stepActor` sees a new press of `BTN.ABILITY1` / `ABILITY2` / `ULTIMATE` on a running toggle or channel (`pressedAgain`) and calls `tryActivate`, which ends it. The press that started it never ends it (only a new press counts).
   - `forceCast(id, abilityId)`: adrenaline combos, already paid.
-  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); once it has run the slot returns to the kit ultimate or empties, whatever the row category. In a soul mode (`rules.params.souls`) no reward loads: the slot stays Wrath Form's.
+  - `grantReward(id, abilityId)`: streak and boost rewards load the ultimate slot for one use (`rewardLoaded[id]`); a reward earned while one is loaded waits in a queue of 3 (`REWARD_QUEUE_SIZE`) and never replaces the loaded one; once it has run the slot returns to the kit ultimate or empties, whatever the row category. In a soul mode (`rules.params.souls`) no reward loads: the slot stays Wrath Form's.
   - `interrupt(id, 'damage'|'fire')`, `suppress(id, seconds)`, `end(id, slot, reason)`, `endAll`, `clearActor`, `clearMatch`.
 - `hudState(id, out)`: fills `out.slots` (up to 3) with `{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }` and `out.meter` with `{ kind, value 0..1, ready, energy 0..1, souls }`. `out` must be `{ slots: [], meter: {} }`. The array and its entries are reused (filled in place every call).
 - Hooks set by S13: `carrierCheck(id)` and `hiddenFromPulse(id)` (the Ghost perk).
@@ -84,9 +84,9 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 
 - `Buffs.add(id, BUFF.X, value, seconds)`, `get` (neutral value when off), `has`, `remaining`, `cancel`, `clear(id)`.
   - Each kind keeps 3 overlapping entries with their own value and end time. The same value extends its entry; `get` returns the strongest live entry (the lowest for slows). A strong short buff never lasts as long as a weak long one.
-  - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, KNOCKBACK, ENERGY_REGEN, MELEE. INVISIBLE sets `ACTOR_FLAG.INVISIBLE` only while the actor is not frozen (G08: a freeze stops a cloak; it comes back when the freeze ends).
+  - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, ENERGY_REGEN, MELEE (GRAVITY and RATE_SLOW are described below). INVISIBLE sets `ACTOR_FLAG.INVISIBLE` only while the actor is not frozen (G08: a freeze stops a cloak; it comes back when the freeze ends).
   - **Buffs is the single writer of `Move.statusSpeedScale` and `Weapons.rateScale`** (`Buffs.applyScales(id)`, every step and whenever the powerup set changes): speed = SPEED x SLOW x `Powerups.speedScale`, fire rate = RATE x `Powerups.rateScale`. Other sections that need a speed or fire-rate change use `Buffs.add` (or, like powerups, keep their own factor that `applyScales` multiplies in).
-  - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`.
+  - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`, and (A06 Phase Slip, through `Gadgets.attackLocks`) also stops grenades, gadgets and offensive abilities; a grenade being cooked when it starts is put away (kept). Rally (A40 Rally Cry) gives every living ally surplus shield inside the PU07 surplus cap, and that surplus is lost again after 8 s (`RallyShield`; one pool, a later rally moves the end) together with the speed buff.
 - `AbilityZones`: a pool of 48 placed effects, stored as a struct of arrays.
   - Fields: `alive`, `kind` (`ZONE_KIND`), `owner`, `team`, `ability`, `x/y/z`, `radius`, `height`, `timeLeft`, `target`, `other`, `value`, `persist`.
   - Methods: `add(kind, owner, row, x, y, z, seconds)` returns the zone index, `find(kind, owner)`, `remove(zone)`, `removeOwned(id, keepPersistent)`, `clear()`, `inside(zone, id)`.
@@ -102,7 +102,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - `FloorSurfaces`: a pool of 16 patches as a struct of arrays (`active`, `row`, `owner`, `x/y/z`, `radius`, `endTick`); a full pool replaces the patch that ends first. `spill(row, owner, x, y, z)` drops a patch on the floor below the point (up to 4 m), `spillUnder(id, key, owner)`, `stands(slot, id)` (feet within 0.6 m of the patch height, inside its radius), `clear()` (every world load and clear).
 - Sources: a breakable prop whose material a row names breaks (`world.break`: material `oil` = an oil drum, `water` = a water tank; MP07 Cistern has one of each, MP12 Ash Manor an oil drum, and `MapRules.materials` lists `oil` so map codes and the editor accept oil props), and Burn thawing a Freeze (12f) spills a wet patch under the target.
 - Reactions: a `Damage.statusHooks` entry after the 12f combos. A status a patch `spreads` landing on someone in it lands on everyone standing in it; its `igniteStatus` on someone in it, or an `explosion` of its `igniteElement` within its radius plus the blast radius, turns it into `becomes` and lights every touching patch that can burn; a patch that can burn spilled later against a burning one lights at once (credited to that fire's igniter). Statuses a combo hands out (`ComboState.spreading`) never react again. A G04 fire area lights the oil it overlaps on every step (`FloorSurfaces.igniteNear`, shared with explosions), since its pop is announced with radius 0.
-- Burning patches hurt on the G04 fire area tick (0.25 s, `AREA_TICK`) through the shared 12c `fireAreaHit` (`Damage.apply`, kind `dot`, credited to the igniter, team rules apply; the status only on a real hit), and smoke (`Smoke.covers`) puts them out as it does a G04 fire area. Sim system `surfaces` at order 57; render source `surfaces` draws each patch as a flat disc (`meshFrom`, no allocation).
+- Burning patches hurt on the G04 fire area tick (0.25 s, `AREA_TICK_SECONDS` in 11b) through the shared 12c `fireAreaHit` (`Damage.apply`, kind `dot`, credited to the igniter, team rules apply; the status only on a real hit), and smoke (`Smoke.covers`) puts them out as it does a G04 fire area. Sim system `surfaces` at order 57; render source `surfaces` draws each patch as a flat disc (`meshFrom`, no allocation).
 
 ## Meters (`src/12g-abilities-meters.js`)
 
@@ -116,7 +116,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
 - Match meter `rules.meter` (catalogue `meters`):
   - `streak` (rewards at 300/500/800 meter points, 100 per scoreboard point, resets on death).
   - `boost` (0.5/s + 4 per point; rewards at 50/80, then it starts over).
-  - `adrenaline` (5 per kill, +10 every 5th kill in a life, +25 per capture; four direction taps with a full meter: FFFF BBBB LLRR FFBB).
+  - `adrenaline` (5 per kill, +10 every 5th kill in a life, +25 per capture; four direction taps, each within 0.25 s (`TAP_WINDOW`) of the one before, with a full meter: FFFF BBBB LLRR FFBB).
   - `ultimate` (5/s + 1 per HP of damage or healing dealt; the ultimate slot pays `ultimateCost(row)`).
   - `energy`.
 - `Meters.points[id]`, `max()`, `fraction(id)`, `paysUltimate()`, `addPoints`, `spendPoints`, `addHealing`, `streakDiscount[id]` (the Hardline perk), `hudState(id, out)` (its `souls` = `Powerups.souls[id]`).
@@ -184,7 +184,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 - A35 telekinesis pulls on press and punts on release. It cannot hold a prop, because S11's lifter needs the weapon drawn.
 - A19 time bend slows actor movement only. In single player and PvE the field covers the whole map, except the user.
 - A15 scout drone: the pilot stands still and cannot fire, and the drone ends in an EMP (r `empRadius`, `empSeconds`): enemies in the radius get 'stun' (non-electric, so no HP-005 Shock combo) and `Gadgets.suppress` (shield recharge paused, gadgets and abilities held), enemy devices in the radius switch off (`Gadgets.empDevices`). There is no drone camera yet.
-- A16 footprints are drawn only for the local player's tracker.
+- A16 footprints are drawn only for the local player's tracker. Each enemy of a Tracker Sense holder keeps its own ring of prints (`FOOTPRINT_RING` 40, about 8 s at a base sprint, fewer when sped up); a step quieter than `FOOTPRINT_MIN_LOUDNESS` (a crouch-walk, a Quietstep step) leaves none.
 - A17 veil curtain is real smoke (`Smoke.add`): it blocks bot sight and aim assist like a G02 cloud.
 - A12 relocator: placing the beacon and teleporting to it each cost a charge.
 - Hooks into S10: glide gravity through `Move.gravityScale`, Marathon through `Move.staminaScale`, Quietstep through `Move.footstepScale` (13d sets both perks; the footstep sound reads the loudness).
