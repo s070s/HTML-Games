@@ -66,10 +66,20 @@ function ladderLoadouts(ladder, melee) {
   });
 }
 
-// ---- M17 Blight: everyone starts human (team 0); after infectAfter s one in infectedPerPlayers becomes infected (team 1:
-// infectedHealth HP, melee only, a jump is a leap). A hit does not turn a human: any death after the outbreak does (a kill by
+// ---- M17 Blight: everyone starts human (team 0); after infectAfter s some become infected (team 1: infectedHealth HP,
+// melee only, a jump is a leap; how many: outbreakSize). A hit does not turn a human: any death after the outbreak does (a kill by
 // the infected, a fall, a hazard), so a human who dies comes back infected (the mode row's goal says the same).
 // The infected win when no human is left; humans win at the time limit ----
+
+// How many start infected: one in infectedPerPlayers on a map of infectedArea square metres, scaled by the map's floor area
+// (blight-01: starting 2 of 12 everywhere, the Blight won all 6 test matches on Spire, 2500 square metres, and lost 5 of 6 on
+// Gantry, 8000, to its long sight lines; now 1 and 3 start). At least one; a map without a size counts as infectedArea.
+function outbreakSize(players, params) {
+  const size = World.map ? World.map.size : null;
+  const areaScale = Array.isArray(size) ? size[0] * size[2] / params.infectedArea : 1;
+  return Math.max(1, Math.round(players / params.infectedPerPlayers * areaScale));
+}
+
 Modes.register('infection', {
   limits: ['time'],
   outbreak: false, meleeLoadout: null,
@@ -89,7 +99,7 @@ Modes.register('infection', {
   },
   startOutbreak(params) {
     this.outbreak = true;
-    const wanted = Math.max(1, Math.floor(this.countSides() / params.infectedPerPlayers));
+    const wanted = outbreakSize(this.countSides(), params);
     for (let k = 0; k < wanted; k++) {
       const id = randomAliveMember(HUMAN_TEAM, -1);
       if (id >= 0) this.infect(id);
