@@ -128,8 +128,13 @@ Test.add('economy', (check) => {
   const kept = firstWeaponForSale(0);
   Economy.buy(0, kept.id); Economy.buy(0, 'vest');
   Economy.buy(1, firstWeaponForSale(1).id);
+  const keptSlot = Weapons.slotIndex(0, CAT.weapons.byId(kept.key).index);
+  runUntilPhase(PHASE.LIVE);
+  Weapons.magazine[keptSlot] = 1; Weapons.reserve[keptSlot] = 2;
   winRound(1, 0);
   check('ECP02 survivors keep bought weapons and armor', Weapons.has(0, kept.key) && Actors.armor[0] === 100, Actors.armor[0]);
+  check('ECP02 a kept weapon keeps its ammo, no free refill (modes-09)', Weapons.magazine[keptSlot] === 1 && Weapons.reserve[keptSlot] === 2,
+    Weapons.magazine[keptSlot] + '/' + Weapons.reserve[keptSlot]);
   check('ECP02 the dead lose bought weapons', !Weapons.has(1, kept.key));
   endModeTest();
 });
@@ -157,7 +162,8 @@ Test.add('economy', (check) => {
     horde.lines.join(' | '));
   TestArena.finish();
   TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
-  check('economy panel: Arms Ladder shows the weapon ladder', economyPanelLines().lines.some((line) => line.includes('ladder of 18 weapons')));
+  const played = ladderTiers(CAT.modes.byId('gungame').params).length;
+  check('economy panel: Arms Ladder names the played ladder length (14)', played === 14 && economyPanelLines().lines.some((line) => line.includes('ladder of ' + played + ' weapons')));
   TestArena.finish();
   TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
   check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));
@@ -216,7 +222,7 @@ Test.add('economy', (check) => {
   check('ECP07 round-buy items are not sold in the shop', Economy.buy(fighter, 'vest').reason === 'unknown');
   const played = ladderTiers(CAT.modes.byId('gungame').params);
   check('ECP06 one ladder: the economy row and the played tiers share GUNGAME_LADDER, no second lookup',
-    CAT.economy.byId('ladder').ladder === GUNGAME_LADDER && played[0] === GUNGAME_LADDER[0] && played[17] === 'maul' && Economy.ladderWeapon === undefined);
+    CAT.economy.byId('ladder').ladder === GUNGAME_LADDER && played[0] === GUNGAME_LADDER[0] && played[played.length - 1] === 'maul' && Economy.ladderWeapon === undefined);
   TestArena.finish();
 });
 
@@ -243,6 +249,31 @@ Test.add('economy', (check) => {
   Economy.clearPerks(rifleman);
   check('ECP04 clearing perks restores the stats', Test.near(Weapons.statScale[base + STAT.RESERVE], 1, 1e-6) && Economy.taken[rifleman] === 1);
   TestArena.finish();
+});
+
+// Perk texts restate their tuning numbers: every number in a text must follow from the row (a percent of a factor, the factor,
+// its inverse or the value), so a balance change cannot leave a stale text behind (normalize-06).
+Test.add('economy', (check) => {
+  const stale = CAT.perks.filter((perk) => {
+    const shown = Object.values(perk.stats).concat([perk.dealt, perk.taken, perk.value]).flatMap((n) => [Math.round(Math.abs(n - 1) * 100), n, Math.round(100 / n) / 100]);
+    return (perk.text.match(/\d+(\.\d+)?/g) || []).some((text) => !shown.includes(Number(text)));
+  });
+  check('every number in a perk text follows from its stats or value', stale.length === 0, stale.map((perk) => perk.id).join());
+});
+
+// RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
+Test.add('economy', (check) => {
+  const exotic = CAT.weaponSets.byId('exoticSet').weapons;
+  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(CLASS_SET_SWAPS.exoticSet[key]));
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'tdm', ruleset: 'frame', seed: 1, bots: CAT.classes.map((row, index) => ({ dummy: true, team: index % 2 })) });
+  Economy.applyClass(0, CAT.classes.byId('marksman'));
+  check('frame: classes carry Exotic weapons (Marksman: Talon Bow, Sparklock)', unswapped.length === 0 && Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock')
+    && !Weapons.has(0, 'longshot') && Weapons.has(1, CLASS_SET_SWAPS.exoticSet[Loadouts.classFor(1).primary]), unswapped.join());
+  const card = makeElement('div');
+  describeClass(card, CAT.classes.byId('marksman'));
+  check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('talonbow')) && !card.textContent.includes(weaponName('longshot')), card.textContent);
+  endModeTest();
 });
 
 Test.add('economy', (check) => {

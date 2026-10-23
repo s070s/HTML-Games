@@ -89,6 +89,11 @@ Test.add('custom', (check) => {
   check('a map that does not serve the mode is refused', bogus({ mode: 'duel', map: Maps.forMode('tdm').find((map) => !map.modes.includes('duel')).id }).includes('does not serve'));
   check('a code that is not an object is refused', CustomMatch.decode(codeWith([1, 2])).error === 'The code holds no settings.');
   check('a limit that makes no sense for the mode is dropped, not trusted', CustomMatch.decode(codeWith({ mode: 'ffa', roundWins: 3 })).draft.roundWins === -1);
+  // Editor maps are local save slots (user1 here is another map on the next device): a code never names one (meta-07).
+  Maps.registerRuntime(Object.assign({}, CAT.maps.byId('spire'), { id: 'user19' }));
+  const shared = CustomMatch.decode(CustomMatch.encode(Object.assign(CustomMatch.defaults(), { map: 'user19' }))), foreign = CustomMatch.decode(codeWith({ map: 'user19' }));
+  Maps.unregisterRuntime('user19');
+  check('a code leaves out an editor map; one that names it imports a random map and says why', shared.draft.map === '' && foreign.draft.map === '' && /editor/.test(foreign.note) && /generated/.test(foreign.note));
 });
 
 Test.add('custom', (check) => {
@@ -278,6 +283,13 @@ Test.add('custom', (check) => {
     const arrow = new KeyboardEvent('keydown', { code: 'ArrowLeft', bubbles: true, cancelable: true });
     boxes[1].dispatchEvent(arrow);
     check('text fields keep their arrow keys (menu navigation does not steal them)', !arrow.defaultPrevented);
+    Maps.registerRuntime(Object.assign({}, CAT.maps.byId('spire'), { id: 'user19' }));
+    EDITOR_STATE.draft.map = 'user19';
+    Ui.open('customShare');
+    const local = Ui.root.querySelectorAll('.ui-customShare');
+    check('share screen: the sender is told the local map is left out', local[local.length - 1].textContent.includes(SHARE_LOCAL_MAP_NOTE) && !share.textContent.includes(SHARE_LOCAL_MAP_NOTE));
+    Maps.unregisterRuntime('user19');
+    EDITOR_STATE.draft.map = '';
     Ui.closeAll();
   });
 });

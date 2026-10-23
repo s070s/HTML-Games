@@ -3,7 +3,7 @@
 // M13 plants and defuses a charge in rounds; M14 is elimination rounds with a shrinking safe area; M15 counts lives.
 
 const LMS_LIFE_WEIGHT = 1000;        // Last Standing ranks by lives left first, then by score
-const SAFE_AREA_HURT_INTERVAL = 1;           // the elimination safe area hurts once per second
+const ZONE_HURT_INTERVAL = 1;                // a closing zone (the M14 safe area, the M20 ring) hurts once per second
 const SAFE_AREA_FALLBACK_RADIUS = 50;
 
 const hazardRequest = { target: -1, source: -1, amount: 0, kind: 'hazard', element: 'kinetic', x: 0, y: 0, z: 0 };
@@ -221,7 +221,7 @@ Modes.register('elim', {
     if (remaining > params.shrinkTime) return;
     const radius = lerp(this.fullRadius, params.shrinkMinRadius, 1 - clamp(remaining / params.shrinkTime, 0, 1));
     Modes.hud.zoneX = this.centerX; Modes.hud.zoneZ = this.centerZ; Modes.hud.zoneRadius = radius;
-    if (intervalDue(this, 'hazardTimer', dt, SAFE_AREA_HURT_INTERVAL)) hurtOutsideZone(this.centerX, this.centerZ, radius, params.zoneDamage * SAFE_AREA_HURT_INTERVAL);
+    if (intervalDue(this, 'hazardTimer', dt, ZONE_HURT_INTERVAL)) hurtOutsideZone(this.centerX, this.centerZ, radius, params.zoneDamage * ZONE_HURT_INTERVAL);
   },
 });
 

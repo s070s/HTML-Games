@@ -103,7 +103,7 @@ const BuyMenu = {
   // ECO-001: the loss ladder with the step a loss would pay next highlighted (redrawn only when that step changes).
   drawLadder(id) {
     const ladder = Economy.preset().lossLadder, team = id >= 0 ? Actors.team[id] : -1;
-    const next = team >= 0 && team < TEAM_SIDES ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
+    const next = team >= 0 && team < TEAM_COUNT ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
     const key = ladder.join() + ':' + next;
     if (key === this.ladderKey) return;
     this.ladderKey = key;
@@ -177,7 +177,7 @@ function renderClassesTab(body) {
 }
 function describeClass(element, row) {
   appendLines(element, [
-    'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
+    'Primary: ' + weaponName(Economy.classWeapon(row.primary)) + '  ·  Secondary: ' + weaponName(Economy.classWeapon(row.secondary)),
     'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
     'Perks: ' + row.perks.map(perkName).join(', '),
     'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),

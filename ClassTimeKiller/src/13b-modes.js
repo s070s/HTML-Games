@@ -14,6 +14,7 @@ const LIVES_UNLIMITED = -1;
 const TIME_EPSILON = 1e-6;             // sim times are sums of 1/120 s steps: compare with a little slack
 const OVERTIME_SECONDS = 180;          // MODE-001: sudden death lasts at most 3 minutes, then the match is a draw
 const TIME_WARNINGS = [300, 60, 30, 10];
+const MODE_GOAL_PRIORITY = 3;          // the match start banner (mode name and goal) stays up long enough to read
 const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
@@ -36,8 +37,7 @@ const OBJECTIVE_COMPANIONS = { flag: 'flagBase' };        // kinds created toget
 const CARRIABLE_KINDS = ['flag', 'relic', 'bomb'];
 const NEAR_ANY = 0, NEAR_TEAM = 1, NEAR_ENEMY = 2;       // findActorNear relation filters
 const PHASE = { IDLE: 'idle', FREEZE: 'freeze', LIVE: 'live', ROUND_END: 'roundEnd', ENDED: 'ended' };
-const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // blue, red, neutral
-const NEUTRAL_COLOR = 2;
+const NEUTRAL_MARKER_COLOR = 0xd9d9d9;  // an unowned zone, a contested cart
 const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
 const markerInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });   // objective and role markers (each sets place, size, colour)
@@ -126,6 +126,7 @@ const Modes = {
     this.competitorsAtStart = this.countStanding();
     this.skipWarnings();
     this.behaviour.start();
+    if (this.mode.goal) this.announce(this.mode.name + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
     if (this.rules.rounds) this.startRound(Sim.time);
     else this.beginOpenPlay();
   },
@@ -822,7 +823,9 @@ const Modes = {
     const teams = this.rules.teams === TEAM_COUNT, players = [];
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) players.push(this.playerResult(id));
     players.sort((a, b) => b.score - a.score || b.kills - a.kills || a.deaths - b.deaths);
-    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW, reason: this.endReason,
+    // A co-op side (one team, or a solo run) or a lone competitor has no rival to draw with: ending with no winner means it lost.
+    const lost = winner === DRAW && (this.competitorsAtStart < 2 || (!teams && this.rules.family !== 'versus'));
+    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW && !lost, lost, reason: this.endReason,
       winnerTeam: teams && winner >= 0 ? winner : NO_TEAM, winnerId: !teams && winner >= 0 ? winner : -1,
       duration: Sim.time - this.startTime, rounds: this.round, players,
       teams: teams ? [this.teamResult(0, players), this.teamResult(1, players)] : [], queue: this.queueAfter(winner) };
@@ -892,6 +895,16 @@ function formatTimeWarning(seconds) {
   return minutes + (minutes === 1 ? ' minute remaining' : ' minutes remaining');
 }
 
+// A marker colour in the team colours of the bodies and the HUD (CAT.teamColors, or the colour-blind palette 18m puts in
+// Render.teamPalette); no team is neutral. Written into one reused triple, so a marker allocates nothing.
+const markerColor = new Float32Array(3);
+function teamMarkerColor(team) {
+  let color = NEUTRAL_MARKER_COLOR;
+  if (team === 0 || team === 1) color = Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team].color;
+  writeColor(markerColor, 0, color);
+  return markerColor;
+}
+
 // Markers: zones as rings in the owner's colour, carriables as small shapes (above the carrier's head when carried).
 function drawObjective(batch, objective) {
   if (!objective.active || objective.kind === 'payloadPath') return;
@@ -899,7 +912,7 @@ function drawObjective(batch, objective) {
   if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
   const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
-  instance.setRgb(TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR]);
+  instance.setRgb(teamMarkerColor(team));
   instance.x = objective.x; instance.z = objective.z;
   if (!carriable) {
     instance.y = objective.y + 0.05; instance.sx = instance.sz = objective.radius; instance.sy = 1;

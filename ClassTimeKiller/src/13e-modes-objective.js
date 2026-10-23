@@ -23,7 +23,6 @@ const MODE_HUD_EXTRAS = {
   payloadProgress: 0, payloadCheckpoint: 0, payloadCheckpoints: 0, payloadState: '', survivors: 0, infected: 0,
   ringPhase: 0, ringPhases: 0, ringState: '', ringTimeLeft: 0, ringDamage: 0, ringNextX: 0, ringNextZ: 0, ringNextRadius: 0, aliveCount: 0,
 };
-const TICKETS_PER_DEATH = 1;
 const CART_SIZE = [1.6, 1.2, 2.4];
 const CART_LIFT = 0.6;
 const prizeScratch = [];
@@ -170,7 +169,7 @@ Modes.register('rush', {
     relay.goals = OBJECTIVE_GOALS.arm;
   },
   onKill(victim) {
-    if (victim >= 0 && Modes.participant[victim] && Actors.team[victim] === Modes.attackingTeam()) spendTickets(Actors.team[victim], TICKETS_PER_DEATH, 'death');
+    if (victim >= 0 && Modes.participant[victim] && Actors.team[victim] === Modes.attackingTeam()) spendTickets(Actors.team[victim], Modes.rules.params.deathCost, 'death');
   },
   anyArmed() {
     for (let i = 0; i < this.relays.length; i++) if (this.relays[i].active && this.relays[i].state === 'planted') return true;
@@ -429,7 +428,7 @@ function drawModeExtras(batch) {
     if (cart.kind !== 'payloadPath' || !cart.path) continue;
     instance.x = cart.x; instance.y = cart.y + CART_LIFT; instance.z = cart.z;
     instance.sx = CART_SIZE[0]; instance.sy = CART_SIZE[1]; instance.sz = CART_SIZE[2];
-    instance.setRgb(TEAM_COLORS[cart.contested ? NEUTRAL_COLOR : 0]);
+    instance.setRgb(teamMarkerColor(cart.contested ? NO_TEAM : 0));
     batch.meshFrom('box', instance);
   }
 }

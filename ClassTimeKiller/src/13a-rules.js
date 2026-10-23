@@ -30,11 +30,6 @@ const Rules = {
     if (!this.modifiers[stage]) throw new Error('unknown rule stage ' + stage);
     this.modifiers[stage].push(modify);
   },
-  removeModifier(stage, modify) {
-    const list = this.modifiers[stage] || [];
-    const index = list.indexOf(modify);
-    if (index >= 0) list.splice(index, 1);
-  },
   build(setup) {
     const rules = this.schemaDefaults();
     this.stagesRun.length = 0;

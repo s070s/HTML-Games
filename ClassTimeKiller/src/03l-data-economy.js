@@ -76,6 +76,13 @@ Data.define('classes', {
   { id: 'marksman', name: 'Marksman', primary: 'longshot', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
   { id: 'support', name: 'Support', primary: 'anvil', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
 ]);
+// Class weapons are Military set keys (presets and the custom class screen). A ruleset with another set swaps each one for the
+// weapon of the same role in its own set (13d Economy.applyClass): RS12 Frame Runner arms its classes from the Exotic set.
+const CLASS_SET_SWAPS = {
+  exoticSet: { warden: 'sparklock', verdict: 'sparklock', wasp: 'needlethorn', hornet: 'needlethorn', riptide: 'needlethorn', tempest: 'stormlash',
+    vanguard: 'accelerator', ratchet: 'stormlash', longshot: 'talonbow', kestrel: 'talonbow', heron: 'talonbow', scattergun: 'gloop', hailstorm: 'starthrower',
+    anvil: 'starthrower', kingfisher: 'auger' },
+};
 
 // Buy menu (roundBuy) equipment and wave shop items. Weapons of the match weapon set with a price are listed by 13d itself.
 // kind: armor | helmet (HPP04 vest / vest + helmet) | gadget (granted by the items section) | ammo (refill every weapon) | grant

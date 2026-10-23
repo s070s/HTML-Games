@@ -1418,7 +1418,7 @@ const OBJECTIVE_RUNS = [
   { mode: 'oddball', map: 'gantry', bots: 6, reason: 'hold', ends: true },
   { mode: 'gungame', map: 'gantry', bots: 6, reason: 'advance', ends: true },
   { mode: 'ghostops', map: 'dustline', bots: 8, reason: 'plant' },
-  { mode: 'infection', map: BOT_ARENA, bots: 8, reason: 'infect', ends: true },
+  { mode: 'infection', map: BOT_ARENA, bots: 8, reason: 'kill', ends: true },
   { mode: 'juggernaut', map: BOT_ARENA, bots: 6, hunted: true },
   { mode: 'cursetag', map: BOT_ARENA, bots: 6, hunted: true },
   { mode: 'bearer', map: BOT_ARENA, bots: 6, reason: 'hold', ends: true },

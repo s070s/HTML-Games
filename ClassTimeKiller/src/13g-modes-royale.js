@@ -7,7 +7,6 @@
 // squadmates spawn together, go down instead of dying (HPP06 downed, S11) and share params.squadBeacons respawn beacon
 // uses at one beacon per squad; the last squad standing wins. Drop-in: every spawn falls in from ROYALE_DROP_HEIGHT.
 
-const RING_HURT_INTERVAL = 1;          // the ring hurts once per second
 const RING_STATE = { WAIT: 'wait', SHRINK: 'shrink', CLOSED: 'closed' };
 const RING_COLOR = [0.35, 0.6, 1];
 const RING_NEXT_COLOR = [1, 1, 1];
@@ -19,7 +18,7 @@ const LOOT_GROUPS = ['weapon', 'armor', 'health', 'ammo'];
 const LOOT_GROUP = { WEAPON: 0, ARMOR: 1, HEALTH: 2, AMMO: 3 };
 const LOOT_CONSUMABLES = ['patch', 'cell', 'medkit', 'battery', 'fizzcan'];   // health spots by rarity: I13 I15 I14 I16 I17
 const LOOT_RARITY_COLORS = [[0.7, 0.7, 0.7], [0.3, 0.85, 0.3], [0.3, 0.55, 1], [0.7, 0.3, 0.95], [1, 0.8, 0.2]];   // common .. legendary
-const LOOT_SIZE = 0.5;
+const LOOT_RING_RADIUS = 0.5;          // the rarity ring under a weapon spot
 const LOOT_LIFT = 0.4;
 const ROYALE_STANDING_RANK = 1000;     // standing actors rank above everyone out, then by kills
 const ROYALE_DROP_HEIGHT = 30;         // m: drop-in height above the spawn (less under a roof: no drop indoors)
@@ -76,14 +75,15 @@ Modes.register('royale', {
   },
   onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
-    if (intervalDue(this, 'hurtTimer', dt, RING_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * RING_HURT_INTERVAL);
+    if (intervalDue(this, 'hurtTimer', dt, ZONE_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * ZONE_HURT_INTERVAL);
   },
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
   },
   // Counts sides standing: each squad once, each solo actor on its own. A won squad names the player when it is theirs.
-  isOver(now) {
-    if (Modes.competitorsAtStart < 2) return Modes.standardIsOver(now);
+  // A match that started with one competitor (Play with 0 bots) has no rival: it ends when nobody stands.
+  isOver() {
+    const fewest = Modes.competitorsAtStart < 2 ? 0 : 1;
     let standing = 0, sides = 0, last = DRAW;
     Squads.seen.fill(0, 0, Squads.count);
     for (let id = 0; id < Actors.count; id++) {
@@ -95,7 +95,7 @@ Modes.register('royale', {
       sides++; last = id;
     }
     Modes.hud.aliveCount = standing;
-    if (sides > 1) return NOT_OVER;
+    if (sides > fewest) return NOT_OVER;
     return Modes.over(sides === 1 ? squadWinner(last) : DRAW, 'eliminated');
   },
   score(id) { return Actors.alive[id] ? ROYALE_STANDING_RANK + Modes.kills[id] : royaleOutOrder[id]; },
@@ -352,14 +352,13 @@ function drawRoyale(batch) {
   drawRing(batch, Ring.x, ground, Ring.z, Ring.radius, RING_COLOR);
   if (Ring.state !== RING_STATE.CLOSED) drawRing(batch, Ring.toX, ground, Ring.toZ, Ring.toRadius, RING_NEXT_COLOR);
   const instance = royaleInstance;
-  instance.sx = LOOT_SIZE; instance.sy = LOOT_SIZE; instance.sz = LOOT_SIZE;
   royaleAmmoModel = ammoModelFor(Game.playerId);
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot]) continue;
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
     instance.x = RoyaleLoot.x[spot]; instance.y = RoyaleLoot.y[spot] + LOOT_LIFT; instance.z = RoyaleLoot.z[spot];
     instance.r = color[0]; instance.g = color[1]; instance.b = color[2];
-    if (RoyaleLoot.group[spot] === LOOT_GROUP.WEAPON) batch.meshFrom('box', instance);
+    if (RoyaleLoot.group[spot] === LOOT_GROUP.WEAPON) drawWeaponLoot(batch, spot, instance);
     else drawLootModel(batch, spot, instance);
   }
   const pose = royalePose;
@@ -390,9 +389,16 @@ function drawLootModel(batch, spot, instance) {
   pose.r = rgb[offset]; pose.g = rgb[offset + 1]; pose.b = rgb[offset + 2];
   Models.draw(batch, PICKUP_MODELS[PICKUP_KIND.ITEM][heal.index], pose);
 }
+// A weapon spot shows the gun's own model (03q), spinning like a map weapon pickup, over a ring in its rarity colour.
+function drawWeaponLoot(batch, spot, instance) {
+  instance.yaw = Sim.time * PICKUP_SPIN;
+  drawWeaponPickup(batch, RoyaleLoot.weapon[spot], instance, false);
+  instance.y = RoyaleLoot.y[spot] + RING_LIFT; instance.sx = LOOT_RING_RADIUS; instance.sy = 1; instance.sz = LOOT_RING_RADIUS;
+  batch.meshFrom('ring', instance);
+}
 
-// Loot boxes and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
-// loop would box 13 float arguments per box); the rings are two calls a frame.
+// The loot rings and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
+// loop would box 13 float arguments per ring); the ring markers are two calls a frame.
 const royaleInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });
 function drawRing(batch, x, ground, z, radius, color) {
   const instance = royaleInstance;

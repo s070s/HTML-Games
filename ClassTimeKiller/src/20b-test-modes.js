@@ -59,6 +59,8 @@ Test.add('modes', (check) => {
     check('mode ' + mode.code + ' ' + mode.id + ' row is valid and builds', [0, 1, 2].includes(mode.teams) && mode.sizeDefault > 0 && roundsOk
       && CAT.rulesets.byId(mode.ruleset) && ['normal', 'round', 'none'].includes(mode.respawn) && Rules.problems.length === 0, Rules.problems.join('; '));
   }
+  const noGoal = CAT.modes.filter((mode) => !mode.goal || /\d/.test(mode.goal)).map((mode) => mode.id);
+  check('every mode has a one-line goal text, with no number that lives in another field (fun-02)', noGoal.length === 0, noGoal.join());
   for (const line of EXPECTED_MODES) {
     const [id, teams, size, scoreLimit, timeLimit] = line.split(' ');
     const row = CAT.modes.byId(id);
@@ -170,6 +172,8 @@ Test.add('modes', (check) => {
 
   const announcements = startEventLog('announce');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { timeLimit: 120 } });
+  check('the match start announces the mode and its goal (fun-03)', announcements.length > 0 && announcements[0].kind === 'mode'
+    && announcements[0].text === CAT.modes.byId('ffa').name + ': ' + CAT.modes.byId('ffa').goal, announcements.length && announcements[0].text);
   runSeconds(60.01);
   check('time warning at 1 minute', announcements.some((event) => event.text === '1 minute remaining'));
   runSeconds(60);
@@ -742,4 +746,24 @@ Test.add('modes', (check) => {
   Sim.run(4);
   check('respawned after rules.respawn.delay with health and a weapon', Actors.alive[victim] && Actors.health[victim] === health && Weapons.currentWeapon(victim) !== null);
   Game.stop();
+});
+
+// PERF-006: the per-step mode code measures with length2 / length3, never the boxing Math.hypot (normalize-07).
+Test.add('modes', (check) => {
+  const perStep = [Modes.rateSpawn, Modes.inZone, Economy.buyBlock, chooseNextCircle, centralSpot];
+  const boxed = perStep.filter((fn) => /Math\.hypot/.test(String(fn))).map((fn) => fn.name);
+  check('spawn rating, zone tests, the buy zone and the ring use no Math.hypot', perStep.every((fn) => typeof fn === 'function') && boxed.length === 0, boxed.join());
+});
+
+// Objective markers use the team colours of the bodies and the HUD, colour-blind palette included (normalize-02).
+Test.add('modes', (check) => {
+  const drawn = [], palette = Render.teamPalette, flag = makeObjective({ kind: 'flag', team: 1 }, 0);
+  const recorder = { mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { drawn.push(Math.round(r * 255) * 65536 + Math.round(g * 255) * 256 + Math.round(b * 255)); } };
+  Render.teamPalette = [0x0072b2, 0xffb000];
+  drawObjective(recorder, flag);
+  Render.teamPalette = null;
+  drawObjective(recorder, flag);
+  drawObjective(recorder, makeObjective({ kind: 'point' }, 1));
+  Render.teamPalette = palette;
+  check('markers: team colours with and without the colour-blind palette, neutral when unowned', drawn.join() === [0xffb000, colorNumber(CAT.teamColors[1].color), 0xd9d9d9].join(), drawn.join());
 });

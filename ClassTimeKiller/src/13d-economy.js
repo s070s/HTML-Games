@@ -4,7 +4,6 @@
 // saved in Save.data.loadouts. The one loss-bonus rule (ECO-001, MIS-010): every team has a loss counter; a lost or drawn
 // round adds 1, a won round sets it to 0, the side switch resets it. A loss pays lossLadder[min(counter, length) - 1].
 
-const TEAM_SIDES = 2;
 const SPAWN_ROOM_RADIUS = 8;             // ECP05: heroes may be switched this close to the last spawn point
 const CUSTOM_CLASS_MAX = 10;             // ECP04: 6 preset classes + 10 custom
 const CUSTOM_CLASS_PREFIX = 'class-';
@@ -18,7 +17,7 @@ const VEST_ITEM = CAT.buyItems.find((item) => item.kind === 'armor');   // a hel
 
 const Economy = {
   credits: new Int32Array(MAX_ACTORS),
-  lossCount: new Int8Array(TEAM_SIDES),
+  lossCount: new Int8Array(TEAM_COUNT),
   swapped: false,                  // the half the money belongs to (Modes.swapped when it was set)
   match: null,                     // the Game.match the state belongs to
   buyUntil: new Float64Array(MAX_ACTORS),                        // end of the actor's buy time: from the round start in round modes, else its spawn
@@ -27,6 +26,7 @@ const Economy = {
   spawnX: new Float32Array(MAX_ACTORS), spawnZ: new Float32Array(MAX_ACTORS),
   died: new Uint8Array(MAX_ACTORS),                              // died since the last spawn (survivors keep their gear)
   kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // weapons a survivor carried at the round end
+  keptMagazine: new Int16Array(MAX_ACTORS * WEAPON_COUNT), keptReserve: new Int16Array(MAX_ACTORS * WEAPON_COUNT),   // ... with their ammo
   keptHeld: new Int16Array(MAX_ACTORS).fill(-1),                 // ... the one in its hand
   keptGadgets: new Uint8Array(MAX_ACTORS * GADGET_COUNT),        // ... and its grenade and gadget uses
   keptArmor: new Float32Array(MAX_ACTORS), keptHelmet: new Uint8Array(MAX_ACTORS),
@@ -85,7 +85,7 @@ const Economy = {
   payRound(winner) {
     const preset = this.preset();
     if (!preset.money) return;
-    for (let team = 0; team < TEAM_SIDES; team++) {
+    for (let team = 0; team < TEAM_COUNT; team++) {
       const won = team === winner;
       this.lossCount[team] = won ? 0 : this.lossCount[team] + 1;
       const reward = won ? preset.winReward : this.lossBonus(team);
@@ -100,7 +100,11 @@ const Economy = {
     this.keptArmor[id] = alive ? Actors.armor[id] : 0;
     this.keptHelmet[id] = alive ? Damage.helmet[id] : 0;
     this.keptHeld[id] = alive ? Weapons.current[id] : -1;
-    for (let w = 0; w < WEAPON_COUNT; w++) this.kept[id * WEAPON_COUNT + w] = alive ? Weapons.owned[Weapons.slotIndex(id, w)] : 0;
+    for (let w = 0; w < WEAPON_COUNT; w++) {
+      const slot = Weapons.slotIndex(id, w), index = id * WEAPON_COUNT + w;
+      this.kept[index] = alive ? Weapons.owned[slot] : 0;
+      this.keptMagazine[index] = Weapons.magazine[slot]; this.keptReserve[index] = Weapons.reserve[slot];
+    }
     for (let row = 0; row < GADGET_COUNT; row++) this.keptGadgets[id * GADGET_COUNT + row] = alive ? Gadgets.count[id * GADGET_COUNT + row] : 0;
   },
 
@@ -132,7 +136,12 @@ const Economy = {
   },
   // Runs after the start loadout and kit (S11, S12 spawn listeners): only what is missing comes back, so nothing is doubled.
   restoreKept(id) {
-    for (let w = 0; w < WEAPON_COUNT; w++) if (this.kept[id * WEAPON_COUNT + w] && !Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.give(id, CAT.weapons[w].id, 0);
+    for (let w = 0; w < WEAPON_COUNT; w++) {
+      const slot = Weapons.slotIndex(id, w), index = id * WEAPON_COUNT + w;
+      if (!this.kept[index] || Weapons.owned[slot]) continue;
+      Weapons.give(id, CAT.weapons[w].id, 0);
+      Weapons.magazine[slot] = this.keptMagazine[index]; Weapons.reserve[slot] = this.keptReserve[index];   // its ammo as it was, no free refill
+    }
     const held = this.keptHeld[id];
     if (held >= 0 && Weapons.owned[Weapons.slotIndex(id, held)]) Weapons.current[id] = held;
     for (let row = 0; row < GADGET_COUNT; row++) {
@@ -142,11 +151,13 @@ const Economy = {
     if (this.keptArmor[id] > 0) Actors.armor[id] = Math.max(Actors.armor[id], this.keptArmor[id]);
     if (this.keptHelmet[id]) Damage.helmet[id] = 1;
   },
+  // A class weapon (a Military key) as the ruleset's set arms it (CLASS_SET_SWAPS); the class card names the same weapon.
+  classWeapon(key) { return (CLASS_SET_SWAPS[currentWeaponSet().id] || {})[key] || key; },
   // ECP04: the class weapons (melee of the set kept), perk stats before the weapons so reserves include Bandolier.
   applyClass(id, row) {
     this.applyPerks(id, row.perks);
     const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
-    Weapons.setLoadout(id, melee.concat([row.secondary, row.primary]));
+    Weapons.setLoadout(id, melee.concat([this.classWeapon(row.secondary), this.classWeapon(row.primary)]));
     Gadgets.clearGrenades(id);
     this.grant(id, 'gadget', row.lethal);
     this.grant(id, 'gadget', row.tactical);
@@ -328,7 +339,7 @@ const Economy = {
     if (rounds && preset.halfReset && rounds.switchAt > 0 && Modes.round === rounds.switchAt) return preset.startMoney;
     if (!rounds || Modes.phase === PHASE.ROUND_END) return this.credits[id];
     const team = Actors.team[id];
-    const bonus = team >= 0 && team < TEAM_SIDES ? ladderValue(preset.lossLadder, this.lossCount[team] + 1) : 0;
+    const bonus = team >= 0 && team < TEAM_COUNT ? ladderValue(preset.lossLadder, this.lossCount[team] + 1) : 0;
     return preset.maxMoney > 0 ? Math.min(preset.maxMoney, this.credits[id] + bonus) : this.credits[id] + bonus;
   },
   // Fills out { money, nextRoundMoney, canBuy, buyTimeLeft } for the HUD.
