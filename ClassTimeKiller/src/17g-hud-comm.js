@@ -17,6 +17,7 @@ const COMM_WHEEL_LABEL_GAP = 4, COMM_WHEEL_TOUCH_GAP = 4;   // design pixels: ic
 // On phones the ring fits below the ability row (its top bound) and beside the grenade button (the inner edge of the lower
 // buttons), so no label sits under a default touch button and the whole ring stays on screen at any phone size.
 const COMM_WHEEL_TOUCH_ROOF = 'ability1', COMM_WHEEL_TOUCH_WALL = 'grenade';
+const COMM_WHEEL_FIT_ROUNDS = 8;       // cuts of the phone box for buttons still under a callout (commWheelPlaceRing)
 
 const CommWheel = {
   open: false,
@@ -132,21 +133,48 @@ function commWheelWidestLabel(unit) {
 }
 // Phones: the box runs from below the ability row to the HUD bottom, and from the screen margin to the grenade button (the other
 // way round in the left-handed layout); the ring is as large as fits there with its picked icon and labels, never above
-// COMM_WHEEL_RADIUS.
+// COMM_WHEEL_RADIUS. A shown button still under a callout (moved or grown in the layout editor) cuts the box on its side.
+const commWheelBox = { left: 0, top: 0, right: 0 };
 function commWheelPlaceRing(layout) {
-  const ring = commWheelRing, unit = layout.unit;
+  const ring = commWheelRing, unit = layout.unit, box = commWheelBox;
   ring.x = layout.centerX; ring.y = layout.centerY; ring.radius = COMM_WHEEL_RADIUS * unit;
   if (!layout.touch) return ring;
   const gap = COMM_WHEEL_TOUCH_GAP * unit;
   const roof = TouchInput.places[COMM_WHEEL_TOUCH_ROOF], wall = TouchInput.places[COMM_WHEEL_TOUCH_WALL];   // where the layer draws them (placeAll)
-  const top = roof.y + roof.radius + gap, wallHalf = wall.radius + gap, wallX = wall.x;
-  const mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
-  const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
-  const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
+  const wallHalf = wall.radius + gap, wallX = wall.x, mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
+  box.top = roof.y + roof.radius + gap;
+  box.left = mirrored ? wallX + wallHalf : layout.left; box.right = mirrored ? layout.right : wallX - wallHalf;
+  for (let round = 0; ; round++) {
+    commWheelFitBox(layout, ring, box);
+    const place = round < COMM_WHEEL_FIT_ROUNDS && commWheelBlocker(ring, unit);
+    if (!place) return ring;
+    const reach = place.radius + gap;
+    if (place.y < ring.y) box.top = Math.max(box.top, place.y + reach);
+    else if (place.x < ring.x) box.left = Math.max(box.left, place.x + reach);
+    else box.right = Math.min(box.right, place.x - reach);
+  }
+}
+// The largest ring in the box down to the HUD bottom, with room for its picked icons and labels.
+function commWheelFitBox(layout, ring, box) {
+  const unit = layout.unit, icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
   const below = icon + COMM_WHEEL_LABEL_GAP * unit + hudTextHalf(HUD_TEXT_SMALL * unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
-  ring.radius = Math.max(0, Math.min(ring.radius, (layout.bottom - top - above - below) / 2, (right - left) / 2 - side));
-  ring.x = (left + right) / 2; ring.y = (top + above + layout.bottom - below) / 2;
-  return ring;
+  ring.radius = Math.max(0, Math.min(COMM_WHEEL_RADIUS * unit, (layout.bottom - box.top - above - below) / 2, (box.right - box.left) / 2 - side));
+  ring.x = (box.left + box.right) / 2; ring.y = (box.top + above + layout.bottom - below) / 2;
+}
+// The first shown touch button (the floating stick aside) that meets a callout at its picked size (the box from its icon's top
+// to its label's bottom, as wide as the wider of the two), else null.
+function commWheelBlocker(ring, unit) {
+  const spot = commWheelSpot, textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), places = TouchInput.places;
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) {
+    commWheelSpotOf(ring, i, true, unit, spot);
+    const iconHalf = spot.size / 2, halfWidth = Math.max(HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit) / 2, iconHalf);
+    const top = spot.y - iconHalf, bottom = spot.labelY + textHalf;
+    for (let c = 1; c < TOUCH_CONTROLS.length; c++) {   // TOUCH_CONTROLS[0] is the stick
+      const place = places[TOUCH_CONTROLS[c].id];
+      if (place.shown && length2(clamp(place.x, spot.x - halfWidth, spot.x + halfWidth) - place.x, clamp(place.y, top, bottom) - place.y) < place.radius) return place;
+    }
+  }
+  return null;
 }
 // One callout's icon centre and size and its label's centre line; the first at the top, then clockwise.
 function commWheelSpotOf(ring, index, picked, unit, out) {
