@@ -39,6 +39,7 @@ const Abilities = {
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
   choices: new Array(MAX_ACTORS).fill(null),                       // loadout choice { hero, ability1, ability2, ultimate } or null
   drawn: new Array(MAX_ACTORS).fill(null),                         // hero drawn for an actor without a choice, kept for the match
+  drawnTeam: new Int8Array(MAX_ACTORS),                            // the team that hero was drawn for (auto-balance may move a bot)
   heroMove: new Uint8Array(MAX_ACTORS),                            // this section set Move.setPreset for the actor
   effects: {},      // effect kind -> { cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) }
   passives: {},     // hero passive kind -> { step(id, passive, dt) }
@@ -70,8 +71,13 @@ const Abilities = {
   pickHero(id) {
     const mirrored = this.mirroredHero(id);
     if (mirrored) return mirrored;
-    return this.wantedHero(id) || this.drawn[id] || (this.drawn[id] = this.drawHero(id));
+    const wanted = this.wantedHero(id) || this.keptDraw(id);
+    if (wanted) return wanted;
+    this.drawnTeam[id] = Actors.team[id];
+    return (this.drawn[id] = this.drawHero(id));
   },
+  // The hero drawn for the actor while it is still on the team it was drawn for, else null.
+  keptDraw(id) { return this.drawnTeam[id] === Actors.team[id] ? this.drawn[id] : null; },
   wantedHero(id) {
     const choice = this.choices[id], profile = Actors.profile[id];
     return CAT.heroes.byId((choice && choice.hero) || (profile && profile.hero) || '');
@@ -89,7 +95,7 @@ const Abilities = {
     const heroes = [];
     for (let other = 0; other < Actors.count; other++) {
       if (other === id || Actors.kind[other] === ACTOR_KIND.NONE || Actors.team[other] !== Actors.team[id]) continue;
-      const hero = this.wantedHero(other) || this.drawn[other];
+      const hero = this.wantedHero(other) || this.keptDraw(other);
       if (hero) heroes.push(hero);
     }
     return heroes;

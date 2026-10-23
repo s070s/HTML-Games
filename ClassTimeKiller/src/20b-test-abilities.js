@@ -383,18 +383,23 @@ Test.add('abilities', (check) => {
 // a team of five fields every role and no hero twice, keeps its heroes across picks, leaves a teammate's own pick out,
 // and the line-ups change with the seed.
 const HERO_DRAW_SEEDS = [1, 2, 3, 4], HERO_DRAW_BOTS = 10;
+// The participants of a team.
+function teamIds(team) {
+  const ids = [];
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === team) ids.push(id);
+  return ids;
+}
 Test.add('abilities', (check) => {
   const roles = new Set(CAT.heroes.map((hero) => hero.role)).size, lineups = new Set();
-  const teamOf = (team) => { const ids = []; for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === team) ids.push(id); return ids; };
   for (const seed of HERO_DRAW_SEEDS) {
     const probe = () => {
       for (const team of [0, 1]) {
-        const ids = teamOf(team), heroes = ids.map((id) => Abilities.pickHero(id)), names = heroes.map((hero) => hero.id).join(' ');
+        const ids = teamIds(team), heroes = ids.map((id) => Abilities.pickHero(id)), names = heroes.map((hero) => hero.id).join(' ');
         check('seed ' + seed + ' team ' + team + ': no hero twice, every role', new Set(heroes).size === heroes.length && new Set(heroes.map((hero) => hero.role)).size === roles, names);
         check('seed ' + seed + ' team ' + team + ': the same heroes on the next pick', ids.every((id, k) => Abilities.pickHero(id) === heroes[k]), names);
         lineups.add(team + ': ' + names);
       }
-      const team = teamOf(0), picked = Abilities.pickHero(team[1]);
+      const team = teamIds(0), picked = Abilities.pickHero(team[1]);
       for (const id of team) Abilities.drawn[id] = null;
       Abilities.setChoice(team[0], { hero: picked.id });
       check('seed ' + seed + ': a teammate\'s own pick is left out of the draw', team.slice(1).every((id) => Abilities.pickHero(id) !== picked), picked.id);
@@ -415,6 +420,19 @@ Test.add('abilities', (check) => {
   for (const mode of ['ffa', 'attrition', 'cursetag', 'roulette']) {
     check(mode + ' keeps its own score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
   }
+});
+
+// A bot that auto-balance moves to the other team draws again for its new team instead of keeping a hero of the old one.
+Test.add('abilities', (check) => {
+  const probe = () => {
+    const otherHeroes = teamIds(1).map((id) => Abilities.pickHero(id));
+    const moved = teamIds(0).find((id) => otherHeroes.includes(Abilities.pickHero(id)));   // 5 + 5 heroes of 8: one is shared
+    const old = Abilities.pickHero(moved);
+    Actors.team[moved] = 1;
+    const hero = Abilities.pickHero(moved);
+    check('the moved bot plays no hero of its new teammates', !otherHeroes.includes(hero), old.id + ' -> ' + hero.id);
+  };
+  playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'heroes', minutes: 0, botCount: HERO_DRAW_BOTS, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe });
 });
 
 Test.add('abilities', (check) => {
