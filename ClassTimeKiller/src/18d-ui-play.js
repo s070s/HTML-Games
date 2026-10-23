@@ -91,14 +91,22 @@ const PlayFlow = {
     while (bots.length < count) bots.push({});
     return bots.slice(0, count);
   },
-  // The mode's score and time limits scaled by the match length (Short 0.5x); null for the standard length. Rounded up to 5 points / 30 s.
+  // The mode's score, time and ticket limits scaled by the match length (Short 0.5x); null for the standard length. Rounded up to
+  // 5 points or tickets / 30 s. Round modes and modes without limits get no field: the Play screen then hides the choice.
   lengthLimits(modeId, length) {
     const factor = PLAY_LENGTHS[length] || 1, mode = CAT.modes.byId(modeId);
     if (factor === 1 || !mode) return null;
     const limits = {};
     if (mode.scoreLimit > 0) limits.scoreLimit = Math.ceil(mode.scoreLimit * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP;
     if (mode.timeLimit > 0) limits.timeLimit = Math.ceil(mode.timeLimit * factor / PLAY_TIME_STEP) * PLAY_TIME_STEP;
+    if (mode.params.tickets > 0) limits.params = { tickets: Math.ceil(mode.params.tickets * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP };
     return limits;
+  },
+  hasLength(modeId) { return Object.keys(this.lengthLimits(modeId, PLAY_LENGTH_IDS[0]) || {}).length > 0; },
+  // Team modes let the player pick a side, unless the mode sets the sides itself (params.fixedSides: Blight, Ravager vs Fiends).
+  hasTeamChoice(modeId) {
+    const mode = CAT.modes.byId(modeId);
+    return !!mode && mode.teams === TEAM_COUNT && !mode.params.fixedSides;
   },
   // Starts a match for a choice (normalized and remembered). Runs synchronously so a click can still lock the pointer.
   start(choice, random) {
@@ -200,8 +208,8 @@ Ui.register('play', {
       form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; })));
       form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
-      form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
-      if (CAT.modes.byId(choice.mode).teams === 2) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
+      if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
+      if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
       summary.textContent = playModeSummary(choice.mode);
     });
     root.appendChild(form);

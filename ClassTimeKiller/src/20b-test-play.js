@@ -355,6 +355,22 @@ Test.add('play', (check) => uiWith(() => {
     check('results: every co-op end reason has its line', [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => !!PLAY_REASON_TEXT[reason]));
     check('play screen: the mode summary starts with the mode goal (fun-03)', playModeSummary('bearer').startsWith(CAT.modes.byId('bearer').goal));
     Game.stop(); Ui.closeAll();
+    // Rows that change nothing are not shown (modes-05, modes-06); tickets scale with the match length like score and time.
+    check('match length: Short also halves the tickets (Frontline 75, Breach Assault rounded up to 40)',
+      PlayFlow.lengthLimits('conquest', 'short').params.tickets === 75 && PlayFlow.lengthLimits('rush', 'short').params.tickets === 40);
+    const saved = Save.data.play, rowsFor = (mode) => {
+      Save.data.play = { mode }; Ui.closeAll(); Ui.open('play');
+      return Array.from(Ui.top().element.querySelectorAll('.ui-row')).map((row) => row.textContent);
+    };
+    try {
+      const has = (rows, label) => rows.some((text) => text.startsWith(label));
+      const ffa = rowsFor('ffa'), bomb = rowsFor('bomb'), tdm = rowsFor('tdm'), blight = rowsFor('infection');
+      check('play screen: Match length shows only where it changes a limit', has(ffa, 'Match length') && !has(bomb, 'Match length'), bomb.join('|'));
+      check('play screen: Your team shows in team modes, not where the mode sets the sides', has(tdm, 'Your team') && !has(blight, 'Your team'), blight.join('|'));
+    } finally {
+      Save.data.play = saved;
+    }
+    Game.stop(); Ui.closeAll();
     Game.start({ mode: 'ffa', map: 'spire', seed: PLAY_TEST_SEED, player: { name: PLAY_PLAYER_NAME }, bots: [{}] });
     Modes.finish(Modes.over(DRAW, 'draw'));
     check('results: a versus draw stays a draw', Game.match.results.draw && !Game.match.results.lost && PlayFlow.outcome(Game.match.results) === 'draw');
