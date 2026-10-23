@@ -288,6 +288,7 @@ async function runSelfTest(output, button) {
 function touchControlsSummary() {
   const lines = [];
   for (const control of TOUCH_CONTROLS) if (control.face) lines.push(control.face + ': ' + control.label);
+  lines.push('Hold the score panel at the top: Scoreboard');
   lines.push('Tap a weapon box above the ammo panel to take that slot.');
   lines.push('Buttons you cannot use stay hidden. Settings > Controls > Edit touch layout moves them.');
   return lines.join('\n');

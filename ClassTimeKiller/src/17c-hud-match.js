@@ -357,6 +357,14 @@ TouchInput.keepClear.push((width, height) => {
   TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
   if (Modes.active && Modes.rules) hudClearHeaderRows(layout, Modes.hudState());
 });
+// A finger on the score panel holds the scoreboard (05b panelAt), as TAB does: the panel box on this screen.
+TouchInput.panelAt = (x, y) => {
+  const layout = hudHeaderClearLayout, box = hudBoxAt;
+  if (!Hud.visible() || Hud.noHud) return false;
+  updateHudLayout(layout, window.innerWidth, window.innerHeight);
+  hudHeaderBox(layout, box);
+  return x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3];
+};
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
 Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);

@@ -692,7 +692,7 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
   startInputMatch();
-  check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+  check('touch: USE, MELEE, GADGET and PING buttons exist (INP-004)', ['use', 'melee', 'gadget', 'ping'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
   check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
@@ -704,7 +704,6 @@ Test.add('input', (check) => {
   World.map = loadedMap;
   Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
   check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
-  check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
   const id = Game.playerId;
   Input.setDevice('touch'); TouchInput.syncVisible();
   inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);
@@ -866,7 +865,7 @@ Test.add('input', (check) => {
     const x = preset.mirror ? 1 - control.x : control.x;
     return x > 0 && x < 1 && control.y > 0 && control.y < 1;
   })));
-  check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'scoreboard', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
+  check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
   const start = { x: TouchInput.getProperty('fire', 'x'), scale: TouchInput.getProperty('fire', 'scale'), opacity: TouchInput.getProperty('fire', 'opacity') };
   TouchInput.setProperty('fire', 'scale', 5);
   check('layout: size clamps at 200%', TouchInput.getProperty('fire', 'scale') === TOUCH_SCALE_MAX);
@@ -983,8 +982,8 @@ Test.add('input', (check) => {
   startInputMatch();
   // Every action has a keyboard, a controller and a touch path, or is listed here: sticks, the weapon bar and menus have their own.
   const free = ['forward', 'back', 'left', 'right', 'prevWeapon', 'buyMenu', 'perfHud', 'botDebug'].concat(ACTION_ROWS.filter((row) => row.slot).map((row) => row.id));
-  const touchActions = TOUCH_CONTROLS.map((control) => control.action);
-  const touchFree = free.concat('sprint', 'prone');   // a full stick push sprints; prone gets its touch button from P02
+  const touchActions = TOUCH_CONTROLS.flatMap((control) => [control.action, control.longAction, control.swipeAction]);
+  const touchFree = free.concat('sprint', 'scoreboard', 'comm');   // a full stick push sprints; the score panel holds the scoreboard; a held PING opens the wheel
   const reserved = ['Key:ControlLeft', 'Key:ControlRight', 'Key:F10', 'Key:F11', 'Key:F12', 'Pad:16'];   // browser or system keys
   const gaps = (has) => ACTION_ROWS.filter((row) => !has(row)).map((row) => row.id).join();
   for (const [name, has] of [['a key', (row) => Input.defaultsOf(row)[0]], ['a pad button or is listed', (row) => Input.defaultsOf(row)[2] || free.includes(row.id)],
@@ -1108,4 +1107,51 @@ Test.add('input', (check) => {
   const sources = Input.sources;
   check('structure: touch, gamepad and the comm wheel (17g) register as sources', sources.length === 3 && sources.includes(TouchInput) && sources.includes(PadInput) && sources.includes(CommWheel));
   Game.resume();
+});
+
+// ---- Phones: four rare actions ride on other touch controls (no LIE, TYPE, TAB or CHAT button): a held DUCK lies prone, a swipe
+// on NADE picks the next grenade type (its face names it), a finger on the score panel holds the scoreboard, a tap on PING pings ----
+Test.add('input', (check) => {
+  const id = startInputMatch(), elements = TouchInput.elements, frame = () => { Input.frame(INPUT_TEST_FRAME); Sim.step(); };
+  const touch = (type, element, pointer, x, y) => { inputTouchPointer('pointer' + type, element, pointer, x || 1000, y || 600); if (type === 'up') { frame(); frame(); } };
+  const age = (pointer, ms) => { TouchInput.findSlot(pointer).startTime -= ms; frame(); };
+  const held = (bit) => (Actors.buttons[id] & bit) !== 0, count = (key) => Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId(key).index];
+  const realPing = BotTeam.playerPing, savedLayouts = Save.data.touchLayouts;
+  let pings = 0;
+  BotTeam.playerPing = () => { pings++; };
+  Input.setDevice('touch'); TouchInput.syncVisible();
+  try {
+    check('touch: no LIE, TYPE, TAB or CHAT button', ['prone', 'grenadeNext', 'scoreboard', 'comm'].every((action) => !TOUCH_CONTROLS.some((row) => row.action === action)));
+    touch('down', elements.crouch, 21); frame();
+    const crouched = held(BTN.CROUCH);
+    age(21, TOUCH_LONG_MS);
+    check('prone: DUCK crouches; held past TOUCH_LONG_MS it lets go of crouch and lies prone', crouched && (Actors.pressed[id] & BTN.PRONE) && !held(BTN.CROUCH));
+    touch('up', elements.crouch, 21);
+    check('prone: lifting the finger after it sends nothing more', !(Actors.pressed[id] & (BTN.PRONE | BTN.CROUCH)));
+    Gadgets.give(id, 'frag', 1); Gadgets.give(id, 'smoke', 1); Gadgets.grenade[id] = CAT.gadgets.byId('frag').index; frame();
+    const named = elements.grenade.textContent;
+    touch('down', elements.grenade, 22); touch('move', elements.grenade, 22, 1000, 570); touch('up', elements.grenade, 22, 1000, 570);
+    check('grenade type: a swipe on NADE picks the next type, throws nothing and the face names it', named === 'NADEFrag' && elements.grenade.textContent === 'NADEVeil' && count('frag') + count('smoke') === 2, named);
+    touch('down', elements.grenade, 23); frame();
+    const waited = !held(BTN.GRENADE);
+    age(23, TOUCH_TAP_MS);
+    check('grenade: a still finger on NADE cooks after a tap\'s time', waited && held(BTN.GRENADE));
+    touch('up', elements.grenade, 23); touch('down', elements.grenade, 24); touch('up', elements.grenade, 24);
+    check('grenade: lifting it throws; a quick tap throws at once', count('frag') + count('smoke') === 0);
+    const layout = {};
+    updateHudLayout(layout, innerWidth, innerHeight);
+    const box = hudHeaderBox(layout, []), x = box[0] + box[2] / 2, y = box[1] + box[3] / 2;
+    touch('down', TouchInput.zone, 25, x, y);
+    const board = Input.isHeld('scoreboard') && !TouchInput.stick.slot;
+    touch('up', TouchInput.zone, 25, x, y);
+    check('scoreboard: a finger on the score panel holds it', board && !Input.isHeld('scoreboard'));
+    touch('down', elements.ping, 26); touch('up', elements.ping, 26);
+    check('ping: a tap on PING pings', pings === 1, pings);
+    Save.data.touchLayouts = { standard: { prone: { x: 0.5 }, grenadeNext: { hidden: true }, scoreboard: { scale: 2 }, comm: {}, crouch: { scale: 1.2 } } };
+    TouchInput.applyAll();
+    check('save: an old layout with the removed buttons loads', TouchInput.getProperty('crouch', 'scale') === 1.2);
+  } finally {
+    BotTeam.playerPing = realPing; Save.data.touchLayouts = savedLayouts;
+    TouchInput.reset(); TouchInput.applyAll(); Input.device = 'kbm';
+  }
 });
