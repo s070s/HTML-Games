@@ -23,7 +23,12 @@ DebugApi.spawnBot = (profile, team) => {
   Modes.spawnActor(id);
   return id;
 };
-DebugApi.setTier = (id, tier) => Bots.setTier(id, tier);
+DebugApi.setTier = (id, tier) => {
+  if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
+  Bots.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
+  BotMove.configure(id);
+  return true;
+};
 
 // Plays `minutes` of `mode` on `map` with 16 bots (or botCount), headless, with seed 1 (or seed), without a time or score
 // limit (or with modeOptions), and returns the soak numbers (BOT-091 / ARC-033 / tests).
@@ -270,6 +275,7 @@ Test.add('bots', (check) => {
   check('a named bot plays its roster tier (inside the difficulty range), setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
   check('a named bot keeps its profile row', Bots.profile[ids[0]] === CAT.bots.byId('pell') && Actors.profile[ids[0]] === CAT.bots.byId('pell'));
   check('setTier changes the tier', DebugApi.setTier(ids[2], 7) && Bots.tier(ids[2]).tier === 7);
+  check('setTier is a test command, not a Bots method', Bots.setTier === undefined);
   const extra = DebugApi.spawnBot('nyx7', -1);
   check('spawnBot adds a live brain-driven bot mid-match', extra >= 0 && Actors.alive[extra] && Bots.active[extra] && Bots.profile[extra] === CAT.bots.byId('nyx7'));
   endBotTest();
@@ -894,7 +900,7 @@ Test.add('bots', (check) => {
   check('a lone enemy in the open draws no frag', seen && BotCombat.uses.grenades === 0 && Gadgets.countOf(bot, THROW_ROW) === 2, BotCombat.uses.grenades + ' seen ' + seen);
   const flashAnywhere = Object.assign({}, BOT_GADGET_USE.flash, { when: 'always', range: [0, 0], chance: 1 });
   const tierSix = botUseWanted(bot, flashAnywhere);
-  Bots.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
+  DebugApi.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
   check('flash before a peek only from tier 3', tierSix && !botUseWanted(bot, flashAnywhere));
   endBotTest();
 });

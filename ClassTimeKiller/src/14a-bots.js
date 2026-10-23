@@ -182,12 +182,6 @@ const Bots = {
       this.traits[base + index] = clamp(value, 0, 1);
     }
   },
-  setTier(id, tier) {
-    if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
-    this.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
-    BotMove.configure(id);
-    return true;
-  },
   onSpawn(id) {
     this.spawnedAt[id] = Sim.time;
     if (Actors.kind[id] !== ACTOR_KIND.BOT) return;
