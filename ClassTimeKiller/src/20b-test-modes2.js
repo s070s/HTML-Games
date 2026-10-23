@@ -552,6 +552,16 @@ Test.add('modes2', (check) => {
   check('royale: placement ranks the standing first, then later deaths', Modes.behaviour.score(0) > Math.max(Modes.behaviour.score(1), Modes.behaviour.score(2)) && Modes.behaviour.score(1) !== Modes.behaviour.score(2));
   endModeTest();
 
+  // A lone competitor (Play with 0 bots) plays on until it falls; then the match ends instead of running forever (modes-01).
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1]);
+  runSeconds(1);
+  check('royale alone: the match goes on while the lone actor stands', !Game.match.ended);
+  damageKill(0, -1, 'hazard');
+  runSeconds(0.1);
+  check('royale alone: it ends once nobody is standing, as a loss', Game.match.ended && Game.match.results.reason === 'eliminated' && Game.match.results.lost,
+    Game.match.results && Game.match.results.reason);
+  endModeTest();
+
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
   Game.start({ mode: 'royale', seed: 1, bots: Array.from({ length: 30 }, () => ({ dummy: true })) });
   check('royale: the bot count stays within the PERF-009 cap', Actors.count === Quality.current().bots && Actors.count <= 23);
@@ -744,19 +754,15 @@ Test.add('modes2', (check) => {
   runSeconds(Modes.rules.params.fuse);
   check('lives 1: the relay goes off, then the defenders win (out of lives counts like 0 tickets)', Game.match.ended && Game.match.winner === 1, Game.match.results && Game.match.results.reason);
   endModeTest();
-  // Blight: everyone starts human, so lives count only from the outbreak on.
-  for (const humansOut of [false, true]) {
-    startModeTest('infection', modesTestMap(COMBO_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
-    runSeconds(1.01);
-    check('lives 1: infection does not end before the outbreak', !Game.match.ended, Game.match.results && Game.match.results.reason);
-    runSeconds(Modes.rules.params.infectAfter);
-    const side = humansOut ? HUMAN_TEAM : INFECTED_TEAM, killer = sideMembers(1 - side)[0];
-    for (const id of sideMembers(side)) killActor(id, killer);
-    runSeconds(1);
-    check('lives 1: infection ends when every ' + (humansOut ? 'human' : 'infected') + ' is out', Game.match.ended && Game.match.winner === 1 - side && Game.match.results.reason === 'eliminated',
-      Game.match.winner + ' ' + (Game.match.results && Game.match.results.reason));
-    endModeTest();
-  }
+  // Blight converts the dead, so lives would only end it when the few first infected fall: X32 is not offered there (modes-03).
+  check('lives: not offered in infection (it sets its sides itself)', !Mutators.fitsMode(Mutators.row('lives'), CAT.modes.byId('infection')));
+  startModeTest('infection', modesTestMap(COMBO_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+  check('lives 1: infection turns the mutator off', Modes.rules.lives === 0);
+  runSeconds(Modes.rules.params.infectAfter + 1.01);
+  for (const id of sideMembers(INFECTED_TEAM)) killActor(id, sideMembers(HUMAN_TEAM)[0]);
+  runSeconds(1);
+  check('lives 1: infection goes on after the first infected fall', !Game.match.ended, Game.match.results && Game.match.results.reason);
+  endModeTest();
 });
 function sideMembers(team) { return Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === team); }
 function wipeOutAttackers() {

@@ -82,8 +82,9 @@ Modes.register('royale', {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
   },
   // Counts sides standing: each squad once, each solo actor on its own. A won squad names the player when it is theirs.
-  isOver(now) {
-    if (Modes.competitorsAtStart < 2) return Modes.standardIsOver(now);
+  // A match that started with one competitor (Play with 0 bots) has no rival: it ends when nobody stands.
+  isOver() {
+    const fewest = Modes.competitorsAtStart < 2 ? 0 : 1;
     let standing = 0, sides = 0, last = DRAW;
     Squads.seen.fill(0, 0, Squads.count);
     for (let id = 0; id < Actors.count; id++) {
@@ -95,7 +96,7 @@ Modes.register('royale', {
       sides++; last = id;
     }
     Modes.hud.aliveCount = standing;
-    if (sides > 1) return NOT_OVER;
+    if (sides > fewest) return NOT_OVER;
     return Modes.over(sides === 1 ? squadWinner(last) : DRAW, 'eliminated');
   },
   score(id) { return Actors.alive[id] ? ROYALE_STANDING_RANK + Modes.kills[id] : royaleOutOrder[id]; },
