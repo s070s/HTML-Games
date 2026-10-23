@@ -29860,10 +29860,14 @@ const SelfTest = {
         PC.resetUse(); PC.useInput(human, true, STEP); PC.useInput(human, false, STEP);
         const car = W.player;
         this.check('taken: the player drives a platform of that car in its paint, its driver steps out, the car leaves the traffic', car !== human && car.def.id === 'cv_' + ride.v.id && car.civCol === ride.col && T2.cars.indexOf(ride) < 0 && lane2.cars.indexOf(ride) < 0 && zone2.civs.length === civs2 + 1);
-        // drawn: the vehicles near the camera
+        // drawn: the vehicles near the camera (whatever the last frame's view)
+        const keepVisible = R.visible;
+        R.cam.x = ride.x + 30; R.cam.y = ride.y + 10; R.cam.z = ride.z + 30;
+        R.visible = () => true;
         R.beginBatch('opaque');
         Traffic.draw();
         R.endBatch('opaque');
+        R.visible = keepVisible;
         this.check('the traffic and the parked vehicles near the camera are drawn', T2.drawn > 0, T2.drawn + ' drawn');
       } finally {
         Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
