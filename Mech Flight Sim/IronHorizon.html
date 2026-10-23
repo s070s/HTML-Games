@@ -11301,6 +11301,7 @@ const Traffic = {
     const zn = (c.lane && c.lane.zone) || this.zoneAt(c.x, c.z);
     if (!zn || !zn.edgeNodes.length) return null;
     const h = Civ.make(zn, Math.random), rx = -Math.cos(c.yaw), rz = Math.sin(c.yaw), out = c.v.hw + 0.7;
+    h.temp = true;   // not one of the town's own: forgotten once out of sight (Society.forget), so the town does not grow
     h.x = c.x + rx * out; h.z = c.z + rz * out;
     if (Civ.blocked(h.x, h.z, CIV_RADIUS, zn.blds)) { h.x = c.x - rx * out; h.z = c.z - rz * out; }
     h.y = Terrain.h(h.x, h.z); h.yaw = c.yaw;
@@ -11900,6 +11901,7 @@ const FLIGHT_CROSS_SPREAD = 450;    // m off the middle it may pass
 const FLIGHT_CROSS_ALT = [280, 380];   // m it flies at...
 const FLIGHT_CROSS_OVER = 160;      // ...and at least this far over the highest ground
 const FLIGHT_CROSS_WAIT = [20, 60]; // s between crossings
+const FLIGHT_HOLD_SHORT = 60;       // m short of its take-off roll a flight waits while a platform stands on the runway
 const FLIGHT_DOWN_T = 5;            // s a shot-down aircraft falls before it breaks up...
 const FLIGHT_BREAK_AGL = 45;        // ...unless it comes this low over the ground first (m)
 const FLIGHT_FALL_G = 0.45;         // share of gravity it falls with, its wings still carrying it a little
@@ -12112,8 +12114,15 @@ const Flights = {
     const r = f.rng, yaw = r() * TAU, off = (r() * 2 - 1) * FLIGHT_CROSS_SPREAD, fx = Math.sin(yaw), fz = Math.cos(yaw);
     f.phase = FL_CROSS; f.state = 'drive'; f.aloft = true; f.gear = false; f.hp = f.hp0; f.along = 0; f.yaw = yaw; f.pitch = FLIGHT_AOA; f.roll = 0;
     f.x0 = -fx * FLIGHT_CROSS_OUT + fz * off; f.z0 = -fz * FLIGHT_CROSS_OUT - fx * off;
-    f.alt = Math.max(lerp(FLIGHT_CROSS_ALT[0], FLIGHT_CROSS_ALT[1], r()), f.top + FLIGHT_CROSS_OVER);
+    f.alt = Math.max(lerp(FLIGHT_CROSS_ALT[0], FLIGHT_CROSS_ALT[1], r()), f.top + FLIGHT_CROSS_OVER); f.y = f.alt;
     f.speed = f.v.air.cruise;
+  },
+  /* f on its final finds the runway taken: it climbs away straight on, off the battlefield, and is back at its gate a
+     while later (stepCross, stepGone) */
+  goAround(f) {
+    f.phase = FL_CROSS; f.state = 'drive'; f.aloft = true; f.gear = false; f.along = 0; f.x0 = f.x; f.z0 = f.z; f.pitch = FLIGHT_AOA; f.roll = 0;
+    f.top = Terrain.maxIn(-WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
+    f.alt = Math.max(f.y, f.top + FLIGHT_CROSS_OVER);
   },
 
   /* ---------- per tick ---------- */
@@ -12125,7 +12134,7 @@ const Flights = {
         case FL_GONE: this.stepGone(f, dt); break;
         case FL_DOWN: this.stepDown(T, f, dt); break;
         case FL_CROSS: this.stepCross(f, dt); break;
-        case FL_GATE: if ((f.dwell -= dt) <= 0 && this.fieldFree(T, f)) { f.phase = FL_TAXI; f.state = 'drive'; } break;
+        case FL_GATE: if ((f.dwell -= dt) <= 0 && this.fieldFree(T, f) && !this.runwayTaken(f)) { f.phase = FL_TAXI; f.state = 'drive'; } break;
         default: this.stepRoute(T, f, dt);
       }
     }
@@ -12134,6 +12143,7 @@ const Flights = {
   stepRoute(T, f, dt) {
     const r = f.route;
     f.speed = Math.max(FLIGHT_CRAWL, f.vr);
+    if (f.s < r.roll && f.s + f.speed * dt >= r.roll - FLIGHT_HOLD_SHORT && this.runwayTaken(f)) { f.speed = 0; return; }   // holds short
     f.s += f.speed * dt;
     if (f.s >= r.len) { this.toGate(f, rand(FLIGHT_DWELL[0], FLIGHT_DWELL[1])); return; }
     this.at(f, f.s);
@@ -12141,6 +12151,7 @@ const Flights = {
     f.phase = s < r.roll ? FL_TAXI : s < r.lift ? FL_ROLL : s < r.cruise ? FL_CLIMB : s < r.approach ? FL_CRUISE : s < r.touch ? FL_APPROACH : s < r.vacate ? FL_LANDING : FL_TAXI_IN;
     f.aloft = s > r.lift && s < r.touch;
     f.gear = s < r.gearUp || s > r.gearDown;
+    if (f.phase === FL_APPROACH && this.runwayTaken(f)) this.goAround(f);
   },
   /* the pose s m along f's route into f (x, y, z, yaw, pitch, roll) and the route's speed there (f.vr) */
   at(f, s) {
@@ -12164,12 +12175,24 @@ const Flights = {
     }
     return true;
   },
+  /* true when a platform on the ground (not one flying over) stands on f's runway, as a player's aircraft parked there
+     after a respawn (airportSpawn): flights are scenery and pass through platforms, so they keep off it */
+  runwayTaken(f) {
+    const a = f.ap.spot, rw = AIRFIELD[a.kind].runway;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const q = W.platforms[i];
+      if (q.dead || (q.kind === 'air' && !q.grounded)) continue;
+      const dx = q.x - a.x, dz = q.z - a.z, u = a.axis ? dx : dz, v = a.axis ? -dz * a.side : dx * a.side;   // Airports.at undone
+      if (u > rw[0] - q.hullR && u < rw[1] + q.hullR && v > rw[2] - q.hullR && v < rw[3] + q.hullR) return true;
+    }
+    return false;
+  },
   /* a crossing: straight on at its height; past the far edge it is gone for a while */
   stepCross(f, dt) {
     f.along += f.speed * dt;
     const fx = Math.sin(f.yaw), fz = Math.cos(f.yaw);
-    f.x = f.x0 + fx * f.along; f.z = f.z0 + fz * f.along; f.y = f.alt;
-    if (f.along > 2 * FLIGHT_CROSS_OUT) { f.phase = FL_GONE; f.state = 'wreck'; f.life = 0; f.wait = lerp(FLIGHT_CROSS_WAIT[0], FLIGHT_CROSS_WAIT[1], f.rng()); }
+    f.x = f.x0 + fx * f.along; f.z = f.z0 + fz * f.along; f.y = approach(f.y, f.alt, f.speed * FLIGHT_CLIMB * dt);   // a go-around climbs to it
+    if (f.along > 2 * FLIGHT_CROSS_OUT) { f.phase = FL_GONE; f.state = 'wreck'; f.life = 0; f.wait = lerp(FLIGHT_CROSS_WAIT[0], FLIGHT_CROSS_WAIT[1], f.rng ? f.rng() : Math.random()); }
   },
   /* gone (flown off or shot down): back after a while where nobody sees it come, at its gate or on a new crossing */
   stepGone(f, dt) {
@@ -22510,9 +22533,10 @@ function spawnGroup(list, x, z, opts) {
 
 /* ---------- objectives ---------- */
 const RESCUE_R = 24, RESCUE_HOLD = 5;              // a rescue spot is boarded by staying this close (m) this long (s)
-// an aircraft boards this close (m), this low over the ground (m) and slower than this (m/s): above the Gunship's slowest
-// flight (air.min with the airbrake on), as no aircraft can hover; fighters fly too fast to take people aboard
-const RESCUE_AIR_R = 40, RESCUE_AIR_H = 30, RESCUE_AIR_SPEED = 50;
+// an aircraft boards circling this close (m), this low over the ground (m) and slower than this (m/s): no aircraft can
+// hover, and at its slowest none turns tighter than about 70 m, with m18's storm wind drifting it 30 m a lap; the
+// speed is above every aircraft's slowest flight with its gear down (air.min x 0.8, braking), so each can board in flight
+const RESCUE_AIR_R = 120, RESCUE_AIR_H = 30, RESCUE_AIR_SPEED = 80;
 const PATROL_SIGHT_MIN = 60, PATROL_SIGHT_MAX = 100;   // m14: the m its patrols see a soldier from at Veteran stays in this range (self-test)
 // m15: its two lava flows, [s after the evacuation starts, x, z]: sources on the cone whose flows pass about 70 m north of
 // the observatory, one running west across the road in, the other east
@@ -23411,7 +23435,7 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm17', name: 'Tarmac Stand', type: 'Defend Airport', map: 'metro', stars: 3, timeLimit: 0, recommended: 'Interceptor, Heavy Mech or Tank (a ship deploys as a Heavy Mech: no harbour here)',
+    id: 'm17', name: 'Tarmac Stand', type: 'Defend Airport', map: 'metro', stars: 3, timeLimit: 0, recommended: 'Interceptor, Heavy Mech or Tank (the Lancer and Skua start on the river; the Trident cannot sail here)',
     brief: 'The metro airport is the last way out of the city, and the enemy wants it shut. Hold it for five minutes: keep the airport radar alive while armour comes along the south bank from the west and the north-west, with fighters and gunships among them. The ground is unstable, so expect earthquakes, and a shaken fuel farm may leak toxic gas. Land or park on the apron to repair and rearm. Allies will help.',
     env: { weather: 'overcast', time: 'dusk' }, hazards: ['earthquake', 'gas'], hazardScript: true, unlock: 'shipSam',
     start: { x: 560, z: -305, yaw: Math.PI },   // just north of the airport's ground, facing the radar
@@ -23447,8 +23471,8 @@ const MISSIONS = [
   },
   {
     id: 'm18', name: 'Eye of the Storm', type: 'Rescue', map: 'farmland', stars: 2, timeLimit: 720, recommended: 'A fast ground platform or a Gunship',
-    brief: 'A tornado outbreak is tearing across the plains and four farm families are cut off. Reach each farm and stay beside it for a few seconds while the family climbs aboard, then bring everyone back to the storm shelter at the start. A new funnel crosses the fields every forty seconds or so, heading for the farms; keep clear of it. Raiders are looting the farms. Optionally finish within six minutes.',
-    env: { weather: 'storm', time: 'day' }, hazards: ['tornado', 'wildfire'], hazardScript: true, unlock: 'plasmaTornado',
+    brief: 'A tornado outbreak is tearing across the plains and four farm families are cut off. Reach each farm and stay beside it for a few seconds while the family climbs aboard (an aircraft circles it low and slow), then bring everyone back to the storm shelter at the start. A new funnel crosses the fields every forty seconds or so, heading for the farms; keep clear of it. Raiders are looting the farms. Optionally finish within six minutes.',
+    env: { weather: 'storm', time: 'day' }, hazards: ['tornado'], hazardScript: true, unlock: 'plasmaTornado',
     start: { x: M18_SHELTER.x, z: M18_SHELTER.z, yaw: 1.88 },   // facing the Orchard farm, the nearest
     sites: [{ x: M18_SHELTER.x, z: M18_SHELTER.z, r: 34, tag: 'pad' }, { x: -420, z: 0, r: 30, tag: 'obj' }, { x: -160, z: 160, r: 30, tag: 'obj' }, { x: 230, z: 180, r: 30, tag: 'obj' }, { x: 560, z: 120, r: 30, tag: 'obj' }],
     build(ctx) {
@@ -25857,7 +25881,7 @@ const UI = {
       '<p><b>Training Range:</b> pick any battlefield on its Deploy screen; F1 shows the key list there.</p>' +
       '<p><b>Missions 9 to 18:</b> ten new missions, one on each new map, with naval, flood, avalanche and artillery themes among them. Winning one unlocks a weapon, melee weapon or superweapon in the Arsenal.</p>' +
       '<p><b>iPhone and touch:</b> on a touch screen the buttons appear on the right (fire, alt, boost, jump, defense, target, super, reload, weapon, Use) and crouch and melee on the left. Settings &gt; Display sets their size. Play in landscape.</p><p><b>Supply:</b> stand near the supply pad and tap Use to refill ammunition and repair (2 uses per mission).</p></div>' +
-      '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>18 objective missions covering every objective type (8 classic, 10 new on the new maps), skirmish mode and a training range on any map.</li><li>13 battlefields with weather, time of day and hazards; civilian vehicles you can take; ships, artillery and new melee; touch controls for iPhone.</li><li>Fully offline, single file, no external assets.</li></ul>' +
+      '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>17 playable platforms: 3 mechs, a soldier and a civilian on foot, 3 ground vehicles, 3 artillery vehicles, 3 aircraft and 3 ships, with a shared weapon and damage system.</li><li>18 objective missions covering every objective type (8 classic, 10 new on the new maps), skirmish mode and a training range on any map.</li><li>13 battlefields with weather, time of day and hazards; civilian vehicles you can take; ships, artillery and new melee; touch controls for iPhone.</li><li>Fully offline, single file, no external assets.</li></ul>' +
       '<h3>Known limitations</h3><ul><li><b>Co-op</b> (up to 4 players, mission mode) connects browsers directly using copy-and-paste codes; there is no server. Over the internet it may need the public STUN option and can fail behind strict routers. Competitive PvP is not included.</li><li>Mission progress is not saved mid-mission. Best scores and settings are saved locally.</li><li>Performance: designed for desktop GPUs; lower Graphics quality if frames drop. The game also lowers render resolution automatically.</li></ul>' +
       '<h3>Troubleshooting</h3><ul><li>Black screen or error: enable hardware acceleration and use a current Chrome, Edge or Firefox.</li><li>No mouse look: click to capture the cursor, or disable Capture cursor in Settings to use edge-of-screen aiming.</li><li>No sound: click once in the page; browsers block audio until you interact.</li><li>iPhone and iPad: play in landscape; for full screen use Share, then Add to Home Screen; the silent switch also mutes the game.</li><li>Press F10 for diagnostics.</li><li><button class="btn small" data-act="selftest">Run built-in self-test</button></li></ul></div></div>' +
       '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
@@ -31541,8 +31565,9 @@ const SelfTest = {
         const got = hq.unspot;
         hq.unspot = 0; NET_UNSPOT_OFF = true; Net.applyStructs({ l: [entry] }); NET_UNSPOT_OFF = false;
         const off = hq.unspot;
-        Net.applyStructs({ l: [[hq.idx, hp0, 0, 0]] });   // an old host's entry has no share and leaves it be
-        this.check('a guest learns the unspotted share of an objective from the host (optional entry field)', Math.abs(got - hq.maxHp * ARTY_UNSPOTTED_CAP) < 1 && plain.length === 4 && Math.abs(off) < 1e-9 && hq.unspot === off, got.toFixed(1) + ' hp');
+        hq.unspot = got; Net.applyStructs({ l: [[hq.idx, hp0, 0, 0]] });   // an old host's entry has no share and leaves it be
+        const kept = hq.unspot;
+        this.check('a guest learns the unspotted share of an objective from the host (optional entry field)', Math.abs(got - hq.maxHp * ARTY_UNSPOTTED_CAP) < 1 && plain.length === 4 && Math.abs(off) < 1e-9 && Math.abs(kept - got) < 1e-9, got.toFixed(1) + ' hp, ' + kept.toFixed(1) + ' kept');
         hq.hp = hp0; hq.unspot = 0;
         // 3. a fuel tank brought down by unspotted fire blasts an objective beside it under the same cap
         const blast = () => {
@@ -31584,7 +31609,8 @@ const SelfTest = {
         const words = ['10 new', 'weather', 'time of day', 'hazards', 'civilian', 'boat', 'ships', 'melee', 'artillery', 'spotter', 'training range', 'missions 9 to 18', 'unlocks', 'iphone', 'touch'];
         const missing = words.filter((k) => help.indexOf(k) < 0);
         this.check('the help text names every feature the program added', missing.length === 0, missing.join(', '));
-        const keys = ['interact', 'melee', 'stance'].filter((a) => !ACTIONS.some((x) => x[0] === a) || help.indexOf('hold use (' + actionLabel('interact').toLowerCase() + ')') < 0);
+        const phrases = { interact: 'hold use (', melee: 'melee (', stance: 'deploy with ' };   // where the help names each key
+        const keys = Object.keys(phrases).filter((a) => !ACTIONS.some((x) => x[0] === a) || help.indexOf(phrases[a] + actionLabel(a).toLowerCase()) < 0);
         this.check('the keys the help names are real bindings', keys.length === 0, keys.join(', '));
       } finally {
         tc.enabled = keep.enabled; tc.shown = keep.shown; HUD.w = keep.w; HUD.h = keep.h; HUD.u = keep.u; Object.assign(SafeArea, keep.sa);
@@ -31945,6 +31971,103 @@ const SelfTest = {
         }
         this.check('the m4 convoy still drives its route to the end and never rests on a structure', trucks.length === 4 && trucks.every((p) => p.arrivedFlag) && perched === 0, trucks.filter((p) => p.arrivedFlag).length + ' of ' + trucks.length + ' arrived in ' + Math.round(secs) + ' s, ' + perched + ' perched ticks');
       } finally { Object.assign(LOAD_RULES, keepRules); Net.guest = keepGuest; S.difficulty = keepDiff; Save.data.platformId = keepPid; Game.quitToMenu(); }
+    });
+    t('final living', () => {
+      // the final review's living scenery and mission findings
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random, keepMH = missionHazard, keepDiff = S.difficulty;
+      const far = () => { R.cam.x = R.cam.z = WORLD_HALF * 5; R.visible = () => false; };
+      const startM = (id, pid) => {
+        Game.startSession({ mode: 'mission', missionId: id, platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran' });
+        for (let i = 0; i < 3; i++) Game.tick(STEP);   // the mission's later() spawns
+        return Game.mission;
+      };
+      try {
+        S.quality = 'high'; Math.random = makeRng(11);
+        // 1. a driver who leaves a car is not one of the town's own: forgotten once out of sight, so the town does not grow
+        socStart('day');
+        const cars = W.traffic.cars.filter((c) => c.state === 'drive' && c.lane && c.lane.zone && c.driver && !c.rider && !c.duty).slice(0, 6);
+        const walkers = [];
+        for (const c of cars) {
+          const zn = c.lane.zone, n = zn.civs.length;
+          Traffic.abandon(c);
+          if (zn.civs.length > n) walkers.push([zn, zn.civs[n]]);
+        }
+        far();
+        for (let i = 0; i < 2000; i++) Society.thinkSome();
+        Civ.update(STEP);
+        const stay = walkers.filter(([zn, h]) => zn.civs.indexOf(h) >= 0).length;
+        this.check('a driver who leaves a car walks off as a passer-by and is forgotten once out of sight (no town grows)', walkers.length >= 3 && stay === 0, stay + ' of ' + walkers.length + ' still in town');
+        R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        // 2. airliners keep off a runway a platform stands on: they wait at the gate, hold short, or go around
+        Game.startSession({ mode: 'skirmish', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: 7, random: false, support: 'none' }) });
+        const T = W.traffic, ap = W.airports[0].spot, f = T.flights[0], r = f.route, at = Airports.at(ap, 0, 0);
+        for (const g of T.flights) if (g !== f) Flights.toGate(g, 1e9);
+        const clear = !Flights.runwayTaken(f);
+        const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: at.x, z: at.z, yaw: 0, loadout: Loadout.forPlatform('kestrel') });
+        jet.grounded = true; jet.y = Terrain.h(at.x, at.z) + jet.def.air.gearH;
+        W.platforms.push(jet);
+        const run = (secs, until) => { for (let k = 0; k < Math.round(secs / STEP); k++) { Flights.update(T, STEP); if (until && until()) return true; } return false; };
+        f.dwell = 0; run(5);
+        this.check('an airliner waits at its gate while a player\'s aircraft stands on the runway', clear && f.phase === FL_GATE, FLIGHT_PHASES[f.phase]);
+        jet.dead = true;
+        run(300, () => f.s >= r.roll - FLIGHT_HOLD_SHORT - 2);
+        jet.dead = false; run(10);
+        this.check('one taxiing out holds short of the runway while a platform stands on it', f.phase === FL_TAXI && f.s < r.roll, FLIGHT_PHASES[f.phase] + ' ' + Math.round(f.s - r.roll) + ' m from its roll');
+        jet.dead = true;
+        run(600, () => f.phase === FL_CRUISE && f.s > r.approach - 30);
+        jet.dead = false;
+        const y0 = f.y;
+        run(30, () => f.phase !== FL_CRUISE);
+        const phase = f.phase;
+        let lowest = f.y;
+        run(5, () => { lowest = Math.min(lowest, f.y); return false; });
+        this.check('one coming in to land goes around, climbing away, instead of landing through it', phase === FL_CROSS && lowest >= y0 - 1 && f.y > y0, FLIGHT_PHASES[phase] + ', ' + Math.round(f.y - y0) + ' m up');
+        far();
+        const back = run(300, () => f.phase === FL_GATE);
+        this.check('and it is back at its gate later, out of sight', back);
+        W.platforms.splice(W.platforms.indexOf(jet), 1);
+        R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        // 3. m18: the Gunship and a Strike Fighter take a family aboard in flight, circling the farm low and slow in the storm
+        const boarded = {};
+        for (const pid of ['behemoth', 'shrike']) {
+          const m = startM('m18', pid), spot = m.get('rescue').spots[2], p = W.player, a = p.def.air, dw = 40;
+          p.controller = null; p.flightMode = 'mouse';
+          p.x = spot.x + dw; p.z = spot.z; p.yaw = PI; p.y = Terrain.h(p.x, p.z) + 20; p.speed = a.min * 1.1; p.grounded = false; p.pitch = 0;
+          let k = 0;
+          for (; k < 60 * 15 && !spot.saved && !p.dead; k++) {   // a pilot circling it: steered in toward dw m, braking near the stall
+            const c = p.cmd, dx = p.x - spot.x, dz = p.z - spot.z, d = Math.hypot(dx, dz) || 1, pull = clamp((d - dw) * 0.03, -1.5, 1.5);
+            const want = Math.atan2(-dz / d - pull * dx / d, dx / d - pull * dz / d), err = angleDiff(p.yaw, want);
+            c.aimYaw = p.yaw + err; c.moveS = err > 0.15 ? -1 : err < -0.15 ? 1 : 0;
+            c.brake = p.speed > a.min * (p.gear ? 0.8 : 1) * 1.25; c.throttleSet = 0;
+            c.aimPitch = clamp((18 - (p.y - Terrain.h(p.x, p.z))) * 0.04, -0.3, 0.3);
+            Game.tick(STEP);
+          }
+          boarded[pid] = spot.saved && !p.grounded ? (k * STEP).toFixed(1) + ' s' : 'no (held ' + (spot.held || 0).toFixed(1) + ' s)';
+        }
+        this.check('the Gunship and the Strike Fighter take a family aboard in flight in m18\'s storm', Object.values(boarded).every((v) => v.indexOf('no') < 0), JSON.stringify(boarded));
+        this.check('m18\'s brief says how an aircraft boards', MISSION_BY_ID.m18.brief.indexOf('an aircraft circles it low and slow') >= 0);
+        // 4. m18 lists only the hazards its script starts (its clock alone, on from the last flight)
+        const m18 = Game.mission, asked = new Set();
+        missionHazard = function (type) { asked.add(type); return true; };
+        try { while (m18.time < MISSION_BY_ID.m18.timeLimit && m18.state === 'running') m18.update(0.5); } finally { missionHazard = keepMH; }
+        const unstarted = MISSION_BY_ID.m18.hazards.filter((h) => !asked.has(h));
+        this.check('every hazard m18 lists is one its script starts', m18.def.id === 'm18' && unstarted.length === 0, unstarted.join(', '));
+        // 5. m17's recommendation names the ships as they are there: on the river, or refused
+        const rec = MISSION_BY_ID.m17.recommended, ships = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'naval');
+        const wrong = ships.filter((id) => {
+          const d = PLATFORMS[id], short = d.name.split(' ')[0];
+          if (UI.platBlock(d, 'metro')) return rec.indexOf('the ' + short + ' cannot sail') < 0;
+          startM('m17', id);
+          return W.player.def.kind !== 'naval' || rec.indexOf(short) < 0 || rec.indexOf(short) > rec.indexOf('start on the river');
+        });
+        this.check('m17\'s recommendation says which ships sail there and which are refused', wrong.length === 0, wrong.join(', ') + ' in "' + rec + '"');
+        // 6. the release notes count the playable platforms there are
+        this.check('the release notes give the number of playable platforms', UI.scr_help().indexOf(PLAYABLE.length + ' playable platforms') >= 0, PLAYABLE.length + ' playable');
+      } finally {
+        missionHazard = keepMH; Math.random = keepRandom; S.quality = keepQ; S.difficulty = keepDiff; R.visible = keepVisible;
+        R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Game.quitToMenu();
+      }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
