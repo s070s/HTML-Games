@@ -706,11 +706,13 @@ const DIFFICULTY = {
    faunaLod), faunaCap animals drawn per frame, faunaSim animals placed (and simulated) in all;
    maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium;
    fxFar m from the camera past which blasts, splashes and ships' wakes emit a lighter set of particles (fxFar), fleet
-   most enemy ships in a skirmish's fleet: one of each of its size's types, the first fleet of them (SKIRMISH_FLEET) */
+   most enemy ships in a skirmish's fleet: one of each of its size's types, the first fleet of them (SKIRMISH_FLEET);
+   traffic (Traffic): most cars driving the streets and roads, trafficDraw m within which cars are drawn (simple models
+   past trafficLod) */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -4122,6 +4124,7 @@ const Falls = {
       const x0 = f.x - f.hx, x1 = f.x + f.hx, z0 = f.z - f.hz, z1 = f.z + f.hz;
       Civ.crush(x0, z0, x1, z1, gy, dmg);
       Fauna.crush(x0, z0, x1, z1, gy, dmg);
+      Traffic.crush(x0, z0, x1, z1, gy, dmg);
     }
     if (Water.any && Water.level(f.x, f.z) > gy + 0.3) { Water.splash(f.x, f.z, Math.max(1, f.hx), false); return; }
     Rubble.add(f.x, f.z, f.vol);
@@ -4358,6 +4361,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   if (W.onExplosion && !opts.noNet) W.onExplosion(x, y, z, radius);   // superweapon blasts are replayed by guests instead
   Civ.blast(x, y, z, radius, damage);   // every game runs its own civilians, guests too
   Fauna.blast(x, y, z, radius, damage);   // and its own animals
+  Traffic.blast(x, y, z, radius, damage);   // and its own road traffic
   if (Net.guest) return;   // guests only show effects; the host decides damage
   if (radius >= HAZARD_BLAST_R && damage > 0) Hazards.onBlast(x, y, z, radius);
   // damage
@@ -4415,7 +4419,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null,
+    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null,
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
@@ -5692,6 +5696,7 @@ function drawWorld(dt) {
   for (let i = 0; i < W.wrecks.length; i++) drawPlatformBody(W.wrecks[i]);   // sinking ships
   Civ.draw();
   Fauna.draw();
+  Traffic.draw();
   // projectiles
   for (let i = 0; i < W.projs.length; i++) {
     const p = W.projs[i];
@@ -5757,7 +5762,7 @@ function drawWorld(dt) {
         const rr = (p.kind === 'air' ? p.radius * 1.3 : p.radius * 1.35) * (1 + hgt * 0.01);
         st.push().t(p.x, gh + 0.13, p.z).s(rr * 2, 0.05, rr * 2); R.draw('cyl', 0, 0, 0); st.pop();
       }
-      if (!high) { Civ.drawShadows(); Fauna.drawShadows(); }
+      if (!high) { Civ.drawShadows(); Fauna.drawShadows(); Traffic.drawShadows(); }
       R.endBatch(high ? 'shadowHigh' : 'shadowLow', 0, high ? 0.2 : 0.46);
     }
   }
@@ -5791,6 +5796,7 @@ function updateWorldEffects(dt) {
   Falls.update(dt);
   Civ.update(dt);
   Fauna.update(dt);
+  Traffic.update(dt);
   Wrecks.update(dt);
   Arty.update();
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
@@ -7268,7 +7274,7 @@ const CIV_HP = 15;                       // three rifle rounds; anything heavier
 const CIV_RADIUS = 0.35, CIV_HEIGHT = 1.75;
 const CIV_CITY_STEP = 52;                // lot spacing of a plain city (Scenery.city)
 const CIV_ZONE_PAD = 10;                 // a zone's box reaches this far past its city (m)
-const CIV_LANE = [1.6, 3.2];             // how far from a street's centre line a civilian walks (m)
+const CIV_LANE = [3.4, 4.4];             // how far from a street's centre line a civilian walks (m): the pavement, clear of the cars (Traffic)
 const CIV_WALK = [1.1, 1.6], CIV_RUN = [4, 5.4];   // walking and running speed (m/s)
 const CIV_LIMP = 0.55;                   // speed share of a wounded civilian
 const CIV_WADE = 0.3;                    // civilians never step into water deeper than this (m)
@@ -7366,7 +7372,7 @@ const Civ = {
   /* true when a civilian of radius r cannot stand at (x, z): a structure at body height or a building's ground floor */
   blocked(x, z, r, blds) {
     if (Water.any && Water.depth(x, z) > CIV_WADE) return true;   // civilians keep out of water
-    if (groundBlocked(x, z, r, Terrain.h(x, z) + 0.1, CIV_HEIGHT)) return true;
+    if (groundBlocked(x, z, r, Terrain.h(x, z) + 0.1, CIV_HEIGHT) || Traffic.blocks(x, z, r)) return true;   // and parked cars
     for (let i = 0; i < blds.length; i++) {
       const b = blds[i];
       if (x < b.ox || x >= b.bx1 || z < b.oz || z >= b.bz1) continue;
@@ -8709,6 +8715,1389 @@ const Fauna = {
     }
   },
 };
+/* ---------------------------------------------------------------------
+   Civilian vehicles (P6.2, D26) and road traffic (P6.1)
+   VEHICLES lists the civilian vehicles: cars, vans, buses, trucks and bikes for the roads, boats for the water, light
+   aircraft and airliners for the airfields. Each row is built once into a recipe of parts (boxes, cylinders, cones and
+   wedges drawn through the instanced batch, painted from its colour set) and gets a platform def cv_<id> (model 'civ',
+   no weapons): Use beside one makes it a real platform of its kind, driven as a wheeled ground vehicle, sailed as a
+   ship or flown. Road vehicles and boats can be taken anywhere; an aircraft only standing on an airfield.
+   Traffic holds the vehicles of the scenery: the parked ones (kerb cars in the towns, boats off the shores, aircraft
+   on the aprons; seeded, so every game has the same) and the cars driving the streets and roads. Each town's streets
+   (Civ's zones) and the roads make one lane graph: a lane each way right of the centre line, joined at the junctions
+   by turning lanes. Cars keep their distance, give way at junctions (one car on a junction's turns at a time) and stop
+   for people, machines and wrecks in the way, turning back when it stays blocked. Gunfire, blasts and combat machines
+   close by make drivers brake and flee, or leave the car and run (a civilian); a car that is shot, blasted, rammed or
+   run over by a heavy machine is wrecked and burns. Like civilians the vehicles are scenery: every game runs its own
+   (D6, never sent), they never block or harm a platform and change no score; platforms pass through them and crush
+   them. Taking one: it stops, its driver steps out, and it becomes the platform; a co-op guest asks the host for it
+   ('enterCiv'), and every game drops its own copy where the platform appears ('sp' cc: its paint).
+   --------------------------------------------------------------------- */
+// colour keys of the parts: the vehicle's paint, fixed colours, its accent (from the row), lamps that glow when driven
+const CK_PAINT = 0, CK_TRIM = 1, CK_GLASS = 2, CK_TYRE = 3, CK_CHROME = 4, CK_HEAD = 5, CK_TAIL = 6, CK_WHITE = 7, CK_ACC = 8, CK_DECK = 9, CK_GLOW = 10, CK_BLUE = 11;
+const CK_COLS = [null, [0.1, 0.1, 0.11], [0.08, 0.12, 0.17], [0.07, 0.07, 0.075], [0.62, 0.63, 0.66], [0.95, 0.93, 0.8], [0.75, 0.06, 0.05], [0.88, 0.88, 0.86], null, [0.55, 0.42, 0.26], [1, 0.62, 0.12], [0.15, 0.3, 1]];
+const CK_EMIS = [0, 0, 0.3, 0, 0, 0.9, 0.7, 0, 0, 0, 1.2, 1.2];
+const CK_SPEC = [0.45, 0.2, 0.9, 0.05, 0.8, 0, 0, 0.3, 0.4, 0.1, 0, 0];
+const CV_CORE = 1, CV_GEAR = 2, CV_PROP = 4;   // part flags: also on the simple model; only with the gear down; a spinning propeller
+const CV_ACC = [0.9, 0.9, 0.88];               // accent of a row that names none
+// the paint sets a vehicle's colour is picked from (its civCol, an index into the set)
+const CIV_PAINTS = {
+  car: [[0.72, 0.1, 0.1], [0.15, 0.25, 0.55], [0.8, 0.8, 0.78], [0.18, 0.18, 0.2], [0.55, 0.56, 0.58], [0.2, 0.42, 0.3], [0.85, 0.7, 0.3], [0.45, 0.12, 0.2]],
+  bright: [[0.95, 0.75, 0.05], [0.9, 0.3, 0.05], [0.1, 0.6, 0.85], [0.8, 0.1, 0.12], [0.35, 0.75, 0.2]],
+  dark: [[0.08, 0.08, 0.09], [0.15, 0.17, 0.22], [0.25, 0.25, 0.27], [0.12, 0.2, 0.15]],
+  earth: [[0.45, 0.38, 0.25], [0.3, 0.35, 0.22], [0.55, 0.5, 0.42], [0.35, 0.22, 0.15]],
+  taxi: [[0.95, 0.78, 0.1]],
+  police: [[0.9, 0.9, 0.92], [0.1, 0.12, 0.2]],
+  fleet: [[0.85, 0.85, 0.85], [0.2, 0.35, 0.6], [0.7, 0.15, 0.1], [0.25, 0.45, 0.25]],
+  white: [[0.9, 0.9, 0.88], [0.82, 0.83, 0.85]],
+  pastel: [[0.95, 0.7, 0.75], [0.7, 0.88, 0.95], [0.95, 0.92, 0.7], [0.75, 0.92, 0.75]],
+  transit: [[0.15, 0.45, 0.7], [0.75, 0.15, 0.12], [0.2, 0.55, 0.3]],
+  school: [[0.95, 0.68, 0.05]],
+  work: [[0.95, 0.6, 0.05], [0.9, 0.85, 0.1], [0.85, 0.85, 0.82]],
+  fire: [[0.8, 0.08, 0.06]],
+  farm: [[0.2, 0.5, 0.2], [0.8, 0.15, 0.1], [0.9, 0.7, 0.1]],
+  boat: [[0.92, 0.92, 0.9], [0.15, 0.3, 0.55], [0.75, 0.15, 0.12], [0.2, 0.45, 0.4]],
+  harbour: [[0.2, 0.22, 0.25], [0.7, 0.2, 0.1], [0.15, 0.3, 0.45]],
+  plane: [[0.92, 0.92, 0.9], [0.8, 0.15, 0.12], [0.95, 0.75, 0.1], [0.2, 0.35, 0.65]],
+  airline: [[0.94, 0.94, 0.95], [0.85, 0.87, 0.9]],
+};
+/* an aircraft's flight model: stall, cruise and top speed, acceleration, agility (turn and roll share), take-off and
+   landing speed, gear height */
+function cvAir(min, cruise, max, accel, agile, takeoff, landMax, gearH) {
+  return { min, cruise, max, ab: max, accel, decel: accel * 1.2, yawMax: 1.1 * agile, pitchMax: 1.1 * agile, yawGain: 2, pitchGain: 2, maxBank: 0.9 * agile + 0.1, rollResp: 3 * agile, rollMax: 2.4 * agile, clearance: gearH + 1.2, landMax, takeoff, groundTurn: 0.4 + 0.4 * agile, gearH };
+}
+/* The civilian vehicles (D26). l, w, h: length, width, height (m); speed: top speed (m/s; an aircraft's is its cruise);
+   tonnes; traffic: how often it drives in the road traffic (0: never); body: its builder (CV_BUILD), with the
+   builder's own fields; paint: its colour set; acc: its accent colour. A boat's draft and hull height, an aircraft's
+   span, fuselage diameter (fd), wing chord, sweep, engines and flight model. */
+const VEHICLES = [
+  // cars
+  { id: 'sedan', name: 'Sedan', type: 'road', body: 'car', paint: 'car', l: 4.6, w: 1.8, h: 1.45, speed: 34, tonnes: 1.4, traffic: 10, cab: 0.45, cabZ: -0.05 },
+  { id: 'hatch', name: 'Hatchback', type: 'road', body: 'car', paint: 'bright', l: 3.9, w: 1.75, h: 1.5, speed: 32, tonnes: 1.1, traffic: 9, cab: 0.5, cabZ: -0.12 },
+  { id: 'wagon', name: 'Estate Car', type: 'road', body: 'car', paint: 'car', l: 4.8, w: 1.8, h: 1.5, speed: 33, tonnes: 1.5, traffic: 6, cab: 0.62, cabZ: -0.14 },
+  { id: 'coupe', name: 'Coupe', type: 'road', body: 'car', paint: 'bright', l: 4.4, w: 1.8, h: 1.3, speed: 38, tonnes: 1.3, traffic: 4, cab: 0.36, cabZ: -0.08 },
+  { id: 'sports', name: 'Sports Car', type: 'road', body: 'car', paint: 'bright', l: 4.4, w: 1.9, h: 1.15, speed: 46, tonnes: 1.3, traffic: 2, cab: 0.32, cabZ: -0.1, spoiler: true },
+  { id: 'convertible', name: 'Convertible', type: 'road', body: 'car', paint: 'pastel', l: 4.5, w: 1.8, h: 1.3, speed: 38, tonnes: 1.4, traffic: 2, cab: 0.3, cabZ: -0.05, open: true },
+  { id: 'taxi', name: 'Taxi', type: 'road', body: 'car', paint: 'taxi', acc: [0.1, 0.1, 0.11], l: 4.6, w: 1.8, h: 1.45, speed: 34, tonnes: 1.4, traffic: 6, cab: 0.45, cabZ: -0.05, sign: true, stripe: true },
+  { id: 'police', name: 'Police Car', type: 'road', body: 'car', paint: 'police', acc: [0.15, 0.3, 0.75], l: 4.8, w: 1.85, h: 1.5, speed: 40, tonnes: 1.6, traffic: 2, cab: 0.45, cabZ: -0.05, bar: 'police', stripe: true },
+  { id: 'limo', name: 'Limousine', type: 'road', body: 'car', paint: 'dark', l: 6.4, w: 1.9, h: 1.45, speed: 30, tonnes: 2.4, traffic: 1, cab: 0.6, cabZ: -0.08 },
+  { id: 'microcar', name: 'Microcar', type: 'road', body: 'car', paint: 'pastel', l: 2.7, w: 1.55, h: 1.5, speed: 26, tonnes: 0.8, traffic: 3, cab: 0.55, cabZ: -0.05 },
+  { id: 'suv', name: 'SUV', type: 'road', body: 'car', paint: 'car', l: 4.8, w: 1.95, h: 1.8, speed: 34, tonnes: 2.2, traffic: 7, cab: 0.6, cabZ: -0.1, wheelR: 0.4 },
+  { id: 'offroad', name: 'Off-roader', type: 'road', body: 'car', paint: 'earth', l: 4.3, w: 1.9, h: 1.9, speed: 30, tonnes: 2.1, traffic: 3, cab: 0.55, cabZ: -0.12, wheelR: 0.42, spare: true },
+  { id: 'pickup', name: 'Pickup', type: 'road', body: 'car', paint: 'car', l: 5.3, w: 1.95, h: 1.8, speed: 32, tonnes: 2.2, traffic: 5, cab: 0.3, cabZ: 0.08, wheelR: 0.4, bed: true },
+  { id: 'crewcab', name: 'Crew Cab', type: 'road', body: 'car', paint: 'earth', l: 5.8, w: 2, h: 1.9, speed: 31, tonnes: 2.6, traffic: 2, cab: 0.42, cabZ: 0.1, wheelR: 0.42, bed: true },
+  // vans and buses
+  { id: 'minivan', name: 'Minivan', type: 'road', body: 'van', paint: 'car', l: 4.9, w: 1.9, h: 1.8, speed: 32, tonnes: 2, traffic: 5, nose: 1, windows: true },
+  { id: 'delivery', name: 'Delivery Van', type: 'road', body: 'van', paint: 'white', l: 5.6, w: 2, h: 2.5, speed: 28, tonnes: 3, traffic: 5, nose: 0.9 },
+  { id: 'camper', name: 'Camper Van', type: 'road', body: 'van', paint: 'pastel', l: 5.4, w: 2, h: 2.7, speed: 26, tonnes: 3.2, traffic: 1, nose: 0.9, windows: true, stripe: true },
+  { id: 'ambulance', name: 'Ambulance', type: 'road', body: 'van', paint: 'white', acc: [0.8, 0.1, 0.08], l: 5.8, w: 2.1, h: 2.7, speed: 34, tonnes: 3.5, traffic: 1, nose: 1, bar: 'ems', stripe: true },
+  { id: 'icecream', name: 'Ice Cream Van', type: 'road', body: 'van', paint: 'pastel', acc: [0.95, 0.55, 0.7], l: 5.2, w: 2, h: 2.6, speed: 22, tonnes: 3, traffic: 1, nose: 0.9, cone: true, stripe: true },
+  { id: 'cashvan', name: 'Security Van', type: 'road', body: 'van', paint: 'fleet', l: 5.4, w: 2.1, h: 2.4, speed: 28, tonnes: 4, traffic: 1, nose: 1 },
+  { id: 'minibus', name: 'Minibus', type: 'road', body: 'van', paint: 'transit', l: 6.2, w: 2.1, h: 2.6, speed: 28, tonnes: 4, traffic: 2, nose: 0.8, windows: true },
+  { id: 'citybus', name: 'City Bus', type: 'road', body: 'van', paint: 'transit', l: 12, w: 2.55, h: 3.1, speed: 22, tonnes: 12, traffic: 3, nose: 0, windows: true, wheelR: 0.5 },
+  { id: 'coach', name: 'Coach', type: 'road', body: 'van', paint: 'white', acc: [0.2, 0.35, 0.65], l: 13, w: 2.55, h: 3.5, speed: 26, tonnes: 14, traffic: 1, nose: 0, windows: true, stripe: true, axles: 3, wheelR: 0.5 },
+  { id: 'schoolbus', name: 'School Bus', type: 'road', body: 'van', paint: 'school', acc: [0.1, 0.1, 0.11], l: 11, w: 2.45, h: 3, speed: 22, tonnes: 11, traffic: 2, nose: 1.6, windows: true, stripe: true, wheelR: 0.5 },
+  // trucks
+  { id: 'boxtruck', name: 'Box Truck', type: 'road', body: 'truck', paint: 'fleet', acc: [0.88, 0.88, 0.86], l: 7.5, w: 2.4, h: 3.4, speed: 24, tonnes: 7, traffic: 3, load: 'box' },
+  { id: 'semi', name: 'Semi Truck', type: 'road', body: 'truck', paint: 'bright', acc: [0.82, 0.83, 0.85], l: 16, w: 2.5, h: 4, speed: 24, tonnes: 30, traffic: 2, load: 'box', axleZ: [0.42, 0.24, -0.3, -0.4] },
+  { id: 'tanker', name: 'Tanker', type: 'road', body: 'truck', paint: 'fleet', l: 10, w: 2.5, h: 3.3, speed: 22, tonnes: 18, traffic: 1, load: 'tank', axles: 3 },
+  { id: 'dump', name: 'Dump Truck', type: 'road', body: 'truck', paint: 'work', acc: [0.4, 0.4, 0.42], l: 8, w: 2.5, h: 3.2, speed: 22, tonnes: 16, traffic: 1, load: 'dump', axles: 3 },
+  { id: 'mixer', name: 'Cement Mixer', type: 'road', body: 'truck', paint: 'work', acc: [0.85, 0.85, 0.82], l: 8.5, w: 2.5, h: 3.8, speed: 20, tonnes: 18, traffic: 1, load: 'mixer', axles: 3 },
+  { id: 'flatbed', name: 'Flatbed', type: 'road', body: 'truck', paint: 'fleet', acc: [0.55, 0.42, 0.26], l: 9, w: 2.5, h: 3, speed: 24, tonnes: 9, traffic: 1, load: 'flat' },
+  { id: 'garbage', name: 'Garbage Truck', type: 'road', body: 'truck', paint: 'fleet', acc: [0.25, 0.45, 0.25], l: 8.5, w: 2.5, h: 3.4, speed: 20, tonnes: 14, traffic: 1, load: 'box', axles: 3 },
+  { id: 'firetruck', name: 'Fire Engine', type: 'road', body: 'truck', paint: 'fire', acc: [0.9, 0.9, 0.88], l: 9.5, w: 2.5, h: 3.3, speed: 30, tonnes: 15, traffic: 1, load: 'ladder', bar: 'ems', axles: 3 },
+  { id: 'towtruck', name: 'Tow Truck', type: 'road', body: 'truck', paint: 'work', l: 6.5, w: 2.3, h: 3, speed: 28, tonnes: 5, traffic: 1, load: 'tow', bar: 'amber' },
+  // other road vehicles
+  { id: 'tractor', name: 'Tractor', type: 'road', body: 'tractor', paint: 'farm', l: 4, w: 2.2, h: 2.8, speed: 12, tonnes: 4, traffic: 1 },
+  { id: 'motorbike', name: 'Motorbike', type: 'road', body: 'moto', paint: 'bright', l: 2.2, w: 0.8, h: 1.2, speed: 48, tonnes: 0.25, traffic: 0, wheelR: 0.32 },
+  { id: 'scooter', name: 'Scooter', type: 'road', body: 'moto', paint: 'pastel', l: 1.8, w: 0.7, h: 1.1, speed: 26, tonnes: 0.12, traffic: 0, wheelR: 0.24, scooter: true },
+  // boats (draft: keel under the surface, hull: keel to deck)
+  { id: 'jetski', name: 'Jet Ski', type: 'sea', body: 'boat', top: 'jetski', paint: 'bright', acc: [0.1, 0.1, 0.11], l: 3.2, w: 1.2, h: 1.3, draft: 0.3, hull: 0.7, speed: 30, tonnes: 0.4 },
+  { id: 'rib', name: 'Inflatable', type: 'sea', body: 'boat', top: 'rib', paint: 'dark', acc: [0.9, 0.4, 0.1], l: 6, w: 2.4, h: 2.1, draft: 0.4, hull: 0.9, speed: 26, tonnes: 1.5 },
+  { id: 'speedboat', name: 'Speedboat', type: 'sea', body: 'boat', top: 'speed', paint: 'boat', l: 7.5, w: 2.5, h: 1.9, draft: 0.5, hull: 1.3, speed: 32, tonnes: 2.5 },
+  { id: 'fishing', name: 'Fishing Boat', type: 'sea', body: 'boat', top: 'fishing', paint: 'harbour', acc: [0.9, 0.55, 0.1], l: 11, w: 3.8, h: 4.8, draft: 1.2, hull: 2.6, speed: 12, tonnes: 20 },
+  { id: 'sailboat', name: 'Sailboat', type: 'sea', body: 'boat', top: 'sail', paint: 'boat', l: 9, w: 2.8, h: 12, draft: 1.4, hull: 2, speed: 9, tonnes: 5 },
+  { id: 'yacht', name: 'Motor Yacht', type: 'sea', body: 'boat', top: 'yacht', paint: 'white', acc: [0.15, 0.25, 0.45], l: 16, w: 4.5, h: 6.4, draft: 1.4, hull: 3, speed: 20, tonnes: 40 },
+  { id: 'tug', name: 'Tugboat', type: 'sea', body: 'boat', top: 'tug', paint: 'harbour', acc: [0.85, 0.15, 0.1], l: 14, w: 5, h: 7.1, draft: 2, hull: 3.6, speed: 12, tonnes: 120 },
+  { id: 'ferry', name: 'Ferry', type: 'sea', body: 'boat', top: 'ferry', paint: 'white', acc: [0.15, 0.3, 0.55], l: 34, w: 9, h: 11.8, draft: 2.4, hull: 5, speed: 14, tonnes: 900 },
+  // aircraft (taken on an airfield only)
+  { id: 'cessna', name: 'Light Aircraft', type: 'air', body: 'plane', paint: 'plane', l: 8.3, span: 11, fd: 1.4, chord: 1.5, sweep: 0, eng: 'nose', high: true, tonnes: 1.1, air: cvAir(28, 55, 72, 10, 1, 32, 45, 1.5) },
+  { id: 'duster', name: 'Biplane', type: 'air', body: 'plane', paint: 'bright', l: 7.5, span: 10, fd: 1.3, chord: 1.4, sweep: 0, eng: 'nose', bi: true, tonnes: 1.4, air: cvAir(25, 50, 64, 9, 1.1, 28, 40, 1.6) },
+  { id: 'twinprop', name: 'Twin Prop', type: 'air', body: 'plane', paint: 'plane', l: 12, span: 15, fd: 1.8, chord: 1.8, sweep: 0, eng: 'twin', tonnes: 5, air: cvAir(38, 75, 95, 13, 0.85, 42, 55, 1.8) },
+  { id: 'bizjet', name: 'Business Jet', type: 'air', body: 'plane', paint: 'airline', acc: [0.2, 0.3, 0.5], l: 16, span: 15, fd: 2, chord: 2.2, sweep: 0.45, eng: 'rear2', tonnes: 9, air: cvAir(55, 120, 160, 20, 0.75, 62, 75, 1.9) },
+  { id: 'airliner', name: 'Airliner', type: 'air', body: 'plane', paint: 'airline', acc: [0.1, 0.3, 0.7], l: 38, span: 34, fd: 4, chord: 5, sweep: 0.5, eng: 'jet2', tonnes: 70, air: cvAir(60, 115, 140, 14, 0.45, 70, 85, 3.2) },
+  { id: 'cargojet', name: 'Cargo Jet', type: 'air', body: 'plane', paint: 'airline', acc: [0.75, 0.45, 0.1], l: 44, span: 44, fd: 5.5, chord: 6, sweep: 0.45, eng: 'jet4', high: true, tonnes: 120, air: cvAir(58, 110, 130, 12, 0.4, 68, 80, 3.6) },
+];
+/* a part of a recipe: [shape, x, y, z, sx, sy, sz, colour key, rx, ry, rz, flags] (drawn T * Ry * Rx * Rz * S) */
+function cvPart(B, shape, x, y, z, sx, sy, sz, ck, flags, rx, ry, rz) { B.parts.push([shape, x, y, z, sx, sy, sz, ck, rx || 0, ry || 0, rz || 0, flags || 0]); }
+/* a wheel at (x, y, z), d across and w wide, turning about x */
+function cvWheel(B, x, y, z, d, w) { B.wheels.push([x, y, z, d, w]); }
+/* headlights at the front (z1) and tail lights at the back (z0), the pair x either side of the middle at height y */
+function cvLamps(B, x, y, z0, z1, s) {
+  for (let side = -1; side <= 1; side += 2) {
+    cvPart(B, 'box', side * x, y, z1 + 0.02, s, s * 0.6, 0.06, CK_HEAD);
+    cvPart(B, 'box', side * x, y, z0 - 0.02, s, s * 0.6, 0.06, CK_TAIL);
+  }
+}
+/* a light bar on the roof (top y) at z: blue and red (police, ems), or amber (work) */
+function cvBar(B, kind, y, z, w) {
+  cvPart(B, 'box', w * 0.2, y + 0.09, z, w * 0.36, 0.18, 0.3, kind === 'amber' ? CK_GLOW : CK_BLUE);
+  cvPart(B, 'box', -w * 0.2, y + 0.09, z, w * 0.36, 0.18, 0.3, kind === 'amber' ? CK_GLOW : CK_TAIL);
+}
+/* a pair of wheels of radius r and width tw on each axle at zs (shares of the length) */
+function cvAxles(B, v, zs, r, tw) {
+  for (const zf of zs) for (let s = -1; s <= 1; s += 2) cvWheel(B, s * (v.w / 2 - tw * 0.35), r, zf * v.l, r * 2, tw);
+}
+/* the builders: the origin is the middle of the vehicle on the ground (a boat: its keel; an aircraft: the middle of its
+   fuselage), +z forward, +x left */
+const CV_BUILD = {
+  car(v, B) {
+    const l = v.l, w = v.w, h = v.h, r = v.wheelR, clear = r * 0.55, low = (h - clear) * (v.open ? 0.62 : 0.5), top = clear + low;
+    const cl = l * v.cab, cz = l * v.cabZ, ch = h - top;
+    cvPart(B, 'box', 0, clear + low / 2, 0, w, low, l, CK_PAINT, CV_CORE);                                      // body
+    if (v.open) {
+      cvPart(B, 'box', 0, top + 0.2, cz + cl * 0.5, w * 0.86, 0.4, 0.06, CK_GLASS);                              // windscreen
+      for (let s = -1; s <= 1; s += 2) cvPart(B, 'box', s * w * 0.22, top + 0.2, cz - cl * 0.15, w * 0.34, 0.5, cl * 0.4, CK_TRIM);   // seats
+    } else {
+      cvPart(B, 'box', 0, top + ch * 0.45, cz, w * 0.86, ch * 0.9, cl, CK_GLASS, CV_CORE);                       // windows
+      cvPart(B, 'box', 0, h - ch * 0.08, cz, w * 0.82, ch * 0.16, cl * 0.94, CK_PAINT, CV_CORE);                 // roof
+    }
+    cvPart(B, 'box', 0, clear + 0.1, l / 2, w * 0.98, 0.2, 0.14, CK_TRIM);                                       // bumpers
+    cvPart(B, 'box', 0, clear + 0.1, -l / 2, w * 0.98, 0.2, 0.14, CK_TRIM);
+    cvLamps(B, w * 0.34, clear + low * 0.7, -l / 2, l / 2, w * 0.18);
+    if (v.stripe) cvPart(B, 'box', 0, clear + low * 0.55, 0, w + 0.03, low * 0.2, l * 0.92, CK_ACC);
+    if (v.spoiler) cvPart(B, 'box', 0, top + 0.26, -l / 2 + 0.25, w * 0.92, 0.07, 0.38, CK_TRIM);
+    if (v.sign) cvPart(B, 'box', 0, h + 0.13, cz, 0.6, 0.26, 0.24, CK_HEAD);
+    if (v.bar) cvBar(B, v.bar, h, cz, w);
+    if (v.spare) cvPart(B, 'cyl', 0, top + r * 0.2, -l / 2 - 0.14, r * 1.8, 0.26, r * 1.8, CK_TYRE, 0, PI / 2);
+    if (v.bed) {   // the open load bed behind the cab
+      const z0 = -l / 2, z1 = cz - cl / 2, bz = (z0 + z1) / 2, bl = z1 - z0;
+      for (let s = -1; s <= 1; s += 2) cvPart(B, 'box', s * (w / 2 - 0.05), top + 0.22, bz, 0.1, 0.44, bl, CK_PAINT);
+      cvPart(B, 'box', 0, top + 0.22, z0 + 0.05, w, 0.44, 0.1, CK_PAINT);
+      cvPart(B, 'box', 0, top + 0.02, bz, w * 0.9, 0.04, bl * 0.95, CK_TRIM);
+    }
+    const az = 0.5 - (r * 1.7) / l;
+    cvAxles(B, v, [az, -az], r, clamp(w * 0.13, 0.18, 0.3));
+  },
+  van(v, B) {
+    const l = v.l, w = v.w, h = v.h, r = v.wheelR, clear = r * 0.6, n = v.nose || 0, bh = h - clear, bl = l - n, bz = -n / 2;
+    cvPart(B, 'box', 0, clear + bh / 2, bz, w, bh, bl, CK_PAINT, CV_CORE);                                       // body
+    if (n > 0) cvPart(B, 'box', 0, clear + bh * 0.22, l / 2 - n / 2, w * 0.96, bh * 0.44, n, CK_PAINT, CV_CORE);   // bonnet
+    cvPart(B, 'box', 0, clear + bh * 0.72, l / 2 - n + 0.03, w * 0.9, bh * 0.36, 0.08, CK_GLASS, CV_CORE);       // windscreen
+    if (v.windows) cvPart(B, 'box', 0, clear + bh * 0.7, bz - 0.2, w + 0.04, bh * 0.3, bl * 0.84, CK_GLASS);
+    else cvPart(B, 'box', 0, clear + bh * 0.72, l / 2 - n - 0.5, w + 0.04, bh * 0.3, 0.9, CK_GLASS);            // the cab's side windows
+    if (v.stripe) cvPart(B, 'box', 0, clear + bh * 0.38, bz, w + 0.03, bh * 0.1, bl * 0.96, CK_ACC);
+    cvPart(B, 'box', 0, clear + 0.12, l / 2, w * 0.98, 0.24, 0.14, CK_TRIM);
+    cvPart(B, 'box', 0, clear + 0.12, -l / 2, w * 0.98, 0.24, 0.14, CK_TRIM);
+    cvLamps(B, w * 0.36, clear + Math.min(bh * 0.22, 0.6), -l / 2, l / 2, w * 0.16);
+    if (v.bar) cvBar(B, v.bar, h, l / 2 - n - 0.4, w);
+    if (v.cone) {   // the ice cream cone on the roof
+      cvPart(B, 'cone', 0, h + 0.55, l * 0.15, 0.55, 1.1, 0.55, CK_DECK, 0, PI);
+      cvPart(B, 'sphere', 0, h + 1.15, l * 0.15, 0.7, 0.7, 0.7, CK_ACC);
+    }
+    const zf = 0.5 - (Math.max(n, r * 1.3) + r * 0.6) / l, zr = -0.5 + (r * 2.2) / l;
+    cvAxles(B, v, v.axles === 3 ? [zf, zr, zr + r * 2.3 / l] : [zf, zr], r, 0.3);
+  },
+  truck(v, B) {
+    const l = v.l, w = v.w, h = v.h, r = v.wheelR, cl = clamp(l * 0.24, 2, 2.6), base = r * 0.7, ch = Math.min(h * 0.82, 3.1) - base, deck = r * 2.1;
+    const cz = l / 2 - cl / 2, z0 = -l / 2, z1 = l / 2 - cl - 0.3, lz = (z0 + z1) / 2, ll = z1 - z0;
+    cvPart(B, 'box', 0, base + ch / 2, cz, w, ch, cl, CK_PAINT, CV_CORE);                                        // cab
+    cvPart(B, 'box', 0, base + ch * 0.72, l / 2 + 0.03, w * 0.88, ch * 0.34, 0.08, CK_GLASS, CV_CORE);
+    cvPart(B, 'box', 0, base + ch * 0.72, cz, w + 0.04, ch * 0.3, cl * 0.5, CK_GLASS);
+    cvPart(B, 'box', 0, r * 1.2, -cl / 2, w * 0.7, 0.35, l - cl, CK_TRIM);                                       // chassis
+    cvPart(B, 'box', 0, base + 0.15, l / 2, w * 0.98, 0.3, 0.16, CK_TRIM);
+    cvLamps(B, w * 0.36, base + 0.45, -l / 2, l / 2, w * 0.14);
+    switch (v.load) {
+      case 'box': cvPart(B, 'box', 0, deck + (h - deck) / 2, lz, w, h - deck, ll, CK_ACC, CV_CORE); break;
+      case 'tank': cvPart(B, 'cyl', 0, deck + (h - deck) / 2, lz, w * 0.95, ll, h - deck, CK_CHROME, CV_CORE, PI / 2); break;
+      case 'dump': cvPart(B, 'box', 0, deck + 0.7, lz, w, 1.4, ll, CK_ACC, CV_CORE); cvPart(B, 'box', 0, deck + 1.5, z1 - 0.3, w, 0.3, 0.6, CK_ACC); break;
+      case 'mixer':   // the drum, its open end raised at the back
+        cvPart(B, 'cyl', 0, deck + w * 0.5, lz, w * 0.9, ll * 0.85, w * 0.9, CK_ACC, CV_CORE, -(PI / 2 - 0.22));
+        cvPart(B, 'box', 0, deck + 0.15, lz, w * 0.8, 0.3, ll, CK_TRIM);
+        break;
+      case 'flat': cvPart(B, 'box', 0, deck + 0.1, lz, w, 0.2, ll, CK_DECK, CV_CORE); cvPart(B, 'box', 0, deck + 0.8, lz + ll * 0.15, w * 0.8, 1.2, ll * 0.4, CK_ACC); break;
+      case 'ladder':
+        cvPart(B, 'box', 0, deck + (h * 0.75 - deck) / 2, lz, w, h * 0.75 - deck, ll, CK_PAINT, CV_CORE);
+        cvPart(B, 'box', 0, deck + (h * 0.75 - deck) * 0.5, lz, w + 0.03, 0.2, ll * 0.96, CK_ACC);
+        cvPart(B, 'box', 0, h - 0.15, lz + cl * 0.3, 0.8, 0.22, ll + cl * 0.6, CK_CHROME);
+        break;
+      case 'tow':
+        cvPart(B, 'box', 0, deck + 0.5, lz, w, 1, ll, CK_PAINT, CV_CORE);
+        cvPart(B, 'box', 0, deck + 1.6, z0 + 0.7, 0.3, 0.3, 2.6, CK_TRIM, 0, -0.6);                              // the boom
+        break;
+      default: break;
+    }
+    if (v.bar) cvBar(B, v.bar, base + ch, cz, w);
+    const zf = (cz - cl * 0.05) / l, zr = (z0 + Math.min(ll * 0.22, 2.2)) / l;
+    cvAxles(B, v, v.axleZ || (v.axles === 3 ? [zf, zr, zr + r * 2.3 / l] : [zf, zr]), r, 0.4);
+  },
+  moto(v, B) {
+    const l = v.l, r = v.wheelR;
+    cvPart(B, 'box', 0, r * 1.3, 0, 0.3, 0.35, l * 0.55, CK_PAINT, CV_CORE);                                   // frame and tank
+    cvPart(B, 'box', 0, r * 1.75, -l * 0.12, 0.32, 0.12, l * 0.32, CK_TRIM, CV_CORE);                           // seat
+    cvPart(B, 'box', 0, r * 2.3, l * 0.33, v.w * 0.9, 0.06, 0.06, CK_CHROME);                                   // handlebar
+    cvPart(B, 'box', 0, r * 1.85, l * 0.38, 0.06, r * 1.1, 0.06, CK_CHROME, 0, -0.35);                          // fork
+    cvPart(B, 'box', 0, r * 1.8, l * 0.43, 0.18, 0.14, 0.08, CK_HEAD);
+    cvPart(B, 'box', 0, r * 1.5, -l * 0.43, 0.14, 0.1, 0.06, CK_TAIL);
+    if (v.scooter) cvPart(B, 'box', 0, r * 1.5, l * 0.3, v.w * 0.7, r * 1.4, 0.12, CK_PAINT, CV_CORE);          // leg shield
+    cvWheel(B, 0, r, l / 2 - r, r * 2, 0.16);
+    cvWheel(B, 0, r, -l / 2 + r, r * 2, 0.18);
+  },
+  tractor(v, B) {
+    const l = v.l, w = v.w, h = v.h, rb = v.wheelR, rf = h * 0.16, cab = h - rb * 2 - 0.3;
+    cvPart(B, 'box', 0, rf * 2 + 0.3, l * 0.18, w * 0.42, 0.9, l * 0.55, CK_PAINT, CV_CORE);                    // bonnet
+    cvPart(B, 'box', 0, rb * 2 + 0.05, -l * 0.22, w * 0.62, 0.3, l * 0.38, CK_PAINT, CV_CORE);
+    cvPart(B, 'box', 0, rb * 2 + 0.2 + cab / 2, -l * 0.22, w * 0.6, cab, l * 0.34, CK_GLASS, CV_CORE);         // cab
+    cvPart(B, 'box', 0, h - 0.06, -l * 0.22, w * 0.66, 0.12, l * 0.38, CK_PAINT, CV_CORE);
+    cvPart(B, 'cyl', 0.25, rf * 2 + 1.1, l * 0.32, 0.12, 1.1, 0.12, CK_TRIM);                                  // exhaust
+    cvPart(B, 'box', 0, rf * 2 + 0.4, l * 0.46, w * 0.3, 0.3, 0.06, CK_HEAD);
+    for (let s = -1; s <= 1; s += 2) { cvWheel(B, s * (w / 2 - 0.25), rb, -l * 0.22, rb * 2, 0.5); cvWheel(B, s * w * 0.33, rf, l * 0.32, rf * 2, 0.3); }
+  },
+  boat(v, B) {
+    const l = v.l, w = v.w, hh = v.hull, len = l * 0.78, bow = l - len, z0 = -l / 2, mid = z0 + len / 2, work = v.top === 'tug' || v.top === 'ferry' || v.top === 'fishing';
+    cvPart(B, 'box', 0, hh / 2, mid, w, hh, len, CK_PAINT, CV_CORE);                                            // hull
+    cvPart(B, 'cone', 0, hh / 2, z0 + len + bow / 2, w, bow, hh, CK_PAINT, CV_CORE, PI / 2);                   // bow
+    cvPart(B, 'box', 0, v.draft + 0.06, mid, w + 0.03, 0.14, len * 0.99, CK_ACC);                              // stripe at the waterline
+    cvPart(B, 'box', 0, hh + 0.04, mid, w * 0.92, 0.08, len * 0.96, work ? CK_TRIM : CK_DECK, CV_CORE);         // deck
+    const top = hh + 0.08;
+    switch (v.top) {
+      case 'jetski':
+        cvPart(B, 'box', 0, top + 0.15, -l * 0.1, w * 0.45, 0.3, l * 0.35, CK_TRIM, CV_CORE);
+        cvPart(B, 'box', 0, top + 0.25, l * 0.14, 0.12, 0.5, 0.12, CK_PAINT);
+        cvPart(B, 'box', 0, top + 0.5, l * 0.14, w * 0.7, 0.08, 0.08, CK_CHROME);
+        break;
+      case 'rib':
+        for (let s = -1; s <= 1; s += 2) cvPart(B, 'cyl', s * (w / 2 - 0.22), hh * 0.75, mid, 0.5, len, 0.5, CK_ACC, CV_CORE, PI / 2);   // the tubes
+        cvPart(B, 'box', 0, top + 0.45, l * 0.05, 0.8, 0.9, 0.6, CK_WHITE, CV_CORE);                            // console
+        cvPart(B, 'box', 0, top + 1.05, l * 0.05 + 0.25, 0.8, 0.3, 0.05, CK_GLASS);
+        cvPart(B, 'box', 0, top + 0.1, z0 - 0.2, 0.4, 0.9, 0.5, CK_TRIM);                                       // outboard motor
+        break;
+      case 'speed':
+        cvPart(B, 'wedge', 0, top + 0.27, l * 0.08, w * 0.86, 0.55, 1, CK_GLASS, CV_CORE);                      // windscreen
+        for (let s = -1; s <= 1; s += 2) cvPart(B, 'box', s * w * 0.2, top + 0.25, -l * 0.05, w * 0.3, 0.5, 0.6, CK_WHITE);
+        cvPart(B, 'box', 0, top + 0.2, -l * 0.3, w * 0.8, 0.4, 0.7, CK_WHITE);
+        cvPart(B, 'box', 0, hh * 0.6, z0 - 0.2, 0.6, 0.7, 0.5, CK_TRIM);
+        break;
+      case 'fishing':
+        cvPart(B, 'box', 0, top + 1, l * 0.12, w * 0.6, 2, l * 0.22, CK_WHITE, CV_CORE);                       // wheelhouse
+        cvPart(B, 'box', 0, top + 1.5, l * 0.12, w * 0.6 + 0.04, 0.5, l * 0.22 + 0.04, CK_GLASS);
+        cvPart(B, 'box', 0, top + 2.05, l * 0.12, w * 0.66, 0.12, l * 0.25, CK_PAINT);
+        cvPart(B, 'box', 0, top + 2.25, -l * 0.12, 0.18, 4.5, 0.18, CK_TRIM, CV_CORE);                         // mast and boom
+        cvPart(B, 'box', 0, top + 3, -l * 0.25, 0.12, 0.12, l * 0.35, CK_TRIM, 0, 0.45);
+        cvPart(B, 'box', 0, top + 0.3, -l * 0.32, w * 0.6, 0.6, l * 0.2, CK_ACC);                               // nets
+        break;
+      case 'sail': {
+        const mz = l * 0.08, mast = v.h - hh, sail = mast * 0.82;
+        cvPart(B, 'box', 0, top + 0.4, -l * 0.08, w * 0.55, 0.8, l * 0.35, CK_WHITE, CV_CORE);                 // cabin
+        cvPart(B, 'box', 0, top + 0.55, -l * 0.08, w * 0.55 + 0.04, 0.2, l * 0.3, CK_GLASS);
+        cvPart(B, 'box', 0, hh + mast / 2, mz, 0.16, mast, 0.16, CK_CHROME, CV_CORE);                          // mast
+        cvPart(B, 'wedge', 0, top + 0.9 + sail / 2, mz - l * 0.21, 0.06, sail, l * 0.42, CK_WHITE, CV_CORE, 0, PI);   // mainsail
+        cvPart(B, 'wedge', 0, top + 0.3 + mast * 0.35, mz + l * 0.16, 0.05, mast * 0.7, l * 0.32, CK_WHITE, CV_CORE);    // jib
+        cvPart(B, 'box', 0, top + 0.85, mz - l * 0.21, 0.1, 0.1, l * 0.42, CK_CHROME);                          // boom
+        break;
+      }
+      case 'yacht':
+        cvPart(B, 'box', 0, top + 0.7, -l * 0.02, w * 0.8, 1.4, l * 0.5, CK_WHITE, CV_CORE);                   // deck house
+        cvPart(B, 'box', 0, top + 0.95, -l * 0.02, w * 0.8 + 0.04, 0.5, l * 0.5 + 0.04, CK_GLASS);
+        cvPart(B, 'box', 0, top + 1.85, -l * 0.06, w * 0.6, 0.9, l * 0.28, CK_WHITE, CV_CORE);                 // flybridge
+        cvPart(B, 'box', 0, top + 2.2, -l * 0.06 + l * 0.14, w * 0.55, 0.35, 0.06, CK_GLASS);
+        cvPart(B, 'box', 0, top + 2.9, -l * 0.1, 0.1, 1.2, 0.1, CK_CHROME);
+        break;
+      case 'tug':
+        cvPart(B, 'box', 0, top + 0.6, -l * 0.02, w * 0.8, 1.2, l * 0.45, CK_WHITE, CV_CORE);
+        cvPart(B, 'box', 0, top + 1.3, l * 0.1, w * 0.55, 2.6, l * 0.25, CK_WHITE, CV_CORE);                   // wheelhouse
+        cvPart(B, 'box', 0, top + 2.2, l * 0.1, w * 0.55 + 0.04, 0.6, l * 0.25 + 0.04, CK_GLASS);
+        cvPart(B, 'cyl', 0, top + 2.2, -l * 0.15, 0.9, 2, 0.9, CK_ACC, CV_CORE);                               // funnel
+        for (let s = -1; s <= 1; s += 2) for (let k = 0; k < 3; k++) cvPart(B, 'cyl', s * w / 2, hh * 0.6, (k - 1) * l * 0.25, 0.7, 0.35, 0.7, CK_TYRE, 0, 0, 0, PI / 2);   // fenders
+        break;
+      case 'ferry':
+        cvPart(B, 'box', 0, top + 1.3, -l * 0.03, w * 0.9, 2.6, l * 0.62, CK_WHITE, CV_CORE);
+        cvPart(B, 'box', 0, top + 1.5, -l * 0.03, w * 0.9 + 0.04, 0.8, l * 0.6, CK_GLASS);
+        cvPart(B, 'box', 0, top + 3.7, 0, w * 0.8, 2.2, l * 0.4, CK_WHITE, CV_CORE);
+        cvPart(B, 'box', 0, top + 3.9, 0, w * 0.8 + 0.04, 0.7, l * 0.38, CK_GLASS);
+        cvPart(B, 'box', 0, top + 5.2, l * 0.17, w * 0.95, 1.2, l * 0.08, CK_WHITE, CV_CORE);                  // bridge
+        cvPart(B, 'box', 0, top + 5.3, l * 0.17 + l * 0.04, w * 0.95, 0.5, 0.06, CK_GLASS);
+        cvPart(B, 'box', 0, top + 5.5, -l * 0.18, 1.8, 2.6, 2.6, CK_ACC, CV_CORE);                             // funnel
+        for (let s = -1; s <= 1; s += 2) cvPart(B, 'box', s * w * 0.42, top + 3.2, -l * 0.05, 0.9, 0.8, 4, CK_GLOW);   // lifeboats
+        break;
+      default: break;
+    }
+  },
+  plane(v, B) {
+    const l = v.l, fd = v.fd, sp = v.span, ch = v.chord, gh = v.air.gearH, wz = l * 0.04, sw = v.sweep || 0, half = (sp - fd) / 2;
+    const wy = v.high ? fd * 0.45 : -fd * 0.3, fin = fd * 1.1 + 0.4, wr = v.wheelR;
+    cvPart(B, 'cyl', 0, 0, 0, fd, l * 0.6, fd, CK_PAINT, CV_CORE, PI / 2);                                      // fuselage
+    cvPart(B, 'cone', 0, 0, l * 0.4, fd, l * 0.2, fd, CK_PAINT, CV_CORE, PI / 2);                               // nose
+    cvPart(B, 'cone', 0, fd * 0.12, -l * 0.4, fd * 0.9, l * 0.2, fd * 0.8, CK_PAINT, CV_CORE, -PI / 2);          // tail cone
+    cvPart(B, 'box', 0, fd * 0.36, l * 0.31, fd * 0.62, fd * 0.28, l * 0.06, CK_GLASS, CV_CORE);                // cockpit
+    if (l > 14) cvPart(B, 'box', 0, fd * 0.12, -l * 0.02, fd + 0.04, fd * 0.1, l * 0.5, CK_GLASS);              // cabin windows
+    cvPart(B, 'box', 0, -fd * 0.06, 0, fd + 0.03, fd * 0.08, l * 0.58, CK_ACC);                                // cheat line
+    const wings = v.bi ? [wy - fd * 0.05, fd * 0.95] : [wy];
+    for (const y of wings) for (let s = -1; s <= 1; s += 2) {
+      cvPart(B, 'box', s * (fd / 2 + half / 2), y, wz - half * 0.5 * Math.tan(sw), half, Math.max(0.12, fd * 0.09), ch, CK_PAINT, CV_CORE, 0, -s * sw);
+    }
+    for (let s = -1; s <= 1; s += 2) {
+      cvPart(B, 'box', s * (sp / 2 - 0.1), wy, wz - half * Math.tan(sw), 0.12, 0.12, 0.25, s > 0 ? CK_TAIL : CK_HEAD);   // wingtip lights
+      if (v.bi) cvPart(B, 'box', s * half * 0.6, (wy + fd * 0.95) / 2, wz, 0.06, fd * 1.25, 0.06, CK_TRIM);              // struts
+      else if (v.high) cvPart(B, 'box', s * half * 0.3, 0, wz, 0.08, fd * 0.95, 0.12, CK_TRIM, 0, 0, 0, s * 0.9);
+    }
+    cvPart(B, 'box', 0, fd * 0.15, -l * 0.44, sp * 0.34, 0.1, ch * 0.6, CK_PAINT, CV_CORE);                     // tailplane
+    cvPart(B, 'wedge', 0, fd * 0.4 + fin / 2, -l * 0.42, 0.14, fin, ch * 0.9, CK_ACC, CV_CORE);                  // fin
+    const prop = (x, y, z, d) => cvPart(B, 'box', x, y, z, d, 0.14, 0.05, CK_TRIM, CV_PROP);
+    if (v.eng === 'nose') prop(0, 0, l / 2 + 0.06, fd * 1.3);
+    for (let s = -1; s <= 1; s += 2) {
+      if (v.eng === 'twin') {
+        cvPart(B, 'cyl', s * sp * 0.2, wy - 0.05, wz + ch * 0.25, fd * 0.5, ch * 1.5, fd * 0.5, CK_PAINT, CV_CORE, PI / 2);
+        prop(s * sp * 0.2, wy - 0.05, wz + ch + 0.06, fd * 1.2);
+      }
+      const pods = v.eng === 'jet2' ? [0.17] : v.eng === 'jet4' ? [0.14, 0.28] : [];
+      for (const f of pods) cvPart(B, 'cyl', s * sp * f, wy - fd * 0.32, wz + ch * 0.45 - sp * f * Math.tan(sw), fd * 0.42, ch * 0.75, fd * 0.42, CK_CHROME, CV_CORE, PI / 2);
+      if (v.eng === 'rear2') cvPart(B, 'cyl', s * fd * 0.75, fd * 0.25, -l * 0.27, fd * 0.42, l * 0.13, fd * 0.42, CK_CHROME, CV_CORE, PI / 2);
+    }
+    // the gear: a nose leg and two main legs, their wheels standing gh under the middle
+    const mx = v.high ? fd * 0.7 : Math.max(fd * 0.7, sp * 0.12), mz = wz - ch * 0.25, leg = gh - fd * 0.5 - wr;
+    cvPart(B, 'box', 0, -fd * 0.5 - leg / 2, l * 0.33, 0.1 + fd * 0.03, leg, 0.1 + fd * 0.03, CK_TRIM, CV_GEAR);
+    cvWheel(B, 0, -gh + wr, l * 0.33, wr * 2, 0.2 + fd * 0.04);
+    for (let s = -1; s <= 1; s += 2) {
+      cvPart(B, 'box', s * mx, -fd * 0.5 - leg / 2, mz, 0.12 + fd * 0.03, leg, 0.12 + fd * 0.03, CK_TRIM, CV_GEAR);
+      cvWheel(B, s * mx, -gh + wr, mz, wr * 2, 0.25 + fd * 0.06);
+    }
+  },
+};
+/* the platform def of civilian vehicle v: a wheeled ground vehicle, a ship or an aircraft with no weapons */
+function civDef(v) {
+  const road = v.type === 'road', sea = v.type === 'sea', t = v.tonnes, truck = v.body === 'truck' || v.l > 9;
+  const def = {
+    id: 'cv_' + v.id, name: v.name, kind: road ? 'ground' : sea ? 'naval' : 'air', cls: road ? 'Civilian Vehicle' : sea ? 'Civilian Boat' : 'Civilian Aircraft',
+    model: 'civ', civilian: true, unarmed: true, vehicle: v,
+    hp: Math.round(60 + 40 * Math.pow(t, 0.6)), armor: 0, armorRatio: 0, energy: 60, energyRegen: 10, heatCap: 60, cooling: 12, mass: Math.sqrt(t / 8), weightCap: 1, tonnes: t,
+    radius: road ? Math.min(v.l * 0.45, v.w * 0.5 + 2.6) : sea ? clamp(v.l * 0.3, 1, 12) : Math.max(v.l, v.span) * 0.42,
+    height: v.h, speed: road || sea ? v.speed : v.air.cruise, sensor: road || sea ? 400 : 1000, stability: clamp(t / 10, 0.3, 4),
+    mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {},
+    col: { main: CIV_PAINTS[v.paint][0], dark: CK_COLS[CK_TRIM] },
+  };
+  if (road) def.ground = { type: 'wheeled', accel: clamp(v.speed * 0.9 / Math.sqrt(t + 0.5), 4, 30), brake: 30, drag: 4, reverse: 0.35, steerRate: truck ? 0.9 : 1.6, steerMin: 5, grip: 7, turretRate: 3, boostMult: 1.2, climb: 0.5, ride: 0.5, pitchLim: [0, 0] };
+  else if (sea) {
+    const small = v.l < 10;
+    def.naval = { accel: small ? 9 : 3.5, brake: small ? 7 : 3, drag: small ? 2.5 : 1.2, reverse: 0.35, steerRate: small ? 1.2 : 0.35, steerSpeed: 10, steerMin: 0.25, grip: 2.2, turretRate: 3, boostMult: 1.2, pitchLim: [0, 0], draft: v.draft, ride: 0, climb: 0, amphibious: false, hull: [-v.l / 2, v.l / 2, v.w / 2] };
+  } else def.air = v.air;
+  return def;
+}
+/* every row's recipe, wheels, half sizes (hw, hl, from y0 to y1 over its origin) and platform def */
+for (const v of VEHICLES) {
+  const B = { parts: [], wheels: [] };
+  if (v.type === 'air') v.h = v.fd * 0.4 + v.fd * 1.1 + 0.4 + v.air.gearH;
+  v.wheelR = v.wheelR || (v.type === 'air' ? clamp(v.air.gearH * 0.22, 0.25, 0.7) : v.body === 'tractor' ? v.h * 0.28 : v.body === 'truck' ? 0.5 : clamp(v.h * 0.24, 0.3, 0.42));
+  CV_BUILD[v.body](v, B);
+  v.parts = B.parts; v.wheels = B.wheels; v.accCol = v.acc || CV_ACC;
+  v.hw = v.type === 'air' ? v.fd / 2 : v.w / 2; v.hl = v.l / 2;
+  v.y0 = v.type === 'air' ? -v.air.gearH : 0; v.y1 = v.type === 'air' ? v.h - v.air.gearH : v.h;
+  PLATFORMS['cv_' + v.id] = civDef(v);
+}
+const VEHICLE_IDS = VEHICLES.map((v) => v.id);
+/* the pose a vehicle is drawn in (one scratch object, so drawing allocates nothing): its paint and accent, place and
+   attitude, the simple model, wheel and propeller turn, the gear down, crushed flat (share of its height), shade and
+   flash of its colours, and how bright its lamps glow */
+const CIV_POSE = { paint: null, acc: null, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, lod: false, spin: 0, prop: 0, gear: true, flat: 1, shade: 1, add: 0, glow: 0 };
+function drawVehicle(v, P) {
+  const st = R.stack, parts = v.parts, sh = P.shade, ad = P.add;
+  st.push().t(P.x, P.y, P.z).ry(P.yaw).rx(-P.pitch).rz(P.roll);
+  if (P.flat !== 1) st.s(1, P.flat, 1);
+  for (let i = 0; i < parts.length; i++) {
+    const q = parts[i], fl = q[11], k = q[7];
+    if ((P.lod && !(fl & CV_CORE)) || (!P.gear && fl & CV_GEAR)) continue;
+    const c = k === CK_PAINT ? P.paint : k === CK_ACC ? P.acc : CK_COLS[k];
+    st.push().t(q[1], q[2], q[3]);
+    if (q[9]) st.ry(q[9]);
+    if (q[8]) st.rx(q[8]);
+    if (fl & CV_PROP) st.rz(q[10] + P.prop); else if (q[10]) st.rz(q[10]);
+    st.s(q[4], q[5], q[6]);
+    R.draw(q[0], c[0] * sh + ad, c[1] * sh + ad, c[2] * sh + ad, 1, k === CK_GLASS ? CK_EMIS[k] : CK_EMIS[k] * P.glow, CK_SPEC[k]);
+    st.pop();
+  }
+  if (P.gear) {
+    const ws = v.wheels, ty = CK_COLS[CK_TYRE], hub = CK_COLS[CK_CHROME];
+    for (let i = 0; i < ws.length; i++) {
+      const w = ws[i];
+      st.push().t(w[0], w[1], w[2]).rx(P.spin).rz(PI / 2).s(w[3], w[4], w[3]);
+      R.draw('cyl', ty[0] * sh + ad, ty[1] * sh + ad, ty[2] * sh + ad, 1, 0, CK_SPEC[CK_TYRE]);
+      st.pop();
+      if (P.lod) continue;
+      st.push().t(w[0], w[1], w[2]).rz(PI / 2).s(w[3] * 0.55, w[4] + 0.04, w[3] * 0.55);
+      R.draw('cyl', hub[0] * sh + ad, hub[1] * sh + ad, hub[2] * sh + ad, 1, 0, CK_SPEC[CK_CHROME]);
+      st.pop();
+    }
+  }
+  st.pop();
+}
+/* a civilian vehicle platform (model 'civ'): its row's model in its own paint */
+function drawCivPlatform(p, shade, add, lod) {
+  const v = p.def.vehicle, P = CIV_POSE, set = CIV_PAINTS[v.paint];
+  P.paint = set[p.civCol % set.length]; P.acc = v.accCol;
+  P.x = p.x; P.y = p.y; P.z = p.z; P.yaw = p.yaw; P.pitch = p.pitch; P.roll = p.roll; P.lod = lod;
+  P.spin = v.type === 'road' ? p.walkPhase / v.wheelR : 0;
+  P.prop = v.type === 'air' && (p.throttle > 0.02 || !p.grounded) ? W.time * 40 : 0;
+  P.gear = v.type !== 'air' || p.gear || p.grounded; P.flat = 1; P.shade = shade; P.add = add; P.glow = p.parked ? 0 : 1;
+  drawVehicle(v, P);
+}
+
+const TRAFFIC_LANE = 1.8;            // a street's lanes run this far right of its centre line (m)
+const TRAFFIC_ROAD_LANE = 0.25;      // a road's at this share of its width (TRAFFIC_LANE at least)
+const TRAFFIC_KERB = 4.3;            // a car parked at the kerb stands this far from the street's centre line (m)
+const TRAFFIC_CLEAR = 1.3;           // a lane point keeps this far from structures and walls (m)
+const TRAFFIC_SAMPLE = 2;            // m between lane points
+const TRAFFIC_JUNCTION = 8;          // lanes end this far before a junction; turning lanes cross it (m)
+const TRAFFIC_ROAD_JOIN = 12;        // a road passing this close to a street corner joins the streets there (m)
+const TRAFFIC_ROAD_SNAP = 3;         // a road's end this close to a junction ends at it (m)
+const TRAFFIC_MIN_EDGE = 22;         // junctions along a road at least this far apart (m)
+const TRAFFIC_SPEED = { street: 10, road: 18, turn: 6, uturn: 4 };   // speed limits (m/s)
+const TRAFFIC_OWN_SPEED = 0.6;       // a car drives at most this share of its own top speed
+const TRAFFIC_ACCEL = 3, TRAFFIC_BRAKE = 7, TRAFFIC_PANIC_BRAKE = 10;   // m/s2
+const TRAFFIC_GAP = 2.5;             // m kept to the car ahead when stopped
+const TRAFFIC_HEADWAY = 1;           // and seconds of travel to it when moving
+const TRAFFIC_AHEAD = 30;            // m before a lane's end a car picks its next lane and looks into it
+const TRAFFIC_CLAIM = 6;             // m before a junction's stop line a car asks for the junction
+const TRAFFIC_SPACING = 60;          // m of lane per car placed (QUALITY traffic the most)
+const TRAFFIC_LOOK = 0.2;            // seconds between a car's looks ahead for people, machines and other vehicles
+const TRAFFIC_LOOK_MIN = 10;         // it looks this far, plus 2.5 s of its speed (m)
+const TRAFFIC_WAIT = 5;              // a car held this long by something that does not move turns back (s)
+const TRAFFIC_STUCK = 25;            // and by anything (s)
+const TRAFFIC_TURN_T = 1.2;          // s a turn back takes
+const TRAFFIC_TURN_NEAR = 40;        // a fleeing car with the danger this close ahead turns back (m)
+const TRAFFIC_MACHINE = 25;          // a combat machine moving this close scares drivers (m)
+const TRAFFIC_ABANDON = 0.4;         // chance a scared driver in a town leaves the car and runs
+const TRAFFIC_PANIC = [8, 14];       // seconds a scared driver flees
+const TRAFFIC_HALT = [0.5, 1.4];     // and brakes first (s)
+const TRAFFIC_FLEE = 1.5;            // speed limit share of a fleeing car
+const TRAFFIC_CRUSH_TONNES = 6;      // a machine this heavy driving over a car crushes it flat
+const TRAFFIC_CRUSH_SPEED = 1.5;     // when faster than this (m/s)
+const TRAFFIC_RAM_SPEED = 7;         // a lighter one this fast wrecks it (m/s)
+const TRAFFIC_FLAT = 0.35;           // share of its height a crushed car keeps
+const TRAFFIC_BURN = [20, 40];       // seconds a wreck burns
+const TRAFFIC_WRECK_LIFE = 90;       // an unseen wreck goes after this many seconds, an abandoned car after GONE_LIFE
+const TRAFFIC_GONE_LIFE = 60;
+const TRAFFIC_UNSEEN = 160;          // cars go and come back this far from the camera or out of its view (m)
+const TRAFFIC_FAR = 600;             // cars farther than this are stepped every FAR_EVERY ticks, and moved nearer (m)
+const TRAFFIC_FAR_EVERY = 4;
+const TRAFFIC_BACK_NEAR = 60, TRAFFIC_BACK_FAR = 450;   // a car that goes comes back on a lane this far from the camera (m)
+const TRAFFIC_DEEP = 0.6;            // water deeper than this with no bridge deck over it is no road (m)
+const TRAFFIC_GUEST_BLAST = 3;       // a replayed blast (no damage is sent) deals this many car hulls at its centre
+const TRAFFIC_TAKE_SPEED = 6;        // a car this slow can be taken (m/s)
+const TRAFFIC_ASK_SLACK = 3;         // the host lets a guest's vehicle be this much farther than Use reaches (m)
+const TRAFFIC_KERB_PER = 38;         // a town gets a kerb car per this many m of its radius, 2 to 6
+const TRAFFIC_BOATS = 3, TRAFFIC_BOAT_REACH = 900, TRAFFIC_BOAT_GAP = 40;   // boats moored, at the water nearest a town this far off, apart (m)
+const TRAFFIC_START_GAP = 40;        // nothing is placed this close to the start and the pads (m)
+const TRAFFIC_SHADOW_DIST = 120;     // contact shadows up to (m)
+const TRAFFIC_BLOCK_CAR = 1, TRAFFIC_BLOCK_THING = 2, TRAFFIC_BLOCK_LINE = 3;   // what holds a car: a car driving, something that does not move, a junction
+// aircraft parked on an airfield's apron: [row, u, v] (Airports.at), noses to the runway, clear of its beacon and jets
+const TRAFFIC_APRON = { airport: [['airliner', -60, 128], ['cessna', 40, 128], ['twinprop', 72, 128]], strip: [['cessna', -16, 48]] };
+const TRAFFIC_AT = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0 };   // scratch lane point
+const Traffic = {
+  /* ---------- construction ---------- */
+  /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
+     zones); start: the player's start, kept clear */
+  populate(seed, start) {
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, cars: [], parked: [], near: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0 };
+    const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
+    if (start) keep.push(start);
+    this.buildGraph(T);
+    this.parkCars(T, rng, keep);   // the same on every game (the seed and the world alone): co-op claims them by place
+    this.parkBoats(T, rng);
+    this.parkAircraft(T);
+    this.placeCars(T, rng, keep);
+  },
+  /* the streets of every zone and the roads, as edges between nodes, then two lanes per edge and the turns between them */
+  buildGraph(T) {
+    const nodes = T.nodes, edges = [];
+    const addNode = (x, z, zone) => { nodes.push({ x, z, zone, deg: 0, junction: false, lock: null, ins: [], outs: [] }); return nodes[nodes.length - 1]; };
+    for (const zn of W.civZones) {
+      const at = new Map();
+      zn.nodes.forEach((n, i) => { if (n.nb.length) at.set(i, addNode(n.x, n.z, zn)); });
+      zn.nodes.forEach((n, i) => {
+        for (const j of n.nb) if (j > i) edges.push({ a: at.get(i), b: at.get(j), xs: [n.x, zn.nodes[j].x], zs: [n.z, zn.nodes[j].z], road: null, zone: zn });
+      });
+    }
+    const streets = edges.length, runs = this.roadRuns();
+    this.crossRoads(runs, nodes, addNode);
+    for (const run of runs) this.cutRun(run, nodes, addNode, edges);
+    // a street crossing a road between its junctions, or the same two corners as a road, is left out
+    const keep = edges.slice(streets);
+    for (let i = 0; i < streets; i++) {
+      const e = edges[i];
+      if (!keep.some((r) => (r.a === e.a && r.b === e.b) || (r.a === e.b && r.b === e.a) || (r.a !== e.a && r.a !== e.b && r.b !== e.a && r.b !== e.b && this.crossesLine(e.xs[0], e.zs[0], e.xs[1], e.zs[1], r)))) keep.push(e);
+    }
+    const lanes = [];
+    for (const e of keep) {
+      if (e.a === e.b) continue;
+      const pair = this.edgeLanes(e);
+      if (!pair) continue;
+      lanes.push(pair[0], pair[1]);
+      e.a.deg++; e.b.deg++;
+    }
+    for (const n of nodes) n.junction = n.deg >= 3;
+    for (const L of lanes) { L.node1.ins.push(L); L.node0.outs.push(L); }
+    const turns = [];
+    for (const n of nodes) for (const a of n.ins) for (const b of n.outs) {
+      if (b === a.twin && n.deg > 1) continue;   // U-turns only at a dead end
+      const t = this.turnLane(a, b, n);
+      if (t) { a.out.push(t); turns.push(t); }
+    }
+    // a lane with no way on gets a U-turn, else goes with its twin, until every lane leads somewhere
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const L of lanes) {
+        if (!L.alive) continue;
+        L.out = L.out.filter((t) => t.alive && t.to.alive);
+        if (L.out.length) continue;
+        const u = L.uTried ? null : this.turnLane(L, L.twin, L.node1);
+        L.uTried = true;
+        if (u) { L.out.push(u); turns.push(u); continue; }
+        L.alive = L.twin.alive = false; changed = true;
+      }
+      for (const t of turns) if (t.alive && !(t.from.alive && t.to.alive)) { t.alive = false; changed = true; }
+    }
+    for (const L of lanes) if (L.alive) { T.lanes.push(L); T.drive.push(L); T.driveLen += L.len; }
+    for (const t of turns) if (t.alive && t.from.out.indexOf(t) >= 0) T.lanes.push(t);
+    T.lanes.forEach((L, i) => { L.id = i; });
+  },
+  /* the stretches of each road inside the bounds and off the airfields, as points every ROAD_STEP m */
+  roadRuns() {
+    const runs = [];
+    for (const road of W.map.roads) {
+      let pts = [];
+      const flush = () => { if (pts.length > 1) runs.push({ road, pts, cuts: [] }); pts = []; };
+      for (const p of Roads.samples(road.pts)) {
+        if (Math.abs(p.x) > GROUND_BOUND - 10 || Math.abs(p.z) > GROUND_BOUND - 10 || Airports.covers(p.x, p.z)) flush();
+        else pts.push({ x: p.x, z: p.z });
+      }
+      flush();
+    }
+    return runs;
+  },
+  /* junctions where two roads cross (one node for both, a street corner when one is that close), on the runs of each
+     road that pass there */
+  crossRoads(runs, nodes, addNode) {
+    const roads = W.map.roads;
+    for (let i = 0; i < roads.length; i++) for (let j = i + 1; j < roads.length; j++) {
+      const A = roads[i].pts, Bp = roads[j].pts;
+      for (let a = 0; a + 1 < A.length; a++) for (let b = 0; b + 1 < Bp.length; b++) {
+        const t = this.segCross(A[a][0], A[a][1], A[a + 1][0], A[a + 1][1], Bp[b][0], Bp[b][1], Bp[b + 1][0], Bp[b + 1][1]);
+        if (t < 0) continue;
+        const x = lerp(A[a][0], A[a + 1][0], t), z = lerp(A[a][1], A[a + 1][1], t);
+        let n = null;
+        for (const run of runs) {
+          if (run.road !== roads[i] && run.road !== roads[j]) continue;
+          const k = this.nearestSample(run.pts, x, z);
+          if (Math.hypot(run.pts[k].x - x, run.pts[k].z - z) > ROAD_STEP * 2) continue;   // not on this stretch (an airfield cut it)
+          n = n || this.nodeNear(nodes, x, z, TRAFFIC_ROAD_JOIN) || addNode(x, z, null);
+          run.cuts.push({ k, node: n, d: 0 });
+        }
+      }
+    }
+  },
+  /* run's edges: cut at its crossings, at the street corners it passes and at its ends, the cuts at least MIN_EDGE apart,
+     its points drawn smoothly onto each junction */
+  cutRun(run, nodes, addNode, edges) {
+    const pts = run.pts, last = pts.length - 1, cuts = run.cuts;
+    for (const n of nodes) {
+      if (!n.zone) continue;
+      const k = this.nearestSample(pts, n.x, n.z), d = Math.hypot(pts[k].x - n.x, pts[k].z - n.z);
+      if (d < TRAFFIC_ROAD_JOIN && k > 0 && k < last) cuts.push({ k, node: n, d });
+    }
+    const end = (k) => this.nodeNear(nodes, pts[k].x, pts[k].z, TRAFFIC_ROAD_SNAP) || addNode(pts[k].x, pts[k].z, null);
+    cuts.sort((p, q) => p.k - q.k || p.d - q.d);
+    const minK = Math.ceil(TRAFFIC_MIN_EDGE / ROAD_STEP), kept = [{ k: 0, node: end(0) }];
+    for (const c of cuts) if (c.k - kept[kept.length - 1].k >= minK && last - c.k >= minK && c.node !== kept[kept.length - 1].node) kept.push(c);
+    kept.push({ k: last, node: end(last) });
+    for (const c of kept) {   // the road bends onto the junction over 3 points either side
+      const ox = c.node.x - pts[c.k].x, oz = c.node.z - pts[c.k].z;
+      for (let dk = -3; dk <= 3; dk++) {
+        const k = c.k + dk;
+        if (k < 0 || k > last) continue;
+        const w = 1 - Math.abs(dk) / 4;
+        pts[k].x += ox * w; pts[k].z += oz * w;
+      }
+    }
+    for (let i = 0; i + 1 < kept.length; i++) {
+      const a = kept[i], b = kept[i + 1], xs = [], zs = [];
+      for (let k = a.k; k <= b.k; k++) { xs.push(pts[k].x); zs.push(pts[k].z); }
+      xs[0] = a.node.x; zs[0] = a.node.z; xs[xs.length - 1] = b.node.x; zs[zs.length - 1] = b.node.z;
+      edges.push({ a: a.node, b: b.node, xs, zs, road: run.road, zone: this.zoneAt(xs[xs.length >> 1], zs[zs.length >> 1]) });
+    }
+  },
+  nodeNear(nodes, x, z, r) {
+    let best = null, bd = r;
+    for (const n of nodes) { const d = Math.hypot(n.x - x, n.z - z); if (d < bd) { bd = d; best = n; } }
+    return best;
+  },
+  nearestSample(pts, x, z) {
+    let best = 0, bd = Infinity;
+    for (let k = 0; k < pts.length; k++) { const d = (pts[k].x - x) * (pts[k].x - x) + (pts[k].z - z) * (pts[k].z - z); if (d < bd) { bd = d; best = k; } }
+    return best;
+  },
+  /* where segment a-b crosses segment c-d, as a share of a-b, or -1 */
+  segCross(ax, az, bx, bz, cx, cz, dx, dz) {
+    const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz, den = rx * sz - rz * sx;
+    if (Math.abs(den) < 1e-9) return -1;
+    const t = ((cx - ax) * sz - (cz - az) * sx) / den, u = ((cx - ax) * rz - (cz - az) * rx) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
+  },
+  crossesLine(ax, az, bx, bz, e) {
+    for (let k = 0; k + 1 < e.xs.length; k++) if (this.segCross(ax, az, bx, bz, e.xs[k], e.zs[k], e.xs[k + 1], e.zs[k + 1]) >= 0) return true;
+    return false;
+  },
+  zoneAt(x, z) {
+    for (const zn of W.civZones) if (Civ.zoneNear(zn, x, z, 0)) return zn;
+    return null;
+  },
+  /* the two lanes of edge e (a to b and back), JUNCTION short of each end, or null where one is too short or blocked */
+  edgeLanes(e) {
+    const n = e.xs.length, cum = [0];
+    for (let k = 1; k < n; k++) cum.push(cum[k - 1] + Math.hypot(e.xs[k] - e.xs[k - 1], e.zs[k] - e.zs[k - 1]));
+    const len = cum[n - 1], J = TRAFFIC_JUNCTION, span = len - 2 * J;
+    if (span < 4) return null;
+    const off = e.road ? Math.max(TRAFFIC_LANE, e.road.w * TRAFFIC_ROAD_LANE) : TRAFFIC_LANE, m = Math.max(1, Math.ceil(span / TRAFFIC_SAMPLE));
+    const fx = [], fz = [], bx = [], bz = [];
+    let k = 0;
+    for (let i = 0; i <= m; i++) {
+      const s = J + span * i / m;
+      while (k < n - 2 && cum[k + 1] < s) k++;
+      const sl = cum[k + 1] - cum[k] || 1, f = (s - cum[k]) / sl, dx = (e.xs[k + 1] - e.xs[k]) / sl, dz = (e.zs[k + 1] - e.zs[k]) / sl;
+      const x = e.xs[k] + dx * f * sl, z = e.zs[k] + dz * f * sl;
+      fx.push(x - dz * off); fz.push(z + dx * off);   // right of a to b: (-dz, dx)
+      bx.push(x + dz * off); bz.push(z - dx * off);
+    }
+    bx.reverse(); bz.reverse();
+    const blds = e.zone ? e.zone.blds : W.buildings, kind = e.road ? 'road' : 'street';
+    const A = this.makeLane(kind, e.a, e.b, fx, fz, e.zone, blds), B = A && this.makeLane(kind, e.b, e.a, bx, bz, e.zone, blds);
+    if (!A || !B) return null;
+    A.twin = B; B.twin = A;
+    return [A, B];
+  },
+  /* a lane through points xs, zs at the drive height there (a bridge's deck), or null when a point is no place to drive */
+  makeLane(kind, n0, n1, xs, zs, zone, blds) {
+    const n = xs.length, pts = new Float32Array(n * 3), cum = new Float32Array(n);
+    let bridge = false;
+    for (let i = 0; i < n; i++) {
+      const x = xs[i], z = zs[i], g = Math.max(Terrain.h(x, z), Terrain.meshH(x, z)) + ROAD_LIFT, d = Water.deckTop(x, z, 1e9), y = d > g ? d : g;
+      if (d > g) bridge = true;
+      if (this.laneBlocked(x, z, y, blds)) return null;
+      pts[i * 3] = x; pts[i * 3 + 1] = y; pts[i * 3 + 2] = z;
+      if (i) cum[i] = cum[i - 1] + Math.hypot(x - xs[i - 1], z - zs[i - 1]);
+    }
+    return { kind, node0: n0, node1: n1, pts, cum, len: cum[n - 1], twin: null, out: [], cars: [], zone, speed: TRAFFIC_SPEED[kind] || TRAFFIC_SPEED.turn, bridge, alive: true, uTried: false, from: null, to: null, id: -1, mx: xs[n >> 1], mz: zs[n >> 1] };
+  },
+  laneBlocked(x, z, y, blds) {
+    if (Math.abs(x) > GROUND_BOUND - 5 || Math.abs(z) > GROUND_BOUND - 5) return true;
+    if (Water.any && Water.depth(x, z) > TRAFFIC_DEEP && Water.deckTop(x, z, y + 1) < Water.level(x, z)) return true;
+    return groundBlocked(x, z, TRAFFIC_CLEAR, y + 0.2, 1.5) || this.inBuilding(x, z, TRAFFIC_CLEAR, blds);
+  },
+  /* true when the square of half size r round (x, z) reaches a building's ground floor */
+  inBuilding(x, z, r, blds) {
+    for (let i = 0; i < blds.length; i++) {
+      const b = blds[i];
+      if (x + r < b.ox || x - r >= b.bx1 || z + r < b.oz || z - r >= b.bz1) continue;
+      for (let sx = -1; sx <= 1; sx++) for (let sz = -1; sz <= 1; sz++) {
+        const px = x + sx * r, pz = z + sz * r;
+        if (px < b.ox || px >= b.bx1 || pz < b.oz || pz >= b.bz1) continue;
+        if (b.occ[0][Math.floor((px - b.ox) / CELL)][Math.floor((pz - b.oz) / CELL)]) return true;
+      }
+    }
+    return false;
+  },
+  /* the turn across node n from the end of lane a to the start of lane b: a smooth curve, or null when blocked */
+  turnLane(a, b, n) {
+    if (!b) return null;
+    const pa = a.pts, ia = pa.length - 3, pb = b.pts;
+    const x0 = pa[ia], z0 = pa[ia + 2], x3 = pb[0], z3 = pb[2];
+    let d0x = x0 - pa[ia - 3], d0z = z0 - pa[ia - 1], d3x = pb[3] - x3, d3z = pb[5] - z3;
+    const l0 = Math.hypot(d0x, d0z) || 1, l3 = Math.hypot(d3x, d3z) || 1;
+    d0x /= l0; d0z /= l0; d3x /= l3; d3z /= l3;
+    const uturn = b === a.twin, dist = Math.hypot(x3 - x0, z3 - z0), k = uturn ? TRAFFIC_JUNCTION * 0.7 : Math.max(2, dist * 0.42);
+    const x1 = x0 + d0x * k, z1 = z0 + d0z * k, x2 = x3 - d3x * k, z2 = z3 - d3z * k;
+    const m = Math.max(3, Math.ceil((dist + k) / TRAFFIC_SAMPLE)), xs = [], zs = [];
+    for (let i = 0; i <= m; i++) {
+      const t = i / m, u = 1 - t, c0 = u * u * u, c1 = 3 * u * u * t, c2 = 3 * u * t * t, c3 = t * t * t;
+      xs.push(c0 * x0 + c1 * x1 + c2 * x2 + c3 * x3); zs.push(c0 * z0 + c1 * z1 + c2 * z2 + c3 * z3);
+    }
+    const L = this.makeLane('turn', n, n, xs, zs, a.zone || b.zone, (a.zone || b.zone) ? (a.zone || b.zone).blds : W.buildings);
+    if (!L) return null;
+    const bend = Math.abs(angleDiff(Math.atan2(d0x, d0z), Math.atan2(d3x, d3z)));
+    L.from = a; L.to = b; L.out.push(b);
+    L.speed = uturn ? TRAFFIC_SPEED.uturn : bend < 0.35 ? Math.min(a.speed, b.speed) : TRAFFIC_SPEED.turn;
+    return L;
+  },
+  /* the vehicle rows that drive in the traffic, by weight; those parked at the kerb (cars and bikes) */
+  pool(kerb) {
+    const out = [];
+    for (const v of VEHICLES) if (v.type === 'road' && (kerb ? v.w <= 2 : v.traffic > 0)) out.push([v, kerb ? Math.max(1, v.traffic) : v.traffic]);
+    return out;
+  },
+  pickRow(pool, r) {
+    let total = 0;
+    for (const p of pool) total += p[1];
+    let x = r * total;
+    for (const p of pool) { if ((x -= p[1]) < 0) return p[0]; }
+    return pool[pool.length - 1][0];
+  },
+  /* one vehicle of row v in colour col; every vehicle of the scenery has the same fields */
+  make(v, col) {
+    const def = PLATFORMS['cv_' + v.id], set = CIV_PAINTS[v.paint], hp = 40 + 15 * v.tonnes;
+    return {
+      v, def, col, paint: set[col % set.length], x: 0, y: 0, z: 0, yaw: 0, pitch: 0, lane: null, s: 0, seg: 0, speed: 0, cap: 0, pace: 1,
+      hp, hp0: hp, state: 'park', panic: 0, threatX: 0, threatZ: 0, halt: 0, wait: 0, lookT: 0, block: Infinity, lookKind: 0, gapKind: 0,
+      next: null, lockNode: null, flat: 1, burn: 0, life: 0, spin: 0, driver: false, airport: false, slot: 0, fromX: 0, fromZ: 0, fromYaw: 0, turnT: 0, far: false,
+    };
+  },
+  /* kerb cars on each town's streets, beside the lanes */
+  parkCars(T, rng, keep) {
+    const pool = this.pool(true);
+    for (const zn of W.civZones) {
+      const lanes = T.drive.filter((L) => L.kind === 'street' && L.zone === zn);
+      if (!lanes.length) continue;
+      const n = clamp(Math.round(zn.rad / TRAFFIC_KERB_PER), 2, 6);
+      for (let i = 0; i < n; i++) for (let tries = 0; tries < 6; tries++) {
+        const L = lanes[Math.floor(rng() * lanes.length)], v = this.pickRow(pool, rng()), col = Math.floor(rng() * 8);
+        if (L.len < v.l + 8) continue;
+        TRAFFIC_AT.seg = 0;
+        this.at(TRAFFIC_AT, L, lerp(v.hl + 3, L.len - v.hl - 3, rng()));
+        const P = TRAFFIC_AT, side = TRAFFIC_KERB - TRAFFIC_LANE, x = P.x - Math.cos(P.yaw) * side, z = P.z + Math.sin(P.yaw) * side;
+        if (!this.spotFree(T, x, z, P.yaw, v, zn.blds, keep)) continue;
+        const r = this.make(v, col);
+        r.x = x; r.z = z; r.y = P.y; r.yaw = P.yaw;
+        T.parked.push(r);
+        break;
+      }
+    }
+  },
+  /* true when vehicle v fits at (x, z) facing yaw: clear of walls and structures, other parked vehicles and the keep points */
+  spotFree(T, x, z, yaw, v, blds, keep) {
+    const fx = Math.sin(yaw), fz = Math.cos(yaw), y = Terrain.h(x, z);
+    for (let k = -1; k <= 1; k++) {
+      const px = x + fx * k * (v.hl - v.hw), pz = z + fz * k * (v.hl - v.hw);
+      if (groundBlocked(px, pz, v.hw, y + 0.2, 1.5) || this.inBuilding(px, pz, v.hw, blds)) return false;
+    }
+    if (T.parked.some((r) => Math.hypot(r.x - x, r.z - z) < r.v.hl + v.hl + 2)) return false;
+    return !keep.some((q) => Math.hypot(q.x - x, q.z - z) < TRAFFIC_START_GAP);
+  },
+  /* boats moored at the water nearest each town (a coast's towns stand back from the shore), apart from each other and the harbours */
+  parkBoats(T, rng) {
+    if (!Water.any) return;
+    const boats = VEHICLES.filter((v) => v.type === 'sea'), keepOff = W.harbours.slice();
+    let placed = 0;
+    for (const zn of W.civZones) {
+      if (placed >= TRAFFIC_BOATS) break;
+      const v = boats[Math.floor(rng() * boats.length)], col = Math.floor(rng() * 8);
+      const sp = Naval.spot(zn.cx, zn.cz, PLATFORMS['cv_' + v.id], TRAFFIC_BOAT_REACH, false);
+      if (!sp || keepOff.some((q) => Math.hypot(q.x - sp.x, q.z - sp.z) < TRAFFIC_BOAT_GAP + v.hl)) continue;
+      const r = this.make(v, col);
+      r.x = sp.x; r.z = sp.z; r.yaw = sp.yaw; r.y = Naval.keelY(sp.x, sp.z, r.def);
+      T.parked.push(r); keepOff.push(r); placed++;
+    }
+  },
+  /* aircraft on each airfield's apron, noses toward the runway (they are taken there only) */
+  parkAircraft(T) {
+    for (const ap of W.airports) {
+      if (!ap.spot) continue;
+      for (const q of TRAFFIC_APRON[ap.spot.kind] || []) {
+        const v = VEHICLES[VEHICLE_IDS.indexOf(q[0])], p = Airports.at(ap.spot, q[1], q[2]), ahead = Airports.at(ap.spot, q[1], q[2] - 1);
+        const r = this.make(v, T.parked.length);
+        r.x = p.x; r.z = p.z; r.yaw = Math.atan2(ahead.x - p.x, ahead.z - p.z); r.y = Terrain.h(p.x, p.z) + v.air.gearH; r.airport = true;
+        T.parked.push(r);
+      }
+    }
+  },
+  /* the cars on the lanes, one per SPACING m of lane, at most the quality's traffic, with room round each */
+  placeCars(T, rng, keep) {
+    if (!T.drive.length) return;
+    const q = Fauna.quality(), pool = this.pool(false), n = Math.min(q.traffic, Math.floor(T.driveLen / TRAFFIC_SPACING));
+    for (let i = 0; i < n; i++) for (let tries = 0; tries < 6; tries++) {
+      const L = this.pickLane(T, rng()), v = this.pickRow(pool, rng()), s = rng() * L.len, col = Math.floor(rng() * 8), pace = lerp(0.85, 1.1, rng());
+      if (!this.roomAt(L, s, v.hl)) continue;
+      TRAFFIC_AT.seg = 0;
+      this.at(TRAFFIC_AT, L, s);
+      if (keep.some((k) => Math.hypot(k.x - TRAFFIC_AT.x, k.z - TRAFFIC_AT.z) < TRAFFIC_START_GAP)) continue;
+      const c = this.make(v, col);
+      c.pace = pace; c.slot = i;
+      this.drive(c, L, s);
+      T.cars.push(c);
+      break;
+    }
+  },
+  pickLane(T, r) {
+    let x = r * T.driveLen;
+    for (const L of T.drive) { if ((x -= L.len) < 0) return L; }
+    return T.drive[T.drive.length - 1];
+  },
+  /* car c starts driving on lane L at s */
+  drive(c, L, s) {
+    c.state = 'drive'; c.driver = true; c.lane = L; c.s = s; c.seg = 0; c.next = null; c.lockNode = null;
+    c.cap = c.v.speed * TRAFFIC_OWN_SPEED * c.pace; c.speed = Math.min(L.speed, c.cap) * 0.6;
+    c.hp = c.hp0; c.flat = 1; c.burn = 0; c.life = 0; c.panic = 0; c.halt = 0; c.wait = 0; c.block = Infinity; c.lookT = Math.random() * TRAFFIC_LOOK;
+    this.insert(L, c);
+    this.at(c, L, s);
+  },
+  /* true when lane L has room for a car of half length hl at s */
+  roomAt(L, s, hl) {
+    for (const o of L.cars) if (Math.abs(o.s - s) < o.v.hl + hl + TRAFFIC_GAP) return false;
+    return true;
+  },
+  /* lane L's cars stay in order, the one furthest along first */
+  insert(L, c) {
+    const list = L.cars;
+    let i = list.length;
+    list.push(c);
+    while (i > 0 && list[i - 1].s < c.s) { list[i] = list[i - 1]; i--; }
+    list[i] = c;
+  },
+  drop(list, item) {
+    const i = list.indexOf(item);
+    if (i < 0) return;
+    for (let k = i; k < list.length - 1; k++) list[k] = list[k + 1];
+    list.length--;
+  },
+  /* the point s m along lane L into o (x, y, z, yaw, pitch); o.seg keeps the piece it was on, so the search is short */
+  at(o, L, s) {
+    const cum = L.cum, last = cum.length - 1;
+    let k = o.seg < last ? o.seg : last - 1;
+    while (k > 0 && cum[k] > s) k--;
+    while (k < last - 1 && cum[k + 1] < s) k++;
+    o.seg = k;
+    const p = L.pts, a = k * 3, seg = cum[k + 1] - cum[k] || 1, f = clamp((s - cum[k]) / seg, 0, 1);
+    const dx = p[a + 3] - p[a], dy = p[a + 4] - p[a + 1], dz = p[a + 5] - p[a + 2];
+    o.x = p[a] + dx * f; o.y = p[a + 1] + dy * f; o.z = p[a + 2] + dz * f;
+    o.yaw = Math.atan2(dx, dz); o.pitch = Math.atan2(dy, seg);
+  },
+
+  /* ---------- per tick ---------- */
+  update(dt) {
+    const T = W.traffic;
+    if (!T) return;
+    T.tick++;
+    this.collectMachines(T);
+    const cars = T.cars, cam = R.cam, far2 = TRAFFIC_FAR * TRAFFIC_FAR;
+    for (let i = 0; i < cars.length; i++) {
+      const c = cars[i], dx = c.x - cam.x, dz = c.z - cam.z;
+      c.far = dx * dx + dz * dz > far2;
+      if (c.far && (T.tick + c.slot) % TRAFFIC_FAR_EVERY) continue;
+      this.step(c, c.far ? dt * TRAFFIC_FAR_EVERY : dt);
+    }
+    const ps = T.parked;
+    for (let i = 0; i < ps.length; i++) { const r = ps[i]; if (r.state === 'wreck') this.stepWreck(r, dt); else this.touchMachines(r); }
+    this.recycle(T);
+  },
+  /* the live ground machines (and ships) this tick: what crushes and scares cars, and what they stop for */
+  collectMachines(T) {
+    const near = T.near, pl = W.platforms;
+    near.length = 0;
+    for (let i = 0; i < pl.length; i++) { const p = pl[i]; if (!p.dead && p.kind !== 'air' && !p.def.lure) near.push(p); }
+  },
+  step(c, dt) {
+    if (c.state === 'wreck') { this.stepWreck(c, dt); return; }
+    if (c.state === 'abandon') { c.life += dt; this.touchMachines(c); return; }
+    if (c.panic > 0) c.panic -= dt;
+    this.touchMachines(c);
+    if (c.state === 'wreck') return;
+    if (c.state === 'turn') { this.stepTurn(c, dt); return; }
+    if ((c.lookT -= dt) <= 0) { c.lookT = TRAFFIC_LOOK; c.block = this.lookAhead(c); }
+    const ahead = this.gapAhead(c), gap = Math.min(ahead, c.block), kind = c.block < ahead ? c.lookKind : c.gapKind, L = c.lane;
+    const lim = Math.min(L.speed, c.cap) * (c.panic > 0 ? TRAFFIC_FLEE : 1), room = gap - TRAFFIC_GAP;
+    let want = room <= 0 ? 0 : Math.min(lim, Math.sqrt(2 * TRAFFIC_BRAKE * room), room / TRAFFIC_HEADWAY);
+    const N = c.next, toEnd = L.len - c.s - c.v.hl;
+    if (N && N.speed < lim) want = Math.min(want, toEnd > 0 ? Math.sqrt(N.speed * N.speed + 2 * TRAFFIC_BRAKE * toEnd) : N.speed);   // slowing for a turn
+    if (c.halt > 0) { c.halt -= dt; want = 0; }   // a scared driver brakes first
+    const brake = c.panic > 0 ? TRAFFIC_PANIC_BRAKE : TRAFFIC_BRAKE;
+    c.speed = want > c.speed ? Math.min(want, c.speed + TRAFFIC_ACCEL * dt) : Math.max(want, c.speed - brake * 2 * dt);
+    let mv = c.speed * dt;
+    if (mv > gap - 0.3) { mv = Math.max(0, gap - 0.3); c.speed = mv / dt; }   // never into what is ahead
+    // held: behind something that does not move it turns back after a while, behind anything after longer
+    if (c.speed < 0.2 && c.halt <= 0) {
+      c.wait += dt;
+      if ((kind === TRAFFIC_BLOCK_THING && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
+    } else c.wait = 0;
+    if (c.state === 'drive') this.advance(c, mv);
+  },
+  /* move c mv m on along its lanes */
+  advance(c, mv) {
+    let L = c.lane;
+    c.s += mv;
+    while (c.s > L.len) {
+      const next = c.next || this.pickNext(c, L);
+      if (!next) { c.s = L.len; break; }
+      c.s -= L.len;
+      this.drop(L.cars, c);
+      if (next.kind === 'turn' && next.node0.junction && !c.lockNode && !next.node0.lock) { next.node0.lock = c; c.lockNode = next.node0; }
+      L = c.lane = next; c.next = null; c.seg = 0;
+      L.cars.push(c);   // it enters behind every car on its new lane
+    }
+    if (c.lockNode && L.kind !== 'turn' && c.s > c.v.hl) this.unlock(c);   // its tail is off the junction
+    this.at(c, L, c.s);
+    c.spin += mv / c.v.wheelR;
+  },
+  /* the lane after L: a turn's own; at a junction one at random, away from the danger when fleeing */
+  pickNext(c, L) {
+    const outs = L.out;
+    if (outs.length < 2) return outs[0] || null;
+    if (c.panic > 0) {
+      let best = null, bd = -1;
+      for (let i = 0; i < outs.length; i++) {
+        const to = outs[i].to || outs[i], p = to.pts, k = p.length - 3, d = Math.hypot(p[k] - c.threatX, p[k + 2] - c.threatZ);
+        if (d > bd) { bd = d; best = outs[i]; }
+      }
+      return best;
+    }
+    return outs[Math.floor(Math.random() * outs.length)];
+  },
+  /* the free way ahead of c's front (m) along its lanes: to the car ahead, the junction's stop line it may not cross yet, or
+     the next lane's last car; sets what holds it (c.gapKind) */
+  gapAhead(c) {
+    const L = c.lane, cars = L.cars, front = c.s + c.v.hl;
+    const i = cars.indexOf(c);
+    if (i > 0) { const a = cars[i - 1]; c.gapKind = this.moving(a) ? TRAFFIC_BLOCK_CAR : TRAFFIC_BLOCK_THING; return a.s - a.v.hl - front; }
+    const toEnd = L.len - front;
+    c.gapKind = TRAFFIC_BLOCK_CAR;
+    if (toEnd > TRAFFIC_AHEAD) return Infinity;
+    if (!c.next) c.next = this.pickNext(c, L);
+    const N = c.next;
+    if (!N) { c.gapKind = TRAFFIC_BLOCK_THING; return toEnd; }
+    if (N.kind === 'turn' && L.kind !== 'turn' && N.node0.junction && c.lockNode !== N.node0 && !(toEnd < TRAFFIC_CLAIM && this.mayEnter(c, N))) {
+      c.gapKind = TRAFFIC_BLOCK_LINE;
+      return toEnd;
+    }
+    return toEnd + this.room(N, c);
+  },
+  moving(o) { return o.state === 'drive' || o.state === 'turn'; },
+  /* the free length at the start of lane N, into the lane after it when N is an empty turn */
+  room(N, c) {
+    const k = N.cars.length;
+    if (k) { const a = N.cars[k - 1]; if (!this.moving(a)) c.gapKind = TRAFFIC_BLOCK_THING; return a.s - a.v.hl; }
+    if (N.kind !== 'turn') return N.len;
+    const to = N.to, k2 = to.cars.length;
+    if (!k2) return N.len + to.len;
+    const b = to.cars[k2 - 1];
+    if (!this.moving(b)) c.gapKind = TRAFFIC_BLOCK_THING;
+    return N.len + b.s - b.v.hl;
+  },
+  /* give way: c may take turn N across its junction when no other car is on the junction and its way out has room */
+  mayEnter(c, N) {
+    const n = N.node0;
+    if (n.lock && n.lock.lockNode !== n) n.lock = null;   // one that left it some other way
+    if (n.lock) return n.lock === c;
+    const to = N.to, k = to.cars.length;
+    if (k && to.cars[k - 1].s - to.cars[k - 1].v.hl < c.v.l + TRAFFIC_GAP) return false;
+    n.lock = c; c.lockNode = n;
+    return true;
+  },
+  unlock(c) {
+    const n = c.lockNode;
+    if (!n) return;
+    if (n.lock === c) n.lock = null;
+    c.lockNode = null;
+  },
+  /* the nearest thing across c's way within its look (m from its front): a person, a machine, another vehicle off its
+     own lanes (none while it holds a junction: the others wait for it), a bridge that is down; sets c.lookKind */
+  lookAhead(c) {
+    const T = W.traffic, v = c.v, fx = Math.sin(c.yaw), fz = Math.cos(c.yaw), look = TRAFFIC_LOOK_MIN + c.speed * 2.5;
+    let best = Infinity, kind = TRAFFIC_BLOCK_THING;
+    const zones = W.civZones;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (!Civ.zoneNear(zn, c.x, c.z, look + v.hl)) continue;
+      const cs = zn.civs;
+      for (let k = 0; k < cs.length; k++) {
+        const h = cs[k];
+        if (h.dead || h.state === 'inside') continue;
+        const d = this.inPath(c, fx, fz, h.x, h.z, CIV_RADIUS + 0.4, CIV_RADIUS + 0.4, look);
+        if (d < best) best = d;
+      }
+    }
+    const near = T.near;
+    for (let i = 0; i < near.length; i++) {
+      const p = near[i];
+      if (p.y > c.y + v.h || p.y + p.height < c.y - 0.5) continue;   // under a bridge or on one
+      const d = this.inPath(c, fx, fz, p.x, p.z, p.radius, p.radius, look);
+      if (d < best) best = d;
+    }
+    if (!c.lockNode) {
+      const cars = T.cars;
+      for (let i = 0; i < cars.length; i++) {
+        const o = cars[i];
+        if (o === c || o.lane === c.lane || o.lane === c.next || (c.next && o.lane === c.next.to)) continue;
+        const d = this.vehicleIn(c, fx, fz, o, look);
+        if (d < best) { best = d; kind = this.moving(o) ? TRAFFIC_BLOCK_CAR : TRAFFIC_BLOCK_THING; }
+      }
+      const ps = T.parked;
+      for (let i = 0; i < ps.length; i++) {
+        const d = this.vehicleIn(c, fx, fz, ps[i], look);
+        if (d < best) { best = d; kind = TRAFFIC_BLOCK_THING; }
+      }
+    }
+    if (c.lane.bridge) {   // a deck shot away: stop short of the gap (a car on it when it went is wrecked)
+      const L = c.lane, p = L.pts, cum = L.cum;
+      for (let k = c.seg; k < cum.length && cum[k] < c.s + v.hl + look; k++) {
+        const x = p[k * 3], y = p[k * 3 + 1], z = p[k * 3 + 2];
+        if (Water.depth(x, z) <= TRAFFIC_DEEP || Water.deckTop(x, z, y + 1) >= Water.level(x, z)) continue;
+        const d = cum[k] - c.s - v.hl;
+        if (d < 0.5) { this.wreck(c, false); return Infinity; }
+        if (d < best) { best = d; kind = TRAFFIC_BLOCK_THING; }
+        break;
+      }
+    }
+    c.lookKind = kind;
+    return best;
+  },
+  /* how far ahead of c's front something at (x, z) reaching ra along c's way and rs across it stands, when in c's way */
+  inPath(c, fx, fz, x, z, ra, rs, look) {
+    const dx = x - c.x, dz = z - c.z, ahead = dx * fx + dz * fz - c.v.hl - ra;
+    if (ahead > look || ahead < -c.v.hl - ra * 2) return Infinity;   // beyond its look, or behind it
+    if (Math.abs(dx * fz - dz * fx) > c.v.hw + rs + 0.1) return Infinity;
+    return ahead > 0 ? ahead : 0;
+  },
+  /* the same for vehicle o, by its size along and across c's heading */
+  vehicleIn(c, fx, fz, o, look) {
+    const dx = o.x - c.x, dz = o.z - c.z;
+    if (Math.abs(dx) > look + c.v.hl + o.v.hl || Math.abs(dz) > look + c.v.hl + o.v.hl || o.v.type === 'air' || Math.abs(o.y - c.y) > 4) return Infinity;
+    const a = o.yaw - c.yaw, ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+    return this.inPath(c, fx, fz, o.x, o.z, ca * o.v.hl + sa * o.v.hw, sa * o.v.hl + ca * o.v.hw, look);
+  },
+  /* c turns round onto the lane the other way (its twin), when it has room there */
+  turnBack(c) {
+    const L = c.lane, tw = L.twin;
+    c.wait = 0;
+    if (!tw || c.state !== 'drive') return false;
+    const s = clamp(L.len - c.s, 0, tw.len);
+    if (!this.roomAt(tw, s, c.v.hl)) return false;
+    this.unlock(c);
+    this.drop(L.cars, c);
+    c.fromX = c.x; c.fromZ = c.z; c.fromYaw = c.yaw; c.turnT = 0;
+    c.lane = tw; c.s = s; c.seg = 0; c.next = null; c.speed = 0;
+    this.insert(tw, c);
+    c.state = 'turn';
+    return true;
+  },
+  /* turning round: from where it stopped to its place on the other lane, swinging left through half a turn */
+  stepTurn(c, dt) {
+    c.turnT += dt;
+    const f = Math.min(1, c.turnT / TRAFFIC_TURN_T), e = f * f * (3 - 2 * f), P = TRAFFIC_AT;
+    P.seg = c.seg;
+    this.at(P, c.lane, c.s);
+    c.seg = P.seg;
+    c.x = lerp(c.fromX, P.x, e); c.z = lerp(c.fromZ, P.z, e); c.y = P.y; c.pitch = 0;
+    c.yaw = c.fromYaw + PI * e;
+    if (f >= 1) { c.state = 'drive'; c.yaw = P.yaw; c.pitch = P.pitch; }
+  },
+  /* moving machines crush or wreck the vehicles they drive into; combat machines on the move close by scare drivers */
+  touchMachines(c) {
+    const near = W.traffic.near, v = c.v;
+    if (v.type === 'air' || (c.state === 'wreck' && c.flat < 1)) return;
+    const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw), reach = TRAFFIC_MACHINE + v.hl;
+    for (let i = 0; i < near.length; i++) {
+      const p = near[i], dx = p.x - c.x, dz = p.z - c.z;
+      if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+      const machine = p.def.style !== 'infantry', fast = Math.abs(p.speed);
+      if (!machine) continue;   // soldiers never crush anything
+      if (c.state === 'drive' && fast > 1 && !p.def.unarmed && dx * dx + dz * dz < TRAFFIC_MACHINE * TRAFFIC_MACHINE) this.scare(c, p.x, p.z);
+      if (fast < TRAFFIC_CRUSH_SPEED) continue;
+      const r = Naval.bodyR(p);
+      if (Math.abs(dx * fx + dz * fz) > v.hl + r || Math.abs(dx * fz - dz * fx) > v.hw + r || p.y > c.y + v.h || p.y + p.height < c.y) continue;
+      if (p.tonnes >= TRAFFIC_CRUSH_TONNES) this.wreck(c, true);
+      else if (fast >= TRAFFIC_RAM_SPEED) this.wreck(c, false);
+      if (c.state === 'wreck' && c.flat < 1) return;
+    }
+  },
+
+  /* ---------- reactions and harm ---------- */
+  /* danger at (x, z) heard by the driver of c: it brakes and flees (away from it, turning back when it is close ahead), or
+     in a town may leave the car and run */
+  scare(c, x, z) {
+    if (c.state !== 'drive' || !c.lane) return;
+    const calm = c.panic <= 0;
+    c.panic = rand(TRAFFIC_PANIC[0], TRAFFIC_PANIC[1]); c.threatX = x; c.threatZ = z;
+    if (!calm) return;
+    if (c.lane.zone && Math.random() < TRAFFIC_ABANDON) { this.abandon(c); return; }
+    c.halt = rand(TRAFFIC_HALT[0], TRAFFIC_HALT[1]);
+    if (c.next && c.lockNode !== c.next.node0) c.next = null;   // picked again, away from the danger
+    const dx = x - c.x, dz = z - c.z;
+    if (dx * Math.sin(c.yaw) + dz * Math.cos(c.yaw) > 0 && dx * dx + dz * dz < TRAFFIC_TURN_NEAR * TRAFFIC_TURN_NEAR) this.turnBack(c);
+  },
+  /* the driver leaves c where it stands and runs from the danger: a civilian of the town */
+  abandon(c) {
+    c.state = 'abandon'; c.speed = 0; c.life = 0;
+    this.unlock(c);
+    this.driverOut(c, true);
+  },
+  /* c's driver steps out on its kerb side as a civilian of the zone it is in (none outside the towns); scared: running */
+  driverOut(c, scared) {
+    if (!c.driver) return null;
+    c.driver = false;
+    const zn = (c.lane && c.lane.zone) || this.zoneAt(c.x, c.z);
+    if (!zn || !zn.edgeNodes.length) return null;
+    const h = Civ.make(zn, Math.random), rx = -Math.cos(c.yaw), rz = Math.sin(c.yaw), out = c.v.hw + 0.7;
+    h.x = c.x + rx * out; h.z = c.z + rz * out;
+    if (Civ.blocked(h.x, h.z, CIV_RADIUS, zn.blds)) { h.x = c.x - rx * out; h.z = c.z - rz * out; }
+    h.y = Terrain.h(h.x, h.z); h.yaw = c.yaw;
+    let best = zn.edgeNodes[0], bd = Infinity;
+    for (const i of zn.edgeNodes) { const n = zn.nodes[i], d = Math.hypot(n.x - h.x, n.z - h.z); if (d < bd) { bd = d; best = i; } }
+    h.from = best;
+    Civ.toNearest(h);
+    zn.civs.push(h);
+    if (scared) Civ.scare(h, c.threatX, c.threatZ);
+    return h;
+  },
+  /* c is wrecked (flat: crushed flat by a heavy machine): it burns a while; its driver is lost */
+  wreck(c, flat) {
+    if (flat) c.flat = TRAFFIC_FLAT;
+    if (c.state === 'wreck') return;
+    const T = W.traffic;
+    c.state = 'wreck'; c.speed = 0; c.hp = 0; c.life = 0; c.driver = false; c.burn = rand(TRAFFIC_BURN[0], TRAFFIC_BURN[1]);
+    this.unlock(c);
+    T.wrecked++;
+    const y = c.y + c.v.h * 0.5, lite = fxFar(c.x, y, c.z);
+    FX.emit(c.x, y, c.z, 0, 0, 0, 0.14, 3, 4.5, 1, 0.85, 0.5, 0.9, 0, 0, true);
+    fxSparks(c.x, y, c.z, lite ? 3 : 12, [1, 0.8, 0.4], 8);
+    fxSmokePuff(c.x, y, c.z, 2.5, lite ? 1 : 4);
+    if (c.v.type === 'road') addDecal(c.x, c.z, c.v.hl * 0.9, undefined, TRAFFIC_WRECK_LIFE);
+    Snd.play('explosion', c.x, y, c.z, 0.45);
+    Civ.alarm(c.x, c.z, CIV_DEATH_SCARE);
+    this.alarm(c.x, c.z, CIV_DEATH_SCARE);
+  },
+  /* a wreck burns, then smoulders; a boat's sinks to the bed */
+  stepWreck(c, dt) {
+    c.life += dt;
+    if (c.v.type === 'sea') c.y = Math.max(Terrain.h(c.x, c.z), c.y - dt * 0.6);
+    if (c.burn <= 0) return;
+    c.burn -= dt;
+    if (Math.random() > dt * 14 || fxFar(c.x, c.y, c.z)) return;
+    const hl = c.v.hl * 0.6, a = Math.random() * TAU, y = c.y + c.v.h * c.flat * 0.7;
+    FX.emit(c.x + Math.sin(a) * hl * Math.random(), y, c.z + Math.cos(a) * hl * Math.random(), rand(-0.6, 0.6), rand(2, 4), rand(-0.6, 0.6), rand(0.4, 0.8), 1.4, 0.3, 1, rand(0.4, 0.65), 0.12, 0.9, 0.5, -2.5, true);
+    if (Math.random() < 0.35) FX.emit(c.x, y + 1, c.z, rand(-0.8, 0.8), rand(2, 4), rand(-0.8, 0.8), rand(2, 3.5), 1.5, 4, 0.16, 0.15, 0.15, 0.6, 0.6, -0.8, false);
+  },
+  /* dmg to vehicle c from a hit coming from (x, z) */
+  hurt(c, dmg, x, z) {
+    if (c.state === 'wreck' || !(dmg > 0)) return;
+    if ((c.hp -= dmg) <= 0) { this.wreck(c, false); return; }
+    fxSparks(c.x, c.y + c.v.h * 0.6, c.z, 3, [1, 0.85, 0.5], 5);
+    this.scare(c, x, z);
+  },
+  /* a blast at (x, y, z) damages the vehicles in its reach and scares the drivers who hear it; a co-op guest's replayed
+     blasts carry no damage, so there its size decides */
+  blast(x, y, z, radius, damage) {
+    const T = W.traffic;
+    if (!T) return;
+    const hear = Math.max(CIV_BLAST_HEAR_MIN, radius * CIV_BLAST_HEAR);
+    this.blastList(T.cars, x, y, z, radius, damage, hear);
+    this.blastList(T.parked, x, y, z, radius, damage, hear);
+  },
+  blastList(list, x, y, z, radius, damage, hear) {
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i], dx = c.x - x, dz = c.z - z;
+      if (Math.abs(dx) > hear || Math.abs(dz) > hear) continue;
+      const dist = Math.hypot(dx, c.y + c.v.h * 0.5 - y, dz) - c.v.hw;
+      if (dist < radius && c.state !== 'wreck') {
+        const f = 1 - clamp(dist / radius, 0, 1);
+        const dmg = damage > 0 ? damage * (0.15 + 0.85 * f) : Net.guest ? c.hp0 * TRAFFIC_GUEST_BLAST * f : 0;
+        this.hurt(c, dmg, x, z);
+      }
+      if (c.state === 'drive' && dx * dx + dz * dz < hear * hear) this.scare(c, x, z);
+    }
+  },
+  /* a shot moving len m from (x0, y0, z0) along unit (ux, uy, uz) hits every vehicle in its way (their boxes) and flies on */
+  sweep(x0, y0, z0, ux, uy, uz, len, dmg) {
+    const T = W.traffic;
+    if (!T || !(len > 0)) return;
+    this.sweepList(T.cars, x0, y0, z0, ux, uy, uz, len, dmg);
+    this.sweepList(T.parked, x0, y0, z0, ux, uy, uz, len, dmg);
+  },
+  sweepList(list, x0, y0, z0, ux, uy, uz, len, dmg) {
+    const x1 = x0 + ux * len, z1 = z0 + uz * len;
+    const bx0 = Math.min(x0, x1), bx1 = Math.max(x0, x1), bz0 = Math.min(z0, z1), bz1 = Math.max(z0, z1);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i], v = c.v;
+      if (c.state === 'wreck' || c.x + v.hl < bx0 || c.x - v.hl > bx1 || c.z + v.hl < bz0 || c.z - v.hl > bz1) continue;
+      // into the vehicle's frame: x to its left, z forward
+      const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw), dx = x0 - c.x, dz = z0 - c.z;
+      const ox = dx * cs - dz * sn, oz = dx * sn + dz * cs, lx = ux * cs - uz * sn, lz = ux * sn + uz * cs;
+      if (segAABB(ox, y0 - c.y, oz, lx, uy, lz, len, -v.hw, v.y0 * c.flat, -v.hl, v.hw, v.y1 * c.flat, v.hl) >= 0) this.hurt(c, dmg, x0, z0);
+    }
+  },
+  /* a beam from (x1, y1, z1) to (x2, y2, z2) */
+  ray(x1, y1, z1, x2, y2, z2, dmg) {
+    const len = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
+    if (len > 0) this.sweep(x1, y1, z1, (x2 - x1) / len, (y2 - y1) / len, (z2 - z1) / len, len, dmg);
+  },
+  /* gunfire or a death at (x, z) within r: the drivers there are scared */
+  alarm(x, z, r) {
+    const T = W.traffic;
+    if (!T) return;
+    const cars = T.cars;
+    for (let i = 0; i < cars.length; i++) {
+      const c = cars[i];
+      if (c.state === 'drive' && Math.abs(c.x - x) < r && Math.abs(c.z - z) < r && Math.hypot(c.x - x, c.z - z) < r) this.scare(c, x, z);
+    }
+  },
+  /* a falling chunk (Falls) lands on the box x0..x1, z0..z1 at ground height y: the vehicles under it take dmg, and the
+     ones it wrecks are flat */
+  crush(x0, z0, x1, z1, y, dmg) {
+    const T = W.traffic;
+    if (!T) return;
+    for (const list of [T.cars, T.parked]) for (let i = 0; i < list.length; i++) {
+      const c = list[i], r = c.v.hw;
+      if (c.x < x0 - r || c.x > x1 + r || c.z < z0 - r || c.z > z1 + r || Math.abs(c.y - y) > 4) continue;
+      if (dmg >= c.hp) this.wreck(c, true); else this.hurt(c, dmg, c.x, c.z);
+    }
+  },
+  /* true when (x, z) within r is under a parked vehicle (Civ.blocked: people walk round them) */
+  blocks(x, z, r) {
+    const T = W.traffic;
+    if (!T) return false;
+    const ps = T.parked;
+    for (let i = 0; i < ps.length; i++) {
+      const c = ps[i], v = c.v, dx = x - c.x, dz = z - c.z;
+      if (v.type !== 'road' || Math.abs(dx) > v.hl + r || Math.abs(dz) > v.hl + r) continue;
+      const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
+      if (Math.abs(dx * fx + dz * fz) < v.hl + r && Math.abs(dx * fz - dz * fx) < v.hw + r) return true;
+    }
+    return false;
+  },
+  /* one car a tick: a wreck or an abandoned car that has stood long enough, a car far away or stuck goes where nobody sees,
+     and comes back on a lane near the camera, out of its view */
+  recycle(T) {
+    const cars = T.cars;
+    if (!cars.length) return;
+    T.cycle = (T.cycle + 1) % cars.length;
+    const c = cars[T.cycle], cam = R.cam, dx = c.x - cam.x, dz = c.z - cam.z, d2 = dx * dx + dz * dz;
+    const gone = (c.state === 'wreck' && c.life > TRAFFIC_WRECK_LIFE) || (c.state === 'abandon' && c.life > TRAFFIC_GONE_LIFE) || d2 > TRAFFIC_FAR * TRAFFIC_FAR || c.wait > TRAFFIC_STUCK * 2;
+    if (!gone || (d2 < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(c.x, c.y + 1, c.z, c.v.hl + 1))) return;
+    // a lane whose middle is TRAFFIC_BACK_NEAR to BACK_FAR m from the camera, picked at random (counted, then found)
+    let count = 0;
+    for (let i = 0; i < T.drive.length; i++) if (this.backLane(T.drive[i], cam)) count++;
+    for (let tries = 0; count && tries < 6; tries++) {
+      let k = Math.floor(Math.random() * count), L = null;
+      for (let i = 0; i < T.drive.length && !L; i++) if (this.backLane(T.drive[i], cam) && k-- === 0) L = T.drive[i];
+      const s = Math.random() * L.len;
+      TRAFFIC_AT.seg = 0;
+      this.at(TRAFFIC_AT, L, s);
+      const ex = TRAFFIC_AT.x - cam.x, ez = TRAFFIC_AT.z - cam.z;
+      if (!this.roomAt(L, s, c.v.hl) || (ex * ex + ez * ez < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(TRAFFIC_AT.x, TRAFFIC_AT.y + 1, TRAFFIC_AT.z, c.v.hl + 1))) continue;
+      this.unlock(c);
+      if (c.lane) this.drop(c.lane.cars, c);
+      this.drive(c, L, s);
+      return;
+    }   // no place for it now: it stays
+  },
+  backLane(L, cam) {
+    const dx = L.mx - cam.x, dz = L.mz - cam.z, d2 = dx * dx + dz * dz;
+    return d2 > TRAFFIC_BACK_NEAR * TRAFFIC_BACK_NEAR && d2 < TRAFFIC_BACK_FAR * TRAFFIC_BACK_FAR;
+  },
+
+  /* ---------- taking a vehicle (Seats) ---------- */
+  /* the vehicle of the scenery a human on foot could take now, nearer than within, or null (a wreck, a car still
+     moving fast and an aircraft off the airfields cannot be taken) */
+  nearest(human, within) {
+    const T = W.traffic;
+    if (!T || !human || human.dead || human.def.style !== 'infantry') return null;
+    let best = null, bd = within;
+    for (let i = 0; i < T.parked.length; i++) { const d = this.rideDist(T.parked[i], human); if (d < bd) { bd = d; best = T.parked[i]; } }
+    for (let i = 0; i < T.cars.length; i++) { const d = this.rideDist(T.cars[i], human); if (d < bd) { bd = d; best = T.cars[i]; } }
+    return best;
+  },
+  rideDist(r, h) {
+    if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
+    if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
+    const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
+    if (Math.abs(dx) > reach || Math.abs(dz) > reach) return Infinity;
+    const d = Math.hypot(dx, dz), rise = h.y - r.y;
+    return d <= reach && rise > -ENTER_RISE && rise < r.v.h + ENTER_RISE ? d : Infinity;
+  },
+  /* the host's check of a guest's 'enterCiv': the vehicle in reach of the guest's body, an aircraft on an airfield, a
+     boat on water */
+  mayRide(def, x, z, h) {
+    if (Math.hypot(x - h.x, z - h.z) > Math.max(ENTER_SMALL, def.radius + ENTER_PAD) + TRAFFIC_ASK_SLACK) return false;
+    if (def.kind === 'air') return Airports.covers(x, z);
+    if (def.kind === 'naval') return Water.depth(x, z) > 0.3;
+    return Math.abs(x) <= GROUND_BOUND && Math.abs(z) <= GROUND_BOUND;
+  },
+  /* human takes vehicle r (on the host or in solo play): it leaves the scenery and becomes a platform it rides in */
+  take(human, r, peer) {
+    this.remove(r, true);
+    return Seats.enter(human, this.spawnRide(r.def, r.x, r.y, r.z, r.yaw, r.col), peer);
+  },
+  /* a co-op guest: the host makes the platform; our copy of the vehicle goes now */
+  ask(human, r) {
+    Net.send(Net.hostPeer, { t: 'enterCiv', d: r.def.id, x: r1(r.x), y: r1(r.y), z: r1(r.z), yaw: r2(r.yaw), c: r.col }, true);
+    this.remove(r, true);
+  },
+  /* the parked platform of civilian def at (x, y, z) facing yaw in colour col (on the host or in solo play) */
+  spawnRide(def, x, y, z, yaw, col) {
+    const p = new Platform(def, { team: 2, x, z, yaw, loadout: {} });
+    p.civCol = col;
+    if (def.kind === 'air') Seats.groundAir(p);
+    else if (def.kind === 'ground') p.y = groundLevel(x, z, y + 0.5, 0.5);   // on a bridge's deck too
+    Seats.park(p);
+    W.platforms.push(p);
+    this.claim(def, x, z);
+    return p;
+  },
+  /* a platform of civilian def appeared at (x, z): our own copy of that vehicle of the scenery goes (its driver steps out) */
+  claim(def, x, z) {
+    const T = W.traffic;
+    if (!T) return;
+    for (const list of [T.parked, T.cars]) for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      if (r.def === def && r.state !== 'wreck' && Math.hypot(r.x - x, r.z - z) < 4) { this.remove(r, true); return; }
+    }
+  },
+  /* r leaves the scenery (out: its driver steps out first) */
+  remove(r, out) {
+    const T = W.traffic;
+    if (out) this.driverOut(r, false);
+    if (r.lane) { this.unlock(r); this.drop(r.lane.cars, r); this.drop(T.cars, r); r.lane = null; }
+    else this.drop(T.parked, r);
+  },
+
+  /* ---------- drawing ---------- */
+  /* the vehicles within trafficDraw of the camera (simple models past trafficLod): the cars, then the parked ones */
+  draw() {
+    const T = W.traffic;
+    if (!T) return;
+    const q = Fauna.quality(), night = Clock.look.night > 0.5;
+    T.drawn = this.drawList(T.cars, q, q.traffic, night ? 1 : 0.35) + this.drawList(T.parked, q, q.traffic + 24, 0);
+    R.stack.top = 0; R.stack.ident();
+  },
+  drawList(list, q, cap, glow) {
+    const st = R.stack, cam = R.cam, far2 = q.trafficDraw * q.trafficDraw, lod2 = q.trafficLod * q.trafficLod, P = CIV_POSE;
+    let n = 0;
+    for (let i = 0; i < list.length && n < cap; i++) {
+      const c = list[i], v = c.v, dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > far2 || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
+      n++;
+      const wreck = c.state === 'wreck';
+      P.paint = c.paint; P.acc = v.accCol; P.x = c.x; P.y = v.type === 'sea' && !wreck ? Naval.keelY(c.x, c.z, c.def) : c.y; P.z = c.z;
+      P.yaw = c.yaw; P.pitch = c.pitch; P.roll = 0; P.lod = d2 > lod2; P.spin = c.spin; P.prop = 0; P.gear = true;
+      P.flat = c.flat; P.shade = wreck ? 0.22 : 1; P.add = 0; P.glow = c.state === 'drive' || c.state === 'turn' ? glow : 0;
+      st.top = 0; st.ident();
+      drawVehicle(v, P);
+    }
+    return n;
+  },
+  /* contact shadows of the near road vehicles and parked aircraft (inside the low shadow batch) */
+  drawShadows() {
+    const T = W.traffic;
+    if (!T) return;
+    this.shadowList(T.cars);
+    this.shadowList(T.parked);
+  },
+  shadowList(list) {
+    const st = R.stack, cam = R.cam, lim2 = TRAFFIC_SHADOW_DIST * TRAFFIC_SHADOW_DIST;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i], v = c.v, dx = c.x - cam.x, dz = c.z - cam.z;
+      if (v.type === 'sea' || dx * dx + dz * dz > lim2 || !R.visible(c.x, c.y, c.z, v.hl)) continue;
+      const gy = v.type === 'air' ? c.y - v.air.gearH : c.y, w = v.type === 'air' ? v.span * 0.8 : v.w * 1.1;
+      st.push().t(c.x, gy + 0.03, c.z).ry(c.yaw).s(w, 0.05, v.l * 1.04); R.draw('box', 0, 0, 0); st.pop();
+    }
+  },
+};
+
 
 
 /* =====================================================================
@@ -9502,6 +10891,7 @@ class Platform {
     // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
     this.parked = false; this.pilot = null; this.chute = false; this.ejectPilot = false;
+    this.civCol = 0;   // a civilian vehicle (P6.2): its paint in its colour set (VEHICLES)
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.sw = null; this.status = newStatus(); this.scale = 1; this.swHistory = null;   // superweapon slot, superweapon status effects, size (Shrink Ray)
@@ -10443,7 +11833,7 @@ class Platform {
     let dmg = d.dmg, width = d.beamWidth || 0.35;
     if (d.ramp) { dmg *= 1 + this.rampBeam(w, r.hit && r.kind === 'platform' ? r.obj : null); width *= 1 + w.ramp * 0.4; }
     WPN.beam(mz.x, mz.y, mz.z, ex, ey, ez, w.id, width);
-    Civ.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Civ.alarm(this.x, this.z, CIV_GUNFIRE_HEAR);
+    Civ.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Civ.alarm(this.x, this.z, CIV_GUNFIRE_HEAR); Traffic.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Traffic.alarm(this.x, this.z, CIV_GUNFIRE_HEAR);
     Fauna.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Fauna.alarm(this.x, this.z, FAUNA_GUNFIRE_HEAR);
     if (!r.hit) return;
     const kind = r.kind, obj = r.obj;
@@ -10895,6 +12285,7 @@ function drawPlatformBody(p) {
     case 'jet': drawJet(p, main, dark, acc, lod); break;
     case 'gunship': drawGunship(p, main, dark, acc, lod); break;
     case 'bomber': drawBomber(p, main, dark, acc); break;
+    case 'civ': drawCivPlatform(p, dmgK, flash, lod); break;
     default: R.box(p.x, p.y + p.height / 2, p.z, p.radius, p.height, p.radius, main, 0, 0);
   }
   st.top = 0; st.ident();
@@ -11516,7 +12907,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.guide && !p.target) p.noGuide = true; else p.noGuide = false;
   if (d.guide && !p.target) notify(owner, 'NO LOCK: DUMB-FIRE');
   p.stuck = null;
-  Civ.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR); Fauna.alarm(owner.x, owner.z, FAUNA_GUNFIRE_HEAR);
+  Civ.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR); Fauna.alarm(owner.x, owner.z, FAUNA_GUNFIRE_HEAR); Traffic.alarm(owner.x, owner.z, CIV_GUNFIRE_HEAR);
   if (d.mine) WPN.placeMine(p, owner);
   if (d.guide && d.guide.top && p.target) WPN.loft(p);
   if (d.torpedo) Naval.torpedoLaunch(p);
@@ -11664,7 +13055,8 @@ function updateProjectiles(dt) {
       const ht = naval ? Naval.segHull(e, x0, y0, z0, ux, uy, uz, bestT, pad + 0.3) : segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
       if (ht >= 0 && ht < bestT) { bestT = ht; kind = 'platform'; obj = e; }
     }
-    Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians and animals on the way are hit, and the shot flies on
+    Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians, animals and cars on the way are hit, and the shot flies on
+    Traffic.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);
     Fauna.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);
     if (kind === '') { p.x = x0 + mx; p.y = y0 + my; p.z = z0 + mz; continue; }
     const hx = x0 + ux * bestT, hy = y0 + uy * bestT, hz = z0 + uz * bestT;
@@ -12178,12 +13570,19 @@ const EXIT_SPOT = { x: 0, y: 0, z: 0, hop: false, vx: 0, vz: 0 };
    parks the vehicle, keeping its team, hull, ammunition, heat and cooldowns. A neutral (team 2) vehicle joins its driver's
    side: that is the hook for the civilian vehicles of P6. */
 const Seats = {
-  /* a tap of Use by player body p (peer: the co-op guest it belongs to, on the host): enter, else resupply */
+  /* a tap of Use by player body p (peer: the co-op guest it belongs to, on the host): enter, else resupply. A vehicle of
+     the scenery (Traffic) is our own game's: a guest asks the host for it, the host takes it here; a guest's tap on the
+     host only reaches platforms */
   tap(p, peer) {
     if (!p || p.dead) return;
-    if (Net.guest) { Net.pendEdge |= NET_USE_TAP; return; }
-    const v = this.nearestFree(p);
-    if (v) { this.enter(p, v, peer); return; }
+    if (Net.guest) {
+      const ride = this.nearestRide(p);
+      if (ride && !(ride instanceof Platform)) { Traffic.ask(p, ride); return; }
+      Net.pendEdge |= NET_USE_TAP; return;
+    }
+    const v = peer ? this.nearestFree(p) : this.nearestRide(p);
+    if (v instanceof Platform) { this.enter(p, v, peer); return; }
+    if (v) { Traffic.take(p, v, peer); return; }
     tryResupply(p);
   },
   /* a held Use: exit, or eject from an aircraft in the air */
@@ -12200,6 +13599,7 @@ const Seats = {
   canEnter(human, v) {
     if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
     if (v.team !== human.team && v.team !== 2) return false;
+    if (v.def.civilian && v.kind === 'air' && !Airports.covers(v.x, v.z)) return false;   // a civilian aircraft is taken only on an airfield
     const rise = human.y - v.y;
     return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
   },
@@ -12215,12 +13615,18 @@ const Seats = {
     }
     return best;
   },
+  /* the closest vehicle a human on foot could enter now: a free platform or a vehicle of the scenery (Traffic), or null */
+  nearestRide(human) {
+    const v = this.nearestFree(human);
+    return Traffic.nearest(human, v ? Math.hypot(v.x - human.x, v.z - human.z) : Infinity) || v;
+  },
   /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins) */
   enter(human, v, peer) {
     if (!this.canEnter(human, v)) return false;
     v.parked = false; v.pilot = human;
     if (v.team === 2) v.team = human.team;
     if (human.hideFromAI && !v.def.civilian) human.provoke();   // a civilian in a combat vehicle is fair game
+    if (v.def.civilian) { v.hideFromAI = human.hideFromAI; v.provoked = human.provoked; }   // a civilian vehicle is as hidden as its driver
     human.ejectPilot = false;   // a pilot who finds a ride needs no replacement
     const i = W.platforms.indexOf(human);
     if (i >= 0) W.platforms.splice(i, 1);
@@ -12243,6 +13649,10 @@ const Seats = {
     W.platforms.push(human);
     this.bind(human, v, peer);
     this.park(v);
+    if (v.def.civilian) {   // the driver keeps what it did in the vehicle; the parked vehicle is no one's again
+      if (v.provoked && human.hideFromAI) human.provoke();
+      v.hideFromAI = true; v.provoked = false;
+    }
     return true;
   },
   /* the pilot of a platform lost by an ejection (or a destroyed one whose seat fired) drops from it */
@@ -12356,7 +13766,7 @@ const Seats = {
     out.arc = !!(p.arty && p.primary && p.primary.def.indirect && Arty.twoArcs(p.primary.def));
     if (air && !p.grounded) out.eject = p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL;
     else if (p.def.style !== 'infantry') out.exit = true;
-    else out.enter = this.nearestFree(p);
+    else out.enter = this.nearestRide(p);
     return out;
   },
   anyUse(ctx) { return !!(ctx.enter || ctx.exit || ctx.eject || ctx.use); },
@@ -19258,6 +20668,7 @@ const Game = {
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(lay, seed, def.map, destr[0]), sceneryKeep: Scenery.keepOutFor(lay), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
     Civ.populate(lay, seed);   // guests too: every game runs its own civilians
     Fauna.populate(seed);      // and its own animals (D6)
+    Traffic.populate(seed, st);   // and its own parked vehicles and road traffic
     Hazards.begin(cfg, def, seed, guest);   // the battlefield's hazards; the host keeps their schedule
     W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
@@ -23362,7 +24773,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 9 (artillery)', NET_VERSION === 9);
+      this.check('the net version is 10 (civilian vehicles)', NET_VERSION === 10);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
@@ -24800,7 +26211,7 @@ const SelfTest = {
       Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
       this.check('a new battle starts with no touch button latched or held and no Use hold running', !tc.latched.boost && !tc.held.fire1 && !tc.merge(null).boost && PC.useT === -1);
       try {
-        const sp = W.player, ids = Object.keys(PLATFORMS).filter((id) => PLATFORMS[id].playable);
+        const sp = W.player, ids = Object.keys(PLATFORMS).filter((id) => PLATFORMS[id].playable).concat(['cv_sedan', 'cv_speedboat', 'cv_cessna']);
         const bodies = ids.map((id) => new Platform(PLATFORMS[id], { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: Loadout.forPlatform(id) }));
         const kinds = new Set(bodies.map((q) => (q.def.style === 'infantry' ? 'foot' : q.kind)));
         this.check('every platform kind is laid out (on foot, mech, ground with the hovercraft, air, naval)', ['foot', 'mech', 'ground', 'air', 'naval'].every((k) => kinds.has(k)) && ids.includes('specter'));
@@ -25430,6 +26841,143 @@ const SelfTest = {
       } finally { Game.reportError = keepRep; Game.quitToMenu(); }
       this.check('artillery spotting runs without errors', errs.length === 0, errs.join());
     });
+    t('civilian vehicles', () => {
+      const keep = { foot: S.onFoot, peers: Net.peers, host: Net.host, guest: Net.guest, inSession: Net.inSession, hostPeer: Net.hostPeer, map: Net.map, pend: Net.pendEdge, draw: R.draw }, sent = [];
+      const kinds = { road: 'ground', sea: 'naval', air: 'air' };
+      this.check('50 civilian vehicles: 36 for the roads, 8 boats, 6 aircraft, ids unique', VEHICLES.length === 50 && VEHICLES.filter((v) => v.type === 'road').length === 36 && VEHICLES.filter((v) => v.type === 'sea').length === 8 && VEHICLES.filter((v) => v.type === 'air').length === 6 && new Set(VEHICLE_IDS).size === 50);
+      const bad = VEHICLES.filter((v) => {
+        const d = PLATFORMS['cv_' + v.id];
+        const parts = v.parts.length >= 4 && v.parts.every((q) => INST_SHAPES.indexOf(q[0]) >= 0 && q.slice(1, 11).every(Number.isFinite) && q[7] >= 0 && q[7] < CK_COLS.length) && v.parts.some((q) => q[11] & CV_CORE);
+        return !(parts && (v.type === 'sea' || v.wheels.length >= 2) && v.hw > 0 && v.hl > 0 && v.y1 > v.y0 && CIV_PAINTS[v.paint] && d && d.model === 'civ' && d.civilian && d.unarmed && !d.playable && d.kind === kinds[v.type] && !Object.keys(d.mounts).length && !d.allow.primary.length && PLAYABLE.indexOf(d.id) < 0);
+      }).map((v) => v.id);
+      this.check('every one builds: a recipe of instanced shapes with a simple model, wheels where it rolls, its size, and a platform def of its kind with no weapons, not in the hangar', !bad.length, bad.join());
+      const mk = (id, x, z) => { const p = new Platform(PLATFORMS[id], { team: 0, x, z, yaw: 0, loadout: Loadout.forPlatform(id) }); W.platforms.push(p); return p; };
+      const drive = (p) => { p.isPlayer = true; p.controller = PC; p.localPlayer = true; W.player = p; };
+      const holdUse = (p) => { PC.resetUse(); for (let i = 0; i < Math.ceil(USE_HOLD / STEP) + 2; i++) PC.useInput(p, true, STEP); PC.useInput(p, false, STEP); return W.player; };
+      const tapUse = (p) => { PC.resetUse(); PC.useInput(p, true, STEP); PC.useInput(p, false, STEP); return W.player; };
+      const park = (id, x, z, yaw, col) => { const v = VEHICLES[VEHICLE_IDS.indexOf(id)], r = Traffic.make(v, col || 0); r.x = x; r.z = z; r.yaw = yaw || 0; r.y = Terrain.h(x, z) + (v.type === 'air' ? v.air.gearH : 0); W.traffic.parked.push(r); return r; };
+      // under way for n ticks with the controls held: ground and boats forward, aircraft at full throttle
+      const run = (p, n) => {
+        p.controller = null;
+        for (let i = 0; i < n; i++) { p.cmd.moveF = 1; p.cmd.throttleSet = 1; p.cmd.brake = false; p.update(STEP); }
+      };
+      try {
+        S.onFoot = 'infantry'; Net.peers = []; Net.host = false; Net.guest = false;
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; W.pads = [];
+        Traffic.populate(5, null);
+        let draws = 0;
+        R.draw = function () { draws++; return keep.draw.apply(this, arguments); };
+        R.beginBatch('opaque');
+        const P = CIV_POSE;
+        for (const v of VEHICLES) for (let lod = 0; lod < 2; lod++) {
+          Object.assign(P, { paint: CIV_PAINTS[v.paint][0], acc: v.accCol, x: 0, y: 0, z: 0, yaw: 0.3, pitch: 0, roll: 0, lod: !!lod, spin: 1, prop: 1, gear: !lod, flat: lod ? TRAFFIC_FLAT : 1, shade: 1, add: 0, glow: 1 });
+          drawVehicle(v, P);
+        }
+        R.endBatch('opaque');
+        R.draw = keep.draw;
+        const need = VEHICLES.reduce((n, v) => n + v.parts.length + v.parts.filter((q) => q[11] & CV_CORE && !(q[11] & CV_GEAR)).length, 0);
+        this.check('all 50 draw (full and simple models, gear up and down, crushed flat) as instanced parts', draws >= need, draws + ' < ' + need);
+        const sp = findSpawn(0, 0, 300, 30, 0) || { x: 0, z: 0 };
+        // a sedan parked by the road: the context offers it, a tap of Use takes it, it drives
+        const human = mk('ranger', sp.x, sp.z);
+        drive(human);
+        const sedan = park('sedan', sp.x + 3, sp.z, 0.4, 3);
+        this.check('a parked civilian vehicle is offered by Use (ENTER SEDAN)', Seats.context(human, {}).enter === sedan && Seats.useLabel(Seats.context(human, {})) === 'ENTER');
+        const car = tapUse(human);
+        this.check('a tap of Use takes it: a ground platform cv_sedan with no weapons and its own paint, driven by the player', car !== human && car.def.id === 'cv_sedan' && car.kind === 'ground' && car.model === 'civ' && car.civCol === 3 && car.pilot === human && car.isPlayer && !car.wslots.primaryA && !car.parked && W.traffic.parked.indexOf(sedan) < 0);
+        this.check('a soldier in a civilian vehicle is seen by the AI (it is as hidden as its driver)', !car.hideFromAI);
+        const x0 = car.x, z0 = car.z;
+        run(car, 90);
+        this.check('the sedan drives', Math.hypot(car.x - x0, car.z - z0) > 8 && car.speed > 5, Math.hypot(car.x - x0, car.z - z0).toFixed(1));
+        car.speed = 0; car.vx = car.vz = 0;
+        const out = holdUse(car);
+        this.check('holding Use steps out and leaves it parked, hidden from the AI again', out === human && car.parked && !car.pilot && !car.dead && car.hideFromAI && W.platforms.indexOf(car) >= 0 && Seats.context(human, {}).enter === car);
+        // a civilian takes it: the vehicle stays hidden; provoked inside, the civilian steps out provoked
+        const civ = mk('civilian', car.x + 4, car.z);
+        W.platforms.splice(W.platforms.indexOf(human), 1);
+        drive(civ);
+        const car2 = tapUse(civ);
+        this.check('a civilian in a civilian vehicle stays hidden from the AI', car2 === car && car.hideFromAI && !civ.provoked);
+        car.provoke();
+        const civOut = holdUse(car);
+        this.check('provoked in the vehicle, the civilian steps out provoked and the parked vehicle is hidden again', civOut === civ && !civ.hideFromAI && civ.provoked && car.hideFromAI && !car.provoked);
+        // a light aircraft: only on an airfield
+        W.platforms.splice(W.platforms.indexOf(civ), 1);
+        const pilot = mk('ranger', sp.x + 60, sp.z);
+        drive(pilot);
+        const liner = park('airliner', pilot.x + 8, pilot.z, 0);
+        this.check('an airliner off an airfield cannot be taken', Seats.context(pilot, {}).enter !== liner && tapUse(pilot) === pilot && W.traffic.parked.indexOf(liner) >= 0);
+        W.airports.push({ kind: 'strip', box: { x0: pilot.x - 60, x1: pilot.x + 60, z0: pilot.z - 60, z1: pilot.z + 60 }, apron: null, spot: null });
+        this.check('an airliner on an airfield can', Seats.context(pilot, {}).enter === liner);
+        W.traffic.parked.splice(W.traffic.parked.indexOf(liner), 1);
+        const cessna = park('cessna', pilot.x + 4, pilot.z, 0, 1);
+        const plane = tapUse(pilot);
+        this.check('a light aircraft on an airfield is taken: an air platform standing on its gear', plane.def.id === 'cv_cessna' && plane.kind === 'air' && plane.grounded && plane.gear && Math.abs(plane.y - Terrain.h(plane.x, plane.z) - PLATFORMS.cv_cessna.air.gearH) < 0.01 && W.traffic.parked.indexOf(cessna) < 0);
+        run(plane, 120);
+        this.check('and it rolls under power', plane.speed > 5 && !plane.dead, plane.speed.toFixed(1));
+        plane.speed = 0; plane.throttle = 0; plane.cmd.throttleSet = 0;
+        Seats.groundAir(plane);
+        W.airports.length = 0;
+        const parkedPlane = holdUse(plane);
+        this.check('stepped out off the airfield, a civilian aircraft cannot be taken again there', parkedPlane === pilot && plane.parked && !Seats.canEnter(pilot, plane));
+        // a speedboat on the sea
+        newWorld({ map: 'coast', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; W.pads = [];
+        Traffic.populate(5, null);
+        const sea = Naval.spot(0, 0, PLATFORMS.cv_speedboat, NAVAL_SPOT_REACH, false);
+        const swimmer = mk('ranger', sea.x + 3, sea.z);
+        swimmer.y = Water.top(swimmer.x, swimmer.z) - 0.8;   // swimming beside it
+        drive(swimmer);
+        const sb = park('speedboat', sea.x, sea.z, sea.yaw, 2);
+        sb.y = Naval.keelY(sb.x, sb.z, sb.def);
+        const boat = tapUse(swimmer);
+        this.check('a boat on the water is taken: a naval platform cv_speedboat', boat.def.id === 'cv_speedboat' && boat.kind === 'naval' && boat.civCol === 2 && Math.abs(boat.y - Naval.keelY(boat.x, boat.z, boat.def)) < 0.01, boat.def.id);
+        const bx = boat.x, bz = boat.z;
+        run(boat, 120);
+        this.check('and it sails', Math.hypot(boat.x - bx, boat.z - bz) > 5 && !boat.dead, Math.hypot(boat.x - bx, boat.z - bz).toFixed(1));
+        // co-op: a guest takes a vehicle of its own scenery; the host makes the platform and the guest's copy goes
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; W.pads = [];
+        Traffic.populate(5, null);
+        Net.host = true; Net.guest = false; Net.inSession = true;
+        const peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = (s) => sent.push(JSON.parse(s)); peer.pid = 'ranger'; peer.stats = newStats(); peer.name = 'Ally';
+        Net.peers = [peer];
+        const g = new Platform(PLATFORMS.ranger, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: Loadout.forPlatform('ranger'), name: 'Ally' });
+        g.isPlayer = true; g.netPeer = peer; peer.p = g; W.platforms.push(g);
+        const hostCopy = park('taxi', sp.x + 3, sp.z, 0.2, 0);
+        Net.hostMsg(peer, { t: 'enterCiv', d: 'cv_airliner', x: sp.x + 3, z: sp.z, yaw: 0, c: 0 });
+        Net.hostMsg(peer, { t: 'enterCiv', d: 'cv_taxi', x: sp.x + 40, z: sp.z, yaw: 0, c: 0 });
+        Net.hostMsg(peer, { t: 'enterCiv', d: 'ranger', x: sp.x + 3, z: sp.z, yaw: 0, c: 0 });
+        this.check('the host refuses a guest\'s airliner off an airfield, a vehicle out of reach and a non-civilian def', peer.p === g && !W.platforms.some((q) => q.def.civilian));
+        sent.length = 0;
+        Net.hostMsg(peer, { t: 'enterCiv', d: 'cv_taxi', x: sp.x + 3, y: Terrain.h(sp.x + 3, sp.z), z: sp.z, yaw: 0.2, c: 0 });
+        const taxi = peer.p;
+        this.check('the host takes a guest\'s enterCiv: a cv_taxi platform with the guest in it, and the host\'s own copy goes', taxi !== g && taxi.def.id === 'cv_taxi' && taxi.pilot === g && taxi.netPeer === peer && W.traffic.parked.indexOf(hostCopy) < 0 && sent.some((m) => m.t === 'ctl' && m.pid === taxi.id));
+        sent.length = 0; Net.sendSnapshots();
+        const spT = sent.find((m) => m.t === 'sp' && m.id === taxi.id);
+        this.check('its sp carries the paint (cc)', !!spT && spT.cc === 0 && spT.d === 'cv_taxi');
+        // the guest's side: its tap asks the host and drops its copy; a host's sp drops the copy where the platform appears
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; W.pads = [];
+        Traffic.populate(5, null);
+        Net.host = false; Net.guest = true; Net.map = {}; Net.pendEdge = 0; Net.hostPeer = { tx: (s) => sent.push(JSON.parse(s)) };
+        const me = mk('ranger', sp.x, sp.z);
+        drive(me);
+        const mine = park('hatch', sp.x + 3, sp.z, 0.3, 4), theirs = park('taxi', sp.x + 40, sp.z, 0.2, 0);
+        sent.length = 0;
+        Seats.tap(me, null);
+        const ask = sent.find((m) => m.t === 'enterCiv');
+        this.check('a guest\'s tap beside a vehicle of its scenery asks the host (enterCiv) and its copy goes', !!ask && ask.d === 'cv_hatch' && ask.c === 4 && Math.abs(ask.x - mine.x) < 0.1 && W.traffic.parked.indexOf(mine) < 0 && !(Net.pendEdge & NET_USE_TAP));
+        Net.applySpawn({ t: 'sp', id: 99101, d: 'cv_taxi', team: 0, name: 'Taxi', arch: '', lo: {}, x: theirs.x, y: theirs.y, z: theirs.z, yaw: 0.2, self: 0, pl: 1, sc: 1, driver: 1, cc: 0 });
+        this.check('a civilian vehicle\'s sp shows it in its paint and drops the guest\'s own copy there', !!Net.map[99101] && Net.map[99101].civCol === 0 && W.traffic.parked.indexOf(theirs) < 0);
+      } finally {
+        R.draw = keep.draw;
+        S.onFoot = keep.foot; Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer; Net.map = keep.map; Net.pendEdge = keep.pend;
+        W.airports.length = 0;
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -25457,7 +27005,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 9;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells)
+const NET_VERSION = 10;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -25601,9 +27149,19 @@ const Net = {
         this.sendLobby();
         break;
       case 'in': this.hostInput(peer, m); break;
+      case 'enterCiv': this.hostEnterCiv(peer, m); break;
       case 'bye': this.dropPeer(peer, 'left'); break;
       default: break;
     }
+  },
+  /* a guest took a civilian vehicle of its own scenery (Traffic.ask): the host makes it a parked platform there, if the
+     guest stands by it (an aircraft on an airfield, a boat afloat), and puts the guest in it */
+  hostEnterCiv(peer, m) {
+    const h = peer.p, def = PLATFORMS[m.d];
+    if (!this.inSession || !W || !h || h.dead || h.def.style !== 'infantry' || !def || !def.civilian || !Number.isFinite(m.x) || !Number.isFinite(m.z)) return;
+    if (!Traffic.mayRide(def, m.x, m.z, h)) return;
+    const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0);
+    Seats.enter(h, p, peer);
   },
   /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
   cleanLoadout(raw) {
@@ -25633,7 +27191,7 @@ const Net = {
       case 'sw': if (W) SW.replay(m); break;
       case 'wz': if (W) WPN.replay(m); break;
       case 'pst': if (W) this.applyPlatState(m); break;
-      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Fauna.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
+      case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Fauna.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Traffic.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
       case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); } break;
@@ -25884,7 +27442,9 @@ const Net = {
       for (const p of W.platforms) {
         if (p.dead || peer.known.has(p.id)) continue;
         peer.known.add(p.id);
-        this.send(peer, { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale), driver: p.parked ? 0 : 1 });
+        const sp = { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale), driver: p.parked ? 0 : 1 };
+        if (p.def.civilian) sp.cc = p.civCol;   // a civilian vehicle's paint
+        this.send(peer, sp);
       }
       base.me = this.selfState(peer);
       this.send(peer, base, false);
@@ -25935,6 +27495,7 @@ const Net = {
     p.netInit = true; p.seen = this.t; p.speedMult = 1; p.parked = m.driver === 0;
     const sc = numIn(m.sc, 0.1, 3, 1);
     if (sc !== 1) { p.scale = sc; p.radius = def.radius * sc; p.height = def.height * sc; }
+    if (def.civilian) { p.civCol = numIn(m.cc, 0, 15, 0) | 0; Traffic.claim(def, m.x, m.z); }   // our own copy of the scenery vehicle goes
     this.map[m.id] = p;
     W.platforms.push(p);
     if (m.self || (this.pendCtl && m.id === this.pendCtl)) this.bindLocal(p);
@@ -26035,7 +27596,7 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
-        Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR); Fauna.alarm(e[2], e[4], FAUNA_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians and animals
+        Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR); Fauna.alarm(e[2], e[4], FAUNA_GUNFIRE_HEAR); Traffic.alarm(e[2], e[4], CIV_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians, animals and drivers
         if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
           Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
           if (pr.owner) pr.owner.recoil = 1;
@@ -26150,7 +27711,7 @@ const Net = {
     for (const q of W.projs) {
       if (!q.active) continue;
       const len = Math.hypot(q.vx, q.vy, q.vz) * dt;
-      if (len > 0) { Civ.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); Fauna.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); }   // our own civilians and animals
+      if (len > 0) { Civ.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); Fauna.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); Traffic.sweep(q.x, q.y, q.z, q.vx * dt / len, q.vy * dt / len, q.vz * dt / len, len, q.def.dmg); }   // our own civilians, animals and cars
       q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
       if (this.t - q.seen > 0.35) q.active = false;
     }
@@ -26377,7 +27938,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, drawVehicle, Civ };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
