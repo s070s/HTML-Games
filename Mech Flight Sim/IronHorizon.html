@@ -32024,7 +32024,7 @@ const SelfTest = {
         this.check('one coming in to land goes around, climbing away, instead of landing through it', phase === FL_CROSS && lowest >= y0 - 1 && f.y > y0, FLIGHT_PHASES[phase] + ', ' + Math.round(f.y - y0) + ' m up');
         far();
         const back = run(300, () => f.phase === FL_GATE);
-        this.check('and it is back at its gate later, out of sight', back);
+        this.check('and from that go-around it is back at its gate later, out of sight', phase === FL_CROSS && back);
         W.platforms.splice(W.platforms.indexOf(jet), 1);
         R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         // 3. m18: the Gunship and a Strike Fighter take a family aboard in flight, circling the farm low and slow in the storm
