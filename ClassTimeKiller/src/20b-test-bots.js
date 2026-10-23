@@ -1566,6 +1566,7 @@ Test.add('bots', (check) => {
     for (let id = 0; id < Actors.count && enemy < 0; id++) {
       if (Actors.kind[id] !== ACTOR_KIND.ENEMY || !Actors.alive[id]) continue;
       enemy = id;
+      Actors.flags[id] |= ACTOR_FLAG.GOD;   // it must live to the end: a dead enemy's slot is reused by the next spawn
       BotMove.stuckSeconds[id] += ENEMY_STUCK_SECONDS;
       BotMove.longestStuck[id] = ENEMY_STUCK_SECONDS;
     }
