@@ -245,6 +245,18 @@ Test.add('economy', (check) => {
   TestArena.finish();
 });
 
+// Perk texts restate their tuning numbers: every number in a text must follow from the row (a percent of a factor, the factor,
+// its inverse or the value), so a balance change cannot leave a stale text behind (normalize-06).
+Test.add('economy', (check) => {
+  const stale = [];
+  for (const perk of CAT.perks) {
+    const factors = Object.values(perk.stats).concat([perk.dealt, perk.taken, perk.value]).filter((number) => number !== 0 && number !== 1);
+    const shown = factors.flatMap((number) => [Math.round(Math.abs(number - 1) * 100), number, Math.round(100 / number) / 100]);
+    for (const text of perk.text.match(/\d+(\.\d+)?/g) || []) if (!shown.some((number) => Math.abs(number - Number(text)) < 1e-6)) stale.push(perk.id + ': ' + text);
+  }
+  check('every number in a perk text follows from its stats or value', stale.length === 0, stale.join());
+});
+
 // RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
 Test.add('economy', (check) => {
   const exotic = CAT.weaponSets.byId('exoticSet').weapons, swaps = CLASS_SET_SWAPS.exoticSet;
