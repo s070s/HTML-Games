@@ -496,8 +496,9 @@ Test.add('abilities', (check) => {
   Actors.profile[t.caster] = null;
   TestArena.hit(t.enemy, t.caster, 100);
   const shield = Actors.shield[t.caster];
-  runSeconds(2.5);
-  check('H02 shield regen passive: 30/s after 1.5 s (before the preset 3 s)', Test.near(Actors.shield[t.caster] - shield, 30, 1), Actors.shield[t.caster] - shield);
+  const passive = CAT.heroes.byId('moraine').passive;
+  runSeconds(passive.delay + 0.5);
+  check('H02 shield regen passive: ' + passive.rate + '/s after ' + passive.delay + ' s (before the preset 3 s)', passive.delay + 0.5 < 3 && Test.near(Actors.shield[t.caster] - shield, passive.rate * 0.5, 1), Actors.shield[t.caster] - shield);
   TestArena.finish();
 });
 

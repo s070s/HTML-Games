@@ -96,8 +96,8 @@ Test.add('weapons', (check) => {
     const shots = countShots(shooter, BTN.FIRE, 10);
     check('fire rate exact over 10 s: ' + key + ' ' + rate + ' rps', Math.abs(shots - rate * 10) <= 1, shots);
   }
-  giveFull(shooter, 'warden');
-  check('semi-auto at its rate when tapped every other step: 4 rps', Math.abs(countTapped(shooter, 10) - 40) <= 1);
+  const semiRate = giveFull(shooter, 'warden').primary.rate;
+  check('semi-auto at its rate when tapped every other step: ' + semiRate + ' rps', Math.abs(countTapped(shooter, 10) - semiRate * 10) <= 1);
   giveFull(shooter, 'ratchet');
   check('burst: 3 bursts/s x 3 rounds over 10 s', Math.abs(countTapped(shooter, 10) - 90) <= 3);
   const spinUp = giveFull(shooter, 'hailstorm').primary.spinUp;
@@ -803,7 +803,7 @@ Test.add('weapons', (check) => {
   check('W04 second pickup = dual: shared magazine x2, new gun loaded', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2 && Weapons.magazine[slot] === 5 + warden.mag);
   Weapons.reserve[slot] = 30000; Weapons.magazine[slot] = 30000;
   const dualShots = countTapped(id, 5);
-  check('W04 dual pistols fire at twice the rate (8 rps; tapping every other step reaches 7.5)', Test.near(Weapons.shotInterval(id, warden, warden.primary), 1 / (warden.primary.rate * 2), 1e-9) && dualShots >= 37, dualShots);
+  check('W04 dual pistols fire at twice the rate (tapping every other step nearly reaches it)', Test.near(Weapons.shotInterval(id, warden, warden.primary), 1 / (warden.primary.rate * 2), 1e-9) && dualShots >= warden.primary.rate * 2 * 5 - 3, dualShots);
   Weapons.give(id, 'warden');
   check('W04 a third pickup only adds ammo', Weapons.dual[slot] === 1 && Weapons.magSize(id, warden) === warden.mag * 2);
   TestArena.finish();
@@ -1078,6 +1078,19 @@ Test.add('weapons', (check) => {
   Sim.run(TICK_RATE * 15);
   check('W36 heat builds while firing and vents to 0 when idle', stored >= 100 && Weapons.heat[shooter] === 0, stored + ' -> ' + Weapons.heat[shooter]);
   TestArena.finish();
+});
+
+// Balance pass: each gun keeps a reason to pick it (the R-086, R-091 and R-095 notes hold, and prices follow strength).
+Test.add('weapons', (check) => {
+  const weapon = (key) => CAT.weapons.byId(key);
+  const hailstorm = weapon('hailstorm').primary, anvil = weapon('anvil').primary, warden = weapon('warden'), ramjet = weapon('ramjet').primary;
+  check('R-091 the Hailstorm out-damages the Anvil per second', hailstorm.damage * hailstorm.rate > anvil.damage * anvil.rate);
+  check('R-095 the Warden burst kills faster up close than the semi', timeToKill(warden.alt) < timeToKill(warden.primary), timeToKill(warden.alt) + ' / ' + timeToKill(warden.primary));
+  check('R-086 one rocket never kills 100 HP, two kill 100 HP + 50 armor', ramjet.damage < BASE_HEALTH && ramjet.damage + ramjet.splash.dmg >= BASE_HEALTH * 1.5);
+  check('the Vanguard needs a fourth shot at 60 m (falloff), three up close', shotsToKill(weapon('vanguard').primary, 0) === 3 && shotsToKill(weapon('vanguard').primary, 60) === 4);
+  check('the Riptide (wider spread) costs no more than the Wasp', weapon('riptide').price <= weapon('wasp').price);
+  const moraine = CAT.heroes.byId('moraine'), quillGun = weapon(CAT.heroes.byId('quill').weapons[0]).primary;
+  check('H02 Moraine falls to the Quill Tempest in under 1.5 s', (moraine.health + moraine.shield) / (quillGun.damage * quillGun.rate) < 1.5);
 });
 
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);

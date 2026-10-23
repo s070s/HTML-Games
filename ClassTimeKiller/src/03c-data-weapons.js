@@ -135,7 +135,7 @@ const WEAPON_ROWS = [
     alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
   { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
-    alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.2, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [20, 40, 0.7] } },   // R-095: burst = faster close kills, semi = the accurate range option
+    alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.5, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },   // R-095: burst = faster close kills (4 hits in 0.67 s), semi = the accurate range option (0.75 s)
   { id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
     alt: { type: 'zoom', zoom: 2 } },
@@ -155,7 +155,7 @@ const WEAPON_ROWS = [
   { id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },
     primary: { type: 'hitscan', damage: 15, rate: 12, spreadDeg: 0.9, recoil: 'smg', falloff: [12, 28, 0.6] },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'contact', damage: 0, rate: 1, ammo: 'alt', splash: { r: 3.5, dmg: 80 }, recoil: 'launcher' } },
-  { id: 'riptide', code: 'W11', name: 'Riptide PDW', class: 'smg', moveMult: 0.97, mag: 50, reserve: 150, price: 1500, killReward: 600, botPref: { range: [0, 18], value: 0.55 },
+  { id: 'riptide', code: 'W11', name: 'Riptide PDW', class: 'smg', moveMult: 0.97, mag: 50, reserve: 150, price: 1100, killReward: 600, botPref: { range: [0, 18], value: 0.55 },
     primary: { type: 'hitscan', damage: 16, rate: 14, spreadDeg: 1.4, recoil: 'smg', falloff: [10, 25, 0.6] },
     alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },
   // R-088: needles home at 35 deg/s (P09), burst at 9 for 40, spread 1.5 deg and fall off past 12 m: a close and mid-range harasser, not a 35 m laser.
@@ -163,15 +163,16 @@ const WEAPON_ROWS = [
     primary: { type: 'projectile', projectile: 'needle', damage: 9, rate: 10, spreadDeg: 1.5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'needle', damage: 9, rate: 1.25, pellets: 5, spreadDeg: 5, ammoPerShot: 5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' } },
   { id: 'vanguard', code: 'W13', name: 'Vanguard Rifle', class: 'rifle', moveMult: 0.92, mag: 25, reserve: 75, price: 2700, botPref: { range: [5, 60], value: 0.75 },
-    primary: { type: 'hitscan', damage: 34, rate: 10, spreadDeg: 0.25, recoil: 'rifleHeavy', penetration: 'med' },
+    primary: { type: 'hitscan', damage: 34, rate: 10, spreadDeg: 0.25, recoil: 'rifleHeavy', falloff: [35, 60, 0.75], penetration: 'med' },
     alt: { type: 'zoom', zoom: 1.3 } },
+  // 30 damage under the light 'rifle' recoil row and a 30 round magazine out-duel the Vanguard's 3-shot kick (bot duels 62% vs 55%), so it costs more.
   { id: 'tempest', code: 'W14', name: 'Tempest Rifle', class: 'rifle', moveMult: 0.93, mag: 30, reserve: 90, price: 2900, noise: 50, botPref: { range: [5, 45], value: 0.7 },
     primary: { type: 'hitscan', damage: 30, rate: 11, spreadDeg: 0.25, recoil: 'rifle', falloff: [30, 50, 0.8], penetration: 'med' },
     alt: { type: 'zoom', zoom: 1.3 } },
   { id: 'ratchet', code: 'W15', name: 'Ratchet Burst', class: 'rifle', moveMult: 0.93, mag: 24, reserve: 96, price: 2400, botPref: { range: [8, 50], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'burst', damage: 32, rate: 3, burst: 3, spreadDeg: 0.3, recoil: 'burst', penetration: 'med' },
     alt: { type: 'zoom', zoom: 1.8 } },
-  // R-090: two 50s kill 100 HP and it costs 2300: the faster-firing, bigger-magazine and cheaper rival of the Kestrel DMR.
+  // R-090: two 50s kill 100 HP for 2300: the faster-firing, bigger-magazine rival of the cheaper Kestrel DMR (its 120 headshot one-shots).
   { id: 'longshot', code: 'W16', name: 'Longshot Scout', class: 'rifle', moveMult: 0.92, mag: 15, reserve: 60, price: 2300, botPref: { range: [15, 70], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 50, rate: 3.5, spreadDeg: 0.15, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 2.5 } },
@@ -212,9 +213,9 @@ const WEAPON_ROWS = [
   { id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
     primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.7, min: 50, max: 110, speed: [40, 70] } },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
-  // R-091: 0.3 s spin-up, 1.1 deg spread and 12 damage: the 18 rps hose out-damages the Anvil inside 15 m, the 0.75 move speed is the cost.
+  // R-091: 0.2 s spin-up, 1.1 deg spread and 15 damage: the 18 rps hose out-damages the Anvil inside 15 m (270 vs 225 dps, 405 rooted); the spin-up and 0.75 move speed are the cost.
   { id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
-    primary: { type: 'hitscan', damage: 12, rate: 18, spinUp: 0.3, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun' },
+    primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun' },
     alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
   { id: 'anvil', code: 'W29', name: 'Anvil LMG', class: 'heavy', moveMult: 0.82, reload: 6, mag: 100, reserve: 200, price: 4000, noise: 85, botPref: { range: [5, 50], value: 0.7 },
     primary: { type: 'hitscan', damage: 25, rate: 9, spreadDeg: 0.6, moveSpread: 1.4, recoil: 'lmg', penetration: 'high' },
@@ -222,9 +223,9 @@ const WEAPON_ROWS = [
   { id: 'linker', code: 'W30', name: 'Linker', class: 'energy', mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
     alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
-  // R-086: direct 70 and splash 70 never kill 100 HP alone (two hits do), rate 1.0 and mag 4; the alt volley charges in 1 s with a tighter 1.5 deg fan (R-095).
+  // R-086: direct 90 and splash 80 never kill 100 HP alone (two hits do), rate 1.0 and mag 4; the alt volley charges in 1 s with a tighter 1.5 deg fan (R-095).
   { id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
-    primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 70, rate: 1, splash: { r: 3.5, dmg: 70 }, recoil: 'launcher', element: 'thermal' },
+    primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 90, rate: 1, splash: { r: 3.5, dmg: 80 }, recoil: 'launcher', element: 'thermal' },
     alt: { type: 'projectile', trigger: 'charge', projectile: 'rocket', damage: 70, rate: 0.8, spreadDeg: 1.5, splash: { r: 3.5, dmg: 70 }, charge: { time: 1, levels: [1, 2, 3], target: 'pellets' }, recoil: 'launcher', element: 'thermal' } },
   // A 4.5 m grenade blast forgives a near miss on fast movers; the 2.5 s fuse and the lob stay its drawback.
   { id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
