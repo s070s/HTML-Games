@@ -19654,23 +19654,54 @@ const HUD = {
   },
   /* marker for a world point; draws an edge arrow when off-screen */
   worldMarker(x, y, z, label, kind, color, distTxt) {
-    const g = this.g, u = this.u, t = R.project(x, y, z, this.w, this.h, this.tmp);
-    const cx = this.w / 2, cy = this.h / 2;
+    const g = this.g, u = this.u, t = R.project(x, y, z, this.w, this.h, this.tmp), text = label + (distTxt ? ' ' + distTxt : '');
     if (t.vis) {
       this.shape(kind === 'defend' ? 'friend' : kind === 'zone' ? 'objective' : 'hostile', t.sx, t.sy, 9 * u, color, 2);
-      this.txt(label + (distTxt ? ' ' + distTxt : ''), t.sx, t.sy - 17 * u, 11, color, 'center', true);
+      this.txt(text, t.sx, t.sy - 17 * u, 11, color, 'center', true);
     } else {
-      let dx = t.sx - cx, dy = t.sy - cy;
+      let dx = t.sx - this.w / 2, dy = t.sy - this.h / 2;
       if (t.w <= 0.01) { dx = -dx; dy = -dy; if (Math.abs(dx) < 1 && Math.abs(dy) < 1) dy = 1; }
-      const a = Math.atan2(dy, dx), ex = this.w * 0.5 - 40 * u - Math.max(SafeArea.l, SafeArea.r), ey = this.h * 0.5 - 40 * u - Math.max(SafeArea.t, SafeArea.b);
-      const k = Math.min(Math.abs(ex / (Math.cos(a) || 1e-6)), Math.abs(ey / (Math.sin(a) || 1e-6)));
-      const px = cx + Math.cos(a) * k, py = cy + Math.sin(a) * k;
-      g.save(); g.translate(px, py); g.rotate(a);
+      const e = this.edgeMark(dx, dy, text, HUD_EDGE);
+      g.save(); g.translate(e.ax, e.ay); g.rotate(e.a);
       g.fillStyle = color; g.strokeStyle = 'rgba(0,0,0,0.8)'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(10 * u, 0); g.lineTo(-7 * u, 7 * u); g.lineTo(-7 * u, -7 * u); g.closePath(); g.stroke(); g.fill();
       g.restore();
-      this.txt(label + (distTxt ? ' ' + distTxt : ''), clamp(px - Math.cos(a) * 34 * u, 60 * u + SafeArea.l, this.w - 60 * u - SafeArea.r), clamp(py - Math.sin(a) * 22 * u, 20 * u + SafeArea.t, this.h - 20 * u - SafeArea.b), 10, color, 'center');
+      this.txt(text, e.lx, e.ly, 10, color, 'center');
     }
+  },
+  /* where an off-screen marker in screen direction (dx, dy) from the middle draws its edge arrow (ax, ay, pointing a)
+     and its label text (lx, ly), into out: near the screen's edge, moved out of the touch buttons that show */
+  edgeMark(dx, dy, text, out) {
+    const u = this.u, cx = this.w / 2, cy = this.h / 2, a = Math.atan2(dy, dx), m = HUD_MARK;
+    const ex = this.w * 0.5 - 40 * u - Math.max(SafeArea.l, SafeArea.r), ey = this.h * 0.5 - 40 * u - Math.max(SafeArea.t, SafeArea.b);
+    const k = Math.min(Math.abs(ex / (Math.cos(a) || 1e-6)), Math.abs(ey / (Math.sin(a) || 1e-6)));
+    m.x = cx + Math.cos(a) * k; m.y = cy + Math.sin(a) * k; m.w = m.h = HUD_ARROW * u;
+    this.offButtons(m);
+    out.a = a; out.ax = m.x; out.ay = m.y;
+    m.x = clamp(out.ax - Math.cos(a) * 34 * u, 60 * u + SafeArea.l, this.w - 60 * u - SafeArea.r);
+    m.y = clamp(out.ay - Math.sin(a) * 22 * u, 20 * u + SafeArea.t, this.h - 20 * u - SafeArea.b);
+    m.w = TouchControls.shown ? this.textWidth(text, 10) : 0; m.h = 12 * u;
+    this.offButtons(m);
+    out.lx = m.x; out.ly = m.y;
+    return out;
+  },
+  /* true when box b (x, y its middle) comes within HUD_TEXT_GAP of a touch button that shows */
+  onButton(b) {
+    const list = TouchControls.boxes, hw = b.w / 2 + HUD_TEXT_GAP, hh = b.h / 2 + HUD_TEXT_GAP;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o.on && o.x - hw < b.x && b.x < o.x + hudW(o) + hw && o.y - hh < b.y && b.y < o.y + hudH(o) + hh) return true;
+    }
+    return false;
+  },
+  /* slides box b toward the middle of the screen until it is clear of the touch buttons (they sit round the edges) */
+  offButtons(b) {
+    if (!TouchControls.shown) return b;
+    const dx = this.w / 2 - b.x, dy = this.h / 2 - b.y, d = Math.hypot(dx, dy);
+    if (d < 1) return b;
+    const sx = dx / d * HUD_MARK_STEP, sy = dy / d * HUD_MARK_STEP;
+    for (let i = 0; i * HUD_MARK_STEP < d && this.onButton(b); i++) { b.x += sx; b.y += sy; }
+    return b;
   },
 
   draw(dt) {
@@ -20286,6 +20317,10 @@ const HUD_MSG_HALF = 180;         // half the widest message line (x u)
 const HUD_MSG_RADAR = { x: 0, y: 0, s: 0 };   // HUD.msgY's radar box (no allocation per frame)
 const HUD_PANELS = { bars: { x: 0, y: 0, w: 0, h: 0, at: 'l' }, weapons: { x: 0, y: 0, w: 0, h: 0, row: 0, at: 'r' }, radar: { x: 0, y: 0, w: 0, h: 0, s: 0, at: 'r' } };
 const HUD_OBST = [], HUD_NONE = [];
+const HUD_EDGE = { a: 0, ax: 0, ay: 0, lx: 0, ly: 0 };   // where an off-screen marker's arrow and label go (HUD.edgeMark)
+const HUD_MARK = { x: 0, y: 0, w: 0, h: 0 };             // the box HUD.edgeMark moves out of the touch buttons
+const HUD_ARROW = 20;            // an edge arrow's box (x u)
+const HUD_MARK_STEP = 4;         // CSS px a marker slides at a time to clear a touch button
 /* a HUD box's width, height and side: panels have w, h and at, touch buttons a side s and their def's at */
 function hudW(o) { return o.w !== undefined ? o.w : o.s; }
 function hudH(o) { return o.h !== undefined ? o.h : o.s; }
@@ -24737,6 +24772,20 @@ const SelfTest = {
             if (hudOver(w, q)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id + ' HUD text';
           }
         }
+        // off-screen objective arrows and their labels round the edge keep out of the buttons (a phone on its side)
+        let markBad = '';
+        for (const sa of insets) for (const id of ['thunder', 'bulwark', 'ranger', 'lancer']) {
+          const q = bodies[ids.indexOf(id)], w = 812, h = 375;
+          tc.place(w, h, sa, 1); Object.assign(SafeArea, sa); HUD.w = w; HUD.h = h; HUD.u = Math.min(w, h) / 800 * S.uiScale;
+          tc.update(q, Seats.context(q, {}), true);
+          const text = 'ENEMY HQ 1043m', lw = HUD.textWidth(text, 10), lh = 12 * HUD.u, aw = HUD_ARROW * HUD.u;
+          for (let i = 0; i < 64; i++) {
+            const e = HUD.edgeMark(Math.cos(i * TAU / 64), Math.sin(i * TAU / 64), text, HUD_EDGE);
+            const hit = (x, y, bw, bh) => tc.boxes.some((b) => b.on && b.x < x + bw / 2 && x - bw / 2 < b.x + hudW(b) && b.y < y + bh / 2 && y - bh / 2 < b.y + hudH(b));
+            if (hit(e.ax, e.ay, aw, aw) || hit(e.lx, e.ly, lw, lh)) { markBad = markBad || id + ' at ' + (i * 360 / 64).toFixed(0) + ' deg'; }
+          }
+        }
+        this.check('at 812x375 an off-screen objective arrow and its label keep out of every touch button, round the whole edge', markBad === '', markBad);
         Object.assign(SafeArea, keepHud.sa); HUD.w = keepHud.w; HUD.h = keepHud.h; HUD.u = keepHud.u; tc.shown = wasShown;
         this.check('at 375x812, 812x375, 768x1024, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and off the radar, and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
         this.check('the status line, the messages, the Use prompts and the tutorial tip keep clear of every button, the pause button, the bars, the weapons panel and the radar, the tip never too narrow', bad === '' && tipMin >= 1, 'narrowest tip ' + tipMin.toFixed(2) + ' of its minimum');
@@ -24998,6 +25047,24 @@ const SelfTest = {
         const sunk = [wreck];
         for (let i = 0; i < WRECK_CAP; i++) { const q = hull('lancer', { x: deep.x + (i + 1) * 30, z: deep.z }, 0); q.destroy(null, 'test'); sunk.push(q); }
         this.check('at most WRECK_CAP ships sink at once: the oldest goes when one more sinks', W.wrecks.length === WRECK_CAP && W.wrecks.indexOf(wreck) < 0 && wreck.sinking === 0 && sunk.slice(1).every((q) => W.wrecks.indexOf(q) >= 0), W.wrecks.length);
+        Wrecks.update(WRECK_LIFE);
+        // co-op: a guest learns a ship is under way (the wake flag) and sinks its own copy of a ship the host lost
+        const keepNet = { host: Net.host, guest: Net.guest, map: Net.map, seq: Net.lastSnapSeq };
+        const mirror = hull('trident', deep, 0.4, 1);
+        mirror.wake = true;
+        const entry = Net.platEntry(mirror);
+        mirror.wake = false;
+        let woke = false, gone = false, sank = null;
+        Net.host = false; Net.guest = true; Net.map = { [mirror.id]: mirror }; Net.lastSnapSeq = 0;
+        try {
+          Net.applySnapshot({ q: 1, p: [entry] });
+          woke = mirror.wake;
+          Net.applyGib({ t: 'g', p: 'trident', tm: 1, k: 1, x: mirror.x, y: mirror.y, z: mirror.z, vx: 0, vy: 0, vz: 0, yw: mirror.yaw });
+          gone = W.platforms.indexOf(mirror) < 0 && !Net.map[mirror.id];
+          sank = W.wrecks.find((q) => q.def.id === 'trident' && Math.hypot(q.x - mirror.x, q.z - mirror.z) < 1) || null;
+        } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.lastSnapSeq = keepNet.seq; }
+        this.check('co-op: a guest shows a ship\'s wake from the host\'s flags, and sinks a stand-in hull when the host loses the ship', !!(entry[11] & 4096) && woke && gone && !!sank && sank.sinking > 0, (entry[11] & 4096) + ' ' + woke + ' ' + gone + ' ' + !!sank);
+        drop(mirror);
         Wrecks.update(WRECK_LIFE);
         // the harbour is a supply point for ships: stopped there, the ship is resupplied
         const harbour = W.harbours[0], w = pl.primary;
