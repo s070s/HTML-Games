@@ -276,8 +276,7 @@ const Abilities = {
   forceCast(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
     if (!row || !Actors.alive[id] || !this.usable(id, row)) return false;
-    if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
-    this.setSlot(id, SLOT.ULTIMATE, row);
+    this.replaceUltimate(id, row);
     if (!this.effects[row.effect].cast(id, row, SLOT.ULTIMATE)) return false;
     this.begin(id, SLOT.ULTIMATE, row);
     return true;
@@ -292,9 +291,13 @@ const Abilities = {
     return true;
   },
   loadReward(id, row) {
+    this.replaceUltimate(id, row);
+    this.reward[id] = 1; this.rewardLoaded[id] = 1;
+  },
+  // Puts a row in the ultimate slot, ending the one still running there.
+  replaceUltimate(id, row) {
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
-    this.reward[id] = 1; this.rewardLoaded[id] = 1;
   },
   takeQueuedReward(id) {
     const first = id * REWARD_QUEUE_SIZE, taken = this.rewardQueue[first];
