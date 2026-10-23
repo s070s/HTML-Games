@@ -169,6 +169,13 @@ function stepBeacons(interval) {
   }
 }
 
+// Holding Use here charges the squad's beacon (dead squadmates, a use left): no loot swap (Weapons.useTakers, swap-02).
+function beaconServes(id) {
+  const squad = Actors.team[id];
+  if (squad < 0 || squad >= Squads.count || !Squads.dead[squad] || !Squads.beaconUses[squad]) return false;
+  return withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
+}
+
 function holdsBeacon(id, squad) {
   return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
     && withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
@@ -335,7 +342,7 @@ function takeWeapon(id, spot) {
 
 // The weapon spot under the actor that holding Use would swap in now, -1 = none (the Use prompt; the mode row shows touch USE).
 function lootSwapOffer(id) {
-  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id)) return -1;
+  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id) || Weapons.useTaken(id)) return -1;
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot] || RoyaleLoot.group[spot] !== LOOT_GROUP.WEAPON || RoyaleLoot.blocker[spot] === id) continue;
     if (withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS) && Weapons.swapsOut(id, CAT.weapons[RoyaleLoot.weapon[spot]])) return spot;
@@ -428,4 +435,5 @@ function drawRing(batch, x, ground, z, radius, color) {
 
 Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);
+Weapons.useTakers.push(beaconServes);
 Input.usePrompts.push((id) => { const spot = lootSwapOffer(id); return spot < 0 ? '' : Items.swapText(id, RoyaleLoot.weapon[spot]); });
