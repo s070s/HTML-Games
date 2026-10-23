@@ -1,6 +1,6 @@
 # ClassTimeKiller - Implementation Steps (Table of Contents)
 
-Status: plan only, no game code. Companion to `docs/SPECIFICATION.md` (requirements, IDs like `MOV-001`) and `docs/LIVE-TESTS.md` (live tests `LT-C/H/M/L-###`, critical/high/medium/low).
+Status: the historic build plan. The game is built and shipped; this file is kept as the record of the build order and its gates, and where it differs from the code, `docs/ARCHITECTURE.md` and the code win. Companion to `docs/SPECIFICATION.md` (requirements, IDs like `MOV-001`) and `docs/LIVE-TESTS.md` (live tests `LT-C/H/M/L-###`, critical/high/medium/low).
 
 ## How to read this plan
 
@@ -21,7 +21,7 @@ Status: plan only, no game code. Companion to `docs/SPECIFICATION.md` (requireme
 | Data over code | Weapons, presets, modes, mutators, maps, bots are data tables read by generic systems. New content = new rows, not new code paths. |
 | Budget every frame | 8.3 ms per frame at 120 Hz, 16.6 ms hard floor (60 fps). Every phase re-measures on P and L. |
 | Original names only | No real game, weapon, faction or brand names in code, UI or data. Reference shooters are design inspiration only. |
-| Saves | `localStorage` key `ctk.save.v1` (backup `ctk.save.bak`), <= 1 MB, every access in try/catch, game runs if storage fails (PLT-003, ARC-020). |
+| Saves | `localStorage` key `ctk.save.v1` (backup `ctk.save.bak`, restorable in the UI), <= 1 MB, every access in try/catch, game runs if storage fails (PLT-003, ARC-020). |
 | Deterministic sim | Fixed 120 Hz simulation tick (MOV-010), seeded PRNG; render interpolates. Needed for self-tests, replays and fair bots. |
 | Spec codes in data | Data keys use the spec's backtick code keys (`arena`, `pitcher`, ...) and catalogue codes (W01, G01, A01, PU01, M01, X01, D01, C01, T01, B01, E01, MP01, RS01, MV01, HPP01). |
 
@@ -50,7 +50,7 @@ The built HTML file follows ARC-001: `<style>`, DOM shells (canvas, overlay, fat
 | S16 | `MAP GEN` | generators GN1..GN5, validation, repair | `gen` |
 | S17 | `HUD` | WebGL quad HUD layers (REN-005) | `hud` |
 | S18 | `UI` | DOM menus, editors, settings, accessibility screens; progression screens | `ui`, `prg` |
-| S19 | `GAME LOOP` | 120 Hz fixed step, max 4 steps per frame, interpolation, pause (ARC-010, PLT-006), perf HUD feed | `loop` |
+| S19 | `GAME LOOP` | 120 Hz fixed step, as many steps per frame as fit 25 ms at the measured step cost (4 to 12), interpolation, pause (ARC-010, PLT-006), perf HUD feed | `loop` |
 | S20 | `SELF-TEST` | `__CTK.selfTest`, soak, perf benchmarks, all check blocks grouped by section | `__CTK` |
 | S21 | `BOOTSTRAP` | feature checks, WebGL2 fallback screen, start | `boot` |
 
@@ -60,7 +60,7 @@ Naming: `camelCase` functions, `UPPER_SNAKE` constants, data IDs as lowercase st
 
 | Checkpoint | Limit | Measured where |
 |---|---|---|
-| File size | Plan targets (the spec sets no HTML size limit; saves <= 1 MB per ARC-020): Phase 0 < 60 KB · Slice (M1) < 400 KB · Phase 10 < 1.2 MB · M3 < 2.0 MB · Release <= 3.5 MB uncompressed (D07: the release target is 3.5 MB; `tools/build.mjs` warns above 3.0 MB and fails above 3.5 MB), readable code, no minifier (the build leaves out comment-only lines, D06) | `tools/build.mjs` size line + file system |
+| File size | Plan targets (the spec sets no HTML size limit; saves <= 1 MB per ARC-020): Phase 0 < 60 KB · Slice (M1) < 400 KB · Phase 10 < 1.2 MB · M3 < 2.0 MB · Release <= 3.5 MB uncompressed (D07: the release target is 3.5 MB; `tools/build.mjs` warns above 3.0 MB and fails above 3.5 MB), readable code, no minifier (the build leaves out comment-only lines and end-of-line `//` comments and indents with tabs, D06) | `tools/build.mjs` size line + file system |
 | Frame time | p95 <= 8.3 ms and p99 <= 12 ms on L and P at the phase's test scene; never a frame > 16.6 ms in a 60 s steady scene | perf HUD + `__CTK.perf.run(scene, seconds)` |
 | Sim tick cost | p95 <= 2.0 ms (PERF-002: movement 0.5, AI 1.0, projectiles 0.3, rules 0.2) at the preset's bot cap (PERF-009) | `__CTK.perf.sim()` headless |
 | GPU / draw calls | GPU <= 6.0 ms (PERF-003); draw calls and triangles per preset Ultra..Potato (PERF-004); <= 8 shader programs (PERF-005) | perf HUD (PERF-012) |
@@ -89,9 +89,9 @@ Naming: `camelCase` functions, `UPPER_SNAKE` constants, data IDs as lowercase st
 | 0.1 | File skeleton with section banners S00-S21 | ARC-001, PLT-001, PLT-002 | - | `ClassTimeKiller.html` with empty sections, version string, CSP meta `default-src none; script-src unsafe-inline; style-src unsafe-inline; img-src data: blob:; media-src data: blob:` (keywords quoted in the real tag; inline code allowed, all network blocked), fatal screen and WebGL2-missing screen | Opens from `file://` in Chrome, Firefox, Safari with zero console errors; DevTools Network tab shows no requests | Safari WebGL2 quirks: test early on a real iPhone |
 | 0.2 | Core utilities: math, seeded RNG streams, typed-array pools, event bus, registry | ARC-011, ARC-012, ARC-015, DATA-001..DATA-005 | 0.1 | `core*` helpers, units fixed (1 unit = 1 m, seconds, degrees in data / radians in code) | Self-tests: PRNG same seed same sequence; vector/matrix identities; pool reuse does not allocate | Units drift later: freeze them here (DATA) |
 | 0.3 | `__CTK` harness | ARC-030, ARC-031, ARC-040, ARC-041 | 0.2 | `window.__CTK = {selfTest, soak, perf, game, world, rules, catalogues, spawnBot, setTier, step(n)}` plus `version`; `check(name, ok, detail)` in grouped blocks that catch throws; Help > Run self-test; data validation of every catalogue | `__CTK.selfTest({headless:true})` returns `{total, failed, results[]}`; a deliberately failing check is reported, not thrown; global error ring works | Harness must never run by default; flag-gated |
-| 0.4 | Fixed-step main loop + frame pacing | PERF-001, PERF-002, ARC-010, PLT-006, REN-006 | 0.2 | `requestAnimationFrame` loop, fixed sim tick with accumulator and clamp, render interpolation, pause on hidden tab | Self-test: 1000 sim steps give identical state from same seed; never more than 4 steps per frame (ARC-010); sim stops fully on blur/hidden/pointer-lock loss (PLT-006) | Spiral of death on slow phones: clamp + drop |
+| 0.4 | Fixed-step main loop + frame pacing | PERF-001, PERF-002, ARC-010, PLT-006, REN-006 | 0.2 | `requestAnimationFrame` loop, fixed sim tick with accumulator and clamp, render interpolation, pause on hidden tab | Self-test: 1000 sim steps give identical state from same seed; never more than 12 steps per frame (ARC-010); sim stops fully on blur/hidden/pointer-lock loss (PLT-006) | Spiral of death on slow phones: clamp + drop |
 | 0.5 | Perf HUD | PERF-012, ARC-040, UI (debug overlay) | 0.4 | Toggle overlay: fps, frame ms (avg/p95/p99 over 2 s), sim ms, render ms, draw calls, triangles, heap if available, refresh-rate guess | Numbers update live; `__CTK.perf.run()` returns the same stats headless | `performance.now()` is coarsened on some browsers: average over windows |
-| 0.6 | Save layer v1 | PLT-003, PLT-007, ARC-020, ARC-021 | 0.2 | `save.load/save/migrate` on `ctk.save.v1`, defaults, corrupt save backed up to `ctk.save.bak` with notice, text export/import | Self-tests: round-trip, corrupt JSON returns defaults, storage throwing (private mode) does not crash | **Gate M0:** LT-C platform/boot pass on P and L; file < 60 KB |
+| 0.6 | Save layer v1 | PLT-003, PLT-007, ARC-020, ARC-021 | 0.2 | `save.load/save/migrate` on `ctk.save.v1`, defaults, corrupt save backed up to `ctk.save.bak` with notice, text export/import (the backup is restorable from Settings > Back up or restore save) | Self-tests: round-trip, corrupt JSON returns defaults, storage throwing (private mode) does not crash | **Gate M0:** LT-C platform/boot pass on P and L; file < 60 KB |
 
 ## Phase 1 - Renderer core and budgets
 

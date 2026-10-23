@@ -20,7 +20,7 @@ Conventions: "must" = mandatory, "should" = expected, "may" = optional. Requirem
 
 | ID | Requirement |
 |---|---|
-| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, player-side build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file over the LAN from any local static server (or any static host); the game must behave the same over `http(s)://` and `file://`. Developers edit `src/` files that `tools/build.mjs` (no dependencies) joins into the shipped HTML (decision D01, see `ARCHITECTURE.md`). |
+| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, player-side build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file from a static web server. Serve it over HTTPS: iPhone and iPad Safari give gyro/motion, the screen wake lock, persistent storage and the Home Screen app only on a secure page, and a plain LAN `http://` address works for play but not for those. The game must behave the same over `http(s)://` and `file://`. Developers edit `src/` files that `tools/build.mjs` (no dependencies) joins into the shipped HTML (decision D01, see `ARCHITECTURE.md`). |
 | PLT-002 | If WebGL2 is missing or context creation fails, show a full-screen message: "WebGL2 is required", with steps to enable hardware acceleration / update browser. Never a blank page. |
 | PLT-003 | Saves and settings in `localStorage`, every access wrapped in try/catch; game must run (without persistence, with a one-line notice) if storage throws. |
 | PLT-004 | Targets: low-spec phones (Android Chrome, iOS Safari 16+), low-end laptops with integrated graphics (Chrome, Edge, Firefox current). |
@@ -78,12 +78,12 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | ID | Requirement |
 |---|---|
 | INP-001 | Keyboard+mouse: pointer lock on click; request `unadjustedMovement` (raw) when supported, fall back silently; no OS acceleration applied by the game; sensitivity shown also as cm/360 at a user-set DPI. |
-| INP-002 | Every action rebindable (keyboard, mouse buttons, wheel, gamepad); conflicts flagged; reset to default; per-preset hold/toggle for crouch, sprint, aim, walk. |
-| INP-003 | Default KBM: WASD move, Space jump, Ctrl crouch/slide, Shift sprint (walk in tactical), LMB fire, RMB alt/aim, R reload, E use, Q ability 1, F ability 2, X ultimate, G grenade, V melee, C gadget, Z ping (hold = wheel), 1-9/wheel weapons, Tab scoreboard, Esc pause, T comm wheel, F10 perf HUD. |
+| INP-002 | Every action rebindable (keyboard, mouse buttons, wheel, gamepad); conflicts flagged; reset to default; per-preset hold/toggle for crouch, sprint, aim, walk. A toggled sprint on a controller (L3, default toggle) acts only where sprint is a run: it holds where sprint is a dash, charge or walk (Ravager, Knight, Tactical), and in Modern a click while running is the tactical sprint's second tap. A toggled sprint ends by itself when the run ends (a stop, a shot, no stamina). |
+| INP-003 | Default KBM: WASD move, Space jump, C crouch/slide (not Ctrl: Ctrl+W/N/T close or open tabs), P prone, Shift sprint (walk in tactical), Alt walk, LMB fire, RMB alt/aim, R reload, E use, H heal item, Q ability 1, F ability 2, X ultimate, G grenade, N next grenade type, V melee, U gadget, Z ping (hold = wheel), 1-9/wheel weapons, Tab scoreboard, Esc pause, T comm wheel, B buy menu, Y card, F8 perf HUD, F9 bot debug view. Gamepad: cards Pad:8+5 (menu + right bumper), prone Pad:8+10, next grenade Pad:8+4. |
 | INP-004 | Touch: floating left stick (move; push > 90% = sprint), right-half drag to look, buttons fire, aim, jump, crouch, reload, weapon swap, grenade, abilities, ping, scoreboard, pause. Second fire button option on left. |
 | INP-005 | Touch layout editor: drag, resize (50-200%), opacity (20-100%), hide; per-preset layouts; reset. |
-| INP-006 | Touch options: auto-fire when crosshair is on a visible enemy (default on), tap-to-fire, look sensitivity and acceleration curve, optional gyro aim (DeviceOrientation/Motion; request permission on iOS; enable while aiming or always). |
-| INP-007 | Gamepad (Standard mapping): two sticks, configurable deadzones (inner 0.1, outer 0.95), response curve (linear/classic/dynamic), separate X/Y sensitivity, invert Y, vibration (`vibrationActuator` if present). |
+| INP-006 | Touch options: auto-fire when crosshair is on a visible enemy (default on), tap-to-fire, look sensitivity and acceleration curve, optional gyro aim (DeviceOrientation/Motion; request permission on iOS; enable while aiming or always; needs HTTPS on iOS). Auto-fire follows the held weapon's trigger: automatic weapons hold the trigger, semi and burst weapons press and release on alternate ticks. |
+| INP-007 | Gamepad (Standard mapping): two sticks, configurable deadzones (inner 0.1, outer 0.95), response curve (linear/classic/dynamic), separate X/Y sensitivity, invert Y, vibration (`vibrationActuator` if present). A pad with the standard mapping is chosen over a non-standard one; a stick let go inside the deadzone sets a new rest position. |
 | INP-008 | Aim assist only for touch and gamepad, never mouse: slowdown 40% inside a 3 deg cone around a visible enemy hitbox, magnetism up to 1.5 deg/s pull, no snap; strength slider 0-100% (default 60 gamepad, 70 touch); disabled through smoke and on cloaked targets. |
 | INP-009 | Input is sampled each frame and consumed by the next sim step; jump and fire presses are buffered 0.10 s. |
 | INP-010 | All menus fully navigable by keyboard, gamepad and touch. |
@@ -123,7 +123,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | MOV-014 | Landing faster than 15 m/s locks jump 0.25 s; presets with `landingPenalty` scale speed 0.2 s. |
 | MOV-015 | Fall damage: `fallMax*((v-fallSafe)/(fallLethal-fallSafe))^2` above fallSafe, to health only; fallLethal 0 = none. |
 | MOV-016 | Crouch halves noise radius; uncrouch blocked without headroom. Walk in `silentWalk` presets is silent. |
-| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. |
+| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. The ruleset `knockback` scale is applied once, by S10, to every impulse (Damage.knockback no longer multiplies it); Tactical, Modern, Pilot, Last Ring and Weave Suit use 0.25. |
 | MOV-018 | Air-control assist (X24; default on for touch/gamepad in arena): airAccel +2 and auto-strafe toward look direction (avoids strafe-jump skill wall). |
 | MOV-019 | Water: swim 50% speed, 12 s air then 2 HP/s rising 2/s to 15 HP/s ignoring armor. Ladders 3.0 m/s. Jump pads fly to designer apex; teleporters keep speed magnitude. |
 | MOV-020 | Telefrag: arriving into another capsule kills the occupant (credit to arriver). Spawn logic prevents spawn telefrags (MAP-010, MAP-011). |
@@ -195,7 +195,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | WPN-007 | Ammo tiers when `ammoTiers` on (Destiny): primary infinite reserve, special scarce drops, heavy rarest. Arena: ammo cap per type, weapon pickup gives ammo if owned. |
 | WPN-008 | Loot rarity (ECO) multiplies damage 1.00/1.05/1.10/1.16/1.22 and mag +0/0/10/20/30%. |
 | WPN-009 | Weapon respawn 5 s FFA, 30 s team modes (x itemRespawnScale); weapon stay option. Power weapons (W45,W46) one per map, 120 s, announced 10 s before. |
-| WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime (avoids switch-fire abuse). |
+| WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime, except that equip attachments and perks may shorten a swap down to 0.8 x equipTime (EQUIP_SCALE_FLOOR). |
 | WPN-011 | Underbarrel/explosive alt fires have arm distance >= 6 m and low reserves (avoid grenade-launcher spam). |
 
 Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All numbers **T**.
@@ -468,8 +468,8 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6; one life | CS, Valorant |
 | M14 | `elim` | Last Squad | team rounds, one life, first to 5 rounds, 90 s + shrinking safe area last 30 s | CrossFire Elimination, Gunfight |
 | M15 | `lms` | Last Standing | FFA, 3 lives, all weapons max ammo, 100 armor, no pickups except boots | UT LMS, Painkiller |
-| M16 | `gungame` | Arms Ladder | 18 tiers (WPN ladder set), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
-| M17 | `infection` | Blight | 1 infected per 6 players after 20 s; infected 300 HP melee + leap, one hit infects; humans win at 5 min | CrossFire Mutation, Halo Infection |
+| M16 | `gungame` | Arms Ladder | 14 tiers (13 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
+| M17 | `infection` | Blight | 1 infected per 6 players after 20 s; infected 450 HP melee + leap, a human who dies after the outbreak turns infected; humans win at 5 min | CrossFire Mutation, Halo Infection |
 | M18 | `juggernaut` | Colossus | first kill becomes Colossus (x3 HP, x1.5 dmg, marked); kill the Colossus to become it; 1 pt per kill as Colossus, 15 to win | Halo Juggernaut, CrossFire Hero, UT Mutant |
 | M19 | `cursetag` | Curse Tag | cursed actor: 50 HP, melee only, must reach a beacon to pass curse; others score by killing them | Turok Frag Tag |
 | M20 | `royale` | Last Ring | 18 actors (6 squads of 3 or solo); drop-in; 6 ring phases: wait 30/25/25/20/15/10 s, shrink 30/25/20/20/15/15 s, damage 2/4/8/12/16/20 HP/s; squads downed + one respawn beacon per squad | Fortnite, Apex |
@@ -588,7 +588,7 @@ Cards (Painkiller-style, PvE and X48): 3 Active slots (use once per level, 30 s)
 | C14 | `ironwill` | Iron Will | active | 666 | invulnerable | boss under 1:20 |
 | C15 | `rage` | Rage | active | 500 | damage x4 | all secrets + no deaths |
 | C16 | `hardy` | Hardy | passive | 100 | base HP 150 | no armor pickups in a level |
-| C17 | `freecards` | Patron | passive | 0 | cards placed free | finish a level with no cards |
+| C17 | `freecards` | Patron | passive | 0 | cards placed at half price (hard difficulty only) | finish a level with no cards |
 | C18 | `lastbreath` | Last Breath | passive | 500 | revive once at 33 HP | find all secrets on hard |
 | C19 | `discord` | Discord | active | 200 | enemies fight each other 15 s | 3 Wrath Forms in a level |
 | C20 | `redeemer` | Soul Feast | passive | 1000 | souls heal x2 | keep HP > 50 whole level |
@@ -610,7 +610,7 @@ Architecture: per bot = Perception -> Memory -> Decision (utility goals, re-scor
 | BOT-005 | Awareness states (stealth modes and PvE): Unaware -> Suspicious (meter 30) -> Searching (60) -> Alert/Combat (100). Meter fills by sight (closer, lit, moving = faster; 0.6-2.5 s to full **T**), noise, seen corpses; decays after 6 s unseen; alerts propagate to allies within 15 m by bark. Indicator above head (UI-014). Bots look up only when alerted (vertical cone +20 deg unaware, +60 alerted). |
 | BOT-006 | Reaction time: first shot no earlier than tier reaction (BT table) + seeded jitter +/-20%, floor 150 ms; re-acquire after losing LOS uses 50% of it. |
 | BOT-007 | Memory: last known position + velocity per enemy, decays 10 s; items with respawn times; damage sources (vengefulness). |
-| BOT-010 | Navigation graph generated at map load from walkable surfaces: 1 m cell sampling -> merged regions -> nodes; links: walk, jump (gap <= preset reach, up <= apex), drop (<= 6 m or no-fall-damage presets more), jump pad, teleporter, ladder, wall-run (parallel wall pairs 3-5 m), rocket-jump (only if preset/trait allow), dash/double-jump. Cost = travel time per preset. Must finish < 300 ms on Low for a 120x120 m map, cached per map+preset. |
+| BOT-010 | Navigation graph generated at map load from walkable surfaces: 1 m cell sampling -> merged regions -> nodes; links: walk, jump (gap <= preset reach, up <= apex), drop (<= 6 m or no-fall-damage presets more), jump pad, teleporter, ladder, wall-run (parallel wall pairs 3-5 m), rocket-jump (only if preset/trait allow), dash/double-jump. Cost = travel time per preset. Must finish < 300 ms on Low for a 120x120 m map, cached per map+preset. At match load the build runs in 6 ms slices per frame and the graph is empty until `nav.ready`. |
 | BOT-011 | Pathing: A* on cluster graph then node graph, time-sliced (<= 4 queries per tick), path smoothing by string-pulling; dynamic avoidance (other actors, fire areas, mines seen). |
 | BOT-012 | Stuck recovery: no progress 1.5 s -> jump/strafe; 3 s -> repath excluding the link; 6 s -> pick new goal; logged to debug. Self-test fails if any bot is stuck > 6 s in soak test (ARC-033). |
 | BOT-013 | Item timing: bots with itemFocus trait > 0.5 schedule pickups using exact timers (PWR-001), arriving 1-3 s early. |
@@ -800,7 +800,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | AUD-003 | Weapon sounds = noise burst + tonal body + filter envelope per class; distance low-pass and level; occlusion low-pass when no LOS. |
 | AUD-004 | Footsteps per surface material, loud enough to locate enemies at 15 m (Apex "need headphones" mistake): stereo panning equal-power; HRTF on High+. |
 | AUD-005 | Distinct synthesized cues: incoming rocket whistle, grenade bounce tick, power item respawn chime, low health heartbeat, shield break, hit marker tick, headshot ping, ping chirps, bark radio blips. |
-| AUD-006 | Optional generative music with intensity layers (calm/combat/boss); off by default on Potato. |
+| AUD-006 | Optional generative music with intensity layers (calm/combat/boss); the Music setting is Auto (off on Potato), On or Off. |
 | AUD-007 | Audio scheduling <= 0.3 ms per frame; no node creation storm (pool and reuse buffers). |
 
 ## 23. Rendering (REN)
@@ -809,8 +809,8 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 |---|---|
 | REN-001 | WebGL2 forward renderer; static world merged per 16 m chunk per material into few VBOs; frustum culling per chunk; distance fog. |
 | REN-002 | Characters: procedural rigid-part humanoids (boxes/capsules) animated by code; instanced draws per archetype; 2 LODs (far = 6-part); outlines via backface shell optional. |
-| REN-003 | Shader programs <= 8: world lit (vertex colour + procedural material patterns + baked AO), instanced actors/props, viewmodel, particles (instanced billboards), sky, HUD/UI quads, post (tone map, vignette, optional FXAA), portal/stencil variant. |
-| REN-004 | Lighting baked into vertex colours at map build; up to 8 dynamic point lights (muzzle/explosions) by preset; no shadow maps on Low/Potato (blob shadows), one cascaded sun shadow on High/Ultra. |
+| REN-003 | Shader programs <= 8: world lit (vertex colour + procedural material patterns + baked AO), instanced shapes (actors, props, viewmodel, outlines, blob shadows), depth-only sun shadow casters, particles (instanced billboards, tracers, decals), sky, HUD/UI quads, post (tone map, vignette, optional FXAA). Seven programs; there is no portal/stencil variant. |
+| REN-004 | Lighting baked into vertex colours at map build; up to 8 dynamic point lights (muzzle/explosions) by preset; blob shadows on Medium, Low and Potato, one (not cascaded) sun shadow map on High/Ultra. |
 | REN-005 | HUD drawn as batched WebGL quads (single draw call per layer); menus in DOM. |
 | REN-006 | Render interpolation between the last two sim states (ARC-010). |
 | REN-007 | Smoke volumes as instanced soft particles with an occupancy grid for LOS; bullet holes punch grid cells. |
@@ -821,20 +821,20 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | ID | Requirement |
 |---|---|
 | ARC-001 | One HTML file: `<style>`, DOM shells (canvas, overlay, fatal screen), one `'use strict'` script with sections in order: util/math, RNG, data catalogues, settings/save, input, audio, renderer, world/collision, nav, movement, weapons/projectiles, abilities/items, rules/modes, bots, PvE director, map gen, HUD, UI, game loop, self-test, bootstrap. Each section starts with a banner comment (IronHorizon convention). |
-| ARC-010 | Fixed timestep 120 Hz with accumulator, max 4 steps per frame (drop remainder and log), render interpolation. Sim never reads wall-clock. |
+| ARC-010 | Fixed timestep 120 Hz with accumulator, as many steps per frame as fit 25 ms at the measured step cost, between 4 and 12 (drop the remainder and log), render interpolation. Sim never reads wall-clock. |
 | ARC-011 | Entities in struct-of-arrays typed arrays: actors (max 64), projectiles (pool 512), pickups (256), particles (GPU pool), sound events ring (256). |
 | ARC-012 | Seeded RNG (sfc32/mulberry32) with separate streams: map gen, loot, bots, rules, cosmetic FX. |
 | ARC-013 | Spatial hash grid 4 m cells for dynamic entities; static BVH (AABB tree) for brushes; capsule vs AABB/convex sweep with Quake-style velocity clipping (3 planes), step-up, ground probe. |
 | ARC-014 | Hitscan: ray vs BVH, then candidate actors from grid along the ray, then head sphere/torso/legs; projectiles swept per step. |
 | ARC-015 | Damage, events and scoring through one event bus; HUD, audio, bots and stats subscribe. |
-| ARC-020 | Save: key `ctk.save.v1` JSON {version, settings, bindings, touchLayouts, progression, stats, rulesets, editorMaps, ladder}; size <= 1 MB; migration by version; corrupted save is backed up to `ctk.save.bak` and reset with a notice; export/import as text. |
+| ARC-020 | Save: key `ctk.save.v1` JSON {version, revision, settings, bindings, touchLayouts, progression, stats, rulesets, editorMaps, ladder, play, crosshairs, tips {matches, homeScreen, silentSwitch}, loadouts}; size <= 1 MB; migration by version (repairs nested records, drops bad list entries); corrupted save is backed up to `ctk.save.bak` and reset with a notice; the backup can be restored from the UI (Back up or restore save, which validates an import before it replaces anything); export/import as text. A write happens only when the save changed (dirty flag). |
 | ARC-021 | Settings apply instantly and persist on change (debounced 500 ms). |
 | ARC-030 | Built-in self-test: Help > "Run self-test" and `__CTK.selfTest({headless})`; headless runs without WebGL (render stub) and returns `{total, failed, results[]}` with `check(name, ok, detail)` entries, grouped test blocks that catch throws (IronHorizon pattern). |
 | ARC-031 | Data validation: every catalogue entry follows its schema, keys unique, references resolve (weapon sets, hero weapons, unlocks), counts meet VIS-004, banned reference names absent from all display strings. |
 | ARC-032 | Rule tests: movement apex/speed per preset (MOV-026), damage pipeline cases per health preset, armor/shield math, economy ladder, mode win conditions, mutator application, card effects, save round-trip, RNG determinism, map gen hash per seed, nav connectivity. |
 | ARC-033 | Bot soak: headless N simulated minutes per mode at max speed; fail on NaN, stuck > 6 s, bot without goal > 3 s, fairness breach (bot fired at target never perceived), budget overrun. |
 | ARC-034 | Perf micro-benchmarks: nav build time, 100k raycasts, 16-bot AI tick, reported in ms. |
-| ARC-040 | Debug global `window.__CTK` = {version, selfTest, soak, perf (incl. frame-time p50/p99), game, world, rules, catalogues, spawnBot, setTier, step(n), seed(n), map.check(), stress(level), give(id), god(on), save.dump(), save.corrupt(kind), log.errors()}; F10 perf HUD (PERF-012), F9 bot debug (BOT-092). On touch devices both views toggle from Options > Developer and by a four-finger tap. |
+| ARC-040 | Debug global `window.__CTK` = {version, selfTest, soak, perf (incl. frame-time p50/p99), game, world, rules, catalogues, spawnBot, setTier, step(n), seed(n), map.check(), stress(level), give(id), god(on), save.dump(), save.corrupt(kind), log.errors()}; F8 perf HUD (PERF-012), F9 bot debug (BOT-092). On touch devices both views toggle from Options > Developer and by a four-finger tap on the look area (none of the fingers on the stick or a button). |
 | ARC-041 | Global error handler collects errors into a ring shown in the perf HUD; a startup failure shows the fatal screen with the message. |
 
 ## 25. Out of scope
