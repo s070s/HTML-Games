@@ -101,7 +101,7 @@ const CommWheel = {
 };
 Input.sources.push(CommWheel);
 Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
-TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
+TouchInput.needs.comm = () => true;   // the touch CHAT button (05b) shows now that the wheel exists
 TouchInput.buttonLook = (control) => CommWheel.open && (control.action === 'ping' || control.action === 'comm');   // the finger on PING / COMM picks the callout
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());

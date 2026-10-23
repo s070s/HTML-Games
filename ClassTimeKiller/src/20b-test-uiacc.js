@@ -576,8 +576,11 @@ function accessTestScreen(check, name) {
 }
 
 // ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+// Every sheet injected at boot (injectStyle gives each an id: touch buttons, scoreboard, play...), plus the ones a screen injects when it first opens.
 Test.add('uiacc', (check) => {
-  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  const sheets = { EDITOR_CSS, MAPGEN_MENU_CSS, CAREER_CSS, BUY_CSS }, small = [];
+  for (const style of document.querySelectorAll('style[id]')) sheets[style.id] = style.textContent;
+  check('menus: the style sheet scan sees the touch, scoreboard and menu sheets', ['touch-style', 'scoreboard-style', 'ui-style'].every((id) => id in sheets), Object.keys(sheets).join());
   for (const name in sheets) {
     for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
       const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);

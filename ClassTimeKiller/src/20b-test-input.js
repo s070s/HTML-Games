@@ -661,6 +661,15 @@ Test.add('input', (check) => {
   Input.aimAssistTarget = null;
 });
 
+// ACC-008 on the buttons: faces are drawn at 14 px or more and fit inside their button at the standard size.
+Test.add('input', (check) => {
+  const style = getComputedStyle(TouchInput.elements.fire), context = document.createElement('canvas').getContext('2d');
+  context.font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily;
+  const wide = TOUCH_CONTROLS.filter((control) => control.face && context.measureText(control.face).width > control.size).map((control) => control.face + '/' + control.size);
+  check('touch: button faces are at least 14 px (ACC-008)', parseFloat(style.fontSize) >= ACCESS_TEST_MIN_FONT - 0.01, style.fontSize);
+  check('touch: every face fits its button', wide.length === 0, wide.join());
+});
+
 Test.add('input', (check) => {
   startInputMatch();
   check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));

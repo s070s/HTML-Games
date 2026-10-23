@@ -10,7 +10,7 @@ const AI_SYSTEM_PATTERN = /^(ai|bot|pveBrains)/i;    // PERF-012 wants the bot A
 const PERF_FLOOR_FPS = 60;               // PERF-001 hard minimum: the panel turns red below it
 const BYTES_PER_MEGABYTE = 1048576;
 const PERF_CSS = '#overlay > .perf-hud { position: fixed; top: calc(6px + var(--safe-top)); left: calc(6px + var(--safe-left)); z-index: 40; margin: 0; padding: 6px 8px;'
-  + ' background: rgba(0, 0, 0, 0.62); color: #9fe8a8; font: 11px/1.35 ui-monospace, Consolas, monospace; white-space: pre; border-radius: 6px; pointer-events: none; max-width: 70vw; overflow: hidden; display: none; }'
+  + ' background: rgba(0, 0, 0, 0.62); color: #9fe8a8; font: 14px/1.3 ui-monospace, Consolas, monospace; white-space: pre; border-radius: 6px; pointer-events: none; max-width: 70vw; overflow: hidden; display: none; }'
   + '#overlay > .perf-hud.show { display: block; } #overlay > .perf-hud.slow { color: #ff9a9a; }';
 
 const PerfOverlay = {
