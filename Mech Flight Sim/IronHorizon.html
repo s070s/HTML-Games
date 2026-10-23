@@ -3704,12 +3704,20 @@ function addStruct(type, x, z, opts) {
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
     fell: false,   // the fall queue brought it down (sent as 2 in 'st'); a piece queued to fall but shot first did not fall
+    inPlain: !opts.piece, hot: false,   // in W.plain; in W.hotPlain (watchStruct)
   };
   s.maxHp = s.hp;
   s.top = s.y + s.h;
   W.structs.push(s);
   if (!opts.piece) { W.plain.push(s); Hash.add(s, x - s.hx, z - s.hz, x + s.hx, z + s.hz); Chunks.add(s); }   // building pieces live in their building's grid
   return s;
+}
+/* plain structure s was hit, damaged or destroyed: updateWorldEffects ticks its flash, smoulder and smoke from W.hotPlain
+   until none is left, so it does not walk all of W.plain (thousands of trees and rocks) every tick */
+function watchStruct(s) {
+  if (s.hot || !s.inPlain) return;
+  s.hot = true;
+  W.hotPlain.push(s);
 }
 /* unspotted: a human's indirect fire no friendly spotter sees, which wears an objective down by ARTY_UNSPOTTED_CAP of
    its hull at most in a battle (D52) */
@@ -3729,6 +3737,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   if (Net.host) Net.dirty.add(s.idx);
   if (!s.bld && s.flash <= 0) W.flashing.push(s);
   s.hp -= eff; s.flash = 0.12; s.scorch = Math.min(1, s.scorch + eff / s.maxHp * 0.8);
+  watchStruct(s);
   if (W.onStructHit) W.onStructHit(s, eff, owner);
   if (s.objective) markHit(owner);
   const frac = s.hp / s.maxHp;
@@ -3746,6 +3755,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
 function destroyStruct(s, owner) {
   if (s.destroyed) return;            // one break event only
   s.destroyed = true; s.state = 3; s.hp = 0; s.destroyedAt = W.time;
+  watchStruct(s);
   if (Net.host) Net.dirty.add(s.idx);
   creditStruct(s, owner);
   if (s.bld) { Bld.pieceDestroyed(s, owner); return; }
@@ -4465,7 +4475,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
+    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], hotPlain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
@@ -5857,16 +5867,21 @@ function updateWorldEffects(dt) {
     if (d.life <= 0 || d.y < Terrain.h(d.x, d.z)) W.decoys.splice(i, 1);
   }
   for (let i = W.pickups.length - 1; i >= 0; i--) { const p = W.pickups[i]; p.life -= dt; p.t += dt; if (p.life <= 0) W.pickups.splice(i, 1); }
-  for (let i = 0; i < W.plain.length; i++) {
-    const s = W.plain[i];
-    if (s.flash > 0) s.flash -= dt;
+  const hot = W.hotPlain;
+  for (let i = 0; i < hot.length; i++) {
+    const s = hot[i];
+    let busy = false;
+    if (s.flash > 0) { s.flash -= dt; busy = true; }
     if (!s.destroyed && s.state === 2) { // critical structures smoulder
-      s.smokeT -= dt;
+      s.smokeT -= dt; busy = true;
       if (s.smokeT <= 0) { s.smokeT = 0.35; FX.emit(s.x + rand(-1, 1) * s.hx * 0.5, s.y + s.h * 0.8, s.z + rand(-1, 1) * s.hz * 0.5, 0, rand(2, 4), 0, 1.6, 0.6, 0.3, 0.3, 0.3, 0.5, 0.5, -0.8, false); }
     } else if (s.destroyed && W.time - s.destroyedAt < 12 && s.hx * s.hz > 4) {
-      s.smokeT -= dt;
+      s.smokeT -= dt; busy = true;
       if (s.smokeT <= 0) { s.smokeT = 0.5; FX.emit(s.x, s.y + 1, s.z, rand(-0.5, 0.5), rand(2, 4), rand(-0.5, 0.5), 2, 1.5, 3.4, 0.22, 0.22, 0.22, 0.4, 0.4, -0.6, false); }
     }
+    if (busy) continue;
+    s.hot = false;   // nothing left to tick: out of the list (the last one moves into its place)
+    hot[i] = hot[hot.length - 1]; hot.pop(); i--;
   }
   for (let i = W.queue.length - 1; i >= 0; i--) {
     const q = W.queue[i]; q.delay -= dt;
@@ -31213,6 +31228,33 @@ const SelfTest = {
         S.difficulty = keepDiff; Game.reportError = keepRep; Save.data.platformId = keepPid; Game.quitToMenu();
       }
     });
+    t('p8 perf', () => {
+      const keepRep = Game.reportError;
+      Game.reportError = () => {};
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'jungle', size: 'small', seed: 3, random: false, support: 'none', hazards: 'off' }) });
+        const free = (s) => !s.destroyed && !s.indestructible && !s.objective && !s.explosive && !s.hot && s.type !== 'tree' && s.hx * s.hz > 4;
+        const big = W.plain.find(free), small = W.plain.find((s) => free(s) && s !== big), tree = W.plain.find((s) => s.type === 'tree' && !s.hot);
+        const listed = (s) => W.hotPlain.indexOf(s) >= 0;
+        // a hit flashes for a moment, then the structure leaves the list it is ticked from
+        damageStruct(small, small.maxHp * 0.05, 'explosive', null);
+        this.check('a hit structure joins the hot list with its flash', listed(small) && small.hot && small.flash > 0);
+        for (let i = 0; i < 4; i++) updateWorldEffects(0.05);
+        this.check('its flash fades and it leaves the hot list', small.flash <= 0 && !listed(small) && !small.hot, small.flash.toFixed(2));
+        // a critical one smoulders for as long as it stands; destroyed, it smokes for 12 s, then leaves
+        for (let i = 0; i < 40 && big.state < 2; i++) damageStruct(big, big.maxHp * 0.05, 'explosive', null);
+        const t0 = big.smokeT;
+        for (let i = 0; i < 4; i++) updateWorldEffects(0.05);
+        this.check('a critical structure stays on the hot list and smoulders', big.state === 2 && listed(big) && big.smokeT !== t0);
+        destroyStruct(big, null);
+        for (let i = 0; i < 10; i++) updateWorldEffects(1);
+        this.check('a destroyed structure still smokes for a while', listed(big));
+        for (let i = 0; i < 4; i++) updateWorldEffects(1);
+        this.check('it leaves the hot list once its smoke is done', !listed(big) && !big.hot);
+        this.check('an untouched tree is never ticked', !listed(tree) && W.hotPlain.length < W.plain.length);
+        this.check('platform colours are tinted into scratch arrays', tint([1, 1, 1], 0.5, 0.1, TINT_MAIN) === TINT_MAIN && Math.abs(TINT_MAIN[0] - 0.6) < 1e-9);
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -31934,6 +31976,7 @@ const Net = {
       if (!s) continue;
       if (e[6] !== undefined && !NET_UNSPOT_OFF) s.unspot = e[6];
       s.hp = e[1]; s.scorch = Math.min(1, (1 - e[1] / s.maxHp) * 0.8); s.flash = 0.1;
+      watchStruct(s);
       if (e[3] && !s.destroyed) {
         const ex = s.explosive; s.explosive = false;           // the host sends the blast as its own event
         const fell = e[3] === 2 && !!s.bld;                    // it lost its support on the host: here it falls too
