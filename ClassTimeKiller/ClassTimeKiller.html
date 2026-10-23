@@ -22499,8 +22499,9 @@ const LEDGE_SLIDE_SECONDS = 0.4;
 const LEDGE_HOP_SECONDS = 0.7;
 const LEDGE_ALIGN = 0.7;
 const ledgeProbe = { x: 0, z: 0 };
-const LEAP_LOOK_AHEAD = 3;
-const LEAP_ALIGN = 0.996;
+const LEAP_LOOK_AHEAD = 5;
+const LEAP_LINE_AHEAD = 1.5;
+const LEAP_ALIGN = 0.995;
 const PAD_RIDE_SECONDS = 4;
 const BotMove = {
 	state: new Uint8Array(MAX_ACTORS),
@@ -22709,9 +22710,10 @@ const BotMove = {
 		if (!this.leaping[id] || !Move.isGrounded(id)) return true;
 		const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
 		if (length < STEP_HEIGHT) return true;
-		const yaw = Actors.yaw[id], speed = length2(Actors.vx[id], Actors.vz[id]);
-		const runsAlong = speed <= LEDGE_SLIDE_SPEED || Actors.vx[id] * dx + Actors.vz[id] * dz >= LEAP_ALIGN * speed * length;
-		return runsAlong && (Math.sin(yaw) * dx + Math.cos(yaw) * dz) >= LEAP_ALIGN * length;
+		const leap = modeLeap(id), push = leap ? leap.leapSpeed * MatchMove.knockback : 0, yaw = Actors.yaw[id];
+		const flyX = Actors.vx[id] + Math.sin(yaw) * push, flyZ = Actors.vz[id] + Math.cos(yaw) * push, fly = length2(flyX, flyZ);
+		if (fly <= LEDGE_SLIDE_SPEED) return true;
+		return flyX * dx + flyZ * dz >= LEAP_ALIGN * fly * length;
 	},
 	follow(id, now) {
 		if (!Move.isGrounded(id)) this.launched[id] = 1;
@@ -22726,6 +22728,7 @@ const BotMove = {
 		const tx = target.x, tz = target.z, distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
 		target.distance = distance;
 		if (!atEnd && !climbing && groundSegment(this.segmentType[id])) this.carrot(id, movePoint); else { movePoint.x = tx; movePoint.z = tz; }
+		if (this.gapRunUp(id)) this.lineUpMove(id, movePoint);
 		const dx = movePoint.x - Actors.x[id], dz = movePoint.z - Actors.z[id];
 		if (!atEnd && !climbing && distance > MOVE_OFF_PATH && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
 		if (direct && this.distanceToDestination(id) > MOVE_DIRECT_RADIUS) { this.state[id] = PATH.ARRIVED; Bots.wish(id, 0, 0, 0); return; }
@@ -22881,8 +22884,18 @@ const BotMove = {
 		if (rise > MOVE_SWIM_RISE && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
 		else if (rise < -MOVE_SWIM_RISE) Bots.press(id, BTN.CROUCH);
 	},
+	gapRunUp(id) {
+		return this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+	},
+	lineUpMove(id, out) {
+		const lineX = this.landX[id] - this.pointX[id], lineZ = this.landZ[id] - this.pointZ[id], length = length2(lineX, lineZ);
+		if (length < STEP_HEIGHT) return;
+		const unitX = lineX / length, unitZ = lineZ / length;
+		const along = (Actors.x[id] - this.pointX[id]) * unitX + (Actors.z[id] - this.pointZ[id]) * unitZ + LEAP_LINE_AHEAD;
+		out.x = this.pointX[id] + unitX * along; out.z = this.pointZ[id] + unitZ * along;
+	},
 	lookAlong(id, target) {
-		const runUp = this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+		const runUp = this.gapRunUp(id);
 		const x = runUp ? this.landX[id] : target.x, z = runUp ? this.landZ[id] : target.z;
 		Bots.lookYaw[id] = Math.atan2(x - Actors.x[id], z - Actors.z[id]);
 		if (this.segmentType[id] !== NAV_LINK.LADDER) Bots.lookPitch[id] = 0;
