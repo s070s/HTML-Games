@@ -227,6 +227,11 @@ Test.add('maps', (check) => {
   check('items: every item key exists in the weapons, powerups or items catalogue (checked once those exist)', missing.length === 0, missing.join());
   const spire = Maps.get('spire'), range = Maps.get('provinggrounds');
   check('items: production keeps no test-only item lookup', Maps.itemsFor === undefined);
+  const arenaGuns = CAT.weaponSets.byId('arenaSet').weapons, offSet = [];
+  for (const map of CAT.maps.filter((row) => row.category === 'arena')) {
+    for (const item of map.items) if (item.group === 'weapon' && !arenaGuns.includes(item.item)) offSet.push(map.id + ':' + item.item);
+  }
+  check('items: arena maps place only Arena set weapons on their pads', offSet.length === 0, offSet.join());
   check('items: itemsFor filters by mode', mapTestItemsFor(range, 'range').length > 0 && mapTestItemsFor(range, 'ffa').length === 0 && mapTestItemsFor(spire, 'ffa').length === spire.items.length);
 });
 
