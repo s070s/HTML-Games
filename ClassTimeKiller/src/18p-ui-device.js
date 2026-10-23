@@ -11,8 +11,7 @@ const Device = {
   persistAsked: false,
   // navigator.storage.persist()'s answer (null = not asked)
   persistResult: null,
-  // iPad Safari reports a Mac with touch.
-  isIos() { return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1; },
+  isIos(nav) { return isAppleTouch(nav || navigator); },
   // Started from the Home Screen.
   standalone() { return navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches; },
   // Granted only after a user gesture.

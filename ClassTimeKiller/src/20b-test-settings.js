@@ -366,6 +366,15 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));
 
+// One iPhone / iPad rule for the audio session and the device code: an iPhone agent, or a Mac with touch (iPad).
+Test.add('settings', (check) => {
+  const iphone = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 1 };
+  const ipad = { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', platform: 'MacIntel', maxTouchPoints: 5 };
+  const mac = { userAgent: ipad.userAgent, platform: 'MacIntel', maxTouchPoints: 0 }, windows = { userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 10 };
+  const apple = [iphone, ipad, mac, windows].map((nav) => Device.isIos(nav) + '/' + (Sound.configureSession(nav) !== 'none'));
+  check('iPhone and iPad found by one rule (audio and device agree)', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
+});
+
 // R-008: persistence is asked once, at the first gesture; the Home Screen tip shows once, in an iOS Safari tab.
 Test.add('settings', (check) => uiWith(() => {
   let asked = 0;

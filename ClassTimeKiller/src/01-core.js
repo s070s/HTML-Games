@@ -38,6 +38,8 @@ const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 -
 const length2 = (x, z) => Math.sqrt(x * x + z * z);
 const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
+// An iPhone, iPod or iPad (iPad Safari reports a Mac with touch): the one rule for iOS-only code. nav: navigator or a test stand-in.
+const isAppleTouch = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (/Mac/.test(nav.platform || nav.userAgent || '') && nav.maxTouchPoints > 1);
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
 

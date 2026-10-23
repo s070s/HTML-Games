@@ -53,9 +53,9 @@ const Save = {
 
   emptySave() {
     // Every field is declared here, so migrate repairs it (ARC-020). revision: write count (R-001); play: last setup (18d, null = none);
-    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p.
+    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p, 06 (silentSwitch).
     return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
-      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false },
+      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
   },
   load() {

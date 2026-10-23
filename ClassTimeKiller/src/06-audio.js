@@ -182,8 +182,6 @@ function audioPriorityFor(recipe, distance, own) {
 // ---- Payloads reused for emitted events (listeners copy what they keep) ----
 const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
 
-const isAppleTouchDevice = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
-
 // ---- Sound request queue: typed-array rows filled by event handlers, drained once per frame ----
 const SoundQueue = {
   recipe: new Int16Array(AUDIO_QUEUE_SIZE), positional: new Uint8Array(AUDIO_QUEUE_SIZE),
@@ -471,13 +469,17 @@ const Sound = {
     source.connect(this.context.destination);
     source.start(0);
   },
-  // iOS 17+: "playback" plays with the silent switch on, "ambient" (Mix setting) keeps the music app. Older iOS: tell the player once (AUD-001).
+  // iOS 17+: "playback" plays with the silent switch on, "ambient" (Mix setting) keeps the music app. Older iOS: tell the
+  // player once, ever (Save tips.silentSwitch), not at every launch (AUD-001).
   configureSession(nav) {
     if (nav.audioSession) {
       nav.audioSession.type = this.mix ? 'ambient' : 'playback';
       return nav.audioSession.type;
     }
-    if (!isAppleTouchDevice(nav)) return 'none';
+    if (!isAppleTouch(nav)) return 'none';
+    if (Save.data.tips.silentSwitch) return 'hint';
+    Save.data.tips.silentSwitch = true;
+    Save.scheduleSave();
     emitToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
     return 'hint';
   },

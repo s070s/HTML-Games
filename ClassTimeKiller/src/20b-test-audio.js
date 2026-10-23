@@ -610,6 +610,8 @@ Test.add('audio', (check) => {
   check('iOS 17 audio session is set to playback', Sound.configureSession(fakeSession) === 'playback' && fakeSession.audioSession.type === 'playback' && toasts.length === 0);
   check('older iOS gets a silent-switch hint', Sound.configureSession({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint' && toasts.length === 1 && /silent switch/.test(toasts[0]));
   check('other browsers need neither', Sound.configureSession({ userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 0 }) === 'none' && toasts.length === 1);
+  check('the silent-switch hint shows once, not at every launch', Sound.configureSession({ userAgent: 'iPhone', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint'
+    && toasts.length === 1 && Save.data.tips.silentSwitch === true);
 
   Settings.set('audio.mix', true);
   check('the Mix setting selects the ambient audio session', Sound.configureSession(fakeSession) === 'ambient');
