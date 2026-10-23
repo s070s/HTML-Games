@@ -11958,6 +11958,7 @@ const FLIGHT_TAXI_ACCEL = 1.2;      // m/s2 taxiing
 const FLIGHT_CRAWL = 0.8;           // m/s it moves at least along its route (it starts from a stop at the gate)
 const FLIGHT_TURN_R = 15;           // taxiway corner radius (m); a strip's 10
 const FLIGHT_GATE_R = 15;           // radius of the U-turn onto a gate (m); a strip's 8
+const FLIGHT_GATE_NEAR = 2;         // m from its gate a guest may ask for a flight (the guest's copy waits there, FL_GATE)
 const FLIGHT_STEP_GROUND = 2, FLIGHT_STEP_AIR = 6;   // m between route points
 const FLIGHT_ROLL_ACCEL = 4.5;      // take-off roll (m/s2)
 const FLIGHT_BRAKE = 5;             // landing roll (m/s2)
@@ -12187,6 +12188,10 @@ const Flights = {
       for (let i = 0; i < k; i++) { const s = Hash.out[i]; if (!s.destroyed && s.top > top) top = s.top; }
     }
     return top + Math.min(FLIGHT_CLEAR, alt * FLIGHT_LOW_CLEAR);
+  },
+  /* true when (x, z) lies at f's gate, the start of its route (the same in every game, wherever f's copy is) */
+  atGate(f, x, z) {
+    return !!f.route && Math.hypot(x - f.route.p[0], z - f.route.p[2]) < FLIGHT_GATE_NEAR;
   },
   /* f waits at its gate for dwell s, whole again */
   toGate(f, dwell) {
@@ -13749,7 +13754,9 @@ const Arty = {
       const q = W.platforms[i];
       if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery' || q.def.unarmed || q.hideFromAI) continue;
       if (p.spotters && p.spotters.indexOf(q) < 0) continue;   // a battery told whose eyes it fires by (a mission's observers)
-      const sight = Math.min(ARTY_SPOT_MAX, q.ai ? q.ai.sightRange() : q.def.sensor * 0.8), dx = x - q.x, dz = z - q.z;
+      // an observer with a spotting scope (spotRange) spots that far whatever the difficulty, weather and storms still cut it
+      const own = q.spotRange ? q.spotRange * Weather.sightK * Hazards.sightAt(q.x, q.z) : q.ai ? q.ai.sightRange() : q.def.sensor * 0.8;
+      const sight = Math.min(ARTY_SPOT_MAX, own), dx = x - q.x, dz = z - q.z;
       if (dx * dx + dz * dz > sight * sight) continue;
       if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z)) return true;
       if (near && this.sightEnds(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z) < near) return true;
@@ -15003,12 +15010,13 @@ class Platform {
     const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), base = (foot ? MELEE_REACH.foot : MELEE_REACH.mech) * m.reach, reach = this.radius + base;
     Snd.play('melee', this.x, this.y, this.z, 1);
     const tip = this.radius + base * MELEE_TIP, hx = this.x + fx * tip, hz = this.z + fz * tip;
-    const top = this.y + this.height + reach * 0.5, bottom = this.y - 1;
+    const top = this.y + this.height + reach * 0.5, bottom = this.y - 1, groundHere = Terrain.h(this.x, this.z);
     for (let i = 0; i < W.platforms.length; i++) {
       const p = W.platforms[i];
-      if (p === this || p.dead || p.kind === 'air' || p.y > top || p.y + p.height < bottom) continue;
+      if (p === this || p.dead || p.kind === 'air' || p.y > top) continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
       if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < m.arc) continue;
+      if (p.y + p.height < bottom - Math.max(0, groundHere - Terrain.h(p.x, p.z))) continue;   // the band follows the ground downhill, not off a roof
       const slice = m.slice && meleeSlices(p);
       // a slicing blade carries the target's whole hull, armour and shield, so it falls in two (destroy: 'slice')
       const amount = slice ? Math.max(dmg, p.hp + p.armor * MELEE_SLICE_ARMOR + (p.shieldOn ? p.shield : 0) + 1) : dmg;
@@ -16812,7 +16820,7 @@ function respawnSite(def) {
     if (h) return hiddenNear(h, def.radius, false, spawnEyeH(def), (x, z) => Naval.harbour(def, { x, z }));
   }
   const ap = def.kind === 'air' ? airportSpawn(def.radius) : null;
-  if (ap && !hostileSees(ap.x, ap.z, false, spawnEyeH(def))) return ap;   // parked on the runway it is seen like anything on the ground
+  if (ap && !hostileSees(ap.x, ap.z, true, spawnEyeH(def))) return ap;   // parked on the runway it is still an aircraft to AI perception (range alone, AA too)
   return forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air', spawnEyeH(def));
 }
 
@@ -22535,9 +22543,10 @@ const AIR_START_ALT = 160;        // an aircraft starts this high over its start
 /* True when a living hostile could spot a platform here at once: within SPAWN_SAFE_DIST of anything hostile,
    or within its current sight (capped) with line of sight, as AI perception needs. Aircraft respawn airborne,
    where perception skips the sight line, so for them range alone counts. AA batteries only count against aircraft.
-   eyeH: the height above ground the sight line is drawn to (a platform's aim point; SPAWN_EYE_H without one). */
+   eyeH: the height above the ground or the water surface the sight line is drawn to (a platform's aim point;
+   SPAWN_EYE_H without one). */
 function hostileSees(x, z, air, eyeH) {
-  const groundY = Terrain.h(x, z);
+  const groundY = Math.max(Terrain.h(x, z), Water.level(x, z));   // at sea the surface a ship floats on, not the seabed
   for (const e of W.platforms) {
     if (e.team !== 1 || e.dead) continue;
     if (e.ai && e.ai.airOnly && !air) continue;
@@ -22590,7 +22599,9 @@ function hiddenNear(start, clearR, air, eyeH, find) {
   }
   return { x: start.x, z: start.z, yaw: start.yaw };
 }
-const spawnEyeH = (def) => def.height * 0.5 + 1;   // the point AI perception draws its sight line to on a platform (tpos)
+/* the point AI perception draws its sight line to on a platform (tpos), over the ground or the water's surface:
+   a ship's keel lies its draft under the surface, an amphibious craft's rides over it (Naval.keelY) */
+const spawnEyeH = (def) => def.height * 0.5 + 1 + (def.naval ? (def.naval.amphibious ? def.naval.ride : -def.naval.draft) : 0);
 function spawnUnit(archKey, x, z, opts) {
   opts = opts || {};
   const a = ARCH[archKey], def = PLATFORMS[a.def];
@@ -22957,10 +22968,12 @@ const M12_START = { x: -320, z: -280, yaw: -0.3 };   // above the valley town, o
 const M12_COUNTER = 60;   // s: the outpost's counterattack sets out for the relay station well ahead of the trucks
 const M12_HALT = 220;   // m: trucks wait while an avalanche is this far beyond its front
 const M12_BLOCKED = 160;   // m: trucks wait while an enemy on the ground is this near the lead truck
-const M13_OURS = [[-560, 90], [-560, 130]];   // our howitzers at the firebase
+const M13_OURS = [[-560, 90], [-560, 130], [-610, 150]];   // our howitzers at the firebase: the mesa's scoped observer sees the first
 const M13_START = { x: -280, z: 360, yaw: 0 };   // north-east of the firebase, beyond the AA on the south mesa, with room for a district
 const M13_GUNS = [[520, -60, 'howitzerBattery'], [560, 80, 'howitzerBattery'], [640, -20, 'rocketBattery']];
-const M13_EYES = [[-120, -340], [60, -330], [240, -300]];   // enemy observers on the south mesa, the only eyes the enemy guns fire by
+const M13_EYES = [[-320, -220, true], [60, -330], [240, -300]];   // enemy observers on the south mesa, the only eyes the enemy guns fire by; true: one with a spotting scope on its north rim, over the firebase (in sight of our start: you can spot it for our guns)
+const M13_SCOPE = 412;   // m that observer spots for the guns (spotRange): the firebase's nearer howitzer (390 m) on any difficulty, not the far one (425 m) nor our start (580 m)
+const M13_TANKS = { x: -640, z: 160 };   // our tanks guard the firebase from its far side, out of that observer's scope
 const M13_HAZARDS = [{ t: 90, type: 'rockfall', x: -300, z: 190 }, { t: 200, type: 'sandstorm', x: 200, z: 0, say: 'SANDSTORM ROLLING UP THE CANYON' }, { t: 300, type: 'rockfall', x: 300, z: -190 }];
 /* a hazard of type warned of or running whose edge is within dist of (x, z): convoy drivers wait it out */
 function hazardNear(type, x, z, dist) {
@@ -23361,14 +23374,14 @@ const MISSIONS = [
   {
     id: 'm13', name: 'Long Guns', type: 'Artillery Duel', map: 'canyon', stars: 3, timeLimit: 960, recommended: 'Thunder howitzer or Hailstorm rockets, or a Strike Fighter',
     unlock: 'sandstorm', env: { weather: 'clear', time: 'dusk' }, hazards: ['sandstorm', 'rockfall'], hazardScript: true,
-    brief: 'An enemy battery at the far end of the canyon is shelling our firebase. Its guns fire only on what their observers on the south mesa can see, and our own two howitzers fire on whatever you spot. Destroy the enemy guns while at least one of ours survives. A sandstorm is forecast over the canyon floor, and the walls shed rock.',
+    brief: 'An enemy battery at the far end of the canyon is shelling our firebase. Its guns fire only on what their observers on the south mesa can see, and our own three howitzers fire on whatever you spot. Destroy the enemy guns while at least one of ours survives. A sandstorm is forecast over the canyon floor, and the walls shed rock.',
     start: M13_START,
     sites: [{ x: M13_START.x, z: M13_START.z, r: 34, tag: 'pad' }, { x: -560, z: 110, r: 40, tag: 'obj' }, { x: 580, z: 40, r: 70, tag: 'obj' }],
     build(ctx) {
       const m = ctx.m;
       ctx.later(() => {
         const ours = [];
-        for (const q of M13_OURS) ours.push(...spawnGroup(['allyHowitzer'], q[0], q[1], { team: 0, radius: 8, exact: true, yaw: PI / 2 }));
+        for (const q of M13_OURS) ours.push(...spawnGroup(['allyHowitzer'], q[0], q[1], { team: 0, radius: 2, exact: true, force: true, yaw: PI / 2 }));   // just there: the observer's scope reaches the one at 90
         m.add(makeObjective({ id: 'ours', title: 'Keep a friendly howitzer firing', units: ours, status: 'active',
           tick() { const alive = this.units.filter((u) => !u.dead).length; this.progress = this.units.length ? alive / this.units.length : 0;
             if (alive === 0) this.status = 'failed';
@@ -23381,16 +23394,20 @@ const MISSIONS = [
         for (const q of M13_GUNS) guns.push(...spawnGroup([q[2]], q[0], q[1], { radius: 10, exact: true, yaw: -PI / 2 }));
         m.add(Obj.kill({ id: 'guns', title: 'Destroy the enemy battery', units: guns, status: 'active' }));
         const eyes = [];
-        for (const q of M13_EYES) eyes.push(...spawnGroup(['sniper'], q[0], q[1], { radius: 12, exact: true }));
+        for (const q of M13_EYES) {
+          const group = spawnGroup(['sniper'], q[0], q[1], q[2] ? { radius: 2, exact: true, force: true } : { radius: 12, exact: true });   // the scoped one just there (M13_SCOPE)
+          if (q[2]) for (const u of group) u.spotRange = M13_SCOPE;
+          eyes.push(...group);
+        }
         guns.forEach((g) => { g.spotters = eyes; });   // the battery fires only on what the observers see (Arty.spottedAt)
         m.add(Obj.kill({ id: 'eyes', title: 'Kill the observers on the south mesa', units: eyes, primary: false, status: 'active' }));
         spawnGroup(['tank', 'tank', 'aaTurret', 'infantry', 'rpgTrooper'], 580, 40, { radius: 70 });
         spawnGroup(['infantry', 'infantry', 'buggy', 'lightMech'], 160, 40, { radius: 60 });
-        spawnGroup(['allyTank'], -600, 0, { team: 0, radius: 30 });
+        spawnGroup(['allyTank'], M13_TANKS.x, M13_TANKS.z, { team: 0, radius: 30 });
       });
       m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
       for (const h of M13_HAZARDS) m.at(h.t, () => { Hazards.trigger(h.type, h.x, h.z, HAZARD_WARN, true); if (h.say) W.msg(h.say, 'alarm'); });
-      m.at(180, () => { spawnGroup(['buggy', 'buggy', 'lightMech'], 400, -60, { radius: 50, goal: { x: -560, z: 110 } }); W.msg('ENEMY RAIDERS ADVANCING UP THE CANYON'); });
+      m.at(180, () => { spawnGroup(['buggy', 'lightMech'], 400, -60, { radius: 50, goal: { x: -560, z: 110 } }); W.msg('ENEMY RAIDERS ADVANCING UP THE CANYON'); });
       m.at(320, () => { spawnGroup(['gunship'], 800, -300, { goal: { x: -560, z: 110 } }); W.msg('ENEMY GUNSHIP INBOUND'); });
     },
   },
@@ -29815,8 +29832,10 @@ const SelfTest = {
       for (let j = 0; j < 600 && p.speed >= AIRFIELD_STOP; j++) p.update(STEP);
       for (let j = 0; j < 30 && !p.dead; j++) p.update(STEP);
       this.check('it taxis to the apron, stops there and is resupplied once', !p.dead && p.grounded && k === wps.length && p.speed < AIRFIELD_STOP && Airports.apronAt(p) === ap && gun.reserve > 0 && W.resupplies === 1, taxi + ' steps at ' + p.x.toFixed(0) + ',' + p.z.toFixed(0) + ' dead ' + p.dead);
-      // a lost aircraft comes back at the head of the runway and takes off along it
-      const site = respawnSite(p.def);
+      // a lost aircraft comes back at the head of the runway and takes off along it (with no hostile about: a parked
+      // aircraft is seen by range alone, so respawnSite skips a runway any hostile's sight reaches)
+      const freeSite = (d) => { const all = W.platforms; W.platforms = all.filter((q) => q.team !== 1); try { return respawnSite(d); } finally { W.platforms = all; } };
+      const site = freeSite(p.def);
       this.check('a lost aircraft comes back parked at the head of the runway, facing along it', site.parked && site.x >= rw.x0 && site.x <= rw.x1 && site.z >= rw.z0 && site.z <= rw.z1 && site.yaw === ap.yaw);
       p.x = site.x; p.z = site.z; p.yaw = site.yaw; Seats.groundAir(p);
       c.throttleSet = 1; c.brake = false; c.aimPitch = 0.3; c.aimYaw = site.yaw;
@@ -29825,10 +29844,10 @@ const SelfTest = {
       this.check('it takes off from the runway', !p.dead && !!liftAt && onRunway(liftAt.x, liftAt.z, 0, 0) && p.y - Terrain.h(p.x, p.z) >= 30, JSON.stringify(liftAt));
       // aircraft lost one after another come back on free spots along the runway, past one parked on its head; standing
       // together on the ground they push apart instead of wrecking each other
-      const def = p.def, head = respawnSite(def), blocker = spawnParked(def.id, head.x, head.z, head.yaw);
-      const s1 = respawnSite(def);
+      const def = p.def, head = freeSite(def), blocker = spawnParked(def.id, head.x, head.z, head.yaw);
+      const s1 = freeSite(def);
       Game.spawnPlayer(s1);
-      const p1 = W.player, s2 = respawnSite(def);
+      const p1 = W.player, s2 = freeSite(def);
       const jet = (s, dx) => { const q = new Platform(def, { team: 0, x: s.x + dx, z: s.z, yaw: s.yaw, loadout: Loadout.forPlatform(def.id) }); Seats.groundAir(q); q.isPlayer = true; W.platforms.push(q); return q; };
       const p2 = jet(s2, 0), twin = jet(s2, 1), jets = [blocker, p1, p2, twin];
       const apart = (q, r) => Math.hypot(q.x - r.x, q.z - r.z);
@@ -31469,6 +31488,7 @@ const SelfTest = {
        of any platform class, nor the first spawn of m9-m18. The first spawns of m1-m8 predate the rule and stay as they
        were (D58): those listed here are in sight of their garrisons, as they always were. */
     const P7A_START_KNOWN = { m2: ['mech', 'ground', 'air', 'naval'], m3: ['air'], m4: ['air'], m5: ['air'], m6: ['air'] };
+    const P7A_POND_KNOWN = { m12: ['naval'] };   // m12's only water, the alpine pond, lies within the road block's sight: a ship starts and comes back seen
     const P7A_CLASSES = { mech: 'bulwark', ground: 'bastion', air: 'shrike', naval: 'trident' };
     t('missions P7a exposure', () => {
       const keep = { data: Save.data, persist: Save.persist };
@@ -31485,9 +31505,10 @@ const SelfTest = {
             const p = W.player, air = p.kind === 'air', eye = spawnEyeH(p.def);
             // an aircraft starts flying: where it is after its first second counts too
             const seen = hostileSees(p.x, p.z, air, eye) || (air && hostileSees(p.x + Math.sin(p.yaw) * p.def.speed, p.z + Math.cos(p.yaw) * p.def.speed, true, eye));
-            if (seen && (P7A_START_KNOWN[def.id] || []).indexOf(cls) < 0) bad.push(cls + ' start ' + Math.round(p.x) + ',' + Math.round(p.z));
-            const sp = respawnSite(p.def);   // an aircraft parked on a runway is seen like anything on the ground
-            if (hostileSees(sp.x, sp.z, air && !sp.parked, eye)) bad.push(cls + ' respawn ' + Math.round(sp.x) + ',' + Math.round(sp.z));
+            const pond = (P7A_POND_KNOWN[def.id] || []).indexOf(cls) >= 0;
+            if (seen && !pond && (P7A_START_KNOWN[def.id] || []).indexOf(cls) < 0) bad.push(cls + ' start ' + Math.round(p.x) + ',' + Math.round(p.z));
+            const sp = respawnSite(p.def);   // an aircraft parked on a runway is seen by range alone too, as aloft
+            if (!pond && hostileSees(sp.x, sp.z, air, eye)) bad.push(cls + ' respawn ' + Math.round(sp.x) + ',' + Math.round(sp.z));
           }
           this.check('mission ' + def.id + ': no hostile sees a start or a respawn in the first second', bad.length === 0, bad.join(', '));
         }
@@ -32334,8 +32355,8 @@ const SelfTest = {
         const hitAim = aimAt(1), missAim = aimAt(0), oldAim = aimAt(undefined);
         this.check('a guest\'s artillery aim 60 m up a building face counts as ground when its own ray hit (the guest sends it); a miss, or no word from an old guest, is still the sky', !!inMsg && inMsg.ph === 1 && !hitAim && missAim && oldAim, 'sent ' + (inMsg && inMsg.ph) + ', hit ' + hitAim + ', miss ' + missAim + ', old ' + oldAim);
         W.platforms = W.platforms.filter((q) => q !== gun);
-        // 6. the host refuses a forged enterCiv for vehicles that can never be taken: a big ship, an airliner off its
-        // gate, a car still driving fast; 7. and a guest whose lagged body is just past reach still gets in
+        // 6. the host refuses a forged enterCiv for vehicles that can never be taken, by what is the same in every game: a
+        // big ship, an airliner asked for away from its gate; 7. and a guest whose lagged body is just past reach still gets in
         if (!W.traffic) Traffic.populate(5, null);
         const T = W.traffic, rec = (id, x, z, y, vid) => { const v = SHIP_ROWS.find((s) => s.id === id) || VEHICLES[VEHICLE_IDS.indexOf(id)], r = Traffic.make(v, 0); r.x = x; r.z = z; r.y = y; r.vid = vid; T.parked.push(r); return r; };
         const ask = (peer, r) => Net.hostMsg(peer, { t: 'enterCiv', d: r.def.id, v: r.vid, x: r.x, y: r.y, z: r.z, yaw: 0, c: 0 });
@@ -32345,14 +32366,12 @@ const SelfTest = {
         const field = W.airports[0], gate = field ? { x: (field.apron.x0 + field.apron.x1) / 2, z: (field.apron.z0 + field.apron.z1) / 2 } : st;
         const pilot = body('ranger', gate.x, gate.z, undefined), pp = peerFor('ranger', pilot);
         const jet = rec('airliner', gate.x + 6, gate.z, Terrain.h(gate.x + 6, gate.z), 7002);
-        jet.flight = true; jet.phase = FL_TAXI;
+        jet.flight = true; jet.phase = FL_TAXI; jet.route = { p: [gate.x - 40, jet.y, gate.z] };   // its gate 46 m from where it is asked for
         const ground = findSpawn(st.x + 60, st.z, 60, 6, 0) || { x: st.x + 60, z: st.z };
         const driver = body('ranger', ground.x, ground.z, undefined), dp = peerFor('ranger', driver);
-        const fast = rec('sedan', ground.x + 2, ground.z, Terrain.h(ground.x + 2, ground.z), 7003);
-        fast.state = 'drive'; fast.speed = TRAFFIC_TAKE_SPEED * 3;
         Net.peers = [sw, pp, dp];
-        ask(sw, ship); ask(pp, jet); ask(dp, fast);
-        this.check('the host refuses a guest\'s enterCiv for a big ship, a taxiing airliner and a car still driving fast', made('cv_boxship') === 0 && made('cv_airliner') === 0 && made('cv_sedan') === 0 && sw.p === swimmer && pp.p === pilot && dp.p === driver, made('cv_boxship') + ' ships, ' + made('cv_airliner') + ' airliners, ' + made('cv_sedan') + ' cars');
+        ask(sw, ship); ask(pp, jet);
+        this.check('the host refuses a guest\'s enterCiv for a big ship and for an airliner away from its gate', made('cv_boxship') === 0 && made('cv_airliner') === 0 && sw.p === swimmer && pp.p === pilot, made('cv_boxship') + ' ships, ' + made('cv_airliner') + ' airliners');
         // (a fresh car and the driver on foot again, whatever the asks above made)
         W.platforms = W.platforms.filter((q) => !q.def.civilian || q.def.style === 'infantry');
         if (W.platforms.indexOf(driver) < 0) W.platforms.push(driver);
@@ -32607,6 +32626,98 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    t('delta combat', () => {
+      // the delta review's respawn, m13, co-op and melee findings
+      const keep = { peers: Net.peers, host: Net.host, guest: Net.guest, inSession: Net.inSession, hostPeer: Net.hostPeer, rep: Game.reportError, los: hasLOS, h: Terrain.h, level: Water.level, platforms: null };
+      const body = (id, x, z, y, team, melee) => { const p = new Platform(PLATFORMS[id], { team: team || 0, x, z, yaw: 0, loadout: Object.assign({}, PLATFORMS[id].loadout, { melee }) }); p.y = y === undefined ? Terrain.h(x, z) : y; W.platforms.push(p); return p; };
+      const peerFor = (p) => {
+        const peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = () => {}; peer.pid = 'ranger'; peer.loadout = Loadout.forPlatform('ranger'); peer.stats = newStats(); peer.name = 'Ally'; peer.slot = 1;
+        p.isPlayer = true; p.netPeer = peer; peer.p = p;
+        return peer;
+      };
+      Game.reportError = () => {};
+      try {
+        // 1. a lost aircraft is not put on a runway an AA battery covers: to AI perception a parked aircraft is still an
+        // aircraft (seen by range alone, AA batteries engage it)
+        const sk = Object.assign({}, SKIRMISH_DEFAULT, { map: 'valley', seed: 2, random: false, support: 'none', hazards: 'off', platformId: 'kestrel' });   // its airfield ours
+        Game.startSession({ mode: 'skirmish', platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran', skirmish: sk });
+        W.platforms = W.platforms.filter((q) => q.team !== 1);   // no hostile anywhere: the runway is free to come back on
+        const kestrel = PLATFORMS.kestrel, runway = airportSpawn(kestrel.radius), clear = respawnSite(kestrel);
+        let covered = null, aaSees = false;
+        if (runway) {
+          const aa = spawnUnit('aaTurret', runway.x + 500, runway.z, { team: 1, radius: 60 });
+          covered = respawnSite(kestrel);
+          const jet = body('kestrel', runway.x, runway.z, undefined, 0);
+          jet.parked = true; jet.grounded = true;
+          if (aa) {   // the battery's perception with only the parked jet round it (not the player's own aircraft)
+            const all = W.platforms;
+            W.platforms = [aa, jet];
+            try { aa.ai.target = null; aa.ai.perceive(); aaSees = aa.ai.target === jet; } finally { W.platforms = all; }
+          }
+          W.platforms = W.platforms.filter((q) => q !== jet && q !== aa);
+        }
+        this.check('a lost aircraft comes back on a free runway, but not on one an AA battery 500 m off sees (it would fire on the parked jet)', !!runway && clear.parked && !!covered && !covered.parked && aaSees, 'runway ' + !!runway + ', clear ' + (clear && clear.parked) + ', covered ' + (covered && covered.parked) + ', AA sees it ' + aaSees);
+        // 4. the host lets a guest take what is still there in the guest's game: its own copy of the car drives fast
+        // elsewhere and its copy of the airliner has left the gate (D6: each game runs its own traffic)
+        Net.host = true; Net.guest = false; Net.inSession = true;
+        if (!W.traffic) Traffic.populate(5, null);
+        const T = W.traffic, made = (id) => W.platforms.filter((q) => q.def.id === id && !q.dead).length;
+        const rec = (id, x, z, vid) => { const r = Traffic.make(VEHICLES[VEHICLE_IDS.indexOf(id)], 0); r.x = x; r.z = z; r.y = Terrain.h(x, z); r.vid = vid; T.parked.push(r); return r; };
+        const ask = (peer, def, vid, x, z) => Net.hostMsg(peer, { t: 'enterCiv', d: def, v: vid, x, y: Terrain.h(x, z), z, yaw: 0, c: 0 });
+        const st = W.mission.def.start || { x: 0, z: 0 }, ground = findSpawn(st.x + 80, st.z, 80, 6, 0) || { x: st.x + 80, z: st.z };
+        const driver = body('ranger', ground.x, ground.z, undefined, 0), dp = peerFor(driver);
+        const car = rec('sedan', ground.x + 90, ground.z, 7101);   // our copy, 90 m off and driving fast
+        car.state = 'drive'; car.speed = TRAFFIC_TAKE_SPEED * 3;
+        const field = W.airports[0], gate = field ? { x: (field.apron.x0 + field.apron.x1) / 2, z: (field.apron.z0 + field.apron.z1) / 2 } : st;
+        const pilot = body('ranger', gate.x, gate.z, undefined, 0), pp = peerFor(pilot);
+        const jet = rec('airliner', gate.x + 120, gate.z, 7102);   // our copy taxiing, its gate where the guest stands
+        jet.flight = true; jet.phase = FL_TAXI; jet.state = 'drive'; jet.route = { p: [gate.x, Terrain.h(gate.x, gate.z), gate.z] };
+        Net.peers = [dp, pp];
+        ask(dp, 'cv_sedan', car.vid, ground.x + 2, ground.z);
+        ask(pp, 'cv_airliner', jet.vid, gate.x, gate.z);
+        const cars = made('cv_sedan'), jets = made('cv_airliner');
+        this.check('co-op: the host lets a guest into a car its own copy of which drives fast elsewhere, and an airliner at its gate whose copy taxis', !!field && cars === 1 && jets === 1 && dp.p !== driver && pp.p !== pilot, 'field ' + !!field + ', ' + cars + ' cars, ' + jets + ' airliners');
+        T.parked = T.parked.filter((r) => r !== car && r !== jet);
+        Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession;
+        // 5. melee: a mech's strike reaches a soldier 10 m down a slope (the band follows the ground), but still none
+        // from a roof onto the slope below
+        Terrain.h = (x, z) => -0.4 * z;   // a 22 degree slope falling to +z
+        const mech = body('bulwark', 0, 0, 0, 0, 'sword'), foe = body('ranger', 0, 10, -4, 1);
+        mech.yaw = mech.torsoYaw = 0;
+        foe.maxHp = foe.hp = 1e6;   // hurt, never killed
+        const swing = (y) => { mech.y = y; mech.meleeCd = 0; mech.meleeWind = 0; mech.stagger = 0; mech.meleeAt = -Infinity; foe.hp = foe.maxHp; foe.armor = foe.maxArmor; mech.meleeStrike(); return foe.hp < foe.maxHp || foe.armor < foe.maxArmor; };
+        const downhill = swing(0), roof = swing(12);
+        Terrain.h = keep.h;
+        W.platforms = W.platforms.filter((q) => q !== mech && q !== foe);
+        this.check('melee: a mech\'s strike lands on a soldier 10 m downhill, but not from a roof 12 m up', downhill && !roof, 'downhill ' + downhill + ', roof ' + roof);
+        Game.quitToMenu();
+        // 2. a ship's respawn: the sight line is drawn to the ship's own aim point on the water, not over the seabed
+        const ships = [], lancer = PLATFORMS.lancer;
+        let rayY = null;
+        Terrain.h = () => -30; Water.level = () => 0;   // 30 m of water everywhere
+        hasLOS = (ax, ay, az, bx, by) => { rayY = by; return false; };
+        keep.platforms = W.platforms;
+        W.platforms = ships;
+        ships.push({ team: 1, dead: false, kind: 'naval', x: 400, y: 0, z: 0, height: 6, ai: { airOnly: false, sightRange: () => 700 } });
+        const seen = hostileSees(0, 0, false, spawnEyeH(lancer));
+        const aim = Naval.keelY(0, 0, lancer) + lancer.height * 0.5 + 1;   // AI perception: tpos, 1 m up
+        W.platforms = keep.platforms; keep.platforms = null; hasLOS = keep.los; Terrain.h = keep.h; Water.level = keep.level;
+        this.check('a ship respawn\'s sight line ends at the ship\'s aim point on the water, not over the seabed', !seen && rayY !== null && Math.abs(rayY - aim) < 0.01, 'ray ' + rayY + ', aim ' + aim);
+        // 3. m13: the battery's observer over the firebase spots our howitzers (the brief: it shells the firebase), not our start
+        Game.startSession({ mode: 'mission', missionId: 'm13', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        for (let i = 0; i < 30; i++) Game.tick(STEP);
+        const m = W.mission, guns = m.get('guns').units, ours = m.get('ours').units, battery = guns[0];
+        const spotted = ours.filter((u) => Arty.spotted(u, battery)).length, startSeen = Arty.spotted(W.player, battery);
+        this.check('m13: the enemy observers spot a howitzer of our firebase for their battery, not our start', spotted >= 1 && !startSeen, spotted + '/' + ours.length + ' spotted, start ' + startSeen + ', observer ' + m.get('eyes').units.map((u) => Math.round(u.x) + ',' + Math.round(u.z) + (u.spotRange ? ' scoped ' + ours.map((o) => Math.round(Math.hypot(o.x - u.x, o.z - u.z))).join('/') + ' m' : '')).join('; ') + ', sight x' + Weather.sightK.toFixed(2));
+      } finally {
+        if (keep.platforms) W.platforms = keep.platforms;
+        hasLOS = keep.los; Terrain.h = keep.h; Water.level = keep.level;
+        Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer;
+        Game.reportError = keep.rep;
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -32801,7 +32912,9 @@ const Net = {
     // ours: the one of that number (its copies drive their own ways), else (one made since the start) one of that kind
     // where the guest says; none (taken, wrecked, never in our world): refused
     const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = vid ? Traffic.byVid(vid) : Traffic.vehicleAt(def, m.x, m.z, TRAFFIC_ASK_NEAR);
-    if (!mine || mine.def !== def || !Traffic.takeable(mine)) return;   // (a forged ask for a big ship, a taxiing airliner, a fast car)
+    // only what is the same in every game: our copy's speed, turn and flight phase are its own (D6), the guest's rideDist
+    // checked its copy. Refused: a wreck, a big ship, a flight asked for away from its gate (a forged ask)
+    if (!mine || mine.def !== def || mine.state === 'wreck' || mine.v.ship || (mine.flight && !Flights.atGate(mine, m.x, m.z))) return;
     const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, mine.vid);
     Seats.enter(h, p, peer, TRAFFIC_ASK_SLACK);   // our copy of the guest lags its own: the reach mayRide allowed
   },
