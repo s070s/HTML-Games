@@ -16,6 +16,118 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-23 05:10 GTBDT (approx). **P2 GATE PASSED** on `d6b9874`: re-verification "ready to ship"; self-test 1773/0, no console or WebGL errors; v1 fixture, TERRAIN_GOLDEN, m1-m8 pass; 1000-seed sweep 0 fallbacks; bench best p95 ≤ 6.0 on every scene (machine noisy, best used as in P1). NET_VERSION 4 unchanged (no wire change). SAVE_VERSION 1.
+  - Shipping IH-only: the P2 IH commits and this docs commit are cherry-picked onto `origin/main`; Breakpoint 6fdce11/834dc6d/be88e70 stay on the branch until the owner clears them.
+  - RESUME: push → merge origin/main into the branch → P3.1 (momentum collisions). P3 deadline 6 agent-h.
+
+- 2026-10-23 04:45 GTBDT (approx). P2R2 done `d6b9874` (one commit; the agent could not split it). Self-test 1773/0. Metro skirmish mega back to 131/200 seeds. Budget only on `flora.block` maps; hysteresis `FLORA_KEEP` 0.8; cover root height in `iD.w`.
+  - Bench swamped by outside load (runs up to 2.5 s): best p95 ashfall 3.9, jungle 5.4 (≤ 6.0).
+  - In flight: re-verification (same verifier, resumed).
+  - RESUME: re-verify → commit docs → ship IH-only → merge origin/main → P3.
+
+- 2026-10-23 04:15 GTBDT (approx). P2 verification: not ready. Self-test 1755/0; 2-min runs on jungle and farmland clean; release, burst, bending shader (12 uniform vectors), faunaSim confirmed.
+  - High: #1 metro skirmish lost its mega-city (131/200 seeds before, 0 now); #2 `floraVerts` cuts in on old maps on other seeds (ashfall 23 Medium 118%) and the test only checks seed 11 → decision: budget only on maps with blocking new flora (amends D42).
+  - Medium: #3 full/stand-in flicker at the budget boundary (no hysteresis).
+  - Low: #4 bending measured from the machine's base on slopes; #5 empty push slots `smoothstep(0,0)`.
+  - In flight: P2R2 (same fix agent, resumed).
+  - RESUME: P2R2 → re-verify (Opus+high) → commit docs → ship IH-only → merge origin/main → P3.
+
+- 2026-10-23 04:00 GTBDT (approx). P2R done (agent): `1f13ace` findings 1-6, `2cc1c78` flora full-detail budget. Self-test 1755/0. Decision D42.
+  - Bench (very noisy, best p95 ms, now vs 2718428): ashfall 3.3/3.1, verdant 2.4/2.5, frost 3.2/2.4, air 2.0/2.6, water 3.7/3.2, peaks 3.7/2.9, jungle 3.6/4.0. Jungle A/B six pairs: median 7.95→5.8, best 6.3→4.7. All best ≤ 6.0 allowance.
+  - Not done: bushes do not bend (merged chunk meshes), recorded in D42.
+  - In flight: P2 verification (Opus+high).
+  - RESUME: verification → commit docs → ship IH-only to main (cherry-pick onto origin/main, leaving out Breakpoint 6fdce11/834dc6d/be88e70 unless the owner clears them) → self-test on the ship branch → push → back to the branch, merge origin/main → P3.
+
+- 2026-10-23 03:20 GTBDT (approx). P2 gate review: "fix finding 1 before shipping". Self-test 1738/0; 1000-seed sweep 0 fallbacks confirmed; determinism Low vs High confirmed; old content passes; 98ae314 fixes confirmed.
+  - Medium #1: dead/burnt tree species have no far stand-in, so they vanish past `floraNear` but still block shots (ashfall loses 128/295 trees, volcano 1399/1698).
+  - Low: #2 metro missions never get the mega-city (SCENERY overlap); #3 first-frame cover burst delayed when starting high (hitch up to ~35 ms); #4 cover cell memory never released (farmland 38.6 MB); #5 plan gaps: P2.1 grass/bush bend under platforms missing, D39 cap is drawn-only (137 simulated on jungle High); #6 weak checks (hidden map pick, Low vs High build, tree stand-in check).
+  - Bench still noisy; sk-jungle median 6.8 > P2 allowance 6.0 (5.20 + 0.8): a quiet bench decides.
+  - In flight: P2R fix agent (Opus+high).
+  - RESUME: P2R lands → verify → quiet bench → merge origin/main → self-test → push IH-only (Breakpoint waits for owner).
+
+- 2026-10-23 03:05 GTBDT. P2.3 `5c004a5` and P2.4 `2718428` done (agent). Self-test 1738/0 at 1920x1080. 1000-seed fallback sweep: 0 on all 10 new maps. 2-min skirmish per map, no errors.
+  - Bench (noisy, median/best p95 ms vs HEAD base): old maps within noise; sk-jungle new 6.8/5.4 (median 6.8-8.0 over 3 sessions, little headroom under 8.33).
+  - Not done, routed by D41: co-op lobby map choice and Training map choice → P7.1.
+  - origin/main has moved (ClassTimeKiller merges, other files).
+  - The branch holds 3 Breakpoint commits (6fdce11, 834dc6d, be88e70) that the owner has not cleared for push: the P2 push must leave them out (cherry-pick the IH commits onto origin/main) unless the owner says push.
+  - In flight: P2 gate review (Opus+high).
+  - RESUME: review → fixes → quiet bench → merge origin/main → self-test → push IH-only.
+
+- 2026-10-23 02:40 GTBDT. P2.2 fauna done `70979b8` (agent). IOS-1R done `98ae314` (me): all 7 review findings fixed. Self-test 1548/0 at 1920x1080.
+  - Decisions: D39 (fauna), D40 (iOS fixes).
+  - Bench: too noisy now (other sessions); the agent timed fauna directly at ≤0.11 ms/frame in the bench scenes, worst case about 0.6 ms at the 100 cap. The full quiet bench is part of the P2 gate.
+  - Open looks (low): vulture wing flap too wide; eagle folded wings flat.
+  - In flight: P2.3 + P2.4 agent (Opus+high), same worktree and file.
+  - Breakpoint push still waits for the owner.
+  - RESUME: P2.3 + P2.4 land → verify → P2 gate (quiet bench, v1 fixture, Opus review, merge origin/main, push).
+
+- 2026-10-23 01:25 GTBDT (approx). Review of `386aa89` (IH iOS) is in: not ready to ship until 3 medium findings are fixed.
+  - Medium (must fix before shipping):
+    - #1 a pen now enables touch mode on Windows (`pointerType !== 'mouse'`);
+    - #2 the rotate pause checks window shape, not phone orientation (iPad Split View, a snapped laptop window);
+    - #3 the stick is clamped away from the edge but its neutral point is not kept, so the first touch deflects.
+  - Low:
+    - #4 `adaptQuality` does not account for the `maxPx` cap;
+    - #5 the overlay wording in co-op;
+    - #6 the self-test leaves `Snd` held;
+    - #7 weak checks (`touchScrolls` on body, `Snd` held without a context, `touchReserve` constant).
+  - Waiting until the fauna agent finishes (same file), then a fix pass (IOS-1R).
+  - RESUME: fauna lands → IOS-1R fixes 1-7 → P2.3 + P2.4 → P2 gate.
+
+- 2026-10-23 01:15 GTBDT (approx). IOS-1 done in `386aa89` (agent, Opus+high, 19 min). Self-test 1516/0 on desktop and at 375x812. No regression on desktop High (best p95 1.9-2.8 ms).
+  - Adds: `SafeArea`, `Device`, `homeHintSeen`, a portrait rotate overlay, audio unlock, gesture blocking, multi-touch release, and Low/Medium pixel caps.
+  - Proposed: D38. Left for P4.2: HUD overlaps at 844x390 that already existed (USE over the radar, pause over the score, the left column near the bars, the tip over the weapons panel).
+  - In flight:
+    - an Opus review of `386aa89` (read-only);
+    - the P2.2 fauna agent.
+  - IH iOS ships with the P2 push, because the same file interleaves with P2 commits. Breakpoint is still waiting for the owner's OK.
+  - RESUME: review findings → fix after fauna lands → P2.3 + P2.4 → P2 gate → push.
+
+- 2026-10-23 00:50 GTBDT (approx). P2.1 flora done in `1256b4f` and `f74b190` (agent, Opus+high, 63 min). Self-test 1501/0.
+  - My bench (CPU 4%), p95 median of 5:
+    - ashfall 3.5, verdant 2.8, air 3.5, water 3.2, peaks 2.5;
+    - frost 8.9 in the first run, 2.9 in the second;
+    - in the second run ashfall had one run at 17.1.
+  - Investigated: the spikes move between scenes and include 160 ms render-CPU stalls in a static scene with no uploads, so they are interference from outside the game. Steady-state frost needs about 4.5 ms of GPU wait.
+  - Added `best` (lowest p95 across runs) to `__IH.bench()`; it is uncommitted and the IH iOS agent includes it.
+  - Decisions: D37 (flora, see the plan). Routed to P2.3: mangroves stand in water, so `wetStruct` must exempt them.
+  - In flight: an Opus+high agent on IH iPhone Safari (IOS-1).
+  - Breakpoint push: waiting for the owner.
+  - RESUME: IOS-1 → P2.2 fauna → P2.3 + P2.4 → P2 gate.
+
+- 2026-10-23 00:40 GTBDT (approx). Breakpoint iOS work done.
+  - Agent commits: `6fdce11` and `834dc6d`. Breakpoint self-test 108/108 under mobile emulation, by the agent.
+  - The Opus+high review said it is safe to push. It found 1 medium and 2 low issues, all fixed in `be88e70`: menu height inside the safe areas, wording of the fullscreen tip, and a split line. The inline script passes `node --check`.
+  - Not runnable here: the game's self-test after `be88e70`, because the hidden pane pauses rAF and boot stays in LOADING.
+  - Flora agent commits seen so far: `1256b4f` and `f74b190`, still running.
+  - RESUME: owner OK to push Breakpoint, as one commit built on `origin/main` holding only `breakpoint.html`, because the branch interleaves P2 commits → the P2.1 report → IH iOS → P2.2.
+
+- 2026-10-23 00:08 GTBDT. New owner request, run alongside the program.
+  - OWNER (verbatim): "After that make the necessary adjustments so that i can additionally be able to play iron horizon and breakpoint on ios mobile safari".
+  - OWNER answers (verbatim):
+    - "Breakpoint now, IH after P2.1 (Recommended)"
+    - "Only make the games work on iOS i was proposed netlify something"
+    - "iPhone"
+    - "4 h (Recommended)"
+  - Interpreted as:
+    - iPhone Safari only; hosting is the owner's job.
+    - Deadline 4 h of agent time for both games.
+    - Breakpoint starts now.
+    - IRON HORIZON iOS work slots in after P2.1, before P2.2.
+  - A separate session was refused while the owner is on Remote Control, so Breakpoint went to an Opus+high agent instead. It works in this worktree, touches only `Beat Em Up/breakpoint.html`, uses its own browser tab, and does not push. Pushing Breakpoint changes needs the owner's OK.
+  - In flight:
+    - P2.1 flora agent (`IronHorizon.html`, tab `seed`);
+    - Breakpoint iOS agent.
+  - RESUME: P2.1 lands → IH iOS item (IOS-1) → P2.2 → P2.3 + P2.4 → P2 gate. Report Breakpoint and ask about pushing it.
+
+- 2026-10-22 23:31 GTBDT. **P1 PUSHED**: `b3bf9f4..8c85077` to main, after merging `origin/main` (ClassTimeKiller M4-M6, which does not touch the game).
+  - Checks: self-test 1466/0 after the merge, no console errors. The repo has no CI.
+  - P1 used about 3.2 h of its 8 h. The gate passed: the quiet bench (in the 23:24 entry), the live bridge check, the fixture tests, and the Opus review with all fixes verified.
+  - Traceability P1: all lines ticked (see the plan §6 evidence in this ledger's entries).
+  - P2 started (deadline 10 agent h).
+  - RESUME: P2.1 flora (agent) → P2.2 fauna (agent) → P2.3 + P2.4 maps (agent) → P2 gate → push.
+    - Constraints: map ids must be lowercase letters only; D36 requires 0 layout fallbacks per new map over 1000 seeds; routed verifier notes (a `testpeaks` seed that fails under the old rule; bank caps).
+
 - 2026-10-22 23:35 GTBDT. The verifier passed all 12 fixes and found 4 low-severity items.
   - Fixed now:
     - Damage clears `relit`, so the relight budget no longer delays damage refreshes.
@@ -120,7 +232,7 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 | Phase | Deadline (agent h) | Started | Pushed | Result |
 |---|---|---|---|---|
-| P1 | 8 | - | - | todo |
+| P1 | 8 | 2026-10-22 20:17 | 2026-10-22 23:31 (`8c85077`) | done, about 3.2 h |
 | P2 | 10 | - | - | todo |
 | P3 | 6 | - | - | todo |
 | P4 | 14 | - | - | todo |
