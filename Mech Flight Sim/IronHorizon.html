@@ -578,7 +578,7 @@ const MAPS = {
     weather: { weights: { clear: 5, overcast: 2, storm: 1, sandstorm: 2 }, time: 'day' },
     biome: 'arid', flora: { species: { acacia: 3, deadtree: 2, joshua: 1, burnt: 1, shrub: 3, prickly: 1, grass: 4, flowers: 1 }, forest: 0, groves: 0, meadow: 0.25, scrub: 0.35, block: false },
     fauna: { species: { goat: 3, camel: 2, lizard: 3, fox: 1, boar: 1, vulture: 2, crow: 2, pigeon: 1 }, herds: 8, flocks: 5 },
-    hazards: ['sandstorm', 'wildfire'],
+    hazards: ['sandstorm', 'wildfire'], airport: { level: false },   // the ground stays as missions m1-m8 know it (D17)
   },
   verdant: {
     name: 'Verdant Ridge', desc: 'Forested hills with fuel depots in the valleys.', seed: 4.1, hill: 1.25,
@@ -588,7 +588,7 @@ const MAPS = {
     weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
     biome: 'temperate', flora: { species: { oak: 3, birch: 2, pine: 2, spruce: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, mushrooms: 1 }, forest: 0, groves: 0, meadow: 0.4, scrub: 0.3, block: false },
     fauna: { species: { deer: 3, elk: 1, boar: 2, wolf: 1, fox: 1, bear: 1, rabbit: 2, horse: 1, crow: 2, eagle: 1, pigeon: 1 }, herds: 10, flocks: 6 },
-    hazards: ['wildfire', 'lightning'],
+    hazards: ['wildfire', 'lightning'], airport: { level: false },   // the ground stays as missions m1-m8 know it (D17)
   },
   frost: {
     name: 'Frost Salient', desc: 'Snow-covered flats under a low winter sun.', seed: 8.3, hill: 0.85,
@@ -598,7 +598,7 @@ const MAPS = {
     weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 1 }, time: 'day' },
     biome: 'arctic', flora: { species: { snowpine: 4, spruce: 2, deadtree: 1, shrub: 1, moss: 4, grass: 1 }, forest: 0, groves: 0, meadow: 0.3, scrub: 0.2, block: false },
     fauna: { species: { reindeer: 4, polarbear: 1, wolf: 2, fox: 1, rabbit: 1, crow: 1, eagle: 1 }, herds: 8, flocks: 4 },
-    hazards: ['avalanche'],
+    hazards: ['avalanche'], airport: { level: false },   // the ground stays as missions m1-m8 know it (D17)
   },
   // the Living World battlefields (D23): each with its signature hazards (Hazards)
   coast: {
@@ -827,11 +827,14 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      density: multiplier of every group's size
    hazards: HAZARD_IDS of the battlefield's signature hazards (skirmish brings them; Hazards), [] for none
    lanes: sea lanes for the shipping update (P6), [] for none
-   airport: { x, z, yaw } of a runway (the airports update, P4.5, builds it), or null
+   airport: { level, size } how a battle's airfield is placed (Airports); fields a row leaves out come from MAP_AIRPORT:
+     level false keeps the ground exactly as it is, so an airfield goes only where it is already flat (the original
+     battlefields, D17); size 'strip' never builds the big airport
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
   biome: 'temperate', water: [], roads: [], flora: null, fauna: null, weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
 };
+const MAP_AIRPORT = { level: true, size: '' };
 const MAP_FLORA = { species: null, forest: 0.25, groves: 6, meadow: 0.3, scrub: 0.2, density: 1, block: true };
 const MAP_FAUNA = { species: null, herds: 8, flocks: 5, schools: 6, density: 1 };
 const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
@@ -856,7 +859,8 @@ function mapDef(id) {
   if (def.flora.species) def.flora.species = Object.assign({}, def.flora.species);
   def.fauna = Object.assign({}, MAP_FAUNA, row.fauna);
   if (def.fauna.species) def.fauna.species = Object.assign({}, def.fauna.species);
-  def.water = def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
+  def.airport = Object.assign({}, MAP_AIRPORT, row.airport);
+  def.water =def.water.map((b) => { const type = b.type === 'ocean' ? 'sea' : b.type; return Object.assign({}, WATER_BODY[type], b, { type }); });
   if (row.maxSlope === undefined && !row.mountains && !def.water.length) def.maxSlope = Infinity;
   MAP_DEFS.set(row, def);
   return def;
@@ -2753,7 +2757,8 @@ const Terrain = {
   current: null,   // cache entry of the terrain in use
   build(map, sites) {
     this.map = map;
-    this.sites = sites.map((s) => ({ x: s.x, z: s.z, r: s.r, tag: s.tag || '', h: this.baseHeight(s.x, s.z, map) }));
+    // a box site (hx, hz) brings its own height, and level false leaves the ground under it as it is
+    this.sites = sites.map((s) => (s.hx ? { x: s.x, z: s.z, r: s.r, tag: s.tag || '', h: s.h, hx: s.hx, hz: s.hz, level: s.level !== false } : { x: s.x, z: s.z, r: s.r, tag: s.tag || '', h: this.baseHeight(s.x, s.z, map) }));
     const key = this.cacheKey(map, this.sites);
     let entry = this.cache.find((e) => e.key === key);
     if (!entry) {
@@ -2766,7 +2771,7 @@ const Terrain = {
     Water.load(entry.water);
   },
   cacheKey(map, sites) {
-    return [this.gridKey(map)].concat(sites.map((s) => s.x + ',' + s.z + ',' + s.r + ',' + s.tag)).join('|');
+    return [this.gridKey(map)].concat(sites.map((s) => s.x + ',' + s.z + ',' + s.r + ',' + s.tag + (s.hx ? ',' + s.hx + ',' + s.hz + ',' + s.h + ',' + s.level : ''))).join('|');
   },
   computeTerrain(map, key) {
     const N = this.N, hs = this.heights;
@@ -2797,6 +2802,7 @@ const Terrain = {
     const flat = Float64Array.from(base);   // stays in doubles until the final store, exactly as before
     for (let k = 0; k < this.sites.length; k++) {
       const s = this.sites[k], reach = s.r + SITE_FADE;
+      if (s.hx) { if (s.level) this.flattenBox(s, flat); continue; }
       const i0 = Math.max(0, Math.floor((s.x - reach + WORLD_HALF) / G)), i1 = Math.min(N, Math.ceil((s.x + reach + WORLD_HALF) / G));
       const j0 = Math.max(0, Math.floor((s.z - reach + WORLD_HALF) / G)), j1 = Math.min(N, Math.ceil((s.z + reach + WORLD_HALF) / G));
       for (let j = j0; j <= j1; j++) {
@@ -2808,6 +2814,24 @@ const Terrain = {
       }
     }
     hs.set(flat);
+  },
+  /* a box site (an airfield): height s.h inside the box of half-size hx, hz, fading out over SITE_FADE past its sides */
+  flattenBox(s, flat) {
+    const N = this.N, G = this.G;
+    const i0 = Math.max(0, Math.floor((s.x - s.hx - SITE_FADE + WORLD_HALF) / G)), i1 = Math.min(N, Math.ceil((s.x + s.hx + SITE_FADE + WORLD_HALF) / G));
+    const j0 = Math.max(0, Math.floor((s.z - s.hz - SITE_FADE + WORLD_HALF) / G)), j1 = Math.min(N, Math.ceil((s.z + s.hz + SITE_FADE + WORLD_HALF) / G));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const x = -WORLD_HALF + i * G, z = -WORLD_HALF + j * G, o = j * (N + 1) + i;
+        const d = Math.hypot(Math.max(0, Math.abs(x - s.x) - s.hx), Math.max(0, Math.abs(z - s.z) - s.hz));
+        if (d < SITE_FADE) flat[o] = lerp(s.h, flat[o], smoothstep(0, SITE_FADE, d));
+      }
+    }
+  },
+  /* (x, z) lies on site s (a circle, or a box site's box), widened by pad */
+  inSite(s, x, z, pad) {
+    if (s.hx) return Math.abs(x - s.x) < s.hx + pad && Math.abs(z - s.z) < s.hz + pad;
+    return Math.hypot(x - s.x, z - s.z) < s.r + pad;
   },
   /* upper bound of Terrain.h around (x, z): the max height of its tile */
   maxAt(x, z) {
@@ -4136,6 +4160,7 @@ function worldHash() {
   let h = hashFloats(Terrain.heights, WORLD_HASH_STRIDE, FNV_BASIS);
   if (Water.any) h = hashFloats(Water.levels, WORLD_HASH_STRIDE, h);
   h ^= W.structs.length;
+  for (const a of W.airports) if (a.box) h = hashFloats([a.box.x0, a.box.z0, a.box.x1, a.box.z1, a.h], 1, h);   // the airfield in use
   return Math.imul(h, FNV_PRIME) >>> 0;
 }
 /* ---------- roads and bridges (P1.3) ----------
@@ -4158,7 +4183,6 @@ function deckCell(v) { const c = Math.floor((v + WORLD_HALF) / DECK_CELL); retur
 const Roads = {
   /* bridges and the road strip mesh for map def m: deck sections into W.bridges, the strip into W.roadData */
   build(m) {
-    if (!m.roads.length) return;
     const verts = [];
     for (const road of m.roads) {
       const pts = this.samples(road.pts), bridged = pts.map(() => false);
@@ -4176,8 +4200,12 @@ const Roads = {
         this.bridge(pts[Math.max(0, s - 1)], pts[Math.min(pts.length - 1, e + 1)], level, road.w);
         k = e;
       }
-      for (let k = 0; k + 1 < pts.length; k++) if (!bridged[k] && !bridged[k + 1]) this.strip(verts, pts[k], pts[k + 1], road.w);
+      for (let k = 0; k + 1 < pts.length; k++) {
+        if (bridged[k] || bridged[k + 1] || Airports.covers(pts[k].x, pts[k].z) || Airports.covers(pts[k + 1].x, pts[k + 1].z)) continue;   // a road ends at an airfield's edge
+        this.strip(verts, pts[k], pts[k + 1], road.w);
+      }
     }
+    for (const ap of W.airports) Airports.strips(verts, ap);   // runways, taxiways and aprons share the road mesh
     W.roadData = verts.length ? new Float32Array(verts) : null;
     W.deckCells = this.deckGrid(W.bridges);
   },
@@ -4254,7 +4282,7 @@ function populateWorld(cfg) {
   const keepOut = (cfg.keepOut || []).concat([{ x: cfg.start.x, z: cfg.start.z, r: 55 }]);
   const free = (x, z, rad) => {
     if (Math.abs(x) > 880 || Math.abs(z) > 880) return false;
-    for (const k of keepOut) if (Math.hypot(x - k.x, z - k.z) < k.r + rad) return false;
+    for (const k of keepOut) if (k.hx ? Math.abs(x - k.x) < k.hx + rad && Math.abs(z - k.z) < k.hz + rad : Math.hypot(x - k.x, z - k.z) < k.r + rad) return false;   // circles, and an airfield's box
     if (Roads.near(x, z, rad + ROAD_KEEP)) return false;
     if (cfg.corridors) for (const c of cfg.corridors) {
       const vx = c.x2 - c.x1, vz = c.z2 - c.z1, l2 = vx * vx + vz * vz || 1;
@@ -4280,7 +4308,7 @@ function populateWorld(cfg) {
   const capBase = W.structs.length;
   // towns near sites
   for (const site of Terrain.sites) {
-    if (site.tag === 'pad' || site.tag === 'open' || site.tag === 'city' || site.tag === 'town' || site.tag === 'base') continue;
+    if (site.tag === 'pad' || site.tag === 'open' || site.tag === 'city' || site.tag === 'town' || site.tag === 'base' || site.tag === 'air') continue;
     const n = Math.round(10 * dens);
     for (let i = 0; i < n * 3 && W.structs.length < capBase + 900; i++) {
       const a = rng() * TAU, r = site.r * (0.5 + rng() * 1.1);
@@ -4974,6 +5002,7 @@ const Flora = {
   /* (x, z) lies clear of every site (bases, cities, mission sites and pads) by r m plus the site padding */
   clearOfSites(x, z, r) {
     for (const s of Terrain.sites) {
+      if (s.hx) { if (Terrain.inSite(s, x, z, SITE_PAD + r)) return false; continue; }   // an airfield's box
       const dx = x - s.x, dz = z - s.z, reach = s.r + SITE_PAD + r;
       if (dx * dx + dz * dz < reach * reach) return false;
     }
@@ -5361,6 +5390,7 @@ function drawWorld(dt) {
     st.push().t(p.x, y + 0.3, p.z).s(10, 0.2, 10); R.draw('cyl', 0.2, 0.7, 0.9, 1, 0.5, 0); st.pop();
     st.push().t(p.x, y + 5, p.z).s(0.3, 10, 0.3); R.draw('box', 0.2, 0.8, 1, 1, 1, 0); st.pop();
   }
+  for (let i = 0; i < W.airports.length; i++) Airports.drawBeacon(W.airports[i], st);   // the apron's supply beacon
   // platforms
   for (let i = 0; i < W.platforms.length; i++) drawPlatformBody(W.platforms[i]);
   Civ.draw();
@@ -5875,6 +5905,7 @@ const TPL = {
   twinTowers: { name: 'Twin Towers', tiers: [[0, 0, 7, 3, 0, 2], [0, 0, 3, 3, 2, 16], [4, 0, 3, 3, 2, 16], [3, 1, 1, 1, 10, 11]], win: 0.8, doors: 3, col: [0.56, 0.6, 0.68], roof: [0.38, 0.4, 0.44] },
   arcology: { name: 'Arcology', tiers: [[0, 0, 8, 6, 0, 3], [1, 1, 6, 4, 3, 7], [2, 1, 4, 4, 7, 11], [3, 2, 2, 2, 11, 15]], win: 0.7, doors: 4, col: [0.68, 0.66, 0.6], roof: [0.4, 0.42, 0.36] },
   factoryComplex: { name: 'Factory Complex', tiers: [[0, 0, 7, 4, 0, 1], [0, 0, 3, 4, 1, 2]], fh: 7, win: 0.25, doors: 4, hp: 1.4, wallT: 0.6, col: [0.5, 0.5, 0.47], roof: [0.34, 0.35, 0.34] },
+  controlTower: { name: 'Control Tower', tiers: [[0, 0, 2, 2, 0, 8]], win: 0.45, doors: 1, hp: 1.6, col: [0.66, 0.66, 0.64], roof: [0.4, 0.42, 0.44] },   // an airport's (Airports)
 };
 /* footprint of a template in metres: [x size, z size] */
 function tplSize(id) {
@@ -6484,6 +6515,7 @@ const Scenery = {
     const fits = (c, deg) => !!SCENERY[def.map] || this.flatFor(def.map, c, deg);
     const lay = { cities: fits(s.city, SITE_MAX_SLOPE) ? [Object.assign({ kind: 'city' }, s.city)] : [], bases: fits(s.base, BASE_MAX_SLOPE) ? [Object.assign({ style: 'outpost', team: 1 }, s.base)] : [] };
     this.addTowns(def.map, lay, def.sites, def.corridors);
+    lay.airport = Airports.find(def.map, lay, def.sites, def.corridors);   // after the towns: a mission keeps every one
     const d = withDistrict && def.start ? this.startDistrict(def, lay) : null;
     if (d) lay.cities.push(d);
     return lay;
@@ -6514,6 +6546,7 @@ const Scenery = {
     for (const s of sites) if (Math.hypot(c.x - s.x, c.z - s.z) < s.r + c.r + SCENERY_SITE_GAP) return false;
     for (const k of lay.cities.concat(lay.bases)) if (Math.hypot(c.x - k.x, c.z - k.z) < k.r + c.r + SCENERY_GAP) return false;
     for (const q of corridors || []) if (segDist(c.x, c.z, q) < q.w + c.r + SCENERY_GAP) return false;
+    if (lay.airport && Airports.gap(lay.airport, c.x, c.z) < c.r + SITE_PAD + SITE_FADE) return false;   // the airfield's levelling never reaches into a town
     return true;
   },
   /* c { x, z, r } is gentle, dry enough ground for a city or base on battlefield mapId (maps without mountains or water
@@ -6523,10 +6556,14 @@ const Scenery = {
     return Water.siteDry(md, c.x, c.z, r + SITE_FADE) && (!Terrain.hasRelief(md) || Terrain.siteFlat(md, c.x, c.z, r, maxDeg));   // the cheap test first
   },
   sitesFor(lay) {
-    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + SITE_PAD, tag: c.style ? 'base' : c.kind === 'village' ? 'town' : 'city' }));   // a village keeps its ground colour
+    const out = lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + SITE_PAD, tag: c.style ? 'base' : c.kind === 'village' ? 'town' : 'city' }));   // a village keeps its ground colour
+    if (lay.airport) out.push(Airports.site(lay.airport));   // last, so its runway stays level
+    return out;
   },
   keepOutFor(lay) {
-    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 10 }));
+    const out = lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 10 }));
+    if (lay.airport) out.push(Airports.keepOut(lay.airport));
+    return out;
   },
   /* builds every city and base of the layout; dens is the destruction level's density (districts use it for their budget) */
   build(lay, seed, mapId, dens) {
@@ -6535,6 +6572,7 @@ const Scenery = {
     const rng = makeRng(h);
     for (const c of lay.cities) { if (c.kind === 'city') this.city(c, rng); else this.district(c, rng, dens === undefined ? 1 : dens); }
     for (const c of lay.bases) { if (c.style === 'fort') this.fort(c, rng); else this.base(c, rng); }
+    if (lay.airport) Airports.build(lay.airport, rng);
   },
   city(c, rng) {
     const step = 52;
@@ -6671,6 +6709,239 @@ const Scenery = {
       spawnGroup(c.garrison, y.x, y.z, { team: c.team, radius: 24 }).forEach((u) => { u.garrison = true; out.push(u); });
     }
     return out;
+  },
+};
+
+/* ---------------------------------------------------------------------
+   Airfields: airports and airstrips (P4.5, D27)
+   A battle's layout may hold one airfield on the flattest ground its bases, districts and sites leave free: an airport
+   (a 900 m runway, a taxiway, an apron, a terminal, a control tower, hangars and fuel tanks) where one fits, else a
+   500 m strip (a runway, an apron, a hangar, a mast and two tanks). Runways run along x or z, so the buildings stay
+   axis-aligned like every other lot; a skirmish lays its bases and towns round it, a mission keeps its towns and the
+   airfield takes the ground they leave, and roads end at its edge. One box site
+   levels its ground (Terrain.flattenBox); a battlefield whose ground must not change (airport.level false: the
+   original ones) gets one only where the ground is already flat. The tanks are fuel structures, so they burn and leak
+   gas like any other (HZ_GAS_SOURCES). Aircraft still land anywhere with the gear down; stopping on the apron
+   resupplies like a supply pad, and a lost aircraft comes back at the head of the runway (respawnSite). Built from the
+   layout alone, so co-op guests build the same airfield.
+   --------------------------------------------------------------------- */
+/* each kind's parts in metres, u along the runway and v across it toward the buildings: boxes are [u0, u1, v0, v1],
+   buildings [template, u, v, name] */
+const AIRFIELD = {
+  airport: {
+    name: 'Airport', box: [-465, 465, -40, 220], runway: [-450, 450, -22.5, 22.5], apron: [-160, 160, 80, 160],
+    taxi: [[-390, 390, 62, 80], [-399, -381, 22.5, 62], [-9, 9, 22.5, 62], [381, 399, 22.5, 62]],
+    blds: [['hangar', -130, 183, 'Hangar'], ['hangar', -90, 183, 'Hangar'], ['hangar', -50, 183, 'Hangar'], ['mall', 40, 190, 'Terminal'], ['controlTower', 125, 178, 'Control Tower']],
+    fuel: [[185, 176], [200, 176], [185, 191], [200, 191]], mast: null,
+  },
+  strip: {
+    name: 'Airstrip', box: [-265, 265, -30, 104], runway: [-250, 250, -15, 15], apron: [-60, 60, 15, 65],
+    taxi: [], blds: [['hangar', -30, 84, 'Hangar']], fuel: [[25, 76], [37, 76]], mast: [55, 76],
+  },
+};
+const AIRFIELD_KINDS = ['airport', 'strip'];   // tried in this order
+const AIRFIELD_STEP = 24;          // spacing of the spots tried for an airfield's middle (m)
+const AIRFIELD_OUTER = 420;        // a home airfield's runway lies at least this far off the middle of the battlefield where it can (m)
+const AIRFIELD_HOMES = 8;          // home airfields offered to a skirmish's bases, best first
+const AIRFIELD_HOME_GAP = 240;     // and their middles at least this far apart (m)
+const AIRFIELD_SAMPLE = 5;         // ground cells between the heights sampled over a levelled airfield's box
+const AIRFIELD_CUT = 10;           // most a levelled airfield's ground may span from its lowest to its highest point (m)
+const AIRFIELD_FLAT = 0.5;         // most a runway on ground left as it is may rise along its length (m)
+const AIRFIELD_LIFT = ROAD_LIFT, AIRFIELD_MARK_LIFT = 0.08;   // surfaces lie this far over the ground, markings this far over them (m)
+const AIRFIELD_CELL = 16;          // surfaces are cut into squares at most this big, following the drawn ground (m)
+const AIRFIELD_COL = { runway: [0.16, 0.16, 0.17], taxi: [0.22, 0.22, 0.23], apron: [0.42, 0.42, 0.4], mark: [0.86, 0.86, 0.82], line: [0.8, 0.66, 0.16] };
+const AIRFIELD_DASH = [30, 60];    // runway centre-line dashes: length and spacing (m)
+const AIRFIELD_SPAWN = 50;         // a lost aircraft comes back this far in from the runway's end (m)
+const AIRFIELD_STOP = 1.5;         // an aircraft on the apron slower than this has stopped (m/s)
+const AIRFIELD_SPOTS = new WeakMap();   // the airfield spots of each battlefield def, flattest first
+const Airports = {
+  /* The battle's airfield { kind, x, z, axis, side, h, range, level }: the battlefield's own (home) where it keeps
+     clear of the layout so far, the sites, the corridors and the water, else the flattest spot that does; null where
+     none fits. A skirmish lays its bases and districts round the home airfield instead (skirmishLayout). */
+  find(mapId, lay, sites, corridors) {
+    const m = mapDef(mapId), home = this.home(mapId);
+    if (home && this.fits(m, home, lay, sites, corridors)) return home;
+    return this.first(m, lay, sites, corridors, false);
+  },
+  /* the battlefield's home airfield: the flattest spot on its empty ground, out toward an edge where one fits */
+  home(mapId) { return this.homes(mapId)[0] || null; },
+  /* up to AIRFIELD_HOMES home airfields far apart, best first (skirmishLayout takes the first its bases can live with) */
+  homes(mapId) {
+    const m = mapDef(mapId), s = this.spots(m), none = { cities: [], bases: [] };
+    if (s.homes) return s.homes;
+    s.homes = [];
+    for (const kind of AIRFIELD_KINDS) {
+      if (kind === 'airport' && m.airport.size === 'strip') continue;
+      for (const outer of [true, false]) {
+        for (const a of s[kind]) {
+          if (s.homes.length >= AIRFIELD_HOMES) break;
+          if (outer && Math.abs(a.axis ? a.z : a.x) < AIRFIELD_OUTER) continue;
+          if (s.homes.some((q) => Math.hypot(q.x - a.x, q.z - a.z) < AIRFIELD_HOME_GAP) || !this.fits(m, a, none, [], null)) continue;
+          s.homes.push(Object.assign({ level: m.airport.level }, a));
+        }
+      }
+    }
+    return s.homes;
+  },
+  /* the flattest spot of the biggest kind that fits (the airport before the strip); outer: only spots out toward an edge */
+  first(m, lay, sites, corridors, outer) {
+    const spots = this.spots(m);
+    for (const kind of AIRFIELD_KINDS) {
+      if (kind === 'airport' && m.airport.size === 'strip') continue;
+      for (const a of spots[kind]) if ((!outer || Math.abs(a.axis ? a.z : a.x) >= AIRFIELD_OUTER) && this.fits(m, a, lay, sites, corridors)) return Object.assign({ level: m.airport.level }, a);
+    }
+    return null;
+  },
+  /* every spot of map def m whose ground suits each kind, flattest first (scanned once per def) */
+  spots(m) {
+    let s = AIRFIELD_SPOTS.get(m);
+    if (s) return s;
+    s = { homes: null };
+    for (const kind of AIRFIELD_KINDS) s[kind] = this.scan(m, kind);
+    AIRFIELD_SPOTS.set(m, s);
+    return s;
+  },
+  /* Spots for kind on the unflattened ground: the footprint inside the battlefield, its sampled heights within
+     AIRFIELD_CUT of each other and dry; on ground left as it is, every height along the runway within AIRFIELD_FLAT. */
+  scan(m, kind) {
+    const spec = AIRFIELD[kind], level = m.airport.level, grid = Terrain.baseGrid(m), N = Terrain.N, G = Terrain.G;
+    const wet = m.water.length ? Terrain.baseWater[Terrain.gridKey(m)].levels : null;
+    const area = level ? spec.box : spec.runway, step = level ? AIRFIELD_SAMPLE : 1, lim = level ? AIRFIELD_CUT : AIRFIELD_FLAT, out = [];
+    for (let axis = 0; axis < 2; axis++) for (let side = -1; side <= 1; side += 2) {
+      for (let x = -SCENERY_EDGE; x <= SCENERY_EDGE; x += AIRFIELD_STEP) for (let z = -SCENERY_EDGE; z <= SCENERY_EDGE; z += AIRFIELD_STEP) {
+        const a = { kind, x, z, axis, side, h: 0, range: 0 }, b = this.box(a, spec.box);
+        if (b.x0 < -SCENERY_EDGE || b.x1 > SCENERY_EDGE || b.z0 < -SCENERY_EDGE || b.z1 > SCENERY_EDGE) continue;
+        const r = this.box(a, area);
+        const i0 = Math.ceil((r.x0 + WORLD_HALF) / G), i1 = Math.floor((r.x1 + WORLD_HALF) / G), j0 = Math.ceil((r.z0 + WORLD_HALF) / G), j1 = Math.floor((r.z1 + WORLD_HALF) / G);
+        let lo = Infinity, hi = -Infinity, ok = true;
+        for (let j = j0; j <= j1 && ok; j += step) {
+          for (let i = i0; i <= i1; i += step) {
+            const o = j * (N + 1) + i, h = grid[o];
+            if (h < lo) lo = h;
+            if (h > hi) hi = h;
+            if (hi - lo > lim || (wet && wet[o] > -Infinity)) { ok = false; break; }
+          }
+        }
+        if (!ok) continue;
+        a.h = (lo + hi) / 2; a.range = hi - lo;
+        out.push(a);
+      }
+    }
+    return out.sort((p, q) => p.range - q.range);
+  },
+  /* spot a keeps clear of the layout, the sites and the corridors (its levelling never reaches theirs) and stands on
+     dry ground out to the end of its fade */
+  fits(m, a, lay, sites, corridors) {
+    const b = this.box(a, AIRFIELD[a.kind].box);
+    for (const s of sites) if (this.boxGap(b, s.x, s.z) < s.r + SITE_FADE) return false;
+    for (const c of lay.cities.concat(lay.bases)) if (this.boxGap(b, c.x, c.z) < c.r + SITE_PAD + SITE_FADE) return false;
+    for (const q of corridors || []) {
+      const n = Math.ceil(Math.hypot(q.x2 - q.x1, q.z2 - q.z1) / 10);
+      for (let k = 0; k <= n; k++) if (this.boxGap(b, lerp(q.x1, q.x2, k / n), lerp(q.z1, q.z2, k / n)) < q.w + SCENERY_GAP) return false;
+    }
+    return this.dry(m, b);
+  },
+  dry(m, b) {
+    if (!m.water.length) return true;
+    Terrain.baseGrid(m);   // builds the water too when the grids were dropped since the spots were scanned
+    const w = Terrain.baseWater[Terrain.gridKey(m)].levels, N = Terrain.N, G = Terrain.G;
+    const i0 = Math.max(0, Math.floor((b.x0 - SITE_FADE + WORLD_HALF) / G)), i1 = Math.min(N, Math.ceil((b.x1 + SITE_FADE + WORLD_HALF) / G));
+    const j0 = Math.max(0, Math.floor((b.z0 - SITE_FADE + WORLD_HALF) / G)), j1 = Math.min(N, Math.ceil((b.z1 + SITE_FADE + WORLD_HALF) / G));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (w[j * (N + 1) + i] > -Infinity) return false;
+    return true;
+  },
+  /* world spot of (u, v) on airfield a: its runway runs along z (axis 0) or x (axis 1), its buildings on side v > 0 */
+  at(a, u, v) { return a.axis ? { x: a.x + u, z: a.z - v * a.side } : { x: a.x + v * a.side, z: a.z + u }; },
+  /* the world box { x0, x1, z0, z1 } of local box q [u0, u1, v0, v1] on airfield a */
+  box(a, q) {
+    const p = this.at(a, q[0], q[2]), r = this.at(a, q[1], q[3]);
+    return { x0: Math.min(p.x, r.x), x1: Math.max(p.x, r.x), z0: Math.min(p.z, r.z), z1: Math.max(p.z, r.z) };
+  },
+  boxGap(b, x, z) { return Math.hypot(Math.max(0, b.x0 - x, x - b.x1), Math.max(0, b.z0 - z, z - b.z1)); },
+  /* how far (x, z) lies from airfield a's footprint (0 on it) */
+  gap(a, x, z) { return this.boxGap(this.box(a, AIRFIELD[a.kind].box), x, z); },
+  /* the box site under the footprint: it levels the ground, or only keeps plants and animals off on ground left as it is */
+  site(a) {
+    const b = this.box(a, AIRFIELD[a.kind].box), hx = (b.x1 - b.x0) / 2, hz = (b.z1 - b.z0) / 2;
+    return { x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, r: Math.hypot(hx, hz), hx, hz, h: a.h, tag: 'air', level: a.level };
+  },
+  /* the footprint kept free of scattered props (populateWorld) */
+  keepOut(a) { const s = this.site(a); return { x: s.x, z: s.z, r: s.r, hx: s.hx, hz: s.hz }; },
+  /* the battle's W.airports entry: where a lost aircraft comes back (x, z, yaw: the head of the runway) and the boxes the game reads */
+  entry(a) {
+    const spec = AIRFIELD[a.kind], p = this.at(a, spec.runway[0] + AIRFIELD_SPAWN, 0);
+    return { kind: a.kind, name: spec.name, x: p.x, z: p.z, yaw: a.axis ? PI / 2 : 0, h: a.h, spot: a, box: this.box(a, spec.box), runway: this.box(a, spec.runway), apron: this.box(a, spec.apron) };
+  },
+  /* the buildings, the fuel tanks and the mast (the surfaces are drawn with the roads: strips) */
+  build(a, rng) {
+    const spec = AIRFIELD[a.kind];
+    for (const q of spec.blds) { const p = this.at(a, q[1], q[2]); Bld.make(q[0], p.x, p.z, rng, q[3]); }
+    for (const q of spec.fuel) { const p = this.at(a, q[0], q[1]); Scenery.put('fuel', p.x, p.z, {}); }
+    if (spec.mast) { const p = this.at(a, spec.mast[0], spec.mast[1]); Scenery.put('tower', p.x, p.z, {}); }
+  },
+  /* the runway, taxiways, apron and their markings, into the road mesh's vertices */
+  strips(out, ap) {
+    const a = ap.spot;
+    if (!a) return;
+    const spec = AIRFIELD[a.kind], C = AIRFIELD_COL, rw = spec.runway, half = rw[3], mk = AIRFIELD_LIFT + AIRFIELD_MARK_LIFT;
+    this.quad(out, a, rw, C.runway, AIRFIELD_LIFT);
+    for (const q of spec.taxi) this.quad(out, a, q, C.taxi, AIRFIELD_LIFT);
+    this.quad(out, a, spec.apron, C.apron, AIRFIELD_LIFT);
+    for (let u = rw[0] + 2 * AIRFIELD_DASH[1]; u + AIRFIELD_DASH[0] <= rw[1] - 2 * AIRFIELD_DASH[1]; u += AIRFIELD_DASH[1]) this.quad(out, a, [u, u + AIRFIELD_DASH[0], -0.45, 0.45], C.mark, mk);   // centre line
+    for (let s = -1; s <= 1; s += 2) this.quad(out, a, [rw[0] + 4, rw[1] - 4, s * (half - 2.4), s * (half - 1.6)], C.mark, mk);   // side stripes
+    const bars = half > 20 ? 8 : 6, gapV = (2 * half - 6) / bars;
+    for (let k = 0; k < bars; k++) {   // threshold bars at both ends
+      const v0 = -half + 3 + k * gapV + (gapV - 1.8) / 2;
+      this.quad(out, a, [rw[0] + 6, rw[0] + 36, v0, v0 + 1.8], C.mark, mk);
+      this.quad(out, a, [rw[1] - 36, rw[1] - 6, v0, v0 + 1.8], C.mark, mk);
+    }
+    if (spec.taxi.length) { const t = spec.taxi[0], v = (t[2] + t[3]) / 2; this.quad(out, a, [t[0], t[1], v - 0.25, v + 0.25], C.line, mk); }   // taxiway centre line
+    const ap2 = spec.apron;   // apron edge lines
+    this.quad(out, a, [ap2[0] + 1, ap2[1] - 1, ap2[3] - 1.5, ap2[3] - 1], C.line, mk);
+    this.quad(out, a, [ap2[0] + 1, ap2[0] + 1.5, ap2[2] + 1, ap2[3] - 1], C.line, mk);
+    this.quad(out, a, [ap2[1] - 1.5, ap2[1] - 1, ap2[2] + 1, ap2[3] - 1], C.line, mk);
+  },
+  /* local box q of airfield a as squares that follow the drawn ground, lift m over it, facing up */
+  quad(out, a, q, col, lift) {
+    const b = this.box(a, q), nx = Math.max(1, Math.ceil((b.x1 - b.x0) / AIRFIELD_CELL)), nz = Math.max(1, Math.ceil((b.z1 - b.z0) / AIRFIELD_CELL));
+    const y = (x, z) => Math.max(Terrain.h(x, z), Terrain.meshH(x, z)) + lift;
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const x0 = lerp(b.x0, b.x1, i / nx), x1 = lerp(b.x0, b.x1, (i + 1) / nx), z0 = lerp(b.z0, b.z1, j / nz), z1 = lerp(b.z0, b.z1, (j + 1) / nz);
+        const ya = y(x0, z0), yb = y(x1, z0), yc = y(x0, z1), yd = y(x1, z1);
+        out.push(x0, ya, z0, 0, 1, 0, ...col, x0, yc, z1, 0, 1, 0, ...col, x1, yb, z0, 0, 1, 0, ...col);
+        out.push(x1, yb, z0, 0, 1, 0, ...col, x0, yc, z1, 0, 1, 0, ...col, x1, yd, z1, 0, 1, 0, ...col);
+      }
+    }
+  },
+  /* true when (x, z) lies on an airfield of the battle */
+  covers(x, z) {
+    for (let i = 0; i < W.airports.length; i++) { const b = W.airports[i].box; if (b && x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) return true; }
+    return false;
+  },
+  /* the airfield whose apron platform p stands on (an aircraft no higher over it than a pad allows), or null */
+  apronAt(p) {
+    for (let i = 0; i < W.airports.length; i++) {
+      const a = W.airports[i], b = a.apron;
+      if (b && p.x >= b.x0 && p.x <= b.x1 && p.z >= b.z0 && p.z <= b.z1 && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < PAD_MAX_ALT)) return a;
+    }
+    return null;
+  },
+  /* a player's aircraft that stops on an apron is resupplied, once per stop (on the host or in solo play) */
+  service(p) {
+    if (p.speed >= AIRFIELD_STOP || !this.apronAt(p)) { p.apronStop = false; return; }
+    if (p.apronStop || Net.guest) return;
+    p.apronStop = true;
+    if (resupplyNeeded(p, W.mods.scarce ? SCARCE_AMMO : 1)) tryResupply(p);
+  },
+  /* the supply beacon in the middle of an apron */
+  drawBeacon(a, st) {
+    const b = a.apron;
+    if (!b) return;
+    const x = (b.x0 + b.x1) / 2, z = (b.z0 + b.z1) / 2, y = Terrain.h(x, z);
+    if (!R.visible(x, y + 5, z, 8)) return;
+    st.push().t(x, y + 0.3, z).s(10, 0.2, 10); R.draw('cyl', 0.2, 0.7, 0.9, 1, 0.5, 0); st.pop();
+    st.push().t(x, y + 5, z).s(0.3, 10, 0.3); R.draw('box', 0.2, 0.8, 1, 1, 1, 0); st.pop();
   },
 };
 
@@ -8215,7 +8486,7 @@ class Platform {
     this.maxHeat = def.heatCap; this.heat = 0; this.overheated = false;
     this.dead = false; this.invuln = false; this.age = 0;
     this.grounded = this.kind !== 'air'; this.crouch = false; this.stagger = 0; this.jetting = false; this.boosting = false;
-    this.sub = { weapons: 0, mobility: 0, sensors: 0 }; this.subIndex = 0; this.hitFlash = 0; this.recoil = 0; this.meleeT = 0; this.meleeCd = 0;
+    this.sub = { weapons: 0, mobility: 0, sensors: 0 }; this.subIndex = 0; this.hitFlash = 0; this.recoil = 0; this.meleeT = 0; this.meleeCd = 0; this.apronStop = false;
     this.telegraph = 0; this.telegraphColor = 0;
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
     this.gearWish = false; this.crashCd = 0; this.stuckT = 0; this.lastX = this.x; this.lastZ = this.z; this.warn = '';
@@ -8633,6 +8904,7 @@ class Platform {
       else this.y = gh + a.gearH;
     }
     if (this.grounded && !this.gear) this.gear = true;
+    if (this.grounded && this.isPlayer && W.airports.length) Airports.service(this);   // stopped on an apron: resupply (D27)
     // afterburner flame
     if ((this.afterburner || this.throttle > 0.7) && Math.random() < dt * 40) {
       const b = basisFrom(this.yaw, this.pitch, this.roll, TMP_BASIS);
@@ -10480,12 +10752,12 @@ function updatePickups(dt) {
 
 const RESUPPLY_CHARGES = 2;   // pad resupplies per player per mission
 const PAD_RANGE = 22, PAD_MAX_ALT = 40;   // how close (and, for aircraft, how low) a player must be to use a pad
-/* The supply pad the player is close enough to use, or null. */
+/* The supply pad (or airfield apron, D27) the player is close enough to use, or null. */
 function padInRange(pl) {
   for (const pad of W.pads) {
     if (Math.hypot(pad.x - pl.x, pad.z - pl.z) < PAD_RANGE && (pl.kind !== 'air' || pl.y - Terrain.h(pad.x, pad.z) < PAD_MAX_ALT)) return pad;
   }
-  return null;
+  return Airports.apronAt(pl);
 }
 /* Field resupply at a supply pad using the interact action (also used for remote players).
    Each player has their own charges: the local player's on W, a co-op guest's on their peer. */
@@ -16933,17 +17205,32 @@ const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, 
 /* Seeded battle layout: our base and the enemy base on roughly opposite sides of the map, a district beside each and a
    mega-district off the line between them. Bases face each other; the player starts in the yard of ours. */
 function skirmishLayout(cfg) {
-  const rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
   const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
-  // on a mountain map bases and districts also need gentle ground (maps without mountains keep their old layouts)
-  const relief = Terrain.hasRelief(mapDef(cfg.map)), flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg);
-  const tries = mapDef(cfg.map).water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
-  let own = null, foe = null;
-  for (let k = 0; k < tries && !foe; k++) {
-    const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
-    const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
-    const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1, r: FORT.r }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2, r: FORT.r };
-    if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
+  // on a mountain map bases and districts also need gentle ground (maps without mountains keep their old layouts), and
+  // they keep clear of the battlefield's airfield (Airports: its levelling never reaches theirs)
+  const m = mapDef(cfg.map), relief = Terrain.hasRelief(m);
+  const homes = Airports.homes(cfg.map);
+  let field = homes[0] || null;
+  const flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg) && (!field || Airports.gap(field, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE);
+  const tries = m.water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
+  let rng = null, own = null, foe = null;
+  const seeded = () => {
+    rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
+    for (let k = 0; k < tries && !foe; k++) {
+      const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
+      const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
+      const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1, r: FORT.r }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2, r: FORT.r };
+      if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
+    }
+  };
+  seeded();
+  // where the home airfield leaves no seeded base pair the next one is tried; where none does, the bases go where they
+  // would without one and the airfield takes the flattest spot they leave free (or none)
+  for (let k = 1; k < homes.length && !foe; k++) { field = homes[k]; seeded(); }
+  if (!foe && field) {
+    field = null;
+    seeded();
+    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe] }, [], null, false);
   }
   const fallback = !foe;
   // out of seeded tries: the first pair of opposite spots on the ring that fits, else the fixed pair (never needed on
@@ -16953,11 +17240,12 @@ function skirmishLayout(cfg) {
     const o = { x: Math.cos(a) * r, z: Math.sin(a) * r, r: FORT.r }, e = { x: -o.x, z: -o.z, r: FORT.r };
     if (flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
   }
-  if (!foe) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }
+  const fixedPair = !foe;
+  if (fixedPair) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }
   const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
   const ownBase = { x: own.x, z: own.z, r: FORT.r, style: 'fort', team: 0, face, guns: SKIRMISH_OWN_FORT.guns, aa: SKIRMISH_OWN_FORT.aa, garrison: [] };
   const foeBase = { x: foe.x, z: foe.z, r: FORT.r, style: 'fort', team: 1, face: face + PI, guns: diff.guns, aa: diff.aa, garrison: SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran };
-  const lay = { cities: [], bases: [ownBase, foeBase] };
+  const lay = { cities: [], bases: [ownBase, foeBase], airport: fixedPair ? null : field };   // the fixed fallback pair may stand on it
   const st = Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]);
   const start = { x: st.x, z: st.z, yaw: face };
   const sites = [{ x: start.x, z: start.z, r: 34, tag: 'pad' }];
@@ -16979,7 +17267,7 @@ function skirmishLayout(cfg) {
   const sc = SCENERY[cfg.map];
   if (sc && sc.city.kind === 'mega' && !lay.cities.some((c) => c.kind === 'mega')) {
     const c = Object.assign({}, sc.city);
-    if (Scenery.clearSpot(c, sites, null, lay) && Scenery.flatFor(cfg.map, c, SITE_MAX_SLOPE)) lay.cities.push(c);
+    if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) lay.cities.push(c);
   }
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
   return { lay, start, sites, own: ownBase, foe: foeBase, fallback };
@@ -17431,6 +17719,7 @@ const Game = {
     if (sk) seed = sk.seed;
     const lay = Scenery.layoutFor(def, cfg.mode === 'mission');   // the same on co-op guests: it depends on the mission only
     newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(lay)), difficulty: cfg.difficulty || S.difficulty, mods, env: cfg.env, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
+    if (lay.airport) W.airports.push(Airports.entry(lay.airport));   // before populateWorld lays the roads and runways
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
@@ -17473,7 +17762,7 @@ const Game = {
     const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z, yaw = atPos && atPos.yaw !== undefined ? atPos.yaw : st.yaw;
     // in co-op the host's platform carries the pilot name everyone else sees; it reads as YOU only on screen
     const p = new Platform(def, { team: 0, x, z, yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
-    if (def.kind === 'air' && atPos && atPos.parked) Seats.groundAir(p);   // at an airport: on the apron
+    if (def.kind === 'air' && atPos && atPos.parked) Seats.groundAir(p);   // at an airfield: at the head of its runway
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
@@ -19024,7 +19313,7 @@ const SelfTest = {
         if (s !== p.s && s.type !== 'tree' && Math.abs(p.x - s.x) < s.hx && Math.abs(p.z - s.z) < s.hz) { fault('building', p); break; }
       }
       if (Roads.near(p.x, p.z, 1)) fault('road', p);
-      if (Terrain.sites.some((s) => Math.hypot(p.x - s.x, p.z - s.z) < s.r)) fault('site', p);
+      if (Terrain.sites.some((s) => Terrain.inSite(s, p.x, p.z, 0))) fault('site', p);
       if (sp.water === 'dry' ? depth > 0 : sp.water === 'shallow' ? depth < FLORA_SHALLOW[0] || depth > FLORA_SHALLOW[1] : depth > sp.deep) fault('water', p);
       if (sp.water !== 'dry' && !(depth > 0 || Flora.nearWater(p.x, p.z))) fault('dry', p);
     }
@@ -19341,7 +19630,7 @@ const SelfTest = {
       this.check('tile max height is never below the terrain', worst <= 0, 'exceeded by ' + worst);
     });
     t('terrain cache', () => {
-      const prevMap = Terrain.map, prevSites = Terrain.sites.map((s) => ({ x: s.x, z: s.z, r: s.r, tag: s.tag }));
+      const prevMap = Terrain.map, prevSites = Terrain.sites.map((s) => Object.assign({}, s));   // box sites keep their box and height
       const sitesA = [{ x: 100, z: -60, r: 90, tag: 'city' }, { x: -300, z: 200, r: 40, tag: 'pad' }];
       Terrain.build(MAPS.verdant, sitesA);
       // reference: the plain per-point formula, every site tested at every grid point
@@ -21592,7 +21881,7 @@ const SelfTest = {
       this.check('a metro skirmish has a mega-city in most battles', megas >= 10, megas + ' of 20');
       for (const id of newMaps) {
         const m = MAPS[id], md = mapDef(id), sc = SCENERY[id];
-        this.check('battlefield ' + id + ' has a name, a known biome, a description and known hazards', MAP_ID_RE.test(id) && !!m.name && !!m.desc && !!BIOME_NAMES[md.biome] && md.hazards.length > 0 && md.hazards.every((h) => HAZARD_IDS.indexOf(h) >= 0) && Array.isArray(md.lanes) && md.airport === null, md.biome + ' ' + md.hazards);
+        this.check('battlefield ' + id + ' has a name, a known biome, a description and known hazards', MAP_ID_RE.test(id) && !!m.name && !!m.desc && !!BIOME_NAMES[md.biome] && md.hazards.length > 0 && md.hazards.every((h) => HAZARD_IDS.indexOf(h) >= 0) && Array.isArray(md.lanes) && md.airport.level === true, md.biome + ' ' + md.hazards);
         // mission scenery is trusted as written: every site must be dry and gentle, levelled ground included
         const fits = (c, deg) => Water.siteDry(md, c.x, c.z, c.r + SITE_PAD + SITE_FADE) && Terrain.siteFlat(md, c.x, c.z, c.r + SITE_PAD, deg);
         const bad = sc ? [['city', sc.city, SITE_MAX_SLOPE], ['base', sc.base, BASE_MAX_SLOPE]].concat((sc.towns || []).map((c, k) => ['town ' + k, c, SITE_MAX_SLOPE])).filter((e) => !fits(e[1], e[2])).map((e) => e[0]) : ['no scenery'];
@@ -22392,6 +22681,87 @@ const SelfTest = {
       } finally {
         Net.host = saved.host; Net.guest = saved.guest; Net.inSession = saved.inSession; Net.peers = saved.peers; Net.map = saved.map; Net.pendEdge = saved.pend; Net.pendCtl = saved.pendCtl; Net.t = saved.t;
       }
+    });
+    const fieldMaps = Object.keys(MAPS).filter((id) => !TERRAIN_GOLDEN[id] && !mapDef(id).hidden);
+    const airfieldSweep = { bad: [], always: [], metroAirports: 0 };
+    // 3 skirmish layouts of each battlefield in ids: their airfields and the ground the terrain levels under them
+    const sweepAirfields = (ids) => {
+      const prevMap = Terrain.map, prevSites = Terrain.sites.map((s) => Object.assign({}, s));
+      const bad = airfieldSweep.bad, always = airfieldSweep.always;
+      try {
+        for (const id of ids) {
+          let got = 0;
+          for (const seed of [1, 2, 3]) {
+            const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed, random: false })), a = L.lay.airport;
+            if (!a) continue;
+            got++;
+            if (id === 'metro' && a.kind === 'airport') airfieldSweep.metroAirports++;
+            const spec = AIRFIELD[a.kind], b = Airports.box(a, spec.box), rw = Airports.box(a, spec.runway), tag = id + ' ' + seed;
+            if (b.x0 < -SCENERY_EDGE || b.x1 > SCENERY_EDGE || b.z0 < -SCENERY_EDGE || b.z1 > SCENERY_EDGE) bad.push(tag + ' outside the map');
+            if (L.lay.cities.concat(L.lay.bases).some((c) => Airports.boxGap(b, c.x, c.z) < c.r + SITE_PAD + SITE_FADE)) bad.push(tag + ' on a base or district');
+            if (L.sites.some((s) => Airports.boxGap(b, s.x, s.z) < s.r + SITE_FADE)) bad.push(tag + ' on a site');
+            Terrain.build(mapDef(id), L.sites.concat(Scenery.sitesFor(L.lay)));
+            let lo = Infinity, hi = -Infinity, wet = false;
+            for (let x = rw.x0; x <= rw.x1; x += 4) {
+              for (let z = rw.z0; z <= rw.z1; z += 4) {
+                const h = Terrain.h(x, z);
+                lo = Math.min(lo, h); hi = Math.max(hi, h);
+                if (Water.level(x, z) > h - 0.5) wet = true;
+              }
+            }
+            if (hi - lo >= 0.5) bad.push(tag + ' runway rises ' + (hi - lo).toFixed(2) + ' m');
+            if (wet) bad.push(tag + ' runway wet');
+          }
+          if (got === 3) always.push(id);
+        }
+      } finally { Terrain.build(prevMap, prevSites); }
+    };
+    // each half of the new battlefields in its own block (a terrain build per layout)
+    for (const half of [fieldMaps.slice(0, fieldMaps.length / 2), fieldMaps.slice(fieldMaps.length / 2)]) {
+      t('airfields: layouts and ground on ' + half.join(', '), () => {
+        if (half[0] === fieldMaps[0]) this.check('the original battlefields have no airfield spot, so missions m1-m8 and their skirmishes keep their ground (D17)', Object.keys(TERRAIN_GOLDEN).every((id) => { const s = Airports.spots(mapDef(id)); return !s.airport.length && !s.strip.length; }) && MISSIONS.slice(0, 8).every((m) => !Scenery.layoutFor(m, true).airport));
+        const bad = airfieldSweep.bad, always = airfieldSweep.always;
+        bad.length = always.length = airfieldSweep.metroAirports = 0;
+        sweepAirfields(half);
+        this.check('an airfield lies inside the battlefield, clear of the bases, districts and sites, its runway level within 0.5 m and dry (3 seeds per map)', bad.length === 0, bad.slice(0, 4).join('; '));
+        this.check('most battlefields get an airfield in every battle (the island one and the mountain one rarely do)', always.length >= half.length - 2, always.join(','));
+        if (half.indexOf('metro') >= 0) this.check('Megacity Metro gets the big airport in every battle', airfieldSweep.metroAirports === 3);
+      });
+    }
+    t('airfields: in the world', () => {
+      const airId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'air');
+      Game.startSession({ mode: 'skirmish', platformId: airId, loadout: Loadout.forPlatform(airId), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: 2, random: false, support: 'none' }) });
+      const ap = W.airports[0];
+      this.check('a metro battle has its airport in the world', W.airports.length === 1 && ap.kind === 'airport' && ap.runway.x1 - ap.runway.x0 + ap.runway.z1 - ap.runway.z0 === 945);
+      if (!ap) return;
+      const rw = ap.runway, onRunway = (x, z, hx, hz) => x + hx > rw.x0 && x - hx < rw.x1 && z + hz > rw.z0 && z - hz < rw.z1;
+      const blocked = W.structs.filter((s) => !s.destroyed && onRunway(s.x, s.z, s.hx || 0, s.hz || 0)).length + W.plain.filter((s) => onRunway(s.x, s.z, 0, 0)).length;
+      const plants = this.allPlants().filter((p) => onRunway(p.x, p.z, 0, 0)).length;
+      const fuel = W.structs.filter((s) => s.type === 'fuel' && Airports.boxGap(ap.box, s.x, s.z) === 0).length;
+      const ctr = (b) => ({ x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2 });
+      const rc = ctr(rw);
+      this.check('nothing stands or grows on the runway, the fuel tanks stand by the apron and the world hash covers the airfield', blocked === 0 && plants === 0 && fuel === AIRFIELD.airport.fuel.length && worldHash() !== (() => { const keep = W.airports; W.airports = []; const h = worldHash(); W.airports = keep; return h; })(), blocked + ' structs, ' + plants + ' plants, ' + fuel + ' tanks');
+      this.check('the airfield\'s apron resupplies like a pad and the runway does not', padInRange({ x: ctr(ap.apron).x, z: ctr(ap.apron).z, y: 0, kind: 'ground' }) === ap && !padInRange({ x: rc.x, z: rc.z, y: 0, kind: 'ground' }));
+      // an approach with the gear coming down by itself: it lands on the apron, stops and is resupplied once
+      const p = W.player, a = p.def.air, sp = ap.spot, c = p.cmd;
+      const along = sp.axis ? 'x' : 'z', across = sp.axis ? 'z' : 'x', apC = ctr(ap.apron);
+      p.controller = null; p.yaw = ap.yaw; p[across] = apC[across]; p[along] = apC[along] - AIRFIELD.airport.apron[1] - 100;   // the runway's yaw points along +x or +z
+      p.y = Terrain.h(p.x, p.z) + a.clearance + 8; p.speed = a.landMax * 0.85; p.pitch = -0.05; p.grounded = false; p.gear = false; p.gearWish = false;
+      c.aimYaw = ap.yaw; c.aimPitch = -0.05; c.throttleSet = 0; c.brake = true;
+      const gun = GUN_SLOTS.map((k) => p.wslots[k]).find((w) => w && w.def.kind !== 'beam');
+      gun.reserve = 0; W.resupplies = 2;
+      let n = 0;
+      for (; n < 900 && !p.dead && !(p.grounded && p.speed < AIRFIELD_STOP); n++) { p.update(STEP); if (p.grounded) c.aimPitch = 0; }
+      for (let k = 0; k < 30 && !p.dead; k++) p.update(STEP);
+      this.check('an aircraft on approach lowers its gear, lands and stops on the apron, and is resupplied once', !p.dead && p.gear && p.grounded && p.speed < AIRFIELD_STOP && Airports.apronAt(p) === ap && gun.reserve > 0 && W.resupplies === 1, n + ' steps at ' + p.x.toFixed(0) + ',' + p.z.toFixed(0) + ' dead ' + p.dead);
+      // a lost aircraft comes back at the head of the runway and takes off along it
+      const site = respawnSite(p.def);
+      this.check('a lost aircraft comes back parked at the head of the runway, facing along it', site.parked && site.x >= rw.x0 && site.x <= rw.x1 && site.z >= rw.z0 && site.z <= rw.z1 && site.yaw === ap.yaw);
+      p.x = site.x; p.z = site.z; p.yaw = site.yaw; Seats.groundAir(p);
+      c.throttleSet = 1; c.brake = false; c.aimPitch = 0.3; c.aimYaw = site.yaw;
+      let liftAt = null;
+      for (let k = 0; k < 900 && !p.dead && p.y - Terrain.h(p.x, p.z) < 30; k++) { const was = p.grounded; p.update(STEP); if (was && !p.grounded && !liftAt) liftAt = { x: p.x, z: p.z }; }
+      this.check('it takes off from the runway', !p.dead && !!liftAt && onRunway(liftAt.x, liftAt.z, 0, 0) && p.y - Terrain.h(p.x, p.z) >= 30, JSON.stringify(liftAt));
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
@@ -23294,7 +23664,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
