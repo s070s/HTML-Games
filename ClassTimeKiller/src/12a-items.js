@@ -32,7 +32,6 @@ const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
 const ITEM_COUNT = CAT.items.length;
 const CONSUMABLE_ROWS = CAT.items.filter((row) => row.effect === 'consume');   // I13..I17, catalogue order = the heal button's preference
-const BOT_HEAL_CALM = 3;                 // s without damage before a bot uses a carried consumable
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
 
@@ -278,7 +277,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
-      if ((Actors.pressed[id] & BTN.HEAL) || this.botWantsHeal(id)) this.useBest(id);
+      if (Actors.pressed[id] & BTN.HEAL) this.useBest(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
@@ -484,12 +483,6 @@ const Items = {
     let total = 0;
     for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
     return total;
-  },
-  // Bots heal once they are out of the fight for BOT_HEAL_CALM seconds and miss health or shield.
-  botWantsHeal(id) {
-    if (Actors.kind[id] !== ACTOR_KIND.BOT || this.usingItem[id] >= 0 || Sim.time - Damage.lastDamageTime[id] < BOT_HEAL_CALM) return false;
-    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return false;
-    return this.consumableCount(id) > 0;
   },
   // 0..1 progress of the consumable in use, -1 when none (HUD).
   useProgress(id) {

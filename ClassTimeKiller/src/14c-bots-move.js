@@ -2,7 +2,8 @@
 // steering along the smoothed points with the same move input as the player, link moves by type (jump with an extra jump
 // when the link is higher than one jump, crouch, ladder, swim, pads and teleporters by walking in), local avoidance of other
 // actors and stuck recovery: no progress 1.5 s -> jump and strafe, 3 s -> repath avoiding the node ahead, 6 s -> new goal.
-// Jump links are filtered by the bot's own movement preset (allowJumpHeight, reach, gravity).
+// Jump and drop links are filtered by the bot's own movement preset (allowJumpHeight with mantle and climb, maxDrop by
+// fall damage, reach, gravity); a ledge guard keeps grounded bots from walking, strafing or sliding off into a void.
 
 const PATH = { NONE: 0, WAITING: 1, FOLLOW: 2, FAILED: 3, ARRIVED: 4 };
 const MOVE_ARRIVE = 0.6;                // m: a path point counts as reached this close (horizontal)...
@@ -39,6 +40,15 @@ const followTarget = { x: 0, z: 0, distance: 0 };   // follow's target point and
 const rimHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const WATER_EXIT_CHECK = 2.5;           // m from a water exit: look for the rim a swimmer climbs out over (S10 mantle)
 const WATER_RIM_RAY = 3;
+const MOVE_MANTLE_MARGIN = 0.2;         // m: ledges planned up to the preset's mantle height less this (link heights add NAV_JUMP_MARGIN)
+const BOT_DROP_DAMAGE = 25;             // HP: a preset with fall damage drops at most as far as costs this (BOT-010: <= safeDrop)
+const BOT_DROP_STEP = 0.5;              // m between the drop heights tried
+const LEDGE_PROBE = 0.9;                // m ahead along the wanted move the ledge guard looks for floor...
+const LEDGE_SLIDE_SPEED = 1.5;          // ...and, faster than this m/s with no move wanted (ice, knockback), along the slide...
+const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it (a wanted move looks this far ahead too)
+const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
+const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
+const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
 
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
@@ -66,9 +76,10 @@ const BotMove = {
 
   init() {
     for (let id = 0; id < MAX_ACTORS; id++) {
-      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY, avoid: null });
-      this.costs.push((node) => extraCost(id, node));                                         // closures per slot, made once at load
-      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : extraCost(id, node));
+      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY,
+        avoid: null, danger: null, dangerKey: -1 });
+      this.costs.push((node) => blockedExitCost(id, node));                                   // closures per slot, made once at load
+      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : blockedExitCost(id, node));
       this.avoidOptions.push(Object.assign({}, this.options[id], { avoid }));
     }
   },
@@ -80,13 +91,19 @@ const BotMove = {
   },
   // Path options from the bot's movement preset and tier (BOT-010 "preset-aware"): tiers without jumps skip extra jumps.
   // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
+  // A jump link is climbed by the jump apex (plus extra jumps and the crouch-jump lift), or by the S10 mantle or wall
+  // climb the bot does while facing the ledge, whichever reaches higher (a grip-only climb is not planned: the graph does
+  // not know the brush material).
   configure(id) {
     const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
     const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
+    const climb = preset.climbGripOnly ? 0 : preset.climbHeight;
+    const reach = Math.max(single + extra + preset.crouchJumpLift, preset.mantleHeight - MOVE_MANTLE_MARGIN + NAV_JUMP_MARGIN, climb);
+    const maxDrop = safeDropFor(preset, gravity);
     for (const options of [this.options[id], this.avoidOptions[id]]) {
-      options.allowJumpHeight = single + extra;
-      options.maxDrop = Mutators.fx && Mutators.fx.noFallDamage ? Nav.limits.maxDrop : Nav.limits.safeDrop;   // MUT-003: no fall damage
+      options.allowJumpHeight = reach;
+      options.maxDrop = maxDrop;
       options.moveSpeed = preset.groundSpeed * tier.speed;
       options.jumpVelocity = preset.jumpVel;
       options.gravity = gravity;
@@ -130,9 +147,12 @@ const BotMove = {
     return length;
   },
   distanceToDestination(id) { return length2(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
+  // Water and trap costs come from the shared extraCosts array, versioned by costEpoch, so those paths stay cacheable;
+  // only a swimmer while some exit is blocked needs its own cost function (not cached).
   request(id, options) {
-    if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
     this.fromWater[id] = inWater(id) ? 1 : 0;
+    options.danger = sharedCosts(Sim.time); options.dangerKey = costEpoch;
+    if (options === this.options[id]) options.avoid = this.fromWater[id] && blockedExits > 0 ? this.costs[id] : null;
     this.requestedAt[id] = Sim.time;
     this.pathSerial[id]++;
     this.pending[id] = 0;
@@ -342,10 +362,52 @@ const BotMove = {
     else if (type === NAV_LINK.LADDER) Bots.lookPitch[id] = this.pointY[id] > Actors.y[id] ? BOT_LADDER_UP_PITCH : BOT_LADDER_DOWN_PITCH;
     else if (swimming(id, type)) this.swim(id);
   },
-  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press).
+  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press);
+  // in the air below the landing a preset with a crouch-jump lift tucks its legs (S10), which configure() counts on.
   jumpLink(id) {
-    if (Move.isGrounded(id) && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    const grounded = Move.isGrounded(id);
+    if (grounded && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    if (!grounded && Move.preset(id).crouchJumpLift > 0 && this.pointY[id] > Actors.y[id]) Bots.press(id, BTN.CROUCH);
     this.extraJump(id);
+  },
+  // BOT-010 ledge guard, after every move layer (path, combat footwork, hazards): a grounded bot about to walk, strafe
+  // or slide (ice) over an edge with no floor within its drop limit (a void, a killzone) brakes instead. A planned drop
+  // lands within that limit; jump, pad and ladder links leave the ground on purpose while the move heads along them.
+  guardLedge(id) {
+    if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
+    if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
+    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
+    probe.x = Bots.wishX[id] * ahead; probe.z = Bots.wishZ[id] * ahead;
+    const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
+    if (!wishing && speed > LEDGE_SLIDE_SPEED) {
+      probe.x = Actors.vx[id] * ahead / speed; probe.z = Actors.vz[id] * ahead / speed;
+    }
+    if (!wishing && (speed <= LEDGE_SLIDE_SPEED || !this.unsafeAhead(id))) return;
+    const wanted = botWish;
+    wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = speed > LEDGE_SLIDE_SPEED ? 1 : 0;   // push back against the slide
+    Bots.wishFrom(id);
+  },
+  // A hop off no jump link (combat footwork) flies LEDGE_HOP_SECONDS at run speed or more: no floor that far along the
+  // move (or the slide), no hop.
+  guardHop(id) {
+    const speed = length2(Actors.vx[id], Actors.vz[id]), wishing = Bots.wishAmount[id] > 0;
+    if (!wishing && speed <= LEDGE_SLIDE_SPEED) return;   // a hop on the spot lands where it started
+    const ahead = LEDGE_PROBE + Math.max(speed, this.options[id].moveSpeed) * LEDGE_HOP_SECONDS;
+    const dx = wishing ? Bots.wishX[id] : Actors.vx[id] / speed, dz = wishing ? Bots.wishZ[id] : Actors.vz[id] / speed;
+    ledgeProbe.x = dx * ahead; ledgeProbe.z = dz * ahead;
+    if (this.unsafeAhead(id)) Bots.buttonsWanted[id] &= ~BTN.JUMP;
+  },
+  leavesGround(id) {
+    if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;
+    const type = this.segmentType[id];
+    if (type !== NAV_LINK.JUMP && type !== NAV_LINK.JUMPPAD && type !== NAV_LINK.LADDER && type !== NAV_LINK.TELEPORT) return false;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
+    return length < STEP_HEIGHT || (Bots.wishX[id] * dx + Bots.wishZ[id] * dz) >= LEDGE_ALIGN * length;
+  },
+  // No floor under the point ledgeProbe (x, z) m away within the bot's drop limit (one ray down).
+  unsafeAhead(id) {
+    const fall = this.options[id].maxDrop + STEP_HEIGHT * 2;
+    return !World.raycast(Actors.x[id] + ledgeProbe.x, Actors.y[id] + STEP_HEIGHT, Actors.z[id] + ledgeProbe.z, 0, -1, 0, fall, rimHit);
   },
   // A jump link higher than one jump (only built for tiers with extra jumps): jump again near the apex.
   extraJump(id) {
@@ -437,23 +499,21 @@ const BotMove = {
   },
 };
 
+// BOT-010 drop limit: every drop link the graph has (Nav.limits.maxDrop) without fall damage (the preset's MOV-015 curve,
+// or the MUT-003 mutator), else the deepest drop up to Nav.limits.safeDrop that costs at most BOT_DROP_DAMAGE.
+function safeDropFor(preset, gravity) {
+  const deepest = Nav.limits.maxDrop;
+  if ((Mutators.fx && Mutators.fx.noFallDamage) || fallDamage(preset, Math.sqrt(2 * gravity * deepest)) <= 0) return deepest;
+  let drop = Nav.limits.safeDrop;
+  while (drop > BOT_DROP_STEP && fallDamage(preset, Math.sqrt(2 * gravity * drop)) > BOT_DROP_DAMAGE) drop -= BOT_DROP_STEP;
+  return drop;
+}
+
 // Trap memory shared by all bots: nodes where a bot got stuck cost TRAP_COST extra seconds for TRAP_SECONDS, so the
 // team routes around links that look fine on the graph but fail in play (a rim too thin to climb out over, say).
 const TRAP_SLOTS = 32, TRAP_SECONDS = 60, TRAP_COST = 30;
 const trapNodes = new Int32Array(TRAP_SLOTS).fill(-1), trapUntil = new Float64Array(TRAP_SLOTS);
-let trapCursor = 0;
-
-function markTrap(node, now) {
-  if (node < 0) return;
-  trapNodes[trapCursor] = node;
-  trapUntil[trapCursor] = now + TRAP_SECONDS;
-  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
-}
-
-function trapsActive(now) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapUntil[i] > now) return true;
-  return false;
-}
+let trapCursor = 0, trapCount = 0;
 
 // Swimming is slow and its exits are hard (S10 mantle): bots go through water only when it saves real time.
 const WATER_NODE_COST = 4;
@@ -461,13 +521,48 @@ const BLOCKED_EXIT_COST = 1000;         // s: a path from the water climbs out o
 const EXIT = { NONE: 0, BLOCKED: 1, OPEN: 2 };
 let mapHasWater = false;
 let exitKind = new Uint8Array(0), exitVersion = -1;
-let exitList = new Int32Array(0), exitCount = 0;
+let exitList = new Int32Array(0), exitCount = 0, blockedExits = 0;
 
-function extraCost(id, node) {
-  const water = (Nav.nodeFlags[node] & NAV_NODE.WATER) ? WATER_NODE_COST : 0;
-  const blocked = BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0;
-  return trapCost(node) + water + blocked;
+// Extra seconds per nav node for every bot (water nodes, live traps): one array for Nav's danger channel, its version
+// costEpoch bumped on every change so the path cache never serves a path found with other costs (BOT-091).
+let extraCosts = new Float32Array(0), costVersion = -1, costEpoch = 0;
+
+function markTrap(node, now) {
+  if (node < 0) return;
+  sharedCosts(now);
+  if (trapNodes[trapCursor] >= 0) clearTrap(trapCursor);   // the ring is full: the oldest trap goes
+  trapNodes[trapCursor] = node;
+  trapUntil[trapCursor] = now + TRAP_SECONDS;
+  extraCosts[node] += TRAP_COST;
+  trapCount++; costEpoch++;
+  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
 }
+
+function clearTrap(slot) {
+  extraCosts[trapNodes[slot]] -= TRAP_COST;
+  trapNodes[slot] = -1;
+  trapCount--; costEpoch++;
+}
+
+// The shared cost array for a path asked for now (expired traps dropped), or null when it would add nothing (no water,
+// no trap): such paths need no danger channel at all.
+function sharedCosts(now) {
+  if (costVersion !== Nav.version) buildCosts();
+  for (let slot = 0; slot < TRAP_SLOTS; slot++) if (trapNodes[slot] >= 0 && trapUntil[slot] <= now) clearTrap(slot);
+  return mapHasWater || trapCount > 0 ? extraCosts : null;
+}
+
+// Water costs once per graph (the traps of an older graph are dropped with it).
+function buildCosts() {
+  costVersion = Nav.version; costEpoch++;
+  if (extraCosts.length !== Nav.nodeCount) extraCosts = new Float32Array(Nav.nodeCount); else extraCosts.fill(0);
+  trapNodes.fill(-1); trapCount = 0;
+  findWater();
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) extraCosts[node] = WATER_NODE_COST;
+}
+
+// A swimmer's own extra cost: a rimless exit (the shared costs come through Nav's danger channel).
+function blockedExitCost(id, node) { return BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0; }
 
 function exitBlocked(node) { return exitVersion === Nav.version && node < exitKind.length && exitKind[node] === EXIT.BLOCKED; }
 
@@ -490,7 +585,7 @@ function findWater() {
 function findExits() {
   exitVersion = Nav.version;
   if (exitKind.length < Nav.nodeCount) { exitKind = new Uint8Array(Nav.nodeCount); exitList = new Int32Array(Nav.nodeCount); } else exitKind.fill(0);
-  exitCount = 0;
+  exitCount = 0; blockedExits = 0;
   if (!mapHasWater) return;
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (!(Nav.nodeFlags[node] & NAV_NODE.WATER)) continue;
@@ -514,14 +609,11 @@ function nearestExit(from, x, y, z) {
 }
 
 function markBlockedExit(node) {
-  if (node >= 0 && node < exitKind.length && exitVersion === Nav.version) exitKind[node] = EXIT.BLOCKED;
-}
-
-function trapCost(node) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapNodes[i] === node && trapUntil[i] > Sim.time) return TRAP_COST;
-  return 0;
+  if (node < 0 || node >= exitKind.length || exitVersion !== Nav.version || exitKind[node] === EXIT.BLOCKED) return;
+  exitKind[node] = EXIT.BLOCKED;
+  blockedExits++;
 }
 
 BotMove.init();
-Bus.on('match.start', () => { trapUntil.fill(0); trapNodes.fill(-1); findWater(); findExits(); });
-Bus.on('nav.ready', () => { findWater(); findExits(); });   // a sliced build finished after match start
+Bus.on('match.start', () => { buildCosts(); findExits(); });
+Bus.on('nav.ready', () => { buildCosts(); findExits(); });   // a sliced build finished after match start

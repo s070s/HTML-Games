@@ -32,12 +32,14 @@ const TARGET_VISIBLE_SCORE = 1, TARGET_KNOWN_SCORE = 0.4, TARGET_KEEP = 0.3, TAR
 const TARGET_DISTANCE_SCALE = 30;       // m: score halves at this distance
 const TARGET_REVENGE_SECONDS = 3;
 const TARGET_CARRIER_BONUS = 0.5;
+const TARGET_DOWNED_SHARE = 0.3;        // a harmless downed enemy is worth this share of a target
 const STRAFE_CHECK = 0.4;               // BOT-032: flip chance 6.5% per 0.4 s check
 const STRAFE_FLIP = 0.065;
 const RANGE_BACKOFF = 0.1;              // BOT-032: back off 10% inside the ideal range
 const COMBAT_JUMP_CHANCE = 0.15;        // per strafe check x jumpiness (tiers with jumps)
 const DODGE_RANGE = 20, DODGE_MISS = 2.5, DODGE_HORIZON = 0.8, DODGE_SECONDS = 0.35;
 const WEAPON_CHECK_SECONDS = 1;
+const COMBAT_SWITCH_GAIN = 0.25, COMBAT_SWITCH_REST = 3;   // a switch in a fight: to a gun worth this much more, once per this many s
 const SLOT_PRESS_INTERVAL = 0.25;
 const RELOAD_FRACTION = 0.5;            // reload when safe below half a magazine
 const RELOAD_PRESS_INTERVAL = 0.5;
@@ -49,7 +51,8 @@ const MELEE_DISTANCE = 1.8, MELEE_INTERVAL = 0.5;
 const THROW_PITCH_TOP = 35 * DEG, THROW_SOLVE_STEPS = 16;   // the low arc rises up to here (18 m/s + 5 up: past 40 m)
 const GRENADE_COOK_MARGIN = 0.3;        // s of fuse left at the landing (a cooked grenade goes off as it lands)
 const GRENADE_RECENT = 3, GRENADE_CLUSTER = 4, GRENADE_INTERVAL = 4;   // s between throws at abilityUse 0.5...
-const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability) while none is wanted
+const KIT_CHECK_INTERVAL = 0.5;         // ...and between kit checks (grenade, gadget, ability, heal) while none is wanted
+const HEAL_CALM_SECONDS = 3;            // s without damage before a neutral bot uses a carried consumable
 const GADGET_INTERVAL = 2;              // s after a placed / deployed gadget at abilityUse 0.5
 const CHOKE_SMOKE_EFFECT = 'smoke';     // BOT-034: an attacking bot throws this effect at a choke hint on its way to the target...
 const CHOKE_SMOKE_CORRIDOR = 4;         // ...m at most beside the straight line there...
@@ -117,8 +120,9 @@ const BotCombat = {
   throwYaw: new Float32Array(MAX_ACTORS), throwPitch: new Float32Array(MAX_ACTORS), throwUntil: new Float64Array(MAX_ACTORS),
   throwCook: new Float32Array(MAX_ACTORS), cookUntil: new Float64Array(MAX_ACTORS),   // s to hold a cookable grenade; 0 = not cooking
   weaponCheckAt: new Float64Array(MAX_ACTORS), wantedWeapon: new Int16Array(MAX_ACTORS).fill(-1), slotPressAt: new Float64Array(MAX_ACTORS),
+  checkedDry: new Uint8Array(MAX_ACTORS), combatSwitchAt: new Float64Array(MAX_ACTORS), combatSwitchTo: new Int16Array(MAX_ACTORS).fill(-1), wantedGain: new Float32Array(MAX_ACTORS),
   reloadPressAt: new Float64Array(MAX_ACTORS), meleeAt: new Float64Array(MAX_ACTORS), grenadeAt: new Float64Array(MAX_ACTORS), abilityAt: new Float64Array(MAX_ACTORS),
-  gadgetAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
+  gadgetAt: new Float64Array(MAX_ACTORS), healAt: new Float64Array(MAX_ACTORS), holdSlot: new Int8Array(MAX_ACTORS).fill(-1), holdSlotUntil: new Float64Array(MAX_ACTORS),
   switchedOnAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS).fill(-1),   // when the bot switched a toggle / channel slot on (-1: off)
   switchRetryAt: new Float64Array(MAX_ACTORS * PRESSABLE_SLOTS),            // no off press again before this (the button is released)
   jumpUntil: new Float64Array(MAX_ACTORS), weaponJumpAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // weapon jump: aiming until, last jump
@@ -135,7 +139,7 @@ const BotCombat = {
     this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
     this.noiseStart[id] = -1e9; this.trackStart[id] = Sim.time; this.strafeCheckAt[id] = 0;
     // Sim.time starts again at 0 every match: no clock of an earlier match may block this one.
-    this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
+    this.reloadPressAt[id] = 0; this.slotPressAt[id] = 0; this.combatSwitchAt[id] = 0; this.combatSwitchTo[id] = -1; this.meleeAt[id] = 0; this.grenadeAt[id] = 0; this.abilityAt[id] = 0;
     this.gadgetAt[id] = 0; this.holdSlot[id] = -1; this.weaponJumpAt[id] = -1e9; this.chokeSmokedAt[id] = -1e9; this.grenadeBefore[id] = -1;
     this.switchedOnAt.fill(-1, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
     this.switchRetryAt.fill(0, id * PRESSABLE_SLOTS, (id + 1) * PRESSABLE_SLOTS);
@@ -186,8 +190,10 @@ const BotCombat = {
     if (other === this.target[id]) score += Bots.tier(id).targetSwitch ? TARGET_KEEP_SWITCHER : TARGET_KEEP;
     if (BotSense.attacker[id] === other && now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) score += Bots.trait(id, TRAIT.vengefulness);
     if (BotDecide.carriesObjective(other) || huntedRole(other)) score += TARGET_CARRIER_BONUS;
-    return score;
+    return this.harmless(other) ? score * TARGET_DOWNED_SHARE : score;
   },
+  // Downed without the Last Stand pistol: it cannot shoot, so standing enemies come first and it does not keep a revive away.
+  harmless(other) { return (Actors.flags[other] & ACTOR_FLAG.DOWNED) !== 0 && Weapons.lowered(other); },
   // DIF-002 max simultaneous attackers: bots beyond the limit leave the player alone (unless the player hits them).
   attackersFull(id, other) {
     if (Actors.kind[other] !== ACTOR_KIND.PLAYER || this.target[id] === other || BotSense.attacker[id] === other) return false;
@@ -363,42 +369,68 @@ const BotCombat = {
     this.holdSince[id] = -1; this.keptSince[id] = -1;
   },
 
-  // ---- Weapons: choice by range and botPref (BOT-036), switching only when safe or empty, reload when safe ----
+  // ---- Weapons: choice by range and botPref (BOT-036): switching when safe, when the magazine runs dry (to a loaded
+  // gun, else reload) or in a fight to a gun worth COMBAT_SWITCH_GAIN more (once per COMBAT_SWITCH_REST s); reload when safe ----
   manageWeapon(id, now) {
-    const safe = this.isSafe(id, now);
-    if (now >= this.weaponCheckAt[id]) { this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS; this.wantedWeapon[id] = this.bestWeapon(id); }
-    const current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
-    const empty = !current || (ammo && !ammo.infinite && ammo.magazine === 0 && ammo.reserve === 0 && current.mag > 0);
-    if ((safe || empty) && this.wantedWeapon[id] >= 0) this.switchTo(id, this.wantedWeapon[id], now);
-    if (current && ammo && current.mag > 0 && (safe || ammo.magazine === 0)) this.reloadIfLow(id, current, ammo, now);   // an empty gun reloads in a fight too
+    const safe = this.isSafe(id, now), current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
+    const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0);
+    if (now >= this.weaponCheckAt[id] || (dry && !this.checkedDry[id])) {
+      this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS;
+      this.wantedWeapon[id] = this.bestWeapon(id, dry);
+      if (dry && this.wantedWeapon[id] < 0) this.wantedWeapon[id] = this.bestWeapon(id, false);   // nothing loaded: reload, or any weapon left
+    }
+    this.checkedDry[id] = dry ? 1 : 0;
+    const wanted = this.wantedWeapon[id], fight = !safe && !dry;
+    if (wanted < 0 || wanted === Weapons.current[id] || (fight && !this.worthSwitching(id, wanted, now))) {
+      if (current && ammo && current.mag > 0 && (safe || ammo.magazine === 0)) this.reloadIfLow(id, current, ammo, now);   // a dry gun with nothing loaded to draw reloads in a fight too
+      return;
+    }
+    const resting = now < this.combatSwitchAt[id] && this.combatSwitchTo[id] === wanted;   // this switch's rest already runs
+    if (this.switchTo(id, wanted, now) && fight && !resting) {   // the rest starts with the first press
+      this.combatSwitchTo[id] = wanted;
+      this.combatSwitchAt[id] = now + COMBAT_SWITCH_REST;
+    }
   },
   isSafe(id, now) {
     const target = this.target[id];
     return target < 0 || now - BotSense.seenAt[BotSense.pair(id, target)] > SAFE_SECONDS;
   },
-  bestWeapon(id) {
+  // In a fight: the wanted gun beat the drawn one by COMBAT_SWITCH_GAIN at the last weapon check (the switch costs time);
+  // a switch under way keeps pressing (a shared slot cycles) through its rest.
+  worthSwitching(id, wanted, now) {
+    if (now < this.combatSwitchAt[id]) return this.combatSwitchTo[id] === wanted;
+    return this.wantedGain[id] >= COMBAT_SWITCH_GAIN;
+  },
+  // The owned weapon worth most at the target's range (botPref value, less outside its range, plus the favourite
+  // bonus); wantedGain keeps how much more it is worth than the drawn one. loaded: only a gun with rounds in its
+  // magazine (or a melee weapon in reach), so a dry gun is never swapped for a knife at range. -1 = none.
+  bestWeapon(id, loaded) {
     const distance = this.target[id] >= 0 ? this.targetDistance(id) : DEFAULT_ENGAGE_DISTANCE;
-    const favorite = BotDecide.favoriteWeapon(id);
-    let best = -1, bestValue = -1;
+    let best = -1, bestValue = -1, drawnValue = 0;
     for (let index = 0; index < WEAPON_COUNT; index++) {
       const slot = Weapons.slotIndex(id, index), weapon = CAT.weapons[index];
       if (!Weapons.owned[slot] || !this.hasRounds(id, weapon, slot)) continue;
       const range = weapon.botPref.range, inRange = distance >= range[0] && distance <= range[1];
-      let value = weapon.botPref.value * (inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
-      if (weapon.id === favorite) value += FAVORITE_BONUS;
+      const value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
+      if (index === Weapons.current[id]) drawnValue = value;
+      if (loaded && (weapon.mag === 0 ? distance > range[1] : Weapons.magazine[slot] === 0)) continue;
       if (value > bestValue) { bestValue = value; best = index; }
     }
+    this.wantedGain[id] = bestValue - drawnValue;
     return best;
   },
+  // A weapon's worth to the bot (drawing, picking up, buying): its botPref value x share, plus the favourite bonus.
+  weaponValue(id, weapon, share) { return weapon.botPref.value * share + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); },
   hasRounds(id, weapon, slot) {
     return weapon.mag === 0 || Weapons.magazine[slot] > 0 || Weapons.reserve[slot] > 0 || Weapons.infiniteReserve(weapon);
   },
-  // Slot keys like a player: a one-step press, repeated (cycling a shared slot) until the wanted weapon is out.
+  // Slot keys like a player: a one-step press, repeated (cycling a shared slot) until the wanted weapon is out; true = pressed.
   switchTo(id, index, now) {
     const current = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
-    if (current === index || now < this.slotPressAt[id]) return;
+    if (current === index || now < this.slotPressAt[id]) return false;
     this.slotPressAt[id] = now + SLOT_PRESS_INTERVAL;
     Bots.slotWanted[id] = CAT.weapons[index].slot;
+    return true;
   },
   reloadIfLow(id, weapon, ammo, now) {
     if (Weapons.state[id] !== WEAPON_STATE.IDLE || now < this.reloadPressAt[id]) return;
@@ -528,6 +560,7 @@ const BotCombat = {
   useKit(id, now) {
     this.keepHolding(id, now);
     this.switchOff(id, now);
+    this.tryHeal(id, now);
     if (!Bots.tier(id).gadgets || now < this.throwUntil[id]) return;
     if (now >= this.abilityAt[id]) this.tryAbilities(id, now);
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
@@ -556,6 +589,15 @@ const BotCombat = {
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
     const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
     this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
+  },
+  // A bot missing health or shield presses heal like a player once out of the fight (no damage for HEAL_CALM_SECONDS,
+  // 0.5x..1.5x by the self-preservation trait); S12 then uses its first carried consumable that restores something.
+  tryHeal(id, now) {
+    if (now < this.healAt[id] || (Actors.flags[id] & ACTOR_FLAG.DOWNED) || Items.usingItem[id] >= 0) return;
+    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return;
+    this.healAt[id] = now + KIT_CHECK_INTERVAL;
+    const calm = HEAL_CALM_SECONDS * (1.5 - Bots.trait(id, TRAIT.selfPreservation));
+    if (now - Damage.lastDamageTime[id] >= calm && Items.consumableCount(id) > 0) Bots.press(id, BTN.HEAL);
   },
   // One CYCLE_GRENADE press per kit check until the type selected before the choke smoke is back (or no longer carried).
   returnFromChoke(id) {

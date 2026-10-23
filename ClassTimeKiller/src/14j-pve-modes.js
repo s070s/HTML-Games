@@ -11,7 +11,6 @@ const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE:
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
 const PVE_STATION_FALLBACK = [[0, 10], [4, 15], [-4, 20]];   // range stations in front of the spawn when the map has no 'dummy' hints
-const PVE_BOT_RESTOCK_ITEM = 'ampAmmo';   // the wave shop row a bot buys when a gun runs low (ECP07, the player's own buy path)
 
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
@@ -211,8 +210,7 @@ function makeWaveBehaviour(plan) {
     openShop(run, now) {
       run.state = PVE_WAVE_STATE.SHOP;
       run.endsAt = now + PVE_WAVE_RULES.shopSeconds;
-      Economy.setShopOpen(true);
-      restockBots();
+      Economy.setShopOpen(true);   // bots shop in it too (14f BotEconomy)
     },
     // Endless: anyone standing in the extract zone while it is open ends the run as a win.
     extracting(run, now) {
@@ -253,15 +251,6 @@ function makeWaveBehaviour(plan) {
       updatePlayerHud();
     },
   };
-}
-// At each wave break a bot whose gun runs low buys a refill in the shop, as the player would (bots ran dry by wave 8).
-function restockBots() {
-  for (let id = 0; id < Actors.count; id++) if (Bots.isBot(id) && Modes.participant[id] && botAmmoLow(id)) Economy.buy(id, PVE_BOT_RESTOCK_ITEM);
-}
-// Any gun the bot carries that runs low (BotCombat.gunLow).
-function botAmmoLow(id) {
-  for (let index = 0; index < WEAPON_COUNT; index++) if (Weapons.owned[Weapons.slotIndex(id, index)] && BotCombat.gunLow(id, index)) return true;
-  return false;
 }
 // DIF-004: the plate halves enemy damage to every participant until the retried wave is cleared.
 function wearGuardianPlate(run) {

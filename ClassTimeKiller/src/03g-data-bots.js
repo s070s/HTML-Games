@@ -108,6 +108,7 @@ const BOT_BARKS = {
   death: { minimal: false, taunt: false, lines: ['I am down.', 'They got me.', 'Ouch.'] },
   orderAck: { minimal: true, taunt: false, reply: true, lines: ['On it.', 'Copy that.', 'Understood.'] },
   pingReply: { minimal: true, taunt: false, reply: true, lines: ['Ok.', 'Thanks.', 'Seen it.', 'Got it.'] },
+  dibs: { minimal: true, taunt: false, reply: true, lines: ['Dibs.', 'That one is mine.', 'Taking it.'] },
   lowHealth: { minimal: false, taunt: false, lines: ['Low on health.', 'Hurting here.', 'Need a medkit.'] },
   objective: { minimal: true, taunt: false, lines: ['Objective moving!', 'Watch the objective.', 'Push the objective!'] },
 };
@@ -139,6 +140,11 @@ const BOT_FLAG_PUSH = { rallyShare: 0.2, radius: 9, minimum: 2, wait: 5, seconds
 // one with the most teamwork leads. Followers keep within `keep` m of the leader, detour at most `regroup` m (items,
 // sounds) and regroup with it once farther (broken off); a fallen leader hands the squad to its next follower.
 const BOT_SQUAD = { size: 3, keep: 6, regroup: 15 };
+// Bot shopping (14f BotEconomy), once per buy time or open wave shop: a round-buy bot with less than `ecoMoney` (x 0.75..1.25
+// by the self-preservation trait) saves for a later round; else it buys a gun worth `upgrade` more than its best one,
+// then armour, then a grenade (tiers with gadgets). In the wave shop it refills low guns and, keeping `shopKeep`
+// credits for the next refill, buys placed gadgets.
+const BOT_BUY = { ecoMoney: 2000, upgrade: 0.1, shopKeep: 300 };
 // Tokens (BOT-053): at most `attackers` bots close in on one target at once (the others fight from where they stand; a
 // melee weapon always closes in), and one bot per team flanks at a time. A holder keeps its token while it renews it
 // (every decision) within `hold` s and still plays the goal it took it for.

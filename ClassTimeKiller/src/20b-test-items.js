@@ -184,16 +184,7 @@ Test.add('items', (check) => {
   check('the heal button starts a carried consumable', Items.useProgress(id) >= 0 && Items.consumableCount(id) === 1);
   Sim.run(itemTicks(patch.useTime));
   check('the heal button item applies after its use time', Actors.health[id] === 65 && Items.consumableCount(id) === 0, Actors.health[id]);
-  const bot = ItemArena.actor(2, 5, 0);
-  Items.grant(bot, 'patch');
-  Actors.kind[bot] = ACTOR_KIND.BOT;
-  Damage.lastDamageTime[bot] = Sim.time;
-  const hurtNow = Items.botWantsHeal(bot);
-  Damage.lastDamageTime[bot] = Sim.time - BOT_HEAL_CALM - 0.1;
-  const calm = Items.botWantsHeal(bot);
-  Actors.kind[bot] = ACTOR_KIND.DUMMY;
-  check('bots use a carried consumable only once out of the fight', !hurtNow && calm && Actors.health[bot] < Actors.maxHealth[bot]);
-  TestArena.finish();
+  TestArena.finish();   // bots press the same heal button (20b-test-bots: the decision is the brain's)
 });
 
 Test.add('items', (check) => {

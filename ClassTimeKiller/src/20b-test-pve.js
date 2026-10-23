@@ -1019,7 +1019,8 @@ Test.add('pve', (check) => withShortShop(() => {
   const weapon = Weapons.currentWeapon(bot), slot = Weapons.slotIndex(bot, weapon.index);
   Weapons.reserve[slot] = 0;
   runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.SHOP, 10);
-  const item = CAT.buyItems.byId(PVE_BOT_RESTOCK_ITEM), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
+  runSeconds(BOT_BUY_CHECK + TICK_SECONDS);   // the bot looks into an open shop every BOT_BUY_CHECK s (14f BotEconomy)
+  const item = CAT.buyItems.find((row) => row.kind === 'ammo' && row.buy === 'shop'), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
   check('a bot restocks its emptied gun at the wave shop', bought === 1 && Weapons.reserve[slot] === Weapons.maxReserve(bot, weapon), bought + ' bought, reserve ' + Weapons.reserve[slot]);
   endModeTest();
 }));

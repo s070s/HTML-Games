@@ -414,7 +414,7 @@ Test.add('wiring', (check) => {
   const exit = exitCount > 0 ? exitList[0] : -1, fromWater = BotMove.fromWater[0];
   markBlockedExit(exit);
   BotMove.fromWater[0] = 1;
-  check('bots: an exit failed at run time is blocked and costly from the water', exit >= 0 && exitBlocked(exit) && extraCost(0, exit) >= BLOCKED_EXIT_COST, exit);
+  check('bots: an exit failed at run time is blocked and costly from the water', exit >= 0 && exitBlocked(exit) && blockedExitCost(0, exit) >= BLOCKED_EXIT_COST, exit);
   BotMove.fromWater[0] = fromWater;
   findExits();
 

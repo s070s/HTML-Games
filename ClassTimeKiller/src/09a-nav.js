@@ -36,6 +36,7 @@ const NAV_PASSAGE_MAX_SAMPLES = 4;     // a standable run this short (<= 2 m) be
 const NAV_PASSAGE_MERGE = 0.6;         // ...unless a node is already this close
 const NAV_TRIGGER_NODE_MERGE = 0.3;
 const NAV_CROUCH_PENALTY = 4;          // squared metres: a cell prefers a standing sample over a crouch-only one
+const NAV_TIE_WEIGHT = 1e-3;           // per metre from the map middle: breaks only ties (centre distances differ by >= 0.5 m2)
 const NAV_BRUSH_CELL = 4;              // brush lookup grid (m)
 const NAV_NODE_CELL = 2;               // node lookup grid (m)
 const NAV_JUMP_MARGIN = 0.15;          // a jump must clear the highest obstacle on its way by this much
@@ -629,8 +630,11 @@ function navFlatFullCell(samples) {
 }
 
 function navBestSample(samples, centreX, centreZ) {
-  let best = samples[0];
-  for (let i = 1; i < samples.length; i++) if (navCentreScore(samples[i], centreX, centreZ) < navCentreScore(best, centreX, centreZ)) best = samples[i];
+  let best = samples[0], bestScore = navCentreScore(best, centreX, centreZ);
+  for (let i = 1; i < samples.length; i++) {
+    const score = navCentreScore(samples[i], centreX, centreZ);
+    if (score < bestScore) { best = samples[i]; bestScore = score; }
+  }
   return best;
 }
 
@@ -647,9 +651,16 @@ function navSamplesTouch(a, b) {
   return di <= 1 && dj <= 1 && columnA !== columnB && Math.abs(raster.sampleY[a] - raster.sampleY[b]) <= NAV_COLUMN_RISE;
 }
 
+// Samples equally near the cell centre: the one nearer the middle of the map wins (navFromMiddle).
 function navCentreScore(sample, centreX, centreZ) {
   const column = navRaster.sampleColumn[sample], dx = navColumnX(column) - centreX, dz = navColumnZ(column) - centreZ;
-  return dx * dx + dz * dz + (navRaster.sampleFlags[sample] & NAV_NODE.CROUCH ? NAV_CROUCH_PENALTY : 0);
+  return dx * dx + dz * dz + navFromMiddle(sample) * NAV_TIE_WEIGHT + (navRaster.sampleFlags[sample] & NAV_NODE.CROUCH ? NAV_CROUCH_PENALTY : 0);
+}
+// Ties between two samples go to the one nearer the middle of the map, so a mirrored map gets mirrored nodes (scan
+// order would push every node the same way, and one team's routes would hug walls and ledges the other's do not).
+function navFromMiddle(sample) {
+  const raster = navRaster, column = raster.sampleColumn[sample], columns = raster.columnsX;
+  return (Math.abs(column % columns - (columns - 1) / 2) + Math.abs(Math.floor(column / columns) - (raster.columnsZ - 1) / 2)) * NAV_FINE;
 }
 
 // Jump pads and teleporters get a node at their centre so bots step right onto them.
@@ -673,7 +684,8 @@ function* navAddPassageNodes(builder, stepI, stepJ) {
     if (navNeighbourSample(sample, -stepI, -stepJ) >= 0) continue; // not the start of a run
     run.length = 0;
     for (let current = sample; current >= 0 && run.length <= NAV_PASSAGE_MAX_SAMPLES; current = navNeighbourSample(current, stepI, stepJ)) run.push(current);
-    const middle = run[(run.length - 1) >> 1];
+    const lower = run[(run.length - 1) >> 1], upper = run[run.length >> 1];   // the same sample for an odd run
+    const middle = navFromMiddle(upper) < navFromMiddle(lower) ? upper : lower;
     if (run.length <= NAV_PASSAGE_MAX_SAMPLES && !navNodeNear(builder, middle, NAV_PASSAGE_MERGE)) navAddNode(builder, middle, NAV_NODE.PASSAGE);
   }
 }

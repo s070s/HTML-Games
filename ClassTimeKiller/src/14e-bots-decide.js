@@ -27,9 +27,11 @@ const FLANK_MIN_DISTANCE = 12;          // m: a flanking tier goes round by a fl
 const FLANK_DETOUR = 1.6;               // ...when the way over the hint is at most this many times the straight way
 const FLANK_REACHED = 2;                // m: at the hint, the chase goes on straight to the target
 const FLANK_REST = 20;                  // s between two flanks of one bot
-const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_THRESHOLD = 0.5;   // BOT-021: retreat below 0.5, attack/chase above
-const AGGRESSION_HEALTH = 0.6, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
+const RETREAT_BASE = 0.5, RETREAT_GAIN = 0.4, RETREAT_MAX = 0.95;   // BOT-021: a fleeing bot retreats, more urgently by self-preservation
+const AGGRESSION_HEALTH = 0.45, AGGRESSION_ARMOR = 40, AGGRESSION_HEIGHT = 6, AGGRESSION_POWERUP = 0.7;
+const AGGRESSION_OUTGUNNED = 0.45;      // botPref value the enemy's weapon must beat the bot's by for the bot to flee
 const AGGRESSION_WEAPON_FLOOR = 0.55;   // any armed bot is willing to fight; strong weapons push it higher (BOT-021 table)
+const AGGRESSION_CLOSE_IN = 0.4;        // below this a bot holding an attack token still fights from where it stands
 const RETREAT_COVER_RANGE = 15, RETREAT_AWAY = 10;
 const COLLECT_BASE = 0.2, COLLECT_GAIN = 0.6, COLLECT_MAX = 0.9, COLLECT_DISTANCE = 15;
 const ITEM_VALUES = { health: 1.2, armor: 0.7, weapon: 0.8, ammo: 0.5, power: 0.6 };
@@ -46,7 +48,9 @@ const CAMP_SECONDS = 120, CAMP_TRAIT_SECONDS = 180;   // spec T07: camp duration
 const CAMP_SPAWN_SIGHT = 50;            // BOT-041: camp spots must not see enemy spawns within this range
 const INVESTIGATE_BASE = 0.25, INVESTIGATE_GAIN = 0.3, INVESTIGATE_SECONDS = 4;
 const ORDER_BASE = 0.6, ORDER_GAIN = 0.35;
-const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a downed teammate outranks objectives when it is safe
+const REVIVE_BASE = 0.7, REVIVE_GAIN = 0.25;   // BOT-071: a safe downed teammate (the player too) farther away ranks with fights...
+const REVIVE_CLOSE = 20;                // ...and one this close outranks every objective but a carry (CARRY_URGENCY):
+const REVIVE_URGENT = 1.1;              // above the objective maximum (0.95) x the hysteresis, below a carrier's 1.0 x 1.1
 const REVIVE_SEARCH = 40;               // m: downed teammates farther away are left to others
 const REVIVE_SAFE_DISTANCE = 10;        // m: no enemy the bot sees this close to the downed ally (smoke hides them)
 const REVIVE_STAND = 1;                 // m: the bot kneels this close (Damage revives within 1.5 m)
@@ -55,8 +59,11 @@ const SQUAD_KEEP = 12;                  // m: a royale squadmate farther than th
 const SQUAD_FOLLOW_URGENCY = 0.8;       // ...with this urgency at twice that distance or more (less nearer)...
 const SQUAD_FIGHT_KEEP = 24;            // ...but a bot with a target stays in its fight up to this far (objectives outrank chases)
 const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this share of its radius
+const SQUAD_ZONE_PULL = 1.5;            // a squad follower values the zone its leader plays this much more
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
-const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view
+const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view...
+const HOLD_LOOK_ARC = 60 * DEG;         // ...back and forth this far either side of its centre (BOT-040: no 360 vision)
+const HOLD_OUTWARD_MIN = 1;            // m from an objective's centre: closer, the bot keeps the way it faced
 const SAFE_AREA_MARGIN = 0.7;
 const GOAL_DISTANCE_SCALE = 60;         // m: an objective's urgency halves at this distance (goal hints)
 const GOAL_TOUCH_RADIUS = 0.8;          // m: touch a carriable or stand on a spot
@@ -87,6 +94,8 @@ const BotDecide = {
   noGoalTime: new Float32Array(MAX_ACTORS), longestNoGoal: new Float32Array(MAX_ACTORS),
   campUntil: new Float64Array(MAX_ACTORS), campCooldown: new Float64Array(MAX_ACTORS),
   roamNode: new Int32Array(MAX_ACTORS).fill(-1),
+  // Hold sweep: the yaw the view swings around (set at the first arrival of a goal, NaN = not yet), its offset and direction.
+  holdYaw: new Float32Array(MAX_ACTORS).fill(NaN), holdOffset: new Float32Array(MAX_ACTORS), holdTurn: new Int8Array(MAX_ACTORS).fill(1),
   items: [], itemNode: new Int32Array(MAX_BOT_ITEMS), itemReadyAt: new Float64Array(MAX_BOT_ITEMS),
   itemVisited: new Float64Array(MAX_ACTORS * MAX_BOT_ITEMS).fill(-1e9),
   campSpots: [], timersAt: -1,
@@ -165,10 +174,12 @@ const BotDecide = {
     }
   },
   // The item spot at a position (pickups and timers report positions), or -1.
-  itemAt(x, y, z) {
+  itemAt(x, y, z) { return this.itemNear(x, y, z, ITEM_TOUCH); },
+  // The first item spot within radius m (flat; twice that in height) of a position, or -1.
+  itemNear(x, y, z, radius) {
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (length2(item.x - x, item.z - z) < ITEM_TOUCH && Math.abs(item.y - y) < ITEM_TOUCH * 2) return i;
+      if (length2(item.x - x, item.z - z) < radius && Math.abs(item.y - y) < radius * 2) return i;
     }
     return -1;
   },
@@ -208,9 +219,12 @@ const BotDecide = {
   apply(id, now) {
     const plan = bestPlan;
     if (plan.goal === GOAL.CHASE && this.goal[id] !== GOAL.CHASE) this.searchLeft[id] = SEARCH_SPOTS;
-    if (plan.goal !== this.goal[id]) { this.goalSince[id] = now; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
+    const changed = plan.goal !== this.goal[id];
+    if (changed) { this.goalSince[id] = now; this.holdYaw[id] = NaN; if (plan.goal === GOAL.CAMP) this.campUntil[id] = now + CAMP_SECONDS + CAMP_TRAIT_SECONDS * Bots.trait(id, TRAIT.camper); }
     if (this.goal[id] === GOAL.CAMP && plan.goal !== GOAL.CAMP) this.campCooldown[id] = now + CAMP_COOLDOWN;
     this.goal[id] = plan.goal; this.goalScore[id] = plan.score;
+    if (changed && plan.goal === GOAL.OBJECTIVE) BotTeam.onObjectiveGoal(id, plan.target, now);   // call-outs of the chosen goal only
+    if (changed && plan.goal === GOAL.COLLECT) BotTeam.onItemGoal(id, plan.x, plan.y, plan.z, now);
     this.goalX[id] = plan.x; this.goalY[id] = plan.y; this.goalZ[id] = plan.z;
     this.goalRadius[id] = plan.radius; this.goalAction[id] = plan.action; this.goalTarget[id] = plan.target;
     Bots.setState(id, this.goalState(id, plan, now));
@@ -247,7 +261,27 @@ const BotDecide = {
     if (goal === GOAL.CHASE) this.searched(id);
     if (goal === GOAL.ROAM) this.roamNode[id] = -1;
     if (goal === GOAL.COLLECT || goal === GOAL.CHASE || goal === GOAL.ROAM || goal === GOAL.INVESTIGATE) { this.hurry(id, now); return; }
-    if (BotCombat.target[id] < 0) Bots.lookYaw[id] = wrapAngle(Actors.aimYaw[id] + HOLD_LOOK_SPEED * dt * 10);   // hold: sweep the view
+    // A fight, or a hit from out of sight (14d lookAtThreat turns the view to the attacker): the sweep then swings around
+    // the way the bot last aimed, where the enemy was.
+    if (BotCombat.target[id] >= 0 || now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) { this.holdYaw[id] = Actors.aimYaw[id]; this.holdOffset[id] = 0; return; }
+    // Hold: the view swings at HOLD_LOOK_SPEED over HOLD_LOOK_ARC either side of holdCentre, set on arrival. Bots.turn
+    // wraps the look error, so the sum needs no wrap here.
+    if (Number.isNaN(this.holdYaw[id])) { this.holdYaw[id] = this.holdCentre(id); this.holdOffset[id] = 0; }
+    const offset = this.holdOffset[id] + this.holdTurn[id] * HOLD_LOOK_SPEED * dt;
+    if (Math.abs(offset) >= HOLD_LOOK_ARC) this.holdTurn[id] = -this.holdTurn[id];
+    this.holdOffset[id] = Math.max(-HOLD_LOOK_ARC, Math.min(HOLD_LOOK_ARC, offset));
+    Bots.lookYaw[id] = this.holdYaw[id] + this.holdOffset[id];
+  },
+  // Toward the threat on a retreat, out of the objective held (a point, a hill, a flag base), else the way the bot faced.
+  holdCentre(id) {
+    const threat = this.goal[id] === GOAL.RETREAT ? this.goalTarget[id] : -1;
+    if (threat >= 0) {
+      BotSense.perceivedPosition(id, threat, threatPoint);
+      return Math.atan2(threatPoint.x - Actors.x[id], threatPoint.z - Actors.z[id]);
+    }
+    const zone = this.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[this.goalTarget[id]] : null;
+    if (!zone || length2(Actors.x[id] - zone.x, Actors.z[id] - zone.z) < HOLD_OUTWARD_MIN) return Actors.aimYaw[id];
+    return Math.atan2(Actors.x[id] - zone.x, Actors.z[id] - zone.z);
   },
   markVisited(id, item, now) {
     if (item >= 0 && item < this.items.length) this.itemVisited[id * MAX_BOT_ITEMS + item] = now;
@@ -290,24 +324,41 @@ const BotDecide = {
     return BotCombat.mostUsedPlayerWeapon() || FALLBACK_FAVORITE;
   },
 
-  // ---- BOT-021 aggression: 0 when hurt or far below the enemy, 0.7 with a powerup, else the weapon value x trait x difficulty ----
-  // The enemy's height is where the bot believes it is (BOT-040).
-  aggression(id, target) {
-    const lowHealth = Actors.health[id] < Actors.maxHealth[id] * AGGRESSION_HEALTH && Actors.armor[id] < AGGRESSION_ARMOR;
-    if (lowHealth || (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT)) return 0;
-    if (Items.activePowerups(id, powerupList) > 0) return AGGRESSION_POWERUP;
+  // ---- BOT-021 'want to fight' and 'should flee' are kept apart: aggression only scales how hard a bot attacks (attack,
+  // chase, close in or hold its ground); a bot flees only from a disadvantage (flees). ----
+  // Aggression 0..1: at least AGGRESSION_POWERUP with a powerup, else the weapon value x trait x difficulty.
+  aggression(id) {
     const weapon = Weapons.currentWeapon(id), value = weapon ? Math.max(AGGRESSION_WEAPON_FLOOR, weapon.botPref.value) : 0;
-    return clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression) * mutatorRisk(), 0, 1);
+    const will = clamp(value * (0.5 + Bots.trait(id, TRAIT.aggression)) * (0.5 + Bots.currentSkill().aggression) * mutatorRisk(), 0, 1);
+    return Items.activePowerups(id, powerupList) > 0 ? Math.max(AGGRESSION_POWERUP, will) : will;
+  },
+  // Hurt (below the health share the self-preservation trait sets, armour low), unarmed, outgunned (the enemy's weapon is
+  // worth AGGRESSION_OUTGUNNED more than the bot's own), or the enemy far above. The enemy is where the bot believes it
+  // is (BOT-040); a powerup holds the ground against all but the height.
+  flees(id, target) {
+    if (target >= 0 && BotSense.perceivedPosition(id, target, threatPoint).y - Actors.y[id] >= AGGRESSION_HEIGHT) return true;
+    if (Items.activePowerups(id, powerupList) > 0) return false;
+    const healthShare = AGGRESSION_HEALTH * (0.5 + Bots.trait(id, TRAIT.selfPreservation));
+    if (Actors.health[id] < Actors.maxHealth[id] * healthShare && Actors.armor[id] < AGGRESSION_ARMOR) return true;
+    const own = Weapons.currentWeapon(id), theirs = target >= 0 && BotSense.sees(id, target) ? Weapons.currentWeapon(target) : null;
+    if (!own) return true;
+    return !!theirs && theirs.botPref.value - own.botPref.value >= AGGRESSION_OUTGUNNED;
   },
 };
 
 // BOT-071: no enemy the bot can see within REVIVE_SAFE_DISTANCE of the downed ally (BotSense.sees fails through smoke).
 function reviveSafe(id, ally) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
-    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy)) continue;
+    if (!Actors.alive[enemy] || !Actors.isEnemy(id, enemy) || !BotSense.sees(id, enemy) || BotCombat.harmless(enemy)) continue;
     if (length2(Actors.x[enemy] - Actors.x[ally], Actors.z[enemy] - Actors.z[ally]) < REVIVE_SAFE_DISTANCE) return false;
   }
   return true;
+}
+
+// One reviver per downed ally: the others keep fighting around it.
+function revivedByOther(id, ally) {
+  for (let other = 0; other < Actors.count; other++) if (other !== id && Damage.reviving[other] === ally) return true;
+  return false;
 }
 
 // MUT-003: hitting harder than one is hit (damage dealt / taken mutators) makes fights worth more, and the reverse.
@@ -373,13 +424,12 @@ GOAL_SCORERS[GOAL.ROAM] = (id, plan) => {
 };
 GOAL_SCORERS[GOAL.ATTACK] = (id, plan, now) => {
   const target = BotCombat.target[id];
-  if (target < 0 || !BotSense.sees(id, target)) return 0;
-  const aggression = BotDecide.aggression(id, target);
-  if (aggression < RETREAT_THRESHOLD) return 0;
-  // BOT-053: only attack token holders close in; the others fight from where they stand, coming no nearer than the
-  // weapon's range (a melee weapon must close in).
+  if (target < 0 || !BotSense.sees(id, target) || BotDecide.flees(id, target)) return 0;
+  const aggression = BotDecide.aggression(id);
+  // BOT-053: only attack token holders close in, and only with the aggression for it (easy bots hold their ground); the
+  // others fight from where they stand, coming no nearer than the weapon's range (a melee weapon must close in).
   const weapon = Weapons.currentWeapon(id), closest = attackRadius(weapon);
-  const closeIn = (weapon && weapon.class === 'melee') || BotTeam.takeAttackToken(id, target, now);
+  const closeIn = (weapon && weapon.class === 'melee') || (aggression >= AGGRESSION_CLOSE_IN && BotTeam.takeAttackToken(id, target, now));
   const distance = length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]);
   const radius = closeIn ? closest : clamp(distance, closest, weapon ? weapon.botPref.range[1] : closest);
   setPlan(plan, Actors.x[target], Actors.y[target], Actors.z[target], radius, ACTION.MOVE, target);
@@ -392,9 +442,8 @@ function attackRadius(weapon) {
 }
 GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
   const target = BotCombat.target[id];
-  if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now)) return 0;
-  const aggression = BotDecide.aggression(id, target);
-  if (aggression < RETREAT_THRESHOLD) return 0;
+  if (target < 0 || BotSense.sees(id, target) || !BotSense.knows(id, target, now) || BotDecide.flees(id, target)) return 0;
+  const aggression = BotDecide.aggression(id);
   const pair = BotSense.pair(id, target), freshness = 1 - (now - BotSense.knownAt[pair]) / SENSE_MEMORY;
   const flank = flankSpot(id, BotSense.knownX[pair], BotSense.knownZ[pair], now), spot = BotDecide.flankSpots[flank];
   BotDecide.flankSpot[id] = flank;
@@ -404,11 +453,9 @@ GOAL_SCORERS[GOAL.CHASE] = (id, plan, now) => {
 };
 GOAL_SCORERS[GOAL.RETREAT] = (id, plan, now) => {
   const threat = retreatThreat(id, now);
-  if (threat < 0) return 0;
-  const aggression = BotDecide.aggression(id, threat);
-  if (aggression >= RETREAT_THRESHOLD) return 0;
+  if (threat < 0 || !BotDecide.flees(id, threat)) return 0;
   retreatSpot(id, threat, plan);
-  return Math.min(0.95, RETREAT_BASE + RETREAT_GAIN * (RETREAT_THRESHOLD - aggression) * 2 * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
+  return Math.min(RETREAT_MAX, RETREAT_BASE + RETREAT_GAIN * (0.5 + Bots.trait(id, TRAIT.selfPreservation)));
 };
 GOAL_SCORERS[GOAL.COLLECT] = (id, plan, now) => {
   if (Modes.loot.count > 0) return collectScore(id, bestLoot(id, plan));   // royale: the rolled loot spots instead of map pickups
@@ -435,6 +482,7 @@ GOAL_SCORERS[GOAL.CAMP] = (id, plan, now) => {
 };
 GOAL_SCORERS[GOAL.INVESTIGATE] = (id, plan, now) => {
   if (BotCombat.target[id] >= 0 || now - BotSense.heardAt[id] > INVESTIGATE_SECONDS) return 0;
+  if (BotTeam.beyondSquad(id, BotSense.heardX[id], BotSense.heardZ[id])) return 0;
   setPlan(plan, BotSense.heardX[id], BotSense.heardY[id], BotSense.heardZ[id], 2, ACTION.MOVE, -1);
   return INVESTIGATE_BASE + INVESTIGATE_GAIN * Bots.trait(id, TRAIT.alertness);
 };
@@ -446,9 +494,10 @@ GOAL_SCORERS[GOAL.ORDER] = (id, plan, now) => {
 GOAL_SCORERS[GOAL.REVIVE] = (id, plan) => {
   if (!Damage.downedCount || (Actors.flags[id] & ACTOR_FLAG.DOWNED)) return 0;
   const ally = Damage.nearestDownedAlly(id, REVIVE_SEARCH);
-  if (ally < 0 || !reviveSafe(id, ally)) return 0;
+  if (ally < 0 || revivedByOther(id, ally) || (Damage.reviving[id] !== ally && !reviveSafe(id, ally))) return 0;   // a revive under way is finished
   setPlan(plan, Actors.x[ally], Actors.y[ally], Actors.z[ally], REVIVE_STAND, ACTION.USE, ally);
   const distance = length2(Actors.x[ally] - Actors.x[id], Actors.z[ally] - Actors.z[id]);
+  if (distance <= REVIVE_CLOSE && !BotDecide.carriesObjective(id)) return REVIVE_URGENT;
   return REVIVE_BASE + REVIVE_GAIN * Bots.trait(id, TRAIT.teamwork) * (1 - distance / REVIVE_SEARCH);
 };
 
@@ -496,6 +545,7 @@ function bestItem(id, now, group) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if ((group && item.group !== group) || BotDecide.itemNode[i] < 0 || !Nav.reachable(botNode, BotDecide.itemNode[i])) continue;
+    if (BotTeam.beyondSquad(id, item.x, item.z)) continue;
     const value = itemValue(id, item);
     if (value <= 0) continue;
     const distance = length3(item.x - Actors.x[id], item.y - Actors.y[id], item.z - Actors.z[id]);
@@ -519,7 +569,7 @@ function itemValue(id, item) {
 
 function weaponItemValue(id, weapon, base) {
   if (Weapons.has(id, weapon.id)) return 0;
-  return base * weapon.botPref.value + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0);
+  return BotCombat.weaponValue(id, weapon, base);
 }
 
 // Up now, or (BOT-013, item-timing bots) up by the time the bot gets there, arriving 1-3 s early. Spots the bot took
@@ -583,20 +633,20 @@ function spreadSpot(id, objective, share, plan, action) {
   setPlan(plan, objective.x + Math.sin(angle) * offset, objective.y, objective.z + Math.cos(angle) * offset, radius, action, objective.index);
 }
 
-function planZones(id, plan, kind, now) {
-  const team = Actors.team[id], defender = BotTeam.role[id] === ROLE.DEFEND;
+// BOT-052: a squad follower is drawn to the zone its leader plays (SQUAD_ZONE_PULL x its score).
+function planZones(id, plan, kind) {
+  const team = Actors.team[id], defender = BotTeam.role[id] === ROLE.DEFEND, led = BotTeam.leaderObjective(id);
   let best = null, bestScore = 0;
   for (const objective of Modes.objectives) {
     if (objective.kind !== kind || !objective.active) continue;
     const threatened = objective.contested || (objective.capturingTeam >= 0 && objective.capturingTeam !== team);
     const value = objective.owner !== team || team < 0 ? 1 : threatened ? 0.9 : defender ? 0.6 : 0.25;
-    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40);
+    const score = value / (1 + length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) / 40) * (objective.index === led ? SQUAD_ZONE_PULL : 1);
     if (score > bestScore) { bestScore = score; best = objective; }
   }
   if (!best) return false;
   zoneSpot(id, best, plan, ACTION.HOLD);
   plan.score = clamp(bestScore * 1.5, 0, 1);
-  if (BotTeam.role[id] !== ROLE.FREELANCE && now - Bots.stateSince[id] < 0.6) BotTeam.bark(id, 'takingPoint', now);
   return true;
 }
 
@@ -781,8 +831,8 @@ function keepAway(id, plan) {
   setPlan(plan, Actors.x[id], Actors.y[id], Actors.z[id], 1, ACTION.HOLD, -1);
 }
 
-BotDecide.registerPlanner('point', (id, plan, now) => planZones(id, plan, 'point', now));
-BotDecide.registerPlanner('hill', (id, plan, now) => planZones(id, plan, 'hill', now));
+BotDecide.registerPlanner('point', (id, plan) => planZones(id, plan, 'point'));
+BotDecide.registerPlanner('hill', (id, plan) => planZones(id, plan, 'hill'));
 BotDecide.registerPlanner('flag', (id, plan) => planFlags(id, plan));
 BotDecide.registerPlanner('bombsite', (id, plan) => planBomb(id, plan));
 BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));

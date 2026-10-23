@@ -6,12 +6,16 @@
 // barks (BOT-100 limits: 5 s per bot, 1.5 s per team; chatter setting off / minimal / normal, taunts option).
 // Grenade tokens keep a team from throwing more than one every 3 s; attack and flank tokens (BOT-053, BOT_TOKENS) limit
 // how many bots close in on one target and flank at once. Squads (BOT-052, BOT_SQUAD): followers keep with their leader.
-// Flag raids: attackers gather at a rally point and push together (BOT_FLAG_PUSH).
+// Flag raids: attackers gather at a rally point and push together (BOT_FLAG_PUSH). BotEconomy buys in buy times and wave shops.
 
 const ROLE = { FREELANCE: 0, ATTACK: 1, DEFEND: 2, ESCORT: 3 };
 const ROLE_NAMES = Object.keys(ROLE).map((name) => name.toLowerCase());
 const COMMANDER_INTERVAL = 15;
 const ENEMY_PING_INTERVAL = 4;
+const ITEM_PING_INTERVAL = 4;           // s between a bot's item pings (Dibs on the item it goes for)
+const OBJECTIVE_PING_INTERVAL = 8;      // s between a team's objective pings (a bot marks the objective it plays on a mode call-out)
+const ITEM_PING_RADIUS = 2;             // a move ping this close to an item spot is a ping on the item: the taker calls Dibs
+const OBJECTIVE_ANNOUNCES = new Set(['capture', 'bomb', 'flag', 'objective']);   // announce kinds the objective bark answers
 const BARK_BOT_INTERVAL = 5, BARK_TEAM_INTERVAL = 1.5;
 const GRENADE_TOKEN_INTERVAL = 3;
 const TEAM_SLOTS = MAX_ACTORS + 1;      // index 0 = no team, then the teams (M20 squads use team indices up to the actor count)
@@ -65,8 +69,8 @@ const BotTeam = {
   orderSource: new Int16Array(MAX_ACTORS).fill(-1),   // who gave the order (a follow order tracks them)
   orderGivenAt: new Float64Array(MAX_ACTORS), ackAt: new Float64Array(MAX_ACTORS), answeredAt: new Float64Array(MAX_ACTORS),
   ackCategory: new Array(MAX_ACTORS).fill('orderAck'),   // the reply bark due at ackAt
-  enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
-  teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9),
+  enemyPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), itemPingAt: new Float64Array(MAX_ACTORS).fill(-1e9), barkAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+  teamBarkAt: new Float64Array(TEAM_SLOTS).fill(-1e9), objectivePingAt: new Float64Array(TEAM_COUNT).fill(-1e9),
   grenadeAt: new Float64Array(TEAM_SLOTS + MAX_ACTORS).fill(-1e9),
   // BOT-053 tokens: BOT_TOKENS.attackers slots per target, one flank slot per team (free-for-all: per bot); holder -1 = free.
   attackHolder: new Int16Array(MAX_ACTORS * BOT_TOKENS.attackers).fill(-1), attackUntil: new Float64Array(MAX_ACTORS * BOT_TOKENS.attackers),
@@ -85,9 +89,9 @@ const BotTeam = {
     this.role.fill(ROLE.FREELANCE);
     this.orderUntil.fill(0);
     this.ackAt.fill(0);
-    this.enemyPingAt.fill(-1e9);
+    this.enemyPingAt.fill(-1e9); this.itemPingAt.fill(-1e9);
     this.barkAt.fill(-1e9);
-    this.teamBarkAt.fill(-1e9);
+    this.teamBarkAt.fill(-1e9); this.objectivePingAt.fill(-1e9);
     this.grenadeAt.fill(-1e9);
     this.pushUntil.fill(0); this.waitSince.fill(-1); this.pushCheckAt = 0;
     for (let team = 0; team < TEAM_COUNT; team++) this.placeRally(team);
@@ -175,21 +179,74 @@ const BotTeam = {
   // A follower's SQUAD goal plan: the leader's live position; broken off (farther than BOT_SQUAD.regroup) it regroups.
   // A bot with a target fights first (no squad goal, so a regroup never drops a chase).
   squadPlan(id, plan) {
-    const leader = this.squadLeader[id];
-    if (BotCombat.target[id] >= 0) return 0;
-    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return 0;
+    const leader = this.liveLeader(id);
+    if (BotCombat.target[id] >= 0 || leader < 0) return 0;
     setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], BOT_SQUAD.keep, ACTION.MOVE, leader);
     const keep = SQUAD_BASE + SQUAD_GAIN * Bots.trait(id, TRAIT.teamwork);
     return length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]) > BOT_SQUAD.regroup ? keep + SQUAD_REGROUP : keep;
   },
+  // The living team leader a follower keeps with, or -1 (no squad, or the bot leads).
+  liveLeader(id) {
+    const leader = this.squadLeader[id];
+    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return -1;
+    return leader;
+  },
+  // BOT-052: a follower detours (items, sounds) at most BOT_SQUAD.regroup m from its leader.
+  beyondSquad(id, x, z) {
+    const leader = this.liveLeader(id);
+    return leader >= 0 && length2(x - Actors.x[leader], z - Actors.z[leader]) > BOT_SQUAD.regroup;
+  },
+  // The objective (index) the follower's leader plays, or -1.
+  leaderObjective(id) {
+    const leader = this.liveLeader(id);
+    return leader >= 0 && BotDecide.goal[leader] === GOAL.OBJECTIVE ? BotDecide.goalTarget[leader] : -1;
+  },
 
   // ---- Per bot after its decision: delayed acknowledgements and situational barks ----
   updateBot(id, now) {
-    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) { this.ackAt[id] = 0; this.bark(id, this.ackCategory[id], now); }
+    if (this.ackAt[id] > 0 && now >= this.ackAt[id]) this.answer(id, now);
     const health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     if (health < LOW_HEALTH_FRACTION && !this.lowBarked[id] && this.bark(id, 'lowHealth', now)) this.lowBarked[id] = 1;
     if (health < HELP_HEALTH && now - BotSense.attackedAt[id] < HELP_RECENT) this.bark(id, 'needHelp', now);
     if (this.orderUntil[id] > now && BotDecide.goal[id] === GOAL.ORDER && this.answeredAt[id] < this.orderGivenAt[id]) this.answeredAt[id] = now;
+  },
+
+  answer(id, now) {
+    this.ackAt[id] = 0;
+    this.bark(id, this.ackCategory[id], now);
+    if (this.ackCategory[id] === 'dibs') this.emitPing(id, 'dibs', this.orderX[id], this.orderY[id], this.orderZ[id], -1, this.orderSource[id]);
+  },
+  // A newly chosen objective goal on a point or hill: "Taking the point" (role bots only).
+  onObjectiveGoal(id, target, now) {
+    const objective = target >= 0 ? Modes.objectives[target] : null;
+    if (objective && (objective.kind === 'point' || objective.kind === 'hill') && this.role[id] !== ROLE.FREELANCE) this.bark(id, 'takingPoint', now);
+  },
+  // A newly chosen item: a team bot pings it (Dibs) so the team leaves it, at most every ITEM_PING_INTERVAL s.
+  onItemGoal(id, x, y, z, now) {
+    if (Actors.team[id] < 0 || now - this.itemPingAt[id] < ITEM_PING_INTERVAL) return;
+    this.itemPingAt[id] = now;
+    this.emitPing(id, 'dibs', x, y, z, -1, -1);
+  },
+  // Mode call-outs (capture, bomb, flag): the bots playing the objective call it out (the bark limits keep it to one or so),
+  // and per team the one nearest its objective pings it (BOT-061).
+  onAnnounce(event) {
+    if (!OBJECTIVE_ANNOUNCES.has(event.kind)) return;
+    const now = Sim.time;
+    for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.OBJECTIVE) this.bark(id, 'objective', now);
+    for (let team = 0; team < TEAM_COUNT; team++) if (now - this.objectivePingAt[team] >= OBJECTIVE_PING_INTERVAL) this.pingObjective(team, now);
+  },
+  // Attack or defend (spotKind) at the objective, never from inside the 'ping' handler (pingPayload is shared).
+  pingObjective(team, now) {
+    let pinger = -1, nearest = Infinity;
+    for (let id = 0; id < Actors.count; id++) {
+      const objective = Bots.active[id] && Actors.team[id] === team && BotDecide.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[BotDecide.goalTarget[id]] : null;
+      const distance = objective ? Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) : Infinity;
+      if (distance < nearest) { nearest = distance; pinger = id; }
+    }
+    if (pinger < 0) return;
+    const objective = Modes.objectives[BotDecide.goalTarget[pinger]];
+    this.objectivePingAt[team] = now;
+    this.emitPing(pinger, spotKind(pinger, objective.x, objective.z), objective.x, objective.y, objective.z, -1, -1);
   },
 
   // ---- Orders (BOT-051): the decision layer asks for the bot's current order as a goal plan ----
@@ -235,6 +292,9 @@ const BotTeam = {
     if (enemyPing) { if (takerList.length > 0) this.queueReply(takerList[0], 'pingReply', now); return; }
     const order = callout && callout.order ? callout.order : 'go';   // a ping kind with no order of its own moves the takers there
     for (let i = 0; i < takerList.length; i++) this.giveOrder(takerList[i], order, event, now);
+    // A move ping on an item spot: the first taker calls Dibs on it (said and pinged at ackAt, never inside this handler:
+    // pingPayload is shared).
+    if (order === 'go' && takerList.length > 0 && BotDecide.itemNear(event.x, event.y, event.z, ITEM_PING_RADIUS) >= 0) this.queueReply(takerList[0], 'dibs', now);
   },
   giveOrder(id, order, event, now) {
     if (order === 'hold') this.give(id, 'defend', Actors.x[id], Actors.y[id], Actors.z[id], now, event.id);
@@ -407,9 +467,77 @@ function spotKind(player, x, z) {
 
 GOAL_SCORERS[GOAL.SQUAD] = (id, plan) => BotTeam.squadPlan(id, plan);
 
+// ---- Bot shopping (BOT-001: decided in the brain, bought through Economy.buy like the player's buy menu) ----
+// One pass per buy window (round buy time in the buy zone, an open wave shop), by BOT_BUY. The items, prices and limits
+// are the match catalogue's (Economy.catalogue / limitReason), so every mode rule on what a side may buy holds for bots.
+const BOT_BUY_CHECK = 0.5;              // s between the checks for an open buy window
+const BotEconomy = {
+  checkAt: new Float64Array(MAX_ACTORS),
+  shopped: new Uint8Array(MAX_ACTORS),  // 1 = this window's pass is done (0 again once the window closes)
+
+  update(id, now) {
+    if (now < this.checkAt[id]) return;
+    this.checkAt[id] = now + BOT_BUY_CHECK;
+    if (!Economy.usesMoney() || !Economy.canBuy(id)) { this.shopped[id] = 0; return; }
+    if (this.shopped[id]) return;
+    this.shopped[id] = 1;
+    this.shop(id);
+  },
+  shop(id) {
+    if (Economy.preset().buy === 'round') {
+      if (Economy.money(id) < BOT_BUY.ecoMoney * (0.75 + 0.5 * Bots.trait(id, TRAIT.selfPreservation))) return;   // an eco round
+      this.buyBest(id, gunWorth);
+      this.buyBest(id, armourWorth);
+      if (Bots.tier(id).gadgets) this.buyBest(id, grenadeWorth);
+      return;
+    }
+    if (anyGunLow(id)) this.buyBest(id, ammoWorth);
+    if (Bots.tier(id).gadgets) this.buyBest(id, placedGadgetWorth);
+  },
+  // Buys the catalogue item `worth` values most (0 = not wanted) that the bot may buy now and can pay for.
+  buyBest(id, worth) {
+    const list = Economy.catalogue(), money = Economy.money(id);
+    let best = null, bestValue = 0;
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (item.price > money || Economy.limitReason(id, item)) continue;
+      const value = worth(id, item, money);
+      if (value > bestValue) { bestValue = value; best = item; }
+    }
+    return best !== null && Economy.buy(id, best.id).ok;
+  },
+};
+
+// A gun (not a melee weapon) worth BOT_BUY.upgrade more than the best one the bot owns, by botPref and the favourite.
+function gunWorth(id, item) {
+  if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
+  const value = BotCombat.weaponValue(id, CAT.weapons.byId(item.key), 1);
+  return value >= bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
+}
+function bestOwnedGun(id) {
+  let best = 0;
+  for (let index = 0; index < WEAPON_COUNT; index++) {
+    const weapon = CAT.weapons[index];
+    if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, BotCombat.weaponValue(id, weapon, 1));
+  }
+  return best;
+}
+// The best armour on sale (the dearer row protects more: vest and helmet over the vest).
+function armourWorth(id, item) { return item.kind === 'armor' || item.kind === 'helmet' ? item.price : 0; }
+// The cheapest grenade (a pass buys one item per worth; Economy.limitReason holds the grenade group limit).
+function grenadeWorth(id, item) { return item.kind === 'gadget' && item.group === 'grenade' ? 1 / item.price : 0; }
+function ammoWorth(id, item) { return item.kind === 'ammo' ? 1 : 0; }
+// Wave shop: a placed gadget (barrier, turret) while BOT_BUY.shopKeep credits stay for the next refill.
+function placedGadgetWorth(id, item, money) { return item.kind === 'gadget' && money - item.price >= BOT_BUY.shopKeep ? item.price : 0; }
+// Any gun the bot carries that runs low (BotCombat.gunLow).
+function anyGunLow(id) {
+  for (let index = 0; index < WEAPON_COUNT; index++) if (Weapons.owned[Weapons.slotIndex(id, index)] && BotCombat.gunLow(id, index)) return true;
+  return false;
+}
+
 // A fresh start every match, so the same seed plays the same match: at match setup every typed array of the bot modules
 // (14a..14f: clocks, aim noise, scan order, paths, plans) goes back to its load-time contents. Copies taken once, at load.
-const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam].flatMap((module) =>
+const BOT_FRESH_STATE = [Bots, BotSense, BotMove, BotCombat, BotDecide, BotTeam, BotEconomy].flatMap((module) =>
   Object.values(module).filter((value) => ArrayBuffer.isView(value)).map((array) => ({ array, initial: array.slice() })));
 
 Bus.on('match.setup', () => { for (const entry of BOT_FRESH_STATE) entry.array.set(entry.initial); });
@@ -418,4 +546,5 @@ Bus.on('nav.ready', () => { for (let team = 0; team < TEAM_COUNT; team++) BotTea
 Bus.on('actor.spawn', (event) => BotTeam.onSpawn(event.id));
 Bus.on('ping', (event) => BotTeam.onPing(event));
 Bus.on('kill', (event) => BotTeam.onKill(event));
+Bus.on('announce', (event) => BotTeam.onAnnounce(event));
 Bus.on('setting', (key) => BotTeam.readSettings(key));

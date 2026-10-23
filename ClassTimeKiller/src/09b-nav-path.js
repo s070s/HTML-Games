@@ -6,6 +6,7 @@ const NAV_SLOTS = MAX_ACTORS;           // request slots (bots use their actor i
 const NAV_SLOT_PATH = 1024;             // longest path a request slot keeps (nodes and smoothed points)
 const NAV_CACHE_SIZE = 64;              // direct-mapped path cache entries (power of two)
 const NAV_CACHE_PATH = 256;             // longer paths are not cached
+const NAV_MANTLE_REACH = 1;             // m: a landing above the jump apex is a mantle; its node lies up to this past the ledge
 const NAV_SMOOTH_LOOKAHEAD = 12;        // string pulling tests at most this many nodes ahead
 const NAV_HEIGHT_TOLERANCE = 1e-3;      // link heights and lengths are float32
 const NAV_QUANTIZE_SLACK = 1e-4;        // covers float32 option values (1.28 is stored as 1.27999997)
@@ -24,12 +25,13 @@ const navSearch = {
   path: null, pathType: null, teleportExitCost: null, teleportHop: null,
   pushScore: 0,             // score of the next navHeapPush (a float argument would be boxed per pushed node, PERF-006)
   goalX: 0, goalY: 0, goalZ: 0, allowJumpHeight: 0, maxDrop: 0, crouchOk: true, avoid: null, danger: null,
+  dangerKey: 0,             // the danger array's version (-1 = unversioned: such paths are not cached)
   moveSpeed: Infinity, jumpVelocity: 0, gravity: 0, key: 0, physicsKey: 0,
 };
 const navSmooth = { type: 0 };          // move type of the straight move navFurthestVisible chose
 const navCache = {
   from: new Int32Array(NAV_CACHE_SIZE).fill(-1), to: new Int32Array(NAV_CACHE_SIZE), key: new Int32Array(NAV_CACHE_SIZE),
-  physicsKey: new Int32Array(NAV_CACHE_SIZE),
+  physicsKey: new Int32Array(NAV_CACHE_SIZE), dangerKey: new Int32Array(NAV_CACHE_SIZE),
   length: new Int32Array(NAV_CACHE_SIZE), cost: new Float32Array(NAV_CACHE_SIZE),
   nodes: new Int32Array(NAV_CACHE_SIZE * NAV_CACHE_PATH), types: new Uint8Array(NAV_CACHE_SIZE * NAV_CACHE_PATH),
 };
@@ -37,12 +39,12 @@ const navSlots = {
   from: new Int32Array(NAV_SLOTS), to: new Int32Array(NAV_SLOTS), status: new Uint8Array(NAV_SLOTS), inQueue: new Uint8Array(NAV_SLOTS),
   jump: new Float64Array(NAV_SLOTS), drop: new Float64Array(NAV_SLOTS), crouch: new Uint8Array(NAV_SLOTS),
   speed: new Float64Array(NAV_SLOTS), jumpVelocity: new Float64Array(NAV_SLOTS), gravity: new Float64Array(NAV_SLOTS),
-  avoid: new Array(NAV_SLOTS).fill(null), danger: new Array(NAV_SLOTS).fill(null),
+  avoid: new Array(NAV_SLOTS).fill(null), danger: new Array(NAV_SLOTS).fill(null), dangerKey: new Int32Array(NAV_SLOTS),
   queue: new Int32Array(NAV_SLOTS), queueHead: 0, queueCount: 0,
   nodeCount: new Int32Array(NAV_SLOTS), nodes: new Int32Array(NAV_SLOTS * NAV_SLOT_PATH), cost: new Float32Array(NAV_SLOTS),
   pointCount: new Int32Array(NAV_SLOTS), points: new Float32Array(NAV_SLOTS * NAV_SLOT_PATH * 3), pointTypes: new Uint8Array(NAV_SLOTS * NAV_SLOT_PATH),
 };
-const navSlotOptions = { allowJumpHeight: 0, maxDrop: 0, crouchOk: true, avoid: null, danger: null, moveSpeed: Infinity, jumpVelocity: 0, gravity: 0 };
+const navSlotOptions = { allowJumpHeight: 0, maxDrop: 0, crouchOk: true, avoid: null, danger: null, dangerKey: -1, moveSpeed: Infinity, jumpVelocity: 0, gravity: 0 };
 
 Object.assign(Nav, {
   pathNodes: null,          // last findPath result: node indices 0..pathLength-1
@@ -71,12 +73,13 @@ Object.assign(Nav, {
 
   // Synchronous A* (unbudgeted: bots use request). options: { allowJumpHeight, maxDrop, crouchOk, moveSpeed, jumpVelocity,
   // gravity (jump and drop reach of the bot's preset), avoid(node) -> extra seconds (Infinity forbids), danger: Float32Array
-  // of extra seconds per node }. Returns the node count of the path (0 = none).
+  // of extra seconds per node, dangerKey: its version (bump it on every change; without one a danger path is not cached) }.
+  // Returns the node count of the path (0 = none).
   findPath(from, to, options) {
     this.pathLength = 0; this.pathCost = Infinity; this.lastCacheHit = false;
     if (!navValidNode(from) || !navValidNode(to)) return 0;
     navReadOptions(options || NAV_DEFAULT_OPTIONS);
-    const cacheable = !navSearch.avoid && !navSearch.danger;
+    const cacheable = !navSearch.avoid && navSearch.dangerKey >= 0;
     if (cacheable && navCacheRead(from, to)) return this.pathLength;
     this.searches++;
     if (navAStar(from, to)) navReconstruct(from, to);
@@ -97,7 +100,7 @@ Object.assign(Nav, {
     slots.speed[id] = navOption(given.moveSpeed, Infinity);
     slots.jumpVelocity[id] = navOption(given.jumpVelocity, 0);
     slots.gravity[id] = navOption(given.gravity, this.limits.gravity);
-    slots.avoid[id] = given.avoid || null; slots.danger[id] = given.danger || null;
+    slots.avoid[id] = given.avoid || null; slots.danger[id] = given.danger || null; slots.dangerKey[id] = navOption(given.dangerKey, -1);
     slots.status[id] = NAV_STATUS.QUEUED;
     if (!slots.inQueue[id]) navEnqueue(id);
     return true;
@@ -188,6 +191,7 @@ function navReadOptions(options) {
   s.gravity = Math.max(1, navQuantize(navOption(options.gravity, Nav.limits.gravity), 10));
   s.avoid = typeof options.avoid === 'function' ? options.avoid : null;
   s.danger = options.danger || null;
+  s.dangerKey = s.danger ? navOption(options.dangerKey, -1) : 0;
   s.key = navKeyField(s.allowJumpHeight, 100, 0) | navKeyField(s.maxDrop, 10, 10) | (s.crouchOk ? 1 << 20 : 0);
   s.physicsKey = s.moveSpeed === Infinity ? -1 : navKeyField(s.moveSpeed, 10, 0) | navKeyField(s.jumpVelocity, 10, 10) | navKeyField(s.gravity, 10, 20);
 }
@@ -235,14 +239,15 @@ function navLinkAllowed(link) {
 
 // BOT-010 "gap <= preset reach": a jump (or a run-off for a drop) at moveSpeed with vertical jumpVelocity under gravity
 // must cover the link's horizontal length before the feet sink back to the landing height. Extra jumps only lengthen
-// the flight, so a landing above the single-jump apex (allowJumpHeight counts extra jumps) gets the time to the apex.
+// the flight, so a landing above the single-jump apex (allowJumpHeight counts extra jumps) gets the time to the apex,
+// plus NAV_MANTLE_REACH: the hands catch the ledge and the landing node lies past it (S10 mantle).
 function navReachAllowed(link) {
   const s = navSearch;
   if (s.moveSpeed === Infinity) return true;
   const rise = Nav.nodeY[Nav.linkTarget[link]] - Nav.nodeY[Nav.linkFrom[link]];
-  const descent = Math.sqrt(Math.max(0, s.jumpVelocity * s.jumpVelocity - 2 * s.gravity * rise));
-  const flightSeconds = (s.jumpVelocity + descent) / s.gravity;
-  return Nav.linkReach[link] <= s.moveSpeed * flightSeconds + NAV_HEIGHT_TOLERANCE;
+  const clearance = s.jumpVelocity * s.jumpVelocity - 2 * s.gravity * rise;
+  const flightSeconds = (s.jumpVelocity + Math.sqrt(Math.max(0, clearance))) / s.gravity;
+  return Nav.linkReach[link] <= s.moveSpeed * flightSeconds + (clearance < 0 ? NAV_MANTLE_REACH : 0) + NAV_HEIGHT_TOLERANCE;
 }
 
 function navEnterCost(node) {
@@ -347,12 +352,16 @@ function navReconstruct(from, to) {
 // The option keys come from the last navReadOptions.
 function navCacheSlot(from, to) {
   const s = navSearch;
-  return (Math.imul(from, 73856093) ^ Math.imul(to, 19349663) ^ Math.imul(s.key, 83492791) ^ Math.imul(s.physicsKey, 1640531527)) & (NAV_CACHE_SIZE - 1);
+  return (Math.imul(from, 73856093) ^ Math.imul(to, 19349663) ^ Math.imul(s.key, 83492791) ^ Math.imul(s.physicsKey, 1640531527)
+    ^ Math.imul(s.dangerKey, 2654435761)) & (NAV_CACHE_SIZE - 1);
 }
 
 function navCacheRead(from, to) {
   const c = navCache, s = navSearch, slot = navCacheSlot(from, to);
-  if (c.from[slot] !== from || c.to[slot] !== to || c.key[slot] !== s.key || c.physicsKey[slot] !== s.physicsKey) { Nav.cacheMisses++; return false; }
+  if (c.from[slot] !== from || c.to[slot] !== to || c.key[slot] !== s.key || c.physicsKey[slot] !== s.physicsKey || c.dangerKey[slot] !== s.dangerKey) {
+    Nav.cacheMisses++;
+    return false;
+  }
   const length = c.length[slot], base = slot * NAV_CACHE_PATH;
   for (let i = 0; i < length; i++) { navSearch.path[i] = c.nodes[base + i]; navSearch.pathType[i] = c.types[base + i]; }
   Nav.pathLength = length; Nav.pathCost = length ? c.cost[slot] : Infinity;
@@ -363,7 +372,7 @@ function navCacheRead(from, to) {
 function navCacheWrite(from, to) {
   const c = navCache, slot = navCacheSlot(from, to), length = Nav.pathLength, base = slot * NAV_CACHE_PATH;
   if (length > NAV_CACHE_PATH) return;
-  c.from[slot] = from; c.to[slot] = to; c.key[slot] = navSearch.key; c.physicsKey[slot] = navSearch.physicsKey;
+  c.from[slot] = from; c.to[slot] = to; c.key[slot] = navSearch.key; c.physicsKey[slot] = navSearch.physicsKey; c.dangerKey[slot] = navSearch.dangerKey;
   c.length[slot] = length; c.cost[slot] = Nav.pathCost;
   for (let i = 0; i < length; i++) { c.nodes[base + i] = navSearch.path[i]; c.types[base + i] = navSearch.pathType[i]; }
 }
@@ -387,7 +396,7 @@ function navDequeue() {
 function navServe(id) {
   const slots = navSlots, options = navSlotOptions;
   options.allowJumpHeight = slots.jump[id]; options.maxDrop = slots.drop[id]; options.crouchOk = slots.crouch[id] === 1;
-  options.avoid = slots.avoid[id]; options.danger = slots.danger[id];
+  options.avoid = slots.avoid[id]; options.danger = slots.danger[id]; options.dangerKey = slots.dangerKey[id];
   options.moveSpeed = slots.speed[id]; options.jumpVelocity = slots.jumpVelocity[id]; options.gravity = slots.gravity[id];
   const length = Nav.findPath(slots.from[id], slots.to[id], options);
   slots.nodeCount[id] = 0; slots.pointCount[id] = 0; slots.cost[id] = Nav.pathCost;
