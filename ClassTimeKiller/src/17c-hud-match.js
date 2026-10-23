@@ -52,6 +52,14 @@ const HudFeed = {
 };
 
 const HUD_HEADER_WIDTH = 320;   // units: the score, clock and round panel at the top centre
+const HUD_HEADER_HEIGHT = 44;   // units: the panel behind the score, the clock and the "FIRST TO" line
+
+// The score panel's box (hudBoxAt form: x, y, width, height): one source for the drawing, the touch buttons and the tests.
+function hudHeaderBox(layout, box) {
+  const unit = layout.unit, width = HUD_HEADER_WIDTH * unit;
+  box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = HUD_HEADER_HEIGHT * unit;
+  return box;
+}
 
 function hudDrawHeadIcon(pen, x, y, size, alpha) {
   pen.ring(x, y, size * 0.4, Math.max(1.5, size * 0.14), HUD_COLOR.gold, alpha);
@@ -251,8 +259,7 @@ function hudSoloMode(modeId) {
 function hudDrawHeader(pen, layout) {
   const state = Modes.hudState();
   if (!state.active && state.phase !== 'ended') return;
-  const unit = layout.unit, width = HUD_HEADER_WIDTH * unit, box = hudBoxAt;
-  box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = 44 * unit;
+  hudHeaderBox(layout, hudBoxAt);
   pen.panelAt(0.5);
   if (state.teams === 2) {
     hudDrawTeamScore(pen, layout, 0, state.teamScores[0]);
@@ -282,6 +289,14 @@ function hudDrawRespawnText(pen, layout) {
 
 Bus.on('match.start', () => { HudFeed.reset(); HudBanners.reset(); });
 Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
+
+// Touch buttons give way to the score panel (05b keepClear, touch-01) on the screen size they are placed for.
+const hudHeaderClearLayout = {}, hudHeaderClearBox = [0, 0, 0, 0];
+TouchInput.keepClear.push((width, height) => {
+  updateHudLayout(hudHeaderClearLayout, width, height);
+  const box = hudHeaderBox(hudHeaderClearLayout, hudHeaderClearBox);
+  TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
+});
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
 Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);

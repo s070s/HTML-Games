@@ -198,6 +198,7 @@ const Hud = {
     this.noHud = !!(Game.match && Game.match.rules && Game.match.rules.fx && Game.match.rules.fx.noHud);
     for (const row of HUD_ELEMENTS) this.elements[row.id] = Settings.get('hud.element.' + row.id);
     this.refreshColors();
+    TouchInput.applyAll();   // the HUD scale sizes the score panel the touch buttons give way to
   },
   refreshColors() {
     const palette = HUD_PALETTES[this.paletteId], colors = this.colors;
@@ -247,6 +248,7 @@ function hudReadSafeInsets() {
   insets.top = parseFloat(style.paddingTop) || 0; insets.right = parseFloat(style.paddingRight) || 0;
   insets.bottom = parseFloat(style.paddingBottom) || 0; insets.left = parseFloat(style.paddingLeft) || 0;
   probe.remove();
+  TouchInput.applyAll();   // a turn or a resize moves the touch buttons and the HUD areas they give way to
 }
 
 function updateHudLayout(layout, width, height) {
@@ -621,6 +623,7 @@ function hudWeaponSlotAt(x, y) {
   return 0;
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
+TouchInput.insets = Hud.insets;   // the touch layer sits inside the same safe-area insets (one reader: hudReadSafeInsets)
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {

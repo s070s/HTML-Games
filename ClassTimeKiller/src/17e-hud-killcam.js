@@ -83,6 +83,7 @@ const Killcam = {
     this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true; Render.replayPose = killcamPose;
     this.skipHeld = (Actors.buttons[event.victim] & KILLCAM_SKIP_BUTTONS) !== 0;   // a button still held from the fight does not skip
     this.describeKill(event);
+    TouchInput.applyAll();   // the touch buttons give way to the letterbox bars
     return true;
   },
   describeKill(event) {
@@ -92,7 +93,11 @@ const Killcam = {
     this.headshot = event.zone === 'head';
     this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
   },
-  stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; },
+  stop() {
+    const wasPlaying = this.playing;
+    this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1;
+    if (wasPlaying) TouchInput.applyAll();   // the touch buttons go back to their places
+  },
   // Moves the replay clock (render frames, not sim time) and ends it when it is over or skipped.
   advance(seconds) {
     if (!this.playing || Game.paused) return;
@@ -166,3 +171,10 @@ function hudDrawKillcamPanel(pen, layout) {
   pen.text(Hud.keyLabel('fire') || 'TAP FIRE', layout.right - HudPen.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
 }
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);
+// While the replay plays, touch buttons give way to its letterbox bars (05b keepClear, touch-01).
+TouchInput.keepClear.push((width, height) => {
+  if (!Killcam.playing) return;
+  const bar = height * KILLCAM_BAR;
+  TouchInput.addClear(0, 0, width, bar);
+  TouchInput.addClear(0, height - bar, width, height);
+});

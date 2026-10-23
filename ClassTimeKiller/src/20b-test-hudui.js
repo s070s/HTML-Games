@@ -376,13 +376,68 @@ Test.add('hudui', (check) => {
       hudPlaceWeaponBox(layout, 5, 0);   // a five weapon bar: first box to last
       const first = bar[0], top = bar[1], boxHeight = bar[3];
       hudPlaceWeaponBox(layout, 5, 4);
-      const boxes = [box(layout.centerX - header / 2, layout.top, header, 44 * unit), box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
+      const boxes = [box(layout.centerX - header / 2, layout.top, header, HUD_HEADER_HEIGHT * unit),box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
         box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // header, minimap, vitals, ammo, bar
       const found = boxes.map((b, index) => index + hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true)).filter((text) => text.length > 1);
       check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found.length === 0, found.join());
     }
   }
   TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
+});
+
+// ---- Phones and tablets both ways (touch-01): no touch button over the score panel, nor over the killcam bars while the
+// replay plays, with the default places and with every button the layout editor moved to the top or the bottom edge ----
+const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
+const HUD_UI_SLACK = 0.5;   // css px: a button pushed to an area's edge touches it, rounding aside
+// The first control past a screen edge or over one of the [left, top, right, bottom] boxes, or ''.
+function hudUiTouchOver(boxes, width, height) {
+  for (const control of TOUCH_CONTROLS) {
+    const place = TouchInput.places[control.id], radius = place.radius - HUD_UI_SLACK, x = place.x, y = place.y;
+    if (x < radius || y < radius || x + radius > width || y + radius > height) return control.id + ' off screen';
+    if (boxes.some((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3])) return control.id;
+  }
+  return '';
+}
+// The problems of one screen size: each preset, default and moved places (-1: none moved), in play and in the replay.
+function hudUiTouchProblems(width, height) {
+  const layout = {}, panel = [0, 0, 0, 0], problems = [], bar = height * KILLCAM_BAR;
+  updateHudLayout(layout, width, height);
+  hudHeaderBox(layout, panel);
+  const areas = [[panel[0], panel[1], panel[0] + panel[2], panel[1] + panel[3]], [0, 0, width, bar], [0, height - bar, width, height]];
+  for (const preset of TOUCH_PRESETS) {
+    TouchInput.currentPreset = preset;
+    for (const moved of [-1, 0.01, 0.99]) {
+      const saved = {};
+      for (const control of TOUCH_CONTROLS) saved[control.id] = { x: control.x, y: moved };
+      Save.data.touchLayouts = moved < 0 ? {} : { [preset.id]: saved };
+      for (const replay of [false, true]) {
+        Killcam.playing = replay;
+        TouchInput.placeAll(width, height);
+        const over = hudUiTouchOver(replay ? areas : areas.slice(0, 1), width, height);
+        if (over) problems.push(preset.id + ' ' + moved + (replay ? ' killcam: ' : ': ') + over);
+      }
+    }
+  }
+  return problems;
+}
+Test.add('hudui', (check) => {
+  const savedDevice = Input.device, savedPreset = TouchInput.currentPreset;
+  Input.device = 'touch';
+  try {
+    for (const [width, height] of HUD_UI_SCREENS) {
+      const problems = hudUiTouchProblems(width, height);
+      check('touch-01: no touch button over the score panel or the killcam bars at ' + width + 'x' + height, problems.length === 0, problems.slice(0, 4).join('; '));
+    }
+  } finally {
+    Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
+    TouchInput.applyAll();
+  }
+  // A button the layout editor drags onto the score panel (top centre, the first area) is drawn below it: the layer shows the places.
+  const place = TouchInput.places.ping;
+  TouchInput.setProperty('ping', 'position', { x: 0.5, y: 0 });
+  check('touch-01: a button dragged onto the score panel is drawn below it', place.y - place.radius >= TouchInput.clearRects[0].bottom - HUD_UI_SLACK
+    && Test.near(parseFloat(TouchInput.elements.ping.style.top) + TouchInput.insets.top, place.y, HUD_UI_SLACK), place.y);
+  TouchInput.resetLayout();
 });
 
 Test.add('ui', (check) => {

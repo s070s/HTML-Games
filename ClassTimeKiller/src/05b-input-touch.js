@@ -125,6 +125,10 @@ const TouchInput = {
   weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a weapon bar)
   buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
+  places: {},                      // control id -> { x, y, radius }: where it is drawn, in window css px (placeAll)
+  insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
+  keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
+  clearRects: [], clearCount: 0,   // the areas of the last placeAll: { left, top, right, bottom } in window css px (addClear)
   // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
   needs: {
     use: () => useButtonNeeded(), comm: null,
@@ -159,6 +163,7 @@ const TouchInput = {
       element.dataset.control = control.id;
       this.elements[control.id] = element;
       this.controlById[control.id] = control;
+      this.places[control.id] = { x: 0, y: 0, radius: 0 };
       if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
       this.layer.appendChild(element);
     }
@@ -428,6 +433,7 @@ const TouchInput = {
     this.clampPosition(controlId, merged);
     Object.assign(saved, { x: merged.x, y: merged.y, scale: merged.scale, opacity: merged.opacity, hidden: merged.hidden });
     Save.scheduleSave();
+    this.placeControl(this.controlById[controlId], window.innerWidth, window.innerHeight);
     this.applyControl(this.controlById[controlId]);
   },
   getProperty(controlId, key) { return this.layoutOf(controlId, this.layoutScratch)[key]; },
@@ -436,10 +442,42 @@ const TouchInput = {
     Save.scheduleSave();
     this.applyAll();
   },
-  // Records the need answers it shows, so syncNeeds re-applies on the next change whoever applied last.
+  // Records the need answers it shows, so syncNeeds re-applies on the next change whoever applied last. Also called when a
+  // HUD area the buttons give way to changes (17a screen turn or resize and HUD scale, 17e killcam start and end).
   applyAll() {
+    if (!this.layer) return;
     this.needBits = this.needBitsNow();
+    this.placeAll(window.innerWidth, window.innerHeight);
     for (const control of TOUCH_CONTROLS) this.applyControl(control);
+  },
+  // ---- Placing (touch-01): the layout place inside the safe-area layer, on screen and clear of the HUD areas in keepClear ----
+  // The rectangles are reused: one is made only the first time that many areas are added.
+  addClear(left, top, right, bottom) {
+    const rect = this.clearRects[this.clearCount] || (this.clearRects[this.clearCount] = {});
+    this.clearCount++;
+    rect.left = left; rect.top = top; rect.right = right; rect.bottom = bottom;
+  },
+  // Fills places for a width x height screen (css px): one source for the layer and the layout tests (hudui).
+  placeAll(width, height) {
+    this.clearCount = 0;
+    for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
+    for (const control of TOUCH_CONTROLS) this.placeControl(control, width, height);
+  },
+  // A button over a HUD area moves straight down below it (an area in the top half) or up above it, then back inside the
+  // layer if that pushed it out. One look in the order added is enough: the score panel comes before the killcam bars, and
+  // a move keeps x, so a button moved below a bar can only land on the panel if it covered the panel (and moved) before.
+  placeControl(control, width, height) {
+    const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
+    const radius = control.size * layout.scale / 2, layoutX = insets.left + layout.x * (width - insets.left - insets.right);
+    const x = clamp(layoutX, insets.left + radius, width - insets.right - radius);
+    let y = insets.top + layout.y * (height - insets.top - insets.bottom);
+    for (let i = 0; i < this.clearCount; i++) {
+      const rect = this.clearRects[i];
+      if (x + radius <= rect.left || x - radius >= rect.right || y + radius <= rect.top || y - radius >= rect.bottom) continue;
+      y = rect.top + rect.bottom < height ? rect.bottom + radius : rect.top - radius;
+    }
+    place.x = x; place.radius = radius;
+    place.y = clamp(y, insets.top + radius, height - insets.bottom - radius);
   },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
@@ -456,12 +494,13 @@ const TouchInput = {
     this.flags[name] = !!on;
     if (this.layer) this.applyAll();
   },
+  // Draws a control at its last place (placeAll or placeControl ran first), in px inside the layer.
   applyControl(control) {
-    const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch);
+    const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
     const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));
     const size = control.size * layout.scale;
-    element.style.left = layout.x * 100 + '%';
-    element.style.top = layout.y * 100 + '%';
+    element.style.left = place.x - this.insets.left + 'px';
+    element.style.top = place.y - this.insets.top + 'px';
     element.style.width = element.style.height = size + 'px';
     element.style.opacity = layout.hidden || optionOff ? '' : layout.opacity;
     element.classList.toggle('off', (layout.hidden || !!optionOff) && !this.editing);
