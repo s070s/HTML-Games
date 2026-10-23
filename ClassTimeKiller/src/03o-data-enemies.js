@@ -177,7 +177,8 @@ const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, c
 // boss threshold are the mode row's params (blockerAt [5, 10, 15], invasionAt 50, bossAt 100); blockers[k] is the enemy a
 // deposit of blockerAt[k] or more sends to the other side. Each side keeps fodderAlive fodder (topped up every fillSeconds).
 const PVE_BANK = { motesFodder: 1, motesHeavy: 3, carryMax: 15, blockers: ['gunner', 'phalanx', 'brute'], invader: 'charger', invaderChampion: 'barrier',
-  boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fillSeconds: 0.5, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2 };
+  boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fillSeconds: 0.5, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2,
+  botBankAt: 5 };   // a bot carrying this many motes heads for its bank (more urgently the more it carries)
 // M26 Ravager vs Fiends: each fiend summons fodder every summonEvery s (at most summonAlive alive per fiend).
 const PVE_FIENDS = { summonEvery: 8, summonAlive: 4, summon: ['husk', 'husk', 'gunner'] };
 // M29 Attrition: AI minions per team, heavies by chance.

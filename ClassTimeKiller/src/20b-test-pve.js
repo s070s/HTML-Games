@@ -337,6 +337,20 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
+// M23: a bot carrying motes goes to its bank and deposits them (the 'bank' planner).
+Test.add('pve', (check) => {
+  World.load(pveTestMap({ spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) }));
+  Game.start({ mode: 'bank', seed: 1, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 1 }], difficulty: 'regular' });
+  const bot = 0, bank = BankRun.banks[0];
+  Modes.endProtection(bot);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  placeActor(bot, bank.x + 15, bank.z + 10);
+  BankRun.carried[bot] = PVE_BANK.carryMax;
+  runUntil(() => BankRun.banked[0] > 0, 15, () => Pve.clearEnemies());
+  check('a bot with a full load of motes banks it', BankRun.banked[0] >= PVE_BANK.carryMax && BankRun.carried[bot] === 0, BankRun.banked[0] + ' banked, goal ' + BotDecide.goal[bot]);
+  Game.stop();
+});
+
 // M23: kills of your own side's PvE give motes, banking scores and sends blockers, 100 banked summons the boss, its kill wins.
 Test.add('pve', (check) => {
   const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });

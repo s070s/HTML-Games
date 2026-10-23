@@ -446,6 +446,14 @@ Modes.register('bank', {
 
 // ---- M26 Ravager vs Fiends: one ravager (team 0) against fiends (team 1) who summon fodder and revive each other ----
 const FiendRun = { reviveAt: new Float64Array(MAX_ACTORS).fill(Infinity), nextSummonAt: new Float64Array(MAX_ACTORS) };
+// The bots' bank goal (S14 planner registry): carrying botBankAt motes or more, go to the team's bank; a full load is as
+// urgent as an objective gets.
+BotDecide.registerPlanner('bank', (id, plan) => {
+  const carried = BankRun.carried[id], bank = Actors.team[id] >= 0 ? BankRun.banks[Actors.team[id]] : null;
+  if (!bank || carried < PVE_BANK.botBankAt) return false;
+  return planTarget(plan, bank, carried / PVE_BANK.carryMax, bank.radius * 0.5, ACTION.MOVE);
+});
+
 Modes.register('fiends', {
   start() {
     pveStart();
