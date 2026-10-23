@@ -66,10 +66,29 @@ function ladderLoadouts(ladder, melee) {
   });
 }
 
-// ---- M17 Blight: everyone starts human (team 0); after infectAfter s one in infectedPerPlayers becomes infected (team 1:
-// infectedHealth HP, melee only, a jump is a leap). A hit does not turn a human: any death after the outbreak does (a kill by
+// ---- M17 Blight: everyone starts human (team 0); after infectAfter s some become infected (team 1: infectedHealth HP,
+// melee only, a jump is a leap; how many: outbreakSize). A hit does not turn a human: any death after the outbreak does (a kill by
 // the infected, a fall, a hazard), so a human who dies comes back infected (the mode row's goal says the same).
 // The infected win when no human is left; humans win at the time limit ----
+
+// How many start infected: one in infectedPerPlayers on infectedArea square metres of walkable floor, scaled by the square
+// root of the floor (blight-01: starting 2 of 12 everywhere, the Blight won all 6 test matches on Spire and Skyward Yard and
+// lost 5 of 6 on Gantry; the box size miscounted gappy Skyward Yard, and the count grows slower than the floor, where humans
+// spread out). Now 2 on Spire and 3 on Gantry. At least one.
+function outbreakSize(players, params) {
+  const area = walkableArea();
+  const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
+  return Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
+}
+
+// The walkable floor in square metres: the nav graph's (Skyward Yard's 70 x 70 m box holds about 3100), the map's box while
+// no graph is built, 0 when neither is known.
+function walkableArea() {
+  if (Nav.nodeCount > 0) return Nav.walkableArea();
+  const size = World.map ? World.map.size : null;
+  return Array.isArray(size) ? size[0] * size[2] : 0;
+}
+
 Modes.register('infection', {
   limits: ['time'],
   outbreak: false, meleeLoadout: null,
@@ -89,7 +108,7 @@ Modes.register('infection', {
   },
   startOutbreak(params) {
     this.outbreak = true;
-    const wanted = Math.max(1, Math.floor(this.countSides() / params.infectedPerPlayers));
+    const wanted = outbreakSize(this.countSides(), params);
     for (let k = 0; k < wanted; k++) {
       const id = randomAliveMember(HUMAN_TEAM, -1);
       if (id >= 0) this.infect(id);
@@ -104,6 +123,7 @@ Modes.register('infection', {
   applyInfection(id) {
     setVitality(id, Modes.rules.params.infectedHealth);
     Weapons.setLoadout(id, this.meleeLoadout);
+    Abilities.endAttacks(id, 'infected');   // a human turned mid-cast keeps no offensive ability running
   },
   onSpawn(id) { if (Modes.actorRole[id] === ACTOR_ROLE.INFECTED) this.applyInfection(id); },
   onKill(victim) {
@@ -135,6 +155,9 @@ Modes.register('infection', {
   },
   score() { return 0; },   // head counts are not a lead: no leader announcements
 });
+// Melee only means no grenades, gadgets or offensive abilities either (the 12c attack lock, which players and bots both
+// pass through): infected bots had thrown frags for about one kill a match.
+Gadgets.attackLocks.push((id) => Modes.active && Modes.actorRole[id] === ACTOR_ROLE.INFECTED);
 
 // ---- M18 Colossus: the first kill makes the killer the Colossus (maxHealth x healthMult, damage x damageMult, marked);
 // whoever kills the Colossus becomes it. Only kills as the Colossus score (1 each) ----

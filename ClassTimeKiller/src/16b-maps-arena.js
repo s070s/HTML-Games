@@ -64,6 +64,8 @@ Maps.rows.push(MapKit.make({
 
 // MP02 Skyward Yard (ffa, tdm, party modes) - floating platforms: bases west and east, islands north and south, a centre deck with a tower;
 // jump pads link the deck and the islands; the Lancet Rail sits on a ledge that juts out over the void.
+// No Blight here (blight-01): over the open void edges every human fall adds an infected, so the Blight won 5-6 of 6 bot matches.
+const SKY_PARTY_MODES = MAP_PARTY_MODES.filter((mode) => mode !== 'infection');
 const skyWest = {
   brushes: [
     ['ice', -34, -2, -12, -22, 2, 12], ['ice', -22, 2, -4, -12, 6, 4, '+x'],                       // base island and its ramp to the deck
@@ -73,7 +75,7 @@ const skyWest = {
   ],
   spawns: [
     [0, ['tdm'], [[-31, 2, -9, 90], [-31, 2, -3, 90], [-31, 2, 3, 90], [-31, 2, 9, 90], [-24.5, 2, -10, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90], [-24.5, 2, 10, 90]]],
-    [-1, ['ffa'].concat(MAP_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
+    [-1, ['ffa'].concat(SKY_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
   ],
   items: [
     ['lightplate', -33, 2, 10.5], ['healthpack', -33, 2, -10.5], ['scattergun', -28, 2, 3.5], ['ammobox', -22.8, 2, -8], ['armorshard', -17, 4, 0],
@@ -90,7 +92,7 @@ const skySpan = {                                                               
 };
 const skyNorth = {                                                                                   // north island and the pads that serve it, mirrored to the south
   brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
-  spawns: [[-1, ['ffa'].concat(MAP_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
+  spawns: [[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
   items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
   zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
   lights: [[0, 9, 28, 0xcfe8ff, 18]],
@@ -122,7 +124,7 @@ const skyCenter = {
 };
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena',
-  modes: ['ffa', 'tdm'].concat(MAP_PARTY_MODES),
+  modes: ['ffa', 'tdm'].concat(SKY_PARTY_MODES),
   blurb: 'Open floating platforms linked by ramps and jump pads; the Lancet Rail waits on a risky ledge.',
   props: MapKit.crates([[-12, -3.5, 6], [10.5, 2, 6], [-7, -31, 4], [5.5, 29.5, 4]]),   // breakable crates (MAP-013): beside the tower ramps and the island posts
   sky: { top: 0x6fa8de, horizon: 0xe3f1fb, fog: 0xcfe3f3, fogFar: 200, sun: [0.3, 0.8, 0.5] },

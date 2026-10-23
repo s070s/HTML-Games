@@ -7,6 +7,10 @@
 // knockback: the hitscan rulesets push a quarter as far, so a few SMG hits never shove a target out of the spray (R-097);
 // arena, tournament, Ravager and Iron Bulwark keep the full arena push.
 const HITSCAN_KNOCKBACK = 0.25;
+// hitKnockback scales only the push a hit gives another actor (S11), not own blasts, leaps or ability motion. Hero Squad hits push
+// half as far: a hero pool (200-650) soaks two to six times the damage of a 100 HP body, so at full push a duel near an open
+// edge shoved the target off before it went down (hazard-01: 57-65% of Skyward Yard kills were falls; 19% now).
+const HERO_KNOCKBACK = 0.5;
 
 const RULESET_ROWS = [
   { id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
@@ -18,7 +22,7 @@ const RULESET_ROWS = [
   { id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'ravagerSet', meter: 'none' },
   { id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'knightSet', meter: 'none' },
   // Heroes move and arm per hero (hero rows override move and loadout); the bundle keeps a neutral fallback.
-  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true },
+  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true, hitKnockback: HERO_KNOCKBACK },
   { id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'none', knockback: HITSCAN_KNOCKBACK },
   { id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'militarySet', meter: 'energy', knockback: HITSCAN_KNOCKBACK },
   { id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy', downed: true },
@@ -27,6 +31,6 @@ const RULESET_ROWS = [
 // Ruleset schema (spec section 4). Defaults are what a match uses when neither the mode nor the bundle sets a field.
 Data.define('rulesets', {
   id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet',
-  meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
+  meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, hitKnockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
   lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, downed: false, editor: null,
 }, RULESET_ROWS);

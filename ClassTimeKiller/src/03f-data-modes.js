@@ -22,6 +22,11 @@ const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that sc
 // params.tiers plays the first tiers - 1 plus the melee tier.
 const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'kestrel', 'lancet', 'heron', 'maul'];
 
+// M17 Blight: one in infectedPerPlayers starts infected on infectedArea square metres of walkable floor, more on a bigger
+// one (13f outbreakSize). blight-01: 375 HP, as at 450 Spire's 2 infected won all 6 test matches (now 4) and at 340 Gantry's
+// humans won 5 of 6 (now 4).
+const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3500, infectAfter: 20, infectedHealth: 375, leapSpeed: 8, leapLift: 3 };
+
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
   rounds: null, respawn: 'normal', rules: {}, objective: 'none', params: {}, scoring: {}, tiebreak: 'suddenDeath', ruleset: 'classic',
@@ -44,7 +49,7 @@ Data.define('modes', {
   { id: 'lms', code: 'M15', name: 'Last Standing', goal: 'Limited lives. Be the last one standing.', scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
   { id: 'gungame', code: 'M16', name: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', goalDetail: 'A melee kill also sets the victim one gun back on the ladder.', scoreBy: 'objective', params: { economy: 'ladder', meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', goal: 'Humans outlast the clock; a human who dies joins the Blight.',
-    goalDetail: 'The Blight breaks out after {infectAfter} s: its members are tough, melee only and leap when they jump.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { fixedSides: true, infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 450, leapSpeed: 8, leapLift: 3 } },
+    goalDetail: 'The Blight breaks out after {infectAfter} s: its members are tough, melee only and leap when they jump.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: BLIGHT_PARAMS },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', goal: 'Kill the Colossus to become it; only it scores.', goalDetail: 'The first kill makes the first Colossus: it is tougher and hits harder.', scoreLimit: 15, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', goal: 'Kill the cursed; the cursed passes the curse on at the beacon.', goalDetail: 'The cursed is weak and fights with melee only.', scoreLimit: 20, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
   { id: 'royale', code: 'M20', name: 'Last Ring', goal: 'Loot, stay in the ring, be the last standing.', goalDetail: 'The last squad standing wins. Hold Use to swap a gun for the one on the ground.', useButton: true, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,

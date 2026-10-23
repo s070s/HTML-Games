@@ -897,6 +897,19 @@ Test.add('bots', (check) => {
   check('2+ enemies in sight: a strike ultimate is wanted, an escape ultimate is not', !!ultimates && ultimates[0] && !ultimates[1], String(ultimates));
   endBotTest();
 });
+// The same two enemies before a Blight infected bot: melee only, so no frag (the attack lock S12 and the bot kit share).
+Test.add('bots', (check) => {
+  const [bot, first, second] = startBotTest(botTestMap(false), 'infection', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
+  Modes.behaviour.infect(bot);
+  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  Gadgets.give(bot, THROW_ROW, 2);
+  const uses = startEventLog('gadget.use');
+  runHeld(THROW_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); });
+  uses.stop();
+  check('a Blight infected bot throws no grenade at two enemies together', BotCombat.uses.grenades === 0 && uses.length === 0 && Gadgets.countOf(bot, THROW_ROW) === 2,
+    BotCombat.uses.grenades + ' aimed, ' + uses.length + ' thrown');
+  endBotTest();
+});
 
 // BOT-034: a lone enemy in the open, seen the whole time, draws no frag (no cover, no cluster, no held spot); a flash
 // is thrown only from tier 3. uses counts this match only.
@@ -1738,18 +1751,18 @@ Test.add('bots', (check) => {
   const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
   check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
 });
-// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: hazard deaths stay at what the bot
-// landing checks reach (heroes 44-54%, frame about 26%: most falls follow a hit, the knockback is S03e's), and downed
+// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: falls stay a minority of kills (most follow
+// a hit; hazard-01: at full push heroes fell for 57-65%, at S03e's half hero hit push 19-28%, frame about 17-26%), and downed
 // enemies in sight are finished off, so few kills are bleed-outs.
-const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
-const SKY_KIT_HAZARD_SHARE_MAX = 0.6, BLEED_OUT_SHARE_MAX = 0.2;
+const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2, 3], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
+const SKY_KIT_HAZARD_SHARE_MAX = 0.4, BLEED_OUT_SHARE_MAX = 0.2;
 Test.add('botsoak', (check) => {
   for (const ruleset of SKY_KIT_RULESETS) {
     const kills = startEventLog('kill');
     for (const seed of SKY_KIT_SEEDS) playMatch({ mode: 'tdm', map: 'skyyard', ruleset, minutes: SKY_KIT_MINUTES, botCount: SKY_KIT_BOTS, seed, difficulty: 'regular' });
     kills.stop();
     const hazard = kills.filter((event) => event.weapon === 'hazard').length, bleedOut = kills.filter((event) => event.weapon === 'bleedout').length;
-    check(ruleset + ' on Skyward Yard: at most 60% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
+    check(ruleset + ' on Skyward Yard: at most 40% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
     check(ruleset + ' on Skyward Yard: under 20% of kills are bleed-outs', kills.length > 0 && bleedOut < kills.length * BLEED_OUT_SHARE_MAX, bleedOut + ' of ' + kills.length);
   }
 }, { slow: true });
@@ -1935,4 +1948,26 @@ Test.add('botsoak', (check) => {
     for (const [mode, map, bots, seed] of WARDEN_SHARE_RUNS) DebugApi.soak(mode, map, 3, bots, seed, { timeLimit: 0, scoreLimit: 0 });
   } finally { Bus.off('kill', counter); }
   check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
+}, { slow: true });
+
+// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (now 3-5 on Spire, 5-3 on Gantry). Before, the Blight won all 6 on Spire by
+// elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
+// The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
+const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;
+const BLIGHT_SPLIT_WINS_MAX = 6, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;   // the limit is 5 minutes: every match ends
+const BLIGHT_GEAR_EVENTS = ['gadget.use', 'weapon.fire'];   // a melee swing is a 'weapon.fire' of class melee
+Test.add('botsoak', (check) => {
+  let infectedUses = 0;   // counted as it happens: the role is gone once the match stops
+  const countGear = (event) => { if (Modes.actorRole[event.id] === ACTOR_ROLE.INFECTED && event.weaponClass !== 'melee') infectedUses++; };
+  const handlers = BLIGHT_GEAR_EVENTS.map((type) => Bus.on(type, countGear));
+  try {
+    for (const map of BLIGHT_SPLIT_MAPS) {
+      const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
+      const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
+      const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
+      check('Blight on ' + map + ': neither side wins more than 6 of 8 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
+      check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
+    }
+  } finally { BLIGHT_GEAR_EVENTS.forEach((type, index) => Bus.off(type, handlers[index])); }
+  check('Blight: the infected throw, set and fire nothing but melee', infectedUses === 0, infectedUses + ' uses');
 }, { slow: true });

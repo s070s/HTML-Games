@@ -43,8 +43,9 @@ Test.add('modes2', (check) => {
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
   check('gungame: a 12-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 12 && !rows('gungame').params.tiers
     && CAT.weapons.byId(GUNGAME_LADDER[11]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
-  check('infection: 1 per 6, after 20 s, 450 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6
-    && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 450 && rows('infection').timeLimit === 300);
+  check('infection: 1 per 6 on 3500 square metres, after 20 s, 375 HP, 5 min (M17, blight-01)', rows('infection').params.infectedPerPlayers === 6
+    && rows('infection').params.infectedArea === 3500 && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 375
+    && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
   check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
     && rows('cursetag').params.passOnTag === false);
@@ -338,12 +339,20 @@ Test.add('modes2', (check) => {
   check('infection: everyone starts human', ids.every((id) => Actors.team[id] === HUMAN_TEAM) && Modes.hud.survivors === 6 && Modes.hud.infected === 0);
   runSeconds(19.9);
   check('infection: nobody is infected before 20 s', Modes.hud.infected === 0);
+  const casting = ids.filter((id) => Abilities.forceCast(id, 'timebend')).length;   // a control ability running at the outbreak
   runSeconds(0.2);
   const first = ids.find((id) => Actors.team[id] === INFECTED_TEAM);
-  check('infection: one infected per 6 players at 20 s', Modes.hud.infected === 1 && Modes.hud.survivors === 5 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED);
+  const stillCasting = ids.filter((id) => Abilities.isActive(id, 'timebend'));
+  check('infection: a human turned infected stops a running control ability, the humans keep theirs', casting === ids.length
+    && stillCasting.length === Modes.hud.survivors && stillCasting.every((id) => Actors.team[id] === HUMAN_TEAM), casting + ' cast, ' + stillCasting.length + ' running');
+  check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
+    Modes.hud.infected);
   const infectedHealth = Modes.rules.params.infectedHealth;
   check('infection: the infected is tough and melee only', Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');
   const human = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
+  for (const id of [first, human]) { Gadgets.give(id, 'frag', 1); Actors.pressed[id] = BTN.GRENADE; Gadgets.stepActor(id); }
+  check('infection: GRENADE does not ready a throw for the infected, it does for a human', Gadgets.holdStart[first] < 0 && Gadgets.holdStart[human] >= 0);
+  Gadgets.holdStart[human] = Gadgets.holdRow[human] = -1;
   hitActor(human, first, 30, 'melee');
   const stillHuman = Actors.team[human] === HUMAN_TEAM;
   damageKill(human, first, 'melee');
@@ -366,6 +375,12 @@ Test.add('modes2', (check) => {
   runSeconds(30.05);
   check('infection: humans standing at the time limit win', Game.match.ended && Game.match.winner === HUMAN_TEAM && Game.match.results.reason === 'time');
   endModeTest();
+  // blight-01: the outbreak grows with the square root of the walkable floor (the nav graph's node count).
+  const params = CAT.modes.byId('infection').params, nodes = Nav.nodeCount, nodesFor = (area) => area / (NAV_CELL_SIZE * NAV_CELL_SIZE);
+  const startsOn = (area) => { Nav.nodeCount = nodesFor(area); return outbreakSize(12, params); };
+  let counts = [];
+  try { counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn); } finally { Nav.nodeCount = nodes; }
+  check('infection: 2 of 12 start infected on infectedArea of floor, 4 on four times it, 1 on a quarter', counts.join() === '2,4,1', counts.join());
   // Balance probe (modes-02): with one hit converting, the infected wiped 12 bots in 51-133 s on every seed. Now the humans hold well into the match.
   const soak = DebugApi.soak('infection', 'spire', 5.5, 11, 2, {});
   check('infection balance: a bot match on spire lasts past 3 minutes', soak.seconds > 180, soak.seconds);

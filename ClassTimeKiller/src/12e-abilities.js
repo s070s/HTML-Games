@@ -180,6 +180,13 @@ const Abilities = {
   endAll(id, reason) {
     for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) if (this.active[this.index(id, slot)]) this.end(id, slot, reason);
   },
+  // Ends the running offense and control abilities (an actor whose attacks just became locked, e.g. a human turned infected).
+  endAttacks(id, reason) {
+    for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
+      const row = this.row(id, slot);
+      if (row && ATTACK_CATEGORIES.includes(row.category) && this.active[this.index(id, slot)]) this.end(id, slot, reason);
+    }
+  },
   clearActor(id, reason) {
     this.endAll(id, reason);
     AbilityZones.removeOwned(id, reason === 'death');

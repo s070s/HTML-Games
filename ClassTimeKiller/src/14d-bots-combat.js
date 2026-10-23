@@ -587,6 +587,7 @@ const BotCombat = {
     this.tryHeal(id, now);
     if (!Bots.tier(id).gadgets || now < this.throwUntil[id]) return;
     if (now >= this.abilityAt[id]) this.tryAbilities(id, now);
+    if (Gadgets.attackLocked(id)) return;   // S12 would refuse the throw or gadget anyway (Phase Slip, a Blight infected)
     if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
     if (now >= this.gadgetAt[id]) this.tryGadget(id, now);
   },
