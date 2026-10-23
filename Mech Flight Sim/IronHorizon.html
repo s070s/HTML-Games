@@ -708,11 +708,12 @@ const DIFFICULTY = {
    fxFar m from the camera past which blasts, splashes and ships' wakes emit a lighter set of particles (fxFar), fleet
    most enemy ships in a skirmish's fleet: one of each of its size's types, the first fleet of them (SKIRMISH_FLEET);
    traffic (Traffic): most cars driving the streets and roads, trafficDraw m within which cars are drawn (simple models
-   past trafficLod); flights most airliners in the air (Flights) */
+   past trafficLod); flights most airliners in the air (Flights), ships most ships sailing (Shipping), drawn within
+   shipDraw m */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60, flights: 1 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100, flights: 2 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140, flights: 3 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60, flights: 1, ships: 3, shipDraw: 560 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100, flights: 2, ships: 5, shipDraw: 780 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140, flights: 3, ships: 8, shipDraw: 980 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -8755,10 +8756,10 @@ const Fauna = {
    ('enterCiv'), and every game drops its own copy where the platform appears ('sp' cc: its paint).
    --------------------------------------------------------------------- */
 // colour keys of the parts: the vehicle's paint, fixed colours, its accent (from the row), lamps that glow when driven
-const CK_PAINT = 0, CK_TRIM = 1, CK_GLASS = 2, CK_TYRE = 3, CK_CHROME = 4, CK_HEAD = 5, CK_TAIL = 6, CK_WHITE = 7, CK_ACC = 8, CK_DECK = 9, CK_GLOW = 10, CK_BLUE = 11;
-const CK_COLS = [null, [0.1, 0.1, 0.11], [0.08, 0.12, 0.17], [0.07, 0.07, 0.075], [0.62, 0.63, 0.66], [0.95, 0.93, 0.8], [0.75, 0.06, 0.05], [0.88, 0.88, 0.86], null, [0.55, 0.42, 0.26], [1, 0.62, 0.12], [0.15, 0.3, 1]];
-const CK_EMIS = [0, 0, 0.3, 0, 0, 0.9, 0.7, 0, 0, 0, 1.2, 1.2];
-const CK_SPEC = [0.45, 0.2, 0.9, 0.05, 0.8, 0, 0, 0.3, 0.4, 0.1, 0, 0];
+const CK_PAINT = 0, CK_TRIM = 1, CK_GLASS = 2, CK_TYRE = 3, CK_CHROME = 4, CK_HEAD = 5, CK_TAIL = 6, CK_WHITE = 7, CK_ACC = 8, CK_DECK = 9, CK_GLOW = 10, CK_BLUE = 11, CK_RUST = 12, CK_TEAL = 13, CK_GREEN = 14;
+const CK_COLS = [null, [0.1, 0.1, 0.11], [0.08, 0.12, 0.17], [0.07, 0.07, 0.075], [0.62, 0.63, 0.66], [0.95, 0.93, 0.8], [0.75, 0.06, 0.05], [0.88, 0.88, 0.86], null, [0.55, 0.42, 0.26], [1, 0.62, 0.12], [0.15, 0.3, 1], [0.55, 0.22, 0.12], [0.12, 0.4, 0.44], [0.2, 0.42, 0.22]];
+const CK_EMIS = [0, 0, 0.3, 0, 0, 0.9, 0.7, 0, 0, 0, 1.2, 1.2, 0, 0, 0];
+const CK_SPEC = [0.45, 0.2, 0.9, 0.05, 0.8, 0, 0, 0.3, 0.4, 0.1, 0, 0, 0.25, 0.25, 0.25];
 const CV_CORE = 1, CV_GEAR = 2, CV_PROP = 4;   // part flags: also on the simple model; only with the gear down; a spinning propeller
 const CV_ACC = [0.9, 0.9, 0.88];               // accent of a row that names none
 // the paint sets a vehicle's colour is picked from (its civCol, an index into the set)
@@ -8975,7 +8976,7 @@ const CV_BUILD = {
     for (let s = -1; s <= 1; s += 2) { cvWheel(B, s * (w / 2 - 0.25), rb, -l * 0.22, rb * 2, 0.5); cvWheel(B, s * w * 0.33, rf, l * 0.32, rf * 2, 0.3); }
   },
   boat(v, B) {
-    const l = v.l, w = v.w, hh = v.hull, len = l * 0.78, bow = l - len, z0 = -l / 2, mid = z0 + len / 2, work = v.top === 'tug' || v.top === 'ferry' || v.top === 'fishing';
+    const l = v.l, w = v.w, hh = v.hull, len = l * 0.78, bow = l - len, z0 = -l / 2, mid = z0 + len / 2, work = v.top === 'tug' || v.top === 'ferry' || v.top === 'fishing' || v.ship;
     cvPart(B, 'box', 0, hh / 2, mid, w, hh, len, CK_PAINT, CV_CORE);                                            // hull
     cvPart(B, 'cone', 0, hh / 2, z0 + len + bow / 2, w, bow, hh, CK_PAINT, CV_CORE, PI / 2);                   // bow
     cvPart(B, 'box', 0, v.draft + 0.06, mid, w + 0.03, 0.14, len * 0.99, CK_ACC);                              // stripe at the waterline
@@ -9041,6 +9042,29 @@ const CV_BUILD = {
         cvPart(B, 'box', 0, top + 5.5, -l * 0.18, 1.8, 2.6, 2.6, CK_ACC, CV_CORE);                             // funnel
         for (let s = -1; s <= 1; s += 2) cvPart(B, 'box', s * w * 0.42, top + 3.2, -l * 0.05, 0.9, 0.8, 4, CK_GLOW);   // lifeboats
         break;
+      case 'boxship': {   // a container ship: the bridge at the stern, the boxes stacked in bays along the deck
+        const bays = [CK_RUST, CK_TEAL, CK_ACC, CK_WHITE, CK_GREEN, CK_RUST, CK_TEAL], bay = l * 0.085;
+        cvPart(B, 'box', 0, top + 5, -l * 0.37, w * 0.86, 10, l * 0.08, CK_WHITE, CV_CORE);                     // bridge house
+        cvPart(B, 'box', 0, top + 8.6, -l * 0.37 + l * 0.04 + 0.03, w * 0.86, 1.1, 0.06, CK_GLASS);
+        cvPart(B, 'box', 0, top + 10.1, -l * 0.37, w * 1.02, 0.3, l * 0.05, CK_WHITE);                           // bridge wings
+        cvPart(B, 'box', 0, top + 11, -l * 0.43, 2.6, 5, 3.4, CK_ACC, CV_CORE);                                   // funnel
+        for (let k = 0; k < bays.length; k++) {
+          const hgt = k === 0 || k === bays.length - 1 ? 4.8 : 7.2;
+          cvPart(B, 'box', 0, top + hgt / 2, -l * 0.29 + bay * 0.5 + k * bay * 1.08, w * 0.88, hgt, bay, bays[k], CV_CORE);
+        }
+        cvPart(B, 'box', 0, top + 0.9, l * 0.36, w * 0.7, 1.8, l * 0.06, CK_PAINT, CV_CORE);                     // forecastle
+        break;
+      }
+      case 'oiler': {   // an oil tanker: a long flat deck with its pipework, the bridge and funnel at the stern
+        cvPart(B, 'box', 0, top + 4.5, -l * 0.37, w * 0.84, 9, l * 0.1, CK_WHITE, CV_CORE);
+        cvPart(B, 'box', 0, top + 7.6, -l * 0.37 + l * 0.05 + 0.03, w * 0.84, 1.1, 0.06, CK_GLASS);
+        cvPart(B, 'box', 0, top + 10.5, -l * 0.44, 2.6, 5, 3.4, CK_ACC, CV_CORE);
+        cvPart(B, 'cyl', 0, top + 0.6, l * 0.02, 0.9, l * 0.6, 0.9, CK_CHROME, CV_CORE, PI / 2);                  // the main pipe
+        for (let s = -1; s <= 1; s += 2) cvPart(B, 'cyl', s * w * 0.22, top + 0.35, l * 0.02, 0.45, l * 0.6, 0.45, CK_CHROME, 0, PI / 2);
+        for (let k = 0; k < 4; k++) cvPart(B, 'box', 0, top + 0.5, -l * 0.18 + k * l * 0.14, w * 0.7, 1, 1.4, CK_TRIM);   // manifolds
+        cvPart(B, 'box', 0, top + 1.2, l * 0.36, w * 0.66, 2.4, l * 0.07, CK_PAINT, CV_CORE);
+        break;
+      }
       default: break;
     }
   },
@@ -9104,6 +9128,12 @@ function civDef(v) {
   } else def.air = v.air;
   return def;
 }
+/* The ships of the marine traffic only (P6.4): built like the boats, but no row of VEHICLES, so no platform a human can
+   take (D26 lists the 8 boats that can be taken; these are far too big to sail alone). */
+const SHIP_ROWS = [
+  { id: 'boxship', name: 'Container Ship', type: 'sea', body: 'boat', top: 'boxship', paint: 'harbour', acc: [0.8, 0.5, 0.1], l: 96, w: 15, h: 22, draft: 5, hull: 8, speed: 14, tonnes: 3000, ship: true },
+  { id: 'oiler', name: 'Oil Tanker', type: 'sea', body: 'boat', top: 'oiler', paint: 'harbour', acc: [0.75, 0.18, 0.1], l: 90, w: 16, h: 20, draft: 5.5, hull: 7.5, speed: 13, tonnes: 3500, ship: true },
+];
 /* row v's recipe, wheels, half sizes (hw, hl, from y0 to y1 over its origin) and platform def (v.def) */
 function buildVehicle(v) {
   const B = { parts: [], wheels: [] };
@@ -9116,6 +9146,7 @@ function buildVehicle(v) {
   v.def = civDef(v);
 }
 for (const v of VEHICLES) { buildVehicle(v); PLATFORMS['cv_' + v.id] = v.def; }
+for (const v of SHIP_ROWS) buildVehicle(v);
 const VEHICLE_IDS = VEHICLES.map((v) => v.id);
 /* the pose a vehicle is drawn in (one scratch object, so drawing allocates nothing): its paint and accent, place and
    attitude, the simple model, wheel and propeller turn, the gear down, crushed flat (share of its height), shade and
@@ -9221,7 +9252,7 @@ const Traffic = {
   /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
      zones); start: the player's start, kept clear */
   populate(seed, start) {
-    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], flightHit: Infinity };
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity };
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -9229,7 +9260,8 @@ const Traffic = {
     this.parkBoats(T, rng);
     this.parkAircraft(T);
     this.placeCars(T, rng, keep);
-    Flights.populate(T, seed);    // with a seed of its own, so the cars stay where they were
+    Flights.populate(T, seed);    // with seeds of their own, so the cars stay where they were
+    Shipping.populate(T, seed);
   },
   /* the streets of every zone and the roads, as edges between nodes, then two lanes per edge and the turns between them */
   buildGraph(T) {
@@ -9625,6 +9657,7 @@ const Traffic = {
     for (let i = 0; i < ps.length; i++) { const r = ps[i]; if (r.state === 'wreck') this.stepWreck(r, dt); else this.touchMachines(r); }
     this.recycle(T);
     Flights.update(T, dt);
+    Shipping.update(T, dt);
   },
   /* the live units on the ground and the water this tick (what cars stop for), and the machines among them that move
      (what scares drivers and crushes cars: most stand still, so each car looks at a short list) */
@@ -9957,6 +9990,7 @@ const Traffic = {
     const hear = Math.max(CIV_BLAST_HEAR_MIN, radius * CIV_BLAST_HEAR);
     this.blastList(T.cars, x, y, z, radius, damage, hear);
     this.blastList(T.parked, x, y, z, radius, damage, hear);
+    this.blastList(T.ships, x, y, z, radius, damage, hear);
     Flights.blast(T, x, y, z, radius, damage);
   },
   blastList(list, x, y, z, radius, damage, hear) {
@@ -9981,6 +10015,7 @@ const Traffic = {
     if (!(len > 0)) return;
     this.sweepList(T.cars, x0, y0, z0, ux, uy, uz, len, dmg);
     this.sweepList(T.parked, x0, y0, z0, ux, uy, uz, len, dmg);
+    this.sweepList(T.ships, x0, y0, z0, ux, uy, uz, len, dmg);
     T.flightHit = Flights.sweep(T, x0, y0, z0, ux, uy, uz, len, dmg);
   },
   sweepList(list, x0, y0, z0, ux, uy, uz, len, dmg) {
@@ -10015,7 +10050,7 @@ const Traffic = {
   crush(x0, z0, x1, z1, y, dmg) {
     const T = W.traffic;
     if (!T) return;
-    for (const list of [T.cars, T.parked]) for (let i = 0; i < list.length; i++) {
+    for (const list of [T.cars, T.parked, T.ships]) for (let i = 0; i < list.length; i++) {
       const c = list[i], r = c.v.hw;
       if (c.x < x0 - r || c.x > x1 + r || c.z < z0 - r || c.z > z1 + r || Math.abs(c.y - y) > 4) continue;
       if (dmg >= c.hp) this.wreck(c, true); else this.hurt(c, dmg, c.x, c.z);
@@ -10074,12 +10109,13 @@ const Traffic = {
     let best = null, bd = within;
     for (let i = 0; i < T.parked.length; i++) { const d = this.rideDist(T.parked[i], human); if (d < bd) { bd = d; best = T.parked[i]; } }
     for (let i = 0; i < T.cars.length; i++) { const d = this.rideDist(T.cars[i], human); if (d < bd) { bd = d; best = T.cars[i]; } }
+    for (let i = 0; i < T.ships.length; i++) { const d = this.rideDist(T.ships[i], human); if (d < bd) { bd = d; best = T.ships[i]; } }
     for (let i = 0; i < T.flights.length; i++) { const d = this.rideDist(T.flights[i], human); if (d < bd) { bd = d; best = T.flights[i]; } }
     return best;
   },
   rideDist(r, h) {
     if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
-    if (r.flight && r.phase !== FL_GATE) return Infinity;   // an airliner only at its gate
+    if (r.v.ship || (r.flight && r.phase !== FL_GATE)) return Infinity;   // a big ship never; an airliner only at its gate
     if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
     const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
     if (Math.abs(dx) > reach || Math.abs(dz) > reach) return Infinity;
@@ -10119,7 +10155,7 @@ const Traffic = {
   claim(def, x, z) {
     const T = W.traffic;
     if (!T) return;
-    for (const list of [T.parked, T.cars, T.flights]) for (let i = 0; i < list.length; i++) {
+    for (const list of [T.parked, T.cars, T.ships, T.flights]) for (let i = 0; i < list.length; i++) {
       const r = list[i];
       if (r.def === def && r.state !== 'wreck' && Math.hypot(r.x - x, r.z - z) < 4) { this.remove(r, true); return; }
     }
@@ -10129,6 +10165,7 @@ const Traffic = {
     const T = W.traffic;
     if (out) this.driverOut(r, false);
     if (r.lane) { this.unlock(r); this.drop(r.lane.cars, r); this.drop(T.cars, r); r.lane = null; }
+    else if (r.ship) this.drop(T.ships, r);
     else if (r.flight) this.drop(T.flights, r);
     else this.drop(T.parked, r);
   },
@@ -10141,6 +10178,7 @@ const Traffic = {
     const q = Fauna.quality(), night = Clock.look.night > 0.5;
     T.drawn = this.drawList(T.cars, q, q.traffic, night ? 1 : 0.35) + this.drawList(T.parked, q, q.traffic + 24, 0);
     Flights.draw(T, q, night);
+    Shipping.draw(T, q, night);
     R.stack.top = 0; R.stack.ident();
   },
   drawList(list, q, cap, glow) {
@@ -10610,6 +10648,623 @@ const Flights = {
       drawVehicle(v, P);
     }
     T.flightsDrawn = n;
+  },
+};
+
+/* ---------------------------------------------------------------------
+   Marine traffic (P6.4)
+   Container ships and tankers sail a sea lane across the battlefield's widest water, from its outer reaches to the far
+   side, and come back out of sight; a ferry crosses between two docks (a pier to the shore each, near the towns where it
+   can), turning on the spot and berthing alongside; fishing boats and sailboats sail rounds out from home. Each route is
+   planned once from the seed and the world: a path over squares with room enough of water deep enough for its keel
+   (SHIP_MARGIN round the hull), straightened and smoothed, then every pose of the hull along it tested against the
+   water, so no ship touches land. Local scenery like the road traffic (D6, never sent): ships stop for units and other
+   ships in their way; a unit half a ship's weight or more running into it sinks it, a lighter one hurts it.
+   --------------------------------------------------------------------- */
+const SHIP_CELL = 16, SHIP_N = 125;  // routes are planned on squares this big (m), this many a side
+const SHIP_EDGE = 880;               // and keep inside this far off the middle (m)
+const SHIP_SLACK = 2 * 8 * Math.SQRT2;   // m of a square's distance to the nearest square too shallow that a point in it may lack
+const SHIP_MARGIN = 3;               // m of deep enough water a hull keeps all round
+const SHIP_BERTH_MARGIN = 1;         // and alongside its pier
+const SHIP_SAMPLE = 6, SHIP_SMOOTH = 6;   // m between route points; smoothing passes over them
+const SHIP_HULL_STEP = 4;            // m between the points of a hull tested against the water
+const SHIP_LOS_STEP = 4;             // m between the points of a straight leg tested
+const SHIP_WIDEN = [0, 10, 20];      // m more room a route keeps when a tighter one fails its test
+// the ships of a battlefield in turn, planned for High: the first QUALITY ships of them sail, so a quality moves none
+const SHIP_PLAN = ['boxship', 'ferry', 'fishing', 'sailboat', 'oiler', 'fishing', 'sailboat', 'sailboat'];
+const SHIP_SPEED = 0.6;              // share of its top speed a ship sails at
+const SHIP_TRAWL = 0.4;              // a fishing boat trawls the second leg of its round at this share of that
+const SHIP_ACCEL = { big: 0.15, ferry: 0.4, boat: 1 };   // m/s2
+const SHIP_YAW = { big: 0.05, ferry: 0.12, boat: 0.35 };  // fastest turn (rad/s): ships slow for tight bends
+const SHIP_CREEP = 1;                // m/s a ship sails at least
+const SHIP_OUTER = 120;              // a sea lane's ends lie within this of the farthest water off the middle (m)...
+const SHIP_LANE_MIN = 700;           // ...and at least this far apart (m)
+const SHIP_END_STRIDE = 3;           // squares between the lane ends tried
+const SHIP_PIVOT = 0.2;              // rad/s a ferry turns on the spot at a dock
+const SHIP_SLIDE = 1;                // m/s it moves sideways onto its pier
+const SHIP_DWELL = 25;               // s it stays alongside
+const SHIP_DOCKS = 2;                // docks a ferry sails between
+const SHIP_DOCK_REACH = 700;         // a dock lies within this of a town or a seeded point (m)
+const SHIP_DOCK_TRIES = 10;          // seeded points tried for docks after the towns
+const SHIP_DOCK_GAP = 250;           // docks this far apart at least (m)
+const SHIP_SHORE = 300;              // the shore is looked for this far from a dock (m)
+const SHIP_PIER_MAX = 90;            // longest pier from a berth to the shore (m)
+const SHIP_PIER_W = 5;               // its width (m), the T at its end twice that across
+const SHIP_PIER_DECK = 1.2;          // its deck over the water (m)
+const SHIP_HARBOUR_GAP = 120;        // docks and boats' homes keep this far from the harbours (m)
+const SHIP_MOOR_GAP = 12;            // and routes this far past a moored boat's length (m)
+const SHIP_LOOP = [140, 420];        // a boat's round reaches this far from its home (m)
+const SHIP_HOME_REACH = 600;         // a fishing boat's home lies within this of a town (m)
+const SHIP_TRIES = 8;                // rounds tried per boat
+const SHIP_LOOK = 0.25;              // s between a ship's looks ahead
+const SHIP_LOOK_MIN = 30;            // it looks this far past its bow, plus its stopping distance (m)
+const SHIP_GAP = 8;                  // m it keeps to what it stops for
+const SHIP_HOLD = 20, SHIP_PASS = 10;   // a ship stopped this long sails on through for PASS s (scenery: D6)
+const SHIP_CRUSH_SHARE = 0.5;        // a unit of this share of a ship's tonnes running into it sinks it...
+const SHIP_RAM_SPEED = 3, SHIP_RAM_DMG = 1;   // ...a lighter one this fast hurts it (tonnes x m/s x this a second)
+const SHIP_BACK = [30, 90];          // s before a ship that sailed off or sank comes back out of sight
+const SHIP_WAKE = 0.5;               // share of a platform's wake a ship leaves
+const SHIP_HEEL = 0.14;              // a sailboat's heel (rad)
+const SHIP_PIER_COL = [0.4, 0.31, 0.22], SHIP_POST_COL = [0.25, 0.2, 0.15];
+const SH_SAIL = 0, SH_BERTH = 1, SH_GONE = 2;
+const SH_TRANSIT = 0, SH_FERRY = 1, SH_LOOP = 2;
+const Shipping = {
+  plan: null,   // while populating: the squares' grids by depth, the open squares and the search's scratch arrays
+
+  /* ---------- construction ---------- */
+  populate(T, seed) {
+    if (!Water.any) return;
+    const rng = makeRng((seed ^ 0x2c51e9) >>> 0), cap = Fauna.quality().ships, n = SHIP_N * SHIP_N;
+    this.plan = { grids: new Map(), open: this.openSquares(T), g: new Float32Array(n), from: new Int32Array(n), state: new Uint8Array(n), heap: new Int32Array(n * 8), key: new Float32Array(n * 8), lanes: [] };
+    for (let i = 0; i < SHIP_PLAN.length; i++) {
+      const v = this.row(SHIP_PLAN[i]), col = Math.floor(rng() * 8), at = rng(), route = this.routeFor(T, v, rng, i);
+      if (!route || i >= cap) continue;
+      const c = this.make(T, v, col, route);
+      this.place(T, c, at);
+      if (route.docks) for (const d of route.docks) T.docks.push(d);
+      T.ships.push(c);
+    }
+    this.plan = null;
+  },
+  row(id) { return SHIP_ROWS.find((v) => v.id === id) || VEHICLES[VEHICLE_IDS.indexOf(id)]; },
+  /* a ship of row v in colour col on route: a vehicle of the scenery (Traffic.make) with the fields a ship needs */
+  make(T, v, col, route) {
+    const c = Traffic.make(v, col), hp = Math.round(60 + 25 * Math.pow(v.tonnes, 0.6));
+    Object.assign(c, { ship: true, route, dir: 1, phase: SH_SAIL, vr: 0, hp, hp0: hp, radius: v.hl, held: 0, pass: 0, block: Infinity, dock: null, stage: 0, slide: 0, turnTo: 0, visits: 0, bob: (T.ships.length * 1.7) % TAU, slot: T.ships.length, kind: this.kindOf(v) });
+    return c;
+  },
+  kindOf(v) { return v.ship ? 'big' : v.id === 'ferry' ? 'ferry' : 'boat'; },
+  /* c starts at share at of its route (a ferry at its first dock), clear of the ships already out */
+  place(T, c, at) {
+    const r = c.route;
+    c.state = 'drive'; c.phase = SH_SAIL; c.seg = 0; c.dir = 1; c.hp = c.hp0; c.flat = 1; c.burn = 0; c.life = 0; c.held = 0; c.pass = 0;
+    if (r.kind === SH_FERRY) { c.s = 0; this.at(c, 0); this.arrive(c, r.docks[0]); c.stage = 2; c.slide = r.docks[0].slide; c.dwell = at * SHIP_DWELL; c.state = 'park'; this.berthPose(c); return; }
+    let s = at * r.len;
+    for (let k = 0; k < 3 && this.crowded(T, c, r, s); k++) s = (s + r.len / 3) % r.len;
+    c.s = s;
+    this.at(c, s);
+    c.speed = c.vr;
+  },
+  /* true when another ship is within both lengths of the point s along route r */
+  crowded(T, c, r, s) {
+    const k = Math.min(r.n - 1, Math.max(0, Math.round(s / SHIP_SAMPLE))), x = r.p[k * 3], z = r.p[k * 3 + 1];
+    return T.ships.some((o) => o !== c && o.phase !== SH_GONE && Math.hypot(o.x - x, o.z - z) < o.v.hl + c.v.hl + SHIP_GAP * 2);
+  },
+  /* the route of plan entry i, row v: a sea lane, the ferry's crossing or a boat's round; null where none fits */
+  routeFor(T, v, rng, i) {
+    if (v.ship) return this.laneRoute(v);
+    if (v.id === 'ferry') return this.ferryRoute(T, v, rng);
+    return this.loopRoute(T, v, rng, i);
+  },
+
+  /* ---------- the squares ---------- */
+  /* the squares a route may cross at all: inside SHIP_EDGE, with no structure (a bridge, a pier) and no moored boat */
+  openSquares(T) {
+    const N = SHIP_N, open = new Uint8Array(N * N), moored = T.parked.filter((r) => r.v.type === 'sea');
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = this.cx(i), z = this.cx(j);
+      if (Math.abs(x) > SHIP_EDGE || Math.abs(z) > SHIP_EDGE || !(Water.baseLevel(x, z) > Terrain.h(x, z))) continue;
+      if (groundBlocked(x, z, SHIP_CELL * 0.72) || moored.some((r) => Math.hypot(r.x - x, r.z - z) < r.v.hl + SHIP_MOOR_GAP + SHIP_CELL)) continue;
+      open[j * N + i] = 1;
+    }
+    return open;
+  },
+  cx(i) { return -WORLD_HALF + (i + 0.5) * SHIP_CELL; },
+  sq(x, z) {
+    const i = Math.floor((x + WORLD_HALF) / SHIP_CELL), j = Math.floor((z + WORLD_HALF) / SHIP_CELL);
+    return i < 0 || j < 0 || i >= SHIP_N || j >= SHIP_N ? -1 : j * SHIP_N + i;
+  },
+  /* the grid for keels need m deep: which ground points have that much water (deep), and how much room every point of
+     each square is sure to have to water shallower than that, or to a closed square (clr, m) */
+  grid(need) {
+    const P = this.plan;
+    let g = P.grids.get(need);
+    if (g) return g;
+    const deep = new Uint8Array(251 * 251), L = Water.levels, H = Terrain.heights, N = SHIP_N, clr = new Float32Array(N * N);
+    for (let o = 0; o < deep.length; o++) deep[o] = L[o] - H[o] >= need ? 1 : 0;   // no water: -Infinity
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      let ok = P.open[j * N + i];
+      for (let b = 0; b <= 2 && ok; b++) for (let a = 0; a <= 2 && ok; a++) if (!deep[(2 * j + b) * 251 + 2 * i + a]) ok = 0;
+      clr[j * N + i] = ok ? 1e6 : 0;
+    }
+    this.chamfer(clr);
+    for (let k = 0; k < clr.length; k++) clr[k] = clr[k] * SHIP_CELL - SHIP_SLACK;
+    g = { need, deep, clr, comps: new Map() };
+    P.grids.set(need, g);
+    return g;
+  },
+  gridFor(v) { return this.grid(Math.round((v.draft + NAVAL_KEEL_CLEAR) * 10) / 10); },
+  /* squares' distance (in squares) to the nearest closed one, in two passes; past the grid's edge counts as closed */
+  chamfer(d) {
+    const N = SHIP_N, D = Math.SQRT2, at = (i, j) => (i < 0 || j < 0 || i >= N || j >= N ? 0 : d[j * N + i]);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const k = j * N + i;
+      if (d[k] > 0) d[k] = Math.min(d[k], at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + D, at(i + 1, j - 1) + D);
+    }
+    for (let j = N - 1; j >= 0; j--) for (let i = N - 1; i >= 0; i--) {
+      const k = j * N + i;
+      if (d[k] > 0) d[k] = Math.min(d[k], at(i + 1, j) + 1, at(i, j + 1) + 1, at(i + 1, j + 1) + D, at(i - 1, j + 1) + D);
+    }
+  },
+  clrAt(g, x, z) { const k = this.sq(x, z); return k < 0 ? -1 : g.clr[k]; },
+  /* the squares of grid g with room r, labelled by the stretch of water they reach (0: none) */
+  comps(g, r) {
+    let lab = g.comps.get(r);
+    if (lab) return lab;
+    const N = SHIP_N, stack = [];
+    lab = new Int32Array(N * N);
+    let next = 0;
+    for (let k = 0; k < N * N; k++) {
+      if (lab[k] || g.clr[k] < r) continue;
+      lab[k] = ++next; stack.push(k);
+      while (stack.length) {
+        const q = stack.pop(), i = q % N, j = (q - i) / N;
+        for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) {
+          const ii = i + a, jj = j + b, w = jj * N + ii;
+          if (ii < 0 || jj < 0 || ii >= N || jj >= N || lab[w] || g.clr[w] < r) continue;
+          lab[w] = next; stack.push(w);
+        }
+      }
+    }
+    g.comps.set(r, lab);
+    return lab;
+  },
+  /* the square with room r nearest (x, z) within reach (and, comp given, in that stretch of water), or -1 */
+  nearestSquare(g, r, x, z, reach, lab, comp) {
+    const N = SHIP_N, n = Math.ceil(reach / SHIP_CELL), c = this.sq(clamp(x, -WORLD_HALF, WORLD_HALF - 1), clamp(z, -WORLD_HALF, WORLD_HALF - 1)), ci = c % N, cj = (c - ci) / N;
+    let best = -1, bd = reach * reach;
+    for (let j = Math.max(0, cj - n); j <= Math.min(N - 1, cj + n); j++) for (let i = Math.max(0, ci - n); i <= Math.min(N - 1, ci + n); i++) {
+      const k = j * N + i, dx = this.cx(i) - x, dz = this.cx(j) - z, d = dx * dx + dz * dz;
+      if (g.clr[k] < r || d >= bd || (lab && lab[k] !== comp)) continue;
+      bd = d; best = k;
+    }
+    return best;
+  },
+
+  /* ---------- paths ---------- */
+  /* the squares from a to b through squares with room r (a and b need none: berths lie close in), octile A* with no
+     corners cut; null when there is no way */
+  path(g, r, a, b) {
+    const P = this.plan, N = SHIP_N, gs = P.g, from = P.from, state = P.state, heap = P.heap, key = P.key, bi = b % N, bj = (b - bi) / N;
+    state.fill(0);
+    const h = (k) => { const i = k % N, dx = Math.abs(i - bi), dz = Math.abs((k - i) / N - bj); return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz); };
+    let n = 0;
+    const push = (k, f) => {   // a binary heap on key, stale entries skipped when popped
+      let i = n++;
+      while (i > 0) { const up = (i - 1) >> 1; if (key[up] <= f) break; heap[i] = heap[up]; key[i] = key[up]; i = up; }
+      heap[i] = k; key[i] = f;
+    };
+    const pop = () => {
+      const top = heap[0], lk = heap[--n], lf = key[n];
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && key[c + 1] < key[c]) c++;
+        if (key[c] >= lf) break;
+        heap[i] = heap[c]; key[i] = key[c]; i = c;
+      }
+      heap[i] = lk; key[i] = lf;
+      return top;
+    };
+    const ok = (k) => k === b || g.clr[k] >= r;
+    gs[a] = 0; from[a] = -1; state[a] = 1; push(a, h(a));
+    while (n > 0) {
+      const k = pop();
+      if (state[k] === 2) continue;
+      state[k] = 2;
+      if (k === b) break;
+      const i = k % N, j = (k - i) / N;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj, w = jj * N + ii;
+        if ((!di && !dj) || ii < 0 || jj < 0 || ii >= N || jj >= N || state[w] === 2 || !ok(w)) continue;
+        if (di && dj && !(ok(j * N + ii) && ok(jj * N + i))) continue;   // no corner cut
+        const cost = gs[k] + (di && dj ? Math.SQRT2 : 1);
+        if (state[w] === 1 && gs[w] <= cost) continue;
+        gs[w] = cost; from[w] = k; state[w] = 1;
+        if (n < heap.length) push(w, cost + h(w));
+      }
+    }
+    if (state[b] !== 2) return null;
+    const out = [];
+    for (let k = b; k >= 0; k = from[k]) out.push(k);
+    return out.reverse();
+  },
+  /* true when every point of the straight leg (x0, z0)-(x1, z1) lies in a square with room r */
+  los(g, r, x0, z0, x1, z1) {
+    const d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / SHIP_LOS_STEP));
+    for (let k = 1; k < n; k++) if (this.clrAt(g, lerp(x0, x1, k / n), lerp(z0, z1, k / n)) < r) return false;
+    return true;
+  },
+  /* the corners of the way from (x0, z0) to (x1, z1) through room r: the squares' path pulled straight, appended to
+     out (its first point left out when out already ends there); false when there is no way */
+  leg(g, r, x0, z0, x1, z1, out) {
+    const a = this.sq(x0, z0), b = this.sq(x1, z1);
+    if (a < 0 || b < 0) return false;
+    const sqs = this.path(g, r, a, b);
+    if (!sqs) return false;
+    const xs = [x0], zs = [z0];
+    for (let k = 1; k < sqs.length - 1; k++) { const i = sqs[k] % SHIP_N; xs.push(this.cx(i)); zs.push(this.cx((sqs[k] - i) / SHIP_N)); }
+    xs.push(x1); zs.push(z1);
+    if (!out.length) out.push(x0, z0);
+    for (let i = 0; i < xs.length - 1;) {   // from each corner, straight to the farthest point in sight
+      let j = xs.length - 1;
+      while (j > i + 1 && !this.los(g, r, xs[i], zs[i], xs[j], zs[j])) j--;
+      out.push(xs[j], zs[j]);
+      i = j;
+    }
+    return true;
+  },
+  /* a route over corners cs (x, z pairs; closed: back to its start), sampled every SAMPLE m and smoothed, its poses
+     tested: { kind, n, p (x, z, yaw per point), cum, len, sp (speed per point), loop, slow0-slow1 (a slow leg) };
+     null when a pose of v's hull leaves the water */
+  build(g, v, cs, kind, loop) {
+    const xs = [], zs = [];
+    for (let k = 0; k + 3 < cs.length; k += 2) {
+      const x0 = cs[k], z0 = cs[k + 1], x1 = cs[k + 2], z1 = cs[k + 3], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / SHIP_SAMPLE));
+      for (let i = 0; i < n; i++) { xs.push(lerp(x0, x1, i / n)); zs.push(lerp(z0, z1, i / n)); }
+    }
+    if (!loop) { xs.push(cs[cs.length - 2]); zs.push(cs[cs.length - 1]); }
+    const m = xs.length;
+    if (m < 3) return null;
+    for (let pass = 0; pass < SHIP_SMOOTH; pass++) for (let i = 0; i < m; i++) {
+      if (!loop && (i === 0 || i === m - 1)) continue;
+      const a = (i - 1 + m) % m, b = (i + 1) % m;
+      xs[i] = (xs[a] + 2 * xs[i] + xs[b]) / 4; zs[i] = (zs[a] + 2 * zs[i] + zs[b]) / 4;
+    }
+    if (loop) { xs.push(xs[0]); zs.push(zs[0]); }
+    const n = xs.length, p = new Float32Array(n * 3), cum = new Float32Array(n), sp = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = loop ? (i === 0 ? n - 2 : i - 1) : Math.max(0, i - 1), b = loop ? (i === n - 1 ? 1 : i + 1) : Math.min(n - 1, i + 1);
+      p[i * 3] = xs[i]; p[i * 3 + 1] = zs[i]; p[i * 3 + 2] = Math.atan2(xs[b] - xs[a], zs[b] - zs[a]);
+      if (i) cum[i] = cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]);
+    }
+    for (let i = 0; i < n; i++) if (!this.hullOk(g, v, p[i * 3], p[i * 3 + 1], p[i * 3 + 2], SHIP_MARGIN)) return null;
+    const r = { kind, n, p, cum, len: cum[n - 1], sp, loop, slow0: -1, slow1: -1, docks: null };
+    this.speeds(r, v, kind !== SH_FERRY);
+    return r;
+  },
+  /* each point's speed: the ship's, slower where the route bends tight (SHIP_YAW) or on the slow leg, reached and shed
+     at its acceleration; a ferry's route starts and ends at a stop */
+  speeds(r, v, flowing) {
+    const n = r.n, p = r.p, cum = r.cum, sp = r.sp, k = this.kindOf(v), top = v.speed * SHIP_SPEED, acc = SHIP_ACCEL[k], yawMax = SHIP_YAW[k];
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1), bend = Math.abs(angleDiff(p[a * 3 + 2], p[b * 3 + 2])) / Math.max(1e-3, cum[b] - cum[a]);
+      sp[i] = Math.max(SHIP_CREEP, Math.min(cum[i] >= r.slow0 && cum[i] <= r.slow1 ? top * SHIP_TRAWL : top, yawMax / Math.max(bend, 1e-6)));
+    }
+    if (!flowing) { sp[0] = 0; sp[n - 1] = 0; }
+    for (let i = 1; i < n; i++) sp[i] = Math.min(sp[i], Math.sqrt(sp[i - 1] * sp[i - 1] + 2 * acc * (cum[i] - cum[i - 1])));
+    for (let i = n - 2; i >= 0; i--) sp[i] = Math.min(sp[i], Math.sqrt(sp[i + 1] * sp[i + 1] + 2 * acc * (cum[i + 1] - cum[i])));
+  },
+  /* true when v's hull at (x, z) facing yaw, margin m larger all round, has water deep enough for its keel everywhere
+     under it (the hull's points every HULL_STEP m: a point whose ground cell has that much at all four corners has it) */
+  hullOk(g, v, x, z, yaw, margin) {
+    if (this.clrAt(g, x, z) >= Math.hypot(v.hl, v.hw) + margin) return true;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw), hl = v.hl + margin, hw = v.hw + margin;
+    const nl = Math.ceil(2 * hl / SHIP_HULL_STEP), nw = Math.ceil(2 * hw / SHIP_HULL_STEP);
+    for (let a = 0; a <= nl; a++) for (let b = 0; b <= nw; b++) {
+      const u = -hl + 2 * hl * a / nl, w = -hw + 2 * hw * b / nw;
+      if (!this.deepAt(g, x + fx * u + fz * w, z + fz * u - fx * w)) return false;
+    }
+    return true;
+  },
+  deepAt(g, x, z) {
+    const fx = (x + WORLD_HALF) / 8, fz = (z + WORLD_HALF) / 8, k = this.sq(x, z);
+    if (k < 0 || fx >= 250 || fz >= 250 || !this.plan.open[k]) return false;
+    const o = Math.floor(fz) * 251 + Math.floor(fx), d = g.deep;
+    return d[o] === 1 && d[o + 1] === 1 && d[o + 251] === 1 && d[o + 252] === 1;
+  },
+  /* v turns on the spot at (x, z) (a ferry at a dock): its hull fits at every heading */
+  pivotOk(g, v, x, z) {
+    for (let k = 0; k < 12; k++) if (!this.hullOk(g, v, x, z, k * PI / 12, SHIP_MARGIN)) return false;
+    return true;
+  },
+  room(v, extra) { return v.hw + SHIP_MARGIN + extra; },
+
+  /* ---------- the routes ---------- */
+  /* a sea lane for a big ship: between the two squares farthest apart (every END_STRIDE-th square tried) near the
+     farthest water off the middle, in one stretch of water */
+  laneRoute(v) {
+    const g = this.gridFor(v), N = SHIP_N;
+    for (const extra of SHIP_WIDEN) {
+      const r = this.room(v, extra), lab = this.comps(g, r);
+      let outer = 0;
+      for (let k = 0; k < N * N; k++) if (g.clr[k] >= r) { const i = k % N; outer = Math.max(outer, Math.abs(this.cx(i)), Math.abs(this.cx((k - i) / N))); }
+      const xs = [], zs = [], ls = [];
+      for (let j = 0; j < N; j += SHIP_END_STRIDE) for (let i = 0; i < N; i += SHIP_END_STRIDE) {
+        const k = j * N + i, x = this.cx(i), z = this.cx(j);
+        if (g.clr[k] >= r && Math.max(Math.abs(x), Math.abs(z)) >= outer - SHIP_OUTER) { xs.push(x); zs.push(z); ls.push(lab[k]); }
+      }
+      let a = -1, b = -1, bd = SHIP_LANE_MIN * SHIP_LANE_MIN;
+      for (let p = 0; p < xs.length; p++) for (let q = p + 1; q < xs.length; q++) {
+        if (ls[p] !== ls[q]) continue;
+        const dx = xs[p] - xs[q], dz = zs[p] - zs[q], d = dx * dx + dz * dz;
+        if (d > bd) { bd = d; a = p; b = q; }
+      }
+      if (a < 0) return null;
+      const cs = [], ax = xs[a], az = zs[a], bx = xs[b], bz = zs[b];
+      if (!this.leg(g, r, ax, az, bx, bz, cs)) continue;
+      const route = this.build(g, v, cs, SH_TRANSIT, false);
+      if (route) return route;
+    }
+    return null;
+  },
+  /* the ferry's crossing between the first two docks it can sail between */
+  ferryRoute(T, v, rng) {
+    const g = this.gridFor(v), docks = this.findDocks(T, g, v, rng);
+    for (let i = 0; i < docks.length; i++) for (let j = i + 1; j < docks.length; j++) {
+      const A = docks[i], B = docks[j];
+      for (const extra of SHIP_WIDEN) {
+        const cs = [];
+        if (!this.leg(g, this.room(v, extra), A.x, A.z, B.x, B.z, cs)) break;
+        const route = this.build(g, v, cs, SH_FERRY, false);
+        if (route) { route.docks = [A, B]; return route; }
+      }
+    }
+    return null;
+  },
+  /* docks for v: near each town, then near seeded points, at most SHIP_DOCKS + 2, apart and off the harbours */
+  findDocks(T, g, v, rng) {
+    const out = [], spots = W.civZones.map((zn) => [zn.cx, zn.cz]);
+    for (let k = 0; k < SHIP_DOCK_TRIES; k++) spots.push([(rng() * 2 - 1) * SCENERY_EDGE, (rng() * 2 - 1) * SCENERY_EDGE]);
+    for (const s of spots) {
+      if (out.length >= SHIP_DOCKS + 2) break;
+      const d = this.dock(g, v, s[0], s[1]);
+      if (!d || out.some((o) => Math.hypot(o.x - d.x, o.z - d.z) < SHIP_DOCK_GAP) || W.harbours.some((h) => Math.hypot(h.x - d.x, h.z - d.z) < SHIP_HARBOUR_GAP)) continue;
+      out.push(d);
+    }
+    return out;
+  },
+  /* A dock for v near (x, z): the nearest water where it can turn on the spot, moved toward the shore while it still
+     can (x, z: where it turns), then alongside a pier (bx, bz, facing yaw or yaw + PI) that runs to the shore; null
+     where the pier would be longer than PIER_MAX */
+  dock(g, v, x, z) {
+    const reach = Math.hypot(v.hl, v.hw) + SHIP_MARGIN, k = this.nearestSquare(g, reach, x, z, SHIP_DOCK_REACH, null, 0);
+    if (k < 0) return null;
+    let px = this.cx(k % SHIP_N), pz = this.cx((k - k % SHIP_N) / SHIP_N);
+    // the shore: the nearest dry ground along 16 bearings
+    let nx = 0, nz = 0, best = SHIP_SHORE;
+    for (let b = 0; b < 16; b++) {
+      const a = b * TAU / 16, fx = Math.sin(a), fz = Math.cos(a);
+      for (let d = 4; d < best; d += 4) if (Water.depth(px + fx * d, pz + fz * d) < 0.3) { best = d; nx = fx; nz = fz; break; }
+    }
+    if (best >= SHIP_SHORE) return null;
+    while (this.pivotOk(g, v, px + nx * 4, pz + nz * 4)) { px += nx * 4; pz += nz * 4; }
+    if (!this.pivotOk(g, v, px, pz)) return null;
+    const yaw = Math.atan2(nz, -nx);   // along the shore: (sin yaw, cos yaw) = (nz, -nx)
+    let slide = 0;
+    while (slide < reach - v.hw && this.hullOk(g, v, px + nx * (slide + 2), pz + nz * (slide + 2), yaw, SHIP_BERTH_MARGIN)) slide += 2;
+    const bx = px + nx * slide, bz = pz + nz * slide;
+    let len = 0;
+    while (len < SHIP_PIER_MAX && Water.depth(bx + nx * (v.hw + 1 + len), bz + nz * (v.hw + 1 + len)) >= 0.3) len += 2;
+    if (len >= SHIP_PIER_MAX) return null;
+    const y = Water.level(bx, bz) + SHIP_PIER_DECK, len2 = len + 4, mid = v.hw + 1 + len2 / 2;   // into the bank a little
+    return { x: px, z: pz, bx, bz, nx, nz, yaw, slide, y, len: len2, mx: bx + nx * mid, mz: bz + nz * mid, tx: bx + nx * (v.hw + 1 + SHIP_PIER_W * 0.5), tz: bz + nz * (v.hw + 1 + SHIP_PIER_W * 0.5), tl: v.l * 0.5 };
+  },
+  /* a round for boat v from home, out to two points and back: a fishing boat's home near a town (it trawls the second
+     leg), a sailboat's anywhere it fits */
+  loopRoute(T, v, rng, i) {
+    const g = this.gridFor(v), r = this.room(v, SHIP_WIDEN[1]), lab = this.comps(g, r), zones = W.civZones;
+    for (let t = 0; t < SHIP_TRIES; t++) {
+      const zn = zones.length ? zones[(i + t) % zones.length] : null, fish = v.id === 'fishing' && zn;
+      const hx = fish ? zn.cx : (rng() * 2 - 1) * SCENERY_EDGE, hz = fish ? zn.cz : (rng() * 2 - 1) * SCENERY_EDGE, a1 = rng() * TAU, a2 = a1 + (rng() < 0.5 ? -1 : 1) * lerp(0.5, 0.9, rng()) * PI, d1 = lerp(SHIP_LOOP[0], SHIP_LOOP[1], rng()), d2 = lerp(SHIP_LOOP[0], SHIP_LOOP[1], rng());
+      const home = this.nearestSquare(g, r, hx, hz, SHIP_HOME_REACH, null, 0);
+      if (home < 0) continue;
+      const x0 = this.cx(home % SHIP_N), z0 = this.cx((home - home % SHIP_N) / SHIP_N), comp = lab[home];
+      if (W.harbours.some((q) => Math.hypot(q.x - x0, q.z - z0) < SHIP_HARBOUR_GAP)) continue;
+      const k1 = this.nearestSquare(g, r, x0 + Math.sin(a1) * d1, z0 + Math.cos(a1) * d1, 80, lab, comp), k2 = this.nearestSquare(g, r, x0 + Math.sin(a2) * d2, z0 + Math.cos(a2) * d2, 80, lab, comp);
+      if (k1 < 0 || k2 < 0 || k1 === k2) continue;
+      const x1 = this.cx(k1 % SHIP_N), z1 = this.cx((k1 - k1 % SHIP_N) / SHIP_N), x2 = this.cx(k2 % SHIP_N), z2 = this.cx((k2 - k2 % SHIP_N) / SHIP_N), cs = [];
+      if (!this.leg(g, r, x0, z0, x1, z1, cs)) continue;
+      const leg2 = cs.length;
+      if (!this.leg(g, r, x1, z1, x2, z2, cs)) continue;
+      const leg3 = cs.length;
+      if (!this.leg(g, r, x2, z2, x0, z0, cs)) continue;
+      const route = this.build(g, v, cs, SH_LOOP, true);
+      if (!route) continue;
+      if (fish) {   // it trawls the leg from the first point out to the second
+        const all = this.cornerS(cs, cs.length - 2);
+        route.slow0 = this.cornerS(cs, leg2 - 2) / all * route.len; route.slow1 = this.cornerS(cs, leg3 - 2) / all * route.len;
+        this.speeds(route, v, true);
+      }
+      return route;
+    }
+    return null;
+  },
+  /* m along corner list cs to its corner at index k (an x index) */
+  cornerS(cs, k) {
+    let s = 0;
+    for (let i = 2; i <= k; i += 2) s += Math.hypot(cs[i] - cs[i - 2], cs[i + 1] - cs[i - 1]);
+    return s;
+  },
+
+  /* ---------- per tick ---------- */
+  update(T, dt) {
+    const ships = T.ships;
+    for (let i = 0; i < ships.length; i++) {
+      const c = ships[i];
+      if (c.phase === SH_GONE) { this.stepGone(T, c, dt); continue; }
+      if (c.state === 'wreck') {
+        Traffic.stepWreck(c, dt);
+        if (c.life > TRAFFIC_WRECK_LIFE && !this.seen(c.x, c.y, c.z, c.v.hl)) this.gone(c);
+        continue;
+      }
+      if (c.phase === SH_BERTH) this.stepBerth(c, dt); else this.stepSail(T, c, dt);
+      this.float(c);
+      this.touch(T, c, dt);
+      if (c.state === 'wreck') continue;
+      if (c.speed > SHIP_CREEP && Math.random() < SHIP_WAKE) Naval.wakeFx(c, dt);
+    }
+  },
+  stepSail(T, c, dt) {
+    const r = c.route, acc = SHIP_ACCEL[c.kind];
+    if ((c.lookT -= dt) <= 0) { c.lookT = SHIP_LOOK; c.block = this.lookAhead(T, c); }
+    if (c.pass > 0) c.pass -= dt;
+    let want = Math.max(SHIP_CREEP, c.vr);
+    if (c.block < Infinity) {
+      want = Math.min(want, Math.sqrt(2 * acc * Math.max(0, c.block)));
+      if (c.speed < SHIP_CREEP && (c.held += dt) > SHIP_HOLD) { c.pass = SHIP_PASS; c.held = 0; c.block = Infinity; }
+    } else c.held = 0;
+    c.speed = approach(c.speed, want, acc * (want < c.speed ? 2 : 1) * dt);
+    c.s += c.speed * dt * c.dir;
+    if (r.loop) c.s = ((c.s % r.len) + r.len) % r.len;
+    else if (r.kind === SH_FERRY && (c.dir > 0 ? c.s >= r.len : c.s <= 0)) {
+      c.s = clamp(c.s, 0, r.len);
+      this.at(c, c.s);
+      this.arrive(c, r.docks[c.s > 0 ? 1 : 0]);
+      return;
+    } else if (c.s >= r.len) { this.gone(c); return; }
+    this.at(c, c.s);
+  },
+  /* the pose s m along c's route into c (x, z, yaw: turned round when it sails it backward) and the route's speed (vr) */
+  at(c, s) {
+    const r = c.route, cum = r.cum, p = r.p, last = r.n - 1;
+    let k = c.seg < last ? c.seg : last - 1;
+    while (k > 0 && cum[k] > s) k--;
+    while (k < last - 1 && cum[k + 1] < s) k++;
+    c.seg = k;
+    const a = k * 3, b = a + 3, t = clamp((s - cum[k]) / (cum[k + 1] - cum[k] || 1), 0, 1);
+    c.x = p[a] + (p[b] - p[a]) * t; c.z = p[a + 1] + (p[b + 1] - p[a + 1]) * t;
+    c.yaw = p[a + 2] + angleDiff(p[a + 2], p[b + 2]) * t + (c.dir < 0 ? PI : 0);
+    c.vr = r.sp[k] + (r.sp[k + 1] - r.sp[k]) * t;
+  },
+  /* afloat: on the water at its draft, bobbing and rocking (the small ones more), a sailboat heeled */
+  float(c) {
+    const v = c.v, small = c.kind === 'boat', t = W.time + c.bob;
+    c.y = Water.level(c.x, c.z) - v.draft + Math.sin(t * 0.9) * (small ? 0.12 : 0.05);
+    c.pitch = Math.sin(t * 0.6) * (small ? 0.03 : 0.004);
+    c.roll = Math.sin(t * 0.7 + c.bob) * (small ? 0.05 : 0.006) + (v.id === 'sailboat' ? SHIP_HEEL : 0);
+  },
+  /* the ferry reaches dock d: it turns alongside, moves onto the pier, waits, moves off and turns to sail back */
+  arrive(c, d) {
+    c.phase = SH_BERTH; c.dock = d; c.stage = 0; c.speed = 0; c.slide = 0; c.visits++;
+    c.turnTo = Math.abs(angleDiff(c.yaw, d.yaw)) <= PI / 2 ? d.yaw : d.yaw + PI;
+  },
+  stepBerth(c, dt) {
+    const d = c.dock;
+    if (c.stage === 0 || c.stage === 4) {
+      c.yaw = turnToward(c.yaw, c.turnTo, SHIP_PIVOT * dt);
+      if (Math.abs(angleDiff(c.yaw, c.turnTo)) > 1e-3) return;
+      if (c.stage === 4) { c.phase = SH_SAIL; c.dir = c.s > 0 ? -1 : 1; c.speed = 0; this.at(c, c.s); return; }
+      c.stage = 1;
+    } else if (c.stage === 1 || c.stage === 3) {
+      c.slide = approach(c.slide, c.stage === 1 ? d.slide : 0, SHIP_SLIDE * dt);
+      this.berthPose(c);
+      if (c.slide !== (c.stage === 1 ? d.slide : 0)) return;
+      if (c.stage === 1) { c.stage = 2; c.state = 'park'; c.dwell = SHIP_DWELL; return; }
+      // off the pier: turn to the way back (the route's heading at this end, reversed when it sails it backward)
+      const r = c.route, k = c.s > 0 ? r.n - 1 : 0;
+      c.stage = 4; c.turnTo = r.p[k * 3 + 2] + (c.s > 0 ? PI : 0);
+    } else if ((c.dwell -= dt) <= 0) { c.stage = 3; c.state = 'drive'; }
+  },
+  berthPose(c) {
+    const d = c.dock;
+    c.x = d.x + d.nx * c.slide; c.z = d.z + d.nz * c.slide; c.yaw = c.stage === 0 ? c.yaw : c.turnTo; c.speed = 0;
+  },
+  /* c sails off (the end of its lane) or its wreck goes: out of sight for a while */
+  gone(c) { c.phase = SH_GONE; c.state = 'wreck'; c.life = 0; c.wait = rand(SHIP_BACK[0], SHIP_BACK[1]); c.speed = 0; },
+  /* back at the start of its route (a ferry at its first dock) when nobody sees it come and there is room */
+  stepGone(T, c, dt) {
+    if ((c.life += dt) < c.wait) return;
+    const r = c.route, x = r.p[0], z = r.p[1];
+    if (this.seen(x, Water.level(x, z), z, c.v.hl) || this.crowded(T, c, r, 0)) return;
+    this.place(T, c, 0);
+  },
+  /* true when the camera is near enough to see a ship of half length hl come or go at (x, y, z) */
+  seen(x, y, z, hl) {
+    const cam = R.cam, dx = x - cam.x, dz = z - cam.z;
+    return dx * dx + dz * dz < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(x, y, z, hl);
+  },
+  /* m c may still sail before what is in its way: a unit, or a ship it gives way to (two bow to bow: the later ship) */
+  lookAhead(T, c) {
+    if (c.pass > 0) return Infinity;
+    const v = c.v, fx = Math.sin(c.yaw), fz = Math.cos(c.yaw), acc = SHIP_ACCEL[c.kind], look = v.hl + SHIP_LOOK_MIN + c.speed * c.speed / (2 * acc);
+    let best = Infinity;
+    const near = T.near;
+    for (let i = 0; i < near.length; i++) {
+      const p = near[i], dx = p.x - c.x, dz = p.z - c.z, r = Naval.bodyR(p), ahead = dx * fx + dz * fz;
+      if (ahead <= 0 || ahead > look + r || Math.abs(dx * fz - dz * fx) > v.hw + r + SHIP_GAP * 0.5) continue;
+      best = Math.min(best, ahead - v.hl - r - SHIP_GAP);
+    }
+    const ships = T.ships;
+    for (let i = 0; i < ships.length; i++) {
+      const o = ships[i];
+      if (o === c || o.phase === SH_GONE || o.state === 'wreck') continue;
+      const dx = o.x - c.x, dz = o.z - c.z, ahead = dx * fx + dz * fz, sn = Math.abs(Math.sin(o.yaw - c.yaw)), cs = Math.abs(Math.cos(o.yaw - c.yaw));
+      const ext = o.v.hw * cs + o.v.hl * sn, along = o.v.hl * cs + o.v.hw * sn;
+      if (ahead <= 0 || ahead > look + along || Math.abs(dx * fz - dz * fx) > v.hw + ext + SHIP_GAP * 0.5) continue;
+      const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw), back = -dx * ofx - dz * ofz;   // c ahead of o too: the later one gives way
+      if (back > 0 && Math.abs(-dx * ofz + dz * ofx) < o.v.hw + v.hl + SHIP_GAP && o.slot > c.slot) continue;
+      best = Math.min(best, ahead - v.hl - along - SHIP_GAP);
+    }
+    return best;
+  },
+  /* units running into c: one of half its tonnes or more sinks it, a lighter one going fast hurts it */
+  touch(T, c, dt) {
+    const mv = T.movers, v = c.v, fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
+    for (let i = 0; i < mv.length; i++) {
+      const p = mv[i], dx = p.x - c.x, dz = p.z - c.z, r = Naval.bodyR(p);
+      if (Math.abs(dx) > v.hl + r || Math.abs(dz) > v.hl + r) continue;
+      if (Math.abs(dx * fx + dz * fz) > v.hl + r || Math.abs(dx * fz - dz * fx) > v.hw + r || p.y > c.y + v.h || p.y + p.height < c.y) continue;
+      if (p.tonnes >= SHIP_CRUSH_SHARE * v.tonnes) { Traffic.wreck(c, false); return; }
+      const fast = Math.abs(p.speed);
+      if (fast >= SHIP_RAM_SPEED) Traffic.hurt(c, p.tonnes * fast * SHIP_RAM_DMG * dt, p.x, p.z);
+      if (c.state === 'wreck') return;
+    }
+  },
+
+  /* ---------- drawing ---------- */
+  /* the ships within the quality's shipDraw (simple models far off), and the docks' piers */
+  draw(T, q, night) {
+    const ships = T.ships, st = R.stack, cam = R.cam, far2 = q.shipDraw * q.shipDraw, lod = q.trafficLod * 2, lod2 = lod * lod, P = CIV_POSE;
+    let n = 0;
+    for (let i = 0; i < ships.length; i++) {
+      const c = ships[i], v = c.v, dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
+      if (c.phase === SH_GONE || d2 > far2 || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
+      n++;
+      const wreck = c.state === 'wreck';
+      P.paint = c.paint; P.acc = v.accCol; P.x = c.x; P.y = c.y; P.z = c.z; P.yaw = c.yaw; P.pitch = c.pitch; P.roll = c.roll;
+      P.lod = d2 > lod2; P.spin = 0; P.prop = 0; P.gear = true; P.flat = 1; P.shade = wreck ? 0.22 : 1; P.add = 0; P.glow = wreck ? 0 : night ? 1 : 0.35;
+      st.top = 0; st.ident();
+      drawVehicle(v, P);
+    }
+    T.shipsDrawn = n;
+    st.top = 0; st.ident();
+    const docks = T.docks, pc = SHIP_PIER_COL, qc = SHIP_POST_COL;
+    for (let i = 0; i < docks.length; i++) {
+      const d = docks[i], dx = d.mx - cam.x, dz = d.mz - cam.z;
+      if (dx * dx + dz * dz > far2 || !R.visible(d.mx, d.y, d.mz, d.len)) continue;
+      const pyaw = Math.atan2(d.nx, d.nz);
+      st.push().t(d.mx, d.y, d.mz).ry(pyaw).s(SHIP_PIER_W, 0.5, d.len); R.draw('box', pc[0], pc[1], pc[2]); st.pop();
+      st.push().t(d.tx, d.y, d.tz).ry(pyaw).s(d.tl, 0.5, SHIP_PIER_W); R.draw('box', pc[0], pc[1], pc[2]); st.pop();
+      for (let k = 0; k <= 4; k++) {   // posts down to the bed under the pier
+        const f = (k / 4 - 0.5) * d.len, x = d.mx + d.nx * f, z = d.mz + d.nz * f, gy = Terrain.h(x, z);
+        for (let s = -1; s <= 1; s += 2) {
+          const px = x + d.nz * s * SHIP_PIER_W * 0.4, pz = z - d.nx * s * SHIP_PIER_W * 0.4;
+          st.push().t(px, (d.y + gy) / 2, pz).s(0.4, Math.max(0.5, d.y - gy), 0.4); R.draw('cyl', qc[0], qc[1], qc[2]); st.pop();
+        }
+      }
+    }
   },
 };
 
@@ -27735,6 +28390,95 @@ const SelfTest = {
         Falls.reset(); Game.quitToMenu();
       }
     });
+    t('marine traffic', () => {
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, SEED = 7, DT = 0.25;
+      const start = (map) => Game.startSession({ mode: 'skirmish', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, seed: SEED, random: false, support: 'none' }) });
+      // points of a hull at (x, z) facing yaw with less water under them than its draft
+      const dry = (v, x, z, yaw) => {
+        const fx = Math.sin(yaw), fz = Math.cos(yaw);
+        let n = 0;
+        for (let a = 0; a <= 12; a++) for (let b = 0; b <= 4; b++) {
+          const u = -v.hl + v.hl * a / 6, w = -v.hw + v.hw * b / 2;
+          if (Water.depth(x + fx * u + fz * w, z + fz * u - fx * w) < v.draft) n++;
+        }
+        return n;
+      };
+      const sig = (T) => T.ships.map((c) => c.v.id + ':' + c.route.n + ':' + c.route.p[c.route.n].toFixed(2)).join() + '|' + T.docks.map((d) => d.x.toFixed(2) + ',' + d.z.toFixed(2)).join();
+      try {
+        S.quality = 'high';
+        start('coast');
+        const T = W.traffic, ships = T.ships, kinds = new Set(ships.map((c) => c.v.id));
+        this.check('the coast gets its marine traffic (QUALITY ships at most): a big ship on a sea lane, a ferry, boats', ships.length <= QUALITY.high.ships && (kinds.has('boxship') || kinds.has('oiler')) && kinds.has('ferry') && (kinds.has('fishing') || kinds.has('sailboat')), [...kinds].join());
+        this.check('the ferry has two docks, each with a pier to the shore', T.docks.length === SHIP_DOCKS && T.docks.every((d) => d.len > 0 && d.len <= SHIP_PIER_MAX + 4 && Water.depth(d.mx + d.nx * d.len / 2, d.mz + d.nz * d.len / 2) < 0.3));
+        let bad = 0;
+        for (const c of ships) for (let i = 0; i < c.route.n; i++) bad += dry(c.v, c.route.p[i * 3], c.route.p[i * 3 + 1], c.route.p[i * 3 + 2]);
+        this.check('no ship\'s hull leaves water deeper than its draft anywhere along its route', bad === 0, bad + ' points');
+        const s1 = sig(T);
+        T.ships = []; T.docks = [];
+        Shipping.populate(T, SEED);
+        this.check('the same battlefield and seed plan the same routes and docks', sig(T) === s1);
+        // ten minutes: every hull in deep water at every step, the ferry from dock to dock and back
+        const fleet = T.ships, ferry = fleet.find((c) => c.v.id === 'ferry'), seen = [];
+        R.cam.x = 0; R.cam.z = 0;
+        let touch = 0, last = -1;
+        for (let i = 0; i < Math.round(600 / DT); i++) {
+          Traffic.collectMachines(T);
+          Shipping.update(T, DT);
+          if (i % 4 === 0) for (const c of fleet) if (c.phase !== SH_GONE && c.state !== 'wreck') touch += dry(c.v, c.x, c.z, c.yaw);
+          if (ferry.phase === SH_BERTH && last !== SH_BERTH) seen.push(T.docks.indexOf(ferry.dock));
+          last = ferry.phase;
+        }
+        this.check('ten minutes on: no hull touches land', touch === 0, touch + ' points');
+        this.check('the ferry sails from dock to dock and back', seen.length >= 3 && seen[0] === 0 && seen[1] === 1 && seen[2] === 0, seen.join('>'));
+        // it stops for a unit in its way, then (stopped SHIP_HOLD s) sails on through: scenery (D6)
+        const big = fleet.find((c) => c.v.ship && c.phase === SH_SAIL) || fleet.find((c) => c.v.ship);
+        Shipping.place(T, big, 0.3);
+        const k = Math.min(big.route.n - 1, big.seg + Math.round(300 / SHIP_SAMPLE)), bx = big.route.p[k * 3], bz = big.route.p[k * 3 + 1];
+        const unit = new Platform(PLATFORMS.trident, { team: 1, x: bx, z: bz, yaw: big.yaw, loadout: Loadout.forPlatform('trident') });
+        unit.y = Naval.keelY(bx, bz, unit.def);
+        W.platforms.push(unit);
+        let closest = Infinity, stopped = false, passed = false;
+        for (let i = 0; i < Math.round(80 / DT); i++) {
+          Traffic.collectMachines(T);
+          Shipping.update(T, DT);
+          if (big.pass > 0) passed = true;
+          if (!passed) closest = Math.min(closest, Math.hypot(big.x - bx, big.z - bz));
+          if (big.speed < SHIP_CREEP) stopped = true;
+        }
+        this.check('a ship stops short of a unit in its way, then sails on', stopped && passed && closest > big.v.hl + Naval.bodyR(unit), Math.round(closest) + ' m');
+        // a warship running into a fishing boat sinks it
+        const boat = fleet.find((c) => c.kind === 'boat' && c.phase === SH_SAIL && c.state !== 'wreck');
+        unit.x = boat.x; unit.z = boat.z; unit.speed = 5;
+        Traffic.collectMachines(T);
+        Shipping.update(T, DT);
+        const y0 = boat.y;
+        for (let i = 0; i < 20; i++) Shipping.update(T, DT);
+        this.check('a warship (' + Math.round(unit.tonnes) + ' t) running into a ' + boat.v.name + ' sinks it', boat.state === 'wreck' && boat.y < y0);
+        W.platforms.splice(W.platforms.indexOf(unit), 1);
+        // the ferry can be taken at its berth (D26: boats); a container ship or a tanker never
+        const human = new Platform(PLATFORMS.ranger, { team: 0, x: 0, z: 0, yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        Shipping.place(T, ferry, 0.5);
+        const d = ferry.dock;
+        human.x = ferry.x + d.nx * (ferry.v.hw + 2); human.z = ferry.z + d.nz * (ferry.v.hw + 2); human.y = d.y;
+        const ride = Traffic.rideDist(ferry, human);
+        human.x = big.x; human.z = big.z; human.y = big.y + 2;
+        this.check('the ferry can be taken at its pier; a ' + big.v.name + ' never', ride < Infinity && Traffic.rideDist(big, human) === Infinity);
+        // drawn (whatever the last frame's view)
+        R.cam.x = ferry.x + 80; R.cam.y = ferry.y + 20; R.cam.z = ferry.z + 80;
+        R.visible = () => true;
+        R.beginBatch('opaque');
+        Traffic.draw();
+        R.endBatch('opaque');
+        R.visible = keepVisible;
+        this.check('the ships near the camera are drawn', T.shipsDrawn > 0, T.shipsDrawn);
+        // dry land: none
+        start('ashfall');
+        this.check('a battlefield with no water has no ships', W.traffic.ships.length === 0 && W.traffic.docks.length === 0);
+      } finally {
+        S.quality = keepQ; R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -28695,7 +29439,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, drawVehicle, Civ, Flights, Falls };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
