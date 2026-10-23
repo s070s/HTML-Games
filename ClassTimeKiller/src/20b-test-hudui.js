@@ -407,6 +407,8 @@ function hudUiDrawnBoxes(first) {
 }
 // A box meets a circle (the nearest point of the box is inside it).
 function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
+// The core buttons a thumb finds by feel: never on the other half, whatever keepsHalf allows (a DUCK beside the stick is a miss).
+const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
 // What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
 function hudUiTouchBreak(fixed, banners, width, height, layout) {
   const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
@@ -417,6 +419,7 @@ function hudUiTouchBreak(fixed, banners, width, height, layout) {
     if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
     if (place.radius * 2 < Math.min(TOUCH_MIN_DIAMETER, place.fullRadius * 2) - 0.01) return control.id + ' ' + Math.round(place.radius * 2) + ' px across';
     if (!TouchInput.keepsHalf(place, x, width)) return control.id + ' left its half';
+    if (HUD_UI_CORE_BUTTONS.includes(control.id) && (x < width / 2) !== (place.startX < width / 2)) return control.id + ' crossed the centre';
     const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
     if (over) return control.id + ' over ' + over.map(Math.round);
   }
@@ -436,7 +439,7 @@ function hudUiDrawPanels(layout) {
   for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
 }
 // HUD scale 100%, 125% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
-const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 1.75], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
   const layout = {}, problems = [];
   for (const hudScale of HUD_UI_HUD_SCALES) {
@@ -484,32 +487,6 @@ Test.add('hudui', (check) => hudTestWith(() => {
     OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
     TouchInput.applyAll();
   }
-}));
-// The core buttons a thumb finds by feel: each stays on its layout half at every editor scale (a DUCK beside the stick is a miss).
-const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
-Test.add('hudui', (check) => hudTestWith(() => {
-  const savedPreset = TouchInput.currentPreset, savedNeeds = Object.assign({}, TouchInput.needs), crossed = [];
-  Input.device = 'touch';
-  TouchInput.needs.use = TouchInput.needs.grenade = () => true;
-  Game.start({ mode: 'ffa', map: PlayFlow.smallestMap('ffa').id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
-  try {
-    for (const [width, height] of HUD_UI_SCREENS.slice(0, 2)) for (const hudScale of HUD_UI_HUD_SCALES) for (const preset of TOUCH_PRESETS) for (const scale of [1, 1.25, 1.5, 1.75, 2]) {
-      Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;
-      TouchInput.currentPreset = preset;
-      const saved = {};
-      for (const control of TOUCH_CONTROLS) saved[control.id] = { scale };
-      Save.data.touchLayouts = { [preset.id]: saved };
-      TouchInput.placeAll(width, height);
-      for (const id of HUD_UI_CORE_BUTTONS) {
-        const place = TouchInput.places[id];
-        if (place.shown && (place.x < width / 2) !== (place.startX < width / 2)) crossed.push([width, hudScale, preset.id, scale, id, Math.round(place.x), Math.round(place.y)].join(' '));
-      }
-    }
-  } finally {
-    Object.assign(TouchInput.needs, savedNeeds); Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset;
-    TouchInput.applyAll();
-  }
-  check('touch: the core buttons keep their half at editor scale 1 to 2 and HUD scale 100 to 150', crossed.length === 0, crossed.slice(0, 4).join('; '));
 }));
 
 Test.add('ui', (check) => {
