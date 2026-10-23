@@ -14372,9 +14372,9 @@ class Platform {
     const t = this.loadT;
     this.loadT = 0;
     if (Net.guest || !LOAD_RULES.stand || s.destroyed || loadExempt(s)) return;
-    const k3 = this.scale * this.scale * this.scale, steps = 1 + LOAD_STEP * Math.min(1, this.speed / LOAD_STEP_SPEED);
-    const load = this.tonnes * k3 * steps, cap = loadCapacity(s);
-    if (load <= cap) return;
+    const k3 = this.scale * this.scale * this.scale, cap = loadCapacity(s);
+    if (this.tonnes * k3 <= cap) return;   // a weight the piece carries standing is not worn by walking (D61)
+    const load = this.tonnes * k3 * (1 + LOAD_STEP * Math.min(1, this.speed / LOAD_STEP_SPEED));
     const over = cap > 0 ? Math.min(LOAD_OVER_MAX, (load - cap) / cap) : LOAD_OVER_MAX;
     damageStruct(s, LOAD_WEAR * over * t / s.ram.perHp, 'ram', this, 1);
   }
@@ -21086,7 +21086,7 @@ const Hazards = {
     if (!this.tallestIn(x, z, r)) return false;
     const p = this.found;
     p.zapAt = W.time;
-    this.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), id);
+    this.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), id, p.kind === 'air' ? undefined : p.y);
     return true;
   },
   /* lightning damage to p: at most HZ_ZAP_ONE of its hull in one strike and HZ_ZAP_ALL in all, so no storm finishes a
@@ -21098,8 +21098,9 @@ const Hazards = {
     p.takeDamage(dmg, HAZARDS.lightning.dtype, null, dx, dz, HZ_HIT);
   },
   /* one lightning strike at (x, y, z) (host): it hurts what stands within the blast, may start a wildfire on rich fuel,
-     and goes to guests as an 'hz' strike (r: blast radius, level: the height struck) */
-  strike(x, z, y, id) {
+     and goes to guests as an 'hz' strike (r: blast radius, level: the height struck). `feet`: where a struck ground unit
+     stands, so a tall mech's top is not taken for a bolt high in the air (default: the bolt's own height) */
+  strike(x, z, y, id, feet) {
     const d = HAZARDS.lightning, pl = W.platforms, was = this.dealing, why = this.cause;
     this.dealing = true; this.cause = d.name;
     try {
@@ -21109,10 +21110,10 @@ const Hazards = {
         const py = p.y + (p.kind === 'air' ? 0 : p.height * 0.5), dist = Math.max(0, Math.hypot(p.x - x, py - y, p.z - z) - p.radius);
         if (dist < d.blast) this.zap(p, d.hit * (1 - 0.6 * dist / d.blast), p.x - x, p.z - z);
       }
-      const n = this.structsIn(x, z, d.blast);
-      for (let i = 0; i < n; i++) { const s = this.scratch[i]; if (!s.destroyed && !s.objective && y - s.top < d.blast) damageStruct(s, d.structHit, d.dtype, null, 1); }   // none far under a struck aircraft
+      const n = this.structsIn(x, z, d.blast), low = feet === undefined ? y : feet;
+      for (let i = 0; i < n; i++) { const s = this.scratch[i]; if (!s.destroyed && !s.objective && low - s.top < d.blast) damageStruct(s, d.structHit, d.dtype, null, 1); }   // none far under a struck aircraft
     } finally { this.dealing = was; this.cause = why; }
-    if (y - Terrain.h(x, z) < d.blast && this.ids.indexOf('wildfire') >= 0 && this.fuelAt(x, z) > HZ_IGNITE_FUEL && latticeHash(Math.round(x), Math.round(z), this.seed ^ HZ_SKY_SALT) < HZ_IGNITE) this.trigger('wildfire', x, z, HAZARD_BLAST_WARN, true);
+    if ((feet === undefined ? y : feet) - Terrain.h(x, z) < d.blast && this.ids.indexOf('wildfire') >= 0 && this.fuelAt(x, z) > HZ_IGNITE_FUEL && latticeHash(Math.round(x), Math.round(z), this.seed ^ HZ_SKY_SALT) < HZ_IGNITE) this.trigger('wildfire', x, z, HAZARD_BLAST_WARN, true);
     this.strikeFx(x, y, z, d.blast);
     if (Net.host) Net.bcast({ t: 'hz', id, type: 'lightning', state: HZ_STRIKE, x: r1(x), z: r1(z), r: r1(d.blast), level: r1(y) });
   },
@@ -32388,6 +32389,51 @@ const SelfTest = {
         R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         Game.quitToMenu();
       }
+    });
+    t('delta world', () => {
+      const keepGuest = Net.guest;
+      Net.guest = false;
+      newWorld({ map: 'alpine', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+      W.mission = null;
+      try {
+        W.platforms.length = 0;
+        // lightning on a tall ground mech still lights a fire under it and hits the low crate beside it
+        Hazards.arm('normal', ['lightning', 'wildfire'], 5, false); Hazards.sched.n = 0;
+        let fire = null;
+        const fx0 = -480, fz0 = 200;
+        for (let k = 0; k < 8; k++) addStruct('tree', fx0 + Math.sin(k) * 6, fz0 + Math.cos(k) * 6, { hpMult: 20 });
+        for (let dx = -6; dx <= 6 && !fire; dx++) for (let dz = -6; dz <= 6 && !fire; dz++) {
+          const x = fx0 + dx, z = fz0 + dz;
+          if (Hazards.fuelAt(x, z) > HZ_IGNITE_FUEL && latticeHash(x, z, Hazards.seed ^ HZ_SKY_SALT) < HZ_IGNITE) fire = { x, z };
+        }
+        let fires = -1, crateDown = false;
+        if (fire) {
+          const mech = new Platform(PLATFORMS.colossus, { team: 0, x: fire.x, z: fire.z, yaw: 0 });
+          mech.y = Terrain.h(fire.x, fire.z); W.platforms.push(mech);
+          const crate = addStruct('crate', fire.x + 3, fire.z, {});
+          Hazards.strikeTallest(fire.x, fire.z, 10, 0);
+          fires = Hazards.n; crateDown = crate.destroyed || crate.hp < crate.maxHp;
+        }
+        this.check('lightning on a 13 m ground mech starts a wildfire under it and hits the crate beside it', fires === 1 && crateDown, fires + ' fires, crate ' + (crateDown ? 'hit' : 'whole'));
+        Hazards.reset();
+      } finally { Net.guest = keepGuest; Game.quitToMenu(); }
+      newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 300, tag: 'open' }], difficulty: 'veteran', seed: 5, start: { x: 0, z: -400, yaw: 0 } });
+      W.mission = null;
+      const keepGuest2 = Net.guest;
+      Net.guest = false;
+      try {
+        // a medium mech walking at full speed across a roof slab for 10 s leaves it whole
+        const b = Bld.make('shop', -240, 120, makeRng(4), 'load'), slab = b.pieces.find((s) => s.kind === 'roof');
+        const walker = new Platform(PLATFORMS.bulwark, { team: 0, x: slab.x, z: slab.z, yaw: 0 });
+        walker.y = slab.top; walker.vy = 0; walker.grounded = true;
+        W.platforms.push(walker);
+        for (let n = 0; n < 600; n++) {
+          walker.speed = walker.def.speed;   // held at top speed, as walking would
+          walker.tickStatus(STEP);
+          walker.update(STEP);
+        }
+        this.check('a medium mech walking at full speed across a roof slab for 10 s leaves it whole', !slab.destroyed && slab.hp === slab.maxHp && walker.support === slab, slab.hp + '/' + slab.maxHp);
+      } finally { Net.guest = keepGuest2; Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
