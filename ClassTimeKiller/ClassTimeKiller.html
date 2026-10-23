@@ -154,6 +154,7 @@ function errorText(error) {
 const ErrorLog = {
 	size: 50,
 	entries: [],
+	stamps: [],
 	total: 0,
 	first: '',
 	lastText: '',
@@ -162,17 +163,19 @@ const ErrorLog = {
 	add(where, error) {
 		const text = where + ': ' + errorText(error);
 		this.total++;
+		this.stamps.length = this.entries.length;
 		if (!this.first) this.first = text;
 		if (text === this.lastText && this.entries.length === this.lastLength) {
 			this.repeats++;
 			this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';
+			this.stamps[this.stamps.length - 1] = this.total;
 			return;
 		}
-		this.entries.push(text);
-		if (this.entries.length > this.size) this.entries.shift();
+		this.entries.push(text); this.stamps.push(this.total);
+		if (this.entries.length > this.size) { this.entries.shift(); this.stamps.shift(); }
 		this.lastText = text; this.lastLength = this.entries.length; this.repeats = 1;
 	},
-	since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
+	since(count) { return this.entries.filter((entry, index) => this.stamps[index] > count); },
 };
 
 const Bus = {
@@ -1250,6 +1253,7 @@ Data.define('damageKinds', {
 
 // ==== 03e-data-rules.js ====
 const HITSCAN_KNOCKBACK = 0.25;
+const HERO_KNOCKBACK = 0.5;
 
 const RULESET_ROWS = [
 	{ id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
@@ -1260,7 +1264,7 @@ const RULESET_ROWS = [
 	{ id: 'vanguard', code: 'RS06', name: 'Shield Wars', move: 'vanguard', health: 'shield', economy: 'pickups', precision: 'standard', weaponSet: 'sandboxSet', meter: 'none' },
 	{ id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'ravagerSet', meter: 'none' },
 	{ id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'knightSet', meter: 'none' },
-	{ id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true },
+	{ id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true, hitKnockback: HERO_KNOCKBACK },
 	{ id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'none', knockback: HITSCAN_KNOCKBACK },
 	{ id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'militarySet', meter: 'energy', knockback: HITSCAN_KNOCKBACK },
 	{ id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy', downed: true },
@@ -1268,7 +1272,7 @@ const RULESET_ROWS = [
 
 Data.define('rulesets', {
 	id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet',
-	meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
+	meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, hitKnockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
 	lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, downed: false, editor: null,
 }, RULESET_ROWS);
 
@@ -1280,6 +1284,8 @@ const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };
 const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'kestrel', 'lancet', 'heron', 'maul'];
+
+const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3500, infectAfter: 20, infectedHealth: 375, leapSpeed: 8, leapLift: 3 };
 
 Data.define('modes', {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
@@ -1303,7 +1309,7 @@ Data.define('modes', {
 	{ id: 'lms', code: 'M15', name: 'Last Standing', goal: 'Limited lives. Be the last one standing.', scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
 	{ id: 'gungame', code: 'M16', name: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', goalDetail: 'A melee kill also sets the victim one gun back on the ladder.', scoreBy: 'objective', params: { economy: 'ladder', meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
 	{ id: 'infection', code: 'M17', name: 'Blight', goal: 'Humans outlast the clock; a human who dies joins the Blight.',
-		goalDetail: 'The Blight breaks out after {infectAfter} s: its members are tough, melee only and leap when they jump.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { fixedSides: true, infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 450, leapSpeed: 8, leapLift: 3 } },
+		goalDetail: 'The Blight breaks out after {infectAfter} s: its members are tough, melee only and leap when they jump.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: BLIGHT_PARAMS },
 	{ id: 'juggernaut', code: 'M18', name: 'Colossus', goal: 'Kill the Colossus to become it; only it scores.', goalDetail: 'The first kill makes the first Colossus: it is tougher and hits harder.', scoreLimit: 15, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
 	{ id: 'cursetag', code: 'M19', name: 'Curse Tag', goal: 'Kill the cursed; the cursed passes the curse on at the beacon.', goalDetail: 'The cursed is weak and fights with melee only.', scoreLimit: 20, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
 	{ id: 'royale', code: 'M20', name: 'Last Ring', goal: 'Loot, stay in the ring, be the last standing.', goalDetail: 'The last squad standing wins. Hold Use to swap a gun for the one on the ground.', useButton: true, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
@@ -4109,6 +4115,12 @@ const TOUCH_FOUR_FINGER_MS = 300;
 const TOUCH_SCALE_MIN = 0.5, TOUCH_SCALE_MAX = 2;
 const TOUCH_OPACITY_MIN = 0.2, TOUCH_OPACITY_MAX = 1;
 const TOUCH_DEFAULT_OPACITY = 0.7;
+const TOUCH_AIM_ZONE = 0.18;
+const TOUCH_SEARCH_DIRECTIONS = 16;
+const TOUCH_SHRINK_STEP = 0.85;
+const TOUCH_SMALLEST = 0.45;
+const TOUCH_EDGE_BAND = 0.3;
+const TOUCH_NEAR = 6;
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 const GYRO_AXES = {
 	0: { upX: 0, upY: 1, rightX: 1, rightY: 0 }, 90: { upX: 1, upY: 0, rightX: 0, rightY: -1 },
@@ -4136,15 +4148,15 @@ const TOUCH_CONTROLS = [
 	{ id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
 	{ id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
 	{ id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
-	{ id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40 },
-	{ id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40 },
-	{ id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40 },
+	{ id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
+	{ id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40, edge: true },
+	{ id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true },
 	{ id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
 	{ id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
 	{ id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
 	{ id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
-	{ id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
-	{ id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
+	{ id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget', edge: true },
+	{ id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm', edge: true },
 ];
 const TOUCH_SETTINGS = [
 	{ key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -4197,6 +4209,12 @@ const TouchInput = {
 	weaponSlotAt: null,
 	buttonLook: null,
 	layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
+	places: {},
+	placeOrder: TOUCH_CONTROLS.slice(),
+	aim: { x: 0, y: 0, radius: 0 },
+	insets: { top: 0, right: 0, bottom: 0, left: 0 },
+	keepClear: [],
+	clearRects: [], clearCount: 0,
 	needs: {
 		use: () => useButtonNeeded(), comm: null,
 		ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
@@ -4230,6 +4248,7 @@ const TouchInput = {
 			element.dataset.control = control.id;
 			this.elements[control.id] = element;
 			this.controlById[control.id] = control;
+			this.places[control.id] = {};
 			if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
 			this.layer.appendChild(element);
 		}
@@ -4487,7 +4506,7 @@ const TouchInput = {
 		this.clampPosition(controlId, merged);
 		Object.assign(saved, { x: merged.x, y: merged.y, scale: merged.scale, opacity: merged.opacity, hidden: merged.hidden });
 		Save.scheduleSave();
-		this.applyControl(this.controlById[controlId]);
+		this.applyAll();
 	},
 	getProperty(controlId, key) { return this.layoutOf(controlId, this.layoutScratch)[key]; },
 	resetLayout() {
@@ -4496,8 +4515,82 @@ const TouchInput = {
 		this.applyAll();
 	},
 	applyAll() {
+		if (!this.layer) return;
 		this.needBits = this.needBitsNow();
+		this.placeAll(window.innerWidth, window.innerHeight);
 		for (const control of TOUCH_CONTROLS) this.applyControl(control);
+	},
+	addClear(left, top, right, bottom) {
+		const rect = this.clearRects[this.clearCount] || (this.clearRects[this.clearCount] = {});
+		this.clearCount++;
+		rect.left = left; rect.top = top; rect.right = right; rect.bottom = bottom;
+	},
+	placeAll(width, height) {
+		const aim = this.aim, places = this.places;
+		aim.x = width / 2; aim.y = height / 2; aim.radius = TOUCH_AIM_ZONE * Math.min(width, height);
+		this.clearCount = 0;
+		for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
+		for (let i = 0; i < TOUCH_CONTROLS.length; i++) this.prepareControl(TOUCH_CONTROLS[i], i, width, height);
+		this.placeOrder.sort((a, b) => (places[b.id].fullRadius - places[a.id].fullRadius) || (places[a.id].order - places[b.id].order));
+		for (const control of this.placeOrder) this.placeControl(control, width, height);
+	},
+	prepareControl(control, order, width, height) {
+		const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
+		const radius = control.size * layout.scale / 2;
+		place.startX = clamp(insets.left + layout.x * (width - insets.left - insets.right), insets.left + radius, width - insets.right - radius);
+		place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
+		place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
+		place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
+	},
+	placeControl(control, width, height) {
+		const place = this.places[control.id], smallest = control.size * this.preset().scale / 2 * TOUCH_SMALLEST;
+		place.placed = true;
+		if (!place.shown) return;
+		let radius = place.fullRadius;
+		for (;;) {
+			const last = radius <= smallest, reach = control.edge && !last ? place.fullRadius * TOUCH_NEAR : Infinity;
+			if (this.searchSpot(control, place, radius, width, height, last, reach, !!control.edge)) return;
+			if (last) break;
+			radius = Math.max(smallest, radius * TOUCH_SHRINK_STEP);
+		}
+		if (control.edge) this.searchSpot(control, place, radius, width, height, true, Infinity, false);
+	},
+	searchSpot(control, place, radius, width, height, leastOverlap, reach, banded) {
+		const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.min(reach, Math.max(width, height));
+		let best = Infinity;
+		for (let distance = 0; distance < farthest; distance += step) {
+			const directions = distance === 0 ? 1 : Math.max(TOUCH_SEARCH_DIRECTIONS, Math.ceil(2 * Math.PI * distance / step));
+			for (let i = 0; i < directions; i++) {
+				const angle = i * 2 * Math.PI / directions, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
+				if (!this.spotAllowed(x, y, radius, width, height) || (banded && !this.inEdgeBand(x, y, width, height))) continue;
+				const overlap = this.overlapAt(control, x, y, radius);
+				if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }
+				if (overlap === 0) return true;
+			}
+		}
+		return best < Infinity;
+	},
+	inEdgeBand(x, y, width, height) {
+		const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
+		return y <= insets.top + band || x <= insets.left + band || x >= width - insets.right - band;
+	},
+	spotAllowed(x, y, radius, width, height) {
+		const insets = this.insets, aim = this.aim;
+		if (x < insets.left + radius || x > width - insets.right - radius || y < insets.top + radius || y > height - insets.bottom - radius) return false;
+		if (length2(x - aim.x, y - aim.y) < aim.radius + radius) return false;
+		for (let i = 0; i < this.clearCount; i++) {
+			const rect = this.clearRects[i];
+			if (x + radius > rect.left && x - radius < rect.right && y + radius > rect.top && y - radius < rect.bottom) return false;
+		}
+		return true;
+	},
+	overlapAt(control, x, y, radius) {
+		let overlap = 0;
+		for (const other of TOUCH_CONTROLS) {
+			const place = this.places[other.id];
+			if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius - length2(place.x - x, place.y - y));
+		}
+		return overlap;
 	},
 	needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
 	needBitsNow() {
@@ -4512,15 +4605,13 @@ const TouchInput = {
 		if (this.layer) this.applyAll();
 	},
 	applyControl(control) {
-		const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch);
-		const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));
-		const size = control.size * layout.scale;
-		element.style.left = layout.x * 100 + '%';
-		element.style.top = layout.y * 100 + '%';
-		element.style.width = element.style.height = size + 'px';
-		element.style.opacity = layout.hidden || optionOff ? '' : layout.opacity;
-		element.classList.toggle('off', (layout.hidden || !!optionOff) && !this.editing);
-		element.classList.toggle('ghost', (layout.hidden || !!optionOff) && this.editing);
+		const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
+		element.style.left = place.x - this.insets.left + 'px';
+		element.style.top = place.y - this.insets.top + 'px';
+		element.style.width = element.style.height = place.radius * 2 + 'px';
+		element.style.opacity = place.shown ? layout.opacity : '';
+		element.classList.toggle('off', !place.shown && !this.editing);
+		element.classList.toggle('ghost', !place.shown && this.editing);
 		element.classList.toggle('selected', this.editing && this.selected === control.id);
 	},
 
@@ -7647,7 +7738,7 @@ const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
-const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
+const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };
 const tintColor = new Float32Array(4);
 const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, squash: 1, grow: 1 };
 const ActorFrame = { count: 0 };
@@ -7673,7 +7764,7 @@ function actorBaseColor(id) {
 function readActorStyle(id) {
 	writeColor(tintColor, 0, actorBaseColor(id));
 	actorStyle.r = tintColor[0]; actorStyle.g = tintColor[1]; actorStyle.b = tintColor[2];
-	actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+	actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = Render.replayPose !== null || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
 	Render.applyActorStyle(id, actorStyle);
 	return actorStyle;
 }
@@ -7685,6 +7776,7 @@ function readActorPosition(id, alpha) {
 	pose.z = lerp(Actors.prevZ[id], Actors.z[id], alpha);
 	pose.yaw = lerpAngle(Actors.prevYaw[id], Actors.yaw[id], alpha);
 	pose.pitch = lerp(Actors.prevPitch[id], Actors.pitch[id], alpha);
+	pose.recorded = false;
 	return pose;
 }
 
@@ -7694,17 +7786,17 @@ function lodFor(distanceSquared, quality) {
 }
 
 function animateActor(id, pose, seconds, lod) {
-	const speed = length2(Actors.vx[id], Actors.vz[id]);
+	const recorded = pose.recorded, speed = recorded ? pose.speed : length2(Actors.vx[id], Actors.vz[id]);
 	actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
 	if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
 		actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
 		actorPendingSeconds[id] = 0;
 	}
-	const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
+	const grounded = recorded ? pose.grounded : (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
 	const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_REFERENCE_SPEED);
 	pose.swing = grounded ? Math.sin(actorPhase[id]) * amount * MAX_SWING : AIR_SWING;
 	pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
-	pose.drop = (1 - clamp(Actors.height[id] / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
+	pose.drop = (1 - clamp((recorded ? pose.height : Actors.height[id]) / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
 	pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
 }
 
@@ -10431,6 +10523,7 @@ Bus.on('explosion', onExplosion);
 const NAV_FINE = 0.5;
 const NAV_RASTER_BLOCK = 8;
 const NAV_CELL_SAMPLES = 4;
+const NAV_CELL_SIZE = NAV_FINE * NAV_CELL_SAMPLES;
 const NAV_OPEN_RADIUS = 0.6;
 const NAV_EDGE_MARGIN = 0.25;
 const NAV_COLUMN_RISE = Math.max(STEP_HEIGHT, NAV_FINE * Math.tan(MAX_SLOPE)) + 0.02;
@@ -10564,6 +10657,7 @@ const Nav = {
 		return done;
 	},
 	clearCache() { navGraphCache.length = 0; },
+	walkableArea() { return this.nodeCount * NAV_CELL_SIZE * NAV_CELL_SIZE; },
 	clearGraph() {
 		this.nodeCount = 0; this.linkCount = 0; this.teleportCount = 0; this.componentCount = 0; this.coverCount = 0; this.mainComponent = -1;
 		const empty = new Int32Array(1);
@@ -13087,6 +13181,10 @@ const Weapons = {
 	rayBlockers: [],
 	altClaim: null,
 	altClaimed: new Uint8Array(MAX_ACTORS),
+	botTakes: (id, weapon) => true,
+	useClaimed: new Uint8Array(MAX_ACTORS),
+	rodeBoard: new Uint8Array(MAX_ACTORS),
+	useTakers: [],
 
 	blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
 		let best = -1;
@@ -13200,7 +13298,22 @@ const Weapons = {
 		return carried >= limit;
 	},
 	mayTake(id, weapon) {
-		return !this.swapsOut(id, weapon) || (Actors.buttons[id] & BTN.USE) !== 0 || Actors.kind[id] === ACTOR_KIND.BOT;
+		if (!this.swapsOut(id, weapon)) return true;
+		if (this.useClaimed[id] || (Actors.pressed[id] & BTN.USE) !== 0) return false;
+		if (Actors.kind[id] === ACTOR_KIND.BOT) return this.botTakes(id, weapon);
+		return (Actors.buttons[id] & BTN.USE) !== 0;
+	},
+	claimUse(id) { this.useClaimed[id] = 1; },
+	useTaken(id) {
+		if (this.useClaimed[id]) return true;
+		for (let i = 0; i < this.useTakers.length; i++) if (this.useTakers[i](id)) return true;
+		return false;
+	},
+	updateUseClaim(id) {
+		const riding = Move.onBoard(id) ? 1 : 0;
+		if (!(Actors.buttons[id] & BTN.USE)) this.useClaimed[id] = 0;
+		else if (riding || this.rodeBoard[id] || this.useTaken(id)) this.useClaimed[id] = 1;
+		this.rodeBoard[id] = riding;
 	},
 	swapVictim(id) {
 		const held = this.current[id];
@@ -13376,6 +13489,7 @@ const Weapons = {
 	step(dt) {
 		for (let id = 0; id < Actors.count; id++) {
 			if (Actors.kind[id] === ACTOR_KIND.NONE || !Actors.alive[id]) continue;
+			this.updateUseClaim(id);
 			this.stepActor(id, dt);
 		}
 		this.syncBreathButton();
@@ -14479,6 +14593,7 @@ const DOWNED_SPEED = 0.2;
 const REVIVE_HEALTH = 30;
 const REVIVE_SECONDS = 5;
 const REVIVE_REACH = 1.5;
+const REVIVE_HINT_RANGE = 4;
 const KNOCKBACK_PER_DAMAGE = 0.15;
 const KNOCKBACK_LIFT = 0.25;
 const SPLASH_MIN_FACTOR = 0.2;
@@ -14495,6 +14610,8 @@ const LIMB_ARM_SPREAD = [0, 0.1, 0.2, 0.5];
 const STATUS_COUNT = CAT.statusEffects.length;
 const INFO_RING = 16;
 CAT.statusEffects.forEach((row, index) => { row.index = index; });
+
+function hitKnockback() { const scale = currentRules().hitKnockback; return scale === undefined ? 1 : scale; }
 
 function makeDamageInfo() {
 	return { amount: 0, zone: 'none', stomach: false, mode: null, weapon: '', kind: 'hit', element: 'kinetic', distance: 0, knockback: 1,
@@ -14664,7 +14781,7 @@ const Damage = {
 		this.recordAttacker(source, target);
 		this.wake(target);
 		this.applyHitStatus(source, target, info);
-		if (source !== target) this.knockback(target, info.amount * attackerScale, info);
+		if (source !== target) this.knockback(target, info.amount * attackerScale * hitKnockback(), info);
 		this.emitDamage(source, target, info, kind, dealt);
 		if (!Game.headless) Fx.burst('blood', info.x, info.y, info.z, -info.dx, -info.dy, -info.dz, Math.min(12, 2 + dealt / 10), 0xa01818);
 		if (Actors.health[target] > 0) return;
@@ -14736,6 +14853,7 @@ const Damage = {
 		this.endLastStand(id);
 		return true;
 	},
+	reviveInRange(id) { return this.downedCount > 0 && this.nearestDownedAlly(id, REVIVE_HINT_RANGE) >= 0; },
 	nearestDownedAlly(id, maxDistance) {
 		let best = -1, bestSquared = maxDistance * maxDistance;
 		for (let other = 0; other < Actors.count; other++) {
@@ -15039,6 +15157,7 @@ function splashDistance(blast, id) {
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));
+Weapons.useTakers.push((id) => Damage.reviveInRange(id));
 TouchInput.useNeeds.push(() => Damage.downedAllowed() && currentRules().teams > 0);
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
 Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });
@@ -15692,7 +15811,7 @@ const Items = {
 		return true;
 	},
 	swapOffer(id) {
-		if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true)) return -1;
+		if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true) || Weapons.useTaken(id)) return -1;
 		for (let slot = 0; slot < this.usedEnd; slot++) {
 			if (this.state[slot] !== PICKUP_STATE.READY || this.kind[slot] !== PICKUP_KIND.WEAPON || this.blocker[slot] === id) continue;
 			if (this.touching(id, slot) && Weapons.swapsOut(id, CAT.weapons[this.row[slot]])) return slot;
@@ -16270,9 +16389,10 @@ const Powerups = {
 		out.g = lerp(out.g, POWERUP_RGB[offset + 1], POWERUP_TINT);
 		out.b = lerp(out.b, POWERUP_RGB[offset + 2], POWERUP_TINT);
 		out.emissive = Math.max(out.emissive, POWERUP_GLOW);
-		if (this.setInvisible[id]) out.visible = (Sim.time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS;
+		if (this.setInvisible[id] && Render.replayPose === null) out.visible = ghostShimmerVisible(Sim.time, id);
 	},
 };
+function ghostShimmerVisible(time, id) { return (time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS; }
 
 Items.takers[PICKUP_KIND.POWERUP] = (id, slot) => Powerups.give(id, CAT.powerups[Items.row[slot]], Items.timeLeft[slot]);
 Items.givers[PICKUP_KIND.POWERUP] = (id, key) => Powerups.give(id, CAT.powerups.byId(key), 0);
@@ -17797,6 +17917,12 @@ const Abilities = {
 	},
 	endAll(id, reason) {
 		for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) if (this.active[this.index(id, slot)]) this.end(id, slot, reason);
+	},
+	endAttacks(id, reason) {
+		for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
+			const row = this.row(id, slot);
+			if (row && ATTACK_CATEGORIES.includes(row.category) && this.active[this.index(id, slot)]) this.end(id, slot, reason);
+		}
 	},
 	clearActor(id, reason) {
 		this.endAll(id, reason);
@@ -20227,6 +20353,19 @@ const Modes = {
 	objectiveLabel(objective) {
 		return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
 	},
+	usesObjective(id) {
+		if (!this.active || !this.isActive(id)) return false;
+		const objectives = this.objectives, attacker = Actors.team[id] === this.attackingTeam();
+		let charge = null;
+		for (let i = 0; i < objectives.length; i++) if (objectives[i].kind === 'bomb') charge = objectives[i];
+		for (let i = 0; i < objectives.length; i++) {
+			const objective = objectives[i], x = objective.x, y = objective.y, z = objective.z;
+			if (objective.state === 'planted' && !attacker && withinTouch(id, x, y, z, this.rules.params.defuseRange)) return true;
+			if (objective.kind !== 'bombsite' || objective.state !== 'home' || !objective.active || !attacker) continue;
+			if (charge ? charge.carrier === id && this.inZone(objective, id) : withinTouch(id, x, y, z, objective.radius)) return true;
+		}
+		return false;
+	},
 	findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
 		for (let id = 0; id < Actors.count; id++) {
 			if (!this.actsOnObjectives(id) || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
@@ -20439,6 +20578,7 @@ function drawObjective(batch, objective) {
 	batch.meshFrom(objective.kind === 'flag' ? 'cylinder' : 'box', instance);
 }
 
+Weapons.useTakers.push((id) => Modes.usesObjective(id));
 Bus.on('match.start', (match) => Modes.start(match));
 Bus.on('match.stop', () => Modes.stop());
 Bus.on('actor.create', (id) => Modes.resetActor(id));
@@ -21671,6 +21811,19 @@ function ladderLoadouts(ladder, melee) {
 	});
 }
 
+
+function outbreakSize(players, params) {
+	const area = walkableArea();
+	const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
+	return Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
+}
+
+function walkableArea() {
+	if (Nav.nodeCount > 0) return Nav.walkableArea();
+	const size = World.map ? World.map.size : null;
+	return Array.isArray(size) ? size[0] * size[2] : 0;
+}
+
 Modes.register('infection', {
 	limits: ['time'],
 	outbreak: false, meleeLoadout: null,
@@ -21690,7 +21843,7 @@ Modes.register('infection', {
 	},
 	startOutbreak(params) {
 		this.outbreak = true;
-		const wanted = Math.max(1, Math.floor(this.countSides() / params.infectedPerPlayers));
+		const wanted = outbreakSize(this.countSides(), params);
 		for (let k = 0; k < wanted; k++) {
 			const id = randomAliveMember(HUMAN_TEAM, -1);
 			if (id >= 0) this.infect(id);
@@ -21705,6 +21858,7 @@ Modes.register('infection', {
 	applyInfection(id) {
 		setVitality(id, Modes.rules.params.infectedHealth);
 		Weapons.setLoadout(id, this.meleeLoadout);
+		Abilities.endAttacks(id, 'infected');
 	},
 	onSpawn(id) { if (Modes.actorRole[id] === ACTOR_ROLE.INFECTED) this.applyInfection(id); },
 	onKill(victim) {
@@ -21735,6 +21889,7 @@ Modes.register('infection', {
 	},
 	score() { return 0; },
 });
+Gadgets.attackLocks.push((id) => Modes.active && Modes.actorRole[id] === ACTOR_ROLE.INFECTED);
 
 Modes.register('juggernaut', {
 	colossus: -1,
@@ -22024,6 +22179,12 @@ function stepBeacons(interval) {
 	}
 }
 
+function beaconServes(id) {
+	const squad = Actors.team[id];
+	if (squad < 0 || squad >= Squads.count || !Squads.dead[squad] || !Squads.beaconUses[squad]) return false;
+	return withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
+}
+
 function holdsBeacon(id, squad) {
 	return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
 		&& withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
@@ -22178,7 +22339,7 @@ function takeWeapon(id, spot) {
 }
 
 function lootSwapOffer(id) {
-	if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id)) return -1;
+	if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id) || Weapons.useTaken(id)) return -1;
 	for (let spot = 0; spot < RoyaleLoot.count; spot++) {
 		if (RoyaleLoot.taken[spot] || RoyaleLoot.group[spot] !== LOOT_GROUP.WEAPON || RoyaleLoot.blocker[spot] === id) continue;
 		if (withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS) && Weapons.swapsOut(id, CAT.weapons[RoyaleLoot.weapon[spot]])) return spot;
@@ -22262,6 +22423,7 @@ function drawRing(batch, x, ground, z, radius, color) {
 
 Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);
+Weapons.useTakers.push(beaconServes);
 Input.usePrompts.push((id) => { const spot = lootSwapOffer(id); return spot < 0 ? '' : Items.swapText(id, RoyaleLoot.weapon[spot]); });
 
 // ==== 13h-mutators.js ====
@@ -24562,6 +24724,7 @@ const BotCombat = {
 		this.tryHeal(id, now);
 		if (!Bots.tier(id).gadgets || now < this.throwUntil[id]) return;
 		if (now >= this.abilityAt[id]) this.tryAbilities(id, now);
+		if (Gadgets.attackLocked(id)) return;
 		if (now >= this.grenadeAt[id]) this.tryGrenade(id, now);
 		if (now >= this.gadgetAt[id]) this.tryGadget(id, now);
 	},
@@ -25425,6 +25588,7 @@ function lootValue(id, spot) {
 	if (group === LOOT_GROUP.WEAPON) {
 		const weapon = loot.weapon[spot] >= 0 ? CAT.weapons[loot.weapon[spot]] : null;
 		if (weapon && Weapons.has(id, weapon.id)) return 0;
+		if (weapon && Weapons.swapsOut(id, weapon) && !Weapons.botTakes(id, weapon)) return 0;
 		return ITEM_VALUES.weapon * (weapon ? weapon.botPref.value : 0.5) * (1 + LOOT_RARITY_VALUE * loot.rarity[spot]);
 	}
 	if (group === LOOT_GROUP.ARMOR) return Actors.shield[id] < Modes.rules.params.shieldByRarity[loot.rarity[spot]] ? ITEM_VALUES.armor : 0;
@@ -25636,6 +25800,12 @@ BotDecide.registerPlanner('hill', (id, plan) => planZones(id, plan, 'hill'));
 BotDecide.registerPlanner('flag', (id, plan) => planFlags(id, plan));
 BotDecide.registerPlanner('bombsite', (id, plan) => planBomb(id, plan));
 BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));
+
+Weapons.botTakes = (id, weapon) => {
+	const victim = Weapons.swapVictim(id);
+	if (victim < 0 || Economy.modeArmsEveryone()) return false;
+	return BotCombat.weaponValue(id, weapon, 1) > BotCombat.weaponValue(id, CAT.weapons[victim], 1);
+};
 
 Bus.on('match.start', (match) => BotDecide.onMatchStart(match));
 Bus.on('pickup', (event) => BotDecide.onPickup(event));
@@ -27108,15 +27278,16 @@ const Pve = {
 	placeBody(id) {
 		const pose = pvePose;
 		if (Render.replayPose) return Render.replayPose(id, pose);
-		pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id];
+		pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id]; pose.recorded = false;
 		return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
 	},
 	drawEnemy(batch, id) {
 		if (!this.placeBody(id)) return;
 		const now = Sim.time, row = this.rowOf(id), size = row.size, pose = pvePose, yaw = pose.yaw, pitch = pose.pitch;
-		const tell = this.tellGlow(id, row), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
+		const recorded = pvePose.recorded, champion = recorded ? pvePose.champion : this.champion[id];
+		const tell = this.tellGlow(id, row), health = recorded ? pose.health : Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
 		const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;
-		const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
+		const staggered = !recorded && now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
 		const point = pvePartPoint, instance = pvePartInstance;
 		for (let index = 0; index < row.parts.length; index++) {
 			const part = row.parts[index], tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
@@ -27129,9 +27300,9 @@ const Pve = {
 			instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
 			batch.meshFrom(part[0], instance);
 		}
-		if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
-		if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
-		if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
+		if (this.stealth && !recorded) drawAwareness(batch, id, row, this.awarenessState(id));
+		if (champion >= 0) drawChampionRing(batch, id, row, champion);
+		if (recorded ? pose.shield > 0 : Actors.shield[id] > 0) drawShieldShell(batch, id, row);
 		if (Render.replayPose) return;
 		const brain = PveBrains[row.brain];
 		if (brain.draw) brain.draw(batch, id, row);
@@ -27141,7 +27312,7 @@ const Pve = {
 	tellGlow(id, row) {
 		const glow = pveTellGlow, now = Sim.time;
 		glow.amount = 0;
-		if (this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;
+		if (pvePose.recorded || this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;
 		const attack = row.attackRows[this.attack[id]], length = Math.max(1e-6, this.phaseEndsAt[id] - this.tellStart[id]);
 		const progress = clamp((now - this.tellStart[id]) / length, 0, 1);
 		glow.progress = progress;
@@ -27152,7 +27323,7 @@ const Pve = {
 	},
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
-const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };
 const pveTellColor = new Float32Array(3);
 
 function championElement(row) {
@@ -27206,7 +27377,7 @@ function drawShieldShell(batch, id, row) {
 	const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark();
 	instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
 	instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
-	instance.emissive = 0.4 + 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+	instance.emissive = 0.4 + (pvePose.recorded ? 0.6 * pvePose.shield : 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
 	for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {
 		instance.y = pvePose.y + PVE_SHELL_HEIGHTS[ring] * size;
 		batch.meshFrom('ring', instance);
@@ -28364,7 +28535,7 @@ function stepChamber(id) {
 	for (let index = 0; index < row.elements.length; index++) {
 		const element = row.elements[index];
 		chamberElementAt(element, pveSpot);
-		if (element.kind === 'button' && pressedUse && withinTouch(id, pveSpot.x, pveSpot.y, pveSpot.z, PVE_CHAMBER_RULES.useRadius)) ChamberRun.done[index] = 1;
+		if (element.kind === 'button' && pressedUse && withinTouch(id, pveSpot.x, pveSpot.y, pveSpot.z, PVE_CHAMBER_RULES.useRadius)) { ChamberRun.done[index] = 1; Weapons.claimUse(id); }
 		else if (element.kind === 'cube') stepCube(id, pressedUse, element);
 		else if (element.kind === 'plate') ChamberRun.done[index] = cubeOn(pveSpot) ? 1 : 0;
 		else if (element.kind === 'fizzle' && insideFizzle(id, element, pveSpot)) crossFizzle(id, row, element);
@@ -28386,10 +28557,12 @@ function stepCube(id, pressedUse, element) {
 	if (run.cubeCarried) {
 		const yaw = Actors.yaw[id];
 		run.cubeX = Actors.x[id] + Math.sin(yaw) * PVE_CHAMBER_RULES.carryAhead; run.cubeY = Actors.y[id]; run.cubeZ = Actors.z[id] + Math.cos(yaw) * PVE_CHAMBER_RULES.carryAhead;
-		if (pressedUse) run.cubeCarried = false;
+		if (pressedUse) { run.cubeCarried = false; Weapons.claimUse(id); }
 		return;
 	}
-	if (pressedUse && withinTouch(id, run.cubeX, run.cubeY, run.cubeZ, PVE_CHAMBER_RULES.useRadius)) run.cubeCarried = true;
+	if (!pressedUse || !withinTouch(id, run.cubeX, run.cubeY, run.cubeZ, PVE_CHAMBER_RULES.useRadius)) return;
+	run.cubeCarried = true;
+	Weapons.claimUse(id);
 }
 function insideFizzle(id, element, centre) {
 	const size = element.size || [1, 3, 1];
@@ -28863,6 +29036,7 @@ const Progress = {
 		if (results.duration < PROGRESS_XP.minimumSeconds) return 'No XP: matches under ' + PROGRESS_XP.minimumSeconds + ' s pay none.';
 		return this.tookPart(mine) ? '' : 'No XP: you did not take part.';
 	},
+	paidMatch(award) { return award.breakdown.total > 0; },
 	tookPart(mine) { return mine.score > 0 || mine.objective > 0 || mine.kills > 0 || mine.assists > 0 || this.playerDamage() > 0; },
 	creditedWin(results) {
 		const mine = this.playerResult(results);
@@ -29359,7 +29533,7 @@ const Ladder = {
 		if (!this.passed(match.results)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
 		const first = !state.cleared[this.key(tag.tier, tag.match)];
 		state.cleared[this.key(tag.tier, tag.match)] = true;
-		if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.ladderMatch;
+		if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.ladderMatch;
 		if (tag.tier === state.tier && tag.match === state.match) this.advance(state);
 		award.lines.push(entry.final ? 'Ladder champion! The Warden of Nine has fallen.' : 'Ladder match cleared.');
 		Save.scheduleSave();
@@ -29517,7 +29691,7 @@ const Operations = {
 		state.tickets = [this.carryTickets(OperationRun.tickets[0]), this.carryTickets(OperationRun.tickets[1])];
 		state.comeback = winner >= 0 ? 1 - winner : -1;
 		state.stage++;
-		if (award.breakdown.total > 0) award.xp += PROGRESS_XP.operationStage;
+		if (Progress.paidMatch(award)) award.xp += PROGRESS_XP.operationStage;
 		award.lines.push(row.name + ' map ' + state.stage + ' of ' + row.stages.length + ': ' + (winner === PROGRESS_PLAYER_TEAM ? 'won' : winner < 0 ? 'drawn' : 'lost')
 			+ '. Tickets next map: ' + state.tickets[0] + ' / ' + state.tickets[1]);
 		if (state.stage >= row.stages.length) this.complete(row, state, award);
@@ -29566,7 +29740,7 @@ const Daily = {
 		const tag = match.setup.progress, daily = Progress.profile().daily, points = Progress.points(DAILY_RULES.points, metrics, 0);
 		const first = daily[tag.key] === undefined;
 		daily[tag.key] = Math.max(daily[tag.key] || 0, points);
-		if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.daily;
+		if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.daily;
 		award.lines.push('Daily ' + tag.key + ': ' + points + ' points (best ' + daily[tag.key] + ')');
 		const keys = Object.keys(daily).sort();
 		while (keys.length > DAILY_RULES.historyDays) delete daily[keys.shift()];
@@ -30156,6 +30330,7 @@ Maps.rows.push(MapKit.make({
 	],
 }));
 
+const SKY_PARTY_MODES = MAP_PARTY_MODES.filter((mode) => mode !== 'infection');
 const skyWest = {
 	brushes: [
 		['ice', -34, -2, -12, -22, 2, 12], ['ice', -22, 2, -4, -12, 6, 4, '+x'],
@@ -30165,7 +30340,7 @@ const skyWest = {
 	],
 	spawns: [
 		[0, ['tdm'], [[-31, 2, -9, 90], [-31, 2, -3, 90], [-31, 2, 3, 90], [-31, 2, 9, 90], [-24.5, 2, -10, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90], [-24.5, 2, 10, 90]]],
-		[-1, ['ffa'].concat(MAP_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
+		[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-31, 2, -9, 90], [-31, 2, 9, 90], [-24.5, 2, -2.5, 90], [-24.5, 2, 2.5, 90]]],
 	],
 	items: [
 		['lightplate', -33, 2, 10.5], ['healthpack', -33, 2, -10.5], ['scattergun', -28, 2, 3.5], ['ammobox', -22.8, 2, -8], ['armorshard', -17, 4, 0],
@@ -30182,7 +30357,7 @@ const skySpan = {
 };
 const skyNorth = {
 	brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
-	spawns: [[-1, ['ffa'].concat(MAP_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
+	spawns: [[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
 	items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
 	zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
 	lights: [[0, 9, 28, 0xcfe8ff, 18]],
@@ -30214,7 +30389,7 @@ const skyCenter = {
 };
 Maps.rows.push(MapKit.make(Object.assign({
 	id: 'skyyard', code: 'MP02', name: 'Skyward Yard', size: [70, 30, 70], theme: 'glacier', category: 'arena',
-	modes: ['ffa', 'tdm'].concat(MAP_PARTY_MODES),
+	modes: ['ffa', 'tdm'].concat(SKY_PARTY_MODES),
 	blurb: 'Open floating platforms linked by ramps and jump pads; the Lancet Rail waits on a risky ledge.',
 	props: MapKit.crates([[-12, -3.5, 6], [10.5, 2, 6], [-7, -31, 4], [5.5, 29.5, 4]]),
 	sky: { top: 0x6fa8de, horizon: 0xe3f1fb, fog: 0xcfe3f3, fogFar: 200, sun: [0.3, 0.8, 0.5] },
@@ -34676,6 +34851,7 @@ const Hud = {
 		this.noHud = !!(Game.match && Game.match.rules && Game.match.rules.fx && Game.match.rules.fx.noHud);
 		for (const row of HUD_ELEMENTS) this.elements[row.id] = Settings.get('hud.element.' + row.id);
 		this.refreshColors();
+		TouchInput.applyAll();
 	},
 	refreshColors() {
 		const palette = HUD_PALETTES[this.paletteId], colors = this.colors;
@@ -34721,6 +34897,7 @@ function hudReadSafeInsets() {
 	insets.top = parseFloat(style.paddingTop) || 0; insets.right = parseFloat(style.paddingRight) || 0;
 	insets.bottom = parseFloat(style.paddingBottom) || 0; insets.left = parseFloat(style.paddingLeft) || 0;
 	probe.remove();
+	TouchInput.applyAll();
 }
 
 function updateHudLayout(layout, width, height) {
@@ -34791,6 +34968,8 @@ function pushHudDiamond() {
 	pushHudSolid();
 }
 function hudFloorTextSize() { if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor; }
+function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
+function hudLabelReach(size) { return hudTextHalf(size) + HUD_SHADOW_OFFSET * Math.max(1, size / 16); }
 
 const HudPen = {
 	rect(x, y, w, h, color, alpha) { HudBatch.rect(x, y, w, h, color, alpha); },
@@ -35059,6 +35238,18 @@ function hudWeaponSlotAt(x, y) {
 	return 0;
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
+TouchInput.insets = Hud.insets;
+const hudPanelsClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+	const layout = hudPanelsClearLayout, box = hudBoxAt;
+	updateHudLayout(layout, width, height);
+	TouchInput.addClear(layout.left, layout.bottom - layout.vitalsHeight, layout.left + layout.barWidth, layout.bottom);
+	TouchInput.addClear(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoRight, layout.bottom);
+	hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, 0);
+	const left = box[0], top = box[1], bottom = box[1] + box[3];
+	hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, HUD_MAX_WEAPON_SLOTS - 1);
+	TouchInput.addClear(left, top, box[0] + box[2], bottom);
+});
 
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
 	const at = hudRingAt;
@@ -35547,6 +35738,13 @@ const HudFeed = {
 };
 
 const HUD_HEADER_WIDTH = 320;
+const HUD_LIMIT_Y = 37, HUD_LIVES_Y = 41, HUD_PIPS_Y = 56, HUD_METERS_Y = 68, HUD_CHIPS_Y = 74, HUD_CHIPS_Y_ROUNDS = 92, HUD_CHIP_NOTE = 22;
+
+function hudHeaderBox(layout, box) {
+	const unit = layout.unit, width = HUD_HEADER_WIDTH * unit;
+	box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = 44 * unit;
+	return box;
+}
 
 function hudDrawHeadIcon(pen, x, y, size, alpha) {
 	pen.ring(x, y, size * 0.4, Math.max(1.5, size * 0.14), HUD_COLOR.gold, alpha);
@@ -35592,6 +35790,7 @@ Bus.on('kill', (event) => HudFeed.add(event));
 const HudBanners = {
 	text: new Array(HUD_BANNER_SLOTS).fill(''), kind: new Array(HUD_BANNER_SLOTS).fill(''), priority: new Uint8Array(HUD_BANNER_SLOTS),
 	medal: new Uint8Array(HUD_BANNER_SLOTS), at: new Float64Array(HUD_BANNER_SLOTS).fill(-1000), next: 0,
+	free: true, top: 0,
 
 	reset() { this.at.fill(-1000); this.next = 0; },
 	add(text, kind, priority, medal) {
@@ -35613,22 +35812,58 @@ function hudMedalTitle(medal) {
 Bus.on('announce', (event) => HudBanners.add(event.text, event.kind, event.priority, false));
 Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) HudBanners.add(hudMedalTitle(event.medal), 'medal', HUD_BANNER_PRIORITY_LONG, true); });
 
+const HUD_BANNER_STEP = 2;
+const HUD_BANNER_OVERHANG = 0.25;
+const hudBannerSlot = new Int8Array(HUD_BANNER_SHOWN), hudBannerSize = new Float64Array(HUD_BANNER_SHOWN), hudBannerHalf = new Float64Array(HUD_BANNER_SHOWN);
+function hudBannerLineFree(layout, y, half, size) {
+	const reach = hudLabelReach(size), wide = half + reach - hudTextHalf(size) + size * HUD_BANNER_OVERHANG;
+	for (let i = 0; i < TOUCH_CONTROLS.length; i++) {
+		const place = TouchInput.places[TOUCH_CONTROLS[i].id];
+		if (place.shown && Math.abs(place.x - layout.centerX) < wide + place.radius && Math.abs(place.y - y) < reach + place.radius) return false;
+	}
+	return true;
+}
+function hudBannersFreeAt(layout, top, count) {
+	let y = top;
+	for (let i = 0; i < count; i++) {
+		if (!hudBannerLineFree(layout, y, hudBannerHalf[i], hudBannerSize[i])) return false;
+		y += hudBannerSize[i] * 1.35;
+	}
+	return true;
+}
+function hudBannersTop(layout, count) {
+	const top = layout.height * 0.22, b = HudBanners;
+	b.free = true;
+	if (!TouchInput.shown || hudBannersFreeAt(layout, top, count)) return top;
+	let height = 0;
+	for (let i = 0; i < count; i++) height += hudBannerSize[i] * 1.35;
+	const lastSize = hudBannerSize[count - 1], lowest = TouchInput.aim.y - TouchInput.aim.radius - hudLabelReach(lastSize) - height + lastSize * 1.35;
+	for (let y = top + HUD_BANNER_STEP; y <= lowest; y += HUD_BANNER_STEP) if (hudBannersFreeAt(layout, y, count)) return y;
+	b.free = false;
+	return top;
+}
 function hudDrawBanners(pen, layout) {
 	const b = HudBanners, now = Hud.time, unit = layout.unit;
-	let shown = 0, y = layout.height * 0.22;
-	for (let k = 1; k <= HUD_BANNER_SLOTS && shown < HUD_BANNER_SHOWN; k++) {
-		const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS, age = now - b.at[slot], life = b.seconds(slot);
-		if (age >= life) continue;
-		const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE);
+	let count = 0;
+	for (let k = 1; k <= HUD_BANNER_SLOTS && count < HUD_BANNER_SHOWN; k++) {
+		const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
+		if (now - b.at[slot] >= b.seconds(slot)) continue;
 		const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
+		hudBannerSlot[count] = slot; hudBannerSize[count] = size;
+		hudBannerHalf[count] = HudPen.measure(b.text[slot], size) / 2 + (b.medal[slot] ? size * 1.4 : 0);
+		count++;
+	}
+	if (count === 0) return;
+	let y = b.top = hudBannersTop(layout, count);
+	for (let i = 0; i < count; i++) {
+		const slot = hudBannerSlot[i], size = hudBannerSize[i], age = now - b.at[slot], life = b.seconds(slot);
+		const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
 		if (b.medal[slot]) {
-			const width = HudPen.measure(b.text[slot], size);
-			pen.label('★', layout.centerX - width / 2 - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
-			pen.label('★', layout.centerX + width / 2 + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
+			pen.label('★', layout.centerX - textHalf - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
+			pen.label('★', layout.centerX + textHalf + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
 		}
 		pen.label(b.text[slot], layout.centerX, y, size, b.medal[slot] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', alpha);
 		y += size * 1.35;
-		shown++;
 	}
 }
 
@@ -35652,7 +35887,7 @@ function hudDrawTime(pen, layout, state) {
 	if (state.overtime) pen.textAt('OVERTIME', Hud.colors.bad, 'center');
 	text[1] = y; text[2] = 24 * unit;
 	if (state.timeLeft > 0) pen.textAt(hudTime(state.timeLeft), state.timeLeft <= 30 ? Hud.colors.bad : HUD_COLOR.text, 'center');
-	text[1] = y + 22 * unit; text[2] = 14 * unit;
+	text[1] = layout.top + HUD_LIMIT_Y * unit; text[2] = 14 * unit;
 	if (state.phase === 'freeze') pen.textAt('GET READY', HUD_COLOR.warn, 'center');
 	else if (state.phase === 'roundEnd') pen.textAt('ROUND OVER', HUD_COLOR.warn, 'center');
 	else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit);
@@ -35667,7 +35902,7 @@ function hudDrawScoreLimit(pen, layout, limit) {
 }
 
 function hudDrawRoundPips(pen, layout, state) {
-	const unit = layout.unit, y = layout.top + 56 * unit, wins = Math.max(state.roundsToWin, 1);
+	const unit = layout.unit, y = layout.top + HUD_PIPS_Y * unit, wins = Math.max(state.roundsToWin, 1);
 	pen.text('ROUND', layout.centerX, y, 14 * unit, HUD_COLOR.dim, 'center');
 	pen.text(hudNumber(state.round), layout.centerX + 40 * unit, y, 14 * unit, HUD_COLOR.text, 'left');
 	for (let team = 0; team < 2; team++) {
@@ -35689,13 +35924,14 @@ function hudDrawFreeForAllScore(pen, layout, state) {
 		pen.shape('diamond', x + 106 * unit, y, 10 * unit, HUD_COLOR.gold);
 	}
 	if (state.playerLives >= 0) {
-		pen.text(hudCount(state.playerLives), x - 132 * unit, y + 24 * unit, 14 * unit, Hud.colors.bad, 'left');
-		pen.shape('square', x - 144 * unit, y + 24 * unit, 9 * unit, Hud.colors.bad);
+		const livesY = layout.top + HUD_LIVES_Y * unit;
+		pen.text(hudCount(state.playerLives), x - 132 * unit, livesY, 14 * unit, Hud.colors.bad, 'left');
+		pen.shape('square', x - 144 * unit, livesY, 9 * unit, Hud.colors.bad);
 	}
 }
 
 function hudDrawControlMeters(pen, layout, state) {
-	const unit = layout.unit, y = layout.top + 68 * unit, width = 110 * unit;
+	const unit = layout.unit, y = layout.top + HUD_METERS_Y * unit, width = 110 * unit;
 	pen.bar(layout.centerX - width - 8 * unit, y, width, 6 * unit, state.teamMeter[0], Hud.teamColor(0));
 	pen.bar(layout.centerX + 8 * unit, y, width, 6 * unit, state.teamMeter[1], Hud.teamColor(1));
 }
@@ -35713,13 +35949,13 @@ function hudDrawObjectiveChip(pen, layout, objective, letter, x, y) {
 	if (capturing) pen.ring(x, y, 15 * unit, 3 * unit, Hud.teamColor(objective.capturingTeam), 1, 0, Math.PI * 2 * objective.progress);
 	if (objective.contested) pen.ring(x, y, 18 * unit, 2 * unit, HUD_COLOR.warn, 0.9);
 	const note = hudObjectiveText[objective.state];
-	if (objective.state === 'planted') pen.text(hudTime(objective.detonateAt - Sim.time), x, y + 22 * unit, 14 * unit, Hud.colors.bad, 'center');
-	else if (note && objective.kind === 'flag') pen.text(note, x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
+	if (objective.state === 'planted') pen.text(hudTime(objective.detonateAt - Sim.time), x, y + HUD_CHIP_NOTE * unit, 14 * unit, Hud.colors.bad, 'center');
+	else if (note && objective.kind === 'flag') pen.text(note, x, y + HUD_CHIP_NOTE * unit, 14 * unit, HUD_COLOR.warn, 'center');
 }
 function hudDrawObjectiveChips(pen, layout, state) {
 	const list = state.objectives;
 	if (!list || !list.length) return;
-	const unit = layout.unit, spacing = 36 * unit, y = layout.top + (state.roundsToWin > 0 ? 92 : 74) * unit;
+	const unit = layout.unit, spacing = 36 * unit, y = layout.top + (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) * unit;
 	let count = 0;
 	for (let i = 0; i < list.length && count < HUD_MAX_OBJECTIVE_CHIPS; i++) if (list[i].active && list[i].kind !== 'payloadPath' && list[i].kind !== 'flagBase') count++;
 	let x = layout.centerX - (count - 1) * spacing / 2, drawn = 0;
@@ -35739,8 +35975,7 @@ function hudSoloMode(modeId) {
 function hudDrawHeader(pen, layout) {
 	const state = Modes.hudState();
 	if (!state.active && state.phase !== 'ended') return;
-	const unit = layout.unit, width = HUD_HEADER_WIDTH * unit, box = hudBoxAt;
-	box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = 44 * unit;
+	hudHeaderBox(layout, hudBoxAt);
 	pen.panelAt(0.5);
 	if (state.teams === 2) {
 		hudDrawTeamScore(pen, layout, 0, state.teamScores[0]);
@@ -35769,6 +36004,24 @@ function hudDrawRespawnText(pen, layout) {
 
 Bus.on('match.start', () => { HudFeed.reset(); HudBanners.reset(); });
 Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
+
+function hudClearHeaderRows(layout, state) {
+	const unit = layout.unit, chips = state.objectives ? Math.min(state.objectives.length, HUD_MAX_OBJECTIVE_CHIPS) : 0;
+	let line = HUD_LIMIT_Y, right = HudPen.measure('FIRST TO', HUD_TEXT_SMALL * unit) / unit + 3, left = 0;
+	if (state.playerLives >= 0 && state.teams !== 2) { line = HUD_LIVES_Y; left = 150; }
+	if (state.roundsToWin > 0) { line = HUD_PIPS_Y; right = Math.max(right, 62 + 12 * state.roundsToWin); }
+	if (state.mode === 'control') { line = HUD_METERS_Y; right = Math.max(right, 118); }
+	if (chips) { line = (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) + HUD_CHIP_NOTE; right = Math.max(right, 18 * chips + 18); }
+	TouchInput.addClear(layout.centerX - Math.max(left, right) * unit, layout.top, layout.centerX + right * unit, layout.top + line * unit + hudTextHalf(HUD_TEXT_SMALL * unit));
+}
+const hudHeaderClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+	const layout = hudHeaderClearLayout, box = hudBoxAt;
+	updateHudLayout(layout, width, height);
+	hudHeaderBox(layout, box);
+	TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
+	if (Modes.active && Modes.rules) hudClearHeaderRows(layout, Modes.hudState());
+});
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
 Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);
@@ -36055,7 +36308,6 @@ function hudDrawSoundRing(pen, layout) {
 }
 
 const HUD_DOWNED_MARKER_HEIGHT = 1.2;
-const HUD_REVIVE_HINT_RANGE = 4;
 
 function hudDrawDownedAllies(pen, layout) {
 	const player = Game.playerId;
@@ -36102,7 +36354,7 @@ function hudDrawUsePrompt(pen, layout, player) {
 	pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
 	pen.label(text, x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
 }
-Input.usePrompts.push((id) => Damage.downedCount && Damage.nearestDownedAlly(id, HUD_REVIVE_HINT_RANGE) >= 0 ? 'HOLD TO REVIVE' : '');
+Input.usePrompts.push((id) => Damage.reviveInRange(id) ? 'HOLD TO REVIVE' : '');
 
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });
@@ -36126,7 +36378,10 @@ const KILLCAM_MIN_SECONDS = 0.3;
 const KILLCAM_SKIP_GRACE = 0.35;
 const KILLCAM_SKIP_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
 const KILLCAM_FIELDS = 6;
+const KILLCAM_LOOK_FIELDS = 7;
+const KILLCAM_CLOAK_SHIMMER = 2;
 const KILLCAM_BAR = 0.08;
+const KILLCAM_NAME_SIZE = 24;
 const KILLCAM_ORDER = 95;
 
 Settings.define('hud.killcam', true, { label: 'Killcam replay after you are killed', category: 'hud' });
@@ -36135,6 +36390,7 @@ const Killcam = {
 	enabled: true,
 	transforms: new Float32Array(KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS),
 	living: new Uint8Array(KILLCAM_FRAMES * MAX_ACTORS),
+	looks: new Float32Array(KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_LOOK_FIELDS),
 	weapons: new Int16Array(KILLCAM_FRAMES * MAX_ACTORS),
 	frameTime: new Float64Array(KILLCAM_FRAMES),
 	head: 0, filled: 0,
@@ -36157,8 +36413,16 @@ const Killcam = {
 			this.transforms[o + 3] = Actors.yaw[id]; this.transforms[o + 4] = Actors.pitch[id]; this.transforms[o + 5] = Actors.eye[id];
 			this.living[base + id] = Actors.kind[id] !== ACTOR_KIND.NONE && (Actors.alive[id] === 1 || id === forceAlive) ? 1 : 0;
 			this.weapons[base + id] = killcamLiveHeld ? killcamLiveHeld(id) : -1;
+			this.recordLook((base + id) * KILLCAM_LOOK_FIELDS, id);
 		}
 		for (let id = Actors.count; id < MAX_ACTORS; id++) this.living[base + id] = 0;
+	},
+	recordLook(o, id) {
+		const looks = this.looks, flags = Actors.flags[id];
+		looks[o] = length2(Actors.vx[id], Actors.vz[id]); looks[o + 1] = Actors.height[id];
+		looks[o + 2] = (flags & ACTOR_FLAG.ON_GROUND) !== 0 ? 1 : 0; looks[o + 3] = (flags & ACTOR_FLAG.INVISIBLE) === 0 ? 0 : Powerups.setInvisible[id] ? KILLCAM_CLOAK_SHIMMER : 1;
+		looks[o + 4] = Actors.health[id] / Math.max(1, Actors.maxHealth[id]); looks[o + 5] = Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+		looks[o + 6] = Pve.champion[id];
 	},
 	slotOf(i) { return (this.head - this.filled + i + KILLCAM_FRAMES) % KILLCAM_FRAMES; },
 	oldestTime() { return this.filled ? this.frameTime[this.slotOf(0)] : 0; },
@@ -36191,6 +36455,7 @@ const Killcam = {
 		this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true; Render.replayPose = killcamPose;
 		this.skipHeld = (Actors.buttons[event.victim] & KILLCAM_SKIP_BUTTONS) !== 0;
 		this.describeKill(event);
+		TouchInput.applyAll();
 		return true;
 	},
 	describeKill(event) {
@@ -36200,7 +36465,7 @@ const Killcam = {
 		this.headshot = event.zone === 'head';
 		this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
 	},
-	stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; },
+	stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; TouchInput.applyAll(); },
 	advance(seconds) {
 		if (!this.playing || Game.paused) return;
 		this.clock += seconds;
@@ -36242,9 +36507,14 @@ Render.cameraOverride = (camera) => (Killcam.playing ? Killcam.place(camera) : k
 const killcamLiveHeld = Render.heldWeapon;
 Render.heldWeapon = (id) => (Killcam.playing ? Killcam.weapons[Killcam.lower * MAX_ACTORS + id] : killcamLiveHeld ? killcamLiveHeld(id) : -1);
 function killcamPose(id, pose) {
-	const body = Killcam.sample(id, Killcam.startTime + Math.min(Killcam.clock, Killcam.length));
+	const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), body = Killcam.sample(id, time);
 	if (id === Killcam.killer || !body.alive) return false;
+	const looks = Killcam.looks, o = (Killcam.lower * MAX_ACTORS + id) * KILLCAM_LOOK_FIELDS;
+	const cloak = looks[o + 3];
+	if (cloak === 1 || (cloak === KILLCAM_CLOAK_SHIMMER && !ghostShimmerVisible(time, id))) return false;
 	pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
+	pose.speed = looks[o]; pose.height = looks[o + 1]; pose.grounded = looks[o + 2] === 1;
+	pose.health = looks[o + 4]; pose.shield = looks[o + 5]; pose.champion = looks[o + 6]; pose.recorded = true;
 	return true;
 }
 
@@ -36255,7 +36525,7 @@ function hudDrawKillcamPanel(pen, layout) {
 	pen.rect(0, layout.height - bar, layout.width, bar, HUD_COLOR.black, 0.92);
 	pen.rect(0, layout.height - 3 * unit, layout.width * Killcam.progress(), 3 * unit, HUD_COLOR.gold, 1);
 	pen.text('KILLED BY', x - 8 * unit, bar / 2, 16 * unit, HUD_COLOR.dim, 'right');
-	pen.text(Killcam.killerName, x + 8 * unit, bar / 2, 24 * unit, HUD_COLOR.text, 'left');
+	pen.text(Killcam.killerName, x + 8 * unit, bar / 2, KILLCAM_NAME_SIZE * unit, HUD_COLOR.text, 'left');
 	const y = layout.height - bar / 2;
 	if (Killcam.weaponClass) pen.weaponIcon(Killcam.weaponClass, x - 150 * unit, y, 44 * unit, HUD_COLOR.text);
 	pen.text(Killcam.weaponName, x - 120 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
@@ -36268,6 +36538,14 @@ function hudDrawKillcamPanel(pen, layout) {
 	pen.text(Hud.keyLabel('fire') || 'TAP FIRE', layout.right - HudPen.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
 }
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);
+const killcamClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+	if (!Killcam.playing) return;
+	updateHudLayout(killcamClearLayout, width, height);
+	const bar = height * KILLCAM_BAR, reach = Math.max(bar, bar / 2 + hudTextHalf(KILLCAM_NAME_SIZE * killcamClearLayout.unit));
+	TouchInput.addClear(0, 0, width, reach);
+	TouchInput.addClear(0, height - reach, width, height);
+});
 
 // ==== 17f-hud-extra.js ====
 
@@ -36630,6 +36908,13 @@ function hudDrawSuppression(pen, layout) {
 }
 
 Hud.register('main', 'minimap', 'minimap', hudDrawMinimap);
+const hudMinimapClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+	const layout = hudMinimapClearLayout;
+	updateHudLayout(layout, width, height);
+	const size = (layout.compact ? HUD_MAP_SIZE_COMPACT : HUD_MAP_SIZE) * layout.unit;
+	if (Hud.elements.minimap) TouchInput.addClear(layout.left, layout.top, layout.left + size, layout.top + size);
+});
 Hud.register('main', 'compass', 'compass', hudDrawCompass);
 Hud.register('world', 'awareness', 'awareness', hudDrawAwareness);
 Hud.register('main', 'barks', 'barks', hudDrawBarks);
@@ -36750,28 +37035,22 @@ function hudDrawCommWheel(pen, layout) {
 
 const commWheelRing = { x: 0, y: 0, radius: 0 };
 const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
-const commWheelPlace = {};
-function commWheelLabelHalf(unit) { return Math.max(HUD_TEXT_SMALL * unit, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
 function commWheelWidestLabel(unit) {
 	let widest = 0;
 	for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
 	return widest;
-}
-function commWheelButtonHalf(controlId) {
-	const place = TouchInput.layoutOf(controlId, commWheelPlace);
-	return TouchInput.controlById[controlId].size * place.scale / 2;
 }
 function commWheelPlaceRing(layout) {
 	const ring = commWheelRing, unit = layout.unit;
 	ring.x = layout.centerX; ring.y = layout.centerY; ring.radius = COMM_WHEEL_RADIUS * unit;
 	if (!layout.touch) return ring;
 	const gap = COMM_WHEEL_TOUCH_GAP * unit;
-	const roofHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_ROOF), top = commWheelPlace.y * layout.height + roofHalf + gap;
-	const wallHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_WALL) + gap, wallX = commWheelPlace.x * layout.width;
+	const roof = TouchInput.places[COMM_WHEEL_TOUCH_ROOF], wall = TouchInput.places[COMM_WHEEL_TOUCH_WALL];
+	const top = roof.y + roof.radius + gap, wallHalf = wall.radius + gap, wallX = wall.x;
 	const mirrored = wallX < layout.centerX;
 	const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
 	const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
-	const below = icon + COMM_WHEEL_LABEL_GAP * unit + commWheelLabelHalf(unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
+	const below = icon + COMM_WHEEL_LABEL_GAP * unit + hudTextHalf(HUD_TEXT_SMALL * unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
 	ring.radius = Math.max(0, Math.min(ring.radius, (layout.bottom - top - above - below) / 2, (right - left) / 2 - side));
 	ring.x = (left + right) / 2; ring.y = (top + above + layout.bottom - below) / 2;
 	return ring;
@@ -37119,6 +37398,26 @@ function hudDrawTickets(pen, layout) {
 
 Hud.register('main', 'pve', 'pve', hudDrawPve);
 Hud.register('main', 'tickets', 'header', hudDrawTickets);
+
+const hudPveNothing = () => 0;
+const hudPveMeasurePen = new Proxy({}, { get: () => hudPveNothing });
+const hudPveClearLayout = {};
+const HUD_TICKETS_WIDEST = '9999';
+TouchInput.keepClear.push((width, height) => {
+	const layout = hudPveClearLayout, pve = Modes.hud && Modes.hud.pve;
+	updateHudLayout(layout, width, height);
+	const unit = layout.unit;
+	if (OperationRun.active) {
+		const half = 44 * unit + HudPen.measure(HUD_TICKETS_WIDEST, 17 * unit);
+		TouchInput.addClear(layout.centerX - half, layout.top, layout.centerX + half, layout.top + 54 * unit + hudTextHalf(17 * unit));
+	}
+	if (!pve || !pve.active) return;
+	const rows = HUD_PVE_PANELS[pve.mode] || [];
+	hudPvePlaceRows(layout);
+	const top = hudPveAt[0], left = hudPveAt[1], right = hudPveAt[2];
+	for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](hudPveMeasurePen, layout, pve);
+	if (rows.length) TouchInput.addClear(left, top, right, hudPveAt[0]);
+});
 
 // ==== 18a-ui.js ====
 
@@ -41720,6 +42019,9 @@ Test.add('abilities', (check) => {
 	for (const mode of ['ctf', 'ffa', 'attrition', 'cursetag', 'roulette']) {
 		check(mode + ' keeps its score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
 	}
+	const heroRules = Rules.build({ mode: 'tdm', ruleset: 'heroes' }), classicRules = Rules.build({ mode: 'tdm' });
+	check('Hero Squad hits push half as far, Arena Classic at full push', heroRules.hitKnockback === 0.5 && classicRules.hitKnockback === 1, String(heroRules.hitKnockback));
+	check('Hero Squad keeps the full self push (own blasts, leaps)', heroRules.knockback === 1, String(heroRules.knockback));
 });
 
 Test.add('abilities', (check) => {
@@ -44001,6 +44303,18 @@ Test.add('bots', (check) => {
 	check('2+ enemies in sight: a strike ultimate is wanted, an escape ultimate is not', !!ultimates && ultimates[0] && !ultimates[1], String(ultimates));
 	endBotTest();
 });
+Test.add('bots', (check) => {
+	const [bot, first, second] = startBotTest(botTestMap(false), 'infection', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
+	Modes.behaviour.infect(bot);
+	placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+	Gadgets.give(bot, THROW_ROW, 2);
+	const uses = startEventLog('gadget.use');
+	runHeld(THROW_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); });
+	uses.stop();
+	check('a Blight infected bot throws no grenade at two enemies together', BotCombat.uses.grenades === 0 && uses.length === 0 && Gadgets.countOf(bot, THROW_ROW) === 2,
+		BotCombat.uses.grenades + ' aimed, ' + uses.length + ' thrown');
+	endBotTest();
+});
 
 Test.add('bots', (check) => {
 	const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
@@ -44781,15 +45095,15 @@ Test.add('bots', (check) => {
 	const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
 	check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
 });
-const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
-const SKY_KIT_HAZARD_SHARE_MAX = 0.6, BLEED_OUT_SHARE_MAX = 0.2;
+const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2, 3], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
+const SKY_KIT_HAZARD_SHARE_MAX = 0.4, BLEED_OUT_SHARE_MAX = 0.2;
 Test.add('botsoak', (check) => {
 	for (const ruleset of SKY_KIT_RULESETS) {
 		const kills = startEventLog('kill');
 		for (const seed of SKY_KIT_SEEDS) playMatch({ mode: 'tdm', map: 'skyyard', ruleset, minutes: SKY_KIT_MINUTES, botCount: SKY_KIT_BOTS, seed, difficulty: 'regular' });
 		kills.stop();
 		const hazard = kills.filter((event) => event.weapon === 'hazard').length, bleedOut = kills.filter((event) => event.weapon === 'bleedout').length;
-		check(ruleset + ' on Skyward Yard: at most 60% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
+		check(ruleset + ' on Skyward Yard: at most 40% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
 		check(ruleset + ' on Skyward Yard: under 20% of kills are bleed-outs', kills.length > 0 && bleedOut < kills.length * BLEED_OUT_SHARE_MAX, bleedOut + ' of ' + kills.length);
 	}
 }, { slow: true });
@@ -44965,6 +45279,25 @@ Test.add('botsoak', (check) => {
 		for (const [mode, map, bots, seed] of WARDEN_SHARE_RUNS) DebugApi.soak(mode, map, 3, bots, seed, { timeLimit: 0, scoreLimit: 0 });
 	} finally { Bus.off('kill', counter); }
 	check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
+}, { slow: true });
+
+const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;
+const BLIGHT_SPLIT_WINS_MAX = 6, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;
+const BLIGHT_GEAR_EVENTS = ['gadget.use', 'weapon.fire'];
+Test.add('botsoak', (check) => {
+	let infectedUses = 0;
+	const countGear = (event) => { if (Modes.actorRole[event.id] === ACTOR_ROLE.INFECTED && event.weaponClass !== 'melee') infectedUses++; };
+	const handlers = BLIGHT_GEAR_EVENTS.map((type) => Bus.on(type, countGear));
+	try {
+		for (const map of BLIGHT_SPLIT_MAPS) {
+			const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
+			const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
+			const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
+			check('Blight on ' + map + ': neither side wins more than 6 of 8 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
+			check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
+		}
+	} finally { BLIGHT_GEAR_EVENTS.forEach((type, index) => Bus.off(type, handlers[index])); }
+	check('Blight: the infected throw, set and fire nothing but melee', infectedUses === 0, infectedUses + ' uses');
 }, { slow: true });
 
 // ==== 20b-test-content.js ====
@@ -45210,6 +45543,9 @@ Test.add('core', (check) => {
 	let newer = [];
 	Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
 	check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+	let repeated = [];
+	Test.expectErrors(() => { ErrorLog.add('t', 'old'); ErrorLog.add('t', 'same'); const mark = ErrorLog.total; ErrorLog.add('t', 'same'); ErrorLog.add('t', 'same'); repeated = ErrorLog.since(mark); });
+	check('errors: ErrorLog.since skips older entries when the newest repeats', repeated.length === 1 && repeated[0].startsWith('t: same'), repeated.join());
 	let flood = [];
 	const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });
 	check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
@@ -48008,6 +48344,57 @@ Test.add('hud', (check) => {
 	check('colour-blind palettes: health stays well apart from armor, shield and low health', close.length === 0, close.join(', '));
 });
 
+function hudTestEnemyColorSum() {
+	let sum = 0;
+	Pve.active = true;
+	Pve.draw({ meshFrom(shape, instance) { sum += instance.r; }, mesh() {} });
+	Pve.active = false;
+	return sum;
+}
+Test.add('hud', (check) => hudTestWith(() => {
+	Settings.set('hud.killcam', true);
+	const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, runner = scene.mate;
+	Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));
+	const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+	Pve.active = false;
+	Actors.health[monster] = Actors.maxHealth[monster] * 0.3;
+	for (let batch = 0; batch < 80; batch++) {
+		Actors.x[foe] = Actors.x[runner] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[runner] = 10; Actors.z[monster] = 16;
+		Actors.vx[runner] = 5; Actors.flags[runner] |= ACTOR_FLAG.ON_GROUND;
+		Sim.run(KILLCAM_STEP_TICKS);
+	}
+	const hurtSum = hudTestEnemyColorSum();
+	Actors.vx[runner] = Actors.vz[runner] = 0; Powerups.give(runner, CAT.powerups.byId('ghostveil'), 0);
+	Actors.health[monster] = Actors.maxHealth[monster];
+	const healthySum = hudTestEnemyColorSum();
+	Actors.alive[player] = 0;
+	hudTestKill(player, foe, { weapon: 'warden' });
+	Killcam.clock = 1;
+	updateCamera(0, 1);
+	actorBatch.clear(); shadowBatch.clear();
+	fillActors(0.1, 1);
+	let runnerParts = 0;
+	for (let shape = 0; shape < SHAPES.length; shape++) {
+		for (let i = 0; i < actorBatch.counts[shape]; i++) runnerParts += Math.abs(actorBatch.data[(shape * actorBatch.capacity + i) * INSTANCE_FLOATS + 2] - 10) < 1.5 ? 1 : 0;
+	}
+	check('killcam: a body that took Ghostveil after the recording is replayed, whatever its live shimmer', Powerups.setInvisible[runner] === 1 && runnerParts > 5, runnerParts);
+	Render.replayPose(runner, actorPose); animateActor(runner, actorPose, 0.1, LOD.near);
+	check('killcam: a replayed body walks with the recorded speed, not the live standstill', actorPose.recorded && Test.near(actorPose.speed, 5, 0.5) && Math.abs(actorPose.swing) > 0.01, JSON.stringify(actorPose));
+	check('killcam: a replayed enemy shows the recorded health shade', hurtSum < healthySum - 0.01 && Test.near(hudTestEnemyColorSum(), hurtSum, 1e-3), hurtSum + ' ' + healthySum + ' ' + hudTestEnemyColorSum());
+	for (let frame = 0; frame < KILLCAM_FRAMES; frame++) Killcam.looks[(frame * MAX_ACTORS + runner) * KILLCAM_LOOK_FIELDS + 3] = KILLCAM_CLOAK_SHIMMER;
+	let shown = 0, hidden = 0, matches = true;
+	for (let step = 0; step < 24; step++) {
+		Killcam.clock = step * 0.05;
+		const drawn = Render.replayPose(runner, actorPose);
+		matches = matches && drawn === ghostShimmerVisible(Killcam.startTime + Killcam.clock, runner);
+		if (drawn) shown++; else hidden++;
+	}
+	check('killcam: a Ghostveil carrier flickers in the replay by its own clock instead of vanishing', matches && shown > 0 && hidden > shown, shown + ' shown, ' + hidden + ' hidden');
+	Killcam.stop();
+	actorBatch.clear(); shadowBatch.clear();
+	actorPose.recorded = false; actorPose.speed = 0;
+}));
+
 // ==== 20b-test-hudui.js ====
 
 function hudUiPveQuads(fields) {
@@ -48248,12 +48635,11 @@ Test.add('hudui', (check) => {
 
 const HUD_UI_RULESET_BUTTONS = ['ability1', 'ability2', 'ultimate', 'gadget'];
 function hudPveTouchOverlap(layout, left, top, right, bottom, everything) {
-	const place = {};
+	TouchInput.placeAll(layout.width, layout.height);
 	for (const control of TOUCH_CONTROLS) {
-		if (control.setting) continue;
+		const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+		if (!place.shown || control.setting) continue;
 		if (!everything && (control.id === 'stick' || HUD_UI_RULESET_BUTTONS.includes(control.id))) continue;
-		TouchInput.layoutOf(control.id, place);
-		const radius = control.size * place.scale / 2, x = place.x * layout.width, y = place.y * layout.height;
 		if (x + radius > left && x - radius < right && y + radius > top && y - radius < bottom) return control.id;
 	}
 	return '';
@@ -48286,7 +48672,8 @@ Test.add('hudui', (check) => {
 const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
 const HUD_UI_WHEEL_MIN_SHARE = 0.44;
 function hudUiWheelProblem(layout) {
-	const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
+	TouchInput.placeAll(layout.width, layout.height);
+	const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), spot = {};
 	for (let i = 0; i < COMM_CALLOUTS.length; i++) {
 		const label = COMM_CALLOUTS[i].label;
 		commWheelSpotOf(ring, i, true, unit, spot);
@@ -48366,11 +48753,11 @@ Test.add('hudui', (check) => {
 		for (const preset of TOUCH_PRESETS) {
 			TouchInput.currentPreset = preset;
 			updateHudLayout(layout, width, height);
-			const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit, bar = hudBoxAt;
+			const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, bar = hudBoxAt;
 			hudPlaceWeaponBox(layout, 5, 0);
 			const first = bar[0], top = bar[1], boxHeight = bar[3];
 			hudPlaceWeaponBox(layout, 5, 4);
-			const boxes = [box(layout.centerX - header / 2, layout.top, header, 44 * unit), box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
+			const boxes = [box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
 				box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];
 			const found = boxes.map((b, index) => index + hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true)).filter((text) => text.length > 1);
 			check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found.length === 0, found.join());
@@ -48378,6 +48765,86 @@ Test.add('hudui', (check) => {
 	}
 	TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
 });
+
+const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];
+const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control', 'operation'];
+const HUD_UI_BANNERS = ['Rook Varga takes the lead', 'Double Kill'];
+const HUD_UI_BANNER_GLYPHS = HUD_UI_BANNERS.join('').replace(/ /g, '').length + 2;
+function hudUiDrawnBoxes(first) {
+	const stride = HUD_VERTEX_BYTES / 4, corners = [0, 1, 2, 3], boxes = [];
+	for (let quad = first; quad < HudBatch.quads; quad++) {
+		const xs = corners.map((i) => hudFloats[(quad * 4 + i) * stride]), ys = corners.map((i) => hudFloats[(quad * 4 + i) * stride + 1]);
+		boxes.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+	}
+	return boxes;
+}
+function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
+function hudUiTouchBreak(fixed, banners, width, height) {
+	const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
+	for (const control of shown) {
+		const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+		const other = shown.find((next) => next !== control && length2(places[next.id].x - x, places[next.id].y - y) < radius + places[next.id].radius - 0.5);
+		if (other) return control.id + ' on ' + other.id;
+		if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
+		const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
+		if (over) return control.id + ' over ' + over.map(Math.round);
+	}
+	if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
+	const moved = HudBanners.top > height * 0.22 + 0.5;
+	return moved && banners.some((box) => hudUiBoxMeetsCircle(box, width / 2, height / 2, aimRadius)) ? 'banners moved onto the crosshair' : '';
+}
+function hudUiDrawPanels(layout) {
+	for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
+}
+const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+function hudUiTouchProblems(width, height, draw) {
+	const layout = {}, problems = [];
+	for (const hudScale of HUD_UI_HUD_SCALES) {
+		Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;
+		updateHudLayout(layout, width, height);
+		for (const preset of TOUCH_PRESETS) {
+			TouchInput.currentPreset = preset;
+			for (const [moved, scale] of HUD_UI_EDITS) {
+				const saved = {};
+				for (const control of TOUCH_CONTROLS) saved[control.id] = Object.assign(moved < 0 ? {} : { x: control.x, y: moved }, scale ? { scale } : {});
+				Save.data.touchLayouts = moved < 0 && !scale ? {} : { [preset.id]: saved };
+				for (const replay of [false, true]) {
+					Killcam.playing = replay;
+					TouchInput.placeAll(width, height);
+					HudBatch.quads = 0;
+					draw(layout);
+					if (replay) hudDrawKillcamPanel(HudPen, layout);
+					const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
+					hudDrawBanners(HudPen, layout);
+					const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+					if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
+				}
+			}
+		}
+	}
+	Hud.applySettings();
+	return problems;
+}
+Test.add('hudui', (check) => hudTestWith(() => {
+	const savedPreset = TouchInput.currentPreset;
+	Input.device = 'touch'; TouchInput.shown = true;
+	try {
+		for (const mode of HUD_UI_MODES) {
+			const operation = mode === 'operation', modeId = operation ? 'tdm' : mode;
+			Game.start({ mode: modeId, map: PlayFlow.smallestMap(modeId).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+			if (operation) { OperationRun.active = true; OperationRun.tickets.fill(250); }
+			HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
+			Hud.time += 1;
+			const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, hudUiDrawPanels));
+			check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+			OperationRun.active = false;
+			endModeTest();
+		}
+	} finally {
+		OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
+		TouchInput.applyAll();
+	}
+}));
 
 Test.add('ui', (check) => {
 	const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');
@@ -49705,18 +50172,63 @@ Test.add('items', (check) => {
 	Actors.x[id] = 30;
 	Sim.run(1);
 	Actors.x[id] = 20;
-	TestArena.hold(id, BTN.USE, 1 / TICK_RATE);
+	TestArena.hold(id, BTN.USE, 2 / TICK_RATE);
 	Bus.off('pickup', onPickup);
 	check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
 	TestArena.finish();
 });
 
 Test.add('items', (check) => {
-	let swaps = 0;
-	const onPickup = (event) => { if (event.group === 'weapon' && Bots.active[event.id]) swaps++; };
+	ItemArena.start({ carry: 1, downed: true, health: 'regen', teams: 2 }, []);
+	const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 23, 0);
+	Weapons.setLoadout(medic, ['vanguard']);
+	Items.drop('tempest', 20, 0, 0);
+	TestArena.hit(shooter, mate, 150);
+	Sim.step();
+	TestArena.hold(medic, BTN.USE, 1);
+	check('3 m from a downed mate: revive prompt, Use held swaps nothing', royaleUsePrompt(medic) === 'HOLD TO REVIVE' && Weapons.has(medic, 'vanguard'));
+	Actors.x[mate] = 21.3;
+	Sim.step();
+	TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
+	check('Use held to revive and on swaps nothing', Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED));
+	Sim.step();
+	check('then the swap is offered again', royaleUsePrompt(medic) === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE');
+	TestArena.finish();
+});
+
+Test.add('items', (check) => {
+	ItemArena.start({ carry: 1, move: 'arena' }, []);
+	World.map.size = SKIMMER_MIN_MAP_SIZE;
+	const id = ItemArena.actor(1, 0, -50);
+	Weapons.setLoadout(id, ['vanguard']);
+	holdInput(id, 0, 1, 0);
+	Sim.run(TICK_RATE / 2);
+	holdInput(id, 0, 1, BTN.USE);
+	Sim.step();
+	for (let metre = 1; metre <= 10; metre++) Items.drop('tempest', 0, 0, Actors.z[id] + metre);
+	Sim.run(TICK_RATE);
+	check('skimmer: riding over guns swaps nothing', Move.onBoard(id) && Weapons.has(id, 'vanguard'));
+	holdInput(id, 0, 1, 0);
+	Sim.step();
+	for (let metre = 0; metre <= 4; metre++) Items.drop('wasp', 0, 0, Actors.z[id] + metre);
+	holdInput(id, 0, 0, BTN.USE);
+	Sim.run(TICK_RATE / 2);
+	check('skimmer: stepping off onto a gun swaps nothing', !Move.onBoard(id) && Weapons.has(id, 'vanguard'));
+	TestArena.finish();
+});
+
+Test.add('items', (check) => {
+	let upgrades = 0, downgrades = 0;
+	const worth = (id, key) => BotCombat.weaponValue(id, CAT.weapons.byId(key), 1);
+	const onPickup = (event) => {
+		if (event.group !== 'weapon' || !Bots.active[event.id] || !Weapons.dropped) return;
+		const gain = worth(event.id, event.item) - worth(event.id, Weapons.dropped);
+		if (gain > 0) upgrades++;
+		if (gain < 0) downgrades++;
+	};
 	Bus.on('pickup', onPickup);
-	try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 1, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
-	check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', swaps >= 8, swaps);
+	try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+	check('Weave Suit: full bots swap guns at the pads, upgrades only', upgrades >= 8 && downgrades === 0, upgrades + ' / ' + downgrades);
 });
 
 Test.add('items', (check) => {
@@ -51776,6 +52288,9 @@ Test.add('maps', (check) => {
 	}
 	for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
 	check('modes: Team Clash is not offered on Gantry Run', !Maps.forMode('tdm').some((map) => map.id === 'gantry') && Maps.forMode('tdm').length >= 2);
+	const skySpawnsBlight = Maps.get('skyyard').spawns.some((spawn) => (spawn.modes || []).includes('infection'));
+	check('modes: Blight is not offered on Skyward Yard, nor in its spawn sets', !Maps.get('skyyard').modes.includes('infection') && !skySpawnsBlight
+		&& Maps.forMode('infection').length >= 2);
 	check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
 	const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);
 	check('modes: every versus mode has a hand-made map (pickable in Play and Custom)', unserved.length === 0, unserved.join());
@@ -52983,6 +53498,21 @@ function holdUseFor(id, seconds) {
 
 Test.add('modes', (check) => {
 	startBombTest();
+	const guns = ['vanguard', 'verdict', 'hush', 'hornet'];
+	Weapons.setLoadout(0, guns); Weapons.setLoadout(1, guns);
+	placeActor(0, 20, 0); placeActor(1, 20, 1.2);
+	Items.drop('tempest', 20, 0, 0); Items.drop('wasp', 20, 0, 1.2);
+	holdUseFor(0, 5);
+	check('bomb: no swap for the planter', Modes.objectives[1].state === 'planted' && Weapons.atCarryLimit(0) && !Weapons.has(0, 'tempest'));
+	Sim.step();
+	holdUseFor(0, 0.1);
+	holdUseFor(1, 7.5);
+	check('bomb: a fresh Use swaps; none for the defuser', Weapons.has(0, 'tempest') && Modes.objectives[1].state === 'defused' && Weapons.atCarryLimit(1) && !Weapons.has(1, 'wasp'));
+	endModeTest();
+});
+
+Test.add('modes', (check) => {
+	startBombTest();
 	const charge = Modes.objectives[1];
 	check('bomb: an attacker carries the charge', Modes.attackingTeam() === 0 && charge.carrier === 0);
 	placeActor(0, 20, 0);
@@ -53202,8 +53732,9 @@ Test.add('modes2', (check) => {
 		&& convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
 	check('gungame: a 12-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 12 && !rows('gungame').params.tiers
 		&& CAT.weapons.byId(GUNGAME_LADDER[11]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
-	check('infection: 1 per 6, after 20 s, 450 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6
-		&& rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 450 && rows('infection').timeLimit === 300);
+	check('infection: 1 per 6 on 3500 square metres, after 20 s, 375 HP, 5 min (M17, blight-01)', rows('infection').params.infectedPerPlayers === 6
+		&& rows('infection').params.infectedArea === 3500 && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 375
+		&& rows('infection').timeLimit === 300);
 	check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
 	check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
 		&& rows('cursetag').params.passOnTag === false);
@@ -53488,12 +54019,20 @@ Test.add('modes2', (check) => {
 	check('infection: everyone starts human', ids.every((id) => Actors.team[id] === HUMAN_TEAM) && Modes.hud.survivors === 6 && Modes.hud.infected === 0);
 	runSeconds(19.9);
 	check('infection: nobody is infected before 20 s', Modes.hud.infected === 0);
+	const casting = ids.filter((id) => Abilities.forceCast(id, 'timebend')).length;
 	runSeconds(0.2);
 	const first = ids.find((id) => Actors.team[id] === INFECTED_TEAM);
-	check('infection: one infected per 6 players at 20 s', Modes.hud.infected === 1 && Modes.hud.survivors === 5 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED);
+	const stillCasting = ids.filter((id) => Abilities.isActive(id, 'timebend'));
+	check('infection: a human turned infected stops a running control ability, the humans keep theirs', casting === ids.length
+		&& stillCasting.length === Modes.hud.survivors && stillCasting.every((id) => Actors.team[id] === HUMAN_TEAM), casting + ' cast, ' + stillCasting.length + ' running');
+	check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
+		Modes.hud.infected);
 	const infectedHealth = Modes.rules.params.infectedHealth;
 	check('infection: the infected is tough and melee only', Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');
 	const human = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
+	for (const id of [first, human]) { Gadgets.give(id, 'frag', 1); Actors.pressed[id] = BTN.GRENADE; Gadgets.stepActor(id); }
+	check('infection: GRENADE does not ready a throw for the infected, it does for a human', Gadgets.holdStart[first] < 0 && Gadgets.holdStart[human] >= 0);
+	Gadgets.holdStart[human] = Gadgets.holdRow[human] = -1;
 	hitActor(human, first, 30, 'melee');
 	const stillHuman = Actors.team[human] === HUMAN_TEAM;
 	damageKill(human, first, 'melee');
@@ -53516,6 +54055,11 @@ Test.add('modes2', (check) => {
 	runSeconds(30.05);
 	check('infection: humans standing at the time limit win', Game.match.ended && Game.match.winner === HUMAN_TEAM && Game.match.results.reason === 'time');
 	endModeTest();
+	const params = CAT.modes.byId('infection').params, nodes = Nav.nodeCount, nodesFor = (area) => area / (NAV_CELL_SIZE * NAV_CELL_SIZE);
+	const startsOn = (area) => { Nav.nodeCount = nodesFor(area); return outbreakSize(12, params); };
+	let counts = [];
+	try { counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn); } finally { Nav.nodeCount = nodes; }
+	check('infection: 2 of 12 start infected on infectedArea of floor, 4 on four times it, 1 on a quarter', counts.join() === '2,4,1', counts.join());
 	const soak = DebugApi.soak('infection', 'spire', 5.5, 11, 2, {});
 	check('infection balance: a bot match on spire lasts past 3 minutes', soak.seconds > 180, soak.seconds);
 });
@@ -53827,6 +54371,34 @@ Test.add('modes2', (check) => {
 	check('royale: back on the spot the swap is offered again', royaleUsePrompt(0) === ('HOLD TO SWAP ' + CAT.weapons[victim].name + ' FOR ' + pushedName).toUpperCase(), royaleUsePrompt(0));
 	holdUseFor(0, 0.2);
 	check('royale: and taken with USE held', Weapons.has(0, CAT.weapons[pushedOut].id) && RoyaleLoot.weapon[2] === victim);
+	endModeTest();
+});
+
+Test.add('modes2', (check) => {
+	startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_WEAPON_ITEMS }), [-1, -1, -1, -1, -1, -1]);
+	runSeconds(3);
+	const squads = Modes.squads, spot = 2;
+	RoyaleLoot.x[spot] = squads.beaconX[0]; RoyaleLoot.y[spot] = squads.beaconY[0]; RoyaleLoot.z[spot] = squads.beaconZ[0];
+	for (const key of ['verdict', 'hush', 'wasp', 'hornet', 'kestrel']) Weapons.give(0, key, 1);
+	killActor(2, 1);
+	placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+	runSeconds(0.2);
+	holdUseFor(0, BEACON_SECONDS + 1);
+	check('royale: no swap at a charging beacon', Actors.alive[2] === 1 && Weapons.atCarryLimit(0) && !Weapons.has(0, 'vanguard'));
+	Sim.step();
+	holdUseFor(0, 0.3);
+	check('royale: a fresh Use on the spot swaps', Weapons.has(0, 'vanguard'));
+	const guns = CAT.weapons.filter((weapon) => Weapons.countsTowardCarry(weapon)).sort((a, b) => a.botPref.value - b.botPref.value);
+	Weapons.setLoadout(1, []);
+	for (let index = 1; !Weapons.atCarryLimit(1); index++) Weapons.give(1, guns[index].id, 0);
+	RoyaleLoot.weapon[0] = guns[0].index; RoyaleLoot.weapon[1] = guns[guns.length - 1].index;
+	check('royale: a full bot wants only a better loot gun', lootValue(1, 0) === 0 && lootValue(1, 1) > 0);
+	Weapons.setLoadout(1, []);
+	Weapons.give(1, guns[0].id, 0);
+	for (let index = guns.length - 1; !Weapons.atCarryLimit(1); index--) Weapons.give(1, guns[index].id, 0);
+	Weapons.current[1] = guns[0].index;
+	const better = guns.find((weapon) => weapon.botPref.value > guns[0].botPref.value);
+	check('bots: a full bot takes a gun that beats the one it would drop', Weapons.botTakes(1, better) && !Weapons.botTakes(1, guns[0]));
 	endModeTest();
 });
 
@@ -59202,6 +59774,20 @@ Test.add('pve', (check) => {
 	BankRun.carried[blue] = 6;
 	Modes.behaviour.bankMotes(blue, 0);
 	check('crossing the custom invasion step sends an invader', BankRun.invasions[0] === 1 && queuedOnSide(1, PVE_BANK.invader) === 1, BankRun.banked[0] + ' ' + BankRun.invasions[0]);
+	endModeTest();
+});
+
+Test.add('pve', (check) => {
+	World.load(Maps.get('chambers'));
+	Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
+	const id = 0, isButton = (element) => element.kind === 'button', index = PVE_CHAMBERS.findIndex((row) => row.elements.some(isButton));
+	const button = PVE_CHAMBERS[index].elements.findIndex(isButton);
+	enterChamber(index);
+	chamberElementAt(PVE_CHAMBERS[index].elements[button], pveSpot);
+	relocateActor(id, pveSpot.x, pveSpot.y, pveSpot.z - 0.5, 0);
+	Actors.buttons[id] = BTN.USE;
+	Sim.run(2);
+	check('a chamber button press claims the Use hold', Weapons.useClaimed[id] === 1 && ChamberRun.done[button] === 1);
 	endModeTest();
 });
 
