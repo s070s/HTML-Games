@@ -1966,7 +1966,7 @@ Test.add('botsoak', (check) => {
   check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
 }, { slow: true });
 
-// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (human-Blight wins now 3-5 on Spire and on Gantry). Before, the Blight won all 6 on Spire by
+// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (human-Blight wins now 4-4 on Spire and on Gantry). Before, the Blight won all 6 on Spire by
 // elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
 // The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
 const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;

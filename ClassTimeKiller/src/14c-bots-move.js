@@ -63,6 +63,7 @@ const BotMove = {
   ladderX: new Float32Array(MAX_ACTORS), ladderZ: new Float32Array(MAX_ACTORS),   // climbing target of a ladder link
   exitChecked: new Uint8Array(MAX_ACTORS),
   leaping: new Uint8Array(MAX_ACTORS),         // configure() planned the bot's jumps as leaps (modeLeap)
+  runSpeed: new Float32Array(MAX_ACTORS),      // m/s on foot (options moveSpeed also counts a leap's push)
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
@@ -106,10 +107,11 @@ const BotMove = {
     const climb = preset.climbGripOnly ? 0 : preset.climbHeight;
     const reach = Math.max(single + extra + preset.crouchJumpLift, preset.mantleHeight - MOVE_MANTLE_MARGIN + NAV_JUMP_MARGIN, climb);
     const maxDrop = safeDropFor(preset, gravity);
+    this.runSpeed[id] = preset.groundSpeed * tier.speed;
     for (const options of [this.options[id], this.avoidOptions[id]]) {
       options.allowJumpHeight = reach;
       options.maxDrop = maxDrop;
-      options.moveSpeed = preset.groundSpeed * tier.speed + (leap ? leap.leapSpeed * push : 0);
+      options.moveSpeed = this.runSpeed[id] + (leap ? leap.leapSpeed * push : 0);
       options.jumpVelocity = jumpVelocity;
       options.gravity = gravity;
     }
@@ -156,7 +158,8 @@ const BotMove = {
   // Water and trap costs come from the shared extraCosts array, versioned by costEpoch, so those paths stay cacheable;
   // only a swimmer while some exit is blocked needs its own cost function (not cached).
   request(id, options) {
-    if (!this.leaping[id] !== !modeLeap(id)) this.configure(id);   // turned infected while alive (the Blight outbreak)
+    const leaps = modeLeap(id) ? 1 : 0;
+    if (this.leaping[id] !== leaps) this.configure(id);   // turned infected while alive (the Blight outbreak)
     this.fromWater[id] = inWater(id) ? 1 : 0;
     options.danger = sharedCosts(Sim.time); options.dangerKey = costEpoch;
     if (options === this.options[id]) options.avoid = this.fromWater[id] && blockedExits > 0 ? this.costs[id] : null;

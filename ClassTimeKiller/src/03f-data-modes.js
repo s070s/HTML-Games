@@ -25,8 +25,8 @@ const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'rip
 // M17 Blight: one in infectedPerPlayers starts infected on infectedArea square metres of walkable floor, more on a bigger
 // one (13f outbreakSize). blight-01: at 450 HP Spire's 2 infected won all 6 test matches and at 340 Gantry's humans won 5 of 6.
 // Once infected bots planned the ledges their leap clears (14c), 375 HP on 3500 m2 won all 8 on Spire and 2 of 8 on Gantry:
-// 325 HP on 3000 m2 (Gantry 4 infected, Spire still 2) wins 5 of 8 on each.
-const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3000, infectAfter: 20, infectedHealth: 325, leapSpeed: 8, leapLift: 3 };
+// 335 HP on 3000 m2 (Gantry 4 infected, Spire still 2) wins 4 of 8 on each.
+const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3000, infectAfter: 20, infectedHealth: 335, leapSpeed: 8, leapLift: 3 };
 
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',

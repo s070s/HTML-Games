@@ -580,7 +580,7 @@ function itemAvailable(id, index, distance, now) {
   const readyAt = BotDecide.itemReadyAt[index];
   if (readyAt > now) {
     const timing = Bots.tier(id).itemTiming && Bots.trait(id, TRAIT.itemFocus) > ITEM_TIMER_FOCUS;
-    const travel = distance / Math.max(1, BotMove.options[id].moveSpeed);
+    const travel = distance / Math.max(1, BotMove.runSpeed[id]);
     return timing && readyAt - now <= travel + Rng.bots.range(ITEM_EARLY_MIN, ITEM_EARLY_MAX);
   }
   return now - BotDecide.itemVisited[id * MAX_BOT_ITEMS + index] > ITEM_REVISIT || readyAt > 0;
