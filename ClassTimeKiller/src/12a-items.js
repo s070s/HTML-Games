@@ -17,6 +17,7 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
+const SWAP_PICKUP_SECONDS = 2;             // after a carry-limit swap by touch, no other swap this long (no cycling on a pile of drops)
 const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
 const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
@@ -120,6 +121,7 @@ const Items = {
   usedEnd: 0,                                       // every slot from here on is FREE: the per-step loops stop here (PERF-002)
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
+  swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons by touch again
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
   givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
@@ -375,7 +377,19 @@ const Items = {
   takeWeapon(id, slot) {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
-    return this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot]);
+    const swaps = Weapons.swapsOut(id, weapon);
+    if (swaps && Sim.tick < this.swapReadyTick[id]) return false;
+    if (!this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot])) return false;
+    if (swaps) this.blockSwapsAt(id);
+    return true;
+  },
+  // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.
+  blockSwapsAt(id) {
+    this.swapReadyTick[id] = Sim.tick + itemTicks(SWAP_PICKUP_SECONDS);
+    for (let slot = 0; slot < this.usedEnd; slot++) {
+      const weaponReady = this.state[slot] === PICKUP_STATE.READY && this.kind[slot] === PICKUP_KIND.WEAPON;
+      if (weaponReady && this.blocker[slot] < 0 && this.touching(id, slot)) this.blocker[slot] = id;
+    }
   },
   // At the carry limit the held weapon is swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
   giveWeapon(id, key, rarity, floorY) {
@@ -510,7 +524,7 @@ const Items = {
   },
   resetActor(id) {
     this.carried.fill(0, id * ITEM_COUNT, (id + 1) * ITEM_COUNT);
-    this.usingItem[id] = -1; this.noArmor[id] = 0;
+    this.usingItem[id] = -1; this.noArmor[id] = 0; this.swapReadyTick[id] = 0;
   },
 
   // ---- HUD hooks ----

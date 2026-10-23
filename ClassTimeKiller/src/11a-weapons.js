@@ -241,7 +241,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.swapsOut(id, weapon)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -261,6 +261,10 @@ const Weapons = {
     return true;
   },
   dualFactor(id, weapon) { return this.dual[this.slotIndex(id, weapon.index)] ? DUAL_FACTOR : 1; },
+  // Giving this weapon would replace a carried one (not owned yet, counts toward the carry limit, limit reached).
+  swapsOut(id, weapon) {
+    return !this.owned[this.slotIndex(id, weapon.index)] && this.countsTowardCarry(weapon) && this.atCarryLimit(id);
+  },
   atCarryLimit(id) {
     const limit = this.carryLimit();
     if (limit <= 0) return false;

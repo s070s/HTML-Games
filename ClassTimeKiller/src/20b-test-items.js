@@ -70,6 +70,26 @@ Test.add('items', (check) => {
   check('clear resets usedEnd', Items.usedEnd === 0);
 });
 
+// A carry-limit swap by touch: standing on a pile of three dropped guns swaps once, not every few steps.
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1 }, []);
+  const id = ItemArena.actor(1, 20, 0);
+  Weapons.setLoadout(id, ['vanguard']);
+  ['tempest', 'wasp', 'anvil'].forEach((key) => Items.drop(key, 20, 0, 0));
+  let swaps = 0;
+  const onPickup = (event) => { if (event.id === id && event.group === 'weapon') swaps++; };
+  Bus.on('pickup', onPickup);
+  Sim.run(3 * TICK_RATE);
+  check('one swap while standing still on the pile', swaps === 1, swaps);
+  Actors.x[id] = 30;
+  Sim.run(1);
+  Actors.x[id] = 20;
+  Sim.run(1);
+  Bus.off('pickup', onPickup);
+  check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
+  TestArena.finish();
+});
+
 Test.add('items', (check) => {
   ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
   const id = ItemArena.actor(1, 3, 0);
