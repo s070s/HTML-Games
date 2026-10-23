@@ -10177,7 +10177,8 @@ const TRAFFIC_WADE = 0.35;           // flood water this deep over the road (a c
 const TRAFFIC_WET = 0.05;            // a flood shallower than this over the road, or over the water there before it, is no matter (m)
 const TRAFFIC_LAVA_PAD = 2;          // a lane point this much past a lava cell's radius is still no way (m)
 const TRAFFIC_CRAWL = 0.35;          // speed limit share on slow going
-const TRAFFIC_BLOCK_EVERY = 0.5;     // s between looks at the changed lane points (the changes since are gathered in one box)
+const TRAFFIC_BLOCK_EVERY = 0.5;     // s between looks at the changed lane points (the changes since are gathered in one box)...
+const TRAFFIC_BLOCK_POINTS = 240;    // ...a look taking this many lane points a tick
 const TRAFFIC_HAZARD_EVERY = 1;      // s between looks at a running flood or lava flow (they change as they run)
 const TRAFFIC_BLOCK_COST = 2000;     // a way through a lane with no way on counts this much longer (m): taken only when there is no other
 const TRAFFIC_RUBBLE_REACH = RUBBLE_CELL * 1.5;   // m round where rubble fell that its cells reach (Rubble.add heaps on the 4 cells round too)
@@ -10195,7 +10196,7 @@ const Traffic = {
      zones); start: the player's start, kept clear */
   populate(seed, start) {
     const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, time: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity,
-      dirt: this.box(), hzBox: this.box(), blockT: 0, hzT: 0 };   // the road changed in dirt since the last look (refreshBlocks); a running flood or lava flow's reach
+      dirt: this.box(), work: this.box(), blockI: -1, blockT: 0, hzBox: this.box(), hzT: 0 };   // the road changed in dirt since the last look, the pass looking at work is at lane blockI (stepBlocks); a running flood or lava flow's reach
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -10648,17 +10649,27 @@ const Traffic = {
     this.roadChanged(H.x0, H.z0, H.x1, H.z1);
     if (!any) this.boxClear(H);
   },
-  /* each lane point in the changed box gets its flag (refreshed at most every BLOCK_EVERY s: a collapse's rubble falls
-     over a while) */
-  refreshBlocks(T) {
-    const D = T.dirt, pad = TRAFFIC_LANE + 1, lava = this.lavaCells(TRAFFIC_LAVA), lanes = T.lanes;
-    T.blockT = T.time + TRAFFIC_BLOCK_EVERY;
-    for (let i = 0; i < lanes.length; i++) {
-      const L = lanes[i];
-      if (L.x1 < D.x0 - pad || L.x0 > D.x1 + pad || L.z1 < D.z0 - pad || L.z0 > D.z1 + pad) continue;
-      this.laneFlags(L, lava);
+  /* each lane point in the changed box gets its flag: a pass starts at most every BLOCK_EVERY s (a collapse's rubble
+     falls over a while) with the box gathered so far, and looks at BLOCK_POINTS points a tick (a flood's box is wide) */
+  stepBlocks(T) {
+    if (T.blockI < 0) {
+      if (!T.dirt.on || T.time < T.blockT) return;
+      this.boxClear(T.work); this.boxAdd(T.work, T.dirt.x0, T.dirt.z0, T.dirt.x1, T.dirt.z1); this.boxClear(T.dirt);
+      this.lavaCells(TRAFFIC_LAVA);
+      T.blockI = 0; T.blockT = T.time + TRAFFIC_BLOCK_EVERY;
     }
-    this.boxClear(D);
+    const B = T.work, pad = TRAFFIC_LANE + 1, lanes = T.lanes;
+    for (let budget = TRAFFIC_BLOCK_POINTS; budget > 0 && T.blockI < lanes.length;) {
+      const L = lanes[T.blockI++];
+      if (L.x1 < B.x0 - pad || L.x0 > B.x1 + pad || L.z1 < B.z0 - pad || L.z0 > B.z1 + pad) continue;
+      this.laneFlags(L, TRAFFIC_LAVA);
+      budget -= L.cum.length;
+    }
+    if (T.blockI >= lanes.length) T.blockI = -1;
+  },
+  /* the whole of the pass now (the self-test, after it changed the road) */
+  refreshBlocks(T) {
+    while (T.blockI >= 0 || T.dirt.on) { T.blockT = 0; this.stepBlocks(T); }
   },
   /* lane L's points' flags (L.blk null when all are clear; L.stop when some point is no way) */
   laneFlags(L, lava) {
@@ -10743,7 +10754,7 @@ const Traffic = {
     T.tick++; T.time += dt;
     this.collectMachines(T);
     this.watchHazards(T, dt);
-    if (T.dirt.on && T.time >= T.blockT) this.refreshBlocks(T);
+    this.stepBlocks(T);
     const cars = T.cars, cam = R.cam, far2 = TRAFFIC_FAR * TRAFFIC_FAR;
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i], dx = c.x - cam.x, dz = c.z - cam.z;
