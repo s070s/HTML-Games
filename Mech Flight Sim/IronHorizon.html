@@ -7692,15 +7692,15 @@ const Civ = {
     c.lookT -= dt;
     if (c.lookT > 0) return yaw;
     c.lookT = CIV_LOOK;
-    const blds = c.zone.blds;
-    const clear = (a) => !this.blocked(c.x + Math.sin(a) * look, c.z + Math.cos(a) * look, CIV_RADIUS, blds);
-    if (clear(yaw)) return yaw;
-    for (const turn of CIV_DODGE) {
-      const a = yaw + (c.lane < 0 ? -turn : turn);
-      if (clear(a)) { c.avoidYaw = a; c.avoidT = 0.5; return a; }
+    if (this.clearAhead(c, yaw, look)) return yaw;
+    for (let i = 0; i < CIV_DODGE.length; i++) {
+      const turn = CIV_DODGE[i], a = yaw + (c.lane < 0 ? -turn : turn);
+      if (this.clearAhead(c, a, look)) { c.avoidYaw = a; c.avoidT = 0.5; return a; }
     }
     return yaw;   // boxed in: the stuck timer sends it to the nearest corner
   },
+  /* nothing stands `look` metres from civilian c along heading a */
+  clearAhead(c, a, look) { return !this.blocked(c.x + Math.sin(a) * look, c.z + Math.cos(a) * look, CIV_RADIUS, c.zone.blds); },
   /* ground machines: soldiers shove civilians aside, others run them over when moving and scare them when near */
   touchMachines(c) {
     const near = c.zone.near;
