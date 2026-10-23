@@ -16,6 +16,96 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-23 23:36 GTBDT (machine clock; the three entries below carry guessed times that run ahead of it). fix-combat (4a64251, 3b480a7, befcf85) merged at `11f1c1d`, self-test 2615/0. fix-living (e6e02af, 5d5a34e) merged at `849151f`; both conflicts at the end of the self-test list, resolved by union.
+  - Self-test at 849151f: first run 2625/1, then 2625/0. The fail: 'society: first responders', "9 of 16" casualties reached by an ambulance (limit 60%), 6 of the last 8 missed. Alone 17/17 green. Not waved off as a flake: helper fix-ambulance (Opus+high, port 8769) is measuring it.
+  - Clean bench (Playwright, 1920x1080) at 849151f: all 18 scenes p95 ≤ 3.7 ms, max ≤ 6.4 ms.
+  - In flight: delta verify workflow wf_9f6f19cc-7ef (5 Opus reviewers + 5 verifiers, commits since 6103b25); fix-ambulance.
+  - RESUME: fix-ambulance + delta verify → fix confirmed findings → merge → full self-test → close-out (help check, CLOSED entry, delete plan/ledger D11, commit, clean agent worktrees) → owner's go to push.
+
+- 2026-10-24 ~02:55 GTBDT. fix-world done (0581dc4, plus a merge of cd2af02) and merged at `6b7b0d7`, a clean merge whose tree equals e108edd. Self-test 2607/0.
+  - All 5 world findings are fixed; each check fails with its fix off.
+  - The 8768 server is stopped. Still waiting on fix-combat and fix-living.
+
+- 2026-10-24 ~02:40 GTBDT. p7a done (ad49410, 3e417ca) and merged at `cd2af02`; 1 conflict in the `__IH` exports, resolved by union. Merged self-test 2601/0.
+  - Scripted bot, normal damage, no nudge, wins out of runs:
+
+    | Mission | Before | After |
+    |---|---|---|
+    | m9 | 3/6 | 7/8 |
+    | m10 (ships only) | 1/10 | 6/8 |
+    | m11 | 2/4 | 8/12 |
+    | m12 | 0/4 | 6/8 |
+    | m13 | 0/4 | 7/8 |
+
+  - An idle player loses all five: an opt-in test, 'missions P7a idle'. D62 recorded.
+  - The fixers were told to merge cd2af02. The 8767 server is stopped.
+  - RESUME: fix-world, fix-combat, fix-living → merge → full self-test + clean bench → delta verify workflow (fixes + p7a + p8-load + p8-traffic + p8-perf since 6103b25) → close-out → owner's go.
+
+- 2026-10-24 ~01:55 GTBDT. The final review workflow wf_8d2f0feb-3a8 is done (10 agents): 25 findings, all confirmed by the verifiers.
+  - Severities: 1 high, 6 medium, 18 low, with some duplicates across areas. The list is saved at scratchpad/final-review-findings.json.
+  - HIGH: skirmish aircraft respawn on an airfield beside the enemy base.
+  - Medium:
+    - high-air blasts start ground hazards;
+    - an m14 guest respawns at the harbour or airstrip (×2);
+    - a guest deletes the wrong ship (×2);
+    - Obj.rescue in flight.
+  - Fixers (Opus+high, isolated from ebffd7f): fix-world (8768), fix-combat (8769), fix-living (8770). p7a is still on m9-m13 (8767).
+  - Keep `Mech Flight Sim/_review_snap.html` until the fixers are done; the findings' line numbers refer to it.
+
+- 2026-10-24 ~01:20 GTBDT. m16 flake fixed by p7b with `ebffd7f` (the ambush units are clamped 450 m from the harbours, players and the convoy start). Fast-forwarded here.
+  - The m16 rules block passed 60/60; self-test 2559/0.
+  - Still waiting on the workflow wf_8d2f0feb-3a8 and p7a.
+
+- 2026-10-24 ~01:05 GTBDT. p8-load done (9d0ece2, d36f01a) and merged at `ed2ed81`; 1 test-end conflict, resolved by union.
+  - Merged self-test 2559/0.
+  - Live: a heavy mech punches through a shop roof and floor, and a terraced roof caves in at 3.15 s. D61 recorded.
+  - Flake found: "m16: no hostile within 450 m of the harbour" (about 1 in 30) → p7b is fixing it in its worktree (ff to ed2ed81).
+  - The 8773 server is stopped. Still waiting on the workflow, p7a and p7b.
+
+- 2026-10-24 ~00:45 GTBDT. P8.2 perf done (p8-perf: 27d6a32, c72c053, bcd623a, 130e133) and merged at `1023183`; 1 test-end conflict, resolved by union.
+  - Merged self-test 2540/0.
+  - Bench now covers all 13 battlefields (18 scenes). After the pass every scene is ≤ 7.8 ms p95 and ≤ 33 ms max (Playwright; noisy under load).
+  - The W.hotPlain list cuts the jungle sim tick from 0.91 to 0.58 ms.
+  - The 805 ms frame is not reproduced; it was most likely a hidden-pane artifact.
+  - Left: Civ.stepWalk allocates 6-26 KB per frame (number boxing; low).
+  - The 8768 server is stopped. Still waiting on the workflow, p7a and p8-load.
+
+- 2026-10-24 ~00:35 GTBDT. p8-traffic done (6 commits, tip 1094a09) and merged, a clean merge; the merged tree equals 1094a09.
+  - Self-test 2532/0. Traffic.update +0.014 ms per tick.
+  - traffic-metro now draws 40-48 vehicles (was 2-10).
+  - The society flake did not reproduce (15/15). D60 recorded. The 8772 server is stopped.
+
+- 2026-10-24 ~00:00 GTBDT. OWNER (verbatim): "Use more workflows to finish sooner" → the final program review (P8.3) moves forward and runs as a workflow while the four helpers finish.
+  - Workflow `wf_8d2f0feb-3a8` (task wk50iyt0z): 5 area reviewers (world, combat, living, missions, cross), each followed by 1 adversarial verifier, all Opus+high.
+  - It reviews a frozen snapshot of 6103b25 at `Mech Flight Sim/_review_snap.html` (untracked; delete after the review).
+  - The in-flight branches get a short delta review after merge.
+  - RESUME: workflow + p7a + p8-traffic + p8-perf + p8-load → fix the confirmed findings → merge all → full self-test + bench → delta review → close-out → owner's go.
+
+- 2026-10-23 ~23:50 GTBDT. OWNER (verbatim): "Landing walking on structures damages them!" → interpreted as: add landing impact damage plus standing-load damage to structures (D59).
+  - p8-load (Opus+high, isolated from 6103b25, port 8773) is building it.
+  - In flight: p7a, p8-traffic, p8-perf, p8-load.
+
+- 2026-10-23 ~23:45 GTBDT. Started from tip 6103b25, both isolated:
+  - p8-traffic (port 8772): rubble/flood/lava/broken bridges block lanes; no respawn on a broken deck; traffic-metro bench view; ambulance junction flake.
+  - p8-perf (port 8768): P8.2, bench every map to ≤ 7.8 ms p95, the 805 ms frame, hot-path allocations; hotspots in traffic go to p8-traffic.
+  - p7a is still fixing m9-m13 (port 8767).
+  - RESUME:
+    1. Merge p7a, p8-traffic and p8-perf.
+    2. Full self-test and a clean bench.
+    3. Combined gate review (P6 round 2, P7, P8), then the final P8.3 review.
+    4. P8.4 close-out, then ask the owner's go to push.
+
+- 2026-10-23 ~23:40 GTBDT. P8.1 co-op done (p8-coop: 0422369, 2d96fee) and merged, a clean merge. Merged self-test 2522/0.
+  - Two-tab WebRTC host and guest on all 10 new maps: in sync, no errors.
+  - Fixed: units past the 44-unit snapshot cap take turns (before, they vanished on the guest); shells go first under the 70 cap. NET stays 10.
+  - Unexplained: once, a ship didn't move after being hit (m10 Trident, m12 Skua), but both mirrored and moved in reruns → check in the final review.
+  - The 8769 server is stopped. Still waiting on p7a.
+
+- 2026-10-23 ~23:00 GTBDT. The p7b review fixes (797aeba, e9dbba5) are merged into worktree-living-world, a clean merge. Merged self-test: 2481/0.
+  - m17 at a 250 m range is now about as hard as m3; every idle player loses.
+  - Known flake to watch: an ambulance "stops clear of the junctions" failed 1 of 5 runs on p7b's line (before 98bc531).
+  - The 8768 server is stopped. Still waiting on p7a and p8-coop.
+
 - 2026-10-23 ~22:45 GTBDT. `98bc531` on worktree-living-world fixes a real fault: the medic could not reach a person fallen inside a building's footprint, and the 35 s scene timer cut the walk short. Now:
   - the medic walks the streets round the block to the nearest free spot;
   - a casualty scene lasts until the person is tended;
