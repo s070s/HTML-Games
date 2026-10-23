@@ -138,13 +138,13 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - Payouts go to every participant on 'round' end.
 - Plant gives +300 to each member of the planter's team. Defuse gives +300 to the defuser.
 - Half: when `Modes.swapped` changes (with `halfReset`), all money returns to `startMoney` (800), and the loss counters and kept gear reset.
-- Keep on survive: weapons and armor bought by an actor that did not die come back at its next spawn.
+- Keep on survive (`Economy.keepGear(id)`, at the round payout): armor, helmet, the held weapon, owned weapons with their magazine and reserve ammo, and gadgets of an actor that did not die come back at its next spawn. A round start clears all placed gear.
 - `Economy.hudState(id, out)` fills `{ money, nextRoundMoney, canBuy, buyTimeLeft }`. `nextRoundMoney` is the money a loss from here would leave: the start money when the next round starts a new half, and the money itself once the round has ended.
 - Buying:
   - `Economy.buy(id, itemId)` returns a shared `{ ok, reason, price, item }`.
-  - Checks run in this order: economy, alive, buy time (15 s from round start, or the shop open), buy zone (8 m from the actor's spawn point), item on sale, carry limits (owned weapon, full armor, per-life `limit`, shared `groupLimit` of 4 grenades), money, delivery.
+  - Checks run in this order: economy, alive, buy time (15 s from round start in round modes, 15 s from each spawn in other modes with a round buy economy, or the shop open), buy zone (8 m from the actor's spawn point), item on sale, carry limits (owned weapon, full armor, per-life `limit`, shared `groupLimit` of 4 grenades), money, delivery.
   - Reasons are listed in `BUY_REASON_TEXT`.
-  - Related calls: `buyBlock(id)`, `canBuy(id)`, `buyTimeLeft()`, `catalogue()` (buy items that can be granted, then the priced weapons of the weapon set), `limitReason(id, item)`.
+  - Related calls: `buyBlock(id)`, `canBuy(id)`, `buyTimeLeft(id)`, `catalogue(id)` (buy items that can be granted, then the priced weapons of the weapon set, only what `sideAllows(id, item)` lets that actor's side buy: a mode that arms everyone sells no weapons, and `params.attackerBuys` limits the attackers to the listed item kinds), `priceFor(id, item)` (a helmet over a full vest costs only the helmet), `limitReason(id, item)`. The economy rows no longer have `carryOver`, `slots`, `ammoTypes` or `weaponStay` fields. The help panel text comes from `economyPanelLines(row = Economy.preset())` (18n).
 - `Economy.grants[kind] = fn(id, item) -> bool`:
   - `armor`, `helmet`, `ammo` and `weapon` are built in.
   - `gadget` (`Gadgets.give`) and `grant` (`Items.grantBuy`) are registered at the end of 13d-economy.js.
