@@ -213,10 +213,9 @@ Test.add('hud', (check) => hudTestWith(() => {
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestFillScene(hudTestMatch());
   Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
-  const small = [], textAt = HudBatch.textAt, measureAt = HudBatch.measureAt;
-  HudBatch.textAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return textAt.apply(this, arguments); };
-  HudBatch.measureAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push('measured ' + string); return measureAt.apply(this, arguments); };
-  try { hudTestFrame(); commWheelWidestLabel(Hud.layout.unit); } finally { HudBatch.textAt = textAt; HudBatch.measureAt = measureAt; }
+  const small = [], measureAt = HudBatch.measureAt;   // drawing measures each text first, so this sees drawn and measured sizes
+  HudBatch.measureAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return measureAt.apply(this, arguments); };
+  try { hudTestFrame(); commWheelWidestLabel(Hud.layout.unit); } finally { HudBatch.measureAt = measureAt; }
   check('layout: no text drawn or measured under 14 px on a phone (ACC-008)', Hud.layout.unit < 1 && small.length === 0, small.join());
 }));
 
