@@ -415,16 +415,22 @@ Modes.register('ghostops', Object.assign({}, BOMB_BEHAVIOUR, {
 // Role markers above marked actors and the convoy cart (the framework skips payloadPath objectives).
 function drawModeExtras(batch) {
   if (!Modes.active) return;
+  const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
   for (let id = 0; id < Actors.count; id++) {
     const color = ACTOR_ROLE_MARKERS[Modes.actorRole[id]];
     if (!color || !Actors.alive[id]) continue;
-    batch.mesh('sphere', Actors.x[id], Actors.y[id] + ROLE_MARKER_HEIGHT, Actors.z[id], 0, 0, ROLE_MARKER_SIZE, ROLE_MARKER_SIZE, ROLE_MARKER_SIZE, color[0], color[1], color[2], MARKER_GLOW);
+    instance.x = Actors.x[id]; instance.y = Actors.y[id] + ROLE_MARKER_HEIGHT; instance.z = Actors.z[id];
+    instance.sx = instance.sy = instance.sz = ROLE_MARKER_SIZE;
+    instance.setRgb(color);
+    batch.meshFrom('sphere', instance);
   }
   for (let i = 0; i < Modes.objectives.length; i++) {
     const cart = Modes.objectives[i];
     if (cart.kind !== 'payloadPath' || !cart.path) continue;
-    const color = TEAM_COLORS[cart.contested ? NEUTRAL_COLOR : 0];
-    batch.mesh('box', cart.x, cart.y + CART_LIFT, cart.z, 0, 0, CART_SIZE[0], CART_SIZE[1], CART_SIZE[2], color[0], color[1], color[2], MARKER_GLOW);
+    instance.x = cart.x; instance.y = cart.y + CART_LIFT; instance.z = cart.z;
+    instance.sx = CART_SIZE[0]; instance.sy = CART_SIZE[1]; instance.sz = CART_SIZE[2];
+    instance.setRgb(TEAM_COLORS[cart.contested ? NEUTRAL_COLOR : 0]);
+    batch.meshFrom('box', instance);
   }
 }
 

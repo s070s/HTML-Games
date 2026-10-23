@@ -701,7 +701,7 @@ Test.add('modes', (check) => {
   check('hud state is one reused object', first === second && first.teamScores === Modes.teamScore && first.objectives === Modes.objectives);
   check('hud state fields', first.mode === 'ctf' && first.teams === 2 && first.scoreLimit === 3 && Test.near(first.timeLeft, 900, 0.01) && first.phase === PHASE.LIVE);
   let meshes = 0;
-  Modes.draw({ mesh: () => { meshes++; } });
+  Modes.draw({ meshFrom: () => { meshes++; } });
   check('one marker per objective (Render source)', meshes === Modes.objectives.length);
   endModeTest();
 });

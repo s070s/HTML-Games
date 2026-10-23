@@ -66,6 +66,10 @@ const reachPoint = Vec.make();
 const throwScratch = Vec.make();
 const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+// Reused instance records (batch.meshFrom): smoke blobs, the arc dots and its landing ring; float arguments would be boxed (PERF-006).
+const smokeInstance = Object.assign(makeShapeInstance(), { sx: SMOKE_BLOB, sy: SMOKE_BLOB, sz: SMOKE_BLOB, emissive: 0.25 });
+const previewDotInstance = Object.assign(makeShapeInstance(), { sx: 0.06, sy: 0.06, sz: 0.06, emissive: 1 });
+const landingInstance = Object.assign(makeShapeInstance(), { sy: 0.05, b: 0.4, g: 0.9, emissive: 1 });
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
@@ -304,8 +308,10 @@ const Smoke = {
     for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
       if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(volume, this.cellIndex(ix, iy, iz), grown)) continue;
       this.drawn++;
-      const shade = 0.5 + iy / SMOKE_DIM * 0.25, centre = this.cellCentre(volume, ix, iy, iz);
-      batch.mesh('sphere', centre.x, centre.y, centre.z, 0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
+      const instance = smokeInstance, centre = this.cellCentre(volume, ix, iy, iz);
+      instance.x = centre.x; instance.y = centre.y; instance.z = centre.z;
+      instance.r = instance.g = instance.b = 0.5 + iy / SMOKE_DIM * 0.25;
+      batch.meshFrom('sphere', instance);
     }
   },
 };
@@ -844,7 +850,9 @@ const Gadgets = {
     const row = CAT.gadgets[this.holdRow[id]], steps = this.previewSteps(id, row);
     for (let step = 0; step < steps; step++) {
       if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, row); return; }
-      if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
+      if (step % 2 !== 0) continue;
+      previewDotInstance.x = point.x; previewDotInstance.y = point.y; previewDotInstance.z = point.z;
+      batch.meshFrom('sphere', previewDotInstance);
     }
   },
   // The grenade the local player holds (cooking or about to throw), low in the left of the first-person view.
@@ -878,8 +886,10 @@ const Gadgets = {
     return false;
   },
   drawLanding(batch, point, row) {
-    const size = Math.max(0.5, row.radius * 2);
-    batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
+    const instance = landingInstance;
+    instance.x = point.x; instance.y = point.y + 0.05; instance.z = point.z;
+    instance.sx = instance.sz = Math.max(0.5, row.radius * 2);
+    batch.meshFrom('ring', instance);
   },
   clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
 };

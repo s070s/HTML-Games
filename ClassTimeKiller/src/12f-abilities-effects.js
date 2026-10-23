@@ -1062,15 +1062,23 @@ function onAbilityKill(event) {
 }
 
 // ---- Drawing: zones, beacons, fences, the tracker's footprints (render only, never in headless runs) ----
+// Zones and footprints go through reused instance records (batch.meshFrom): float arguments would be boxed (PERF-006).
+const zoneInstance = makeShapeInstance();
+const footprintInstance = Object.assign(makeShapeInstance(), { sx: FOOTPRINT_SIZE, sy: 0.02, sz: FOOTPRINT_SIZE, g: 0.8, b: 0.2, emissive: 0.8 });
 function drawZone(batch, zone) {
-  const kind = AbilityZones.kind[zone], row = AbilityZones.ability[zone] >= 0 ? zoneRow(zone) : null;
-  const color = row ? row.color : 0xffffff, r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
-  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], zoneZ = AbilityZones.z[zone], radius = Math.min(AbilityZones.radius[zone], 60);
-  if (kind === ZONE_KIND.DOME) batch.mesh('sphere', x, y, zoneZ, 0, 0, radius * 2, radius * 2, radius * 2, r, g, b, 0.3);
-  else if (kind === ZONE_KIND.WALL) batch.mesh('box', x, y + AbilityZones.height[zone] / 2, zoneZ, AbilityZones.yaw[zone], 0, radius * 2, AbilityZones.height[zone], 0.2, r, g, b, 0.2);
-  else if (kind === ZONE_KIND.STRIKE) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, 1, 0.2, 0.2, 1);
-  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) batch.mesh('sphere', x, y + 0.3, zoneZ, 0, 0, 0.3, 0.3, 0.3, r, g, b, 0.8);
-  else if (radius > 0 && radius < 60) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, r, g, b, 0.6);
+  const kind = AbilityZones.kind[zone], row = AbilityZones.ability[zone] >= 0 ? zoneRow(zone) : null, instance = zoneInstance;
+  const radius = Math.min(AbilityZones.radius[zone], 60), size = radius * 2;
+  instance.x = AbilityZones.x[zone]; instance.y = AbilityZones.y[zone]; instance.z = AbilityZones.z[zone]; instance.yaw = 0;
+  instance.sx = instance.sz = size; instance.sy = 0.05;
+  instance.setColor(row ? row.color : 0xffffff);
+  let shape = 'ring';
+  if (kind === ZONE_KIND.DOME) { shape = 'sphere'; instance.sy = size; instance.emissive = 0.3; }
+  else if (kind === ZONE_KIND.WALL) { shape = 'box'; instance.sy = AbilityZones.height[zone]; instance.y += instance.sy / 2; instance.sz = 0.2; instance.yaw = AbilityZones.yaw[zone]; instance.emissive = 0.2; }
+  else if (kind === ZONE_KIND.STRIKE) { instance.y += 0.05; instance.r = 1; instance.g = instance.b = 0.2; instance.emissive = 1; }
+  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) { shape = 'sphere'; instance.y += 0.3; instance.sx = instance.sy = instance.sz = 0.3; instance.emissive = 0.8; }
+  else if (radius > 0 && radius < 60) { instance.y += 0.05; instance.emissive = 0.6; }
+  else return;
+  batch.meshFrom(shape, instance);
 }
 // A16: enemy footprints of the last params.seconds are visible to a viewer with Tracker Sense.
 function footprintVisible(viewer, i) {
@@ -1083,7 +1091,8 @@ function drawFootprints(batch) {
   if (viewer < 0 || Abilities.slotOf(viewer, 'tracker') < 0) return;
   for (let i = 0; i < FOOTPRINT_COUNT; i++) {
     if (!footprintVisible(viewer, i)) continue;
-    batch.mesh('cylinder', Footprints.x[i], Footprints.y[i] + 0.02, Footprints.z[i], 0, 0, FOOTPRINT_SIZE, 0.02, FOOTPRINT_SIZE, 1, 0.8, 0.2, 0.8);
+    footprintInstance.x = Footprints.x[i]; footprintInstance.y = Footprints.y[i] + 0.02; footprintInstance.z = Footprints.z[i];
+    batch.meshFrom('cylinder', footprintInstance);
   }
 }
 function abilityStyle(id, out) {

@@ -859,20 +859,39 @@ function drawChambers(batch) {
   for (let index = 0; index < row.elements.length; index++) drawChamberElement(batch, row.elements[index], ChamberRun.done[index] === 1);
   const exit = ChamberRun.exits[ChamberRun.index];
   if (!exit) return;
-  const color = chamberSolved() ? CHAMBER_COLORS.on : CHAMBER_COLORS.off;
-  batch.mesh('ring', exit.x, exit.y + 0.05, exit.z, 0, 0, exit.radius * 2, 0.1, exit.radius * 2, color[0], color[1], color[2], 0.8);
+  chamberExitSize[0] = chamberExitSize[2] = exit.radius * 2;
+  drawChamberMark(batch, 'ring', exit, 0.05, chamberExitSize, chamberSolved() ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, 0.8);
+}
+// Chamber marks per element kind: shape, lift above the spot, full size, glow (fizzle walls and the cube are boxes of their own size).
+const CHAMBER_MARKS = {
+  button: { shape: 'cylinder', lift: 0.5, size: [0.35, 1, 0.35], glow: 0.6 },
+  plate: { shape: 'disc', lift: 0.03, size: [1.6, 0.05, 1.6], glow: 0.5 },
+  relay: { shape: 'sphere', lift: 0, size: [0.5, 0.5, 0.5], glow: 0.9 },
+};
+const chamberExitSize = [0, 0.1, 0];
+// One reused instance record (batch.meshFrom, PERF-006): the callers pass objects and constants, the floats are computed here.
+const chamberInstance = makeShapeInstance();
+function drawChamberMark(batch, shape, spot, lift, size, color, glow) {
+  const instance = chamberInstance;
+  instance.x = spot.x; instance.y = spot.y + lift; instance.z = spot.z;
+  instance.sx = size[0]; instance.sy = size[1]; instance.sz = size[2];
+  instance.setRgb(color); instance.emissive = glow;
+  batch.meshFrom(shape, instance);
 }
 function drawChamberElement(batch, element, done) {
-  const color = done ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, size = PVE_CHAMBER_RULES.cubeSize;
+  const mark = CHAMBER_MARKS[element.kind];
   chamberElementAt(element, pveSpot);
-  if (element.kind === 'button') batch.mesh('cylinder', pveSpot.x, pveSpot.y + 0.5, pveSpot.z, 0, 0, 0.35, 1, 0.35, color[0], color[1], color[2], 0.6);
-  else if (element.kind === 'plate') batch.mesh('disc', pveSpot.x, pveSpot.y + 0.03, pveSpot.z, 0, 0, 1.6, 0.05, 1.6, color[0], color[1], color[2], 0.5);
-  else if (element.kind === 'relay') batch.mesh('sphere', pveSpot.x, pveSpot.y, pveSpot.z, 0, 0, 0.5, 0.5, 0.5, color[0], color[1], color[2], 0.9);
-  else if (element.kind === 'fizzle') drawBox(batch, pveSpot.x, pveSpot.y + element.size[1] / 2, pveSpot.z, element.size, CHAMBER_COLORS.fizzle, 0.4);
-  else if (element.kind === 'cube') drawBox(batch, ChamberRun.cubeX, ChamberRun.cubeY + size / 2, ChamberRun.cubeZ, CHAMBER_CUBE_SIZE, CHAMBER_COLORS.cube, 0.2);
+  if (mark) drawChamberMark(batch, mark.shape, pveSpot, mark.lift, mark.size, done ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, mark.glow);
+  else if (element.kind === 'fizzle') drawChamberBox(batch, element.size, CHAMBER_COLORS.fizzle, 0.4);
+  else if (element.kind === 'cube') {
+    pveSpot.x = ChamberRun.cubeX; pveSpot.y = ChamberRun.cubeY; pveSpot.z = ChamberRun.cubeZ;
+    drawChamberBox(batch, CHAMBER_CUBE_SIZE, CHAMBER_COLORS.cube, 0.2);
+  }
 }
-function drawBox(batch, x, y, z, size, color, glow) {
-  batch.mesh('box', x, y, z, 0, 0, size[0], size[1], size[2], color[0], color[1], color[2], glow);
+// A box standing on pveSpot
+function drawChamberBox(batch, size, color, glow) {
+  pveSpot.y += size[1] / 2;
+  drawChamberMark(batch, 'box', pveSpot, 0, size, color, glow);
 }
 Render.addSource('pveChambers', drawChambers);
 

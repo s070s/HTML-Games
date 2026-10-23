@@ -143,11 +143,16 @@ function hudDrawKillcamFigures(batch) {
     if (id === Killcam.killer) continue;                       // the camera is inside this one
     const body = Killcam.sample(id, time);
     if (!body.alive) continue;
-    const color = Progress.bodyColor(id, Hud.actorColor(id)), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
-    batch.mesh('capsule', body.x, body.y + figure.height / 2, body.z, body.yaw, 0, figure.width, figure.height, figure.width, r, g, b, 0);
-    batch.mesh('box', body.x + Math.sin(body.yaw) * 0.3, body.y + figure.faceHeight, body.z + Math.cos(body.yaw) * 0.3, body.yaw, 0, figure.faceSize, figure.faceSize * 0.5, figure.faceSize, 1, 1, 1, 0.4);
+    const capsule = killcamBodyInstance, face = killcamFaceInstance;   // reused instance records (batch.meshFrom, PERF-006)
+    capsule.x = body.x; capsule.y = body.y + figure.height / 2; capsule.z = body.z; capsule.yaw = body.yaw;
+    capsule.setColor(Progress.bodyColor(id, Hud.actorColor(id)));
+    batch.meshFrom('capsule', capsule);
+    face.x = body.x + Math.sin(body.yaw) * 0.3; face.y = body.y + figure.faceHeight; face.z = body.z + Math.cos(body.yaw) * 0.3; face.yaw = body.yaw;
+    batch.meshFrom('box', face);
   }
 }
+const killcamBodyInstance = Object.assign(makeShapeInstance(), { sx: KILLCAM_FIGURE.width, sy: KILLCAM_FIGURE.height, sz: KILLCAM_FIGURE.width });
+const killcamFaceInstance = Object.assign(makeShapeInstance(), { sx: KILLCAM_FIGURE.faceSize, sy: KILLCAM_FIGURE.faceSize * 0.5, sz: KILLCAM_FIGURE.faceSize, emissive: 0.4 });
 Render.addSource('killcam', hudDrawKillcamFigures);
 
 // ---- Killcam panel: letterbox, killer name, weapon, the killer's health and armor, skip hint ----

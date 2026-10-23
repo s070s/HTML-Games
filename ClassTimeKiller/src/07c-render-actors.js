@@ -120,6 +120,7 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 
 // ---- Instance batches ----
 const shapeBatches = [];
+let shapeOverflowLogged = false;
 // One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
 // Built by a constructor, not an object literal: V8 shares the field types of literals with the same property count and
 // first keys (09a's nav builder { x: [], y: [], z: [], ... } also has 12), and a field that once held an array boxes every
@@ -128,6 +129,12 @@ function ShapeInstance() {
   this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.sx = 1; this.sy = 1; this.sz = 1;
   this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
 }
+// r, g, b from a 0xRRGGBB integer (an integer argument is never boxed)
+ShapeInstance.prototype.setColor = function (color) {
+  this.r = (color >> 16 & 255) / 255; this.g = (color >> 8 & 255) / 255; this.b = (color & 255) / 255;
+};
+// r, g, b from an [r, g, b] list of 0..1 values
+ShapeInstance.prototype.setRgb = function (rgb) { this.r = rgb[0]; this.g = rgb[1]; this.b = rgb[2]; };
 const makeShapeInstance = () => new ShapeInstance();
 function makeShapeBatch(name, capacity) {
   const batch = {
@@ -152,7 +159,13 @@ function makeShapeBatch(name, capacity) {
       const shapeIndex = SHAPE_INDEX[shape];
       if (shapeIndex === undefined) return -1;
       const count = this.counts[shapeIndex];
-      if (count >= this.capacity) { Render.stats.droppedInstances++; return -1; }
+      if (count >= this.capacity) {
+        // the perf HUD shows the count per frame; the first overflow of a session is logged
+        if (!shapeOverflowLogged) console.info('shape batch ' + this.name + ' full (' + this.capacity + ' ' + shape + '): instances dropped');
+        shapeOverflowLogged = true;
+        Render.stats.droppedInstances++;
+        return -1;
+      }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
       d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;

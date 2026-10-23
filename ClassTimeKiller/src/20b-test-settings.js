@@ -36,7 +36,7 @@ function settingTestExerciseReads() {
   const id = Game.playerId;
   Gadgets.holdStart[id] = 0;
   Gadgets.holdRow[id] = CAT.gadgets.find((row) => row.cook).index;
-  Gadgets.drawPreview({ mesh: () => 0 });
+  Gadgets.drawPreview({ meshFrom: () => 0 });
   Gadgets.holdStart[id] = Gadgets.holdRow[id] = -1;
   Difficulty.tierShift();
   Progress.unlockAll();

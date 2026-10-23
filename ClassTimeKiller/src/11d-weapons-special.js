@@ -211,11 +211,16 @@ const WeaponSpecialState = {
     for (let id = 0; id < Actors.count; id++) this.stepHeld(id);
     this.stepGates(dt);
   },
+  // One reused instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
+  gateInstance: Object.assign(makeShapeInstance(), { sx: GATE_RADIUS * 2, sy: GATE_RADIUS * 2, sz: 0.1, emissive: 1 }),
   drawGates(batch) {
+    const instance = this.gateInstance;
     for (let slot = 0; slot < Actors.count * 2; slot++) {
       if (!this.gateOpen[slot]) continue;
-      const color = GATE_COLORS[slot % 2], yaw = Math.atan2(this.gateNx[slot], this.gateNz[slot]), pitch = Math.asin(clamp(this.gateNy[slot], -1, 1));
-      batch.mesh('ring', this.gateX[slot], this.gateY[slot], this.gateZ[slot], yaw, pitch, GATE_RADIUS * 2, GATE_RADIUS * 2, 0.1, (color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255, 1);
+      instance.x = this.gateX[slot]; instance.y = this.gateY[slot]; instance.z = this.gateZ[slot];
+      instance.yaw = Math.atan2(this.gateNx[slot], this.gateNz[slot]); instance.pitch = Math.asin(clamp(this.gateNy[slot], -1, 1));
+      instance.setColor(GATE_COLORS[slot % 2]);
+      batch.meshFrom('ring', instance);
     }
   },
 };

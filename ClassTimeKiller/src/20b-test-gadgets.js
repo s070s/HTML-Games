@@ -557,7 +557,7 @@ Test.add('gadgets', (check) => {
   Game.playerId = id;
   Actors.pitch[id] = Actors.aimPitch[id] = 30 * DEG;   // a long lob: about 3 s in the air
   let ring = null;
-  const batch = { mesh: (shape, x, y, z) => { if (shape === 'ring') ring = { x, z }; return 0; } };
+  const batch = { meshFrom: (shape, instance) => { if (shape === 'ring') ring = { x: instance.x, z: instance.z }; return 0; } };
   Actors.buttons[id] = BTN.GRENADE;
   Sim.run(1);
   Gadgets.drawPreview(batch);

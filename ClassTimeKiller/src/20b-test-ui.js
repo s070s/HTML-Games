@@ -477,6 +477,13 @@ Test.add('ui', (check) => uiWith(() => {
     ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'bots', 'ai ', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
   Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', PerfOverlay.format(Perf.stats()).join('\n').includes('visible in the HUD')); });
   check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = PerfOverlay.format(Perf.stats()).join('\n').includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
+  const savedDropped = [Render.stats.droppedInstances, HudBatch.dropped];
+  Render.stats.droppedInstances = 0; HudBatch.dropped = 0;
+  const quiet = PerfOverlay.format(Perf.stats()).join('\n');
+  Render.stats.droppedInstances = 3; HudBatch.dropped = 5;
+  const full = PerfOverlay.format(Perf.stats()).join('\n');
+  [Render.stats.droppedInstances, HudBatch.dropped] = savedDropped;
+  check('perf HUD: overflowing batches show their dropped counts, only when there are some (R-210)', !quiet.includes('dropped instances') && full.includes('dropped instances 3') && full.includes('dropped HUD quads 5'), full);
   Settings.set('developer.perfHud', false);
   PerfOverlay.shown = false; PerfOverlay.lastUpdate = 0;
   PerfOverlay.frame();

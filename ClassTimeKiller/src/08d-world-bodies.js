@@ -314,18 +314,24 @@ function onExplosion(event) {
   }
 }
 
+// Props and bodies go through one reused instance record (batch.meshFrom, PERF-006: float arguments would be boxed).
+const bodyInstance = makeShapeInstance();
 function drawBodies(batch) {
+  const instance = bodyInstance;
   for (let i = 0; i < Props.brushes.length; i++) {
     if (!Props.isStanding(i)) continue;
-    const b = Props.brushes[i], color = Props.color[i];
-    batch.mesh('box', (b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2, 0, 0, b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ,
-      (color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255, 0);
+    const b = Props.brushes[i];
+    instance.x = (b.minX + b.maxX) / 2; instance.y = (b.minY + b.maxY) / 2; instance.z = (b.minZ + b.maxZ) / 2;
+    instance.sx = b.maxX - b.minX; instance.sy = b.maxY - b.minY; instance.sz = b.maxZ - b.minZ;
+    instance.setColor(Props.color[i]);
+    batch.meshFrom('box', instance);
   }
   for (let i = 0; i < BODY_CAPACITY; i++) {
     if (!Bodies.active[i]) continue;
-    const color = Bodies.color[i], shape = Bodies.shape[i] === BODY_SHAPE.SPHERE ? 'sphere' : 'box';
-    batch.mesh(shape, Bodies.x[i], Bodies.y[i], Bodies.z[i], 0, 0, Bodies.halfX[i] * 2, Bodies.halfY[i] * 2, Bodies.halfZ[i] * 2,
-      (color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255, 0);
+    instance.x = Bodies.x[i]; instance.y = Bodies.y[i]; instance.z = Bodies.z[i];
+    instance.sx = Bodies.halfX[i] * 2; instance.sy = Bodies.halfY[i] * 2; instance.sz = Bodies.halfZ[i] * 2;
+    instance.setColor(Bodies.color[i]);
+    batch.meshFrom(Bodies.shape[i] === BODY_SHAPE.SPHERE ? 'sphere' : 'box', instance);
   }
 }
 

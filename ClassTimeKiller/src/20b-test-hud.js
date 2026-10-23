@@ -456,7 +456,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Render.applyActorStyle(foe, style);
   check('killcam: live bodies are hidden while it plays', style.visible === false);
   let figures = 0;
-  hudDrawKillcamFigures({ mesh() { figures++; return 0; } });
+  hudDrawKillcamFigures({ meshFrom() { figures++; return 0; } });
   check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);

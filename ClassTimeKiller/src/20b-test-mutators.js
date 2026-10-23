@@ -541,7 +541,7 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
 
   const drawn = [];
-  const batch = { mesh(shape) { drawn.push(shape); } };
+  const batch = { meshFrom(shape) { drawn.push(shape); } };
   const source = Render.sources.find((entry) => entry.name === 'gifts');
   startMutatorMatch(['lastgift']);
   source.draw(batch);

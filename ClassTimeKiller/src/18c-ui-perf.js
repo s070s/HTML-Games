@@ -61,6 +61,11 @@ const PerfOverlay = {
     const memory = performance.memory;
     return memory ? (memory.usedJSHeapSize / BYTES_PER_MEGABYTE).toFixed(1) + ' MB' : 'n/a';
   },
+  // Overflow of the fixed-size batches (R-210): shape instances refused in the last frame, HUD quads this session.
+  droppedText() {
+    const instances = Render.stats.droppedInstances, quads = HudBatch.dropped;
+    return (instances ? '   dropped instances ' + instances : '') + (quads ? '   dropped HUD quads ' + quads : '');
+  },
   slowestSystems(timing) {
     return Object.keys(timing).sort((a, b) => timing[b] - timing[a]).slice(0, PERF_SYSTEMS_SHOWN).map((name) => name + ' ' + timing[name].toFixed(2));
   },
@@ -69,7 +74,7 @@ const PerfOverlay = {
     const lines = [
       'fps ' + stats.fps.toFixed(1) + '   frame p50 ' + stats.p50.toFixed(2) + '  p95 ' + stats.p95.toFixed(2) + '  p99 ' + stats.p99.toFixed(2) + ' ms',
       'sim p95 ' + stats.simP95.toFixed(2) + ' ms   render ' + counters.renderMs.toFixed(2) + '   hud ' + counters.hudMs.toFixed(2) + '   audio ' + counters.audioMs.toFixed(2) + '   gpu ' + counters.gpuMs.toFixed(2),
-      'draw calls ' + counters.drawCalls + '   triangles ' + counters.triangles + '   render scale ' + counters.renderScale.toFixed(2),
+      'draw calls ' + counters.drawCalls + '   triangles ' + counters.triangles + '   render scale ' + counters.renderScale.toFixed(2) + this.droppedText(),
       'actors ' + counts.actors + '   bots ' + counts.bots + '   ai ' + this.aiMilliseconds(stats.systems).toFixed(2) + ' ms   projectiles ' + counters.projectiles + '   particles ' + counters.particles + '   dropped steps ' + stats.droppedSteps,
       'heap ' + this.heapText() + '   device ' + Input.device + '   bot debug ' + (Ui.botDebug ? 'on' : 'off'),
       'systems ms: ' + (this.slowestSystems(stats.systems).join('  ') || '-'),

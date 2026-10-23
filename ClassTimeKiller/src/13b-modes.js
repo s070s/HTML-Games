@@ -41,6 +41,7 @@ const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // 
 const NEUTRAL_COLOR = 2;
 const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
+const markerInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });   // objective and role markers (each sets place, size, colour)
 
 const DEFAULT_BEHAVIOUR = {
   limits: ['score', 'time'],
@@ -898,13 +899,16 @@ function drawObjective(batch, objective) {
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
   if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
-  const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
+  const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
+  instance.setRgb(TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR]);
+  instance.x = objective.x; instance.z = objective.z;
   if (!carriable) {
-    batch.mesh('ring', objective.x, objective.y + 0.05, objective.z, 0, 0, objective.radius, 1, objective.radius, color[0], color[1], color[2], MARKER_GLOW);
+    instance.y = objective.y + 0.05; instance.sx = instance.sz = objective.radius; instance.sy = 1;
+    batch.meshFrom('ring', instance);
     return;
   }
-  const lift = objective.state === 'carried' ? 2.1 : 0;
-  batch.mesh(objective.kind === 'flag' ? 'cylinder' : 'box', objective.x, objective.y + lift + 0.6, objective.z, 0, 0, 0.12, 1.2, 0.12, color[0], color[1], color[2], MARKER_GLOW);
+  instance.y = objective.y + (objective.state === 'carried' ? 2.1 : 0) + 0.6; instance.sx = instance.sz = 0.12; instance.sy = 1.2;
+  batch.meshFrom(objective.kind === 'flag' ? 'cylinder' : 'box', instance);
 }
 
 Bus.on('match.start', (match) => Modes.start(match));

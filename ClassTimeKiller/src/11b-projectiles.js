@@ -37,6 +37,7 @@ const steerScratch = Vec.make();
 const projectilePose = makeModelPose();   // model projectiles: scale 1, no glow floor
 const PROJECTILE_FACING_SPEED = 0.5;      // m/s: slower (stuck, resting) projectiles keep their last facing
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
+const projectileInstance = makeShapeInstance();   // the glowing spheres and puddles (Projectiles.draw)
 CAT.projectiles.forEach((row, index) => {
   row.index = index;
   projectileColors[index * 3] = (row.color >> 16 & 255) / 255;
@@ -540,11 +541,14 @@ const Projectiles = {
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (!this.state[i]) continue;
       const row = this.row(i), type = this.type[i], model = WeaponModels.projectile[type];
-      const r = projectileColors[type * 3], g = projectileColors[type * 3 + 1], b = projectileColors[type * 3 + 2];
-      if (this.state[i] === PROJECTILE_STATE.AREA) { const size = this.modeOf(i).puddle.radius * 2; batch.mesh('cylinder', this.x[i], this.y[i], this.z[i], 0, 0, size, 0.04, size, r, g, b, 0.6); continue; }
-      if (model) { this.drawModel(batch, i, model); continue; }
-      const size = Math.max(0.08, row.radius * 2 * row.scale);
-      batch.mesh('sphere', this.x[i], this.y[i], this.z[i], 0, 0, size, size, size, r, g, b, 1);
+      if (model && this.state[i] !== PROJECTILE_STATE.AREA) { this.drawModel(batch, i, model); continue; }
+      // one reused instance record (batch.meshFrom): float arguments would be boxed (PERF-006)
+      const instance = projectileInstance, area = this.state[i] === PROJECTILE_STATE.AREA;
+      const size = area ? this.modeOf(i).puddle.radius * 2 : Math.max(0.08, row.radius * 2 * row.scale);
+      instance.x = this.x[i]; instance.y = this.y[i]; instance.z = this.z[i];
+      instance.sx = instance.sz = size; instance.sy = area ? 0.04 : size; instance.emissive = area ? 0.6 : 1;
+      instance.r = projectileColors[type * 3]; instance.g = projectileColors[type * 3 + 1]; instance.b = projectileColors[type * 3 + 2];
+      batch.meshFrom(area ? 'cylinder' : 'sphere', instance);
     }
   },
   drawModel(batch, i, model) {
