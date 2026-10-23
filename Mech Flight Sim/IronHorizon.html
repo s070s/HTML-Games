@@ -541,15 +541,15 @@ const DIFFICULTY = {
   elite: { name: 'Elite', scoreMult: 1.35, react: 0.28, aimErr: 0.007, dmg: 1.25, sight: 1.25, count: 1.3, aggr: 1.4, tactical: 1, hp: 1.1, burst: 1.3, focus: 0.8 },
 };
 
-/* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraBush bushes per chunk
-   drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame;
+/* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraVerts full-detail
+   vertices drawn per frame (nearest chunks first: a dense forest shows stand-ins nearer), floraBush bushes per chunk drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame;
    fauna (Fauna): share of each group's animals placed, faunaDraw m within which animals are drawn (simple models past
    faunaLod), faunaCap animals drawn per frame, faunaSim animals placed (and simulated) in all;
    maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -4621,6 +4621,7 @@ const FLORA_PARTS = {
 const Flora = {
   rs: 1, ax: 0, ay: 0, az: 0, tw: 0, burn: 1, ends: new Float32Array(24), nEnds: 0, leaf: [0, 0, 0], bark: [0, 0, 0],
   q: QUALITY.medium, qKey: '', offs: null, rec: null, wants: [], wantD: new Float64Array(FLORA_WANTS), nWant: 0,
+  tick: 0, nearD: [], cutD2: Infinity,   // the frame's number (fl.on), distances of the full meshes, where the budget ran out
   job: { c: null, k: 0, bushes: 0, q: '' },   // the chunk whose full mesh is being baked, its next plant and bush count
   push: new Float32Array(COVER_PUSH * 4), pushD: new Float64Array(COVER_PUSH), nPush: 0,   // what bends the cover (COVER_VS)
   scratch: { data: new Float32Array(1 << 16), n: 0, useInst: false }, patch: { data: new Float32Array(9 * 1024), n: 0, useInst: false }, zeros: new Float32Array(9 * 1024),
@@ -4844,7 +4845,7 @@ const Flora = {
     R.stack.push().t(p.x, p.y + f[1] * H, p.z).ry(p.yaw).s(w, f[3] * H, w);
     R.draw(f[0], L[0] * b, L[1] * b, L[2] * b); R.stack.pop();
   },
-  /* once per frame, before the chunks: quality, and dropping full-detail meshes left far behind */
+  /* once per frame, before the chunks: quality, dropping full-detail meshes left far behind, and which are drawn */
   frame() {
     if (S.quality !== this.qKey) {
       if (this.qKey && W.chunks) Chunks.markAll();   // the bush caps changed: re-bake stand-ins and full meshes
@@ -4861,6 +4862,26 @@ const Flora = {
       if (c.fl.mesh && c.fl.ctx === R.ctxId) R.gl.deleteBuffer(c.fl.mesh.buf);
       c.fl = null; F.near[k] = F.near[F.near.length - 1]; F.near.pop();
     }
+    this.admit(F);
+  },
+  /* the full-detail meshes drawn this frame (fl.on): the nearest within reach first, while their vertices fit the
+     quality's floraVerts; past the first that does not fit (cutD2) chunks keep their stand-ins and are not baked */
+  admit(F) {
+    const cam = R.cam, near = F.near, D = this.nearD, reach = this.q.floraNear + FLORA_REACH;
+    let left = this.q.floraVerts;
+    this.tick++; this.cutD2 = Infinity;
+    for (let k = 0; k < near.length; k++) {
+      const c = near[k], dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z, d2 = dx * dx + dy * dy + dz * dz;
+      D[k] = this.ready(c) && d2 <= reach * reach ? d2 : -1;
+    }
+    for (;;) {
+      let best = -1;
+      for (let k = 0; k < near.length; k++) if (D[k] >= 0 && (best < 0 || D[k] < D[best])) best = k;
+      if (best < 0) return;
+      const fl = near[best].fl;
+      if (fl.n > left) { this.cutD2 = D[best]; return; }
+      left -= fl.n; fl.on = this.tick; D[best] = -1;
+    }
   },
   beyond(c, lim) { const cam = R.cam, dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z; return dx * dx + dy * dy + dz * dz > lim * lim; },
   ready(c) { return !!c.fl && c.fl.ctx === R.ctxId && c.fl.q === this.qKey; },
@@ -4869,8 +4890,8 @@ const Flora = {
   nearOf(c) {
     const cam = R.cam, dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z, d2 = dx * dx + dy * dy + dz * dz, lim = this.q.floraNear + FLORA_REACH;
     if (d2 > lim * lim || !W.flora) return false;
-    if (this.ready(c)) return c.fl.n > 0;
-    if (this.nWant < FLORA_WANTS) { this.wants[this.nWant] = c; this.wantD[this.nWant] = d2; this.nWant++; }
+    if (this.ready(c)) return c.fl.n > 0 && c.fl.on === this.tick;
+    if (d2 < this.cutD2 && this.nWant < FLORA_WANTS) { this.wants[this.nWant] = c; this.wantD[this.nWant] = d2; this.nWant++; }
     return false;
   },
   /* after the chunks: bakes the full meshes asked for this frame, nearest first, FLORA_BAKE_VERTS vertices a frame (all
@@ -4910,7 +4931,7 @@ const Flora = {
     if (J.k < c.plants.length) return used;
     const data = B.data.subarray(0, B.n * 9);
     let fl = c.fl;
-    if (!fl) { fl = c.fl = { mesh: null, n: 0, ctx: -1, q: '' }; W.flora.near.push(c); }
+    if (!fl) { fl = c.fl = { mesh: null, n: 0, ctx: -1, q: '', on: 0 }; W.flora.near.push(c); }
     if (fl.mesh && fl.ctx === R.ctxId) R.updateMesh(fl.mesh, data); else fl.mesh = R.makeMesh(data);
     fl.n = B.n; fl.ctx = R.ctxId; fl.q = J.q;
     J.c = null;
@@ -19181,6 +19202,22 @@ const SelfTest = {
           }
         } finally { R.bake = prev; }
         this.check(map + ': every tree that blocks is drawn far away too', blocking > 0 && drawn === blocking, drawn + ' of ' + blocking + ' drawn');
+        // the full-detail budget never bites here: from any chunk, the full meshes in reach fit floraVerts on every quality
+        const keepQuality = S.quality, over = [];
+        try {
+          for (const q of ['low', 'medium', 'high']) {
+            S.quality = q; Flora.frame();
+            const cs = W.chunks.filter((c) => c.plants.length), reach = QUALITY[q].floraNear + FLORA_REACH;
+            for (const c of cs) Flora.bakeNear(c);
+            let most = 0;
+            for (const a of W.chunks) {
+              const y = Terrain.h(a.cx, a.cz) + 2;
+              most = Math.max(most, cs.reduce((n, c) => n + (Math.hypot(c.cx - a.cx, c.cy - y, c.cz - a.cz) <= reach ? c.fl.n : 0), 0));
+            }
+            if (most > QUALITY[q].floraVerts) over.push(q + ' ' + most);
+          }
+        } finally { S.quality = keepQuality; Flora.frame(); }
+        this.check(map + ': the full-detail budget never shows a stand-in nearer than floraNear', over.length === 0, over.join(', '));
       }
       Game.quitToMenu();
       this.check('the menu world keeps its trees', this.treeHash() === TREE_GOLDEN.menu, 'trees ' + this.treeHash());
@@ -19205,6 +19242,24 @@ const SelfTest = {
           this.check('mission ' + m.id + ' has animals, none on its sites', W.fauna.count > 0 && onSiteAnimals === 0, W.fauna.count + ' animals, ' + onSiteAnimals + ' on sites');
         }
       } finally { Game.quitToMenu(); }
+    });
+    t('flora full-detail budget on the jungle', () => {
+      const keepQuality = S.quality;
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'jungle', size: 'small', seed: 11, random: false, support: 'none' }) });
+        S.quality = 'high'; Flora.frame();
+        // in the densest chunk: every full mesh in reach baked, then the nearest ones drawn while they fit floraVerts
+        const c = W.chunks.reduce((a, b) => (b.plants.length > a.plants.length ? b : a)), y = Terrain.h(c.cx, c.cz) + 2, reach = QUALITY.high.floraNear + FLORA_REACH;
+        R.beginFrame({ x: c.cx, y, z: c.cz, tx: c.cx + 30, ty: y, tz: c.cz }, 70);
+        const inReach = W.chunks.filter((k) => k.plants.length && Math.hypot(k.cx - c.cx, k.cy - y, k.cz - c.cz) <= reach);
+        for (const k of inReach) Flora.bakeNear(k);
+        Flora.frame();
+        const on = inReach.filter((k) => k.fl.on === Flora.tick), off = inReach.filter((k) => k.fl.on !== Flora.tick), dist = (k) => Math.hypot(k.cx - c.cx, k.cy - y, k.cz - c.cz);
+        const verts = on.reduce((n, k) => n + k.fl.n, 0), all = inReach.reduce((n, k) => n + k.fl.n, 0);
+        const nearest = on.every((a) => off.every((b) => dist(a) <= dist(b)));
+        this.check('the jungle draws its nearest full meshes within floraVerts, stand-ins past them', all > QUALITY.high.floraVerts && verts <= QUALITY.high.floraVerts && on.length > 0 && off.length > 0 && nearest && !Flora.nearOf(off[0]) && Flora.nearOf(on[0]), verts + ' of ' + all + ' vertices, ' + on.length + ' of ' + inReach.length + ' chunks');
+        this.check('every quality has a full-detail budget', ['low', 'medium', 'high'].every((q) => QUALITY[q].floraVerts > 0));
+      } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
       this.check('the net version is 4 (weather, time of day and the world hash in start)', NET_VERSION === 4);
