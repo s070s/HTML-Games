@@ -651,6 +651,16 @@ Test.add('render', (check) => withRenderer(() => {
   check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
+  // A resize or a rotation: the very next frame already projects with the new aspect (no stretched frame).
+  const style = Render.canvas.style;
+  style.width = '400px'; style.height = '200px';
+  Render.size.dirty = true;
+  Render.drawFrame(1 / 60, 1);
+  const aspect = Render.frame.projection[5] / Render.frame.projection[0];
+  style.width = ''; style.height = '';
+  Render.size.dirty = true;
+  Render.drawFrame(1 / 60, 1);
+  check('the frame after a resize uses the new aspect', Test.near(aspect, 2, 0.02), aspect);
 }));
 
 // ---- Context loss and restore (PLT-005) ----

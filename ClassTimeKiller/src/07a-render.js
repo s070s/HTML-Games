@@ -130,6 +130,8 @@ const Render = {
     this.frameStart = performance.now();
     resetFrameStats();
     this.frame.time += seconds;
+    // A resize first, so the camera's matrices already use the new aspect; the updates may change the scale or samples again.
+    if (this.size.dirty) resizeTargets(gl);
     for (let i = 0; i < this.updates.length; i++) this.updates[i].run(seconds, alpha);
     if (this.size.dirty || this.target.samples !== this.wantedSamples()) resizeTargets(gl);
     GpuTimer.begin(gl);
