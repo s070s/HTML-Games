@@ -401,7 +401,7 @@ Test.add('mapgen', async (check) => {
     const shownMap = MapGenMenu.state.map;
     MapGenMenu.set('difficulty', 'stroll'); MapGenMenu.set('bots', 2);
     const chosen = MapGenMenu.setup();
-    check('menu: Play uses the chosen difficulty and bot count, and keeps the shown map', chosen.difficulty === 'stroll' && chosen.bots.length === 2 && chosen.map === shownMap);
+    check('menu: Play uses the chosen bots and difficulty, same map', chosen.difficulty === 'stroll' && chosen.bots.length === 2 && chosen.map === shownMap);
     MapGenMenu.set('difficulty', PLAY_DEFAULT_DIFFICULTY); MapGenMenu.set('bots', MAPGEN_MENU_MODE_BOTS);
     check('menu: the status says what was made', MapGenMenu.describe().includes(MapGenMenu.state.map.name));
     check('menu: sizes stop at the tier cap', MapGenMenu.sizes().every((row) => row.index <= MapGen.sizeCap().index));
@@ -411,7 +411,7 @@ Test.add('mapgen', async (check) => {
       uiClickButton(Ui.root.querySelector('.ui-custom'), 'Map');
       check('screen: the custom match Map tab opens it', uiClickButton(Ui.root.querySelector('.ui-custom'), 'Generate a map') && Ui.current() === 'mapgen');
       const root = Ui.root.querySelector('.ui-mapgen');
-      check('screen: generator, mode, size, theme, density, bots, difficulty, seed, share and paste rows', root && root.querySelectorAll('.ui-row').length === 10, root && root.querySelectorAll('.ui-row').length);
+      check('screen: generator, mode, size, theme, density, bots, difficulty, seed, share, paste', root && root.querySelectorAll('.ui-row').length === 10, root && root.querySelectorAll('.ui-row').length);
       root.querySelector('.ui-cycle')._adjust(1);
       check('screen: the generator cycle steps with the pad and arrows', MapGenMenu.state.generator === 'GN5' && root.querySelector('.ui-cycle').textContent.startsWith('GN5'));
       root.querySelector('.ui-cycle')._adjust(-1);

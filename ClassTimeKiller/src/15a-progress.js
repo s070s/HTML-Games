@@ -195,7 +195,7 @@ const Progress = {
     const mine = this.playerResult(results);
     if (!mine) return 'No XP: you did not play this match.';
     if (results.duration < PROGRESS_XP.minimumSeconds) return 'No XP: matches under ' + PROGRESS_XP.minimumSeconds + ' s pay none.';
-    return this.tookPart(mine) ? '' : 'No XP: you did not take part (no score, kill, assist or damage).';
+    return this.tookPart(mine) ? '' : 'No XP: you did not take part.';
   },
   // The one "took part" rule (XP, a side's win): score, objective points, a kill, an assist or damage dealt.
   tookPart(mine) { return mine.score > 0 || mine.objective > 0 || mine.kills > 0 || mine.assists > 0 || this.playerDamage() > 0; },

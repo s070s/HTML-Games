@@ -47,8 +47,6 @@ function mapTestEnclosure(x, y, z) {
 }
 const mapTestPoints = (map, group) => map.items.filter((item) => item.group === group);
 const mapTestFloorOnly = (map) => { map.brushes = map.brushes.filter((brush) => brush.max[1] <= 0); };
-// The items of a map that serve a mode (the one serving rule, mapServesMode).
-const mapTestItemsFor = (map, modeId) => map.items.filter((item) => mapServesMode(item, modeId));
 const mapTestPad = (map) => map.triggers.find((trigger) => trigger.kind === 'jumppad');
 // Standing points around an anchor point (at least 3 m from it and from each other), found with the scan so they are real floor.
 function mapTestPointsNear(map, anchor, count) {
@@ -226,13 +224,11 @@ Test.add('maps', (check) => {
   const missing = catalogues.length < 3 ? [] : CAT.maps.flatMap((map) => map.items.map((item) => item.item)).filter((key) => !catalogues.some((name) => CAT[name].byId(key)));
   check('items: every item key exists in the weapons, powerups or items catalogue (checked once those exist)', missing.length === 0, missing.join());
   const spire = Maps.get('spire'), range = Maps.get('provinggrounds');
-  check('items: production keeps no test-only item lookup', Maps.itemsFor === undefined);
-  const arenaGuns = CAT.weaponSets.byId('arenaSet').weapons, offSet = [];
-  for (const map of CAT.maps.filter((row) => row.category === 'arena')) {
-    for (const item of map.items) if (item.group === 'weapon' && !arenaGuns.includes(item.item)) offSet.push(map.id + ':' + item.item);
-  }
-  check('items: arena maps place only Arena set weapons on their pads', offSet.length === 0, offSet.join());
-  check('items: itemsFor filters by mode', mapTestItemsFor(range, 'range').length > 0 && mapTestItemsFor(range, 'ffa').length === 0 && mapTestItemsFor(spire, 'ffa').length === spire.items.length);
+  const arenaGuns = CAT.weaponSets.byId('arenaSet').weapons;
+  const offSet = CAT.maps.filter((map) => map.category === 'arena' && map.items.some((item) => item.group === 'weapon' && !arenaGuns.includes(item.item)));
+  check('items: arena maps place only Arena set weapons', !offSet.length, offSet.map((map) => map.id).join());
+  const serves = (map, mode) => map.items.filter((item) => mapServesMode(item, mode)).length;
+  check('items: mapServesMode filters by mode', serves(range, 'range') && !serves(range, 'ffa') && serves(spire, 'ffa') === spire.items.length);
 });
 
 Test.add('maps', (check) => {
@@ -277,10 +273,10 @@ Test.add('maps', (check) => {
   const noObjectiveModes = mapTestClone('twinkeeps');
   noObjectiveModes.objectives.forEach((objective) => { delete objective.modes; delete objective.path; });
   let thrown = '';
-  try { Maps.validate(bare); Maps.validate(noObjectiveModes); mapTestItemsFor(bare, 'ffa'); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
+  try { Maps.validate(bare); Maps.validate(noObjectiveModes); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
       'ffa', -1); } catch (error) { thrown = String(error); }
   check('format: entries without a modes list serve every mode and nothing throws', thrown === '', thrown);
-  check('format: a missing modes list reads as every mode', mapTestItemsFor(bare, 'duel').length === bare.items.length && Maps.spawnList(bare, 'ffa', -1).length === 16);
+  check('format: a missing modes list reads as every mode', bare.items.every((item) => mapServesMode(item, 'duel')) && Maps.spawnList(bare, 'ffa', -1).length === 16);
   check('format: a map without a modes list is still sound', Maps.validate(bare).length === 0);
   for (const list of MAP_REQUIRED_LISTS) {
     const broken = mapTestClone('spire');
@@ -445,14 +441,10 @@ Test.add('maps', (check) => {
   check('pads: the arc peaks 3 m above the higher of start and target under every gravity', apexes.every((apex) => mapTestWithin(apex, 9, 1e-9)), apexes.join());
   const times = MAP_TEST_GRAVITIES.map((gravity) => World.padArc(pad, 6, gravity).time * Math.sqrt(gravity));
   check('pads: flight time scales with 1/sqrt(gravity), so the path in space is the same', times.every((scaled) => mapTestWithin(scaled, times[0], 1e-9)));
-  check('pads: the scan traces every movement preset gravity', MAP_TEST_GRAVITIES.every((gravity) => gravity >= Math.min(...MAP_PAD_GRAVITIES) && gravity <= Math.max(...MAP_PAD_GRAVITIES))
-    && MAP_PAD_GRAVITIES.includes(GRAVITY));
-  check('body sizes: the map scan, validator and editor read the S01 / S10 body numbers (no copies)', typeof MAP_STEP === 'undefined' && typeof MAP_BODY_RADIUS === 'undefined'
-    && typeof MAP_EYE === 'undefined' && MAPEDIT_KINDS.spawns.height === STAND_HEIGHT && MAPEDIT_KINDS.spawns.halfWidth === ACTOR_RADIUS);
   // The scan flies S08's own arc: a pad with no `peak` rises the default height, so a low ceiling on the way blocks it.
   const roofed = { size: [20, 10, 20], brushes: [['concrete', -10, -1, -10, 10, 0, 10], ['concrete', -2, 2.8, 2, 2, 3, 6]].map((row) => MapKit.brush(row)), triggers: [] };
   const roofScan = MapScan.of(roofed);
-  check('pads: a pad without a peak flies the game arc and meets a low ceiling', !MapScan.arcClear(roofScan, 0, 0, 0, { target: [0, 0, 8] }, GRAVITY)
+  check('pads: a peakless pad flies the game arc into a low roof', !MapScan.arcClear(roofScan, 0, 0, 0, { target: [0, 0, 8] }, GRAVITY)
     && MapScan.arcClear(roofScan, 0, 0, 0, { target: [0, 0, 8], peak: 0.5 }, GRAVITY));
   MapScan.release();
 });

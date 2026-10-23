@@ -159,13 +159,12 @@ Ui.register('ladder', {
 
 // ---- Challenge Rooms ----
 // How a room's points are earned, in its own terms (the weights of row.points, 15a Progress.points).
-const CAREER_POINT_LABELS = { kills: 'per kill', airKills: 'per kill in the air', headshots: 'per headshot', bestStreak: 'per kill of your best streak',
-  damageTaken: 'per damage taken', deaths: 'per death', won: 'for a win' };
+const CAREER_POINT_LABELS = { kills: 'per kill', airKills: 'per air kill', headshots: 'per headshot', bestStreak: 'per best-streak kill', damageTaken: 'per damage taken', deaths: 'per death', won: 'for a win' };
 function careerPointsText(row) {
   const parts = Object.keys(row.points).map((key) => {
     const weight = row.points[key];
     if (key === 'underPar') return weight + ' per second under ' + progressClock(row.par) + ' (a win)';
-    if (key === 'accuracy') return 'up to ' + weight + ' for accuracy (in full from ' + CHALLENGE_ACCURACY_HITS + ' hits)';
+    if (key === 'accuracy') return 'up to ' + weight + ' for accuracy (full from ' + CHALLENGE_ACCURACY_HITS + ' hits)';
     return weight + ' ' + (CAREER_POINT_LABELS[key] || key);
   });
   return 'Points: ' + parts.join(', ') + '.';
@@ -334,8 +333,8 @@ function careerAwardPanel(container) {
 PlayResultsExtras.push(careerAwardPanel);
 
 // ---- First start: offer the Firing Range once (skippable, PRG-008); a build without the range keeps the offer for later ----
-const CAREER_RANGE_OFFER_TEXT = 'Warm up in the Firing Range first? Shoot the targets: your first shot starts a drill, every ' + PVE_RANGE.drillTargets
-  + ' kills finish it on the clock. The range never ends: leave it from the pause menu (Quit). You can skip it and go straight to the menu.';
+const CAREER_RANGE_OFFER_TEXT = 'Warm up in the Firing Range first? Your first shot starts a timed drill of ' + PVE_RANGE.drillTargets
+  + ' kills. Leave it from the pause menu (Quit), or skip it now.';
 function careerOfferRange() {
   const profile = Progress.profile();
   if (Game.headless || profile.rangeOffered || !careerRangeAvailable()) return;
