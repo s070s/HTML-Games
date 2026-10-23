@@ -796,7 +796,7 @@ const MAPS = {
     weather: { weights: { clear: 4, overcast: 3, rain: 2, fog: 2, storm: 1 }, time: 'day' },
     flora: { species: { oak: 2, birch: 1, cypress: 1, pine: 1, shrub: 2, grass: 3, flowers: 1, reeds: 1 }, forest: 0.06, groves: 6, meadow: 0.25, scrub: 0.12 },
     fauna: { species: { pigeon: 4, crow: 2, seagull: 1, duck: 2, fox: 1, rabbit: 1, fishschool: 2 }, herds: 3, flocks: 8, schools: 3 },
-    hazards: ['earthquake', 'gas'],
+    hazards: ['earthquake', 'gas'], airport: { required: true, maxTownCost: 3 },   // its big airport is part of it (D23)
   },
   farmland: {
     name: 'Farmland Plains', desc: 'Open fields and meadows dotted with villages, farms and ponds, crossed by a slow river.', seed: 13.6, hill: 0.45, biome: 'farmland',
@@ -868,14 +868,18 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      density: multiplier of every group's size
    hazards: HAZARD_IDS of the battlefield's signature hazards (skirmish brings them; Hazards), [] for none
    lanes: sea lanes for the shipping update (P6), [] for none
-   airport: { level, size } how a battle's airfield is placed (Airports); fields a row leaves out come from MAP_AIRPORT:
+   airport: { level, size, required, maxTownCost } how a battle's airfield is placed (Airports); fields a row leaves
+     out come from MAP_AIRPORT:
      level false keeps the ground exactly as it is, so an airfield goes only where it is already flat (the original
      battlefields, D17); size 'strip' never builds the big airport
+     maxTownCost: most towns a skirmish's home airfield may cost the layout (skirmishLayout)
+     required: the battlefield has its big airport in every battle (D23): a skirmish keeps the home airport within
+       maxTownCost towns rather than a layout without it, and a mission lays it before its towns (Scenery.layoutFor)
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
   biome: 'temperate', water: [], roads: [], flora: null, fauna: null, weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
 };
-const MAP_AIRPORT = { level: true, size: '' };
+const MAP_AIRPORT = { level: true, size: '', required: false, maxTownCost: 1 };
 const MAP_FLORA = { species: null, forest: 0.25, groves: 6, meadow: 0.3, scrub: 0.2, density: 1, block: true };
 const MAP_FAUNA = { species: null, herds: 8, flocks: 5, schools: 6, density: 1 };
 const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
@@ -6682,9 +6686,15 @@ const Scenery = {
     const s = SCENERY[def.map] || SCENERY_DEFAULT;
     // the default city and outpost only go where the ground is gentle enough (a mountain map may have none)
     const fits = (c, deg) => !!SCENERY[def.map] || this.flatFor(def.map, c, deg);
-    const lay = { cities: fits(s.city, SITE_MAX_SLOPE) ? [Object.assign({ kind: 'city' }, s.city)] : [], bases: fits(s.base, BASE_MAX_SLOPE) ? [Object.assign({ style: 'outpost', team: 1 }, s.base)] : [] };
+    // a mission's airfield goes where its towns leave room, so it keeps every one; a battlefield whose big airport is
+    // required (D23) lays it first, and the default city and outpost and the towns keep off it
+    const lay = { cities: [], bases: [], airport: null };
+    if (mapDef(def.map).airport.required) lay.airport = Airports.find(def.map, lay, def.sites, def.corridors);
+    const offField = (c) => !lay.airport || Airports.gap(lay.airport, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE;
+    if (fits(s.city, SITE_MAX_SLOPE) && offField(s.city)) lay.cities.push(Object.assign({ kind: 'city' }, s.city));
+    if (fits(s.base, BASE_MAX_SLOPE) && offField(s.base)) lay.bases.push(Object.assign({ style: 'outpost', team: 1 }, s.base));
     this.addTowns(def.map, lay, def.sites, def.corridors);
-    lay.airport = Airports.find(def.map, lay, def.sites, def.corridors);   // after the towns: a mission keeps every one
+    if (!lay.airport) lay.airport = Airports.find(def.map, lay, def.sites, def.corridors);
     const d = withDistrict && def.start ? this.startDistrict(def, lay) : null;
     if (d) lay.cities.push(d);
     return lay;
@@ -17496,13 +17506,12 @@ const SKIRMISH_OWN_FORT = { guns: 4, aa: 2 };   // our base's allied turrets
 const SKIRMISH_GARRISON = { recruit: ['infantry', 'infantry', 'rpgTrooper', 'tank'], veteran: ['infantry', 'infantry', 'rpgTrooper', 'sniper', 'tank'], elite: ['infantry', 'rpgTrooper', 'rpgTrooper', 'sniper', 'tank', 'medMech'] };
 const SKIRMISH_WAVE_CLEAR = 300;         // a wave forms at the enemy gate unless a human is this close to it (then it arrives near the player)
 const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, else push on to our command center (m)
-const SKIRMISH_FIELD_TOWNS = 1;   // a home airfield may cost the layout this many towns, only where nothing else has room
 /* Seeded battle layout: our base and the enemy base on roughly opposite sides of the map, a district beside each and a
    mega-district off the line between them. Bases face each other; the player starts in the yard of ours. The bases and
    towns are laid round the battlefield's home airfield where that costs none of the towns the battle has without it.
    Else the layout without it is kept and the airfield takes the ground its towns leave (as a mission's does); only
-   where that leaves no airfield, or a smaller one, does the home airfield win at the cost of at most
-   SKIRMISH_FIELD_TOWNS towns. Both layouts come from the seed alone, so co-op guests build the same. */
+   where that leaves no airfield, or a smaller one, does the home airfield win at the cost of at most the battlefield's
+   airport.maxTownCost towns (MAP_AIRPORT). Both layouts come from the seed alone, so co-op guests build the same. */
 function skirmishLayout(cfg) {
   const homes = Airports.homes(cfg.map), round = skirmishLayoutWith(cfg, homes);
   if (!homes.length) return round;
@@ -17510,7 +17519,7 @@ function skirmishLayout(cfg) {
   if (round.lay.cities.length >= free.lay.cities.length) return round;
   if (!free.fixedPair) free.lay.airport = Airports.find(cfg.map, free.lay, free.sites, null);
   const size = (a) => (a ? AIRFIELD_KINDS.length - AIRFIELD_KINDS.indexOf(a.kind) : 0);   // airport 2, strip 1, none 0
-  const cheap = round.lay.cities.length + SKIRMISH_FIELD_TOWNS >= free.lay.cities.length;
+  const cheap = free.lay.cities.length - round.lay.cities.length <= mapDef(cfg.map).airport.maxTownCost;
   return cheap && size(round.lay.airport) > size(free.lay.airport) ? round : free;
 }
 /* the layout laid round the first of homes (home airfields, best first) that leaves a seeded base pair; none: no airfield */
@@ -22262,12 +22271,17 @@ const SelfTest = {
     const newMaps = Object.keys(MAPS).filter((id) => !TERRAIN_GOLDEN[id] && !mapDef(id).hidden);
     t('new battlefields: data and sites', () => {
       this.check('ten new battlefields', newMaps.length === 10, newMaps.join(','));
-      // a mission layout (no sites of its own) takes the city and every town of each battlefield: none overlap
+      // a mission layout (no sites of its own) takes the city and every town of each battlefield: none overlap; where the
+      // big airport is required (Megacity Metro, D23) it goes first and only the towns on its ground give way
       const lost = Object.keys(SCENERY).filter((id) => {
         const sc = SCENERY[id], lay = Scenery.layoutFor({ id: 'tx', map: id, sites: [] }, false);
+        if (mapDef(id).airport.required) {
+          const all = [sc.city].concat(sc.towns || []), placed = (t) => lay.cities.some((c) => c.x === t.x && c.z === t.z);
+          return !lay.airport || lay.airport.kind !== 'airport' || all.some((t) => !placed(t) && Airports.gap(lay.airport, t.x, t.z) >= t.r + SITE_PAD + SITE_FADE);
+        }
         return lay.cities.length !== 1 + (sc.towns || []).length || lay.cities[0].kind !== (sc.city.kind || 'city');
       });
-      this.check('a mission layout places the city and every town of each battlefield', lost.length === 0 && SCENERY.metro.city.kind === 'mega', lost.join(', '));
+      this.check('a mission layout places the city and every town of each battlefield (on Megacity Metro all but those on its airport)', lost.length === 0 && SCENERY.metro.city.kind === 'mega', lost.join(', '));
       // a metro skirmish gets a mega-city most of the time (its own, where the central one never fits across the river)
       let megas = 0;
       for (let k = 1; k <= 20; k++) if (skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: k })).lay.cities.some((c) => c.kind === 'mega')) megas++;
@@ -23132,7 +23146,7 @@ const SelfTest = {
           for (const seed of [1, 2, 3]) {
             const cfg = Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed, random: false }), L = skirmishLayout(cfg), a = L.lay.airport;
             const free = skirmishLayoutWith(cfg, []).lay.cities.length;
-            if (L.lay.cities.length + SKIRMISH_FIELD_TOWNS < free) bad.push(id + ' ' + seed + ' costs ' + (free - L.lay.cities.length) + ' towns');
+            if (L.lay.cities.length + mapDef(id).airport.maxTownCost < free) bad.push(id + ' ' + seed + ' costs ' + (free - L.lay.cities.length) + ' towns');
             if (!a) continue;
             got++;
             if (id === 'metro' && a.kind === 'airport') airfieldSweep.metroAirports++;
@@ -23163,10 +23177,24 @@ const SelfTest = {
         const bad = airfieldSweep.bad, always = airfieldSweep.always;
         bad.length = always.length = airfieldSweep.metroAirports = 0;
         sweepAirfields(half);
-        this.check('an airfield lies inside the battlefield, clear of the bases, districts and sites, its runway level within 0.5 m and dry, and costs at most one town (3 seeds per map)', bad.length === 0, bad.slice(0, 4).join('; '));
+        this.check('an airfield lies inside the battlefield, clear of the bases, districts and sites, its runway level within 0.5 m and dry, and costs no more towns than its battlefield allows (3 seeds per map)', bad.length === 0, bad.slice(0, 4).join('; '));
         const rare = ['archipelago', 'alpine', 'canyon'];   // their towns leave little flat dry ground
         this.check('every battlefield but the island, the mountain and the canyon one gets an airfield in every battle', half.every((id) => rare.indexOf(id) >= 0 || always.indexOf(id) >= 0), always.join(','));
-        if (half.indexOf('metro') >= 0) this.check('Megacity Metro gets the big airport in most battles', airfieldSweep.metroAirports >= 2, airfieldSweep.metroAirports);
+        if (half.indexOf('metro') < 0) return;
+        // Megacity Metro's big airport is required (D23): in every battle, at the cost of at most three towns; every other
+        // battlefield keeps the rule of at most one town and no required airport
+        const rule = mapDef('metro').airport;
+        let towns = 0, airports = 0, over = 0;
+        for (let seed = 1; seed <= 20; seed++) {
+          const cfg = Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed, random: false }), L = skirmishLayout(cfg);
+          towns += L.lay.cities.length;
+          if (L.lay.airport && L.lay.airport.kind === 'airport') airports++;
+          if (skirmishLayoutWith(cfg, []).lay.cities.length - L.lay.cities.length > rule.maxTownCost) over++;
+        }
+        const others = Object.keys(MAPS).every((id) => id === 'metro' || (!mapDef(id).airport.required && mapDef(id).airport.maxTownCost === MAP_AIRPORT.maxTownCost));
+        this.check('Megacity Metro has its big airport in every battle (20 seeds) at the cost of at most 3 towns; other battlefields keep the old rule', rule.required && rule.maxTownCost === 3 && airports === 20 && over === 0 && others && airfieldSweep.metroAirports === 3, airports + ' airports, ' + (towns / 20).toFixed(2) + ' towns on average');
+        const mission = Scenery.layoutFor({ id: 'test-metro', map: 'metro', sites: [], corridors: [], start: { x: 0, z: 0, yaw: 0 } }, true);
+        this.check('a mission on Megacity Metro gets the big airport too, its towns keeping off it', !!mission.airport && mission.airport.kind === 'airport' && mission.cities.every((c) => Airports.gap(mission.airport, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE) && mission.cities.length > 0);
       });
     }
     t('airfields: in the world', () => {
