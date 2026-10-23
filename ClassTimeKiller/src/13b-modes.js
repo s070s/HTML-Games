@@ -38,8 +38,7 @@ const OBJECTIVE_COMPANIONS = { flag: 'flagBase' };        // kinds created toget
 const CARRIABLE_KINDS = ['flag', 'relic', 'bomb'];
 const NEAR_ANY = 0, NEAR_TEAM = 1, NEAR_ENEMY = 2;       // findActorNear relation filters
 const PHASE = { IDLE: 'idle', FREEZE: 'freeze', LIVE: 'live', ROUND_END: 'roundEnd', ENDED: 'ended' };
-const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // blue, red, neutral
-const NEUTRAL_COLOR = 2;
+const NEUTRAL_MARKER_COLOR = 0xd9d9d9;  // an unowned zone, a contested cart
 const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
 
@@ -896,13 +895,23 @@ function formatTimeWarning(seconds) {
   return minutes + (minutes === 1 ? ' minute remaining' : ' minutes remaining');
 }
 
+// A marker colour in the team colours of the bodies and the HUD (CAT.teamColors, or the colour-blind palette 18m puts in
+// Render.teamPalette); no team is neutral. Written into one reused triple, so a marker allocates nothing.
+const markerColor = new Float32Array(3);
+function teamMarkerColor(team) {
+  let color = NEUTRAL_MARKER_COLOR;
+  if (team === 0 || team === 1) color = Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team].color;
+  writeColor(markerColor, 0, color);
+  return markerColor;
+}
+
 // Markers: zones as rings in the owner's colour, carriables as small shapes (above the carrier's head when carried).
 function drawObjective(batch, objective) {
   if (!objective.active || objective.kind === 'payloadPath') return;
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
   if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
-  const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
+  const color = teamMarkerColor(team);
   if (!carriable) {
     batch.mesh('ring', objective.x, objective.y + 0.05, objective.z, 0, 0, objective.radius, 1, objective.radius, color[0], color[1], color[2], MARKER_GLOW);
     return;

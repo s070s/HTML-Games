@@ -423,7 +423,7 @@ function drawModeExtras(batch) {
   for (let i = 0; i < Modes.objectives.length; i++) {
     const cart = Modes.objectives[i];
     if (cart.kind !== 'payloadPath' || !cart.path) continue;
-    const color = TEAM_COLORS[cart.contested ? NEUTRAL_COLOR : 0];
+    const color = teamMarkerColor(cart.contested ? NO_TEAM : 0);
     batch.mesh('box', cart.x, cart.y + CART_LIFT, cart.z, 0, 0, CART_SIZE[0], CART_SIZE[1], CART_SIZE[2], color[0], color[1], color[2], MARKER_GLOW);
   }
 }

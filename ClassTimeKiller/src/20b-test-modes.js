@@ -747,3 +747,24 @@ Test.add('modes', (check) => {
   check('respawned after rules.respawn.delay with health and a weapon', Actors.alive[victim] && Actors.health[victim] === health && Weapons.currentWeapon(victim) !== null);
   Game.stop();
 });
+
+// Objective markers use the team colours of the bodies and the HUD, colour-blind palette included (normalize-02).
+Test.add('modes', (check) => {
+  const drawn = [];
+  const recorder = { mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { drawn.push([r, g, b].map((value) => Math.round(value * 255)).join()); return 0; } };
+  const flag = makeObjective({ kind: 'flag', team: 1 }, 0), point = makeObjective({ kind: 'point' }, 1);
+  const palette = Render.teamPalette;
+  try {
+    Render.teamPalette = [0x0072b2, 0xffb000];
+    drawObjective(recorder, flag);
+    Render.teamPalette = null;
+    drawObjective(recorder, flag);
+    drawObjective(recorder, point);
+  } finally {
+    Render.teamPalette = palette;
+  }
+  const red = colorNumber(CAT.teamColors[1].color);
+  check('a team 1 flag takes the colour-blind palette colour', drawn[0] === '255,176,0', drawn[0]);
+  check('and the normal team colour without it', drawn[1] === [red >> 16, (red >> 8) & 255, red & 255].join(), drawn[1]);
+  check('an unowned point is neutral grey', drawn[2].split(',').every((value) => value === drawn[2].split(',')[0]), drawn[2]);
+});
