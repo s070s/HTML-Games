@@ -16,6 +16,229 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-23 ~21:25 GTBDT. p8-ui done: branch `worktree-agent-afb6accd04e287a96`, tip `b0e9516` (base 1baa77c).
+  - Touch training panel: below the message lines, text fitted, desktop unchanged.
+  - Help text: new paragraphs plus release notes "18 missions, 13 battlefields" (true only after B merges).
+  - Self-test 2419/0, block 'p8 ui'. The 8770 server is stopped.
+
+- 2026-10-23 ~21:20 GTBDT. p8-lows-a done: branch `worktree-agent-a3b5f527011dfce6f`, tip `d94882c` (base 0aa8716).
+  - Fixes: findSpawn skips occupied ground spots; the objective's struct entry gets an optional 7th field with the unspotted amount, so NET stays 10; a fuel blast carries the unspotted multiplier.
+  - Self-test 2349/0, block 'p8 lows a'; each fix was shown to fail its test when switched off.
+  - The 8769 server is stopped.
+
+- 2026-10-23 ~21:10 GTBDT. OWNER (verbatim): "Use more parallel helpers go faster" → 5 helpers at once (over the usual ~4 heavy jobs; the owner asked).
+  - p6-society: round 2, in this worktree.
+  - p7-review-a / p7-review-b (Opus+high, read-only): reviewing the two mission branches on ports 8767/8768 (servers started by the coordinator).
+  - p8-lows-a (Sonnet+medium, isolated, from 0aa8716): findSpawn skips occupied spots; the guest sees the cap count; the fuel-tank blast goes through the cap. Port 8769 on request.
+  - p8-ui (Sonnet+medium, isolated, from 1baa77c): the training panel at 812x375; help text (P8.4). Port 8770 on request.
+  - RESUME:
+    1. p6 round 2 → narrow re-verify.
+    2. Fix rounds for the P7 review findings (on each branch).
+    3. Merge into worktree-living-world in this order: lw A → B → p8-lows-a → p8-ui.
+    4. Merged self-test and a clean bench → P7 gate.
+    5. P8.1 co-op, P8.2 perf and the rest of the traffic lows (rubble/flood/bridge, bench view) → final review. No push.
+
+- 2026-10-23 ~21:05 GTBDT. p7a done: branch `worktree-agent-a84a9a9f6bbf15216`, tip `1baa77c`. Commits: 9ce8852 (weapon unlocks), d05ac17 (Training map choice, hazardScript/missionHazard, briefing unlock line), 479d04e (m9-m13 and block 'missions P7a'), 1baa77c (tuning).
+  - Self-test 2412/0. Every mission was won by the game's AI flying the player, at veteran difficulty; m10-m13 needed "help" (nudged and 4x damage).
+  - Unlocks: torpedo, navalGun, sword, cryoBlizzard, sandstorm.
+  - Bench: no scene over its limits.
+  - Proposed: a mission-unlocked weapon stays locked until its mission is won (saves from before P7 keep every weapon); a mission win is an extra way to unlock a superweapon; trucks wait out nearby hazards; Training picks its battlefield, saved in `trainingMap`.
+  - Trial merge of A with B (merge-tree): 3 conflicts, each the union of both sides: the defaults() line (take A's trainingMap), the end of MISSIONS (A then B), the end of the self-tests (A then B). There is a single missionHazard/hazardScript.
+  - Waiting on p6-society (round 2, uncommitted in this worktree) before merging. The 8767 server is stopped.
+
+- 2026-10-23 ~20:45 GTBDT. p7b done: branch `worktree-agent-ad0b927a791313aa9`, tip `be91e0e`. It contains 32acbaf (a cherry-pick of p7a's 9ce8852), c8d5904 (m14-m18, the Metro move, block 'missions P7b') and be91e0e (traffic test camera).
+  - Self-test 2389/0. Every mission was won by a scripted player.
+  - Unlocks: knife, volcanicEruption, katana, shipSam, plasmaTornado.
+  - Bench limits held (≤ 7.9 ms p95, ≤ 19.8 ms max), but "0 ms added" is unproven because of noise; hz-jungle read +0.9 ms → re-measure at the P7 gate.
+  - Proposed D57: missions can set `foot` and `hazardScript`; m16 uses hovercraft; the Metro outpost moves to (600,600); new objective `Obj.rescue`.
+  - The 8768 server is stopped. Still waiting on p7a and p6-society.
+
+- 2026-10-23 ~19:55 GTBDT. The hand-made p7 worktrees were refused by the isolation guard, so the agents could not write there. Those worktrees and branches were removed, and p7a and p7b were relaunched with harness worktree isolation (ports 8767/8768); their branch names come in their reports. The RESUME plan is otherwise unchanged.
+
+- 2026-10-23 19:46 GTBDT. OWNER (verbatim): "Finish this faster without regressing or losing effectiveness" → interpreted as: run independent work in parallel and keep every gate (D56).
+  - P7 started early, split across two worktrees from 0aa8716:
+    - p7a: living-world-p7a, branch lw-p7a, port 8767. Missions m9-m13 and the Training map choice.
+    - p7b: living-world-p7b, branch lw-p7b, port 8768. Missions m14-m18 and the Metro outpost/towns fix.
+  - P6 fix round 2 continues on worktree-living-world (agent p6-society).
+  - RESUME:
+    1. P6 round 2 → narrow re-verify (p6-review).
+    2. Merge lw-p7a and then lw-p7b into worktree-living-world with --no-ff; resolve the conflicts at the MISSIONS and self-test ends.
+    3. P7 gate review over the merged result.
+    4. Remove the p7 worktrees.
+    5. P8. No push until the owner's go.
+
+- 2026-10-23 ~19:45 GTBDT. P6 fix round 1 `0aa8716` verified (Opus+high): M1-M3 and L1-L5 fixed; self-test 2345/0.
+  - Performance (Playwright): P6 costs ≈ 0.48 ms per frame over 35af12a (allowance +0.8); worst p95 5.0 ms, max 5.6 ms.
+  - Remaining:
+    - M1: a pre-existing 25 s bend hold between two cars.
+    - L1: four new tests pass with their fix off.
+    - L2: a forged number-0 enterCiv still spawns a car.
+  - In flight: fix round 2, agent p6-society.
+  - RESUME: fix round 2 → re-verify (p6-review) → P6 gate passed on the branch (no push) → P7.
+
+- 2026-10-23 18:09 GTBDT. P6 gate review done (Opus+high): no high-severity issues; fix M1-M3 before the gate closes.
+  - Checks: self-test 2336/0; the "society: the day" block passed 20/20; m1-m8 ran 40 s each with no errors; nothing carried over after quitting or restarting; co-op local scenery confirmed.
+  - Performance (Playwright, visible): the new systems cost ≤ 0.2 ms per frame; every scene ≤ 4.6 ms p95 and ≤ 13.2 ms max. The hidden pane is too noisy to use.
+  - Medium:
+    - M1: a stop at a lane's end is never reached, so responders and commuters circle (5 of 15 casualty scenes got no ambulance).
+    - M2: kerb cars block doors; the 23:00 indoor share is 66-94% unpinned, and the test passes only because its random numbers are pinned.
+    - M3: on Metro, the cargo jet's gate overlaps the parked Shrike.
+  - Low, also in this fix round: co-op double-claim and refused-request car loss, fixed ids for cars, dispatch spike, weak checks.
+  - Routed to P8: cars ignore rubble and floods; respawns on a broken bridge; the traffic-metro bench view.
+  - In flight: fix round, agent p6-society.
+  - RESUME: fixes → verify (Opus+high) → P6 gate passed on the branch (no push) → P7.
+- 2026-10-23 ~18:00 GTBDT (time corrected; the original entry had a guessed time). P6.5 done `a4e4832`. Full self-test 2336/0. Society ~0.001 ms per tick; back-to-back bench within 0.1 ms of base on every scene (all ≤ 3.9 ms). Decision D55. Also fixed in traffic: cars never passed a lane end; opposite turns blocked each other.
+  - Limits: responders sometimes take 30-100 s or never arrive (they drive in traffic); the 23:00 indoor share is 76-80% against a 75% test bar (flake risk).
+  - In flight: P6 gate review (Opus+high), with a bench against 35af12a.
+  - RESUME: review → fixes → verify → P6 gate passed on the branch (no push) → P7.
+
+- 2026-10-23 21:20 GTBDT (approx). P6.3 `951c34a` and P6.4 `bb41997` done. Full self-test 2322/0 (the flights-only commit also passed 2311/0). Direct cost ≤ 0.07 ms per frame; worst single calls 0.8 ms (Shipping.update) and 1.8 ms (Shipping.draw), untraced. NET_VERSION 10. Decision D54.
+  - Bench unreliable while the pane is hidden: for the P6 gate try a visible browser (e.g. the Playwright browser) for a clean p95 against 35af12a.
+  - In flight: P6.5 society sim agent (Opus+high).
+  - RESUME: P6.5 → P6 gate (clean bench, review) (no push).
+
+- 2026-10-23 20:05 GTBDT (approx). P6.2 + P6.1 done: `4a27425`, `17d4f40`. Full self-test 2297/0. NET_VERSION 10. Decision D53.
+  - Perf (for the gate): traffic-metro best p95 7.1/6.8/6.7 vs base 5.3/5.5/6.7 (noisy, hidden pane); average frame +0.15 ms on the metro corner; Traffic update ~0.15 ms/tick in game.
+  - In flight: P6.3 + P6.4 agent (Opus+high).
+  - RESUME: P6.3 + P6.4 → P6.5 → P6 gate (no push).
+
+- 2026-10-23 18:15 GTBDT (approx). **P5 GATE PASSED** on `35af12a` (not pushed, owner rule): "ready to ship"; self-test 2205/0; NET_VERSION 9; SAVE_VERSION 1. Unspotted cap holds (172 shells, HQ at 3375/4500); cap per structure and per battle; bridges safe with the sideways push.
+  - Routed to P8: `findSpawn` (~18072) should skip spots taken by other units (a co-op respawn on an occupied spot can push a soldier through a thin wall); the guest HUD wording after the unspotted cap; a fuel-tank blast near an objective ignores the cap (negligible).
+  - P5 started about 14:10, passed about 18:15: about 4 h of the 8 h budget.
+  - RESUME: P6 items in order → P6 gate. P6 deadline 12 agent-h.
+
+- 2026-10-23 18:05 GTBDT (approx). P5R2 done `35af12a`: unspotted cap 25% per objective (HQ ends at 3375/4500 after 10 min); civilians do not spot; coincident units pushed apart sideways; harbour fallback steps clear of other hulls. Self-test 2205/0.
+  - Known low: the 25% count is not sent to guests (guest HUD wording only).
+  - In flight: final P5 check (reviewer, resumed).
+  - RESUME: verify → P5 gate passed on the branch (no push) → P6.
+
+- 2026-10-23 17:50 GTBDT (approx). P5 verification: M1-M5 and lows confirmed; M4 accepted (recorded in D52). Self-test 2203/0. Still open: H1 bypass (unspotted Thunder + pad resupply kills the HQ in 233 s) → cap unspotted damage per objective at 25% per battle, civilians do not spot; M1 stacked Tridents at the alpine fallback harbour never separate.
+  - In flight: P5R2 (p5-naval, resumed).
+  - RESUME: P5R2 → quick verify → P5 gate passed on the branch (no push) → P6.
+
+- 2026-10-23 17:30 GTBDT (approx). P5R done: `e041814`, `f25a370`, `61e9761`, `948f789`. Full self-test 2203/0. Decision D52.
+  - M4 not proven: sk-water vs 66728af 0 to +0.4 ms across rounds (pane flips between GPU modes ~1.8 ms apart); direct timing of ships, batteries and wakes 0.05-0.1 ms per tick. A battery target search can spike to 0.7 ms on one tick.
+  - Not done: co-op guests do not see the harbour buoy or resupply prompt (resupply still works).
+  - In flight: P5 verification (reviewer, resumed).
+  - RESUME: verify → P5 gate passed on the branch (no push) → P6.
+
+- 2026-10-23 16:30 GTBDT (approx). P5 gate review: "fix H1 and M1 before shipping". Self-test 2169/0; kind audit fine; torpedo rules hold; AI batteries fair (0-337 damage to the player in 5-min medium runs); loadouts saved by name, so the weapon order change breaks no save.
+  - High: H1 a player Thunder kills the enemy HQ from the spawn in ~40 s → decision: player indirect fire on objectives needs a spotter, else ×0.15.
+  - Medium: M1 Alpine/Metro offer ships but never deploy them; M2 a ship stranded after a flood is stuck; M3 ship hit circle vs long hulls; M4 water scene +0.6-0.8 ms p95 (allowance +0.2) → budget effects, then cap the fleet by quality if needed; M5 tundra fleet spawns next to the player.
+  - Low: co-op naval paths untested; objective arrow over DEPLOY; sky aim fires; ships cannot resupply; unused `naval.climb`; wrecks without collision; test gaps; a format slip; batteries can hit their own base.
+  - In flight: P5R (p5-naval, resumed, all findings).
+  - RESUME: P5R → verify → P5 gate passed on the branch (no push) → P6.
+
+- 2026-10-23 16:00 GTBDT (approx). P5.3 done: `c639695`, `220e93f`. Full self-test 2169/0. Solver max miss ≤ 0.10 m at 200-1200 m on farmland, alpine, canyon. Coast with batteries +0.2 ms best p95 (at the limit). NET_VERSION 9. Decision D51.
+  - Live: Thunder, Hailstorm and Pestle duels; touch DEPLOY/ARC.
+  - Rough edges: a salvo's warning pillars near the camera cover much of the view; the off-screen objective arrow overlaps DEPLOY/CROUCH on the phone layout.
+  - In flight: P5 gate review (Opus+high).
+  - RESUME: review → fixes → verify → P5 gate passed on the branch (no push) → P6.
+
+- 2026-10-23 15:00 GTBDT (approx). P5.1 + P5.2 done: `1a0af39`, `be64527` (new bench scene sea-coast). Full self-test 2088/0. Best p95 ≤ 5.7 ms on every scene; ships cost about 0.05 ms sim time. NET_VERSION 8. Decision D50.
+  - Live on Harbour Coast: Lancer, Trident, Skua (across a beach), enemy fleet engaging.
+  - Not done: no docks, no sea lanes (P6).
+  - In flight: P5.3 artillery agent (Opus+high).
+  - RESUME: P5.3 → P5 gate review (no push) → P6.
+
+- 2026-10-23 14:10 GTBDT (approx). **P4 GATE PASSED** on `66728af` (not pushed, owner rule): "ready to ship P4"; full self-test 1997/0; NET_VERSION 7; SAVE_VERSION 1.
+  - Routed to P7.1: move Metro's default outpost and its 3 towns off the airport ground (a metro mission now keeps the city and 5 of 8 towns and loses the outpost; an objective on airport ground shrinks the airport to a strip) and restore the strict every-town test; P7 metro missions keep objectives and start off the airport.
+  - Routed to P8: the training-range info panel overlaps a message line and a touch button at 812x375.
+  - P4 started about 09:20, passed about 14:10: about 5 h of the 14 h budget.
+  - RESUME: P5.1 → P5.3 → P5 gate. P5 deadline 8 agent-h.
+
+- 2026-10-23 14:00 GTBDT (approx). P4R2 done: `b50468a` metro airport required (`maxTownCost` 3; 20/20, 4.3 towns), `66728af` HUD text off panels/radar/buttons (test at 5 sizes × 3 scales). Full self-test 1997/0.
+  - Known: a metro mission keeps 7 of 9 towns and loses its default outpost to the airport; the training-range info panel slightly overlaps a message line and a touch button at 812x375 (→ P8 if the verifier agrees).
+  - In flight: final P4 check (reviewer, resumed).
+  - RESUME: verify → P4 gate passed on the branch (no push) → P5.
+
+- 2026-10-23 13:40 GTBDT (approx). P4 verification: every P4R fix confirmed in the pane; self-test 1996/0. Verdict: fix the metro airport rule first (recommendation: per-map town-cost limit, metro required with limit 3 → airport 20/20, 4.3 towns; canyon unchanged). Low: tutorial tip and supply prompt overlap HUD panels / USE on phone and upright tablet; sk-water maybe +0.9 ms from the 2 parked aircraft.
+  - In flight: P4R2 (p4-core, resumed).
+  - RESUME: P4R2 → quick verify → P4 gate passed on the branch (no push) → P5.
+
+- 2026-10-23 13:15 GTBDT (approx). P4R done: 8 commits `d8549cc`..`38054b1` (only the final state tested). Full self-test 1996/0. Towns within 0.5 of before on every new map; mech melee back to old dps (sword ×1.3, katana ×1.6). NET_VERSION 7 (`footLo`, `drv`).
+  - Question for the verifier: metro now has no airfield in 9 of 20 skirmishes, against D23's "big airport".
+  - In flight: P4 verification (reviewer, resumed).
+  - RESUME: verify → P4 gate passed on the branch (no push) → P5.
+
+- 2026-10-23 12:30 GTBDT (approx). P4 gate review: "fix the shared airport respawn spot before shipping". Self-test 1979/0; m1-m8 start and survive exit/enter in mech, jackal and kestrel; runways flat on 10 maps × 2 seeds; sk-ashfall 15.5 ms was noise (4.4-5.5 on rerun); every scene best p95 ≤ 6.6, worst p95 7.6, max 22.6.
+  - High: planes respawning on the same runway spot destroy each other (plane contact damage on the ground).
+  - Medium: airfields cost towns (canyon 2.6 → 0.45, others -15-40%); last-resort exit leaves you inside the hull; co-op guest on foot gets the default kit; melee balance (mech fists ×2 old dps, Colossus katana ~470 dps).
+  - Low: parked mech finishes a wind-up; Use/touch state not reset on session start; dead GEAR on the ground; touch overlaps with the tutorial tip and the top HUD line at scale 1.4; guests see parked vehicles with the pilot's name; waves walk toward a passive civilian; nothing to enter outside training (→ 2 parked aircraft on the skirmish home apron).
+  - In flight: P4R fixes (p4-core agent, resumed).
+  - RESUME: P4R → verify (Opus+high) → P4 gate passed on the branch (no push) → P5.
+
+- 2026-10-23 12:00 GTBDT (approx). P4.2 done `b74b71d`, `4732f98`. Full self-test 1979/0. Decision D49.
+  - Open for the gate: sk-ashfall p95 15.5 ms in one bench (one 111 ms run, no baseline) → re-run; RLD over the tutorial tip at touchScale 1.4; pause button over top-centre HUD text (old); BOOST latched across an in-battle restart (old).
+  - In flight: P4 gate review (Opus+high).
+  - RESUME: review → fixes → verify → P4 gate passed on the branch (no push) → P5.
+
+- 2026-10-23 11:30 GTBDT (approx). Bird flake fixed `d87081e` (cause: far flocks think every 4th tick, so a bird stayed grounded up to 3 ticks after take-off; 5 full runs + 50/50 block runs). P4.5 `5fdf8a0`, P4.6 `73e08d2` (NET_VERSION 7). Full self-test 1967/0. Bench within limits. Decision D48.
+  - For the gate review: co-op guest on foot has fists only; canyon districts dropped 2.0 → 0.4 per battle.
+  - In flight: P4.2 touch layout agent (Opus+high).
+  - RESUME: P4.2 → P4 gate review → fixes → verify (no push).
+
+- 2026-10-23 10:15 GTBDT (approx). P4.1 `5dd3d77`, P4.3 `138b90b`, P4.4 `5b1b388` done (agent). Full self-test rerun by me: 1943/0. Best p95 within +0.2 ms on every scene. NET_VERSION 6. Decision D47.
+  - Live: exit/enter for mech, ground and air; ejection at 150 m with parachute; on-foot skirmish as Infantry (targeted) and Civilian (ignored).
+  - Flake: "birds keep above the ground and the water" failed once in a full run (passes alone) → fix with flake triage in the next item.
+  - Not done: airport respawn proven only by its self-test (P4.5 fills `W.airports`); touch only has the `Seats.context` hook (P4.2); m1-m8 covered by self-test only.
+  - In flight: P4.5 + P4.6 agent (Opus+high).
+  - RESUME: P4.5 + P4.6 → P4.2 → P4 gate (no push).
+
+- 2026-10-23 09:20 GTBDT (approx). **P3 GATE PASSED** on `5374fe9` (not pushed, owner rule): "ready to ship"; self-test 1874/0; flood drawn within 0.15 m at 99.5% of points (worst 0.58 m on steep coast shores, nothing over dry land); rebuild frames worst 8.7 ms; NET_VERSION 5; SAVE_VERSION 1.
+  - Routed to P8: one 805 ms frame seen once in a hidden pane during a scripted teleport (not reproduced); re-check in a visible pane.
+  - P3 started about 05:20, passed about 09:20: about 4 h of the 6 h budget.
+  - RESUME: P4.1 → P4.6 → P4 gate. P4 deadline 14 agent-h.
+
+- 2026-10-23 09:10 GTBDT (approx). P3R3 done `5374fe9`: flood drawn as a 4 m grid at `Water.level` (rebuilt per 0.1 m step, 1-2 ms each); new bench scene `hz-coast` best p95 4.4-4.6 (HEAD 4.1-4.3, noise). Self-test 1874/0 twice.
+  - In flight: final quick verification (reviewer, resumed).
+  - RESUME: verify → P3 gate passed on the branch (no push) → P4.
+
+- 2026-10-23 08:50 GTBDT (approx). Re-verification of `c110029`: water amounts and one level rule for all users confirmed; self-test 1873/0. Medium: the flat flood surface is drawn up to 10-12 m above the real water on coast and valley. Sent back for a drawing that follows `Water.level` (P3R3).
+  - RESUME: P3R3 → quick verify → P3 gate passed on the branch (no push) → P4.
+
+- 2026-10-23 08:40 GTBDT (approx). P3R2 done `c110029`: flood circle kept over its source (≤ half radius off), dry ground never deeper than the rise so far (3.2 m max, first frame +0), guests get the source height; lava rounded before its check. Self-test 1873/0 twice.
+  - Left: the flood surface is drawn flat at its top height, so a low pocket may look deeper than simulated (verifier to judge).
+  - RESUME: re-verify → P3 gate passed on the branch (no push) → P4.
+
+- 2026-10-23 08:25 GTBDT (approx). P3 verification: every dbbf744 fix confirmed (lightning caps, flood warning, guest match, timeout, L1-L4, wire compatibility); self-test 1869/0. New HIGH: a flood far from water fills a dry basin deep (coast 85-98% of the circle, 13-17 m) and low pockets jump on the first frame. Low: lava rounding after the site check.
+  - In flight: P3R2 (hazards agent, resumed).
+  - RESUME: P3R2 → re-verify → P3 gate passed on the branch (no push) → P4.
+
+- 2026-10-23 08:10 GTBDT (approx). P3R done `dbbf744` (one commit). Self-test 1869/0 twice. Best p95 ashfall 5.6, jungle 4.8, hz-jungle 5.2 (noisy; worst frame 29.9 ms < 33). NET_VERSION 5. Decision D46. The old `startSession` console error came from a console test script; a corrupt destruction level in a save is now sanitized.
+  - Open: a scheduled flood can sit on dry land away from its source water (verifier to judge).
+  - In flight: P3 verification (the reviewer, resumed).
+  - RESUME: verify → P3 gate passed on the branch (no push, owner rule) → P4.
+
+- OWNER (2026-10-23, answer to "push Breakpoint's iPhone changes to main now?", verbatim): "Push after all is done and after my go" → interpreted as: no more pushes to main, neither Breakpoint nor IRON HORIZON phases, until the whole program (P3-P8) is finished and the owner says go. Phase gates still run in full; each passed phase stays on `worktree-living-world`. This supersedes the per-phase push rule from the program prompt.
+  - RESUME: P3R → verify → P3 gate passes on the branch (no push) → P4 … P8 → final report → wait for the owner's go → push.
+
+- 2026-10-23 07:40 GTBDT (approx). P3 gate review: "fix H1 and M1 before shipping". Self-test 1855/0; worst case (quake + gas + tower collapse on metro) p95 3.3 ms; quake flattens 5 of 16 buildings; quitToMenu restores flood water.
+  - High: H1 lightning targets aircraft at any altitude (kestrel at 600 m 244/270 per strike; ranger one-shot; colossus lost 817/1370 in a storm).
+  - Medium: M1 flood raises water during its warning; M2 guest lava and boulder paths can differ from the host's; M3 guests drop hazards after 8 s of silence and re-warn.
+  - Low: gas leak without a plant; shot-before-fall pieces sent as state 2; kill feed "Unknown" for collapse deaths and guest-chosen fall direction; objectives take ram damage and m4 convoy trucks take ram damage on houses.
+  - Weak checks: guest no-damage checks pass through shared guards; "hazards off" ends with an always-true term; bird exemption too wide; outside dummy 250 m past the edge.
+  - In flight: P3R fixes (the hazards agent, resumed).
+  - RESUME: P3R → verify (Opus+high) → push IH-only → P4.
+
+- 2026-10-23 07:25 GTBDT (approx). P3.3 done (agent): `4ee6b5b`, `cec9397`, `e6452bf`. Self-test 1855/0 twice. NET_VERSION 5. Decision D45.
+  - Bench best p95 ≤ 6.0 on every scene (noisy); hz-jungle 5.6; wildfire A/B adds about +0.1 ms.
+  - Live: every hazard on its signature map, screenshots.
+  - Test change: the bird clearance check allows the take-off step (flake, code unchanged).
+  - In flight: P3 gate review (Opus+high).
+  - RESUME: review → fixes → verify → push IH-only → P4.
+
+- 2026-10-23 06:15 GTBDT (approx). P3.1 `841e75e` and P3.2 `b6d2e8d` done (agent). Self-test 1794/0. Best p95 ≤ 4.5 ms on every scene (noisy); NET_VERSION 4. Decisions D43, D44.
+  - Live: colossus rams a house, bastion breaks a fence, jet vs tower as before, skyscraper collapse kills units below, bulwark 70 m away untouched, rubble field.
+  - m1-m8: a bastion at cruise breaks about 2 wall pieces per run (20-110 damage); props and trees as before.
+  - Not done: rubble never lifts; in a full skyscraper collapse the 240-chunk cap turns upper floors straight into rubble.
+  - In flight: P3.3 hazards agent (Opus+high).
+  - RESUME: P3.3 → P3 gate (review, bench, push IH-only).
+
+- 2026-10-23 05:20 GTBDT (approx). **P2 PUSHED**: `3ba3265..8513e0c` to main (11 IH commits cherry-picked; `Mech Flight Sim` identical to the tested `d6b9874` + docs). The branch merged origin/main (`d3f3db2`) and now differs from main only by Breakpoint (owner has not cleared it). IH iPhone support is live on main. No CI in this repo.
+  - P2 started 23:31 on 10-22, pushed about 05:20: about 5.8 h of the 10 h budget.
+  - RESUME: P3.1 → P3.2 → P3.3 → P3 gate. P3 deadline 6 agent-h.
+
 - 2026-10-23 05:10 GTBDT (approx). **P2 GATE PASSED** on `d6b9874`: re-verification "ready to ship"; self-test 1773/0, no console or WebGL errors; v1 fixture, TERRAIN_GOLDEN, m1-m8 pass; 1000-seed sweep 0 fallbacks; bench best p95 ≤ 6.0 on every scene (machine noisy, best used as in P1). NET_VERSION 4 unchanged (no wire change). SAVE_VERSION 1.
   - Shipping IH-only: the P2 IH commits and this docs commit are cherry-picked onto `origin/main`; Breakpoint 6fdce11/834dc6d/be88e70 stay on the branch until the owner clears them.
   - RESUME: push → merge origin/main into the branch → P3.1 (momentum collisions). P3 deadline 6 agent-h.
