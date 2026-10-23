@@ -24371,7 +24371,7 @@ const HUD = {
       if (age > 3.6) continue;
       const a = age > 2.8 ? 1 - (age - 2.8) / 0.8 : 1;
       this.g.globalAlpha = a; this.txt(mm.text, cx, y, 13, C.text, 'center', true); this.g.globalAlpha = 1;
-      y += 17 * u;
+      y += HUD_MSG_STEP * u;
     }
     // persistent warnings
     if (p.dead) return;
@@ -24450,23 +24450,29 @@ const HUD = {
     if (W.lives > 0 || (Game.cfg && Game.cfg.mode === 'training')) this.txt('REDEPLOYING IN ' + Math.max(0, Math.ceil(Game.respawnT)) + '  |  PLATFORMS LEFT ' + (Game.cfg.mode === 'training' ? 'UNLIMITED' : Game.livesText()), this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
     else this.txt('NO PLATFORMS LEFT', this.w / 2, this.h * 0.4 + 32 * u, 14, C.text, 'center');
   },
+  /* the training panel's box { x, y, w, h } (out, reused): left of the touch buttons, and below the message lines
+     (up to 4, from msgY) where they would reach it on a short screen */
+  trainingBox(u, out) {
+    out.x = this.w - 330 * u - SafeArea.r - this.touchReserve(); out.w = 310 * u; out.h = 150 * u;
+    out.y = Math.max(190 * u + SafeArea.t, this.msgY(u) + 3 * HUD_MSG_STEP * u + 6.5 * u + HUD_TEXT_GAP);
+    return out;
+  },
   drawTraining(p, u) {
-    const g = this.g, x = this.w - 330 * u - SafeArea.r - this.touchReserve(), y = 190 * u + SafeArea.t, C = this.C;
+    const g = this.g, box = this.trainingBox(u, HUD_TRAIN_BOX), x = box.x, y = box.y, C = this.C, room = box.w - 16 * u, fit = TouchControls.shown;
     const log = W.dmgLog || [];
     while (log.length && W.time - log[0].t > 3) log.shift();
     let dps = 0; for (const e of log) dps += e.a; dps /= 3;
     const acc = W.stats.shots ? Math.round(W.stats.hits / W.stats.shots * 100) : 0;
-    g.fillStyle = C.bg; g.fillRect(x, y, 310 * u, 150 * u);
-    g.strokeStyle = C.dim; g.strokeRect(x + 0.5, y + 0.5, 310 * u, 150 * u);
+    g.fillStyle = C.bg; g.fillRect(x, y, box.w, box.h);
+    g.strokeStyle = C.dim; g.strokeRect(x + 0.5, y + 0.5, box.w, box.h);
     let ly = y + 14 * u; const lx = x + 8 * u;
     this.txt('TRAINING RANGE - WEAPON TEST', lx, ly, 11, C.main, 'left', true); ly += 17 * u;
     this.txt('DPS (3s): ' + dps.toFixed(0), lx, ly, 12, C.text); ly += 15 * u;
     this.txt('Last hit: ' + (W.lastHit ? W.lastHit.dmg + ' dmg on ' + W.lastHit.target : '-'), lx, ly, 12, C.text); ly += 15 * u;
     this.txt('Shots ' + W.stats.shots + '  Hits ' + W.stats.hits + '  Acc ' + acc + '%', lx, ly, 12, C.text); ly += 15 * u;
     this.txt('Total damage dealt: ' + Math.round(W.stats.damageDealt), lx, ly, 12, C.text); ly += 17 * u;
-    this.txt('[F2] Infinite ammo: ' + (W.infiniteAmmo ? 'ON' : 'OFF') + '   [F3] Friendly fire: ' + (W.friendlyFire ? 'ON' : 'OFF'), lx, ly, 10, C.dim); ly += 13 * u;
-    this.txt('[F4] Reset destructibles  [F6] Reset targets', lx, ly, 10, C.dim); ly += 13 * u;
-    this.txt('Hold [' + actionLabel('interact') + '] step out, tap beside a parked platform to enter   [F1] Help', lx, ly, 10, C.dim);
+    const hints = ['[F2] Infinite ammo: ' + (W.infiniteAmmo ? 'ON' : 'OFF') + '   [F3] Friendly fire: ' + (W.friendlyFire ? 'ON' : 'OFF'), '[F4] Reset destructibles  [F6] Reset targets', 'Hold [' + actionLabel('interact') + '] step out, tap beside a parked platform to enter   [F1] Help'];
+    for (const line of hints) { this.txt(line, lx, ly, fit ? this.fitSize(line, 10, room) : 10, C.dim); ly += 13 * u; }
     if (Game.trainingHelp) {
       const w = 330 * u, hx = this.w / 2 - w / 2, hy = this.h * 0.2;
       const rows = ACTIONS.map((a) => keyLabel(Input.code(a[0])).padEnd(9) + a[1]);
@@ -24515,6 +24521,8 @@ const HUD_PROMPT_Y = 0.58;        // the Use prompts' middle line, as a share of
 const HUD_PROMPT_HALF = 150, HUD_PROMPT_UP = 37, HUD_PROMPT_DOWN = 23;   // the band the prompts take round it (x u)
 const HUD_PROMPT_PASSES = 6;      // moves up past what stands in that band
 const HUD_RADAR_LABEL = 15;       // the radar's range label over the disc (x u)
+const HUD_MSG_STEP = 17;          // distance between message lines (x u)
+const HUD_TRAIN_BOX = { x: 0, y: 0, w: 0, h: 0 };   // HUD.trainingBox's result (no allocation per frame)
 const HUD_MSG_HALF = 180;         // half the widest message line (x u)
 const HUD_MSG_RADAR = { x: 0, y: 0, s: 0 };   // HUD.msgY's radar box (no allocation per frame)
 const HUD_PANELS = { bars: { x: 0, y: 0, w: 0, h: 0, at: 'l' }, weapons: { x: 0, y: 0, w: 0, h: 0, row: 0, at: 'r' }, radar: { x: 0, y: 0, w: 0, h: 0, s: 0, at: 'r' } };
@@ -25040,8 +25048,13 @@ const UI = {
       '<p><b>Damage order:</b> shield, then armor (absorbs a share of each hit), then hull. At 66% and 33% hull a random subsystem fails for a while. Rear hits do extra damage.</p>' +
       '<p><b>Aim assist</b> (on by default, Settings &gt; Aiming): shots bend toward an enemy near the reticle (a small red ring marks it) and enemies are slightly easier to hit. You have ' + PLAYER_LIVES + ' platforms per mission by default (Settings &gt; Gameplay; skirmish has its own setting); a charged superweapon fires with ' + actionLabel('superweapon') + '; Recruit difficulty is the gentlest start.</p>' +
       '<p><b>Aircraft:</b> in assisted mode the plane chases your cursor. To land, fly low, slow and level: the gear lowers by itself under ' + GEAR_AUTO_AGL + ' m and ' + Math.round(GEAR_AUTO_SPEED * 3.6) + ' km/h (the Stance key moves it by hand). Hold Use above ' + EJECT_MIN_AGL + ' m to eject with a parachute.</p>' +
-      '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you start inside the platform you chose. Hold Use to step out; on foot, tap Use beside a free friendly vehicle to get in. A vehicle you leave stays parked with its hull and ammunition.</p><p><b>Supply:</b> stand near the supply pad and tap Use to refill ammunition and repair (2 uses per mission).</p></div>' +
-      '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>8 objective missions covering every objective type, skirmish mode and a training range.</li><li>Fully offline, single file, no external assets.</li></ul>' +
+      '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you start inside the platform you chose. Hold Use (' + actionLabel('interact') + ') to step out; on foot, tap Use beside a free friendly vehicle to get in. A vehicle you leave stays parked with its hull and ammunition. Tap Use beside a civilian car, truck, boat or parked plane to take it (planes only at an airport); ships at sea and airliners stay out of reach.</p>' +
+      '<p><b>Maps, weather and hazards:</b> 10 new battlefields (coast, archipelago, valley, alpine, canyon, jungle, volcano, tundra, metro, farmland) join the first three, with rivers, lakes, seas, mountains, trees, animals, traffic and towns that go about their day. Weather (clear, overcast, rain, storm, snow, fog, sandstorm) and time of day (dawn, day, dusk, night or a day-night cycle) change sight and grip; a skirmish sets them, and a mission may set its own. Hazards (wildfire, flash flood, avalanche, rockfall, lightning, tornado, sandstorm, earthquake, lava flow, toxic gas) show a warning first; get clear. Falling buildings and ramming at speed break and hurt.</p>' +
+      '<p><b>Boats, ships, melee and artillery:</b> ships (Lancer, Trident, the Skua hovercraft) need a map with deep water. On foot, and in a mech, melee (' + actionLabel('melee') + ') swings a knife, sword or katana, or fists. Artillery (Thunder, Hailstorm, Pestle) fires on the point you aim at: deploy with ' + actionLabel('stance') + ', and the ' + actionLabel('melee') + ' key picks a high or low arc. Your shells hit objectives fully only where a friendly spotter (not artillery) sees the target.</p>' +
+      '<p><b>Training Range:</b> pick any battlefield on its Deploy screen; F1 shows the key list there.</p>' +
+      '<p><b>Missions 9 to 18:</b> ten new missions, one on each new map, with naval, flood, avalanche and artillery themes among them. Winning one unlocks a weapon, melee weapon or superweapon in the Arsenal.</p>' +
+      '<p><b>iPhone and touch:</b> on a touch screen the buttons appear on the right (fire, alt, boost, jump, defense, target, super, reload, weapon, Use) and crouch and melee on the left. Settings &gt; Display sets their size. Play in landscape.</p><p><b>Supply:</b> stand near the supply pad and tap Use to refill ammunition and repair (2 uses per mission).</p></div>' +
+      '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>18 objective missions covering every objective type (8 classic, 10 new on the new maps), skirmish mode and a training range on any map.</li><li>13 battlefields with weather, time of day and hazards; civilian vehicles you can take; ships, artillery and new melee; touch controls for iPhone.</li><li>Fully offline, single file, no external assets.</li></ul>' +
       '<h3>Known limitations</h3><ul><li><b>Co-op</b> (up to 4 players, mission mode) connects browsers directly using copy-and-paste codes; there is no server. Over the internet it may need the public STUN option and can fail behind strict routers. Competitive PvP is not included.</li><li>Mission progress is not saved mid-mission. Best scores and settings are saved locally.</li><li>Performance: designed for desktop GPUs; lower Graphics quality if frames drop. The game also lowers render resolution automatically.</li></ul>' +
       '<h3>Troubleshooting</h3><ul><li>Black screen or error: enable hardware acceleration and use a current Chrome, Edge or Firefox.</li><li>No mouse look: click to capture the cursor, or disable Capture cursor in Settings to use edge-of-screen aiming.</li><li>No sound: click once in the page; browsers block audio until you interact.</li><li>iPhone and iPad: play in landscape; for full screen use Share, then Add to Home Screen; the silent switch also mutes the game.</li><li>Press F10 for diagnostics.</li><li><button class="btn small" data-act="selftest">Run built-in self-test</button></li></ul></div></div>' +
       '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
@@ -30314,6 +30327,36 @@ const SelfTest = {
           this.check('a co-op guest builds the host\'s world of mission ' + id, worldHash() === host && W.mission.objectives.length === 0 && !W.player, host + ' / ' + worldHash());
         }
       } finally { Game.quitToMenu(); }
+    });
+    t('p8 ui', () => {
+      const tc = TouchControls, keep = { enabled: tc.enabled, shown: tc.shown, w: HUD.w, h: HUD.h, u: HUD.u, sa: { l: SafeArea.l, t: SafeArea.t, r: SafeArea.r, b: SafeArea.b } };
+      try {
+        Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const sa = { l: 0, t: 0, r: 0, b: 0 }, box = {};
+        tc.shown = true;
+        for (const [w, h] of [[812, 375], [667, 375]]) {
+          Object.assign(SafeArea, sa); HUD.w = w; HUD.h = h; HUD.u = Math.min(w, h) / 800 * S.uiScale;
+          tc.place(w, h, sa, 1); tc.update(W.player, Seats.context(W.player, {}), true);
+          const u = HUD.u, b = HUD.trainingBox(u, box), my = HUD.msgY(u);
+          const msgs = { x: w / 2 - HUD_MSG_HALF * u, y: my - 6.5 * u, w: 2 * HUD_MSG_HALF * u, h: 3 * HUD_MSG_STEP * u + 13 * u };
+          const hit = (r) => b.x < r.x + r.w && r.x < b.x + b.w && b.y < r.y + r.h && r.y < b.y + b.h;
+          const touched = tc.boxes.filter((o) => o.on && hit({ x: o.x, y: o.y, w: hudW(o), h: hudH(o) })).length;
+          this.check('the training panel keeps off the message lines at ' + w + 'x375', !hit(msgs), b.y + ' under ' + (msgs.y + msgs.h));
+          this.check('the training panel keeps off the touch buttons at ' + w + 'x375', touched === 0 && b.x >= 0 && b.x + b.w <= w - tc.reserve + 1 && b.y + b.h <= h);
+        }
+        Object.assign(SafeArea, sa); HUD.w = 1920; HUD.h = 1080; HUD.u = 1080 / 800 * S.uiScale; tc.shown = false; tc.enabled = false;
+        const d = HUD.trainingBox(HUD.u, box);
+        this.check('the training panel stays at its desktop place at 1920x1080', Math.abs(d.x - (1920 - 330 * HUD.u)) < 0.01 && Math.abs(d.y - 190 * HUD.u) < 0.01 && d.w === 310 * HUD.u && d.h === 150 * HUD.u);
+        const help = UI.scr_help().toLowerCase();
+        const words = ['10 new', 'weather', 'time of day', 'hazards', 'civilian', 'boat', 'ships', 'melee', 'artillery', 'spotter', 'training range', 'missions 9 to 18', 'unlocks', 'iphone', 'touch'];
+        const missing = words.filter((k) => help.indexOf(k) < 0);
+        this.check('the help text names every feature the program added', missing.length === 0, missing.join(', '));
+        const keys = ['interact', 'melee', 'stance'].filter((a) => !ACTIONS.some((x) => x[0] === a) || help.indexOf('hold use (' + actionLabel('interact').toLowerCase() + ')') < 0);
+        this.check('the keys the help names are real bindings', keys.length === 0, keys.join(', '));
+      } finally {
+        tc.enabled = keep.enabled; tc.shown = keep.shown; HUD.w = keep.w; HUD.h = keep.h; HUD.u = keep.u; Object.assign(SafeArea, keep.sa);
+        Game.quitToMenu();
+      }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
