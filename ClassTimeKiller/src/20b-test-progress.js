@@ -677,6 +677,12 @@ Test.add('progress', (check) => {
     Game.stop();
   }
   check('cards: the shipped PvE levels measure every metric a card condition reads', unmeasured.length === 0 && enemiesMeasured, unmeasured.map((row) => row.code).join());
+  // A won Test Chambers run (a level with no enemies, no kills) unlocks no kill-based card: "Kill all enemies" needs a kill.
+  Cards.record().unlocked = {};
+  Game.start({ mode: 'puzzle', map: 'chambers', seed: 4, player: { name: 'You' } });
+  Modes.finish(Modes.over(Game.playerId, PVE_WIN));
+  check('cards: a won chamber run with no kills does not unlock C03 Soulkeep', Cards.record().unlocked.stoneskin && !Cards.record().unlocked.soulkeep, Object.keys(Cards.record().unlocked).join());
+  Game.stop();
 });
 
 // ---- Cards: every effect applies in a match ----
