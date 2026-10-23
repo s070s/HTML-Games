@@ -439,6 +439,8 @@ Test.add('maps', (check) => {
   check('pads: flight time scales with 1/sqrt(gravity), so the path in space is the same', times.every((scaled) => mapTestWithin(scaled, times[0], 1e-9)));
   check('pads: the scan traces every movement preset gravity', MAP_TEST_GRAVITIES.every((gravity) => gravity >= Math.min(...MAP_PAD_GRAVITIES) && gravity <= Math.max(...MAP_PAD_GRAVITIES))
     && MAP_PAD_GRAVITIES.includes(GRAVITY));
+  check('body sizes: the map scan, validator and editor read the S01 / S10 body numbers (no copies)', typeof MAP_STEP === 'undefined' && typeof MAP_BODY_RADIUS === 'undefined'
+    && typeof MAP_EYE === 'undefined' && MAPEDIT_KINDS.spawns.height === STAND_HEIGHT && MAPEDIT_KINDS.spawns.halfWidth === ACTOR_RADIUS);
   // The scan flies S08's own arc: a pad with no `peak` rises the default height, so a low ceiling on the way blocks it.
   const roofed = { size: [20, 10, 20], brushes: [['concrete', -10, -1, -10, 10, 0, 10], ['concrete', -2, 2.8, 2, 2, 3, 6]].map((row) => MapKit.brush(row)), triggers: [] };
   const roofScan = MapScan.of(roofed);

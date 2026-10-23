@@ -30,10 +30,11 @@ const MAPEDIT_DIR_TURN = { '+z': '+x', '+x': '-z', '-z': '-x', '-x': '+z' };   /
 const MAPEDIT_CODE_KEYS = ['id', 'code', 'name', 'size', 'theme', 'category', 'sky', 'modes', 'blurb', 'version', 'placeholder', 'seed'];
 
 // How each list of a map is placed and measured. box: a { min, max } volume; otherwise a point with a footprint and a height.
-const MAPEDIT_NEAR_ORDER = ['items', 'spawns', 'objectives', 'navHints', 'lights', 'triggers', 'brushes', 'zones'];   // a problem at a point most likely names a point object, so those win ties
+const MAPEDIT_NEAR_ORDER = ['items', 'spawns', 'objectives', 'navHints', 'lights', 'triggers', 'props', 'brushes', 'zones'];   // a problem at a point most likely names a point object, so those win ties
+const MAPEDIT_OBJECT_LISTS = MAP_REQUIRED_LISTS.concat('props');   // every list of placed objects: counted, drawn and picked alike
 const MAPEDIT_KINDS = {
   brushes: { label: 'Brush', box: true },
-  spawns: { label: 'Spawn', halfWidth: 0.4, height: 1.8 },
+  spawns: { label: 'Spawn', halfWidth: ACTOR_RADIUS, height: STAND_HEIGHT },
   items: { label: 'Item pad', halfWidth: 0.4, height: 0.9 },
   objectives: { label: 'Objective', halfWidth: 0.5, height: 3 },
   zones: { label: 'Zone', box: true },
@@ -48,6 +49,9 @@ const MAPEDIT_PROBLEM_LISTS = { brush: 'brushes', light: 'lights', spawn: 'spawn
 // Does a validator message talk about the zone with this name? ("duplicate zone name X", "indoor zone X has no light", "zones: X has an invalid box")
 const mapEditNamesZone = (text, name) => text.includes('zone ' + name + ' ') || text.endsWith('zone name ' + name) || text.includes(': ' + name + ' has an invalid box');
 
+const MAPEDIT_NO_OBJECTS = [];
+// The map code of a saved slot: 'user7' -> 'U07'.
+const mapEditCodeOf = (id) => 'U' + id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0');
 const mapEditClone = (value) => JSON.parse(JSON.stringify(value));
 const mapEditFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= MAPEDIT_COORD_LIMIT;
 const mapEditTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(mapEditFinite);
@@ -143,7 +147,7 @@ const MapEditor = {
   count() { return mapEditObjectCount(this.map); },
   budgetLeft() { return MAPEDIT_BUDGET - this.count(); },
   countsText() {
-    const lists = this.map.props.length ? MAP_REQUIRED_LISTS.concat('props') : MAP_REQUIRED_LISTS;   // props count in the budget too
+    const lists = this.map.props.length ? MAPEDIT_OBJECT_LISTS : MAP_REQUIRED_LISTS;   // props count in the budget too
     return lists.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', ');
   },
 
@@ -334,7 +338,7 @@ const MapEditor = {
     let best = Infinity;
     out.list = ''; out.index = -1;
     for (const list of MAPEDIT_NEAR_ORDER) {
-      const items = this.map[list];
+      const items = this.map[list] || MAPEDIT_NO_OBJECTS;
       for (let i = 0; i < items.length; i++) {
         const box = this.bounds(list, items[i], this.scratch);
         const gap = Math.hypot(Math.max(box[0] - x, 0, x - box[3]), Math.max(box[1] - y, 0, y - box[4]), Math.max(box[2] - z, 0, z - box[5]));
@@ -571,7 +575,7 @@ const MapEditor = {
   },
   entryFor(id, name) {
     const map = this.toMap();
-    Object.assign(map, { id, name, code: 'U' + id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0') });
+    Object.assign(map, { id, name, code: mapEditCodeOf(id) });
     const entry = { id, name, modes: map.modes.slice(), data: this.compact(map), bytes: 0 };
     entry.bytes = JSON.stringify(entry).length + 8;
     return entry;
@@ -584,7 +588,7 @@ const MapEditor = {
       this.refuse('The map could not be written: storage is full or blocked.');
       return false;
     }
-    this.map.id = entry.id; this.map.name = entry.name; this.map.code = 'U' + entry.id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0');
+    this.map.id = entry.id; this.map.name = entry.name; this.map.code = mapEditCodeOf(entry.id);
     this.slotId = entry.id;
     this.dirty = false;
     this.syncRuntime();
@@ -642,7 +646,7 @@ const MapEditor = {
 
 // Placed objects of a map, props included: the one count behind the editor budget, a copied built-in map and a saved map.
 function mapEditObjectCount(map) {
-  return MAP_REQUIRED_LISTS.reduce((sum, list) => sum + map[list].length, (map.props || []).length);
+  return MAPEDIT_OBJECT_LISTS.reduce((sum, list) => sum + (map[list] || MAPEDIT_NO_OBJECTS).length, 0);   // an older map may lack props
 }
 
 const mapEditEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);

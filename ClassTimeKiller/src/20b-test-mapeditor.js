@@ -1087,6 +1087,33 @@ Test.add('mapEditor', async (check) => {
 });
 
 Test.add('mapEditor', (check) => {
+  // ---- Breakable props: drawn, picked, moved and deleted like the other objects ----
+  mapEditEditorOff();
+  MapEditor.newFrom({ kind: 'builtin', id: 'spire' });
+  MapEditorTools.attach();
+  const props = MapEditor.map.props.slice(), propCount = props.length, withProps = mapEditFakeBatch();
+  MapEditorTools.draw(withProps);
+  MapEditor.map.props = [];
+  const without = mapEditFakeBatch();
+  MapEditorTools.draw(without);
+  MapEditor.map.props = props;
+  check('a copied map draws its props', props.length > 0 && withProps.shapes.box - without.shapes.box === props.length, (withProps.shapes.box - without.shapes.box) + ' of ' + props.length);
+  const prop = props[0], ray = MapEditorTools.ray;
+  ray.ox = (prop.min[0] + prop.max[0]) / 2; ray.oy = prop.max[1] + 0.5; ray.oz = (prop.min[2] + prop.max[2]) / 2; ray.dx = 0; ray.dy = -1; ray.dz = 0;
+  MapEditorTools.pickHover();
+  check('the cursor picks a prop', MapEditorTools.hover.list === 'props' && MapEditorTools.hover.index === 0, MapEditorTools.hover.list);
+  const x = prop.min[0];
+  MapEditor.select('props', 0);
+  MapEditor.nudgeSelected(1, 0, 0);
+  check('a prop moves', MapEditor.map.props[0].min[0] === x + 1);
+  MapEditor.deleteSelected();
+  check('a prop is deleted', MapEditor.map.props.length === propCount - 1);
+  check('one rule turns a slot id into its map code', mapEditCodeOf('user7') === 'U07' && mapEditCodeOf('user20') === 'U20');
+  MapEditorTools.detach();
+  mapEditEditorOff();
+});
+
+Test.add('mapEditor', (check) => {
   mapEditRestoreEditor();
   check('the editor state of the player is back after the tests', mapEditKept === null);
 });
