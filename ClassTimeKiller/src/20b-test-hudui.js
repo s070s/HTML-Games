@@ -389,6 +389,7 @@ Test.add('hudui', (check) => {
 // ---- Phones and tablets both ways (touch-01), in modes with each header row, at the default places and with every button the
 // layout editor moved to the top or the bottom edge, in play and in the killcam replay:
 // 1. no shown touch button on another; 2. none in the aim zone around the crosshair (TOUCH_AIM_ZONE of the short side);
+// each at least TOUCH_MIN_DIAMETER across (or its full size when that is smaller) and on its layout spot's half of the screen;
 // 3. the banners are drawn, clear of the buttons when a free place exists, and a moved stack stays out of the aim zone;
 // 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws ----
 const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
@@ -414,6 +415,8 @@ function hudUiTouchBreak(fixed, banners, width, height) {
     const other = shown.find((next) => next !== control && length2(places[next.id].x - x, places[next.id].y - y) < radius + places[next.id].radius - 0.5);
     if (other) return control.id + ' on ' + other.id;
     if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
+    if (place.radius * 2 < Math.min(TOUCH_MIN_DIAMETER, place.fullRadius * 2) - 0.01) return control.id + ' ' + Math.round(place.radius * 2) + ' px across';
+    if (!TouchInput.keepsHalf(place, x, width)) return control.id + ' left its half';
     const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
     if (over) return control.id + ' over ' + over.map(Math.round);
   }
@@ -426,8 +429,8 @@ function hudUiTouchBreak(fixed, banners, width, height) {
 function hudUiDrawPanels(layout) {
   for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
 }
-// HUD scale 100% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
-const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+// HUD scale 100%, 125% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
+const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
   const layout = {}, problems = [];
   for (const hudScale of HUD_UI_HUD_SCALES) {

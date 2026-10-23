@@ -346,6 +346,7 @@ function hudDrawPve(pen, layout) {
   const rows = HUD_PVE_PANELS[pve.mode] || [];
   hudPvePlaceRows(layout);
   for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](pen, layout, pve);
+  if (layout.touch && hudPveBossShown(pve) !== hudPveClearLayout.boss) TouchInput.applyAll();   // a fight began or ended: the buttons make room
   hudPveBossBar(pen, layout, pve.boss);
   if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
   if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
@@ -371,11 +372,14 @@ function hudDrawTickets(pen, layout) {
 Hud.register('main', 'pve', 'pve', hudDrawPve);
 Hud.register('main', 'tickets', 'header', hudDrawTickets);
 
-// ---- Touch buttons give way to the tickets row and the PvE status rows (05b keepClear, touch-01) ----
+// ---- Touch buttons give way to the tickets row, the PvE status rows and the boss bar (05b keepClear, touch-01) ----
 // The rows are measured by drawing them with a pen that draws nothing: each row moves hudPveAt[0] below itself, as on screen.
+// The boss bar is kept clear while a fight is on; hudDrawPve re-places the buttons when one begins or ends.
 const hudPveNothing = () => 0;
 const hudPveMeasurePen = new Proxy({}, { get: () => hudPveNothing });
-const hudPveClearLayout = {};
+const hudPveClearLayout = { boss: false };
+const HUD_PVE_BOSS_HEIGHT = 56;   // units from the bar's top to the row under it (hudPveBossBar)
+function hudPveBossShown(pve) { return !!(pve && pve.active && pve.boss && pve.boss.active); }
 const HUD_TICKETS_WIDEST = '9999';   // the widest ticket count the row is kept clear for
 TouchInput.keepClear.push((width, height) => {
   const layout = hudPveClearLayout, pve = Modes.hud && Modes.hud.pve;
@@ -385,10 +389,14 @@ TouchInput.keepClear.push((width, height) => {
     const half = 44 * unit + HudPen.measure(HUD_TICKETS_WIDEST, 17 * unit);   // the counts sit 44 units either side (hudDrawTickets)
     TouchInput.addClear(layout.centerX - half, layout.top, layout.centerX + half, layout.top + 54 * unit + hudTextHalf(17 * unit));
   }
+  layout.boss = hudPveBossShown(pve);
   if (!pve || !pve.active) return;
   const rows = HUD_PVE_PANELS[pve.mode] || [];
   hudPvePlaceRows(layout);
   const top = hudPveAt[0], left = hudPveAt[1], right = hudPveAt[2];
   for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](hudPveMeasurePen, layout, pve);
   if (rows.length) TouchInput.addClear(left, top, right, hudPveAt[0]);
+  if (!layout.boss) return;
+  const half = HUD_PVE_BOSS_WIDTH * unit / 2, bossTop = hudPveAt[0];
+  TouchInput.addClear(layout.centerX - half, bossTop, layout.centerX + half, bossTop + HUD_PVE_BOSS_HEIGHT * unit);
 });

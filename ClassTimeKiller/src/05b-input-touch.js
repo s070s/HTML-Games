@@ -27,7 +27,11 @@ const TOUCH_SEARCH_DIRECTIONS = 16;     // spots tried on each ring around a but
 const TOUCH_SHRINK_STEP = 0.85;          // a button with no free spot at its size tries again this much smaller ...
 const TOUCH_SMALLEST = 0.45;            // ... down to this share of its preset size (all fit there, HUD scale 150 on a 568x320 phone too)
 const TOUCH_EDGE_BAND = 0.3;            // of the short side: the top and side bands an edge button stays in (placeControl)
-const TOUCH_NEAR = 6;                   // radii an edge button may move before it shrinks
+const TOUCH_NEAR = 6;                   // radii a button may move before it shrinks
+const TOUCH_CROWD_SMALLEST = TOUCH_SMALLEST / TOUCH_SCALE_MAX;   // crowd factor floor: an editor-grown button shrinks to its smallest too
+const TOUCH_MIN_DIAMETER = 30;          // css px: no button shrinks below this (smaller cannot be tapped reliably)
+const TOUCH_GAP = 2;                    // css px kept between two buttons, so a tap at one's edge does not reach the next
+const TOUCH_CENTRE_BAND = 0.2;          // of the width: a layout spot this near the centre line belongs to neither half (keepsHalf)
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
@@ -134,6 +138,7 @@ const TouchInput = {
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   places: {},                      // control id -> { x, y, radius, shown, placed }: where it is drawn, in window css px (placeAll)
   placeOrder: TOUCH_CONTROLS.slice(),   // placeAll sorts it: the largest drawn first (the stick, FIRE, JUMP keep their places)
+  crowd: [1, 1],                   // the size factor of the left and right halves' buttons in the last placeAll (crowdedSide)
   aim: { x: 0, y: 0, radius: 0 },  // the aim zone of the last placeAll, kept free of buttons (17c keeps the banners out of it too)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
   keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
@@ -253,6 +258,7 @@ const TouchInput = {
     const tap = !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS;
     if (slot.role === ROLE_STICK) this.endStick();
     else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
+    else if (slot.role === ROLE_DRAG) this.flushDrag();   // the button lands where the finger left it
     if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);   // a still tap on the weapon bar picks that slot
     else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
     this.freeSlot(slot);
@@ -468,48 +474,75 @@ const TouchInput = {
   // Fills places for a width x height screen (css px): one source for the layer and the layout tests (hudui). The aim zone
   // (a circle around the screen centre, where the crosshair is) and the keepClear areas are set first; then each shown
   // button, the largest as drawn first (its layout scale counts) so the big ones keep their spots, takes the free spot nearest
-  // its layout spot (placeControl).
+  // its layout spot (placeControl). When a button still had to leave its half, that half is crowded (a small phone at a big
+  // HUD scale): every button on it is placed again a step smaller (crowd), down to its smallest, before one crosses over.
   placeAll(width, height) {
-    const aim = this.aim, places = this.places;
+    const aim = this.aim, crowd = this.crowd;
     aim.x = width / 2; aim.y = height / 2; aim.radius = TOUCH_AIM_ZONE * Math.min(width, height);
     this.clearCount = 0;
     for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
+    crowd[0] = crowd[1] = 1;
+    for (;;) {
+      this.placeEvery(width, height);
+      const side = this.crowdedSide(width);
+      if (side < 0 || crowd[side] <= TOUCH_CROWD_SMALLEST) return;
+      crowd[side] = Math.max(TOUCH_CROWD_SMALLEST, crowd[side] * TOUCH_SHRINK_STEP);
+    }
+  },
+  // One placing pass over every control at the current crowd sizes.
+  placeEvery(width, height) {
+    const places = this.places;
     for (let i = 0; i < TOUCH_CONTROLS.length; i++) this.prepareControl(TOUCH_CONTROLS[i], i, width, height);
     this.placeOrder.sort((a, b) => (places[b.id].fullRadius - places[a.id].fullRadius) || (places[a.id].order - places[b.id].order));
     for (const control of this.placeOrder) this.placeControl(control, width, height);
   },
-  // A control's layout spot (on screen), its drawn radius and whether it shows; not placed yet.
+  // The half (0 left, 1 right) of the first shown button placed off its own half, else -1.
+  crowdedSide(width) {
+    for (const control of TOUCH_CONTROLS) {
+      const place = this.places[control.id];
+      if (place.shown && !this.keepsHalf(place, place.x, width)) return place.startX < width / 2 ? 0 : 1;
+    }
+    return -1;
+  },
+  // A control's layout spot (on screen), its drawn radius (times its half's crowd) and whether it shows; not placed yet.
   prepareControl(control, order, width, height) {
     const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
-    const radius = control.size * layout.scale / 2;
-    place.startX = clamp(insets.left + layout.x * (width - insets.left - insets.right), insets.left + radius, width - insets.right - radius);
+    const layoutX = insets.left + layout.x * (width - insets.left - insets.right);
+    const layoutRadius = control.size * layout.scale / 2, crowd = this.crowd[layoutX < width / 2 ? 0 : 1];
+    const radius = Math.max(layoutRadius * crowd, this.smallestRadius(control, layoutRadius));
+    place.startX = clamp(layoutX, insets.left + radius, width - insets.right - radius);
     place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
     place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
     place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
   },
-  // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart). A button
-  // with no free spot tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of its preset size. With none even
-  // then it takes the spot inside the layer, outside the aim zone and the keepClear areas, that overlaps the others least.
-  // An edge button (the small utility row: TAB, II, PING, CHAT, TOOL) only goes where a thumb sweeping to look does not
-  // reach: the top or side bands (TOUCH_EDGE_BAND); it shrinks before it moves far (TOUCH_NEAR) and leaves the bands only
-  // when nothing at all is allowed in them.
+  // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart), within
+  // TOUCH_NEAR radii and on the button's own half of the screen (a thumb finds it where it was). A button with no such spot
+  // tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of its preset size but never under TOUCH_MIN_DIAMETER;
+  // at that size it may search as far as its half reaches. An edge button (the small utility row: TAB, II, PING, CHAT, TOOL)
+  // keeps to the top or side bands (TOUCH_EDGE_BAND), where the look thumb does not sweep, until nothing in them is free.
+  // With nothing free on its half it takes a free spot anywhere, else the allowed spot that overlaps the others least.
+  // The least radius a control shrinks to: TOUCH_SMALLEST of its preset size, never under TOUCH_MIN_DIAMETER (nor over its own).
+  smallestRadius(control, radius) {
+    return Math.min(radius, Math.max(control.size * this.preset().scale / 2 * TOUCH_SMALLEST, TOUCH_MIN_DIAMETER / 2));
+  },
   placeControl(control, width, height) {
-    const place = this.places[control.id], smallest = control.size * this.preset().scale / 2 * TOUCH_SMALLEST;
+    const place = this.places[control.id], smallest = this.smallestRadius(control, place.fullRadius);
     place.placed = true;
     if (!place.shown) return;
     let radius = place.fullRadius;
     for (;;) {
-      const last = radius <= smallest, reach = control.edge && !last ? place.fullRadius * TOUCH_NEAR : Infinity;
-      if (this.searchSpot(control, place, radius, width, height, last, reach, !!control.edge)) return;
+      const last = radius <= smallest, reach = last ? Infinity : place.fullRadius * TOUCH_NEAR;
+      if (this.searchSpot(control, place, radius, width, height, reach, !!control.edge, true, false)) return;
       if (last) break;
       radius = Math.max(smallest, radius * TOUCH_SHRINK_STEP);
     }
-    if (control.edge) this.searchSpot(control, place, radius, width, height, true, Infinity, false);
+    if (control.edge && this.searchSpot(control, place, radius, width, height, Infinity, false, true, false)) return;
+    this.searchSpot(control, place, radius, width, height, Infinity, false, false, true);
   },
   // Rings out from the layout spot up to reach: true when it set place to a free spot of this radius (in the edge bands when
-  // banded). With leastOverlap it falls back to the allowed spot that overlaps the other buttons least (also true); false
-  // when no spot is even allowed.
-  searchSpot(control, place, radius, width, height, leastOverlap, reach, banded) {
+  // banded, on the start's half when sameHalf). With leastOverlap it falls back to the allowed spot that overlaps the other
+  // buttons least (also true); false when no spot is even allowed.
+  searchSpot(control, place, radius, width, height, reach, banded, sameHalf, leastOverlap) {
     const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.min(reach, Math.max(width, height));
     let best = Infinity;
     for (let distance = 0; distance < farthest; distance += step) {
@@ -517,6 +550,7 @@ const TouchInput = {
       for (let i = 0; i < directions; i++) {
         const angle = i * 2 * Math.PI / directions, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
         if (!this.spotAllowed(x, y, radius, width, height) || (banded && !this.inEdgeBand(x, y, width, height))) continue;
+        if (sameHalf && !this.keepsHalf(place, x, width)) continue;
         const overlap = this.overlapAt(control, x, y, radius);
         if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }
         if (overlap === 0) return true;
@@ -524,6 +558,9 @@ const TouchInput = {
     }
     return best < Infinity;
   },
+  // x is on the same half of the screen as the button's layout spot. One that starts near the centre line (within
+  // TOUCH_CENTRE_BAND of the width: the utility row) belongs to neither half and may take either.
+  keepsHalf(place, x, width) { return Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2); },
   // The top band or a side band of the layer: TOUCH_EDGE_BAND of the short side from that edge (the button's centre).
   inEdgeBand(x, y, width, height) {
     const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
@@ -540,12 +577,12 @@ const TouchInput = {
     }
     return true;
   },
-  // How deep the circle overlaps the shown buttons placed so far in this pass, summed (0: free; buttons may touch).
+  // How deep the circle overlaps the shown buttons placed so far in this pass with TOUCH_GAP between them, summed (0: free).
   overlapAt(control, x, y, radius) {
     let overlap = 0;
     for (const other of TOUCH_CONTROLS) {
       const place = this.places[other.id];
-      if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius - length2(place.x - x, place.y - y));
+      if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius + TOUCH_GAP - length2(place.x - x, place.y - y));
     }
     return overlap;
   },
@@ -593,9 +630,20 @@ const TouchInput = {
     slot.role = ROLE_DRAG; slot.control = control;
     this.select(control.id);
   },
+  // A drag moves the button once a frame at most (placeAll re-places every button): the latest spot waits in drag.
+  drag: { id: null, x: 0, y: 0, queued: false }, flushDragFrame: null,
   dragControl(control, event) {
-    const rect = this.layer.getBoundingClientRect();
-    this.setProperty(control.id, 'position', { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
+    const rect = this.layer.getBoundingClientRect(), drag = this.drag;
+    drag.id = control.id; drag.x = (event.clientX - rect.left) / rect.width; drag.y = (event.clientY - rect.top) / rect.height;
+    if (drag.queued) return;
+    drag.queued = true;
+    requestAnimationFrame(this.flushDragFrame || (this.flushDragFrame = () => this.flushDrag()));
+  },
+  flushDrag() {
+    const drag = this.drag;
+    if (!drag.queued) return;
+    drag.queued = false;
+    this.setProperty(drag.id, 'position', drag);
   },
 };
 
