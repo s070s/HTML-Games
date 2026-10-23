@@ -120,7 +120,7 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 
 // ---- Instance batches ----
 const shapeBatches = [];
-let shapeOverflowLogged = false;
+let shapeOverflows = 0;   // this session's refused instances (only the first is logged)
 // One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
 // Built by a constructor, not an object literal: V8 shares the field types of literals with the same property count and
 // first keys (09a's nav builder { x: [], y: [], z: [], ... } also has 12), and a field that once held an array boxes every
@@ -161,8 +161,7 @@ function makeShapeBatch(name, capacity) {
       const count = this.counts[shapeIndex];
       if (count >= this.capacity) {
         // the perf HUD shows the count per frame; the first overflow of a session is logged
-        if (!shapeOverflowLogged) console.info('shape batch ' + this.name + ' full (' + this.capacity + ' ' + shape + '): instances dropped');
-        shapeOverflowLogged = true;
+        if (!shapeOverflows++) console.info('shape batch ' + this.name + ' full (' + this.capacity + ' ' + shape + '): instances dropped');
         Render.stats.droppedInstances++;
         return -1;
       }

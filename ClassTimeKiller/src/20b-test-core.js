@@ -171,11 +171,11 @@ Test.add('core', (check) => {
 
 // R-007: a block that throws reports the error the way ErrorLog does (errorText: the message first on every engine).
 Test.add('core', async (check) => {
-  const thrown = new TypeError('boom'), group = 'core-throwing-block';
-  Test.blocks.push({ group, run: () => { throw thrown; }, slow: false });
-  let report = null;
-  try { report = await Test.run({ group }); } finally { Test.blocks = Test.blocks.filter((block) => block.group !== group); }
-  check('a throwing block reads "block threw" with errorText', report.failed === 1 && report.results[0].name === 'block threw' && report.results[0].detail === errorText(thrown), report.results[0].detail);
+  const thrown = new TypeError('boom');
+  Test.add('core-throwing-block', () => { throw thrown; });
+  let result = null;
+  try { result = (await Test.run({ group: 'core-throwing-block' })).results[0]; } finally { Test.blocks.pop(); }
+  check('a throwing block reads "block threw" with errorText', result.name === 'block threw' && !result.ok && result.detail === errorText(thrown), result.detail);
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).

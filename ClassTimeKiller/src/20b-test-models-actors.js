@@ -122,7 +122,7 @@ Test.add('render', (check) => withRenderer(() => {
   CAT.actorModels.forEach((row, index) => ActorModels.set(makeTestActor(ACTOR_KIND.BOT, index % 2, (index % 6) - 3, 4 + Math.floor(index / 6) * 2), row.kind, row.id));
   Render.stats.droppedInstances = 0;
   fillActors(1 / 60, 1);
-  check('every body model in one frame fits the instance batches', Render.stats.droppedInstances === 0 && batchInstances(actorBatch) > CAT.actorModels.length, Render.stats.droppedInstances);
+  check('every body model fits one frame of the batches', Render.stats.droppedInstances === 0 && batchInstances(actorBatch) > CAT.actorModels.length, Render.stats.droppedInstances);
   Settings.set('video.quality', 'medium');
 }));
 

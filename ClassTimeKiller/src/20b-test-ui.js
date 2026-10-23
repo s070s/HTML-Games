@@ -414,9 +414,9 @@ Test.add('ui', async (check) => {
     // R-160: a skipped probe is not a pass
     const rows = [], probe = Test.checker('demo', rows);
     probe('ran', true); probe.skip('gpu probe', 'no WebGL2'); probe('broke', false, 'x');
-    const tally = Test.tally(rows, 1);
-    check('help: skipped probes are counted apart from passes', tally.total === 3 && tally.passed === 1 && tally.skipped === 1 && tally.failed === 1 && rows[1].detail === 'no WebGL2', JSON.stringify(tally));
-    check('help: the summary lists skips', selfTestSummary(Test.tally(rows.slice(0, 2), 1)) === 'All 1 checks passed, 1 skipped (1 groups)', selfTestSummary(Test.tally(rows.slice(0, 2), 1)));
+    const tally = Test.tally(rows, 1), summary = selfTestSummary(Test.tally(rows.slice(0, 2), 1));
+    check('help: skipped probes are counted apart from passes', [tally.total, tally.passed, tally.skipped, tally.failed].join() === '3,1,1,1' && rows[1].detail === 'no WebGL2', JSON.stringify(tally));
+    check('help: the summary lists skips', summary === 'All 1 checks passed, 1 skipped (1 groups)', summary);
     const many = { total: 30, failed: 12, groups: 1, results: Array.from({ length: 12 }, () => ({ ok: false, group: 'g', name: 'n', detail: '' })) };
     check('help: a long failure list is cut', selfTestSummary(many).split('\n').length === SELF_TEST_FAILURES_SHOWN + 2 && selfTestSummary(many).endsWith('... and 4 more'));
     Ui.closeAll();
@@ -471,28 +471,28 @@ Test.add('ui', (check) => uiWith(() => {
   Projectiles.clear(); Perf.publishCounters();
   Actors.remove(botId); Actors.remove(playerId);
   check('perf HUD: the AI cost is the sum of the ai, bot and PvE brain systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, pveBrains: 0.25, pve: 4, render: 9 }), 1.75, 1e-9));
-  const lines = PerfOverlay.format(Perf.stats());
-  const text = lines.join('\n');
+  const perfText = () => PerfOverlay.format(Perf.stats()).join('\n');
+  const text = perfText();
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',
     ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'bots', 'ai ', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
-  Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', PerfOverlay.format(Perf.stats()).join('\n').includes('visible in the HUD')); });
-  check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = PerfOverlay.format(Perf.stats()).join('\n').includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
+  Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', perfText().includes('visible in the HUD')); });
+  check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = perfText().includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
   // R-164: the session's first error (the root cause) stays visible after newer ones push it out of the tail
   const savedFirst = ErrorLog.first;
   Test.expectErrors(() => {
     ErrorLog.first = 'perf test: the root cause';
     for (let i = 0; i < PERF_ERROR_LINES; i++) ErrorLog.add('perf test', 'later ' + i);
-    check('perf HUD and __CTK.log.first() show the first error once it left the tail', PerfOverlay.format(Perf.stats()).join('\n').includes('first: perf test: the root cause')
+    check('perf HUD and __CTK.log.first() keep the first error', perfText().includes('first: perf test: the root cause')
       && DebugApi.log.first() === 'perf test: the root cause');
   });
   ErrorLog.first = savedFirst;
   const savedDropped = [Render.stats.droppedInstances, HudBatch.dropped];
-  Render.stats.droppedInstances = 0; HudBatch.dropped = 0;
-  const quiet = PerfOverlay.format(Perf.stats()).join('\n');
+  Render.stats.droppedInstances = HudBatch.dropped = 0;
+  const quiet = perfText();
   Render.stats.droppedInstances = 3; HudBatch.dropped = 5;
-  const full = PerfOverlay.format(Perf.stats()).join('\n');
+  const full = perfText();
   [Render.stats.droppedInstances, HudBatch.dropped] = savedDropped;
-  check('perf HUD: overflowing batches show their dropped counts, only when there are some (R-210)', !quiet.includes('dropped instances') && full.includes('dropped instances 3') && full.includes('dropped HUD quads 5'), full);
+  check('perf HUD: dropped batch counts show only when there are some (R-210)', !quiet.includes('dropped instances') && full.includes('dropped instances 3') && full.includes('dropped HUD quads 5'), full);
   Settings.set('developer.perfHud', false);
   PerfOverlay.shown = false; PerfOverlay.lastUpdate = 0;
   PerfOverlay.frame();

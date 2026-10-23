@@ -67,9 +67,8 @@ const MUTATOR_EXPECTATIONS = {
 
 // R-196: movement reads its two mutators through hasMutator (10a, which also takes plain ids); no unused second lookup.
 Test.add('mutators', (check) => {
-  check('no unused mutator accessors beside hasMutator', !('isActive' in Mutators) && !('value' in Mutators) && !('sizeScale' in Mutators));
   buildMatchMove({ move: 'arena', mutators: [{ id: 'autohop' }, 'aircontrol'] });
-  check('hasMutator reads rows and plain ids', MatchMove.autoHop && MatchMove.airControl);
+  check('hasMutator reads rows and plain ids, with no unused accessors beside it', MatchMove.autoHop && MatchMove.airControl && !['isActive', 'value', 'sizeScale'].some((key) => key in Mutators));
   buildMatchMove(null);
 });
 

@@ -523,9 +523,9 @@ Test.add('perf', (check) => {
   // R-153: every match draw source and the drawers they call fill a reused instance record (batch.mesh stays for the editor and bot debug view)
   const matchDrawers = [drawBodies, Projectiles.draw, WeaponSpecialState.drawGates, Smoke.drawColumn, Gadgets.drawPreview, Gadgets.drawLanding, Devices.drawDevice,
     drawZone, drawFootprints, drawObjective, drawModeExtras, drawChambers, drawChamberMark, hudDrawKillcamFigures,
-    ...Render.sources.filter((source) => source.name !== 'botDebug' && source.name !== 'mapEditor').map((source) => source.draw)];
+    ...Render.sources.filter((source) => !/^(botDebug|mapEditor)$/.test(source.name)).map((source) => source.draw)];
   const boxedDrawers = matchDrawers.filter((drawer) => /\.mesh\(/.test(drawer.toString())).map((drawer) => drawer.name || drawer.toString().slice(0, 60));
-  check('match draw sources use batch.meshFrom, never batch.mesh with float arguments', boxedDrawers.length === 0, boxedDrawers.join(' | '));
+  check('match draw sources use batch.meshFrom, never batch.mesh', boxedDrawers.length === 0, boxedDrawers.join(' | '));
   const savedQuads = HudBatch.quads, ring = hudRingAt;
   HudBatch.quads = 0;
   ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;

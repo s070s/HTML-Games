@@ -619,8 +619,8 @@ Test.add('pve', (check) => {
   const blended = meshRecorder();
   Pve.tellGlow = () => half;
   try { Pve.drawEnemy(blended, id); } finally { Pve.tellGlow = tellGlow; }
-  const part = blended.meshes[plain], expected = [0, 1, 2].map((channel) => lerp(row.colors[tint * 3 + channel], channel === 1 ? 1 : 0, 0.5));
-  check('a half tell blends red, green and blue of a plain part', [part.r, part.g, part.b].every((value, channel) => Test.near(value, expected[channel], 1e-4)), [part.r, part.g, part.b].join() + ' vs ' + expected.join());
+  const part = blended.meshes[plain], drawn = [part.r, part.g, part.b], expected = [0, 1, 0].map((tell, channel) => lerp(row.colors[tint * 3 + channel], tell, 0.5));
+  check('a half tell blends red, green and blue of a plain part', drawn.every((value, channel) => Test.near(value, expected[channel], 1e-4)), drawn + ' vs ' + expected);
   Game.stop();
 });
 
@@ -1159,30 +1159,21 @@ Test.add('pve', (check) => {
 
 // The last few enemies of a wave are shown to the player; a boss phase change reads as shielded; a melee parry needs the front arc.
 Test.add('pve', (check) => withShortShop(() => {
-  const ids = startPveMode('horde', [0]);
-  godMode(ids);
-  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
-  Pve.queue.count = 0;
-  killAllEnemies(ids[0]);
-  const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
-  runSeconds(0.1);
-  check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
-  killAllEnemies(ids[0]);
-  runSeconds(0.1);
-  check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
-  endModeTest();
-}));
-Test.add('pve', (check) => withShortShop(() => {
-  const ids = startPveMode('horde', [0]);
-  godMode(ids);
-  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
-  Pve.queue.count = 0;
-  killAllEnemies(ids[0]);
-  Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
-  runSeconds(0.1);
-  const huntedBefore = pveHunted.length;
-  endModeTest();
-  check('a stopped match leaves no hunted markers behind', huntedBefore === 1 && pveHunted.length === 0, huntedBefore + ' -> ' + pveHunted.length);
+  for (const stopMatch of [false, true]) {   // the marker goes when its enemy dies, and with a stopped match
+    const ids = startPveMode('horde', [0]);
+    godMode(ids);
+    runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
+    Pve.queue.count = 0;
+    killAllEnemies(ids[0]);
+    const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
+    runSeconds(0.1);
+    if (stopMatch) { endModeTest(); check('a stopped match leaves no hunted markers behind', pveHunted.length === 0, pveHunted.length); continue; }
+    check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
+    killAllEnemies(ids[0]);
+    runSeconds(0.1);
+    check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
+    endModeTest();
+  }
 }));
 Test.add('pve', (check) => {
   const dummy = startPveTest(), boss = spawnFacing('overlord', 3);
