@@ -676,9 +676,18 @@ Test.add('render', (check) => withRenderer(async () => {
   Save.saveNow = function () { writes++; return saveNow.call(this); };
   // Long enough for the quit below to finish before the wait ends, even under load.
   Render.restoreWaitMs = 1000;
+  const setHidden = (hidden) => {
+    if (hidden) Object.defineProperty(document, 'hidden', { value: true, configurable: true }); else delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
   try {
+    // Phones drop a background tab's context and give it back on return: the wait counts visible time only.
+    setHidden(true);
     extension.loseContext();
     await waitUntil(() => Render.lost, 3000);
+    await new Promise((resolve) => setTimeout(resolve, Render.restoreWaitMs + 300));
+    check('a hidden page never gives up the restore', !fatal.classList.contains('show'));
+    setHidden(false);
     // Quit without the menu screens.
     Game.headless = true;
     Bus.emit('match.stop', null);
@@ -689,8 +698,10 @@ Test.add('render', (check) => withRenderer(async () => {
     check('a match started during the loss waits', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
     check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
     extension.restoreContext();
-    check('a restore after the Reload screen keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics');
+    check('a restore after the Reload screen hides it and keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics'
+      && !fatal.classList.contains('show') && !document.getElementById('fatal-reload'));
   } finally {
+    if (document.hidden) setHidden(false);
     Save.saveNow = saveNow; Render.restoreWaitMs = waitMs;
     const reload = document.getElementById('fatal-reload');
     if (reload) reload.remove();
