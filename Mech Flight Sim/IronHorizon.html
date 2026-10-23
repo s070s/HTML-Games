@@ -15016,7 +15016,7 @@ class Platform {
       if (p === this || p.dead || p.kind === 'air' || p.y > top) continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
       if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < m.arc) continue;
-      if (p.y + p.height < bottom - Math.max(0, groundHere - Terrain.h(p.x, p.z))) continue;   // the band follows the ground downhill, not off a roof
+      if (p.y + p.height < bottom - Math.min(reach, Math.max(0, groundHere - Terrain.h(p.x, p.z)))) continue;   // the band follows the ground downhill (by at most the reach, not down a cliff), not off a roof
       const slice = m.slice && meleeSlices(p);
       // a slicing blade carries the target's whole hull, armour and shield, so it falls in two (destroy: 'slice')
       const amount = slice ? Math.max(dmg, p.hp + p.armor * MELEE_SLICE_ARMOR + (p.shieldOn ? p.shield : 0) + 1) : dmg;
@@ -32718,6 +32718,61 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    t('delta2 combat', () => {
+      // the second delta review's co-op ask and melee findings
+      const keep = { peers: Net.peers, host: Net.host, guest: Net.guest, inSession: Net.inSession, hostPeer: Net.hostPeer, rep: Game.reportError, h: Terrain.h };
+      const body = (id, x, z, y, team, melee) => { const p = new Platform(PLATFORMS[id], { team: team || 0, x, z, yaw: 0, loadout: Object.assign({}, PLATFORMS[id].loadout, { melee }) }); p.y = y === undefined ? Terrain.h(x, z) : y; W.platforms.push(p); return p; };
+      const peerFor = (p) => {
+        const peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = () => {}; peer.pid = 'ranger'; peer.loadout = Loadout.forPlatform('ranger'); peer.stats = newStats(); peer.name = 'Ally'; peer.slot = 1;
+        p.isPlayer = true; p.netPeer = peer; peer.p = p;
+        return peer;
+      };
+      Game.reportError = () => {};
+      try {
+        const sk = Object.assign({}, SKIRMISH_DEFAULT, { map: 'valley', seed: 2, random: false, support: 'none', hazards: 'off', platformId: 'kestrel' });
+        Game.startSession({ mode: 'skirmish', platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran', skirmish: sk });
+        W.platforms = W.platforms.filter((q) => q.team !== 1);
+        // 1. the host's copy being out of sight (gone, stored as 'wreck') does not refuse a guest at the gate; a real wreck does
+        Net.host = true; Net.guest = false; Net.inSession = true;
+        if (!W.traffic) Traffic.populate(5, null);
+        const T = W.traffic, made = (id) => W.platforms.filter((q) => q.def.id === id && !q.dead).length;
+        const rec = (id, x, z, vid) => { const r = Traffic.make(VEHICLES[VEHICLE_IDS.indexOf(id)], 0); r.x = x; r.z = z; r.y = Terrain.h(x, z); r.vid = vid; T.parked.push(r); return r; };
+        const ask = (peer, def, vid, x, z) => Net.hostMsg(peer, { t: 'enterCiv', d: def, v: vid, x, y: Terrain.h(x, z), z, yaw: 0, c: 0 });
+        const field = W.airports[0], st = W.mission.def.start || { x: 0, z: 0 };
+        const gate = field ? { x: (field.apron.x0 + field.apron.x1) / 2, z: (field.apron.z0 + field.apron.z1) / 2 } : st;
+        const pilot = body('ranger', gate.x, gate.z, undefined, 0), pp = peerFor(pilot);
+        const jet = rec('airliner', gate.x, gate.z, 7201);
+        jet.flight = true; jet.phase = FL_GONE; jet.state = 'wreck'; jet.route = { p: [gate.x, Terrain.h(gate.x, gate.z), gate.z] };
+        const ground = findSpawn(st.x + 80, st.z, 80, 6, 0) || { x: st.x + 80, z: st.z };
+        const driver = body('ranger', ground.x, ground.z, undefined, 0), dp = peerFor(driver);
+        const wreck = rec('sedan', ground.x + 2, ground.z, 7202);
+        wreck.state = 'wreck';
+        Net.peers = [pp, dp];
+        ask(pp, 'cv_airliner', jet.vid, gate.x, gate.z);
+        ask(dp, 'cv_sedan', wreck.vid, ground.x + 2, ground.z);
+        const jets = made('cv_airliner'), cars = made('cv_sedan');
+        this.check('co-op: a guest at the gate is let into an airliner whose host copy is only gone (stored as wreck), but not into a real wreck', !!field && jets === 1 && cars === 0, 'field ' + !!field + ', ' + jets + ' airliners, ' + cars + ' cars');
+        T.parked = T.parked.filter((r) => r !== jet && r !== wreck);
+        Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession;
+        // 2. melee: a mech's strike does not reach a soldier at the foot of a cliff far below its reach
+        Terrain.h = (x, z) => (z < 5 ? 0 : -200);
+        const mech = body('bulwark', 0, 0, 0, 0, 'sword'), foe = body('ranger', 0, 10, -200, 1);
+        mech.yaw = mech.torsoYaw = 0;
+        foe.maxHp = foe.hp = 1e6;
+        mech.meleeCd = 0; mech.meleeWind = 0; mech.stagger = 0; mech.meleeAt = -Infinity;
+        mech.meleeStrike();
+        const hit = foe.hp < foe.maxHp || foe.armor < foe.maxArmor;
+        Terrain.h = keep.h;
+        W.platforms = W.platforms.filter((q) => q !== mech && q !== foe);
+        this.check('melee: a mech\'s strike does not hit a soldier 200 m below a cliff edge', !hit, 'hit ' + hit);
+      } finally {
+        Terrain.h = keep.h;
+        Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer;
+        Game.reportError = keep.rep;
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -32913,8 +32968,10 @@ const Net = {
     // where the guest says; none (taken, wrecked, never in our world): refused
     const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = vid ? Traffic.byVid(vid) : Traffic.vehicleAt(def, m.x, m.z, TRAFFIC_ASK_NEAR);
     // only what is the same in every game: our copy's speed, turn and flight phase are its own (D6), the guest's rideDist
-    // checked its copy. Refused: a wreck, a big ship, a flight asked for away from its gate (a forged ask)
-    if (!mine || mine.def !== def || mine.state === 'wreck' || mine.v.ship || (mine.flight && !Flights.atGate(mine, m.x, m.z))) return;
+    // checked its copy. Refused: a real wreck (not a flight or ship only out of sight, 'gone' is stored as 'wreck' and ends
+    // at its own time in each game), a big ship, a flight asked for away from its gate (a forged ask)
+    const outOfSight = mine && (mine.flight ? mine.phase === FL_GONE : mine.phase === SH_GONE);
+    if (!mine || mine.def !== def || (mine.state === 'wreck' && !outOfSight) || mine.v.ship || (mine.flight && !Flights.atGate(mine, m.x, m.z))) return;
     const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, mine.vid);
     Seats.enter(h, p, peer, TRAFFIC_ASK_SLACK);   // our copy of the guest lags its own: the reach mayRide allowed
   },
