@@ -345,7 +345,38 @@ Test.add('hud', (check) => hudTestWith(() => {
   const chat = HudBanners.text.filter((text) => text.endsWith(': Too slow.') || text.endsWith(': Again?')), headshot = HudBanners.text.indexOf('Headshot');
   check('banners on a phone: a chat line while the queue is busy is dropped, a medal waits one turn at most', chat.length === 1 && chat[0].endsWith('Too slow.')
     && HudBanners.at[headshot] <= Hud.time + HUD_BANNER_QUEUE, chat.join(' | '));
+  // Six banners at once on a phone: the ring is full, a low one gives way and every medal shows in turn.
+  HudBanners.reset(); Hud.time += 100;
+  const shown = new Set();
+  let backwards = false, lastStart = -1;   // the banner on the line never changes to one that started earlier
+  const watch = () => { const now = HudBanners.newest(); if (now < 0) return; shown.add(HudBanners.text[now]); backwards = backwards || HudBanners.at[now] < lastStart; lastStart = HudBanners.at[now]; };
+  for (let i = 0; i < 3; i++) { HudBanners.add('M' + i, 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('N' + i, 'lead', 1, false); }
+  for (let step = 0; step < 100; step++, Hud.time += 0.1) watch();
+  check('banners on a phone: six at once, every medal shows, none overwritten while waiting', [0, 1, 2].every((i) => shown.has('M' + i)) && !backwards);
+  // A banner already replaced on the line gives its slot up: the new one does not push a waiting medal out, nor bring the old one back.
+  HudBanners.reset(); Hud.time += 100; lastStart = -1;
+  HudBanners.add('A', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  Hud.time += HUD_BANNER_QUEUE; HudBanners.add('B', 'lead', 1, false); HudBanners.add('C', 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('D', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  Hud.time += 0.3; watch(); HudBanners.add('E', 'lead', 1, false);
+  const startE = HudBanners.at[HudBanners.text.indexOf('E')], startD = HudBanners.at[HudBanners.text.indexOf('D')];
+  for (let step = 0; step < 60; step++, Hud.time += 0.1) watch();
+  check('banners on a phone: a replaced banner does not come back, the waiting medals stay, a newcomer queues after them', !backwards && HudBanners.text.includes('C') && HudBanners.text.includes('D') && startE >= startD + HUD_BANNER_QUEUE - 1e-9);
+  HudBanners.reset(); Hud.time += 100;
+  HudBanners.add('A', 'lead', 1, false); Hud.time += HUD_BANNER_QUEUE; HudBanners.add('B', 'lead', 1, false); Hud.time += 0.2; HudBanners.add('A', 'lead', 1, false);
+  check('banners on a phone: a repeat restarts after the banner on the line, never ahead of it', HudBanners.at[HudBanners.text.indexOf('A')] >= HudBanners.at[HudBanners.text.indexOf('B')] + HUD_BANNER_QUEUE - 1e-9);
+  HudBanners.reset();
   Hud.layout.phone = false;
+}));
+
+// A real phone frame (844 x 390, touch): a very long banner is cut to fit between the score underlines.
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestFillScene(hudTestMatch());
+  HudBanners.reset(); HudBanners.add('Enemy team takes the lead with a very long text', 'lead', 1, false);
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  hudTestFrame();
+  const width = HUD_BANNER_PHONE_WIDTH * Hud.layout.unit, size = HUD_TEXT_SMALL * Hud.layout.unit, fitted = hudFitPhoneBanner('Enemy team takes the lead with a very long text', size, width);
+  check('banners on a phone: a very long text is cut to fit between the score underlines', fitted.endsWith('…') && HudPen.measure(fitted, size) <= width);
+  HudBanners.reset();
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
