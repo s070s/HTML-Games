@@ -256,6 +256,7 @@ Modes.register('roulette', {
   },
 });
 
+// The guns of the match weapon set (no melee, tool or power weapon): the Roulette draw and the Last Ring loot (13g).
 function rouletteWeapons(out) {
   out.length = 0;
   for (const key of currentWeaponSet().weapons) {

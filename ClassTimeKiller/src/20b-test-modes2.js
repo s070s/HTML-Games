@@ -500,6 +500,16 @@ const ROYALE_ITEMS = [
   { x: 18, y: 0, z: 10, item: 'fury', group: 'power' },
 ];
 
+// A map's weapon spot outside the match weapon set (generated islands place any weapon, the Lifter tool too) holds a gun of the set (modes-01).
+Test.add('modes2', (check) => {
+  const items = ['warden', 'lifter', 'shardcaster', 'tanto'].map((item, index) => ({ x: 10 + index * 2, y: 0, z: 10, item, group: 'weapon' }));
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items }), [-1, -1]);
+  const guns = rouletteWeapons([]), keys = Array.from(RoyaleLoot.weapon.subarray(0, RoyaleLoot.count), (index) => CAT.weapons[index].id);
+  check('royale: every weapon spot holds a gun of the match set, a set gun keeps its spot', keys.length === 4 && keys.every((key) => guns.includes(key) && currentWeaponSet().weapons.includes(key))
+    && keys[0] === 'warden', keys.join());
+  endModeTest();
+});
+
 Test.add('modes2', (check) => {
   const hazards = startEventLog('damage.request');
   startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_ITEMS }), [-1, -1, -1]);

@@ -285,12 +285,12 @@ function rollRarity(weights) {
   return weights.length - 1;
 }
 
-// The spot's own weapon when it is a gun, else a random gun of the match's weapon set.
+// The spot's own weapon when it is a gun of the match's weapon set, else a random gun of that set (the roulette pool: no
+// melee, tool or power weapon), so the set and its rarity tuning hold for every map, generated islands too (modes-01).
+const lootGuns = [];
 function lootWeaponIndex(key) {
-  const own = CAT.weapons.byId(key);
-  if (own && own.class !== 'melee') return own.index;
-  const guns = currentWeaponSet().weapons.filter((id) => CAT.weapons.byId(id).class !== 'melee');
-  return CAT.weapons.byId(guns.length ? Rng.loot.pick(guns) : ROULETTE_FALLBACK).index;
+  const guns = rouletteWeapons(lootGuns);
+  return CAT.weapons.byId(guns.includes(key) ? key : Rng.loot.pick(guns)).index;
 }
 
 function touchLoot(now) {
