@@ -66,8 +66,9 @@ const NAV_REACH_MAX_COMPONENTS = 1024;  // reachability bit table up to this man
 const NAV_GRAPH_CACHE_SIZE = 4;        // graphs kept for maps that load again (rematch): BOT-010 "cached per map"
 const NAV_SLICE_MS = 6;                // build work per frame while a match loads (a 60 Hz frame keeps room to draw)
 const NAV_PASSAGE_SLICE = 4096;        // build steps between two slice checks: raster samples...
-const NAV_NODE_SLICE = 256;            // ...nodes...
-const NAV_TARJAN_SLICE = 16384;        // ...and component search moves
+const NAV_NODE_SLICE = 64;             // ...nodes...
+const NAV_TARJAN_SLICE = 16384;        // ...component search moves...
+const NAV_ITEM_SLICE = 16384;          // ...and per-item passes (bucket sorts, link copies)
 const NAV_HIDDEN_FIELDS = ['nodeCount', 'linkCount', 'teleportCount', 'componentCount', 'coverCount', 'mainComponent'];
 // Every build output that queries read; a cached graph restores exactly these Nav fields.
 const NAV_GRAPH_FIELDS = ['nodeCount', 'nodeX', 'nodeY', 'nodeZ', 'nodeFlags', 'nodeSample', 'linkCount', 'linkStart', 'linkFrom',
@@ -797,7 +798,7 @@ function* navLinkNeighbours(builder) {
     navLinkWalks(builder, node);
     if ((node + 1) % NAV_NODE_SLICE === 0) yield;
   }
-  const walks = navBucketByKey(builder.from, builder.from.length, Nav.nodeCount);
+  const walks = yield* navBucketByKey(builder.from, builder.from.length, Nav.nodeCount);
   const marks = new Int32Array(Nav.nodeCount).fill(-1);
   yield;
   for (let node = 0; node < Nav.nodeCount; node++) {
@@ -991,32 +992,49 @@ function navLinkTeleporter(builder, trigger) {
 }
 
 // Counting sort of item indices by one key each (keys[item] in 0..cellCount-1): { start, items } in the order of
-// bucketByCell, without its two closures per item (Ring Isle links: 9 ms of garbage in one build step).
-function navBucketByKey(keys, itemCount, cellCount) {
+// bucketByCell, without its two closures per item (Ring Isle links: 9 ms of garbage in one build step). A build step
+// every NAV_ITEM_SLICE items: one pass over all links would outrun NAV_SLICE_MS on Firefox and Safari.
+function* navBucketByKey(keys, itemCount, cellCount) {
   const start = new Int32Array(cellCount + 1);
-  for (let item = 0; item < itemCount; item++) start[keys[item] + 1]++;
+  for (let item = 0; item < itemCount; item++) {
+    start[keys[item] + 1]++;
+    if ((item + 1) % NAV_ITEM_SLICE === 0) yield;
+  }
   for (let cell = 0; cell < cellCount; cell++) start[cell + 1] += start[cell];
+  yield;
   const fill = start.slice(0, cellCount), items = new Int32Array(itemCount);
-  for (let item = 0; item < itemCount; item++) items[fill[keys[item]]++] = item;
+  for (let item = 0; item < itemCount; item++) {
+    items[fill[keys[item]]++] = item;
+    if ((item + 1) % NAV_ITEM_SLICE === 0) yield;
+  }
   return { start, items };
+}
+
+// sorted[k] = list[order[k]], a build step every NAV_ITEM_SLICE links.
+function* navPickInOrder(list, order, sorted) {
+  for (let k = 0; k < sorted.length; k++) {
+    sorted[k] = list[order[k]];
+    if ((k + 1) % NAV_ITEM_SLICE === 0) yield;
+  }
+  return sorted;
 }
 
 function* navFinishLinks(builder) {
   const count = builder.from.length;
-  const bucket = navBucketByKey(builder.from, count, Nav.nodeCount);
-  yield;
+  const bucket = yield* navBucketByKey(builder.from, count, Nav.nodeCount);
   const order = bucket.items;
-  const pick = (list, Type) => { const sorted = new Type(count); for (let k = 0; k < count; k++) sorted[k] = list[order[k]]; return sorted; };
   Nav.linkCount = count; Nav.linkStart = bucket.start;
-  Nav.linkFrom = pick(builder.from, Int32Array); Nav.linkTarget = pick(builder.to, Int32Array);
-  yield;
-  Nav.linkType = pick(builder.type, Uint8Array); Nav.linkHeight = pick(builder.height, Float32Array);
-  yield;
-  Nav.linkCost = pick(builder.seconds, Float32Array); Nav.linkReach = pick(builder.reach, Float32Array);
+  Nav.linkFrom = yield* navPickInOrder(builder.from, order, new Int32Array(count));
+  Nav.linkTarget = yield* navPickInOrder(builder.to, order, new Int32Array(count));
+  Nav.linkType = yield* navPickInOrder(builder.type, order, new Uint8Array(count));
+  Nav.linkHeight = yield* navPickInOrder(builder.height, order, new Float32Array(count));
+  Nav.linkCost = yield* navPickInOrder(builder.seconds, order, new Float32Array(count));
+  Nav.linkReach = yield* navPickInOrder(builder.reach, order, new Float32Array(count));
   yield;
   const teleports = [];
   Nav.heuristicSpeed = Nav.limits.referenceSpeed;
   for (let link = 0; link < count; link++) {
+    if ((link + 1) % NAV_ITEM_SLICE === 0) yield;
     if (Nav.linkType[link] === NAV_LINK.TELEPORT) { teleports.push(link); continue; }
     Nav.heuristicSpeed = Math.max(Nav.heuristicSpeed, navNodeDistance(Nav.linkFrom[link], Nav.linkTarget[link]) / Nav.linkCost[link]);
   }
@@ -1034,17 +1052,17 @@ function* navLabelComponents() {
   Nav.component = new Int32Array(count);
   for (let root = 0; root < count; root++) if (t.index[root] < 0) yield* navStrongConnect(root);
   yield;
-  const bucket = navBucketByKey(Nav.component, count, Nav.componentCount);
+  const bucket = yield* navBucketByKey(Nav.component, count, Nav.componentCount);
   Nav.componentStart = bucket.start; Nav.componentNodes = bucket.items;
   Nav.mainComponent = 0;
   for (let id = 1; id < Nav.componentCount; id++) if (navComponentSize(id) > navComponentSize(Nav.mainComponent)) Nav.mainComponent = id;
   yield;
-  navComponentReach();
+  yield* navComponentReach();
 }
 
 // Reachability between components as one bit row per component (Nav.reachable in O(1)). Tarjan numbers a component
 // only after every component it links to, so one pass in id order sees each successor's row complete.
-function navComponentReach() {
+function* navComponentReach() {
   const count = Nav.componentCount, words = Math.ceil(count / 32);
   Nav.componentWords = words;
   Nav.componentReach = null;
@@ -1053,6 +1071,7 @@ function navComponentReach() {
   for (let id = 0; id < count; id++) {
     reach[id * words + (id >> 5)] |= 1 << (id & 31);
     for (let k = Nav.componentStart[id]; k < Nav.componentStart[id + 1]; k++) navMergeReach(reach, words, id, Nav.componentNodes[k]);
+    if ((id + 1) % NAV_NODE_SLICE === 0) yield;
   }
   Nav.componentReach = reach;
 }

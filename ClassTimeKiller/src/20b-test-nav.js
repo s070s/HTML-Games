@@ -755,3 +755,18 @@ Test.add('nav', (check) => {
     check('late graph: Twin Keeps flag teams have rally points', keeps && BotTeam.hasRally(0) && BotTeam.hasRally(1));
   } finally { Game.stop(); World.clear(); }
 });
+// normalize-01: the per-link passes of a build (bucket sort, link copies) are build steps of NAV_ITEM_SLICE items, so one
+// slice never runs a whole pass over a big map's links (21-44 ms on Firefox and Safari).
+function navTestSteps(steps) {
+  let count = 0, step = steps.next();
+  for (; !step.done; step = steps.next()) count++;
+  return { count, value: step.value };
+}
+Test.add('nav', (check) => {
+  const itemCount = NAV_ITEM_SLICE * 3, keys = Int32Array.from({ length: itemCount }, (unused, item) => item % 7);
+  const bucket = navTestSteps(navBucketByKey(keys, itemCount, 7)), start = bucket.value.start, items = bucket.value.items;
+  check('a bucket sort of 3 slices of items takes 6 build steps or more', bucket.count >= 6, bucket.count);
+  check('the sliced bucket sort keeps every item in its key bucket', start[7] === itemCount && keys[items[start[3]]] === 3 && keys[items[start[4] - 1]] === 3);
+  const copy = navTestSteps(navPickInOrder(keys, items, new Int32Array(itemCount)));
+  check('a link copy of 3 slices takes 3 build steps, in bucket order', copy.count >= 3 && copy.value[0] === 0 && copy.value[itemCount - 1] === 6, copy.count);
+});
