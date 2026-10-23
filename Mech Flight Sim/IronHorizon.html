@@ -22476,7 +22476,8 @@ const PATROL_SIGHT_MIN = 60, PATROL_SIGHT_MAX = 100;   // m14: the m its patrols
 // the observatory, one running west across the road in, the other east
 const M15_LAVA = [[12, 100, -80], [40, 110, -60]];
 const M16_JOIN = 200, M16_WAIT = 60;   // m16's convoy sets off once a player is this close (m), or after this long (s)
-const M16_AMBUSH_GAP = 450;            // m16's ambushes stay at least this far (m) from the harbour and the convoy's start (self-test)
+const M16_AMBUSH_TRIES = 12;           // tries to place an m16 ambush unit again when it lands inside that gap
+const M16_AMBUSH_GAP = 450;           // m16's ambushes stay at least this far (m) from the harbour and the convoy's start (self-test)
 const M17_RADAR_HP = 2.5, M17_WAVE_GAP = 600;   // m17: the radar's hull (x a generator's), and how far (m) from it every wave forms
 const RAID_SHELTER_GAP = 150;   // m18's raiders give up once they or the player they fight are this close (m) to the storm shelter, where players respawn
 // m18's storm shelter, the start: out of reach of the AA batteries at the farmland's enemy base even for a jet
@@ -23299,9 +23300,30 @@ const MISSIONS = [
         m.add(Obj.escort({ id: 'convoy', title: 'Escort the hovercraft', units: craft, required: 2, dest, status: 'active' }));
         m.add(Obj.escort({ id: 'perfect', title: 'Deliver every hovercraft', units: craft, required: 3, perfect: true, primary: false, dest, status: 'active' }));
         // both ambushes out of turret sight of the harbour and the convoy's start (M16_AMBUSH_GAP), in reach of the crossing
-        spawnGroup(['tank', 'rpgTrooper', 'turret'], -240, 700, { radius: 30 });   // on the north shore
-        spawnGroup(['medMech', 'tank', 'turret', 'aaTurret'], -460, 680, { radius: 40 });   // at the outpost
+        ambush(['tank', 'rpgTrooper', 'turret'], -240, 700, 30);   // on the north shore
+        ambush(['medMech', 'tank', 'turret', 'aaTurret'], -460, 680, 40);   // at the outpost
       });
+      // the spots no ambush unit may come within M16_AMBUSH_GAP of: the harbour of every ship class, the players (a ship
+      // starts at its harbour) and the convoy at its start
+      const keepOff = () => PLAYABLE.filter((id) => PLATFORMS[id].kind === 'naval').map((id) => Naval.harbour(PLATFORMS[id], MISSION_BY_ID.m16.start))
+        .filter(Boolean).concat(craft, W.platforms.filter((p) => p.isPlayer && !p.dead));
+      const clearOf = (q, refs) => refs.every((r) => Math.hypot(q.x - r.x, q.z - r.z) >= M16_AMBUSH_GAP);
+      // a spawn group whose copies spread up to twice its radius: any copy that lands too near is placed again within
+      // its radius, or on the group's centre (itself well clear) when no free spot is clear
+      const ambush = (list, x, z, radius) => {
+        const refs = keepOff();
+        for (const u of spawnGroup(list, x, z, { radius })) {
+          if (clearOf(u, refs)) continue;
+          let spot = { x, z };
+          for (let i = 0; i < M16_AMBUSH_TRIES; i++) {
+            const sp = findSpawn(x, z, radius / 2, u.radius, 0);
+            if (sp && clearOf(sp, refs)) { spot = sp; break; }
+          }
+          // a ground unit just made: its body, its last position and its AI's home all move (it has not acted yet)
+          u.x = u.lastX = spot.x; u.z = u.lastZ = spot.z; u.y = Terrain.h(spot.x, spot.z);
+          if (u.ai && u.ai.home) { u.ai.home.x = spot.x; u.ai.home.z = spot.z; }
+        }
+      };
       m.every(0.5, () => {   // the convoy sets off once a player joins it, or after M16_WAIT s; the gunboat and fighters follow
         if (leftAt < 0) {
           const lead = craft.find((c) => !c.dead), p = lead && nearestPlayer(lead.x, lead.z);
