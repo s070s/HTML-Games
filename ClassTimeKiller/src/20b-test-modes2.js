@@ -691,6 +691,30 @@ Test.add('modes2', (check) => {
   endModeTest();
 });
 
+// swap-02: Use held at a charging squad beacon (and on after the respawn) swaps nothing at the carry limit; a fresh Use
+// still swaps. swap-01: a full bot values a worse loot gun at 0, a better one above.
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_WEAPON_ITEMS }), [-1, -1, -1, -1, -1, -1]);
+  runSeconds(3);
+  const squads = Modes.squads, spot = 2;
+  RoyaleLoot.x[spot] = squads.beaconX[0]; RoyaleLoot.y[spot] = squads.beaconY[0]; RoyaleLoot.z[spot] = squads.beaconZ[0];
+  for (const key of ['verdict', 'hush', 'wasp', 'hornet', 'kestrel']) Weapons.give(0, key, 1);
+  killActor(2, 1);
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  runSeconds(0.2);   // the 10 Hz beacon tally counts the dead
+  holdUseFor(0, BEACON_SECONDS + 1);
+  check('royale: no swap at a charging beacon', Actors.alive[2] === 1 && Weapons.atCarryLimit(0) && !Weapons.has(0, 'vanguard'));
+  Sim.step();   // Use let go
+  holdUseFor(0, 0.3);
+  check('royale: a fresh Use on the spot swaps', Weapons.has(0, 'vanguard'));
+  const guns = CAT.weapons.filter((weapon) => Weapons.countsTowardCarry(weapon)).sort((a, b) => a.botPref.value - b.botPref.value);
+  Weapons.setLoadout(1, []);
+  for (let index = 1; !Weapons.atCarryLimit(1); index++) Weapons.give(1, guns[index].id, 0);
+  RoyaleLoot.weapon[0] = guns[0].index; RoyaleLoot.weapon[1] = guns[guns.length - 1].index;
+  check('royale: a full bot wants only a better loot gun', lootValue(1, 0) === 0 && lootValue(1, 1) > 0);
+  endModeTest();
+});
+
 // The placeholder island MP09 runs a full-size royale: 18 actors (capped by quality), 48 loot spots, the ring around the island.
 Test.add('modes2', (check) => {
   Game.start({ mode: 'royale', map: 'isle', seed: 3, player: { name: 'Tester' }, bots: Modes.defaultBots('royale', true).map(() => ({ dummy: true })) });

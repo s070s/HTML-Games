@@ -396,7 +396,7 @@ const Items = {
   },
   // The weapon pickup under the actor that holding Use would swap in now, -1 = none (the Use prompt and the touch USE button).
   swapOffer(id) {
-    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true)) return -1;
+    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true) || Weapons.useTaken(id)) return -1;
     for (let slot = 0; slot < this.usedEnd; slot++) {
       if (this.state[slot] !== PICKUP_STATE.READY || this.kind[slot] !== PICKUP_KIND.WEAPON || this.blocker[slot] === id) continue;
       if (this.touching(id, slot) && Weapons.swapsOut(id, CAT.weapons[this.row[slot]])) return slot;
