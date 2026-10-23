@@ -20154,6 +20154,7 @@ const BENCH_SCENES = [
   { id: 'sk-jungle', map: 'jungle', platformId: 'bulwark' },   // the heaviest new battlefield: the densest forest, rivers and a sea
   { id: 'hz-jungle', map: 'jungle', platformId: 'bulwark', hazard: 'wildfire' },   // the same with a wildfire burning near the player
   { id: 'hz-coast', map: 'coast', platformId: 'bulwark', hazard: 'flood' },   // a flash flood near its top over the coast's low ground
+  { id: 'sea-coast', map: 'coast', platformId: 'trident' },   // a destroyer at the harbour, the enemy fleet on the water
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
@@ -25075,7 +25076,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
