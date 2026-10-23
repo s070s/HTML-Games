@@ -53,12 +53,14 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
+  betweenRounds: false,                   // from a round's end to the next start (no beacon spawns)
   rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {
     for (let device = 0; device < DEVICE_CAP; device++) if (this.active[device]) this.remove(device, false);
     this.count = 0;
+    this.betweenRounds = false;
   },
   rowOf(device) { return CAT.gadgets[this.row[device]]; },
   ownedCount(owner, row) {
@@ -116,7 +118,7 @@ const Devices = {
     this.yaw[device] = row.effect === 'barrier' ? snapToAxis(yaw) : yaw;   // the drawn box matches its axis-aligned brush
     this.health[device] = row.health; this.armTick[device] = Sim.tick + itemTicks(row.arm);
     this.endTick[device] = Sim.tick + itemTicks(row.duration || DEVICE_FOREVER_SECONDS);
-    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.amount; this.target[device] = -1;
+    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.charges; this.target[device] = -1;
     if (row.effect === 'barrier') this.addBrush(device, row);
     this.count++;
     this.emit('gadget.place', device);
@@ -340,13 +342,13 @@ const Devices = {
   },
   // G24: a teammate who spawns while the beacon stands appears next to it (when a body fits there).
   onSpawn(id) {
-    if (!this.count) return;
+    if (!this.count || this.betweenRounds) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
       if (this.beaconFor(device, id) && this.moveToBeacon(device, id)) return;
     }
   },
   beaconFor(device, id) {
-    if (!this.active[device] || this.rowOf(device).effect !== 'beacon' || this.team[device] < 0) return false;
+    if (!this.active[device] || this.rowOf(device).effect !== 'beacon') return false;   // friendOf: the owner alone when the match has no teams
     return this.working(device) && this.friendOf(device, id);
   },
   moveToBeacon(device, id) {
@@ -541,5 +543,7 @@ Bus.on('explosion', (event) => Devices.onExplosion(event));
 Bus.on('kill', (event) => Devices.onDeath(event.victim));
 Bus.on('actor.spawn', (event) => Devices.onSpawn(event.id));
 Bus.on('match.start', () => Devices.clear());
+// The next round's spawns come before its 'start' event: from the 'end' on, no beacon pulls them, and 'start' clears the gear.
+Bus.on('round', (event) => { Devices.betweenRounds = event.phase === 'end'; if (event.phase === 'start') Devices.clear(); });
 Bus.on('match.end', () => Devices.clear());
 Bus.on('match.stop', () => Devices.clear());

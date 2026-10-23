@@ -30,6 +30,8 @@ const GadgetArena = {
     Actors.buttons[id] = 0;
   },
   press(id, button) { Actors.buttons[id] = button; Sim.run(1); Actors.buttons[id] = 0; Sim.run(1); },
+  // Holds the grenade button 10 ticks, runs block() one tick before letting go.
+  holdThen(id, block) { Actors.buttons[id] = BTN.GRENADE; Sim.run(10); block(); Sim.run(1); Actors.buttons[id] = 0; Sim.run(2); },
   firstThrown() { for (let slot = 0; slot < THROWN_CAP; slot++) if (Thrown.state[slot]) return slot; return -1; },
   // Ticks until the first 'explosion' event of a gadget row (max `limit` seconds), or -1.
   ticksToBlast(key, limit) {
@@ -569,4 +571,86 @@ Test.add('gadgets', (check) => {
   check('the preview lands where the grenade lands', gap >= 0 && gap < 0.6, gap);
   Game.playerId = -1;
   TestArena.finish();
+});
+
+// F42: every gear module starts a round clean; the beacon of the last round does not pull the new round's spawns.
+Test.add('gadgets', (check) => {
+  startModeTest('elim', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 0, 1, 1]);
+  runSeconds(CAT.modes.byId('elim').rounds.freeze + 0.5);
+  const owner = 0;
+  Devices.spawn(CAT.gadgets.byId('claymore'), owner, 0, 0, 3);
+  Devices.spawn(CAT.gadgets.byId('beacon'), owner, 0, 0, 0);
+  Smoke.spawn(CAT.gadgets.byId('smoke'), owner, 0, 1, 10);
+  AbilityZones.add(ZONE_KIND.SMOKE, owner, null, 0, 0, 5, 60);
+  FloorSurfaces.spillUnder(owner, 'oil', owner);
+  Thrown.spawn(CAT.gadgets.byId('frag'), owner, 0, 1, 0, 0, 0, 0, 1000);
+  check('round 1 gear is placed', Devices.count === 2 && Smoke.count > 0 && AbilityZones.count > 0 && FloorSurfaces.active.indexOf(1) >= 0 && GadgetArena.firstThrown() >= 0);
+  Modes.endRound(0, 'test');
+  Modes.nextRound(Sim.time);
+  check('F42 a new round clears devices', Devices.count === 0, Devices.count);
+  check('F42 a new round clears smoke, zones, patches and grenades in the air', Smoke.count === 0 && AbilityZones.count === 0 && FloorSurfaces.active.indexOf(1) < 0 && GadgetArena.firstThrown() < 0);
+  check('F42 the round-start spawn ignores last round beacon', Math.abs(Actors.x[owner]) > 20, Actors.x[owner]);
+  endModeTest();
+});
+
+// F44 (R-099): in a team-less match the owner alone respawns on their own beacon.
+Test.add('gadgets', (check) => {
+  GadgetArena.start({ teams: 0 });
+  const owner = GadgetArena.actor(-1, 40, 40), other = GadgetArena.actor(-1, -40, -40);
+  GadgetArena.device('beacon', owner, 10, 10);
+  Bus.emit('actor.spawn', { id: owner });
+  Bus.emit('actor.spawn', { id: other });
+  check('F44 free-for-all: the owner respawns at their beacon', Math.hypot(Actors.x[owner] - 10, Actors.z[owner] - 10) <= 1.5, Actors.x[owner] + ',' + Actors.z[owner]);
+  check('F44 free-for-all: another player is not moved', Actors.x[other] === -40 && Actors.z[other] === -40);
+  TestArena.finish();
+});
+
+// F44 (R-101): Phase Slip ('cannot fire') also stops grenades, gadgets and offensive abilities.
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const id = GadgetArena.actor(1, 0, 0, 'frag', 2);
+  Gadgets.give(id, 'claymore', 1);
+  Buffs.add(id, BUFF.NO_FIRE, 2, 2);
+  GadgetArena.throwAfter(id, 0.2);
+  check('F44 no grenade while Phase Slip runs', GadgetArena.firstThrown() < 0 && Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId('frag').index] === 2);
+  Gadgets.select(id, 'claymore');
+  GadgetArena.press(id, BTN.GADGET);
+  check('F44 no gadget while Phase Slip runs', Devices.count === 0);
+  check('F44 an offensive ability is refused while Phase Slip runs', !Abilities.usable(id, CAT.abilities.byId('arcbolt')) && Abilities.usable(id, CAT.abilities.byId('phaseslip')));
+  Buffs.clear(id);
+  check('F44 offensive abilities work again afterwards', Abilities.usable(id, CAT.abilities.byId('arcbolt')));
+  GadgetArena.throwAfter(id, 0.2);
+  check('F44 grenades work again afterwards', GadgetArena.firstThrown() >= 0);
+  TestArena.finish();
+});
+
+// F44 (R-104): a grenade held when the thrower is frozen, downed or jammed is not thrown; Phase Slip puts it away (no risk-free drop).
+Test.add('gadgets', (check) => {
+  GadgetArena.start();
+  const id = GadgetArena.actor(1, 0, 0, 'smoke', 1), frag = CAT.gadgets.byId('frag').index;
+  GadgetArena.holdThen(id, () => { Actors.flags[id] |= ACTOR_FLAG.FROZEN; });
+  check('F44 a plain grenade held by a frozen actor is cancelled, not thrown', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.thrownTotal(id) === 1);
+  Actors.flags[id] &= ~ACTOR_FLAG.FROZEN;
+  Gadgets.give(id, 'frag', 1); Gadgets.select(id, 'frag');
+  GadgetArena.holdThen(id, () => Buffs.add(id, BUFF.NO_FIRE, 2, 2));
+  check('F44 a cooking grenade under Phase Slip is put away, not dropped', GadgetArena.firstThrown() < 0 && Gadgets.holdStart[id] < 0 && Gadgets.count[id * GADGET_COUNT + frag] === 1);
+  Buffs.clear(id);
+  GadgetArena.holdThen(id, () => Gadgets.suppress(id, 3));
+  const slot = GadgetArena.firstThrown();
+  check('F44 a cooking grenade of a jammed actor falls at the feet', slot >= 0 && Thrown.vx[slot] === 0 && Thrown.vz[slot] === 0 && Gadgets.holdStart[id] < 0);
+  TestArena.finish();
+});
+
+// F46: no write-only gear data: every column of the gadget and ability rows has a reader in the game code (not the data or the tests).
+Test.add('gadgets', (check) => {
+  const source = Array.from(document.scripts).map((script) => script.textContent).join('\n');
+  const code = source.slice(source.indexOf('// ==== 04-save.js'), source.indexOf('// ==== 20a-selftest.js'));
+  const unread = [];
+  for (const table of [CAT.gadgets, CAT.abilities]) {
+    const columns = new Set();
+    table.forEach((row) => Object.keys(row).forEach((key) => columns.add(key)));
+    for (const column of columns) if (!new RegExp('\\.' + column + '\\b').test(code)) unread.push(column);
+  }
+  check('F46 every gadget and ability column has a reader', unread.length === 0, unread.join(', '));
+  check('F46 the smoke grid keeps no owner or row it never reads', !Smoke.owner && !Smoke.row);
 });

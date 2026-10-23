@@ -464,3 +464,20 @@ Test.add('items', (check) => {
   check('a mode can let enemies take pickups', Actors.health[monster] === 75, Actors.health[monster]);
   TestArena.finish();
 });
+
+// F44 (R-103): going down cancels a heal in progress; a revive does not finish it.
+Test.add('items', (check) => {
+  ItemArena.start({ downed: true });
+  const id = ItemArena.actor(1, 0, 0), mate = ItemArena.actor(1, 3, 0), patch = CAT.items.byId('patch');
+  Items.grant(id, 'patch');
+  TestArena.hold(id, BTN.HEAL, 0.05);
+  check('F44 the heal is running', Items.useProgress(id) >= 0);
+  Damage.goDown(-1, id);
+  check('F44 going down cancels the heal', Items.useProgress(id) < 0 && Items.consumableCount(id) === 1);
+  Sim.run(itemTicks(patch.useTime) + 1);
+  Damage.revive(id);
+  Sim.run(2);
+  check('F44 a revive after the use time heals nothing extra', Actors.health[id] === REVIVE_HEALTH, Actors.health[id]);
+  check('F44 the patch is still carried', Items.consumableCount(id) === 1);
+  TestArena.finish();
+});

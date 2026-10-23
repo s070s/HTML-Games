@@ -106,7 +106,7 @@ function throwVelocity(id, underhand, out) {
 
 // ---- Smoke volumes (REN-007): one local occupancy grid per volume, filled by a flood from the centre that never enters solids ----
 const Smoke = {
-  active: new Uint8Array(SMOKE_CAP), owner: new Int8Array(SMOKE_CAP), row: new Int16Array(SMOKE_CAP),
+  active: new Uint8Array(SMOKE_CAP),
   x: new Float32Array(SMOKE_CAP), y: new Float32Array(SMOKE_CAP), z: new Float32Array(SMOKE_CAP), radius: new Float32Array(SMOKE_CAP),
   startTick: new Int32Array(SMOKE_CAP), endTick: new Int32Array(SMOKE_CAP),
   depth: new Uint8Array(SMOKE_CAP * SMOKE_CELLS),      // flood steps + 1 per cell (0 = no smoke can reach it)
@@ -116,21 +116,21 @@ const Smoke = {
   drawn: 0,                                            // blobs drawn this frame (SMOKE_DRAW_BUDGET)
 
   clear() { this.active.fill(0); this.count = 0; },
-  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration, owner, row.index); },
+  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration); },
   // A smoke curtain (A17 Veil Curtain and other walls of smoke): puffs of height/2 radius along the line of `width`
   // metres centred on (x, y, z), across the yaw direction; y is the floor under the curtain. Returns the puff count.
-  add(x, y, z, width, height, seconds, yaw, owner) {
+  add(x, y, z, width, height, seconds, yaw) {
     const radius = Math.min(SMOKE_LARGEST_RADIUS, height / 2), spacing = radius * 2 * CURTAIN_PUFF_SPACING;
     const puffs = Math.max(1, Math.ceil(width / spacing)), rightX = -Math.cos(yaw || 0), rightZ = Math.sin(yaw || 0);
     for (let puff = 0; puff < puffs; puff++) {
       const offset = (puff - (puffs - 1) / 2) * spacing;
-      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds, owner === undefined ? -1 : owner, -1);
+      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds);
     }
     return puffs;
   },
-  addVolume(x, y, z, radius, seconds, owner, rowIndex) {
+  addVolume(x, y, z, radius, seconds) {
     const volume = this.freeSlot();
-    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = rowIndex; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
+    this.active[volume] = 1; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
     this.radius[volume] = Math.min(SMOKE_LARGEST_RADIUS, radius); this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(seconds);
     this.punched.fill(0, volume * SMOKE_CELLS, (volume + 1) * SMOKE_CELLS);
     this.flood(volume);
@@ -628,6 +628,7 @@ const Gadgets = {
   holdStart: new Int32Array(MAX_ACTORS).fill(-1),    // tick BTN.GRENADE went down with a grenade ready (-1 not holding)
   holdRow: new Int8Array(MAX_ACTORS).fill(-1),
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
+  attackLocks: [],                                   // fn(id) -> true while the actor may not attack (12f: the NO_FIRE buff of A06 Phase Slip)
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
   cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
@@ -747,10 +748,17 @@ const Gadgets = {
     this.cycleShown = canCycle;
     TouchInput.applyAll();
   },
-  blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  // One test for "cannot attack": grenades, gadgets and the offensive abilities (12e usable) all ask it.
+  attackLocked(id) {
+    for (let i = 0; i < this.attackLocks.length; i++) if (this.attackLocks[i](id)) return true;
+    return false;
+  },
+  // Frozen, downed or jammed stops all gear; attackLocked (A06 Phase Slip) stops attacks only.
+  stopped(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  blocked(id) { return this.stopped(id) || this.attackLocked(id); },
   stepActor(id) {
     this.rechargeGadget(id);
-    if (this.holdStart[id] >= 0) { this.stepHold(id); return; }
+    if (this.holdStart[id] >= 0) { this.stepHeld(id); return; }
     if (this.blocked(id)) return;
     if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
@@ -763,6 +771,12 @@ const Gadgets = {
     this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
+  // A stopped thrower drops the held grenade; Phase Slip only puts it away (no risk-free drop while invulnerable).
+  stepHeld(id) {
+    if (this.stopped(id)) this.dropHeld(id);
+    else if (this.attackLocked(id)) this.holdStart[id] = this.holdRow[id] = -1;
+    else this.stepHold(id);
+  },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
   stepHold(id) {
     const row = CAT.gadgets[this.holdRow[id]], fuse = itemTicks(row.fuse);
@@ -812,8 +826,8 @@ const Gadgets = {
     if (!row || row.cooldown <= 0 || this.count[id * GADGET_COUNT + row.index] || Sim.tick < this.cooldownEnd[id]) return;
     this.count[id * GADGET_COUNT + row.index] = 1;
   },
-  // A grenade cooking in the hand of someone who dies falls at their feet with the fuse it has left.
-  onDeath(id) {
+  // A grenade cooking in the hand of someone who dies, freezes, goes down or is jammed falls at their feet with the fuse it has left.
+  dropHeld(id) {
     if (this.holdStart[id] < 0) return;
     const row = CAT.gadgets[this.holdRow[id]], fuseLeft = Math.max(1, itemTicks(row.fuse) - this.heldTicks(id));
     this.holdStart[id] = this.holdRow[id] = -1;
@@ -897,9 +911,10 @@ Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawHeld(bat
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
 Bus.on('explosion', (event) => { if (Smoke.count && event.radius > 0) Smoke.punchSphere(event.x, event.y, event.z, event.radius); });
-Bus.on('kill', (event) => Gadgets.onDeath(event.victim));
+Bus.on('kill', (event) => Gadgets.dropHeld(event.victim));
 Bus.on('actor.spawn', (event) => Gadgets.equip(event.id));
 Bus.on('actor.create', (id) => Gadgets.resetActor(id));
 Bus.on('match.start', () => Gadgets.clear());
+Bus.on('round', (event) => { if (event.phase === 'start') Gadgets.clear(); });
 Bus.on('match.end', () => Gadgets.clear());
 Bus.on('match.stop', () => Gadgets.clear());

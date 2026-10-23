@@ -6,6 +6,9 @@ DebugApi.abilities = { abilities: Abilities, meters: Meters, zones: AbilityZones
 
 const ENEMY_DISTANCE = 6;
 
+// The slot of the newest footprint an actor left (A16: every actor has its own ring).
+function lastPrint(id) { return id * FOOTPRINT_RING + (Footprints.next[id] + FOOTPRINT_RING - 1) % FOOTPRINT_RING; }
+
 const AbilityTest = {
   // caster (team 0) at the origin facing +z, an enemy 6 m ahead, a second enemy beside it, an ally behind the caster.
   start(rules) {
@@ -95,7 +98,7 @@ const ABILITY_CASES = {
       Footprints.clear();
       Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '' });
       Bus.emit('move.step', { id: t.ally, speed: 4, surface: '' });
-      const enemyPrint = (Footprints.next + FOOTPRINT_COUNT - 2) % FOOTPRINT_COUNT, allyPrint = (Footprints.next + FOOTPRINT_COUNT - 1) % FOOTPRINT_COUNT;
+      const enemyPrint = lastPrint(t.enemy), allyPrint = lastPrint(t.ally);
       const fresh = footprintVisible(t.caster, enemyPrint) && !footprintVisible(t.caster, allyPrint) && !footprintVisible(t.enemy, enemyPrint);
       runSeconds(8.1);
       return Abilities.active[t.i] === 1 && fresh && !footprintVisible(t.caster, enemyPrint);   // enemy prints only, for 8 s
@@ -462,7 +465,10 @@ Test.add('abilities', (check) => {
 Test.add('abilities', (check) => {
   const t = AbilityTest.start({ meter: 'streak' });
   scorePoints(t.caster, 5);
-  check('streak: 500 points load the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
+  check('streak: 500 points load the 300 reward first and queue the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
+  check('streak: the first reward is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
+  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
+  check('streak: then the orbital lance loads', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
   check('streak: the orbital is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
   check('streak: an instant reward of any category empties the slot', !Abilities.row(t.caster, SLOT.ULTIMATE) && !Abilities.rewardLoaded[t.caster]);
   TestArena.finish();
@@ -763,5 +769,76 @@ Test.add('abilities', (check) => {
   for (let i = 0; i < BODY_CAPACITY; i++) if (Bodies.active[i] && Bodies.kind[i] === BODY_KIND.THROWN && Bodies.owner[i] === t.caster) body = i;
   check('A03 a melee swing throws the prop in front along the view', body >= 0 && !Props.isStanding(0) && Test.near(Bodies.vz[body], t.row.params.throwSpeed, 1e-3)
     && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  TestArena.finish();
+});
+
+// F43: a combo is four taps close together, not four direction changes at any pace.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ meter: 'adrenaline' });
+  const walkForward = (gapSeconds) => {
+    Actors.moveZ[t.caster] = 1; Sim.step();
+    Actors.moveZ[t.caster] = 0; Sim.run(Math.round(gapSeconds * TICK_RATE));
+  };
+  Meters.points[t.caster] = 100;
+  for (let k = 0; k < 4; k++) walkForward(1);
+  check('F43 four forward walks one second apart do not cast the combo', !Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 100);
+  for (let k = 0; k < 4; k++) walkForward(0.15);
+  check('F43 four quick forward taps cast the combo', Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 0);
+  TestArena.finish();
+});
+
+// F44 (R-100): A40 Rally Cry's extra shield is a timed pool inside the surplus cap.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({ meter: 'ultimate' }), 'rally');
+  Damage.surplus[t.ally] = 80;
+  AbilityTest.cast(t);
+  runSeconds(0.1);
+  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+  check('F44 rally shield stops at the surplus cap', Damage.surplus[t.ally] === cap && Damage.surplus[t.caster] === 50, Damage.surplus[t.ally]);
+  runSeconds(CAT.abilities.byId('rally').duration + 0.2);
+  check('F44 rally shield is gone after its 8 s (earlier surplus stays)', Damage.surplus[t.ally] === 80 && Damage.surplus[t.caster] === 0, Damage.surplus[t.ally]);
+  TestArena.finish();
+});
+
+// F45 (R-102): Tracker footprints last the full 8 s with many runners about, and a crouch-walk leaves none.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'tracker');
+  AbilityTest.cast(t);
+  const runners = [t.enemy, t.second];
+  for (let k = 0; k < 6; k++) runners.push(TestArena.actor(1, -10 - k, 10, Math.PI));
+  Footprints.clear();
+  Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '', loudness: 1 });
+  const first = lastPrint(t.enemy);
+  for (let step = 0; step < 29; step++) {
+    runSeconds(0.25);
+    for (const runner of runners) Bus.emit('move.step', { id: runner, speed: 4, surface: '', loudness: 1 });
+  }
+  check('F45 with eight runners about, an enemy print is still shown after 7.25 s', footprintVisible(t.caster, first), Sim.time);
+  const before = Footprints.next[t.enemy];
+  Bus.emit('move.step', { id: t.enemy, speed: 2, surface: '', loudness: 0.25 });
+  Bus.emit('move.step', { id: t.enemy, speed: 0, surface: '', loudness: 0 });
+  check('F45 a crouch-walk or a silent step leaves no print', Footprints.next[t.enemy] === before);
+  TestArena.finish();
+});
+
+// F45 (R-107): targeted abilities use the shared nearest-seen picker: a cloaked enemy or one behind smoke is no target.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'binding');
+  check('F45 an enemy in the cone is a target', aimTarget(t.caster, 30) === t.enemy);
+  Actors.flags[t.enemy] |= ACTOR_FLAG.INVISIBLE;
+  check('F45 a cloaked enemy in the cone is no target and the cast is refused', aimTarget(t.caster, 30) < 0 && !AbilityTest.cast(t));
+  Actors.flags[t.enemy] &= ~ACTOR_FLAG.INVISIBLE;
+  Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 0, 1, 3);
+  runSeconds(2);
+  check('F45 an enemy behind smoke is no target', aimTarget(t.caster, 30) < 0);
+  TestArena.finish();
+});
+
+// F45 (R-107): the picker orders by the crosshair, not by distance: a nearer enemy further off the aim line loses (A23 cone).
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({});
+  TestArena.place(t.second, 1.5, 3);
+  check('F45 the enemy on the crosshair is picked over a nearer one 27 deg off', aimTarget(t.caster, 30, 30) === t.enemy);
+  check('F45 the range still holds: only the near one is in reach', aimTarget(t.caster, 5, 30) === t.second);
   TestArena.finish();
 });

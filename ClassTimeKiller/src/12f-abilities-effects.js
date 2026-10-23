@@ -4,16 +4,15 @@
 // decoy, telekinesis, gates, rift, rally, zone, and the four suit weaves. Timed self and team effects are Buffs; placed
 // effects are AbilityZones (a pooled struct of arrays). Damage always goes through Damage.apply, knockback through 'impulse'.
 
-const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, KNOCKBACK: 9, ENERGY_REGEN: 10, MELEE: 11, GRAVITY: 12, RATE_SLOW: 13 };
-const BUFF_COUNT = 14;
+const BUFF = { SPEED: 0, SLOW: 1, DAMAGE: 2, RATE: 3, INVULNERABLE: 4, INVISIBLE: 5, REGEN: 6, TOUCH_KILL: 7, NO_FIRE: 8, ENERGY_REGEN: 9, MELEE: 10, GRAVITY: 11, RATE_SLOW: 12 };
+const BUFF_COUNT = 13;
 const BUFF_ENTRIES = 3;                  // overlapping buffs of one kind kept apart (see Buffs)
 const BUFF_STRIDE = BUFF_COUNT * BUFF_ENTRIES;
-const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
-const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, true, false, false, true, true];   // slows: the strongest (lowest) applies
+const BUFF_NEUTRAL = [1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1];
+const BUFF_LOWEST_WINS = [false, true, false, false, false, false, false, false, false, false, false, true, true];   // slows: the strongest (lowest) applies
 const TICK_BUFF = TICK_SECONDS * 2;      // refreshed every step by a running toggle or zone
 const WRATH_FACTOR = 1000;               // A34: any hit kills a non-boss
 const TOUCH_KILL_RADIUS = 1.2;
-const AIM_CONE_DEG = 6;                  // targeted abilities pick the enemy nearest the crosshair inside this cone
 const BLINK_BACKOFF = 0.5;               // blink end points step back this far until the capsule fits
 const BLINK_TRIES = 12;
 const LEDGE_LIFT = 1.2;                  // A05 ledge grab: a blocked arrival may land this much higher
@@ -21,7 +20,9 @@ const FLOOR_SNAP = 3;                    // arrivals settle onto a floor up to t
 const LIFT_OFF_SPEED = 0.5;              // driving a grounded actor upward needs this much vertical speed to leave the floor
 const REWIND_SAMPLE = 0.1;               // A09 history: one sample per 0.1 s
 const REWIND_SAMPLES = 31;               // 3 s plus the current sample
-const FOOTPRINT_COUNT = 64;
+const FOOTPRINT_RING = 40;               // prints kept per actor: 8 s at a base sprint (less when sped up)
+const FOOTPRINT_COUNT = MAX_ACTORS * FOOTPRINT_RING;
+const FOOTPRINT_MIN_LOUDNESS = 0.5;      // a crouch-walk (0.25) or a Quietstep step (0) leaves no print
 const FOOTPRINT_SIZE = 0.18;
 const ZONE_CAP = 48;
 const ZONE_KINDS = ['lift', 'smoke', 'heal', 'dome', 'wall', 'strike', 'slow', 'drone', 'swarm', 'beacon', 'fence', 'rift', 'swap', 'decoy', 'lure', 'puppet'];
@@ -32,7 +33,6 @@ const FENCE_REACH = 0.6;                 // an actor this close to a fence segme
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
 const DECOY_HEALTH = 1;
-const STRIKE_COLOR = 0xff3030;
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;             // A24: a team of -1 is everyone's enemy (Actors.isEnemy)
 const PUPPET_DRIVE_ORDER = 19;         // A23: after every brain (10, 11) and nav (15), before abilities (20) and movement (30)
@@ -97,6 +97,7 @@ const Buffs = {
     // G08: a frozen actor's cloak drops while the freeze lasts (the buff itself keeps running).
     this.applyInvisible(id, this.has(id, BUFF.INVISIBLE) && Actors.alive[id] === 1 && !Damage.hasStatus(id, 'freeze'));
     if (!Actors.alive[id] || dt <= 0) return;
+    RallyShield.expire(id);
     if (this.has(id, BUFF.NO_FIRE)) Weapons.nextShot[id] = Math.max(Weapons.nextShot[id], this.remaining(id, BUFF.NO_FIRE));
     if (this.has(id, BUFF.REGEN)) healActor(id, this.get(id, BUFF.REGEN) * dt, -1);
     if (this.has(id, BUFF.TOUCH_KILL)) touchKill(id);
@@ -141,21 +142,25 @@ function aimDistance(id, maxDistance) {
   const blocked = World.raycast(Actors.x[id], Actors.eyeY(id), Actors.z[id], effectDirection.x, effectDirection.y, effectDirection.z, maxDistance, effectHit);
   return blocked ? effectHit.distance : maxDistance;
 }
-// The visible enemy nearest the crosshair within range and the aim cone, or -1.
+// The enemy nearest the crosshair (least 1 - cos) inside the cone and range; a cloaked enemy or one behind smoke is no target.
+const AIM_DEFAULT_COS = Math.cos(AIM_ASSIST_CONE_DEG * DEG);
+const AIM_ORDER_LIMIT = 2;              // the largest 1 - cos: accept checks the range
+let aimMinCos = AIM_DEFAULT_COS, aimRange = 0;
+const AIM_TARGET_RULE = {
+  skip(who, id) { return !Actors.alive[id] || !Actors.isEnemy(who, id) || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0; },
+  point(id, out) { Hitbox.point(id, ZONE.BODY, out); },
+  distance(dx, dy, dz) {
+    const length = length3(dx, dy, dz);
+    return length < 1e-3 ? AIM_ORDER_LIMIT : 1 - (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / length;
+  },
+  accept(who, id, dx, dy, dz, offAxis) { return 1 - offAxis >= aimMinCos && length3(dx, dy, dz) <= aimRange; },
+  blocked(x, y, z, point) { return Smoke.lineBlocked(x, y, z, point.x, point.y, point.z); },
+};
 function aimTarget(id, range, coneDeg) {
   aimRay(id);
-  const eyeY = Actors.eyeY(id), minCos = Math.cos((coneDeg || AIM_CONE_DEG) * DEG);
-  let best = -1, bestCos = minCos;
-  for (let other = 0; other < Actors.count; other++) {
-    if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
-    const dx = Actors.x[other] - Actors.x[id], dy = Actors.eyeY(other) - 0.5 - eyeY, dz = Actors.z[other] - Actors.z[id];
-    const distance = Math.hypot(dx, dy, dz);
-    if (distance > range || distance < 1e-3) continue;
-    const cos = (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / distance;
-    if (cos < bestCos || !World.lineClear(Actors.x[id], eyeY, Actors.z[id], Actors.x[other], eyeY + dy, Actors.z[other])) continue;
-    best = other; bestCos = cos;
-  }
-  return best;
+  aimMinCos = coneDeg ? Math.cos(coneDeg * DEG) : AIM_DEFAULT_COS;
+  aimRange = range;
+  return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], AIM_ORDER_LIMIT, AIM_TARGET_RULE);
 }
 // Enemies of id within radius of a point (nearest first is not needed by any caller); returns the count in effectIds.
 function enemiesNear(id, x, y, z, radius, includeGhosts) {
@@ -395,6 +400,15 @@ function lureStep(zone) {
 }
 
 const DecoyState = { zone: new Int8Array(MAX_ACTORS).fill(-1) };   // actor id -> zone of the decoy it is (-1 = a real actor)
+// A40: the surplus a rally gave each actor and when it ends. One pool on purpose: a later rally moves its end.
+const RallyShield = {
+  amount: new Float32Array(MAX_ACTORS), until: new Float64Array(MAX_ACTORS),
+  expire(id) {
+    if (this.amount[id] <= 0 || Sim.time < this.until[id]) return;
+    Damage.surplus[id] = Math.max(0, Damage.surplus[id] - this.amount[id]);
+    this.amount[id] = 0;
+  },
+};
 const LinkState = { partner: new Int8Array(MAX_ACTORS).fill(-1), until: new Float64Array(MAX_ACTORS), sharing: false };
 // A23 Puppet Jump: system 'puppet' (PUPPET_DRIVE_ORDER) hands the caster's input to the puppet and leaves the caster's body
 // still; 'puppetRestore' (PUPPET_RESTORE_ORDER) gives the caster's input fields back, so a step without a fresh input write
@@ -483,15 +497,24 @@ const RewindHistory = {
     return id * REWIND_SAMPLES + (this.head[id] - back + REWIND_SAMPLES) % REWIND_SAMPLES;
   },
 };
+// A16: one ring of prints per actor (actor * FOOTPRINT_RING + k), kept only for enemies of someone who has Tracker Sense.
 const Footprints = {
   x: new Float32Array(FOOTPRINT_COUNT), y: new Float32Array(FOOTPRINT_COUNT), z: new Float32Array(FOOTPRINT_COUNT),
-  owner: new Int8Array(FOOTPRINT_COUNT).fill(-1), time: new Float64Array(FOOTPRINT_COUNT).fill(-1e9), next: 0,
-  add(id) {
-    const i = this.next;
+  owner: new Int8Array(FOOTPRINT_COUNT).fill(-1), time: new Float64Array(FOOTPRINT_COUNT).fill(-1e9), next: new Uint8Array(MAX_ACTORS),
+  add(id, loudness) {
+    if (loudness < FOOTPRINT_MIN_LOUDNESS || !this.tracked(id)) return;
+    const i = id * FOOTPRINT_RING + this.next[id];
     this.x[i] = Actors.x[id]; this.y[i] = Actors.y[id]; this.z[i] = Actors.z[id]; this.owner[i] = id; this.time[i] = Sim.time;
-    this.next = (i + 1) % FOOTPRINT_COUNT;
+    this.next[id] = (this.next[id] + 1) % FOOTPRINT_RING;
   },
-  clear() { this.time.fill(-1e9); this.owner.fill(-1); },
+  // True when a living actor with Tracker Sense has this one as an enemy.
+  tracked(id) {
+    for (let viewer = 0; viewer < Actors.count; viewer++) {
+      if (Actors.alive[viewer] && Abilities.slotOf(viewer, 'tracker') >= 0 && Actors.isEnemy(viewer, id)) return true;
+    }
+    return false;
+  },
+  clear() { this.time.fill(-1e9); this.owner.fill(-1); this.next.fill(0); },
 };
 
 AbilityZones.behaviours[ZONE_KIND.LIFT] = { step(zone) { forZoneActors(zone, true, liftActor); return true; } };
@@ -520,7 +543,7 @@ function castZone(id, row) {
   const seconds = row.params.zone === 'strike' ? row.params.delay : row.duration;
   const zone = AbilityZones.add(kind, id, row, at.x, at.y, at.z, seconds);
   if (row.params.zone === 'wall' || row.params.zone === 'smoke') { AbilityZones.radius[zone] = row.params.width / 2; AbilityZones.height[zone] = row.params.height; }
-  if (row.params.zone === 'smoke') Smoke.add(at.x, at.y, at.z, row.params.width, row.params.height, seconds, AbilityZones.yaw[zone], id);   // real smoke: blocks sight
+  if (row.params.zone === 'smoke') Smoke.add(at.x, at.y, at.z, row.params.width, row.params.height, seconds, AbilityZones.yaw[zone]);   // real smoke: blocks sight
   return true;
 }
 // The floor under the aimed point within range (or the point itself when there is no floor below it).
@@ -824,11 +847,15 @@ function castRift(id, row) {
   AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   return true;
 }
-// rally: every living ally (the user alone without a team) gains surplus shield and speed for the duration.
+// rally: every living ally (the user alone without a team) gains surplus shield (inside the PU07 cap, lost again with the speed)
+// and speed for the duration.
 function castRally(id, row) {
+  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
   for (let other = 0; other < Actors.count; other++) {
     if (!Actors.alive[other] || !alliesOf(id, other)) continue;
-    Damage.surplus[other] += row.params.surplus;
+    const granted = Math.min(row.params.surplus, Math.max(0, cap - Damage.surplus[other]));
+    Damage.surplus[other] += granted;
+    RallyShield.amount[other] += granted; RallyShield.until[other] = Sim.time + row.duration;
     Buffs.add(other, BUFF.SPEED, row.params.speed, row.duration);
   }
   return true;
@@ -1103,12 +1130,13 @@ Sim.addSystem('puppet', PUPPET_DRIVE_ORDER, () => PuppetState.drive());
 Sim.addSystem('puppetRestore', PUPPET_RESTORE_ORDER, () => PuppetState.restore());
 Render.cameraOverride = (camera) => PuppetState.placeCamera(camera);   // the first owner: 16x and 17e chain after it
 Input.aimAssistFilters.push((id) => PuppetState.puppet[id] < 0);   // no assist from the caster's still body while it drives
-Bus.on('actor.spawn', (event) => { RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
-Bus.on('actor.create', (id) => { RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
+Bus.on('actor.spawn', (event) => { RallyShield.amount[event.id] = 0; RewindHistory.reset(event.id); GrappleState.target[event.id] = -1; LinkState.partner[event.id] = -1; });
+Bus.on('actor.create', (id) => { RallyShield.amount[id] = 0; RewindHistory.reset(id); DecoyState.zone[id] = -1; LinkState.partner[id] = -1; Buffs.clear(id); });
 Bus.on('actor.remove', (id) => { if (DecoyState.zone[id] >= 0) { AbilityZones.target[DecoyState.zone[id]] = -1; DecoyState.zone[id] = -1; } });
-Bus.on('move.step', (event) => Footprints.add(event.id));
+Bus.on('move.step', (event) => Footprints.add(event.id, event.loudness));
 Bus.on('move.jump', strengthJump);
 Bus.on('weapon.fire', strengthShot);
 Bus.on('damage', shareLinkedDamage);
 Bus.on('kill', onAbilityKill);
 Bus.on('match.stop', () => Footprints.clear());
+Gadgets.attackLocks.push((id) => Buffs.has(id, BUFF.NO_FIRE));
