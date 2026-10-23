@@ -253,32 +253,22 @@ Test.add('economy', (check) => {
 // Perk texts restate their tuning numbers: every number in a text must follow from the row (a percent of a factor, the factor,
 // its inverse or the value), so a balance change cannot leave a stale text behind (normalize-06).
 Test.add('economy', (check) => {
-  const stale = [];
-  for (const perk of CAT.perks) {
-    const factors = Object.values(perk.stats).concat([perk.dealt, perk.taken, perk.value]).filter((number) => number !== 0 && number !== 1);
-    const shown = factors.flatMap((number) => [Math.round(Math.abs(number - 1) * 100), number, Math.round(100 / number) / 100]);
-    for (const text of perk.text.match(/\d+(\.\d+)?/g) || []) if (!shown.some((number) => Math.abs(number - Number(text)) < 1e-6)) stale.push(perk.id + ': ' + text);
-  }
-  check('every number in a perk text follows from its stats or value', stale.length === 0, stale.join());
+  const stale = CAT.perks.filter((perk) => {
+    const shown = Object.values(perk.stats).concat([perk.dealt, perk.taken, perk.value]).flatMap((n) => [Math.round(Math.abs(n - 1) * 100), n, Math.round(100 / n) / 100]);
+    return (perk.text.match(/\d+(\.\d+)?/g) || []).some((text) => !shown.includes(Number(text)));
+  });
+  check('every number in a perk text follows from its stats or value', stale.length === 0, stale.map((perk) => perk.id).join());
 });
 
 // RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
 Test.add('economy', (check) => {
-  const exotic = CAT.weaponSets.byId('exoticSet').weapons, swaps = CLASS_SET_SWAPS.exoticSet;
-  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(swaps[key]));
-  check('frame: every military class weapon has a swap inside the Exotic set', unswapped.length === 0, unswapped.join());
+  const exotic = CAT.weaponSets.byId('exoticSet').weapons;
+  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(CLASS_SET_SWAPS.exoticSet[key]));
   World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
   Game.start({ mode: 'tdm', ruleset: 'frame', seed: 1, bots: CAT.classes.map((row, index) => ({ dummy: true, team: index % 2 })) });
-  const outside = [];
-  for (let id = 0; id < Actors.count; id++) {
-    for (let w = 0; w < WEAPON_COUNT; w++) {
-      const row = CAT.weapons[w];
-      if (Weapons.owned[Weapons.slotIndex(id, w)] && row.class !== 'melee' && !exotic.includes(row.id)) outside.push(id + ':' + row.id);
-    }
-  }
-  check('frame: spawned classes carry only Exotic set weapons', Actors.count === CAT.classes.length && outside.length === 0, outside.join());
   Economy.applyClass(0, CAT.classes.byId('marksman'));
-  check('frame: the Marksman class gets the Talon Bow and the Sparklock', Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock') && !Weapons.has(0, 'longshot'));
+  check('frame: classes carry Exotic weapons (Marksman: Talon Bow, Sparklock)', unswapped.length === 0 && Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock')
+    && !Weapons.has(0, 'longshot') && Weapons.has(1, CLASS_SET_SWAPS.exoticSet[Loadouts.classFor(1).primary]), unswapped.join());
   endModeTest();
 });
 

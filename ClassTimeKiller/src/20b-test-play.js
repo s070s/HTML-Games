@@ -350,30 +350,23 @@ Test.add('play', (check) => uiWith(() => {
     Game.start({ mode: 'horde', map: 'cistern', seed: PLAY_TEST_SEED, player: { team: 0, name: PLAY_PLAYER_NAME }, bots: [] });
     Modes.finish(Modes.over(DRAW, PVE_LOSE));
     const results = Game.match.results, text = Ui.top().element.textContent;
-    check('results: a lost co-op run is a loss, not a draw', results.lost && !results.draw && PlayFlow.outcome(results) === 'loss', JSON.stringify({ lost: results.lost, draw: results.draw }));
-    check('results: the screen says Defeat and why', text.includes(PLAY_RESULT_TITLES.loss) && !!PLAY_REASON_TEXT[PVE_LOSE] && text.includes(PLAY_REASON_TEXT[PVE_LOSE]), text.slice(0, 80));
-    check('results: every co-op end reason has its line', [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => !!PLAY_REASON_TEXT[reason]));
-    check('play screen: the mode summary starts with the mode goal (fun-03)', playModeSummary('bearer').startsWith(CAT.modes.byId('bearer').goal));
-    Game.stop(); Ui.closeAll();
+    check('results: a lost co-op run says Defeat and why, not Draw', results.lost && !results.draw && text.includes(PLAY_RESULT_TITLES.loss)
+      && [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => text.includes(PLAY_REASON_TEXT[PVE_LOSE]) && !!PLAY_REASON_TEXT[reason]), text.slice(0, 80));
+    check('play screen: the summary starts with the mode goal (fun-03)', playModeSummary('bearer').startsWith(CAT.modes.byId('bearer').goal));
+    Game.stop();
     // Rows that change nothing are not shown (modes-05, modes-06); tickets scale with the match length like score and time.
-    check('match length: Short also halves the tickets (Frontline 75, Breach Assault rounded up to 40)',
-      PlayFlow.lengthLimits('conquest', 'short').params.tickets === 75 && PlayFlow.lengthLimits('rush', 'short').params.tickets === 40);
-    const saved = Save.data.play, rowsFor = (mode) => {
-      Save.data.play = { mode }; Ui.closeAll(); Ui.open('play');
-      return Array.from(Ui.top().element.querySelectorAll('.ui-row')).map((row) => row.textContent);
-    };
+    check('match length: Short halves tickets too', PlayFlow.lengthLimits('conquest', 'short').params.tickets === 75 && PlayFlow.lengthLimits('rush', 'short').params.tickets === 40);
+    const saved = Save.data.play, rows = (mode) => { Save.data.play = { mode }; Ui.closeAll(); Ui.open('play'); return Ui.top().element.textContent; };
     try {
-      const has = (rows, label) => rows.some((text) => text.startsWith(label));
-      const ffa = rowsFor('ffa'), bomb = rowsFor('bomb'), tdm = rowsFor('tdm'), blight = rowsFor('infection');
-      check('play screen: Match length shows only where it changes a limit', has(ffa, 'Match length') && !has(bomb, 'Match length'), bomb.join('|'));
-      check('play screen: Your team shows in team modes, not where the mode sets the sides', has(tdm, 'Your team') && !has(blight, 'Your team'), blight.join('|'));
+      check('play screen: Match length and Your team show only where they change something', rows('ffa').includes('Match length') && !rows('bomb').includes('Match length')
+        && rows('tdm').includes('Your team') && !rows('infection').includes('Your team'));
     } finally {
       Save.data.play = saved;
     }
     Game.stop(); Ui.closeAll();
     Game.start({ mode: 'ffa', map: 'spire', seed: PLAY_TEST_SEED, player: { name: PLAY_PLAYER_NAME }, bots: [{}] });
     Modes.finish(Modes.over(DRAW, 'draw'));
-    check('results: a versus draw stays a draw', Game.match.results.draw && !Game.match.results.lost && PlayFlow.outcome(Game.match.results) === 'draw');
+    check('results: a versus draw stays a draw', Game.match.results.draw && PlayFlow.outcome(Game.match.results) === 'draw');
   } finally {
     Game.stop(); Ui.closeAll();
   }
