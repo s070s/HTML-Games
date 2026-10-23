@@ -19,8 +19,8 @@ const MAP_DROP_REACH = 3;           // a drop may land up to this many cells out
 const MAP_BUCKET = 4;              // brush lookup grid, metres
 const MAP_SAME_HEIGHT = 0.02;       // surfaces closer than this are one surface
 const MAP_FLOOR_TOLERANCE = 0.3;    // a spawn, item, objective or jump pad target sits on its floor within this
-const MAP_PAD_GRAVITIES = [13, 20, 24];   // lowest preset, the nominal GRAVITY and highest preset: pad arcs are traced under each
-const MAP_PAD_MIN_FLIGHT = 0.1;     // seconds, as in S08's jump pad launch
+// Lowest movement preset, the nominal GRAVITY and highest preset: pad arcs are traced under each.
+const MAP_PAD_GRAVITIES = [Math.min(...CAT.movement.map((row) => row.gravity)), GRAVITY, Math.max(...CAT.movement.map((row) => row.gravity))];
 const MAP_ARC_STEP = 1 / 30;        // seconds between arc samples
 // Edge kinds: how an edge costs. Walks cost one cell (a diagonal one cell times the square root of two), links a fixed time-like cost.
 const MAP_EDGE = { straight: 0, diagonal: 1, pad: 2, teleporter: 3, ladder: 4 };
@@ -75,7 +75,7 @@ const MapScan = {
     return {
       map, brushes, cell, cols, rows, originX, originZ, need, wallReach: MAP_DOOR_WIDTH - need,
       grid: BrushGrid.build({}, brushes, MAP_BUCKET, originX, originZ, originX + map.size[0], originZ + map.size[2]),
-      near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32), gaps: new Float64Array(4), steps: new Int32Array(4), flight: { rise: 0, time: 0 },
+      near: new Int32Array(MAP_MAX_BRUSH_HITS), heights: new Float64Array(32), gaps: new Float64Array(4), steps: new Int32Array(4),
       outside: [], ray: { ox: 0, oy: 0, oz: 0, dx: 0, dz: 0, limit: 0, best: Infinity, hit: null },
       walk: makeGridWalk(),
       edgeCosts: Float64Array.of(cell, cell * Math.SQRT2, MAP_LINK_COSTS[MAP_EDGE.pad], MAP_LINK_COSTS[MAP_EDGE.teleporter], MAP_LINK_COSTS[MAP_EDGE.ladder]),
@@ -326,19 +326,12 @@ const MapScan = {
     for (const gravity of MAP_PAD_GRAVITIES) if (!this.arcClear(scan, x, y, z, trigger, gravity)) return false;
     return true;
   },
-  // The flight S08's touchJumpPad gives: up to `peak` m above the higher of start and target, then down onto the target. Fills
-  // out.rise (the launch speed upward, m/s) and out.time (seconds in the air).
-  padFlight(out, startY, trigger, gravity) {
-    const peakY = Math.max(startY, trigger.target[1]) + trigger.peak;
-    out.rise = Math.sqrt(2 * gravity * (peakY - startY));
-    out.time = Math.max(MAP_PAD_MIN_FLIGHT, out.rise / gravity + Math.sqrt((2 * (peakY - trigger.target[1])) / gravity));
-  },
+  // The body follows S08's own jump pad arc (World.padArc: the launch speed upward and the seconds in the air).
   arcClear(scan, startX, startY, startZ, trigger, gravity) {
-    const flight = scan.flight, target = trigger.target;
-    this.padFlight(flight, startY, trigger, gravity);
-    const vx = (target[0] - startX) / flight.time, vz = (target[2] - startZ) / flight.time;
-    for (let t = MAP_ARC_STEP; t < flight.time; t += MAP_ARC_STEP) {
-      if (this.bodyHitsSolid(scan, startX + vx * t, startY + flight.rise * t - 0.5 * gravity * t * t, startZ + vz * t)) return false;
+    const target = trigger.target, arc = World.padArc(trigger, startY, gravity), rise = arc.upSpeed, time = arc.time;
+    const vx = (target[0] - startX) / time, vz = (target[2] - startZ) / time;
+    for (let t = MAP_ARC_STEP; t < time; t += MAP_ARC_STEP) {
+      if (this.bodyHitsSolid(scan, startX + vx * t, startY + rise * t - 0.5 * gravity * t * t, startZ + vz * t)) return false;
     }
     return true;
   },
