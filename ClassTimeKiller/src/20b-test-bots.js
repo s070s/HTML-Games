@@ -1951,15 +1951,23 @@ Test.add('botsoak', (check) => {
 }, { slow: true });
 
 // blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-6. Before, the Blight won all 6 on Spire by
-// elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the floor area (13f outbreakSize).
+// elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
+// The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
 const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6], BLIGHT_SPLIT_BOTS = 12;
 const BLIGHT_SPLIT_WINS_MAX = 4, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;   // the limit is 5 minutes: every match ends
+const BLIGHT_GEAR_EVENTS = ['gadget.use', 'weapon.fire'];   // a melee swing is a 'weapon.fire' of class melee
 Test.add('botsoak', (check) => {
-  for (const map of BLIGHT_SPLIT_MAPS) {
-    const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
-    const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
-    const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
-    check('Blight on ' + map + ': neither side wins more than 4 of 6 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
-    check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
-  }
+  let infectedUses = 0;   // counted as it happens: the role is gone once the match stops
+  const countGear = (event) => { if (Modes.actorRole[event.id] === ACTOR_ROLE.INFECTED && event.weaponClass !== 'melee') infectedUses++; };
+  const handlers = BLIGHT_GEAR_EVENTS.map((type) => Bus.on(type, countGear));
+  try {
+    for (const map of BLIGHT_SPLIT_MAPS) {
+      const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
+      const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
+      const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
+      check('Blight on ' + map + ': neither side wins more than 4 of 6 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
+      check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
+    }
+  } finally { BLIGHT_GEAR_EVENTS.forEach((type, index) => Bus.off(type, handlers[index])); }
+  check('Blight: the infected throw, set and fire nothing but melee', infectedUses === 0, infectedUses + ' uses');
 }, { slow: true });

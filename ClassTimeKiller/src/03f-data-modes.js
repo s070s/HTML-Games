@@ -22,9 +22,10 @@ const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that sc
 // params.tiers plays the first tiers - 1 plus the melee tier.
 const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'kestrel', 'lancet', 'heron', 'maul'];
 
-// M17 Blight: one in infectedPerPlayers starts infected on a map of infectedArea square metres, more on a bigger one (13f
-// outbreakSize). blight-01: 375 HP, as at 450 one infected on Spire still won 5 of 6 matches (now 3 of 6 there and on Gantry).
-const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 5000, infectAfter: 20, infectedHealth: 375, leapSpeed: 8, leapLift: 3 };
+// M17 Blight: one in infectedPerPlayers starts infected on infectedArea square metres of walkable floor, more on a bigger
+// one (13f outbreakSize). blight-01: 375 HP, as at 450 Spire's 2 infected won all 6 test matches (now 4) and at 340 Gantry's
+// humans won 5 of 6 (now 4).
+const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3500, infectAfter: 20, infectedHealth: 375, leapSpeed: 8, leapLift: 3 };
 
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
