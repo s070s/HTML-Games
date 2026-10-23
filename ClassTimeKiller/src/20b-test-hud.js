@@ -338,6 +338,13 @@ Test.add('hud', (check) => hudTestWith(() => {
   const medal = HudBanners.newest();
   Hud.time += HUD_BANNER_QUEUE;
   check('banners on a phone: a medal and a lead change both show, in turn', HudBanners.text[medal] === 'Double Kill' && HudBanners.text[HudBanners.newest()] === 'Me takes the lead');
+  Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
+  hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Too slow.' });
+  hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Again?' });
+  HudBanners.add('Headshot', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  const chat = HudBanners.text.filter((text) => text.endsWith(': Too slow.') || text.endsWith(': Again?')), headshot = HudBanners.text.indexOf('Headshot');
+  check('banners on a phone: a chat line while the queue is busy is dropped, a medal waits one turn at most', chat.length === 1 && chat[0].endsWith('Too slow.')
+    && HudBanners.at[headshot] <= Hud.time + HUD_BANNER_QUEUE, chat.join(' | '));
   Hud.layout.phone = false;
 }));
 

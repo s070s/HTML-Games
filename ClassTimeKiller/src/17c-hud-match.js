@@ -125,6 +125,8 @@ const HudBanners = {
     this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = start;
   },
   ends(slot) { return this.at[slot] + this.seconds(slot); },
+  // Phones: true while a new banner would wait its turn; a chat line is then dropped, never queued ahead of a game banner.
+  busy() { for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.at[i] + HUD_BANNER_QUEUE > Hud.time) return true; return false; },
   seconds(slot) { return this.priority[slot] >= HUD_BANNER_PRIORITY_LONG || this.medal[slot] ? HUD_BANNER_SECONDS_LONG : HUD_BANNER_SECONDS; },
   live(slot) { return Hud.time >= this.at[slot] && Hud.time < this.ends(slot); },   // a queued banner (at in the future) is not shown yet
   alpha(slot) { const age = Hud.time - this.at[slot]; return Math.min(1, age / 0.15, (this.seconds(slot) - age) / HUD_BANNER_FADE); },
