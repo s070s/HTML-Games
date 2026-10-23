@@ -351,7 +351,7 @@ Test.add('play', (check) => uiWith(() => {
     Modes.finish(Modes.over(DRAW, PVE_LOSE));
     const results = Game.match.results, text = Ui.top().element.textContent;
     check('results: a lost co-op run says Defeat and why, not Draw', results.lost && !results.draw && text.includes(PLAY_RESULT_TITLES.loss)
-      && [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => text.includes(PLAY_REASON_TEXT[PVE_LOSE]) && !!PLAY_REASON_TEXT[reason]), text.slice(0, 80));
+      && text.includes(PLAY_REASON_TEXT[PVE_LOSE]) && [PVE_WIN, 'extracted', 'objective'].every((reason) => PLAY_REASON_TEXT[reason]), text.slice(0, 80));
     check('play screen: the summary starts with the mode goal (fun-03)', playModeSummary('bearer').startsWith(CAT.modes.byId('bearer').goal));
     Game.stop();
     // Rows that change nothing are not shown (modes-05, modes-06); tickets scale with the match length like score and time.
