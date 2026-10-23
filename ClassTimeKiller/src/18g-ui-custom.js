@@ -575,14 +575,13 @@ function editorSummary(draft) {
 
 function editorRenderTab(list, summary) {
   const draft = EDITOR_STATE.draft;
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
-  list.replaceChildren();
   summary.textContent = editorSummary(draft);
-  const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
-  for (const field of fields) list.appendChild(editorFieldRow(field));
-  if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
+    for (const field of fields) list.appendChild(editorFieldRow(field));
+    if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
+  });
 }
 
 Ui.register('custom', {

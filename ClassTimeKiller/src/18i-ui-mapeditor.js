@@ -110,12 +110,10 @@ const MapEditorUi = {
   fixed(value) { return (Math.round(value * 100) / 100).toString(); },
   // Empties a panel and fills it again; the control that had the keyboard focus gets it back (by its place in the panel).
   rebuild(panel, fill) {
-    const controls = () => Array.from(panel.querySelectorAll('button, input, textarea'));
-    const focused = controls().indexOf(document.activeElement);
-    panel.replaceChildren();
-    fill(panel);
-    const next = focused >= 0 ? controls()[focused] : null;
-    if (next) next.focus();
+    Ui.rebuild(panel, () => {
+      panel.replaceChildren();
+      fill(panel);
+    });
   },
 
   // Leaves the editor from the menu (asks first when the map has unsaved changes).

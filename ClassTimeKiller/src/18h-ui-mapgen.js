@@ -117,19 +117,18 @@ function mapgenMenuShareRows(render) {
   return [Ui.row('Share code', copyWrap), Ui.row('Paste', pasteWrap)];
 }
 function mapgenMenuRender(list, status) {
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
   const render = () => mapgenMenuRender(list, status);
   const choices = mapgenMenuChoices(), named = (row) => row.name;
-  list.replaceChildren();
-  for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
-    list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
-  }
-  list.appendChild(mapgenMenuSeedRow(render));
-  mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
+      list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
+    }
+    list.appendChild(mapgenMenuSeedRow(render));
+    mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  });
   status.textContent = MapGenMenu.describe();
   status.className = 'ui-note mg-status' + (MapGenMenu.state.report && MapGenMenu.state.report.fallback && MapGenMenu.state.map ? ' mg-error' : '');
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
 }
 
 Ui.register('mapgen', {

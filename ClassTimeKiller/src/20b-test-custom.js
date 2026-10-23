@@ -227,6 +227,21 @@ Test.add('custom', (check) => {
   });
 });
 
+// R-161: the custom editor, the generated-map menu and the map editor panels redraw through Ui.rebuild (one focus-keeping rule).
+Test.add('custom', (check) => {
+  uiWith(() => {
+    const rebuild = Ui.rebuild, containers = [];
+    Ui.rebuild = function (container, build) { containers.push(container); return rebuild.call(this, container, build); };
+    try {
+      Settings.set('custom.draft', '');
+      Ui.open('custom');
+      Ui.open('mapgen');
+      MapEditorUi.rebuild(document.createElement('div'), () => {});
+    } finally { Ui.rebuild = rebuild; }
+    check('custom editor, map generator and map editor panels redraw through Ui.rebuild', containers.length >= 3, containers.length);
+  });
+});
+
 Test.add('custom', (check) => {
   uiWith(() => {
     Settings.set('custom.draft', '');
