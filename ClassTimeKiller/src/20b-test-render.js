@@ -631,7 +631,7 @@ Test.add('render', (check) => {
 
 // ---- GPU frame: budgets, render scale, direct mode (needs a WebGL2 context) ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('no WebGL2 context on this page: GPU checks'); return; }
   const gl = Render.gl, result = DebugApi.renderDemo('glacier');
   const quality = Render.quality;
   check('demo frame within the draw-call cap', result.stats.drawCalls > 0 && result.stats.drawCalls <= quality.drawCalls, result.stats.drawCalls);
@@ -662,7 +662,7 @@ Test.add('render', (check) => withRenderer(() => {
 Test.add('render', (check) => withRenderer(async () => {
   check('the WebGL2 screen has an iPhone line', /iOS.*Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
-  if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
+  if (!extension) { check.skip('no WEBGL_lose_context: context-loss checks'); return; }
   World.load(makeDemoArena('station'));
   let toasts = 0;
   const listener = Bus.on('toast', () => { toasts++; });
@@ -832,7 +832,7 @@ Test.add('render', (check) => withRenderer(() => {
 }));
 
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  if (!Render.gl) { check.skip('no WebGL2 context on this page: restore-failure check'); return; }
   const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
   Render.gpuParts.push(failing);
   const logged = Test.expectErrors(() => handleContextRestored());
