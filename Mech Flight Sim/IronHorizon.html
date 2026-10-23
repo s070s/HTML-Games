@@ -396,6 +396,17 @@ const MELEE_FINISH_CD = 1.6;    // a chain's last strike waits this much longer 
 const MELEE_SLICE_MASS = 1.5;   // a ground vehicle this light or lighter that can move is cut apart by a slicing blade
 const MELEE_SLICE_ARMOR = 4;    // a slicing hit carries this many points per armour point past the armour, so it always kills
 const MELEE_SPARK = [1, 0.8, 0.4], MELEE_HF_SPARK = [0.5, 0.95, 1];   // strike sparks; a high-frequency blade's are cyan
+/* A mech's strikes are scaled so chain after chain deals MELEE_MECH_PACE times the old mech punch per second (its
+   meleeDmg every MELEE_OLD_CD s); a person on foot keeps the table's damage. mechScale is worked out once per weapon. */
+const MELEE_OLD_CD = 1.1;
+const MELEE_MECH_PACE = { fists: 1, sword: 1.3, katana: 1.6 };
+/* damage per second, in meleeDmg, of melee weapon m pressed again as soon as it is ready (scale: on each strike) */
+function meleeChainDps(m, scale) {
+  let dmg = 0;
+  for (let k = 0; k < m.combo; k++) dmg += m.dmg * scale * (m.combo > 1 && k === m.combo - 1 ? m.finisher : 1);
+  return dmg / (m.cd * (m.combo - 1) + m.cd * (m.combo > 1 ? MELEE_FINISH_CD : 1));
+}
+for (const k in MELEE) MELEE[k].mechScale = MELEE[k].mech ? (MELEE_MECH_PACE[k] || 1) / MELEE_OLD_CD / meleeChainDps(MELEE[k], 1) : 1;
 /* true when a slicing blade cuts p apart: a soldier (or civilian) or a light ground vehicle that can move */
 function meleeSlices(p) {
   return p.def.style === 'infantry' || p.kind === 'ground' && p.def.mass <= MELEE_SLICE_MASS && p.def.speed > 0;
@@ -9701,7 +9712,7 @@ class Platform {
   /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc, and the structures at its tip */
   meleeStrike() {
     const m = this.meleeW, foot = this.def.style === 'infantry';
-    const dmg = this.def.mech.meleeDmg * m.dmg * (this.meleeFinisher() ? m.finisher : 1);
+    const dmg = this.def.mech.meleeDmg * m.dmg * (foot ? 1 : m.mechScale) * (this.meleeFinisher() ? m.finisher : 1);
     const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), base = (foot ? MELEE_REACH.foot : MELEE_REACH.mech) * m.reach, reach = this.radius + base;
     Snd.play('melee', this.x, this.y, this.z, 1);
     const tip = this.radius + base * MELEE_TIP, hx = this.x + fx * tip, hz = this.z + fz * tip;
@@ -11151,6 +11162,7 @@ const Seats = {
     q.cmd.aimYaw = old.cmd.aimYaw; q.cmd.aimPitch = clamp(old.cmd.aimPitch, -0.75, 1.15); q.cmd.throttleSet = -1; q.cmd.brake = false;
     if (old.sw && q.sw) q.sw.charge = old.sw.charge;   // one superweapon meter per player
     old.controller = null;
+    q.meleeWind = old.meleeWind = 0; q.meleeStep = old.meleeStep = 0;   // a wound-up blow never lands from the body left behind
     if (peer) {
       peer.p = q; q.netPeer = peer; q.localPlayer = false; old.netPeer = null;
       Net.send(peer, { t: 'ctl', pid: q.id }, true);
@@ -11167,6 +11179,7 @@ const Seats = {
     c.moveF = c.moveS = c.turn = c.throttleIn = c.axisPitch = c.axisRoll = c.axisYaw = 0;
     c.fire1 = c.fire2 = c.boost = c.jump = false; c.brake = true;
     v.shieldOn = false; v.crouch = false; v.boosting = false; v.vx = v.vz = 0; v.speed = 0;
+    v.meleeWind = 0; v.meleeStep = 0; v.meleeT = 0;
     if (v.kind === 'air') { v.throttle = 0; c.throttleSet = 0; v.afterburner = false; }
   },
   /* an aircraft standing on the ground, gear down and engines idle */
@@ -23186,6 +23199,37 @@ const SelfTest = {
         }
       }
       this.check('each melee weapon hits a dummy inside its reach and arc, at the end of its wind-up, and misses outside them', bad.length === 0, bad.join('; '));
+      // a mech's chains deal the old punch's pace (meleeDmg every MELEE_OLD_CD s) with fists, 1.3 times it with a sword
+      // and 1.6 times with the katana; measured over five chains pressed again as soon as each strike is ready
+      const pace = [];
+      for (const id of ['fists', 'sword', 'katana']) {
+        const m = MELEE[id], me = new Platform(PLATFORMS.bulwark, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo('bulwark', id) });
+        W.platforms.push(me);
+        dummy.x = sp.x; dummy.z = sp.z + me.radius + dummy.radius + 1; dummy.y = Terrain.h(dummy.x, dummy.z);
+        let dealt = 0;
+        dummy.takeDamage = (amount) => { dealt += amount; return amount; };
+        const chain = m.cd * (m.combo - 1) + m.cd * (m.combo > 1 ? MELEE_FINISH_CD : 1), steps = Math.round(5 * chain / STEP) - 3;
+        me.meleeAt = -Infinity; me.meleeStep = 0;
+        for (let i = 0; i < steps; i++) { me.torsoYaw = 0; me.doMelee(); step(me, 1); }
+        delete dummy.takeDamage;
+        W.platforms.splice(W.platforms.indexOf(me), 1);
+        const got = dealt / (5 * chain), want = PLATFORMS.bulwark.mech.meleeDmg * MELEE_MECH_PACE[id] / MELEE_OLD_CD;
+        pace.push(id + ' ' + got.toFixed(1) + '/' + want.toFixed(1));
+        if (Math.abs(got / want - 1) > 0.05) bad.push(id);
+      }
+      dummy.hp = dummy.maxHp;
+      this.check('a mech deals the old punch per second with fists, about 1.3 times it with a sword and 1.6 times with the HF katana', bad.length === 0, pace.join(', '));
+      // stepping out of a mech in the middle of a wind-up: the blow never lands, and the new body has none wound up
+      const keepPlayer = W.player, swinger = new Platform(PLATFORMS.bulwark, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo('bulwark', 'sword') });
+      W.platforms.push(swinger); swinger.isPlayer = true; swinger.torsoYaw = 0;
+      dummy.x = sp.x; dummy.z = sp.z + swinger.radius + dummy.radius + 1; dummy.y = Terrain.h(dummy.x, dummy.z); dummy.hp = dummy.maxHp;
+      swinger.doMelee();
+      const wound = swinger.meleeWind > 0;
+      Seats.exit(swinger, null);
+      const walker = W.player;
+      step(swinger, Math.ceil(MELEE.sword.wind / STEP) + 2);
+      this.check('stepping out mid wind-up: the blow never lands from the parked mech, and the soldier has none wound up', wound && swinger.parked && walker !== swinger && walker.meleeWind === 0 && swinger.meleeWind === 0 && swinger.meleeStep === 0 && dummy.hp === dummy.maxHp);
+      W.platforms = W.platforms.filter((q) => q !== swinger && q !== walker); W.player = keepPlayer; PC.resetUse();
       // a chain: three quick punches, the last 1.6 times harder; then a new chain
       const boxer = new Platform(PLATFORMS.ranger, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo('ranger', null) });
       W.platforms.push(boxer);
@@ -23211,10 +23255,11 @@ const SelfTest = {
           return v.dead;
         };
         const soldier = cut('ranger', 'katana', 'ranger'), car = cut('bulwark', 'katana', 'jackal'), hover = cut('ranger', 'katana', 'specter');
+        const footCar = cut('ranger', 'katana', 'jackal');
         const swordCar = cut('bulwark', 'sword', 'jackal'), tank = cut('bulwark', 'katana', 'bastion');
         const cuts = gibs.filter((g) => g.endsWith(':slice')).join();
-        this.check('the HF katana cuts a soldier and light vehicles in two at a stroke', soldier && car && hover && cuts === 'ranger:slice,jackal:slice,specter:slice', gibs.join());
-        this.check('a sword does not cut a light vehicle in two, nor a katana a tank', !swordCar && !tank && gibs.length === 3 + gibs.filter((g) => g.endsWith(':wear')).length, gibs.join());
+        this.check('the HF katana cuts a soldier and light vehicles in two at a stroke, in a mech\'s hands or a soldier\'s', soldier && car && hover && footCar && cuts === 'ranger:slice,jackal:slice,specter:slice,jackal:slice' && PLATFORMS.jackal.mass <= MELEE_SLICE_MASS, gibs.join());
+        this.check('a sword does not cut a light vehicle in two, nor a katana a tank', !swordCar && !tank && gibs.length === 4 + gibs.filter((g) => g.endsWith(':wear')).length, gibs.join());
       } finally { W.onGib = keepGib; }
       // co-op: guests draw the cut pieces, and know a platform's melee weapon from its loadout
       const made = () => W.debris.length + W.debrisHead, before = made(), keepMap = Net.map;
