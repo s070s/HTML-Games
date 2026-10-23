@@ -2960,7 +2960,7 @@ function gridIndex(x, z) {
 }
 const Water = {
   any: false, levels: WATER_NONE, flowX: WATER_NONE, flowZ: WATER_NONE,
-  fx: 0, fz: 0, fr2: 0, fy: -Infinity,   // a flash flood (Hazards): the surface stands at least at fy within the circle (fx, fz), radius² fr2
+  fx: 0, fz: 0, fr2: 0, fy: -Infinity, fsrc: -Infinity,   // a flash flood (Hazards): the surface rises toward fy within the circle (fx, fz), radius² fr2, from its source's fsrc
   /* ---------- building (once per map grid) ---------- */
   /* carves map def m's water into its height grid and returns { levels, flowX, flowZ }: seas first, then lakes, then
      rivers, so a river that runs into a lake or the sea meets its surface */
@@ -3100,14 +3100,17 @@ const Water = {
     this.levels = w ? w.levels : WATER_NONE; this.flowX = w ? w.flowX : WATER_NONE; this.flowZ = w ? w.flowZ : WATER_NONE;
     this.setFlood(0, 0, 0, -Infinity);
   },
-  /* raise the water to surface y within r of (x, z) (a flash flood; y -Infinity or r 0 ends it) */
-  setFlood(x, z, r, y) { this.fx = x; this.fz = z; this.fr2 = y === -Infinity ? 0 : r * r; this.fy = y; },
-  /* height of the water surface at (x, z), or -Infinity where there is none */
+  /* raise the water to surface y within r of (x, z), risen from src (a flash flood; y -Infinity or r 0 ends it) */
+  setFlood(x, z, r, y, src) { this.fx = x; this.fz = z; this.fr2 = y === -Infinity ? 0 : r * r; this.fy = y; this.fsrc = src === undefined ? y : src; },
+  /* height of the water surface at (x, z), or -Infinity where there is none. In a flood the water stands no more than
+     the rise so far (fy - fsrc) over what was there (water or dry ground): a hollow far below the source fills by the
+     rise, not to the source's level, and nothing jumps deep on the flood's first frame. */
   level(x, z) {
     const l = this.baseLevel(x, z);
     if (this.fr2 === 0 || l >= this.fy) return l;
     const dx = x - this.fx, dz = z - this.fz;
-    return dx * dx + dz * dz < this.fr2 ? this.fy : l;
+    if (dx * dx + dz * dz >= this.fr2) return l;
+    return Math.min(this.fy, Math.max(l, Terrain.h(x, z)) + this.fy - this.fsrc);
   },
   /* the surface without a flood */
   baseLevel(x, z) {
@@ -14341,6 +14344,7 @@ const HZ_ASH_COL = [0.06, 0.05, 0.04];
 /* flood */
 const HZ_FLOOD_REACH = 800;      // a scheduled flood comes from water this close to the player (m)
 const HZ_FLOOD_TOWARD = 0.4;     // its zone sits this share of the way from the water toward the player
+const HZ_FLOOD_SHIFT = 0.5;      // but its centre moves no more than this share of its radius off the water (it keeps over its source)
 const HZ_FLOOD_WET = 0.05;       // water shallower than this (m) is not a source
 const HZ_FLOOD_COL = [0.46, 0.42, 0.3], HZ_FLOOD_ALPHA = 0.8, HZ_FLOOD_GLOW = 0.2;   // muddy water
 /* avalanche and rockfall slide down the steepest way */
@@ -14965,18 +14969,21 @@ const HZ_KIND = {
       if (!Water.any || Hazards.running('flood')) return false;   // only where there is water, and one flood at a time (Water has one flood circle)
       if (!Hazards.nearestWater(a ? a.x : s.x, a ? a.z : s.z, a ? HZ_FLOOD_REACH : HAZARDS.flood.r)) return false;
       const w = Hazards.wet;
-      if (a) { s.x = lerp(w.x, a.x, HZ_FLOOD_TOWARD); s.z = lerp(w.z, a.z, HZ_FLOOD_TOWARD); }
+      if (a) {   // toward the player, but never so far that the circle leaves its water
+        const gx = a.x - w.x, gz = a.z - w.z, dist = Math.hypot(gx, gz), step = Math.min(dist * HZ_FLOOD_TOWARD, HAZARDS.flood.r * HZ_FLOOD_SHIFT);
+        if (dist > 1e-6) { s.x = w.x + gx / dist * step; s.z = w.z + gz / dist * step; } else { s.x = w.x; s.z = w.z; }
+      }
       s.y = w.y;
       return true;
     },
-    begin(h) { if (!Net.guest) h.level = h.y; },
+    begin(h) { if (!Net.guest) h.level = h.y; else h.y = h.level; },   // a guest's source height until the host's pack says
     update(h, dt) {
       const d = h.def;
       if (!Net.guest) {
         const t = h.state === HZ_ACTIVE ? h.t : 0;
         h.level = h.y + d.rise * Math.min(smoothstep(0, d.riseTime, t), 1 - smoothstep(d.dur - d.fall, d.dur, t));
       }
-      if (this.wet(h)) Water.setFlood(h.x, h.z, h.r, h.level);
+      if (this.wet(h)) Water.setFlood(h.x, h.z, h.r, h.level, h.y);
       else { Water.setFlood(0, 0, 0, -Infinity); return; }   // no water on the land during the warning or once it has gone down
       for (let n = Hazards.count(d.foam * Hazards.fade(h), dt); n > 0; n--) {   // foam where it runs over the land
         const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
@@ -14985,9 +14992,11 @@ const HZ_KIND = {
     },
     tick() {},
     free() { Water.setFlood(0, 0, 0, -Infinity); },
-    /* the water stands over the land only while the flood runs and is above its source (a guest has no source height:
-       the host's level never drops below it) */
-    wet(h) { return h.state === HZ_ACTIVE && (Net.guest || h.level > h.y); },
+    /* the source's surface (h.y) for 'hz' (p): Water rises from it on guests too */
+    pack(h) { return [r2(h.y)]; },
+    unpack(h, p) { h.y = numIn(p[0], -1000, 3000, h.y); },
+    /* the water stands over the land only while the flood runs and is above its source */
+    wet(h) { return h.state === HZ_ACTIVE && h.level > h.y; },
     draw(h, pass) {
       if (pass !== 1 || !this.wet(h) || !R.visible(h.x, h.level, h.z, h.r)) return;
       const st = R.stack;
@@ -15315,6 +15324,7 @@ const HZ_KIND = {
         }
         if (best === -Infinity) return false;
       }
+      s.x = r1(s.x); s.z = r1(s.z);   // checked where it will start (trigger rounds every site as 'hz' sends it)
       return this.trace(s.x, s.z, null) >= HZ_LAVA_MIN;
     },
     /* lava cells from (x, z) down the steepest way into out (x, z pairs; null: count only); returns how many */
@@ -21424,7 +21434,7 @@ const SelfTest = {
           // a flood: no ground in its circle is wetter during the warning or once it has gone down than before it
           const probes = [];
           if (type === 'flood') for (let k = 0; k < 300; k++) { const a = k * 2.399, rr = h.r * Math.sqrt(k / 300), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr; probes.push(x, z, Water.depth(x, z)); }
-          let wetter = 0, flooded = 0, gap = Infinity;
+          let wetter = 0, flooded = 0, gap = Infinity, tooDeep = 0, firstJump = 0, sawActive = false;
           let steps = 0;
           while (h.on && steps < 2000) {
             if (type === 'tornado' || type === 'sandstorm' || type === 'avalanche' || type === 'wildfire' || type === 'gas') { inside.x = h.x; inside.z = h.z; }
@@ -21435,9 +21445,13 @@ const SelfTest = {
             Hazards.update(HZ_DT);
             if (type === 'flood') {
               inside.updateWater(HZ_DT); outside.updateWater(HZ_DT);
+              const first = h.state === HZ_ACTIVE && !sawActive, rise = h.level - h.y;
+              if (h.state === HZ_ACTIVE) sawActive = true;
               for (let k = 0; k < probes.length; k += 3) {
                 const w = Water.depth(probes[k], probes[k + 1]);
                 if (h.state === HZ_ACTIVE) { if (w > probes[k + 2] + 1e-6) flooded++; } else if (w > probes[k + 2] + 1e-6) wetter++;
+                if (h.state === HZ_ACTIVE && probes[k + 2] === 0 && w > rise + 1e-6) tooDeep++;   // dry ground: never deeper than the rise so far
+                if (first) firstJump = Math.max(firstJump, w - probes[k + 2]);
               }
               if (h.state !== HZ_ACTIVE && Water.fr2 > 0) wetter++;   // and no raised water at all (any battlefield's low ground)
             }
@@ -21446,10 +21460,35 @@ const SelfTest = {
           this.check('hazard ' + type + ' is announced before it strikes', warned);
           this.check('hazard ' + type + ' hurts a dummy inside its zone and not one ' + OUT + ' m past its reach', total(inside) < in0 && total(outside) === out0,
             Math.round(in0 - total(inside)) + ' inside, ' + Math.round(out0 - total(outside)) + ' outside, ' + gap.toFixed(1) + ' m from the edge at the nearest');
-          if (type === 'flood') this.check('a flood wets no ground during its warning or once it has gone down, only while it runs', wetter === 0 && flooded > 0, wetter + ' wetter outside the run, ' + flooded + ' flooded in it');
+          if (type === 'flood') {
+            this.check('a flood wets no ground during its warning or once it has gone down, only while it runs', wetter === 0 && flooded > 0, wetter + ' wetter outside the run, ' + flooded + ' flooded in it');
+            this.check('a flood makes no dry ground deeper than its rise so far, and nothing deep on its first frame', tooDeep === 0 && firstJump <= 0.1, tooDeep + ' too deep, first frame +' + firstJump.toFixed(2) + ' m');
+          }
           this.check('hazard ' + type + ' ends within its time', !h.on && steps * HZ_DT <= WARN + d.dur + HAZARD_FADE + 0.5, (steps * HZ_DT).toFixed(1) + ' s');
         }
         this.check('a flood leaves the water as it was', Water.fr2 === 0 && Water.level(lake.x, lake.z) === Water.baseLevel(lake.x, lake.z));
+        // every lava site found (scheduled or exact) is checked where it will start: rounded as 'hz' sends it, with enough cells
+        let lavaSites = 0, lavaBad = 0;
+        for (let k = 0; k < 60; k++) {
+          const s = { x: -660 + (k % 10) * 132 + 0.037 * k, z: -620 + Math.floor(k / 10) * 210 + 0.053 * k, y: 0, yaw: 0, src: null };
+          if (!HZ_KIND.lava.site(s, k % 2 ? { x: s.x, z: s.z } : null)) continue;
+          lavaSites++;
+          if (s.x !== r1(s.x) || s.z !== r1(s.z) || HZ_KIND.lava.trace(s.x, s.z, null) < HZ_LAVA_MIN) lavaBad++;
+        }
+        this.check('every lava site starts on the 0.1 m grid with at least ' + HZ_LAVA_MIN + ' cells', lavaSites >= 10 && lavaBad === 0, lavaSites + ' sites, ' + lavaBad + ' short');
+        // a flood aimed at a player far from water keeps its circle over its water; dry ground in it gets the rise at most
+        let away = null;
+        for (let x = -800; x <= 800 && !away; x += 40) for (let z = -800; z <= 800 && !away; z += 40) if (Hazards.nearestWater(x, z, HZ_FLOOD_REACH) && !Hazards.nearestWater(x, z, 450)) away = { x, z };
+        const fh = away ? Hazards.force('flood', away.x, away.z, { warn: 1, find: true }) : null;
+        const over = !!fh && Hazards.nearestWater(fh.x, fh.z, fh.r);
+        if (fh) Hazards.free(fh);
+        this.check('a flood aimed at a player 450 m or more from water keeps its circle over its water', over, away ? 'player at ' + away.x + ',' + away.z : 'no such spot');
+        let dryAt = null;
+        for (let k = 0; k < 400 && !dryAt; k++) { const x = -600 + k * 3, z = 200 - k * 2; if (!Water.wetIn(x, z, 4)) dryAt = { x, z, g: Terrain.h(x, z) }; }
+        Water.setFlood(dryAt.x, dryAt.z, 20, dryAt.g + 5, dryAt.g + 4);   // 1 m risen so far, its surface 5 m over this ground
+        const riseDepth = Water.depth(dryAt.x, dryAt.z);
+        Water.setFlood(0, 0, 0, -Infinity);
+        this.check('flood water stands no deeper on dry ground than the rise so far', riseDepth > 0.99 && riseDepth < 1.01, riseDepth.toFixed(2) + ' m');
         this.check('a scheduled gas leak needs a plant to leak from', Hazards.gasSource(0, 0, HZ_GAS_REACH) === null && Hazards.force('gas', 0, 0, { warn: 0, find: true }) === null && Hazards.n === 0);
         // an earthquake brings down a cracked building and leaves a sound one far away standing
         W.platforms.length = 0;
@@ -21581,7 +21620,7 @@ const SelfTest = {
         Hazards.apply({ t: 'hz', id: 9, type: 'lightning', state: HZ_STRIKE, x: 10, z: 10, r: 9, level: Terrain.h(10, 10) });
         this.check('a guest draws a lightning strike the host sends', W.beams.length > beams0 && Hazards.n === n1 - 1);
         const lake = mapDef('alpine').water.find((w) => w.type === 'lake'), base = Water.baseLevel(lake.x, lake.z);
-        Hazards.apply({ t: 'hz', id: 12, type: 'flood', state: HZ_ACTIVE, x: lake.x, z: lake.z, r: 170, level: base + 2 });
+        Hazards.apply({ t: 'hz', id: 12, type: 'flood', state: HZ_ACTIVE, x: lake.x, z: lake.z, r: 170, level: base + 2, p: [base] });   // p: its source's surface
         for (let i = 0; i < 40; i++) Hazards.update(0.1);
         this.check('a guest raises the water as the host\'s flood says', Math.abs(Water.level(lake.x, lake.z) - (base + 2)) < 0.1, Water.level(lake.x, lake.z).toFixed(2) + ' vs ' + (base + 2).toFixed(2));
         const n2 = Hazards.n;
