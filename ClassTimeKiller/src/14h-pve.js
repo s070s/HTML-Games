@@ -830,7 +830,7 @@ const Pve = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || this.champion[id] < 0) continue;
       const champion = PVE_CHAMPIONS[this.champion[id]];
-      if (champion.shieldRegen && !(Actors.flags[id] & ACTOR_FLAG.FROZEN)) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + champion.shieldRegen * dt);
+      if (champion.shieldRegen && !this.stunned(id, Sim.time)) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + champion.shieldRegen * dt);
       if (champion.healthRegen && !Damage.hasStatus(id, 'shock')) Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + champion.healthRegen * dt);
     }
   },

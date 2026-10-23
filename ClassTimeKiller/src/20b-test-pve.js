@@ -722,6 +722,10 @@ Test.add('pve', (check) => {
   const tagged = (key) => rings.some((mesh) => colorMatches(mesh, PVE_CHAMPIONS[championIndex(key)].glow));
   check('champions stand on a ring in their tag colour', tagged('unstoppable') && tagged('barrier'));
   check('a coloured shield is drawn in its element colour', !!element && rings.filter((mesh) => colorMatches(mesh, element.color)).length === PVE_SHELL_HEIGHTS.length);
+  Actors.shield[shielded] = 0;
+  Pve.stagger(shielded, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
+  runSeconds(PVE_DIRECTOR.staggerSeconds / 2);
+  check('a staggered barrier champion regrows no shield (stunned)', Actors.shield[shielded] === 0, Actors.shield[shielded]);
   Game.stop();
 });
 
