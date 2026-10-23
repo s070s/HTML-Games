@@ -363,13 +363,14 @@ Test.add('render', (check) => withRenderer(() => {
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
 Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 1.6, 0, 0, 0);
+  SunShadow.active = false;   // blob shadows: a live frame on a sun-shadow preset (a slow boot's benchmark) may have left it on
   const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
   const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, Render.quality.lodNear + 10);
   makeTestActor(ACTOR_KIND.BOT, 0, 3, 5);
   Actors.alive[2] = 0;
   fillActors(1 / 60, 1);
   check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length, batchInstances(actorBatch));
-  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2, shadowBatch.counts[SHAPE_INDEX.disc]);
   const behind = makeTestActor(ACTOR_KIND.BOT, 0, 0, -6);
   fillActors(1 / 60, 1);
   check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
@@ -684,7 +685,9 @@ Test.add('render', (check) => withRenderer(() => {
 // render-01/02: the match hook (S11 Weapons.viewModel, wrapped by S15) through updateCamera and poseWeapon. An idle held
 // weapon is fully raised (swap 0) and on screen; mid-swap the incoming weapon rises (swap falls from 1 towards 0).
 Test.add('render', (check) => withRenderer(() => {
+  Game.headless = true;   // the match starts as in the weapons tests (no pointer lock request), then renders
   TestArena.start({});
+  Game.headless = false;
   const id = TestArena.actor(1, 0, 0);
   Weapons.setLoadout(id, ['tempest', 'warden']);
   Game.playerId = id;
