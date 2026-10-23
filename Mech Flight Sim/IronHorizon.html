@@ -369,9 +369,15 @@ const WEAPONS = {
   navalGun: { name: 'Naval Gun', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 85, dtype: 'explosive', speed: 300, life: 3.4, cd: 0.9, spread: 0.006, grav: 6, clip: 10, reserve: 80, reload: 4, heat: 8, range: 950, blast: 5, weight: 14, structMult: 1.6, tracer: [1, 0.75, 0.35], size: 1.1, sound: 'cannon', recoil: 0.9, role: 'Pro: heavy shells with a blast at long range; con: slow to fire, heavy, shells drop with range' },
   torpedo: { name: 'Torpedo', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 260, dtype: 'explosive', speed: 28, accel: 12, maxSpeed: 40, life: 22, cd: 3, spread: 0.004, clip: 2, reserve: 8, reload: 6, heat: 6, range: 700, blast: 7, torpedo: true, weight: 12, structMult: 1.5, tracer: [0.85, 0.9, 0.95], size: 1, sound: 'splash', recoil: 0.3, role: 'Pro: huge hit on anything floating or wading, runs under the waves; con: slow, only travels in water, passes under hovercraft' },
   shipSam: { name: 'Ship SAM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 80, dtype: 'explosive', speed: 160, accel: 160, maxSpeed: 300, life: 6, cd: 1.4, spread: 0.01, clip: 4, reserve: 16, reload: 5, heat: 5, range: 1400, blast: 5.5, weight: 10, structMult: 0.6, tracer: [1, 0.9, 0.7], size: 1, rocket: true, guide: { turn: 3.6, lock: 'air', lockTime: 0.8, cone: 0.9 }, sound: 'missile', recoil: 0.4, role: 'Pro: long-range seeker that locks aircraft in a wide cone; con: locks aircraft only, heavy' },
+  /* artillery (P5.3, D25): indirect fire at a fixed muzzle speed, the barrel laid by Arty.solve onto the reticle's ground
+     point; indirect: minimum range (m), elevation limits (rad) and the arc it takes first; spread is the deployed one */
+  artyGun: { name: 'Field Howitzer', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 210, dtype: 'explosive', speed: 210, life: 30, cd: 2.6, spread: 0.0018, grav: 22, arc: true, indirect: { min: 150, elev: [-0.1, 1.35], arc: 'low' }, clip: 4, reserve: 40, reload: 6, heat: 12, range: 1400, blast: 14, weight: 20, structMult: 2.2, tracer: [1, 0.72, 0.3], size: 1.8, sound: 'mortar', recoil: 1.6, role: 'Pro: heavy shells onto any ground point out to 1400 m, over hills and cover; con: 150 m minimum range, slow flight, steady only when deployed' },
+  artyRockets: { name: 'Rocket Artillery', slot: 'primary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.25 }, dmg: 70, dtype: 'explosive', speed: 175, life: 26, cd: 5, spread: 0.006, grav: 22, arc: true, indirect: { min: 250, elev: [0.05, 1.0], arc: 'low' }, clip: 12, reserve: 48, reload: 9, heat: 14, range: 1300, blast: 8, weight: 16, structMult: 1.6, tracer: [1, 0.6, 0.25], size: 1.2, rocket: true, sound: 'rocket', recoil: 0.8, role: 'Pro: a six-rocket salvo saturates an area out to 1300 m; con: 250 m minimum range, scatters, long reload' },
+  artyMortar: { name: 'Heavy Mortar', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 120, dtype: 'explosive', speed: 105, life: 14, cd: 1.6, spread: 0.004, grav: 22, arc: true, indirect: { min: 70, elev: [0.8, 1.5], arc: 'high' }, clip: 6, reserve: 48, reload: 4.5, heat: 9, range: 480, blast: 10, weight: 12, structMult: 1.8, tracer: [1, 0.8, 0.4], size: 1.3, sound: 'mortar', recoil: 0.9, role: 'Pro: steep plunging shells behind walls and ridges, fast to fire; con: short reach (480 m), high arc only, slow to land' },
 };
 for (const k in WEAPONS) WEAPONS[k].id = k;
 const NAVAL_WEAPON_IDS = ['navalGun', 'torpedo', 'shipSam'];   // the ships' own weapons (P5.2), listed in the Arsenal
+const ARTY_WEAPON_IDS = ['artyGun', 'artyRockets', 'artyMortar'];   // the artillery's own guns (P5.3), listed in the Arsenal
 const WEAPON_SLOTS = ['primaryA', 'primaryB', 'secondary', 'utility'];
 const GUN_SLOTS = ['primaryA', 'primaryB', 'secondary'];   // firing slots in fixed order (also the co-op sync order)
 const SLOT_LABEL = { primaryA: 'Primary A', primaryB: 'Primary B', secondary: 'Secondary', utility: 'Utility' };
@@ -591,6 +597,47 @@ const PLATFORMS = {
     loadout: { primaryA: 'gatling', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.44, 0.5, 0.42], dark: [0.18, 0.21, 0.17] },
   },
+  /* ----- artillery (P5.3, D16, D25): ground vehicles with style 'artillery'; the stance key deploys them, which takes
+     arty.deploy s (packing up arty.undeploy s): deployed they cannot move but fire steadier (Arty) ----- */
+  thunder: {
+    id: 'thunder', name: 'Thunder SPH-1', kind: 'ground', cls: 'Tracked Howitzer', playable: true, model: 'spg', style: 'artillery',
+    role: 'Self-propelled howitzer that shells targets far beyond direct sight.',
+    pros: 'Longest reach, heavy shells, accurate when deployed', cons: 'Cannot move while deployed, 150 m minimum range, slow to fire',
+    hp: 620, armor: 260, armorRatio: 0.62, energy: 140, energyRegen: 14, heatCap: 140, cooling: 15, mass: 3.5, weightCap: 46,
+    radius: 3.8, height: 3.6, speed: 15, sensor: 700, stability: 2,
+    ground: { type: 'tracked', accel: 12, brake: 36, drag: 10, reverse: 0.5, steerRate: 1.0, steerMin: 0, grip: 14, turretRate: 1.6, boostMult: 1.2, climb: 0.75, ride: 1.3, pitchLim: [-0.1, 1.35] },
+    arty: { deploy: 3, undeploy: 2.2 },
+    mounts: { primaryA: [0, 3.6, 3.4], primaryB: [1.2, 4, 0.4], secondary: [-1.3, 4, 0] },
+    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone'] },
+    loadout: { primaryA: 'artyGun', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
+    col: { main: [0.42, 0.44, 0.33], dark: [0.18, 0.19, 0.14] },
+  },
+  hailstorm: {
+    id: 'hailstorm', name: 'Hailstorm MRL-6', kind: 'ground', cls: 'Rocket Truck', playable: true, model: 'mrl', style: 'artillery',
+    role: 'Wheeled rocket launcher that drenches an area in a six-rocket salvo.',
+    pros: 'Fast on roads, a salvo covers a wide area, quick to deploy', cons: 'Thin armour, 250 m minimum range, long reload',
+    hp: 380, armor: 110, armorRatio: 0.55, energy: 130, energyRegen: 14, heatCap: 130, cooling: 16, mass: 2.2, weightCap: 38,
+    radius: 3.2, height: 3.4, speed: 30, sensor: 650, stability: 1.2,
+    ground: { type: 'wheeled', accel: 20, brake: 50, drag: 7, reverse: 0.4, steerRate: 1.4, steerMin: 5, grip: 8, turretRate: 2.2, boostMult: 1.3, climb: 0.55, ride: 1.1, pitchLim: [-0.05, 1.0] },
+    arty: { deploy: 2, undeploy: 1.5 },
+    mounts: { primaryA: [0, 3.4, -0.6], primaryB: [0.8, 3.2, 3.2], secondary: [-0.8, 3.2, 3] },
+    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive'] },
+    loadout: { primaryA: 'artyRockets', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
+    col: { main: [0.5, 0.47, 0.36], dark: [0.2, 0.19, 0.14] },
+  },
+  pestle: {
+    id: 'pestle', name: 'Pestle MC-2', kind: 'ground', cls: 'Mortar Carrier', playable: true, model: 'mortarApc', style: 'artillery',
+    role: 'Tracked carrier with a heavy mortar that drops shells steeply behind cover.',
+    pros: 'Plunging fire over walls and ridges, deploys in a moment, quick', cons: 'Short reach (480 m), high arc only, light armour',
+    hp: 460, armor: 170, armorRatio: 0.6, energy: 140, energyRegen: 15, heatCap: 120, cooling: 16, mass: 2.4, weightCap: 34,
+    radius: 3, height: 2.8, speed: 22, sensor: 600, stability: 1.4,
+    ground: { type: 'tracked', accel: 18, brake: 44, drag: 10, reverse: 0.5, steerRate: 1.4, steerMin: 0, grip: 13, turretRate: 2.6, boostMult: 1.3, climb: 0.8, ride: 1.1, pitchLim: [-0.1, 1.5] },
+    arty: { deploy: 1.2, undeploy: 1 },
+    mounts: { primaryA: [0, 3.6, -0.4], primaryB: [0.9, 3, 1.6], secondary: [-0.9, 3, 1.4] },
+    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone'] },
+    loadout: { primaryA: 'artyMortar', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
+    col: { main: [0.4, 0.45, 0.36], dark: [0.17, 0.2, 0.15] },
+  },
   /* ----- non-playable ----- */
   dummy: { id: 'dummy', name: 'Target Dummy', kind: 'ground', cls: 'Static Target', model: 'dummy', hp: 500, armor: 0, armorRatio: 0, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 6, weightCap: 99, radius: 2.4, height: 7, speed: 0, sensor: 0, stability: 9, ground: { type: 'static', accel: 0, brake: 0, drag: 0, reverse: 0, steerRate: 0, steerMin: 0, grip: 20, turretRate: 0, boostMult: 1, climb: 0, ride: 0, pitchLim: [0, 0] }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.8, 0.45, 0.15], dark: [0.3, 0.2, 0.1] } },
   dummyMove: { id: 'dummyMove', name: 'Moving Target', kind: 'ground', cls: 'Moving Target', model: 'dummy', hp: 420, armor: 0, armorRatio: 0, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 3, weightCap: 99, radius: 2.4, height: 5, speed: 16, sensor: 0, stability: 9, ground: { type: 'wheeled', accel: 18, brake: 30, drag: 6, reverse: 0.3, steerRate: 1.6, steerMin: 2, grip: 8, turretRate: 0, boostMult: 1, climb: 0.7, ride: 0.8, pitchLim: [0, 0] }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.85, 0.5, 0.15], dark: [0.3, 0.2, 0.1] } },
@@ -631,6 +678,10 @@ const ARCH = {
   gunboat: { def: 'lancer', ai: 'naval', label: 'Gunboat', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo' }, score: 220 },
   destroyer: { def: 'trident', ai: 'naval', label: 'Destroyer', loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' }, secondaryGap: 3, score: 500 },
   hoverAssault: { def: 'skua', ai: 'naval', label: 'Assault Hovercraft', loadout: { primaryA: 'gatling', secondary: 'rockets', utility: 'smoke' }, score: 240 },
+  /* artillery batteries hold their ground deployed and shell what their spotters see (runArtillery, P5.3) */
+  howitzerBattery: { def: 'thunder', ai: 'artillery', label: 'Howitzer', loadout: { primaryA: 'artyGun', primaryB: 'mg' }, score: 300 },
+  rocketBattery: { def: 'hailstorm', ai: 'artillery', label: 'Rocket Artillery', loadout: { primaryA: 'artyRockets', primaryB: 'mg' }, score: 260 },
+  mortarTeam: { def: 'pestle', ai: 'artillery', label: 'Mortar Carrier', loadout: { primaryA: 'artyMortar', primaryB: 'mg' }, score: 200 },
   /* allies reuse the player roster */
   allyMech: { def: 'bulwark', ai: 'soldier', label: 'Ally Mech', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'missile', utility: 'drone' }, score: 0 },
   allyTank: { def: 'bastion', ai: 'bruiser', label: 'Ally Tank', loadout: { primaryA: 'acannon', secondary: 'atgm' }, score: 0 },
@@ -973,11 +1024,11 @@ const ACTIONS = [
   ['boost', 'Boost / sprint / afterburner', 'ShiftLeft'],
   ['jump', 'Jump jets / handbrake / airbrake', 'Space'],
   ['defense', 'Defense (shield, APS, repair, flares)', 'KeyQ'],
-  ['melee', 'Mech melee strike', 'KeyF'],
+  ['melee', 'Mech melee strike / artillery arc (high or low)', 'KeyF'],
   ['superweapon', 'Fire superweapon (when charged)', 'KeyV'],
   ['interact', 'Use: tap to enter, resupply or pick up; hold to exit (eject in the air)', 'KeyE'],
   ['cycleTarget', 'Cycle target', 'KeyT'],
-  ['stance', 'Crouch / landing gear (air)', 'KeyC'],
+  ['stance', 'Crouch / landing gear (air) / deploy (artillery)', 'KeyC'],
   ['reload', 'Reload', 'KeyR'],
   ['switchWeapon', 'Switch primary weapon', 'KeyZ'],
   ['pause', 'Pause', 'KeyP'],
@@ -1004,15 +1055,19 @@ const PAD_LABELS = {
   interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
-/* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind. */
+/* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind
+   (touchKind: artillery deploys on the stance button and picks its arc on the melee one). */
 const TOUCH_LABELS = {
-  fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', melee: 'MELEE', cycleTarget: 'TGT', superweapon: 'SUPER',
-  jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'GEAR' : 'CROUCH'),
+  fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', cycleTarget: 'TGT', superweapon: 'SUPER',
+  jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'GEAR' : kind === 'artillery' ? 'DEPLOY' : 'CROUCH'),
+  melee: (kind) => (kind === 'artillery' ? 'ARC' : 'MELEE'),
   interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', pause: 'II',
 };
+/* the kind the touch labels go by: the platform's kind, or 'artillery' for the artillery's ground vehicles */
+const touchKind = (p) => (!p ? 'mech' : p.def.style === 'artillery' ? 'artillery' : p.kind);
 function actionLabel(action) {
   const touch = TouchControls.enabled && TOUCH_LABELS[action];
-  if (touch) return typeof touch === 'function' ? touch(W && W.player ? W.player.kind : 'mech') : touch;
+  if (touch) return typeof touch === 'function' ? touch(touchKind(W && W.player)) : touch;
   if (Input.usingPad && PAD_LABELS[action]) return PAD_LABELS[action];
   return keyLabel(Input.code(action));
 }
@@ -1371,19 +1426,20 @@ const ROTATE_TEXT_COOP = 'Your controls are paused; the battle continues. Turn y
    so no button is ever dead. A hidden button keeps its place, so the others never move under the thumb. */
 const touchArmed = (p) => !!(p && (p.wslots.primaryA || p.wslots.primaryB || p.wslots.secondary));
 const touchReloads = (w) => !!(w && w.def.kind !== 'beam' && w.def.clip);
+const touchAnchored = (p) => !!(p && p.arty && (p.arty.want || p.arty.deploy > 0));   // deployed artillery cannot drive (Arty)
 const TOUCH_BUTTONS = [
   { name: 'fire1', label: 'FIRE', at: 'r', x: 0, y: 0, big: true, look: true, show: (p) => !!(p && p.primary) },
   { name: 'fire2', label: 'ALT', at: 'r', x: 1.54, y: 0, look: true, show: (p) => !!(p && p.wslots.secondary) },
   { name: 'reload', label: 'RLD', at: 'r', x: 2.72, y: 0, show: (p) => !!p && (touchReloads(p.wslots.primaryA) || touchReloads(p.wslots.primaryB) || touchReloads(p.wslots.secondary)) },
-  { name: 'jump', label: TOUCH_LABELS.jump, at: 'r', x: 0.18, y: 1.54, show: (p) => !!p && (p.kind !== 'mech' || p.def.mech.jetThrust > 0) },
+  { name: 'jump', label: TOUCH_LABELS.jump, at: 'r', x: 0.18, y: 1.54, show: (p) => !!p && (p.kind !== 'mech' || p.def.mech.jetThrust > 0) && !touchAnchored(p) },
   { name: 'defense', label: 'DEF', at: 'r', x: 1.54, y: 1.18, show: (p) => !!(p && p.util && p.util.def.def !== 'reactive') },
-  { name: 'boost', label: 'BOOST', at: 'r', x: 2.72, y: 1.18, latch: true, show: (p) => !!p },
+  { name: 'boost', label: 'BOOST', at: 'r', x: 2.72, y: 1.18, latch: true, show: (p) => !!p && !touchAnchored(p) },
   { name: 'next', label: 'WPN', at: 'r', x: 0.18, y: 2.72, show: (p) => !!(p && p.wslots.primaryA && p.wslots.primaryB) },
   { name: 'cycle', label: 'TGT', at: 'r', x: 1.54, y: 2.36, show: touchArmed },
   { name: 'superweapon', label: 'SUPER', at: 'r', x: 2.72, y: 2.36, show: (p) => !!(p && p.sw) },
   { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), at: 'r', x: 1.54, y: 3.54, show: (p, ctx) => Seats.anyUse(ctx) },   // off FIRE's column, which runs up under the radar
-  { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || !!(p && p.kind === 'mech' && !p.chute) },
-  { name: 'melee', label: 'MELEE', at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee },
+  { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || ctx.deploy || !!(p && p.kind === 'mech' && !p.chute) },
+  { name: 'melee', label: TOUCH_LABELS.melee, at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee || ctx.arc },
 ];
 const TOUCH_CTX = {};   // the Use context the touch layout was built from (filled by Seats.context)
 const TouchControls = {
@@ -1554,7 +1610,7 @@ const TouchControls = {
   update(p, ctx, force) {
     let mask = 0;
     for (let i = 0; i < this.buttons.length; i++) if (this.buttons[i].def.show(p, ctx)) mask |= 1 << i;
-    const kind = p ? p.kind : 'mech', word = Seats.useLabel(ctx);
+    const kind = touchKind(p), word = Seats.useLabel(ctx);
     if (!force && mask === this.mask && kind === this.kind && word === this.word) return;
     this.mask = mask; this.kind = kind; this.word = word;
     for (let i = 0; i < this.buttons.length; i++) {
@@ -4345,7 +4401,7 @@ function newWorld(cfg) {
   Hash.reset();
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null,
-    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
+    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [],
     stats: newStats(),
@@ -5702,6 +5758,7 @@ function drawWorld(dt) {
     const rr = lerp(rg.r, rg.maxR, Math.sqrt(f));
     st.push().t(rg.x, rg.y, rg.z).s(rr * 2, 0.4, rr * 2); R.draw('cyl', 1, 0.8, 0.5, (1 - f) * 0.35, 0.8, 0); st.pop();
   }
+  Arty.draw(st);   // enemy shells' impact markers, the player's predicted arc
   SW.draw(true);
   Hazards.draw(2);
   R.blend(false); R.depthWrite(true);
@@ -5719,6 +5776,7 @@ function updateWorldEffects(dt) {
   Civ.update(dt);
   Fauna.update(dt);
   Wrecks.update(dt);
+  Arty.update();
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
   for (let i = W.rings.length - 1; i >= 0; i--) { W.rings[i].life -= dt; if (W.rings[i].life <= 0) W.rings.splice(i, 1); }
   for (let i = W.scorches.length - 1; i >= 0; i--) { W.scorches[i].life -= dt; if (W.scorches[i].life <= 0) W.scorches.splice(i, 1); }
@@ -8859,6 +8917,272 @@ const Wrecks = {
     }
   },
 };
+// artillery (P5.3, D16, D25): ground vehicles with style 'artillery' carrying indirect weapons (WEAPONS[].indirect). The
+// solver lays the barrel for a fixed muzzle speed onto a ground point, on the low or the high arc; the predictor follows
+// that arc over the terrain to where the shell will come down; the stance key deploys the platform (anchored, steadier);
+// enemy shells cast impact markers on the ground before they land (the telegraph)
+const ARTY_PRED_DT = 0.05;          // s between the predictor's samples along an arc (the last step is bisected)
+const ARTY_PRED_MAX = 40;           // s of flight it follows at most
+const ARTY_NEWTON = 3;              // Newton steps that fit a solved arc to the game's own integration of the shell
+const ARTY_BLOCK_TOL = 10;          // m from the aim point past which an arc counts as masked: it strikes terrain on the way
+const ARTY_SPREAD_MOBILE = 4;       // an indirect weapon's spread multiplier while not deployed (deployed: 1)
+const ARTY_STILL = 1;               // m/s under which a deploying platform digs in (it brakes to a stop first)
+const ARTY_AIM_REACH = 1600;        // m the player's aim ray reaches with an indirect weapon in hand
+const ARTY_CAM_RISE = 12;           // m the camera rises over a deployed platform...
+const ARTY_CAM_BACK = 8;            // ...and moves back, to watch the fall of shot
+const ARTY_MARK_LEAD = 4;           // s before an enemy shell lands that its impact marker shows
+const ARTY_MARK_CAP = 32;           // impact markers at once (the soonest to land is reused when full)
+const ARTY_WARN_R = 45;             // m from a showing marker within which the player is warned
+const ARTY_SPOT_MAX = 600;          // m at most from which a spotter calls in fire
+const ARTY_THINK = [0.4, 0.6];      // s between an AI battery's looks for a spotted target
+const ARTY_AI_ERR = 0.5;            // AI scatter (m per m of range) as a share of the difficulty's aim error
+const ARTY_AI_LEAD = 0.6;           // share of a moving target's travel during the flight that an AI battery leads, times its tactics
+const ARTY_AI_GAP = [2.5, 5];       // s an AI battery waits between rounds (shorter with aggression)
+const ARTY_AI_LAY = 0.06;           // rad the turret must be within before an AI battery fires
+const ARTY_ARC_DOTS = 22;           // dots drawn along the player's predicted arc
+const ARTY_COL = { ok: [0.35, 1, 0.5], masked: [1, 0.7, 0.2], bad: [1, 0.25, 0.15], mark: [1, 0.22, 0.08] };
+/* a blank firing solution. valid: filled in; ok: the barrel can be laid onto the point (reach) on the arc in `high`
+   (swapped: the other arc, because the first strikes terrain); reason: '' or why it will not fire ('min': inside the
+   minimum range, 'range': out of reach), or 'masked' (it fires, but comes down at i* on the way); m*: the muzzle;
+   d*: the launch direction; tof: s to impact; dist: m to the aim point on the ground */
+function artySol() {
+  return { valid: false, ok: false, high: false, swapped: false, blocked: false, reason: '', dist: 0, yaw: 0, elev: 0, dx: 0, dy: 0, dz: 1, tof: 0, hit: false, ix: 0, iy: 0, iz: 0, mx: 0, my: 0, mz: 0 };
+}
+const ARTY_ALT = artySol(), ARTY_SHOT = artySol();   // scratch solutions (the other arc; a shell's trace)
+const ARTY_MZ = { x: 0, y: 0, z: 0 }, ARTY_TP = { x: 0, y: 0, z: 0 };
+const Arty = {
+  /* the surface a shell bursts on at (x, z): the ground or the water over it */
+  groundY(x, z) {
+    const g = Terrain.h(x, z), l = Water.any ? Water.level(x, z) : -Infinity;
+    return l > g ? l : g;
+  },
+  /* The elevation (rad) that sends a shell of weapon d from the muzzle (mx, my, mz) onto (tx, ty, tz) on the arc asked
+     for (high, else low), or on the other arc when that one is outside the barrel's limits, into out; out.ok false
+     (the barrel at its best elevation for range) when the point is out of reach. The arc is fitted to the game's own
+     integration of a shell (gravity first, then the move, every STEP), so the shell lands where it is laid. */
+  solve(d, mx, my, mz, tx, ty, tz, high, out) {
+    const v = d.speed, g = d.grav, lim = d.indirect.elev, ex = tx - mx, ez = tz - mz, D = Math.hypot(ex, ez), h = ty - my;
+    out.dist = D; out.high = high; out.ok = false; out.mx = mx; out.my = my; out.mz = mz;
+    if (D > 1e-3) out.yaw = Math.atan2(ex, ez);
+    const v2 = v * v, disc = v2 * v2 - g * (g * D * D + 2 * h * v2);
+    let th = clamp(PI / 4, lim[0], lim[1]);
+    if (D > 1 && disc >= 0) {
+      const root = Math.sqrt(disc), lo = Math.atan((v2 - root) / (g * D)), hi = Math.atan((v2 + root) / (g * D));
+      const want = high ? hi : lo, other = high ? lo : hi;
+      if (want >= lim[0] && want <= lim[1]) { th = this.fit(want, v, g, D, h); out.ok = true; }
+      else if (other >= lim[0] && other <= lim[1]) { th = this.fit(other, v, g, D, h); out.ok = true; out.high = !high; }
+    }
+    const ch = Math.cos(th);
+    out.elev = th; out.dx = Math.sin(out.yaw) * ch; out.dz = Math.cos(out.yaw) * ch; out.dy = Math.sin(th);
+    out.tof = D / Math.max(1, v * ch);
+    return out;
+  },
+  /* Newton steps from elevation th to the one whose arc, integrated as updateProjectiles does it (vy loses g*STEP before
+     each move: the parabola of vy - g*STEP/2), passes D m out at height h */
+  fit(th, v, g, D, h) {
+    const c = g * STEP / 2;
+    for (let i = 0; i < ARTY_NEWTON; i++) {
+      const vh = v * Math.cos(th), vs = v * Math.sin(th);
+      if (vh < 1e-3) break;
+      const f = (vs - c) * D / vh - g * D * D / (2 * vh * vh) - h;
+      const df = D + D * vs * (vs - c) / (vh * vh) - g * D * D * vs / (vh * vh * vh);
+      if (Math.abs(df) < 1e-6) break;
+      th -= f / df;
+    }
+    return th;
+  },
+  /* Where a shell from (x, y, z) moving at (vx, vy, vz) under gravity g comes down on the ground or water (structures
+     aside), by the same integration: fills out.hit, ix, iy, iz and tof (s); without a hit, where it is after
+     ARTY_PRED_MAX s or as it leaves the battlefield */
+  trace(x, y, z, vx, vy, vz, g, out) {
+    const u = vy - g * STEP / 2;
+    let t0 = 0, t = ARTY_PRED_DT;
+    out.hit = false;
+    for (; t <= ARTY_PRED_MAX; t += ARTY_PRED_DT) {
+      const px = x + vx * t, pz = z + vz * t;
+      if (y + u * t - g * t * t / 2 < this.groundY(px, pz)) { out.hit = true; break; }
+      if (Math.abs(px) > WORLD_HALF || Math.abs(pz) > WORLD_HALF) break;
+      t0 = t;
+    }
+    if (out.hit) {
+      let lo = t0, hi = t;
+      for (let b = 0; b < 8; b++) { const mid = (lo + hi) / 2; if (y + u * mid - g * mid * mid / 2 < this.groundY(x + vx * mid, z + vz * mid)) hi = mid; else lo = mid; }
+      t = hi;
+    } else t = t0;
+    out.tof = t; out.ix = x + vx * t; out.iy = y + u * t - g * t * t / 2; out.iz = z + vz * t;
+    return out;
+  },
+  /* where the shell of solution s (weapon d) comes down */
+  traceSol(d, s) { return this.trace(s.mx, s.my, s.mz, s.dx * d.speed, s.dy * d.speed, s.dz * d.speed, d.grav, s); },
+  /* The firing solution of platform p's weapon d from muzzle mz onto aim point ap, into sol: on the arc p's crew picked
+     (p.arty.high; the weapon's own preference without a crew), checked over the terrain: when it strikes a hill on the
+     way, the other arc is taken if that one lands; then why it would not fire (sol.reason). */
+  lay(p, d, mz, ap, sol) {
+    const high = p.arty ? p.arty.high : d.indirect.arc === 'high';
+    this.traceSol(d, this.solve(d, mz.x, mz.y, mz.z, ap.x, ap.y, ap.z, high, sol));
+    sol.swapped = false;
+    sol.blocked = sol.ok && Math.hypot(sol.ix - ap.x, sol.iz - ap.z) > ARTY_BLOCK_TOL;
+    if (sol.blocked) {
+      const alt = this.solve(d, mz.x, mz.y, mz.z, ap.x, ap.y, ap.z, !sol.high, ARTY_ALT);
+      if (alt.ok && alt.high !== sol.high && Math.hypot(this.traceSol(d, alt).ix - ap.x, alt.iz - ap.z) <= ARTY_BLOCK_TOL) {
+        Object.assign(sol, alt);
+        sol.swapped = true; sol.blocked = false;
+      }
+    }
+    sol.reason = sol.dist < d.indirect.min ? 'min' : !sol.ok || sol.dist > d.range ? 'range' : sol.blocked ? 'masked' : '';
+    sol.valid = true;
+    return sol;
+  },
+  /* the muzzle of p's weapon w into ARTY_MZ (without stepping a secondary's alternating side) */
+  muzzle(p, w) {
+    const side = w.side;
+    p.muzzle(w, ARTY_MZ);
+    w.side = side;
+    return ARTY_MZ;
+  },
+  /* artillery platform p's solution for the weapon in hand and its aim point (sol.valid false without either) */
+  aim(p) {
+    const a = p.arty, w = p.primary, ap = p.cmd.aimPoint;
+    if (!w || !w.def.indirect || !ap) { a.sol.valid = false; return a.sol; }
+    return this.lay(p, w.def, this.muzzle(p, w), ap, a.sol);
+  },
+  /* the gate before an indirect weapon of p fires: false, with a notice to its crew, inside the minimum range or out of reach */
+  clear(p, w) {
+    if (!p.arty || !p.cmd.aimPoint) return true;
+    const r = this.aim(p).reason;
+    if (r !== 'min' && r !== 'range') return true;
+    notify(p, r === 'min' ? 'INSIDE MINIMUM RANGE (' + w.def.indirect.min + ' m)' : 'OUT OF RANGE (' + w.def.range + ' m)', 'warn');
+    return false;
+  },
+  /* a shot of weapon d fired by p from mz at aim point ap: dir becomes the laid barrel's direction (as aimed, without an
+     aim point); returns the muzzle speed */
+  launch(p, d, mz, ap, dir) {
+    if (!ap) return d.speed;
+    const s = this.lay(p, d, mz, ap, p.arty ? p.arty.sol : ARTY_SHOT);
+    dir.x = s.dx; dir.y = s.dy; dir.z = s.dz;
+    return d.speed;
+  },
+  /* an indirect weapon's spread multiplier: wide on the move, tight once deployed */
+  spreadMult(p) { return p.arty ? lerp(ARTY_SPREAD_MOBILE, 1, p.arty.deploy) : ARTY_SPREAD_MOBILE; },
+  /* the stance key: deploy, or pack up (either can be turned back halfway) */
+  toggleDeploy(p) {
+    const a = p.arty;
+    a.want = !a.want;
+    notify(p, a.want ? 'DEPLOYING: HOLD STILL' : 'PACKING UP');
+  },
+  /* true when indirect weapon d's barrel reaches both arcs (its elevation limits straddle 45 degrees) */
+  twoArcs(d) { const lim = d.indirect.elev; return lim[0] < PI / 4 && lim[1] > PI / 4; },
+  /* the melee key: the other arc for the indirect weapon in hand, where its barrel can take it */
+  toggleArc(p) {
+    const w = p.primary;
+    if (!w || !w.def.indirect) return;
+    if (!this.twoArcs(w.def)) { notify(p, (w.def.indirect.elev[0] >= PI / 4 ? 'HIGH' : 'LOW') + ' ARC ONLY: ' + w.def.name.toUpperCase()); return; }
+    p.arty.high = !p.arty.high;
+    notify(p, p.arty.high ? 'HIGH ARC' : 'LOW ARC');
+  },
+  /* every tick on the host: deploy progress, and while the platform is anchored (deployed or not yet packed up) it does
+     not drive */
+  step(p, dt) {
+    const a = p.arty, c = p.cmd;
+    this.settle(p, dt);
+    if (!a.want && a.deploy <= 0) return;
+    if (p.isPlayer && (Math.abs(c.moveF) > 0.1 || Math.abs(c.turn) > 0.1)) p.warn = a.want ? 'DEPLOYED: PACK UP TO DRIVE' : 'PACKING UP';
+    c.moveF = 0; c.turn = 0; c.boost = false; c.brake = true;
+  },
+  /* deploy progress (0 packed up, 1 deployed) toward what the crew wants: digging in waits for the platform to stop;
+     co-op guests run it for the look */
+  settle(p, dt) {
+    const a = p.arty, d = p.def.arty, was = a.deploy;
+    if (a.want) { if (p.speed < ARTY_STILL) a.deploy = Math.min(1, a.deploy + dt / d.deploy); }
+    else a.deploy = Math.max(0, a.deploy - dt / d.undeploy);
+    if (Net.guest) return;
+    if (a.deploy >= 1 && was < 1) notify(p, 'DEPLOYED: STEADY FOR FIRE');
+    else if (a.deploy <= 0 && was > 0) notify(p, 'PACKED UP: FREE TO DRIVE');
+  },
+  /* ---------- telegraph: impact markers of enemy shells ---------- */
+  /* enemy shell q is in flight: its impact marker, shown from ARTY_MARK_LEAD s before it lands (co-op guests mark the
+     shells the host sends them) */
+  mark(q) {
+    const s = this.trace(q.x, q.y, q.z, q.vx, q.vy, q.vz, q.def.grav, ARTY_SHOT), list = W.artyMarks;
+    if (!s.hit) return;
+    let m = null;
+    for (let i = 0; i < list.length && !m; i++) if (!list[i].on) m = list[i];
+    if (!m && list.length < ARTY_MARK_CAP) { m = { on: false, x: 0, y: 0, z: 0, r: 0, at: 0 }; list.push(m); }
+    if (!m) { m = list[0]; for (let i = 1; i < list.length; i++) if (list[i].at < m.at) m = list[i]; }
+    m.on = true; m.x = s.ix; m.y = s.iy; m.z = s.iz; m.r = q.def.blast; m.at = W.time + s.tof;
+  },
+  /* true when marker m shows: its shell lands within ARTY_MARK_LEAD s */
+  showing(m) { return m.on && W.time >= m.at - ARTY_MARK_LEAD; },
+  update() {
+    const list = W.artyMarks;
+    for (let i = 0; i < list.length; i++) if (list[i].on && W.time > list[i].at + 0.3) list[i].on = false;
+  },
+  /* true when a showing marker's blast would reach p */
+  threat(p) {
+    const list = W.artyMarks;
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i], r = m.r + ARTY_WARN_R;
+      if (this.showing(m) && (m.x - p.x) * (m.x - p.x) + (m.z - p.z) * (m.z - p.z) < r * r) return true;
+    }
+    return false;
+  },
+  /* (additive pass) the impact markers, a disc and a pillar of light that pulse faster as the shell nears; for the
+     player's indirect weapon, the predicted arc and point of impact (green: fires there; amber: masked by terrain;
+     red: will not fire) */
+  draw(st) {
+    const list = W.artyMarks, c = ARTY_COL.mark;
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      if (!this.showing(m) || !R.visible(m.x, m.y, m.z, m.r * 2)) continue;
+      const left = clamp((m.at - W.time) / ARTY_MARK_LEAD, 0, 1), pulse = 0.6 + 0.4 * Math.sin(W.time * (8 + (1 - left) * 22));
+      const rr = m.r * (1 + left * 0.6);
+      st.push().t(m.x, m.y, m.z).s(rr * 2, 3, rr * 2); R.draw('cyl', c[0], c[1], c[2], 0.16 * pulse, 1, 0); st.pop();
+      st.push().t(m.x, m.y + 15, m.z).s(0.7, 30, 0.7); R.draw('box', c[0], c[1], c[2], 0.35 * pulse, 1.4, 0); st.pop();
+    }
+    const p = W.player, w = p && !p.dead && p.arty ? p.primary : null, s = w && w.def.indirect ? p.arty.sol : null;
+    if (!s || !s.valid) return;
+    const k = s.reason === 'min' || s.reason === 'range' ? ARTY_COL.bad : s.reason === 'masked' ? ARTY_COL.masked : ARTY_COL.ok;
+    const v = w.def.speed, g = w.def.grav, u = s.dy * v - g * STEP / 2;
+    for (let i = 1; i < ARTY_ARC_DOTS; i++) {
+      const t = s.tof * i / ARTY_ARC_DOTS, x = s.mx + s.dx * v * t, y = s.my + u * t - g * t * t / 2, z = s.mz + s.dz * v * t;
+      if (!R.visible(x, y, z, 2)) continue;
+      st.push().t(x, y, z).s(0.6, 0.6, 0.6); R.draw('sphere', k[0], k[1], k[2], 0.5, 1.2, 0); st.pop();
+    }
+    if (!R.visible(s.ix, s.iy, s.iz, w.def.blast * 2)) return;
+    st.push().t(s.ix, s.iy, s.iz).s(w.def.blast * 2, 1.6, w.def.blast * 2); R.draw('cyl', k[0], k[1], k[2], 0.14, 1, 0); st.pop();
+    st.push().t(s.ix, s.iy + 4, s.iz).s(0.35, 8, 0.35); R.draw('box', k[0], k[1], k[2], 0.4, 1.2, 0); st.pop();
+  },
+  /* ---------- AI batteries ---------- */
+  /* the enemy platform nearest battery p inside its weapon's reach that a spotter sees (Arty.spotted), keeping cur
+     while it is about as near; null when none */
+  pickTarget(p, cur) {
+    const w = p.primary, d = w && w.def.indirect ? w.def : null;
+    if (!d) return null;
+    let best = null, bestScore = Infinity;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const e = W.platforms[i];
+      if (e.dead || e.team === p.team || e.team === 2 || e.noTarget || e.hideFromAI || e.kind === 'air') continue;
+      const dist = Math.hypot(e.x - p.x, e.z - p.z);
+      if (dist < d.indirect.min || dist > d.range) continue;
+      const score = e === cur ? dist * 0.7 : dist;
+      if (score < bestScore && this.spotted(e, p)) { best = e; bestScore = score; }
+    }
+    return best;
+  },
+  /* true when some platform of p's side other than artillery sees e: within its sight (ARTY_SPOT_MAX at most), with a
+     clear line to it (aircraft look down on it); a battery never calls in fire on what only it sees */
+  spotted(e, p) {
+    tpos(e, ARTY_TP);
+    for (let i = 0; i < W.platforms.length; i++) {
+      const q = W.platforms[i];
+      if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery') continue;
+      const sight = Math.min(ARTY_SPOT_MAX, q.ai ? q.ai.sightRange() : q.def.sensor * 0.8), dx = e.x - q.x, dz = e.z - q.z;
+      if (dx * dx + dz * dz > sight * sight) continue;
+      if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, ARTY_TP.x, ARTY_TP.y + 1, ARTY_TP.z)) return true;
+    }
+    return false;
+  },
+};
 class Platform {
   constructor(def, opts) {
     this.id = W.nextId++;
@@ -8901,6 +9225,8 @@ class Platform {
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.sinking = 0; this.wake = false;   // ships: seconds a wreck has left (Wrecks), white water behind it (also on co-op guests)
+    // artillery (Arty): the crew wants it deployed, how far it is (0-1), the arc picked, and the solution for the gun in hand
+    this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol() } : null;
     this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
     // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
@@ -8962,6 +9288,12 @@ class Platform {
     if (c.stanceEdge) {
       if (this.kind === 'mech') this.crouch = !this.crouch;
       else if (this.kind === 'air') this.toggleGear();
+      else if (this.arty) Arty.toggleDeploy(this);
+    }
+    if (this.arty) {   // artillery: deploying anchors it; the melee key picks the arc; a crew lays the barrel every tick
+      if (c.meleeEdge) Arty.toggleArc(this);
+      Arty.step(this, dt);
+      if (this.isPlayer) Arty.aim(this);
     }
     this.updateResources(dt);
     // locomotion
@@ -9106,7 +9438,8 @@ class Platform {
     const d = this.def, g = d.ground, c = this.cmd;
     // turret
     this.torsoYaw = turnToward(this.torsoYaw, c.aimYaw, (g.turretRate || 3) * dt * (this.stagger > 0 ? 0.4 : 1));
-    this.torsoPitch = damp(this.torsoPitch, clamp(c.aimPitch, g.pitchLim[0], g.pitchLim[1]), 10, dt);
+    const laid = this.arty && this.arty.sol.valid && this.primary && this.primary.def.indirect;   // artillery: the barrel at the solved elevation
+    this.torsoPitch = damp(this.torsoPitch, clamp(laid ? this.arty.sol.elev : c.aimPitch, g.pitchLim[0], g.pitchLim[1]), laid ? 3 : 10, dt);
     if (g.type === 'static') { this.y = Terrain.h(this.x, this.z); return; }
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw);
     let vf = this.vx * fx + this.vz * fz, vl = this.vx * rx + this.vz * rz;
@@ -9719,6 +10052,7 @@ class Platform {
     }
     const trigger = (d.fire === 'auto') ? held : edge;
     if (!trigger || w.cd > 0) return;
+    if (d.indirect && !Arty.clear(this, w)) return;   // inside the minimum range or out of reach: the gun is not fired
     if (!this.hasAmmo(w)) { if (edge || !w.warned) this.dryFire(w); return; }
     if (d.fire === 'burst') { w.burstLeft = Math.min(d.burst.n, w.clip); w.burstT = 0; return; }
     this.shoot(w, 1);
@@ -9783,8 +10117,8 @@ class Platform {
         if (dot < 0.86) { const k = 0.86; dir.x = f.x + (dir.x - f.x) * 0.4; dir.y = f.y + (dir.y - f.y) * 0.4; dir.z = f.z + (dir.z - f.z) * 0.4; const l2 = Math.hypot(dir.x, dir.y, dir.z); dir.x /= l2; dir.y /= l2; dir.z /= l2; void k; }
       }
     } else this.aimDir(dir);
-    this.arcSpeed = d.arc ? this.solveArc(d, mz, ap, dir) : 0;
-    const spreadMult = (this.crouch ? 0.6 : 1) * (this.boosting ? 1.4 : 1) * (this.kind === 'air' ? 0.8 : 1);
+    this.arcSpeed = d.indirect ? Arty.launch(this, d, mz, ap, dir) : d.arc ? this.solveArc(d, mz, ap, dir) : 0;
+    const spreadMult = this.spreadMult(d);
     const pellets = d.pellets || 1;
     for (let i = 0; i < pellets; i++) {
       const sp = d.spread * spreadMult * (this.team === 1 ? 1 : 1);
@@ -9797,6 +10131,11 @@ class Platform {
     const fl = d.kind === 'beam' ? 0.6 : clamp(d.dmg * 0.04 + 0.5, 0.6, 2.6);
     FX.emit(mz.x + dir.x, mz.y + dir.y, mz.z + dir.z, 0, 0, 0, 0.08, fl * 2, fl * 0.5, d.tracer[0], d.tracer[1], d.tracer[2], 0.9, 0, 0, true);
     if (d.blast >= 4 || d.fire === 'charge') addLight(mz.x, mz.y, mz.z, 28, d.tracer[0], d.tracer[1], d.tracer[2], 0.12);
+  }
+  /* how much wider than its own spread weapon d scatters now: crouched, boosting, from the air, or (indirect fire)
+     not deployed */
+  spreadMult(d) {
+    return (this.crouch ? 0.6 : 1) * (this.boosting ? 1.4 : 1) * (this.kind === 'air' ? 0.8 : 1) * (d.indirect ? Arty.spreadMult(this) : 1);
   }
   solveArc(d, mz, ap, dir) {
     if (!ap) return d.speed;
@@ -10248,6 +10587,9 @@ function drawPlatformBody(p) {
     case 'boat': drawBoat(p, main, dark, acc, lod); break;
     case 'destroyer': drawDestroyer(p, main, dark, acc, lod); break;
     case 'acv': drawAcv(p, main, dark, acc, lod); break;
+    case 'spg': drawSpg(p, main, dark, acc, lod); break;
+    case 'mrl': drawMrl(p, main, dark, acc, lod); break;
+    case 'mortarApc': drawMortarApc(p, main, dark, acc, lod); break;
     case 'truck': drawTruck(p, main, dark, acc); break;
     case 'dummy': drawDummy(p, main, acc); break;
     case 'turret': drawTurret(p, main, dark, acc); break;
@@ -10640,6 +10982,88 @@ function drawAcv(p, main, dark, acc, lod) {
   st.pop();
 }
 
+/* artillery (P5.3): the deployed share k (p.arty.deploy) lowers the spades, jacks and ramps */
+const ARTY_GUN = [0.15, 0.16, 0.17], ARTY_TRACK = [0.1, 0.1, 0.11], ARTY_LINK = [0.18, 0.18, 0.2];
+function artyTracks(p, w, len, lod) {
+  for (let s = -1; s <= 1; s += 2) {
+    part('box', s * w, -0.1, 0, 1.2, 1.5, len, ARTY_TRACK, 0, 0.1);
+    if (!lod) for (let i = 0; i < 4; i++) part('box', s * w, -0.2, -len * 0.4 + i * len * 0.26 + (p.walkPhase * 0.3 % 2), 1.25, 0.4, 0.5, ARTY_LINK, 0, 0);
+  }
+}
+/* Thunder: a tracked hull with a big turret aft, its long barrel laid by the solver; two spades fold down at the back */
+function drawSpg(p, main, dark, acc, lod) {
+  const st = R.stack, k = p.arty ? p.arty.deploy : 0;
+  st.push().t(p.x, p.y + 1.1, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
+  part('box', 0, 0.5, 0.4, 4.4, 1.3, 8.2, main, 0, 0.3);
+  part('wedge', 0, 0.6, 4.9, 4.2, 1.1, 1.4, main, 0, 0.3);
+  artyTracks(p, 2.6, 8.8, lod);
+  part('box', 0, 1.25, -3.75, 3.8, 0.3, 0.5, acc, 0.9, 0);
+  for (let s = -1; s <= 1; s += 2) {   // spades: folded up against the stern, dug into the ground when deployed
+    st.push().t(s * 1.4, 0.3, -3.9).rx(lerp(-1.35, 0.55, k));
+    part('box', 0, 0, -1.1, 0.35, 0.35, 2.2, dark, 0, 0.3);
+    part('box', 0, -0.1, -2.2, 1.2, 0.9, 0.18, dark, 0, 0.3);
+    st.pop();
+  }
+  st.push().t(0, 2.1, -1.2).ry(p.torsoYaw - p.yaw);
+  part('box', 0, 0, 0, 3.6, 1.7, 4.4, dark, 0, 0.35);
+  part('wedge', 0, 0.1, 2.6, 3.2, 1.3, 0.9, dark, 0, 0.35);
+  part('box', -1.1, 1.05, -0.8, 1, 0.4, 1.2, main, 0, 0.3);
+  st.push().t(0, 0.2, 2.3).rx(-p.torsoPitch);
+  part('box', 0, 0, 0.2, 1.1, 0.9, 1, main, 0, 0.3);   // mantlet
+  barrel(0, 0, 0.5, 0.42, 7.6, ARTY_GUN, p.recoil * 1.2);
+  part('box', 0, 0, 8 - p.recoil * 1.2, 0.62, 0.5, 0.7, ARTY_GUN, 0, 0.5);   // muzzle brake
+  st.pop();
+  if (!lod && p.wslots.primaryB) barrel(1.2, 1.05, 0.6, 0.18, 1.4, ARTY_GUN, 0);
+  st.pop();
+  st.pop();
+}
+/* Hailstorm: a six-wheeled truck with a launcher pod on a turntable behind the cab; four jacks steady it when deployed */
+function drawMrl(p, main, dark, acc, lod) {
+  const st = R.stack, k = p.arty ? p.arty.deploy : 0, wr = p.walkPhase / 0.7;
+  st.push().t(p.x, p.y + 1.2, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
+  part('box', 0, 0.2, 0, 2.9, 0.5, 8.4, dark, 0, 0.2);                       // chassis
+  part('box', 0, 1.1, 3.1, 2.9, 1.9, 2.2, main, 0, 0.3);                     // cab
+  part('box', 0, 1.5, 4.22, 2.5, 0.8, 0.1, [0.1, 0.18, 0.24], 0.3, 0.9);
+  part('box', 0, 2.1, 3.1, 2.95, 0.2, 2.25, acc, 0.6, 0);
+  for (let sx = -1; sx <= 1; sx += 2) {
+    for (let z = -3; z <= 3; z += 3) { st.push().t(sx * 1.55, -0.55, z).rz(PI / 2).rx(wr).s(1.3, 0.8, 1.3); R.draw('cyl', 0.08, 0.08, 0.09); st.pop(); }
+    if (!lod) for (let z = -3.4; z <= 1.6; z += 5) {   // jacks: drop to the ground when deployed
+      part('box', sx * 1.75, -0.1 - k * 0.6, z, 0.3, 0.6 + k * 1.2, 0.3, ARTY_LINK, 0, 0.3);
+      part('box', sx * 1.75, -0.4 - k * 1.2, z, 0.7, 0.12, 0.7, ARTY_LINK, 0, 0.3);
+    }
+  }
+  st.push().t(0, 0.9, -1.2).ry(p.torsoYaw - p.yaw);
+  part('cyl', 0, 0, 0, 2.2, 0.4, 2.2, dark, 0, 0.3);                         // turntable
+  st.push().t(0, 0.5, -1.4).rx(-p.torsoPitch);
+  part('box', 0, 0.75, 1.4, 2.4, 1.5, 4.4, main, 0, 0.3);                    // the pod
+  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, [0.05, 0.05, 0.05], 0, 0);   // tube mouths
+  st.pop();
+  st.pop();
+  st.pop();
+}
+/* Pestle: a tracked carrier whose roof hatches open over a heavy mortar when deployed */
+function drawMortarApc(p, main, dark, acc, lod) {
+  const st = R.stack, k = p.arty ? p.arty.deploy : 0;
+  st.push().t(p.x, p.y + 1.05, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
+  part('box', 0, 0.6, 0, 3.6, 1.6, 6.2, main, 0, 0.3);
+  part('wedge', 0, 0.6, 3.6, 3.5, 1.3, 1, main, 0, 0.3);
+  artyTracks(p, 2.1, 6.8, lod);
+  part('box', 0, 1.42, 3.2, 3.2, 0.2, 0.4, acc, 0.9, 0);
+  for (let s = -1; s <= 1; s += 2) {   // roof hatches swing open
+    st.push().t(s * 1.6, 1.45, -0.6).rz(s * k * 1.9);
+    part('box', -s * 0.75, 0.05, 0, 1.5, 0.12, 2.8, dark, 0, 0.3);
+    st.pop();
+  }
+  st.push().t(0, 1.3, -0.6).ry(p.torsoYaw - p.yaw);
+  part('cyl', 0, 0, 0, 1.4, 0.2, 1.4, dark, 0, 0.3);                         // base plate
+  st.push().t(0, 0.2, 0).rx(-p.torsoPitch);
+  barrel(0, 0, -0.3, 0.5, 2.6 + k * 0.4, ARTY_GUN, p.recoil * 0.5);
+  st.pop();
+  if (!lod && p.wslots.primaryB) barrel(1.1, 0.5, 1.4, 0.16, 1.2, ARTY_GUN, 0);
+  st.pop();
+  st.pop();
+}
+
 function drawTruck(p, main, dark, acc) {
   const st = R.stack;
   st.push().t(p.x, p.y + 1.3, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
@@ -10796,6 +11220,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.mine) WPN.placeMine(p, owner);
   if (d.guide && d.guide.top && p.target) WPN.loft(p);
   if (d.torpedo) Naval.torpedoLaunch(p);
+  if (d.indirect && owner.team === 1) Arty.mark(p);   // an enemy shell casts its impact marker (the telegraph)
 }
 /* fill a projectile slot with def d (split sub-munitions) */
 function launchProjectile(p, d, owner, team, x, y, z, vx, vy, vz) {
@@ -11617,14 +12042,17 @@ const Seats = {
   },
   /* What Use can do for p right now, written into out (no allocation): the touch layout and prompts read it.
      enter: the free vehicle a tap would enter; exit / eject: what a hold would do; gear: the air stance key moves the gear;
-     melee: a melee strike is possible; use: a supply pad is in reach. */
+     melee: a melee strike is possible; use: a supply pad is in reach; deploy: the stance key deploys artillery; arc: the
+     melee key picks its arc (an indirect weapon in hand). */
   context(p, out) {
-    out.enter = null; out.exit = false; out.eject = false; out.gear = false; out.melee = false; out.use = false;
+    out.enter = null; out.exit = false; out.eject = false; out.gear = false; out.melee = false; out.use = false; out.deploy = false; out.arc = false;
     if (!p || p.dead) return out;
     const air = p.kind === 'air';
     out.use = !!padInRange(p);
     out.gear = air && p.def.air.landMax > 0 && !(p.grounded && p.speed < p.def.air.takeoff * GEAR_TOUCH_ROLL);   // standing or taxiing: the gear stays down
     out.melee = p.kind === 'mech' && !p.chute;   // mechs and people on foot, not hanging under a parachute
+    out.deploy = !!p.arty;
+    out.arc = !!(p.arty && p.primary && p.primary.def.indirect && Arty.twoArcs(p.primary.def));
     if (air && !p.grounded) out.eject = p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL;
     else if (p.def.style !== 'infantry') out.exit = true;
     else out.enter = this.nearestFree(p);
@@ -16824,6 +17252,7 @@ class AIController {
     this.enabled = true; this.altBase = 0;
     this.moveDir = { x: 0, z: 0 };
     this.lane = null; this.laneI = 0;   // a ship's patrol loop (Naval.patrolLane) and the point it heads for
+    this.roundT = 0; this.spot = null;   // an artillery battery's wait before its next round, and the spotted target it shells (runArtillery)
   }
   noticeDamage(owner) {
     if (!owner || owner.team === this.p.team || owner.dead) return;
@@ -16850,6 +17279,7 @@ class AIController {
       case 'turret': this.runTurret(dt); return;
       case 'fighter': case 'gunship': this.runAir(dt); return;
       case 'naval': this.runNaval(dt); return;
+      case 'artillery': if (p.arty) { this.runArtillery(dt); return; } this.runGround(dt); return;
       default: this.runGround(dt);
     }
     void c;
@@ -16977,6 +17407,41 @@ class AIController {
       this.goal = g;
     }
     this.runGround(dt);
+  }
+  /* ---------- artillery ---------- */
+  /* A battery holds its ground deployed and shells the nearest enemy in its reach that a spotter sees (Arty.spotted),
+     never one only it sees; every look and every round lays it afresh (artyAim), and each shell's marker warns its target */
+  runArtillery(dt) {
+    const p = this.p, c = p.cmd, w = p.primary;
+    c.moveF = c.moveS = c.turn = 0; c.fire1 = false; c.boost = false;
+    if (!p.arty.want) c.stanceEdge = true;
+    this.roundT = Math.max(0, this.roundT - dt);
+    this.think -= dt;
+    if (this.think <= 0) {
+      this.think = rand(ARTY_THINK[0], ARTY_THINK[1]);
+      this.spot = this.target = Arty.pickTarget(p, this.spot);   // not this.target: being shot at sets that to what no spotter sees
+      if (this.spot) this.artyAim();
+    }
+    const t = this.spot;
+    if (!t || !talive(t) || !w || !w.def.indirect) { this.spot = this.target = null; p.target = null; c.aimPoint = null; return; }
+    p.target = t;
+    c.aimPoint = this.aim; c.hasAim = true; c.aimYaw = Math.atan2(this.aim.x - p.x, this.aim.z - p.z);
+    if (p.arty.deploy < 1 || this.roundT > 0 || w.cd > 0 || w.reloading > 0 || w.burstLeft > 0 || p.overheated) return;
+    if (Math.abs(angleDiff(p.torsoYaw, c.aimYaw)) > ARTY_AI_LAY) return;
+    this.roundT = rand(ARTY_AI_GAP[0], ARTY_AI_GAP[1]) / Math.max(0.6, this.d.aggr);
+    if (Arty.aim(p).reason === '') c.fire1Edge = true;   // masked or out of reach from here: the next look lays it again
+    this.think = Math.min(this.think, 0.1);   // the next round's point is picked just after this one is fired
+  }
+  /* the next round's aim point: the target's ground point, led a little for its speed over the flight, scattered by
+     difficulty (wider at range) */
+  artyAim() {
+    const p = this.p, t = this.spot, c = p.cmd, s = p.arty.sol, d = this.d;
+    const dist = Math.hypot(t.x - p.x, t.z - p.z), lead = ARTY_AI_LEAD * d.tactical * (s.valid ? s.tof : 0);
+    const err = d.aimErr * ARTY_AI_ERR * dist * Math.sqrt(Math.random()), a = Math.random() * TAU;
+    const x = t.x + t.vx * lead + Math.sin(a) * err, z = t.z + t.vz * lead + Math.cos(a) * err;
+    this.aim.x = x; this.aim.y = Arty.groundY(x, z); this.aim.z = z;
+    c.aimPoint = this.aim; c.hasAim = true; c.aimYaw = Math.atan2(x - p.x, z - p.z);
+    Arty.aim(p);
   }
   decide() {
     const p = this.p, pr = this.pr, d = this.d;
@@ -17869,6 +18334,10 @@ const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
 // the enemy fleet that patrols the water nearest the enemy base on a battlefield with open water (P5.2), scaled like any hostile group
 const SKIRMISH_FLEET = { small: ['gunboat'], medium: ['gunboat', 'destroyer'], large: ['gunboat', 'destroyer', 'hoverAssault'] };
+// the enemy batteries behind their command center (P5.3), scaled like any hostile group: they hold their ground and shell
+// what the waves and the garrison spot; not a wave either
+const SKIRMISH_ARTY = { small: ['mortarTeam'], medium: ['mortarTeam', 'howitzerBattery'], large: ['mortarTeam', 'howitzerBattery', 'rocketBattery'] };
+const SKIRMISH_ARTY_BACK = 70;   // m behind the enemy base (away from ours) the batteries form up
 const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', hazards: HAZARD_DEFAULT, scarce: false, seed: 12345, random: true };
 /* the skirmish setup from a saved one (Save.data.skirmish, kept as saved): defaults for missing keys, and the fog and
    night checkboxes of setups saved before weather and time of day became the Weather and Time selects */
@@ -18082,6 +18551,10 @@ function skirmishDef(cfg) {
       ctx.later(() => parkApronAircraft());
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
       if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup(SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small, foe.x, foe.z, { radius: 40 }));
+      ctx.later(() => {
+        const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
+        spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
+      });
       const humans =() => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
       const waveGoal = (u) => skirmishWaveGoal(u, ownHq);
       let idx = 0;
@@ -18363,9 +18836,10 @@ const Cam = {
       const yaw = p.cmd.aimYaw, pitch = p.cmd.aimPitch, cp = Math.cos(pitch);
       const dx = Math.sin(yaw) * cp, dy = Math.sin(pitch), dz = Math.cos(yaw) * cp;
       const mech = p.kind === 'mech';
-      const px = p.x, py = p.y + p.height * (mech ? 0.9 : 1.3) - (p.crouch ? p.height * 0.2 : 0), pz = p.z;
+      const rise = p.arty ? p.arty.deploy : 0;   // a deployed gun's camera climbs to watch the fall of shot
+      const px = p.x, py = p.y + p.height * (mech ? 0.9 : 1.3) - (p.crouch ? p.height * 0.2 : 0) + ARTY_CAM_RISE * rise, pz = p.z;
       const inf = p.def.style === 'infantry';
-      const dist = (inf ? 3.4 + p.height * 1.1 : mech ? 12 + p.height * 0.95 : 13 + p.radius * 2.4) * introK;
+      const dist = (inf ? 3.4 + p.height * 1.1 : mech ? 12 + p.height * 0.95 : 13 + p.radius * 2.4 + ARTY_CAM_BACK * rise) * introK;
       const side = inf ? 0.55 : mech ? 2.2 + p.radius * 0.4 : 1.6 + p.radius * 0.3;
       const rx = -Math.cos(yaw), rz = Math.sin(yaw);
       ex = px - dx * dist + rx * side; ey = py - dy * dist + (inf ? 0.25 : 2.5) + p.height * 0.15; ez = pz - dz * dist + rz * side;
@@ -18396,7 +18870,7 @@ const Cam = {
     if (!p || p.dead) return;
     const l = Math.hypot(this.dx, this.dy, this.dz) || 1;
     const dx = this.dx / l, dy = this.dy / l, dz = this.dz / l;
-    const r = raycast(this.x, this.y, this.z, dx, dy, dz, 900, p, false, p);
+    const r = raycast(this.x, this.y, this.z, dx, dy, dz, p.primary && p.primary.def.indirect ? ARTY_AIM_REACH : 900, p, false, p);   // artillery picks ground far off
     const ap = W.aimPoint || (W.aimPoint = { x: 0, y: 0, z: 0 });
     if (r.hit) { ap.x = r.x; ap.y = r.y; ap.z = r.z; } else { ap.x = this.x + dx * 800; ap.y = this.y + dy * 800; ap.z = this.z + dz * 800; }
     W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj, assist: false };
@@ -18566,6 +19040,7 @@ const Game = {
     } else {
       const moveWith = () => (touch() ? 'the LEFT-SIDE STICK' : pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
       steps.push({ text: () => 'Move with ' + moveWith() + (kind === 'ground' ? ' (left/right steers the vehicle)' : kind === 'naval' ? ' (left/right is the rudder: it bites harder the faster you go)' : '') + ', aim with ' + aimWith(), test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
+      if (p.arty) steps.push({ text: () => k('stance') + ' deploys: the gun steadies but cannot move. Put the reticle on the ground where the shell should land; ' + k('melee') + ' picks the high or low arc', test: () => p.arty.deploy >= 1 });
       if (p.def.unarmed) steps.push({ text: () => 'You carry no weapon: ' + k('melee') + ' punches. The enemy ignores you until you fight, take a combat vehicle or near an objective', test: () => p.meleeT > 0 });
       else {
         steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + switchWith() + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
@@ -18818,6 +19293,7 @@ const Game = {
     else if (p.beingLocked > 0 && this.frames % 50 === 0) Snd.ui('lock');
     if (p.kind === 'air' && !p.grounded && p.y - Terrain.h(p.x, p.z) < 60 && p.vy < -8 && this.frames % 30 === 0) Snd.ui('warn');
     if (p.hp < p.maxHp * 0.25 && this.frames % 60 === 0) Snd.ui('warn');
+    if (p.kind !== 'air' && this.frames % 24 === 0 && Arty.threat(p)) Snd.ui('alarm');   // an enemy shell's marker by us
   },
   tutorialUpdate(dt) {
     const t = this.tutorial;
@@ -19070,9 +19546,11 @@ const HUD = {
       if (ai && ai.hostile) this.shape('hostile', cx, cy, r * 1.9, col, 1.5);
       // range gate: effective weapon range feedback
       const w = p.primary;
-      if (w && ai && ai.hit && ai.dist > w.def.range) this.txt('OUT OF RANGE', cx, cy + 34 * u, 11, C.warn, 'center', true);
+      if (w && ai && ai.hit && ai.dist > w.def.range && !w.def.indirect) this.txt('OUT OF RANGE', cx, cy + 34 * u, 11, C.warn, 'center', true);
       if (p.kind === 'mech' && Math.abs(angleDiff(p.torsoYaw, p.cmd.aimYaw)) > 0.6) this.txt('TORSO TRAVERSING', cx, cy + 48 * u, 10, C.dim, 'center');
       if (p.kind === 'naval') this.drawNavalData(p, u);
+      if (p.arty) this.drawArtyData(p, u);
+      if (Arty.threat(p) && W.time % 0.5 < 0.32) this.txt('ARTILLERY INCOMING: MOVE', cx, cy - 74 * u, 14, C.bad, 'center', true);   // a marker by us (the telegraph)
     }
     // aim assist: a small ring on the led point the shots are bending toward
     if (ai && ai.assist && W.aimPoint) {
@@ -19123,6 +19601,29 @@ const HUD = {
     flags.push(S.flightMode === 'direct' ? 'DIRECT' : 'ASSISTED');
     this.txt(flags.join('  |  '), this.w / 2, this.h / 2 + 235 * u, 11, C.dim, 'center');
     if (p.def.air.landMax > 0 && p.speed > a.landMax && p.gear) this.txt('GEAR OVERSPEED', this.w / 2, this.h / 2 + 252 * u, 11, C.warn, 'center', true);
+  },
+  /* an artillery piece's fire data beside the reticle (left: deployed or not; right: range, time of flight and arc, or
+     why it will not fire) and the predictor's mark on screen where the shell will land (Arty) */
+  drawArtyData(p, u) {
+    const a = p.arty, w = p.primary, C = this.C, g = this.g, xl = this.w / 2 - 190 * u, xr = this.w / 2 + 190 * u, y = this.h / 2 - 60 * u;
+    const state = a.deploy >= 1 ? 'DEPLOYED' : a.want ? 'DEPLOYING ' + Math.round(a.deploy * 100) + '%' : a.deploy > 0 ? 'PACKING UP' : 'MOBILE';
+    this.txt(state, xl, y, 14, a.deploy >= 1 ? C.main : C.warn, 'right', true);
+    if (!w || !w.def.indirect) return;
+    this.txt(a.deploy >= 1 ? 'STEADY' : 'UNSTEADY: ' + actionLabel('stance') + ' DEPLOYS', xl, y + 18 * u, 12, C.dim, 'right');
+    if (Net.guest) Arty.aim(p);   // the host lays the gun; a guest predicts its own shell from the mirrored one
+    const s = a.sol;
+    if (!s.valid) return;
+    const bad = s.reason === 'min' || s.reason === 'range', col = bad ? C.bad : s.reason === 'masked' ? C.warn : C.main;
+    this.txt('RNG ' + Math.round(s.dist) + ' m', xr, y, 14, col, 'left', true);
+    this.txt(s.reason === 'min' ? 'MIN RANGE ' + w.def.indirect.min + ' m' : s.reason === 'range' ? 'OUT OF RANGE (' + w.def.range + ' m)' : 'TOF ' + s.tof.toFixed(1) + ' s  ' + (s.high ? 'HIGH' : 'LOW') + ' ARC', xr, y + 18 * u, 12, col, 'left');
+    if (s.reason === 'masked') this.txt('ARC STRIKES TERRAIN ON THE WAY', xr, y + 34 * u, 11, C.warn, 'left');
+    else if (W.aimInfo && !W.aimInfo.hit && !Net.guest) this.txt('AIM AT THE GROUND', xr, y + 34 * u, 11, C.dim, 'left');
+    const t = R.project(s.ix, s.iy, s.iz, this.w, this.h, this.tmp);   // where the shell comes down, with its flight time
+    if (!t.vis) return;
+    const r = 9 * u;
+    g.strokeStyle = col; g.lineWidth = 2 * (S.highContrast ? 1.5 : 1);
+    g.beginPath(); g.arc(t.sx, t.sy, r, 0, TAU); g.moveTo(t.sx - r * 1.7, t.sy); g.lineTo(t.sx - r * 0.6, t.sy); g.moveTo(t.sx + r * 0.6, t.sy); g.lineTo(t.sx + r * 1.7, t.sy); g.stroke();
+    this.txt(s.tof.toFixed(1) + ' s', t.sx, t.sy - r * 2, 11, col, 'center', true);
   },
   /* a ship's bridge data beside the reticle: speed and heading, and the water under its keel (an amphibious craft: its
      height over water or land) */
@@ -19929,11 +20430,12 @@ const UI = {
   },
   scr_hangar(d) {
     const hg = this.hg, def = PLATFORMS[hg.platformId], lo = hg.loadout, v = Loadout.validate(def, lo);
-    const groups = [['foot', 'On foot'], ['mech', 'Combat Mechs'], ['ground', 'Ground Vehicles'], ['air', 'Combat Aircraft'], ['naval', 'Naval']];
-    const grp = (p) => (p.style === 'infantry' ? 'foot' : p.kind);
+    const groups = [['foot', 'On foot'], ['mech', 'Combat Mechs'], ['ground', 'Ground Vehicles'], ['arty', 'Artillery'], ['air', 'Combat Aircraft'], ['naval', 'Naval']];
+    const grp = (p) => (p.style === 'infantry' ? 'foot' : p.style === 'artillery' ? 'arty' : p.kind);
     const footNote = '<div class="dim" style="font-size:.85em;margin:-.2em 0 .4em">You start inside the platform you pick. Stepping out of a vehicle makes you ' + (S.onFoot === 'civilian' ? 'a civilian' : 'infantry') + ' (the last On foot pick, or Settings &gt; Gameplay).</div>';
     const navalNote = '<div class="dim" style="font-size:.85em;margin:-.2em 0 .4em">Ships start at the harbour, on battlefields with open water only' + (hg.map ? (Naval.mapOk(mapDef(hg.map)) ? ': ' + esc(mapDef(hg.map).name) + ' has it.' : ': ' + esc(mapDef(hg.map).name) + ' has none.') : '.') + '</div>';
-    const list = groups.map((g) => '<h3>' + g[1] + '</h3>' + (g[0] === 'foot' ? footNote : g[0] === 'naval' ? navalNote : '') + PLAYABLE.filter((id) => grp(PLATFORMS[id]) === g[0]).map((id) => {
+    const artyNote = '<div class="dim" style="font-size:.85em;margin:-.2em 0 .4em">Indirect fire: put the reticle on the ground where the shell should land; the gun lays itself (' + esc(actionLabel('melee')) + ': high or low arc). ' + esc(actionLabel('stance')) + ' deploys: steadier fire, but it cannot move until packed up.</div>';
+    const list = groups.map((g) => '<h3>' + g[1] + '</h3>' + (g[0] === 'foot' ? footNote : g[0] === 'naval' ? navalNote : g[0] === 'arty' ? artyNote : '') + PLAYABLE.filter((id) => grp(PLATFORMS[id]) === g[0]).map((id) => {
       const p = PLATFORMS[id], why = this.platBlock(p, hg.map);
       return '<button class="card' + (id === hg.platformId ? ' sel' : '') + '" data-act="hgPick" data-id="' + id + '"' + (why ? ' disabled aria-disabled="true" title="' + esc(why) + '"' : '') + '><b>' + esc(p.name) + '</b> <span class="tag">' + esc(p.cls) + '</span><br><small>' + esc(why || p.role) + '</small></button>';
     }).join('')).join('');
@@ -19974,7 +20476,7 @@ const UI = {
       return '<div class="lbl"><span><b>' + d.n + '. ' + esc(d.name) + '</b> <span class="tag">' + esc(SUPER_AIM_LABEL[d.aim]) + '</span></span>' + prog + '</div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(d.desc) + '</div>';
     }).join('')).join('');
     return '<h2>Arsenal</h2><div class="panel">' + Arsenal.unlockedList().length + ' of ' + SUPER_LIST.length + ' superweapons unlocked. Give each platform one in Platform &amp; Loadout. It charges during battle (faster with kills) and fires with ' + esc(actionLabel('superweapon')) + '. Unlocks are permanent; progress counts every battle you finish, and some feats must happen within one battle.</div>' +
-      '<div class="panel">' + rows + '</div>' + this.meleeArsenal() + this.navalArsenal() + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
+      '<div class="panel">' + rows + '</div>' + this.meleeArsenal() + this.navalArsenal() + this.artyArsenal() + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   /* the melee weapons (MELEE): who carries them and how they strike */
   meleeArsenal() {
@@ -19993,6 +20495,15 @@ const UI = {
       return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + esc(SLOT_LABEL[w.slot] || 'Primary') + '</span></span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
     }).join('');
     return '<div class="panel"><h3 style="margin-top:0">Naval weapons</h3><div class="dim" style="margin-bottom:.4em">Ships sail only on battlefields with open water and start at the harbour; mount these in Platform &amp; Loadout. A torpedo runs under the surface and dies in the shallows; it passes under a hovercraft.</div>' + rows + '</div>';
+  },
+  /* the artillery's own guns (P5.3): which platforms mount them, their reach and how they fire */
+  artyArsenal() {
+    const guns = PLAYABLE.filter((id) => PLATFORMS[id].style === 'artillery');
+    const rows = ARTY_WEAPON_IDS.map((id) => {
+      const w = WEAPONS[id], on = guns.filter((s) => PLATFORMS[s].allow[w.slot].indexOf(id) >= 0).map((s) => PLATFORMS[s].name).join(', ');
+      return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + w.indirect.min + '-' + w.range + ' m</span></span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
+    }).join('');
+    return '<div class="panel"><h3 style="margin-top:0">Artillery</h3><div class="dim" style="margin-bottom:.4em">Indirect fire onto the ground point under the reticle, which shows where the shell lands and its time of flight. Each gun has a minimum range. Deploy (' + esc(actionLabel('stance')) + ') for a tighter spread; a deployed gun cannot move. Enemy batteries fire only on what their spotters see, and their shells mark the ground a few seconds before they land.</div>' + rows + '</div>';
   },
   scr_controls() {
     const b = Save.data.bindings;
@@ -21189,7 +21700,7 @@ const SelfTest = {
       const NEW_IDS = ['flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion', 'howitzer', 'vulcan', 'lmg', 'dmr', 'arcPistol', 'swarm', 'cruise', 'mines', 'cluster', 'atgm', 'napalm', 'buster', 'satchel', 'empGren', 'javelin',
         'ecm', 'smoke', 'cloak', 'overdrive', 'reactive', 'holo', 'drone', 'barrier'];
       const mountable = Object.keys(WEAPONS).filter((id) => !WEAPONS[id].hidden && !WEAPONS[id].sub);
-      this.check('55 mountable weapons and utilities', mountable.length === 55, mountable.length);
+      this.check('58 mountable weapons and utilities', mountable.length === 58, mountable.length);
       this.check('all 30 new items exist', NEW_IDS.every((id) => WEAPONS[id] && mountable.indexOf(id) >= 0), NEW_IDS.filter((id) => !WEAPONS[id]).join(','));
       for (const id of mountable) {
         const w = WEAPONS[id], on = PLAYABLE.filter((pid) => PLATFORMS[pid].allow[w.slot].indexOf(id) >= 0);
@@ -22501,7 +23012,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 8 (ships and naval weapons)', NET_VERSION === 8);
+      this.check('the net version is 9 (artillery)', NET_VERSION === 9);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
@@ -24002,6 +24513,13 @@ const SelfTest = {
         this.check('ground vehicles and the hovercraft show EXIT and BRAKE but no stance or melee', [car, hover].every((s) => /EXIT/.test(s) && /BRAKE/.test(s) && !/CROUCH|MELEE|GEAR/.test(s)), car + ' | ' + hover);
         const ships = ['lancer', 'trident', 'skua'].map((id) => on(id));
         this.check('ships show EXIT and BRAKE but no stance, melee or gear', ships.every((s) => /EXIT/.test(s) && /BRAKE/.test(s) && !/CROUCH|MELEE|GEAR/.test(s)), ships.join(' | '));
+        const guns = ['thunder', 'hailstorm', 'pestle'].map((id) => on(id));
+        this.check('artillery shows EXIT, BRAKE and DEPLOY, ARC where the barrel has two arcs, and no crouch, melee or gear', guns.every((s) => /EXIT/.test(s) && /BRAKE/.test(s) && /DEPLOY/.test(s) && !/CROUCH|MELEE|GEAR/.test(s)) && / ARC/.test(guns[0]) && / ARC/.test(guns[1]) && !/ ARC/.test(guns[2]), guns.join(' | '));
+        const dug = bodies[ids.indexOf('thunder')];
+        dug.arty.want = true; dug.arty.deploy = 1;
+        const anchored = on('thunder');
+        dug.arty.want = false; dug.arty.deploy = 0;
+        this.check('a deployed gun hides BRAKE and BOOST: it cannot drive', /DEPLOY/.test(anchored) && !/BRAKE|BOOST/.test(anchored), anchored);
         const airId = ids.find((id) => PLATFORMS[id].kind === 'air');
         const high = on(airId, { exit: false, eject: true }), low = on(airId, { exit: false, eject: false }), parked = on(airId, { exit: true, use: true });
         this.check('aircraft show GEAR, EJECT when high enough, no Use button when too low to eject, USE on a pad', /GEAR/.test(high) && /EJECT/.test(high) && !/EJECT|EXIT|USE/.test(low) && / USE/.test(parked) && !/MELEE/.test(high), high + ' | ' + low + ' | ' + parked);
@@ -24136,6 +24654,157 @@ const SelfTest = {
         this.check('the ship HUD draws without errors', errs.length === 0, errs.join());
       } finally { Game.reportError = keepRep; Water.setFlood(0, 0, 0, -Infinity); Game.quitToMenu(); }
     });
+    t('artillery solver', () => {
+      const keepRep = Game.reportError, errs = [], hits = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        // spread-free shells from a howitzer onto ground points 200-1200 m out, both arcs, on a gentle and a mountain battlefield
+        for (const map of ['farmland', 'alpine']) {
+          Game.startSession({ mode: 'skirmish', platformId: 'thunder', loadout: Loadout.forPlatform('thunder'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, seed: 3, random: false, support: 'none' }) });
+          const gun = W.player, w = gun.primary, keepDef = w.def, shots = [];
+          W.platforms.length = 0; W.platforms.push(gun);
+          Hash.reset(); W.buildings = [];   // shells strike structures; the solver lays onto the ground
+          w.def = Object.assign({}, keepDef, { spread: 0 });
+          try {
+            for (const D of [200, 450, 700, 950, 1200]) for (let b = 0; b < 4; b++) {
+              const a = b * PI / 2 + 0.3, x = gun.x + Math.sin(a) * D, z = gun.z + Math.cos(a) * D;
+              if (Math.abs(x) > WORLD_HALF - 10 || Math.abs(z) > WORLD_HALF - 10) continue;
+              const y = Arty.groundY(x, z);
+              for (const high of [false, true]) {
+                gun.arty.high = high; gun.torsoYaw = a; gun.cmd.aimPoint = { x, y, z }; w.clip = 4; w.cd = 0;
+                gun.shoot(w, 1);
+                shots.push({ D, x, z, q: W.projs.find((q) => q.active && q.nid === W.nid), r: gun.arty.sol.reason, ix: gun.arty.sol.ix, iz: gun.arty.sol.iz, dh: y - gun.y, slope: Terrain.slope(x, z) });
+              }
+            }
+            for (let i = 0; i < 60 * ARTY_PRED_MAX && shots.some((s) => s.q.active); i++) updateProjectiles(STEP);
+          } finally { w.def = keepDef; }
+          for (const s of shots) hits.push({ D: s.D, r: s.r, err: Math.hypot(s.q.x - s.x, s.q.z - s.z), perr: Math.hypot(s.q.x - s.ix, s.q.z - s.iz), dh: s.dh, slope: s.slope });
+        }
+        const ok = hits.filter((h) => h.r === ''), worst = ok.reduce((m, h) => Math.max(m, h.err), 0), off = hits.reduce((m, h) => Math.max(m, h.perr), 0);
+        const every = [200, 450, 700, 950, 1200].every((D) => ok.some((h) => h.D === D));
+        const span = ok.some((h) => h.slope < 0.1) && ok.some((h) => h.slope > 0.5) && ok.some((h) => h.dh > 40) && ok.some((h) => h.dh < -8);
+        this.check('the solver lands a shell within 3 m of the aim point at 200-1200 m, on flat ground and slopes, above and below the gun', ok.length >= hits.length * 0.8 && worst < 3 && every && span && errs.length === 0, ok.length + '/' + hits.length + ' fired, worst ' + worst.toFixed(2) + ' m ' + errs.join());
+        this.check('the impact predictor shows where every shell really comes down (within 3 m)', off < 3, off.toFixed(2));
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    t('artillery', () => {
+      const keepRep = Game.reportError, errs = [], guns = ['thunder', 'hailstorm', 'pestle'];
+      const hangar = UI.scr_hangar.call(Object.assign(Object.create(UI), { hg: { platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), map: 'farmland' } }), {});
+      const group = hangar.indexOf('<h3>Artillery</h3>');
+      this.check('three artillery platforms (ground vehicles, style artillery) with indirect guns, in the hangar\'s Artillery group', group >= 0 && guns.every((id) => PLATFORMS[id].kind === 'ground' && PLATFORMS[id].style === 'artillery' && !!PLATFORMS[id].arty && PLAYABLE.indexOf(id) >= 0 && !!WEAPONS[Loadout.forPlatform(id).primaryA].indirect && hangar.indexOf('data-id="' + id + '"') > group));
+      this.check('the Arsenal lists the artillery weapons and their reach', ARTY_WEAPON_IDS.every((id) => UI.artyArsenal().indexOf(WEAPONS[id].name) >= 0 && WEAPONS[id].indirect.min > 0 && WEAPONS[id].range > WEAPONS[id].indirect.min));
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const keepNet = { host: Net.host, guest: Net.guest, map: Net.map, projMap: Net.projMap, seq: Net.lastSnapSeq };
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'thunder', loadout: Loadout.forPlatform('thunder'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'farmland', size: 'medium', seed: 3, random: false, support: 'none' }) });
+        const batteries = W.platforms.filter((q) => q.team === 1 && q.def.style === 'artillery'), archs = new Set(batteries.map((q) => q.arch));
+        this.check('a medium skirmish fields enemy batteries (mortars and howitzers), garrisoned behind the enemy base', SKIRMISH_ARTY.medium.every((k) => archs.has(k)) && batteries.every((q) => q.garrison && q.ai && q.ai.profile === 'artillery'), batteries.length);
+        const pl = W.player, w = pl.primary;
+        W.platforms.length = 0; W.platforms.push(pl);
+        Hash.reset(); W.buildings = [];
+        for (const q of W.projs) q.active = false;
+        const toMid = Math.atan2(-pl.x, -pl.z), at = (D, a) => { const x = pl.x + Math.sin(a) * D, z = pl.z + Math.cos(a) * D; return { x, y: Arty.groundY(x, z), z }; };
+        const step = (p, secs, each) => { for (let i = 0; i < secs / STEP; i++) { if (each) each(p); W.time += STEP; p.update(STEP); } };
+        const drive = (q) => { q.cmd.moveF = 1; q.cmd.turn = 0; q.cmd.brake = false; };   // as the player's controls set it every frame
+        // the minimum range and the reach are enforced: the gun is not fired
+        const pull = (D) => { const nid = W.nid, clip = w.clip; w.cd = 0; w.reloading = 0; pl.cmd.aimPoint = at(D, toMid); pl.torsoYaw = toMid; pl.handleFire(w, true, true, STEP, false); return W.nid !== nid && w.clip === clip - 1; };
+        const inside = pull(60), beyond = pull(w.def.range + 60), fine = pull(300);
+        this.check('an artillery gun will not fire inside its minimum range or beyond its reach, and fires between', !inside && !beyond && fine && w.def.indirect.min > 60, inside + ' ' + beyond + ' ' + fine);
+        const lay = (id, D) => { const q = new Platform(PLATFORMS[id], { team: 0, x: pl.x, z: pl.z, yaw: toMid, loadout: Loadout.forPlatform(id) }); q.cmd.aimPoint = at(D, toMid); return Arty.aim(q).reason; };
+        this.check('every gun has its minimum range (the mortar short and high only, the howitzer both arcs)', guns.every((id) => lay(id, WEAPONS[Loadout.forPlatform(id).primaryA].indirect.min * 0.5) === 'min') && lay('pestle', 300) === '' && lay('pestle', 700) === 'range' && WEAPONS.artyMortar.indirect.elev[0] >= PI / 4 && !Arty.twoArcs(WEAPONS.artyMortar) && Arty.twoArcs(WEAPONS.artyGun));
+        for (const q of W.projs) q.active = false;
+        // deployed: anchored and tight; on the move: wide
+        pl.arty.deploy = 0; pl.arty.want = false;
+        const mobile = Arty.spreadMult(pl);
+        const x0 = pl.x, z0 = pl.z;
+        pl.cmd.stanceEdge = true;
+        step(pl, 1, drive);
+        const part = pl.arty.deploy;
+        step(pl, PLATFORMS.thunder.arty.deploy, drive);
+        const dug = pl.arty.deploy, held = Math.hypot(pl.x - x0, pl.z - z0), tight = Arty.spreadMult(pl);
+        this.check('deploying takes time and anchors the gun: it does not drive while it digs in or stands deployed', part > 0.2 && part < 0.5 && dug === 1 && held < 0.5, part.toFixed(2) + ' ' + held.toFixed(2));
+        // the scatter of real shells, deployed and on the move (12 rounds each at 900 m)
+        const scatter = (deploy) => {
+          const shots = [];
+          pl.arty.deploy = deploy;
+          for (let i = 0; i < 12; i++) { const ap = at(900, toMid + (i - 6) * 0.02); pl.cmd.aimPoint = ap; pl.torsoYaw = Math.atan2(ap.x - pl.x, ap.z - pl.z); w.clip = 4; w.cd = 0; pl.shoot(w, 1); shots.push({ ap, q: W.projs.find((q) => q.active && q.nid === W.nid) }); }
+          for (let i = 0; i < 60 * ARTY_PRED_MAX && shots.some((s) => s.q.active); i++) updateProjectiles(STEP);
+          return Math.sqrt(shots.reduce((m, s) => m + (s.q.x - s.ap.x) ** 2 + (s.q.z - s.ap.z) ** 2, 0) / shots.length);
+        };
+        const rmsDug = scatter(1), rmsMoving = scatter(0);
+        pl.arty.deploy = 1;
+        this.check('a deployed gun\'s spread is smaller than an undeployed one\'s (the multiplier and real rounds)', tight < mobile && tight === 1 && rmsDug < rmsMoving * 0.6, rmsDug.toFixed(1) + ' m vs ' + rmsMoving.toFixed(1) + ' m');
+        pl.cmd.stanceEdge = true;
+        step(pl, PLATFORMS.thunder.arty.undeploy - 0.2, drive);
+        const packing = Math.hypot(pl.x - x0, pl.z - z0);
+        step(pl, 2.4, drive);
+        this.check('packing up takes time too, then the gun drives again', packing < 0.5 && pl.arty.deploy === 0 && Math.hypot(pl.x - x0, pl.z - z0) > 3, packing.toFixed(2));
+        // the telegraph: an enemy shell's impact marker shows ARTY_MARK_LEAD s before it lands, where it lands; ours cast none
+        for (const m of W.artyMarks) m.on = false;
+        pl.arty.want = false; pl.arty.deploy = 0;
+        pl.cmd.aimPoint = at(1000, toMid); pl.torsoYaw = toMid; w.clip = 4; w.cd = 0; pl.shoot(w, 1);
+        const ours = W.artyMarks.filter((m) => m.on).length;
+        for (const q of W.projs) q.active = false;
+        const foe = new Platform(PLATFORMS.thunder, { team: 1, x: pl.x + Math.cos(toMid) * 20, z: pl.z - Math.sin(toMid) * 20, yaw: toMid, loadout: Loadout.forPlatform('thunder') });
+        W.platforms.push(foe);
+        const fw = foe.primary, fap = at(1000, toMid);
+        foe.cmd.aimPoint = fap; foe.torsoYaw = toMid; foe.arty.deploy = 1; fw.clip = 4; fw.cd = 0; foe.shoot(fw, 1);
+        const shell = W.projs.find((q) => q.active && q.nid === W.nid), mark = W.artyMarks.find((m) => m.on), early = !!mark && !Arty.showing(mark);
+        const standing = { x: fap.x, z: fap.z };
+        let shownAt = -1, warned = false;
+        for (let i = 0; i < 60 * ARTY_PRED_MAX && shell.active; i++) {
+          W.time += STEP; updateProjectiles(STEP); Arty.update();
+          if (shownAt < 0 && mark && Arty.showing(mark)) { shownAt = W.time; warned = Arty.threat(standing); }
+        }
+        const lead = W.time - shownAt, landed = mark ? Math.hypot(mark.x - shell.x, mark.z - shell.z) : Infinity;
+        this.check('an enemy shell\'s impact marker shows before it lands, ARTY_MARK_LEAD s ahead, where it lands, and warns who stands there', early && shownAt > 0 && Math.abs(lead - ARTY_MARK_LEAD) < 0.1 && landed < 3 && warned, lead.toFixed(2) + ' s ' + landed.toFixed(2) + ' m');
+        this.check('our own shells cast no marker', ours === 0);
+        W.time += 1; Arty.update();
+        this.check('a marker goes out once its shell has landed', !!mark && !mark.on);
+        // co-op: the deploy and arc flags reach guests, and a guest marks an enemy shell the host sends
+        foe.arty.want = true; foe.arty.high = true;
+        const entry = Net.platEntry(foe);
+        foe.arty.want = foe.arty.high = false;
+        const sol = Arty.lay(foe, fw.def, Arty.muzzle(foe, fw), fap, artySol()), sp = fw.def.speed;
+        Net.host = false; Net.guest = true; Net.map = { [foe.id]: foe }; Net.projMap = {}; Net.lastSnapSeq = 0;
+        try { Net.applySnapshot({ q: 1, p: [entry], pr: [[W.nid + 500, WEAPON_IDS.indexOf('artyGun'), sol.mx, sol.my, sol.mz, sol.dx * sp, sol.dy * sp, sol.dz * sp, foe.id]] }); } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; }
+        const gm = W.artyMarks.find((m) => m.on);
+        this.check('co-op: a guest learns a gun is deployed and on the high arc, and marks an enemy shell the host sends', (entry[11] & 8192) && (entry[11] & 16384) && foe.arty.want && foe.arty.high && !!gm && Math.hypot(gm.x - sol.ix, gm.z - sol.iz) < 3);
+        for (const q of W.projs) q.active = false;
+        for (const m of W.artyMarks) m.on = false;
+        W.platforms.splice(W.platforms.indexOf(foe), 1);
+        // an AI battery fires only on what a spotter sees, never on what only it sees (nor on who shot at it)
+        pl.arty.want = false; pl.arty.deploy = 0;
+        const bat = spawnUnit('howitzerBattery', pl.x + Math.sin(toMid) * 500, pl.z + Math.cos(toMid) * 500, { radius: 40, force: true });
+        bat.ai.noticeDamage(pl);
+        const run = (secs) => { const nid = W.nid; for (let i = 0; i < secs / STEP && W.nid === nid; i++) { W.time += STEP; bat.ai.update(STEP); bat.update(STEP); updateProjectiles(STEP); } return W.nid !== nid; };
+        const blind = run(PLATFORMS.thunder.arty.deploy + 4), seen = Arty.spotted(pl, bat);
+        this.check('an AI battery deploys but does not fire without a spotter, even on who shot at it', !blind && !seen && bat.arty.deploy === 1 && Math.hypot(bat.x - pl.x, bat.z - pl.z) < bat.ai.sightRange());
+        const eye = new Platform(PLATFORMS.jackal, { team: 1, x: pl.x - Math.sin(toMid) * 40, z: pl.z - Math.cos(toMid) * 40, yaw: toMid, loadout: Loadout.forPlatform('jackal') });
+        W.platforms.push(eye);
+        const fired = run(4);
+        this.check('once a spotter of its side sees the target, the battery shells it', Arty.spotted(pl, bat) && fired && bat.ai.spot === pl, errs.join());
+        for (const q of W.projs) q.active = false;
+        W.platforms.splice(W.platforms.indexOf(eye), 1); W.platforms.splice(W.platforms.indexOf(bat), 1);
+        // a soldier gets into a parked gun, deploys it and steps out
+        const v = new Platform(PLATFORMS.pestle, { team: 0, x: pl.x + 25, z: pl.z, yaw: 0, loadout: Loadout.forPlatform('pestle') });
+        W.platforms.push(v); Seats.park(v);
+        const man = new Platform(PLATFORMS.ranger, { team: 0, x: v.x + v.radius + 1, z: v.z, yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        man.y = v.y; W.platforms.push(man);
+        const boarded = Seats.enter(man, v) && W.player === v;
+        v.cmd.stanceEdge = true;
+        step(v, PLATFORMS.pestle.arty.deploy + 0.2);
+        const ctx = Seats.context(v, {});
+        const left = Seats.exit(v) && W.player.def.style === 'infantry' && v.parked;
+        this.check('a soldier enters a parked gun, deploys it (the stance button reads DEPLOY) and steps out', boarded && v.arty.deploy === 1 && ctx.deploy && !ctx.arc && left && errs.length === 0, errs.join());
+        Cam.update(STEP); Game.render(STEP);
+        HUD.drawArtyData(v, HUD.u);
+        this.check('the artillery HUD and markers draw without errors', errs.length === 0, errs.join());
+      } finally {
+        Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.projMap = keepNet.projMap; Net.lastSnapSeq = keepNet.seq;
+        Game.reportError = keepRep; Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -24163,7 +24832,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 8;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it)
+const NET_VERSION = 9;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -24478,7 +25147,7 @@ const Net = {
       p.aimAssist = m.aa === 1;
       // aim point must stay near the platform; targets must be valid hostiles
       const pt = m.pt;
-      if (Array.isArray(pt) && pt.length === 3 && pt.every(Number.isFinite) && Math.hypot(pt[0] - p.x, pt[2] - p.z) < 1400) c.aimPoint = { x: pt[0], y: pt[1], z: pt[2] };
+      if (Array.isArray(pt) && pt.length === 3 && pt.every(Number.isFinite) && Math.hypot(pt[0] - p.x, pt[2] - p.z) < ARTY_AIM_REACH + 100) c.aimPoint = { x: pt[0], y: pt[1], z: pt[2] };
       else c.aimPoint = null;
       const tg = m.tg | 0;
       p.target = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
@@ -24554,7 +25223,7 @@ const Net = {
     this.sendLobby();
   },
   platEntry(p) {
-    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0) | (p.wake ? 4096 : 0);
+    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0) | (p.wake ? 4096 : 0) | (p.arty && p.arty.want ? 8192 : 0) | (p.arty && p.arty.high ? 16384 : 0);
     return [p.id, r1(p.x), r1(p.y), r1(p.z), r2(p.yaw), r2(p.pitch), r2(p.roll), r2(p.torsoYaw), r2(p.torsoPitch), r2(p.hp / p.maxHp), r1(p.speed), f];
   },
   selfState(peer) {
@@ -24723,13 +25392,15 @@ const Net = {
       if ((f & 256) && !(p.meleeT > 0)) p.meleeAt = W.time;   // a strike begins: its keyframes run from here (meleePose)
       p.telegraph = (f & 64) ? 0.3 : 0; p.grounded = !!(f & 128); p.meleeT = (f & 256) ? 0.2 : 0; p.activeSlot = (f & 512) ? 'primaryB' : 'primaryA';
       p.parked = !!(f & 1024); p.chute = !!(f & 2048); p.wake = !!(f & 4096);
+      if (p.arty) { p.arty.want = !!(f & 8192); p.arty.high = !!(f & 16384); }   // artillery: deployed, high arc
       if (p.shieldOn && p.maxShield > 0) p.shield = p.maxShield * 0.6;
     }
     // projectiles
     const next = {};
     for (const e of m.pr || []) {
-      let pr = this.projMap[e[0]];
+      let pr = this.projMap[e[0]], fresh = false;
       if (!pr || !pr.active || pr.nid !== e[0]) {
+        fresh = true;
         pr = null;
         for (let i = 0; i < W.projs.length; i++) if (!W.projs[i].active) { pr = W.projs[i]; break; }
         if (!pr) continue;
@@ -24743,6 +25414,7 @@ const Net = {
         }
       }
       pr.x = e[2]; pr.y = e[3]; pr.z = e[4]; pr.vx = e[5]; pr.vy = e[6]; pr.vz = e[7]; pr.seen = this.t;
+      if (fresh && pr.def.indirect && !(pr.owner && pr.owner.team === 0)) Arty.mark(pr);   // an enemy shell's impact marker
       next[e[0]] = pr;
     }
     this.projMap = next;
@@ -24845,6 +25517,7 @@ const Net = {
       p.hitFlash = Math.max(0, p.hitFlash - dt); p.recoil = Math.max(0, p.recoil - dt * 4);
       p.vx = Math.sin(p.yaw) * p.speed; p.vz = Math.cos(p.yaw) * p.speed; p.vy = 0;
       if (p.wake) Naval.wakeFx(p, dt);   // a ship under way (flags bit 4096)
+      if (p.arty) Arty.settle(p, dt);   // artillery digging in or packing up (flags bit 8192)
     }
     for (const q of W.projs) {
       if (!q.active) continue;
@@ -25076,7 +25749,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
