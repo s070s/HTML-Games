@@ -27905,7 +27905,7 @@ const SelfTest = {
       this.check('the net version is 10 (civilian vehicles)', NET_VERSION === 10);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
-      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
       // every build starts from nothing (no cached terrain, base grid or water), so carving that is not deterministic shows
       const fresh = (cfg) => { Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {}; Game.startSession(cfg); return worldHash(); };
       try {
@@ -27920,6 +27920,7 @@ const SelfTest = {
         const sent = [], peer = Net.newPeer();
         Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', tx: (str) => sent.push(JSON.parse(str)) });
         Net.host = true; Net.guest = false; Net.peers = [peer]; Net.missionId = 'm2';
+        Save.data.platformId = 'bulwark';   // a saved ship would be refused on this dry map
         Net.startCoop();
         const st = sent.find((m) => m.t === 'start');
         this.check('the co-op start carries the env and the world hash', st && st.wh === worldHash() && st.cfg.env && st.cfg.env.weather === 'clear' && st.cfg.env.time === 'day', st && JSON.stringify(st.cfg.env));
@@ -27930,7 +27931,7 @@ const SelfTest = {
         this.check('a guest with the same world stays', st && left === '' && W.structs.length === st.ns, left);
         if (st) Net.guestStart(Object.assign({}, st, { wh: (st.wh + 1) >>> 0 }));
         this.check('a guest whose ground or water differs leaves with a message', /World mismatch/.test(left), left);
-      } finally { Object.assign(Net, saved); S.difficulty = keepDiff; Game.quitToMenu(); }
+      } finally { Object.assign(Net, saved); S.difficulty = keepDiff; Save.data.platformId = keepPid; Game.quitToMenu(); }
     });
     t('iphone', () => {
       // safe-area insets come from the CSS variables, so the HUD and touch layouts see the notch and home bar
@@ -30914,6 +30915,85 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    t('p8 coop', () => {
+      // every new battlefield over the loopback: the guest builds the host's world (hash, water, structures) and takes
+      // its objectives, a hazard and an enemy shell from the host's messages
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave, map: Net.map, projMap: Net.projMap, seq: Net.lastSnapSeq, t: Net.t };
+      const keepDiff = S.difficulty, keepRep = Game.reportError, keepPid = Save.data.platformId;
+      const water = () => (Water.any ? hashFloats(Water.levels, 1, FNV_BASIS) : 0);
+      const objs = () => Game.mission.objectives.map((o) => o.id + ':' + o.status).join();
+      const ids = (msgs) => { const seen = new Set(); for (const m of msgs) if (m.t === 's') for (const e of m.p) seen.add(e[0]); return seen; };
+      Game.reportError = () => {};
+      Save.data.platformId = 'bulwark';   // the host's own pick (a saved ship would be refused on dry maps)
+      try {
+        for (const id of ['m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16', 'm17', 'm18']) {
+          const def = MISSION_BY_ID[id], sent = [], peer = Net.newPeer();
+          Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', tx: (str) => sent.push(JSON.parse(str)) });
+          Net.host = true; Net.guest = false; Net.peers = [peer]; Net.hostPeer = null; Net.missionId = id;
+          Net.startCoop();
+          const st = sent.find((m) => m.t === 'start'), body = peer.p;
+          const host = { wh: worldHash(), water: water(), ns: W.structs.length, obj: objs() };
+          if (id === 'm9') {
+            // more units than a snapshot holds: the ones past the cap take turns, so a guest sees each within its timeout
+            for (let k = 0; k < SNAP_PLATS; k++) W.platforms.push(new Platform(PLATFORMS.jackal, { team: 1, x: body.x + (k % 8) * 12, z: body.z + 300 + Math.floor(k / 8) * 12, yaw: 0, loadout: Loadout.forPlatform('jackal') }));
+            const live = W.platforms.filter((p) => !p.dead), turn = (off) => {
+              const got = []; peer.tx = (str) => got.push(JSON.parse(str)); NET_SNAP_TURN_OFF = off;
+              for (let k = 0; k < 12; k++) Net.sendSnapshots();   // 0.8 s of snapshots at 15 a second
+              NET_SNAP_TURN_OFF = false; peer.tx = (str) => sent.push(JSON.parse(str));
+              const seen = ids(got);
+              return live.filter((p) => !seen.has(p.id)).length;
+            };
+            const unseen = turn(false), unseenOff = turn(true);
+            this.check('with more units than a snapshot holds, every one reaches the guest within 0.8 s (and not with the turns off)', live.length > SNAP_PLATS && unseen === 0 && unseenOff > 0, live.length + ' units, ' + unseen + ' / ' + unseenOff + ' unseen');
+            W.platforms = W.platforms.filter((p) => p.def !== PLATFORMS.jackal || p.team !== 1 || p.z < body.z + 290);
+            peer.known = new Set();   // the guest below gets every unit's 'sp' as in a real start
+          }
+          // a hazard of the battlefield, near the host's player or the guest (forced: the mission may hold its own back)
+          const keepLvl = Hazards.level, types = def.hazards || mapDef(def.map).hazards;
+          Hazards.level = 'normal';
+          let hz = null;
+          for (const type of types) for (const at of [W.player, body]) if (!hz) hz = Hazards.force(type, at.x, at.z, { find: true });
+          Hazards.level = keepLvl;
+          // an enemy howitzer 600 m off shells the guest, after more bullets than a snapshot holds (from the first side,
+          // toward the middle first, whose arc clears the ground on the way)
+          const gun = WEAPONS.artyGun, tx = body.x + 25, tz = body.z, ty = Arty.groundY(tx, tz), sol = {}, path = {};
+          let mx = 0, mz = 0, my = 0;
+          for (let k = 0; k < 8; k++) {
+            const a = Math.atan2(-body.x, -body.z) + k * TAU / 8;
+            mx = clamp(body.x + Math.sin(a) * 600, -GROUND_BOUND, GROUND_BOUND); mz = clamp(body.z + Math.cos(a) * 600, -GROUND_BOUND, GROUND_BOUND); my = Arty.groundY(mx, mz) + 3;
+            Arty.solve(gun, mx, my, mz, tx, ty, tz, true, sol);
+            Arty.trace(mx, my, mz, sol.dx * gun.speed, sol.dy * gun.speed, sol.dz * gun.speed, gun.grav, path);
+            if (sol.ok && path.hit && Math.hypot(path.ix - tx, path.iz - tz) < 20) break;
+          }
+          const foe = new Platform(PLATFORMS.thunder, { team: 1, x: mx, z: mz, yaw: 0, loadout: Loadout.forPlatform('thunder') });
+          W.platforms.push(foe);
+          const bullets = [];
+          for (let k = 0; k < SNAP_PROJS + 5; k++) { spawnProjectile(foe, { def: WEAPONS.mg }, { x: mx, y: my + 30, z: mz }, 0, 1, 0); bullets.push(W.nid); }
+          spawnProjectile(foe, { def: gun }, { x: mx, y: my, z: mz }, sol.dx, sol.dy, sol.dz, 1);
+          const shell = W.nid, inSnap = (msgs) => msgs.some((m) => m.t === 's' && m.pr.some((e) => e[0] === shell));
+          Net.sendSnapshots(); Net.sendObjectives();
+          const offSent = [];
+          peer.tx = (str) => offSent.push(JSON.parse(str)); NET_SHELLS_FIRST_OFF = true; Net.sendSnapshots(); NET_SHELLS_FIRST_OFF = false;
+          for (const q of W.projs) if (q.active && bullets.indexOf(q.nid) >= 0) q.active = false;
+          // the guest builds its world from nothing and plays the host's messages
+          let left = '';
+          Net.host = false; Net.guest = true; Net.peers = []; Net.hostPeer = { tx() {} }; Net.leave = (why) => { left = why || 'left'; };
+          Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {};
+          if (st) Net.guestStart(st);
+          const guest = { wh: worldHash(), water: water(), ns: W.structs.length };
+          for (const m of sent) if (m.t !== 'start') Net.guestMsg(Net.hostPeer, m);
+          this.check('co-op ' + id + ' (' + def.map + '): the guest builds the host\'s world (hash, water, structures)', !!st && left === '' && guest.wh === host.wh && guest.wh === st.wh && guest.water === host.water && guest.ns === host.ns, host.wh + '/' + guest.wh + ' ' + host.water + '/' + guest.water + ' ' + host.ns + '/' + guest.ns + ' ' + left);
+          this.check('co-op ' + id + ': the guest has the host\'s objectives', objs() === host.obj && host.obj.length > 0, objs() + ' / ' + host.obj);
+          const gh = hz && Hazards.byId(hz.id);
+          this.check('co-op ' + id + ': a ' + (hz ? hz.type : 'hazard') + ' reaches the guest', !!gh && gh.type === hz.type && Math.hypot(gh.x - hz.x, gh.z - hz.z) < 1, types.join());
+          const pr = Net.projMap[shell], mark = W.artyMarks.find((m) => m.on);
+          this.check('co-op ' + id + ': an enemy shell reaches the guest past ' + SNAP_PROJS + ' bullets, with its impact marker (not with shells first off)', !!pr && pr.active && pr.def === gun && !!mark && Math.hypot(mark.x - tx, mark.z - tz) < 30 && !inSnap(offSent), mark ? Math.round(Math.hypot(mark.x - tx, mark.z - tz)) + ' m' : 'no marker');
+        }
+      } finally {
+        Object.assign(Net, saved); NET_SNAP_TURN_OFF = false; NET_SHELLS_FIRST_OFF = false;
+        S.difficulty = keepDiff; Game.reportError = keepRep; Save.data.platformId = keepPid; Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -31903,7 +31983,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
