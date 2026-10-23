@@ -351,7 +351,7 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
-// M23: kills of your own side's PvE give motes, banking scores and sends blockers, 100 banked summons the boss, its kill wins.
+// M23: kills of your own side's PvE give motes, banking scores and sends blockers, bossAt banked summons the boss, its kill wins.
 Test.add('pve', (check) => {
   const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
   godMode([blue, red]);
@@ -368,7 +368,7 @@ Test.add('pve', (check) => {
   BankRun.carried[blue] = 3;
   runSeconds(0.1);
   const boss = BankRun.boss[0];
-  check('100 banked summons the side boss at a quarter health', boss >= 0 && Pve.rowOf(boss).boss && Test.near(Actors.maxHealth[boss], 6000 * PVE_BANK.bossHealthShare, 1));
+  check('bossAt banked summons the side boss at a quarter health', boss >= 0 && Pve.rowOf(boss).boss && Test.near(Actors.maxHealth[boss], 6000 * PVE_BANK.bossHealthShare, 1));
   killEnemy(boss, blue);
   runSeconds(0.1);
   check('the first boss kill wins the match', !Modes.active && Game.match.results.winnerTeam === 0, Game.match.results && Game.match.results.winnerTeam);
@@ -1180,20 +1180,23 @@ Test.add('pvesoak', (check) => withQuality('ultra', () => {
 
 // ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
 // SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
-// the objective (Mote Rush banks motes, Attrition scores).
-const PVE_TEAM_SOAKS = [{ mode: 'bank', map: 'cistern' }, { mode: 'attrition', map: 'harbor' }], PVE_TEAM_SOAK_SEEDS = [1, 2];
-const PVE_TEAM_SOAK_MINUTES = 3, PVE_TEAM_SOAK_BOTS = 8;
+// the objective (Mote Rush banks motes, Attrition scores). play-03: Mote Rush plays to its end, which takes several minutes
+// (its whole escalation once ran in 72-138 s), so each phase (blockers, invasions, the boss) lasts long enough to notice.
+const PVE_TEAM_SOAKS = [{ mode: 'bank', map: 'cistern', minutes: 12 }, { mode: 'attrition', map: 'harbor', minutes: 3 }], PVE_TEAM_SOAK_SEEDS = [1, 2];
+const PVE_TEAM_SOAK_BOTS = 8, PVE_BANK_MATCH_MINUTES = [4, 10];
 Test.add('pvesoak', (check) => {
   for (const soak of PVE_TEAM_SOAKS) for (const seed of PVE_TEAM_SOAK_SEEDS) {
     let banked = 0;
-    const stats = playMatch({ mode: soak.mode, map: soak.map, minutes: PVE_TEAM_SOAK_MINUTES, botCount: PVE_TEAM_SOAK_BOTS, seed, difficulty: 'regular',
+    const stats = playMatch({ mode: soak.mode, map: soak.map, minutes: soak.minutes, botCount: PVE_TEAM_SOAK_BOTS, seed, difficulty: 'regular',
       probe: () => { banked = BankRun.banked[0] + BankRun.banked[1]; } });
     const name = soak.mode + ' on ' + soak.map + ' (seed ' + seed + ')', text = name + ': ' + JSON.stringify(stats) + ', banked ' + banked;
     check(name + ': no NaN, stuck under ' + SOAK_STUCK_LIMIT * 100 + '% of the time', stats.nan === 0 && stats.stuckFraction < SOAK_STUCK_LIMIT, text);
     check(name + ': nobody stuck > 6 s', stats.maxStuck <= STUCK_GIVE_UP, text);
     check(name + ': no enemy stuck > 6 s (bots-03)', stats.enemyMaxStuck <= STUCK_GIVE_UP, text);
-    if (soak.mode === 'bank') check(name + ': bots bank motes', banked > 0, text);
-    else check(name + ': bots score kills', stats.kills > 0, text);
+    if (soak.mode !== 'bank') { check(name + ': bots score kills', stats.kills > 0, text); continue; }
+    check(name + ': bots bank motes', banked > 0, text);
+    check(name + ': the match ends by its boss after ' + PVE_BANK_MATCH_MINUTES.join('-') + ' minutes', stats.reason === 'objective'
+      && stats.seconds >= PVE_BANK_MATCH_MINUTES[0] * 60 && stats.seconds <= PVE_BANK_MATCH_MINUTES[1] * 60, text);
   }
 }, { slow: true });
 
