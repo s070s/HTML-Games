@@ -22552,11 +22552,11 @@ const MISSIONS = [
     update(m) { for (const p of W.platforms) if (p.arrivedFlag) p.dead = true; },   // ships in harbour leave play but count
   },
   {
-    id: 'm10', name: 'Beachhead', type: 'Amphibious Assault', map: 'archipelago', stars: 3, timeLimit: 1080, recommended: 'Skua hovercraft or Behemoth gunship (Skuas wait on the beach)',
+    id: 'm10', name: 'Beachhead', type: 'Amphibious Assault', map: 'archipelago', stars: 3, timeLimit: 1080, recommended: 'Trident destroyer, Behemoth gunship or Skua hovercraft (Skuas wait on our shore)',
     unlock: 'navalGun', env: { weather: 'storm', time: 'day' }, hazards: ['lightning'], hazardScript: true,
-    brief: 'The enemy holds the south-east island. Under cover of the storm, silence the three shore batteries on its north beach, then cross the channel and seize the beach itself while our landing craft come ashore behind you; get at least two of them ashore. The island outpost to the south will fire on the beach. Hovercraft wait on our shore for anyone who cannot cross the channel.',
-    start: { x: 240, z: 330, yaw: PI },
-    sites: [{ x: 240, z: 330, r: 34, tag: 'pad' }, { x: M10_BEACH.x, z: M10_BEACH.z, r: M10_BEACH.r, tag: 'obj' }],
+    brief: 'The enemy holds the south-east island. Under cover of the storm, silence the three shore batteries on its north beach; then our landing craft cross the channel. Clear the beach of the enemy so they can land: the beach is ours once our craft, or you, hold it with no enemy left on it. The island outpost to the south will fire on the beach. Hovercraft wait on our shore for anyone who cannot cross the channel.',
+    start: { x: 320, z: 240, yaw: PI },   // a ship starts in the channel below
+    sites: [{ x: 320, z: 240, r: 34, tag: 'pad' }, { x: M10_BEACH.x, z: M10_BEACH.z, r: M10_BEACH.r, tag: 'obj' }],
     build(ctx) {
       const m = ctx.m, craft = [], zone = M10_BEACH, beach = M10_LANDING[M10_LANDING.length - 1];
       ctx.later(() => {
@@ -22574,7 +22574,7 @@ const MISSIONS = [
       m.landing = () => {
         W.msg('LANDING CRAFT LAUNCHING');
         for (let i = 0; i < 3; i++) {
-          const c = spawnUnit('landingCraft', 330 + i * 40, 160, { team: 0, waypoints: M10_LANDING.map((q) => ({ x: q.x + (i - 1) * 30, z: q.z })), radius: 40, yaw: PI, onArrive: (p) => { p.arrivedFlag = true; p.dead = true; W.msg('LANDING CRAFT ASHORE'); } });
+          const c = spawnUnit('landingCraft', 330 + i * 40, 160, { team: 0, waypoints: M10_LANDING.map((q) => ({ x: q.x + (i - 1) * 30, z: q.z })), radius: 40, yaw: PI, onArrive: (p) => { p.arrivedFlag = true; convoyGo(p, false); W.msg('LANDING CRAFT ASHORE'); } });   // it stays on the beach and holds it
           if (c) craft.push(c);
         }
         m.add(Obj.escort({ id: 'land', title: 'Land at least two landing craft', units: craft, required: 2, dest: beach, primary: false, status: 'active' }));
@@ -22587,7 +22587,6 @@ const MISSIONS = [
         W.msg('ENEMY REINFORCEMENTS FROM THE SOUTH'); n++;
       }, 90);
     },
-    update(m) { for (const p of W.platforms) if (p.arrivedFlag) p.dead = true; },
   },
   {
     id: 'm11', name: 'High Water', type: 'Flood Evacuation', map: 'valley', stars: 2, timeLimit: 600, recommended: 'Medium Mech, Tank or Gunship',
@@ -22607,8 +22606,8 @@ const MISSIONS = [
         escorts = spawnGroup(['allyTank'], M11_ROUTE[0].x, M11_ROUTE[0].z - 30, { team: 0, radius: 30 });
         m.add(Obj.escort({ id: 'convoy', title: 'Evacuate the village', units: trucks, required: 3, dest, status: 'active' }));
         m.add(Obj.escort({ id: 'perfect', title: 'Bring every truck through', units: trucks, required: 4, perfect: true, primary: false, dest, status: 'active' }));
-        spawnGroup(['infantry', 'rpgTrooper', 'turret'], -290, 140, { radius: 50 });   // dug in over the bridge
-        spawnGroup(['tank', 'lightMech', 'infantry'], -430, 260, { radius: 50 });   // waiting west of the north road
+        spawnGroup(['infantry', 'rpgTrooper'], -290, 140, { radius: 50 });   // waiting over the bridge
+        spawnGroup(['tank', 'infantry'], -430, 260, { radius: 50 });   // waiting west of the north road
         const mortar = spawnGroup(['mortarTeam'], -470, 430,{ radius: 30, exact: true });
         m.add(Obj.kill({ id: 'mortar', title: 'Destroy the raiders\' mortar', units: mortar, primary: false, status: 'active' }));
       });
