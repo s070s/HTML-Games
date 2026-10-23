@@ -8940,6 +8940,7 @@ const ARTY_AI_LEAD = 0.6;           // share of a moving target's travel during 
 const ARTY_AI_GAP = [2.5, 5];       // s an AI battery waits between rounds (shorter with aggression)
 const ARTY_AI_LAY = 0.06;           // rad the turret must be within before an AI battery fires
 const ARTY_ARC_DOTS = 22;           // dots drawn along the player's predicted arc
+const ARTY_DOT_ANG = 0.006;         // rad the arc's dots and the impact pillar span at least, so they show far off
 const ARTY_COL = { ok: [0.35, 1, 0.5], masked: [1, 0.7, 0.2], bad: [1, 0.25, 0.15], mark: [1, 0.22, 0.08] };
 /* a blank firing solution. valid: filled in; ok: the barrel can be laid onto the point (reach) on the arc in `high`
    (swapped: the other arc, because the first strikes terrain); reason: '' or why it will not fire ('min': inside the
@@ -9015,16 +9016,17 @@ const Arty = {
   /* where the shell of solution s (weapon d) comes down */
   traceSol(d, s) { return this.trace(s.mx, s.my, s.mz, s.dx * d.speed, s.dy * d.speed, s.dz * d.speed, d.grav, s); },
   /* The firing solution of platform p's weapon d from muzzle mz onto aim point ap, into sol: on the arc p's crew picked
-     (p.arty.high; the weapon's own preference without a crew), checked over the terrain: when it strikes a hill on the
-     way, the other arc is taken if that one lands; then why it would not fire (sol.reason). */
+     (p.arty.high; the weapon's own preference without a crew or with only one arc), checked over the terrain: when it strikes a hill on the
+     way, the other arc is taken if that one lands; then why it would not fire (sol.reason). The point laid on is the
+     ground (or water) under ap: a shell bursts on the ground, so one aimed at a vehicle comes down at its wheels. */
   lay(p, d, mz, ap, sol) {
-    const high = p.arty ? p.arty.high : d.indirect.arc === 'high';
-    this.traceSol(d, this.solve(d, mz.x, mz.y, mz.z, ap.x, ap.y, ap.z, high, sol));
+    const high = p.arty && this.twoArcs(d) ? p.arty.high : d.indirect.arc === 'high', gx = ap.x, gz = ap.z, gy = this.groundY(gx, gz);
+    this.traceSol(d, this.solve(d, mz.x, mz.y, mz.z, gx, gy, gz, high, sol));
     sol.swapped = false;
-    sol.blocked = sol.ok && Math.hypot(sol.ix - ap.x, sol.iz - ap.z) > ARTY_BLOCK_TOL;
+    sol.blocked = sol.ok && Math.hypot(sol.ix - gx, sol.iz - gz) > ARTY_BLOCK_TOL;
     if (sol.blocked) {
-      const alt = this.solve(d, mz.x, mz.y, mz.z, ap.x, ap.y, ap.z, !sol.high, ARTY_ALT);
-      if (alt.ok && alt.high !== sol.high && Math.hypot(this.traceSol(d, alt).ix - ap.x, alt.iz - ap.z) <= ARTY_BLOCK_TOL) {
+      const alt = this.solve(d, mz.x, mz.y, mz.z, gx, gy, gz, !sol.high, ARTY_ALT);
+      if (alt.ok && alt.high !== sol.high && Math.hypot(this.traceSol(d, alt).ix - gx, alt.iz - gz) <= ARTY_BLOCK_TOL) {
         Object.assign(sol, alt);
         sol.swapped = true; sol.blocked = false;
       }
@@ -9146,12 +9148,16 @@ const Arty = {
     for (let i = 1; i < ARTY_ARC_DOTS; i++) {
       const t = s.tof * i / ARTY_ARC_DOTS, x = s.mx + s.dx * v * t, y = s.my + u * t - g * t * t / 2, z = s.mz + s.dz * v * t;
       if (!R.visible(x, y, z, 2)) continue;
-      st.push().t(x, y, z).s(0.6, 0.6, 0.6); R.draw('sphere', k[0], k[1], k[2], 0.5, 1.2, 0); st.pop();
+      const r = this.far(x, y, z, 0.6);
+      st.push().t(x, y, z).s(r, r, r); R.draw('sphere', k[0], k[1], k[2], 0.8, 1.2, 0); st.pop();
     }
     if (!R.visible(s.ix, s.iy, s.iz, w.def.blast * 2)) return;
     st.push().t(s.ix, s.iy, s.iz).s(w.def.blast * 2, 1.6, w.def.blast * 2); R.draw('cyl', k[0], k[1], k[2], 0.14, 1, 0); st.pop();
-    st.push().t(s.ix, s.iy + 4, s.iz).s(0.35, 8, 0.35); R.draw('box', k[0], k[1], k[2], 0.4, 1.2, 0); st.pop();
+    const pw = this.far(s.ix, s.iy, s.iz, 0.35);
+    st.push().t(s.ix, s.iy + pw * 8, s.iz).s(pw, pw * 16, pw); R.draw('box', k[0], k[1], k[2], 0.4, 1.2, 0); st.pop();
   },
+  /* the size (m) of a mark at (x, y, z) that spans ARTY_DOT_ANG from the camera, min m at least */
+  far(x, y, z, min) { return Math.max(min, Math.hypot(x - W.camPos.x, y - W.camPos.y, z - W.camPos.z) * ARTY_DOT_ANG); },
   /* ---------- AI batteries ---------- */
   /* the enemy platform nearest battery p inside its weapon's reach that a spotter sees (Arty.spotted), keeping cur
      while it is about as near; null when none */
@@ -19615,8 +19621,8 @@ const HUD = {
     if (!s.valid) return;
     const bad = s.reason === 'min' || s.reason === 'range', col = bad ? C.bad : s.reason === 'masked' ? C.warn : C.main;
     this.txt('RNG ' + Math.round(s.dist) + ' m', xr, y, 14, col, 'left', true);
-    this.txt(s.reason === 'min' ? 'MIN RANGE ' + w.def.indirect.min + ' m' : s.reason === 'range' ? 'OUT OF RANGE (' + w.def.range + ' m)' : 'TOF ' + s.tof.toFixed(1) + ' s  ' + (s.high ? 'HIGH' : 'LOW') + ' ARC', xr, y + 18 * u, 12, col, 'left');
-    if (s.reason === 'masked') this.txt('ARC STRIKES TERRAIN ON THE WAY', xr, y + 34 * u, 11, C.warn, 'left');
+    this.txt(s.reason === 'min' ? 'MIN RANGE ' + w.def.indirect.min + ' m' : s.reason === 'range' ? 'OUT OF RANGE (' + w.def.range + ' m)' : 'TOF ' + s.tof.toFixed(1) + ' s  ' + (s.high ? 'HIGH' : 'LOW') + ' ARC' + (s.high !== a.high && Arty.twoArcs(w.def) ? ' (NO ' + (a.high ? 'HIGH' : 'LOW') + ' ARC HERE)' : ''), xr, y + 18 * u, 12, col, 'left');
+    if (s.reason === 'masked') this.txt(Math.hypot(s.ix - s.mx, s.iz - s.mz) > s.dist ? 'REVERSE SLOPE: THE SHELL FLIES ON PAST' : 'ARC STRIKES TERRAIN ON THE WAY', xr, y + 34 * u, 11, C.warn, 'left');
     else if (W.aimInfo && !W.aimInfo.hit && !Net.guest) this.txt('AIM AT THE GROUND', xr, y + 34 * u, 11, C.dim, 'left');
     const t = R.project(s.ix, s.iy, s.iz, this.w, this.h, this.tmp);   // where the shell comes down, with its flight time
     if (!t.vis) return;
