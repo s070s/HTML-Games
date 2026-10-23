@@ -3683,6 +3683,176 @@ function sinkDebris(d, dt) {
   if (d.y < gh) { d.y = gh; d.sleep = true; d.life = Math.min(d.life, WATER_DEBRIS_LIFE); }
 }
 
+/* ---------- falling chunks and rubble (P3.2) ----------
+   A building piece that loses its support falls as one chunk with a hurt mass (tonnes, from its size). The first thing
+   it comes down on takes mass × impact speed × FALL_DMG: a platform (soldiers too) on its way down, or the civilians and
+   animals under it where it lands. Then it breaks up into a rubble mound, which slows ground units. A tall building's
+   pieces topple toward the side that gave way, leaving a debris field. Chunks and mounds come from seeded piece data
+   and the fixed FALL_CAP, never from the quality: the host's damage and slowing are its own; a guest draws its own
+   chunks from 'st' and hurts only its local civilians and animals. */
+const FALL_CAP = 240;                // chunks in the air at once; past it a piece lands at once as rubble, unseen
+const FALL_DENSITY = 1.6;            // tonnes per m³ of a piece (masonry with its voids)
+const FALL_DMG = 0.6;                // damage per tonne per m/s of impact speed
+const FALL_MIN_SPEED = 6;            // a chunk dropping onto something right under it still hits this hard (m/s)
+const FALL_REACH = 0.7;              // share of a platform's radius a chunk must come within to hit it
+const FALL_JITTER = 1;               // sideways drift (m/s) of a piece falling straight down, by its seeded variation
+const FALL_SPIN = 3;                 // tumbling (rad/s)
+const FALL_LIFE = 8;                 // a chunk lands after this long whatever happens (s)
+const FALL_DUST_VOL = 6;             // chunks this big (m³) raise dust where they land
+const TOPPLE_FLOORS = 8;             // buildings this tall fall over to one side
+const TOPPLE_SPIN = 0.22;            // sideways speed (m/s) per metre above the failing floor: a 60 m top lands about 30 m out
+const TOPPLE_MAX = 9;                // fastest sideways speed (m/s): even a 100 m tower's debris stays within about 40 m
+const TOPPLE_EVEN = 1;               // walls lost this evenly all round (m off centre) give no side: the building picks its own
+const TOPPLE_GOLDEN = 2.39996;       // radians between the sides picked by successive buildings
+const RUBBLE_CELL = 4, RUBBLE_N = 500;   // rubble heights on a grid of 4 m cells over the whole world
+const RUBBLE_CAP = 900;              // cells that can hold rubble at once (the first ones kept)
+const RUBBLE_BULK = 0.6;             // a piece's volume heaps up as this share of solid rubble
+const RUBBLE_MAX = 2.2;              // tallest mound (m)
+const RUBBLE_FULL = 1.2, RUBBLE_SLOW = 0.5;   // ground units on a mound this high go at 1 - RUBBLE_SLOW of their speed
+const RUBBLE_SHOW = 0.08;            // mounds lower than this are not drawn (m)
+const RUBBLE_COL = [0.34, 0.32, 0.3];
+function newFall() {
+  return { on: false, hit: false, src: null, t: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hx: 0, hy: 0, hz: 0, rx: 0, rz: 0, wx: 0, wz: 0, vol: 0, hurt: 0, r: 0, g: 0, b: 0 };
+}
+const Falls = {
+  list: Array.from({ length: FALL_CAP }, newFall),
+  n: 0,   // chunks in the air
+  reset() { for (let i = 0; i < FALL_CAP; i++) this.list[i].on = false; this.n = 0; Rubble.reset(); },
+  /* building piece s starts to fall */
+  drop(s) {
+    const b = s.bld, hy = s.h / 2, vol = s.hx * s.hz * s.h * 4, jit = (s.vr - 0.5) * FALL_JITTER;
+    let vx = jit, vz = -jit, wx = (s.vr - 0.5) * FALL_SPIN, wz = (0.5 - s.vr) * FALL_SPIN;
+    if (b && b.topple) {
+      const u = Math.min(TOPPLE_MAX, Math.max(0, s.y - b.tY) * TOPPLE_SPIN);
+      vx += b.tx * u; vz += b.tz * u; wx += b.tz * FALL_SPIN * 0.5; wz -= b.tx * FALL_SPIN * 0.5;   // tips over the way it goes
+    }
+    const f = this.free();
+    if (!f) {   // no chunk to spare: it lands at once where it would have
+      const t = Math.sqrt(2 * Math.max(0, s.y - Terrain.h(s.x, s.z)) / GRAVITY);
+      Rubble.add(s.x + vx * t, s.z + vz * t, vol);
+      return;
+    }
+    f.on = true; f.hit = false; f.src = s; f.t = 0;
+    f.x = s.x; f.y = s.y + hy; f.z = s.z; f.vx = vx; f.vy = 0; f.vz = vz;
+    f.hx = s.hx; f.hy = hy; f.hz = s.hz; f.rx = 0; f.rz = 0; f.wx = wx; f.wz = wz;
+    f.vol = vol; f.hurt = vol * FALL_DENSITY;
+    if (b) Bld.pieceColor(b, s, PIECE_COL); else { const c = MATERIAL[s.mat].col; PIECE_COL[0] = c[0]; PIECE_COL[1] = c[1]; PIECE_COL[2] = c[2]; }
+    f.r = PIECE_COL[0]; f.g = PIECE_COL[1]; f.b = PIECE_COL[2];
+    this.n++;
+  },
+  free() {
+    for (let i = 0; i < FALL_CAP; i++) if (!this.list[i].on) return this.list[i];
+    return null;
+  },
+  update(dt) {
+    if (this.n === 0) return;
+    for (let i = 0; i < FALL_CAP; i++) {
+      const f = this.list[i];
+      if (!f.on) continue;
+      f.t += dt;
+      f.vy -= GRAVITY * dt;
+      f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+      f.rx += f.wx * dt; f.rz += f.wz * dt;
+      if (!f.hit) this.hitPlatforms(f);
+      const gy = Terrain.h(f.x, f.z);
+      if (f.y - f.hy <= gy || f.t > FALL_LIFE) this.land(f, gy);
+    }
+  },
+  /* the first ground platform the chunk comes down on takes the hit (none on a guest: takeDamage is the host's) */
+  hitPlatforms(f) {
+    const pl = W.platforms, bot = f.y - f.hy, top = f.y + f.hy;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.dead || p.kind === 'air') continue;
+      const reach = p.radius * FALL_REACH;
+      if (Math.abs(p.x - f.x) > f.hx + reach || Math.abs(p.z - f.z) > f.hz + reach || bot > p.y + p.height || top < p.y) continue;
+      const v = Math.max(FALL_MIN_SPEED, Math.hypot(f.vx, f.vy, f.vz));
+      p.takeDamage(f.hurt * v * FALL_DMG, 'kinetic', null, p.x - f.x, p.z - f.z, { blast: true });
+      f.hit = true; f.vy = Math.abs(f.vy) * 0.15; f.vx *= 0.3; f.vz *= 0.3;   // it glances off
+      return;
+    }
+  },
+  /* on the ground: it hurts whoever is under it (unless it already hit a platform) and becomes rubble */
+  land(f, gy) {
+    f.on = false; this.n--;
+    if (!f.hit) {
+      const dmg = f.hurt * Math.max(FALL_MIN_SPEED, -f.vy) * FALL_DMG;
+      const x0 = f.x - f.hx, x1 = f.x + f.hx, z0 = f.z - f.hz, z1 = f.z + f.hz;
+      Civ.crush(x0, z0, x1, z1, gy, dmg);
+      Fauna.crush(x0, z0, x1, z1, gy, dmg);
+    }
+    if (Water.any && Water.level(f.x, f.z) > gy + 0.3) { Water.splash(f.x, f.z, Math.max(1, f.hx), false); return; }
+    Rubble.add(f.x, f.z, f.vol);
+    spawnDebris(f.x, gy + 0.5, f.z, 1, f.src, 6);
+    if (f.vol > FALL_DUST_VOL) fxSmokePuff(f.x, gy + 0.5, f.z, 2.5, 1);
+  },
+  draw(st) {
+    if (this.n === 0) return;
+    for (let i = 0; i < FALL_CAP; i++) {
+      const f = this.list[i];
+      if (!f.on || !R.visible(f.x, f.y, f.z, f.hx + f.hy + f.hz)) continue;
+      st.push().t(f.x, f.y, f.z).rx(f.rx).rz(f.rz).s(f.hx * 2, f.hy * 2, f.hz * 2);
+      R.draw('box', f.r, f.g, f.b); st.pop();
+    }
+  },
+};
+/* Rubble heights (m) on a grid over the world; the cells holding any are listed (at most RUBBLE_CAP) for drawing and
+   clearing. Ground units on a mound are slowed (stepMech, stepGround); hovercraft float over it. */
+const Rubble = {
+  h: null, cells: new Int32Array(RUBBLE_CAP), ys: new Float32Array(RUBBLE_CAP), n: 0,
+  reset() { for (let k = 0; k < this.n; k++) this.h[this.cells[k]] = 0; this.n = 0; },
+  cell(x, z) {
+    const i = Math.floor((x + WORLD_HALF) / RUBBLE_CELL), j = Math.floor((z + WORLD_HALF) / RUBBLE_CELL);
+    return i < 0 || j < 0 || i >= RUBBLE_N || j >= RUBBLE_N ? -1 : i * RUBBLE_N + j;
+  },
+  /* vol m³ of broken pieces comes down at (x, z): half heaps on its cell, the rest on the four around it */
+  add(x, z, vol) {
+    if (Water.any && Water.level(x, z) > Terrain.h(x, z) + 0.3) return;   // sunk
+    const c = this.cell(x, z);
+    if (c < 0) return;
+    const dh = vol * RUBBLE_BULK / (RUBBLE_CELL * RUBBLE_CELL), i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N;
+    this.raise(c, dh * 0.5);
+    if (i > 0) this.raise(c - RUBBLE_N, dh * 0.125);
+    if (i < RUBBLE_N - 1) this.raise(c + RUBBLE_N, dh * 0.125);
+    if (j > 0) this.raise(c - 1, dh * 0.125);
+    if (j < RUBBLE_N - 1) this.raise(c + 1, dh * 0.125);
+  },
+  raise(c, dh) {
+    if (!this.h) this.h = new Float32Array(RUBBLE_N * RUBBLE_N);   // once per page
+    const h = this.h[c];
+    if (h === 0) {
+      if (this.n >= RUBBLE_CAP) return;
+      const i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N;
+      this.ys[this.n] = Terrain.h((i + 0.5) * RUBBLE_CELL - WORLD_HALF, (j + 0.5) * RUBBLE_CELL - WORLD_HALF);
+      this.cells[this.n++] = c;
+    }
+    this.h[c] = Math.min(RUBBLE_MAX, h + dh);
+  },
+  height(x, z) {
+    if (this.n === 0) return 0;
+    const c = this.cell(x, z);
+    return c < 0 ? 0 : this.h[c];
+  },
+  /* speed factor for a ground unit at (x, z) */
+  slow(x, z) {
+    if (this.n === 0) return 1;
+    return 1 - RUBBLE_SLOW * Math.min(1, this.height(x, z) / RUBBLE_FULL);
+  },
+  draw(st) {
+    for (let k = 0; k < this.n; k++) {
+      const c = this.cells[k], h = this.h[c];
+      if (h < RUBBLE_SHOW) continue;
+      const i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N, x = (i + 0.5) * RUBBLE_CELL - WORLD_HALF, z = (j + 0.5) * RUBBLE_CELL - WORLD_HALF, y = this.ys[k];
+      if (!R.visible(x, y, z, RUBBLE_CELL + h)) continue;
+      const v = (c * 0.6180339) % 1, sh = 0.85 + 0.3 * v;   // each cell its own turn and shade
+      st.push().t(x, y + h * 0.3, z).ry(v * TAU).s(RUBBLE_CELL * 1.3, h * 0.9, RUBBLE_CELL * 1.1);
+      R.draw('box', RUBBLE_COL[0] * sh, RUBBLE_COL[1] * sh, RUBBLE_COL[2] * sh); st.pop();
+      st.push().t(x, y + h * 0.65, z).ry(v * TAU + 0.8).rx(0.25 - v * 0.5).s(RUBBLE_CELL * 0.75, h * 0.7, RUBBLE_CELL * 0.6);
+      R.draw('box', RUBBLE_COL[0] * sh * 0.9, RUBBLE_COL[1] * sh * 0.9, RUBBLE_COL[2] * sh * 0.9); st.pop();
+    }
+  },
+};
+
 /* ---------- gibs: platforms shed parts when damaged and break apart when destroyed ----------
    Gibs are debris pieces (one instanced draw for all of them, bounded by the quality cap), shaped and
    coloured like the platform's parts. Burning parts trail smoke; soldiers' parts trail blood and leave
@@ -3894,7 +4064,7 @@ function newWorld(cfg) {
       if (this.msgs.length > 4) this.msgs.shift();
     },
   };
-  Chunks.reset();
+  Chunks.reset(); Falls.reset();
   SW.reset(); WPN.smokeUntil = -1;
   for (let i = 0; i < MAX_PROJECTILES; i++) W.projs.push(newProjectileSlot());
   W.projCursor = 0;
@@ -5127,6 +5297,8 @@ function drawWorld(dt) {
     st.push().t(d.x, d.y, d.z).ry(d.ry).rx(d.rx).rz(d.rz).s(d.sx, d.sy, d.sz);
     R.draw(d.shape || 'box', d.r, d.g, d.b); st.pop();
   }
+  Falls.draw(st);
+  Rubble.draw(st);
   // pickups
   for (let i = 0; i < W.pickups.length; i++) {
     const p = W.pickups[i], pt = PICKUP_TYPES[p.type];
@@ -5238,6 +5410,7 @@ function updateWorldEffects(dt) {
   W.time += dt;
   Weather.update(dt);
   updateDebris(dt);
+  Falls.update(dt);
   Civ.update(dt);
   Fauna.update(dt);
   for (let i = W.beams.length - 1; i >= 0; i--) { W.beams[i].life -= dt; if (W.beams[i].life <= 0) W.beams.splice(i, 1); }
@@ -5729,6 +5902,7 @@ const BOX_VERTS = (function () {
 
 const Bld = {
   relightLeft: TIME_RELIGHT_BUDGET,   // buildings that may still be re-written this frame for lit windows (drawWorld resets it)
+  dropping: false,                    // true while a falling piece is destroyed (it leaves its chunk, not shattered bits)
   topAt(x, z, margin) {
     let top = -1e9;
     for (const b of W.buildings) {
@@ -5754,6 +5928,7 @@ const Bld = {
       cy: y0 + nf * fh / 2, t, rubbleAt: 0, collapsedAny: false, chunks: [], vertexCount: 0, relayout: false,
       bx1: ox + nx * CELL, bz1: oz + nz * CELL, grid: Array.from({ length: nx * nz * (nf + 1) }, () => []),
       doors: [],   // ground-floor doors { i, j, d }: cell and the side (DIR_AXIS) the doorway faces
+      topple: false, tx: 0, tz: 0, tY: 0,   // falling over: toward unit (tx, tz), from the floor at height tY (setTopple)
     };
     // choose a stair cell: tallest column that has an occupied neighbour on both sides along one axis
     const colTop = (i, j) => { let f = 0; while (isOcc(f, i, j)) f++; return f; };
@@ -6036,7 +6211,7 @@ const Bld = {
   pieceDestroyed(s, owner) {
     const b = s.bld;
     b.alive--; this.markDirty(s, true);
-    spawnDebris(s.x, s.y + s.h / 2, s.z, 2, s, 9);
+    if (!this.dropping) spawnDebris(s.x, s.y + s.h / 2, s.z, 2, s, 9);   // a piece that falls is its own chunk (Falls)
     if (Math.random() < 0.4) fxSmokePuff(s.x, s.y + s.h / 2, s.z, 1.4, 1);
     fxSparks(s.x, s.y + s.h / 2, s.z, 3, [1, 0.8, 0.5], 8);
     Snd.play('hitStruct', s.x, s.y, s.z, 0.8);
@@ -6105,6 +6280,7 @@ const Bld = {
           if (above) { mark(p, 0.2 + (p.fl - f) * 0.12 + Math.random() * 0.4); n++; }
         }
         if (n > 4) b.collapseBurst = n;
+        if (n > 4 && b.nf >= TOPPLE_FLOORS && !b.topple) this.setTopple(b, f);
         break;
       }
     }
@@ -6115,15 +6291,25 @@ const Bld = {
       b.collapseBurst = 0;
     }
   },
-  crush(s) {
-    const r = Math.max(s.hx, s.hz);
-    const dmg = s.kind === 'slab' || s.kind === 'roof' ? 70 : s.kind === 'pillar' ? 40 : 25;
-    for (const p of W.platforms) {
-      if (p.dead || p.kind === 'air') continue;
-      if (Math.abs(p.x - s.x) > r + p.radius || Math.abs(p.z - s.z) > r + p.radius) continue;
-      if (p.y >= s.y - 0.5 && p.y < s.y + 0.6) continue;           // standing on top of it
-      if (p.y + p.height > s.y && p.y < s.y) { p.takeDamage(dmg, 'kinetic', null, 0, 0); p.stagger = Math.max(p.stagger, 0.5); }
-    }
+  /* a tall building whose floor f gives way falls over toward the side that lost the most walls and pillars there */
+  setTopple(b, f) {
+    let sx = 0, sz = 0;
+    const lost = (p) => { if (p.destroyed || p.fallAt !== undefined) { sx += p.x - b.cx; sz += p.z - b.cz; } };
+    for (const g of b.walls[f]) g.pieces.forEach(lost);
+    b.pillars[f].forEach(lost);
+    let len = Math.hypot(sx, sz);
+    if (len < TOPPLE_EVEN) { const a = b.id * TOPPLE_GOLDEN; sx = Math.cos(a); sz = Math.sin(a); len = 1; }   // lost evenly all round
+    b.topple = true; b.tx = sx / len; b.tz = sz / len; b.tY = b.y0 + f * b.fh;
+  },
+  /* a piece that lost its support falls as a chunk that hurts what it comes down on (Falls) */
+  crush(s) { Falls.drop(s); },
+  /* co-op guest: the host says piece s fell. A tall building falls over the way it would on the host (the guest sees
+     the same lost pieces), from the floor under the first piece to fall. */
+  fall(s) {
+    const b = s.bld;
+    if (!b.topple && b.nf >= TOPPLE_FLOORS) this.setTopple(b, Math.max(0, s.fl - 1));
+    s.fallAt = W.time;
+    this.crush(s);
   },
   update(dt) {
     for (const b of W.buildings) {
@@ -6141,7 +6327,7 @@ const Bld = {
           if (W.time >= s.fallAt && n < 14) {
             q.splice(i, 1); n++;
             this.crush(s);
-            destroyStruct(s, null);
+            this.dropping = true; destroyStruct(s, null); this.dropping = false;
             if (s.kind === 'slab' || s.kind === 'roof') fxSmokePuff(s.x, s.y, s.z, 3, 2);
           }
         }
@@ -6823,6 +7009,22 @@ const Civ = {
     gibSoldier(c, false);
     this.scare(c, c.x - vx, c.z - vz);
   },
+  /* a falling chunk (Falls) lands on the box x0..x1, z0..z1 at ground height y: every civilian out in the open under it
+     takes dmg */
+  crush(x0, z0, x1, z1, y, dmg) {
+    const zones = W.civZones;
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (x1 < zn.x0 || x0 > zn.x1 || z1 < zn.z0 || z0 > zn.z1) continue;
+      const cs = zn.civs;
+      for (let k = 0; k < cs.length; k++) {
+        const c = cs[k];
+        if (c.dead || c.state === 'inside' || c.y > y + CIV_HEIGHT) continue;
+        if (c.x < x0 - CIV_RADIUS || c.x > x1 + CIV_RADIUS || c.z < z0 - CIV_RADIUS || c.z > z1 + CIV_RADIUS) continue;
+        this.hurt(c, dmg, 0, -2, 0);
+      }
+    }
+  },
   /* a blast at (x, y, z); a co-op guest's replayed blasts carry no damage, so there its size decides */
   blast(x, y, z, radius, damage) {
     const zones = W.civZones, hear = Math.max(CIV_BLAST_HEAR_MIN, radius * CIV_BLAST_HEAR);
@@ -6921,6 +7123,7 @@ const FAUNA_THREAT_MOVE = 15;       // a scared group re-plans its escape when t
 const FAUNA_GUNFIRE_HEAR = 90;      // animals hear gunfire this far (m)
 const FAUNA_BLAST_HEAR = 8, FAUNA_BLAST_HEAR_MIN = 60;   // and blasts within this many of their radii, at least the second (m)
 const FAUNA_DEATH_SCARE = 30;       // an animal's death scares those this close (m)
+const FAUNA_CRUSH_HEIGHT = 3;      // a falling chunk lands on animals within this height of the ground it hits (m)
 const FAUNA_MACHINE_SCARE = 30;     // a moving machine this close scares a herd or a landed flock (m)
 const FAUNA_GUEST_BLAST = 4;        // a replayed blast (no damage is sent) deals this many times an animal's hit points at its centre
 const FAUNA_LOOK = 0.3;             // seconds between a walker's checks for obstacles ahead
@@ -7758,6 +7961,25 @@ const Fauna = {
     if (a.def.blood) bloodSpray(a.x, a.y + a.def.cy * a.scale, a.z, 5, 4);
     this.scareGroup(a.grp, a.x - vx, a.z - vz);
   },
+  /* a falling chunk (Falls) lands on the box x0..x1, z0..z1 at ground height y: every animal on the ground under it
+     takes dmg (birds in the air and fish below the surface are missed) */
+  crush(x0, z0, x1, z1, y, dmg) {
+    const F = W.fauna;
+    if (!F) return;
+    const gs = F.groups;
+    for (let i = 0; i < gs.length; i++) {
+      const g = gs[i];
+      if (x1 < g.x0 || x0 > g.x1 || z1 < g.z0 || z0 > g.z1) continue;   // the group's box is padded by its animals' size
+      const ms = g.members;
+      for (let k = 0; k < ms.length; k++) {
+        const a = ms[k];
+        if (a.dead || Math.abs(a.y - y) > FAUNA_CRUSH_HEIGHT) continue;
+        const r = a.def.rad * a.scale;
+        if (a.x < x0 - r || a.x > x1 + r || a.z < z0 - r || a.z > z1 + r) continue;
+        this.hurt(a, dmg, 0, -2, 0);
+      }
+    }
+  },
   /* a blast at (x, y, z); a co-op guest's replayed blasts carry no damage, so there its size decides */
   blast(x, y, z, radius, damage) {
     const F = W.fauna;
@@ -8064,7 +8286,7 @@ class Platform {
     const moving = mag > 0.05;
     this.boosting = !!(c.boost && moving && this.energy > 4 && !this.energyLock && !this.overheated && !this.crouch && this.grounded);
     if (this.boosting) this.useEnergy(m.boostCost * dt);
-    let top = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.crouch ? 0.55 : 1) * (this.boosting ? m.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.35 : 1) * this.waterSlow;
+    let top = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.crouch ? 0.55 : 1) * (this.boosting ? m.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.35 : 1) * this.waterSlow * Rubble.slow(this.x, this.z);
     if (this.grounded && moving) {
       Terrain.normal(this.x, this.z, TMP_V);
       const uphill = -(TMP_V.x * mx + TMP_V.z * mz) / Math.max(0.2, TMP_V.y);
@@ -8144,7 +8366,7 @@ class Platform {
     const grip = g.type === 'hover' ? 1 : Weather.traction();   // wet or snowy ground: longer braking, wider turns
     this.boosting = !!(c.boost && c.moveF > 0 && this.energy > 4 && !this.energyLock && !this.overheated);
     if (this.boosting) this.useEnergy(18 * dt);
-    let maxV = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.boosting ? g.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.5 : 1) * this.waterSlow;
+    let maxV = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.boosting ? g.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.5 : 1) * this.waterSlow * (g.type === 'hover' ? 1 : Rubble.slow(this.x, this.z));
     const along = (this.restH(this.x + fx * 3, this.z + fz * 3) - this.restH(this.x - fx * 3, this.z - fz * 3)) / 6;
     if (along > g.climb * 0.6 && vf > 0) maxV *= clamp(1 - (along - g.climb * 0.6) * 2.2, 0.2, 1);
     if (c.moveF > 0.05) vf = approach(vf, maxV * c.moveF, g.accel * (this.boosting ? 1.5 : 1) * dt);
@@ -15318,8 +15540,8 @@ function resetTrainingDestructibles() {
     s.destroyed = false; s.hp = s.maxHp; s.state = 0; s.scorch = 0; s.flash = 0; if (s.bld) s.fallAt = undefined;
   }
   W.debris.length = 0; W.scorches.length = 0; W.queue.length = 0;
-  Chunks.markAll();
-  for (const b of W.buildings) { b.alive = b.total; Bld.markAllDirty(b); b.fallQueue = []; b.needCheck = false; }
+  Chunks.markAll(); Falls.reset();
+  for (const b of W.buildings) { b.alive = b.total; Bld.markAllDirty(b); b.fallQueue = []; b.needCheck = false; b.topple = false; }
   W.msg('DESTRUCTIBLES RESET');
 }
 function resetTrainingTargets() {
@@ -19801,6 +20023,68 @@ const SelfTest = {
         this.check('rock and foundations take no momentum damage', !addStruct('rock', 0, 500, {}).ram && b.pieces.every((s) => s.kind !== 'found' || !s.ram));
       } finally { Net.guest = keepGuest; Game.quitToMenu(); }
     });
+    t('collapse debris', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 200, tag: 'open' }], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+      W.mission = null;
+      const keepGuest = Net.guest;
+      const unit = (id, x, z) => { const p = new Platform(PLATFORMS[id], { team: 0, x, z, yaw: 0 }); W.platforms.push(p); return p; };
+      const hurt = (p) => p.hp < p.maxHp || p.armor < p.maxArmor;
+      try {
+        this.check('a new battle starts with no falling chunks or rubble', Falls.n === 0 && Rubble.n === 0 && Rubble.slow(0, 0) === 1);
+        // a skyscraper loses a third of its ground floor on its +x side: it falls over that way
+        const b = Bld.make('skyscraper', 0, 0, makeRng(3), 'tower');
+        const base = b.walls[0].flatMap((g) => g.pieces).concat(b.pillars[0]).sort((p, q) => q.x - p.x), lost = Math.ceil(base.length * 0.4);
+        const inside = unit('ranger', b.ox + CELL * 1.5, b.oz + CELL * 1.5);
+        inside.y = b.y0 + SLAB_T;
+        const below = unit('colossus', b.bx1 + 6, b.cz), far = unit('bulwark', b.bx1 + 60, b.cz);
+        for (let k = 0; k < lost; k++) damageStruct(base[k], 1e5, 'explosive', null, 1);
+        let most = 0;
+        for (let i = 0; i < 60 * 12; i++) { updateWorldEffects(STEP); if (Falls.n > most) most = Falls.n; }
+        this.check('a tall tower falls over toward the side that gave way', b.topple && b.tx > 0.7 && b.alive < b.total * 0.3, b.tx.toFixed(2) + ' ' + b.tz.toFixed(2) + ', ' + b.alive + '/' + b.total + ' standing');
+        this.check('its pieces fall as chunks, no more at once than the cap, and all land', most > 20 && most <= FALL_CAP && Falls.n === 0, 'most in the air ' + most);
+        this.check('a tower collapse kills infantry below and damages a mech below', inside.dead && hurt(below), 'soldier hp ' + Math.round(inside.hp) + ', mech hp ' + Math.round(below.hp) + ' armour ' + Math.round(below.armor));
+        this.check('a unit 60 m away takes no damage', !hurt(far) && !far.dead);
+        let out = 0, beyond = 0;
+        for (let k = 0; k < Rubble.n; k++) { const c = Rubble.cells[k], x = (Math.floor(c / RUBBLE_N) + 0.5) * RUBBLE_CELL - WORLD_HALF; if (x > b.bx1 + 2) out++; if (x < b.ox - 2) beyond++; }
+        this.check('it leaves a debris field on the side it fell, rubble mounds within the cap', out >= 8 && out > beyond * 2 && Rubble.n <= RUBBLE_CAP, out + ' cells past the +x side, ' + beyond + ' past the -x side');
+        // rubble slows a tank (a hovercraft floats over it)
+        const run = (id, z, rubble) => {
+          if (rubble) for (let x = -40; x <= 160; x += RUBBLE_CELL) Rubble.add(x, z, 200);
+          const p = new Platform(PLATFORMS[id], { team: 0, x: -30, z, yaw: PI / 2 });
+          let top = 0;
+          for (let i = 0; i < 60 * 4; i++) { p.cmd.moveF = 1; p.cmd.aimYaw = PI / 2; p.update(STEP); top = Math.max(top, p.speed); }
+          return top;
+        };
+        const clear = run('bastion', -200, false), rough = run('bastion', -240, true);
+        this.check('rubble slows a tank', rough < clear * 0.7 && rough > clear * 0.3, rough.toFixed(1) + ' vs ' + clear.toFixed(1) + ' m/s');
+        this.check('a hovercraft skims over rubble', run('specter', -280, true) > run('specter', -320, false) * 0.95);
+        // a chunk dropped on a soldier hurts by its mass and speed; a co-op guest's chunks hurt no platform
+        const drop = (x, z, h) => { const s = addStruct('bslab', x, z, { dims: { w: CELL, h: SLAB_T, d: CELL }, y: Terrain.h(x, z) + h, piece: true }); s.vr = 0.5; Falls.drop(s); return s; };
+        const low = unit('ranger', 200, -100), high = unit('ranger', 220, -100);
+        drop(200, -100, 3); drop(220, -100, 30);
+        for (let i = 0; i < 60 * 4; i++) Falls.update(STEP);
+        const lowHit = low.maxHp + low.maxArmor - low.hp - low.armor, highHit = high.dead ? Infinity : high.maxHp + high.maxArmor - high.hp - high.armor;
+        this.check('a chunk falling from higher hits harder', lowHit > 0 && highHit > lowHit, Math.round(lowHit) + ' vs ' + Math.round(highHit));
+        Net.guest = true;
+        const guestUnit = unit('ranger', 240, -100);
+        drop(240, -100, 30);
+        for (let i = 0; i < 60 * 4; i++) Falls.update(STEP);
+        Net.guest = keepGuest;
+        this.check('a guest\'s chunks hurt no platform', !hurt(guestUnit) && !guestUnit.dead);
+        // the host sends a fallen piece as 2 in 'st'; a guest then drops its own chunk
+        const office = Bld.make('office', -150, 150, makeRng(5), 'net'), slabs = office.slab[2].flat().filter((s) => s), shot = slabs[0], slab = slabs[1], other = slabs[2];
+        destroyStruct(shot, null);
+        slab.fallAt = W.time; destroyStruct(slab, null);
+        const n0 = Falls.n;
+        Net.guest = true;
+        Net.applyStructs({ l: [[other.idx, 0, 3, 2]] });
+        Net.guest = keepGuest;
+        this.check('a fallen piece is sent as 2, a shot one as 1, and a guest drops a fallen one as a chunk', Net.stEntry(slab.idx, slab)[3] === 2 && Net.stEntry(shot.idx, shot)[3] === 1 && other.destroyed && Falls.n === n0 + 1);
+        // training's reset clears chunks and rubble
+        resetTrainingDestructibles();
+        this.check('a destructibles reset clears chunks and rubble', Falls.n === 0 && Rubble.n === 0 && !b.topple);
+      } finally { Net.guest = keepGuest; Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -20161,11 +20445,13 @@ const Net = {
     if (this.stAcc >= 0.2 && this.dirty.size) {
       this.stAcc = 0;
       const l = [];
-      this.dirty.forEach((i) => { const s = W.structs[i]; if (s) l.push([i, r1(s.hp), s.state, s.destroyed ? 1 : 0]); });
+      this.dirty.forEach((i) => { const s = W.structs[i]; if (s) l.push(this.stEntry(i, s)); });
       this.dirty.clear();
       for (let k = 0; k < l.length; k += 250) this.bcast({ t: 'st', l: l.slice(k, k + 250) });
     }
   },
+  /* one structure's state for 'st': index, hull, damage stage, and 0 standing, 1 destroyed or 2 a building piece that fell */
+  stEntry(i, s) { return [i, r1(s.hp), s.state, s.destroyed ? (s.bld && s.fallAt !== undefined ? 2 : 1) : 0]; },
   /* host keep-alive to every guest once a second */
   beat(dt) {
     this.beatAcc += dt;
@@ -20393,7 +20679,9 @@ const Net = {
       s.hp = e[1]; s.scorch = Math.min(1, (1 - e[1] / s.maxHp) * 0.8); s.flash = 0.1;
       if (e[3] && !s.destroyed) {
         const ex = s.explosive; s.explosive = false;           // the host sends the blast as its own event
-        destroyStruct(s, null);
+        const fell = e[3] === 2 && !!s.bld;                    // it lost its support on the host: here it falls too
+        if (fell) Bld.fall(s);
+        Bld.dropping = fell; destroyStruct(s, null); Bld.dropping = false;
         s.explosive = ex;
       } else if (!e[3]) {
         if (s.bld && s.state !== e[2]) Bld.markDirty(s, false);
