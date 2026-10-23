@@ -118,6 +118,9 @@ Test.add('rules', (check) => {
   check('updating still works when full', Rules.custom.save({ id: 'custom-2', name: 'Renamed' }) !== null);
   check('remove', Rules.custom.remove('custom-1') && !Rules.custom.get('custom-1') && !Rules.custom.remove('custom-1'));
   check('ids stay unique after a remove', Rules.custom.save({ name: 'Fresh' }).id === 'custom-51');
+  // R-201: ruleset names are cleaned like every other player label (cleanLabel, LABEL_MAX)
+  const odd = Rules.custom.save({ id: 'custom-51', name: '<b>Odd\u0001</b>' + 'x'.repeat(60) });
+  check('ruleset names are cleaned like other labels (cleanLabel, LABEL_MAX)', odd && !/[<\u0001]/.test(odd.name) && odd.name === cleanLabel(odd.name + 'x', LABEL_MAX) && odd.name.length === LABEL_MAX, odd && odd.name);
   Save.data.rulesets.length = 0;
 });
 

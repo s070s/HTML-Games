@@ -191,7 +191,7 @@ const WeaponSpecialState = {
   },
   // Moves the actor out of the exit gate along its normal, keeping the speed magnitude (MOV-019).
   teleport(id, exit) {
-    const speed = Math.max(GATE_MIN_EXIT_SPEED, Math.hypot(Actors.vx[id], Actors.vy[id], Actors.vz[id]));
+    const speed = Math.max(GATE_MIN_EXIT_SPEED, length3(Actors.vx[id], Actors.vy[id], Actors.vz[id]));
     const nx = this.gateNx[exit], ny = this.gateNy[exit], nz = this.gateNz[exit];
     const lateral = Math.abs(ny) > GATE_FLAT_NY ? 0 : GATE_EXIT_OFFSET;
     Actors.x[id] = Actors.prevX[id] = this.gateX[exit] + nx * lateral;
@@ -211,18 +211,23 @@ const WeaponSpecialState = {
     for (let id = 0; id < Actors.count; id++) this.stepHeld(id);
     this.stepGates(dt);
   },
+  // One reused instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
+  gateInstance: Object.assign(makeShapeInstance(), { sx: GATE_RADIUS * 2, sy: GATE_RADIUS * 2, sz: 0.1, emissive: 1 }),
   drawGates(batch) {
+    const instance = this.gateInstance;
     for (let slot = 0; slot < Actors.count * 2; slot++) {
       if (!this.gateOpen[slot]) continue;
-      const color = GATE_COLORS[slot % 2], yaw = Math.atan2(this.gateNx[slot], this.gateNz[slot]), pitch = Math.asin(clamp(this.gateNy[slot], -1, 1));
-      batch.mesh('ring', this.gateX[slot], this.gateY[slot], this.gateZ[slot], yaw, pitch, GATE_RADIUS * 2, GATE_RADIUS * 2, 0.1, (color >> 16 & 255) / 255, (color >> 8 & 255) / 255, (color & 255) / 255, 1);
+      instance.x = this.gateX[slot]; instance.y = this.gateY[slot]; instance.z = this.gateZ[slot];
+      instance.yaw = Math.atan2(this.gateNx[slot], this.gateNz[slot]); instance.pitch = Math.asin(clamp(this.gateNy[slot], -1, 1));
+      instance.setColor(GATE_COLORS[slot % 2]);
+      batch.meshFrom('ring', instance);
     }
   },
 };
 
 // True when a push along (dx, dz) hits the target's front (within the arc whose cosine is given).
 function comesFromFront(target, dx, dz, arcCos) {
-  const length = Math.hypot(dx, dz);
+  const length = length2(dx, dz);
   if (length < 1e-6) return false;
   return -(dx * Math.sin(Actors.yaw[target]) + dz * Math.cos(Actors.yaw[target])) / length >= arcCos;
 }
@@ -254,7 +259,7 @@ function catchableProjectile(id, range) {
 // Distance from the actor's eye to flying projectile i when it lies closer than `range` inside the aim cone (specialScratch = aim), else -1.
 function projectileInAim(id, i, range, coneCos) {
   if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) return -1;
-  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = length3(dx, dy, dz);
   if (distance >= range || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < coneCos) return -1;
   return distance;
 }

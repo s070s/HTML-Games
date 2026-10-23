@@ -1,6 +1,6 @@
 // Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html.
-// Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot in the
-// per-frame and per-step files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB).
+// Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot outside the
+// cold files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB).
 // The shipped file leaves out comment-only lines and the // comments after code (about 13% of the size, less to parse on phones);
 // src/ keeps them and the shipped code stays readable (no minifier, D06).
 // Usage: node tools/build.mjs [--check]   (--check: run the checks and print the report, write nothing)
@@ -19,8 +19,9 @@ const VALUE_EXPECTED = '(,=:[!&|?{};+-*%<>~^';   // after one of these a / start
 const SIZE_WARN_BYTES = 3.0 * 1024 * 1024;   // D07: past 3.0 MB the build warns (the release target is 3.5 MB)
 const SIZE_LIMIT_BYTES = 3.5 * 1024 * 1024;  // D07: past 3.5 MB the build fails (readable code, comment-only lines stripped)
 const BANNED_APIS = [/\bfetch\s*\(/, /XMLHttpRequest/, /\bimport\s*\(/, /new\s+WebSocket/, /navigator\.sendBeacon/, /\beval\s*\(/, /new\s+Function\s*\(/];
-// PERF-006: Math.hypot is a built-in call that boxes its result on every call; per-frame and per-step files use length2 / length3.
-const HOT_FILES = /^(07[a-f]-render|08a-world|08b-world-collide|08c-world-triggers|08d-world-bodies|10a-move|11a-weapons|11b-projectiles|14a-bots|14b-bots-perception|14c-bots-move|14d-bots-combat|14e-bots-decide|14h-pve|14i-pve-enemies|17[a-g]-hud)/;
+// PERF-006: Math.hypot is a built-in call that boxes its result on every call; every file uses length2 / length3 except the
+// cold ones named here (save, progress, maps, map generator, editor, menus, self-tests), which never run per frame or step.
+const COLD_FILES = /^(04-save|15[a-d]-|16[a-z]-|18[a-z]-ui|20[ab]-)/;
 const HOT_BANNED_APIS = [/Math\.hypot\s*\(/];
 
 const checkOnly = process.argv.includes('--check');
@@ -111,7 +112,7 @@ function checkTopLevelNames(files) {
 
 function checkBannedApis(files) {
   for (const file of files) {
-    const banned = HOT_FILES.test(file.name) ? BANNED_APIS.concat(HOT_BANNED_APIS) : BANNED_APIS;
+    const banned = COLD_FILES.test(file.name) ? BANNED_APIS : BANNED_APIS.concat(HOT_BANNED_APIS);
     file.text.split('\n').forEach((line, index) => {
       const code = line.replace(/\/\/.*$/, '');
       for (const pattern of banned) {

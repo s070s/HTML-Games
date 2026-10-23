@@ -520,6 +520,12 @@ Test.add('perf', (check) => {
   propBatch.clear();
   check('the menu benchmark draws its grid through the instance record (no batch.mesh with float arguments)',
     !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
+  // R-153: every match draw source and the drawers they call fill a reused instance record (batch.mesh stays for the editor and bot debug view)
+  const matchDrawers = [drawBodies, Projectiles.draw, WeaponSpecialState.drawGates, Smoke.drawColumn, Gadgets.drawPreview, Gadgets.drawLanding, Devices.drawDevice,
+    drawZone, drawFootprints, drawObjective, drawModeExtras, drawChambers, drawChamberMark, hudDrawKillcamFigures,
+    ...Render.sources.filter((source) => !/^(botDebug|mapEditor)$/.test(source.name)).map((source) => source.draw)];
+  const boxedDrawers = matchDrawers.filter((drawer) => /\.mesh\(/.test(drawer.toString())).map((drawer) => drawer.name || drawer.toString().slice(0, 60));
+  check('match draw sources use batch.meshFrom, never batch.mesh', boxedDrawers.length === 0, boxedDrawers.join(' | '));
   const savedQuads = HudBatch.quads, ring = hudRingAt;
   HudBatch.quads = 0;
   ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;
@@ -554,7 +560,7 @@ Test.add('perf', (check) => {
 
 // World draw runs (PERF-004 on large maps): visible chunks next to each other in the index buffer share one draw call.
 Test.add('perf', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: world draw runs skipped', true); return; }
+  if (!Render.gl) { check.skip('world draw runs', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   Settings.set('video.quality', 'potato');
   World.load(Maps.get('isle'));
@@ -586,6 +592,7 @@ const PERF_ALLOC_CALLS = 20000;
 const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
 const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
 const PERF_ALLOC_ROUNDS = 3;
+const PERF_ALLOC_PATIENCE_MS = 8000;     // more rounds while a path reads as allocating (a slow compiler thread, see perfAllocatedBytes)
 const PERF_PROBE_ACTORS = 8;
 const PERF_MOVER_ID = PERF_PROBE_ACTORS;  // the actor the movement-step probe steps (past the hitscan probe's actors)
 const perfMoverSpot = { x: 1.25, y: 0, z: -0.25 };    // y: the floor there, found by perfPlaceMover
@@ -595,12 +602,15 @@ const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many s
 const perfShapeInstance = makeShapeInstance();   // the meshFrom probe's record (a match keeps one per caller the same way)
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
-// The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
-// during a round, while a path that really allocates does so in every round. Infinity = a GC ran in every round.
+// The fewest bytes of the measured rounds: the optimized code is compiled on another thread and may arrive during a round,
+// while a path that really allocates does so in every round. Infinity = a GC ran in every round. Past PERF_ALLOC_ROUNDS,
+// rounds go on while the path still reads as allocating, for up to PERF_ALLOC_PATIENCE_MS: on a loaded CPU the compiler
+// thread can take seconds to deliver (a run with --js-flags=--concurrent-recompilation-delay=300 showed it).
 function perfAllocatedBytes(run) {
   for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
   let fewest = Infinity;
-  for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
+  const started = performance.now();
+  for (let round = 0; round < PERF_ALLOC_ROUNDS || (fewest >= PERF_ALLOC_LIMIT_BYTES && performance.now() - started < PERF_ALLOC_PATIENCE_MS); round++) {
     const before = perfHeapBytes();
     for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
     const allocated = perfHeapBytes() - before;
@@ -610,10 +620,14 @@ function perfAllocatedBytes(run) {
 }
 
 // True when the heap counter sees a known allocation (a browser without the precise flag rounds and caches the counter).
+// A GC during one try shrinks the reading, so it gets PERF_ALLOC_ROUNDS tries before the probes are skipped.
 function perfHeapCounterWorks() {
-  const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
-  for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
-  return perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS;
+  for (let attempt = 0; attempt < PERF_ALLOC_ROUNDS; attempt++) {
+    const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
+    for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
+    if (perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS) return true;
+  }
+  return false;
 }
 
 // The near parts of the body model with the most of them (a real ActorModels row: partColor reads its row colour too).
@@ -708,7 +722,7 @@ function perfMeasureHotPaths() {
 }
 
 Test.add('perf', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page (Chrome without --enable-precise-memory-info): allocation probes skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('allocation probes', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
   const bytes = perfMeasureHotPaths();
   check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
   check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);

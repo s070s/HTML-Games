@@ -17,8 +17,8 @@ const HUD_FALLBACK_ADVANCE = 0.55;       // em width per character before the at
 const HudBatch = {
   layers: [],
   quads: 0,
-  dropped: 0,
-  width: 1, height: 1,     // screen size in CSS pixels (layout for the layers)
+  dropped: 0,              // quads refused at HUD_MAX_QUADS this session (the perf HUD shows it, the first one is logged)
+  width: 1, height: 1,    // screen size in CSS pixels (layout for the layers)
   bytes: new ArrayBuffer(HUD_MAX_QUADS * 4 * HUD_VERTEX_BYTES),
   glyphIndex: new Map(),   // char code -> glyph slot
   glyphs: new Float32Array(128 * 6),     // u0 v0 u1 v1 advance width (atlas pixels)
@@ -162,7 +162,10 @@ function pushHudBox() {
 }
 
 function pushHudCorners() {
-  if (HudBatch.quads >= HUD_MAX_QUADS) { HudBatch.dropped++; return; }
+  if (HudBatch.quads >= HUD_MAX_QUADS) {
+    if (!HudBatch.dropped++) console.info('HUD quad budget full (' + HUD_MAX_QUADS + '): quads dropped');
+    return;
+  }
   const color = hudPaint[0], a = hudPaint[1];
   const base = HudBatch.quads * 4;
   writeHudVertex(base, 0, 8, 9, color, a);

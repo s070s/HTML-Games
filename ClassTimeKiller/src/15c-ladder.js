@@ -4,14 +4,12 @@
 // match in its Progress handler (15a calls it once per match). Progress lives in Save.data (ladder, progression). Data: 03p.
 
 const PROGRESS_PLAYER_NAME = 'You';
-const PROGRESS_SEED_RANGE = 0x7fffffff;
 const PROGRESS_PLAYER_TEAM = 0;
 const PROGRESS_ENEMY_TEAM = 1;
 const MINUTE_MS = 60000;
 const OPERATION_WARN_TICKETS = 10;
 const operationAnnounce = { text: '', kind: 'objective', priority: 1 };
 
-function progressSeed(random) { return Math.floor((random || Math.random)() * PROGRESS_SEED_RANGE); }
 function progressSetup(fields, progress, seed) {
   return Object.assign({ mutators: [], bots: [], seed, player: { team: PROGRESS_PLAYER_TEAM, name: PROGRESS_PLAYER_NAME }, progress }, fields);
 }
@@ -49,19 +47,19 @@ const Ladder = {
   },
   start(tier, match, difficultyId, random) {
     if (!this.isOpen(tier, match)) return null;
-    return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), progressSeed(random)));
+    return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), newSeed(random)));
   },
   // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win.
   passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
   // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
-  retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, progressSeed()); },
+  retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, newSeed()); },
   // After a pass: the match that follows on the ladder, if the ladder has one open.
   nextStep(tag) {
     if (!Game.match || !Game.match.results || !this.passed(Game.match.results)) return null;
     const tierEnds = tag.match + 1 >= CAT.ladder[tag.tier].matches.length;
     const tier = tag.tier + (tierEnds ? 1 : 0), match = tierEnds ? 0 : tag.match + 1;
     if (tier >= CAT.ladder.length || !this.isOpen(tier, match)) return null;
-    return { label: 'Next match', build: () => this.setup(tier, match, this.difficultyFor(tier, match), progressSeed()) };
+    return { label: 'Next match', build: () => this.setup(tier, match, this.difficultyFor(tier, match), newSeed()) };
   },
   onResult(match, metrics, award) {
     const tag = match.setup.progress, entry = this.entry(tag.tier, tag.match), state = this.state();
@@ -113,7 +111,7 @@ const Challenges = {
   start(id, expert, random) {
     const row = CAT.challenges.byId(id);
     if (!row || !this.isOpen(row) || (expert && !this.expertOpen(id))) return null;
-    return Game.start(this.setup(id, expert, progressSeed(random)));
+    return Game.start(this.setup(id, expert, newSeed(random)));
   },
   // Stars newly earned pay XP once (replaying for the same stars pays only the match XP: no grind).
   onResult(match, metrics, award) {
@@ -218,11 +216,11 @@ const Operations = {
   // The operation's next map once this one is counted (none after the last map: New run starts the operation again).
   nextStep(tag) {
     if (this.state(tag.id).done) return null;
-    return { label: 'Next map', build: () => this.setup(tag.id, progressSeed()) };
+    return { label: 'Next map', build: () => this.setup(tag.id, newSeed()) };
   },
   start(id, random) {
     if (!CAT.operations.byId(id)) return null;
-    return Game.start(this.nextSetup(id, progressSeed(random)));
+    return Game.start(this.nextSetup(id, newSeed(random)));
   },
   // The map's winner; a draw goes to the side with more tickets left.
   stageWinner(results) {
@@ -322,8 +320,8 @@ Progress.addHandler('challenge', (match, metrics, award) => Challenges.onResult(
 Progress.addHandler('operation', (match, metrics, award) => Operations.onResult(match, metrics, award));
 Progress.addHandler('daily', (match, metrics, award) => Daily.onResult(match, metrics, award));
 Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
-Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
-Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()), 'New run');
+Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, newSeed()));
+Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, newSeed()), 'New run');
 Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
 Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
 Progress.addNext('operation', (tag) => Operations.nextStep(tag));

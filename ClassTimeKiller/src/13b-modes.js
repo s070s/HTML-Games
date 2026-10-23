@@ -16,9 +16,8 @@ const OVERTIME_SECONDS = 180;          // MODE-001: sudden death lasts at most 3
 const TIME_WARNINGS = [300, 60, 30, 10];
 const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
-const SPAWN_CAPSULE_RADIUS = 0.8;      // two capsule radii (DATA-003): closer means spawning inside an actor
-const SPAWN_CAPSULE_HEIGHT = 1.8;
-const SPAWN_EYE_HEIGHT = 1.62;
+const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
+const SPAWN_EYE_HEIGHT = STAND_EYE;
 const SPAWN_ENEMY_CAP = 60;            // enemies farther than this add no more preference
 const SPAWN_TEAMMATE_WEIGHT = 0.5;     // team modes prefer spawns near teammates (MAP-010)
 const SPAWN_DEATH_WEIGHT = 0.25;       // and away from the place of the last death
@@ -41,6 +40,7 @@ const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // 
 const NEUTRAL_COLOR = 2;
 const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
+const markerInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });   // objective and role markers (each sets place, size, colour)
 
 const DEFAULT_BEHAVIOUR = {
   limits: ['score', 'time'],
@@ -280,7 +280,7 @@ const Modes = {
   },
   spawnActor(id) {
     const point = this.pickSpawn(id, spawnChoice);
-    Actors.x[id] = Actors.prevX[id] = point.x; Actors.y[id] = Actors.prevY[id] = point.y; Actors.z[id] = Actors.prevZ[id] = point.z;
+    Actors.place(id, point.x, point.y, point.z);
     Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = point.yaw;
     Actors.pitch[id] = Actors.prevPitch[id] = Actors.aimPitch[id] = 0;
     Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
@@ -328,15 +328,15 @@ const Modes = {
     }
     let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
     if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
-    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, Math.hypot(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
+    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
     spawnRating.score = score;
   },
   rateAgainst(id, other, point) {
     const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
-    const flat = Math.hypot(dx, dz);
-    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < SPAWN_CAPSULE_HEIGHT) spawnRating.occupied = true;
+    const flat = length2(dx, dz);
+    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < STAND_HEIGHT) spawnRating.occupied = true;
     if (!Actors.isEnemy(id, other)) { spawnRating.nearestMate = Math.min(spawnRating.nearestMate, flat); return; }
-    const distance = Math.hypot(flat, dy);
+    const distance = length2(flat, dy);
     spawnRating.nearestEnemy = Math.min(spawnRating.nearestEnemy, distance);
     if (distance < SPAWN_ENEMY_RADIUS) { spawnRating.safe = false; return; }
     if (distance >= SPAWN_SIGHT_RADIUS) return;
@@ -645,7 +645,7 @@ const Modes = {
   },
   inZone(objective, id) {
     const dy = Actors.y[id] - objective.y;
-    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && Math.hypot(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
+    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && length2(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
   },
   // The team alone in the zone, or NO_TEAM when it is empty or contested.
   zoneHolder(objective) {
@@ -898,13 +898,16 @@ function drawObjective(batch, objective) {
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
   if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
-  const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
+  const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
+  instance.setRgb(TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR]);
+  instance.x = objective.x; instance.z = objective.z;
   if (!carriable) {
-    batch.mesh('ring', objective.x, objective.y + 0.05, objective.z, 0, 0, objective.radius, 1, objective.radius, color[0], color[1], color[2], MARKER_GLOW);
+    instance.y = objective.y + 0.05; instance.sx = instance.sz = objective.radius; instance.sy = 1;
+    batch.meshFrom('ring', instance);
     return;
   }
-  const lift = objective.state === 'carried' ? 2.1 : 0;
-  batch.mesh(objective.kind === 'flag' ? 'cylinder' : 'box', objective.x, objective.y + lift + 0.6, objective.z, 0, 0, 0.12, 1.2, 0.12, color[0], color[1], color[2], MARKER_GLOW);
+  instance.y = objective.y + (objective.state === 'carried' ? 2.1 : 0) + 0.6; instance.sx = instance.sz = 0.12; instance.sy = 1.2;
+  batch.meshFrom(objective.kind === 'flag' ? 'cylinder' : 'box', instance);
 }
 
 Bus.on('match.start', (match) => Modes.start(match));

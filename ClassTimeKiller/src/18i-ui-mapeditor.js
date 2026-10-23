@@ -17,7 +17,6 @@ const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VE
 const MAPEDIT_LEGACY_CODE_PREFIX = 'CTKMAP';
 const MAPEDIT_LEGACY_CODE_VERSION = 1;
 const MAPEDIT_LEGACY_CODE_FORMAT = shareCodeFormat(MAPEDIT_LEGACY_CODE_PREFIX, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
-const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 // Parts of the editor screen a change of the model has to redraw (see MapEditorUi.mark).
 const MAPEDIT_PART_TOP = 1, MAPEDIT_PART_PALETTE = 2, MAPEDIT_PART_PROPERTIES = 4, MAPEDIT_PART_DIALOG = 8;
@@ -104,19 +103,17 @@ const MapEditorUi = {
   },
   nameInput(value, onChange) {
     const input = makeElement('input', 'me-name');
-    input.type = 'text'; input.value = value; input.maxLength = MAPEDIT_NAME_MAX;
+    input.type = 'text'; input.value = value; input.maxLength = LABEL_MAX;
     input.addEventListener('change', () => onChange(input.value));
     return input;
   },
   fixed(value) { return (Math.round(value * 100) / 100).toString(); },
   // Empties a panel and fills it again; the control that had the keyboard focus gets it back (by its place in the panel).
   rebuild(panel, fill) {
-    const controls = () => Array.from(panel.querySelectorAll('button, input, textarea'));
-    const focused = controls().indexOf(document.activeElement);
-    panel.replaceChildren();
-    fill(panel);
-    const next = focused >= 0 ? controls()[focused] : null;
-    if (next) next.focus();
+    Ui.rebuild(panel, () => {
+      panel.replaceChildren();
+      fill(panel);
+    });
   },
 
   // Leaves the editor from the menu (asks first when the map has unsaved changes).
@@ -341,7 +338,7 @@ const MapEditorPlay = {
   returnDue: false,                     // a match stopped while returning: settle decides whether it was the last one
   testPlay(modeId) {
     if (!MapEditorTools.playableModes().includes(modeId)) return MapEditor.refuse('This map has no objectives or spawns for that mode.') >= 0;
-    const setup = CustomMatch.setup(CustomMatch.validate({ mode: modeId }).draft, Math.floor(performance.now()) % MAPEDIT_PLAY_SEED_RANGE);
+    const setup = CustomMatch.setup(CustomMatch.validate({ mode: modeId }).draft, newSeed());
     setup.map = MapEditor.toMap();
     this.returning = true;
     MapEditorTools.detach();

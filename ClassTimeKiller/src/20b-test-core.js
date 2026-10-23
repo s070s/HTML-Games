@@ -53,6 +53,11 @@ Test.add('core', (check) => {
   Actors.remove(second);
   check('actors: remove shrinks count', Actors.count === 1);
   check('actors: enemy test by team', Actors.isEnemy(first, Actors.create(ACTOR_KIND.BOT, 2, 'x')) && !Actors.isEnemy(first, first));
+  // R-159: one ally rule (same team, not free-for-all, not itself); an enemy is anyone else
+  const mate = Actors.create(ACTOR_KIND.BOT, 1, 'mate'), loner = Actors.create(ACTOR_KIND.BOT, -1, 'a'), other = Actors.create(ACTOR_KIND.BOT, -1, 'b');
+  check('actors: ally test', Actors.isAlly(first, mate) && !Actors.isAlly(first, first) && !Actors.isAlly(loner, other) && !Actors.isAlly(first, loner)
+    && Actors.isEnemy(loner, other) && !Actors.isEnemy(first, mate));
+  Actors.remove(other); Actors.remove(loner); Actors.remove(mate);
   Actors.buttons[first] = BTN.FIRE;
   Sim.step();
   check('sim: pressed edge on first step', (Actors.pressed[first] & BTN.FIRE) !== 0);
@@ -162,6 +167,15 @@ Test.add('core', (check) => {
   let flood = [];
   const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });
   check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
+});
+
+// R-007: a block that throws reports the error the way ErrorLog does (errorText: the message first on every engine).
+Test.add('core', async (check) => {
+  const thrown = new TypeError('boom');
+  Test.add('core-throwing-block', () => { throw thrown; });
+  let result = null;
+  try { result = (await Test.run({ group: 'core-throwing-block' })).results[0]; } finally { Test.blocks.pop(); }
+  check('a throwing block reads "block threw" with errorText', result.name === 'block threw' && !result.ok && result.detail === errorText(thrown), result.detail);
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).

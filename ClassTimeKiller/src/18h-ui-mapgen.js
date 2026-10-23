@@ -25,10 +25,10 @@ const MapGenMenu = {
     const generator = MapGen.generator(this.state.generator);
     if (key === 'generator' && !generator.modes.includes(this.state.mode)) this.state.mode = MAPGEN_MENU_ANY_MODE;
   },
-  newSeed() { this.set('seed', hashString('seed:' + Date.now()) % MAPGEN_SEED_RANGE); },
+  newSeed() { this.set('seed', newSeed()); },
   setSeedText(text) {
     if (!/^\d{1,10}$/.test(String(text).trim())) return false;
-    this.set('seed', Number(text) % MAPGEN_SEED_RANGE);
+    this.set('seed', Number(text) % SEED_RANGE);
     return true;
   },
   // The sizes the quality tier allows (13.4 size cap).
@@ -117,19 +117,18 @@ function mapgenMenuShareRows(render) {
   return [Ui.row('Share code', copyWrap), Ui.row('Paste', pasteWrap)];
 }
 function mapgenMenuRender(list, status) {
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
   const render = () => mapgenMenuRender(list, status);
   const choices = mapgenMenuChoices(), named = (row) => row.name;
-  list.replaceChildren();
-  for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
-    list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
-  }
-  list.appendChild(mapgenMenuSeedRow(render));
-  mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
+      list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
+    }
+    list.appendChild(mapgenMenuSeedRow(render));
+    mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  });
   status.textContent = MapGenMenu.describe();
   status.className = 'ui-note mg-status' + (MapGenMenu.state.report && MapGenMenu.state.report.fallback && MapGenMenu.state.map ? ' mg-error' : '');
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
 }
 
 Ui.register('mapgen', {

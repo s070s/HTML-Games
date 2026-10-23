@@ -24,6 +24,8 @@ const LADDER_DOWN_PITCH = 30 * DEG;    // looking further down than this climbs 
 const LADDER_PUSH_OFF = 4;             // m/s away from the ladder when jumping off
 const LADDER_REGRAB_SECONDS = 0.3;
 const SWIM_SPEED_FRACTION = 0.5;       // MOV-019: swim at 50% of ground speed
+Nav.limits.ladderSpeed = LADDER_SPEED;   // nav link costs climb and swim at these speeds (S09 reads them, R-155)
+NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor = SWIM_SPEED_FRACTION;
 const WATER_FRICTION = 3;
 const WATER_GRAVITY_SCALE = 0.1;       // slow sinking
 const CHARGE_CONE_COS = Math.cos(25 * DEG); // shield charge locks onto enemies this close to the aim
@@ -457,8 +459,8 @@ TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   //
 function toggleBoard(id, preset) {
   if (!(Actors.pressed[id] & BTN.USE)) return;
   if (Motion.board[id]) { Move.setBoard(id, false); return; }
-  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
-  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  const running = length2(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  const moving = length2(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
   if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
 }
 

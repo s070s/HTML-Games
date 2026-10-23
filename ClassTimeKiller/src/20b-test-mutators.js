@@ -65,6 +65,13 @@ const MUTATOR_EXPECTATIONS = {
   wildlife: [undefined, (r) => r.fx.wildlife === 4],
 };
 
+// R-196: movement reads its two mutators through hasMutator (10a, which also takes plain ids); no unused second lookup.
+Test.add('mutators', (check) => {
+  buildMatchMove({ move: 'arena', mutators: [{ id: 'autohop' }, 'aircontrol'] });
+  check('hasMutator reads rows and plain ids, with no unused accessors beside it', MatchMove.autoHop && MatchMove.airControl && !['isActive', 'value', 'sizeScale'].some((key) => key in Mutators));
+  buildMatchMove(null);
+});
+
 Test.add('mutators', (check) => {
   check('50 mutators X01..X50 in order', CAT.mutators.length === 50 && CAT.mutators.every((row, index) => row.code === MUTATOR_CODES[index]));
   check('mutator catalogue validates against its schema', Data.validate('mutators').length === 0, Data.validate('mutators').join('; '));
@@ -541,7 +548,7 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
 
   const drawn = [];
-  const batch = { mesh(shape) { drawn.push(shape); } };
+  const batch = { meshFrom(shape) { drawn.push(shape); } };
   const source = Render.sources.find((entry) => entry.name === 'gifts');
   startMutatorMatch(['lastgift']);
   source.draw(batch);

@@ -172,7 +172,7 @@ function enemiesNear(id, x, y, z, radius, includeGhosts) {
   }
   return count;
 }
-function alliesOf(id, other) { return other === id || (Actors.team[id] >= 0 && Actors.team[other] === Actors.team[id]); }
+function alliesOf(id, other) { return other === id || Actors.isAlly(id, other); }
 function revealEnemies(id, x, y, z, radius, seconds) {
   const count = enemiesNear(id, x, y, z, radius, false);
   for (let k = 0; k < count; k++) Damage.addStatus(effectIds[k], 'reveal', id, seconds, 1);
@@ -197,7 +197,7 @@ function moveActorTo(id, x, y, z, row) {
 // A free standing spot below the point (x, probeY, z): onto the floor under it (or hanging at the point minus the eye
 // height), stepped back toward (fromX, fromZ) until the capsule fits.
 function findArrival(id, fromX, fromZ, x, probeY, z, out) {
-  const length = Math.hypot(x - fromX, z - fromZ) || 1;
+  const length = length2(x - fromX, z - fromZ) || 1;
   for (let attempt = 0; attempt < BLINK_TRIES; attempt++) {
     const back = Math.min(1, attempt * BLINK_BACKOFF / length);
     const px = lerp(x, fromX, back), pz = lerp(z, fromZ, back);
@@ -231,13 +231,9 @@ const AbilityZones = {
     return slot;
   },
   freeSlot() {
-    let oldest = 0;
-    for (let zone = 0; zone < ZONE_CAP; zone++) {
-      if (!this.alive[zone]) return zone;
-      if (this.born[zone] < this.born[oldest]) oldest = zone;
-    }
-    this.remove(oldest);
-    return oldest;
+    const zone = oldestFreeSlot(this.alive, this.born, ZONE_CAP);
+    this.remove(zone);
+    return zone;
   },
   remove(zone) {
     if (!this.alive[zone]) return;
@@ -267,7 +263,7 @@ const AbilityZones = {
   inside(zone, id) {
     const dy = Actors.y[id] - this.y[zone];
     if (this.height[zone] > 0 && (dy < -1 || dy > this.height[zone])) return false;
-    return Math.hypot(Actors.x[id] - this.x[zone], Actors.z[id] - this.z[zone]) <= this.radius[zone];
+    return length2(Actors.x[id] - this.x[zone], Actors.z[id] - this.z[zone]) <= this.radius[zone];
   },
   insideSphere(zone, x, y, pointZ) { return distanceSquared3(x, y, pointZ, this.x[zone], this.y[zone], this.z[zone]) <= this.radius[zone] * this.radius[zone]; },
 };
@@ -337,7 +333,7 @@ function touchesSegment(id, ax, ay, az, bx, bz) {
   if (dy < -1 || dy > FENCE_HEIGHT) return false;
   const sx = bx - ax, sz = bz - az, length = sx * sx + sz * sz;
   const t = length > 0 ? clamp(((Actors.x[id] - ax) * sx + (Actors.z[id] - az) * sz) / length, 0, 1) : 0;
-  return Math.hypot(Actors.x[id] - (ax + sx * t), Actors.z[id] - (az + sz * t)) <= FENCE_REACH;
+  return length2(Actors.x[id] - (ax + sx * t), Actors.z[id] - (az + sz * t)) <= FENCE_REACH;
 }
 function zapFence(zone, id) {
   const row = zoneRow(zone), info = Damage.info();
@@ -585,7 +581,7 @@ function castBlink(id, row) {
 function inputDirection(id, out) {
   let forward = Actors.moveZ[id], strafe = Actors.moveX[id];
   if (Math.abs(forward) + Math.abs(strafe) < 0.1) forward = 1;
-  const yaw = Actors.yaw[id], length = Math.hypot(forward, strafe);
+  const yaw = Actors.yaw[id], length = length2(forward, strafe);
   return Vec.set(out, (Math.sin(yaw) * forward - Math.cos(yaw) * strafe) / length, 0, (Math.cos(yaw) * forward + Math.sin(yaw) * strafe) / length);
 }
 // buff: every param of the row becomes a timed buff of row.duration.
@@ -615,7 +611,7 @@ function stepGrapple(id, row) {
   const target = GrappleState.target[id], mover = target >= 0 ? target : id;
   if (target >= 0 && !Actors.alive[target]) return false;
   const toX = target >= 0 ? Actors.x[id] : GrappleState.x[id], toY = target >= 0 ? Actors.y[id] : GrappleState.y[id], toZ = target >= 0 ? Actors.z[id] : GrappleState.z[id];
-  const dx = toX - Actors.x[mover], dy = toY - Actors.y[mover], dz = toZ - Actors.z[mover], distance = Math.hypot(dx, dy, dz);
+  const dx = toX - Actors.x[mover], dy = toY - Actors.y[mover], dz = toZ - Actors.z[mover], distance = length3(dx, dy, dz);
   if (distance <= row.params.arrive) return false;
   const speed = row.params.pullSpeed / distance;
   driveActor(mover, dx * speed, dy * speed, dz * speed);
@@ -648,7 +644,7 @@ function teleportToBeacon(id, zone, row) {
   const x = AbilityZones.x[zone], y = AbilityZones.y[zone], beaconZ = AbilityZones.z[zone];
   AbilityZones.remove(zone);
   for (let other = 0; other < Actors.count; other++) {
-    if (other === id || !Actors.alive[other] || Math.hypot(Actors.x[other] - x, Actors.z[other] - beaconZ) > ACTOR_RADIUS * 2 || Math.abs(Actors.y[other] - y) > STAND_HEIGHT) continue;
+    if (other === id || !Actors.alive[other] || length2(Actors.x[other] - x, Actors.z[other] - beaconZ) > ACTOR_RADIUS * 2 || Math.abs(Actors.y[other] - y) > STAND_HEIGHT) continue;
     telefragRequest.target = other; telefragRequest.source = id; telefragRequest.x = x; telefragRequest.y = y; telefragRequest.z = beaconZ;
     Bus.emit('damage.request', telefragRequest);
   }
@@ -695,7 +691,7 @@ function castFence(id, row) {
   const at = aimedFloor(id, row.range, placeAt);
   const previous = newestZone(ZONE_KIND.FENCE, id);
   const zone = AbilityZones.add(ZONE_KIND.FENCE, id, row, at.x, at.y, at.z, row.params.life);
-  if (previous >= 0 && Math.hypot(AbilityZones.x[previous] - at.x, AbilityZones.z[previous] - at.z) <= row.params.link) AbilityZones.other[zone] = previous;
+  if (previous >= 0 && length2(AbilityZones.x[previous] - at.x, AbilityZones.z[previous] - at.z) <= row.params.link) AbilityZones.other[zone] = previous;
   return true;
 }
 function newestZone(kind, owner) {
@@ -725,7 +721,7 @@ function castPush(id, row) {
 function deflectProjectiles(id, eyeY, cos, range) {
   for (let i = 0; i < PROJECTILE_CAP; i++) {
     if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING || !Actors.isEnemy(id, Projectiles.owner[i])) continue;
-    const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - eyeY, dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+    const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - eyeY, dz = Projectiles.z[i] - Actors.z[id], distance = length3(dx, dy, dz);
     if (distance > range || distance < 1e-3 || (dx * effectDirection.x + dy * effectDirection.y + dz * effectDirection.z) / distance < cos) continue;
     Projectiles.vx[i] = -Projectiles.vx[i]; Projectiles.vy[i] = -Projectiles.vy[i]; Projectiles.vz[i] = -Projectiles.vz[i];
     Projectiles.owner[i] = id;
@@ -1089,15 +1085,23 @@ function onAbilityKill(event) {
 }
 
 // ---- Drawing: zones, beacons, fences, the tracker's footprints (render only, never in headless runs) ----
+// Zones and footprints go through reused instance records (batch.meshFrom): float arguments would be boxed (PERF-006).
+const zoneInstance = makeShapeInstance();
+const footprintInstance = Object.assign(makeShapeInstance(), { sx: FOOTPRINT_SIZE, sy: 0.02, sz: FOOTPRINT_SIZE, g: 0.8, b: 0.2, emissive: 0.8 });
 function drawZone(batch, zone) {
-  const kind = AbilityZones.kind[zone], row = AbilityZones.ability[zone] >= 0 ? zoneRow(zone) : null;
-  const color = row ? row.color : 0xffffff, r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
-  const x = AbilityZones.x[zone], y = AbilityZones.y[zone], zoneZ = AbilityZones.z[zone], radius = Math.min(AbilityZones.radius[zone], 60);
-  if (kind === ZONE_KIND.DOME) batch.mesh('sphere', x, y, zoneZ, 0, 0, radius * 2, radius * 2, radius * 2, r, g, b, 0.3);
-  else if (kind === ZONE_KIND.WALL) batch.mesh('box', x, y + AbilityZones.height[zone] / 2, zoneZ, AbilityZones.yaw[zone], 0, radius * 2, AbilityZones.height[zone], 0.2, r, g, b, 0.2);
-  else if (kind === ZONE_KIND.STRIKE) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, 1, 0.2, 0.2, 1);
-  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) batch.mesh('sphere', x, y + 0.3, zoneZ, 0, 0, 0.3, 0.3, 0.3, r, g, b, 0.8);
-  else if (radius > 0 && radius < 60) batch.mesh('ring', x, y + 0.05, zoneZ, 0, 0, radius * 2, 0.05, radius * 2, r, g, b, 0.6);
+  const kind = AbilityZones.kind[zone], row = AbilityZones.ability[zone] >= 0 ? zoneRow(zone) : null, instance = zoneInstance;
+  const radius = Math.min(AbilityZones.radius[zone], 60), size = radius * 2;
+  instance.x = AbilityZones.x[zone]; instance.y = AbilityZones.y[zone]; instance.z = AbilityZones.z[zone]; instance.yaw = 0;
+  instance.sx = instance.sz = size; instance.sy = 0.05;
+  instance.setColor(row ? row.color : 0xffffff);
+  let shape = 'ring';
+  if (kind === ZONE_KIND.DOME) { shape = 'sphere'; instance.sy = size; instance.emissive = 0.3; }
+  else if (kind === ZONE_KIND.WALL) { shape = 'box'; instance.sy = AbilityZones.height[zone]; instance.y += instance.sy / 2; instance.sz = 0.2; instance.yaw = AbilityZones.yaw[zone]; instance.emissive = 0.2; }
+  else if (kind === ZONE_KIND.STRIKE) { instance.y += 0.05; instance.r = 1; instance.g = instance.b = 0.2; instance.emissive = 1; }
+  else if (kind === ZONE_KIND.FENCE || kind === ZONE_KIND.BEACON || kind === ZONE_KIND.DRONE) { shape = 'sphere'; instance.y += 0.3; instance.sx = instance.sy = instance.sz = 0.3; instance.emissive = 0.8; }
+  else if (radius > 0 && radius < 60) { instance.y += 0.05; instance.emissive = 0.6; }
+  else return;
+  batch.meshFrom(shape, instance);
 }
 // A16: enemy footprints of the last params.seconds are visible to a viewer with Tracker Sense.
 function footprintVisible(viewer, i) {
@@ -1110,7 +1114,8 @@ function drawFootprints(batch) {
   if (viewer < 0 || Abilities.slotOf(viewer, 'tracker') < 0) return;
   for (let i = 0; i < FOOTPRINT_COUNT; i++) {
     if (!footprintVisible(viewer, i)) continue;
-    batch.mesh('cylinder', Footprints.x[i], Footprints.y[i] + 0.02, Footprints.z[i], 0, 0, FOOTPRINT_SIZE, 0.02, FOOTPRINT_SIZE, 1, 0.8, 0.2, 0.8);
+    footprintInstance.x = Footprints.x[i]; footprintInstance.y = Footprints.y[i] + 0.02; footprintInstance.z = Footprints.z[i];
+    batch.meshFrom('cylinder', footprintInstance);
   }
 }
 function abilityStyle(id, out) {

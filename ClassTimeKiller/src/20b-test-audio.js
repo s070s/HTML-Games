@@ -42,10 +42,6 @@ function audioTestFinish() {
   Actors.clear();
 }
 
-function audioTestPlace(id, x, y, z) {
-  Actors.x[id] = x; Actors.y[id] = y; Actors.z[id] = z;
-}
-
 const audioTestCount = (recipeId) => Sound.triggerCounts[Sound.recipeIndex(recipeId)];
 
 // Emits one event, then runs one audio frame of `seconds` (default long enough to clear every caption throttle).
@@ -288,20 +284,20 @@ Test.add('audio', (check) => {
 Test.add('audio', (check) => {
   const { player, bot } = audioTestStart();
   const captions = audioTestCaptions();
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'metal' });
   check('enemy footsteps ahead are captioned', captions.length === 1 && captions[0].text === '[Footsteps ahead]' && captions[0].kind === 'footstep', JSON.stringify(captions));
   check('the step plays the metal recipe', audioTestCount('step.metal') === 1);
-  audioTestPlace(bot, 10, 0, 0);
+  Actors.place(bot, 10, 0, 0);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'wood' });
-  audioTestPlace(bot, -10, 0, 0);
+  Actors.place(bot, -10, 0, 0);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'dirt' });
-  audioTestPlace(bot, 0, 0, -10);
+  Actors.place(bot, 0, 0, -10);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'glass' });
   check('captions name left, right and behind', captions.map((caption) => caption.text).join('|') === '[Footsteps ahead]|[Footsteps left]|[Footsteps right]|[Footsteps behind]', captions.map((caption) => caption.text).join('|'));
   check('captions carry the source position for the visual ring', captions[1].x === 10 && captions[3].z === -10);
 
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   const before = captions.length;
   Bus.emit('move.step', { id: bot, speed: 6, surface: 'metal' });
   Bus.emit('move.step', { id: bot, speed: 6, surface: 'metal' });
@@ -313,11 +309,11 @@ Test.add('audio', (check) => {
 
   audioTestEmit('move.step', { id: player, speed: 6, surface: 'metal' });
   check('your own footsteps play but are not captioned', audioTestCount('step.metal') >= 3 && captions.length === before + 1);
-  audioTestPlace(bot, 0, 0, 100);
+  Actors.place(bot, 0, 0, 100);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'metal' });
   check('footsteps beyond their range are dropped', captions.length === before + 1);
 
-  audioTestPlace(bot, 0, 0, 12);
+  Actors.place(bot, 0, 0, 12);
   captions.length = 0;
   audioTestEmit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'shotgun', mode: 'primary', x: 0, y: 1.5, z: 12, dx: 0, dy: 0, dz: -1 });
   audioTestEmit('weapon.fire', { id: player, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.5, z: 0, dx: 0, dy: 0, dz: 1 });
@@ -346,7 +342,7 @@ Test.add('audio', (check) => {
 
 Test.add('audio', (check) => {
   const { player, bot } = audioTestStart();
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('damage', { target: bot, source: player, amount: 20, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
   check('your hit plays a tick', audioTestCount('hitTick') === 1);
   audioTestEmit('damage', { target: bot, source: player, amount: 90, absorbed: 0, zone: 'head', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
@@ -483,7 +479,7 @@ Test.add('audio', (check) => {
 
   for (let frame = 0; frame < 120; frame++) {
     for (let k = 0; k < 4; k++) {
-      audioTestPlace(bot, (frame % 7) * 4 - 12, 0, 6 + (k * 7) % 25);
+      Actors.place(bot, (frame % 7) * 4 - 12, 0, 6 + (k * 7) % 25);
       Bus.emit('move.step', { id: bot, speed: 6, surface: AUDIO_TEST_MATERIALS[(frame + k) % 8] });
       Bus.emit('weapon.fire', { id: 10 + k, weapon: 'x', weaponClass: AUDIO_TEST_WEAPON_CLASSES[(frame + k) % 15], mode: 'primary', x: (k - 2) * 6, y: 1.5, z: 8 + frame % 30, dx: 0, dy: 0, dz: 1 });
     }
@@ -497,7 +493,7 @@ Test.add('audio', (check) => {
   check('sounds create no source nodes (node creation costs 30 us each)', made.counts.oneShot === sourcesBase, made.counts.oneShot + ' vs ' + sourcesBase);
 
   for (let frame = 0; frame < 300; frame++) {
-    audioTestPlace(bot, 3, 0, 15);
+    Actors.place(bot, 3, 0, 15);
     Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: 3, y: 1.5, z: 15, dx: 0, dy: 0, dz: 1 });
     Bus.emit('explosion', { x: -5 + frame % 3, y: 1, z: 20, radius: 4, owner: bot, source: 'x', element: '' });
     Sound.update(AUDIO_TEST_FRAME);
@@ -539,7 +535,7 @@ Test.add('audio', (check) => {
   Game.state = 'playing';
   SoundMusic.bosses = 0;
 
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('damage', { target: bot, source: player, amount: 60, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
   const raised = SoundMusic.intensity;
   check('your damage raises the intensity', raised > 0.2, raised);
@@ -662,7 +658,7 @@ Test.add('audio', (check) => {
   const spatialKinds = [];
   Sound.resetState();
   Sound.allocator.reset();
-  audioTestPlace(1, 5, 0, 5);
+  Actors.place(1, 5, 0, 5);
   Sound.enqueue(Sound.recipeIndex('rifle'), true, 5, 1, 5, 1, 1, 1);
   Sound.update(AUDIO_TEST_FRAME);
   spatialKinds.push(Sound.slots[0].spatialKind);

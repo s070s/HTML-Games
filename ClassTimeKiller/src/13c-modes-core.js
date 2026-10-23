@@ -270,7 +270,7 @@ function worldSafeArea(out) {
   const known = Number.isFinite(low.x) && Number.isFinite(high.x);
   out.x = known ? (low.x + high.x) / 2 : 0;
   out.z = known ? (low.z + high.z) / 2 : 0;
-  out.radius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
+  out.radius = known ? length2(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
   return out;
 }
 

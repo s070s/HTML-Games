@@ -881,11 +881,11 @@ const Pve = {
       const part = row.parts[index], tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
       point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
       rotateInPlace(point);
-      const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
-      const b = tell.amount > 0 ? tell.b : colors[tint * 3 + 2] * (glow ? 1 : shade);
+      // the part colour (shaded by damage) blends toward the tell colour by its strength; glowing parts take it whole
+      const light = glow ? 1 : shade, toTell = glow && tell.amount > 0 ? 1 : tell.amount;
       instance.x = Actors.x[id] + point.x; instance.y = Actors.y[id] + point.y; instance.z = Actors.z[id] + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
       instance.sx = part[4] * size; instance.sy = part[5] * size; instance.sz = part[6] * size;
-      instance.r = glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount); instance.g = g; instance.b = b;
+      instance.r = lerp(colors[tint * 3] * light, tell.r, toTell); instance.g = lerp(colors[tint * 3 + 1] * light, tell.g, toTell); instance.b = lerp(colors[tint * 3 + 2] * light, tell.b, toTell);
       instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
       batch.meshFrom(part[0], instance);
     }
@@ -928,7 +928,7 @@ function tellColor(attack) {
 
 // Moves an actor to a point with no interpolation from the old one and no velocity (spawns, blinks, chamber moves).
 function relocateActor(id, x, y, z, yaw) {
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, y, z);
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }

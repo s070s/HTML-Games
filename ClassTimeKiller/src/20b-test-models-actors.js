@@ -115,9 +115,20 @@ Test.add('render', (check) => withRenderer(() => {
   check('first person: the local body model is not drawn into its own camera', batchInstances(actorBatch) === 0 && shadowBatch.counts[SHAPE_INDEX.disc] === 1);
 }));
 
+// R-210: a frame of every body model on High fits the actor and shadow batches (nothing dropped).
+Test.add('render', (check) => withRenderer(() => {
+  Settings.set('video.quality', 'high');
+  placeCamera(0, 1.6, 0, 0, 0);
+  CAT.actorModels.forEach((row, index) => ActorModels.set(makeTestActor(ACTOR_KIND.BOT, index % 2, (index % 6) - 3, 4 + Math.floor(index / 6) * 2), row.kind, row.id));
+  Render.stats.droppedInstances = 0;
+  fillActors(1 / 60, 1);
+  check('every body model fits one frame of the batches', Render.stats.droppedInstances === 0 && batchInstances(actorBatch) > CAT.actorModels.length, Render.stats.droppedInstances);
+  Settings.set('video.quality', 'medium');
+}));
+
 // PERF-006: drawing every body model allocates nothing per frame.
 Test.add('render', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the body model allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('body model allocation probe', 'no exact heap counter on this page'); return; }
   placeCamera(0, 1.6, 0, 0, 0);
   CAT.actorModels.forEach((row, index) => {
     const id = makeTestActor(ACTOR_KIND.BOT, index % 2, (index % 6) - 3, 4 + Math.floor(index / 6) * 2);

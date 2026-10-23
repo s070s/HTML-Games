@@ -32,8 +32,10 @@ async function main() {
   if (!skipSelfTest) {
     const started = Date.now();
     const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ', slow: ' + slow + ' });'
-      + ' return { total: r.total, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map((x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ')) }; })()');
-    console.log('SELFTEST ' + (report.total - report.failed) + '/' + report.total + ' passed in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
+      + ' const line = (x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ');'
+      + ' return { total: r.total, passed: r.passed, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map(line), skips: r.results.filter((x) => x.skipped).map(line) }; })()');
+    console.log('SELFTEST ' + report.passed + '/' + report.total + ' passed, ' + report.skips.length + ' skipped in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
+    report.skips.forEach((line) => console.log('  SKIP ' + line));
     report.bad.forEach((line) => console.log('  FAIL ' + line));
     if (report.failed) failed = true;
   }

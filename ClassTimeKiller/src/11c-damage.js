@@ -221,7 +221,7 @@ const Damage = {
   // MOV-017: dv = 0.15 x damage x mode factor / mass factor, capped; own explosions push at full strength. The ruleset's
   // knockback scale is applied once, by S10 to every 'impulse' (R-097: it used to be applied here too, squaring it).
   knockback(target, amount, info) {
-    const length = Math.hypot(info.dx, info.dy, info.dz);
+    const length = length3(info.dx, info.dy, info.dz);
     if (length < 1e-6 || amount <= 0) return;
     const profile = Actors.profile[target], mass = profile && profile.massFactor ? profile.massFactor : 1;
     const speed = Math.min(KNOCKBACK_CAP, KNOCKBACK_PER_DAMAGE * amount * info.knockback / mass);
@@ -286,7 +286,7 @@ const Damage = {
   nearestDownedAlly(id, maxDistance) {
     let best = -1, bestSquared = maxDistance * maxDistance;
     for (let other = 0; other < Actors.count; other++) {
-      if (other === id || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED) || Actors.team[other] !== Actors.team[id] || Actors.team[id] < 0) continue;
+      if (!Actors.isAlly(id, other) || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
       const squared = distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]);
       if (squared <= bestSquared) { best = other; bestSquared = squared; }
     }
@@ -605,8 +605,8 @@ function regenCap(id, preset) {
 function splashDistance(blast, id) {
   const low = Actors.y[id] + SPLASH_TARGET_LIFT, high = Actors.eyeY(id);
   Vec.set(splashPoint, Actors.x[id], clamp(blast.y, low, high), Actors.z[id]);
-  const horizontal = Math.max(0, Math.hypot(splashPoint.x - blast.x, splashPoint.z - blast.z) - TORSO_RADIUS);
-  return Math.hypot(horizontal, splashPoint.y - blast.y);
+  const horizontal = Math.max(0, length2(splashPoint.x - blast.x, splashPoint.z - blast.z) - TORSO_RADIUS);
+  return length2(horizontal, splashPoint.y - blast.y);
 }
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));

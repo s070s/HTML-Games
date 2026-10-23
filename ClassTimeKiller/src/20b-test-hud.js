@@ -11,7 +11,6 @@ const HUD_TEST_WIDTH = 1280, HUD_TEST_HEIGHT = 720;
 const HUD_TEST_FRAME = 1 / 60;
 const HUD_TEST_COST_FRAMES = 100, HUD_TEST_COST_BATCHES = 6;
 const HUD_TEST_COST_BUDGET_MS = 0.4;   // PERF-002
-const HUD_TEST_POOL_KILLER = 2;
 
 // Runs `run` with a fixed screen size, the glyph atlas and untouched camera / input state afterwards.
 function hudTestWith(run) {
@@ -47,7 +46,7 @@ function hudTestFrame(seconds) {
 }
 
 function hudTestPlace(id, x, z, yaw) {
-  Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z; Actors.yaw[id] = yaw || 0; Actors.aimYaw[id] = yaw || 0;
+  Actors.place(id, x, 0, z); Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
 }
 function hudTestCamera(id) {
   Object.assign(Render.camera, { x: Actors.x[id], y: Actors.y[id] + Actors.eye[id], z: Actors.z[id], yaw: Actors.aimYaw[id], pitch: 0, roll: 0, fov: 90 });
@@ -456,7 +455,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Render.applyActorStyle(foe, style);
   check('killcam: live bodies are hidden while it plays', style.visible === false);
   let figures = 0;
-  hudDrawKillcamFigures({ mesh() { figures++; return 0; } });
+  hudDrawKillcamFigures({ meshFrom() { figures++; return 0; } });
   check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);

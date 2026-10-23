@@ -24,6 +24,9 @@ const GIFT_FUSE_SECONDS = 3;
 const GIFT_RADIUS = 5;
 const GIFT_DAMAGE = 100;
 const GIFT_DRAW_SIZE = 0.3;
+// Reused instance records for the tag plates and gift balls (batch.meshFrom): float arguments would be boxed (PERF-006).
+const tagInstance = Object.assign(makeShapeInstance(), { sx: 0.18, sy: 0.28, sz: 0.04, g: 0.85, b: 0.2, emissive: 0.6 });
+const giftInstance = Object.assign(makeShapeInstance(), { sx: GIFT_DRAW_SIZE, sy: GIFT_DRAW_SIZE, sz: GIFT_DRAW_SIZE, g: 0.2, b: 0.1 });
 const GIFT_BLINK_SLOW = 6, GIFT_BLINK_FAST = 24;   // blink speed (radians per second) at the start of the fuse and what is added by its end
 const SUPPRESS_RANGE = 60;                   // X44: a shot passing within this distance of a target, closer than SUPPRESS_REACH
 const SUPPRESS_REACH = 2.5;
@@ -64,11 +67,6 @@ const Mutators = {
 
   addHook(kind, hook) { this.hooks[kind].push(hook); },
   row(id) { return CAT.mutators.byId(id); },
-  isActive(id) { return !!this.rules && this.rules.mutators.some((entry) => entry.id === id); },
-  value(id) {
-    const entry = this.rules ? this.rules.mutators.find((item) => item.id === id) : null;
-    return entry ? entry.value : undefined;
-  },
 
   // ---- Typed values ----
   optionsOf(param) {
@@ -165,7 +163,6 @@ const Mutators = {
 
   // ---- Runtime access for other sections ----
   suppression(id) { return this.fx && this.fx.suppression ? clamp(this.suppressed[id] / SUPPRESS_SECONDS, 0, 1) : 0; },
-  sizeScale(id) { return Hitbox.sizeScale[id]; },
 };
 
 function snapToStep(param, value) {
@@ -572,9 +569,12 @@ Render.addActorStyle((id, style) => { style.scale *= Hitbox.sizeScale[id]; style
 // Confirm tags (X42) are drawn as small yellow plates above the floor, live last gifts (X29) as red balls that blink faster before the blast.
 Render.addSource('tags', (batch) => {
   if (!Mutators.fx || !Mutators.fx.tags) return;
+  const instance = tagInstance, bob = 0.1 * Math.sin(Sim.time * 4);
+  instance.yaw = Sim.time * 2;
   for (let slot = 0; slot < MAX_TAGS; slot++) {
     if (TagPool.timer[slot] <= 0) continue;
-    batch.mesh('box', TagPool.x[slot], TagPool.y[slot] + 0.1 * Math.sin(Sim.time * 4), TagPool.z[slot], Sim.time * 2, 0, 0.18, 0.28, 0.04, 1, 0.85, 0.2, 0.6);
+    instance.x = TagPool.x[slot]; instance.y = TagPool.y[slot] + bob; instance.z = TagPool.z[slot];
+    batch.meshFrom('box', instance);
   }
 });
 Render.addSource('gifts', (batch) => {
@@ -583,7 +583,9 @@ Render.addSource('gifts', (batch) => {
     const left = GiftPool.timer[slot];
     if (left <= 0) continue;
     const blinkRate = GIFT_BLINK_SLOW + GIFT_BLINK_FAST * (1 - left / GIFT_FUSE_SECONDS);
-    const lit = Math.sin(Sim.time * blinkRate) > 0 ? 1 : 0.25;
-    batch.mesh('sphere', GiftPool.x[slot], GiftPool.y[slot], GiftPool.z[slot], 0, 0, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, 1, 0.2, 0.1, lit);
+    const instance = giftInstance;
+    instance.x = GiftPool.x[slot]; instance.y = GiftPool.y[slot]; instance.z = GiftPool.z[slot];
+    instance.emissive = Math.sin(Sim.time * blinkRate) > 0 ? 1 : 0.25;
+    batch.meshFrom('sphere', instance);
   }
 });

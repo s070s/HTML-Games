@@ -46,7 +46,7 @@ function spawnDemoActors() {
   for (const row of DEMO_ACTORS) {
     const id = Actors.create(ACTOR_KIND.BOT, row.team, 'demo');
     Actors.alive[id] = 1;
-    Actors.x[id] = Actors.prevX[id] = row.x; Actors.y[id] = Actors.prevY[id] = row.y || 0; Actors.z[id] = Actors.prevZ[id] = row.z;
+    Actors.place(id, row.x, row.y || 0, row.z);
     Actors.yaw[id] = Actors.prevYaw[id] = row.yaw; Actors.pitch[id] = Actors.prevPitch[id] = row.pitch || 0;
     Actors.vx[id] = Math.sin(row.yaw) * row.speed; Actors.vz[id] = Math.cos(row.yaw) * row.speed;
     Actors.height[id] = row.height || 1.8; Actors.eye[id] = row.eye || 1.62; Actors.flags[id] = row.flags;
@@ -58,7 +58,7 @@ function spawnDemoActors() {
 function spawnDemoPlayer() {
   const id = Actors.create(ACTOR_KIND.PLAYER, 0, 'player');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = 0; Actors.z[id] = Actors.prevZ[id] = -12;
+  Actors.place(id, 0, 0, -12);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   Actors.aimYaw[id] = 0.08; Actors.aimPitch[id] = -0.06;
   Game.playerId = id;
@@ -75,7 +75,6 @@ function emitDemoEffects() {
   Fx.light(-12, 1, -8, '#ff7a2a', 7, 0.5);
 }
 
-const DEMO_WEAPONS = ['rifle', 'shotgun', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'smg'];
 const demo = { emitter: false, sinceEffects: 0, weapon: 'rifle' };
 // Builds a sample scene with world, 8 actors, effects, a player view model and a HUD layer; returns frame stats.
 DebugApi.renderDemo = (themeId, weapon, qualityId) => {
@@ -178,7 +177,7 @@ function placeCamera(x, y, z, yaw, pitch) {
 function makeTestActor(kind, team, x, z) {
   const id = Actors.create(kind, team, 'test');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = x; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, 0, z);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   return id;
 }
@@ -580,7 +579,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // PERF-006: drawing models (view model, held weapons, pickups, projectiles) allocates nothing once compiled.
 Test.add('render', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the model drawing allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('model drawing allocation probe', 'no exact heap counter on this page'); return; }
   const weapons = WeaponModels.weapon, ids = CAT.weapons.map((weapon) => weapon.id), instance = makeShapeInstance(), state = viewModelState;
   Object.assign(actorPose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
   Object.assign(actorStyle, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
@@ -631,7 +630,7 @@ Test.add('render', (check) => {
 
 // ---- GPU frame: budgets, render scale, direct mode (needs a WebGL2 context) ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl, result = DebugApi.renderDemo('glacier');
   const quality = Render.quality;
   check('demo frame within the draw-call cap', result.stats.drawCalls > 0 && result.stats.drawCalls <= quality.drawCalls, result.stats.drawCalls);
@@ -649,6 +648,12 @@ Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'high');
   Render.drawFrame(1 / 60, 1);
   check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
+  // R-154: the sun shadow map renders before the scene target is bound, so a tile GPU binds (and loads) the target once a frame
+  const sceneTarget = Render.target.msaaFramebuffer || Render.target.framebuffer, bind = gl.bindFramebuffer;
+  let sceneBinds = 0;
+  gl.bindFramebuffer = function (kind, framebuffer) { if (framebuffer === sceneTarget && kind !== gl.READ_FRAMEBUFFER) sceneBinds++; return bind.call(this, kind, framebuffer); };
+  try { Render.drawFrame(1 / 60, 1); } finally { delete gl.bindFramebuffer; }
+  check('High binds the scene target once a frame', SunShadow.active && sceneBinds === 1, sceneBinds);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
 }));
@@ -657,7 +662,7 @@ Test.add('render', (check) => withRenderer(() => {
 Test.add('render', (check) => withRenderer(async () => {
   check('the WebGL2 screen has an iPhone line', /iOS.*Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
-  if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
+  if (!extension) { check.skip('context-loss checks', 'no WEBGL_lose_context'); return; }
   World.load(makeDemoArena('station'));
   let toasts = 0;
   const listener = Bus.on('toast', () => { toasts++; });
@@ -796,7 +801,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- GPU: sun shadow pass only on presets with shadows 'sun', Potato memory, failed restore ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   DebugApi.renderDemo('ruins');
   Settings.set('video.quality', 'high');
@@ -821,7 +826,7 @@ Test.add('render', (check) => withRenderer(() => {
 }));
 
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  if (!Render.gl) { check.skip('restore-failure check', 'no WebGL2 context on this page'); return; }
   const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
   Render.gpuParts.push(failing);
   const logged = Test.expectErrors(() => handleContextRestored());

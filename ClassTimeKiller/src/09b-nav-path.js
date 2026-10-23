@@ -222,10 +222,12 @@ function navExpand(node) {
   for (let link = Nav.linkStart[node]; link < Nav.linkStart[node + 1]; link++) {
     const next = Nav.linkTarget[link];
     if (!navLinkAllowed(link)) continue;
-    const cost = base + Nav.linkCost[link] + navEnterCost(next);
+    // the entry cost is summed here: a float returned by a call that is not inlined is boxed (PERF-006)
+    const cost = base + Nav.linkCost[link] + (s.danger ? s.danger[next] : 0) + (s.avoid ? s.avoid(next) : 0);
     if (!(cost < Infinity) || (s.seen[next] === s.generation && cost >= s.cost[next])) continue;
     s.seen[next] = s.generation; s.closed[next] = 0; s.cost[next] = cost; s.parentLink[next] = link;
-    s.pushScore = cost + navHeuristic(next);
+    s.pushScore = cost;
+    navAddHeuristic(next);
     navHeapPush(next);
   }
 }
@@ -250,11 +252,6 @@ function navReachAllowed(link) {
   return Nav.linkReach[link] <= s.moveSpeed * flightSeconds + (clearance < 0 ? NAV_MANTLE_REACH : 0) + NAV_HEIGHT_TOLERANCE;
 }
 
-function navEnterCost(node) {
-  const s = navSearch;
-  return (s.danger ? s.danger[node] : 0) + (s.avoid ? s.avoid(node) : 0);
-}
-
 // Heuristic = exact cost in a relaxed world where every walk is a straight line at the fastest link speed and the
 // teleporters work as built: admissible and consistent, chained teleporters included.
 // teleportHop[t * count + u]: straight-line seconds from teleporter t's exit to teleporter u's entry, plus the teleport.
@@ -272,7 +269,7 @@ function navPrepareTeleportHops() {
 function navPrepareHeuristic(goal) {
   const s = navSearch;
   s.goalX = Nav.nodeX[goal]; s.goalY = Nav.nodeY[goal]; s.goalZ = Nav.nodeZ[goal];
-  for (let t = 0; t < Nav.teleportCount; t++) s.teleportExitCost[t] = navDistanceToGoal(Nav.teleportExit[t]) / Nav.heuristicSpeed;
+  for (let t = 0; t < Nav.teleportCount; t++) s.teleportExitCost[t] = navNodeDistance(Nav.teleportExit[t], goal) / Nav.heuristicSpeed;
   let changed = true;
   for (let round = 1; round < Nav.teleportCount && changed; round++) {
     changed = false;
@@ -290,18 +287,19 @@ function navRelaxTeleport(t) {
   return changed;
 }
 
-function navDistanceToGoal(node) {
-  const s = navSearch;
-  return Math.sqrt(distanceSquared3(Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], s.goalX, s.goalY, s.goalZ));
-}
-
-function navHeuristic(node) {
+// Adds the node's heuristic to navSearch.pushScore. The distances are worked out inline: a float returned by (or passed
+// to) a call that is not inlined is boxed, once per expanded link (PERF-006).
+function navAddHeuristic(node) {
   const s = navSearch, speed = Nav.heuristicSpeed, teleportSeconds = NAV_LINK_ROWS[NAV_LINK.TELEPORT].extraSeconds;
-  let best = navDistanceToGoal(node) / speed;
+  const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node];
+  let dx = x - s.goalX, dy = y - s.goalY, dz = z - s.goalZ;
+  let best = Math.sqrt(dx * dx + dy * dy + dz * dz) / speed;
   for (let t = 0; t < Nav.teleportCount; t++) {
-    best = Math.min(best, navNodeDistance(node, Nav.teleportEntry[t]) / speed + teleportSeconds + s.teleportExitCost[t]);
+    const entry = Nav.teleportEntry[t];
+    dx = x - Nav.nodeX[entry]; dy = y - Nav.nodeY[entry]; dz = z - Nav.nodeZ[entry];
+    best = Math.min(best, Math.sqrt(dx * dx + dy * dy + dz * dz) / speed + teleportSeconds + s.teleportExitCost[t]);
   }
-  return best;
+  s.pushScore += best;
 }
 
 // Binary min-heap; a node may be pushed again with a better score (stale entries are skipped when popped). The score

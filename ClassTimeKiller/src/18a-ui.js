@@ -5,6 +5,7 @@
 
 const UI_TOAST_MS = 2600;
 const UI_MAX_TOASTS = 4;
+const UI_REFRESH_MS = 250;            // live panels (perf overlay, scoreboard, buy menu) redraw at most this often
 const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -54,7 +55,7 @@ const Ui = {
   toastBox: null, playBox: null,
   botDebug: false,            // F9 / Options > Developer: later sections draw their bot overlay while true
   perfVisible: false,
-  selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
+  selfTestRunner: null,       // set by S20: async (options) => { total, passed, failed, skipped, results[] }
   lastSelfTest: null,
   pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab

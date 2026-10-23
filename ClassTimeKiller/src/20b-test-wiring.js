@@ -391,7 +391,7 @@ const wiringOnBridge = (node) => Math.abs(Nav.nodeZ[node]) > 10 && Math.abs(Nav.
   && WIRING_HARBOR_BRIDGES.some((span) => Nav.nodeX[node] > span[0] && Nav.nodeX[node] < span[1]);
 // Water deeper than a swimmer's depth plus a step over this node's feet (the floor of a deep canal).
 const wiringDeepUnder = (volumes, x, y, z) => volumes.some((v) => x >= v.min[0] && x <= v.max[0] && z >= v.min[2] && z <= v.max[2]
-  && y >= v.min[1] && v.max[1] - y > NAV_SWIM_DEPTH + NAV_STEP);
+  && y >= v.min[1] && v.max[1] - y > NAV_SWIM_DEPTH + STEP_HEIGHT);
 
 Test.add('wiring', (check) => {
   World.load(CAT.maps.byId('harbor'));
@@ -401,7 +401,7 @@ Test.add('wiring', (check) => {
   for (let link = 0; link < Nav.linkCount; link++) {
     const from = Nav.linkFrom[link], to = Nav.linkTarget[link], type = Nav.linkType[link];
     if (type === NAV_LINK.LADDER && (Nav.nodeFlags[from] & NAV_NODE.WATER)) waterLadders++;
-    if (type !== NAV_LINK.SWIM || Nav.nodeY[to] - Nav.nodeY[from] <= NAV_STEP) continue;
+    if (type !== NAV_LINK.SWIM || Nav.nodeY[to] - Nav.nodeY[from] <= STEP_HEIGHT) continue;
     swimExits++;
     if (wiringOnBridge(to)) bridgeExits++;
   }
@@ -430,7 +430,7 @@ Test.add('wiring', (check) => {
   for (let link = 0; link < Nav.linkCount; link++) {
     const type = Nav.linkType[link];
     if (type !== NAV_LINK.WALK && type !== NAV_LINK.CROUCH) continue;
-    if (wiringWorstRise(link) <= NAV_STEP + 0.02) continue;
+    if (wiringWorstRise(link) <= STEP_HEIGHT + 0.02) continue;
     steep++;
     example = Nav.linkFrom[link] + '->' + Nav.linkTarget[link];
   }

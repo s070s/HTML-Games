@@ -153,7 +153,7 @@ function touchTeleporter(id, teleporter) {
   const yaw = teleporter.yaw * DEG, exit = teleporter.exit;
   const horizontalSpeed = length2(Actors.vx[id], Actors.vz[id]);
   emitSound(Actors.x[id], Actors.y[id], Actors.z[id], TELEPORT_NOISE_RADIUS, 'teleport', id);
-  Actors.x[id] = Actors.prevX[id] = exit[0]; Actors.y[id] = Actors.prevY[id] = exit[1]; Actors.z[id] = Actors.prevZ[id] = exit[2];
+  Actors.place(id, exit[0], exit[1], exit[2]);
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   if (id === Game.playerId) Input.setAim(yaw, Actors.aimPitch[id]);   // the camera turns with the exit too
   Actors.vx[id] = Math.sin(yaw) * horizontalSpeed; Actors.vz[id] = Math.cos(yaw) * horizontalSpeed;

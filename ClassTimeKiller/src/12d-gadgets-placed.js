@@ -25,6 +25,7 @@ const DEVICE_INVISIBLE_SHARE = 0.25;    // turrets and drones see cloaked enemie
 const TURRET_NOISE = 50;
 const BEACON_OFFSET = 1;                // spawn this far from the beacon
 const DEVICE_DRAW_GLINT = 0.08;
+const deviceMarkInstance = makeShapeInstance();   // a device's area ring and enemy glint (Devices.drawDevice)
 const CAPSULE_CHECK_HEIGHTS = [0.3, 0.9, 1.6];
 
 const DEVICE_EVENT = { index: 0, gadget: '', owner: -1, x: 0, y: 0, z: 0 };
@@ -102,13 +103,9 @@ const Devices = {
     return true;
   },
   freeSlot() {
-    let oldest = 0;
-    for (let device = 0; device < DEVICE_CAP; device++) {
-      if (!this.active[device]) return device;
-      if (this.endTick[device] < this.endTick[oldest]) oldest = device;
-    }
-    this.remove(oldest, false);
-    return oldest;
+    const device = oldestFreeSlot(this.active, this.endTick, DEVICE_CAP);
+    this.remove(device, false);
+    return device;
   },
   spawn(row, owner, x, y, z) {
     const device = this.freeSlot(), yaw = owner >= 0 ? Actors.yaw[owner] : 0;
@@ -206,7 +203,7 @@ const Devices = {
     return World.lineClear(this.x[device], this.y[device] + 0.2, this.z[device], devicePoint.x, devicePoint.y, devicePoint.z);
   },
   inCone(device, row, x, z) {
-    const dx = x - this.x[device], dz = z - this.z[device], length = Math.hypot(dx, dz) || 1;
+    const dx = x - this.x[device], dz = z - this.z[device], length = length2(dx, dz) || 1;
     return (dx * Math.sin(this.yaw[device]) + dz * Math.cos(this.yaw[device])) / length >= Math.cos(row.coneDeg / 2 * DEG);
   },
   // G12: projectiles and grenades that cross the dome wall are stopped both ways, whoever fired them; friends inside regain
@@ -283,7 +280,7 @@ const Devices = {
     const x = this.x[device], y = this.y[device] + TURRET_MUZZLE, z = this.z[device], spread = GADGET_TUNING.turretSpreadDeg * DEG;
     Hitbox.point(target, ZONE.BODY, devicePoint);
     this.yaw[device] = Math.atan2(devicePoint.x - x, devicePoint.z - z);
-    const pitch = Math.atan2(devicePoint.y - y, Math.hypot(devicePoint.x - x, devicePoint.z - z));
+    const pitch = Math.atan2(devicePoint.y - y, length2(devicePoint.x - x, devicePoint.z - z));
     const direction = Vec.fromAngles(deviceDirection, this.yaw[device] + Rng.weapons.range(-spread, spread), pitch + Rng.weapons.range(-spread, spread));
     const wallHit = World.raycast(x, y, z, direction.x, direction.y, direction.z, row.range, deviceHit);
     const wall = wallHit ? deviceHit.distance : row.range;
@@ -317,7 +314,7 @@ const Devices = {
   },
   rollTo(device, row, target, dt) {
     Hitbox.point(target, ZONE.BODY, devicePoint);
-    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = Math.hypot(dx, dz);
+    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = length2(dx, dz);
     if (length <= row.radius * DRONE_BLAST_SHARE) { this.detonateDrone(device, row); return; }
     const move = Math.min(length, row.speed * dt), hoverY = this.y[device] + DRONE_HOVER;
     if (World.raycast(this.x[device], hoverY, this.z[device], dx / length, 0, dz / length, move + DRONE_WALL_GAP, deviceHit)) return;
@@ -481,11 +478,19 @@ const Devices = {
     pose.x = x; pose.y = y; pose.z = z; pose.yaw = this.yaw[device];
     pose.emissive = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
     drawGadgetModel(batch, row, pose);
-    const hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
-    if (hasArea) batch.mesh('ring', x, y + 0.03, z, 0, 0, row.radius * 2, 0.03, row.radius * 2, pose.r, pose.g, pose.b, 0.6);
+    // the area ring and the enemy glint go through one reused instance record (batch.meshFrom, PERF-006)
+    const mark = deviceMarkInstance, hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
+    mark.x = x; mark.z = z;
+    if (hasArea) {
+      mark.y = y + 0.03; mark.sx = mark.sz = row.radius * 2; mark.sy = 0.03;
+      mark.r = pose.r; mark.g = pose.g; mark.b = pose.b; mark.emissive = 0.6;
+      batch.meshFrom('ring', mark);
+    }
     if (row.kind !== 'placed' || Game.playerId < 0 || this.friendOf(device, Game.playerId)) return;
-    const glint = DEVICE_DRAW_GLINT;   // on the model's top, not the collision box
-    batch.mesh('sphere', x, y + GADGET_MODELS[row.index].top + 0.05, z, 0, 0, glint, glint, glint, 1, 0.1, 0.1, 1);
+    mark.y = y + GADGET_MODELS[row.index].top + 0.05;   // on the model's top, not the collision box
+    mark.sx = mark.sy = mark.sz = DEVICE_DRAW_GLINT;
+    mark.r = 1; mark.g = mark.b = 0.1; mark.emissive = 1;
+    batch.meshFrom('sphere', mark);
   },
 };
 const DEVICE_FOREVER_SECONDS = 3600;

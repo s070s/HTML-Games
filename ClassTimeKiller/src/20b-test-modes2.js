@@ -27,7 +27,7 @@ function followFor(seconds, ids, point) {
 // Shapes drawObjective (13b) pushes for one objective.
 function countObjectiveMeshes(objective) {
   let meshes = 0;
-  drawObjective({ mesh() { meshes++; return 0; } }, objective);
+  drawObjective({ meshFrom() { meshes++; return 0; } }, objective);
   return meshes;
 }
 

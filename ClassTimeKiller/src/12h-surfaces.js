@@ -38,14 +38,7 @@ const FloorSurfaces = {
     this.row[slot] = row.index; this.owner[slot] = owner;
     this.endTick[slot] = Sim.tick + Math.round(row.seconds * TICK_RATE);
   },
-  freeSlot() {
-    let oldest = 0;
-    for (let slot = 0; slot < SURFACE_CAP; slot++) {
-      if (!this.active[slot]) return slot;
-      if (this.endTick[slot] < this.endTick[oldest]) oldest = slot;
-    }
-    return oldest;
-  },
+  freeSlot() { return oldestFreeSlot(this.active, this.endTick, SURFACE_CAP); },
   covers(slot, x, y, z) {
     if (!this.active[slot] || Math.abs(y - this.y[slot]) > SURFACE_FEET_REACH) return false;
     return (x - this.x[slot]) ** 2 + (z - this.z[slot]) ** 2 <= this.radius[slot] * this.radius[slot];

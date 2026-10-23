@@ -13,6 +13,18 @@ function richDraft() {
 function codeWith(object) { return CustomCodec.pack(object); }
 function customRandomBytes(random, length, alphabet) { return Uint8Array.from({ length }, () => random.int(0, alphabet - 1)); }
 
+// R-157: every new match seed (custom, editor test play, generated map) comes from one recipe, newSeed (S02).
+Test.add('custom', (check) => {
+  const savedRandom = Math.random, saved = MapGenMenu.state.seed;
+  Math.random = () => 0.25;
+  try {
+    const expected = Math.floor(0.25 * SEED_RANGE);
+    MapGenMenu.newSeed();
+    check('seeds: custom matches and generated maps use newSeed', CustomMatch.setup(CustomMatch.defaults()).seed === expected
+      && MapGenMenu.state.seed === expected, MapGenMenu.state.seed);
+  } finally { Math.random = savedRandom; MapGenMenu.state.seed = saved; }
+});
+
 Test.add('custom', (check) => {
   const random = makeRandom(77);
   let roundTrips = 0, tried = 0;
@@ -118,6 +130,8 @@ Test.add('custom', (check) => {
   check('setup: overrides make a custom ruleset object named after the draft', setup.ruleset.id === 'custom' && setup.ruleset.name === 'Night Raid' && setup.ruleset.move === 'agile' && setup.ruleset.items === false && setup.ruleset.lives === 3 && setup.ruleset.respawn.delay === 5);
   const plain = CustomMatch.setup(CustomMatch.defaults(), 1);
   check('setup: an untouched draft uses the mode default bundle id and the mode default bot count', plain.ruleset === 'classic' && plain.bots.length === Modes.defaultBots('ffa', true).length && plain.balance === undefined);
+  const roster = PlayFlow.rosterBots(plain.bots.length, plain.difficulty, 1);
+  check('setup: mixed personality fields the Quick Play roster bots (R-148)', JSON.stringify(plain.bots) === JSON.stringify(roster) && !!roster[0].profile, JSON.stringify(plain.bots[0]));
   check('setup: no map chosen picks one that serves the mode, the same one for the same seed', Maps.forMode('ffa').some((map) => map.id === plain.map) && CustomMatch.setup(CustomMatch.defaults(), 1).map === plain.map);
   const listed = CustomMatch.setup(Object.assign(CustomMatch.defaults(), { weaponList: ['maul', 'lancet'], mutators: [{ id: 'oneshot', value: true }] }), 1);
   check('setup: a weapon list becomes the last Weapon Set mutator and wins conflicts', listed.mutators.map((entry) => entry.id).join() === 'weaponset' && listed.mutators[0].value.join() === 'maul,lancet');
@@ -214,6 +228,20 @@ Test.add('custom', (check) => {
     Game.stop();
   });
 });
+
+// R-161: the custom editor, the generated-map menu and the map editor panels redraw through Ui.rebuild (one focus-keeping rule).
+Test.add('custom', (check) => uiWith(() => {
+  const rebuild = Ui.rebuild;
+  let calls = 0;
+  Ui.rebuild = function (container, build) { calls++; return rebuild.call(this, container, build); };
+  try {
+    Settings.set('custom.draft', '');
+    Ui.open('custom');
+    Ui.open('mapgen');
+    MapEditorUi.rebuild(document.createElement('div'), () => {});
+  } finally { Ui.rebuild = rebuild; }
+  check('custom, map generator and map editor panels redraw via Ui.rebuild', calls >= 3, calls);
+}));
 
 Test.add('custom', (check) => {
   uiWith(() => {

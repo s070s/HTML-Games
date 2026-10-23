@@ -16,7 +16,6 @@ const PLAY_DEFAULT_LENGTH = 'standard';
 const PLAY_SCORE_STEP = 5;
 const PLAY_TIME_STEP = 30;
 const PLAY_AUTO_TEAM = -1;
-const PLAY_SEED_RANGE = 0x7fffffff;
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
 const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out' };
 const PlayResultsExtras = [];   // fn(body) panels later files add to the results screen (18j: XP and progress)
@@ -69,7 +68,7 @@ const PlayFlow = {
   },
   // The Game.start setup for a choice. `random` is injectable so tests get a fixed seed.
   buildSetup(choice, random) {
-    const seed = Math.floor((random || Math.random)() * PLAY_SEED_RANGE);
+    const seed = newSeed(random);
     const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: this.rosterBots(choice.bots, choice.difficulty, seed),
       seed, difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
@@ -119,7 +118,7 @@ const PlayFlow = {
   // A winner-stays queue (M03 duel, results.queue) seats the bots in queue order: the winner stays, the loser waits last.
   playAgain(random) {
     if (!Game.match) return null;
-    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: newSeed(random) });
     const results = Game.match.results;
     if (!setup.progress && results && results.queue.length && setup.bots) setup.bots = this.queuedBots(setup.bots, results);
     return Game.start(setup);
@@ -140,7 +139,7 @@ const PlayFlow = {
     if (!Game.match || Game.match.setup.progress) return null;
     const setup = Game.match.setup, maps = this.mapsFor(setup.mode), current = maps.findIndex((map) => map.id === (Game.match.map ? Game.match.map.id : setup.map));
     const next = maps.length ? maps[(current + 1) % maps.length] : null;
-    return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) }));
+    return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: newSeed(random) }));
   },
   // 'win' | 'loss' | 'draw' | 'over' from the results record and the local player.
   outcome(results) {

@@ -66,6 +66,10 @@ const reachPoint = Vec.make();
 const throwScratch = Vec.make();
 const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+// Reused instance records (batch.meshFrom): smoke blobs, the arc dots and its landing ring; float arguments would be boxed (PERF-006).
+const smokeInstance = Object.assign(makeShapeInstance(), { sx: SMOKE_BLOB, sy: SMOKE_BLOB, sz: SMOKE_BLOB, emissive: 0.25 });
+const previewDotInstance = Object.assign(makeShapeInstance(), { sx: 0.06, sy: 0.06, sz: 0.06, emissive: 1 });
+const landingInstance = Object.assign(makeShapeInstance(), { sy: 0.05, b: 0.4, g: 0.9, emissive: 1 });
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
@@ -137,14 +141,7 @@ const Smoke = {
     this.recount();
     return volume;
   },
-  freeSlot() {
-    let oldest = 0;
-    for (let volume = 0; volume < SMOKE_CAP; volume++) {
-      if (!this.active[volume]) return volume;
-      if (this.endTick[volume] < this.endTick[oldest]) oldest = volume;
-    }
-    return oldest;
-  },
+  freeSlot() { return oldestFreeSlot(this.active, this.endTick, SMOKE_CAP); },
   recount() { this.count = 0; for (let volume = 0; volume < SMOKE_CAP; volume++) this.count += this.active[volume]; },
   cellIndex(ix, iy, iz) { return (ix * SMOKE_DIM + iy) * SMOKE_DIM + iz; },
   // Breadth-first fill from the centre cell inside the radius, skipping cells whose centre is inside a brush (walls stop smoke).
@@ -217,7 +214,7 @@ const Smoke = {
   lineBlocked(ax, ay, az, bx, by, bz, viewer) {
     if (!this.count) return false;
     if (viewer >= 0 && Abilities.passiveFlag(viewer, 'smokeVision')) return false;
-    const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+    const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
     if (length < 1e-6) return false;
     const directionX = dx / length, directionY = dy / length, directionZ = dz / length;
     for (let volume = 0; volume < SMOKE_CAP; volume++) {
@@ -270,7 +267,7 @@ const Smoke = {
   },
   cellDistance(volume, cell, x, y, z) {
     const grid = this.cellCoordinates(cell), centre = this.cellCentre(volume, grid.x, grid.y, grid.z);
-    return Math.hypot(centre.x - x, centre.y - y, centre.z - z);
+    return length3(centre.x - x, centre.y - y, centre.z - z);
   },
   onShot(event) {
     if (!this.count) return;
@@ -304,8 +301,10 @@ const Smoke = {
     for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
       if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(volume, this.cellIndex(ix, iy, iz), grown)) continue;
       this.drawn++;
-      const shade = 0.5 + iy / SMOKE_DIM * 0.25, centre = this.cellCentre(volume, ix, iy, iz);
-      batch.mesh('sphere', centre.x, centre.y, centre.z, 0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
+      const instance = smokeInstance, centre = this.cellCentre(volume, ix, iy, iz);
+      instance.x = centre.x; instance.y = centre.y; instance.z = centre.z;
+      instance.r = instance.g = instance.b = 0.5 + iy / SMOKE_DIM * 0.25;
+      batch.meshFrom('sphere', instance);
     }
   },
 };
@@ -323,8 +322,7 @@ const GadgetAreas = {
 
   clear() { this.active.fill(0); },
   spawn(row, owner, x, y, z, seconds) {
-    let slot = this.active.indexOf(0);
-    if (slot < 0) slot = 0;   // full: the first area gives way
+    const slot = oldestFreeSlot(this.active, this.endTick, AREA_CAP);   // full: the area that ends first gives way
     this.active[slot] = 1; this.row[slot] = row.index; this.owner[slot] = owner; this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
     this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0; this.pulses[slot] = row.pulses;
     return slot;
@@ -367,7 +365,7 @@ const GadgetAreas = {
   stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
-      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
+      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = length3(dx, dy, dz) || 1;
       emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
@@ -441,7 +439,7 @@ const GadgetEffects = {
     for (let id = 0; id < Actors.count; id++) {
       if (id !== owner && !gadgetReaches(owner, id, x, y, z, row.radius)) continue;
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
-      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
+      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = length3(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
       emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
@@ -449,7 +447,7 @@ const GadgetEffects = {
 };
 // G03: blind seconds = duration x view-angle share (facing it 1, facing away flashMinimumAngle) x distance share.
 function flashSeconds(row, id, x, y, z) {
-  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = length3(dx, dy, dz);
   if (distance > row.radius || !World.lineClear(x, y, z, Actors.x[id], eyeY, Actors.z[id])) return 0;
   Vec.fromAngles(throwScratch, Actors.yaw[id], Actors.pitch[id]);
   const facing = distance > 1e-3 ? (throwScratch.x * dx + throwScratch.y * dy + throwScratch.z * dz) / distance : 1;
@@ -480,18 +478,13 @@ const Thrown = {
   clear() { this.state.fill(0); this.attached.fill(-1); this.active = 0; },
   // Launches a gadget row from (x, y, z); fuseTicks = ticks until it goes off (cooked grenades have less). Returns the slot.
   spawn(row, owner, x, y, z, vx, vy, vz, fuseTicks) {
-    let slot = this.state.indexOf(THROWN_STATE.FREE);
-    if (slot < 0) { slot = this.oldest(); this.remove(slot); }
+    const slot = oldestFreeSlot(this.state, this.fuseTick, THROWN_CAP);   // THROWN_STATE.FREE is 0
+    this.remove(slot);
     this.state[slot] = THROWN_STATE.FLYING; this.row[slot] = row.index; this.owner[slot] = owner;
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
     this.fuseTick[slot] = Sim.tick + fuseTicks; this.attached[slot] = -1;
     this.active++;
     return slot;
-  },
-  oldest() {
-    let found = 0;
-    for (let slot = 1; slot < THROWN_CAP; slot++) if (this.fuseTick[slot] < this.fuseTick[found]) found = slot;
-    return found;
   },
   remove(slot) {
     if (this.state[slot] === THROWN_STATE.FREE) return;
@@ -516,7 +509,7 @@ const Thrown = {
   },
   fly(slot, gravity, dt) {
     this.vy[slot] -= gravity * dt;
-    const speed = Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]);
+    const speed = length3(this.vx[slot], this.vy[slot], this.vz[slot]);
     if (speed < 1e-6) return;
     const dx = this.vx[slot] / speed, dy = this.vy[slot] / speed, dz = this.vz[slot] / speed, length = speed * dt;
     const wallHit = World.raycast(this.x[slot], this.y[slot], this.z[slot], dx, dy, dz, length + THROWN_RADIUS, gadgetHit);
@@ -556,7 +549,7 @@ const Thrown = {
     this.vy[slot] = (this.vy[slot] - 2 * along * gadgetHit.ny) * row.bounce;
     this.vz[slot] = (this.vz[slot] - 2 * along * gadgetHit.nz) * row.bounce;
     if (speed > BOUNCE_TICK_SPEED) this.emitBounce(slot);
-    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
+    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && length3(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
   },
   // Sticks where it hit (or goes off on impact).
   settle(slot, row) {
@@ -590,7 +583,7 @@ const Thrown = {
     let best = -1, bestDistance = range;
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
-      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = length3(tx, ty, tz);
       if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
       best = slot; bestDistance = distance;
     }
@@ -858,7 +851,9 @@ const Gadgets = {
     const row = CAT.gadgets[this.holdRow[id]], steps = this.previewSteps(id, row);
     for (let step = 0; step < steps; step++) {
       if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, row); return; }
-      if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
+      if (step % 2 !== 0) continue;
+      previewDotInstance.x = point.x; previewDotInstance.y = point.y; previewDotInstance.z = point.z;
+      batch.meshFrom('sphere', previewDotInstance);
     }
   },
   // The grenade the local player holds (cooking or about to throw), low in the left of the first-person view.
@@ -882,7 +877,7 @@ const Gadgets = {
   // One preview segment; true (and the point on the surface) when it meets the world.
   previewStep(point, gravity) {
     const seconds = PREVIEW_SECONDS, drop = gravity * seconds * seconds / 2;
-    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = Math.hypot(nx, ny, nz);
+    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = length3(nx, ny, nz);
     point.vy -= gravity * seconds;
     if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) {
       point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z;
@@ -892,8 +887,10 @@ const Gadgets = {
     return false;
   },
   drawLanding(batch, point, row) {
-    const size = Math.max(0.5, row.radius * 2);
-    batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
+    const instance = landingInstance;
+    instance.x = point.x; instance.y = point.y + 0.05; instance.z = point.z;
+    instance.sx = instance.sz = Math.max(0.5, row.radius * 2);
+    batch.meshFrom('ring', instance);
   },
   clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
 };

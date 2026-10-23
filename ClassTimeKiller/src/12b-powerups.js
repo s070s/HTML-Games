@@ -283,7 +283,7 @@ const Powerups = {
     const lift = (buttons & BTN.JUMP ? FLIGHT_VERTICAL : 0) - (buttons & BTN.CROUCH ? FLIGHT_VERTICAL : 0);
     const rightX = -Math.cos(Actors.aimYaw[id]), rightZ = Math.sin(Actors.aimYaw[id]);
     let x = flightScratch.x * forward + rightX * strafe, y = flightScratch.y * forward + lift, z = flightScratch.z * forward + rightZ * strafe;
-    const length = Math.hypot(x, y, z), speed = this.flight[id];
+    const length = length3(x, y, z), speed = this.flight[id];
     if (length > 1) { x /= length; y /= length; z /= length; }
     Actors.vx[id] = x * speed; Actors.vz[id] = z * speed;
     Actors.vy[id] = y * speed + Move.gravity(id) * dt;

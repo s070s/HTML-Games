@@ -514,7 +514,7 @@ const Input = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id]) return;
     const reach = event.radius * RUMBLE.blastReach;
-    const distance = Math.hypot(event.x - Actors.x[id], event.y - Actors.eyeY(id), event.z - Actors.z[id]);
+    const distance = length3(event.x - Actors.x[id], event.y - Actors.eyeY(id), event.z - Actors.z[id]);
     if (distance < reach) this.rumble(1 - distance / reach, RUMBLE.blastMs);
   },
   rumbleFire(event) {
@@ -581,10 +581,10 @@ const Input = {
     const point = this.assistPoint, aim = this.aim;
     const dx = point.x - Actors.x[id], dy = point.y - Actors.eyeY(id), dz = point.z - Actors.z[id];
     const errorYaw = wrapAngle(Math.atan2(dx, dz) - aim.yaw);
-    const errorPitch = Math.atan2(dy, Math.hypot(dx, dz)) - aim.pitch;
-    const error = Math.hypot(errorYaw * Math.cos(aim.pitch), errorPitch);
+    const errorPitch = Math.atan2(dy, length2(dx, dz)) - aim.pitch;
+    const error = length2(errorYaw * Math.cos(aim.pitch), errorPitch);
     assist.error = error;
-    if (autoFire) this.autoFireTarget = error < Math.atan2(TORSO_RADIUS, Math.hypot(dx, dy, dz));
+    if (autoFire) this.autoFireTarget = error < Math.atan2(TORSO_RADIUS, length3(dx, dy, dz));
     if (!strength || error > AIM_ASSIST.coneRadians) return 1;
     assist.active = true;
     assist.slowdown = 1 - AIM_ASSIST.slowdown * strength;
@@ -603,7 +603,7 @@ const Input = {
       if (!this.effective[this.axisActions[i]]) continue;
       if (row.axis === 'moveX') x += row.sign; else z += row.sign;
     }
-    const length = Math.hypot(x, z);
+    const length = length2(x, z);
     if (length > 1) { x /= length; z /= length; }
     let buttons = this.latchedButtons;
     for (let i = 0; i < this.buttonActions.length; i++) { const index = this.buttonActions[i]; if (this.effective[index]) buttons |= this.buttonBits[index]; }

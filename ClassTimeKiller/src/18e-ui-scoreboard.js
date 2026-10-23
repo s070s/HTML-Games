@@ -3,7 +3,6 @@
 // the results screen (18d) shows the same tables. Per player kills / deaths / assists / score, team totals, an objective column for
 // the mode, and the local player's accuracy per weapon (LocalPlayerStats, fed by weapon and damage events) with the medals earned.
 
-const SCOREBOARD_REFRESH_MS = 250;
 const SCOREBOARD_TEAM_SYMBOLS = ['●', '▲', '■', '◆'];
 const SCOREBOARD_OBJECTIVE_LABELS = { flag: 'Captures', point: 'Captures', hill: 'Hold time', bombsite: 'Plants', relic: 'Hold time', core: 'Defence', bank: 'Banked', extract: 'Extracts' };
 const SCOREBOARD_DEFAULT_OBJECTIVE_LABEL = 'Objective';
@@ -191,7 +190,7 @@ const Scoreboard = {
     if (event.phase !== 'end' && this.auto && Ui.isOpen('scoreboard')) { this.auto = false; Ui.back(); }
   },
   refresh(now) {
-    if (!Ui.isOpen('scoreboard') || now - this.timer < SCOREBOARD_REFRESH_MS) return;
+    if (!Ui.isOpen('scoreboard') || now - this.timer < UI_REFRESH_MS) return;
     this.timer = now;
     const body = Ui.root.querySelector('.sb-body');
     if (body) this.renderInto(body);

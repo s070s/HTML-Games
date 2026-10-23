@@ -40,6 +40,7 @@ const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
+const LABEL_MAX = 40;   // characters in a saved name (custom rulesets and presets, maps)
 
 const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),
@@ -193,6 +194,16 @@ function makePool(size, create) {
   // Ring reuse: the oldest object is recycled when the pool wraps (documented per pool owner).
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
 }
+// Struct-of-arrays pools: the first slot whose active[slot] is 0, else the one with the smallest age[slot] (the end tick or
+// birth order its owner keeps). The owner frees a taken busy slot itself.
+function oldestFreeSlot(active, age, capacity) {
+  let oldest = 0;
+  for (let slot = 0; slot < capacity; slot++) {
+    if (!active[slot]) return slot;
+    if (age[slot] < age[oldest]) oldest = slot;
+  }
+  return oldest;
+}
 
 // ---- Lookup grids (ARC-013, one source): nav (S09), the render bake (S07) and the map scan (S16) bucket brushes by xz cell ----
 // Lists per cell in compressed form: eachCell(index, visit) calls visit(cell) for every cell of item `index`. Returns { start, items }:
@@ -303,9 +314,11 @@ const BTN = {
 };
 
 // ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----
-const STAND_HEIGHT = 1.8;
+const STAND_HEIGHT = 1.8, CROUCH_HEIGHT = 1.1, PRONE_HEIGHT = 0.6;
+const STAND_EYE = 1.62, CROUCH_EYE = 0.95, PRONE_EYE = 0.4;
 const ACTOR_RADIUS = 0.40;
 const STEP_HEIGHT = 0.45;
+const MAX_SLOPE = 45 * DEG;   // steeper surfaces are walls
 const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
 const TORSO_RADIUS = 0.3, TORSO_LOW = 0.85, TORSO_HIGH = 1.45, STOMACH_HIGH = 1.1;
 const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
@@ -364,14 +377,18 @@ const Actors = {
     this.yaw[id] = this.pitch[id] = this.aimYaw[id] = this.aimPitch[id] = 0;
     this.moveX[id] = this.moveZ[id] = 0; this.buttons[id] = this.pressed[id] = this.previousButtons[id] = 0;
     this.slotRequest[id] = 0; this.health[id] = this.armor[id] = this.shield[id] = 0; this.spawnCount[id] = 0;
-    this.height[id] = 1.8; this.eye[id] = 1.62; this.name[id] = ''; this.profile[id] = null;
+    this.height[id] = STAND_HEIGHT; this.eye[id] = STAND_EYE; this.name[id] = ''; this.profile[id] = null;
   },
   clear() {
     for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
     this.count = 0;
   },
-  isEnemy(a, b) { return a !== b && (this.team[a] < 0 || this.team[a] !== this.team[b]); },
+  // Allies share a team (team -1 = free-for-all: no allies); an actor is neither its own ally nor its own enemy.
+  isAlly(a, b) { return a !== b && this.team[a] >= 0 && this.team[a] === this.team[b]; },
+  isEnemy(a, b) { return a !== b && !this.isAlly(a, b); },
   eyeY(id) { return this.y[id] + this.eye[id]; },
+  // Moves an actor with no interpolation from its old spot (spawns, teleports): never per frame.
+  place(id, x, y, z) { this.x[id] = this.prevX[id] = x; this.y[id] = this.prevY[id] = y; this.z[id] = this.prevZ[id] = z; },
 };
 
 // ---- Simulation systems: each section registers its fixed-step function with an order number ----

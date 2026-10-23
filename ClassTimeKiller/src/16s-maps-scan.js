@@ -147,7 +147,7 @@ const MapScan = {
   // A brush too tall to step onto that starts below head height.
   isWall(brush, x, z, top) {
     const px = Math.max(brush.minX, Math.min(brush.maxX, x)), pz = Math.max(brush.minZ, Math.min(brush.maxZ, z));
-    return mapBrushTop(brush, px, pz) > top + MAP_STEP + MAP_SAME_HEIGHT && brush.minY < top + MAP_HEADROOM - MAP_SAME_HEIGHT;
+    return mapBrushTop(brush, px, pz) > top + STEP_HEIGHT + MAP_SAME_HEIGHT && brush.minY < top + MAP_HEADROOM - MAP_SAME_HEIGHT;
   },
   // Records the free distance to the nearest wall on each side of the point: gaps = [x low, x high, z low, z high]. A wall counts on an
   // axis when it lies within the body's width on the other axis.
@@ -270,7 +270,7 @@ const MapScan = {
     let best = -1;
     for (let n = scan.columnStart[column]; n < scan.columnStart[column + 1]; n++) {
       const dy = scan.nodeY[n] - scan.nodeY[node];
-      if (dy > MAP_STEP + 1e-4 || dy < -MAP_DROP_MAX) continue;
+      if (dy > STEP_HEIGHT + 1e-4 || dy < -MAP_DROP_MAX) continue;
       if (best < 0 || scan.nodeY[n] > scan.nodeY[best]) best = n;
     }
     return best;
@@ -281,7 +281,7 @@ const MapScan = {
     if (this.solidAtFoot(scan, nextX, nextZ, scan.nodeY[node])) return -1;
     for (let k = 2; k <= MAP_DROP_REACH; k++) {
       const target = this.stepTarget(scan, node, ci + MAP_NEIGHBOUR_I[d] * k, cj + MAP_NEIGHBOUR_J[d] * k);
-      if (target >= 0 && scan.nodeY[target] < scan.nodeY[node] - MAP_STEP) return target;
+      if (target >= 0 && scan.nodeY[target] < scan.nodeY[node] - STEP_HEIGHT) return target;
     }
     return -1;
   },
@@ -355,7 +355,7 @@ const MapScan = {
   floorAround(scan, x, y, z) {
     for (let d = 0; d < 8; d++) {
       const reach = d < 4 ? MAP_BODY_RADIUS : MAP_BODY_RADIUS * Math.SQRT1_2;
-      if (this.topBelow(scan, x + MAP_NEIGHBOUR_I[d] * reach, z + MAP_NEIGHBOUR_J[d] * reach, y + MAP_STEP) < y - MAP_STEP) return false;
+      if (this.topBelow(scan, x + MAP_NEIGHBOUR_I[d] * reach, z + MAP_NEIGHBOUR_J[d] * reach, y + STEP_HEIGHT) < y - STEP_HEIGHT) return false;
     }
     return true;
   },
@@ -368,7 +368,7 @@ const MapScan = {
   // A ladder joins the walkable cells around its foot with the cells around its top (both directions).
   linkLadder(scan, trigger) {
     const bottoms = this.nodesInBox(scan, { min: [trigger.min[0], trigger.min[1] - 0.5, trigger.min[2]], max: [trigger.max[0], trigger.min[1] + 0.5, trigger.max[2]] }, 1.2, 0);
-    const tops = this.nodesInBox(scan, { min: [trigger.min[0], trigger.max[1] - 0.5, trigger.min[2]], max: [trigger.max[0], trigger.max[1] + MAP_STEP, trigger.max[2]] }, 1.2, 0);
+    const tops = this.nodesInBox(scan, { min: [trigger.min[0], trigger.max[1] - 0.5, trigger.min[2]], max: [trigger.max[0], trigger.max[1] + STEP_HEIGHT, trigger.max[2]] }, 1.2, 0);
     scan.ladders.push({ trigger, bottoms: bottoms.length, tops: tops.length });
     if (!bottoms.length || !tops.length) return;
     const topHub = tops[0], bottomHub = bottoms[0];
@@ -542,7 +542,7 @@ const MapScan = {
     const near = this.collect(scan, x, z, 0);
     for (let a = 0; a < near; a++) {
       const brush = scan.brushes[scan.near[a]];
-      if (mapInsideRect(brush, x, z, 0) && brush.minY < y + 1 && mapBrushTop(brush, x, z) > y + MAP_STEP) return true;
+      if (mapInsideRect(brush, x, z, 0) && brush.minY < y + 1 && mapBrushTop(brush, x, z) > y + STEP_HEIGHT) return true;
     }
     return false;
   },

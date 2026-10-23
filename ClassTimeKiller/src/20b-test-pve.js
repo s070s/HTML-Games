@@ -611,6 +611,16 @@ Test.add('pve', (check) => {
   runUntil(() => Pve.phase[id] === ATTACK_PHASE.IDLE, 3);
   Sim.run(1);
   check('after the attack it cloaks again', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  // R-204: a half-strength tell blends every channel of a plain part toward the tell colour, not only red
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  Actors.health[id] = Actors.maxHealth[id];
+  const tellGlow = Pve.tellGlow, row = Pve.rowOf(id), half = { amount: 0.5, progress: 0.5, r: 0, g: 1, b: 0 };
+  const plain = row.parts.findIndex((part) => (PART_TINTS[part[7]] || 0) < PART_TINTS.glow), tint = PART_TINTS[row.parts[plain][7]] || 0;
+  const blended = meshRecorder();
+  Pve.tellGlow = () => half;
+  try { Pve.drawEnemy(blended, id); } finally { Pve.tellGlow = tellGlow; }
+  const part = blended.meshes[plain], drawn = [part.r, part.g, part.b], expected = [0, 1, 0].map((tell, channel) => lerp(row.colors[tint * 3 + channel], tell, 0.5));
+  check('a half tell blends red, green and blue of a plain part', drawn.every((value, channel) => Test.near(value, expected[channel], 1e-4)), drawn + ' vs ' + expected);
   Game.stop();
 });
 
@@ -712,7 +722,7 @@ const PVE_PROBE_LASER_LENGTH = 10;   // m: a box longer than any enemy part is t
 // PERF-006: drawing enemies with their champion ring, element shield, awareness mark, heal beam and laser tell allocates
 // nothing per frame.
 Test.add('pve', (check) => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('PvE drawing allocation probe', 'no exact heap counter on this page'); return; }
   World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
   startPveTest();
   const chance = PVE_CHAMPION_RULES.shieldElementChance;
@@ -1150,18 +1160,21 @@ Test.add('pve', (check) => {
 
 // The last few enemies of a wave are shown to the player; a boss phase change reads as shielded; a melee parry needs the front arc.
 Test.add('pve', (check) => withShortShop(() => {
-  const ids = startPveMode('horde', [0]);
-  godMode(ids);
-  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
-  Pve.queue.count = 0;
-  killAllEnemies(ids[0]);
-  const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
-  runSeconds(0.1);
-  check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
-  killAllEnemies(ids[0]);
-  runSeconds(0.1);
-  check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
-  endModeTest();
+  for (const stopMatch of [false, true]) {   // the marker goes when its enemy dies, and with a stopped match
+    const ids = startPveMode('horde', [0]);
+    godMode(ids);
+    runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
+    Pve.queue.count = 0;
+    killAllEnemies(ids[0]);
+    const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
+    runSeconds(0.1);
+    if (stopMatch) { endModeTest(); check('a stopped match leaves no hunted markers behind', pveHunted.length === 0, pveHunted.length); continue; }
+    check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
+    killAllEnemies(ids[0]);
+    runSeconds(0.1);
+    check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
+    endModeTest();
+  }
 }));
 Test.add('pve', (check) => {
   const dummy = startPveTest(), boss = spawnFacing('overlord', 3);

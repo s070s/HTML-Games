@@ -10,7 +10,6 @@
 const MAPGEN_ATTEMPTS = 5;              // MAP-023: seed, seed + 1, ... seed + 4, then the fallback map
 const MAPGEN_REPAIR_ROUNDS = 2;         // sightline repairs per seed before it is rejected
 const MAPGEN_REPAIR_PILLARS = 48;       // more long lines than this in one round: reject the seed instead
-const MAPGEN_SEED_RANGE = 0x7fffffff;
 const MAPGEN_DEFAULT_SIZE = 'medium';
 const MAPGEN_TRUSTED_SEED = 2;          // GN5 default seed: MP09 Ring Isle (the self-test proves it validates)
 const MAPGEN_PILLAR_CLEARANCE = 2.2;    // a repair pillar keeps this far from other brushes and triggers
@@ -43,7 +42,7 @@ const MapGen = {
   resolve(options) {
     const input = options || {};
     const generator = this.generator(input.generator) || CAT.generators[0];
-    const seed = Math.abs(Math.floor(Number(input.seed) || 0)) % MAPGEN_SEED_RANGE;
+    const seed = Math.abs(Math.floor(Number(input.seed) || 0)) % SEED_RANGE;
     const size = this.cappedSize(input.size, input.quality, input.uncapped);
     const themeRow = CAT.mapTilesets.byId(input.theme);
     const theme = themeRow || CAT.mapTilesets[hashString('theme:' + generator.code + ':' + seed) % CAT.mapTilesets.length];
@@ -65,7 +64,7 @@ const MapGen = {
     const generator = this.generator(parts[1]);
     if (!generator || !CAT.mapSizes.byId(parts[2]) || !CAT.mapTilesets.byId(parts[3]) || !CAT.mapDensities.byId(parts[4])) return null;
     if (parts[5] !== 'any' && !generator.modes.includes(parts[5])) return null;
-    return { generator: generator.code, size: parts[2], theme: parts[3], density: parts[4], mode: parts[5] === 'any' ? '' : parts[5], seed: Number(parts[6]) % MAPGEN_SEED_RANGE };
+    return { generator: generator.code, size: parts[2], theme: parts[3], density: parts[4], mode: parts[5] === 'any' ? '' : parts[5], seed: Number(parts[6]) % SEED_RANGE };
   },
 
   // ---- Driver (MAP-023) ----
@@ -78,7 +77,7 @@ const MapGen = {
     let map = null;
     for (let attempt = 0; attempt < MAPGEN_ATTEMPTS && !map; attempt++) {
       report.attempts = attempt + 1;
-      report.seed = (settings.seed + attempt) % MAPGEN_SEED_RANGE;
+      report.seed = (settings.seed + attempt) % SEED_RANGE;
       map = this.attempt(settings, report.seed, report);
     }
     if (!map) map = this.fallback(settings, report);
@@ -187,7 +186,7 @@ const MapGen = {
   longLineAt(map, scan, n, limit, hit) {
     const x = MapScan.nodeX(scan, n), z = MapScan.nodeZ(scan, n), y = scan.nodeY[n];
     for (const [dx, dz] of MAPGEN_RING) {               // the validator's 16 directions (MAP_SIGHT_DIRECTIONS), from the fixed table
-      const free = Math.min(MapScan.rayLength(scan, x, y + MAP_EYE, z, dx, dz, limit + 1, hit), MapCheck.exitDistance(map, x, z, dx, dz));
+      const free = Math.min(MapScan.rayLength(scan, x, y + STAND_EYE, z, dx, dz, limit + 1, hit), MapCheck.exitDistance(map, x, z, dx, dz));
       if (free > limit) return { x, y, z, dx, dz };
     }
     return null;
@@ -195,7 +194,7 @@ const MapGen = {
   blocksLine(pillar, line, limit) {
     const along = (pillar.x - line.x) * line.dx + (pillar.z - line.z) * line.dz;
     const across = Math.abs((pillar.x - line.x) * line.dz - (pillar.z - line.z) * line.dx);
-    return along > 0 && along < limit && across < MAPGEN_PILLAR_SIZE / 2 && pillar.top > line.y + MAP_EYE;
+    return along > 0 && along < limit && across < MAPGEN_PILLAR_SIZE / 2 && pillar.top > line.y + STAND_EYE;
   },
   // A free spot on the line, away from other geometry so the pillar never narrows a passage below the 1.4 m door width.
   pillarFor(map, line, limit, added, settings) {

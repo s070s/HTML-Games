@@ -144,7 +144,7 @@ function joinSquadDrop(id, squad) {
   let x = anchorX, z = anchorZ;
   if (slot > 0) { x += Math.sin(angle) * DROP_SPREAD; z += Math.cos(angle) * DROP_SPREAD; }
   if (!World.lineClear(anchorX, anchorY + DROP_PROBE, anchorZ, x, anchorY + DROP_PROBE, z)) { x = anchorX; z = anchorZ; }
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = anchorY; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, anchorY, z);
 }
 
 function setSquadAnchor(squad, x, y, z) {
@@ -191,7 +191,7 @@ function respawnSquad(squad) {
 
 function squadWinner(id) {
   const player = Game.playerId;
-  return Squads.count && player >= 0 && Actors.team[id] >= 0 && Actors.team[player] === Actors.team[id] ? player : id;
+  return Squads.count && player >= 0 && Actors.isAlly(player, id) ? player : id;
 }
 
 // ---- Ring ----
@@ -227,7 +227,7 @@ function chooseNextCircle(radius) {
   const angle = Rng.rules.range(0, Math.PI * 2), offset = Math.sqrt(Rng.rules.next()) * slack;
   let x = Ring.x + Math.sin(angle) * offset, z = Ring.z + Math.cos(angle) * offset;
   if (Number.isFinite(World.boundsMin.x)) { x = clamp(x, World.boundsMin.x, World.boundsMax.x); z = clamp(z, World.boundsMin.z, World.boundsMax.z); }
-  const drift = Math.hypot(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
+  const drift = length2(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
   Ring.toX = Ring.x + (x - Ring.x) * keep; Ring.toZ = Ring.z + (z - Ring.z) * keep; Ring.toRadius = radius;
 }
 

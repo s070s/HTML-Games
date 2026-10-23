@@ -2,7 +2,6 @@
 // DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F10 toggles it, F9 toggles
 // Ui.botDebug, a four-finger tap toggles both (ARC-040). Reads Perf (S19) and Sim.timing at runtime only: the loop starts after every section has loaded.
 
-const PERF_REFRESH_MS = 250;
 const PERF_ERROR_LINES = 3;
 const PERF_ERROR_CHARS = 110;
 const PERF_SYSTEMS_SHOWN = 5;
@@ -32,7 +31,7 @@ const PerfOverlay = {
     }
     if (!this.shown) return;
     const now = performance.now();
-    if (now - this.lastUpdate < PERF_REFRESH_MS) return;
+    if (now - this.lastUpdate < UI_REFRESH_MS) return;
     this.lastUpdate = now;
     this.render(Perf.stats());
   },
@@ -61,6 +60,11 @@ const PerfOverlay = {
     const memory = performance.memory;
     return memory ? (memory.usedJSHeapSize / BYTES_PER_MEGABYTE).toFixed(1) + ' MB' : 'n/a';
   },
+  // Overflow of the fixed-size batches (R-210): shape instances refused in the last frame, HUD quads this session.
+  droppedText() {
+    const instances = Render.stats.droppedInstances, quads = HudBatch.dropped;
+    return (instances ? '   dropped instances ' + instances : '') + (quads ? '   dropped HUD quads ' + quads : '');
+  },
   slowestSystems(timing) {
     return Object.keys(timing).sort((a, b) => timing[b] - timing[a]).slice(0, PERF_SYSTEMS_SHOWN).map((name) => name + ' ' + timing[name].toFixed(2));
   },
@@ -69,7 +73,7 @@ const PerfOverlay = {
     const lines = [
       'fps ' + stats.fps.toFixed(1) + '   frame p50 ' + stats.p50.toFixed(2) + '  p95 ' + stats.p95.toFixed(2) + '  p99 ' + stats.p99.toFixed(2) + ' ms',
       'sim p95 ' + stats.simP95.toFixed(2) + ' ms   render ' + counters.renderMs.toFixed(2) + '   hud ' + counters.hudMs.toFixed(2) + '   audio ' + counters.audioMs.toFixed(2) + '   gpu ' + counters.gpuMs.toFixed(2),
-      'draw calls ' + counters.drawCalls + '   triangles ' + counters.triangles + '   render scale ' + counters.renderScale.toFixed(2),
+      'draw calls ' + counters.drawCalls + '   triangles ' + counters.triangles + '   render scale ' + counters.renderScale.toFixed(2) + this.droppedText(),
       'actors ' + counts.actors + '   bots ' + counts.bots + '   ai ' + this.aiMilliseconds(stats.systems).toFixed(2) + ' ms   projectiles ' + counters.projectiles + '   particles ' + counters.particles + '   dropped steps ' + stats.droppedSteps,
       'heap ' + this.heapText() + '   device ' + Input.device + '   bot debug ' + (Ui.botDebug ? 'on' : 'off'),
       'systems ms: ' + (this.slowestSystems(stats.systems).join('  ') || '-'),
@@ -77,6 +81,9 @@ const PerfOverlay = {
     const errors = ErrorLog.entries.slice(-PERF_ERROR_LINES);
     lines.push(errors.length ? 'errors:' : 'errors: none');
     for (const entry of errors) lines.push('  ' + entry.slice(0, PERF_ERROR_CHARS));
+    // the session's first error is the likely root cause: shown once newer ones have pushed it out of the tail (R-164)
+    const first = ErrorLog.first;
+    if (errors.length && first && !errors.some((entry) => entry.startsWith(first))) lines.push('  first: ' + first.slice(0, PERF_ERROR_CHARS));
     return lines;
   },
   // F10 / four-finger tap flip the saved setting, so Options > Developer shows the same state.

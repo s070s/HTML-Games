@@ -42,7 +42,6 @@ function pveStart(options) {
   PVE_HUD.active = true;
   PVE_HUD.mode = Modes.mode.id;
   if (settings.lives) applyDifficultyLives();
-  pveHunted.length = 0;
   PveLevel.begin(World.map);
   if (settings.coop) takeEnemySpawns();
 }
@@ -380,7 +379,7 @@ Modes.register('bank', {
       if (refill) topUpSide(team, PVE_BANK.fodderAlive, PVE_BANK.fodder, null, 0);
       this.deposits(team);
     }
-    for (let team = 0; team < TEAM_COUNT; team++) if (BankRun.banked[team] >= Modes.rules.params.bossAt) this.summonBoss(team);   // retried until a slot frees
+    for (let team = 0; team < TEAM_COUNT; team++) if (BankRun.banked[team] >= Modes.rules.params.bossAt) this.summonBoss(team);   // retried until it spawns (no spawn point or actor slot)
     const id = Game.playerId;
     PVE_HUD.carried = id >= 0 ? BankRun.carried[id] : 0;
     PVE_HUD.banked[0] = BankRun.banked[0]; PVE_HUD.banked[1] = BankRun.banked[1];
@@ -440,7 +439,7 @@ Modes.register('bank', {
   },
   isOver() { return BankRun.result; },
   score(index) { return BankRun.banked[index]; },
-  finalBoss(id) { return id === BankRun.boss[0] || id === BankRun.boss[1]; },   // the first boss killed wins
+  finalBoss(id) { return id === BankRun.boss[0] || id === BankRun.boss[1]; },   // either side's boss; only a kill by the boss's own side wins (onKill)
 });
 
 // ---- M26 Ravager vs Fiends: one ravager (team 0) against fiends (team 1) who summon fodder and revive each other ----
@@ -755,7 +754,7 @@ function crossFizzle(id, row, element) {
 function cubeOn(spot) {
   const run = ChamberRun;
   if (run.cubeCarried) return false;
-  return Math.hypot(run.cubeX - spot.x, run.cubeZ - spot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(run.cubeY - spot.y) < 1;
+  return length2(run.cubeX - spot.x, run.cubeZ - spot.z) <= PVE_CHAMBER_RULES.plateRadius && Math.abs(run.cubeY - spot.y) < 1;
 }
 function stepCube(id, pressedUse, element) {
   const run = ChamberRun;
@@ -786,7 +785,7 @@ function shootRelays(shot) {
     const rx = pveSpot.x - shot.x, ry = pveSpot.y - shot.y, rz = pveSpot.z - shot.z;
     const along = rx * shot.dx + ry * shot.dy + rz * shot.dz;
     if (along <= 0 || along > PVE_CHAMBER_RULES.relayRange) continue;
-    const miss = Math.hypot(rx - shot.dx * along, ry - shot.dy * along, rz - shot.dz * along);
+    const miss = length3(rx - shot.dx * along, ry - shot.dy * along, rz - shot.dz * along);
     if (miss <= PVE_CHAMBER_RULES.relayRadius && World.lineClear(shot.x, shot.y, shot.z, pveSpot.x - shot.dx * 0.3, pveSpot.y - shot.dy * 0.3, pveSpot.z - shot.dz * 0.3)) ChamberRun.done[index] = 1;
   }
 }
@@ -848,20 +847,39 @@ function drawChambers(batch) {
   for (let index = 0; index < row.elements.length; index++) drawChamberElement(batch, row.elements[index], ChamberRun.done[index] === 1);
   const exit = ChamberRun.exits[ChamberRun.index];
   if (!exit) return;
-  const color = chamberSolved() ? CHAMBER_COLORS.on : CHAMBER_COLORS.off;
-  batch.mesh('ring', exit.x, exit.y + 0.05, exit.z, 0, 0, exit.radius * 2, 0.1, exit.radius * 2, color[0], color[1], color[2], 0.8);
+  chamberExitSize[0] = chamberExitSize[2] = exit.radius * 2;
+  drawChamberMark(batch, 'ring', exit, 0.05, chamberExitSize, chamberSolved() ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, 0.8);
+}
+// Chamber marks per element kind: shape, lift above the spot, full size, glow (fizzle walls and the cube are boxes of their own size).
+const CHAMBER_MARKS = {
+  button: { shape: 'cylinder', lift: 0.5, size: [0.35, 1, 0.35], glow: 0.6 },
+  plate: { shape: 'disc', lift: 0.03, size: [1.6, 0.05, 1.6], glow: 0.5 },
+  relay: { shape: 'sphere', lift: 0, size: [0.5, 0.5, 0.5], glow: 0.9 },
+};
+const chamberExitSize = [0, 0.1, 0];
+// One reused instance record (batch.meshFrom, PERF-006): the callers pass objects and constants, the floats are computed here.
+const chamberInstance = makeShapeInstance();
+function drawChamberMark(batch, shape, spot, lift, size, color, glow) {
+  const instance = chamberInstance;
+  instance.x = spot.x; instance.y = spot.y + lift; instance.z = spot.z;
+  instance.sx = size[0]; instance.sy = size[1]; instance.sz = size[2];
+  instance.setRgb(color); instance.emissive = glow;
+  batch.meshFrom(shape, instance);
 }
 function drawChamberElement(batch, element, done) {
-  const color = done ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, size = PVE_CHAMBER_RULES.cubeSize;
+  const mark = CHAMBER_MARKS[element.kind];
   chamberElementAt(element, pveSpot);
-  if (element.kind === 'button') batch.mesh('cylinder', pveSpot.x, pveSpot.y + 0.5, pveSpot.z, 0, 0, 0.35, 1, 0.35, color[0], color[1], color[2], 0.6);
-  else if (element.kind === 'plate') batch.mesh('disc', pveSpot.x, pveSpot.y + 0.03, pveSpot.z, 0, 0, 1.6, 0.05, 1.6, color[0], color[1], color[2], 0.5);
-  else if (element.kind === 'relay') batch.mesh('sphere', pveSpot.x, pveSpot.y, pveSpot.z, 0, 0, 0.5, 0.5, 0.5, color[0], color[1], color[2], 0.9);
-  else if (element.kind === 'fizzle') drawBox(batch, pveSpot.x, pveSpot.y + element.size[1] / 2, pveSpot.z, element.size, CHAMBER_COLORS.fizzle, 0.4);
-  else if (element.kind === 'cube') drawBox(batch, ChamberRun.cubeX, ChamberRun.cubeY + size / 2, ChamberRun.cubeZ, CHAMBER_CUBE_SIZE, CHAMBER_COLORS.cube, 0.2);
+  if (mark) drawChamberMark(batch, mark.shape, pveSpot, mark.lift, mark.size, done ? CHAMBER_COLORS.on : CHAMBER_COLORS.off, mark.glow);
+  else if (element.kind === 'fizzle') drawChamberBox(batch, element.size, CHAMBER_COLORS.fizzle, 0.4);
+  else if (element.kind === 'cube') {
+    pveSpot.x = ChamberRun.cubeX; pveSpot.y = ChamberRun.cubeY; pveSpot.z = ChamberRun.cubeZ;
+    drawChamberBox(batch, CHAMBER_CUBE_SIZE, CHAMBER_COLORS.cube, 0.2);
+  }
 }
-function drawBox(batch, x, y, z, size, color, glow) {
-  batch.mesh('box', x, y, z, 0, 0, size[0], size[1], size[2], color[0], color[1], color[2], glow);
+// A box standing on pveSpot
+function drawChamberBox(batch, size, color, glow) {
+  pveSpot.y += size[1] / 2;
+  drawChamberMark(batch, 'box', pveSpot, 0, size, color, glow);
 }
 Render.addSource('pveChambers', drawChambers);
 
@@ -949,6 +967,7 @@ function resetPveModes() {
   resetPveHud();
   Pve.sideTeam = null;
   Pve.sideHunt = null;
+  pveHunted.length = 0;   // no marker outlives its match (17d draws whatever is listed)
   PveLevel.reset();
 }
 Modes.hud.pve = PVE_HUD;

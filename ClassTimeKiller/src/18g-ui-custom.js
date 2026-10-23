@@ -5,7 +5,6 @@
 // The pure model (CustomCodec, CustomMatch) has no DOM and is what the self-test drives; the screens below it only call the model.
 // Contract: docs/api/mutators-custom.md.
 
-const EDITOR_NAME_MAX = 40;
 const EDITOR_BOTS_MAX = 23;                  // the highest bot cap of any quality preset (PERF-009)
 const EDITOR_CODE_PREFIX = 'CTK';
 const EDITOR_CODE_VERSION = 1;
@@ -14,7 +13,6 @@ const EDITOR_PAYLOAD_MAX_BYTES = 16384;
 const EDITOR_DEFAULT = -1;                    // numeric fields: -1 = the mode's / bundle's own default
 const EDITOR_PERSONALITY_MIXED = 'mixed';
 const EDITOR_LIST_MUTATOR = 'weaponset';      // the Weapons tab list travels as this mutator
-const EDITOR_SEED_RANGE = 0x7fffffff;
 const LZ_MAX_RUN = 128, LZ_MIN_MATCH = 3, LZ_MAX_MATCH = 130, LZ_MAX_OFFSET = 65535, LZ_MATCH_FLAG = 0x80;
 const EDITOR_SCORE_LIMITS = [-1, 0, 10, 25, 50, 100, 150, 200, 300, 500];
 const EDITOR_TIME_LIMITS = [-1, 0, 120, 300, 600, 900, 1200, 1800, 3600];
@@ -163,7 +161,7 @@ function difficultySlidersCheck(value) {
 }
 
 const EDITOR_FIELD_CHECKS = {
-  name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
+  name: (value) => (typeof value === 'string' ? cleanLabel(value, LABEL_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
   map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),
@@ -285,16 +283,13 @@ const CustomMatch = {
     const wanted = draft.botCount >= 0 ? draft.botCount : Modes.defaultBots(mode.id, true).length;
     return Math.min(wanted, Quality.current().bots);
   },
-  botList(draft, mode) {
+  // Mixed: the named roster bots Quick Play fields for the seed (R-148); otherwise every bot plays the chosen personality.
+  botList(draft, mode, seed) {
     const count = this.botCount(draft, mode);
     const allies = draft.allies >= 0 ? Math.min(draft.allies, count) : Math.floor(count / 2);
-    const bots = [];
-    for (let index = 0; index < count; index++) {
-      const bot = {};
-      if (mode.teams === 2) bot.team = index < allies ? 0 : 1;
-      if (draft.personality !== EDITOR_PERSONALITY_MIXED) bot.profile = draft.personality;
-      bots.push(bot);
-    }
+    const bots = draft.personality === EDITOR_PERSONALITY_MIXED ? PlayFlow.rosterBots(count, draft.difficulty, seed)
+      : Array.from({ length: count }, () => ({ profile: draft.personality }));
+    if (mode.teams === 2) bots.forEach((bot, index) => { bot.team = index < allies ? 0 : 1; });
     return bots;
   },
   mapFor(draft, seed) {
@@ -315,9 +310,9 @@ const CustomMatch = {
   },
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
   setup(draft, seed, withPlayer) {
-    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? Date.now() % EDITOR_SEED_RANGE : seed;
+    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? newSeed() : seed;
     const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: this.difficultyOf(draft),
-      bots: this.botList(draft, mode), modeOptions: this.modeOptions(draft, mode) };
+      bots: this.botList(draft, mode, matchSeed), modeOptions: this.modeOptions(draft, mode) };
     setup.ruleset = this.hasOverrides(draft) || draft.name ? Object.assign(this.rulesetFields(draft), { id: 'custom', name: draft.name || 'Custom match' }) : this.bundleOf(draft).id;
     if (draft.allies >= 0 && mode.teams === 2) setup.balance = false;
     if (withPlayer !== false) setup.player = mode.teams === 2 ? { team: 0 } : {};
@@ -576,14 +571,13 @@ function editorSummary(draft) {
 
 function editorRenderTab(list, summary) {
   const draft = EDITOR_STATE.draft;
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
-  list.replaceChildren();
   summary.textContent = editorSummary(draft);
-  const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
-  for (const field of fields) list.appendChild(editorFieldRow(field));
-  if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
+    for (const field of fields) list.appendChild(editorFieldRow(field));
+    if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
+  });
 }
 
 Ui.register('custom', {
@@ -641,7 +635,7 @@ Ui.register('customPresets', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Saved Presets'));
     const nameInput = makeElement('input', 'cm-name');
-    nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
+    nameInput.type = 'text'; nameInput.maxLength = LABEL_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {
