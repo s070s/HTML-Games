@@ -404,10 +404,15 @@ const Items = {
     return -1;
   },
   swapPrompt(id) {
-    const slot = this.swapOffer(id), held = slot < 0 ? -1 : Weapons.swapVictim(id);
+    const slot = this.swapOffer(id);
+    return slot < 0 ? '' : this.swapText(id, this.row[slot]);
+  },
+  // The Use prompt for taking CAT.weapons[weaponIndex] at the carry limit ('' = nothing to push out); 13g royale loot too.
+  swapText(id, weaponIndex) {
+    const held = Weapons.swapVictim(id);
     if (held < 0) return '';
-    const pair = held * WEAPON_COUNT + this.row[slot];
-    if (!this.swapPrompts[pair]) this.swapPrompts[pair] = ('HOLD TO SWAP ' + CAT.weapons[held].name + ' FOR ' + CAT.weapons[this.row[slot]].name).toUpperCase();
+    const pair = held * WEAPON_COUNT + weaponIndex;
+    if (!this.swapPrompts[pair]) this.swapPrompts[pair] = ('HOLD TO SWAP ' + CAT.weapons[held].name + ' FOR ' + CAT.weapons[weaponIndex].name).toUpperCase();
     return this.swapPrompts[pair];
   },
   // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.

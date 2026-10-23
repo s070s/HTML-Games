@@ -13,7 +13,6 @@ const RING_NEXT_COLOR = [1, 1, 1];
 const RING_LIFT = 0.1;
 const LOOT_MAX = 256;                  // ARC-011 pickup pool
 const LOOT_CHECK_INTERVAL = 0.1;       // loot touch tests run at 10 Hz
-const LOOT_SWAP_DELAY = 1;             // a full inventory swaps a weapon at most once per second (no swapping back at once)
 const LOOT_GROUPS = ['weapon', 'armor', 'health', 'ammo'];
 const LOOT_GROUP = { WEAPON: 0, ARMOR: 1, HEALTH: 2, AMMO: 3 };
 const LOOT_CONSUMABLES = ['patch', 'cell', 'medkit', 'battery', 'fizzcan'];   // health spots by rarity: I13 I15 I14 I16 I17
@@ -28,11 +27,13 @@ const BEACON_SECONDS = 4;              // a living squadmate holds Use this long
 const BEACON_COLOR = [0.3, 1, 0.5];
 const BEACON_HEIGHT = 2;
 
-// Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up.
+// Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up,
+// blocker = the actor who swapped a gun onto the spot: it is not offered to them again until they step off (-1 = none).
 const RoyaleLoot = {
   count: 0,
   x: new Float32Array(LOOT_MAX), y: new Float32Array(LOOT_MAX), z: new Float32Array(LOOT_MAX),
   group: new Uint8Array(LOOT_MAX), weapon: new Int16Array(LOOT_MAX), rarity: new Uint8Array(LOOT_MAX), taken: new Uint8Array(LOOT_MAX),
+  blocker: new Int8Array(LOOT_MAX).fill(-1),
 };
 // The ring: current circle (x, z, radius), the circle it shrinks from and to, the phase and the time of its next change.
 const Ring = {
@@ -40,7 +41,6 @@ const Ring = {
   fromX: 0, fromZ: 0, fromRadius: 0, toX: 0, toZ: 0, toRadius: 0,
 };
 const royaleOutOrder = new Uint16Array(MAX_ACTORS);       // 1 = first out; 0 = still standing
-const lootSwapAt = new Float64Array(MAX_ACTORS);
 // Squads, per squad index: the drop point of the current spawn wave (anchorAt = its Sim.time) and how many landed there,
 // the beacon spot, its uses left and hold progress; holder/dead are 10 Hz scratch tallies.
 const Squads = {
@@ -60,7 +60,6 @@ Modes.register('royale', {
   start() {
     this.hurtTimer = 0; this.lootTimer = 0; this.outCount = 0;
     royaleOutOrder.fill(0);
-    lootSwapAt.fill(0);
     assignSquads();
     placeBeacons();
     startRing(Sim.time);
@@ -70,7 +69,7 @@ Modes.register('royale', {
   step(dt, now) {
     stepRing(now);
     this.hurtOutside(dt);
-    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
+    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(); stepBeacons(LOOT_CHECK_INTERVAL); }
     updateRingHud(now);
   },
   onSpawn(id) { dropIn(id); },
@@ -267,7 +266,7 @@ function buildLoot(map) {
     if (item.modes && item.modes.length && !item.modes.includes(Modes.mode.id)) continue;
     const spot = RoyaleLoot.count++;
     RoyaleLoot.x[spot] = item.x; RoyaleLoot.y[spot] = item.y || 0; RoyaleLoot.z[spot] = item.z;
-    RoyaleLoot.group[spot] = group; RoyaleLoot.taken[spot] = 0;
+    RoyaleLoot.group[spot] = group; RoyaleLoot.taken[spot] = 0; RoyaleLoot.blocker[spot] = -1;
     RoyaleLoot.rarity[spot] = rollRarity(params.rarityWeights);
     RoyaleLoot.weapon[spot] = group === LOOT_GROUP.WEAPON ? lootWeaponIndex(item.item) : -1;
   }
@@ -293,35 +292,55 @@ function lootWeaponIndex(key) {
   return CAT.weapons.byId(guns.includes(key) ? key : Rng.loot.pick(guns)).index;
 }
 
-function touchLoot(now) {
+// The one loot gate: no loot while downed (HP-007) or out of the match.
+function mayLoot(id) {
+  return Items.canTouch(id, true) && Modes.isActive(id);
+}
+
+function touchLoot() {
   for (let id = 0; id < Actors.count; id++) {
-    if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
+    if (!mayLoot(id)) continue;
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
-      if (!RoyaleLoot.taken[spot] && withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS)) takeLoot(id, spot, now);
+      if (RoyaleLoot.taken[spot]) continue;
+      const touching = withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS);
+      if (RoyaleLoot.blocker[spot] === id) { if (!touching) RoyaleLoot.blocker[spot] = -1; continue; }
+      if (touching) takeLoot(id, spot);
     }
   }
 }
 
-function takeLoot(id, spot, now) {
+function takeLoot(id, spot) {
   const group = RoyaleLoot.group[spot], params = Modes.rules.params;
-  if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot, now); return; }
+  if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot); return; }
   if (group === LOOT_GROUP.ARMOR && !takeArmor(id, params.shieldByRarity[RoyaleLoot.rarity[spot]])) return;
   if (group === LOOT_GROUP.HEALTH && !Items.grant(id, LOOT_CONSUMABLES[RoyaleLoot.rarity[spot]])) return;   // carried until used (BTN.HEAL)
   if (group === LOOT_GROUP.AMMO && !takeAmmo(id)) return;
   RoyaleLoot.taken[spot] = 1;
 }
 
-// A full inventory swaps by the one carry-limit rule (Weapons.mayTake: a player holds USE); the dropped weapon stays on the spot.
-function takeWeapon(id, spot, now) {
-  const key = CAT.weapons[RoyaleLoot.weapon[spot]].id;
-  if (Weapons.has(id, key)) { takeDuplicate(id, key, spot); return; }
-  if (!Weapons.mayTake(id, CAT.weapons[RoyaleLoot.weapon[spot]]) || (Weapons.atCarryLimit(id) && now < lootSwapAt[id])) return;
-  Weapons.give(id, key, RoyaleLoot.rarity[spot]);
+// A full inventory swaps by the one carry-limit rule (Weapons.mayTake: a player holds USE) and the S12 swap wait
+// (Items.blockSwapsAt); the dropped weapon stays on the spot, blocked for this actor until they step off.
+function takeWeapon(id, spot) {
+  const weapon = CAT.weapons[RoyaleLoot.weapon[spot]];
+  if (Weapons.has(id, weapon.id)) { takeDuplicate(id, weapon.id, spot); return; }
+  if (!Weapons.mayTake(id, weapon) || (Weapons.swapsOut(id, weapon) && Sim.tick < Items.swapReadyTick[id])) return;
+  Weapons.give(id, weapon.id, RoyaleLoot.rarity[spot]);
   const dropped = Weapons.dropped ? CAT.weapons.byId(Weapons.dropped) : null;
   if (!dropped) { RoyaleLoot.taken[spot] = 1; return; }
   RoyaleLoot.weapon[spot] = dropped.index;
   RoyaleLoot.rarity[spot] = Weapons.droppedRarity;
-  lootSwapAt[id] = now + LOOT_SWAP_DELAY;
+  RoyaleLoot.blocker[spot] = id;
+  Items.blockSwapsAt(id);
+}
+
+// The weapon spot under the actor that holding Use would swap in now, -1 = none (the Use prompt; the mode row shows touch USE).
+function lootSwapOffer(id) {
+  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id)) return -1;
+  for (let spot = 0; spot < RoyaleLoot.count; spot++) {
+    if (RoyaleLoot.taken[spot] || RoyaleLoot.group[spot] !== LOOT_GROUP.WEAPON || RoyaleLoot.blocker[spot] === id) continue;
+    if (withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS) && Weapons.swapsOut(id, CAT.weapons[RoyaleLoot.weapon[spot]])) return spot;
+  }
+  return -1;
 }
 
 // A copy of an owned weapon is taken only when it adds ammo (or makes a pair); the better rarity of the two is kept.
@@ -409,3 +428,4 @@ function drawRing(batch, x, ground, z, radius, color) {
 
 Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);
+Input.usePrompts.push((id) => { const spot = lootSwapOffer(id); return spot < 0 ? '' : Items.swapText(id, RoyaleLoot.weapon[spot]); });
