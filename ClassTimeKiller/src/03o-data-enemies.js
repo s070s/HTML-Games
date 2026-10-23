@@ -131,7 +131,8 @@ Data.define('enemies', {
 
 // Director (NPC-005..NPC-008): wave spawns out of sight >= 18 m from players, intensity rises with player damage and relaxes
 // 8 s after the peak; with the queue empty and at most lastStand x the peak alive left, nobody flees (last stand); with
-// enemies still queued and fallbackLosses of the encounter's spawns dead, the rest fall back to their spawn and regroup.
+// enemies still queued and fallbackLosses of the encounter's spawns dead, the rest fall back to their spawn and regroup
+// (still firing at a foe they see within fallbackFightRange m).
 // guardianDeaths participant deaths in one wave offer the DIF-004 Guardian Plate (damage taken x guardianTaken). Brains decide at 4 Hz.
 const PVE_DIRECTOR = {
   thinkInterval: 0.25, spawnMinDistance: 18, spawnSpacing: 1.2, spawnPerTick: 2, intensityPerDamage: 0.01, intensityPeak: 1,
@@ -139,7 +140,7 @@ const PVE_DIRECTOR = {
   budgetScaleBase: 0.6, budgetScaleAggression: 0.8, budgetPerExtraPlayer: 0.25, playersBaseline: 4,
   moraleRadius: 20, brokenSeconds: [3, 6], outnumbered: 2, coverHealth: 0.4, coverSeconds: 3, dodgeRadius: 4,
   memorySeconds: 10, searchSeconds: 6, staggerSeconds: 1.2, staggerHitShare: 0.25, guardianTaken: 0.5, guardianDeaths: 3,
-  fallbackLosses: 0.75, fallbackMinimum: 4,
+  fallbackLosses: 0.75, fallbackMinimum: 4, fallbackFightRange: 12,
   respawnBeastSeconds: 30, lureSeconds: 6, lureRadius: 30, lureSources: ['flash', 'incendiary'], lureElement: 'thermal',
 };
 

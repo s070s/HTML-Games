@@ -476,7 +476,10 @@ const Pve = {
   decide(id, row, now) {
     if (this.shouldFlee(id, row, now)) { this.setGoal(id, PVE_GOAL.FLEE); return; }
     if (this.dodgeThreat(id)) { this.setGoal(id, PVE_GOAL.DODGE, PVE_DIRECTOR.thinkInterval); return; }
-    if (this.shouldFallBack(row)) { this.setGoalPoint(id, this.homeX[id], this.homeY[id], this.homeZ[id]); this.setGoal(id, PVE_GOAL.FALLBACK); return; }
+    if (this.shouldFallBack(row)) {
+      if (this.foeClose(id) && this.tryAttack(id, row, now)) return;   // a foe in the face is fought, not shown the back
+      this.setGoalPoint(id, this.homeX[id], this.homeY[id], this.homeZ[id]); this.setGoal(id, PVE_GOAL.FALLBACK); return;
+    }
     if (this.goal[id] === PVE_GOAL.COVER && now < this.coverUntil[id]) return;
     if (this.wantsCover(id, row, now)) { this.setGoal(id, PVE_GOAL.COVER); return; }
     if (this.tryAttack(id, row, now)) return;
@@ -504,6 +507,7 @@ const Pve = {
     if (this.encounterSpawned < PVE_DIRECTOR.fallbackMinimum) return false;
     return this.hostileCount() <= this.encounterSpawned * (1 - PVE_DIRECTOR.fallbackLosses);
   },
+  foeClose(id) { return this.target[id] >= 0 && this.distanceTo(id, this.target[id]) <= PVE_DIRECTOR.fallbackFightRange; },
   // A mode starts an encounter (a wave): the fallback share counts from here.
   beginEncounter() { this.encounterSpawned = 0; },
   outnumbered(id) {
