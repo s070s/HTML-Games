@@ -93,11 +93,7 @@ const Killcam = {
     this.headshot = event.zone === 'head';
     this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
   },
-  stop() {
-    const wasPlaying = this.playing;
-    this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1;
-    if (wasPlaying) TouchInput.applyAll();   // the touch buttons go back to their places
-  },
+  stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; TouchInput.applyAll(); },   // touch buttons back in place
   // Moves the replay clock (render frames, not sim time) and ends it when it is over or skipped.
   advance(seconds) {
     if (!this.playing || Game.paused) return;
@@ -173,8 +169,6 @@ function hudDrawKillcamPanel(pen, layout) {
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);
 // While the replay plays, touch buttons give way to its letterbox bars (05b keepClear, touch-01).
 TouchInput.keepClear.push((width, height) => {
-  if (!Killcam.playing) return;
   const bar = height * KILLCAM_BAR;
-  TouchInput.addClear(0, 0, width, bar);
-  TouchInput.addClear(0, height - bar, width, height);
+  if (Killcam.playing) { TouchInput.addClear(0, 0, width, bar); TouchInput.addClear(0, height - bar, width, height); }
 });

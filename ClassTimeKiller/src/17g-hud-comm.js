@@ -127,7 +127,6 @@ function hudDrawCommWheel(pen, layout) {
 const commWheelRing = { x: 0, y: 0, radius: 0 };
 const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
 const commWheelPlace = {};   // TouchInput.layoutOf scratch
-function commWheelLabelHalf(unit) { return Math.max(HUD_TEXT_SMALL * unit, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }   // half the drawn text row (07f, floored like the pen)
 function commWheelWidestLabel(unit) {
   let widest = 0;
   for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
@@ -151,7 +150,7 @@ function commWheelPlaceRing(layout) {
   const mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
   const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
   const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
-  const below = icon + COMM_WHEEL_LABEL_GAP * unit + commWheelLabelHalf(unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
+  const below = icon + COMM_WHEEL_LABEL_GAP * unit + hudTextHalf(HUD_TEXT_SMALL * unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
   ring.radius = Math.max(0, Math.min(ring.radius, (layout.bottom - top - above - below) / 2, (right - left) / 2 - side));
   ring.x = (left + right) / 2; ring.y = (top + above + layout.bottom - below) / 2;
   return ring;

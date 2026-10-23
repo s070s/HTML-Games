@@ -290,7 +290,7 @@ const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
 const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
-  const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
+  const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), spot = {};
   for (let i = 0; i < COMM_CALLOUTS.length; i++) {
     const label = COMM_CALLOUTS[i].label;
     commWheelSpotOf(ring, i, true, unit, spot);
@@ -372,12 +372,12 @@ Test.add('hudui', (check) => {
     for (const preset of TOUCH_PRESETS) {
       TouchInput.currentPreset = preset;
       updateHudLayout(layout, width, height);
-      const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit, bar = hudBoxAt;
+      const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, bar = hudBoxAt;
       hudPlaceWeaponBox(layout, 5, 0);   // a five weapon bar: first box to last
       const first = bar[0], top = bar[1], boxHeight = bar[3];
       hudPlaceWeaponBox(layout, 5, 4);
-      const boxes = [box(layout.centerX - header / 2, layout.top, header, HUD_HEADER_HEIGHT * unit),box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
-        box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // header, minimap, vitals, ammo, bar
+      const boxes = [box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
+        box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // minimap, vitals, ammo, bar (the header: touch-01 below)
       const found = boxes.map((b, index) => index + hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true)).filter((text) => text.length > 1);
       check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found.length === 0, found.join());
     }
@@ -385,25 +385,32 @@ Test.add('hudui', (check) => {
   TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
 });
 
-// ---- Phones and tablets both ways (touch-01): no touch button over the score panel, nor over the killcam bars while the
-// replay plays, with the default places and with every button the layout editor moved to the top or the bottom edge ----
+// ---- Phones and tablets both ways (touch-01): no shown touch button over a quad the HUD draws for the header (score panel,
+// round pips, control meters, objective chips), the centre banners or the killcam panel, in modes with each header row,
+// with the default places and with every button the layout editor moved to the top or the bottom edge ----
 const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
-const HUD_UI_SLACK = 0.5;   // css px: a button pushed to an area's edge touches it, rounding aside
-// The first control past a screen edge or over one of the [left, top, right, bottom] boxes, or ''.
+const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control'];   // panel only, pips, pips + chips, chips, pips + meters + chips
+// The [left, top, right, bottom] box of every quad in the HUD batch (hudFloats: x y u v, then the colour, per vertex).
+function hudUiDrawnBoxes() {
+  const stride = HUD_VERTEX_BYTES / 4, corners = [0, 1, 2, 3];
+  return Array.from({ length: HudBatch.quads }, (unused, quad) => {
+    const xs = corners.map((i) => hudFloats[(quad * 4 + i) * stride]), ys = corners.map((i) => hudFloats[(quad * 4 + i) * stride + 1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  });
+}
+// The first shown control past a screen edge or over one of the [left, top, right, bottom] boxes, or ''.
 function hudUiTouchOver(boxes, width, height) {
   for (const control of TOUCH_CONTROLS) {
-    const place = TouchInput.places[control.id], radius = place.radius - HUD_UI_SLACK, x = place.x, y = place.y;
-    if (x < radius || y < radius || x + radius > width || y + radius > height) return control.id + ' off screen';
-    if (boxes.some((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3])) return control.id;
+    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;   // a button pushed to an edge touches it
+    const hit = boxes.find((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3]);
+    if (place.shown && (hit || x < radius || y < radius || x + radius > width || y + radius > height)) return control.id + ' at ' + (hit || 'the edge');
   }
   return '';
 }
-// The problems of one screen size: each preset, default and moved places (-1: none moved), in play and in the replay.
+// The problems of the running match on one screen size: each preset, default and moved places (-1: none moved), in play and replay.
 function hudUiTouchProblems(width, height) {
-  const layout = {}, panel = [0, 0, 0, 0], problems = [], bar = height * KILLCAM_BAR;
+  const layout = {}, problems = [];
   updateHudLayout(layout, width, height);
-  hudHeaderBox(layout, panel);
-  const areas = [[panel[0], panel[1], panel[0] + panel[2], panel[1] + panel[3]], [0, 0, width, bar], [0, height - bar, width, height]];
   for (const preset of TOUCH_PRESETS) {
     TouchInput.currentPreset = preset;
     for (const moved of [-1, 0.01, 0.99]) {
@@ -413,32 +420,33 @@ function hudUiTouchProblems(width, height) {
       for (const replay of [false, true]) {
         Killcam.playing = replay;
         TouchInput.placeAll(width, height);
-        const over = hudUiTouchOver(replay ? areas : areas.slice(0, 1), width, height);
-        if (over) problems.push(preset.id + ' ' + moved + (replay ? ' killcam: ' : ': ') + over);
+        HudBatch.quads = 0;
+        hudDrawHeader(HudPen, layout); hudDrawBanners(HudPen, layout);
+        if (replay) hudDrawKillcamPanel(HudPen, layout);
+        const over = hudUiTouchOver(hudUiDrawnBoxes(), width, height);
+        if (over) problems.push([width, height, preset.id, moved, replay, over].join(' '));
       }
     }
   }
   return problems;
 }
-Test.add('hudui', (check) => {
-  const savedDevice = Input.device, savedPreset = TouchInput.currentPreset;
-  Input.device = 'touch';
+Test.add('hudui', (check) => hudTestWith(() => {
+  const savedPreset = TouchInput.currentPreset;
+  Input.device = 'touch'; TouchInput.shown = true;
   try {
-    for (const [width, height] of HUD_UI_SCREENS) {
-      const problems = hudUiTouchProblems(width, height);
-      check('touch-01: no touch button over the score panel or the killcam bars at ' + width + 'x' + height, problems.length === 0, problems.slice(0, 4).join('; '));
+    for (const mode of HUD_UI_MODES) {
+      Game.start({ mode, map: PlayFlow.smallestMap(mode).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+      HudBanners.add('Rook Varga takes the lead', 'lead', 1, false); HudBanners.add('Double Kill', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+      Hud.time += 1;   // the banners are fully faded in
+      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height));
+      check('touch-01: no button over the header, banners or killcam bars in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+      endModeTest();
     }
   } finally {
-    Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
+    Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
     TouchInput.applyAll();
   }
-  // A button the layout editor drags onto the score panel (top centre, the first area) is drawn below it: the layer shows the places.
-  const place = TouchInput.places.ping;
-  TouchInput.setProperty('ping', 'position', { x: 0.5, y: 0 });
-  check('touch-01: a button dragged onto the score panel is drawn below it', place.y - place.radius >= TouchInput.clearRects[0].bottom - HUD_UI_SLACK
-    && Test.near(parseFloat(TouchInput.elements.ping.style.top) + TouchInput.insets.top, place.y, HUD_UI_SLACK), place.y);
-  TouchInput.resetLayout();
-});
+}));
 
 Test.add('ui', (check) => {
   const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');

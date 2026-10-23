@@ -52,12 +52,16 @@ const HudFeed = {
 };
 
 const HUD_HEADER_WIDTH = 320;   // units: the score, clock and round panel at the top centre
-const HUD_HEADER_HEIGHT = 44;   // units: the panel behind the score, the clock and the "FIRST TO" line
+// Header rows (centre lines in units below the HUD top): the line under the clock ("FIRST TO 25", GET READY) and free-for-all
+// lives, which reach past the panel's edge on small screens (the text floor), then round pips, control meters and objective
+// chips (lower under pips) with their note line (bomb timer, flag state).
+const HUD_LIMIT_Y = 37, HUD_LIVES_Y = 41, HUD_PIPS_Y = 56, HUD_METERS_Y = 68, HUD_CHIPS_Y = 74, HUD_CHIPS_Y_ROUNDS = 92, HUD_CHIP_NOTE = 22;
+const HUD_ROWS_HALF = 150;   // units either side of the centre: the widest row (free-for-all lives, seven round pips)
 
 // The score panel's box (hudBoxAt form: x, y, width, height): one source for the drawing, the touch buttons and the tests.
 function hudHeaderBox(layout, box) {
   const unit = layout.unit, width = HUD_HEADER_WIDTH * unit;
-  box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = HUD_HEADER_HEIGHT * unit;
+  box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = 44 * unit;   // 44 units: behind the score and the clock
   return box;
 }
 
@@ -129,6 +133,19 @@ function hudMedalTitle(medal) {
 Bus.on('announce', (event) => HudBanners.add(event.text, event.kind, event.priority, false));
 Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) HudBanners.add(hudMedalTitle(event.medal), 'medal', HUD_BANNER_PRIORITY_LONG, true); });
 
+// The centre line of a text row (half its width either side of the centre) at y or lower, below every shown touch button it
+// would meet (touch-01: on small phones the top row sits where the banners start). Nothing is allocated.
+function hudBelowTouchButtons(layout, y, half, size) {
+  if (!TouchInput.shown) return y;
+  const shade = HUD_SHADOW_OFFSET * Math.max(1, size / 16), reach = hudTextHalf(size) + shade;   // a label's shadow (17a labelAt)
+  for (let i = 0; i < TOUCH_CONTROLS.length; i++) {
+    const place = TouchInput.places[TOUCH_CONTROLS[i].id], below = place.y + place.radius + reach;
+    if (!place.shown || below <= y || Math.abs(place.x - layout.centerX) >= half + shade + place.radius || place.y - place.radius >= y + reach) continue;
+    y = below;
+    i = -1;   // look again from the first button: the lower line may meet one already passed (y only grows, so this ends)
+  }
+  return y;
+}
 function hudDrawBanners(pen, layout) {
   const b = HudBanners, now = Hud.time, unit = layout.unit;
   let shown = 0, y = layout.height * 0.22;
@@ -136,9 +153,9 @@ function hudDrawBanners(pen, layout) {
     const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS, age = now - b.at[slot], life = b.seconds(slot);
     if (age >= life) continue;
     const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE);
-    const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
+    const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit, width = HudPen.measure(b.text[slot], size);
+    y = hudBelowTouchButtons(layout, y, width / 2 + (b.medal[slot] ? size * 1.4 : 0), size);   // the stars reach 1.4 sizes past the text
     if (b.medal[slot]) {
-      const width = HudPen.measure(b.text[slot], size);
       pen.label('★', layout.centerX - width / 2 - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
       pen.label('★', layout.centerX + width / 2 + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
     }
@@ -170,7 +187,7 @@ function hudDrawTime(pen, layout, state) {
   if (state.overtime) pen.textAt('OVERTIME', Hud.colors.bad, 'center');
   text[1] = y; text[2] = 24 * unit;
   if (state.timeLeft > 0) pen.textAt(hudTime(state.timeLeft), state.timeLeft <= 30 ? Hud.colors.bad : HUD_COLOR.text, 'center');
-  text[1] = y + 22 * unit; text[2] = 14 * unit;
+  text[1] = layout.top + HUD_LIMIT_Y * unit; text[2] = 14 * unit;
   if (state.phase === 'freeze') pen.textAt('GET READY', HUD_COLOR.warn, 'center');
   else if (state.phase === 'roundEnd') pen.textAt('ROUND OVER', HUD_COLOR.warn, 'center');
   else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit);
@@ -186,7 +203,7 @@ function hudDrawScoreLimit(pen, layout, limit) {
 }
 
 function hudDrawRoundPips(pen, layout, state) {
-  const unit = layout.unit, y = layout.top + 56 * unit, wins = Math.max(state.roundsToWin, 1);
+  const unit = layout.unit, y = layout.top + HUD_PIPS_Y * unit, wins = Math.max(state.roundsToWin, 1);
   pen.text('ROUND', layout.centerX, y, 14 * unit, HUD_COLOR.dim, 'center');
   pen.text(hudNumber(state.round), layout.centerX + 40 * unit, y, 14 * unit, HUD_COLOR.text, 'left');
   for (let team = 0; team < 2; team++) {
@@ -208,13 +225,14 @@ function hudDrawFreeForAllScore(pen, layout, state) {
     pen.shape('diamond', x + 106 * unit, y, 10 * unit, HUD_COLOR.gold);
   }
   if (state.playerLives >= 0) {
-    pen.text(hudCount(state.playerLives), x - 132 * unit, y + 24 * unit, 14 * unit, Hud.colors.bad, 'left');
-    pen.shape('square', x - 144 * unit, y + 24 * unit, 9 * unit, Hud.colors.bad);
+    const livesY = layout.top + HUD_LIVES_Y * unit;
+    pen.text(hudCount(state.playerLives), x - 132 * unit, livesY, 14 * unit, Hud.colors.bad, 'left');
+    pen.shape('square', x - 144 * unit, livesY, 9 * unit, Hud.colors.bad);
   }
 }
 
 function hudDrawControlMeters(pen, layout, state) {
-  const unit = layout.unit, y = layout.top + 68 * unit, width = 110 * unit;
+  const unit = layout.unit, y = layout.top + HUD_METERS_Y * unit, width = 110 * unit;
   pen.bar(layout.centerX - width - 8 * unit, y, width, 6 * unit, state.teamMeter[0], Hud.teamColor(0));
   pen.bar(layout.centerX + 8 * unit, y, width, 6 * unit, state.teamMeter[1], Hud.teamColor(1));
 }
@@ -233,13 +251,13 @@ function hudDrawObjectiveChip(pen, layout, objective, letter, x, y) {
   if (capturing) pen.ring(x, y, 15 * unit, 3 * unit, Hud.teamColor(objective.capturingTeam), 1, 0, Math.PI * 2 * objective.progress);
   if (objective.contested) pen.ring(x, y, 18 * unit, 2 * unit, HUD_COLOR.warn, 0.9);
   const note = hudObjectiveText[objective.state];
-  if (objective.state === 'planted') pen.text(hudTime(objective.detonateAt - Sim.time), x, y + 22 * unit, 14 * unit, Hud.colors.bad, 'center');
-  else if (note && objective.kind === 'flag') pen.text(note, x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
+  if (objective.state === 'planted') pen.text(hudTime(objective.detonateAt - Sim.time), x, y + HUD_CHIP_NOTE * unit, 14 * unit, Hud.colors.bad, 'center');
+  else if (note && objective.kind === 'flag') pen.text(note, x, y + HUD_CHIP_NOTE * unit, 14 * unit, HUD_COLOR.warn, 'center');
 }
 function hudDrawObjectiveChips(pen, layout, state) {
   const list = state.objectives;
   if (!list || !list.length) return;
-  const unit = layout.unit, spacing = 36 * unit, y = layout.top + (state.roundsToWin > 0 ? 92 : 74) * unit;
+  const unit = layout.unit, spacing = 36 * unit, y = layout.top + (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) * unit;
   let count = 0;
   for (let i = 0; i < list.length && count < HUD_MAX_OBJECTIVE_CHIPS; i++) if (list[i].active && list[i].kind !== 'payloadPath' && list[i].kind !== 'flagBase') count++;
   let x = layout.centerX - (count - 1) * spacing / 2, drawn = 0;
@@ -290,12 +308,27 @@ function hudDrawRespawnText(pen, layout) {
 Bus.on('match.start', () => { HudFeed.reset(); HudBanners.reset(); });
 Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
 
-// Touch buttons give way to the score panel (05b keepClear, touch-01) on the screen size they are placed for.
+// Half a drawn text row of a size (px): the atlas cell, floored like the pen (ACC-008).
+function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
+// The header's rows for a mode state as one box from the HUD top (hudBoxAt form), down to the lowest row the drawers place
+// for it (the chip row's note line in modes with objectives: chips and notes come and go). It is narrower than the panel,
+// so a button beside the rows keeps its place under the panel.
+function hudHeaderRowsBox(layout, state, box) {
+  const unit = layout.unit;
+  let line = state.playerLives >= 0 && state.teams !== 2 ? HUD_LIVES_Y : HUD_LIMIT_Y;
+  if (state.roundsToWin > 0) line = HUD_PIPS_Y;
+  if (state.mode === 'control') line = HUD_METERS_Y;
+  if (state.objectives && state.objectives.length) line = (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) + HUD_CHIP_NOTE;
+  box[0] = layout.centerX - HUD_ROWS_HALF * unit; box[1] = layout.top; box[2] = HUD_ROWS_HALF * 2 * unit; box[3] = line * unit + hudTextHalf(HUD_TEXT_SMALL * unit);
+  return box;
+}
+// Touch buttons give way to the score panel and the rows under it (05b keepClear, touch-01) on the screen size they are placed for.
 const hudHeaderClearLayout = {}, hudHeaderClearBox = [0, 0, 0, 0];
+function hudKeepClearBox(box) { TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]); }
 TouchInput.keepClear.push((width, height) => {
   updateHudLayout(hudHeaderClearLayout, width, height);
-  const box = hudHeaderBox(hudHeaderClearLayout, hudHeaderClearBox);
-  TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
+  hudKeepClearBox(hudHeaderBox(hudHeaderClearLayout, hudHeaderClearBox));
+  if (Modes.active && Modes.rules) hudKeepClearBox(hudHeaderRowsBox(hudHeaderClearLayout, Modes.hudState(), hudHeaderClearBox));
 });
 
 Hud.register('main', 'header', 'header', hudDrawHeader);

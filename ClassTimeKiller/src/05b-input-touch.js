@@ -125,7 +125,7 @@ const TouchInput = {
   weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a weapon bar)
   buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
-  places: {},                      // control id -> { x, y, radius }: where it is drawn, in window css px (placeAll)
+  places: {},                      // control id -> { x, y, radius, shown }: where it is drawn, in window css px (placeAll)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
   keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
   clearRects: [], clearCount: 0,   // the areas of the last placeAll: { left, top, right, bottom } in window css px (addClear)
@@ -163,7 +163,7 @@ const TouchInput = {
       element.dataset.control = control.id;
       this.elements[control.id] = element;
       this.controlById[control.id] = control;
-      this.places[control.id] = { x: 0, y: 0, radius: 0 };
+      this.places[control.id] = {};   // placeControl fills x, y, radius and shown (applyAll places before it draws)
       if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
       this.layer.appendChild(element);
     }
@@ -433,8 +433,9 @@ const TouchInput = {
     this.clampPosition(controlId, merged);
     Object.assign(saved, { x: merged.x, y: merged.y, scale: merged.scale, opacity: merged.opacity, hidden: merged.hidden });
     Save.scheduleSave();
-    this.placeControl(this.controlById[controlId], window.innerWidth, window.innerHeight);
-    this.applyControl(this.controlById[controlId]);
+    const control = this.controlById[controlId];
+    this.placeControl(control, window.innerWidth, window.innerHeight);
+    this.applyControl(control);
   },
   getProperty(controlId, key) { return this.layoutOf(controlId, this.layoutScratch)[key]; },
   resetLayout() {
@@ -478,6 +479,7 @@ const TouchInput = {
     }
     place.x = x; place.radius = radius;
     place.y = clamp(y, insets.top + radius, height - insets.bottom - radius);
+    place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
   },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },
@@ -497,14 +499,12 @@ const TouchInput = {
   // Draws a control at its last place (placeAll or placeControl ran first), in px inside the layer.
   applyControl(control) {
     const element = this.elements[control.id], layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
-    const optionOff = (control.setting && !Input.config[control.setting]) || (control.need && !this.needMet(control.need));
-    const size = control.size * layout.scale;
     element.style.left = place.x - this.insets.left + 'px';
     element.style.top = place.y - this.insets.top + 'px';
-    element.style.width = element.style.height = size + 'px';
-    element.style.opacity = layout.hidden || optionOff ? '' : layout.opacity;
-    element.classList.toggle('off', (layout.hidden || !!optionOff) && !this.editing);
-    element.classList.toggle('ghost', (layout.hidden || !!optionOff) && this.editing);
+    element.style.width = element.style.height = place.radius * 2 + 'px';
+    element.style.opacity = place.shown ? layout.opacity : '';
+    element.classList.toggle('off', !place.shown && !this.editing);
+    element.classList.toggle('ghost', !place.shown && this.editing);
     element.classList.toggle('selected', this.editing && this.selected === control.id);
   },
 
