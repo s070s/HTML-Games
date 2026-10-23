@@ -1106,6 +1106,23 @@ Test.add('pve', (check) => {
   endModeTest();
 });
 
+// bots-02: extraction is the player's choice. A bot in the open extract zone ends nothing while the player stands elsewhere
+// (it once ended an idle player's run in the core room); the player stepping in ends it.
+Test.add('pve', (check) => {
+  const ids = startPveMode('endless', [0], { objectives: [{ id: 'extract', kind: 'extract', x: 10, y: 0, z: 0, radius: 3, modes: ['endless'] }] }, { player: { team: 0 } });
+  const player = Game.playerId, run = Modes.behaviour.run;
+  run.state = PVE_WAVE_STATE.EXTRACT;
+  run.endsAt = Sim.time + PVE_ENDLESS.extractSeconds;
+  placeActor(ids.find((id) => id !== player), 10, 0);
+  placeActor(player, -10, 0);
+  runSeconds(0.25);
+  check('a bot in the open extract zone leaves the run going while the player stands elsewhere', Modes.active && run.state === PVE_WAVE_STATE.EXTRACT);
+  placeActor(player, 10, 2);
+  runSeconds(0.25);
+  check('the player stepping into the extract zone ends the run', !Modes.active && Game.match.results.reason === 'extracted');
+  endModeTest();
+});
+
 // Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
 const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
 Test.add('pvesoak', (check) => {

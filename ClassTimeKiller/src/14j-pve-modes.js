@@ -212,9 +212,10 @@ function makeWaveBehaviour(plan) {
       run.endsAt = now + PVE_WAVE_RULES.shopSeconds;
       Economy.setShopOpen(true);   // bots shop in it too (14f BotEconomy)
     },
-    // Endless: anyone standing in the extract zone while it is open ends the run as a win.
+    // Endless: a player standing in the extract zone while it is open ends the run as a win (bots-02: pushing on is the
+    // player's choice, so a bot walking in counts only while no player stands).
     extracting(run, now) {
-      if (Modes.findActorNear(run.extract.x, run.extract.y, run.extract.z, run.extract.radius, NO_TEAM, NEAR_ANY) >= 0) { run.result = Modes.over(coopWinner(), 'extracted'); return; }
+      if (extractor(run.extract) >= 0) { run.result = Modes.over(coopWinner(), 'extracted'); return; }
       if (now + TIME_EPSILON >= run.endsAt) this.openShop(run, now);
     },
     // A lost wave: retry from its start (checkpoint) while retries are left, else the run is lost. DIF-004: after 3
@@ -251,6 +252,19 @@ function makeWaveBehaviour(plan) {
       updatePlayerHud();
     },
   };
+}
+// Who takes the team out through the zone: a standing player inside it; a bot inside it only while no player stands (a
+// bots-only run, or every player down). -1 = nobody.
+function extractor(zone) {
+  let bot = -1, playerStands = false;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Modes.isActive(id) || !Modes.actsOnObjectives(id)) continue;
+    const player = Actors.kind[id] === ACTOR_KIND.PLAYER, inside = withinTouch(id, zone.x, zone.y, zone.z, zone.radius);
+    if (player && inside) return id;
+    if (player) playerStands = true;
+    else if (inside) bot = id;
+  }
+  return playerStands ? -1 : bot;
 }
 // DIF-004: the plate halves enemy damage to every participant until the retried wave is cleared.
 function wearGuardianPlate(run) {
