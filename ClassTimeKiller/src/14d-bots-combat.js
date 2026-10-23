@@ -84,6 +84,8 @@ const PRESSABLE_SLOTS = SLOT.PASSIVE;   // ability slots a bot presses: ABILITY1
 
 const aimPoint = Vec.make();
 const perceived = Vec.make();
+const abilityRay = Vec.make();
+const abilityHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 
 // Bot-use triggers (ABL-003, BOT-035): the `when` word of an ability's botUse or a BOT_GADGET_USE row names one of
 // these; each tests only what the bot perceives (its target, its memory, its own state, team-mates it can see).
@@ -660,6 +662,7 @@ const BotCombat = {
       if (!row || row.activation === 'passive' || row.activation === 'ult' || !Abilities.ready(id, slot)) continue;
       if (row.activation === 'channel' && !BotDecide.holding(id)) continue;   // a channel roots the body: only where the bot stays
       if (!botUseWanted(id, row.botUse) && !(slot === SLOT.ULTIMATE && ultimateWanted(id, row.botUse))) continue;
+      if (!abilityLands(id, row)) continue;
       Bots.press(id, SLOT_BUTTONS[slot]);
       this.abilityAt[id] = now + ABILITY_INTERVAL / pace;
       this.uses.abilities++;
@@ -817,6 +820,19 @@ function throwRange(pitch, rise) {
 
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
+// BOT-010 for movement abilities: a grapple or blink goes only where its end point (along the view, or along the move
+// for an input dash) has floor within the bot's drop limit below it, never out over the void.
+function abilityLands(id, row) {
+  if (row.effect !== 'grapple' && row.effect !== 'blink') return true;
+  if (row.params.direction === 'input') Vec.set(abilityRay, Bots.wishX[id], 0, Bots.wishZ[id]);
+  else Vec.fromAngles(abilityRay, Actors.yaw[id], Actors.pitch[id]);
+  const eyeY = Actors.eyeY(id), hooked = World.raycast(Actors.x[id], eyeY, Actors.z[id], abilityRay.x, abilityRay.y, abilityRay.z, row.range, abilityHit);
+  if (row.effect === 'grapple' && !hooked) return true;   // nothing to hook: the cast fails on its own
+  const reach = Math.max(0, (hooked ? abilityHit.distance : row.range) - ACTOR_RADIUS);
+  const x = Actors.x[id] + abilityRay.x * reach, y = eyeY + abilityRay.y * reach + STEP_HEIGHT, z = Actors.z[id] + abilityRay.z * reach;
+  return World.raycast(x, y, z, 0, -1, 0, BotMove.options[id].maxDrop + STAND_HEIGHT * 2, abilityHit);
+}
+
 function botUseWanted(id, use) {
   if (!use || use.chance <= 0 || (use.tierFlag && !Bots.tier(id)[use.tierFlag])) return false;
   if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;

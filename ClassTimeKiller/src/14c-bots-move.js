@@ -49,6 +49,7 @@ const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it 
 const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
 const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
 const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
+const PAD_RIDE_SECONDS = 4;             // s: a jump pad flight lasts at most this long (S08 arcs are far shorter)
 
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
@@ -64,6 +65,7 @@ const BotMove = {
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
+  padRideUntil: new Float64Array(MAX_ACTORS),  // a jump pad threw the bot: no steering until it lands (or this time)
   sampleX: new Float32Array(MAX_ACTORS), sampleY: new Float32Array(MAX_ACTORS), sampleZ: new Float32Array(MAX_ACTORS), sampleAt: new Float64Array(MAX_ACTORS),
   stuckTime: new Float32Array(MAX_ACTORS), recoverUntil: new Float64Array(MAX_ACTORS), recoverSide: new Int8Array(MAX_ACTORS).fill(1),
   recoverAngle: new Float32Array(MAX_ACTORS),
@@ -84,7 +86,7 @@ const BotMove = {
     }
   },
   reset(id) {
-    this.state[id] = PATH.NONE; this.hasDest[id] = 0; this.stuckTime[id] = 0; this.recoverUntil[id] = 0;
+    this.state[id] = PATH.NONE; this.hasDest[id] = 0; this.stuckTime[id] = 0; this.recoverUntil[id] = 0; this.padRideUntil[id] = 0;
     this.takeSample(id, Sim.time);
     this.pointCount[id] = 0; this.pointIndex[id] = 0; this.avoidNode[id] = -1; this.requestedAt[id] = -1e9; this.pending[id] = 0;
     Nav.cancel(id);
@@ -374,6 +376,7 @@ const BotMove = {
   // or slide (ice) over an edge with no floor within its drop limit (a void, a killzone) brakes instead. A planned drop
   // lands within that limit; jump, pad and ladder links leave the ground on purpose while the move heads along them.
   guardLedge(id) {
+    if (this.ridesPad(id)) return;
     if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
     if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
     const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
@@ -386,6 +389,15 @@ const BotMove = {
     const wanted = botWish;
     wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = speed > LEDGE_SLIDE_SPEED ? 1 : 0;   // push back against the slide
     Bots.wishFrom(id);
+  },
+  // A jump pad throws the actor onto its target (S08 arc): in that flight the bot does not steer, since its path or
+  // footwork pulling another way brakes it over the void (BOT-010). The ride ends on landing.
+  ridesPad(id) {
+    if (this.padRideUntil[id] <= 0) return false;
+    if (Sim.time >= this.padRideUntil[id] || (Move.isGrounded(id) && Actors.vy[id] <= 0)) { this.padRideUntil[id] = 0; return false; }
+    Bots.wishAmount[id] = 0;
+    Bots.buttonsWanted[id] &= ~BTN.JUMP;
+    return true;
   },
   // A hop off no jump link (combat footwork) flies LEDGE_HOP_SECONDS at run speed or more: no floor that far along the
   // move (or the slide), no hop.
@@ -619,3 +631,4 @@ function markBlockedExit(node) {
 BotMove.init();
 Bus.on('match.start', () => { buildCosts(); findExits(); });
 Bus.on('nav.ready', () => { buildCosts(); findExits(); });   // a sliced build finished after match start
+Bus.on('world.trigger', (event) => { if (event.kind === 'jumppad' && Bots.active[event.id]) BotMove.padRideUntil[event.id] = Sim.time + PAD_RIDE_SECONDS; });

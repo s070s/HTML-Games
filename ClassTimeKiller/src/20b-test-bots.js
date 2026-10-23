@@ -619,6 +619,30 @@ Test.add('bots', (check) => {
   check('a blocked exit is never the nearest exit again', first >= 0 && second !== first, first + ' then ' + second);
 });
 
+// ---- BOT-010 over the void: a jump pad flight is ridden onto its target, and a dash or grapple never ends over the void ----
+const BOT_PAD_ISLES = { id: 'bots-isles', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'box', min: [-10, -1, 24], max: [10, 0, 34] }],
+  spawns: [{ x: 0, y: 0, z: -6, yaw: 0 }, { x: 0, y: 0, z: -8, yaw: 0 }], objectives: [], items: [],
+  triggers: [{ kind: 'jumppad', min: [-1.5, 0, 5], max: [1.5, 0.4, 8], target: [0, 0, 28], peak: 4 }] };
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(BOT_PAD_ISLES, 'ffa', { ruleset: 'vanguard' });   // strong air control: steering against the throw stops it short
+  Modes.endProtection(bot); Modes.endProtection(dummy);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }   // past the spawn settle: the brain steers
+  placeFacing(bot, 0, 6.5, Math.PI);
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination: back where it came from, against the pad's throw
+  BotMove.goTo(bot, 0, 0, -8, 1);
+  for (let tick = 0; tick < 3 * TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }
+  check('a bot thrown by a jump pad lands on its target island', Actors.y[bot] > -0.5 && Actors.z[bot] > 24, Actors.x[bot].toFixed(1) + ' ' + Actors.y[bot].toFixed(1) + ' ' + Actors.z[bot].toFixed(1));
+  const surge = CAT.abilities.byId('surge');
+  placeFacing(bot, 0, 8, 0);
+  Bots.wishX[bot] = 0; Bots.wishZ[bot] = 1;
+  check('a dash out over the void is not used', !abilityLands(bot, surge));
+  Bots.wishZ[bot] = -1;
+  check('a dash along the floor is used', abilityLands(bot, surge));
+  endBotTest();
+});
+
 // ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----
 function outcomeRow(id, team) { return { id, team }; }
 function teamOutcome(winnerTeam) { return { players: [outcomeRow(1, 1), outcomeRow(0, 0), outcomeRow(2, 1)], teams: [{}, {}], winnerTeam }; }
@@ -1633,7 +1657,8 @@ Test.add('bots', (check) => {
 const MANTLE_CRATE = { shape: 'box', min: [-3, 0, 2], max: [3, 2, 8] };
 Test.add('bots', (check) => {
   const [bot] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, MANTLE_CRATE] }), 'ffa', { ruleset: 'modern' });
-  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = BotMove.options[bot];
+  // The bot's own limits, without the danger costs its last path request (a match before this one) left in its options.
+  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = Object.assign({}, BotMove.options[bot], { danger: null, avoid: null });
   check('a Modern bot (jump 0.83 m, mantle 2.2 m) plans the 2 m mantle link onto a crate', Move.preset(bot).id === 'modern' && Nav.findPath(from, to, options) > 0
     && Nav.nodeY[Nav.pathNodes[Nav.pathLength - 1]] > 1.5, 'jump limit ' + options.allowJumpHeight.toFixed(2) + ' m');
   endBotTest();
