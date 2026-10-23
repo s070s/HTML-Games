@@ -583,7 +583,17 @@ Test.add('weapons', (check) => {
   Weapons.setLoadout(id, ['tempest']);
   Game.playerId = id;
   const model = Render.viewModel({});
-  check('Render.viewModel describes the held weapon', model.visible && model.shape === 'rifle' && model.swap === 1 && model.reload === 0 && model.ads === 0);
+  check('Render.viewModel describes the held weapon', model.visible && model.shape === 'rifle' && model.swap === 0 && model.reload === 0 && model.ads === 0);
+  // The real hook through the 07e pose: an idle weapon sits at its hold pitch, a swap starts lowered and rises.
+  const row = viewWeaponModel(model).pose;
+  check('an idle view-model weapon is not lowered', Math.abs(poseWeapon(row, model).pitch) < 1e-6, poseWeapon(row, model).pitch);
+  Weapons.give(id, 'warden', 0);
+  Weapons.requestSwitch(id, CAT.weapons.byId('warden').index);
+  Render.viewModel(model);
+  const lowered = poseWeapon(row, model).pitch;
+  Sim.run(Math.ceil(Weapons.stateDuration[id] * TICK_RATE) + 1);
+  Render.viewModel(model);
+  check('a swap raises the new weapon from lowered to the hold pose', lowered < -0.5 && Math.abs(poseWeapon(row, model).pitch) < 1e-6, lowered);
   Game.playerId = -1;
   TestArena.finish();
 });
