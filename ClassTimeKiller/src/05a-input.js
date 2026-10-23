@@ -108,7 +108,8 @@ const KBM_SETTINGS = [
   { key: 'controls.rawMouse', field: 'rawMouse', fallback: true, label: 'Raw mouse input (no OS acceleration)' },
   { key: 'controls.invertY', field: 'invertY', fallback: false, label: 'Invert look Y (mouse and touch)' },
   { key: 'controls.adsMultiplier', field: 'adsMultiplier', fallback: 0.8, label: 'Aim sensitivity multiplier', min: 0.1, max: 2, step: 0.05 },
-  { key: 'controls.vibration', field: 'vibration', fallback: true, label: 'Vibration (controller and phone)' },
+  // iOS Safari has no phone vibration (navigator.vibrate): the row names only what it can drive there.
+  { key: 'controls.vibration', field: 'vibration', fallback: true, label: 'vibrate' in navigator ? 'Vibration (controller and phone)' : 'Vibration (controller)' },
 ];
 // INP-002 hold/toggle: one setting per action row that has toggle: true.
 const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
@@ -136,6 +137,7 @@ const Input = {
   mouseNoteShown: false,
   padPress: false,         // a controller binding is being pressed or released
   padToggleRule: null,     // fn(actionId) -> 0: a controller press holds, 1: toggles, 2: toggles and a press while on is a new press. Filled by S10 (sprint)
+  usePrompts: [],          // fn(id) -> what holding Use does right now ('HOLD TO PLANT'), '' = nothing: the HUD adds the key (17d). Later sections push
   pulsing: false,          // inside pulseAction
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
@@ -251,7 +253,6 @@ const Input = {
     }
     return others;
   },
-  allConflicts() { return ACTION_ROWS.filter((row) => this.conflictsOf(row.id).length > 0).map((row) => row.id); },
   bindingLabel(binding) {
     if (binding === NO_BINDING) return 'Unbound';
     const kind = binding.slice(0, binding.indexOf(':')), name = binding.slice(binding.indexOf(':') + 1);
@@ -275,7 +276,6 @@ const Input = {
   },
 
   // ---- Action state ----
-  isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
   isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
   // A toggled action whose effect ended by other means (the scoreboard closed with its Close button, a run stopped) starts from off again.
   resetToggle(actionId) {
@@ -286,7 +286,6 @@ const Input = {
   },
   // True when the action was pressed within the last 0.10 s of simulation time (jump before landing, fire during a cooldown).
   buffered(actionId) { return Sim.tick - this.lastPressTick[this.actionIndex[actionId]] <= INPUT_BUFFER_TICKS; },
-  consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = NEVER_PRESSED; },
   // Only rows flagged buffered keep a press time, so buffered() is false for every other action.
   markPressed(index) { if (ACTION_ROWS[index].buffered) this.lastPressTick[index] = Sim.tick; },
   pressAction(index) {

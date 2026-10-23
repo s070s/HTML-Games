@@ -178,7 +178,8 @@ Test.add('ui', (check) => uiWith(() => {
     const elapsed = performance.now() - started;
     check('screen ' + name + ': opens in under 1 s (UI-001)', opened && elapsed < UI_OPEN_BUDGET_MS, elapsed.toFixed(1) + ' ms');
     const items = Ui.focusables(Ui.top().element);
-    check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && Ui.top().element.contains(document.activeElement));
+    // an in-match overlay (the scoreboard) leaves the focus alone: the keys stay with the game
+    check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && (Ui.top().screen.inGame || Ui.top().element.contains(document.activeElement)));
     const reached = new Set();
     for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); uiMenuCommand('next'); }
     check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1 || !!Ui.top().screen.onCommand, reached.size + ' of ' + items.length);

@@ -64,10 +64,10 @@ function hudDrawFeedRow(pen, layout, slot, row) {
   const remaining = HUD_FEED_SECONDS - (Hud.time - feed.at[slot]), alpha = remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1;
   const world = (flags & feed.FLAG_WORLD) !== 0, self = (flags & feed.FLAG_SELF) !== 0, text = hudTextAt, box = hudBoxAt, shape = hudShapeAt;
   text[2] = size;
-  HudBatch.measureAt(String(feed.victim[slot]));
+  HudPen.measureAt(String(feed.victim[slot]));
   const victimWidth = text[3];
   let killerWidth = 0;
-  if (!world && !self) { HudBatch.measureAt(String(feed.killer[slot])); killerWidth = text[3]; }
+  if (!world && !self) { HudPen.measureAt(String(feed.killer[slot])); killerWidth = text[3]; }
   const headWidth = flags & feed.FLAG_HEAD ? 16 * unit : 0, pad = 6 * unit;
   const width = pad * 2 + victimWidth + killerWidth + iconWidth + headWidth + (killerWidth ? pad : 0);
   const left = layout.right - width, mid = layout.top + 11 * unit + row * 25 * unit;
@@ -130,7 +130,7 @@ function hudDrawBanners(pen, layout) {
     const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE);
     const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
     if (b.medal[slot]) {
-      const width = HudBatch.measure(b.text[slot], size);
+      const width = HudPen.measure(b.text[slot], size);
       pen.label('★', layout.centerX - width / 2 - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
       pen.label('★', layout.centerX + width / 2 + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
     }
@@ -244,6 +244,10 @@ function hudDrawObjectiveChips(pen, layout, state) {
   }
 }
 
+function hudSoloMode(modeId) {
+  const mode = CAT.modes.byId(modeId);
+  return !!mode && mode.family === 'solo';
+}
 function hudDrawHeader(pen, layout) {
   const state = Modes.hudState();
   if (!state.active && state.phase !== 'ended') return;
@@ -253,7 +257,7 @@ function hudDrawHeader(pen, layout) {
   if (state.teams === 2) {
     hudDrawTeamScore(pen, layout, 0, state.teamScores[0]);
     hudDrawTeamScore(pen, layout, 1, state.teamScores[1]);
-  } else hudDrawFreeForAllScore(pen, layout, state);
+  } else if (!hudSoloMode(state.mode)) hudDrawFreeForAllScore(pen, layout, state);   // a solo run (range, chambers) has nobody to rank against
   hudDrawTime(pen, layout, state);
   if (state.roundsToWin > 0) hudDrawRoundPips(pen, layout, state);
   if (state.mode === 'control') hudDrawControlMeters(pen, layout, state);

@@ -5,6 +5,8 @@
 
 const ACCESS_TEST_WCAG_TEXT = 4.5;                 // contrast ratio of readable text
 const ACCESS_TEST_MIN_FONT = 14;                   // ACC-008: pixels at 100% scale
+// Rows the Accessibility tab mirrors from other tabs.
+Access.mirroredCount = () => Access.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length;
 const ACCESS_TEST_SCREEN_COST_MS = 1000;           // UI-001: no screen takes longer than a second to open
 const ACCESS_TEST_HOLD_ACTIONS = ['crouch', 'sprint', 'walk', 'prone', 'fire', 'alt', 'use', 'scoreboard'];
 const ACCESS_TEST_NEXT_SHOT_NOISE = 60;
@@ -146,11 +148,12 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 
 Test.add('uiacc', (check) => {
   // ---- ACC-004 hold or toggle for every hold action ----
-  check('hold/toggle: every hold action has a setting', ACCESS_TEST_HOLD_ACTIONS.every((id) => ACCESS_HOLD_ACTIONS.includes(id) && Settings.definitions.has('controls.toggle.' + id)));
+  const holdActions = ACTION_ROWS.filter((row) => row.toggle).map((row) => row.id);
+  check('hold/toggle: every hold action has a setting, mirrored on the Accessibility tab', ACCESS_TEST_HOLD_ACTIONS.every((id) => holdActions.includes(id) && Settings.definitions.has('controls.toggle.' + id) && Access.holdKeys().includes('controls.toggle.' + id)) && Access.holdKeys().includes('controls.toggle.sprintPad'));
   const events = [];
   const listener = (event) => { if (event.action === 'scoreboard') events.push(event.down); };
   Bus.on('input.action', listener);
-  for (const id of ACCESS_HOLD_ACTIONS) {
+  for (const id of holdActions) {
     const index = Input.actionIndex[id];
     Input.clearAll();
     Settings.set('controls.toggle.' + id, 'hold');
@@ -529,7 +532,30 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('tips: the option turns them off', Tips.show() === '');
   Settings.set(TIPS_SETTING, true);
   Input.device = 'touch';
-  check('tips: touch players get touch words', Tips.text(0) === TIP_TOUCH_TEXT);
+  check('tips: touch players get touch words', Tips.text(0).startsWith('Left thumb moves') && Tips.text(0).includes('on the right'));
+  const savedPreset = TouchInput.currentPreset;
+  TouchInput.currentPreset = TOUCH_PRESETS.find((preset) => preset.mirror);
+  check('tips: the left-handed preset swaps sides', Tips.text(0).startsWith('Right thumb') && Tips.text(0).includes('on the left'), Tips.text(0));
+  TouchInput.currentPreset = savedPreset;
+  const savedStyle = Input.padStyle;
+  Input.device = 'gamepad'; Input.padStyle = 'shapes';
+  check('tips: a PlayStation pad hears its buttons', Tips.text(0).includes('R2 fires') && Tips.text(0).includes('Cross jumps'), Tips.text(0));
+  Input.padStyle = savedStyle;
+  Input.device = 'kbm';
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const soloTip = Tips.text(2);
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }] });
+  check('tips: the ping tip names the team only in team modes', !soloTip.includes('team') && Tips.text(2).includes('your team'), soloTip);
+  Game.stop();
+  Input.device = 'touch';
+  const classes = economyPanelLines(CAT.economy.byId('classes')).lines.join(' ');
+  check('economy panel: classes name the loadout, not a buy menu', !classes.includes('buy menu') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
+  // A mode whose objective and scoring lines say nothing about how it is won carries its own goal line.
+  const vague = CAT.modes.filter((row) => (row.objective || 'none') === 'none' && !['kills', 'rounds'].includes(row.scoreBy || 'kills') && !MODE_GOAL_TEXT[row.id]).map((row) => row.id);
+  check('rules panel: special modes have a goal line', vague.length === 0, vague.join());
+  const lms = modeGoalLines({ mode: 'lms' }).join(), ladder = modeGoalLines({ mode: 'gungame' }).join();
+  const roulette = modeGoalLines({ mode: 'roulette', params: { rotateEvery: 45 } }).join() + modeGoalLines({ mode: 'roulette' }).join();
+  check('rules panel: Last Standing, Arms Ladder and Roulette say how they are won, numbers from the mode params', !lms.includes('wave') && ladder.includes('ladder') && roulette.includes('every 45 s') && roulette.includes('every ' + CAT.modes.byId('roulette').params.rotateEvery + ' s'), lms + ladder + roulette);
   Input.device = 'kbm';
 })));
 
@@ -575,9 +601,22 @@ function accessTestScreen(check, name) {
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
 
-// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+// iOS Safari: no text inflation in landscape, and the layout scrolls back after the on-screen keyboard closed.
 Test.add('uiacc', (check) => {
-  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  check('ios: no text size adjust', UI_CSS.includes('html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }'));
+  const field = Ui.root.appendChild(makeElement('textarea')), scrollTo = window.scrollTo;
+  let resets = 0;
+  window.scrollTo = () => { resets++; };
+  try { field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); } finally { window.scrollTo = scrollTo; field.remove(); }
+  check('ios: leaving a text field scrolls back', resets === 1, resets);
+});
+
+// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+// Every sheet injected at boot (injectStyle gives each an id: touch buttons, scoreboard, play...), plus the ones a screen injects when it first opens.
+Test.add('uiacc', (check) => {
+  const sheets = { EDITOR_CSS, MAPGEN_MENU_CSS, CAREER_CSS, BUY_CSS }, small = [];
+  for (const style of document.querySelectorAll('style[id]')) sheets[style.id] = style.textContent;
+  check('menus: the style sheet scan sees the touch, scoreboard and menu sheets', ['touch-style', 'scoreboard-style', 'ui-style'].every((id) => id in sheets), Object.keys(sheets).join());
   for (const name in sheets) {
     for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
       const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);

@@ -101,7 +101,7 @@ const CommWheel = {
 };
 Input.sources.push(CommWheel);
 Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
-TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
+TouchInput.needs.comm = () => true;   // the touch CHAT button (05b) shows now that the wheel exists
 TouchInput.buttonLook = (control) => CommWheel.open && (control.action === 'ping' || control.action === 'comm');   // the finger on PING / COMM picks the callout
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
@@ -127,10 +127,10 @@ function hudDrawCommWheel(pen, layout) {
 const commWheelRing = { x: 0, y: 0, radius: 0 };
 const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
 const commWheelPlace = {};   // TouchInput.layoutOf scratch
-function commWheelLabelHalf(unit) { return HUD_TEXT_SMALL * unit * HUD_CELL_PX / HUD_FONT_PX / 2; }   // half the drawn text row (07f)
+function commWheelLabelHalf(unit) { return Math.max(HUD_TEXT_SMALL * unit, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }   // half the drawn text row (07f, floored like the pen)
 function commWheelWidestLabel(unit) {
   let widest = 0;
-  for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudBatch.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
   return widest;
 }
 // Half a touch button's size in pixels, read with its layout into commWheelPlace.

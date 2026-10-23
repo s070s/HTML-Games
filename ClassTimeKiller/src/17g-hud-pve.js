@@ -322,7 +322,7 @@ function hudPveNoteX(layout, width) {
 const hudPveNoteBox = { x: 0, y: 0, width: 0 };
 function hudPveNoteRect(layout, text, rise) {
   hudTextAt[2] = HUD_PVE_NOTE_SIZE * layout.unit;
-  HudBatch.measureAt(text);
+  HudPen.measureAt(text);
   const width = hudTextAt[3] + HUD_PVE_NOTE_PAD * layout.unit;
   hudPveNoteBox.width = width; hudPveNoteBox.x = hudPveNoteX(layout, width); hudPveNoteBox.y = hudPveNoteY(layout, rise);
   return hudPveNoteBox;

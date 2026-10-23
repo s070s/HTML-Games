@@ -69,6 +69,19 @@ Test.add('hudui', (check) => hudTestWith(() => {
   check('pve hud: a versus match draws no PvE panel', (hudTestMatch(), hudTestFrame(), Hud.quadsOf('pve') === 0));
 }));
 
+// The HUD skips empty ability slots (a Siege Waves soul kit has only the ultimate): each drawn button names its own slot's key.
+Test.add('hudui', (check) => hudTestWith(() => {
+  startPveMode('horde', [0, 0], {}, { player: { name: 'Me', team: 0 } });
+  Input.device = 'kbm';
+  const slots = Abilities.hudState(Game.playerId, { slots: [], meter: { kind: 'none', value: 0, ready: false } }).slots;
+  updateHudLayout(Hud.layout, HUD_TEST_WIDTH, HUD_TEST_HEIGHT);
+  const texts = hudTestTexts(hudDrawAbilities);
+  const wrong = slots.filter((slot) => texts[texts.indexOf(slot.name) + 1] !== hudBoundLabel(slot.key, 'kbm')).map((slot) => slot.name);
+  check('abilities: the kit leaves a slot empty', slots.some((slot, index) => slot.key !== ABILITY_SLOT_NAMES[index]));
+  check('abilities: every button shows its own slot key', slots.length > 0 && wrong.length === 0, texts.join());
+  Game.stop();
+}));
+
 Test.add('hudui', (check) => hudTestWith(() => {
   const map = modesTestMap({ spawns: TEAM_SPAWNS, objectives: [{ id: 'a', kind: 'point', x: 0, y: 0, z: 20, radius: 4 }] });
   startModeTest('dom', map, [0, 1], { player: { name: 'Me', team: 0 }, progress: { kind: 'operation', id: 'hudTest', tickets: [80, 10] } });
@@ -274,13 +287,14 @@ Test.add('hudui', (check) => {
 
 // ---- Phones: the comm wheel (17g) stays on screen and clear of every default touch button, in both hand layouts ----
 const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
+const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
   const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
   for (let i = 0; i < COMM_CALLOUTS.length; i++) {
     const label = COMM_CALLOUTS[i].label;
     commWheelSpotOf(ring, i, true, unit, spot);
-    const labelHalf = HudBatch.measure(label, HUD_TEXT_SMALL * unit) / 2, iconHalf = spot.size / 2;
+    const labelHalf = HudPen.measure(label, HUD_TEXT_SMALL * unit) / 2, iconHalf = spot.size / 2;
     const over = hudPveTouchOverlap(layout, spot.x - labelHalf, spot.labelY - textHalf, spot.x + labelHalf, spot.labelY + textHalf)
       || hudPveTouchOverlap(layout, spot.x - iconHalf, spot.y - iconHalf, spot.x + iconHalf, spot.y + iconHalf);
     if (over) return label + ' under ' + over;
@@ -300,7 +314,7 @@ Test.add('hudui', (check) => {
         Input.device = savedDevice;
         const problem = hudUiWheelProblem(layout), radius = commWheelRing.radius;
         check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + '): every callout on screen, none under a touch button',
-          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit / 2, problem + ' ' + radius);
+          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit * HUD_UI_WHEEL_MIN_SHARE, problem + ' ' + radius);
       }
     }
   } finally { TouchInput.currentPreset = savedPreset; Input.device = savedDevice; }
@@ -374,9 +388,16 @@ Test.add('hudui', (check) => {
 Test.add('ui', (check) => {
   const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');
   Save.data.tips = { matches: 0 }; Input.device = 'touch';
-  Ui.playBox.replaceChildren();
+  Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
   Tips.show();
-  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === TIP_TOUCH_TEXT && Ui.toastBox.lastChild !== Ui.playBox.lastChild);
+  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === Tips.touchText() && !Ui.toastBox.lastChild);
+  emitToast('Mutator turned off');
+  check('toast: every toast in a match lands there', Ui.playBox.lastChild.textContent === 'Mutator turned off' && !Ui.toastBox.lastChild);
+  Game.stop();
+  emitToast('Saved');
+  check('toast: menus keep the top', Ui.toastBox.lastChild.textContent === 'Saved');
+  Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
   check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
   Input.device = 'gamepad';
   const padText = buyText();

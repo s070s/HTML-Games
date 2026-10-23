@@ -7,6 +7,13 @@ DebugApi.killcam = Killcam;
 DebugApi.play = PlayFlow;
 DebugApi.bus = Bus;
 
+// Quads drawn by the drawers of an element during the last frame (hidden elements draw nothing). Only the tests read it.
+Hud.quadsOf = (element) => {
+  let total = 0;
+  for (const layer in Hud.drawers) for (const drawer of Hud.drawers[layer]) if (drawer.element === element) total += drawer.quads;
+  return total;
+};
+
 const HUD_TEST_WIDTH = 1280, HUD_TEST_HEIGHT = 720;
 const HUD_TEST_FRAME = 1 / 60;
 const HUD_TEST_COST_FRAMES = 100, HUD_TEST_COST_BATCHES = 6;
@@ -87,7 +94,7 @@ function hudTestStubs() {
   Gadgets.hudState = (id, out) => { out.grenade = 'frag'; out.grenadeCount = 2; out.gadget = 'turret'; out.gadgetCount = 1; out.gadgetCooldown = 0.4; return out; };
   Abilities.hudState = (id, out) => {
     out.slots.length = 0;
-    out.slots.push({ id: 'dash', name: 'Dash', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', ready: true, cooldown: 0, charges: 1, active: true });
+    out.slots.push({ id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true });
     out.meter.kind = 'ultimate'; out.meter.value = 0.6; out.meter.ready = false;
     return out;
   };
@@ -105,6 +112,13 @@ function hudTestArm(id, key) {
 }
 function hudTestName(id) { return Actors.name[id] || HUD_FALLBACK_NAME; }
 function hudTestDrawer(layer, id) { return Hud.drawers[layer].find((drawer) => drawer.id === id); }
+// The texts one drawer draws (or `draw(pen, layout)` when it is a function), in order.
+function hudTestTexts(layer, id) {
+  const texts = [], put = (string) => { texts.push(String(string)); return 0; };
+  const pen = Object.assign({}, Hud.pen, { text: put, textAt: put, label: put }), draw = typeof layer === 'function' ? layer : hudTestDrawer(layer, id).draw;
+  draw(pen, Hud.layout);
+  return texts;
+}
 
 // Fills the scene with something for every element of an alive player.
 function hudTestFillScene(scene) {
@@ -164,7 +178,44 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: compact off wins on a small screen, and text units never drop below 0.9', !Hud.layout.compact && Hud.layout.unit >= HUD_UNIT_MIN - 1e-6);
   Settings.set('hud.compact', 'auto'); updateHudLayout(Hud.layout, 640, 360);
   check('layout: auto turns compact on for small screens', Hud.layout.compact);
-  check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
+}));
+
+// The free-for-all rank box ('#1' and the score) needs someone to rank against: a solo run such as the Firing Range has none.
+Test.add('hud', (check) => hudTestWith(() => {
+  const header = () => hudTestTexts('main', 'header').includes('#');
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const versus = header();
+  startPveMode('range', [], {}, {});
+  const range = header();
+  Game.stop();
+  check('header: a rank box in free-for-all, none in the range', versus && !range);
+}));
+
+// The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestMatch();
+  Input.device = 'kbm';
+  const draw = () => { Hud.time += 2; return hudTestTexts('front', 'downed').join('|'); };
+  const quiet = draw();
+  const plant = () => 'HOLD TO PLANT';
+  Input.usePrompts.push(plant);
+  const planting = draw();
+  Input.setBinding('use', 0, '');
+  const unbound = draw();
+  Input.resetBindings('use');
+  Input.usePrompts.splice(Input.usePrompts.indexOf(plant), 1);
+  check('use prompt: none, then key and text, then the unbound fallback', quiet === '' && planting === 'E|HOLD TO PLANT' && unbound === 'HOLD USE|HOLD TO PLANT', [quiet, planting, unbound].join());
+}));
+
+// ACC-008 as drawn and as measured: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale,
+// and every width a layout reads (feed rows, tags, captions, the comm wheel) is taken at that drawn size.
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestFillScene(hudTestMatch());
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  const small = [], measureAt = HudBatch.measureAt;   // drawing measures each text first, so this sees drawn and measured sizes
+  HudBatch.measureAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return measureAt.apply(this, arguments); };
+  try { hudTestFrame(); commWheelWidestLabel(Hud.layout.unit); } finally { HudBatch.measureAt = measureAt; }
+  check('layout: no text drawn or measured under 14 px on a phone (ACC-008)', Hud.layout.unit < 1 && small.length === 0, small.join());
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {

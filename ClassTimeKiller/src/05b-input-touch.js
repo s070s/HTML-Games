@@ -18,7 +18,7 @@ const TOUCH_TAP_SLOP = 12;              // px
 const TOUCH_HOLD_MS = 350;              // a button held this long on release does its holdAction (SWAP: previous weapon)
 const TOUCH_GYRO_WAIT_MS = 1000;        // no devicemotion event this long after the permission: the sensor is unavailable
 const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
-const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down within this time toggle the performance HUD (ARC-040)
+const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down on the look area within this time toggle the debug views (ARC-040)
 const TOUCH_SCALE_MIN = 0.5, TOUCH_SCALE_MAX = 2;          // INP-005
 const TOUCH_OPACITY_MIN = 0.2, TOUCH_OPACITY_MAX = 1;
 const TOUCH_DEFAULT_OPACITY = 0.7;
@@ -43,15 +43,16 @@ const TOUCH_PRESETS = [
 // 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
 // holdAction = what a press held TOUCH_HOLD_MS does on release instead of action; mirrorAt = its place in the left-handed preset where
 // a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
+// face = the button text: 14 px (ACC-008) and no wider than the button, so long words are short ones (DUCK, LOAD, TOOL).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
   { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
-  { id: 'crouch', label: 'Crouch', face: 'CROUCH', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
-  { id: 'prone', label: 'Prone', face: 'PRONE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
-  { id: 'reload', label: 'Reload', face: 'RELOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
-  { id: 'breath', label: 'Hold breath', face: 'BREATH', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
+  { id: 'crouch', label: 'Crouch', face: 'DUCK', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
+  { id: 'prone', label: 'Prone', face: 'LIE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
+  { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
+  { id: 'breath', label: 'Hold breath', face: 'HOLD', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
   { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
   { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
   { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal', mirrorAt: [0.17, 0.10] },
@@ -66,8 +67,8 @@ const TOUCH_CONTROLS = [
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
   { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
-  { id: 'gadget', label: 'Gadget', face: 'GADGET', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
-  { id: 'comm', label: 'Comm wheel', face: 'COMM', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
+  { id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
+  { id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -191,6 +192,8 @@ const TouchInput = {
   noteFinger(event) {
     if (this.activeCount === 1) { this.gestureStart = event.timeStamp; this.gestureFired = false; }
     if (this.activeCount !== 4 || this.gestureFired || event.timeStamp - this.gestureStart > TOUCH_FOUR_FINGER_MS) return;
+    // A claw grip puts four fingers down too, but on the stick and buttons: only fingers off the controls count.
+    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) if (this.slots[i].role === ROLE_STICK || this.slots[i].role === ROLE_BUTTON) return;
     this.gestureFired = true;
     Input.emitAction('perfHud', true);
     Input.emitAction('botDebug', true);   // ARC-040: on touch both debug views toggle from the same tap
@@ -203,9 +206,12 @@ const TouchInput = {
     event.preventDefault();
     try { target.setPointerCapture(event.pointerId); } catch (error) { /* synthetic or already released pointer */ }
     Input.setDevice('touch');
-    this.noteFinger(event);
     const control = target === this.zone ? null : this.controlById[target.dataset.control];
-    if (this.editing) { this.beginEdit(slot, control); return; }
+    if (this.editing) this.beginEdit(slot, control);
+    else this.beginRole(slot, event, control);
+    this.noteFinger(event);   // after the role: the gesture reads where each finger landed
+  },
+  beginRole(slot, event, control) {
     slot.weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);   // picked on a still tap (onUp)
     if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
@@ -489,7 +495,7 @@ const TouchInput = {
 const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: var(--safe-right); top: var(--safe-top); bottom: var(--safe-bottom); display: none; z-index: 5; touch-action: none; }'
   + '.tc-layer.show { display: block; } .tc-zone { position: absolute; inset: 0; touch-action: none; }'
   + '.tc { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; display: flex; align-items: center; justify-content: center; touch-action: none;'
-  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.62em var(--ui-font); letter-spacing: 0.04em; }'
+  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); }'   // 14 px faces (ACC-008)
   + '.tc.down { background: rgba(255, 181, 71, 0.55); border-color: var(--ui-accent); } .tc.off { display: none; }'
   + '.tc-stick { background: rgba(255, 255, 255, 0.06); border-style: dashed; }'
   + '.tc-live { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.5); pointer-events: none; }'

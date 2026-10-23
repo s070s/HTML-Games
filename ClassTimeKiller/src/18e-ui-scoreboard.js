@@ -204,6 +204,7 @@ const Scoreboard = {
 Ui.register('scoreboard', {
   overlay: true,
   passthrough: true,
+  inGame: true,
   build(root) {
     const panel = makeElement('div', 'sb-panel'), title = makeElement('div', 'sb-title');
     title.appendChild(makeElement('h2', '', Scoreboard.title()));

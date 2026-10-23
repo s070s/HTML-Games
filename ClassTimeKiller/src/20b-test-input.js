@@ -4,6 +4,11 @@ DebugApi.input = Input;
 DebugApi.touch = TouchInput;
 DebugApi.pad = PadInput;
 
+// Readers only the tests need: they live here, so the game objects carry only what the game uses.
+Input.allConflicts = () => ACTION_ROWS.filter((row) => Input.conflictsOf(row.id).length > 0).map((row) => row.id);
+Input.isHeld = (actionId) => Input.effective[Input.actionIndex[actionId]] === 1;
+Input.consumeBuffered = (actionId) => { Input.lastPressTick[Input.actionIndex[actionId]] = NEVER_PRESSED; };
+
 const INPUT_TEST_FRAME = 1 / 60;
 const INP_DEFAULT_BINDINGS = {   // INP-003
   'Key:KeyW': 'forward', 'Key:KeyS': 'back', 'Key:KeyA': 'left', 'Key:KeyD': 'right', 'Key:Space': 'jump', 'Key:KeyC': 'crouch',
@@ -594,14 +599,21 @@ Test.add('input', (check) => {
     if (event.action === 'perfHud' && event.down) perfToggles++;
     if (event.action === 'botDebug' && event.down) botDebugToggles++;
   });
+  // Fingers land on the touch layer, so it must be on screen: a claw grip (stick, look, fire, jump) does nothing.
+  TouchInput.syncVisible();
+  const visible = getComputedStyle(TouchInput.layer).display !== 'none';
+  const lift = () => { for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', fire, pointer, 0, 0); };
+  [[zone, INPUT_TEST_LEFT_X], [zone, INPUT_TEST_RIGHT_X], [fire, 1110], [jump, 1000]].forEach(([target, x], i) => inputTouchPointer('pointerdown', target, 40 + i, x, 300));
+  lift();
+  const claw = perfToggles;
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
-  const fourFingers = perfToggles;
-  for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
+  lift();
   Bus.off('input.action', listener);
   Input.clearAll();
-  check('touch: a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: a claw grip mid-match toggles nothing', visible && claw === 0, claw);
+  check('touch: mid-match, four fingers on the look area toggle the performance HUD, three do not (ARC-040)', visible && threeFingers === 0 && perfToggles === 1, perfToggles);
   check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
@@ -661,6 +673,14 @@ Test.add('input', (check) => {
   Input.aimAssistTarget = null;
 });
 
+// ACC-008 on the buttons: faces are drawn at 14 px or more and fit inside their button at the standard size.
+Test.add('input', (check) => {
+  const style = getComputedStyle(TouchInput.elements.fire), context = document.createElement('canvas').getContext('2d');
+  context.font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily;
+  const wide = TOUCH_CONTROLS.filter((control) => context.measureText(control.face).width > control.size).map((control) => control.face);
+  check('touch: faces are 14 px or more and fit their buttons (ACC-008)', parseFloat(style.fontSize) >= ACCESS_TEST_MIN_FONT - 0.01 && wide.length === 0, style.fontSize + wide);
+});
+
 Test.add('input', (check) => {
   startInputMatch();
   check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
@@ -692,6 +712,7 @@ Test.add('input', (check) => {
 });
 
 Test.add('input', (check) => {
+  check('rumble: the label names the phone only where it can vibrate', Settings.definitions.get('controls.vibration').label.includes('phone') === ('vibrate' in navigator));
   const id = startInputMatch();
   const effects = [], original = PadInput.activePad;
   PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });
@@ -779,6 +800,29 @@ Test.add('input', (check) => {
   setInputSetting('controls.toggle.scoreboard', 'hold');
   inputReleasePad();
 });
+
+// The scoreboard is an in-match overlay: while it shows, the game keeps its input and no menu command reaches it.
+Test.add('input', (check) => uiWith(() => {
+  const id = startInputMatch(), pad = inputFakePad();
+  inputUsePad(pad);
+  inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  check('scoreboard: View held opens it, input stays live', Ui.current() === 'scoreboard' && !Input.uiOpen);
+  inputPadButton(pad, 0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: View held, then A heals (chord, not accept)', (Actors.buttons[id] & BTN.HEAL) !== 0);
+  inputPadButton(pad, 0, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+  Input.device = 'kbm';
+  inputKeyEvent('Tab', true);
+  check('scoreboard: Tab opens it, focus stays', Ui.current() === 'scoreboard' && !Ui.top().element.contains(document.activeElement));
+  inputMouseButton(0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: fire works while Tab is held', (Actors.buttons[id] & BTN.FIRE) !== 0);
+  inputKeyEvent('Space', true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: Space jumps, the board stays', Ui.current() === 'scoreboard' && (Actors.buttons[id] & BTN.JUMP) !== 0);
+  inputMouseButton(0, false); inputKeyEvent('Space', false);
+  inputTapKey('Escape');
+  check('scoreboard: Esc pauses, the pause menu replaces it', Game.paused && Ui.current() === 'pause' && !Ui.isOpen('scoreboard'));
+  inputKeyEvent('Tab', false); Game.resume();
+}));
 
 Test.add('input', (check) => {
   startInputMatch();
