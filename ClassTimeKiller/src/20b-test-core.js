@@ -85,6 +85,23 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// The one team rule: an ally shares a team (FFA -1 has none); an enemy is anyone else.
+Test.add('core', (check) => {
+  const red = Actors.create(ACTOR_KIND.BOT, 0, 'a'), mate = Actors.create(ACTOR_KIND.BOT, 0, 'b'), blue = Actors.create(ACTOR_KIND.BOT, 1, 'c');
+  const loner = Actors.create(ACTOR_KIND.BOT, -1, 'd'), other = Actors.create(ACTOR_KIND.BOT, -1, 'e');
+  check('teams: allies share a team', Actors.isAlly(red, mate) && !Actors.isAlly(red, blue) && !Actors.isAlly(loner, other));
+  check('teams: an enemy is never an ally or oneself', Actors.isEnemy(red, blue) && Actors.isEnemy(loner, other) && !Actors.isEnemy(red, mate) && !Actors.isEnemy(red, red));
+});
+
+// ARC-041: a match whose setup, load or start listener fails goes back to the menu with a message, not into a half-built match.
+Test.add('core', (check) => {
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  let match = 'none';
+  const logged = Test.expectErrors(() => { match = Game.start({ mode: 'elim', map: 'dustline', bots: 3 }); });
+  Bus.off('toast', listener);
+  check('match: a failed start ends in the menu with a toast', logged > 0 && match === null && Game.state === 'menu' && !Game.match && toasts.includes(MATCH_START_FAILED), toasts.join(' | '));
+});
+
 // DATA-003: body sizes and the step length live once in S01: a new actor, the stances, footsteps and the head bob read them.
 Test.add('core', (check) => {
   const id = Actors.create(ACTOR_KIND.BOT, 0, 'body');

@@ -377,7 +377,9 @@ const Actors = {
     for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
     this.count = 0;
   },
-  isEnemy(a, b) { return a !== b && (this.team[a] < 0 || this.team[a] !== this.team[b]); },
+  // The one team rule: allies share a team (an actor is its own ally in a team mode); FFA (-1) has no allies.
+  isAlly(a, b) { return this.team[a] >= 0 && this.team[a] === this.team[b]; },
+  isEnemy(a, b) { return a !== b && !this.isAlly(a, b); },
   eyeY(id) { return this.y[id] + this.eye[id]; },
 };
 
@@ -434,6 +436,7 @@ function showFatal(title, text, detail) {
 }
 
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
+const MATCH_START_FAILED = 'This match could not start.';
 const Game = {
   state: 'menu',          // 'menu' | 'playing' | 'results'
   paused: false,
@@ -452,9 +455,16 @@ const Game = {
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };
     this.playerId = -1;
+    const errorsBefore = ErrorLog.total;
     Bus.emit('match.setup', this.match);
     Bus.emit('match.load', this.match);
     Bus.emit('match.start', this.match);
+    // Bus.emit only logs a failed listener: a half-built match goes back to the menu with a message (ARC-041).
+    if (ErrorLog.since(errorsBefore).some((entry) => entry.startsWith('event match.'))) {
+      this.stop();
+      emitToast(MATCH_START_FAILED);
+      return null;
+    }
     this.state = 'playing';
     this.paused = false;
     return this.match;
