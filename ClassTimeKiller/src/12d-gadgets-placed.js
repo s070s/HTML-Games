@@ -15,7 +15,6 @@ const DEVICE_SHOT_SLACK = 0.05;         // a shot that meets a wall still hits a
 const DEVICE_SPHERE_LIFT = 0.5;         // area spheres (heal, drain, jam, mines) are centred this high above the base
 const DEVICE_BLAST_DAMAGE = 100;        // blast damage to devices at the centre, falling to 0 at the radius
 const DEVICE_DEFAULT_SHOT = 10;         // shot damage when a fire mode lists none
-const DEVICE_TICK = 0.25;               // fields and supply act on this tick
 const LAUNCH_FOOT_HEIGHT = 0.5;         // the lift pad pushes actors whose feet are this close to its top
 const DRONE_HOVER = 0.3;
 const DRONE_BLAST_SHARE = 0.5;          // a drone goes off when its target is within this share of its blast radius
@@ -298,18 +297,18 @@ const Devices = {
   },
   // G17: enemy shields inside drain (through Damage.apply, never more than the shield left).
   stepDrain(device, row, dt) {
-    if (!this.due(device, dt, DEVICE_TICK)) return;
+    if (!this.due(device, dt, AREA_TICK_SECONDS)) return;
     for (let id = 0; id < Actors.count; id++) {
-      const amount = Math.min(row.drain * DEVICE_TICK, Actors.shield[id]);
+      const amount = Math.min(row.drain * AREA_TICK_SECONDS, Actors.shield[id]);
       if (amount <= 0 || !this.enemyOf(device, id) || !this.inSphere(device, id, row.radius)) continue;
       deviceDamage(this.owner[device], id, row, amount, 'dot', null);
     }
   },
-  // G21: each drone picks the nearest seen enemy in range on the DEVICE_TICK clock (between picks it only checks that the
+  // G21: each drone picks the nearest seen enemy in range on the AREA_TICK_SECONDS clock (between picks it only checks that the
   // target still lives), rolls to it and goes off next to it.
   stepDrone(device, row, dt) {
     if (!this.enemyOf(device, this.target[device])) this.target[device] = -1;
-    if (this.due(device, dt, DEVICE_TICK)) this.target[device] = this.nearestSeen(device, row, DRONE_HOVER);
+    if (this.due(device, dt, AREA_TICK_SECONDS)) this.target[device] = this.nearestSeen(device, row, DRONE_HOVER);
     if (this.target[device] >= 0) this.rollTo(device, row, this.target[device], dt);
   },
   rollTo(device, row, target, dt) {

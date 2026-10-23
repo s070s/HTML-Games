@@ -151,11 +151,16 @@ Test.add('damage', (check) => {
   Actors.shield[target] = 50;
   TestArena.hit(shooter, target, 70);
   check('HPP06 shield first, then health', Actors.shield[target] === 0 && Actors.health[target] === 80);
-  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100));
+  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100, { weapon: 'tempest' }));
   check('HPP06 squad: 0 HP goes down, not dead', kills === 0 && Actors.alive[target] === 1 && (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.health[target] === DOWNED_HEALTH);
   check('HP-007 downed crawl speed', Damage.statusSpeed(target) === DOWNED_SPEED);
+  let bledWeapon = '';
+  const onKill = (event) => { bledWeapon = event.weapon; };
+  Bus.on('kill', onKill);
   const bled = TestArena.count('kill', () => Sim.run(DOWNED_BLEED_SECONDS * TICK_RATE + 2));
+  Bus.off('kill', onKill);
   check('HP-007 bleed-out after 30 s', bled === 1 && Actors.alive[target] === 0);
+  check('HP-007 the bleed-out kill keeps the weapon that downed the target', bledWeapon === 'tempest', bledWeapon);
   TestArena.hit(shooter, mate, 100);
   check('HP-007 last standing squad member dies outright', Actors.alive[mate] === 0);
   TestArena.finish();

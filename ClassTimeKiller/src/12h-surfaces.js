@@ -8,7 +8,7 @@
 // cone reach the patch at the aimed floor point (FloorSurfaces.boltFloor).
 
 const SURFACE_CAP = 16;                  // a full pool replaces the patch that ends first
-const SURFACE_TICK_STEPS = Math.round(AREA_TICK * TICK_RATE);   // burning patches hurt on the G04 fire area tick (12c)
+const SURFACE_TICK_STEPS = Math.round(AREA_TICK_SECONDS * TICK_RATE);   // burning patches hurt on the G04 fire area tick (12c)
 const SURFACE_FEET_REACH = 0.6;          // feet this close above or below a patch stand in it
 const SURFACE_BLAST_REACH = 1.5;         // an igniting explosion this far above a patch (plus its own radius) still lights it
 const SURFACE_SPILL_DROP = 4;            // a spill lands on the floor up to this far below where it started

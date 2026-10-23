@@ -241,7 +241,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.swapsOut(id, weapon)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -261,6 +261,10 @@ const Weapons = {
     return true;
   },
   dualFactor(id, weapon) { return this.dual[this.slotIndex(id, weapon.index)] ? DUAL_FACTOR : 1; },
+  // Giving this weapon would replace a carried one (not owned yet, counts toward the carry limit, limit reached).
+  swapsOut(id, weapon) {
+    return !this.owned[this.slotIndex(id, weapon.index)] && this.countsTowardCarry(weapon) && this.atCarryLimit(id);
+  },
   atCarryLimit(id) {
     const limit = this.carryLimit();
     if (limit <= 0) return false;
@@ -565,7 +569,7 @@ const Weapons = {
     const shots = mode.trigger === 'auto' ? MAX_SHOTS_PER_STEP : 1;
     for (let shot = 0; shot < shots && this.ready(id, weapon, mode, modeIndex, button, 0); shot++) {
       this.latch[id] |= bit;
-      if (mode.trigger === 'burst') this.startBurst(id, mode, modeIndex);
+      if (mode.trigger === 'burst') this.startBurst(id, weapon, mode, modeIndex);
       this.fire(id, weapon, mode, modeIndex, 0);
     }
   },
@@ -605,9 +609,9 @@ const Weapons = {
     if (!this.hasAmmo(id, weapon, mode, fraction)) { this.reportEmpty(id, weapon, mode); return; }
     if (mode.trigger === 'charge' || this.ready(id, weapon, mode, modeIndex, 0, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
   },
-  startBurst(id, mode, modeIndex) {
+  startBurst(id, weapon, mode, modeIndex) {
     this.burstLeft[id] = mode.burst - 1;
-    this.burstTimer[id] = mode.burstGap;
+    this.burstTimer[id] = mode.burstGap / this.rateFactor(id, weapon);
     this.burstMode[id] = modeIndex;
   },
   stepBurst(id, weapon, dt) {
@@ -615,7 +619,7 @@ const Weapons = {
     this.burstTimer[id] -= dt;
     if (this.burstTimer[id] > 0) return;
     const mode = this.burstMode[id] ? weapon.alt : weapon.primary;
-    this.burstTimer[id] += mode.burstGap;
+    this.burstTimer[id] += mode.burstGap / this.rateFactor(id, weapon);
     this.burstLeft[id]--;
     if (this.hasAmmo(id, weapon, mode, 0)) this.fireShot(id, weapon, mode, this.burstMode[id], 0);
     else this.burstLeft[id] = 0;
@@ -630,14 +634,16 @@ const Weapons = {
     if (Actors.pressed[id] & button) this.reportEmpty(id, weapon, mode);
     return false;
   },
-  shotInterval(id, weapon, mode) {
+  // One rate rule for every trigger, burst pulls and burst gaps included: the toggle stance, dual wield and rateScale.
+  rateFactor(id, weapon) {
     const stance = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.rateMult ? weapon.alt.toggle.rateMult : 1;
-    return 1 / (mode.rate * stance * this.dualFactor(id, weapon) * this.rateScale[id]);
+    return stance * this.dualFactor(id, weapon) * this.rateScale[id];
   },
+  shotInterval(id, weapon, mode) { return 1 / (mode.rate * this.rateFactor(id, weapon)); },
   // One trigger pull: timing, then the shot (a burst's later rounds call fireShot directly).
   fire(id, weapon, mode, modeIndex, fraction) {
     if (mode.cooldown > 0) this.nextAlt[id] = mode.cooldown;
-    this.nextShot[id] += mode.trigger === 'burst' ? 1 / mode.rate : this.shotInterval(id, weapon, mode);
+    this.nextShot[id] += this.shotInterval(id, weapon, mode);
     if (mode.special && this.specials[mode.special](id, weapon, mode)) return;
     this.fireShot(id, weapon, mode, modeIndex, fraction);
   },

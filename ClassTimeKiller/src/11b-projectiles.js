@@ -5,7 +5,7 @@
 const PROJECTILE_CAP = 256;
 const PROJECTILE_STATE = { FREE: 0, FLYING: 1, STUCK: 2, RETURNING: 3, AREA: 4, ATTACHED: 5 };
 const SPLIT_GRACE_SECONDS = 0.25;        // shards from a split start slightly aged so they do not re-trigger on the same spot
-const AREA_TICK_SECONDS = 0.25;          // puddles, auras and laser lines damage on this tick
+const AREA_TICK_SECONDS = 0.25;          // the one area tick: puddles, auras, laser lines, fire areas (12c), devices (12d), floors (12h)
 const AREA_HEIGHT = 1.5;                 // puddles hurt actors whose feet are this close above or below
 const ATTACH_SECONDS = 2;                // stuck needles and drills stay this long (drill fuse)
 const HOMING_CONE_COS = Math.cos(45 * DEG);

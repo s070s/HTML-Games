@@ -70,6 +70,44 @@ Test.add('items', (check) => {
   check('clear resets usedEnd', Items.usedEnd === 0);
 });
 
+// Map weapon pads follow the ruleset's weapon set (a gun of the same class first), and hero matches have none.
+Test.add('items', (check) => {
+  const spots = [ItemArena.spot('healthpack', 3, 0), ItemArena.spot('vanguard', 6, 0), ItemArena.spot('lancet', 9, 0)];
+  ItemArena.start({ weaponSet: 'militarySet' }, spots);
+  const military = CAT.weaponSets.byId('militarySet').weapons;
+  check('a pad outside the set hands out a set gun of its class', Items.keyOf(1) === 'vanguard' && Items.keyOf(2) === 'kestrel', Items.keyOf(2));
+  ItemArena.start({ weaponSet: 'arenaSet' }, spots);
+  const arena = CAT.weaponSets.byId('arenaSet');
+  check('the Arena set has no rifle: the Vanguard pad becomes an Arena pickup gun, not the spawn pistol', arena.weapons.includes(Items.keyOf(1)) && !arena.start.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
+  ItemArena.start({ weaponSet: 'sandboxSet' }, [ItemArena.spot('vanguard', 6, 0), ItemArena.spot('warden', 9, 0)]);
+  const sandbox = CAT.weaponSets.byId('sandboxSet'), sandboxKeys = [Items.keyOf(0), Items.keyOf(1)];
+  const pickupGun = (key) => sandbox.weapons.includes(key) && !sandbox.start.includes(key);
+  check('Shield Wars: a converted pad never hands out a spawn gun (the Vanguard pad stays a rifle)', sandboxKeys.every(pickupGun) && CAT.weapons.byId(Items.keyOf(0)).class === 'rifle', sandboxKeys.join());
+  ItemArena.start({ economy: 'heroKits' }, spots);
+  check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
+  TestArena.finish();
+});
+
+// A carry-limit swap by touch: standing on a pile of three dropped guns swaps once, not every few steps.
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1 }, []);
+  const id = ItemArena.actor(1, 20, 0);
+  Weapons.setLoadout(id, ['vanguard']);
+  ['tempest', 'wasp', 'anvil'].forEach((key) => Items.drop(key, 20, 0, 0));
+  let swaps = 0;
+  const onPickup = (event) => { if (event.id === id && event.group === 'weapon') swaps++; };
+  Bus.on('pickup', onPickup);
+  Sim.run(3 * TICK_RATE);
+  check('one swap while standing still on the pile', swaps === 1, swaps);
+  Actors.x[id] = 30;
+  Sim.run(1);
+  Actors.x[id] = 20;
+  Sim.run(1);
+  Bus.off('pickup', onPickup);
+  check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
+  TestArena.finish();
+});
+
 Test.add('items', (check) => {
   ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
   const id = ItemArena.actor(1, 3, 0);

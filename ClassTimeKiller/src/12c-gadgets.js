@@ -17,7 +17,6 @@ const THROW_FORWARD = 0.5;               // thrown from this far in front of the
 const GRENADE_NOISE = 15;                // bots hear a bounce within this radius
 const POP_NOISE = 35;                    // pops without damage (smoke, flash, freeze, pulse)
 const AREA_CAP = 32;
-const AREA_TICK = 0.25;                  // fire areas hurt on this tick
 const FIRE_AREA_HEIGHT = 1.5;            // fire reaches feet this close above or below
 const FIRE_FX_COUNT = 6;                 // fire particles per damage tick (G04, 12h burning oil)
 const FIRE_FLOOR_PROBE = 3;              // fire that went off on a wall or a body drops this far at most to the floor
@@ -343,10 +342,10 @@ const GadgetAreas = {
   },
   // G04: HP/s ramps from fireRampFrom x peak to the peak; smoke puts it out.
   stepFire(area, row, dt) {
-    if (!this.due(area, dt, AREA_TICK)) return;
+    if (!this.due(area, dt, AREA_TICK_SECONDS)) return;
     if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
     const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
-    const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK;
+    const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK_SECONDS;
     for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) fireAreaHit(this.owner[area], id, amount, row, GADGET_MODES[row.index]);
     if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, FIRE_FX_COUNT, null);
   },
@@ -368,7 +367,7 @@ const GadgetAreas = {
       const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = length3(dx, dy, dz) || 1;
       emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
-    if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
+    if (!Game.headless && this.due(area, dt, AREA_TICK_SECONDS)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
   // G19: pulses reveal enemies within reach (line of sight) every interval.
   stepPulse(area, row, dt) {

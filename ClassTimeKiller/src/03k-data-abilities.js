@@ -138,10 +138,10 @@ Data.define('heroes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, role: REQUIRED, health: REQUIRED, armor: 0, shield: 0, weapons: REQUIRED, move: 'modern',
   passive: { kind: 'none' }, gadget: '', ability1: '', ability2: '', ultimate: '', color: 0xffffff,
 }, [
-  { id: 'bastide', code: 'H01', name: 'Bastide', role: 'tank', health: 400, armor: 150, weapons: ['bulwark', 'scattergun'], move: 'knight',
+  { id: 'bastide', code: 'H01', name: 'Bastide', role: 'tank', health: 450, armor: 200, weapons: ['bulwark', 'scattergun'], move: 'knight',
     passive: { kind: 'knockbackResist', value: 0.3 }, ability1: 'aegisdome', ultimate: 'orbital', color: 0x5a7fbf },
-  { id: 'moraine', code: 'H02', name: 'Moraine', role: 'tank', health: 350, shield: 200, weapons: ['hailstorm'], move: 'vanguard',
-    passive: { kind: 'shieldRegen', delay: 1.5, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
+  { id: 'moraine', code: 'H02', name: 'Moraine', role: 'tank', health: 250, shield: 100, weapons: ['hailstorm'], move: 'vanguard',
+    passive: { kind: 'shieldRegen', delay: 2, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
   { id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['tempest'], move: 'agile',
     passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
   { id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 200, weapons: ['heron'], move: 'agile',

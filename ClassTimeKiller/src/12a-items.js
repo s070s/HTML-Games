@@ -17,6 +17,7 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
+const SWAP_PICKUP_SECONDS = 2;             // after a carry-limit swap by touch, no other swap this long (no cycling on a pile of drops)
 const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
 const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
@@ -120,6 +121,7 @@ const Items = {
   usedEnd: 0,                                       // every slot from here on is FREE: the per-step loops stop here (PERF-002)
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
+  swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons by touch again
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
   givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
@@ -159,12 +161,15 @@ const Items = {
     }
   },
   // One spot rule for Items.load and the bots' item list (14e): the ruleset keeps map pickups, the M15 one-pickup filter
-  // lets this key through, and a powerup is allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
+  // lets this key through, a weapon spot is not in a hero match (heroes fight with their own kit, RS09), and a powerup is
+  // allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
   spotAllowed(entry) {
     if (!mapItemsAllowed()) return false;
     const only = onlyPickup();
     if (only && entry.item !== only) return false;
-    if (this.resolve(entry.item) !== PICKUP_KIND.POWERUP) return true;
+    const kind = this.resolve(entry.item);
+    if (kind === PICKUP_KIND.WEAPON) return !Abilities.usesHeroes();
+    if (kind !== PICKUP_KIND.POWERUP) return true;
     return powerupsAllowed() && powerupSpotAllowed(CAT.powerups.byId(entry.item));
   },
   addSpot(entry) {
@@ -178,13 +183,20 @@ const Items = {
     if (this.isPower(slot)) this.wait(slot, this.firstPowerTicks());
     return slot;
   },
-  // Weapon spots follow a match weapon list: a weapon outside it becomes the list's next gun ('' = no gun in the list).
+  // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a set gun stays, a weapon outside it
+  // becomes a set pickup gun (one nobody spawns with) of its own class, else the set's next pickup gun (any set gun when
+  // the set has no pickup guns; '' = no gun in the set). Runs once per spot at match load.
   spotWeapon(key) {
-    if (itemRule('weaponSet', '') !== MATCH_SET_ID) return key;
-    const listed = currentWeaponSet().weapons;
-    if (listed.includes(key)) return key;
-    const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
-    return guns.length ? guns[this.matchSetCursor++ % guns.length] : '';
+    if (!itemRule('weaponSet', '')) return key;
+    const set = currentWeaponSet();
+    if (set.weapons.includes(key)) return key;
+    const guns = set.weapons.filter((other) => CAT.weapons.byId(other).class !== 'melee');
+    const upgrades = guns.filter((other) => !set.start.includes(other));
+    const weaponClass = CAT.weapons.byId(key).class;
+    const sameClass = upgrades.find((other) => CAT.weapons.byId(other).class === weaponClass);
+    if (sameClass) return sameClass;
+    const pool = upgrades.length ? upgrades : guns;
+    return pool.length ? pool[this.matchSetCursor++ % pool.length] : '';
   },
   place(slot, kind, rowIndex, x, y, z) {
     this.state[slot] = PICKUP_STATE.READY; this.kind[slot] = kind; this.row[slot] = rowIndex;
@@ -375,7 +387,20 @@ const Items = {
   takeWeapon(id, slot) {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
-    return this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot]);
+    const swaps = Weapons.swapsOut(id, weapon);
+    if (swaps && Sim.tick < this.swapReadyTick[id]) return false;
+    if (!this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot])) return false;
+    if (swaps) this.blockSwapsAt(id);
+    return true;
+  },
+  // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.
+  // A pickup holds one blocker: one already blocked by another actor stays open, so the per-actor wait is the main guard.
+  blockSwapsAt(id) {
+    this.swapReadyTick[id] = Sim.tick + itemTicks(SWAP_PICKUP_SECONDS);
+    for (let slot = 0; slot < this.usedEnd; slot++) {
+      const weaponReady = this.state[slot] === PICKUP_STATE.READY && this.kind[slot] === PICKUP_KIND.WEAPON;
+      if (weaponReady && this.blocker[slot] < 0 && this.touching(id, slot)) this.blocker[slot] = id;
+    }
   },
   // At the carry limit the held weapon is swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
   giveWeapon(id, key, rarity, floorY) {
@@ -510,7 +535,7 @@ const Items = {
   },
   resetActor(id) {
     this.carried.fill(0, id * ITEM_COUNT, (id + 1) * ITEM_COUNT);
-    this.usingItem[id] = -1; this.noArmor[id] = 0;
+    this.usingItem[id] = -1; this.noArmor[id] = 0; this.swapReadyTick[id] = 0;
   },
 
   // ---- HUD hooks ----
