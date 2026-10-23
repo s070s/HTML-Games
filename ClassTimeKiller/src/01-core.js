@@ -38,6 +38,8 @@ const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 -
 const length2 = (x, z) => Math.sqrt(x * x + z * z);
 const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
+// An iPhone, iPod or iPad (iPad Safari reports a Mac with touch): the one rule for iOS-only code. nav: navigator or a test stand-in.
+const isAppleTouch = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (/Mac/.test(nav.platform || nav.userAgent || '') && nav.maxTouchPoints > 1);
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
 const LABEL_MAX = 40;   // characters in a saved name (custom rulesets and presets, maps)
@@ -444,6 +446,7 @@ function showFatal(title, text, detail) {
 }
 
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
+const MATCH_START_FAILED = 'This match could not start.';
 const Game = {
   state: 'menu',          // 'menu' | 'playing' | 'results'
   paused: false,
@@ -462,9 +465,16 @@ const Game = {
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };
     this.playerId = -1;
+    const errorsBefore = ErrorLog.total;
     Bus.emit('match.setup', this.match);
     Bus.emit('match.load', this.match);
     Bus.emit('match.start', this.match);
+    // Bus.emit only logs a failed listener: a half-built match goes back to the menu with a message (ARC-041).
+    if (ErrorLog.since(errorsBefore).some((entry) => entry.startsWith('event match.'))) {
+      this.stop();
+      emitToast(MATCH_START_FAILED);
+      return null;
+    }
     this.state = 'playing';
     this.paused = false;
     return this.match;

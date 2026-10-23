@@ -543,6 +543,10 @@ Test.add('ui', (check) => uiWith(() => {
   const head = document.head.innerHTML, version = document.getElementById('version');
   check('home screen: metas and icon', ['"apple-mobile-web-app-capable', '"mobile-web-app-capable', 'black-translucent',
     'apple-touch-icon" href="data:'].every((part) => head.includes(part)) && /img-src[^;]*data:/.test(head));
+  // A tab icon from data: (else the browser asks for /favicon.ico, which the CSP blocks with an error on every load).
+  // iOS must not enlarge the landscape text either.
+  check('a data: tab icon, no text enlarging', /^data:image/.test((document.querySelector('link[rel="icon"]') || {}).href)
+    && document.querySelector('style').textContent.includes('-webkit-text-size-adjust: 100%'));
   Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ bots: 1 }), () => 0.5));
   window.dispatchEvent(new PopStateEvent('popstate'));
   check('back swipe: pauses, version hidden', Game.state === 'playing' && Game.paused && version.hidden);
@@ -582,6 +586,8 @@ Test.add('ui', (check) => uiWith(() => {
     Game.pause('menu');
     turn(true);
     check('rotate: a pause by the player stays', turn(false) === 'menu' && !RotateGuard.shown);
+    // A tablet held upright is a playable view: only a phone-narrow portrait screen is guarded.
+    check('rotate: phones only, not tablets', saved.portrait.media.includes('max-width: ' + (ROTATE_PHONE_MAX_WIDTH - 1)), saved.portrait.media);
   } finally {
     Object.assign(RotateGuard, saved);
     Input.requestResume = requestResume;

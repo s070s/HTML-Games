@@ -90,6 +90,27 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// Teams (one rule, FFA -1 has no allies); body sizes and the step live in S01 (DATA-003); a failed match start goes back to
+// the menu (ARC-041); a repeated save failure stays quiet only until a write works again (PLT-003).
+Test.add('core', (check) => {
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  const red = Actors.create(ACTOR_KIND.BOT, 0, 'a'), mate = Actors.create(ACTOR_KIND.BOT, 0, 'b'), loner = Actors.create(ACTOR_KIND.BOT, -1, 'c');
+  check('teams: allies share a team', Actors.isAlly(red, mate) && !Actors.isAlly(loner, Actors.create(ACTOR_KIND.BOT, -1, 'd')) && Actors.isEnemy(red, loner) && !Actors.isEnemy(red, red));
+  Actors.vx[red] = RUN_REFERENCE_SPEED; Actors.flags[red] = ACTOR_FLAG.ON_GROUND; ViewState.bobPhase = 0;
+  headBob(red, STRIDE_METRES / RUN_REFERENCE_SPEED);
+  check('body: S01 sizes, one head bob per footstep', Actors.eye[red] === Math.fround(STAND_EYE) && STANCE_EYE[1] === CROUCH_EYE && Test.near(ViewState.bobPhase, Math.PI, 1e-6));
+  let match = 'none';
+  const logged = Test.expectErrors(() => { match = Game.start({ mode: 'elim', map: 'dustline', bots: 3 }); });
+  check('match: a failed start returns to the menu', logged && match === null && Game.state === 'menu' && toasts.pop() === MATCH_START_FAILED, toasts.join());
+  toasts.length = 0;
+  Save.saveNow();
+  for (const mark of [1, 2, 0, 3]) { if (mark) saveOtherTabWrites(mark); Save.saveNow(); }
+  Save.storage = makeMemoryStorage(true); Save.saveNow();
+  Save.storage = makeMemoryStorage(false); Save.saveNow();
+  Bus.off('toast', listener);
+  check('save: a failure is told again after a good write', toasts.join() === [SAVE_NEWER_ELSEWHERE, SAVE_NEWER_ELSEWHERE, SAVE_BLOCKED].join() && Save.storageWorks, toasts.join());
+});
+
 // R-001 / R-163: a stale tab never writes over a newer save; an unchanged flush writes nothing.
 function saveOtherTabWrites(mark) {
   const other = JSON.parse(Save.read(SAVE_KEY));
@@ -200,6 +221,10 @@ Test.add('core', (check) => {
   Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 90 }, loadouts: 'x', tips: 7 }));
   const errors = uiWith(() => Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }));
   check('save: wrong-kind loadouts and tips are repaired', errors === 0 && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches === 1, errors);
+  // ...and partial nested records too (a null custom class, no heroes or kits).
+  Save.importText('{"version":1,"loadouts":{"heroes":{},"classes":{"custom":[null,{"id":"class-1"}]}},"tips":{}}');
+  const repaired = Test.expectErrors(() => uiWith(() => { Ui.open('loadout'); Loadouts.hero(); Loadouts.kitChoice('kit'); Tips.show(); }));
+  check('save: partial records are repaired', repaired === 0 && Loadouts.classes().length === CAT.classes.length + 1 && Save.data.tips.matches === 1, repaired);
 });
 
 Test.add('core', (check) => {

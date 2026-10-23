@@ -33,11 +33,16 @@ async function main() {
     const started = Date.now();
     const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ', slow: ' + slow + ' });'
       + ' const line = (x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ');'
-      + ' return { total: r.total, passed: r.passed, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map(line), skips: r.results.filter((x) => x.skipped).map(line) }; })()');
+      + ' return { total: r.total, passed: r.passed, failed: r.failed, groups: r.groups, known: r.known, bad: r.results.filter((x) => !x.ok).map(line), skips: r.results.filter((x) => x.skipped).map(line) }; })()');
     console.log('SELFTEST ' + report.passed + '/' + report.total + ' passed, ' + report.skips.length + ' skipped in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
     report.skips.forEach((line) => console.log('  SKIP ' + line));
     report.bad.forEach((line) => console.log('  FAIL ' + line));
     if (report.failed) failed = true;
+    // A mistyped --group runs nothing: that is a failure, not a green run.
+    if (!report.total) {
+      console.log('  FAIL no checks ran' + (group ? ': no group "' + group + '"; groups are ' + report.known.join(', ') : ''));
+      failed = true;
+    }
   }
   if (extra) {
     const value = await evaluate(extra);

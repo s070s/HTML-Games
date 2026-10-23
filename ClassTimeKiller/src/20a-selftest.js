@@ -52,7 +52,7 @@ const Test = {
   // total = passed + failed + skipped
   tally(results, groups) {
     const failed = results.filter((r) => !r.ok).length, skipped = results.filter((r) => r.skipped).length;
-    return { total: results.length, passed: results.length - failed - skipped, failed, skipped, groups, results };
+    return { total: results.length, passed: results.length - failed - skipped, failed, skipped, groups, known: [...new Set(this.blocks.map((block) => block.group))], results };
   },
   // Clean state between blocks: stops any match, memory-only storage, fresh save, no runtime maps, default seed.
   isolate() {
@@ -60,6 +60,7 @@ const Test = {
     Maps.runtime = [];
     Save.storage = makeMemoryStorage(false);
     Save.data = Save.emptySave();
+    Save.lastFailure = ''; Save.storageWorks = true;
     Rng.reseed(1);
     this.restoreHooks();
   },

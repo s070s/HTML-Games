@@ -19,6 +19,16 @@ function saveFieldFits(freshValue, value) {
   const want = saveFieldKind(freshValue), have = saveFieldKind(value);
   return have === want || (want === 'null' && have === 'object');
 }
+// Fills the missing or wrong-kind fields of `loaded` from `fresh`, down every record the empty save spells out (loadouts.classes,
+// tips); a list keeps only its record entries (a null custom class would throw in its readers).
+function repairSaveFields(fresh, loaded) {
+  for (const field in fresh) {
+    const want = fresh[field];
+    if (!saveFieldFits(want, loaded[field])) loaded[field] = want;
+    else if (Array.isArray(want)) loaded[field] = loaded[field].filter((entry) => saveFieldKind(entry) === 'object');
+    else if (saveFieldKind(want) === 'object') repairSaveFields(want, loaded[field]);
+  }
+}
 // An import needs a version this game reads and one known, non-empty field of the right kind.
 function saveLooksReal(loaded, fresh) {
   if (!loaded || !Number.isInteger(loaded.version) || loaded.version < 1 || loaded.version > SAVE_VERSION) return false;
@@ -33,8 +43,9 @@ function saveRevisionOf(raw) {
 
 const Save = {
   data: null,             // the live save object
-  storageWorks: true,
+  storageWorks: true,     // false from a failed access until a save is written again
   notice: '',             // one-line message for the UI (storage blocked, save was reset)
+  lastFailure: '',        // the failure last told (fail), cleared by a good write
   timer: 0,
   // An unwritten change: a flush writes only then (R-163)
   dirty: false,
@@ -42,9 +53,9 @@ const Save = {
 
   emptySave() {
     // Every field is declared here, so migrate repairs it (ARC-020). revision: write count (R-001); play: last setup (18d, null = none);
-    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p.
+    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p, 06 (silentSwitch).
     return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
-      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false },
+      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
   },
   load() {
@@ -61,11 +72,10 @@ const Save = {
     }
     return this.data;
   },
-  // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null), checks every setting (load and import).
+  // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null, nested ones too), checks every setting (load and import).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
-    const fresh = this.emptySave();
-    for (const field in fresh) if (!saveFieldFits(fresh[field], loaded[field])) loaded[field] = fresh[field];
+    repairSaveFields(this.emptySave(), loaded);
     Settings.sanitize(loaded.settings);
     // Version and revision first (SAVE_REVISION_HEAD).
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);
@@ -84,8 +94,10 @@ const Save = {
     this.data.revision++;
     const text = JSON.stringify(this.data);
     const written = text.length > SAVE_MAX_BYTES ? this.fail(SAVE_TOO_BIG) : this.write(SAVE_KEY, text);
-    if (written) this.dirty = false; else this.data.revision--;
-    return written;
+    if (!written) { this.data.revision--; return false; }
+    // Storage works again: the next failure is told again.
+    this.dirty = false; this.storageWorks = true; this.lastFailure = '';
+    return true;
   },
   // Takes a newer stored save (another tab's); true when it did.
   adoptNewer() {
@@ -101,9 +113,11 @@ const Save = {
     Settings.applyAll();
     return true;
   },
-  // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure stays quiet.
+  // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure
+  // stays quiet until a write works again.
   fail(text) {
-    if (this.notice === text) return false;
+    if (this.lastFailure === text) return false;
+    this.lastFailure = text;
     this.notice = text;
     emitToast(text);
     return false;
@@ -135,7 +149,6 @@ const Save = {
     try { (this.storage || window.localStorage).setItem(key, text); return true; } catch (error) { this.markBroken(); return false; }
   },
   markBroken() {
-    if (!this.storageWorks) return;
     this.storageWorks = false;
     this.fail(SAVE_BLOCKED);
   },
@@ -181,6 +194,8 @@ const Settings = {
     // An old on/off for what is now a slider (head bob): on = max, off = min.
     if (typeof value === 'boolean' && typeof fallback === 'number' && definition.min !== undefined) value = value ? definition.max : definition.min;
     if (value === null || typeof value !== typeof fallback || (typeof value === 'number' && !Number.isFinite(value))) return undefined;
+    // A whole-number setting (integer step: FOV, a tier shift) keeps no fraction from an import.
+    if (Number.isInteger(definition.step)) value = Math.round(value);
     return definition.min === undefined ? value : clamp(value, definition.min, definition.max);
   },
   // Drops loaded values no reader could use (the default applies), clamps numbers; unknown keys stay.
@@ -212,6 +227,11 @@ const Quality = {
     const chosen = Settings.get('video.quality');
     const stored = this.sessionId || (chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen);
     return CAT.quality.byId(stored) || CAT.quality.byId('medium');
+  },
+  // The step-down's preset for this session; 'quality.change' (payload: the preset row) tells every reader of the caps at once.
+  setSession(id) {
+    this.sessionId = id;
+    Bus.emit('quality.change', this.current());
   },
 };
 // Registered before S07's video settings listener, which then reads the new preset.

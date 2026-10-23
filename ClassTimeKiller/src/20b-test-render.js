@@ -763,6 +763,11 @@ Test.add('render', (check) => withRenderer(() => {
   check('High binds the scene target once a frame', SunShadow.active && sceneBinds === 1, sceneBinds);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
+  // A resize or a rotation: the very next frame already projects with the new aspect (no stretched frame).
+  const resized = (css) => { Render.canvas.style.cssText = css; Render.size.dirty = true; Render.drawFrame(1 / 60, 1); return Render.frame.projection[5] / Render.frame.projection[0]; };
+  const aspect = resized('width:400px;height:200px');
+  resized('');
+  check('a resize reaches the same frame', Test.near(aspect, 2, 0.02), aspect);
 }));
 
 // ---- Context loss and restore (PLT-005) ----
@@ -788,9 +793,15 @@ Test.add('render', (check) => withRenderer(async () => {
   Save.saveNow = function () { writes++; return saveNow.call(this); };
   // Long enough for the quit below to finish before the wait ends, even under load.
   Render.restoreWaitMs = 1000;
+  const setHidden = (value) => { Object.defineProperty(document, 'hidden', { value, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); };
   try {
+    // Phones drop a background tab's context and give it back on return: the wait counts visible time only.
+    setHidden(true);
     extension.loseContext();
     await waitUntil(() => Render.lost, 3000);
+    await new Promise((resolve) => setTimeout(resolve, Render.restoreWaitMs + 300));
+    check('a hidden page waits for the restore', !fatal.classList.contains('show'));
+    setHidden(false);
     // Quit without the menu screens.
     Game.headless = true;
     Bus.emit('match.stop', null);
@@ -801,12 +812,12 @@ Test.add('render', (check) => withRenderer(async () => {
     check('a match started during the loss waits', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
     check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
     extension.restoreContext();
-    check('a restore after the Reload screen keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics');
+    check('a late restore hides the Reload screen, keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics'
+      && !fatal.classList.contains('show') && !document.getElementById('fatal-reload'));
   } finally {
+    delete document.hidden;
     Save.saveNow = saveNow; Render.restoreWaitMs = waitMs;
-    const reload = document.getElementById('fatal-reload');
-    if (reload) reload.remove();
-    fatal.classList.remove('show'); fatalShown = false;
+    hideGraphicsLost();
   }
 }));
 

@@ -16,7 +16,7 @@ const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep its horizontal
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
   skyRight: new Float32Array(3), skyUp: new Float32Array(3),
-  frustum: new Float32Array(24), overridden: false, eye: 1.62, bobPhase: 0, alpha: 1,   // alpha: this frame's sim interpolation, for camera overrides
+  frustum: new Float32Array(24), overridden: false, eye: STAND_EYE, bobPhase: 0, alpha: 1,   // alpha: this frame's sim interpolation, for camera overrides
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
@@ -350,9 +350,8 @@ function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  // Quality.current() now returns it, so the renderer and the PERF-009 caps agree.
-  Quality.sessionId = next.id;
-  readVideoSettings();
+  // Quality.current() now returns it, so the renderer, the audio and the PERF-009 caps agree.
+  Quality.setSession(next.id);
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }

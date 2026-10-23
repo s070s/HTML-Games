@@ -60,6 +60,8 @@ const Render = {
   lost: false,
   pausedForLoss: false,
   restoreTimer: 0,
+  // The Reload screen for a lost context is up (a late restore hides it)
+  gaveUp: false,
   // The wait for a restore before the Reload screen (a test shortens it)
   restoreWaitMs: CONTEXT_RESTORE_WAIT_MS,
   quality: null,           // the active CAT.quality row
@@ -113,11 +115,11 @@ const Render = {
     this.canvas.addEventListener('webglcontextlost', handleContextLost, false);
     this.canvas.addEventListener('webglcontextrestored', handleContextRestored, false);
     window.addEventListener('resize', () => { Render.size.dirty = true; });
+    document.addEventListener('visibilitychange', armRestoreWait);
     try {
       createGpuResources(gl);
     } catch (error) {
-      ErrorLog.add('render.init', error);
-      showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+      failGpuBuild('render.init', error);
       this.gl = null;
       return false;
     }
@@ -131,6 +133,8 @@ const Render = {
     this.frameStart = performance.now();
     resetFrameStats();
     this.frame.time += seconds;
+    // A resize first, so the camera's matrices already use the new aspect; the updates may change the scale or samples again.
+    if (this.size.dirty) resizeTargets(gl);
     for (let i = 0; i < this.updates.length; i++) this.updates[i].run(seconds, alpha);
     if (this.size.dirty || this.target.samples !== this.wantedSamples()) resizeTargets(gl);
     GpuTimer.begin(gl);
@@ -164,6 +168,7 @@ function readVideoSettings() {
 }
 readVideoSettings();
 Bus.on('setting', (key) => { if (key.startsWith('video.')) readVideoSettings(); });
+Bus.on('quality.change', readVideoSettings);
 
 // ---- Colour helpers: '#rrggbb' strings or 0xrrggbb numbers; strings are parsed once and cached ----
 const colorCache = new Map();
@@ -532,8 +537,13 @@ function handleContextLost(event) {
   Render.lost = true;
   pauseForLoss();
   emitToast('Graphics restoring...');
+  armRestoreWait();
+}
+
+// The wait for the restore counts visible time only: phones drop a background tab's context and give it back on return.
+function armRestoreWait() {
   clearTimeout(Render.restoreTimer);
-  Render.restoreTimer = setTimeout(giveUpRestore, Render.restoreWaitMs);
+  if (Render.lost && !document.hidden) Render.restoreTimer = setTimeout(giveUpRestore, Render.restoreWaitMs);
 }
 
 // Only a running match is paused for the loss, so only that pause is lifted on restore.
@@ -548,6 +558,7 @@ function giveUpRestore() {
   // A restore after this screen must not resume a match nobody can see.
   Render.pausedForLoss = false;
   if (Save.data) Save.saveNow();
+  Render.gaveUp = true;
   showFatal(GRAPHICS_LOST_TITLE, GRAPHICS_LOST_TEXT, '');
   if (document.getElementById('fatal-reload')) return;
   const button = makeElement('button', 'ui-button primary', 'Reload');
@@ -556,21 +567,35 @@ function giveUpRestore() {
   document.querySelector('#fatal .box').appendChild(button);
 }
 
+// A GPU build that threw (at start or on a restore) would leave a blank or frozen screen: the PLT-002 WebGL2 message instead.
+function failGpuBuild(where, error) {
+  ErrorLog.add(where, error);
+  showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+}
+
 function handleContextRestored() {
   clearTimeout(Render.restoreTimer);
   try {
     createGpuResources(Render.gl);
   } catch (error) {
-    // A rebuild that fails would leave a frozen, paused screen: show the PLT-002 message instead.
-    ErrorLog.add('render.restore', error);
     Render.ready = false;
-    showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+    failGpuBuild('render.restore', error);
     return;
   }
   Render.lost = false;
   if (Render.pausedForLoss && Game.pauseReason === 'graphics') Game.resume();
   Render.pausedForLoss = false;
+  if (Render.gaveUp) hideGraphicsLost();
   emitToast('Graphics restored');
+}
+
+// A late restore takes the Reload screen away again; the match stays paused behind the pause menu.
+function hideGraphicsLost() {
+  Render.gaveUp = false;
+  fatalShown = false;
+  document.getElementById('fatal').classList.remove('show');
+  const reload = document.getElementById('fatal-reload');
+  if (reload) reload.remove();
 }
 Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 // A quit during the loss: a later match's pause is the player's.
