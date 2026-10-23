@@ -607,6 +607,7 @@ function lootValue(id, spot) {
   if (group === LOOT_GROUP.WEAPON) {
     const weapon = loot.weapon[spot] >= 0 ? CAT.weapons[loot.weapon[spot]] : null;
     if (weapon && Weapons.has(id, weapon.id)) return 0;
+    if (weapon && Weapons.swapsOut(id, weapon) && !Weapons.botTakes(id, weapon)) return 0;   // a full inventory leaves a worse gun lying (swap-01)
     return ITEM_VALUES.weapon * (weapon ? weapon.botPref.value : 0.5) * (1 + LOOT_RARITY_VALUE * loot.rarity[spot]);
   }
   if (group === LOOT_GROUP.ARMOR) return Actors.shield[id] < Modes.rules.params.shieldByRarity[loot.rarity[spot]] ? ITEM_VALUES.armor : 0;
@@ -838,6 +839,9 @@ BotDecide.registerPlanner('hill', (id, plan) => planZones(id, plan, 'hill'));
 BotDecide.registerPlanner('flag', (id, plan) => planFlags(id, plan));
 BotDecide.registerPlanner('bombsite', (id, plan) => planBomb(id, plan));
 BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));
+
+// swap-01: at the carry limit a bot swaps in only a gun worth more than its best one, the rule its pad goals use.
+Weapons.botTakes = (id, weapon) => weaponItemValue(id, weapon, 1) > 0;
 
 Bus.on('match.start', (match) => BotDecide.onMatchStart(match));
 Bus.on('pickup', (event) => BotDecide.onPickup(event));

@@ -117,14 +117,21 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
-// Bots at the carry limit still upgrade at the pads: a bot's collect goal is its choice, so it needs no Use (Weave Suit
-// carries two guns and spawns with two, so every pad gun is a swap).
+// Bots at the carry limit still upgrade at the pads with no Use, and only upgrade: a pad gun they cross is swapped in
+// only when the bot values it more (14e weaponItemValue; swap-01). Weave Suit carries two guns and spawns with two,
+// so every pad gun is a swap; the gun pushed out is still in Weapons.dropped when 'pickup' fires.
 Test.add('items', (check) => {
-  let swaps = 0;
-  const onPickup = (event) => { if (event.group === 'weapon' && Bots.active[event.id]) swaps++; };
+  let upgrades = 0, downgrades = 0;
+  const onPickup = (event) => {
+    if (event.group !== 'weapon' || !Bots.active[event.id] || !Weapons.dropped) return;
+    const gain = BotCombat.weaponValue(event.id, CAT.weapons.byId(event.item), 1) - BotCombat.weaponValue(event.id, CAT.weapons.byId(Weapons.dropped), 1);
+    if (gain > 0) upgrades++;
+    if (gain < 0) downgrades++;
+  };
   Bus.on('pickup', onPickup);
-  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 1, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
-  check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', swaps >= 8, swaps);
+  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+  check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', upgrades >= 8, upgrades);
+  check('Weave Suit on Harbor Nine: no bot swaps a gun for one it values less (swap-01)', downgrades === 0, downgrades + ' downgrades / ' + upgrades + ' upgrades');
 });
 
 Test.add('items', (check) => {
