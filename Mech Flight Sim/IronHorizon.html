@@ -3674,7 +3674,7 @@ function addStruct(type, x, z, opts) {
     hp: d.hp * (opts.hpMult || 1) * (W.structHp || 1), maxHp: 0, mat: opts.mat || d.mat, state: 0, destroyed: false, seed: Math.random() * 100,
     explosive: !!d.explosive, indestructible: !!d.indestructible || !!opts.indestructible, objective: opts.objective || null, invuln: false,
     debris: d.debris, scorch: 0, flash: 0, swap, _q: 0, smokeT: 0, name: opts.name || type, isStruct: true, team: opts.team === undefined ? 2 : opts.team, chunk: null, sq: 0, bakedInvuln: false,
-    top: 0, destroyedAt: 0, plant: null,   // plant: a tree's Flora plant (its species look)
+    top: 0, destroyedAt: 0, plant: null, unspot: 0,   // plant: a tree's Flora plant (its species look); unspot: hull taken by unspotted indirect fire (damageStruct)
     ram: RAM[type === 'tree' ? 'tree' : opts.mat || d.mat] || null,   // how it takes momentum collisions (none: rock)
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
@@ -3686,13 +3686,16 @@ function addStruct(type, x, z, opts) {
   if (!opts.piece) { W.plain.push(s); Hash.add(s, x - s.hx, z - s.hz, x + s.hx, z + s.hz); Chunks.add(s); }   // building pieces live in their building's grid
   return s;
 }
-function damageStruct(s, amount, dtype, owner, structMult) {
+/* unspotted: a human's indirect fire no friendly spotter sees, which wears an objective down by ARTY_UNSPOTTED_CAP of
+   its hull at most in a battle (D52) */
+function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   if (Net.guest) return 0;
   if (s.invuln && s.objective && !s.destroyed && owner && owner.team !== s.team) warnShielded(owner);
   if (s.destroyed || s.indestructible || s.invuln || amount <= 0) return 0;
   if (s.objective && owner && owner.team === s.team && !W.friendlyFire) return 0;   // a side never wears down its own objectives
   const mm = MATERIAL[s.mat];
-  const eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
+  let eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
+  if (unspotted && s.objective) { eff = Math.min(eff, s.maxHp * ARTY_UNSPOTTED_CAP - s.unspot); if (eff > 0) s.unspot += eff; }
   if (eff <= 0) return 0;
   if (s.objective && owner && owner.hideFromAI && owner.team !== s.team) owner.provoke();
   const before = s.state;
@@ -4384,7 +4387,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     const d = Math.hypot(cx - x, cy - y, cz - z);
     if (d >= radius) continue;
     const f = 1 - d / radius;
-    damageStruct(s, damage * (0.2 + 0.8 * f) * (opts.structMult === undefined ? 1 : opts.structMult) * (s.objective && opts.objMult !== undefined ? opts.objMult : 1), dtype, owner, 1);
+    damageStruct(s, damage * (0.2 + 0.8 * f) * (opts.structMult === undefined ? 1 : opts.structMult) * (s.objective && opts.objMult !== undefined ? opts.objMult : 1), dtype, owner, 1, opts.objMult < 1);
   }
 }
 
@@ -8793,6 +8796,9 @@ const NAVAL_HARBOUR_REACH = 2 * WORLD_HALF;   // a harbour is looked for this fa
 const NAVAL_FLEET_GAP = 700;     // an enemy fleet starts at least this far from the player's base, start and harbour (m)
 const NAVAL_STRAND_T = 2;        // s a ship sits on dry ground (a flood gone down) before it is towed back to water
 const NAVAL_TOW_REACH = 200;     // m it is towed at most, else to its harbour
+const NAVAL_AVOID_SHIPS = 'ships';   // Naval.spot and fits: keep clear of other ships only
+const NAVAL_HULL_GAP = 1;        // m a ship's keel keeps from another ship's hull at its harbour (Naval.hullsClear)
+const NAVAL_BESIDE_STEPS = 6;    // hull widths a harbour spot is moved along the beam, each way, to clear another ship
 const NAVAL_PROBE_PAD = 2;       // m past the bow (or stern going astern) at which the shallows are felt
 const NAVAL_HARBOUR_PAD = 45;    // a ship this close to its harbour (m), stopped, is resupplied like at a pad
 const NAVAL_STOP = 1.5;          // m/s under which a ship has stopped there
@@ -8873,12 +8879,53 @@ const Naval = {
     return l - n.draft > g ? l - n.draft : g;
   },
   /* true when a ship of def fits at (x, z): open water under it and round it (need m deep, room m past its bow or
-     stern every way), inside the bounds, clear of structures and (avoid) of anything standing there */
+     stern every way), inside the bounds, clear of structures and (avoid) of anything standing there, or (avoid
+     NAVAL_AVOID_SHIPS) of other ships only */
   fits(x, z, def, need, avoid, room) {
     const r = def.radius, e = this.reach(def) + (room || 0);
     if (Math.abs(x) > GROUND_BOUND - r || Math.abs(z) > GROUND_BOUND - r || Water.depth(x, z) < need) return false;
     if (Water.depth(x + e, z) < need || Water.depth(x - e, z) < need || Water.depth(x, z + e) < need || Water.depth(x, z - e) < need) return false;
-    return !groundBlocked(x, z, r + 1) && !(avoid && standingNear(x, z, r + NAVAL_SPOT_GAP));
+    if (groundBlocked(x, z, r + 1)) return false;
+    if (avoid === NAVAL_AVOID_SHIPS) return !this.shipNear(x, z, def);
+    return !(avoid && standingNear(x, z, r + NAVAL_SPOT_GAP));
+  },
+  /* true when a ship of def at (x, z) could reach into another ship (their bow-to-stern circles overlap) */
+  shipNear(x, z, def) {
+    const e = this.reach(def);
+    for (let i = 0; i < W.platforms.length; i++) {
+      const q = W.platforms[i];
+      if (!q.dead && q.kind === 'naval' && Math.hypot(q.x - x, q.z - z) < q.hullR + e) return true;
+    }
+    return false;
+  },
+  /* true when a ship of def at (x, z) heading yaw keeps out of every other ship's hull, its keel (bow, middle and
+     stern) a half beam and NAVAL_HULL_GAP clear */
+  hullsClear(x, z, yaw, def) {
+    const h = def.naval.hull, fx = Math.sin(yaw), fz = Math.cos(yaw);
+    for (let i = 0; i < W.platforms.length; i++) {
+      const q = W.platforms[i];
+      if (q.dead || q.kind !== 'naval') continue;
+      for (let k = 0; k < 3; k++) {
+        const t = k === 0 ? h[0] + h[2] : k === 1 ? 0 : h[1] - h[2];
+        if (this.hullDist(q, x + fx * t, z + fz * t) < h[2] + NAVAL_HULL_GAP) return false;
+      }
+    }
+    return true;
+  },
+  /* the last resort for a harbour: spot s moved along its beam, a hull's width at a time, to the first place that keeps
+     out of the other ships and floats the whole keel; s itself when it already does; else one hull's width off to the
+     deeper side, so it never starts inside another ship (resolvePairs and the shore probes see to the rest) */
+  besideShips(s, def) {
+    if (!s || this.hullsClear(s.x, s.z, s.yaw, def)) return s;
+    const h = def.naval.hull, need = Math.max(def.naval.draft, 1) + NAVAL_KEEL_CLEAR, step = h[2] * 2 + NAVAL_HULL_GAP;
+    const bx = Math.cos(s.yaw), bz = -Math.sin(s.yaw), fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
+    for (let k = 1; k <= NAVAL_BESIDE_STEPS; k++) for (let sg = 1; sg >= -1; sg -= 2) {
+      const x = s.x + bx * step * k * sg, z = s.z + bz * step * k * sg;
+      const afloat = Water.depth(x, z) >= need && Water.depth(x + fx * h[1], z + fz * h[1]) >= need && Water.depth(x + fx * h[0], z + fz * h[0]) >= need;
+      if (afloat && this.hullsClear(x, z, s.yaw, def)) return { x, z, yaw: s.yaw };
+    }
+    const sg = Water.depth(s.x + bx * step, s.z + bz * step) >= Water.depth(s.x - bx * step, s.z - bz * step) ? 1 : -1;
+    return { x: s.x + bx * step * sg, z: s.z + bz * step * sg, yaw: s.yaw };
   },
   /* The nearest spot within reach of (x, z) where a ship of def floats in open water with NAVAL_SPOT_ROOM round it
      (else, nowhere in reach, NAVAL_SPOT_ROOM_MIN: a river), facing the deepest water round it, as { x, z, yaw }; null
@@ -8913,8 +8960,10 @@ const Naval = {
      battlefield without such water (Naval.shipOk) */
   harbour(def, ref) {
     if (!this.shipOk(def, W.map)) return null;
-    // clear of others if it can be; on a small lake with a unit by the shore, beside it (the hulls push apart)
-    return this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, true) || this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, false);
+    // clear of everything if it can be; else clear of other ships (a unit by the shore of a small lake); else beside
+    // the ship already there (a second ship on a lake one hull fits)
+    return this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, true) || this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, NAVAL_AVOID_SHIPS) ||
+      this.besideShips(this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, false), def);
   },
   /* What a player who picked def (loadout lo) deploys as near ref: a ship at its harbour (at), else, on a battlefield
      without water it can sail, the fallback platform with its own loadout (fell true); any other platform as it is
@@ -9077,6 +9126,7 @@ const ARTY_MARK_CAP = 32;           // impact markers at once (the soonest to la
 const ARTY_WARN_R = 45;             // m from a showing marker within which the player is warned
 const ARTY_SPOT_MAX = 600;          // m at most from which a spotter calls in fire
 const ARTY_UNSPOTTED_OBJ = 0.15;    // damage share a human's indirect fire does to objective structures no friendly spotter sees (D52)
+const ARTY_UNSPOTTED_CAP = 0.25;    // and the most of each one's hull that fire takes in a battle; after that it does nothing
 const ARTY_SPOT_NEAR = 15;          // m: a spotter's sight line that ends on a structure this near the aim point sees it (the target building)
 const ARTY_SPOT_EVERY = 0.25;       // s between the HUD's looks for a spotter of the player's aim point
 const ARTY_OBJ_NEAR = 60;           // m from the impact point within which an objective structure makes the HUD show the spotting
@@ -9213,17 +9263,21 @@ const Arty = {
     const ap = p.cmd.aimPoint;
     return !p.isPlayer || !ap || this.spottedAt(ap.x, ap.y, ap.z, p, ARTY_SPOT_NEAR) ? 1 : ARTY_UNSPOTTED_OBJ;
   },
-  /* the HUD's spotting state of human p's aim, looked at every ARTY_SPOT_EVERY s: a.spotted, and a.objNear when an
-     enemy objective structure stands within ARTY_OBJ_NEAR of the impact point */
+  /* the HUD's spotting state of human p's aim, looked at every ARTY_SPOT_EVERY s: a.spotted, a.objNear when an enemy
+     objective structure stands within ARTY_OBJ_NEAR of the impact point, and a.objSpent when unspotted fire has taken
+     all it may of that one (ARTY_UNSPOTTED_CAP) */
   spotState(p, dt) {
     const a = p.arty, s = a.sol, ap = p.cmd.aimPoint;
     a.spotT -= dt;
     if (a.spotT > 0) return;
     a.spotT = ARTY_SPOT_EVERY;
-    a.objNear = false;
+    a.objNear = false; a.objSpent = false;
     if (!s.valid || !ap) return;
     const n = Hash.query(s.ix - ARTY_OBJ_NEAR, s.iz - ARTY_OBJ_NEAR, s.ix + ARTY_OBJ_NEAR, s.iz + ARTY_OBJ_NEAR);
-    for (let i = 0; i < n && !a.objNear; i++) { const o = Hash.out[i]; if (o.objective && !o.destroyed && o.team !== p.team) a.objNear = true; }
+    for (let i = 0; i < n && !a.objNear; i++) {
+      const o = Hash.out[i];
+      if (o.objective && !o.destroyed && o.team !== p.team) { a.objNear = true; a.objSpent = o.unspot >= o.maxHp * ARTY_UNSPOTTED_CAP - 1e-6; }
+    }
     a.spotted = a.objNear && this.spottedAt(ap.x, ap.y, ap.z, p, ARTY_SPOT_NEAR);
   },
   /* the gate before an indirect weapon of p fires: false, with a notice to its crew, inside the minimum range, out of
@@ -9389,7 +9443,7 @@ const Arty = {
   spottedAt(x, y, z, p, near) {
     for (let i = 0; i < W.platforms.length; i++) {
       const q = W.platforms[i];
-      if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery') continue;
+      if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery' || q.def.unarmed || q.hideFromAI) continue;
       const sight = Math.min(ARTY_SPOT_MAX, q.ai ? q.ai.sightRange() : q.def.sensor * 0.8), dx = x - q.x, dz = z - q.z;
       if (dx * dx + dz * dz > sight * sight) continue;
       if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z)) return true;
@@ -9443,7 +9497,7 @@ class Platform {
     // m from its centre to what of it reaches others first (a ship's bow or stern, Naval.reach), s a ship has sat on dry ground
     this.hullR = def.naval ? Naval.reach(def) : def.radius; this.strandT = 0;
     // artillery (Arty): the crew wants it deployed, how far it is (0-1), the arc picked, and the solution for the gun in hand
-    this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol(), spotT: 0, spotted: false, objNear: false } : null;
+    this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol(), spotT: 0, spotted: false, objNear: false, objSpent: false } : null;
     this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
     // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
@@ -10735,6 +10789,7 @@ class Platform {
 }
 
 /* resolve platform-versus-platform overlaps (called once per tick) */
+const PAIR_SAME = 1e-3;   // m under which two bodies have no direction between them (resolvePairs)
 function resolvePairs(dt) {
   const pl = W.platforms;
   for (let i = 0; i < pl.length; i++) {
@@ -10766,9 +10821,14 @@ function resolvePairs(dt) {
         continue;
       }
       if (a.def.speed === 0 && b.def.speed === 0) continue;
-      const d = Math.sqrt(dist2) || 0.001;
+      const d = Math.sqrt(dist2);
       if (d >= rr) continue;
-      const nx = dx / d, nz = dz / d, push = rr - d;
+      let nx = 0, nz = 0;
+      if (d > PAIR_SAME) { nx = dx / d; nz = dz / d; } else {   // one on the other (or two keels on one line): apart along the beam
+        const q = a.kind === 'naval' ? a : b, sg = a.id < b.id ? 1 : -1;
+        nx = Math.cos(q.yaw) * sg; nz = -Math.sin(q.yaw) * sg;
+      }
+      const push = rr - d;
       const ia = a.def.speed === 0 ? 0 : 1 / a.def.mass, ib = b.def.speed === 0 ? 0 : 1 / b.def.mass, is = ia + ib || 1;
       a.x -= nx * push * ia / is; a.z -= nz * push * ia / is; b.x += nx * push * ib / is; b.z += nz * push * ib / is;
       const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
@@ -11625,7 +11685,7 @@ function updateProjectiles(dt) {
       detonate(p, hx, hy, hz, obj);
     } else if (kind === 'struct') {
       // the struck structure takes the direct hit; the splash then spares it so it is not counted twice
-      damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult * (obj.objective ? p.objMult : 1));
+      damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult * (obj.objective ? p.objMult : 1), p.objMult < 1);
       const st = statsOf(p.owner);
       if (st) st.hits++;
       if (d.blast <= 0) Snd.play('hitStruct', hx, hy, hz, 0.6);
@@ -19900,7 +19960,7 @@ const HUD = {
     if (s.reason === 'masked') this.txt(Math.hypot(s.ix - s.mx, s.iz - s.mz) > s.dist ? 'REVERSE SLOPE: THE SHELL FLIES ON PAST' : 'ARC STRIKES TERRAIN ON THE WAY', xr, y + 34 * u, 11, C.warn, 'left');
     else if (s.reason === 'sky') this.txt('NO GROUND UNDER THE AIM: AIM AT THE GROUND', xr, y + 34 * u, 11, C.bad, 'left');
     if (Net.guest) Arty.spotState(p, STEP);   // a guest looks for its spotters among the mirrored platforms
-    if (a.objNear) this.txt(a.spotted ? 'SPOTTED: FULL DAMAGE TO OBJECTIVES' : 'UNSPOTTED: REDUCED DAMAGE TO OBJECTIVES', xr, y + 50 * u, 11, a.spotted ? C.main : C.warn, 'left');
+    if (a.objNear) this.txt(a.spotted ? 'SPOTTED: FULL DAMAGE TO OBJECTIVES' : a.objSpent ? 'UNSPOTTED: NO EFFECT ON THIS OBJECTIVE' : 'UNSPOTTED: REDUCED DAMAGE TO OBJECTIVES', xr, y + 50 * u, 11, a.spotted ? C.main : C.warn, 'left');
     const t = R.project(s.ix, s.iy, s.iz, this.w, this.h, this.tmp);   // where the shell comes down, with its flight time
     if (!t.vis) return;
     const r = 9 * u;
@@ -20793,7 +20853,7 @@ const UI = {
       const w = WEAPONS[id], on = guns.filter((s) => PLATFORMS[s].allow[w.slot].indexOf(id) >= 0).map((s) => PLATFORMS[s].name).join(', ');
       return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + w.indirect.min + '-' + w.range + ' m</span></span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
     }).join('');
-    return '<div class="panel"><h3 style="margin-top:0">Artillery</h3><div class="dim" style="margin-bottom:.4em">Indirect fire onto the ground point under the reticle, which shows where the shell lands and its time of flight. Each gun has a minimum range. Deploy (' + esc(actionLabel('stance')) + ') for a tighter spread; a deployed gun cannot move. Enemy batteries fire only on what their spotters see, and their shells mark the ground a few seconds before they land. Your shells do full damage to objective structures only where a friendly unit (not artillery) sees the target; unspotted, they do ' + Math.round(ARTY_UNSPOTTED_OBJ * 100) + '%.</div>' + rows + '</div>';
+    return '<div class="panel"><h3 style="margin-top:0">Artillery</h3><div class="dim" style="margin-bottom:.4em">Indirect fire onto the ground point under the reticle, which shows where the shell lands and its time of flight. Each gun has a minimum range. Deploy (' + esc(actionLabel('stance')) + ') for a tighter spread; a deployed gun cannot move. Enemy batteries fire only on what their spotters see, and their shells mark the ground a few seconds before they land. Your shells do full damage to objective structures only where a friendly unit (not artillery) sees the target; unspotted, they do ' + Math.round(ARTY_UNSPOTTED_OBJ * 100) + '%, and wear each one down by ' + Math.round(ARTY_UNSPOTTED_CAP * 100) + '% of its hull at most.</div>' + rows + '</div>';
   },
   scr_controls() {
     const b = Save.data.bindings;
@@ -25102,6 +25162,30 @@ const SelfTest = {
         this.check('the naval hull checks run without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
       } finally { Game.reportError = keepRep; Water.setFlood(0, 0, 0, -Infinity); Game.quitToMenu(); }
     });
+    // two ships at one harbour (a co-op guest, a respawn) on a lake with room for one: the harbour keeps out of the
+    // first ship's hull, and two hulls stacked on one spot are pushed apart along the beam, both staying afloat
+    t('naval stacked ships', () => {
+      const keepRep = Game.reportError, errs = [], bad = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        for (const seed of [3, 21, 77]) {
+          Game.startSession({ mode: 'skirmish', platformId: 'trident', loadout: Loadout.forPlatform('trident'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'alpine', random: false, seed, support: 'none' }) });
+          const pl = W.player, def = PLATFORMS.trident, start = W.mission.def.start;
+          if (pl.def !== def) { bad.push(seed + ': no Trident'); continue; }
+          W.platforms.length = 0; W.platforms.push(pl);
+          const at = Naval.harbour(def, start);
+          if (!at || !Naval.hullsClear(at.x, at.z, at.yaw, def)) bad.push(seed + ': harbour in its hull');
+          const mate = new Platform(def, { team: 0, x: pl.x, z: pl.z, yaw: pl.yaw, loadout: Loadout.forPlatform('trident') });
+          W.platforms.push(mate);
+          for (let i = 0; i < 1 / STEP; i++) { W.time += STEP; pl.update(STEP); mate.update(STEP); resolvePairs(STEP); }
+          Naval.keelPoint(pl, mate.x, mate.z, KEEL_A); Naval.keelPoint(mate, KEEL_A.x, KEEL_A.z, KEEL_B);
+          const gap = Math.hypot(KEEL_B.x - KEEL_A.x, KEEL_B.z - KEEL_A.z), need = Naval.bodyR(pl) + Naval.bodyR(mate) - 0.01;
+          const afloat = (q) => Naval.navigable(q.x, q.z, def.naval.draft) && q.strandT === 0;
+          if (gap < need || !afloat(pl) || !afloat(mate)) bad.push(seed + ': ' + gap.toFixed(2) + ' of ' + need.toFixed(2) + ' m apart, afloat ' + afloat(pl) + ' ' + afloat(mate));
+        }
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+      this.check('on alpine (seeds 3, 21, 77) a second ship\'s harbour keeps out of the first one\'s hull, and two ships on one spot are apart within 1 s, both afloat', bad.length === 0 && errs.length === 0, bad.concat(errs).slice(0, 4).join('; '));
+    });
     // on every battlefield with water, each ship deploys at a harbour (each on its own seed, three seeds a battlefield),
     // or its card is disabled with why; and the enemy fleet keeps its distance from the player
     for (const map of Object.keys(MAPS).filter((id) => Naval.mapOk(mapDef(id)))) t('naval harbours ' + map, () => {
@@ -25293,7 +25377,8 @@ const SelfTest = {
         const nid0 = W.nid;
         pl.handleFire(w, true, true, STEP, false);
         this.check('aimed at the sky (no ground under the aim), the gun does not fire', Arty.aim(pl).reason === 'sky' && W.nid === nid0);
-        // a deployed Thunder at the start shells the enemy command center for 3 minutes with nobody spotting it
+        // a deployed Thunder at the start, resupplied without end, shells the enemy command center for 10 minutes with
+        // nobody spotting it: unspotted shells wear it down by ARTY_UNSPOTTED_CAP of its hull and then do nothing
         const dist = Math.hypot(hq.x - pl.x, hq.z - pl.z), ap = { x: hq.x, y: hq.y + hq.h * 0.6, z: hq.z }, yaw = Math.atan2(hq.x - pl.x, hq.z - pl.z);
         pl.arty.want = true; pl.arty.deploy = 1; pl.torsoYaw = yaw;
         const shell = (secs) => {
@@ -25301,6 +25386,7 @@ const SelfTest = {
           for (let i = 0; i < secs / STEP; i++) {
             const c = pl.cmd;
             c.aimPoint = ap; c.hasAim = true; c.aimYaw = yaw; c.fire1 = true; c.fire1Edge = true; c.moveF = 0; c.turn = 0;
+            w.reserve = w.def.reserve; pl.heat = 0; pl.overheated = false;   // unlimited resupply
             W.time += STEP; pl.update(STEP); updateProjectiles(STEP);
             if (hq.destroyed) break;
           }
@@ -25308,17 +25394,27 @@ const SelfTest = {
           return { shots: W.nid - nid, lost: hp - Math.max(0, hq.hp) };
         };
         pl.cmd.aimPoint = ap; Arty.aim(pl); Arty.spotState(pl, ARTY_SPOT_EVERY);
-        const hudUnspotted = pl.arty.objNear && !pl.arty.spotted;
-        const alone = shell(180);
-        this.check('a deployed Thunder at the start cannot destroy the enemy command center in 3 minutes with no spotter (shells do ' + ARTY_UNSPOTTED_OBJ + ' of their damage), and the HUD says so', dist < w.def.range && !hq.destroyed && alone.shots >= 8 && alone.lost > 0 && hudUnspotted, Math.round(dist) + ' m, ' + alone.shots + ' shells, ' + Math.round(alone.lost) + ' of ' + Math.round(hq.maxHp) + ' hp');
-        // a friendly soldier 150 m short of it, in sight: full damage
-        const sx = hq.x - Math.sin(yaw) * 150, sz = hq.z - Math.cos(yaw) * 150, eye = new Platform(PLATFORMS.ranger, { team: 0, x: sx, z: sz, yaw, loadout: Loadout.forPlatform('ranger') });
+        const hudUnspotted = pl.arty.objNear && !pl.arty.spotted && !pl.arty.objSpent;
+        const first = shell(20), rest = shell(580), per = (r) => r.lost / Math.max(1, r.shots);
+        pl.arty.spotT = 0; Arty.spotState(pl, STEP);
+        const hudSpent = pl.arty.objNear && !pl.arty.spotted && pl.arty.objSpent, lost = first.lost + rest.lost;
+        this.check('a deployed Thunder at the start, resupplied without end, cannot take the enemy command center below ' + Math.round((1 - ARTY_UNSPOTTED_CAP) * 100) + '% in 10 minutes with no spotter, and the HUD says when its shells stop having any effect',
+          dist < w.def.range && !hq.destroyed && hq.hp >= hq.maxHp * (1 - ARTY_UNSPOTTED_CAP) - 1e-6 && first.shots + rest.shots >= 60 && lost > 0 && hudUnspotted && hudSpent,
+          Math.round(dist) + ' m, ' + (first.shots + rest.shots) + ' shells, ' + Math.round(hq.hp) + ' of ' + Math.round(hq.maxHp) + ' hp left');
+        // a civilian (and anyone else the AI ignores) where the spotter will stand does not spot
+        const sx = hq.x - Math.sin(yaw) * 150, sz = hq.z - Math.cos(yaw) * 150;
+        const civ = new Platform(PLATFORMS.civilian, { team: 0, x: sx, z: sz, yaw, loadout: Loadout.forPlatform('civilian') });
+        W.platforms.push(civ);
+        const civSees = Arty.spottedAt(ap.x, ap.y, ap.z, pl, ARTY_SPOT_NEAR);
+        W.platforms.splice(W.platforms.indexOf(civ), 1);
+        this.check('an unarmed civilian in sight of the target does not spot for artillery', civ.hideFromAI && !civSees);
+        // a friendly soldier 150 m short of it, in sight: full damage, and the gun destroys it
+        const eye = new Platform(PLATFORMS.ranger, { team: 0, x: sx, z: sz, yaw, loadout: Loadout.forPlatform('ranger') });
         W.platforms.push(eye);
         pl.arty.spotT = 0; Arty.aim(pl); Arty.spotState(pl, STEP);
         const seen = Arty.spottedAt(ap.x, ap.y, ap.z, pl, ARTY_SPOT_NEAR), hudSpotted = pl.arty.objNear && pl.arty.spotted;
-        w.clip = w.def.clip; w.reserve = w.def.reserve; pl.heat = 0; pl.overheated = false;
-        const spotted = shell(30), per = (r) => r.lost / Math.max(1, r.shots);
-        this.check('with a friendly spotter in sight of it, the same shells do full damage to it', seen && hudSpotted && spotted.shots > 0 && per(spotted) > per(alone) * 4 && per(spotted) * (w.def.clip + w.def.reserve) > hq.maxHp, Math.round(per(spotted)) + ' vs ' + Math.round(per(alone)) + ' hp a shell');
+        const spotted = shell(300);
+        this.check('with a friendly spotter in sight of it, the same shells do full damage to it and destroy it', seen && hudSpotted && spotted.shots > 0 && hq.destroyed && per(spotted) > per(first) * 4, Math.round(per(spotted)) + ' vs ' + Math.round(per(first)) + ' hp a shell, ' + spotted.shots + ' shells');
         // an AI battery does not fire through its own base: the arc's first 300 m are checked against standing structures
         const bat = new Platform(PLATFORMS.thunder, { team: 1, x: pl.x, z: pl.z, yaw, loadout: Loadout.forPlatform('thunder') });
         const bw = bat.primary, far = { x: pl.x + Math.sin(yaw) * 900, z: pl.z + Math.cos(yaw) * 900 };
