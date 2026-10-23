@@ -561,7 +561,7 @@ const TouchInput = {
     }
     if (control.edge && this.searchSpot(control, place, radius, width, height, Infinity, false, true, false)) return;
     this.searchSpot(control, place, radius, width, height, Infinity, false, false, true);
-    place.overlaps = true;   // placeAll shrinks both halves a step and places again
+    place.overlaps = this.overlapAt(control, place.x, place.y, place.radius) > 0;   // then placeAll shrinks both halves a step and places again
   },
   // Rings out from the layout spot up to reach: true when it set place to a free spot of this radius (in the edge bands when
   // banded, on the start's half when sameHalf). With leastOverlap it falls back to the allowed spot that overlaps the other
