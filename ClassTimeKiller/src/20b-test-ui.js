@@ -521,6 +521,10 @@ Test.add('ui', (check) => uiWith(() => {
   const head = document.head.innerHTML, version = document.getElementById('version');
   check('home screen: metas and icon', ['"apple-mobile-web-app-capable', '"mobile-web-app-capable', 'black-translucent',
     'apple-touch-icon" href="data:'].every((part) => head.includes(part)) && /img-src[^;]*data:/.test(head));
+  // A tab icon from data: (else the browser asks for /favicon.ico, which the CSP blocks with an error on every load).
+  const tabIcon = document.querySelector('link[rel="icon"]');
+  check('home screen: a data: tab icon', !!tabIcon && tabIcon.href.startsWith('data:image/png'));
+  check('iOS: landscape text is never enlarged', /-webkit-text-size-adjust: 100%/.test(document.querySelector('style').textContent));
   Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ bots: 1 }), () => 0.5));
   window.dispatchEvent(new PopStateEvent('popstate'));
   check('back swipe: pauses, version hidden', Game.state === 'playing' && Game.paused && version.hidden);

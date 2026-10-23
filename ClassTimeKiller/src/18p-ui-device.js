@@ -52,6 +52,18 @@ const Device = {
   container.appendChild(foot);
 });
 
+// ---- Tab icon: the Home Screen icon again, added while the page loads. Without one the browser asks for /favicon.ico,
+// which the CSP (img-src data: blob:) blocks with an error on every load from a web server. ----
+function addTabIcon() {
+  const touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+  if (!touchIcon || document.querySelector('link[rel="icon"]')) return;
+  const icon = document.createElement('link');
+  icon.rel = 'icon';
+  icon.href = touchIcon.href;
+  document.head.appendChild(icon);
+}
+addTabIcon();
+
 // ---- Back swipe: one history entry per match, so Back pauses instead of leaving ----
 function guardBackSwipe() {
   if (Game.headless || (history.state && history.state.ctk === BACK_GUARD_STATE)) return;
