@@ -68,6 +68,7 @@ const BotMove = {
   runSpeed: new Float32Array(MAX_ACTORS),      // m/s on foot (options moveSpeed also counts a leap's push)
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
   nextType: new Uint8Array(MAX_ACTORS),        // the link type of the move that starts at the point (a jump: it is a take-off)
+  landX: new Float32Array(MAX_ACTORS), landY: new Float32Array(MAX_ACTORS), landZ: new Float32Array(MAX_ACTORS),   // that jump's landing
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
   padRideUntil: new Float64Array(MAX_ACTORS),  // a jump pad threw the bot: no steering until it lands (or this time)
@@ -230,6 +231,10 @@ const BotMove = {
     this.pointX[id] = movePoint.x; this.pointY[id] = movePoint.y; this.pointZ[id] = movePoint.z;
     this.segmentType[id] = type;
     this.segmentHeight[id] = movePoint.y - this.startY[id];
+    if (this.nextType[id] === NAV_LINK.JUMP && index + 1 < this.pointCount[id]) {
+      Nav.resultPoint(id, index + 1, movePoint);
+      this.landX[id] = movePoint.x; this.landY[id] = movePoint.y; this.landZ[id] = movePoint.z;
+    }
     if (type === NAV_LINK.LADDER) this.findLadder(id, index);
     if (type === NAV_LINK.JUMP && this.facesLanding(id)) Bots.press(id, BTN.JUMP);   // the bot stands at the take-off point now
   },
@@ -266,10 +271,12 @@ const BotMove = {
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
   // A leap pushes along the facing (13f leap), so a leaping bot also owns the view near and at a take-off on the ground.
-  ownsView(id) {
+  ownsView(id) { return this.climbsLink(id) || this.aimsLeap(id); },
+  // The link itself needs the view (and the move: hazard avoidance waits too, 14d).
+  climbsLink(id) {
     if (this.pointIndex[id] >= this.pointCount[id]) return false;
     const type = this.segmentType[id];
-    if (type === NAV_LINK.LADDER || this.aimsLeap(id)) return true;
+    if (type === NAV_LINK.LADDER) return true;
     return (type === NAV_LINK.JUMP || swimming(id, type)) && this.pointY[id] > Actors.y[id] + STEP_HEIGHT;
   },
   aimsLeap(id) {
@@ -405,8 +412,9 @@ const BotMove = {
     if (this.ridesPad(id)) return;
     if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
     if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
-    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = Math.min(LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS, this.toTakeOff(id));
-    probe.x = Bots.wishX[id] * ahead; probe.z = Bots.wishZ[id] * ahead;
+    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
+    const wishAhead = this.wishAhead(id, ahead);
+    probe.x = Bots.wishX[id] * wishAhead; probe.z = Bots.wishZ[id] * wishAhead;
     const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
     if (!wishing && speed > LEDGE_SLIDE_SPEED) {
       probe.x = Actors.vx[id] * ahead / speed; probe.z = Actors.vz[id] * ahead / speed;
@@ -446,6 +454,14 @@ const BotMove = {
     if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id] - 1 || this.nextType[id] !== NAV_LINK.JUMP) return Infinity;
     return length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
   },
+  // The guard's look-ahead along the wanted move: cut at a jump take-off only while the move heads at it (LEDGE_ALIGN),
+  // so a strafe toward a side drop near a take-off still looks the full distance.
+  wishAhead(id, ahead) {
+    const distance = this.toTakeOff(id);
+    if (distance >= ahead) return ahead;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id];
+    return Bots.wishX[id] * dx + Bots.wishZ[id] * dz >= LEDGE_ALIGN * distance ? distance : ahead;
+  },
   leavesGround(id) {
     if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;
     const type = this.segmentType[id];
@@ -471,7 +487,11 @@ const BotMove = {
     else if (rise < -MOVE_SWIM_RISE) Bots.press(id, BTN.CROUCH);
   },
   lookAlong(id, target) {
-    Bots.lookYaw[id] = Math.atan2(target.x - Actors.x[id], target.z - Actors.z[id]);
+    // On the run-up to a gap the bot faces the landing early and leaps at full speed. A climb is faced from the take-off
+    // (turning there from a stop if need be): a full-speed leap meets the ledge face below its top.
+    const runUp = this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+    const x = runUp ? this.landX[id] : target.x, z = runUp ? this.landZ[id] : target.z;
+    Bots.lookYaw[id] = Math.atan2(x - Actors.x[id], z - Actors.z[id]);
     if (this.segmentType[id] !== NAV_LINK.LADDER) Bots.lookPitch[id] = 0;
   },
 

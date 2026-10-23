@@ -1815,6 +1815,9 @@ Test.add('bots', (check) => {
 const LEAP_PIT = { shape: 'box', min: [-60, -21, -60], max: [60, -20, 60] };   // under the void: a miss lands far below
 const LEAP_STRIPS = [LEAP_PIT, { shape: 'box', min: [-2.5, -1, -10], max: [2.5, 0, -1] }, { shape: 'box', min: [-2.5, -1, 1], max: [2.5, 0, 24] },
   { shape: 'box', min: [4, -1, -3], max: [6, 0, -1] }];   // 5 m wide strips over the void (a leap flies 12 m), the foe's stand beside the take-off
+// The same gap with 3 m wide strips around the take-off line (x -0.75): a leap toward the foe's stand lands off them.
+const LEAP_NARROW = [LEAP_PIT, { shape: 'box', min: [-2.25, -1, -10], max: [0.75, 0, -1] }, { shape: 'box', min: [-2.25, -1, 1], max: [0.75, 0, 24] },
+  { shape: 'box', min: [2.5, -1, -3], max: [4.5, 0, -1] }];
 const LEAP_LEDGE = [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }], LEAP_FELL = -2;
 const LEAP_START_X = -0.75, LEAP_START_Z = -6;   // in line with the take-off nodes (no sideways run into the leap)
 function firstLeapLanding(brushes, goalY, foeX, foeZ) {
@@ -1836,12 +1839,30 @@ function firstLeapLanding(brushes, goalY, foeX, foeZ) {
   return landing;
 }
 Test.add('bots', (check) => {
-  const across = firstLeapLanding(LEAP_STRIPS, 0, 5, -2);
+  const across = firstLeapLanding(LEAP_NARROW, 0, 3.5, -2);
   check('infected, with a foe beside the take-off it leaps a gap along its path (first landing on the far strip)',
     across.target && across.z > 1 && across.y > -0.5, across.x.toFixed(1) + ', ' + across.y.toFixed(1) + ', ' + across.z.toFixed(1));
   const onTop = firstLeapLanding(LEAP_LEDGE, 1.8, 1.5, 1.5);
   check('infected, with a foe beside the take-off it leaps onto the ledge (first landing on top)',
     onTop.target && onTop.y > 1.5, onTop.x.toFixed(1) + ', ' + onTop.y.toFixed(1) + ', ' + onTop.z.toFixed(1));
+});
+// The ledge guard looks only as far as a take-off the move heads at: a strafe at 5 m/s toward the strip's side drop,
+// 0.8 m from the take-off, still looks its full 2.9 m ahead and brakes (cut at the take-off, it found floor).
+const STRAFE_SPEED = 5, STRAFE_SIDE = 0.45, STRAFE_BACK = 0.65;   // m/s; the bot's offset from the take-off (m)
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false, { brushes: LEAP_STRIPS }));
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  placeActor(bot, LEAP_START_X, LEAP_START_Z);
+  BotMove.goTo(bot, LEAP_START_X, 0, 5, 1);
+  runHeld(4, () => {}, () => BotMove.toTakeOff(bot) < LEAP_LOOK_AHEAD);
+  const side = BotMove.pointX[bot] < 0 ? -1 : 1;   // toward the nearer side drop
+  placeActor(bot, BotMove.pointX[bot] + side * STRAFE_SIDE, BotMove.pointZ[bot] - STRAFE_BACK);
+  Actors.vx[bot] = side * STRAFE_SPEED; Actors.vz[bot] = 0;
+  Bots.wish(bot, side, 0, 1);
+  BotMove.guardLedge(bot);
+  check('near a gap\'s take-off a bot strafing toward the side drop brakes', Move.isGrounded(bot) && Bots.wishX[bot] * side < 0,
+    'wish ' + Bots.wishX[bot].toFixed(2) + ' * ' + Bots.wishAmount[bot].toFixed(2));
+  endBotTest();
 });
 
 // ---- BOT-036: an empty magazine in a fight switches to a loaded gun; a much better gun is drawn in a fight too ----

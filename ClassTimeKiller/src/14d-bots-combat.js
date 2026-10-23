@@ -727,7 +727,7 @@ const BotCombat = {
   // A seen enemy mine is passed crouched when crouching keeps it quiet, else steered around; an enemy grenade heard
   // landing close is run from until its fuse is likely over (14b keeps both).
   avoidHazards(id, now) {
-    if (BotMove.ownsView(id)) return;
+    if (BotMove.climbsLink(id)) return;   // a leaping bot turning for a take-off (it owns the view) still dodges
     if (now < BotSense.dangerUntil[id]) { Bots.wish(id, Actors.x[id] - BotSense.dangerX[id], Actors.z[id] - BotSense.dangerZ[id], 1); return; }
     const device = BotSense.mine[id];
     if (device < 0 || !Devices.active[device]) return;
