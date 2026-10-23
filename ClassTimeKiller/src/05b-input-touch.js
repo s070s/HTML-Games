@@ -502,9 +502,9 @@ const TouchInput = {
     crowd[0] = crowd[1] = 1;
     for (;;) {
       this.placeEvery(width, height);
-      const side = this.crowdedSide(width);
-      if (side < 0 || crowd[side] <= TOUCH_CROWD_SMALLEST) return;
-      crowd[side] = Math.max(TOUCH_CROWD_SMALLEST, crowd[side] * TOUCH_SHRINK_STEP);
+      const side = this.crowdedSide(width), first = side === 2 ? 0 : side, last = side === 2 ? 1 : side;
+      if (side < 0 || Math.max(crowd[first], crowd[last]) <= TOUCH_CROWD_SMALLEST) return;
+      for (let half = first; half <= last; half++) crowd[half] = Math.max(TOUCH_CROWD_SMALLEST, crowd[half] * TOUCH_SHRINK_STEP);
     }
   },
   // One placing pass over every control at the current crowd sizes.
@@ -514,13 +514,17 @@ const TouchInput = {
     this.placeOrder.sort((a, b) => (places[b.id].fullRadius - places[a.id].fullRadius) || (places[a.id].order - places[b.id].order));
     for (const control of this.placeOrder) this.placeControl(control, width, height);
   },
-  // The half (0 left, 1 right) of the first shown button placed off its own half, else -1.
+  // The half (0 left, 1 right) of the first shown button placed off its own half while that half can still shrink, else 2
+  // (both) when one had to overlap another, else -1.
   crowdedSide(width) {
+    let side = -1;
     for (const control of TOUCH_CONTROLS) {
-      const place = this.places[control.id];
-      if (place.shown && !this.keepsHalf(place, place.x, width)) return place.startX < width / 2 ? 0 : 1;
+      const place = this.places[control.id], half = place.startX < width / 2 ? 0 : 1;
+      if (!place.shown) continue;
+      if (!this.keepsHalf(place, place.x, width) && this.crowd[half] > TOUCH_CROWD_SMALLEST) return half;
+      if (place.overlaps) side = 2;
     }
-    return -1;
+    return side;
   },
   // A control's layout spot (on screen), its drawn radius (times its half's crowd) and whether it shows; not placed yet.
   prepareControl(control, order, width, height) {
@@ -530,7 +534,7 @@ const TouchInput = {
     const radius = Math.max(layoutRadius * crowd, this.smallestRadius(control, layoutRadius));
     place.startX = clamp(layoutX, insets.left + radius, width - insets.right - radius);
     place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
-    place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
+    place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = place.overlaps = false;
     place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
   },
   // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart), within
@@ -538,7 +542,8 @@ const TouchInput = {
   // tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of its preset size but never under TOUCH_MIN_DIAMETER;
   // at that size it may search as far as its half reaches. An edge button (the small utility row: II, PING, TOOL)
   // keeps to the top or side bands (TOUCH_EDGE_BAND), where the look thumb does not sweep, until nothing in them is free.
-  // With nothing free on its half it takes a free spot anywhere, else the allowed spot that overlaps the others least.
+  // With nothing free on its half it takes a free spot anywhere, else the allowed spot that overlaps the others least, and
+  // placeAll places every button again a step smaller (crowd).
   // The least radius a control shrinks to: TOUCH_SMALLEST of its preset size, never under TOUCH_MIN_DIAMETER (nor over its own).
   smallestRadius(control, radius) {
     return Math.min(radius, Math.max(control.size * this.preset().scale / 2 * TOUCH_SMALLEST, TOUCH_MIN_DIAMETER / 2));
@@ -556,6 +561,7 @@ const TouchInput = {
     }
     if (control.edge && this.searchSpot(control, place, radius, width, height, Infinity, false, true, false)) return;
     this.searchSpot(control, place, radius, width, height, Infinity, false, false, true);
+    place.overlaps = true;   // placeAll shrinks both halves a step and places again
   },
   // Rings out from the layout spot up to reach: true when it set place to a free spot of this radius (in the edge bands when
   // banded, on the start's half when sameHalf). With leastOverlap it falls back to the allowed spot that overlaps the other
