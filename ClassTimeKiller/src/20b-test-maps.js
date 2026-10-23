@@ -47,6 +47,8 @@ function mapTestEnclosure(x, y, z) {
 }
 const mapTestPoints = (map, group) => map.items.filter((item) => item.group === group);
 const mapTestFloorOnly = (map) => { map.brushes = map.brushes.filter((brush) => brush.max[1] <= 0); };
+// The items of a map that serve a mode (the one serving rule, mapServesMode).
+const mapTestItemsFor = (map, modeId) => map.items.filter((item) => mapServesMode(item, modeId));
 const mapTestPad = (map) => map.triggers.find((trigger) => trigger.kind === 'jumppad');
 // Standing points around an anchor point (at least 3 m from it and from each other), found with the scan so they are real floor.
 function mapTestPointsNear(map, anchor, count) {
@@ -224,7 +226,8 @@ Test.add('maps', (check) => {
   const missing = catalogues.length < 3 ? [] : CAT.maps.flatMap((map) => map.items.map((item) => item.item)).filter((key) => !catalogues.some((name) => CAT[name].byId(key)));
   check('items: every item key exists in the weapons, powerups or items catalogue (checked once those exist)', missing.length === 0, missing.join());
   const spire = Maps.get('spire'), range = Maps.get('provinggrounds');
-  check('items: itemsFor filters by mode', Maps.itemsFor(range, 'range').length > 0 && Maps.itemsFor(range, 'ffa').length === 0 && Maps.itemsFor(spire, 'ffa').length === spire.items.length);
+  check('items: production keeps no test-only item lookup', Maps.itemsFor === undefined);
+  check('items: itemsFor filters by mode', mapTestItemsFor(range, 'range').length > 0 && mapTestItemsFor(range, 'ffa').length === 0 && mapTestItemsFor(spire, 'ffa').length === spire.items.length);
 });
 
 Test.add('maps', (check) => {
@@ -269,10 +272,10 @@ Test.add('maps', (check) => {
   const noObjectiveModes = mapTestClone('twinkeeps');
   noObjectiveModes.objectives.forEach((objective) => { delete objective.modes; delete objective.path; });
   let thrown = '';
-  try { Maps.validate(bare); Maps.validate(noObjectiveModes); Maps.itemsFor(bare, 'ffa'); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
+  try { Maps.validate(bare); Maps.validate(noObjectiveModes); mapTestItemsFor(bare, 'ffa'); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
       'ffa', -1); } catch (error) { thrown = String(error); }
   check('format: entries without a modes list serve every mode and nothing throws', thrown === '', thrown);
-  check('format: a missing modes list reads as every mode', Maps.itemsFor(bare, 'duel').length === bare.items.length && Maps.spawnList(bare, 'ffa', -1).length === 16);
+  check('format: a missing modes list reads as every mode', mapTestItemsFor(bare, 'duel').length === bare.items.length && Maps.spawnList(bare, 'ffa', -1).length === 16);
   check('format: a map without a modes list is still sound', Maps.validate(bare).length === 0);
   for (const list of MAP_REQUIRED_LISTS) {
     const broken = mapTestClone('spire');
