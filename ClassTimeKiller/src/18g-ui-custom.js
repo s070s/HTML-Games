@@ -5,7 +5,6 @@
 // The pure model (CustomCodec, CustomMatch) has no DOM and is what the self-test drives; the screens below it only call the model.
 // Contract: docs/api/mutators-custom.md.
 
-const EDITOR_BOTS_MAX = 23;                  // the highest bot cap of any quality preset (PERF-009)
 const EDITOR_CODE_PREFIX = 'CTK';
 const EDITOR_CODE_VERSION = 1;
 const EDITOR_CODE_MAX_CHARS = 6000;
@@ -178,8 +177,8 @@ const EDITOR_FIELD_CHECKS = {
   friendlyFire: oneOfList(EDITOR_FRIENDLY_FIRE),
   lives: oneOfList(EDITOR_LIVES),
   respawnDelay: oneOfList(EDITOR_RESPAWN),
-  botCount: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
-  allies: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
+  botCount: integerBetween(EDITOR_DEFAULT, QUALITY_BOTS_MAX),
+  allies: integerBetween(EDITOR_DEFAULT, QUALITY_BOTS_MAX),
   difficulty: (value) => (isToken(value) && (!CAT.difficulty || !!CAT.difficulty.byId(value)) ? value : undefined),
   difficultySliders: difficultySlidersCheck,
   personality: (value) => (value === EDITOR_PERSONALITY_MIXED || (isToken(value) && !!CAT.bots && !!CAT.bots.byId(value)) ? value : undefined),
@@ -383,16 +382,14 @@ function editorMapOptions(draft) {
   const maps = Maps.savedForMode(draft.mode);
   return { values: [''].concat(maps.map((map) => map.id)), labels: ['Random'].concat(maps.map((map) => map.code + ' ' + map.name)) };
 }
-function editorBotCountOptions() {
-  const top = Quality.current().bots, values = [EDITOR_DEFAULT];
+// Bot counts up to this device's quality cap (PlayFlow.maxBots), after the default entry named defaultLabel.
+function editorBotOptions(defaultLabel) {
+  const top = PlayFlow.maxBots(), values = [EDITOR_DEFAULT];
   for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Mode default' : String(value))) };
+  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? defaultLabel : String(value))) };
 }
-function editorAlliesOptions(draft) {
-  const top = Math.min(Quality.current().bots, EDITOR_BOTS_MAX), values = [EDITOR_DEFAULT];
-  for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Balanced' : String(value))) };
-}
+function editorBotCountOptions() { return editorBotOptions('Mode default'); }
+function editorAlliesOptions() { return editorBotOptions('Balanced'); }
 function editorDifficultyOptions() {
   const rows = CAT.difficulty ? Array.from(CAT.difficulty) : [{ id: DEFAULT_DIFFICULTY, name: 'Regular' }];
   return { values: rows.map((row) => row.id), labels: rows.map((row) => row.name) };

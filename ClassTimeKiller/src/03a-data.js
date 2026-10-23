@@ -66,3 +66,4 @@ Data.define('quality', {
   { id: 'low', name: 'Low', drawCalls: 80, triangles: 120000, bots: 11, enemies: 18, particles: 512, decals: 32, lights: 0, props: 8, post: false, lodNear: 22, lodFar: 60, viewDistance: 130 },
   { id: 'potato', name: 'Potato', renderScaleMin: 0.4, renderScaleMax: 0.8, drawCalls: 50, triangles: 60000, bots: 7, enemies: 12, particles: 256, decals: 0, lights: 0, props: 4, post: false, lodNear: 15, lodFar: 40, viewDistance: 100, voices: 12, music: false, modelDetail: false },
 ]);
+const QUALITY_BOTS_MAX = Math.max(...CAT.quality.map((row) => row.bots));   // the highest bot cap of any preset: a share code made on it is valid on every device
