@@ -30805,15 +30805,31 @@ const SelfTest = {
         // a weapon a mission unlocks: locked for a human loadout in a new save, but open on a platform whose default carries it
         Save.data = Save.defaults();
         const bare = { loadout: {} };
-        this.check('a new save has the mission weapons locked', Save.data.weaponGate === true && Arsenal.gatedIds().every((id) => !Arsenal.isUnlocked(id)) && Arsenal.lockText('torpedo').indexOf('Harbour Run') >= 0);
-        this.check('a mission weapon stays open where the default loadout carries it', Loadout.open(PLATFORMS.lancer, 'torpedo') && !Loadout.open(bare, 'torpedo') && Loadout.locked(bare, { secondary: 'torpedo' }) === 'torpedo' && Loadout.locked(bare, { melee: 'sword' }) === 'sword');
-        this.check('AI units still carry mission weapons', ARCH.gunboat.loadout.secondary === 'torpedo' && ARCH.destroyer.loadout.primaryA === 'navalGun');
+        this.check('a new save has the mission weapons locked', Save.data.gatedSeen.join() === Arsenal.gatedIds().join() && Arsenal.gatedIds().every((id) => !Arsenal.isUnlocked(id)) && Arsenal.lockText('swarm').indexOf('Harbour Run') >= 0);
+        const holder = { loadout: { secondary: 'swarm' } };
+        this.check('a mission weapon stays open where the default loadout carries it', Loadout.open(holder, 'swarm') && !Loadout.open(bare, 'swarm') && Loadout.locked(bare, { secondary: 'swarm' }) === 'swarm' && Loadout.locked(bare, { melee: 'sword' }) === 'sword');
+        this.check('AI units still carry mission weapons', ARCH.gunship.loadout.secondary === 'swarm' && ARCH.destroyer.loadout.primaryA === 'navalGun');
+        // m9 and m10 unlock weapons no platform carries by default, so each lock is felt on every platform that mounts it
+        for (const id of ['m9', 'm10']) {
+          const w = MISSION_BY_ID[id].unlock, mounts = Object.keys(PLATFORMS).filter((k) => PLATFORMS[k].allow && WEAPON_SLOTS.some((s) => (PLATFORMS[k].allow[s.replace(/[AB]$/, '')] || []).indexOf(w) >= 0));
+          this.check('mission ' + id + ' weapon ' + w + ' is locked on every platform that mounts it', mounts.length >= 3 && mounts.every((k) => !Loadout.open(PLATFORMS[k], w)), mounts.join());
+        }
+        // a locked pick is swapped for the platform's default in its slot only; the rest of the saved loadout stays
+        Save.data.loadouts.trident = Object.assign({}, PLATFORMS.trident.loadout, { secondary: 'cruise', utility: 'flares' });
+        const kept = Loadout.forPlatform('trident');
+        this.check('a locked pick drops only its own slot', kept.secondary === PLATFORMS.trident.loadout.secondary && kept.utility === 'flares', JSON.stringify(kept));
         // an old save (v1 fixture, from before mission unlocks) loads and keeps every weapon it could use
         const old = Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)));
-        this.check('a version 1 save loads and keeps every mission weapon', old.v === SAVE_VERSION && old.weaponGate === true && Arsenal.gatedIds().every((id) => old.unlocked.indexOf(id) >= 0) && !old.unlocked.some((id) => SUPERS[id] && SUPERS[id].unlock !== 'start'));
+        this.check('a version 1 save loads and keeps every mission weapon', old.v === SAVE_VERSION && old.gatedSeen.join() === Arsenal.gatedIds().join() && Arsenal.gatedIds().every((id) => old.unlocked.indexOf(id) >= 0) && !old.unlocked.some((id) => SUPERS[id] && SUPERS[id].unlock !== 'start'));
         Save.data = old;
         this.check('Armageddon counts superweapons only', Arsenal.progress({ kind: 'unlocked', n: 3 }).have === old.unlocked.filter((id) => SUPERS[id]).length);
-        this.check('a later save keeps its locks', Save.sanitize(Save.defaults()).unlocked.length === 0 && Save.sanitize({ v: 1, weaponGate: true, unlocked: ['sword', 'nope', 'sword'] }).unlocked.join() === 'sword');
+        this.check('a later save keeps its locks', Save.sanitize(Save.defaults()).unlocked.length === 0 && Save.sanitize({ v: 1, gatedSeen: Arsenal.gatedIds(), unlocked: ['sword', 'nope', 'sword'] }).unlocked.join() === 'sword');
+        // a save from part A (weaponGate, before m14-m18 gated more) keeps every weapon gated after it, and its own locks
+        const partA = Save.sanitize({ v: 1, weaponGate: true, unlocked: ['sword'] }), laterGated = Arsenal.gatedIds().filter((id) => SAVE_GATED_P7A.indexOf(id) < 0);
+        this.check('a save from before a weapon was gated keeps it', ['knife', 'katana', 'shipSam'].every((id) => laterGated.indexOf(id) >= 0 && partA.unlocked.indexOf(id) >= 0) && laterGated.every((id) => partA.unlocked.indexOf(id) >= 0) && partA.gatedSeen.join() === Arsenal.gatedIds().join(), partA.unlocked.join());
+        this.check('a save from part A keeps the locks it had then', Save.sanitize({ v: 1, weaponGate: true, unlocked: [] }).unlocked.indexOf('sword') < 0);
+        const seenAll = Save.sanitize({ v: 1, gatedSeen: Arsenal.gatedIds().concat('futureGun'), unlocked: [] });
+        this.check('a save checked against every gated weapon keeps its locks', seenAll.unlocked.length === 0 && seenAll.gatedSeen.join() === Arsenal.gatedIds().join());
         // Training picks its battlefield, new ones included, and keeps the range on dry ground
         this.check('Training remembers a chosen battlefield', Save.sanitize({ v: 1, trainingMap: 'canyon' }).trainingMap === 'canyon' && Save.sanitize({ v: 1, trainingMap: 'nope' }).trainingMap === TRAINING_DEF.map && Save.sanitize(SAVE_FIXTURE_V1).trainingMap === TRAINING_DEF.map);
         this.check('Training on Ashfall keeps its old range', trainingDef('ashfall') === TRAINING_DEF && trainingDef('nope') === TRAINING_DEF);
@@ -30821,20 +30837,113 @@ const SelfTest = {
           const td = trainingDef(map);
           this.check('Training on ' + map + ' sets its range on dry ground', td.map === map && Water.siteDry(mapDef(map), td.origin.x, td.origin.z, TRAIN_SPOT_R[TRAIN_SPOT_R.length - 1]) && td.start.x === TRAINING_DEF.start.x + td.origin.x && trainingDef(map) === td, td.origin.x + ',' + td.origin.z);
         }
+        const deploy = UI.scr_deploy({ mode: 'training' });
+        this.check('Training\'s deploy screen puts Deploy above its battlefield cards and lists no hazards', deploy.indexOf('deployTraining') >= 0 && deploy.indexOf('deployTraining') < deploy.indexOf('trMap') && deploy.indexOf('Hazards:') < 0 && UI.mapCards('coast', 'skMap').indexOf('Hazards:') >= 0);
         Game.startSession({ mode: 'training', map: 'archipelago', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
         const p = W.player, wet = W.platforms.filter((q) => q.team === 1 && q.def.kind !== 'air' && q.def.kind !== 'naval' && Water.depth(q.x, q.z) > 1);
         this.check('Training runs on a new battlefield with its targets ashore', W.mapId === 'archipelago' && p && Water.depth(p.x, p.z) < 1 && wet.length === 0, wet.length + ' targets in water');
       } finally { Save.data = keep.data; Save.persist = keep.persist; Game.quitToMenu(); }
     });
+    /* the mission events of the running mission that start a hazard (Hazards.trigger), each run at its time with the
+       hazards stepped between (Hazards.update): [{ t, h }] with h the hazard started or null. Host only: guests never
+       run mission events (Net.guestTick), and a trigger on a guest starts nothing. */
+    const p7aHazardEvents = (m, run) => {
+      const calls = [], trig = Hazards.trigger, events = m.events.slice().sort((a, b) => a.t - b.t);
+      let at = m.time;
+      Hazards.trigger = function (type, x, z, warn, exact) { const h = trig.call(Hazards, type, x, z, warn, exact); calls.push({ t: m.time, type, h }); return h; };
+      try {
+        for (const ev of events) {
+          if (run && !run(ev)) continue;
+          for (; at + 0.5 <= ev.t; at += 0.5) { W.time += 0.5; Hazards.update(0.5); }
+          m.time = ev.t; const before = calls.length;
+          ev.fn(m); ev.done = true;
+          ev.hazard = calls.length > before;
+        }
+      } finally { Hazards.trigger = trig; }
+      return calls;
+    };
     t('missions P7a co-op', () => {
+      const net = { host: Net.host, guest: Net.guest, peers: Net.peers, inSession: Net.inSession };
       try {
         for (const id of Object.keys(P7A_OBJ)) {
           Game.startSession(p7aCfg(id));
-          const host = worldHash();
+          const host = worldHash(), sent = [], peer = Net.newPeer();
+          Object.assign(peer, { hello: true, open: true, tx: (str) => sent.push(JSON.parse(str)) });
+          Net.host = true; Net.guest = false; Net.peers = [peer]; Net.inSession = true;
+          Net.sendObjectives();
+          const ob = sent.find((q) => q.t === 'ob');
+          const hazardAt = Game.mission.events.filter((ev) => /Hazards\.trigger|missionHazard/.test(String(ev.fn))).map((ev) => ev.t);
+          Net.host = false; Net.guest = true; Net.peers = [];
           Game.startSession(p7aCfg(id), true);
           this.check('a co-op guest builds the host\'s world of mission ' + id, worldHash() === host && W.mission.objectives.length === 0 && !W.player, host + ' / ' + worldHash());
+          if (ob) Net.applyObjectives(ob);
+          const got = W.mission.objectives.map((o) => o.id);
+          this.check('a co-op guest receives the objectives of mission ' + id, !!ob && P7A_OBJ[id].every((k) => got.indexOf(k) >= 0) && W.mission.objectives.some((o) => o.primary && o.status === 'active'), got.join(' '));
+          // the guest's copy of the scripted hazards starts nothing: only the host's script and Hazards run them
+          const calls = p7aHazardEvents(W.mission, (ev) => hazardAt.indexOf(ev.t) >= 0);
+          this.check('mission ' + id + '\'s scripted hazards run on the host only', Hazards.n === 0 && Hazards.sched.n === 0 && calls.every((c) => !c.h), calls.length + ' calls');
+        }
+      } finally { Object.assign(Net, net); Game.quitToMenu(); }
+    });
+    t('missions P7a hazards', () => {
+      // every hazard a mission's script calls for starts when it comes, with the hazards before it stepped through
+      try {
+        for (const id of Object.keys(P7A_OBJ)) {
+          const def = MISSION_BY_ID[id];
+          Game.startSession(p7aCfg(id));
+          const calls = p7aHazardEvents(W.mission, (ev) => /Hazards\.trigger|missionHazard/.test(String(ev.fn)));
+          const failed = calls.filter((c) => !c.h).map((c) => c.type + '@' + c.t);
+          this.check('every scripted hazard of mission ' + id + ' starts', failed.length === 0 && (def.hazardScript && def.hazards.some((h) => h !== 'lightning') ? calls.length > 0 : true), calls.length + ' calls, failed ' + failed.join(' '));
         }
       } finally { Game.quitToMenu(); }
+    });
+    /* start and respawn exposure (D58): in the first second of a mission no hostile sees a respawn point (respawnSite)
+       of any platform class, nor the first spawn of m9-m18. The first spawns of m1-m8 predate the rule and stay as they
+       were (D58): those listed here are in sight of their garrisons, as they always were. */
+    const P7A_START_KNOWN = { m2: ['mech', 'ground', 'air', 'naval'], m3: ['air'], m4: ['air'], m5: ['air'], m6: ['air'] };
+    const P7A_CLASSES = { mech: 'bulwark', ground: 'bastion', air: 'shrike', naval: 'trident' };
+    t('missions P7a exposure', () => {
+      const keep = { data: Save.data, persist: Save.persist };
+      Save.persist = () => {};
+      try {
+        for (const def of MISSIONS) {
+          const classes = def.foot ? { foot: ON_FOOT.infantry } : P7A_CLASSES, bad = [];
+          Save.data = Save.defaults();
+          Game.startSession({ mode: 'mission', missionId: def.id, platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          for (let i = 0; i < 60 && Game.state === 'playing'; i++) Game.tick(STEP);   // the first second: early waves are out
+          for (const cls of Object.keys(classes)) {
+            Game.cfg.platformId = classes[cls]; Game.cfg.loadout = Loadout.forPlatform(classes[cls]);
+            Game.spawnPlayer();
+            const p = W.player, air = p.kind === 'air', eye = spawnEyeH(p.def);
+            // an aircraft starts flying: where it is after its first second counts too
+            const seen = hostileSees(p.x, p.z, air, eye) || (air && hostileSees(p.x + Math.sin(p.yaw) * p.def.speed, p.z + Math.cos(p.yaw) * p.def.speed, true, eye));
+            if (seen && (P7A_START_KNOWN[def.id] || []).indexOf(cls) < 0) bad.push(cls + ' start ' + Math.round(p.x) + ',' + Math.round(p.z));
+            const sp = respawnSite(p.def);   // an aircraft parked on a runway is seen like anything on the ground
+            if (hostileSees(sp.x, sp.z, air && !sp.parked, eye)) bad.push(cls + ' respawn ' + Math.round(sp.x) + ',' + Math.round(sp.z));
+          }
+          this.check('mission ' + def.id + ': no hostile sees a start or a respawn in the first second', bad.length === 0, bad.join(', '));
+        }
+      } finally { Save.data = keep.data; Save.persist = keep.persist; Game.quitToMenu(); }
+    });
+    t('missions P7a idle', () => {
+      // a player who does nothing loses each of m9-m13 (full runs, about 30 s: only when asked for by name)
+      if (only !== 'missions P7a idle') return;
+      const keep = { data: Save.data, persist: Save.persist };
+      Save.persist = () => {};
+      try {
+        for (const id of Object.keys(P7A_OBJ)) {
+          Save.data = Save.defaults();
+          Game.startSession(p7aCfg(id));
+          const m = W.mission, limit = (m.limit || 1200) + 5;
+          for (let i = 0; i < limit / STEP && m.state === 'running' && Game.state !== 'results'; i++) {
+            if (Game.state === 'paused') Game.resume();
+            const c = W.player && W.player.cmd;
+            if (c) { c.moveF = c.moveS = c.turn = 0; c.fire1 = c.fire2 = false; }
+            Game.tick(STEP);
+          }
+          this.check('an idle player loses mission ' + id, m.state === 'lost', m.state + ' at ' + Math.round(m.time) + ' s, ' + m.failReason);
+        }
+      } finally { Save.data = keep.data; Save.persist = keep.persist; Game.quitToMenu(); }
     });
     t('missions P7b', () => {
       // the five Living World missions m14-m18: each starts with its objectives, fixes its weather and time, fires its own
@@ -30880,8 +30989,8 @@ const SelfTest = {
         // old saves: a v1 save (no weaponGate) keeps every weapon and its superweapons; a new save keeps only what it won
         const v1 = Save.sanitize(Object.assign(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)), { unlocked: ['shipSam', 'plasmaTornado'] }));
         const plain = Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)));
-        const fresh = Save.sanitize({ v: SAVE_VERSION, weaponGate: true, unlocked: ['shipSam', 'nope'] });
-        this.check('old unlock saves load whole: superweapons kept, mission weapons open', ['shipSam', 'plasmaTornado', 'knife', 'katana'].every((id) => v1.unlocked.indexOf(id) >= 0) && ['knife', 'katana'].every((id) => plain.unlocked.indexOf(id) >= 0) && plain.v === SAVE_VERSION && plain.weaponGate === true, v1.unlocked.join());
+        const fresh = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds(), unlocked: ['shipSam', 'nope'] });
+        this.check('old unlock saves load whole: superweapons kept, mission weapons open', ['shipSam', 'plasmaTornado', 'knife', 'katana'].every((id) => v1.unlocked.indexOf(id) >= 0) && ['knife', 'katana'].every((id) => plain.unlocked.indexOf(id) >= 0) && plain.v === SAVE_VERSION && Array.isArray(plain.gatedSeen), v1.unlocked.join());
         this.check('a new save keeps what it won and nothing else', fresh.unlocked.join() === 'shipSam', fresh.unlocked.join());
         // Megacity Metro: the outpost and every town placed, all clear of its big airport
         const lay = Scenery.layoutFor(MISSION_BY_ID.m17, true), sc = SCENERY.metro, ap = lay.airport;
@@ -31955,7 +32064,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
