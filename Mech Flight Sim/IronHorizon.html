@@ -10793,6 +10793,17 @@ const Traffic = {
   },
   /* true when lane O (a turn: or the lane it turns onto) has a point that is no way */
   noWay(O) { return O.stop || (O.kind === 'turn' && O.to.stop); },
+  /* true when lane L has a point that is no way from s0 to s1 along it (m) */
+  stopIn(L, s0, s1) {
+    if (!L.stop) return false;
+    const b = L.blk, cum = L.cum;
+    for (let k = 0; k < cum.length && cum[k] <= s1; k++) if (b[k] === TRAFFIC_PT_STOP && cum[k] >= s0) return true;
+    return false;
+  },
+  /* true when car c taking turn N would be stopped with some of its body still on it: by a point that is no way on the
+     turn, or this close to the start of the lane it turns onto (a turn has no twin to turn back on, and a junction's
+     holder would hold it for good) */
+  stopsInNode(c, N) { return this.stopIn(N, 0, N.len) || this.stopIn(N.to, 0, c.v.l + TRAFFIC_GAP * 2); },
   /* m from car c's front to the first lane point within look ahead of it that is no way: along its lane, then the lanes
      it goes on to (Infinity: none) */
   roadAhead(c, look) {
@@ -10866,11 +10877,12 @@ const Traffic = {
     if (c.speed < 0.2 && c.halt <= 0) {
       c.wait += dt; c.heldT += dt;
       if (c.heldT > TRAFFIC_STUCK && (c.rider || c.duty)) { c.heldT = 0; Society.giveUp(c); }   // going somewhere, and boxed in for long
-      // (a responder the road stops short of its scene leaves the vehicle there, and its crew walk the rest)
-      const near = kind === TRAFFIC_BLOCK_ROAD && c.duty && !SOC_WALK_OFF ? SOC_WALK_LAST : SOC_ARRIVE;
+      // (a responder the road stops short of its scene leaves the vehicle there, and its crew walk the rest; a fire
+      // engine's hose does not walk: it stops only where that reaches)
+      const near = kind === TRAFFIC_BLOCK_ROAD && c.duty && !SOC_WALK_OFF ? (c.duty.fire === c ? SOC_SPRAY - SOC_FIRE_GAP : SOC_WALK_LAST) : SOC_ARRIVE;
       if (c.dest && c.wait > 1 && this.onLaneWhole(c) && Math.hypot(c.x - c.dest.x, c.z - c.dest.z) < c.dest.gap + near) { this.arrive(c); return; }
       if (c.way && c.way[c.wayI] === L.twin && c.wait > 0.5) { this.turnBack(c); return; }   // its way goes back the other way
-      if (((kind === TRAFFIC_BLOCK_THING || kind === TRAFFIC_BLOCK_ROAD) && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
+      if (((kind === TRAFFIC_BLOCK_THING || kind === TRAFFIC_BLOCK_ROAD) && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c, kind === TRAFFIC_BLOCK_ROAD);
     } else { c.wait = 0; c.heldT = 0; }
     if (c.state === 'drive') this.advance(c, mv);
     if (c.dest && c.state === 'drive' && ((c.lane === c.dest.L && c.s >= c.dest.s && this.lastLeg(c)) || (c.dest.kind === 'scene' && this.atScene(c)))) this.arrive(c);
@@ -10935,6 +10947,7 @@ const Traffic = {
     if (!c.next) c.next = this.pickNext(c, L);
     const N = c.next;
     if (!N) { c.gapKind = TRAFFIC_BLOCK_THING; return Math.min(toEnd, back); }
+    if (N.kind === 'turn' && L.kind !== 'turn' && this.stopsInNode(c, N)) { c.gapKind = TRAFFIC_BLOCK_ROAD; return Math.min(toEnd, back); }   // it waits at the line (and turns back)
     if (N.kind === 'turn' && L.kind !== 'turn' && N.node0.junction && c.lockNode !== N.node0 && !(toEnd < TRAFFIC_CLAIM && this.mayEnter(c, N)) && !c.duty) {   // a responder on its way goes on (minding what is in its way)
       c.gapKind = TRAFFIC_BLOCK_LINE;
       return Math.min(toEnd, back);
@@ -11212,11 +11225,13 @@ const Traffic = {
     const a = o.yaw - c.yaw, ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
     return this.inPath(c, fx, fz, o.x, o.z, ca * o.v.hl + sa * o.v.hw, sa * o.v.hl + ca * o.v.hw, look);
   },
-  /* c turns round onto the lane the other way (its twin), when it has room there and no other car is where it swings */
-  turnBack(c) {
+  /* c turns round onto the lane the other way (its twin), when it has room there and no other car is where it swings
+     (on a turn, which has none, it keeps counting its wait: held long, it goes, Traffic.recycle); road: the road held it,
+     and where its new way still crosses a lane that is no way it gives its trip up (it would come back to it for good) */
+  turnBack(c, road) {
     const L = c.lane, tw = L.twin, P = TRAFFIC_AT;
-    c.wait = 0;
     if (!tw || c.state !== 'drive') return false;
+    c.wait = 0;
     const s = clamp(L.len - c.s, 0, tw.len);
     if (!this.roomAt(tw, s, c.v.hl)) return false;
     P.seg = 0;
@@ -11229,6 +11244,7 @@ const Traffic = {
     this.insert(tw, c);
     c.state = 'turn'; c.swing = PI;
     if (c.dest) this.goTo(c, c.dest.x, c.dest.z, c.dest.kind, c.dest.gap);   // its way from the other lane
+    if (road && c.dest && this.wayCost(tw, s, c.way, c.dest.s) >= TRAFFIC_BLOCK_COST) { c.way = null; c.dest = null; Society.lostWay(c); }
     return true;
   },
   /* true when a car other than c reaches the circle of radius r round (x, z) that c sweeps turning round */
@@ -11561,9 +11577,12 @@ const Traffic = {
     if (!found) out.unshift(A);
     return out.reverse();
   },
-  wayLen(way) {
-    let m = 0;
-    for (let i = 0; i < way.length; i++) m += way[i].len;
+  /* the length of way (the lanes after A, from s on A to sD on its last lane), TRAFFIC_BLOCK_COST more for A and each of
+     its lanes with a point that is no way on what the car drives of it (the stop lane too, which way() leaves out) */
+  wayCost(A, s, way, sD) {
+    const n = way.length;
+    let m = this.stopIn(A, s, n ? A.len : sD) ? TRAFFIC_BLOCK_COST : 0;
+    for (let i = 0; i < n; i++) m += way[i].len + (this.stopIn(way[i], 0, i < n - 1 ? Infinity : sD) ? TRAFFIC_BLOCK_COST : 0);
     return m;
   },
   heapPush(T, size, k, v) {
@@ -11602,7 +11621,7 @@ const Traffic = {
       D.s = this.stopAt(c, D.L, D.s);   // short of the lane's end, where a car would be on the next lane
       way = this.way(A, s, D.L, D.s);
       const tw = D.L.twin, sT = tw ? this.stopAt(c, tw, tw.len - D.s) : 0, back = tw ? this.way(A, s, tw, sT) : null;   // or the lane the other way, if shorter
-      if (back && (!way || this.wayLen(back) < this.wayLen(way))) { way = back; D.s = sT; D.L = tw; }
+      if (back && (!way || this.wayCost(A, s, back, sT) < this.wayCost(A, s, way, D.s))) { way = back; D.s = sT; D.L = tw; }
     }
     if (!way) { c.way = null; c.dest = null; Society.lostWay(c); return false; }
     c.way = way; c.wayI = 0;
@@ -32434,6 +32453,87 @@ const SelfTest = {
         }
         this.check('a medium mech walking at full speed across a roof slab for 10 s leaves it whole', !slab.destroyed && slab.hp === slab.maxHp && walker.support === slab, slab.hp + '/' + slab.maxHp);
       } finally { Net.guest = keepGuest2; Game.quitToMenu(); }
+    });
+    t('delta traffic', () => {
+      // lanes that know the road's state (D60), the review's fixes: no car stops on a junction's turn it cannot leave, and
+      // one held on a turn keeps counting its wait (the stuck rule moves it); a trip whose every way crosses a lane that is
+      // no way is given up at the block; a fire engine the road holds stops only where its hose reaches; the way to a
+      // stop or its twin counts the lanes that are no way
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random;
+      const P = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }, sedan = VEHICLES[VEHICLE_IDS.indexOf('sedan')], engine = VEHICLES[VEHICLE_IDS.indexOf(SOC_UNITS.fire.row)];
+      const point = (L, s) => { P.seg = 0; Traffic.at(P, L, s); return { x: P.x, z: P.z }; };
+      // lane L's points from s0 to s1 (m along it) made no way, as the road's state does (by hand: the same every run)
+      const block = (L, s0, s1) => {
+        if (!L.blkBuf) L.blkBuf = new Uint8Array(L.cum.length);
+        for (let k = 0; k < L.cum.length; k++) if (L.cum[k] >= s0 && L.cum[k] <= s1) L.blkBuf[k] = TRAFFIC_PT_STOP;
+        L.blk = L.blkBuf; L.stop = true;
+      };
+      const unblock = () => { for (const L of W.traffic.lanes) if (L.blk) Traffic.laneFlags(L, []); };
+      const clearCars = () => { for (const o of W.traffic.cars.slice()) Traffic.remove(o, false); };
+      const car = (v, L, s) => { const c = Traffic.make(v, 0); c.slot = W.traffic.cars.length; Traffic.drive(c, L, s); W.traffic.cars.push(c); return c; };
+      const run = (secs, dt, each) => { for (let i = 0; i < Math.round(secs / dt); i++) { Traffic.update(dt); if (each) each(); } };
+      let keepOut = 0;
+      try {
+        S.quality = 'high'; Math.random = makeRng(23); R.visible = () => false;
+        socStart('day');
+        const T = W.traffic, zn = socTown();
+        socLook(zn);
+        keepOut = W.society.out;
+        clearCars();   // the test's cars alone
+        const N = T.lanes.filter((q) => q.kind === 'turn' && q.node0.junction && q.from.kind === 'street' && q.to.kind === 'street' && q.from.zone === zn && q.from.twin && q.to.twin && q.to !== q.from.twin && q.from.len > 40 && q.to.len > 40 && !q.from.bridge && !q.to.bridge).sort((a, b) => a.id - b.id)[0];
+        if (!N) { this.check('a junction turn between two long streets in the town', false, 'none'); return; }
+        const E = N.from, D = N.to;
+        // 1. rubble just past a junction's turn: a car waits at the line (it would stop on the turn, holding the junction) and turns back
+        block(D, 3, 9);
+        let c = car(sedan, E, E.len - 12), entered = false, back = false;
+        c.next = N;
+        run(14, 0.1, () => { entered = entered || c.lane === N; back = back || c.lane === E.twin; });
+        this.check('a car does not take a junction\'s turn it would stop on (the road past it no way): it waits at the line and turns back', !entered && back && N.node0.lock !== c, 'on the turn ' + entered + ', back ' + back + ', holds the junction ' + (N.node0.lock === c));
+        Traffic.remove(c, false);
+        // 2. one already on that turn (no twin to turn back on) keeps counting its wait, so the stuck rule moves it and frees the junction
+        c = car(sedan, N, 3);
+        N.node0.lock = c; c.lockNode = N.node0;
+        let held = 0, stayed = true;
+        run(TRAFFIC_WAIT + 10, 0.1, () => { held = Math.max(held, c.wait); stayed = stayed && c.lane === N; });
+        run(TRAFFIC_STUCK * 2, 0.5);
+        this.check('a car held on a junction\'s turn by the road keeps counting its wait, and is moved on (the junction freed)', stayed && held > TRAFFIC_WAIT + 2 && c.lane !== N && N.node0.lock !== c, 'held ' + held.toFixed(1) + ' s, on ' + (c.lane === N ? 'the turn' : 'another lane') + ', holds ' + (N.node0.lock === c));
+        Traffic.remove(c, false);
+        N.node0.lock = null;
+        unblock();
+        // 3. the stop's lane blocked short of the stop: the way goes to its twin round the block, not the short way through it
+        block(D, 2, 8);
+        c = car(sedan, E, E.len - 12);
+        const mid = point(D, D.len / 2), went = Traffic.goTo(c, mid.x, mid.z, 'kerb', 0, undefined, { L: D, s: D.len / 2 });
+        this.check('a car going to a stop past a block on its lane takes the way round to its twin lane', went && !!c.dest && c.dest.L === D.twin, went ? (c.dest.L === D ? 'the blocked lane' : c.dest.L === D.twin ? 'its twin' : 'another lane') : 'no way');
+        Traffic.remove(c, false);
+        unblock();
+        // 4. its stretch of street blocked at both ends: every way crosses a block, and the car gives the trip up when the block turns it back
+        block(D, 0, 6); block(D, D.len - 6, D.len); block(D.twin, 0, 6); block(D.twin, D.twin.len - 6, D.twin.len);
+        c = car(sedan, E, E.len - 12);
+        const goes = Traffic.goTo(c, mid.x, mid.z, 'kerb', 0, undefined, { L: D, s: D.len / 2 });
+        let turned = false;
+        run(14, 0.1, () => { turned = turned || c.lane === E.twin; });
+        this.check('a trip whose every way crosses a lane that is no way is given up when the block turns the car back', goes && turned && !c.dest && !c.way, 'set off ' + goes + ', turned back ' + turned + ', still going ' + !!c.dest);
+        Traffic.remove(c, false);
+        unblock();
+        // 5. a fire engine the road holds at that junction, out of its hose's reach of the fire on the street past it (but
+        // within a medic's walk), does not take the scene there
+        const fp = point(D, D.len - 20);
+        c = car(engine, E, E.len - 14);
+        const inc = { fire: c, r: 5, crew: [], x: fp.x, z: fp.z, done: false, sent: 0 }, gap = inc.r + SOC_FIRE_GAP;
+        c.duty = inc;
+        const sent = Traffic.goTo(c, fp.x, fp.z, 'scene', gap, undefined, { L: D, s: D.len - 20 });
+        block(D, 3, 9); block(D.twin, D.twin.len - 9, D.twin.len - 3);
+        let far = -1, wait = 0;
+        run(12, 0.1, () => { if (c.lane === E) wait = Math.max(wait, c.wait); if (c.state === 'scene' && far < 0) far = Math.hypot(c.x - fp.x, c.z - fp.z); });
+        this.check('a fire engine the road holds out of its hose\'s reach of the fire does not stop there', sent && wait > 1.5 && (far < 0 || far < gap + SOC_SPRAY - SOC_FIRE_GAP + 1), 'held ' + wait.toFixed(1) + ' s, ' + (far < 0 ? 'no scene taken' : 'scene ' + far.toFixed(1) + ' m from the fire'));
+        Traffic.remove(c, false);
+        unblock();
+      } finally {
+        if (W.society) W.society.out = keepOut;
+        S.quality = keepQ; R.visible = keepVisible; Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Game.quitToMenu();
+      }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
