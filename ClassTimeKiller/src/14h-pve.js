@@ -105,7 +105,7 @@ const Pve = {
   encounterSpawned: 0,      // enemies spawned since the mode's last beginEncounter (NPC-007 fallback share)
   spawnPoints: [],          // { x, y, z, yaw, side } director spawn points (filled by the mode)
   queue: { row: new Int16Array(256), champion: new Int8Array(256), side: new Int8Array(256), scale: new Float32Array(256), wave: new Int16Array(256), head: 0, count: 0 },
-  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0 },
+  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, hitAt: -1e9 },   // hitAt: sim time of the last blow
   wildlife: 0, nextBeastAt: 0,
   objectiveFor: null,       // fn(id, out) -> true when the mode gives an idle enemy somewhere to go (14j)
   stats: { spawned: 0, killed: 0, maxAlive: 0, thinks: 0, rays: 0, attacks: 0, parries: 0 },
@@ -192,6 +192,15 @@ const Pve = {
     this.homeX[id] = x; this.homeY[id] = y; this.homeZ[id] = z; this.homeYaw[id] = yaw;
     this.setGoalPoint(id, x, y, z);
   },
+  // bots-01 watchdog (14j: a wave's last enemies): an enemy standing inside a wall, where no shot reaches it, moves to its
+  // nearest nav node. True when it moved.
+  unstick(id) {
+    if (pveStandsAt(Actors.x[id], Actors.y[id], Actors.z[id])) return false;
+    const node = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]);
+    if (node < 0) return false;
+    relocateActor(id, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], Actors.yaw[id]);
+    return true;
+  },
   // After every section reset its state on actor.spawn: the row's pools, size, movement preset, perception tier, no weapons.
   setupBody(id, row) {
     const champion = this.champion[id] >= 0 ? PVE_CHAMPIONS[this.champion[id]] : null;
@@ -276,12 +285,15 @@ const Pve = {
     options.scale = scale; options.champion = champion; options.wave = wave; options.summoner = -1;
     return this.spawnGroup(row, point.x, point.y, point.z, point.yaw, options) > 0;
   },
-  // A row's whole group (a swarm) in a spiral around x, z; returns how many members spawned.
+  // A row's whole group (a swarm) in a spiral around x, z; returns how many members spawned. bots-01: a member whose spot is
+  // inside a wall starts at the group's centre instead (out of reach there, it kept a wave from ever clearing).
   spawnGroup(row, x, y, z, yaw, options) {
     let spawned = 0;
     for (let member = 0; member < row.group; member++) {
       const angle = member * 2.4, radius = member === 0 ? 0 : PVE_DIRECTOR.spawnSpacing * Math.sqrt(member);
-      if (this.spawnEnemy(row, x + Math.cos(angle) * radius, y, z + Math.sin(angle) * radius, yaw, options) >= 0) spawned++;
+      let memberX = x + Math.cos(angle) * radius, memberZ = z + Math.sin(angle) * radius;
+      if (!pveStandsAt(memberX, y, memberZ)) { memberX = x; memberZ = z; }
+      if (this.spawnEnemy(row, memberX, y, memberZ, yaw, options) >= 0) spawned++;
       else if (member === 0) return 0;
     }
     return spawned;
@@ -302,6 +314,7 @@ const Pve = {
     if (!best) return this.findBeastSpot(out) ? out : null;   // no point for the side: a reachable node away from the players
     out.x = best.x + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.y = best.y;
     out.z = best.z + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.yaw = best.yaw;
+    if (!pveStandsAt(out.x, out.y, out.z)) { out.x = best.x; out.z = best.z; }   // bots-01: jittered into a wall: the point itself
     return out;
   },
   spawnScore(point, side) {
@@ -709,11 +722,12 @@ const Pve = {
   // ---- The core (M21 / M22): enemies with nothing else to do march to it and attack it ----
   setCore(x, y, z, health) {
     const core = this.core;
-    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0;
+    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0; core.hitAt = -1e9;
   },
   damageCore(amount, source) {
     const core = this.core;
     if (!core.active || core.health <= 0) return;
+    core.hitAt = Sim.time;
     const absorbed = Math.min(core.shield, amount);
     core.shield -= absorbed;
     core.health = Math.max(0, core.health - (amount - absorbed));
@@ -930,6 +944,8 @@ function tellColor(attack) {
   return attack.unblockable ? PVE_TELL_COLORS.unblockable : PVE_TELL_COLORS.normal;
 }
 
+// True when a standing actor fits with its feet at the point (no wall, ramp or ceiling in the way).
+function pveStandsAt(x, y, z) { return World.capsuleFits(x, y, z, ACTOR_RADIUS, STAND_HEIGHT); }
 // Moves an actor to a point with no interpolation from the old one and no velocity (spawns, blinks, chamber moves).
 function relocateActor(id, x, y, z, yaw) {
   Actors.place(id, x, y, z);

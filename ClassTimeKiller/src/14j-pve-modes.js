@@ -12,6 +12,8 @@ const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE:
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
 const PVE_STATION_FALLBACK = [[0, 10], [4, 15], [-4, 20]];   // range stations in front of the spawn when the map has no 'dummy' hints
+const PVE_CORE_ALARM_SECONDS = 5;      // modes-03: the bots defend the core this long after its last blow
+const PVE_CORE_DEFEND = Object.freeze(['defend', 'defend']);   // the core objective's bot goal hints while it is under attack
 
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
@@ -159,11 +161,12 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true, lives: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
+        flawless: true, result: NOT_OVER, core: null, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
-      const spot = cores.length ? cores[0] : centralSpot(pveSpot);
+      run.core = cores.length ? cores[0] : null;
+      const spot = run.core || centralSpot(pveSpot);
       Pve.setCore(spot.x, spot.y, spot.z, params.coreHealth);
       const extracts = addMapObjectives('extract', pveObjectiveList);
       run.extract = extracts.length ? extracts[0] : null;
@@ -178,6 +181,7 @@ function makeWaveBehaviour(plan) {
       if (run.state === PVE_WAVE_STATE.FIGHT) this.fight(run, now);
       else if (run.state === PVE_WAVE_STATE.EXTRACT) this.extracting(run, now);
       else if (now + TIME_EPSILON >= run.endsAt) this.beginWave(run, now);
+      callCoreDefence(run, now);
       this.updateHud(run, now);
     },
     beginWave(run, now) {
@@ -212,9 +216,10 @@ function makeWaveBehaviour(plan) {
       run.endsAt = now + PVE_WAVE_RULES.shopSeconds;
       Economy.setShopOpen(true);   // bots shop in it too (14f BotEconomy)
     },
-    // Endless: anyone standing in the extract zone while it is open ends the run as a win.
+    // Endless: a player standing in the extract zone while it is open ends the run as a win (bots-02: pushing on is the
+    // player's choice, so a bot walking in counts only while no player stands).
     extracting(run, now) {
-      if (Modes.findActorNear(run.extract.x, run.extract.y, run.extract.z, run.extract.radius, NO_TEAM, NEAR_ANY) >= 0) { run.result = Modes.over(coopWinner(), 'extracted'); return; }
+      if (extractor(run.extract) >= 0) { run.result = Modes.over(coopWinner(), 'extracted'); return; }
       if (now + TIME_EPSILON >= run.endsAt) this.openShop(run, now);
     },
     // A lost wave: retry from its start (checkpoint) while retries are left, else the run is lost. DIF-004: after 3
@@ -252,6 +257,26 @@ function makeWaveBehaviour(plan) {
     },
   };
 }
+// modes-03: while enemies hit the core in a fight, its objective asks every bot to defend it (BOT_OBJECTIVE_VERBS 'defend'
+// outranks camping, so no bot holds a far spot while the core falls); otherwise the bots play as they like.
+function callCoreDefence(run, now) {
+  if (!run.core) return;
+  const attacked = run.state === PVE_WAVE_STATE.FIGHT && now - Pve.core.hitAt < PVE_CORE_ALARM_SECONDS;
+  run.core.goals = attacked ? PVE_CORE_DEFEND : null;
+}
+// Who takes the team out through the zone: a standing player inside it; a bot inside it only while no player stands (a
+// bots-only run, or every player down). -1 = nobody.
+function extractor(zone) {
+  let bot = -1, playerStands = false;
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Modes.isActive(id) || !Modes.actsOnObjectives(id)) continue;
+    const player = Actors.kind[id] === ACTOR_KIND.PLAYER, inside = withinTouch(id, zone.x, zone.y, zone.z, zone.radius);
+    if (player && inside) return id;
+    if (player) playerStands = true;
+    else if (inside) bot = id;
+  }
+  return playerStands ? -1 : bot;
+}
 // DIF-004: the plate halves enemy damage to every participant until the retried wave is cleared.
 function wearGuardianPlate(run) {
   run.plateUsed = true;
@@ -282,7 +307,7 @@ function endEncounter(run) {
 }
 // NPC-007: the last few enemies of a wave (nothing queued) are marked for the player every tick (pveHunted, 17d) and pinged to
 // the co-op bots every few seconds, so both hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share):
-// no shots through walls.
+// no shots through walls. Each ping also frees an enemy stuck inside a wall (bots-01: out of reach, it kept the wave from clearing).
 function huntLastEnemies(run, now) {
   const ping = now >= run.huntAt;
   if (ping) run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
@@ -290,7 +315,9 @@ function huntLastEnemies(run, now) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
     if (!Pve.isHostile(enemy)) continue;
     pveHunted.push(enemy);
-    if (ping) pingToBots(enemy, now);
+    if (!ping) continue;
+    Pve.unstick(enemy);
+    pingToBots(enemy, now);
   }
 }
 function pingToBots(enemy, now) {

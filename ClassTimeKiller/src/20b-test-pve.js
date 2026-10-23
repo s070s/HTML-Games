@@ -1079,6 +1079,71 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+// bots-01: an enemy gate in a walled corner. The spawn jitter and a swarm's spiral once put mites inside Cistern's gate-hall
+// wall, out of everyone's reach, and the wave never cleared; a wave's last enemy stuck in a wall moves out at the hunt ping.
+const PVE_CORNER_WALLS = [{ shape: 'box', min: [41, 0, 30], max: [46, 4, 46] }, { shape: 'box', min: [30, 0, 41], max: [46, 4, 46] }];
+function enemiesInWalls() {
+  const inside = [];
+  for (let id = 0; id < Actors.count; id++) if (Pve.isHostile(id) && !pveStandsAt(Actors.x[id], Actors.y[id], Actors.z[id])) inside.push(id + '@' + Actors.x[id].toFixed(1) + ',' + Actors.z[id].toFixed(1));
+  return inside;
+}
+Test.add('pve', (check) => {
+  startPveMode('horde', [0], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), brushes: [TEST_FLOOR].concat(PVE_CORNER_WALLS) });
+  const mite = CAT.enemies.byId('mite'), inside = [], run = Modes.behaviour.run;
+  let spawned = 0;
+  for (let swarm = 0; swarm < 4; swarm++) {
+    Pve.clearEnemies();
+    if (Pve.spawnQueued(mite, NO_TEAM, 1, -1, 1)) spawned += Pve.aliveCount();
+    inside.push(...enemiesInWalls());
+  }
+  check('every member of a swarm at a walled gate spawns where it can stand', spawned === 4 * mite.group && inside.length === 0, spawned + ' spawned, in walls: ' + inside.join(' '));
+  Pve.clearEnemies();
+  const last = Pve.spawnEnemy(mite, 30, 0, 30, 0);
+  relocateActor(last, 42, 0, 42, 0);   // inside the corner block (Cistern's mite stayed in its wall for minutes)
+  run.state = PVE_WAVE_STATE.FIGHT;    // this step hunts and pings it
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  check('a last enemy stuck in a wall moves out where the bots can reach it', enemiesInWalls().length === 0 && Actors.x[last] < 41 && Actors.z[last] < 41, Actors.x[last] + ',' + Actors.z[last]);
+  endModeTest();
+});
+
+// modes-03: while enemies hit the core, a camper bot defends it instead of holding its far camp spot (Iron Bulwark camped every
+// bot far away while the core fell with 0 kills); with the core left alone it plays freely again.
+Test.add('pve', (check) => {
+  const bot = startPveMode('horde', [], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), objectives: [{ id: 'core', kind: 'core', x: 0, y: 0, z: 0, radius: 3, modes: ['horde'] }],
+    navHints: [{ kind: 'sniper', x: -30, y: 0, z: -30 }] }, { bots: [{ team: 0 }] })[0];
+  const rifle = CAT.weapons.find((row) => row.botPref.value >= CAMP_WEAPON), plan = {}, run = Modes.behaviour.run;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.camper] = 1;
+  Weapons.give(bot, rifle.id);
+  Weapons.current[bot] = rifle.index;
+  Pve.spawnEnemy('husk', 0, 0, 40, Math.PI);   // the wave goes on
+  run.state = PVE_WAVE_STATE.FIGHT;
+  const camp = GOAL_SCORERS[GOAL.CAMP](bot, plan, Sim.time);
+  Pve.damageCore(1, -1);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  const defend = GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time);
+  check('a bot defends the core under attack before it camps a far spot', camp > 0 && defend > camp && length2(plan.x, plan.z) < 3, camp + ' / ' + defend + ' at ' + plan.x + ',' + plan.z);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time + PVE_CORE_ALARM_SECONDS);
+  check('with the core left alone the bot plays freely again', GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time) === 0);
+  endModeTest();
+});
+
+// bots-02: extraction is the player's choice. A bot in the open extract zone ends nothing while the player stands elsewhere
+// (it once ended an idle player's run in the core room); the player stepping in ends it.
+Test.add('pve', (check) => {
+  const ids = startPveMode('endless', [0], { objectives: [{ id: 'extract', kind: 'extract', x: 10, y: 0, z: 0, radius: 3, modes: ['endless'] }] }, { player: { team: 0 } });
+  const player = Game.playerId, run = Modes.behaviour.run;
+  run.state = PVE_WAVE_STATE.EXTRACT;
+  run.endsAt = Sim.time + PVE_ENDLESS.extractSeconds;
+  placeActor(ids.find((id) => id !== player), 10, 0);
+  placeActor(player, -10, 0);
+  runSeconds(0.25);
+  check('a bot in the open extract zone leaves the run going while the player stands elsewhere', Modes.active && run.state === PVE_WAVE_STATE.EXTRACT);
+  placeActor(player, 10, 2);
+  runSeconds(0.25);
+  check('the player stepping into the extract zone ends the run', !Modes.active && Game.match.results.reason === 'extracted');
+  endModeTest();
+});
+
 // Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
 const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
 Test.add('pvesoak', (check) => {
@@ -1093,6 +1158,25 @@ Test.add('pvesoak', (check) => {
   check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });
+
+// bots-01 / modes-03: bots-only wave runs on Cistern at Ultra (the most enemies). Horde seed 2 once stalled in wave 2 on a mite
+// inside the gate-hall wall; Iron Bulwark Endless seed 5 once camped all three bots far away while the core fell with 0 kills.
+const PVE_BOTS_SOAKS = [{ mode: 'horde', seed: 2, bots: 4 }, { mode: 'endless', seed: 5, ruleset: 'knight', bots: 3 }];
+Test.add('pvesoak', (check) => withQuality('ultra', () => {
+  for (const soak of PVE_BOTS_SOAKS) {
+    Game.start({ mode: soak.mode, map: 'cistern', ruleset: soak.ruleset, seed: soak.seed, bots: Array.from({ length: soak.bots }, () => ({})) });
+    let walled = '', camped = 0, attackedSince = Infinity;
+    runUntil(() => !Modes.active || Modes.behaviour.run.wave > 3, 6 * 60, () => {
+      walled = walled || enemiesInWalls().join(' ');
+      attackedSince = Sim.time - Pve.core.hitAt < PVE_CORE_ALARM_SECONDS ? Math.min(attackedSince, Sim.time) : Infinity;
+      if (Sim.time - attackedSince > BOT_DECIDE_INTERVAL) for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.CAMP) camped++;
+    });
+    const text = soak.mode + ' seed ' + soak.seed + ' (wave ' + Modes.behaviour.run.wave + ')';
+    check(text + ': no enemy in a wall, 3 waves cleared in 6 minutes', !walled && Modes.behaviour.run.wave > 3, walled);
+    check(text + ': no bot camps while enemies hit the core', camped === 0, camped);
+    endModeTest();
+  }
+}), { slow: true });
 
 // ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
 // SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
