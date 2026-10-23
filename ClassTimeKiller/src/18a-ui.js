@@ -1,6 +1,7 @@
 // ==== S18 UI ====
 // DOM menu framework: screen stack, focus navigation for keyboard, gamepad and touch (INP-010), toasts, confirm dialog, control builders.
-// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onBack, noBack, passthrough }).
+// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onBack, noBack, passthrough, overlay, inGame }).
+// inGame: an overlay on a running match (the scoreboard): game input keeps working, it takes no focus, and any other screen replaces it.
 // 18b holds the screens, 18c the performance overlay. Contracts: docs/api/input-ui.md.
 
 const UI_TOAST_MS = 2600;
@@ -19,6 +20,7 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + ' padding: calc(16px + var(--safe-top)) calc(20px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(20px + var(--safe-left));'
   + ' background: radial-gradient(ellipse at 20% 0%, #1b2736 0%, #0b0f14 70%); overflow: hidden; }'
   + '.ui-screen.behind { display: none; } #overlay > .ui-screen.passthrough { background: none; pointer-events: none; } .passthrough > * { pointer-events: auto; }'
+  + '.ui-screen.in-game * { pointer-events: none; } .ui-screen.in-game button { pointer-events: auto; }'   // touches fall through to the look area
   + '.ui-title { font-size: 2em; font-weight: 800; letter-spacing: 0.04em; margin: 0; } .ui-sub { color: var(--ui-dim); margin: 2px 0 14px; }'
   + '.ui-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; } .ui-head .ui-title { font-size: 1.5em; flex: 1; }'
   + '.ui-button { font: inherit; color: var(--ui-text); background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 8px; padding: 0.6em 1.1em;'
@@ -72,13 +74,14 @@ const Ui = {
   open(name, params) {
     const screen = this.screens.get(name);
     if (!screen) { this.toast('Coming soon'); return false; }
+    while (!screen.inGame && this.top() && this.top().screen.inGame) this.pop();
     const previous = this.top();
     if (previous) { previous.returnFocus = document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
-    const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : ''));
+    const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : '') + (screen.inGame ? ' in-game' : ''));
     const entry = { name, screen, element, params, returnFocus: null };
     this.root.appendChild(element);
     this.stack.push(entry);
-    Input.uiOpen = true;
+    this.syncInputBlock();
     try {
       screen.build(element, params);
       if (screen.onOpen) screen.onOpen(element, params);
@@ -88,8 +91,14 @@ const Ui = {
       this.toast('That screen could not open');
       return false;
     }
-    this.focusFirst(entry);
+    if (!screen.inGame) this.focusFirst(entry);
     return true;
+  },
+  // Game actions are ignored while a screen other than an in-match overlay is open.
+  syncInputBlock() {
+    let blocking = false;
+    for (let i = 0; i < this.stack.length; i++) if (!this.stack[i].screen.inGame) blocking = true;
+    Input.uiOpen = blocking;
   },
   // Back / Esc / B: the screen may handle it (pause menu resumes), top-level screens ignore it, others close.
   back() {
@@ -106,7 +115,7 @@ const Ui = {
     if (!entry) return;
     if (entry.screen.onClose) entry.screen.onClose(entry.element);
     entry.element.remove();
-    Input.uiOpen = this.stack.length > 0;
+    this.syncInputBlock();
     const below = this.top();
     if (!below) return;
     below.element.classList.remove('behind');
@@ -166,13 +175,13 @@ const Ui = {
     if (entry && entry.element.contains(document.activeElement)) document.activeElement.click();
   },
   onMenuCommand(command) {
-    if (!this.stack.length) return;
+    if (!this.stack.length || this.top().screen.inGame) return;
     const screen = this.top().screen;
     if (screen.onCommand && screen.onCommand(command)) return;     // a screen that reads the pad itself (the map editor) takes the command
     if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
   },
   onKeyDown(event) {
-    if (!this.stack.length || event.defaultPrevented) return;
+    if (!this.stack.length || event.defaultPrevented || this.top().screen.inGame) return;
     if (isTextField(event.target) && event.code !== 'Escape' && event.code !== 'Tab') return;   // arrows move the caret while typing
     if (event.code === 'Escape') this.back();
     else if (event.code === 'Tab') this.navigate(event.shiftKey ? 'prev' : 'next');

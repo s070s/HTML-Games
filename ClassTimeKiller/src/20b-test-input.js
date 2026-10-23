@@ -780,6 +780,34 @@ Test.add('input', (check) => {
   inputReleasePad();
 });
 
+// The scoreboard is an in-match overlay: while it shows, the game keeps its input and no menu command reaches it.
+Test.add('input', (check) => uiWith(() => {
+  const id = startInputMatch(), pad = inputFakePad();
+  inputUsePad(pad);
+  inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  check('scoreboard overlay: View held alone opens it, and the game input stays live', Ui.current() === 'scoreboard' && !Input.uiOpen);
+  inputPadButton(pad, 0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard overlay: View held, then A heals (the chord, not a menu accept)', Input.holdCount[Input.actionIndex.heal] === 1 && (Actors.buttons[id] & BTN.HEAL) !== 0);
+  inputPadButton(pad, 0, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+  Input.device = 'kbm';
+  inputKeyEvent('Tab', true);
+  check('scoreboard overlay: Tab opens it without taking the focus', Ui.current() === 'scoreboard' && !Ui.top().element.contains(document.activeElement));
+  inputMouseButton(0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard overlay: fire works while Tab is held', (Actors.buttons[id] & BTN.FIRE) !== 0);
+  inputMouseButton(0, false); inputKeyEvent('Tab', false);
+  check('scoreboard overlay: releasing Tab closes it', Ui.current() === '');
+  setInputSetting('controls.toggle.scoreboard', 'toggle');
+  inputTapKey('Tab'); inputStepAndFrame(); inputStepAndFrame();
+  inputKeyEvent('Space', true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard overlay (toggle): Space jumps and leaves it open', Ui.current() === 'scoreboard' && (Actors.buttons[id] & BTN.JUMP) !== 0);
+  inputKeyEvent('Space', false);
+  inputKeyEvent('Escape', true); inputKeyEvent('Escape', false);
+  check('scoreboard overlay: Esc pauses, and the pause menu replaces it', Game.paused && Ui.current() === 'pause' && !Ui.isOpen('scoreboard'));
+  setInputSetting('controls.toggle.scoreboard', 'hold');
+  Game.resume();
+}));
+
 Test.add('input', (check) => {
   startInputMatch();
   Game.pause('graphics');
