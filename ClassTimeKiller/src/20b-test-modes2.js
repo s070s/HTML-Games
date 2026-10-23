@@ -643,6 +643,12 @@ Test.add('modes2', (check) => {
 });
 
 // Royale weapon spots: owned copies and swaps at the carry limit keep the loot's rarity.
+// royaleUsePrompt: what the HUD says holding Use does (17d hudDrawUsePrompt reads Input.usePrompts the same way).
+function royaleUsePrompt(id) {
+  let prompt = '';
+  for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](id);
+  return prompt;
+}
 const ROYALE_WEAPON_ITEMS = [
   { x: 10, y: 0, z: 10, item: 'kestrel', group: 'weapon' }, { x: 20, y: 0, z: 10, item: 'kestrel', group: 'weapon' },
   { x: 30, y: 0, z: 10, item: 'vanguard', group: 'weapon' },
@@ -668,9 +674,20 @@ Test.add('modes2', (check) => {
   placeActor(0, 30, 10);
   runSeconds(0.2);
   check('royale: a full inventory leaves a new gun on the spot without USE', Weapons.atCarryLimit(0) && RoyaleLoot.weapon[2] === CAT.weapons.byId('vanguard').index && !Weapons.has(0, 'vanguard'));
+  const prompt = royaleUsePrompt(0), pushedName = CAT.weapons[pushedOut].name;
+  check('royale: the Use prompt names the gun pushed out and the spot gun (regression-01)', prompt === ('HOLD TO SWAP ' + pushedName + ' FOR VANGUARD RIFLE').toUpperCase(), prompt);
   holdUseFor(0, 0.2);
   check('royale: with USE held the gun pushed out lies on the spot with its own rarity', Weapons.has(0, 'vanguard') && RoyaleLoot.weapon[2] === pushedOut
     && RoyaleLoot.rarity[2] === 3 && RoyaleLoot.taken[2] === 0, RoyaleLoot.rarity[2]);
+  let kept = 0;
+  for (let step = 0; step < 6; step++) { holdUseFor(0, 0.5); if (Weapons.has(0, 'vanguard') && RoyaleLoot.weapon[2] === pushedOut) kept++; }
+  check('royale: Use held on (a revive too) swaps back only after stepping off the spot (play-05)', kept === 6 && royaleUsePrompt(0) === '', kept + ' / ' + royaleUsePrompt(0));
+  placeActor(0, 40, 10); runSeconds(0.2);
+  placeActor(0, 30, 10); runSeconds(0.2);
+  const victim = Weapons.swapVictim(0);
+  check('royale: back on the spot the swap is offered again', royaleUsePrompt(0) === ('HOLD TO SWAP ' + CAT.weapons[victim].name + ' FOR ' + pushedName).toUpperCase(), royaleUsePrompt(0));
+  holdUseFor(0, 0.2);
+  check('royale: and taken with USE held', Weapons.has(0, CAT.weapons[pushedOut].id) && RoyaleLoot.weapon[2] === victim);
   endModeTest();
 });
 
