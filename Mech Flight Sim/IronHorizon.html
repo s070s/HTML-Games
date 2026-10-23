@@ -580,8 +580,187 @@ const MAPS = {
     biome: 'arctic', flora: { species: { snowpine: 4, spruce: 2, deadtree: 1, shrub: 1, moss: 4, grass: 1 }, forest: 0, groves: 0, meadow: 0.3, scrub: 0.2, block: false },
     fauna: { species: { reindeer: 4, polarbear: 1, wolf: 2, fox: 1, rabbit: 1, crow: 1, eagle: 1 }, herds: 8, flocks: 4 },
   },
+  // the Living World battlefields (D23): each with its signature hazards (inert until the hazards update, P3.3)
+  coast: {
+    name: 'Harbour Coast', desc: 'A port city on a sheltered harbour, with the open sea to the east and coastal hills to the west.', seed: 3.3, hill: 0.6, biome: 'coastal',
+    ground: [0.4, 0.5, 0.3], dark: [0.29, 0.36, 0.22], high: [0.54, 0.56, 0.42],
+    zenith: [0.2, 0.42, 0.72], horizon: [0.74, 0.84, 0.9], fog: 0.0008,
+    sun: [0.5, 0.7, -0.3], sunCol: [1.08, 1.0, 0.9], skyAmb: [0.52, 0.6, 0.72], gndAmb: [0.26, 0.3, 0.22], tree: [0.16, 0.36, 0.18],
+    water: [
+      { type: 'sea', side: 'east', shore: 560, level: -8, depth: 26, beach: 160 },   // below most of the rolling ground
+      { type: 'lake', x: 430, z: 150, r: 150, depth: 12, shore: 30, level: -8 },      // the harbour, open to the sea
+      { type: 'river', pts: [[-430, -440], [-160, -330], [100, -230], [300, -170], [600, -130]], width: 24, depth: 3, bank: 24 },
+    ],
+    roads: [{ pts: [[230, -900], [240, -450], [250, -100], [240, 250], [220, 600], [200, 900]], w: 10 }, { pts: [[-900, 320], [-420, 290], [0, 270], [240, 250]], w: 9 }],
+    mountains: { ridges: [{ x: -720, z: 60, len: 760, yaw: 0, width: 320, height: 130 }], rock: [0.45, 0.43, 0.4], sand: [0.82, 0.76, 0.58], sandLine: -5.5 },
+    weather: { weights: { clear: 4, overcast: 3, rain: 2, storm: 2, fog: 2 }, time: 'day' },
+    flora: { species: { palm: 1, cypress: 2, oak: 2, pine: 2, shrub: 3, grass: 5, flowers: 2, lavender: 1, reeds: 2, kelp: 3 }, forest: 0.2, groves: 6, meadow: 0.35, scrub: 0.25 },
+    fauna: { species: { seagull: 4, pigeon: 2, crow: 1, seal: 2, fox: 1, rabbit: 2, deer: 1, fishschool: 4, dolphin: 2, whale: 1 }, herds: 6, flocks: 8, schools: 10 },
+    hazards: ['flood'],
+  },
+  archipelago: {
+    name: 'Coral Archipelago', desc: 'A ring of flat-topped islands in a warm, deep sea, cut by channels and lagoons.', seed: 5.9, hill: 0.35, lift: -24, biome: 'tropical',
+    ground: [0.36, 0.5, 0.26], dark: [0.26, 0.36, 0.18], high: [0.46, 0.56, 0.32],
+    zenith: [0.16, 0.42, 0.76], horizon: [0.72, 0.86, 0.92], fog: 0.0007,
+    sun: [0.3, 0.8, -0.25], sunCol: [1.12, 1.04, 0.9], skyAmb: [0.52, 0.62, 0.74], gndAmb: [0.26, 0.32, 0.22], tree: [0.14, 0.38, 0.14],
+    water: [{ type: 'open', level: 0, depth: 34, rim: 760 }],
+    mountains: {
+      plateaus: [
+        { x: 400, z: 400, r: 260, edge: 170, height: 36 }, { x: -400, z: 400, r: 250, edge: 170, height: 36 },
+        { x: -400, z: -400, r: 260, edge: 170, height: 36 }, { x: 400, z: -400, r: 250, edge: 170, height: 36 },
+        { x: 0, z: 0, r: 110, edge: 150, height: 36 }, { x: 0, z: 560, r: 60, edge: 130, height: 33 }, { x: 0, z: -580, r: 70, edge: 130, height: 33 },
+        { x: 570, z: 0, r: 55, edge: 130, height: 33 }, { x: -560, z: 20, r: 65, edge: 130, height: 33 },
+      ],
+      ridges: [{ x: 0, z: 0, len: 0, width: 150, height: 30 }],
+      floor: -34, rock: [0.5, 0.47, 0.42], sand: [0.9, 0.86, 0.7], sandLine: 2.5,
+    },
+    weather: { weights: { clear: 3, overcast: 2, rain: 2, storm: 3 }, time: 'day' },
+    flora: { species: { palm: 3, coconut: 3, giant: 1, mangrove: 2, bamboo: 2, fern: 3, grass: 4, reeds: 1, kelp: 4 }, forest: 0.3, groves: 8, meadow: 0.3, scrub: 0.25 },
+    fauna: { species: { monkey: 2, lizard: 2, crocodile: 1, flamingo: 1, parrot: 3, seagull: 3, fishschool: 5, dolphin: 3, whale: 1 }, herds: 6, flocks: 8, schools: 14 },
+    hazards: ['lightning'],
+  },
+  valley: {
+    name: 'River Valley', desc: 'A broad green valley between two ridges; a river winds through it under a string of bridges.', seed: 6.6, hill: 0.6, biome: 'temperate',
+    ground: [0.3, 0.45, 0.22], dark: [0.2, 0.31, 0.15], high: [0.45, 0.5, 0.34],
+    zenith: [0.2, 0.42, 0.7], horizon: [0.72, 0.8, 0.84], fog: 0.0009,
+    sun: [0.35, 0.75, -0.5], sunCol: [1.06, 1.0, 0.9], skyAmb: [0.5, 0.6, 0.72], gndAmb: [0.22, 0.3, 0.2], tree: [0.14, 0.34, 0.14],
+    water: [{ type: 'river', pts: [[-760, 30], [-620, 30], [-420, -60], [-150, 50], [120, -50], [400, 60], [620, -10], [760, 10]], width: 34, depth: 3.5, bank: 24 }],
+    roads: [
+      { pts: [[-300, -900], [-290, -300], [-300, 300], [-320, 900]], w: 10 }, { pts: [[260, -900], [270, -300], [250, 300], [240, 900]], w: 10 },
+      { pts: [[-900, 260], [-300, 250], [250, 240], [900, 250]], w: 9 },
+    ],
+    mountains: { ridges: [{ x: 0, z: 830, len: 1900, yaw: PI / 2, width: 440, height: 170 }, { x: 0, z: -840, len: 1900, yaw: PI / 2, width: 440, height: 160 }], rock: [0.44, 0.42, 0.38] },
+    weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
+    flora: { species: { oak: 4, birch: 2, pine: 2, willow: 3, redwood: 1, shrub: 3, berry: 2, fern: 3, grass: 5, flowers: 2, mushrooms: 1, reeds: 3, kelp: 1 }, forest: 0.4, groves: 8, meadow: 0.35, scrub: 0.2 },
+    fauna: { species: { deer: 3, elk: 1, horse: 1, cow: 2, sheep: 2, boar: 1, wolf: 1, fox: 1, rabbit: 2, duck: 3, crow: 2, eagle: 1, pigeon: 1, fishschool: 3 }, herds: 12, flocks: 7, schools: 5 },
+    hazards: ['flood'],
+  },
+  alpine: {
+    name: 'Alpine Pass', desc: 'A high pass between snow-capped massifs, with a glacial lake and a road over the saddle.', seed: 7.1, hill: 0.5, biome: 'alpine',
+    ground: [0.34, 0.44, 0.27], dark: [0.25, 0.31, 0.2], high: [0.44, 0.48, 0.36],
+    zenith: [0.16, 0.36, 0.7], horizon: [0.7, 0.8, 0.88], fog: 0.0007,
+    sun: [0.45, 0.68, -0.4], sunCol: [1.1, 1.02, 0.92], skyAmb: [0.54, 0.62, 0.76], gndAmb: [0.26, 0.3, 0.26], tree: [0.12, 0.28, 0.16],
+    water: [{ type: 'lake', x: 220, z: 60, r: 80, depth: 7, shore: 40 }],
+    roads: [{ pts: [[-900, -900], [-500, -470], [-140, -150], [120, -60], [480, 460], [900, 900]], w: 10 }],
+    mountains: {
+      ridges: [{ x: -420, z: 420, len: 1500, yaw: PI / 4, width: 620, height: 330 }, { x: 420, z: -420, len: 1500, yaw: PI / 4, width: 620, height: 310 }],
+      floor: -10, rock: [0.44, 0.43, 0.42], snow: [0.94, 0.96, 0.99], snowLine: 130,
+    },
+    weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 2, storm: 1 }, time: 'day' },
+    flora: { species: { spruce: 4, pine: 3, snowpine: 3, birch: 1, shrub: 2, berry: 1, grass: 4, flowers: 3, moss: 3, mushrooms: 1 }, forest: 0.35, groves: 8, meadow: 0.45, scrub: 0.2 },
+    fauna: { species: { goat: 4, deer: 2, elk: 1, reindeer: 1, wolf: 1, bear: 1, fox: 1, rabbit: 2, eagle: 3, crow: 2, fishschool: 1 }, herds: 12, flocks: 6, schools: 2 },
+    hazards: ['avalanche'],
+  },
+  canyon: {
+    name: 'Red Canyon', desc: 'Sheer red mesas above a desert canyon floor, with a thin river at the bottom of the main gorge.', seed: 9.7, hill: 0.4, biome: 'arid',
+    ground: [0.72, 0.5, 0.33], dark: [0.52, 0.32, 0.21], high: [0.8, 0.6, 0.42],
+    zenith: [0.22, 0.4, 0.66], horizon: [0.86, 0.76, 0.62], fog: 0.0007,
+    sun: [-0.4, 0.75, -0.3], sunCol: [1.14, 1.0, 0.82], skyAmb: [0.52, 0.54, 0.62], gndAmb: [0.38, 0.28, 0.2], tree: [0.32, 0.36, 0.2],
+    water: [{ type: 'river', pts: [[-760, 0], [-640, -10], [-300, -30], [40, 20], [380, -15], [620, 20], [760, 10]], width: 18, depth: 2.5, bank: 24 }],
+    roads: [{ pts: [[-900, 120], [-400, 110], [-150, 125], [300, 110], [900, 120]], w: 9 }, { pts: [[-150, 125], [-130, -130], [-420, -140], [-900, -130]], w: 9 }],
+    mountains: {
+      plateaus: [
+        { x: -200, z: 520, r: 310, edge: 55, height: 80 }, { x: 260, z: 530, r: 300, edge: 55, height: 80 },
+        { x: 200, z: -520, r: 310, edge: 55, height: 85 }, { x: -260, z: -530, r: 300, edge: 55, height: 85 },
+        { x: -760, z: 380, r: 90, edge: 45, height: 60 }, { x: 760, z: -360, r: 80, edge: 45, height: 65 },
+      ],
+      ridges: [{ x: 760, z: 330, len: 220, yaw: 0.4, width: 150, height: 75 }, { x: -760, z: -330, len: 200, yaw: -0.3, width: 140, height: 70 }],
+      rock: [0.62, 0.36, 0.24],
+    },
+    weather: { weights: { clear: 5, overcast: 1, sandstorm: 3 }, time: 'day' },
+    flora: { species: { saguaro: 3, joshua: 2, deadtree: 2, acacia: 1, prickly: 3, shrub: 3, grass: 3, reeds: 1 }, forest: 0, groves: 2, meadow: 0.15, scrub: 0.4 },
+    fauna: { species: { camel: 2, goat: 3, lizard: 4, fox: 1, vulture: 3, crow: 1, eagle: 1, fishschool: 1 }, herds: 8, flocks: 5, schools: 1 },
+    hazards: ['sandstorm', 'rockfall'],
+  },
+  jungle: {
+    name: 'Jungle Delta', desc: 'A steaming rainforest where a great river splits into channels and mangrove swamps on its way to the sea.', seed: 7.4, hill: 0.45, biome: 'tropical',
+    ground: [0.24, 0.4, 0.18], dark: [0.16, 0.28, 0.12], high: [0.34, 0.46, 0.24],
+    zenith: [0.22, 0.4, 0.62], horizon: [0.7, 0.78, 0.74], fog: 0.0011,
+    sun: [0.3, 0.8, -0.35], sunCol: [1.06, 1.0, 0.86], skyAmb: [0.48, 0.58, 0.6], gndAmb: [0.22, 0.3, 0.18], tree: [0.12, 0.32, 0.12],
+    water: [
+      { type: 'sea', side: 'south', shore: 560, level: -12, depth: 22, beach: 180 },   // below the delta's low ground, so the rivers run down to it
+      { type: 'river', pts: [[-115, 700], [-100, 560], [-40, 250], [0, -60], [20, -400], [40, -700]], width: 42, depth: 4, bank: 24 },
+      { type: 'river', pts: [[0, -60], [-200, -250], [-380, -420], [-460, -700]], width: 26, depth: 3, bank: 24 },
+      { type: 'river', pts: [[0, -60], [220, -260], [400, -420], [480, -700]], width: 26, depth: 3, bank: 24 },
+    ],
+    roads: [{ pts: [[-900, 120], [-400, 100], [0, 120], [400, 90], [900, 110]], w: 9 }],
+    mountains: { sand: [0.6, 0.54, 0.4], sandLine: -10.5 },
+    weather: { weights: { clear: 2, overcast: 3, rain: 4, storm: 2, fog: 2 }, time: 'day' },
+    flora: { species: { giant: 4, palm: 2, coconut: 1, mangrove: 4, bamboo: 3, fern: 4, grass: 2, mushrooms: 1, reeds: 3, kelp: 2 }, forest: 0.6, groves: 10, meadow: 0.15, scrub: 0.3, density: 1.15 },
+    fauna: { species: { monkey: 4, crocodile: 3, flamingo: 2, lizard: 2, parrot: 4, duck: 1, fishschool: 4, dolphin: 1 }, herds: 10, flocks: 8, schools: 8 },
+    hazards: ['wildfire'],
+  },
+  volcano: {
+    name: 'Volcanic Island', desc: 'A black-sand island around a smoking volcano, ringed by deep ocean.', seed: 10.3, hill: 0.42, lift: -22, biome: 'volcanic',
+    ground: [0.3, 0.29, 0.26], dark: [0.17, 0.16, 0.15], high: [0.38, 0.36, 0.32],
+    zenith: [0.24, 0.36, 0.56], horizon: [0.72, 0.7, 0.66], fog: 0.0009,
+    sun: [-0.45, 0.7, 0.3], sunCol: [1.1, 0.98, 0.86], skyAmb: [0.5, 0.54, 0.62], gndAmb: [0.24, 0.23, 0.22], tree: [0.16, 0.3, 0.14],
+    water: [{ type: 'open', level: 0, depth: 32, rim: 760 }],
+    mountains: {
+      plateaus: [{ x: 0, z: 0, r: 700, edge: 170, height: 40 }],
+      ridges: [{ x: 60, z: 40, len: 0, width: 560, height: 280 }],
+      floor: -32, rock: [0.2, 0.19, 0.19], sand: [0.2, 0.19, 0.18], sandLine: 3,
+    },
+    weather: { weights: { clear: 3, overcast: 3, rain: 2, storm: 1, fog: 2 }, time: 'day' },
+    flora: { species: { burnt: 3, deadtree: 2, palm: 2, coconut: 1, fern: 2, shrub: 2, grass: 3, kelp: 2 }, forest: 0.15, groves: 6, meadow: 0.2, scrub: 0.35 },
+    fauna: { species: { lizard: 4, goat: 2, seagull: 3, crow: 1, seal: 1, fishschool: 3, dolphin: 1, whale: 1 }, herds: 6, flocks: 6, schools: 8 },
+    hazards: ['lava', 'earthquake'],
+  },
+  tundra: {
+    name: 'Tundra Lake', desc: 'A wind-swept frozen plain around a wide lake, under ridges heavy with snow.', seed: 11.2, hill: 0.6, biome: 'arctic',
+    ground: [0.82, 0.85, 0.9], dark: [0.56, 0.6, 0.66], high: [0.93, 0.95, 0.98],
+    zenith: [0.3, 0.42, 0.62], horizon: [0.8, 0.85, 0.9], fog: 0.0011,
+    sun: [0.65, 0.4, 0.35], sunCol: [1.0, 0.92, 0.86], skyAmb: [0.58, 0.66, 0.8], gndAmb: [0.44, 0.48, 0.58], tree: [0.18, 0.32, 0.24],
+    water: [
+      { type: 'lake', x: -300, z: 300, r: 210, depth: 8, shore: 40 },
+      { type: 'river', pts: [[-140, 140], [60, -60], [300, -120], [620, -60], [700, -80]], width: 22, depth: 2.5, bank: 24 },
+    ],
+    roads: [{ pts: [[-900, -300], [-300, -260], [200, -300], [500, -320], [900, -260]], w: 9 }],
+    mountains: { ridges: [{ x: 100, z: 830, len: 1400, yaw: PI / 2, width: 360, height: 150 }, { x: -820, z: -300, len: 700, yaw: 0, width: 300, height: 120 }], rock: [0.5, 0.52, 0.55], snow: [0.95, 0.96, 0.99], snowLine: 40 },
+    weather: { weights: { clear: 2, overcast: 3, snow: 4, storm: 3, fog: 2 }, time: 'day' },
+    flora: { species: { snowpine: 3, spruce: 3, deadtree: 1, shrub: 1, moss: 5, grass: 1, kelp: 1 }, forest: 0.15, groves: 6, meadow: 0.35, scrub: 0.2 },
+    fauna: { species: { reindeer: 4, polarbear: 2, wolf: 2, fox: 1, rabbit: 1, penguin: 2, seal: 2, crow: 1, eagle: 1, fishschool: 3 }, herds: 10, flocks: 4, schools: 5 },
+    hazards: ['avalanche'],
+  },
+  metro: {
+    name: 'Megacity Metro', desc: 'Skyscraper districts on both banks of a wide river, joined by bridges; land for a big airport waits on the edge.', seed: 12.9, hill: 0.35, biome: 'urban',
+    ground: [0.36, 0.42, 0.3], dark: [0.27, 0.3, 0.23], high: [0.46, 0.48, 0.4],
+    zenith: [0.24, 0.38, 0.6], horizon: [0.76, 0.76, 0.74], fog: 0.0009,
+    sun: [0.4, 0.72, -0.45], sunCol: [1.06, 1.0, 0.92], skyAmb: [0.52, 0.58, 0.68], gndAmb: [0.26, 0.28, 0.24], tree: [0.16, 0.34, 0.16],
+    water: [{ type: 'river', pts: [[-760, 230], [-520, 190], [-160, 40], [200, -50], [600, -190], [700, -205]], width: 44, depth: 4.5, bank: 20 }],
+    roads: [
+      { pts: [[-600, -900], [-590, 0], [-610, 900]], w: 12 }, { pts: [[-240, -900], [-230, 0], [-250, 900]], w: 12 }, { pts: [[110, -900], [120, 0], [100, 900]], w: 12 },
+      { pts: [[470, -900], [460, 0], [480, 900]], w: 12 }, { pts: [[-900, 560], [900, 540]], w: 11 }, { pts: [[-900, -560], [900, -580]], w: 11 },
+    ],
+    weather: { weights: { clear: 4, overcast: 3, rain: 2, fog: 2, storm: 1 }, time: 'day' },
+    flora: { species: { oak: 2, birch: 1, cypress: 1, pine: 1, shrub: 2, grass: 3, flowers: 1, reeds: 1 }, forest: 0.06, groves: 6, meadow: 0.25, scrub: 0.12 },
+    fauna: { species: { pigeon: 4, crow: 2, seagull: 1, duck: 2, fox: 1, rabbit: 1, fishschool: 2 }, herds: 3, flocks: 8, schools: 3 },
+    hazards: ['earthquake', 'gas'],
+  },
+  farmland: {
+    name: 'Farmland Plains', desc: 'Open fields and meadows dotted with villages, farms and ponds, crossed by a slow river.', seed: 13.6, hill: 0.45, biome: 'farmland',
+    ground: [0.42, 0.5, 0.26], dark: [0.3, 0.36, 0.18], high: [0.56, 0.56, 0.34],
+    zenith: [0.2, 0.42, 0.72], horizon: [0.78, 0.82, 0.8], fog: 0.0008,
+    sun: [0.5, 0.72, -0.3], sunCol: [1.1, 1.02, 0.86], skyAmb: [0.52, 0.6, 0.7], gndAmb: [0.3, 0.32, 0.22], tree: [0.2, 0.38, 0.16],
+    water: [
+      { type: 'river', pts: [[-760, -200], [-560, -180], [-120, -260], [300, -170], [620, -230], [760, -215]], width: 22, depth: 2.5, bank: 24 },
+      { type: 'lake', x: 330, z: 330, r: 55, depth: 4, shore: 30 }, { type: 'lake', x: -430, z: 260, r: 45, depth: 3.5, shore: 30 },
+    ],
+    roads: [{ pts: [[-200, -900], [-190, -200], [-210, 400], [-200, 900]], w: 9 }, { pts: [[360, -900], [350, -100], [370, 900]], w: 9 }, { pts: [[-900, 80], [-200, 100], [360, 90], [900, 110]], w: 9 }],
+    weather: { weights: { clear: 4, overcast: 3, rain: 2, storm: 2, fog: 1 }, time: 'day' },
+    flora: { species: { oak: 3, birch: 1, willow: 2, shrub: 3, berry: 2, grass: 5, flowers: 3, lavender: 2, reeds: 2 }, forest: 0.08, groves: 10, meadow: 0.6, scrub: 0.15 },
+    fauna: { species: { cow: 4, sheep: 3, horse: 2, deer: 1, rabbit: 3, fox: 1, boar: 1, crow: 3, pigeon: 2, duck: 2, fishschool: 1 }, herds: 14, flocks: 8, schools: 2 },
+    hazards: ['tornado', 'wildfire'],
+  },
 };
 const MAP_DEFAULT_ID = 'ashfall';   // an unknown battlefield id falls back to this one
+/* names of the battlefield biomes, as the setup screens show them */
+const BIOME_NAMES = {
+  arid: 'Arid', temperate: 'Temperate', arctic: 'Arctic', coastal: 'Coastal', tropical: 'Tropical', alpine: 'Alpine', volcanic: 'Volcanic',
+  urban: 'Urban', farmland: 'Farmland', boreal: 'Boreal', savanna: 'Savanna', wetland: 'Wetland', mediterranean: 'Mediterranean',
+};
+/* the hazards a battlefield may list (D22); the hazards update (P3.3) gives them their behaviour */
+const HAZARD_IDS = ['wildfire', 'flood', 'avalanche', 'rockfall', 'lightning', 'tornado', 'sandstorm', 'earthquake', 'lava', 'gas'];
 const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters only (skirmish records are keyed "<map>-<size>")
 /* Fields every battlefield def has after mapDef(); a MAPS row may leave any of them out.
    biome: flavour key for later flora, fauna and weather sets ('arid', 'temperate', 'arctic', ...)
@@ -589,14 +768,19 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      { type: 'sea', side: 'east' | 'west' | 'north' | 'south', shore, level, depth, beach } covers that side of the map
        past a coast line about `shore` m from the centre; the land slopes over `beach` m into a sea bed `depth` m below
        the surface at height `level`. 'ocean' is the same type; one body per side.
+     { type: 'open', level, depth, rim } floods every point of the ground below `level`, so a battlefield lifted below
+       the surface (lift) shows islands wherever its plateaus and ridges rise above it; past `rim` m from the centre the
+       ground sinks to a sea bed `depth` m down. One per battlefield, carved before the other bodies.
      { type: 'lake', x, z, r, depth, shore, level } is a basin of radius r, `depth` m deep in the middle; level null puts
        the surface just below the lowest ground on its rim.
      { type: 'river', pts: [[x, z], ...], width, depth, bank } is a channel along the polyline, flowing from the first
        point to the last; its surface follows the lowest ground it has crossed, never below the lowest sea level.
+   lift: m added to the rolling ground (default 0), so a battlefield can lie mostly under an open sea
    roads: [{ pts: [[x, z], ...], w }] roads w m wide drawn on the ground; bridges carry them over water
    mountains: { ridges: [{ x, z, len, yaw, width, height }], plateaus: [{ x, z, r, edge, height }],
-     floor: lowest ground height in m (sea bed), rock / snow: ground colours [r, g, b] or null, snowLine: m }
-     Ridges and plateaus are added to the rolling base heights; rock and snow colour the ground only when set.
+     floor: lowest ground height in m (sea bed), rock / snow: ground colours [r, g, b] or null, snowLine: m,
+     sand: ground colour [r, g, b] or null of the land below sandLine m (beaches) }
+     Ridges and plateaus are added to the rolling base heights; rock, snow and sand colour the ground only when set.
    maxSlope: steepest ground (deg) a ground vehicle or mech can climb on this map (infantry: INFANTRY_MAX_SLOPE); a row
      with neither mountains nor water and no maxSlope of its own has no limit (Infinity), so the original battlefields
      keep their old movement (D17, D32)
@@ -621,8 +805,9 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      herds, flocks, schools: how many ground groups (herds, packs), bird flocks and water groups (schools, pods) are
        placed; a water group needs water as deep as its species wants, so a dry battlefield gets none
      density: multiplier of every group's size
-   hazards, lanes: lists filled by later updates, [] for none
-   airport: { x, z, yaw } of a runway, or null
+   hazards: HAZARD_IDS of the battlefield's signature hazards (inert until the hazards update), [] for none
+   lanes: sea lanes for the shipping update (P6), [] for none
+   airport: { x, z, yaw } of a runway (the airports update, P4.5, builds it), or null
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
 const MAP_FIELDS = {
   biome: 'temperate', water: [], roads: [], flora: null, fauna: null, weather: null, hazards: [], lanes: [], airport: null, maxSlope: 32, hidden: false,
@@ -630,9 +815,10 @@ const MAP_FIELDS = {
 const MAP_FLORA = { species: null, forest: 0.25, groves: 6, meadow: 0.3, scrub: 0.2, density: 1, block: true };
 const MAP_FAUNA = { species: null, herds: 8, flocks: 5, schools: 6, density: 1 };
 const MAP_WEATHER = { weights: { clear: 4, overcast: 2, rain: 1 }, time: 'day' };
-const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity };
+const MAP_MOUNTAINS = { ridges: [], plateaus: [], floor: -Infinity, rock: null, snow: null, snowLine: Infinity, sand: null, sandLine: -Infinity };
 const WATER_BODY = {   // defaults of each water body type (m)
   sea: { side: 'east', shore: 500, level: 0, depth: 24, beach: 140 },
+  open: { level: 0, depth: 30, rim: 760 },
   lake: { x: 0, z: 0, r: 120, depth: 6, shore: 40, level: null },
   river: { pts: [], width: 24, depth: 3, bank: 24 },
 };
@@ -2416,6 +2602,7 @@ const SITE_MAX_SLOPE = 8;            // cities and districts never sit on steepe
 const BASE_MAX_SLOPE = 12;           // skirmish bases never sit on steeper ground (deg)
 const ROCK_SLOPE = [0.12, 0.3];      // ground turns to bare rock between these steepness values (1 - normal.y; 0.3 is about 46 deg)
 const SNOW_BLEND = 14;               // snow fades in over this many metres around the snow line
+const SAND_BLEND = 1.5;              // and sand over this many metres around the sand line
 /* seeded lattice hash in [0, 1) */
 function latticeHash(ix, iz, seed) {
   let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ Math.imul(seed, 1274126177);
@@ -2450,6 +2637,7 @@ const Terrain = {
       + 4.5 * Math.sin(z * 0.017 + x * 0.011 + s * 0.4)
       + 2 * Math.sin(x * 0.031 + s) * Math.sin(z * 0.027);
     h *= m.hill;
+    if (m.lift) h += m.lift;   // a battlefield that lies mostly under the sea (islands rise from plateaus)
     const r = Math.max(Math.abs(x), Math.abs(z));
     if (r > 760) { const e = (r - 760) / 240; h += e * e * 110; }
     if (m.mountains) h = Math.max(h + this.relief(x, z, m.mountains, m.seed), m.mountains.floor);
@@ -2496,7 +2684,7 @@ const Terrain = {
     return true;
   },
   /* the heights a map def's unflattened grid is built from, as a cache key */
-  gridKey(map) { return [map.name, map.seed, map.hill, map.maxSlope, JSON.stringify(map.mountains || null), JSON.stringify(map.water || [])].join('|'); },   // banks are carved to maxSlope
+  gridKey(map) { return [map.name, map.seed, map.hill, map.lift || 0, map.maxSlope, JSON.stringify(map.mountains || null), JSON.stringify(map.water || [])].join('|'); },   // banks are carved to maxSlope
   baseGrids: {},   // unflattened heights per map (as doubles, keyed by gridKey), shared by every mission on that map
   baseWater: {},   // the water of each base grid that has any (Water.carve), keyed the same way
   cache: [],       // finished terrains (heights, tile maxima, mesh) for recent map + site layouts
@@ -2636,6 +2824,10 @@ const Terrain = {
           const rk = smoothstep(ROCK_SLOPE[0], ROCK_SLOPE[1], 1 - nrm.y);
           r = lerp(r, mt.rock[0], rk); g = lerp(g, mt.rock[1], rk); b = lerp(b, mt.rock[2], rk);
         }
+        if (mt && mt.sand) { // sand on the low land by the water, on gentle ground only
+          const sd = (1 - smoothstep(mt.sandLine - SAND_BLEND, mt.sandLine + SAND_BLEND, h + noise * SAND_BLEND)) * (1 - smoothstep(ROCK_SLOPE[0], ROCK_SLOPE[1], 1 - nrm.y));
+          r = lerp(r, mt.sand[0], sd); g = lerp(g, mt.sand[1], sd); b = lerp(b, mt.sand[2], sd);
+        }
         if (mt && mt.snow) { // snow above the snow line, thinning out on steep faces
           const sk = smoothstep(mt.snowLine - SNOW_BLEND, mt.snowLine + SNOW_BLEND, h + noise * SNOW_BLEND) * (1 - smoothstep(ROCK_SLOPE[0], ROCK_SLOPE[1] + 0.2, 1 - nrm.y) * 0.75);
           r = lerp(r, mt.snow[0], sk); g = lerp(g, mt.snow[1], sk); b = lerp(b, mt.snow[2], sk);
@@ -2682,6 +2874,7 @@ const WATER_COAST_WOBBLE = 45;     // a sea's coast line wanders this far in and
 const WATER_COAST_WAVE = 160;      // over stretches about this long (m)
 const WATER_LAKE_RAGGED = 0.3;     // a lake's shore wanders this share of its radius
 const WATER_LAKE_WAVE = 70;        // over stretches about this long (m)
+const WATER_OPEN_RIM = 140;        // an open sea drowns the battlefield edge over this many m past its rim
 const WATER_FLOW_SPEED = 1.6;      // river current (m/s): swimmers and sinking debris drift with it
 const WATER_SPLASH_MULT = 0.5;     // blast damage share of an explosion at the water surface
 const WATER_SPLASH_REACH = 1.5;    // an explosion at most this far above the surface (m) splashes
@@ -2700,6 +2893,25 @@ function gridHeight(grid, x, z) {
   const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, o = iz * 251 + ix;
   return (grid[o] + (grid[o + 1] - grid[o]) * tx) * (1 - tz) + (grid[o + 251] + (grid[o + 252] - grid[o + 251]) * tx) * tz;
 }
+/* turns a grid of 0 (sources) and Infinity into each point's distance (m) to the nearest source, by two chamfer passes */
+function gridDistance(dist) {
+  const N = Terrain.N, W1 = N + 1, G = Terrain.G, diag = G * Math.SQRT2;
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {   // from below and the left
+    const o = j * W1 + i;
+    let d = dist[o];
+    if (i > 0) d = Math.min(d, dist[o - 1] + G);
+    if (j > 0) { d = Math.min(d, dist[o - W1] + G); if (i > 0) d = Math.min(d, dist[o - W1 - 1] + diag); if (i < N) d = Math.min(d, dist[o - W1 + 1] + diag); }
+    dist[o] = d;
+  }
+  for (let j = N; j >= 0; j--) for (let i = N; i >= 0; i--) {   // and from above and the right
+    const o = j * W1 + i;
+    let d = dist[o];
+    if (i < N) d = Math.min(d, dist[o + 1] + G);
+    if (j < N) { d = Math.min(d, dist[o + W1] + G); if (i < N) d = Math.min(d, dist[o + W1 + 1] + diag); if (i > 0) d = Math.min(d, dist[o + W1 - 1] + diag); }
+    dist[o] = d;
+  }
+  return dist;
+}
 /* index of the grid point nearest (x, z) */
 function gridIndex(x, z) {
   const i = clamp(Math.round((x + WORLD_HALF) / 8), 0, 250), j = clamp(Math.round((z + WORLD_HALF) / 8), 0, 250);
@@ -2714,6 +2926,7 @@ const Water = {
     const n = grid.length, levels = new Float32Array(n).fill(-Infinity), flowX = new Float32Array(n), flowZ = new Float32Array(n);
     const seed = Math.round(m.seed * 1000), steep = this.bankSteep(m);
     let seaLevel = -Infinity;
+    m.water.forEach((b) => { if (b.type === 'open') { this.carveOpen(grid, levels, b, steep); seaLevel = seaLevel === -Infinity ? b.level : Math.min(seaLevel, b.level); } });
     m.water.forEach((b, k) => { if (b.type === 'sea') { this.carveSea(grid, levels, b, seed + k * 131, steep); seaLevel = seaLevel === -Infinity ? b.level : Math.min(seaLevel, b.level); } });
     m.water.forEach((b, k) => { if (b.type === 'lake') this.carveLake(grid, levels, b, m, seed + k * 131, steep); });
     m.water.forEach((b) => { if (b.type === 'river' && b.pts.length >= 2) this.carveRiver(grid, levels, flowX, flowZ, b, seaLevel, steep); });
@@ -2738,6 +2951,27 @@ const Water = {
       const bed = lerp(b.level - 1, b.level - b.depth, smoothstep(0, b.beach, u));
       grid[o] = lerp(h, Math.min(h, bed), smoothstep(-land, 0, u));
       if (u > -b.beach && b.level > levels[o]) levels[o] = b.level;
+    }
+  },
+  /* an open sea: every point of the ground below its surface is under water, so islands are wherever the land (a
+     plateau or a ridge on ground lifted below the surface) rises above it; past `rim` m from the centre the ground
+     sinks to the sea bed `depth` m down, so the steep battlefield edge is drowned too. Its shores never climb steeper
+     than `steep`: land rising faster from the water is cut back to a beach, and a sea bed falling faster from the land
+     is raised to a shelf (by the distance to the nearest water and the nearest land). */
+  carveOpen(grid, levels, b, steep) {
+    const N = Terrain.N, G = Terrain.G, bed = b.level - b.depth, toWater = new Float64Array(grid.length), toLand = new Float64Array(grid.length);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const x = -WORLD_HALF + i * G, z = -WORLD_HALF + j * G, o = j * (N + 1) + i;
+      const r = Math.max(Math.abs(x), Math.abs(z));
+      if (r > b.rim) grid[o] = lerp(grid[o], Math.min(grid[o], bed), smoothstep(b.rim, b.rim + WATER_OPEN_RIM, r));
+      const wet = grid[o] < b.level;
+      toWater[o] = wet ? 0 : Infinity; toLand[o] = wet ? Infinity : 0;
+    }
+    gridDistance(toWater); gridDistance(toLand);
+    // the shore lies somewhere between a wet and a dry grid point: half a square less keeps a diagonal shore gentle too
+    for (let o = 0; o < grid.length; o++) {
+      grid[o] = clamp(grid[o], b.level - Math.max(0, toLand[o] - G / 2) * steep, b.level + WATER_LEVEE + Math.max(0, toWater[o] - G / 2) * steep);
+      if (grid[o] < b.level + WATER_LEVEE && b.level > levels[o]) levels[o] = b.level;
     }
   },
   /* surface height of a lake: its own, or just below the lowest ground on its rim */
@@ -3770,7 +4004,7 @@ function populateWorld(cfg) {
   const capBase = W.structs.length;
   // towns near sites
   for (const site of Terrain.sites) {
-    if (site.tag === 'pad' || site.tag === 'open' || site.tag === 'city' || site.tag === 'base') continue;
+    if (site.tag === 'pad' || site.tag === 'open' || site.tag === 'city' || site.tag === 'town' || site.tag === 'base') continue;
     const n = Math.round(10 * dens);
     for (let i = 0; i < n * 3 && W.structs.length < capBase + 900; i++) {
       const a = rng() * TAU, r = site.r * (0.5 + rng() * 1.1);
@@ -5774,13 +6008,29 @@ const Bld = {
 
 /* ---------------------------------------------------------------------
    Scenery: cities, districts and military bases for one battle
-   A layout lists cities { x, z, r, kind: 'city' | 'district' | 'mega' } and bases { x, z, r, style: 'outpost' | 'fort', team }.
+   A layout lists cities { x, z, r, kind: 'city' | 'district' | 'mega' | 'village' } and bases { x, z, r, style: 'outpost' | 'fort', team }.
    A story mission gets its map's city and outpost plus one district near its start; a skirmish brings its own layout.
+   A SCENERY entry: { city, base, towns } with towns: [{ x, z, r, kind }, ...] more settlements of the battlefield, added
+   to every layout where they keep clear of its sites and stand on gentle, dry ground (the original battlefields have none).
    --------------------------------------------------------------------- */
 const SCENERY = {
   ashfall: { city: { x: -120, z: 690, r: 150 }, base: { x: 680, z: 650, r: 125 } },
   verdant: { city: { x: -560, z: 560, r: 150 }, base: { x: 650, z: -250, r: 125 } },
   frost: { city: { x: -600, z: 600, r: 150 }, base: { x: 650, z: -450, r: 125 } },
+  coast: { city: { x: 40, z: 450, r: 150 }, base: { x: -330, z: -80, r: 125 }, towns: [{ x: 120, z: -560, r: 100, kind: 'district' }, { x: -330, z: 600, r: 90, kind: 'village' }] },
+  archipelago: { city: { x: -400, z: 400, r: 110 }, base: { x: 400, z: -400, r: 125 }, towns: [{ x: 400, z: 400, r: 80, kind: 'village' }, { x: -400, z: -400, r: 80, kind: 'village' }] },
+  valley: { city: { x: -60, z: 330, r: 150 }, base: { x: 560, z: -330, r: 125 }, towns: [{ x: -560, z: -320, r: 90, kind: 'village' }, { x: 400, z: 360, r: 90, kind: 'village' }] },
+  alpine: { city: { x: -560, z: -560, r: 120 }, base: { x: 560, z: 560, r: 125 }, towns: [{ x: -150, z: -80, r: 80, kind: 'village' }] },
+  canyon: { city: { x: 20, z: 500, r: 120 }, base: { x: -30, z: -530, r: 125 }, towns: [{ x: -300, z: 480, r: 80, kind: 'village' }, { x: 300, z: -490, r: 80, kind: 'village' }] },
+  jungle: { city: { x: -480, z: 380, r: 120 }, base: { x: 480, z: 420, r: 125 }, towns: [{ x: 480, z: -120, r: 80, kind: 'village' }] },
+  volcano: { city: { x: -340, z: -320, r: 120 }, base: { x: 360, z: 330, r: 125 }, towns: [{ x: 340, z: -330, r: 90, kind: 'village' }, { x: -380, z: 380, r: 90, kind: 'village' }] },
+  tundra: { city: { x: 420, z: 300, r: 120 }, base: { x: -420, z: -520, r: 125 }, towns: [{ x: 300, z: -500, r: 80, kind: 'village' }] },
+  metro: { city: { x: -420, z: 480, r: 150 }, base: { x: 480, z: -540, r: 125 },
+    towns: [{ x: -400, z: 500, r: 190, kind: 'mega' }, { x: 300, z: 300, r: 100, kind: 'district' }, { x: -380, z: -380, r: 100, kind: 'district' }, { x: 560, z: 300, r: 100, kind: 'district' },
+      { x: -560, z: -100, r: 100, kind: 'district' }, { x: 0, z: 520, r: 100, kind: 'district' }, { x: 100, z: -450, r: 100, kind: 'district' }, { x: -120, z: -600, r: 100, kind: 'district' },
+      { x: 210, z: 620, r: 100, kind: 'district' }] },
+  farmland: { city: { x: -60, z: 520, r: 110 }, base: { x: 560, z: -560, r: 125 },
+    towns: [{ x: -560, z: 520, r: 90, kind: 'village' }, { x: 560, z: 520, r: 90, kind: 'village' }, { x: -540, z: -520, r: 90, kind: 'village' }, { x: 40, z: -520, r: 90, kind: 'village' }, { x: 40, z: 300, r: 80, kind: 'village' }] },
 };
 const SCENERY_DEFAULT = { city: { x: -560, z: 560, r: 150 }, base: { x: 650, z: -350, r: 125 } };   // a battlefield with no entry above
 const SCENERY_DISTRICT_R = 100, SCENERY_MEGA_R = 190;   // district and mega-district radius (m)
@@ -5792,10 +6042,11 @@ const SCENERY_EDGE = 740;          // districts stay inside +-this; the ground r
 const SCENERY_STEP = 56, SCENERY_MEGA_STEP = 62;       // lot spacing in a district and in the mega-district (m)
 const SCENERY_STREET = 12;         // narrowest street between two lots (m), so ground vehicles can drive through
 const SCENERY_LOT_EDGE = 20;       // lot centres stay this far inside the district edge (m)
-const SCENERY_PIECES = { district: 2600, mega: 7000 };   // building pieces a district may use at normal destruction
+const SCENERY_PIECES = { district: 2600, mega: 7000, village: 900 };   // building pieces a district may use at normal destruction
 const SCENERY_LANDMARKS = { district: 1, mega: 3 };     // landmark towers per district; further big lots get mid-rise blocks
 const SCENERY_OVERRUN = 1.15;      // past its budget a district only adds small buildings, and stops at this share of it
 const SCENERY_PARK = 0.1;          // share of outer lots left as a small park
+const SCENERY_YARD = 0.35;         // share of a village's lots past the centre left as a farmyard (a barn and silos)
 const LANDMARK_TPL = ['megaTower', 'twinTowers', 'arcology'];
 const SCENERY_FURNITURE = 6;       // crate and barrier clusters at street corners per district
 /* what each kind of lot builds: [template, weight] */
@@ -5806,6 +6057,7 @@ const SCENERY_LOTS = {
   inner: [['office', 0.3], ['terraced', 0.2], ['apartmentL', 0.15], ['mall', 0.15], ['factoryComplex', 0.2]],
   outer: [['apartment', 0.25], ['apartmentL', 0.2], ['shop', 0.2], ['office', 0.15], ['factoryComplex', 0.1], ['terraced', 0.1]],
   small: [['shop', 0.5], ['apartment', 0.5]],
+  village: [['shop', 0.6], ['apartment', 0.25], ['apartmentL', 0.15]],
 };
 /* Skirmish base compound: slots in metres from the centre, +z toward the other base (see Scenery.fortAt).
    The compound turns a quarter turn at a time and footprints stay axis-aligned, so slots are spaced for any turn. */
@@ -5842,9 +6094,16 @@ const Scenery = {
     // the default city and outpost only go where the ground is gentle enough (a mountain map may have none)
     const fits = (c, deg) => !!SCENERY[def.map] || this.flatFor(def.map, c, deg);
     const lay = { cities: fits(s.city, SITE_MAX_SLOPE) ? [Object.assign({ kind: 'city' }, s.city)] : [], bases: fits(s.base, BASE_MAX_SLOPE) ? [Object.assign({ style: 'outpost', team: 1 }, s.base)] : [] };
+    this.addTowns(def.map, lay, def.sites, def.corridors);
     const d = withDistrict && def.start ? this.startDistrict(def, lay) : null;
     if (d) lay.cities.push(d);
     return lay;
+  },
+  /* the battlefield's own towns (SCENERY towns) that keep clear of the sites, corridors and the layout so far */
+  addTowns(mapId, lay, sites, corridors) {
+    const s = SCENERY[mapId];
+    if (!s || !s.towns) return;
+    for (const t of s.towns) if (this.clearSpot(t, sites, corridors, lay) && this.flatFor(mapId, t, SITE_MAX_SLOPE)) lay.cities.push(Object.assign({}, t));
   },
   /* the nearest spot to a mission's start, tried at a few distances and bearings, that keeps clear of everything */
   startDistrict(def, lay) {
@@ -5875,7 +6134,7 @@ const Scenery = {
     return Water.siteDry(md, c.x, c.z, r + SITE_FADE) && (!Terrain.hasRelief(md) || Terrain.siteFlat(md, c.x, c.z, r, maxDeg));   // the cheap test first
   },
   sitesFor(lay) {
-    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + SITE_PAD, tag: c.style ? 'base' : 'city' }));
+    return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + SITE_PAD, tag: c.style ? 'base' : c.kind === 'village' ? 'town' : 'city' }));   // a village keeps its ground colour
   },
   keepOutFor(lay) {
     return lay.cities.concat(lay.bases).map((c) => ({ x: c.x, z: c.z, r: c.r + 10 }));
@@ -5899,7 +6158,9 @@ const Scenery = {
       else if (d < 80) id = roll < 0.25 ? 'skyscraper' : roll < 0.55 ? 'office' : roll < 0.75 ? 'terraced' : 'mall';
       else id = roll < 0.3 ? 'apartment' : roll < 0.55 ? 'apartmentL' : roll < 0.7 ? 'office' : 'shop';
       if (roll > 0.93 && d > 60) continue;                                   // an empty lot or small park
-      Bld.make(id, x + (rng() - 0.5) * 6, z + (rng() - 0.5) * 6, rng);
+      const bx = x + (rng() - 0.5) * 6, bz = z + (rng() - 0.5) * 6, size = tplSize(id);
+      if (W.map.roads.length && Roads.near(bx, bz, Math.hypot(size[0], size[1]) / 2 + ROAD_KEEP)) continue;   // leave the road through the city open
+      Bld.make(id, bx, bz, rng);
     }
     // street furniture for cover
     for (let n = 0; n < 14; n++) {
@@ -5932,7 +6193,7 @@ const Scenery = {
   /* A district: a landmark on the centre lot (the arcology in the mega-district), big blocks around it and mixed low
      buildings further out, on a street grid. Once it has used its piece budget it only adds small buildings. */
   district(c, rng, dens) {
-    const mega = c.kind === 'mega', step = mega ? SCENERY_MEGA_STEP : SCENERY_STEP, budget = SCENERY_PIECES[mega ? 'mega' : 'district'] * dens;
+    const mega = c.kind === 'mega', village = c.kind === 'village', step = mega ? SCENERY_MEGA_STEP : SCENERY_STEP, budget = SCENERY_PIECES[mega || village ? c.kind : 'district'] * dens;
     const span = Math.ceil(c.r / step), lots = [];
     for (let gi = -span; gi <= span; gi++) for (let gj = -span; gj <= span; gj++) {
       if (Math.hypot(gi, gj) * step <= c.r - SCENERY_LOT_EDGE) lots.push({ gi, gj, ring: Math.max(Math.abs(gi), Math.abs(gj)), k: rng() });
@@ -5942,8 +6203,9 @@ const Scenery = {
     for (const lot of lots) {
       if (used >= budget * SCENERY_OVERRUN) break;
       const x = c.x + lot.gi * step, z = c.z + lot.gj * step, roll = rng();
+      if (village && lot.ring >= 1 && roll < SCENERY_YARD) { this.farmyard(x, z, step, rng); continue; }
       if (lot.ring >= 2 && roll < SCENERY_PARK) { this.park(x, z, step, rng); continue; }
-      const list = used >= budget ? SCENERY_LOTS.small : lot.ring === 0 ? SCENERY_LOTS[mega ? 'megaCore' : 'core'] : lot.ring === 1 ? SCENERY_LOTS[mega ? 'megaInner' : 'inner'] : SCENERY_LOTS.outer;
+      const list = used >= budget ? SCENERY_LOTS.small : village ? SCENERY_LOTS.village : lot.ring === 0 ? SCENERY_LOTS[mega ? 'megaCore' : 'core'] : lot.ring === 1 ? SCENERY_LOTS[mega ? 'megaInner' : 'inner'] : SCENERY_LOTS.outer;
       let id = pickWeighted(list, rng());
       if (LANDMARK_TPL.indexOf(id) >= 0 && landmarks++ >= SCENERY_LANDMARKS[mega ? 'mega' : 'district']) id = pickWeighted(SCENERY_LOTS.inner, rng());
       const size = tplSize(id);
@@ -5962,9 +6224,18 @@ const Scenery = {
   park(x, z, step, rng) {
     for (let n = 0; n < 5; n++) this.put('tree', x + (rng() - 0.5) * (step - SCENERY_STREET), z + (rng() - 0.5) * (step - SCENERY_STREET), { scale: 0.8 + rng() * 0.5 });
   },
+  /* a village farmyard: a barn, a silo or two beside it and a few crates */
+  farmyard(x, z, step, rng) {
+    const swap = rng() < 0.5, room = (step - SCENERY_STREET) / 2, silos = 1 + Math.floor(rng() * 2);
+    this.put('warehouse', x, z, { swap });
+    // the silos stand along the barn's long side (a turned barn is long in z)
+    for (let n = 0; n < silos; n++) { const along = (n - (silos - 1) / 2) * 13; this.put('fuel', x + (swap ? 16 : along), z + (swap ? along : 16), {}); }
+    for (let n = 0; n < 3; n++) this.put('crate', x - room + 4 + n * 2.6, z - room + 4, {});
+  },
   /* no plain structure (objectives, mission props) or building inside the footprint plus a street's width */
   lotFree(x, z, hw, hd) {
     const m = SCENERY_STREET / 2, n = Hash.query(x - hw - m, z - hd - m, x + hw + m, z + hd + m);
+    if (W.map.roads.length && Roads.near(x, z, Math.hypot(hw, hd) + ROAD_KEEP)) return false;   // a road runs on through the district
     for (let i = 0; i < n; i++) { const s = Hash.out[i]; if (!s.destroyed && Math.abs(x - s.x) < s.hx + hw + m && Math.abs(z - s.z) < s.hz + hd + m) return false; }
     for (const b of W.buildings) if (x + hw + m > b.ox && x - hw - m < b.bx1 && z + hd + m > b.oz && z - hd - m < b.bz1) return false;
     return true;
@@ -6024,7 +6295,7 @@ const Scenery = {
    die to the host's blasts, shots and beams as those are replayed there. One zone per city holds its street
    corners (nodes joined along clear streets), its doors and its civilians; W.civZones lists the zones.
    --------------------------------------------------------------------- */
-const CIV_COUNT = { city: 40, district: 40, mega: 90 };   // civilians per city kind
+const CIV_COUNT = { city: 40, district: 40, mega: 90, village: 14 };   // civilians per city kind
 const CIV_LOW_SHARE = 0.5;               // share of them on Low quality
 const CIV_INSIDE_SHARE = 0.35;           // share that start inside a building
 const CIV_HP = 15;                       // three rifle rounds; anything heavier kills at once
@@ -14656,6 +14927,7 @@ const SKIRMISH_FIELD = 640;              // base centres stay inside +-this; the
 const SKIRMISH_LAYOUT_TRIES = 16;        // seeded attempts at a base pair before the fixed fallback
 const SKIRMISH_LAYOUT_TRIES_RELIEF = 96; // more attempts on a mountain map, where steep ground rules many pairs out
 const SKIRMISH_LAYOUT_TRIES_WATER = 320; // and more still where water does: both bases and the ground they level must stay dry (cheap grid look-ups)
+const SKIRMISH_FALLBACK_BEARINGS = 72;   // opposite spots on the base ring tried once the seeded tries run out
 const SKIRMISH_LAYOUT_SALT = 0x5bd1e995; // the layout draws from its own stream, so a seed's waves stay as they were
 const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far to one side of it (m), nearer if the edge is close
 const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
@@ -14679,7 +14951,15 @@ function skirmishLayout(cfg) {
     const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1, r: FORT.r }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2, r: FORT.r };
     if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
   }
-  if (!foe) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }   // never needed with the constants above
+  const fallback = !foe;
+  // out of seeded tries: the first pair of opposite spots on the ring that fits, else the fixed pair (never needed on
+  // any battlefield with the constants above; self-test sweeps the seeds)
+  for (let k = 0; k < SKIRMISH_FALLBACK_BEARINGS && !foe && (relief || tries === SKIRMISH_LAYOUT_TRIES_WATER); k++) {
+    const a = k * TAU / SKIRMISH_FALLBACK_BEARINGS, r = (SKIRMISH_BASE_RING[0] + SKIRMISH_BASE_RING[1]) / 2;
+    const o = { x: Math.cos(a) * r, z: Math.sin(a) * r, r: FORT.r }, e = { x: -o.x, z: -o.z, r: FORT.r };
+    if (flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
+  }
+  if (!foe) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }
   const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
   const ownBase = { x: own.x, z: own.z, r: FORT.r, style: 'fort', team: 0, face, guns: SKIRMISH_OWN_FORT.guns, aa: SKIRMISH_OWN_FORT.aa, garrison: [] };
   const foeBase = { x: foe.x, z: foe.z, r: FORT.r, style: 'fort', team: 1, face: face + PI, guns: diff.guns, aa: diff.aa, garrison: SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran };
@@ -14701,7 +14981,8 @@ function skirmishLayout(cfg) {
       if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
     }
   }
-  return { lay, start, sites, own: ownBase, foe: foeBase };
+  Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
+  return { lay, start, sites, own: ownBase, foe: foeBase, fallback };
 }
 /* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
 function rollSkirmishSeed(sk) {
@@ -16488,6 +16769,11 @@ const TERRAIN_HASH_STRIDE = 37;   // fingerprint every 37th grid height
 const TERRAIN_MESH_GOLDEN = { ashfall: 1263172816, verdant: 559064534, frost: 3612008292 };
 const MESH_HASH_SITES = [{ x: 0, z: 0, r: 120, tag: 'city' }, { x: 400, z: -300, r: 100, tag: 'base' }];
 const MESH_HASH_STRIDE = 7;
+const WATER_FILM_TEST = 0.05;     // water shallower than this (m) at the waterline counts as dry ground in self-test
+const BANK_SLOPE_SLACK = 0.005;  // a carved bank counts as steep only past the uncarved ground's own slope plus this (tan)
+const NEW_MAP_SEEDS = [11, 404, 90210];   // skirmish seeds each new battlefield is played on in self-test
+const NEW_MAP_SWEEP = 20;          // skirmish layouts per new battlefield checked for the fixed fallback in self-test
+const NEW_MAP_BASE_SLOPE = 8;      // a base's levelled yard is at most this steep (deg)
 /* light and sky fingerprints (SelfTest.envHash) of each original battlefield's plain look, recorded from the code before
    weather and time of day: missions m1-m8 must keep it */
 const ENV_GOLDEN = { ashfall: 812752968, verdant: 692631475, frost: 1019776467 };
@@ -16553,6 +16839,7 @@ const BENCH_SCENES = [
   { id: 'air-ashfall', map: 'ashfall', platformId: 'kestrel' },
   { id: 'sk-water', map: 'testwater', platformId: 'bulwark', testMap: TEST_WATER_MAP },   // registered only while it runs
   { id: 'sk-peaks', map: 'testpeaks', platformId: 'bulwark', testMap: TEST_PEAKS_MAP },   // mountains and a dense forest
+  { id: 'sk-jungle', map: 'jungle', platformId: 'bulwark' },   // the heaviest new battlefield: the densest forest, rivers and a sea
 ];
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
 const BENCH_FRAMES = 150;   // frames timed per scene
@@ -16620,6 +16907,52 @@ const SelfTest = {
       if (sp.water !== 'dry' && !(depth > 0 || Flora.nearWater(p.x, p.z))) fault('dry', p);
     }
     return bad;
+  },
+  /* a struct standing in water that should not: anything but a bridge or a plant that grows in water (mangroves) */
+  builtInWater(s) {
+    if (s.type === 'bridge' || s.plant && FLORA[s.plant.sp].water !== 'dry') return false;
+    const r = Math.min(s.hx, s.hz), deep = (x, z) => Water.depth(x, z) > WATER_FILM_TEST;   // a film at the waterline is a wet beach
+    return deep(s.x, s.z) || deep(s.x - r, s.z - r) || deep(s.x + r, s.z - r) || deep(s.x - r, s.z + r) || deep(s.x + r, s.z + r);
+  },
+  /* the base pair skirmishLayout picked before bases checked the ground: the first seeded pair inside the field and far apart */
+  oldBasePick(seed) {
+    const rng = makeRng((seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
+    const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
+    for (let k = 0; k < SKIRMISH_LAYOUT_TRIES; k++) {
+      const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
+      const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
+      const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1 }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2 };
+      if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP) return [o, e];
+    }
+    return null;
+  },
+  /* what is wrong with a skirmish base's levelled yard in the battle in play ('' when it is dry and gentle) */
+  yardFault(b) {
+    const r = FORT.r + SITE_PAD, lim = Math.tan(NEW_MAP_BASE_SLOPE * DEG);
+    for (let dz = -r; dz <= r; dz += Terrain.G) for (let dx = -r; dx <= r; dx += Terrain.G) {
+      if (dx * dx + dz * dz > r * r) continue;
+      const x = b.x + dx, z = b.z + dz;
+      if (Water.at(x, z)) return 'water at ' + Math.round(x) + ',' + Math.round(z);
+      if (Terrain.slope(x, z) > lim) return (Math.atan(Terrain.slope(x, z)) / DEG).toFixed(1) + ' deg at ' + Math.round(x) + ',' + Math.round(z);
+    }
+    return '';
+  },
+  /* road points of the battle in play that stand in water with no bridge deck over them */
+  unbridged() {
+    let n = 0;
+    for (const rd of W.map.roads) for (const q of Roads.samples(rd.pts)) if (Water.at(q.x, q.z) && Water.deckTop(q.x, q.z, Infinity) === -Infinity) n++;
+    return n;
+  },
+  /* the steepest shore of an open sea (tan): ground within 1.5 m of its surface, inside the ground bounds */
+  openShoreSlope(md, b) {
+    const grid = Terrain.baseGrid(md), N = Terrain.N, G = Terrain.G;
+    let worst = 0;
+    for (let j = 1; j < N; j++) for (let i = 1; i < N; i++) {
+      const o = j * (N + 1) + i;
+      if (Math.max(Math.abs(-WORLD_HALF + i * G), Math.abs(-WORLD_HALF + j * G)) > GROUND_BOUND || Math.abs(grid[o] - b.level) > 1.5) continue;
+      worst = Math.max(worst, Math.hypot(grid[o + 1] - grid[o - 1], grid[o + N + 1] - grid[o - N - 1]) / (2 * G));
+    }
+    return worst;
   },
   /* lays a straight ramp of angleDeg rising toward +z from z = 0 for run m (then flat) over the whole terrain grid (undone by the next Terrain.build) */
   rampTerrain(angleDeg, run) {
@@ -18159,6 +18492,12 @@ const SelfTest = {
           for (const c of L.lay.cities) if (!Terrain.siteFlat(md, c.x, c.z, c.r + SITE_PAD, SITE_MAX_SLOPE)) { citiesOk = false; why = 'seed ' + seed + ' ' + c.kind; }        }
         this.check('skirmish bases on a mountain map stand on gentle ground, levelled ground included', basesOk, why);
         this.check('skirmish districts on a mountain map never sit on slopes above ' + SITE_MAX_SLOPE + ' deg, levelled ground included', citiesOk, why);
+        // a seed whose bases the old rule (no slope check) put on the mountainside gets gentle ground now
+        const steepBase = (b) => !Terrain.siteFlat(md, b.x, b.z, FORT.r + SITE_PAD, BASE_MAX_SLOPE);
+        let oldSeed = 0;
+        for (let seed = 1; seed <= 64 && !oldSeed; seed++) { const old = this.oldBasePick(seed); if (old && old.some(steepBase)) oldSeed = seed; }
+        const nowL = oldSeed ? skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'testpeaks', seed: oldSeed })) : null;
+        this.check('a seed the old site rule put on a slope gets gentle ground', !!nowL && !steepBase(nowL.own) && !steepBase(nowL.foe), 'seed ' + oldSeed);
         // a real battle on the mountain map
         let err = '';
         try {
@@ -18253,6 +18592,7 @@ const SelfTest = {
         // every map with water: no water outside the carve (a grid point no body reached reads dry), and banks a vehicle can climb
         for (const id of Object.keys(MAPS).filter((k) => mapDef(k).water.length)) {
           const m = mapDef(id), grid = Terrain.baseGrid(m), L = Terrain.baseWater[Terrain.gridKey(m)].levels, N = Terrain.N, G = Terrain.G, lim = Math.tan(m.maxSlope * DEG);
+          const natural = (i, j) => Terrain.baseHeight(-WORLD_HALF + i * G, -WORLD_HALF + j * G, m);
           Terrain.build(m, []);
           let ghosts = 0, ghostAt = '', steep = 0, steepAt = '';
           for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
@@ -18260,7 +18600,10 @@ const SelfTest = {
             if (L[o] === -Infinity && Water.depth(x, z) > 0.05) { ghosts++; ghostAt = x + ',' + z; }
             if (Math.max(Math.abs(x), Math.abs(z)) > GROUND_BOUND || grid[o] === Terrain.baseHeight(x, z, m)) continue;   // carved ground a unit can reach
             const s = Terrain.slope(x, z);
-            if (s > lim) { steep++; steepAt = x + ',' + z + ' ' + (Math.atan(s) / DEG).toFixed(1) + ' deg'; }
+            if (s <= lim) continue;
+            // the edge rise is steep by nature: only a carve that steepens the ground counts
+            const nat = Math.hypot(natural(i + 1, j) - natural(i - 1, j), natural(i, j + 1) - natural(i, j - 1)) / (2 * G);
+            if (s > nat + BANK_SLOPE_SLACK) { steep++;steepAt = x + ',' + z + ' ' + (Math.atan(s) / DEG).toFixed(1) + ' deg'; }
           }
           this.check('battlefield ' + id + ' has no water outside its carved bodies', ghosts === 0, ghosts + ' wet grid points, last at ' + ghostAt);
           this.check('battlefield ' + id + ' carves no bank or channel wall steeper than its maxSlope', steep === 0, steep + ' points, last at ' + steepAt);
@@ -18441,8 +18784,8 @@ const SelfTest = {
         } catch (e) { err = e.message; }
         this.check('a skirmish starts on the water map', !err && W.map.id === 'testwater' && !!W.player && !Water.at(W.player.x, W.player.z) && W.bridges.length > 0, err);
         if (!err) {
-          const wetStruct = W.plain.find((s) => s.type !== 'bridge' && Water.wetIn(s.x, s.z, Math.min(s.hx, s.hz)));
-          this.check('nothing but bridges is built in water', !wetStruct, wetStruct && wetStruct.type + ' at ' + Math.round(wetStruct.x) + ',' + Math.round(wetStruct.z));
+          const wetStruct = W.plain.find((s) => this.builtInWater(s));
+          this.check('nothing but bridges (and water plants) is built in water',!wetStruct, wetStruct && wetStruct.type + ' at ' + Math.round(wetStruct.x) + ',' + Math.round(wetStruct.z));
           Object.assign(W.player, { x: lake.x, z: lake.z, y: Terrain.h(lake.x, lake.z) });
           Cam.update(STEP); Game.render(STEP);
           // the camera under the lake, then above dry land
@@ -18967,6 +19310,47 @@ const SelfTest = {
         this.check('at night day animals sleep and day birds roost; night animals stay up', day.length > 0 && asleep >= day.length * 0.6 && down >= roosts.length * 0.5 && FAUNA.filter((d) => d.night).every((d) => !Fauna.resting(d)), asleep + ' of ' + day.length + ' asleep, ' + down + ' of ' + roosts.length + ' flocks down');
       } finally { S.quality = keepQuality; QUALITY.high.faunaCap = keepCap; Clock.look.night = keepNight; delete MAPS.testpeaks; Game.quitToMenu(); }
     });
+    // the battlefields added after the original three (test maps are registered only while their own checks run)
+    const newMaps = Object.keys(MAPS).filter((id) => !TERRAIN_GOLDEN[id] && !mapDef(id).hidden);
+    t('new battlefields: data and sites', () => {
+      this.check('ten new battlefields', newMaps.length === 10, newMaps.join(','));
+      for (const id of newMaps) {
+        const m = MAPS[id], md = mapDef(id), sc = SCENERY[id];
+        this.check('battlefield ' + id + ' has a name, a known biome, a description and known hazards', MAP_ID_RE.test(id) && !!m.name && !!m.desc && !!BIOME_NAMES[md.biome] && md.hazards.length > 0 && md.hazards.every((h) => HAZARD_IDS.indexOf(h) >= 0) && Array.isArray(md.lanes) && md.airport === null, md.biome + ' ' + md.hazards);
+        // mission scenery is trusted as written: every site must be dry and gentle, levelled ground included
+        const fits = (c, deg) => Water.siteDry(md, c.x, c.z, c.r + SITE_PAD + SITE_FADE) && Terrain.siteFlat(md, c.x, c.z, c.r + SITE_PAD, deg);
+        const bad = sc ? [['city', sc.city, SITE_MAX_SLOPE], ['base', sc.base, BASE_MAX_SLOPE]].concat((sc.towns || []).map((c, k) => ['town ' + k, c, SITE_MAX_SLOPE])).filter((e) => !fits(e[1], e[2])).map((e) => e[0]) : ['no scenery'];
+        this.check('battlefield ' + id + ' places its city, base and towns on dry, gentle ground', bad.length === 0, bad.join(', '));
+        let fallbacks = 0;
+        for (let k = 1; k <= NEW_MAP_SWEEP; k++) if (skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed: k * 7919 })).fallback) fallbacks++;
+        this.check('battlefield ' + id + ' never needs the fixed skirmish layout (' + NEW_MAP_SWEEP + ' seeds)', fallbacks === 0, fallbacks + ' fallbacks');
+        const open = md.water.find((b) => b.type === 'open');
+        const shore = open ? this.openShoreSlope(md, open) : 0;
+        if (open) this.check('battlefield ' + id + ' open sea has shores a vehicle can climb', shore <= Math.tan(md.maxSlope * DEG), (Math.atan(shore) / DEG).toFixed(1) + ' deg');
+      }
+    });
+    for (const id of newMaps) {
+      t('new battlefield ' + id + ' in play', () => {
+        const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: id, size: 'small', seed, random: false, support: 'none' }) });
+        try {
+          NEW_MAP_SEEDS.forEach((seed, k) => {
+            // the first seed is built twice from nothing: a host and a guest must carve the same world
+            let hash = 0;
+            if (k === 0) { Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {}; Game.startSession(sk(seed)); hash = worldHash(); Terrain.cache.length = 0; Terrain.baseGrids = {}; Terrain.baseWater = {}; }
+            Game.startSession(sk(seed));
+            if (k === 0) this.check('battlefield ' + id + ' builds the same world (co-op hash) twice', hash === worldHash(), hash + ' ' + worldHash());
+            for (let i = 0; i < 30; i++) Game.tick(STEP);
+            const tag = 'battlefield ' + id + ' seed ' + seed + ': ', L = skirmishLayout(sk(seed).skirmish), p = W.player;
+            const yards = [L.own, L.foe].map((b) => this.yardFault(b)).filter((f) => f);
+            this.check(tag + 'both bases on dry ground no steeper than ' + NEW_MAP_BASE_SLOPE + ' deg', yards.length === 0, yards.join('; '));
+            const wet = W.plain.find((s) => this.builtInWater(s));
+            this.check(tag + 'nothing but bridges and water plants built in water', !wet, wet && wet.type + ' at ' + Math.round(wet.x) + ',' + Math.round(wet.z));
+            this.check(tag + 'the player starts on the ground, clear of buildings', !!p && !p.dead && Math.abs(p.y - Terrain.h(p.x, p.z)) < 2 && !groundBlocked(p.x, p.z, p.radius * 0.9, p.y + 0.5, p.height), p && Math.round(p.x) + ',' + Math.round(p.z));
+            if (k === 0) this.check(tag + 'every road crosses water on a bridge', this.unbridged() === 0, this.unbridged() + ' road points in water');
+          });
+        } finally { Game.quitToMenu(); }
+      });
+    }
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -19821,7 +20205,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
+    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
