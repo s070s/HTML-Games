@@ -22209,7 +22209,20 @@ function spawnGroup(list, x, z, opts) {
 
 /* ---------- objectives ---------- */
 const RESCUE_R = 24, RESCUE_HOLD = 5;              // a rescue spot is boarded by staying this close (m) this long (s)
-const RESCUE_AIR_H = 30, RESCUE_AIR_SPEED = 15;    // an aircraft boards only this low over the ground (m) and this slow (m/s)
+// an aircraft boards this close (m), this low over the ground (m) and slower than this (m/s): above the Gunship's slowest
+// flight (air.min with the airbrake on), as no aircraft can hover; fighters fly too fast to take people aboard
+const RESCUE_AIR_R = 40, RESCUE_AIR_H = 30, RESCUE_AIR_SPEED = 50;
+const PATROL_SIGHT_MIN = 60, PATROL_SIGHT_MAX = 100;   // m14: the m its patrols see a soldier from at Veteran stays in this range (self-test)
+// m15: its two lava flows, [s after the evacuation starts, x, z]: sources on the cone whose flows pass about 70 m north of
+// the observatory, one running west across the road in, the other east
+const M15_LAVA = [[12, 100, -80], [40, 110, -60]];
+const M16_JOIN = 200, M16_WAIT = 60;   // m16's convoy sets off once a player is this close (m), or after this long (s)
+const M16_AMBUSH_GAP = 450;            // m16's ambushes stay at least this far (m) from the harbour and the convoy's start (self-test)
+const M17_RADAR_HP = 2.5, M17_WAVE_GAP = 600;   // m17: the radar's hull (x a generator's), and how far (m) from it every wave forms
+const RAID_SHELTER_GAP = 150;   // m18's raiders give up once they or the player they fight are this close (m) to the storm shelter, where players respawn
+// m18's storm shelter, the start: out of reach of the AA batteries at the farmland's enemy base even for a jet
+const M18_SHELTER = { x: 40, z: 240 };
+const M18_RAID_FROM = 300, M18_FIELD = 680;     // m18's raids form this far (m) beyond their farm, inside +-this
 const PATROL_SIGHT = 110;   // base sight (m) of m14's patrols at dusk in the jungle: about 80 m in its rain at Veteran, so infantry can creep up
 function makeObjective(o) {
   return Object.assign({ status: 'inactive', primary: true, deps: [], progress: 0, tick() {}, text() { return ''; }, markers() { return []; }, finalize() {}, announced: false }, o);
@@ -22357,9 +22370,15 @@ const Obj = {
         this.progress = this.saved / this.spots.length;
         if (this.saved === this.spots.length) this.status = 'complete';
       },
-      /* a ground unit, or an aircraft hovering low and slow, close enough to take the people aboard */
+      /* a living human player boarding spot s */
       beside(s) {
-        return W.platforms.some((p) => p.isPlayer && p.team === 0 && !p.dead && Math.hypot(p.x - s.x, p.z - s.z) < this.r && (p.kind !== 'air' || (p.y - Terrain.h(p.x, p.z) < RESCUE_AIR_H && Math.abs(p.speed) < RESCUE_AIR_SPEED)));
+        return W.platforms.some((p) => p.isPlayer && p.team === 0 && !p.dead && this.boards(p, s));
+      },
+      /* a ground unit close enough to take the people aboard, or an aircraft passing low and slow over them */
+      boards(p, s) {
+        const d = Math.hypot(p.x - s.x, p.z - s.z);
+        if (p.kind !== 'air') return d < this.r;
+        return d < RESCUE_AIR_R && p.y - Terrain.h(p.x, p.z) < RESCUE_AIR_H && Math.abs(p.speed) < RESCUE_AIR_SPEED;
       },
       text() {
         const busy = this.spots.find((s) => !s.saved && s.held > 0);
@@ -22969,19 +22988,18 @@ const MISSIONS = [
     id: 'm15', name: 'Ember Run', type: 'Extraction', map: 'volcano', stars: 3, timeLimit: 900, recommended: 'Heavy Mech, Tank or Hovercraft',
     brief: 'The volcano is waking up. A survey team sheltering at the observatory on its southern flank holds the only eruption data. Clear the hostiles off the site and stand in it while the data downloads, then hold out until the dropship arrives and fight your way to the east beach for pickup. Quakes will shake the island and lava will pour down the slopes; the rings on the ground warn where it strikes. Optionally keep the survey shelter standing.',
     env: { weather: 'overcast', time: 'day' }, hazards: ['lava', 'earthquake'], hazardScript: true, unlock: 'volcanicEruption',
-    start: { x: -520, z: -60, yaw: 1.78 },
-    sites: [{ x: -520, z: -60, r: 34, tag: 'pad' }, { x: 130, z: -200, r: 60, tag: 'obj' }, { x: 600, z: -170, r: 40, tag: 'open' }],
+    start: { x: -560, z: -60, yaw: 1.78 },   // on the west beach: out of sight of the observatory's guns, even for a jet 1 s on
+    sites: [{ x: -560, z: -60, r: 34, tag: 'pad' }, { x: 130, z: -200, r: 60, tag: 'obj' }, { x: 600, z: -170, r: 40, tag: 'open' }],
     build(ctx) {
       const m = ctx.m, obs = { x: 130, z: -200 }, beach = { x: 600, z: -170, r: 40 };
       const shelter = objStruct('depot', 130, -150, 'Survey Shelter', 0);
       let waves = 0;
       m.add(Obj.capture({ id: 'data', title: 'Download the survey data', zone: { x: obs.x, z: obs.z, r: 50 }, duration: 30, status: 'active', friends: 0, foes: 0 }));
       m.add(Obj.survive({ id: 'evac', title: 'Hold out for the dropship', deps: ['data'], duration: 75, holdTime: 10, zone: beach,
-        onActivate(mm) {   // the eruption begins: a quake under the observatory, then lava down the flank
+        onActivate(mm) {   // the eruption begins: a quake under the observatory, then two flows off the cone above it
           const t0 = mm.time;
           mm.at(t0 + 1, () => missionHazard('earthquake', obs.x, obs.z, 5));
-          mm.at(t0 + 12, () => missionHazard('lava', obs.x, obs.z, HAZARD_WARN, obs.x, obs.z));
-          mm.at(t0 + 40, () => missionHazard('lava', obs.x + 150, obs.z, HAZARD_WARN, obs.x + 150, obs.z));
+          for (const [dt, x, z] of M15_LAVA) mm.at(t0 + dt, () => missionHazard('lava', x, z, HAZARD_WARN));
           mm.at(t0 + 62, () => missionHazard('earthquake', 360, -180, 6));
           mm.every(25, () => {
             if (waves >= 3 || mm.get('evac').phase !== 'survive') return;
@@ -22991,7 +23009,6 @@ const MISSIONS = [
           }, t0 + 8);
         },
         onExtract() {
-          missionHazard('lava', 360, -180, HAZARD_WARN, 360, -180);
           spawnGroup(['tank', 'buggy', 'lightMech'], beach.x, beach.z, { radius: 110, goal: { x: beach.x, z: beach.z } });
         } }));
       m.add(Obj.guard({ id: 'shelter', title: 'Keep the survey shelter standing', struct: shelter, primary: false, status: 'active', label: 'SHELTER', finalize() { if (this.status === 'active') this.status = 'complete'; } }));
@@ -22999,21 +23016,22 @@ const MISSIONS = [
       ctx.later(() => {
         spawnGroup(['tank', 'lightMech', 'infantry', 'infantry', 'rpgTrooper'], obs.x, obs.z, { radius: 55 });
         spawnGroup(['turret', 'turret'], obs.x, obs.z, { radius: 40 });
-        spawnGroup(['buggy', 'lightMech'], -150, -60, { radius: 40 });
+        spawnGroup(['buggy', 'lightMech'], 80, -60, { radius: 20 });   // a picket on the road below it, out of sight of the start, even for a jet 1 s on
       });
     },
   },
   {
     id: 'm16', name: 'White Crossing', type: 'Escort Convoy', map: 'tundra', stars: 3, timeLimit: 840, recommended: 'Skua Hovercraft, Gunship or Medium Mech',
-    brief: 'The storm has broken up the lake ice, so trucks cannot reach the northern outpost. Three supply hovercraft will run up the river and straight across the open lake instead; at least two must arrive. Ambushes wait at the river mouth and on the far shore, a gunboat hunts on the lake, lightning strikes in the storm, and the snow on the northern slopes is ready to slide. Clear the way ahead of the convoy. Optionally deliver all three.',
+    brief: 'The storm has broken up the lake ice, so trucks cannot reach the northern outpost. Three supply hovercraft will cross the open lake instead and set off when you join them; at least two must arrive. Ambushes wait on the north shore and at the outpost, a gunboat comes hunting once the convoy is under way, lightning strikes in the storm, and the snow on the northern slopes is ready to slide. Clear the way ahead of the convoy. Optionally deliver all three.',
     env: { weather: 'storm', time: 'day' }, hazards: ['avalanche', 'lightning'], hazardScript: true, unlock: 'katana',
-    start: { x: -150, z: -40, yaw: -0.88 },
-    sites: [{ x: -150, z: -40, r: 34, tag: 'pad' }, { x: -520, z: 640, r: 40, tag: 'open' }],
+    // east of the lake, out of reach of the AA batteries at the southern base and the outpost even for a jet 1 s on
+    start: { x: 100, z: 60, yaw: 0 },
+    sites: [{ x: 100, z: 60, r: 34, tag: 'pad' }, { x: -520, z: 640, r: 40, tag: 'open' }],
     build(ctx) {
       const m = ctx.m, dest = { x: -520, z: 640 };
       const path = [{ x: -300, z: 300 }, { x: -190, z: 460 }, { x: -350, z: 600 }, dest];   // over the lake, then along its north shore
       const craft = [];
-      let slides = 0;
+      let slides = 0, leftAt = -1;
       ctx.later(() => {
         for (let i = 0; i < 3; i++) {
           const c = spawnUnit('hoverConvoy', -330 - i * 28, 100 + i * 8, { team: 0, waypoints: path, radius: 60, yaw: 0, onArrive: (p) => { p.arrivedFlag = true; p.dead = true; W.msg('HOVERCRAFT ARRIVED'); } });
@@ -23021,12 +23039,20 @@ const MISSIONS = [
         }
         m.add(Obj.escort({ id: 'convoy', title: 'Escort the hovercraft', units: craft, required: 2, dest, status: 'active' }));
         m.add(Obj.escort({ id: 'perfect', title: 'Deliver every hovercraft', units: craft, required: 3, perfect: true, primary: false, dest, status: 'active' }));
-        spawnGroup(['tank', 'rpgTrooper', 'turret'], -60, 420, { radius: 40 });   // on the east shore, in reach of the crossing
-        spawnGroup(['medMech', 'tank', 'turret', 'aaTurret'], -420, 600, { radius: 60 });
+        // both ambushes out of turret sight of the harbour and the convoy's start (M16_AMBUSH_GAP), in reach of the crossing
+        spawnGroup(['tank', 'rpgTrooper', 'turret'], -240, 700, { radius: 30 });   // on the north shore
+        spawnGroup(['medMech', 'tank', 'turret', 'aaTurret'], -460, 680, { radius: 40 });   // at the outpost
       });
-      m.at(40, () => { spawnUnit('gunboat', -440, 420, { radius: 80 }); W.msg('ENEMY GUNBOAT ON THE LAKE', 'alarm'); });
-      m.at(12, () => { W.msg('CONVOY MOVING OUT'); craft.forEach((c) => { if (c.ai) c.ai.enabled = true; }); });
-      m.at(110, () => { spawnGroup(['jet', 'jet'], 0, 0, { goal: null }); W.msg('ENEMY FIGHTERS IN THE STORM'); });
+      m.every(0.5, () => {   // the convoy sets off once a player joins it, or after M16_WAIT s; the gunboat and fighters follow
+        if (leftAt < 0) {
+          const lead = craft.find((c) => !c.dead), p = lead && nearestPlayer(lead.x, lead.z);
+          if (m.time < M16_WAIT && !(p && Math.hypot(p.x - lead.x, p.z - lead.z) < M16_JOIN)) return;
+          leftAt = m.time;
+          W.msg('CONVOY MOVING OUT'); craft.forEach((c) => { if (c.ai) c.ai.enabled = true; });
+          m.at(leftAt + 25, () => { spawnUnit('gunboat', -300, 450, { radius: 80 }); W.msg('ENEMY GUNBOAT ON THE LAKE', 'alarm'); });
+          m.at(leftAt + 90, () => { spawnGroup(['jet', 'jet'], 0, 0, { goal: null }); W.msg('ENEMY FIGHTERS IN THE STORM'); });
+        }
+      });
       m.every(1, () => {   // the far slopes let go as the lead craft nears the outpost
         const lead = craft.find((c) => !c.dead && !c.arrivedFlag);
         if (!lead || slides >= 2 || Math.hypot(lead.x - dest.x, lead.z - dest.z) > 320 - slides * 140) return;
@@ -23039,28 +23065,29 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm17', name: 'Tarmac Stand', type: 'Defend Airport', map: 'metro', stars: 3, timeLimit: 0, recommended: 'Interceptor, Heavy Mech or Tank',
-    brief: 'The metro airport is the last way out of the city, and the enemy wants it shut. Hold it for five minutes: keep the airport radar alive while armour comes along the south bank and fighters and gunships come in over the river. The ground is unstable, so expect earthquakes, and a shaken fuel farm may leak toxic gas. Land or park on the apron to repair and rearm. Allies will help.',
+    id: 'm17', name: 'Tarmac Stand', type: 'Defend Airport', map: 'metro', stars: 3, timeLimit: 0, recommended: 'Interceptor, Heavy Mech or Tank (a ship deploys as a Heavy Mech: no harbour here)',
+    brief: 'The metro airport is the last way out of the city, and the enemy wants it shut. Hold it for five minutes: keep the airport radar alive while armour comes along the south bank from the west and the north-west, with fighters and gunships among them. The ground is unstable, so expect earthquakes, and a shaken fuel farm may leak toxic gas. Land or park on the apron to repair and rearm. Allies will help.',
     env: { weather: 'overcast', time: 'dusk' }, hazards: ['earthquake', 'gas'], hazardScript: true, unlock: 'shipSam',
-    start: { x: 100, z: -250, yaw: 2.23 },
-    sites: [{ x: 100, z: -250, r: 34, tag: 'pad' }],
+    start: { x: 560, z: -305, yaw: Math.PI },   // just north of the airport's ground, facing the radar
+    sites: [{ x: 560, z: -305, r: 34, tag: 'pad' }],
     build(ctx) {
       const m = ctx.m, ap = W.airports[0].spot;   // Metro always lays its big airport (D23)
       // the radar stands east of the apron, the fuel farm behind it (AIRFIELD.airport), the middle of the field for the quakes
       const rp = Airports.at(ap, 280, 125), fuel = Airports.at(ap, 192, 183), mid = Airports.at(ap, 0, 90);
-      const radar = objStruct('generator', rp.x, rp.z, 'Airport Radar', 0, { hpMult: 1.8 });
+      const radar = objStruct('generator', rp.x, rp.z, 'Airport Radar', 0, { hpMult: M17_RADAR_HP });
       const def = m.add(Obj.defend({ id: 'def', title: 'Defend the airport radar', struct: radar, duration: 300, status: 'active',
         markers() { return [{ x: radar.x, y: radar.y + radar.h + 3, z: radar.z, label: 'RADAR', kind: 'defend' }]; } }));
       m.add(Obj.count({ id: 'kills', title: 'Destroy 25 hostiles', need: 25, status: 'active' }));
       m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
       ctx.later(() => {
-        spawnGroup(['allyTank', 'allyMech'], radar.x - 40, radar.z + 50, { team: 0, radius: 40 });
+        spawnGroup(['allyTank', 'allyMech', 'allyMech'], radar.x - 40, radar.z + 50, { team: 0, radius: 40 });   // as many as m3's
         for (const a of W.platforms) if (a.team === 0 && a.ai) a.ai.home = { x: radar.x, z: radar.z };
       });
       m.at(95, () => { if (missionHazard('earthquake', mid.x, mid.z, 6)) W.msg('SEISMIC ALERT: TAKE COVER', 'alarm'); });
       m.at(108, () => missionHazard('gas', fuel.x, fuel.z, 4));
       m.at(215, () => missionHazard('earthquake', mid.x - 200, mid.z, 6));
-      const from = [{ x: -330, z: -480, name: 'WEST' }, { x: 690, z: -330, name: 'EAST' }, { x: 430, z: -260, name: 'NORTH' }];
+      // every wave forms at least M17_WAVE_GAP m from the radar, on the airport's side of the river
+      const from = [{ x: -330, z: -480, name: 'WEST' }, { x: -60, z: -200, name: 'NORTH-WEST' }, { x: 90, z: -120, name: 'NORTH' }];
       const waves = [['buggy', 'buggy', 'infantry', 'infantry'], ['tank', 'lightMech', 'rpgTrooper'], ['jet', 'jet', 'buggy'], ['medMech', 'tank', 'tank'], ['gunship', 'lightMech', 'lightMech'], ['heavyMech', 'tank', 'buggy'], ['jet', 'jet', 'medMech', 'medMech'], ['gunship', 'heavyMech', 'tank']];
       let wave = 0;
       m.every(36, () => {
@@ -23076,10 +23103,10 @@ const MISSIONS = [
     id: 'm18', name: 'Eye of the Storm', type: 'Rescue', map: 'farmland', stars: 2, timeLimit: 720, recommended: 'A fast ground platform or a Gunship',
     brief: 'A tornado outbreak is tearing across the plains and four farm families are cut off. Reach each farm and stay beside it for a few seconds while the family climbs aboard, then bring everyone back to the storm shelter at the start. A new funnel crosses the fields every forty seconds or so, heading for the farms; keep clear of it. Raiders are looting the farms. Optionally finish within six minutes.',
     env: { weather: 'storm', time: 'day' }, hazards: ['tornado', 'wildfire'], hazardScript: true, unlock: 'plasmaTornado',
-    start: { x: 280, z: -20, yaw: 0 },
-    sites: [{ x: 280, z: -20, r: 34, tag: 'pad' }, { x: -420, z: 0, r: 30, tag: 'obj' }, { x: -160, z: 160, r: 30, tag: 'obj' }, { x: 230, z: 180, r: 30, tag: 'obj' }, { x: 560, z: 120, r: 30, tag: 'obj' }],
+    start: { x: M18_SHELTER.x, z: M18_SHELTER.z, yaw: 1.88 },   // facing the Orchard farm, the nearest
+    sites: [{ x: M18_SHELTER.x, z: M18_SHELTER.z, r: 34, tag: 'pad' }, { x: -420, z: 0, r: 30, tag: 'obj' }, { x: -160, z: 160, r: 30, tag: 'obj' }, { x: 230, z: 180, r: 30, tag: 'obj' }, { x: 560, z: 120, r: 30, tag: 'obj' }],
     build(ctx) {
-      const m = ctx.m, shelter = { x: 280, z: -20, r: 30 };
+      const m = ctx.m, shelter = { x: M18_SHELTER.x, z: M18_SHELTER.z, r: 30 };
       const farms = [{ x: -420, z: 0, name: 'Hale farm' }, { x: -160, z: 160, name: 'Brook farm' }, { x: 230, z: 180, name: 'Orchard farm' }, { x: 560, z: 120, name: 'Mill farm' }];
       for (const f of farms) { addStruct('house', f.x + 16, f.z + 12, {}); addStruct('warehouse', f.x - 18, f.z - 10, { swap: true }); }
       const rescue = m.add(Obj.rescue({ id: 'rescue', title: 'Rescue the farm families', spots: farms.map((f) => ({ x: f.x, z: f.z, name: f.name, held: 0, saved: false })), status: 'active' }));
@@ -23087,10 +23114,14 @@ const MISSIONS = [
       m.add(Obj.timeBound({ id: 'fast', title: 'Finish within 6:00', limit: 360 }));
       m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
       let twisters = 0, raids = 0;
-      const next = () => {   // the family still waiting nearest a player (the shelter once all are aboard)
-        const p = nearestPlayer(shelter.x, shelter.z) || { x: shelter.x, z: shelter.z };
+      const raiders = [];
+      const next = () => {   // the family still waiting nearest any player (from the shelter with no player alive; the shelter once all are aboard)
         let best = null, bd = Infinity;
-        for (const s of rescue.spots) { const d = Math.hypot(s.x - p.x, s.z - p.z); if (!s.saved && d < bd) { bd = d; best = s; } }
+        for (const s of rescue.spots) {
+          if (s.saved) continue;
+          const p = nearestPlayer(s.x, s.z) || shelter, d = Math.hypot(s.x - p.x, s.z - p.z);
+          if (d < bd) { bd = d; best = s; }
+        }
         return best || shelter;
       };
       m.every(40, () => {   // a funnel forms 320 m west of its farm and runs at it (its site finder aims it)
@@ -23101,9 +23132,20 @@ const MISSIONS = [
       m.every(55, () => {
         if (raids >= 5 || rescue.status !== 'active') return;
         const t = next();
-        spawnGroup(raids % 2 ? ['buggy', 'buggy', 'infantry'] : ['buggy', 'tank'], t.x + 300, t.z - 260, { radius: 40, goal: { x: t.x, z: t.z } });
+        // they form beyond the farm, on its far side from the shelter
+        const farm = { x: t.x, z: t.z }, away = Math.atan2(t.x - shelter.x, t.z - shelter.z);
+        const sx = clamp(t.x + Math.sin(away) * M18_RAID_FROM, -M18_FIELD, M18_FIELD), sz = clamp(t.z + Math.cos(away) * M18_RAID_FROM, -M18_FIELD, M18_FIELD);
+        spawnGroup(raids % 2 ? ['buggy', 'buggy', 'infantry'] : ['buggy', 'tank'], sx, sz, { radius: 40, goal: farm }).forEach((u) => { u.raidFarm = farm; raiders.push(u); });
         W.msg('RAIDERS SIGHTED NEAR ' + (t.name || 'THE SHELTER').toUpperCase()); raids++;
       }, 35);
+      // raiders give up near the shelter, where players respawn (they shell it from 200 m), and drive back to their farm
+      const nearShelter = (q) => !!q && Math.hypot(q.x - shelter.x, q.z - shelter.z) < RAID_SHELTER_GAP;
+      m.every(1, () => {
+        for (const u of raiders) {
+          if (u.dead || !u.ai || u.ai.sight === 0 || !(nearShelter(u) || (u.ai.target && u.ai.target.isPlayer && nearShelter(u.ai.target)))) continue;
+          u.ai.sight = 0; u.ai.target = null; u.target = null; u.ai.assault = null; u.ai.goal = u.raidFarm;
+        }
+      });
     },
   },
 ];
@@ -30247,7 +30289,7 @@ const SelfTest = {
       }
     });
     t('road traffic', () => {
-      const keepDiff = S.difficulty, keepRandom = Math.random, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z };
+      const keepDiff = S.difficulty, keepRandom = Math.random, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible;
       const SECONDS = 60, SLACK = 0.25, SEED = 7;   // the run, how far two cars may touch (m), the battle's seed
       // the shortest distance between segments a0-a1 and b0-b1 on the ground (a car's capsule is its centre line, hw thick)
       const segDist = (ax, az, bx, bz, cx, cz, dx, dz) => {
@@ -30367,16 +30409,14 @@ const SelfTest = {
         const car = W.player;
         this.check('taken: the player drives a platform of that car in its paint, its driver steps out, the car leaves the traffic', car !== human && car.def.id === 'cv_' + ride.v.id && car.civCol === ride.col && T2.cars.indexOf(ride) < 0 && lane2.cars.indexOf(ride) < 0 && zone2.civs.length === civs2 + 1);
         // drawn: the vehicles near the camera (whatever the last frame's view)
-        const keepVisible = R.visible;
         R.cam.x = ride.x + 30; R.cam.y = ride.y + 10; R.cam.z = ride.z + 30;
         R.visible = () => true;
         R.beginBatch('opaque');
         Traffic.draw();
         R.endBatch('opaque');
-        R.visible = keepVisible;
         this.check('the traffic and the parked vehicles near the camera are drawn', T2.drawn > 0, T2.drawn + ' drawn');
       } finally {
-        Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Math.random = keepRandom; R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         S.difficulty = keepDiff; Game.quitToMenu();
       }
     });
@@ -30849,7 +30889,9 @@ const SelfTest = {
           this.check('mission ' + id + ' starts with its objectives', Game.state === 'playing' && m.state === 'running' && ids(m) === NEW[id][1] && m.objectives.some((o) => o.primary && o.status === 'active'), ids(m));
         }
         this.check('m14 sends any pick in on foot', start('m14', 'kestrel') && W.player.def.id === ON_FOOT.infantry && Game.cfg.platformId === ON_FOOT.infantry);
-        this.check('m14 patrols see a soldier from about 80 m only', W.platforms.filter((p) => p.team === 1 && p.def.id === ON_FOOT.infantry && p.ai && p.ai.sight === PATROL_SIGHT).length >= 12);
+        const patrols = W.platforms.filter((p) => p.team === 1 && p.def.id === ON_FOOT.infantry && p.ai && p.ai.sight === PATROL_SIGHT);
+        // a squad of three at each of the three radar sites at least (spawn groups vary in size)
+        this.check('m14 patrols see a soldier from about 80 m only', patrols.length >= 9 &&patrols.every((p) => p.ai.sightRange() >= PATROL_SIGHT_MIN && p.ai.sightRange() <= PATROL_SIGHT_MAX), patrols.length + ' patrols, ' + (patrols[0] ? Math.round(patrols[0].ai.sightRange()) : '-') + ' m');
         const radar = start('m17', 'bulwark').get('def').struct;
         this.check('m17 lays the big airport with the radar on its ground', W.airports[0] && W.airports[0].spot.kind === 'airport' && Airports.gap(W.airports[0].spot, radar.x, radar.z) < SITE_FADE);
         for (const id of Object.keys(OLD)) {
@@ -30898,6 +30940,111 @@ const SelfTest = {
         Save.data.career = saved.career; Save.data.unlocked = saved.unlocked; Save.data.best = saved.best; Save.persist = saved.persist;
         S.difficulty = keepDiff; Game.quitToMenu();
       }
+    });
+    t('missions P7b rules', () => {
+      // Obj.rescue: who boards, and a hold that runs down while nobody is there
+      const keepDiff = S.difficulty, keepMH = missionHazard;
+      const start = (id, pid) => {
+        Game.startSession({ mode: 'mission', missionId: id, platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran' });
+        for (let i = 0; i < 3; i++) Game.tick(STEP);   // the mission's later() spawns
+        return Game.mission;
+      };
+      // the mission's own clock alone (no world): its timed events and objectives
+      const drive = (m, until) => { while (m.time < until && m.state === 'running') m.update(0.5); };
+      const sep = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+      try {
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null;
+        const spot = { x: 0, z: 0, name: 'Test farm', held: 0, saved: false };
+        const ob = Obj.rescue({ id: 'r', title: 'Rescue', spots: [spot], status: 'active' });
+        const tank = new Platform(PLATFORMS.bulwark, { team: 0, x: RESCUE_R - 2, z: 0, yaw: 0, loadout: Loadout.forPlatform('bulwark') });
+        tank.isPlayer = true;
+        W.platforms.push(tank);
+        const groundIn = ob.boards(tank, spot);
+        tank.x = RESCUE_R + 2;
+        this.check('a ground unit boards within ' + RESCUE_R + ' m of the family and not beyond', groundIn && !ob.boards(tank, spot));
+        const airIds = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'air').sort((a, b) => PLATFORMS[a].air.min - PLATFORMS[b].air.min), aid = airIds[0];
+        this.check('the slowest aircraft (' + (aid && PLATFORMS[aid].name) + ') can fly slower than the boarding limit', aid && PLATFORMS[aid].air.min * 1.05 < RESCUE_AIR_SPEED, airIds.map((id) => id + ' ' + PLATFORMS[id].air.min).join(', '));
+        const jet = new Platform(PLATFORMS[aid], { team: 0, x: RESCUE_AIR_R - 5, z: 0, yaw: 0, loadout: Loadout.forPlatform(aid) });
+        jet.isPlayer = true; jet.y = Terrain.h(jet.x, jet.z) + RESCUE_AIR_H - 10; jet.speed = PLATFORMS[aid].air.min * 1.05;
+        const low = ob.boards(jet, spot);
+        jet.y += 20; const high = ob.boards(jet, spot);
+        jet.y -= 20; jet.speed = RESCUE_AIR_SPEED + 5; const fast = ob.boards(jet, spot);
+        jet.speed = PLATFORMS[aid].air.min * 1.05; jet.x = RESCUE_AIR_R + 5; const far = ob.boards(jet, spot);
+        this.check('an aircraft boards passing low and slow within ' + RESCUE_AIR_R + ' m, not high, fast or further off', low && !high && !fast && !far);
+        tank.x = 0;
+        for (let i = 0; i < 180; i++) ob.tick(STEP);   // 3 s beside
+        const held = spot.held;
+        tank.x = 100;
+        for (let i = 0; i < 60; i++) ob.tick(STEP);    // 1 s away
+        const decayed = spot.held;
+        tank.x = 0;
+        for (let i = 0; i < 60 * RESCUE_HOLD && !spot.saved; i++) ob.tick(STEP);
+        this.check('the boarding time runs down while nobody is beside the family, and they are saved after ' + RESCUE_HOLD + ' s in all', Math.abs(held - 3) < 0.05 && Math.abs(decayed - 2) < 0.05 && spot.saved && ob.status === 'complete', held.toFixed(2) + ' then ' + decayed.toFixed(2));
+        // every scripted hazard of m14-m18 finds a site (each is freed at once, so the slots never fill)
+        const calls = [];
+        missionHazard = function (type, x, z, warn, ax, az) {
+          const h = keepMH(type, x, z, warn, ax, az);
+          calls.push(type + (h ? '' : ' (no site)'));
+          if (h) Hazards.free(h);
+          return h;
+        };
+        // m14: the alarm chain, quiet until a patrol has the player in sight; then raiders and the unseen bonus lost
+        let m = start('m14', 'ranger');
+        drive(m, 3);
+        const quiet = m.get('ghost').status === 'active';
+        const guard = W.platforms.find((p) => p.team === 1 && p.ai && p.ai.sight === PATROL_SIGHT && !p.dead), foes0 = W.platforms.filter((p) => p.team === 1).length;
+        W.player.x = guard.x + 10; W.player.z = guard.z;
+        guard.ai.target = W.player;
+        drive(m, m.time + 1);
+        const raid = W.platforms.filter((p) => p.team === 1).length - foes0;
+        this.check('m14: the patrols stay calm until one sees the player; then the alarm sends raiders and the unseen bonus is lost', quiet && raid >= 3 && m.get('ghost').status === 'failed' && m.get('radars').status === 'active', 'raid ' + raid);
+        const masts = m.get('radars').structs;
+        destroyStruct(masts[0], W.player); destroyStruct(masts[1], W.player);
+        drive(m, m.time + 1);
+        // m15: the eruption (two quakes, two lava flows)
+        m = start('m15', 'bulwark');
+        m.get('data').status = 'complete';
+        drive(m, 70);
+        // m16: the convoy waits for a player, or sets off after M16_WAIT s; avalanches near the outpost; ambushes out of sight
+        m = start('m16', 'bulwark');
+        const craft = m.get('convoy').units;
+        drive(m, 5);
+        const waits = craft.every((c) => !c.ai.enabled);
+        W.player.x = craft[0].x + 50; W.player.z = craft[0].z;
+        drive(m, m.time + 1);
+        this.check('m16: the convoy waits until a player joins it', waits && craft.every((c) => c.ai.enabled));
+        start('m16', 'bulwark');
+        drive(Game.mission, M16_WAIT + 1);
+        this.check('m16: or sets off on its own after ' + M16_WAIT + ' s', Game.mission.get('convoy').units.every((c) => c.ai.enabled));
+        m = Game.mission;
+        const c0 = m.get('convoy').units[0], dest = m.get('convoy').dest;
+        c0.x = dest.x + 200; c0.z = dest.z - 100;
+        drive(m, m.time + 2);
+        m = start('m16', 'skua');
+        const harbour = { x: W.player.x, z: W.player.z }, starts = m.get('convoy').units.map((c) => ({ x: c.x, z: c.z }));
+        const close = W.platforms.filter((p) => p.team === 1 && !p.dead && [harbour].concat(starts).some((q) => sep(p, q) < M16_AMBUSH_GAP));
+        this.check('m16: no hostile within ' + M16_AMBUSH_GAP + ' m of the harbour or the convoy at the start', close.length === 0, close.map((p) => p.def.id + '@' + Math.round(p.x) + ',' + Math.round(p.z)).join(' '));
+        // m17: every wave forms at least M17_WAVE_GAP m from the radar (spread over its spawn radius)
+        m = start('m17', 'bulwark');
+        const radar = m.get('def').struct, before = new Set(W.platforms);
+        drive(m, 220);
+        const waves = W.platforms.filter((p) => p.team === 1 && !before.has(p)), nearest = Math.min(...waves.map((p) => sep(p, radar)));
+        this.check('m17: its waves form ' + M17_WAVE_GAP + ' m or more from the radar, and the player starts near it', waves.length >= 15 && nearest >= M17_WAVE_GAP - 60 && sep(MISSION_BY_ID.m17.start, radar) < 300, waves.length + ' units, nearest ' + Math.round(nearest) + ' m, start ' + Math.round(sep(MISSION_BY_ID.m17.start, radar)) + ' m');
+        // m18: funnels and raids head for the family nearest the player; raiders give up near the shelter
+        m = start('m18', 'bulwark');
+        const shelter = MISSION_BY_ID.m18.start, orchard = m.get('rescue').spots.find((s) => s.name === 'Orchard farm'), keep18 = new Set(W.platforms);
+        drive(m, 61);
+        const raiders = W.platforms.filter((p) => p.team === 1 && !keep18.has(p) && p.ai);
+        const r0 = raiders[0];
+        const aimed = raiders.length > 0 && raiders.every((p) => p.ai.goal && p.ai.goal.x === orchard.x && p.ai.goal.z === orchard.z);
+        if (r0) { r0.x = shelter.x + RAID_SHELTER_GAP - 40; r0.z = shelter.z; }
+        drive(m, m.time + 1.5);
+        this.check('m18: raiders go for the family nearest the player and give up near the shelter', aimed && r0 && r0.ai.sight === 0 && !r0.ai.target && r0.ai.goal.x === orchard.x, raiders.length + ' raiders');
+        const want = { wildfire: 1, lava: 2, earthquake: 4, avalanche: 1, gas: 1, tornado: 2 }, got = {};
+        for (const c of calls) if (c.indexOf('(no site)') < 0) got[c] = (got[c] || 0) + 1;
+        this.check('every scripted hazard of m14-m18 finds a site', calls.every((c) => c.indexOf('(no site)') < 0) && Object.keys(want).every((k) => (got[k] || 0) >= want[k]), calls.join(', '));
+      } finally { missionHazard = keepMH; S.difficulty = keepDiff; Game.quitToMenu(); }
     });
     t('p8 lows a', () => {
       const keepRep = Game.reportError;
