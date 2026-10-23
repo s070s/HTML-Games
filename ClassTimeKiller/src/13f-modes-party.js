@@ -74,7 +74,7 @@ function ladderLoadouts(ladder, melee) {
 // How many start infected: one in infectedPerPlayers on infectedArea square metres of walkable floor, scaled by the square
 // root of the floor (blight-01: starting 2 of 12 everywhere, the Blight won all 6 test matches on Spire and Skyward Yard and
 // lost 5 of 6 on Gantry; the box size miscounted gappy Skyward Yard, and the count grows slower than the floor, where humans
-// spread out). Now 2 on Spire and 3 on Gantry. At least one.
+// spread out). Now 2 on Spire and 4 on Gantry. At least one.
 function outbreakSize(players, params) {
   const area = walkableArea();
   const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
@@ -129,11 +129,14 @@ Modes.register('infection', {
   onKill(victim) {
     if (this.outbreak && victim >= 0 && Modes.isActive(victim) && Actors.team[victim] === HUMAN_TEAM) this.infect(victim);
   },
+  // The push a jump of id adds ({ leapSpeed, leapLift }: the mode params), null for a human. The bot path planner reads it
+  // too (14c), so infected bots plan the ledges and gaps only a leap clears.
+  leap(id) { return Modes.actorRole[id] === ACTOR_ROLE.INFECTED ? Modes.rules.params : null; },
   onJump(event) {
-    const id = event.id;
-    if (Modes.actorRole[id] !== ACTOR_ROLE.INFECTED) return;
-    const params = Modes.rules.params, yaw = Actors.yaw[id];
-    emitImpulse(id, Math.sin(yaw) * params.leapSpeed, params.leapLift, Math.cos(yaw) * params.leapSpeed);
+    const id = event.id, leap = this.leap(id);
+    if (!leap) return;
+    const yaw = Actors.yaw[id];
+    emitImpulse(id, Math.sin(yaw) * leap.leapSpeed, leap.leapLift, Math.cos(yaw) * leap.leapSpeed);
   },
   // Team scores hold the head counts (humans, infected); returns the number of participants.
   countSides() {

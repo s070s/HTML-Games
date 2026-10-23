@@ -43,8 +43,8 @@ Test.add('modes2', (check) => {
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
   check('gungame: a 12-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 12 && !rows('gungame').params.tiers
     && CAT.weapons.byId(GUNGAME_LADDER[11]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
-  check('infection: 1 per 6 on 3500 square metres, after 20 s, 375 HP, 5 min (M17, blight-01)', rows('infection').params.infectedPerPlayers === 6
-    && rows('infection').params.infectedArea === 3500 && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 375
+  check('infection: 1 per 6 on 3000 square metres, after 20 s, 335 HP, 5 min (M17, blight-01)', rows('infection').params.infectedPerPlayers === 6
+    && rows('infection').params.infectedArea === 3000 && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 335
     && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
   check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
@@ -345,7 +345,7 @@ Test.add('modes2', (check) => {
   const stillCasting = ids.filter((id) => Abilities.isActive(id, 'timebend'));
   check('infection: a human turned infected stops a running control ability, the humans keep theirs', casting === ids.length
     && stillCasting.length === Modes.hud.survivors && stillCasting.every((id) => Actors.team[id] === HUMAN_TEAM), casting + ' cast, ' + stillCasting.length + ' running');
-  check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
+  check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4.8 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
     Modes.hud.infected);
   const infectedHealth = Modes.rules.params.infectedHealth;
   check('infection: the infected is tough and melee only', Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');

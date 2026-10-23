@@ -62,6 +62,8 @@ const BotMove = {
   pointX: new Float32Array(MAX_ACTORS), pointY: new Float32Array(MAX_ACTORS), pointZ: new Float32Array(MAX_ACTORS),
   ladderX: new Float32Array(MAX_ACTORS), ladderZ: new Float32Array(MAX_ACTORS),   // climbing target of a ladder link
   exitChecked: new Uint8Array(MAX_ACTORS),
+  leaping: new Uint8Array(MAX_ACTORS),         // configure() planned the bot's jumps as leaps (modeLeap)
+  runSpeed: new Float32Array(MAX_ACTORS),      // m/s on foot (options moveSpeed also counts a leap's push)
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
@@ -95,21 +97,25 @@ const BotMove = {
   // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
   // A jump link is climbed by the jump apex (plus extra jumps and the crouch-jump lift), or by the S10 mantle or wall
   // climb the bot does while facing the ledge, whichever reaches higher (a grip-only climb is not planned: the graph does
-  // not know the brush material).
+  // not know the brush material). A jump that is a leap (the mode's leap, 13f Blight infected: its lift and forward push,
+  // scaled like every impulse by the match knockback) climbs higher and flies farther, so those ledges and gaps are planned.
   configure(id) {
-    const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
-    const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
+    const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id), leap = modeLeap(id), push = MatchMove.knockback;
+    const jumpVelocity = preset.jumpVel + (leap ? leap.leapLift * push : 0);
+    const single = jumpVelocity * jumpVelocity / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
     const climb = preset.climbGripOnly ? 0 : preset.climbHeight;
     const reach = Math.max(single + extra + preset.crouchJumpLift, preset.mantleHeight - MOVE_MANTLE_MARGIN + NAV_JUMP_MARGIN, climb);
     const maxDrop = safeDropFor(preset, gravity);
+    this.runSpeed[id] = preset.groundSpeed * tier.speed;
     for (const options of [this.options[id], this.avoidOptions[id]]) {
       options.allowJumpHeight = reach;
       options.maxDrop = maxDrop;
-      options.moveSpeed = preset.groundSpeed * tier.speed;
-      options.jumpVelocity = preset.jumpVel;
+      options.moveSpeed = this.runSpeed[id] + (leap ? leap.leapSpeed * push : 0);
+      options.jumpVelocity = jumpVelocity;
       options.gravity = gravity;
     }
+    this.leaping[id] = leap ? 1 : 0;
   },
   // Destination for the execution layer; a nearby change keeps the current path (moving targets repath at most 1.3 Hz).
   // The change is measured from where the path was asked for: a destination that creeps (the convoy cart) adds up.
@@ -152,6 +158,8 @@ const BotMove = {
   // Water and trap costs come from the shared extraCosts array, versioned by costEpoch, so those paths stay cacheable;
   // only a swimmer while some exit is blocked needs its own cost function (not cached).
   request(id, options) {
+    const leaps = modeLeap(id) ? 1 : 0;
+    if (this.leaping[id] !== leaps) this.configure(id);   // turned infected while alive (the Blight outbreak)
     this.fromWater[id] = inWater(id) ? 1 : 0;
     options.danger = sharedCosts(Sim.time); options.dangerKey = costEpoch;
     if (options === this.options[id]) options.avoid = this.fromWater[id] && blockedExits > 0 ? this.costs[id] : null;
@@ -510,6 +518,9 @@ const BotMove = {
     BotDecide.goalFailed(id, now);
   },
 };
+
+// The leap the match's mode adds to id's jumps (its { leapSpeed, leapLift }), null when a jump is only a jump.
+function modeLeap(id) { return Modes.active && Modes.behaviour.leap ? Modes.behaviour.leap(id) : null; }
 
 // BOT-010 drop limit: every drop link the graph has (Nav.limits.maxDrop) without fall damage (the preset's MOV-015 curve,
 // or the MUT-003 mutator), else the deepest drop up to Nav.limits.safeDrop that costs at most BOT_DROP_DAMAGE.
