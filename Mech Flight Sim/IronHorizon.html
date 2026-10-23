@@ -564,6 +564,7 @@ const MAPS = {
     weather: { weights: { clear: 5, overcast: 2, storm: 1, sandstorm: 2 }, time: 'day' },
     biome: 'arid', flora: { species: { acacia: 3, deadtree: 2, joshua: 1, burnt: 1, shrub: 3, prickly: 1, grass: 4, flowers: 1 }, forest: 0, groves: 0, meadow: 0.25, scrub: 0.35, block: false },
     fauna: { species: { goat: 3, camel: 2, lizard: 3, fox: 1, boar: 1, vulture: 2, crow: 2, pigeon: 1 }, herds: 8, flocks: 5 },
+    hazards: ['sandstorm', 'wildfire'],
   },
   verdant: {
     name: 'Verdant Ridge', desc: 'Forested hills with fuel depots in the valleys.', seed: 4.1, hill: 1.25,
@@ -573,6 +574,7 @@ const MAPS = {
     weather: { weights: { clear: 4, overcast: 3, rain: 3, storm: 1, fog: 2 }, time: 'day' },
     biome: 'temperate', flora: { species: { oak: 3, birch: 2, pine: 2, spruce: 1, shrub: 2, berry: 1, fern: 2, grass: 4, flowers: 2, mushrooms: 1 }, forest: 0, groves: 0, meadow: 0.4, scrub: 0.3, block: false },
     fauna: { species: { deer: 3, elk: 1, boar: 2, wolf: 1, fox: 1, bear: 1, rabbit: 2, horse: 1, crow: 2, eagle: 1, pigeon: 1 }, herds: 10, flocks: 6 },
+    hazards: ['wildfire', 'lightning'],
   },
   frost: {
     name: 'Frost Salient', desc: 'Snow-covered flats under a low winter sun.', seed: 8.3, hill: 0.85,
@@ -582,8 +584,9 @@ const MAPS = {
     weather: { weights: { clear: 3, overcast: 3, snow: 4, fog: 1 }, time: 'day' },
     biome: 'arctic', flora: { species: { snowpine: 4, spruce: 2, deadtree: 1, shrub: 1, moss: 4, grass: 1 }, forest: 0, groves: 0, meadow: 0.3, scrub: 0.2, block: false },
     fauna: { species: { reindeer: 4, polarbear: 1, wolf: 2, fox: 1, rabbit: 1, crow: 1, eagle: 1 }, herds: 8, flocks: 4 },
+    hazards: ['avalanche'],
   },
-  // the Living World battlefields (D23): each with its signature hazards (inert until the hazards update, P3.3)
+  // the Living World battlefields (D23): each with its signature hazards (Hazards)
   coast: {
     name: 'Harbour Coast', desc: 'A port city on a sheltered harbour, with the open sea to the east and coastal hills to the west.', seed: 3.3, hill: 0.6, biome: 'coastal',
     ground: [0.4, 0.5, 0.3], dark: [0.29, 0.36, 0.22], high: [0.54, 0.56, 0.42],
@@ -762,7 +765,7 @@ const BIOME_NAMES = {
   arid: 'Arid', temperate: 'Temperate', arctic: 'Arctic', coastal: 'Coastal', tropical: 'Tropical', alpine: 'Alpine', volcanic: 'Volcanic',
   urban: 'Urban', farmland: 'Farmland', boreal: 'Boreal', savanna: 'Savanna', wetland: 'Wetland', mediterranean: 'Mediterranean',
 };
-/* the hazards a battlefield may list (D22); the hazards update (P3.3) gives them their behaviour */
+/* the hazards a battlefield may list (D22); HAZARDS and HZ_KIND give them their behaviour */
 const HAZARD_IDS = ['wildfire', 'flood', 'avalanche', 'rockfall', 'lightning', 'tornado', 'sandstorm', 'earthquake', 'lava', 'gas'];
 const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters only (skirmish records are keyed "<map>-<size>")
 /* Fields every battlefield def has after mapDef(); a MAPS row may leave any of them out.
@@ -808,7 +811,7 @@ const MAP_ID_RE = /^[a-z]+$/;       // battlefield ids are lowercase letters onl
      herds, flocks, schools: how many ground groups (herds, packs), bird flocks and water groups (schools, pods) are
        placed; a water group needs water as deep as its species wants, so a dry battlefield gets none
      density: multiplier of every group's size
-   hazards: HAZARD_IDS of the battlefield's signature hazards (inert until the hazards update), [] for none
+   hazards: HAZARD_IDS of the battlefield's signature hazards (skirmish brings them; Hazards), [] for none
    lanes: sea lanes for the shipping update (P6), [] for none
    airport: { x, z, yaw } of a runway (the airports update, P4.5, builds it), or null
    hidden: true keeps the battlefield out of the skirmish list (test maps) */
@@ -1626,7 +1629,7 @@ const Snd = {
     s.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
   },
 };
-Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, footstep: 0.09, gib: 0.08, splash: 0.06, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07, thunder: 0.5 };
+Snd.GAP = { mg: 0.035, cannon: 0.05, laser: 0.04, shotgun: 0.1, rail: 0.2, plasma: 0.1, flak: 0.08, rocket: 0.05, missile: 0.15, mortar: 0.2, bomb: 0.2, hit: 0.03, hitStruct: 0.05, shieldHit: 0.06, explosion: 0.04, bigExplosion: 0.12, step: 0.18, footstep: 0.09, gib: 0.08, splash: 0.06, click: 0.04, ping: 0.1, alarm: 0.5, lock: 0.25, hitTick: 0.07, thunder: 0.5, siren: 1, rumble: 0.8 };
 /* sound recipes: (volume, pan) */
 Snd.R = {
   mg() { this.noise({ dur: 0.07, vol: 0.12 * arguments[0], lp: 3200, lp2: 900, pan: arguments[1] }); this.tone({ freq: 160, freq2: 70, dur: 0.06, vol: 0.06 * arguments[0], type: 'square', pan: arguments[1] }); },
@@ -1654,12 +1657,14 @@ Snd.R = {
   gib() { this.noise({ dur: 0.35, vol: 0.4 * arguments[0], lp: 900, lp2: 110, pan: arguments[1] }); this.noise({ dur: 0.18, vol: 0.22 * arguments[0], lp: 2600, lp2: 400, pan: arguments[1], delay: 0.04 }); },
   footstep() { this.noise({ dur: 0.06, vol: 0.16 * arguments[0], hp: 1100, pan: arguments[1] }); this.noise({ dur: 0.08, vol: 0.12 * arguments[0], lp: 700, lp2: 160, pan: arguments[1] }); },
   thunder() { this.noise({ dur: 2.6, vol: 0.5 * arguments[0], lp: 420, lp2: 50, att: 0.08 }); this.noise({ dur: 0.5, vol: 0.18 * arguments[0], lp: 1600, lp2: 300 }); },
+  rumble() { this.noise({ dur: 2.2, vol: 0.42 * arguments[0], lp: 240, lp2: 40, att: 0.35, pan: arguments[1] }); this.tone({ freq: 38, freq2: 28, dur: 2, vol: 0.22 * arguments[0], type: 'sine', pan: arguments[1] }); },
   splash() { this.noise({ dur: 0.45, vol: 0.32 * arguments[0], lp: 2400, lp2: 260, pan: arguments[1] }); this.noise({ dur: 0.3, vol: 0.14 * arguments[0], hp: 2800, pan: arguments[1], delay: 0.03 }); },
   melee() { this.noise({ dur: 0.25, vol: 0.35 * arguments[0], lp: 1500, lp2: 200, pan: arguments[1] }); this.tone({ freq: 120, freq2: 50, dur: 0.2, vol: 0.2 * arguments[0], type: 'square', pan: arguments[1] }); },
   alarm() { this.tone({ freq: 880, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui' }); this.tone({ freq: 660, dur: 0.14, vol: 0.12, type: 'square', bus: 'ui', delay: 0.18 }); },
   lock() { this.tone({ freq: 1500, dur: 0.07, vol: 0.1, type: 'square', bus: 'ui' }); },
   lockDone() { this.tone({ freq: 2200, dur: 0.22, vol: 0.12, type: 'square', bus: 'ui' }); },
   warn() { this.tone({ freq: 440, dur: 0.18, vol: 0.12, type: 'sawtooth', bus: 'ui' }); },
+  siren() { this.tone({ freq: 520, freq2: 880, dur: 0.55, vol: 0.1, type: 'sawtooth', bus: 'ui' }); this.tone({ freq: 880, freq2: 520, dur: 0.55, vol: 0.1, type: 'sawtooth', bus: 'ui', delay: 0.55 }); },
   pickup() { this.tone({ freq: 600, freq2: 1200, dur: 0.18, vol: 0.12, type: 'triangle', bus: 'ui' }); },
   click() { this.tone({ freq: 800, dur: 0.04, vol: 0.12, type: 'square', bus: 'ui' }); },
   back() { this.tone({ freq: 500, dur: 0.06, vol: 0.1, type: 'square', bus: 'ui' }); },
@@ -2955,6 +2960,7 @@ function gridIndex(x, z) {
 }
 const Water = {
   any: false, levels: WATER_NONE, flowX: WATER_NONE, flowZ: WATER_NONE,
+  fx: 0, fz: 0, fr2: 0, fy: -Infinity,   // a flash flood (Hazards): the surface stands at least at fy within the circle (fx, fz), radius² fr2
   /* ---------- building (once per map grid) ---------- */
   /* carves map def m's water into its height grid and returns { levels, flowX, flowZ }: seas first, then lakes, then
      rivers, so a river that runs into a lake or the sea meets its surface */
@@ -3092,9 +3098,19 @@ const Water = {
   load(w) {
     this.any = !!w;
     this.levels = w ? w.levels : WATER_NONE; this.flowX = w ? w.flowX : WATER_NONE; this.flowZ = w ? w.flowZ : WATER_NONE;
+    this.setFlood(0, 0, 0, -Infinity);
   },
+  /* raise the water to surface y within r of (x, z) (a flash flood; y -Infinity or r 0 ends it) */
+  setFlood(x, z, r, y) { this.fx = x; this.fz = z; this.fr2 = y === -Infinity ? 0 : r * r; this.fy = y; },
   /* height of the water surface at (x, z), or -Infinity where there is none */
   level(x, z) {
+    const l = this.baseLevel(x, z);
+    if (this.fr2 === 0 || l >= this.fy) return l;
+    const dx = x - this.fx, dz = z - this.fz;
+    return dx * dx + dz * dz < this.fr2 ? this.fy : l;
+  },
+  /* the surface without a flood */
+  baseLevel(x, z) {
     if (!this.any) return -Infinity;
     let fx = (x + WORLD_HALF) / 8, fz = (z + WORLD_HALF) / 8;
     if (fx < 0) fx = 0; else if (fx > 249.999) fx = 249.999;
@@ -3996,6 +4012,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   Civ.blast(x, y, z, radius, damage);   // every game runs its own civilians, guests too
   Fauna.blast(x, y, z, radius, damage);   // and its own animals
   if (Net.guest) return;   // guests only show effects; the host decides damage
+  if (radius >= HAZARD_BLAST_R && damage > 0) Hazards.onBlast(x, y, z, radius);
   // damage
   const pl = W.platforms;
   for (let i = 0; i < pl.length; i++) {
@@ -4066,6 +4083,7 @@ function newWorld(cfg) {
   };
   Chunks.reset(); Falls.reset();
   SW.reset(); WPN.smokeUntil = -1;
+  Hazards.reset();
   for (let i = 0; i < MAX_PROJECTILES; i++) W.projs.push(newProjectileSlot());
   W.projCursor = 0;
   FX.clear();
@@ -5350,6 +5368,7 @@ function drawWorld(dt) {
     R.draw('box', b.col[0], b.col[1], b.col[2], 1, 2.0, 0); st.pop();
   }
   SW.draw(false);
+  Hazards.draw(0);
   R.endBatch('opaque', 0.25, 1);
   // ---- transparent: scorches, shadows, flashes, platform overlays, rings
   R.blend(true, false); R.depthWrite(false); R.polyOffset(true);
@@ -5389,6 +5408,7 @@ function drawWorld(dt) {
   R.polyOffset(false);
   if (Water.any) R.drawWater(Water.meshData().chunks, W.time);   // over everything opaque, under the effects
   Chunks.drawFlashes();
+  if (Hazards.n) { R.blend(true, false); R.depthWrite(false); Hazards.draw(1); }   // floods, clouds, funnels: over the water
   R.blend(false); R.depthWrite(true);
   for (let i = 0; i < W.platforms.length; i++) drawPlatformOverlay(W.platforms[i]);
   R.blend(true, false); R.depthWrite(false);
@@ -5399,6 +5419,7 @@ function drawWorld(dt) {
     st.push().t(rg.x, rg.y, rg.z).s(rr * 2, 0.4, rr * 2); R.draw('cyl', 1, 0.8, 0.5, (1 - f) * 0.35, 0.8, 0); st.pop();
   }
   SW.draw(true);
+  Hazards.draw(2);
   R.blend(false); R.depthWrite(true);
   R.drawPoints(FX, false);
   R.drawPoints(FX, true);
@@ -5438,6 +5459,7 @@ function updateWorldEffects(dt) {
     if (q.delay <= 0) { W.queue.splice(i, 1); explode(q.x, q.y, q.z, q.radius, q.dmg, 'explosive', q.owner); }
   }
   SW.update(dt);
+  Hazards.update(dt);
   W.shake = Math.max(0, W.shake - dt * 1.4);
   W.hitMarker = Math.max(0, W.hitMarker - dt); W.killMarker = Math.max(0, W.killMarker - dt); W.flash = Math.max(0, W.flash - dt);
   Bld.update(dt);
@@ -5459,7 +5481,7 @@ const NIGHT_SIGHT = 0.75;          // AI sight multiplier at night
    cloud: cloud cover 0..1, cloudShade: cloud colour as a factor of the horizon colour
    particle: PRECIP kind falling around the camera (null: none), density: its share of the quality cap
    sight: AI sight factor; traction: ground vehicle braking and steering grip; wind: wind speed (m/s)
-   flash: sky flashes per second (storm lightning; strikes on the ground come with the hazards update, P3.3) */
+   flash: sky flashes per second (storm lightning; on a battlefield with lightning, Hazards strikes the ground with some) */
 const WEATHER = {
   clear: { name: 'Clear', fog: 1, zen: [1, 1, 1], hor: [1, 1, 1], grey: 0, sun: 1, skyAmb: [1, 1, 1], gndAmb: [1, 1, 1], cloud: 0, cloudShade: [1, 1, 1], particle: null, density: 0, sight: 1, traction: 1, wind: 0, flash: 0 },
   overcast: { name: 'Overcast', fog: 1.35, zen: [0.82, 0.84, 0.88], hor: [0.9, 0.92, 0.95], grey: 0.55, sun: 0.5, skyAmb: [1.1, 1.1, 1.1], gndAmb: [1.1, 1.1, 1.1], cloud: 0.75, cloudShade: [0.92, 0.93, 0.96], particle: null, density: 0, sight: 0.9, traction: 1, wind: 4, flash: 0 },
@@ -5592,7 +5614,7 @@ const Weather = {
   cur: { zen: [1, 1, 1], hor: [1, 1, 1], skyAmb: [1, 1, 1], gndAmb: [1, 1, 1], cloudShade: [1, 1, 1], fog: 1, grey: 0, sun: 1, cloud: 0, sight: 1, traction: 1, wind: 0, flash: 0 },
   rain: 0, snow: 0, sand: 0, sightK: 1, windX: 0, windZ: 0, windBase: 0, flash: 0, flashes: 0, drift: [0, 0],
   look: { dir: null, night: 0, t: null, w: null, flash: 0, drift: null },
-  onLightning: null,   // hook for the hazards update (P3.3): fn(time) on the host at every sky flash, to strike the ground
+  onLightning: null,   // fn(time) on the host at every sky flash, to strike the ground (set by Hazards)
   /* a clean env config from anything (a cfg, a saved setting, a host message): unknown values fall back to clear, day */
   envOf(raw) {
     const r = raw && typeof raw === 'object' ? raw : {};
@@ -5663,6 +5685,7 @@ const Weather = {
     for (const f of WEATHER_NUM) c[f] = lerp(a[f], b[f], k);
     for (const f of WEATHER_RGB) for (let i = 0; i < 3; i++) c[f][i] = lerp(a[f][i], b[f][i], k);
     this.rain = this.share(a, b, k, 'rain'); this.snow = this.share(a, b, k, 'snow'); this.sand = this.share(a, b, k, 'sand');
+    Hazards.envMod(this, c);   // a sandstorm or a gas cloud around the camera
     const ang = this.windBase + WIND_VEER * Math.sin(t / WIND_VEER_TIME), gust = 1 + WIND_GUST * Math.sin(t * 0.37) * Math.sin(t * 0.11 + 1);
     this.windX = Math.sin(ang) * c.wind * gust; this.windZ = Math.cos(ang) * c.wind * gust;
     this.drift[0] += (this.windX + CLOUD_DRIFT_MIN) * dt * CLOUD_DRIFT; this.drift[1] += (this.windZ + CLOUD_DRIFT_MIN) * dt * CLOUD_DRIFT;
@@ -9263,6 +9286,7 @@ class Platform {
     if (owner && owner !== this) this.killedBy = { name: owner.name, dist: Math.round(Math.hypot(owner.x - this.x, owner.y - this.y, owner.z - this.z)) };
     else if (cause === 'crash' || cause === 'collision') this.killedBy = { name: 'Collision', dist: 0 };
     else if (cause === 'drown') this.killedBy = { name: 'Drowned', dist: 0 };
+    else if (Hazards.dealing && Hazards.cause) this.killedBy = { name: Hazards.cause, dist: 0 };
     const cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.5);
     const rad = 4 + this.def.mass * 1.1 + this.height * 0.3;
     if (cause !== 'eject') {
@@ -9284,7 +9308,7 @@ class Platform {
       const t = types[Math.floor(Math.random() * types.length)];
       spawnPickup(t, this.x, this.z, 50);
     }
-    addFeed(owner || (cause === 'crash' || cause === 'collision' ? 'Collision' : cause === 'drown' ? 'Drowned' : 'Unknown'), this, this.team);
+    addFeed(owner || (cause === 'crash' || cause === 'collision' ? 'Collision' : cause === 'drown' ? 'Drowned' : Hazards.dealing && Hazards.cause ? Hazards.cause : 'Unknown'), this, this.team);
     if (W.onPlatformDestroyed) W.onPlatformDestroyed(this, owner, cause);
   }
 }
@@ -14247,6 +14271,1067 @@ defineSuper('armageddon', {
 /* SUPER PART C END */
 
 /* =====================================================================
+   HAZARDS (P3.3, D22): wildfire, flood, avalanche, rockfall, lightning, tornado, sandstorm, earthquake, lava flow and
+   toxic gas. A hazard starts from the battle's seeded schedule, from a storm's lightning (Weather.onLightning) or from
+   a big explosion. It is announced (a HUD alert and a siren), runs in its zone for its time and dies down. The host
+   decides everything and sends each hazard to co-op guests as 'hz' { id, type, state, x, z, r, level }; guests only
+   draw what it sends and never deal damage. A battlefield lists its hazards (MAPS hazards); skirmish sets how often
+   they come (off, low, normal); a mission has none unless its def asks (hazards: true for its map's list, or a list).
+   ===================================================================== */
+const HAZARD_LEVELS = ['off', 'low', 'normal'];
+const HAZARD_DEFAULT = 'low';   // the skirmish setting of setups saved before hazards
+/* how often each level brings hazards: seconds before the first and between two (min, max), how many run at once,
+   and the share of big explosions (and of storm flashes, sky) that set one off */
+const HAZARD_PACE = {
+  low: { first: 150, gap: [240, 420], at: 1, blast: 0.15, sky: 0.35 },
+  normal: { first: 70, gap: [110, 200], at: 2, blast: 0.3, sky: 0.7 },
+};
+const HAZARD_SLOTS = 4;          // hazards running at once at most (a blast or a lightning strike may add one past the pace)
+const HAZARD_WARN = 8;           // seconds between the alert and a scheduled hazard
+const HAZARD_BLAST_WARN = 1.5;   // and one an explosion sets off
+const HAZARD_FADE = 4;           // seconds a hazard takes to die down
+const HAZARD_TICK = 0.5;         // seconds between damage ticks (host)
+const HAZARD_SEND = 0.5;         // the host resends every running hazard this often (s)
+const HAZARD_SCHEDULE = 32;      // scheduled hazards drawn per battle (well past the longest battle)
+const HAZARD_SALT = 0x2c1b3c6d;  // the schedule draws from its own stream
+const HAZARD_NEAR = [120, 240];  // a scheduled hazard strikes this far from a human player (m)
+const HAZARD_BLAST_R = 7;        // blasts at least this big (radius m) may set off a hazard
+const HAZARD_BLAST_GAP = 40;     // and no more than one every this many seconds
+const HAZARD_SEARCH = 24;        // spots a site finder tries
+const HZ_WARN = 1, HZ_ACTIVE = 2, HZ_END = 3, HZ_STRIKE = 4;   // hazard states ('hz' state; 0: gone, 4: one lightning strike)
+const HZ_RAMP = 2;               // seconds a hazard takes to reach full strength
+const HZ_FOLLOW = 4;             // guests ease toward the host's position at this rate (1/s)
+const HZ_LOST = 8;               // a guest drops a hazard the host has not mentioned for this long (s)
+const HZ_HUD_EVERY = 0.25, HZ_HUD_RANGE = 350;   // the HUD line is rewritten this often (s), for hazards this close (m)
+const HZ_GROUND_REACH = 8;       // m above the ground that ground hazards still reach
+const HZ_SMASH_CAP = 10;         // structures one hazard damages per tick at most
+const HZ_BLAST_SALT = 0x6b1d, HZ_SKY_SALT = 0x3a71;
+const HZ_PATH = 48;              // lava cells (x, z) per hazard at most
+const HZ_ROCKS = 8, HZ_ROCK_F = 8;   // boulders per rockfall at most; floats per boulder: x, z, y, vx, vz, spin, hit cooldown, rolling
+const HZ_HIT = { blast: true, noStagger: true };   // takeDamage info of hazard damage
+const HZ_TMP = { x: 0, y: 0, z: 0 };
+const HZ_WARN_COL = [1, 0.55, 0.15], HZ_WARN_PULSE = 6, HZ_WARN_SEGS = 36;   // the ring marking where a hazard will strike
+/* wildfire: fuel from the flora masks and the wooden structures around a spot */
+const HZ_FUEL_R = 9, HZ_FUEL_TREE = 0.25, HZ_FUEL_SCRUB = 0.7, HZ_FUEL_MEADOW = 0.45;
+const HZ_FIRE_MIN = 0.25;        // a scheduled fire starts where there is at least this much fuel
+const HZ_FIRE_SEARCH = 100;      // m around the scheduled point it looks for fuel
+const HZ_FIRE_RING = 8;          // fuel samples on the burning front
+const HZ_FIRE_CREEP = 0.15;      // share of its spread speed a fire keeps with nothing to burn
+const HZ_FIRE_BAND = 14;         // trees within this many m inside the front catch fire
+const HZ_CHAR = 0.3, HZ_CHAR_HIT = 0.25;   // trees burn down to this share of their hull (charred, still standing), this share per tick
+const HZ_BURN_T = 2;             // seconds a unit keeps burning after it leaves the flames
+const HZ_IGNITE = 0.2, HZ_IGNITE_FUEL = 0.4;   // share of lightning strikes on fuel this rich that start a wildfire
+const HZ_ASH_COL = [0.06, 0.05, 0.04];
+/* flood */
+const HZ_FLOOD_REACH = 520;      // a scheduled flood comes from water this close to the player (m)
+const HZ_FLOOD_TOWARD = 0.4;     // its zone sits this share of the way from the water toward the player
+const HZ_FLOOD_WET = 0.05;       // water shallower than this (m) is not a source
+const HZ_FLOOD_COL = [0.28, 0.32, 0.26], HZ_FLOOD_ALPHA = 0.72;
+/* avalanche and rockfall slide down the steepest way */
+const HZ_SLIDE_NEAR = [80, 420]; // m from the player they start (uphill spots score best)
+const HZ_SNOW_MARGIN = 20;       // avalanches start this far below the snow line too
+const HZ_STEER = 2;              // a sliding front turns toward the steepest way at this rate (1/s)
+const HZ_SLIDE_NORM = 0.33;      // the slope (sine) at which a front gains its full acceleration
+const HZ_SLIDE_GROW = 4, HZ_SLIDE_START = 3, HZ_SLIDE_STOP = 1.5, HZ_SLIDE_HARMLESS = 0.1;   // m/s it widens; s before it may stop; m/s it stops at; speed share below which it does no harm
+const HZ_TRAIL_STEP = 25;        // m between the marks it leaves on the slope
+const HZ_SNOW_COL = [0.94, 0.96, 1];
+const HZ_ROLL = 0.9, HZ_ROLL_DRAG = 0.35, HZ_ROLL_START = 1.5, HZ_ROLL_STOP = 0.7, HZ_ROLL_HARM = 3, HZ_ROLL_DUST = 6;
+const HZ_ROCK_BOUNCE = 0.55, HZ_ROCK_HIT_GAP = 0.8, HZ_ROCK_VOL = 4;   // speed kept after a hit, s before it hits again, rubble m³ per m³ of boulder
+const HZ_ROCK_COL = [0.36, 0.33, 0.3];
+/* lightning */
+const HZ_FIRST_STRIKE = 1;       // s into a lightning storm before the first strike
+const HZ_SKY_NEAR = [40, 220];   // a storm flash strikes this far from a player (m)
+const HZ_SKY_ROD = 30;           // and hits the tallest thing this close to that spot
+const HZ_BOLT_H = 320, HZ_BOLT_COL = [0.82, 0.88, 1], HZ_FLASH_RANGE = 600;
+const HZ_CLOUD_H = 240, HZ_CLOUD_COL = [0.2, 0.21, 0.24];
+/* tornado, sandstorm, earthquake */
+const HZ_TWIST_AIM = 0.6, HZ_TWIST_WOBBLE = 0.37, HZ_TWIST_TURN = 0.35, HZ_TWIST_HOLD = 1.2, HZ_TWIST_DEBRIS = 3;
+const HZ_TWIST_SEGS = 7, HZ_TWIST_BASE = 6, HZ_TWIST_COL = [0.42, 0.4, 0.37];
+const HZ_DUST_LEAD = 60;         // a sandstorm starts this far upwind past its own edge from the player (m)
+const HZ_DUST_COL = [0.74, 0.6, 0.42], HZ_DUST_WALL = 14;
+const HZ_QUAKE_NEAR = 0.4;       // an earthquake's centre sits this share of the way from the player to the scheduled point
+const HZ_QUAKE_RUMBLE = 2, HZ_QUAKE_DUST_R = 70, HZ_QUAKE_STAGGER = 0.5, HZ_QUAKE_SALT = 4111;
+const HZ_QUAKE_CRACKED = 0.9;    // a building with fewer of its pieces standing is weak
+const HZ_QUAKE_BREAK = 0.35;     // share of a weak building's ground floor that breaks each tick
+/* lava */
+const HZ_LAVA_REACH = 420, HZ_LAVA_SLOPE = 0.15, HZ_LAVA_MIN = 4, HZ_LAVA_DROP = 0.15, HZ_LAVA_SCAR = 3;
+const HZ_LAVA_HOT = [1, 0.38, 0.06], HZ_LAVA_COLD = [0.12, 0.08, 0.06], HZ_LAVA_SCAR_COL = [0.08, 0.06, 0.05];
+/* toxic gas */
+const HZ_GAS_SOURCES = ['factory', 'fuel', 'depot', 'generator', 'warehouse'];   // structures a leak comes from, the likeliest first
+const HZ_GAS_RANK = 60;          // m a less likely source must be nearer to be picked
+const HZ_GAS_REACH = 450, HZ_GAS_AT = 40, HZ_GAS_BLAST = 12, HZ_GAS_TOP = 30;   // m: scheduled search, forced search, blast reach, height it reaches
+const HZ_GAS_COL = [0.62, 0.76, 0.24];
+/* The hazards (D22): name, HUD alert, what sets them off (schedule, weather, explosion), seconds active (dur), zone
+   radius r (m), damage per second (dps) and type; the other fields are read by their own behaviour in HZ_KIND.
+   fog, tint, sand, sight: what the zone does to the camera's fog, sky colour and blowing sand, and AI sight inside */
+const HAZARDS = {
+  wildfire: { name: 'Wildfire', alert: 'WILDFIRE', triggers: ['schedule', 'explosion'], dur: 60, r: 16, rMax: 95, grow: 1.4, drift: 0.12, dps: 26, burn: 10, dtype: 'energy', trees: 10, flames: 70, smoke: 10 },
+  flood: { name: 'Flash flood', alert: 'FLASH FLOOD', triggers: ['schedule'], dur: 45, r: 170, rise: 3.2, riseTime: 12, fall: 10, foam: 14, sound: 'splash' },
+  avalanche: { name: 'Avalanche', alert: 'AVALANCHE', triggers: ['schedule', 'explosion'], dur: 30, r: 26, speed: 28, accel: 9, drag: 3.5, hit: 240, push: 26, structHit: 260, dtype: 'kinetic', slope: 0.35, snow: 60, sound: 'rumble' },
+  rockfall: { name: 'Rockfall', alert: 'ROCKFALL', triggers: ['schedule', 'explosion'], dur: 22, r: 30, rocks: 7, rock: 2.2, speed: 24, hit: 220, structHit: 150, dtype: 'kinetic', slope: 0.4, sound: 'rumble' },
+  lightning: { name: 'Lightning', alert: 'LIGHTNING STORM', triggers: ['schedule', 'weather'], dur: 32, r: 130, every: [1.2, 2.8], aim: 0.65, hit: 240, blast: 9, structHit: 150, dtype: 'energy' },
+  tornado: { name: 'Tornado', alert: 'TORNADO', triggers: ['schedule'], dur: 45, r: 30, speed: 9, dps: 34, light: 10, lift: 14, slam: 70, throw: 12, height: 150, funnel: 150, structHit: 90, dust: 60, dtype: 'kinetic', sound: 'rumble' },
+  sandstorm: { name: 'Sandstorm', alert: 'SANDSTORM', triggers: ['schedule'], dur: 70, r: 300, speed: 7, wear: 10, ceiling: 350, dtype: 'kinetic', dust: 30, fog: 3.2, tint: [1.08, 0.86, 0.6], sand: 0.9, sight: 0.35 },
+  earthquake: { name: 'Earthquake', alert: 'EARTHQUAKE', triggers: ['schedule'], dur: 14, r: 340, dps: 14, weak: 0.35, pieces: 6, shake: 0.35, dust: 14, dtype: 'kinetic', sound: 'rumble' },
+  lava: { name: 'Lava flow', alert: 'LAVA FLOW', triggers: ['schedule'], dur: 70, r: 9, step: 9, cells: 40, flow: 1.4, dps: 120, burn: 20, structHit: 200, embers: 30, smoke: 4, dtype: 'energy', sound: 'rumble' },
+  gas: { name: 'Toxic gas', alert: 'TOXIC GAS LEAK', triggers: ['schedule', 'explosion'], dur: 50, r: 20, rMax: 85, grow: 3.5, drift: 0.25, dps: 40, sealed: 0.2, puffs: 26, dtype: 'energy', fog: 1.8, tint: [0.8, 1, 0.55], sand: 0, sight: 0.6 },
+};
+function newHazard() {
+  return { on: false, id: 0, type: '', def: null, kind: null, state: 0, t: 0, warn: 0, x: 0, z: 0, r: 0, level: 0, y: 0, yaw: 0, vx: 0, vz: 0, speed: 0,
+    tick: 0, sendT: 0, fxT: 0, strikes: 0, dist: 0, done: false, seen: 0, src: null, tx: 0, tz: 0, tr: 0, tl: 0,
+    path: new Float32Array(HZ_PATH * 2), nPath: 0, rocks: new Float32Array(HZ_ROCKS * HZ_ROCK_F) };
+}
+function newHazardSchedule() {
+  return { t: new Float64Array(HAZARD_SCHEDULE), type: new Int8Array(HAZARD_SCHEDULE), u: new Float32Array(HAZARD_SCHEDULE), v: new Float32Array(HAZARD_SCHEDULE), k: new Float32Array(HAZARD_SCHEDULE), n: 0, next: 0 };
+}
+const Hazards = {
+  list: Array.from({ length: HAZARD_SLOTS }, newHazard),
+  n: 0, nextId: 1, level: 'off', ids: [], blastIds: [], seed: 0, fxK: 1, blastT: -Infinity,
+  cause: '',        // name of the hazard dealing damage right now (the kill feed reads it)
+  dealing: false,   // true while a hazard deals damage (its own blasts set off no other hazard)
+  hud: '', hudT: 0, // the HUD line about the nearest hazard ('' for none)
+  sched: newHazardSchedule(),
+  site: { x: 0, z: 0, y: 0, yaw: 0, src: null },   // where the hazard being started goes (the site finders write it)
+  pos: { x: 0, z: 0 },                               // the player a scheduled hazard is aimed at
+  wet: { ok: false, x: 0, z: 0, y: 0 },             // the water a flood comes from
+  found: null,                                       // the platform tallestIn found
+  scratch: [],                                       // structures copied out of Hash.out (damage may query it again)
+  reset() {
+    for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; h.on = false; h.src = null; }
+    this.n = 0; this.level = 'off'; this.ids = []; this.blastIds = []; this.sched.n = 0; this.sched.next = 0; this.blastT = -Infinity;
+    this.cause = ''; this.dealing = false; this.hud = ''; this.hudT = 0; this.found = null;
+    Water.setFlood(0, 0, 0, -Infinity);
+  },
+  /* a new session's hazards: its level, its battlefield's list and (host) the seeded schedule */
+  begin(cfg, def, seed, guest) {
+    const level = this.levelFor(cfg, def);
+    this.arm(level, level === 'off' ? [] : this.idsFor(def), seed, guest);
+  },
+  arm(level, ids, seed, guest) {
+    this.reset();
+    this.seed = seed >>> 0; this.nextId = 1;
+    this.fxK = (QUALITY[S.quality] || QUALITY.medium).particles / QUALITY.high.particles;
+    this.level = HAZARD_PACE[level] ? level : 'off';
+    if (this.level === 'off') return;
+    this.ids = ids.filter((id) => !!HAZARDS[id]);
+    this.blastIds = this.ids.filter((id) => HAZARDS[id].triggers.indexOf('explosion') >= 0);
+    if (!guest) this.buildSchedule(this.seed, this.ids, this.level, this.sched);
+  },
+  /* off for missions (unless their def asks) and training; skirmish has its own setting */
+  levelFor(cfg, def) {
+    if (cfg.mode === 'skirmish') { const v = cfg.skirmish && cfg.skirmish.hazards; return HAZARD_LEVELS.indexOf(v) >= 0 ? v : HAZARD_DEFAULT; }
+    if (cfg.mode === 'mission' && def && def.hazards) return HAZARD_LEVELS.indexOf(def.hazardLevel) >= 0 ? def.hazardLevel : 'normal';
+    return 'off';
+  },
+  idsFor(def) { return (Array.isArray(def.hazards) ? def.hazards : mapDef(def.map).hazards).filter((id) => !!HAZARDS[id]); },
+  /* the seeded schedule: when each scheduled hazard comes, which one, and where around which player */
+  buildSchedule(seed, ids, level, out) {
+    out.n = 0; out.next = 0;
+    const pace = HAZARD_PACE[level], pool = ids.filter((id) => HAZARDS[id].triggers.indexOf('schedule') >= 0);
+    if (!pace || !pool.length) return out;
+    const rng = makeRng((seed ^ HAZARD_SALT) >>> 0);
+    let t = pace.first * (0.8 + 0.4 * rng());
+    for (let i = 0; i < HAZARD_SCHEDULE; i++) {
+      out.t[i] = t; out.type[i] = HAZARD_IDS.indexOf(pool[Math.floor(rng() * pool.length)]); out.u[i] = rng(); out.v[i] = rng(); out.k[i] = rng();
+      t += lerp(pace.gap[0], pace.gap[1], rng());
+    }
+    out.n = HAZARD_SCHEDULE;
+    return out;
+  },
+  /* the schedule of a seed as text (self-test) */
+  scheduleKey(seed, ids, level) {
+    const s = this.buildSchedule(seed >>> 0, ids, level, newHazardSchedule()), parts = [];
+    for (let i = 0; i < s.n; i++) parts.push(s.t[i].toFixed(3) + HAZARD_IDS[s.type[i]] + s.u[i].toFixed(4) + s.v[i].toFixed(4));
+    return parts.join(',');
+  },
+  /* hazards running (dying ones do not count) */
+  active() { let n = 0; for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; if (h.on && h.state !== HZ_END) n++; } return n; },
+  /* seeded number in [0, 1) for site finders (k: try, salt: which number) and for a running hazard h */
+  rnd(k, salt) { return latticeHash(k, salt + this.nextId * 7919, this.seed); },
+  hr(h, k, salt) { return latticeHash(k, salt + h.id * 7919, this.seed); },
+  /* particles to emit this frame for rate per second at full quality */
+  count(rate, dt) { const v = rate * dt * this.fxK; let n = Math.floor(v); if (Math.random() < v - n) n++; return n; },
+  /* 0..1 strength: ramps up when it strikes, fades as it dies down, 0 during the warning */
+  fade(h) { return h.state === HZ_ACTIVE ? Math.min(1, h.t / HZ_RAMP) : h.state === HZ_END ? Math.max(0, 1 - h.t / HAZARD_FADE) : 0; },
+
+  /* ---------- running ---------- */
+  update(dt) {
+    if (!W) return;
+    if (!Net.guest && this.sched.next < this.sched.n) this.runSchedule();
+    if (this.n === 0) { this.hud = ''; return; }
+    for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; if (h.on) this.step(h, dt); }
+    this.hudTick(dt);
+  },
+  step(h, dt) {
+    const d = h.def;
+    h.t += dt;
+    if (!Net.guest) {
+      if (h.state === HZ_WARN && h.t >= h.warn) this.setState(h, HZ_ACTIVE);
+      else if (h.state === HZ_ACTIVE && (h.t >= d.dur || h.done)) this.setState(h, HZ_END);
+      else if (h.state === HZ_END && h.t >= HAZARD_FADE) { this.free(h); return; }
+    } else {
+      h.seen += dt;
+      if (h.seen > HZ_LOST) { this.free(h); return; }   // the host's end never came
+      const px = h.x, pz = h.z;
+      h.x = damp(h.x, h.tx, HZ_FOLLOW, dt); h.z = damp(h.z, h.tz, HZ_FOLLOW, dt); h.r = damp(h.r, h.tr, HZ_FOLLOW, dt); h.level = damp(h.level, h.tl, HZ_FOLLOW, dt);
+      const mv = Math.hypot(h.x - px, h.z - pz);
+      if (dt > 0) h.speed = mv / dt;
+      if (mv > 1e-4) { h.vx = (h.x - px) / mv; h.vz = (h.z - pz) / mv; }
+    }
+    h.kind.update(h, dt);
+    if (Net.guest) return;
+    if (h.state === HZ_ACTIVE) {
+      h.tick -= dt;
+      if (h.tick <= 0) { h.tick += HAZARD_TICK; h.kind.tick(h); }
+    }
+    h.sendT -= dt;
+    if (h.sendT <= 0) { h.sendT = HAZARD_SEND; this.send(h); }
+  },
+  /* the next scheduled hazard, once its time has come and the pace has room for it (host) */
+  runSchedule() {
+    const S = this.sched;
+    if (Weather.clock() < S.t[S.next] || this.active() >= HAZARD_PACE[this.level].at) return;
+    const i = S.next++, a = this.anchor(S.k[i]), ang = S.u[i] * TAU, dist = lerp(HAZARD_NEAR[0], HAZARD_NEAR[1], S.v[i]);
+    const x = clamp(a.x + Math.sin(ang) * dist, -GROUND_BOUND, GROUND_BOUND), z = clamp(a.z + Math.cos(ang) * dist, -GROUND_BOUND, GROUND_BOUND);
+    this.trigger(HAZARD_IDS[S.type[i]], x, z, HAZARD_WARN, false);
+  },
+  /* the k-th (0..1) living human player, else the mission start, into this.pos */
+  anchor(k) {
+    const pl = W.platforms, o = this.pos;
+    let n = 0;
+    for (let i = 0; i < pl.length; i++) if (pl[i].isPlayer && !pl[i].dead) n++;
+    const st = W.mission && W.mission.def.start;
+    o.x = st ? st.x : 0; o.z = st ? st.z : 0;
+    let want = Math.min(n - 1, Math.floor(k * n));
+    for (let i = 0; i < pl.length && n > 0; i++) {
+      const p = pl[i];
+      if (!p.isPlayer || p.dead || want-- > 0) continue;
+      o.x = p.x; o.z = p.z;
+      break;
+    }
+    return o;
+  },
+  /* start hazard type at or around (x, z) (host): exact keeps the spot (a blast, a strike, a test), otherwise its site
+     finder looks around this.pos for a fitting one. Null when hazards are off, the slots are full or no site fits. */
+  trigger(type, x, z, warn, exact) {
+    if (Net.guest || this.level === 'off' || !Object.prototype.hasOwnProperty.call(HAZARDS, type) || this.n >= HAZARD_SLOTS) return null;
+    const s = this.site;
+    s.x = x; s.z = z; s.y = 0; s.yaw = 0; s.src = null;
+    if (!HZ_KIND[type].site(s, exact ? null : this.pos)) return null;
+    const h = this.alloc();
+    this.init(h, this.nextId++, type, s.x, s.z);
+    h.y = s.y; h.yaw = s.yaw; h.src = s.src; h.warn = warn;
+    h.kind.begin(h);
+    this.setState(h, warn > 0 ? HZ_WARN : HZ_ACTIVE);
+    return h;
+  },
+  /* test hook: start type at (x, z) now or after opts.warn s; opts.find lets its site finder look around (x, z) */
+  force(type, x, z, opts) {
+    const o = opts || {};
+    if (o.find) { this.pos.x = x; this.pos.z = z; }
+    return this.trigger(type, x, z, o.warn !== undefined ? o.warn : HAZARD_WARN, !o.find);
+  },
+  alloc() { for (let i = 0; i < HAZARD_SLOTS; i++) if (!this.list[i].on) return this.list[i]; return null; },
+  byId(id) { for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; if (h.on && h.id === id) return h; } return null; },
+  init(h, id, type, x, z) {
+    const d = HAZARDS[type];
+    h.on = true; this.n++;
+    h.id = id; h.type = type; h.def = d; h.kind = HZ_KIND[type]; h.state = 0; h.t = 0; h.warn = 0;
+    h.x = h.tx = x; h.z = h.tz = z; h.r = h.tr = d.r; h.level = h.tl = 0; h.y = 0; h.yaw = 0; h.vx = h.vz = h.speed = 0;
+    h.tick = 0; h.sendT = HAZARD_SEND; h.fxT = 0; h.strikes = 0; h.dist = 0; h.done = false; h.seen = 0; h.src = null; h.nPath = 0;
+  },
+  setState(h, state) {
+    h.state = state; h.t = 0;
+    if (state === HZ_ACTIVE) h.tick = 0;
+    if (state === HZ_END && h.kind.end) h.kind.end(h);
+    this.announce(h);
+    this.send(h);
+  },
+  free(h) {
+    if (!h.on) return;
+    if (h.kind.free) h.kind.free(h);
+    h.on = false; h.src = null; this.n--;
+    if (Net.host) Net.bcast({ t: 'hz', id: h.id, type: h.type, state: 0, x: 0, z: 0, r: 0, level: 0 });
+  },
+  send(h) {
+    if (Net.host) Net.bcast({ t: 'hz', id: h.id, type: h.type, state: h.state, x: r1(h.x), z: r1(h.z), r: r1(h.r), level: r2(h.level) });
+  },
+  /* co-op guest: a hazard as the host sent it (a new one, an update, its end or one lightning strike) */
+  apply(m) {
+    if (!Object.prototype.hasOwnProperty.call(HAZARDS, m.type)) return;
+    const id = m.id | 0, state = m.state | 0, x = numIn(m.x, -3000, 3000), z = numIn(m.z, -3000, 3000), r = numIn(m.r, 0, 1000), level = numIn(m.level, -1000, 3000);
+    if (state === HZ_STRIKE) { this.strikeFx(x, level, z, r); return; }
+    let h = this.byId(id);
+    if (state === 0) { if (h) this.free(h); return; }
+    if (state > HZ_END || id <= 0) return;
+    if (!h) {
+      h = this.alloc();
+      if (!h) return;
+      this.init(h, id, m.type, x, z);
+      h.r = r; h.level = level;
+      h.kind.begin(h);
+    }
+    h.tx = x; h.tz = z; h.tr = r; h.tl = level; h.seen = 0;
+    if (h.state !== state) this.setState(h, state);
+  },
+  /* the HUD alert and siren when a hazard is coming, strikes and dies down (both sides) */
+  announce(h) {
+    const d = h.def, p = W.player && !W.player.dead ? W.player : W.camPos, dist = Math.round(Math.max(0, this.gap(h, p.x, p.z)));
+    if (h.state === HZ_WARN) { W.msgL(d.alert + ' WARNING: ' + dist + ' M'); Snd.ui('siren'); }
+    else if (h.state === HZ_ACTIVE) {
+      W.msgL(d.alert + (dist === 0 ? ': TAKE COVER' : ' ' + dist + ' M'));
+      Snd.ui(h.warn > 0 ? 'warn' : 'siren');
+      if (d.sound) Snd.play(d.sound, h.x, Terrain.h(h.x, h.z), h.z, 1.4);
+    } else if (h.state === HZ_END) W.msgL(d.alert + ' DYING DOWN');
+  },
+  /* m from (x, z) to the edge of h's zone (below 0: inside) */
+  gap(h, x, z) { return h.kind.gap ? h.kind.gap(h, x, z) : Math.hypot(x - h.x, z - h.z) - h.r; },
+  hudTick(dt) {
+    this.hudT -= dt;
+    if (this.hudT > 0) return;
+    this.hudT = HZ_HUD_EVERY;
+    this.hud = '';
+    const p = W.player;
+    if (!p || p.dead) return;
+    let best = Infinity, near = null;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = this.list[i];
+      if (!h.on || h.state === HZ_END) continue;
+      const g = this.gap(h, p.x, p.z);
+      if (g < best) { best = g; near = h; }
+    }
+    if (!near || best > HZ_HUD_RANGE) return;
+    this.hud = best <= 0 ? '!! INSIDE ' + near.def.alert + ' !!' : near.def.alert + ' ' + Math.round(best) + ' M';
+  },
+
+  /* ---------- triggers ---------- */
+  /* a big explosion (host, explode) may set off a hazard the battlefield lists: a fire in the brush, an avalanche or
+     rockfall on a steep slope, a leak from a chemical plant */
+  onBlast(x, y, z, r) {
+    if (this.dealing || !this.blastIds.length || Net.guest || W.time - this.blastT < HAZARD_BLAST_GAP) return;
+    if (latticeHash(Math.round(x), Math.round(z), this.seed ^ HZ_BLAST_SALT) >= HAZARD_PACE[this.level].blast) return;
+    for (let i = 0; i < this.blastIds.length; i++) {
+      const id = this.blastIds[i];
+      if (HZ_KIND[id].blast(x, z, r) && this.trigger(id, x, z, HAZARD_BLAST_WARN, true)) { this.blastT = W.time; return; }
+    }
+  },
+  /* a storm's sky flash (Weather.onLightning, host): on a battlefield with lightning, a share of them strike near a player */
+  onLightning(sec) {
+    if (Net.guest || !W || this.ids.indexOf('lightning') < 0) return;
+    if (latticeHash(sec, HZ_SKY_SALT, this.seed) >= HAZARD_PACE[this.level].sky) return;
+    const a = this.anchor(latticeHash(sec, 2, this.seed)), ang = latticeHash(sec, 3, this.seed) * TAU, dist = lerp(HZ_SKY_NEAR[0], HZ_SKY_NEAR[1], latticeHash(sec, 4, this.seed));
+    const x = clamp(a.x + Math.sin(ang) * dist, -GROUND_BOUND, GROUND_BOUND), z = clamp(a.z + Math.cos(ang) * dist, -GROUND_BOUND, GROUND_BOUND);
+    if (this.tallestIn(x, z, HZ_SKY_ROD)) { const p = this.found; this.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), 0); }
+    else this.strike(x, z, Water.top(x, z), 0);
+  },
+
+  /* ---------- shared effects ---------- */
+  hurt(p, amount, dtype, h, dx, dz) {
+    if (amount <= 0 || p.dead) return 0;
+    const was = this.dealing, why = this.cause;
+    this.dealing = true; this.cause = h.def.name;
+    try { return p.takeDamage(amount, dtype, null, dx, dz, HZ_HIT); } finally { this.dealing = was; this.cause = why; }
+  },
+  hurtStruct(s, amount, dtype) {
+    const was = this.dealing;
+    this.dealing = true;
+    try { return damageStruct(s, amount, dtype, null, 1); } finally { this.dealing = was; }
+  },
+  /* plain structures (not building pieces) reaching within r of (x, z), into this.scratch; returns how many */
+  structsIn(x, z, r) {
+    const n = Hash.query(x - r, z - r, x + r, z + r, undefined, undefined, true), out = this.scratch;
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const s = Hash.out[i], dx = s.x - x, dz = s.z - z, rr = r + Math.max(s.hx, s.hz);
+      if (dx * dx + dz * dz <= rr * rr) out[k++] = s;
+    }
+    return k;
+  },
+  /* damage up to cap trees and props within r (never an objective) */
+  smash(x, z, r, dmg, dtype, cap) {
+    const n = this.structsIn(x, z, r);
+    for (let i = 0; i < n && cap > 0; i++) {
+      const s = this.scratch[i];
+      if (s.destroyed || s.indestructible || s.objective) continue;
+      this.hurtStruct(s, dmg, dtype); cap--;
+    }
+  },
+  /* ground platforms in h's zone take dmg and are shoved along its way at push m/s */
+  sweep(h, dmg, push, dtype) {
+    const pl = W.platforms;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.dead || p.kind === 'air') continue;
+      const dx = p.x - h.x, dz = p.z - h.z, reach = h.r + p.radius;
+      if (dx * dx + dz * dz > reach * reach || p.y > Terrain.h(p.x, p.z) + HZ_GROUND_REACH) continue;
+      this.hurt(p, dmg, dtype, h, dx, dz);
+      if (push > 0 && p.def.speed > 0 && !p.dead) { const m = 1 / Math.max(0.4, p.def.mass); p.vx += h.vx * push * m; p.vz += h.vz * push * m; }
+    }
+  },
+  /* the tallest living platform within r of (x, z) into this.found (false: none) */
+  tallestIn(x, z, r) {
+    const pl = W.platforms;
+    let top = -Infinity;
+    this.found = null;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.dead) continue;
+      const dx = p.x - x, dz = p.z - z, y = p.y + (p.kind === 'air' ? 0 : p.height);
+      if (dx * dx + dz * dz <= r * r && y > top) { top = y; this.found = p; }
+    }
+    return !!this.found;
+  },
+  /* one lightning strike at (x, y, z) (host): it hurts what stands within the blast, may start a wildfire on rich fuel,
+     and goes to guests as an 'hz' strike (r: blast radius, level: the height struck) */
+  strike(x, z, y, id) {
+    const d = HAZARDS.lightning, pl = W.platforms, was = this.dealing, why = this.cause;
+    this.dealing = true; this.cause = d.name;
+    try {
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead) continue;
+        const py = p.y + (p.kind === 'air' ? 0 : p.height * 0.5), dist = Math.max(0, Math.hypot(p.x - x, py - y, p.z - z) - p.radius);
+        if (dist < d.blast) p.takeDamage(d.hit * (1 - 0.6 * dist / d.blast), d.dtype, null, p.x - x, p.z - z, HZ_HIT);
+      }
+      const n = this.structsIn(x, z, d.blast);
+      for (let i = 0; i < n; i++) { const s = this.scratch[i]; if (!s.destroyed && !s.objective) damageStruct(s, d.structHit, d.dtype, null, 1); }
+    } finally { this.dealing = was; this.cause = why; }
+    if (this.ids.indexOf('wildfire') >= 0 && this.fuelAt(x, z) > HZ_IGNITE_FUEL && latticeHash(Math.round(x), Math.round(z), this.seed ^ HZ_SKY_SALT) < HZ_IGNITE) this.trigger('wildfire', x, z, HAZARD_BLAST_WARN, true);
+    this.strikeFx(x, y, z, d.blast);
+    if (Net.host) Net.bcast({ t: 'hz', id, type: 'lightning', state: HZ_STRIKE, x: r1(x), z: r1(z), r: r1(d.blast), level: r1(y) });
+  },
+  /* the bolt, the flash and the thunder of a strike (both sides) */
+  strikeFx(x, y, z, r) {
+    const gy = Terrain.h(x, z), cam = W.camPos;
+    SW.bolt(x + rand(-30, 30), gy + HZ_BOLT_H, z + rand(-30, 30), x, y, z, HZ_BOLT_COL, 1.6);
+    fxSparks(x, y, z, 16, HZ_BOLT_COL, 18);
+    if (y - gy < 2) addDecal(x, z, r * 0.4, undefined, 30);
+    Weather.flash = Math.max(Weather.flash, 0.8 * (1 - clamp(Math.hypot(cam.x - x, cam.z - z) / HZ_FLASH_RANGE, 0, 1)));
+    Snd.play('thunder', x, y, z, 1.6);
+  },
+  /* 0..1: how much a fire finds to burn at (x, z): forest, scrub and meadow, and wooden structures not yet burnt */
+  fuelAt(x, z) {
+    if (Water.at(x, z) || Terrain.h(x, z) > W.map.mountains.snowLine) return 0;
+    let f = 0;
+    if (W.flora) f = Math.max(Flora.mask('forest', x, z), Flora.mask('scrub', x, z) * HZ_FUEL_SCRUB, Flora.mask('meadow', x, z) * HZ_FUEL_MEADOW);
+    const n = Hash.query(x - HZ_FUEL_R, z - HZ_FUEL_R, x + HZ_FUEL_R, z + HZ_FUEL_R, undefined, undefined, true);
+    for (let i = 0; i < n; i++) { const s = Hash.out[i]; if (!s.destroyed && s.mat === 'wood' && s.hp > s.maxHp * HZ_CHAR) f += HZ_FUEL_TREE; }
+    return Math.min(1, f);
+  },
+  /* the nearest water at least HZ_FLOOD_WET deep within reach of (x, z), into this.wet (its unflooded surface) */
+  nearestWater(x, z, reach) {
+    const L = Water.levels, H = Terrain.heights, G = Terrain.G, N = Terrain.N, w = this.wet;
+    const i0 = clamp(Math.floor((x - reach + WORLD_HALF) / G), 0, N), i1 = clamp(Math.ceil((x + reach + WORLD_HALF) / G), 0, N);
+    const j0 = clamp(Math.floor((z - reach + WORLD_HALF) / G), 0, N), j1 = clamp(Math.ceil((z + reach + WORLD_HALF) / G), 0, N);
+    let best = reach * reach;
+    w.ok = false;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const o = j * (N + 1) + i;
+      if (!(L[o] > H[o] + HZ_FLOOD_WET)) continue;
+      const gx = -WORLD_HALF + i * G, gz = -WORLD_HALF + j * G, d2 = (gx - x) * (gx - x) + (gz - z) * (gz - z);
+      if (d2 < best) { best = d2; w.x = gx; w.z = gz; w.y = L[o]; w.ok = true; }
+    }
+    return w.ok;
+  },
+  /* the structure a toxic gas leak comes from: the likeliest kind (HZ_GAS_SOURCES) nearest (x, z) within reach, or null */
+  gasSource(x, z, reach) {
+    const list = W.plain;
+    let best = null, score = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (s.destroyed) continue;
+      const rank = HZ_GAS_SOURCES.indexOf(s.type);
+      if (rank < 0) continue;
+      const d = Math.hypot(s.x - x, s.z - z);
+      if (d <= reach && d + rank * HZ_GAS_RANK < score) { score = d + rank * HZ_GAS_RANK; best = s; }
+    }
+    return best;
+  },
+  /* the steepest spot (slope over min) among a few within HZ_SLIDE_NEAR of the anchor, uphill of it scoring best;
+     snow true: only snowy ground, false: only bare ground */
+  slopeSite(s, a, min, snow) {
+    const ah = Terrain.h(a.x, a.z);
+    let best = 0;
+    for (let k = 0; k < HAZARD_SEARCH * 2; k++) {
+      const ang = this.rnd(k, 1) * TAU, dist = lerp(HZ_SLIDE_NEAR[0], HZ_SLIDE_NEAR[1], this.rnd(k, 2)), x = a.x + Math.sin(ang) * dist, z = a.z + Math.cos(ang) * dist;
+      if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || this.snowy(x, z) !== snow || Water.at(x, z)) continue;
+      const sl = Terrain.slope(x, z), score = sl * Math.max(1, Terrain.h(x, z) - ah);
+      if (sl > min && score > best) { best = score; s.x = x; s.z = z; }
+    }
+    return best > 0;
+  },
+  snowy(x, z) { const m = W.map; return m.biome === 'arctic' || Terrain.h(x, z) > m.mountains.snowLine - HZ_SNOW_MARGIN; },
+  /* a sliding front (avalanche) gathers speed down the steepest way and stops on flat ground or at water */
+  slide(h, dt) {
+    const d = h.def;
+    Terrain.normal(h.x, h.z, HZ_TMP);
+    const nl = Math.hypot(HZ_TMP.x, HZ_TMP.z);
+    if (nl > 1e-4) {
+      const k = Math.min(1, dt * HZ_STEER);
+      h.vx = lerp(h.vx, HZ_TMP.x / nl, k); h.vz = lerp(h.vz, HZ_TMP.z / nl, k);
+      const l = Math.hypot(h.vx, h.vz) || 1;
+      h.vx /= l; h.vz /= l;
+    }
+    h.speed = clamp(h.speed + (d.accel * nl / HZ_SLIDE_NORM - d.drag) * dt, 0, d.speed);
+    h.x += h.vx * h.speed * dt; h.z += h.vz * h.speed * dt;
+    h.r = Math.min(d.r, h.r + HZ_SLIDE_GROW * dt);
+    if ((h.t > HZ_SLIDE_START && h.speed < HZ_SLIDE_STOP) || Water.at(h.x, h.z) || Math.abs(h.x) > GROUND_BOUND || Math.abs(h.z) > GROUND_BOUND) h.done = true;
+  },
+
+  /* ---------- the look ---------- */
+  /* sight share for AI at (x, z): sandstorms and gas clouds cut it */
+  sightAt(x, z) {
+    if (this.n === 0) return 1;
+    let k = 1;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = this.list[i];
+      if (!h.on || !h.def.sight) continue;
+      const f = this.fade(h), dx = x - h.x, dz = z - h.z;
+      if (f > 0 && dx * dx + dz * dz < h.r * h.r) k = Math.min(k, lerp(1, h.def.sight, f));
+    }
+    return k;
+  },
+  /* Weather.update: with the camera inside a sandstorm or a gas cloud, thicker and tinted fog (and blowing sand) */
+  envMod(w, c) {
+    if (this.n === 0 || !W) return;
+    const cam = W.camPos;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = this.list[i], d = h.def;
+      if (!h.on || !d.fog) continue;
+      const k = (1 - smoothstep(h.r * 0.8, h.r, Math.hypot(cam.x - h.x, cam.z - h.z))) * this.fade(h);
+      if (k <= 0) continue;
+      c.fog *= 1 + (d.fog - 1) * k; c.sun *= 1 - 0.4 * k;
+      for (let j = 0; j < 3; j++) { c.hor[j] = lerp(c.hor[j], d.tint[j], k * 0.7); c.zen[j] = lerp(c.zen[j], d.tint[j], k * 0.5); }
+      if (d.sand) w.sand = Math.max(w.sand, d.sand * k);
+    }
+  },
+  /* pass 0: opaque (in the opaque batch), 1: see-through (after the water), 2: glow (additive) */
+  draw(pass) {
+    if (this.n === 0) return;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = this.list[i];
+      if (!h.on) continue;
+      if (h.kind.draw) h.kind.draw(h, pass);
+      if (pass === 2 && h.state === HZ_WARN) {   // a pulsing ring where it will strike
+        const pulse = 0.5 + 0.5 * Math.sin(h.t * HZ_WARN_PULSE);
+        SW_A.ringShape(SW, h.x, Terrain.h(h.x, h.z) + 1, h.z, h.r, 2, 0.8, HZ_WARN_COL, 0.35 + 0.35 * pulse, 1.6, HZ_WARN_SEGS);
+      }
+    }
+  },
+};
+/* What each hazard does. Every row has:
+   site(s, a): fit the start s { x, z } (the suggested spot) and fill s.y, s.yaw, s.src; a is the player a scheduled
+     hazard is aimed at, null to keep the spot as given; false when nothing fits
+   begin(h): set up a new hazard (both sides; a guest calls it when it first hears of one)
+   update(h, dt): motion (the host's; guests follow what it sends) and particles, every frame on both sides
+   tick(h): damage, every HAZARD_TICK while active (host)
+   optional: blast(x, z, r) true when an explosion there may set it off; end(h) when it dies down; free(h) when it is
+   gone; gap(h, x, z) m from (x, z) to its edge; draw(h, pass) */
+const HZ_KIND = {
+  /* a fire that spreads over brush, forest and wooden structures, faster downwind, and chars the trees it crosses */
+  wildfire: {
+    site(s, a) {
+      if (!a) return true;
+      let best = HZ_FIRE_MIN;
+      const x0 = s.x, z0 = s.z;
+      for (let k = 0; k < HAZARD_SEARCH; k++) {
+        const ang = Hazards.rnd(k, 1) * TAU, dist = Hazards.rnd(k, 2) * HZ_FIRE_SEARCH, x = x0 + Math.sin(ang) * dist, z = z0 + Math.cos(ang) * dist, f = Hazards.fuelAt(x, z);
+        if (f > best) { best = f; s.x = x; s.z = z; }
+      }
+      return best > HZ_FIRE_MIN;
+    },
+    blast(x, z) { return Hazards.fuelAt(x, z) > HZ_IGNITE_FUEL; },
+    begin(h) { h.level = 1; },
+    update(h, dt) {
+      const d = h.def, f = Hazards.fade(h);
+      if (!Net.guest && h.state === HZ_ACTIVE) {
+        h.r = Math.min(d.rMax, h.r + d.grow * (HZ_FIRE_CREEP + h.level) * dt);
+        h.x += Weather.windX * d.drift * dt; h.z += Weather.windZ * d.drift * dt;
+      }
+      if (f <= 0) return;
+      const big = 0.3 + h.r / d.rMax;
+      for (let n = Hazards.count(d.flames * f * big, dt); n > 0; n--) {   // flames along the front
+        const a = Math.random() * TAU, rr = h.r * (0.7 + Math.random() * 0.32), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+        if (Water.at(x, z)) continue;
+        FX.emit(x, Terrain.h(x, z) + rand(0, 3), z, rand(-1, 1), rand(4, 9), rand(-1, 1), rand(0.6, 1.2), rand(2.5, 4.5), 1, 1, rand(0.35, 0.6), 0.1, 0.9, 1.1, -1.5, true);
+      }
+      for (let n = Hazards.count(d.smoke * f * big, dt); n > 0; n--) {   // smoke over the burnt ground
+        const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+        FX.emit(x, Terrain.h(x, z) + rand(4, 10), z, rand(-1, 1), rand(4, 8), rand(-1, 1), rand(4, 7), 6, 16, 0.16, 0.15, 0.14, 0.55, 0.3, -0.6, false);
+      }
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms, r2 = h.r * h.r;
+      let fuel = 0;   // what the front finds to burn sets how fast it spreads
+      for (let k = 0; k < HZ_FIRE_RING; k++) { const a = k / HZ_FIRE_RING * TAU; fuel += Hazards.fuelAt(h.x + Math.sin(a) * h.r, h.z + Math.cos(a) * h.r); }
+      h.level = fuel / HZ_FIRE_RING;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead) continue;
+        const dx = p.x - h.x, dz = p.z - h.z;
+        if (dx * dx + dz * dz > r2 || p.y > Terrain.h(p.x, p.z) + FIRE_ZONE_H) continue;
+        Hazards.hurt(p, d.dps * HAZARD_TICK, d.dtype, h, dx, dz);
+        if (!p.dead) WPN.ignite(p, null, -1, d.burn, HZ_BURN_T);
+      }
+      // trees near the front char and stay standing; crates and fences burn away
+      const n = Hazards.structsIn(h.x, h.z, h.r);
+      let left = d.trees;
+      for (let i = 0; i < n && left > 0; i++) {
+        const s = Hazards.scratch[i];
+        if (s.destroyed || s.mat !== 'wood' || s.objective) continue;
+        if (s.type !== 'tree') Hazards.hurtStruct(s, s.maxHp * 2, d.dtype);
+        else if (s.hp > s.maxHp * HZ_CHAR && Math.hypot(s.x - h.x, s.z - h.z) > h.r - HZ_FIRE_BAND) Hazards.hurtStruct(s, s.maxHp * HZ_CHAR_HIT / MATERIAL.wood.energy, d.dtype);
+        else continue;
+        left--;
+      }
+    },
+    end(h) { addDecal(h.x, h.z, h.r * 0.9, HZ_ASH_COL, 90); },
+  },
+  /* the water of a river, lake or sea rises over the low ground around it (Water.setFlood); units in it flood and
+     drown by the water rules (D34) */
+  flood: {
+    site(s, a) {
+      if (!Water.any || Water.fr2 > 0) return false;   // only where there is water, and one flood at a time
+      if (!Hazards.nearestWater(a ? a.x : s.x, a ? a.z : s.z, a ? HZ_FLOOD_REACH : HAZARDS.flood.r)) return false;
+      const w = Hazards.wet;
+      if (a) { s.x = lerp(w.x, a.x, HZ_FLOOD_TOWARD); s.z = lerp(w.z, a.z, HZ_FLOOD_TOWARD); }
+      s.y = w.y;
+      return true;
+    },
+    begin(h) { if (!Net.guest) h.level = h.y; },
+    update(h, dt) {
+      const d = h.def;
+      if (!Net.guest) {
+        const t = h.state === HZ_ACTIVE ? h.t : 0;
+        h.level = h.y + d.rise * Math.min(smoothstep(0, d.riseTime, t), 1 - smoothstep(d.dur - d.fall, d.dur, t));
+      }
+      Water.setFlood(h.x, h.z, h.r, h.level);
+      for (let n = Hazards.count(d.foam * Hazards.fade(h), dt); n > 0; n--) {   // foam where it runs over the land
+        const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+        if (Water.depth(x, z) > 0.3) FX.emit(x, h.level + 0.1, z, rand(-1, 1), rand(0.5, 1.5), rand(-1, 1), rand(1, 2), 1.5, 3.5, 0.85, 0.88, 0.86, 0.6, 1, 0, false);
+      }
+    },
+    tick() {},
+    free() { Water.setFlood(0, 0, 0, -Infinity); },
+    draw(h, pass) {
+      if (pass !== 1 || h.state === HZ_WARN || !R.visible(h.x, h.level, h.z, h.r)) return;
+      const st = R.stack, a = HZ_FLOOD_ALPHA * (h.state === HZ_END ? Hazards.fade(h) : 1);
+      st.push().t(h.x, h.level + 0.03, h.z).s(h.r * 2, 0.06, h.r * 2);
+      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], a, 0, 0.6); st.pop();
+    },
+  },
+  /* a front of snow that breaks away high on a snowy slope and races down the steepest way, burying what it meets */
+  avalanche: {
+    site(s, a) { return !a || Hazards.slopeSite(s, a, HAZARDS.avalanche.slope, true); },
+    blast(x, z) { return Hazards.snowy(x, z) && Terrain.slope(x, z) > HAZARDS.avalanche.slope; },
+    begin(h) {
+      h.r = h.def.r * 0.6;
+      Terrain.normal(h.x, h.z, HZ_TMP);
+      const l = Math.hypot(HZ_TMP.x, HZ_TMP.z) || 1;
+      h.vx = HZ_TMP.x / l; h.vz = HZ_TMP.z / l;
+    },
+    update(h, dt) {
+      const d = h.def, f = Hazards.fade(h);
+      if (!Net.guest && h.state === HZ_ACTIVE) Hazards.slide(h, dt);
+      if (f <= 0) return;
+      const gy = Terrain.h(h.x, h.z), k = Math.min(1, h.speed / d.speed);
+      for (let n = Hazards.count(d.snow * f * (0.25 + k), dt); n > 0; n--) {   // the snow cloud rolling at the front
+        const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random());
+        FX.emit(h.x + Math.sin(a) * rr, gy + rand(0, 5), h.z + Math.cos(a) * rr, h.vx * h.speed * 0.7 + rand(-3, 3), rand(2, 7), h.vz * h.speed * 0.7 + rand(-3, 3), rand(1.5, 2.8), rand(5, 8), rand(12, 20), 0.94, 0.96, 1, 0.75, 0.8, -0.4, false);
+      }
+      h.dist += h.speed * dt;
+      if (h.dist > HZ_TRAIL_STEP) { h.dist = 0; addDecal(h.x, h.z, h.r * 0.7, HZ_SNOW_COL, 120); }
+    },
+    tick(h) {
+      const d = h.def, k = Math.min(1, h.speed / d.speed);
+      if (k < HZ_SLIDE_HARMLESS) return;
+      Hazards.sweep(h, d.hit * k * HAZARD_TICK, d.push * k, d.dtype);
+      Hazards.smash(h.x, h.z, h.r, d.structHit * k, d.dtype, HZ_SMASH_CAP);
+    },
+    draw(h, pass) {
+      const f = Hazards.fade(h);
+      if (pass !== 1 || f <= 0) return;
+      const gy = Terrain.h(h.x, h.z);
+      for (let k = 0; k < 3; k++) { const o = (k - 1) * h.r * 0.5; SW.shape('sphere', h.x - h.vz * o, gy + h.r * 0.2, h.z + h.vx * o, h.r * 1.2, h.r * 0.55, h.r * 1.2, HZ_SNOW_COL, 0.55 * f, 0.2); }
+    },
+  },
+  /* boulders break loose on a steep bare slope and roll down it, hitting what they meet; where they stop they heap into
+     rubble (P3.2). Every game rolls its own from the same seeded start; the host's boulders deal the damage. */
+  rockfall: {
+    site(s, a) { return !a || Hazards.slopeSite(s, a, HAZARDS.rockfall.slope, false); },
+    blast(x, z) { return !Hazards.snowy(x, z) && Terrain.slope(x, z) > HAZARDS.rockfall.slope; },
+    begin(h) {
+      const d = h.def, B = h.rocks;
+      h.nPath = Math.min(HZ_ROCKS, d.rocks);
+      for (let k = 0; k < h.nPath; k++) {
+        const o = k * HZ_ROCK_F, a = Hazards.hr(h, k, 1) * TAU, dist = k === 0 ? 0 : (0.3 + 0.7 * Hazards.hr(h, k, 2)) * d.r * 0.5;
+        const x = h.x + Math.sin(a) * dist, z = h.z + Math.cos(a) * dist;
+        B[o] = x; B[o + 1] = z; B[o + 2] = Terrain.h(x, z) + d.rock; B[o + 3] = 0; B[o + 4] = 0; B[o + 5] = a; B[o + 6] = 0; B[o + 7] = 1;
+      }
+    },
+    update(h, dt) {
+      if (h.state !== HZ_ACTIVE) return;
+      const d = h.def, B = h.rocks;
+      let rolling = 0;
+      for (let k = 0; k < h.nPath; k++) {
+        const o = k * HZ_ROCK_F;
+        if (B[o + 7] === 0) continue;
+        Terrain.normal(B[o], B[o + 1], HZ_TMP);
+        const drag = Math.exp(-HZ_ROLL_DRAG * dt);
+        let vx = (B[o + 3] + HZ_TMP.x * GRAVITY * HZ_ROLL * dt) * drag, vz = (B[o + 4] + HZ_TMP.z * GRAVITY * HZ_ROLL * dt) * drag, sp = Math.hypot(vx, vz);
+        if (sp > d.speed) { vx *= d.speed / sp; vz *= d.speed / sp; sp = d.speed; }
+        const x = B[o] + vx * dt, z = B[o + 1] + vz * dt;
+        B[o] = x; B[o + 1] = z; B[o + 3] = vx; B[o + 4] = vz; B[o + 5] += sp * dt / d.rock; B[o + 6] -= dt;
+        B[o + 2] = Terrain.h(x, z) + d.rock * 0.85 + Math.abs(Math.sin(B[o + 5] * 0.5)) * sp * 0.04;
+        if ((h.t > HZ_ROLL_START && sp < HZ_ROLL_STOP) || Water.at(x, z) || Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND) { this.settle(h, o); continue; }
+        rolling++;
+        if (!Net.guest && sp > HZ_ROLL_HARM && B[o + 6] <= 0) this.hit(h, o, sp);
+        if (Math.random() < dt * HZ_ROLL_DUST * Hazards.fxK) FX.emit(x, B[o + 2] - d.rock * 0.6, z, rand(-1, 1), rand(1, 3), rand(-1, 1), 1.6, 1.5, 4, 0.5, 0.45, 0.38, 0.5, 0.6, -0.3, false);
+      }
+      if (rolling === 0 && !Net.guest) h.done = true;
+    },
+    /* boulder o comes to rest: a mound of rubble, or a splash in water */
+    settle(h, o) {
+      const d = h.def, B = h.rocks;
+      B[o + 7] = 0;
+      if (Water.at(B[o], B[o + 1])) Water.splash(B[o], B[o + 1], d.rock, true);
+      else Rubble.add(B[o], B[o + 1], d.rock * d.rock * d.rock * HZ_ROCK_VOL);
+    },
+    /* boulder o rolling at sp m/s hits the first ground platform or structure it touches (host) */
+    hit(h, o, sp) {
+      const d = h.def, B = h.rocks, x = B[o], z = B[o + 1], y = B[o + 2], pl = W.platforms;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead || p.kind === 'air') continue;
+        const dx = p.x - x, dz = p.z - z, reach = d.rock + p.radius;
+        if (dx * dx + dz * dz > reach * reach || y < p.y - d.rock || y > p.y + p.height + d.rock) continue;
+        Hazards.hurt(p, d.hit * Math.min(1, sp / d.speed * 1.4), d.dtype, h, dx, dz);
+        if (p.def.speed > 0 && !p.dead) { const m = 1 / Math.max(0.4, p.def.mass); p.vx += B[o + 3] * 0.6 * m; p.vz += B[o + 4] * 0.6 * m; }
+        B[o + 3] *= HZ_ROCK_BOUNCE; B[o + 4] *= HZ_ROCK_BOUNCE; B[o + 6] = HZ_ROCK_HIT_GAP;
+        return;
+      }
+      const n = Hazards.structsIn(x, z, d.rock);
+      for (let i = 0; i < n; i++) {
+        const s = Hazards.scratch[i];
+        if (s.destroyed || s.indestructible || s.objective) continue;
+        Hazards.hurtStruct(s, d.structHit, d.dtype);
+        B[o + 3] *= HZ_ROCK_BOUNCE; B[o + 4] *= HZ_ROCK_BOUNCE; B[o + 6] = HZ_ROCK_HIT_GAP;
+        return;
+      }
+    },
+    tick() {},   // the boulders hit as they roll
+    gap(h, x, z) {
+      const B = h.rocks;
+      let best = Math.hypot(x - h.x, z - h.z) - h.r;
+      for (let k = 0; k < h.nPath; k++) { const o = k * HZ_ROCK_F; if (B[o + 7]) best = Math.min(best, Math.hypot(x - B[o], z - B[o + 1]) - h.def.rock); }
+      return best;
+    },
+    draw(h, pass) {
+      if (pass !== 0 || h.state === HZ_WARN) return;
+      const d = h.def, B = h.rocks, st = R.stack;
+      for (let k = 0; k < h.nPath; k++) {
+        const o = k * HZ_ROCK_F;
+        if (!B[o + 7] || !R.visible(B[o], B[o + 2], B[o + 1], d.rock * 2)) continue;
+        const sh = 0.85 + 0.3 * Hazards.hr(h, k, 3);
+        st.push().t(B[o], B[o + 2], B[o + 1]).ry(k * 1.9).rx(B[o + 5]).s(d.rock * 2, d.rock * 1.7, d.rock * 2);
+        R.draw('sphere', HZ_ROCK_COL[0] * sh, HZ_ROCK_COL[1] * sh, HZ_ROCK_COL[2] * sh); st.pop();
+      }
+    },
+  },
+  /* a storm cell: lightning strikes inside it every second or two, most of them on the tallest thing standing in it */
+  lightning: {
+    site() { return true; },
+    begin(h) { h.fxT = HZ_FIRST_STRIKE; },
+    update(h, dt) {
+      if (Net.guest || h.state !== HZ_ACTIVE) return;
+      h.fxT -= dt;
+      if (h.fxT > 0) return;
+      const d = h.def, k = h.strikes++;
+      h.fxT = lerp(d.every[0], d.every[1], Hazards.hr(h, k, 1));
+      if (Hazards.hr(h, k, 2) < d.aim && Hazards.tallestIn(h.x, h.z, h.r)) { const p = Hazards.found; Hazards.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), h.id); return; }
+      const a = Hazards.hr(h, k, 3) * TAU, rr = h.r * Math.sqrt(Hazards.hr(h, k, 4)), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+      Hazards.strike(x, z, Water.top(x, z), h.id);
+    },
+    tick() {},   // the strikes deal the damage
+    draw(h, pass) {   // the dark cloud bank overhead
+      if (pass !== 1) return;
+      const f = h.state === HZ_WARN ? Math.min(1, h.t / Math.max(0.1, h.warn)) : Hazards.fade(h);
+      if (f <= 0) return;
+      const y = Terrain.h(h.x, h.z) + HZ_CLOUD_H;
+      for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + h.t * 0.02; SW.shape('sphere', h.x + Math.sin(a) * h.r * 0.45, y + (k % 2) * 12, h.z + Math.cos(a) * h.r * 0.45, h.r * 0.9, 50, h.r * 0.9, HZ_CLOUD_COL, 0.5 * f, 0); }
+    },
+  },
+  /* a vortex that wanders across the field: it lifts and throws light units, batters heavy ones and snaps trees */
+  tornado: {
+    site(s, a) {
+      s.yaw = a ? Math.atan2(a.x - s.x, a.z - s.z) + (Hazards.rnd(0, 5) - 0.5) * HZ_TWIST_AIM : Hazards.rnd(0, 6) * TAU;
+      return Math.abs(s.x) < GROUND_BOUND && Math.abs(s.z) < GROUND_BOUND;
+    },
+    begin(h) { h.vx = Math.sin(h.yaw); h.vz = Math.cos(h.yaw); if (!Net.guest) h.speed = h.def.speed; },
+    update(h, dt) {
+      const d = h.def, f = Hazards.fade(h);
+      if (!Net.guest && h.state === HZ_ACTIVE) {
+        const yaw = Math.atan2(h.vx, h.vz) + Math.sin(h.t * HZ_TWIST_WOBBLE + h.id) * HZ_TWIST_TURN * dt;
+        h.vx = Math.sin(yaw); h.vz = Math.cos(yaw);
+        h.x += h.vx * h.speed * dt; h.z += h.vz * h.speed * dt;
+        if (Math.abs(h.x) > GROUND_BOUND || Math.abs(h.z) > GROUND_BOUND) h.done = true;
+      }
+      if (f <= 0) return;
+      const gy = Terrain.h(h.x, h.z);
+      for (let n = Hazards.count(d.dust * f, dt); n > 0; n--) {   // dust whirling round its foot
+        const a = Math.random() * TAU, rr = h.r * (0.3 + Math.random() * 0.8), ca = Math.cos(a), sa = Math.sin(a);
+        FX.emit(h.x + ca * rr, gy + rand(0, 4), h.z + sa * rr, -sa * 16 + ca * 2, rand(5, 16), ca * 16 + sa * 2, rand(1, 1.8), 2, 6, 0.48, 0.42, 0.34, 0.6, 0.5, -2.5, false);
+      }
+      if (Math.random() < dt * HZ_TWIST_DEBRIS * f) spawnDebris(h.x + rand(-6, 6), gy + rand(4, 30), h.z + rand(-6, 6), 1, null, 22);
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead) continue;
+        const dx = p.x - h.x, dz = p.z - h.z, dd = Math.hypot(dx, dz) || 1;
+        if (dd > h.r + p.radius || p.y > Terrain.h(p.x, p.z) + d.height) continue;
+        const k = 1 - 0.6 * Math.min(1, dd / h.r), tx = -dz / dd, tz = dx / dd;
+        Hazards.hurt(p, d.dps * HAZARD_TICK * k, d.dtype, h, dx, dz);
+        if (p.dead) continue;
+        if (p.kind !== 'air' && p.tonnes <= d.light) {   // light units are lifted and slammed down
+          const s = p.status;
+          s.float = Math.max(s.float, HZ_TWIST_HOLD); s.floatH = Math.max(s.floatH, d.lift * k); s.slam = Math.max(s.slam, d.slam); s.slamOwner = null;
+        }
+        SW.push(p, (tx - dx / dd * 0.3) * d.throw * k, 0, (tz - dz / dd * 0.3) * d.throw * k);
+      }
+      Hazards.smash(h.x, h.z, h.r * 0.7, d.structHit, d.dtype, HZ_SMASH_CAP);
+    },
+    draw(h, pass) {   // the funnel: see-through rings, wider toward the cloud
+      const f = Hazards.fade(h);
+      if (pass !== 1 || f <= 0) return;
+      const d = h.def, gy = Terrain.h(h.x, h.z), st = R.stack, seg = d.funnel / HZ_TWIST_SEGS;
+      for (let k = 0; k < HZ_TWIST_SEGS; k++) {
+        const u = k / (HZ_TWIST_SEGS - 1), w = lerp(HZ_TWIST_BASE, h.r * 2.4, u * u);
+        st.push().t(h.x + Math.sin(h.t * 1.3 + k * 0.7) * u * 10, gy + seg * (k + 0.5), h.z + Math.cos(h.t * 1.1 + k) * u * 8).ry(h.t * 4 + k).s(w, seg * 1.2, w);
+        R.draw('cyl', HZ_TWIST_COL[0], HZ_TWIST_COL[1], HZ_TWIST_COL[2], 0.28 * f, 0, 0); st.pop();
+      }
+    },
+  },
+  /* a wall of dust that rolls across the field with the wind: sight drops inside it and grit wears low aircraft */
+  sandstorm: {
+    site(s, a) {
+      const d = HAZARDS.sandstorm;
+      let wx = Weather.windX, wz = Weather.windZ, wl = Math.hypot(wx, wz);
+      if (wl < 1) { const ang = Hazards.rnd(0, 7) * TAU; wx = Math.sin(ang); wz = Math.cos(ang); wl = 1; }
+      s.yaw = Math.atan2(wx, wz);
+      if (a) { s.x = a.x - wx / wl * (d.r + HZ_DUST_LEAD); s.z = a.z - wz / wl * (d.r + HZ_DUST_LEAD); }
+      return true;
+    },
+    begin(h) { h.vx = Math.sin(h.yaw); h.vz = Math.cos(h.yaw); if (!Net.guest) h.speed = h.def.speed; },
+    update(h, dt) {
+      const d = h.def, f = Hazards.fade(h);
+      if (!Net.guest && h.state === HZ_ACTIVE) {
+        h.x += h.vx * h.speed * dt; h.z += h.vz * h.speed * dt;
+        if (Math.abs(h.x) > WORLD_HALF + d.r || Math.abs(h.z) > WORLD_HALF + d.r) h.done = true;
+      }
+      if (f <= 0) return;
+      const ahead = Math.atan2(h.vx, h.vz);
+      for (let n = Hazards.count(d.dust * f, dt); n > 0; n--) {   // dust boiling along its leading edge
+        const a = ahead + (Math.random() - 0.5) * PI, x = h.x + Math.sin(a) * h.r * 0.95, z = h.z + Math.cos(a) * h.r * 0.95;
+        FX.emit(x, Terrain.h(x, z) + rand(2, 30), z, h.vx * h.speed + rand(-3, 3), rand(-1, 2), h.vz * h.speed + rand(-3, 3), rand(3, 5), 18, 34, HZ_DUST_COL[0], HZ_DUST_COL[1], HZ_DUST_COL[2], 0.45, 0.2, 0, false);
+      }
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms, r2 = h.r * h.r;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead || p.kind !== 'air') continue;
+        const dx = p.x - h.x, dz = p.z - h.z;
+        if (dx * dx + dz * dz > r2 || p.y > Terrain.h(p.x, p.z) + d.ceiling) continue;
+        Hazards.hurt(p, d.wear * HAZARD_TICK, d.dtype, h, dx, dz);
+      }
+    },
+    draw(h, pass) {
+      const f = Hazards.fade(h);
+      if (pass !== 1 || f <= 0) return;
+      for (let k = 0; k < HZ_DUST_WALL; k++) {
+        const a = k / HZ_DUST_WALL * TAU + h.t * 0.03, x = h.x + Math.sin(a) * h.r * 0.92, z = h.z + Math.cos(a) * h.r * 0.92;
+        SW.shape('sphere', x, Terrain.h(x, z) + 25 * f, z, h.r * 0.5, 80 * f, h.r * 0.5, HZ_DUST_COL, 0.4 * f, 0.1);
+      }
+    },
+  },
+  /* the ground shakes: ground units stagger and take a beating, and weak buildings lose their ground floor and come
+     down by the collapse rules (P3.2) */
+  earthquake: {
+    site(s, a) { if (a) { s.x = lerp(a.x, s.x, HZ_QUAKE_NEAR); s.z = lerp(a.z, s.z, HZ_QUAKE_NEAR); } return true; },
+    begin() {},
+    update(h, dt) {
+      const d = h.def;
+      if (!Net.guest) h.level = Hazards.fade(h);
+      const k = h.level;
+      if (k <= 0) return;
+      const gy = Terrain.h(h.x, h.z), cam = W.camPos;
+      shakeFrom(h.x, gy, h.z, d.shake * k * dt * 4, h.r * 1.5);
+      h.fxT -= dt;
+      if (h.fxT <= 0) { h.fxT = HZ_QUAKE_RUMBLE; Snd.play('rumble', h.x, gy, h.z, 1.2 * k); }
+      if (Math.hypot(cam.x - h.x, cam.z - h.z) > h.r) return;
+      for (let n = Hazards.count(d.dust * k, dt); n > 0; n--) {   // dust shaken up around the camera
+        const a = Math.random() * TAU, rr = Math.random() * HZ_QUAKE_DUST_R, x = cam.x + Math.sin(a) * rr, z = cam.z + Math.cos(a) * rr;
+        FX.emit(x, Terrain.h(x, z) + 0.5, z, rand(-1, 1), rand(1, 3), rand(-1, 1), rand(1.5, 3), 2, 7, 0.5, 0.46, 0.4, 0.5, 0.6, -0.3, false);
+      }
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms, k = h.level;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead || p.kind === 'air' || p.y > Terrain.h(p.x, p.z) + HZ_GROUND_REACH) continue;
+        const dx = p.x - h.x, dz = p.z - h.z, dd = Math.hypot(dx, dz);
+        if (dd > h.r) continue;
+        Hazards.hurt(p, d.dps * HAZARD_TICK * k * (1 - 0.5 * dd / h.r), d.dtype, h, dx, dz);
+        if (!p.dead) p.stagger = Math.max(p.stagger, HZ_QUAKE_STAGGER);
+      }
+      // weak buildings (seeded, or already cracked) lose a share of their ground floor each tick
+      const bl = W.buildings;
+      let left = d.pieces;
+      for (let i = 0; i < bl.length && left > 0; i++) {
+        const b = bl[i];
+        if (b.alive === 0 || Math.hypot(b.cx - h.x, b.cz - h.z) > h.r) continue;
+        if (latticeHash(b.id, h.id, HZ_QUAKE_SALT) >= d.weak && b.alive >= b.total * HZ_QUAKE_CRACKED) continue;
+        for (let j = 0; j < b.pieces.length && left > 0; j++) {
+          const s = b.pieces[j];
+          if (s.destroyed || s.fl !== 0 || s.kind === 'found' || s.kind === 'slab' || s.indestructible || s.objective) continue;
+          if (latticeHash(j, h.strikes, b.id) >= HZ_QUAKE_BREAK) continue;
+          Hazards.hurtStruct(s, 1e5, d.dtype); left--;
+        }
+      }
+      h.strikes++;
+    },
+  },
+  /* molten rock wells up high on a slope and runs down the steepest way, cell by cell, burning what it touches; the same
+     cells on every game (traced from the source over the shared ground) */
+  lava: {
+    site(s, a) {
+      if (a) {
+        let best = -Infinity;
+        for (let k = 0; k < HAZARD_SEARCH * 2; k++) {
+          const ang = Hazards.rnd(k, 1) * TAU, dist = Hazards.rnd(k, 2) * HZ_LAVA_REACH, x = a.x + Math.sin(ang) * dist, z = a.z + Math.cos(ang) * dist;
+          if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || Water.at(x, z) || Terrain.slope(x, z) < HZ_LAVA_SLOPE) continue;
+          const y = Terrain.h(x, z);
+          if (y > best) { best = y; s.x = x; s.z = z; }
+        }
+        if (best === -Infinity) return false;
+      }
+      return this.trace(s.x, s.z, null) >= HZ_LAVA_MIN;
+    },
+    /* lava cells from (x, z) down the steepest way into out (x, z pairs; null: count only); returns how many */
+    trace(x, z, out) {
+      const d = HAZARDS.lava, max = Math.min(HZ_PATH, d.cells);
+      let n = 0, y = Terrain.h(x, z);
+      while (n < max) {
+        if (out) { out[n * 2] = x; out[n * 2 + 1] = z; }
+        n++;
+        let bx = x, bz = z, by = y - HZ_LAVA_DROP;
+        for (let k = 0; k < 8; k++) {
+          const a = k / 8 * TAU, nx = x + Math.sin(a) * d.step, nz = z + Math.cos(a) * d.step, ny = Terrain.h(nx, nz);
+          if (ny < by) { by = ny; bx = nx; bz = nz; }
+        }
+        if (bx === x && bz === z) break;   // a hollow: it pools here
+        if (Water.at(bx, bz) || Math.abs(bx) > GROUND_BOUND || Math.abs(bz) > GROUND_BOUND) break;
+        x = bx; z = bz; y = by;
+      }
+      return n;
+    },
+    begin(h) { h.nPath = this.trace(h.x, h.z, h.path); },
+    update(h, dt) {
+      const d = h.def;
+      if (!Net.guest && h.state === HZ_ACTIVE) h.level = Math.min(h.nPath, h.t * d.flow);
+      const n = Math.min(h.nPath, Math.floor(h.level)), heat = h.state === HZ_END ? Hazards.fade(h) : h.state === HZ_ACTIVE ? 1 : 0;
+      if (heat <= 0 || n === 0) return;
+      const P = h.path;
+      for (let c = Hazards.count(d.embers * heat, dt); c > 0; c--) {   // embers over the flow
+        const k = Math.floor(Math.random() * n), x = P[k * 2] + rand(-0.7, 0.7) * d.r, z = P[k * 2 + 1] + rand(-0.7, 0.7) * d.r;
+        FX.emit(x, Terrain.h(x, z) + 0.5, z, rand(-1, 1), rand(2, 6), rand(-1, 1), rand(0.5, 1.1), 0.8, 0.2, 1, rand(0.35, 0.6), 0.08, 0.9, 0.5, 6, true);
+      }
+      const hx = P[(n - 1) * 2], hz = P[(n - 1) * 2 + 1];
+      for (let c = Hazards.count(d.smoke * heat, dt); c > 0; c--) FX.emit(hx + rand(-3, 3), Terrain.h(hx, hz) + 2, hz + rand(-3, 3), rand(-1, 1), rand(3, 6), rand(-1, 1), rand(3, 5), 4, 12, 0.2, 0.18, 0.17, 0.5, 0.3, -0.5, false);
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms, n = Math.min(h.nPath, Math.floor(h.level)), P = h.path;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead || p.kind === 'air' || p.y > Terrain.h(p.x, p.z) + HZ_GROUND_REACH) continue;
+        const reach = d.r + p.radius * 0.6;
+        for (let k = 0; k < n; k++) {
+          const dx = p.x - P[k * 2], dz = p.z - P[k * 2 + 1];
+          if (dx * dx + dz * dz > reach * reach) continue;
+          Hazards.hurt(p, d.dps * HAZARD_TICK, d.dtype, h, dx, dz);
+          if (!p.dead) WPN.ignite(p, null, -1, d.burn, HZ_BURN_T);
+          break;
+        }
+      }
+      for (let k = Math.max(0, n - 3); k < n; k++) Hazards.smash(P[k * 2], P[k * 2 + 1], d.r, d.structHit, d.dtype, HZ_SMASH_CAP);   // the head swallows trees and props
+    },
+    end(h) { const n = Math.min(h.nPath, Math.floor(h.level)); for (let k = 0; k < n; k += HZ_LAVA_SCAR) addDecal(h.path[k * 2], h.path[k * 2 + 1], h.def.r * 1.1, HZ_LAVA_SCAR_COL, 150); },
+    gap(h, x, z) {
+      const n = Math.min(h.nPath, Math.max(1, Math.floor(h.level))), P = h.path;
+      let best = Infinity;
+      for (let k = 0; k < n; k++) best = Math.min(best, Math.hypot(x - P[k * 2], z - P[k * 2 + 1]));
+      return best - h.def.r;
+    },
+    draw(h, pass) {
+      if (pass !== 0) return;
+      const d = h.def, n = Math.min(h.nPath, Math.floor(h.level)), P = h.path, st = R.stack, heat = h.state === HZ_END ? Hazards.fade(h) : 1;
+      const cr = lerp(HZ_LAVA_COLD[0], HZ_LAVA_HOT[0], heat), cg = lerp(HZ_LAVA_COLD[1], HZ_LAVA_HOT[1], heat), cb = lerp(HZ_LAVA_COLD[2], HZ_LAVA_HOT[2], heat);
+      for (let k = 0; k < n; k++) {
+        const x = P[k * 2], z = P[k * 2 + 1], y = Terrain.h(x, z);
+        if (!R.visible(x, y, z, d.r * 1.3)) continue;
+        st.push().t(x, y + 0.2, z).ry(k * 1.7).s(d.r * 2.3, 0.7, d.r * 2.1);
+        R.draw('cyl', cr, cg, cb, 1, 1.8 * heat, 0); st.pop();
+      }
+    },
+  },
+  /* a toxic cloud leaks from a chemical plant (or a factory, a fuel tank, a depot) and spreads downwind: it chokes
+     soldiers (sealed vehicles and mechs take a fifth) and cuts sight */
+  gas: {
+    site(s, a) {
+      s.src = Hazards.gasSource(a ? a.x : s.x, a ? a.z : s.z, a ? HZ_GAS_REACH : HZ_GAS_AT);
+      if (s.src) { s.x = s.src.x; s.z = s.src.z; }
+      return true;
+    },
+    blast(x, z, r) { return !!Hazards.gasSource(x, z, r + HZ_GAS_BLAST); },
+    begin() {},
+    update(h, dt) {
+      const d = h.def, f = h.state === HZ_WARN ? 0.3 : Hazards.fade(h);
+      if (!Net.guest && h.state === HZ_ACTIVE) {
+        h.r = Math.min(d.rMax, h.r + d.grow * dt);
+        h.x += Weather.windX * d.drift * dt; h.z += Weather.windZ * d.drift * dt;
+      }
+      if (f <= 0) return;
+      for (let n = Hazards.count(d.puffs * f, dt); n > 0; n--) {
+        const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+        FX.emit(x, Terrain.h(x, z) + rand(0.5, 6), z, rand(-0.6, 0.6), rand(0.2, 1), rand(-0.6, 0.6), rand(2.5, 4), 6, 14, HZ_GAS_COL[0], HZ_GAS_COL[1], HZ_GAS_COL[2], 0.4, 0.3, -0.1, false);
+      }
+    },
+    tick(h) {
+      const d = h.def, pl = W.platforms, r2 = h.r * h.r;
+      for (let i = 0; i < pl.length; i++) {
+        const p = pl[i];
+        if (p.dead) continue;
+        const dx = p.x - h.x, dz = p.z - h.z;
+        if (dx * dx + dz * dz > r2 || p.y > Terrain.h(p.x, p.z) + HZ_GAS_TOP) continue;
+        Hazards.hurt(p, d.dps * HAZARD_TICK * (p.def.style === 'infantry' ? 1 : d.sealed), d.dtype, h, dx, dz);
+      }
+    },
+    draw(h, pass) {
+      const f = h.state === HZ_WARN ? 0.3 : Hazards.fade(h);
+      if (pass !== 1 || f <= 0) return;
+      const gy = Terrain.h(h.x, h.z);
+      for (let k = 0; k < 7; k++) {
+        const a = k / 6 * TAU + h.t * 0.05, o = k === 0 ? 0 : h.r * 0.55, x = h.x + Math.sin(a) * o, z = h.z + Math.cos(a) * o;
+        SW.shape('sphere', x, gy + h.r * 0.12, z, h.r * 1.1, h.r * 0.4, h.r * 1.1, HZ_GAS_COL, 0.2 * f, 0.15);
+      }
+    },
+  },
+};
+Weather.onLightning = (sec) => Hazards.onLightning(sec);
+
+/* =====================================================================
    AI: perception -> decision (every ~0.3 s) -> execution (every tick).
    The AI only reads world state; it never reads player input.
    ===================================================================== */
@@ -14320,7 +15405,7 @@ class AIController {
   /* ---------- perception ---------- */
   /* How far this unit spots targets right now: base sight, difficulty, weather, alert and sensor damage. */
   sightRange() {
-    return this.sight * this.d.sight * Weather.sightK * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
+    return this.sight * this.d.sight * Weather.sightK * Hazards.sightAt(this.p.x, this.p.z) * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
   }
   perceive() {
     const p = this.p;
@@ -15307,7 +16392,7 @@ const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
 
 /* ---------- skirmish ---------- */
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
-const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', scarce: false, seed: 12345, random: true };
+const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', hazards: HAZARD_DEFAULT, scarce: false, seed: 12345, random: true };
 /* the skirmish setup from a saved one (Save.data.skirmish, kept as saved): defaults for missing keys, and the fog and
    night checkboxes of setups saved before weather and time of day became the Weather and Time selects */
 function skirmishSetup(saved) {
@@ -15318,6 +16403,7 @@ function skirmishSetup(saved) {
   s.random = s.random !== false;
   if (!isWeather(raw.weather)) s.weather = raw.fog === true ? 'fog' : SKIRMISH_DEFAULT.weather;
   if (!isTimeOfDay(raw.time)) s.time = raw.night === true ? 'night' : SKIRMISH_DEFAULT.time;
+  if (HAZARD_LEVELS.indexOf(s.hazards) < 0) s.hazards = SKIRMISH_DEFAULT.hazards;   // setups saved before hazards
   delete s.fog; delete s.night;
   return s;
 }
@@ -15817,6 +16903,7 @@ const Game = {
     populateWorld({ seed, destruction: destr[0], start: st, corridors: def.corridors, scenery: () => Scenery.build(lay, seed, def.map, destr[0]), sceneryKeep: Scenery.keepOutFor(lay), keepOut: def.sites.filter((s) => s.tag === 'obj').map((s) => ({ x: s.x, z: s.z, r: s.r * 0.45 })) });
     Civ.populate(lay, seed);   // guests too: every game runs its own civilians
     Fauna.populate(seed);      // and its own animals (D6)
+    Hazards.begin(cfg, def, seed, guest);   // the battlefield's hazards; the host keeps their schedule
     W.coopMult = cfg.coop ? coopUnitScale(cfg.nPlayers || 1) : 1;
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
@@ -16594,6 +17681,16 @@ const HUD = {
       else plot(e.x, e.z, e.kind === 'air' ? 'hostile' : 'hostile', C.bad, e.kind === 'air');
     }
     for (const k of W.pickups) plot(k.x, k.z, 'neutral', C.warn);
+    if (Hazards.n) {   // hazard zones: rings clipped to the radar
+      g.save(); g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.clip();
+      g.strokeStyle = C.warn; g.lineWidth = 1.5 * u;
+      for (const h of Hazards.list) {
+        if (!h.on || h.state === HZ_END) continue;
+        const v = toR(h.x, h.z);
+        g.beginPath(); g.arc(cx + v.x * sc, cy - v.y * sc, Math.max(3 * u, h.r * sc), 0, TAU); g.stroke();
+      }
+      g.restore();
+    }
     const m = W.mission;
     if (m) for (const o of m.objectives) if (o.status === 'active') for (const mk of o.markers()) plot(mk.x, mk.z, 'objective', C.obj, true);
     // self
@@ -16630,6 +17727,7 @@ const HUD = {
     if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve === 0 && !W.infiniteAmmo) warns.push('NO AMMO: ' + pw.def.name.toUpperCase());
     else if (pw && pw.def.kind !== 'beam' && pw.clip + pw.reserve < pw.def.clip * 0.4 && !W.infiniteAmmo) warns.push('LOW AMMO: ' + pw.def.name.toUpperCase());
     if (p.energyLock) warns.push('ENERGY DEPLETED');
+    if (Hazards.hud) warns.push(Hazards.hud);
     if (Input.lockFailed && !Input.locked && !TouchControls.enabled) warns.push('CURSOR MODE: MOVE MOUSE TOWARD EDGES TO TURN');
     this.drawPadPrompt(p, u);
     const blink = Math.floor(W.time * 3) % 2 === 0;
@@ -17063,6 +18161,7 @@ const UI = {
       sel('reinforce', 'Reinforcement frequency', [['low', 'Low'], ['normal', 'Normal'], ['high', 'High']]) +
       sel('weather', 'Weather', WEATHER_IDS.map((k) => [k, WEATHER[k].name]).concat([[WEATHER_CHANGING, 'Changing']])) +
       sel('time', 'Time of day', Object.keys(TIME_PRESETS).map((k) => [k, TIME_PRESETS[k].name])) +
+      sel('hazards', 'Hazards', [['off', 'Off'], ['low', 'Low'], ['normal', 'Normal']]) +
       '<h3>Modifiers</h3>' + chk('random', 'Random battle (off: replay battle ' + s.seed + ')') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
       '</div></div>' + this.platSummary() +
       '<div class="row"><button class="btn primary" data-act="deploySkirmish" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
@@ -17269,7 +18368,9 @@ const BENCH_SCENES = [
   { id: 'sk-water', map: 'testwater', platformId: 'bulwark', testMap: TEST_WATER_MAP },   // registered only while it runs
   { id: 'sk-peaks', map: 'testpeaks', platformId: 'bulwark', testMap: TEST_PEAKS_MAP },   // mountains and a dense forest
   { id: 'sk-jungle', map: 'jungle', platformId: 'bulwark' },   // the heaviest new battlefield: the densest forest, rivers and a sea
+  { id: 'hz-jungle', map: 'jungle', platformId: 'bulwark', hazard: 'wildfire' },   // the same with a wildfire burning near the player
 ];
+const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
 const BENCH_FRAMES = 150;   // frames timed per scene
 const BENCH_UNTIMED = 10;   // frames drawn before timing starts
@@ -17444,8 +18545,9 @@ const SelfTest = {
   /* one timed run of a bench scene: { avg, p95, max } in ms */
   benchScene(sc, o) {
     const gl = R.gl, px = new Uint8Array(4), pid = sc.platformId;
-    const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid, weather: o.weather || 'clear', time: o.time || 'day' });
+    const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid, weather: o.weather || 'clear', time: o.time || 'day', hazards: sc.hazard ? 'normal' : 'off' });
     Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish });
+    if (sc.hazard) Hazards.force(sc.hazard, W.player.x + BENCH_HAZARD_AT, W.player.z + BENCH_HAZARD_AT, { warn: 0, find: true });
     UI.needResize = true; UI.resizeIfNeeded();
     for (let i = 0; i < o.warm; i++) Game.tick(STEP);
     if (Clock.cycle && Number.isFinite(o.at)) { Clock.start = ((o.at - Weather.clock() * 24 / TIME_CYCLE_SECONDS) % 24 + 24) % 24; Weather.update(0); }   // the timed frames start at hour `at`
@@ -17579,9 +18681,9 @@ const SelfTest = {
   },
   check(name, cond, detail) { this.results.push({ name, ok: !!cond, detail: cond ? '' : (detail || '') }); },
   near(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-6); },
-  run() {
+  run(only) {   // only: run just the blocks whose name holds this text (while working on one area)
     this.results = [];
-    const t = (name, fn) => { try { fn(); } catch (e) { this.check(name + ' (threw)', false, e.message); } };
+    const t = (name, fn) => { if (only && name.indexOf(only) < 0) return; try { fn(); } catch (e) { this.check(name + ' (threw)', false, e.message); } };
     t('math', () => {
       this.check('wrapAngle', this.near(wrapAngle(3 * PI), PI) || this.near(wrapAngle(3 * PI), -PI));
       this.check('angleDiff shortest path', this.near(angleDiff(0.1, TAU - 0.1), -0.2, 1e-6));
@@ -18892,7 +19994,8 @@ const SelfTest = {
       this.check('old save keeps its platform and loadouts', s.platformId === 'kestrel' && s.loadouts.bulwark && s.loadouts.bulwark.primaryA === 'acannon' && s.loadouts.kestrel && s.loadouts.kestrel.secondary === 'aam');
       this.check('old save keeps its records', s.best.m1 && s.best.m1.score === 1234 && s.skirmishBest['ashfall-small'] && s.skirmishBest['ashfall-small'].won === true && s.career.kills === 12);
       this.check('old save keeps its last battle', s.skirmish && s.skirmish.map === 'frost' && s.skirmish.seed === 777);
-      this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => (MAPS[sc.map] || sc.testMap) && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable));
+      this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => (MAPS[sc.map] || sc.testMap) && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable && (!sc.hazard || HAZARDS[sc.hazard])));
+      this.check('an old saved skirmish setup gets hazards at low', skirmishSetup(s.skirmish).hazards === 'low' && skirmishSetup(s.skirmish).map === 'frost');
     });
     t('map framework', () => {
       const core = ['name', 'desc', 'seed', 'hill', 'ground', 'dark', 'high', 'zenith', 'horizon', 'fog', 'sun', 'sunCol', 'skyAmb', 'gndAmb', 'tree'];
@@ -19328,9 +20431,10 @@ const SelfTest = {
         // storm flashes come from the seed and the clock (the same on host and guests), and reach the lightning hook
         let hooked = 0;
         const flashes = (id) => { Weather.begin(md, { weather: id, time: 'day', seed: 9 }); for (W.time = 0; W.time < 120; W.time += 0.25) Weather.update(0.25); return Weather.flashes; };
+        const keepHook = Weather.onLightning;
         Weather.onLightning = () => { hooked++; };
         const f1 = flashes('storm'), f2 = flashes('storm');
-        Weather.onLightning = null;
+        Weather.onLightning = keepHook;
         this.check('a storm flashes the sky the same way twice, and calls the lightning hook', f1 > 0 && f1 === f2 && hooked === f1 * 2 && flashes('clear') === 0, f1 + ' flashes');
         this.check('wind blows in a storm and not in clear weather', (Weather.begin(md, { weather: 'storm', time: 'day', seed: 2 }), Math.hypot(Weather.windX, Weather.windZ) > 5) && (Weather.begin(md, { weather: 'clear', time: 'day', seed: 2 }), Weather.windX === 0 && Weather.windZ === 0));
         // the clock: the sun is higher at noon than at dusk and dawn, the cycle wraps from 24 to 0, and night lights windows
@@ -19560,6 +20664,7 @@ const SelfTest = {
           this.check('mission ' + m.id + ' keeps its trees, and no bush or cover grows on its sites', this.treeHash() === TREE_GOLDEN[m.id] && W.flora.trees === 0 && onSite === 0, 'trees ' + this.treeHash() + ', ' + onSite + ' on sites');
           const onSiteAnimals = W.fauna.groups.reduce((n, g) => n + g.members.filter((a) => !Flora.clearOfSites(a.x, a.z, 0)).length, 0);
           this.check('mission ' + m.id + ' has animals, none on its sites', W.fauna.count > 0 && onSiteAnimals === 0, W.fauna.count + ' animals, ' + onSiteAnimals + ' on sites');
+          this.check('mission ' + m.id + ' starts with no hazard running or scheduled', Hazards.level === 'off' && Hazards.n === 0 && Hazards.sched.n === 0);
           const full = this.fullDetailFaults();
           this.check('mission ' + m.id + ' draws every plant within floraNear in full on every quality', full.faults === 0, full.faults + ' stand-ins, last ' + full.last + ', most ' + full.most + ' vertices');
         }
@@ -19607,7 +20712,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 4 (weather, time of day and the world hash in start)', NET_VERSION === 4);
+      this.check('the net version is 5 (hazards)', NET_VERSION === 5);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
@@ -20085,6 +21190,168 @@ const SelfTest = {
         this.check('a destructibles reset clears chunks and rubble', Falls.n === 0 && Rubble.n === 0 && !b.topple);
       } finally { Net.guest = keepGuest; Game.quitToMenu(); }
     });
+    t('hazards', () => {
+      const keepGuest = Net.guest;
+      // every hazard is defined, behaves, has a known trigger and is listed somewhere
+      const listed = new Set();
+      for (const id of Object.keys(MAPS)) for (const hz of mapDef(id).hazards) listed.add(hz);
+      this.check('every hazard id has a row, a behaviour and known triggers, and a battlefield lists it', HAZARD_IDS.every((id) => HAZARDS[id] && HZ_KIND[id] && HAZARDS[id].dur > 0 && HAZARDS[id].r > 0 && HAZARDS[id].triggers.length > 0 && HAZARDS[id].triggers.every((tr) => ['schedule', 'weather', 'explosion'].indexOf(tr) >= 0) && listed.has(id)) && Object.keys(HAZARDS).length === HAZARD_IDS.length);
+      this.check('the old battlefields list a modest set of hazards', ['ashfall', 'verdant', 'frost'].every((id) => mapDef(id).hazards.length >= 1 && mapDef(id).hazards.length <= 2));
+      // skirmish setting: saved additively, 'low' for setups saved before it
+      this.check('skirmish hazards default to low, keep a saved level and drop an unknown one', skirmishSetup({}).hazards === 'low' && skirmishSetup({ hazards: 'off' }).hazards === 'off' && skirmishSetup({ hazards: 'normal' }).hazards === 'normal' && skirmishSetup({ hazards: 'wild' }).hazards === 'low' && skirmishSetup({ map: 'verdant', fog: true }).hazards === 'low');
+      this.check('skirmish brings hazards at its own level; missions m1-m8 and training have none', Hazards.levelFor({ mode: 'skirmish', skirmish: { hazards: 'normal' } }, null) === 'normal' && Hazards.levelFor({ mode: 'skirmish', skirmish: {} }, null) === 'low' && MISSIONS.every((m) => !m.hazards && Hazards.levelFor({ mode: 'mission', missionId: m.id }, m) === 'off') && Hazards.levelFor({ mode: 'training' }, MISSIONS[0]) === 'off' && Hazards.levelFor({ mode: 'mission' }, { map: 'jungle', hazards: true }) === 'normal');
+      // the schedule comes from the seed: the same twice on the host, another for another seed
+      const ids = mapDef('volcano').hazards;
+      this.check('a hazard schedule from a seed is the same twice and differs for another seed', Hazards.scheduleKey(77, ids, 'normal') === Hazards.scheduleKey(77, ids, 'normal') && Hazards.scheduleKey(77, ids, 'normal') !== Hazards.scheduleKey(78, ids, 'normal') && Hazards.scheduleKey(77, ids, 'normal').length > 0);
+      const s1 = newHazardSchedule(), s2 = newHazardSchedule();
+      Hazards.buildSchedule(77, ids, 'low', s1); Hazards.buildSchedule(77, ids, 'normal', s2);
+      this.check('low brings hazards later and less often than normal', s1.n === s2.n && s1.t[0] > s2.t[0] && s1.t[s1.n - 1] > s2.t[s2.n - 1]);
+      // each hazard, forced by the test hook: it hurts a dummy inside its zone and not one outside, and ends in time
+      newWorld({ map: 'alpine', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+      W.mission = null;
+      const tankId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'ground' && PLATFORMS[id].ground.type !== 'hover');
+      const airId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'air');
+      const total = (p) => p.hp + p.armor + (p.shield || 0);
+      const dummy = (id, x, z, air) => {
+        const p = new Platform(PLATFORMS[id], { team: 1, x, z, yaw: 0 });
+        p.hp = p.maxHp = 1e5;   // no dummy dies (its wreck's blast would set off more)
+        p.y = Terrain.h(x, z) + (air ? 100 : 0);
+        W.platforms.push(p);
+        return p;
+      };
+      // the steepest spot on a grid, snowy or bare
+      const steepest = (snow) => {
+        let best = 0, bx = 0, bz = 0;
+        for (let x = -800; x <= 800; x += 16) for (let z = -800; z <= 800; z += 16) {
+          if (Water.at(x, z) || Hazards.snowy(x, z) !== snow) continue;
+          const sl = Terrain.slope(x, z);
+          if (sl > best) { best = sl; bx = x; bz = z; }
+        }
+        return { x: bx, z: bz, slope: best };
+      };
+      const snowy = steepest(true), bare = steepest(false);
+      this.check('the alpine test field has a steep snowy and a steep bare slope', snowy.slope > HAZARDS.avalanche.slope && bare.slope > HAZARDS.rockfall.slope, snowy.slope.toFixed(2) + ' ' + bare.slope.toFixed(2));
+      const lake = mapDef('alpine').water.find((w) => w.type === 'lake');
+      const STARTS = { avalanche: snowy, rockfall: bare, lava: bare };
+      const n0 = { x: 0, y: 0, z: 0 };
+      const HZ_DT = 0.1, WARN = 0.2;
+      try {
+        Hazards.arm('normal', HAZARD_IDS, 5, false);
+        Hazards.sched.n = 0;   // only forced hazards here
+        for (const type of HAZARD_IDS) {
+          W.platforms.length = 0;
+          const d = HAZARDS[type], st = STARTS[type] || { x: 0, z: 0 };
+          const h = type === 'flood' ? Hazards.force(type, lake.x, lake.z, { warn: WARN, find: true }) : Hazards.force(type, st.x, st.z, { warn: WARN });
+          if (!h) { this.check('hazard ' + type + ' starts from the test hook', false); continue; }
+          const warned = W.msgs.length > 0 && W.msgs[W.msgs.length - 1].text.indexOf(d.alert) === 0 && h.state === HZ_WARN;
+          // the outside dummy stands behind where it goes (upstream of a flow, uphill of a slide)
+          let dx = h.vx, dz = h.vz;
+          if (type === 'lava') { dx = h.path[(h.nPath - 1) * 2] - h.path[0]; dz = h.path[(h.nPath - 1) * 2 + 1] - h.path[1]; }
+          if (type === 'rockfall') { Terrain.normal(h.x, h.z, n0); dx = n0.x; dz = n0.z; }
+          const l = Math.hypot(dx, dz) || 1;
+          if (Math.hypot(dx, dz) < 1e-6) { dx = 1; dz = 0; } else { dx /= l; dz /= l; }
+          const ox = clamp(h.x - dx * (h.r + 250), -900, 900), oz = clamp(h.z - dz * (h.r + 250), -900, 900);
+          const air = type === 'sandstorm';
+          let ix = h.x, iz = h.z;
+          if (type === 'flood') {   // low dry land inside the flood
+            let best = Infinity;
+            for (let k = 0; k < 400; k++) {
+              const a = k * 2.399, rr = h.r * 0.9 * Math.sqrt(k / 400), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr, gh = Terrain.h(x, z) - h.y;
+              if (!Water.at(x, z) && gh > 0.2 && gh < best) { best = gh; ix = x; iz = z; }
+            }
+          }
+          if (type === 'lava') { ix = h.path[0]; iz = h.path[1]; }
+          const unitId = air ? airId : type === 'flood' ? tankId : 'bulwark';
+          const inside = dummy(unitId, ix, iz, air), outside = dummy(unitId, ox, oz, air);
+          const in0 = total(inside), out0 = total(outside);
+          let steps = 0;
+          while (h.on && steps < 2000) {
+            if (type === 'tornado' || type === 'sandstorm' || type === 'avalanche' || type === 'wildfire' || type === 'gas') { inside.x = h.x; inside.z = h.z; }
+            if (type === 'rockfall') for (let k = 0; k < h.nPath; k++) if (h.rocks[k * HZ_ROCK_F + 7]) { inside.x = h.rocks[k * HZ_ROCK_F]; inside.z = h.rocks[k * HZ_ROCK_F + 1]; break; }
+            inside.y = Terrain.h(inside.x, inside.z) + (air ? 100 : 0);
+            Hazards.update(HZ_DT);
+            if (type === 'flood') { inside.updateWater(HZ_DT); outside.updateWater(HZ_DT); }
+            steps++;
+          }
+          this.check('hazard ' + type + ' is announced before it strikes', warned);
+          this.check('hazard ' + type + ' hurts a dummy inside its zone and not one outside', total(inside) < in0 && total(outside) === out0,
+            Math.round(in0 - total(inside)) + ' inside, ' + Math.round(out0 - total(outside)) + ' outside, ' + Math.round(Math.hypot(ox - ix, oz - iz)) + ' m apart');
+          this.check('hazard ' + type + ' ends within its time', !h.on && steps * HZ_DT <= WARN + d.dur + HAZARD_FADE + 0.5, (steps * HZ_DT).toFixed(1) + ' s');
+        }
+        this.check('a flood leaves the water as it was', Water.fr2 === 0 && Water.level(lake.x, lake.z) === Water.baseLevel(lake.x, lake.z));
+        // an earthquake brings down a cracked building and leaves a sound one far away standing
+        W.platforms.length = 0;
+        const shop = Bld.make('shop', 0, 140, makeRng(4), 'quake'), far = Bld.make('shop', 700, 700, makeRng(4), 'far');
+        const walls = shop.pieces.filter((s) => s.kind === 'wall');
+        for (let k = 0; k < Math.ceil(shop.total * 0.15) && k < walls.length; k++) damageStruct(walls[k], 1e5, 'explosive', null, 1);
+        const cracked = shop.alive;
+        const q = Hazards.force('earthquake', 0, 140, { warn: 0 });
+        for (let i = 0; i < 60 * 20 && (q.on || Falls.n > 0); i++) updateWorldEffects(STEP);
+        this.check('an earthquake brings down a cracked building through the collapse rules', shop.alive < cracked * 0.6 && far.alive === far.total, shop.alive + ' of ' + cracked + ' standing, far ' + far.alive + '/' + far.total);
+        // the off level disables every hazard and every trigger
+        Hazards.arm('off', HAZARD_IDS, 5, false);
+        const lightning0 = Weather.onLightning;
+        Weather.onLightning(3); Hazards.onBlast(0, Terrain.h(0, 0), 0, 20);
+        this.check('hazards off: no schedule, the hook, blasts and lightning start none', Hazards.sched.n === 0 && HAZARD_IDS.every((id) => Hazards.force(id, 0, 0, { warn: 0 }) === null) && Hazards.n === 0 && lightning0 !== null);
+        // explosions and storm lightning set hazards off on a battlefield that lists them
+        Hazards.arm('normal', ['gas', 'lightning'], 5, false);
+        Hazards.sched.n = 0;
+        addStruct('factory', 300, 300, {});
+        let blasts = 0;
+        for (let k = 0; k < 40 && Hazards.n === 0; k++) { Hazards.blastT = -Infinity; Hazards.onBlast(300 + k, Terrain.h(300, 300), 300 + k * 0.5, 9); blasts++; }
+        this.check('a big blast at a chemical plant may set off a gas leak there', Hazards.n === 1 && Hazards.list.some((hh) => hh.on && hh.type === 'gas' && hh.src && hh.src.type === 'factory'), blasts + ' blasts');
+        Hazards.reset(); Hazards.arm('normal', ['lightning'], 5, false); Hazards.sched.n = 0;
+        W.beams.length = 0;
+        const beams0 = W.beams.length;
+        for (let s = 0; s < 40; s++) Weather.onLightning(s);
+        this.check('storm flashes strike the ground on a battlefield with lightning', W.beams.length > beams0 && Hazards.n === 0);
+      } finally { Net.guest = keepGuest; Hazards.reset(); Game.quitToMenu(); }
+    });
+    t('hazards in co-op', () => {
+      newWorld({ map: 'alpine', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
+      W.mission = null;
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers }, sent = [];
+      const total = (p) => p.hp + p.armor + (p.shield || 0);
+      try {
+        Net.host = true; Net.guest = false; Net.inSession = true;
+        Net.peers = [{ open: true, hello: true, tx: (s) => sent.push(JSON.parse(s)) }];
+        Hazards.arm('normal', HAZARD_IDS, 5, false);
+        Hazards.sched.n = 0;
+        const h = Hazards.force('tornado', 0, 0, { warn: 0.2 });
+        for (let i = 0; i < 20; i++) Hazards.update(0.1);
+        const hz = sent.filter((m) => m.t === 'hz'), lastX = hz[hz.length - 1].x;
+        this.check('the host sends a hazard as hz with id, type, state, position, radius and level', hz.length >= 3 && hz.every((m) => m.id === h.id && m.type === 'tornado' && [HZ_WARN, HZ_ACTIVE].indexOf(m.state) >= 0 && Number.isFinite(m.x) && Number.isFinite(m.z) && m.r > 0 && Number.isFinite(m.level)) && hz[0].state === HZ_WARN && hz[hz.length - 1].state === HZ_ACTIVE);
+        // a guest: it draws what the host sends and decides nothing
+        Net.host = false; Net.guest = true;
+        Hazards.arm('normal', HAZARD_IDS, 5, true);
+        this.check('a guest keeps no schedule of its own', Hazards.sched.n === 0);
+        for (const m of hz) Hazards.apply(m);
+        const g = Hazards.byId(h.id);
+        this.check('the guest applies the host\'s hazard', !!g && g.type === 'tornado' && g.state === HZ_ACTIVE && g.tx === lastX);
+        const p = new Platform(PLATFORMS.bulwark, { team: 1, x: g.x, z: g.z, yaw: 0 });
+        W.platforms.push(p);
+        const p0 = total(p);
+        for (let i = 0; i < 30; i++) { p.x = g.x; p.z = g.z; Hazards.update(0.1); }
+        this.check('a guest\'s hazards deal no damage', total(p) === p0);
+        const n1 = Hazards.n;
+        Hazards.force('gas', 50, 50, { warn: 0 }); Hazards.onBlast(50, Terrain.h(50, 50), 50, 20); Weather.onLightning(5); Hazards.runSchedule();
+        this.check('a guest ignores its own triggers (hook, blasts, lightning, schedule)', Hazards.n === n1);
+        Hazards.apply({ t: 'hz', id: h.id, type: 'tornado', state: 0, x: 0, z: 0, r: 0, level: 0 });
+        this.check('state 0 removes the hazard on the guest', !Hazards.byId(h.id) && Hazards.n === n1 - 1);
+        W.beams.length = 0;
+        const beams0 = W.beams.length;
+        Hazards.apply({ t: 'hz', id: 9, type: 'lightning', state: HZ_STRIKE, x: 10, z: 10, r: 9, level: Terrain.h(10, 10) });
+        this.check('a guest draws a lightning strike the host sends', W.beams.length > beams0 && Hazards.n === n1 - 1);
+        const lake = mapDef('alpine').water.find((w) => w.type === 'lake'), base = Water.baseLevel(lake.x, lake.z);
+        Hazards.apply({ t: 'hz', id: 12, type: 'flood', state: HZ_ACTIVE, x: lake.x, z: lake.z, r: 170, level: base + 2 });
+        for (let i = 0; i < 40; i++) Hazards.update(0.1);
+        this.check('a guest raises the water as the host\'s flood says', Math.abs(Water.level(lake.x, lake.z) - (base + 2)) < 0.1, Water.level(lake.x, lake.z).toFixed(2) + ' vs ' + (base + 2).toFixed(2));
+        const n2 = Hazards.n;
+        Hazards.apply({ t: 'hz', id: 'x', type: 'nope', state: 2, x: 'a', z: null, r: -5, level: 1e9 });
+        Hazards.apply({ t: 'hz', id: 0, type: 'gas', state: 2, x: 'a', z: null, r: -5, level: 1e9 });
+        this.check('a guest drops a malformed hazard message', Hazards.n === n2);
+      } finally { Object.assign(Net, saved); Hazards.reset(); Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -20112,7 +21379,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 4;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'
+const NET_VERSION = 5;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz')
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -20270,6 +21537,7 @@ const Net = {
       case 'lobby': this.lobbyView = m; this.changed(); break;
       case 'start': this.guestStart(m); break;
       case 's': this.applySnapshot(m); break;
+      case 'hz': if (W) Hazards.apply(m); break;
       case 'sp': this.applySpawn(m); break;
       case 'ob': this.applyObjectives(m); break;
       case 'st': this.applyStructs(m); break;
@@ -20943,7 +22211,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: () => SelfTest.run(), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
